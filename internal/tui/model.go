@@ -91,7 +91,7 @@ type (
 // New builds the TUI around a connected local client. Saved remote
 // machines connect in the background once the program starts.
 func New(local *client.Client, cfg config.Config) Model {
-	setAccent(cfg.UI.Accent)
+	applyTheme(cfg.UI.Theme, cfg.UI.Accent)
 	path := uiStatePath()
 	st := loadUIState(path)
 	m := Model{
@@ -408,6 +408,10 @@ func (m Model) notifyAttention(mach *machine, old, info proto.PaneInfo) tea.Cmd 
 		(old.Agent != nil && old.Agent.State == info.Agent.State) {
 		return nil
 	}
+	if (info.Agent.State == proto.AgentBlocked && !m.cfg.Notify.Waiting) ||
+		(info.Agent.State == proto.AgentDone && !m.cfg.Notify.Done) {
+		return nil
+	}
 	body := info.DisplayName() + " finished"
 	if info.Agent.State == proto.AgentBlocked {
 		body = info.DisplayName() + " is waiting for you"
@@ -715,6 +719,7 @@ func (m Model) openHere(agent bool) tea.Cmd {
 	}
 	cols, rows := m.paneArea()
 	c := mach.c
+	shellTheme := m.cfg.Shell.OMZTheme
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -731,6 +736,8 @@ func (m Model) openHere(agent bool) tea.Cmd {
 		params := proto.PaneCreateParams{Cwd: dir, Cols: cols, Rows: rows}
 		if agent {
 			params.Agent = "claude"
+		} else {
+			params.ShellTheme = shellTheme
 		}
 		var info proto.PaneInfo
 		if err := c.Call(ctx, proto.MethodPaneCreate, params, &info); err != nil {

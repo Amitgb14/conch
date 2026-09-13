@@ -59,6 +59,25 @@ Selecting a branch shows its **changes**: its pull request (checks, review),
 uncommitted files (or files changed since the base when it isn't checked
 out), commits ahead, and diffs.
 
+## Settings
+
+Press `,` or click `⚙` at the right end of the status bar.
+
+- **Theme** — colour schemes: Conch, Dracula, Catppuccin Mocha, Nord,
+  Gruvbox Dark, Tokyo Night (applied instantly). Below them, an
+  **Oh My Zsh prompt theme** for new zsh terminals, picked from the themes
+  installed on this computer. conch starts zsh with a wrapper that loads your
+  own `.zshenv`/`.zprofile`/`.zshrc`/`.zlogin` first and then switches the
+  theme for that terminal only (`omz theme use`), so your dotfiles are never
+  edited; "Keep my .zshrc theme" turns it off.
+- **Notifications** — master switch; desktop notification, system sound,
+  terminal beep; notify when an agent is waiting and/or when one finishes;
+  send a test.
+- **Agents** — every machine with each supported agent, installed (with
+  version) or not; `enter` on a missing one installs it there.
+
+Changes are saved to `~/.config/conch/config.toml`.
+
 ## Remote machines
 
 Each machine runs its own conch server, which owns that machine's panes and
@@ -216,12 +235,20 @@ prefix = "ctrl+b"
 default_command = ""   # empty = $SHELL
 
 [notify]
+enabled = true
 desktop = true   # macOS notification / notify-send
-bell = false
+sound = false    # system sound
+bell = false     # terminal beep
+waiting = true   # when an agent needs an answer
+done = true      # when an agent finishes
 
 [ui]
 mouse = true
-accent = "teal"  # teal, blue, green, orange, pink, red, gray, purple or "#rrggbb"
+theme = "conch"  # conch, dracula, catppuccin, nord, gruvbox, tokyo-night
+accent = ""      # override: teal, blue, green, orange, pink, red, gray, purple or "#rrggbb"
+
+[shell]
+omz_theme = ""   # Oh My Zsh theme for new zsh terminals; "" keeps .zshrc's
 ```
 
 ## Protocol
@@ -241,5 +268,6 @@ Methods: `hello`, `ping`, `server.stop`; `pane.list`, `pane.create`,
 `pane.send_mouse`, `pane.scroll`, `pane.read`, `pane.rename`, `pane.subscribe`,
 `pane.unsubscribe`, `pane.mark_seen`; `agent.report`, `agent.explain`;
 `project.list`, `project.add`, `project.remove`, `project.refresh`,
-`project.changes`, `project.diff`, `project.create`; `fs.list`, `fs.mkdir`; `agent.status`, `agent.install`; `worktree.add`, `worktree.remove`;
+`project.changes`, `project.diff`, `project.create`; `fs.list`, `fs.mkdir`;
+`shell.themes`; `agent.status`, `agent.install`; `worktree.add`, `worktree.remove`;
 `task.create`.

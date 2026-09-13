@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sort"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -12,14 +13,18 @@ import (
 	"github.com/amitghadge/conch/internal/proto"
 )
 
-// notify alerts the user that an agent needs them.
+// notify alerts the user as configured: a desktop notification, a sound
+// and/or the terminal bell. It does nothing when notifications are off.
 func notify(cfg config.NotifyCfg, title, body string) tea.Cmd {
-	if !cfg.Desktop && !cfg.Bell {
+	if !cfg.Enabled || (!cfg.Desktop && !cfg.Sound && !cfg.Bell) {
 		return nil
 	}
 	return func() tea.Msg {
 		if cfg.Bell {
 			_, _ = os.Stdout.WriteString("\a")
+		}
+		if cfg.Sound {
+			playSound()
 		}
 		if cfg.Desktop {
 			var cmd *exec.Cmd
@@ -41,6 +46,37 @@ func notify(cfg config.NotifyCfg, title, body string) tea.Cmd {
 		}
 		return nil
 	}
+}
+
+// playSound plays a short system sound without waiting for it.
+func playSound() {
+	var candidates [][]string
+	switch runtime.GOOS {
+	case "darwin":
+		candidates = [][]string{{"afplay", "/System/Library/Sounds/Glass.aiff"}}
+	default:
+		candidates = [][]string{
+			{"paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga"},
+			{"canberra-gtk-play", "-i", "complete"},
+			{"aplay", "-q", "/usr/share/sounds/alsa/Front_Center.wav"},
+		}
+	}
+	for _, c := range candidates {
+		if _, err := exec.LookPath(c[0]); err != nil {
+			continue
+		}
+		if len(c) > 1 && strings.HasPrefix(c[len(c)-1], "/") {
+			if _, err := os.Stat(c[len(c)-1]); err != nil {
+				continue
+			}
+		}
+		cmd := exec.Command(c[0], c[1:]...)
+		if cmd.Start() == nil {
+			go func() { _ = cmd.Wait() }()
+			return
+		}
+	}
+	_, _ = os.Stdout.WriteString("\a") // no player: fall back to the bell
 }
 
 // scopedPane is a pane together with its machine.

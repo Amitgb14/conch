@@ -244,3 +244,63 @@ func TestBrowseAndCreateProjects(t *testing.T) {
 		}
 	}
 }
+
+func TestOhMyZshThemes(t *testing.T) {
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh not installed")
+	}
+	home, _ := os.MkdirTemp("", "h")
+	defer os.RemoveAll(home)
+	omz := filepath.Join(home, ".oh-my-zsh")
+	os.MkdirAll(filepath.Join(omz, "themes"), 0o755)
+	os.MkdirAll(filepath.Join(omz, "custom", "themes"), 0o755)
+	os.WriteFile(filepath.Join(omz, "oh-my-zsh.sh"), []byte("# stand-in: no omz function\n"), 0o644)
+	os.WriteFile(filepath.Join(omz, "themes", "robbyrussell.zsh-theme"), []byte("PROMPT='ROBBY> '\n"), 0o644)
+	os.WriteFile(filepath.Join(omz, "themes", "fancy.zsh-theme"), []byte("PROMPT='FANCY> '\n"), 0o644)
+	os.WriteFile(filepath.Join(omz, "custom", "themes", "mine.zsh-theme"), []byte("PROMPT='MINE> '\n"), 0o644)
+	os.WriteFile(filepath.Join(home, ".zshrc"), []byte(`export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="robbyrussell"
+ZSH_CUSTOM="$ZSH/custom"
+source $ZSH/oh-my-zsh.sh
+source $ZSH/themes/$ZSH_THEME.zsh-theme
+export RC_LOADED=yes
+`), 0o644)
+	os.WriteFile(filepath.Join(home, ".zlogin"), []byte("export LOGIN_LOADED=yes\n"), 0o644)
+	t.Setenv("HOME", home)
+	t.Setenv("SHELL", zsh)
+	t.Setenv("ZDOTDIR", "")
+
+	c, _ := startServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var th proto.ShellThemes
+	if err := c.Call(ctx, proto.MethodShellThemes, nil, &th); err != nil {
+		t.Fatal(err)
+	}
+	if !th.OMZ || th.Current != "robbyrussell" || strings.Join(th.Themes, ",") != "fancy,mine,robbyrussell" {
+		t.Fatalf("themes: %+v", th)
+	}
+
+	var info proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{Cwd: home, ShellTheme: "fancy", Cols: 200}, &info); err != nil {
+		t.Fatal(err)
+	}
+	c.Call(ctx, proto.MethodPaneSendText, proto.PaneSendTextParams{ID: info.ID, Text: `echo "rc=$RC_LOADED login=$LOGIN_LOADED zdotdir=$ZDOTDIR"`}, nil)
+	c.Call(ctx, proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: info.ID, Keys: []string{"enter"}}, nil)
+	want := "rc=yes login=yes zdotdir=" + home
+	deadline := time.Now().Add(10 * time.Second)
+	var screen string
+	for time.Now().Before(deadline) {
+		var r proto.PaneReadResult
+		c.Call(ctx, proto.MethodPaneRead, proto.PaneRef{ID: info.ID}, &r)
+		screen = strings.Join(r.Lines, "") // the pane wraps long lines
+		if strings.Contains(screen, want) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(screen, want) || !strings.Contains(screen, "FANCY> ") || strings.Contains(screen, "ROBBY> ") {
+		t.Fatalf("want the user's files loaded, ZDOTDIR restored and the fancy prompt:\n%s", screen)
+	}
+}

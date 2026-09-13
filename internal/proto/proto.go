@@ -28,7 +28,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1",
 }
 
 // Methods.
@@ -66,6 +66,7 @@ const (
 	MethodProjectCreate  = "project.create"
 	MethodFSList         = "fs.list"
 	MethodFSMkdir        = "fs.mkdir"
+	MethodShellThemes    = "shell.themes"
 )
 
 // Events.
@@ -471,6 +472,17 @@ type PaneCreateParams struct {
 	Env       []string `json:"env,omitempty"`
 	Cols      int      `json:"cols,omitempty"`
 	Rows      int      `json:"rows,omitempty"`
+	// ShellTheme is an Oh My Zsh theme for a default-shell pane when that
+	// shell is zsh; the user's dotfiles still load first.
+	ShellTheme string `json:"shell_theme,omitempty"`
+}
+
+// ShellThemes describes the prompt themes available on a machine.
+type ShellThemes struct {
+	Shell   string   `json:"shell"`             // login shell, e.g. zsh
+	OMZ     bool     `json:"omz"`               // Oh My Zsh is installed
+	Current string   `json:"current,omitempty"` // ZSH_THEME set in .zshrc
+	Themes  []string `json:"themes,omitempty"`  // sorted
 }
 
 // PaneRef addresses a pane.

@@ -10,56 +10,6 @@ import (
 	"github.com/amitghadge/conch/internal/proto"
 )
 
-var (
-	colorAccent = accentColors[defaultAccent]
-	colorInput  = lipgloss.Color("#3FB950")
-	colorWarn   = lipgloss.Color("#D29922")
-	colorErr    = lipgloss.Color("#F85149")
-	colorMuted  = lipgloss.Color("#8B949E")
-	colorBorder = lipgloss.Color("#444C56")
-
-	styleMuted  = lipgloss.NewStyle().Foreground(colorMuted)
-	styleBold   = lipgloss.NewStyle().Bold(true)
-	styleSel    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(colorAccent)
-	styleSelDim = lipgloss.NewStyle().Background(lipgloss.Color("#2D333B"))
-	styleOK     = lipgloss.NewStyle().Foreground(colorInput)
-	styleErr    = lipgloss.NewStyle().Foreground(colorErr)
-	styleWarn   = lipgloss.NewStyle().Foreground(colorWarn).Bold(true)
-	styleWork   = lipgloss.NewStyle().Foreground(lipgloss.Color("#58A6FF"))
-	styleAccent = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
-	styleChip   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#000000")).Padding(0, 1)
-)
-
-// accentColors are the named choices for [ui] accent. Each is dark enough
-// for the white text of the selection bar to stay readable.
-var accentColors = map[string]lipgloss.Color{
-	"teal":   "#0F7B8A",
-	"blue":   "#2F6FDB",
-	"green":  "#2E7D4F",
-	"orange": "#C2571A",
-	"pink":   "#C2407D",
-	"red":    "#C0392B",
-	"gray":   "#5A6472",
-	"purple": "#7D56F4",
-}
-
-const defaultAccent = "teal"
-
-// setAccent recolours everything drawn in the accent colour. name is one of
-// accentColors or a #rrggbb hex value; anything else keeps the default.
-func setAccent(name string) {
-	c, ok := accentColors[strings.ToLower(strings.TrimSpace(name))]
-	if !ok && len(name) == 7 && name[0] == '#' {
-		c, ok = lipgloss.Color(name), true
-	}
-	if !ok {
-		c = accentColors[defaultAccent]
-	}
-	colorAccent = c
-	styleSel = styleSel.Background(c)
-	styleAccent = styleAccent.Foreground(c)
-}
-
 const statusHeight = 1
 
 // sidebarInner is the content size inside the sidebar border.
@@ -105,7 +55,7 @@ func (m Model) View() string {
 		if m.focus == focusMain {
 			sideColor, mainColor = colorBorder, colorInput
 		}
-		left := frameLines(" conch ", exactly(m.sidebarLines(sw, sh), sh), sw, sideColor)
+		left := frameLines(styleSel.Render(" ◆ conch "), exactly(m.sidebarLines(sw, sh), sh), sw, sideColor)
 		right := frameLines(m.mainTitle(), main, cols, mainColor)
 		for len(right) < len(left) {
 			right = append(right, "")
@@ -310,8 +260,6 @@ func (m Model) branchParts(r row) (string, lipgloss.Style, string, lipgloss.Styl
 	}
 	return glyph, glyphStyle, r.branch, labelStyle, strings.Join(parts, " ")
 }
-
-var stylePRMerged = lipgloss.NewStyle().Foreground(lipgloss.Color("#A371F7"))
 
 // prBadge is a compact pull request marker: number plus checks.
 func prBadge(pr *proto.PRInfo) string {
@@ -652,71 +600,6 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 }
 
 // ---- status bar ----
-
-// statusRight is the right side of the status bar; clicks on it jump to
-// agents waiting for you.
-func (m Model) statusRight() string {
-	right := styleMuted.Render(fmt.Sprintf("conch %s ", m.machines[0].server.Version))
-	if m.flash != "" {
-		style := styleOK
-		if m.flashIsErr {
-			style = styleErr
-		}
-		right = style.Render(ansi.Truncate(m.flash, max(m.width/2, 10), "…") + " ")
-	}
-	if w := m.machines[0].warning; w != "" && m.flash == "" {
-		right = styleErr.Render(w + " ")
-	}
-	if n := m.inboxCount(); n > 0 {
-		right = styleWarn.Render(fmt.Sprintf("⚑ %d waiting · ! ", n)) + right
-	}
-	return right
-}
-
-func (m Model) statusBar() string {
-	r, _ := m.selectedRow()
-	var chip, hints string
-	switch {
-	case m.focus == focusMain && m.prefixArmed:
-		chip = styleChip.Background(colorWarn).Render("PREFIX")
-		hints = fmt.Sprintf("[ scroll · z zoom · ! next waiting · %s send %s · any other key → tree", m.cfg.Keys.Prefix, m.cfg.Keys.Prefix)
-	case m.focus == focusMain && r.kind == kindPane && m.scrollMode:
-		chip = styleChip.Background(colorWarn).Render("SCROLL")
-		hints = "↑↓ line · pgup/pgdn page · g oldest · any other key → live · drag to copy"
-	case m.focus == focusMain && r.kind == kindPane && m.offset > 0:
-		chip = styleChip.Background(colorWarn).Render("HISTORY")
-		hints = fmt.Sprintf("wheel scrolls · %s [ scroll keys · typing returns to live", m.cfg.Keys.Prefix)
-	case m.focus == focusMain && r.kind == kindPane:
-		chip = styleChip.Background(colorInput).Render("PANE")
-		hints = fmt.Sprintf("typing into %s · drag to copy · wheel scrolls · %s [ scroll · %s then any key → tree", r.paneID, m.cfg.Keys.Prefix, m.cfg.Keys.Prefix)
-	case m.focus == focusMain && m.changes != nil && m.changes.diffFile != "":
-		chip, hints = styleChip.Background(colorInput).Render("DIFF"), "↑↓ scroll · pgup/pgdn page · esc files"
-	case m.focus == focusMain:
-		chip, hints = styleChip.Background(colorInput).Render("CHANGES"), "↑↓ file · enter diff · R reload · esc tree"
-	case m.filtering:
-		chip, hints = styleChip.Background(colorAccent).Render("FILTER"), "type to filter · enter keep · esc clear"
-	default:
-		chip = styleChip.Background(colorAccent).Render("TREE")
-		switch r.kind {
-		case kindPane:
-			hints = "enter open · r rename · x close · c claude · n shell · t task · m menu · ? keys"
-		case kindBranch:
-			hints = "enter changes · o open PR · c claude here · n shell · x remove worktree · y copy · m menu · ? keys"
-		case kindProject:
-			hints = "t new task · c claude · n shell · space fold · x remove · m menu · ? keys"
-		default:
-			hints = "a add project · t task · c claude · n shell · / filter · ! waiting · ? keys"
-		}
-	}
-	right := m.statusRight()
-	room := m.width - ansi.StringWidth(chip) - 1 - ansi.StringWidth(right) - 1
-	left := chip + " " + styleMuted.Render(ansi.Truncate(hints, max(room, 0), "…"))
-	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(right)
-	if gap < 0 {
-		return fit(left+" "+right, m.width)
-	}
-	return left + strings.Repeat(" ", gap) + right
-}
 
 // ---- layout helpers ----
 

@@ -508,6 +508,7 @@ var helpText = []string{
 	"  drag in a pane to copy · double-click copies a word",
 	"  drag the sidebar edge to resize · shift-drag for terminal selection",
 	"",
+	"  ,  settings (or click ⚙): theme, prompt, notifications, agents",
 	"  q  detach (agents keep running)",
 }
 

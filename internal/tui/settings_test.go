@@ -1,0 +1,111 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/amitghadge/conch/internal/config"
+	"github.com/amitghadge/conch/internal/proto"
+)
+
+func TestSettingsTabs(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	defer applyTheme("conch", "")
+	m := &Model{cfg: config.Default(), width: 100, height: 40}
+	m.machines = []*machine{
+		{id: localMachine, label: "local", state: stateOnline, available: map[string]proto.AgentAvailability{"claude": {Name: "claude", Installed: true, Version: "2.1.270"}}},
+		{id: "box", label: "box", state: stateOnline, available: map[string]proto.AgentAvailability{}},
+		{id: "gpu", label: "gpu", state: stateOffline},
+	}
+	s := &settings{shell: &proto.ShellThemes{OMZ: true, Current: "robbyrussell", Themes: []string{"agnoster", "robbyrussell"}}}
+
+	// Theme tab: choosing Nord applies it and marks it.
+	var nord *settingItem
+	for _, it := range s.themeItems(m) {
+		if it.label == "Nord" {
+			nord = &it
+		}
+	}
+	nord.run(m)
+	if m.cfg.UI.Theme != "nord" || colorAccent != themeByName("nord").accent {
+		t.Fatalf("theme not applied: %q %v", m.cfg.UI.Theme, colorAccent)
+	}
+	for _, it := range s.themeItems(m) {
+		if it.label == "agnoster" {
+			it.run(m)
+		}
+	}
+	if m.cfg.Shell.OMZTheme != "agnoster" {
+		t.Fatalf("omz theme: %q", m.cfg.Shell.OMZTheme)
+	}
+
+	// Notifications tab: the master switch toggles.
+	s.setTab(1)
+	s.render(*m) // settles the selection on the first actionable row
+	s.update(m, tea.KeyMsg{Type: tea.KeySpace, Runes: []rune(" ")})
+	if m.cfg.Notify.Enabled {
+		t.Fatal("notifications still enabled")
+	}
+
+	// Agents tab: installed, missing (installable) and offline rows.
+	details := map[string]bool{}
+	installable := 0
+	for _, it := range s.agentItems(m) {
+		details[it.detail] = true
+		if it.detail != "" && it.run != nil && it.label == "  Claude Code" && !m.machines[0].missingAgent("claude") {
+			installable++
+		}
+	}
+	if !details[styleOK.Render("✓ 2.1.270")] || !details[styleWarn.Render("not installed · enter installs")] ||
+		!details[styleMuted.Render("unknown while offline")] {
+		t.Fatalf("agent rows: %v", details)
+	}
+}
+
+func TestStatusBarClicks(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	m := Model{cfg: config.Default(), width: 140, height: 40, expanded: map[string]bool{}, showAll: map[string]bool{}}
+	m.machines = []*machine{{id: localMachine, label: "local", state: stateOnline, agents: map[string]bool{}, sizes: map[string][2]int{}}}
+	m.rebuild()
+
+	line, hits := m.layoutStatus()
+	plain := ansi.Strip(line)
+	if ansi.StringWidth(line) != m.width || !strings.Contains(plain, "⚙ Settings") {
+		t.Fatalf("bar %q (width %d)", plain, ansi.StringWidth(line))
+	}
+	// Every hit covers the text it acts for.
+	find := func(label string) statusHit {
+		i := strings.Index(plain, label)
+		if i < 0 {
+			t.Fatalf("%q not on the bar: %q", label, plain)
+		}
+		col := ansi.StringWidth(plain[:i])
+		for _, h := range hits {
+			if col >= h.x0 && col < h.x1 {
+				return h
+			}
+		}
+		t.Fatalf("%q at column %d is not clickable", label, col)
+		return statusHit{}
+	}
+	settingsHit := find("⚙ Settings")
+	settingsHit.act(&m)
+	if _, ok := m.overlay.(*settings); !ok {
+		t.Fatalf("Settings button opened %T", m.overlay)
+	}
+	m.overlay = nil
+	find("keys").act(&m)
+	if _, ok := m.overlay.(help); !ok {
+		t.Fatalf("keys hint opened %T", m.overlay)
+	}
+
+	// Narrow terminals keep the button, drop hints that don't fit, and stay exactly as wide.
+	m.overlay, m.width = nil, 60
+	line, _ = m.layoutStatus()
+	if ansi.StringWidth(line) != 60 || !strings.Contains(ansi.Strip(line), "⚙") {
+		t.Fatalf("narrow bar %q", ansi.Strip(line))
+	}
+}

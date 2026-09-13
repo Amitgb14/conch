@@ -150,6 +150,10 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.syncView()
 	case "?":
 		m.overlay = newHelp()
+	case ",":
+		s, cmd := newSettings(&m)
+		m.overlay = s
+		return m, cmd
 	}
 	return m, nil
 }

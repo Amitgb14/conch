@@ -5,7 +5,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/amitghadge/conch/internal/proto"
 )
@@ -30,10 +29,10 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Status bar: the waiting counter jumps to the next agent needing you.
+	// Status bar: every hint, the waiting counter and Settings are buttons.
 	if msg.Y == m.height-1 {
-		if press && left && msg.X >= m.width-ansi.StringWidth(m.statusRight()) && m.inboxCount() > 0 {
-			return m, m.jumpToAttention()
+		if press && left {
+			return m, m.clickStatus(msg.X)
 		}
 		return m, nil
 	}

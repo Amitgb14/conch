@@ -65,18 +65,18 @@ func TestUIStateRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSetAccent(t *testing.T) {
-	defer setAccent(defaultAccent)
-	setAccent("Orange")
+func TestApplyTheme(t *testing.T) {
+	defer applyTheme("conch", "")
+	applyTheme("nord", "")
+	if colorAccent != themeByName("nord").accent {
+		t.Fatalf("nord accent: %v", colorAccent)
+	}
+	applyTheme("nord", "orange")
 	if colorAccent != accentColors["orange"] {
-		t.Fatalf("named accent: %v", colorAccent)
+		t.Fatalf("accent override: %v", colorAccent)
 	}
-	setAccent("#123456")
-	if colorAccent != "#123456" {
-		t.Fatalf("hex accent: %v", colorAccent)
-	}
-	setAccent("nonsense")
-	if colorAccent != accentColors[defaultAccent] {
-		t.Fatalf("unknown accent: %v", colorAccent)
+	applyTheme("nonsense", "#123456")
+	if colorAccent != "#123456" || colorBorder != themes[0].border {
+		t.Fatalf("unknown theme with hex accent: %v %v", colorAccent, colorBorder)
 	}
 }

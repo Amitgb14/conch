@@ -239,6 +239,7 @@ var slowMethods = map[string]bool{
 	proto.MethodPaneCreate: true, proto.MethodPaneClose: true,
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true,
+	proto.MethodShellThemes: true,
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -456,6 +457,9 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.createProject(cp)
 
+	case proto.MethodShellThemes:
+		return s.shellThemes(), nil
+
 	case proto.MethodFSList:
 		lp, perr := decode[proto.FSListParams](msg)
 		if perr != nil {
@@ -611,6 +615,7 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 		// No command: this machine's login shell. Clients can't know which
 		// shell a remote machine uses.
 		cp.Command = []string{config.DefaultShell(), "-l"}
+		cp.Env = append(cp.Env, s.shellThemeEnv(cp.ShellTheme)...)
 	}
 	if cp.Cwd == "" {
 		cp.Cwd, _ = os.UserHomeDir()
