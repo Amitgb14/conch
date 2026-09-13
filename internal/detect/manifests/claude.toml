@@ -1,0 +1,30 @@
+# Claude Code. Copy to ~/.config/conch/agents/claude.toml to override.
+agent = "claude"
+process_names = ["claude"]
+screen_lines = 30
+# Esc interrupts fire no hook; if the screen stops showing work for this
+# long, trust the screen over a stale "working" hook.
+hook_working_stale = "8s"
+
+# Rules are tried top to bottom against the last screen_lines rows; the
+# first match wins. "blocked" is kept strict: only real questions to the user.
+
+[[rules]]
+name = "permission_prompt"
+state = "blocked"
+pattern = 'Do you want to (proceed|make this edit|create|allow|run|overwrite|delete|fetch|use)'
+
+[[rules]]
+name = "trust_prompt"
+state = "blocked"
+pattern = 'Do you trust the files in this folder|Is this a project you created or one you trust'
+
+[[rules]]
+name = "numbered_choice"
+state = "blocked"
+pattern = '(?m)^[\s│]*❯\s*1\.\s+Yes'
+
+[[rules]]
+name = "interruptible"
+state = "working"
+pattern = '(?i)esc to interrupt'

@@ -1,0 +1,784 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/amitghadge/conch/internal/proto"
+)
+
+var (
+	colorAccent = accentColors[defaultAccent]
+	colorInput  = lipgloss.Color("#3FB950")
+	colorWarn   = lipgloss.Color("#D29922")
+	colorErr    = lipgloss.Color("#F85149")
+	colorMuted  = lipgloss.Color("#8B949E")
+	colorBorder = lipgloss.Color("#444C56")
+
+	styleMuted  = lipgloss.NewStyle().Foreground(colorMuted)
+	styleBold   = lipgloss.NewStyle().Bold(true)
+	styleSel    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(colorAccent)
+	styleSelDim = lipgloss.NewStyle().Background(lipgloss.Color("#2D333B"))
+	styleOK     = lipgloss.NewStyle().Foreground(colorInput)
+	styleErr    = lipgloss.NewStyle().Foreground(colorErr)
+	styleWarn   = lipgloss.NewStyle().Foreground(colorWarn).Bold(true)
+	styleWork   = lipgloss.NewStyle().Foreground(lipgloss.Color("#58A6FF"))
+	styleAccent = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
+	styleChip   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#000000")).Padding(0, 1)
+)
+
+// accentColors are the named choices for [ui] accent. Each is dark enough
+// for the white text of the selection bar to stay readable.
+var accentColors = map[string]lipgloss.Color{
+	"teal":   "#0F7B8A",
+	"blue":   "#2F6FDB",
+	"green":  "#2E7D4F",
+	"orange": "#C2571A",
+	"pink":   "#C2407D",
+	"red":    "#C0392B",
+	"gray":   "#5A6472",
+	"purple": "#7D56F4",
+}
+
+const defaultAccent = "teal"
+
+// setAccent recolours everything drawn in the accent colour. name is one of
+// accentColors or a #rrggbb hex value; anything else keeps the default.
+func setAccent(name string) {
+	c, ok := accentColors[strings.ToLower(strings.TrimSpace(name))]
+	if !ok && len(name) == 7 && name[0] == '#' {
+		c, ok = lipgloss.Color(name), true
+	}
+	if !ok {
+		c = accentColors[defaultAccent]
+	}
+	colorAccent = c
+	styleSel = styleSel.Background(c)
+	styleAccent = styleAccent.Foreground(c)
+}
+
+const statusHeight = 1
+
+// sidebarInner is the content size inside the sidebar border.
+func (m Model) sidebarInner() (w, h int) {
+	return max(m.sidebarW-2, 1), max(m.height-statusHeight-2, 1)
+}
+
+// mainOrigin is the screen position of the main area's first content cell.
+func (m Model) mainOrigin() (x, y int) {
+	if m.zoom {
+		return 0, 0
+	}
+	return m.sidebarW + 1, 1
+}
+
+// paneArea is the size, in cells, of the main area's content.
+func (m Model) paneArea() (cols, rows int) {
+	if m.zoom {
+		return max(m.width, 1), max(m.height-statusHeight, 1)
+	}
+	return max(m.width-m.sidebarW-2, 1), max(m.height-statusHeight-2, 1)
+}
+
+// View renders the whole screen.
+func (m Model) View() string {
+	if m.width == 0 || m.height == 0 {
+		return ""
+	}
+	cols, rows := m.paneArea()
+	main := exactly(m.mainLines(cols, rows), rows)
+	var screen []string
+	if m.zoom {
+		for i := 0; i < rows; i++ {
+			line := ""
+			if i < len(main) {
+				line = main[i]
+			}
+			screen = append(screen, fit(line, cols))
+		}
+	} else {
+		sw, sh := m.sidebarInner()
+		sideColor, mainColor := colorAccent, colorBorder
+		if m.focus == focusMain {
+			sideColor, mainColor = colorBorder, colorInput
+		}
+		left := frameLines(" conch ", exactly(m.sidebarLines(sw, sh), sh), sw, sideColor)
+		right := frameLines(m.mainTitle(), main, cols, mainColor)
+		for len(right) < len(left) {
+			right = append(right, "")
+		}
+		for i := range left {
+			screen = append(screen, left[i]+right[i])
+		}
+	}
+	screen = append(screen, m.statusBar())
+
+	if m.overlay != nil {
+		b := m.overlay.render(m)
+		for i, l := range b.lines {
+			y := b.y + i
+			if y < 0 || y >= len(screen) {
+				continue
+			}
+			base := screen[y]
+			screen[y] = ansi.Cut(base, 0, b.x) + "\x1b[0m" + l + "\x1b[0m" + ansi.Cut(base, b.x+b.width(), m.width)
+		}
+	}
+	return strings.Join(screen, "\n")
+}
+
+// ---- sidebar ----
+
+func (m Model) sidebarLines(w, h int) []string {
+	header := styleMuted.Render("MACHINES")
+	if m.filtering || m.filter != "" {
+		cursor := ""
+		if m.filtering {
+			cursor = "█"
+		}
+		header = styleAccent.Render("/ ") + m.filter + cursor
+	}
+	lines := []string{header}
+	for i := m.scroll; i < len(m.rows) && len(lines) < h; i++ {
+		lines = append(lines, m.rowLine(m.rows[i], w))
+	}
+	if len(m.rows) <= 1 && len(m.allPanes()) == 0 && len(m.machines[0].projects) == 0 {
+		lines = append(lines, "", styleMuted.Render(" a  add a project"), styleMuted.Render(" c  start Claude"), styleMuted.Render(" n  open a terminal"))
+	}
+	return lines
+}
+
+func (m Model) rowLine(r row, w int) string {
+	indent := strings.Repeat("  ", r.depth)
+	expander := "  "
+	if r.expandable() {
+		if m.isOpen(r) {
+			expander = "▾ "
+		} else {
+			expander = "▸ "
+		}
+	}
+	glyph, glyphStyle, label, labelStyle, right := m.rowParts(r)
+	selected := r.id == m.cursor
+
+	if selected {
+		plain := indent + expander + glyph
+		if glyph != "" {
+			plain += " "
+		}
+		plain += label
+		style := styleSelDim
+		if m.focus == focusSidebar && m.overlay == nil {
+			style = styleSel
+		}
+		rightPlain := ansi.Strip(right)
+		return style.Render(spread(plain, rightPlain, w))
+	}
+	left := styleMuted.Render(indent+expander) + glyphStyle.Render(glyph)
+	if glyph != "" {
+		left += " "
+	}
+	left += labelStyle.Render(label)
+	return spread(left, right, w)
+}
+
+// rowParts describes how a row looks: a status glyph, a label and a
+// right-aligned detail.
+func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label string, labelStyle lipgloss.Style, right string) {
+	glyphStyle, labelStyle = lipgloss.NewStyle(), lipgloss.NewStyle()
+	switch r.kind {
+	case kindMachine:
+		mach := m.machine(r.machine)
+		if mach == nil {
+			return "?", styleMuted, r.machine, labelStyle, ""
+		}
+		badge := m.attentionBadge(mach.id, "")
+		switch mach.state {
+		case stateOnline:
+			if mach.warning != "" {
+				return "●", styleWarn, mach.label, styleBold, joinRight(styleWarn.Render("outdated"), badge)
+			}
+			return "●", styleOK, mach.label, styleBold, badge
+		case stateConnecting:
+			return spinner[m.spin%len(spinner)], styleWork, mach.label, styleMuted, styleMuted.Render("connecting")
+		case stateAttention:
+			return "!", styleWarn, mach.label, styleBold, styleWarn.Render("setup")
+		}
+		return "○", styleErr, mach.label, styleMuted, styleErr.Render("offline")
+	case kindProject:
+		proj := m.project(r.machine, r.projectID)
+		if proj == nil {
+			return "◆", styleAccent, r.projectID, labelStyle, ""
+		}
+		if proj.Error != "" {
+			right = styleErr.Render("git error")
+		}
+		return "◆", styleAccent, proj.Name, styleBold, joinRight(right, m.attentionBadge(r.machine, proj.ID))
+	case kindBranches:
+		return "", glyphStyle, "Branches", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
+	case kindAgents:
+		return "", glyphStyle, "Agents", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
+	case kindTerminals:
+		return "", glyphStyle, "Terminals", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
+	case kindMore:
+		return "", glyphStyle, fmt.Sprintf("… %d more", r.count), styleMuted, ""
+	case kindBranch:
+		return m.branchParts(r)
+	case kindPane:
+		p := m.pane(r.machine, r.paneID)
+		if p == nil {
+			return "?", styleMuted, r.paneID, labelStyle, ""
+		}
+		g, state, style := m.paneGlyph(*p)
+		if mach := m.machine(r.machine); mach != nil && mach.state != stateOnline {
+			style, labelStyle = styleMuted, styleMuted // last seen; not live
+		}
+		if p.State == proto.PaneExited {
+			right = style.Render(state)
+		} else if p.Branch != "" {
+			right = styleMuted.Render(p.Branch)
+		} else if state != "" && p.Agent != nil {
+			right = style.Render(state)
+		}
+		return g, style, p.DisplayName(), labelStyle, right
+	}
+	return "", glyphStyle, r.id, labelStyle, ""
+}
+
+func (m Model) branchParts(r row) (string, lipgloss.Style, string, lipgloss.Style, string) {
+	proj := m.project(r.machine, r.projectID)
+	glyph, glyphStyle := "·", styleMuted
+	if proj == nil {
+		return glyph, glyphStyle, r.branch, lipgloss.NewStyle(), ""
+	}
+	var info proto.BranchInfo
+	for _, b := range proj.Branches {
+		if b.Name == r.branch {
+			info = b
+		}
+	}
+	var wt *proto.WorktreeInfo
+	for i := range proj.Worktrees {
+		if proj.Worktrees[i].Branch == r.branch {
+			wt = &proj.Worktrees[i]
+		}
+	}
+	labelStyle := lipgloss.NewStyle()
+	if wt != nil {
+		glyph, glyphStyle = "◇", styleAccent
+		if wt.Main {
+			glyph, glyphStyle, labelStyle = "●", styleOK, styleBold
+		}
+	}
+
+	var parts []string
+	// Agents working on this branch, worst state first.
+	if g, style, ok := m.branchAgentGlyph(r.machine, proj.ID, r.branch); ok {
+		parts = append(parts, style.Render(g))
+	}
+	if wt != nil && wt.Status != nil {
+		switch {
+		case wt.Status.Conflicts > 0:
+			parts = append(parts, styleErr.Render(fmt.Sprintf("⚠%d", wt.Status.Conflicts)))
+		case !wt.Status.Clean():
+			stat := diffStat(wt.Status.Added, wt.Status.Deleted)
+			if stat == "" {
+				stat = styleWarn.Render(fmt.Sprintf("~%d", wt.Status.Files))
+			}
+			parts = append(parts, stat)
+		}
+	}
+	if info.PR != nil {
+		parts = append(parts, prBadge(info.PR))
+	}
+	if info.Gone {
+		parts = append(parts, styleErr.Render("gone"))
+	} else if r.branch != proj.Base && (info.BaseAhead > 0 || info.BaseBehind > 0) {
+		ab := ""
+		if info.BaseAhead > 0 {
+			ab += fmt.Sprintf("↑%d", info.BaseAhead)
+		}
+		if info.BaseBehind > 0 {
+			ab += fmt.Sprintf("↓%d", info.BaseBehind)
+		}
+		parts = append(parts, styleMuted.Render(ab))
+	} else if r.branch == proj.Base && (info.Ahead > 0 || info.Behind > 0) {
+		parts = append(parts, styleMuted.Render(fmt.Sprintf("⇡%d⇣%d", info.Ahead, info.Behind)))
+	}
+	return glyph, glyphStyle, r.branch, labelStyle, strings.Join(parts, " ")
+}
+
+var stylePRMerged = lipgloss.NewStyle().Foreground(lipgloss.Color("#A371F7"))
+
+// prBadge is a compact pull request marker: number plus checks.
+func prBadge(pr *proto.PRInfo) string {
+	num := fmt.Sprintf("#%d", pr.Number)
+	switch {
+	case pr.State == "MERGED":
+		return stylePRMerged.Render(num)
+	case pr.State == "CLOSED":
+		return styleMuted.Render(num + "×")
+	case pr.Draft:
+		return styleMuted.Render(num)
+	}
+	switch pr.Checks {
+	case "pass":
+		return styleOK.Render(num + "✓")
+	case "fail":
+		return styleErr.Render(num + "✗")
+	case "pending":
+		return styleWarn.Render(num + "●")
+	}
+	return styleWork.Render(num)
+}
+
+// prSummary describes a pull request in words.
+func prSummary(pr *proto.PRInfo) string {
+	parts := []string{strings.ToLower(pr.State)}
+	if pr.Draft {
+		parts[0] = "draft"
+	}
+	switch pr.Checks {
+	case "pass":
+		parts = append(parts, styleOK.Render(fmt.Sprintf("checks passing %d/%d", pr.Passed, pr.Total)))
+	case "fail":
+		parts = append(parts, styleErr.Render(fmt.Sprintf("checks failing (%d/%d passed)", pr.Passed, pr.Total)))
+	case "pending":
+		parts = append(parts, styleWarn.Render(fmt.Sprintf("checks running %d/%d", pr.Passed, pr.Total)))
+	}
+	switch pr.Review {
+	case "APPROVED":
+		parts = append(parts, styleOK.Render("approved"))
+	case "CHANGES_REQUESTED":
+		parts = append(parts, styleErr.Render("changes requested"))
+	case "REVIEW_REQUIRED":
+		parts = append(parts, styleMuted.Render("review required"))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// branchAgentGlyph summarises agents on a branch by the state most in need
+// of attention.
+func (m Model) branchAgentGlyph(mid, projectID, branch string) (string, lipgloss.Style, bool) {
+	best, bestRank := proto.PaneInfo{}, -1
+	rank := map[string]int{proto.AgentIdle: 0, proto.AgentWorking: 1, proto.AgentDone: 2, proto.AgentBlocked: 3}
+	mach := m.machine(mid)
+	if mach == nil {
+		return "", lipgloss.Style{}, false
+	}
+	for _, p := range mach.panes {
+		if p.ProjectID == projectID && p.Branch == branch && p.Agent != nil && rank[p.Agent.State] > bestRank {
+			best, bestRank = p, rank[p.Agent.State]
+		}
+	}
+	if bestRank < 0 {
+		return "", lipgloss.Style{}, false
+	}
+	g, _, style := m.paneGlyph(best)
+	return g, style, true
+}
+
+func (m Model) attentionBadge(mid, projectID string) string {
+	waiting, working := 0, 0
+	mach := m.machine(mid)
+	if mach == nil {
+		return ""
+	}
+	for _, p := range mach.panes {
+		if projectID != "" && p.ProjectID != projectID {
+			continue
+		}
+		switch {
+		case p.Agent.NeedsAttention():
+			waiting++
+		case p.Agent != nil && p.Agent.State == proto.AgentWorking:
+			working++
+		}
+	}
+	var parts []string
+	if working > 0 {
+		parts = append(parts, styleWork.Render(fmt.Sprintf("%s%d", spinner[m.spin%len(spinner)], working)))
+	}
+	if waiting > 0 {
+		parts = append(parts, styleWarn.Render(fmt.Sprintf("⚑%d", waiting)))
+	}
+	return strings.Join(parts, " ")
+}
+
+func joinRight(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	}
+	return a + " " + b
+}
+
+var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// paneGlyph returns the status glyph, a short state label and its style.
+func (m Model) paneGlyph(p proto.PaneInfo) (glyph, label string, style lipgloss.Style) {
+	switch {
+	case p.State == proto.PaneExited && p.ExitCode == 0:
+		return "○", "exited", styleMuted
+	case p.State == proto.PaneExited:
+		return "✗", fmt.Sprintf("exit %d", p.ExitCode), styleErr
+	case p.Agent == nil:
+		return "›", "", styleMuted
+	}
+	switch p.Agent.State {
+	case proto.AgentWorking:
+		return spinner[m.spin%len(spinner)], "working", styleWork
+	case proto.AgentBlocked:
+		return "!", "waiting", styleWarn
+	case proto.AgentDone:
+		return "✓", "done", styleOK
+	default:
+		return "○", "idle", styleMuted
+	}
+}
+
+func (m Model) inboxCount() int {
+	n := 0
+	for _, p := range m.allPanes() {
+		if p.Agent.NeedsAttention() {
+			n++
+		}
+	}
+	return n
+}
+
+// ---- main area ----
+
+func (m Model) mainTitle() string {
+	r, _ := m.selectedRow()
+	switch r.kind {
+	case kindPane:
+		p := m.pane(r.machine, r.paneID)
+		if p == nil {
+			return ""
+		}
+		t := " " + p.DisplayName() + " "
+		if r.machine != localMachine {
+			t = " " + m.machine(r.machine).label + " · " + p.DisplayName() + " "
+		}
+		if p.Agent != nil {
+			t += "· " + p.Agent.State + " "
+		} else if p.State == proto.PaneExited {
+			t += fmt.Sprintf("· exited %d ", p.ExitCode)
+		}
+		if p.Branch != "" {
+			t += "· " + p.Branch + " "
+		}
+		if m.frame != nil && m.offset > 0 {
+			t += fmt.Sprintf("· ↑ %d/%d lines back ", m.offset, m.frame.History)
+		}
+		return t
+	case kindBranch:
+		return " changes · " + r.branch + " "
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore:
+		if proj := m.project(r.machine, r.projectID); proj != nil {
+			return " " + proj.Name + " "
+		}
+	}
+	if mach := m.machine(r.machine); mach != nil {
+		return " " + mach.label + " "
+	}
+	return " conch "
+}
+
+func (m Model) mainLines(cols, rows int) []string {
+	r, ok := m.selectedRow()
+	if !ok {
+		return nil
+	}
+	mach := m.machine(r.machine)
+	if mach != nil && mach.state != stateOnline && r.kind != kindMachine {
+		return m.machineLines(mach, cols, rows)
+	}
+	switch r.kind {
+	case kindPane:
+		if m.frame == nil {
+			return centered(cols, rows, styleMuted.Render("connecting…"))
+		}
+		if m.sel != nil && m.sel.paneID == m.viewing {
+			return m.sel.highlight(m.frame.Lines, cols)
+		}
+		return m.frame.Lines
+	case kindBranch:
+		if m.changes != nil {
+			return m.changes.render(m, cols, rows)
+		}
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore:
+		if proj := m.project(r.machine, r.projectID); proj != nil {
+			return m.projectLines(r.machine, *proj, cols)
+		}
+	}
+	if mach == nil {
+		return nil
+	}
+	return m.machineLines(mach, cols, rows)
+}
+
+func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string {
+	lines := []string{styleBold.Render(proj.Name), styleMuted.Render(m.tildify(mid, proj.Path))}
+	if proj.Git {
+		lines[1] += styleMuted.Render(" · base " + proj.Base)
+	}
+	if proj.Error != "" {
+		lines = append(lines, styleErr.Render(proj.Error))
+	}
+	lines = append(lines, "")
+
+	var agents []proto.PaneInfo
+	mach := m.machine(mid)
+	for _, p := range mach.panes {
+		if p.ProjectID == proj.ID && (p.Agent != nil || mach.agents[p.ID]) {
+			agents = append(agents, p)
+		}
+	}
+	lines = append(lines, styleBold.Render("Agents")+styleMuted.Render(fmt.Sprintf("  %d", len(agents))))
+	if len(agents) == 0 {
+		lines = append(lines, styleMuted.Render("  none yet · t starts a task on its own branch"))
+	}
+	for _, p := range agents {
+		g, state, style := m.paneGlyph(p)
+		left := fmt.Sprintf("  %s %s", style.Render(g), p.DisplayName())
+		lines = append(lines, spread(left, joinRight(styleMuted.Render(p.Branch), style.Render(state)), w))
+	}
+
+	if proj.Git {
+		lines = append(lines, "", styleBold.Render("Worktrees")+styleMuted.Render(fmt.Sprintf("  %d", len(proj.Worktrees))))
+		for _, wt := range proj.Worktrees {
+			name := wt.Branch
+			if wt.Detached {
+				name = "(detached " + wt.Head[:min(7, len(wt.Head))] + ")"
+			}
+			state := styleMuted.Render("clean")
+			if wt.Status != nil && !wt.Status.Clean() {
+				state = fmt.Sprintf("%s %s", diffStat(wt.Status.Added, wt.Status.Deleted), styleMuted.Render(fmt.Sprintf("%d files", wt.Status.Files)))
+			}
+			glyph := styleAccent.Render("◇")
+			if wt.Main {
+				glyph = styleOK.Render("●")
+			}
+			lines = append(lines, spread(fmt.Sprintf("  %s %s  %s", glyph, name, styleMuted.Render(m.tildify(mid, wt.Path))), state, w))
+		}
+	}
+	if proj.Git {
+		open, failing := 0, 0
+		for _, b := range proj.Branches {
+			if b.PR != nil && b.PR.State == "OPEN" {
+				open++
+				if b.PR.Checks == "fail" {
+					failing++
+				}
+			}
+		}
+		line := styleBold.Render("Pull requests") + styleMuted.Render(fmt.Sprintf("  %d open", open))
+		if failing > 0 {
+			line += "  " + styleErr.Render(fmt.Sprintf("%d failing checks", failing))
+		}
+		if proj.PRStatus != "" {
+			line += "  " + styleMuted.Render(proj.PRStatus)
+		}
+		lines = append(lines, "", line)
+		for _, b := range proj.Branches {
+			if b.PR != nil && b.PR.State == "OPEN" {
+				left := fmt.Sprintf("  %s %s", prBadge(b.PR), b.PR.Title)
+				lines = append(lines, spread(left, styleMuted.Render(b.Name), w))
+			}
+		}
+	}
+	lines = append(lines, "", styleMuted.Render("t new task · c Claude here · n terminal · m menu · x remove from sidebar"))
+	return lines
+}
+
+func (m Model) machineLines(mach *machine, cols, rows int) []string {
+	working, waiting := 0, 0
+	for _, p := range mach.panes {
+		switch {
+		case p.Agent.NeedsAttention():
+			waiting++
+		case p.Agent != nil && p.Agent.State == proto.AgentWorking:
+			working++
+		}
+	}
+	where := "this computer"
+	if mach.target != "" {
+		where = "ssh " + mach.target
+	}
+	lines := []string{styleBold.Render(mach.label) + styleMuted.Render("  "+where)}
+	if mach.server.Hostname != "" {
+		lines = append(lines, styleMuted.Render(fmt.Sprintf("%s · %s · conch build %s", mach.server.Hostname, mach.server.Platform, mach.server.Build)))
+	}
+	lines = append(lines, "")
+	switch mach.state {
+	case stateOnline:
+		lines = append(lines, styleMuted.Render(fmt.Sprintf("%d projects · %d panes · %d working · %d waiting", len(mach.projects), len(mach.panes), working, waiting)))
+		if av, known := mach.available["claude"]; known && av.Installed {
+			lines = append(lines, styleOK.Render("Claude Code "+av.Version))
+		} else if mach.available != nil {
+			lines = append(lines, styleWarn.Render("Claude Code is not installed · C installs it"))
+		}
+		if mach.warning != "" {
+			lines = append(lines, styleWarn.Render(mach.warning))
+		}
+		lines = append(lines, "",
+			styleMuted.Render("a  add a project      t  new task in a project"),
+			styleMuted.Render("c  start Claude       n  open a terminal"),
+			styleMuted.Render("M  add a machine      m  machine menu   ?  all keys"),
+		)
+	case stateConnecting:
+		lines = append(lines, styleWork.Render("connecting…"))
+	case stateAttention:
+		lines = append(lines, styleWarn.Render(mach.err), "", styleMuted.Render("m → Install / upgrade conch there   (or run: conch machine upgrade "+mach.id+")"))
+	default:
+		lines = append(lines, styleErr.Render("offline: "+mach.err))
+		if len(mach.panes) > 0 {
+			lines = append(lines, styleMuted.Render(fmt.Sprintf("showing %d panes as last seen; they keep running if the machine is up", len(mach.panes))))
+		}
+		hint := "R  reconnect now (retrying automatically)"
+		if mach.id == localMachine {
+			hint = "m → Start the server   R  reconnect"
+		}
+		lines = append(lines, "", styleMuted.Render(hint))
+	}
+	return centered(cols, rows, lines...)
+}
+
+// ---- status bar ----
+
+// statusRight is the right side of the status bar; clicks on it jump to
+// agents waiting for you.
+func (m Model) statusRight() string {
+	right := styleMuted.Render(fmt.Sprintf("conch %s ", m.machines[0].server.Version))
+	if m.flash != "" {
+		style := styleOK
+		if m.flashIsErr {
+			style = styleErr
+		}
+		right = style.Render(ansi.Truncate(m.flash, max(m.width/2, 10), "…") + " ")
+	}
+	if w := m.machines[0].warning; w != "" && m.flash == "" {
+		right = styleErr.Render(w + " ")
+	}
+	if n := m.inboxCount(); n > 0 {
+		right = styleWarn.Render(fmt.Sprintf("⚑ %d waiting · ! ", n)) + right
+	}
+	return right
+}
+
+func (m Model) statusBar() string {
+	r, _ := m.selectedRow()
+	var chip, hints string
+	switch {
+	case m.focus == focusMain && m.prefixArmed:
+		chip = styleChip.Background(colorWarn).Render("PREFIX")
+		hints = fmt.Sprintf("[ scroll · z zoom · ! next waiting · %s send %s · any other key → tree", m.cfg.Keys.Prefix, m.cfg.Keys.Prefix)
+	case m.focus == focusMain && r.kind == kindPane && m.scrollMode:
+		chip = styleChip.Background(colorWarn).Render("SCROLL")
+		hints = "↑↓ line · pgup/pgdn page · g oldest · any other key → live · drag to copy"
+	case m.focus == focusMain && r.kind == kindPane && m.offset > 0:
+		chip = styleChip.Background(colorWarn).Render("HISTORY")
+		hints = fmt.Sprintf("wheel scrolls · %s [ scroll keys · typing returns to live", m.cfg.Keys.Prefix)
+	case m.focus == focusMain && r.kind == kindPane:
+		chip = styleChip.Background(colorInput).Render("PANE")
+		hints = fmt.Sprintf("typing into %s · drag to copy · wheel scrolls · %s [ scroll · %s then any key → tree", r.paneID, m.cfg.Keys.Prefix, m.cfg.Keys.Prefix)
+	case m.focus == focusMain && m.changes != nil && m.changes.diffFile != "":
+		chip, hints = styleChip.Background(colorInput).Render("DIFF"), "↑↓ scroll · pgup/pgdn page · esc files"
+	case m.focus == focusMain:
+		chip, hints = styleChip.Background(colorInput).Render("CHANGES"), "↑↓ file · enter diff · R reload · esc tree"
+	case m.filtering:
+		chip, hints = styleChip.Background(colorAccent).Render("FILTER"), "type to filter · enter keep · esc clear"
+	default:
+		chip = styleChip.Background(colorAccent).Render("TREE")
+		switch r.kind {
+		case kindPane:
+			hints = "enter open · r rename · x close · c claude · n shell · t task · m menu · ? keys"
+		case kindBranch:
+			hints = "enter changes · o open PR · c claude here · n shell · x remove worktree · y copy · m menu · ? keys"
+		case kindProject:
+			hints = "t new task · c claude · n shell · space fold · x remove · m menu · ? keys"
+		default:
+			hints = "a add project · t task · c claude · n shell · / filter · ! waiting · ? keys"
+		}
+	}
+	right := m.statusRight()
+	room := m.width - ansi.StringWidth(chip) - 1 - ansi.StringWidth(right) - 1
+	left := chip + " " + styleMuted.Render(ansi.Truncate(hints, max(room, 0), "…"))
+	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(right)
+	if gap < 0 {
+		return fit(left+" "+right, m.width)
+	}
+	return left + strings.Repeat(" ", gap) + right
+}
+
+// ---- layout helpers ----
+
+// exactly pads or cuts lines to n entries.
+func exactly(lines []string, n int) []string {
+	out := make([]string, n)
+	copy(out, lines)
+	return out
+}
+
+// fit truncates or pads an ANSI string to exactly w cells and resets
+// styling so it cannot bleed into what follows.
+func fit(s string, w int) string {
+	s = ansi.Truncate(s, w, "")
+	return padRight(s+"\x1b[0m", w)
+}
+
+func padRight(s string, w int) string {
+	if n := w - ansi.StringWidth(s); n > 0 {
+		return s + strings.Repeat(" ", n)
+	}
+	return s
+}
+
+// spread lays out left and right text across exactly w cells, truncating
+// the left side when both don't fit.
+func spread(left, right string, w int) string {
+	// The left side (usually a name) keeps up to two thirds of the width;
+	// the right detail gives way first, losing its start.
+	lw, rw := ansi.StringWidth(left), ansi.StringWidth(right)
+	if lw+1+rw > w && rw > 0 {
+		room := max(w-min(lw, w*2/3)-1, 0)
+		switch {
+		case room < 3:
+			right = ""
+		case rw > room:
+			right = ansi.TruncateLeft(right, rw-room+1, "…")
+		}
+		rw = ansi.StringWidth(right)
+	}
+	if rw > 0 {
+		rw++ // keep a space before the detail
+	}
+	left = ansi.Truncate(left, max(w-rw, 0), "…")
+	gap := max(w-ansi.StringWidth(left)-ansi.StringWidth(right), 0)
+	return left + strings.Repeat(" ", gap) + right
+}
+
+// centered places content as a left-aligned block in the middle of a w×h area.
+func centered(w, h int, content ...string) []string {
+	lines := make([]string, h)
+	top := max((h-len(content))/2, 0)
+	widest := 0
+	for _, c := range content {
+		widest = max(widest, ansi.StringWidth(c))
+	}
+	pad := strings.Repeat(" ", max((w-widest)/2, 0))
+	for i, c := range content {
+		if top+i >= h {
+			break
+		}
+		lines[top+i] = pad + c
+	}
+	return lines
+}
