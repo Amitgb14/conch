@@ -2,6 +2,7 @@ package tui
 
 import (
 	"github.com/charmbracelet/x/ansi"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,5 +81,21 @@ func TestLimitsDisplay(t *testing.T) {
 	}
 	if got := tokenSummary(&proto.Tokens{Context: 45210, ContextSize: 200000, Output: 12000}); got != "ctx 45k/200k · out 12k" {
 		t.Fatalf("tokens %q", got)
+	}
+}
+
+func TestVersionInStatusBar(t *testing.T) {
+	m := Model{width: 160, machines: []*machine{{id: localMachine, label: "local", state: stateOnline}}, brain: newBrainState()}
+	line, _ := m.layoutStatus()
+	plain := ansi.Strip(line)
+	if !strings.HasSuffix(strings.TrimRight(plain, " "), versionLabel()) || !strings.Contains(plain, "⚙ Settings") {
+		t.Fatalf("version should end the status bar: %q", plain)
+	}
+	if strings.Index(plain, "⚙ Settings") > strings.Index(plain, "conch ") {
+		t.Fatalf("version should come after Settings: %q", plain)
+	}
+	m.width = 80
+	if line, _ := m.layoutStatus(); strings.Contains(ansi.Strip(line), "conch 0") {
+		t.Fatal("narrow terminals drop the version")
 	}
 }

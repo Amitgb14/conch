@@ -7,6 +7,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Amitgb14/conch/internal/buildinfo"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // statusItem is a clickable part of the status bar.
@@ -176,7 +179,51 @@ func (m Model) statusRightItems() []statusItem {
 		m.overlay = s
 		return cmd
 	}})
+	if m.width >= 100 {
+		text, style := versionLabel(), styleMuted
+		if m.serverBehind() {
+			text, style = "↻ "+text, styleWarn
+		}
+		items = append(items, statusItem{text: style.Render(text), act: func(m *Model) tea.Cmd {
+			m.setFlash(m.versionDetail(), m.serverBehind())
+			return nil
+		}})
+	}
 	return items
+}
+
+// versionLabel is this build's version: a release number, or for a
+// development build its build hash too.
+func versionLabel() string {
+	v := "conch " + proto.Version
+	if !proto.IsRelease() {
+		if b := buildinfo.Build(); b != "" {
+			v += " · " + b[:min(7, len(b))]
+		}
+	}
+	return v
+}
+
+// serverBehind reports whether the local server runs a different build
+// than this client, so its new features need a restart.
+func (m Model) serverBehind() bool {
+	if len(m.machines) == 0 || m.machines[0].c == nil {
+		return false
+	}
+	s := m.machines[0].server
+	return s.Build != "" && buildinfo.Build() != "" && s.Build != buildinfo.Build()
+}
+
+func (m Model) versionDetail() string {
+	detail := fmt.Sprintf("%s (build %s, %s)", "conch "+proto.Version, buildinfo.Build(), buildinfo.Platform())
+	if len(m.machines) > 0 && m.machines[0].c != nil {
+		s := m.machines[0].server
+		if m.serverBehind() {
+			return detail + fmt.Sprintf(" · server runs build %s: `conch server stop` and reopen to use this build (closes its panes)", s.Build)
+		}
+		detail += " · server up to date"
+	}
+	return detail
 }
 
 // layoutStatus renders the status bar and records where its clickable
