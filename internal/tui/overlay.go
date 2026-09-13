@@ -79,6 +79,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 	}
 	var items []menuItem
 	title := ""
+	agent := agentLabel(m.defaultAgent())
 	switch r.kind {
 	case kindPane:
 		if p := m.pane(r.machine, r.paneID); p != nil {
@@ -87,7 +88,8 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		items = []menuItem{
 			{"enter", "Open", enter},
 			{"r", "Rename", act("r")},
-			{"c", "New Claude here", act("c")},
+			{"c", "New " + agent + " here", act("c")},
+			{"A", "Start another agent here…", act("A")},
 			{"n", "New terminal here", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
 			{"x", "Close", act("x")},
@@ -96,7 +98,8 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		title = r.branch
 		items = []menuItem{
 			{"enter", "View changes", enter},
-			{"c", "Start Claude on this branch", act("c")},
+			{"c", "Start " + agent + " on this branch", act("c")},
+			{"A", "Start another agent on this branch…", act("A")},
 			{"n", "Open terminal on this branch", act("n")},
 			{"t", "New task in project", act("t")},
 			{"y", "Copy branch name", act("y")},
@@ -118,8 +121,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			title = proj.Name
 		}
 		items = []menuItem{
-			{"t", "New task (branch + worktree + Claude)", act("t")},
-			{"c", "Start Claude in project", act("c")},
+			{"t", "New task (branch + worktree + agent)", act("t")},
+			{"c", "Start " + agent + " in project", act("c")},
+			{"A", "Start another agent in project…", act("A")},
 			{"n", "Open terminal in project", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
 			{"F", "Local files for new worktrees…", act("F")},
@@ -151,7 +155,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if mach.state == stateOnline {
 			items = append(items,
 				menuItem{"a", "Add project…", act("a")},
-				menuItem{"c", "New Claude", act("c")},
+				menuItem{"c", "New " + agent, act("c")},
 				menuItem{"n", "New terminal", act("n")},
 			)
 		}
@@ -170,7 +174,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 	default:
 		items = []menuItem{
 			{"a", "Add project…", act("a")},
-			{"c", "New Claude", act("c")},
+			{"c", "New " + agent, act("c")},
 			{"n", "New terminal", act("n")},
 			{"M", "Add machine…", act("M")},
 		}
@@ -383,10 +387,12 @@ func newAddMachineDialog(m Model) *dialog {
 
 func newTaskDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
 	d := newDialog(m, " New task · "+proj.Name+" ",
-		[]string{"Creates a branch and worktree, then starts Claude with the prompt."},
-		[]string{"Prompt", "Branch", "Base"}, nil)
+		[]string{"Creates a branch and worktree, then starts the agent with the prompt."},
+		[]string{"Prompt", "Branch", "Base", "Agent"}, nil)
 	d.fields[1].in.Placeholder = "derived from the prompt"
 	d.fields[2].in.Placeholder = proj.Base
+	d.fields[3].in.Placeholder = m.defaultAgent() + " (default · " + strings.Join(knownAgents(&m), ", ") + ")"
+	defaultAgent := m.defaultAgent()
 	d.onChange = func(d *dialog) {
 		if p := strings.TrimSpace(d.fields[0].in.Value()); p != "" {
 			d.fields[1].in.Placeholder = gitx.BranchFromPrompt(p)
@@ -397,9 +403,16 @@ func newTaskDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
 		if strings.TrimSpace(v[0]) == "" {
 			return func() tea.Msg { return errMsg{errString("a task needs a prompt")} }
 		}
+		agent := strings.ToLower(strings.TrimSpace(v[3]))
+		if agent == "" {
+			agent = defaultAgent
+		}
+		if mach := m.machine(mid); mach != nil && mach.missingAgent(agent) {
+			return func() tea.Msg { return askInstallMsg{machine: mid, agent: agent} }
+		}
 		cols, rows := m.paneArea()
 		params := proto.TaskCreateParams{ProjectID: id, Prompt: v[0], Branch: strings.TrimSpace(v[1]),
-			Base: strings.TrimSpace(v[2]), Cols: cols, Rows: rows}
+			Base: strings.TrimSpace(v[2]), Agent: agent, Cols: cols, Rows: rows}
 		var info proto.PaneInfo
 		return m.callOn(mid, proto.MethodTaskCreate, params, &info, func() tea.Msg { return createdMsg{machine: mid, info: info} })
 	}
@@ -528,8 +541,9 @@ var helpText = []string{
 	"  !      next agent waiting for you",
 	"",
 	"Create",
-	"  t  new task: branch + worktree + Claude with a prompt",
-	"  c  Claude here         n  terminal here         a  add or create a project",
+	"  t  new task: branch + worktree + an agent with a prompt",
+	"  c  default agent here (Settings → Agents)       A  pick any agent: Codex, Gemini, OpenCode…",
+	"  n  terminal here       a  add or create a project",
 	"  M  add machine (ssh)   R  reconnect a machine    A  start or install any agent",
 	"  r  rename              x  close / remove        R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",

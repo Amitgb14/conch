@@ -8,6 +8,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -127,12 +128,18 @@ func runTask(args []string) error {
 	cwd := fs.String("cwd", "", "a directory in the project (default: current)")
 	branch := fs.String("branch", "", "branch name (default: derived from the prompt)")
 	base := fs.String("base", "", "branch to start from (default: the project's base)")
+	agent := fs.String("agent", "", "claude, codex, gemini or opencode (default: [agents] default)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	prompt := strings.Join(fs.Args(), " ")
 	if prompt == "" {
-		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] PROMPT")
+		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] PROMPT")
+	}
+	if *agent == "" {
+		if cfg, err := config.Load(); err == nil {
+			*agent = cfg.Agents.Default
+		}
 	}
 	dir := *cwd
 	if dir == "" {
@@ -149,7 +156,7 @@ func runTask(args []string) error {
 	}
 	var info proto.PaneInfo
 	if err := call(c, proto.MethodTaskCreate, proto.TaskCreateParams{
-		ProjectID: proj.ID, Prompt: prompt, Branch: *branch, Base: *base, Cols: 120, Rows: 40,
+		ProjectID: proj.ID, Prompt: prompt, Branch: *branch, Base: *base, Agent: *agent, Cols: 120, Rows: 40,
 	}, &info); err != nil {
 		return err
 	}

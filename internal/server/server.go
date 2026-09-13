@@ -638,7 +638,11 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 		if !ok {
 			return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "agent %q cannot be launched by conch", cp.Agent)
 		}
-		cp.Command = ad.Command(config.DefaultShell(), cp.AgentArgs)
+		args := cp.AgentArgs
+		if p := ad.PromptArgs(cp.Prompt); p != "" {
+			args = strings.TrimSpace(args + " " + p)
+		}
+		cp.Command = ad.Command(config.DefaultShell(), args)
 		cp.Env = append(cp.Env, ad.Env()...)
 		if cp.Name == "" {
 			cp.Name = cp.Agent
@@ -711,7 +715,7 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 	}
 	return s.create(proto.PaneCreateParams{
 		Agent:     tp.Agent,
-		AgentArgs: adapter.ShellQuote(tp.Prompt),
+		Prompt:    tp.Prompt,
 		Cwd:       path,
 		Cols:      tp.Cols,
 		Rows:      tp.Rows,

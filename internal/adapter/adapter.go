@@ -24,6 +24,9 @@ type Adapter interface {
 	// Command returns the argv that starts the agent through shell, with
 	// args (shell words typed by the user) appended.
 	Command(shell, args string) []string
+	// PromptArgs are the shell words that give the agent a first message
+	// in its interactive session.
+	PromptArgs(prompt string) string
 	// Env is extra environment for the agent: conch's integration.
 	Env() []string
 	// Detect reports whether the agent is installed, as the user's login
@@ -81,15 +84,28 @@ type cliAgent struct {
 	name, label, binary string
 	// dirs are where installers put the binary, searched before PATH: a
 	// shell started before the install hasn't picked up PATH changes.
-	dirs    []string
-	flags   string // conch's own flags, before the user's
-	env     []string
-	install string
+	dirs  []string
+	flags string // conch's own flags, before the user's
+	// promptFlag introduces a first message; "" passes it as an argument.
+	promptFlag string
+	env        []string
+	install    string
 }
 
-func (a *cliAgent) Name() string          { return a.name }
-func (a *cliAgent) Label() string         { return a.label }
-func (a *cliAgent) Env() []string         { return a.env }
+func (a *cliAgent) Name() string  { return a.name }
+func (a *cliAgent) Label() string { return a.label }
+func (a *cliAgent) Env() []string { return a.env }
+
+// PromptArgs implements Adapter.
+func (a *cliAgent) PromptArgs(prompt string) string {
+	if strings.TrimSpace(prompt) == "" {
+		return ""
+	}
+	if a.promptFlag != "" {
+		return a.promptFlag + " " + ShellQuote(prompt)
+	}
+	return ShellQuote(prompt)
+}
 func (a *cliAgent) InstallScript() string { return a.install }
 
 func (a *cliAgent) pathSetup() string {
@@ -300,7 +316,8 @@ func newOpenCode(exe, dir string) (*cliAgent, error) {
 	}
 	a := &cliAgent{
 		name: "opencode", label: "OpenCode", binary: "opencode",
-		dirs: []string{"$HOME/.opencode/bin", "$HOME/bin", "$HOME/.local/bin"},
+		promptFlag: "--prompt", // a bare argument is a project path
+		dirs:       []string{"$HOME/.opencode/bin", "$HOME/bin", "$HOME/.local/bin"},
 		install: withDownloader("OpenCode", "https://opencode.ai/install", "bash", "") + `
 echo
 echo "Installed OpenCode; start it from conch and connect a provider (/connect)."`,

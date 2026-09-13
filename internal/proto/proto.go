@@ -576,14 +576,16 @@ type AgentReportParams struct {
 // a known agent and Command is empty, the server builds the launch command
 // itself (adding its integration, e.g. hooks) with AgentArgs appended.
 type PaneCreateParams struct {
-	Name      string   `json:"name,omitempty"`
-	Agent     string   `json:"agent,omitempty"`
-	AgentArgs string   `json:"agent_args,omitempty"` // shell words, e.g. "--model opus"
-	Command   []string `json:"command,omitempty"`
-	Cwd       string   `json:"cwd,omitempty"`
-	Env       []string `json:"env,omitempty"`
-	Cols      int      `json:"cols,omitempty"`
-	Rows      int      `json:"rows,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+	AgentArgs string `json:"agent_args,omitempty"` // shell words, e.g. "--model opus"
+	// Prompt is a first message for the agent, passed the way it expects.
+	Prompt  string   `json:"prompt,omitempty"`
+	Command []string `json:"command,omitempty"`
+	Cwd     string   `json:"cwd,omitempty"`
+	Env     []string `json:"env,omitempty"`
+	Cols    int      `json:"cols,omitempty"`
+	Rows    int      `json:"rows,omitempty"`
 	// ShellTheme is an Oh My Zsh theme for a default-shell pane when that
 	// shell is zsh; the user's dotfiles still load first.
 	ShellTheme string `json:"shell_theme,omitempty"`

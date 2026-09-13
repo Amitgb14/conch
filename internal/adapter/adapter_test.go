@@ -45,6 +45,9 @@ func TestRegistryAndIntegrationFiles(t *testing.T) {
 	}
 
 	claude, _ := reg.Get("claude")
+	if got := claude.PromptArgs("fix it's tests"); got != `'fix it'\''s tests'` {
+		t.Fatalf("claude prompt args: %s", got)
+	}
 	if cmd := claude.Command("/bin/zsh", "--model opus"); !strings.Contains(cmd[2], "exec claude --settings") || !strings.HasSuffix(cmd[2], "--model opus") {
 		t.Fatalf("claude command: %q", cmd)
 	}
@@ -62,6 +65,9 @@ func TestRegistryAndIntegrationFiles(t *testing.T) {
 	}
 
 	opencode, _ := reg.Get("opencode")
+	if got := opencode.PromptArgs("add tests"); got != "--prompt 'add tests'" {
+		t.Fatalf("opencode prompt args: %s", got)
+	}
 	env := opencode.Env()
 	if len(env) != 1 || !strings.Contains(env[0], `"plugin":["file://`+dir+`/opencode-conch.js"]`) {
 		t.Fatalf("opencode env: %v", env)

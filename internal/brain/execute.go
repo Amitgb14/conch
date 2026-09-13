@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -61,9 +60,7 @@ func Execute(ctx context.Context, c *client.Client, a Action, cols, rows int) (R
 			return res, fmt.Errorf("project %s not found", a.Project)
 		}
 		params := proto.PaneCreateParams{Agent: a.Agent, Cwd: dir, Cols: cols, Rows: rows}
-		if a.Prompt != "" {
-			params.AgentArgs = adapter.ShellQuote(a.Prompt)
-		}
+		params.Prompt = a.Prompt
 		var info proto.PaneInfo
 		if err := c.Call(ctx, proto.MethodPaneCreate, params, &info); err != nil {
 			return res, err
