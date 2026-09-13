@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>conch — a terminal orchestrator for AI coding agents</title>
+<meta name="description" content="Run Claude Code, Codex, Gemini CLI and OpenCode side by side, on your laptop or remote machines. A background server keeps agents working when you close the UI.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐚</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="./"><span>▸</span>conch</a>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="docs.html">Docs</a>
+      <a href="https://github.com/Amitgb14/conch">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>Run a fleet of coding agents <em>from one terminal</em></h1>
+    <p class="lede">conch is a terminal orchestrator for Claude Code, Codex, Gemini CLI and OpenCode.
+      A background server owns their terminals, so agents keep working when you close the UI —
+      on your laptop or on any machine you can ssh into.</p>
+
+    <div class="install">
+      <code id="install-cmd">curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh</code>
+      <button class="copy" data-copy="install-cmd">Copy</button>
+    </div>
+    <p class="alt">macOS and Linux, amd64 and arm64 · or <code>go install github.com/Amitgb14/conch/cmd/conch@latest</code></p>
+
+    <div class="buttons">
+      <a class="btn primary" href="docs.html">Read the docs</a>
+      <a class="btn" href="https://github.com/Amitgb14/conch">View on GitHub</a>
+    </div>
+
+    <div class="term" aria-label="The conch interface">
+      <div class="term-bar"><i></i><i></i><i></i></div>
+      <div class="term-body">
+<div class="term-side"><div class="h">MACHINES</div><div>▾ <span class="g">●</span> local                 <span class="a">⠋1</span> <span class="y">⚑1</span></div><div>  ▾ <span class="a">◆</span> api                 <span class="a">⠋1</span> <span class="y">⚑1</span></div><div>    ▾ Branches              <span class="m">7</span></div><div>        <span class="g">●</span> main             <span class="g">+1</span></div><div class="sel">        ◇ conch/health-check ⠋ ↑3</div><div>        <span class="m">·</span> feat/login  <span class="g">#12✓</span> <span class="m">↑2</span></div><div>        <span class="m">… 18 more</span></div><div>    ▾ Agents                <span class="m">2</span></div><div>        <span class="a">⠋</span> Add health check</div><div>        <span class="y">!</span> Fix flaky tests</div><div>    ▾ Sessions              <span class="m">4</span></div><div>  ▸ <span class="g">●</span> gpu-box             <span class="a">⠋2</span></div></div>
+<div class="term-main"><span class="m">Claude Code · conch/health-check · ctx 45k · out 12k · $0.42</span>
+
+<span class="a">⏺</span> I'll add a <span class="y">/healthz</span> endpoint that checks the
+  database connection and returns build info.
+
+<span class="a">⏺</span> Update(internal/http/routes.go)
+  ⎿  Added 14 lines
+     <span class="g">+ r.Get("/healthz", s.health)</span>
+
+<span class="a">⏺</span> Bash(go test ./internal/http/...)
+  ⎿  <span class="g">ok</span>  api/internal/http  0.412s
+
+<span class="a">⠋</span> Writing the handler test…</div>
+<div class="term-status"><span><span class="a">✦</span> Ask</span><span><span class="y">⚑ 1 waiting</span></span><span>t task</span><span>c agent</span><span>? keys</span><span style="margin-left:auto">⚙</span></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="band" id="features">
+  <div class="wrap">
+    <h2>Everything your agents are doing, in one tree</h2>
+    <p class="sub">Machines, projects, git branches, agents and terminals sit beside a live view of whatever you select.</p>
+    <div class="grid">
+      <div class="card">
+        <h3><span class="icon">⠋</span>Agents that outlive the UI</h3>
+        <p>A server owns every pane. Detach with <code>q</code>, close your laptop, come back later — the work kept going.</p>
+      </div>
+      <div class="card">
+        <h3><span class="icon">!</span>Know who needs you</h3>
+        <p>Working, waiting, done or idle for every agent, from hooks and screen rules. Desktop notifications, quiet hours and snooze.</p>
+      </div>
+      <div class="card">
+        <h3><span class="icon">◇</span>One worktree per task</h3>
+        <p>Press <code>t</code> and describe the task: conch makes a branch and worktree, copies your <code>.env</code> and local settings, and starts the agent.</p>
+      </div>
+      <div class="card">
+        <h3><span class="icon">●</span>Remote machines over ssh</h3>
+        <p>Add any host from your ssh config. conch installs itself there, and its server keeps agents running when your network drops.</p>
+      </div>
+      <div class="card">
+        <h3><span class="icon">#</span>Git and pull requests</h3>
+        <p>Uncommitted lines, commits ahead and behind, conflicts, PR checks and reviews — plus a changes view with diffs for every branch.</p>
+      </div>
+      <div class="card">
+        <h3><span class="icon">✦</span>Ask in plain words</h3>
+        <p>"Start 3 agents on api: …" becomes a checked plan of tasks and messages. Nothing runs until you press enter.</p>
+      </div>
+      <div class="card">
+        <h3><span class="icon">↺</span>Sessions and resume</h3>
+        <p>Every saved conversation for a project, across agents. Resume one with <code>enter</code>, or all runs a server stop interrupted with <code>I</code>.</p>
+      </div>
+      <div class="card">
+        <h3><span class="icon">$</span>Token usage</h3>
+        <p>Context, output and cost in each agent's title bar, read from the agent's own session data — never estimated.</p>
+      </div>
+      <div class="card">
+        <h3><span class="icon">▦</span>Splits, tabs and themes</h3>
+        <p>tmux-style splits and tabs, scrollback with copy mode, mouse support, and six colour schemes.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="agents">
+  <div class="wrap">
+    <h2>Bring the agents you already use</h2>
+    <p class="sub">conch never edits an agent's configuration or answers its trust prompts. Missing an agent on a machine? Install it from the same menu — no root needed.</p>
+    <div class="agents">
+      <div class="card"><h3>Claude Code</h3><p>State from hooks, the screen and the transcript.</p></div>
+      <div class="card"><h3>Codex</h3><p>State from the terminal title and screen.</p></div>
+      <div class="card"><h3>Gemini CLI</h3><p>Hooks in trusted folders, title and screen otherwise.</p></div>
+      <div class="card"><h3>OpenCode</h3><p>State from plugin events and the screen.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="script">
+  <div class="wrap split">
+    <div>
+      <h2>Scriptable from the shell</h2>
+      <p class="sub" style="margin-bottom:0">Every action in the TUI is a command, locally or on a machine with <code>-m</code>. The server speaks newline-delimited JSON over a unix socket.</p>
+    </div>
+<pre><span class="m"># a branch, a worktree and an agent</span>
+conch task -cwd ~/src/api "Add a health check endpoint"
+
+<span class="m"># the same on a remote machine</span>
+conch -m gpu-box task -cwd ~/src/api "Fix the flaky tests"
+
+conch status              <span class="m"># panes with agent state</span>
+conch read p1             <span class="m"># visible screen as text</span>
+conch send p1 "also cover logout" && conch send -keys p1 enter
+conch ask "what is waiting for me?"</pre>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>conch · Apache License 2.0</span>
+    <span><a href="docs.html">Docs</a> · <a href="https://github.com/Amitgb14/conch/releases">Releases</a> · <a href="https://github.com/Amitgb14/conch">GitHub</a></span>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll(".copy").forEach((b) => {
+    b.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent);
+        b.textContent = "Copied";
+      } catch {
+        b.textContent = "Select it";
+      }
+      setTimeout(() => (b.textContent = "Copy"), 1500);
+    });
+  });
+</script>
+</body>
+</html>

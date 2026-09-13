@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>conch docs</title>
+<meta name="description" content="Reference for conch: install, the sidebar, tasks, remote machines, agents, sessions, brain, scripting, configuration and protocol.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐚</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="./"><span>▸</span>conch</a>
+    <div class="links">
+      <a href="./#features">Features</a>
+      <a href="docs.html" aria-current="page">Docs</a>
+      <a href="https://github.com/Amitgb14/conch">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap docs">
+<aside class="toc">
+  <ul>
+    <li><a href="#install">Install</a>
+      <ul><li><a href="#reload">Updating without stopping agents</a></li><li><a href="#auto-update">Auto-update</a></li></ul></li>
+    <li><a href="#sidebar">The sidebar</a></li>
+    <li><a href="#settings">Settings</a></li>
+    <li><a href="#splits">Splits and tabs</a></li>
+    <li><a href="#remote">Remote machines</a>
+      <ul><li><a href="#remote-claude">Claude Code on a machine</a></li></ul></li>
+    <li><a href="#scrollback">Scrollback and copying</a></li>
+    <li><a href="#tasks">Tasks</a>
+      <ul><li><a href="#local-files">Local files in worktrees</a></li></ul></li>
+    <li><a href="#agent-setup">Agent setup</a></li>
+    <li><a href="#keys">Keys</a></li>
+    <li><a href="#agents">Agents</a></li>
+    <li><a href="#sessions">Sessions</a></li>
+    <li><a href="#brain">Brain</a></li>
+    <li><a href="#states">Agent states</a></li>
+    <li><a href="#scripting">Scripting</a></li>
+    <li><a href="#files">Files</a></li>
+    <li><a href="#protocol">Protocol</a></li>
+    <li><a href="#layout">Source layout</a></li>
+  </ul>
+</aside>
+
+<main class="prose">
+<h1>Documentation</h1>
+<p>conch is a terminal orchestrator for AI coding agents. A background server owns the
+terminals your agents run in, so they keep working when you close the UI. The TUI
+organises everything as a tree — machines, projects, git branches, agents and
+terminals — beside a live view of whatever you select.</p>
+
+<h2 id="install">Install</h2>
+<p>macOS and Linux (amd64 and arm64):</p>
+<pre>curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh</pre>
+<p>This downloads the latest release, checks it against the release checksums and installs
+<code>~/.local/bin/conch</code>. <code>CONCH_VERSION=0.2.0</code> picks a release and
+<code>CONCH_INSTALL_DIR</code> another directory. Later, <code>conch update</code> replaces the
+binary with the newest release.</p>
+
+<h3 id="reload">Updating without stopping agents</h3>
+<p>The server owns every pane, so a new build takes effect in the server only once it restarts —
+and a restart would stop the agents. Instead, <strong>reload</strong>:</p>
+<pre>conch server reload        # or click the version in the status bar, then r</pre>
+<p>The server execs the new binary in place. It keeps its process ID, so the programs in its panes
+stay its children; their terminals and the listening socket stay open across the exec; screens,
+scrollback, terminal modes and agent states are handed over in a state file. Agents never notice —
+output they write meanwhile waits in the kernel — and the TUI reconnects on its own. When the
+server is older than the TUI, its version shows amber in the status bar; the machine menu has
+<strong>Reload server</strong> too (a remote machine reloads onto the build
+<code>machine upgrade</code> installed). Servers from before reloading existed need one last
+<code>conch server stop</code>.</p>
+
+<h3 id="auto-update">Auto-update</h3>
+<p>conch notices newer builds on its own: its executable rebuilt or replaced
+(<code>make build</code>, <code>conch update</code>), a newer GitHub release (checked once a day for
+release builds; <code>[update] check_releases = false</code> turns it off), and machines running an
+older build. The version in the status bar then shows <code>⬆</code>; click it for the list and
+press <strong>u</strong> to update everything:</p>
+<ol>
+  <li>download the release, if there is one, over the conch executable;</li>
+  <li>reload the local server onto it (panes keep running);</li>
+  <li>restart the TUI in place onto the new build;</li>
+  <li>install the build on each connected remote machine and reload its server.</li>
+</ol>
+<p><code>conch update</code> does steps 1–2 from a shell, and <code>conch machine upgrade ID</code>
+installs and reloads one machine.</p>
+<p>With Go 1.25 or newer:</p>
+<pre>go install github.com/Amitgb14/conch/cmd/conch@latest</pre>
+<h3>From source</h3>
+<pre>make build        # bin/conch
+make test         # go test -race ./...
+make release VERSION=0.2.0   # dist/: archives for every platform + checksums.txt</pre>
+<p>Pushing a <code>v*</code> tag runs the release workflow, which builds the same archives and
+publishes them as a GitHub release.</p>
+
+<h2 id="sidebar">The sidebar</h2>
+<pre>MACHINES
+▾ ● local                      ⠋1 ⚑1
+  ▾ ◆ api                      ⠋1 ⚑1
+    ▾ Branches                     7
+        ● main                    +1        checked out in the repo, uncommitted lines
+        ◇ conch/add-health-check  ⠋ ↑3      own worktree, agent working, 3 ahead of main
+        · feat/login          #12✓  ↑2      not checked out, pull request with passing checks
+        … 18 more
+    ▾ Agents                       2
+        ⠋ Add health check   conch/add-health-check
+        ! Fix flaky tests    fix/flaky
+    ▾ Terminals                    1
+        › dev-server         main</pre>
+<ul>
+  <li><strong>Projects</strong> appear when you open a pane inside a git repository, or add them
+    with <code>a</code>, which opens a folder browser on the selected machine (local or remote):
+    <code>enter</code> opens a folder, <code>←</code> goes up, <code>a</code> adds the selected
+    folder, <code>.</code> adds the folder you're in, <code>/</code> filters, <code>g</code> jumps
+    to a typed path, <code>n</code> creates a folder and <code>p</code> creates a new project (a
+    folder with a git repository and an initial commit). Git repositories show <code>◆ git</code>,
+    existing projects <code>◆ project</code>. From the CLI: <code>conch project add PATH</code> or
+    <code>conch project create [-no-git] PATH</code>. Linked worktrees belong to their main
+    repository. The list is kept in <code>~/.config/conch/projects.json</code>.</li>
+  <li><strong>Branches</strong> list checked-out branches, the base branch, branches with panes and
+    recent ones; the rest fold into <code>… N more</code>. Each shows uncommitted changes
+    (<code>+42 −7</code>, <code>⚠</code> conflicts), commits ahead/behind the base
+    (<code>↑2 ↓1</code>), and the state of agents working on it. Git state refreshes when git
+    metadata changes, after an agent uses a tool, and every few seconds.</li>
+  <li><strong>Pull requests</strong> come from the <code>gh</code> CLI (your existing GitHub login):
+    <code>#12✓</code> checks passing, <code>#13✗</code> failing, <code>#14●</code> running, purple
+    when merged. <code>o</code> opens the branch's PR. They refresh every minute while agents work
+    in the project, every five minutes otherwise, and on <code>R</code>.</li>
+  <li><strong>Agents</strong> are named after their task (Claude's title) until you rename them
+    with <code>r</code>.</li>
+  <li><strong>Fold state</strong> and sidebar width are remembered in
+    <code>~/.config/conch/ui.json</code>.</li>
+</ul>
+<p>Selecting a branch shows its <strong>changes</strong>: its pull request (checks, review),
+uncommitted files (or files changed since the base when it isn't checked out), commits ahead,
+and diffs.</p>
+
+<h2 id="settings">Settings</h2>
+<p>Press <code>,</code> or click <code>⚙</code> at the right end of the status bar.</p>
+<ul>
+  <li><strong>Theme</strong> — colour schemes: Conch, Dracula, Catppuccin Mocha, Nord, Gruvbox
+    Dark, Tokyo Night (applied instantly). Below them, an <strong>Oh My Zsh prompt theme</strong>
+    for new zsh terminals, picked from the themes installed on this computer. conch starts zsh
+    with a wrapper that loads your own <code>.zshenv</code>/<code>.zprofile</code>/<code>.zshrc</code>/<code>.zlogin</code>
+    first and then switches the theme for that terminal only (<code>omz theme use</code>), so your
+    dotfiles are never edited; "Keep my .zshrc theme" turns it off.</li>
+  <li><strong>Notifications</strong> — master switch; desktop notification, system sound, terminal
+    beep; notify when an agent is waiting and/or when one finishes; <strong>quiet hours</strong>
+    (22:00–08:00 and other presets, or any <code>quiet_start</code> / <code>quiet_end</code> in
+    config.toml) and <strong>snooze for an hour</strong>. While silenced the status bar shows
+    <code>🔕</code> (click it to resume); waiting agents still show in the sidebar. Send a test.</li>
+  <li><strong>Agents</strong> — every machine with each supported agent, installed (with version)
+    or not; <code>enter</code> on a missing one installs it there.</li>
+</ul>
+<p>Changes are saved to <code>~/.config/conch/config.toml</code>.</p>
+
+<h2 id="splits">Splits and tabs</h2>
+<p>The main area has tabs (click them, <code>+</code> adds one, <code>×</code> closes), and each tab
+can be split into several views: panes, branch changes, projects or machines side by side. The
+focused split has the highlighted border; the tree picks what it shows (a single-view tab follows
+the tree as you move; with splits, click or <code>enter</code> a row).</p>
+<div class="table"><table>
+  <tr><th>Keys</th><th></th></tr>
+  <tr><td><code>ctrl+b v</code> / <code>ctrl+b -</code></td><td>split right / down (the new split shows the same thing until you pick another)</td></tr>
+  <tr><td><code>ctrl+b ←→↑↓</code> or <code>h j k l</code>, <code>ctrl+b o</code></td><td>move focus between splits</td></tr>
+  <tr><td><code>ctrl+b x</code></td><td>close the split (the pane keeps running)</td></tr>
+  <tr><td><code>ctrl+b c</code>, <code>n</code>, <code>p</code>, <code>1-9</code>, <code>&amp;</code>, <code>,</code></td><td>new, next, previous, go to, close, rename tab</td></tr>
+  <tr><td><code>ctrl+b =</code></td><td>equalize splits</td></tr>
+  <tr><td><code>v</code> / <code>s</code> / <code>O</code> in the tree</td><td>open the selected item in a split right / below / a new tab</td></tr>
+</table></div>
+<p>Drag a border between splits to resize. Tabs and splits are remembered in <code>ui.json</code>.</p>
+
+<h2 id="remote">Remote machines</h2>
+<p>Each machine runs its own conch server, which owns that machine's panes and agents, so work
+continues there when your laptop sleeps or the network drops. The TUI connects to all of them at
+once over your normal <code>ssh</code>:</p>
+<pre>conch machine add gpu-box              # an alias from ~/.ssh/config, user@host or ssh://user@host:port
+conch machine ls
+conch -m gpu-box status                # any command against a machine
+conch -m gpu-box task -cwd ~/src/api "Fix the flaky tests"</pre>
+<p>Or press <code>M</code> in the TUI. Adding a machine:</p>
+<ol>
+  <li><strong>Probes</strong> it over ssh (OS, CPU, an installed conch).</li>
+  <li><strong>Installs</strong> conch to <code>~/.local/bin/conch</code> there if it is missing or
+    older than your client — <code>machine add</code> asks first. For another platform (say a Linux
+    server from a Mac) conch cross-compiles itself from its source tree (found next to the binary,
+    or <code>CONCH_SOURCE</code>) with your Go toolchain, and caches the result in
+    <code>~/.config/conch/binaries/&lt;os&gt;-&lt;arch&gt;/</code> until you rebuild conch. A
+    released conch without source or Go downloads the matching release binary instead
+    (checksum-verified). Otherwise put a binary there or point <code>CONCH_REMOTE_BINARY</code> at
+    one.</li>
+  <li><strong>Connects</strong> through <code>conch bridge</code>, which starts the server there if
+    needed.</li>
+</ol>
+<p>conch runs the system <code>ssh</code> with a generated config that includes yours first (so
+your settings win) and adds keepalives and connection sharing. It stores no secrets;
+<code>machines.json</code> holds only an ID, label and ssh target. Background connections never
+prompt: if ssh needs a password or host-key answer, run <code>conch machine add</code> in a
+terminal once, or <code>ssh-add</code> your key.</p>
+<p>In the sidebar each machine shows its state: <code>●</code> online, <code>⠋</code> connecting,
+<code>○ offline</code> (its last-seen panes stay visible, dimmed, while conch retries with
+backoff), <code>! setup</code> (conch needs installing or upgrading — <code>m</code> → Install),
+<code>outdated</code> (the server there predates your client — <code>m</code> → Restart server,
+which stops its panes). <code>R</code> on a machine reconnects now; <code>x</code> removes it.</p>
+
+<h3 id="remote-claude">Claude Code on a machine</h3>
+<p>conch checks whether <code>claude</code> is installed on each machine (the machine view shows
+its version). If it isn't, <code>c</code> offers to install it, or press <code>C</code> (also in
+the machine menu, or <code>conch -m NAME agent install claude</code>). conch runs Anthropic's
+official installer (<code>curl -fsSL https://claude.ai/install.sh | bash</code>) in a pane you can
+watch; it installs <code>~/.local/bin/claude</code> for your user, no root. Then <code>c</code>
+starts Claude there: on first run it asks you to log in — open the link it shows on any computer
+and paste the code back. conch never copies credentials between machines; for unattended machines
+Claude also accepts <code>ANTHROPIC_API_KEY</code> or a <code>CLAUDE_CODE_OAUTH_TOKEN</code> from
+<code>claude setup-token</code>. Alpine needs <code>apk add bash curl libgcc libstdc++ ripgrep</code>
+(as root) first.</p>
+
+<h2 id="scrollback">Scrollback and copying</h2>
+<p>The wheel over a pane scrolls back through its history (10,000 lines); the view stays on the
+same text while output continues, and typing returns to the live screen. <code>ctrl+b [</code> (or
+<code>ctrl+b pgup</code>) enters scroll mode with a cursor: <code>↑↓←→</code>/<code>hjkl</code>
+move it (scrolling at the edges), <code>0</code>/<code>$</code> line start/end,
+<code>pgup</code>/<code>pgdn</code> page, <code>g</code> oldest line, <code>v</code> starts a
+selection and <code>y</code> (or enter) copies it; any other key returns to live.</p>
+<p>Drag across a pane to select and copy; double-click copies a word. Copies use OSC 52 (works over
+SSH) plus <code>pbcopy</code>/<code>wl-copy</code>/<code>xclip</code> locally. <code>y</code>
+copies a branch name or directory in the tree, a file path or the whole diff in the changes view.
+Programs that use the mouse themselves (vim, htop) still get the mouse; full-screen programs get
+arrow keys from the wheel.</p>
+
+<h2 id="tasks">Tasks</h2>
+<p><code>t</code> on a project (or <code>conch task "PROMPT"</code>) creates a branch named from the
+prompt, checks it out into <code>&lt;repo&gt;.worktrees/&lt;branch&gt;</code>, and starts Claude
+with the prompt — every task isolated from the others. <code>c</code>/<code>n</code> on a branch
+that isn't checked out creates its worktree first. <code>x</code> on a branch removes its worktree
+(never with uncommitted changes, never the main one).</p>
+
+<h3 id="local-files">Local files in worktrees</h3>
+<p>A fresh worktree has only what git tracks, so an agent there would miss your <code>.env</code>
+or personal agent settings. When conch creates a worktree it copies the main checkout's
+<strong>gitignored</strong> files that match the project's patterns — by default
+<code>.env</code>, <code>.env.*</code>, <code>.envrc</code>, <code>.claude/settings.local.json</code>,
+<code>CLAUDE.local.md</code>, <code>.mcp.json</code>, <code>AGENTS.override.md</code> and
+<code>.gemini/.env</code>. Untracked files git doesn't ignore are never copied, so an agent can't
+commit them on the task's branch by accident; the setup view lists them instead.</p>
+<p><code>F</code> on a project (or <code>conch project files ID PATTERN...</code>,
+<code>-reset</code>, <code>-none</code>) changes the patterns, which are git globs. Existing files
+in a worktree are never overwritten.</p>
+
+<h2 id="agent-setup">Agent setup</h2>
+<p><code>i</code> on a project, branch or pane shows what each agent loads there, read from the
+agents' own configuration (conch only reads it):</p>
+<ul>
+  <li><strong>Instructions</strong> — <code>CLAUDE.md</code>, <code>AGENTS.md</code>,
+    <code>GEMINI.md</code> and friends, from your home and every folder the agent reads them from</li>
+  <li><strong>Skills</strong> — <code>~/.claude/skills</code>, <code>.agents/skills</code> (Codex,
+    Gemini, OpenCode), <code>.gemini/skills</code>, <code>.opencode/skills</code>, plugin skills</li>
+  <li><strong>Commands and subagents</strong>, <strong>MCP servers</strong> (names and transport only
+    — never commands, URLs or secrets), <strong>plugins and extensions</strong></li>
+  <li><strong>Added by conch</strong> — the hooks or plugin conch injects for state tracking</li>
+  <li>Warnings, e.g. a folder Claude or Codex hasn't trusted yet</li>
+</ul>
+<p>In a worktree it also compares with the main checkout: local files that are missing
+(<code>c</code> copies them) and setup that only the main checkout has, such as Claude MCP servers
+registered for that folder or an uncommitted <code>.mcp.json</code>.
+<code>conch agent setup [-agent NAME] [-copy] [-json] [DIR]</code> prints the same.</p>
+
+<h2 id="keys">Keys</h2>
+<div class="table"><table>
+  <tr><th>Where</th><th>Keys</th></tr>
+  <tr><td>Tree</td><td><code>↑↓</code> <code>jk</code> move · <code>←→</code> <code>hl</code> fold · <code>space</code> toggle · <code>enter</code> open pane / view changes · <code>/</code> filter · <code>!</code> next agent waiting for you · <code>o</code> open PR · <code>y</code> copy · <code>m</code> menu · <code>?</code> all keys · <code>q</code> detach</td></tr>
+  <tr><td>Create</td><td><code>t</code> task · <code>c</code> default agent here · <code>A</code> start or install any agent · <code>n</code> terminal here · <code>a</code> add project · <code>M</code> add machine · <code>r</code> rename · <code>x</code> close / remove · <code>R</code> refresh git and PRs, or reconnect a machine</td></tr>
+  <tr><td>Pane</td><td>everything goes to the program · <code>ctrl+b [</code> scroll history · <code>ctrl+b</code> then any key → tree · <code>ctrl+b z</code> zoom · <code>ctrl+b !</code> next waiting</td></tr>
+  <tr><td>Changes</td><td><code>↑↓</code> file · <code>enter</code> diff · <code>o</code> open PR · <code>y</code> copy path / diff · <code>esc</code> back</td></tr>
+</table></div>
+<p><strong>Mouse:</strong> click to select, click a selected folder (or its arrow) to fold,
+double-click to open, right-click for a context menu, wheel to scroll, drag the sidebar's edge to
+resize, click <code>⚑ N waiting</code> to jump. Clicks inside a pane go to programs that use the
+mouse. Hold shift (option in iTerm2) to select text with your terminal, or set
+<code>[ui] mouse = false</code>.</p>
+
+<h2 id="agents">Agents</h2>
+<div class="table"><table>
+  <tr><th>Agent</th><th>Launch</th><th>How conch knows its state</th><th>Install (no root)</th></tr>
+  <tr><td><strong>Claude Code</strong></td><td><code>claude --settings &lt;conch hooks&gt;</code></td><td>hooks, screen, token usage from the transcript</td><td><code>curl -fsSL https://claude.ai/install.sh | bash</code></td></tr>
+  <tr><td><strong>Codex</strong></td><td><code>codex</code></td><td>terminal title (<code>[ ! ] Action Required</code>, spinner) and screen ("Would you like to run the following command?")</td><td><code>curl -fsSL https://chatgpt.com/codex/install.sh | sh</code></td></tr>
+  <tr><td><strong>Gemini CLI</strong></td><td><code>gemini</code> with conch's hooks in a system-defaults settings file (merged with yours; Gemini runs hooks only in trusted folders)</td><td>hooks when trusted, title (<code>✋ Action Required</code>, <code>✦ Working…</code>, <code>◇ Ready</code>) and screen</td><td><code>npm install -g --prefix ~/.local @google/gemini-cli</code> (Node 20+)</td></tr>
+  <tr><td><strong>OpenCode</strong></td><td><code>opencode</code> with conch's plugin via <code>OPENCODE_CONFIG_CONTENT</code> (merged with your config)</td><td>plugin events (busy, idle, permission, question) and screen</td><td><code>curl -fsSL https://opencode.ai/install | bash</code></td></tr>
+</table></div>
+<p><code>c</code> (or clicking <strong>c agent</strong> in the status bar, or <strong>Start an
+agent…</strong> in the right-click menu) asks which agent to start at the selected place — a
+machine, project, branch or pane: every agent installed there is listed, the default (Settings →
+Agents) pre-selected, so <code>c</code> <code>enter</code> starts it. Missing agents can be
+installed from the same list. <code>t</code> tasks use the default agent unless the task dialog's
+Agent field (or <code>conch task -agent NAME</code>) names another. conch never edits an agent's
+own configuration or answers its trust prompts for you.</p>
+
+<h2 id="sessions">Sessions</h2>
+<p>Every project has a <strong>Sessions</strong> section in the tree. Select it to list, on the
+right, the conversations agents saved for the project and its worktrees — Claude Code, Codex,
+Gemini CLI and OpenCode — newest first, with the agent, title, branch and age:</p>
+<pre>Sessions · api                                  enter resume · a agent · R reload
+4 saved · all agents · ⚠ 1 interrupted (I resumes all, x dismisses)
+
+▸ ⚠ Claude Code  Fix the flaky login test          fix-login · interrupted · 2h
+  ● Codex        Add rate limiting                         rate-limit · open · 5m
+  · OpenCode     Refactor config                                      main · 1d
+  · Gemini CLI   Explain the auth flow                                main · 3d</pre>
+<p><code>enter</code> (or a click on the selected row) resumes a session in its folder with the
+agent's own resume option (<code>claude --resume</code>, <code>codex resume</code>,
+<code>gemini --resume</code>, <code>opencode --session</code>); <code>●</code> sessions are already
+open and <code>enter</code> shows their pane. <code>a</code> filters by agent.</p>
+<p><strong>Interrupted runs.</strong> conch remembers which agents are running. When its server
+stops — <code>conch server stop</code>, a crash, a reboot — those agents are marked
+<code>⚠ interrupted</code> in Sessions (and counted in the tree) for a week. <code>I</code> resumes
+all of them, <code>x</code> dismisses one.</p>
+<p>conch reads the agents' own session stores and never changes them; on remote machines the
+server there lists its sessions.</p>
+
+<h2 id="brain">Brain</h2>
+<p>Press <code>:</code> (or click <strong>✦ Ask</strong>) and say what you want in plain words:</p>
+<ul>
+  <li><em>"start 3 agents on api: fix the flaky login test, add rate limiting, update the README"</em>
+    — split into tasks, each on its own branch and worktree with a self-contained prompt</li>
+  <li><em>"tell the agent on fix-login to also cover the logout path"</em> — a message typed into
+    that agent</li>
+  <li><em>"what is waiting for me?"</em> — an answer, no actions</li>
+</ul>
+<p>The brain sees every connected machine, its projects, branches and agents (with their states
+and summaries) and proposes a plan. Each action is listed with a checkbox; invalid ones (an unknown
+project, an agent that isn't installed, an offline machine) are marked and skipped.
+<strong>Nothing runs until you press enter.</strong> <code>conch ask [-y | -n] "…"</code> does the
+same from a shell.</p>
+<p><strong>Summaries.</strong> <code>S</code> on an agent asks for a one-line summary — what it is
+doing and what it needs from you — shown in its title bar and on the project page, and given to the
+planner. Settings → Brain → <em>Summarise agents</em> does this on its own whenever an agent
+finishes or starts waiting (a small model request each; the agent's visible screen is sent to the
+provider).</p>
+<p><strong>Providers</strong> (Settings → Brain, or <code>[brain]</code> in config.toml):</p>
+<div class="table"><table>
+  <tr><th>Provider</th><th>Uses</th><th>Default models</th></tr>
+  <tr><td><code>claude</code> <em>(default)</em></td><td>the Claude Code CLI headless (<code>claude -p</code>, no tools, MCP servers, settings or session history) with your existing Claude login</td><td>sonnet · haiku for summaries</td></tr>
+  <tr><td><code>anthropic</code></td><td>the API with <code>$ANTHROPIC_API_KEY</code></td><td>claude-sonnet-5 · claude-haiku-4-5</td></tr>
+  <tr><td><code>openai</code></td><td>any OpenAI-compatible endpoint: <code>base_url = "http://localhost:11434/v1"</code> for Ollama</td><td>set <code>model</code></td></tr>
+</table></div>
+<pre>[brain]
+provider = "claude"
+model = ""            # provider default
+summary_model = ""    # a small, fast model by default
+summaries = false     # automatic summaries</pre>
+<p>New providers implement <code>brain.Provider</code> (<code>Complete</code> with an optional JSON
+schema for structured output).</p>
+
+<h2 id="states">Agent states</h2>
+<div class="table"><table>
+  <tr><th>State</th><th>Meaning</th></tr>
+  <tr><td><code>⠋</code> working</td><td>the agent is busy</td></tr>
+  <tr><td><code>!</code> waiting</td><td>blocked on you: a permission, trust or other question</td></tr>
+  <tr><td><code>✓</code> done</td><td>finished while you were looking elsewhere</td></tr>
+  <tr><td><code>○</code> idle</td><td>waiting for a prompt</td></tr>
+</table></div>
+<p>A desktop notification fires when an agent you aren't viewing needs you. How the state is
+decided, most reliable first:</p>
+<ol>
+  <li><strong>Hooks.</strong> Claude panes started by conch get
+    <code>--settings ~/.config/conch/claude-settings.json</code>, adding hooks that call
+    <code>conch report claude-hook</code>. Your own settings files are untouched and their hooks
+    still run.</li>
+  <li><strong>Screen rules.</strong> Regexes over the bottom of the screen (tolerant of line
+    wrapping), e.g. "Do you want to proceed?" → waiting. Also covers <code>claude</code> started by
+    hand. Override <code>internal/detect/manifests/claude.toml</code> by copying it to
+    <code>~/.config/conch/agents/claude.toml</code>.</li>
+  <li><strong>Foreground process.</strong> A pane is only an agent while the agent is the terminal's
+    foreground process.</li>
+</ol>
+<p><code>conch agent explain p1</code> shows the evidence behind a state.</p>
+<p>Agent panes show token usage in their title — <code>ctx 45k/200k · out 12k · $0.42</code>:</p>
+<ul>
+  <li><strong>ctx</strong> — how much of the model's context window the conversation fills right
+    now (the input of the latest request), out of the window's size when the agent reports it. When
+    it nears the size, the agent compacts or forgets.</li>
+  <li><strong>out</strong> — output tokens the agent has generated in this session so far.</li>
+  <li><strong>$</strong> — the session's cost, only when the agent reports one.</li>
+</ul>
+<p>conch reads these from each agent's own session data and never estimates prices:</p>
+<div class="table"><table>
+  <tr><th>Agent</th><th>Usage from</th><th>Cost</th></tr>
+  <tr><td>Claude Code</td><td>the transcript the hooks point at</td><td>when the transcript records it</td></tr>
+  <tr><td>Codex</td><td>the session's rollout file (found by folder and start time)</td><td>—</td></tr>
+  <tr><td>OpenCode</td><td>its session database (via <code>sqlite3</code>)</td><td>yes</td></tr>
+</table></div>
+<p>A machine's page totals the usage of its running agents.</p>
+<p><strong>Plan limits.</strong> For Claude subscriptions the status bar shows the current windows,
+e.g. <code>Claude 5h 42% · 7d 18%</code> (amber from 70%, red from 90%); click it for reset times.
+The machine page draws them as bars with when each window resets. Claude shares these only with its
+status line, so conch adds a status line command to its <code>--settings</code> that records them
+and then runs your own status line unchanged. Codex's windows are read from its session files when
+its login has them. API-key logins have no plan windows.</p>
+
+<h2 id="scripting">Scripting</h2>
+<pre>conch task -cwd ~/src/api "Add a health check endpoint"   # pane, worktree, branch
+conch new -agent claude -cwd ~/src/api                   # Claude in the repo
+conch send p1 "fix the failing tests" &amp;&amp; conch send -keys p1 enter
+conch read p1                          # visible screen as text
+conch status                           # panes with agent state
+conch project ls                       # projects, base, worktrees
+conch close p1
+conch server reload                    # run a new build; panes keep running
+conch server stop                     # stops the server and all panes</pre>
+
+<h2 id="files">Files</h2>
+<p>Everything lives in <code>~/.config/conch</code> (override with <code>CONCH_HOME</code>):
+<code>conch.sock</code> (override with <code>CONCH_SOCKET</code>), <code>server.log</code>,
+<code>projects.json</code>, <code>claude-settings.json</code>, <code>ui.json</code> (fold state),
+<code>machines.json</code>, <code>ssh/config</code> (generated),
+<code>binaries/&lt;os&gt;-&lt;arch&gt;/conch</code> (for other platforms),
+<code>config.toml</code>:</p>
+<pre>[keys]
+prefix = "ctrl+b"
+
+[pane]
+default_command = ""   # empty = $SHELL
+
+[notify]
+enabled = true
+desktop = true   # macOS notification / notify-send
+sound = false    # system sound
+bell = false     # terminal beep
+waiting = true   # when an agent needs an answer
+done = true      # when an agent finishes
+
+[ui]
+mouse = true
+theme = "conch"  # conch, dracula, catppuccin, nord, gruvbox, tokyo-night
+accent = ""      # override: teal, blue, green, orange, pink, red, gray, purple or "#rrggbb"
+
+[shell]
+omz_theme = ""   # Oh My Zsh theme for new zsh terminals; "" keeps .zshrc's
+
+[agents]
+default = "claude"  # what c starts: claude, codex, gemini, opencode</pre>
+
+<h2 id="protocol">Protocol</h2>
+<p>One JSON object per line. Requests <code>{"id","method","params"}</code> get
+<code>{"id","result"}</code> or <code>{"id","error":{"code","message"}}</code>; requests without an
+<code>id</code> are notifications. The server pushes <code>{"event","data"}</code>:
+<code>pane.created</code>, <code>pane.exited</code>, <code>pane.closed</code>,
+<code>pane.updated</code>, <code>pane.frame</code> (subscribed panes), <code>project.updated</code>,
+<code>project.removed</code>.</p>
+<p>Over SSH the same stream runs through <code>conch bridge</code>. <code>hello</code> returns the
+server's version, build, platform, hostname, home and capabilities; clients use capabilities to
+detect servers from older builds.</p>
+<p>Methods: <code>hello</code>, <code>ping</code>, <code>server.stop</code>; <code>pane.list</code>,
+<code>pane.create</code>, <code>pane.close</code>, <code>pane.resize</code>,
+<code>pane.send_text</code>, <code>pane.send_keys</code>, <code>pane.send_mouse</code>,
+<code>pane.scroll</code>, <code>pane.read</code>, <code>pane.rename</code>,
+<code>pane.subscribe</code>, <code>pane.unsubscribe</code>, <code>pane.mark_seen</code>;
+<code>agent.report</code>, <code>agent.explain</code>; <code>project.list</code>,
+<code>project.add</code>, <code>project.remove</code>, <code>project.refresh</code>,
+<code>project.changes</code>, <code>project.diff</code>, <code>project.create</code>;
+<code>fs.list</code>, <code>fs.mkdir</code>; <code>shell.themes</code>; <code>agent.status</code>,
+<code>agent.install</code>; <code>worktree.add</code>, <code>worktree.remove</code>;
+<code>task.create</code>.</p>
+
+<h2 id="layout">Source layout</h2>
+<pre>cmd/conch          CLI entry point and subcommands
+internal/proto     NDJSON protocol: requests, responses, events, handshake
+internal/server    daemon: panes, projects and git refresh, unix socket
+internal/gitx      git plumbing: worktrees, branches, status, changes, diffs
+internal/ghx       pull requests via the gh CLI
+internal/remote    ssh machines: probe, install, bridge, machine catalog
+internal/buildinfo build identity for comparing binaries across machines
+internal/pane      PTY + VT emulator per pane, keys, mouse, title scanning
+internal/detect    agent detection: foreground process, screen manifests, state tracker
+internal/adapter   agent launchers (Claude Code with hooks), title cleanup
+internal/client    socket client, server auto-start
+internal/tui       Bubble Tea UI: tree, changes view, overlays, mouse
+internal/config    paths and config.toml</pre>
+</main>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>conch · Apache License 2.0</span>
+    <span><a href="./">Home</a> · <a href="https://github.com/Amitgb14/conch/releases">Releases</a> · <a href="https://github.com/Amitgb14/conch">GitHub</a></span>
+  </div>
+</footer>
+</body>
+</html>
