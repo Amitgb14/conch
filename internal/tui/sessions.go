@@ -106,7 +106,7 @@ func (m *Model) resumeSession(mid, pid string, s proto.SessionInfo) tea.Cmd {
 	return m.callOn(mid, proto.MethodSessionResume, ref, &info, func() tea.Msg {
 		return tea.BatchMsg{
 			func() tea.Msg {
-				return createdMsg{machine: mid, info: info, note: "resumed " + agentLabel(s.Agent) + " session"}
+				return createdMsg{machine: mid, info: info}
 			},
 			func() tea.Msg { return sessionsStaleMsg{key: key} },
 		}

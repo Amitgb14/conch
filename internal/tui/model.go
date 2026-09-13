@@ -82,6 +82,8 @@ type Model struct {
 
 	flash      string
 	flashIsErr bool
+	flashUntil time.Time
+	flashTimer bool // a flashExpiredMsg is on its way
 
 	spin    int
 	ticking bool
@@ -184,7 +186,7 @@ func (m Model) offlineText(mid string) string {
 }
 
 // Update handles messages.
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -668,8 +670,38 @@ func (m *Model) scrollPane(delta int) {
 	c.Notify(proto.MethodPaneScroll, proto.PaneScrollParams{ID: m.viewing, Offset: next})
 }
 
+// setFlash shows a message in the status bar for a few seconds (errors a
+// little longer).
 func (m *Model) setFlash(s string, isErr bool) {
 	m.flash, m.flashIsErr = s, isErr
+	d := flashFor
+	if isErr {
+		d = 2 * flashFor
+	}
+	m.flashUntil = time.Now().Add(d)
+}
+
+const flashFor = 4 * time.Second
+
+type flashExpiredMsg struct{}
+
+// Update handles a message, then schedules clearing the status bar message
+// when one is showing.
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(flashExpiredMsg); ok {
+		m.flashTimer = false
+		if m.flash != "" && !time.Now().Before(m.flashUntil) {
+			m.flash = ""
+		}
+	}
+	next, cmd := m.update(msg)
+	nm := next.(Model)
+	if nm.flash != "" && !nm.flashTimer {
+		nm.flashTimer = true
+		wait := max(time.Until(nm.flashUntil), 100*time.Millisecond)
+		cmd = tea.Batch(cmd, tea.Tick(wait, func(time.Time) tea.Msg { return flashExpiredMsg{} }))
+	}
+	return nm, cmd
 }
 
 func (m Model) machine(id string) *machine {

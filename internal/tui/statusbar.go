@@ -138,14 +138,26 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 	return chip, items
 }
 
-func (m Model) statusRightItems() []statusItem {
+// Right side levels: the bar gives up right-side detail, step by step, so
+// the mode's key hints stay visible on narrow terminals.
+const (
+	rightFull      = iota
+	rightNoVersion // and a shorter message
+	rightNoExtras  // no plan limits or quiet-hours label
+	rightIcons     // ✦ and ⚙ without words
+	rightMinimal   // no message either
+)
+
+func (m Model) statusRightItems(level int) []statusItem {
 	var items []statusItem
 	if n := m.inboxCount(); n > 0 {
 		items = append(items, statusItem{text: styleWarn.Render(fmt.Sprintf("⚑ %d waiting", n)),
 			act: func(m *Model) tea.Cmd { return m.jumpToAttention() }})
 	}
-	items = append(items, m.statusLimits(time.Now())...)
-	if label := m.silenceLabel(time.Now()); label != "" {
+	if level < rightNoExtras {
+		items = append(items, m.statusLimits(time.Now())...)
+	}
+	if label := m.silenceLabel(time.Now()); label != "" && level < rightNoExtras {
 		items = append(items, statusItem{text: styleMuted.Render(label), act: func(m *Model) tea.Cmd {
 			if time.Now().Before(m.snoozeUntil) {
 				m.snoozeUntil = time.Time{}
@@ -159,27 +171,32 @@ func (m Model) statusRightItems() []statusItem {
 			return nil
 		}})
 	}
+	msgW := max(m.width/2, 10)
+	if level >= rightNoVersion {
+		msgW = max(m.width/4, 12)
+	}
 	switch {
+	case level >= rightMinimal:
 	case m.flash != "":
 		style := styleOK
 		if m.flashIsErr {
 			style = styleErr
 		}
-		items = append(items, statusItem{text: style.Render(ansi.Truncate(m.flash, max(m.width/2, 10), "…"))})
+		items = append(items, statusItem{text: style.Render(ansi.Truncate(m.flash, msgW, "…"))})
 	case m.machines[0].warning != "":
-		items = append(items, statusItem{text: styleErr.Render(m.machines[0].warning)})
+		items = append(items, statusItem{text: styleErr.Render(ansi.Truncate(m.machines[0].warning, msgW, "…"))})
 	}
-	items = append(items, statusItem{text: styleAccent.Render("✦ Ask"), act: func(m *Model) tea.Cmd { return m.openAsk() }})
-	label := " ⚙ Settings "
-	if m.width < 90 {
-		label = " ⚙ "
+	ask, label := "✦ Ask", " ⚙ Settings "
+	if level >= rightIcons {
+		ask, label = "✦", " ⚙ "
 	}
+	items = append(items, statusItem{text: styleAccent.Render(ask), act: func(m *Model) tea.Cmd { return m.openAsk() }})
 	items = append(items, statusItem{text: styleSel.Render(label), act: func(m *Model) tea.Cmd {
 		s, cmd := newSettings(m)
 		m.overlay = s
 		return cmd
 	}})
-	if m.width >= 100 {
+	if level < rightNoVersion {
 		style := styleMuted
 		if m.serverBehind() {
 			style = styleWarn // details say the server needs a restart
@@ -260,16 +277,27 @@ func (v versionInfo) render(m Model) box {
 // stays clickable.
 func (m Model) layoutStatus() (string, []statusHit) {
 	chip, hints := m.statusHints()
-	right := m.statusRightItems()
 	const sep = "  "
-
-	rightW := 0
-	for i, it := range right {
-		if i > 0 {
-			rightW += len(sep)
+	width := func(items []statusItem) int {
+		w := 0
+		for i, it := range items {
+			if i > 0 {
+				w += len(sep)
+			}
+			w += ansi.StringWidth(it.text)
 		}
-		rightW += ansi.StringWidth(it.text)
+		return w
 	}
+	// Keep at least the first few hints: shed right-side detail until they
+	// fit (or there is nothing left to shed).
+	want := hints[:min(len(hints), 4)]
+	need := ansi.StringWidth(chip) + width(want) + len(sep)*len(want) + 1
+	right := m.statusRightItems(rightFull)
+	for level := rightFull + 1; need+width(right) > m.width && level <= rightMinimal; level++ {
+		right = m.statusRightItems(level)
+	}
+	rightW := width(right)
+
 	var b strings.Builder
 	var hits []statusHit
 	b.WriteString(chip)

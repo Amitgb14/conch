@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/charmbracelet/x/ansi"
 	"strings"
 	"testing"
@@ -102,6 +103,52 @@ func TestVersionInStatusBar(t *testing.T) {
 	for _, want := range []string{"Version", "Build", "Platform", "Server"} {
 		if !strings.Contains(box, want) {
 			t.Fatalf("details lack %s:\n%s", want, box)
+		}
+	}
+}
+
+func TestNarrowStatusKeepsHints(t *testing.T) {
+	m := Model{width: 90, machines: []*machine{{id: localMachine, label: "local", state: stateOnline}}, brain: newBrainState()}
+	m.setFlash("a long message that would otherwise take half of the bar away", false)
+	line, _ := m.layoutStatus()
+	plain := ansi.Strip(line)
+	if !strings.Contains(plain, "a project") || !strings.Contains(plain, "c agent") || !strings.Contains(plain, "⚙") {
+		t.Fatalf("hints or settings missing at 90 columns: %q", plain)
+	}
+	if strings.Contains(plain, versionLabel()) {
+		t.Fatalf("the version should give way first: %q", plain)
+	}
+	if w := ansi.StringWidth(line); w != 90 {
+		t.Fatalf("bar width %d", w)
+	}
+}
+
+func TestFlashExpires(t *testing.T) {
+	m := Model{width: 120, machines: []*machine{{id: localMachine, label: "local"}}, brain: newBrainState()}
+	m.setFlash("hello", false)
+	next, cmd := m.Update(flashExpiredMsg{})
+	if cmd == nil || next.(Model).flash != "hello" {
+		t.Fatal("an unexpired message stays and a clear is scheduled")
+	}
+	nm := next.(Model)
+	nm.flashUntil = time.Now().Add(-time.Second)
+	next, _ = nm.Update(flashExpiredMsg{})
+	if next.(Model).flash != "" {
+		t.Fatal("an expired message is cleared")
+	}
+}
+
+func TestNarrowPaneHints(t *testing.T) {
+	m := Model{width: 100, focus: focusMain, cfg: config.Default(), brain: newBrainState(),
+		machines: []*machine{{id: localMachine, label: "local", state: stateOnline,
+			panes: []proto.PaneInfo{{ID: "p1", Name: "claude", State: proto.PaneRunning}}}}}
+	m.rows = []row{{id: "pane:p1", kind: kindPane, machine: localMachine, paneID: "p1"}}
+	m.cursor = "pane:p1"
+	m.setFlash("worktree created with local files: .env, .claude/settings.local.json, CLAUDE.local.md", false)
+	plain := ansi.Strip(m.statusBar())
+	for _, want := range []string{"PANE", "ctrl+b tree", "ctrl+b v split", "ctrl+b - split down", "ctrl+b c tab"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("%q missing at 100 columns: %q", want, plain)
 		}
 	}
 }
