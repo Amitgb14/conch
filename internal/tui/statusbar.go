@@ -141,6 +141,7 @@ func (m Model) statusRightItems() []statusItem {
 		items = append(items, statusItem{text: styleWarn.Render(fmt.Sprintf("⚑ %d waiting", n)),
 			act: func(m *Model) tea.Cmd { return m.jumpToAttention() }})
 	}
+	items = append(items, m.statusLimits(time.Now())...)
 	if label := m.silenceLabel(time.Now()); label != "" {
 		items = append(items, statusItem{text: styleMuted.Render(label), act: func(m *Model) tea.Cmd {
 			if time.Now().Before(m.snoozeUntil) {

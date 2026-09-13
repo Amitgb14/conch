@@ -42,6 +42,9 @@ type Server struct {
 	projects  *projectManager
 	runs      *runLog // agents running in panes, for resuming after a restart
 
+	limitsMu sync.Mutex
+	limits   map[string]proto.PlanLimits // by agent
+
 	mu      sync.Mutex
 	ln      net.Listener
 	panes   map[string]*entry
@@ -580,6 +583,9 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		s.observe(e) // explain the current screen, not the last tick's
 		return e.explain(), nil
+
+	case proto.MethodAgentLimits:
+		return s.allLimits(), nil
 
 	case proto.MethodSessionList:
 		lp, perr := decode[proto.SessionListParams](msg)

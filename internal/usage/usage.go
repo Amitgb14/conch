@@ -19,6 +19,8 @@ type Tokens struct {
 	// CostUSD is the session's cost when the agent reports one; 0 otherwise
 	// (conch doesn't estimate prices).
 	CostUSD float64 `json:"cost_usd,omitempty"`
+	// ContextSize is the model's context window, when known.
+	ContextSize int `json:"context_size,omitempty"`
 }
 
 type counts struct {

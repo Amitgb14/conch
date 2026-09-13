@@ -481,7 +481,10 @@ func (m Model) leafTitle(l *leaf) string {
 // tokenSummary is a short usage label: context size and output so far.
 func tokenSummary(t *proto.Tokens) string {
 	parts := []string{}
-	if t.Context > 0 {
+	switch {
+	case t.Context > 0 && t.ContextSize > 0:
+		parts = append(parts, fmt.Sprintf("ctx %s/%s", humanCount(t.Context), humanCount(t.ContextSize)))
+	case t.Context > 0:
 		parts = append(parts, "ctx "+humanCount(t.Context))
 	}
 	parts = append(parts, "out "+humanCount(t.Output))
@@ -680,6 +683,7 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 			}
 			lines = append(lines, styleMuted.Render(u))
 		}
+		lines = append(lines, m.limitsLines(mach, cols)...)
 		if len(mach.agentList) > 0 {
 			var parts []string
 			for _, a := range mach.agentList {

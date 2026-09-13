@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1",
 }
 
 // Methods.
@@ -79,6 +79,7 @@ const (
 	MethodSessionList    = "session.list"
 	MethodSessionResume  = "session.resume"
 	MethodSessionDismiss = "session.dismiss"
+	MethodAgentLimits    = "agent.limits"
 )
 
 // Events.
@@ -93,6 +94,8 @@ const (
 	// EventProjectUpdated carries a ProjectInfo (added or git state changed).
 	EventProjectUpdated = "project.updated"
 	EventProjectRemoved = "project.removed"
+	// EventAgentLimits carries a PlanLimits that changed.
+	EventAgentLimits = "agent.limits"
 )
 
 // Error codes.
@@ -475,6 +478,30 @@ type Tokens struct {
 	Model      string `json:"model,omitempty"`
 	// CostUSD is set when the agent reports what the session cost.
 	CostUSD float64 `json:"cost_usd,omitempty"`
+	// ContextSize is the model's context window, when the agent reports it.
+	ContextSize int `json:"context_size,omitempty"`
+}
+
+// LimitWindow is one usage limit window of an agent's plan.
+type LimitWindow struct {
+	UsedPct  float64   `json:"used_pct"` // 0-100 (above 100 once exceeded)
+	ResetsAt time.Time `json:"resets_at,omitempty"`
+}
+
+// PlanLimits is how much of an agent account's plan limits is used, as the
+// agent last reported it: Claude's 5-hour and weekly windows, Codex's
+// primary and secondary windows, or a gateway spend limit.
+type PlanLimits struct {
+	Agent    string       `json:"agent"`
+	FiveHour *LimitWindow `json:"five_hour,omitempty"`
+	Week     *LimitWindow `json:"week,omitempty"`
+	Spend    *LimitWindow `json:"spend,omitempty"`
+	At       time.Time    `json:"at"` // when it was reported
+}
+
+// AgentLimitsResult is the result of agent.limits.
+type AgentLimitsResult struct {
+	Limits []PlanLimits `json:"limits"`
 }
 
 // NeedsAttention reports whether the agent is waiting on the user.
@@ -613,6 +640,10 @@ type AgentReportParams struct {
 	Message          string `json:"message,omitempty"`
 	SessionID        string `json:"session_id,omitempty"`
 	TranscriptPath   string `json:"transcript_path,omitempty"`
+	// From Claude's status line input: plan limits and the context window.
+	Limits      *PlanLimits `json:"limits,omitempty"`
+	ContextUsed int         `json:"context_used,omitempty"`
+	ContextSize int         `json:"context_size,omitempty"`
 }
 
 // PaneCreateParams creates a pane running Command in Cwd. When Agent names

@@ -172,6 +172,10 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 var refreshEvents = map[string]bool{"PostToolUse": true, "PostToolUseFailure": true, "Stop": true}
 
 func (s *Server) report(e *entry, rp proto.AgentReportParams) {
+	if rp.Event == "StatusLine" {
+		s.statusLine(e, rp)
+		return
+	}
 	e.evalMu.Lock()
 	defer e.evalMu.Unlock()
 	s.updateUsage(e, rp.TranscriptPath)
@@ -201,6 +205,9 @@ func (s *Server) updateUsage(e *entry, path string) {
 	}
 	pt := proto.Tokens(tok)
 	e.mu.Lock()
+	if e.tokens != nil && e.tokens.ContextSize > 0 {
+		pt.ContextSize = e.tokens.ContextSize // from the status line
+	}
 	e.tokens = &pt
 	e.mu.Unlock()
 }

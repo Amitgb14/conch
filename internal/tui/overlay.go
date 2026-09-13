@@ -596,6 +596,10 @@ var helpText = []string{
 	"     \"what is waiting for me?\" — it proposes actions; nothing runs until you confirm",
 	"  S  summarise the selected agent now (automatic summaries: Settings → Brain)",
 	"",
+	"Usage",
+	"  title bar: ctx = context in use / window size · out = tokens generated · $ = reported cost",
+	"  status bar: Claude 5h 42% · 7d 18% = plan limit windows (click for reset times)",
+	"",
 	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain",
 	"  q  detach (agents keep running)",
 }

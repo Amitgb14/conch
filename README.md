@@ -361,9 +361,15 @@ How the state is decided, most reliable first:
 
 `conch agent explain p1` shows the evidence behind a state.
 
-Agent panes show token usage in their title — `ctx 45k · out 12k · $0.42`
-(the latest request's context, output so far, and cost when the agent reports
-one). conch reads it from each agent's own session data and never estimates
+Agent panes show token usage in their title — `ctx 45k/200k · out 12k · $0.42`:
+
+- **ctx** — how much of the model's context window the conversation fills
+  right now (the input of the latest request), out of the window's size when
+  the agent reports it. When it nears the size, the agent compacts or forgets.
+- **out** — output tokens the agent has generated in this session so far.
+- **$** — the session's cost, only when the agent reports one.
+
+conch conch reads these from each agent's own session data and never estimates
 prices:
 
 | Agent | Usage from | Cost |
@@ -373,6 +379,14 @@ prices:
 | OpenCode | its session database (via `sqlite3`) | yes |
 
 A machine's page totals the usage of its running agents.
+
+**Plan limits.** For Claude subscriptions the status bar shows the current
+windows, e.g. `Claude 5h 42% · 7d 18%` (amber from 70%, red from 90%); click
+it for reset times. The machine page draws them as bars with when each window
+resets. Claude shares these only with its status line, so conch adds a status
+line command to its `--settings` that records them and then runs your own
+status line unchanged. Codex's windows are read from its session files when
+its login has them. API-key logins have no plan windows.
 
 ## Scripting
 

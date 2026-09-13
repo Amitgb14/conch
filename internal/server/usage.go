@@ -52,6 +52,9 @@ func (s *Server) pollUsage(e *entry) {
 	switch agent {
 	case "codex":
 		tok, err = src.rollout.Update()
+		if l := src.rollout.Limits(); l != nil {
+			s.setLimits(*l)
+		}
 	case "opencode":
 		tok, err = usage.OpenCodeSession(src.path, src.id)
 	}
@@ -79,4 +82,63 @@ func findSession(agent, dir string, since time.Time) *sessions.Session {
 		}
 	}
 	return best
+}
+
+// statusLine takes what Claude's status line reports: the context window
+// for the pane and the account's plan limits.
+func (s *Server) statusLine(e *entry, rp proto.AgentReportParams) {
+	if rp.ContextSize > 0 {
+		e.mu.Lock()
+		t := proto.Tokens{}
+		if e.tokens != nil {
+			t = *e.tokens
+		}
+		t.Context, t.ContextSize = rp.ContextUsed, rp.ContextSize
+		e.tokens = &t
+		e.mu.Unlock()
+	}
+	if rp.Limits != nil {
+		rp.Limits.Agent = rp.Agent
+		s.setLimits(*rp.Limits)
+	}
+	s.observe(e)
+}
+
+// setLimits records an agent's plan limits and tells clients when what
+// they show changed.
+func (s *Server) setLimits(l proto.PlanLimits) {
+	if l.FiveHour == nil && l.Week == nil && l.Spend == nil {
+		return
+	}
+	if l.At.IsZero() {
+		l.At = time.Now()
+	}
+	s.limitsMu.Lock()
+	if s.limits == nil {
+		s.limits = map[string]proto.PlanLimits{}
+	}
+	old, had := s.limits[l.Agent]
+	s.limits[l.Agent] = l
+	s.limitsMu.Unlock()
+	if had && sameWindow(old.FiveHour, l.FiveHour) && sameWindow(old.Week, l.Week) && sameWindow(old.Spend, l.Spend) {
+		return
+	}
+	s.broadcast(proto.EventAgentLimits, l)
+}
+
+func sameWindow(a, b *proto.LimitWindow) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return int(a.UsedPct) == int(b.UsedPct) && a.ResetsAt.Equal(b.ResetsAt)
+}
+
+func (s *Server) allLimits() proto.AgentLimitsResult {
+	s.limitsMu.Lock()
+	defer s.limitsMu.Unlock()
+	out := proto.AgentLimitsResult{Limits: []proto.PlanLimits{}}
+	for _, l := range s.limits {
+		out.Limits = append(out.Limits, l)
+	}
+	return out
 }

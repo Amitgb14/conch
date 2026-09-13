@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/charmbracelet/x/ansi"
 	"testing"
 	"time"
 
@@ -61,5 +62,23 @@ func TestTokenSummary(t *testing.T) {
 	}
 	if got := tokenSummary(&proto.Tokens{Output: 5, CostUSD: 0.001}); got != "out 5 · <$0.01" {
 		t.Fatalf("%q", got)
+	}
+}
+
+func TestLimitsDisplay(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.Local)
+	l := proto.PlanLimits{Agent: "claude",
+		FiveHour: &proto.LimitWindow{UsedPct: 41.7, ResetsAt: now.Add(2 * time.Hour)},
+		Week:     &proto.LimitWindow{UsedPct: 18, ResetsAt: now.Add(3 * 24 * time.Hour)},
+		Spend:    &proto.LimitWindow{UsedPct: 50, ResetsAt: now.Add(-time.Minute)}, // expired: hidden
+	}
+	if got := ansi.Strip(limitsChip(l, now)); got != "Claude 5h 42% · 7d 18%" {
+		t.Fatalf("chip %q", got)
+	}
+	if got := limitsDetail(l, now); got != "Claude Code: 5-hour 42% used, resets 14:00 · week 18% used, resets Wed 12:00" {
+		t.Fatalf("detail %q", got)
+	}
+	if got := tokenSummary(&proto.Tokens{Context: 45210, ContextSize: 200000, Output: 12000}); got != "ctx 45k/200k · out 12k" {
+		t.Fatalf("tokens %q", got)
 	}
 }

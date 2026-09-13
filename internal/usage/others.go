@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // CodexRollout follows a Codex session file (JSON lines) as it grows. Codex
@@ -18,7 +20,11 @@ type CodexRollout struct {
 	path   string
 	offset int64
 	tok    Tokens
+	limits *proto.PlanLimits
 }
+
+// Limits returns the plan limits the session last reported, if any.
+func (c *CodexRollout) Limits() *proto.PlanLimits { return c.limits }
 
 // NewCodexRollout follows the rollout file at path.
 func NewCodexRollout(path string) *CodexRollout { return &CodexRollout{path: path} }
@@ -60,9 +66,14 @@ func (c *CodexRollout) Update() (Tokens, error) {
 				Type  string `json:"type"`
 				Model string `json:"model"`
 				Info  *struct {
-					Total usage `json:"total_token_usage"`
-					Last  usage `json:"last_token_usage"`
+					Total  usage `json:"total_token_usage"`
+					Last   usage `json:"last_token_usage"`
+					Window int   `json:"model_context_window"`
 				} `json:"info"`
+				RateLimits *struct {
+					Primary   *codexWindow `json:"primary"`
+					Secondary *codexWindow `json:"secondary"`
+				} `json:"rate_limits"`
 			} `json:"payload"`
 		}
 		if json.Unmarshal(b, &l) != nil {
@@ -71,13 +82,42 @@ func (c *CodexRollout) Update() (Tokens, error) {
 		switch {
 		case l.Type == "turn_context" && l.Payload.Model != "":
 			c.tok.Model = l.Payload.Model
-		case l.Payload.Type == "token_count" && l.Payload.Info != nil:
-			t := l.Payload.Info.Total
-			c.tok.Input, c.tok.CacheRead, c.tok.Output = t.Input-t.Cached, t.Cached, t.Output
-			c.tok.Context = l.Payload.Info.Last.Input
+		case l.Payload.Type == "token_count":
+			if info := l.Payload.Info; info != nil {
+				t := info.Total
+				c.tok.Input, c.tok.CacheRead, c.tok.Output = t.Input-t.Cached, t.Cached, t.Output
+				c.tok.Context, c.tok.ContextSize = info.Last.Input, info.Window
+			}
+			if rl := l.Payload.RateLimits; rl != nil {
+				lim := &proto.PlanLimits{Agent: "codex", At: time.Now()}
+				for _, w := range []*codexWindow{rl.Primary, rl.Secondary} {
+					if w == nil {
+						continue
+					}
+					lw := &proto.LimitWindow{UsedPct: w.UsedPercent}
+					if w.ResetsAt > 0 {
+						lw.ResetsAt = time.Unix(w.ResetsAt, 0)
+					}
+					// Windows are told apart by length: hours or a week.
+					if w.WindowMinutes > 0 && w.WindowMinutes <= 24*60 {
+						lim.FiveHour = lw
+					} else {
+						lim.Week = lw
+					}
+				}
+				if lim.FiveHour != nil || lim.Week != nil {
+					c.limits = lim
+				}
+			}
 		}
 	}
 	return c.tok, nil
+}
+
+type codexWindow struct {
+	UsedPercent   float64 `json:"used_percent"`
+	WindowMinutes int     `json:"window_minutes"`
+	ResetsAt      int64   `json:"resets_at"`
 }
 
 // OpenCodeSession reads a session's usage from OpenCode's sqlite store

@@ -205,7 +205,11 @@ func newClaude(exe, dir string) (*cliAgent, error) {
 		hooks[ev] = []hookGroup{{Hooks: []hookCommand{{Type: "command", Command: ShellQuote(exe) + " report claude-hook", Timeout: 5}}}}
 	}
 	path := filepath.Join(dir, "claude-settings.json")
-	if err := writeJSON(path, map[string]any{"hooks": hooks}); err != nil {
+	// The status line is how Claude shares plan limits and the context
+	// window. conch's command reports them, then runs the user's own status
+	// line (if any) so it looks as before.
+	statusLine := map[string]any{"type": "command", "command": ShellQuote(exe) + " report claude-status"}
+	if err := writeJSON(path, map[string]any{"hooks": hooks, "statusLine": statusLine}); err != nil {
 		return nil, fmt.Errorf("write claude settings: %w", err)
 	}
 	return &cliAgent{

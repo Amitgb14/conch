@@ -247,6 +247,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.rebuild(), m.startTicking())
 
+	case limitsMsg:
+		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
+			for _, l := range msg.limits {
+				mach.setLimits(l)
+			}
+		}
+		return m, nil
+
 	case agentStatusMsg:
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
 			mach.available = map[string]proto.AgentAvailability{}
@@ -445,6 +453,13 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 			}
 		}
 		return tea.Batch(cmds...)
+
+	case proto.EventAgentLimits:
+		var l proto.PlanLimits
+		if decodeInto(msg, &l) {
+			mach.setLimits(l)
+		}
+		return nil
 
 	case proto.EventProjectRemoved:
 		var ref proto.ProjectRef

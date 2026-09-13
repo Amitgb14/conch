@@ -53,3 +53,15 @@ INSERT INTO session VALUES ('ses_1', 20438, 812, 1000, 0, 0.0259, '{"id":"grok-4
 		t.Fatal("table must survive the quoted id")
 	}
 }
+
+func TestCodexLimits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	os.WriteFile(path, []byte(`{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"output_tokens":1},"last_token_usage":{"input_tokens":10},"model_context_window":272000},"rate_limits":{"primary":{"used_percent":35.0,"window_minutes":300,"resets_at":1789340400},"secondary":{"used_percent":12.5,"window_minutes":10080,"resets_at":1789700000}}}}
+`), 0o644)
+	r := NewCodexRollout(path)
+	tok, _ := r.Update()
+	l := r.Limits()
+	if tok.ContextSize != 272000 || l == nil || l.FiveHour.UsedPct != 35 || l.Week.UsedPct != 12.5 || l.Week.ResetsAt.Unix() != 1789700000 {
+		t.Fatalf("%+v %+v", tok, l)
+	}
+}

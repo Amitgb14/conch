@@ -64,6 +64,8 @@ type machine struct {
 	agentList []proto.AgentAvailability // the same, in the server's order
 	// installers maps panes running an agent installer to the agent.
 	installers map[string]string
+	// limits are the plan limits agents there last reported, by agent.
+	limits map[string]proto.PlanLimits
 
 	// gen increases with every connection attempt; messages from older
 	// attempts are ignored.
@@ -103,6 +105,11 @@ type (
 		gen      int
 		projects []proto.ProjectInfo
 	}
+	limitsMsg struct {
+		machine string
+		gen     int
+		limits  []proto.PlanLimits
+	}
 	agentStatusMsg struct {
 		machine string
 		gen     int
@@ -129,6 +136,16 @@ func (mach *machine) listen() []tea.Cmd {
 	return []tea.Cmd{
 		mach.waitEvent(),
 		mach.checkAgents(),
+		func() tea.Msg {
+			if len(c.MissingCapabilities([]string{"agent.limits.v1"})) > 0 {
+				return nil
+			}
+			var res proto.AgentLimitsResult
+			if err := callCtx(c, proto.MethodAgentLimits, nil, &res); err != nil {
+				return nil
+			}
+			return limitsMsg{machine: id, gen: gen, limits: res.Limits}
+		},
 		func() tea.Msg {
 			var list proto.PaneList
 			if err := callCtx(c, proto.MethodPaneList, nil, &list); err != nil {
