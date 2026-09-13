@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amitghadge/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/config"
 )
 
 // Machine is a saved remote machine. It holds no secrets: authentication is

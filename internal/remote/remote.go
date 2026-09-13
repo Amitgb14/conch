@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amitghadge/conch/internal/buildinfo"
-	"github.com/amitghadge/conch/internal/client"
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/buildinfo"
+	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // Probe is what a machine reported about itself.

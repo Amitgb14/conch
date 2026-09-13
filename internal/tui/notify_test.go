@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 func TestNextAttention(t *testing.T) {

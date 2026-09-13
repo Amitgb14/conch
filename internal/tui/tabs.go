@@ -6,7 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // paneKey identifies a pane across machines.

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amitghadge/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/config"
 )
 
 // sshBinary is the ssh client; $CONCH_SSH overrides it.

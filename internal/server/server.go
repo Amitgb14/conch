@@ -19,13 +19,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/amitghadge/conch/internal/adapter"
-	"github.com/amitghadge/conch/internal/buildinfo"
-	"github.com/amitghadge/conch/internal/config"
-	"github.com/amitghadge/conch/internal/detect"
-	"github.com/amitghadge/conch/internal/gitx"
-	"github.com/amitghadge/conch/internal/pane"
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/adapter"
+	"github.com/Amitgb14/conch/internal/buildinfo"
+	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/detect"
+	"github.com/Amitgb14/conch/internal/gitx"
+	"github.com/Amitgb14/conch/internal/pane"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // frameInterval caps how often frames are pushed per subscription.

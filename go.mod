@@ -1,4 +1,4 @@
-module github.com/amitghadge/conch
+module github.com/Amitgb14/conch
 
 go 1.25.2
 

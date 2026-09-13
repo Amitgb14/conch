@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 var treeNow = time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)

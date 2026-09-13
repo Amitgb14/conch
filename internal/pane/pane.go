@@ -19,9 +19,9 @@ import (
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
 
-	"github.com/amitghadge/conch/internal/config"
-	"github.com/amitghadge/conch/internal/detect"
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/detect"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // Options configures a new pane.

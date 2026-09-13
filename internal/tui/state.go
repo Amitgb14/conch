@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/amitghadge/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/config"
 )
 
 // uiState is what the TUI remembers between runs.

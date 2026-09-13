@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/amitghadge/conch/internal/gitx"
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/gitx"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // maxListEntries bounds a folder listing; huge folders are rarely where

@@ -5,11 +5,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amitghadge/conch/internal/adapter"
-	"github.com/amitghadge/conch/internal/detect"
-	"github.com/amitghadge/conch/internal/pane"
-	"github.com/amitghadge/conch/internal/proto"
-	"github.com/amitghadge/conch/internal/usage"
+	"github.com/Amitgb14/conch/internal/adapter"
+	"github.com/Amitgb14/conch/internal/detect"
+	"github.com/Amitgb14/conch/internal/pane"
+	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/usage"
 )
 
 // detectInterval is how often each pane's agent status, title and branch

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 func runProject(args []string) error {

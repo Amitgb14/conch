@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/amitghadge/conch/internal/client"
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // forwardKey sends a keypress to a pane. Printable input goes as text; every

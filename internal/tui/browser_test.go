@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 func TestBrowserRowsAndSelection(t *testing.T) {

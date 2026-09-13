@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amitghadge/conch/internal/client"
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 func runAgent(args []string) error {

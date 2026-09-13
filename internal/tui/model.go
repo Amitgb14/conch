@@ -11,10 +11,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/amitghadge/conch/internal/client"
-	"github.com/amitghadge/conch/internal/config"
-	"github.com/amitghadge/conch/internal/proto"
-	"github.com/amitghadge/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
 )
 
 type focusArea int

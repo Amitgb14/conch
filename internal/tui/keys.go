@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/amitghadge/conch/internal/proto"
-	"github.com/amitghadge/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
 )
 
 func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 func startShell(t *testing.T) *Pane {

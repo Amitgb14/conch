@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 var (

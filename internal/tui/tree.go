@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // Node kinds in the sidebar tree.

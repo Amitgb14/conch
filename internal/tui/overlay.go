@@ -9,9 +9,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/amitghadge/conch/internal/gitx"
-	"github.com/amitghadge/conch/internal/proto"
-	"github.com/amitghadge/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/gitx"
+	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
 )
 
 // overlay is a menu or dialog drawn over the screen that takes all input.

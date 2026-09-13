@@ -18,12 +18,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/amitghadge/conch/internal/adapter"
-	"github.com/amitghadge/conch/internal/client"
-	"github.com/amitghadge/conch/internal/config"
-	"github.com/amitghadge/conch/internal/proto"
-	"github.com/amitghadge/conch/internal/server"
-	"github.com/amitghadge/conch/internal/tui"
+	"github.com/Amitgb14/conch/internal/adapter"
+	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/server"
+	"github.com/Amitgb14/conch/internal/tui"
 )
 
 const usage = `conch — terminal orchestrator for AI coding agents
@@ -51,6 +51,7 @@ Usage:
                                 add a remote machine (installs conch there)
   conch machine ls | rm ID | upgrade ID | hosts
   conch -m MACHINE COMMAND      run a command against a remote machine
+  conch update [VERSION]        replace this binary with the latest (or given) release
   conch version [--json]        print version
 `
 
@@ -93,6 +94,8 @@ func main() {
 		err = runMachine(args)
 	case "bridge":
 		err = runBridge()
+	case "update":
+		err = runUpdate(args)
 	case "version", "--version", "-v":
 		runVersion(args)
 	case "help", "--help", "-h":

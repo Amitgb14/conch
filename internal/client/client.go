@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/amitghadge/conch/internal/config"
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // Client is a connection to one conch server.

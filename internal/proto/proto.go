@@ -11,12 +11,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 )
 
-// Version is the conch release version.
-const Version = "0.1.0-dev"
+// Version is the conch release version, set at release time with
+// -ldflags "-X github.com/Amitgb14/conch/internal/proto.Version=0.2.0".
+var Version = "0.1.0-dev"
+
+// IsRelease reports whether Version names a published release rather than a
+// development build.
+func IsRelease() bool { return Version != "" && !strings.Contains(Version, "dev") }
 
 // ProtocolVersion is bumped on incompatible wire changes. Additive changes
 // are advertised through Capabilities instead.

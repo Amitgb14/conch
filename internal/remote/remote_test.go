@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 func TestParseProbe(t *testing.T) {

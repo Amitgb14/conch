@@ -13,11 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amitghadge/conch/internal/buildinfo"
-	"github.com/amitghadge/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/buildinfo"
+	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
-const modulePath = "github.com/amitghadge/conch"
+const modulePath = "github.com/Amitgb14/conch"
 
 // buildMu serialises cross-builds: several machines of the same platform
 // may connect at once.
@@ -88,15 +89,25 @@ func crossBuild(ctx context.Context, platform string, say func(string)) (string,
 	}
 
 	src := SourceDir()
-	_, goErr := exec.LookPath("go")
-	if (src == "" || goErr != nil) && exists(out) {
-		return out, nil // a binary put there by hand; nothing to rebuild it from
+	goBin, goErr := exec.LookPath("go")
+	if src == "" || goErr != nil {
+		// No way to build: a release binary of this version, else one put
+		// there by hand.
+		if proto.IsRelease() {
+			if bin, err := downloadRelease(ctx, platform, say); err == nil {
+				return bin, nil
+			} else if !exists(out) {
+				return "", err
+			}
+		}
+		if exists(out) {
+			return out, nil
+		}
 	}
 	if src == "" {
 		return "", fmt.Errorf("no conch binary for %s and no conch source tree to build one from (set CONCH_SOURCE, or CONCH_REMOTE_BINARY to a binary)", platform)
 	}
-	goBin, err := exec.LookPath("go")
-	if err != nil {
+	if goErr != nil {
 		return "", fmt.Errorf("no conch binary for %s: building one needs the Go toolchain (found source at %s)", platform, src)
 	}
 	osName, arch, _ := strings.Cut(platform, "/")
@@ -108,7 +119,7 @@ func crossBuild(ctx context.Context, platform string, say func(string)) (string,
 	tmp := out + ".tmp"
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, goBin, "build", "-trimpath", "-o", tmp, "./cmd/conch")
+	cmd := exec.CommandContext(ctx, goBin, "build", "-trimpath", "-ldflags", "-X "+modulePath+"/internal/proto.Version="+proto.Version, "-o", tmp, "./cmd/conch")
 	cmd.Dir = src
 	cmd.Env = config.MergeEnv(os.Environ(), "CGO_ENABLED=0", "GOOS="+osName, "GOARCH="+arch)
 	var stderr bytes.Buffer
@@ -125,7 +136,8 @@ func crossBuild(ctx context.Context, platform string, say func(string)) (string,
 }
 
 // binaryFor returns a conch binary for platform: this executable when the
-// platforms match, $CONCH_REMOTE_BINARY, or a build from source (cached).
+// platforms match, $CONCH_REMOTE_BINARY, a build from source (cached), or
+// the matching release download.
 func binaryFor(ctx context.Context, platform string, say func(string)) (string, error) {
 	if platform == runtime.GOOS+"/"+runtime.GOARCH {
 		return os.Executable()

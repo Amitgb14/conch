@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amitghadge/conch/internal/client"
-	"github.com/amitghadge/conch/internal/proto"
-	"github.com/amitghadge/conch/internal/server"
+	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/server"
 )
 
 func git(t *testing.T, dir string, args ...string) {

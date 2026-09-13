@@ -9,11 +9,36 @@ Status: local and remote machines (over SSH) with projects, branches,
 worktrees, pull requests and Claude Code state tracking. The Claude "brain"
 comes next.
 
-## Build
+## Install
+
+macOS and Linux (amd64 and arm64):
 
 ```sh
-go build -o bin/conch ./cmd/conch
+curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/main/install.sh | sh
 ```
+
+This downloads the latest release, checks it against the release checksums
+and installs `~/.local/bin/conch`. `CONCH_VERSION=0.2.0` picks a release and
+`CONCH_INSTALL_DIR` another directory. Later, `conch update` replaces the
+binary with the newest release (restart the server afterwards with
+`conch server stop` — that closes its panes).
+
+With Go 1.25 or newer:
+
+```sh
+go install github.com/Amitgb14/conch/cmd/conch@latest
+```
+
+### From source
+
+```sh
+make build        # bin/conch
+make test         # go test -race ./...
+make release VERSION=0.2.0   # dist/: archives for every platform + checksums.txt
+```
+
+Pushing a `v*` tag runs the release workflow, which builds the same archives
+and publishes them as a GitHub release.
 
 ## The sidebar
 
@@ -119,8 +144,9 @@ Or press `M` in the TUI. Adding a machine:
    Linux server from a Mac) conch cross-compiles itself from its source tree
    (found next to the binary, or `CONCH_SOURCE`) with your Go toolchain, and
    caches the result in `~/.config/conch/binaries/<os>-<arch>/` until you
-   rebuild conch. Without source or Go, put a binary there or point
-   `CONCH_REMOTE_BINARY` at one.
+   rebuild conch. A released conch without source or Go downloads the
+   matching release binary instead (checksum-verified). Otherwise put a
+   binary there or point `CONCH_REMOTE_BINARY` at one.
 3. **Connects** through `conch bridge`, which starts the server there if needed.
 
 conch runs the system `ssh` with a generated config that includes yours first
@@ -314,3 +340,7 @@ Methods: `hello`, `ping`, `server.stop`; `pane.list`, `pane.create`,
 `project.changes`, `project.diff`, `project.create`; `fs.list`, `fs.mkdir`;
 `shell.themes`; `agent.status`, `agent.install`; `worktree.add`, `worktree.remove`;
 `task.create`.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).

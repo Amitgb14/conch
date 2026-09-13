@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amitghadge/conch/internal/ghx"
-	"github.com/amitghadge/conch/internal/gitx"
-	"github.com/amitghadge/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/ghx"
+	"github.com/Amitgb14/conch/internal/gitx"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 const (
