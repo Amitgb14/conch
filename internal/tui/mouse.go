@@ -163,6 +163,8 @@ func (m *Model) paneMouse(paneID string, msg tea.MouseMsg, x, y int, press, whee
 	}
 	f := m.frame
 	switch {
+	case f != nil && f.Mouse && !wheel && (m.selectsOverApp(paneID) || msg.Alt || msg.Ctrl):
+		return m.selectOrClick(c, paneID, msg, x, y)
 	case f != nil && f.Mouse:
 		forwardMouse(c, paneID, msg, x, y)
 	case wheel && f != nil && f.AltScreen:
@@ -180,6 +182,44 @@ func (m *Model) paneMouse(paneID string, msg tea.MouseMsg, x, y int, press, whee
 	default:
 		return m.selectMouse(msg, x, y)
 	}
+	return nil
+}
+
+// selectsOverApp reports whether dragging selects text even though the
+// program asked for mouse events: agents use the mouse for clicks and the
+// wheel, and their output is what people want to copy.
+func (m Model) selectsOverApp(paneID string) bool {
+	p := m.pane(m.viewMachine, paneID)
+	return p != nil && p.Agent != nil
+}
+
+// pendingClick is a left press held back from a program until it is clear
+// whether it starts a drag (a selection) or is a click (forwarded).
+type pendingClick struct {
+	msg  tea.MouseMsg
+	x, y int
+}
+
+// selectOrClick selects text by dragging in a pane whose program takes the
+// mouse, and passes plain clicks through to it.
+func (m *Model) selectOrClick(c interface{ Notify(string, any) }, paneID string, msg tea.MouseMsg, x, y int) tea.Cmd {
+	switch {
+	case msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft:
+		m.click = &pendingClick{msg: msg, x: x, y: y}
+		return m.selectMouse(msg, x, y)
+	case msg.Action == tea.MouseActionMotion && m.sel != nil && m.sel.dragging:
+		return m.selectMouse(msg, x, y)
+	case msg.Action == tea.MouseActionRelease && m.click != nil:
+		dragged := m.sel != nil && m.sel.hasContent
+		cmd := m.selectMouse(msg, x, y)
+		if !dragged {
+			forwardMouse(c, paneID, m.click.msg, m.click.x, m.click.y)
+			forwardMouse(c, paneID, msg, x, y)
+		}
+		m.click = nil
+		return cmd
+	}
+	forwardMouse(c, paneID, msg, x, y)
 	return nil
 }
 

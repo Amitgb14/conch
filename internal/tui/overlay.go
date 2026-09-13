@@ -589,7 +589,7 @@ var helpText = []string{
 	"  ctrl+b [  scroll history (↑↓ pgup pgdn g) · wheel scrolls too",
 	"  changes: ↑↓ file · enter diff · esc back · y copy path / diff",
 	"  y in the tree copies a branch name or directory",
-	"  Sessions (under a project): enter resume · a agent filter · I resume all interrupted · x dismiss",
+	"  Sessions (under a project): enter resume · d delete · a agent filter · I resume all interrupted · x dismiss",
 	"",
 	"Mouse",
 	"  click select · double-click open · right-click menu · wheel scroll",

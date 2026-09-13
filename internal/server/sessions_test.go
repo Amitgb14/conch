@@ -103,6 +103,20 @@ func TestSessionsInterruptedAndResume(t *testing.T) {
 		t.Fatalf("run log still has the resumed run: %s", b)
 	}
 
+	// Deleting: an open session is refused, another one is removed.
+	if err := c.Call(ctx, proto.MethodSessionDelete, proto.SessionRef{Agent: "claude", ID: "nope", Dir: repo}, nil); err == nil {
+		t.Fatal("deleting an unknown session should fail")
+	}
+	if err := c.Call(ctx, proto.MethodSessionDelete, proto.SessionRef{Agent: "claude", ID: "new", Dir: repo}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "projects", enc, "new.jsonl")); !os.IsNotExist(err) {
+		t.Fatal("deleted session file still in place")
+	}
+	if moved, _ := filepath.Glob(filepath.Join(dir, "trash", "claude-*-new.jsonl")); len(moved) != 1 {
+		t.Fatalf("deleted session not in conch's trash: %v", moved)
+	}
+
 	ref.Dir = filepath.Join(dir, "gone")
 	if err := c.Call(ctx, proto.MethodSessionResume, ref, &info); err == nil || !strings.Contains(err.Error(), "no longer exists") {
 		t.Fatalf("resuming in a missing folder: %v", err)

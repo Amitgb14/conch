@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1",
 }
 
 // Methods.
@@ -80,6 +80,7 @@ const (
 	MethodSessionList    = "session.list"
 	MethodSessionResume  = "session.resume"
 	MethodSessionDismiss = "session.dismiss"
+	MethodSessionDelete  = "session.delete"
 	MethodAgentLimits    = "agent.limits"
 )
 

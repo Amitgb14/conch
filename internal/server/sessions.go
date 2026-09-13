@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -276,6 +278,48 @@ func withinAny(path string, dirs []string) bool {
 		}
 	}
 	return false
+}
+
+// deleteSession removes a saved session the user chose, unless it is open
+// in a pane.
+func (s *Server) deleteSession(r proto.SessionRef) *proto.Error {
+	if r.ID == "" {
+		return proto.Errorf(proto.ErrBadRequest, "this run has no saved conversation to delete; dismiss it instead")
+	}
+	list, perr := s.listSessions(proto.SessionListParams{Dir: r.Dir, Limit: 1000})
+	if perr != nil {
+		return perr
+	}
+	for _, si := range list.Sessions {
+		if si.Agent == r.Agent && si.ID == r.ID && si.PaneID != "" {
+			return proto.Errorf(proto.ErrBadRequest, "the session is open in pane %s; close it first", si.PaneID)
+		}
+	}
+	for _, found := range sessions.List(sessions.CurrentEnv(), []string{r.Dir}, 0) {
+		if found.Agent != r.Agent || found.ID != r.ID {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := sessions.Delete(ctx, sessions.CurrentEnv(), found, trashDir(s.configDir)); err != nil {
+			return proto.Errorf(proto.ErrBadRequest, "%v", err)
+		}
+		s.runs.resolve(r.Agent, r.ID, r.Dir)
+		log.Printf("deleted %s session %s in %s", r.Agent, r.ID, r.Dir)
+		return nil
+	}
+	return proto.Errorf(proto.ErrNotFound, "no %s session %s in %s", r.Agent, r.ID, r.Dir)
+}
+
+// trashDir is where deleted session files go: the user's Trash on macOS,
+// else a folder in conch's config directory.
+func trashDir(configDir string) string {
+	if home, err := os.UserHomeDir(); err == nil && runtime.GOOS == "darwin" {
+		if st, err := os.Stat(filepath.Join(home, ".Trash")); err == nil && st.IsDir() {
+			return filepath.Join(home, ".Trash")
+		}
+	}
+	return filepath.Join(configDir, "trash")
 }
 
 // resumeSession starts the agent in the session's directory, reopening it.

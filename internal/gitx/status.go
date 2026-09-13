@@ -153,7 +153,7 @@ func BranchChanges(ctx context.Context, root, branch, base string) (Changes, err
 
 // statusFiles parses `git status --porcelain=v2 -z`.
 func statusFiles(ctx context.Context, dir string, pathspec ...string) ([]FileChange, error) {
-	args := append([]string{"status", "--porcelain=v2", "-z", "--untracked-files=normal", "--"}, pathspec...)
+	args := append([]string{"status", "--porcelain=v2", "-z", "--untracked-files=all", "--"}, pathspec...)
 	out, err := run(ctx, dir, args...)
 	if err != nil {
 		return nil, err

@@ -249,6 +249,26 @@ func TestWorktreeStatus(t *testing.T) {
 	if f := ch.Files[3]; f.Added != 1 {
 		t.Errorf("untracked = %+v", f)
 	}
+
+	// A new folder lists its files, not just "web/".
+	write(t, root, "web/index.html", "<p>\n")
+	write(t, root, "web/css/style.css", "p{}\n")
+	ch, err = WorktreeChanges(ctx, root, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths = nil
+	for _, f := range ch.Files {
+		if strings.HasPrefix(f.Path, "web") {
+			paths = append(paths, f.Path)
+		}
+	}
+	if got := strings.Join(paths, ","); got != "web/css/style.css,web/index.html" {
+		t.Errorf("files in a new folder = %q", got)
+	}
+	if d, err := Diff(ctx, root, "web/index.html", ""); err != nil || !strings.Contains(d, "+<p>") {
+		t.Errorf("diff of a file in a new folder = %q, %v", d, err)
+	}
 }
 
 func TestWorktreeStatusConflict(t *testing.T) {

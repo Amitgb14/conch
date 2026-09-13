@@ -206,6 +206,38 @@ func (sv *sessionsView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 			return false, m.callOn(sv.machine, proto.MethodSessionDismiss, proto.SessionRef{Agent: s.Agent, ID: s.ID, Dir: s.Dir}, nil,
 				func() tea.Msg { return sessionsStaleMsg{key: key} })
 		}
+	case "d", "delete":
+		if sv.sel < 0 || sv.sel >= len(list) {
+			return false, nil
+		}
+		s := list[sv.sel]
+		switch {
+		case s.PaneID != "":
+			m.setFlash("that session is open in a pane; close it first", true)
+			return false, nil
+		case s.ID == "":
+			m.setFlash("this interrupted run has no saved conversation; x dismisses it", true)
+			return false, nil
+		case !m.hasCapability(sv.machine, "session.delete.v1"):
+			m.setFlash("the server there predates deleting sessions; reload it", true)
+			return false, nil
+		}
+		mid, key := sv.machine, sessionsKey(sv.machine, sv.projectID)
+		where := "moves its files to the Trash"
+		if s.Agent == "opencode" {
+			where = "OpenCode deletes it"
+		}
+		m.overlay = newConfirm(fmt.Sprintf("Delete the %s session “%s”? %s.", agentLabel(s.Agent), ansi.Truncate(s.Title, 50, "…"), where),
+			func(m *Model) tea.Cmd {
+				ref := proto.SessionRef{Agent: s.Agent, ID: s.ID, Dir: s.Dir}
+				return m.callOn(mid, proto.MethodSessionDelete, ref, nil, func() tea.Msg {
+					return tea.BatchMsg{
+						func() tea.Msg { return flashMsg("session deleted") },
+						func() tea.Msg { return sessionsStaleMsg{key: key} },
+					}
+				})
+			})
+		return false, nil
 	case "I":
 		var cmds []tea.Cmd
 		for _, s := range list {
@@ -234,7 +266,7 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 	if proj != nil {
 		name = proj.Name
 	}
-	lines := []string{spread(styleBold.Render("Sessions · "+name), styleMuted.Render("enter resume · a agent · R reload"), w)}
+	lines := []string{spread(styleBold.Render("Sessions · "+name), styleMuted.Render("enter resume · d delete · a agent · R reload"), w)}
 	d := sv.data(m)
 	switch {
 	case d == nil || (d.list == nil && d.loading):
@@ -371,4 +403,10 @@ func joinNonEmpty(sep string, parts ...string) string {
 		}
 	}
 	return strings.Join(out, sep)
+}
+
+// hasCapability reports whether a machine's server supports cap.
+func (m Model) hasCapability(mid, cap string) bool {
+	c := m.clientOf(mid)
+	return c != nil && len(c.MissingCapabilities([]string{cap})) == 0
 }

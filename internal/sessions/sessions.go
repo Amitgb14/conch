@@ -12,9 +12,13 @@ package sessions
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -171,4 +175,46 @@ func promptText(raw json.RawMessage) string {
 func realPrompt(s string) bool {
 	s = strings.TrimSpace(s)
 	return s != "" && !strings.HasPrefix(s, "<")
+}
+
+// Delete removes a saved session: files move to trashDir (so a mistake can
+// be undone), OpenCode's database entries are deleted through its CLI.
+func Delete(ctx context.Context, e Env, s Session, trashDir string) error {
+	if s.Path == "" {
+		return fmt.Errorf("no file for this %s session", s.Agent)
+	}
+	if s.Agent == "opencode" && strings.HasSuffix(s.Path, ".db") {
+		bin, err := exec.LookPath("opencode")
+		if err != nil {
+			return fmt.Errorf("deleting an OpenCode session needs the opencode command")
+		}
+		cmd := exec.CommandContext(ctx, bin, "session", "delete", s.ID)
+		cmd.Dir = s.Dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("opencode session delete: %v: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	paths := []string{s.Path}
+	if s.Agent == "claude" {
+		// Claude keeps a session's subagent transcripts and tool output in a
+		// directory named like the session.
+		if dir := strings.TrimSuffix(s.Path, ".jsonl"); dir != s.Path {
+			if st, err := os.Stat(dir); err == nil && st.IsDir() {
+				paths = append(paths, dir)
+			}
+		}
+	}
+	if err := os.MkdirAll(trashDir, 0o700); err != nil {
+		return err
+	}
+	stamp := time.Now().Format("20060102-150405")
+	for _, p := range paths {
+		dst := filepath.Join(trashDir, s.Agent+"-"+stamp+"-"+filepath.Base(p))
+		if err := os.Rename(p, dst); err != nil {
+			return fmt.Errorf("move %s to the trash: %w", p, err)
+		}
+		cache.Delete(p)
+	}
+	return nil
 }

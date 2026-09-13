@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -120,5 +121,39 @@ INSERT INTO session VALUES ('ses_d','p',NULL,'s','/src/it''s','Archived','1',100
 	}
 	if strings.Join(ids, ",") != "ses_b,ses_a" {
 		t.Fatalf("sqlite sessions: %v", ids)
+	}
+}
+
+func TestDelete(t *testing.T) {
+	home := t.TempDir()
+	env := Env{Home: home, Getenv: func(string) string { return "" }}
+	dir := filepath.Join(home, ".claude", "projects", "-src-api")
+	write(t, filepath.Join(dir, "s1.jsonl"), `{"type":"user","cwd":"/src/api","message":{"role":"user","content":"hi"}}`+"\n")
+	write(t, filepath.Join(dir, "s1", "subagents", "a.jsonl"), "{}\n")
+	write(t, filepath.Join(dir, "s2.jsonl"), `{"type":"user","cwd":"/src/api","message":{"role":"user","content":"keep"}}`+"\n")
+
+	list := List(env, []string{"/src/api"}, 0)
+	var s1 Session
+	for _, s := range list {
+		if s.ID == "s1" {
+			s1 = s
+		}
+	}
+	trash := filepath.Join(home, "trash")
+	if err := Delete(context.Background(), env, s1, trash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "s1.jsonl")); !os.IsNotExist(err) {
+		t.Fatal("session file still there")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "s1")); !os.IsNotExist(err) {
+		t.Fatal("session directory still there")
+	}
+	moved, _ := filepath.Glob(filepath.Join(trash, "claude-*-s1*"))
+	if len(moved) != 2 {
+		t.Fatalf("trash has %v", moved)
+	}
+	if left := List(env, []string{"/src/api"}, 0); len(left) != 1 || left[0].ID != "s2" {
+		t.Fatalf("remaining: %+v", left)
 	}
 }

@@ -111,3 +111,37 @@ func TestKeyboardSelection(t *testing.T) {
 		t.Fatal("y should copy and leave scroll mode")
 	}
 }
+
+type notes struct{ methods []string }
+
+func (n *notes) Notify(method string, _ any) { n.methods = append(n.methods, method) }
+
+func TestSelectOverMouseApp(t *testing.T) {
+	m := &Model{width: 100, height: 30, viewMachine: localMachine, viewing: "p1",
+		frame: &proto.Frame{Mouse: true, Lines: []string{"copy this text", "second"}},
+		machines: []*machine{{id: localMachine, panes: []proto.PaneInfo{{ID: "p1", Agent: &proto.AgentStatus{Name: "claude"}}}}}}
+	if !m.selectsOverApp("p1") {
+		t.Fatal("agent panes select over the app")
+	}
+	n := &notes{}
+	press := tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+	m.selectOrClick(n, "p1", press, 0, 0)
+	m.selectOrClick(n, "p1", tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft}, 3, 0)
+	if cmd := m.selectOrClick(n, "p1", tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft}, 3, 0); cmd == nil {
+		t.Fatal("a drag copies")
+	}
+	if len(n.methods) != 0 {
+		t.Fatalf("a drag must not reach the program: %v", n.methods)
+	}
+	if got := m.sel.text(m.frame.Lines, 100); got != "copy" {
+		t.Fatalf("selected %q", got)
+	}
+
+	// A plain click goes through to the program, press and release.
+	m.lastClickID = ""
+	m.selectOrClick(n, "p1", press, 8, 1)
+	m.selectOrClick(n, "p1", tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft}, 8, 1)
+	if len(n.methods) != 2 || m.sel != nil {
+		t.Fatalf("click: forwarded %v, selection %+v", n.methods, m.sel)
+	}
+}

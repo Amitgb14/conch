@@ -74,11 +74,12 @@ type Model struct {
 	barDrag     *splitBar // a split boundary being dragged
 	pendingShow string    // row to put on screen once the tree has it
 
-	offset     int        // lines the viewed pane is scrolled back
-	scrollMode bool       // keys move a cursor over the pane's history
-	curX, curY int        // that cursor, in view cells
-	sel        *selection // text selected in the viewed pane
-	statePath  string     // where fold state is saved; "" disables saving
+	offset     int           // lines the viewed pane is scrolled back
+	scrollMode bool          // keys move a cursor over the pane's history
+	curX, curY int           // that cursor, in view cells
+	sel        *selection    // text selected in the viewed pane
+	click      *pendingClick // a press held back from a mouse-using program
+	statePath  string        // where fold state is saved; "" disables saving
 
 	flash      string
 	flashIsErr bool
