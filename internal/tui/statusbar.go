@@ -109,18 +109,18 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		switch r.kind {
 		case kindPane:
 			items = []statusItem{hint("enter", "open"), hint("v", "split"), hint("O", "new tab"), hint("r", "rename"),
-				hint("x", "close"), hint("c", m.defaultAgent()), hint("n", "shell"), hint("m", "menu")}
+				hint("x", "close"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
 		case kindBranch:
-			items = []statusItem{hint("enter", "changes"), hint("v", "split"), hint("o", "PR"), hint("c", m.defaultAgent()), hint("n", "shell"),
+			items = []statusItem{hint("enter", "changes"), hint("v", "split"), hint("o", "PR"), hint("c", "agent"), hint("n", "shell"),
 				hint("x", "rm worktree"), hint("y", "copy"), hint("m", "menu")}
 		case kindProject:
-			items = []statusItem{hint("t", "task"), hint("c", m.defaultAgent()), hint("n", "shell"), hint("space", "fold"),
+			items = []statusItem{hint("t", "task"), hint("c", "agent"), hint("n", "shell"), hint("space", "fold"),
 				hint("x", "remove"), hint("m", "menu")}
 		case kindMachine:
-			items = []statusItem{hint("a", "project"), hint("c", m.defaultAgent()), hint("A", "agents"), hint("n", "shell"), hint("M", "machine"),
+			items = []statusItem{hint("a", "project"), hint("c", "agent"), hint("n", "shell"), hint("M", "machine"),
 				hint("R", "reconnect"), hint("m", "menu")}
 		default:
-			items = []statusItem{hint("a", "project"), hint("t", "task"), hint("c", m.defaultAgent()), hint("n", "shell"),
+			items = []statusItem{hint("a", "project"), hint("t", "task"), hint("c", "agent"), hint("n", "shell"),
 				hint("/", "filter"), hint("m", "menu")}
 		}
 		items = append(items, hint("!", "waiting"), hint("?", "keys"))

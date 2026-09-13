@@ -714,11 +714,11 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 		return proto.PaneInfo{}, perr
 	}
 	return s.create(proto.PaneCreateParams{
-		Agent:     tp.Agent,
-		Prompt:    tp.Prompt,
-		Cwd:       path,
-		Cols:      tp.Cols,
-		Rows:      tp.Rows,
+		Agent:  tp.Agent,
+		Prompt: tp.Prompt,
+		Cwd:    path,
+		Cols:   tp.Cols,
+		Rows:   tp.Rows,
 	})
 }
 

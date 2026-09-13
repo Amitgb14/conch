@@ -107,7 +107,7 @@ func (m Model) sidebarLines(w, h int) []string {
 		lines = append(lines, m.rowLine(m.rows[i], w))
 	}
 	if len(m.rows) <= 1 && len(m.allPanes()) == 0 && len(m.machines[0].projects) == 0 {
-		lines = append(lines, "", styleMuted.Render(" a  add a project"), styleMuted.Render(" c  start "+agentLabel(m.defaultAgent())), styleMuted.Render(" n  open a terminal"))
+		lines = append(lines, "", styleMuted.Render(" a  add a project"), styleMuted.Render(" c  start an agent"), styleMuted.Render(" n  open a terminal"))
 	}
 	return lines
 }
@@ -591,7 +591,7 @@ func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string 
 			}
 		}
 	}
-	lines = append(lines, "", styleMuted.Render("t new task · c "+agentLabel(m.defaultAgent())+" here · A any agent · n terminal · m menu"))
+	lines = append(lines, "", styleMuted.Render("t new task · c start an agent · n terminal · m menu · x remove from sidebar"))
 	return lines
 }
 
@@ -627,14 +627,14 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 					parts = append(parts, styleMuted.Render("○ "+label))
 				}
 			}
-			lines = append(lines, strings.Join(parts, styleMuted.Render("  ")), styleMuted.Render("A  start or install an agent"))
+			lines = append(lines, strings.Join(parts, styleMuted.Render("  ")), styleMuted.Render("c  start or install an agent"))
 		}
 		if mach.warning != "" {
 			lines = append(lines, styleWarn.Render(mach.warning))
 		}
 		lines = append(lines, "",
 			styleMuted.Render("a  add a project      t  new task in a project"),
-			styleMuted.Render(padRight("c  start "+agentLabel(m.defaultAgent()), 21)+"n  open a terminal"),
+			styleMuted.Render("c  start an agent     n  open a terminal"),
 			styleMuted.Render("M  add a machine      m  machine menu   ?  all keys"),
 		)
 	case stateConnecting:

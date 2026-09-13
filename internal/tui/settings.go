@@ -164,7 +164,7 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 }
 
 func (s *settings) agentItems(m *Model) []settingItem {
-	items := []settingItem{{header: true, label: "Default agent", detail: "what c starts"}}
+	items := []settingItem{{header: true, label: "Default agent", detail: "pre-selected when c asks which agent"}}
 	for _, name := range knownAgents(m) {
 		name := name
 		items = append(items, settingItem{label: agentLabel(name), mark: m.defaultAgent() == name,

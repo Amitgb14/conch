@@ -254,11 +254,13 @@ select text with your terminal, or set `[ui] mouse = false`.
 | **Gemini CLI** | `gemini` with conch's hooks in a system-defaults settings file (merged with yours; Gemini runs hooks only in trusted folders) | hooks when trusted, title (`✋ Action Required`, `✦ Working…`, `◇ Ready`) and screen | `npm install -g --prefix ~/.local @google/gemini-cli` (Node 20+) |
 | **OpenCode** | `opencode` with conch's plugin via `OPENCODE_CONFIG_CONTENT` (merged with your config) | plugin events (busy, idle, permission, question) and screen | `curl -fsSL https://opencode.ai/install \| bash` |
 
-`c` starts the default agent (Settings → Agents, or `[agents] default`) —
-menus and hints name it, and `t` tasks use it too (the task dialog's Agent
-field or `conch task -agent NAME` picks another);
-`A` opens a picker to start any agent installed on the machine or install a
-missing one. conch never edits an agent's own configuration or answers its
+`c` (or clicking **c agent** in the status bar, or **Start an agent…** in the
+right-click menu) asks which agent to start at the selected place — a
+machine, project, branch or pane: every agent installed there is listed, the
+default (Settings → Agents) pre-selected, so `c` `enter` starts it. Missing
+agents can be installed from the same list. `t` tasks use the default agent
+unless the task dialog's Agent field (or `conch task -agent NAME`) names
+another. conch never edits an agent's own configuration or answers its
 trust prompts for you.
 
 ## Brain

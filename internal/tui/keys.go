@@ -103,9 +103,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "n":
 		return m, m.openHere(false)
-	case "c":
-		return m, m.openHere(true)
-	case "A", "C":
+	case "c", "A", "C":
 		pl := m.contextPlace()
 		mach := m.machine(pl.machine)
 		if mach == nil || mach.c == nil {

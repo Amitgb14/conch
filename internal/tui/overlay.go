@@ -79,7 +79,6 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 	}
 	var items []menuItem
 	title := ""
-	agent := agentLabel(m.defaultAgent())
 	switch r.kind {
 	case kindPane:
 		if p := m.pane(r.machine, r.paneID); p != nil {
@@ -88,8 +87,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		items = []menuItem{
 			{"enter", "Open", enter},
 			{"r", "Rename", act("r")},
-			{"c", "New " + agent + " here", act("c")},
-			{"A", "Start another agent here…", act("A")},
+			{"c", "Start an agent here…", act("c")},
 			{"n", "New terminal here", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
 			{"x", "Close", act("x")},
@@ -98,8 +96,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		title = r.branch
 		items = []menuItem{
 			{"enter", "View changes", enter},
-			{"c", "Start " + agent + " on this branch", act("c")},
-			{"A", "Start another agent on this branch…", act("A")},
+			{"c", "Start an agent on this branch…", act("c")},
 			{"n", "Open terminal on this branch", act("n")},
 			{"t", "New task in project", act("t")},
 			{"y", "Copy branch name", act("y")},
@@ -122,8 +119,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		}
 		items = []menuItem{
 			{"t", "New task (branch + worktree + agent)", act("t")},
-			{"c", "Start " + agent + " in project", act("c")},
-			{"A", "Start another agent in project…", act("A")},
+			{"c", "Start an agent in project…", act("c")},
 			{"n", "Open terminal in project", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
 			{"F", "Local files for new worktrees…", act("F")},
@@ -150,12 +146,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			items = append(items, menuItem{"s", "Start the server", func(m *Model) tea.Cmd { return m.reconnect(mid, true) }})
 		}
 		if mach.state == stateOnline {
-			items = append(items, menuItem{"A", "Start or install an agent…", act("A")})
-		}
-		if mach.state == stateOnline {
 			items = append(items,
+				menuItem{"c", "Start or install an agent…", act("c")},
 				menuItem{"a", "Add project…", act("a")},
-				menuItem{"c", "New " + agent, act("c")},
 				menuItem{"n", "New terminal", act("n")},
 			)
 		}
@@ -174,7 +167,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 	default:
 		items = []menuItem{
 			{"a", "Add project…", act("a")},
-			{"c", "New " + agent, act("c")},
+			{"c", "Start an agent…", act("c")},
 			{"n", "New terminal", act("n")},
 			{"M", "Add machine…", act("M")},
 		}
@@ -225,7 +218,7 @@ func (mu *menu) render(m Model) box {
 		}
 		line := " " + padRight(styleMuted.Render(key), 3) + " " + it.label
 		if i == mu.sel {
-			line = styleSel.Render(padRight(" "+padRight(key, 3)+" "+it.label, w))
+			line = styleSel.Render(padRight(" "+padRight(key, 3)+" "+ansi.Strip(it.label), w))
 		}
 		lines = append(lines, line)
 	}
@@ -259,6 +252,7 @@ func newAgentMenu(m Model, mach *machine) *menu {
 			list = append(list, proto.AgentAvailability{Name: name, Installed: true})
 		}
 	}
+	sel := -1
 	for i, a := range list {
 		a := a
 		label := a.Label
@@ -270,16 +264,40 @@ func newAgentMenu(m Model, mach *machine) *menu {
 			key = fmt.Sprint(i + 1)
 		}
 		if a.Installed {
-			version := ""
+			detail := ""
 			if a.Version != "" {
-				version = "  " + a.Version
+				detail = "  " + styleMuted.Render(a.Version)
 			}
-			items = append(items, menuItem{key, "Start " + label + version, func(m *Model) tea.Cmd { return m.openAgent(a.Name) }})
+			if a.Name == m.defaultAgent() {
+				detail += styleMuted.Render("  default")
+				sel = len(items)
+			} else if sel < 0 {
+				sel = len(items)
+			}
+			items = append(items, menuItem{key, "Start " + label + detail, func(m *Model) tea.Cmd { return m.openAgent(a.Name) }})
 		} else {
-			items = append(items, menuItem{key, "Install " + label, func(m *Model) tea.Cmd { return m.installAgent(mach.id, a.Name) }})
+			items = append(items, menuItem{key, "Install " + label + styleMuted.Render("  not installed"), func(m *Model) tea.Cmd { return m.installAgent(mach.id, a.Name) }})
 		}
 	}
-	return &menu{title: "Agents on " + mach.label, items: items, x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
+	items = append(items, menuItem{"n", "Open a terminal instead", func(m *Model) tea.Cmd { return m.openAgent("") }})
+	return &menu{title: "Start an agent · " + m.placeLabel(), items: items, sel: max(sel, 0),
+		x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
+}
+
+// placeLabel names where a new pane for the selected row would start.
+func (m Model) placeLabel() string {
+	pl := m.contextPlace()
+	where := pl.machine
+	if mach := m.machine(pl.machine); mach != nil {
+		where = mach.label
+	}
+	if proj := m.project(pl.machine, pl.projectID); proj != nil {
+		where = proj.Name + " on " + where
+		if pl.branch != "" && pl.branch != proj.Base {
+			where = pl.branch + " · " + where
+		}
+	}
+	return where
 }
 
 // ---- dialog ----
@@ -542,7 +560,7 @@ var helpText = []string{
 	"",
 	"Create",
 	"  t  new task: branch + worktree + an agent with a prompt",
-	"  c  default agent here (Settings → Agents)       A  pick any agent: Codex, Gemini, OpenCode…",
+	"  c  start an agent here: pick Claude, Codex, Gemini or OpenCode (click or 1-9)",
 	"  n  terminal here       a  add or create a project",
 	"  M  add machine (ssh)   R  reconnect a machine    A  start or install any agent",
 	"  r  rename              x  close / remove        R  refresh git and PRs",

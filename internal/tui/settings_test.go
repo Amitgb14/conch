@@ -114,3 +114,25 @@ func TestStatusBarClicks(t *testing.T) {
 		t.Fatalf("narrow bar %q", ansi.Strip(line))
 	}
 }
+
+func TestAgentPicker(t *testing.T) {
+	m := &Model{cfg: config.Default(), width: 100, height: 40}
+	m.cfg.Agents.Default = "opencode"
+	list := []proto.AgentAvailability{{Name: "claude", Installed: true}, {Name: "codex"}, {Name: "opencode", Installed: true, Version: "1.18"}}
+	m.machines = []*machine{{id: "devbox", label: "devbox", state: stateOnline, agentList: list}}
+	m.rows = []row{{id: "machine:devbox", kind: kindMachine, machine: "devbox"}}
+	m.cursor = "machine:devbox"
+	mu := newAgentMenu(*m, m.machines[0])
+	var labels []string
+	for _, it := range mu.items {
+		labels = append(labels, it.key+" "+ansi.Strip(it.label))
+	}
+	got := strings.Join(labels, " | ")
+	want := "1 Start Claude Code | 2 Install Codex  not installed | 3 Start OpenCode  1.18  default | n Open a terminal instead"
+	if got != want || mu.sel != 2 {
+		t.Fatalf("picker:\n got %q (sel %d)\nwant %q", got, mu.sel, want)
+	}
+	if !strings.Contains(mu.title, "devbox") {
+		t.Fatalf("title %q should name the machine", mu.title)
+	}
+}
