@@ -10,7 +10,6 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
-	"github.com/creack/pty"
 	"golang.org/x/sys/unix"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -165,17 +164,21 @@ func Adopt(snap Snapshot, ptmx *os.File) (*Pane, error) {
 	return p, nil
 }
 
-// redraw nudges the program to repaint, by changing the terminal size and
-// back: full-screen programs redraw on SIGWINCH, repairing anything the
-// replay missed.
+// redraw asks the program to repaint by sending its process group SIGWINCH
+// without changing the size. Changing the size and back (the usual trick)
+// breaks programs that repaint only what they believe changed, such as
+// Claude Code: two resizes in a row leave stale text on screen.
 func (p *Pane) redraw() {
-	cols, rows := p.size()
-	if rows < 2 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.state != proto.PaneRunning {
 		return
 	}
-	_ = pty.Setsize(p.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows - 1)})
-	time.Sleep(20 * time.Millisecond)
-	_ = pty.Setsize(p.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+	pgrp, err := unix.IoctlGetInt(int(p.ptmx.Fd()), unix.TIOCGPGRP)
+	if err != nil || pgrp <= 0 {
+		return
+	}
+	_ = unix.Kill(-pgrp, unix.SIGWINCH)
 }
 
 // KeepOnExec lets a file descriptor survive exec: Go opens files
