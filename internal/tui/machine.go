@@ -235,7 +235,7 @@ func (mach *machine) connected(msg machineConnectedMsg) tea.Cmd {
 	case msg.err == nil || (errors.As(msg.err, &outdated) && msg.c != nil):
 		mach.attach(msg.c)
 		if outdated != nil {
-			mach.warning = "server is from an older build · m → restart server"
+			mach.warning = "server is from an older build · m → reload server"
 		}
 		return tea.Batch(mach.listen()...)
 	case errors.As(msg.err, &needs):

@@ -78,7 +78,8 @@ func New(sockPath, configDir string) *Server {
 		quit:      make(chan struct{}),
 	}
 	s.projects = newProjectManager(s, configDir)
-	s.runs = loadRunLog(configDir)
+	// A reload keeps the panes, so their runs are not interrupted.
+	s.runs = loadRunLog(configDir, os.Getenv(reloadStateEnv) != "")
 	return s
 }
 
@@ -95,9 +96,15 @@ func (s *Server) Run() error {
 	if err := os.MkdirAll(filepath.Dir(s.sockPath), 0o700); err != nil {
 		return err
 	}
-	if c, err := net.Dial("unix", s.sockPath); err == nil {
-		c.Close()
-		return ErrAlreadyRunning
+	reloaded, err := takeReloadState()
+	if err != nil {
+		return fmt.Errorf("reload state: %w", err)
+	}
+	if reloaded == nil {
+		if c, err := net.Dial("unix", s.sockPath); err == nil {
+			c.Close()
+			return ErrAlreadyRunning
+		}
 	}
 
 	exe, err := os.Executable()
@@ -119,14 +126,27 @@ func (s *Server) Run() error {
 		s.projects.run()
 	}()
 
-	_ = os.Remove(s.sockPath) // stale socket from a crashed server
-	ln, err := net.Listen("unix", s.sockPath)
-	if err != nil {
-		return err
-	}
-	if err := os.Chmod(s.sockPath, 0o600); err != nil {
-		ln.Close()
-		return err
+	var ln net.Listener
+	if reloaded != nil {
+		lf := os.NewFile(uintptr(reloaded.ListenerFD), "listener")
+		ln, err = net.FileListener(lf)
+		lf.Close()
+		if err != nil {
+			return fmt.Errorf("reload: listener: %w", err)
+		}
+		if ul, ok := ln.(*net.UnixListener); ok {
+			ul.SetUnlinkOnClose(true)
+		}
+		s.adopt(reloaded)
+	} else {
+		_ = os.Remove(s.sockPath) // stale socket from a crashed server
+		if ln, err = net.Listen("unix", s.sockPath); err != nil {
+			return err
+		}
+		if err := os.Chmod(s.sockPath, 0o600); err != nil {
+			ln.Close()
+			return err
+		}
 	}
 	s.mu.Lock()
 	s.ln = ln
@@ -273,6 +293,11 @@ func (s *Server) handle(c *client, msg proto.Message) bool {
 	if msg.Method == proto.MethodServerStop {
 		s.Stop()
 	}
+	if msg.Method == proto.MethodServerReload && perr == nil {
+		if r, ok := result.(proto.ServerReloadResult); ok {
+			go s.reload(r.Binary)
+		}
+	}
 	return true
 }
 
@@ -327,6 +352,17 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 
 	case proto.MethodServerStop:
 		return nil, nil // Stop runs after the reply is written.
+
+	case proto.MethodServerReload:
+		rp, perr := decode[proto.ServerReloadParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		bin, perr := reloadBinary(rp.Binary)
+		if perr != nil {
+			return nil, perr
+		}
+		return proto.ServerReloadResult{Binary: bin}, nil // the reload runs after the reply
 
 	case proto.MethodPaneList:
 		return proto.PaneList{Panes: s.list()}, nil

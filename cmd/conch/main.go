@@ -32,6 +32,7 @@ Usage:
   conch                         open the TUI (starts the server if needed)
   conch server                  run the server in the foreground
   conch server stop             stop the server and every pane it owns
+  conch server reload           run a new conch build without stopping panes
   conch status                  show server and pane status
   conch new [-cwd DIR] [-name N] -- CMD [ARGS...]
                                 start a pane
@@ -145,6 +146,23 @@ func runServer(args []string) error {
 				return errors.New("server is not running")
 			}
 			return stopServer(c)
+		case "reload":
+			fs := flag.NewFlagSet("server reload", flag.ContinueOnError)
+			bin := fs.String("binary", "", "program to reload into (default: the server's own executable path)")
+			if err := fs.Parse(args[1:]); err != nil {
+				return err
+			}
+			c, err := connect(false)
+			if err != nil {
+				return errors.New("server is not running")
+			}
+			nc, err := reloadServer(c, *bin)
+			if err != nil {
+				return err
+			}
+			defer nc.Close()
+			fmt.Printf("server reloaded: build %s, pid %d (panes kept)\n", nc.Server.Build, nc.Server.PID)
+			return nil
 		default:
 			return fmt.Errorf("unknown server subcommand %q", args[0])
 		}
@@ -327,6 +345,15 @@ func offerUpgrade(c *client.Client) (*client.Client, error) {
 	}
 	fmt.Fprintf(os.Stderr, "The conch server (pid %d, running since %s) is from an older build and lacks: %s.\n",
 		c.Server.PID, c.Server.Started.Format("Jan 2 15:04"), strings.Join(missing, ", "))
+	if len(c.MissingCapabilities([]string{"server.reload.v1"})) == 0 {
+		fmt.Fprint(os.Stderr, "Reload it onto this build? Panes keep running. [Y/n] ")
+		answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		if a := strings.ToLower(strings.TrimSpace(answer)); a == "n" || a == "no" {
+			return c, nil
+		}
+		exe, _ := os.Executable()
+		return reloadServer(c, exe)
+	}
 	if running > 0 {
 		fmt.Fprintf(os.Stderr, "Restarting it stops its %d running pane(s).\n", running)
 	}
@@ -339,6 +366,33 @@ func offerUpgrade(c *client.Client) (*client.Client, error) {
 		return nil, err
 	}
 	return connect(true)
+}
+
+// reloadServer asks the server to exec bin (default: its own executable) and
+// returns a connection to the reloaded server. The old connection is closed.
+func reloadServer(c *client.Client, bin string) (*client.Client, error) {
+	pid, started := c.Server.PID, c.Server.Started
+	var res proto.ServerReloadResult
+	err := call(c, proto.MethodServerReload, proto.ServerReloadParams{Binary: bin}, &res)
+	c.Close()
+	if err != nil {
+		return nil, err
+	}
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		nc, err := connect(false)
+		if err != nil {
+			continue
+		}
+		if nc.Server.PID == pid && nc.Server.Started.After(started) {
+			return nc, nil // the same process, started again
+		}
+		if nc.Server.PID != pid {
+			nc.Close()
+			return nil, errors.New("a different server answered; the reload may have failed: see " + config.ServerLogPath())
+		}
+		nc.Close()
+	}
+	return nil, errors.New("the server did not come back within 15s; see " + config.ServerLogPath())
 }
 
 // connect dials the local server (or the -m machine's), optionally starting

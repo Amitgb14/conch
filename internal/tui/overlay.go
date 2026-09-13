@@ -158,6 +158,11 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			)
 		}
 		items = append(items, menuItem{"R", "Reconnect", act("R")})
+		if mach.state == stateOnline && m.canReload(mid) {
+			items = append(items, menuItem{"", "Reload server onto the installed build (keeps panes)", func(m *Model) tea.Cmd {
+				return m.reloadServer(mid)
+			}})
+		}
 		if mach.state == stateOnline {
 			items = append(items, menuItem{"", "Restart server (stops its panes)…", func(m *Model) tea.Cmd {
 				m.overlay = newConfirm(fmt.Sprintf("Restart the conch server on %s? Every pane there stops.", mach.label),

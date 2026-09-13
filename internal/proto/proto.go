@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1",
 }
 
 // Methods.
@@ -42,6 +42,7 @@ const (
 	MethodHello           = "hello"
 	MethodPing            = "ping"
 	MethodServerStop      = "server.stop"
+	MethodServerReload    = "server.reload"
 	MethodPaneList        = "pane.list"
 	MethodPaneCreate      = "pane.create"
 	MethodPaneClose       = "pane.close"
@@ -136,6 +137,19 @@ type HelloParams struct {
 	Version      string   `json:"version"`
 	Protocol     int      `json:"protocol"`
 	Capabilities []string `json:"capabilities"`
+}
+
+// ServerReloadParams replaces the server's program without stopping its
+// panes. Binary defaults to the server's own executable path (where a new
+// build was installed).
+type ServerReloadParams struct {
+	Binary string `json:"binary,omitempty"`
+}
+
+// ServerReloadResult names the program the server is reloading into. The
+// connection drops as it does; clients reconnect.
+type ServerReloadResult struct {
+	Binary string `json:"binary"`
 }
 
 // HelloResult describes the server.

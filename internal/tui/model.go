@@ -132,7 +132,7 @@ func New(local *client.Client, cfg config.Config) Model {
 	lm := newMachine(localMachine, localMachine, "")
 	lm.attach(local)
 	if missing := local.MissingCapabilities(proto.Capabilities); len(missing) > 0 {
-		lm.warning = "server is from an older build · restart it (conch server stop)"
+		lm.warning = "server is from an older build · click the version to reload it"
 	}
 	m.machines = append(m.machines, lm)
 	saved, _ := remote.Machines()
@@ -220,6 +220,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, tea.Batch(m.rebuild(), mach.scheduleRetry())
+
+	case reloadedMsg:
+		if mach := m.machine(msg.machine); mach != nil {
+			mach.close()
+			mach.warning = ""
+			m.setFlash("server on "+mach.label+" reloaded · panes kept", false)
+			return m, tea.Batch(mach.connect(false), m.rebuild())
+		}
+		return m, nil
 
 	case machineRetryMsg:
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen && mach.c == nil {

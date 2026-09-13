@@ -254,3 +254,35 @@ func tail(lines []string, n int) []string {
 	}
 	return lines[max(end-n, 0):end]
 }
+
+// TrackerState is what a tracker carries across a server reload: what hooks
+// last said, so an agent doesn't briefly look idle until its next event.
+type TrackerState struct {
+	Hint          string    `json:"hint,omitempty"`
+	HookState     string    `json:"hook_state,omitempty"`
+	HookReason    string    `json:"hook_reason,omitempty"`
+	HookMessage   string    `json:"hook_message,omitempty"`
+	HookAt        time.Time `json:"hook_at,omitempty"`
+	SessionID     string    `json:"session_id,omitempty"`
+	ScreenWorking time.Time `json:"screen_working,omitempty"`
+	Base          string    `json:"base,omitempty"`
+	Seen          bool      `json:"seen"`
+	Status        Status    `json:"status"`
+}
+
+// Export returns the tracker's state.
+func (t *Tracker) Export() TrackerState {
+	return TrackerState{Hint: t.hint, HookState: t.hook.state, HookReason: t.hook.reason, HookMessage: t.hook.message,
+		HookAt: t.hook.at, SessionID: t.sessionID, ScreenWorking: t.screenWorking, Base: t.base, Seen: t.seen, Status: t.status}
+}
+
+// RestoreTracker rebuilds a tracker from exported state.
+func RestoreTracker(manifests map[string]*Manifest, st TrackerState) *Tracker {
+	t := NewTracker(manifests, st.Hint)
+	t.hook.state, t.hook.reason, t.hook.message, t.hook.at = st.HookState, st.HookReason, st.HookMessage, st.HookAt
+	t.sessionID, t.screenWorking, t.base, t.seen, t.status = st.SessionID, st.ScreenWorking, st.Base, st.Seen, st.Status
+	if st.Status.Agent != "" {
+		t.agent = manifests[st.Status.Agent]
+	}
+	return t
+}

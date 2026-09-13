@@ -226,8 +226,11 @@ func (m Model) serverBehind() bool {
 type versionInfo struct{}
 
 func (versionInfo) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
-	if _, ok := msg.(tea.KeyMsg); ok {
+	if k, ok := msg.(tea.KeyMsg); ok {
 		m.overlay = nil
+		if k.String() == "r" && m.serverBehind() && m.canReload(localMachine) {
+			return true, m.reloadServer(localMachine)
+		}
 		return true, nil
 	}
 	return false, nil
@@ -255,8 +258,13 @@ func (v versionInfo) render(m Model) box {
 		case m.serverBehind():
 			lines = append(lines,
 				row("Server", styleWarn.Render("outdated")+styleMuted.Render(fmt.Sprintf(" · %s build %s", mach.server.Version, mach.server.Build))),
-				"", styleMuted.Render(" conch server stop, then reopen conch, to run this build"),
-				styleMuted.Render(" (stopping closes the server's panes; resume them from Sessions)"))
+				"")
+			if m.canReload(localMachine) {
+				lines = append(lines, " "+styleAccent.Render("r")+" reload the server onto this build "+styleMuted.Render("(panes keep running)"))
+			} else {
+				lines = append(lines, styleMuted.Render(" this server predates reloading: conch server stop, then reopen conch"),
+					styleMuted.Render(" (stopping closes its panes; resume them from Sessions) — later updates reload"))
+			}
 		default:
 			lines = append(lines, row("Server", styleOK.Render("up to date")+styleMuted.Render(fmt.Sprintf(" · pid %d · running %s", mach.server.PID, uptime(mach.server.Started)))))
 		}

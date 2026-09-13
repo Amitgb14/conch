@@ -42,7 +42,7 @@ type runLogFile struct {
 
 // loadRunLog reads the log. Runs still marked active belong to a server that
 // is gone: they become interrupted.
-func loadRunLog(configDir string) *runLog {
+func loadRunLog(configDir string, keepActive bool) *runLog {
 	l := &runLog{path: filepath.Join(configDir, "agent-runs.json"), active: map[string]agentRun{}}
 	b, err := os.ReadFile(l.path)
 	if err != nil {
@@ -52,6 +52,12 @@ func loadRunLog(configDir string) *runLog {
 	if err := json.Unmarshal(b, &f); err != nil {
 		log.Printf("agent runs: %v", err)
 		return l
+	}
+	if keepActive {
+		for _, r := range f.Active {
+			l.active[r.Pane] = r
+		}
+		f.Active = nil
 	}
 	for _, r := range append(f.Interrupted, f.Active...) {
 		if time.Since(r.Seen) < keepInterrupted {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -553,6 +554,34 @@ func (m *Model) restartServer(mid string) tea.Cmd {
 			return errMsg{err}
 		}
 		return flashMsg("restarting the server on " + mach.label)
+	}
+}
+
+// canReload reports whether a machine's server can reload without
+// stopping its panes.
+func (m Model) canReload(mid string) bool {
+	mach := m.machine(mid)
+	return mach != nil && mach.c != nil && len(mach.c.MissingCapabilities([]string{"server.reload.v1"})) == 0
+}
+
+type reloadedMsg struct{ machine string }
+
+// reloadServer runs the build installed on a machine without stopping its
+// panes: the server execs its (new) executable and the TUI reconnects.
+func (m *Model) reloadServer(mid string) tea.Cmd {
+	mach := m.machine(mid)
+	if mach == nil || mach.c == nil {
+		return nil
+	}
+	c, label := mach.c, mach.label
+	m.setFlash("reloading the server on "+label+"…", false)
+	return func() tea.Msg {
+		var res proto.ServerReloadResult
+		if err := callCtx(c, proto.MethodServerReload, proto.ServerReloadParams{}, &res); err != nil {
+			return errMsg{err}
+		}
+		time.Sleep(500 * time.Millisecond) // the exec takes a moment
+		return reloadedMsg{machine: mid}
 	}
 }
 

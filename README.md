@@ -20,8 +20,26 @@ curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | 
 This downloads the latest release, checks it against the release checksums
 and installs `~/.local/bin/conch`. `CONCH_VERSION=0.2.0` picks a release and
 `CONCH_INSTALL_DIR` another directory. Later, `conch update` replaces the
-binary with the newest release (restart the server afterwards with
-`conch server stop` — that closes its panes).
+binary with the newest release.
+
+### Updating without stopping agents
+
+The server owns every pane, so a new build takes effect in the server only
+once it restarts — and a restart would stop the agents. Instead, **reload**:
+
+```sh
+conch server reload        # or click the version in the status bar, then r
+```
+
+The server execs the new binary in place. It keeps its process ID, so the
+programs in its panes stay its children; their terminals and the listening
+socket stay open across the exec; screens, scrollback, terminal modes and
+agent states are handed over in a state file. Agents never notice — output
+they write meanwhile waits in the kernel — and the TUI reconnects on its own.
+When the server is older than the TUI, its version shows amber in the status
+bar; the machine menu has **Reload server** too (a remote machine reloads
+onto the build `machine upgrade` installed). Servers from before reloading
+existed need one last `conch server stop`.
 
 With Go 1.25 or newer:
 
@@ -398,6 +416,7 @@ conch read p1                          # visible screen as text
 conch status                           # panes with agent state
 conch project ls                       # projects, base, worktrees
 conch close p1
+conch server reload                    # run a new build; panes keep running
 conch server stop                      # stops the server and all panes
 ```
 

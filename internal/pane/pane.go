@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/detect"
@@ -44,8 +45,15 @@ type Pane struct {
 	cwd     string
 	created time.Time
 
-	cmd  *exec.Cmd
+	cmd  *exec.Cmd   // nil for a pane adopted after a reload
+	proc *os.Process // the program; a child of this process either way
 	ptmx *os.File
+
+	// stopRead asks the read loop to stop (for a reload); readDone closes
+	// when it has.
+	stopRead chan struct{}
+	readDone chan struct{}
+	modes    map[ansi.Mode]bool // modes the program set, replayed on adopt
 
 	// emuMu guards emu. vt.SafeEmulator is not enough: its CellAt returns a
 	// pointer into the screen that is read after its lock is released.
@@ -100,17 +108,9 @@ func Start(opts Options) (*Pane, error) {
 		cursorVisible: true,
 		changed:       make(chan struct{}),
 		mouseModes:    map[ansi.Mode]bool{},
+		modes:         map[ansi.Mode]bool{},
 	}
-	p.emu.SetCallbacks(vt.Callbacks{
-		// Titles come from titleScanner, not the emulator's Title callback.
-		CursorVisibility: func(v bool) {
-			p.mu.Lock()
-			p.cursorVisible = v
-			p.mu.Unlock()
-		},
-		EnableMode:  func(mode ansi.Mode) { p.setMode(mode, true) },
-		DisableMode: func(mode ansi.Mode) { p.setMode(mode, false) },
-	})
+	p.setCallbacks()
 
 	cmd := exec.Command(opts.Command[0], opts.Command[1:]...)
 	cmd.Dir = opts.Cwd
@@ -128,11 +128,31 @@ func Start(opts Options) (*Pane, error) {
 	if err != nil {
 		return nil, err
 	}
-	p.cmd = cmd
-	p.ptmx = ptmx
+	p.cmd, p.proc, p.ptmx = cmd, cmd.Process, ptmx
+	p.startIO()
+	go p.wait()
+	return p, nil
+}
 
-	readDone := make(chan struct{})
-	go p.readLoop(readDone)
+func (p *Pane) setCallbacks() {
+	p.emu.SetCallbacks(vt.Callbacks{
+		// Titles come from titleScanner, not the emulator's Title callback.
+		CursorVisibility: func(v bool) {
+			p.mu.Lock()
+			p.cursorVisible = v
+			p.mu.Unlock()
+		},
+		EnableMode:  func(mode ansi.Mode) { p.setMode(mode, true) },
+		DisableMode: func(mode ansi.Mode) { p.setMode(mode, false) },
+	})
+}
+
+// startIO starts copying the program's output into the emulator and the
+// emulator's replies into the program.
+func (p *Pane) startIO() {
+	ptmx := p.ptmx
+	p.stopRead, p.readDone = make(chan struct{}), make(chan struct{})
+	go p.readLoop(p.stopRead, p.readDone)
 	// Replies the emulator generates (cursor position reports, device
 	// attributes, encoded keys) come out of its input pipe and go to the PTY.
 	// Reading that pipe needs no lock. The queue decouples the two so a
@@ -161,15 +181,42 @@ func Start(opts Options) (*Pane, error) {
 			}
 		}
 	}()
-	go p.wait(readDone)
-	return p, nil
 }
 
-func (p *Pane) readLoop(done chan<- struct{}) {
+// readable waits up to timeout for fd to have input (or be closed). It uses
+// select, not poll: macOS's poll doesn't support terminal devices.
+func readable(fd int, timeout time.Duration) (bool, error) {
+	var set unix.FdSet
+	set.Set(fd)
+	tv := unix.NsecToTimeval(timeout.Nanoseconds())
+	n, err := unix.Select(fd+1, &set, nil, nil, &tv)
+	if errors.Is(err, unix.EINTR) {
+		return false, nil
+	}
+	return n > 0, err
+}
+
+// readLoop copies output until the program closes the terminal or stop is
+// closed. It waits for input before reading, because a blocked read on a terminal
+// can't be interrupted (macOS supports no read deadlines on ptys), and a
+// reload must stop reading without losing bytes: unread output stays in
+// the kernel for the next process.
+func (p *Pane) readLoop(stop <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
 	buf := make([]byte, 32*1024)
 	var titles titleScanner
+	fd := int(p.ptmx.Fd())
 	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
+		if ready, err := readable(fd, 100*time.Millisecond); err != nil {
+			return
+		} else if !ready {
+			continue
+		}
 		n, err := p.ptmx.Read(buf)
 		if n > 0 {
 			if t, ok := titles.scan(buf[:n]); ok {
@@ -188,8 +235,27 @@ func (p *Pane) readLoop(done chan<- struct{}) {
 	}
 }
 
-func (p *Pane) wait(readDone <-chan struct{}) {
-	err := p.cmd.Wait()
+func (p *Pane) wait() {
+	var err error
+	var exitErr *exec.ExitError
+	var code int
+	if p.cmd != nil {
+		err = p.cmd.Wait()
+		if errors.As(err, &exitErr) {
+			code = exitErr.ExitCode()
+		} else if err != nil {
+			code = -1
+		}
+	} else {
+		st, werr := p.proc.Wait()
+		switch {
+		case werr != nil:
+			code = -1
+		default:
+			code = st.ExitCode()
+		}
+	}
+	readDone := p.readDone // the current read loop's, after a resume too
 	// Let trailing output land on the screen. A background child that still
 	// holds the terminal open would keep the read blocked, so don't wait
 	// forever.
@@ -198,13 +264,6 @@ func (p *Pane) wait(readDone <-chan struct{}) {
 	case <-time.After(500 * time.Millisecond):
 	}
 
-	code := 0
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		code = exitErr.ExitCode()
-	} else if err != nil {
-		code = -1
-	}
 	p.mu.Lock()
 	p.state = proto.PaneExited
 	p.exitCode = code
@@ -278,7 +337,7 @@ func (p *Pane) Info() proto.PaneInfo {
 		Cwd:      p.cwd,
 		Cols:     cols,
 		Rows:     rows,
-		PID:      p.cmd.Process.Pid,
+		PID:      p.proc.Pid,
 		State:    p.state,
 		ExitCode: p.exitCode,
 		Created:  p.created,
@@ -436,11 +495,16 @@ var mouseModes = map[ansi.Mode]bool{
 }
 
 func (p *Pane) setMode(mode ansi.Mode, on bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if on {
+		p.modes[mode] = true
+	} else {
+		delete(p.modes, mode)
+	}
 	if !mouseModes[mode] {
 		return
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	if on {
 		p.mouseModes[mode] = true
 	} else {
