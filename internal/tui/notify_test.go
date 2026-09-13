@@ -91,11 +91,17 @@ func TestVersionInStatusBar(t *testing.T) {
 	if !strings.HasSuffix(strings.TrimRight(plain, " "), versionLabel()) || !strings.Contains(plain, "⚙ Settings") {
 		t.Fatalf("version should end the status bar: %q", plain)
 	}
-	if strings.Index(plain, "⚙ Settings") > strings.Index(plain, "conch ") {
+	if strings.Index(plain, "⚙ Settings") > strings.Index(plain, versionLabel()) {
 		t.Fatalf("version should come after Settings: %q", plain)
 	}
 	m.width = 80
-	if line, _ := m.layoutStatus(); strings.Contains(ansi.Strip(line), "conch 0") {
+	if line, _ := m.layoutStatus(); strings.Contains(ansi.Strip(line), versionLabel()) {
 		t.Fatal("narrow terminals drop the version")
+	}
+	box := ansi.Strip(strings.Join(versionInfo{}.render(Model{width: 160, height: 40, machines: m.machines}).lines, "\n"))
+	for _, want := range []string{"Version", "Build", "Platform", "Server"} {
+		if !strings.Contains(box, want) {
+			t.Fatalf("details lack %s:\n%s", want, box)
+		}
 	}
 }

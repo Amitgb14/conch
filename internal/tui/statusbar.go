@@ -180,29 +180,20 @@ func (m Model) statusRightItems() []statusItem {
 		return cmd
 	}})
 	if m.width >= 100 {
-		text, style := versionLabel(), styleMuted
+		style := styleMuted
 		if m.serverBehind() {
-			text, style = "↻ "+text, styleWarn
+			style = styleWarn // details say the server needs a restart
 		}
-		items = append(items, statusItem{text: style.Render(text), act: func(m *Model) tea.Cmd {
-			m.setFlash(m.versionDetail(), m.serverBehind())
+		items = append(items, statusItem{text: style.Render(versionLabel()), act: func(m *Model) tea.Cmd {
+			m.overlay = versionInfo{}
 			return nil
 		}})
 	}
 	return items
 }
 
-// versionLabel is this build's version: a release number, or for a
-// development build its build hash too.
-func versionLabel() string {
-	v := "conch " + proto.Version
-	if !proto.IsRelease() {
-		if b := buildinfo.Build(); b != "" {
-			v += " · " + b[:min(7, len(b))]
-		}
-	}
-	return v
-}
+// versionLabel is this build's version, e.g. "v0.1.0-dev".
+func versionLabel() string { return "v" + proto.Version }
 
 // serverBehind reports whether the local server runs a different build
 // than this client, so its new features need a restart.
@@ -214,16 +205,54 @@ func (m Model) serverBehind() bool {
 	return s.Build != "" && buildinfo.Build() != "" && s.Build != buildinfo.Build()
 }
 
-func (m Model) versionDetail() string {
-	detail := fmt.Sprintf("%s (build %s, %s)", "conch "+proto.Version, buildinfo.Build(), buildinfo.Platform())
-	if len(m.machines) > 0 && m.machines[0].c != nil {
-		s := m.machines[0].server
-		if m.serverBehind() {
-			return detail + fmt.Sprintf(" · server runs build %s: `conch server stop` and reopen to use this build (closes its panes)", s.Build)
-		}
-		detail += " · server up to date"
+// versionInfo is the box that opens from the version in the status bar.
+type versionInfo struct{}
+
+func (versionInfo) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
+	if _, ok := msg.(tea.KeyMsg); ok {
+		m.overlay = nil
+		return true, nil
 	}
-	return detail
+	return false, nil
+}
+
+func (versionInfo) mouse(m *Model, msg tea.MouseMsg, _ box) tea.Cmd {
+	if msg.Action == tea.MouseActionPress {
+		m.overlay = nil
+	}
+	return nil
+}
+
+func (v versionInfo) render(m Model) box {
+	row := func(k, val string) string { return " " + styleMuted.Render(padRight(k, 10)) + val }
+	lines := []string{
+		row("Version", proto.Version),
+		row("Build", buildinfo.Build()),
+		row("Platform", buildinfo.Platform()),
+	}
+	if len(m.machines) > 0 {
+		mach := m.machines[0]
+		switch {
+		case mach.c == nil:
+			lines = append(lines, row("Server", styleErr.Render("not connected")))
+		case m.serverBehind():
+			lines = append(lines,
+				row("Server", styleWarn.Render("outdated")+styleMuted.Render(fmt.Sprintf(" · %s build %s", mach.server.Version, mach.server.Build))),
+				"", styleMuted.Render(" conch server stop, then reopen conch, to run this build"),
+				styleMuted.Render(" (stopping closes the server's panes; resume them from Sessions)"))
+		default:
+			lines = append(lines, row("Server", styleOK.Render("up to date")+styleMuted.Render(fmt.Sprintf(" · pid %d · running %s", mach.server.PID, uptime(mach.server.Started)))))
+		}
+	}
+	lines = append(lines, "", styleMuted.Render(" any key closes"))
+	w := 0
+	for _, l := range lines {
+		w = max(w, ansi.StringWidth(l)+2)
+	}
+	b := box{lines: frameLines(" conch ", lines, w, colorAccent)}
+	b.x = max(m.width-b.width()-1, 0)
+	b.y = max(m.height-statusHeight-len(b.lines), 0)
+	return b
 }
 
 // layoutStatus renders the status bar and records where its clickable
@@ -292,4 +321,17 @@ func (m *Model) clickStatus(x int) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+func uptime(since time.Time) string {
+	d := time.Since(since)
+	switch {
+	case d < time.Minute:
+		return "under a minute"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+	return fmt.Sprintf("%dd %dh", int(d.Hours()/24), int(d.Hours())%24)
 }
