@@ -80,8 +80,8 @@ type Model struct {
 	sel        *selection    // text selected in the viewed pane
 	click      *pendingClick // a press held back from a mouse-using program
 
-	changesPolling bool // a changesPollMsg is scheduled
-	statePath  string        // where fold state is saved; "" disables saving
+	changesPolling bool   // a changesPollMsg is scheduled
+	statePath      string // where fold state is saved; "" disables saving
 
 	flash      string
 	flashIsErr bool
