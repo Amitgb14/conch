@@ -45,29 +45,102 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m.sidebarMouse(msg, press, left, wheel)
 	}
 
-	ox, oy := m.mainOrigin()
-	cols, rows := m.paneArea()
-	x, y := msg.X-ox, msg.Y-oy
-	r, _ := m.selectedRow()
-	// A selection drag keeps going when the pointer leaves the pane.
-	if r.kind == kindPane && m.sel != nil && m.sel.dragging {
-		return m, m.selectMouse(msg, clamp(x, 0, cols-1), clamp(y, 0, rows-1))
-	}
-	if x < 0 || y < 0 || x >= cols || y >= rows {
+	// Resizing splits by dragging the boundary between two leaves.
+	if m.barDrag != nil {
+		bar := m.barDrag
+		switch msg.Action {
+		case tea.MouseActionMotion:
+			if bar.node.dir == splitRight {
+				bar.node.ratio = float64(msg.X-bar.area.x) / float64(max(bar.area.w, 1))
+			} else {
+				bar.node.ratio = float64(msg.Y-bar.area.y) / float64(max(bar.area.h, 1))
+			}
+			bar.node.ratio = min(max(bar.node.ratio, 0.05), 0.95)
+			return m, nil
+		case tea.MouseActionRelease:
+			m.barDrag = nil
+			return m, tea.Batch(m.syncView(), m.saveState())
+		}
 		return m, nil
 	}
-	switch r.kind {
+
+	mr := m.mainRect()
+	if !m.zoom && msg.Y == mr.y {
+		if press && left {
+			_, hits := m.tabBar(mr.w)
+			for _, h := range hits {
+				if x := msg.X - mr.x; x >= h.x0 && x < h.x1 {
+					switch h.tab {
+					case -1:
+						return m, m.newTab(viewRef{})
+					case -2:
+						return m, m.closeTab(m.activeTab)
+					}
+					return m, m.gotoTab(h.tab)
+				}
+			}
+		}
+		return m, nil
+	}
+
+	rects, bars := m.leafRects()
+	if press && left {
+		for i := range bars {
+			bar := bars[i]
+			onBar := false
+			if bar.node.dir == splitRight {
+				onBar = (msg.X == bar.pos-1 || msg.X == bar.pos) && msg.Y >= bar.area.y && msg.Y < bar.area.y+bar.area.h
+			} else {
+				onBar = (msg.Y == bar.pos-1 || msg.Y == bar.pos) && msg.X >= bar.area.x && msg.X < bar.area.x+bar.area.w
+			}
+			// Only the border lines themselves, not the leaves' contents.
+			if onBar && !m.inner(rects[m.leafAt(rects, msg.X, msg.Y)]).contains(msg.X, msg.Y) {
+				m.barDrag = &bar
+				return m, nil
+			}
+		}
+	}
+
+	t := m.tab()
+	var focusCmd tea.Cmd
+	if id := m.leafAt(rects, msg.X, msg.Y); id != 0 && id != t.focus && (press || wheel) && !(m.sel != nil && m.sel.dragging) {
+		focusCmd = m.focusLeaf(id)
+	}
+	f := t.focused()
+	in := m.inner(rects[f.id])
+	x, y := msg.X-in.x, msg.Y-in.y
+	// A selection drag keeps going when the pointer leaves the pane.
+	if f.view.Kind == kindPane && m.sel != nil && m.sel.dragging {
+		return m, m.selectMouse(msg, clamp(x, 0, in.w-1), clamp(y, 0, in.h-1))
+	}
+	if x < 0 || y < 0 || x >= in.w || y >= in.h {
+		if press && left && f.view.Kind == kindPane {
+			m.focus = focusMain
+		}
+		return m, focusCmd
+	}
+	switch f.view.Kind {
 	case kindPane:
-		return m, m.paneMouse(r.paneID, msg, x, y, press, wheel)
+		return m, tea.Batch(focusCmd, m.paneMouse(f.view.PaneID, msg, x, y, press, wheel))
 	case kindBranch:
 		if press && left {
 			m.focus = focusMain
 		}
-		if m.changes != nil {
-			return m, m.changes.mouse(&m, msg, x, y)
+		if f.changes != nil {
+			return m, tea.Batch(focusCmd, f.changes.mouse(&m, msg, x, y))
 		}
 	}
-	return m, nil
+	return m, focusCmd
+}
+
+// leafAt returns the leaf whose area holds x, y, or 0.
+func (m Model) leafAt(rects map[int]rect, x, y int) int {
+	for id, r := range rects {
+		if r.contains(x, y) {
+			return id
+		}
+	}
+	return 0
 }
 
 // paneMouse handles the mouse over a pane. Programs that asked for mouse
@@ -160,6 +233,9 @@ func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Mode
 	m.cursor = r.id
 	m.focus = focusSidebar
 	cmd := m.syncView()
+	if left && !r.expandable() {
+		cmd = m.show(r) // a click puts it in the focused split
+	}
 
 	switch msg.Button {
 	case tea.MouseButtonRight:

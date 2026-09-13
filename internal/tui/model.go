@@ -62,8 +62,17 @@ type Model struct {
 	viewing     string
 	frame       *proto.Frame
 
-	changes *changesView // for the selected branch
+	changes *changesView // the focused leaf's, when it shows a branch
 	overlay overlay      // menu or dialog on top, if any
+
+	// Tabs and splits in the main area.
+	tabs        []*tab
+	activeTab   int
+	leafSeq     int
+	frames      map[string]*proto.Frame // latest frame per visible pane (paneKey)
+	subscribed  map[string]bool
+	barDrag     *splitBar // a split boundary being dragged
+	pendingShow string    // row to put on screen once the tree has it
 
 	offset     int        // lines the viewed pane is scrolled back
 	scrollMode bool       // keys scroll the pane instead of reaching it
@@ -95,12 +104,15 @@ func New(local *client.Client, cfg config.Config) Model {
 	path := uiStatePath()
 	st := loadUIState(path)
 	m := Model{
-		cfg:       cfg,
-		expanded:  st.Expanded,
-		showAll:   st.ShowAll,
-		sidebarW:  defaultSidebarWidth,
-		statePath: path,
+		cfg:        cfg,
+		expanded:   st.Expanded,
+		showAll:    st.ShowAll,
+		sidebarW:   defaultSidebarWidth,
+		statePath:  path,
+		frames:     map[string]*proto.Frame{},
+		subscribed: map[string]bool{},
 	}
+	m.restoreTabs(st.Tabs, st.ActiveTab)
 	if st.SidebarWidth > 0 {
 		m.sidebarW = st.SidebarWidth
 	}
@@ -182,6 +194,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		mach.lost(msg.err)
+		for key := range m.subscribed {
+			if strings.HasPrefix(key, mach.id+"|") {
+				delete(m.subscribed, key) // the server forgot them with the connection
+				delete(m.frames, key)
+			}
+		}
 		if m.viewMachine == mach.id {
 			m.viewing, m.frame = "", nil
 			if m.focus == focusMain {
@@ -278,8 +296,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(mach.connect(false), m.rebuild(), m.saveState())
 
 	case changesMsg, diffMsg:
-		if m.changes != nil {
-			m.changes.receive(msg)
+		for _, t := range m.tabs {
+			for _, l := range t.root.leaves() {
+				if l.changes != nil {
+					l.changes.receive(msg)
+				}
+			}
 		}
 		return m, nil
 
@@ -314,7 +336,11 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 	switch msg.Event {
 	case proto.EventPaneFrame:
 		var f proto.Frame
-		if decodeInto(msg, &f) && mach.id == m.viewMachine && f.ID == m.viewing {
+		if !decodeInto(msg, &f) || !m.subscribed[paneKey(mach.id, f.ID)] {
+			return nil
+		}
+		m.frames[paneKey(mach.id, f.ID)] = &f
+		if mach.id == m.viewMachine && f.ID == m.viewing {
 			m.frame = &f
 			m.offset = f.Offset // the server keeps it anchored as output arrives
 		}
@@ -357,6 +383,8 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				mach.panes = append(mach.panes[:i], mach.panes[i+1:]...)
 				delete(mach.sizes, ref.ID)
 				delete(mach.agents, ref.ID)
+				delete(m.subscribed, paneKey(mach.id, ref.ID))
+				delete(m.frames, paneKey(mach.id, ref.ID))
 				if m.isViewing(mach.id, ref.ID) && m.focus == focusMain {
 					m.focus = focusSidebar
 				}
@@ -378,11 +406,13 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if !found {
 			mach.projects = append(mach.projects, info)
 		}
-		cmd := m.rebuild()
-		if m.changes != nil && m.changes.machine == mach.id && m.changes.projectID == info.ID {
-			cmd = tea.Batch(cmd, m.changes.reload(m))
+		cmds := []tea.Cmd{m.rebuild()}
+		for _, l := range m.tab().root.leaves() {
+			if cv := l.changes; cv != nil && cv.machine == mach.id && cv.projectID == info.ID {
+				cmds = append(cmds, cv.reload(m))
+			}
 		}
-		return cmd
+		return tea.Batch(cmds...)
 
 	case proto.EventProjectRemoved:
 		var ref proto.ProjectRef
@@ -440,6 +470,12 @@ func (m *Model) rebuild() tea.Cmd {
 		m.cursor = m.rows[clamp(prevIndex, 0, len(m.rows)-1)].id
 	}
 	m.keepCursorVisible()
+	if m.pendingShow != "" {
+		if i := indexOfRow(m.rows, m.pendingShow); i >= 0 {
+			m.pendingShow = ""
+			return m.show(m.rows[i])
+		}
+	}
 	return m.syncView()
 }
 
@@ -451,43 +487,6 @@ func (m *Model) selectedRow() (row, bool) {
 	return m.rows[i], true
 }
 
-// syncView points the main area at the selected row: subscribes to a
-// selected pane (sized to fit), or loads a selected branch's changes.
-func (m *Model) syncView() tea.Cmd {
-	r, _ := m.selectedRow()
-	targetMachine, target := "", ""
-	if mach := m.machine(r.machine); r.kind == kindPane && mach != nil && mach.c != nil {
-		targetMachine, target = r.machine, r.paneID
-		if m.width > 0 {
-			cols, rows := m.paneArea()
-			if p := mach.pane(target); p != nil && p.State == proto.PaneRunning && mach.sizes[target] != [2]int{cols, rows} {
-				mach.sizes[target] = [2]int{cols, rows}
-				mach.c.Notify(proto.MethodPaneResize, proto.PaneResizeParams{ID: target, Cols: cols, Rows: rows})
-			}
-		}
-	}
-	if targetMachine != m.viewMachine || target != m.viewing {
-		if old := m.machine(m.viewMachine); old != nil && old.c != nil && m.viewing != "" {
-			old.c.Notify(proto.MethodPaneUnsubscribe, proto.PaneRef{ID: m.viewing})
-		}
-		m.viewMachine, m.viewing, m.frame = targetMachine, target, nil
-		m.offset, m.scrollMode, m.sel = 0, false, nil
-		if target != "" {
-			m.machine(targetMachine).c.Notify(proto.MethodPaneSubscribe, proto.PaneRef{ID: target})
-		}
-	}
-
-	if r.kind == kindBranch {
-		if m.changes == nil || m.changes.machine != r.machine || m.changes.projectID != r.projectID || m.changes.branch != r.branch {
-			m.changes = &changesView{machine: r.machine, projectID: r.projectID, branch: r.branch}
-			return m.changes.reload(m)
-		}
-		return nil
-	}
-	m.changes = nil
-	return nil
-}
-
 // revealPane expands the pane's ancestors and selects it.
 func (m *Model) revealPane(mid string, p proto.PaneInfo) {
 	m.expanded[machineID(mid)] = true
@@ -497,6 +496,7 @@ func (m *Model) revealPane(mid string, p proto.PaneInfo) {
 		m.expanded[sectionID(mid, p.ProjectID, "terminals")] = true
 	}
 	m.cursor = paneNodeID(mid, p.ID)
+	m.pendingShow = m.cursor // shown once the next rebuild has its row
 }
 
 func (m *Model) moveCursor(delta int) tea.Cmd {

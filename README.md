@@ -78,6 +78,26 @@ Press `,` or click `⚙` at the right end of the status bar.
 
 Changes are saved to `~/.config/conch/config.toml`.
 
+## Splits and tabs
+
+The main area has tabs (click them, `+` adds one, `×` closes), and each tab
+can be split into several views: panes, branch changes, projects or
+machines side by side. The focused split has the highlighted border; the
+tree picks what it shows (a single-view tab follows the tree as you move;
+with splits, click or `enter` a row).
+
+| Keys | |
+|---|---|
+| `ctrl+b v` / `ctrl+b -` | split right / down (the new split shows the same thing until you pick another) |
+| `ctrl+b ←→↑↓` or `h j k l`, `ctrl+b o` | move focus between splits |
+| `ctrl+b x` | close the split (the pane keeps running) |
+| `ctrl+b c`, `n`, `p`, `1-9`, `&`, `,` | new, next, previous, go to, close, rename tab |
+| `ctrl+b =` | equalize splits |
+| `v` / `s` / `O` in the tree | open the selected item in a split right / below / a new tab |
+
+Drag a border between splits to resize. Tabs and splits are remembered in
+`ui.json`.
+
 ## Remote machines
 
 Each machine runs its own conch server, which owns that machine's panes and

@@ -70,9 +70,10 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		return nil
 	}
 	switch {
-	case m.focus == focusMain && m.prefixArmed:
+	case m.prefixArmed:
 		chip = styleChip.Background(colorWarn).Render("PREFIX")
-		items = []statusItem{hint("[", "scroll"), hint("z", "zoom"), hint("!", "next waiting"), action("esc", "tree", toTree)}
+		items = []statusItem{hint("v", "split"), hint("-", "split down"), hint("x", "close split"), hint("←→↑↓", "focus"),
+			hint("c", "new tab"), hint("n", "next tab"), hint("[", "scroll"), hint("z", "zoom"), action("esc", "tree", toTree)}
 	case m.focus == focusMain && r.kind == kindPane && m.scrollMode:
 		chip = styleChip.Background(colorWarn).Render("SCROLL")
 		items = []statusItem{hint("↑", "line"), hint("↓", "line"), hint("pgup", "page"), hint("pgdn", "page"),
@@ -88,9 +89,14 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		chip = styleChip.Background(colorInput).Render("PANE")
 		items = []statusItem{
 			action(m.cfg.Keys.Prefix, "tree", toTree),
+			action(m.cfg.Keys.Prefix+" v", "split", func(m *Model) tea.Cmd { return m.split(splitRight, viewRef{}) }),
+			action(m.cfg.Keys.Prefix+" -", "split down", func(m *Model) tea.Cmd { return m.split(splitDown, viewRef{}) }),
+			action(m.cfg.Keys.Prefix+" c", "tab", func(m *Model) tea.Cmd { return m.newTab(viewRef{}) }),
 			action(m.cfg.Keys.Prefix+" [", "scroll", scrollMode),
 			action(m.cfg.Keys.Prefix+" z", "zoom", func(m *Model) tea.Cmd { m.zoom = !m.zoom; return m.syncView() }),
-			{text: styleMuted.Render("drag copies · wheel scrolls")},
+		}
+		if len(m.tab().root.leaves()) > 1 {
+			items = append(items, action(m.cfg.Keys.Prefix+" x", "close split", func(m *Model) tea.Cmd { return m.closeLeaf() }))
 		}
 	case m.focus == focusMain && m.changes != nil && m.changes.diffFile != "":
 		chip = styleChip.Background(colorInput).Render("DIFF")
@@ -107,10 +113,10 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		chip = styleChip.Background(colorAccent).Render("TREE")
 		switch r.kind {
 		case kindPane:
-			items = []statusItem{hint("enter", "open"), hint("r", "rename"), hint("x", "close"), hint("c", "claude"),
-				hint("n", "shell"), hint("t", "task"), hint("m", "menu")}
+			items = []statusItem{hint("enter", "open"), hint("v", "split"), hint("O", "new tab"), hint("r", "rename"),
+				hint("x", "close"), hint("c", "claude"), hint("n", "shell"), hint("m", "menu")}
 		case kindBranch:
-			items = []statusItem{hint("enter", "changes"), hint("o", "PR"), hint("c", "claude"), hint("n", "shell"),
+			items = []statusItem{hint("enter", "changes"), hint("v", "split"), hint("o", "PR"), hint("c", "claude"), hint("n", "shell"),
 				hint("x", "rm worktree"), hint("y", "copy"), hint("m", "menu")}
 		case kindProject:
 			items = []statusItem{hint("t", "task"), hint("c", "claude"), hint("n", "shell"), hint("space", "fold"),

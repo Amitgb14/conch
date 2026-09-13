@@ -17,51 +17,59 @@ func (m Model) sidebarInner() (w, h int) {
 	return max(m.sidebarW-2, 1), max(m.height-statusHeight-2, 1)
 }
 
-// mainOrigin is the screen position of the main area's first content cell.
-func (m Model) mainOrigin() (x, y int) {
-	if m.zoom {
-		return 0, 0
-	}
-	return m.sidebarW + 1, 1
-}
-
-// paneArea is the size, in cells, of the main area's content.
-func (m Model) paneArea() (cols, rows int) {
-	if m.zoom {
-		return max(m.width, 1), max(m.height-statusHeight, 1)
-	}
-	return max(m.width-m.sidebarW-2, 1), max(m.height-statusHeight-2, 1)
-}
-
 // View renders the whole screen.
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return ""
 	}
-	cols, rows := m.paneArea()
-	main := exactly(m.mainLines(cols, rows), rows)
-	var screen []string
-	if m.zoom {
-		for i := 0; i < rows; i++ {
-			line := ""
-			if i < len(main) {
-				line = main[i]
-			}
-			screen = append(screen, fit(line, cols))
-		}
-	} else {
+	rows := m.height - statusHeight
+	screen := make([]string, rows)
+	if !m.zoom {
 		sw, sh := m.sidebarInner()
-		sideColor, mainColor := colorAccent, colorBorder
+		sideColor := colorAccent
 		if m.focus == focusMain {
-			sideColor, mainColor = colorBorder, colorInput
+			sideColor = colorBorder
 		}
 		left := frameLines(styleSel.Render(" ◆ conch "), exactly(m.sidebarLines(sw, sh), sh), sw, sideColor)
-		right := frameLines(m.mainTitle(), main, cols, mainColor)
-		for len(right) < len(left) {
-			right = append(right, "")
+		for i := range screen {
+			if i < len(left) {
+				screen[i] = left[i]
+			}
+			screen[i] = padRight(screen[i], m.sidebarW)
 		}
-		for i := range left {
-			screen = append(screen, left[i]+right[i])
+		bar, _ := m.tabBar(m.mainRect().w)
+		screen[0] += bar
+	}
+
+	rects, _ := m.leafRects()
+	t := m.tab()
+	for _, l := range t.root.leaves() {
+		r, ok := rects[l.id]
+		if !ok {
+			continue
+		}
+		focused := l.id == t.focus
+		in := m.inner(r)
+		content := exactly(m.leafLines(l, in.w, in.h, focused), in.h)
+		var lines []string
+		if m.zoom {
+			for _, c := range content {
+				lines = append(lines, fit(c, in.w))
+			}
+		} else {
+			color := colorBorder
+			switch {
+			case focused && m.focus == focusMain:
+				color = colorInput
+			case focused && len(t.root.leaves()) > 1:
+				color = colorAccent
+			}
+			lines = frameLines(m.leafTitle(l), content, in.w, color)
+		}
+		for i, line := range lines {
+			if y := r.y + i; y >= 0 && y < rows {
+				screen[y] = splice(screen[y], line, r.x, m.width)
+			}
 		}
 	}
 	screen = append(screen, m.statusBar())
@@ -69,15 +77,18 @@ func (m Model) View() string {
 	if m.overlay != nil {
 		b := m.overlay.render(m)
 		for i, l := range b.lines {
-			y := b.y + i
-			if y < 0 || y >= len(screen) {
-				continue
+			if y := b.y + i; y >= 0 && y < len(screen) {
+				screen[y] = splice(screen[y], l, b.x, m.width)
 			}
-			base := screen[y]
-			screen[y] = ansi.Cut(base, 0, b.x) + "\x1b[0m" + l + "\x1b[0m" + ansi.Cut(base, b.x+b.width(), m.width)
 		}
 	}
 	return strings.Join(screen, "\n")
+}
+
+// splice draws s over base starting at column x, keeping what is either side.
+func splice(base, s string, x, width int) string {
+	base = padRight(base, x)
+	return ansi.Cut(base, 0, x) + "\x1b[0m" + s + "\x1b[0m" + ansi.Cut(base, x+ansi.StringWidth(s), width)
 }
 
 // ---- sidebar ----
@@ -402,17 +413,18 @@ func (m Model) inboxCount() int {
 
 // ---- main area ----
 
-func (m Model) mainTitle() string {
-	r, _ := m.selectedRow()
-	switch r.kind {
+func (m Model) leafTitle(l *leaf) string {
+	v := l.view
+	mach := m.machine(v.Machine)
+	switch v.Kind {
 	case kindPane:
-		p := m.pane(r.machine, r.paneID)
+		p := m.pane(v.Machine, v.PaneID)
 		if p == nil {
-			return ""
+			return " closed "
 		}
 		t := " " + p.DisplayName() + " "
-		if r.machine != localMachine {
-			t = " " + m.machine(r.machine).label + " · " + p.DisplayName() + " "
+		if v.Machine != localMachine && mach != nil {
+			t = " " + mach.label + " · " + p.DisplayName() + " "
 		}
 		if p.Agent != nil {
 			t += "· " + p.Agent.State + " "
@@ -422,54 +434,60 @@ func (m Model) mainTitle() string {
 		if p.Branch != "" {
 			t += "· " + p.Branch + " "
 		}
-		if m.frame != nil && m.offset > 0 {
-			t += fmt.Sprintf("· ↑ %d/%d lines back ", m.offset, m.frame.History)
+		if f := m.frames[paneKey(v.Machine, v.PaneID)]; f != nil && f.Offset > 0 {
+			t += fmt.Sprintf("· ↑ %d/%d lines back ", f.Offset, f.History)
 		}
 		return t
 	case kindBranch:
-		return " changes · " + r.branch + " "
+		return " changes · " + v.Branch + " "
 	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore:
-		if proj := m.project(r.machine, r.projectID); proj != nil {
+		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " " + proj.Name + " "
 		}
 	}
-	if mach := m.machine(r.machine); mach != nil {
+	if mach != nil {
 		return " " + mach.label + " "
 	}
-	return " conch "
+	return " empty "
 }
 
-func (m Model) mainLines(cols, rows int) []string {
-	r, ok := m.selectedRow()
-	if !ok {
-		return nil
+// leafLines renders what a leaf shows into w×h cells.
+func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
+	v := l.view
+	if v.empty() {
+		return centered(w, h, styleMuted.Render("Pick something in the tree for this split"), "",
+			styleMuted.Render(m.cfg.Keys.Prefix+" x closes it"))
 	}
-	mach := m.machine(r.machine)
-	if mach != nil && mach.state != stateOnline && r.kind != kindMachine {
-		return m.machineLines(mach, cols, rows)
+	mach := m.machine(v.Machine)
+	if mach != nil && mach.state != stateOnline && v.Kind != kindMachine {
+		return m.machineLines(mach, w, h)
 	}
-	switch r.kind {
+	switch v.Kind {
 	case kindPane:
-		if m.frame == nil {
-			return centered(cols, rows, styleMuted.Render("connecting…"))
+		if m.pane(v.Machine, v.PaneID) == nil {
+			return centered(w, h, styleMuted.Render("This pane was closed"), "", styleMuted.Render("pick another in the tree"))
 		}
-		if m.sel != nil && m.sel.paneID == m.viewing {
-			return m.sel.highlight(m.frame.Lines, cols)
+		f := m.frames[paneKey(v.Machine, v.PaneID)]
+		if f == nil {
+			return centered(w, h, styleMuted.Render("connecting…"))
 		}
-		return m.frame.Lines
+		if focused && m.sel != nil && m.sel.paneID == m.viewing {
+			return m.sel.highlight(f.Lines, w)
+		}
+		return f.Lines
 	case kindBranch:
-		if m.changes != nil {
-			return m.changes.render(m, cols, rows)
+		if l.changes != nil {
+			return l.changes.render(m, w, h)
 		}
 	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore:
-		if proj := m.project(r.machine, r.projectID); proj != nil {
-			return m.projectLines(r.machine, *proj, cols)
+		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
+			return m.projectLines(v.Machine, *proj, w)
 		}
 	}
 	if mach == nil {
-		return nil
+		return centered(w, h, styleMuted.Render("This machine was removed"))
 	}
-	return m.machineLines(mach, cols, rows)
+	return m.machineLines(mach, w, h)
 }
 
 func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string {

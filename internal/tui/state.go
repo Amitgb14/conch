@@ -15,6 +15,8 @@ type uiState struct {
 	Expanded     map[string]bool `json:"expanded"`
 	ShowAll      map[string]bool `json:"show_all"`
 	SidebarWidth int             `json:"sidebar_width,omitempty"`
+	Tabs         []savedTab      `json:"tabs,omitempty"`
+	ActiveTab    int             `json:"active_tab,omitempty"`
 }
 
 func uiStatePath() string { return filepath.Join(config.Dir(), "ui.json") }
@@ -56,7 +58,8 @@ func saveUIState(path string, st uiState) error {
 // saveState writes fold state and sidebar width in the background. The
 // maps are copied because the model keeps changing them.
 func (m Model) saveState() tea.Cmd {
-	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW}
+	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
+		Tabs: m.savedTabs(), ActiveTab: m.activeTab}
 	for k, v := range m.expanded {
 		st.Expanded[k] = v
 	}

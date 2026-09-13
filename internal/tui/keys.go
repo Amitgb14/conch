@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -24,9 +25,35 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	m.flash = ""
 	r, ok := m.selectedRow()
+	if m.prefixArmed {
+		m.prefixArmed = false
+		if cmd, handled := m.layoutKey(k.String()); handled {
+			return m, cmd
+		}
+		if k.String() == "z" {
+			m.zoom = !m.zoom
+			return m, m.syncView()
+		}
+		return m, nil
+	}
+	if k.String() == m.cfg.Keys.Prefix {
+		m.prefixArmed = true
+		return m, nil
+	}
 	switch k.String() {
 	case "q", "ctrl+c":
-		return m, tea.Quit
+		return m, tea.Sequence(m.saveState(), tea.Quit)
+	case "v", "s", "O":
+		if !ok {
+			break
+		}
+		switch k.String() {
+		case "v":
+			return m, m.split(splitRight, viewOf(r))
+		case "s":
+			return m, m.split(splitDown, viewOf(r))
+		}
+		return m, m.newTab(viewOf(r))
 	case "up", "k":
 		return m, m.moveCursor(-1)
 	case "down", "j":
@@ -161,12 +188,9 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // activate is enter (or a double click) on a row.
 func (m *Model) activate(r row) tea.Cmd {
 	switch r.kind {
-	case kindPane:
+	case kindPane, kindBranch:
 		m.focus = focusMain
-		return nil
-	case kindBranch:
-		m.focus = focusMain
-		return nil
+		return m.show(r)
 	case kindMore:
 		return m.toggle(r, nil)
 	}
@@ -205,6 +229,9 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if m.prefixArmed {
 		m.prefixArmed = false
+		if cmd, handled := m.layoutKey(k.String()); handled {
+			return m, cmd
+		}
 		switch k.String() {
 		case prefix:
 			if c := m.viewClient(); r.kind == kindPane && c != nil {
@@ -262,6 +289,56 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.focus = focusSidebar
 	return m, nil
+}
+
+// layoutKey handles the split and tab commands that follow the prefix.
+func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
+	switch key {
+	case "v", "%", "|":
+		return m.split(splitRight, viewRef{}), true
+	case "-", "\"", "_":
+		return m.split(splitDown, viewRef{}), true
+	case "x":
+		return m.closeLeaf(), true
+	case "left", "h":
+		return m.moveFocus(-1, 0), true
+	case "right", "l":
+		return m.moveFocus(1, 0), true
+	case "up", "k":
+		return m.moveFocus(0, -1), true
+	case "down", "j":
+		return m.moveFocus(0, 1), true
+	case "o":
+		ls := m.tab().root.leaves()
+		for i, l := range ls {
+			if l.id == m.tab().focus {
+				return m.focusLeaf(ls[(i+1)%len(ls)].id), true
+			}
+		}
+	case "c":
+		return m.newTab(viewRef{}), true
+	case "n":
+		return m.gotoTab((m.activeTab + 1) % len(m.tabs)), true
+	case "p":
+		return m.gotoTab((m.activeTab + len(m.tabs) - 1) % len(m.tabs)), true
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		return m.gotoTab(int(key[0] - '1')), true
+	case "&":
+		return m.closeTab(m.activeTab), true
+	case "=":
+		m.tab().root.equalize()
+		return tea.Batch(m.syncView(), m.saveState()), true
+	case ",":
+		t := m.tab()
+		d := newDialog(*m, " Rename tab ", []string{"Leave empty to name it after what it shows."}, []string{"Name"}, []string{t.name})
+		d.submit = func(m *Model, v []string) tea.Cmd {
+			t.name = strings.TrimSpace(v[0])
+			return m.saveState()
+		}
+		m.overlay = d
+		return d.focusCmd(), true
+	}
+	return nil, false
 }
 
 // scrollKey handles keys in scroll mode.
