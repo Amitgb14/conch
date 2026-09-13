@@ -118,7 +118,7 @@ func (n *notes) Notify(method string, _ any) { n.methods = append(n.methods, met
 
 func TestSelectOverMouseApp(t *testing.T) {
 	m := &Model{width: 100, height: 30, viewMachine: localMachine, viewing: "p1",
-		frame: &proto.Frame{Mouse: true, Lines: []string{"copy this text", "second"}},
+		frame:    &proto.Frame{Mouse: true, Lines: []string{"copy this text", "second"}},
 		machines: []*machine{{id: localMachine, panes: []proto.PaneInfo{{ID: "p1", Agent: &proto.AgentStatus{Name: "claude"}}}}}}
 	if !m.selectsOverApp("p1") {
 		t.Fatal("agent panes select over the app")
