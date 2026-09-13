@@ -75,6 +75,13 @@ func (m Model) View() string {
 	screen = append(screen, m.statusBar())
 
 	if m.overlay != nil {
+		if d, ok := m.overlay.(dimmer); ok && d.dimBackground() {
+			// Fade what's behind so only the dialog stands out.
+			faded := lipgloss.NewStyle().Foreground(colorBorder)
+			for i, l := range screen {
+				screen[i] = faded.Render(ansi.Strip(l))
+			}
+		}
 		b := m.overlay.render(m)
 		for i, l := range b.lines {
 			if y := b.y + i; y >= 0 && y < len(screen) {

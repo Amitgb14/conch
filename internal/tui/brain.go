@@ -566,7 +566,7 @@ func (b *askBar) render(m Model) box {
 	}
 	bx := box{lines: frameLines(" ✦ Ask conch ", lines, w, colorAccent)}
 	bx.x = max((m.width-bx.width())/2, 0)
-	bx.y = max((m.height-len(bx.lines))/4, 0)
+	bx.y = max((m.height-len(bx.lines))/2, 0)
 	return bx
 }
 
@@ -576,6 +576,8 @@ func (b *askBar) mouse(m *Model, msg tea.MouseMsg, bx box) tea.Cmd {
 	}
 	return nil
 }
+
+func (b *askBar) dimBackground() bool { return true }
 
 // thinking reports whether the spinner must keep ticking.
 func (b *askBar) thinking() bool { return b.phase == askThinking || b.phase == askRunning }

@@ -21,6 +21,11 @@ type overlay interface {
 	mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd
 }
 
+// dimmer is an overlay that fades the screen behind it.
+type dimmer interface {
+	dimBackground() bool
+}
+
 // box is rendered overlay content and its top-left screen position.
 type box struct {
 	lines []string
