@@ -76,6 +76,8 @@ type catalog struct {
 type catalogEntry struct {
 	Path  string    `json:"path"`
 	Added time.Time `json:"added"`
+	// LocalFiles overrides the default local file patterns when set.
+	LocalFiles *[]string `json:"local_files,omitempty"`
 }
 
 func newProjectManager(s *Server, configDir string) *projectManager {
@@ -107,8 +109,13 @@ func (pm *projectManager) load() {
 		return
 	}
 	for _, e := range cat.Projects {
-		if _, err := pm.add(e.Path, false); err != nil {
+		p, err := pm.add(e.Path, false)
+		if err != nil {
 			log.Printf("projects: dropping %s: %v", e.Path, err)
+			continue
+		}
+		if e.LocalFiles != nil {
+			p.setLocalFiles(*e.LocalFiles, false)
 		}
 	}
 }
@@ -118,7 +125,12 @@ func (pm *projectManager) save() {
 	cat := catalog{Projects: []catalogEntry{}}
 	for _, id := range pm.order {
 		p := pm.projects[id]
-		cat.Projects = append(cat.Projects, catalogEntry{Path: p.root, Added: time.Now()})
+		e := catalogEntry{Path: p.root, Added: time.Now()}
+		if info := p.snapshot(); !info.LocalFilesDefault {
+			files := append([]string{}, info.LocalFiles...)
+			e.LocalFiles = &files
+		}
+		cat.Projects = append(cat.Projects, e)
 	}
 	pm.mu.Unlock()
 	b, _ := json.MarshalIndent(cat, "", "  ")
@@ -167,7 +179,8 @@ func (pm *projectManager) add(path string, persist bool) (*project, error) {
 		return p, nil
 	}
 	p := &project{id: id, root: root, common: common}
-	p.info = proto.ProjectInfo{ID: id, Name: filepath.Base(root), Path: root, Git: common != ""}
+	p.info = proto.ProjectInfo{ID: id, Name: filepath.Base(root), Path: root, Git: common != "",
+		LocalFiles: DefaultLocalFiles, LocalFilesDefault: true}
 	pm.projects[id] = p
 	pm.order = append(pm.order, id)
 	pm.mu.Unlock()
@@ -364,6 +377,7 @@ func (pm *projectManager) refresh(p *project, stamp string) {
 	p.mu.Lock()
 	p.applyPRs(&info)
 	old := p.info
+	info.LocalFiles, info.LocalFilesDefault = old.LocalFiles, old.LocalFilesDefault
 	old.Refreshed, info.Refreshed = time.Time{}, time.Now()
 	changed := !reflect.DeepEqual(old, withoutTime(info))
 	p.info = info
@@ -565,22 +579,22 @@ func (pm *projectManager) diff(dp proto.DiffParams) (proto.DiffResult, *proto.Er
 
 // addWorktree checks branch out into <repo>.worktrees/<branch>, creating
 // the branch from base if needed. A taken directory gets a numeric suffix.
-func (pm *projectManager) addWorktree(p *project, branch, base string) (string, *proto.Error) {
+func (pm *projectManager) addWorktree(p *project, branch, base string) (path string, copied []string, perr *proto.Error) {
 	if !p.snapshot().Git {
-		return "", proto.Errorf(proto.ErrBadRequest, "%s is not a git repository", p.root)
+		return "", nil, proto.Errorf(proto.ErrBadRequest, "%s is not a git repository", p.root)
 	}
 	if wt, ok := p.branchWorktree(branch); ok {
-		return "", proto.Errorf(proto.ErrBadRequest, "branch %s is already checked out at %s", branch, wt.Path)
+		return "", nil, proto.Errorf(proto.ErrBadRequest, "branch %s is already checked out at %s", branch, wt.Path)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	if err := gitx.ValidBranchName(ctx, p.root, branch); err != nil {
-		return "", proto.Errorf(proto.ErrBadRequest, "invalid branch name %q", branch)
+		return "", nil, proto.Errorf(proto.ErrBadRequest, "invalid branch name %q", branch)
 	}
 	if base == "" {
 		base = p.snapshot().Base
 	}
-	path := gitx.WorktreeDir(p.root, branch)
+	path = gitx.WorktreeDir(p.root, branch)
 	for i := 2; ; i++ {
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 			break
@@ -588,14 +602,20 @@ func (pm *projectManager) addWorktree(p *project, branch, base string) (string, 
 		path = fmt.Sprintf("%s-%d", gitx.WorktreeDir(p.root, branch), i)
 	}
 	if err := gitx.AddWorktree(ctx, p.root, path, branch, base); err != nil {
-		return "", proto.Errorf(proto.ErrBadRequest, "%v", err)
+		return "", nil, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	log.Printf("project %s: worktree %s for %s", p.id, path, branch)
+	if res, err := pm.copyLocalFiles(p, path, false); err != nil {
+		log.Printf("project %s: local files: %v", p.id, err)
+	} else if len(res.Copied) > 0 {
+		log.Printf("project %s: copied %s into %s", p.id, strings.Join(res.Copied, ", "), path)
+		copied = res.Copied
+	}
 	p.mu.Lock()
 	p.info.Worktrees = append(p.info.Worktrees, proto.WorktreeInfo{Path: path, Branch: branch})
 	p.mu.Unlock()
 	pm.request(p)
-	return path, nil
+	return path, copied, nil
 }
 
 func (pm *projectManager) removeWorktree(wp proto.WorktreeRemoveParams) *proto.Error {

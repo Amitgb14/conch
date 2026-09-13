@@ -172,6 +172,22 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.syncView()
 	case "?":
 		m.overlay = newHelp()
+	case "i":
+		return m, m.openSetup()
+	case "F":
+		pl := m.contextPlace()
+		proj := m.project(pl.machine, pl.projectID)
+		if proj == nil || !proj.Git {
+			m.setFlash("select a git project to choose its local files", true)
+			break
+		}
+		if c := m.clientOf(pl.machine); c == nil || len(c.MissingCapabilities([]string{"worktree.files.v1"})) > 0 {
+			m.setFlash("restart the server on this machine to use local files", true)
+			break
+		}
+		d := newLocalFilesDialog(m, pl.machine, *proj)
+		m.overlay = d
+		return m, d.focusCmd()
 	case ",":
 		s, cmd := newSettings(&m)
 		m.overlay = s

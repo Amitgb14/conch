@@ -46,6 +46,50 @@ func runProject(args []string) error {
 		}
 		fmt.Printf("%s  %s  %s\n", info.ID, info.Name, info.Path)
 		return nil
+	case "files":
+		fs := flag.NewFlagSet("project files", flag.ContinueOnError)
+		reset := fs.Bool("reset", false, "restore the default patterns")
+		clear := fs.Bool("none", false, "copy no local files")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() < 1 {
+			return errors.New("usage: conch project files ID [-reset | -none | PATTERN...]")
+		}
+		id := fs.Arg(0)
+		var info proto.ProjectInfo
+		if *reset || *clear || fs.NArg() > 1 {
+			params := proto.ProjectFilesParams{ProjectID: id, Patterns: fs.Args()[1:], Reset: *reset}
+			if err := call(c, proto.MethodProjectFiles, params, &info); err != nil {
+				return err
+			}
+		} else {
+			var list proto.ProjectList
+			if err := call(c, proto.MethodProjectList, nil, &list); err != nil {
+				return err
+			}
+			found := false
+			for _, p := range list.Projects {
+				if p.ID == id {
+					info, found = p, true
+				}
+			}
+			if !found {
+				return fmt.Errorf("no project %q", id)
+			}
+		}
+		which := "custom"
+		if info.LocalFilesDefault {
+			which = "default"
+		}
+		fmt.Printf("local files copied into new worktrees of %s (%s):\n", info.Name, which)
+		if len(info.LocalFiles) == 0 {
+			fmt.Println("  (none)")
+		}
+		for _, pat := range info.LocalFiles {
+			fmt.Println("  " + pat)
+		}
+		return nil
 	case "rm", "remove":
 		if len(args) != 2 {
 			return errors.New("usage: conch project rm ID")

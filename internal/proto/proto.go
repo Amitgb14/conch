@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1",
 }
 
 // Methods.
@@ -73,6 +73,9 @@ const (
 	MethodFSList         = "fs.list"
 	MethodFSMkdir        = "fs.mkdir"
 	MethodShellThemes    = "shell.themes"
+	MethodAgentSetup     = "agent.setup"
+	MethodProjectFiles   = "project.set_files"
+	MethodWorktreeFiles  = "worktree.copy_files"
 )
 
 // Events.
@@ -225,6 +228,11 @@ type ProjectInfo struct {
 	// PRStatus explains missing pull request data ("" when it loaded, or
 	// e.g. "no GitHub remote").
 	PRStatus string `json:"pr_status,omitempty"`
+	// LocalFiles are git glob patterns of ignored files (.env, local agent
+	// settings) copied from the main checkout into new worktrees.
+	LocalFiles []string `json:"local_files,omitempty"`
+	// LocalFilesDefault is set while LocalFiles is the built-in list.
+	LocalFilesDefault bool `json:"local_files_default,omitempty"`
 }
 
 // PRInfo is the pull request for a branch.
@@ -387,15 +395,39 @@ type WorktreeAddParams struct {
 	Base      string `json:"base,omitempty"`
 }
 
+// ProjectFilesParams sets a project's local file patterns; Reset restores
+// the built-in list.
+type ProjectFilesParams struct {
+	ProjectID string   `json:"project_id"`
+	Patterns  []string `json:"patterns,omitempty"`
+	Reset     bool     `json:"reset,omitempty"`
+}
+
+// WorktreeFilesParams copies the project's local files from the main
+// checkout into a linked worktree. Existing files are kept unless Overwrite.
+type WorktreeFilesParams struct {
+	ProjectID string `json:"project_id"`
+	Path      string `json:"path"`
+	Overwrite bool   `json:"overwrite,omitempty"`
+}
+
+// WorktreeFilesResult lists what worktree.copy_files did.
+type WorktreeFilesResult struct {
+	Copied  []string `json:"copied,omitempty"`
+	Skipped []string `json:"skipped,omitempty"` // with a reason, e.g. ".env (exists)"
+}
+
 // WorktreeRemoveParams removes a (clean) linked worktree.
 type WorktreeRemoveParams struct {
 	ProjectID string `json:"project_id"`
 	Path      string `json:"path"`
 }
 
-// WorktreeResult is the path of a created worktree.
+// WorktreeResult is the path of a created worktree and the local files
+// copied into it from the main checkout.
 type WorktreeResult struct {
-	Path string `json:"path"`
+	Path   string   `json:"path"`
+	Copied []string `json:"copied,omitempty"`
 }
 
 // TaskCreateParams starts an agent on a new branch in its own worktree.
@@ -453,6 +485,67 @@ type AgentAvailability struct {
 	Installed bool   `json:"installed"`
 	Path      string `json:"path,omitempty"`
 	Version   string `json:"version,omitempty"`
+}
+
+// AgentSetupParams asks what agents load when started in Dir. Agent limits
+// the answer to one agent; "" means every agent conch knows.
+type AgentSetupParams struct {
+	Dir   string `json:"dir"`
+	Agent string `json:"agent,omitempty"`
+}
+
+// AgentSetupResult describes the instructions, skills and tools agents pick
+// up in a directory. For a linked worktree, items the main checkout has but
+// the worktree lacks are included with Missing set.
+type AgentSetupResult struct {
+	Dir        string       `json:"dir"`
+	ProjectID  string       `json:"project_id,omitempty"`
+	Main       string       `json:"main,omitempty"`     // main checkout, when Dir is in a linked worktree
+	Worktree   string       `json:"worktree,omitempty"` // that linked worktree's root
+	LocalFiles []LocalFile  `json:"local_files,omitempty"`
+	Agents     []AgentSetup `json:"agents"`
+}
+
+// Local file states in a worktree compared to the main checkout.
+const (
+	FileMissing = "missing"
+	FileDiffers = "differs"
+	FileSame    = "same"
+	// FileNotIgnored is an untracked file git doesn't ignore: never copied,
+	// so an agent can't commit it by accident.
+	FileNotIgnored = "not_ignored"
+)
+
+// LocalFile is an untracked file of the main checkout matched by the
+// project's local file patterns, and its state in the worktree.
+type LocalFile struct {
+	Path  string `json:"path"`
+	State string `json:"state"`
+}
+
+// AgentSetup is what one agent loads.
+type AgentSetup struct {
+	Agent  string       `json:"agent"`
+	Label  string       `json:"label"`
+	Groups []SetupGroup `json:"groups"`
+	Notes  []string     `json:"notes,omitempty"`
+}
+
+// SetupGroup is a kind of setup: instructions, skills, MCP servers…
+type SetupGroup struct {
+	Title string      `json:"title"`
+	Items []SetupItem `json:"items"`
+}
+
+// SetupItem is one instruction file, skill, command, server or plugin.
+// Scope is where it comes from: user, project, local, plugin, extension,
+// system or conch.
+type SetupItem struct {
+	Name    string `json:"name"`
+	Scope   string `json:"scope"`
+	Path    string `json:"path,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+	Missing bool   `json:"missing,omitempty"`
 }
 
 // AgentStatusResult is the result of agent.status.

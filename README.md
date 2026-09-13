@@ -197,6 +197,39 @@ the prompt — every task isolated from the others. `c`/`n` on a branch that
 isn't checked out creates its worktree first. `x` on a branch removes its
 worktree (never with uncommitted changes, never the main one).
 
+### Local files in worktrees
+
+A fresh worktree has only what git tracks, so an agent there would miss your
+`.env` or personal agent settings. When conch creates a worktree it copies
+the main checkout's **gitignored** files that match the project's patterns —
+by default `.env`, `.env.*`, `.envrc`, `.claude/settings.local.json`,
+`CLAUDE.local.md`, `.mcp.json`, `AGENTS.override.md` and `.gemini/.env`.
+Untracked files git doesn't ignore are never copied, so an agent can't commit
+them on the task's branch by accident; the setup view lists them instead.
+
+`F` on a project (or `conch project files ID PATTERN...`, `-reset`, `-none`)
+changes the patterns, which are git globs. Existing files in a worktree are
+never overwritten.
+
+## Agent setup
+
+`i` on a project, branch or pane shows what each agent loads there, read
+from the agents' own configuration (conch only reads it):
+
+- **Instructions** — `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` and friends, from
+  your home and every folder the agent reads them from
+- **Skills** — `~/.claude/skills`, `.agents/skills` (Codex, Gemini, OpenCode),
+  `.gemini/skills`, `.opencode/skills`, plugin skills
+- **Commands and subagents**, **MCP servers** (names and transport only —
+  never commands, URLs or secrets), **plugins and extensions**
+- **Added by conch** — the hooks or plugin conch injects for state tracking
+- Warnings, e.g. a folder Claude or Codex hasn't trusted yet
+
+In a worktree it also compares with the main checkout: local files that are
+missing (`c` copies them) and setup that only the main checkout has, such as
+Claude MCP servers registered for that folder or an uncommitted `.mcp.json`.
+`conch agent setup [-agent NAME] [-copy] [-json] [DIR]` prints the same.
+
 ## Keys
 
 | Where | Keys |

@@ -89,6 +89,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"r", "Rename", act("r")},
 			{"c", "New Claude here", act("c")},
 			{"n", "New terminal here", act("n")},
+			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
 			{"x", "Close", act("x")},
 		}
 	case kindBranch:
@@ -99,6 +100,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"n", "Open terminal on this branch", act("n")},
 			{"t", "New task in project", act("t")},
 			{"y", "Copy branch name", act("y")},
+			{"i", "Agent setup of this checkout", act("i")},
 			{"R", "Refresh git status and PRs", act("R")},
 		}
 		if pr := m.branchPR(r.machine, r.projectID, r.branch); pr != nil {
@@ -119,6 +121,8 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"t", "New task (branch + worktree + Claude)", act("t")},
 			{"c", "Start Claude in project", act("c")},
 			{"n", "Open terminal in project", act("n")},
+			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
+			{"F", "Local files for new worktrees…", act("F")},
 			{"R", "Refresh git status", act("R")},
 			{"", "Show all branches", func(m *Model) tea.Cmd {
 				m.showAll[scoped(r.machine, r.projectID)] = true
@@ -529,6 +533,8 @@ var helpText = []string{
 	"  M  add machine (ssh)   R  reconnect a machine    A  start or install any agent",
 	"  r  rename              x  close / remove        R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",
+	"  i  agent setup: instructions, skills, MCP servers, and what a worktree lacks",
+	"  F  local files (.env, local agent settings) copied into new worktrees",
 	"",
 	"Splits and tabs (ctrl+b, then)",
 	"  v split right   - split down   x close split   ←→↑↓ / hjkl focus   o next split",

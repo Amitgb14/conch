@@ -95,6 +95,7 @@ type (
 	createdMsg struct {
 		machine string
 		info    proto.PaneInfo
+		note    string // shown in the status bar, e.g. local files copied
 	}
 )
 
@@ -254,6 +255,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.revealPane(msg.machine, msg.info)
 		m.focus = focusMain
+		if msg.note != "" {
+			m.setFlash(msg.note, false)
+		}
 		return m, tea.Batch(m.rebuild(), m.saveState())
 
 	case askInstallMsg:
@@ -747,7 +751,7 @@ func (m Model) openAgent(agent string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		dir := pl.dir
+		dir, note := pl.dir, ""
 		if dir == "" && pl.branch != "" {
 			var wt proto.WorktreeResult
 			err := c.Call(ctx, proto.MethodWorktreeAdd, proto.WorktreeAddParams{ProjectID: pl.projectID, Branch: pl.branch}, &wt)
@@ -755,6 +759,9 @@ func (m Model) openAgent(agent string) tea.Cmd {
 				return errMsg{err}
 			}
 			dir = wt.Path
+			if len(wt.Copied) > 0 {
+				note = "worktree created with local files: " + strings.Join(wt.Copied, ", ")
+			}
 		}
 		// No command: the server starts its machine's login shell.
 		params := proto.PaneCreateParams{Cwd: dir, Cols: cols, Rows: rows}
@@ -767,7 +774,7 @@ func (m Model) openAgent(agent string) tea.Cmd {
 		if err := c.Call(ctx, proto.MethodPaneCreate, params, &info); err != nil {
 			return errMsg{err}
 		}
-		return createdMsg{machine: pl.machine, info: info}
+		return createdMsg{machine: pl.machine, info: info, note: note}
 	}
 }
 

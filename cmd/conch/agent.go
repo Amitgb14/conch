@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,8 +22,10 @@ func runAgent(args []string) error {
 		return agentStatus()
 	case len(args) == 2 && args[0] == "install":
 		return agentInstall(args[1])
+	case len(args) >= 1 && args[0] == "setup":
+		return agentSetup(args[1:])
 	case len(args) != 2 || args[0] != "explain":
-		return errors.New("usage: conch agent explain ID | status | install claude")
+		return errors.New("usage: conch agent explain ID | status | install NAME | setup [-agent NAME] [-copy] [DIR]")
 	}
 	c, err := connect(false)
 	if err != nil {
@@ -145,5 +149,93 @@ func runReport(args []string) {
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
+	}
+}
+
+func agentSetup(args []string) error {
+	fs := flag.NewFlagSet("agent setup", flag.ContinueOnError)
+	agent := fs.String("agent", "", "only this agent (claude, codex, gemini, opencode)")
+	copyFiles := fs.Bool("copy", false, "copy missing local files from the main checkout first")
+	asJSON := fs.Bool("json", false, "print JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	dir := "."
+	if fs.NArg() > 0 {
+		dir = fs.Arg(0)
+	}
+	if machineFlag == "" {
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
+	}
+	c, err := connect(true)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	params := proto.AgentSetupParams{Dir: dir, Agent: *agent}
+	var res proto.AgentSetupResult
+	if err := call(c, proto.MethodAgentSetup, params, &res); err != nil {
+		return err
+	}
+	if *copyFiles {
+		if res.Main == "" {
+			return fmt.Errorf("%s is not a linked worktree of a project", res.Dir)
+		}
+		var cr proto.WorktreeFilesResult
+		if err := call(c, proto.MethodWorktreeFiles, proto.WorktreeFilesParams{ProjectID: res.ProjectID, Path: res.Worktree}, &cr); err != nil {
+			return err
+		}
+		for _, f := range cr.Copied {
+			fmt.Printf("copied %s\n", f)
+		}
+		res = proto.AgentSetupResult{}
+		if err := call(c, proto.MethodAgentSetup, params, &res); err != nil {
+			return err
+		}
+	}
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(res)
+	}
+	printSetup(os.Stdout, res)
+	return nil
+}
+
+func printSetup(w io.Writer, res proto.AgentSetupResult) {
+	fmt.Fprintf(w, "%s\n", res.Dir)
+	if res.Main != "" {
+		fmt.Fprintf(w, "worktree of %s\n", res.Main)
+		if len(res.LocalFiles) > 0 {
+			fmt.Fprintln(w, "\nLocal files (from the main checkout)")
+			for _, f := range res.LocalFiles {
+				fmt.Fprintf(w, "  %-8s %s\n", f.State, f.Path)
+			}
+		}
+	}
+	for _, a := range res.Agents {
+		fmt.Fprintf(w, "\n== %s ==\n", a.Label)
+		for _, n := range a.Notes {
+			fmt.Fprintf(w, "  ! %s\n", n)
+		}
+		for _, g := range a.Groups {
+			fmt.Fprintf(w, "  %s\n", g.Title)
+			for _, it := range g.Items {
+				mark := " "
+				if it.Missing {
+					mark = "✗"
+				}
+				line := fmt.Sprintf("   %s %-28s %-9s", mark, it.Name, it.Scope)
+				if it.Detail != "" {
+					line += " " + it.Detail
+				}
+				if it.Missing {
+					line += " (only in the main checkout)"
+				}
+				fmt.Fprintln(w, strings.TrimRight(line, " "))
+			}
+		}
 	}
 }

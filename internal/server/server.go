@@ -239,7 +239,8 @@ var slowMethods = map[string]bool{
 	proto.MethodPaneCreate: true, proto.MethodPaneClose: true,
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true,
-	proto.MethodShellThemes: true,
+	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodWorktreeFiles: true,
+	proto.MethodProjectFiles: true,
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -517,8 +518,8 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		path, perr := s.projects.addWorktree(p, wp.Branch, wp.Base)
-		return proto.WorktreeResult{Path: path}, perr
+		path, copied, perr := s.projects.addWorktree(p, wp.Branch, wp.Base)
+		return proto.WorktreeResult{Path: path, Copied: copied}, perr
 
 	case proto.MethodWorktreeRemove:
 		wp, perr := decode[proto.WorktreeRemoveParams](msg)
@@ -577,6 +578,27 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		s.observe(e) // explain the current screen, not the last tick's
 		return e.explain(), nil
+
+	case proto.MethodAgentSetup:
+		ap, perr := decode[proto.AgentSetupParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.agentSetup(ap)
+
+	case proto.MethodProjectFiles:
+		fp, perr := decode[proto.ProjectFilesParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.setLocalFiles(fp)
+
+	case proto.MethodWorktreeFiles:
+		wp, perr := decode[proto.WorktreeFilesParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.copyFiles(wp)
 	}
 	return nil, proto.Errorf(proto.ErrUnknown, "unknown method %q", msg.Method)
 }
@@ -683,7 +705,7 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 	if tp.Branch == "" {
 		tp.Branch = gitx.BranchFromPrompt(tp.Prompt)
 	}
-	path, perr := s.projects.addWorktree(p, tp.Branch, tp.Base)
+	path, _, perr := s.projects.addWorktree(p, tp.Branch, tp.Base)
 	if perr != nil {
 		return proto.PaneInfo{}, perr
 	}

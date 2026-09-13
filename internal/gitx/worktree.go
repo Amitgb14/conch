@@ -96,3 +96,36 @@ func InitRepo(ctx context.Context, dir string) error {
 	_, _ = run(ctx, dir, "commit", "--allow-empty", "-m", "Initial commit")
 	return nil
 }
+
+// UntrackedFiles lists files in the checkout at dir that git does not track
+// and that match any of patterns, git glob pathspecs relative to dir such as
+// ".env" or "config/*.local.json". With ignored it lists the files git
+// ignores, otherwise the untracked files it doesn't.
+func UntrackedFiles(ctx context.Context, dir string, patterns []string, ignored bool) ([]string, error) {
+	if len(patterns) == 0 {
+		return nil, nil
+	}
+	args := []string{"ls-files", "--others", "--exclude-standard", "-z"}
+	if ignored {
+		args = append(args, "--ignored")
+	}
+	args = append(args, "--")
+	for _, p := range patterns {
+		if p = strings.TrimSpace(p); p != "" {
+			args = append(args, ":(glob)"+p)
+		}
+	}
+	// gitEnv makes pathspecs literal; these are globs on purpose.
+	cmd := command(ctx, dir, args...)
+	cmd.Env = append(cmd.Env, "GIT_LITERAL_PATHSPECS=0")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("git ls-files: %v: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return splitNUL(out), nil
+}
