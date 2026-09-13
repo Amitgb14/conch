@@ -14,7 +14,7 @@ comes next.
 macOS and Linux (amd64 and arm64):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh
 ```
 
 This downloads the latest release, checks it against the release checksums

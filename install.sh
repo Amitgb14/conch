@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installs conch from a GitHub release.
-#   curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh
 # Environment:
 #   CONCH_VERSION      release to install (default: latest), e.g. 0.2.0
 #   CONCH_INSTALL_DIR  where to put the binary (default: ~/.local/bin)
