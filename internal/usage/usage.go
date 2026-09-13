@@ -50,7 +50,7 @@ func (t *Transcript) Path() string { return t.path }
 type line struct {
 	Type         string  `json:"type"`
 	TotalCostUSD float64 `json:"totalCostUSD"`
-	Message struct {
+	Message      struct {
 		ID    string `json:"id"`
 		Model string `json:"model"`
 		Usage *struct {
