@@ -71,7 +71,7 @@ func parseClaude(path string, st os.FileInfo) *Session {
 		return nil
 	}
 	defer f.Close()
-	s := &Session{Agent: "claude", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl"), Updated: st.ModTime()}
+	s := &Session{Agent: "claude", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl"), Updated: st.ModTime(), Path: path}
 	var aiTitle, summary, prompt string
 	type line struct {
 		Type      string          `json:"type"`
@@ -180,7 +180,7 @@ func parseCodex(path string, st os.FileInfo) *Session {
 		return nil
 	}
 	defer f.Close()
-	s := &Session{Agent: "codex", Updated: st.ModTime()}
+	s := &Session{Agent: "codex", Updated: st.ModTime(), Path: path}
 	lines(f, 300, func(b []byte) bool {
 		var l struct {
 			Type    string `json:"type"`
@@ -278,7 +278,7 @@ func parseGemini(path string, st os.FileInfo) *Session {
 	if rec.SessionID == "" || rec.Kind == "subagent" {
 		return nil
 	}
-	s := &Session{Agent: "gemini", ID: rec.SessionID, Started: rec.StartTime, Updated: rec.LastUpdated, Title: rec.Summary}
+	s := &Session{Agent: "gemini", ID: rec.SessionID, Started: rec.StartTime, Updated: rec.LastUpdated, Title: rec.Summary, Path: path}
 	if s.Updated.IsZero() {
 		s.Updated = st.ModTime()
 	}
@@ -359,7 +359,7 @@ func opencodeDB(db string, dirs []string) (out []Session, ok bool) {
 	}
 	for _, r := range rows {
 		out = append(out, Session{Agent: "opencode", ID: r.ID, Dir: r.Dir, Title: title(r.Title),
-			Started: time.UnixMilli(r.Created), Updated: time.UnixMilli(r.Updated)})
+			Started: time.UnixMilli(r.Created), Updated: time.UnixMilli(r.Updated), Path: db})
 	}
 	return out, true
 }

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -138,7 +139,7 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 			return cmd
 		}}
 	}
-	return []settingItem{
+	base := []settingItem{
 		toggle("Notifications", "master switch", &n.Enabled, nil),
 		{},
 		{header: true, label: "How"},
@@ -152,7 +153,38 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 		toggle("An agent is waiting for you", "permissions, questions", &n.Waiting, nil),
 		toggle("An agent finishes", "while you look elsewhere", &n.Done, nil),
 		{},
-		{label: "Send a test notification", run: func(m *Model) tea.Cmd {
+		{header: true, label: "Quiet hours", detail: "no alerts; the sidebar still shows who waits"},
+	}
+	items := base
+	for _, q := range quietPresets {
+		q := q
+		label := "Off"
+		if q[0] != "" {
+			label = q[0] + " – " + q[1]
+		}
+		items = append(items, settingItem{label: label, mark: n.QuietStart == q[0] && n.QuietEnd == q[1],
+			run: func(m *Model) tea.Cmd {
+				m.cfg.Notify.QuietStart, m.cfg.Notify.QuietEnd = q[0], q[1]
+				return saveConfig(m.cfg)
+			}})
+	}
+	if custom := !quietPreset(n.QuietStart, n.QuietEnd); custom {
+		items = append(items, settingItem{label: n.QuietStart + " – " + n.QuietEnd + styleMuted.Render(" (config.toml)"), mark: true})
+	}
+	snooze := settingItem{label: "Snooze alerts for 1 hour", run: func(m *Model) tea.Cmd {
+		m.snoozeUntil = time.Now().Add(time.Hour)
+		m.setFlash("alerts snoozed until "+m.snoozeUntil.Format("15:04"), false)
+		return nil
+	}}
+	if time.Now().Before(m.snoozeUntil) {
+		snooze = settingItem{label: "Resume alerts", detail: "snoozed until " + m.snoozeUntil.Format("15:04"), run: func(m *Model) tea.Cmd {
+			m.snoozeUntil = time.Time{}
+			return nil
+		}}
+	}
+	return append(items, settingItem{}, snooze,
+		settingItem{},
+		settingItem{label: "Send a test notification", run: func(m *Model) tea.Cmd {
 			cfg := m.cfg.Notify
 			if !cfg.Enabled {
 				m.setFlash("notifications are off", true)
@@ -160,7 +192,18 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 			}
 			return notify(cfg, "conch", "Notifications work")
 		}},
+	)
+}
+
+var quietPresets = [][2]string{{"", ""}, {"22:00", "08:00"}, {"23:00", "07:00"}, {"20:00", "09:00"}, {"09:00", "18:00"}}
+
+func quietPreset(start, end string) bool {
+	for _, q := range quietPresets {
+		if q == [2]string{start, end} {
+			return true
+		}
 	}
+	return false
 }
 
 func (s *settings) agentItems(m *Model) []settingItem {

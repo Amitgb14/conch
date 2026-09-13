@@ -473,6 +473,8 @@ type Tokens struct {
 	Output     int    `json:"output"`
 	Context    int    `json:"context"` // size of the latest request's context
 	Model      string `json:"model,omitempty"`
+	// CostUSD is set when the agent reports what the session cost.
+	CostUSD float64 `json:"cost_usd,omitempty"`
 }
 
 // NeedsAttention reports whether the agent is waiting on the user.

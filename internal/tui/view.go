@@ -480,7 +480,37 @@ func (m Model) leafTitle(l *leaf) string {
 
 // tokenSummary is a short usage label: context size and output so far.
 func tokenSummary(t *proto.Tokens) string {
-	return "ctx " + humanCount(t.Context) + " · out " + humanCount(t.Output)
+	parts := []string{}
+	if t.Context > 0 {
+		parts = append(parts, "ctx "+humanCount(t.Context))
+	}
+	parts = append(parts, "out "+humanCount(t.Output))
+	if t.CostUSD > 0 {
+		parts = append(parts, usd(t.CostUSD))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func usd(v float64) string {
+	if v < 0.01 {
+		return "<$0.01"
+	}
+	return fmt.Sprintf("$%.2f", v)
+}
+
+// usageTotals sums what a machine's running agents report.
+func usageTotals(panes []proto.PaneInfo) (agents, input, output int, cost float64) {
+	for _, p := range panes {
+		if p.Agent == nil || p.Agent.Tokens == nil {
+			continue
+		}
+		t := p.Agent.Tokens
+		agents++
+		input += t.Input + t.CacheRead + t.CacheWrite
+		output += t.Output
+		cost += t.CostUSD
+	}
+	return
 }
 
 func humanCount(n int) string {
@@ -643,6 +673,13 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 	switch mach.state {
 	case stateOnline:
 		lines = append(lines, styleMuted.Render(fmt.Sprintf("%d projects · %d panes · %d working · %d waiting", len(mach.projects), len(mach.panes), working, waiting)))
+		if n, in, out, cost := usageTotals(mach.panes); n > 0 {
+			u := fmt.Sprintf("usage of %d running agent(s): in %s · out %s", n, humanCount(in), humanCount(out))
+			if cost > 0 {
+				u += " · " + usd(cost) + " reported"
+			}
+			lines = append(lines, styleMuted.Render(u))
+		}
 		if len(mach.agentList) > 0 {
 			var parts []string
 			for _, a := range mach.agentList {

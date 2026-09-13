@@ -36,3 +36,30 @@ func TestNextAttention(t *testing.T) {
 		t.Errorf("idle pane offered: %s", got)
 	}
 }
+
+func TestSilenced(t *testing.T) {
+	m := Model{}
+	m.cfg.Notify.Enabled = true
+	now := time.Date(2026, 9, 13, 23, 30, 0, 0, time.Local)
+	if m.silenced(now) || m.silenceLabel(now) != "" {
+		t.Fatal("silenced without quiet hours or snooze")
+	}
+	m.cfg.Notify.QuietStart, m.cfg.Notify.QuietEnd = "22:00", "08:00"
+	if !m.silenced(now) || m.silenceLabel(now) != "🔕 quiet until 08:00" {
+		t.Fatalf("quiet hours: %q", m.silenceLabel(now))
+	}
+	m.cfg.Notify.QuietStart = ""
+	m.snoozeUntil = now.Add(time.Hour)
+	if !m.silenced(now) || m.silenced(now.Add(2*time.Hour)) {
+		t.Fatal("snooze")
+	}
+}
+
+func TestTokenSummary(t *testing.T) {
+	if got := tokenSummary(&proto.Tokens{Context: 12000, Output: 812, CostUSD: 0.0259}); got != "ctx 12k · out 812 · $0.03" {
+		t.Fatalf("%q", got)
+	}
+	if got := tokenSummary(&proto.Tokens{Output: 5, CostUSD: 0.001}); got != "out 5 · <$0.01" {
+		t.Fatalf("%q", got)
+	}
+}

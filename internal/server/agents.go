@@ -33,6 +33,7 @@ type entry struct {
 	screenVersion uint64
 
 	transcript *usage.Transcript // the agent session's, once a hook names it
+	usage      *usageSource      // for agents without such hooks; watch goroutine only
 	tokens     *proto.Tokens
 }
 
@@ -76,6 +77,7 @@ func (s *Server) watch(e *entry) {
 	t := time.NewTicker(detectInterval)
 	defer t.Stop()
 	s.observe(e)
+	lastUsage := time.Now()
 	for {
 		select {
 		case <-t.C:
@@ -83,6 +85,10 @@ func (s *Server) watch(e *entry) {
 				return
 			}
 			s.observe(e)
+			if time.Since(lastUsage) >= usagePollEvery {
+				lastUsage = time.Now()
+				s.pollUsage(e)
+			}
 		case <-e.p.Done():
 			if s.alive(e) {
 				info := e.info()

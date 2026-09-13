@@ -97,7 +97,10 @@ Press `,` or click `⚙` at the right end of the status bar.
   edited; "Keep my .zshrc theme" turns it off.
 - **Notifications** — master switch; desktop notification, system sound,
   terminal beep; notify when an agent is waiting and/or when one finishes;
-  send a test.
+  **quiet hours** (22:00–08:00 and other presets, or any `quiet_start` /
+  `quiet_end` in config.toml) and **snooze for an hour**. While silenced the
+  status bar shows `🔕` (click it to resume); waiting agents still show in the
+  sidebar. Send a test.
 - **Agents** — every machine with each supported agent, installed (with
   version) or not; `enter` on a missing one installs it there.
 
@@ -358,9 +361,18 @@ How the state is decided, most reliable first:
 
 `conch agent explain p1` shows the evidence behind a state.
 
-Claude panes also show token usage in their title — `ctx 45k · out 12k`
-(the latest request's context and output so far) — read incrementally from
-the session transcript the hooks point at.
+Agent panes show token usage in their title — `ctx 45k · out 12k · $0.42`
+(the latest request's context, output so far, and cost when the agent reports
+one). conch reads it from each agent's own session data and never estimates
+prices:
+
+| Agent | Usage from | Cost |
+|---|---|---|
+| Claude Code | the transcript the hooks point at | when the transcript records it |
+| Codex | the session's rollout file (found by folder and start time) | — |
+| OpenCode | its session database (via `sqlite3`) | yes |
+
+A machine's page totals the usage of its running agents.
 
 ## Scripting
 

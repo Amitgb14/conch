@@ -16,6 +16,9 @@ type Tokens struct {
 	Output     int    `json:"output"`
 	Context    int    `json:"context"` // tokens in the latest request's context
 	Model      string `json:"model,omitempty"`
+	// CostUSD is the session's cost when the agent reports one; 0 otherwise
+	// (conch doesn't estimate prices).
+	CostUSD float64 `json:"cost_usd,omitempty"`
 }
 
 type counts struct {
@@ -31,6 +34,7 @@ type Transcript struct {
 	byID   map[string]counts
 	order  []string
 	model  string
+	cost   float64
 }
 
 // NewTranscript follows the transcript at path.
@@ -42,7 +46,8 @@ func NewTranscript(path string) *Transcript {
 func (t *Transcript) Path() string { return t.path }
 
 type line struct {
-	Type    string `json:"type"`
+	Type         string  `json:"type"`
+	TotalCostUSD float64 `json:"totalCostUSD"`
 	Message struct {
 		ID    string `json:"id"`
 		Model string `json:"model"`
@@ -78,7 +83,14 @@ func (t *Transcript) Update() (Tokens, error) {
 		}
 		t.offset += int64(len(b))
 		var l line
-		if json.Unmarshal(b, &l) != nil || l.Type != "assistant" || l.Message.Usage == nil || l.Message.ID == "" {
+		if json.Unmarshal(b, &l) != nil {
+			continue
+		}
+		if l.Type == "cost-state" && l.TotalCostUSD > 0 {
+			t.cost = l.TotalCostUSD
+			continue
+		}
+		if l.Type != "assistant" || l.Message.Usage == nil || l.Message.ID == "" {
 			continue
 		}
 		u := l.Message.Usage
@@ -94,7 +106,7 @@ func (t *Transcript) Update() (Tokens, error) {
 }
 
 func (t *Transcript) totals() Tokens {
-	tok := Tokens{Model: t.model}
+	tok := Tokens{Model: t.model, CostUSD: t.cost}
 	for _, id := range t.order {
 		c := t.byID[id]
 		tok.Input += c.input

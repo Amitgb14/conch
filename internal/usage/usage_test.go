@@ -35,3 +35,14 @@ func TestTranscript(t *testing.T) {
 		t.Fatalf("completed line: %+v", tok)
 	}
 }
+
+func TestTranscriptCost(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	os.WriteFile(path, []byte(`{"type":"assistant","message":{"id":"m1","model":"claude-opus-5","usage":{"input_tokens":10,"output_tokens":5}}}
+{"type":"cost-state","totalCostUSD":0.42}
+`), 0o644)
+	tok, err := NewTranscript(path).Update()
+	if err != nil || tok.CostUSD != 0.42 || tok.Output != 5 {
+		t.Fatalf("%+v %v", tok, err)
+	}
+}

@@ -3,10 +3,12 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -81,6 +83,33 @@ type NotifyCfg struct {
 	Bell    bool `toml:"bell"`    // terminal bell
 	Waiting bool `toml:"waiting"` // when an agent needs an answer
 	Done    bool `toml:"done"`    // when an agent finishes
+	// QuietStart and QuietEnd ("22:00", "08:00") silence alerts every day
+	// between them; waiting agents still show in the sidebar. Empty: never.
+	QuietStart string `toml:"quiet_start"`
+	QuietEnd   string `toml:"quiet_end"`
+}
+
+// Quiet reports whether t falls in the configured quiet hours. The range
+// may wrap past midnight.
+func (n NotifyCfg) Quiet(t time.Time) bool {
+	start, ok1 := clockMinutes(n.QuietStart)
+	end, ok2 := clockMinutes(n.QuietEnd)
+	if !ok1 || !ok2 || start == end {
+		return false
+	}
+	now := t.Hour()*60 + t.Minute()
+	if start < end {
+		return now >= start && now < end
+	}
+	return now >= start || now < end
+}
+
+func clockMinutes(s string) (int, bool) {
+	var h, m int
+	if _, err := fmt.Sscanf(strings.TrimSpace(s), "%d:%d", &h, &m); err != nil || h < 0 || h > 23 || m < 0 || m > 59 {
+		return 0, false
+	}
+	return h*60 + m, true
 }
 
 // Keys holds key bindings.

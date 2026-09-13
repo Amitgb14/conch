@@ -88,6 +88,8 @@ type Model struct {
 
 	brain *brainState // summaries and command bar history
 
+	snoozeUntil time.Time // alerts are silenced until then
+
 	sessions     map[string]*sessionsData // saved agent sessions per project (sessionsKey)
 	sessionsView *sessionsView            // the focused leaf's, when it lists sessions
 }
@@ -482,6 +484,9 @@ func (m Model) notifyAttention(mach *machine, old, info proto.PaneInfo) tea.Cmd 
 	title := "conch · " + info.Agent.Name
 	if mach.id != localMachine {
 		title += " on " + mach.label
+	}
+	if m.silenced(time.Now()) {
+		return nil // the sidebar still shows it as waiting
 	}
 	return notify(m.cfg.Notify, title, body)
 }

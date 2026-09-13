@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -77,6 +78,22 @@ func playSound() {
 		}
 	}
 	_, _ = os.Stdout.WriteString("\a") // no player: fall back to the bell
+}
+
+// silenced reports whether alerts are held back: snoozed, or quiet hours.
+func (m Model) silenced(now time.Time) bool {
+	return now.Before(m.snoozeUntil) || m.cfg.Notify.Quiet(now)
+}
+
+// silenceLabel describes why alerts are silenced, for the status bar.
+func (m Model) silenceLabel(now time.Time) string {
+	switch {
+	case now.Before(m.snoozeUntil):
+		return "🔕 snoozed until " + m.snoozeUntil.Format("15:04")
+	case m.cfg.Notify.Enabled && m.cfg.Notify.Quiet(now):
+		return "🔕 quiet until " + m.cfg.Notify.QuietEnd
+	}
+	return ""
 }
 
 // scopedPane is a pane together with its machine.

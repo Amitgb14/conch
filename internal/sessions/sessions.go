@@ -30,6 +30,8 @@ type Session struct {
 	Title   string
 	Started time.Time
 	Updated time.Time
+	// Path is the agent's session file, or its database (OpenCode).
+	Path string
 }
 
 // Env is where agents keep their data.

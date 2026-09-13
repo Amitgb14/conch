@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -139,6 +140,20 @@ func (m Model) statusRightItems() []statusItem {
 	if n := m.inboxCount(); n > 0 {
 		items = append(items, statusItem{text: styleWarn.Render(fmt.Sprintf("⚑ %d waiting", n)),
 			act: func(m *Model) tea.Cmd { return m.jumpToAttention() }})
+	}
+	if label := m.silenceLabel(time.Now()); label != "" {
+		items = append(items, statusItem{text: styleMuted.Render(label), act: func(m *Model) tea.Cmd {
+			if time.Now().Before(m.snoozeUntil) {
+				m.snoozeUntil = time.Time{}
+				m.setFlash("notifications resumed", false)
+			} else {
+				s, cmd := newSettings(m)
+				s.setTab(1)
+				m.overlay = s
+				return cmd
+			}
+			return nil
+		}})
 	}
 	switch {
 	case m.flash != "":
