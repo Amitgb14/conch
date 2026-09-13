@@ -9,6 +9,7 @@ import (
 	"github.com/amitghadge/conch/internal/detect"
 	"github.com/amitghadge/conch/internal/pane"
 	"github.com/amitghadge/conch/internal/proto"
+	"github.com/amitghadge/conch/internal/usage"
 )
 
 // detectInterval is how often each pane's agent status, title and branch
@@ -30,6 +31,9 @@ type entry struct {
 
 	screen        []string // cached plain screen
 	screenVersion uint64
+
+	transcript *usage.Transcript // the agent session's, once a hook names it
+	tokens     *proto.Tokens
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -50,9 +54,12 @@ func (e *entry) info() proto.PaneInfo {
 		}
 	}
 	if info.State == proto.PaneRunning && st.Agent != "" {
+		e.mu.Lock()
+		tokens := e.tokens
+		e.mu.Unlock()
 		info.Agent = &proto.AgentStatus{
 			Name: st.Agent, State: st.State, Source: st.Source, Reason: st.Reason,
-			Message: st.Message, SessionID: st.SessionID, Since: st.Since,
+			Message: st.Message, SessionID: st.SessionID, Since: st.Since, Tokens: tokens,
 		}
 	}
 	return info
@@ -101,12 +108,16 @@ func (s *Server) observe(e *entry) {
 type shown struct {
 	agent, state, message, session string
 	title, name, branch            string
+	tokens                         proto.Tokens
 }
 
 func shownOf(info proto.PaneInfo) shown {
 	sh := shown{title: info.Title, name: info.Name, branch: info.Branch}
 	if a := info.Agent; a != nil {
 		sh.agent, sh.state, sh.message, sh.session = a.Name, a.State, a.Message, a.SessionID
+		if a.Tokens != nil {
+			sh.tokens = *a.Tokens
+		}
 	}
 	return sh
 }
@@ -127,6 +138,7 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 		Process:    proc,
 		ProcessErr: perr,
 		Screen:     e.screen,
+		Title:      e.p.Title(),
 		Watched:    e.watchers > 0,
 	})
 	e.mu.Unlock()
@@ -148,6 +160,7 @@ var refreshEvents = map[string]bool{"PostToolUse": true, "PostToolUseFailure": t
 func (s *Server) report(e *entry, rp proto.AgentReportParams) {
 	e.evalMu.Lock()
 	defer e.evalMu.Unlock()
+	s.updateUsage(e, rp.TranscriptPath)
 	s.evaluate(e, func(t *detect.Tracker) {
 		t.Hook(detect.HookEvent{
 			Agent: rp.Agent, Event: rp.Event, NotificationType: rp.NotificationType,
@@ -157,6 +170,25 @@ func (s *Server) report(e *entry, rp proto.AgentReportParams) {
 	if refreshEvents[rp.Event] && e.project != nil {
 		s.projects.request(e.project)
 	}
+}
+
+// updateUsage re-reads the session transcript's new lines. The caller holds
+// e.evalMu.
+func (s *Server) updateUsage(e *entry, path string) {
+	if path == "" {
+		return
+	}
+	if e.transcript == nil || e.transcript.Path() != path {
+		e.transcript = usage.NewTranscript(path) // a new session (e.g. /clear)
+	}
+	tok, err := e.transcript.Update()
+	if err != nil && tok.Output == 0 {
+		return
+	}
+	pt := proto.Tokens(tok)
+	e.mu.Lock()
+	e.tokens = &pt
+	e.mu.Unlock()
 }
 
 func (s *Server) userInput(e *entry) {

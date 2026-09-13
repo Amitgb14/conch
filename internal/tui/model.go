@@ -75,7 +75,8 @@ type Model struct {
 	pendingShow string    // row to put on screen once the tree has it
 
 	offset     int        // lines the viewed pane is scrolled back
-	scrollMode bool       // keys scroll the pane instead of reaching it
+	scrollMode bool       // keys move a cursor over the pane's history
+	curX, curY int        // that cursor, in view cells
 	sel        *selection // text selected in the viewed pane
 	statePath  string     // where fold state is saved; "" disables saving
 
@@ -234,6 +235,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentStatusMsg:
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
 			mach.available = map[string]proto.AgentAvailability{}
+			mach.agentList = msg.agents
 			for _, a := range msg.agents {
 				mach.available[a.Name] = a
 			}
@@ -601,7 +603,12 @@ func (m *Model) scrollPane(delta int) {
 	if next == m.offset {
 		return
 	}
-	m.offset, m.sel = next, nil
+	if m.sel != nil && m.sel.keyboard {
+		m.sel.ay += next - m.offset // the anchored text moves down as we scroll back
+	} else {
+		m.sel = nil
+	}
+	m.offset = next
 	c.Notify(proto.MethodPaneScroll, proto.PaneScrollParams{ID: m.viewing, Offset: next})
 }
 
@@ -708,14 +715,31 @@ func (m Model) contextPlace() place {
 
 // openHere starts a shell or agent at the selected place, checking the
 // branch out into a worktree first when needed.
-func (m Model) openHere(agent bool) tea.Cmd {
+func (m Model) openHere(withAgent bool) tea.Cmd {
+	agent := ""
+	if withAgent {
+		agent = m.defaultAgent()
+	}
+	return m.openAgent(agent)
+}
+
+// defaultAgent is the agent c starts.
+func (m Model) defaultAgent() string {
+	if a := m.cfg.Agents.Default; a != "" {
+		return a
+	}
+	return "claude"
+}
+
+// openAgent starts agent (or a shell when "") at the selected place.
+func (m Model) openAgent(agent string) tea.Cmd {
 	pl := m.contextPlace()
 	mach := m.machine(pl.machine)
 	if mach == nil || mach.c == nil {
 		return func() tea.Msg { return errMsg{errString(m.offlineText(pl.machine))} }
 	}
-	if agent && mach.missingAgent("claude") {
-		return func() tea.Msg { return askInstallMsg{machine: pl.machine, agent: "claude"} }
+	if agent != "" && mach.missingAgent(agent) {
+		return func() tea.Msg { return askInstallMsg{machine: pl.machine, agent: agent} }
 	}
 	cols, rows := m.paneArea()
 	c := mach.c
@@ -734,8 +758,8 @@ func (m Model) openHere(agent bool) tea.Cmd {
 		}
 		// No command: the server starts its machine's login shell.
 		params := proto.PaneCreateParams{Cwd: dir, Cols: cols, Rows: rows}
-		if agent {
-			params.Agent = "claude"
+		if agent != "" {
+			params.Agent = agent
 		} else {
 			params.ShellTheme = shellTheme
 		}
@@ -757,9 +781,13 @@ type (
 	}
 )
 
+// agentLabels name agents for people; servers send labels too, these cover
+// messages about agents a machine hasn't described.
+var agentLabels = map[string]string{"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode"}
+
 func agentLabel(agent string) string {
-	if agent == "claude" {
-		return "Claude Code"
+	if l, ok := agentLabels[agent]; ok {
+		return l
 	}
 	return agent
 }

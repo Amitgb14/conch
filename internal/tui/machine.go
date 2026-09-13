@@ -61,6 +61,7 @@ type machine struct {
 	// Which agents are installed there; nil until known (or when the server
 	// can't tell).
 	available map[string]proto.AgentAvailability
+	agentList []proto.AgentAvailability // the same, in the server's order
 	// installers maps panes running an agent installer to the agent.
 	installers map[string]string
 

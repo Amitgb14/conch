@@ -105,19 +105,14 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.openHere(false)
 	case "c":
 		return m, m.openHere(true)
-	case "C":
+	case "A", "C":
 		pl := m.contextPlace()
 		mach := m.machine(pl.machine)
-		switch {
-		case mach == nil || mach.c == nil:
+		if mach == nil || mach.c == nil {
 			m.setFlash(m.offlineText(pl.machine), true)
-		case mach.available != nil && !mach.missingAgent("claude"):
-			m.setFlash(fmt.Sprintf("Claude Code %s is already installed on %s", mach.available["claude"].Version, mach.label), false)
-		case len(mach.c.MissingCapabilities([]string{"agent.install.v1"})) > 0:
-			m.setFlash("the server on "+mach.label+" is too old to install agents; upgrade it (m)", true)
-		default:
-			return m, m.installAgent(pl.machine, "claude")
+			break
 		}
+		m.overlay = newAgentMenu(m, mach)
 	case "t":
 		return m, m.openTaskDialog()
 	case "a":
@@ -238,8 +233,8 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				forwardKey(c, r.paneID, k)
 			}
 		case "[", "pgup":
-			if r.kind == kindPane && m.frame != nil && m.frame.History > 0 {
-				m.scrollMode = true
+			if r.kind == kindPane && m.frame != nil {
+				m.enterScrollMode()
 				if k.String() == "pgup" {
 					m.scrollPane(m.page())
 				}
@@ -268,8 +263,7 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.scrollMode {
-			m.scrollKey(k)
-			return m, nil
+			return m, m.scrollKey(k)
 		}
 		m.sel = nil
 		if m.offset > 0 {
@@ -341,24 +335,73 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// scrollKey handles keys in scroll mode.
-func (m *Model) scrollKey(k tea.KeyMsg) {
+// enterScrollMode starts scroll mode with the cursor at the bottom left.
+func (m *Model) enterScrollMode() {
+	if m.frame == nil || m.viewing == "" {
+		return
+	}
+	_, rows := m.paneArea()
+	m.scrollMode, m.focus = true, focusMain
+	m.curX, m.curY, m.sel = 0, rows-1, nil
+}
+
+// scrollKey handles keys in scroll mode: a cursor moves over the history
+// (scrolling at the edges), v starts a selection and y or enter copies it.
+func (m *Model) scrollKey(k tea.KeyMsg) tea.Cmd {
+	cols, rows := m.paneArea()
+	moveY := func(dy int) {
+		m.curY += dy
+		if m.curY < 0 {
+			m.scrollPane(-m.curY) // above the top: scroll back
+			m.curY = 0
+		} else if m.curY >= rows {
+			m.scrollPane(rows - 1 - m.curY)
+			m.curY = rows - 1
+		}
+	}
 	switch k.String() {
 	case "up", "k":
-		m.scrollPane(1)
+		moveY(-1)
 	case "down", "j":
-		m.scrollPane(-1)
+		moveY(1)
+	case "left", "h":
+		m.curX = max(m.curX-1, 0)
+	case "right", "l":
+		m.curX = min(m.curX+1, cols-1)
+	case "0", "home":
+		m.curX = 0
+	case "$", "end":
+		m.curX = cols - 1
 	case "pgup", "b", "ctrl+u":
 		m.scrollPane(m.page())
-	case "pgdown", "f", " ", "ctrl+d":
+	case "pgdown", "f", "ctrl+d":
 		m.scrollPane(-m.page())
-	case "g", "home":
+	case "g":
 		m.scrollPane(m.frame.History)
-	case "y", "shift+up", "shift+down": // selections copy themselves on release
+		m.curY = 0
+	case "v", " ":
+		if m.sel != nil && m.sel.keyboard {
+			m.sel = nil
+		} else {
+			m.sel = &selection{paneID: m.viewing, ax: m.curX, ay: m.curY, bx: m.curX, by: m.curY, hasContent: true, keyboard: true}
+		}
+	case "y", "enter":
+		if m.sel == nil || m.frame == nil {
+			return nil
+		}
+		text := m.sel.text(m.frame.Lines, cols)
+		m.sel, m.scrollMode = nil, false
+		m.scrollPane(-m.offset)
+		return copyText(text)
 	default: // G, esc, q or anything else: back to live
+		m.sel = nil
 		m.scrollPane(-m.offset)
 		m.scrollMode = false
 	}
+	if m.sel != nil && m.sel.keyboard {
+		m.sel.bx, m.sel.by = m.curX, m.curY
+	}
+	return nil
 }
 
 func (m Model) page() int {

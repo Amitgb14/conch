@@ -434,6 +434,9 @@ func (m Model) leafTitle(l *leaf) string {
 		if p.Branch != "" {
 			t += "· " + p.Branch + " "
 		}
+		if p.Agent != nil && p.Agent.Tokens != nil {
+			t += "· " + tokenSummary(p.Agent.Tokens) + " "
+		}
 		if f := m.frames[paneKey(v.Machine, v.PaneID)]; f != nil && f.Offset > 0 {
 			t += fmt.Sprintf("· ↑ %d/%d lines back ", f.Offset, f.History)
 		}
@@ -449,6 +452,23 @@ func (m Model) leafTitle(l *leaf) string {
 		return " " + mach.label + " "
 	}
 	return " empty "
+}
+
+// tokenSummary is a short usage label: context size and output so far.
+func tokenSummary(t *proto.Tokens) string {
+	return "ctx " + humanCount(t.Context) + " · out " + humanCount(t.Output)
+}
+
+func humanCount(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 10_000:
+		return fmt.Sprintf("%dk", n/1000)
+	case n >= 1000:
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprint(n)
 }
 
 // leafLines renders what a leaf shows into w×h cells.
@@ -471,10 +491,15 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 		if f == nil {
 			return centered(w, h, styleMuted.Render("connecting…"))
 		}
+		lines := f.Lines
 		if focused && m.sel != nil && m.sel.paneID == m.viewing {
-			return m.sel.highlight(f.Lines, w)
+			lines = m.sel.highlight(lines, w)
 		}
-		return f.Lines
+		if focused && m.scrollMode {
+			cursor := selection{ax: m.curX, ay: m.curY, bx: m.curX, by: m.curY}
+			lines = cursor.highlight(exactly(lines, h), w)
+		}
+		return lines
 	case kindBranch:
 		if l.changes != nil {
 			return l.changes.render(m, w, h)
@@ -586,10 +611,17 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 	switch mach.state {
 	case stateOnline:
 		lines = append(lines, styleMuted.Render(fmt.Sprintf("%d projects · %d panes · %d working · %d waiting", len(mach.projects), len(mach.panes), working, waiting)))
-		if av, known := mach.available["claude"]; known && av.Installed {
-			lines = append(lines, styleOK.Render("Claude Code "+av.Version))
-		} else if mach.available != nil {
-			lines = append(lines, styleWarn.Render("Claude Code is not installed · C installs it"))
+		if len(mach.agentList) > 0 {
+			var parts []string
+			for _, a := range mach.agentList {
+				label := firstNonEmpty(a.Label, agentLabel(a.Name))
+				if a.Installed {
+					parts = append(parts, styleOK.Render("✓ "+label+" "+a.Version))
+				} else {
+					parts = append(parts, styleMuted.Render("○ "+label))
+				}
+			}
+			lines = append(lines, strings.Join(parts, styleMuted.Render("  ")), styleMuted.Render("A  start or install an agent"))
 		}
 		if mach.warning != "" {
 			lines = append(lines, styleWarn.Render(mach.warning))

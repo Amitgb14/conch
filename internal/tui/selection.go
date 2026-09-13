@@ -15,6 +15,7 @@ type selection struct {
 	bx, by     int // head: where it is now
 	dragging   bool
 	hasContent bool // moved past the anchor, so there is something to copy
+	keyboard   bool // made in scroll mode; it follows the history as it scrolls
 }
 
 var styleSelection = lipgloss.NewStyle().Reverse(true)

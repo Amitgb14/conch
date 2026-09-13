@@ -4,7 +4,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/amitghadge/conch/internal/proto"
 )
 
 func TestSelectionText(t *testing.T) {
@@ -78,5 +81,33 @@ func TestApplyTheme(t *testing.T) {
 	applyTheme("nonsense", "#123456")
 	if colorAccent != "#123456" || colorBorder != themes[0].border {
 		t.Fatalf("unknown theme with hex accent: %v %v", colorAccent, colorBorder)
+	}
+}
+
+func TestKeyboardSelection(t *testing.T) {
+	m := &Model{width: 100, height: 20, frames: map[string]*proto.Frame{}, subscribed: map[string]bool{}}
+	m.machines = []*machine{{id: localMachine, label: "local", state: stateOnline, agents: map[string]bool{}, sizes: map[string][2]int{}}}
+	m.frame = &proto.Frame{Lines: []string{"alpha beta", "gamma delta", "epsilon"}, History: 50}
+	m.viewing = "p1"
+	m.enterScrollMode()
+	m.curY = 0
+	press := func(keys ...string) tea.Cmd {
+		var cmd tea.Cmd
+		for _, k := range keys {
+			msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+			if k == "right" {
+				msg = tea.KeyMsg{Type: tea.KeyRight}
+			}
+			cmd = m.scrollKey(msg)
+		}
+		return cmd
+	}
+	press("l", "l", "l", "l", "l", "l", "v", "j", "h", "h")
+	cols, _ := m.paneArea()
+	if got := m.sel.text(m.frame.Lines, cols); got != "beta\ngamma" {
+		t.Fatalf("selected %q", got)
+	}
+	if cmd := press("y"); cmd == nil || m.scrollMode || m.sel != nil {
+		t.Fatal("y should copy and leave scroll mode")
 	}
 }

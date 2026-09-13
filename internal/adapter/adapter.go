@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -18,9 +19,13 @@ import (
 type Adapter interface {
 	// Name is the agent name used in manifests and the protocol.
 	Name() string
+	// Label is the name people know it by, e.g. "Claude Code".
+	Label() string
 	// Command returns the argv that starts the agent through shell, with
 	// args (shell words typed by the user) appended.
 	Command(shell, args string) []string
+	// Env is extra environment for the agent: conch's integration.
+	Env() []string
 	// Detect reports whether the agent is installed, as the user's login
 	// shell would find it.
 	Detect(ctx context.Context, shell string) Availability
@@ -36,24 +41,113 @@ type Availability struct {
 	Version   string
 }
 
-// Registry holds the adapters available on this server.
-type Registry map[string]Adapter
+// Registry holds the adapters available on this server, in display order.
+type Registry []Adapter
 
-// New prepares every adapter. exe is the conch binary hooks call back into;
-// dir is conch's config directory, where integration files are written.
+// Get finds an adapter by name.
+func (r Registry) Get(name string) (Adapter, bool) {
+	for _, a := range r {
+		if a.Name() == name {
+			return a, true
+		}
+	}
+	return nil, false
+}
+
+// New prepares every adapter. exe is the conch binary integrations call
+// back into; dir is conch's config directory, where integration files are
+// written.
 func New(exe, dir string) (Registry, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
 	claude, err := newClaude(exe, dir)
 	if err != nil {
 		return nil, err
 	}
-	return Registry{claude.Name(): claude}, nil
+	gemini, err := newGemini(exe, dir)
+	if err != nil {
+		return nil, err
+	}
+	opencode, err := newOpenCode(exe, dir)
+	if err != nil {
+		return nil, err
+	}
+	return Registry{claude, newCodex(), gemini, opencode}, nil
 }
 
-// Claude launches Claude Code with conch's hooks loaded via --settings,
-// which leaves the user's own settings files untouched.
-type Claude struct {
-	settingsPath string
+// cliAgent is an agent launched as a command in the user's login shell.
+type cliAgent struct {
+	name, label, binary string
+	// dirs are where installers put the binary, searched before PATH: a
+	// shell started before the install hasn't picked up PATH changes.
+	dirs    []string
+	flags   string // conch's own flags, before the user's
+	env     []string
+	install string
 }
+
+func (a *cliAgent) Name() string          { return a.name }
+func (a *cliAgent) Label() string         { return a.label }
+func (a *cliAgent) Env() []string         { return a.env }
+func (a *cliAgent) InstallScript() string { return a.install }
+
+func (a *cliAgent) pathSetup() string {
+	if len(a.dirs) == 0 {
+		return ""
+	}
+	return `PATH="` + strings.Join(a.dirs, ":") + `:$PATH"; `
+}
+
+// Command implements Adapter. exec keeps the agent as the pane's foreground
+// process.
+func (a *cliAgent) Command(shell, args string) []string {
+	line := a.pathSetup() + "exec " + a.binary
+	if a.flags != "" {
+		line += " " + a.flags
+	}
+	if args = strings.TrimSpace(args); args != "" {
+		line += " " + args
+	}
+	return []string{shell, "-lc", line}
+}
+
+var versionRe = regexp.MustCompile(`\d+\.\d+(\.\d+)?[0-9A-Za-z.+-]*`)
+
+// Detect implements Adapter.
+func (a *cliAgent) Detect(ctx context.Context, shell string) Availability {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	script := a.pathSetup() + `p=$(command -v ` + a.binary + `) || exit 1; echo "$p"; ` + a.binary + ` --version 2>/dev/null | head -1`
+	cmd := exec.CommandContext(ctx, shell, "-lc", script)
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	if err != nil {
+		return Availability{}
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	av := Availability{Installed: true, Path: strings.TrimSpace(lines[0])}
+	if len(lines) > 1 {
+		av.Version = versionRe.FindString(lines[len(lines)-1])
+	}
+	return av
+}
+
+// withDownloader wraps an install command that pipes a script from a URL
+// into a shell, checking for curl or wget first.
+func withDownloader(label, url, shell string, env string) string {
+	return fmt.Sprintf(`set -e
+echo "Installing %[1]s with the official installer (%[2]s)"
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL %[2]s | %[4]s %[3]s
+elif command -v wget >/dev/null 2>&1; then
+  wget -qO- %[2]s | %[4]s %[3]s
+else
+  echo "the installer needs curl or wget" >&2; exit 1
+fi`, label, url, shell, env)
+}
+
+// ---- Claude Code ----
 
 // ClaudeHookEvents are the Claude Code hook events conch listens to.
 var ClaudeHookEvents = []string{
@@ -64,102 +158,184 @@ var ClaudeHookEvents = []string{
 	"Stop", "StopFailure",
 }
 
-func newClaude(exe, dir string) (*Claude, error) {
-	type hook struct {
-		Type    string `json:"type"`
-		Command string `json:"command"`
-		Timeout int    `json:"timeout"`
-	}
-	type group struct {
-		Hooks []hook `json:"hooks"`
-	}
-	hooks := map[string][]group{}
-	cmd := ShellQuote(exe) + " report claude-hook"
+type hookCommand struct {
+	Type    string `json:"type"`
+	Command string `json:"command"`
+	Timeout int    `json:"timeout"`
+}
+
+type hookGroup struct {
+	Hooks []hookCommand `json:"hooks"`
+}
+
+// newClaude launches Claude Code with conch's hooks loaded via --settings,
+// which leaves the user's own settings files untouched.
+func newClaude(exe, dir string) (*cliAgent, error) {
+	hooks := map[string][]hookGroup{}
 	for _, ev := range ClaudeHookEvents {
-		hooks[ev] = []group{{Hooks: []hook{{Type: "command", Command: cmd, Timeout: 5}}}}
-	}
-	b, err := json.MarshalIndent(map[string]any{"hooks": hooks}, "", "  ")
-	if err != nil {
-		return nil, err
+		hooks[ev] = []hookGroup{{Hooks: []hookCommand{{Type: "command", Command: ShellQuote(exe) + " report claude-hook", Timeout: 5}}}}
 	}
 	path := filepath.Join(dir, "claude-settings.json")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-	if err := writeFileAtomic(path, append(b, '\n')); err != nil {
+	if err := writeJSON(path, map[string]any{"hooks": hooks}); err != nil {
 		return nil, fmt.Errorf("write claude settings: %w", err)
 	}
-	return &Claude{settingsPath: path}, nil
-}
-
-// Name implements Adapter.
-func (c *Claude) Name() string { return "claude" }
-
-// Command implements Adapter. The login shell gives claude the user's
-// usual PATH; exec keeps claude as the pane's foreground process.
-func (c *Claude) Command(shell, args string) []string {
-	// The native installer puts claude in ~/.local/bin and adds that to
-	// shell startup files, which a shell started before the install hasn't
-	// read.
-	line := `PATH="$HOME/.local/bin:$PATH" exec claude --settings ` + ShellQuote(c.settingsPath)
-	if args = strings.TrimSpace(args); args != "" {
-		line += " " + args
-	}
-	return []string{shell, "-lc", line}
-}
-
-// Detect implements Adapter.
-func (c *Claude) Detect(ctx context.Context, shell string) Availability {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, shell, "-lc", `PATH="$HOME/.local/bin:$PATH"; p=$(command -v claude) || exit 1; echo "$p"; claude --version`)
-	cmd.WaitDelay = time.Second
-	out, err := cmd.Output()
-	if err != nil {
-		return Availability{}
-	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	av := Availability{Installed: true, Path: strings.TrimSpace(lines[0])}
-	if len(lines) > 1 {
-		av.Version = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(lines[len(lines)-1]), "(Claude Code)"))
-	}
-	return av
+	return &cliAgent{
+		name: "claude", label: "Claude Code", binary: "claude",
+		dirs:    []string{"$HOME/.local/bin"},
+		flags:   "--settings " + ShellQuote(path),
+		install: claudeInstall,
+	}, nil
 }
 
 // claudeInstall runs Anthropic's native installer, which installs
 // ~/.local/bin/claude for the current user (no root). Alpine needs a few
 // system packages first, which only root can add, so say what to run.
-const claudeInstall = `set -e
-echo "Installing Claude Code with the official installer (https://claude.ai/install.sh)"
-if [ -f /etc/alpine-release ] && ! apk info -e libstdc++ >/dev/null 2>&1; then
+var claudeInstall = `if [ -f /etc/alpine-release ] && ! apk info -e libstdc++ >/dev/null 2>&1; then
   echo "Alpine needs packages first; as root run: apk add bash curl libgcc libstdc++ ripgrep" >&2
   exit 1
 fi
 if ! command -v bash >/dev/null 2>&1; then echo "the installer needs bash" >&2; exit 1; fi
-if command -v curl >/dev/null 2>&1; then
-  curl -fsSL https://claude.ai/install.sh | bash
-elif command -v wget >/dev/null 2>&1; then
-  wget -qO- https://claude.ai/install.sh | bash
-else
-  echo "the installer needs curl or wget" >&2; exit 1
-fi
+` + withDownloader("Claude Code", "https://claude.ai/install.sh", "bash", "") + `
 echo
 echo "Installed: $("$HOME/.local/bin/claude" --version)"
-echo "Start Claude from conch (c) and log in: open the link it shows on any computer and paste the code back."`
+echo "Start it from conch and log in: open the link it shows on any computer and paste the code back."`
 
-// InstallScript implements Adapter.
-func (c *Claude) InstallScript() string { return claudeInstall }
+// ---- Codex ----
+
+// newCodex launches OpenAI's Codex CLI. Its per-launch hooks need a trust
+// bypass and its notify setting would replace the user's own, so conch
+// injects nothing and reads the terminal title and screen instead.
+func newCodex() *cliAgent {
+	return &cliAgent{
+		name: "codex", label: "Codex", binary: "codex",
+		dirs: []string{"$HOME/.local/bin"},
+		install: withDownloader("Codex", "https://chatgpt.com/codex/install.sh", "sh", "CODEX_NON_INTERACTIVE=1") + `
+echo
+echo "Installed: $("$HOME/.local/bin/codex" --version)"
+echo "Start it from conch and sign in with ChatGPT or an API key."`,
+	}
+}
+
+// ---- Gemini CLI ----
+
+// GeminiHookEvents are the Gemini CLI hook events conch listens to.
+var GeminiHookEvents = []string{
+	"SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent",
+	"BeforeTool", "AfterTool", "Notification", "PreCompress",
+}
+
+// newGemini launches Gemini CLI with conch's hooks in a system-defaults
+// settings file: the lowest-precedence layer, whose hook lists are
+// concatenated with the user's. Gemini only runs hooks in folders the user
+// trusts; conch never bypasses that, and falls back to the title and
+// screen elsewhere.
+func newGemini(exe, dir string) (*cliAgent, error) {
+	hooks := map[string][]hookGroup{}
+	for _, ev := range GeminiHookEvents {
+		hooks[ev] = []hookGroup{{Hooks: []hookCommand{{Type: "command", Command: ShellQuote(exe) + " report gemini-hook", Timeout: 5000}}}}
+	}
+	path := filepath.Join(dir, "gemini-defaults.json")
+	if err := writeJSON(path, map[string]any{"hooks": hooks}); err != nil {
+		return nil, fmt.Errorf("write gemini defaults: %w", err)
+	}
+	a := &cliAgent{
+		name: "gemini", label: "Gemini CLI", binary: "gemini",
+		dirs: []string{"$HOME/.local/bin"},
+		install: `set -e
+echo "Installing Gemini CLI with npm (@google/gemini-cli) into ~/.local"
+if ! command -v npm >/dev/null 2>&1; then echo "Gemini CLI needs Node.js 20 or newer (nodejs.org)" >&2; exit 1; fi
+major=$(node -p 'process.versions.node.split(".")[0]')
+if [ "$major" -lt 20 ]; then echo "Gemini CLI needs Node.js 20 or newer; this is $(node --version)" >&2; exit 1; fi
+npm install -g --prefix "$HOME/.local" @google/gemini-cli
+echo
+echo "Installed: $("$HOME/.local/bin/gemini" --version)"
+echo "Start it from conch and sign in."`,
+	}
+	if os.Getenv("GEMINI_CLI_SYSTEM_DEFAULTS_PATH") == "" { // don't displace an admin's file
+		a.env = []string{"GEMINI_CLI_SYSTEM_DEFAULTS_PATH=" + path}
+	}
+	return a, nil
+}
+
+// ---- OpenCode ----
+
+// openCodePlugin reports OpenCode's session events to conch. It runs inside
+// OpenCode and must never disturb it.
+const openCodePlugin = `// Written by conch: reports OpenCode session state to the conch pane it runs in.
+import { spawn } from "node:child_process";
+
+const conch = %s;
+const forwarded = new Set(["session.idle", "session.error", "permission.asked", "permission.replied",
+  "question.asked", "question.replied", "question.rejected"]);
+
+function report(event) {
+  if (!process.env.CONCH_PANE_ID) return;
+  try {
+    const child = spawn(conch, ["report", "opencode", event], { stdio: "ignore", detached: true });
+    child.on("error", () => {});
+    child.unref();
+  } catch {}
+}
+
+export const ConchPlugin = async () => ({
+  event: async ({ event }) => {
+    if (event.type === "session.status") {
+      const status = event.properties?.status?.type;
+      if (status) report("session." + status);
+    } else if (forwarded.has(event.type)) {
+      report(event.type);
+    }
+  },
+});
+`
+
+// newOpenCode launches OpenCode with conch's plugin added through
+// OPENCODE_CONFIG_CONTENT, which is merged into the user's configuration
+// (plugin lists are combined).
+func newOpenCode(exe, dir string) (*cliAgent, error) {
+	exeJSON, _ := json.Marshal(exe)
+	path := filepath.Join(dir, "opencode-conch.js")
+	if err := writeFileAtomic(path, []byte(fmt.Sprintf(openCodePlugin, exeJSON))); err != nil {
+		return nil, fmt.Errorf("write opencode plugin: %w", err)
+	}
+	a := &cliAgent{
+		name: "opencode", label: "OpenCode", binary: "opencode",
+		dirs: []string{"$HOME/.opencode/bin", "$HOME/bin", "$HOME/.local/bin"},
+		install: withDownloader("OpenCode", "https://opencode.ai/install", "bash", "") + `
+echo
+echo "Installed OpenCode; start it from conch and connect a provider (/connect)."`,
+	}
+	if os.Getenv("OPENCODE_CONFIG_CONTENT") == "" { // don't displace the user's own
+		cfg, _ := json.Marshal(map[string]any{"plugin": []string{"file://" + path}})
+		a.env = []string{"OPENCODE_CONFIG_CONTENT=" + string(cfg)}
+	}
+	return a, nil
+}
+
+func writeJSON(path string, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(path, append(b, '\n'))
+}
 
 // defaultTitles are titles agents show when they have no task yet.
-var defaultTitles = map[string]bool{"claude code": true, "claude": true}
+var defaultTitles = map[string]bool{"claude code": true, "claude": true, "opencode": true, "gemini cli": true}
 
-// CleanTitle turns a terminal title into a task label: leading status
-// symbols (spinners, ✳) are dropped, and agents' default titles become "".
+// statusPrefix matches the activity agents put at the start of their
+// titles: Codex's "[ ! ] Action Required", Gemini's "✦  Working… (folder)".
+var statusPrefix = regexp.MustCompile(`^\s*(\[ [!.] \] Action Required|✋\s*Action Required|[✦⏲]\s*Working…|◇\s*Ready)(\s*\([^)]*\))?`)
+
+// CleanTitle turns a terminal title into a task label: activity prefixes,
+// status symbols (spinners, ✳) and OpenCode's "OC | " are dropped, and
+// titles that only name the agent become "".
 func CleanTitle(title string) string {
+	title = statusPrefix.ReplaceAllString(title, "")
 	title = strings.TrimLeftFunc(title, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	})
-	title = strings.TrimSpace(title)
+	title = strings.TrimSpace(strings.TrimPrefix(title, "OC |"))
 	if defaultTitles[strings.ToLower(title)] {
 		return ""
 	}

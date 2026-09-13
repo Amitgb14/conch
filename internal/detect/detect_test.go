@@ -240,3 +240,74 @@ func TestForegroundProcess(t *testing.T) {
 		t.Fatalf("args %q", p.Args)
 	}
 }
+
+func TestInterpreterScriptNames(t *testing.T) {
+	for _, tc := range []struct {
+		p    Process
+		want string
+	}{
+		{Process{Name: "node", Args: []string{"node", "/opt/homebrew/bin/gemini"}}, "gemini"},
+		{Process{Name: "node", Args: []string{"node", "--no-warnings", "/usr/lib/node_modules/@openai/codex/bin/codex.js"}}, "codex"},
+		{Process{Name: "2.1.270", Args: []string{"claude"}}, "claude"},
+	} {
+		found := false
+		for _, n := range tc.p.Names() {
+			found = found || n == tc.want
+		}
+		if !found {
+			t.Errorf("%+v names %v lack %q", tc.p, tc.p.Names(), tc.want)
+		}
+	}
+}
+
+func TestOtherAgentRules(t *testing.T) {
+	ms := manifests(t)
+	for _, tc := range []struct {
+		agent, title string
+		screen       []string
+		rule         string
+	}{
+		{"codex", "[ ! ] Action Required agentprobe", screen("› "), "action_required_title"},
+		{"codex", "agentprobe", screen("Would you like to run the following command?", "› 1. Yes, proceed"), "approval"},
+		{"codex", "⠙ agentprobe", screen("• Working (3s • esc to interrupt)"), "interruptible"},
+		{"codex", "", screen("  Do you trust the contents of this directory? Working with untrusted contents", "› 1. Yes, continue"), "trust_prompt"},
+		// Seen live: the update screen before Codex starts.
+		{"codex", "", screen("  ✨ Update available! 0.144.1 -> 0.145.0", "› 1. Update now", "  2. Skip", "  Press enter to continue"), "update_prompt"},
+		{"codex", "agentprobe", screen("› Ask Codex to do anything"), ""},
+		{"gemini", "✋  Action Required (api)", screen("> "), "action_required_title"},
+		{"gemini", "", screen(" │ Allow execution of [Shell]? │", " │ ● 1. Allow once │"), "confirmation"},
+		{"gemini", "✦  Working… (api)", screen("> "), "working_title"},
+		{"gemini", "◇  Ready (api)", screen("> "), "ready_title"},
+		// Seen live in an unauthenticated install.
+		{"gemini", "", screen("│   No authentication method selected.   │"), "auth_needed"},
+		{"opencode", "OC | Fix tests", screen("  △ Permission required", "  Allow once   Allow always   Reject"), "permission"},
+		{"opencode", "OpenCode", screen("  esc interrupt"), "interruptible"},
+	} {
+		got := ""
+		if r := ms[tc.agent].Match(tc.screen, tc.title); r != nil {
+			got = r.Name
+		}
+		if got != tc.rule {
+			t.Errorf("%s title %q screen %q: matched %q, want %q", tc.agent, tc.title, tc.screen, got, tc.rule)
+		}
+	}
+	// Gemini runs as node; its script name identifies it.
+	if MatchAny(ms, Process{Name: "node", Args: []string{"node", "/opt/homebrew/bin/gemini"}}) != ms["gemini"] {
+		t.Fatal("gemini not detected from its node process")
+	}
+}
+
+func TestOpenCodeAndGeminiHookEvents(t *testing.T) {
+	for event, want := range map[string]string{
+		"session.busy": StateWorking, "session.idle": StateIdle, "permission.asked": StateBlocked,
+		"question.asked": StateBlocked, "permission.replied": StateWorking,
+		"BeforeAgent": StateWorking, "AfterAgent": StateIdle,
+	} {
+		if got, ok := hookState(HookEvent{Event: event}); !ok || got != want {
+			t.Errorf("%s → %q (%v), want %q", event, got, ok, want)
+		}
+	}
+	if got, _ := hookState(HookEvent{Event: "Notification", NotificationType: "ToolPermission"}); got != StateBlocked {
+		t.Errorf("gemini ToolPermission → %q", got)
+	}
+}

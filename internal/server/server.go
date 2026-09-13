@@ -536,9 +536,19 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 
 	case proto.MethodAgentStatus:
 		var res proto.AgentStatusResult
-		for name, ad := range s.adapters {
-			av := ad.Detect(context.Background(), config.DefaultShell())
-			res.Agents = append(res.Agents, proto.AgentAvailability{Name: name, Installed: av.Installed, Path: av.Path, Version: av.Version})
+		avs := make([]adapter.Availability, len(s.adapters))
+		var wg sync.WaitGroup
+		for i, ad := range s.adapters {
+			wg.Add(1)
+			go func() { // each check starts a login shell; run them together
+				defer wg.Done()
+				avs[i] = ad.Detect(context.Background(), config.DefaultShell())
+			}()
+		}
+		wg.Wait()
+		for i, ad := range s.adapters {
+			res.Agents = append(res.Agents, proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
+				Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version})
 		}
 		return res, nil
 
@@ -547,7 +557,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		ad, ok := s.adapters[ip.Agent]
+		ad, ok := s.adapters.Get(ip.Agent)
 		if !ok {
 			return nil, proto.Errorf(proto.ErrBadRequest, "conch can't install %q", ip.Agent)
 		}
@@ -602,11 +612,12 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 		}
 	}
 	if len(cp.Command) == 0 && cp.Agent != "" {
-		ad, ok := s.adapters[cp.Agent]
+		ad, ok := s.adapters.Get(cp.Agent)
 		if !ok {
 			return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "agent %q cannot be launched by conch", cp.Agent)
 		}
 		cp.Command = ad.Command(config.DefaultShell(), cp.AgentArgs)
+		cp.Env = append(cp.Env, ad.Env()...)
 		if cp.Name == "" {
 			cp.Name = cp.Agent
 		}
@@ -667,7 +678,7 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 		return proto.PaneInfo{}, perr
 	}
 	if tp.Agent == "" {
-		tp.Agent = "claude"
+		tp.Agent = s.adapters[0].Name()
 	}
 	if tp.Branch == "" {
 		tp.Branch = gitx.BranchFromPrompt(tp.Prompt)

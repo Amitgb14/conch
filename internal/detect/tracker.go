@@ -30,6 +30,7 @@ type Observation struct {
 	Process    Process
 	ProcessErr error
 	Screen     []string // visible screen as plain text
+	Title      string   // terminal title
 	Watched    bool     // a client is looking at the pane
 }
 
@@ -88,7 +89,7 @@ func hookState(ev HookEvent) (state string, ok bool) {
 		return StateBlocked, true
 	case "Notification":
 		switch ev.NotificationType {
-		case "permission_prompt", "elicitation_dialog":
+		case "permission_prompt", "elicitation_dialog", "ToolPermission":
 			return StateBlocked, true
 		case "idle_prompt":
 			return StateIdle, true
@@ -96,6 +97,20 @@ func hookState(ev HookEvent) (state string, ok bool) {
 		return "", false
 	case "Stop", "StopFailure":
 		return StateIdle, true
+
+	// Gemini CLI hooks.
+	case "BeforeAgent", "BeforeTool", "AfterTool", "BeforeModel", "PreCompress":
+		return StateWorking, true
+	case "AfterAgent":
+		return StateIdle, true
+
+	// OpenCode plugin events.
+	case "session.busy", "session.retry", "permission.replied", "question.replied", "question.rejected":
+		return StateWorking, true
+	case "session.idle", "session.error":
+		return StateIdle, true
+	case "permission.asked", "question.asked":
+		return StateBlocked, true
 	case "SessionEnd":
 		return "", true // the session is over; let the screen decide
 	}
@@ -170,7 +185,7 @@ func (t *Tracker) Observe(o Observation) bool {
 	base := ""
 	if m != nil {
 		ex.Manifest = m.Agent
-		rule := m.MatchScreen(o.Screen)
+		rule := m.Match(o.Screen, o.Title)
 		if rule != nil {
 			ex.ScreenRule = rule.Name
 			if rule.State == StateWorking {

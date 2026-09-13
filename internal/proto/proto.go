@@ -399,7 +399,7 @@ type TaskCreateParams struct {
 	Prompt    string `json:"prompt"`
 	Branch    string `json:"branch,omitempty"`
 	Base      string `json:"base,omitempty"`
-	Agent     string `json:"agent,omitempty"` // default "claude"
+	Agent     string `json:"agent,omitempty"` // default: the server's first agent (claude)
 	Cols      int    `json:"cols,omitempty"`
 	Rows      int    `json:"rows,omitempty"`
 }
@@ -421,6 +421,17 @@ type AgentStatus struct {
 	Message   string    `json:"message,omitempty"`
 	SessionID string    `json:"session_id,omitempty"`
 	Since     time.Time `json:"since"`
+	Tokens    *Tokens   `json:"tokens,omitempty"`
+}
+
+// Tokens is an agent session's token usage, from its transcript.
+type Tokens struct {
+	Input      int    `json:"input"`
+	CacheWrite int    `json:"cache_write"`
+	CacheRead  int    `json:"cache_read"`
+	Output     int    `json:"output"`
+	Context    int    `json:"context"` // size of the latest request's context
+	Model      string `json:"model,omitempty"`
 }
 
 // NeedsAttention reports whether the agent is waiting on the user.
@@ -432,6 +443,7 @@ func (a *AgentStatus) NeedsAttention() bool {
 // the server's machine.
 type AgentAvailability struct {
 	Name      string `json:"name"`
+	Label     string `json:"label,omitempty"` // e.g. "Claude Code"
 	Installed bool   `json:"installed"`
 	Path      string `json:"path,omitempty"`
 	Version   string `json:"version,omitempty"`
@@ -458,6 +470,7 @@ type AgentReportParams struct {
 	NotificationType string `json:"notification_type,omitempty"`
 	Message          string `json:"message,omitempty"`
 	SessionID        string `json:"session_id,omitempty"`
+	TranscriptPath   string `json:"transcript_path,omitempty"`
 }
 
 // PaneCreateParams creates a pane running Command in Cwd. When Agent names

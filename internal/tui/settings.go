@@ -30,9 +30,6 @@ type shellThemesMsg struct {
 	err    error
 }
 
-// supportedAgents are the agents conch can launch and install.
-var supportedAgents = []string{"claude"}
-
 // settingItem is one line of a settings tab.
 type settingItem struct {
 	header bool
@@ -164,34 +161,44 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 }
 
 func (s *settings) agentItems(m *Model) []settingItem {
-	var items []settingItem
+	items := []settingItem{{header: true, label: "Default agent", detail: "what c starts"}}
+	for _, name := range knownAgents(m) {
+		name := name
+		items = append(items, settingItem{label: agentLabel(name), mark: m.defaultAgent() == name,
+			run: func(m *Model) tea.Cmd {
+				m.cfg.Agents.Default = name
+				return saveConfig(m.cfg)
+			}})
+	}
 	for _, mach := range m.machines {
 		mach := mach
 		state := ""
 		if mach.state != stateOnline {
 			state = mach.state.String()
 		}
-		items = append(items, settingItem{header: true, label: mach.label, detail: state})
-		for _, agent := range supportedAgents {
-			agent := agent
-			item := settingItem{label: "  " + agentLabel(agent)}
-			switch {
-			case mach.state != stateOnline:
-				item.detail = styleMuted.Render("unknown while " + mach.state.String())
-			case mach.available == nil:
-				item.detail = styleMuted.Render("unknown (server predates agent checks; upgrade it)")
-			case mach.available[agent].Installed:
-				av := mach.available[agent]
-				item.detail = styleOK.Render("✓ " + av.Version)
+		items = append(items, settingItem{}, settingItem{header: true, label: mach.label, detail: state})
+		switch {
+		case mach.state != stateOnline:
+			items = append(items, settingItem{label: styleMuted.Render("  agents unknown while " + mach.state.String())})
+			continue
+		case mach.available == nil:
+			items = append(items, settingItem{label: styleMuted.Render("  agents unknown: the server there predates agent checks; upgrade it")})
+			continue
+		}
+		for _, a := range mach.agentList {
+			a := a
+			item := settingItem{label: "  " + firstNonEmpty(a.Label, agentLabel(a.Name))}
+			if a.Installed {
+				item.detail = styleOK.Render("✓ " + a.Version)
 				item.run = func(m *Model) tea.Cmd {
-					m.setFlash(fmt.Sprintf("%s %s on %s at %s", agentLabel(agent), av.Version, mach.label, av.Path), false)
+					m.setFlash(fmt.Sprintf("%s %s on %s at %s", item.label[2:], a.Version, mach.label, a.Path), false)
 					return nil
 				}
-			default:
+			} else {
 				item.detail = styleWarn.Render("not installed · enter installs")
 				item.run = func(m *Model) tea.Cmd {
 					m.overlay = nil
-					return m.installAgent(mach.id, agent)
+					return m.installAgent(mach.id, a.Name)
 				}
 			}
 			items = append(items, item)
@@ -206,9 +213,36 @@ func (s *settings) agentItems(m *Model) []settingItem {
 			m.setFlash("checking agents on every machine…", false)
 			return tea.Batch(cmds...)
 		}},
-		settingItem{label: styleMuted.Render("Codex, Gemini CLI and other agents are planned")},
 	)
 	return items
+}
+
+// knownAgents lists agent names any connected machine reported, in order,
+// falling back to the ones conch ships adapters for.
+func knownAgents(m *Model) []string {
+	seen := map[string]bool{}
+	var names []string
+	for _, mach := range m.machines {
+		for _, a := range mach.agentList {
+			if !seen[a.Name] {
+				seen[a.Name] = true
+				names = append(names, a.Name)
+			}
+		}
+	}
+	if len(names) == 0 {
+		names = []string{"claude", "codex", "gemini", "opencode"}
+	}
+	return names
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {

@@ -15,9 +15,12 @@ func TestSettingsTabs(t *testing.T) {
 	t.Setenv("CONCH_HOME", t.TempDir())
 	defer applyTheme("conch", "")
 	m := &Model{cfg: config.Default(), width: 100, height: 40}
+	claude := proto.AgentAvailability{Name: "claude", Label: "Claude Code", Installed: true, Version: "2.1.270"}
+	codex := proto.AgentAvailability{Name: "codex", Label: "Codex"}
 	m.machines = []*machine{
-		{id: localMachine, label: "local", state: stateOnline, available: map[string]proto.AgentAvailability{"claude": {Name: "claude", Installed: true, Version: "2.1.270"}}},
-		{id: "box", label: "box", state: stateOnline, available: map[string]proto.AgentAvailability{}},
+		{id: localMachine, label: "local", state: stateOnline, agentList: []proto.AgentAvailability{claude, codex},
+			available: map[string]proto.AgentAvailability{"claude": claude, "codex": codex}},
+		{id: "box", label: "box", state: stateOnline, agentList: []proto.AgentAvailability{}, available: map[string]proto.AgentAvailability{}},
 		{id: "gpu", label: "gpu", state: stateOffline},
 	}
 	s := &settings{shell: &proto.ShellThemes{OMZ: true, Current: "robbyrussell", Themes: []string{"agnoster", "robbyrussell"}}}
@@ -50,18 +53,20 @@ func TestSettingsTabs(t *testing.T) {
 		t.Fatal("notifications still enabled")
 	}
 
-	// Agents tab: installed, missing (installable) and offline rows.
-	details := map[string]bool{}
-	installable := 0
+	// Agents tab: default choice, installed, missing (installable) and offline rows.
+	details, labels := map[string]bool{}, map[string]bool{}
 	for _, it := range s.agentItems(m) {
-		details[it.detail] = true
-		if it.detail != "" && it.run != nil && it.label == "  Claude Code" && !m.machines[0].missingAgent("claude") {
-			installable++
+		details[it.detail], labels[it.label] = true, true
+		if it.label == "Codex" && it.run != nil {
+			it.run(m)
 		}
 	}
 	if !details[styleOK.Render("✓ 2.1.270")] || !details[styleWarn.Render("not installed · enter installs")] ||
-		!details[styleMuted.Render("unknown while offline")] {
-		t.Fatalf("agent rows: %v", details)
+		!labels[styleMuted.Render("  agents unknown while offline")] {
+		t.Fatalf("agent rows: %v %v", details, labels)
+	}
+	if m.cfg.Agents.Default != "codex" || m.defaultAgent() != "codex" {
+		t.Fatalf("default agent: %q", m.cfg.Agents.Default)
 	}
 }
 

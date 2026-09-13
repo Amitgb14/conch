@@ -152,8 +152,10 @@ Alpine needs `apk add bash curl libgcc libstdc++ ripgrep` (as root) first.
 
 The wheel over a pane scrolls back through its history (10,000 lines); the
 view stays on the same text while output continues, and typing returns to the
-live screen. `ctrl+b [` (or `ctrl+b pgup`) scrolls from the keyboard: `↑↓`,
-`pgup`/`pgdn`, `g` for the oldest line, any other key for live.
+live screen. `ctrl+b [` (or `ctrl+b pgup`) enters scroll mode with a cursor:
+`↑↓←→`/`hjkl` move it (scrolling at the edges), `0`/`$` line start/end,
+`pgup`/`pgdn` page, `g` oldest line, `v` starts a selection and `y` (or
+enter) copies it; any other key returns to live.
 
 Drag across a pane to select and copy; double-click copies a word. Copies use
 OSC 52 (works over SSH) plus `pbcopy`/`wl-copy`/`xclip` locally. `y` copies a
@@ -174,7 +176,7 @@ worktree (never with uncommitted changes, never the main one).
 | Where | Keys |
 |-------|------|
 | Tree  | `↑↓` `jk` move · `←→` `hl` fold · `space` toggle · `enter` open pane / view changes · `/` filter · `!` next agent waiting for you · `o` open PR · `y` copy · `m` menu · `?` all keys · `q` detach |
-| Create | `t` task · `c` Claude here · `C` install Claude Code · `n` terminal here · `a` add project · `M` add machine · `r` rename · `x` close / remove · `R` refresh git and PRs, or reconnect a machine |
+| Create | `t` task · `c` default agent here · `A` start or install any agent · `n` terminal here · `a` add project · `M` add machine · `r` rename · `x` close / remove · `R` refresh git and PRs, or reconnect a machine |
 | Pane  | everything goes to the program · `ctrl+b [` scroll history · `ctrl+b` then any key → tree · `ctrl+b z` zoom · `ctrl+b !` next waiting |
 | Changes | `↑↓` file · `enter` diff · `o` open PR · `y` copy path / diff · `esc` back |
 
@@ -183,6 +185,20 @@ double-click to open, right-click for a context menu, wheel to scroll, drag
 the sidebar's edge to resize, click `⚑ N waiting` to jump. Clicks inside a
 pane go to programs that use the mouse. Hold shift (option in iTerm2) to
 select text with your terminal, or set `[ui] mouse = false`.
+
+## Agents
+
+| Agent | Launch | How conch knows its state | Install (no root) |
+|---|---|---|---|
+| **Claude Code** | `claude --settings <conch hooks>` | hooks, screen, token usage from the transcript | `curl -fsSL https://claude.ai/install.sh \| bash` |
+| **Codex** | `codex` | terminal title (`[ ! ] Action Required`, spinner) and screen ("Would you like to run the following command?") | `curl -fsSL https://chatgpt.com/codex/install.sh \| sh` |
+| **Gemini CLI** | `gemini` with conch's hooks in a system-defaults settings file (merged with yours; Gemini runs hooks only in trusted folders) | hooks when trusted, title (`✋ Action Required`, `✦ Working…`, `◇ Ready`) and screen | `npm install -g --prefix ~/.local @google/gemini-cli` (Node 20+) |
+| **OpenCode** | `opencode` with conch's plugin via `OPENCODE_CONFIG_CONTENT` (merged with your config) | plugin events (busy, idle, permission, question) and screen | `curl -fsSL https://opencode.ai/install \| bash` |
+
+`c` starts the default agent (Settings → Agents, or `[agents] default`);
+`A` opens a picker to start any agent installed on the machine or install a
+missing one. conch never edits an agent's own configuration or answers its
+trust prompts for you.
 
 ## Agent states
 
@@ -208,6 +224,10 @@ How the state is decided, most reliable first:
    terminal's foreground process.
 
 `conch agent explain p1` shows the evidence behind a state.
+
+Claude panes also show token usage in their title — `ctx 45k · out 12k`
+(the latest request's context and output so far) — read incrementally from
+the session transcript the hooks point at.
 
 ## Scripting
 
@@ -269,6 +289,9 @@ accent = ""      # override: teal, blue, green, orange, pink, red, gray, purple 
 
 [shell]
 omz_theme = ""   # Oh My Zsh theme for new zsh terminals; "" keeps .zshrc's
+
+[agents]
+default = "claude"  # what c starts: claude, codex, gemini, opencode
 ```
 
 ## Protocol

@@ -40,12 +40,15 @@ type Manifest struct {
 	Rules            []Rule   `toml:"rules"`
 }
 
-// Rule maps a screen pattern to a state. Rules are tried in order.
+// Rule maps a pattern to a state. Rules are tried in order.
 type Rule struct {
 	Name    string `toml:"name"`
 	State   string `toml:"state"`
 	Pattern string `toml:"pattern"`
-	re      *regexp.Regexp
+	// On is what the pattern is matched against: "screen" (default) or
+	// "title", the terminal title agents use to show their activity.
+	On string `toml:"on"`
+	re *regexp.Regexp
 }
 
 type duration struct{ time.Duration }
@@ -118,6 +121,11 @@ func parseManifest(b []byte) (*Manifest, error) {
 		default:
 			return nil, fmt.Errorf("rule %q: state must be idle, working or blocked, not %q", r.Name, r.State)
 		}
+		switch r.On {
+		case "", "screen", "title":
+		default:
+			return nil, fmt.Errorf("rule %q: on must be screen or title, not %q", r.Name, r.On)
+		}
 		re, err := regexp.Compile(r.Pattern)
 		if err != nil {
 			return nil, fmt.Errorf("rule %q: %w", r.Name, err)
@@ -143,7 +151,11 @@ func (m *Manifest) MatchProcess(p Process) bool {
 // Each rule is tried against the rows as they are and flattened to one
 // line (whitespace collapsed, box borders removed), because agents re-wrap
 // their text when the pane is resized.
-func (m *Manifest) MatchScreen(lines []string) *Rule {
+func (m *Manifest) MatchScreen(lines []string) *Rule { return m.Match(lines, "") }
+
+// Match returns the first rule matching the screen or, for title rules, the
+// terminal title.
+func (m *Manifest) Match(lines []string, title string) *Rule {
 	text := bottom(lines, m.ScreenLines)
 	// Box-drawing borders sit between wrapped words in bordered dialogs.
 	flat := strings.Join(strings.Fields(strings.Map(func(r rune) rune {
@@ -153,8 +165,15 @@ func (m *Manifest) MatchScreen(lines []string) *Rule {
 		return r
 	}, text)), " ")
 	for i := range m.Rules {
-		if m.Rules[i].re.MatchString(text) || m.Rules[i].re.MatchString(flat) {
-			return &m.Rules[i]
+		r := &m.Rules[i]
+		if r.On == "title" {
+			if title != "" && r.re.MatchString(title) {
+				return r
+			}
+			continue
+		}
+		if r.re.MatchString(text) || r.re.MatchString(flat) {
+			return r
 		}
 	}
 	return nil

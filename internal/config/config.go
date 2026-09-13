@@ -18,6 +18,13 @@ type Config struct {
 	Notify NotifyCfg `toml:"notify"`
 	UI     UICfg     `toml:"ui"`
 	Shell  ShellCfg  `toml:"shell"`
+	Agents AgentsCfg `toml:"agents"`
+}
+
+// AgentsCfg holds agent preferences.
+type AgentsCfg struct {
+	// Default is the agent c starts: claude, codex, gemini or opencode.
+	Default string `toml:"default"`
 }
 
 // ShellCfg holds settings for terminal panes.
@@ -72,6 +79,7 @@ func Default() Config {
 		Keys:   Keys{Prefix: "ctrl+b"},
 		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true},
 		UI:     UICfg{Mouse: true, Theme: "conch"},
+		Agents: AgentsCfg{Default: "claude"},
 	}
 }
 

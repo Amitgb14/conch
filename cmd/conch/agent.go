@@ -91,26 +91,42 @@ func agentInstall(agent string) error {
 	return c.Err()
 }
 
-// runReport forwards an agent hook event to the server owning this pane.
-// It runs inside the agent's hook machinery, so it prints nothing (Claude
-// Code treats some hooks' stdout as instructions), always exits 0, and
-// gives up quickly. Outside a conch pane it does nothing.
+// runReport forwards an agent event to the server owning this pane. It
+// runs inside the agent's hook or plugin machinery, so it prints nothing
+// (some agents read hook output as instructions), always exits 0, and gives
+// up quickly. Outside a conch pane it does nothing.
+//
+//	conch report claude-hook | gemini-hook   (hook JSON on stdin)
+//	conch report opencode EVENT              (from conch's OpenCode plugin)
 func runReport(args []string) {
-	if len(args) != 1 || args[0] != "claude-hook" {
-		return
-	}
 	paneID, sock := os.Getenv("CONCH_PANE_ID"), os.Getenv("CONCH_SOCKET")
-	if paneID == "" || sock == "" {
+	if paneID == "" || sock == "" || len(args) == 0 {
 		return
 	}
-	var in struct {
-		Event            string `json:"hook_event_name"`
-		SessionID        string `json:"session_id"`
-		NotificationType string `json:"notification_type"`
-		Message          string `json:"message"`
-	}
-	data, _ := io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
-	if json.Unmarshal(data, &in) != nil || in.Event == "" {
+	params := proto.AgentReportParams{ID: paneID}
+	switch {
+	case args[0] == "opencode" && len(args) >= 2:
+		params.Agent, params.Event = "opencode", args[1]
+	case args[0] == "claude-hook" || args[0] == "gemini-hook":
+		var in struct {
+			Event            string `json:"hook_event_name"`
+			SessionID        string `json:"session_id"`
+			NotificationType string `json:"notification_type"`
+			Message          string `json:"message"`
+			TranscriptPath   string `json:"transcript_path"`
+		}
+		data, _ := io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
+		if json.Unmarshal(data, &in) != nil || in.Event == "" {
+			return
+		}
+		params = proto.AgentReportParams{
+			ID: paneID, Agent: strings.TrimSuffix(args[0], "-hook"), Event: in.Event,
+			NotificationType: in.NotificationType, Message: in.Message, SessionID: in.SessionID,
+		}
+		if params.Agent == "claude" { // Claude's transcript format is the one usage reads
+			params.TranscriptPath = in.TranscriptPath
+		}
+	default:
 		return
 	}
 
@@ -124,10 +140,7 @@ func runReport(args []string) {
 		defer c.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_ = c.Call(ctx, proto.MethodAgentReport, proto.AgentReportParams{
-			ID: paneID, Agent: "claude", Event: in.Event,
-			NotificationType: in.NotificationType, Message: in.Message, SessionID: in.SessionID,
-		}, nil)
+		_ = c.Call(ctx, proto.MethodAgentReport, params, nil)
 	}()
 	select {
 	case <-done:

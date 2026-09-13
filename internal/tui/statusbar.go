@@ -63,12 +63,7 @@ func (m *Model) press(key string) tea.Cmd {
 func (m Model) statusHints() (chip string, items []statusItem) {
 	r, _ := m.selectedRow()
 	toTree := func(m *Model) tea.Cmd { m.focus, m.prefixArmed = focusSidebar, false; return nil }
-	scrollMode := func(m *Model) tea.Cmd {
-		if m.frame != nil && m.frame.History > 0 {
-			m.scrollMode, m.focus = true, focusMain
-		}
-		return nil
-	}
+	scrollMode := func(m *Model) tea.Cmd { m.enterScrollMode(); return nil }
 	switch {
 	case m.prefixArmed:
 		chip = styleChip.Background(colorWarn).Render("PREFIX")
@@ -76,8 +71,8 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			hint("c", "new tab"), hint("n", "next tab"), hint("[", "scroll"), hint("z", "zoom"), action("esc", "tree", toTree)}
 	case m.focus == focusMain && r.kind == kindPane && m.scrollMode:
 		chip = styleChip.Background(colorWarn).Render("SCROLL")
-		items = []statusItem{hint("↑", "line"), hint("↓", "line"), hint("pgup", "page"), hint("pgdn", "page"),
-			hint("g", "oldest"), hint("esc", "live")}
+		items = []statusItem{hint("↑↓←→", "move"), hint("v", "select"), hint("y", "copy"), hint("pgup", "page"),
+			hint("pgdn", "page"), hint("g", "oldest"), hint("esc", "live")}
 	case m.focus == focusMain && r.kind == kindPane && m.offset > 0:
 		chip = styleChip.Background(colorWarn).Render("HISTORY")
 		items = []statusItem{
@@ -114,18 +109,18 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		switch r.kind {
 		case kindPane:
 			items = []statusItem{hint("enter", "open"), hint("v", "split"), hint("O", "new tab"), hint("r", "rename"),
-				hint("x", "close"), hint("c", "claude"), hint("n", "shell"), hint("m", "menu")}
+				hint("x", "close"), hint("c", m.defaultAgent()), hint("n", "shell"), hint("m", "menu")}
 		case kindBranch:
-			items = []statusItem{hint("enter", "changes"), hint("v", "split"), hint("o", "PR"), hint("c", "claude"), hint("n", "shell"),
+			items = []statusItem{hint("enter", "changes"), hint("v", "split"), hint("o", "PR"), hint("c", m.defaultAgent()), hint("n", "shell"),
 				hint("x", "rm worktree"), hint("y", "copy"), hint("m", "menu")}
 		case kindProject:
-			items = []statusItem{hint("t", "task"), hint("c", "claude"), hint("n", "shell"), hint("space", "fold"),
+			items = []statusItem{hint("t", "task"), hint("c", m.defaultAgent()), hint("n", "shell"), hint("space", "fold"),
 				hint("x", "remove"), hint("m", "menu")}
 		case kindMachine:
-			items = []statusItem{hint("a", "project"), hint("c", "claude"), hint("n", "shell"), hint("M", "machine"),
+			items = []statusItem{hint("a", "project"), hint("c", m.defaultAgent()), hint("A", "agents"), hint("n", "shell"), hint("M", "machine"),
 				hint("R", "reconnect"), hint("m", "menu")}
 		default:
-			items = []statusItem{hint("a", "project"), hint("t", "task"), hint("c", "claude"), hint("n", "shell"),
+			items = []statusItem{hint("a", "project"), hint("t", "task"), hint("c", m.defaultAgent()), hint("n", "shell"),
 				hint("/", "filter"), hint("m", "menu")}
 		}
 		items = append(items, hint("!", "waiting"), hint("?", "keys"))

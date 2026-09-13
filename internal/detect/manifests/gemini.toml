@@ -1,0 +1,45 @@
+# Google Gemini CLI. Copy to ~/.config/conch/agents/gemini.toml to override.
+# Strings from gemini-cli v0.56.0 (packages/cli/src/utils/windowTitle.ts,
+# ToolConfirmationMessage and the auth and folder-trust dialogs).
+agent = "gemini"
+process_names = ["gemini"]
+screen_lines = 40
+hook_working_stale = "8s"
+
+[[rules]]
+name = "action_required_title"
+state = "blocked"
+on = "title"
+pattern = 'Action Required'
+
+[[rules]]
+name = "confirmation"
+state = "blocked"
+pattern = 'Apply this change\?|Allow execution of|Do you want to proceed\?'
+
+[[rules]]
+name = "trust_prompt"
+state = "blocked"
+pattern = 'Do you trust the files in this folder'
+
+[[rules]]
+name = "auth_needed"
+state = "blocked"
+pattern = 'No authentication method selected|How would you like to authenticate'
+
+[[rules]]
+name = "working_title"
+state = "working"
+on = "title"
+pattern = '^\s*[✦⏲]'
+
+[[rules]]
+name = "cancellable"
+state = "working"
+pattern = 'esc to cancel'
+
+[[rules]]
+name = "ready_title"
+state = "idle"
+on = "title"
+pattern = '^\s*◇'

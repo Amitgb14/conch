@@ -1,0 +1,38 @@
+# OpenAI Codex CLI. Copy to ~/.config/conch/agents/codex.toml to override.
+# Strings from codex rust-v0.144.1 (tui/src/bottom_pane/approval_overlay.rs,
+# status_indicator_widget.rs, chatwidget/status_surfaces.rs).
+agent = "codex"
+process_names = ["codex"]
+screen_lines = 30
+
+[[rules]]
+name = "action_required_title"
+state = "blocked"
+on = "title"
+pattern = 'Action Required'
+
+[[rules]]
+name = "approval"
+state = "blocked"
+pattern = 'Would you like to (run the following command|make the following edits|grant these permissions)|Do you want to approve network access'
+
+[[rules]]
+name = "trust_prompt"
+state = "blocked"
+pattern = 'Do you trust the contents of this directory'
+
+[[rules]]
+name = "update_prompt"
+state = "blocked"
+pattern = 'Update available!.*Press enter to continue'
+
+[[rules]]
+name = "interruptible"
+state = "working"
+pattern = 'esc to interrupt'
+
+[[rules]]
+name = "spinner_title"
+state = "working"
+on = "title"
+pattern = '^\s*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]'

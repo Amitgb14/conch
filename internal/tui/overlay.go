@@ -141,8 +141,8 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		case mach.state == stateOffline && mid == localMachine:
 			items = append(items, menuItem{"s", "Start the server", func(m *Model) tea.Cmd { return m.reconnect(mid, true) }})
 		}
-		if mach.state == stateOnline && mach.missingAgent("claude") {
-			items = append(items, menuItem{"C", "Install Claude Code", act("C")})
+		if mach.state == stateOnline {
+			items = append(items, menuItem{"A", "Start or install an agent…", act("A")})
 		}
 		if mach.state == stateOnline {
 			items = append(items,
@@ -239,6 +239,39 @@ func (mu *menu) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 		m.overlay = nil
 	}
 	return nil
+}
+
+// newAgentMenu lists the agents a machine knows: installed ones start at
+// the selected place, missing ones install.
+func newAgentMenu(m Model, mach *machine) *menu {
+	var items []menuItem
+	list := mach.agentList
+	if len(list) == 0 { // an older server: offer what conch can launch by name
+		for _, name := range []string{"claude", "codex", "gemini", "opencode"} {
+			list = append(list, proto.AgentAvailability{Name: name, Installed: true})
+		}
+	}
+	for i, a := range list {
+		a := a
+		label := a.Label
+		if label == "" {
+			label = agentLabel(a.Name)
+		}
+		key := ""
+		if i < 9 {
+			key = fmt.Sprint(i + 1)
+		}
+		if a.Installed {
+			version := ""
+			if a.Version != "" {
+				version = "  " + a.Version
+			}
+			items = append(items, menuItem{key, "Start " + label + version, func(m *Model) tea.Cmd { return m.openAgent(a.Name) }})
+		} else {
+			items = append(items, menuItem{key, "Install " + label, func(m *Model) tea.Cmd { return m.installAgent(mach.id, a.Name) }})
+		}
+	}
+	return &menu{title: "Agents on " + mach.label, items: items, x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
 }
 
 // ---- dialog ----
@@ -493,7 +526,7 @@ var helpText = []string{
 	"Create",
 	"  t  new task: branch + worktree + Claude with a prompt",
 	"  c  Claude here         n  terminal here         a  add or create a project",
-	"  M  add machine (ssh)   R  reconnect a machine    C  install Claude Code",
+	"  M  add machine (ssh)   R  reconnect a machine    A  start or install any agent",
 	"  r  rename              x  close / remove        R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",
 	"",

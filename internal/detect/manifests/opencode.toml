@@ -1,0 +1,16 @@
+# OpenCode. Copy to ~/.config/conch/agents/opencode.toml to override.
+# Strings from opencode v1.18.16 (packages/tui/src/routes/session/permission.tsx).
+agent = "opencode"
+process_names = ["opencode"]
+screen_lines = 40
+hook_working_stale = "8s"
+
+[[rules]]
+name = "permission"
+state = "blocked"
+pattern = 'Permission required'
+
+[[rules]]
+name = "interruptible"
+state = "working"
+pattern = 'esc (again to )?interrupt'
