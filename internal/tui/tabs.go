@@ -151,6 +151,7 @@ func (m *Model) syncView() tea.Cmd {
 		}
 	}
 	m.changes = f.changes
+	cmds = append(cmds, m.pollChanges())
 	m.sessionsView = nil
 	for _, l := range leaves {
 		v := l.view

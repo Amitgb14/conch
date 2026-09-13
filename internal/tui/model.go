@@ -79,6 +79,8 @@ type Model struct {
 	curX, curY int           // that cursor, in view cells
 	sel        *selection    // text selected in the viewed pane
 	click      *pendingClick // a press held back from a mouse-using program
+
+	changesPolling bool // a changesPollMsg is scheduled
 	statePath  string        // where fold state is saved; "" disables saving
 
 	flash      string
@@ -347,14 +349,36 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(mach.connect(false), m.rebuild(), m.saveState())
 
 	case changesMsg, diffMsg:
+		var cmds []tea.Cmd
 		for _, t := range m.tabs {
 			for _, l := range t.root.leaves() {
-				if l.changes != nil {
-					l.changes.receive(msg)
+				cv := l.changes
+				if cv == nil || !cv.receive(msg) {
+					continue
+				}
+				// The branch changed under a visible view: refresh the tree's
+				// counts too, and an open diff.
+				if c := m.clientOf(cv.machine); c != nil {
+					c.Notify(proto.MethodProjectRefresh, proto.ProjectRef{ID: cv.projectID})
+				}
+				if cv.diffFile != "" {
+					file, scroll := cv.diffFile, cv.diffScroll
+					cmds = append(cmds, cv.loadDiff(&m, file))
+					cv.diffScroll = scroll
 				}
 			}
 		}
-		return m, nil
+		return m, tea.Batch(cmds...)
+
+	case changesPollMsg:
+		m.changesPolling = false
+		var cmds []tea.Cmd
+		for _, l := range m.tab().root.leaves() {
+			if l.changes != nil && l.changes.data != nil {
+				cmds = append(cmds, l.changes.poll(&m))
+			}
+		}
+		return m, tea.Batch(append(cmds, m.pollChanges())...)
 
 	case errMsg:
 		m.setFlash(msg.err.Error(), true)

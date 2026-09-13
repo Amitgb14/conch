@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -35,7 +36,15 @@ type changesMsg struct {
 	projectID, branch string
 	data              proto.Changes
 	err               error
+	poll              bool // a background refresh, not a user's reload
 }
+
+// changesPollEvery is how often a visible changes view re-reads the branch,
+// so files an agent writes show up without waiting for the project's git
+// refresh (every 5 to 30 seconds).
+const changesPollEvery = 2 * time.Second
+
+type changesPollMsg struct{}
 
 type diffMsg struct {
 	projectID, branch, file string
@@ -56,6 +65,21 @@ func (cv *changesView) reload(m *Model) tea.Cmd {
 	}
 }
 
+// poll re-reads the branch in the background, keeping what is on screen
+// until the answer arrives.
+func (cv *changesView) poll(m *Model) tea.Cmd {
+	if cv.loading {
+		return nil
+	}
+	cmd := cv.reload(m)
+	cv.loading = false // not a visible reload
+	return func() tea.Msg {
+		msg := cmd().(changesMsg)
+		msg.poll = true
+		return msg
+	}
+}
+
 func (cv *changesView) loadDiff(m *Model, file string) tea.Cmd {
 	cv.diffFile, cv.diff, cv.diffErr, cv.diffScroll = file, nil, "", 0
 	c, pid, branch := m.clientOf(cv.machine), cv.projectID, cv.branch
@@ -69,20 +93,38 @@ func (cv *changesView) loadDiff(m *Model, file string) tea.Cmd {
 	}
 }
 
-func (cv *changesView) receive(msg tea.Msg) {
+// receive applies a result. changed reports that a background refresh found
+// the branch different from what was shown.
+func (cv *changesView) receive(msg tea.Msg) (changed bool) {
 	switch msg := msg.(type) {
 	case changesMsg:
 		if msg.projectID != cv.projectID || msg.branch != cv.branch {
-			return
+			return false
 		}
 		cv.loading = false
 		if msg.err != nil {
-			cv.err = msg.err.Error()
-			return
+			if !msg.poll {
+				cv.err = msg.err.Error()
+			}
+			return false
 		}
+		if msg.poll && cv.data != nil && reflect.DeepEqual(*cv.data, msg.data) {
+			return false
+		}
+		selected := ""
+		if cv.data != nil && cv.sel < len(cv.data.Files) {
+			selected = cv.data.Files[cv.sel].Path
+		}
+		changed = msg.poll && cv.data != nil
 		cv.err = ""
 		cv.data = &msg.data
 		cv.sel = clamp(cv.sel, 0, max(len(msg.data.Files)-1, 0))
+		for i, f := range msg.data.Files { // keep the selection on its file
+			if f.Path == selected {
+				cv.sel = i
+			}
+		}
+		return changed
 	case diffMsg:
 		if msg.projectID != cv.projectID || msg.branch != cv.branch || msg.file != cv.diffFile {
 			return
@@ -93,6 +135,7 @@ func (cv *changesView) receive(msg tea.Msg) {
 		}
 		cv.diff = strings.Split(strings.TrimRight(msg.diff, "\n"), "\n")
 	}
+	return false
 }
 
 // key handles a key while the view has focus; back reports that focus
@@ -354,4 +397,23 @@ func ago(t time.Time) string {
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
 	return t.Format("Jan 2006")
+}
+
+// pollChanges schedules the next refresh of the changes views on screen,
+// while any is visible. At most one is scheduled at a time.
+func (m *Model) pollChanges() tea.Cmd {
+	if m.changesPolling {
+		return nil
+	}
+	visible := false
+	for _, l := range m.tab().root.leaves() {
+		if l.changes != nil {
+			visible = true
+		}
+	}
+	if !visible {
+		return nil
+	}
+	m.changesPolling = true
+	return tea.Tick(changesPollEvery, func(time.Time) tea.Msg { return changesPollMsg{} })
 }

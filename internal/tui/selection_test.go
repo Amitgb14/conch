@@ -145,3 +145,29 @@ func TestSelectOverMouseApp(t *testing.T) {
 		t.Fatalf("click: forwarded %v, selection %+v", n.methods, m.sel)
 	}
 }
+
+func TestChangesPollKeepsSelection(t *testing.T) {
+	cv := &changesView{projectID: "r1", branch: "feat"}
+	files := func(paths ...string) proto.Changes {
+		var c proto.Changes
+		for _, p := range paths {
+			c.Files = append(c.Files, proto.FileChange{Path: p, Code: "?"})
+		}
+		return c
+	}
+	cv.receive(changesMsg{projectID: "r1", branch: "feat", data: files("b.txt", "c.txt")})
+	cv.sel = 1 // c.txt
+	if cv.receive(changesMsg{projectID: "r1", branch: "feat", data: files("b.txt", "c.txt"), poll: true}) {
+		t.Fatal("an unchanged poll reports no change")
+	}
+	if !cv.receive(changesMsg{projectID: "r1", branch: "feat", data: files("a.txt", "b.txt", "c.txt"), poll: true}) {
+		t.Fatal("a new file is a change")
+	}
+	if cv.data.Files[cv.sel].Path != "c.txt" {
+		t.Fatalf("selection moved to %s", cv.data.Files[cv.sel].Path)
+	}
+	cv.receive(changesMsg{projectID: "r1", branch: "feat", err: errString("offline"), poll: true})
+	if cv.err != "" || cv.data == nil {
+		t.Fatal("a failed background poll keeps what is shown")
+	}
+}
