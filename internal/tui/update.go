@@ -53,6 +53,10 @@ func newUpdateState() *updateState {
 	u.exe, _ = update.Executable()
 	if st, err := os.Stat(u.exe); err == nil {
 		u.exeMod = st.ModTime()
+		// Rebuilt between this process starting and now: already newer.
+		if h := buildinfo.HashFile(u.exe); h != "" && h != buildinfo.Build() {
+			u.diskBuild = h
+		}
 	}
 	if os.Getenv(updateRemotesEnv) != "" {
 		os.Unsetenv(updateRemotesEnv)

@@ -65,6 +65,9 @@ func reloadBinary(path string) (string, *proto.Error) {
 	if json.Unmarshal(out, &info) != nil {
 		return "", proto.Errorf(proto.ErrBadRequest, "%s is not a conch binary", path)
 	}
+	if info.Build != "" && info.Build == buildinfo.Build() {
+		return "", proto.Errorf(proto.ErrBadRequest, "the server already runs build %s; rebuild or update conch first", info.Build)
+	}
 	for _, c := range info.Capabilities {
 		if c == reloadCapability {
 			return path, nil

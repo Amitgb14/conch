@@ -218,8 +218,18 @@ func (m Model) serverBehind() bool {
 	if len(m.machines) == 0 || m.machines[0].c == nil {
 		return false
 	}
+	return m.serverBehindDisk()
+}
+
+// tuiBehind reports whether this TUI is the stale one: the local server
+// already runs a different build than this process, and the executable on
+// disk isn't this process's build either.
+func (m Model) tuiBehind() bool {
+	if len(m.machines) == 0 || m.machines[0].c == nil {
+		return false
+	}
 	s := m.machines[0].server
-	return s.Build != "" && buildinfo.Build() != "" && s.Build != buildinfo.Build()
+	return s.Build != "" && s.Build != buildinfo.Build() && m.targetBuild() != buildinfo.Build()
 }
 
 // versionInfo is the box that opens from the version in the status bar.
@@ -232,7 +242,7 @@ func (versionInfo) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		case k.String() == "u" && len(m.pendingUpdates()) > 0:
 			return true, m.startUpdate()
 		case k.String() == "r" && m.serverBehind() && m.canReload(localMachine):
-			return true, m.reloadServer(localMachine)
+			return true, m.reloadServerInto(localMachine, m.upd.exe)
 		}
 		return true, nil
 	}
@@ -258,6 +268,10 @@ func (v versionInfo) render(m Model) box {
 		switch {
 		case mach.c == nil:
 			lines = append(lines, row("Server", styleErr.Render("not connected")))
+		case m.tuiBehind() && !m.serverBehind():
+			lines = append(lines,
+				row("Server", styleOK.Render("newer build")+styleMuted.Render(" · "+mach.server.Build)),
+				"", " "+styleWarn.Render("this TUI is older than the server")+styleMuted.Render(": u restarts it onto the new build"))
 		case m.serverBehind():
 			lines = append(lines,
 				row("Server", styleWarn.Render("outdated")+styleMuted.Render(fmt.Sprintf(" · %s build %s", mach.server.Version, mach.server.Build))),
