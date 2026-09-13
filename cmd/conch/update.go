@@ -50,6 +50,17 @@ func runUpdate(args []string) error {
 		return fmt.Errorf("replace %s: %w", exe, err)
 	}
 	fmt.Printf("updated %s: %s → %s\n", exe, proto.Version, version)
-	fmt.Println("restart the server to use it: conch server stop (this closes its panes)")
+	c, err := connect(false)
+	if err != nil {
+		return nil // no server running: the next one starts on the new build
+	}
+	nc, err := reloadServer(c, exe)
+	if err != nil {
+		fmt.Printf("the server keeps the old build: %v\n", err)
+		return nil
+	}
+	nc.Close()
+	fmt.Println("server reloaded onto it; panes keep running")
+	fmt.Println("remote machines: open conch and press u in the version box, or conch machine upgrade ID")
 	return nil
 }

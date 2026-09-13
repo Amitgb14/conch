@@ -41,6 +41,22 @@ bar; the machine menu has **Reload server** too (a remote machine reloads
 onto the build `machine upgrade` installed). Servers from before reloading
 existed need one last `conch server stop`.
 
+### Auto-update
+
+conch notices newer builds on its own: its executable rebuilt or replaced
+(`make build`, `conch update`), a newer GitHub release (checked once a day
+for release builds; `[update] check_releases = false` turns it off), and
+machines running an older build. The version in the status bar then shows
+`⬆`; click it for the list and press **u** to update everything:
+
+1. download the release, if there is one, over the conch executable;
+2. reload the local server onto it (panes keep running);
+3. restart the TUI in place onto the new build;
+4. install the build on each connected remote machine and reload its server.
+
+`conch update` does steps 1–2 from a shell, and `conch machine upgrade ID`
+installs and reloads one machine.
+
 With Go 1.25 or newer:
 
 ```sh

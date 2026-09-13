@@ -19,6 +19,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/update"
 )
 
 // machineFlag is the -m/--machine value: commands then talk to that
@@ -171,6 +172,18 @@ func machineUpgrade(m remote.Machine) error {
 	c, err := remote.Connect(ctx, m.Target, remote.Options{})
 	var outdated *remote.OutdatedServerError
 	switch {
+	case errors.As(err, &outdated) && len(c.MissingCapabilities([]string{"server.reload.v1"})) == 0,
+		err == nil && c.Server.Build != "" && !sameInstalled(ctx, c, m.Target):
+		fmt.Fprintf(os.Stderr, "reloading the server on %s onto it (panes keep running)…\n", m.Label)
+		if err := update.Reload(ctx, c, path); err != nil {
+			c.Close()
+			return err
+		}
+		c.Close()
+		time.Sleep(time.Second)
+		if c, err = remote.Connect(ctx, m.Target, remote.Options{}); err != nil {
+			return err
+		}
 	case errors.As(err, &outdated):
 		if !confirm(fmt.Sprintf("The server on %s is still the old build. Restart it now? Its panes stop. [y/N] ", m.Label), false) {
 			c.Close()
@@ -188,6 +201,16 @@ func machineUpgrade(m remote.Machine) error {
 	defer c.Close()
 	fmt.Printf("%s: server pid %d, build %s\n", m.Label, c.Server.PID, c.Server.Build)
 	return nil
+}
+
+// sameInstalled reports whether the server already runs the binary
+// installed on the machine.
+func sameInstalled(ctx context.Context, c *client.Client, target string) bool {
+	probe, err := remote.ProbeMachine(ctx, target, false)
+	if err != nil || probe.Info == nil {
+		return true // can't tell; don't reload needlessly
+	}
+	return probe.Info.Build == c.Server.Build
 }
 
 // connectMachine reaches the -m machine's server. It never installs:

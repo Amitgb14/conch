@@ -13,17 +13,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Amitgb14/conch/internal/adapter"
+	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/server"
 	"github.com/Amitgb14/conch/internal/tui"
+	"github.com/Amitgb14/conch/internal/update"
 )
 
 const usage = `conch — terminal orchestrator for AI coding agents
@@ -58,6 +61,7 @@ Usage:
 `
 
 func main() {
+	buildinfo.Build() // hash the executable now, before a rebuild can replace it
 	log.SetFlags(log.LstdFlags)
 	args := os.Args[1:]
 	for len(args) >= 2 && (args[0] == "-m" || args[0] == "--machine") {
@@ -133,7 +137,16 @@ func runTUI() error {
 		opts = append(opts, tea.WithMouseCellMotion())
 	}
 	p := tea.NewProgram(tui.New(c, cfg), opts...)
-	_, err = p.Run()
+	final, err := p.Run()
+	if err == nil && tui.RestartRequested(final) {
+		// An update replaced this binary: run the new one in its place.
+		c.Close()
+		exe, xerr := update.Executable()
+		if xerr != nil {
+			return xerr
+		}
+		return syscall.Exec(exe, os.Args, tui.RestartEnv())
+	}
 	return err
 }
 

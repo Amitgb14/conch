@@ -22,6 +22,14 @@ type Config struct {
 	Shell  ShellCfg  `toml:"shell"`
 	Agents AgentsCfg `toml:"agents"`
 	Brain  BrainCfg  `toml:"brain"`
+	Update UpdateCfg `toml:"update"`
+}
+
+// UpdateCfg controls how conch looks for newer builds.
+type UpdateCfg struct {
+	// CheckReleases asks GitHub once a day whether a newer release exists
+	// (release builds only; development builds update from source).
+	CheckReleases bool `toml:"check_releases"`
 }
 
 // BrainCfg configures conch's brain: the model behind the command bar and
@@ -133,6 +141,7 @@ func Default() Config {
 		UI:     UICfg{Mouse: true, Theme: "conch"},
 		Agents: AgentsCfg{Default: "claude"},
 		Brain:  BrainCfg{Provider: "claude"},
+		Update: UpdateCfg{CheckReleases: true},
 	}
 }
 

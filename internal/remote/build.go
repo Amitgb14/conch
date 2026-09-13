@@ -119,7 +119,9 @@ func crossBuild(ctx context.Context, platform string, say func(string)) (string,
 	tmp := out + ".tmp"
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, goBin, "build", "-trimpath", "-ldflags", "-X "+modulePath+"/internal/proto.Version="+proto.Version, "-o", tmp, "./cmd/conch")
+	ldflags := "-X " + modulePath + "/internal/proto.Version=" + proto.Version +
+		" -X " + modulePath + "/internal/buildinfo.SourceBuild=" + buildinfo.ID()
+	cmd := exec.CommandContext(ctx, goBin, "build", "-trimpath", "-ldflags", ldflags, "-o", tmp, "./cmd/conch")
 	cmd.Dir = src
 	cmd.Env = config.MergeEnv(os.Environ(), "CGO_ENABLED=0", "GOOS="+osName, "GOARCH="+arch)
 	var stderr bytes.Buffer

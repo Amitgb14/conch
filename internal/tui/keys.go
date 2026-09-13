@@ -568,7 +568,11 @@ type reloadedMsg struct{ machine string }
 
 // reloadServer runs the build installed on a machine without stopping its
 // panes: the server execs its (new) executable and the TUI reconnects.
-func (m *Model) reloadServer(mid string) tea.Cmd {
+func (m *Model) reloadServer(mid string) tea.Cmd { return m.reloadServerInto(mid, "") }
+
+// reloadServerInto reloads a machine's server into bin ("" for its own
+// executable).
+func (m *Model) reloadServerInto(mid, bin string) tea.Cmd {
 	mach := m.machine(mid)
 	if mach == nil || mach.c == nil {
 		return nil
@@ -577,7 +581,7 @@ func (m *Model) reloadServer(mid string) tea.Cmd {
 	m.setFlash("reloading the server on "+label+"…", false)
 	return func() tea.Msg {
 		var res proto.ServerReloadResult
-		if err := callCtx(c, proto.MethodServerReload, proto.ServerReloadParams{}, &res); err != nil {
+		if err := callCtx(c, proto.MethodServerReload, proto.ServerReloadParams{Binary: bin}, &res); err != nil {
 			return errMsg{err}
 		}
 		time.Sleep(500 * time.Millisecond) // the exec takes a moment

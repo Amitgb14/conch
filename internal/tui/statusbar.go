@@ -197,11 +197,11 @@ func (m Model) statusRightItems(level int) []statusItem {
 		return cmd
 	}})
 	if level < rightNoVersion {
-		style := styleMuted
-		if m.serverBehind() {
-			style = styleWarn // details say the server needs a restart
+		style, text := styleMuted, versionLabel()
+		if len(m.pendingUpdates()) > 0 {
+			style, text = styleWarn, "⬆ "+text // details list what an update changes
 		}
-		items = append(items, statusItem{text: style.Render(versionLabel()), act: func(m *Model) tea.Cmd {
+		items = append(items, statusItem{text: style.Render(text), act: func(m *Model) tea.Cmd {
 			m.overlay = versionInfo{}
 			return nil
 		}})
@@ -228,7 +228,10 @@ type versionInfo struct{}
 func (versionInfo) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	if k, ok := msg.(tea.KeyMsg); ok {
 		m.overlay = nil
-		if k.String() == "r" && m.serverBehind() && m.canReload(localMachine) {
+		switch {
+		case k.String() == "u" && len(m.pendingUpdates()) > 0:
+			return true, m.startUpdate()
+		case k.String() == "r" && m.serverBehind() && m.canReload(localMachine):
 			return true, m.reloadServer(localMachine)
 		}
 		return true, nil
@@ -267,6 +270,17 @@ func (v versionInfo) render(m Model) box {
 			}
 		default:
 			lines = append(lines, row("Server", styleOK.Render("up to date")+styleMuted.Render(fmt.Sprintf(" · pid %d · running %s", mach.server.PID, uptime(mach.server.Started)))))
+		}
+	}
+	if pending := m.pendingUpdates(); len(pending) > 0 {
+		lines = append(lines, "", " "+styleBold.Render("Updates"))
+		for _, it := range pending {
+			lines = append(lines, " "+styleWarn.Render("⬆ ")+styleMuted.Render(padRight(it.label, 10))+it.detail)
+		}
+		if m.upd != nil && m.upd.running {
+			lines = append(lines, " "+styleMuted.Render("updating…"))
+		} else {
+			lines = append(lines, " "+styleAccent.Render("u")+" update everything "+styleMuted.Render("(agents and shells keep running)"))
 		}
 	}
 	lines = append(lines, "", styleMuted.Render(" any key closes"))

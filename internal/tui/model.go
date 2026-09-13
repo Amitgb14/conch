@@ -92,6 +92,9 @@ type Model struct {
 
 	snoozeUntil time.Time // alerts are silenced until then
 
+	upd     *updateState // newer builds and the update in progress
+	restart bool         // quit to exec the new build
+
 	sessions     map[string]*sessionsData // saved agent sessions per project (sessionsKey)
 	sessionsView *sessionsView            // the focused leaf's, when it lists sessions
 }
@@ -124,6 +127,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		subscribed: map[string]bool{},
 		brain:      newBrainState(),
 		sessions:   map[string]*sessionsData{},
+		upd:        newUpdateState(),
 	}
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	if st.SidebarWidth > 0 {
@@ -152,6 +156,12 @@ func (m Model) Init() tea.Cmd {
 			cmds = append(cmds, mach.listen()...)
 		} else {
 			cmds = append(cmds, mach.connect(false))
+		}
+	}
+	if m.upd != nil {
+		cmds = append(cmds, updateTick())
+		if m.cfg.Update.CheckReleases {
+			cmds = append(cmds, func() tea.Msg { return updateTickMsg{} })
 		}
 	}
 	return tea.Batch(cmds...)
@@ -244,7 +254,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		cmd := mach.connected(msg)
+		cmd := mach.connected(msg) // attaches first, so the auto update sees the server
+		cmd = tea.Batch(cmd, m.autoUpdateMachine(msg.machine))
 		for key, d := range m.sessions {
 			if strings.HasPrefix(key, mach.id+"|") {
 				d.at = time.Time{} // a new server may have found interrupted runs
@@ -701,6 +712,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flashTimer = false
 		if m.flash != "" && !time.Now().Before(m.flashUntil) {
 			m.flash = ""
+		}
+	}
+	if m.upd != nil {
+		if cmd, ok := m.handleUpdate(msg); ok {
+			return m, cmd
 		}
 	}
 	next, cmd := m.update(msg)

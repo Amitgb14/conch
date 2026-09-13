@@ -342,6 +342,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			PID:          os.Getpid(),
 			Started:      s.started,
 			Build:        buildinfo.Build(),
+			BuildID:      buildinfo.ID(),
 			Platform:     buildinfo.Platform(),
 			Hostname:     host,
 			Home:         home,
