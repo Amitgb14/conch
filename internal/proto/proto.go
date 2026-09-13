@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1",
 }
 
 // Methods.
@@ -76,6 +76,9 @@ const (
 	MethodAgentSetup     = "agent.setup"
 	MethodProjectFiles   = "project.set_files"
 	MethodWorktreeFiles  = "worktree.copy_files"
+	MethodSessionList    = "session.list"
+	MethodSessionResume  = "session.resume"
+	MethodSessionDismiss = "session.dismiss"
 )
 
 // Events.
@@ -485,6 +488,44 @@ type AgentAvailability struct {
 	Installed bool   `json:"installed"`
 	Path      string `json:"path,omitempty"`
 	Version   string `json:"version,omitempty"`
+}
+
+// SessionListParams asks for the agent sessions saved for a project (its
+// checkout and worktrees) or a directory.
+type SessionListParams struct {
+	ProjectID string `json:"project_id,omitempty"`
+	Dir       string `json:"dir,omitempty"`
+	Limit     int    `json:"limit,omitempty"` // default 100
+}
+
+// SessionInfo is a saved agent conversation.
+type SessionInfo struct {
+	Agent   string    `json:"agent"`
+	ID      string    `json:"id,omitempty"` // "" for an interrupted run whose conversation wasn't found
+	Dir     string    `json:"dir"`
+	Branch  string    `json:"branch,omitempty"`
+	Title   string    `json:"title"`
+	Started time.Time `json:"started,omitempty"`
+	Updated time.Time `json:"updated"`
+	// PaneID is set while the session is open in a pane.
+	PaneID string `json:"pane_id,omitempty"`
+	// Interrupted means the agent was running in conch when its server
+	// stopped (a restart or reboot) and hasn't been resumed.
+	Interrupted bool `json:"interrupted,omitempty"`
+}
+
+// SessionList is the result of session.list, newest first.
+type SessionList struct {
+	Sessions []SessionInfo `json:"sessions"`
+}
+
+// SessionRef names a session to resume or dismiss.
+type SessionRef struct {
+	Agent string `json:"agent"`
+	ID    string `json:"id,omitempty"`
+	Dir   string `json:"dir"`
+	Cols  int    `json:"cols,omitempty"`
+	Rows  int    `json:"rows,omitempty"`
 }
 
 // AgentSetupParams asks what agents load when started in Dir. Agent limits

@@ -151,6 +151,25 @@ func (m *Model) syncView() tea.Cmd {
 		}
 	}
 	m.changes = f.changes
+	m.sessionsView = nil
+	for _, l := range leaves {
+		v := l.view
+		switch v.Kind {
+		case kindSessions:
+			if l.sessions == nil || l.sessions.machine != v.Machine || l.sessions.projectID != v.ProjectID {
+				l.sessions = &sessionsView{machine: v.Machine, projectID: v.ProjectID}
+			}
+			cmds = append(cmds, m.loadSessions(v.Machine, v.ProjectID, false))
+		case kindProject:
+			l.sessions = nil
+			cmds = append(cmds, m.loadSessions(v.Machine, v.ProjectID, false))
+		default:
+			l.sessions = nil
+		}
+	}
+	if f.view.Kind == kindSessions {
+		m.sessionsView = f.sessions
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -282,7 +301,7 @@ func (m Model) tabLabel(t *tab) string {
 		}
 	case kindBranch:
 		label = v.Branch
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore:
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore, kindSessions:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			label = proj.Name
 		}

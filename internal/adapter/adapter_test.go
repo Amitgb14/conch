@@ -65,6 +65,17 @@ func TestRegistryAndIntegrationFiles(t *testing.T) {
 	}
 
 	opencode, _ := reg.Get("opencode")
+	for name, want := range map[string][2]string{
+		"claude":   {"--resume 'a b'", "--continue"},
+		"codex":    {"resume 'a b'", "resume --last"},
+		"gemini":   {"--resume 'a b'", "--resume latest"},
+		"opencode": {"--session 'a b'", "--continue"},
+	} {
+		ad, _ := reg.Get(name)
+		if got := [2]string{ad.ResumeArgs("a b"), ad.ResumeArgs("")}; got != want {
+			t.Errorf("%s resume args: %q, want %q", name, got, want)
+		}
+	}
 	if got := opencode.PromptArgs("add tests"); got != "--prompt 'add tests'" {
 		t.Fatalf("opencode prompt args: %s", got)
 	}

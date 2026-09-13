@@ -86,6 +86,11 @@ func (s *Server) watch(e *entry) {
 		case <-e.p.Done():
 			if s.alive(e) {
 				info := e.info()
+				select {
+				case <-s.quit: // stopping the server: keep the run to offer resuming
+				default:
+					s.runs.forget(info.ID)
+				}
 				log.Printf("pane %s exited with code %d", info.ID, info.ExitCode)
 				s.broadcast(proto.EventPaneExited, info)
 			}
@@ -144,6 +149,9 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 	e.mu.Unlock()
 
 	info := e.info()
+	if s.alive(e) {
+		s.runs.note(info, e.dir, info.Created)
+	}
 	if shownOf(info) == before || !s.alive(e) {
 		return
 	}

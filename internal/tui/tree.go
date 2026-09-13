@@ -20,6 +20,7 @@ const (
 	kindBranch
 	kindMore // "… N more" branches
 	kindPane
+	kindSessions // section: saved agent sessions
 )
 
 // row is one visible line of the sidebar tree. IDs of panes and projects
@@ -57,6 +58,7 @@ type treeMachine struct {
 	panes    []proto.PaneInfo
 	projects []proto.ProjectInfo
 	agents   map[string]bool // panes that have ever run an agent
+	sessions bool            // the server lists saved sessions
 }
 
 // treeInput is everything the tree is built from.
@@ -192,6 +194,10 @@ func machineRows(in treeInput, mach treeMachine, filter string, match func(strin
 			if open(sid, true) {
 				children = append(children, prows...)
 			}
+		}
+
+		if mach.sessions && filter == "" {
+			children = append(children, row{id: sectionID(mid, proj.ID, "sessions"), kind: kindSessions, depth: 2, machine: mid, projectID: proj.ID})
 		}
 
 		if filter != "" && !projMatched && len(children) == 0 {

@@ -263,6 +263,36 @@ unless the task dialog's Agent field (or `conch task -agent NAME`) names
 another. conch never edits an agent's own configuration or answers its
 trust prompts for you.
 
+## Sessions
+
+Every project has a **Sessions** section in the tree. Select it to list, on
+the right, the conversations agents saved for the project and its worktrees —
+Claude Code, Codex, Gemini CLI and OpenCode — newest first, with the agent,
+title, branch and age:
+
+```
+Sessions · api                                  enter resume · a agent · R reload
+4 saved · all agents · ⚠ 1 interrupted (I resumes all, x dismisses)
+
+▸ ⚠ Claude Code  Fix the flaky login test          fix-login · interrupted · 2h
+  ● Codex        Add rate limiting                         rate-limit · open · 5m
+  · OpenCode     Refactor config                                      main · 1d
+  · Gemini CLI   Explain the auth flow                                main · 3d
+```
+
+`enter` (or a click on the selected row) resumes a session in its folder with
+the agent's own resume option (`claude --resume`, `codex resume`,
+`gemini --resume`, `opencode --session`); `●` sessions are already open and
+`enter` shows their pane. `a` filters by agent.
+
+**Interrupted runs.** conch remembers which agents are running. When its
+server stops — `conch server stop`, a crash, a reboot — those agents are
+marked `⚠ interrupted` in Sessions (and counted in the tree) for a week.
+`I` resumes all of them, `x` dismisses one.
+
+conch reads the agents' own session stores and never changes them; on remote
+machines the server there lists its sessions.
+
 ## Brain
 
 Press `:` (or click **✦ Ask**) and say what you want in plain words:

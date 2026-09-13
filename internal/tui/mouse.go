@@ -122,6 +122,13 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch f.view.Kind {
 	case kindPane:
 		return m, tea.Batch(focusCmd, m.paneMouse(f.view.PaneID, msg, x, y, press, wheel))
+	case kindSessions:
+		if press && left {
+			m.focus = focusMain
+		}
+		if f.sessions != nil {
+			return m, tea.Batch(focusCmd, f.sessions.mouse(&m, msg, x, y))
+		}
 	case kindBranch:
 		if press && left {
 			m.focus = focusMain

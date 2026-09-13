@@ -201,7 +201,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // activate is enter (or a double click) on a row.
 func (m *Model) activate(r row) tea.Cmd {
 	switch r.kind {
-	case kindPane, kindBranch:
+	case kindPane, kindBranch, kindSessions:
 		m.focus = focusMain
 		return m.show(r)
 	case kindMore:
@@ -289,6 +289,14 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		forwardKey(c, p.ID, k)
 		return m, nil
+	case kindSessions:
+		if m.sessionsView != nil {
+			back, cmd := m.sessionsView.key(&m, k)
+			if back {
+				m.focus = focusSidebar
+			}
+			return m, cmd
+		}
 	case kindBranch:
 		if m.changes != nil {
 			if back, cmd := m.changes.key(&m, k); back {
@@ -437,7 +445,7 @@ func (m *Model) copyRow(r row) tea.Cmd {
 		if p := m.pane(r.machine, r.paneID); p != nil {
 			return copyText(p.Cwd)
 		}
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore:
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore, kindSessions:
 		if proj := m.project(r.machine, r.projectID); proj != nil {
 			return copyText(proj.Path)
 		}

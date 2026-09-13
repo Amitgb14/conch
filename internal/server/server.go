@@ -40,6 +40,7 @@ type Server struct {
 	adapters  adapter.Registry
 	manifests map[string]*detect.Manifest
 	projects  *projectManager
+	runs      *runLog // agents running in panes, for resuming after a restart
 
 	mu      sync.Mutex
 	ln      net.Listener
@@ -74,6 +75,7 @@ func New(sockPath, configDir string) *Server {
 		quit:      make(chan struct{}),
 	}
 	s.projects = newProjectManager(s, configDir)
+	s.runs = loadRunLog(configDir)
 	return s
 }
 
@@ -240,7 +242,7 @@ var slowMethods = map[string]bool{
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true,
 	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodWorktreeFiles: true,
-	proto.MethodProjectFiles: true,
+	proto.MethodProjectFiles: true, proto.MethodSessionList: true, proto.MethodSessionResume: true,
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -579,6 +581,28 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		s.observe(e) // explain the current screen, not the last tick's
 		return e.explain(), nil
 
+	case proto.MethodSessionList:
+		lp, perr := decode[proto.SessionListParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.listSessions(lp)
+
+	case proto.MethodSessionResume:
+		rp, perr := decode[proto.SessionRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.resumeSession(rp)
+
+	case proto.MethodSessionDismiss:
+		rp, perr := decode[proto.SessionRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		s.runs.resolve(rp.Agent, rp.ID, rp.Dir)
+		return nil, nil
+
 	case proto.MethodAgentSetup:
 		ap, perr := decode[proto.AgentSetupParams](msg)
 		if perr != nil {
@@ -745,6 +769,7 @@ func (s *Server) close(id string) *proto.Error {
 	for _, c := range clients {
 		s.unsubscribe(c, id)
 	}
+	s.runs.forget(id)
 	e.p.Close()
 	log.Printf("pane %s closed", id)
 	s.broadcast(proto.EventPaneClosed, proto.PaneRef{ID: id})

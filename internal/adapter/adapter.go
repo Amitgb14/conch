@@ -27,6 +27,9 @@ type Adapter interface {
 	// PromptArgs are the shell words that give the agent a first message
 	// in its interactive session.
 	PromptArgs(prompt string) string
+	// ResumeArgs are the shell words that reopen a saved session; with id
+	// "" the most recent one in the working directory.
+	ResumeArgs(id string) string
 	// Env is extra environment for the agent: conch's integration.
 	Env() []string
 	// Detect reports whether the agent is installed, as the user's login
@@ -88,13 +91,23 @@ type cliAgent struct {
 	flags string // conch's own flags, before the user's
 	// promptFlag introduces a first message; "" passes it as an argument.
 	promptFlag string
-	env        []string
-	install    string
+	// resume and resumeLast reopen a session by id (%s) or the latest.
+	resume, resumeLast string
+	env                []string
+	install            string
 }
 
 func (a *cliAgent) Name() string  { return a.name }
 func (a *cliAgent) Label() string { return a.label }
 func (a *cliAgent) Env() []string { return a.env }
+
+// ResumeArgs implements Adapter.
+func (a *cliAgent) ResumeArgs(id string) string {
+	if id == "" {
+		return a.resumeLast
+	}
+	return fmt.Sprintf(a.resume, ShellQuote(id))
+}
 
 // PromptArgs implements Adapter.
 func (a *cliAgent) PromptArgs(prompt string) string {
@@ -197,6 +210,7 @@ func newClaude(exe, dir string) (*cliAgent, error) {
 	}
 	return &cliAgent{
 		name: "claude", label: "Claude Code", binary: "claude",
+		resume: "--resume %s", resumeLast: "--continue",
 		dirs:    []string{"$HOME/.local/bin"},
 		flags:   "--settings " + ShellQuote(path),
 		install: claudeInstall,
@@ -224,6 +238,7 @@ echo "Start it from conch and log in: open the link it shows on any computer and
 func newCodex() *cliAgent {
 	return &cliAgent{
 		name: "codex", label: "Codex", binary: "codex",
+		resume: "resume %s", resumeLast: "resume --last",
 		dirs: []string{"$HOME/.local/bin"},
 		install: withDownloader("Codex", "https://chatgpt.com/codex/install.sh", "sh", "CODEX_NON_INTERACTIVE=1") + `
 echo
@@ -256,6 +271,7 @@ func newGemini(exe, dir string) (*cliAgent, error) {
 	}
 	a := &cliAgent{
 		name: "gemini", label: "Gemini CLI", binary: "gemini",
+		resume: "--resume %s", resumeLast: "--resume latest",
 		dirs: []string{"$HOME/.local/bin"},
 		install: `set -e
 echo "Installing Gemini CLI with npm (@google/gemini-cli) into ~/.local"
@@ -316,6 +332,7 @@ func newOpenCode(exe, dir string) (*cliAgent, error) {
 	}
 	a := &cliAgent{
 		name: "opencode", label: "OpenCode", binary: "opencode",
+		resume: "--session %s", resumeLast: "--continue",
 		promptFlag: "--prompt", // a bare argument is a project path
 		dirs:       []string{"$HOME/.opencode/bin", "$HOME/bin", "$HOME/.local/bin"},
 		install: withDownloader("OpenCode", "https://opencode.ai/install", "bash", "") + `

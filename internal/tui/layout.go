@@ -34,9 +34,10 @@ func viewOf(r row) viewRef {
 }
 
 type leaf struct {
-	id      int
-	view    viewRef
-	changes *changesView // when the view is a branch
+	id       int
+	view     viewRef
+	changes  *changesView  // when the view is a branch
+	sessions *sessionsView // when the view lists sessions
 }
 
 type layoutNode struct {

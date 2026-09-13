@@ -97,6 +97,10 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		chip = styleChip.Background(colorInput).Render("DIFF")
 		items = []statusItem{hint("↑", "up"), hint("↓", "down"), hint("pgup", "page"), hint("pgdn", "page"),
 			hint("y", "copy"), hint("esc", "files")}
+	case m.focus == focusMain && r.kind == kindSessions:
+		chip = styleChip.Background(colorInput).Render("SESSIONS")
+		items = []statusItem{hint("↑", "up"), hint("↓", "down"), hint("enter", "resume"), hint("a", "agent"),
+			hint("I", "resume interrupted"), hint("x", "dismiss"), hint("R", "reload"), hint("esc", "tree")}
 	case m.focus == focusMain:
 		chip = styleChip.Background(colorInput).Render("CHANGES")
 		items = []statusItem{hint("↑", "file"), hint("↓", "file"), hint("enter", "diff"), hint("o", "PR"),
@@ -110,6 +114,8 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		case kindPane:
 			items = []statusItem{hint("enter", "open"), hint("v", "split"), hint("O", "new tab"), hint("r", "rename"),
 				hint("x", "close"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
+		case kindSessions:
+			items = []statusItem{hint("enter", "open sessions"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
 		case kindBranch:
 			items = []statusItem{hint("enter", "changes"), hint("v", "split"), hint("o", "PR"), hint("c", "agent"), hint("n", "shell"),
 				hint("x", "rm worktree"), hint("y", "copy"), hint("m", "menu")}

@@ -87,6 +87,9 @@ type Model struct {
 	ticking bool
 
 	brain *brainState // summaries and command bar history
+
+	sessions     map[string]*sessionsData // saved agent sessions per project (sessionsKey)
+	sessionsView *sessionsView            // the focused leaf's, when it lists sessions
 }
 
 type (
@@ -116,6 +119,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		frames:     map[string]*proto.Frame{},
 		subscribed: map[string]bool{},
 		brain:      newBrainState(),
+		sessions:   map[string]*sessionsData{},
 	}
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	if st.SidebarWidth > 0 {
@@ -228,6 +232,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		cmd := mach.connected(msg)
+		for key, d := range m.sessions {
+			if strings.HasPrefix(key, mach.id+"|") {
+				d.at = time.Time{} // a new server may have found interrupted runs
+			}
+		}
 		return m, tea.Batch(cmd, m.rebuild())
 
 	case panesMsg:
@@ -321,6 +330,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case summaryMsg:
 		m.receiveSummary(msg)
 		return m, nil
+
+	case sessionsMsg:
+		m.receiveSessions(msg)
+		return m, nil
+
+	case sessionsStaleMsg:
+		mid, pid, _ := strings.Cut(msg.key, "|")
+		return m, m.loadSessions(mid, pid, true)
 
 	case flashMsg:
 		m.setFlash(string(msg), false)
@@ -476,20 +493,28 @@ func (m *Model) rebuild() tea.Cmd {
 	prevIndex := indexOfRow(m.rows, m.cursor)
 	in := treeInput{expanded: m.expanded, showAll: m.showAll, filter: m.filter, now: time.Now()}
 	for _, mach := range m.machines {
-		in.machines = append(in.machines, treeMachine{id: mach.id, panes: mach.panes, projects: mach.projects, agents: mach.agents})
+		in.machines = append(in.machines, treeMachine{id: mach.id, panes: mach.panes, projects: mach.projects, agents: mach.agents,
+			sessions: m.hasSessions(mach.id)})
 	}
 	m.rows = buildTree(in)
 	if indexOfRow(m.rows, m.cursor) < 0 && len(m.rows) > 0 {
 		m.cursor = m.rows[clamp(prevIndex, 0, len(m.rows)-1)].id
 	}
 	m.keepCursorVisible()
+	// Session counts in the tree; each list reloads at most every sessionsTTL.
+	var loads []tea.Cmd
+	for _, mach := range m.machines {
+		for _, proj := range mach.projects {
+			loads = append(loads, m.loadSessions(mach.id, proj.ID, false))
+		}
+	}
 	if m.pendingShow != "" {
 		if i := indexOfRow(m.rows, m.pendingShow); i >= 0 {
 			m.pendingShow = ""
-			return m.show(m.rows[i])
+			return tea.Batch(append(loads, m.show(m.rows[i]))...)
 		}
 	}
-	return m.syncView()
+	return tea.Batch(append(loads, m.syncView())...)
 }
 
 func (m *Model) selectedRow() (row, bool) {
@@ -714,7 +739,7 @@ func (m Model) contextPlace() place {
 			}
 		}
 		return place{machine: mid, projectID: proj.ID, branch: r.branch}
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore:
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore, kindSessions:
 		if proj := m.project(mid, r.projectID); proj != nil {
 			return place{machine: mid, projectID: proj.ID, dir: proj.Path}
 		}

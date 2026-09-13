@@ -193,6 +193,16 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		return "", glyphStyle, "Terminals", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindMore:
 		return "", glyphStyle, fmt.Sprintf("… %d more", r.count), styleMuted, ""
+	case kindSessions:
+		d := m.sessions[sessionsKey(r.machine, r.projectID)]
+		if d == nil || d.list == nil {
+			return "", glyphStyle, "Sessions", styleMuted, ""
+		}
+		right = styleMuted.Render(fmt.Sprint(len(d.list)))
+		if n := d.interrupted(); n > 0 {
+			right = joinRight(styleWarn.Render(fmt.Sprintf("⚠%d", n)), right)
+		}
+		return "", glyphStyle, "Sessions", styleMuted, right
 	case kindBranch:
 		return m.branchParts(r)
 	case kindPane:
@@ -453,6 +463,10 @@ func (m Model) leafTitle(l *leaf) string {
 		return t
 	case kindBranch:
 		return " changes · " + v.Branch + " "
+	case kindSessions:
+		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
+			return " sessions · " + proj.Name + " "
+		}
 	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " " + proj.Name + " "
@@ -513,6 +527,10 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 	case kindBranch:
 		if l.changes != nil {
 			return l.changes.render(m, w, h)
+		}
+	case kindSessions:
+		if l.sessions != nil && mach != nil && mach.state == stateOnline {
+			return l.sessions.render(m, w, h)
 		}
 	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
@@ -598,6 +616,7 @@ func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string 
 			}
 		}
 	}
+	lines = append(lines, m.projectSessionLines(mid, proj, w)...)
 	lines = append(lines, "", styleMuted.Render("t new task · c start an agent · n terminal · m menu · x remove from sidebar"))
 	return lines
 }
