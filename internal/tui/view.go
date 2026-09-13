@@ -437,6 +437,9 @@ func (m Model) leafTitle(l *leaf) string {
 		if p.Agent != nil && p.Agent.Tokens != nil {
 			t += "· " + tokenSummary(p.Agent.Tokens) + " "
 		}
+		if sum := m.summaryText(v.Machine, v.PaneID); sum != "" {
+			t += "· ✦ " + sum + " "
+		}
 		if f := m.frames[paneKey(v.Machine, v.PaneID)]; f != nil && f.Offset > 0 {
 			t += fmt.Sprintf("· ↑ %d/%d lines back ", f.Offset, f.History)
 		}
@@ -540,6 +543,9 @@ func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string 
 		g, state, style := m.paneGlyph(p)
 		left := fmt.Sprintf("  %s %s", style.Render(g), p.DisplayName())
 		lines = append(lines, spread(left, joinRight(styleMuted.Render(p.Branch), style.Render(state)), w))
+		if sum := m.summaryText(mid, p.ID); sum != "" {
+			lines = append(lines, "    "+styleAccent.Render("✦ ")+styleMuted.Render(ansi.Truncate(sum, max(w-6, 10), "…")))
+		}
 	}
 
 	if proj.Git {

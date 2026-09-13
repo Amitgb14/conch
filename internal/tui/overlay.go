@@ -553,7 +553,12 @@ var helpText = []string{
 	"  drag in a pane to copy · double-click copies a word",
 	"  drag the sidebar edge to resize · shift-drag for terminal selection",
 	"",
-	"  ,  settings (or click ⚙): theme, prompt, notifications, agents",
+	"Brain",
+	"  :  ask conch (or click ✦ Ask): \"start 2 agents on api to fix the flaky tests\",",
+	"     \"what is waiting for me?\" — it proposes actions; nothing runs until you confirm",
+	"  S  summarise the selected agent now (automatic summaries: Settings → Brain)",
+	"",
+	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain",
 	"  q  detach (agents keep running)",
 }
 

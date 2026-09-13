@@ -144,6 +144,7 @@ func (m Model) statusRightItems() []statusItem {
 	case m.machines[0].warning != "":
 		items = append(items, statusItem{text: styleErr.Render(m.machines[0].warning)})
 	}
+	items = append(items, statusItem{text: styleAccent.Render("✦ Ask"), act: func(m *Model) tea.Cmd { return m.openAsk() }})
 	label := " ⚙ Settings "
 	if m.width < 90 {
 		label = " ⚙ "

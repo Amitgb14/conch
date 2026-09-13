@@ -19,6 +19,29 @@ type Config struct {
 	UI     UICfg     `toml:"ui"`
 	Shell  ShellCfg  `toml:"shell"`
 	Agents AgentsCfg `toml:"agents"`
+	Brain  BrainCfg  `toml:"brain"`
+}
+
+// BrainCfg configures conch's brain: the model behind the command bar and
+// agent summaries. Requests use your own agent login or API key.
+type BrainCfg struct {
+	// Provider is claude (the Claude Code CLI and its login), anthropic
+	// (the API, key in $ANTHROPIC_API_KEY) or openai (any OpenAI-compatible
+	// endpoint: OpenAI, Ollama, LM Studio…).
+	Provider string `toml:"provider"`
+	// Model for the command bar; empty picks the provider's default.
+	Model string `toml:"model"`
+	// SummaryModel for agent summaries; empty picks a small, fast model.
+	SummaryModel string `toml:"summary_model"`
+	// Summaries lets conch summarise agents on its own when they finish or
+	// need you. Off by default: each summary is a (small) model request.
+	Summaries bool `toml:"summaries"`
+	// BaseURL overrides the API endpoint (anthropic, openai).
+	BaseURL string `toml:"base_url"`
+	// APIKeyEnv names the environment variable holding the API key.
+	APIKeyEnv string `toml:"api_key_env"`
+	// Command is the claude binary; empty finds it on PATH.
+	Command string `toml:"command"`
 }
 
 // AgentsCfg holds agent preferences.
@@ -80,6 +103,7 @@ func Default() Config {
 		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true},
 		UI:     UICfg{Mouse: true, Theme: "conch"},
 		Agents: AgentsCfg{Default: "claude"},
+		Brain:  BrainCfg{Provider: "claude"},
 	}
 }
 

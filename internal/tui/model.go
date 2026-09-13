@@ -85,6 +85,8 @@ type Model struct {
 
 	spin    int
 	ticking bool
+
+	brain *brainState // summaries and command bar history
 }
 
 type (
@@ -113,6 +115,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		statePath:  path,
 		frames:     map[string]*proto.Frame{},
 		subscribed: map[string]bool{},
+		brain:      newBrainState(),
 	}
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	if st.SidebarWidth > 0 {
@@ -315,6 +318,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setFlash(msg.err.Error(), true)
 		return m, nil
 
+	case summaryMsg:
+		m.receiveSummary(msg)
+		return m, nil
+
 	case flashMsg:
 		m.setFlash(string(msg), false)
 		return m, nil
@@ -380,7 +387,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if msg.Event == proto.EventPaneExited {
 			installed = m.installerDone(mach, info)
 		}
-		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), installed)
+		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), installed, m.observeAgent(mach, old, info))
 
 	case proto.EventPaneClosed:
 		var ref proto.PaneRef
@@ -663,6 +670,10 @@ func (m Model) branchPR(mid, projectID, branch string) *proto.PRInfo {
 func (m *Model) startTicking() tea.Cmd {
 	if m.ticking {
 		return nil
+	}
+	if b, ok := m.overlay.(*askBar); ok && b.thinking() {
+		m.ticking = true
+		return tea.Tick(spinInterval, func(time.Time) tea.Msg { return tickMsg{} })
 	}
 	for _, sp := range m.allPanes() {
 		if sp.Agent != nil && sp.Agent.State == proto.AgentWorking {

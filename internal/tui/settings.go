@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Amitgb14/conch/internal/brain"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -23,7 +24,7 @@ type settings struct {
 	shellErr string
 }
 
-var settingsTabs = []string{"Theme", "Notifications", "Agents"}
+var settingsTabs = []string{"Theme", "Notifications", "Agents", "Brain"}
 
 type shellThemesMsg struct {
 	themes proto.ShellThemes
@@ -70,6 +71,8 @@ func (s *settings) items(m *Model) []settingItem {
 		return s.themeItems(m)
 	case 1:
 		return s.notifyItems(m)
+	case 3:
+		return s.brainItems(m)
 	}
 	return s.agentItems(m)
 }
@@ -217,6 +220,62 @@ func (s *settings) agentItems(m *Model) []settingItem {
 	return items
 }
 
+func (s *settings) brainItems(m *Model) []settingItem {
+	b := &m.cfg.Brain
+	items := []settingItem{{header: true, label: "Provider", detail: "the model behind ✦ Ask and summaries"}}
+	current := firstNonEmpty(b.Provider, "claude")
+	for _, name := range brain.Providers {
+		name := name
+		cfg := *b
+		cfg.Provider = name
+		detail := styleOK.Render("✓ ready")
+		if p, err := brain.New(cfg); err != nil {
+			detail = styleErr.Render(err.Error())
+		} else if err := p.Check(); err != nil {
+			detail = styleWarn.Render(strings.TrimPrefix(err.Error(), brain.ErrNotConfigured.Error()+": "))
+		}
+		items = append(items, settingItem{label: brain.ProviderLabel(name), detail: ansi.Truncate(detail, 44, "…"), mark: current == name,
+			run: func(m *Model) tea.Cmd {
+				if m.cfg.Brain.Provider != name {
+					m.cfg.Brain.Provider, m.cfg.Brain.Model, m.cfg.Brain.SummaryModel = name, "", ""
+				}
+				return saveConfig(m.cfg)
+			}})
+	}
+
+	var models []string
+	switch current {
+	case "claude":
+		models = []string{"sonnet", "opus", "haiku"}
+	case "anthropic":
+		models = []string{"claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"}
+	}
+	items = append(items, settingItem{}, settingItem{header: true, label: "Model", detail: "for planning"})
+	if len(models) == 0 {
+		model := firstNonEmpty(b.Model, "not set")
+		items = append(items, settingItem{label: "  " + model + styleMuted.Render(" · set [brain] model and base_url in config.toml")})
+	} else {
+		items = append(items, settingItem{label: "Provider default (" + models[0] + ")", mark: b.Model == "",
+			run: func(m *Model) tea.Cmd { m.cfg.Brain.Model = ""; return saveConfig(m.cfg) }})
+		for _, name := range models {
+			name := name
+			items = append(items, settingItem{label: name, mark: b.Model == name,
+				run: func(m *Model) tea.Cmd { m.cfg.Brain.Model = name; return saveConfig(m.cfg) }})
+		}
+	}
+
+	items = append(items, settingItem{}, settingItem{header: true, label: "Summaries"},
+		settingItem{label: "Summarise agents when they finish or need you", detail: "a small model request each", on: &b.Summaries,
+			run: func(m *Model) tea.Cmd {
+				m.cfg.Brain.Summaries = !m.cfg.Brain.Summaries
+				return saveConfig(m.cfg)
+			}},
+		settingItem{label: styleMuted.Render("  S summarises the selected agent on demand · : opens ✦ Ask")},
+		settingItem{label: styleMuted.Render("  Summaries send the agent's visible screen to the provider.")},
+	)
+	return items
+}
+
 // knownAgents lists agent names any connected machine reported, in order,
 // falling back to the ones conch ships adapters for.
 func knownAgents(m *Model) []string {
@@ -264,7 +323,7 @@ func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			s.setTab((s.tab + 1) % len(settingsTabs))
 		case "shift+tab", "left", "h":
 			s.setTab((s.tab + len(settingsTabs) - 1) % len(settingsTabs))
-		case "1", "2", "3":
+		case "1", "2", "3", "4":
 			s.setTab(int(msg.String()[0] - '1'))
 		case "up", "k":
 			s.move(items, -1)

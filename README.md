@@ -259,6 +259,46 @@ select text with your terminal, or set `[ui] mouse = false`.
 missing one. conch never edits an agent's own configuration or answers its
 trust prompts for you.
 
+## Brain
+
+Press `:` (or click **✦ Ask**) and say what you want in plain words:
+
+- *"start 3 agents on api: fix the flaky login test, add rate limiting, update the README"*
+  — split into tasks, each on its own branch and worktree with a self-contained prompt
+- *"tell the agent on fix-login to also cover the logout path"* — a message typed into that agent
+- *"what is waiting for me?"* — an answer, no actions
+
+The brain sees every connected machine, its projects, branches and agents
+(with their states and summaries) and proposes a plan. Each action is listed
+with a checkbox; invalid ones (an unknown project, an agent that isn't
+installed, an offline machine) are marked and skipped. **Nothing runs until
+you press enter.** `conch ask [-y | -n] "…"` does the same from a shell.
+
+**Summaries.** `S` on an agent asks for a one-line summary — what it is doing
+and what it needs from you — shown in its title bar and on the project page,
+and given to the planner. Settings → Brain → *Summarise agents* does this on
+its own whenever an agent finishes or starts waiting (a small model request
+each; the agent's visible screen is sent to the provider).
+
+**Providers** (Settings → Brain, or `[brain]` in config.toml):
+
+| Provider | Uses | Default models |
+|---|---|---|
+| `claude` *(default)* | the Claude Code CLI headless (`claude -p`, no tools, MCP servers, settings or session history) with your existing Claude login | sonnet · haiku for summaries |
+| `anthropic` | the API with `$ANTHROPIC_API_KEY` | claude-sonnet-5 · claude-haiku-4-5 |
+| `openai` | any OpenAI-compatible endpoint: `base_url = "http://localhost:11434/v1"` for Ollama | set `model` |
+
+```toml
+[brain]
+provider = "claude"
+model = ""            # provider default
+summary_model = ""    # a small, fast model by default
+summaries = false     # automatic summaries
+```
+
+New providers implement `brain.Provider` (`Complete` with an optional JSON
+schema for structured output).
+
 ## Agent states
 
 | State | Meaning |
