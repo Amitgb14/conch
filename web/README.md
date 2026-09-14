@@ -22,6 +22,11 @@ src/components/landing/     landing page sections (TUI demo, features, brain dem
 src/components/ui/          shadcn/ui components (pnpm dlx shadcn add …)
 ```
 
+The TUI screens on the landing page are real frames captured from conch.
+`scripts/tui-capture/capture.sh` rebuilds them after TUI changes; it stages a
+demo project against scratch conch servers and a fake `claude`, so it never
+touches your own server or agents.
+
 To add a docs page, create `src/app/docs/<slug>/page.mdx` starting with
 `export const metadata = { title, description }` and add it to
 `src/lib/docs.ts`.

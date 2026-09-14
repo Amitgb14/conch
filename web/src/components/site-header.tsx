@@ -6,6 +6,7 @@ import { MobileNav } from "@/components/mobile-nav"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
 import { site } from "@/lib/site"
+import { conchVersion } from "@/lib/version"
 
 export const mainNav = [
   { title: "Features", href: "/#features" },
@@ -19,9 +20,12 @@ export function SiteHeader() {
     <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-4 px-5 sm:px-6">
         <Logo />
-        <span className="hidden rounded-full border px-2 py-0.5 font-mono text-[0.65rem] text-muted-foreground sm:inline">
-          open source
-        </span>
+        <a
+          href={site.releases}
+          className="rounded-full border px-2 py-0.5 font-mono text-[0.65rem] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          v{conchVersion()}
+        </a>
         <nav className="ml-auto hidden items-center gap-1 md:flex">
           {mainNav.map((item) => (
             <Link

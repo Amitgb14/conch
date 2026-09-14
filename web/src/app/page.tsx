@@ -143,9 +143,9 @@ export default function Home() {
         lede="The loop conch is built for: many small tasks, each on its own branch, and you only step in when an agent asks."
         className="bg-surface"
       >
-        <ol className="grid gap-6 md:grid-cols-2">
+        <ol className="grid grid-cols-1 gap-6 md:grid-cols-2">
           {workflow.map((step, i) => (
-            <li key={step.title} className="flex flex-col gap-3 rounded-xl border bg-card p-5">
+            <li key={step.title} className="flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-5">
               <div className="flex items-center gap-3">
                 <span className="grid size-7 place-items-center rounded-full border font-mono text-xs text-muted-foreground">
                   {String(i + 1).padStart(2, "0")}
@@ -201,7 +201,7 @@ export default function Home() {
         lede="conch launches each agent with its own login and configuration, and never edits that configuration or answers its trust prompts for you. A missing agent installs from the same menu — no root needed."
         className="bg-surface"
       >
-        <div className="grid gap-8 lg:grid-cols-[1.4fr_1fr]">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1.4fr_1fr]">
           <div className="overflow-x-auto rounded-xl border bg-card">
             <table className="w-full text-sm">
               <thead className="bg-muted/60 text-left">
@@ -244,7 +244,7 @@ export default function Home() {
         title="Say what you want. Approve the plan."
         lede="Press : and ask in plain words. The brain sees every machine, project, branch and agent, proposes actions with checkboxes and marks the ones that can't run. Nothing runs until you press enter."
       >
-        <div className="grid items-start gap-10 lg:grid-cols-[1fr_1.2fr]">
+        <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[1fr_1.2fr]">
           <div className="flex flex-col gap-4 text-sm leading-6 text-muted-foreground">
             <p>
               <strong className="text-foreground">Providers:</strong> the Claude Code CLI with your existing
