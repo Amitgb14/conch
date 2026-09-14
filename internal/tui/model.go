@@ -403,6 +403,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.receiveSessions(msg)
 		return m, nil
 
+	case broadcastDoneMsg:
+		m.receiveBroadcast(msg)
+		return m, nil
+
 	case sessionSearchTickMsg:
 		return m, m.searchSessions(msg)
 

@@ -15,11 +15,11 @@ history; details for big items live in their own plan files.
    different agent (or a running one): conch writes the conversation to a
    handoff file in the checkout and starts the chosen agent there with a
    prompt to read it and continue.
+4. **Broadcast to a group** — send one prompt to every agent in a project or
+   group from the tree. Running agents only; waiting ones start unticked; confirm lists recipients.
 
 ## Next
 
-4. **Broadcast to a group** — send one prompt to every agent in a project or
-   group from the tree.
 5. **tmux extras** — `ctrl+b .` move tab, `ctrl+b q` split numbers,
    `ctrl+b space` layouts, clearer names in the `w` picker.
 6. **Website deploy** — publish `web/`.

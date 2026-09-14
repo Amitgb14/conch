@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1",
 }
 
 // Methods.
@@ -84,6 +84,8 @@ const (
 	MethodSessionShare   = "session.share"
 	MethodSessionDelete  = "session.delete"
 	MethodAgentLimits    = "agent.limits"
+	// MethodAgentBroadcast types one message into several agents.
+	MethodAgentBroadcast = "agent.broadcast"
 )
 
 // Events.
@@ -586,6 +588,26 @@ type SessionShareParams struct {
 	PaneID string `json:"pane_id,omitempty"`
 	Cols   int    `json:"cols,omitempty"`
 	Rows   int    `json:"rows,omitempty"`
+}
+
+// AgentBroadcastParams sends Text to the agents running in panes IDs, as
+// each one's next message. Panes that aren't running an agent are skipped:
+// a shell would run the text.
+type AgentBroadcastParams struct {
+	IDs  []string `json:"ids"`
+	Text string   `json:"text"`
+}
+
+// AgentBroadcastResult reports, per pane, whether the message was sent.
+type AgentBroadcastResult struct {
+	Results []BroadcastOutcome `json:"results"`
+}
+
+// BroadcastOutcome is one pane's part of a broadcast.
+type BroadcastOutcome struct {
+	ID    string `json:"id"`
+	Sent  bool   `json:"sent"`
+	Error string `json:"error,omitempty"`
 }
 
 // SessionShareResult is the pane that received the conversation and the

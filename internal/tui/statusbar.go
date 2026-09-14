@@ -131,10 +131,10 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			items = []statusItem{hint("enter", "changes"), hint("v", "split"), hint("o", "PR"), hint("c", "agent"), hint("n", "shell"),
 				hint("x", "rm worktree"), hint("y", "copy"), hint("m", "menu")}
 		case kindProject:
-			items = []statusItem{hint("t", "task"), hint("c", "agent"), hint("n", "shell"), hint("space", "fold"),
+			items = []statusItem{hint("t", "task"), hint("c", "agent"), hint("n", "shell"), hint("B", "broadcast"), hint("space", "fold"),
 				hint("x", "remove"), hint("m", "menu")}
 		case kindMachine:
-			items = []statusItem{hint("a", "project"), hint("c", "agent"), hint("n", "shell"), hint("M", "machine"),
+			items = []statusItem{hint("a", "project"), hint("c", "agent"), hint("n", "shell"), hint("B", "broadcast"), hint("M", "machine"),
 				hint("R", "reconnect"), hint("m", "menu")}
 		default:
 			items = []statusItem{hint("a", "project"), hint("t", "task"), hint("c", "agent"), hint("n", "shell"),

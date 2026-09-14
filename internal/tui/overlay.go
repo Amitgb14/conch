@@ -127,6 +127,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"c", "Start an agent in project…", act("c")},
 			{"n", "Open terminal in project", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
+			{"B", "Broadcast to its agents…", act("B")},
 			{"F", "Local files for new worktrees…", act("F")},
 			{"R", "Refresh git status", act("R")},
 			{"", "Show all branches", func(m *Model) tea.Cmd {
@@ -567,6 +568,7 @@ var helpText = []string{
 	"  enter  open pane, view branch changes           tab  focus main",
 	"  /      filter          esc  clear filter        m  menu (or right-click)",
 	"  !      next agent waiting for you",
+	"  B      broadcast: one message to every running agent of the selected machine, project, branch or CLI",
 	"",
 	"Create",
 	"  t  new task: branch + worktree + an agent with a prompt",

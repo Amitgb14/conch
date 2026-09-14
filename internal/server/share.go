@@ -123,13 +123,9 @@ func (s *Server) shareSession(p proto.SessionShareParams) (proto.SessionShareRes
 		if rel, err := filepath.Rel(target.dir, path); err == nil && !strings.HasPrefix(rel, "..") {
 			ref = rel
 		}
-		prompt := handoffPrompt(p.Agent, ref)
-		if err := target.p.SendText(prompt, true); err != nil {
+		if err := s.submitPrompt(target, handoffPrompt(p.Agent, ref)); err != nil {
 			return res, proto.Errorf(proto.ErrBadRequest, "%v", err)
 		}
-		// Submitted separately: agents take an Enter inside a paste as a newline.
-		time.AfterFunc(150*time.Millisecond, func() { _ = target.p.SendKeys([]string{"enter"}) })
-		s.userInput(target)
 		res.Pane = target.info()
 		log.Printf("shared %s session %s with pane %s (%s)", p.Agent, p.ID, p.PaneID, path)
 		return res, nil
@@ -142,6 +138,70 @@ func (s *Server) shareSession(p proto.SessionShareParams) (proto.SessionShareRes
 	res.Pane = info
 	log.Printf("shared %s session %s with %s in pane %s (%s)", p.Agent, p.ID, p.To, info.ID, path)
 	return res, nil
+}
+
+// submitDelay separates a pasted message from the Enter that submits it:
+// agents take an Enter inside a paste as a newline.
+const submitDelay = 150 * time.Millisecond
+
+// submitPrompt pastes text into an agent's input and submits it.
+func (s *Server) submitPrompt(e *entry, text string) error {
+	if err := e.p.SendText(text, true); err != nil {
+		return err
+	}
+	time.AfterFunc(submitDelay, func() { _ = e.p.SendKeys([]string{"enter"}) })
+	s.userInput(e)
+	return nil
+}
+
+// ---- agent.broadcast ----
+
+func (s *Server) broadcastMessage(p proto.AgentBroadcastParams) (proto.AgentBroadcastResult, *proto.Error) {
+	res := proto.AgentBroadcastResult{Results: []proto.BroadcastOutcome{}}
+	if strings.TrimSpace(p.Text) == "" {
+		return res, proto.Errorf(proto.ErrBadRequest, "agent.broadcast needs a message")
+	}
+	if len(p.IDs) == 0 {
+		return res, proto.Errorf(proto.ErrBadRequest, "agent.broadcast needs panes to send to")
+	}
+	text := strings.TrimSpace(p.Text)
+	seen := map[string]bool{}
+	sent := 0
+	for _, id := range p.IDs {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out := proto.BroadcastOutcome{ID: id}
+		s.mu.Lock()
+		e := s.panes[id]
+		s.mu.Unlock()
+		switch info := entryInfo(e); {
+		case e == nil:
+			out.Error = "no such pane"
+		case info.State != proto.PaneRunning:
+			out.Error = "exited"
+		case info.Agent == nil:
+			out.Error = "not running an agent"
+		default:
+			if err := s.submitPrompt(e, text); err != nil {
+				out.Error = err.Error()
+			} else {
+				out.Sent = true
+				sent++
+			}
+		}
+		res.Results = append(res.Results, out)
+	}
+	log.Printf("broadcast to %d of %d pane(s)", sent, len(res.Results))
+	return res, nil
+}
+
+func entryInfo(e *entry) proto.PaneInfo {
+	if e == nil {
+		return proto.PaneInfo{}
+	}
+	return e.info()
 }
 
 // handoffPrompt asks an agent to pick up a shared conversation.

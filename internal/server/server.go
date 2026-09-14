@@ -646,6 +646,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return nil, s.deleteSession(rp)
 
+	case proto.MethodAgentBroadcast:
+		bp, perr := decode[proto.AgentBroadcastParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.broadcastMessage(bp)
+
 	case proto.MethodSessionSearch:
 		sp, perr := decode[proto.SessionSearchParams](msg)
 		if perr != nil {

@@ -46,6 +46,26 @@ Most reliable first:
 
 `conch agent explain p1` shows the evidence behind a state.
 
+## Broadcast
+
+`B` sends one message to several agents at once, as each one's next message — for example "run the tests and fix anything you broke" to every agent in a project, or "commit your work and summarise what's left" before stopping for the day.
+
+Who receives it follows the selection in the tree:
+
+| Selected | Recipients |
+| --- | --- |
+| a machine | every running agent on it |
+| a project (or its Branches, Agents, Sessions) | the project's agents, in all its worktrees |
+| a branch | the agents working on that branch |
+| `CLI` | the machine's agents outside projects |
+| an agent | the agents of its group (project or CLI) |
+
+In the dialog, type the message, then `tab` to the list: `space` ticks or unticks an agent, `a` ticks all, `e` widens to every machine. `enter` shows who will receive it and asks to confirm.
+
+- Only running agents are listed. **Terminals never receive a broadcast** — a shell would run the text as a command.
+- Agents **waiting for an answer** start unticked, because the message would answer their question; ticking one is allowed and the confirmation says so.
+- The message is pasted and submitted in each agent. Agents on different machines receive it through their own servers; a server from an older build is skipped and named.
+
 ## Token usage
 
 Agent panes show token usage in their title — `ctx 45k/200k · out 12k · $0.42`:
