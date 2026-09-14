@@ -293,6 +293,9 @@ func (m *Model) split(dir splitDir, v viewRef) tea.Cmd {
 		p := m.pane(f.view.Machine, f.view.PaneID)
 		newShell = f.view.Kind == kindPane && p != nil && p.State == proto.PaneRunning
 		v = viewRef{}
+	} else if v.Kind == kindPane {
+		m.removeRow(v.Row) // moved here, as tmux's join-pane: never shown twice
+		t = m.tab()
 	}
 	nl := m.newLeaf(v)
 	nl.pick = v.empty()
@@ -327,6 +330,16 @@ func (m *Model) closeLeaf() tea.Cmd {
 // selected: beside a terminal pane it starts a new shell in that directory,
 // otherwise it waits for a row to be opened.
 func (m *Model) newTab(v viewRef) tea.Cmd {
+	if v.Kind == kindPane && !v.empty() {
+		// A pane already on screen moves, as tmux's break-pane: alone in its
+		// tab it already has one.
+		for i, t := range m.tabs {
+			if ls := t.root.leaves(); len(ls) == 1 && ls[0].view.Row == v.Row {
+				return m.gotoTab(i)
+			}
+		}
+		m.removeRow(v.Row)
+	}
 	var shellFrom *leaf
 	if v.empty() {
 		f := m.tab().focused()
@@ -673,8 +686,10 @@ func (m *Model) restoreTabs(saved []savedTab, active int) {
 
 // dropPane takes a closed pane out of the layout, as tmux does: its split
 // closes, and a tab that showed only it closes too (unless it is the last).
-func (m *Model) dropPane(mid, id string) {
-	row := paneNodeID(mid, id)
+func (m *Model) dropPane(mid, id string) { m.removeRow(paneNodeID(mid, id)) }
+
+// removeRow takes a view out of every split and tab showing it.
+func (m *Model) removeRow(row string) {
 	for i := 0; i < len(m.tabs); i++ {
 		t := m.tabs[i]
 		for _, l := range t.root.leaves() {

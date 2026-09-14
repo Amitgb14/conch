@@ -237,3 +237,34 @@ func TestEachPaneGetsItsTab(t *testing.T) {
 		t.Fatalf("after closing p4: %d tabs", len(m.tabs))
 	}
 }
+
+func TestOpeningShownPaneMovesIt(t *testing.T) {
+	m := splitModel()
+	m.cursor = m.rows[0].id
+	m.show(m.rows[0])
+	// O on the pane shown alone in its tab: stays one tab, no copy.
+	m.newTab(viewOf(m.rows[0]))
+	if len(m.tabs) != 1 {
+		t.Fatalf("O copied a pane alone in its tab: %d tabs", len(m.tabs))
+	}
+	m.split(splitRight, viewOf(m.rows[1])) // p1 | p2
+	// O on p1: it breaks out into its own tab.
+	m.newTab(viewOf(m.rows[0]))
+	count := 0
+	for _, tb := range m.tabs {
+		for _, l := range tb.root.leaves() {
+			if l.view.PaneID == "p1" {
+				count++
+			}
+		}
+	}
+	if count != 1 || len(m.tabs) != 2 || m.tab().focused().view.PaneID != "p1" || len(m.tabs[0].root.leaves()) != 1 {
+		t.Fatalf("break out: p1 shown %d times, %d tabs", count, len(m.tabs))
+	}
+	// v on p1 from the p2 tab joins it back there.
+	m.gotoTab(0)
+	m.split(splitRight, viewOf(m.rows[0]))
+	if len(m.tabs) != 1 || len(m.tab().root.leaves()) != 2 {
+		t.Fatalf("join: %d tabs, %d leaves", len(m.tabs), len(m.tab().root.leaves()))
+	}
+}
