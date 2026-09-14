@@ -152,3 +152,21 @@ func TestNarrowPaneHints(t *testing.T) {
 		}
 	}
 }
+
+func TestLaunchFailed(t *testing.T) {
+	now := time.Now()
+	for _, c := range []struct {
+		code    int
+		started time.Time
+		want    bool
+	}{
+		{0, now, false},
+		{127, now.Add(-time.Second), true},       // command not found at launch
+		{127, now.Add(-time.Minute), false},      // a shell's exit after a typo
+		{130, now.Add(-10 * time.Minute), false}, // an agent quit with ctrl+c
+	} {
+		if got := launchFailed(proto.PaneInfo{ExitCode: c.code, Created: c.started}); got != c.want {
+			t.Errorf("code %d after %v: %v", c.code, now.Sub(c.started), got)
+		}
+	}
+}

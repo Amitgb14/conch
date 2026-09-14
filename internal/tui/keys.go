@@ -347,6 +347,8 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 	case "?":
 		m.overlay = newHelp()
 		return nil, true
+	case ":":
+		return m.openAsk(), true
 	case "up", "k":
 		return m.moveFocus(0, -1), true
 	case "down", "j":

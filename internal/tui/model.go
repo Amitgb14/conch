@@ -459,9 +459,10 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		var installed tea.Cmd
 		if msg.Event == proto.EventPaneExited {
 			installed = m.installerDone(mach, info)
-			if info.ExitCode == 0 && installed == nil {
-				// Exited on its own and cleanly (a shell's exit, an agent's
-				// /exit): close it, as tmux does. Failures stay to be read.
+			if installed == nil && !launchFailed(info) {
+				// Exited on its own (a shell's exit, an agent's /exit or
+				// ctrl+c): close it, as tmux does. Only a pane that failed
+				// right away stays, so its error can be read.
 				c, id := mach.c, info.ID
 				installed = func() tea.Msg {
 					if c != nil {
@@ -949,6 +950,17 @@ func agentLabel(agent string) string {
 }
 
 // installerDone reports the outcome when an installer pane exits.
+// launchWindow is how soon after starting a failing exit counts as a launch
+// failure (a missing command, a bad flag) rather than the user quitting.
+const launchWindow = 10 * time.Second
+
+// launchFailed reports whether an exited pane failed as it started. A
+// shell's exit carries the status of its last command, so a non-zero code
+// later on is not a failure to show.
+func launchFailed(info proto.PaneInfo) bool {
+	return info.ExitCode != 0 && time.Since(info.Created) < launchWindow
+}
+
 func (m *Model) installerDone(mach *machine, info proto.PaneInfo) tea.Cmd {
 	agent, ok := mach.installers[info.ID]
 	if !ok {
