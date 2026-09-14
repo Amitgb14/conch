@@ -606,7 +606,7 @@ func (p *Pane) PlainLines() []string {
 // and waits for it to exit.
 func (p *Pane) Close() {
 	if p.running() {
-		pid := p.cmd.Process.Pid
+		pid := p.proc.Pid // p.cmd is nil for a pane adopted after a reload
 		_ = syscall.Kill(-pid, syscall.SIGHUP)
 		select {
 		case <-p.done:

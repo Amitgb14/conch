@@ -59,4 +59,19 @@ func TestDetachReplayAdopt(t *testing.T) {
 	q.SendText("echo adopted-ok", false)
 	q.SendKeys([]string{"enter"})
 	waitScreen(t, q, "adopted-ok")
+
+	// An adopted pane has no exec.Cmd; closing it used to crash the server.
+	closed := make(chan struct{})
+	go func() {
+		q.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not return for an adopted pane")
+	}
+	if q.running() {
+		t.Fatal("adopted pane still running after Close")
+	}
 }
