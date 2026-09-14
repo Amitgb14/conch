@@ -43,6 +43,7 @@ type reloadPane struct {
 	Dir        string              `json:"dir"`
 	Tracker    detect.TrackerState `json:"tracker"`
 	Transcript string              `json:"transcript,omitempty"`
+	Loose      bool                `json:"loose,omitempty"` // in no project
 }
 
 // reloadBinary resolves and checks the program to reload into: it must run
@@ -125,6 +126,7 @@ func (s *Server) reload(bin string) {
 		}
 		rp := reloadPane{Snapshot: snap, FD: int(ptmx.Fd()), Dir: e.dir}
 		e.mu.Lock()
+		rp.Loose = e.project == nil
 		rp.Tracker = e.tracker.Export()
 		e.mu.Unlock()
 		if e.transcript != nil {
@@ -181,7 +183,11 @@ func (s *Server) adopt(st *reloadState) {
 			ptmx.Close()
 			continue
 		}
-		e := newEntry(p, rp.Dir, detect.RestoreTracker(s.manifests, rp.Tracker), s.projects.ensure(rp.Dir))
+		var proj *project
+		if !rp.Loose {
+			proj = s.projects.ensure(rp.Dir)
+		}
+		e := newEntry(p, rp.Dir, detect.RestoreTracker(s.manifests, rp.Tracker), proj)
 		if rp.Transcript != "" {
 			e.transcript = usage.NewTranscript(rp.Transcript)
 			if tok, err := e.transcript.Update(); err == nil || tok.Output > 0 {

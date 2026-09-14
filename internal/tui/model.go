@@ -829,6 +829,7 @@ type place struct {
 	projectID string
 	dir       string // "" when branch must first be checked out, or the machine's home
 	branch    string
+	loose     bool // a machine-level place, outside every project
 }
 
 func (m Model) contextPlace() place {
@@ -840,7 +841,7 @@ func (m Model) contextPlace() place {
 	switch r.kind {
 	case kindPane:
 		if p := m.pane(mid, r.paneID); p != nil {
-			return place{machine: mid, projectID: p.ProjectID, dir: p.Cwd, branch: p.Branch}
+			return place{machine: mid, projectID: p.ProjectID, dir: p.Cwd, branch: p.Branch, loose: p.ProjectID == ""}
 		}
 	case kindBranch:
 		proj := m.project(mid, r.projectID)
@@ -858,9 +859,11 @@ func (m Model) contextPlace() place {
 			return place{machine: mid, projectID: proj.ID, dir: proj.Path}
 		}
 	}
-	pl := place{machine: mid}
+	// The machine itself (or its own Agents and Terminals): the home folder,
+	// outside every project, not the folder conch was started in.
+	pl := place{machine: mid, loose: true}
 	if mid == localMachine {
-		pl.dir, _ = os.Getwd()
+		pl.dir, _ = os.UserHomeDir()
 	} else if mach := m.machine(mid); mach != nil {
 		pl.dir = mach.server.Home
 	}
@@ -914,7 +917,7 @@ func (m Model) openAgent(agent string) tea.Cmd {
 			}
 		}
 		// No command: the server starts its machine's login shell.
-		params := proto.PaneCreateParams{Cwd: dir, Cols: cols, Rows: rows}
+		params := proto.PaneCreateParams{Cwd: dir, Cols: cols, Rows: rows, NoProject: pl.loose}
 		if agent != "" {
 			params.Agent = agent
 		} else {

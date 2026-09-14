@@ -738,7 +738,10 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 	if err != nil {
 		dir = cp.Cwd
 	}
-	proj := s.projects.ensure(dir)
+	var proj *project
+	if !cp.NoProject {
+		proj = s.projects.ensure(dir)
+	}
 
 	s.mu.Lock()
 	s.nextID++

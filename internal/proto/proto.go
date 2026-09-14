@@ -679,6 +679,9 @@ type PaneCreateParams struct {
 	// ShellTheme is an Oh My Zsh theme for a default-shell pane when that
 	// shell is zsh; the user's dotfiles still load first.
 	ShellTheme string `json:"shell_theme,omitempty"`
+	// NoProject starts a machine-level pane: it belongs to no project even
+	// when Cwd lies in one.
+	NoProject bool `json:"no_project,omitempty"`
 }
 
 // ShellThemes describes the prompt themes available on a machine.

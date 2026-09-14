@@ -94,6 +94,17 @@ func TestProjectsAndWorktrees(t *testing.T) {
 		t.Fatalf("unexpected project: %+v", proj)
 	}
 
+	// A machine-level pane stays out of the project even in its folder.
+	var loose proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{
+		Command: []string{"/bin/sh", "-c", "sleep 30"}, Cwd: repo, NoProject: true,
+	}, &loose); err != nil {
+		t.Fatal(err)
+	}
+	if loose.ProjectID != "" {
+		t.Fatalf("no-project pane joined %q", loose.ProjectID)
+	}
+
 	// A worktree for a new branch lands next to the repo.
 	var wt proto.WorktreeResult
 	if err := c.Call(ctx, proto.MethodWorktreeAdd, proto.WorktreeAddParams{ProjectID: proj.ID, Branch: "feat/x"}, &wt); err != nil {
