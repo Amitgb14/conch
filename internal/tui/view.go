@@ -59,6 +59,8 @@ func (m Model) View() string {
 		} else {
 			color := colorBorder
 			switch {
+			case t.sync && l.view.Kind == kindPane:
+				color = colorWarn // typing goes to every pane in the tab
 			case focused && m.focus == focusMain:
 				color = colorInput
 			case focused && len(t.root.leaves()) > 1:

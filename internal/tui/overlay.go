@@ -583,6 +583,7 @@ var helpText = []string{
 	"  ←→↑↓ focus   o next split   ; last split   { } swap   ctrl/alt+arrows resize (repeats)",
 	"  c new tab   n / p next / previous   0-9 go to tab   l last tab   w pick tab or split",
 	"  & close tab   , rename tab   z zoom   ! next waiting agent   : ask   d detach   ? this help",
+	"  S type into every split of the tab at once (again to stop; synced borders turn amber)",
 	"  in the tree: v open in a split right · s below · O in a new tab",
 	"  mouse: click a split to focus it · drag borders to resize · click tabs, + and ×",
 	"",

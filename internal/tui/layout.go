@@ -57,6 +57,9 @@ type tab struct {
 	focus int // leaf id
 	seen  int // the focused leaf when the view last synced
 	last  int // the leaf focused before it (ctrl+b ;)
+	// sync sends what is typed in the focused split to every pane in the
+	// tab, like tmux's synchronize-panes.
+	sync bool
 }
 
 type rect struct{ x, y, w, h int }
@@ -261,6 +264,7 @@ type savedNode struct {
 type savedTab struct {
 	Name string     `json:"name"`
 	Root *savedNode `json:"root"`
+	Sync bool       `json:"sync,omitempty"`
 }
 
 func saveNode(n *layoutNode, focus int) *savedNode {

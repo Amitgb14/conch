@@ -415,6 +415,50 @@ func (m *Model) swapSplit(d int) tea.Cmd {
 	return tea.Batch(m.syncView(), m.saveState())
 }
 
+// toggleSync turns typing into every split of the tab on or off.
+func (m *Model) toggleSync() tea.Cmd {
+	t := m.tab()
+	if !t.sync && len(m.syncedPanes(t)) < 2 {
+		m.setFlash("split the tab first: sync types into every agent and terminal in it", true)
+		return nil
+	}
+	t.sync = !t.sync
+	if t.sync {
+		m.setFlash(fmt.Sprintf("typing goes to all %d splits · %s S to stop", len(m.syncedPanes(t)), m.cfg.Keys.Prefix), false)
+	} else {
+		m.setFlash("typing goes to the focused split only", false)
+	}
+	return m.saveState()
+}
+
+// syncedPanes lists the running panes shown in a tab's splits.
+func (m *Model) syncedPanes(t *tab) []viewRef {
+	var out []viewRef
+	for _, l := range t.root.leaves() {
+		if p := m.pane(l.view.Machine, l.view.PaneID); l.view.Kind == kindPane && p != nil && p.State == proto.PaneRunning {
+			out = append(out, l.view)
+		}
+	}
+	return out
+}
+
+// forwardSynced sends a key typed in pane mid/id to the tab's other panes
+// when the tab is synchronized.
+func (m *Model) forwardSynced(mid, id string, k tea.KeyMsg) {
+	t := m.tab()
+	if !t.sync {
+		return
+	}
+	for _, v := range m.syncedPanes(t) {
+		if v.Machine == mid && v.PaneID == id {
+			continue
+		}
+		if c := m.clientOf(v.Machine); c != nil {
+			forwardKey(c, v.PaneID, k)
+		}
+	}
+}
+
 // repeatTime is how long resize keys keep working without the prefix, like
 // tmux's repeat-time.
 const repeatTime = 500 * time.Millisecond
@@ -608,7 +652,7 @@ func itoa(i int) string {
 func (m Model) savedTabs() []savedTab {
 	var out []savedTab
 	for _, t := range m.tabs {
-		out = append(out, savedTab{Name: t.name, Root: saveNode(t.root, t.focus)})
+		out = append(out, savedTab{Name: t.name, Root: saveNode(t.root, t.focus), Sync: t.sync})
 	}
 	return out
 }
@@ -619,7 +663,7 @@ func (m *Model) restoreTabs(saved []savedTab, active int) {
 		if err != nil {
 			continue
 		}
-		t := &tab{name: st.Name, root: root, focus: focus}
+		t := &tab{name: st.Name, root: root, focus: focus, sync: st.Sync}
 		t.focused()
 		m.tabs = append(m.tabs, t)
 	}

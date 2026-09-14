@@ -117,3 +117,18 @@ func TestResizeNearestBorder(t *testing.T) {
 		t.Fatalf("clamp: ratio %v", tb.root.ratio)
 	}
 }
+
+func TestSyncNeedsPanes(t *testing.T) {
+	m := Model{cfg: config.Default(), width: 120, height: 40, sidebarW: 20}
+	m = prefixed(t, m, runes("S"))
+	if m.tab().sync {
+		t.Fatal("sync turned on in a tab without panes")
+	}
+	m.tab().sync = true
+	saved := m.savedTabs()
+	var back Model
+	back.restoreTabs(saved, 0)
+	if !back.tab().sync {
+		t.Fatal("sync not saved")
+	}
+}

@@ -295,6 +295,7 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.scrollPane(-m.offset) // typing returns to the live screen
 		}
 		forwardKey(c, p.ID, k)
+		m.forwardSynced(r.machine, p.ID, k)
 		return m, nil
 	case kindSessions:
 		if m.sessionsView != nil {
@@ -349,6 +350,8 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 		return nil, true
 	case ":":
 		return m.openAsk(), true
+	case "S":
+		return m.toggleSync(), true
 	case "up", "k":
 		return m.moveFocus(0, -1), true
 	case "down", "j":

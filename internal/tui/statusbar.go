@@ -97,6 +97,10 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		if len(m.tab().root.leaves()) > 1 {
 			items = append(items, action(m.cfg.Keys.Prefix+" x", "close split", func(m *Model) tea.Cmd { return m.closeSplitAsk() }))
 		}
+		if m.tab().sync {
+			chip = styleChip.Background(colorWarn).Render("SYNC")
+			items = append([]statusItem{action(m.cfg.Keys.Prefix+" S", "stop typing into all splits", func(m *Model) tea.Cmd { return m.toggleSync() })}, items...)
+		}
 	case m.focus == focusMain && m.changes != nil && m.changes.diffFile != "":
 		chip = styleChip.Background(colorInput).Render("DIFF")
 		items = []statusItem{hint("↑", "up"), hint("↓", "down"), hint("pgup", "page"), hint("pgdn", "page"),
