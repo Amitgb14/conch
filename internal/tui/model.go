@@ -53,10 +53,14 @@ type Model struct {
 	zoom        bool
 	prefixArmed bool
 	repeatUntil time.Time // resize keys repeat without the prefix until then
-	sidebarW    int
-	dragging    bool
-	lastClickID string
-	lastClickAt time.Time
+	// Split numbers (ctrl+b q) show until numbersUntil; numbersGen matches
+	// the timer that hides them.
+	numbersUntil time.Time
+	numbersGen   int
+	sidebarW     int
+	dragging     bool
+	lastClickID  string
+	lastClickAt  time.Time
 
 	// The pane shown in the main area.
 	viewMachine string
@@ -401,6 +405,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sessionsMsg:
 		m.receiveSessions(msg)
+		return m, nil
+
+	case numbersDoneMsg:
+		if msg.gen == m.numbersGen {
+			m.numbersUntil = time.Time{}
+		}
 		return m, nil
 
 	case broadcastDoneMsg:

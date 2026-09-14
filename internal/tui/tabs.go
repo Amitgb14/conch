@@ -630,6 +630,9 @@ func (m *Model) openTabPicker() {
 			sel = len(items)
 		}
 		label := m.tabLabel(t)
+		if ls := t.root.leaves(); len(ls) == 1 && t.name == "" {
+			label = m.pickerLabel(ls[0].view)
+		}
 		if name := m.scopeName(m.tabScopeOf(t)); name != "" {
 			label += styleMuted.Render("  " + name)
 		}
@@ -647,7 +650,7 @@ func (m *Model) openTabPicker() {
 				sel = len(items)
 			}
 			id := l.id
-			items = append(items, menuItem{"", "  " + branch + m.viewLabel(l.view), func(m *Model) tea.Cmd {
+			items = append(items, menuItem{"", "  " + branch + m.pickerLabel(l.view), func(m *Model) tea.Cmd {
 				if i >= len(m.tabs) || m.tabs[i] != t {
 					return nil
 				}

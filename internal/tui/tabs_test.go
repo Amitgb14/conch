@@ -529,7 +529,7 @@ func TestA1TabPickerGroupsLikeTheTree(t *testing.T) {
 	got := strings.Join(labels, "|")
 	// Groups: CLI terminals (p3), api agents (p1 + split), CLI agents (p4),
 	// api terminals (p2) — each section is its own group.
-	want := "bash  CLI · terminals|claude ⊞  api · agents|  ├ claude|  └ empty|codex  CLI · agents|zsh  api · terminals"
+	want := "bash · a1  CLI · terminals|claude ⊞  api · agents|  ├ claude · feat · idle|  └ empty|codex · working  CLI · agents|zsh · api  api · terminals"
 	if got != want {
 		t.Fatalf("picker:\n%s\nwant:\n%s", got, want)
 	}

@@ -85,10 +85,13 @@ The tab bar lists the tabs of what you select in the tree: a project shows its t
 | `ctrl+b %` or `v` / `ctrl+b "` or `-` | split right / down (beside a terminal or agent, the new split starts a shell in its folder; otherwise it waits for you to open something) |
 | `ctrl+b ←→↑↓`, `o`, `;` | move focus between splits: by direction, to the next, to the last one focused |
 | `ctrl+b {` / `}` | swap the split with the previous / next |
+| `ctrl+b q` | show split numbers; press a number while they show to focus that split |
+| `ctrl+b space` | next layout: even-horizontal, even-vertical, main-horizontal, main-vertical, tiled (`ctrl+b alt+1`–`alt+5` pick one) |
 | `ctrl+b ctrl+arrow` / `alt+arrow` | resize by 1 / 5 cells; press the arrow again within half a second to keep resizing |
 | `ctrl+b x` | close the split; an agent or terminal in it ends, after you confirm |
 | `ctrl+b c`, `n`, `p`, `0-9`, `l` | new, next, previous, go to, last tab (among the tabs listed for the tree selection) |
-| `ctrl+b w` | pick any tab or split, grouped by project and CLI |
+| `ctrl+b <` / `>`, `.` | move the tab left / right, or to a position you type (among the tabs listed) |
+| `ctrl+b w` | pick any tab or split, grouped by project and CLI, with each split's branch or folder and agent state |
 | `ctrl+b &`, `,` | close, rename tab |
 | `ctrl+b =`, `z` | equalize splits, zoom |
 | `ctrl+b S` | type into every agent and terminal in the tab at once, like tmux's `synchronize-panes`; their borders turn amber and the status bar shows `SYNC`. Press it again to stop. |

@@ -29,6 +29,9 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if cmd, handled := m.repeatResize(k.String()); handled {
 		return m, cmd
 	}
+	if cmd, handled := m.numberKey(k.String()); handled {
+		return m, cmd
+	}
 	if m.prefixArmed {
 		m.prefixArmed = false
 		if cmd, handled := m.layoutKey(k.String()); handled {
@@ -249,6 +252,9 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if cmd, handled := m.repeatResize(k.String()); handled {
 		return m, cmd
 	}
+	if cmd, handled := m.numberKey(k.String()); handled {
+		return m, cmd
+	}
 	if m.prefixArmed {
 		m.prefixArmed = false
 		if cmd, handled := m.layoutKey(k.String()); handled {
@@ -352,6 +358,18 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 		return nil, true
 	case ":":
 		return m.openAsk(), true
+	case ".":
+		return m.openMoveTab(), true
+	case "<":
+		return m.moveTab(-1), true
+	case ">":
+		return m.moveTab(1), true
+	case "q":
+		return m.showNumbers(), true
+	case " ":
+		return m.applyLayout(m.tab().layout), true // the one after the last applied
+	case "alt+1", "alt+2", "alt+3", "alt+4", "alt+5":
+		return m.applyLayout(int(key[4] - '1')), true
 	case "S":
 		m.promote()
 		return m.toggleSync(), true

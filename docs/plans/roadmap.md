@@ -18,11 +18,12 @@ history; details for big items live in their own plan files.
 4. **Broadcast to a group** — send one prompt to every agent in a project or
    group from the tree, and one command to its terminals. Waiting agents and
    terminals in mixed groups start unticked; the confirmation lists recipients.
+5. **tmux extras** — `ctrl+b < > .` move tabs, `ctrl+b q` split numbers,
+   `ctrl+b space` and `alt+1`–`alt+5` layouts, `w` picker names with each
+   split's branch or folder and agent state.
 
 ## Next
 
-5. **tmux extras** — `ctrl+b .` move tab, `ctrl+b q` split numbers,
-   `ctrl+b space` layouts, clearer names in the `w` picker.
 6. **Website deploy** — publish `web/`.
 7. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
 8. **First release** — tag v0.1.0 so `install.sh` and `conch update` have

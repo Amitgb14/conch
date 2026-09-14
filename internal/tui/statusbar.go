@@ -72,7 +72,8 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 	case m.prefixArmed:
 		chip = styleChip.Background(colorWarn).Render("PREFIX")
 		items = []statusItem{hint("v", "split"), hint("-", "split down"), hint("x", "close split"), hint("←→↑↓", "focus"),
-			hint("c", "new tab"), hint("n", "next tab"), hint("[", "scroll"), hint("z", "zoom"), action("esc", "tree", toTree)}
+			hint("q", "numbers"), hint("space", "layout"), hint("c", "new tab"), hint("n", "next tab"), hint("[", "scroll"), hint("z", "zoom"),
+			action("esc", "tree", toTree)}
 	case m.focus == focusMain && r.kind == kindPane && m.scrollMode:
 		chip = styleChip.Background(colorWarn).Render("SCROLL")
 		items = []statusItem{hint("↑↓←→", "move"), hint("v", "select"), hint("y", "copy"), hint("pgup", "page"),

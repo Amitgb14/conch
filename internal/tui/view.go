@@ -45,7 +45,8 @@ func (m Model) View() string {
 
 	rects, _ := m.leafRects()
 	t := m.tab()
-	for _, l := range t.root.leaves() {
+	numbers := m.numbersShown()
+	for n, l := range t.root.leaves() {
 		r, ok := rects[l.id]
 		if !ok {
 			continue
@@ -53,6 +54,9 @@ func (m Model) View() string {
 		focused := l.id == t.focus
 		in := m.inner(r)
 		content := exactly(m.leafLines(l, in.w, in.h, focused), in.h)
+		if numbers {
+			content = numberBadge(content, n+1, in.w)
+		}
 		var lines []string
 		if m.zoom {
 			for _, c := range content {

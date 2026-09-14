@@ -62,6 +62,9 @@ type tab struct {
 	sync bool
 	// home is the group of a tab that shows nothing yet.
 	home tabScope
+	// layout is 1 + the last layout ctrl+b space applied, to cycle from;
+	// 0 for splits never arranged, which start at the first layout.
+	layout int
 }
 
 type rect struct{ x, y, w, h int }
