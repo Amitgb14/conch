@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -13,16 +14,19 @@ import (
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
-// Broadcast types one message into several agents: the running agents of
-// the group selected in the tree (a machine, project, branch or CLI), or
-// of every machine. Shells never receive it — they would run the text —
-// and agents waiting for an answer start unticked, since the message would
+// Broadcast types one message into several panes and submits it: the
+// running agents and terminals of what is selected in the tree, listed
+// like the tree (project or CLI, then Agents and Terminals). An agent gets
+// the message as its next prompt; a terminal runs it as a command, so
+// terminals start ticked only when a Terminals section (or a shell) was
+// selected. Agents waiting for an answer start unticked: the message would
 // answer their question.
 
 type broadcastTarget struct {
 	machine string
 	pane    proto.PaneInfo
-	group   string // project name or "CLI", plus the branch
+	group   string // the project's name or "CLI", with the machine when there are several
+	shell   bool   // no agent runs in it: it would run the text
 	on      bool
 }
 
@@ -30,12 +34,33 @@ func (bt broadcastTarget) waiting() bool {
 	return bt.pane.Agent != nil && bt.pane.Agent.State == proto.AgentBlocked
 }
 
-// broadcastScope names the selected group and lists its running agents.
-// every widens it to all machines.
+// broadcastScope names the selection and lists its running panes; every
+// widens it to all machines.
 func (m Model) broadcastScope(every bool) (label string, targets []broadcastTarget) {
 	r, ok := m.selectedRow()
 	if !ok {
 		every = true
+	}
+	// Which sections: a Terminals row or a shell lists terminals only, an
+	// Agents row or an agent lists agents only, anything else both.
+	wantAgents, wantShells, shellsOn := true, true, false
+	var sel *proto.PaneInfo
+	if !every {
+		switch r.kind {
+		case kindAgents:
+			wantShells = false
+		case kindTerminals:
+			wantAgents, shellsOn = false, true
+		case kindPane:
+			if sel = m.pane(r.machine, r.paneID); sel != nil && sel.Agent == nil {
+				wantAgents, shellsOn = false, true
+			} else {
+				wantShells = false
+			}
+		}
+	}
+	known := func(mid string, p proto.PaneInfo) bool {
+		return p.ProjectID != "" && m.project(mid, p.ProjectID) != nil
 	}
 	in := func(mach *machine, p proto.PaneInfo) bool {
 		if every {
@@ -44,50 +69,61 @@ func (m Model) broadcastScope(every bool) (label string, targets []broadcastTarg
 		if mach.id != r.machine {
 			return false
 		}
-		known := p.ProjectID != "" && m.project(mach.id, p.ProjectID) != nil
+		k := known(mach.id, p)
 		switch r.kind {
 		case kindMachine:
 			return true
 		case kindCLI:
-			return !known
+			return !k
 		case kindBranch:
-			return known && p.ProjectID == r.projectID && p.Branch == r.branch
+			return k && p.ProjectID == r.projectID && p.Branch == r.branch
 		case kindPane:
-			if sel := m.pane(r.machine, r.paneID); sel != nil {
-				selKnown := sel.ProjectID != "" && m.project(mach.id, sel.ProjectID) != nil
-				return known == selKnown && (!known || p.ProjectID == sel.ProjectID)
-			}
-			return false
+			return sel != nil && k == known(mach.id, *sel) && (!k || p.ProjectID == sel.ProjectID)
 		}
 		if r.projectID == "" { // a machine's own Agents or Terminals
-			return !known
+			return !k
 		}
-		return known && p.ProjectID == r.projectID
+		return k && p.ProjectID == r.projectID
 	}
-	for _, mach := range m.machines {
+	order := map[string]int{}
+	for i, mach := range m.machines {
+		order[mach.id] = i
 		if mach.c == nil {
 			continue
 		}
 		for _, p := range mach.panes {
-			if p.Agent == nil || p.State != proto.PaneRunning || !in(mach, p) {
+			shell := p.Agent == nil
+			if p.State != proto.PaneRunning || (shell && !wantShells) || (!shell && !wantAgents) || !in(mach, p) {
 				continue
 			}
 			group := "CLI"
-			if proj := m.project(mach.id, p.ProjectID); proj != nil {
-				group = proj.Name
-			}
-			if p.Branch != "" {
-				group += " · " + p.Branch
+			if known(mach.id, p) {
+				group = m.projectName(mach.id, p.ProjectID)
 			}
 			if len(m.machines) > 1 {
 				group = mach.label + " › " + group
 			}
-			bt := broadcastTarget{machine: mach.id, pane: p, group: group}
-			bt.on = !bt.waiting()
+			bt := broadcastTarget{machine: mach.id, pane: p, group: group, shell: shell}
+			bt.on = (shell && shellsOn) || (!shell && !bt.waiting())
 			targets = append(targets, bt)
 		}
 	}
-	sort.SliceStable(targets, func(i, j int) bool { return strings.ToLower(targets[i].group) < strings.ToLower(targets[j].group) })
+	// Like the tree: machines in order, projects before CLI, agents before
+	// terminals.
+	sort.SliceStable(targets, func(i, j int) bool {
+		a, b := targets[i], targets[j]
+		if order[a.machine] != order[b.machine] {
+			return order[a.machine] < order[b.machine]
+		}
+		ac, bc := strings.HasSuffix(a.group, "CLI"), strings.HasSuffix(b.group, "CLI")
+		if ac != bc {
+			return bc
+		}
+		if ga, gb := strings.ToLower(a.group), strings.ToLower(b.group); ga != gb {
+			return ga < gb
+		}
+		return !a.shell && b.shell
+	})
 
 	mach := m.machine(r.machine)
 	switch {
@@ -97,16 +133,27 @@ func (m Model) broadcastScope(every bool) (label string, targets []broadcastTarg
 		label = mach.label
 	case r.kind == kindBranch:
 		label = m.projectName(r.machine, r.projectID) + " · " + r.branch
-	case r.kind == kindCLI || (r.projectID == "" && r.kind != kindPane):
-		label = "CLI"
 	case r.kind == kindPane:
-		if p := m.pane(r.machine, r.paneID); p != nil && p.ProjectID != "" && m.project(r.machine, p.ProjectID) != nil {
-			label = m.projectName(r.machine, p.ProjectID)
-		} else {
-			label = "CLI"
+		label = "CLI"
+		if sel != nil && known(r.machine, *sel) {
+			label = m.projectName(r.machine, sel.ProjectID)
 		}
+		if sel != nil && sel.Agent == nil {
+			label += " · Terminals"
+		} else {
+			label += " · Agents"
+		}
+	case r.kind == kindCLI || r.projectID == "":
+		label = "CLI"
 	default:
 		label = m.projectName(r.machine, r.projectID)
+	}
+	switch {
+	case every, r.kind == kindPane:
+	case r.kind == kindAgents:
+		label += " · Agents"
+	case r.kind == kindTerminals:
+		label += " · Terminals"
 	}
 	if !every && len(m.machines) > 1 && mach != nil && r.kind != kindMachine {
 		label = mach.label + " › " + label
@@ -121,15 +168,11 @@ func (m Model) projectName(mid, pid string) string {
 	return pid
 }
 
-// openBroadcast starts a broadcast to the selected group.
+// openBroadcast starts a broadcast to the selection.
 func (m *Model) openBroadcast() tea.Cmd {
 	label, targets := m.broadcastScope(false)
 	if len(targets) == 0 {
-		if _, all := m.broadcastScope(true); len(all) > 0 {
-			m.setFlash("no agents running in "+label+" · B on a machine or project with agents", true)
-		} else {
-			m.setFlash("no agents running to broadcast to (shells never get broadcasts)", true)
-		}
+		m.setFlash("nothing running in "+label+" to broadcast to", true)
 		return nil
 	}
 	d := newBroadcastDialog(*m, label, targets)
@@ -142,22 +185,51 @@ type broadcastDialog struct {
 	in      textinput.Model
 	targets []broadcastTarget
 	list    bool // the recipient list has the keys
-	sel     int
-	scroll  int
+	sel     int  // index into targets
+	scroll  int  // first visible list row
 	every   bool
 	err     string
 }
 
-const broadcastListRows = 10
+// broadcastListRows is how many list rows (headings and panes) show.
+const broadcastListRows = 12
 
 func newBroadcastDialog(m Model, label string, targets []broadcastTarget) *broadcastDialog {
 	in := textinput.New()
 	in.Prompt = ""
-	in.Placeholder = "e.g. run the tests and fix anything you broke"
+	in.Placeholder = "a prompt for agents, or a command for terminals"
 	in.CharLimit = 4000
 	in.Width = m.dialogWidth() - 12
 	in.Focus()
 	return &broadcastDialog{label: label, in: in, targets: targets}
+}
+
+// listRow is a heading (target < 0) or a pane of the recipient list.
+type listRow struct {
+	heading string
+	sub     bool // an Agents / Terminals heading
+	target  int
+}
+
+func (d *broadcastDialog) rows() []listRow {
+	var out []listRow
+	group, section := "", ""
+	for i, t := range d.targets {
+		if t.group != group || i == 0 {
+			group, section = t.group, ""
+			out = append(out, listRow{heading: t.group, target: -1})
+		}
+		s := "Agents"
+		if t.shell {
+			s = "Terminals"
+		}
+		if s != section {
+			section = s
+			out = append(out, listRow{heading: s, sub: true, target: -1})
+		}
+		out = append(out, listRow{target: i})
+	}
+	return out
 }
 
 func (d *broadcastDialog) chosen() []broadcastTarget {
@@ -217,11 +289,9 @@ func (d *broadcastDialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			d.err = ""
 		}
 	case "a":
-		all := len(d.chosen()) < len(d.targets)
-		for i := range d.targets {
-			d.targets[i].on = all
-		}
-		d.err = ""
+		d.tickAll(func(broadcastTarget) bool { return true })
+	case "t":
+		d.tickAll(func(t broadcastTarget) bool { return t.shell })
 	case "e":
 		d.widen(m)
 	}
@@ -229,8 +299,22 @@ func (d *broadcastDialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	return false, nil
 }
 
-// widen switches between the selected group and every machine, keeping
-// the ticks of agents in both.
+// tickAll ticks every target matching which, or unticks them when all
+// already are.
+func (d *broadcastDialog) tickAll(which func(broadcastTarget) bool) {
+	all := true
+	for _, t := range d.targets {
+		all = all && (!which(t) || t.on)
+	}
+	for i, t := range d.targets {
+		if which(t) {
+			d.targets[i].on = !all
+		}
+	}
+	d.err = ""
+}
+
+// widen switches between the selection and every machine, keeping ticks.
 func (d *broadcastDialog) widen(m *Model) {
 	d.every = !d.every
 	label, targets := m.broadcastScope(d.every)
@@ -248,16 +332,26 @@ func (d *broadcastDialog) widen(m *Model) {
 
 func (d *broadcastDialog) keepVisible() {
 	d.sel = clamp(d.sel, 0, max(len(d.targets)-1, 0))
-	if d.sel < d.scroll {
-		d.scroll = d.sel
+	rows := d.rows()
+	at := slices.IndexFunc(rows, func(r listRow) bool { return r.target == d.sel })
+	if at < 0 {
+		return
 	}
-	if d.sel >= d.scroll+broadcastListRows {
-		d.scroll = d.sel - broadcastListRows + 1
+	// Keep the pane's headings in view when scrolling up to it.
+	top := at
+	for top > 0 && rows[top-1].target < 0 {
+		top--
+	}
+	if top < d.scroll {
+		d.scroll = top
+	}
+	if at >= d.scroll+broadcastListRows {
+		d.scroll = at - broadcastListRows + 1
 	}
 }
 
 // review asks for confirmation, naming the recipients and warning about
-// agents that are waiting for an answer.
+// terminals and agents that are waiting for an answer.
 func (d *broadcastDialog) review(m *Model) tea.Cmd {
 	text := strings.TrimSpace(d.in.Value())
 	chosen := d.chosen()
@@ -266,28 +360,54 @@ func (d *broadcastDialog) review(m *Model) tea.Cmd {
 		d.err = "type the message first"
 		return nil
 	case len(chosen) == 0:
-		d.err = "tick at least one agent (space)"
+		d.err = "tick at least one (space)"
 		return nil
 	}
 	var names []string
-	waiting := 0
+	agents, shells, waiting := 0, 0, 0
 	for _, t := range chosen {
 		names = append(names, t.pane.DisplayName()+" ("+t.group+")")
-		if t.waiting() {
+		switch {
+		case t.shell:
+			shells++
+		case t.waiting():
+			agents++
 			waiting++
+		default:
+			agents++
 		}
 	}
-	q := fmt.Sprintf("Send “%s” to %d agent%s: %s?", ansi.Truncate(text, 60, "…"), len(chosen), plural(len(chosen)), strings.Join(names, ", "))
-	if waiting > 0 {
-		q += fmt.Sprintf(" %d of them %s waiting for an answer: the message will answer %s.", waiting, map[bool]string{true: "is", false: "are"}[waiting == 1],
-			map[bool]string{true: "its question", false: "their questions"}[waiting == 1])
+	q := fmt.Sprintf("Send “%s” to %s: %s?", ansi.Truncate(text, 60, "…"), countText(agents, shells), strings.Join(names, ", "))
+	if shells == 1 {
+		q += " The terminal runs it as a shell command."
+	} else if shells > 1 {
+		q += " The terminals run it as a shell command."
+	}
+	if waiting == 1 {
+		q += " 1 agent is waiting for an answer: the message will answer its question."
+	} else if waiting > 1 {
+		q += fmt.Sprintf(" %d agents are waiting for an answer: the message will answer their questions.", waiting)
 	}
 	back := d
 	c := newConfirm(q, func(m *Model) tea.Cmd { return m.sendBroadcast(chosen, text) })
 	c.title = " Broadcast "
-	// n or esc returns to the message instead of dropping it.
 	m.overlay = &broadcastConfirm{dialog: c, back: back}
 	return nil
+}
+
+// countText says "2 agents and 1 terminal".
+func countText(agents, shells int) string {
+	var parts []string
+	if agents > 0 {
+		parts = append(parts, fmt.Sprintf("%d agent%s", agents, plural(agents)))
+	}
+	if shells > 0 {
+		parts = append(parts, fmt.Sprintf("%d terminal%s", shells, plural(shells)))
+	}
+	if len(parts) == 0 {
+		return "nothing"
+	}
+	return strings.Join(parts, " and ")
 }
 
 func plural(n int) string {
@@ -317,12 +437,20 @@ func (c *broadcastConfirm) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	return c.dialog.update(m, msg)
 }
 
-type broadcastDoneMsg struct {
-	sent    int
-	skipped []string
+func (c *broadcastConfirm) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
+	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && !b.contains(msg.X, msg.Y) {
+		m.overlay = c.back // back to the message, not lost
+	}
+	return nil
 }
 
-// sendBroadcast sends text to each machine's chosen agents.
+type broadcastDoneMsg struct {
+	agents, shells int // sent
+	skipped        []string
+}
+
+// sendBroadcast sends text to the chosen panes, through each machine's
+// server.
 func (m *Model) sendBroadcast(targets []broadcastTarget, text string) tea.Cmd {
 	byMachine := map[string][]broadcastTarget{}
 	var order []string
@@ -334,44 +462,54 @@ func (m *Model) sendBroadcast(targets []broadcastTarget, text string) tea.Cmd {
 	}
 	var skipped []string
 	var calls []tea.Cmd
+	many := len(order) > 1
 	for _, mid := range order {
-		ts := byMachine[mid]
 		mach := m.machine(mid)
-		switch {
-		case mach == nil || mach.c == nil:
-			for _, t := range ts {
+		var ts []broadcastTarget
+		for _, t := range byMachine[mid] {
+			switch {
+			case mach == nil || mach.c == nil:
 				skipped = append(skipped, t.pane.DisplayName()+": machine offline")
-			}
-			continue
-		case len(mach.c.MissingCapabilities([]string{"agent.broadcast.v1"})) > 0:
-			for _, t := range ts {
+			case len(mach.c.MissingCapabilities([]string{"agent.broadcast.v1"})) > 0:
 				skipped = append(skipped, t.pane.DisplayName()+": "+mach.label+"'s server predates broadcasts")
+			case t.shell && len(mach.c.MissingCapabilities([]string{"agent.broadcast.shells.v1"})) > 0:
+				skipped = append(skipped, t.pane.DisplayName()+": "+mach.label+"'s server predates broadcasts to terminals")
+			default:
+				ts = append(ts, t)
 			}
+		}
+		if len(ts) == 0 {
 			continue
 		}
 		c, label := mach.c, mach.label
 		ids := make([]string, len(ts))
-		names := map[string]string{}
+		byID := map[string]broadcastTarget{}
+		shells := false
 		for i, t := range ts {
-			ids[i] = t.pane.ID
-			names[t.pane.ID] = t.pane.DisplayName()
+			ids[i], byID[t.pane.ID] = t.pane.ID, t
+			shells = shells || t.shell
 		}
+		params := proto.AgentBroadcastParams{IDs: ids, Text: text, Shells: shells}
 		calls = append(calls, func() tea.Msg {
 			var res proto.AgentBroadcastResult
-			if err := callCtx(c, proto.MethodAgentBroadcast, proto.AgentBroadcastParams{IDs: ids, Text: text}, &res); err != nil {
+			if err := callCtx(c, proto.MethodAgentBroadcast, params, &res); err != nil {
 				var out []string
 				for _, id := range ids {
-					out = append(out, names[id]+": "+err.Error())
+					out = append(out, byID[id].pane.DisplayName()+": "+err.Error())
 				}
 				return broadcastDoneMsg{skipped: out}
 			}
 			done := broadcastDoneMsg{}
 			for _, r := range res.Results {
-				if r.Sent {
-					done.sent++
-				} else {
-					name := names[r.ID]
-					if len(order) > 1 {
+				t := byID[r.ID]
+				switch {
+				case r.Sent && t.shell:
+					done.shells++
+				case r.Sent:
+					done.agents++
+				default:
+					name := t.pane.DisplayName()
+					if many {
 						name += " on " + label
 					}
 					done.skipped = append(done.skipped, name+": "+r.Error)
@@ -388,53 +526,68 @@ func (m *Model) sendBroadcast(targets []broadcastTarget, text string) tea.Cmd {
 }
 
 func (m *Model) receiveBroadcast(msg broadcastDoneMsg) {
+	sent := countText(msg.agents, msg.shells)
 	switch {
 	case len(msg.skipped) == 0:
-		m.setFlash(fmt.Sprintf("broadcast sent to %d agent%s", msg.sent, plural(msg.sent)), false)
-	case msg.sent == 0:
+		m.setFlash("broadcast sent to "+sent, false)
+	case msg.agents+msg.shells == 0:
 		m.setFlash("broadcast not sent · "+strings.Join(msg.skipped, " · "), true)
 	default:
-		m.setFlash(fmt.Sprintf("broadcast sent to %d agent%s · not sent: %s", msg.sent, plural(msg.sent), strings.Join(msg.skipped, " · ")), true)
+		m.setFlash("broadcast sent to "+sent+" · not sent: "+strings.Join(msg.skipped, " · "), true)
 	}
 }
 
 func (d *broadcastDialog) render(m Model) box {
 	w := m.dialogWidth()
-	chosen := len(d.chosen())
 	label := styleMuted.Render("Message")
 	if !d.list {
 		label = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("Message")
 	}
 	lines := []string{"", " " + label + "  " + d.in.View(), ""}
-	head := fmt.Sprintf("To %d of %d agents in %s", chosen, len(d.targets), d.label)
+	head := fmt.Sprintf("To %d of %d in %s", len(d.chosen()), len(d.targets), d.label)
 	lines = append(lines, " "+styleBold.Render(ansi.Truncate(head, w-2, "…")))
-	end := min(d.scroll+broadcastListRows, len(d.targets))
+	rows := d.rows()
+	end := min(d.scroll+broadcastListRows, len(rows))
 	if d.scroll > 0 {
 		lines = append(lines, styleMuted.Render(fmt.Sprintf("   … %d above", d.scroll)))
 	}
-	for i := d.scroll; i < end; i++ {
-		t := d.targets[i]
+	for _, r := range rows[d.scroll:end] {
+		switch {
+		case r.target < 0 && r.sub:
+			lines = append(lines, "   "+styleMuted.Render(r.heading))
+			continue
+		case r.target < 0:
+			lines = append(lines, " "+styleAccent.Render(ansi.Truncate(r.heading, w-2, "…")))
+			continue
+		}
+		t := d.targets[r.target]
 		box := "[ ]"
 		if t.on {
 			box = "[x]"
 		}
-		state := ""
-		if t.pane.Agent != nil {
-			state = t.pane.Agent.State
-		}
-		note := styleMuted.Render(state)
-		if t.waiting() {
+		var note string
+		switch {
+		case t.shell && t.pane.Title != "" && t.pane.Title != t.pane.DisplayName():
+			note = styleMuted.Render(ansi.Truncate(t.pane.Title, 24, "…"))
+		case t.shell:
+			note = styleMuted.Render("runs it as a command")
+		case t.waiting():
 			note = styleWarn.Render("! waiting for an answer")
+		default:
+			note = styleMuted.Render(t.pane.Agent.State)
 		}
-		row := fmt.Sprintf(" %s %s  %s", box, t.pane.DisplayName(), styleMuted.Render(t.group))
+		row := fmt.Sprintf("     %s %s", box, t.pane.DisplayName())
+		if t.pane.Branch != "" {
+			row += "  " + styleMuted.Render(t.pane.Branch)
+		}
 		line := spread(row, note+" ", w)
-		if d.list && i == d.sel {
+		if d.list && r.target == d.sel {
 			line = styleSel.Render(spread(ansi.Strip(row), ansi.Strip(note)+" ", w))
 		}
 		lines = append(lines, line)
 	}
-	if end < len(d.targets) {
-		lines = append(lines, styleMuted.Render(fmt.Sprintf("   … %d more", len(d.targets)-end)))
+	if end < len(rows) {
+		lines = append(lines, styleMuted.Render(fmt.Sprintf("   … %d more", len(rows)-end)))
 	}
 	lines = append(lines, "")
 	if d.err != "" {
@@ -442,11 +595,11 @@ func (d *broadcastDialog) render(m Model) box {
 	}
 	widen := "e every machine"
 	if d.every {
-		widen = "e just " + "the selection"
+		widen = "e just the selection"
 	}
 	hints := "enter review · tab recipients · esc cancel"
 	if d.list {
-		hints = "space tick · a all · " + widen + " · enter review · tab message"
+		hints = "space tick · a all · t terminals · " + widen + " · enter review · tab message"
 	}
 	for _, l := range wrap(hints, w-2) {
 		lines = append(lines, " "+styleMuted.Render(l))
@@ -461,26 +614,21 @@ func (d *broadcastDialog) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft || !b.contains(msg.X, msg.Y) {
 		return nil // an outside click doesn't drop the message
 	}
-	// Rows: border, blank, message, blank, heading, [above], targets.
-	first := b.y + 5
-	if d.scroll > 0 {
-		first++
-	}
 	if msg.Y == b.y+2 {
 		d.list = false
 		return d.in.Focus()
 	}
-	if i := d.scroll + msg.Y - first; msg.Y >= first && i < min(d.scroll+broadcastListRows, len(d.targets)) {
-		d.list, d.sel = true, i
-		d.in.Blur()
-		d.targets[i].on = !d.targets[i].on
+	// Lines: border, blank, message, blank, heading, [above], list rows.
+	first := b.y + 5
+	if d.scroll > 0 {
+		first++
 	}
-	return nil
-}
-
-func (c *broadcastConfirm) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
-	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && !b.contains(msg.X, msg.Y) {
-		m.overlay = c.back // back to the message, not lost
+	rows := d.rows()
+	if i := d.scroll + msg.Y - first; msg.Y >= first && i < min(d.scroll+broadcastListRows, len(rows)) && rows[i].target >= 0 {
+		t := rows[i].target
+		d.list, d.sel = true, t
+		d.in.Blur()
+		d.targets[t].on = !d.targets[t].on
 	}
 	return nil
 }

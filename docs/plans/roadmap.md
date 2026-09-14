@@ -16,7 +16,8 @@ history; details for big items live in their own plan files.
    handoff file in the checkout and starts the chosen agent there with a
    prompt to read it and continue.
 4. **Broadcast to a group** — send one prompt to every agent in a project or
-   group from the tree. Running agents only; waiting ones start unticked; confirm lists recipients.
+   group from the tree, and one command to its terminals. Waiting agents and
+   terminals in mixed groups start unticked; the confirmation lists recipients.
 
 ## Next
 

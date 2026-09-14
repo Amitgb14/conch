@@ -47,6 +47,15 @@ func TestBroadcast(t *testing.T) {
 	if strings.Contains(strings.Join(shell.p.PlainLines(), "\n"), "run the tests") {
 		t.Fatal("a shell got the broadcast")
 	}
+	// With shells allowed, the terminal gets it too.
+	res, _ = s.broadcastMessage(proto.AgentBroadcastParams{IDs: []string{"p3", "p4"}, Text: "echo from-broadcast", Shells: true})
+	if len(res.Results) != 2 || !res.Results[0].Sent || res.Results[1].Error != "exited" {
+		t.Fatalf("shells: %+v", res.Results)
+	}
+	a5WaitFor(t, "the command in the terminal", func() bool {
+		return strings.Contains(strings.Join(shell.p.PlainLines(), "\n"), "echo from-broadcast")
+	})
+
 	// Once per pane, trimmed, submitted with Enter: cat echoes one line.
 	a5WaitFor(t, "one submitted line", func() bool {
 		return strings.Count(strings.Join(claude.p.PlainLines(), "\n"), "run the tests") == 1

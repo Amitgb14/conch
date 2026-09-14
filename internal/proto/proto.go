@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1",
 }
 
 // Methods.
@@ -590,12 +590,13 @@ type SessionShareParams struct {
 	Rows   int    `json:"rows,omitempty"`
 }
 
-// AgentBroadcastParams sends Text to the agents running in panes IDs, as
-// each one's next message. Panes that aren't running an agent are skipped:
-// a shell would run the text.
+// AgentBroadcastParams sends Text to the running panes IDs and submits it:
+// an agent gets it as its next message. A pane that isn't running an agent
+// would run Text as a command, so it is skipped unless Shells is set.
 type AgentBroadcastParams struct {
-	IDs  []string `json:"ids"`
-	Text string   `json:"text"`
+	IDs    []string `json:"ids"`
+	Text   string   `json:"text"`
+	Shells bool     `json:"shells,omitempty"`
 }
 
 // AgentBroadcastResult reports, per pane, whether the message was sent.

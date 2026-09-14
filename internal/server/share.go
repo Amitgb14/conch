@@ -181,7 +181,7 @@ func (s *Server) broadcastMessage(p proto.AgentBroadcastParams) (proto.AgentBroa
 			out.Error = "no such pane"
 		case info.State != proto.PaneRunning:
 			out.Error = "exited"
-		case info.Agent == nil:
+		case info.Agent == nil && !p.Shells:
 			out.Error = "not running an agent"
 		default:
 			if err := s.submitPrompt(e, text); err != nil {

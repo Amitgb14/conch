@@ -22,9 +22,8 @@ func targetIDs(ts []broadcastTarget) string {
 	return strings.Join(ids, ",")
 }
 
-// broadcastFixture: p1 claude on api·feat, p2 zsh in api, p3 bash (CLI),
-// p4 codex (CLI), plus p5 codex on api·main waiting for an answer and p6 an
-// exited agent.
+// broadcastFixture: api has p1 claude (feat), p5 codex (main, waiting for
+// an answer), p2 zsh and p6 an exited agent; CLI has p4 codex and p3 bash.
 func broadcastFixture(t *testing.T) (*Model, *a1Peer) {
 	t.Helper()
 	m, peer := a1Fixture(t, true)
@@ -42,17 +41,23 @@ func TestBroadcastScope(t *testing.T) {
 	for _, c := range []struct {
 		row, label, want string
 	}{
-		{machineID(localMachine), "local", "p1,p5(off),p4"},
-		{projectNodeID(localMachine, "r1"), "api", "p1,p5(off)"},
-		{sectionID(localMachine, "r1", "agents"), "api", "p1,p5(off)"},
-		{sectionID(localMachine, "r1", "terminals"), "api", "p1,p5(off)"},
+		// Groups list agents (ticked unless waiting) and terminals (unticked).
+		{machineID(localMachine), "local", "p1,p5(off),p2(off),p4,p3(off)"},
+		{projectNodeID(localMachine, "r1"), "api", "p1,p5(off),p2(off)"},
+		{sectionID(localMachine, "r1", "branches"), "api", "p1,p5(off),p2(off)"},
+		{cliID(localMachine), "CLI", "p4,p3(off)"},
 		{branchNodeID(localMachine, "r1", "feat"), "api · feat", "p1"},
 		{branchNodeID(localMachine, "r1", "main"), "api · main", "p5(off)"},
-		{cliID(localMachine), "CLI", "p4"},
-		{machineID(localMachine) + "/agents", "CLI", "p4"},
-		{paneNodeID(localMachine, "p1"), "api", "p1,p5(off)"},
-		{paneNodeID(localMachine, "p2"), "api", "p1,p5(off)"}, // a shell selects its group, never itself
-		{paneNodeID(localMachine, "p3"), "CLI", "p4"},
+		// A section lists only its kind; terminals chosen on purpose start ticked.
+		{sectionID(localMachine, "r1", "agents"), "api · Agents", "p1,p5(off)"},
+		{sectionID(localMachine, "r1", "terminals"), "api · Terminals", "p2"},
+		{machineID(localMachine) + "/agents", "CLI · Agents", "p4"},
+		{looseTerminalsID(localMachine), "CLI · Terminals", "p3"},
+		// A pane selects its section.
+		{paneNodeID(localMachine, "p1"), "api · Agents", "p1,p5(off)"},
+		{paneNodeID(localMachine, "p2"), "api · Terminals", "p2"},
+		{paneNodeID(localMachine, "p3"), "CLI · Terminals", "p3"},
+		{paneNodeID(localMachine, "p4"), "CLI · Agents", "p4"},
 	} {
 		if indexOfRow(m.rows, c.row) < 0 {
 			t.Fatalf("no row %s", c.row)
@@ -63,7 +68,8 @@ func TestBroadcastScope(t *testing.T) {
 			t.Errorf("%s: %q %s, want %q %s", c.row, label, targetIDs(targets), c.label, c.want)
 		}
 	}
-	if label, targets := m.broadcastScope(true); label != "every machine" || targetIDs(targets) != "p1,p5(off),p4" {
+	m.cursor = paneNodeID(localMachine, "p2")
+	if label, targets := m.broadcastScope(true); label != "every machine" || targetIDs(targets) != "p1,p5(off),p2(off),p4,p3(off)" {
 		t.Errorf("every: %q %s", label, targetIDs(targets))
 	}
 	m.cursor = ""
@@ -71,41 +77,30 @@ func TestBroadcastScope(t *testing.T) {
 		t.Errorf("no selection: %q", label)
 	}
 
-	// A second machine: labels name machines; an offline one contributes nothing.
+	// Several machines: groups and labels name them; an offline one adds nothing.
 	box := newMachine("box", "devbox", "dev@box")
 	box.c = m.machines[0].c
 	box.panes = []proto.PaneInfo{{ID: "p1", Name: "gemini", State: proto.PaneRunning, Agent: &proto.AgentStatus{Name: "gemini"}}}
 	off := newMachine("off", "offline", "x")
 	off.panes = []proto.PaneInfo{{ID: "p9", State: proto.PaneRunning, Agent: &proto.AgentStatus{Name: "claude"}}}
 	m.machines = append(m.machines, box, off)
-	m.cursor = projectNodeID(localMachine, "r1")
-	if label, targets := m.broadcastScope(false); label != "local › api" || !strings.HasPrefix(targets[0].group, "local › api") {
-		t.Errorf("multi-machine label %q groups %+v", label, targets)
+	m.cursor = sectionID(localMachine, "r1", "terminals")
+	if label, targets := m.broadcastScope(false); label != "local › api · Terminals" || targets[0].group != "local › api" {
+		t.Errorf("multi-machine: %q %+v", label, targets)
 	}
 	_, targets := m.broadcastScope(true)
-	machines := map[string]int{}
-	for _, t := range targets {
-		machines[t.machine]++
-	}
-	if machines["box"] != 1 || machines["off"] != 0 || machines[localMachine] != 3 {
-		t.Errorf("every machine: %v", machines)
+	if got := targetIDs(targets); got != "p1,p5(off),p2(off),p4,p3(off),p1" || targets[5].machine != "box" || targets[5].group != "devbox › CLI" {
+		t.Errorf("every machine: %s %+v", got, targets[5])
 	}
 }
 
 func TestOpenBroadcast(t *testing.T) {
 	m, _ := broadcastFixture(t)
-
-	// Nothing running in the selection, but elsewhere.
-	m.machines[0].panes = m.machines[0].panes[:4] // drop p5, p6
-	m.machines[0].panes[0].Agent = nil            // p1 no longer an agent
-	a1At(t, m, projectNodeID(localMachine, "r1"))
-	if m.openBroadcast(); m.overlay != nil || !strings.Contains(m.flash, "no agents running in api") {
-		t.Fatalf("empty group: %q", m.flash)
-	}
-	// Nothing anywhere.
-	m.machines[0].panes[3].Agent = nil
-	if m.openBroadcast(); m.overlay != nil || !strings.Contains(m.flash, "shells never get broadcasts") {
-		t.Fatalf("none: %q", m.flash)
+	m.machines[0].panes = []proto.PaneInfo{{ID: "p3", Name: "bash", State: proto.PaneExited}}
+	m.rebuild()
+	a1At(t, m, machineID(localMachine))
+	if m.openBroadcast(); m.overlay != nil || m.flash != "nothing running in local to broadcast to" {
+		t.Fatalf("empty: %q", m.flash)
 	}
 
 	// B in the tree and the project menu open it.
@@ -129,8 +124,9 @@ func TestOpenBroadcast(t *testing.T) {
 }
 
 func TestBroadcastDialog(t *testing.T) {
-	m, peer := broadcastFixture(t)
-	m.machines[0].c, peer = a1FakeClient(t, "agent.broadcast.v1")
+	m, _ := broadcastFixture(t)
+	c, peer := a1FakeClient(t, "agent.broadcast.v1", "agent.broadcast.shells.v1")
+	m.machines[0].c = c
 	a1At(t, m, machineID(localMachine))
 	m.openBroadcast()
 	d := m.overlay.(*broadcastDialog)
@@ -139,65 +135,80 @@ func TestBroadcastDialog(t *testing.T) {
 		_, cmd := m.overlay.update(m, k)
 		return cmd
 	}
+	typeText := func(s string) {
+		for _, r := range s {
+			if r == ' ' {
+				key(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+			} else {
+				key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			}
+		}
+	}
 
-	// Enter without a message, then without recipients: errors, no confirm.
+	// The list is nested like the tree.
+	var rows []string
+	for _, r := range d.rows() {
+		if r.target < 0 {
+			rows = append(rows, r.heading)
+		} else {
+			rows = append(rows, d.targets[r.target].pane.ID)
+		}
+	}
+	if got := strings.Join(rows, " "); got != "api Agents p1 p5 Terminals p2 CLI Agents p4 Terminals p3" {
+		t.Fatalf("rows: %s", got)
+	}
+
 	key(a2Key("enter"))
 	if d.err != "type the message first" || m.overlay != d {
 		t.Fatalf("empty message: %q", d.err)
 	}
-	for _, r := range "run the tests" {
-		if r == ' ' {
-			key(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
-		} else {
-			key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-		}
-	}
-	if d.in.Value() != "run the tests" || d.err != "" {
+	typeText("git pull")
+	key(runes("t")) // list keys are text while typing
+	key(tea.KeyMsg{Type: tea.KeyBackspace})
+	if d.in.Value() != "git pull" || d.err != "" {
 		t.Fatalf("typed %q (err %q)", d.in.Value(), d.err)
 	}
-	// Letters that are list keys are text while typing.
-	key(runes("a"))
-	key(tea.KeyMsg{Type: tea.KeyBackspace})
 
 	key(a2Key("tab"))
-	if !d.list {
-		t.Fatal("tab should move to the list")
+	key(runes("t")) // tick every terminal
+	if targetIDs(d.targets) != "p1,p5(off),p2,p4,p3" {
+		t.Fatalf("t: %s", targetIDs(d.targets))
 	}
-	key(runes("a")) // tick all (p5 was off)
-	if targetIDs(d.targets) != "p1,p5,p4" {
-		t.Fatalf("a: %s", targetIDs(d.targets))
+	key(runes("t")) // and untick them
+	if targetIDs(d.targets) != "p1,p5(off),p2(off),p4,p3(off)" {
+		t.Fatalf("t again: %s", targetIDs(d.targets))
 	}
-	key(runes("a")) // none
-	if targetIDs(d.targets) != "p1(off),p5(off),p4(off)" {
-		t.Fatalf("a again: %s", targetIDs(d.targets))
+	key(runes("a"))
+	key(runes("a"))
+	if targetIDs(d.targets) != "p1(off),p5(off),p2(off),p4(off),p3(off)" {
+		t.Fatalf("a twice: %s", targetIDs(d.targets))
 	}
 	key(a2Key("enter"))
-	if d.err != "tick at least one agent (space)" {
-		t.Fatalf("no recipients: %q", d.err)
+	if d.err != "tick at least one (space)" {
+		t.Fatalf("none ticked: %q", d.err)
 	}
-	key(runes(" ")) // p1 on
+	// Tick p2 and p3 (the terminals) with space and x.
 	key(a2Key("down"))
 	key(a2Key("down"))
-	key(runes("x")) // p4 on
+	key(runes(" "))
 	key(a2Key("down"))
-	if d.sel != 2 || targetIDs(d.targets) != "p1,p5(off),p4" {
+	key(a2Key("down"))
+	key(runes("x"))
+	key(a2Key("down")) // stays on the last
+	if d.sel != 4 || targetIDs(d.targets) != "p1(off),p5(off),p2,p4(off),p3" {
 		t.Fatalf("ticks: sel %d %s", d.sel, targetIDs(d.targets))
 	}
-	// Up past the first row returns to the message.
-	key(a2Key("up"))
-	key(a2Key("up"))
-	key(a2Key("up"))
+	for i := 0; i < 5; i++ {
+		key(a2Key("up"))
+	}
 	if d.list {
-		t.Fatal("up from the first row should return to the message")
+		t.Fatal("up past the first pane should return to the message")
 	}
 	key(a2Key("down"))
-	if !d.list {
-		t.Fatal("down from the message should enter the list")
-	}
 
-	// e widens to every machine and back, keeping ticks.
+	// e widens and narrows, keeping ticks.
 	key(runes("e"))
-	if !d.every || d.label != "every machine" || targetIDs(d.targets) != "p1,p5(off),p4" {
+	if !d.every || d.label != "every machine" || targetIDs(d.targets) != "p1(off),p5(off),p2,p4(off),p3" {
 		t.Fatalf("widen: %q %s", d.label, targetIDs(d.targets))
 	}
 	key(runes("e"))
@@ -205,39 +216,45 @@ func TestBroadcastDialog(t *testing.T) {
 		t.Fatalf("narrow: %q", d.label)
 	}
 
-	// Render fits and names the state of each agent.
+	// Render: headings, notes, width.
+	m.width = 160
+	out := ansi.Strip(strings.Join(d.render(*m).lines, "\n"))
+	for _, want := range []string{"To 2 of 5 in local", " api ", "   Agents", "   Terminals", "[x] zsh", "runs it as a command",
+		"[ ] codex  main", "! waiting for an answer", " CLI ", "t terminals"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("render lacks %q:\n%s", want, out)
+		}
+	}
 	for _, w := range []int{40, 80, 160} {
 		m.width = w
-		b := d.render(*m)
-		for i, l := range b.lines {
+		for i, l := range d.render(*m).lines {
 			if ansi.StringWidth(l) > max(w, 34) {
 				t.Fatalf("width %d: line %d is %d wide", w, i, ansi.StringWidth(l))
 			}
 		}
 	}
 	m.width = 160
-	out := ansi.Strip(strings.Join(d.render(*m).lines, "\n"))
-	for _, want := range []string{"To 2 of 3 agents in local", "[x] codex", "[ ] codex", "! waiting for an answer", "space tick"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("render lacks %q:\n%s", want, out)
-		}
-	}
 
-	// Review: tick the waiting agent too; the confirmation warns.
+	// Review: add an agent and the waiting agent; the confirmation says
+	// what terminals do and warns about the question.
+	d.sel = 0
+	key(runes(" "))
 	d.sel = 1
 	key(runes(" "))
 	key(a2Key("enter"))
-	c, ok := m.overlay.(*broadcastConfirm)
+	cf, ok := m.overlay.(*broadcastConfirm)
 	if !ok {
 		t.Fatalf("confirm: %T", m.overlay)
 	}
-	q := strings.Join(c.text, " ")
-	if !strings.Contains(q, "Send “run the tests” to 3 agents") || !strings.Contains(q, "1 of them is waiting for an answer") {
-		t.Fatalf("question: %q", q)
+	q := strings.Join(cf.text, " ")
+	for _, want := range []string{"Send “git pull” to 2 agents and 2 terminals", "The terminals run it as a shell command.",
+		"1 agent is waiting for an answer: the message will answer its question."} {
+		if !strings.Contains(q, want) {
+			t.Fatalf("question lacks %q: %q", want, q)
+		}
 	}
-	// n goes back with the message kept; enter again, then yes sends.
 	key(runes("n"))
-	if m.overlay != d || d.in.Value() != "run the tests" {
+	if m.overlay != d || d.in.Value() != "git pull" {
 		t.Fatal("n should return to the dialog")
 	}
 	key(a2Key("enter"))
@@ -246,11 +263,25 @@ func TestBroadcastDialog(t *testing.T) {
 		t.Fatal("yes should send")
 	}
 	a2Run(cmd)
-	msg := peer.waitMethod(t, proto.MethodAgentBroadcast, `"text":"run the tests"`)
-	for _, id := range []string{"p1", "p4", "p5"} {
+	msg := peer.waitMethod(t, proto.MethodAgentBroadcast, `"shells":true`)
+	for _, id := range []string{"p1", "p5", "p2", "p3"} {
 		if !strings.Contains(string(msg.Params), `"`+id+`"`) {
 			t.Fatalf("params %s lack %s", msg.Params, id)
 		}
+	}
+	if strings.Contains(string(msg.Params), `"p4"`) {
+		t.Fatalf("unticked p4 sent: %s", msg.Params)
+	}
+
+	// Agents only: shells stays off the wire.
+	a1At(t, m, sectionID(localMachine, "r1", "agents"))
+	m.openBroadcast()
+	typeText("hi")
+	key(a2Key("enter"))
+	a2Run(key(runes("y")))
+	msg = peer.waitMethod(t, proto.MethodAgentBroadcast, `"text":"hi"`)
+	if strings.Contains(string(msg.Params), "shells") {
+		t.Fatalf("agents-only broadcast allowed shells: %s", msg.Params)
 	}
 
 	// esc cancels.
@@ -258,6 +289,34 @@ func TestBroadcastDialog(t *testing.T) {
 	key(a2Key("esc"))
 	if m.overlay != nil {
 		t.Fatal("esc")
+	}
+}
+
+func TestBroadcastConfirmWording(t *testing.T) {
+	m, _ := broadcastFixture(t)
+	a1At(t, m, sectionID(localMachine, "r1", "terminals"))
+	m.openBroadcast()
+	d := m.overlay.(*broadcastDialog)
+	d.in.SetValue("make test")
+	d.review(m)
+	q := strings.Join(m.overlay.(*broadcastConfirm).text, " ")
+	if !strings.Contains(q, "to 1 terminal: zsh (api)?") || !strings.Contains(q, "The terminal runs it as a shell command.") || strings.Contains(q, "waiting") {
+		t.Fatalf("one terminal: %q", q)
+	}
+	a1At(t, m, projectNodeID(localMachine, "r1"))
+	m.openBroadcast()
+	d = m.overlay.(*broadcastDialog)
+	d.in.SetValue("go")
+	for i := range d.targets {
+		d.targets[i].on = !d.targets[i].shell
+	}
+	d.review(m)
+	q = strings.Join(m.overlay.(*broadcastConfirm).text, " ")
+	if !strings.Contains(q, "to 2 agents:") || strings.Contains(q, "terminal") {
+		t.Fatalf("agents only: %q", q)
+	}
+	if countText(0, 0) != "nothing" || countText(1, 0) != "1 agent" || countText(3, 1) != "3 agents and 1 terminal" {
+		t.Fatal("countText")
 	}
 }
 
@@ -271,50 +330,59 @@ func TestBroadcastDialogMouseAndScroll(t *testing.T) {
 	a1At(t, m, projectNodeID(localMachine, "r1"))
 	m.openBroadcast()
 	d := m.overlay.(*broadcastDialog)
-	if len(d.targets) != 16 {
-		t.Fatalf("targets %d", len(d.targets))
+	if len(d.targets) != 17 || len(d.rows()) != 20 {
+		t.Fatalf("targets %d rows %d", len(d.targets), len(d.rows()))
 	}
-	b := d.render(*m)
-	if !strings.Contains(ansi.Strip(strings.Join(b.lines, "\n")), "… 6 more") {
+	if !strings.Contains(ansi.Strip(strings.Join(d.render(*m).lines, "\n")), "… 8 more") {
 		t.Fatal("no more marker")
 	}
 	d.list = true
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 20; i++ {
 		d.update(m, a2Key("down"))
 	}
-	if d.scroll != 6 || d.sel != 15 {
+	if d.sel != 16 || d.scroll != 8 {
 		t.Fatalf("scroll %d sel %d", d.scroll, d.sel)
 	}
-	if !strings.Contains(ansi.Strip(strings.Join(d.render(*m).lines, "\n")), "… 6 above") {
+	if !strings.Contains(ansi.Strip(strings.Join(d.render(*m).lines, "\n")), "… 8 above") {
 		t.Fatal("no above marker")
 	}
+	// Back at the first pane its headings are in view again.
+	d.sel = 0
+	d.keepVisible()
+	if d.scroll != 0 {
+		t.Fatalf("headings hidden: scroll %d", d.scroll)
+	}
 
-	d.scroll, d.sel = 0, 0
-	b = d.render(*m)
-	press := func(x, y int) tea.Cmd {
-		return d.mouse(m, tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, b)
+	b := d.render(*m)
+	press := func(x, y int) {
+		d.mouse(m, tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, b)
 	}
-	before := d.targets[1].on
-	press(b.x+3, b.y+6) // the second recipient
-	if d.sel != 1 || d.targets[1].on == before || !d.list {
-		t.Fatalf("click row: sel %d on %v", d.sel, d.targets[1].on)
+	// Lines 5 and 6 are the "api" and "Agents" headings; 7 is the first pane.
+	before := d.targets[0].on
+	press(b.x+3, b.y+5)
+	press(b.x+3, b.y+6)
+	if d.targets[0].on != before {
+		t.Fatal("a heading click toggled a pane")
 	}
-	press(b.x+3, b.y+2) // the message
+	d.list = false
+	press(b.x+3, b.y+7)
+	if d.sel != 0 || d.targets[0].on == before || !d.list {
+		t.Fatalf("click pane: sel %d on %v", d.sel, d.targets[0].on)
+	}
+	press(b.x+3, b.y+2)
 	if d.list {
 		t.Fatal("click message")
 	}
-	press(0, 0) // outside: nothing lost
+	press(0, 0)
 	if m.overlay != d {
 		t.Fatal("outside click closed the dialog")
 	}
-	d.mouse(m, tea.MouseMsg{X: b.x + 3, Y: b.y + 6, Button: tea.MouseButtonWheelDown}, b) // ignored
+	d.mouse(m, tea.MouseMsg{X: b.x + 3, Y: b.y + 7, Button: tea.MouseButtonWheelDown}, b)
 
-	// Outside the confirmation: back to the dialog.
 	d.in.SetValue("hi")
 	d.review(m)
 	c := m.overlay.(*broadcastConfirm)
-	cb := c.render(*m)
-	c.mouse(m, tea.MouseMsg{X: 0, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, cb)
+	c.mouse(m, tea.MouseMsg{X: 0, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, c.render(*m))
 	if m.overlay != d {
 		t.Fatalf("outside confirm: %T", m.overlay)
 	}
@@ -322,46 +390,49 @@ func TestBroadcastDialogMouseAndScroll(t *testing.T) {
 
 func TestSendBroadcast(t *testing.T) {
 	m, _ := broadcastFixture(t)
-	local := m.machines[0]
 	old := newMachine("old", "oldbox", "x")
 	old.c = a2Client("pane.v1")
+	agentsOnly := newMachine("mid", "midbox", "z")
+	agentsOnly.c = a2Client("agent.broadcast.v1")
 	gone := newMachine("gone", "gonebox", "y")
-	m.machines = append(m.machines, old, gone)
-	targets := []broadcastTarget{
+	m.machines = append(m.machines, old, agentsOnly, gone)
+	msgs := a2Run(m.sendBroadcast([]broadcastTarget{
 		{machine: "old", pane: proto.PaneInfo{ID: "p1", Name: "claude"}},
-		{machine: "gone", pane: proto.PaneInfo{ID: "p2", Name: "codex"}},
-	}
-
-	// Nothing reachable: one message naming why.
-	msgs := a2Run(m.sendBroadcast(targets, "hi"))
+		{machine: "mid", pane: proto.PaneInfo{ID: "p2", Name: "zsh"}, shell: true},
+		{machine: "gone", pane: proto.PaneInfo{ID: "p3", Name: "codex"}},
+	}, "hi"))
 	if len(msgs) != 1 {
 		t.Fatalf("msgs %v", msgs)
 	}
 	done := msgs[0].(broadcastDoneMsg)
-	if done.sent != 0 || len(done.skipped) != 2 || !strings.Contains(done.skipped[0], "oldbox's server predates broadcasts") ||
-		!strings.Contains(done.skipped[1], "machine offline") {
+	want := []string{"claude: oldbox's server predates broadcasts", "zsh: midbox's server predates broadcasts to terminals", "codex: machine offline"}
+	if done.agents+done.shells != 0 || strings.Join(done.skipped, "|") != strings.Join(want, "|") {
 		t.Fatalf("skipped: %+v", done)
 	}
 
-	// A server error names every pane on that machine.
-	c, peer := a1FakeClient(t, "agent.broadcast.v1")
-	local.c = c
+	// A server error names every pane sent to it.
+	c, peer := a1FakeClient(t, "agent.broadcast.v1", "agent.broadcast.shells.v1")
+	m.machines[0].c = c
 	peer.setError(proto.MethodAgentBroadcast, "boom")
 	msgs = a2Run(m.sendBroadcast([]broadcastTarget{{machine: localMachine, pane: proto.PaneInfo{ID: "p1", Name: "claude"}}}, "hi"))
-	if d := msgs[0].(broadcastDoneMsg); len(d.skipped) != 1 || !strings.Contains(d.skipped[0], "claude: a1: boom") {
+	if d := msgs[0].(broadcastDoneMsg); len(d.skipped) != 1 || d.skipped[0] != "claude: a1: boom" {
 		t.Fatalf("error: %+v", d)
 	}
 }
 
 func TestReceiveBroadcast(t *testing.T) {
 	m, _ := broadcastFixture(t)
-	next, _ := m.update(broadcastDoneMsg{sent: 1})
+	next, _ := m.update(broadcastDoneMsg{agents: 1})
 	*m = next.(Model)
 	if m.flash != "broadcast sent to 1 agent" || m.flashIsErr {
 		t.Fatalf("one: %q", m.flash)
 	}
-	m.receiveBroadcast(broadcastDoneMsg{sent: 3, skipped: []string{"zsh: not running an agent"}})
-	if m.flash != "broadcast sent to 3 agents · not sent: zsh: not running an agent" || !m.flashIsErr {
+	m.receiveBroadcast(broadcastDoneMsg{agents: 2, shells: 3})
+	if m.flash != "broadcast sent to 2 agents and 3 terminals" {
+		t.Fatalf("mixed: %q", m.flash)
+	}
+	m.receiveBroadcast(broadcastDoneMsg{shells: 1, skipped: []string{"zsh: exited"}})
+	if m.flash != "broadcast sent to 1 terminal · not sent: zsh: exited" || !m.flashIsErr {
 		t.Fatalf("partial: %q", m.flash)
 	}
 	m.receiveBroadcast(broadcastDoneMsg{skipped: []string{"codex: exited", "claude: exited"}})
