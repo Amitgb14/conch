@@ -45,7 +45,8 @@ Apache-2.0 · Default branch: `master`.
 | `internal/config` | Paths (`CONCH_HOME`), `config.toml` loading and saving |
 | `internal/buildinfo` | Build identity (executable hash) used to detect stale servers and TUIs |
 | `web/` | The documentation website (Next.js, MDX under `web/src/app/docs`) |
-| `docs/plans` | Design plans for deferred work |
+| `docs/plans` | Design plans for deferred work, and the [roadmap](docs/plans/roadmap.md) |
+| `docs/testing` | The [end-to-end plan](docs/testing/end-to-end.md): paths the automated tests only cover with fakes |
 
 ## Build, run, test
 
@@ -163,3 +164,5 @@ helpers in `cmd/conch` and `internal/remote`.
 - [ ] `go test -race -count=1 ./...` passes
 - [ ] Help text, CLI usage and web docs updated for user-visible changes
 - [ ] Summary says what was tested, what wasn't, and any skipped bug tests
+- [ ] Anything fakes can't prove has a row in
+      [docs/testing/end-to-end.md](docs/testing/end-to-end.md)
