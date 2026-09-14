@@ -21,9 +21,13 @@ func (m *Model) newLeaf(v viewRef) *leaf {
 }
 
 func (m *Model) tab() *tab {
-	if len(m.tabs) == 0 {
-		m.tabs = []*tab{{root: &layoutNode{leaf: m.newLeaf(viewRef{})}}}
-		m.tabs[0].focus = m.tabs[0].root.leaf.id
+	if m.previewing || len(m.tabs) == 0 {
+		if m.preview == nil {
+			l := m.newLeaf(viewRef{})
+			m.preview = &tab{root: &layoutNode{leaf: l}, focus: l.id}
+		}
+		m.previewing = true
+		return m.preview
 	}
 	m.activeTab = clamp(m.activeTab, 0, len(m.tabs)-1)
 	return m.tabs[m.activeTab]
@@ -84,13 +88,24 @@ func (m Model) mainOrigin() (x, y int) {
 // the tree's cursor; every pane shown in the tab is subscribed and sized to
 // its leaf; branch leaves load their changes.
 func (m *Model) syncView() tea.Cmd {
+	if m.focus != focusMain && !m.zoom {
+		m.pickTab()
+	} else { // what's on screen was chosen here: the cursor follows it
+		m.keepTab, m.pickedFor = false, m.cursor
+	}
 	t := m.tab()
 	leaves := t.root.leaves()
 	// A browsing tab follows the tree's cursor over pages; agents and
 	// terminals open (in their own tab) only when activated.
 	if r, ok := m.selectedRow(); ok && len(leaves) == 1 && !m.zoom && !leaves[0].pick &&
-		r.kind != kindPane && browsing(leaves[0]) {
+		r.kind != kindPane && (r.kind != kindMachine || m.previewing) && browsing(leaves[0]) {
 		m.assign(leaves[0], r)
+	}
+	if f, ok := m.tabFilter(); ok && !m.previewing && m.focus != focusMain {
+		if m.scopeTab == nil {
+			m.scopeTab = map[string]*tab{}
+		}
+		m.scopeTab[f.key()] = t
 	}
 
 	rects, _ := m.leafRects()
@@ -220,6 +235,18 @@ func (m *Model) assign(l *leaf, r row) {
 // split or browsing tab takes one in, else it opens its own tab. Other rows
 // (projects, branches, sessions) share a browsing tab.
 func (m *Model) show(r row) tea.Cmd {
+	m.keepTab = true
+	if m.tab(); m.previewing { // the preview shows the row, or is about to: keep it as a tab
+		pv := m.tab()
+		if !tabShows(pv, r.id) {
+			m.assign(pv.focused(), r)
+		}
+		if r.kind == kindPane {
+			m.removeRowExcept(r.id, pv)
+		}
+		m.promote()
+		return tea.Batch(m.syncView(), m.saveState())
+	}
 	t := m.tab()
 	for _, l := range t.root.leaves() {
 		if l.view.Row == r.id {
@@ -244,13 +271,14 @@ func (m *Model) show(r row) tea.Cmd {
 			return m.syncView()
 		}
 	}
-	if len(leaves) == 1 && browsing(f) {
+	scope := m.rowScope(r)
+	if len(leaves) == 1 && browsing(f) && inScope(scope, m.tabScopeOf(t)) {
 		m.assign(f, r) // the browsing tab in view
 		return m.syncView()
 	}
 	if r.kind != kindPane {
-		for i := len(m.tabs) - 1; i >= 0; i-- { // the latest browsing tab
-			if ls := m.tabs[i].root.leaves(); len(ls) == 1 && browsing(ls[0]) {
+		for i := len(m.tabs) - 1; i >= 0; i-- { // the group's latest browsing tab
+			if ls := m.tabs[i].root.leaves(); len(ls) == 1 && browsing(ls[0]) && inScope(scope, m.tabScopeOf(m.tabs[i])) {
 				m.activeTab, m.tabs[i].focus = i, ls[0].id
 				m.assign(ls[0], r)
 				return tea.Batch(m.syncView(), m.saveState())
@@ -286,6 +314,8 @@ func (m *Model) focusLeaf(id int) tea.Cmd {
 // gets a new shell beside it in the same directory, anything else an empty
 // half to pick something for.
 func (m *Model) split(dir splitDir, v viewRef) tea.Cmd {
+	m.promote()
+	m.keepTab = true
 	t := m.tab()
 	f := t.focused()
 	newShell := false
@@ -315,11 +345,10 @@ func (m *Model) split(dir splitDir, v viewRef) tea.Cmd {
 func (m *Model) closeLeaf() tea.Cmd {
 	t := m.tab()
 	if len(t.root.leaves()) == 1 {
-		if len(m.tabs) > 1 {
-			return m.closeTab(m.activeTab)
+		if m.previewing {
+			return nil
 		}
-		t.root.leaf.view = viewRef{}
-		return tea.Batch(m.syncView(), m.saveState())
+		return m.closeTab(m.activeTab)
 	}
 	t.root = t.root.remove(t.focus)
 	t.focused()
@@ -340,6 +369,10 @@ func (m *Model) newTab(v viewRef) tea.Cmd {
 		}
 		m.removeRow(v.Row)
 	}
+	home, _ := m.tabFilter()
+	if home.level == scopeMachine {
+		home = tabScope{}
+	}
 	var shellFrom *leaf
 	if v.empty() {
 		f := m.tab().focused()
@@ -349,8 +382,8 @@ func (m *Model) newTab(v viewRef) tea.Cmd {
 	}
 	l := m.newLeaf(v)
 	l.pick = v.empty()
-	m.tabs = append(m.tabs, &tab{root: &layoutNode{leaf: l}, focus: l.id})
-	m.activeTab = len(m.tabs) - 1
+	m.tabs = append(m.tabs, &tab{root: &layoutNode{leaf: l}, focus: l.id, home: home})
+	m.activeTab, m.previewing, m.keepTab = len(m.tabs)-1, false, true
 	m.zoom = false
 	cmds := []tea.Cmd{m.focusLeaf(l.id), m.saveState()}
 	if shellFrom != nil {
@@ -361,21 +394,65 @@ func (m *Model) newTab(v viewRef) tea.Cmd {
 }
 
 func (m *Model) closeTab(i int) tea.Cmd {
-	if len(m.tabs) <= 1 || i < 0 || i >= len(m.tabs) {
+	if i < 0 || i >= len(m.tabs) {
 		return nil
 	}
 	m.tabs = append(m.tabs[:i], m.tabs[i+1:]...)
 	if m.activeTab >= i {
 		m.activeTab = max(m.activeTab-1, 0)
 	}
+	if len(m.tabs) == 0 {
+		return tea.Batch(m.syncView(), m.saveState())
+	}
 	return tea.Batch(m.focusLeaf(m.tab().focus), m.saveState())
+}
+
+// stepTab goes to the next (d = 1) or previous (d = -1) tab in the bar.
+func (m *Model) stepTab(d int) tea.Cmd {
+	vis := m.visibleTabs()
+	if len(vis) == 0 {
+		return nil
+	}
+	pos := slices.Index(vis, m.activeTab)
+	switch {
+	case m.previewing || pos < 0:
+		pos = 0
+		if d < 0 {
+			pos = len(vis) - 1
+		}
+	default:
+		pos = (pos + d + len(vis)) % len(vis)
+	}
+	return m.switchTab(vis[pos])
+}
+
+// gotoVisibleTab goes to the n-th tab in the bar (0-based).
+func (m *Model) gotoVisibleTab(n int) tea.Cmd {
+	if vis := m.visibleTabs(); n < len(vis) {
+		return m.switchTab(vis[n])
+	}
+	return nil
+}
+
+// switchTab goes to a tab listed in the bar. From the tree the cursor stays,
+// so the list doesn't change under ctrl+b n and p; typing in a pane, keys go
+// to the focused split, which the cursor follows.
+func (m *Model) switchTab(i int) tea.Cmd {
+	if m.focus == focusMain {
+		return m.gotoTab(i)
+	}
+	if i < 0 || i >= len(m.tabs) {
+		return nil
+	}
+	m.activeTab, m.previewing, m.keepTab = i, false, true
+	return tea.Batch(m.syncView(), m.saveState())
 }
 
 func (m *Model) gotoTab(i int) tea.Cmd {
 	if i < 0 || i >= len(m.tabs) {
 		return nil
 	}
-	m.activeTab = i
+	m.activeTab, m.previewing, m.keepTab = i, false, true
 	return tea.Batch(m.focusLeaf(m.tab().focus), m.saveState())
 }
 
@@ -533,18 +610,30 @@ func (m *Model) repeatResize(key string) (tea.Cmd, bool) {
 func (m *Model) openTabPicker() {
 	var items []menuItem
 	sel := 0
-	for i, t := range m.tabs {
-		key := ""
-		switch {
-		case i < 9:
-			key = itoa(i + 1)
-		case i == 9:
-			key = "0"
+	// Every tab, grouped like the tree.
+	order := make([]int, len(m.tabs))
+	for i := range order {
+		order[i] = i
+	}
+	rank := map[string]int{} // groups in the order their first tab appears
+	for _, t := range m.tabs {
+		if k := m.tabScopeOf(t).key(); rank[k] == 0 {
+			rank[k] = len(rank) + 1
 		}
-		if i == m.activeTab {
+	}
+	slices.SortStableFunc(order, func(a, b int) int {
+		return rank[m.tabScopeOf(m.tabs[a]).key()] - rank[m.tabScopeOf(m.tabs[b]).key()]
+	})
+	for _, i := range order {
+		t := m.tabs[i]
+		if i == m.activeTab && !m.previewing {
 			sel = len(items)
 		}
-		items = append(items, menuItem{key, m.tabLabel(t), func(m *Model) tea.Cmd { return m.gotoTab(i) }})
+		label := m.tabLabel(t)
+		if name := m.scopeName(m.tabScopeOf(t)); name != "" {
+			label += styleMuted.Render("  " + name)
+		}
+		items = append(items, menuItem{"", label, func(m *Model) tea.Cmd { return m.gotoTab(i) }})
 		ls := t.root.leaves()
 		if len(ls) < 2 {
 			continue
@@ -562,7 +651,7 @@ func (m *Model) openTabPicker() {
 				if i >= len(m.tabs) || m.tabs[i] != t {
 					return nil
 				}
-				m.activeTab = i
+				m.activeTab, m.previewing, m.keepTab = i, false, true
 				return tea.Batch(m.focusLeaf(id), m.saveState())
 			}})
 		}
@@ -636,13 +725,12 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 		hits = append(hits, tabHit{x0: x, x1: x + sw, tab: tab})
 		x += sw
 	}
-	for i, t := range m.tabs {
-		label := " " + itoa(i+1) + " " + m.tabLabel(t) + " "
-		if i == m.activeTab {
+	for n, i := range m.visibleTabs() {
+		t := m.tabs[i]
+		label := " " + itoa(n+1) + " " + m.tabLabel(t) + " "
+		if i == m.activeTab && !m.previewing {
 			put(styleSel.Render(label), i)
-			if len(m.tabs) > 1 {
-				put(styleSel.Render("× "), -2)
-			}
+			put(styleSel.Render("× "), -2)
 		} else {
 			put(styleMuted.Render(label), i)
 		}
@@ -671,16 +759,27 @@ func (m Model) savedTabs() []savedTab {
 }
 
 func (m *Model) restoreTabs(saved []savedTab, active int) {
-	for _, st := range saved {
+	var activeT *tab
+	for n, st := range saved {
 		root, focus, err := loadNode(st.Root, func() int { m.leafSeq++; return m.leafSeq })
 		if err != nil {
 			continue
 		}
 		t := &tab{name: st.Name, root: root, focus: focus, sync: st.Sync}
 		t.focused()
+		shows := false
+		for _, l := range t.root.leaves() {
+			shows = shows || !l.view.empty() && l.view.Kind != kindMachine
+		}
+		if !shows { // machine pages and empty tabs are previews now
+			continue
+		}
+		if n == active {
+			activeT = t
+		}
 		m.tabs = append(m.tabs, t)
 	}
-	m.activeTab = active
+	m.activeTab = max(slices.Index(m.tabs, activeT), 0)
 	m.tab()
 }
 
@@ -689,9 +788,23 @@ func (m *Model) restoreTabs(saved []savedTab, active int) {
 func (m *Model) dropPane(mid, id string) { m.removeRow(paneNodeID(mid, id)) }
 
 // removeRow takes a view out of every split and tab showing it.
-func (m *Model) removeRow(row string) {
+func (m *Model) removeRow(row string) { m.removeRowExcept(row, nil) }
+
+// removeRowExcept takes a view out of every tab but except. A tab left
+// with nothing closes.
+func (m *Model) removeRowExcept(row string, except *tab) {
+	if m.preview != nil && m.preview != except {
+		for _, l := range m.preview.root.leaves() {
+			if l.view.Row == row {
+				l.view = viewRef{}
+			}
+		}
+	}
 	for i := 0; i < len(m.tabs); i++ {
 		t := m.tabs[i]
+		if t == except {
+			continue
+		}
 		for _, l := range t.root.leaves() {
 			if l.view.Row != row {
 				continue
@@ -702,14 +815,12 @@ func (m *Model) removeRow(row string) {
 				if t.leaf(t.focus) == nil {
 					t.focus = t.root.leaves()[0].id
 				}
-			case len(m.tabs) > 1:
+			default:
 				m.tabs = append(m.tabs[:i], m.tabs[i+1:]...)
 				if m.activeTab > i || m.activeTab >= len(m.tabs) {
 					m.activeTab = max(m.activeTab-1, 0)
 				}
 				i--
-			default:
-				l.view = viewRef{}
 			}
 			break
 		}

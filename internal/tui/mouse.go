@@ -76,7 +76,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 					case -2:
 						return m, m.closeTabAsk(m.activeTab)
 					}
-					return m, m.gotoTab(h.tab)
+					return m, m.switchTab(h.tab)
 				}
 			}
 		}

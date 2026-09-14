@@ -168,9 +168,13 @@ func TestNoDuplicatesAndStableTabNames(t *testing.T) {
 	// into tab 2.
 	m.cursor = m.rows[0].id
 	m.syncView()
-	if got := m.tab().focused().view.PaneID; got != "codex" && got != "p3" {
+	if got := m.tabs[1].focused().view.PaneID; got != "p3" {
 		t.Fatalf("tab 2 now shows %q", got)
 	}
+	if m.activeTab != 0 {
+		t.Fatalf("the cursor on claude should show its tab, not %d", m.activeTab)
+	}
+	m.gotoTab(1)
 	// Clicking it jumps to tab 1 instead.
 	m.show(m.rows[0])
 	if m.activeTab != 0 {
@@ -194,8 +198,8 @@ func TestClosedPaneLeavesLayout(t *testing.T) {
 		t.Fatalf("p3's tab should close: %d tabs, active %d", len(m.tabs), m.activeTab)
 	}
 	m.dropPane(localMachine, "p1")
-	if len(m.tabs) != 1 || !m.tabs[0].root.leaves()[0].view.empty() {
-		t.Fatal("the last tab stays, empty")
+	if len(m.tabs) != 0 {
+		t.Fatal("closing the last pane closes its tab too")
 	}
 }
 

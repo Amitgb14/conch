@@ -351,6 +351,7 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 	case ":":
 		return m.openAsk(), true
 	case "S":
+		m.promote()
 		return m.toggleSync(), true
 	case "up", "k":
 		return m.moveFocus(0, -1), true
@@ -366,19 +367,23 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 	case "c":
 		return m.newTab(viewRef{}), true
 	case "n":
-		return m.gotoTab((m.activeTab + 1) % len(m.tabs)), true
+		return m.stepTab(1), true
 	case "p":
-		return m.gotoTab((m.activeTab + len(m.tabs) - 1) % len(m.tabs)), true
+		return m.stepTab(-1), true
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		return m.gotoTab(int(key[0] - '1')), true
+		return m.gotoVisibleTab(int(key[0] - '1')), true
 	case "0":
-		return m.gotoTab(9), true
+		return m.gotoVisibleTab(9), true
 	case "&":
+		if m.previewing {
+			return nil, true
+		}
 		return m.closeTabAsk(m.activeTab), true
 	case "=":
 		m.tab().root.equalize()
 		return tea.Batch(m.syncView(), m.saveState()), true
 	case ",":
+		m.promote()
 		t := m.tab()
 		d := newDialog(*m, " Rename tab ", []string{"Leave empty to name it after what it shows."}, []string{"Name"}, []string{t.name})
 		d.submit = func(m *Model, v []string) tea.Cmd {

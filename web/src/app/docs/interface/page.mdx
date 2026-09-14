@@ -76,7 +76,9 @@ Selecting a branch shows its **changes**: its pull request (checks, review), unc
 
 The main area has tabs (click them, `+` adds one, `×` closes), and each tab can be split into several views: panes, branch changes, projects or machines side by side. The focused split has the highlighted border.
 
-Tabs work like tmux windows. Every agent and terminal you open from the tree gets its own tab, and opening it again jumps to that tab; a pane is never shown in two places. Projects, branches and sessions share a browsing tab that follows the tree as you move. Closing a split or a tab ends the agents and terminals in it, after you confirm, and a pane that exits (a shell's `exit`, an agent's `/exit`) closes along with its split or tab. Only a pane that fails within its first 10 seconds (a missing command, a bad flag) stays, marked exited, so you can read the error; `x` removes it.
+Tabs work like tmux windows. Every agent and terminal you open from the tree gets its own tab, and opening it again jumps to that tab; a pane is never shown in two places. Projects, branches and sessions share a browsing tab that follows the tree as you move.
+
+The tab bar lists the tabs of what you select in the tree: a project shows its tabs, `CLI` the machine's own, and `Agents` or `Terminals` (or an agent or terminal in them) narrows to those. A tab belongs to the group of its first split. The machine row has no tabs; it and anything without a tab show as a preview, which becomes a tab once you open, split or type into it. `ctrl+b n`, `p` and the numbers move through the tabs listed; `ctrl+b w` lists every tab, grouped. Closing a split or a tab ends the agents and terminals in it, after you confirm, and a pane that exits (a shell's `exit`, an agent's `/exit`) closes along with its split or tab. Only a pane that fails within its first 10 seconds (a missing command, a bad flag) stays, marked exited, so you can read the error; `x` removes it.
 
 | Keys | |
 | --- | --- |
@@ -85,8 +87,8 @@ Tabs work like tmux windows. Every agent and terminal you open from the tree get
 | `ctrl+b {` / `}` | swap the split with the previous / next |
 | `ctrl+b ctrl+arrow` / `alt+arrow` | resize by 1 / 5 cells; press the arrow again within half a second to keep resizing |
 | `ctrl+b x` | close the split; an agent or terminal in it ends, after you confirm |
-| `ctrl+b c`, `n`, `p`, `0-9`, `l` | new, next, previous, go to, last tab |
-| `ctrl+b w` | pick a tab or split from a list |
+| `ctrl+b c`, `n`, `p`, `0-9`, `l` | new, next, previous, go to, last tab (among the tabs listed for the tree selection) |
+| `ctrl+b w` | pick any tab or split, grouped by project and CLI |
 | `ctrl+b &`, `,` | close, rename tab |
 | `ctrl+b =`, `z` | equalize splits, zoom |
 | `ctrl+b S` | type into every agent and terminal in the tab at once, like tmux's `synchronize-panes`; their borders turn amber and the status bar shows `SYNC`. Press it again to stop. |

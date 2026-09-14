@@ -60,6 +60,8 @@ type tab struct {
 	// sync sends what is typed in the focused split to every pane in the
 	// tab, like tmux's synchronize-panes.
 	sync bool
+	// home is the group of a tab that shows nothing yet.
+	home tabScope
 }
 
 type rect struct{ x, y, w, h int }

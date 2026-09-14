@@ -67,10 +67,17 @@ type Model struct {
 	overlay overlay      // menu or dialog on top, if any
 
 	// Tabs and splits in the main area.
-	tabs        []*tab
-	activeTab   int
-	seenTab     *tab // the active tab when the view last synced
-	lastTab     *tab // the tab active before it (ctrl+b l)
+	tabs      []*tab
+	activeTab int
+	seenTab   *tab // the active tab when the view last synced
+	lastTab   *tab // the tab active before it (ctrl+b l)
+	// preview shows the tree selection when its group has no tab to show
+	// (see scope.go); previewing means it is on screen instead of a tab.
+	preview     *tab
+	previewing  bool
+	keepTab     bool            // the next syncView keeps the tab just chosen
+	pickedFor   string          // the cursor row the tab was last picked for
+	scopeTab    map[string]*tab // the tab last used per group
 	leafSeq     int
 	frames      map[string]*proto.Frame // latest frame per visible pane (paneKey)
 	subscribed  map[string]bool
@@ -758,6 +765,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	next, cmd := m.update(msg)
 	nm := next.(Model)
+	if nm.focus == focusMain && nm.previewing && nm.overlay == nil {
+		nm.promote() // typing into the preview keeps it as a tab
+	}
 	if nm.flash != "" && !nm.flashTimer {
 		nm.flashTimer = true
 		wait := max(time.Until(nm.flashUntil), 100*time.Millisecond)
