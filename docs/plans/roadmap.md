@@ -3,7 +3,7 @@
 Order of upcoming work (updated 2026-09-14). Finished items move to the git
 history; details for big items live in their own plan files.
 
-## Now
+## Done
 
 1. **Plan-limit alerts** — notify once when Claude's or Codex's 5-hour,
    weekly or spend window passes 80% and 95% (configurable), per machine and
@@ -16,7 +16,7 @@ history; details for big items live in their own plan files.
    handoff file in the checkout and starts the chosen agent there with a
    prompt to read it and continue.
 
-## Later
+## Next
 
 4. **Broadcast to a group** — send one prompt to every agent in a project or
    group from the tree.

@@ -120,7 +120,7 @@ func TestA5DispatchErrors(t *testing.T) {
 		proto.MethodProjectChanges, proto.MethodProjectDiff, proto.MethodWorktreeAdd, proto.MethodWorktreeRemove,
 		proto.MethodTaskCreate, proto.MethodAgentInstall, proto.MethodAgentExplain, proto.MethodSessionList,
 		proto.MethodSessionResume, proto.MethodSessionDelete, proto.MethodSessionDismiss, proto.MethodAgentSetup,
-		proto.MethodProjectFiles, proto.MethodWorktreeFiles,
+		proto.MethodProjectFiles, proto.MethodWorktreeFiles, proto.MethodSessionSearch, proto.MethodSessionShare,
 	} {
 		err := c.Call(ctx, m, bad, nil)
 		var pe *proto.Error

@@ -9,7 +9,7 @@ Agents save their conversations; conch lists them per project so you can resume 
 Every project has a **Sessions** section in the tree. Select it to list, on the right, the conversations agents saved for the project and its worktrees — Claude Code, Codex, Gemini CLI and OpenCode — newest first, with the agent, title, branch and age:
 
 ```text
-Sessions · api                                  enter resume · a agent · R reload
+Sessions · api        enter resume · / search · s share · d delete · a agent
 4 saved · all agents · ⚠ 1 interrupted (I resumes all, x dismisses)
 
 ▸ ⚠ Claude Code  Fix the flaky login test          fix-login · interrupted · 2h
@@ -18,7 +18,7 @@ Sessions · api                                  enter resume · a agent · R re
   · Gemini CLI   Explain the auth flow                                main · 3d
 ```
 
-conch reads the agents' own session stores and never changes them; on remote machines the server there lists its sessions.
+conch reads the agents' own session stores and never changes them (except `d`, which deletes one after asking); on remote machines the server there lists its sessions.
 
 ## Resuming a session
 
@@ -32,6 +32,28 @@ conch reads the agents' own session stores and never changes them; on remote mac
 | OpenCode | `opencode --session` |
 
 `●` sessions are already open and `enter` shows their pane. `a` filters by agent, and `R` reloads the list.
+
+## Searching
+
+`/` searches the list as you type: titles, agents, branches and session IDs match at once, and a moment after you stop typing the server searches inside the conversations too — what you asked and what the agents answered, not tool output. A conversation match shows the text around it:
+
+```text
+/ cross compiler  2 found
+
+▸ · Claude Code  Deploy fails on arm64  “…The cross compiler is missing. Install…”   main · 2d
+  · Codex        Release script         “…needs a cross compiler for linux/arm64…”  main · 5d
+```
+
+Every word must appear. `enter` keeps the results and returns to the list keys, `esc` clears the search, `ctrl+u` empties it.
+
+## Sharing a session with another agent
+
+`s` hands a conversation to a different agent, so it can pick up where the other left off:
+
+- **Start an agent with it** — Claude Code, Codex, Gemini CLI or OpenCode starts in the session's folder.
+- **Send to a running agent** — any agent already running in the project gets it as its next message.
+
+conch writes the conversation — the messages, without tool calls or their output — to `.conch/handoff/<agent>-<session>.md` in the session's folder and asks the agent to read it, summarise what was done and what remains, and continue. `.conch/` is added to the repository's local `.git/info/exclude`, so it never shows up as a change. Very long conversations keep the first request and the latest messages.
 
 ## Interrupted runs
 

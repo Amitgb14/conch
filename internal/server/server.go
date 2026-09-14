@@ -266,6 +266,7 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true,
 	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodWorktreeFiles: true,
 	proto.MethodProjectFiles: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
+	proto.MethodSessionSearch: true, proto.MethodSessionShare: true,
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -644,6 +645,20 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return nil, s.deleteSession(rp)
+
+	case proto.MethodSessionSearch:
+		sp, perr := decode[proto.SessionSearchParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.searchSessions(sp)
+
+	case proto.MethodSessionShare:
+		sp, perr := decode[proto.SessionShareParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.shareSession(sp)
 
 	case proto.MethodSessionDismiss:
 		rp, perr := decode[proto.SessionRef](msg)

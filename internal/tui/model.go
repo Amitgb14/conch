@@ -403,6 +403,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.receiveSessions(msg)
 		return m, nil
 
+	case sessionSearchTickMsg:
+		return m, m.searchSessions(msg)
+
+	case sessionSearchMsg:
+		m.receiveSessionSearch(msg)
+		return m, nil
+
 	case sessionsStaleMsg:
 		mid, pid, _ := strings.Cut(msg.key, "|")
 		return m, m.loadSessions(mid, pid, true)

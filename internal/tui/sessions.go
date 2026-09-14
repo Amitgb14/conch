@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -122,6 +123,236 @@ type sessionsView struct {
 	machine, projectID string
 	sel, scroll        int
 	agent              string // filter; "" all
+
+	// Search: query filters by title, agent, branch and ID at once; the
+	// server's matches inside conversations (hits, with snippets) arrive
+	// shortly after typing stops.
+	query     string
+	typing    bool
+	hits      map[string]string // agent|id → snippet, for hitsFor
+	hitsFor   string
+	searching bool
+	searchErr string
+}
+
+// searchDelay is how long typing must pause before searching conversations.
+const searchDelay = 300 * time.Millisecond
+
+type (
+	sessionSearchTickMsg struct{ machine, projectID, query string }
+	sessionSearchMsg     struct {
+		machine, projectID, query string
+		list                      []proto.SessionInfo
+		err                       error
+	}
+)
+
+func sessionKey(s proto.SessionInfo) string { return s.Agent + "|" + s.ID }
+
+// matches reports whether a session's details contain every word.
+func (sv *sessionsView) matches(s proto.SessionInfo, words []string) bool {
+	text := strings.ToLower(strings.Join([]string{s.Title, s.Agent, agentLabel(s.Agent), s.Branch, s.ID}, " "))
+	for _, w := range words {
+		if !strings.Contains(text, w) {
+			return false
+		}
+	}
+	return true
+}
+
+// snippet is the conversation text a session matched, if any.
+func (sv *sessionsView) snippet(s proto.SessionInfo) string {
+	if sv.query == "" || sv.hitsFor != sv.query {
+		return ""
+	}
+	return sv.hits[sessionKey(s)]
+}
+
+// searchKey edits the query while typing; handled is false for keys that
+// end typing and act as usual (up, down).
+func (sv *sessionsView) searchKey(m *Model, k tea.KeyMsg) (cmd tea.Cmd, handled bool) {
+	switch k.Type {
+	case tea.KeyEsc:
+		sv.typing = false
+		sv.setQuery("")
+		return nil, true
+	case tea.KeyEnter:
+		sv.typing = false
+		return nil, true
+	case tea.KeyUp, tea.KeyDown, tea.KeyPgUp, tea.KeyPgDown:
+		sv.typing = false
+		return nil, false
+	case tea.KeyBackspace:
+		r := []rune(sv.query)
+		if len(r) == 0 {
+			sv.typing = false
+			return nil, true
+		}
+		sv.setQuery(string(r[:len(r)-1]))
+	case tea.KeyCtrlU:
+		sv.setQuery("")
+	case tea.KeySpace:
+		sv.setQuery(sv.query + " ")
+	case tea.KeyRunes:
+		sv.setQuery(sv.query + string(k.Runes))
+	default:
+		return nil, true
+	}
+	return sv.scheduleSearch(m), true
+}
+
+func (sv *sessionsView) setQuery(q string) {
+	if q != sv.query {
+		sv.query, sv.sel, sv.scroll = q, 0, 0
+	}
+	if strings.TrimSpace(q) == "" {
+		sv.hits, sv.hitsFor, sv.searching, sv.searchErr = nil, "", false, ""
+	}
+}
+
+// scheduleSearch asks the server to search conversations once typing pauses.
+func (sv *sessionsView) scheduleSearch(m *Model) tea.Cmd {
+	if strings.TrimSpace(sv.query) == "" || !m.hasCapability(sv.machine, "session.search.v1") {
+		return nil
+	}
+	sv.searching = true
+	msg := sessionSearchTickMsg{machine: sv.machine, projectID: sv.projectID, query: sv.query}
+	return tea.Tick(searchDelay, func(time.Time) tea.Msg { return msg })
+}
+
+// sessionsViews lists the sessions views of a project on screen or in tabs.
+func (m *Model) sessionsViews(mid, pid string) []*sessionsView {
+	var out []*sessionsView
+	tabs := m.tabs
+	if m.preview != nil {
+		tabs = append(append([]*tab(nil), tabs...), m.preview)
+	}
+	for _, t := range tabs {
+		for _, l := range t.root.leaves() {
+			if sv := l.sessions; sv != nil && sv.machine == mid && sv.projectID == pid {
+				out = append(out, sv)
+			}
+		}
+	}
+	return out
+}
+
+// searchSessions runs a search whose query is still current.
+func (m *Model) searchSessions(msg sessionSearchTickMsg) tea.Cmd {
+	current := false
+	for _, sv := range m.sessionsViews(msg.machine, msg.projectID) {
+		current = current || sv.query == msg.query
+	}
+	if !current {
+		return nil
+	}
+	c := m.clientOf(msg.machine)
+	if c == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		var out proto.SessionList
+		err := callCtx(c, proto.MethodSessionSearch, proto.SessionSearchParams{ProjectID: msg.projectID, Query: msg.query}, &out)
+		return sessionSearchMsg{machine: msg.machine, projectID: msg.projectID, query: msg.query, list: out.Sessions, err: err}
+	}
+}
+
+func (m *Model) receiveSessionSearch(msg sessionSearchMsg) {
+	for _, sv := range m.sessionsViews(msg.machine, msg.projectID) {
+		if sv.query != msg.query {
+			continue
+		}
+		sv.searching = false
+		if msg.err != nil {
+			sv.searchErr = msg.err.Error()
+			continue
+		}
+		sv.searchErr, sv.hitsFor, sv.hits = "", msg.query, map[string]string{}
+		for _, s := range msg.list {
+			sv.hits[sessionKey(s)] = s.Snippet
+		}
+	}
+}
+
+// ---- sharing ----
+
+// openShareMenu offers where to hand a session's conversation: a new agent
+// in its folder, or an agent already running in the project.
+func (m *Model) openShareMenu(sv *sessionsView, s proto.SessionInfo) {
+	switch {
+	case s.ID == "":
+		m.setFlash("this interrupted run has no saved conversation to share", true)
+		return
+	case !m.hasCapability(sv.machine, "session.share.v1"):
+		m.setFlash("the server there predates sharing sessions; reload it", true)
+		return
+	}
+	mach := m.machine(sv.machine)
+	if mach == nil {
+		return
+	}
+	mid, pid := sv.machine, sv.projectID
+	list := mach.agentList
+	if len(list) == 0 {
+		for _, name := range []string{"claude", "codex", "gemini", "opencode"} {
+			list = append(list, proto.AgentAvailability{Name: name, Installed: true})
+		}
+	}
+	var items []menuItem
+	for _, a := range list {
+		if !a.Installed {
+			continue
+		}
+		label := a.Label
+		if label == "" {
+			label = agentLabel(a.Name)
+		}
+		key := ""
+		if len(items) < 9 {
+			key = fmt.Sprint(len(items) + 1)
+		}
+		to := a.Name
+		items = append(items, menuItem{key, "Start " + label + " with it", func(m *Model) tea.Cmd {
+			return m.shareSession(mid, pid, s, proto.SessionShareParams{To: to}, label)
+		}})
+	}
+	for _, p := range mach.panes {
+		if p.Agent == nil || p.State != proto.PaneRunning || p.ProjectID != pid || p.ID == s.PaneID {
+			continue
+		}
+		id, name := p.ID, p.DisplayName()
+		detail := ""
+		if p.Branch != "" {
+			detail = styleMuted.Render("  " + p.Branch)
+		}
+		items = append(items, menuItem{"", "Send to " + name + detail, func(m *Model) tea.Cmd {
+			return m.shareSession(mid, pid, s, proto.SessionShareParams{PaneID: id}, name)
+		}})
+	}
+	if len(items) == 0 {
+		m.setFlash("no agent to share with: install one with c", true)
+		return
+	}
+	title := "Share “" + ansi.Truncate(s.Title, 40, "…") + "”"
+	m.overlay = &menu{title: title, items: items, x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
+}
+
+// shareSession hands the conversation over and shows the receiving pane.
+func (m *Model) shareSession(mid, pid string, s proto.SessionInfo, p proto.SessionShareParams, to string) tea.Cmd {
+	p.Agent, p.ID, p.Dir = s.Agent, s.ID, s.Dir
+	p.Cols, p.Rows = m.paneArea()
+	var res proto.SessionShareResult
+	key := sessionsKey(mid, pid)
+	return m.callOn(mid, proto.MethodSessionShare, p, &res, func() tea.Msg {
+		note := "shared with " + to
+		if res.Path != "" {
+			note += " · " + filepath.Base(res.Path)
+		}
+		return tea.BatchMsg{
+			func() tea.Msg { return createdMsg{machine: mid, info: res.Pane, note: note} },
+			func() tea.Msg { return sessionsStaleMsg{key: key} },
+		}
+	})
 }
 
 func (sv *sessionsView) data(m Model) *sessionsData {
@@ -134,14 +365,21 @@ func (sv *sessionsView) visible(m Model) []proto.SessionInfo {
 	if d == nil {
 		return nil
 	}
-	if sv.agent == "" {
+	words := strings.Fields(strings.ToLower(sv.query))
+	if sv.agent == "" && len(words) == 0 {
 		return d.list
 	}
 	var out []proto.SessionInfo
 	for _, s := range d.list {
-		if s.Agent == sv.agent {
-			out = append(out, s)
+		if sv.agent != "" && s.Agent != sv.agent {
+			continue
 		}
+		if len(words) > 0 && !sv.matches(s, words) {
+			if _, hit := sv.hits[sessionKey(s)]; sv.hitsFor != sv.query || !hit || s.ID == "" {
+				continue
+			}
+		}
+		out = append(out, s)
 	}
 	return out
 }
@@ -167,10 +405,29 @@ func (sv *sessionsView) agents(m Model) []string {
 const sessionsListTop = 3
 
 func (sv *sessionsView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
+	if sv.typing {
+		if cmd, handled := sv.searchKey(m, k); handled {
+			return false, cmd
+		}
+	}
 	list := sv.visible(*m)
 	switch k.String() {
-	case "esc", "q", "left", "h", "tab":
+	case "/":
+		sv.typing = true
+		return false, nil
+	case "esc":
+		if sv.query != "" { // first esc clears the search
+			sv.setQuery("")
+			return false, nil
+		}
 		return true, nil
+	case "q", "left", "h", "tab":
+		return true, nil
+	case "s":
+		if sv.sel >= 0 && sv.sel < len(list) {
+			m.openShareMenu(sv, list[sv.sel])
+		}
+		return false, nil
 	case "up", "k":
 		sv.sel--
 	case "down", "j":
@@ -266,7 +523,7 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 	if proj != nil {
 		name = proj.Name
 	}
-	lines := []string{spread(styleBold.Render("Sessions · "+name), styleMuted.Render("enter resume · d delete · a agent · R reload"), w)}
+	lines := []string{spread(styleBold.Render("Sessions · "+name), styleMuted.Render("enter resume · / search · s share · d delete · a agent"), w)}
 	d := sv.data(m)
 	switch {
 	case d == nil || (d.list == nil && d.loading):
@@ -283,8 +540,27 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 	if n := d.interrupted(); n > 0 {
 		meta += " · " + styleWarn.Render(fmt.Sprintf("⚠ %d interrupted", n)) + styleMuted.Render(" (I resumes all, x dismisses)")
 	}
-	lines = append(lines, styleMuted.Render(meta), "")
+	if sv.typing || sv.query != "" {
+		cursor := ""
+		if sv.typing {
+			cursor = "█"
+		}
+		status := fmt.Sprintf("%d found", len(list))
+		switch {
+		case sv.searchErr != "":
+			status = styleErr.Render("conversations: " + sv.searchErr)
+		case sv.searching:
+			status += " · searching conversations…"
+		}
+		meta = styleAccent.Render("/ ") + sv.query + cursor + styleMuted.Render("  "+status)
+		lines = append(lines, meta, "")
+	} else {
+		lines = append(lines, styleMuted.Render(meta), "")
+	}
 	if len(list) == 0 {
+		if sv.query != "" {
+			return append(lines, styleMuted.Render("  no sessions match · esc clears the search"))
+		}
 		return append(lines, styleMuted.Render("  no saved sessions for this project"), "",
 			styleMuted.Render("  sessions of Claude Code, Codex, Gemini CLI and OpenCode run here or in its worktrees appear here"))
 	}
@@ -324,16 +600,21 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 		}
 		right = append(right, ago(s.Updated))
 		rightText := strings.Join(right, " · ")
-		title := ansi.Truncate(s.Title, max(w-agentW-ansi.StringWidth(rightText)-8, 10), "…")
+		room := max(w-agentW-ansi.StringWidth(rightText)-8, 10)
+		title := ansi.Truncate(s.Title, room, "…")
+		snip := ""
+		if text := sv.snippet(s); text != "" && ansi.StringWidth(title)+4 < room {
+			snip = "  " + ansi.Truncate("“"+text+"”", room-ansi.StringWidth(title)-2, "…")
+		}
 		if i == sv.sel {
 			style := styleSelDim
 			if m.focus == focusMain {
 				style = styleSel
 			}
-			lines = append(lines, style.Render(spread(fmt.Sprintf("▸ %s %s  %s", mark, padRight(agentLabel(s.Agent), agentW), title), rightText, w)))
+			lines = append(lines, style.Render(spread(fmt.Sprintf("▸ %s %s  %s%s", mark, padRight(agentLabel(s.Agent), agentW), title, snip), rightText, w)))
 			continue
 		}
-		left := fmt.Sprintf("  %s %s  %s", markStyle.Render(mark), styleAccent.Render(padRight(agentLabel(s.Agent), agentW)), title)
+		left := fmt.Sprintf("  %s %s  %s%s", markStyle.Render(mark), styleAccent.Render(padRight(agentLabel(s.Agent), agentW)), title, styleMuted.Render(snip))
 		rs := styleMuted.Render(rightText)
 		if s.Interrupted && s.PaneID == "" {
 			rs = styleWarn.Render(rightText)

@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1",
 }
 
 // Methods.
@@ -80,6 +80,8 @@ const (
 	MethodSessionList    = "session.list"
 	MethodSessionResume  = "session.resume"
 	MethodSessionDismiss = "session.dismiss"
+	MethodSessionSearch  = "session.search"
+	MethodSessionShare   = "session.share"
 	MethodSessionDelete  = "session.delete"
 	MethodAgentLimits    = "agent.limits"
 )
@@ -557,6 +559,40 @@ type SessionInfo struct {
 	// Interrupted means the agent was running in conch when its server
 	// stopped (a restart or reboot) and hasn't been resumed.
 	Interrupted bool `json:"interrupted,omitempty"`
+	// Snippet is the text around a match inside the conversation, in
+	// session.search results; empty when the title or other details matched.
+	Snippet string `json:"snippet,omitempty"`
+}
+
+// SessionSearchParams asks for the sessions of a project (or directory)
+// whose title, branch, agent, ID or conversation contains every word of
+// Query. The result is a SessionList.
+type SessionSearchParams struct {
+	ProjectID string `json:"project_id,omitempty"`
+	Dir       string `json:"dir,omitempty"`
+	Query     string `json:"query"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+// SessionShareParams hands a saved conversation to another agent: conch
+// writes it to a Markdown file in the session's directory, then starts To
+// there with a prompt to read it, or (with PaneID) types that prompt into a
+// running agent.
+type SessionShareParams struct {
+	Agent  string `json:"agent"`
+	ID     string `json:"id"`
+	Dir    string `json:"dir"`
+	To     string `json:"to,omitempty"`
+	PaneID string `json:"pane_id,omitempty"`
+	Cols   int    `json:"cols,omitempty"`
+	Rows   int    `json:"rows,omitempty"`
+}
+
+// SessionShareResult is the pane that received the conversation and the
+// file it was written to.
+type SessionShareResult struct {
+	Pane PaneInfo `json:"pane"`
+	Path string   `json:"path"`
 }
 
 // SessionList is the result of session.list, newest first.

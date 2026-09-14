@@ -146,21 +146,26 @@ func (l *runLog) interruptedRuns() []agentRun {
 
 // ---- session.list / resume ----
 
-func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *proto.Error) {
-	var dirs []string
-	var proj *project
+// sessionDirs resolves where to look for a project's or directory's
+// sessions.
+func (s *Server) sessionDirs(method, projectID, dir string) ([]string, *project, *proto.Error) {
 	switch {
-	case p.ProjectID != "":
-		var perr *proto.Error
-		if proj, perr = s.projects.get(p.ProjectID); perr != nil {
-			return proto.SessionList{}, perr
+	case projectID != "":
+		proj, perr := s.projects.get(projectID)
+		if perr != nil {
+			return nil, nil, perr
 		}
-		dirs = proj.roots()
-	case p.Dir != "":
-		dirs = []string{p.Dir}
-		proj = s.projects.containing(p.Dir)
-	default:
-		return proto.SessionList{}, proto.Errorf(proto.ErrBadRequest, "session.list needs a project or a directory")
+		return proj.roots(), proj, nil
+	case dir != "":
+		return []string{dir}, s.projects.containing(dir), nil
+	}
+	return nil, nil, proto.Errorf(proto.ErrBadRequest, "%s needs a project or a directory", method)
+}
+
+func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *proto.Error) {
+	dirs, proj, perr := s.sessionDirs("session.list", p.ProjectID, p.Dir)
+	if perr != nil {
+		return proto.SessionList{}, perr
 	}
 	limit := p.Limit
 	if limit <= 0 {
