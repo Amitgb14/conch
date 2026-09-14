@@ -41,7 +41,8 @@ make build        # bin/conch
 make test         # go test -race ./...
 ```
 
-The website lives in [`web/`](web) — plain HTML and CSS, no build step.
+The website and documentation live in [`web/`](web), a Next.js and
+shadcn/ui app (`pnpm dev` there).
 
 ## License
 

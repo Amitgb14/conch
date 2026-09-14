@@ -1,0 +1,125 @@
+export const metadata = { title: "The interface", description: "The tree, splits and tabs, scrollback and settings." }
+
+# The interface
+
+The TUI shows a tree of machines, projects, branches, agents and terminals beside a main area with tabs and splits. This page covers each part and the settings that shape it.
+
+## The sidebar
+
+```text
+MACHINES
+▾ ● local                      ⠋1 ⚑1
+  ▾ ◆ api                      ⠋1 ⚑1
+    ▾ Branches                     7
+        ● main                    +1        checked out in the repo, uncommitted lines
+        ◇ conch/add-health-check  ⠋ ↑3      own worktree, agent working, 3 ahead of main
+        · feat/login          #12✓  ↑2      not checked out, pull request with passing checks
+        … 18 more
+    ▾ Agents                       2
+        ⠋ Add health check   conch/add-health-check
+        ! Fix flaky tests    fix/flaky
+    ▾ Terminals                    1
+        › dev-server         main
+```
+
+### Projects
+
+Projects appear when you open a pane inside a git repository, or add them with `a`, which opens a folder browser on the selected machine (local or remote):
+
+| Key | In the folder browser |
+| --- | --- |
+| `enter` | open a folder |
+| `←` | go up |
+| `a` | add the selected folder |
+| `.` | add the folder you're in |
+| `/` | filter |
+| `g` | jump to a typed path |
+| `n` | create a folder |
+| `p` | create a new project (a folder with a git repository and an initial commit) |
+
+Git repositories show `◆ git`, existing projects `◆ project`. From the CLI: `conch project add PATH` or `conch project create [-no-git] PATH`. Linked worktrees belong to their main repository. The list is kept in `~/.config/conch/projects.json`.
+
+### Branches
+
+Branches list checked-out branches, the base branch, branches with panes and recent ones; the rest fold into `… N more`. Each shows uncommitted changes (`+42 −7`, `⚠` conflicts), commits ahead/behind the base (`↑2 ↓1`), and the state of agents working on it. Git state refreshes when git metadata changes, after an agent uses a tool, and every few seconds.
+
+### Pull requests
+
+Pull requests come from the `gh` CLI (your existing GitHub login): `#12✓` checks passing, `#13✗` failing, `#14●` running, purple when merged. `o` opens the branch's PR. They refresh every minute while agents work in the project, every five minutes otherwise, and on `R`.
+
+### Agents
+
+Agents are named after their task (Claude's title) until you rename them with `r`. Their states are described in [Agents](/docs/agents#agent-states); every project also has a [Sessions](/docs/sessions) section.
+
+### Fold state
+
+Fold state and sidebar width are remembered in `~/.config/conch/ui.json`.
+
+### Changes view
+
+Selecting a branch shows its **changes**: its pull request (checks, review), uncommitted files (or files changed since the base when it isn't checked out), commits ahead, and diffs.
+
+| Key | In the changes view |
+| --- | --- |
+| `↑↓` | select a file |
+| `enter` | show its diff |
+| `o` | open the PR |
+| `y` | copy the file path or the whole diff |
+| `esc` | back |
+
+## Splits and tabs
+
+The main area has tabs (click them, `+` adds one, `×` closes), and each tab can be split into several views: panes, branch changes, projects or machines side by side. The focused split has the highlighted border; the tree picks what it shows (a single-view tab follows the tree as you move; with splits, click or `enter` a row).
+
+| Keys | |
+| --- | --- |
+| `ctrl+b v` / `ctrl+b -` | split right / down (the new split shows the same thing until you pick another) |
+| `ctrl+b ←→↑↓` or `h j k l`, `ctrl+b o` | move focus between splits |
+| `ctrl+b x` | close the split (the pane keeps running) |
+| `ctrl+b c`, `n`, `p`, `1-9`, `&`, `,` | new, next, previous, go to, close, rename tab |
+| `ctrl+b =` | equalize splits |
+| `v` / `s` / `O` in the tree | open the selected item in a split right / below / a new tab |
+
+Drag a border between splits to resize. Tabs and splits are remembered in `ui.json`.
+
+## Scrollback and copying
+
+The wheel over a pane scrolls back through its history (10,000 lines); the view stays on the same text while output continues, and typing returns to the live screen.
+
+`ctrl+b [` (or `ctrl+b pgup`) enters scroll mode with a cursor:
+
+| Key | In scroll mode |
+| --- | --- |
+| `↑↓←→` / `hjkl` | move the cursor (scrolling at the edges) |
+| `0` / `$` | line start / end |
+| `pgup` / `pgdn` | page |
+| `g` | oldest line |
+| `v` | start a selection |
+| `y` or `enter` | copy the selection |
+| any other key | return to live |
+
+Drag across a pane to select and copy; double-click copies a word. Copies use OSC 52 (works over SSH) plus `pbcopy`/`wl-copy`/`xclip` locally. `y` copies a branch name or directory in the tree, a file path or the whole diff in the changes view.
+
+Programs that use the mouse themselves (vim, htop) still get the mouse; full-screen programs get arrow keys from the wheel.
+
+## Settings
+
+Press `,` or click `⚙` at the right end of the status bar. Changes are saved to `~/.config/conch/config.toml` (see [Configuration](/docs/configuration)).
+
+### Theme
+
+Colour schemes: Conch, Dracula, Catppuccin Mocha, Nord, Gruvbox Dark, Tokyo Night (applied instantly).
+
+Below them, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the themes installed on this computer. conch starts zsh with a wrapper that loads your own `.zshenv`/`.zprofile`/`.zshrc`/`.zlogin` first and then switches the theme for that terminal only (`omz theme use`), so your dotfiles are never edited; "Keep my .zshrc theme" turns it off.
+
+### Notifications
+
+- A master switch.
+- How: desktop notification, system sound, terminal beep.
+- When: an agent is waiting, and/or one finishes.
+- **Quiet hours** (22:00–08:00 and other presets, or any `quiet_start` / `quiet_end` in config.toml) and **snooze for an hour**. While silenced the status bar shows `🔕` (click it to resume); waiting agents still show in the sidebar.
+- Send a test.
+
+### Agents
+
+Every machine with each supported agent, installed (with version) or not; `enter` on a missing one installs it there. The default agent chosen here is what `c` pre-selects and what tasks use.

@@ -1,0 +1,71 @@
+export const metadata = { title: "Agents", description: "Supported agents, their states, usage and plan limits." }
+
+# Agents
+
+conch runs Claude Code, Codex, Gemini CLI and OpenCode in panes it owns, tracks what each is doing, and shows their token usage and plan limits. It wires in its state tracking without touching the agents' own configuration.
+
+## Supported agents
+
+| Agent | Launch | How conch knows its state | Install (no root) |
+| --- | --- | --- | --- |
+| **Claude Code** | `claude --settings <conch hooks>` | hooks, screen, token usage from the transcript | `curl -fsSL https://claude.ai/install.sh \| bash` |
+| **Codex** | `codex` | terminal title (`[ ! ] Action Required`, spinner) and screen ("Would you like to run the following command?") | `curl -fsSL https://chatgpt.com/codex/install.sh \| sh` |
+| **Gemini CLI** | `gemini` with conch's hooks in a system-defaults settings file (merged with yours; Gemini runs hooks only in trusted folders) | hooks when trusted, title (`✋ Action Required`, `✦ Working…`, `◇ Ready`) and screen | `npm install -g --prefix ~/.local @google/gemini-cli` (Node 20+) |
+| **OpenCode** | `opencode` with conch's plugin via `OPENCODE_CONFIG_CONTENT` (merged with your config) | plugin events (busy, idle, permission, question) and screen | `curl -fsSL https://opencode.ai/install \| bash` |
+
+## Starting agents
+
+`c` (or clicking **c agent** in the status bar, or **Start an agent…** in the right-click menu) asks which agent to start at the selected place — a machine, project, branch or pane. Every agent installed there is listed, the default (Settings → Agents) pre-selected, so `c` `enter` starts it. Missing agents can be installed from the same list; `A` starts or installs any agent.
+
+`t` [tasks](/docs/tasks) use the default agent unless the task dialog's Agent field (or `conch task -agent NAME`) names another. From a shell, `conch new -agent claude -cwd DIR` starts Claude Code with state tracking, and `conch agent status` / `conch agent install NAME` check or install agents (add `-m MACHINE` for a remote machine).
+
+<Callout type="note">
+
+conch never edits an agent's own configuration or answers its trust prompts for you.
+
+</Callout>
+
+## Agent states
+
+| State | Meaning |
+| --- | --- |
+| `⠋` working | the agent is busy |
+| `!` waiting | blocked on you: a permission, trust or other question |
+| `✓` done | finished while you were looking elsewhere |
+| `○` idle | waiting for a prompt |
+
+A desktop notification fires when an agent you aren't viewing needs you (see [notification settings](/docs/interface#notifications)). `!` in the tree, or `ctrl+b !` in a pane, jumps to the next agent waiting for you.
+
+### How the state is decided
+
+Most reliable first:
+
+1. **Hooks.** Claude panes started by conch get `--settings ~/.config/conch/claude-settings.json`, adding hooks that call `conch report claude-hook`. Your own settings files are untouched and their hooks still run.
+2. **Screen rules.** Regexes over the bottom of the screen (tolerant of line wrapping), e.g. "Do you want to proceed?" → waiting. Also covers `claude` started by hand. Override `internal/detect/manifests/claude.toml` by copying it to `~/.config/conch/agents/claude.toml`.
+3. **Foreground process.** A pane is only an agent while the agent is the terminal's foreground process.
+
+`conch agent explain p1` shows the evidence behind a state.
+
+## Token usage
+
+Agent panes show token usage in their title — `ctx 45k/200k · out 12k · $0.42`:
+
+- **ctx** — how much of the model's context window the conversation fills right now (the input of the latest request), out of the window's size when the agent reports it. When it nears the size, the agent compacts or forgets.
+- **out** — output tokens the agent has generated in this session so far.
+- **$** — the session's cost, only when the agent reports one.
+
+conch reads these from each agent's own session data and never estimates prices:
+
+| Agent | Usage from | Cost |
+| --- | --- | --- |
+| Claude Code | the transcript the hooks point at | when the transcript records it |
+| Codex | the session's rollout file (found by folder and start time) | — |
+| OpenCode | its session database (via `sqlite3`) | yes |
+
+A machine's page totals the usage of its running agents.
+
+## Plan limits
+
+For Claude subscriptions the status bar shows the current windows, e.g. `Claude 5h 42% · 7d 18%` (amber from 70%, red from 90%); click it for reset times. The machine page draws them as bars with when each window resets.
+
+Claude shares these only with its status line, so conch adds a status line command to its `--settings` that records them and then runs your own status line unchanged. Codex's windows are read from its session files when its login has them. API-key logins have no plan windows.

@@ -1,0 +1,63 @@
+export const metadata = { title: "Protocol", description: "The NDJSON protocol and the source layout." }
+
+# Protocol
+
+Clients talk to a conch server with newline-delimited JSON over a stream: a unix socket locally, an ssh bridge remotely. This page describes the messages and where the code lives.
+
+## Messages
+
+One JSON object per line. Requests `{"id","method","params"}` get `{"id","result"}` or `{"id","error":{"code","message"}}`; requests without an `id` are notifications.
+
+## Events
+
+The server pushes `{"event","data"}`:
+
+| Event | Carries |
+| --- | --- |
+| `pane.created` | a new pane |
+| `pane.exited` | a pane whose program exited |
+| `pane.closed` | a closed pane |
+| `pane.updated` | a pane whose agent status, title or name changed |
+| `pane.frame` | a rendered snapshot of the screen, for subscribed panes |
+| `project.updated` | a project that was added or whose git state changed |
+| `project.removed` | a removed project |
+| `agent.limits` | plan limits that changed |
+
+## Bridge and hello
+
+Over SSH the same stream runs through `conch bridge`. `hello` returns the server's version, build, platform, hostname, home and capabilities; clients use capabilities to detect servers from older builds.
+
+## Methods
+
+| Group | Methods |
+| --- | --- |
+| Server | `hello`, `ping`, `server.stop`, `server.reload` |
+| Panes | `pane.list`, `pane.create`, `pane.close`, `pane.resize`, `pane.send_text`, `pane.send_keys`, `pane.send_mouse`, `pane.scroll`, `pane.read`, `pane.rename`, `pane.subscribe`, `pane.unsubscribe`, `pane.mark_seen` |
+| Agents | `agent.report`, `agent.explain`, `agent.status`, `agent.install`, `agent.setup`, `agent.limits` |
+| Projects | `project.list`, `project.add`, `project.remove`, `project.refresh`, `project.changes`, `project.diff`, `project.create`, `project.set_files` |
+| Worktrees and tasks | `worktree.add`, `worktree.remove`, `worktree.copy_files`, `task.create` |
+| Sessions | `session.list`, `session.resume`, `session.dismiss` |
+| Files and shell | `fs.list`, `fs.mkdir`, `shell.themes` |
+
+## Source layout
+
+```text
+cmd/conch            CLI entry point and subcommands
+internal/proto       NDJSON protocol: requests, responses, events, handshake
+internal/server      daemon: panes, projects and git refresh, unix socket
+internal/client      socket client, server auto-start
+internal/pane        PTY + VT emulator per pane, keys, mouse, title scanning
+internal/detect      agent detection: foreground process, screen manifests, state tracker
+internal/adapter     agent launchers with conch's integration wired in, title cleanup
+internal/agentsetup  what an agent loads in a folder: instructions, skills, MCP servers, plugins
+internal/sessions    saved agent conversations, for listing and resuming
+internal/usage       token usage totals from an agent session's transcript
+internal/brain       the brain: request plans and agent summaries behind a Provider
+internal/gitx        git plumbing: worktrees, branches, status, changes, diffs
+internal/ghx         pull requests via the gh CLI
+internal/remote      ssh machines: probe, install, bridge, machine catalog
+internal/update      finds newer builds and applies them without stopping panes
+internal/buildinfo   build identity for comparing binaries across machines
+internal/tui         Bubble Tea UI: tree, changes view, overlays, mouse
+internal/config      paths and config.toml
+```
