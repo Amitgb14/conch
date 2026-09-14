@@ -2,7 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -128,6 +130,18 @@ func (m *Model) syncView() tea.Cmd {
 
 	// The focused leaf's pane is what keys, scrolling and selection act on.
 	f := t.focused()
+	if t.seen != f.id { // remember the previous split and tab for ; and l
+		if t.leaf(t.seen) != nil {
+			t.last = t.seen
+		}
+		t.seen = f.id
+	}
+	if m.seenTab != t {
+		if slices.Contains(m.tabs, m.seenTab) {
+			m.lastTab = m.seenTab
+		}
+		m.seenTab = t
+	}
 	mid, id := "", ""
 	if f.view.Kind == kindPane && want[paneKey(f.view.Machine, f.view.PaneID)] {
 		mid, id = f.view.Machine, f.view.PaneID
@@ -361,6 +375,145 @@ func (m *Model) moveFocus(dx, dy int) tea.Cmd {
 	return nil
 }
 
+// lastSplit focuses the split focused before this one (tmux's last-pane).
+func (m *Model) lastSplit() tea.Cmd {
+	if t := m.tab(); t.last != t.focus && t.leaf(t.last) != nil {
+		return m.focusLeaf(t.last)
+	}
+	m.setFlash("no previous split", true)
+	return nil
+}
+
+// gotoLastTab switches to the tab active before this one (tmux's
+// last-window).
+func (m *Model) gotoLastTab() tea.Cmd {
+	if i := slices.Index(m.tabs, m.lastTab); i >= 0 && i != m.activeTab {
+		return m.gotoTab(i)
+	}
+	m.setFlash("no previous tab", true)
+	return nil
+}
+
+// swapSplit trades the focused split's view with the previous (d = -1) or
+// next (d = 1) split's, as tmux's swap-pane; focus stays with the view.
+func (m *Model) swapSplit(d int) tea.Cmd {
+	t := m.tab()
+	ls := t.root.leaves()
+	if len(ls) < 2 {
+		return nil
+	}
+	i := slices.IndexFunc(ls, func(l *leaf) bool { return l.id == t.focus })
+	if i < 0 {
+		return nil
+	}
+	a, b := ls[i], ls[(i+d+len(ls))%len(ls)]
+	a.view, b.view = b.view, a.view
+	a.changes, b.changes = b.changes, a.changes
+	a.sessions, b.sessions = b.sessions, a.sessions
+	a.pick, b.pick = b.pick, a.pick
+	t.focus = b.id
+	return tea.Batch(m.syncView(), m.saveState())
+}
+
+// repeatTime is how long resize keys keep working without the prefix, like
+// tmux's repeat-time.
+const repeatTime = 500 * time.Millisecond
+
+// resizeKey maps ctrl+arrow (one cell) and alt+arrow (five) to a resize.
+func resizeKey(key string) (dx, dy int, ok bool) {
+	step := 1
+	switch {
+	case strings.HasPrefix(key, "alt+"):
+		step = 5
+	case !strings.HasPrefix(key, "ctrl+"):
+		return 0, 0, false
+	}
+	_, arrow, _ := strings.Cut(key, "+")
+	switch arrow {
+	case "left":
+		return -step, 0, true
+	case "right":
+		return step, 0, true
+	case "up":
+		return 0, -step, true
+	case "down":
+		return 0, step, true
+	}
+	return 0, 0, false
+}
+
+// resizeFocus moves the focused split's nearest border.
+func (m *Model) resizeFocus(dx, dy int) tea.Cmd {
+	m.repeatUntil = time.Now().Add(repeatTime)
+	t := m.tab()
+	_, bars := m.leafRects()
+	dir, d := splitRight, dx
+	if dy != 0 {
+		dir, d = splitDown, dy
+	}
+	if !resize(t.root, bars, t.focus, dir, d) {
+		return nil
+	}
+	return tea.Batch(m.syncView(), m.saveState())
+}
+
+// repeatResize handles a resize key pressed again soon after the last one,
+// without the prefix.
+func (m *Model) repeatResize(key string) (tea.Cmd, bool) {
+	if time.Now().After(m.repeatUntil) {
+		return nil, false
+	}
+	dx, dy, ok := resizeKey(key)
+	if !ok {
+		m.repeatUntil = time.Time{}
+		return nil, false
+	}
+	return m.resizeFocus(dx, dy), true
+}
+
+// openTabPicker lists the tabs and their splits to jump to (tmux's
+// choose-tree).
+func (m *Model) openTabPicker() {
+	var items []menuItem
+	sel := 0
+	for i, t := range m.tabs {
+		key := ""
+		switch {
+		case i < 9:
+			key = itoa(i + 1)
+		case i == 9:
+			key = "0"
+		}
+		if i == m.activeTab {
+			sel = len(items)
+		}
+		items = append(items, menuItem{key, m.tabLabel(t), func(m *Model) tea.Cmd { return m.gotoTab(i) }})
+		ls := t.root.leaves()
+		if len(ls) < 2 {
+			continue
+		}
+		for j, l := range ls {
+			branch := "├ "
+			if j == len(ls)-1 {
+				branch = "└ "
+			}
+			if i == m.activeTab && l.id == t.focus {
+				sel = len(items)
+			}
+			id := l.id
+			items = append(items, menuItem{"", "  " + branch + m.viewLabel(l.view), func(m *Model) tea.Cmd {
+				if i >= len(m.tabs) || m.tabs[i] != t {
+					return nil
+				}
+				m.activeTab = i
+				return tea.Batch(m.focusLeaf(id), m.saveState())
+			}})
+		}
+	}
+	mr := m.mainRect()
+	m.overlay = &menu{title: "Tabs", items: items, sel: sel, x: mr.x + mr.w/2 - 20, y: mr.y + 2}
+}
+
 // ---- tab bar ----
 
 // tabLabel names a tab: its custom name, else what its focused leaf shows.
@@ -375,6 +528,15 @@ func (m Model) tabLabel(t *tab) string {
 	if v.empty() {
 		v = t.focused().view
 	}
+	label := m.viewLabel(v)
+	if n := len(t.root.leaves()); n > 1 {
+		label += " ⊞"
+	}
+	return ansi.Truncate(label, 20, "…")
+}
+
+// viewLabel names what a leaf shows.
+func (m Model) viewLabel(v viewRef) string {
 	label := "empty"
 	switch v.Kind {
 	case kindPane:
@@ -395,10 +557,7 @@ func (m Model) tabLabel(t *tab) string {
 	if v.empty() {
 		label = "empty"
 	}
-	if n := len(t.root.leaves()); n > 1 {
-		label += " ⊞"
-	}
-	return ansi.Truncate(label, 20, "…")
+	return label
 }
 
 type tabHit struct {

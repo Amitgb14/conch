@@ -52,6 +52,7 @@ type Model struct {
 	focus       focusArea
 	zoom        bool
 	prefixArmed bool
+	repeatUntil time.Time // resize keys repeat without the prefix until then
 	sidebarW    int
 	dragging    bool
 	lastClickID string
@@ -68,6 +69,8 @@ type Model struct {
 	// Tabs and splits in the main area.
 	tabs        []*tab
 	activeTab   int
+	seenTab     *tab // the active tab when the view last synced
+	lastTab     *tab // the tab active before it (ctrl+b l)
 	leafSeq     int
 	frames      map[string]*proto.Frame // latest frame per visible pane (paneKey)
 	subscribed  map[string]bool

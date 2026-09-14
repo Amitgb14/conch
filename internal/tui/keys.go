@@ -26,6 +26,9 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	m.flash = ""
 	r, ok := m.selectedRow()
+	if cmd, handled := m.repeatResize(k.String()); handled {
+		return m, cmd
+	}
 	if m.prefixArmed {
 		m.prefixArmed = false
 		if cmd, handled := m.layoutKey(k.String()); handled {
@@ -241,6 +244,9 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	r, _ := m.selectedRow()
 	prefix := m.cfg.Keys.Prefix
 
+	if cmd, handled := m.repeatResize(k.String()); handled {
+		return m, cmd
+	}
 	if m.prefixArmed {
 		m.prefixArmed = false
 		if cmd, handled := m.layoutKey(k.String()); handled {
@@ -323,8 +329,24 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 		return m.closeSplitAsk(), true
 	case "left", "h":
 		return m.moveFocus(-1, 0), true
-	case "right", "l":
+	case "right":
 		return m.moveFocus(1, 0), true
+	case "l":
+		return m.gotoLastTab(), true
+	case ";":
+		return m.lastSplit(), true
+	case "{":
+		return m.swapSplit(-1), true
+	case "}":
+		return m.swapSplit(1), true
+	case "w", "s":
+		m.openTabPicker()
+		return nil, true
+	case "d":
+		return tea.Sequence(m.saveState(), tea.Quit), true
+	case "?":
+		m.overlay = newHelp()
+		return nil, true
 	case "up", "k":
 		return m.moveFocus(0, -1), true
 	case "down", "j":
@@ -344,6 +366,8 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 		return m.gotoTab((m.activeTab + len(m.tabs) - 1) % len(m.tabs)), true
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		return m.gotoTab(int(key[0] - '1')), true
+	case "0":
+		return m.gotoTab(9), true
 	case "&":
 		return m.closeTabAsk(m.activeTab), true
 	case "=":
@@ -358,6 +382,9 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 		}
 		m.overlay = d
 		return d.focusCmd(), true
+	}
+	if dx, dy, ok := resizeKey(key); ok {
+		return m.resizeFocus(dx, dy), true
 	}
 	return nil, false
 }

@@ -55,6 +55,8 @@ type tab struct {
 	name  string
 	root  *layoutNode
 	focus int // leaf id
+	seen  int // the focused leaf when the view last synced
+	last  int // the leaf focused before it (ctrl+b ;)
 }
 
 type rect struct{ x, y, w, h int }
@@ -124,6 +126,51 @@ func (n *layoutNode) remove(id int) *layoutNode {
 	}
 	n.a, n.b = a, b
 	return n
+}
+
+// ancestors returns the split nodes above leaf id, nearest first.
+func (n *layoutNode) ancestors(id int) []*layoutNode {
+	if n.dir == splitNone {
+		return nil
+	}
+	for _, c := range []*layoutNode{n.a, n.b} {
+		for _, l := range c.leaves() {
+			if l.id == id {
+				return append(c.ancestors(id), n)
+			}
+		}
+	}
+	return nil
+}
+
+// resize moves the boundary nearest to leaf id along an axis by d cells
+// (negative: left or up), as tmux's resize-pane does. It reports whether a
+// boundary moved.
+func resize(root *layoutNode, bars []splitBar, id int, dir splitDir, d int) bool {
+	for _, n := range root.ancestors(id) {
+		if n.dir != dir {
+			continue
+		}
+		for _, b := range bars {
+			if b.node != n {
+				continue
+			}
+			size, first := b.area.w, b.pos-b.area.x
+			if dir == splitDown {
+				size, first = b.area.h, b.pos-b.area.y
+			}
+			if size < 2*minLeaf {
+				return false
+			}
+			next := clamp(first+d, minLeaf, size-minLeaf)
+			if next == first {
+				return false
+			}
+			n.ratio = float64(next) / float64(size)
+			return true
+		}
+	}
+	return false
 }
 
 // splitBar is a draggable boundary between two children.

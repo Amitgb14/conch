@@ -75,12 +75,19 @@ Tabs work like tmux windows. Every agent and terminal you open from the tree get
 
 | Keys | |
 | --- | --- |
-| `ctrl+b v` / `ctrl+b -` | split right / down (beside a terminal or agent, the new split starts a shell in its folder; otherwise it waits for you to open something) |
-| `ctrl+b ←→↑↓` or `h j k l`, `ctrl+b o` | move focus between splits |
+| `ctrl+b %` or `v` / `ctrl+b "` or `-` | split right / down (beside a terminal or agent, the new split starts a shell in its folder; otherwise it waits for you to open something) |
+| `ctrl+b ←→↑↓`, `o`, `;` | move focus between splits: by direction, to the next, to the last one focused |
+| `ctrl+b {` / `}` | swap the split with the previous / next |
+| `ctrl+b ctrl+arrow` / `alt+arrow` | resize by 1 / 5 cells; press the arrow again within half a second to keep resizing |
 | `ctrl+b x` | close the split; an agent or terminal in it ends, after you confirm |
-| `ctrl+b c`, `n`, `p`, `1-9`, `&`, `,` | new, next, previous, go to, close, rename tab |
-| `ctrl+b =` | equalize splits |
+| `ctrl+b c`, `n`, `p`, `0-9`, `l` | new, next, previous, go to, last tab |
+| `ctrl+b w` | pick a tab or split from a list |
+| `ctrl+b &`, `,` | close, rename tab |
+| `ctrl+b =`, `z` | equalize splits, zoom |
+| `ctrl+b d` | detach (agents keep running) |
 | `v` / `s` / `O` in the tree | open the selected item in a split right / below / a new tab |
+
+These follow tmux's default bindings; `ctrl+b 1` is the first tab and `0` the tenth. `ctrl+b !` jumps to the next agent waiting for you instead of breaking a pane out.
 
 Drag a border between splits to resize. Tabs and splits are remembered in `ui.json`.
 
@@ -96,7 +103,7 @@ The wheel over a pane scrolls back through its history (10,000 lines); the view 
 | `0` / `$` | line start / end |
 | `pgup` / `pgdn` | page |
 | `g` | oldest line |
-| `v` | start a selection |
+| `v` or `space` | start a selection |
 | `y` or `enter` | copy the selection |
 | any other key | return to live |
 
