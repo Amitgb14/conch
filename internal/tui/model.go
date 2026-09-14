@@ -361,11 +361,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if c := m.clientOf(cv.machine); c != nil {
 					c.Notify(proto.MethodProjectRefresh, proto.ProjectRef{ID: cv.projectID})
 				}
-				if cv.diffFile != "" {
-					file, scroll := cv.diffFile, cv.diffScroll
-					cmds = append(cmds, cv.loadDiff(&m, file))
-					cv.diffScroll = scroll
-				}
+				cmds = append(cmds, cv.refreshDiff(&m))
 			}
 		}
 		return m, tea.Batch(cmds...)

@@ -219,19 +219,30 @@ func (m *Model) focusLeaf(id int) tea.Cmd {
 	return m.syncView()
 }
 
-// split divides the focused leaf; the new half shows v (or the same view
-// when v is empty) and takes focus.
+// split divides the focused leaf; the new half shows v and takes focus.
+// Splitting without a view, or onto what the focused leaf already shows,
+// doesn't mirror it (typing would land in both halves): a terminal pane
+// gets a new shell beside it in the same directory, anything else an empty
+// half to pick something for.
 func (m *Model) split(dir splitDir, v viewRef) tea.Cmd {
 	t := m.tab()
 	f := t.focused()
-	if v.empty() {
-		v = f.view
+	newShell := false
+	if v.empty() || v.Row == f.view.Row {
+		p := m.pane(f.view.Machine, f.view.PaneID)
+		newShell = f.view.Kind == kindPane && p != nil && p.State == proto.PaneRunning
+		v = viewRef{}
 	}
 	nl := m.newLeaf(v)
 	t.root.split(f.id, dir, nl)
 	t.focus = nl.id
 	m.zoom = false
-	return tea.Batch(m.syncView(), m.saveState())
+	cmds := []tea.Cmd{m.syncView(), m.saveState()}
+	if newShell {
+		m.cursor = f.view.Row // the new shell starts where the split pane runs
+		cmds = append(cmds, m.openAgent("")) // shown in the new half when it starts
+	}
+	return tea.Batch(cmds...)
 }
 
 // closeLeaf removes the focused leaf (the pane keeps running). The last

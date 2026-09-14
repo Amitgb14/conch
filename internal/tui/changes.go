@@ -82,6 +82,19 @@ func (cv *changesView) poll(m *Model) tea.Cmd {
 
 func (cv *changesView) loadDiff(m *Model, file string) tea.Cmd {
 	cv.diffFile, cv.diff, cv.diffErr, cv.diffScroll = file, nil, "", 0
+	return cv.fetchDiff(m, file)
+}
+
+// refreshDiff re-reads the open diff, keeping it on screen (and scrolled)
+// until the new one arrives.
+func (cv *changesView) refreshDiff(m *Model) tea.Cmd {
+	if cv.diffFile == "" {
+		return nil
+	}
+	return cv.fetchDiff(m, cv.diffFile)
+}
+
+func (cv *changesView) fetchDiff(m *Model, file string) tea.Cmd {
 	c, pid, branch := m.clientOf(cv.machine), cv.projectID, cv.branch
 	return func() tea.Msg {
 		var out proto.DiffResult
@@ -353,10 +366,8 @@ func (cv *changesView) mouse(m *Model, msg tea.MouseMsg, x, y int) tea.Cmd {
 	}
 	top := cv.filesTop(*m)
 	if i := cv.scroll + y - top; y >= top && i >= 0 && i < len(cv.data.Files) {
-		if i == cv.sel {
-			return cv.loadDiff(m, cv.data.Files[i].Path)
-		}
 		cv.sel = i
+		return cv.loadDiff(m, cv.data.Files[i].Path) // one click opens the diff
 	}
 	return nil
 }
