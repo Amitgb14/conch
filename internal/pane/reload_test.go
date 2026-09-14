@@ -13,7 +13,8 @@ func TestDetachReplayAdopt(t *testing.T) {
 	// Fill the history, then colour and a bracketed-paste request.
 	p.SendText("for i in $(seq 1 30); do echo line-$i; done; printf '\\033[31mred\\033[0m\\033[?2004h\\n'", false)
 	p.SendKeys([]string{"enter"})
-	waitScreen(t, p, "red")
+	waitScreen(t, p, "line-30") // the command line itself contains "red"
+	time.Sleep(200 * time.Millisecond)
 	before := p.FrameAt(0)
 	history := p.History()
 
