@@ -239,7 +239,7 @@ func (m *Model) split(dir splitDir, v viewRef) tea.Cmd {
 	m.zoom = false
 	cmds := []tea.Cmd{m.syncView(), m.saveState()}
 	if newShell {
-		m.cursor = f.view.Row // the new shell starts where the split pane runs
+		m.cursor = f.view.Row                // the new shell starts where the split pane runs
 		cmds = append(cmds, m.openAgent("")) // shown in the new half when it starts
 	}
 	return tea.Batch(cmds...)
