@@ -83,7 +83,7 @@ func (m Model) mainOrigin() (x, y int) {
 func (m *Model) syncView() tea.Cmd {
 	t := m.tab()
 	leaves := t.root.leaves()
-	if r, ok := m.selectedRow(); ok && len(leaves) == 1 && !m.zoom && !leaves[0].pick {
+	if r, ok := m.selectedRow(); ok && len(leaves) == 1 && !m.zoom && !leaves[0].pick && !m.shownElsewhere(r.id, leaves[0]) {
 		m.assign(leaves[0], r)
 	}
 
@@ -172,6 +172,20 @@ func (m *Model) syncView() tea.Cmd {
 		m.sessionsView = f.sessions
 	}
 	return tea.Batch(cmds...)
+}
+
+// shownElsewhere reports whether a pane row is on screen in a leaf other
+// than except, in any tab: a pane lives in one place, so moving the tree's
+// cursor over it must not copy it into the current tab.
+func (m *Model) shownElsewhere(rowID string, except *leaf) bool {
+	for _, t := range m.tabs {
+		for _, l := range t.root.leaves() {
+			if l != except && l.view.Row == rowID && l.view.Kind == kindPane {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // assign shows a tree row in a leaf.
@@ -340,7 +354,13 @@ func (m Model) tabLabel(t *tab) string {
 	if t.name != "" {
 		return t.name
 	}
-	v := t.focused().view
+	// Named after its first view, not the focused one, so a tab keeps its
+	// name while focus moves between its splits.
+	leaves := t.root.leaves()
+	v := leaves[0].view
+	if v.empty() {
+		v = t.focused().view
+	}
 	label := "empty"
 	switch v.Kind {
 	case kindPane:
@@ -432,4 +452,34 @@ func (m *Model) restoreTabs(saved []savedTab, active int) {
 	}
 	m.activeTab = active
 	m.tab()
+}
+
+// dropPane takes a closed pane out of the layout, as tmux does: its split
+// closes, and a tab that showed only it closes too (unless it is the last).
+func (m *Model) dropPane(mid, id string) {
+	row := paneNodeID(mid, id)
+	for i := 0; i < len(m.tabs); i++ {
+		t := m.tabs[i]
+		for _, l := range t.root.leaves() {
+			if l.view.Row != row {
+				continue
+			}
+			switch {
+			case len(t.root.leaves()) > 1:
+				t.root = t.root.remove(l.id)
+				if t.leaf(t.focus) == nil {
+					t.focus = t.root.leaves()[0].id
+				}
+			case len(m.tabs) > 1:
+				m.tabs = append(m.tabs[:i], m.tabs[i+1:]...)
+				if m.activeTab > i || m.activeTab >= len(m.tabs) {
+					m.activeTab = max(m.activeTab-1, 0)
+				}
+				i--
+			default:
+				l.view = viewRef{}
+			}
+			break
+		}
+	}
 }

@@ -471,7 +471,8 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				if m.isViewing(mach.id, ref.ID) && m.focus == focusMain {
 					m.focus = focusSidebar
 				}
-				return m.rebuild()
+				m.dropPane(mach.id, ref.ID)
+				return tea.Batch(m.rebuild(), m.saveState())
 			}
 		}
 

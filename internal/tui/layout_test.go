@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/charmbracelet/x/ansi"
 	"testing"
 )
 
@@ -146,5 +147,54 @@ func TestNewTabWaitsForAPick(t *testing.T) {
 	m.show(m.rows[1])
 	if got := m.tab().focused(); got.view.PaneID != "p2" || got.pick {
 		t.Fatalf("opening a row fills the empty tab: %+v", got)
+	}
+}
+
+func TestNoDuplicatesAndStableTabNames(t *testing.T) {
+	m := splitModel()
+	m.machines[0].panes[0].Name, m.machines[0].panes[1].Name, m.machines[0].panes[2].Name = "claude", "zsh", "codex"
+	m.cursor = m.rows[0].id
+	m.show(m.rows[0])                      // tab 1: claude
+	m.split(splitRight, viewOf(m.rows[1])) // tab 1: claude | zsh, focus zsh
+	if got := ansi.Strip(m.tabLabel(m.tab())); got != "claude ⊞" {
+		t.Fatalf("tab named after its focused split: %q", got)
+	}
+	m.cursor = m.rows[2].id
+	m.show(m.rows[2]) // tab 2: codex
+	if m.activeTab != 1 {
+		t.Fatal("codex opens in a tab of its own")
+	}
+	// Moving the tree cursor over claude (shown in tab 1) must not copy it
+	// into tab 2.
+	m.cursor = m.rows[0].id
+	m.syncView()
+	if got := m.tab().focused().view.PaneID; got != "codex" && got != "p3" {
+		t.Fatalf("tab 2 now shows %q", got)
+	}
+	// Clicking it jumps to tab 1 instead.
+	m.show(m.rows[0])
+	if m.activeTab != 0 {
+		t.Fatalf("active tab %d", m.activeTab)
+	}
+}
+
+func TestClosedPaneLeavesLayout(t *testing.T) {
+	m := splitModel()
+	m.cursor = m.rows[0].id
+	m.show(m.rows[0])
+	m.split(splitRight, viewOf(m.rows[1])) // tab 1: p1 | p2
+	m.cursor = m.rows[2].id
+	m.show(m.rows[2]) // tab 2: p3
+	m.dropPane(localMachine, "p2")
+	if ls := m.tabs[0].root.leaves(); len(ls) != 1 || ls[0].view.PaneID != "p1" {
+		t.Fatalf("p2's split should close: %+v", ls)
+	}
+	m.dropPane(localMachine, "p3")
+	if len(m.tabs) != 1 || m.activeTab != 0 {
+		t.Fatalf("p3's tab should close: %d tabs, active %d", len(m.tabs), m.activeTab)
+	}
+	m.dropPane(localMachine, "p1")
+	if len(m.tabs) != 1 || !m.tabs[0].root.leaves()[0].view.empty() {
+		t.Fatal("the last tab stays, empty")
 	}
 }
