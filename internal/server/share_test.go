@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -323,3 +324,35 @@ func TestShareSessionHandoffUnwritable(t *testing.T) {
 }
 
 func sessionFor(agent, id string) sessions.Session { return sessions.Session{Agent: agent, ID: id} }
+
+// A directory named through a symlink finds the sessions recorded under its
+// real path, for every session method.
+func TestSessionMethodsResolveSymlinks(t *testing.T) {
+	s, _, work := shareFixture(t)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(work, link); err != nil {
+		t.Fatal(err)
+	}
+	call := func(method string, params any) proto.Message {
+		t.Helper()
+		b, _ := json.Marshal(params)
+		res, perr := s.dispatch(nil, proto.Message{ID: "1", Method: method, Params: b})
+		out := proto.Message{Result: proto.Marshal(res)}
+		if perr != nil {
+			out.Error = perr
+		}
+		return out
+	}
+	var list proto.SessionList
+	msg := call(proto.MethodSessionList, proto.SessionListParams{Dir: link})
+	if msg.Error != nil || json.Unmarshal(msg.Result, &list) != nil || len(list.Sessions) != 2 {
+		t.Fatalf("list through a symlink: %+v %s", msg.Error, msg.Result)
+	}
+	msg = call(proto.MethodSessionSearch, proto.SessionSearchParams{Dir: link, Query: "compiler"})
+	if msg.Error != nil || json.Unmarshal(msg.Result, &list) != nil || len(list.Sessions) != 1 {
+		t.Fatalf("search through a symlink: %+v %s", msg.Error, msg.Result)
+	}
+	if realDir("") != "" || realDir("/no/such/dir") != "/no/such/dir" {
+		t.Fatal("realDir fallbacks")
+	}
+}

@@ -630,6 +630,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
+		lp.Dir = realDir(lp.Dir)
 		return s.listSessions(lp)
 
 	case proto.MethodSessionResume:
@@ -637,6 +638,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
+		rp.Dir = realDir(rp.Dir)
 		return s.resumeSession(rp)
 
 	case proto.MethodSessionDelete:
@@ -644,6 +646,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
+		rp.Dir = realDir(rp.Dir)
 		return nil, s.deleteSession(rp)
 
 	case proto.MethodAgentBroadcast:
@@ -658,6 +661,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
+		sp.Dir = realDir(sp.Dir)
 		return s.searchSessions(sp)
 
 	case proto.MethodSessionShare:
@@ -665,6 +669,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
+		sp.Dir = realDir(sp.Dir)
 		return s.shareSession(sp)
 
 	case proto.MethodSessionDismiss:
@@ -672,6 +677,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
+		rp.Dir = realDir(rp.Dir)
 		s.runs.resolve(rp.Agent, rp.ID, rp.Dir)
 		return nil, nil
 

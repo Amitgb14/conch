@@ -146,6 +146,18 @@ func (l *runLog) interruptedRuns() []agentRun {
 
 // ---- session.list / resume ----
 
+// realDir resolves symlinks in a directory a client names (/tmp is
+// /private/tmp on macOS): agents record the resolved path.
+func realDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		return r
+	}
+	return dir
+}
+
 // sessionDirs resolves where to look for a project's or directory's
 // sessions.
 func (s *Server) sessionDirs(method, projectID, dir string) ([]string, *project, *proto.Error) {
