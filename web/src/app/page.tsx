@@ -1,6 +1,7 @@
 import { ArrowRightIcon } from "lucide-react"
 import Link from "next/link"
 
+import { ConchIcon } from "@/components/conch-icon"
 import { GithubIcon } from "@/components/github-icon"
 import { Architecture } from "@/components/landing/architecture"
 import { BrainDemo } from "@/components/landing/brain-demo"
@@ -267,6 +268,7 @@ export default function Home() {
         <div className="relative mx-auto w-full max-w-6xl overflow-hidden px-5 py-20 sm:px-6">
           <div className="relative flex flex-col items-center gap-6 rounded-2xl border bg-card px-6 py-14 text-center">
             <div className="bg-blueprint pointer-events-none absolute inset-0 rounded-2xl opacity-70 [mask-image:radial-gradient(60%_70%_at_50%_100%,black,transparent)]" />
+            <ConchIcon waves className="relative h-24 w-32 text-brand" />
             <h2 className="relative max-w-2xl text-3xl font-semibold tracking-[-0.025em] text-balance sm:text-4xl">
               Give your agents a place to work
             </h2>

@@ -56,7 +56,6 @@ export function SiteFooter() {
       <div className="border-t">
         <div className="mx-auto flex w-full max-w-6xl flex-wrap justify-between gap-2 px-5 py-4 font-mono text-xs text-muted-foreground sm:px-6">
           <span>Apache License 2.0 · written in Go</span>
-          <span>Not affiliated with Anthropic, OpenAI, Google or OpenCode.</span>
         </div>
       </div>
     </footer>
