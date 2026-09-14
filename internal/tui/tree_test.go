@@ -66,8 +66,9 @@ func TestBuildTreeDefault(t *testing.T) {
     p:r1/terminals
       pane:p2
   p:r2
-  m:local/terminals
-    pane:p3
+  m:local/cli
+    m:local/terminals
+      pane:p3
 `
 	if got != want {
 		t.Fatalf("tree:\n%s\nwant:\n%s", got, want)
@@ -155,5 +156,8 @@ func TestLooseAgentsGetTheirOwnSection(t *testing.T) {
 	rows := buildTree(in)
 	if parentID(rows, indexOfRow(rows, "pane:p9")) != "m:local/agents" || parentID(rows, indexOfRow(rows, "pane:p3")) != "m:local/terminals" {
 		t.Fatalf("loose panes:\n%s", render(rows))
+	}
+	if parentID(rows, indexOfRow(rows, "m:local/agents")) != "m:local/cli" {
+		t.Fatalf("machine sections not under CLI:\n%s", render(rows))
 	}
 }

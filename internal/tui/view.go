@@ -193,6 +193,8 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		return "", glyphStyle, "Agents", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindTerminals:
 		return "", glyphStyle, "Terminals", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
+	case kindCLI:
+		return "❯", styleAccent, "CLI", styleBold, styleMuted.Render(fmt.Sprint(r.count))
 	case kindMore:
 		return "", glyphStyle, fmt.Sprintf("… %d more", r.count), styleMuted, ""
 	case kindSessions:

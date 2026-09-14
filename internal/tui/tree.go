@@ -21,6 +21,7 @@ const (
 	kindMore // "… N more" branches
 	kindPane
 	kindSessions // section: saved agent sessions
+	kindCLI      // a machine's agents and terminals outside every project
 )
 
 // row is one visible line of the sidebar tree. IDs of panes and projects
@@ -38,7 +39,7 @@ type row struct {
 
 func (r row) expandable() bool {
 	switch r.kind {
-	case kindMachine, kindProject, kindBranches, kindAgents, kindTerminals:
+	case kindMachine, kindProject, kindBranches, kindAgents, kindTerminals, kindCLI:
 		return true
 	}
 	return false
@@ -86,6 +87,7 @@ func branchNodeID(mid, pid, b string) string { return "b:" + scoped(mid, pid) + 
 func paneNodeID(mid, id string) string       { return "pane:" + scoped(mid, id) }
 func moreID(mid, pid string) string          { return "more:" + scoped(mid, pid) }
 func looseTerminalsID(mid string) string     { return machineID(mid) + "/terminals" }
+func cliID(mid string) string                { return machineID(mid) + "/cli" }
 
 // buildTree flattens the visible tree into rows.
 func buildTree(in treeInput) []row {
@@ -210,8 +212,10 @@ func machineRows(in treeInput, mach treeMachine, filter string, match func(strin
 		}
 	}
 
-	// Panes outside any project, split like a project's.
+	// Panes outside any project, grouped under CLI and split like a
+	// project's.
 	var looseAgents, looseTerms []proto.PaneInfo
+	var cli []row
 	for _, p := range loose {
 		if isAgent(p) {
 			looseAgents = append(looseAgents, p)
@@ -224,11 +228,17 @@ func machineRows(in treeInput, mach treeMachine, filter string, match func(strin
 		kind  nodeKind
 		panes []proto.PaneInfo
 	}{{machineID(mid) + "/agents", kindAgents, looseAgents}, {looseTerminalsID(mid), kindTerminals, looseTerms}} {
-		if prows := paneRows(sec.panes, 2, false); len(prows) > 0 {
-			body = append(body, row{id: sec.id, kind: sec.kind, depth: 1, machine: mid, count: len(sec.panes)})
+		if prows := paneRows(sec.panes, 3, false); len(prows) > 0 {
+			cli = append(cli, row{id: sec.id, kind: sec.kind, depth: 2, machine: mid, count: len(sec.panes)})
 			if open(sec.id, true) {
-				body = append(body, prows...)
+				cli = append(cli, prows...)
 			}
+		}
+	}
+	if len(cli) > 0 {
+		body = append(body, row{id: cliID(mid), kind: kindCLI, depth: 1, machine: mid, count: len(loose)})
+		if open(cliID(mid), true) {
+			body = append(body, cli...)
 		}
 	}
 
