@@ -48,7 +48,7 @@ function Link({ label, className }: { label: string; className?: string }) {
 // machine's server owns the panes the agents run in.
 export function Architecture() {
   return (
-    <div className="grid items-center gap-2 rounded-2xl border bg-card p-4 sm:p-6 lg:grid-cols-[1fr_auto_1fr]">
+    <div className="grid grid-cols-1 items-center gap-2 rounded-2xl border bg-card p-4 sm:p-6 lg:grid-cols-[1fr_auto_1fr]">
       <Machine icon={LaptopIcon} name="your laptop">
         <Box title="conch" sub="the TUI — a client you can quit any time" />
         <Link label="unix socket · NDJSON" />
