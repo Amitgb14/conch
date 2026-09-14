@@ -48,7 +48,16 @@ func TestMain(m *testing.M) {
 // resets the ssh config cache (it is process-wide).
 func a4Env(t *testing.T) string {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	// Not t.TempDir: tests that run the go toolchain leave its telemetry
+	// uploader writing under HOME after go exits, which fails TempDir's
+	// strict cleanup on Linux.
+	home, err := os.MkdirTemp("", "a4home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	dir, err := os.MkdirTemp("", "a4")
 	if err != nil {
 		t.Fatal(err)
