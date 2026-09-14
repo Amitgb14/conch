@@ -579,7 +579,7 @@ var helpText = []string{
 	"  F  local files (.env, local agent settings) copied into new worktrees",
 	"",
 	"Splits and tabs (ctrl+b, then)",
-	"  v split right   - split down   x close split   ←→↑↓ / hjkl focus   o next split",
+	"  v split right   - split down   x close split (ends its pane)   ←→↑↓ / hjkl focus   o next split",
 	"  c new tab   n / p next / previous   1-9 go to tab   & close tab   , rename   = equalize",
 	"  in the tree: v open in a split right · s below · O in a new tab",
 	"  mouse: click a split to focus it · drag borders to resize · click tabs, + and ×",

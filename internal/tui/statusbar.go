@@ -95,7 +95,7 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			action(m.cfg.Keys.Prefix+" z", "zoom", func(m *Model) tea.Cmd { m.zoom = !m.zoom; return m.syncView() }),
 		}
 		if len(m.tab().root.leaves()) > 1 {
-			items = append(items, action(m.cfg.Keys.Prefix+" x", "close split", func(m *Model) tea.Cmd { return m.closeLeaf() }))
+			items = append(items, action(m.cfg.Keys.Prefix+" x", "close split", func(m *Model) tea.Cmd { return m.closeSplitAsk() }))
 		}
 	case m.focus == focusMain && m.changes != nil && m.changes.diffFile != "":
 		chip = styleChip.Background(colorInput).Render("DIFF")

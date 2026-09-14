@@ -456,6 +456,17 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		var installed tea.Cmd
 		if msg.Event == proto.EventPaneExited {
 			installed = m.installerDone(mach, info)
+			if info.ExitCode == 0 && installed == nil {
+				// Exited on its own and cleanly (a shell's exit, an agent's
+				// /exit): close it, as tmux does. Failures stay to be read.
+				c, id := mach.c, info.ID
+				installed = func() tea.Msg {
+					if c != nil {
+						_ = callCtx(c, proto.MethodPaneClose, proto.PaneRef{ID: id}, nil)
+					}
+					return nil
+				}
+			}
 		}
 		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), installed, m.observeAgent(mach, old, info))
 

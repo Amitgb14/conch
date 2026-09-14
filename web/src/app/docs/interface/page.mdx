@@ -69,13 +69,15 @@ Selecting a branch shows its **changes**: its pull request (checks, review), unc
 
 ## Splits and tabs
 
-The main area has tabs (click them, `+` adds one, `×` closes), and each tab can be split into several views: panes, branch changes, projects or machines side by side. The focused split has the highlighted border; the tree picks what it shows (a single-view tab follows the tree as you move; with splits, click or `enter` a row).
+The main area has tabs (click them, `+` adds one, `×` closes), and each tab can be split into several views: panes, branch changes, projects or machines side by side. The focused split has the highlighted border.
+
+Tabs work like tmux windows. Every agent and terminal you open from the tree gets its own tab, and opening it again jumps to that tab; a pane is never shown in two places. Projects, branches and sessions share a browsing tab that follows the tree as you move. Closing a split or a tab ends the agents and terminals in it, after you confirm, and a pane that exits cleanly (a shell's `exit`, an agent's `/exit`) closes along with its split or tab.
 
 | Keys | |
 | --- | --- |
-| `ctrl+b v` / `ctrl+b -` | split right / down (the new split shows the same thing until you pick another) |
+| `ctrl+b v` / `ctrl+b -` | split right / down (beside a terminal or agent, the new split starts a shell in its folder; otherwise it waits for you to open something) |
 | `ctrl+b ←→↑↓` or `h j k l`, `ctrl+b o` | move focus between splits |
-| `ctrl+b x` | close the split (the pane keeps running) |
+| `ctrl+b x` | close the split; an agent or terminal in it ends, after you confirm |
 | `ctrl+b c`, `n`, `p`, `1-9`, `&`, `,` | new, next, previous, go to, close, rename tab |
 | `ctrl+b =` | equalize splits |
 | `v` / `s` / `O` in the tree | open the selected item in a split right / below / a new tab |

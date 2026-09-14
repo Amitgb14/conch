@@ -320,7 +320,7 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 	case "-", "\"", "_":
 		return m.split(splitDown, viewRef{}), true
 	case "x":
-		return m.closeLeaf(), true
+		return m.closeSplitAsk(), true
 	case "left", "h":
 		return m.moveFocus(-1, 0), true
 	case "right", "l":
@@ -345,7 +345,7 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		return m.gotoTab(int(key[0] - '1')), true
 	case "&":
-		return m.closeTab(m.activeTab), true
+		return m.closeTabAsk(m.activeTab), true
 	case "=":
 		m.tab().root.equalize()
 		return tea.Batch(m.syncView(), m.saveState()), true

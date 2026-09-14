@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -83,7 +84,10 @@ func (m Model) mainOrigin() (x, y int) {
 func (m *Model) syncView() tea.Cmd {
 	t := m.tab()
 	leaves := t.root.leaves()
-	if r, ok := m.selectedRow(); ok && len(leaves) == 1 && !m.zoom && !leaves[0].pick && !m.shownElsewhere(r.id, leaves[0]) {
+	// A browsing tab follows the tree's cursor over pages; agents and
+	// terminals open (in their own tab) only when activated.
+	if r, ok := m.selectedRow(); ok && len(leaves) == 1 && !m.zoom && !leaves[0].pick &&
+		r.kind != kindPane && browsing(leaves[0]) {
 		m.assign(leaves[0], r)
 	}
 
@@ -197,10 +201,10 @@ func (m *Model) assign(l *leaf, r row) {
 	}
 }
 
-// show puts a tree row on screen. A pane already on screen is focused where
-// it is. Otherwise it fills an empty split, or previews in a single-view tab
-// (the current one, else the latest), and only when every tab is split does
-// it get a tab of its own.
+// show puts a tree row on screen. What is already on screen is focused where
+// it is. Agents and terminals get a tab each, as tmux windows do: an empty
+// split or browsing tab takes one in, else it opens its own tab. Other rows
+// (projects, branches, sessions) share a browsing tab.
 func (m *Model) show(r row) tea.Cmd {
 	t := m.tab()
 	for _, l := range t.root.leaves() {
@@ -217,35 +221,35 @@ func (m *Model) show(r row) tea.Cmd {
 			}
 		}
 	}
-	// Never replace a view the user arranged: fill an empty leaf, preview in
-	// a single-leaf tab, else open a tab for it.
 	leaves := t.root.leaves()
 	f := t.focused()
-	switch {
-	case f.pick || f.view.empty():
-		m.assign(f, r)
-	case len(leaves) == 1:
-		m.assign(f, r)
-	default:
-		for _, l := range leaves {
-			if l.pick || l.view.empty() {
-				t.focus = l.id
-				m.assign(l, r)
-				return m.syncView()
-			}
+	for _, l := range leaves { // an empty split waiting for something
+		if l.pick || l.view.empty() {
+			t.focus = l.id
+			m.assign(l, r)
+			return m.syncView()
 		}
-		// A single-view tab previews what is opened, like the one in view
-		// would: reuse the latest instead of opening a tab per click.
-		for i := len(m.tabs) - 1; i >= 0; i-- {
-			if ls := m.tabs[i].root.leaves(); i != m.activeTab && len(ls) == 1 {
+	}
+	if len(leaves) == 1 && browsing(f) {
+		m.assign(f, r) // the browsing tab in view
+		return m.syncView()
+	}
+	if r.kind != kindPane {
+		for i := len(m.tabs) - 1; i >= 0; i-- { // the latest browsing tab
+			if ls := m.tabs[i].root.leaves(); len(ls) == 1 && browsing(ls[0]) {
 				m.activeTab, m.tabs[i].focus = i, ls[0].id
 				m.assign(ls[0], r)
 				return tea.Batch(m.syncView(), m.saveState())
 			}
 		}
-		return m.newTab(viewOf(r))
 	}
-	return m.syncView()
+	return m.newTab(viewOf(r))
+}
+
+// browsing reports whether a leaf shows something other than a pane: a
+// page it's fine to replace by opening another row.
+func browsing(l *leaf) bool {
+	return l.pick || l.view.empty() || l.view.Kind != kindPane
 }
 
 // focusLeaf moves focus to a leaf and the tree cursor to what it shows.
@@ -492,4 +496,57 @@ func (m *Model) dropPane(mid, id string) {
 			break
 		}
 	}
+}
+
+// closeSplitAsk closes the focused split. A running agent or terminal in it
+// ends, after confirming, as tmux's kill-pane does; its view then leaves the
+// layout when the server reports it closed.
+func (m *Model) closeSplitAsk() tea.Cmd {
+	f := m.tab().focused()
+	p := m.pane(f.view.Machine, f.view.PaneID)
+	if f.view.Kind != kindPane || p == nil {
+		return m.closeLeaf()
+	}
+	mid, id := f.view.Machine, p.ID
+	if p.State != proto.PaneRunning {
+		return m.callOn(mid, proto.MethodPaneClose, proto.PaneRef{ID: id}, nil, nil)
+	}
+	m.overlay = newConfirm(fmt.Sprintf("Close %s? Its process stops.", p.DisplayName()), func(m *Model) tea.Cmd {
+		return m.callOn(mid, proto.MethodPaneClose, proto.PaneRef{ID: id}, nil, nil)
+	})
+	return nil
+}
+
+// closeTabAsk closes a tab and, after confirming, ends the agents and
+// terminals in it.
+func (m *Model) closeTabAsk(i int) tea.Cmd {
+	if i < 0 || i >= len(m.tabs) {
+		return nil
+	}
+	type ref struct{ mid, id string }
+	var running []ref
+	var names []string
+	for _, l := range m.tabs[i].root.leaves() {
+		if p := m.pane(l.view.Machine, l.view.PaneID); l.view.Kind == kindPane && p != nil {
+			running = append(running, ref{l.view.Machine, p.ID})
+			if p.State == proto.PaneRunning {
+				names = append(names, p.DisplayName())
+			}
+		}
+	}
+	closeAll := func(m *Model) tea.Cmd {
+		var cmds []tea.Cmd
+		for _, r := range running {
+			cmds = append(cmds, m.callOn(r.mid, proto.MethodPaneClose, proto.PaneRef{ID: r.id}, nil, nil))
+		}
+		if len(m.tabs) > 1 && i < len(m.tabs) {
+			cmds = append(cmds, m.closeTab(i))
+		}
+		return tea.Batch(cmds...)
+	}
+	if len(names) == 0 {
+		return closeAll(m)
+	}
+	m.overlay = newConfirm(fmt.Sprintf("Close this tab? It ends %s.", strings.Join(names, ", ")), closeAll)
+	return nil
 }
