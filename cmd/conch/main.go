@@ -158,7 +158,7 @@ func runServer(args []string) error {
 			if err != nil {
 				return errors.New("server is not running")
 			}
-			return stopServer(c)
+			return stopServer(c, machineFlag == "" || machineFlag == "local")
 		case "reload":
 			fs := flag.NewFlagSet("server reload", flag.ContinueOnError)
 			bin := fs.String("binary", "", "program to reload into (default: the server's own executable path)")
@@ -190,6 +190,9 @@ func runServer(args []string) error {
 func runStatus() error {
 	c, err := connect(false)
 	if err != nil {
+		if machineFlag != "" && machineFlag != "local" {
+			return err // why the machine can't be reached, not "not running"
+		}
 		fmt.Println("server: not running")
 		return nil
 	}
@@ -322,11 +325,21 @@ func runClose(args []string) error {
 }
 
 // stopServer asks the server to stop and waits until it has, so a following
-// command doesn't reach the dying server. It closes c.
-func stopServer(c *client.Client) error {
+// command doesn't reach the dying server. It closes c. A local server is
+// gone when its socket refuses connections; a remote one (local false) when
+// the connection to it closes.
+func stopServer(c *client.Client, local bool) error {
 	defer c.Close()
 	if err := call(c, proto.MethodServerStop, nil, nil); err != nil {
 		return err
+	}
+	if !local {
+		// The bridge ends with the server. Don't wait long for it: connecting
+		// again goes through a new bridge anyway.
+		for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline) && c.Err() == nil; {
+			time.Sleep(50 * time.Millisecond)
+		}
+		return nil
 	}
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
 		nc, err := net.Dial("unix", config.SocketPath())
@@ -375,7 +388,7 @@ func offerUpgrade(c *client.Client) (*client.Client, error) {
 	if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
 		return c, nil
 	}
-	if err := stopServer(c); err != nil {
+	if err := stopServer(c, true); err != nil {
 		return nil, err
 	}
 	return connect(true)

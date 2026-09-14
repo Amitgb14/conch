@@ -45,9 +45,10 @@ func (p *Pane) Detach() (Snapshot, *os.File, error) {
 	if !p.running() {
 		return Snapshot{}, nil, ErrNotRunning
 	}
-	close(p.stopRead)
+	stopRead, readDone := p.readChans()
+	close(stopRead)
 	select {
-	case <-p.readDone:
+	case <-readDone:
 	case <-time.After(2 * time.Second):
 		p.Resume()
 		return Snapshot{}, nil, errors.New("pane: output reader did not stop")
@@ -69,12 +70,22 @@ func (p *Pane) Detach() (Snapshot, *os.File, error) {
 	return snap, p.ptmx, nil
 }
 
+// readChans returns the current read loop's stop and done channels, which
+// Resume replaces.
+func (p *Pane) readChans() (stop, done chan struct{}) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.stopRead, p.readDone
+}
+
 // Resume restarts reading after a Detach whose handover failed, as soon as
 // the stopped reader has finished.
 func (p *Pane) Resume() {
-	old := p.readDone
 	stop, done := make(chan struct{}), make(chan struct{})
+	p.mu.Lock()
+	old := p.readDone
 	p.stopRead, p.readDone = stop, done
+	p.mu.Unlock()
 	go func() {
 		<-old
 		p.readLoop(stop, done)

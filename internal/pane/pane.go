@@ -151,8 +151,11 @@ func (p *Pane) setCallbacks() {
 // emulator's replies into the program.
 func (p *Pane) startIO() {
 	ptmx := p.ptmx
-	p.stopRead, p.readDone = make(chan struct{}), make(chan struct{})
-	go p.readLoop(p.stopRead, p.readDone)
+	stop, done := make(chan struct{}), make(chan struct{})
+	p.mu.Lock()
+	p.stopRead, p.readDone = stop, done
+	p.mu.Unlock()
+	go p.readLoop(stop, done)
 	// Replies the emulator generates (cursor position reports, device
 	// attributes, encoded keys) come out of its input pipe and go to the PTY.
 	// Reading that pipe needs no lock. The queue decouples the two so a
@@ -255,7 +258,7 @@ func (p *Pane) wait() {
 			code = st.ExitCode()
 		}
 	}
-	readDone := p.readDone // the current read loop's, after a resume too
+	_, readDone := p.readChans() // the current read loop's, after a resume too
 	// Let trailing output land on the screen. A background child that still
 	// holds the terminal open would keep the read blocked, so don't wait
 	// forever.

@@ -437,7 +437,6 @@ func TestA1ForwardMouseButtons(t *testing.T) {
 }
 
 func TestA1MouseSplitDragReleasedOverSidebarEnds(t *testing.T) {
-	t.Skip("bug: mouse.go:40 routes every event left of the sidebar edge (and mouse.go:33 every event on the status bar row) away before the barDrag check at mouse.go:49, so releasing a split-border drag over the sidebar or status bar never clears m.barDrag and later motion keeps resizing the split")
 	m, _ := a1Fixture(t, false)
 	a1Open(t, m, paneNodeID(localMachine, "p1"))
 	m.split(splitRight, viewRef{})
@@ -450,7 +449,6 @@ func TestA1MouseSplitDragReleasedOverSidebarEnds(t *testing.T) {
 }
 
 func TestA1MouseClickOnAgentReachesProgram(t *testing.T) {
-	t.Skip("bug: mouse.go:113 (the 'selection drag keeps going' branch in handleMouse) handles the release of a held click via selectMouse before paneMouse/selectOrClick sees it, so a plain click on an agent pane (or alt+click) in a program that uses the mouse is never forwarded and m.click is left stale")
 	m, peer := a1Fixture(t, true)
 	c := m.machines[0].c
 	a1Open(t, m, paneNodeID(localMachine, "p1")) // an agent: drags select over it

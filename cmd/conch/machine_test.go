@@ -205,7 +205,6 @@ func TestA4MachineAddFailures(t *testing.T) {
 // outdated remote server must stop that server and reconnect, whatever the
 // local server is doing.
 func TestA4MachineAddRestartRemoteServer(t *testing.T) {
-	t.Skip("bug: stopServer (cmd/conch/main.go:326-338) waits for config.SocketPath() — the LOCAL socket — to go away, even for a remote client; with a local server running, `conch machine add` / `machine upgrade` / `conch -m X server stop` wait 10s and fail with \"server did not stop within 10s\" although the remote server stopped")
 	a4Env(t)
 	startA4Server(t, config.SocketPath()) // the local server keeps running
 	f := newA4SSH(t)

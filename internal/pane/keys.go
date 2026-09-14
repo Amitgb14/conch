@@ -31,11 +31,17 @@ var namedKeys = map[string]rune{
 // "shift+tab" or "ctrl+shift+left".
 func ParseKey(s string) (uv.KeyPressEvent, error) {
 	var k uv.KeyPressEvent
-	parts := strings.Split(s, "+")
+	base, plus := s, s == "+" || strings.HasSuffix(s, "++") // "+" or "ctrl++": the key is '+'
+	if plus {
+		base = strings.TrimSuffix(s, "+")
+	}
+	parts := strings.Split(base, "+")
 	name := parts[len(parts)-1]
-	if name == "" && len(parts) > 1 { // "ctrl++" style: the key is '+'
+	switch {
+	case plus:
 		name = "+"
-		parts = parts[:len(parts)-1]
+	case name == "":
+		return k, fmt.Errorf("missing key after %q", s)
 	}
 	for _, mod := range parts[:len(parts)-1] {
 		switch mod {

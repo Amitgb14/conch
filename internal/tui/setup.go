@@ -252,7 +252,7 @@ func (v *setupView) body(m Model, w int) []string {
 		}
 		lines = append(lines, "")
 	case proj != nil && proj.Git:
-		pats := strings.Join(proj.LocalFiles, "  ")
+		pats := strings.Join(proj.LocalFiles, " ")
 		if pats == "" {
 			pats = "(none)"
 		}

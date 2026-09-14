@@ -88,7 +88,6 @@ func TestA1ViewTinySizesDoNotPanic(t *testing.T) {
 }
 
 func TestA1ViewHeightOneDoesNotPanic(t *testing.T) {
-	t.Skip("bug: view.go:41 View indexes screen[0] for the tab bar, but at height 1 (rows = height-statusHeight = 0) screen is empty: index out of range panic")
 	m, _ := a1Fixture(t, false)
 	_ = a1Sized(t, m, 80, 1).View()
 }
@@ -117,7 +116,6 @@ func TestA1ViewLinesFitWidth(t *testing.T) {
 }
 
 func TestA1ViewNarrowerThanSidebarFitsWidth(t *testing.T) {
-	t.Skip("bug: view.go:38 pads every sidebar line to sidebarW, which WindowSizeMsg clamps to at least minSidebarWidth (24), so terminals narrower than ~30 columns get lines wider than the screen (24-27 cells at width 1-20)")
 	m, _ := a1Fixture(t, false)
 	for w := 1; w <= 20; w++ {
 		for _, l := range strings.Split(a1Sized(t, m, w, 5).View(), "\n") {
@@ -129,7 +127,6 @@ func TestA1ViewNarrowerThanSidebarFitsWidth(t *testing.T) {
 }
 
 func TestA1ViewDialogFitsNarrowScreen(t *testing.T) {
-	t.Skip("bug: overlay.go:331 dialogWidth never goes below 30 (32 with borders) and view.go:98 splice draws the box whole, so a dialog on a 30-33 column screen makes lines wider than the screen")
 	m, _ := a1Fixture(t, false)
 	m.overlay = newConfirm("Really?", func(*Model) tea.Cmd { return nil })
 	for _, l := range strings.Split(a1Sized(t, m, 30, 12).View(), "\n") {

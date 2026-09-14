@@ -370,6 +370,9 @@ func frontmatter(path string) (name, desc string) {
 			continue
 		}
 		block = nil
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			continue // a nested key, such as metadata's own name
+		}
 		k, v, ok := strings.Cut(line, ":")
 		if !ok {
 			continue

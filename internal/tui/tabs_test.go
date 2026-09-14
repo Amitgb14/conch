@@ -744,7 +744,6 @@ func TestA1NewTabBesideRunningPaneStartsShell(t *testing.T) {
 }
 
 func TestA1TabBarCloseButtonNeedsItsTab(t *testing.T) {
-	t.Skip("bug: tabs.go:719-738 tabBar puts each item independently, so on a narrow bar the active tab's label is dropped but its \"× \" close button still fits and is drawn (and clickable) on its own")
 	m, _ := a1Fixture(t, false)
 	a1FourTabs(t, m)
 	a1At(t, m, cliID(localMachine))

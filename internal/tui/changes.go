@@ -268,7 +268,9 @@ func (cv *changesView) render(m Model, w, h int) []string {
 	}
 	lines = append(lines, header)
 
-	listH := max(h-cv.filesTop(m)-min(len(cv.data.Commits), 6)-3, 3)
+	// Room for the files' "… more" line and the commits below: a blank line,
+	// their heading and up to seven lines (six commits and their own "… more").
+	listH := max(h-cv.filesTop(m)-min(len(cv.data.Commits), 7)-3, 3)
 	if len(cv.data.Files) == 0 {
 		lines = append(lines, styleMuted.Render("  nothing here"))
 	}

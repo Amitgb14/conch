@@ -29,23 +29,8 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Status bar: every hint, the waiting counter and Settings are buttons.
-	if msg.Y == m.height-1 {
-		if press && left {
-			return m, m.clickStatus(msg.X)
-		}
-		return m, nil
-	}
-
-	if !m.zoom && msg.X < m.sidebarW {
-		if press && left && msg.X == m.sidebarW-1 {
-			m.dragging = true
-			return m, nil
-		}
-		return m.sidebarMouse(msg, press, left, wheel)
-	}
-
-	// Resizing splits by dragging the boundary between two leaves.
+	// Resizing splits by dragging the boundary between two leaves; the drag
+	// ends wherever the button is released, over the sidebar or status bar too.
 	if m.barDrag != nil {
 		bar := m.barDrag
 		switch msg.Action {
@@ -62,6 +47,22 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.syncView(), m.saveState())
 		}
 		return m, nil
+	}
+
+	// Status bar: every hint, the waiting counter and Settings are buttons.
+	if msg.Y == m.height-1 {
+		if press && left {
+			return m, m.clickStatus(msg.X)
+		}
+		return m, nil
+	}
+
+	if !m.zoom && msg.X < m.sidebarW {
+		if press && left && msg.X == m.sidebarW-1 {
+			m.dragging = true
+			return m, nil
+		}
+		return m.sidebarMouse(msg, press, left, wheel)
 	}
 
 	mr := m.mainRect()
@@ -110,7 +111,13 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	in := m.inner(rects[f.id])
 	x, y := msg.X-in.x, msg.Y-in.y
 	// A selection drag keeps going when the pointer leaves the pane.
-	if f.view.Kind == kindPane && m.sel != nil && m.sel.dragging {
+	// Inside the pane, a held click is settled by selectOrClick, which passes
+	// it on to the program when nothing was dragged.
+	outside := x < 0 || y < 0 || x >= in.w || y >= in.h
+	if f.view.Kind == kindPane && m.sel != nil && m.sel.dragging && (m.click == nil || outside) {
+		if msg.Action == tea.MouseActionRelease {
+			m.click = nil
+		}
 		return m, m.selectMouse(msg, clamp(x, 0, in.w-1), clamp(y, 0, in.h-1))
 	}
 	if x < 0 || y < 0 || x >= in.w || y >= in.h {

@@ -102,7 +102,13 @@ func InitRepo(ctx context.Context, dir string) error {
 // ".env" or "config/*.local.json". With ignored it lists the files git
 // ignores, otherwise the untracked files it doesn't.
 func UntrackedFiles(ctx context.Context, dir string, patterns []string, ignored bool) ([]string, error) {
-	if len(patterns) == 0 {
+	var specs []string
+	for _, p := range patterns {
+		if p = strings.TrimSpace(p); p != "" {
+			specs = append(specs, ":(glob)"+p)
+		}
+	}
+	if len(specs) == 0 { // no pathspec would list every file
 		return nil, nil
 	}
 	args := []string{"ls-files", "--others", "--exclude-standard", "-z"}
@@ -110,11 +116,7 @@ func UntrackedFiles(ctx context.Context, dir string, patterns []string, ignored 
 		args = append(args, "--ignored")
 	}
 	args = append(args, "--")
-	for _, p := range patterns {
-		if p = strings.TrimSpace(p); p != "" {
-			args = append(args, ":(glob)"+p)
-		}
-	}
+	args = append(args, specs...)
 	// gitEnv makes pathspecs literal; these are globs on purpose.
 	cmd := command(ctx, dir, args...)
 	cmd.Env = append(cmd.Env, "GIT_LITERAL_PATHSPECS=0")

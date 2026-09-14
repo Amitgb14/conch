@@ -729,8 +729,10 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 		t := m.tabs[i]
 		label := " " + itoa(n+1) + " " + m.tabLabel(t) + " "
 		if i == m.activeTab && !m.previewing {
-			put(styleSel.Render(label), i)
-			put(styleSel.Render("× "), -2)
+			if x+ansi.StringWidth(label)+2 <= w { // the close button only beside its tab
+				put(styleSel.Render(label), i)
+				put(styleSel.Render("× "), -2)
+			}
 		} else {
 			put(styleMuted.Render(label), i)
 		}

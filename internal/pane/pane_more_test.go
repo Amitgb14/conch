@@ -390,7 +390,6 @@ func TestA5DetachResume(t *testing.T) {
 	// Resume (reload.go:77) replaces p.stopRead/p.readDone without a lock
 	// while the wait goroutine reads p.readDone (pane.go:258); -race reports
 	// it as soon as the resumed pane exits.
-	t.Skip("bug: data race between Pane.Resume and Pane.wait on readDone")
 	p := startShell(t)
 	_, _, err := p.Detach()
 	if err != nil {
@@ -466,5 +465,22 @@ func TestA5ChangedAndHistory(t *testing.T) {
 	}
 	if f := p.FrameAt(-5); f.Offset != 0 {
 		t.Fatalf("negative offset not clamped: %d", f.Offset)
+	}
+}
+
+func TestParseKeyPlusAndMissingKey(t *testing.T) {
+	for _, s := range []string{"+", "ctrl++", "alt++"} {
+		k, err := ParseKey(s)
+		if err != nil || k.Code != '+' {
+			t.Errorf("%q: %+v %v", s, k, err)
+		}
+	}
+	if k, _ := ParseKey("ctrl++"); k.Mod&uv.ModCtrl == 0 {
+		t.Error("ctrl++ lost ctrl")
+	}
+	for _, s := range []string{"ctrl+", "alt+", "ctrl+shift+"} {
+		if _, err := ParseKey(s); err == nil {
+			t.Errorf("%q: no error for a missing key", s)
+		}
 	}
 }

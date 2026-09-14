@@ -481,7 +481,6 @@ func TestA6OpenCodeFileSessionsCanBeDeleted(t *testing.T) {
 		t.Fatalf("sessions: %+v", got)
 	}
 	if got[0].Path == "" {
-		t.Skip("bug: stores.go:385 parseOpenCodeFile never sets Session.Path, so Delete refuses older OpenCode file-store sessions with \"no file for this opencode session\"")
 	}
 	if err := Delete(context.Background(), a6Env(home, nil), got[0], filepath.Join(home, "trash")); err != nil {
 		t.Fatal(err)

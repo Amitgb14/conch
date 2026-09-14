@@ -289,11 +289,14 @@ func TestA2ChangesRender(t *testing.T) {
 	m.focus = focusMain
 	lines := cv.render(*m, w, 40)
 	out = a2Plain(lines)
-	for _, want := range []string{"not checked out", "Files changed since main  30 files", "binary", "old.go → new.go", "… 4 more",
-		"Commits ahead of main  9", "abc commit 0", "abcdef1 commit 1"} {
+	for _, want := range []string{"not checked out", "Files changed since main  30 files", "binary", "old.go → new.go", "… 5 more",
+		"Commits ahead of main  9", "abc commit 0", "abcdef1 commit 1", "… 3 more"} { // the commits' own "… more" fits too
 		if !strings.Contains(out, want) {
 			t.Fatalf("render lacks %q:\n%s", want, out)
 		}
+	}
+	if len(lines) > 40 {
+		t.Fatalf("%d lines for a height of 40", len(lines))
 	}
 	for i, l := range lines {
 		if lw := ansi.StringWidth(l); lw > w {

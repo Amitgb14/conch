@@ -29,10 +29,13 @@ func Executable() (string, error) {
 	return exe, nil
 }
 
-// Compare orders versions like "0.2.0" and "0.10.1-rc1": -1, 0 or 1.
-// Pre-release suffixes sort before the release.
+// Compare orders versions like "0.2.0" and "0.10.1-rc.1": -1, 0 or 1, as
+// SemVer does. Pre-release suffixes sort before the release; build metadata
+// ("+build.5") is ignored.
 func Compare(a, b string) int {
 	a, b = strings.TrimPrefix(a, "v"), strings.TrimPrefix(b, "v")
+	a, _, _ = strings.Cut(a, "+")
+	b, _, _ = strings.Cut(b, "+")
 	ma, pa, _ := strings.Cut(a, "-")
 	mb, pb, _ := strings.Cut(b, "-")
 	na, nb := strings.Split(ma, "."), strings.Split(mb, ".")
@@ -52,10 +55,39 @@ func Compare(a, b string) int {
 		return 1
 	case pb == "":
 		return -1
-	case pa < pb:
-		return -1
 	}
-	return 1
+	return comparePre(strings.Split(pa, "."), strings.Split(pb, "."))
+}
+
+// comparePre orders dot-separated pre-release identifiers: numbers
+// numerically and before words, words as text, and a shorter list first
+// when one is a prefix of the other.
+func comparePre(a, b []string) int {
+	for i := 0; i < min(len(a), len(b)); i++ {
+		x, xerr := strconv.Atoi(a[i])
+		y, yerr := strconv.Atoi(b[i])
+		switch {
+		case xerr == nil && yerr == nil && x != y:
+			return cmpInt(x, y)
+		case xerr == nil && yerr != nil:
+			return -1
+		case xerr != nil && yerr == nil:
+			return 1
+		case xerr != nil && a[i] != b[i]:
+			return strings.Compare(a[i], b[i])
+		}
+	}
+	return cmpInt(len(a), len(b))
+}
+
+func cmpInt(x, y int) int {
+	switch {
+	case x < y:
+		return -1
+	case x > y:
+		return 1
+	}
+	return 0
 }
 
 func num(parts []string, i int) int {

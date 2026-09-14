@@ -398,12 +398,20 @@ func (s *settings) move(items []settingItem, delta int) {
 	if delta < 0 {
 		step = -1
 	}
-	next := clamp(s.sel+delta, 0, len(items)-1)
-	for next >= 0 && next < len(items) && items[next].run == nil {
-		next += step
+	target := clamp(s.sel+delta, 0, len(items)-1)
+	// The first selectable line at or past the target; at a list edge, the
+	// nearest one back toward the current selection.
+	for i := target; i >= 0 && i < len(items); i += step {
+		if items[i].run != nil {
+			s.sel = i
+			return
+		}
 	}
-	if next >= 0 && next < len(items) {
-		s.sel = next
+	for i := target - step; i != s.sel && i >= 0 && i < len(items); i -= step {
+		if items[i].run != nil {
+			s.sel = i
+			return
+		}
 	}
 }
 

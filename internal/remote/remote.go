@@ -135,7 +135,7 @@ func Install(ctx context.Context, target, platform string, interactive bool, say
 	}
 	say(fmt.Sprintf("copying conch to %s (%d MB)", target, len(data)>>20))
 	const script = `set -e; d="$HOME/.local/bin"; mkdir -p "$d"; cat > "$d/conch.new"; chmod 755 "$d/conch.new"; mv -f "$d/conch.new" "$d/conch"; echo "$d/conch"`
-	out, err := run(ctx, target, script, data, false)
+	out, err := run(ctx, target, script, data, interactive) // ssh asks for passwords on the terminal, not stdin
 	if err != nil {
 		return "", fmt.Errorf("install conch: %w", err)
 	}

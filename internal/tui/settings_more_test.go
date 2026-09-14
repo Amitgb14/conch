@@ -338,7 +338,6 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 }
 
 func TestA2SettingsMoveReachesListEdges(t *testing.T) {
-	t.Skip("bug: settings.move does nothing when the clamped target is a non-selectable line at a list edge (settings.go:393-408)")
 	m := a2Model()
 	s := &settings{shellErr: "no server"} // Theme tab: header, 6 themes, blank, header, message
 	items := s.themeItems(m)

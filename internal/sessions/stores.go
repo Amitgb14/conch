@@ -383,7 +383,7 @@ func parseOpenCodeFile(path string, st os.FileInfo) *Session {
 		return nil
 	}
 	return &Session{Agent: "opencode", ID: rec.ID, Dir: rec.Dir, Title: title(rec.Title),
-		Started: time.UnixMilli(rec.Time.Created), Updated: time.UnixMilli(rec.Time.Updated)}
+		Started: time.UnixMilli(rec.Time.Created), Updated: time.UnixMilli(rec.Time.Updated), Path: path}
 }
 
 func firstNonEmpty(vals ...string) string {

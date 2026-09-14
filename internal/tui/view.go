@@ -37,8 +37,10 @@ func (m Model) View() string {
 			}
 			screen[i] = padRight(screen[i], m.sidebarW)
 		}
-		bar, _ := m.tabBar(m.mainRect().w)
-		screen[0] += bar
+		if len(screen) > 0 {
+			bar, _ := m.tabBar(m.mainRect().w)
+			screen[0] += bar
+		}
 	}
 
 	rects, _ := m.leafRects()
@@ -89,6 +91,11 @@ func (m Model) View() string {
 			if y := b.y + i; y >= 0 && y < len(screen) {
 				screen[y] = splice(screen[y], l, b.x, m.width)
 			}
+		}
+	}
+	for i, l := range screen { // a screen narrower than the sidebar or a dialog
+		if ansi.StringWidth(l) > m.width {
+			screen[i] = ansi.Truncate(l, m.width, "")
 		}
 	}
 	return strings.Join(screen, "\n")

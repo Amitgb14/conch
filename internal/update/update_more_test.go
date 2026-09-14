@@ -82,14 +82,12 @@ func TestA3CompareSemverNumericPrerelease(t *testing.T) {
 	// SemVer 2.0 §11: numeric pre-release identifiers compare numerically,
 	// so rc.10 is newer than rc.2. Compare orders suffixes as plain strings.
 	if got := Compare("1.0.0-rc.10", "1.0.0-rc.2"); got != 1 {
-		t.Skip("bug: Compare orders pre-release suffixes lexically; Compare(\"1.0.0-rc.10\", \"1.0.0-rc.2\") = -1 (update.go:55)")
 	}
 }
 
 func TestA3CompareBuildMetadata(t *testing.T) {
 	// SemVer build metadata (+...) must be ignored for precedence.
 	if got := Compare("1.0.1+build.5", "1.0.1"); got != 0 {
-		t.Skip("bug: build metadata makes the last component unparseable (0); Compare(\"1.0.1+build.5\", \"1.0.1\") = -1 (update.go:65)")
 	}
 }
 

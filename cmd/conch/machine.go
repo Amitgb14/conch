@@ -123,7 +123,7 @@ func machineAdd(args []string) error {
 	if errors.As(err, &outdated) {
 		fmt.Fprintf(os.Stderr, "  %v\n", err)
 		if confirm("  Restart the server there now? Its panes stop. [y/N] ", false) {
-			if err := stopServer(c); err != nil {
+			if err := stopServer(c, false); err != nil {
 				return err
 			}
 			c, err = remote.Connect(ctx, target, remote.Options{})
@@ -182,6 +182,9 @@ func machineUpgrade(m remote.Machine) error {
 		c.Close()
 		time.Sleep(time.Second)
 		if c, err = remote.Connect(ctx, m.Target, remote.Options{}); err != nil {
+			if c != nil {
+				c.Close()
+			}
 			return err
 		}
 	case errors.As(err, &outdated):
@@ -189,10 +192,13 @@ func machineUpgrade(m remote.Machine) error {
 			c.Close()
 			return nil
 		}
-		if err := stopServer(c); err != nil {
+		if err := stopServer(c, false); err != nil {
 			return err
 		}
 		if c, err = remote.Connect(ctx, m.Target, remote.Options{}); err != nil {
+			if c != nil {
+				c.Close()
+			}
 			return err
 		}
 	case err != nil:
