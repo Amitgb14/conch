@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 export function Logo({ className }: { className?: string }) {
   return (
     <Link href="/" className={cn("flex items-center gap-2 text-[0.95rem]", className)}>
-      <ConchIcon className="size-6 text-brand" />
+      <ConchIcon className="size-7" />
       <span className="font-mono font-semibold tracking-tight">conch</span>
     </Link>
   )
