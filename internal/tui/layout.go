@@ -38,6 +38,10 @@ type leaf struct {
 	view     viewRef
 	changes  *changesView  // when the view is a branch
 	sessions *sessionsView // when the view lists sessions
+	// pick marks a leaf made empty on purpose (a new tab or split) to be
+	// filled by the next row the user opens, rather than following the
+	// tree's cursor.
+	pick bool
 }
 
 type layoutNode struct {

@@ -83,7 +83,7 @@ func (m Model) mainOrigin() (x, y int) {
 func (m *Model) syncView() tea.Cmd {
 	t := m.tab()
 	leaves := t.root.leaves()
-	if r, ok := m.selectedRow(); ok && len(leaves) == 1 && !m.zoom {
+	if r, ok := m.selectedRow(); ok && len(leaves) == 1 && !m.zoom && !leaves[0].pick {
 		m.assign(leaves[0], r)
 	}
 
@@ -176,6 +176,7 @@ func (m *Model) syncView() tea.Cmd {
 
 // assign shows a tree row in a leaf.
 func (m *Model) assign(l *leaf, r row) {
+	l.pick = false
 	if l.view.Row != r.id {
 		l.view = viewOf(r)
 		l.changes = nil
@@ -201,7 +202,25 @@ func (m *Model) show(r row) tea.Cmd {
 			}
 		}
 	}
-	m.assign(t.focused(), r)
+	// Never replace a view the user arranged: fill an empty leaf, preview in
+	// a single-leaf tab, else open a tab for it.
+	leaves := t.root.leaves()
+	f := t.focused()
+	switch {
+	case f.pick || f.view.empty():
+		m.assign(f, r)
+	case len(leaves) == 1:
+		m.assign(f, r)
+	default:
+		for _, l := range leaves {
+			if l.pick || l.view.empty() {
+				t.focus = l.id
+				m.assign(l, r)
+				return m.syncView()
+			}
+		}
+		return m.newTab(viewOf(r))
+	}
 	return m.syncView()
 }
 
@@ -234,6 +253,7 @@ func (m *Model) split(dir splitDir, v viewRef) tea.Cmd {
 		v = viewRef{}
 	}
 	nl := m.newLeaf(v)
+	nl.pick = v.empty()
 	t.root.split(f.id, dir, nl)
 	t.focus = nl.id
 	m.zoom = false
@@ -261,12 +281,28 @@ func (m *Model) closeLeaf() tea.Cmd {
 	return tea.Batch(m.focusLeaf(t.focus), m.saveState())
 }
 
+// newTab opens a tab showing v. Without a view it doesn't copy what is
+// selected: beside a terminal pane it starts a new shell in that directory,
+// otherwise it waits for a row to be opened.
 func (m *Model) newTab(v viewRef) tea.Cmd {
+	var shellFrom *leaf
+	if v.empty() {
+		f := m.tab().focused()
+		if p := m.pane(f.view.Machine, f.view.PaneID); f.view.Kind == kindPane && p != nil && p.State == proto.PaneRunning {
+			shellFrom = f
+		}
+	}
 	l := m.newLeaf(v)
+	l.pick = v.empty()
 	m.tabs = append(m.tabs, &tab{root: &layoutNode{leaf: l}, focus: l.id})
 	m.activeTab = len(m.tabs) - 1
 	m.zoom = false
-	return tea.Batch(m.focusLeaf(l.id), m.saveState())
+	cmds := []tea.Cmd{m.focusLeaf(l.id), m.saveState()}
+	if shellFrom != nil {
+		m.cursor = shellFrom.view.Row
+		cmds = append(cmds, m.openAgent(""))
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) closeTab(i int) tea.Cmd {
