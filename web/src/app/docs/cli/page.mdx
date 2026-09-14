@@ -1,0 +1,119 @@
+export const metadata = { title: "Command line", description: "Scripting conch from a shell." }
+
+# Command line
+
+Everything the TUI does to panes, projects and machines is also a `conch` subcommand, so you can script agents from a shell. `conch help` prints the summary.
+
+## Scripting
+
+```sh
+conch task -cwd ~/src/api "Add a health check endpoint"   # pane, worktree, branch
+conch new -agent claude -cwd ~/src/api                   # Claude in the repo
+conch send p1 "fix the failing tests" && conch send -keys p1 enter
+conch read p1                          # visible screen as text
+conch status                           # panes with agent state
+conch project ls                       # projects, base, worktrees
+conch close p1
+conch server reload                    # run a new build; panes keep running
+conch server stop                      # stops the server and all panes
+```
+
+<Callout type="warning">
+
+`conch server stop` stops the server **and every pane it owns**. To move onto a new build, use `conch server reload`.
+
+</Callout>
+
+## Global flag
+
+`-m MACHINE` (or `--machine MACHINE`) before the subcommand runs it against a [remote machine](/docs/remote-machines) instead of this one; `local` means this machine.
+
+```sh
+conch -m gpu-box status
+```
+
+## Subcommands
+
+### conch
+
+`conch` with no subcommand opens the TUI, starting the server if needed.
+
+### server
+
+| Command | Description |
+| --- | --- |
+| `conch server` | run the server in the foreground |
+| `conch server stop` | stop the server and every pane it owns |
+| `conch server reload [-binary PATH]` | run a new conch build without stopping panes; `-binary` picks the program to reload into (default: the server's own executable path) |
+
+### Panes
+
+| Command | Description |
+| --- | --- |
+| `conch status` (or `conch ls`) | show server and pane status: ID, name, state, agent, size, folder and command of each pane |
+| `conch new [-cwd DIR] [-name N] -- CMD [ARGS...]` | start a pane (default command: your shell) and print its ID |
+| `conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]` | start Claude Code with state tracking |
+| `conch send [-keys] ID TEXT...` | type text into a pane; with `-keys`, the arguments are key names (e.g. `enter`, `ctrl+c`) |
+| `conch read ID` | print a pane's visible screen |
+| `conch close ID` | close a pane |
+
+### agent
+
+| Command | Description |
+| --- | --- |
+| `conch agent explain ID` | show how a pane's agent state was decided, as JSON |
+| `conch agent status` | list each supported agent: installed (with version and path) or not |
+| `conch agent install NAME` | run an agent's installer in a pane and wait for it |
+| `conch agent setup [-agent NAME] [-copy] [-json] [DIR]` | show what each agent loads in a folder; `-agent` limits it to one agent, `-copy` copies missing local files from the main checkout first, `-json` prints JSON |
+
+### project
+
+| Command | Description |
+| --- | --- |
+| `conch project add PATH` | add a project to the sidebar |
+| `conch project create [-no-git] PATH` | create a folder with a git repository and an initial commit (`-no-git`: a plain folder) |
+| `conch project ls` | list projects, their base branch and worktrees |
+| `conch project rm ID` | remove a project from the sidebar |
+| `conch project files ID [-reset \| -none \| PATTERN...]` | set the [local file patterns](/docs/tasks#local-files-in-worktrees) copied into new worktrees; `-reset` restores the defaults, `-none` copies nothing |
+
+### task
+
+`conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] PROMPT` creates a branch and worktree and starts an agent with the prompt. See [Tasks](/docs/tasks).
+
+| Flag | Default |
+| --- | --- |
+| `-cwd DIR` | a directory in the project; default: the current one |
+| `-branch B` | branch name; default: derived from the prompt |
+| `-base B` | branch to start from; default: the project's base |
+| `-agent NAME` | `claude`, `codex`, `gemini` or `opencode`; default: `[agents] default` |
+
+### machine
+
+| Command | Description |
+| --- | --- |
+| `conch machine add [-label NAME] [-yes] SSH_TARGET` | add a remote machine, installing conch there; `-label` sets the name shown in the sidebar (default: the host), `-yes` installs without asking |
+| `conch machine ls` | list machines (also plain `conch machine`) |
+| `conch machine rm ID` | remove a machine |
+| `conch machine upgrade ID` | install this build on a machine and reload its server |
+| `conch machine hosts` | list the host aliases in `~/.ssh/config`, for suggesting machines to add |
+
+### ask
+
+`conch ask [-y | -n] REQUEST` asks the [brain](/docs/brain); it proposes actions and runs them once you confirm. `-y` runs the plan without asking; `-n` only shows it.
+
+### update
+
+`conch update [VERSION]` replaces this binary with the latest (or given) release and reloads the local server onto it. See [Auto-update](/docs/installation#auto-update).
+
+### version
+
+`conch version [--json]` prints the version, build and platform (also `--version`, `-v`).
+
+### Internal commands
+
+These are run by conch itself, not by you:
+
+| Command | Used by |
+| --- | --- |
+| `conch bridge` | a remote client over ssh: connects stdio to this machine's server, starting it if needed |
+| `conch report` | agent hooks and plugins, to report state to the server |

@@ -1,0 +1,114 @@
+export const metadata = { title: "Keys and mouse", description: "Every key binding in the TUI." }
+
+# Keys and mouse
+
+Every key binding in the TUI, grouped by where it applies. Press `?` in conch to see them all; the prefix `ctrl+b` can be changed with `[keys] prefix` in [config.toml](/docs/configuration).
+
+## Tree
+
+| Key | Action |
+| --- | --- |
+| `↑↓` `jk` | move |
+| `←→` `hl` | fold |
+| `space` | toggle |
+| `enter` | open pane / view changes |
+| `/` | filter |
+| `!` | next agent waiting for you |
+| `o` | open PR |
+| `y` | copy |
+| `m` | menu |
+| `?` | all keys |
+| `q` | detach |
+
+## Create
+
+| Key | Action |
+| --- | --- |
+| `t` | task |
+| `c` | default agent here |
+| `A` | start or install any agent |
+| `n` | terminal here |
+| `a` | add project |
+| `M` | add machine |
+| `r` | rename |
+| `x` | close / remove |
+| `R` | refresh git and PRs, or reconnect a machine |
+
+Other keys on tree items:
+
+| Key | Action |
+| --- | --- |
+| `i` | [agent setup](/docs/tasks#agent-setup) for a project, branch or pane |
+| `F` | [local file patterns](/docs/tasks#local-files-in-worktrees) for a project |
+| `S` | [summarise](/docs/brain#summaries) an agent |
+| `C` | [install Claude Code](/docs/remote-machines#claude-code-on-a-machine) on a machine |
+| `:` | [ask the brain](/docs/brain) |
+| `,` | [settings](/docs/interface#settings) |
+| `v` / `s` / `O` | open the selected item in a split right / below / a new tab |
+
+## Pane
+
+| Key | Action |
+| --- | --- |
+| any key | goes to the program |
+| `ctrl+b [` | scroll history |
+| `ctrl+b` then any key | back to the tree |
+| `ctrl+b z` | zoom |
+| `ctrl+b !` | next waiting |
+
+## Changes
+
+| Key | Action |
+| --- | --- |
+| `↑↓` | file |
+| `enter` | diff |
+| `o` | open PR |
+| `y` | copy path / diff |
+| `esc` | back |
+
+## Sessions
+
+| Key | Action |
+| --- | --- |
+| `enter` | resume the session, or show its pane when it is open |
+| `a` | filter by agent |
+| `R` | reload |
+| `I` | resume all interrupted runs |
+| `x` | dismiss an interrupted run |
+
+## Splits and tabs
+
+| Keys | |
+| --- | --- |
+| `ctrl+b v` / `ctrl+b -` | split right / down (the new split shows the same thing until you pick another) |
+| `ctrl+b ←→↑↓` or `h j k l`, `ctrl+b o` | move focus between splits |
+| `ctrl+b x` | close the split (the pane keeps running) |
+| `ctrl+b c`, `n`, `p`, `1-9`, `&`, `,` | new, next, previous, go to, close, rename tab |
+| `ctrl+b =` | equalize splits |
+| `v` / `s` / `O` in the tree | open the selected item in a split right / below / a new tab |
+
+## Scroll mode
+
+`ctrl+b [` (or `ctrl+b pgup`) enters scroll mode with a cursor.
+
+| Key | Action |
+| --- | --- |
+| `↑↓←→` / `hjkl` | move the cursor (scrolling at the edges) |
+| `0` / `$` | line start / end |
+| `pgup` / `pgdn` | page |
+| `g` | oldest line |
+| `v` | start a selection |
+| `y` or `enter` | copy the selection |
+| any other key | return to live |
+
+## Mouse
+
+- Click to select; click a selected folder (or its arrow) to fold.
+- Double-click to open.
+- Right-click for a context menu.
+- Wheel to scroll; over a pane, the wheel scrolls back through its history.
+- Drag the sidebar's edge to resize, or a border between splits.
+- Drag across a pane to select and copy; double-click copies a word.
+- Click `⚑ N waiting` to jump.
+
+Clicks inside a pane go to programs that use the mouse. Hold shift (option in iTerm2) to select text with your terminal, or set `[ui] mouse = false`.

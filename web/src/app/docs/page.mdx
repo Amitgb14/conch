@@ -1,0 +1,69 @@
+export const metadata = { title: "Introduction", description: "What conch is and how it is put together." }
+
+# Introduction
+
+conch is a terminal orchestrator for AI coding agents. A background server owns the terminals your agents run in, so they keep working when you close the UI.
+
+## How it fits together
+
+conch has two parts:
+
+- **The server.** Each machine runs one conch server. It owns every pane — the pseudo-terminals your agents and shells run in — along with their screens, scrollback and agent states. It starts on its own the first time you run `conch`.
+- **The TUI.** Running `conch` opens a client that connects to the server. Press `q` to detach: the TUI exits, and the server and everything in it keep running. Run `conch` again to pick up where you left off.
+
+Because the server owns the panes, you can close your terminal, lose your ssh session or update conch without stopping an agent. The server on a [remote machine](/docs/remote-machines) keeps working when your laptop sleeps, and the TUI connects to every machine at once.
+
+## The tree
+
+The TUI organises everything as a tree beside a live view of whatever you select:
+
+```text
+MACHINES
+▾ ● local                      ⠋1 ⚑1
+  ▾ ◆ api                      ⠋1 ⚑1
+    ▾ Branches                     7
+        ● main                    +1
+        ◇ conch/add-health-check  ⠋ ↑3
+    ▾ Agents                       2
+        ⠋ Add health check   conch/add-health-check
+        ! Fix flaky tests    fix/flaky
+    ▾ Terminals                    1
+        › dev-server         main
+```
+
+- **Machines** — your own computer (`local`) and any machines you add over ssh.
+- **Projects** — git repositories (or plain folders) on a machine.
+- **Branches** — with uncommitted changes, commits ahead and behind, pull requests, and the agents working on them.
+- **Agents** and **Terminals** — the panes running in the project.
+- **Sessions** — conversations agents saved, ready to resume.
+
+See [The interface](/docs/interface) for every detail of the tree.
+
+## Agent states at a glance
+
+| State | Meaning |
+| --- | --- |
+| `⠋` working | the agent is busy |
+| `!` waiting | blocked on you: a permission, trust or other question |
+| `✓` done | finished while you were looking elsewhere |
+| `○` idle | waiting for a prompt |
+
+`!` jumps to the next agent waiting for you, and a desktop notification fires when one you aren't viewing needs you. [Agents](/docs/agents#agent-states) explains how conch decides a state.
+
+## Supported agents
+
+- **Claude Code**
+- **Codex**
+- **Gemini CLI**
+- **OpenCode**
+
+conch can install any of them for your user, on any machine, without root. See [Agents](/docs/agents).
+
+## Where to go next
+
+- [Installation](/docs/installation) — install conch and keep it up to date.
+- [Quick start](/docs/quick-start) — from an empty terminal to agents working in parallel.
+- [Tasks and worktrees](/docs/tasks) — one branch and worktree per task.
+- [Remote machines](/docs/remote-machines) — run agents on other machines over ssh.
+- [Brain](/docs/brain) — ask for work in plain words and approve the plan.
+- [Keys and mouse](/docs/keys) and [Command line](/docs/cli) — the reference.

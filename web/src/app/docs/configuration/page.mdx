@@ -1,0 +1,96 @@
+export const metadata = { title: "Configuration", description: "Files conch keeps and config.toml." }
+
+# Configuration
+
+conch keeps its socket, state and settings in one directory. Most settings can be changed from the Settings screen (`,`), which writes `config.toml` for you.
+
+## Files
+
+Everything lives in `~/.config/conch`. Set `CONCH_HOME` to use another directory; without it, conch uses `$XDG_CONFIG_HOME/conch` when `XDG_CONFIG_HOME` is set.
+
+| File | Contents |
+| --- | --- |
+| `conch.sock` | the server's socket (override with `CONCH_SOCKET`) |
+| `server.log` | the server's log |
+| `projects.json` | the projects in the sidebar |
+| `claude-settings.json` | the hooks conch passes to Claude Code with `--settings` |
+| `ui.json` | fold state, sidebar width, tabs and splits |
+| `machines.json` | remote machines: only an ID, label and ssh target |
+| `ssh/config` | generated ssh config |
+| `binaries/<os>-<arch>/conch` | conch builds for other platforms |
+| `agents/claude.toml` | optional override of Claude's [screen rules](/docs/agents#how-the-state-is-decided) |
+| `config.toml` | your settings |
+
+## Environment variables
+
+| Variable | Effect |
+| --- | --- |
+| `CONCH_HOME` | the directory above |
+| `CONCH_SOCKET` | the server socket path |
+| `CONCH_SOURCE` | conch's source tree, for cross-compiling to [remote machines](/docs/remote-machines#adding-a-machine) |
+| `CONCH_REMOTE_BINARY` | a prebuilt conch binary to install on remote machines |
+| `CONCH_VERSION`, `CONCH_INSTALL_DIR` | release and directory for the [install script](/docs/installation#install-script) |
+
+## config.toml
+
+All keys with their defaults:
+
+```toml
+[keys]
+prefix = "ctrl+b"
+
+[pane]
+default_command = ""   # empty = $SHELL
+
+[notify]
+enabled = true
+desktop = true   # macOS notification / notify-send
+sound = false    # system sound
+bell = false     # terminal beep
+waiting = true   # when an agent needs an answer
+done = true      # when an agent finishes
+quiet_start = "" # quiet hours, e.g. "22:00"
+quiet_end = ""   # e.g. "08:00"
+
+[ui]
+mouse = true
+theme = "conch"  # conch, dracula, catppuccin, nord, gruvbox, tokyo-night
+accent = ""      # override: teal, blue, green, orange, pink, red, gray, purple or "#rrggbb"
+
+[shell]
+omz_theme = ""   # Oh My Zsh theme for new zsh terminals; "" keeps .zshrc's
+
+[agents]
+default = "claude"  # what c starts: claude, codex, gemini, opencode
+
+[brain]
+provider = "claude"  # claude, anthropic or openai
+model = ""
+summary_model = ""
+summaries = false
+
+[update]
+check_releases = true  # ask GitHub once a day for a newer release
+```
+
+### notify
+
+`quiet_start` and `quiet_end` (`"HH:MM"`) silence alerts every day between them; the range may wrap past midnight. Waiting agents still show in the sidebar. Leave either empty for no quiet hours.
+
+### ui
+
+`mouse = false` leaves the mouse to your terminal entirely. With it on, hold shift (option in iTerm2) to select text with the terminal instead.
+
+### brain
+
+The model behind `:` and agent summaries. `[brain]` also takes `base_url`, `api_key_env` and `command`; see [Brain](/docs/brain#configuration).
+
+### update
+
+`check_releases` asks GitHub once a day whether a newer release exists (release builds only). See [Auto-update](/docs/installation#auto-update).
+
+<Callout type="note">
+
+The Settings screen rewrites `config.toml`, so comments in a hand-edited file are not preserved.
+
+</Callout>

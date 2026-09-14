@@ -1,0 +1,38 @@
+export const metadata = { title: "Sessions", description: "Resume saved conversations and interrupted runs." }
+
+# Sessions
+
+Agents save their conversations; conch lists them per project so you can resume any of them in the right folder. It also remembers agents that were running when the server stopped.
+
+## Saved conversations
+
+Every project has a **Sessions** section in the tree. Select it to list, on the right, the conversations agents saved for the project and its worktrees — Claude Code, Codex, Gemini CLI and OpenCode — newest first, with the agent, title, branch and age:
+
+```text
+Sessions · api                                  enter resume · a agent · R reload
+4 saved · all agents · ⚠ 1 interrupted (I resumes all, x dismisses)
+
+▸ ⚠ Claude Code  Fix the flaky login test          fix-login · interrupted · 2h
+  ● Codex        Add rate limiting                         rate-limit · open · 5m
+  · OpenCode     Refactor config                                      main · 1d
+  · Gemini CLI   Explain the auth flow                                main · 3d
+```
+
+conch reads the agents' own session stores and never changes them; on remote machines the server there lists its sessions.
+
+## Resuming a session
+
+`enter` (or a click on the selected row) resumes a session in its folder with the agent's own resume option:
+
+| Agent | Resume option |
+| --- | --- |
+| Claude Code | `claude --resume` |
+| Codex | `codex resume` |
+| Gemini CLI | `gemini --resume` |
+| OpenCode | `opencode --session` |
+
+`●` sessions are already open and `enter` shows their pane. `a` filters by agent, and `R` reloads the list.
+
+## Interrupted runs
+
+conch remembers which agents are running. When its server stops — `conch server stop`, a crash, a reboot — those agents are marked `⚠ interrupted` in Sessions (and counted in the tree) for a week. `I` resumes all of them, `x` dismisses one.

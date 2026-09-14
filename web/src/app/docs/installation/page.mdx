@@ -1,0 +1,75 @@
+export const metadata = { title: "Installation", description: "Install, update and reload conch." }
+
+# Installation
+
+conch is a single binary for macOS and Linux. Install it with a script, with Go, or from source, and update it later without stopping your agents.
+
+## Install script
+
+macOS and Linux (amd64 and arm64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh
+```
+
+This downloads the latest release, checks it against the release checksums and installs `~/.local/bin/conch`.
+
+| Variable | Effect |
+| --- | --- |
+| `CONCH_VERSION=0.2.0` | install that release instead of the latest |
+| `CONCH_INSTALL_DIR` | install into another directory |
+
+Later, `conch update` replaces the binary with the newest release.
+
+## With Go
+
+With Go 1.25 or newer:
+
+```sh
+go install github.com/Amitgb14/conch/cmd/conch@latest
+```
+
+## From source
+
+```sh
+make build        # bin/conch
+make test         # go test -race ./...
+make release VERSION=0.2.0   # dist/: archives for every platform + checksums.txt
+```
+
+Pushing a `v*` tag runs the release workflow, which builds the same archives and publishes them as a GitHub release.
+
+## Updating without stopping agents
+
+The server owns every pane, so a new build takes effect in the server only once it restarts — and a restart would stop the agents. Instead, **reload**:
+
+```sh
+conch server reload        # or click the version in the status bar, then r
+```
+
+The server execs the new binary in place. It keeps its process ID, so the programs in its panes stay its children; their terminals and the listening socket stay open across the exec; screens, scrollback, terminal modes and agent states are handed over in a state file. Agents never notice — output they write meanwhile waits in the kernel — and the TUI reconnects on its own.
+
+When the server is older than the TUI, its version shows amber in the status bar. The machine menu has **Reload server** too; a remote machine reloads onto the build `machine upgrade` installed.
+
+<Callout type="warning" title="Servers from before reloading existed">
+
+They need one last `conch server stop`, which stops the server and every pane it owns.
+
+</Callout>
+
+## Auto-update
+
+conch notices newer builds on its own:
+
+- its executable rebuilt or replaced (`make build`, `conch update`);
+- a newer GitHub release (checked once a day for release builds; `[update] check_releases = false` turns it off);
+- machines running an older build.
+
+The version in the status bar then shows `⬆`; click it for the list and press **u** to update everything:
+
+1. download the release, if there is one, over the conch executable;
+2. reload the local server onto it (panes keep running);
+3. restart the TUI in place onto the new build;
+4. install the build on each connected remote machine and reload its server.
+
+`conch update` does steps 1–2 from a shell, and `conch machine upgrade ID` installs and reloads one machine.

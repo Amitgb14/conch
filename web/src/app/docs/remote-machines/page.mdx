@@ -1,0 +1,80 @@
+export const metadata = { title: "Remote machines", description: "Run agents on other machines over ssh." }
+
+# Remote machines
+
+Each machine runs its own conch server, which owns that machine's panes and agents, so work continues there when your laptop sleeps or the network drops. The TUI connects to all of them at once over your normal `ssh`.
+
+## Commands
+
+```sh
+conch machine add gpu-box              # an alias from ~/.ssh/config, user@host or ssh://user@host:port
+conch machine ls
+conch -m gpu-box status                # any command against a machine
+conch -m gpu-box task -cwd ~/src/api "Fix the flaky tests"
+```
+
+Or press `M` in the TUI. `conch machine rm ID` removes a machine, `conch machine upgrade ID` installs your build there and reloads its server, and `conch machine hosts` lists the hosts in your ssh config. See [Command line](/docs/cli#machine) for flags.
+
+## Adding a machine
+
+<Steps>
+
+<Step title="Probe">
+
+conch probes the machine over ssh (OS, CPU, an installed conch).
+
+</Step>
+
+<Step title="Install">
+
+conch installs itself to `~/.local/bin/conch` there if it is missing or older than your client — `machine add` asks first.
+
+For another platform (say a Linux server from a Mac) conch cross-compiles itself from its source tree (found next to the binary, or `CONCH_SOURCE`) with your Go toolchain, and caches the result in `~/.config/conch/binaries/<os>-<arch>/` until you rebuild conch. A released conch without source or Go downloads the matching release binary instead (checksum-verified). Otherwise put a binary there or point `CONCH_REMOTE_BINARY` at one.
+
+</Step>
+
+<Step title="Connect">
+
+conch connects through `conch bridge`, which starts the server there if needed.
+
+</Step>
+
+</Steps>
+
+## How conch uses ssh
+
+conch runs the system `ssh` with a generated config that includes yours first (so your settings win) and adds keepalives and connection sharing. It stores no secrets; `machines.json` holds only an ID, label and ssh target.
+
+<Callout type="note" title="Background connections never prompt">
+
+If ssh needs a password or host-key answer, run `conch machine add` in a terminal once, or `ssh-add` your key.
+
+</Callout>
+
+## Machine states
+
+In the sidebar each machine shows its state:
+
+| State | Meaning |
+| --- | --- |
+| `●` online | connected |
+| `⠋` connecting | connecting |
+| `○ offline` | unreachable; its last-seen panes stay visible, dimmed, while conch retries with backoff |
+| `! setup` | conch needs installing or upgrading — `m` → Install |
+| `outdated` | the server there predates your client — `m` → Restart server, which stops its panes |
+
+`R` on a machine reconnects now; `x` removes it. To move a machine onto a new build without stopping its panes, see [Updating without stopping agents](/docs/installation#updating-without-stopping-agents).
+
+## Claude Code on a machine
+
+conch checks whether `claude` is installed on each machine (the machine view shows its version). If it isn't, `c` offers to install it, or press `C` (also in the machine menu, or `conch -m NAME agent install claude`). conch runs Anthropic's official installer (`curl -fsSL https://claude.ai/install.sh | bash`) in a pane you can watch; it installs `~/.local/bin/claude` for your user, no root.
+
+Then `c` starts Claude there: on first run it asks you to log in — open the link it shows on any computer and paste the code back.
+
+<Callout type="note">
+
+conch never copies credentials between machines. For unattended machines Claude also accepts `ANTHROPIC_API_KEY` or a `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`.
+
+</Callout>
+
+Alpine needs `apk add bash curl libgcc libstdc++ ripgrep` (as root) first.
