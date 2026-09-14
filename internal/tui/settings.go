@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -152,6 +153,7 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 		{header: true, label: "When"},
 		toggle("An agent is waiting for you", "permissions, questions", &n.Waiting, nil),
 		toggle("An agent finishes", "while you look elsewhere", &n.Done, nil),
+		toggle("A plan limit is nearly used", limitAtText(n.Thresholds()), &n.Limits, nil),
 		{},
 		{header: true, label: "Quiet hours", detail: "no alerts; the sidebar still shows who waits"},
 	}
@@ -523,4 +525,13 @@ func (s *settings) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 		return items[i].run(m)
 	}
 	return nil
+}
+
+// limitAtText describes the alert thresholds, e.g. "Claude/Codex at 80%, 95%".
+func limitAtText(at []int) string {
+	var parts []string
+	for _, p := range at {
+		parts = append(parts, strconv.Itoa(p)+"%")
+	}
+	return "Claude/Codex at " + strings.Join(parts, ", ")
 }

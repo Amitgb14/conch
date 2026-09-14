@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -17,6 +18,7 @@ type uiState struct {
 	SidebarWidth int             `json:"sidebar_width,omitempty"`
 	Tabs         []savedTab      `json:"tabs,omitempty"`
 	ActiveTab    int             `json:"active_tab,omitempty"`
+	LimitAlerts  map[string]int  `json:"limit_alerts,omitempty"` // see limitalerts.go
 }
 
 func uiStatePath() string { return filepath.Join(config.Dir(), "ui.json") }
@@ -37,6 +39,10 @@ func loadUIState(path string) uiState {
 	if st.ShowAll == nil {
 		st.ShowAll = map[string]bool{}
 	}
+	if st.LimitAlerts == nil {
+		st.LimitAlerts = map[string]int{}
+	}
+	pruneLimitAlerts(st.LimitAlerts, time.Now())
 	return st
 }
 
@@ -59,7 +65,10 @@ func saveUIState(path string, st uiState) error {
 // maps are copied because the model keeps changing them.
 func (m Model) saveState() tea.Cmd {
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
-		Tabs: m.savedTabs(), ActiveTab: m.activeTab}
+		Tabs: m.savedTabs(), ActiveTab: m.activeTab, LimitAlerts: map[string]int{}}
+	for k, v := range m.limitSeen {
+		st.LimitAlerts[k] = v
+	}
 	for k, v := range m.expanded {
 		st.Expanded[k] = v
 	}

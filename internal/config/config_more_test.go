@@ -26,7 +26,7 @@ func TestA3Defaults(t *testing.T) {
 	d := Default()
 	want := Config{
 		Keys:   Keys{Prefix: "ctrl+b"},
-		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true},
+		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true, Limits: true, LimitAt: []int{80, 95}},
 		UI:     UICfg{Mouse: true, Theme: "conch"},
 		Agents: AgentsCfg{Default: "claude"},
 		Brain:  BrainCfg{Provider: "claude"},
@@ -199,7 +199,7 @@ func TestA3SaveFullRoundTrip(t *testing.T) {
 	cfg := Config{
 		Keys:   Keys{Prefix: "ctrl+space"},
 		Pane:   PaneCfg{DefaultCommand: "fish -l"},
-		Notify: NotifyCfg{Enabled: true, Desktop: false, Sound: true, Bell: true, Waiting: false, Done: true, QuietStart: "23:00", QuietEnd: "06:00"},
+		Notify: NotifyCfg{Enabled: true, Desktop: false, Sound: true, Bell: true, Waiting: false, Done: true, QuietStart: "23:00", QuietEnd: "06:00", Limits: false, LimitAt: []int{50, 90}},
 		UI:     UICfg{Mouse: false, Theme: "tokyo-night", Accent: "#ff00aa"},
 		Shell:  ShellCfg{OMZTheme: "robbyrussell"},
 		Agents: AgentsCfg{Default: "codex"},

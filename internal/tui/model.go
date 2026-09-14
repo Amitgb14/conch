@@ -103,7 +103,8 @@ type Model struct {
 
 	brain *brainState // summaries and command bar history
 
-	snoozeUntil time.Time // alerts are silenced until then
+	snoozeUntil time.Time      // alerts are silenced until then
+	limitSeen   map[string]int // plan limit alerts raised, per window (limitalerts.go)
 
 	upd     *updateState // newer builds and the update in progress
 	restart bool         // quit to exec the new build
@@ -141,6 +142,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		brain:      newBrainState(),
 		sessions:   map[string]*sessionsData{},
 		upd:        newUpdateState(),
+		limitSeen:  st.LimitAlerts,
 	}
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	if st.SidebarWidth > 0 {
@@ -284,9 +286,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case limitsMsg:
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
+			var cmds []tea.Cmd
 			for _, l := range msg.limits {
 				mach.setLimits(l)
+				cmds = append(cmds, m.alertLimits(mach, l))
 			}
+			return m, tea.Batch(cmds...)
 		}
 		return m, nil
 
@@ -524,6 +529,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		var l proto.PlanLimits
 		if decodeInto(msg, &l) {
 			mach.setLimits(l)
+			return m.alertLimits(mach, l)
 		}
 		return nil
 

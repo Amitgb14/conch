@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -95,6 +96,31 @@ type NotifyCfg struct {
 	// between them; waiting agents still show in the sidebar. Empty: never.
 	QuietStart string `toml:"quiet_start"`
 	QuietEnd   string `toml:"quiet_end"`
+	// Limits alerts when an agent's plan limit window (Claude's 5-hour or
+	// weekly, Codex's) passes a percentage in LimitAt.
+	Limits  bool  `toml:"limits"`
+	LimitAt []int `toml:"limit_at"`
+}
+
+// DefaultLimitAt is when plan limit alerts fire, in percent used.
+var DefaultLimitAt = []int{80, 95}
+
+// Thresholds is LimitAt cleaned up: percentages in 1..100, ascending, once
+// each; the defaults when none are valid.
+func (n NotifyCfg) Thresholds() []int {
+	seen := map[int]bool{}
+	var out []int
+	for _, p := range n.LimitAt {
+		if p >= 1 && p <= 100 && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return append([]int(nil), DefaultLimitAt...)
+	}
+	sort.Ints(out)
+	return out
 }
 
 // Quiet reports whether t falls in the configured quiet hours. The range
@@ -137,7 +163,7 @@ type PaneCfg struct {
 func Default() Config {
 	return Config{
 		Keys:   Keys{Prefix: "ctrl+b"},
-		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true},
+		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true, Limits: true, LimitAt: append([]int(nil), DefaultLimitAt...)},
 		UI:     UICfg{Mouse: true, Theme: "conch"},
 		Agents: AgentsCfg{Default: "claude"},
 		Brain:  BrainCfg{Provider: "claude"},

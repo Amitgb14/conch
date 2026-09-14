@@ -66,6 +66,6 @@ A machine's page totals the usage of its running agents.
 
 ## Plan limits
 
-For Claude subscriptions the status bar shows the current windows, e.g. `Claude 5h 42% · 7d 18%` (amber from 70%, red from 90%); click it for reset times. The machine page draws them as bars with when each window resets.
+For Claude subscriptions the status bar shows the current windows, e.g. `Claude 5h 42% · 7d 18%` (amber from 70%, red from 90%); click it for reset times. The machine page draws them as bars with when each window resets. When a window passes 80% and again at 95%, conch alerts once (see [notification settings](/docs/configuration#notify)).
 
 Claude shares these only with its status line, so conch adds a status line command to its `--settings` that records them and then runs your own status line unchanged. Codex's windows are read from its session files when its login has them. API-key logins have no plan windows.
