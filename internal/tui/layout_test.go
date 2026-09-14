@@ -198,3 +198,30 @@ func TestClosedPaneLeavesLayout(t *testing.T) {
 		t.Fatal("the last tab stays, empty")
 	}
 }
+
+func TestSplitTabReusesPreviewTab(t *testing.T) {
+	m := splitModel()
+	panes := append(m.machines[0].panes, proto.PaneInfo{ID: "p4", State: proto.PaneRunning})
+	m.machines[0].panes = panes
+	m.rows = append(m.rows, row{id: paneNodeID(localMachine, "p4"), kind: kindPane, machine: localMachine, paneID: "p4"})
+	open := func(i int) { m.cursor = m.rows[i].id; m.show(m.rows[i]) }
+
+	open(0)
+	m.split(splitRight, viewOf(m.rows[1])) // tab 1: p1 | p2
+	open(2)                                // tab 2: p3
+	open(3)                                // still tab 2, now p4
+	if len(m.tabs) != 2 || m.activeTab != 1 || m.tab().focused().view.PaneID != "p4" {
+		t.Fatalf("tab 2 previews: %d tabs, active %d", len(m.tabs), m.activeTab)
+	}
+	open(1) // p2 is in tab 1's split: jump there
+	if m.activeTab != 0 {
+		t.Fatal("p2 should focus tab 1")
+	}
+	open(2) // from the split tab, p3 goes to the preview tab, not a third tab
+	if len(m.tabs) != 2 || m.activeTab != 1 || m.tab().focused().view.PaneID != "p3" {
+		t.Fatalf("p3: %d tabs, active %d, shows %q", len(m.tabs), m.activeTab, m.tab().focused().view.PaneID)
+	}
+	if ls := m.tabs[0].root.leaves(); ls[0].view.PaneID != "p1" || ls[1].view.PaneID != "p2" {
+		t.Fatal("the split changed")
+	}
+}

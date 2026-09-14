@@ -197,9 +197,10 @@ func (m *Model) assign(l *leaf, r row) {
 	}
 }
 
-// show puts a tree row on screen: focusing a leaf of the active tab that
-// already shows it, else switching to a tab that does, else showing it in
-// the focused leaf.
+// show puts a tree row on screen. A pane already on screen is focused where
+// it is. Otherwise it fills an empty split, or previews in a single-view tab
+// (the current one, else the latest), and only when every tab is split does
+// it get a tab of its own.
 func (m *Model) show(r row) tea.Cmd {
 	t := m.tab()
 	for _, l := range t.root.leaves() {
@@ -231,6 +232,15 @@ func (m *Model) show(r row) tea.Cmd {
 				t.focus = l.id
 				m.assign(l, r)
 				return m.syncView()
+			}
+		}
+		// A single-view tab previews what is opened, like the one in view
+		// would: reuse the latest instead of opening a tab per click.
+		for i := len(m.tabs) - 1; i >= 0; i-- {
+			if ls := m.tabs[i].root.leaves(); i != m.activeTab && len(ls) == 1 {
+				m.activeTab, m.tabs[i].focus = i, ls[0].id
+				m.assign(ls[0], r)
+				return tea.Batch(m.syncView(), m.saveState())
 			}
 		}
 		return m.newTab(viewOf(r))
