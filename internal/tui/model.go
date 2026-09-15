@@ -574,6 +574,19 @@ func (m Model) isViewing(mid, paneID string) bool {
 	return m.viewMachine == mid && m.viewing == paneID
 }
 
+// attentionBody says why an agent needs the user.
+func attentionBody(info proto.PaneInfo) string {
+	switch {
+	case info.Agent.State == proto.AgentBlocked && info.Agent.Message != "":
+		return info.Agent.Message
+	case info.Agent.State == proto.AgentBlocked:
+		return info.DisplayName() + " is waiting for you"
+	case info.Agent.Failed:
+		return info.DisplayName() + " stopped: " + info.Agent.Message
+	}
+	return info.DisplayName() + " finished"
+}
+
 func (m Model) notifyAttention(mach *machine, old, info proto.PaneInfo) tea.Cmd {
 	if m.isViewing(mach.id, info.ID) || !info.Agent.NeedsAttention() ||
 		(old.Agent != nil && old.Agent.State == info.Agent.State) {
@@ -583,13 +596,7 @@ func (m Model) notifyAttention(mach *machine, old, info proto.PaneInfo) tea.Cmd 
 		(info.Agent.State == proto.AgentDone && !m.cfg.Notify.Done) {
 		return nil
 	}
-	body := info.DisplayName() + " finished"
-	if info.Agent.State == proto.AgentBlocked {
-		body = info.DisplayName() + " is waiting for you"
-		if info.Agent.Message != "" {
-			body = info.Agent.Message
-		}
-	}
+	body := attentionBody(info)
 	title := "conch · " + info.Agent.Name
 	if mach.id != localMachine {
 		title += " on " + mach.label

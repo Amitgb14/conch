@@ -60,7 +60,7 @@ func (e *entry) info() proto.PaneInfo {
 		e.mu.Unlock()
 		info.Agent = &proto.AgentStatus{
 			Name: st.Agent, State: st.State, Source: st.Source, Reason: st.Reason,
-			Message: st.Message, SessionID: st.SessionID, Since: st.Since, Tokens: tokens,
+			Message: st.Message, SessionID: st.SessionID, Since: st.Since, Tokens: tokens, Failed: st.Failed,
 		}
 	}
 	return info
@@ -120,12 +120,13 @@ type shown struct {
 	agent, state, message, session string
 	title, name, branch            string
 	tokens                         proto.Tokens
+	failed                         bool
 }
 
 func shownOf(info proto.PaneInfo) shown {
 	sh := shown{title: info.Title, name: info.Name, branch: info.Branch}
 	if a := info.Agent; a != nil {
-		sh.agent, sh.state, sh.message, sh.session = a.Name, a.State, a.Message, a.SessionID
+		sh.agent, sh.state, sh.message, sh.session, sh.failed = a.Name, a.State, a.Message, a.SessionID, a.Failed
 		if a.Tokens != nil {
 			sh.tokens = *a.Tokens
 		}

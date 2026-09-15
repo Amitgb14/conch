@@ -13,6 +13,9 @@ type Status struct {
 	Message   string    `json:"message,omitempty"`
 	SessionID string    `json:"session_id,omitempty"`
 	Since     time.Time `json:"since"`
+	// Failed means the agent's last request ended with an error (Claude's
+	// StopFailure, OpenCode's session.error) rather than an answer.
+	Failed bool `json:"failed,omitempty"`
 }
 
 // HookEvent is a lifecycle event reported by an agent integration.
@@ -59,6 +62,7 @@ type Tracker struct {
 	hook  struct {
 		state, reason, message string
 		at                     time.Time
+		failed                 bool
 	}
 	sessionID     string
 	screenWorking time.Time // last time a working rule matched
@@ -117,6 +121,9 @@ func hookState(ev HookEvent) (state string, ok bool) {
 	return "", false
 }
 
+// FailedMessage describes a request that ended with an error.
+const FailedMessage = "the last request failed"
+
 // Hook records a lifecycle event.
 func (t *Tracker) Hook(ev HookEvent, now time.Time) {
 	if ev.SessionID != "" {
@@ -127,6 +134,10 @@ func (t *Tracker) Hook(ev HookEvent, now time.Time) {
 		return
 	}
 	t.hook.state, t.hook.reason, t.hook.message, t.hook.at = state, "hook:"+ev.Event, ev.Message, now
+	t.hook.failed = ev.Event == "StopFailure" || ev.Event == "session.error"
+	if t.hook.failed && t.hook.message == "" {
+		t.hook.message = FailedMessage
+	}
 	if ev.NotificationType != "" {
 		t.hook.reason += ":" + ev.NotificationType
 	}
@@ -177,7 +188,7 @@ func (t *Tracker) Observe(o Observation) bool {
 	// from nothing to an agent keeps it: hooks can arrive before the first
 	// sample sees the process.
 	if t.agent != nil && m != t.agent {
-		t.hook.state, t.sessionID, t.screenWorking = "", "", time.Time{}
+		t.hook.state, t.hook.failed, t.sessionID, t.screenWorking = "", false, "", time.Time{}
 	}
 	t.agent = m
 
@@ -197,7 +208,7 @@ func (t *Tracker) Observe(o Observation) bool {
 		case rule != nil && rule.State == StateBlocked:
 			next.State, next.Source, next.Reason = StateBlocked, "screen", "rule:"+rule.Name
 		case t.hook.state != "":
-			next.State, next.Source, next.Reason, next.Message = t.hook.state, "hook", t.hook.reason, t.hook.message
+			next.State, next.Source, next.Reason, next.Message, next.Failed = t.hook.state, "hook", t.hook.reason, t.hook.message, t.hook.failed
 			stale := m.HookWorkingStale.Duration
 			lastEvidence := t.hook.at
 			if t.screenWorking.After(lastEvidence) {
@@ -205,7 +216,7 @@ func (t *Tracker) Observe(o Observation) bool {
 			}
 			if next.State == StateWorking && stale > 0 && (rule == nil || rule.State != StateWorking) &&
 				o.Now.Sub(lastEvidence) > stale {
-				next.State, next.Source, next.Reason, next.Message = StateIdle, "screen", "hook_working_stale", ""
+				next.State, next.Source, next.Reason, next.Message, next.Failed = StateIdle, "screen", "hook_working_stale", "", false
 			}
 		case rule != nil:
 			next.State, next.Source, next.Reason = rule.State, "screen", "rule:"+rule.Name
@@ -234,7 +245,7 @@ func (t *Tracker) Observe(o Observation) bool {
 	}
 
 	changed := next.Agent != t.status.Agent || next.State != t.status.State ||
-		next.Message != t.status.Message || next.SessionID != t.status.SessionID
+		next.Message != t.status.Message || next.SessionID != t.status.SessionID || next.Failed != t.status.Failed
 	if next.State != t.status.State || next.Agent != t.status.Agent {
 		next.Since = o.Now
 	} else {
@@ -263,6 +274,7 @@ type TrackerState struct {
 	HookReason    string    `json:"hook_reason,omitempty"`
 	HookMessage   string    `json:"hook_message,omitempty"`
 	HookAt        time.Time `json:"hook_at,omitempty"`
+	HookFailed    bool      `json:"hook_failed,omitempty"`
 	SessionID     string    `json:"session_id,omitempty"`
 	ScreenWorking time.Time `json:"screen_working,omitempty"`
 	Base          string    `json:"base,omitempty"`
@@ -273,13 +285,13 @@ type TrackerState struct {
 // Export returns the tracker's state.
 func (t *Tracker) Export() TrackerState {
 	return TrackerState{Hint: t.hint, HookState: t.hook.state, HookReason: t.hook.reason, HookMessage: t.hook.message,
-		HookAt: t.hook.at, SessionID: t.sessionID, ScreenWorking: t.screenWorking, Base: t.base, Seen: t.seen, Status: t.status}
+		HookAt: t.hook.at, HookFailed: t.hook.failed, SessionID: t.sessionID, ScreenWorking: t.screenWorking, Base: t.base, Seen: t.seen, Status: t.status}
 }
 
 // RestoreTracker rebuilds a tracker from exported state.
 func RestoreTracker(manifests map[string]*Manifest, st TrackerState) *Tracker {
 	t := NewTracker(manifests, st.Hint)
-	t.hook.state, t.hook.reason, t.hook.message, t.hook.at = st.HookState, st.HookReason, st.HookMessage, st.HookAt
+	t.hook.state, t.hook.reason, t.hook.message, t.hook.at, t.hook.failed = st.HookState, st.HookReason, st.HookMessage, st.HookAt, st.HookFailed
 	t.sessionID, t.screenWorking, t.base, t.seen, t.status = st.SessionID, st.ScreenWorking, st.Base, st.Seen, st.Status
 	if st.Status.Agent != "" {
 		t.agent = manifests[st.Status.Agent]

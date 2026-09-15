@@ -489,6 +489,8 @@ type AgentStatus struct {
 	SessionID string    `json:"session_id,omitempty"`
 	Since     time.Time `json:"since"`
 	Tokens    *Tokens   `json:"tokens,omitempty"`
+	// Failed means the last request ended with an error, not an answer.
+	Failed bool `json:"failed,omitempty"`
 }
 
 // Tokens is an agent session's token usage, from its transcript.

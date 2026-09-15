@@ -421,6 +421,10 @@ func (m Model) paneGlyph(p proto.PaneInfo) (glyph, label string, style lipgloss.
 	case p.Agent == nil:
 		return "›", "", styleMuted
 	}
+	switch {
+	case p.Agent.Failed && (p.Agent.State == proto.AgentDone || p.Agent.State == proto.AgentIdle):
+		return "✗", "failed", styleErr
+	}
 	switch p.Agent.State {
 	case proto.AgentWorking:
 		return spinner[m.spin%len(spinner)], "working", styleWork

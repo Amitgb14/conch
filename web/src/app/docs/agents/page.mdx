@@ -33,6 +33,7 @@ conch never edits an agent's own configuration or answers its trust prompts for 
 | `!` waiting | blocked on you: a permission, trust or other question |
 | `✓` done | finished while you were looking elsewhere |
 | `○` idle | waiting for a prompt |
+| `✗` failed | its last request ended with an error instead of an answer (Claude Code and OpenCode report this), e.g. an expired provider login; cleared by the next prompt |
 
 A desktop notification fires when an agent you aren't viewing needs you (see [notification settings](/docs/interface#notifications)). `!` in the tree, or `ctrl+b !` in a pane, jumps to the next agent waiting for you.
 
