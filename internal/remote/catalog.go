@@ -27,6 +27,9 @@ const LocalID = "local"
 
 func catalogPath() string { return filepath.Join(config.Dir(), "machines.json") }
 
+// CatalogPath is the file saved machines are kept in, for watching it.
+func CatalogPath() string { return catalogPath() }
+
 // Machines loads the saved machines.
 func Machines() ([]Machine, error) {
 	b, err := os.ReadFile(catalogPath())

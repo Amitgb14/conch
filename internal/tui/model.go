@@ -110,6 +110,9 @@ type Model struct {
 
 	snoozeUntil time.Time      // alerts are silenced until then
 	limitSeen   map[string]int // plan limit alerts raised, per window (limitalerts.go)
+	// catalogStamp is machines.json's modification time and size when last
+	// read, to notice machines added or removed with conch machine.
+	catalogStamp string
 
 	upd     *updateState // newer builds and the update in progress
 	restart bool         // quit to exec the new build
@@ -159,6 +162,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		lm.warning = "server is from an older build · click the version to reload it"
 	}
 	m.machines = append(m.machines, lm)
+	m.catalogStamp = catalogStamp()
 	saved, _ := remote.Machines()
 	for _, sm := range saved {
 		if sm.Enabled {
@@ -178,6 +182,7 @@ func (m Model) Init() tea.Cmd {
 			cmds = append(cmds, mach.connect(false))
 		}
 	}
+	cmds = append(cmds, catalogTick())
 	if m.upd != nil {
 		cmds = append(cmds, updateTick())
 		if m.cfg.Update.CheckReleases {
@@ -407,6 +412,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionsMsg:
 		m.receiveSessions(msg)
 		return m, nil
+
+	case catalogTickMsg:
+		return m, tea.Batch(catalogTick(), m.syncCatalog())
 
 	case numbersDoneMsg:
 		if msg.gen == m.numbersGen {
