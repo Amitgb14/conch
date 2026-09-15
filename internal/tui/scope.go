@@ -221,6 +221,19 @@ func (m *Model) pickTab() {
 			vis = append(vis, i)
 		}
 	}
+	if pageRow(r.kind) {
+		// A page (a project, its branches, a branch's changes, sessions)
+		// shows itself: in the group's browsing tab, else as a preview. The
+		// bar still lists the group's tabs.
+		for _, i := range slices.Backward(vis) {
+			if ls := m.tabs[i].root.leaves(); len(ls) == 1 && browsing(ls[0]) && !ls[0].pick {
+				m.activeTab, m.previewing = i, false
+				return // syncView puts the row in it
+			}
+		}
+		m.showPreview(r)
+		return
+	}
 	if !m.previewing && slices.Contains(vis, m.activeTab) {
 		return
 	}
@@ -232,6 +245,21 @@ func (m *Model) pickTab() {
 		m.activeTab, m.previewing = vis[0], false
 		return
 	}
+	m.showPreview(r)
+}
+
+// pageRow reports whether a row is a page to look at rather than a group
+// of tabs.
+func pageRow(k nodeKind) bool {
+	switch k {
+	case kindProject, kindBranches, kindBranch, kindMore, kindSessions:
+		return true
+	}
+	return false
+}
+
+// showPreview shows a row in the preview.
+func (m *Model) showPreview(r row) {
 	m.previewing = true
 	pv := m.tab()
 	if len(pv.root.leaves()) > 1 {

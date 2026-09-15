@@ -70,7 +70,11 @@ func TestA1ScopeFilters(t *testing.T) {
 		if got := strings.Join(a1PaneIDs(m, m.visibleTabs()), ","); got != tc.want {
 			t.Errorf("%s lists %q, want %q", tc.row, got, tc.want)
 		}
-		if m.previewing {
+		r := m.rows[indexOfRow(m.rows, tc.row)]
+		switch {
+		case pageRow(r.kind) && (!m.previewing || m.tab().focused().view.Row != tc.row):
+			t.Errorf("%s is a page: it should show itself, previewing %v", tc.row, m.previewing)
+		case !pageRow(r.kind) && m.previewing:
 			t.Errorf("%s previews although its group has tabs", tc.row)
 		}
 	}
@@ -187,28 +191,42 @@ func TestA1PromoteEmptyPreviewIsDropped(t *testing.T) {
 func TestA1PickTabRemembersGroupTab(t *testing.T) {
 	m, _ := a1Fixture(t, false)
 	a1FourTabs(t, m)
-	proj := projectNodeID(localMachine, "r1")
+	proj := cliID(localMachine) // CLI lists p3 and p4
 	a1At(t, m, proj)
-	if m.activeTab != 0 {
-		t.Fatalf("project picks its first tab, got %d", m.activeTab)
+	if m.activeTab != 3 || m.previewing {
+		t.Fatalf("CLI keeps the active tab it lists (p4), got %d", m.activeTab)
 	}
-	// Choosing t1 from the tree records it for the project group.
-	m.switchTab(1)
-	if m.activeTab != 1 || m.scopeTab[m.rowScope(m.rows[indexOfRow(m.rows, proj)]).key()] != m.tabs[1] {
+	// Choosing p3's tab from the tree records it for the CLI group.
+	m.switchTab(2)
+	if m.activeTab != 2 || m.scopeTab[m.rowScope(m.rows[indexOfRow(m.rows, proj)]).key()] != m.tabs[2] {
 		t.Fatalf("scope tab not remembered: active %d", m.activeTab)
 	}
-	a1At(t, m, cliID(localMachine))
-	if m.activeTab != 2 {
-		t.Fatalf("CLI picks its first tab, got %d", m.activeTab)
+	a1At(t, m, sectionID(localMachine, "r1", "agents"))
+	if m.activeTab != 0 {
+		t.Fatalf("api agents picks p1, got %d", m.activeTab)
 	}
 	a1At(t, m, proj)
-	if m.activeTab != 1 {
-		t.Fatalf("back on the project the last used tab returns, got %d", m.activeTab)
+	if m.activeTab != 2 {
+		t.Fatalf("back on CLI the last used tab returns, got %d", m.activeTab)
 	}
 	// Within the group the active tab stays while it is listed.
-	a1At(t, m, sectionID(localMachine, "r1", "branches"))
-	if m.activeTab != 1 {
+	a1At(t, m, looseTerminalsID(localMachine))
+	if m.activeTab != 2 || m.previewing {
 		t.Fatalf("moving within the group changed the tab to %d", m.activeTab)
+	}
+	// A page of a project shows itself, and a browsing tab of the group
+	// is reused for it.
+	branches := sectionID(localMachine, "r1", "branches")
+	a1At(t, m, branches)
+	if !m.previewing || m.tab().focused().view.Row != branches {
+		t.Fatalf("branches page: previewing %v", m.previewing)
+	}
+	m.promote() // keep it as a browsing tab
+	browse := m.activeTab
+	a1At(t, m, sectionID(localMachine, "r1", "agents"))
+	a1At(t, m, projectNodeID(localMachine, "r1"))
+	if m.previewing || m.activeTab != browse || m.tab().focused().view.Row != projectNodeID(localMachine, "r1") {
+		t.Fatalf("project page: previewing %v active %d (browsing tab %d)", m.previewing, m.activeTab, browse)
 	}
 	// keepTab: a redraw right after a pick keeps the chosen tab even though
 	// the cursor names a different group.

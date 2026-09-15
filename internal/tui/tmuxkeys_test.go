@@ -181,8 +181,8 @@ func TestTabsFollowTreeGroup(t *testing.T) {
 		t.Fatalf("machine: tabs %v, previewing %v", got, m.previewing)
 	}
 	at(1)
-	if got := strings.Join(shown(), ","); got != "p1,p2" || m.previewing {
-		t.Fatalf("project: %s", got)
+	if got := strings.Join(shown(), ","); got != "p1,p2" || !m.previewing || m.tab().focused().view.Kind != kindProject {
+		t.Fatalf("project: %s previewing %v", got, m.previewing)
 	}
 	at(2)
 	if got := strings.Join(shown(), ","); got != "p1" || m.tab().focused().view.PaneID != "p1" {

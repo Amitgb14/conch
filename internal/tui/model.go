@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -1026,18 +1027,28 @@ func (m Model) installAgent(mid, agent string) tea.Cmd {
 // tildify shortens a path on machine mid with ~ for its home.
 func (m Model) tildify(mid, p string) string {
 	home := ""
-	if mid == localMachine || mid == "" {
+	local := mid == localMachine || mid == ""
+	if local {
 		home, _ = os.UserHomeDir()
 	} else if mach := m.machine(mid); mach != nil {
 		home = mach.server.Home
 	}
-	switch {
-	case home == "":
+	if home == "" {
 		return p
-	case p == home:
-		return "~"
-	case strings.HasPrefix(p, home+"/"):
-		return "~" + p[len(home):]
+	}
+	homes := []string{home}
+	if local { // the server records real paths; HOME may name a symlink
+		if real, err := filepath.EvalSymlinks(home); err == nil && real != home {
+			homes = append(homes, real)
+		}
+	}
+	for _, h := range homes {
+		switch {
+		case p == h:
+			return "~"
+		case strings.HasPrefix(p, h+"/"):
+			return "~" + p[len(h):]
+		}
 	}
 	return p
 }
