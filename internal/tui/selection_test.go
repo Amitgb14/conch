@@ -2,9 +2,11 @@ package tui
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -81,6 +83,32 @@ func TestApplyTheme(t *testing.T) {
 	applyTheme("nonsense", "#123456")
 	if colorAccent != "#123456" || colorBorder != themes[0].border {
 		t.Fatalf("unknown theme with hex accent: %v %v", colorAccent, colorBorder)
+	}
+}
+
+func TestThemesAreComplete(t *testing.T) {
+	seen := map[string]bool{}
+	for _, th := range themes {
+		if th.name == "" || th.label == "" || th.name != strings.ToLower(th.name) || strings.ContainsAny(th.name, " \t") {
+			t.Errorf("theme name/label: %q %q", th.name, th.label)
+		}
+		if seen[th.name] {
+			t.Errorf("duplicate theme %q", th.name)
+		}
+		seen[th.name] = true
+		for _, c := range []lipgloss.Color{th.accent, th.selFG, th.border, th.muted, th.ok, th.warn, th.err, th.work, th.selDim, th.merged} {
+			if len(c) != 7 || c[0] != '#' || strings.Trim(strings.ToLower(string(c[1:])), "0123456789abcdef") != "" {
+				t.Errorf("theme %q colour %q is not #rrggbb", th.name, c)
+			}
+		}
+		if got := themeByName("  " + strings.ToUpper(th.name) + " "); got.name != th.name {
+			t.Errorf("themeByName(%q) = %q", th.name, got.name)
+		}
+	}
+	for _, name := range []string{"one-dark", "solarized", "rose-pine", "kanagawa", "everforest", "monokai", "github-dark", "ayu", "night-owl"} {
+		if !seen[name] {
+			t.Errorf("missing theme %q", name)
+		}
 	}
 }
 

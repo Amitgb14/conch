@@ -339,11 +339,11 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 
 func TestA2SettingsMoveReachesListEdges(t *testing.T) {
 	m := a2Model()
-	s := &settings{shellErr: "no server"} // Theme tab: header, 6 themes, blank, header, message
+	s := &settings{shellErr: "no server"} // Theme tab: header, themes, blank, header, message
 	items := s.themeItems(m)
-	s.sel = 2
+	s.sel = len(themes) - 4
 	s.move(items, 10) // pgdown
-	if s.sel != 6 {
+	if s.sel != len(themes) {
 		t.Errorf("pgdown near the end should reach the last theme, sel %d", s.sel)
 	}
 	s.sel = 2

@@ -74,8 +74,9 @@ type UICfg struct {
 	// in iTerm2) to select text with the terminal instead; false leaves the
 	// mouse to the terminal entirely.
 	Mouse bool `toml:"mouse"`
-	// Theme is the colour scheme: conch, dracula, catppuccin, nord, gruvbox
-	// or tokyo-night.
+	// Theme is the colour scheme: conch, dracula, catppuccin, nord, gruvbox,
+	// tokyo-night, one-dark, solarized, rose-pine, kanagawa, everforest,
+	// monokai, github-dark, ayu or night-owl.
 	Theme string `toml:"theme"`
 	// Accent overrides the theme's accent (selections, focused borders,
 	// dialogs): teal, blue, green, orange, pink, red, gray, purple, or a
