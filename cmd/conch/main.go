@@ -145,7 +145,7 @@ func runTUI() error {
 		if xerr != nil {
 			return xerr
 		}
-		return syscall.Exec(exe, os.Args, tui.RestartEnv())
+		return syscall.Exec(exe, os.Args, tui.RestartEnv(final))
 	}
 	return err
 }

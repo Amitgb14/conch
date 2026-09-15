@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -143,18 +144,18 @@ func TestA2PendingUpdates(t *testing.T) {
 func TestA2StartUpdateAndRemotes(t *testing.T) {
 	m := a2Model()
 	m.upd = &updateState{}
-	if m.startUpdate() != nil || m.flash != "conch is up to date" || m.upd.running {
+	if m.startUpdate(nil) != nil || m.flash != "conch is up to date" || m.upd.running {
 		t.Fatalf("nothing to update: %q", m.flash)
 	}
 	m.upd.running = true
 	m.flash = ""
-	if m.startUpdate() != nil || m.flash != "" {
+	if m.startUpdate(nil) != nil || m.flash != "" {
 		t.Fatal("an update in progress is not started twice")
 	}
 	m.upd.running = false
 	m.upd.release = &update.Release{Version: "9.9.9"}
 	// The command downloads, so it is only built.
-	if m.startUpdate() == nil || !m.upd.running {
+	if m.startUpdate(nil) == nil || !m.upd.running {
 		t.Fatal("pending updates start")
 	}
 
@@ -250,7 +251,7 @@ func TestA2HandleUpdateMessages(t *testing.T) {
 	}
 
 	t.Setenv(updateRemotesEnv, "stale")
-	env := RestartEnv()
+	env := RestartEnv(nil)
 	n := 0
 	for _, kv := range env {
 		if strings.HasPrefix(kv, updateRemotesEnv+"=") {
@@ -262,5 +263,226 @@ func TestA2HandleUpdateMessages(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("%d update variables in the restart environment", n)
+	}
+}
+
+// a2BehindModel has two machines behind this build (box1, box2), one on it
+// (same) and one offline.
+func a2BehindModel() (*Model, *machine, *machine) {
+	m := a2Model()
+	m.upd = &updateState{}
+	box1 := &machine{id: "box1", label: "box1", c: a2Client(), server: proto.HelloResult{BuildID: "old1"}}
+	box2 := &machine{id: "box2", label: "box2", c: a2Client(), server: proto.HelloResult{BuildID: "old2"}}
+	same := &machine{id: "same", label: "same", c: a2Client(), server: proto.HelloResult{BuildID: buildinfo.ID()}}
+	m.machines = append(m.machines, box1, box2, same, &machine{id: "off", label: "off", server: proto.HelloResult{BuildID: "old"}})
+	return m, box1, box2
+}
+
+func TestVersionInfoTicksMachines(t *testing.T) {
+	if proto.IsRelease() {
+		t.Skip("release builds compare versions, not builds")
+	}
+	m, _, _ := a2BehindModel()
+	v := newVersionInfo()
+	m.overlay = v
+	render := func() string {
+		t.Helper()
+		b := v.render(*m)
+		for i, l := range b.lines {
+			if w := ansi.StringWidth(l); w > m.width {
+				t.Fatalf("line %d is %d wide on a %d screen", i, w, m.width)
+			}
+		}
+		return ansi.Strip(strings.Join(b.lines, "\n"))
+	}
+	if got := strings.Join(v.machines(*m), ","); got != "box1,box2" {
+		t.Fatalf("listed: %s", got)
+	}
+	out := render()
+	for _, want := range []string{"[x] box1", "[x] box2", "u update everything", "space untick a machine", "esc closes"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("all ticked lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "same") || strings.Contains(out, "off ") {
+		t.Fatalf("lists a machine that isn't behind:\n%s", out)
+	}
+
+	key := func(k string) tea.Cmd {
+		t.Helper()
+		next, cmd := m.update(a2Key(k))
+		*m = next.(Model)
+		return cmd
+	}
+	// Moving and ticking keep the box open; the selection stops at the ends.
+	key("up")
+	key("down")
+	key("down")
+	key(" ")
+	if m.overlay != v || v.sel != 1 || !v.skip["box2"] || v.skip["box1"] {
+		t.Fatalf("untick box2: sel %d skip %v open %v", v.sel, v.skip, m.overlay == v)
+	}
+	if out = render(); !strings.Contains(out, "[ ] box2") || !strings.Contains(out, "u update 1 of 2 machines") {
+		t.Fatalf("after unticking:\n%s", out)
+	}
+	key("a") // not all ticked: ticks all
+	if v.skip["box1"] || v.skip["box2"] {
+		t.Fatalf("a ticks all: %v", v.skip)
+	}
+	key("a") // all ticked: unticks all
+	if !v.skip["box1"] || !v.skip["box2"] {
+		t.Fatalf("a again unticks all: %v", v.skip)
+	}
+	// Nothing ticked and nothing local: u says so and the box stays.
+	if cmd := key("u"); cmd != nil || m.overlay != v || m.flash != "nothing ticked to update" || m.upd.running {
+		t.Fatalf("u with nothing ticked: %q", m.flash)
+	}
+
+	// Click a row to tick it; the first content line is one below the border.
+	b := v.render(*m)
+	var y int
+	for line, id := range v.rows {
+		if id == "box1" {
+			y = b.y + 1 + line
+		}
+	}
+	v.mouse(m, tea.MouseMsg{X: b.x + 3, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, b)
+	if v.skip["box1"] || v.sel != 0 || m.overlay != v {
+		t.Fatalf("click box1: %v sel %d", v.skip, v.sel)
+	}
+	v.mouse(m, tea.MouseMsg{X: b.x + 3, Y: y, Action: tea.MouseActionMotion}, b)
+	if v.skip["box1"] {
+		t.Fatal("motion toggled")
+	}
+
+	// u updates box1 only, then closes.
+	cmd := key("u")
+	if cmd == nil || m.overlay != nil || !m.upd.running || !m.upd.skip["box2"] || m.upd.skip["box1"] {
+		t.Fatalf("u: open %v running %v skip %v", m.overlay != nil, m.upd.running, m.upd.skip)
+	}
+	if _, ok := cmd().(updateStepMsg); !ok { // nothing local to do: straight to remotes
+		t.Fatal("expected the remotes step")
+	}
+	if c, _ := m.handleUpdate(updateStepMsg{step: "remotes"}); c == nil || m.flash != "updating box1…" {
+		t.Fatalf("remotes: %q", m.flash)
+	}
+	m.handleUpdate(updateDoneMsg{})
+	if m.flash != "conch updated · panes kept · not updated: box2" {
+		t.Fatalf("done: %q", m.flash)
+	}
+
+	// A click outside closes; so does esc.
+	m.overlay = v
+	v.mouse(m, tea.MouseMsg{X: 0, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, box{x: 50, y: 50, lines: []string{"x"}})
+	if m.overlay != nil {
+		t.Fatal("outside click kept the box")
+	}
+	m.overlay = v
+	key("esc")
+	if m.overlay != nil {
+		t.Fatal("esc kept the box")
+	}
+}
+
+func TestUpdateSkipsUntickedMachines(t *testing.T) {
+	if proto.IsRelease() {
+		t.Skip("release builds compare versions, not builds")
+	}
+	m, _, _ := a2BehindModel()
+	// Both unticked, but the local server is behind: the update still runs
+	// for this computer and leaves the machines alone.
+	m.machines[0].c = a2Client()
+	m.machines[0].server.Build = "oldlocal"
+	m.upd.diskBuild = ""
+	if !m.serverBehindDisk() {
+		t.Skip("no build identity in this test binary")
+	}
+	skip := map[string]bool{"box1": true, "box2": true, "": true, "gone": false}
+	if m.startUpdate(skip) == nil || !m.upd.running {
+		t.Fatal("local server behind: runs")
+	}
+	if len(m.upd.skip) != 2 {
+		t.Fatalf("skip keeps only unticked machines: %v", m.upd.skip)
+	}
+	skip["box1"] = false // the box's map changing later doesn't change the update
+	if !m.upd.skip["box1"] {
+		t.Fatal("update shares the box's map")
+	}
+	if cmd := m.updateRemotes(); cmd != nil || m.upd.running {
+		t.Fatal("unticked machines updated")
+	}
+	if !strings.Contains(m.flash, "not updated: box1, box2") {
+		t.Fatalf("flash: %q", m.flash)
+	}
+
+	// The TUI restarted by the update skips them too, even on first connect.
+	m.restart = true
+	env := RestartEnv(*m)
+	var remotes, skipVar []string
+	for _, kv := range env {
+		if strings.HasPrefix(kv, updateRemotesEnv+"=") {
+			remotes = append(remotes, kv)
+		}
+		if strings.HasPrefix(kv, updateSkipEnv+"=") {
+			skipVar = append(skipVar, kv)
+		}
+	}
+	if len(remotes) != 1 || strings.Join(skipVar, "|") != updateSkipEnv+"=box1,box2" {
+		t.Fatalf("restart env: %v %v", remotes, skipVar)
+	}
+	t.Setenv(updateRemotesEnv, "1")
+	t.Setenv(updateSkipEnv, "box1,,box2")
+	u := newUpdateState()
+	if !u.remotes || !u.skip["box1"] || !u.skip["box2"] || len(u.skip) != 2 || os.Getenv(updateSkipEnv) != "" {
+		t.Fatalf("restarted state: %+v", u)
+	}
+	m.upd = u
+	if m.autoUpdateMachine("box1") != nil || m.autoUpdateMachine("box2") != nil {
+		t.Fatal("an unticked machine updated after the restart")
+	}
+	// A machine not listed at the time (offline then) still updates.
+	m.machines[4].c = a2Client()
+	if m.autoUpdateMachine("off") == nil {
+		t.Fatal("a machine connecting later wasn't updated")
+	}
+
+	// Nothing skipped: no skip variable; a stray one isn't inherited, and
+	// without the update variable it is ignored.
+	m.upd = &updateState{}
+	t.Setenv(updateSkipEnv, "stale")
+	for _, kv := range RestartEnv(*m) {
+		if strings.HasPrefix(kv, updateSkipEnv+"=") {
+			t.Fatalf("stale skip kept: %s", kv)
+		}
+	}
+	os.Unsetenv(updateRemotesEnv)
+	t.Setenv(updateSkipEnv, "box1")
+	if u := newUpdateState(); u.remotes || u.skip != nil || os.Getenv(updateSkipEnv) != "" {
+		t.Fatalf("skip without an update: %+v", u)
+	}
+}
+
+func TestVersionInfoTinyScreens(t *testing.T) {
+	m, _, _ := a2BehindModel()
+	v := newVersionInfo()
+	for _, size := range [][2]int{{1, 1}, {20, 5}, {39, 12}, {300, 100}} {
+		m.width, m.height = size[0], size[1]
+		b := v.render(*m)
+		if b.x < 0 || b.y < 0 {
+			t.Fatalf("%v: box at %d,%d", size, b.x, b.y)
+		}
+		for _, l := range b.lines {
+			if m.width > 2 && ansi.StringWidth(l) > m.width {
+				t.Fatalf("%v: line %d wide", size, ansi.StringWidth(l))
+			}
+		}
+	}
+	// No machines behind: keys other than u and r close, as before.
+	m2 := a2Model()
+	m2.upd = &updateState{}
+	v2 := newVersionInfo()
+	m2.overlay = v2
+	if handled, _ := v2.update(m2, a2Key("down")); !handled || m2.overlay != nil {
+		t.Fatal("down without machines should close")
 	}
 }

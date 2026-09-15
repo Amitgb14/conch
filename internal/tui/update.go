@@ -3,7 +3,9 @@ package tui
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,12 +35,16 @@ type updateState struct {
 	// after another client upgraded the machine, say — are left alone, or
 	// two builds would keep replacing each other there.
 	checked map[string]bool
+	// skip holds machines unticked in the version box: this update, and
+	// the TUI it restarts into, leave them on their build.
+	skip map[string]bool
 }
 
 const (
 	updateCheckEvery = 5 * time.Second
 	releaseCheckGap  = 24 * time.Hour
 	updateRemotesEnv = "CONCH_UPDATE_REMOTES"
+	updateSkipEnv    = "CONCH_UPDATE_SKIP" // comma-separated machine IDs
 )
 
 type (
@@ -64,9 +70,18 @@ func newUpdateState() *updateState {
 		}
 	}
 	if os.Getenv(updateRemotesEnv) != "" {
-		os.Unsetenv(updateRemotesEnv)
 		u.remotes = true
+		for _, id := range strings.Split(os.Getenv(updateSkipEnv), ",") {
+			if id != "" {
+				if u.skip == nil {
+					u.skip = map[string]bool{}
+				}
+				u.skip[id] = true
+			}
+		}
 	}
+	os.Unsetenv(updateRemotesEnv)
+	os.Unsetenv(updateSkipEnv)
 	return u
 }
 
@@ -102,6 +117,7 @@ func (m *Model) checkUpdates() tea.Cmd {
 // updateItem is one thing an update would change.
 type updateItem struct {
 	label, detail string
+	machine       string // a remote machine's ID; "" for this computer
 }
 
 // pendingUpdates lists what is out of date.
@@ -112,20 +128,20 @@ func (m Model) pendingUpdates() []updateItem {
 	}
 	var items []updateItem
 	if u.release != nil {
-		items = append(items, updateItem{"Release", fmt.Sprintf("%s available (running %s)", u.release.Version, versionLabel())})
+		items = append(items, updateItem{"Release", fmt.Sprintf("%s available (running %s)", u.release.Version, versionLabel()), ""})
 	}
 	if u.diskBuild != "" {
-		items = append(items, updateItem{"This TUI", "new build on disk " + u.diskBuild + " · restarts onto it"})
+		items = append(items, updateItem{"This TUI", "new build on disk " + u.diskBuild + " · restarts onto it", ""})
 	}
 	if len(m.machines) > 0 && m.serverBehindDisk() {
-		items = append(items, updateItem{"Server", "runs build " + m.machines[0].server.Build + " · reloads, panes keep running"})
+		items = append(items, updateItem{"Server", "runs build " + m.machines[0].server.Build + " · reloads, panes keep running", ""})
 	}
 	for _, mach := range m.machines[min(1, len(m.machines)):] {
 		if mach.c == nil {
 			continue
 		}
 		if same, ok := update.SameBuild(mach.server); ok && !same {
-			items = append(items, updateItem{mach.label, "runs build " + firstNonEmpty(mach.server.BuildID, mach.server.Build) + " · installs and reloads"})
+			items = append(items, updateItem{mach.label, "runs build " + firstNonEmpty(mach.server.BuildID, mach.server.Build) + " · installs and reloads", mach.id})
 		}
 	}
 	return items
@@ -145,19 +161,33 @@ func (m Model) serverBehindDisk() bool {
 	return s.c != nil && s.server.Build != "" && m.targetBuild() != "" && s.server.Build != m.targetBuild()
 }
 
-// startUpdate applies everything pending: a release download, the local
-// server's reload, then a restart of this TUI when its binary changed (the
-// new TUI updates remote machines); without a TUI restart, remotes now.
-func (m *Model) startUpdate() tea.Cmd {
+// startUpdate applies everything pending except the machines in skip: a
+// release download, the local server's reload, then a restart of this TUI
+// when its binary changed (the new TUI updates remote machines); without a
+// TUI restart, remotes now.
+func (m *Model) startUpdate(skip map[string]bool) tea.Cmd {
 	u := m.upd
 	if u.running {
 		return nil
 	}
-	if len(m.pendingUpdates()) == 0 {
+	pending := m.pendingUpdates()
+	if len(pending) == 0 {
 		m.setFlash("conch is up to date", false)
 		return nil
 	}
-	u.running = true
+	if !slices.ContainsFunc(pending, func(it updateItem) bool { return it.machine == "" || !skip[it.machine] }) {
+		m.setFlash("nothing ticked to update", true)
+		return nil
+	}
+	u.running, u.skip = true, nil
+	for id, off := range skip {
+		if off && id != "" {
+			if u.skip == nil {
+				u.skip = map[string]bool{}
+			}
+			u.skip[id] = true
+		}
+	}
 	rel, exe := u.release, u.exe
 	var local = m.machines[0]
 	return func() tea.Msg {
@@ -182,11 +212,12 @@ func (m *Model) startUpdate() tea.Cmd {
 	}
 }
 
-// updateRemotes brings every connected machine behind this build up to date.
+// updateRemotes brings the connected machines behind this build up to
+// date, except those left unticked.
 func (m *Model) updateRemotes() tea.Cmd {
 	var cmds []tea.Cmd
 	for _, mach := range m.machines[1:] {
-		if mach.c == nil {
+		if mach.c == nil || m.upd.skip[mach.id] {
 			continue
 		}
 		if same, ok := update.SameBuild(mach.server); ok && !same {
@@ -195,7 +226,7 @@ func (m *Model) updateRemotes() tea.Cmd {
 	}
 	if len(cmds) == 0 {
 		m.upd.running = false
-		m.setFlash("conch is up to date · panes kept", false)
+		m.setFlash(m.updatedText(), false)
 		return nil
 	}
 	return tea.Sequence(append(cmds, func() tea.Msg { return updateDoneMsg{} })...)
@@ -233,7 +264,7 @@ func (m *Model) handleUpdate(msg tea.Msg) (tea.Cmd, bool) {
 			m.setFlash("update: "+msg.err.Error(), true)
 		} else {
 			m.upd.release = nil
-			m.setFlash("conch is up to date · panes kept", false)
+			m.setFlash(m.updatedText(), false)
 		}
 		return nil, true
 	case machineUpdateMsg:
@@ -255,10 +286,24 @@ func (m *Model) handleUpdate(msg tea.Msg) (tea.Cmd, bool) {
 	return nil, false
 }
 
+// updatedText is the status after an update, naming machines left out.
+func (m *Model) updatedText() string {
+	var left []string
+	for _, mach := range m.machines {
+		if m.upd.skip[mach.id] {
+			left = append(left, mach.label)
+		}
+	}
+	if len(left) == 0 {
+		return "conch is up to date · panes kept"
+	}
+	return "conch updated · panes kept · not updated: " + strings.Join(left, ", ")
+}
+
 // autoUpdateMachine updates a machine that connected behind this build,
-// when this TUI was started by an update.
+// when this TUI was started by an update and the machine wasn't unticked.
 func (m *Model) autoUpdateMachine(mid string) tea.Cmd {
-	if m.upd == nil || !m.upd.remotes || mid == localMachine {
+	if m.upd == nil || !m.upd.remotes || mid == localMachine || m.upd.skip[mid] {
 		return nil
 	}
 	mach := m.machine(mid)
@@ -282,14 +327,19 @@ func RestartRequested(model tea.Model) bool {
 	return ok && mm.restart
 }
 
-// RestartEnv is the environment for the restarted TUI.
-func RestartEnv() []string {
-	env := os.Environ()
-	out := env[:0]
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, updateRemotesEnv+"=") {
+// RestartEnv is the environment for the TUI restarted from model: it
+// updates remote machines, except those unticked for this update.
+func RestartEnv(model tea.Model) []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, updateRemotesEnv+"=") && !strings.HasPrefix(kv, updateSkipEnv+"=") {
 			out = append(out, kv)
 		}
 	}
-	return append(out, updateRemotesEnv+"=1")
+	out = append(out, updateRemotesEnv+"=1")
+	if mm, ok := model.(Model); ok && mm.upd != nil && len(mm.upd.skip) > 0 {
+		ids := slices.Sorted(maps.Keys(mm.upd.skip))
+		out = append(out, updateSkipEnv+"="+strings.Join(ids, ","))
+	}
+	return out
 }

@@ -669,6 +669,7 @@ var helpText = []string{
 	"Usage",
 	"  title bar: ctx = context in use / window size · out = tokens generated · $ = reported cost",
 	"  status bar: Claude 5h 42% · 7d 18% = plan limit windows (click for reset times)",
+	"  status bar: ⬆ version = updates; click, tick machines with space, u updates",
 	"",
 	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain",
 	"  q  detach (agents keep running)",

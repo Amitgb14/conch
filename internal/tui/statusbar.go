@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -210,7 +211,7 @@ func (m Model) statusRightItems(level int) []statusItem {
 			style, text = styleWarn, "⬆ "+text // details list what an update changes
 		}
 		items = append(items, statusItem{text: style.Render(text), act: func(m *Model) tea.Cmd {
-			m.overlay = versionInfo{}
+			m.overlay = newVersionInfo()
 			return nil
 		}})
 	}
@@ -241,30 +242,82 @@ func (m Model) tuiBehind() bool {
 }
 
 // versionInfo is the box that opens from the version in the status bar.
-type versionInfo struct{}
-
-func (versionInfo) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
-	if k, ok := msg.(tea.KeyMsg); ok {
-		m.overlay = nil
-		switch {
-		case k.String() == "u" && len(m.pendingUpdates()) > 0:
-			return true, m.startUpdate()
-		case k.String() == "r" && m.serverBehind() && m.canReload(localMachine):
-			return true, m.reloadServerInto(localMachine, m.upd.exe)
-		}
-		return true, nil
-	}
-	return false, nil
+// Machines behind this build are listed with checkboxes, all ticked: u
+// updates this computer and the ticked machines.
+type versionInfo struct {
+	skip map[string]bool // machines unticked
+	sel  int             // highlighted machine, among those listed
+	rows map[int]string  // content line → machine, from the last render
 }
 
-func (versionInfo) mouse(m *Model, msg tea.MouseMsg, _ box) tea.Cmd {
-	if msg.Action == tea.MouseActionPress {
-		m.overlay = nil
+func newVersionInfo() *versionInfo { return &versionInfo{skip: map[string]bool{}} }
+
+// machines lists the IDs of the machines an update would change.
+func (v *versionInfo) machines(m Model) []string {
+	var ids []string
+	for _, it := range m.pendingUpdates() {
+		if it.machine != "" {
+			ids = append(ids, it.machine)
+		}
 	}
+	return ids
+}
+
+func (v *versionInfo) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
+	k, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return false, nil
+	}
+	ids := v.machines(*m)
+	v.sel = max(min(v.sel, len(ids)-1), 0)
+	if len(ids) > 0 {
+		switch k.String() {
+		case "up", "k":
+			v.sel = max(v.sel-1, 0)
+			return true, nil
+		case "down", "j":
+			v.sel = min(v.sel+1, len(ids)-1)
+			return true, nil
+		case " ", "space", "x":
+			v.skip[ids[v.sel]] = !v.skip[ids[v.sel]]
+			return true, nil
+		case "a": // tick all, or untick all when all are ticked
+			all := !slices.ContainsFunc(ids, func(id string) bool { return v.skip[id] })
+			for _, id := range ids {
+				v.skip[id] = all
+			}
+			return true, nil
+		}
+	}
+	switch {
+	case k.String() == "u" && len(m.pendingUpdates()) > 0:
+		cmd := m.startUpdate(v.skip)
+		if m.upd.running {
+			m.overlay = nil
+		}
+		return true, cmd
+	case k.String() == "r" && m.serverBehind() && m.canReload(localMachine):
+		m.overlay = nil
+		return true, m.reloadServerInto(localMachine, m.upd.exe)
+	}
+	m.overlay = nil
+	return true, nil
+}
+
+func (v *versionInfo) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
+	if msg.Action != tea.MouseActionPress {
+		return nil
+	}
+	if id, ok := v.rows[msg.Y-b.y-1]; ok && b.contains(msg.X, msg.Y) && msg.Button == tea.MouseButtonLeft {
+		v.skip[id] = !v.skip[id]
+		v.sel = max(slices.Index(v.machines(*m), id), 0)
+		return nil
+	}
+	m.overlay = nil
 	return nil
 }
 
-func (v versionInfo) render(m Model) box {
+func (v *versionInfo) render(m Model) box {
 	row := func(k, val string) string { return " " + styleMuted.Render(padRight(k, 10)) + val }
 	lines := []string{
 		row("Version", proto.Version),
@@ -294,21 +347,59 @@ func (v versionInfo) render(m Model) box {
 			lines = append(lines, row("Server", styleOK.Render("up to date")+styleMuted.Render(fmt.Sprintf(" · pid %d · running %s", mach.server.PID, uptime(mach.server.Started)))))
 		}
 	}
+	v.rows = map[int]string{}
+	ids := v.machines(m)
+	running := m.upd != nil && m.upd.running
 	if pending := m.pendingUpdates(); len(pending) > 0 {
 		lines = append(lines, "", " "+styleBold.Render("Updates"))
+		i := 0
 		for _, it := range pending {
-			lines = append(lines, " "+styleWarn.Render("⬆ ")+styleMuted.Render(padRight(it.label, 10))+it.detail)
+			if it.machine == "" {
+				lines = append(lines, " "+styleWarn.Render("⬆ ")+styleMuted.Render(padRight(it.label, 10))+it.detail)
+				continue
+			}
+			tick := "[x] "
+			if v.skip[it.machine] {
+				tick = "[ ] "
+			}
+			line := " " + tick + padRight(it.label, 10) + styleMuted.Render(it.detail)
+			if i == min(v.sel, len(ids)-1) && !running {
+				line = styleSel.Render(" " + tick + padRight(it.label, 10) + it.detail)
+			}
+			v.rows[len(lines)] = it.machine
+			lines = append(lines, line)
+			i++
 		}
-		if m.upd != nil && m.upd.running {
+		chosen := 0
+		for _, id := range ids {
+			if !v.skip[id] {
+				chosen++
+			}
+		}
+		switch {
+		case running:
 			lines = append(lines, " "+styleMuted.Render("updating…"))
-		} else {
+		case len(ids) == 0:
 			lines = append(lines, " "+styleAccent.Render("u")+" update everything "+styleMuted.Render("(agents and shells keep running)"))
+		case chosen == len(ids):
+			lines = append(lines, " "+styleAccent.Render("u")+" update everything "+styleMuted.Render("(agents and shells keep running)"),
+				styleMuted.Render(" space untick a machine · a all · ↑↓ move"))
+		default:
+			lines = append(lines, " "+styleAccent.Render("u")+fmt.Sprintf(" update %d of %d machines ", chosen, len(ids))+styleMuted.Render("(agents and shells keep running)"),
+				styleMuted.Render(" space tick · a all · ↑↓ move"))
 		}
 	}
-	lines = append(lines, "", styleMuted.Render(" any key closes"))
+	if len(ids) > 0 && !running {
+		lines = append(lines, "", styleMuted.Render(" esc closes"))
+	} else {
+		lines = append(lines, "", styleMuted.Render(" any key closes"))
+	}
 	w := 0
 	for _, l := range lines {
 		w = max(w, ansi.StringWidth(l)+2)
+	}
+	if m.width > 2 {
+		w = min(w, m.width-2) // long build details are cut, never wider than the screen
 	}
 	b := box{lines: frameLines(" conch ", lines, w, colorAccent)}
 	b.x = max(m.width-b.width()-1, 0)

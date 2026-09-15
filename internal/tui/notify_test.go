@@ -99,7 +99,7 @@ func TestVersionInStatusBar(t *testing.T) {
 	if line, _ := m.layoutStatus(); strings.Contains(ansi.Strip(line), versionLabel()) {
 		t.Fatal("narrow terminals drop the version")
 	}
-	box := ansi.Strip(strings.Join(versionInfo{}.render(Model{width: 160, height: 40, machines: m.machines}).lines, "\n"))
+	box := ansi.Strip(strings.Join(newVersionInfo().render(Model{width: 160, height: 40, machines: m.machines}).lines, "\n"))
 	for _, want := range []string{"Version", "Build", "Platform", "Server"} {
 		if !strings.Contains(box, want) {
 			t.Fatalf("details lack %s:\n%s", want, box)

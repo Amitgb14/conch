@@ -70,6 +70,8 @@ The version in the status bar then shows `⬆`; click it for the list and press 
 1. download the release, if there is one, over the conch executable;
 2. reload the local server onto it (panes keep running);
 3. restart the TUI in place onto the new build;
-4. install the build on each connected remote machine and reload its server.
+4. install the build on each ticked remote machine and reload its server.
+
+Remote machines behind your build are listed with checkboxes, all ticked. To update only some, move with `↑` `↓` and press `space` (or click a row) to untick the ones to leave alone; `a` ticks or unticks them all. The box then reads **u update 1 of 2 machines**. Unticked machines stay on their build, also after the TUI restarts; a machine that was offline when you pressed `u` is updated when it connects.
 
 `conch update` does steps 1–2 from a shell, and `conch machine upgrade ID` installs and reloads one machine.

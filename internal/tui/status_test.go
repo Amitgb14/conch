@@ -293,7 +293,7 @@ func TestA1StatusRightAndNarrowWidths(t *testing.T) {
 			}
 		case text == versionLabel():
 			it.act(m)
-			if _, ok := m.overlay.(versionInfo); !ok {
+			if _, ok := m.overlay.(*versionInfo); !ok {
 				t.Errorf("version: %T", m.overlay)
 			}
 		}
@@ -307,7 +307,7 @@ func TestA1VersionInfo(t *testing.T) {
 	}
 	box := m.overlay
 	_ = box
-	b := versionInfo{}.render(*m)
+	b := newVersionInfo().render(*m)
 	got := ansi.Strip(strings.Join(b.lines, "\n"))
 	if !strings.Contains(got, "not connected") || !strings.Contains(got, "any key closes") {
 		t.Fatalf("offline version box:\n%s", got)
@@ -319,7 +319,7 @@ func TestA1VersionInfo(t *testing.T) {
 	m.machines[0].c = c
 	m.machines[0].server = c.Server
 	m.machines[0].server.Started = time.Now().Add(-90 * time.Minute)
-	got = ansi.Strip(strings.Join(versionInfo{}.render(*m).lines, "\n"))
+	got = ansi.Strip(strings.Join(newVersionInfo().render(*m).lines, "\n"))
 	if !strings.Contains(got, "up to date") || !strings.Contains(got, "running 1h 30m") {
 		t.Fatalf("connected version box:\n%s", got)
 	}
@@ -328,25 +328,25 @@ func TestA1VersionInfo(t *testing.T) {
 		if !m.serverBehind() {
 			t.Error("a different server build should be behind")
 		}
-		got = ansi.Strip(strings.Join(versionInfo{}.render(*m).lines, "\n"))
+		got = ansi.Strip(strings.Join(newVersionInfo().render(*m).lines, "\n"))
 		if !strings.Contains(got, "outdated") || !strings.Contains(got, "predates reloading") {
 			t.Errorf("outdated server box:\n%s", got)
 		}
 	}
 	// Any key closes it; a press closes it; other messages don't.
-	m.overlay = versionInfo{}
-	if handled, _ := (versionInfo{}).update(m, tickMsg{}); handled || m.overlay == nil {
+	m.overlay = newVersionInfo()
+	if handled, _ := newVersionInfo().update(m, tickMsg{}); handled || m.overlay == nil {
 		t.Fatal("a tick closed the box")
 	}
-	if handled, cmd := (versionInfo{}).update(m, runes("u")); !handled || cmd != nil || m.overlay != nil {
+	if handled, cmd := newVersionInfo().update(m, runes("u")); !handled || cmd != nil || m.overlay != nil {
 		t.Fatal("u without updates should just close")
 	}
-	m.overlay = versionInfo{}
-	(versionInfo{}).mouse(m, tea.MouseMsg{Action: tea.MouseActionMotion}, box0())
+	m.overlay = newVersionInfo()
+	newVersionInfo().mouse(m, tea.MouseMsg{Action: tea.MouseActionMotion}, box0())
 	if m.overlay == nil {
 		t.Fatal("motion closed the box")
 	}
-	(versionInfo{}).mouse(m, tea.MouseMsg{Action: tea.MouseActionPress}, box0())
+	newVersionInfo().mouse(m, tea.MouseMsg{Action: tea.MouseActionPress}, box0())
 	if m.overlay != nil {
 		t.Fatal("press did not close the box")
 	}

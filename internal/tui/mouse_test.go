@@ -398,7 +398,7 @@ func TestA1MouseZoomOverlayAndOtherViews(t *testing.T) {
 		t.Fatal("click on sessions did not focus")
 	}
 	// An overlay takes the mouse: the version box closes on a press.
-	m.overlay = versionInfo{}
+	m.overlay = newVersionInfo()
 	a1Mouse(t, m, in.x+1, in.y+1, a1Left, a1Press)
 	if m.overlay != nil {
 		t.Fatal("version box stayed open")
