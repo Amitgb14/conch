@@ -41,15 +41,15 @@ const features: { group: Group; title: string; body: string; example: string; hr
   {
     group: "agents",
     title: "Token usage and plan limits",
-    body: "Context, output and cost in each pane's title, read from the agent's own session data. Claude's 5h and 7d windows in the status bar.",
-    example: "ctx 45k/200k · out 12k · $0.42",
-    href: "/docs/agents",
+    body: "Context, output and cost in each pane's title. Claude's and Codex's 5-hour and weekly windows in the status bar, with an alert once they pass 80% and 95%.",
+    example: "Claude 5h 82% · 7d 31%",
+    href: "/docs/agents#plan-limits",
   },
   {
     group: "agents",
-    title: "Sessions and resume",
-    body: "Every saved conversation for a project across all four agents. Resume one, or every run a server stop interrupted.",
-    example: "enter  resume · I  resume all",
+    title: "Sessions: resume, search, share",
+    body: "Every saved conversation for a project across all four agents. Search inside them, resume one, or hand one to a different agent to continue.",
+    example: "/  search · s  share · I  resume all",
     href: "/docs/sessions",
   },
   {
@@ -75,9 +75,16 @@ const features: { group: Group; title: string; body: string; example: string; hr
   },
   {
     group: "workflow",
-    title: "Splits, tabs, scrollback",
-    body: "tmux-style splits and tabs, 10,000 lines of scrollback with a copy mode, OSC 52 copy over SSH, and full mouse support.",
-    example: "ctrl+b v · ctrl+b [",
+    title: "Broadcast to a group",
+    body: "One message to every agent in a project, branch or machine — or one command to its terminals. Waiting agents are left out unless you tick them.",
+    example: "B  broadcast",
+    href: "/docs/agents#broadcast",
+  },
+  {
+    group: "workflow",
+    title: "tmux keys, splits and tabs",
+    body: "tmux's splits, tabs, layouts, split numbers and synchronized typing. Tabs follow the tree selection; 10,000 lines of scrollback with copy mode and OSC 52.",
+    example: "ctrl+b % · ctrl+b space · ctrl+b q",
     href: "/docs/interface",
   },
   {

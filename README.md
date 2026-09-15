@@ -8,7 +8,7 @@ and terminals — beside a live view of whatever you select.
 Works with **Claude Code**, **Codex**, **Gemini CLI** and **OpenCode**, on
 your machine or on remote machines over SSH.
 
-**[Website](https://amitgb14.github.io/conch/) · [Documentation](https://amitgb14.github.io/conch/docs.html)**
+**[Website](https://amitgb14.github.io/conch/) · [Documentation](https://amitgb14.github.io/conch/docs/)**
 
 ## Install
 
@@ -32,7 +32,8 @@ conch status                            # panes with agent state
 ```
 
 In the TUI: `t` new task · `c` start an agent · `:` ask in plain words ·
-`!` jump to the next agent waiting for you · `?` all keys · `q` detach.
+`B` broadcast to a group · `!` jump to the next agent waiting for you · `?` all keys ·
+`q` detach.
 
 ## Development
 

@@ -59,7 +59,7 @@ const workflow = [
   },
   {
     title: "Start a few more",
-    body: "Each task is isolated from the others, so agents never trip over each other's changes. Or ask the brain to split a list of work into tasks for you.",
+    body: "Each task is isolated from the others, so agents never trip over each other's changes. Ask the brain to split a list of work into tasks, or press B to send every agent one instruction.",
     code: 'conch ask "start 3 agents on api: fix the flaky test, add rate limiting, update the README"',
   },
   {

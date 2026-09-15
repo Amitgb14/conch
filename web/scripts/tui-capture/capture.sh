@@ -25,6 +25,13 @@ sleep 6 # let git and pull request state settle so the tree order is final
 P() { python3 "$WORK/drive.py" "$@"; }
 shot() { P select "$1"; sleep "${3:-2.5}"; P frame "$WORK/frames/$2.json"; }
 
+# Open the agents and the terminal as tabs, as you would, then go back to
+# the tree: the tab bar lists the tabs of whatever is selected.
+open_tab() { P select "$1"; P keys enter; sleep 1.5; P keys ctrl+b esc; sleep 0.5; }
+open_tab "Add health check"
+open_tab "Fix flaky login"
+open_tab "dev-server"
+
 shot "Add health check" working
 shot "Fix flaky login" waiting
 shot "◆ api" project
