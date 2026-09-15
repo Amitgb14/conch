@@ -420,6 +420,47 @@ func TestSendBroadcast(t *testing.T) {
 	}
 }
 
+// Found end to end: with terminals on two machines the status said "sent to
+// 1 terminal", each machine's answer replacing the other's.
+func TestSendBroadcastAddsUpMachines(t *testing.T) {
+	m, _ := broadcastFixture(t)
+	caps := []string{"agent.broadcast.v1", "agent.broadcast.shells.v1"}
+	lc, lpeer := a1FakeClient(t, caps...)
+	lpeer.setResult(proto.MethodAgentBroadcast, proto.AgentBroadcastResult{Results: []proto.BroadcastOutcome{{ID: "p1", Sent: true}}})
+	m.machines[0].c = lc
+	box := newMachine("box", "devbox", "x")
+	bc, bpeer := a1FakeClient(t, caps...)
+	bpeer.setResult(proto.MethodAgentBroadcast, proto.AgentBroadcastResult{Results: []proto.BroadcastOutcome{
+		{ID: "p3", Sent: true}, {ID: "p4", Sent: true}, {ID: "p5", Error: "exited"}}})
+	box.c = bc
+	gone := newMachine("gone", "gonebox", "y")
+	m.machines = append(m.machines, box, gone)
+
+	msgs := a2Run(m.sendBroadcast([]broadcastTarget{
+		{machine: localMachine, pane: proto.PaneInfo{ID: "p1", Name: "e2e-local"}, shell: true},
+		{machine: "box", pane: proto.PaneInfo{ID: "p3", Name: "e2e-remote"}, shell: true},
+		{machine: "box", pane: proto.PaneInfo{ID: "p4", Name: "claude"}},
+		{machine: "box", pane: proto.PaneInfo{ID: "p5", Name: "codex"}},
+		{machine: "gone", pane: proto.PaneInfo{ID: "p9", Name: "zsh"}, shell: true},
+	}, "echo hi"))
+	if len(msgs) != 1 {
+		t.Fatalf("one message for the broadcast, got %v", msgs)
+	}
+	done := msgs[0].(broadcastDoneMsg)
+	if done.shells != 2 || done.agents != 1 || strings.Join(done.skipped, "|") != "zsh: machine offline|codex on devbox: exited" {
+		t.Fatalf("merged: %+v", done)
+	}
+	m.receiveBroadcast(done)
+	if m.flash != "broadcast sent to 1 agent and 2 terminals · not sent: zsh: machine offline · codex on devbox: exited" {
+		t.Fatalf("flash: %q", m.flash)
+	}
+
+	// Nothing to call at all still answers.
+	if msgs := a2Run(m.sendBroadcast(nil, "hi")); len(msgs) != 1 || msgs[0].(broadcastDoneMsg).agents != 0 {
+		t.Fatalf("empty: %v", msgs)
+	}
+}
+
 func TestReceiveBroadcast(t *testing.T) {
 	m, _ := broadcastFixture(t)
 	next, _ := m.update(broadcastDoneMsg{agents: 1})

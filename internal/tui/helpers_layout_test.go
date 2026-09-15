@@ -20,13 +20,14 @@ type a1Peer struct {
 	mu     sync.Mutex
 	msgs   []proto.Message
 	errors map[string]string // method -> error message to answer with
+	result map[string]any    // method -> result to answer with
 }
 
 // a1FakeClient connects a client.Client to an a1Peer over net.Pipe.
 func a1FakeClient(t *testing.T, caps ...string) (*client.Client, *a1Peer) {
 	t.Helper()
 	cs, ss := net.Pipe()
-	peer := &a1Peer{errors: map[string]string{}}
+	peer := &a1Peer{errors: map[string]string{}, result: map[string]any{}}
 	go func() {
 		conn := proto.NewConn(ss)
 		defer conn.Close()
@@ -42,7 +43,7 @@ func a1FakeClient(t *testing.T, caps ...string) (*client.Client, *a1Peer) {
 			}
 			peer.mu.Lock()
 			peer.msgs = append(peer.msgs, msg)
-			errText := peer.errors[msg.Method]
+			errText, result := peer.errors[msg.Method], peer.result[msg.Method]
 			peer.mu.Unlock()
 			if msg.ID == "" {
 				continue
@@ -50,6 +51,8 @@ func a1FakeClient(t *testing.T, caps ...string) (*client.Client, *a1Peer) {
 			reply := proto.Message{ID: msg.ID}
 			if errText != "" {
 				reply.Error = &proto.Error{Code: "a1", Message: errText}
+			} else if result != nil {
+				reply.Result = proto.Marshal(result)
 			}
 			_ = conn.Write(reply)
 		}
@@ -66,6 +69,12 @@ func (p *a1Peer) setError(method, text string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.errors[method] = text
+}
+
+func (p *a1Peer) setResult(method string, result any) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.result[method] = result
 }
 
 // methods lists the methods received so far.

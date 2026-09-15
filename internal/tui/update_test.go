@@ -184,9 +184,19 @@ func TestA2StartUpdateAndRemotes(t *testing.T) {
 	if m.autoUpdateMachine("box") == nil {
 		t.Fatal("a remote behind updates")
 	}
+	// Only on its first connection since the update: reconnecting with a
+	// different build later (another client upgraded it) changes nothing.
+	if m.autoUpdateMachine("box") != nil {
+		t.Fatal("a second connection updated the machine again")
+	}
 	behind.server.BuildID = buildinfo.ID()
+	m.upd.checked = nil
 	if m.autoUpdateMachine("box") != nil {
 		t.Fatal("a remote on this build")
+	}
+	behind.server.BuildID = "other"
+	if m.autoUpdateMachine("box") != nil {
+		t.Fatal("seen on this build first, then changed elsewhere: must not update")
 	}
 	m.upd = nil
 	if m.autoUpdateMachine("box") != nil {

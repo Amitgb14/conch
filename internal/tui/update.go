@@ -28,6 +28,11 @@ type updateState struct {
 	// remotes: this TUI was restarted by an update and should bring
 	// machines that connect behind this build up to date.
 	remotes bool
+	// checked records machines whose first connection since the update
+	// was looked at: only that one may update them. Later reconnects —
+	// after another client upgraded the machine, say — are left alone, or
+	// two builds would keep replacing each other there.
+	checked map[string]bool
 }
 
 const (
@@ -257,9 +262,13 @@ func (m *Model) autoUpdateMachine(mid string) tea.Cmd {
 		return nil
 	}
 	mach := m.machine(mid)
-	if mach == nil || mach.c == nil {
+	if mach == nil || mach.c == nil || m.upd.checked[mid] {
 		return nil
 	}
+	if m.upd.checked == nil {
+		m.upd.checked = map[string]bool{}
+	}
+	m.upd.checked[mid] = true
 	if same, ok := update.SameBuild(mach.server); ok && !same {
 		return m.updateMachine(mid)
 	}

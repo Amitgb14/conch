@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -461,7 +462,7 @@ func (m *Model) sendBroadcast(targets []broadcastTarget, text string) tea.Cmd {
 		byMachine[t.machine] = append(byMachine[t.machine], t)
 	}
 	var skipped []string
-	var calls []tea.Cmd
+	var calls []func() broadcastDoneMsg
 	many := len(order) > 1
 	for _, mid := range order {
 		mach := m.machine(mid)
@@ -490,7 +491,7 @@ func (m *Model) sendBroadcast(targets []broadcastTarget, text string) tea.Cmd {
 			shells = shells || t.shell
 		}
 		params := proto.AgentBroadcastParams{IDs: ids, Text: text, Shells: shells}
-		calls = append(calls, func() tea.Msg {
+		calls = append(calls, func() broadcastDoneMsg {
 			var res proto.AgentBroadcastResult
 			if err := callCtx(c, proto.MethodAgentBroadcast, params, &res); err != nil {
 				var out []string
@@ -518,11 +519,27 @@ func (m *Model) sendBroadcast(targets []broadcastTarget, text string) tea.Cmd {
 			return done
 		})
 	}
-	if len(skipped) > 0 || len(calls) == 0 {
-		pre := broadcastDoneMsg{skipped: skipped}
-		calls = append(calls, func() tea.Msg { return pre })
+	// One message for the whole broadcast: the machines are called at once,
+	// and their counts added up, so the last to answer doesn't hide the rest.
+	return func() tea.Msg {
+		results := make([]broadcastDoneMsg, len(calls))
+		var wg sync.WaitGroup
+		for i, call := range calls {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				results[i] = call()
+			}()
+		}
+		wg.Wait()
+		done := broadcastDoneMsg{skipped: skipped}
+		for _, r := range results {
+			done.agents += r.agents
+			done.shells += r.shells
+			done.skipped = append(done.skipped, r.skipped...)
+		}
+		return done
 	}
-	return tea.Batch(calls...)
 }
 
 func (m *Model) receiveBroadcast(msg broadcastDoneMsg) {
