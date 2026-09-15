@@ -39,7 +39,20 @@ type Client struct {
 	// without blocking the caller on a socket write.
 	outbox chan proto.Message
 	done   chan struct{}
+
+	// Events are handed on by a separate goroutine through this queue, so
+	// reading the connection never waits for a client that is slow to take
+	// them: replies to calls would queue behind a burst of pane output.
+	evMu     sync.Mutex
+	evCond   *sync.Cond
+	evQueue  []proto.Message
+	evFrame  map[string]int // pane ID -> its queued frame, which newer ones replace
+	evClosed bool
 }
+
+// maxQueuedEvents bounds the queue for a client that stops reading Events
+// altogether; the oldest are dropped.
+const maxQueuedEvents = 4096
 
 // ErrClosed is returned for calls on a closed connection.
 var ErrClosed = errors.New("connection to conch server closed")
@@ -63,8 +76,11 @@ func New(rw io.ReadWriteCloser, clientName string) (*Client, error) {
 		outbox:  make(chan proto.Message, 1024),
 		done:    make(chan struct{}),
 	}
+	c.evCond = sync.NewCond(&c.evMu)
+	c.evFrame = map[string]int{}
 	go c.readLoop()
 	go c.writeLoop()
+	go c.eventLoop()
 
 	// Generous: through a bridge this includes starting the remote server.
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -83,7 +99,7 @@ func New(rw io.ReadWriteCloser, clientName string) (*Client, error) {
 }
 
 func (c *Client) readLoop() {
-	defer close(c.Events)
+	defer c.closeEvents()
 	for {
 		msg, err := c.conn.Read()
 		if err != nil {
@@ -91,11 +107,7 @@ func (c *Client) readLoop() {
 			return
 		}
 		if msg.Event != "" {
-			select {
-			case c.Events <- msg:
-			case <-c.done:
-				return
-			}
+			c.queueEvent(msg)
 			continue
 		}
 		c.mu.Lock()
@@ -106,6 +118,88 @@ func (c *Client) readLoop() {
 			ch <- msg
 		}
 	}
+}
+
+// queueEvent adds an event for the event loop to hand on. A pane frame is
+// the whole screen, so a newer one replaces the frame still queued for that
+// pane instead of piling up behind it.
+func (c *Client) queueEvent(msg proto.Message) {
+	c.evMu.Lock()
+	defer c.evMu.Unlock()
+	if c.evClosed {
+		return
+	}
+	if msg.Event == proto.EventPaneFrame {
+		if id := frameID(msg); id != "" {
+			if i, ok := c.evFrame[id]; ok {
+				c.evQueue[i] = msg
+				c.evCond.Signal()
+				return
+			}
+			c.evFrame[id] = len(c.evQueue)
+		}
+	}
+	c.evQueue = append(c.evQueue, msg)
+	for len(c.evQueue) > maxQueuedEvents {
+		c.dropFirstLocked()
+	}
+	c.evCond.Signal()
+}
+
+// dropFirstLocked removes the oldest queued event. The caller holds evMu.
+func (c *Client) dropFirstLocked() {
+	first := c.evQueue[0]
+	c.evQueue = c.evQueue[1:]
+	if first.Event == proto.EventPaneFrame {
+		if id := frameID(first); id != "" {
+			delete(c.evFrame, id)
+		}
+	}
+	for id := range c.evFrame {
+		c.evFrame[id]--
+	}
+}
+
+// frameID is the pane a frame event belongs to.
+func frameID(msg proto.Message) string {
+	var f struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(msg.Data, &f) != nil {
+		return ""
+	}
+	return f.ID
+}
+
+// eventLoop hands queued events to Events in order.
+func (c *Client) eventLoop() {
+	defer close(c.Events)
+	for {
+		c.evMu.Lock()
+		for len(c.evQueue) == 0 && !c.evClosed {
+			c.evCond.Wait()
+		}
+		if len(c.evQueue) == 0 {
+			c.evMu.Unlock()
+			return // closed and drained
+		}
+		msg := c.evQueue[0]
+		c.dropFirstLocked()
+		c.evMu.Unlock()
+		select {
+		case c.Events <- msg:
+		case <-c.done:
+			return
+		}
+	}
+}
+
+// closeEvents ends the event loop once what is queued has been handed on.
+func (c *Client) closeEvents() {
+	c.evMu.Lock()
+	c.evClosed = true
+	c.evMu.Unlock()
+	c.evCond.Broadcast()
 }
 
 func (c *Client) writeLoop() {

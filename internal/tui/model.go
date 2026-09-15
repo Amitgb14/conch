@@ -237,8 +237,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if mach == nil || msg.gen != mach.gen {
 			return m, nil // from a connection that has since been replaced
 		}
-		cmd := m.handleEvent(mach, msg.msg)
-		return m, tea.Batch(mach.waitEvent(), cmd, m.startTicking())
+		cmds := make([]tea.Cmd, 0, len(msg.msgs)+2)
+		for _, ev := range msg.msgs {
+			cmds = append(cmds, m.handleEvent(mach, ev))
+		}
+		return m, tea.Batch(append(cmds, mach.waitEvent(), m.startTicking())...)
 
 	case machineClosedMsg:
 		mach := m.machine(msg.machine)
@@ -382,7 +385,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case changesMsg, diffMsg:
 		var cmds []tea.Cmd
-		for _, t := range m.tabs {
+		for _, t := range m.openTabs() {
 			for _, l := range t.root.leaves() {
 				cv := l.changes
 				if cv == nil || !cv.receive(msg) {

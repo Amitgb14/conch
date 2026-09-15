@@ -212,6 +212,16 @@ func (m *Model) syncView() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// openTabs are the tabs plus the preview, which is where a row the tree is
+// only browsing — a branch's changes, say — is shown. Answers from the
+// server have to reach it too, or it waits for a reply it was sent.
+func (m *Model) openTabs() []*tab {
+	if m.preview == nil {
+		return m.tabs
+	}
+	return append(append(make([]*tab, 0, len(m.tabs)+1), m.tabs...), m.preview)
+}
+
 // shownElsewhere reports whether a pane row is on screen in a leaf other
 // than except, in any tab: a pane lives in one place, so moving the tree's
 // cursor over it must not copy it into the current tab.

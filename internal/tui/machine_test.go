@@ -68,7 +68,7 @@ func TestA2MachineLifecycle(t *testing.T) {
 
 	// Events arrive through waitEvent until the channel closes.
 	c.Events <- proto.Message{Event: "pane.exit"}
-	if msg, ok := mach.waitEvent()().(machineEventMsg); !ok || msg.machine != "box" || msg.gen != mach.gen || msg.msg.Event != "pane.exit" {
+	if msg, ok := mach.waitEvent()().(machineEventMsg); !ok || msg.machine != "box" || msg.gen != mach.gen || len(msg.msgs) != 1 || msg.msgs[0].Event != "pane.exit" {
 		t.Fatalf("event: %#v", msg)
 	}
 	close(c.Events)

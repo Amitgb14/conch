@@ -77,7 +77,7 @@ type (
 	machineEventMsg struct {
 		machine string
 		gen     int
-		msg     proto.Message
+		msgs    []proto.Message // a burst, applied in one update
 	}
 	machineClosedMsg struct {
 		machine string
@@ -200,9 +200,27 @@ func (mach *machine) waitEvent() tea.Cmd {
 		if !ok {
 			return machineClosedMsg{machine: id, gen: gen, err: c.Err()}
 		}
-		return machineEventMsg{machine: id, gen: gen, msg: msg}
+		// Take what else has already arrived: a busy agent's output would
+		// otherwise redraw the screen once per frame, and everything else —
+		// a diff being read, say — would wait its turn behind those redraws.
+		msgs := []proto.Message{msg}
+		for len(msgs) < maxEventBurst {
+			select {
+			case next, ok := <-c.Events:
+				if !ok {
+					return machineEventMsg{machine: id, gen: gen, msgs: msgs}
+				}
+				msgs = append(msgs, next)
+			default:
+				return machineEventMsg{machine: id, gen: gen, msgs: msgs}
+			}
+		}
+		return machineEventMsg{machine: id, gen: gen, msgs: msgs}
 	}
 }
+
+// maxEventBurst is how many waiting events one update applies.
+const maxEventBurst = 64
 
 // connect tries to reach the machine's server. With install set (the user
 // asked), a remote machine gets conch installed or upgraded and this

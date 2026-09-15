@@ -437,3 +437,55 @@ func TestChangesCacheKeepsBranchesRead(t *testing.T) {
 		t.Fatal("forgetChanges dropped another machine's branch")
 	}
 }
+
+// Moving the tree's cursor onto a branch shows it in the preview, which is
+// not one of the tabs. Answers were handed only to the tabs, so a branch
+// browsed this way asked the server and then waited for a reply it had
+// already been sent: "reading the branch…" forever.
+func TestChangesReachThePreview(t *testing.T) {
+	m, _ := a1Fixture(t, true)
+	a1At(t, m, branchNodeID(localMachine, "r1", "feat"))
+	if !m.previewing || len(m.tabs) != 0 {
+		t.Fatalf("a branch without a tab previews: previewing %v tabs %d", m.previewing, len(m.tabs))
+	}
+	cv := m.tab().focused().changes
+	if cv == nil || cv.branch != "feat" {
+		t.Fatalf("no changes view in the preview: %+v", cv)
+	}
+	if got := len(m.openTabs()); got != 1 {
+		t.Fatalf("openTabs %d, want the preview", got)
+	}
+
+	next, _ := m.update(changesMsg{projectID: "r1", branch: "feat", data: proto.Changes{Base: "main", Files: []proto.FileChange{{Path: "a.go", Added: 2}}}})
+	*m = next.(Model)
+	if cv.data == nil || len(cv.data.Files) != 1 {
+		t.Fatal("the preview never received its changes")
+	}
+	out := a2Plain(cv.render(*m, 80, 20))
+	if strings.Contains(out, "reading the branch") || !strings.Contains(out, "a.go") {
+		t.Fatalf("preview still loading:\n%s", out)
+	}
+
+	// The same for a file's diff.
+	cv.diffFile = "a.go"
+	next, _ = m.update(diffMsg{projectID: "r1", branch: "feat", file: "a.go", diff: "@@ -1 +1 @@\n+two"})
+	*m = next.(Model)
+	if cv.diff == nil {
+		t.Fatal("the preview never received its diff")
+	}
+
+	// A real tab still gets its answers, and the preview isn't counted twice.
+	m.promote()
+	if m.preview != nil || len(m.tabs) != 1 || len(m.openTabs()) != 1 {
+		t.Fatalf("after promote: tabs %d open %d preview %v", len(m.tabs), len(m.openTabs()), m.preview != nil)
+	}
+	tabCV := m.tabs[0].root.leaves()[0].changes
+	if tabCV == nil {
+		t.Fatal("the promoted tab lost its changes view")
+	}
+	next, _ = m.update(changesMsg{projectID: "r1", branch: "feat", data: proto.Changes{Base: "main", Files: []proto.FileChange{{Path: "b.go"}}}})
+	*m = next.(Model)
+	if tabCV.data == nil || tabCV.data.Files[0].Path != "b.go" {
+		t.Fatal("a tab stopped receiving changes")
+	}
+}
