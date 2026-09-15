@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -103,7 +104,7 @@ func applyTheme(name, accent string) {
 	styleMuted = lipgloss.NewStyle().Foreground(t.muted)
 	styleBold = lipgloss.NewStyle().Bold(true)
 	styleSel = lipgloss.NewStyle().Bold(true).Foreground(t.selFG).Background(t.accent)
-	styleSelDim = lipgloss.NewStyle().Background(t.selDim)
+	styleSelDim = lipgloss.NewStyle().Background(t.selDim).Foreground(textOn(t.selDim))
 	styleOK = lipgloss.NewStyle().Foreground(t.ok)
 	styleErr = lipgloss.NewStyle().Foreground(t.err)
 	styleWarn = lipgloss.NewStyle().Foreground(t.warn).Bold(true)
@@ -111,6 +112,32 @@ func applyTheme(name, accent string) {
 	styleAccent = lipgloss.NewStyle().Foreground(t.accent).Bold(true)
 	styleChip = lipgloss.NewStyle().Bold(true).Foreground(t.selFG).Padding(0, 1)
 	stylePRMerged = lipgloss.NewStyle().Foreground(t.merged)
+}
+
+// textOn is a readable text colour for a background. A style that sets only
+// a background keeps the terminal's own foreground, which may be nearly the
+// same colour — in a light terminal the unfocused selection bar (a dark
+// selDim) swallowed the row's name.
+func textOn(bg lipgloss.Color) lipgloss.Color {
+	if luminance(bg) < 0.45 {
+		return "#F0F6FC"
+	}
+	return "#11151A"
+}
+
+// luminance is the relative brightness of a #rrggbb colour, 0 (black) to 1
+// (white). An unparseable colour counts as dark, which keeps light text.
+func luminance(c lipgloss.Color) float64 {
+	s := string(c)
+	if len(s) != 7 || s[0] != '#' {
+		return 0
+	}
+	v, err := strconv.ParseUint(s[1:], 16, 32)
+	if err != nil {
+		return 0
+	}
+	r, g, b := float64(v>>16&0xFF)/255, float64(v>>8&0xFF)/255, float64(v&0xFF)/255
+	return 0.2126*r + 0.7152*g + 0.0722*b
 }
 
 // swatch previews a palette as a row of coloured blocks.

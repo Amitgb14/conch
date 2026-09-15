@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,10 +27,11 @@ type changesView struct {
 	sel     int // selected file
 	scroll  int // file list scroll
 
-	diffFile   string // "" when the file list is shown
-	diff       []string
-	diffErr    string
-	diffScroll int
+	diffFile    string // "" when the file list is shown
+	loadingDiff bool
+	diff        []string
+	diffErr     string
+	diffScroll  int
 }
 
 type changesMsg struct {
@@ -50,6 +52,48 @@ type diffMsg struct {
 	projectID, branch, file string
 	diff                    string
 	err                     error
+}
+
+// changesCacheMax is how many branches' changes are kept, so stepping
+// through a project's branches and back doesn't re-read git each time.
+const changesCacheMax = 16
+
+// changesFor is the view of a branch's changes, kept from last time when it
+// was looked at before: known says so, and the caller refreshes it in the
+// background instead of showing "reading the branch…" again.
+func (m *Model) changesFor(machine, projectID, branch string) (cv *changesView, known bool) {
+	key := machine + "|" + projectID + "|" + branch
+	if m.changesCache == nil {
+		m.changesCache = map[string]*changesView{}
+	}
+	cv, ok := m.changesCache[key]
+	if !ok {
+		cv = &changesView{machine: machine, projectID: projectID, branch: branch}
+		m.changesCache[key] = cv
+	}
+	// A view that is still loading is kept as it is: a second look must not
+	// throw away the read in flight and start another.
+	known = cv.data != nil
+	m.changesSeen = append(slices.DeleteFunc(m.changesSeen, func(k string) bool { return k == key }), key)
+	for len(m.changesSeen) > changesCacheMax {
+		if m.changesSeen[0] != key {
+			delete(m.changesCache, m.changesSeen[0])
+		}
+		m.changesSeen = m.changesSeen[1:]
+	}
+	return cv, known
+}
+
+// forgetChanges drops a project's cached branches, e.g. when its git state
+// changed underneath.
+func (m *Model) forgetChanges(machine, projectID string) {
+	prefix := machine + "|" + projectID + "|"
+	for k := range m.changesCache {
+		if strings.HasPrefix(k, prefix) {
+			delete(m.changesCache, k)
+		}
+	}
+	m.changesSeen = slices.DeleteFunc(m.changesSeen, func(k string) bool { return strings.HasPrefix(k, prefix) })
 }
 
 func (cv *changesView) reload(m *Model) tea.Cmd {
@@ -95,6 +139,7 @@ func (cv *changesView) refreshDiff(m *Model) tea.Cmd {
 }
 
 func (cv *changesView) fetchDiff(m *Model, file string) tea.Cmd {
+	cv.loadingDiff = true
 	c, pid, branch := m.clientOf(cv.machine), cv.projectID, cv.branch
 	return func() tea.Msg {
 		var out proto.DiffResult
@@ -142,6 +187,7 @@ func (cv *changesView) receive(msg tea.Msg) (changed bool) {
 		if msg.projectID != cv.projectID || msg.branch != cv.branch || msg.file != cv.diffFile {
 			return
 		}
+		cv.loadingDiff = false
 		if msg.err != nil {
 			cv.diffErr = msg.err.Error()
 			return
@@ -220,7 +266,7 @@ func (cv *changesView) filesTop(m Model) int {
 
 func (cv *changesView) render(m Model, w, h int) []string {
 	if cv.diffFile != "" {
-		return cv.renderDiff(w, h)
+		return cv.renderDiff(m, w, h)
 	}
 	proj := m.project(cv.machine, cv.projectID)
 	lines := []string{styleBold.Render(cv.branch)}
@@ -250,7 +296,7 @@ func (cv *changesView) render(m Model, w, h int) []string {
 	case cv.err != "":
 		return append(lines, styleErr.Render(cv.err))
 	case cv.data == nil:
-		return append(lines, styleMuted.Render("loading…"))
+		return append(lines, styleWork.Render(spinner[m.spin%len(spinner)])+styleMuted.Render(" reading the branch…"))
 	}
 
 	title := "Uncommitted changes"
@@ -321,13 +367,17 @@ func (cv *changesView) render(m Model, w, h int) []string {
 	return lines
 }
 
-func (cv *changesView) renderDiff(w, h int) []string {
-	lines := []string{spread(styleBold.Render(cv.diffFile), styleMuted.Render("esc back · ↑↓ scroll"), w)}
+func (cv *changesView) renderDiff(m Model, w, h int) []string {
+	right := "esc back · ↑↓ scroll"
+	if cv.diff != nil && cv.loadingDiff {
+		right = "refreshing… · " + right
+	}
+	lines := []string{spread(styleBold.Render(cv.diffFile), styleMuted.Render(right), w)}
 	switch {
 	case cv.diffErr != "":
 		return append(lines, styleErr.Render(cv.diffErr))
 	case cv.diff == nil:
-		return append(lines, styleMuted.Render("loading…"))
+		return append(lines, styleWork.Render(spinner[m.spin%len(spinner)])+styleMuted.Render(" reading the diff…"))
 	}
 	for i := cv.diffScroll; i < len(cv.diff) && len(lines) < h; i++ {
 		l := strings.ReplaceAll(cv.diff[i], "\t", "    ")

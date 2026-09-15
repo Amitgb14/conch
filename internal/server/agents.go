@@ -32,6 +32,13 @@ type entry struct {
 	screen        []string // cached plain screen
 	screenVersion uint64
 
+	// sent is what the last pane.updated told clients, so a change made
+	// outside this pane — a checkout moving its branch, say — is noticed
+	// too. Comparing only within a call would miss it: both samples
+	// already have the new value.
+	sent     shown
+	sentOnce bool
+
 	transcript *usage.Transcript // the agent session's, once a hook names it
 	usage      *usageSource      // for agents without such hooks; watch goroutine only
 	tokens     *proto.Tokens
@@ -137,7 +144,12 @@ func shownOf(info proto.PaneInfo) shown {
 // evaluate applies fn to the tracker, re-observes the pane and broadcasts
 // pane.updated if anything shown changed. The caller holds e.evalMu.
 func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
-	before := shownOf(e.info())
+	e.mu.Lock()
+	before, had := e.sent, e.sentOnce
+	e.mu.Unlock()
+	if !had {
+		before = shownOf(e.info())
+	}
 	proc, perr := e.p.Foreground()
 	if v := e.p.Version(); v != e.screenVersion {
 		e.screen, e.screenVersion = e.p.PlainLines(), v
@@ -159,7 +171,11 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 	if s.alive(e) {
 		s.runs.note(info, e.dir, info.Created)
 	}
-	if shownOf(info) == before || !s.alive(e) {
+	now := shownOf(info)
+	e.mu.Lock()
+	e.sent, e.sentOnce = now, true
+	e.mu.Unlock()
+	if now == before || !s.alive(e) {
 		return
 	}
 	if a := info.Agent; a != nil && a.State != prevState {

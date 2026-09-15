@@ -790,3 +790,55 @@ func TestA4MainDispatch(t *testing.T) {
 		t.Fatalf("methods\n got %v\nwant %v", got, want)
 	}
 }
+
+// conch inside one of its own panes would draw a TUI inside the pane it
+// runs in: keys and the mouse go to the inner one, and closing the pane
+// kills it. It is refused, unless the pane belongs to another server.
+func TestRunTUIRefusesToNestInItsOwnPane(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("CONCH_HOME", dir)
+	sock := filepath.Join(dir, "conch.sock")
+	t.Setenv("CONCH_SOCKET", sock)
+	t.Setenv("CONCH_PANE_ID", "p7")
+	old := machineFlag
+	t.Cleanup(func() { machineFlag = old })
+	machineFlag = ""
+
+	if got := nestedPane(); got != "p7" {
+		t.Fatalf("in a pane of this server: %q", got)
+	}
+	err := runTUI()
+	if err == nil || !strings.Contains(err.Error(), "already conch, in pane p7") || !strings.Contains(err.Error(), "CONCH_PANE_ID= conch") {
+		t.Fatalf("nested: %v", err)
+	}
+	if !strings.Contains(err.Error(), "ctrl+b d") {
+		t.Fatalf("names the detach key: %v", err)
+	}
+	// The configured prefix is used.
+	os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[keys]\nprefix = \"ctrl+a\"\n"), 0o600)
+	if err := runTUI(); err == nil || !strings.Contains(err.Error(), "ctrl+a d") {
+		t.Fatalf("configured prefix: %v", err)
+	}
+	os.Remove(filepath.Join(dir, "config.toml"))
+
+	// Not nested: no pane, another server's socket, or another machine.
+	t.Setenv("CONCH_PANE_ID", "")
+	if got := nestedPane(); got != "" {
+		t.Fatalf("outside a pane: %q", got)
+	}
+	t.Setenv("CONCH_PANE_ID", "p7")
+	t.Setenv("CONCH_SOCKET", "")
+	if got := nestedPane(); got != "" {
+		t.Fatal("a pane whose server socket is unset (a separate server) is not nesting")
+	}
+	t.Setenv("CONCH_SOCKET", sock)
+	machineFlag = "devbox"
+	if got := nestedPane(); got != "" {
+		t.Fatal("a remote machine's TUI is not nesting")
+	}
+	machineFlag = "local"
+	if got := nestedPane(); got != "p7" {
+		t.Fatalf("-m local is this server: %q", got)
+	}
+}

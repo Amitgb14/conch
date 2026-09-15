@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -197,5 +198,39 @@ func TestChangesPollKeepsSelection(t *testing.T) {
 	cv.receive(changesMsg{projectID: "r1", branch: "feat", err: errString("offline"), poll: true})
 	if cv.err != "" || cv.data == nil {
 		t.Fatal("a failed background poll keeps what is shown")
+	}
+}
+
+// A style that only sets a background keeps the terminal's foreground,
+// which in a light terminal is dark — and the unfocused selection bar (a
+// dark selDim) then hid the row's name. Reported with a screenshot.
+func TestUnfocusedSelectionStaysReadable(t *testing.T) {
+	for _, th := range themes {
+		applyTheme(th.name, "")
+		fg, bg := styleSelDim.GetForeground(), styleSelDim.GetBackground()
+		if fg == nil || fmt.Sprint(fg) == "" {
+			t.Fatalf("%s: the unfocused selection sets no text colour", th.name)
+		}
+		lf, lb := luminance(lipgloss.Color(fmt.Sprint(fg))), luminance(lipgloss.Color(fmt.Sprint(bg)))
+		if diff := lf - lb; diff < 0.3 && diff > -0.3 {
+			t.Errorf("%s: text %v on %v is too close (%.2f)", th.name, fg, bg, diff)
+		}
+	}
+	applyTheme("conch", "")
+	if styleSel.GetForeground() == nil || styleSel.GetBackground() == nil {
+		t.Fatal("the focused selection sets both colours")
+	}
+	// textOn picks light text on dark and dark text on light.
+	if textOn("#000000") != "#F0F6FC" || textOn("#FFFFFF") != "#11151A" || textOn("#2D333B") != "#F0F6FC" {
+		t.Fatalf("textOn: %q %q", textOn("#000000"), textOn("#FFFFFF"))
+	}
+	// Unparseable colours keep light text rather than guessing.
+	for _, c := range []lipgloss.Color{"", "red", "#12345", "#zzzzzz"} {
+		if luminance(c) != 0 || textOn(c) != "#F0F6FC" {
+			t.Errorf("unparseable %q", c)
+		}
+	}
+	if l := luminance("#808080"); l < 0.4 || l > 0.6 {
+		t.Errorf("mid grey luminance %.2f", l)
 	}
 }

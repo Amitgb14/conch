@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -87,13 +88,34 @@ func WorktreeStatus(ctx context.Context, path string) (Status, error) {
 // WorktreeChanges lists uncommitted changes (staged, unstaged and untracked)
 // in the worktree at path, plus the commits HEAD has that base lacks.
 func WorktreeChanges(ctx context.Context, path, base string) (Changes, error) {
-	files, err := statusFiles(ctx, path)
-	if err != nil {
-		return Changes{}, err
-	}
-	stats, err := numstat(ctx, path, headOrEmptyTree(ctx, path))
-	if err != nil {
-		return Changes{}, err
+	// The three git commands don't depend on each other, so they run at
+	// once: the slowest one sets the wait, not their sum.
+	var (
+		wg              sync.WaitGroup
+		files           []FileChange
+		stats           map[string]lineStat
+		cs              []Commit
+		filesErr, stErr error
+		commitsErr      error
+		hasRange        bool
+	)
+	wg.Add(3)
+	go func() { defer wg.Done(); files, filesErr = statusFiles(ctx, path) }()
+	go func() { defer wg.Done(); stats, stErr = numstat(ctx, path, headOrEmptyTree(ctx, path)) }()
+	go func() {
+		defer wg.Done()
+		if hasRange = resolves(ctx, path, "HEAD") && resolves(ctx, path, base); hasRange {
+			cs, commitsErr = commits(ctx, path, base+"..HEAD")
+		}
+	}()
+	wg.Wait()
+	switch {
+	case filesErr != nil:
+		return Changes{}, filesErr
+	case stErr != nil:
+		return Changes{}, stErr
+	case commitsErr != nil:
+		return Changes{}, commitsErr
 	}
 	for i := range files {
 		f := &files[i]
@@ -105,10 +127,8 @@ func WorktreeChanges(ctx context.Context, path, base string) (Changes, error) {
 	}
 	sortFiles(files)
 	ch := Changes{Base: base, Files: files}
-	if resolves(ctx, path, "HEAD") && resolves(ctx, path, base) {
-		if ch.Commits, err = commits(ctx, path, base+"..HEAD"); err != nil {
-			return Changes{}, err
-		}
+	if hasRange {
+		ch.Commits = cs
 	}
 	return ch, nil
 }
@@ -122,13 +142,29 @@ func BranchChanges(ctx context.Context, root, branch, base string) (Changes, err
 		return ch, nil
 	}
 	rng := base + "..." + branch
-	out, err := run(ctx, root, "diff", "--no-color", "--no-ext-diff", "--name-status", "-z", rng, "--")
-	if err != nil {
-		return Changes{}, err
-	}
-	stats, err := numstat(ctx, root, rng)
-	if err != nil {
-		return Changes{}, err
+	// Names, line counts and commits are three independent git commands.
+	var (
+		wg                         sync.WaitGroup
+		out                        []byte
+		stats                      map[string]lineStat
+		cs                         []Commit
+		nameErr, stErr, commitsErr error
+	)
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		out, nameErr = run(ctx, root, "diff", "--no-color", "--no-ext-diff", "--name-status", "-z", rng, "--")
+	}()
+	go func() { defer wg.Done(); stats, stErr = numstat(ctx, root, rng) }()
+	go func() { defer wg.Done(); cs, commitsErr = commits(ctx, root, base+".."+branch) }()
+	wg.Wait()
+	switch {
+	case nameErr != nil:
+		return Changes{}, nameErr
+	case stErr != nil:
+		return Changes{}, stErr
+	case commitsErr != nil:
+		return Changes{}, commitsErr
 	}
 	f := splitNUL(out)
 	for i := 0; i < len(f); i++ {
@@ -145,9 +181,7 @@ func BranchChanges(ctx context.Context, root, branch, base string) (Changes, err
 		ch.Files = append(ch.Files, fc)
 	}
 	sortFiles(ch.Files)
-	if ch.Commits, err = commits(ctx, root, base+".."+branch); err != nil {
-		return Changes{}, err
-	}
+	ch.Commits = cs
 	return ch, nil
 }
 

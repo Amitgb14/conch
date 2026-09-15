@@ -69,7 +69,11 @@ type Model struct {
 	frame       *proto.Frame
 
 	changes *changesView // the focused leaf's, when it shows a branch
-	overlay overlay      // menu or dialog on top, if any
+	// changesCache keeps the branches whose changes were read, newest last
+	// in changesSeen, so going back to one shows at once.
+	changesCache map[string]*changesView
+	changesSeen  []string
+	overlay      overlay // menu or dialog on top, if any
 
 	// Tabs and splits in the main area.
 	tabs      []*tab

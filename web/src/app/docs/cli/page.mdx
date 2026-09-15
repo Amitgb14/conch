@@ -38,6 +38,8 @@ conch -m gpu-box status
 
 `conch` with no subcommand opens the TUI, starting the server if needed.
 
+Inside one of its own panes it refuses, the way tmux refuses a nested session: the inner TUI would take the keys and the mouse, and closing the pane would kill it. Detach with `ctrl+b d` first, or run `CONCH_PANE_ID= conch` to open one inside the pane anyway (`conch -m MACHINE` for another machine's TUI always works).
+
 ### server
 
 | Command | Description |

@@ -263,7 +263,7 @@ func TestA2ChangesRender(t *testing.T) {
 	w, h := 80, 20
 	cv := &changesView{machine: localMachine, projectID: "r1", branch: "feat"}
 	out := a2Plain(cv.render(*m, w, h))
-	for _, want := range []string{"feat", "o open PR", "api · 2 ahead, 1 behind main", "#7", "Add feature", "loading…"} {
+	for _, want := range []string{"feat", "o open PR", "api · 2 ahead, 1 behind main", "#7", "Add feature", "reading the branch…"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("loading render lacks %q:\n%s", want, out)
 		}
@@ -328,26 +328,33 @@ func TestA2ChangesRender(t *testing.T) {
 }
 
 func TestA2ChangesRenderDiff(t *testing.T) {
+	m := a2Model()
 	cv := &changesView{diffFile: "a.go"}
-	if out := a2Plain(cv.renderDiff(60, 10)); !strings.Contains(out, "loading…") || !strings.Contains(out, "esc back") {
+	if out := a2Plain(cv.renderDiff(*m, 60, 10)); !strings.Contains(out, "reading the diff…") || !strings.Contains(out, "esc back") {
 		t.Fatalf("loading diff:\n%s", out)
 	}
+	// A refresh keeps the diff on screen and says so.
+	cv.diff, cv.loadingDiff = []string{"@@"}, true
+	if out := a2Plain(cv.renderDiff(*m, 60, 10)); !strings.Contains(out, "refreshing…") || !strings.Contains(out, "@@") {
+		t.Fatalf("refreshing diff:\n%s", out)
+	}
+	cv.diff, cv.loadingDiff = nil, false
 	cv.diffErr = "too big"
-	if out := a2Plain(cv.renderDiff(60, 10)); !strings.Contains(out, "too big") {
+	if out := a2Plain(cv.renderDiff(*m, 60, 10)); !strings.Contains(out, "too big") {
 		t.Fatalf("diff error:\n%s", out)
 	}
 	cv.diffErr = ""
 	cv.diff = []string{"diff --git a b", "index 1..2", "--- a/a.go", "+++ b/a.go", "@@ -1 +1 @@", "-old\tx", "+new \x1b[31mred", " same", "extra1", "extra2"}
-	lines := cv.renderDiff(60, 6)
+	lines := cv.renderDiff(*m, 60, 6)
 	if len(lines) != 6 {
 		t.Fatalf("diff fills the height: %d lines", len(lines))
 	}
 	cv.diffScroll = 5
-	out := a2Plain(cv.renderDiff(60, 10))
+	out := a2Plain(cv.renderDiff(*m, 60, 10))
 	if !strings.Contains(out, "-old    x") || !strings.Contains(out, "+new red") || strings.Contains(out, "diff --git") {
 		t.Fatalf("scrolled diff:\n%s", out)
 	}
-	for _, l := range cv.renderDiff(60, 10) {
+	for _, l := range cv.renderDiff(*m, 60, 10) {
 		if strings.Contains(l, "\x1b[31m") {
 			t.Fatal("escape sequences from the diff reach the terminal")
 		}
@@ -376,5 +383,57 @@ func TestA2DiffHelpers(t *testing.T) {
 	old := now.Add(-400 * 24 * time.Hour)
 	if ago(old) != old.Format("Jan 2006") {
 		t.Fatalf("old dates show the month: %q", ago(old))
+	}
+}
+
+// Stepping through branches and back used to re-read git each time, with
+// "reading the branch…" on screen. What was read is kept and refreshed
+// behind the old content instead.
+func TestChangesCacheKeepsBranchesRead(t *testing.T) {
+	m := a2Model()
+	cv, known := m.changesFor(localMachine, "r1", "feat")
+	if known || cv.branch != "feat" {
+		t.Fatalf("first look: known %v %+v", known, cv)
+	}
+	// Not known until something was actually read.
+	if _, known = m.changesFor(localMachine, "r1", "feat"); known {
+		t.Fatal("an unread branch counts as known")
+	}
+	cv.receive(changesMsg{projectID: "r1", branch: "feat", data: proto.Changes{Base: "main", Files: []proto.FileChange{{Path: "a.go"}}}})
+	again, known := m.changesFor(localMachine, "r1", "feat")
+	if !known || again != cv || again.data == nil {
+		t.Fatal("a branch read before is not kept")
+	}
+	// Another machine or project with the same branch name is its own view.
+	other, _ := m.changesFor("box", "r1", "feat")
+	if other == cv {
+		t.Fatal("machines share a view")
+	}
+	if p, _ := m.changesFor(localMachine, "r2", "feat"); p == cv {
+		t.Fatal("projects share a view")
+	}
+
+	// The cache is bounded, dropping the least recently looked at.
+	for i := 0; i < changesCacheMax+4; i++ {
+		v, _ := m.changesFor(localMachine, "r1", fmt.Sprintf("b%d", i))
+		v.receive(changesMsg{projectID: "r1", branch: fmt.Sprintf("b%d", i), data: proto.Changes{Base: "main"}})
+		if _, ok := m.changesFor(localMachine, "r1", "feat"); !ok { // keep feat fresh
+			t.Fatal("the branch in use was dropped")
+		}
+	}
+	if len(m.changesCache) > changesCacheMax || len(m.changesSeen) > changesCacheMax {
+		t.Fatalf("cache grew to %d", len(m.changesCache))
+	}
+	if _, ok := m.changesFor(localMachine, "r1", "b0"); ok {
+		t.Fatal("the oldest branch is still cached")
+	}
+
+	// A project's cached branches can be dropped wholesale.
+	m.forgetChanges(localMachine, "r1")
+	if _, ok := m.changesFor(localMachine, "r1", "feat"); ok {
+		t.Fatal("forgetChanges kept a branch")
+	}
+	if _, ok := m.changesFor("box", "r1", "feat"); ok {
+		t.Fatal("forgetChanges dropped another machine's branch")
 	}
 }

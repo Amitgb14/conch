@@ -119,7 +119,25 @@ func main() {
 	}
 }
 
+// nestedPane is the pane this process runs in when it would connect to the
+// server that owns it: a pane inherits both CONCH_PANE_ID and the socket of
+// its server. Drawing a TUI inside one of its own panes is confusing — keys
+// and the mouse go to the inner one, and closing the pane kills it — so
+// conch refuses, like tmux. Clearing either variable (a separate server, or
+// CONCH_PANE_ID= to force) opens one anyway.
+func nestedPane() string {
+	id, sock := os.Getenv("CONCH_PANE_ID"), os.Getenv("CONCH_SOCKET")
+	if id == "" || sock == "" || machineFlag != "" && machineFlag != "local" {
+		return "" // not in a pane, or aimed at another machine's server
+	}
+	return id
+}
+
 func runTUI() error {
+	if id := nestedPane(); id != "" {
+		return fmt.Errorf("this is already conch, in pane %s: detach first with %s d, "+
+			"or run `CONCH_PANE_ID= conch` to open one inside this pane anyway", id, tuiPrefix())
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -433,6 +451,14 @@ func loadedAt(h proto.HelloResult) time.Time {
 
 // connect dials the local server (or the -m machine's), optionally starting
 // it first.
+// tuiPrefix is the configured tmux-style prefix, for messages.
+func tuiPrefix() string {
+	if cfg, err := config.Load(); err == nil && cfg.Keys.Prefix != "" {
+		return cfg.Keys.Prefix
+	}
+	return "ctrl+b"
+}
+
 func connect(start bool) (*client.Client, error) {
 	if machineFlag != "" && machineFlag != "local" {
 		return connectMachine(machineFlag)

@@ -315,3 +315,52 @@ export RC_LOADED=yes
 		t.Fatalf("want the user's files loaded, ZDOTDIR restored and the fancy prompt:\n%s", screen)
 	}
 }
+
+// A checkout in a pane's folder changes the branch clients show for it.
+// The branch comes from the project, which refreshes on its own, so a pane
+// update has to be compared with what was last sent — not with a second
+// sample taken in the same breath, which already has the new branch.
+func TestPaneBranchFollowsCheckout(t *testing.T) {
+	c, dir := startServer(t)
+	repo := filepath.Join(dir, "api")
+	os.MkdirAll(repo, 0o755)
+	git(t, repo, "init", "-q", "-b", "main")
+	git(t, repo, "config", "user.name", "t")
+	git(t, repo, "config", "user.email", "t@example.com")
+	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("one\n"), 0o644)
+	git(t, repo, "add", ".")
+	git(t, repo, "commit", "-q", "-m", "init")
+	git(t, repo, "branch", "feature")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var info proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{
+		Command: []string{"/bin/sh", "-c", "sleep 60"}, Cwd: repo,
+	}, &info); err != nil {
+		t.Fatal(err)
+	}
+	waitProject(t, c, func(p proto.ProjectInfo) bool { return p.Path == repo })
+
+	branchOf := func(want string) {
+		t.Helper()
+		waitEvent(t, c, func(m proto.Message) bool {
+			var p proto.PaneInfo
+			return m.Event == proto.EventPaneUpdated && json.Unmarshal(m.Data, &p) == nil && p.ID == info.ID && p.Branch == want
+		})
+		var panes proto.PaneList
+		if err := c.Call(ctx, proto.MethodPaneList, nil, &panes); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range panes.Panes {
+			if p.ID == info.ID && p.Branch != want {
+				t.Fatalf("pane.list says %q, want %q", p.Branch, want)
+			}
+		}
+	}
+	// Nothing else about the pane changes, so only the branch can announce it.
+	git(t, repo, "checkout", "-q", "feature")
+	branchOf("feature")
+	git(t, repo, "checkout", "-q", "main")
+	branchOf("main")
+}

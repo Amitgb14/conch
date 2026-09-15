@@ -179,8 +179,13 @@ func (m *Model) syncView() tea.Cmd {
 			continue
 		}
 		if l.changes == nil || l.changes.machine != v.Machine || l.changes.projectID != v.ProjectID || l.changes.branch != v.Branch {
-			l.changes = &changesView{machine: v.Machine, projectID: v.ProjectID, branch: v.Branch}
-			cmds = append(cmds, l.changes.reload(m))
+			cv, known := m.changesFor(v.Machine, v.ProjectID, v.Branch)
+			l.changes = cv
+			if known {
+				cmds = append(cmds, cv.poll(m)) // what was read before shows at once; refresh behind it
+			} else {
+				cmds = append(cmds, cv.reload(m))
+			}
 		}
 	}
 	m.changes = f.changes

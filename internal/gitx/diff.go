@@ -3,6 +3,8 @@ package gitx
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 )
 
 // maxDiff caps the size of a diff returned by Diff.
@@ -37,9 +39,16 @@ func Diff(ctx context.Context, dir, file, rev string) (string, error) {
 	return buf.String(), nil
 }
 
+// isUntracked reports whether file exists in dir but is not in the index.
+// It asks the index rather than running `git status`, which refreshes the
+// whole index and walks untracked folders — far more work than one file's
+// diff deserves.
 func isUntracked(ctx context.Context, dir, file string) bool {
-	files, err := statusFiles(ctx, dir, file)
-	return err == nil && len(files) == 1 && files[0].Code == "?"
+	if _, err := os.Lstat(filepath.Join(dir, file)); err != nil {
+		return false
+	}
+	_, err := run(ctx, dir, "ls-files", "--error-unmatch", "-z", "--", file)
+	return err != nil // not tracked
 }
 
 // capBuffer keeps the first maxDiff bytes written and discards the rest,
