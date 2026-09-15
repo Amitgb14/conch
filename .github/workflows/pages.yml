@@ -6,6 +6,7 @@ on:
   push:
     branches: [master]
     paths: ["web/**", ".github/workflows/pages.yml"]
+    tags: ["v*"] # a release changes the version the site shows
   workflow_dispatch:
 
 permissions:
@@ -25,6 +26,8 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags: the header shows the latest release
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: web/package.json

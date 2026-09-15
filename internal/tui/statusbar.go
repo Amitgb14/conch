@@ -220,7 +220,7 @@ func (m Model) statusRightItems(level int) []statusItem {
 	return items
 }
 
-// versionLabel is this build's version, e.g. "v0.1.0-dev".
+// versionLabel is this build's version, e.g. "v0.2.0-dev".
 func versionLabel() string { return "v" + proto.Version }
 
 // serverBehind reports whether the local server runs a different build
