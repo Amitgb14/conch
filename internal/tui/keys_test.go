@@ -56,6 +56,10 @@ func TestA1TreeCursorKeys(t *testing.T) {
 	m, _ := a1Fixture(t, false)
 	ids := func() string { return m.cursor }
 	a1Key(t, m, runes("j"))
+	if ids() != workspaceID(localMachine) {
+		t.Fatalf("j: %s", ids())
+	}
+	a1Key(t, m, runes("j"))
 	if ids() != projectNodeID(localMachine, "r1") {
 		t.Fatalf("j: %s", ids())
 	}

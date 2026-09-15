@@ -17,6 +17,7 @@ const (
 	scopeMachine                   // the machine row: no tabs
 	scopeProject
 	scopeCLI
+	scopeWorkspace // a machine's Workspace row: the tabs of all its projects
 )
 
 type tabScope struct {
@@ -57,6 +58,8 @@ func (m Model) rowScope(r row) tabScope {
 		return tabScope{level: scopeMachine, machine: r.machine}
 	case kindCLI:
 		return tabScope{level: scopeCLI, machine: r.machine}
+	case kindWorkspace:
+		return tabScope{level: scopeWorkspace, machine: r.machine}
 	case kindAgents, kindTerminals:
 		s := m.groupOf(r.machine, r.projectID)
 		s.section = r.kind
@@ -98,6 +101,8 @@ func inScope(f, s tabScope) bool {
 		return f.level != scopeMachine // an empty tab waiting for a pick
 	case f.level == scopeMachine || s.level == scopeMachine:
 		return false
+	case f.level == scopeWorkspace && s.level == scopeProject:
+		return f.machine == s.machine
 	case f.level != s.level || f.machine != s.machine || f.project != s.project:
 		return false
 	}
@@ -130,6 +135,8 @@ func (m Model) scopeName(s tabScope) string {
 		}
 	case scopeCLI:
 		name = "CLI"
+	case scopeWorkspace:
+		name = "Workspace"
 	default:
 		return ""
 	}

@@ -55,17 +55,18 @@ func render(rows []row) string {
 func TestBuildTreeDefault(t *testing.T) {
 	got := render(buildTree(sampleInput()))
 	want := `m:local
-  p:r1
-    p:r1/branches
-      b:r1:main
-      b:r1:feat/login
-      b:r1:fix/flaky
-      more:r1
-    p:r1/agents
-      pane:p1
-    p:r1/terminals
-      pane:p2
-  p:r2
+  m:local/workspace
+    p:r1
+      p:r1/branches
+        b:r1:main
+        b:r1:feat/login
+        b:r1:fix/flaky
+        more:r1
+      p:r1/agents
+        pane:p1
+      p:r1/terminals
+        pane:p2
+    p:r2
   m:local/cli
     m:local/terminals
       pane:p3
@@ -76,6 +77,44 @@ func TestBuildTreeDefault(t *testing.T) {
 	rows := buildTree(sampleInput())
 	if r := rows[indexOfRow(rows, "more:r1")]; r.count != 20 {
 		t.Fatalf("more count %d, want 20", r.count)
+	}
+	if r := rows[indexOfRow(rows, "m:local/workspace")]; r.count != 2 || r.kind != kindWorkspace || !r.expandable() {
+		t.Fatalf("workspace row: %+v", r)
+	}
+	// Projects sit under Workspace, loose panes under CLI.
+	if parentID(rows, indexOfRow(rows, "p:r2")) != "m:local/workspace" || parentID(rows, indexOfRow(rows, "m:local/cli")) != "m:local" {
+		t.Fatal("parents")
+	}
+}
+
+func TestBuildTreeWorkspace(t *testing.T) {
+	// Folded: projects hidden, CLI still listed.
+	in := sampleInput()
+	in.expanded["m:local/workspace"] = false
+	got := render(buildTree(in))
+	want := `m:local
+  m:local/workspace
+  m:local/cli
+    m:local/terminals
+      pane:p3
+`
+	if got != want {
+		t.Fatalf("folded workspace:\n%s\nwant:\n%s", got, want)
+	}
+	// No projects: no Workspace row.
+	in = sampleInput()
+	in.machines[0].projects = nil
+	rows := buildTree(in)
+	if indexOfRow(rows, "m:local/workspace") >= 0 || indexOfRow(rows, "m:local/cli") < 0 {
+		t.Fatalf("without projects:\n%s", render(rows))
+	}
+	// A filter matching only a loose pane doesn't list Workspace.
+	in = sampleInput()
+	in.filter = "p3"
+	for _, r := range buildTree(in) {
+		if r.kind == kindWorkspace {
+			t.Fatalf("workspace listed for a CLI match:\n%s", render(buildTree(in)))
+		}
 	}
 }
 
@@ -101,11 +140,12 @@ func TestBuildTreeFilter(t *testing.T) {
 	in.filter = "login"
 	got := render(buildTree(in))
 	want := `m:local
-  p:r1
-    p:r1/branches
-      b:r1:feat/login
-    p:r1/agents
-      pane:p1
+  m:local/workspace
+    p:r1
+      p:r1/branches
+        b:r1:feat/login
+      p:r1/agents
+        pane:p1
 `
 	if got != want {
 		t.Fatalf("filtered tree:\n%s\nwant:\n%s", got, want)
@@ -135,10 +175,11 @@ func TestBuildTreeRemoteMachine(t *testing.T) {
 	got := render(buildTree(in))
 	want := `m:local
 m:box
-  p:box~r1
-    p:box~r1/branches
-    p:box~r1/terminals
-      pane:box~p1
+  m:box/workspace
+    p:box~r1
+      p:box~r1/branches
+      p:box~r1/terminals
+        pane:box~p1
 `
 	if got != want {
 		t.Fatalf("tree:\n%s\nwant:\n%s", got, want)

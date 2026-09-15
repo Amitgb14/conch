@@ -208,6 +208,8 @@ func (m Model) world() brain.World {
 			w.Selected = fmt.Sprintf("branch %s of project %s on machine %s", r.branch, pl.projectID, pl.machine)
 		case kindMachine:
 			w.Selected = "machine " + pl.machine
+		case kindWorkspace:
+			w.Selected = "the projects on machine " + pl.machine
 		default:
 			if pl.projectID != "" {
 				w.Selected = fmt.Sprintf("project %s on machine %s", pl.projectID, pl.machine)

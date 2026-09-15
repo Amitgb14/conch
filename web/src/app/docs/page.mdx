@@ -19,19 +19,24 @@ The TUI organises everything as a tree beside a live view of whatever you select
 
 ```text
 MACHINES
-▾ ● local                      ⠋1 ⚑1
-  ▾ ◆ api                      ⠋1 ⚑1
-    ▾ Branches                     7
-        ● main                    +1
-        ◇ conch/add-health-check  ⠋ ↑3
-    ▾ Agents                       2
-        ⠋ Add health check   conch/add-health-check
-        ! Fix flaky tests    fix/flaky
+▾ ● local                        ⠋1 ⚑1
+  ▾ ▤ Workspace                      1
+    ▾ ◆ api                      ⠋1 ⚑1
+      ▾ Branches                     7
+          ● main                    +1
+          ◇ conch/add-health-check  ⠋ ↑3
+      ▾ Agents                       2
+          ⠋ Add health check   conch/add-health-check
+          ! Fix flaky tests    fix/flaky
+      ▾ Terminals                    1
+          › dev-server         main
+  ▾ ❯ CLI                          1
     ▾ Terminals                    1
-        › dev-server         main
+        › zsh
 ```
 
 - **Machines** — your own computer (`local`) and any machines you add over ssh.
+- **Workspace** — a machine's projects, grouped together.
 - **Projects** — git repositories (or plain folders) on a machine.
 - **Branches** — with uncommitted changes, commits ahead and behind, pull requests, and the agents working on them.
 - **Agents** and **Terminals** — the panes running in the project.

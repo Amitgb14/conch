@@ -11,7 +11,7 @@ Gemini CLI and OpenCode — written in Go.
 - A **server** daemon owns the pseudo-terminals the agents and shells run in,
   so they keep running when the UI closes. It speaks newline-delimited JSON
   over a unix socket (`~/.config/conch/conch.sock`, or `$CONCH_HOME`).
-- A **Bubble Tea TUI** shows a tree of machines → projects → branches, agents
+- A **Bubble Tea TUI** shows a tree of machines → Workspace (projects) and CLI → branches, agents
   and terminals, beside tabs and splits that behave like tmux windows.
 - **Remote machines** are reached over SSH: conch installs itself there and
   bridges the remote server's socket.

@@ -8,24 +8,26 @@ The TUI shows a tree of machines, projects, branches, agents and terminals besid
 
 ```text
 MACHINES
-▾ ● local                      ⠋1 ⚑1
-  ▾ ◆ api                      ⠋1 ⚑1
-    ▾ Branches                     7
-        ● main                    +1        checked out in the repo, uncommitted lines
-        ◇ conch/add-health-check  ⠋ ↑3      own worktree, agent working, 3 ahead of main
-        · feat/login          #12✓  ↑2      not checked out, pull request with passing checks
-        … 18 more
-    ▾ Agents                       2
-        ⠋ Add health check   conch/add-health-check
-        ! Fix flaky tests    fix/flaky
-    ▾ Terminals                    1
-        › dev-server         main
+▾ ● local                        ⠋1 ⚑1
+  ▾ ▤ Workspace                      2
+    ▾ ◆ api                      ⠋1 ⚑1
+      ▾ Branches                     7
+          ● main                    +1        checked out in the repo, uncommitted lines
+          ◇ conch/add-health-check  ⠋ ↑3      own worktree, agent working, 3 ahead of main
+          · feat/login          #12✓  ↑2      not checked out, pull request with passing checks
+          … 18 more
+      ▾ Agents                       2
+          ⠋ Add health check   conch/add-health-check
+          ! Fix flaky tests    fix/flaky
+      ▾ Terminals                    1
+          › dev-server         main
+    ▸ ◆ web
   ▾ ❯ CLI                          1
     ▾ Terminals                    1
         › zsh
 ```
 
-`CLI` holds a machine's agents and terminals that belong to no project. `n` or `c` on the machine (or on `CLI`) starts one there, in your home folder.
+Each machine has two groups. `Workspace` holds its projects (folders you added with `a`); selecting it shows every project with what runs in it, and the tab bar lists the tabs of all of them. `CLI` holds a machine's agents and terminals that belong to no project. `n` or `c` on the machine (or on `CLI`) starts one there, in your home folder.
 
 ### Projects
 
@@ -78,7 +80,7 @@ The main area has tabs (click them, `+` adds one, `×` closes), and each tab can
 
 Tabs work like tmux windows. Every agent and terminal you open from the tree gets its own tab, and opening it again jumps to that tab; a pane is never shown in two places. Projects, branches and sessions share a browsing tab that follows the tree as you move.
 
-The tab bar lists the tabs of what you select in the tree: a project shows its tabs, `CLI` the machine's own, and `Agents` or `Terminals` (or an agent or terminal in them) narrows to those. A tab belongs to the group of its first split. Moving onto a project, its branches or Sessions shows that page — in the group's browsing tab if there is one, otherwise as a preview — while the bar keeps listing the group's tabs. The machine row has no tabs and shows its page as a preview too. A preview becomes a tab once you open, split or type into it. `ctrl+b n`, `p` and the numbers move through the tabs listed; `ctrl+b w` lists every tab, grouped. Closing a split or a tab ends the agents and terminals in it, after you confirm, and a pane that exits (a shell's `exit`, an agent's `/exit`) closes along with its split or tab. Only a pane that fails within its first 10 seconds (a missing command, a bad flag) stays, marked exited, so you can read the error; `x` removes it.
+The tab bar lists the tabs of what you select in the tree: a project shows its tabs, `Workspace` those of all the machine's projects, `CLI` the machine's own, and `Agents` or `Terminals` (or an agent or terminal in them) narrows to those. A tab belongs to the group of its first split. Moving onto a project, its branches or Sessions shows that page — in the group's browsing tab if there is one, otherwise as a preview — while the bar keeps listing the group's tabs. The machine row has no tabs and shows its page as a preview too. A preview becomes a tab once you open, split or type into it. `ctrl+b n`, `p` and the numbers move through the tabs listed; `ctrl+b w` lists every tab, grouped. Closing a split or a tab ends the agents and terminals in it, after you confirm, and a pane that exits (a shell's `exit`, an agent's `/exit`) closes along with its split or tab. Only a pane that fails within its first 10 seconds (a missing command, a bad flag) stays, marked exited, so you can read the error; `x` removes it.
 
 | Keys | |
 | --- | --- |

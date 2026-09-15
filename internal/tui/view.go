@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -206,6 +207,8 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		return "", glyphStyle, "Terminals", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindCLI:
 		return "❯", styleAccent, "CLI", styleBold, styleMuted.Render(fmt.Sprint(r.count))
+	case kindWorkspace:
+		return "▤", styleAccent, "Workspace", styleBold, styleMuted.Render(fmt.Sprint(r.count))
 	case kindMore:
 		return "", glyphStyle, fmt.Sprintf("… %d more", r.count), styleMuted, ""
 	case kindSessions:
@@ -490,6 +493,10 @@ func (m Model) leafTitle(l *leaf) string {
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " " + proj.Name + " "
 		}
+	case kindWorkspace:
+		if mach != nil {
+			return " " + mach.label + " · Workspace "
+		}
 	}
 	if mach != nil {
 		return " " + mach.label + " "
@@ -588,6 +595,10 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return m.projectLines(v.Machine, *proj, w)
 		}
+	case kindWorkspace:
+		if mach != nil {
+			return m.workspaceLines(mach, w)
+		}
 	}
 	if mach == nil {
 		return centered(w, h, styleMuted.Render("This machine was removed"))
@@ -670,6 +681,41 @@ func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string 
 	}
 	lines = append(lines, m.projectSessionLines(mid, proj, w)...)
 	lines = append(lines, "", styleMuted.Render("t new task · c start an agent · n terminal · m menu · x remove from sidebar"))
+	return lines
+}
+
+// workspaceLines is the page of a machine's Workspace row: its projects,
+// each with what runs in it.
+func (m Model) workspaceLines(mach *machine, w int) []string {
+	lines := []string{styleBold.Render("Workspace") + styleMuted.Render(fmt.Sprintf("  %d projects on %s", len(mach.projects), mach.label)), ""}
+	projects := append([]proto.ProjectInfo(nil), mach.projects...)
+	sort.SliceStable(projects, func(i, j int) bool {
+		return strings.ToLower(projects[i].Name) < strings.ToLower(projects[j].Name)
+	})
+	for _, proj := range projects {
+		agents, terms := 0, 0
+		for _, p := range mach.panes {
+			if p.ProjectID != proj.ID {
+				continue
+			}
+			if p.Agent != nil || mach.agents[p.ID] {
+				agents++
+			} else {
+				terms++
+			}
+		}
+		right := styleMuted.Render(fmt.Sprintf("%d agents · %d terminals", agents, terms))
+		if proj.Error != "" {
+			right = styleErr.Render("git error")
+		}
+		right = joinRight(m.attentionBadge(mach.id, proj.ID), right)
+		left := "  " + styleAccent.Render("◆") + " " + proj.Name + "  " + styleMuted.Render(m.tildify(mach.id, proj.Path))
+		lines = append(lines, spread(left, right, w))
+	}
+	if len(projects) == 0 {
+		lines = append(lines, styleMuted.Render("  no projects yet"))
+	}
+	lines = append(lines, "", styleMuted.Render("a add a project · t new task · B broadcast to project agents · m menu"))
 	return lines
 }
 

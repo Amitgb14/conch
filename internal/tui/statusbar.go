@@ -135,6 +135,8 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		case kindProject:
 			items = []statusItem{hint("t", "task"), hint("c", "agent"), hint("n", "shell"), hint("B", "broadcast"), hint("space", "fold"),
 				hint("x", "remove"), hint("m", "menu")}
+		case kindWorkspace:
+			items = []statusItem{hint("a", "project"), hint("t", "task"), hint("B", "broadcast"), hint("space", "fold"), hint("m", "menu")}
 		case kindMachine:
 			items = []statusItem{hint("a", "project"), hint("c", "agent"), hint("n", "shell"), hint("B", "broadcast"), hint("M", "machine"),
 				hint("R", "reconnect"), hint("m", "menu")}

@@ -55,6 +55,7 @@ func TestA1ScopeFilters(t *testing.T) {
 		row  string
 		want string
 	}{
+		{workspaceID(localMachine), "p1,p2"}, // every project's tabs, not CLI's
 		{projectNodeID(localMachine, "r1"), "p1,p2"},
 		{sectionID(localMachine, "r1", "agents"), "p1"},
 		{sectionID(localMachine, "r1", "terminals"), "p2"},
@@ -87,6 +88,9 @@ func TestA1ScopeNames(t *testing.T) {
 	}
 	if got := m.scopeName(tabScope{level: scopeCLI, machine: localMachine, section: kindTerminals}); got != "CLI · terminals" {
 		t.Fatalf("CLI terminals: %q", got)
+	}
+	if got := m.scopeName(tabScope{level: scopeWorkspace, machine: localMachine}); got != "Workspace" {
+		t.Fatalf("workspace: %q", got)
 	}
 	if got := m.scopeName(tabScope{level: scopeMachine, machine: localMachine}); got != "" {
 		t.Fatalf("machine scope named %q", got)
@@ -127,6 +131,12 @@ func TestA1InScope(t *testing.T) {
 		{"agents filter keeps agents", agents, agents, true},
 		{"CLI is not the project", proj, cli, false},
 		{"other machine", tabScope{level: scopeCLI, machine: "box"}, cli, false},
+		{"workspace lists projects", tabScope{level: scopeWorkspace, machine: "local"}, agents, true},
+		{"workspace drops CLI", tabScope{level: scopeWorkspace, machine: "local"}, cli, false},
+		{"workspace of another machine", tabScope{level: scopeWorkspace, machine: "box"}, proj, false},
+		{"empty tab under workspace", tabScope{level: scopeWorkspace, machine: "local"}, tabScope{}, true},
+		{"workspace tab under workspace", tabScope{level: scopeWorkspace, machine: "local"}, tabScope{level: scopeWorkspace, machine: "local"}, true},
+		{"workspace tab under a project", proj, tabScope{level: scopeWorkspace, machine: "local"}, false},
 	} {
 		if got := inScope(tc.f, tc.s); got != tc.want {
 			t.Errorf("%s: got %v", tc.name, got)

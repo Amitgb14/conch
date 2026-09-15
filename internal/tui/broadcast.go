@@ -76,6 +76,8 @@ func (m Model) broadcastScope(every bool) (label string, targets []broadcastTarg
 			return true
 		case kindCLI:
 			return !k
+		case kindWorkspace:
+			return k
 		case kindBranch:
 			return k && p.ProjectID == r.projectID && p.Branch == r.branch
 		case kindPane:
@@ -144,6 +146,8 @@ func (m Model) broadcastScope(every bool) (label string, targets []broadcastTarg
 		} else {
 			label += " · Agents"
 		}
+	case r.kind == kindWorkspace:
+		label = "Workspace"
 	case r.kind == kindCLI || r.projectID == "":
 		label = "CLI"
 	default:

@@ -178,6 +178,13 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if mid != localMachine {
 			items = append(items, menuItem{"x", "Remove machine", act("x")})
 		}
+	case kindWorkspace:
+		title = "Workspace"
+		items = []menuItem{
+			{"a", "Add project…", act("a")},
+			{"t", "New task (branch + worktree + agent)…", act("t")},
+			{"B", "Broadcast to its projects' agents and terminals…", act("B")},
+		}
 	default:
 		items = []menuItem{
 			{"a", "Add project…", act("a")},
@@ -642,7 +649,7 @@ var helpText = []string{
 	"  ←→↑↓ focus   o next split   ; last split   q split numbers (then a digit)   { } swap",
 	"  ctrl/alt+arrows resize (repeats)   space next layout   alt+1-5 even-h, even-v, main-h, main-v, tiled",
 	"  c new tab   n / p next / previous   0-9 go to tab   l last tab   < > . move tab   w every tab, grouped",
-	"  the tab bar lists the tabs of the project, CLI, Agents or Terminals selected in the tree",
+	"  the tab bar lists the tabs of the Workspace, project, CLI, Agents or Terminals selected in the tree",
 	"  & close tab   , rename tab   z zoom   ! next waiting agent   : ask   d detach   ? this help",
 	"  S type into every split of the tab at once (again to stop; synced borders turn amber)",
 	"  in the tree: v open in a split right · s below · O in a new tab",

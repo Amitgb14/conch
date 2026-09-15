@@ -702,6 +702,8 @@ func (m Model) viewLabel(v viewRef) string {
 		if mach := m.machine(v.Machine); mach != nil {
 			label = mach.label
 		}
+	case kindWorkspace:
+		label = "Workspace"
 	}
 	if v.empty() {
 		label = "empty"

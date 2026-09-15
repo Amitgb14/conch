@@ -188,7 +188,7 @@ func TestA1StatusActions(t *testing.T) {
 func TestA1PressMapsKeys(t *testing.T) {
 	m, _ := a1Fixture(t, false)
 	m.press("↓")
-	if m.cursor != projectNodeID(localMachine, "r1") {
+	if m.cursor != workspaceID(localMachine) {
 		t.Fatalf("↓: %s", m.cursor)
 	}
 	m.press("↑")

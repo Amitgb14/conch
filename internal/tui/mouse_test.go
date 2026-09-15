@@ -151,7 +151,7 @@ func TestA1MouseSidebar(t *testing.T) {
 	}
 	// Clicking a folder's arrow folds it; clicking a selected folder toggles.
 	proj := projectNodeID(localMachine, "r1")
-	a1Mouse(t, m, 3, a1RowY(t, m, proj), a1Left, a1Press)
+	a1Mouse(t, m, 5, a1RowY(t, m, proj), a1Left, a1Press) // depth 2: the arrow is at 5
 	if m.expanded[proj] {
 		t.Fatal("expander click did not fold")
 	}

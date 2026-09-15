@@ -20,8 +20,9 @@ const (
 	kindBranch
 	kindMore // "… N more" branches
 	kindPane
-	kindSessions // section: saved agent sessions
-	kindCLI      // a machine's agents and terminals outside every project
+	kindSessions  // section: saved agent sessions
+	kindCLI       // a machine's agents and terminals outside every project
+	kindWorkspace // a machine's projects
 )
 
 // row is one visible line of the sidebar tree. IDs of panes and projects
@@ -39,7 +40,7 @@ type row struct {
 
 func (r row) expandable() bool {
 	switch r.kind {
-	case kindMachine, kindProject, kindBranches, kindAgents, kindTerminals, kindCLI:
+	case kindMachine, kindWorkspace, kindProject, kindBranches, kindAgents, kindTerminals, kindCLI:
 		return true
 	}
 	return false
@@ -88,6 +89,7 @@ func paneNodeID(mid, id string) string       { return "pane:" + scoped(mid, id) 
 func moreID(mid, pid string) string          { return "more:" + scoped(mid, pid) }
 func looseTerminalsID(mid string) string     { return machineID(mid) + "/terminals" }
 func cliID(mid string) string                { return machineID(mid) + "/cli" }
+func workspaceID(mid string) string          { return machineID(mid) + "/workspace" }
 
 // buildTree flattens the visible tree into rows.
 func buildTree(in treeInput) []row {
@@ -147,7 +149,8 @@ func machineRows(in treeInput, mach treeMachine, filter string, match func(strin
 		return out
 	}
 
-	var body []row
+	// Projects, grouped under Workspace.
+	var workspace []row
 	for _, proj := range projects {
 		panes := byProject[proj.ID]
 		var agents, terms []proto.PaneInfo
@@ -167,16 +170,16 @@ func machineRows(in treeInput, mach treeMachine, filter string, match func(strin
 			var brows []row
 			for _, b := range branches {
 				if projMatched || match(b.Name) {
-					brows = append(brows, row{id: branchNodeID(mid, proj.ID, b.Name), kind: kindBranch, depth: 3,
+					brows = append(brows, row{id: branchNodeID(mid, proj.ID, b.Name), kind: kindBranch, depth: 4,
 						machine: mid, projectID: proj.ID, branch: b.Name})
 				}
 			}
 			if hidden > 0 {
-				brows = append(brows, row{id: moreID(mid, proj.ID), kind: kindMore, depth: 3, machine: mid, projectID: proj.ID, count: hidden})
+				brows = append(brows, row{id: moreID(mid, proj.ID), kind: kindMore, depth: 4, machine: mid, projectID: proj.ID, count: hidden})
 			}
 			if filter == "" || len(brows) > 0 {
 				sid := sectionID(mid, proj.ID, "branches")
-				children = append(children, row{id: sid, kind: kindBranches, depth: 2, machine: mid, projectID: proj.ID, count: len(proj.Branches)})
+				children = append(children, row{id: sid, kind: kindBranches, depth: 3, machine: mid, projectID: proj.ID, count: len(proj.Branches)})
 				if open(sid, true) {
 					children = append(children, brows...)
 				}
@@ -187,28 +190,35 @@ func machineRows(in treeInput, mach treeMachine, filter string, match func(strin
 			kind  nodeKind
 			panes []proto.PaneInfo
 		}{{"agents", kindAgents, agents}, {"terminals", kindTerminals, terms}} {
-			prows := paneRows(sec.panes, 3, projMatched)
+			prows := paneRows(sec.panes, 4, projMatched)
 			if len(prows) == 0 {
 				continue
 			}
 			sid := sectionID(mid, proj.ID, sec.name)
-			children = append(children, row{id: sid, kind: sec.kind, depth: 2, machine: mid, projectID: proj.ID, count: len(sec.panes)})
+			children = append(children, row{id: sid, kind: sec.kind, depth: 3, machine: mid, projectID: proj.ID, count: len(sec.panes)})
 			if open(sid, true) {
 				children = append(children, prows...)
 			}
 		}
 
 		if mach.sessions && filter == "" {
-			children = append(children, row{id: sectionID(mid, proj.ID, "sessions"), kind: kindSessions, depth: 2, machine: mid, projectID: proj.ID})
+			children = append(children, row{id: sectionID(mid, proj.ID, "sessions"), kind: kindSessions, depth: 3, machine: mid, projectID: proj.ID})
 		}
 
 		if filter != "" && !projMatched && len(children) == 0 {
 			continue
 		}
 		pid := projectNodeID(mid, proj.ID)
-		body = append(body, row{id: pid, kind: kindProject, depth: 1, machine: mid, projectID: proj.ID})
+		workspace = append(workspace, row{id: pid, kind: kindProject, depth: 2, machine: mid, projectID: proj.ID})
 		if open(pid, len(panes) > 0) {
-			body = append(body, children...)
+			workspace = append(workspace, children...)
+		}
+	}
+	var body []row
+	if len(workspace) > 0 {
+		body = append(body, row{id: workspaceID(mid), kind: kindWorkspace, depth: 1, machine: mid, count: len(mach.projects)})
+		if open(workspaceID(mid), true) {
+			body = append(body, workspace...)
 		}
 	}
 
