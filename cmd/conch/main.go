@@ -397,7 +397,7 @@ func offerUpgrade(c *client.Client) (*client.Client, error) {
 // reloadServer asks the server to exec bin (default: its own executable) and
 // returns a connection to the reloaded server. The old connection is closed.
 func reloadServer(c *client.Client, bin string) (*client.Client, error) {
-	pid, started := c.Server.PID, c.Server.Started
+	pid, loaded := c.Server.PID, loadedAt(c.Server)
 	var res proto.ServerReloadResult
 	err := call(c, proto.MethodServerReload, proto.ServerReloadParams{Binary: bin}, &res)
 	c.Close()
@@ -409,7 +409,7 @@ func reloadServer(c *client.Client, bin string) (*client.Client, error) {
 		if err != nil {
 			continue
 		}
-		if nc.Server.PID == pid && nc.Server.Started.After(started) {
+		if nc.Server.PID == pid && loadedAt(nc.Server).After(loaded) {
 			return nc, nil // the same process, started again
 		}
 		if nc.Server.PID != pid {
@@ -419,6 +419,15 @@ func reloadServer(c *client.Client, bin string) (*client.Client, error) {
 		nc.Close()
 	}
 	return nil, errors.New("the server did not come back within 15s; see " + config.ServerLogPath())
+}
+
+// loadedAt is when a server's program started. Servers from before
+// loaded_at reset Started at every reload instead.
+func loadedAt(h proto.HelloResult) time.Time {
+	if !h.LoadedAt.IsZero() {
+		return h.LoadedAt
+	}
+	return h.Started
 }
 
 // connect dials the local server (or the -m machine's), optionally starting

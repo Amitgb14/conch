@@ -86,7 +86,7 @@ func TestServerReload(t *testing.T) {
 		t.Fatalf("screen never showed %q", want)
 	}
 	waitFor(c, "before-42")
-	oldPID, oldStarted := c.Server.PID, c.Server.Started
+	oldPID, oldStarted, oldLoaded := c.Server.PID, c.Server.Started, c.Server.LoadedAt
 
 	build("0.0.2-b")
 	var res proto.ServerReloadResult
@@ -98,7 +98,7 @@ func TestServerReload(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		time.Sleep(50 * time.Millisecond)
 		if cc, err := client.Dial(sock, "test"); err == nil {
-			if cc.Server.Started.After(oldStarted) {
+			if cc.Server.LoadedAt.After(oldLoaded) {
 				nc = cc
 				break
 			}
@@ -111,6 +111,9 @@ func TestServerReload(t *testing.T) {
 	defer nc.Close()
 	if nc.Server.PID != oldPID || nc.Server.Version != "0.0.2-b" {
 		t.Fatalf("reloaded server: pid %d (was %d) version %s", nc.Server.PID, oldPID, nc.Server.Version)
+	}
+	if !nc.Server.Started.Equal(oldStarted) {
+		t.Fatalf("uptime restarted: started %v, was %v", nc.Server.Started, oldStarted)
 	}
 	var list proto.PaneList
 	nc.Call(ctx, proto.MethodPaneList, nil, &list)

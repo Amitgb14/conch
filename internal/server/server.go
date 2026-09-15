@@ -35,7 +35,8 @@ const frameInterval = 33 * time.Millisecond
 type Server struct {
 	sockPath  string
 	configDir string
-	started   time.Time
+	started   time.Time // kept across reloads, for uptime
+	loaded    time.Time // this program's start
 
 	adapters  adapter.Registry
 	manifests map[string]*detect.Manifest
@@ -73,6 +74,7 @@ func New(sockPath, configDir string) *Server {
 		sockPath:  sockPath,
 		configDir: configDir,
 		started:   time.Now(),
+		loaded:    time.Now(),
 		panes:     map[string]*entry{},
 		clients:   map[*client]struct{}{},
 		quit:      make(chan struct{}),
@@ -342,6 +344,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			Capabilities: proto.Capabilities,
 			PID:          os.Getpid(),
 			Started:      s.started,
+			LoadedAt:     s.loaded,
 			Build:        buildinfo.Build(),
 			BuildID:      buildinfo.ID(),
 			Platform:     buildinfo.Platform(),

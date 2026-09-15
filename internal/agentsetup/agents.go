@@ -27,16 +27,16 @@ func inspectClaude(e Env, dir, root string) *report {
 	if e.GOOS == "darwin" {
 		managed = "/Library/Application Support/ClaudeCode"
 	}
-	r.instruction(filepath.Join(managed, "CLAUDE.md"), ScopeManaged, "")
-	r.instruction(filepath.Join(cfg, "CLAUDE.md"), ScopeUser, "")
+	r.memory(e.Home, filepath.Join(managed, "CLAUDE.md"), ScopeManaged, "")
+	r.memory(e.Home, filepath.Join(cfg, "CLAUDE.md"), ScopeUser, "")
 	r.markdown(GroupInstructions, filepath.Join(cfg, "rules"), ".md", "rules/", ScopeUser, "")
 	for _, d := range downTo("", dir) {
 		if filepath.Join(d, ".claude") == cfg {
 			continue // the user directory, not a project's
 		}
-		r.instruction(filepath.Join(d, "CLAUDE.md"), ScopeProject, "")
-		r.instruction(filepath.Join(d, ".claude", "CLAUDE.md"), ScopeProject, "")
-		r.instruction(filepath.Join(d, "CLAUDE.local.md"), ScopeLocal, "")
+		r.memory(e.Home, filepath.Join(d, "CLAUDE.md"), ScopeProject, "")
+		r.memory(e.Home, filepath.Join(d, ".claude", "CLAUDE.md"), ScopeProject, "")
+		r.memory(e.Home, filepath.Join(d, "CLAUDE.local.md"), ScopeLocal, "")
 		r.markdown(GroupInstructions, filepath.Join(d, ".claude", "rules"), ".md", "rules/", ScopeProject, "")
 	}
 
@@ -260,9 +260,9 @@ func inspectGemini(e Env, dir, root string) *report {
 	}
 
 	for _, n := range names {
-		r.instruction(filepath.Join(home, n), ScopeUser, "")
+		r.memory(e.Home, filepath.Join(home, n), ScopeUser, "")
 		for _, d := range downTo(projectRoot, dir) {
-			r.instruction(filepath.Join(d, n), ScopeProject, "")
+			r.memory(e.Home, filepath.Join(d, n), ScopeProject, "")
 		}
 	}
 

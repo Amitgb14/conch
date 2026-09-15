@@ -163,12 +163,15 @@ type HelloResult struct {
 	Protocol     int       `json:"protocol"`
 	Capabilities []string  `json:"capabilities"`
 	PID          int       `json:"pid"`
-	Started      time.Time `json:"started"`
-	Build        string    `json:"build,omitempty"`    // hash of the server binary
-	BuildID      string    `json:"build_id,omitempty"` // the same across platforms (see buildinfo.ID)
-	Platform     string    `json:"platform,omitempty"` // e.g. linux/amd64
-	Hostname     string    `json:"hostname,omitempty"`
-	Home         string    `json:"home,omitempty"`
+	Started      time.Time `json:"started"` // the first server of a chain of reloads
+	// LoadedAt is when the running program started: a reload changes it but
+	// not Started. Zero from servers that predate it.
+	LoadedAt time.Time `json:"loaded_at,omitempty"`
+	Build    string    `json:"build,omitempty"`    // hash of the server binary
+	BuildID  string    `json:"build_id,omitempty"` // the same across platforms (see buildinfo.ID)
+	Platform string    `json:"platform,omitempty"` // e.g. linux/amd64
+	Hostname string    `json:"hostname,omitempty"`
+	Home     string    `json:"home,omitempty"`
 }
 
 // Pane states.

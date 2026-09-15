@@ -35,6 +35,9 @@ type reloadState struct {
 	NextID     int                `json:"next_id"`
 	Panes      []reloadPane       `json:"panes"`
 	Limits     []proto.PlanLimits `json:"limits,omitempty"`
+	// Started is when the first server of the chain started, so uptime
+	// survives reloads. Zero in state from older builds.
+	Started time.Time `json:"started,omitempty"`
 }
 
 type reloadPane struct {
@@ -83,7 +86,7 @@ func (s *Server) reload(bin string) {
 	s.mu.Lock()
 	defer s.mu.Unlock() // held until exec: no panes come or go meanwhile
 
-	st := reloadState{FromBuild: buildinfo.Build(), NextID: s.nextID}
+	st := reloadState{FromBuild: buildinfo.Build(), NextID: s.nextID, Started: s.started}
 	var detached []*entry
 	fail := func(err error) {
 		log.Printf("reload failed, carrying on: %v", err)
@@ -172,6 +175,9 @@ func takeReloadState() (*reloadState, error) {
 // adopt takes over the panes of a reload.
 func (s *Server) adopt(st *reloadState) {
 	s.nextID = st.NextID
+	if !st.Started.IsZero() {
+		s.started = st.Started
+	}
 	for _, l := range st.Limits {
 		s.setLimits(l)
 	}

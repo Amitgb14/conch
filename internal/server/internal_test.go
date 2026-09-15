@@ -423,7 +423,8 @@ func TestA5TakeReloadState(t *testing.T) {
 	want := reloadState{FromBuild: "abc", ListenerFD: 7, NextID: 12,
 		Panes: []reloadPane{{Snapshot: pane.Snapshot{ID: "p3", Command: []string{"sh"}, Replay: "hi"}, FD: 9, Dir: "/x", Loose: true,
 			Tracker: detect.TrackerState{Hint: "claude", HookState: "working"}, Transcript: "/t.jsonl"}},
-		Limits: []proto.PlanLimits{{Agent: "codex", Week: &proto.LimitWindow{UsedPct: 5}}},
+		Limits:  []proto.PlanLimits{{Agent: "codex", Week: &proto.LimitWindow{UsedPct: 5}}},
+		Started: time.Date(2026, 9, 1, 8, 30, 0, 0, time.UTC),
 	}
 	b, _ := json.Marshal(want)
 	good := filepath.Join(dir, "good.json")
