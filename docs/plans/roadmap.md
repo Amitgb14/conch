@@ -1,6 +1,6 @@
 # Roadmap
 
-Order of upcoming work (updated 2026-09-14). Finished items move to the git
+Order of upcoming work (updated 2026-09-15). Finished items move to the git
 history; details for big items live in their own plan files.
 
 ## Done
@@ -21,14 +21,13 @@ history; details for big items live in their own plan files.
 5. **tmux extras** — `ctrl+b < > .` move tabs, `ctrl+b q` split numbers,
    `ctrl+b space` and `alt+1`–`alt+5` layouts, `w` picker names with each
    split's branch or folder and agent state.
+6. **Website deploy** — `web/` published to GitHub Pages on every push.
+7. **First release** — v0.1.0: archives for macOS and Linux (amd64, arm64)
+   with checksums, installed by `install.sh` and `conch update`.
 
 ## Next
 
-6. **Website deploy** — publish `web/`.
-7. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
-8. **First release** — tag v0.1.0 so `install.sh` and `conch update` have
-   something to download (also unblocks section 5 of the
-   [end-to-end plan](../testing/end-to-end.md)).
+8. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
 
 ## Last
 

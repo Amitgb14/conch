@@ -62,6 +62,7 @@ Usage:
 
 func main() {
 	buildinfo.Build() // hash the executable now, before a rebuild can replace it
+	buildinfo.ResolveVersion()
 	log.SetFlags(log.LstdFlags)
 	args := os.Args[1:]
 	for len(args) >= 2 && (args[0] == "-m" || args[0] == "--machine") {

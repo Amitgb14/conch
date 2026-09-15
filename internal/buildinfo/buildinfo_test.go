@@ -119,3 +119,27 @@ func TestA3PlatformAndCurrent(t *testing.T) {
 		t.Fatalf("json = %s %v", b, err)
 	}
 }
+
+func TestVersionFromModule(t *testing.T) {
+	for _, c := range []struct{ current, module, want string }{
+		{"0.1.0-dev", "v0.1.0", "0.1.0"}, // go install …@v0.1.0
+		{"0.2.0-dev", "v0.10.12", "0.10.12"},
+		{"0.1.0-dev", "(devel)", "0.1.0-dev"}, // a source checkout
+		{"0.1.0-dev", "", "0.1.0-dev"},
+		{"0.1.0-dev", "v0.1.1-0.20260915101010-abcdef123456", "0.1.0-dev"}, // an untagged commit
+		{"0.1.0-dev", "v0.2.0-rc.1", "0.1.0-dev"},
+		{"0.1.0-dev", "0.1.0", "0.1.0-dev"},
+		{"0.1.0", "v0.3.0", "0.1.0"}, // the release ldflags win
+		{"", "v0.3.0", ""},
+	} {
+		if got := versionFrom(c.current, c.module); got != c.want {
+			t.Errorf("versionFrom(%q, %q) = %q, want %q", c.current, c.module, got, c.want)
+		}
+	}
+	// In a test binary the module is (devel): nothing changes.
+	before := proto.Version
+	ResolveVersion()
+	if proto.Version != before {
+		t.Fatalf("test binary version changed to %q", proto.Version)
+	}
+}

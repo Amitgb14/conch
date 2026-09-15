@@ -7,7 +7,10 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"regexp"
 	"runtime"
+	"runtime/debug"
+	"strings"
 	"sync"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -73,4 +76,27 @@ type Info struct {
 // Current describes this binary.
 func Current() Info {
 	return Info{Version: proto.Version, Build: Build(), BuildID: ID(), Platform: Platform(), Capabilities: proto.Capabilities}
+}
+
+// releaseTag is a plain release tag such as v0.1.0: not a pre-release and
+// not a pseudo-version (v0.1.1-0.20260915…-abcdef) of an untagged commit.
+var releaseTag = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+
+// ResolveVersion names a `go install github.com/Amitgb14/conch/cmd/conch@v0.1.0`
+// build after its release. Such builds skip the release -ldflags and would
+// otherwise call themselves the development version, so self-updates and
+// same-build checks would treat them as dev builds.
+func ResolveVersion() {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		proto.Version = versionFrom(proto.Version, info.Main.Version)
+	}
+}
+
+// versionFrom is current unless it is a development version and the module
+// was built from a release tag.
+func versionFrom(current, module string) string {
+	if !strings.Contains(current, "dev") || !releaseTag.MatchString(module) {
+		return current
+	}
+	return strings.TrimPrefix(module, "v")
 }
