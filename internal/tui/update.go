@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Amitgb14/conch/internal/buildinfo"
+	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/update"
 )
 
@@ -140,11 +141,24 @@ func (m Model) pendingUpdates() []updateItem {
 		if mach.c == nil {
 			continue
 		}
-		if same, ok := update.SameBuild(mach.server); ok && !same {
+		if m.remoteBehind(mach) {
 			items = append(items, updateItem{mach.label, "runs build " + firstNonEmpty(mach.server.BuildID, mach.server.Build) + " · installs and reloads", mach.id})
 		}
 	}
 	return items
+}
+
+// remoteBehind reports whether a machine runs another build than the one
+// an update brings: the build on disk when conch was rebuilt, else this
+// TUI's. Comparing with the TUI alone missed every remote after a rebuild —
+// they matched the old TUI — so there was nothing to tick before the
+// restarted TUI updated them all.
+func (m Model) remoteBehind(mach *machine) bool {
+	if m.upd != nil && m.upd.diskBuild != "" && !proto.IsRelease() {
+		return mach.server.BuildID != "" && mach.server.BuildID != m.upd.diskBuild
+	}
+	same, ok := update.SameBuild(mach.server)
+	return ok && !same
 }
 
 // targetBuild is the build the local server should run: the one on disk

@@ -121,7 +121,8 @@ func TestA2PendingUpdates(t *testing.T) {
 
 	got := a2Labels(m.pendingUpdates())
 	want := "Release: 9.9.9 available (running " + versionLabel() + ") | This TUI: new build on disk disk123 · restarts onto it | " +
-		"Server: runs build old456 · reloads, panes keep running | box: runs build remote-old · installs and reloads"
+		"Server: runs build old456 · reloads, panes keep running | box: runs build remote-old · installs and reloads | " +
+		"same: runs build " + buildinfo.ID() + " · installs and reloads" // on this TUI's build, not the one on disk
 	if got != want {
 		t.Fatalf("pending:\n got %s\nwant %s", got, want)
 	}
@@ -484,5 +485,40 @@ func TestVersionInfoTinyScreens(t *testing.T) {
 	m2.overlay = v2
 	if handled, _ := v2.update(m2, a2Key("down")); !handled || m2.overlay != nil {
 		t.Fatal("down without machines should close")
+	}
+}
+
+// Found in use: after a rebuild, remotes on the running TUI's build weren't
+// listed (they matched it), so they couldn't be unticked before the
+// restarted TUI updated them all.
+func TestPendingUpdatesComparesRemotesWithTheBuildOnDisk(t *testing.T) {
+	if proto.IsRelease() {
+		t.Skip("release builds compare versions, not builds")
+	}
+	m := a2Model()
+	m.upd = &updateState{diskBuild: "newdisk12345"}
+	onTUI := &machine{id: "old", label: "old", c: a2Client(), server: proto.HelloResult{BuildID: buildinfo.ID()}}
+	onDisk := &machine{id: "new", label: "new", c: a2Client(), server: proto.HelloResult{BuildID: "newdisk12345"}}
+	unknown := &machine{id: "unknown", label: "unknown", c: a2Client()} // a server too old to say
+	offline := &machine{id: "off", label: "off", server: proto.HelloResult{BuildID: "x"}}
+	m.machines = append(m.machines, onTUI, onDisk, unknown, offline)
+
+	v := newVersionInfo()
+	if got := strings.Join(v.machines(*m), ","); got != "old" {
+		t.Fatalf("listed with a new build on disk: %q", got)
+	}
+	out := ansi.Strip(strings.Join(v.render(*m).lines, "\n"))
+	if !strings.Contains(out, "This TUI") || !strings.Contains(out, "[x] old") {
+		t.Fatalf("box:\n%s", out)
+	}
+
+	// Without a rebuild, remotes compare with this TUI, as before.
+	m.upd.diskBuild = ""
+	if got := strings.Join(v.machines(*m), ","); got != "new" {
+		t.Fatalf("listed without a rebuild: %q", got)
+	}
+	m.upd = nil
+	if m.remoteBehind(onTUI) || !m.remoteBehind(onDisk) {
+		t.Fatal("no update state")
 	}
 }
