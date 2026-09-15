@@ -53,7 +53,7 @@ Usage:
                                 new branch + worktree + Claude with PROMPT
   conch machine add [-label L] SSH_TARGET
                                 add a remote machine (installs conch there)
-  conch machine ls | rm ID | upgrade ID | hosts
+  conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
   conch -m MACHINE COMMAND      run a command against a remote machine
   conch ask [-y | -n] REQUEST   ask the brain; it proposes actions and runs them once you confirm
   conch update [VERSION]        replace this binary with the latest (or given) release

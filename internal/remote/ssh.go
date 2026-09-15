@@ -75,6 +75,11 @@ Host *
   ControlPath %s/%%C
   ControlPersist 60
 `, quoteConfig(ctl))
+	// The key conch made for machines when the user had none (see
+	// SetUpKeyLogin). Only then: naming a key stops ssh trying the defaults.
+	if key := conchKey(); exists(key) {
+		fmt.Fprintf(&b, "  IdentityFile %s\n", quoteConfig(key))
+	}
 
 	path := filepath.Join(dir, "config")
 	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
@@ -100,16 +105,42 @@ func exists(path string) bool {
 // runs may prompt (passwords, host keys) on the terminal; background runs
 // fail instead.
 func sshCmd(ctx context.Context, target, script string, interactive bool) (*exec.Cmd, error) {
+	return sshCmdWith(ctx, target, script, sshOpts{interactive: interactive})
+}
+
+// sshOpts say how ssh may authenticate.
+type sshOpts struct {
+	// interactive lets ssh prompt on the terminal.
+	interactive bool
+	// askpass answers a password prompt without a terminal (adding a
+	// machine from the TUI); the host's key is accepted the first time.
+	askpass *askpass
+	// keyOnly succeeds only through key login: no password, no shared
+	// connection that another command already authenticated.
+	keyOnly bool
+}
+
+func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cmd, error) {
 	cfg, err := sshConfig()
 	if err != nil {
 		return nil, err
 	}
 	args := []string{"-F", cfg, "-T"}
-	if !interactive {
+	switch {
+	case o.askpass != nil:
+		args = append(args, "-o", "BatchMode=no", "-o", "NumberOfPasswordPrompts=1",
+			"-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15")
+	case o.keyOnly:
+		args = append(args, "-o", "BatchMode=yes", "-o", "ControlPath=none", "-o", "PasswordAuthentication=no",
+			"-o", "KbdInteractiveAuthentication=no", "-o", "ConnectTimeout=10")
+	case !o.interactive:
 		args = append(args, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
 	}
 	args = append(args, "--", target, script)
 	cmd := exec.CommandContext(ctx, sshBinary(), args...)
+	if o.askpass != nil {
+		cmd.Env = o.askpass.env()
+	}
 	// A ControlPersist master inherits our pipes and outlives this command;
 	// don't wait for it to close them.
 	cmd.WaitDelay = 2 * time.Second
@@ -118,7 +149,12 @@ func sshCmd(ctx context.Context, target, script string, interactive bool) (*exec
 
 // run executes script on target and returns its stdout.
 func run(ctx context.Context, target, script string, stdin []byte, interactive bool) ([]byte, error) {
-	cmd, err := sshCmd(ctx, target, script, interactive)
+	return runWith(ctx, target, script, stdin, sshOpts{interactive: interactive})
+}
+
+func runWith(ctx context.Context, target, script string, stdin []byte, o sshOpts) ([]byte, error) {
+	interactive := o.interactive && o.askpass == nil
+	cmd, err := sshCmdWith(ctx, target, script, o)
 	if err != nil {
 		return nil, err
 	}

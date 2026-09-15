@@ -513,13 +513,44 @@ func (m *Model) copyRow(r row) tea.Cmd {
 
 func (m *Model) openRename() {
 	r, _ := m.selectedRow()
+	if r.kind == kindMachine {
+		m.openRenameMachine(r.machine)
+		return
+	}
 	if r.kind != kindPane {
-		m.setFlash("select an agent or terminal to rename", true)
+		m.setFlash("select a machine, agent or terminal to rename", true)
 		return
 	}
 	if p := m.pane(r.machine, r.paneID); p != nil {
 		m.overlay = newRenameDialog(*m, r.machine, *p)
 	}
+}
+
+// openRenameMachine asks for a machine's new label.
+func (m *Model) openRenameMachine(mid string) {
+	mach := m.machine(mid)
+	switch {
+	case mach == nil:
+		return
+	case mid == localMachine:
+		m.setFlash("this computer is always called local", true)
+		return
+	}
+	d := newDialog(*m, " Rename machine ", []string{"The name shown in the tree; the ssh target (" + mach.target + ") stays."}, []string{"Label"}, []string{mach.label})
+	d.submit = func(m *Model, v []string) tea.Cmd {
+		saved, err := remote.RenameMachine(mid, v[0])
+		if err != nil {
+			m.setFlash(err.Error(), true)
+			return nil
+		}
+		if mach := m.machine(mid); mach != nil {
+			mach.label = saved.Label
+		}
+		m.catalogStamp = catalogStamp() // our own change: nothing for the watcher to do
+		m.setFlash("renamed to "+saved.Label, false)
+		return m.rebuild()
+	}
+	m.overlay = d
 }
 
 // openRemove confirms the removal that fits the selected row.

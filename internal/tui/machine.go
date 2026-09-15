@@ -94,8 +94,11 @@ type (
 		c       *client.Client
 		err     error
 	}
-	machineAddedMsg struct{ m remote.Machine }
-	panesMsg        struct {
+	machineAddedMsg struct {
+		m    remote.Machine
+		note string // about key login, when a password was used
+	}
+	panesMsg struct {
 		machine string
 		gen     int
 		panes   []proto.PaneInfo
@@ -301,20 +304,38 @@ func (mach *machine) paneIndex(id string) int {
 
 // addMachine connects to target, installing conch there if needed (the
 // user asked to add it), and saves it.
-func addMachine(target, label string) tea.Cmd {
+// addMachineFn adds a machine; tests replace it.
+var addMachineFn = addMachine
+
+// addMachine connects to target, installing conch there if needed, and
+// saves it. With a password, ssh gets it through an askpass helper, and
+// with keyLogin the password is then used once to authorize the user's ssh
+// key there, so reconnects need no password.
+func addMachine(target, label, password string, keyLogin bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		c, err := remote.Connect(ctx, target, remote.Options{Install: true})
+		c, err := remote.Connect(ctx, target, remote.Options{Install: true, Password: password})
 		var outdated *remote.OutdatedServerError
 		if err != nil && !errors.As(err, &outdated) {
 			return errMsg{err}
 		}
 		c.Close()
+		note := ""
+		if password != "" && keyLogin {
+			switch key, err := remote.SetUpKeyLogin(ctx, target, password); {
+			case err != nil:
+				note = "key login not set up: " + err.Error() + " · reconnects will fail without it"
+			default:
+				note = "key login set up with " + key
+			}
+		} else if password != "" {
+			note = "added with a password only: reconnects need key login (ssh-copy-id) or conch machine add in a terminal"
+		}
 		m, err := remote.SaveMachine(remote.Machine{Label: label, Target: target})
 		if err != nil {
 			return errMsg{err}
 		}
-		return machineAddedMsg{m: m}
+		return machineAddedMsg{m: m, note: note}
 	}
 }

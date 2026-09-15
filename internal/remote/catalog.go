@@ -93,6 +93,32 @@ func SaveMachine(m Machine) (Machine, error) {
 	return m, saveMachines(append(ms, m))
 }
 
+// RenameMachine changes the label of a machine found by ID or label. The ID
+// stays, so saved state and pane references keep working.
+func RenameMachine(ref, label string) (Machine, error) {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return Machine{}, errors.New("a machine needs a label")
+	}
+	ms, err := Machines()
+	if err != nil {
+		return Machine{}, err
+	}
+	for i, m := range ms {
+		if m.ID != ref && m.Label != ref {
+			continue
+		}
+		for _, other := range ms {
+			if other.ID != m.ID && other.Label == label {
+				return Machine{}, fmt.Errorf("another machine is already called %q", label)
+			}
+		}
+		ms[i].Label = label
+		return ms[i], saveMachines(ms)
+	}
+	return Machine{}, fmt.Errorf("no machine %q", ref)
+}
+
 // RemoveMachine forgets a machine by ID or label.
 func RemoveMachine(ref string) error {
 	ms, err := Machines()

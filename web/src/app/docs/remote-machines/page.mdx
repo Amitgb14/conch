@@ -13,7 +13,7 @@ conch -m gpu-box status                # any command against a machine
 conch -m gpu-box task -cwd ~/src/api "Fix the flaky tests"
 ```
 
-Or press `M` in the TUI. `conch machine rm ID` removes a machine, `conch machine upgrade ID` installs your build there and reloads its server, and `conch machine hosts` lists the hosts in your ssh config. See [Command line](/docs/cli#machine) for flags.
+Or press `M` in the TUI. `conch machine rm ID` removes a machine, `conch machine rename ID LABEL` renames it, `conch machine upgrade ID` installs your build there and reloads its server, and `conch machine hosts` lists the hosts in your ssh config. See [Command line](/docs/cli#machine) for flags.
 
 ## Adding a machine
 
@@ -47,7 +47,9 @@ conch runs the system `ssh` with a generated config that includes yours first (s
 
 <Callout type="note" title="Background connections never prompt">
 
-If ssh needs a password or host-key answer, run `conch machine add` in a terminal once, or `ssh-add` your key.
+If ssh needs a password, type it in the **Password** field of the `M` dialog. It is handed to ssh only for that add (through a short-lived `SSH_ASKPASS` helper), never saved, and a new host's key is accepted the first time. With **Key login** ticked (the default), conch uses the password once to add your ssh public key to the machine's `~/.ssh/authorized_keys` — your `~/.ssh/id_ed25519`, `id_ecdsa` or `id_rsa`, or a key it creates in `~/.config/conch/ssh` when you have none — and checks that logging in with the key works, so reconnects never need the password. If the machine refuses keys, the status bar says so. From a shell, `conch machine add` lets ssh ask for the password on the terminal instead.
+
+To rename a machine, press `r` on it in the tree (or use its menu), or run `conch machine rename ID LABEL`. The ssh target and the machine's ID stay the same.
 
 Machines added or removed with `conch machine add` and `conch machine rm` appear in (or leave) a TUI that is already open within a few seconds; conch watches `machines.json`.
 

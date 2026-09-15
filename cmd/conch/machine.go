@@ -67,6 +67,16 @@ func runMachine(args []string) error {
 			return errors.New("usage: conch machine rm ID")
 		}
 		return remote.RemoveMachine(args[1])
+	case "rename":
+		if len(args) != 3 {
+			return errors.New("usage: conch machine rename ID LABEL")
+		}
+		m, err := remote.RenameMachine(args[1], args[2])
+		if err != nil {
+			return err
+		}
+		fmt.Printf("renamed %s to %s\n", m.ID, m.Label)
+		return nil
 	case "upgrade":
 		if len(args) != 2 {
 			return errors.New("usage: conch machine upgrade ID")

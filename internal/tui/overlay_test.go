@@ -150,7 +150,7 @@ func TestA2RowMenus(t *testing.T) {
 	if got := a2MenuLabels(newRowMenu(*m, row{kind: kindMachine, machine: localMachine}, 0, 0)); got != "s Start the server | R Reconnect | M Add machine…" {
 		t.Fatalf("offline local machine: %s", got)
 	}
-	if got := a2MenuLabels(newRowMenu(*m, row{kind: kindMachine, machine: "box"}, 0, 0)); got != "i Install / upgrade conch there | R Reconnect | M Add machine… | x Remove machine" {
+	if got := a2MenuLabels(newRowMenu(*m, row{kind: kindMachine, machine: "box"}, 0, 0)); got != "i Install / upgrade conch there | R Reconnect | r Rename… | M Add machine… | x Remove machine" {
 		t.Fatalf("remote needing attention: %s", got)
 	}
 	mu = newRowMenu(*m, row{kind: kindMachine, machine: "gpu"}, 0, 0)
@@ -359,18 +359,65 @@ func TestA2AddMachineDialog(t *testing.T) {
 	a2Isolate(t)
 	m := a2Model()
 	d := newAddMachineDialog(*m)
-	if len(d.fields) != 2 || !strings.Contains(strings.Join(d.text, " "), "conch machine add TARGET") {
-		t.Fatalf("add machine dialog: %+v", d.text)
+	if len(d.fields) != 4 || !strings.Contains(strings.Join(d.text, " "), "never saved") || d.fields[3].check == nil || !*d.fields[3].check {
+		t.Fatalf("add machine dialog: %d fields %+v", len(d.fields), d.text)
 	}
 	if strings.Contains(strings.Join(d.text, " "), "Hosts in ~/.ssh/config") {
 		t.Fatal("no ssh config in an empty home")
 	}
-	if msg := a2ErrText(a2Run(d.submit(m, []string{"   ", "x"}))); msg != "an ssh target is required" {
-		t.Fatalf("empty target: %q", msg)
+	type call struct {
+		target, label, password string
+		key                     bool
 	}
-	// A target starts adding (the command connects, so it is not run here).
-	if cmd := d.submit(m, []string{" dev@box ", ""}); cmd == nil || !strings.Contains(m.flash, "adding dev@box") {
-		t.Fatalf("adding: flash %q", m.flash)
+	var got []call
+	old := addMachineFn
+	addMachineFn = func(target, label, password string, key bool) tea.Cmd {
+		got = append(got, call{target, label, password, key})
+		return func() tea.Msg { return nil }
+	}
+	t.Cleanup(func() { addMachineFn = old })
+
+	if msg := a2ErrText(a2Run(d.submit(m, []string{"   ", "x", "", "on"}))); msg != "an ssh target is required" || len(got) != 0 {
+		t.Fatalf("empty target: %q %v", msg, got)
+	}
+
+	// Typed through the dialog: the password is masked when drawn.
+	m.overlay = d
+	a2Type(m, d, "dev@10.0.0.115")
+	d.update(m, a2Key("tab"))
+	d.update(m, a2Key("tab"))
+	a2Type(m, d, "s3cret pw")
+	out := ansi.Strip(strings.Join(d.render(*m).lines, "\n"))
+	if strings.Contains(out, "s3cret") || !strings.Contains(out, "•••") || !strings.Contains(out, "[x] with a password, add my ssh key") {
+		t.Fatalf("render:\n%s", out)
+	}
+	// Space on the checkbox toggles it and types nothing.
+	d.update(m, a2Key("tab"))
+	d.update(m, a2Key(" "))
+	if *d.fields[3].check || !strings.Contains(ansi.Strip(strings.Join(d.render(*m).lines, "\n")), "[ ] with a password") {
+		t.Fatal("space didn't untick")
+	}
+	d.update(m, a2Key("x"))
+	if !*d.fields[3].check {
+		t.Fatal("x didn't tick")
+	}
+	d.update(m, a2Key("q")) // no text goes into a checkbox
+	d.update(m, a2Key("enter"))
+	if len(got) != 1 || got[0] != (call{"dev@10.0.0.115", "", "s3cret pw", true}) || !strings.Contains(m.flash, "adding dev@10.0.0.115") {
+		t.Fatalf("submit: %+v flash %q", got, m.flash)
+	}
+	// Unticked, the value says so; a click on the focused checkbox toggles it.
+	d2 := newAddMachineDialog(*m)
+	a2Run(d2.submit(m, []string{"host", "box", "", ""}))
+	if got[1] != (call{"host", "box", "", false}) {
+		t.Fatalf("no password: %+v", got[1])
+	}
+	d2.focus = 3
+	b := d2.render(*m)
+	first := b.y + 1 + 1 + len(d2.textLines(*m)) + 1
+	d2.mouse(m, tea.MouseMsg{X: b.x + 5, Y: first + 3, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, b)
+	if *d2.fields[3].check {
+		t.Fatal("click on the checkbox didn't toggle")
 	}
 }
 

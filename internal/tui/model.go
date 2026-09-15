@@ -371,6 +371,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.expanded[machineID(mach.id)] = true
 		m.cursor = machineID(mach.id)
 		m.setFlash("added "+mach.label, false)
+		if msg.note != "" {
+			m.setFlash("added "+mach.label+" · "+msg.note, strings.HasPrefix(msg.note, "key login not set up"))
+		}
 		return m, tea.Batch(mach.connect(false), m.rebuild(), m.saveState())
 
 	case changesMsg, diffMsg:

@@ -361,8 +361,8 @@ func TestA1RenameAndRemove(t *testing.T) {
 	t.Setenv("CONCH_HOME", t.TempDir()) // removeMachine edits the machine catalog
 	m, _ := a1Fixture(t, false)
 	a1Key(t, m, runes("r"))
-	if m.flash != "select an agent or terminal to rename" || m.overlay != nil {
-		t.Fatalf("r on machine: %q", m.flash)
+	if m.flash != "this computer is always called local" || m.overlay != nil {
+		t.Fatalf("r on the local machine: %q", m.flash)
 	}
 	m.cursor = paneNodeID(localMachine, "p2")
 	a1Key(t, m, runes("r"))

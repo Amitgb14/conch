@@ -159,6 +159,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			)
 		}
 		items = append(items, menuItem{"R", "Reconnect", act("R")})
+		if mid != localMachine {
+			items = append(items, menuItem{"r", "Rename…", act("r")})
+		}
 		if mach.state == stateOnline && m.canReload(mid) {
 			items = append(items, menuItem{"", "Reload server onto the installed build (keeps panes)", func(m *Model) tea.Cmd {
 				return m.reloadServer(mid)
@@ -316,6 +319,24 @@ func (m Model) placeLabel() string {
 type field struct {
 	label string
 	in    textinput.Model
+	// check makes the field a checkbox with the text beside it; its value
+	// is "on" or "".
+	check *bool
+	text  string
+}
+
+// addCheck appends a checkbox field.
+func (d *dialog) addCheck(label, text string, on bool) {
+	w := 0
+	for _, f := range d.fields {
+		w = max(w, ansi.StringWidth(f.label))
+	}
+	w = max(w, len(label))
+	for i := range d.fields {
+		d.fields[i].label = padRight(strings.TrimRight(d.fields[i].label, " "), w)
+	}
+	v := on
+	d.fields = append(d.fields, field{label: padRight(label, w), in: textinput.New(), check: &v, text: text})
 }
 
 type dialog struct {
@@ -399,17 +420,21 @@ func newAddMachineDialog(m Model) *dialog {
 		}
 		text = append(text, "Hosts in ~/.ssh/config: "+strings.Join(hosts, ", "))
 	}
-	text = append(text, "If ssh needs a password or a host key answer, run `conch machine add TARGET` in a terminal instead.")
-	d := newDialog(m, " Add machine ", text, []string{"SSH target", "Label"}, nil)
+	text = append(text, "Password: only if ssh asks for one. It is used for this add and never saved; a new host's key is accepted.")
+	d := newDialog(m, " Add machine ", text, []string{"SSH target", "Label", "Password"}, nil)
 	d.fields[0].in.Placeholder = "user@host, host alias or ssh://user@host:port"
 	d.fields[1].in.Placeholder = "defaults to the host name"
+	d.fields[2].in.Placeholder = "leave empty for key login"
+	d.fields[2].in.EchoMode = textinput.EchoPassword
+	d.fields[2].in.EchoCharacter = '•'
+	d.addCheck("Key login", "with a password, add my ssh key there so reconnects need no password", true)
 	d.submit = func(m *Model, v []string) tea.Cmd {
 		target := strings.TrimSpace(v[0])
 		if target == "" {
 			return func() tea.Msg { return errMsg{errString("an ssh target is required")} }
 		}
 		m.setFlash("adding "+target+" (installing conch there if needed)…", false)
-		return addMachine(target, strings.TrimSpace(v[1]))
+		return addMachineFn(target, strings.TrimSpace(v[1]), v[2], v[3] == "on")
 	}
 	return d
 }
@@ -480,10 +505,21 @@ func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			values := make([]string, len(d.fields))
 			for i, f := range d.fields {
 				values[i] = f.in.Value()
+				if f.check != nil {
+					values[i] = map[bool]string{true: "on"}[*f.check]
+				}
 			}
 			m.overlay = nil
 			return true, d.submit(m, values)
+		case " ", "x":
+			if c := d.fields[d.focus].check; c != nil {
+				*c = !*c
+				return false, nil
+			}
 		}
+	}
+	if d.fields[d.focus].check != nil {
+		return false, nil // a checkbox takes no text
 	}
 	var cmd tea.Cmd
 	d.fields[d.focus].in, cmd = d.fields[d.focus].in.Update(msg)
@@ -518,6 +554,23 @@ func (d *dialog) render(m Model) box {
 		if i == d.focus {
 			label = lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render(f.label)
 		}
+		if f.check != nil {
+			box := "[ ] "
+			if *f.check {
+				box = "[x] "
+			}
+			if i == d.focus {
+				box = styleAccent.Render(box)
+			}
+			for j, l := range wrap(f.text, max(w-ansi.StringWidth(f.label)-8, 10)) {
+				if j == 0 {
+					lines = append(lines, " "+label+"  "+box+l)
+				} else {
+					lines = append(lines, " "+strings.Repeat(" ", ansi.StringWidth(f.label))+"      "+l)
+				}
+			}
+			continue
+		}
 		lines = append(lines, " "+label+"  "+f.in.View())
 	}
 	lines = append(lines, "")
@@ -543,6 +596,10 @@ func (d *dialog) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	// Fields sit right after the text block and one blank line.
 	first := b.y + 1 + 1 + len(d.textLines(*m)) + 1
 	if i := msg.Y - first; i >= 0 && i < len(d.fields) {
+		if c := d.fields[i].check; c != nil && i == d.focus {
+			*c = !*c
+			return nil
+		}
 		return d.setFocus(i)
 	}
 	return nil
@@ -575,7 +632,7 @@ var helpText = []string{
 	"  c  start an agent here: pick Claude, Codex, Gemini or OpenCode (click or 1-9)",
 	"  n  terminal here       a  add or create a project",
 	"  M  add machine (ssh)   R  reconnect a machine    A  start or install any agent",
-	"  r  rename              x  close / remove        R  refresh git and PRs",
+	"  r  rename (pane, machine) x  close / remove     R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",
 	"  i  agent setup: instructions, skills, MCP servers, and what a worktree lacks",
 	"  F  local files (.env, local agent settings) copied into new worktrees",
