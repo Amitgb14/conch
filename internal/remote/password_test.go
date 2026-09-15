@@ -246,3 +246,19 @@ func TestValidKeyLine(t *testing.T) {
 		}
 	}
 }
+
+func TestAskpassNoTempDir(t *testing.T) {
+	a4Env(t)
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	if a, err := newAskpass("pw"); err == nil {
+		a.close()
+		t.Fatal("no temporary folder, yet an askpass")
+	}
+	// Connecting with a password then fails before running ssh.
+	if _, err := Connect(context.Background(), "dev@box", Options{Password: "pw"}); err == nil {
+		t.Fatal("connect without an askpass")
+	}
+	if _, err := SetUpKeyLogin(context.Background(), "dev@box", "pw"); err == nil {
+		t.Fatal("key login without an askpass")
+	}
+}

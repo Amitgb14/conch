@@ -480,7 +480,8 @@ func TestA6OpenCodeFileSessionsCanBeDeleted(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("sessions: %+v", got)
 	}
-	if got[0].Path == "" {
+	if got[0].Path != f {
+		t.Fatalf("path %q, want %q", got[0].Path, f)
 	}
 	if err := Delete(context.Background(), a6Env(home, nil), got[0], filepath.Join(home, "trash")); err != nil {
 		t.Fatal(err)

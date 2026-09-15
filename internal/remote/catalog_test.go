@@ -172,3 +172,16 @@ func TestA4SSHHostsNoConfig(t *testing.T) {
 		t.Fatalf("hosts without HOME: %v", hosts)
 	}
 }
+
+func TestCatalogPathFollowsConchHome(t *testing.T) {
+	dir := a4Env(t)
+	if got := CatalogPath(); got != filepath.Join(dir, "machines.json") {
+		t.Fatalf("catalog path %q", got)
+	}
+	if _, err := SaveMachine(Machine{Label: "box", Target: "dev@box"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(CatalogPath()); err != nil {
+		t.Fatal("machines are not saved at CatalogPath")
+	}
+}

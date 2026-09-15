@@ -80,14 +80,36 @@ func TestA3CompareEdgeCases(t *testing.T) {
 
 func TestA3CompareSemverNumericPrerelease(t *testing.T) {
 	// SemVer 2.0 §11: numeric pre-release identifiers compare numerically,
-	// so rc.10 is newer than rc.2. Compare orders suffixes as plain strings.
-	if got := Compare("1.0.0-rc.10", "1.0.0-rc.2"); got != 1 {
+	// so rc.10 is newer than rc.2, and numbers sort before words.
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{
+		{"1.0.0-rc.10", "1.0.0-rc.2", 1},
+		{"1.0.0-rc.2", "1.0.0-rc.10", -1},
+		{"1.0.0-1", "1.0.0-alpha", -1}, // numeric before alphanumeric
+		{"1.0.0-alpha", "1.0.0-1", 1},
+		{"1.0.0-alpha", "1.0.0-alpha.1", -1}, // a prefix sorts first
+		{"1.0.0-alpha.1", "1.0.0-alpha", 1},
+		{"1.0.0-alpha.beta", "1.0.0-alpha.1", 1},
+		{"1.0.0-rc.1", "1.0.0-rc.1", 0},
+		{"1.0.0-beta.11", "1.0.0-beta.2", 1},
+	} {
+		if got := Compare(c.a, c.b); got != c.want {
+			t.Errorf("Compare(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
 	}
 }
 
 func TestA3CompareBuildMetadata(t *testing.T) {
 	// SemVer build metadata (+...) must be ignored for precedence.
-	if got := Compare("1.0.1+build.5", "1.0.1"); got != 0 {
+	for _, c := range [][2]string{{"1.0.1+build.5", "1.0.1"}, {"1.0.1-rc.1+x", "1.0.1-rc.1"}, {"v0.1.0+abc", "0.1.0"}} {
+		if got := Compare(c[0], c[1]); got != 0 {
+			t.Errorf("Compare(%q, %q) = %d, want 0", c[0], c[1], got)
+		}
+	}
+	if Compare("1.0.2+old", "1.0.1+new") != 1 {
+		t.Error("metadata changed the order")
 	}
 }
 
