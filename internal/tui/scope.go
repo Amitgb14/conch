@@ -267,7 +267,7 @@ func (m *Model) pickTab() {
 // of tabs.
 func pageRow(k nodeKind) bool {
 	switch k {
-	case kindProject, kindBranches, kindBranch, kindMore, kindSessions:
+	case kindProject, kindBranches, kindBranch, kindMore, kindSessions, kindAgents, kindTerminals:
 		return true
 	}
 	return false

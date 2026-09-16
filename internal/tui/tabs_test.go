@@ -212,18 +212,25 @@ func TestA1PickTabRemembersGroupTab(t *testing.T) {
 	if m.activeTab != 2 || m.scopeTab[m.rowScope(m.rows[indexOfRow(m.rows, proj)]).key()] != m.tabs[2] {
 		t.Fatalf("scope tab not remembered: active %d", m.activeTab)
 	}
+	// The Agents row shows its page and lists the group's tabs beside it.
 	a1At(t, m, sectionID(localMachine, "r1", "agents"))
-	if m.activeTab != 0 {
-		t.Fatalf("api agents picks p1, got %d", m.activeTab)
+	if !m.previewing || m.tab().focused().view.Kind != kindAgents {
+		t.Fatalf("api agents shows its page: previewing %v view %+v", m.previewing, m.tab().focused().view)
+	}
+	if got := strings.Join(a1PaneIDs(m, m.visibleTabs()), ","); got != "p1" {
+		t.Fatalf("api agents lists %q", got)
 	}
 	a1At(t, m, proj)
 	if m.activeTab != 2 {
 		t.Fatalf("back on CLI the last used tab returns, got %d", m.activeTab)
 	}
-	// Within the group the active tab stays while it is listed.
+	// A section shows its own page, listing that section's tabs.
 	a1At(t, m, looseTerminalsID(localMachine))
-	if m.activeTab != 2 || m.previewing {
-		t.Fatalf("moving within the group changed the tab to %d", m.activeTab)
+	if !m.previewing || m.tab().focused().view.Kind != kindTerminals {
+		t.Fatalf("CLI terminals page: previewing %v view %+v", m.previewing, m.tab().focused().view)
+	}
+	if got := strings.Join(a1PaneIDs(m, m.visibleTabs()), ","); got != "p3" {
+		t.Fatalf("CLI terminals lists %q", got)
 	}
 	// A page of a project shows itself, and a browsing tab of the group
 	// is reused for it.
