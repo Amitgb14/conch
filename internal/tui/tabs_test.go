@@ -59,7 +59,7 @@ func TestA1ScopeFilters(t *testing.T) {
 		{projectNodeID(localMachine, "r1"), "p1,p2"},
 		{sectionID(localMachine, "r1", "agents"), "p1"},
 		{sectionID(localMachine, "r1", "terminals"), "p2"},
-		{sectionID(localMachine, "r1", "branches"), "p1,p2"},
+		{sectionID(localMachine, "r1", "branches"), ""}, // branches are about changes, not panes
 		{cliID(localMachine), "p3,p4"},
 		{machineID(localMachine) + "/agents", "p4"},
 		{looseTerminalsID(localMachine), "p3"},
@@ -780,5 +780,51 @@ func TestA1TabBarCloseButtonNeedsItsTab(t *testing.T) {
 		if h.tab == -2 {
 			t.Fatalf("close button without its tab: %+v", hits)
 		}
+	}
+}
+
+// A branch lists the tabs showing changes, not the project's agents and
+// terminals: selecting one used to put a zsh and an agent tab in the bar
+// beside the branch's own.
+func TestBranchListsOnlyChangesTabs(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1FourTabs(t, m) // p1 (agent) and p2 (terminal) are in project r1
+	a1Open(t, m, branchNodeID(localMachine, "r1", "feat"))
+	if m.previewing {
+		t.Fatal("opening a branch should make it a tab")
+	}
+	a1At(t, m, branchNodeID(localMachine, "r1", "feat"))
+
+	var kinds []string
+	for _, i := range m.visibleTabs() {
+		kinds = append(kinds, m.viewLabel(m.tabs[i].root.leaves()[0].view))
+	}
+	if len(kinds) != 1 || kinds[0] != "feat" {
+		t.Fatalf("branch lists %v, want only its changes", kinds)
+	}
+	// Its Branches section and "… more" row behave the same.
+	for _, row := range []string{sectionID(localMachine, "r1", "branches"), moreID(localMachine, "r1")} {
+		if indexOfRow(m.rows, row) < 0 {
+			continue
+		}
+		a1At(t, m, row)
+		for _, i := range m.visibleTabs() {
+			if v := m.tabs[i].root.leaves()[0].view; v.Kind == kindPane {
+				t.Fatalf("%s lists pane %s", row, v.PaneID)
+			}
+		}
+	}
+	// The project itself still lists everything it holds, changes included.
+	a1At(t, m, projectNodeID(localMachine, "r1"))
+	seen := map[string]bool{}
+	for _, i := range m.visibleTabs() {
+		seen[m.viewLabel(m.tabs[i].root.leaves()[0].view)] = true
+	}
+	// The browsing tab follows the cursor, so it now shows the project page.
+	if !seen["api"] || !seen["claude"] || !seen["zsh"] {
+		t.Fatalf("project lists %v, want its panes and the browsing tab", seen)
+	}
+	if got := m.scopeName(tabScope{level: scopeProject, machine: localMachine, project: "r1", section: kindBranches}); got != "api · changes" {
+		t.Fatalf("scope name %q", got)
 	}
 }

@@ -72,6 +72,12 @@ func (m Model) rowScope(r row) tabScope {
 		s := m.groupOf(r.machine, pid)
 		s.section = m.paneSection(r.machine, r.paneID)
 		return s
+	case kindBranches, kindBranch, kindMore:
+		// A branch is about its changes: list the tabs showing those, not
+		// the project's agents and terminals.
+		s := m.groupOf(r.machine, r.projectID)
+		s.section = kindBranches
+		return s
 	}
 	return m.groupOf(r.machine, r.projectID)
 }
@@ -148,6 +154,8 @@ func (m Model) scopeName(s tabScope) string {
 	switch s.section {
 	case kindAgents:
 		name += " · agents"
+	case kindBranches:
+		name += " · changes"
 	case kindTerminals:
 		name += " · terminals"
 	}

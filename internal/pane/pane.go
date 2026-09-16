@@ -463,6 +463,9 @@ func (p *Pane) Repaint() error {
 	if err := p.Resize(cols-1, rows); err != nil {
 		return err
 	}
+	// A moment between the two sizes: a program that draws when it is
+	// resized gets to finish the first draw before the second arrives.
+	time.Sleep(40 * time.Millisecond)
 	return p.Resize(cols, rows)
 }
 

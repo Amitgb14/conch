@@ -146,8 +146,16 @@ func TestRepaintClearsStaleTextAndKeepsHistory(t *testing.T) {
 	p := startShell(t)
 	p.SendText("seq 1 40\n", false)
 	waitScreen(t, p, "40")
-	history, cols, rows := p.History(), 0, 0
-	cols, rows = p.size()
+	cols, rows := p.size()
+	// Output is still arriving when the last line shows, so wait for the
+	// scrollback rather than sampling it once.
+	history := 0
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
+		if history = p.History(); history > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if history == 0 {
 		t.Fatal("expected lines to have scrolled into history")
 	}
@@ -198,13 +206,17 @@ func startDrawer(t *testing.T) *Pane {
 		Cols: 60, Rows: 10,
 		Command: []string{"/usr/bin/python3", "-c", `
 import sys, signal, time, shutil
-def draw(*a):
-    w = shutil.get_terminal_size().columns
-    sys.stdout.write("\033[H\033[2Jdrawn at %d\n" % w)
-    sys.stdout.flush()
-signal.signal(signal.SIGWINCH, draw)
-draw()
-while True: time.sleep(0.05)
+# Draw from the loop, not the handler: writing inside a signal handler can
+# re-enter a write already in progress.
+pending = [True]
+signal.signal(signal.SIGWINCH, lambda *a: pending.__setitem__(0, True))
+while True:
+    if pending[0]:
+        pending[0] = False
+        w = shutil.get_terminal_size().columns
+        sys.stdout.write("\033[H\033[2Jdrawn at %d\n" % w)
+        sys.stdout.flush()
+    time.sleep(0.02)
 `},
 	})
 	if err != nil {
