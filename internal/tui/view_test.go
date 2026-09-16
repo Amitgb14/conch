@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -534,4 +535,54 @@ func TestA1LayoutHelpers(t *testing.T) {
 		t.Errorf("branchAgentGlyph %q %v", g, ok)
 	}
 	_ = fmt.Sprint()
+}
+
+// Branches shows its own page: every branch, not only the ones the tree
+// lists, with where it is checked out and how it stands against the base.
+// It used to show the project's page, which lists worktrees instead.
+func TestBranchesPage(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	proj := m.machines[0].projects[0]
+	proj.Branches = append(proj.Branches, proto.BranchInfo{Name: "old/one", BaseAhead: 1, BaseBehind: 4, Committed: time.Now().Add(-72 * time.Hour)},
+		proto.BranchInfo{Name: "gone/x", Gone: true})
+	m.machines[0].projects[0] = proj
+
+	out := a2Plain(m.branchesLines(localMachine, proj, 100))
+	for _, want := range []string{"Branches", "4 in api", "base main", "● main", "◇ feat", "old/one", "↑1↓4", "gone", "#7", "enter a branch for its changes"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("page lacks %q:\n%s", want, out)
+		}
+	}
+	// The checked-out branches name their worktree; the others don't.
+	if !strings.Contains(out, "/src/api-feat") || strings.Contains(out, "old/one  /") {
+		t.Fatalf("worktrees:\n%s", out)
+	}
+	// Every line fits, at any width.
+	for _, w := range []int{20, 40, 100} {
+		for _, l := range m.branchesLines(localMachine, proj, w) {
+			if ansi.StringWidth(l) > w {
+				t.Fatalf("width %d: %q", w, ansi.Strip(l))
+			}
+		}
+	}
+	// A project without branches says so rather than showing an empty list.
+	empty := proto.ProjectInfo{ID: "r9", Name: "plain", Path: "/src/plain", Base: "main"}
+	if out := a2Plain(m.branchesLines(localMachine, empty, 60)); !strings.Contains(out, "no branches yet") {
+		t.Fatalf("no branches:\n%s", out)
+	}
+
+	// The Branches row shows that page, with its own title.
+	a1At(t, m, sectionID(localMachine, "r1", "branches"))
+	l := m.tab().focused()
+	if got := a2Plain(m.leafLines(l, 100, 20, false)); !strings.Contains(got, "Branches") || strings.Contains(got, "Pull requests") {
+		t.Fatalf("Branches row shows:\n%s", got)
+	}
+	if got := m.leafTitle(l); got != " branches · api " {
+		t.Fatalf("title %q", got)
+	}
+	// The project row still shows the project page.
+	a1At(t, m, projectNodeID(localMachine, "r1"))
+	if got := a2Plain(m.leafLines(m.tab().focused(), 100, 20, false)); !strings.Contains(got, "Worktrees") || !strings.Contains(got, "Pull requests") {
+		t.Fatalf("project row shows:\n%s", got)
+	}
 }

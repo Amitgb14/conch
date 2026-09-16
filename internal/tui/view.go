@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -489,7 +490,11 @@ func (m Model) leafTitle(l *leaf) string {
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " sessions · " + proj.Name + " "
 		}
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore:
+	case kindBranches:
+		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
+			return " branches · " + proj.Name + " "
+		}
+	case kindProject, kindAgents, kindTerminals, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " " + proj.Name + " "
 		}
@@ -591,7 +596,11 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 		if l.sessions != nil && mach != nil && mach.state == stateOnline {
 			return l.sessions.render(m, w, h)
 		}
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore:
+	case kindBranches:
+		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
+			return m.branchesLines(v.Machine, *proj, w)
+		}
+	case kindProject, kindAgents, kindTerminals, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return m.projectLines(v.Machine, *proj, w)
 		}
@@ -604,6 +613,71 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 		return centered(w, h, styleMuted.Render("This machine was removed"))
 	}
 	return m.machineLines(mach, w, h)
+}
+
+// branchesLines is the page of a project's Branches row: every branch, not
+// only the ones the tree lists, with where it is checked out and how it
+// stands against the base.
+func (m Model) branchesLines(mid string, proj proto.ProjectInfo, w int) []string {
+	lines := []string{
+		fit(styleBold.Render("Branches")+styleMuted.Render(fmt.Sprintf("  %d in %s", len(proj.Branches), proj.Name)), w),
+		styleMuted.Render(ansi.Truncate(m.tildify(mid, proj.Path)+" · base "+proj.Base, w, "…")),
+		"",
+	}
+	if len(proj.Branches) == 0 {
+		return append(lines, styleMuted.Render("  no branches yet"))
+	}
+	worktree := map[string]*proto.WorktreeInfo{}
+	for i := range proj.Worktrees {
+		worktree[proj.Worktrees[i].Branch] = &proj.Worktrees[i]
+	}
+	var panes []proto.PaneInfo
+	if mach := m.machine(mid); mach != nil {
+		panes = mach.panes
+	}
+	branches, _ := listedBranches(proj, panes, true, time.Now())
+	for _, b := range branches {
+		glyph, style := styleMuted.Render("·"), styleMuted
+		right := []string{}
+		if wt := worktree[b.Name]; wt != nil {
+			glyph, style = styleAccent.Render("◇"), lipgloss.NewStyle()
+			if wt.Main {
+				glyph, style = styleOK.Render("●"), styleBold
+			}
+			if wt.Status != nil && !wt.Status.Clean() {
+				right = append(right, diffStat(wt.Status.Added, wt.Status.Deleted))
+			}
+		}
+		if g, gs, ok := m.branchAgentGlyph(mid, proj.ID, b.Name); ok {
+			right = append(right, gs.Render(g))
+		}
+		if b.PR != nil {
+			right = append(right, prBadge(b.PR))
+		}
+		switch {
+		case b.Gone:
+			right = append(right, styleErr.Render("gone"))
+		case b.Name != proj.Base && (b.BaseAhead > 0 || b.BaseBehind > 0):
+			ab := ""
+			if b.BaseAhead > 0 {
+				ab += fmt.Sprintf("↑%d", b.BaseAhead)
+			}
+			if b.BaseBehind > 0 {
+				ab += fmt.Sprintf("↓%d", b.BaseBehind)
+			}
+			right = append(right, styleMuted.Render(ab))
+		}
+		if !b.Committed.IsZero() {
+			right = append(right, styleMuted.Render(ago(b.Committed)))
+		}
+		left := "  " + glyph + " " + style.Render(b.Name)
+		if wt := worktree[b.Name]; wt != nil {
+			left += "  " + styleMuted.Render(m.tildify(mid, wt.Path))
+		}
+		lines = append(lines, fit(spread(left, strings.Join(right, styleMuted.Render(" · ")), w), w))
+	}
+	hint := "enter a branch for its changes · t new task · c start an agent · n terminal"
+	return append(lines, "", styleMuted.Render(ansi.Truncate(hint, w, "…")))
 }
 
 func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string {
