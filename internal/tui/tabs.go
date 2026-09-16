@@ -252,6 +252,12 @@ func (m *Model) assign(l *leaf, r row) {
 func (m *Model) show(r row) tea.Cmd {
 	m.keepTab = true
 	if m.tab(); m.previewing { // the preview shows the row, or is about to: keep it as a tab
+		// Unless a tab already holds it: a branch clicked on the Branches
+		// page, which is itself a preview, opened a second tab for it.
+		if i, l := m.tabShowing(r.id); l != nil {
+			m.activeTab, m.tabs[i].focus, m.previewing = i, l.id, false
+			return m.syncView()
+		}
 		pv := m.tab()
 		if !tabShows(pv, r.id) {
 			m.assign(pv.focused(), r)
@@ -307,6 +313,18 @@ func (m *Model) show(r row) tea.Cmd {
 // page it's fine to replace by opening another row.
 func browsing(l *leaf) bool {
 	return l.pick || l.view.empty() || l.view.Kind != kindPane
+}
+
+// tabShowing finds the tab and leaf already showing a row, or nil.
+func (m *Model) tabShowing(rowID string) (int, *leaf) {
+	for i, t := range m.tabs {
+		for _, l := range t.root.leaves() {
+			if l.view.Row == rowID {
+				return i, l
+			}
+		}
+	}
+	return -1, nil
 }
 
 // ownsTab reports whether a view keeps the tab it is in: a branch does, so

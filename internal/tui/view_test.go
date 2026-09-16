@@ -645,3 +645,33 @@ func TestBranchesPageClicks(t *testing.T) {
 		t.Fatal("click on a removed project")
 	}
 }
+
+// Clicking a branch that already has a tab focuses it. The Branches page is
+// itself a preview until it is opened, and promoting that preview used to
+// make a second tab for the same branch.
+func TestClickingABranchTwiceKeepsOneTab(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1Open(t, m, branchNodeID(localMachine, "r1", "feat"))
+	if len(m.tabs) != 1 {
+		t.Fatalf("%d tabs after opening feat", len(m.tabs))
+	}
+	// Back to the Branches page, which previews.
+	a1At(t, m, sectionID(localMachine, "r1", "branches"))
+	if !m.previewing {
+		t.Fatal("the Branches page should preview")
+	}
+	v := m.tab().focused().view
+	a2Run(m.clickBranch(v, branchesPageHeader+1)) // feat
+	if len(m.tabs) != 1 {
+		t.Fatalf("clicking feat again made %d tabs: %v", len(m.tabs), a1TabLabels(m))
+	}
+	if m.previewing || m.tab().focused().view.Branch != "feat" {
+		t.Fatalf("shows %+v previewing=%v", m.tab().focused().view, m.previewing)
+	}
+	// A branch with no tab still opens one beside it.
+	a1At(t, m, sectionID(localMachine, "r1", "branches"))
+	a2Run(m.clickBranch(v, branchesPageHeader))
+	if len(m.tabs) != 2 {
+		t.Fatalf("main should open its own tab: %v", a1TabLabels(m))
+	}
+}
