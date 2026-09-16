@@ -530,3 +530,40 @@ func TestChangesHeaderMatchesTheTree(t *testing.T) {
 		t.Fatalf("branch changes:\n%s", out)
 	}
 }
+
+// Clicking a branch row used to throw away the request for its changes:
+// syncView's command was replaced by show()'s, and show() doesn't ask again
+// because the view it would load into already exists. The view then waited
+// for an answer nobody had asked for, until R or moving away and back.
+func TestClickingABranchLoadsItsChanges(t *testing.T) {
+	m, _ := a1Fixture(t, true)
+	c, peer := a1FakeClient(t, "project.v1")
+	m.machines[0].c, m.machines[0].server = c, c.Server
+	m.rebuild()
+
+	row := branchNodeID(localMachine, "r1", "feat")
+	y := a1RowY(t, m, row)
+	a2Run(a1Mouse(t, m, 12, y, a1Left, a1Press))
+	peer.waitMethod(t, proto.MethodProjectChanges, `"feat"`)
+
+	// The view the click opened is the one waiting for that answer.
+	cv := m.tab().focused().changes
+	if cv == nil || cv.branch != "feat" || !cv.loading {
+		t.Fatalf("view after the click: %+v", cv)
+	}
+	next, _ := m.update(changesMsg{projectID: "r1", branch: "feat", data: proto.Changes{Base: "main", Files: []proto.FileChange{{Path: "a.go", Code: "M", Added: 1}}}})
+	*m = next.(Model)
+	if cv.data == nil {
+		t.Fatal("the answer never reached the clicked view")
+	}
+	if out := a2Plain(cv.render(*m, 80, 20)); strings.Contains(out, "reading the branch") || !strings.Contains(out, "a.go") {
+		t.Fatalf("still loading after the answer:\n%s", out)
+	}
+
+	// Clicking a pane row still opens it, and folding rows still fold.
+	before := peer.count(t, c, proto.MethodProjectChanges, `"feat"`)
+	a2Run(a1Mouse(t, m, 12, a1RowY(t, m, projectNodeID(localMachine, "r1")), a1Left, a1Press))
+	if got := peer.count(t, c, proto.MethodProjectChanges, `"feat"`); got != before {
+		t.Fatal("clicking the project re-read the branch")
+	}
+}

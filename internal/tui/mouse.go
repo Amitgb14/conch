@@ -288,7 +288,10 @@ func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Mode
 	m.focus = focusSidebar
 	cmd := m.syncView()
 	if left && !r.expandable() {
-		cmd = m.show(r) // a click puts it in the focused split
+		// A click puts the row in the focused split. Keep what syncView
+		// asked for: it loads a branch's changes, and show() won't ask
+		// again — the view it would load into already exists.
+		cmd = tea.Batch(cmd, m.show(r))
 	}
 
 	switch msg.Button {
