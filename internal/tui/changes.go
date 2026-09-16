@@ -303,14 +303,24 @@ func (cv *changesView) render(m Model, w, h int) []string {
 	if cv.data.Worktree == "" {
 		title = "Files changed since " + cv.data.Base
 	}
-	added, deleted := 0, 0
+	// Tracked lines only, so the total matches the branch's row in the
+	// tree; untracked files are counted as files instead, since their whole
+	// contents would dwarf the edits.
+	added, deleted, untracked := 0, 0, 0
 	for _, f := range cv.data.Files {
+		if f.Code == "?" {
+			untracked++
+			continue
+		}
 		added += f.Added
 		deleted += f.Deleted
 	}
 	header := fmt.Sprintf("%s  %s", styleBold.Render(title), styleMuted.Render(fmt.Sprintf("%d files", len(cv.data.Files))))
-	if len(cv.data.Files) > 0 {
+	if len(cv.data.Files) > untracked {
 		header += "  " + diffStat(added, deleted)
+	}
+	if untracked > 0 {
+		header += styleMuted.Render(fmt.Sprintf("  · %d untracked", untracked))
 	}
 	lines = append(lines, header)
 

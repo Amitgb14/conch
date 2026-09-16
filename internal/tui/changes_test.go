@@ -489,3 +489,44 @@ func TestChangesReachThePreview(t *testing.T) {
 		t.Fatal("a tab stopped receiving changes")
 	}
 }
+
+// The tree's branch row counts the lines git tracks; the changes view used
+// to add the whole contents of untracked files on top, so the same branch
+// showed +63 in the tree and +241 in the view and looked stale. They agree
+// now, and untracked files are counted as files.
+func TestChangesHeaderMatchesTheTree(t *testing.T) {
+	m := a2Model()
+	cv := &changesView{machine: localMachine, projectID: "r1", branch: "feat"}
+	cv.data = &proto.Changes{Base: "main", Worktree: "/src/api", Files: []proto.FileChange{
+		{Path: "a.go", Code: "M", Added: 40, Deleted: 30},
+		{Path: "b.go", Code: "M", Added: 23, Deleted: 2},
+		{Path: "new.png", Code: "?", Added: 100},
+		{Path: "log.txt", Code: "?", Added: 78},
+	}}
+	out := a2Plain(cv.render(*m, 100, 20))
+	if !strings.Contains(out, "4 files") || !strings.Contains(out, "+63") || !strings.Contains(out, "−32") {
+		t.Fatalf("header should count tracked lines:\n%s", out)
+	}
+	if strings.Contains(out, "+241") {
+		t.Fatalf("untracked contents still counted:\n%s", out)
+	}
+	if !strings.Contains(out, "2 untracked") {
+		t.Fatalf("untracked files not named:\n%s", out)
+	}
+	// Each file keeps its own count, untracked included.
+	if !strings.Contains(out, "new.png") || !strings.Contains(out, "100") {
+		t.Fatalf("file rows changed:\n%s", out)
+	}
+	// Only untracked files: no line total, just the count.
+	cv.data.Files = cv.data.Files[2:]
+	out = a2Plain(cv.render(*m, 100, 20))
+	if strings.Contains(out, "+178") || !strings.Contains(out, "2 untracked") {
+		t.Fatalf("untracked only:\n%s", out)
+	}
+	// A branch that is not checked out has no untracked files.
+	cv.data = &proto.Changes{Base: "main", Files: []proto.FileChange{{Path: "a.go", Code: "M", Added: 5, Deleted: 1}}}
+	out = a2Plain(cv.render(*m, 100, 20))
+	if !strings.Contains(out, "+5") || strings.Contains(out, "untracked") {
+		t.Fatalf("branch changes:\n%s", out)
+	}
+}
