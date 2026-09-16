@@ -42,6 +42,7 @@ Usage:
   conch send ID TEXT            type TEXT into a pane (-keys to send key names)
   conch read ID                 print a pane's visible screen
   conch close ID                close a pane
+  conch redraw ID               draw a pane's screen again (after a program left stale text)
   conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]
                                 start Claude Code with state tracking
   conch agent explain ID        show how a pane's agent state was decided
@@ -89,6 +90,8 @@ func main() {
 		err = runRead(args)
 	case "close":
 		err = runClose(args)
+	case "redraw":
+		err = runRedraw(args)
 	case "agent":
 		err = runAgent(args)
 	case "project":
@@ -329,6 +332,21 @@ func runRead(args []string) error {
 	}
 	_, err = io.WriteString(os.Stdout, strings.Join(res.Lines[:end], "\n")+"\n")
 	return err
+}
+
+func runRedraw(args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: conch redraw ID")
+	}
+	c, err := connect(false)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if len(c.MissingCapabilities([]string{"pane.redraw.v1"})) > 0 {
+		return errors.New("the conch server predates redrawing panes; reload it with `conch server reload`")
+	}
+	return call(c, proto.MethodPaneRedraw, proto.PaneRef{ID: args[0]}, nil)
 }
 
 func runClose(args []string) error {

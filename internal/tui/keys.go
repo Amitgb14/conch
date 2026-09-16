@@ -41,6 +41,9 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.zoom = !m.zoom
 			return m, m.syncView()
 		}
+		if k.String() == "r" && ok {
+			return m, m.redrawPane(r)
+		}
 		return m, nil
 	}
 	if k.String() == m.cfg.Keys.Prefix {
@@ -277,6 +280,8 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.syncView()
 		case "!":
 			return m, m.jumpToAttention()
+		case "r":
+			return m, m.redrawPane(r)
 		default:
 			m.focus = focusSidebar
 		}
@@ -647,6 +652,31 @@ func (m *Model) restartServer(mid string) tea.Cmd {
 
 // canReload reports whether a machine's server can reload without
 // stopping its panes.
+// redrawPane asks a pane's program to draw its screen again, clearing what
+// a partial redraw left behind. The pane is told its size changed instead
+// of being sent a keystroke, which would land in whatever it is typing.
+func (m *Model) redrawPane(r row) tea.Cmd {
+	if r.kind != kindPane {
+		m.setFlash("select an agent or terminal to redraw", true)
+		return nil
+	}
+	c := m.clientOf(r.machine)
+	if c == nil {
+		m.setFlash("machine is offline", true)
+		return nil
+	}
+	if len(c.MissingCapabilities([]string{"pane.redraw.v1"})) > 0 {
+		m.setFlash("this server predates redrawing panes", true)
+		return nil
+	}
+	name := r.paneID
+	if p := m.pane(r.machine, r.paneID); p != nil {
+		name = p.DisplayName()
+	}
+	m.setFlash("redrawing "+name, false)
+	return m.callOn(r.machine, proto.MethodPaneRedraw, proto.PaneRef{ID: r.paneID}, nil, nil)
+}
+
 func (m Model) canReload(mid string) bool {
 	mach := m.machine(mid)
 	return mach != nil && mach.c != nil && len(mach.c.MissingCapabilities([]string{"server.reload.v1"})) == 0

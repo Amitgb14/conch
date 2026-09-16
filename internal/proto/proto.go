@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1",
 }
 
 // Methods.
@@ -54,6 +54,7 @@ const (
 	MethodPaneUnsubscribe = "pane.unsubscribe"
 	MethodPaneMarkSeen    = "pane.mark_seen"
 	MethodPaneRename      = "pane.rename"
+	MethodPaneRedraw      = "pane.redraw"
 	MethodPaneSendMouse   = "pane.send_mouse"
 	MethodPaneScroll      = "pane.scroll"
 	MethodAgentReport     = "agent.report"

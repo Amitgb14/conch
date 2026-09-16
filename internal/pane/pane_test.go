@@ -138,3 +138,78 @@ func TestScrollbackAndModes(t *testing.T) {
 		t.Fatal("mouse mode not cleared")
 	}
 }
+
+// Repaint clears conch's copy of the screen and asks the program to draw
+// it again, for stale text a partial redraw left behind. The program is not
+// sent a keystroke: that would land in whatever it is typing.
+func TestRepaintClearsStaleTextAndKeepsHistory(t *testing.T) {
+	p := startShell(t)
+	p.SendText("seq 1 40\n", false)
+	waitScreen(t, p, "40")
+	history, cols, rows := p.History(), 0, 0
+	cols, rows = p.size()
+	if history == 0 {
+		t.Fatal("expected lines to have scrolled into history")
+	}
+
+	// Stale text: a long line rewritten from the start without clearing.
+	p.SendText("printf 'agents orchestrator leftover\\rwhat next?'\n", false)
+	waitScreen(t, p, "what next?") // the tail of the longer line is still there
+
+	if err := p.Repaint(); err != nil {
+		t.Fatal(err)
+	}
+	screen := strings.Join(p.PlainLines(), "")
+	if strings.Contains(screen, "leftover") {
+		t.Fatalf("stale text survived a repaint:\n%s", strings.Join(p.PlainLines(), "\n"))
+	}
+	// A shell draws no more than its prompt again, so the old output is gone.
+	if len(strings.TrimSpace(screen)) > 8 {
+		t.Fatalf("more than a prompt survived:\n%s", strings.Join(p.PlainLines(), "\n"))
+	}
+	if got, _ := p.size(); got != cols {
+		t.Fatalf("size after repaint: %d columns, want %d", got, cols)
+	}
+	if _, got := p.size(); got != rows {
+		t.Fatalf("rows changed to %d", got)
+	}
+	if p.History() < history {
+		t.Fatalf("history shrank from %d to %d", history, p.History())
+	}
+	// The program is still there and its next output shows.
+	p.SendText("echo alive\n", false)
+	waitScreen(t, p, "alive")
+
+	// A program that draws on a size change gets its screen back at once.
+	repaints := startDrawer(t)
+	waitScreen(t, repaints, "drawn at 60")
+	if err := repaints.Repaint(); err != nil {
+		t.Fatal(err)
+	}
+	waitScreen(t, repaints, "drawn at 60")
+}
+
+// startDrawer runs a program that redraws when its size changes, as
+// full-screen programs (and agents) do.
+func startDrawer(t *testing.T) *Pane {
+	t.Helper()
+	p, err := Start(Options{
+		ID:   "t2",
+		Cols: 60, Rows: 10,
+		Command: []string{"/usr/bin/python3", "-c", `
+import sys, signal, time, shutil
+def draw(*a):
+    w = shutil.get_terminal_size().columns
+    sys.stdout.write("\033[H\033[2Jdrawn at %d\n" % w)
+    sys.stdout.flush()
+signal.signal(signal.SIGWINCH, draw)
+draw()
+while True: time.sleep(0.05)
+`},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}

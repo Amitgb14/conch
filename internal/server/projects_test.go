@@ -364,3 +364,44 @@ func TestPaneBranchFollowsCheckout(t *testing.T) {
 	git(t, repo, "checkout", "-q", "main")
 	branchOf("main")
 }
+
+// pane.redraw clears the screen conch keeps and asks the program to draw
+// it again, without sending it a keystroke.
+func TestPaneRedraw(t *testing.T) {
+	c, _ := startServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var info proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{
+		Command: []string{"/bin/sh", "-c", `printf 'agents orchestrator leftover\rwhat next?'; sleep 30`}, Cols: 60, Rows: 10,
+	}, &info); err != nil {
+		t.Fatal(err)
+	}
+	read := func() string {
+		t.Helper()
+		var res proto.PaneReadResult
+		if err := c.Call(ctx, proto.MethodPaneRead, proto.PaneRef{ID: info.ID}, &res); err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(res.Lines, "\n")
+	}
+	for deadline := time.Now().Add(5 * time.Second); !strings.Contains(read(), "leftover"); {
+		if time.Now().After(deadline) {
+			t.Fatalf("stale text never appeared:\n%s", read())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	var after proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneRedraw, proto.PaneRef{ID: info.ID}, &after); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(read(), "leftover") {
+		t.Fatalf("stale text survived:\n%s", read())
+	}
+	if after.ID != info.ID || after.State != proto.PaneRunning {
+		t.Fatalf("pane after redraw: %+v", after)
+	}
+	if err := c.Call(ctx, proto.MethodPaneRedraw, proto.PaneRef{ID: "nope"}, nil); err == nil {
+		t.Fatal("redrawing an unknown pane")
+	}
+}

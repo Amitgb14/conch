@@ -92,6 +92,10 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		items = []menuItem{
 			{"enter", "Open", enter},
 			{"r", "Rename", act("r")},
+			{"", "Redraw (" + m.cfg.Keys.Prefix + " r)", func(m *Model) tea.Cmd {
+				r, _ := m.selectedRow()
+				return m.redrawPane(r)
+			}},
 			{"c", "Start an agent here…", act("c")},
 			{"n", "New terminal here", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
@@ -657,6 +661,7 @@ var helpText = []string{
 	"",
 	"Pane and changes",
 	"  ctrl+b then any other key → back to the tree    ctrl+b z  zoom",
+	"  ctrl+b r  draw the pane again (stale text after a resize)",
 	"  ctrl+b [  scroll history (↑↓ pgup pgdn g) · wheel scrolls too",
 	"  changes: ↑↓ file · enter diff · esc back · y copy path / diff",
 	"  y in the tree copies a branch name or directory",

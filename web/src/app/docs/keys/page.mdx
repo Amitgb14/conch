@@ -55,6 +55,7 @@ Other keys on tree items:
 | `ctrl+b [` | scroll history |
 | `ctrl+b` then any key | back to the tree |
 | `ctrl+b z` | zoom |
+| `ctrl+b r` | redraw the pane |
 | `ctrl+b !` | next waiting |
 | `ctrl+b d` | detach |
 | `ctrl+b ?` | all keys |
@@ -98,6 +99,7 @@ Other keys on tree items:
 | `ctrl+b w` | pick any tab or split, grouped by project and CLI, with each split's branch or folder and agent state |
 | `ctrl+b &`, `,` | close, rename tab |
 | `ctrl+b =`, `z` | equalize splits, zoom |
+| `ctrl+b r` | draw the selected pane's screen again, when a program left stale text behind (a partial redraw after the pane changed size). conch clears its copy of the screen and tells the program its size changed, so nothing is typed into it; a program that doesn't repaint (a plain shell) shows its prompt again on the next keypress. Also in the pane menu, and `conch redraw ID` from a shell. |
 | `ctrl+b S` | type into every agent and terminal in the tab at once, like tmux's `synchronize-panes`; their borders turn amber and the status bar shows `SYNC`. Press it again to stop. |
 | `ctrl+b d` | detach (agents keep running) |
 | `ctrl+b !`, `:` | jump to the next agent waiting for you, ask the brain |

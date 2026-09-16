@@ -446,6 +446,26 @@ func (p *Pane) Resize(cols, rows int) error {
 	return nil
 }
 
+// Repaint clears the screen conch keeps for the pane and asks the program
+// to draw it again, for when a program left stale text behind — a partial
+// redraw after the pane changed size, say. The program is told the size
+// changed (briefly one column narrower) rather than sent a keystroke, which
+// would land in whatever it is typing.
+func (p *Pane) Repaint() error {
+	p.emuMu.Lock()
+	cols, rows := p.emu.Width(), p.emu.Height()
+	_, _ = p.emu.Write([]byte("\x1b[H\x1b[2J")) // conch's copy only; the program sees nothing
+	p.emuMu.Unlock()
+	p.notify()
+	if !p.running() || cols <= 1 || rows <= 0 {
+		return nil
+	}
+	if err := p.Resize(cols-1, rows); err != nil {
+		return err
+	}
+	return p.Resize(cols, rows)
+}
+
 var errExited = errors.New("pane: process has exited")
 
 // SendText types text into the program. With paste set, the text is wrapped

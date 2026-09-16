@@ -457,6 +457,16 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		s.report(e, rp)
 		return nil, nil
 
+	case proto.MethodPaneRedraw:
+		_, e, perr := withPane(s, msg, func(p proto.PaneRef) string { return p.ID })
+		if perr != nil {
+			return nil, perr
+		}
+		if err := e.p.Repaint(); err != nil {
+			return nil, &proto.Error{Code: proto.ErrInternal, Message: err.Error()}
+		}
+		return e.info(), nil
+
 	case proto.MethodPaneRename:
 		rp, e, perr := withPane(s, msg, func(p proto.PaneRenameParams) string { return p.ID })
 		if perr != nil {
