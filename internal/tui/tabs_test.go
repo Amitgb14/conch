@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -820,11 +821,62 @@ func TestBranchListsOnlyChangesTabs(t *testing.T) {
 	for _, i := range m.visibleTabs() {
 		seen[m.viewLabel(m.tabs[i].root.leaves()[0].view)] = true
 	}
-	// The browsing tab follows the cursor, so it now shows the project page.
-	if !seen["api"] || !seen["claude"] || !seen["zsh"] {
-		t.Fatalf("project lists %v, want its panes and the browsing tab", seen)
+	// The branch keeps its own tab, so the project lists it beside the panes.
+	if !seen["feat"] || !seen["claude"] || !seen["zsh"] {
+		t.Fatalf("project lists %v, want its panes and the branch", seen)
 	}
 	if got := m.scopeName(tabScope{level: scopeProject, machine: localMachine, project: "r1", section: kindBranches}); got != "api · changes" {
 		t.Fatalf("scope name %q", got)
 	}
+}
+
+// Each branch opens in its own tab and keeps it: looking at another branch,
+// or at the project, no longer takes the tab over. Branches then lists them
+// all.
+func TestEachBranchKeepsItsOwnTab(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	feat := branchNodeID(localMachine, "r1", "feat")
+	main := branchNodeID(localMachine, "r1", "main")
+
+	a1Open(t, m, feat)
+	a1Open(t, m, main)
+	if len(m.tabs) != 2 {
+		t.Fatalf("two branches, %d tab(s): %v", len(m.tabs), a1TabLabels(m))
+	}
+	// Opening one again focuses its tab instead of making another.
+	a1Open(t, m, feat)
+	if len(m.tabs) != 2 || m.tab().focused().view.Branch != "feat" {
+		t.Fatalf("reopening feat: %d tabs, showing %q", len(m.tabs), m.tab().focused().view.Branch)
+	}
+
+	// The project page doesn't take a branch's tab: it previews instead.
+	a1At(t, m, projectNodeID(localMachine, "r1"))
+	if len(m.tabs) != 2 || !m.previewing {
+		t.Fatalf("project took a tab: %d tabs previewing=%v %v", len(m.tabs), m.previewing, a1TabLabels(m))
+	}
+	for _, tb := range m.tabs {
+		if v := tb.root.leaves()[0].view; v.Kind != kindBranch {
+			t.Fatalf("a branch tab was reassigned to %v", v.Kind)
+		}
+	}
+
+	// Branches lists both branch tabs.
+	a1At(t, m, sectionID(localMachine, "r1", "branches"))
+	var listed []string
+	for _, i := range m.visibleTabs() {
+		listed = append(listed, m.viewLabel(m.tabs[i].root.leaves()[0].view))
+	}
+	sort.Strings(listed)
+	if strings.Join(listed, ",") != "feat,main" {
+		t.Fatalf("Branches lists %v, want both branches", listed)
+	}
+}
+
+// a1TabLabels names what each tab shows, for failure messages.
+func a1TabLabels(m *Model) []string {
+	var out []string
+	for _, tb := range m.tabs {
+		out = append(out, m.viewLabel(tb.root.leaves()[0].view))
+	}
+	return out
 }

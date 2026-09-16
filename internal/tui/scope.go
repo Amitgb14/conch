@@ -241,7 +241,7 @@ func (m *Model) pickTab() {
 		// shows itself: in the group's browsing tab, else as a preview. The
 		// bar still lists the group's tabs.
 		for _, i := range slices.Backward(vis) {
-			if ls := m.tabs[i].root.leaves(); len(ls) == 1 && browsing(ls[0]) && !ls[0].pick {
+			if ls := m.tabs[i].root.leaves(); len(ls) == 1 && browsing(ls[0]) && !ls[0].pick && !ownsTab(ls[0].view) {
 				m.activeTab, m.previewing = i, false
 				return // syncView puts the row in it
 			}

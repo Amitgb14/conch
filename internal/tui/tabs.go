@@ -98,7 +98,7 @@ func (m *Model) syncView() tea.Cmd {
 	// A browsing tab follows the tree's cursor over pages; agents and
 	// terminals open (in their own tab) only when activated.
 	if r, ok := m.selectedRow(); ok && len(leaves) == 1 && !m.zoom && !leaves[0].pick &&
-		r.kind != kindPane && (r.kind != kindMachine || m.previewing) && browsing(leaves[0]) {
+		r.kind != kindPane && (r.kind != kindMachine || m.previewing) && browsing(leaves[0]) && !ownsTab(leaves[0].view) {
 		m.assign(leaves[0], r)
 	}
 	if f, ok := m.tabFilter(); ok && !m.previewing && m.focus != focusMain {
@@ -271,7 +271,7 @@ func (m *Model) show(r row) tea.Cmd {
 	}
 	for i, other := range m.tabs {
 		for _, l := range other.root.leaves() {
-			if i != m.activeTab && l.view.Row == r.id && r.kind == kindPane {
+			if i != m.activeTab && l.view.Row == r.id && (r.kind == kindPane || ownsTab(l.view)) {
 				m.activeTab, other.focus = i, l.id
 				return m.syncView()
 			}
@@ -287,13 +287,13 @@ func (m *Model) show(r row) tea.Cmd {
 		}
 	}
 	scope := m.rowScope(r)
-	if len(leaves) == 1 && browsing(f) && inScope(scope, m.tabScopeOf(t)) {
+	if len(leaves) == 1 && browsing(f) && !ownsTab(f.view) && !ownsTab(viewOf(r)) && inScope(scope, m.tabScopeOf(t)) {
 		m.assign(f, r) // the browsing tab in view
 		return m.syncView()
 	}
-	if r.kind != kindPane {
+	if r.kind != kindPane && !ownsTab(viewOf(r)) {
 		for i := len(m.tabs) - 1; i >= 0; i-- { // the group's latest browsing tab
-			if ls := m.tabs[i].root.leaves(); len(ls) == 1 && browsing(ls[0]) && inScope(scope, m.tabScopeOf(m.tabs[i])) {
+			if ls := m.tabs[i].root.leaves(); len(ls) == 1 && browsing(ls[0]) && !ownsTab(ls[0].view) && inScope(scope, m.tabScopeOf(m.tabs[i])) {
 				m.activeTab, m.tabs[i].focus = i, ls[0].id
 				m.assign(ls[0], r)
 				return tea.Batch(m.syncView(), m.saveState())
@@ -308,6 +308,11 @@ func (m *Model) show(r row) tea.Cmd {
 func browsing(l *leaf) bool {
 	return l.pick || l.view.empty() || l.view.Kind != kindPane
 }
+
+// ownsTab reports whether a view keeps the tab it is in: a branch does, so
+// each branch stays open in its own tab while you look at another. Other
+// pages (a project, its sessions) share the group's browsing tab.
+func ownsTab(v viewRef) bool { return v.Kind == kindBranch }
 
 // focusLeaf moves focus to a leaf and the tree cursor to what it shows.
 func (m *Model) focusLeaf(id int) tea.Cmd {
