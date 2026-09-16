@@ -28,6 +28,7 @@ type broadcastTarget struct {
 	pane    proto.PaneInfo
 	group   string // the project's name or "CLI", with the machine when there are several
 	shell   bool   // no agent runs in it: it would run the text
+	ssh     bool   // a shell that is a machine's ssh session
 	on      bool
 }
 
@@ -42,15 +43,16 @@ func (m Model) broadcastScope(every bool) (label string, targets []broadcastTarg
 	if !ok {
 		every = true
 	}
-	// Which sections: a Terminals row or a shell lists terminals only, an
-	// Agents row or an agent lists agents only, anything else both.
+	// Which sections: a Terminals or SSH row or a shell lists terminals
+	// only (of that section, for a row), an Agents row or an agent lists
+	// agents only, anything else both.
 	wantAgents, wantShells, shellsOn := true, true, false
 	var sel *proto.PaneInfo
 	if !every {
 		switch r.kind {
 		case kindAgents:
 			wantShells = false
-		case kindTerminals:
+		case kindTerminals, kindSSH:
 			wantAgents, shellsOn = false, true
 		case kindPane:
 			if sel = m.pane(r.machine, r.paneID); sel != nil && sel.Agent == nil {
@@ -83,7 +85,10 @@ func (m Model) broadcastScope(every bool) (label string, targets []broadcastTarg
 		case kindPane:
 			return sel != nil && k == known(mach.id, *sel) && (!k || p.ProjectID == sel.ProjectID)
 		}
-		if r.projectID == "" { // a machine's own Agents or Terminals
+		if (r.kind == kindTerminals || r.kind == kindSSH) && m.paneSection(mach.id, p.ID) != r.kind {
+			return false
+		}
+		if r.projectID == "" { // a machine's own Agents, Terminals or SSH
 			return !k
 		}
 		return k && p.ProjectID == r.projectID
@@ -106,7 +111,7 @@ func (m Model) broadcastScope(every bool) (label string, targets []broadcastTarg
 			if len(m.machines) > 1 {
 				group = mach.label + " › " + group
 			}
-			bt := broadcastTarget{machine: mach.id, pane: p, group: group, shell: shell}
+			bt := broadcastTarget{machine: mach.id, pane: p, group: group, shell: shell, ssh: m.paneSection(mach.id, p.ID) == kindSSH}
 			bt.on = (shell && shellsOn) || (!shell && !bt.waiting())
 			targets = append(targets, bt)
 		}
@@ -125,7 +130,10 @@ func (m Model) broadcastScope(every bool) (label string, targets []broadcastTarg
 		if ga, gb := strings.ToLower(a.group), strings.ToLower(b.group); ga != gb {
 			return ga < gb
 		}
-		return !a.shell && b.shell
+		if a.shell != b.shell {
+			return b.shell
+		}
+		return !a.ssh && b.ssh
 	})
 
 	mach := m.machine(r.machine)
@@ -141,9 +149,12 @@ func (m Model) broadcastScope(every bool) (label string, targets []broadcastTarg
 		if sel != nil && known(r.machine, *sel) {
 			label = m.projectName(r.machine, sel.ProjectID)
 		}
-		if sel != nil && sel.Agent == nil {
+		switch {
+		case sel != nil && m.paneSection(r.machine, sel.ID) == kindSSH:
+			label += " · SSH"
+		case sel != nil && sel.Agent == nil:
 			label += " · Terminals"
-		} else {
+		default:
 			label += " · Agents"
 		}
 	case r.kind == kindWorkspace:
@@ -159,6 +170,8 @@ func (m Model) broadcastScope(every bool) (label string, targets []broadcastTarg
 		label += " · Agents"
 	case r.kind == kindTerminals:
 		label += " · Terminals"
+	case r.kind == kindSSH:
+		label += " · SSH"
 	}
 	if !every && len(m.machines) > 1 && mach != nil && r.kind != kindMachine {
 		label = mach.label + " › " + label
@@ -212,7 +225,7 @@ func newBroadcastDialog(m Model, label string, targets []broadcastTarget) *broad
 // listRow is a heading (target < 0) or a pane of the recipient list.
 type listRow struct {
 	heading string
-	sub     bool // an Agents / Terminals heading
+	sub     bool // an Agents / Terminals / SSH heading
 	target  int
 }
 
@@ -225,7 +238,10 @@ func (d *broadcastDialog) rows() []listRow {
 			out = append(out, listRow{heading: t.group, target: -1})
 		}
 		s := "Agents"
-		if t.shell {
+		switch {
+		case t.ssh:
+			s = "SSH"
+		case t.shell:
 			s = "Terminals"
 		}
 		if s != section {

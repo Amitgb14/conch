@@ -206,6 +206,8 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		return "", glyphStyle, "Agents", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindTerminals:
 		return "", glyphStyle, "Terminals", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
+	case kindSSH:
+		return "", glyphStyle, "SSH", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindCLI:
 		return "❯", styleAccent, "CLI", styleBold, styleMuted.Render(fmt.Sprint(r.count))
 	case kindWorkspace:
@@ -494,11 +496,8 @@ func (m Model) leafTitle(l *leaf) string {
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " branches · " + proj.Name + " "
 		}
-	case kindAgents, kindTerminals:
-		what := "agents"
-		if v.Kind == kindTerminals {
-			what = "terminals"
-		}
+	case kindAgents, kindTerminals, kindSSH:
+		what := map[nodeKind]string{kindAgents: "agents", kindTerminals: "terminals", kindSSH: "ssh"}[v.Kind]
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " " + what + " · " + proj.Name + " "
 		}
@@ -609,7 +608,7 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return m.branchesLines(v.Machine, *proj, w)
 		}
-	case kindAgents, kindTerminals:
+	case kindAgents, kindTerminals, kindSSH:
 		return m.sectionLines(v.Machine, v.ProjectID, v.Kind, w)
 	case kindProject, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
@@ -691,7 +690,7 @@ func (m Model) branchesLines(mid string, proj proto.ProjectInfo, w int) []string
 	return append(lines, "", styleMuted.Render(ansi.Truncate(hint, w, "…")))
 }
 
-// sectionPanes are the panes an Agents or Terminals row lists: a project's,
+// sectionPanes are the panes an Agents, Terminals or SSH row lists: a project's,
 // or a machine's own when the row belongs to no project, in the order the
 // tree shows them.
 func (m Model) sectionPanes(mid, projectID string, kind nodeKind) []proto.PaneInfo {
@@ -705,20 +704,22 @@ func (m Model) sectionPanes(mid, projectID string, kind nodeKind) []proto.PaneIn
 		if projectID == "" && known || projectID != "" && p.ProjectID != projectID {
 			continue
 		}
-		isAgent := p.Agent != nil || mach.agents[p.ID]
-		if isAgent == (kind == kindAgents) {
+		if m.paneSection(mid, p.ID) == kind {
 			out = append(out, p)
 		}
 	}
 	return out
 }
 
-// sectionLines is the page of an Agents or Terminals row: what runs in it,
-// each openable with a click.
+// sectionLines is the page of an Agents, Terminals or SSH row: what runs in
+// it, each openable with a click.
 func (m Model) sectionLines(mid, projectID string, kind nodeKind, w int) []string {
 	what, hint := "Agents", "click an agent to open it · c start an agent · B broadcast · n terminal"
-	if kind == kindTerminals {
-		what, hint = "Terminals", "click a terminal to open it · n new terminal · B broadcast"
+	switch kind {
+	case kindTerminals:
+		what, hint = "Terminals", "click a terminal to open it · n new terminal · H ssh to a host · B broadcast"
+	case kindSSH:
+		what, hint = "SSH", "click a session to open it · H ssh to a host · B broadcast"
 	}
 	where := "CLI"
 	if proj := m.project(mid, projectID); proj != nil {

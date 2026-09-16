@@ -161,6 +161,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 				menuItem{"a", "Add project…", act("a")},
 				menuItem{"n", "New terminal", act("n")},
 			)
+			if mid == localMachine {
+				items = append(items, menuItem{"H", "SSH to a host…", act("H")})
+			}
 		}
 		items = append(items, menuItem{"R", "Reconnect", act("R")})
 		if mid != localMachine {
@@ -195,6 +198,10 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"c", "Start an agent…", act("c")},
 			{"n", "New terminal", act("n")},
 			{"M", "Add machine…", act("M")},
+		}
+		if r.machine == localMachine && r.projectID == "" {
+			// The local CLI group and its sections: where ssh sessions go.
+			items = append(items[:3], append([]menuItem{{"H", "SSH to a host…", act("H")}}, items[3:]...)...)
 		}
 	}
 	return &menu{title: title, items: items, x: x, y: y}
@@ -643,6 +650,7 @@ var helpText = []string{
 	"  c  start an agent here: pick Claude, Codex, Gemini or OpenCode (click or 1-9)",
 	"  n  terminal here       a  add or create a project",
 	"  M  add machine (ssh)   R  reconnect a machine    A  start or install any agent",
+	"  H  ssh from this computer to a host (listed under CLI → SSH; nothing installed there)",
 	"  r  rename (pane, machine) x  close / remove     R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",
 	"  i  agent setup: instructions, skills, MCP servers, and what a worktree lacks",
@@ -653,11 +661,11 @@ var helpText = []string{
 	"  ←→↑↓ focus   o next split   ; last split   q split numbers (then a digit)   { } swap",
 	"  ctrl/alt+arrows resize (repeats)   space next layout   alt+1-5 even-h, even-v, main-h, main-v, tiled",
 	"  c new tab   n / p next / previous   0-9 go to tab   l last tab   < > . move tab   w every tab, grouped",
-	"  the tab bar lists the tabs of the Workspace, project, CLI, Agents or Terminals selected in the tree",
+	"  the tab bar lists the tabs of the Workspace, project, CLI, Agents, Terminals or SSH selected in the tree",
 	"  & close tab   , rename tab   z zoom   ! next waiting agent   : ask   d detach   ? this help",
 	"  S type into every split of the tab at once (again to stop; synced borders turn amber)",
 	"  in the tree: v open in a split right · s below · O in a new tab",
-	"  mouse: click a split to focus it · drag borders to resize · click tabs, + and ×",
+	"  mouse: click a split to focus it · drag borders to resize · click tabs and × · + new tab, terminal, agent or ssh",
 	"",
 	"Pane and changes",
 	"  ctrl+b then any other key → back to the tree    ctrl+b z  zoom",

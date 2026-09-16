@@ -59,10 +59,16 @@ func TestA1MouseTabBar(t *testing.T) {
 	if m.activeTab != 0 {
 		t.Fatal("non-left click switched tabs")
 	}
-	// + opens a new, empty tab.
+	// + opens the New menu under it; its first item opens an empty tab.
 	a1Mouse(t, m, hitX(-1), 0, a1Left, a1Press)
-	if len(m.tabs) != 3 || !m.tab().focused().pick {
-		t.Fatalf("+: %d tabs", len(m.tabs))
+	mu, ok := m.overlay.(*menu)
+	if !ok || len(m.tabs) != 2 {
+		t.Fatalf("+: overlay %T, %d tabs", m.overlay, len(m.tabs))
+	}
+	b := mu.render(*m)
+	a1Mouse(t, m, b.x+2, b.y+1, a1Left, a1Press)
+	if m.overlay != nil || len(m.tabs) != 3 || !m.tab().focused().pick {
+		t.Fatalf("empty tab item: overlay %T, %d tabs", m.overlay, len(m.tabs))
 	}
 	// × closes the active tab (nothing running in it).
 	a1Mouse(t, m, hitX(-2), 0, a1Left, a1Press)

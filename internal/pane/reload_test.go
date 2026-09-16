@@ -35,6 +35,10 @@ func TestDetachReplayAdopt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The command survives: the tree files ssh sessions by it.
+	if got, want := strings.Join(q.Info().Command, " "), strings.Join(snap.Command, " "); got != want || got == "" {
+		t.Fatalf("command after adopt %q, want %q", got, want)
+	}
 	if q.History() < history-1 {
 		t.Fatalf("history %d, had %d", q.History(), history)
 	}

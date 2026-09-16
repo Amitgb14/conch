@@ -140,6 +140,13 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		case kindMachine:
 			items = []statusItem{hint("a", "project"), hint("c", "agent"), hint("n", "shell"), hint("B", "broadcast"), hint("M", "machine"),
 				hint("R", "reconnect"), hint("m", "menu")}
+		case kindCLI, kindTerminals, kindSSH:
+			if r.machine == localMachine && r.projectID == "" {
+				items = []statusItem{hint("c", "agent"), hint("n", "shell"), hint("H", "ssh"), hint("B", "broadcast"),
+					hint("/", "filter"), hint("m", "menu")}
+				break
+			}
+			fallthrough
 		default:
 			items = []statusItem{hint("a", "project"), hint("t", "task"), hint("c", "agent"), hint("n", "shell"),
 				hint("/", "filter"), hint("m", "menu")}

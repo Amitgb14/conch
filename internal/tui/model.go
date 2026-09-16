@@ -917,7 +917,7 @@ func (m Model) contextPlace() place {
 			}
 		}
 		return place{machine: mid, projectID: proj.ID, branch: r.branch}
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore, kindSessions:
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions:
 		if proj := m.project(mid, r.projectID); proj != nil {
 			return place{machine: mid, projectID: proj.ID, dir: proj.Path}
 		}

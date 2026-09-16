@@ -73,7 +73,8 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				if x := msg.X - mr.x; x >= h.x0 && x < h.x1 {
 					switch h.tab {
 					case -1:
-						return m, m.newTab(viewRef{})
+						m.overlay = newTabMenu(m, mr.x+h.x0, mr.y+1)
+						return m, nil
 					case -2:
 						return m, m.closeTabAsk(m.activeTab)
 					}
@@ -154,7 +155,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if press && left {
 			return m, tea.Batch(focusCmd, m.clickBranch(f.view, y))
 		}
-	case kindAgents, kindTerminals:
+	case kindAgents, kindTerminals, kindSSH:
 		if press && left {
 			return m, tea.Batch(focusCmd, m.clickSectionPane(f.view, y))
 		}
@@ -184,7 +185,7 @@ func (m *Model) clickBranch(v viewRef, y int) tea.Cmd {
 	return m.openBranch(v.Machine, v.ProjectID, branches[i].Name)
 }
 
-// clickSectionPane opens the pane on line y of an Agents or Terminals page.
+// clickSectionPane opens the pane on line y of an Agents, Terminals or SSH page.
 // An agent's summary takes a line of its own, so the lines are counted the
 // way the page lays them out.
 func (m *Model) clickSectionPane(v viewRef, y int) tea.Cmd {

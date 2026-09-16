@@ -518,3 +518,63 @@ func TestA4BridgeConnCloseKillsStuckSSH(t *testing.T) {
 		t.Fatal("write after close")
 	}
 }
+
+func TestLoginCommand(t *testing.T) {
+	a4Env(t)
+	t.Setenv("CONCH_SSH", "/fake/ssh")
+	cfg, err := sshConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"box", "dev@box", "ssh://dev@box:2222", "dev@[::1]"} {
+		got, err := LoginCommand(target)
+		if err != nil {
+			t.Fatalf("%q: %v", target, err)
+		}
+		want := []string{"/fake/ssh", "-F", cfg, "--", target}
+		if strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Fatalf("%q:\n got %q\nwant %q", target, got, want)
+		}
+		if !IsLoginCommand(got) {
+			t.Fatalf("%q not recognised as a login", target)
+		}
+	}
+	for _, target := range []string{"", "-oProxyCommand=evil", "-", "dev box", "box\t", "box\n", "a\x00b", "a\x7fb", " box"} {
+		if cmd, err := LoginCommand(target); err == nil {
+			t.Fatalf("%q accepted: %q", target, cmd)
+		}
+	}
+}
+
+func TestLoginCommandUnwritableConfig(t *testing.T) {
+	a4Env(t)
+	if os.Getuid() == 0 {
+		t.Skip("root writes anywhere")
+	}
+	blocker := filepath.Join(os.Getenv("CONCH_HOME"), "ssh")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil { // a file where the dir goes
+		t.Fatal(err)
+	}
+	if _, err := LoginCommand("box"); err == nil {
+		t.Fatal("no error when the ssh config can't be written")
+	}
+}
+
+func TestIsLoginCommand(t *testing.T) {
+	for _, c := range []struct {
+		cmd  []string
+		want bool
+	}{
+		{nil, false},
+		{[]string{}, false},
+		{[]string{"ssh"}, true},
+		{[]string{"/usr/bin/ssh", "-F", "cfg", "--", "box"}, true},
+		{[]string{"zsh", "-l"}, false},
+		{[]string{"sshd"}, false},
+		{[]string{"/opt/ssh/bin/mosh"}, false},
+	} {
+		if got := IsLoginCommand(c.cmd); got != c.want {
+			t.Errorf("IsLoginCommand(%q) = %v, want %v", c.cmd, got, c.want)
+		}
+	}
+}

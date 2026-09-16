@@ -141,6 +141,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b, cmd := newBrowser(&m, pl.machine, start)
 		m.overlay = b
 		return m, cmd
+	case "H":
+		return m, m.openSSH()
 	case "M":
 		d := newAddMachineDialog(m)
 		m.overlay = d
@@ -514,7 +516,7 @@ func (m *Model) copyRow(r row) tea.Cmd {
 		if p := m.pane(r.machine, r.paneID); p != nil {
 			return copyText(p.Cwd)
 		}
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore, kindSessions:
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions:
 		if proj := m.project(r.machine, r.projectID); proj != nil {
 			return copyText(proj.Path)
 		}

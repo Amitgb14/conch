@@ -732,7 +732,7 @@ func (m Model) viewLabel(v viewRef) string {
 		}
 	case kindBranch:
 		label = v.Branch
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindMore, kindSessions:
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			label = proj.Name
 		}

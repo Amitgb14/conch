@@ -24,7 +24,7 @@ type tabScope struct {
 	level   scopeLevel
 	machine string
 	project string   // scopeProject
-	section nodeKind // kindAgents, kindTerminals, or 0 for the whole group
+	section nodeKind // kindAgents, kindTerminals, kindSSH, or 0 for the whole group
 }
 
 func (s tabScope) key() string {
@@ -40,13 +40,18 @@ func (m Model) groupOf(mid, pid string) tabScope {
 	return tabScope{level: scopeCLI, machine: mid}
 }
 
-// paneSection is where the tree lists a pane: under Agents or Terminals.
+// paneSection is where the tree lists a pane: under Agents, Terminals, or
+// SSH for a machine's own ssh sessions.
 func (m Model) paneSection(mid, id string) nodeKind {
-	if p := m.pane(mid, id); p != nil && p.Agent != nil {
+	p := m.pane(mid, id)
+	if p != nil && p.Agent != nil {
 		return kindAgents
 	}
 	if mach := m.machine(mid); mach != nil && mach.agents[id] {
 		return kindAgents
+	}
+	if p != nil && sshPane(*p) && m.project(mid, p.ProjectID) == nil {
+		return kindSSH
 	}
 	return kindTerminals
 }
@@ -60,7 +65,7 @@ func (m Model) rowScope(r row) tabScope {
 		return tabScope{level: scopeCLI, machine: r.machine}
 	case kindWorkspace:
 		return tabScope{level: scopeWorkspace, machine: r.machine}
-	case kindAgents, kindTerminals:
+	case kindAgents, kindTerminals, kindSSH:
 		s := m.groupOf(r.machine, r.projectID)
 		s.section = r.kind
 		return s
@@ -158,6 +163,8 @@ func (m Model) scopeName(s tabScope) string {
 		name += " · changes"
 	case kindTerminals:
 		name += " · terminals"
+	case kindSSH:
+		name += " · ssh"
 	}
 	return name
 }
@@ -267,7 +274,7 @@ func (m *Model) pickTab() {
 // of tabs.
 func pageRow(k nodeKind) bool {
 	switch k {
-	case kindProject, kindBranches, kindBranch, kindMore, kindSessions, kindAgents, kindTerminals:
+	case kindProject, kindBranches, kindBranch, kindMore, kindSessions, kindAgents, kindTerminals, kindSSH:
 		return true
 	}
 	return false

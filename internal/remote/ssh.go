@@ -147,6 +147,39 @@ func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cm
 	return cmd, nil
 }
 
+// LoginCommand is the command for an interactive ssh session to target in
+// a terminal: conch's ssh config (the user's own first), no remote command.
+func LoginCommand(target string) ([]string, error) {
+	if err := CheckLoginTarget(target); err != nil {
+		return nil, err
+	}
+	cfg, err := sshConfig()
+	if err != nil {
+		return nil, err
+	}
+	return []string{sshBinary(), "-F", cfg, "--", target}, nil
+}
+
+// CheckLoginTarget rejects what ssh would not read as a single host: empty
+// text, spaces, control characters, and a leading "-" that ssh could take
+// for an option.
+func CheckLoginTarget(target string) error {
+	switch {
+	case target == "":
+		return fmt.Errorf("an ssh host is required")
+	case strings.HasPrefix(target, "-"):
+		return fmt.Errorf("an ssh host can't start with -")
+	case strings.IndexFunc(target, func(r rune) bool { return r <= ' ' || r == 0x7f }) >= 0:
+		return fmt.Errorf("an ssh host can't contain spaces or control characters")
+	}
+	return nil
+}
+
+// IsLoginCommand reports whether a pane's command is an ssh session.
+func IsLoginCommand(command []string) bool {
+	return len(command) > 0 && filepath.Base(command[0]) == "ssh"
+}
+
 // run executes script on target and returns its stdout.
 func run(ctx context.Context, target, script string, stdin []byte, interactive bool) ([]byte, error) {
 	return runWith(ctx, target, script, stdin, sshOpts{interactive: interactive})
