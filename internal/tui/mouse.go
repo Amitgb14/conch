@@ -147,6 +147,10 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if press && left {
 			return m, tea.Batch(focusCmd, m.clickBranch(f.view, y))
 		}
+	case kindAgents, kindTerminals:
+		if press && left {
+			return m, tea.Batch(focusCmd, m.clickSectionPane(f.view, y))
+		}
 	}
 	return m, focusCmd
 }
@@ -171,6 +175,36 @@ func (m *Model) clickBranch(v viewRef, y int) tea.Cmd {
 		return nil // the title, the hint, or past the last branch
 	}
 	return m.openBranch(v.Machine, v.ProjectID, branches[i].Name)
+}
+
+// clickSectionPane opens the pane on line y of an Agents or Terminals page.
+// An agent's summary takes a line of its own, so the lines are counted the
+// way the page lays them out.
+func (m *Model) clickSectionPane(v viewRef, y int) tea.Cmd {
+	line := branchesPageHeader // title, machine, blank — the same shape
+	for _, p := range m.sectionPanes(v.Machine, v.ProjectID, v.Kind) {
+		if y == line {
+			return m.openPaneRow(v.Machine, p.ID)
+		}
+		line++
+		if m.summaryText(v.Machine, p.ID) != "" {
+			if y == line {
+				return m.openPaneRow(v.Machine, p.ID) // its summary line
+			}
+			line++
+		}
+	}
+	return nil
+}
+
+// openPaneRow selects a pane in the tree and shows it.
+func (m *Model) openPaneRow(mid, paneID string) tea.Cmd {
+	i := indexOfRow(m.rows, paneNodeID(mid, paneID))
+	if i < 0 {
+		return nil
+	}
+	m.cursor = m.rows[i].id
+	return m.show(m.rows[i])
 }
 
 // openBranch selects a branch in the tree and shows its changes. A branch

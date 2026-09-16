@@ -342,8 +342,14 @@ func TestA1LeafTitle(t *testing.T) {
 	if got := lt(viewRef{Row: "s", Kind: kindSessions, Machine: localMachine, ProjectID: "zz"}); got != " local " {
 		t.Errorf("sessions of a missing project %q", got)
 	}
-	if got := lt(viewRef{Row: "a", Kind: kindAgents, Machine: localMachine, ProjectID: "r1"}); got != " api " {
-		t.Errorf("section title %q", got)
+	if got := lt(viewRef{Row: "a", Kind: kindAgents, Machine: localMachine, ProjectID: "r1"}); got != " agents · api " {
+		t.Errorf("agents title %q", got)
+	}
+	if got := lt(viewRef{Row: "t", Kind: kindTerminals, Machine: localMachine, ProjectID: "r1"}); got != " terminals · api " {
+		t.Errorf("terminals title %q", got)
+	}
+	if got := lt(viewRef{Row: "t", Kind: kindTerminals, Machine: localMachine}); got != " terminals · CLI " {
+		t.Errorf("machine terminals title %q", got)
 	}
 	if got := lt(viewRef{Row: "m", Kind: kindMachine, Machine: "gone"}); got != " empty " {
 		t.Errorf("unknown machine title %q", got)
@@ -673,5 +679,91 @@ func TestClickingABranchTwiceKeepsOneTab(t *testing.T) {
 	a2Run(m.clickBranch(v, branchesPageHeader))
 	if len(m.tabs) != 2 {
 		t.Fatalf("main should open its own tab: %v", a1TabLabels(m))
+	}
+}
+
+// Agents and Terminals get their own pages, like Branches: what runs in
+// them, each openable with a click. Sessions is left as it was.
+func TestAgentsAndTerminalsPages(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+
+	a1At(t, m, sectionID(localMachine, "r1", "agents"))
+	l := m.tab().focused()
+	out := a2Plain(m.leafLines(l, 100, 20, false))
+	for _, want := range []string{"Agents", "1 in api", "claude", "feat", "click an agent to open it"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("agents page lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Worktrees") || strings.Contains(out, "zsh") {
+		t.Fatalf("agents page shows more than its agents:\n%s", out)
+	}
+
+	a1At(t, m, sectionID(localMachine, "r1", "terminals"))
+	out = a2Plain(m.leafLines(m.tab().focused(), 100, 20, false))
+	if !strings.Contains(out, "Terminals") || !strings.Contains(out, "zsh") || strings.Contains(out, "claude") {
+		t.Fatalf("terminals page:\n%s", out)
+	}
+	if !strings.Contains(out, "click a terminal to open it") {
+		t.Fatalf("terminals hint:\n%s", out)
+	}
+
+	// The machine's own sections list the panes outside every project.
+	a1At(t, m, looseTerminalsID(localMachine))
+	out = a2Plain(m.leafLines(m.tab().focused(), 100, 20, false))
+	if !strings.Contains(out, "1 in CLI") || !strings.Contains(out, "bash") {
+		t.Fatalf("CLI terminals:\n%s", out)
+	}
+
+	// Clicking opens the pane; other lines do nothing.
+	a1At(t, m, sectionID(localMachine, "r1", "terminals"))
+	v := m.tab().focused().view
+	a2Run(m.clickSectionPane(v, branchesPageHeader))
+	if m.cursor != paneNodeID(localMachine, "p2") {
+		t.Fatalf("click opened %q", m.cursor)
+	}
+	if got := m.tab().focused().view; got.Kind != kindPane || got.PaneID != "p2" {
+		t.Fatalf("shows %+v", got)
+	}
+	before := m.cursor
+	for _, y := range []int{0, 1, 2, 90} {
+		if cmd := m.clickSectionPane(v, y); cmd != nil || m.cursor != before {
+			t.Fatalf("click at %d moved to %q", y, m.cursor)
+		}
+	}
+
+	// A section with nothing in it says so rather than looking broken.
+	m.machines[0].panes = nil
+	m.rebuild()
+	if out := a2Plain(m.sectionLines(localMachine, "r1", kindAgents, 80)); !strings.Contains(out, "none yet") {
+		t.Fatalf("empty agents page:\n%s", out)
+	}
+	// Every line fits at any width.
+	for _, w := range []int{20, 40, 100} {
+		for _, l := range m.sectionLines(localMachine, "r1", kindTerminals, w) {
+			if ansi.StringWidth(l) > w {
+				t.Fatalf("width %d: %q", w, ansi.Strip(l))
+			}
+		}
+	}
+}
+
+// An agent's summary sits under its name, and clicking either line opens it.
+func TestAgentsPageSummaryLineClicks(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	m.brain = newBrainState()
+	m.brain.summaries[paneKey(localMachine, "p1")] = &paneSummary{Summary: brain.Summary{Doing: "fixing the flaky test"}}
+	a1At(t, m, sectionID(localMachine, "r1", "agents"))
+	v := m.tab().focused().view
+	out := a2Plain(m.leafLines(m.tab().focused(), 100, 20, false))
+	if !strings.Contains(out, "fixing the flaky test") {
+		t.Fatalf("summary not shown:\n%s", out)
+	}
+	for _, y := range []int{branchesPageHeader, branchesPageHeader + 1} { // the agent and its summary
+		m.cursor = ""
+		a2Run(m.clickSectionPane(v, y))
+		if m.cursor != paneNodeID(localMachine, "p1") {
+			t.Fatalf("click at %d opened %q", y, m.cursor)
+		}
 	}
 }

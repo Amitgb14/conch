@@ -494,7 +494,16 @@ func (m Model) leafTitle(l *leaf) string {
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " branches · " + proj.Name + " "
 		}
-	case kindProject, kindAgents, kindTerminals, kindMore:
+	case kindAgents, kindTerminals:
+		what := "agents"
+		if v.Kind == kindTerminals {
+			what = "terminals"
+		}
+		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
+			return " " + what + " · " + proj.Name + " "
+		}
+		return " " + what + " · CLI "
+	case kindProject, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " " + proj.Name + " "
 		}
@@ -600,7 +609,9 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return m.branchesLines(v.Machine, *proj, w)
 		}
-	case kindProject, kindAgents, kindTerminals, kindMore:
+	case kindAgents, kindTerminals:
+		return m.sectionLines(v.Machine, v.ProjectID, v.Kind, w)
+	case kindProject, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return m.projectLines(v.Machine, *proj, w)
 		}
@@ -678,6 +689,77 @@ func (m Model) branchesLines(mid string, proj proto.ProjectInfo, w int) []string
 	}
 	hint := "click a branch for its changes · t new task · c start an agent · n terminal"
 	return append(lines, "", styleMuted.Render(ansi.Truncate(hint, w, "…")))
+}
+
+// sectionPanes are the panes an Agents or Terminals row lists: a project's,
+// or a machine's own when the row belongs to no project, in the order the
+// tree shows them.
+func (m Model) sectionPanes(mid, projectID string, kind nodeKind) []proto.PaneInfo {
+	mach := m.machine(mid)
+	if mach == nil {
+		return nil
+	}
+	var out []proto.PaneInfo
+	for _, p := range mach.panes {
+		known := p.ProjectID != "" && m.project(mid, p.ProjectID) != nil
+		if projectID == "" && known || projectID != "" && p.ProjectID != projectID {
+			continue
+		}
+		isAgent := p.Agent != nil || mach.agents[p.ID]
+		if isAgent == (kind == kindAgents) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// sectionLines is the page of an Agents or Terminals row: what runs in it,
+// each openable with a click.
+func (m Model) sectionLines(mid, projectID string, kind nodeKind, w int) []string {
+	what, hint := "Agents", "click an agent to open it · c start an agent · B broadcast · n terminal"
+	if kind == kindTerminals {
+		what, hint = "Terminals", "click a terminal to open it · n new terminal · B broadcast"
+	}
+	where := "CLI"
+	if proj := m.project(mid, projectID); proj != nil {
+		where = proj.Name
+	}
+	panes := m.sectionPanes(mid, projectID, kind)
+	lines := []string{
+		fit(styleBold.Render(what)+styleMuted.Render(fmt.Sprintf("  %d in %s", len(panes), where)), w),
+		styleMuted.Render(ansi.Truncate(m.machineLabel(mid), w, "…")),
+		"",
+	}
+	if len(panes) == 0 {
+		return append(lines, styleMuted.Render("  none yet"), "", styleMuted.Render(ansi.Truncate(hint, w, "…")))
+	}
+	for _, p := range panes {
+		glyph, state, style := m.paneGlyph(p)
+		right := []string{}
+		if p.Branch != "" {
+			right = append(right, styleMuted.Render(p.Branch))
+		}
+		if state != "" {
+			right = append(right, style.Render(state))
+		}
+		if p.Agent != nil && p.Agent.Tokens != nil {
+			right = append(right, styleMuted.Render(tokenSummary(p.Agent.Tokens)))
+		}
+		left := "  " + style.Render(glyph) + " " + p.DisplayName()
+		lines = append(lines, fit(spread(left, strings.Join(right, styleMuted.Render(" · ")), w), w))
+		if sum := m.summaryText(mid, p.ID); sum != "" {
+			lines = append(lines, fit("    "+styleAccent.Render("✦ ")+styleMuted.Render(ansi.Truncate(sum, max(w-6, 10), "…")), w))
+		}
+	}
+	return append(lines, "", styleMuted.Render(ansi.Truncate(hint, w, "…")))
+}
+
+// machineLabel names a machine for a page heading.
+func (m Model) machineLabel(mid string) string {
+	if mach := m.machine(mid); mach != nil {
+		return mach.label
+	}
+	return mid
 }
 
 func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string {
