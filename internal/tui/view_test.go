@@ -548,7 +548,7 @@ func TestBranchesPage(t *testing.T) {
 	m.machines[0].projects[0] = proj
 
 	out := a2Plain(m.branchesLines(localMachine, proj, 100))
-	for _, want := range []string{"Branches", "4 in api", "base main", "● main", "◇ feat", "old/one", "↑1↓4", "gone", "#7", "enter a branch for its changes"} {
+	for _, want := range []string{"Branches", "4 in api", "base main", "● main", "◇ feat", "old/one", "↑1↓4", "gone", "#7", "click a branch for its changes"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("page lacks %q:\n%s", want, out)
 		}
@@ -584,5 +584,64 @@ func TestBranchesPage(t *testing.T) {
 	a1At(t, m, projectNodeID(localMachine, "r1"))
 	if got := a2Plain(m.leafLines(m.tab().focused(), 100, 20, false)); !strings.Contains(got, "Worktrees") || !strings.Contains(got, "Pull requests") {
 		t.Fatalf("project row shows:\n%s", got)
+	}
+}
+
+// The branches on that page are clickable: a click opens the branch's
+// changes, and a branch the tree keeps behind "… more" is listed first.
+func TestBranchesPageClicks(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1At(t, m, sectionID(localMachine, "r1", "branches"))
+	v := m.tab().focused().view
+	if v.Kind != kindBranches {
+		t.Fatalf("view %+v", v)
+	}
+
+	// Line 3 is the first branch (main), line 4 the second (feat).
+	a2Run(m.clickBranch(v, branchesPageHeader+1))
+	if m.cursor != branchNodeID(localMachine, "r1", "feat") {
+		t.Fatalf("cursor %q", m.cursor)
+	}
+	if got := m.tab().focused().view; got.Kind != kindBranch || got.Branch != "feat" {
+		t.Fatalf("shows %+v", got)
+	}
+
+	// The title, the blank line and the hint do nothing.
+	before := m.cursor
+	for _, y := range []int{0, 1, 2, branchesPageHeader + 50} {
+		if cmd := m.clickBranch(v, y); cmd != nil || m.cursor != before {
+			t.Fatalf("click at %d moved to %q", y, m.cursor)
+		}
+	}
+
+	// A branch the tree hides behind "… more" is listed, then opened.
+	proj := m.machines[0].projects[0]
+	for i := 0; i < 20; i++ {
+		proj.Branches = append(proj.Branches, proto.BranchInfo{Name: fmt.Sprintf("old/%d", i), Committed: time.Now().Add(-90 * 24 * time.Hour)})
+	}
+	m.machines[0].projects[0] = proj
+	m.rebuild()
+	hidden := branchNodeID(localMachine, "r1", "old/19")
+	if indexOfRow(m.rows, hidden) >= 0 {
+		t.Fatal("expected old/19 to be hidden behind … more")
+	}
+	branches, _ := listedBranches(proj, m.machines[0].panes, true, time.Now())
+	idx := -1
+	for i, b := range branches {
+		if b.Name == "old/19" {
+			idx = i
+		}
+	}
+	a2Run(m.clickBranch(v, branchesPageHeader+idx))
+	if m.cursor != hidden || indexOfRow(m.rows, hidden) < 0 {
+		t.Fatalf("hidden branch: cursor %q listed=%v", m.cursor, indexOfRow(m.rows, hidden) >= 0)
+	}
+	if got := m.tab().focused().view; got.Branch != "old/19" {
+		t.Fatalf("shows %+v", got)
+	}
+
+	// An unknown project ignores clicks.
+	if cmd := m.clickBranch(viewRef{Kind: kindBranches, Machine: localMachine, ProjectID: "gone"}, branchesPageHeader); cmd != nil {
+		t.Fatal("click on a removed project")
 	}
 }

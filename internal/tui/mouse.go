@@ -143,8 +143,54 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if f.changes != nil {
 			return m, tea.Batch(focusCmd, f.changes.mouse(&m, msg, x, y))
 		}
+	case kindBranches:
+		if press && left {
+			return m, tea.Batch(focusCmd, m.clickBranch(f.view, y))
+		}
 	}
 	return m, focusCmd
+}
+
+// branchesPageHeader is how many lines come before the first branch on the
+// Branches page: its title, the path and a blank line.
+const branchesPageHeader = 3
+
+// clickBranch opens the branch on line y of the Branches page.
+func (m *Model) clickBranch(v viewRef, y int) tea.Cmd {
+	proj := m.project(v.Machine, v.ProjectID)
+	if proj == nil {
+		return nil
+	}
+	var panes []proto.PaneInfo
+	if mach := m.machine(v.Machine); mach != nil {
+		panes = mach.panes
+	}
+	branches, _ := listedBranches(*proj, panes, true, time.Now())
+	i := y - branchesPageHeader
+	if i < 0 || i >= len(branches) {
+		return nil // the title, the hint, or past the last branch
+	}
+	return m.openBranch(v.Machine, v.ProjectID, branches[i].Name)
+}
+
+// openBranch selects a branch in the tree and shows its changes. A branch
+// the tree keeps behind "… more" is listed first, so the click still lands
+// somewhere.
+func (m *Model) openBranch(mid, pid, branch string) tea.Cmd {
+	id := branchNodeID(mid, pid, branch)
+	var cmds []tea.Cmd
+	if indexOfRow(m.rows, id) < 0 {
+		m.showAll[scoped(mid, pid)] = true
+		m.expanded[projectNodeID(mid, pid)] = true
+		m.expanded[sectionID(mid, pid, "branches")] = true
+		cmds = append(cmds, m.rebuild(), m.saveState())
+	}
+	i := indexOfRow(m.rows, id)
+	if i < 0 {
+		return tea.Batch(cmds...)
+	}
+	m.cursor = id
+	return tea.Batch(append(cmds, m.show(m.rows[i]))...)
 }
 
 // leafAt returns the leaf whose area holds x, y, or 0.

@@ -676,7 +676,7 @@ func (m Model) branchesLines(mid string, proj proto.ProjectInfo, w int) []string
 		}
 		lines = append(lines, fit(spread(left, strings.Join(right, styleMuted.Render(" · ")), w), w))
 	}
-	hint := "enter a branch for its changes · t new task · c start an agent · n terminal"
+	hint := "click a branch for its changes · t new task · c start an agent · n terminal"
 	return append(lines, "", styleMuted.Render(ansi.Truncate(hint, w, "…")))
 }
 
