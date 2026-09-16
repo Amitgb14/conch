@@ -249,7 +249,13 @@ func (m Model) handleFilterKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleMainKey routes keys while the main area has focus: to the pane, or
 // to the changes view.
 func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Keys go to what the focused split shows. The tree's cursor can be
+	// elsewhere — on Workspace while an agent's tab is clicked, say — and
+	// following it sent the keys nowhere.
 	r, _ := m.selectedRow()
+	if v := m.tab().focused().view; !v.empty() {
+		r = row{id: v.Row, kind: v.Kind, machine: v.Machine, projectID: v.ProjectID, branch: v.Branch, paneID: v.PaneID}
+	}
 	prefix := m.cfg.Keys.Prefix
 
 	if cmd, handled := m.repeatResize(k.String()); handled {

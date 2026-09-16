@@ -859,3 +859,55 @@ func TestA1ForwardKeyEncodings(t *testing.T) {
 		t.Fatal("decodeInto")
 	}
 }
+
+// With Workspace selected in the tree, clicking an agent's tab showed the
+// agent but typing went nowhere: keys followed the tree's cursor, which was
+// still on Workspace. They follow what the focused split shows now.
+func TestTypingFollowsTheFocusedTabNotTheTreeCursor(t *testing.T) {
+	m, _ := a1Fixture(t, true)
+	c, peer := a1FakeClient(t, "pane.v1")
+	m.machines[0].c, m.machines[0].server = c, c.Server
+	m.rebuild()
+	a1FourTabs(t, m) // p1 is an agent in project r1
+
+	ws := workspaceID(localMachine)
+	a1At(t, m, ws)
+	// Click p1's tab in the bar, as the user did.
+	mr := m.mainRect()
+	_, hits := m.tabBar(mr.w)
+	clicked := false
+	for _, h := range hits {
+		if h.tab >= 0 && m.tabs[h.tab].root.leaves()[0].view.PaneID == "p1" {
+			a2Run(a1Mouse(t, m, mr.x+h.x0, mr.y, a1Left, a1Press))
+			clicked = true
+		}
+	}
+	if !clicked {
+		t.Fatalf("p1's tab isn't in the Workspace bar: %v", a1TabLabels(m))
+	}
+	if m.tab().focused().view.PaneID != "p1" {
+		t.Fatalf("clicking the tab shows %+v", m.tab().focused().view)
+	}
+	if m.cursor != ws {
+		t.Fatalf("the tree cursor moved to %q; this test needs it on Workspace", m.cursor)
+	}
+
+	// Clicking an agent's tab lets you type into it straight away.
+	if m.focus != focusMain {
+		t.Fatal("clicking an agent's tab left focus in the tree")
+	}
+	next, _ := m.handleMainKey(runes("hi"))
+	*m = next.(Model)
+	peer.waitMethod(t, proto.MethodPaneSendText, `"p1"`)
+	if m.focus != focusMain {
+		t.Fatal("typing handed focus back to the tree")
+	}
+
+	// A focused split with nothing in it still falls back to the tree's row.
+	m.tab().focused().view = viewRef{}
+	next, _ = m.handleMainKey(runes("x"))
+	*m = next.(Model)
+	if m.focus != focusSidebar {
+		t.Fatal("an empty split should return focus to the tree")
+	}
+}

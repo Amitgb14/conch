@@ -77,7 +77,14 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 					case -2:
 						return m, m.closeTabAsk(m.activeTab)
 					}
-					return m, m.switchTab(h.tab)
+					cmd := m.switchTab(h.tab)
+					// A tab of an agent or terminal is there to type into.
+					if v := m.tab().focused().view; v.Kind == kindPane {
+						if p := m.pane(v.Machine, v.PaneID); p != nil && p.State == proto.PaneRunning {
+							m.focus = focusMain
+						}
+					}
+					return m, cmd
 				}
 			}
 		}
