@@ -297,10 +297,10 @@ func TestVersionInfoTicksMachines(t *testing.T) {
 		return ansi.Strip(strings.Join(b.lines, "\n"))
 	}
 	if got := strings.Join(v.machines(*m), ","); got != "box1,box2" {
-		t.Fatalf("listed: %s", got)
+		t.Fatalf("listed: %s", got) // nothing of this computer's is behind here
 	}
 	out := render()
-	for _, want := range []string{"[x] box1", "[x] box2", "u update everything", "space untick a machine", "esc closes"} {
+	for _, want := range []string{"[x] box1", "[x] box2", "u update everything", "space untick one", "esc closes"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("all ticked lacks %q:\n%s", want, out)
 		}
@@ -323,7 +323,7 @@ func TestVersionInfoTicksMachines(t *testing.T) {
 	if m.overlay != v || v.sel != 1 || !v.skip["box2"] || v.skip["box1"] {
 		t.Fatalf("untick box2: sel %d skip %v open %v", v.sel, v.skip, m.overlay == v)
 	}
-	if out = render(); !strings.Contains(out, "[ ] box2") || !strings.Contains(out, "u update 1 of 2 machines") {
+	if out = render(); !strings.Contains(out, "[ ] box2") || !strings.Contains(out, "u update 1 of 2 ") {
 		t.Fatalf("after unticking:\n%s", out)
 	}
 	key("a") // not all ticked: ticks all
@@ -504,7 +504,7 @@ func TestPendingUpdatesComparesRemotesWithTheBuildOnDisk(t *testing.T) {
 	m.machines = append(m.machines, onTUI, onDisk, unknown, offline)
 
 	v := newVersionInfo()
-	if got := strings.Join(v.machines(*m), ","); got != "old" {
+	if got := strings.Join(v.machines(*m), ","); got != keyTUI+",old" {
 		t.Fatalf("listed with a new build on disk: %q", got)
 	}
 	out := ansi.Strip(strings.Join(v.render(*m).lines, "\n"))
@@ -520,5 +520,67 @@ func TestPendingUpdatesComparesRemotesWithTheBuildOnDisk(t *testing.T) {
 	m.upd = nil
 	if m.remoteBehind(onTUI) || !m.remoteBehind(onDisk) {
 		t.Fatal("no update state")
+	}
+}
+
+// With one machine there was nothing to tick: only remote machines had
+// checkboxes, so the box looked no different from before. Every pending
+// item is tickable now, this computer's parts included.
+func TestVersionInfoTicksThisComputer(t *testing.T) {
+	m := a2Model()
+	m.upd = &updateState{diskBuild: "newbuild1234", release: &update.Release{Version: "9.9.9"}}
+	m.machines[0].c = a2Client()
+	m.machines[0].server = proto.HelloResult{Build: "oldserver", PID: 7}
+	v := newVersionInfo()
+	m.overlay = v
+
+	if got := strings.Join(v.machines(*m), ","); got != keyRelease+","+keyTUI+","+keyServer {
+		t.Fatalf("a computer on its own lists %q", got)
+	}
+	out := ansi.Strip(strings.Join(v.render(*m).lines, "\n"))
+	for _, want := range []string{"[x] Release", "[x] This TUI", "[x] Server", "space untick one"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("box lacks %q:\n%s", want, out)
+		}
+	}
+
+	// Untick the TUI restart: the release still downloads and the server
+	// still reloads, and this TUI keeps running the old build.
+	key := func(k string) tea.Cmd {
+		t.Helper()
+		next, cmd := m.update(a2Key(k))
+		*m = next.(Model)
+		return cmd
+	}
+	key("down") // Release -> This TUI
+	key(" ")
+	if !v.skip[keyTUI] || v.skip[keyRelease] || v.skip[keyServer] {
+		t.Fatalf("ticks: %v", v.skip)
+	}
+	if out = ansi.Strip(strings.Join(v.render(*m).lines, "\n")); !strings.Contains(out, "[ ] This TUI") || !strings.Contains(out, "u update 2 of 3") {
+		t.Fatalf("after unticking the TUI:\n%s", out)
+	}
+	if cmd := key("u"); cmd == nil || !m.upd.running || !m.upd.skip[keyTUI] {
+		t.Fatalf("u: running %v skip %v", m.upd.running, m.upd.skip)
+	}
+	m.handleUpdate(updateDoneMsg{})
+	if m.flash != "conch updated · panes kept · not updated: this TUI" {
+		t.Fatalf("status names what was left: %q", m.flash)
+	}
+
+	// Everything unticked: nothing runs.
+	v2 := newVersionInfo()
+	m.overlay, m.upd.running = v2, false
+	for _, k := range v2.machines(*m) {
+		v2.skip[k] = true
+	}
+	if cmd := m.startUpdate(v2.skip); cmd != nil || m.flash != "nothing ticked to update" || m.upd.running {
+		t.Fatalf("all unticked: %q", m.flash)
+	}
+	// Unticking the release alone still reloads the server onto the build
+	// on disk.
+	only := map[string]bool{keyRelease: true}
+	if m.startUpdate(only) == nil || !m.upd.skip[keyRelease] || m.upd.skip[keyServer] {
+		t.Fatalf("release only: %v", m.upd.skip)
 	}
 }
