@@ -72,6 +72,6 @@ The version in the status bar then shows `⬆`; click it for the list and press 
 3. restart the TUI in place onto the new build;
 4. install the build on each ticked remote machine and reload its server.
 
-Everything pending is listed with a checkbox, all ticked: the release, this TUI, your server, and each remote machine behind your build. To leave something out, move with `↑` `↓` and press `space` (or click the row); `a` ticks or unticks them all. The box then reads **u update 2 of 3**, and the status bar afterwards names what was left alone. Unticking **This TUI** reloads the server but keeps this TUI on its old build (it shows `⬆` until you restart it); unticking a machine leaves it on its build, also after the TUI restarts. A machine that was offline when you pressed `u` is updated when it connects.
+Remote machines behind your build are listed with checkboxes, all ticked. To update only some, move with `↑` `↓` and press `space` (or click a row) to untick the ones to leave alone; `a` ticks or unticks them all. The box then reads **u update 1 of 2 machines**. Unticked machines stay on their build, also after the TUI restarts; a machine that was offline when you pressed `u` is updated when it connects.
 
 `conch update` does steps 1–2 from a shell, and `conch machine upgrade ID` installs and reloads one machine.

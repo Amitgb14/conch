@@ -254,12 +254,13 @@ type versionInfo struct {
 
 func newVersionInfo() *versionInfo { return &versionInfo{skip: map[string]bool{}} }
 
-// machines lists what an update would change, by key: this computer's
-// parts and every machine behind, each with a checkbox.
+// machines lists the IDs of the machines an update would change.
 func (v *versionInfo) machines(m Model) []string {
 	var ids []string
 	for _, it := range m.pendingUpdates() {
-		ids = append(ids, it.key)
+		if it.machine != "" {
+			ids = append(ids, it.machine)
+		}
 	}
 	return ids
 }
@@ -353,17 +354,23 @@ func (v *versionInfo) render(m Model) box {
 	running := m.upd != nil && m.upd.running
 	if pending := m.pendingUpdates(); len(pending) > 0 {
 		lines = append(lines, "", " "+styleBold.Render("Updates"))
-		for i, it := range pending {
+		i := 0
+		for _, it := range pending {
+			if it.machine == "" {
+				lines = append(lines, " "+styleWarn.Render("⬆ ")+styleMuted.Render(padRight(it.label, 10))+it.detail)
+				continue
+			}
 			tick := "[x] "
-			if v.skip[it.key] {
+			if v.skip[it.machine] {
 				tick = "[ ] "
 			}
 			line := " " + tick + padRight(it.label, 10) + styleMuted.Render(it.detail)
 			if i == min(v.sel, len(ids)-1) && !running {
 				line = styleSel.Render(" " + tick + padRight(it.label, 10) + it.detail)
 			}
-			v.rows[len(lines)] = it.key
+			v.rows[len(lines)] = it.machine
 			lines = append(lines, line)
+			i++
 		}
 		chosen := 0
 		for _, id := range ids {
@@ -374,11 +381,13 @@ func (v *versionInfo) render(m Model) box {
 		switch {
 		case running:
 			lines = append(lines, " "+styleMuted.Render("updating…"))
+		case len(ids) == 0:
+			lines = append(lines, " "+styleAccent.Render("u")+" update everything "+styleMuted.Render("(agents and shells keep running)"))
 		case chosen == len(ids):
 			lines = append(lines, " "+styleAccent.Render("u")+" update everything "+styleMuted.Render("(agents and shells keep running)"),
-				styleMuted.Render(" space untick one · a all · ↑↓ move"))
+				styleMuted.Render(" space untick a machine · a all · ↑↓ move"))
 		default:
-			lines = append(lines, " "+styleAccent.Render("u")+fmt.Sprintf(" update %d of %d ", chosen, len(ids))+styleMuted.Render("(agents and shells keep running)"),
+			lines = append(lines, " "+styleAccent.Render("u")+fmt.Sprintf(" update %d of %d machines ", chosen, len(ids))+styleMuted.Render("(agents and shells keep running)"),
 				styleMuted.Render(" space tick · a all · ↑↓ move"))
 		}
 	}

@@ -118,16 +118,8 @@ func (m *Model) checkUpdates() tea.Cmd {
 // updateItem is one thing an update would change.
 type updateItem struct {
 	label, detail string
-	// key names the item for ticking: a remote machine's ID, or one of
-	// keyRelease, keyTUI and keyServer for this computer's parts.
-	key string
+	machine       string // a remote machine's ID; "" for this computer
 }
-
-const (
-	keyRelease = "·release"
-	keyTUI     = "·tui"
-	keyServer  = "·server"
-)
 
 // pendingUpdates lists what is out of date.
 func (m Model) pendingUpdates() []updateItem {
@@ -137,13 +129,13 @@ func (m Model) pendingUpdates() []updateItem {
 	}
 	var items []updateItem
 	if u.release != nil {
-		items = append(items, updateItem{"Release", fmt.Sprintf("%s available (running %s)", u.release.Version, versionLabel()), keyRelease})
+		items = append(items, updateItem{"Release", fmt.Sprintf("%s available (running %s)", u.release.Version, versionLabel()), ""})
 	}
 	if u.diskBuild != "" {
-		items = append(items, updateItem{"This TUI", "new build on disk " + u.diskBuild + " · restarts onto it", keyTUI})
+		items = append(items, updateItem{"This TUI", "new build on disk " + u.diskBuild + " · restarts onto it", ""})
 	}
 	if len(m.machines) > 0 && m.serverBehindDisk() {
-		items = append(items, updateItem{"Server", "runs build " + m.machines[0].server.Build + " · reloads, panes keep running", keyServer})
+		items = append(items, updateItem{"Server", "runs build " + m.machines[0].server.Build + " · reloads, panes keep running", ""})
 	}
 	for _, mach := range m.machines[min(1, len(m.machines)):] {
 		if mach.c == nil {
@@ -197,7 +189,7 @@ func (m *Model) startUpdate(skip map[string]bool) tea.Cmd {
 		m.setFlash("conch is up to date", false)
 		return nil
 	}
-	if !slices.ContainsFunc(pending, func(it updateItem) bool { return !skip[it.key] }) {
+	if !slices.ContainsFunc(pending, func(it updateItem) bool { return it.machine == "" || !skip[it.machine] }) {
 		m.setFlash("nothing ticked to update", true)
 		return nil
 	}
@@ -211,10 +203,6 @@ func (m *Model) startUpdate(skip map[string]bool) tea.Cmd {
 		}
 	}
 	rel, exe := u.release, u.exe
-	skipTUI, skipServer := skip[keyTUI], skip[keyServer]
-	if skip[keyRelease] {
-		rel = nil
-	}
 	var local = m.machines[0]
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -225,13 +213,13 @@ func (m *Model) startUpdate(skip map[string]bool) tea.Cmd {
 			}
 		}
 		disk := buildinfo.HashFile(exe)
-		if local.c != nil && !skipServer && local.server.Build != disk {
+		if local.c != nil && local.server.Build != disk {
 			if err := update.Reload(ctx, local.c, exe); err != nil {
 				return updateDoneMsg{err: fmt.Errorf("reload the server: %w", err)}
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
-		if disk != "" && disk != buildinfo.Build() && !skipTUI {
+		if disk != "" && disk != buildinfo.Build() {
 			return restartTUIMsg{}
 		}
 		return updateStepMsg{step: "remotes"}
@@ -315,11 +303,6 @@ func (m *Model) handleUpdate(msg tea.Msg) (tea.Cmd, bool) {
 // updatedText is the status after an update, naming machines left out.
 func (m *Model) updatedText() string {
 	var left []string
-	for _, key := range []struct{ id, label string }{{keyRelease, "the release"}, {keyServer, "the server"}, {keyTUI, "this TUI"}} {
-		if m.upd.skip[key.id] {
-			left = append(left, key.label)
-		}
-	}
 	for _, mach := range m.machines {
 		if m.upd.skip[mach.id] {
 			left = append(left, mach.label)
