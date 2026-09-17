@@ -79,7 +79,7 @@ func New(exe, dir string) (Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Registry{claude, newCodex(), gemini, opencode}, nil
+	return Registry{claude, newCodex(), gemini, opencode, newDevin()}, nil
 }
 
 // cliAgent is an agent launched as a command in the user's login shell.
@@ -165,15 +165,16 @@ func (a *cliAgent) Detect(ctx context.Context, shell string) Availability {
 // withDownloader wraps an install command that pipes a script from a URL
 // into a shell, checking for curl or wget first.
 func withDownloader(label, url, shell string, env string) string {
+	run := strings.TrimSpace(env + " " + shell) // env may be empty
 	return fmt.Sprintf(`set -e
 echo "Installing %[1]s with the official installer (%[2]s)"
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL %[2]s | %[4]s %[3]s
+  curl -fsSL %[2]s | %[3]s
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO- %[2]s | %[4]s %[3]s
+  wget -qO- %[2]s | %[3]s
 else
   echo "the installer needs curl or wget" >&2; exit 1
-fi`, label, url, shell, env)
+fi`, label, url, run)
 }
 
 // ---- Claude Code ----
@@ -248,6 +249,29 @@ func newCodex() *cliAgent {
 echo
 echo "Installed: $("$HOME/.local/bin/codex" --version)"
 echo "Start it from conch and sign in with ChatGPT or an API key."`,
+	}
+}
+
+// ---- Devin for Terminal ----
+
+// newDevin launches Devin for Terminal, Cognition's `devin` CLI
+// (docs.devin.ai/cli). A first message goes after `--`, so it isn't taken
+// for a subcommand; sessions resume by id or name with -r, or the latest in
+// the folder with -c. Its hooks follow Claude Code's shape, but conch
+// doesn't pass its own yet: the per-launch --config flag isn't documented
+// to merge with the user's config, and replacing that would drop their
+// settings. Until that's checked against the real CLI, conch reads Devin's
+// state from the process and the screen.
+func newDevin() *cliAgent {
+	return &cliAgent{
+		name: "devin", label: "Devin", binary: "devin",
+		promptFlag: "--",
+		resume:     "-r %s", resumeLast: "-c",
+		dirs: []string{"$HOME/.local/bin"},
+		install: withDownloader("Devin", "https://cli.devin.ai/install.sh", "bash", "") + `
+echo
+echo "Installed: $("$HOME/.local/bin/devin" --version)"
+echo "Sign in with devin auth login, or start it from conch and follow its prompt."`,
 	}
 }
 

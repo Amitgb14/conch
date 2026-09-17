@@ -1026,7 +1026,7 @@ type (
 
 // agentLabels name agents for people; servers send labels too, these cover
 // messages about agents a machine hasn't described.
-var agentLabels = map[string]string{"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode"}
+var agentLabels = map[string]string{"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "devin": "Devin"}
 
 func agentLabel(agent string) string {
 	if l, ok := agentLabels[agent]; ok {

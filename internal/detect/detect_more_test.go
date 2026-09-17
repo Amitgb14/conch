@@ -504,3 +504,28 @@ func TestA6ProcessInfoMissingPID(t *testing.T) {
 		t.Fatalf("self: %+v %v", self, err)
 	}
 }
+
+// Devin for Terminal is recognised by its process. Its screen strings
+// aren't known yet, so its manifest has no rules and the state stays
+// unknown instead of being guessed from another agent's words.
+func TestDevinIsRecognisedWithoutGuessingItsState(t *testing.T) {
+	ms := manifests(t)
+	m, ok := ms["devin"]
+	if !ok || len(m.ProcessNames) == 0 || m.ProcessNames[0] != "devin" || m.ScreenLines <= 0 {
+		t.Fatalf("devin manifest: %+v", m)
+	}
+	if got := MatchAny(ms, Process{Name: "devin", Args: []string{"devin", "-r", "brisk-otter"}}); got == nil || got.Agent != "devin" {
+		t.Fatalf("a devin process matched %+v", got)
+	}
+	// Another agent's working words on its screen don't make it "working".
+	tr := NewTracker(ms, "")
+	tr.Observe(Observation{Now: time.Now(), Process: Process{Name: "devin", Args: []string{"devin"}},
+		Screen: []string{"• Working (3s • esc to interrupt)", "Do you trust the contents of this directory"}})
+	st := tr.Status()
+	if st.Agent != "devin" {
+		t.Fatalf("agent %q", st.Agent)
+	}
+	if st.State == StateWorking || st.State == StateBlocked {
+		t.Fatalf("devin's state was guessed: %q", st.State)
+	}
+}

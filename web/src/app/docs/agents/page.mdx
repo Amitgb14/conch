@@ -2,7 +2,7 @@ export const metadata = { title: "Agents", description: "Supported agents, their
 
 # Agents
 
-conch runs Claude Code, Codex, Gemini CLI and OpenCode in panes it owns, tracks what each is doing, and shows their token usage and plan limits. It wires in its state tracking without touching the agents' own configuration.
+conch runs Claude Code, Codex, Gemini CLI, OpenCode and Devin in panes it owns, tracks what each is doing, and shows their token usage and plan limits. It wires in its state tracking without touching the agents' own configuration.
 
 ## Supported agents
 
@@ -12,6 +12,9 @@ conch runs Claude Code, Codex, Gemini CLI and OpenCode in panes it owns, tracks 
 | **Codex** | `codex` | terminal title (`[ ! ] Action Required`, spinner) and screen ("Would you like to run the following command?") | `curl -fsSL https://chatgpt.com/codex/install.sh \| sh` |
 | **Gemini CLI** | `gemini` with conch's hooks in a system-defaults settings file (merged with yours; Gemini runs hooks only in trusted folders) | hooks when trusted, title (`✋ Action Required`, `✦ Working…`, `◇ Ready`) and screen | `npm install -g --prefix ~/.local @google/gemini-cli` (Node 20+) |
 | **OpenCode** | `opencode` with conch's plugin via `OPENCODE_CONFIG_CONTENT` (merged with your config) | plugin events (busy, idle, permission, question) and screen | `curl -fsSL https://opencode.ai/install \| bash` |
+| **Devin** (preview) | `devin`; a task's first message after `--`, resume with `-r ID` or `-c` | recognised by its process; its working and waiting states aren't read yet | `curl -fsSL https://cli.devin.ai/install.sh \| bash`, then `devin auth login` |
+
+Devin for Terminal is Cognition's `devin` CLI, not the Devin desktop app. conch starts, resumes and installs it like the other agents, and lists it in `c`. Its state shows as unknown for now: its hooks follow Claude Code's, but conch only adds them once it's confirmed that doing so leaves your own Devin settings intact.
 
 ## Starting agents
 

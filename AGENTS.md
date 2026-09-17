@@ -6,7 +6,7 @@ changing code; it is the contract for how work here is done.
 ## What conch is
 
 conch is a terminal orchestrator for AI coding agents — Claude Code, Codex,
-Gemini CLI and OpenCode — written in Go.
+Gemini CLI, OpenCode and Devin — written in Go.
 
 - A **server** daemon owns the pseudo-terminals the agents and shells run in,
   so they keep running when the UI closes. It speaks newline-delimited JSON

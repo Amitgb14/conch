@@ -40,7 +40,7 @@ func TestRegistryAndIntegrationFiles(t *testing.T) {
 	for _, a := range reg {
 		names = append(names, a.Name())
 	}
-	if strings.Join(names, ",") != "claude,codex,gemini,opencode" {
+	if strings.Join(names, ",") != "claude,codex,gemini,opencode,devin" {
 		t.Fatalf("registry order: %v", names)
 	}
 
@@ -70,6 +70,7 @@ func TestRegistryAndIntegrationFiles(t *testing.T) {
 		"codex":    {"resume 'a b'", "resume --last"},
 		"gemini":   {"--resume 'a b'", "--resume latest"},
 		"opencode": {"--session 'a b'", "--continue"},
+		"devin":    {"-r 'a b'", "-c"},
 	} {
 		ad, _ := reg.Get(name)
 		if got := [2]string{ad.ResumeArgs("a b"), ad.ResumeArgs("")}; got != want {
