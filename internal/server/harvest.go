@@ -15,6 +15,9 @@ import (
 // networkTimeout bounds git and gh calls that reach a remote.
 const networkTimeout = 2 * time.Minute
 
+// maxPatch caps a commit's patch, which travels over the protocol.
+const maxPatch = 4 << 20
+
 // gitProject returns a project that is a git repository.
 func (pm *projectManager) gitProject(id string) (*project, *proto.Error) {
 	p, perr := pm.get(id)
@@ -68,7 +71,16 @@ func (pm *projectManager) commitBranch(cp proto.BranchCommitParams) (proto.Commi
 	case !ok:
 		return proto.CommitResult{}, proto.Errorf(proto.ErrBadRequest, "%s is not checked out anywhere, so it has nothing uncommitted", cp.Branch)
 	}
-	hash, err := gitx.CommitChanges(ctx, wt.Path, cp.Message, cp.Files)
+	var hash string
+	var err error
+	if cp.Patch != "" {
+		if len(cp.Patch) > maxPatch {
+			return proto.CommitResult{}, proto.Errorf(proto.ErrBadRequest, "the patch is too large (%d bytes)", len(cp.Patch))
+		}
+		hash, err = gitx.CommitPatchChanges(ctx, wt.Path, cp.Message, cp.Patch, cp.Files)
+	} else {
+		hash, err = gitx.CommitChanges(ctx, wt.Path, cp.Message, cp.Files)
+	}
 	pm.request(p)
 	if err != nil {
 		return proto.CommitResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)

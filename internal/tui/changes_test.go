@@ -139,7 +139,8 @@ func TestA2ChangesKeys(t *testing.T) {
 	for _, step := range []struct {
 		key  string
 		want int
-	}{{"down", 1}, {"j", 2}, {"up", 1}, {"k", 0}, {"up", 0}, {"pgdown", page}, {" ", 2 * page}, {"f", 3 * page}, {"b", 2 * page}, {"pgup", page},
+		// space marks a hunk rather than paging; f and pgdown page.
+	}{{"down", 1}, {"j", 2}, {"up", 1}, {"k", 0}, {"up", 0}, {"pgdown", page}, {" ", page}, {"f", 2 * page}, {"f", 3 * page}, {"b", 2 * page}, {"pgup", page},
 		{"G", 100 - page}, {"end", 100 - page}, {"g", 0}, {"G", 78}, {"home", 0}} {
 		if back, _ := cv.key(m, a2Key(step.key)); back || cv.diffScroll != step.want {
 			t.Fatalf("after %q diff scroll %d, want %d", step.key, cv.diffScroll, step.want)

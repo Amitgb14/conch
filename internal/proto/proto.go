@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1",
 }
 
 // Methods.
@@ -468,11 +468,18 @@ type BranchRef struct {
 // BranchCommitParams commits the uncommitted changes where Branch is checked
 // out: every change, or only Files (paths as in Changes; a rename needs both
 // its paths).
+//
+// With Patch — a unified diff, as project.diff returns, cut down to the
+// chosen hunks — those hunks are staged and what is staged is committed,
+// Files included. A Patch that no longer applies commits nothing. It needs
+// capability branch.hunks.v1; an older server would ignore it and commit
+// everything.
 type BranchCommitParams struct {
 	ProjectID string   `json:"project_id"`
 	Branch    string   `json:"branch"`
 	Message   string   `json:"message"`
 	Files     []string `json:"files,omitempty"`
+	Patch     string   `json:"patch,omitempty"`
 }
 
 // CommitResult is a commit a branch method made.

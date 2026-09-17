@@ -78,6 +78,59 @@ func CommitChanges(ctx context.Context, dir, message string, files []string) (st
 	return revParse(ctx, dir, "HEAD")
 }
 
+// ErrPatchStale is returned when a patch no longer applies: the file
+// changed after the diff it was cut from was read.
+var ErrPatchStale = errors.New("the files changed since the diff was read")
+
+// CommitPatchChanges stages patch (a unified diff, as from Diff) and every
+// path in files, then commits what is staged — anything staged beforehand
+// included, as git itself would. A patch that no longer applies changes
+// nothing and returns ErrPatchStale.
+func CommitPatchChanges(ctx context.Context, dir, message, patch string, files []string) (string, error) {
+	if strings.TrimSpace(message) == "" {
+		return "", errors.New("a commit needs a message")
+	}
+	if strings.TrimSpace(patch) == "" {
+		return "", errors.New("no hunks to commit")
+	}
+	if !strings.HasSuffix(patch, "\n") {
+		patch += "\n"
+	}
+	cmd := command(ctx, dir, "apply", "--cached", "--whitespace=nowarn", "-")
+	cmd.Stdin = strings.NewReader(patch)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		msg := strings.TrimSpace(stderr.String())
+		if strings.Contains(msg, "does not apply") || strings.Contains(msg, "patch failed") {
+			return "", fmt.Errorf("%w: %s", ErrPatchStale, firstLine(msg))
+		}
+		return "", fmt.Errorf("git apply: %s", firstLine(msg))
+	}
+	if len(files) > 0 {
+		if _, err := run(ctx, dir, append([]string{"add", "--all", "--"}, files...)...); err != nil {
+			return "", err
+		}
+	}
+	if _, err := run(ctx, dir, "commit", "--quiet", "--message", message); err != nil {
+		if strings.Contains(err.Error(), "nothing to commit") || strings.Contains(err.Error(), "no changes added") {
+			return "", ErrNothingToCommit
+		}
+		return "", err
+	}
+	return revParse(ctx, dir, "HEAD")
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
 // Push pushes branch to the branch of the same name on its upstream's
 // remote, or on origin (or the only remote), and makes that its upstream.
 // An upstream under another name is not pushed to: a task branch started

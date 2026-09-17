@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -333,4 +334,51 @@ func TestHarvestPlainFolder(t *testing.T) {
 	} {
 		wantErr(t, call(t, c, method, params, nil), "not a git repository")
 	}
+}
+
+func TestHarvestCommitHunks(t *testing.T) {
+	c, proj, _, wt, _ := harvestFixture(t)
+	id := proj.ID
+	lines := ""
+	for i := 1; i <= 30; i++ {
+		lines += fmt.Sprintf("line %d\n", i)
+	}
+	os.WriteFile(filepath.Join(wt, "f.txt"), []byte(lines), 0o644)
+	git(t, wt, "add", "f.txt")
+	git(t, wt, "commit", "-q", "-m", "add f")
+	edited := strings.Replace(lines, "line 1\n", "FIRST\n", 1)
+	edited = strings.Replace(edited, "line 30\n", "LAST\n", 1)
+	os.WriteFile(filepath.Join(wt, "f.txt"), []byte(edited), 0o644)
+	os.WriteFile(filepath.Join(wt, "new.txt"), []byte("new\n"), 0o644)
+
+	var d proto.DiffResult
+	if err := call(t, c, proto.MethodProjectDiff, proto.DiffParams{ProjectID: id, Branch: "feat", File: "f.txt"}, &d); err != nil {
+		t.Fatal(err)
+	}
+	header, hs, _ := strings.Cut(d.Diff, "@@")
+	first, _, _ := strings.Cut(hs, "\n@@")
+	patch := header + "@@" + first + "\n"
+
+	// The first hunk and one whole file; the other hunk stays uncommitted.
+	var res proto.CommitResult
+	params := proto.BranchCommitParams{ProjectID: id, Branch: "feat", Message: "First line", Patch: patch, Files: []string{"new.txt"}}
+	if err := call(t, c, proto.MethodBranchCommit, params, &res); err != nil {
+		t.Fatal(err)
+	}
+	show := gitOut(t, wt, "show", "HEAD")
+	if !strings.Contains(show, "+FIRST") || strings.Contains(show, "+LAST") || !strings.Contains(show, "new.txt") {
+		t.Fatalf("committed:\n%s", show)
+	}
+	if st := gitOut(t, wt, "status", "--porcelain"); st != "M f.txt" {
+		t.Fatalf("status %q", st)
+	}
+
+	// The same patch again: refused, and nothing is committed.
+	head := gitOut(t, wt, "rev-parse", "HEAD")
+	wantErr(t, call(t, c, proto.MethodBranchCommit, params, nil), "changed since the diff was read")
+	if gitOut(t, wt, "rev-parse", "HEAD") != head {
+		t.Fatal("a stale patch committed")
+	}
+	big := proto.BranchCommitParams{ProjectID: id, Branch: "feat", Message: "m", Patch: strings.Repeat("x", 5<<20)}
+	wantErr(t, call(t, c, proto.MethodBranchCommit, big, nil), "patch is too large")
 }

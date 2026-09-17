@@ -37,9 +37,21 @@ func submitDialog(t *testing.T, m *Model) []tea.Msg {
 	return a2Run(cmd)
 }
 
-func lastParams[T any](t *testing.T, peer *a1Peer, method string) T {
+// lastParams decodes the newest message of method, waiting for one whose
+// raw params contain each of want.
+func lastParams[T any](t *testing.T, peer *a1Peer, method string, want ...string) T {
 	t.Helper()
-	msg := peer.waitMethod(t, method, "")
+	msg := peer.waitFor(t, method+" "+strings.Join(want, " "), func(m proto.Message) bool {
+		if m.Method != method {
+			return false
+		}
+		for _, w := range want {
+			if !strings.Contains(string(m.Params), w) {
+				return false
+			}
+		}
+		return true
+	})
 	var p T
 	if err := json.Unmarshal(msg.Params, &p); err != nil {
 		t.Fatal(err)
@@ -49,7 +61,7 @@ func lastParams[T any](t *testing.T, peer *a1Peer, method string) T {
 
 func TestHarvestNeedsAGitBranchAndANewServer(t *testing.T) {
 	old, _ := harvestModel(t, "project.v1")
-	if old.openCommit(feat, nil) != nil || old.overlay != nil || !strings.Contains(old.flash, "predates") {
+	if old.openCommit(feat, commitSelection{}) != nil || old.overlay != nil || !strings.Contains(old.flash, "predates") {
 		t.Fatalf("old server: overlay %T flash %q", old.overlay, old.flash)
 	}
 	if items := harvestMenuItems(*old, row{kind: kindBranch, machine: localMachine, projectID: "r1", branch: "feat"}); items != nil {
@@ -83,19 +95,19 @@ func TestHarvestNeedsAGitBranchAndANewServer(t *testing.T) {
 		}
 	}
 	// Committing and pushing the base are fine.
-	if m.openCommit(main, nil); m.overlay == nil {
+	if m.openCommit(main, commitSelection{}); m.overlay == nil {
 		t.Fatalf("commit on main: %q", m.flash)
 	}
 }
 
 func TestHarvestCommit(t *testing.T) {
 	m, peer := harvestModel(t, harvestCapability)
-	m.openCommit(harvestTarget{machine: localMachine, projectID: "r1", branch: "loose"}, nil)
+	m.openCommit(harvestTarget{machine: localMachine, projectID: "r1", branch: "loose"}, commitSelection{})
 	if m.overlay != nil || !strings.Contains(m.flash, "not checked out") {
 		t.Fatalf("branch without a checkout: %q", m.flash)
 	}
 
-	m.openCommit(feat, nil)
+	m.openCommit(feat, commitSelection{})
 	d := m.overlay.(*dialog)
 	if text := strings.Join(d.text, " "); !strings.Contains(text, "every change in /src/api-feat") {
 		t.Fatalf("commit-all text %q", text)
@@ -104,7 +116,7 @@ func TestHarvestCommit(t *testing.T) {
 		t.Fatalf("empty message: %v", msgs)
 	}
 
-	m.openCommit(feat, []string{"a.go", "old.go", "new.go", "b.go", "c.go"})
+	m.openCommit(feat, commitSelection{files: []string{"a.go", "old.go", "new.go", "b.go", "c.go"}})
 	d = m.overlay.(*dialog)
 	if text := strings.Join(d.text, " "); !strings.Contains(text, "the 5 files marked in /src/api-feat: a.go, old.go, new.go, b.go and 1 more") {
 		t.Fatalf("marked text %q", text)
@@ -123,7 +135,7 @@ func TestHarvestCommit(t *testing.T) {
 
 	// A server error reaches the status bar.
 	peer.setError(proto.MethodBranchCommit, "nothing to commit")
-	m.openCommit(feat, nil)
+	m.openCommit(feat, commitSelection{})
 	a2Type(m, m.overlay.(*dialog), "x")
 	if msgs := submitDialog(t, m); !strings.Contains(a2ErrText(msgs), "nothing to commit") {
 		t.Fatalf("server error: %v", msgs)

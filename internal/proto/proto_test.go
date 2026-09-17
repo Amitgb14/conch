@@ -154,7 +154,7 @@ func TestA3PayloadRoundTrips(t *testing.T) {
 		Reasons: []string{"merged into main"}, Suggested: true}}})
 	a3RoundTrip(t, WorktreeCleanupParams{ProjectID: "p", Remove: []CleanupWorktree{{Path: "/w", Force: true}}})
 	a3RoundTrip(t, WorktreeCleanupResult{Removed: []string{"/w"}, Failed: []CleanupFailure{{Path: "/x", Error: "locked"}}})
-	a3RoundTrip(t, BranchCommitParams{ProjectID: "p", Branch: "b", Message: "m", Files: []string{"a", "b"}})
+	a3RoundTrip(t, BranchCommitParams{ProjectID: "p", Branch: "b", Message: "m", Files: []string{"a", "b"}, Patch: "@@ -1 +1 @@\n-a\n+b\n"})
 	a3RoundTrip(t, CommitResult{Hash: "h", Into: "main"})
 	a3RoundTrip(t, BranchPRParams{ProjectID: "p", Branch: "b", Title: "t", Body: "d", Draft: true})
 	a3RoundTrip(t, BranchPRResult{URL: "https://example.invalid/pr/1"})

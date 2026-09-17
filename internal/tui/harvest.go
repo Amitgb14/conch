@@ -17,6 +17,7 @@ import (
 
 const (
 	harvestCapability = "branch.harvest.v1"
+	hunksCapability   = "branch.hunks.v1"
 	// harvestTimeout covers pushes and gh, which reach the network; the
 	// server gives up after two minutes.
 	harvestTimeout = 150 * time.Second
@@ -89,7 +90,7 @@ func (m *Model) receiveHarvest(msg harvestDoneMsg) tea.Cmd {
 				continue
 			}
 			if msg.committed {
-				cv.marked = nil
+				cv.clearMarks()
 			}
 			cmds = append(cmds, cv.poll(m))
 		}
@@ -97,9 +98,9 @@ func (m *Model) receiveHarvest(msg harvestDoneMsg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// openCommit asks for a message and commits every change on the branch, or
-// only files.
-func (m *Model) openCommit(t harvestTarget, files []string) tea.Cmd {
+// openCommit asks for a message and commits what sel holds: every change,
+// the marked files, or the marked hunks.
+func (m *Model) openCommit(t harvestTarget, sel commitSelection) tea.Cmd {
 	proj := m.harvestProject(t, true)
 	if proj == nil {
 		return nil
@@ -114,10 +115,21 @@ func (m *Model) openCommit(t harvestTarget, files []string) tea.Cmd {
 		m.setFlash(t.branch+" is not checked out, so it has nothing to commit", true)
 		return nil
 	}
+	if sel.patch != "" && !m.hasCapability(t.machine, hunksCapability) {
+		m.setFlash("the server there predates committing single hunks; mark whole files instead", true)
+		return nil
+	}
 	text := "Commits every change" + where + ", untracked files included."
-	if len(files) > 0 {
+	switch {
+	case sel.patch != "" && len(sel.files) > 0:
+		text = fmt.Sprintf("Commits the %s marked in %s, and %s%s: %s. Anything already staged is committed too.",
+			counted(sel.hunks, "hunk"), counted(sel.inned, "file"), counted(len(sel.files), "whole file"), where, listSome(sel.files, 3))
+	case sel.patch != "":
+		text = fmt.Sprintf("Commits the %s marked in %s%s. The rest of the changes, and the files themselves, stay as they are.",
+			counted(sel.hunks, "hunk"), counted(sel.inned, "file"), where)
+	case len(sel.files) > 0:
 		text = fmt.Sprintf("Commits the %s marked%s: %s. Other changes stay as they are.",
-			counted(len(files), "file"), where, listSome(files, 4))
+			counted(len(sel.files), "file"), where, listSome(sel.files, 4))
 	}
 	d := newDialog(*m, " Commit · "+t.branch+" ", []string{text}, []string{"Message"}, nil)
 	d.fields[0].in.Placeholder = "what the change does"
@@ -127,7 +139,8 @@ func (m *Model) openCommit(t harvestTarget, files []string) tea.Cmd {
 			return func() tea.Msg { return errMsg{errString("a commit needs a message")} }
 		}
 		var res proto.CommitResult
-		params := proto.BranchCommitParams{ProjectID: t.projectID, Branch: t.branch, Message: msg, Files: files}
+		params := proto.BranchCommitParams{ProjectID: t.projectID, Branch: t.branch, Message: msg,
+			Files: sel.files, Patch: sel.patch}
 		m.setFlash("committing…", false)
 		return m.harvestCall(t, proto.MethodBranchCommit, params, &res, func() harvestDoneMsg {
 			return harvestDoneMsg{text: "committed " + shortHash(res.Hash) + " on " + t.branch, committed: true}
@@ -281,7 +294,7 @@ func harvestMenuItems(m Model, r row) []menuItem {
 	var items []menuItem
 	for _, wt := range proj.Worktrees {
 		if wt.Branch == r.branch && !wt.Status.Clean() {
-			items = append(items, menuItem{"C", "Commit all changes…", func(m *Model) tea.Cmd { return m.openCommit(t, nil) }})
+			items = append(items, menuItem{"C", "Commit all changes…", func(m *Model) tea.Cmd { return m.openCommit(t, commitSelection{}) }})
 		}
 	}
 	items = append(items, menuItem{"P", "Push", func(m *Model) tea.Cmd { return m.pushBranch(t) }})

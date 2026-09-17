@@ -3,6 +3,7 @@ package gitx
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -415,5 +416,134 @@ func TestUnreachable(t *testing.T) {
 	}
 	if n := Unreachable(ctx, t.TempDir()); n != 0 {
 		t.Fatalf("not a repository: %d", n)
+	}
+}
+
+// hunks splits a file's diff into its header and its hunks.
+func hunks(t *testing.T, diff string) (header string, out []string) {
+	t.Helper()
+	lines := strings.SplitAfter(diff, "\n")
+	cur := -1
+	for _, l := range lines {
+		switch {
+		case strings.HasPrefix(l, "@@"):
+			out = append(out, l)
+			cur++
+		case cur < 0:
+			header += l
+		default:
+			out[cur] += l
+		}
+	}
+	if len(out) == 0 {
+		t.Fatalf("no hunks in:\n%s", diff)
+	}
+	return header, out
+}
+
+func TestCommitPatchChanges(t *testing.T) {
+	_, wt := taskRepo(t)
+	lines := ""
+	for i := 1; i <= 30; i++ {
+		lines += fmt.Sprintf("line %d\n", i)
+	}
+	commit(t, wt, "f.txt", lines, "add f")
+	edited := strings.Replace(lines, "line 1\n", "FIRST\n", 1)
+	edited = strings.Replace(edited, "line 30\n", "LAST\n", 1)
+	write(t, wt, "f.txt", edited)
+	write(t, wt, "other.txt", "other\n") // untracked, must stay out
+
+	diff, err := Diff(ctx, wt, "f.txt", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, hs := hunks(t, diff)
+	if len(hs) != 2 {
+		t.Fatalf("want two hunks, got %d:\n%s", len(hs), diff)
+	}
+
+	if _, err := CommitPatchChanges(ctx, wt, "", header+hs[0], nil); err == nil {
+		t.Fatal("no message")
+	}
+	if _, err := CommitPatchChanges(ctx, wt, "m", "  ", nil); err == nil {
+		t.Fatal("empty patch")
+	}
+
+	// Only the first hunk is committed; the rest stays in the worktree.
+	hash, err := CommitPatchChanges(ctx, wt, "First line only", header+hs[0], nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash != git(t, wt, "rev-parse", "HEAD") {
+		t.Fatalf("hash %q", hash)
+	}
+	committed := git(t, wt, "show", "HEAD:f.txt")
+	if !strings.Contains(committed, "FIRST") || strings.Contains(committed, "LAST") {
+		t.Fatalf("committed the wrong hunk:\n%s", committed)
+	}
+	if got, _ := os.ReadFile(filepath.Join(wt, "f.txt")); string(got) != edited {
+		t.Fatal("the worktree file changed")
+	}
+	if st := git(t, wt, "status", "--porcelain"); !strings.Contains(st, "M f.txt") || !strings.Contains(st, "?? other.txt") {
+		t.Fatalf("status after a partial commit: %q", st)
+	}
+
+	// The same patch no longer applies: the line it changed is committed.
+	if _, err := CommitPatchChanges(ctx, wt, "again", header+hs[0], nil); !errors.Is(err, ErrPatchStale) {
+		t.Fatalf("stale patch: %v", err)
+	}
+	if git(t, wt, "log", "-1", "--format=%s") != "First line only" {
+		t.Fatal("a stale patch committed something")
+	}
+
+	// A patch plus whole files, and what is already staged, go together.
+	write(t, wt, "staged.txt", "staged\n")
+	git(t, wt, "add", "staged.txt")
+	diff, _ = Diff(ctx, wt, "f.txt", "")
+	header, hs = hunks(t, diff)
+	if _, err := CommitPatchChanges(ctx, wt, "The rest", header+hs[len(hs)-1], []string{"other.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	names := git(t, wt, "show", "--name-only", "--format=", "HEAD")
+	for _, want := range []string{"f.txt", "other.txt", "staged.txt"} {
+		if !strings.Contains(names, want) {
+			t.Fatalf("commit lacks %s:\n%s", want, names)
+		}
+	}
+	if st := git(t, wt, "status", "--porcelain"); st != "" {
+		t.Fatalf("left behind: %q", st)
+	}
+}
+
+func TestCommitPatchFailures(t *testing.T) {
+	_, wt := taskRepo(t)
+	commit(t, wt, "f.txt", "one\n", "add f")
+	write(t, wt, "f.txt", "two\n")
+	diff, _ := Diff(ctx, wt, "f.txt", "")
+
+	// A patch that applies but leaves nothing to commit (already committed).
+	git(t, wt, "commit", "-q", "-am", "same change")
+	if _, err := CommitPatchChanges(ctx, wt, "m", diff, nil); !errors.Is(err, ErrPatchStale) {
+		t.Fatalf("applied to a file that moved on: %v", err)
+	}
+	// Nonsense that git apply refuses outright.
+	if _, err := CommitPatchChanges(ctx, wt, "m", "not a patch at all\n", nil); err == nil || errors.Is(err, ErrPatchStale) {
+		t.Fatalf("garbage patch: %v", err)
+	}
+	// A hook that refuses leaves HEAD alone.
+	hook := filepath.Join(wt, "..", "repo", ".git", "hooks", "pre-commit")
+	if root, err := Discover(ctx, wt); err == nil {
+		hook = filepath.Join(root.CommonDir, "hooks", "pre-commit")
+	}
+	os.MkdirAll(filepath.Dir(hook), 0o755)
+	os.WriteFile(hook, []byte("#!/bin/sh\necho refused >&2\nexit 1\n"), 0o755)
+	write(t, wt, "f.txt", "three\n")
+	diff, _ = Diff(ctx, wt, "f.txt", "")
+	before := git(t, wt, "rev-parse", "HEAD")
+	if _, err := CommitPatchChanges(ctx, wt, "m", diff, nil); err == nil || !strings.Contains(err.Error(), "refused") {
+		t.Fatalf("hook: %v", err)
+	}
+	if git(t, wt, "rev-parse", "HEAD") != before {
+		t.Fatal("a refused commit moved HEAD")
 	}
 }
