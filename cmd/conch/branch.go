@@ -53,6 +53,9 @@ func (bf *branchFlags) open(args []string) (*client.Client, string, string, erro
 	if err := bf.fs.Parse(args); err != nil {
 		return nil, "", "", err
 	}
+	if err := checkDir(*bf.cwd); err != nil {
+		return nil, "", "", err
+	}
 	c, err := connect(true)
 	if err != nil {
 		return nil, "", "", err
@@ -72,6 +75,19 @@ func (bf *branchFlags) open(args []string) (*client.Client, string, string, erro
 // place asks the server which project and checkout dir is in. The server
 // reads git, so a worktree made moments ago is already known and paths on
 // another machine resolve there, not here.
+// checkDir refuses a directory that cannot mean what it says on another
+// machine, before anything connects to it.
+func checkDir(dir string) error {
+	switch {
+	case !onRemoteMachine():
+		return nil
+	case dir == "":
+		// This computer's working directory names nothing over there.
+		return fmt.Errorf("conch -m %s needs -cwd: a directory in a project on %s", machineFlag, machineFlag)
+	}
+	return remoteDir(dir)
+}
+
 func place(c *client.Client, dir string) (proto.ProjectPlace, error) {
 	var out proto.ProjectPlace
 	if dir == "" {
@@ -100,10 +116,11 @@ func where(c *client.Client, dir, branch string) (projectID, name string, err er
 		return at.ProjectID, branch, nil
 	}
 	if at.Branch == "" {
-		if dir == "" {
-			dir, _ = os.Getwd()
+		where := dir
+		if where == "" {
+			where, _ = os.Getwd()
 		}
-		return "", "", fmt.Errorf("no branch is checked out in %s; name one with -branch", dir)
+		return "", "", fmt.Errorf("no branch is checked out in %s; name one with -branch", where)
 	}
 	return at.ProjectID, at.Branch, nil
 }
@@ -284,6 +301,9 @@ func runWorktree(args []string) error {
 func openWorktrees(fs *flag.FlagSet, cwd *string, args []string) (*client.Client, string, proto.WorktreeStale, error) {
 	var stale proto.WorktreeStale
 	if err := fs.Parse(args); err != nil {
+		return nil, "", stale, err
+	}
+	if err := checkDir(*cwd); err != nil {
 		return nil, "", stale, err
 	}
 	c, err := connect(true)

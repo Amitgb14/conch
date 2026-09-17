@@ -81,8 +81,10 @@ Host *
 		fmt.Fprintf(&b, "  IdentityFile %s\n", quoteConfig(key))
 	}
 
+	// Other conch processes may be running ssh -F on this file right now;
+	// replace it whole rather than truncating it under them.
 	path := filepath.Join(dir, "config")
-	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+	if err := writeFileAtomic(path, []byte(b.String())); err != nil {
 		return "", err
 	}
 	configOnce.path = path

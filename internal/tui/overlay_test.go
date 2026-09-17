@@ -313,8 +313,76 @@ func TestA2Confirm(t *testing.T) {
 	}
 	b := d.render(*m)
 	a2CheckBox(t, b, *m)
-	if out := a2Plain(b.lines); !strings.Contains(out, "y yes · n no") || !strings.Contains(out, "Really?") || !strings.Contains(out, "Confirm") {
+	if out := a2Plain(b.lines); !strings.Contains(out, "y  Yes") || !strings.Contains(out, "n  No") || !strings.Contains(out, "Really?") || !strings.Contains(out, "Confirm") {
 		t.Fatalf("confirm render:\n%s", out)
+	}
+}
+
+// A confirmation answered with the mouse: x to close asked yes or no, but
+// only keys worked. Its Yes and No are buttons now.
+func TestConfirmButtonsClick(t *testing.T) {
+	m := a2Model()
+	yes := 0
+	open := func() (*dialog, box) {
+		d := newConfirm("Close claude? Its process is stopped.", func(*Model) tea.Cmd { yes++; return nil })
+		m.overlay = d
+		return d, d.render(*m)
+	}
+	press := func(d *dialog, b box, x, y int) {
+		d.mouse(m, tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, b)
+	}
+	// Where each button's text is on screen.
+	find := func(b box, label string) (int, int) {
+		for i, l := range b.lines {
+			if col := strings.Index(ansi.Strip(l), label); col >= 0 {
+				return b.x + ansi.StringWidth(ansi.Strip(l)[:col]), b.y + i
+			}
+		}
+		t.Fatalf("no %q in:\n%s", label, a2Plain(b.lines))
+		return 0, 0
+	}
+
+	d, b := open()
+	x, y := find(b, "Yes")
+	press(d, b, x, y)
+	if yes != 1 || m.overlay != nil {
+		t.Fatalf("clicking Yes: yes %d open %v", yes, m.overlay != nil)
+	}
+
+	d, b = open()
+	x, y = find(b, "No")
+	press(d, b, x+1, y)
+	if yes != 1 || m.overlay != nil {
+		t.Fatalf("clicking No: yes %d open %v", yes, m.overlay != nil)
+	}
+
+	// Anywhere else inside answers nothing; outside cancels.
+	d, b = open()
+	qx, qy := find(b, "Close claude")
+	press(d, b, qx, qy)
+	_, by := find(b, "Yes")
+	press(d, b, b.x+b.width()-3, by) // the button row, past both buttons
+	if m.overlay != d || yes != 1 {
+		t.Fatal("a click off the buttons answered")
+	}
+	d.mouse(m, tea.MouseMsg{X: b.x + 2, Y: by, Button: tea.MouseButtonRight, Action: tea.MouseActionPress}, b)
+	d.mouse(m, tea.MouseMsg{X: b.x + 2, Y: by, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease}, b)
+	if m.overlay != d || yes != 1 {
+		t.Fatal("a right click or a release answered")
+	}
+	press(d, b, 0, 0)
+	if m.overlay != nil || yes != 1 {
+		t.Fatal("an outside click should cancel without confirming")
+	}
+
+	// The buttons fit and stay clickable on a narrow screen.
+	m.width = 32
+	d, b = open()
+	a2CheckBox(t, b, *m)
+	x, y = find(b, "Yes")
+	press(d, b, x, y)
+	if yes != 2 {
+		t.Fatal("Yes on a narrow screen")
 	}
 }
 

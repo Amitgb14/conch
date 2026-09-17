@@ -1,0 +1,8 @@
+# Devin for Terminal (Cognition's devin CLI). Copy to
+# ~/.config/conch/agents/devin.toml to override.
+# The CLI's screen strings aren't documented; rules are added once they are
+# read from the real CLI. Until then the pane is recognised as Devin by its
+# process, and its state is unknown rather than guessed.
+agent = "devin"
+process_names = ["devin"]
+screen_lines = 30

@@ -29,7 +29,7 @@ func TestA6RegistryGetLabelsInstall(t *testing.T) {
 	if _, ok := reg.Get("aider"); ok {
 		t.Fatal("unknown agent found")
 	}
-	labels := map[string]string{"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode"}
+	labels := map[string]string{"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "devin": "Devin"}
 	for name, label := range labels {
 		a, ok := reg.Get(name)
 		if !ok {
@@ -99,6 +99,8 @@ func TestA6ResumeAndPromptArgsEveryAgent(t *testing.T) {
 		"codex":    {"resume abc-123", "resume --last", `resume 'it'\''s'`, `'hello world'`},
 		"gemini":   {"--resume abc-123", "--resume latest", `--resume 'it'\''s'`, `'hello world'`},
 		"opencode": {"--session abc-123", "--continue", `--session 'it'\''s'`, `--prompt 'hello world'`},
+		// A first message follows --, so Devin doesn't read it as a subcommand.
+		"devin": {"-r abc-123", "-c", `-r 'it'\''s'`, `-- 'hello world'`},
 	}
 	for name, want := range cases {
 		a, _ := reg.Get(name)
@@ -317,5 +319,47 @@ func TestA6ShellQuoteAndCleanTitle(t *testing.T) {
 		if got := CleanTitle(in); got != want {
 			t.Errorf("CleanTitle(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// Devin for Terminal installs through conch like the other agents: its
+// official installer, run in a pane, puts devin in ~/.local/bin.
+func TestDevinAdapter(t *testing.T) {
+	reg, _ := a6Registry(t)
+	devin, ok := reg.Get("devin")
+	if !ok {
+		t.Fatal("devin missing from the registry")
+	}
+	script := devin.InstallScript()
+	for _, want := range []string{"https://cli.devin.ai/install.sh", "| bash", "wget -qO-", `$HOME/.local/bin/devin" --version`, "devin auth login"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("install script lacks %q:\n%s", want, script)
+		}
+	}
+	if devin.Env() != nil {
+		t.Fatalf("devin injects env: %v", devin.Env())
+	}
+	// The binary is found in ~/.local/bin even from a shell started before
+	// the install, and a task's first message is passed after --.
+	cmd := devin.Command("/bin/zsh", devin.PromptArgs("fix the failing test"))
+	if len(cmd) != 3 || cmd[1] != "-lc" || cmd[2] != `PATH="$HOME/.local/bin:$PATH"; exec devin -- 'fix the failing test'` {
+		t.Fatalf("devin command: %q", cmd)
+	}
+	if cmd := devin.Command("sh", devin.ResumeArgs("brisk-otter")); cmd[2] != `PATH="$HOME/.local/bin:$PATH"; exec devin -r brisk-otter` {
+		t.Fatalf("devin resume: %q", cmd)
+	}
+	// Not installed in an empty home: offered for install, not launched.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", "/usr/bin:/bin")
+	if av := devin.Detect(context.Background(), "/bin/sh"); av.Installed {
+		t.Fatalf("devin found in an empty home: %+v", av)
+	}
+	// Installed: the version comes from devin --version.
+	bin := filepath.Join(os.Getenv("HOME"), ".local", "bin")
+	os.MkdirAll(bin, 0o755)
+	os.WriteFile(filepath.Join(bin, "devin"), []byte("#!/bin/sh\necho 'devin 3000.10.21'\n"), 0o755)
+	av := devin.Detect(context.Background(), "/bin/sh")
+	if !av.Installed || av.Version != "3000.10.21" || !strings.HasSuffix(av.Path, "/.local/bin/devin") {
+		t.Fatalf("installed devin: %+v", av)
 	}
 }

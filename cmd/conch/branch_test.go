@@ -315,3 +315,26 @@ func TestA4WorktreeNothingToList(t *testing.T) {
 		t.Fatalf("empty clean: %q %v", out, err)
 	}
 }
+
+func TestA4BranchOnAnotherMachine(t *testing.T) {
+	_, wt, _ := a4Harvest(t)
+	t.Chdir(wt)
+	old := machineFlag
+	machineFlag = "devbox"
+	t.Cleanup(func() { machineFlag = old })
+
+	// This computer's directory means nothing there.
+	for _, args := range [][]string{{"push"}, {"commit", "-m", "x"}} {
+		_, _, err := a4Out(t, func() error { return runBranch(args) })
+		if err == nil || !strings.Contains(err.Error(), "needs -cwd") {
+			t.Fatalf("branch %v without -cwd: %v", args, err)
+		}
+	}
+	if _, _, err := a4Out(t, func() error { return runWorktree([]string{"ls"}) }); err == nil || !strings.Contains(err.Error(), "needs -cwd") {
+		t.Fatalf("worktree ls without -cwd: %v", err)
+	}
+	// A relative -cwd is refused rather than resolved here.
+	if _, _, err := a4Out(t, func() error { return runBranch([]string{"push", "-cwd", "src/api"}) }); err == nil || !strings.Contains(err.Error(), "absolute path") {
+		t.Fatalf("relative -cwd: %v", err)
+	}
+}

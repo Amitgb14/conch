@@ -38,7 +38,7 @@ Usage:
   conch server reload           run a new conch build without stopping panes
   conch status                  show server and pane status
   conch new [-cwd DIR] [-name N] -- CMD [ARGS...]
-                                start a pane
+                                start a pane (with -m, default: that machine's home)
   conch send ID TEXT            type TEXT into a pane (-keys to send key names)
   conch read ID                 print a pane's visible screen
   conch close ID                close a pane
@@ -51,9 +51,10 @@ Usage:
   conch project add PATH | create [-no-git] PATH | ls | rm ID
                                 manage projects shown in the sidebar
   conch task [-cwd DIR] [-branch B] [-base B] PROMPT
-                                new branch + worktree + Claude with PROMPT
+                                new branch + worktree + Claude with PROMPT (-cwd needed with -m)
   conch branch commit [-file PATH]... -m MESSAGE
-                                commit a task branch's changes (-cwd, -branch pick it)
+                                commit a task branch's changes (-cwd, -branch pick it;
+                                -cwd needed with -m)
   conch branch push | pr [-title T] [-draft] | merge [-no-squash] | discard [-force]
                                 finish a branch: push, open a pull request, merge into
                                 the base, or delete it and its worktree
@@ -283,13 +284,25 @@ func runNew(args []string) error {
 	} else if len(command) == 0 {
 		command = []string{config.DefaultShell(), "-l"}
 	}
-	dir := *cwd
-	if dir == "" {
-		dir, _ = os.Getwd()
-	}
-	dir, err := filepath.Abs(dir)
-	if err != nil {
-		return err
+	params := proto.PaneCreateParams{Name: *name, Agent: *agent, AgentArgs: agentArgs, Command: command, Cwd: *cwd, Cols: 120, Rows: 40}
+	switch {
+	case onRemoteMachine() && *cwd == "":
+		// The server starts it in that machine's home, as a machine-level
+		// pane, like the TUI's panes under the machine's CLI group.
+		params.NoProject = true
+	case onRemoteMachine():
+		if err := remoteDir(*cwd); err != nil {
+			return err
+		}
+	default:
+		if params.Cwd == "" {
+			params.Cwd, _ = os.Getwd()
+		}
+		dir, err := filepath.Abs(params.Cwd)
+		if err != nil {
+			return err
+		}
+		params.Cwd = dir
 	}
 	c, err := connect(true)
 	if err != nil {
@@ -297,9 +310,7 @@ func runNew(args []string) error {
 	}
 	defer c.Close()
 	var info proto.PaneInfo
-	if err := call(c, proto.MethodPaneCreate, proto.PaneCreateParams{
-		Name: *name, Agent: *agent, AgentArgs: agentArgs, Command: command, Cwd: dir, Cols: 120, Rows: 40,
-	}, &info); err != nil {
+	if err := call(c, proto.MethodPaneCreate, params, &info); err != nil {
 		return err
 	}
 	fmt.Println(info.ID)

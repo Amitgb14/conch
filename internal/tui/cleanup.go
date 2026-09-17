@@ -258,10 +258,19 @@ func (c *cleanupConfirm) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 }
 
 func (c *cleanupConfirm) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
-	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && !b.contains(msg.X, msg.Y) {
-		m.overlay = c.back
+	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+		return nil
 	}
-	return nil
+	if !b.contains(msg.X, msg.Y) {
+		m.overlay = c.back // back to the list, with its ticks
+		return nil
+	}
+	// No goes back to the list, as n does; Yes removes them, as y does.
+	if x := msg.X - b.x - 1; msg.Y == b.y+1+c.buttons.line && x >= c.buttons.no0 && x < c.buttons.no1 {
+		_, cmd := c.update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+		return cmd
+	}
+	return c.dialog.mouse(m, msg, b)
 }
 
 // worktreeNote is a worktree's right-hand detail: what blocks it, what it loses, or

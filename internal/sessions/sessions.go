@@ -66,7 +66,7 @@ func List(e Env, dirs []string, limit int) []Session {
 	var out []Session
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for _, find := range []func(Env, []string) []Session{claude, codex, gemini, opencode} {
+	for _, find := range []func(Env, []string) []Session{claude, codex, gemini, opencode, devin} {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -180,6 +180,20 @@ func realPrompt(s string) bool {
 // Delete removes a saved session: files move to trashDir (so a mistake can
 // be undone), OpenCode's database entries are deleted through its CLI.
 func Delete(ctx context.Context, e Env, s Session, trashDir string) error {
+	if s.Agent == "devin" {
+		// Devin keeps sessions in its own database; its CLI removes them.
+		bin := devinBinary(e)
+		if bin == "" {
+			return fmt.Errorf("deleting a Devin session needs the devin command")
+		}
+		cmd := exec.CommandContext(ctx, bin, "rm", "--force", s.ID)
+		cmd.Dir = s.Dir
+		cmd.Env = append(os.Environ(), "HOME="+e.Home)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("devin rm: %v: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
 	if s.Path == "" {
 		return fmt.Errorf("no file for this %s session", s.Agent)
 	}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
@@ -61,16 +62,63 @@ func saveMachines(ms []Machine) error {
 	if err := os.MkdirAll(config.Dir(), 0o700); err != nil {
 		return err
 	}
-	tmp := catalogPath() + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+	return writeFileAtomic(catalogPath(), append(b, '\n'))
+}
+
+// writeFileAtomic replaces path with data through a uniquely named temp file
+// in the same directory, so readers in other processes never see it empty or
+// half written, and concurrent writers never rename each other's file away.
+// The file is created 0600.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, catalogPath())
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
+// lockCatalog takes an exclusive lock shared by every conch process using
+// this CONCH_HOME (the TUI, scripts, `conch machine add` in another
+// terminal), so a read-modify-write of machines.json can't lose another
+// process's change. The returned func releases it.
+func lockCatalog() (func(), error) {
+	if err := os.MkdirAll(config.Dir(), 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(catalogPath()+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		if !errors.Is(err, syscall.EINTR) {
+			break
+		}
+	}
+	if err != nil {
+		f.Close()
+		return nil, fmt.Errorf("lock %s: %w", f.Name(), err)
+	}
+	// Closing the file drops the lock.
+	return func() { f.Close() }, nil
 }
 
 // SaveMachine adds m (or updates the machine with the same target) and
 // returns it with its ID filled in.
 func SaveMachine(m Machine) (Machine, error) {
+	unlock, err := lockCatalog()
+	if err != nil {
+		return m, err
+	}
+	defer unlock()
 	ms, err := Machines()
 	if err != nil {
 		return m, err
@@ -100,6 +148,11 @@ func RenameMachine(ref, label string) (Machine, error) {
 	if label == "" {
 		return Machine{}, errors.New("a machine needs a label")
 	}
+	unlock, err := lockCatalog()
+	if err != nil {
+		return Machine{}, err
+	}
+	defer unlock()
 	ms, err := Machines()
 	if err != nil {
 		return Machine{}, err
@@ -121,6 +174,11 @@ func RenameMachine(ref, label string) (Machine, error) {
 
 // RemoveMachine forgets a machine by ID or label.
 func RemoveMachine(ref string) error {
+	unlock, err := lockCatalog()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	ms, err := Machines()
 	if err != nil {
 		return err

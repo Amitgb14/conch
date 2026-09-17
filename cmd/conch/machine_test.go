@@ -430,3 +430,108 @@ func TestA4DashMMachine(t *testing.T) {
 	}
 	c.Close()
 }
+
+// conch -m MACHINE new without -cwd used to send this computer's working
+// directory, which the remote server refused ("directory … does not
+// exist"). It now leaves the directory to the server: that machine's home,
+// as a machine-level pane. conch task needs a real directory there.
+func TestA4DashMCwd(t *testing.T) {
+	a4Env(t)
+	f := newA4SSH(t)
+	f.setProbe(t, a4CurrentProbe())
+	remoteSrv := startA4Server(t, "")
+	remoteSrv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodPaneCreate:
+			return proto.PaneInfo{ID: "r3"}, nil
+		case proto.MethodProjectAdd:
+			return proto.ProjectInfo{ID: "rproj"}, nil
+		case proto.MethodTaskCreate:
+			return proto.PaneInfo{ID: "r4", Cwd: "/home/dev/src/api-wt", Branch: "go"}, nil
+		}
+		return nil, nil
+	})
+	t.Setenv("A4_BRIDGE_SOCK", remoteSrv.sock)
+	remote.SaveMachine(remote.Machine{Target: "dev@gpu.lab", Label: "gpu"})
+	t.Chdir(t.TempDir()) // a directory only this computer has
+	machineFlag = "gpu"
+
+	newCreate := func(args ...string) (proto.PaneCreateParams, string, error) {
+		t.Helper()
+		var err error
+		out, _ := a4Capture(t, "", func() { err = runNew(args) })
+		var create proto.PaneCreateParams
+		if err == nil {
+			remoteSrv.params(t, proto.MethodPaneCreate, &create)
+		}
+		return create, out, err
+	}
+
+	// No -cwd: no directory sent, and no project made of the remote home.
+	create, out, err := newCreate("--", "make", "test")
+	if err != nil || out != "r3\n" || create.Cwd != "" || !create.NoProject || strings.Join(create.Command, " ") != "make test" {
+		t.Fatalf("remote new: %q %+v %v", out, create, err)
+	}
+	// An agent too, and the default shell.
+	create, _, err = newCreate("-agent", "claude")
+	if err != nil || create.Cwd != "" || !create.NoProject || create.Agent != "claude" {
+		t.Fatalf("remote agent: %+v %v", create, err)
+	}
+	create, _, err = newCreate()
+	if err != nil || create.Cwd != "" || !create.NoProject || strings.Join(create.Command, " ") != "/bin/sh -l" {
+		t.Fatalf("remote shell: %+v %v", create, err)
+	}
+
+	// An absolute -cwd is sent as given (not resolved here), in its project.
+	create, _, err = newCreate("-cwd", "/home/dev/src/../src/api", "--", "true")
+	if err != nil || create.Cwd != "/home/dev/src/../src/api" || create.NoProject {
+		t.Fatalf("remote -cwd: %+v %v", create, err)
+	}
+	// A relative one would be resolved against this computer: refused
+	// before connecting.
+	remoteSrv.mu.Lock()
+	calls := len(remoteSrv.calls)
+	remoteSrv.mu.Unlock()
+	for _, rel := range []string{".", "src/api", "~/src/api"} {
+		if _, _, err := newCreate("-cwd", rel); err == nil || !strings.Contains(err.Error(), "absolute path on gpu") {
+			t.Fatalf("relative -cwd %q: %v", rel, err)
+		}
+		if err := runTask([]string{"-cwd", rel, "go"}); err == nil || !strings.Contains(err.Error(), "absolute path on gpu") {
+			t.Fatalf("task relative -cwd %q: %v", rel, err)
+		}
+	}
+
+	// task: no project here to guess from.
+	if err := runTask([]string{"go"}); err == nil || !strings.Contains(err.Error(), "conch -m gpu task needs -cwd") {
+		t.Fatalf("remote task without -cwd: %v", err)
+	}
+	remoteSrv.mu.Lock()
+	sent := remoteSrv.calls[calls:]
+	remoteSrv.mu.Unlock()
+	for _, c := range sent {
+		if c.Method == proto.MethodPaneCreate || c.Method == proto.MethodProjectAdd || c.Method == proto.MethodTaskCreate {
+			t.Fatalf("refused command still sent %s", c.Method)
+		}
+	}
+	var tout string
+	tout, _ = a4Capture(t, "", func() { err = runTask([]string{"-cwd", "/home/dev/src/api", "go"}) })
+	var add proto.ProjectAddParams
+	remoteSrv.params(t, proto.MethodProjectAdd, &add)
+	if err != nil || add.Path != "/home/dev/src/api" || !strings.Contains(tout, "r4") {
+		t.Fatalf("remote task: %q %+v %v", tout, add, err)
+	}
+
+	// -m local keeps this computer's directory.
+	machineFlag = "local"
+	localSrv := startA4Server(t, config.SocketPath())
+	localSrv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		return proto.PaneInfo{ID: "p1"}, nil
+	})
+	wd, _ := os.Getwd()
+	a4Capture(t, "", func() { err = runNew([]string{"--", "true"}) })
+	create = proto.PaneCreateParams{}
+	localSrv.params(t, proto.MethodPaneCreate, &create)
+	if err != nil || create.Cwd != wd || create.NoProject {
+		t.Fatalf("local new: %+v %v", create, err)
+	}
+}

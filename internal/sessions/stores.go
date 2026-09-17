@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -393,4 +394,101 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// ---- Devin for Terminal ----
+
+// devinTimeout bounds one `devin list`, which reads Devin's local session
+// database.
+const devinTimeout = 10 * time.Second
+
+// devinBinary is the devin command: where its installer puts it, else PATH.
+func devinBinary(e Env) string {
+	if p := filepath.Join(e.Home, ".local", "bin", "devin"); isExecutable(p) {
+		return p
+	}
+	// PATH from the environment the store was given, not this process's,
+	// so tests with a scratch environment never reach a real devin.
+	for _, d := range filepath.SplitList(e.get("PATH")) {
+		if p := filepath.Join(d, "devin"); d != "" && isExecutable(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+func isExecutable(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir() && st.Mode()&0o111 != 0
+}
+
+// devin lists Devin for Terminal's sessions. Devin keeps them in a local
+// database whose layout isn't documented, so conch asks the CLI, which lists
+// the sessions of the folder it runs in: `devin list --format json` in each
+// of dirs.
+func devin(e Env, dirs []string) []Session {
+	bin := devinBinary(e)
+	if bin == "" {
+		return nil
+	}
+	// One `devin list` takes a few hundred milliseconds, and a project has a
+	// folder per worktree: ask for them all at once.
+	lists := make([][]Session, len(dirs))
+	var wg sync.WaitGroup
+	for i, dir := range dirs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			lists[i] = devinList(e, bin, dir)
+		}()
+	}
+	wg.Wait()
+	seen := map[string]bool{}
+	var out []Session
+	for _, list := range lists {
+		for _, s := range list {
+			if seen[s.ID] || !withinAny(s.Dir, dirs) {
+				continue
+			}
+			seen[s.ID] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func devinList(e Env, bin, dir string) []Session {
+	ctx, cancel := context.WithTimeout(context.Background(), devinTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "list", "--format", "json")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "HOME="+e.Home)
+	cmd.WaitDelay = time.Second
+	b, err := cmd.Output()
+	if err != nil {
+		return nil // not signed in, an older devin, or a missing folder
+	}
+	var rows []struct {
+		ID    string `json:"id"`
+		Dir   string `json:"working_directory"`
+		Last  int64  `json:"last_activity_at"`
+		Title string `json:"title"`
+	}
+	if json.Unmarshal(b, &rows) != nil {
+		return nil
+	}
+	var out []Session
+	for _, r := range rows {
+		if r.ID == "" || r.Dir == "" {
+			continue
+		}
+		updated := time.Unix(r.Last, 0)
+		if r.Last <= 0 || time.Since(updated) > maxAge {
+			continue
+		}
+		// Devin reports no start time; its path is the command that manages it.
+		out = append(out, Session{Agent: "devin", ID: r.ID, Dir: r.Dir, Title: title(r.Title),
+			Started: updated, Updated: updated, Path: bin})
+	}
+	return out
 }

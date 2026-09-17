@@ -245,10 +245,18 @@ func TestHarvestDiscard(t *testing.T) {
 	if closed, cmd := d.update(m, a2Key("enter")); closed || cmd != nil || m.overlay == nil {
 		t.Fatal("enter confirmed a discard")
 	}
-	if out := a2Plain(d.render(*m).lines); !strings.Contains(out, "y yes · n or esc no") {
+	rendered := d.render(*m)
+	if out := a2Plain(rendered.lines); !strings.Contains(out, "y or the button confirms; enter does not") {
 		t.Fatalf("hint:\n%s", out)
 	}
+	// Clicking Yes is as deliberate as pressing y, so it does discard.
 	peer.setResult(proto.MethodBranchDiscard, proto.BranchDiscardResult{Done: true})
+	click := tea.MouseMsg{X: rendered.x + 1 + d.buttons.yes0, Y: rendered.y + 1 + d.buttons.line,
+		Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+	if cmd := d.mouse(m, click, rendered); cmd == nil || m.overlay != nil {
+		t.Fatalf("clicking Yes: %T", m.overlay)
+	}
+	m.overlay = d
 	_, cmd := d.update(m, a2Key("y"))
 	if msgs := a2Run(cmd); msgs[0].(harvestDoneMsg).text != "discarded feat" {
 		t.Fatalf("discard: %v", msgs)

@@ -8,7 +8,7 @@ import (
 
 // Agent labels for handoff documents.
 var agentNames = map[string]string{
-	"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode",
+	"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "devin": "Devin",
 }
 
 // AgentName is an agent's display name.

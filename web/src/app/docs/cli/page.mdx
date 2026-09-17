@@ -55,7 +55,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | Command | Description |
 | --- | --- |
 | `conch status` (or `conch ls`) | show server and pane status: ID, name, state, agent, size, folder and command of each pane |
-| `conch new [-cwd DIR] [-name N] -- CMD [ARGS...]` | start a pane (default command: your shell) and print its ID |
+| `conch new [-cwd DIR] [-name N] -- CMD [ARGS...]` | start a pane (default command: your shell; default folder: the current one, or with `-m` that machine's home) and print its ID |
 | `conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]` | start Claude Code with state tracking |
 | `conch send [-keys] ID TEXT...` | type text into a pane; with `-keys`, the arguments are key names (e.g. `enter`, `ctrl+c`) |
 | `conch read ID` | print a pane's visible screen |
@@ -88,14 +88,14 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 
 | Flag | Default |
 | --- | --- |
-| `-cwd DIR` | a directory in the project; default: the current one |
+| `-cwd DIR` | a directory in the project; default: the current one. With `-m` it is required, as an absolute path on that machine |
 | `-branch B` | branch name; default: derived from the prompt |
 | `-base B` | branch to start from; default: the project's base |
 | `-agent NAME` | `claude`, `codex`, `gemini` or `opencode`; default: `[agents] default` |
 
 ### branch
 
-Finishing a task from a script, the same steps as the [changes view](/docs/tasks#finishing-a-task). Every command takes `-cwd DIR` (a directory in the project; default: the current one) and `-branch B`; without `-branch` conch uses the branch checked out in that directory.
+Finishing a task from a script, the same steps as the [changes view](/docs/tasks#finishing-a-task). Every command takes `-cwd DIR` (a directory in the project; default: the current one) and `-branch B`; without `-branch` conch uses the branch checked out in that directory. With `-m MACHINE`, `-cwd` is required and must be an absolute path on that machine.
 
 | Command | Description |
 | --- | --- |

@@ -94,7 +94,7 @@ export default function Home() {
                 <span className="text-muted-foreground">From one terminal.</span>
               </h1>
               <p className="mt-5 max-w-xl text-pretty text-muted-foreground sm:text-lg">
-                conch is a terminal orchestrator for Claude Code, Codex, Gemini CLI and OpenCode. A
+                conch is a terminal orchestrator for Claude Code, Codex, Gemini CLI, OpenCode and Devin. A
                 background server owns their terminals, and one tree shows every machine, project,
                 branch and agent — and which of them is waiting for you.
               </p>

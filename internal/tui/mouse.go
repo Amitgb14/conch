@@ -57,11 +57,26 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if !m.zoom && msg.X < m.sidebarW {
-		if press && left && msg.X == m.sidebarW-1 {
-			m.dragging = true
-			return m, nil
+	// The sidebar's right border and the main area's left border sit side
+	// by side, and people grab whichever they see: either starts a resize.
+	// The tab bar's row is left to the tabs.
+	if !m.zoom && press && left && (msg.X == m.sidebarW-1 || msg.X == m.sidebarW) && msg.Y > m.mainRect().y {
+		var cmd tea.Cmd
+		if msg.X == m.sidebarW {
+			// It is also that split's border, and a press on a pane's
+			// border focuses the pane: still true when it becomes a drag.
+			rects, _ := m.leafRects()
+			if id := m.leafAt(rects, msg.X, msg.Y); id != 0 && id != m.tab().focus {
+				cmd = m.focusLeaf(id)
+			}
+			if m.tab().focused().view.Kind == kindPane {
+				m.focus = focusMain
+			}
 		}
+		m.dragging = true
+		return m, cmd
+	}
+	if !m.zoom && msg.X < m.sidebarW {
 		return m.sidebarMouse(msg, press, left, wheel)
 	}
 

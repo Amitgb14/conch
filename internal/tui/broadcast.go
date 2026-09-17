@@ -459,10 +459,19 @@ func (c *broadcastConfirm) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 }
 
 func (c *broadcastConfirm) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
-	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && !b.contains(msg.X, msg.Y) {
-		m.overlay = c.back // back to the message, not lost
+	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+		return nil
 	}
-	return nil
+	if !b.contains(msg.X, msg.Y) {
+		m.overlay = c.back // back to the message, not lost
+		return nil
+	}
+	// No goes back to the message, as n does; Yes sends, as y does.
+	if x := msg.X - b.x - 1; msg.Y == b.y+1+c.buttons.line && x >= c.buttons.no0 && x < c.buttons.no1 {
+		_, cmd := c.update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+		return cmd
+	}
+	return c.dialog.mouse(m, msg, b)
 }
 
 type broadcastDoneMsg struct {
