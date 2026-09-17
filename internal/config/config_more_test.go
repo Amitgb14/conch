@@ -31,6 +31,7 @@ func TestA3Defaults(t *testing.T) {
 		Agents: AgentsCfg{Default: "claude"},
 		Brain:  BrainCfg{Provider: "claude"},
 		Update: UpdateCfg{CheckReleases: true},
+		Remote: RemoteCfg{UploadDrops: true, UploadMaxMB: 25},
 	}
 	if !reflect.DeepEqual(d, want) {
 		t.Fatalf("Default = %+v", d)
@@ -343,5 +344,41 @@ func TestA3QuietEdgeCases(t *testing.T) {
 		if got := n.Quiet(c.t); got != c.want {
 			t.Errorf("%q-%q at %s: %v, want %v", c.start, c.end, c.t.Format("15:04"), got, c.want)
 		}
+	}
+}
+
+// Files saved before [remote] existed upload drops by default; the table
+// can turn it off, and a nonsense limit falls back to the default.
+func TestRemoteUploadSettings(t *testing.T) {
+	_, conchHome := a3Isolate(t)
+	write := func(s string) Config {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(conchHome, "config.toml"), []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+	if cfg := write("[ui]\ntheme = \"nord\"\n"); !cfg.Remote.UploadDrops || cfg.Remote.UploadLimit() != 25<<20 {
+		t.Fatalf("old file: %+v", cfg.Remote)
+	}
+	if cfg := write("[remote]\nupload_drops = false\nupload_max_mb = 100\n"); cfg.Remote.UploadDrops || cfg.Remote.UploadLimit() != 100<<20 {
+		t.Fatalf("set: %+v", cfg.Remote)
+	}
+	for _, mb := range []int{0, -5} {
+		if got := (RemoteCfg{UploadMaxMB: mb}).UploadLimit(); got != DefaultUploadMaxMB<<20 {
+			t.Fatalf("%d MB: %d", mb, got)
+		}
+	}
+	cfg := Default()
+	cfg.Remote.UploadDrops = false
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Load(); got.Remote.UploadDrops || got.Remote.UploadMaxMB != 25 {
+		t.Fatalf("round trip: %+v", got.Remote)
 	}
 }

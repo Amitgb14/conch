@@ -435,6 +435,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case dropStepMsg:
+		return m, m.dropStep(msg)
+
 	case broadcastDoneMsg:
 		m.receiveBroadcast(msg)
 		return m, nil

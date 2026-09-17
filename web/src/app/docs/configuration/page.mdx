@@ -74,6 +74,10 @@ summaries = false
 
 [update]
 check_releases = true  # ask GitHub once a day for a newer release
+
+[remote]
+upload_drops = true    # upload files dropped on a remote pane and paste their paths there
+upload_max_mb = 25     # refuse larger files (the server takes at most 256)
 ```
 
 ### notify
@@ -93,6 +97,10 @@ The model behind `:` and agent summaries. `[brain]` also takes `base_url`, `api_
 ### update
 
 `check_releases` asks GitHub once a day whether a newer release exists (release builds only). See [Auto-update](/docs/installation#auto-update).
+
+### remote
+
+`upload_drops` uploads local files dropped (pasted as paths) on a remote machine's pane to that machine and pastes their paths there; `false` pastes the local paths unchanged. `upload_max_mb` is the largest file uploaded. See [Dropping files on a remote pane](/docs/remote-machines#dropping-files-on-a-remote-pane).
 
 <Callout type="note">
 

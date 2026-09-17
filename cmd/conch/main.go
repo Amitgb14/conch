@@ -56,6 +56,8 @@ Usage:
                                 add a remote machine (installs conch there)
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
   conch -m MACHINE COMMAND      run a command against a remote machine
+  conch -m MACHINE upload FILE...
+                                copy files to a machine's uploads folder and print their paths there
   conch ask [-y | -n] REQUEST   ask the brain; it proposes actions and runs them once you confirm
   conch update [VERSION]        replace this binary with the latest (or given) release
   conch version [--json]        print version
@@ -106,6 +108,8 @@ func main() {
 		err = runBridge()
 	case "update":
 		err = runUpdate(args)
+	case "upload":
+		err = runUpload(args)
 	case "ask":
 		err = runAsk(args)
 	case "version", "--version", "-v":

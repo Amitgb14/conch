@@ -311,6 +311,9 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.offset > 0 {
 			m.scrollPane(-m.offset) // typing returns to the live screen
 		}
+		if cmd, handled := m.dropFiles(r.machine, p.ID, k); handled {
+			return m, cmd // files dropped on a remote pane go there first
+		}
 		m.sendKey(r.machine, p.ID, k)
 		m.forwardSynced(r.machine, p.ID, k)
 		return m, nil

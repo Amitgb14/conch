@@ -218,6 +218,19 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				return saveConfig(m.cfg)
 			}})
 	}
+	r := &m.cfg.Remote
+	items = append(items, settingItem{}, settingItem{header: true, label: "Remote machines"},
+		settingItem{label: "Upload files dropped into remote panes", detail: "screenshots and other files", on: &r.UploadDrops,
+			run: func(m *Model) tea.Cmd {
+				m.cfg.Remote.UploadDrops = !m.cfg.Remote.UploadDrops
+				return saveConfig(m.cfg)
+			}},
+		settingItem{label: "Largest file to upload", detail: mbText(r.UploadLimit()) + " · enter changes",
+			run: func(m *Model) tea.Cmd {
+				m.cfg.Remote.UploadMaxMB = nextUploadLimit(m.cfg.Remote.UploadLimit())
+				return saveConfig(m.cfg)
+			}},
+	)
 	for _, mach := range m.machines {
 		mach := mach
 		state := ""
@@ -319,6 +332,20 @@ func (s *settings) brainItems(m *Model) []settingItem {
 		settingItem{label: styleMuted.Render("  Summaries send the agent's visible screen to the provider.")},
 	)
 	return items
+}
+
+// uploadLimits are the choices for the largest file dropped into a remote
+// pane, in MB. The server takes up to 256.
+var uploadLimits = []int{10, 25, 50, 100, 250}
+
+// nextUploadLimit is the choice after limit (bytes), wrapping around.
+func nextUploadLimit(limit int64) int {
+	for _, mb := range uploadLimits {
+		if int64(mb)<<20 > limit {
+			return mb
+		}
+	}
+	return uploadLimits[0]
 }
 
 // knownAgents lists agent names any connected machine reported, in order,
