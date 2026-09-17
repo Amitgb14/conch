@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1",
 }
 
 // Methods.
@@ -96,6 +96,9 @@ const (
 	MethodBranchPR      = "branch.pr"
 	MethodBranchMerge   = "branch.merge"
 	MethodBranchDiscard = "branch.discard"
+	// Leftover worktrees: list what each would lose, and remove them.
+	MethodWorktreeStale   = "worktree.stale"
+	MethodWorktreeCleanup = "worktree.cleanup"
 )
 
 // Events.
@@ -519,6 +522,59 @@ type BranchDiscardResult struct {
 	// Unmerged counts commits in neither the base nor the branch's upstream.
 	Unmerged int  `json:"unmerged,omitempty"`
 	Done     bool `json:"done,omitempty"`
+}
+
+// WorktreeStale lists a project's linked worktrees for cleaning up.
+type WorktreeStale struct {
+	Worktrees []StaleWorktree `json:"worktrees"`
+}
+
+// StaleWorktree is a linked worktree and what removing it would lose.
+type StaleWorktree struct {
+	Path    string `json:"path"`
+	Branch  string `json:"branch,omitempty"`  // "" when detached
+	Base    bool   `json:"base,omitempty"`    // the base branch, which cleanup keeps
+	Missing bool   `json:"missing,omitempty"` // its folder is gone
+	Locked  bool   `json:"locked,omitempty"`
+	Panes   bool   `json:"panes,omitempty"` // panes run in it
+	// Uncommitted and Unmerged are what removing it loses (see
+	// BranchDiscardResult); a detached worktree's commits are not counted.
+	Uncommitted int       `json:"uncommitted,omitempty"`
+	Unmerged    int       `json:"unmerged,omitempty"`
+	Merged      bool      `json:"merged,omitempty"` // the base has all of the branch
+	Gone        bool      `json:"gone,omitempty"`   // its upstream was deleted
+	PR          *PRInfo   `json:"pr,omitempty"`
+	Committed   time.Time `json:"committed,omitempty"` // the branch's last commit
+	// Reasons say why it looks finished ("merged", "folder gone");
+	// Suggested means it can go without losing anything.
+	Reasons   []string `json:"reasons,omitempty"`
+	Suggested bool     `json:"suggested,omitempty"`
+}
+
+// WorktreeCleanupParams removes linked worktrees, deleting their branches
+// (except the base) and pruning those whose folder is gone. Each is checked
+// again first: without Force, one that would lose work is skipped.
+type WorktreeCleanupParams struct {
+	ProjectID string            `json:"project_id"`
+	Remove    []CleanupWorktree `json:"remove"`
+}
+
+// CleanupWorktree is one worktree to remove.
+type CleanupWorktree struct {
+	Path  string `json:"path"`
+	Force bool   `json:"force,omitempty"`
+}
+
+// WorktreeCleanupResult says what cleanup removed and what it didn't.
+type WorktreeCleanupResult struct {
+	Removed []string         `json:"removed,omitempty"`
+	Failed  []CleanupFailure `json:"failed,omitempty"`
+}
+
+// CleanupFailure is a worktree cleanup left, and why.
+type CleanupFailure struct {
+	Path  string `json:"path"`
+	Error string `json:"error"`
 }
 
 // ProjectFilesParams sets a project's local file patterns; Reset restores

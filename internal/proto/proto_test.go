@@ -149,6 +149,11 @@ func TestA3PayloadRoundTrips(t *testing.T) {
 	a3RoundTrip(t, WorktreeFilesResult{Copied: []string{"a"}, Skipped: []string{".env (exists)"}})
 	a3RoundTrip(t, WorktreeRemoveParams{ProjectID: "p", Path: "/w"})
 	a3RoundTrip(t, BranchRef{ProjectID: "p", Branch: "b"})
+	a3RoundTrip(t, WorktreeStale{Worktrees: []StaleWorktree{{Path: "/w", Branch: "b", Base: true, Missing: true, Locked: true, Panes: true,
+		Uncommitted: 1, Unmerged: 2, Merged: true, Gone: true, PR: &PRInfo{Number: 1, State: "MERGED"}, Committed: now,
+		Reasons: []string{"merged into main"}, Suggested: true}}})
+	a3RoundTrip(t, WorktreeCleanupParams{ProjectID: "p", Remove: []CleanupWorktree{{Path: "/w", Force: true}}})
+	a3RoundTrip(t, WorktreeCleanupResult{Removed: []string{"/w"}, Failed: []CleanupFailure{{Path: "/x", Error: "locked"}}})
 	a3RoundTrip(t, BranchCommitParams{ProjectID: "p", Branch: "b", Message: "m", Files: []string{"a", "b"}})
 	a3RoundTrip(t, CommitResult{Hash: "h", Into: "main"})
 	a3RoundTrip(t, BranchPRParams{ProjectID: "p", Branch: "b", Title: "t", Body: "d", Draft: true})

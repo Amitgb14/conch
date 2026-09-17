@@ -196,17 +196,10 @@ func (pm *projectManager) discardBranch(dp proto.BranchDiscardParams) (proto.Bra
 			return res, proto.Errorf(proto.ErrBadRequest, "panes are still running in %s; close them first", wt.Path)
 		}
 		res.Worktree = wt.Path
-		files, err := gitx.StatusFiles(ctx, wt.Path)
-		if err != nil {
-			return res, proto.Errorf(proto.ErrBadRequest, "%v", err)
-		}
-		for _, f := range files {
-			res.Uncommitted = append(res.Uncommitted, f.Path)
-		}
 	}
-	res.Unmerged = gitx.Unmerged(ctx, p.root, dp.Branch, base)
-	if res.Unmerged > 0 && p.mergedPR(ctx, dp.Branch) {
-		res.Unmerged = 0
+	var err error
+	if res.Uncommitted, res.Unmerged, err = p.losses(ctx, base, dp.Branch, res.Worktree); err != nil {
+		return res, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	if dp.DryRun {
 		return res, nil
@@ -224,7 +217,7 @@ func (pm *projectManager) discardBranch(dp proto.BranchDiscardParams) (proto.Bra
 			return res, proto.Errorf(proto.ErrBadRequest, "%v", err)
 		}
 	}
-	err := gitx.DeleteBranch(ctx, p.root, dp.Branch)
+	err = gitx.DeleteBranch(ctx, p.root, dp.Branch)
 	pm.request(p)
 	if err != nil {
 		if checkedOut {
@@ -235,6 +228,31 @@ func (pm *projectManager) discardBranch(dp proto.BranchDiscardParams) (proto.Bra
 	log.Printf("project %s: discarded %s", p.id, dp.Branch)
 	res.Done = true
 	return res, nil
+}
+
+// losses reads what removing the checkout at dir ("" for none) and deleting
+// branch ("" when detached) would lose: uncommitted files, and commits kept
+// nowhere else.
+func (p *project) losses(ctx context.Context, base, branch, dir string) (uncommitted []string, commits int, err error) {
+	if dir != "" {
+		files, err := gitx.StatusFiles(ctx, dir)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, f := range files {
+			uncommitted = append(uncommitted, f.Path)
+		}
+	}
+	switch {
+	case branch != "":
+		commits = gitx.Unmerged(ctx, p.root, branch, base)
+		if commits > 0 && p.mergedPR(ctx, branch) {
+			commits = 0
+		}
+	case dir != "":
+		commits = gitx.Unreachable(ctx, dir)
+	}
+	return uncommitted, commits, nil
 }
 
 // mergedPR reports whether the branch's pull request was merged with the

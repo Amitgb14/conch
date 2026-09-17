@@ -134,6 +134,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
 			{"B", "Broadcast to its agents and terminals…", act("B")},
 			{"F", "Local files for new worktrees…", act("F")},
+			{"W", "Clean up worktrees…", act("W")},
 			{"R", "Refresh git status", act("R")},
 			{"", "Show all branches", func(m *Model) tea.Cmd {
 				m.showAll[scoped(r.machine, r.projectID)] = true
@@ -663,6 +664,7 @@ var helpText = []string{
 	"  o  open a branch's pull request                 y  copy name / path",
 	"  i  agent setup: instructions, skills, MCP servers, and what a worktree lacks",
 	"  F  local files (.env, local agent settings) copied into new worktrees",
+	"  W  clean up a project's worktrees: the finished ones (merged, folder gone) come ticked",
 	"",
 	"Splits and tabs (ctrl+b, then)",
 	"  % or v split right   \" or - split down   x close split (ends its pane)   = equalize",

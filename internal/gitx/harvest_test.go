@@ -357,3 +357,63 @@ func TestStatusFiles(t *testing.T) {
 		t.Fatal("status outside a repository")
 	}
 }
+
+func TestMergedAndPrune(t *testing.T) {
+	root, wt := taskRepo(t)
+	if !Merged(ctx, root, "feat", "main") {
+		t.Fatal("a branch with no commits of its own is merged")
+	}
+	if Merged(ctx, root, "missing", "main") {
+		t.Fatal("a missing branch is not merged")
+	}
+	commit(t, wt, "a.txt", "a\n", "one")
+	if Merged(ctx, root, "feat", "main") || Merged(ctx, root, "feat", "") {
+		t.Fatal("a new commit is not merged")
+	}
+	// Squash-merged into main: its changes are there under another commit.
+	squashed := git(t, root, "commit-tree", "feat^{tree}", "-p", "main", "-m", "squash")
+	git(t, root, "update-ref", "refs/heads/main", squashed)
+	git(t, root, "reset", "-q", "--hard")
+	if !Merged(ctx, root, "feat", "main") {
+		t.Fatal("a squash-merged branch is merged")
+	}
+
+	// A worktree whose folder was deleted is pruned.
+	if err := os.RemoveAll(wt); err != nil {
+		t.Fatal(err)
+	}
+	wts, _ := Worktrees(ctx, root)
+	if len(wts) != 2 || !wts[1].Prunable {
+		t.Fatalf("before prune: %+v", wts)
+	}
+	if err := PruneWorktrees(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	if wts, _ := Worktrees(ctx, root); len(wts) != 1 {
+		t.Fatalf("after prune: %+v", wts)
+	}
+	if err := PruneWorktrees(ctx, t.TempDir()); err == nil {
+		t.Fatal("pruned outside a repository")
+	}
+}
+
+func TestUnreachable(t *testing.T) {
+	root := newRepo(t)
+	dir := filepath.Join(t.TempDir(), "detached")
+	git(t, root, "worktree", "add", "-q", "--detach", dir, "main")
+	if n := Unreachable(ctx, dir); n != 0 {
+		t.Fatalf("at main: %d", n)
+	}
+	commit(t, dir, "x.txt", "x\n", "one")
+	commit(t, dir, "y.txt", "y\n", "two")
+	if n := Unreachable(ctx, dir); n != 2 {
+		t.Fatalf("two commits on no branch: %d", n)
+	}
+	git(t, dir, "branch", "keep")
+	if n := Unreachable(ctx, dir); n != 0 {
+		t.Fatalf("kept by a branch: %d", n)
+	}
+	if n := Unreachable(ctx, t.TempDir()); n != 0 {
+		t.Fatalf("not a repository: %d", n)
+	}
+}

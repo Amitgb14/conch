@@ -464,6 +464,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.confirmDiscard(msg)
 		return m, nil
 
+	case cleanupListMsg:
+		m.receiveCleanupList(msg)
+		return m, nil
+
+	case cleanupDoneMsg:
+		m.receiveCleanup(msg)
+		return m, nil
+
 	case tickMsg:
 		m.ticking = false
 		m.spin++

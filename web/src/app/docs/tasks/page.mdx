@@ -33,6 +33,19 @@ When an agent is done, finish its branch from the changes view (select the branc
 
 None of these touch the base branch itself except a merge into it. Discarding refuses while panes are still running in the worktree, and never removes the main checkout.
 
+## Cleaning up worktrees
+
+Worktrees outlive their tasks. `W` on a project (also in its menu) lists every worktree besides the main checkout, with what removing it would lose and why it looks finished:
+
+- **merged into main**, or **no commits of its own** — the base already has everything on the branch (a squash merge counts)
+- **pull request merged** or **closed**, **upstream deleted**
+- **folder gone** — deleted by hand; git still lists it until it is pruned
+- **detached** — a checkout with no branch
+
+The finished ones that lose nothing come ticked. `space` ticks others, `a` toggles the finished ones, `enter` reviews. Removing a worktree deletes its branch too, except the base branch; a folder that is already gone is pruned. Worktrees with panes running, or locked with `git worktree lock`, can't be ticked.
+
+Ticking one with uncommitted files, or commits that are in neither the base nor an upstream, is allowed, but the confirmation names what is lost and only `y` accepts it. Each worktree is checked again when it is removed: work added after the list was read makes conch keep it and say why.
+
 ## Local files in worktrees
 
 A fresh worktree has only what git tracks, so an agent there would miss your `.env` or personal agent settings. When conch creates a worktree it copies the main checkout's **gitignored** files that match the project's patterns — by default:

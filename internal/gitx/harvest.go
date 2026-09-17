@@ -212,12 +212,7 @@ func Unmerged(ctx context.Context, root, branch, base string) int {
 	if !resolves(ctx, root, "refs/heads/"+branch) {
 		return 0
 	}
-	var bases []string
-	for _, rev := range []string{base, base + "@{upstream}"} {
-		if base != "" && resolves(ctx, root, rev) {
-			bases = append(bases, rev)
-		}
-	}
+	bases := baseRevs(ctx, root, base)
 	args := append([]string{"rev-list", "--count", "refs/heads/" + branch, "--not"}, bases...)
 	if up := branch + "@{upstream}"; resolves(ctx, root, up) {
 		args = append(args, up)
@@ -233,6 +228,40 @@ func Unmerged(ctx context.Context, root, branch, base string) int {
 		}
 	}
 	return n
+}
+
+// Merged reports whether base, or base's upstream, already has everything
+// on branch: its commits, or their changes (a squash merge).
+func Merged(ctx context.Context, root, branch, base string) bool {
+	if !resolves(ctx, root, "refs/heads/"+branch) {
+		return false
+	}
+	for _, b := range baseRevs(ctx, root, base) {
+		if revCount(ctx, root, b+"..refs/heads/"+branch) == 0 || mergesCleanly(ctx, root, branch, b) {
+			return true
+		}
+	}
+	return false
+}
+
+// Unreachable counts the commits of a detached checkout at dir that no
+// branch or remote-tracking branch has: what removing it would lose.
+func Unreachable(ctx context.Context, dir string) int {
+	if !resolves(ctx, dir, "HEAD") {
+		return 0
+	}
+	return max(revCountArgs(ctx, dir, "HEAD", "--not", "--branches", "--remotes"), 0)
+}
+
+// baseRevs is base and its upstream, those of them that exist.
+func baseRevs(ctx context.Context, root, base string) []string {
+	var revs []string
+	for _, rev := range []string{base, base + "@{upstream}"} {
+		if base != "" && resolves(ctx, root, rev) {
+			revs = append(revs, rev)
+		}
+	}
+	return revs
 }
 
 // mergesCleanly reports whether merging branch into base would change
@@ -259,6 +288,12 @@ func DeleteBranch(ctx context.Context, root, branch string) error {
 	return err
 }
 
+// PruneWorktrees forgets worktrees whose folders are gone.
+func PruneWorktrees(ctx context.Context, root string) error {
+	_, err := run(ctx, root, "worktree", "prune")
+	return err
+}
+
 // ForceRemoveWorktree removes the linked worktree at path, discarding its
 // uncommitted changes.
 func ForceRemoveWorktree(ctx context.Context, root, path string) error {
@@ -275,7 +310,12 @@ func revParse(ctx context.Context, dir string, args ...string) (string, error) {
 }
 
 func revCount(ctx context.Context, dir, rng string) int {
-	out, err := run(ctx, dir, "rev-list", "--count", rng, "--")
+	return revCountArgs(ctx, dir, rng)
+}
+
+func revCountArgs(ctx context.Context, dir string, revs ...string) int {
+	args := append([]string{"rev-list", "--count"}, revs...)
+	out, err := run(ctx, dir, append(args, "--")...)
 	if err != nil {
 		return -1
 	}
