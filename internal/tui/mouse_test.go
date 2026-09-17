@@ -470,3 +470,42 @@ func TestA1MouseClickOnAgentReachesProgram(t *testing.T) {
 		t.Fatalf("a click reached the agent %d times, want press and release", n)
 	}
 }
+
+// The sidebar's right border and the main area's left border sit side by
+// side. Only the first started a resize, so grabbing the visible main border
+// did nothing — "mouse is not working". Either border resizes now.
+func TestSidebarResizesFromEitherBorder(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	m.height = 40
+	start := m.sidebarW
+
+	a1Mouse(t, m, m.sidebarW, 5, a1Left, a1Press) // the main area's left border
+	if !m.dragging {
+		t.Fatal("pressing the main area's border did not start a resize")
+	}
+	a1Mouse(t, m, start+10, 5, tea.MouseButtonNone, a1Motion)
+	a1Mouse(t, m, start+10, 5, a1Left, a1Release)
+	if m.dragging || m.sidebarW != start+11 {
+		t.Fatalf("after dragging from the main border: width %d dragging %v", m.sidebarW, m.dragging)
+	}
+
+	// The tab bar's row belongs to the tabs, not the resize.
+	a1Mouse(t, m, m.sidebarW, m.mainRect().y, a1Left, a1Press)
+	if m.dragging {
+		t.Fatal("a press on the tab bar row started a resize")
+	}
+	// Neither border resizes while a split is zoomed (no sidebar is shown).
+	m.zoom = true
+	for _, x := range []int{m.sidebarW - 1, m.sidebarW} {
+		a1Mouse(t, m, x, 5, a1Left, a1Press)
+		if m.dragging {
+			t.Fatalf("zoomed: a press at %d started a resize", x)
+		}
+	}
+	m.zoom = false
+	// A right click on a border isn't a resize either.
+	a1Mouse(t, m, m.sidebarW, 5, a1Right, a1Press)
+	if m.dragging {
+		t.Fatal("a right click started a resize")
+	}
+}
