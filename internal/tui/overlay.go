@@ -363,6 +363,9 @@ type dialog struct {
 	fields  []field
 	focus   int
 	confirm bool // yes/no question without fields
+	// buttons is where a confirm's Yes and No sit, from the last render:
+	// the content line and each one's columns, for clicks.
+	buttons struct{ line, yes0, yes1, no0, no1 int }
 	submit  func(m *Model, values []string) tea.Cmd
 	// onChange runs after a field was edited, e.g. to update placeholders.
 	onChange func(d *dialog)
@@ -592,11 +595,17 @@ func (d *dialog) render(m Model) box {
 		lines = append(lines, " "+label+"  "+f.in.View())
 	}
 	lines = append(lines, "")
-	hint := "enter confirm · tab next field · esc cancel"
 	if d.confirm {
-		hint = "y yes · n no"
+		// Buttons to click, named with their keys: y (or enter) and n (or esc).
+		yes, no := " y  Yes ", " n  No "
+		d.buttons.line = len(lines)
+		d.buttons.yes0, d.buttons.yes1 = 1, 1+ansi.StringWidth(yes)
+		d.buttons.no0 = d.buttons.yes1 + 3
+		d.buttons.no1 = d.buttons.no0 + ansi.StringWidth(no)
+		lines = append(lines, " "+styleSel.Render(yes)+"   "+styleSelDim.Render(no))
+	} else {
+		lines = append(lines, " "+styleMuted.Render("enter confirm · tab next field · esc cancel"))
 	}
-	lines = append(lines, " "+styleMuted.Render(hint))
 	b := box{lines: frameLines(d.title, lines, w, colorAccent)}
 	b.x = max((m.width-b.width())/2, 0)
 	b.y = max((m.height-len(b.lines))/3, 0)
@@ -609,6 +618,20 @@ func (d *dialog) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	}
 	if !b.contains(msg.X, msg.Y) {
 		m.overlay = nil
+		return nil
+	}
+	if d.confirm {
+		// Content starts one line and one column inside the border.
+		if msg.Y != b.y+1+d.buttons.line {
+			return nil
+		}
+		switch x := msg.X - b.x - 1; {
+		case x >= d.buttons.yes0 && x < d.buttons.yes1:
+			m.overlay = nil
+			return d.submit(m, nil)
+		case x >= d.buttons.no0 && x < d.buttons.no1:
+			m.overlay = nil
+		}
 		return nil
 	}
 	// Fields sit right after the text block and one blank line.

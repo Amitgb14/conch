@@ -386,6 +386,28 @@ func TestBroadcastDialogMouseAndScroll(t *testing.T) {
 	if m.overlay != d {
 		t.Fatalf("outside confirm: %T", m.overlay)
 	}
+
+	// Its buttons: No goes back to the message, Yes sends.
+	click := func(label string) {
+		t.Helper()
+		m.overlay = c
+		b := c.render(*m)
+		for i, l := range b.lines {
+			if col := strings.Index(ansi.Strip(l), label); col >= 0 && strings.Contains(ansi.Strip(l), "Yes") {
+				c.mouse(m, tea.MouseMsg{X: b.x + ansi.StringWidth(ansi.Strip(l)[:col]), Y: b.y + i, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, b)
+				return
+			}
+		}
+		t.Fatalf("no %q button", label)
+	}
+	click("No")
+	if m.overlay != d {
+		t.Fatalf("No: %T", m.overlay)
+	}
+	click("Yes")
+	if m.overlay != nil {
+		t.Fatalf("Yes should send and close: %T", m.overlay)
+	}
 }
 
 func TestSendBroadcast(t *testing.T) {
