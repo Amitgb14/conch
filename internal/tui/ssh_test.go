@@ -337,13 +337,13 @@ func TestSSHStart(t *testing.T) {
 	// The dialog trims what was typed.
 	d := newSSHDialog(*m)
 	m.overlay = d
-	d.fields[0].in.SetValue("  me@box  ")
+	d.fields[0].in.SetValue("  ssh://me@box:2222  ")
 	cmd := a1Key(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	a2Run(cmd)
 	create := peer.waitFor(t, "pane.create", func(msg proto.Message) bool { return msg.Method == proto.MethodPaneCreate })
 	var p proto.PaneCreateParams
 	json.Unmarshal(create.Params, &p)
-	if p.Name != "ssh me@box" || p.Command[len(p.Command)-1] != "me@box" {
+	if p.Name != "ssh me@box:2222" || p.Command[len(p.Command)-1] != "ssh://me@box:2222" {
 		t.Fatalf("params %+v", p)
 	}
 
@@ -531,6 +531,24 @@ func TestSSHStatusHints(t *testing.T) {
 		got := a1HintText(m)
 		if strings.Contains(got, "H ssh") != want || !strings.HasSuffix(got, "! waiting|? keys") {
 			t.Errorf("%s: %s", id, got)
+		}
+	}
+}
+
+func TestSSHName(t *testing.T) {
+	for in, want := range map[string]string{
+		"box":                      "box",
+		"dev@box":                  "dev@box",
+		"ssh://dev@localhost:2299": "dev@localhost:2299",
+		"ssh://box":                "box",
+		"ssh://box/":               "box",
+		"ssh://":                   "ssh://",
+		"ssh:///":                  "ssh:///",
+		"SSH://box":                "SSH://box",
+		"myssh://box":              "myssh://box",
+	} {
+		if got := sshName(in); got != want {
+			t.Errorf("sshName(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

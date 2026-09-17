@@ -95,7 +95,7 @@ func (m Model) startSSH(target string) tea.Cmd {
 	}
 	cols, rows := m.paneArea()
 	home, _ := os.UserHomeDir()
-	params := proto.PaneCreateParams{Name: "ssh " + target, Command: command, Cwd: home, Cols: cols, Rows: rows, NoProject: true}
+	params := proto.PaneCreateParams{Name: "ssh " + sshName(target), Command: command, Cwd: home, Cols: cols, Rows: rows, NoProject: true}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -105,6 +105,15 @@ func (m Model) startSSH(target string) tea.Cmd {
 		}
 		return createdMsg{machine: localMachine, info: info}
 	}
+}
+
+// sshName is how a session names its host: an ssh:// URL without its
+// scheme, so it doesn't read "ssh ssh://…".
+func sshName(target string) string {
+	if rest, ok := strings.CutPrefix(target, "ssh://"); ok && strings.TrimRight(rest, "/") != "" {
+		return strings.TrimRight(rest, "/")
+	}
+	return target
 }
 
 // newTabMenu is the tab bar's + button: an empty tab, or something new in it.
