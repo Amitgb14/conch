@@ -842,3 +842,52 @@ func TestRunTUIRefusesToNestInItsOwnPane(t *testing.T) {
 		t.Fatalf("-m local is this server: %q", got)
 	}
 }
+
+// conch redraw asks the server to draw a pane's screen again, and says so
+// plainly when the server is too old or the pane is unknown.
+func TestRunRedraw(t *testing.T) {
+	a4Env(t)
+	if err := runRedraw(nil); err == nil || !strings.Contains(err.Error(), "usage: conch redraw ID") {
+		t.Fatalf("no ID: %v", err)
+	}
+	if err := runRedraw([]string{"p1", "p2"}); err == nil || !strings.Contains(err.Error(), "usage") {
+		t.Fatalf("two IDs: %v", err)
+	}
+	if err := runRedraw([]string{"p1"}); err == nil {
+		t.Fatal("redraw without a server succeeded")
+	}
+
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodPaneRedraw && strings.Contains(string(msg.Params), `"nope"`) {
+			return nil, &proto.Error{Code: proto.ErrNotFound, Message: `no pane "nope"`}
+		}
+		return proto.PaneInfo{ID: "p1"}, nil
+	})
+	if err := runRedraw([]string{"p1"}); err != nil {
+		t.Fatalf("redraw: %v", err)
+	}
+	var ref proto.PaneRef
+	if !srv.params(t, proto.MethodPaneRedraw, &ref) || ref.ID != "p1" {
+		t.Fatalf("sent %+v", ref)
+	}
+	if err := runRedraw([]string{"nope"}); err == nil || !strings.Contains(err.Error(), "no pane") {
+		t.Fatalf("unknown pane: %v", err)
+	}
+
+	// A server from before redraw existed is named, with what to do.
+	srv.setHello(func(int) proto.HelloResult {
+		h := currentHello(0)
+		var caps []string
+		for _, c := range h.Capabilities {
+			if c != "pane.redraw.v1" {
+				caps = append(caps, c)
+			}
+		}
+		h.Capabilities = caps
+		return h
+	})
+	if err := runRedraw([]string{"p1"}); err == nil || !strings.Contains(err.Error(), "predates redrawing") || !strings.Contains(err.Error(), "conch server reload") {
+		t.Fatalf("old server: %v", err)
+	}
+}

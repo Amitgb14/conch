@@ -799,3 +799,131 @@ func TestA3EnsureServerLogErrors(t *testing.T) {
 		t.Fatal("log path is a directory: no error")
 	}
 }
+
+// A client that doesn't take its events used to stop reading the
+// connection once Events filled, so replies waited behind pane output —
+// with busy agents a diff could take seconds or never load. Events are
+// queued on their own now; a reply arrives however much is unread.
+func TestRepliesArriveWhileEventsPileUp(t *testing.T) {
+	const flood = 3000 // well past the 1024-slot Events buffer
+	c := a3NewServer(t, func(conn *proto.Conn, msg proto.Message) {
+		if msg.Method == "flood" {
+			for i := 0; i < flood; i++ {
+				_ = conn.Write(proto.Message{Event: proto.EventPaneUpdated, Data: proto.Marshal(proto.PaneInfo{ID: fmt.Sprint(i)})})
+			}
+		}
+		a3Reply(conn, msg, a3Echo{N: 7}, nil)
+	}).dial(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var out a3Echo
+	if err := c.Call(ctx, "flood", nil, &out); err != nil || out.N != 7 {
+		t.Fatalf("call behind %d unread events: %+v %v", flood, out, err)
+	}
+	// Nothing was read yet, and another call still gets through.
+	if err := c.Call(ctx, "again", nil, &out); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	// The events are all there, in order, once the client reads them.
+	for i := 0; i < flood; i++ {
+		select {
+		case ev := <-c.Events:
+			var p proto.PaneInfo
+			if json.Unmarshal(ev.Data, &p) != nil || p.ID != fmt.Sprint(i) {
+				t.Fatalf("event %d: %s", i, ev.Data)
+			}
+		case <-ctx.Done():
+			t.Fatalf("only %d of %d events arrived", i, flood)
+		}
+	}
+}
+
+// Pane frames are whole screens, so a newer frame replaces the one still
+// queued for the same pane; other events and other panes keep their place.
+func TestQueuedFramesCoalesce(t *testing.T) {
+	c := &Client{done: make(chan struct{})}
+	c.evCond = sync.NewCond(&c.evMu)
+	c.evFrame = map[string]int{}
+	frame := func(id, text string) proto.Message {
+		return proto.Message{Event: proto.EventPaneFrame, Data: proto.Marshal(proto.Frame{ID: id, Lines: []string{text}})}
+	}
+	c.queueEvent(frame("p1", "one"))
+	c.queueEvent(proto.Message{Event: proto.EventPaneUpdated, Data: proto.Marshal(proto.PaneInfo{ID: "p1"})})
+	c.queueEvent(frame("p2", "other"))
+	c.queueEvent(frame("p1", "two"))
+	c.queueEvent(frame("p1", "three"))
+
+	var got []string
+	for _, m := range c.evQueue {
+		if m.Event == proto.EventPaneFrame {
+			var f proto.Frame
+			_ = json.Unmarshal(m.Data, &f)
+			got = append(got, f.ID+":"+f.Lines[0])
+		} else {
+			got = append(got, m.Event)
+		}
+	}
+	if strings.Join(got, " ") != "p1:three "+proto.EventPaneUpdated+" p2:other" {
+		t.Fatalf("queue: %v", got)
+	}
+
+	// A frame that can't be read isn't merged with anything.
+	c.queueEvent(proto.Message{Event: proto.EventPaneFrame, Data: []byte("{bad")})
+	c.queueEvent(proto.Message{Event: proto.EventPaneFrame, Data: []byte("{bad")})
+	if len(c.evQueue) != 5 {
+		t.Fatalf("unreadable frames were merged: %d queued", len(c.evQueue))
+	}
+	if frameID(proto.Message{Data: []byte(`{"id":"p9"}`)}) != "p9" || frameID(proto.Message{Data: []byte("x")}) != "" {
+		t.Fatal("frameID")
+	}
+
+	// After the queued frame is handed on, the next one queues afresh.
+	c.evMu.Lock()
+	c.dropFirstLocked()
+	c.evMu.Unlock()
+	c.queueEvent(frame("p1", "four"))
+	if n := len(c.evQueue); n != 5 || c.evFrame["p1"] != n-1 {
+		t.Fatalf("after hand-on: %d queued, p1 at %d", n, c.evFrame["p1"])
+	}
+	if i := c.evFrame["p2"]; i != 1 {
+		t.Fatalf("p2's index not shifted: %d", i)
+	}
+}
+
+// A client that stops reading entirely keeps the newest events, not memory
+// without bound; nothing is queued once the connection has closed.
+func TestEventQueueIsBounded(t *testing.T) {
+	c := &Client{done: make(chan struct{})}
+	c.evCond = sync.NewCond(&c.evMu)
+	c.evFrame = map[string]int{}
+	for i := 0; i < maxQueuedEvents+100; i++ {
+		c.queueEvent(proto.Message{Event: proto.EventPaneUpdated, Data: proto.Marshal(proto.PaneInfo{ID: fmt.Sprint(i)})})
+	}
+	if len(c.evQueue) != maxQueuedEvents {
+		t.Fatalf("queued %d, want %d", len(c.evQueue), maxQueuedEvents)
+	}
+	var first, last proto.PaneInfo
+	_ = json.Unmarshal(c.evQueue[0].Data, &first)
+	_ = json.Unmarshal(c.evQueue[len(c.evQueue)-1].Data, &last)
+	if first.ID != "100" || last.ID != fmt.Sprint(maxQueuedEvents+99) {
+		t.Fatalf("kept %s..%s, want the newest", first.ID, last.ID)
+	}
+
+	// Frames dropped off the front forget their place.
+	c.evQueue, c.evFrame = nil, map[string]int{}
+	c.queueEvent(proto.Message{Event: proto.EventPaneFrame, Data: proto.Marshal(proto.Frame{ID: "p1"})})
+	for i := 0; i < maxQueuedEvents; i++ {
+		c.queueEvent(proto.Message{Event: proto.EventPaneUpdated})
+	}
+	if _, ok := c.evFrame["p1"]; ok {
+		t.Fatal("a dropped frame is still indexed")
+	}
+
+	c.closeEvents()
+	before := len(c.evQueue)
+	c.queueEvent(proto.Message{Event: proto.EventPaneUpdated})
+	if len(c.evQueue) != before {
+		t.Fatal("queued after close")
+	}
+}

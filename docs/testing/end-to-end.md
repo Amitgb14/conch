@@ -107,6 +107,10 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 7.4 | Notifications | Settings → test notification; sound; bell; quiet hours; snooze | Desktop banner (osascript/notify-send), sound plays, silenced when quiet/snoozed | ☐ |
 | 7.5 | Tabs and splits | Tab scoping, CLI group, sync typing, resize repeat, `w` picker, `ctrl+b q` numbers, `space` layouts, `< > .` tab moves, detach and reattach | Behaves as documented in the Keys page; layout restored after reattach | ☐ |
 | 7.6 | Tiny and huge windows | Shrink to 1 row / 20 columns, grow to 300×100 | No crash; nothing wider than the window | ✅ R1 1×1 to 300×100 with dialogs open |
+| 7.7 | Agent titles stay out of input boxes | Run Claude Code for a while so it sets titles like `✳ Terminals SSH support`; watch its input box across title changes | The box holds only what Claude draws (its placeholder or your text), never the tail of a title; `ctrl+b r` clears anything left by an older build | ◐ R9 reproduced on real panes (a Claude box showed `commit the plan` over `screenshots plan`, the end of its title) and fixed; the fixed server needs watching over a working session |
+| 7.8 | Pages and clicks | Click Workspace, a project, Branches, a branch, Agents, Terminals and their rows; with agent tabs already open; reopen a branch | Each row shows its own page; clicking a branch or pane opens it in its own tab, and reopening focuses that tab; the bar lists the group's tabs beside the page | ◐ R9 in a test TUI against a real server with open tabs; not yet over SSH or on a remote machine |
+| 7.9 | Typing into a clicked tab | Select Workspace, click an agent's tab, type | Keys reach that agent at once; the tree stays on Workspace | ◐ R9 with a shell on an isolated server (typing into real agents was avoided) |
+| 7.10 | Redraw | `ctrl+b r` on an agent whose box shows stale text, on a shell, and over SSH | The agent redraws with its input kept; a shell shows its prompt again on the next key | ◐ R9 a repainting test program redrew at the same size; not yet a real Claude box or SSH |
 
 ## 8. Git, GitHub and worktrees
 
@@ -227,3 +231,13 @@ The R7 checks repeated on the committed fixes, with the same isolation (own `CON
 - **Broadcast:** `B` on SSH listed the two running sessions; `broadcast-33` printed once in each.
 - **Exit:** `exit` closed `ssh busybox`'s tab. The URL session sharing its connection still ran commands, and its own `exit` closed its tab.
 - **busybox:** oh-my-zsh didn't ask to update this time, and nothing on busybox was changed.
+
+### R9 — 2026-09-16, builds af00a0e to b421b66, macOS arm64
+
+Test TUIs attached to the real server (read-only navigation, clicks sent as mouse events), isolated servers for anything that typed.
+
+- **Title leak (7.7):** reading pane p43's styled screen showed its input box as a dim placeholder over normal text ending in `screenshots plan`, the tail of its title `✳ Drag-and-drop screenshots plan`. Reproduced in an isolated pane: ASCII titles were consumed, but every title starting with `✳` printed its rest at the cursor. **Found:** the emulator's parser (charmbracelet/x/ansi, still in v0.11.8) ends an escape string at byte 0x9C, which is also inside UTF-8 characters — `✳` is E2 9C B3. Fixed by replacing UTF-8 characters inside escape strings before the emulator sees them; titles, read from the raw output, keep their text.
+- **Pages (7.8):** Branches, Agents and Terminals each showed their own page; a click on a branch or pane opened its tab, and clicking an open branch again focused its tab. **Found three:** clicking a branch dropped the request for its changes, so it loaded forever; clicking a branch on the Branches page (itself a preview) opened a second tab; and with an agent's tab open, selecting Agents jumped to that tab instead of listing them. All fixed with tests.
+- **Typing (7.9):** with Workspace selected, a click on a shell's tab followed by typing reached the shell. **Found:** keys had followed the tree's cursor, so they were dropped; they follow the focused split now, and clicking a running pane's tab focuses it.
+- **Reply stalls:** a client that left 3000 events unread no longer holds up replies (a regression test fails with the old delivery).
+
