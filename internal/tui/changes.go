@@ -26,6 +26,8 @@ type changesView struct {
 	loading bool
 	sel     int // selected file
 	scroll  int // file list scroll
+	// marked are the files space picked for the next commit, by path.
+	marked map[string]bool
 
 	diffFile    string // "" when the file list is shown
 	loadingDiff bool
@@ -177,9 +179,16 @@ func (cv *changesView) receive(msg tea.Msg) (changed bool) {
 		cv.err = ""
 		cv.data = &msg.data
 		cv.sel = clamp(cv.sel, 0, max(len(msg.data.Files)-1, 0))
+		present := map[string]bool{}
 		for i, f := range msg.data.Files { // keep the selection on its file
 			if f.Path == selected {
 				cv.sel = i
+			}
+			present[f.Path] = true
+		}
+		for path := range cv.marked { // a committed or reverted file is no longer picked
+			if !present[path] || msg.data.Worktree == "" {
+				delete(cv.marked, path)
 			}
 		}
 		return changed
@@ -251,8 +260,53 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		if files > 0 {
 			return false, copyText(cv.data.Files[cv.sel].Path)
 		}
+	case " ":
+		if files > 0 && cv.data.Worktree != "" {
+			path := cv.data.Files[cv.sel].Path
+			if cv.marked == nil {
+				cv.marked = map[string]bool{}
+			}
+			if cv.marked[path] {
+				delete(cv.marked, path)
+			} else {
+				cv.marked[path] = true
+			}
+			cv.sel = clamp(cv.sel+1, 0, files-1)
+		}
+	case "c":
+		return false, m.openCommit(cv.target(), cv.markedPaths())
+	case "P":
+		return false, m.pushBranch(cv.target())
+	case "p":
+		return false, m.openPullRequest(cv.target())
+	case "M":
+		return false, m.openMerge(cv.target())
+	case "D":
+		return false, m.discardBranch(cv.target())
 	}
 	return false, nil
+}
+
+func (cv *changesView) target() harvestTarget {
+	return harvestTarget{machine: cv.machine, projectID: cv.projectID, branch: cv.branch}
+}
+
+// markedPaths lists the marked files in the order shown, with a rename's
+// old path too so the commit takes both sides of it.
+func (cv *changesView) markedPaths() []string {
+	if cv.data == nil {
+		return nil
+	}
+	var paths []string
+	for _, f := range cv.data.Files {
+		if cv.marked[f.Path] {
+			if f.OrigPath != "" {
+				paths = append(paths, f.OrigPath)
+			}
+			paths = append(paths, f.Path)
+		}
+	}
+	return paths
 }
 
 // filesTop is the view row of the first file: title, meta, an optional pull
@@ -322,6 +376,9 @@ func (cv *changesView) render(m Model, w, h int) []string {
 	if untracked > 0 {
 		header += styleMuted.Render(fmt.Sprintf("  · %d untracked", untracked))
 	}
+	if n := len(cv.marked); n > 0 {
+		header += styleOK.Render(fmt.Sprintf("  · %d marked", n))
+	}
 	lines = append(lines, header)
 
 	// Room for the files' "… more" line and the commits below: a blank line,
@@ -341,6 +398,9 @@ func (cv *changesView) render(m Model, w, h int) []string {
 		stat := diffStat(f.Added, f.Deleted)
 		if f.Binary {
 			stat = styleMuted.Render("binary")
+		}
+		if cv.marked[f.Path] {
+			stat = styleOK.Render("✓ ") + stat
 		}
 		name := f.Path
 		if f.OrigPath != "" {

@@ -19,6 +19,20 @@ conch task -cwd ~/src/api "Add a health check endpoint"   # pane, worktree, bran
 - `c`/`n` on a branch that isn't checked out creates its worktree first.
 - `x` on a branch removes its worktree (never with uncommitted changes, never the main one).
 
+## Finishing a task
+
+When an agent is done, finish its branch from the changes view (select the branch, `tab` into it) or the branch's menu (`m`). Every step runs on the machine the project is on, so it works the same for remote machines.
+
+| Key | What it does |
+| --- | --- |
+| `space`, `c` | Commit. `space` marks files; `c` commits the marked ones, or every change (untracked files included) when none are marked. Other changes stay as they were. |
+| `P` | Push the branch, setting its upstream on `origin` (or the only remote) the first time. |
+| `p` | Push, then open a pull request into the base with `gh`. Leave the title empty to take the title and description from the commits; tick Draft for a draft. |
+| `M` | Merge the branch's commits into the base where the base is checked out, as one squashed commit (the default) or a merge commit. The base checkout must have no uncommitted changes, and the branch must have its changes committed. A merge that conflicts is undone: nothing changes, and conch names the conflicting files. |
+| `D` | Discard: remove the worktree and delete the branch. conch first shows what that loses — uncommitted files, and commits that are in neither the base, the base's upstream, nor the branch's upstream (a branch squash-merged, or merged through its pull request, loses nothing). Only `y` confirms. |
+
+None of these touch the base branch itself except a merge into it. Discarding refuses while panes are still running in the worktree, and never removes the main checkout.
+
 ## Local files in worktrees
 
 A fresh worktree has only what git tracks, so an agent there would miss your `.env` or personal agent settings. When conch creates a worktree it copies the main checkout's **gitignored** files that match the project's patterns — by default:

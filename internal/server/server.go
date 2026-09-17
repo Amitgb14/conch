@@ -273,6 +273,8 @@ var slowMethods = map[string]bool{
 	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodWorktreeFiles: true,
 	proto.MethodProjectFiles: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodFSUpload: true,
+	proto.MethodBranchCommit: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
+	proto.MethodBranchMerge: true, proto.MethodBranchDiscard: true,
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -718,6 +720,41 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.projects.setLocalFiles(fp)
+
+	case proto.MethodBranchCommit:
+		cp, perr := decode[proto.BranchCommitParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.commitBranch(cp)
+
+	case proto.MethodBranchPush:
+		br, perr := decode[proto.BranchRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.projects.pushBranch(br)
+
+	case proto.MethodBranchPR:
+		pp, perr := decode[proto.BranchPRParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.openPR(pp)
+
+	case proto.MethodBranchMerge:
+		mp, perr := decode[proto.BranchMergeParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.mergeBranch(mp)
+
+	case proto.MethodBranchDiscard:
+		dp, perr := decode[proto.BranchDiscardParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.discardBranch(dp)
 
 	case proto.MethodWorktreeFiles:
 		wp, perr := decode[proto.WorktreeFilesParams](msg)

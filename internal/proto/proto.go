@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1",
 }
 
 // Methods.
@@ -88,6 +88,14 @@ const (
 	MethodAgentLimits    = "agent.limits"
 	// MethodAgentBroadcast types one message into several agents.
 	MethodAgentBroadcast = "agent.broadcast"
+
+	// Finishing a branch's work: commit, push, open a pull request, merge
+	// into the base, or throw the branch away.
+	MethodBranchCommit  = "branch.commit"
+	MethodBranchPush    = "branch.push"
+	MethodBranchPR      = "branch.pr"
+	MethodBranchMerge   = "branch.merge"
+	MethodBranchDiscard = "branch.discard"
 )
 
 // Events.
@@ -277,6 +285,7 @@ type PRInfo struct {
 	Checks string `json:"checks,omitempty"` // pass, fail, pending
 	Passed int    `json:"passed,omitempty"`
 	Total  int    `json:"total,omitempty"`
+	Head   string `json:"head,omitempty"` // head commit
 }
 
 // WorktreeInfo is a checkout of the project.
@@ -445,6 +454,71 @@ type WorktreeAddParams struct {
 	ProjectID string `json:"project_id"`
 	Branch    string `json:"branch"`
 	Base      string `json:"base,omitempty"`
+}
+
+// BranchRef addresses a branch of a project.
+type BranchRef struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+}
+
+// BranchCommitParams commits the uncommitted changes where Branch is checked
+// out: every change, or only Files (paths as in Changes; a rename needs both
+// its paths).
+type BranchCommitParams struct {
+	ProjectID string   `json:"project_id"`
+	Branch    string   `json:"branch"`
+	Message   string   `json:"message"`
+	Files     []string `json:"files,omitempty"`
+}
+
+// CommitResult is a commit a branch method made.
+type CommitResult struct {
+	Hash string `json:"hash"`
+	Into string `json:"into,omitempty"` // the branch merged into
+}
+
+// BranchPRParams pushes Branch and opens a pull request into the project's
+// base. An empty Title fills title and body from the commits.
+type BranchPRParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Title     string `json:"title,omitempty"`
+	Body      string `json:"body,omitempty"`
+	Draft     bool   `json:"draft,omitempty"`
+}
+
+// BranchPRResult is the opened pull request.
+type BranchPRResult struct {
+	URL string `json:"url"`
+}
+
+// BranchMergeParams merges Branch's commits into the project's base where
+// the base is checked out. A merge that conflicts is undone and refused.
+type BranchMergeParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Squash    bool   `json:"squash,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+// BranchDiscardParams removes Branch's linked worktree and deletes the
+// branch. Without Force it refuses when that loses work; DryRun only reports
+// what would be lost.
+type BranchDiscardParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	DryRun    bool   `json:"dry_run,omitempty"`
+	Force     bool   `json:"force,omitempty"`
+}
+
+// BranchDiscardResult says what discarding a branch removes or would lose.
+type BranchDiscardResult struct {
+	Worktree    string   `json:"worktree,omitempty"`
+	Uncommitted []string `json:"uncommitted,omitempty"`
+	// Unmerged counts commits in neither the base nor the branch's upstream.
+	Unmerged int  `json:"unmerged,omitempty"`
+	Done     bool `json:"done,omitempty"`
 }
 
 // ProjectFilesParams sets a project's local file patterns; Reset restores

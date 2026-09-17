@@ -129,7 +129,7 @@ func TestA3PayloadRoundTrips(t *testing.T) {
 	a3RoundTrip(t, ProjectList{Projects: []ProjectInfo{{ID: "p", Name: "n", Path: "/p", Git: true, Base: "main",
 		Worktrees: []WorktreeInfo{{Path: "/p", Branch: "main", Head: "abc", Detached: true, Main: true, Status: &GitStatus{Staged: 1, Unstaged: 2, Untracked: 3, Conflicts: 4, Files: 5, Added: 6, Deleted: 7}}},
 		Branches: []BranchInfo{{Name: "b", Upstream: "origin/b", Gone: true, Ahead: 1, Behind: 2, BaseAhead: 3, BaseBehind: 4, Committed: now, Subject: "s", Worktree: "/w",
-			PR: &PRInfo{Number: 5, Title: "t", State: "OPEN", Draft: true, URL: "u", Review: "APPROVED", Checks: "pass", Passed: 3, Total: 4}}},
+			PR: &PRInfo{Number: 5, Title: "t", State: "OPEN", Draft: true, URL: "u", Review: "APPROVED", Checks: "pass", Passed: 3, Total: 4, Head: "abc"}}},
 		Error: "e", Refreshed: now, PRStatus: "no GitHub remote", LocalFiles: []string{".env"}, LocalFilesDefault: true}}})
 	a3RoundTrip(t, ProjectRef{ID: "p"})
 	a3RoundTrip(t, ProjectAddParams{Path: "/p"})
@@ -148,6 +148,14 @@ func TestA3PayloadRoundTrips(t *testing.T) {
 	a3RoundTrip(t, WorktreeFilesParams{ProjectID: "p", Path: "/w", Overwrite: true})
 	a3RoundTrip(t, WorktreeFilesResult{Copied: []string{"a"}, Skipped: []string{".env (exists)"}})
 	a3RoundTrip(t, WorktreeRemoveParams{ProjectID: "p", Path: "/w"})
+	a3RoundTrip(t, BranchRef{ProjectID: "p", Branch: "b"})
+	a3RoundTrip(t, BranchCommitParams{ProjectID: "p", Branch: "b", Message: "m", Files: []string{"a", "b"}})
+	a3RoundTrip(t, CommitResult{Hash: "h", Into: "main"})
+	a3RoundTrip(t, BranchPRParams{ProjectID: "p", Branch: "b", Title: "t", Body: "d", Draft: true})
+	a3RoundTrip(t, BranchPRResult{URL: "https://example.invalid/pr/1"})
+	a3RoundTrip(t, BranchMergeParams{ProjectID: "p", Branch: "b", Squash: true, Message: "m"})
+	a3RoundTrip(t, BranchDiscardParams{ProjectID: "p", Branch: "b", DryRun: true, Force: true})
+	a3RoundTrip(t, BranchDiscardResult{Worktree: "/w", Uncommitted: []string{"a"}, Unmerged: 2, Done: true})
 	a3RoundTrip(t, WorktreeResult{Path: "/w", Copied: []string{"a"}})
 	a3RoundTrip(t, TaskCreateParams{ProjectID: "p", Prompt: "do", Branch: "b", Base: "m", Agent: "codex", Cols: 1, Rows: 2})
 	a3RoundTrip(t, AgentLimitsResult{Limits: []PlanLimits{limits}})

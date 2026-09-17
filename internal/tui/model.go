@@ -457,6 +457,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setFlash(string(msg), false)
 		return m, nil
 
+	case harvestDoneMsg:
+		return m, m.receiveHarvest(msg)
+
+	case discardPlanMsg:
+		m.confirmDiscard(msg)
+		return m, nil
+
 	case tickMsg:
 		m.ticking = false
 		m.spin++

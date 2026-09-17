@@ -115,6 +115,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if pr := m.branchPR(r.machine, r.projectID, r.branch); pr != nil {
 			items = append([]menuItem{items[0], {"o", fmt.Sprintf("Open pull request #%d", pr.Number), act("o")}}, items[1:]...)
 		}
+		items = append(items, harvestMenuItems(m, r)...)
 		if proj := m.project(r.machine, r.projectID); proj != nil {
 			for _, wt := range proj.Worktrees {
 				if wt.Branch == r.branch && !wt.Main {
@@ -363,6 +364,7 @@ type dialog struct {
 	fields  []field
 	focus   int
 	confirm bool // yes/no question without fields
+	yesOnly bool // a confirm that enter doesn't accept, for what can't be undone
 	submit  func(m *Model, values []string) tea.Cmd
 	// onChange runs after a field was edited, e.g. to update placeholders.
 	onChange func(d *dialog)
@@ -501,6 +503,9 @@ func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		if isKey {
 			switch k.String() {
 			case "y", "Y", "enter":
+				if k.String() == "enter" && d.yesOnly {
+					return false, nil
+				}
 				m.overlay = nil
 				return true, d.submit(m, nil)
 			case "n", "N", "esc", "q":
@@ -595,6 +600,9 @@ func (d *dialog) render(m Model) box {
 	hint := "enter confirm · tab next field · esc cancel"
 	if d.confirm {
 		hint = "y yes · n no"
+		if d.yesOnly {
+			hint = "y yes · n or esc no"
+		}
 	}
 	lines = append(lines, " "+styleMuted.Render(hint))
 	b := box{lines: frameLines(d.title, lines, w, colorAccent)}
@@ -672,6 +680,8 @@ var helpText = []string{
 	"  ctrl+b r  draw the pane again (stale text after a resize)",
 	"  ctrl+b [  scroll history (↑↓ pgup pgdn g) · wheel scrolls too",
 	"  changes: ↑↓ file · enter diff · esc back · y copy path / diff",
+	"    space mark a file · c commit (the marked files, else all) · P push · p open a pull request",
+	"    M merge into the base (undone if it conflicts) · D discard the branch and its worktree",
 	"  y in the tree copies a branch name or directory",
 	"  Sessions (under a project): enter resume · / search titles and conversations · s share with another agent",
 	"    d delete · a agent filter · I resume all interrupted · x dismiss",
