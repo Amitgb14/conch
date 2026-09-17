@@ -35,6 +35,15 @@ func TestMain(m *testing.M) {
 	case "fail":
 		fmt.Fprintln(os.Stderr, "dev@box: Permission denied (publickey).")
 		os.Exit(255)
+	case "save":
+		// Another conch process adding machines to the same CONCH_HOME.
+		for _, target := range strings.Split(os.Getenv("A4_SAVE_TARGETS"), ",") {
+			if _, err := SaveMachine(Machine{Target: target}); err != nil {
+				fmt.Fprintln(os.Stderr, "save:", err)
+				os.Exit(1)
+			}
+		}
+		os.Exit(0)
 	case "hang":
 		// Ignores stdin EOF, so bridgeConn.Close has to kill it.
 		time.Sleep(30 * time.Second)
