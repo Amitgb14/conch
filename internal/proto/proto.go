@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1",
 }
 
 // Methods.
@@ -74,6 +74,7 @@ const (
 	MethodProjectCreate  = "project.create"
 	MethodFSList         = "fs.list"
 	MethodFSMkdir        = "fs.mkdir"
+	MethodFSUpload       = "fs.upload"
 	MethodShellThemes    = "shell.themes"
 	MethodAgentSetup     = "agent.setup"
 	MethodProjectFiles   = "project.set_files"
@@ -361,6 +362,27 @@ type FSEntry struct {
 // FSMkdirParams creates one folder.
 type FSMkdirParams struct {
 	Path string `json:"path"`
+}
+
+// UploadChunkSize is how much of a file one fs.upload request carries. Small
+// chunks keep pane output flowing over the same connection during an upload.
+const UploadChunkSize = 512 << 10
+
+// FSUploadParams sends one chunk of a file for the server to store under its
+// uploads folder. The first chunk has no Upload ID and names the file and its
+// size; the server returns an ID for the chunks after it.
+type FSUploadParams struct {
+	Upload string `json:"upload,omitempty"`
+	Name   string `json:"name,omitempty"` // base name, first chunk only
+	Size   int64  `json:"size,omitempty"` // the whole file's size, first chunk only
+	Data   []byte `json:"data,omitempty"` // base64 in JSON
+	Final  bool   `json:"final,omitempty"`
+}
+
+// FSUploadResult answers each chunk.
+type FSUploadResult struct {
+	Upload string `json:"upload"`
+	Path   string `json:"path,omitempty"` // the stored file's absolute path, once Final
 }
 
 // ProjectList is the result of project.list.

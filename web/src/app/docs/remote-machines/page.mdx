@@ -69,6 +69,19 @@ In the sidebar each machine shows its state:
 
 `R` on a machine reconnects now; `x` removes it. To move a machine onto a new build without stopping its panes, see [Updating without stopping agents](/docs/installation#updating-without-stopping-agents).
 
+## Dropping files on a remote pane
+
+Drag a screenshot or any file from Finder, the desktop or the floating screenshot thumbnail onto conch while a pane on a remote machine has focus. Terminals paste a dropped file's path, which means nothing on the other machine, so conch uploads the file there first and pastes its path there instead. Claude Code attaches a pasted image path as `[Image #1]`; Codex, Gemini CLI and OpenCode take file paths in the prompt.
+
+- The status bar shows `uploading to gpu-box 40% · Shot.png`, then `uploaded to gpu-box · Shot.png`. The path goes to the pane the files were dropped on, even if you moved on meanwhile.
+- A paste counts as a drop only when every word in it is the path of a file on this computer, under your home folder, a temporary folder or `/Volumes`. Anything else, and anything pasted into a local pane, is pasted unchanged.
+- Files are stored in `~/.config/conch/uploads/<date>/<random>/<name>` on that machine, readable only by you, and deleted after 7 days.
+- Files over 25 MB are refused; change the limit, or turn uploads off, in Settings → Agents → Remote machines, or with `[remote]` in [config.toml](/docs/configuration#remote). The server there takes at most 256 MB.
+- If one file fails, nothing is pasted and the status bar says why. A machine running an older conch gets the paste unchanged, with a warning to update it.
+- SSH sessions under `CLI → SSH` have no conch server on the other side, so drops there paste the local path.
+
+`conch -m gpu-box upload FILE...` does the same from a shell and prints each file's path there.
+
 ## Claude Code on a machine
 
 conch checks whether `claude` is installed on each machine (the machine view shows its version). If it isn't, `c` offers to install it, or press `C` (also in the machine menu, or `conch -m NAME agent install claude`). conch runs Anthropic's official installer (`curl -fsSL https://claude.ai/install.sh | bash`) in a pane you can watch; it installs `~/.local/bin/claude` for your user, no root.

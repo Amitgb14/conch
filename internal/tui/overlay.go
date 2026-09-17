@@ -680,6 +680,7 @@ var helpText = []string{
 	"  click select · double-click open · right-click menu · wheel scroll",
 	"  drag in a pane to copy · double-click copies a word",
 	"  drag the sidebar edge to resize · shift-drag for terminal selection",
+	"  drop files (a screenshot) on a remote pane: uploaded there, and their paths there pasted",
 	"",
 	"Brain",
 	"  :  ask conch (ctrl+b : in a pane, or click ✦ Ask): \"start 2 agents on api to fix the flaky tests\",",

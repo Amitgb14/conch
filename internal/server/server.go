@@ -42,6 +42,7 @@ type Server struct {
 	manifests map[string]*detect.Manifest
 	projects  *projectManager
 	runs      *runLog // agents running in panes, for resuming after a restart
+	uploads   *uploads
 
 	limitsMu sync.Mutex
 	limits   map[string]proto.PlanLimits // by agent
@@ -80,6 +81,7 @@ func New(sockPath, configDir string) *Server {
 		quit:      make(chan struct{}),
 	}
 	s.projects = newProjectManager(s, configDir)
+	s.uploads = newUploads(configDir)
 	// A reload keeps the panes, so their runs are not interrupted.
 	s.runs = loadRunLog(configDir, os.Getenv(reloadStateEnv) != "")
 	return s
@@ -127,6 +129,7 @@ func (s *Server) Run() error {
 		s.projects.load()
 		s.projects.run()
 	}()
+	go s.uploads.run(s.quit)
 
 	var ln net.Listener
 	if reloaded != nil {
@@ -234,6 +237,7 @@ func (s *Server) serve(nc net.Conn) {
 		delete(s.clients, c)
 		s.mu.Unlock()
 		s.unsubscribeAll(c)
+		s.uploads.dropClient(c)
 		c.conn.Close()
 	}()
 
@@ -268,7 +272,7 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true,
 	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodWorktreeFiles: true,
 	proto.MethodProjectFiles: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
-	proto.MethodSessionSearch: true, proto.MethodSessionShare: true,
+	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodFSUpload: true,
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -530,6 +534,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.mkdir(mp)
+
+	case proto.MethodFSUpload:
+		up, perr := decode[proto.FSUploadParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.uploads.chunk(c, up)
 
 	case proto.MethodProjectRemove:
 		ref, perr := decode[proto.ProjectRef](msg)

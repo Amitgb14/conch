@@ -131,6 +131,8 @@ Drag across a pane to select and copy; double-click copies a word. Copies use OS
 
 Programs that use the mouse themselves (vim, htop) still get the mouse; full-screen programs get arrow keys from the wheel.
 
+Dropping files on a pane pastes their paths. On a remote machine's pane conch uploads the files there first and pastes their paths there — see [Dropping files on a remote pane](/docs/remote-machines#dropping-files-on-a-remote-pane).
+
 ## Settings
 
 Press `,` or click `⚙` at the right end of the status bar. Changes are saved to `~/.config/conch/config.toml` (see [Configuration](/docs/configuration)).
@@ -152,3 +154,5 @@ Below them, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the
 ### Agents
 
 Every machine with each supported agent, installed (with version) or not; `enter` on a missing one installs it there. The default agent chosen here is what `c` pre-selects and what tasks use.
+
+Under **Remote machines**: whether files dropped on a remote pane are uploaded there, and the largest file to upload (10, 25, 50, 100 or 250 MB). See [Dropping files on a remote pane](/docs/remote-machines#dropping-files-on-a-remote-pane).

@@ -24,6 +24,28 @@ type Config struct {
 	Agents AgentsCfg `toml:"agents"`
 	Brain  BrainCfg  `toml:"brain"`
 	Update UpdateCfg `toml:"update"`
+	Remote RemoteCfg `toml:"remote"`
+}
+
+// RemoteCfg holds settings for panes on remote machines.
+type RemoteCfg struct {
+	// UploadDrops copies local files dropped (pasted as paths) into a remote
+	// pane to that machine, and pastes their paths there instead.
+	UploadDrops bool `toml:"upload_drops"`
+	// UploadMaxMB refuses larger files; 0 or less means the default.
+	UploadMaxMB int `toml:"upload_max_mb"`
+}
+
+// DefaultUploadMaxMB is the largest file dropped into a remote pane that is
+// uploaded, unless config.toml says otherwise.
+const DefaultUploadMaxMB = 25
+
+// UploadLimit is the largest file to upload, in bytes.
+func (r RemoteCfg) UploadLimit() int64 {
+	if r.UploadMaxMB <= 0 {
+		return DefaultUploadMaxMB << 20
+	}
+	return int64(r.UploadMaxMB) << 20
 }
 
 // UpdateCfg controls how conch looks for newer builds.
@@ -169,6 +191,7 @@ func Default() Config {
 		Agents: AgentsCfg{Default: "claude"},
 		Brain:  BrainCfg{Provider: "claude"},
 		Update: UpdateCfg{CheckReleases: true},
+		Remote: RemoteCfg{UploadDrops: true, UploadMaxMB: DefaultUploadMaxMB},
 	}
 }
 
