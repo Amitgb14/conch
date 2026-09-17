@@ -45,9 +45,18 @@ func checkout(ctx context.Context, p *project, branch string) (gitx.Worktree, bo
 	return gitx.Worktree{}, false, nil
 }
 
+// baseBranch is the project's base. A project added moments ago has not
+// been refreshed yet, so git is asked when the snapshot has no base.
+func (p *project) baseBranch(ctx context.Context) string {
+	if base := p.snapshot().Base; base != "" {
+		return base
+	}
+	return gitx.DefaultBase(ctx, p.root)
+}
+
 // notBase refuses branch methods aimed at the project's base branch.
-func notBase(p *project, branch string) (base string, perr *proto.Error) {
-	base = p.snapshot().Base
+func notBase(ctx context.Context, p *project, branch string) (base string, perr *proto.Error) {
+	base = p.baseBranch(ctx)
 	switch {
 	case branch == "":
 		return "", proto.Errorf(proto.ErrBadRequest, "no branch given")
@@ -112,7 +121,9 @@ func (pm *projectManager) openPR(pp proto.BranchPRParams) (proto.BranchPRResult,
 	if perr != nil {
 		return proto.BranchPRResult{}, perr
 	}
-	base, perr := notBase(p, pp.Branch)
+	ctx, cancel := context.WithTimeout(context.Background(), networkTimeout)
+	defer cancel()
+	base, perr := notBase(ctx, p, pp.Branch)
 	if perr != nil {
 		return proto.BranchPRResult{}, perr
 	}
@@ -122,8 +133,6 @@ func (pm *projectManager) openPR(pp proto.BranchPRParams) (proto.BranchPRResult,
 	if known && pr.State == "OPEN" {
 		return proto.BranchPRResult{}, proto.Errorf(proto.ErrBadRequest, "pull request #%d is already open for %s: %s", pr.Number, pp.Branch, pr.URL)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), networkTimeout)
-	defer cancel()
 	if err := gitx.Push(ctx, p.root, pp.Branch); err != nil {
 		pm.request(p)
 		return proto.BranchPRResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
@@ -145,12 +154,12 @@ func (pm *projectManager) mergeBranch(mp proto.BranchMergeParams) (proto.CommitR
 	if perr != nil {
 		return proto.CommitResult{}, perr
 	}
-	base, perr := notBase(p, mp.Branch)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	base, perr := notBase(ctx, p, mp.Branch)
 	if perr != nil {
 		return proto.CommitResult{}, perr
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
 	into, ok, perr := checkout(ctx, p, base)
 	switch {
 	case perr != nil:
@@ -190,12 +199,12 @@ func (pm *projectManager) discardBranch(dp proto.BranchDiscardParams) (proto.Bra
 	if perr != nil {
 		return res, perr
 	}
-	base, perr := notBase(p, dp.Branch)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	base, perr := notBase(ctx, p, dp.Branch)
 	if perr != nil {
 		return res, perr
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
 	wt, checkedOut, perr := checkout(ctx, p, dp.Branch)
 	if perr != nil {
 		return res, perr
@@ -301,4 +310,35 @@ func plural(n int, what string) string {
 
 func short(hash string) string {
 	return hash[:min(len(hash), 7)]
+}
+
+// resolve says which project and checkout path is in. The worktrees are read
+// from git, not from the last refresh, so a checkout made a moment ago (a
+// task's, say) is already known.
+func (pm *projectManager) resolve(path string) (proto.ProjectPlace, *proto.Error) {
+	p, err := pm.add(path, true)
+	if err != nil {
+		return proto.ProjectPlace{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	info := p.snapshot()
+	place := proto.ProjectPlace{ProjectID: p.id, Root: p.root, Git: info.Git, Base: info.Base}
+	if !info.Git {
+		return place, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	if place.Base == "" {
+		place.Base = gitx.DefaultBase(ctx, p.root)
+	}
+	wts, err := gitx.Worktrees(ctx, p.root)
+	if err != nil {
+		return place, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	dir := realPath(path)
+	for _, wt := range wts {
+		if within(dir, wt.Path) && len(wt.Path) > len(place.Worktree) {
+			place.Worktree, place.Branch = wt.Path, wt.Branch
+		}
+	}
+	return place, nil
 }

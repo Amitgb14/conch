@@ -52,6 +52,13 @@ Usage:
                                 manage projects shown in the sidebar
   conch task [-cwd DIR] [-branch B] [-base B] PROMPT
                                 new branch + worktree + Claude with PROMPT
+  conch branch commit [-file PATH]... -m MESSAGE
+                                commit a task branch's changes (-cwd, -branch pick it)
+  conch branch push | pr [-title T] [-draft] | merge [-no-squash] | discard [-force]
+                                finish a branch: push, open a pull request, merge into
+                                the base, or delete it and its worktree
+  conch worktree ls | clean [-y] [-force] [PATH...]
+                                list leftover worktrees, or remove the finished ones
   conch machine add [-label L] SSH_TARGET
                                 add a remote machine (installs conch there)
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
@@ -100,6 +107,10 @@ func main() {
 		err = runProject(args)
 	case "task":
 		err = runTask(args)
+	case "branch":
+		err = runBranch(args)
+	case "worktree", "worktrees":
+		err = runWorktree(args)
 	case "report":
 		runReport(args) // called by agent hooks; must never fail the agent
 	case "machine", "machines":
@@ -495,7 +506,13 @@ func connect(start bool) (*client.Client, error) {
 }
 
 func call(c *client.Client, method string, params, out any) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	return callFor(c, method, params, out, 10*time.Second)
+}
+
+// callFor is call with a longer wait, for work that reaches the network or
+// touches many files.
+func callFor(c *client.Client, method string, params, out any, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	err := c.Call(ctx, method, params, out)
 	var perr *proto.Error

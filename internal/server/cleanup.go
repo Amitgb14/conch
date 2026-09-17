@@ -30,6 +30,7 @@ func (pm *projectManager) staleWorktrees(id string) (proto.WorktreeStale, *proto
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 	defer cancel()
+	info.Base = p.baseBranch(ctx)
 	wts, err := gitx.Worktrees(ctx, p.root)
 	if err != nil {
 		return out, proto.Errorf(proto.ErrBadRequest, "%v", err)
@@ -40,8 +41,7 @@ func (pm *projectManager) staleWorktrees(id string) (proto.WorktreeStale, *proto
 		}
 		sw := proto.StaleWorktree{Path: wt.Path, Branch: wt.Branch, Base: wt.Branch != "" && wt.Branch == info.Base,
 			Missing: wt.Prunable, Locked: wt.Locked}
-		b, known := branches[wt.Branch]
-		if known {
+		if b, known := branches[wt.Branch]; known {
 			sw.Gone, sw.Committed, sw.PR = b.Gone, b.Committed, b.PR
 		}
 		readable := true
@@ -69,7 +69,7 @@ func (pm *projectManager) staleWorktrees(id string) (proto.WorktreeStale, *proto
 		case wt.Branch == "":
 			note("detached")
 		case sw.Base:
-		case known && b.BaseAhead == 0:
+		case gitx.Ahead(ctx, p.root, wt.Branch, info.Base) == 0:
 			sw.Merged = true
 			note("no commits of its own")
 		case gitx.Merged(ctx, p.root, wt.Branch, info.Base):
@@ -96,9 +96,9 @@ func (pm *projectManager) cleanupWorktrees(cp proto.WorktreeCleanupParams) (prot
 	if perr != nil {
 		return res, perr
 	}
-	base := p.snapshot().Base
 	ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 	defer cancel()
+	base := p.baseBranch(ctx)
 	wts, err := gitx.Worktrees(ctx, p.root)
 	if err != nil {
 		return res, proto.Errorf(proto.ErrBadRequest, "%v", err)

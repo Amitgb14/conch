@@ -275,7 +275,7 @@ var slowMethods = map[string]bool{
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
 	proto.MethodBranchMerge: true, proto.MethodBranchDiscard: true,
-	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true,
+	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true,
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -756,6 +756,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.projects.discardBranch(dp)
+
+	case proto.MethodProjectResolve:
+		ap, perr := decode[proto.ProjectAddParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.resolve(ap.Path)
 
 	case proto.MethodWorktreeStale:
 		ref, perr := decode[proto.ProjectRef](msg)

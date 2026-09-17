@@ -547,3 +547,21 @@ func TestCommitPatchFailures(t *testing.T) {
 		t.Fatal("a refused commit moved HEAD")
 	}
 }
+
+func TestAhead(t *testing.T) {
+	root, wt := taskRepo(t)
+	if n := Ahead(ctx, root, "feat", "main"); n != 0 {
+		t.Fatalf("a fresh branch: %d", n)
+	}
+	commit(t, wt, "a.txt", "a\n", "one")
+	commit(t, wt, "b.txt", "b\n", "two")
+	if n := Ahead(ctx, root, "feat", "main"); n != 2 {
+		t.Fatalf("two commits: %d", n)
+	}
+	if n := Ahead(ctx, root, "missing", "main"); n != 0 {
+		t.Fatalf("missing branch: %d", n)
+	}
+	if n := Ahead(ctx, root, "feat", "no-such-base"); n != 0 {
+		t.Fatalf("missing base: %d", n)
+	}
+}

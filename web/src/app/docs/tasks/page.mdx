@@ -34,6 +34,8 @@ When an agent is done, finish its branch from the changes view (select the branc
 
 Committing hunks stages them and commits what is staged, as `git add -p` then `git commit` does, so anything you had staged already goes in too; the dialog says so. conch commits exactly the hunks it showed you: if the file changed in between, the commit is refused (`R` reloads the diff) rather than committing something else. Binary files and branches that aren't checked out have no hunks to mark.
 
+The same steps are `conch branch commit | push | pr | merge | discard` and `conch worktree ls | clean` from a shell, so a script or an agent can finish its own task; see the [CLI](/docs/cli#branch).
+
 None of these touch the base branch itself except a merge into it. Discarding refuses while panes are still running in the worktree, and never removes the main checkout.
 
 ## Cleaning up worktrees

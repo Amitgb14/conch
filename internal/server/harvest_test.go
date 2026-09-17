@@ -382,3 +382,45 @@ func TestHarvestCommitHunks(t *testing.T) {
 	big := proto.BranchCommitParams{ProjectID: id, Branch: "feat", Message: "m", Patch: strings.Repeat("x", 5<<20)}
 	wantErr(t, call(t, c, proto.MethodBranchCommit, big, nil), "patch is too large")
 }
+
+func TestProjectResolve(t *testing.T) {
+	c, proj, repo, wt, _ := harvestFixture(t)
+
+	// A worktree made a moment ago is already known: resolve reads git, not
+	// the last refresh.
+	var fresh proto.WorktreeResult
+	if err := call(t, c, proto.MethodWorktreeAdd, proto.WorktreeAddParams{ProjectID: proj.ID, Branch: "brand-new"}, &fresh); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{repo: "main", wt: "feat", fresh.Path: "brand-new",
+		filepath.Join(wt, "deep", "..", "."): "feat"} {
+		var place proto.ProjectPlace
+		if err := call(t, c, proto.MethodProjectResolve, proto.ProjectAddParams{Path: path}, &place); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		if place.ProjectID != proj.ID || place.Branch != want || place.Base != "main" || !place.Git || place.Root != repo {
+			t.Fatalf("%s: %+v, want branch %s", path, place, want)
+		}
+	}
+
+	// A detached checkout has no branch; a plain folder is its own project.
+	det := filepath.Join(filepath.Dir(repo), "api.worktrees", "det")
+	git(t, repo, "worktree", "add", "-q", "--detach", det, "main")
+	var place proto.ProjectPlace
+	if err := call(t, c, proto.MethodProjectResolve, proto.ProjectAddParams{Path: det}, &place); err != nil {
+		t.Fatal(err)
+	}
+	if place.Branch != "" || place.Worktree != det {
+		t.Fatalf("detached: %+v", place)
+	}
+	notes := filepath.Join(filepath.Dir(repo), "notes")
+	os.MkdirAll(notes, 0o755)
+	var plain proto.ProjectPlace
+	if err := call(t, c, proto.MethodProjectResolve, proto.ProjectAddParams{Path: notes}, &plain); err != nil {
+		t.Fatal(err)
+	}
+	if plain.Git || plain.Branch != "" || plain.Root != notes {
+		t.Fatalf("plain folder: %+v", plain)
+	}
+	wantErr(t, call(t, c, proto.MethodProjectResolve, proto.ProjectAddParams{Path: filepath.Join(repo, "nope")}, nil), "no such file")
+}

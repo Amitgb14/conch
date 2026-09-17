@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1",
 }
 
 // Methods.
@@ -72,6 +72,7 @@ const (
 	MethodWorktreeRemove = "worktree.remove"
 	MethodTaskCreate     = "task.create"
 	MethodProjectCreate  = "project.create"
+	MethodProjectResolve = "project.resolve"
 	MethodFSList         = "fs.list"
 	MethodFSMkdir        = "fs.mkdir"
 	MethodFSUpload       = "fs.upload"
@@ -338,6 +339,17 @@ type ProjectRef struct {
 // ProjectAddParams adds the project containing Path.
 type ProjectAddParams struct {
 	Path string `json:"path"`
+}
+
+// ProjectPlace says which project and checkout a directory is in, read from
+// git rather than the last refresh.
+type ProjectPlace struct {
+	ProjectID string `json:"project_id"`
+	Root      string `json:"root"` // the project's main checkout
+	Git       bool   `json:"git,omitempty"`
+	Base      string `json:"base,omitempty"`
+	Worktree  string `json:"worktree,omitempty"` // the checkout holding the directory
+	Branch    string `json:"branch,omitempty"`   // its branch, "" when detached
 }
 
 // ProjectCreateParams makes a new folder at Path (which must not exist yet),

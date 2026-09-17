@@ -29,9 +29,10 @@ history; details for big items live in their own plan files.
    conflicts), discard a branch and its worktree after naming what that
    loses, and a cleanup list of leftover worktrees. Server methods behind
    `branch.harvest.v1`, `branch.hunks.v1` and `worktree.cleanup.v1`, so
-   remote machines work too. Hunk adoption across branches and a
-   side-by-side diff stayed out of scope; the CLI has no harvest commands
-   yet, so scripts can still only start tasks.
+   remote machines work too, and `conch branch commit|push|pr|merge|discard`
+   and `conch worktree ls|clean` do the same from a shell. Hunk adoption
+   across branches and a side-by-side diff stayed out of scope; marking
+   hunks is a TUI step.
 
 ## Next
 

@@ -283,6 +283,14 @@ func Unmerged(ctx context.Context, root, branch, base string) int {
 	return n
 }
 
+// Ahead counts the commits branch has that base lacks.
+func Ahead(ctx context.Context, root, branch, base string) int {
+	if !resolves(ctx, root, "refs/heads/"+branch) || !resolves(ctx, root, base) {
+		return 0
+	}
+	return max(revCount(ctx, root, base+"..refs/heads/"+branch), 0)
+}
+
 // Merged reports whether base, or base's upstream, already has everything
 // on branch: its commits, or their changes (a squash merge).
 func Merged(ctx context.Context, root, branch, base string) bool {
