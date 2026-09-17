@@ -208,6 +208,7 @@ func (p *Pane) readLoop(stop <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
 	buf := make([]byte, 32*1024)
 	var titles titleScanner
+	var strs stringFilter
 	fd := int(p.ptmx.Fd())
 	for {
 		select {
@@ -228,7 +229,7 @@ func (p *Pane) readLoop(stop <-chan struct{}, done chan<- struct{}) {
 				p.mu.Unlock()
 			}
 			p.emuMu.Lock()
-			_, _ = p.emu.Write(buf[:n])
+			_, _ = p.emu.Write(strs.filter(buf[:n]))
 			p.emuMu.Unlock()
 			p.notify()
 		}
