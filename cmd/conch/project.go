@@ -142,7 +142,15 @@ func runTask(args []string) error {
 		}
 	}
 	dir := *cwd
-	if dir == "" {
+	switch {
+	case onRemoteMachine() && dir == "":
+		// A task needs a project there; this directory is only one here.
+		return fmt.Errorf("conch -m %s task needs -cwd: a directory in a project on %s", machineFlag, machineFlag)
+	case onRemoteMachine():
+		if err := remoteDir(dir); err != nil {
+			return err
+		}
+	case dir == "":
 		dir, _ = os.Getwd()
 	}
 	c, err := connect(true)
