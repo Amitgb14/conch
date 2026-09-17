@@ -10,8 +10,11 @@ Each machine runs its own conch server, which owns that machine's panes and agen
 conch machine add gpu-box              # an alias from ~/.ssh/config, user@host or ssh://user@host:port
 conch machine ls
 conch -m gpu-box status                # any command against a machine
-conch -m gpu-box task -cwd ~/src/api "Fix the flaky tests"
+conch -m gpu-box new -- make test      # a pane in the machine's home
+conch -m gpu-box task -cwd /home/dev/src/api "Fix the flaky tests"
 ```
+
+With `-m`, `-cwd` is a directory on that machine and must be an absolute path: your shell expands `~` to your own home before conch sees it. Without `-cwd`, `new` starts the pane in the machine's home, outside every project, and `task` asks for one.
 
 Or press `M` in the TUI. `conch machine rm ID` removes a machine, `conch machine rename ID LABEL` renames it, `conch machine upgrade ID` installs your build there and reloads its server, and `conch machine hosts` lists the hosts in your ssh config. See [Command line](/docs/cli#machine) for flags.
 

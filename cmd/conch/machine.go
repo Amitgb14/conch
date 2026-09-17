@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -25,6 +26,19 @@ import (
 // machineFlag is the -m/--machine value: commands then talk to that
 // machine's server instead of the local one.
 var machineFlag = os.Getenv("CONCH_MACHINE")
+
+// onRemoteMachine reports whether commands go to another machine's server.
+func onRemoteMachine() bool { return machineFlag != "" && machineFlag != "local" }
+
+// remoteDir checks a -cwd for another machine. This computer's working
+// directory means nothing there, so a relative path is refused rather than
+// resolved here.
+func remoteDir(dir string) error {
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("-cwd %q: give an absolute path on %s", dir, machineFlag)
+	}
+	return nil
+}
 
 func runVersion(args []string) {
 	if len(args) > 0 && args[0] == "--json" {
