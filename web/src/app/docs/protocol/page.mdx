@@ -34,8 +34,10 @@ Over SSH the same stream runs through `conch bridge`. `hello` returns the server
 | Server | `hello`, `ping`, `server.stop`, `server.reload` |
 | Panes | `pane.list`, `pane.create`, `pane.close`, `pane.resize`, `pane.send_text`, `pane.send_keys`, `pane.send_mouse`, `pane.scroll`, `pane.read`, `pane.rename`, `pane.subscribe`, `pane.unsubscribe`, `pane.mark_seen` |
 | Agents | `agent.report`, `agent.explain`, `agent.status`, `agent.install`, `agent.setup`, `agent.limits`, `agent.broadcast` |
-| Projects | `project.list`, `project.add`, `project.remove`, `project.refresh`, `project.changes`, `project.diff`, `project.create`, `project.set_files` |
+| Projects | `project.list`, `project.add`, `project.remove`, `project.refresh`, `project.changes`, `project.diff`, `project.create`, `project.set_files`, `project.resolve` (which project and branch a directory is in; capability `project.resolve.v1`) |
 | Worktrees and tasks | `worktree.add`, `worktree.remove`, `worktree.copy_files`, `task.create` |
+| Branches | `branch.commit`, `branch.push`, `branch.pr`, `branch.merge`, `branch.discard` (capability `branch.harvest.v1`; a commit's `patch` field needs `branch.hunks.v1`) |
+| Worktree cleanup | `worktree.stale`, `worktree.cleanup` (capability `worktree.cleanup.v1`) |
 | Sessions | `session.list`, `session.search`, `session.resume`, `session.share`, `session.delete`, `session.dismiss` |
 | Files and shell | `fs.list`, `fs.mkdir`, `fs.upload`, `shell.themes` |
 

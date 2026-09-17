@@ -190,6 +190,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.summarizeSelected()
 	case "B":
 		return m, m.openBroadcast()
+	case "W":
+		return m, m.openCleanup()
 	case "F":
 		pl := m.contextPlace()
 		proj := m.project(pl.machine, pl.projectID)

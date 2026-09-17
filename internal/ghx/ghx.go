@@ -29,6 +29,7 @@ type PR struct {
 	Draft   bool
 	URL     string
 	Branch  string // head branch
+	Head    string // head commit
 	Review  string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED or ""
 	Checks  string // ChecksPass, ChecksFail, ChecksPending or "" when none
 	Passed  int    // checks that passed
@@ -39,11 +40,48 @@ type PR struct {
 // ErrNoGH means the gh binary is not installed.
 var ErrNoGH = errors.New("gh (GitHub CLI) is not installed")
 
-const fields = "number,title,state,isDraft,url,headRefName,reviewDecision,statusCheckRollup,updatedAt"
+const fields = "number,title,state,isDraft,url,headRefName,headRefOid,reviewDecision,statusCheckRollup,updatedAt"
 
 // List returns recent pull requests of the repository in dir. The gh binary
 // is $CONCH_GH when set.
 func List(ctx context.Context, dir string) ([]PR, error) {
+	out, err := run(ctx, dir, "pr", "list", "--state", "all", "--limit", "100", "--json", fields)
+	if err != nil {
+		return nil, err
+	}
+	return Parse(out)
+}
+
+// Create opens a pull request from head into base in the repository at dir
+// and returns its URL. The branch must already be pushed. An empty title
+// fills the title and body from the branch's commits.
+func Create(ctx context.Context, dir, base, head, title, body string, draft bool) (string, error) {
+	args := []string{"pr", "create", "--base", base, "--head", head}
+	if strings.TrimSpace(title) == "" {
+		args = append(args, "--fill")
+	} else {
+		args = append(args, "--title", title, "--body", body)
+	}
+	if draft {
+		args = append(args, "--draft")
+	}
+	out, err := run(ctx, dir, args...)
+	if err != nil {
+		return "", err
+	}
+	// gh prints the new pull request's URL last.
+	lines := strings.Fields(string(out))
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(lines[i], "https://") || strings.HasPrefix(lines[i], "http://") {
+			return lines[i], nil
+		}
+	}
+	return "", fmt.Errorf("gh pr create: no pull request URL in its output %q", strings.TrimSpace(string(out)))
+}
+
+// run runs gh in dir and returns its stdout. A failure carries the first
+// line of gh's error output.
+func run(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	bin := os.Getenv("CONCH_GH")
 	if bin == "" {
 		bin = "gh"
@@ -52,7 +90,7 @@ func List(ctx context.Context, dir string) ([]PR, error) {
 	if err != nil {
 		return nil, ErrNoGH
 	}
-	cmd := exec.CommandContext(ctx, path, "pr", "list", "--state", "all", "--limit", "100", "--json", fields)
+	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "NO_COLOR=1")
 	var stdout, stderr bytes.Buffer
@@ -65,9 +103,9 @@ func List(ctx context.Context, dir string) ([]PR, error) {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return nil, fmt.Errorf("gh pr list: %s", msg)
+		return nil, fmt.Errorf("gh %s %s: %s", args[0], args[1], msg)
 	}
-	return Parse(stdout.Bytes())
+	return stdout.Bytes(), nil
 }
 
 type rawPR struct {
@@ -77,6 +115,7 @@ type rawPR struct {
 	IsDraft        bool      `json:"isDraft"`
 	URL            string    `json:"url"`
 	HeadRefName    string    `json:"headRefName"`
+	HeadRefOid     string    `json:"headRefOid"`
 	ReviewDecision string    `json:"reviewDecision"`
 	UpdatedAt      time.Time `json:"updatedAt"`
 	Rollup         []struct {
@@ -97,7 +136,7 @@ func Parse(data []byte) ([]PR, error) {
 	for _, r := range raw {
 		pr := PR{
 			Number: r.Number, Title: r.Title, State: r.State, Draft: r.IsDraft, URL: r.URL,
-			Branch: r.HeadRefName, Review: r.ReviewDecision, Updated: r.UpdatedAt,
+			Branch: r.HeadRefName, Head: r.HeadRefOid, Review: r.ReviewDecision, Updated: r.UpdatedAt,
 		}
 		failed, pending := 0, 0
 		for _, c := range r.Rollup {

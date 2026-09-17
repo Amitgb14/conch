@@ -13,6 +13,8 @@ conch send p1 "fix the failing tests" && conch send -keys p1 enter
 conch read p1                          # visible screen as text
 conch status                           # panes with agent state
 conch project ls                       # projects, base, worktrees
+conch branch commit -m "Fix the flaky test" && conch branch pr   # finish a task
+conch worktree clean -y                # remove finished worktrees and their branches
 conch close p1
 conch server reload                    # run a new build; panes keep running
 conch server stop                      # stops the server and all panes
@@ -90,6 +92,32 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `-branch B` | branch name; default: derived from the prompt |
 | `-base B` | branch to start from; default: the project's base |
 | `-agent NAME` | `claude`, `codex`, `gemini` or `opencode`; default: `[agents] default` |
+
+### branch
+
+Finishing a task from a script, the same steps as the [changes view](/docs/tasks#finishing-a-task). Every command takes `-cwd DIR` (a directory in the project; default: the current one) and `-branch B`; without `-branch` conch uses the branch checked out in that directory. With `-m MACHINE`, `-cwd` is required and must be an absolute path on that machine.
+
+| Command | Description |
+| --- | --- |
+| `conch branch commit -m MESSAGE [-file PATH]...` | commit every change on the branch, or only the `-file` paths (repeat the flag; a rename needs both its paths). Prints the new commit |
+| `conch branch push` | push the branch, setting its upstream on `origin` (or the only remote) the first time |
+| `conch branch pr [-title T] [-body B] [-draft]` | push, then open a pull request into the base with `gh`, and print its URL. Without `-title`, gh fills the title and body from the commits |
+| `conch branch merge [-no-squash] [-m MESSAGE]` | merge the branch into the base where the base is checked out, squashed unless `-no-squash`. A merge that conflicts is undone and the command fails |
+| `conch branch discard [-n] [-force]` | remove the branch's worktree and delete the branch. It refuses when that would lose uncommitted files or unpushed commits, unless `-force`; `-n` only prints what would go |
+
+```sh
+conch branch commit -m "Add the health check" && conch branch pr -title "Health check"
+conch branch merge && conch branch discard      # land it and clean up
+```
+
+### worktree
+
+| Command | Description |
+| --- | --- |
+| `conch worktree ls` | list the project's worktrees besides the main checkout, with why each looks finished and what removing it would lose |
+| `conch worktree clean [-y] [-force] [PATH\|BRANCH...]` | remove the worktrees that look finished and lose nothing, or the ones named, deleting their branches (never the base). Without `-y` it only prints what it would remove; `-force` allows losing work |
+
+Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#finishing-a-task).
 
 ### machine
 

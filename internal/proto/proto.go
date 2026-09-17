@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1",
 }
 
 // Methods.
@@ -72,6 +72,7 @@ const (
 	MethodWorktreeRemove = "worktree.remove"
 	MethodTaskCreate     = "task.create"
 	MethodProjectCreate  = "project.create"
+	MethodProjectResolve = "project.resolve"
 	MethodFSList         = "fs.list"
 	MethodFSMkdir        = "fs.mkdir"
 	MethodFSUpload       = "fs.upload"
@@ -88,6 +89,17 @@ const (
 	MethodAgentLimits    = "agent.limits"
 	// MethodAgentBroadcast types one message into several agents.
 	MethodAgentBroadcast = "agent.broadcast"
+
+	// Finishing a branch's work: commit, push, open a pull request, merge
+	// into the base, or throw the branch away.
+	MethodBranchCommit  = "branch.commit"
+	MethodBranchPush    = "branch.push"
+	MethodBranchPR      = "branch.pr"
+	MethodBranchMerge   = "branch.merge"
+	MethodBranchDiscard = "branch.discard"
+	// Leftover worktrees: list what each would lose, and remove them.
+	MethodWorktreeStale   = "worktree.stale"
+	MethodWorktreeCleanup = "worktree.cleanup"
 )
 
 // Events.
@@ -277,6 +289,7 @@ type PRInfo struct {
 	Checks string `json:"checks,omitempty"` // pass, fail, pending
 	Passed int    `json:"passed,omitempty"`
 	Total  int    `json:"total,omitempty"`
+	Head   string `json:"head,omitempty"` // head commit
 }
 
 // WorktreeInfo is a checkout of the project.
@@ -326,6 +339,17 @@ type ProjectRef struct {
 // ProjectAddParams adds the project containing Path.
 type ProjectAddParams struct {
 	Path string `json:"path"`
+}
+
+// ProjectPlace says which project and checkout a directory is in, read from
+// git rather than the last refresh.
+type ProjectPlace struct {
+	ProjectID string `json:"project_id"`
+	Root      string `json:"root"` // the project's main checkout
+	Git       bool   `json:"git,omitempty"`
+	Base      string `json:"base,omitempty"`
+	Worktree  string `json:"worktree,omitempty"` // the checkout holding the directory
+	Branch    string `json:"branch,omitempty"`   // its branch, "" when detached
 }
 
 // ProjectCreateParams makes a new folder at Path (which must not exist yet),
@@ -445,6 +469,131 @@ type WorktreeAddParams struct {
 	ProjectID string `json:"project_id"`
 	Branch    string `json:"branch"`
 	Base      string `json:"base,omitempty"`
+}
+
+// BranchRef addresses a branch of a project.
+type BranchRef struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+}
+
+// BranchCommitParams commits the uncommitted changes where Branch is checked
+// out: every change, or only Files (paths as in Changes; a rename needs both
+// its paths).
+//
+// With Patch — a unified diff, as project.diff returns, cut down to the
+// chosen hunks — those hunks are staged and what is staged is committed,
+// Files included. A Patch that no longer applies commits nothing. It needs
+// capability branch.hunks.v1; an older server would ignore it and commit
+// everything.
+type BranchCommitParams struct {
+	ProjectID string   `json:"project_id"`
+	Branch    string   `json:"branch"`
+	Message   string   `json:"message"`
+	Files     []string `json:"files,omitempty"`
+	Patch     string   `json:"patch,omitempty"`
+}
+
+// CommitResult is a commit a branch method made.
+type CommitResult struct {
+	Hash string `json:"hash"`
+	Into string `json:"into,omitempty"` // the branch merged into
+}
+
+// BranchPRParams pushes Branch and opens a pull request into the project's
+// base. An empty Title fills title and body from the commits.
+type BranchPRParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Title     string `json:"title,omitempty"`
+	Body      string `json:"body,omitempty"`
+	Draft     bool   `json:"draft,omitempty"`
+}
+
+// BranchPRResult is the opened pull request.
+type BranchPRResult struct {
+	URL string `json:"url"`
+}
+
+// BranchMergeParams merges Branch's commits into the project's base where
+// the base is checked out. A merge that conflicts is undone and refused.
+type BranchMergeParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Squash    bool   `json:"squash,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+// BranchDiscardParams removes Branch's linked worktree and deletes the
+// branch. Without Force it refuses when that loses work; DryRun only reports
+// what would be lost.
+type BranchDiscardParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	DryRun    bool   `json:"dry_run,omitempty"`
+	Force     bool   `json:"force,omitempty"`
+}
+
+// BranchDiscardResult says what discarding a branch removes or would lose.
+type BranchDiscardResult struct {
+	Worktree    string   `json:"worktree,omitempty"`
+	Uncommitted []string `json:"uncommitted,omitempty"`
+	// Unmerged counts commits in neither the base nor the branch's upstream.
+	Unmerged int  `json:"unmerged,omitempty"`
+	Done     bool `json:"done,omitempty"`
+}
+
+// WorktreeStale lists a project's linked worktrees for cleaning up.
+type WorktreeStale struct {
+	Worktrees []StaleWorktree `json:"worktrees"`
+}
+
+// StaleWorktree is a linked worktree and what removing it would lose.
+type StaleWorktree struct {
+	Path    string `json:"path"`
+	Branch  string `json:"branch,omitempty"`  // "" when detached
+	Base    bool   `json:"base,omitempty"`    // the base branch, which cleanup keeps
+	Missing bool   `json:"missing,omitempty"` // its folder is gone
+	Locked  bool   `json:"locked,omitempty"`
+	Panes   bool   `json:"panes,omitempty"` // panes run in it
+	// Uncommitted and Unmerged are what removing it loses (see
+	// BranchDiscardResult); a detached worktree's commits are not counted.
+	Uncommitted int       `json:"uncommitted,omitempty"`
+	Unmerged    int       `json:"unmerged,omitempty"`
+	Merged      bool      `json:"merged,omitempty"` // the base has all of the branch
+	Gone        bool      `json:"gone,omitempty"`   // its upstream was deleted
+	PR          *PRInfo   `json:"pr,omitempty"`
+	Committed   time.Time `json:"committed,omitempty"` // the branch's last commit
+	// Reasons say why it looks finished ("merged", "folder gone");
+	// Suggested means it can go without losing anything.
+	Reasons   []string `json:"reasons,omitempty"`
+	Suggested bool     `json:"suggested,omitempty"`
+}
+
+// WorktreeCleanupParams removes linked worktrees, deleting their branches
+// (except the base) and pruning those whose folder is gone. Each is checked
+// again first: without Force, one that would lose work is skipped.
+type WorktreeCleanupParams struct {
+	ProjectID string            `json:"project_id"`
+	Remove    []CleanupWorktree `json:"remove"`
+}
+
+// CleanupWorktree is one worktree to remove.
+type CleanupWorktree struct {
+	Path  string `json:"path"`
+	Force bool   `json:"force,omitempty"`
+}
+
+// WorktreeCleanupResult says what cleanup removed and what it didn't.
+type WorktreeCleanupResult struct {
+	Removed []string         `json:"removed,omitempty"`
+	Failed  []CleanupFailure `json:"failed,omitempty"`
+}
+
+// CleanupFailure is a worktree cleanup left, and why.
+type CleanupFailure struct {
+	Path  string `json:"path"`
+	Error string `json:"error"`
 }
 
 // ProjectFilesParams sets a project's local file patterns; Reset restores

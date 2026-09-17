@@ -42,6 +42,7 @@ Other keys on tree items:
 | --- | --- |
 | `i` | [agent setup](/docs/tasks#agent-setup) for a project, branch or pane |
 | `F` | [local file patterns](/docs/tasks#local-files-in-worktrees) for a project |
+| `W` | [clean up a project's worktrees](/docs/tasks#cleaning-up-worktrees) |
 | `S` | [summarise](/docs/brain#summaries) an agent |
 | `C` | [install Claude Code](/docs/remote-machines#claude-code-on-a-machine) on a machine |
 | `:` | [ask the brain](/docs/brain) |
@@ -67,6 +68,13 @@ Other keys on tree items:
 | --- | --- |
 | `↑↓` | file |
 | `enter` | diff |
+| `space` | mark a file for the next commit (in a diff, the hunk under `▸`) |
+| `n` `N` | next, previous hunk in a diff |
+| `c` | commit the marked files, or every change |
+| `P` | push |
+| `p` | open a pull request |
+| `M` | merge into the base |
+| `D` | discard the branch and its worktree |
 | `o` | open PR |
 | `y` | copy path / diff |
 | `esc` | back |

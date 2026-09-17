@@ -27,7 +27,7 @@ Apache-2.0 · Default branch: `master`.
 
 | Path | What lives there |
 | --- | --- |
-| `cmd/conch` | The `conch` CLI: TUI launch, `server`, `new/send/read/close`, `project`, `task`, `machine`, `ask`, `update`, hook reports, status line |
+| `cmd/conch` | The `conch` CLI: TUI launch, `server`, `new/send/read/close`, `project`, `task`, `branch`, `worktree`, `machine`, `ask`, `update`, hook reports, status line |
 | `internal/server` | The daemon: panes, projects/worktrees, sessions, agent hooks and usage, hot reload, local files, agent setup |
 | `internal/pane` | A program on a PTY with an emulated screen (charmbracelet/x/vt), key/mouse encoding, detach/adopt for reload |
 | `internal/proto` | Wire protocol: messages, methods, events, payload types, capability list, `Version` |

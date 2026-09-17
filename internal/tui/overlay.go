@@ -115,6 +115,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if pr := m.branchPR(r.machine, r.projectID, r.branch); pr != nil {
 			items = append([]menuItem{items[0], {"o", fmt.Sprintf("Open pull request #%d", pr.Number), act("o")}}, items[1:]...)
 		}
+		items = append(items, harvestMenuItems(m, r)...)
 		if proj := m.project(r.machine, r.projectID); proj != nil {
 			for _, wt := range proj.Worktrees {
 				if wt.Branch == r.branch && !wt.Main {
@@ -133,6 +134,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
 			{"B", "Broadcast to its agents and terminals…", act("B")},
 			{"F", "Local files for new worktrees…", act("F")},
+			{"W", "Clean up worktrees…", act("W")},
 			{"R", "Refresh git status", act("R")},
 			{"", "Show all branches", func(m *Model) tea.Cmd {
 				m.showAll[scoped(r.machine, r.projectID)] = true
@@ -363,6 +365,7 @@ type dialog struct {
 	fields  []field
 	focus   int
 	confirm bool // yes/no question without fields
+	yesOnly bool // a confirm that enter doesn't accept, for what can't be undone
 	// buttons is where a confirm's Yes and No sit, from the last render:
 	// the content line and each one's columns, for clicks.
 	buttons struct{ line, yes0, yes1, no0, no1 int }
@@ -504,6 +507,9 @@ func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		if isKey {
 			switch k.String() {
 			case "y", "Y", "enter":
+				if k.String() == "enter" && d.yesOnly {
+					return false, nil
+				}
 				m.overlay = nil
 				return true, d.submit(m, nil)
 			case "n", "N", "esc", "q":
@@ -603,6 +609,10 @@ func (d *dialog) render(m Model) box {
 		d.buttons.no0 = d.buttons.yes1 + 3
 		d.buttons.no1 = d.buttons.no0 + ansi.StringWidth(no)
 		lines = append(lines, " "+styleSel.Render(yes)+"   "+styleSelDim.Render(no))
+		if d.yesOnly {
+			// What can't be undone takes y or the button, never a stray enter.
+			lines = append(lines, " "+styleMuted.Render("y or the button confirms; enter does not"))
+		}
 	} else {
 		lines = append(lines, " "+styleMuted.Render("enter confirm · tab next field · esc cancel"))
 	}
@@ -678,6 +688,7 @@ var helpText = []string{
 	"  o  open a branch's pull request                 y  copy name / path",
 	"  i  agent setup: instructions, skills, MCP servers, and what a worktree lacks",
 	"  F  local files (.env, local agent settings) copied into new worktrees",
+	"  W  clean up a project's worktrees: the finished ones (merged, folder gone) come ticked",
 	"",
 	"Splits and tabs (ctrl+b, then)",
 	"  % or v split right   \" or - split down   x close split (ends its pane)   = equalize",
@@ -695,6 +706,9 @@ var helpText = []string{
 	"  ctrl+b r  draw the pane again (stale text after a resize)",
 	"  ctrl+b [  scroll history (↑↓ pgup pgdn g) · wheel scrolls too",
 	"  changes: ↑↓ file · enter diff · esc back · y copy path / diff",
+	"    space mark a file · c commit (the marked files, else all) · P push · p open a pull request",
+	"    in a diff: space marks the hunk under ▸ · n / N next, previous hunk · c commits the marked hunks",
+	"    M merge into the base (undone if it conflicts) · D discard the branch and its worktree",
 	"  y in the tree copies a branch name or directory",
 	"  Sessions (under a project): enter resume · / search titles and conversations · s share with another agent",
 	"    d delete · a agent filter · I resume all interrupted · x dismiss",

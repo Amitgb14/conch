@@ -1,6 +1,6 @@
 # Roadmap
 
-Order of upcoming work (updated 2026-09-16). Finished items move to the git
+Order of upcoming work (updated 2026-09-17). Finished items move to the git
 history; details for big items live in their own plan files.
 
 ## Done
@@ -24,21 +24,18 @@ history; details for big items live in their own plan files.
 6. **Website deploy** — `web/` published to GitHub Pages on every push.
 7. **First release** — v0.1.0: archives for macOS and Linux (amd64, arm64)
    with checksums, installed by `install.sh` and `conch update`.
+8. **Harvest** — finishing a task from the TUI: commit (marked files or
+   single hunks), push, `gh pr create`, merge into the base (undone if it
+   conflicts), discard a branch and its worktree after naming what that
+   loses, and a cleanup list of leftover worktrees. Server methods behind
+   `branch.harvest.v1`, `branch.hunks.v1` and `worktree.cleanup.v1`, so
+   remote machines work too, and `conch branch commit|push|pr|merge|discard`
+   and `conch worktree ls|clean` do the same from a shell. Hunk adoption
+   across branches and a side-by-side diff stayed out of scope; marking
+   hunks is a TUI step.
 
 ## Next
 
-8. **Harvest** — finish a task from the TUI instead of only starting one:
-   - commit in the worktree (optionally selected hunks), push, and
-     `gh pr create`
-   - squash-merge or cherry-pick into the base, refusing on conflicts
-   - discard a worktree and its branch, after a confirmation that names
-     uncommitted files and commits not pushed or merged (removal forces only
-     here)
-   - a cleanup list of worktrees with no pane or whose branch is merged or
-     gone, plus `git worktree prune`
-
-   All server methods behind a capability, so remote machines work too.
-   Hunk adoption across branches and a side-by-side diff are out of scope.
 9. **Cost on the tree** — per-pane tokens on tree rows and a total per
    project, labelled as usage conch has seen (plan windows are per account).
    Starting a task while a plan window is past its alert threshold warns in
@@ -47,10 +44,10 @@ history; details for big items live in their own plan files.
 10. **Brain actions for handoff and broadcast** — `share` and `broadcast`
     join the planner's actions, still confirmed like every other action. A
     tree filter shows agents waiting for input across machines.
-11. **Best-of-N tasks** — `conch task -n N` and `-agent claude,codex,...` start
-    the same prompt in separate worktrees with suffixed branch names, and a
-    compare view shows each attempt's diffstat, state and an optional test
-    command's result, harvested through item 8. Needs item 9's warning.
+11. **Best-of-N tasks** — `conch task -n N` and `-agent claude,codex,...`
+    start the same prompt in separate worktrees with suffixed branch names,
+    and a compare view shows each attempt's diffstat, state and an optional
+    test command's result, finished through harvest. Needs item 9's warning.
 12. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
     Bring-back (phase 4) lands commits where harvest can finish them.
 13. **`conch wait`** — `conch wait PANE -state done` so people can script

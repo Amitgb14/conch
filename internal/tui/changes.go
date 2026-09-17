@@ -26,12 +26,17 @@ type changesView struct {
 	loading bool
 	sel     int // selected file
 	scroll  int // file list scroll
+	// marked are the files space picked for the next commit, by path, and
+	// hunks the single hunks picked inside a file's diff.
+	marked map[string]bool
+	hunks  map[string]*fileHunks
 
 	diffFile    string // "" when the file list is shown
 	loadingDiff bool
 	diff        []string
 	diffErr     string
 	diffScroll  int
+	hunkSel     int // the hunk the diff's cursor is on
 }
 
 type changesMsg struct {
@@ -125,7 +130,7 @@ func (cv *changesView) poll(m *Model) tea.Cmd {
 }
 
 func (cv *changesView) loadDiff(m *Model, file string) tea.Cmd {
-	cv.diffFile, cv.diff, cv.diffErr, cv.diffScroll = file, nil, "", 0
+	cv.diffFile, cv.diff, cv.diffErr, cv.diffScroll, cv.hunkSel = file, nil, "", 0, 0
 	return cv.fetchDiff(m, file)
 }
 
@@ -177,9 +182,16 @@ func (cv *changesView) receive(msg tea.Msg) (changed bool) {
 		cv.err = ""
 		cv.data = &msg.data
 		cv.sel = clamp(cv.sel, 0, max(len(msg.data.Files)-1, 0))
+		present := map[string]bool{}
 		for i, f := range msg.data.Files { // keep the selection on its file
 			if f.Path == selected {
 				cv.sel = i
+			}
+			present[f.Path] = true
+		}
+		for path := range cv.marked { // a committed or reverted file is no longer picked
+			if !present[path] || msg.data.Worktree == "" {
+				delete(cv.marked, path)
 			}
 		}
 		return changed
@@ -193,6 +205,9 @@ func (cv *changesView) receive(msg tea.Msg) (changed bool) {
 			return
 		}
 		cv.diff = strings.Split(strings.TrimRight(msg.diff, "\n"), "\n")
+		cv.pruneHunks(msg.file, cv.diff)
+		_, hunks, _ := cv.hunksOf()
+		cv.hunkSel = clamp(cv.hunkSel, 0, max(len(hunks)-1, 0))
 	}
 	return false
 }
@@ -212,7 +227,7 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 			cv.diffScroll++
 		case "pgup", "b":
 			cv.diffScroll -= page
-		case "pgdown", " ", "f":
+		case "pgdown", "f":
 			cv.diffScroll += page
 		case "g", "home":
 			cv.diffScroll = 0
@@ -222,6 +237,14 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 			return true, nil
 		case "y":
 			return false, copyText(strings.Join(cv.diff, "\n") + "\n")
+		case " ", "x":
+			cv.markHunk(m, h)
+		case "n", "]":
+			cv.toHunk(m, cv.hunkSel+1, h)
+		case "N", "[":
+			cv.toHunk(m, cv.hunkSel-1, h)
+		case "c":
+			return false, m.openCommit(cv.target(), cv.selection())
 		}
 		cv.diffScroll = clamp(cv.diffScroll, 0, max(len(cv.diff)-(h-2), 0))
 		return false, nil
@@ -251,8 +274,81 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		if files > 0 {
 			return false, copyText(cv.data.Files[cv.sel].Path)
 		}
+	case " ":
+		if files > 0 && cv.data.Worktree != "" {
+			path := cv.data.Files[cv.sel].Path
+			if cv.marked == nil {
+				cv.marked = map[string]bool{}
+			}
+			if cv.marked[path] {
+				delete(cv.marked, path)
+			} else {
+				cv.marked[path] = true
+			}
+			cv.sel = clamp(cv.sel+1, 0, files-1)
+		}
+	case "c":
+		return false, m.openCommit(cv.target(), cv.selection())
+	case "P":
+		return false, m.pushBranch(cv.target())
+	case "p":
+		return false, m.openPullRequest(cv.target())
+	case "M":
+		return false, m.openMerge(cv.target())
+	case "D":
+		return false, m.discardBranch(cv.target())
 	}
 	return false, nil
+}
+
+// markHunk marks the hunk the cursor is on, for a file being committed by
+// hunks rather than whole.
+func (cv *changesView) markHunk(m *Model, h int) {
+	_, hunks, _ := cv.hunksOf()
+	switch {
+	case cv.data == nil || cv.data.Worktree == "":
+		m.setFlash("only a checked-out branch's own changes can be committed", true)
+	case len(hunks) == 0:
+		m.setFlash("this diff has no hunks to mark", true)
+	default:
+		cv.toggleHunk(cv.hunkSel)
+		cv.toHunk(m, cv.hunkSel+1, h) // on to the next, as marking a file does
+	}
+}
+
+// toHunk moves the diff's cursor to hunk i and scrolls it into view.
+func (cv *changesView) toHunk(m *Model, i, h int) {
+	_, hunks, at := cv.hunksOf()
+	if len(hunks) == 0 {
+		return
+	}
+	cv.hunkSel = clamp(i, 0, len(hunks)-1)
+	start := at[cv.hunkSel]
+	if start < cv.diffScroll || start >= cv.diffScroll+max(h-2, 1) {
+		cv.diffScroll = start
+	}
+}
+
+func (cv *changesView) target() harvestTarget {
+	return harvestTarget{machine: cv.machine, projectID: cv.projectID, branch: cv.branch}
+}
+
+// markedPaths lists the marked files in the order shown, with a rename's
+// old path too so the commit takes both sides of it.
+func (cv *changesView) markedPaths() []string {
+	if cv.data == nil {
+		return nil
+	}
+	var paths []string
+	for _, f := range cv.data.Files {
+		if cv.marked[f.Path] {
+			if f.OrigPath != "" {
+				paths = append(paths, f.OrigPath)
+			}
+			paths = append(paths, f.Path)
+		}
+	}
+	return paths
 }
 
 // filesTop is the view row of the first file: title, meta, an optional pull
@@ -322,6 +418,9 @@ func (cv *changesView) render(m Model, w, h int) []string {
 	if untracked > 0 {
 		header += styleMuted.Render(fmt.Sprintf("  · %d untracked", untracked))
 	}
+	if n := len(cv.marked); n > 0 {
+		header += styleOK.Render(fmt.Sprintf("  · %d marked", n))
+	}
 	lines = append(lines, header)
 
 	// Room for the files' "… more" line and the commits below: a blank line,
@@ -341,6 +440,9 @@ func (cv *changesView) render(m Model, w, h int) []string {
 		stat := diffStat(f.Added, f.Deleted)
 		if f.Binary {
 			stat = styleMuted.Render("binary")
+		}
+		if cv.marked[f.Path] {
+			stat = styleOK.Render("✓ ") + stat
 		}
 		name := f.Path
 		if f.OrigPath != "" {
@@ -382,7 +484,19 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 	if cv.diff != nil && cv.loadingDiff {
 		right = "refreshing… · " + right
 	}
-	lines := []string{spread(styleBold.Render(cv.diffFile), styleMuted.Render(right), w)}
+	_, hunks, at := cv.hunksOf()
+	marks := map[int]int{} // diff line → hunk index
+	for i, line := range at {
+		marks[line] = i
+	}
+	title := cv.diffFile
+	if cv.data != nil && cv.data.Worktree != "" && len(hunks) > 0 {
+		right = "space mark · n next hunk · c commit · " + right
+		if fh := cv.hunks[cv.diffFile]; fh != nil {
+			title += styleOK.Render(fmt.Sprintf("  %d of %d hunks marked", len(fh.marked), len(hunks)))
+		}
+	}
+	lines := []string{spread(styleBold.Render(title), styleMuted.Render(right), w)}
 	switch {
 	case cv.diffErr != "":
 		return append(lines, styleErr.Render(cv.diffErr))
@@ -392,17 +506,28 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 	for i := cv.diffScroll; i < len(cv.diff) && len(lines) < h; i++ {
 		l := strings.ReplaceAll(cv.diff[i], "\t", "    ")
 		l = ansi.Strip(l) // diffs are data; never let them drive the terminal
+		prefix := ""
 		switch {
 		case strings.HasPrefix(l, "+++"), strings.HasPrefix(l, "---"), strings.HasPrefix(l, "diff "), strings.HasPrefix(l, "index "):
 			l = styleMuted.Render(l)
 		case strings.HasPrefix(l, "@@"):
+			if hunk, ok := marks[i]; ok && len(hunks) > 0 && cv.data != nil && cv.data.Worktree != "" {
+				cursor, mark := " ", " "
+				if hunk == cv.hunkSel {
+					cursor = "▸"
+				}
+				if cv.markedHunk(hunk) {
+					mark = styleOK.Render("✓")
+				}
+				prefix = cursor + mark
+			}
 			l = styleWork.Render(l)
 		case strings.HasPrefix(l, "+"):
 			l = styleOK.Render(l)
 		case strings.HasPrefix(l, "-"):
 			l = styleErr.Render(l)
 		}
-		lines = append(lines, l)
+		lines = append(lines, prefix+l)
 	}
 	return lines
 }

@@ -38,7 +38,13 @@ func decodeInto(msg proto.Message, v any) bool {
 
 // callCtx makes a request with the TUI's standard timeout.
 func callCtx(c *client.Client, method string, params, out any) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	return callCtxFor(c, method, params, out, 30*time.Second)
+}
+
+// callCtxFor is callCtx with a longer wait, for work that reaches the
+// network or touches many files.
+func callCtxFor(c *client.Client, method string, params, out any, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return c.Call(ctx, method, params, out)
 }

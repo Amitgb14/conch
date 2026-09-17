@@ -19,6 +19,38 @@ conch task -cwd ~/src/api "Add a health check endpoint"   # pane, worktree, bran
 - `c`/`n` on a branch that isn't checked out creates its worktree first.
 - `x` on a branch removes its worktree (never with uncommitted changes, never the main one).
 
+## Finishing a task
+
+When an agent is done, finish its branch from the changes view (select the branch, `tab` into it) or the branch's menu (`m`). Every step runs on the machine the project is on, so it works the same for remote machines.
+
+| Key | What it does |
+| --- | --- |
+| `space`, `c` | Commit. `space` marks files; `c` commits the marked ones, or every change (untracked files included) when none are marked. Other changes stay as they were. |
+| `space` in a diff | Mark single hunks. `n` and `N` move between hunks, `space` marks the one under `▸`, and `c` commits just those. A file is committed either whole or by hunks, so marking a hunk drops its whole-file mark. |
+| `P` | Push the branch, setting its upstream on `origin` (or the only remote) the first time. |
+| `p` | Push, then open a pull request into the base with `gh`. Leave the title empty to take the title and description from the commits; tick Draft for a draft. |
+| `M` | Merge the branch's commits into the base where the base is checked out, as one squashed commit (the default) or a merge commit. The base checkout must have no uncommitted changes, and the branch must have its changes committed. A merge that conflicts is undone: nothing changes, and conch names the conflicting files. |
+| `D` | Discard: remove the worktree and delete the branch. conch first shows what that loses — uncommitted files, and commits that are in neither the base, the base's upstream, nor the branch's upstream (a branch squash-merged, or merged through its pull request, loses nothing). Only `y` confirms. |
+
+Committing hunks stages them and commits what is staged, as `git add -p` then `git commit` does, so anything you had staged already goes in too; the dialog says so. conch commits exactly the hunks it showed you: if the file changed in between, the commit is refused (`R` reloads the diff) rather than committing something else. Binary files and branches that aren't checked out have no hunks to mark.
+
+The same steps are `conch branch commit | push | pr | merge | discard` and `conch worktree ls | clean` from a shell, so a script or an agent can finish its own task; see the [CLI](/docs/cli#branch).
+
+None of these touch the base branch itself except a merge into it. Discarding refuses while panes are still running in the worktree, and never removes the main checkout.
+
+## Cleaning up worktrees
+
+Worktrees outlive their tasks. `W` on a project (also in its menu) lists every worktree besides the main checkout, with what removing it would lose and why it looks finished:
+
+- **merged into main**, or **no commits of its own** — the base already has everything on the branch (a squash merge counts)
+- **pull request merged** or **closed**, **upstream deleted**
+- **folder gone** — deleted by hand; git still lists it until it is pruned
+- **detached** — a checkout with no branch
+
+The finished ones that lose nothing come ticked. `space` ticks others, `a` toggles the finished ones, `enter` reviews. Removing a worktree deletes its branch too, except the base branch; a folder that is already gone is pruned. Worktrees with panes running, or locked with `git worktree lock`, can't be ticked.
+
+Ticking one with uncommitted files, or commits that are in neither the base nor an upstream, is allowed, but the confirmation names what is lost and only `y` accepts it. Each worktree is checked again when it is removed: work added after the list was read makes conch keep it and say why.
+
 ## Local files in worktrees
 
 A fresh worktree has only what git tracks, so an agent there would miss your `.env` or personal agent settings. When conch creates a worktree it copies the main checkout's **gitignored** files that match the project's patterns — by default:

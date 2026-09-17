@@ -76,9 +76,18 @@ Selecting a branch shows its **changes**: its pull request (checks, review), unc
 | --- | --- |
 | `↑↓` | select a file |
 | `enter` | show its diff |
+| `space` | mark a file for the next commit (`✓`); inside a diff, the hunk the `▸` cursor is on |
+| `n` `N` | move to the next or previous hunk of an open diff (`[` and `]` too) |
+| `c` | commit the marked files, or every change when none are marked |
+| `P` | push, setting the upstream the first time |
+| `p` | push and open a pull request into the base |
+| `M` | merge into the base |
+| `D` | discard the branch and its worktree |
 | `o` | open the PR |
 | `y` | copy the file path or the whole diff |
 | `esc` | back |
+
+These also sit in a branch's menu (`m`). See [Finishing a task](/docs/tasks#finishing-a-task) for what each one checks first.
 
 ## Splits and tabs
 
