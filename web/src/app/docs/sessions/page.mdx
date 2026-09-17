@@ -6,7 +6,7 @@ Agents save their conversations; conch lists them per project so you can resume 
 
 ## Saved conversations
 
-Every project has a **Sessions** section in the tree. Select it to list, on the right, the conversations agents saved for the project and its worktrees — Claude Code, Codex, Gemini CLI and OpenCode — newest first, with the agent, title, branch and age:
+Every project has a **Sessions** section in the tree. Select it to list, on the right, the conversations agents saved for the project and its worktrees — Claude Code, Codex, Gemini CLI, OpenCode and Devin — newest first, with the agent, title, branch and age:
 
 ```text
 Sessions · api        enter resume · / search · s share · d delete · a agent
@@ -30,6 +30,9 @@ conch reads the agents' own session stores and never changes them (except `d`, w
 | Codex | `codex resume` |
 | Gemini CLI | `gemini --resume` |
 | OpenCode | `opencode --session` |
+| Devin | `devin -r` |
+
+Devin keeps its sessions in a database of its own, so conch lists them by asking its CLI (`devin list`) in each folder, and `d` deletes one with `devin rm`. Devin conversations can't be searched inside or shared with another agent yet; their titles and IDs still match `/`.
 
 `●` sessions are already open and `enter` shows their pane. `a` filters by agent, and `R` reloads the list.
 

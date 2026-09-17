@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -641,5 +642,112 @@ func TestA6ParseCachedReparsesOnChange(t *testing.T) {
 func TestA6ClaudeDirName(t *testing.T) {
 	if got := claudeDirName("/Users/me/my_proj.v2"); got != "-Users-me-my-proj-v2" {
 		t.Fatalf("claudeDirName: %s", got)
+	}
+}
+
+// Devin for Terminal keeps its sessions in a database of its own, so conch
+// asks its CLI — `devin list --format json` in each folder — instead of
+// reading files. Found in use: the Sessions view never showed Devin's.
+func TestDevinSessions(t *testing.T) {
+	home := t.TempDir()
+	proj := filepath.Join(t.TempDir(), "api")
+	wt := proj + ".worktrees/feat"
+	other := filepath.Join(t.TempDir(), "other")
+	for _, d := range []string{proj, wt, other} {
+		os.MkdirAll(d, 0o755)
+	}
+	// $PWD in the fake is the real path; macOS temp folders sit behind a
+	// symlink. The server resolves session folders the same way.
+	proj, _ = filepath.EvalSymlinks(proj)
+	wt, _ = filepath.EvalSymlinks(wt)
+	other, _ = filepath.EvalSymlinks(other)
+	now := time.Now().Unix()
+	old := time.Now().Add(-400 * 24 * time.Hour).Unix()
+	bin := filepath.Join(home, ".local", "bin")
+	os.MkdirAll(bin, 0o755)
+	log := filepath.Join(home, "calls.log")
+	// The fake answers per folder, as devin does, and logs how it was run.
+	script := fmt.Sprintf(`#!/bin/sh
+echo "$PWD $*" >> %[1]q
+case "$1" in
+rm) [ "$2" = "--force" ] && [ "$3" = "quark-schooner" ] && exit 0; echo "no such session" >&2; exit 1 ;;
+esac
+case "$PWD" in
+%[2]s) printf '%%s' '[{"id":"quark-schooner","short_id":"quark-schooner","working_directory":%[2]q,"last_activity_at":%[5]d,"title":"fix the flaky test"},
+ {"id":"ancient","working_directory":%[2]q,"last_activity_at":%[6]d,"title":"too old"},
+ {"id":"","working_directory":%[2]q,"last_activity_at":%[5]d,"title":"no id"},
+ {"id":"elsewhere","working_directory":%[4]q,"last_activity_at":%[5]d,"title":"another project"}]' ;;
+%[3]s) printf '%%s' '[{"id":"brisk-otter","working_directory":%[3]q,"last_activity_at":%[7]d,"title":"feat work"},
+ {"id":"quark-schooner","working_directory":%[2]q,"last_activity_at":%[5]d,"title":"fix the flaky test"}]' ;;
+*) echo '[]' ;;
+esac
+`, log, proj, wt, other, now, old, now-60)
+	if err := os.WriteFile(filepath.Join(bin, "devin"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a6NoTools(t)
+	env := a6Env(home, nil)
+
+	got := List(env, []string{proj, wt}, 0)
+	var devinIDs []string
+	for _, s := range got {
+		if s.Agent == "devin" {
+			devinIDs = append(devinIDs, s.ID)
+		}
+	}
+	// Newest first; each once though listed from both folders; the old one,
+	// the one without an id and another project's are left out.
+	if strings.Join(devinIDs, ",") != "quark-schooner,brisk-otter" {
+		t.Fatalf("devin sessions: %v (all: %s)", devinIDs, a6IDs(got))
+	}
+	for _, s := range got {
+		if s.ID == "quark-schooner" && (s.Title != "fix the flaky test" || s.Dir != proj || s.Updated.Unix() != now || s.Path == "") {
+			t.Fatalf("session: %+v", s)
+		}
+	}
+
+	// A folder with nothing, a command that fails, and output that isn't a list.
+	if ss := List(env, []string{other + "/none"}, 0); len(ss) != 0 {
+		t.Fatalf("missing folder: %s", a6IDs(ss))
+	}
+	os.WriteFile(filepath.Join(bin, "devin"), []byte("#!/bin/sh\necho 'not json'\n"), 0o755)
+	if ss := List(env, []string{proj}, 0); len(ss) != 0 {
+		t.Fatalf("bad output: %s", a6IDs(ss))
+	}
+	os.WriteFile(filepath.Join(bin, "devin"), []byte("#!/bin/sh\necho 'please log in' >&2; exit 1\n"), 0o755)
+	if ss := List(env, []string{proj}, 0); len(ss) != 0 {
+		t.Fatalf("signed out: %s", a6IDs(ss))
+	}
+
+	// Deleting runs devin rm --force in the session's folder.
+	os.WriteFile(filepath.Join(bin, "devin"), []byte(script), 0o755)
+	s := Session{Agent: "devin", ID: "quark-schooner", Dir: proj, Path: filepath.Join(bin, "devin")}
+	if err := Delete(context.Background(), env, s, filepath.Join(home, "trash")); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(log); !strings.Contains(string(b), proj+" rm --force quark-schooner") {
+		t.Fatalf("calls:\n%s", b)
+	}
+	s.ID = "gone"
+	if err := Delete(context.Background(), env, s, ""); err == nil || !strings.Contains(err.Error(), "no such session") {
+		t.Fatalf("unknown session: %v", err)
+	}
+	// Without devin installed there is nothing to list and nothing to delete with.
+	os.Remove(filepath.Join(bin, "devin"))
+	if ss := List(env, []string{proj}, 0); len(ss) != 0 {
+		t.Fatalf("no devin: %s", a6IDs(ss))
+	}
+	if err := Delete(context.Background(), env, s, ""); err == nil || !strings.Contains(err.Error(), "needs the devin command") {
+		t.Fatalf("delete without devin: %v", err)
+	}
+	// devin on the given environment's PATH is found too.
+	pathDir := t.TempDir()
+	os.WriteFile(filepath.Join(pathDir, "devin"), []byte(script), 0o755)
+	if ss := List(a6Env(home, map[string]string{"PATH": pathDir}), []string{proj}, 0); len(ss) == 0 {
+		t.Fatal("devin on PATH not used")
+	}
+	// Sharing a Devin session isn't possible yet, and says so.
+	if _, err := Transcript(context.Background(), env, Session{Agent: "devin", ID: "x"}); err == nil || !strings.Contains(err.Error(), "can't read devin sessions") {
+		t.Fatalf("transcript: %v", err)
 	}
 }
