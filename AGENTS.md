@@ -157,6 +157,34 @@ helpers in `cmd/conch` and `internal/remote`.
 - **Build identity.** `buildinfo.Build()` hashes the executable at start-up;
   stale-server and stale-TUI detection depend on it.
 
+## Adding an agent
+
+An agent is supported only when it works everywhere the others do. Adding one
+means all of these, each with tests (a fake binary on a scratch `PATH` or
+`HOME`, never the real agent):
+
+- **Adapter** (`internal/adapter`): in the `Registry`, with its binary, the
+  directory its installer uses, how a first message and a resume are passed,
+  and an `InstallScript` so `c` / `conch agent install NAME` can install it.
+- **Detection** (`internal/detect/manifests/NAME.toml`): its process names,
+  and screen or title rules taken from the real agent — never copied from
+  another agent's strings. Leave the state unknown rather than guess.
+- **Sessions** (`internal/sessions`): its saved conversations **must** show in
+  the project's Sessions view, resume with its own option, and delete with
+  `d`. Read its session files when their format is known; when it keeps them
+  somewhere undocumented (Devin's database), ask its CLI (`devin list
+  --format json`). Find the binary through the `Env` a store is given, not
+  this process's `PATH`. Say in the docs if search or sharing can't read it.
+- **Labels**: `agentLabels` in `internal/tui/model.go` and the handoff labels
+  in `internal/sessions/handoff.go`.
+- **Docs and plans**: the Supported agents table (`web/src/app/docs/agents`),
+  the Sessions page's resume table, the agent lists here and on the home page,
+  and a row in `docs/testing/end-to-end.md` for installing, starting, state and
+  sessions with the real agent.
+
+Its hooks or plugins are added only once it's confirmed they don't replace the
+user's own configuration.
+
 ## Before you finish
 
 - [ ] Tests added or updated for the change, covering edge cases
@@ -164,5 +192,6 @@ helpers in `cmd/conch` and `internal/remote`.
 - [ ] `go test -race -count=1 ./...` passes
 - [ ] Help text, CLI usage and web docs updated for user-visible changes
 - [ ] Summary says what was tested, what wasn't, and any skipped bug tests
+- [ ] A new agent's sessions show, resume and delete in the Sessions view
 - [ ] Anything fakes can't prove has a row in
       [docs/testing/end-to-end.md](docs/testing/end-to-end.md)
