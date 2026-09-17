@@ -47,7 +47,7 @@ The server owns every pane, so a new build takes effect in the server only once 
 conch server reload        # or click the version in the status bar, then r
 ```
 
-The server execs the new binary in place. It keeps its process ID, so the programs in its panes stay its children; their terminals and the listening socket stay open across the exec; screens, scrollback, terminal modes and agent states are handed over in a state file. Agents never notice — output they write meanwhile waits in the kernel — and the TUI reconnects on its own.
+The server execs the new binary in place. It keeps its process ID, so the programs in its panes stay its children; their terminals and the listening socket stay open across the exec; screens, scrollback, terminal modes and agent states are handed over in a state file. Agents never notice — output they write meanwhile waits in the kernel — and the TUI reconnects on its own. Whatever you type into a pane in that moment is held and sent once the pane is back; keys held for more than 15 seconds, or for a pane that didn't survive, are dropped, and the status bar says so.
 
 When the server is older than the TUI, its version shows amber in the status bar. The machine menu has **Reload server** too; a remote machine reloads onto the build `machine upgrade` installed.
 

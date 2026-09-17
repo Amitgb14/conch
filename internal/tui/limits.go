@@ -66,13 +66,17 @@ func shortAgent(agent string) string {
 // statusLimits is the status bar item for the machine in view: the limits
 // of the viewed agent, else of any agent there.
 func (m Model) statusLimits(now time.Time) []statusItem {
-	pl := m.contextPlace()
-	mach := m.machine(pl.machine)
+	mid := m.contextPlace().machine
+	r := m.activeRow() // the agent being typed into, else the selected one
+	if r.kind == kindPane {
+		mid = r.machine
+	}
+	mach := m.machine(mid)
 	if mach == nil || len(mach.limits) == 0 {
 		return nil
 	}
 	agent := ""
-	if r, ok := m.selectedRow(); ok && r.kind == kindPane {
+	if r.kind == kindPane {
 		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
 			agent = p.Agent.Name
 		}

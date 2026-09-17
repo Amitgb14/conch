@@ -62,11 +62,13 @@ func TestA1StatusChips(t *testing.T) {
 	}
 	m.prefixArmed = false
 
+	// In the main area the chip follows what the focused split shows.
 	m.focus = focusMain
+	m.tab().focused().view = viewOf(m.rows[len(m.rows)-1])
 	if a1Chip(m) != "SESSIONS" {
 		t.Errorf("sessions focus: %s", a1Chip(m))
 	}
-	m.cursor = projectNodeID(localMachine, "r1")
+	m.tab().focused().view = viewRef{Row: branchNodeID(localMachine, "r1", "feat"), Kind: kindBranch, Machine: localMachine, ProjectID: "r1", Branch: "feat"}
 	if a1Chip(m) != "CHANGES" {
 		t.Errorf("main fallback: %s", a1Chip(m))
 	}

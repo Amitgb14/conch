@@ -66,7 +66,8 @@ func (m *Model) press(key string) tea.Cmd {
 }
 
 func (m Model) statusHints() (chip string, items []statusItem) {
-	r, _ := m.selectedRow()
+	// Like keys, the hints follow the focused split, not the tree's cursor.
+	r := m.activeRow()
 	toTree := func(m *Model) tea.Cmd { m.focus, m.prefixArmed = focusSidebar, false; return nil }
 	scrollMode := func(m *Model) tea.Cmd { m.enterScrollMode(); return nil }
 	switch {

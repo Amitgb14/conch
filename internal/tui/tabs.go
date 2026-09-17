@@ -581,9 +581,7 @@ func (m *Model) forwardSynced(mid, id string, k tea.KeyMsg) {
 		if v.Machine == mid && v.PaneID == id {
 			continue
 		}
-		if c := m.clientOf(v.Machine); c != nil {
-			forwardKey(c, v.PaneID, k)
-		}
+		m.sendKey(v.Machine, v.PaneID, k)
 	}
 }
 

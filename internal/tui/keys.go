@@ -254,10 +254,7 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Keys go to what the focused split shows. The tree's cursor can be
 	// elsewhere — on Workspace while an agent's tab is clicked, say — and
 	// following it sent the keys nowhere.
-	r, _ := m.selectedRow()
-	if v := m.tab().focused().view; !v.empty() {
-		r = row{id: v.Row, kind: v.Kind, machine: v.Machine, projectID: v.ProjectID, branch: v.Branch, paneID: v.PaneID}
-	}
+	r := m.activeRow()
 	prefix := m.cfg.Keys.Prefix
 
 	if cmd, handled := m.repeatResize(k.String()); handled {
@@ -273,8 +270,8 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		switch k.String() {
 		case prefix:
-			if c := m.viewClient(); r.kind == kindPane && c != nil {
-				forwardKey(c, r.paneID, k)
+			if r.kind == kindPane {
+				m.sendKey(r.machine, r.paneID, k)
 			}
 		case "[", "pgup":
 			if r.kind == kindPane && m.frame != nil {
@@ -303,8 +300,7 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch r.kind {
 	case kindPane:
 		p := m.pane(r.machine, r.paneID)
-		c := m.viewClient()
-		if p == nil || p.State != proto.PaneRunning || c == nil {
+		if p == nil || p.State != proto.PaneRunning {
 			m.focus = focusSidebar
 			return m, nil
 		}
@@ -315,7 +311,7 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.offset > 0 {
 			m.scrollPane(-m.offset) // typing returns to the live screen
 		}
-		forwardKey(c, p.ID, k)
+		m.sendKey(r.machine, p.ID, k)
 		m.forwardSynced(r.machine, p.ID, k)
 		return m, nil
 	case kindSessions:

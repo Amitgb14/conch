@@ -256,12 +256,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if m.viewMachine == mach.id {
+			// Focus stays on the pane: keys typed now are held for it, not
+			// taken as tree commands.
 			m.viewing, m.frame = "", nil
-			if m.focus == focusMain {
-				m.focus = focusSidebar
-			}
+			m.scrollMode, m.sel = false, nil
 		}
-		return m, tea.Batch(m.rebuild(), mach.scheduleRetry())
+		id, gen := mach.id, mach.gen
+		retry := tea.Tick(retryLost, func(time.Time) tea.Msg { return machineRetryMsg{machine: id, gen: gen} })
+		return m, tea.Batch(m.rebuild(), retry)
 
 	case reloadedMsg:
 		if mach := m.machine(msg.machine); mach != nil {
@@ -298,6 +300,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case panesMsg:
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
 			mach.setPanes(msg.panes)
+			m.flushHeld(mach)
 		}
 		return m, tea.Batch(m.rebuild(), m.startTicking())
 
@@ -662,6 +665,20 @@ func (m *Model) selectedRow() (row, bool) {
 		return row{}, false
 	}
 	return m.rows[i], true
+}
+
+// activeRow is what the user is working in: while typing in the main area,
+// what its focused split shows; otherwise the tree's cursor. They differ
+// after clicking a tab, which leaves the cursor where it was.
+func (m *Model) activeRow() row {
+	r, _ := m.selectedRow()
+	if m.focus != focusMain {
+		return r
+	}
+	if v := m.tab().focused().view; !v.empty() {
+		r = row{id: v.Row, kind: v.Kind, machine: v.Machine, projectID: v.ProjectID, branch: v.Branch, paneID: v.PaneID}
+	}
+	return r
 }
 
 // revealPane expands the pane's ancestors and selects it.

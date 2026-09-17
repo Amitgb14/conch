@@ -36,7 +36,10 @@ func (s machineState) String() string {
 
 const (
 	retryMin = 2 * time.Second
-	retryMax = time.Minute
+	// retryLost is the first retry after a dropped connection: a reloading
+	// server is back almost at once.
+	retryLost = 250 * time.Millisecond
+	retryMax  = time.Minute
 )
 
 // machine is one conch server the TUI shows: this computer or a remote one.
@@ -71,6 +74,8 @@ type machine struct {
 	// attempts are ignored.
 	gen      int
 	failures int
+	// held are keys typed into its panes while reconnecting.
+	held []heldKey
 }
 
 type (

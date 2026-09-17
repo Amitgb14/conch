@@ -158,13 +158,14 @@ func TestA2MachineMessages(t *testing.T) {
 		t.Fatal("connected with an install needed")
 	}
 
-	// A closed connection forgets its subscriptions and leaves the pane view.
+	// A closed connection forgets its subscriptions and the pane's frame, but
+	// focus stays on the pane so typing is held for it.
 	nm.subscribed = map[string]bool{"box|x": true, "local|p1": true}
 	nm.frames = map[string]*proto.Frame{"box|x": {}}
-	nm.viewMachine, nm.viewing, nm.focus = "box", "x", focusMain
+	nm.viewMachine, nm.viewing, nm.focus, nm.scrollMode = "box", "x", focusMain, true
 	next, cmd := nm.Update(machineClosedMsg{machine: "box", gen: 3, err: errors.New("eof")})
 	nm = next.(Model)
-	if cmd == nil || box.state != stateOffline || nm.subscribed["box|x"] || nm.frames["box|x"] != nil || nm.viewing != "" || nm.focus != focusSidebar {
+	if cmd == nil || box.state != stateOffline || nm.subscribed["box|x"] || nm.frames["box|x"] != nil || nm.viewing != "" || nm.focus != focusMain || nm.scrollMode {
 		t.Fatalf("closed: state %v subscribed %v viewing %q focus %v", box.state, nm.subscribed, nm.viewing, nm.focus)
 	}
 }
