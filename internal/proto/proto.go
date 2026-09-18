@@ -18,7 +18,7 @@ import (
 
 // Version is the conch release version, set at release time with
 // -ldflags "-X github.com/Amitgb14/conch/internal/proto.Version=0.2.0".
-var Version = "0.1.1-dev"
+var Version = "0.1.2-dev"
 
 // IsRelease reports whether Version names a published release rather than a
 // development build.

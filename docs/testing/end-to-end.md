@@ -86,7 +86,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | # | Path | Steps | Expected | Status |
 | --- | --- | --- | --- | --- |
 | 5.1 | `install.sh` | `curl -fsSL …/install.sh \| sh` on macOS and Linux (amd64, arm64) | Installs the right asset; checksum verified | ✅ R5 the published v0.1.0 one-liner (latest lookup) on macOS arm64 and Linux arm64 and amd64 |
-| 5.2 | `conch update` | From an older release | Downloads, verifies, replaces the binary; `conch version` shows the new one | ☐ |
+| 5.2 | `conch update` | From an older release | Downloads, verifies, replaces the binary; `conch version` shows the new one | ✅ R11 v0.1.0 → 0.1.1 on macOS arm64 |
 | 5.3 | Release check in the TUI | A release build older than the latest | Status bar shows `⬆`; version popup offers the update | ☐ |
 | 5.4 | Update from the TUI | `u` in the version popup | Installs, reloads the server keeping panes, restarts the TUI, updates remotes | ☐ |
 
@@ -275,3 +275,13 @@ A drop was simulated by sending the TUI what a terminal sends: a bracketed paste
 - **Outdated (9.15):** an old-build server running while the new binary sat beside it: busybox showed `outdated`, a drop pasted the local path with the warning. **Found:** cut to 30 cells the warning read `busybox's conch is older · up…`; now `busybox needs a conch update …`.
 - **CLI:** `conch -m busybox upload` of two files printed both paths there.
 - **Not run:** a drag in a real terminal (9.16, and the real-terminal part of 9.10–9.12), a password-auth machine (9.14; busybox has no password login), and the file-size limit and settings toggles in the real TUI (unit tests only).
+
+### R11 — 2026-09-18, v0.1.1 release, macOS arm64
+
+The tag on 1718026 built and published the four archives and `checksums.txt` through `release.yml` (2m13s). Everything below ran with its own `HOME` and `CONCH_HOME`, and never touched the real server.
+
+- **Dry run:** `scripts/release.sh 0.1.1` built darwin and linux, amd64 and arm64; the darwin/arm64 binary reported `conch 0.1.1`.
+- **install.sh (5.1):** the documented one-liner from master installed 0.1.1 for darwin/arm64, finding the latest release by itself; the downloaded archive's SHA-256 matched the published `checksums.txt`.
+- **go install:** `go install …/cmd/conch@v0.1.1` reported `conch 0.1.1`, so the release-tag version fix from R5 still holds.
+- **Update from an older release (5.2):** a real v0.1.0 binary ran `conch update` and replaced itself: `0.1.0 → 0.1.1`, and then reported the same build hash as the install.sh copy.
+- **Not run:** the TUI's own release check and update (5.3, 5.4) still need a TUI running an older release build.

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import path from "node:path"
 
 // The conch version shown on the site, resolved at build time: the newest
-// v* release tag, or else the version in internal/proto (e.g. 0.1.1-dev).
+// v* release tag, or else the version in internal/proto (e.g. 0.1.2-dev).
 export function conchVersion(): string {
   if (process.env.CONCH_VERSION) return process.env.CONCH_VERSION.replace(/^v/, "")
   try {
