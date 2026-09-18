@@ -81,6 +81,24 @@ Attempts multiply what you spend: three Claude attempts use three times the plan
 
 </Callout>
 
+### Comparing them
+
+`A` on an attempt's changes, or **Compare the N attempts…** in its branch menu, puts them side by side:
+
+```text
+╭─ Compare attempts ────────────────────────────────────────────────────╮
+│ Attempts at conch/fix-flaky-test                                      │
+│ ▸ claude    2 files · +16 −3 · 1 commit                 $0.90 working │
+│   claude-2  nothing yet                                               │
+│   codex     1 file · +4 · 1 commit                              done  │
+│                                                                       │
+│ enter its changes · M merge into the base · D discard it ·            │
+│ x keep it, discard the rest · R reload · esc close                    │
+╰───────────────────────────────────────────────────────────────────────╯
+```
+
+Each row is what that attempt changed, what its agent is doing and what it has spent. `enter` opens its diff, and the rest are the ordinary [harvest](#finishing-a-task) steps: `M` merges it into the base, `D` throws it away, `x` keeps the selected one and discards the others — each still naming what it would lose and asking first. An attempt whose agent is still running is never discarded by `x`; close it or let it finish.
+
 ## Local files in worktrees
 
 A fresh worktree has only what git tracks, so an agent there would miss your `.env` or personal agent settings. When conch creates a worktree it copies the main checkout's **gitignored** files that match the project's patterns — by default:

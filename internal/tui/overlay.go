@@ -116,6 +116,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if pr := m.branchPR(r.machine, r.projectID, r.branch); pr != nil {
 			items = append([]menuItem{items[0], {"o", fmt.Sprintf("Open pull request #%d", pr.Number), act("o")}}, items[1:]...)
 		}
+		items = append(items, compareMenuItem(m, r)...)
 		items = append(items, harvestMenuItems(m, r)...)
 		if proj := m.project(r.machine, r.projectID); proj != nil {
 			for _, wt := range proj.Worktrees {
@@ -723,7 +724,7 @@ var helpText = []string{
 	"  B      broadcast: one message to the agents and terminals of the selection (terminals run it as a command)",
 	"",
 	"Create",
-	"  t  new task: branch + worktree + an agent with a prompt",
+	"  t  new task: branch + worktree + an agent with a prompt (Attempts: try it several times)",
 	"  c  start an agent here: pick Claude, Codex, Gemini or OpenCode (click or 1-9)",
 	"  n  terminal here       a  add or create a project",
 	"  M  add machine (ssh)   R  reconnect a machine    A  start or install any agent",
@@ -753,6 +754,7 @@ var helpText = []string{
 	"    space mark a file · c commit (the marked files, else all) · P push · p open a pull request",
 	"    in a diff: space marks the hunk under ▸ · n / N next, previous hunk · c commits the marked hunks",
 	"    M merge into the base (undone if it conflicts) · D discard the branch and its worktree",
+	"    A compare the attempts at this task, when a prompt was tried several times",
 	"  y in the tree copies a branch name or directory",
 	"  Sessions (under a project): enter resume · / search titles and conversations · s share with another agent",
 	"    d delete · a agent filter · I resume all interrupted · x dismiss",

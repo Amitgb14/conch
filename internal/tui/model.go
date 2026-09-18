@@ -342,6 +342,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.rebuild(), m.saveState())
 
+	case compareMsg:
+		if v, ok := m.overlay.(*compareView); ok {
+			v.receive(msg)
+		}
+		return m, nil
+
 	case attemptsDoneMsg:
 		return m, m.receiveAttempts(msg)
 
