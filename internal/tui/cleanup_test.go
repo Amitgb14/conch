@@ -272,3 +272,78 @@ func TestCleanupRenderAndMouse(t *testing.T) {
 		t.Fatal("outside click keeps the list")
 	}
 }
+
+// The confirmation is answered by mouse too: Amit clicks rather than types,
+// and a click here removes worktrees for good.
+func TestCleanupConfirmMouse(t *testing.T) {
+	m, peer := harvestModel(t, cleanupCapability)
+	m.width, m.height = 160, 40
+	press := func(x, y int) tea.MouseMsg {
+		return tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+	}
+	confirm := func(d *cleanupDialog) (*cleanupConfirm, box) {
+		t.Helper()
+		d.update(m, a2Key("enter"))
+		c, ok := m.overlay.(*cleanupConfirm)
+		if !ok {
+			t.Fatalf("no confirmation: %T", m.overlay)
+		}
+		return c, c.render(*m)
+	}
+
+	// No goes back to the list with its ticks, as n does — not to no overlay
+	// at all, which is what the plain dialog would do.
+	d := openedCleanup(t, m)
+	c, b := confirm(d)
+	if cmd := c.mouse(m, press(b.x+1+c.buttons.no0, b.y+1+c.buttons.line), b); cmd != nil {
+		t.Fatal("No ran the cleanup")
+	}
+	if m.overlay != d || len(d.chosen()) != 2 {
+		t.Fatalf("No: %T with %d ticked", m.overlay, len(d.chosen()))
+	}
+
+	// A click outside the box also returns to the list, keeping the ticks.
+	c, b = confirm(d)
+	c.mouse(m, press(0, 0), b)
+	if m.overlay != d || len(d.chosen()) != 2 {
+		t.Fatalf("outside: %T with %d ticked", m.overlay, len(d.chosen()))
+	}
+
+	// Anything but a left press is ignored, so a drag or a right-click over
+	// Yes can't remove a worktree.
+	c, b = confirm(d)
+	yes := press(b.x+1+c.buttons.yes0, b.y+1+c.buttons.line)
+	for _, msg := range []tea.MouseMsg{
+		{X: yes.X, Y: yes.Y, Action: tea.MouseActionMotion},
+		{X: yes.X, Y: yes.Y, Action: tea.MouseActionPress, Button: tea.MouseButtonRight},
+		{X: yes.X, Y: yes.Y, Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft},
+	} {
+		if cmd := c.mouse(m, msg, b); cmd != nil || m.overlay != c {
+			t.Fatalf("%v acted", msg.Action)
+		}
+	}
+	// A press on neither button, and one on the buttons' line but outside
+	// them, leave the confirmation open.
+	for _, p := range []tea.MouseMsg{press(b.x+1+c.buttons.yes0, b.y+1+c.buttons.line-1), press(b.x+1+c.buttons.no1+4, b.y+1+c.buttons.line)} {
+		if cmd := c.mouse(m, p, b); cmd != nil || m.overlay != c {
+			t.Fatalf("stray click at %d,%d acted: %T", p.X, p.Y, m.overlay)
+		}
+	}
+
+	// Yes removes them, as y does.
+	peer.setResult(proto.MethodWorktreeCleanup, proto.WorktreeCleanupResult{Removed: []string{"/src/api.worktrees/done", "/src/api.worktrees/old"}})
+	cmd := c.mouse(m, yes, b)
+	if cmd == nil || m.overlay != nil || m.flash != "removing 2 worktrees…" {
+		t.Fatalf("Yes: cmd %v overlay %T flash %q", cmd != nil, m.overlay, m.flash)
+	}
+	msgs := a2Run(cmd)
+	p := lastParams[proto.WorktreeCleanupParams](t, peer, proto.MethodWorktreeCleanup)
+	if len(p.Remove) != 2 {
+		t.Fatalf("removed %+v", p.Remove)
+	}
+	next, _ := m.update(msgs[0])
+	*m = next.(Model)
+	if m.flash != "removed 2 worktrees" || m.flashIsErr {
+		t.Fatalf("result flash %q", m.flash)
+	}
+}
