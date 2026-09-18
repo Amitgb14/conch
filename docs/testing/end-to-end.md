@@ -87,8 +87,8 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | --- | --- | --- | --- | --- |
 | 5.1 | `install.sh` | `curl -fsSL …/install.sh \| sh` on macOS and Linux (amd64, arm64) | Installs the right asset; checksum verified | ✅ R5 the published v0.1.0 one-liner (latest lookup) on macOS arm64 and Linux arm64 and amd64 |
 | 5.2 | `conch update` | From an older release | Downloads, verifies, replaces the binary; `conch version` shows the new one | ✅ R11 v0.1.0 → 0.1.1 on macOS arm64 |
-| 5.3 | Release check in the TUI | A release build older than the latest | Status bar shows `⬆`; version popup offers the update | ☐ |
-| 5.4 | Update from the TUI | `u` in the version popup | Installs, reloads the server keeping panes, restarts the TUI, updates remotes | ☐ |
+| 5.3 | Release check in the TUI | A release build older than the latest | Status bar shows `⬆`; version popup offers the update | ✅ R12 a real v0.1.0 TUI against the published 0.1.1 |
+| 5.4 | Update from the TUI | `u` in the version popup | Installs, reloads the server keeping panes, restarts the TUI, updates remotes | ✅ R12 (no remote in the run; see 4.6) |
 
 ## 6. Server hot reload and TUI updates
 
@@ -285,3 +285,11 @@ The tag on 1718026 built and published the four archives and `checksums.txt` thr
 - **go install:** `go install …/cmd/conch@v0.1.1` reported `conch 0.1.1`, so the release-tag version fix from R5 still holds.
 - **Update from an older release (5.2):** a real v0.1.0 binary ran `conch update` and replaced itself: `0.1.0 → 0.1.1`, and then reported the same build hash as the install.sh copy.
 - **Not run:** the TUI's own release check and update (5.3, 5.4) still need a TUI running an older release build.
+
+### R12 — 2026-09-18, v0.1.0 updating to v0.1.1 from the TUI, macOS arm64
+
+The first run possible with two releases published. A real v0.1.0 binary, downloaded from its release, ran its TUI in a pane of a throwaway harness server; both had their own `CONCH_HOME` and `HOME`, and the pane's command unset `CONCH_SOCKET` and `CONCH_PANE_ID` so the TUI started its own 0.1.0 server instead of joining the harness. The real server was never touched. The pane was widened to 200×50, since the status bar drops the version on a narrow screen. Clicks were sent as the SGR bytes a terminal sends.
+
+- **Release check (5.3):** the status bar showed `⬆ v0.1.0`, and clicking it opened the version popup: `Version 0.1.0`, `⬆ Release 0.1.1 available (running v0.1.0)`, `u update everything (agents and shells keep running)`.
+- **Update (5.4):** `u` replaced the binary within two seconds (`conch 0.1.1`), and the 0.1.0 server hot-reloaded in place — **same pid**, its `/bin/sh` pane still running with its scrollback (a marker printed before the update). The TUI came back on the new build two seconds later, with the `⬆` gone and `v0.1.1` in the status bar; `?` still opened the help and the tree still listed the kept pane. `conch update` afterwards said it is the latest release.
+- **Not covered:** the remote half of 5.4 (updating machines from the same popup) still needs a machine in the catalog, as 4.6 says.
