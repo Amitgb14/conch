@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -115,6 +116,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if pr := m.branchPR(r.machine, r.projectID, r.branch); pr != nil {
 			items = append([]menuItem{items[0], {"o", fmt.Sprintf("Open pull request #%d", pr.Number), act("o")}}, items[1:]...)
 		}
+		items = append(items, compareMenuItem(m, r)...)
 		items = append(items, harvestMenuItems(m, r)...)
 		if proj := m.project(r.machine, r.projectID); proj != nil {
 			for _, wt := range proj.Worktrees {
@@ -464,35 +466,77 @@ func newAddMachineDialog(m Model) *dialog {
 }
 
 func newTaskDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
-	d := newDialog(m, " New task · "+proj.Name+" ",
-		[]string{"Creates a branch and worktree, then starts the agent with the prompt."},
-		[]string{"Prompt", "Branch", "Base", "Agent"}, nil)
+	intro := "Creates a branch and worktree, then starts the agent with the prompt."
+	d := newDialog(m, " New task · "+proj.Name+" ", []string{intro},
+		[]string{"Prompt", "Branch", "Base", "Agent", "Attempts"}, nil)
 	d.fields[1].in.Placeholder = "derived from the prompt"
 	d.fields[2].in.Placeholder = proj.Base
-	d.fields[3].in.Placeholder = m.defaultAgent() + " (default · " + strings.Join(knownAgents(&m), ", ") + ")"
+	d.fields[3].in.Placeholder = m.defaultAgent() + " (default · " + strings.Join(knownAgents(&m), ", ") + ", or several: claude,codex)"
+	d.fields[4].in.Placeholder = "1 (each attempt gets its own branch)"
 	defaultAgent := m.defaultAgent()
+	// The warnings follow the Agent and Attempts fields: each agent has its
+	// own plan, and every attempt spends one.
+	warn := func(d *dialog) {
+		agents := splitAgents(d.fields[3].in.Value())
+		if len(agents) == 0 {
+			agents = []string{defaultAgent}
+		}
+		d.text = []string{intro}
+		n, err := attemptsField(d.fields[4].in.Value())
+		switch {
+		case err != nil:
+			d.text = append(d.text, styleErr.Render("⚠ "+err.Error()))
+		case max(n, len(agents)) > 1:
+			plan := attemptPlan(agents, n, strings.TrimSpace(d.fields[1].in.Value()),
+				strings.TrimSpace(d.fields[0].in.Value()), proj.Branches)
+			var names []string
+			for _, at := range plan {
+				names = append(names, at.branch)
+			}
+			d.text = append(d.text, fmt.Sprintf("%s of the same prompt, one per branch: %s.",
+				counted(len(plan), "attempt"), listSome(names, 4)))
+		}
+		for _, w := range m.limitWarnings(mid, agents, time.Now()) {
+			d.text = append(d.text, styleWarn.Render("⚠")+" "+w)
+		}
+	}
+	warn(d)
 	d.onChange = func(d *dialog) {
 		if p := strings.TrimSpace(d.fields[0].in.Value()); p != "" {
 			d.fields[1].in.Placeholder = gitx.BranchFromPrompt(p)
 		}
+		warn(d)
 	}
-	id := proj.ID
+	id, branches := proj.ID, proj.Branches
 	d.submit = func(m *Model, v []string) tea.Cmd {
 		if strings.TrimSpace(v[0]) == "" {
 			return func() tea.Msg { return errMsg{errString("a task needs a prompt")} }
 		}
-		agent := strings.ToLower(strings.TrimSpace(v[3]))
-		if agent == "" {
-			agent = defaultAgent
+		n, err := attemptsField(v[4])
+		if err != nil {
+			return func() tea.Msg { return errMsg{errString(err.Error())} }
 		}
-		if mach := m.machine(mid); mach != nil && mach.missingAgent(agent) {
-			return func() tea.Msg { return askInstallMsg{machine: mid, agent: agent} }
+		agents := splitAgents(v[3])
+		if len(agents) == 0 {
+			agents = []string{defaultAgent}
+		}
+		if mach := m.machine(mid); mach != nil {
+			for _, agent := range agents {
+				if mach.missingAgent(agent) {
+					return func() tea.Msg { return askInstallMsg{machine: mid, agent: agent} }
+				}
+			}
 		}
 		cols, rows := m.paneArea()
-		params := proto.TaskCreateParams{ProjectID: id, Prompt: v[0], Branch: strings.TrimSpace(v[1]),
-			Base: strings.TrimSpace(v[2]), Agent: agent, Cols: cols, Rows: rows}
-		var info proto.PaneInfo
-		return m.callOn(mid, proto.MethodTaskCreate, params, &info, func() tea.Msg { return createdMsg{machine: mid, info: info} })
+		plan := attemptPlan(agents, n, strings.TrimSpace(v[1]), strings.TrimSpace(v[0]), branches)
+		if len(plan) == 1 {
+			params := proto.TaskCreateParams{ProjectID: id, Prompt: v[0], Branch: plan[0].branch,
+				Base: strings.TrimSpace(v[2]), Agent: plan[0].agent, Cols: cols, Rows: rows}
+			var info proto.PaneInfo
+			return m.callOn(mid, proto.MethodTaskCreate, params, &info, func() tea.Msg { return createdMsg{machine: mid, info: info} })
+		}
+		m.setFlash("starting "+counted(len(plan), "attempt")+"…", false)
+		return m.startAttempts(mid, id, v[0], strings.TrimSpace(v[2]), plan, cols, rows)
 	}
 	return d
 }
@@ -674,12 +718,13 @@ var helpText = []string{
 	"Tree",
 	"  ↑↓ jk  move            ←→ hl  fold / unfold     space  toggle",
 	"  enter  open pane, view branch changes           tab  focus main",
-	"  /      filter          esc  clear filter        m  menu (or right-click)",
+	"  /      filter (/ ! keeps only the agents waiting for you, on every machine)",
+	"  esc    clear filter    m  menu (or right-click)",
 	"  !      next agent waiting for you",
 	"  B      broadcast: one message to the agents and terminals of the selection (terminals run it as a command)",
 	"",
 	"Create",
-	"  t  new task: branch + worktree + an agent with a prompt",
+	"  t  new task: branch + worktree + an agent with a prompt (Attempts: try it several times)",
 	"  c  start an agent here: pick Claude, Codex, Gemini or OpenCode (click or 1-9)",
 	"  n  terminal here       a  add or create a project",
 	"  M  add machine (ssh)   R  reconnect a machine    A  start or install any agent",
@@ -709,6 +754,7 @@ var helpText = []string{
 	"    space mark a file · c commit (the marked files, else all) · P push · p open a pull request",
 	"    in a diff: space marks the hunk under ▸ · n / N next, previous hunk · c commits the marked hunks",
 	"    M merge into the base (undone if it conflicts) · D discard the branch and its worktree",
+	"    A compare the attempts at this task (t runs a command in each, o shows its terminal)",
 	"  y in the tree copies a branch name or directory",
 	"  Sessions (under a project): enter resume · / search titles and conversations · s share with another agent",
 	"    d delete · a agent filter · I resume all interrupted · x dismiss",
@@ -721,11 +767,17 @@ var helpText = []string{
 	"",
 	"Brain",
 	"  :  ask conch (ctrl+b : in a pane, or click ✦ Ask): \"start 2 agents on api to fix the flaky tests\",",
-	"     \"what is waiting for me?\" — it proposes actions; nothing runs until you confirm",
+	"     \"what is waiting for me?\", \"hand the auth thread to Codex\", \"tell every agent in api to run the tests\"",
+	"     — it proposes actions; nothing runs until you confirm",
 	"  S  summarise the selected agent now (automatic summaries: Settings → Brain)",
 	"",
 	"Usage",
 	"  title bar: ctx = context in use / window size · out = tokens generated · $ = reported cost",
+	"  Sessions: what each saved conversation cost, or the tokens it generated",
+	"  tree: each agent's cost, and the total per project and machine — what conch has seen,",
+	"    Settings → Theme → Tree hides all of it",
+	"    not the whole plan window. Agents that report no cost (Codex, Gemini) show tokens",
+	"  a task warns before it starts when that agent's plan window is nearly used; it never refuses",
 	"  status bar: Claude 5h 42% · 7d 18% = plan limit windows (click for reset times)",
 	"  status bar: ⬆ version = updates; click, tick machines with space, u updates",
 	"",

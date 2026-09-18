@@ -96,7 +96,12 @@ func workspaceID(mid string) string          { return machineID(mid) + "/workspa
 // buildTree flattens the visible tree into rows.
 func buildTree(in treeInput) []row {
 	filter := strings.ToLower(strings.TrimSpace(in.filter))
-	match := func(s string) bool { return filter == "" || strings.Contains(strings.ToLower(s), filter) }
+	// "!" filters to the agents waiting for an answer, on every machine;
+	// nothing is matched by name then.
+	waiting := filter == waitingFilter
+	match := func(s string) bool {
+		return !waiting && (filter == "" || strings.Contains(strings.ToLower(s), filter))
+	}
 	open := func(id string, def bool) bool {
 		if filter != "" {
 			return true // show every match
@@ -108,12 +113,16 @@ func buildTree(in treeInput) []row {
 	}
 	var rows []row
 	for _, mach := range in.machines {
-		rows = append(rows, machineRows(in, mach, filter, match, open)...)
+		rows = append(rows, machineRows(in, mach, filter, waiting, match, open)...)
 	}
 	return rows
 }
 
-func machineRows(in treeInput, mach treeMachine, filter string, match func(string) bool, open func(string, bool) bool) []row {
+// waitingFilter is the filter text that keeps only agents waiting for the
+// user, wherever they are.
+const waitingFilter = "!"
+
+func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, match func(string) bool, open func(string, bool) bool) []row {
 	mid := mach.id
 	known := map[string]bool{}
 	for _, p := range mach.projects {
@@ -143,6 +152,13 @@ func machineRows(in treeInput, mach treeMachine, filter string, match func(strin
 	paneRows := func(panes []proto.PaneInfo, depth int, projectMatched bool) []row {
 		var out []row
 		for _, p := range panes {
+			if waiting {
+				if p.Agent.NeedsAttention() {
+					out = append(out, row{id: paneNodeID(mid, p.ID), kind: kindPane, depth: depth, machine: mid,
+						projectID: p.ProjectID, branch: p.Branch, paneID: p.ID})
+				}
+				continue
+			}
 			if projectMatched || match(p.DisplayName()) || match(p.Branch) {
 				out = append(out, row{id: paneNodeID(mid, p.ID), kind: kindPane, depth: depth, machine: mid,
 					projectID: p.ProjectID, branch: p.Branch, paneID: p.ID})

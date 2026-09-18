@@ -297,6 +297,8 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		return false, m.openMerge(cv.target())
 	case "D":
 		return false, m.discardBranch(cv.target())
+	case "A":
+		return false, m.openCompare(cv.target())
 	}
 	return false, nil
 }

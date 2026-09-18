@@ -338,3 +338,86 @@ func TestA4BranchOnAnotherMachine(t *testing.T) {
 		t.Fatalf("relative -cwd: %v", err)
 	}
 }
+
+func TestA4TaskAttempts(t *testing.T) {
+	// The naming is shared with the TUI; this covers the CLI's own flags.
+	existing := []proto.BranchInfo{{Name: "conch/fix-tests/claude"}}
+	plan := attemptPlan([]string{"claude", "codex"}, 0, "", "Fix the tests", existing)
+	var got []string
+	for _, a := range plan {
+		got = append(got, a.agent+"@"+a.branch)
+	}
+	if strings.Join(got, " ") != "claude@conch/fix-tests/claude-2 codex@conch/fix-tests/codex" {
+		t.Fatalf("plan: %v", got)
+	}
+	if one := attemptPlan([]string{"claude"}, 1, "", "Fix the tests", nil); len(one) != 1 || one[0].branch != "" {
+		t.Fatalf("one attempt keeps the plain name: %+v", one)
+	}
+	if got := splitAgents(" Claude ,codex, "); strings.Join(got, ",") != "claude,codex" {
+		t.Fatalf("splitAgents: %v", got)
+	}
+}
+
+func TestA4TaskRunsEveryAttempt(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	var calls a4Var[[]proto.TaskCreateParams]
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodProjectAdd:
+			return proto.ProjectInfo{ID: "api", Name: "api", Path: "/src/api", Git: true, Base: "main"}, nil
+		case proto.MethodTaskCreate:
+			var p proto.TaskCreateParams
+			json.Unmarshal(msg.Params, &p)
+			calls.Set(append(calls.Get(), p))
+			if p.Agent == "codex" {
+				return nil, proto.Errorf(proto.ErrBadRequest, "codex is not installed")
+			}
+			return proto.PaneInfo{ID: "p" + p.Branch, Cwd: "/src/api-x", Branch: p.Branch}, nil
+		}
+		return nil, proto.Errorf(proto.ErrUnknown, "?")
+	})
+	work := t.TempDir()
+
+	// One agent, no -n: a single plain task, as before.
+	out, _, err := a4Out(t, func() error { return runTask([]string{"-cwd", work, "Fix the tests"}) })
+	if err != nil || !strings.Contains(out, "p") {
+		t.Fatalf("plain task: %q %v", out, err)
+	}
+	if got := calls.Get(); len(got) != 1 || got[0].Branch != "" {
+		t.Fatalf("plain task params: %+v", got)
+	}
+
+	// Three attempts across two agents: the failing one is reported and the
+	// others still start.
+	calls.Set(nil)
+	out, errOut, err := a4Out(t, func() error {
+		return runTask([]string{"-cwd", work, "-agent", "claude,codex", "-n", "3", "Fix the tests"})
+	})
+	if err == nil || !strings.Contains(err.Error(), "1 of 3 attempts could not start") {
+		t.Fatalf("partial failure: %v", err)
+	}
+	if !strings.Contains(errOut, "codex is not installed") {
+		t.Fatalf("stderr: %q", errOut)
+	}
+	if lines := strings.Count(strings.TrimSpace(out), "\n") + 1; lines != 2 {
+		t.Fatalf("%d started, want 2: %q", lines, out)
+	}
+	var branches []string
+	for _, c := range calls.Get() {
+		branches = append(branches, c.Agent+"@"+c.Branch)
+	}
+	if strings.Join(branches, " ") != "claude@conch/fix-tests/claude codex@conch/fix-tests/codex claude@conch/fix-tests/claude-2" {
+		t.Fatalf("attempts: %v", branches)
+	}
+
+	// Guard rails on -n.
+	for _, args := range [][]string{{"-n", "-1"}, {"-n", "99"}} {
+		if _, _, err := a4Out(t, func() error { return runTask(append([]string{"-cwd", work}, append(args, "p")...)) }); err == nil {
+			t.Fatalf("%v was accepted", args)
+		}
+	}
+	if _, _, err := a4Out(t, func() error { return runTask([]string{"-cwd", work}) }); err == nil || !strings.Contains(err.Error(), "usage:") {
+		t.Fatalf("no prompt: %v", err)
+	}
+}

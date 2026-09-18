@@ -118,7 +118,7 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 	case m.focus == focusMain:
 		chip = styleChip.Background(colorInput).Render("CHANGES")
 		items = []statusItem{hint("↑", "file"), hint("↓", "file"), hint("enter", "diff"), hint("space", "mark"), hint("c", "commit"),
-			hint("P", "push"), hint("p", "PR"), hint("M", "merge"), hint("D", "discard"), hint("o", "open PR"), hint("R", "reload"), hint("esc", "tree")}
+			hint("P", "push"), hint("p", "PR"), hint("M", "merge"), hint("D", "discard"), hint("A", "attempts"), hint("o", "open PR"), hint("R", "reload"), hint("esc", "tree")}
 	case m.filtering:
 		chip = styleChip.Background(colorAccent).Render("FILTER")
 		items = []statusItem{hint("enter", "keep"), hint("esc", "clear")}

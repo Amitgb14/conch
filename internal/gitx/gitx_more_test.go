@@ -542,3 +542,54 @@ func TestA6BranchesErrorsAndGone(t *testing.T) {
 		t.Fatalf("gone upstream: %+v", bs)
 	}
 }
+
+func TestAttemptBranch(t *testing.T) {
+	base := BranchFromPrompt("Fix the flaky login test")
+	if base != "conch/fix-flaky-login-test" {
+		t.Fatalf("base %q", base)
+	}
+	used := map[string]bool{}
+	taken := func(s string) bool { return used[s] }
+	for _, c := range []struct {
+		agent string
+		n     int
+		want  string
+	}{
+		{"claude", 1, "conch/fix-flaky-login-test/claude"},
+		{"codex", 1, "conch/fix-flaky-login-test/codex"},
+		{"claude", 2, "conch/fix-flaky-login-test/claude-2"},
+		{"Gemini CLI", 1, "conch/fix-flaky-login-test/gemini-cli"},
+	} {
+		got := AttemptBranch(base, c.agent, c.n, taken)
+		if got != c.want {
+			t.Fatalf("attempt %s#%d = %q, want %q", c.agent, c.n, got, c.want)
+		}
+		used[got] = true
+	}
+	// A name already in use gets the next free number, not a clash.
+	if got := AttemptBranch(base, "claude", 1, taken); got != "conch/fix-flaky-login-test/claude-3" {
+		t.Fatalf("already taken: %q", got)
+	}
+	// Odd inputs still produce a usable branch.
+	for _, c := range []struct{ base, agent, want string }{
+		{"", "claude", "conch/task/claude"},
+		{"feat/", "claude", "feat/claude"},
+		{"feat", "", "feat/attempt"},
+		{"feat", "!!!", "feat/attempt"},
+	} {
+		if got := AttemptBranch(c.base, c.agent, 1, nil); got != c.want {
+			t.Errorf("AttemptBranch(%q, %q) = %q, want %q", c.base, c.agent, got, c.want)
+		}
+	}
+	for _, c := range []struct{ branch, want string }{
+		{"conch/fix-flaky-login-test/claude", "conch/fix-flaky-login-test"},
+		{"conch/fix-flaky-login-test", "conch"},
+		{"main", ""},
+		{"/odd", ""},
+		{"", ""},
+	} {
+		if got := AttemptBase(c.branch); got != c.want {
+			t.Errorf("AttemptBase(%q) = %q, want %q", c.branch, got, c.want)
+		}
+	}
+}

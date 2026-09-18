@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -128,18 +129,28 @@ func runTask(args []string) error {
 	cwd := fs.String("cwd", "", "a directory in the project (default: current)")
 	branch := fs.String("branch", "", "branch name (default: derived from the prompt)")
 	base := fs.String("base", "", "branch to start from (default: the project's base)")
-	agent := fs.String("agent", "", "claude, codex, gemini or opencode (default: [agents] default)")
+	agent := fs.String("agent", "", "claude, codex, gemini or opencode, or several separated by commas (default: [agents] default)")
+	n := fs.Int("n", 0, "how many attempts at the same prompt, each on its own branch (default: one per agent)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	prompt := strings.Join(fs.Args(), " ")
 	if prompt == "" {
-		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] PROMPT")
+		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] PROMPT")
 	}
-	if *agent == "" {
+	agents := splitAgents(*agent)
+	if len(agents) == 0 {
+		name := ""
 		if cfg, err := config.Load(); err == nil {
-			*agent = cfg.Agents.Default
+			name = cfg.Agents.Default
 		}
+		agents = []string{name}
+	}
+	if *n < 0 {
+		return errors.New("-n cannot be negative")
+	}
+	if *n > maxAttempts {
+		return fmt.Errorf("-n %d is more than %d attempts", *n, maxAttempts)
 	}
 	dir := *cwd
 	switch {
@@ -162,12 +173,73 @@ func runTask(args []string) error {
 	if err := call(c, proto.MethodProjectAdd, proto.ProjectAddParams{Path: dir}, &proj); err != nil {
 		return err
 	}
-	var info proto.PaneInfo
-	if err := call(c, proto.MethodTaskCreate, proto.TaskCreateParams{
-		ProjectID: proj.ID, Prompt: prompt, Branch: *branch, Base: *base, Agent: *agent, Cols: 120, Rows: 40,
-	}, &info); err != nil {
-		return err
+	attempts := attemptPlan(agents, *n, *branch, prompt, proj.Branches)
+	var failed int
+	for _, at := range attempts {
+		var info proto.PaneInfo
+		params := proto.TaskCreateParams{ProjectID: proj.ID, Prompt: prompt, Branch: at.branch,
+			Base: *base, Agent: at.agent, Cols: 120, Rows: 40}
+		if err := callFor(c, proto.MethodTaskCreate, params, &info, harvestWait); err != nil {
+			if len(attempts) == 1 {
+				return err
+			}
+			// One attempt failing (a taken branch, a missing agent) leaves
+			// the others running; say which, and fail at the end.
+			fmt.Fprintf(os.Stderr, "conch: %s: %v\n", at.branch, err)
+			failed++
+			continue
+		}
+		fmt.Printf("%s  %s  %s\n", info.ID, info.Cwd, info.Branch)
 	}
-	fmt.Printf("%s  %s  %s\n", info.ID, info.Cwd, info.Branch)
+	if failed > 0 {
+		return fmt.Errorf("%d of %d attempts could not start", failed, len(attempts))
+	}
 	return nil
+}
+
+// maxAttempts caps -n: each attempt is an agent burning its own quota.
+const maxAttempts = 10
+
+// attempt is one try at the prompt.
+type attempt struct{ agent, branch string }
+
+// attemptPlan names the attempts: one per agent by default, n of them when
+// asked, cycling through the agents. A single attempt keeps the plain
+// branch name, so the common case reads as it always did.
+func attemptPlan(agents []string, n int, branch, prompt string, existing []proto.BranchInfo) []attempt {
+	if n <= 0 {
+		n = len(agents)
+	}
+	base := branch
+	if base == "" {
+		base = gitx.BranchFromPrompt(prompt)
+	}
+	if n == 1 {
+		return []attempt{{agent: agents[0], branch: branch}}
+	}
+	taken := map[string]bool{}
+	for _, b := range existing {
+		taken[b.Name] = true
+	}
+	counts := map[string]int{}
+	out := make([]attempt, 0, n)
+	for i := 0; i < n; i++ {
+		agent := agents[i%len(agents)]
+		counts[agent]++
+		name := gitx.AttemptBranch(base, agent, counts[agent], func(s string) bool { return taken[s] })
+		taken[name] = true
+		out = append(out, attempt{agent: agent, branch: name})
+	}
+	return out
+}
+
+// splitAgents parses -agent: "claude,codex" or a single name.
+func splitAgents(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.ToLower(strings.TrimSpace(part)); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

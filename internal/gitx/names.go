@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -60,4 +61,42 @@ func BranchFromPrompt(prompt string) string {
 		}
 	}
 	return "conch/" + Slug(strings.Join(kept, "-"))
+}
+
+// AttemptBranch names one attempt at the same task: the base branch, then
+// the agent that tries it, so several attempts sort together under the base
+// and read plainly in the tree:
+//
+//	conch/fix-flaky-test/claude
+//	conch/fix-flaky-test/codex
+//	conch/fix-flaky-test/claude-2   (the same agent, twice)
+//
+// n counts from 1; taken says which names are already in use.
+func AttemptBranch(base, agent string, n int, taken func(string) bool) string {
+	base = strings.TrimSuffix(strings.TrimSpace(base), "/")
+	if base == "" {
+		base = "conch/task"
+	}
+	name := Slug(agent)
+	if strings.IndexFunc(agent, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) < 0 {
+		name = "attempt" // nothing usable in the agent's name
+	}
+	if n > 1 {
+		name = fmt.Sprintf("%s-%d", name, n)
+	}
+	full := base + "/" + name
+	for i := 2; taken != nil && taken(full); i++ {
+		full = fmt.Sprintf("%s/%s-%d", base, Slug(agent), i)
+	}
+	return full
+}
+
+// AttemptBase is the task a branch is an attempt at, or "" when it is not
+// one: the part before the last component of AttemptBranch.
+func AttemptBase(branch string) string {
+	i := strings.LastIndex(branch, "/")
+	if i <= 0 {
+		return ""
+	}
+	return branch[:i]
 }

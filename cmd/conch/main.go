@@ -50,8 +50,9 @@ Usage:
                                 check or install Claude Code (use -m for a machine)
   conch project add PATH | create [-no-git] PATH | ls | rm ID
                                 manage projects shown in the sidebar
-  conch task [-cwd DIR] [-branch B] [-base B] PROMPT
-                                new branch + worktree + Claude with PROMPT (-cwd needed with -m)
+  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] PROMPT
+                                new branch + worktree + Claude with PROMPT (-cwd needed with -m);
+                                -n / several agents try it once each, one branch per attempt
   conch branch commit [-file PATH]... -m MESSAGE
                                 commit a task branch's changes (-cwd, -branch pick it;
                                 -cwd needed with -m)

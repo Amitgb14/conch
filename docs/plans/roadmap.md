@@ -1,6 +1,6 @@
 # Roadmap
 
-Order of upcoming work (updated 2026-09-17). Finished items move to the git
+Order of upcoming work (updated 2026-09-18). Finished items move to the git
 history; details for big items live in their own plan files.
 
 ## Done
@@ -33,21 +33,26 @@ history; details for big items live in their own plan files.
    and `conch worktree ls|clean` do the same from a shell. Hunk adoption
    across branches and a side-by-side diff stayed out of scope; marking
    hunks is a TUI step.
+9. **Cost on the tree** — each agent's cost on its tree row, totals on the
+   Agents section, the project and the machine, and what each saved session
+   used in the Sessions list, all labelled as the usage conch has seen.
+   Agents that report no cost show tokens; conch ships no price table. The
+   task dialog warns when the chosen agent's plan window is past an alert
+   threshold, and never refuses.
+10. **Brain actions for handoff and broadcast** — the planner can propose
+    `share` (one agent's conversation continued by another) and `broadcast`
+    (one message to several agents), still confirmed like every other
+    action and never aimed at a terminal. `/ !` filters the tree to the
+    agents waiting for an answer, across machines.
+11. **Best-of-N tasks** — `conch task -n N` and a list of agents try one
+    prompt several times, an attempt per branch under the task's own name.
+    `A` compares them: what each changed, its agent's state and cost, and
+    what a command (`t`) came to in each worktree. Keeping one and
+    discarding the rest goes through harvest, which still says what it
+    would lose.
 
 ## Next
 
-9. **Cost on the tree** — per-pane tokens on tree rows and a total per
-   project, labelled as usage conch has seen (plan windows are per account).
-   Starting a task while a plan window is past its alert threshold warns in
-   the task dialog and can be overridden; missing or stale limits never
-   block.
-10. **Brain actions for handoff and broadcast** — `share` and `broadcast`
-    join the planner's actions, still confirmed like every other action. A
-    tree filter shows agents waiting for input across machines.
-11. **Best-of-N tasks** — `conch task -n N` and `-agent claude,codex,...`
-    start the same prompt in separate worktrees with suffixed branch names,
-    and a compare view shows each attempt's diffstat, state and an optional
-    test command's result, finished through harvest. Needs item 9's warning.
 12. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
     Bring-back (phase 4) lands commits where harvest can finish them.
 13. **`conch wait`** — `conch wait PANE -state done` so people can script

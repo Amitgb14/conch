@@ -343,8 +343,15 @@ func TestA2SettingsMoveReachesListEdges(t *testing.T) {
 	items := s.themeItems(m)
 	s.sel = len(themes) - 4
 	s.move(items, 10) // pgdown
-	if s.sel != len(themes) {
-		t.Errorf("pgdown near the end should reach the last theme, sel %d", s.sel)
+	// Past the themes are the tree toggle and the shell prompt block; the
+	// cursor lands on something selectable, never a header or a blank.
+	if s.sel < len(themes) || items[s.sel].run == nil {
+		t.Errorf("pgdown near the end landed on %d: %+v", s.sel, items[s.sel])
+	}
+	last := s.sel
+	s.move(items, 10)
+	if s.sel < last || items[s.sel].run == nil {
+		t.Errorf("pgdown at the end landed on %d: %+v", s.sel, items[s.sel])
 	}
 	s.sel = 2
 	s.move(items, -3) // wheel up

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -84,6 +85,7 @@ func parseClaude(path string, st os.FileInfo) *Session {
 		AITitle   string          `json:"aiTitle"`
 		Summary   string          `json:"summary"`
 		Message   json.RawMessage `json:"message"`
+		TotalCost float64         `json:"totalCostUSD"`
 	}
 	visit := func(b []byte) {
 		var l line
@@ -138,7 +140,25 @@ func parseClaude(path string, st os.FileInfo) *Session {
 		return nil // nothing was said: not worth resuming
 	}
 	s.Title = title(firstNonEmpty(aiTitle, summary, prompt))
+	s.Cost = claudeCost(path)
 	return s
+}
+
+// claudeCost is what Claude Code says the conversation has cost so far.
+// The cost lines are few and far between — a 35 MB transcript can hold two
+// dozen, none of them near the end — so the whole file is read, but only
+// the bytes added since last time.
+func claudeCost(path string) float64 {
+	return scanCost(path, []byte(`"cost-state"`), func(b []byte) (float64, bool) {
+		var l struct {
+			Type      string  `json:"type"`
+			TotalCost float64 `json:"totalCostUSD"`
+		}
+		if json.Unmarshal(b, &l) != nil || l.Type != "cost-state" || l.TotalCost <= 0 {
+			return 0, false
+		}
+		return l.TotalCost, true
+	})
 }
 
 // ---- Codex ----
@@ -211,7 +231,38 @@ func parseCodex(path string, st os.FileInfo) *Session {
 	if s.ID == "" || s.Dir == "" || s.Title == "" {
 		return nil
 	}
+	s.Output = codexOutput(f, st)
 	return s
+}
+
+// codexOutput reads the tokens a Codex session generated from the last
+// token_count event, looking only at the end of the rollout. Codex reports
+// no cost, so tokens are all there is to show.
+func codexOutput(f *os.File, st os.FileInfo) int {
+	if _, err := f.Seek(max(st.Size()-256*1024, 0), io.SeekStart); err != nil {
+		return 0
+	}
+	out := 0
+	lines(f, 1<<20, func(b []byte) bool {
+		if !bytes.Contains(b, []byte(`"token_count"`)) {
+			return true
+		}
+		var l struct {
+			Payload struct {
+				Type string `json:"type"`
+				Info *struct {
+					Total struct {
+						Output int `json:"output_tokens"`
+					} `json:"total_token_usage"`
+				} `json:"info"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(b, &l) == nil && l.Payload.Type == "token_count" && l.Payload.Info != nil {
+			out = l.Payload.Info.Total.Output // the last one is the total
+		}
+		return true
+	})
+	return out
 }
 
 // ---- Gemini CLI ----
@@ -340,27 +391,36 @@ func opencodeDB(db string, dirs []string) (out []Session, ok bool) {
 		prefix := strings.TrimSuffix(d, "/") + "/"
 		conds = append(conds, "directory = "+sqlQuote(d), "substr(directory, 1, "+strconv.Itoa(len(prefix))+") = "+sqlQuote(prefix))
 	}
-	query := "SELECT id, directory, title, time_created, time_updated FROM session WHERE parent_id IS NULL AND time_archived IS NULL AND (" +
+	where := " FROM session WHERE parent_id IS NULL AND time_archived IS NULL AND (" +
 		strings.Join(conds, " OR ") + ") ORDER BY time_updated DESC LIMIT 200"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	res, err := exec.CommandContext(ctx, bin, "-readonly", "-json", db, query).Output()
+	// Older stores have no cost columns; ask for them, and ask again
+	// without rather than losing the whole list.
+	res, err := exec.CommandContext(ctx, bin, "-readonly", "-json", db,
+		"SELECT id, directory, title, time_created, time_updated, cost, tokens_output"+where).Output()
+	if err != nil {
+		res, err = exec.CommandContext(ctx, bin, "-readonly", "-json", db,
+			"SELECT id, directory, title, time_created, time_updated"+where).Output()
+	}
 	if err != nil {
 		return nil, false
 	}
 	var rows []struct {
-		ID      string `json:"id"`
-		Dir     string `json:"directory"`
-		Title   string `json:"title"`
-		Created int64  `json:"time_created"`
-		Updated int64  `json:"time_updated"`
+		ID      string  `json:"id"`
+		Dir     string  `json:"directory"`
+		Title   string  `json:"title"`
+		Cost    float64 `json:"cost"`
+		Output  int     `json:"tokens_output"`
+		Created int64   `json:"time_created"`
+		Updated int64   `json:"time_updated"`
 	}
 	if len(bytes.TrimSpace(res)) > 0 && json.Unmarshal(res, &rows) != nil {
 		return nil, false
 	}
 	for _, r := range rows {
 		out = append(out, Session{Agent: "opencode", ID: r.ID, Dir: r.Dir, Title: title(r.Title),
-			Started: time.UnixMilli(r.Created), Updated: time.UnixMilli(r.Updated), Path: db})
+			Started: time.UnixMilli(r.Created), Updated: time.UnixMilli(r.Updated), Path: db, Cost: r.Cost, Output: r.Output})
 	}
 	return out, true
 }

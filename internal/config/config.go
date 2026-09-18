@@ -104,6 +104,10 @@ type UICfg struct {
 	// dialogs): teal, blue, green, orange, pink, red, gray, purple, or a
 	// "#rrggbb" value. Empty uses the theme's.
 	Accent string `toml:"accent"`
+	// Cost shows what agents have spent — a cost where the agent reports
+	// one, else the tokens it used — on tree rows, in the Sessions list and
+	// on the project and machine pages. On unless turned off.
+	Cost bool `toml:"cost"`
 }
 
 // NotifyCfg controls how the TUI tells you an agent needs attention while
@@ -187,7 +191,7 @@ func Default() Config {
 	return Config{
 		Keys:   Keys{Prefix: "ctrl+b"},
 		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true, Limits: true, LimitAt: append([]int(nil), DefaultLimitAt...)},
-		UI:     UICfg{Mouse: true, Theme: "conch"},
+		UI:     UICfg{Mouse: true, Theme: "conch", Cost: true},
 		Agents: AgentsCfg{Default: "claude"},
 		Brain:  BrainCfg{Provider: "claude"},
 		Update: UpdateCfg{CheckReleases: true},

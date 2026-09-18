@@ -100,6 +100,13 @@ func (s *settings) themeItems(m *Model) []settingItem {
 			}})
 	}
 
+	items = append(items, settingItem{}, settingItem{header: true, label: "Tree"},
+		settingItem{label: "What agents spend", detail: "cost, or tokens when the agent reports none", on: &m.cfg.UI.Cost,
+			run: func(m *Model) tea.Cmd {
+				m.cfg.UI.Cost = !m.cfg.UI.Cost
+				return saveConfig(m.cfg)
+			}})
+
 	items = append(items, settingItem{}, settingItem{header: true, label: "Shell prompt · Oh My Zsh theme for new zsh terminals"})
 	switch {
 	case s.shellErr != "":

@@ -36,6 +36,11 @@ type Session struct {
 	Updated time.Time
 	// Path is the agent's session file, or its database (OpenCode).
 	Path string
+	// Cost is what the agent said the conversation cost, and Output the
+	// tokens it generated; both 0 when the store doesn't say. Read from
+	// the tail of the store, so listing stays cheap.
+	Cost   float64
+	Output int
 }
 
 // Env is where agents keep their data.
@@ -231,4 +236,51 @@ func Delete(ctx context.Context, e Env, s Session, trashDir string) error {
 		cache.Delete(p)
 	}
 	return nil
+}
+
+// ---- running totals: scan each store once, then only what was appended ----
+
+type costScan struct {
+	offset int64
+	value  float64
+}
+
+var costs sync.Map // path → costScan
+
+// scanCost reads the lines of path containing marker and keeps the last
+// value fn takes from them. A file is read in full the first time and only
+// from where it left off after that, so a session being written to now
+// costs a few kilobytes of reading per refresh, not its whole history. A
+// file that shrank (replaced, rotated) is read again from the start.
+func scanCost(path string, marker []byte, fn func([]byte) (float64, bool)) float64 {
+	prev, _ := costs.Load(path)
+	cur, _ := prev.(costScan)
+	f, err := os.Open(path)
+	if err != nil {
+		return cur.value
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return cur.value
+	}
+	if st.Size() < cur.offset { // replaced or rotated: start again
+		cur = costScan{}
+	}
+	if _, err := f.Seek(cur.offset, io.SeekStart); err != nil {
+		return cur.value
+	}
+	lines(f, 1<<22, func(b []byte) bool {
+		if bytes.Contains(b, marker) {
+			if v, ok := fn(b); ok {
+				cur.value = v
+			}
+		}
+		return true
+	})
+	// The size read to, not the bytes handed to the callback: overlong
+	// lines are skipped, and lines are trimmed.
+	cur.offset = st.Size()
+	costs.Store(path, cur)
+	return cur.value
 }

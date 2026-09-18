@@ -167,7 +167,7 @@ func TestA3PayloadRoundTrips(t *testing.T) {
 	a3RoundTrip(t, AgentLimitsResult{Limits: []PlanLimits{limits}})
 	a3RoundTrip(t, AgentStatusResult{Agents: []AgentAvailability{{Name: "claude", Label: "Claude Code", Installed: true, Path: "/bin/claude", Version: "2"}}})
 	a3RoundTrip(t, SessionListParams{ProjectID: "p", Dir: "/d", Limit: 5})
-	a3RoundTrip(t, SessionList{Sessions: []SessionInfo{{Agent: "claude", ID: "s", Dir: "/d", Branch: "b", Title: "t", Started: now, Updated: now, PaneID: "p", Interrupted: true}}})
+	a3RoundTrip(t, SessionList{Sessions: []SessionInfo{{Agent: "claude", ID: "s", Dir: "/d", Branch: "b", Title: "t", Started: now, Updated: now, PaneID: "p", Interrupted: true, CostUSD: 1.25, Output: 4096}}})
 	a3RoundTrip(t, SessionRef{Agent: "claude", ID: "s", Dir: "/d", Cols: 1, Rows: 2})
 	a3RoundTrip(t, AgentSetupParams{Dir: "/d", Agent: "claude"})
 	a3RoundTrip(t, AgentSetupResult{Dir: "/d", ProjectID: "p", Main: "/m", Worktree: "/w", LocalFiles: []LocalFile{{Path: ".env", State: FileMissing}},
