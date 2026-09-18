@@ -348,6 +348,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case testStartedMsg:
+		return m, m.receiveTestStarted(msg)
+
 	case attemptsDoneMsg:
 		return m, m.receiveAttempts(msg)
 

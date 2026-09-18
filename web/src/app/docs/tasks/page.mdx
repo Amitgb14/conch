@@ -88,16 +88,22 @@ Attempts multiply what you spend: three Claude attempts use three times the plan
 ```text
 ╭─ Compare attempts ────────────────────────────────────────────────────╮
 │ Attempts at conch/fix-flaky-test                                      │
-│ ▸ claude    2 files · +16 −3 · 1 commit                 $0.90 working │
+│ ▸ claude    2 files · +16 −3 · 1 commit · passed        $0.90 working │
 │   claude-2  nothing yet                                               │
-│   codex     1 file · +4 · 1 commit                              done  │
+│   codex     1 file · +4 · 1 commit · failed (exit 2)            done  │
 │                                                                       │
-│ enter its changes · M merge into the base · D discard it ·            │
-│ x keep it, discard the rest · R reload · esc close                    │
+│ enter its changes · t rerun go test ./... · o its terminal ·          │
+│ M merge · D discard · x keep it, discard the rest · R reload · esc    │
 ╰───────────────────────────────────────────────────────────────────────╯
 ```
 
 Each row is what that attempt changed, what its agent is doing and what it has spent. `enter` opens its diff, and the rest are the ordinary [harvest](#finishing-a-task) steps: `M` merges it into the base, `D` throws it away, `x` keeps the selected one and discards the others — each still naming what it would lose and asking first. An attempt whose agent is still running is never discarded by `x`; close it or let it finish.
+
+### Running a command in each
+
+`t` asks for a command — `go test ./...`, `npm test`, `make check` — and runs it in every attempt's worktree, each in its own terminal named `test · claude`. The row then shows `running…`, `passed` or `failed (exit 2)`, straight from that terminal's exit code, so a comparison rests on what the tests say rather than on the size of the diff.
+
+The terminals stay open: `o` shows the selected attempt's one so you can read the output, and they close like any other terminal (`x` in the tree). `t` again reruns the same command, in fresh terminals.
 
 ## Local files in worktrees
 

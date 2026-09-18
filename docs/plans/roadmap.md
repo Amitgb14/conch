@@ -44,14 +44,15 @@ history; details for big items live in their own plan files.
     (one message to several agents), still confirmed like every other
     action and never aimed at a terminal. `/ !` filters the tree to the
     agents waiting for an answer, across machines.
+11. **Best-of-N tasks** — `conch task -n N` and a list of agents try one
+    prompt several times, an attempt per branch under the task's own name.
+    `A` compares them: what each changed, its agent's state and cost, and
+    what a command (`t`) came to in each worktree. Keeping one and
+    discarding the rest goes through harvest, which still says what it
+    would lose.
 
 ## Next
 
-11. **Best-of-N tasks** — `conch task -n N` and `-agent claude,codex,...`
-    start the same prompt in separate worktrees with suffixed branch names,
-    and a compare view shows each attempt's diffstat, state and an optional
-    test command's result, finished through harvest. Needs item 9's
-    plan-limit warning.
 12. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
     Bring-back (phase 4) lands commits where harvest can finish them.
 13. **`conch wait`** — `conch wait PANE -state done` so people can script

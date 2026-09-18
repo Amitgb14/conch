@@ -754,7 +754,7 @@ var helpText = []string{
 	"    space mark a file · c commit (the marked files, else all) · P push · p open a pull request",
 	"    in a diff: space marks the hunk under ▸ · n / N next, previous hunk · c commits the marked hunks",
 	"    M merge into the base (undone if it conflicts) · D discard the branch and its worktree",
-	"    A compare the attempts at this task, when a prompt was tried several times",
+	"    A compare the attempts at this task (t runs a command in each, o shows its terminal)",
 	"  y in the tree copies a branch name or directory",
 	"  Sessions (under a project): enter resume · / search titles and conversations · s share with another agent",
 	"    d delete · a agent filter · I resume all interrupted · x dismiss",

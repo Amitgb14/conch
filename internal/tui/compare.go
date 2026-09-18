@@ -56,6 +56,9 @@ type compareView struct {
 	rows               []attemptRow
 	sel                int
 	err                string
+	// command is what t last ran in every attempt, and runs where it ran.
+	command string
+	runs    map[string]testRun
 }
 
 // openCompare shows the attempts at the task a branch belongs to.
@@ -166,6 +169,19 @@ func (v *compareView) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		return true, m.discardBranch(v.target(v.sel))
 	case "x":
 		return false, v.discardOthers(m)
+	case "t":
+		return false, v.openTestCommand(m)
+	case "o":
+		// The terminal a run went to, to read its output.
+		if run, ok := v.runs[v.rows[v.sel].branch]; ok && run.pane != "" {
+			if p := m.pane(v.machine, run.pane); p != nil {
+				m.overlay = nil
+				m.revealPane(v.machine, *p)
+				m.focus = focusMain
+				return true, m.rebuild()
+			}
+		}
+		v.err = "nothing has run here yet — t runs a command in every attempt"
 	}
 	return false, nil
 }
@@ -206,6 +222,11 @@ func (v *compareView) render(m Model) box {
 		case r.changes != nil:
 			what = compareSummary(*r.changes)
 		}
+		if run, ok := v.runs[r.branch]; ok {
+			if text, style := run.result(m, v.machine); text != "" {
+				what += styleMuted.Render(" · ") + style(text)
+			}
+		}
 		left := "   " + r.name
 		if i == v.sel {
 			left = " ▸ " + r.name
@@ -220,7 +241,11 @@ func (v *compareView) render(m Model) box {
 	if v.err != "" {
 		lines = append(lines, " "+styleErr.Render(ansi.Truncate(v.err, w-2, "…")), "")
 	}
-	for _, l := range wrap("enter its changes · M merge into the base · D discard it · x keep it, discard the rest · R reload · esc close", w-2) {
+	hints := "enter its changes · t run a command in each · M merge into the base · D discard it · x keep it, discard the rest · R reload · esc close"
+	if v.command != "" {
+		hints = "enter its changes · t rerun " + ansi.Truncate(v.command, 24, "…") + " · o its terminal · M merge · D discard · x keep it, discard the rest · R reload · esc close"
+	}
+	for _, l := range wrap(hints, w-2) {
 		lines = append(lines, " "+styleMuted.Render(l))
 	}
 	b := box{lines: frameLines(" Compare attempts ", lines, w, colorAccent)}
@@ -278,4 +303,124 @@ func compareMenuItem(m Model, r row) []menuItem {
 	t := harvestTarget{machine: r.machine, projectID: r.projectID, branch: r.branch}
 	return []menuItem{{"A", fmt.Sprintf("Compare the %s at %s…", counted(len(attemptsIn(proj, base)), "attempt"), base),
 		func(m *Model) tea.Cmd { return m.openCompare(t) }}}
+}
+
+// ---- running a command in every attempt ----
+
+// testRun is one attempt's run of the compare view's command.
+type testRun struct {
+	pane string // the pane it runs in
+	err  string // why it couldn't start
+}
+
+// result is what the run came to, from the pane's own state.
+func (t testRun) result(m Model, mid string) (text string, style func(...string) string) {
+	switch {
+	case t.err != "":
+		return t.err, styleErr.Render
+	case t.pane == "":
+		return "", styleMuted.Render
+	}
+	p := m.pane(mid, t.pane)
+	switch {
+	case p == nil:
+		return "closed", styleMuted.Render
+	case p.State != proto.PaneExited:
+		return "running…", styleWork.Render
+	case p.ExitCode == 0:
+		return "passed", styleOK.Render
+	}
+	return fmt.Sprintf("failed (exit %d)", p.ExitCode), styleErr.Render
+}
+
+// openTestCommand asks what to run in every attempt's worktree.
+func (v *compareView) openTestCommand(m *Model) tea.Cmd {
+	back := v
+	d := newDialog(*m, " Run in every attempt ",
+		[]string{"Runs the command in each attempt's worktree, in its own terminal, and shows what it came to. " +
+			"The terminals stay open so you can read the output."},
+		[]string{"Command"}, []string{v.command})
+	d.fields[0].in.Placeholder = "go test ./... · npm test · make check"
+	d.submit = func(m *Model, values []string) tea.Cmd {
+		cmd := strings.TrimSpace(values[0])
+		m.overlay = back
+		if cmd == "" {
+			back.err = "nothing to run"
+			return nil
+		}
+		back.command, back.err = cmd, ""
+		return back.runCommand(m, cmd)
+	}
+	m.overlay = d
+	return d.focusCmd()
+}
+
+// runCommand starts the command in each attempt's worktree.
+func (v *compareView) runCommand(m *Model, cmd string) tea.Cmd {
+	proj := m.project(v.machine, v.projectID)
+	if proj == nil {
+		v.err = "the project is gone"
+		return nil
+	}
+	if v.runs == nil {
+		v.runs = map[string]testRun{}
+	}
+	c := m.clientOf(v.machine)
+	if c == nil {
+		v.err = m.offlineText(v.machine)
+		return nil
+	}
+	mid := v.machine
+	var cmds []tea.Cmd
+	for _, r := range v.rows {
+		dir := ""
+		for _, wt := range proj.Worktrees {
+			if wt.Branch == r.branch {
+				dir = wt.Path
+			}
+		}
+		branch := r.branch
+		if dir == "" {
+			v.runs[branch] = testRun{err: "no worktree"}
+			continue
+		}
+		// A previous run's terminal is left alone; this one gets its own.
+		v.runs[branch] = testRun{}
+		params := proto.PaneCreateParams{Name: "test · " + r.name, Command: []string{"/bin/sh", "-lc", cmd},
+			Cwd: dir, Cols: 120, Rows: 40}
+		cmds = append(cmds, func() tea.Msg {
+			var info proto.PaneInfo
+			if err := callCtx(c, proto.MethodPaneCreate, params, &info); err != nil {
+				return testStartedMsg{machine: mid, branch: branch, err: err.Error()}
+			}
+			return testStartedMsg{machine: mid, branch: branch, info: info}
+		})
+	}
+	return tea.Batch(cmds...)
+}
+
+// testStartedMsg carries the terminal one attempt's run started in.
+type testStartedMsg struct {
+	machine, branch string
+	info            proto.PaneInfo
+	err             string
+}
+
+// receiveTestStarted records the run and lists its terminal in the tree.
+func (m *Model) receiveTestStarted(msg testStartedMsg) tea.Cmd {
+	v, ok := m.overlay.(*compareView)
+	if ok && v.runs != nil {
+		if msg.err != "" {
+			v.runs[msg.branch] = testRun{err: msg.err}
+		} else {
+			v.runs[msg.branch] = testRun{pane: msg.info.ID}
+		}
+	}
+	if msg.err != "" {
+		return nil
+	}
+	if mach := m.machine(msg.machine); mach != nil && mach.paneIndex(msg.info.ID) < 0 {
+		mach.panes = append(mach.panes, msg.info)
+	}
+	return m.rebuild()
 }

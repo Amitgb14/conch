@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -194,5 +195,103 @@ func TestCompareMouse(t *testing.T) {
 	v.mouse(m, tea.MouseMsg{X: 0, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
 	if m.overlay != nil {
 		t.Fatal("a click outside closes it")
+	}
+}
+
+func TestCompareRunsACommand(t *testing.T) {
+	m, peer := a6Model(t)
+	m.width, m.height = 120, 40
+	v := openedCompare(t, m, "conch/fix-flaky-test/claude")
+
+	// t asks for the command; an empty one runs nothing.
+	v.update(m, a2Key("t"))
+	d, ok := m.overlay.(*dialog)
+	if !ok || d.fields[0].in.Placeholder == "" {
+		t.Fatalf("no command dialog: %T", m.overlay)
+	}
+	if cmd := d.submit(m, []string{"  "}); cmd != nil || m.overlay != v || v.err != "nothing to run" {
+		t.Fatalf("empty command: %q", v.err)
+	}
+
+	// A real one starts a terminal per attempt, in its own worktree.
+	v.update(m, a2Key("t"))
+	d = m.overlay.(*dialog)
+	peer.setResult(proto.MethodPaneCreate, proto.PaneInfo{ID: "t1", Name: "test", State: proto.PaneRunning, ProjectID: "r1"})
+	msgs := a2Run(d.submit(m, []string{"go test ./..."}))
+	if m.overlay != v || v.command != "go test ./..." {
+		t.Fatalf("after submitting: %T %q", m.overlay, v.command)
+	}
+	if len(msgs) != 3 {
+		t.Fatalf("%d terminals for 3 attempts", len(msgs))
+	}
+	var dirs, names []string
+	for _, msg := range peer.snapshot() {
+		if msg.Method != proto.MethodPaneCreate {
+			continue
+		}
+		var p proto.PaneCreateParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			t.Fatal(err)
+		}
+		dirs = append(dirs, p.Cwd)
+		names = append(names, p.Name)
+		if strings.Join(p.Command, " ") != "/bin/sh -lc go test ./..." {
+			t.Fatalf("command: %v", p.Command)
+		}
+	}
+	if strings.Join(dirs, ",") != "/src/api-a,/src/api-c,/src/api-b" {
+		t.Fatalf("worktrees: %v", dirs)
+	}
+	if strings.Join(names, ",") != "test · claude,test · claude-2,test · codex" {
+		t.Fatalf("names: %v", names)
+	}
+
+	// Each result follows its terminal: running, passed, failed.
+	for _, msg := range msgs {
+		next, _ := m.update(msg)
+		*m = next.(Model)
+	}
+	v.runs["conch/fix-flaky-test/claude"] = testRun{pane: "t1"}
+	v.runs["conch/fix-flaky-test/codex"] = testRun{pane: "t2"}
+	v.runs["conch/fix-flaky-test/claude-2"] = testRun{err: "no worktree"}
+	mach := m.machines[0]
+	mach.panes = append(mach.panes,
+		proto.PaneInfo{ID: "t1", State: proto.PaneRunning},
+		proto.PaneInfo{ID: "t2", State: proto.PaneExited, ExitCode: 2})
+	out := a2Plain(v.render(*m).lines)
+	t.Log("\n" + out)
+	for _, want := range []string{"running…", "failed (exit 2)", "no worktree", "t rerun go test ./...", "o its terminal"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("results lack %q:\n%s", want, out)
+		}
+	}
+	mach.panes[len(mach.panes)-1].ExitCode = 0
+	if out := a2Plain(v.render(*m).lines); !strings.Contains(out, "passed") {
+		t.Fatalf("passed:\n%s", out)
+	}
+	// A terminal the user closed says so rather than claiming a result.
+	mach.panes = mach.panes[:len(mach.panes)-1]
+	if out := a2Plain(v.render(*m).lines); !strings.Contains(out, "closed") {
+		t.Fatalf("closed terminal:\n%s", out)
+	}
+
+	// o opens the selected attempt's terminal; without one it says so.
+	v.sel = 0
+	closed, cmd := v.update(m, a2Key("o"))
+	if !closed || m.overlay != nil || m.cursor != paneNodeID(localMachine, "t1") {
+		t.Fatalf("o: overlay %T cursor %q", m.overlay, m.cursor)
+	}
+	a2Run(cmd)
+	v = openedCompare(t, m, "conch/fix-flaky-test/codex")
+	if _, cmd := v.update(m, a2Key("o")); cmd != nil || !strings.Contains(v.err, "nothing has run here yet") {
+		t.Fatalf("o without a run: %q", v.err)
+	}
+
+	// An offline machine starts nothing.
+	offline, _ := a6Model(t)
+	offline.machines[0].c = nil
+	ov := openedCompare(t, offline, "conch/fix-flaky-test/claude")
+	if cmd := ov.runCommand(offline, "go test ./..."); cmd != nil || !strings.Contains(ov.err, "local is") {
+		t.Fatalf("offline: %q", ov.err)
 	}
 }
