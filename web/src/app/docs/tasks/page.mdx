@@ -53,6 +53,34 @@ The finished ones that lose nothing come ticked. `space` ticks others, `a` toggl
 
 Ticking one with uncommitted files, or commits that are in neither the base nor an upstream, is allowed, but the confirmation names what is lost and only `y` accepts it. Each worktree is checked again when it is removed: work added after the list was read makes conch keep it and say why.
 
+## Several attempts at one task
+
+The same prompt can be tried more than once, each attempt on its own branch and worktree, so you can compare the results and keep one. Name several agents, ask for a number of attempts, or both:
+
+```sh
+conch task -agent claude,codex "Add a health check endpoint"   # one attempt each
+conch task -n 3 "Fix the flaky login test"                     # three, same agent
+conch task -agent claude,codex -n 3 "Fix the flaky login test" # three, agents cycling
+```
+
+In the TUI, the task dialog's **Agent** field takes a list (`claude,codex`) and **Attempts** a number; it shows the branches it will create before anything starts.
+
+Attempts are branches under the task's own name, so they sort together in the tree:
+
+```text
+conch/fix-flaky-login-test/claude
+conch/fix-flaky-login-test/codex
+conch/fix-flaky-login-test/claude-2
+```
+
+A single attempt keeps the plain branch name, exactly as before. Branch names already in the project are never reused, and at most 10 attempts start at once. An attempt that can't start — a branch taken, an agent missing — leaves the others running and is reported on its own.
+
+<Callout type="warning">
+
+Attempts multiply what you spend: three Claude attempts use three times the plan window. The task dialog warns when an agent's window is already nearly used.
+
+</Callout>
+
 ## Local files in worktrees
 
 A fresh worktree has only what git tracks, so an agent there would miss your `.env` or personal agent settings. When conch creates a worktree it copies the main checkout's **gitignored** files that match the project's patterns — by default:

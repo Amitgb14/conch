@@ -493,7 +493,7 @@ func TestA2TaskDialog(t *testing.T) {
 	m := a2Model()
 	proj := m.machines[0].projects[0]
 	d := newTaskDialog(*m, localMachine, proj)
-	if len(d.fields) != 4 || d.fields[2].in.Placeholder != "main" || !strings.HasPrefix(d.fields[3].in.Placeholder, "claude (default · ") {
+	if len(d.fields) != 5 || d.fields[2].in.Placeholder != "main" || !strings.HasPrefix(d.fields[3].in.Placeholder, "claude (default · ") {
 		t.Fatalf("task dialog placeholders: %q %q", d.fields[2].in.Placeholder, d.fields[3].in.Placeholder)
 	}
 	m.overlay = d
@@ -502,15 +502,15 @@ func TestA2TaskDialog(t *testing.T) {
 		t.Fatalf("branch placeholder should follow the prompt: %q", ph)
 	}
 
-	if msg := a2ErrText(a2Run(d.submit(m, []string{"  ", "", "", ""}))); msg != "a task needs a prompt" {
+	if msg := a2ErrText(a2Run(d.submit(m, []string{"  ", "", "", "", ""}))); msg != "a task needs a prompt" {
 		t.Fatalf("empty prompt: %q", msg)
 	}
 	m.machines[0].available = map[string]proto.AgentAvailability{"claude": {Name: "claude", Installed: true}}
-	msgs := a2Run(d.submit(m, []string{"do it", "", "", " Codex "}))
+	msgs := a2Run(d.submit(m, []string{"do it", "", "", " Codex ", ""}))
 	if ask, ok := msgs[0].(askInstallMsg); !ok || ask.agent != "codex" || ask.machine != localMachine {
 		t.Fatalf("a missing agent asks to install: %#v", msgs)
 	}
-	if msg := a2ErrText(a2Run(d.submit(m, []string{"do it", "", "", ""}))); msg != "local is online" {
+	if msg := a2ErrText(a2Run(d.submit(m, []string{"do it", "", "", "", ""}))); msg != "local is online" {
 		t.Fatalf("task without a connection: %q", msg)
 	}
 	_, cmd := d.update(m, a2Key("enter"))

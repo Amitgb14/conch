@@ -342,6 +342,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.rebuild(), m.saveState())
 
+	case attemptsDoneMsg:
+		return m, m.receiveAttempts(msg)
+
 	case askInstallMsg:
 		mach := m.machine(msg.machine)
 		if mach == nil {

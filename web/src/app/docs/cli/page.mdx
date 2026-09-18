@@ -91,7 +91,8 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `-cwd DIR` | a directory in the project; default: the current one. With `-m` it is required, as an absolute path on that machine |
 | `-branch B` | branch name; default: derived from the prompt |
 | `-base B` | branch to start from; default: the project's base |
-| `-agent NAME` | `claude`, `codex`, `gemini` or `opencode`; default: `[agents] default` |
+| `-agent NAME` | `claude`, `codex`, `gemini` or `opencode`, or several separated by commas; default: `[agents] default` |
+| `-n N` | attempts at the same prompt, each on its own branch (default: one per agent, at most 10) |
 
 ### branch
 

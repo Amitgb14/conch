@@ -467,19 +467,35 @@ func newAddMachineDialog(m Model) *dialog {
 func newTaskDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
 	intro := "Creates a branch and worktree, then starts the agent with the prompt."
 	d := newDialog(m, " New task · "+proj.Name+" ", []string{intro},
-		[]string{"Prompt", "Branch", "Base", "Agent"}, nil)
+		[]string{"Prompt", "Branch", "Base", "Agent", "Attempts"}, nil)
 	d.fields[1].in.Placeholder = "derived from the prompt"
 	d.fields[2].in.Placeholder = proj.Base
-	d.fields[3].in.Placeholder = m.defaultAgent() + " (default · " + strings.Join(knownAgents(&m), ", ") + ")"
+	d.fields[3].in.Placeholder = m.defaultAgent() + " (default · " + strings.Join(knownAgents(&m), ", ") + ", or several: claude,codex)"
+	d.fields[4].in.Placeholder = "1 (each attempt gets its own branch)"
 	defaultAgent := m.defaultAgent()
-	// The warning follows the Agent field: each agent has its own plan.
+	// The warnings follow the Agent and Attempts fields: each agent has its
+	// own plan, and every attempt spends one.
 	warn := func(d *dialog) {
-		agent := strings.ToLower(strings.TrimSpace(d.fields[3].in.Value()))
-		if agent == "" {
-			agent = defaultAgent
+		agents := splitAgents(d.fields[3].in.Value())
+		if len(agents) == 0 {
+			agents = []string{defaultAgent}
 		}
 		d.text = []string{intro}
-		if w := m.limitWarning(mid, agent, time.Now()); w != "" {
+		n, err := attemptsField(d.fields[4].in.Value())
+		switch {
+		case err != nil:
+			d.text = append(d.text, styleErr.Render("⚠ "+err.Error()))
+		case max(n, len(agents)) > 1:
+			plan := attemptPlan(agents, n, strings.TrimSpace(d.fields[1].in.Value()),
+				strings.TrimSpace(d.fields[0].in.Value()), proj.Branches)
+			var names []string
+			for _, at := range plan {
+				names = append(names, at.branch)
+			}
+			d.text = append(d.text, fmt.Sprintf("%s of the same prompt, one per branch: %s.",
+				counted(len(plan), "attempt"), listSome(names, 4)))
+		}
+		for _, w := range m.limitWarnings(mid, agents, time.Now()) {
 			d.text = append(d.text, styleWarn.Render("⚠")+" "+w)
 		}
 	}
@@ -490,23 +506,36 @@ func newTaskDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
 		}
 		warn(d)
 	}
-	id := proj.ID
+	id, branches := proj.ID, proj.Branches
 	d.submit = func(m *Model, v []string) tea.Cmd {
 		if strings.TrimSpace(v[0]) == "" {
 			return func() tea.Msg { return errMsg{errString("a task needs a prompt")} }
 		}
-		agent := strings.ToLower(strings.TrimSpace(v[3]))
-		if agent == "" {
-			agent = defaultAgent
+		n, err := attemptsField(v[4])
+		if err != nil {
+			return func() tea.Msg { return errMsg{errString(err.Error())} }
 		}
-		if mach := m.machine(mid); mach != nil && mach.missingAgent(agent) {
-			return func() tea.Msg { return askInstallMsg{machine: mid, agent: agent} }
+		agents := splitAgents(v[3])
+		if len(agents) == 0 {
+			agents = []string{defaultAgent}
+		}
+		if mach := m.machine(mid); mach != nil {
+			for _, agent := range agents {
+				if mach.missingAgent(agent) {
+					return func() tea.Msg { return askInstallMsg{machine: mid, agent: agent} }
+				}
+			}
 		}
 		cols, rows := m.paneArea()
-		params := proto.TaskCreateParams{ProjectID: id, Prompt: v[0], Branch: strings.TrimSpace(v[1]),
-			Base: strings.TrimSpace(v[2]), Agent: agent, Cols: cols, Rows: rows}
-		var info proto.PaneInfo
-		return m.callOn(mid, proto.MethodTaskCreate, params, &info, func() tea.Msg { return createdMsg{machine: mid, info: info} })
+		plan := attemptPlan(agents, n, strings.TrimSpace(v[1]), strings.TrimSpace(v[0]), branches)
+		if len(plan) == 1 {
+			params := proto.TaskCreateParams{ProjectID: id, Prompt: v[0], Branch: plan[0].branch,
+				Base: strings.TrimSpace(v[2]), Agent: plan[0].agent, Cols: cols, Rows: rows}
+			var info proto.PaneInfo
+			return m.callOn(mid, proto.MethodTaskCreate, params, &info, func() tea.Msg { return createdMsg{machine: mid, info: info} })
+		}
+		m.setFlash("starting "+counted(len(plan), "attempt")+"…", false)
+		return m.startAttempts(mid, id, v[0], strings.TrimSpace(v[2]), plan, cols, rows)
 	}
 	return d
 }
