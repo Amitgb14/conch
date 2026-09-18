@@ -70,12 +70,12 @@ Status legend: ☐ not run · ◐ partly run (see note) · ✅ passed · ❌ fai
 
 | # | Path | Steps | Expected | Status |
 | --- | --- | --- | --- | --- |
-| 4.1 | Add a machine | `conch machine add user@host` (key auth) | Probes, installs `~/.local/bin/conch`, connects; machine appears in the tree | ☐ |
+| 4.1 | Add a machine | `conch machine add user@host` (key auth) | Probes, installs `~/.local/bin/conch`, connects; machine appears in the tree | ✅ R13 busybox, key auth |
 | 4.2 | Password auth | Same against a host that needs a password; and `M` in the TUI with the Password field and Key login ticked | Terminal: ssh asks during probe and install. TUI: added without a terminal, key authorized and verified, reconnects need no password | ◐ R3 TUI path against a real OpenSSH server in Docker; terminal path not run |
-| 4.3 | Other architecture | Add a Linux host of a different arch than this computer | conch cross-builds from source (or downloads a release) and installs it | ☐ |
+| 4.3 | Other architecture | Add a Linux host of a different arch than this computer | conch cross-builds from source (or downloads a release) and installs it | ✅ R13 linux/amd64 cross-built on an arm64 Mac, 31 s |
 | 4.4 | Panes over SSH | `n` and `c` on the remote machine; type, resize, scroll, copy | Works like local; copy reaches the local clipboard via OSC 52 | ◐ R4 `conch -m` new, send, read and close on a Linux x86_64 devbox; typing, resize, scroll and copy in the TUI not run |
-| 4.5 | Remote hot reload | Rebuild, then machine menu → Reload server | Remote panes keep running; the TUI reconnects; version popup shows it up to date | ☐ |
-| 4.6 | Auto-update of remotes | Rebuild locally, open the version box, untick one of two remotes, press `u` | Local server reloads, TUI restarts, then only the ticked remote gets the new build and reloads; the unticked one keeps its build and still shows in the box | ☐ R4 not run: a TUI left open on an older build undid the remote upgrade (fixed, see R4); rerun once every TUI has the fix |
+| 4.5 | Remote hot reload | Rebuild, then machine menu → Reload server | Remote panes keep running; the TUI reconnects; version popup shows it up to date | ✅ R13 via `conch machine upgrade`: same pid, pane and scrollback kept |
+| 4.6 | Auto-update of remotes | Rebuild locally, open the version box, untick one of two remotes, press `u` | Local server reloads, TUI restarts, then only the ticked remote gets the new build and reloads; the unticked one keeps its build and still shows in the box | ◐ R13 one remote: ticked updates and reloads it, unticked is skipped; two remotes still untried |
 | 4.7 | Outdated remote server | Connect a TUI to a remote running an older build | "outdated" warning; `conch machine upgrade` reloads (or offers a restart) | ◐ R4 `conch machine upgrade` reloaded the devbox onto a different build with the same PID, uptime and panes |
 | 4.8 | Connection loss | Drop the network or kill ssh | Machine shows connecting/offline, retries, recovers with panes intact | ✅ R4 killing the TUI's ssh bridge: offline at once, back online within 12 s by itself, remote panes intact |
 | 4.9 | `-m` commands | `conch -m host status`, `new`, `server stop` | Operate on the remote; `status` on an unreachable host prints the reason | ◐ R4 `-m` status by label, `new`, `close`; `server stop` and an unreachable host not run |
@@ -89,7 +89,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 5.1 | `install.sh` | `curl -fsSL …/install.sh \| sh` on macOS and Linux (amd64, arm64) | Installs the right asset; checksum verified | ✅ R5 the published v0.1.0 one-liner (latest lookup) on macOS arm64 and Linux arm64 and amd64 |
 | 5.2 | `conch update` | From an older release | Downloads, verifies, replaces the binary; `conch version` shows the new one | ✅ R11 v0.1.0 → 0.1.1 on macOS arm64 |
 | 5.3 | Release check in the TUI | A release build older than the latest | Status bar shows `⬆`; version popup offers the update | ✅ R12 a real v0.1.0 TUI against the published 0.1.1 |
-| 5.4 | Update from the TUI | `u` in the version popup | Installs, reloads the server keeping panes, restarts the TUI, updates remotes | ✅ R12 (no remote in the run; see 4.6) |
+| 5.4 | Update from the TUI | `u` in the version popup | Installs, reloads the server keeping panes, restarts the TUI, updates remotes | ✅ R12 local, R13 the remote half |
 
 ## 6. Server hot reload and TUI updates
 
@@ -294,3 +294,13 @@ The first run possible with two releases published. A real v0.1.0 binary, downlo
 - **Release check (5.3):** the status bar showed `⬆ v0.1.0`, and clicking it opened the version popup: `Version 0.1.0`, `⬆ Release 0.1.1 available (running v0.1.0)`, `u update everything (agents and shells keep running)`.
 - **Update (5.4):** `u` replaced the binary within two seconds (`conch 0.1.1`), and the 0.1.0 server hot-reloaded in place — **same pid**, its `/bin/sh` pane still running with its scrollback (a marker printed before the update). The TUI came back on the new build two seconds later, with the `⬆` gone and `v0.1.1` in the status bar; `?` still opened the help and the tree still listed the kept pane. `conch update` afterwards said it is the latest release.
 - **Not covered:** the remote half of 5.4 (updating machines from the same popup) still needs a machine in the catalog, as 4.6 says.
+
+### R13 — 2026-09-18, a real remote machine over SSH, macOS arm64 → busybox (Linux x86_64)
+
+The remote rows, at last, with key login to busybox. Isolated on both sides: its own local `CONCH_HOME`, `HOME` and short private `TMPDIR`, a `CONCH_SSH_CONFIG` pinning the key with `IdentityAgent none` and `ControlPath none` so no ssh connection was shared with the real conch, and a `CONCH_SSH` wrapper running every remote command under a scratch `HOME` and `CONCH_HOME` on busybox. busybox's own conch (server pid 5222) and its `~/.config/conch` were never touched, and the catalog used was the harness's own.
+
+- **Found while setting up:** a wrapper that merely prefixes the remote command with `env HOME=… CONCH_HOME=… ` isolates almost nothing — the prefix reaches only the first command before a `;`, and `$HOME` in the probe script is expanded by the remote login shell regardless. The first add duly found busybox's real conch. Wrapping the whole script (`env … sh -c '<script>'`) is what isolates it; worth knowing for the next run.
+- **Add (4.1) and other architecture (4.3):** `conch machine add` probed linux/amd64, found no conch in the scratch home, cross-built one from source for linux/amd64 on this arm64 Mac, copied 14 MB over ssh stdin and installed it; a remote `/bin/sh` pane then echoed its marker and `x86_64`. 31 s in all.
+- **Remote hot reload (4.5):** `conch machine upgrade` with a binary built at a different version installed it and reloaded the remote server **in place — same pid 6232**, its pane still running with its scrollback.
+- **Remote updates from the version popup (4.6, and the remote half of 5.4):** a TUI on the harness showed `⬆`, and the popup listed `[x] busybox   runs build 5a3f7aa19f3e · installs and reloads`. `space` toggled it to `[ ]` and back. Ticked, `u` installed and reloaded busybox (same pid, pane kept) and the `⬆` cleared; unticked, `u` left the remote on its old build. One remote only — 4.6's two-remote case still wants a second machine.
+- **Not covered:** password auth (4.2; busybox has key login now), and the TUI's own machine menu → Reload server, which `machine upgrade` stands in for here.
