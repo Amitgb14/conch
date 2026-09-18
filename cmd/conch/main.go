@@ -43,6 +43,9 @@ Usage:
   conch read ID                 print a pane's visible screen
   conch close ID                close a pane
   conch redraw ID               draw a pane's screen again (after a program left stale text)
+  conch wait ID [-state done] [-timeout 30m]
+                                block until a pane's agent is done (or waiting, working, idle);
+                                exits 124 if the time runs out
   conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]
                                 start Claude Code with state tracking
   conch agent explain ID        show how a pane's agent state was decided
@@ -103,6 +106,8 @@ func main() {
 		err = runClose(args)
 	case "redraw":
 		err = runRedraw(args)
+	case "wait":
+		err = runWait(args)
 	case "agent":
 		err = runAgent(args)
 	case "project":
@@ -132,6 +137,11 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "conch: unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)
+	}
+	var late waitTimeout
+	if errors.As(err, &late) {
+		fmt.Fprintln(os.Stderr, "conch:", err)
+		os.Exit(124) // as timeout(1) does, so a script can tell it apart
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "conch:", err)

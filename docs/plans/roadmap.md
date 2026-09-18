@@ -50,13 +50,15 @@ history; details for big items live in their own plan files.
     what a command (`t`) came to in each worktree. Keeping one and
     discarding the rest goes through harvest, which still says what it
     would lose.
+12. **`conch wait`** — `conch wait PANE -state done` blocks until an agent
+    is done (or waiting, working, idle) using the events the server already
+    broadcasts, so a shell can chain tasks without polling. It exits 124
+    when `-timeout` runs out, as `timeout(1)` does.
 
 ## Next
 
-12. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
+13. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
     Bring-back (phase 4) lands commits where harvest can finish them.
-13. **`conch wait`** — `conch wait PANE -state done` so people can script
-    chains of tasks themselves before conch automates any.
 
 ## Last
 
