@@ -33,6 +33,49 @@ It can propose these actions:
 
 A broadcast and a share only ever reach agents: a terminal would run the text as a shell command, so conch skips it and says so. Sharing needs the agent to have saved a conversation; until it has, the action is refused rather than starting an agent with nothing to read.
 
+## Handing work to another agent
+
+Say who should take over, and from where:
+
+- _"hand the auth thread to Codex"_
+- _"let Gemini continue what Claude is doing on fix-login"_
+- _"give the drag-and-drop thread to the Codex that is already running"_
+
+```text
+✦ Plan
+  1. Hand the conversation of fix login on this computer to codex (a new pane)
+  enter run · space tick · esc cancel
+```
+
+On enter, conch writes that agent's conversation to a handoff file in the checkout and starts the other agent on it with a prompt to read it and continue — the same handoff as `s` in [Sessions](/docs/sessions#sharing-with-another-agent). Name an agent that is already running and the conversation goes to it instead of starting a pane.
+
+## One message to several agents
+
+- _"tell every agent in api to run the tests before committing"_
+- _"ask both agents on conch to stop and summarise what they changed"_
+
+```text
+✦ Plan
+  1. Send to 2 agents on this computer (fix login, codex): run the tests before committing
+```
+
+Each agent receives it once, submitted as its next message, like [`B` in the tree](/docs/agents#broadcast). Agents on several machines take one action per machine, each confirmed on its own.
+
+## Finding what needs you
+
+`/` then `!` keeps only the agents waiting for an answer, on every machine, without asking the model anything:
+
+```text
+/ !  agents waiting for you
+▾ ● local                          ⠋1 ⚑3
+  ▾ ◆ api                          ⠋1 ⚑2
+    ▾ Agents                           3
+        ! claude                    feat
+        ✓ gemini                    done
+```
+
+`esc` clears it; `!` on its own jumps to the next waiting agent instead of filtering.
+
 <Callout type="note">
 
 **Nothing runs until you press enter.**

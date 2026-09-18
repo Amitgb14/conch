@@ -58,6 +58,8 @@ Every word must appear. `enter` keeps the results and returns to the list keys, 
 - **Start an agent with it** — Claude Code, Codex, Gemini CLI or OpenCode starts in the session's folder.
 - **Send to a running agent** — any agent already running in the project gets it as its next message.
 
+The [brain](/docs/brain#handing-work-to-another-agent) does the same from a plain request, such as _"hand the auth thread to Codex"_, for the conversation of an agent that is running.
+
 conch writes the conversation — the messages, without tool calls or their output — to `.conch/handoff/<agent>-<session>.md` in the session's folder and asks the agent to read it, summarise what was done and what remains, and continue. `.conch/` is added to the repository's local `.git/info/exclude`, so it never shows up as a change. Very long conversations keep the first request and the latest messages.
 
 ## Interrupted runs
