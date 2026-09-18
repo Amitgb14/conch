@@ -5,10 +5,20 @@ terminals your agents run in, so they keep working when you close the UI. The
 TUI organises everything as a tree — machines, projects, git branches, agents
 and terminals — beside a live view of whatever you select.
 
-Works with **Claude Code**, **Codex**, **Gemini CLI** and **OpenCode**, on
-your machine or on remote machines over SSH.
+Works with **Claude Code**, **Codex**, **Gemini CLI**, **OpenCode** and
+**Devin**, on your machine or on remote machines over SSH.
 
 **[Website](https://amitgb14.github.io/conch/) · [Documentation](https://amitgb14.github.io/conch/docs/)**
+
+![conch showing a machine: its projects in the tree, plan usage and the agents installed](https://raw.githubusercontent.com/Amitgb14/conch/master/docs/images/overview.png)
+
+A machine at a glance: what is running, how much of the plan window is left,
+and which agents are installed.
+
+![conch showing a project: branches, agents and terminals in the tree, a tab per agent, and an agent's diff in the pane](https://raw.githubusercontent.com/Amitgb14/conch/master/docs/images/branches-agents.png)
+
+A project expanded into branches, agents and terminals, with a tab per agent
+and its work live in the pane.
 
 ## Install
 
