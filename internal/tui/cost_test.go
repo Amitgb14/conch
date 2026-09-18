@@ -312,3 +312,56 @@ func TestSessionUsageShape(t *testing.T) {
 		t.Fatalf("nothing: %+v", got)
 	}
 }
+
+func TestWaitingFilter(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	mach.panes = []proto.PaneInfo{
+		{ID: "p1", Name: "claude", State: proto.PaneRunning, ProjectID: "r1", Branch: "feat",
+			Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked}},
+		{ID: "p2", Name: "codex", State: proto.PaneRunning, ProjectID: "r1",
+			Agent: &proto.AgentStatus{Name: "codex", State: proto.AgentWorking}},
+		{ID: "p3", Name: "gemini", State: proto.PaneRunning, ProjectID: "r1",
+			Agent: &proto.AgentStatus{Name: "gemini", State: proto.AgentDone}},
+		{ID: "p4", Name: "zsh", State: proto.PaneRunning, ProjectID: "r1"},
+		{ID: "p5", Name: "claude", State: proto.PaneRunning, Cwd: "/tmp",
+			Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked}},
+	}
+	m.filter = waitingFilter
+	m.rebuild()
+	out := ansi.Strip(strings.Join(m.sidebarLines(40, 30), "\n"))
+	t.Log("\n" + out)
+	// Blocked and done agents, wherever they are; nothing else.
+	for _, want := range []string{"agents waiting for you", "claude", "gemini"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("waiting filter lacks %q:\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"codex", "zsh", "Branches", "Sessions"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("waiting filter shows %q:\n%s", unwanted, out)
+		}
+	}
+	if n := strings.Count(out, "claude"); n != 2 { // one in a project, one outside
+		t.Fatalf("%d claude rows:\n%s", n, out)
+	}
+	// Nothing waiting: the tree empties rather than showing everything.
+	for i := range mach.panes {
+		if mach.panes[i].Agent != nil {
+			mach.panes[i].Agent.State = proto.AgentWorking
+		}
+	}
+	m.rebuild()
+	out = ansi.Strip(strings.Join(m.sidebarLines(40, 30), "\n"))
+	for _, unwanted := range []string{"claude", "gemini", "zsh"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("nothing waiting, yet %q shows:\n%s", unwanted, out)
+		}
+	}
+	// A plain filter still matches by name.
+	m.filter = "zsh"
+	m.rebuild()
+	if out := ansi.Strip(strings.Join(m.sidebarLines(40, 30), "\n")); !strings.Contains(out, "zsh") {
+		t.Fatalf("name filter:\n%s", out)
+	}
+}

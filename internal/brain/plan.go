@@ -59,6 +59,10 @@ const (
 	ActSend       = "send"        // type a message into a pane and press enter
 	ActFocus      = "focus"       // show a pane
 	ActClose      = "close"       // close a pane
+	// ActShare hands one agent's conversation to another agent, new or
+	// running; ActBroadcast sends one message to several agents at once.
+	ActShare     = "share"
+	ActBroadcast = "broadcast"
 )
 
 // Action is one step of a plan.
@@ -72,6 +76,11 @@ type Action struct {
 	Prompt  string `json:"prompt,omitempty"`
 	Pane    string `json:"pane,omitempty"`
 	Text    string `json:"text,omitempty"`
+	// ToPane is where a share goes when it continues in an agent that is
+	// already running; empty starts a new one.
+	ToPane string `json:"to_pane,omitempty"`
+	// Panes are a broadcast's recipients, all on Machine.
+	Panes []string `json:"panes,omitempty"`
 }
 
 // Plan is the brain's answer to a request: a reply for the user and the
@@ -90,7 +99,7 @@ var planSchema = map[string]any{
 			"items": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"type":    map[string]any{"type": "string", "enum": []string{ActStartTask, ActStartAgent, ActSend, ActFocus, ActClose}},
+					"type":    map[string]any{"type": "string", "enum": []string{ActStartTask, ActStartAgent, ActSend, ActFocus, ActClose, ActShare, ActBroadcast}},
 					"machine": map[string]any{"type": "string", "description": "machine id"},
 					"project": map[string]any{"type": "string", "description": "project id"},
 					"branch":  map[string]any{"type": "string"},
@@ -99,6 +108,9 @@ var planSchema = map[string]any{
 					"prompt":  map[string]any{"type": "string"},
 					"pane":    map[string]any{"type": "string", "description": "pane id"},
 					"text":    map[string]any{"type": "string"},
+					"to_pane": map[string]any{"type": "string", "description": "pane id a share continues in"},
+					"panes": map[string]any{"type": "array", "description": "pane ids a broadcast goes to",
+						"items": map[string]any{"type": "string"}},
 				},
 				"required": []string{"type", "machine"},
 			},
@@ -115,6 +127,8 @@ Actions:
 - send: type a message to an agent already running in a pane and press enter. Fields: machine, pane, text.
 - focus: show a pane. Fields: machine, pane.
 - close: close a pane (stops its process). Fields: machine, pane. Only when the user clearly asks.
+- share: hand the conversation of the agent in pane to another agent, so it continues the work with the context. Fields: machine, pane (the agent whose conversation is handed over), agent (which agent continues; defaults to the default agent), to_pane (optional: an agent already running that should continue it instead of starting a new one). Use for "hand this thread to Codex", "get a second opinion from Gemini on what Claude just did".
+- broadcast: send one message to several agents at once and submit it. Fields: machine, panes (pane ids on that machine), text. Use for "tell everyone to run the tests"; for agents on several machines, emit one broadcast per machine.
 
 Rules:
 - Use only machine, project and pane ids from the state below. Use only installed agents; default to the default agent.
@@ -177,6 +191,51 @@ func (w World) Validate(a *Action) error {
 		if a.Type == ActSend && strings.TrimSpace(a.Text) == "" {
 			return fmt.Errorf("nothing to send")
 		}
+	case ActShare:
+		from := m.pane(a.Pane)
+		switch {
+		case from == nil:
+			return fmt.Errorf("unknown pane %q on %s", a.Pane, m.Label)
+		case from.Agent == "":
+			return fmt.Errorf("%s is a terminal, not an agent", from.Name)
+		}
+		if a.Agent == "" {
+			a.Agent = w.DefaultAgent
+		}
+		if a.ToPane != "" {
+			to := m.pane(a.ToPane)
+			switch {
+			case to == nil:
+				return fmt.Errorf("unknown pane %q on %s", a.ToPane, m.Label)
+			case to.Agent == "":
+				return fmt.Errorf("%s is a terminal, not an agent", to.Name)
+			case to.ID == from.ID:
+				return fmt.Errorf("%s can't hand its conversation to itself", from.Name)
+			}
+			a.Agent = to.Agent
+		} else if len(m.Agents) > 0 && !contains(m.Agents, a.Agent) {
+			return fmt.Errorf("%s is not installed on %s", a.Agent, m.Label)
+		}
+	case ActBroadcast:
+		if strings.TrimSpace(a.Text) == "" {
+			return fmt.Errorf("nothing to send")
+		}
+		if len(a.Panes) == 0 {
+			return fmt.Errorf("no agents to send to")
+		}
+		seen := map[string]bool{}
+		for _, id := range a.Panes {
+			pane := m.pane(id)
+			switch {
+			case pane == nil:
+				return fmt.Errorf("unknown pane %q on %s", id, m.Label)
+			case pane.Agent == "":
+				return fmt.Errorf("%s is a terminal, not an agent", pane.Name)
+			case seen[id]:
+				return fmt.Errorf("%s is listed twice", pane.Name)
+			}
+			seen[id] = true
+		}
 	default:
 		return fmt.Errorf("unknown action %q", a.Type)
 	}
@@ -218,8 +277,36 @@ func (w World) Describe(a Action) string {
 		return "Show " + where
 	case ActClose:
 		return "Close " + where
+	case ActShare:
+		to := a.Agent + " (a new pane)"
+		if m != nil && a.ToPane != "" {
+			to = a.Agent
+			if p := m.pane(a.ToPane); p != nil {
+				to = p.Name
+			}
+		}
+		return fmt.Sprintf("Hand the conversation of %s to %s", where, to)
+	case ActBroadcast:
+		var names []string
+		for _, id := range a.Panes {
+			name := id
+			if m != nil {
+				if p := m.pane(id); p != nil {
+					name = p.Name
+				}
+			}
+			names = append(names, name)
+		}
+		return fmt.Sprintf("Send to %d agents on %s (%s): %s", len(a.Panes), machineLabel(m, a.Machine), strings.Join(names, ", "), a.Text)
 	}
 	return a.Type
+}
+
+func machineLabel(m *Machine, id string) string {
+	if m != nil {
+		return m.Label
+	}
+	return id
 }
 
 func (w World) machine(id string) *Machine {

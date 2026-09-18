@@ -10,6 +10,8 @@ Press `:` (or click **✦ Ask**) and say what you want:
 
 - _"start 3 agents on api: fix the flaky login test, add rate limiting, update the README"_ — split into tasks, each on its own branch and worktree with a self-contained prompt
 - _"tell the agent on fix-login to also cover the logout path"_ — a message typed into that agent
+- _"hand the auth thread to Codex"_ — the Claude conversation in that pane is written to a handoff file and Codex is started on it, [as `s` does in Sessions](/docs/sessions#sharing-with-another-agent)
+- _"tell every agent in api to run the tests"_ — one message to several agents at once, [as `B` does in the tree](/docs/agents#broadcast)
 - _"what is waiting for me?"_ — an answer, no actions
 
 From a shell, `conch ask [-y | -n] "…"` does the same: `-y` runs the plan without asking, `-n` only shows it.
@@ -17,6 +19,19 @@ From a shell, `conch ask [-y | -n] "…"` does the same: `-y` runs the plan with
 ## Approving the plan
 
 The brain sees every connected machine, its projects, branches and agents (with their states and summaries) and proposes a plan. Each action is listed with a checkbox; invalid ones (an unknown project, an agent that isn't installed, an offline machine) are marked and skipped.
+
+It can propose these actions:
+
+| Action | What it does |
+| --- | --- |
+| Start a task | a new branch and worktree with an agent working on a prompt |
+| Start an agent | an agent in a project or branch you already have |
+| Send | a message typed into one running agent and submitted |
+| Share | hand one agent's conversation to another, new or already running |
+| Broadcast | one message to several agents on a machine at once |
+| Show, Close | focus a pane, or close it (only when you ask) |
+
+A broadcast and a share only ever reach agents: a terminal would run the text as a shell command, so conch skips it and says so. Sharing needs the agent to have saved a conversation; until it has, the action is refused rather than starting an agent with nothing to read.
 
 <Callout type="note">
 

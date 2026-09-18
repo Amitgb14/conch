@@ -123,6 +123,9 @@ func (m Model) sidebarLines(w, h int) []string {
 			cursor = "█"
 		}
 		header = styleAccent.Render("/ ") + m.filter + cursor
+		if strings.TrimSpace(m.filter) == waitingFilter {
+			header += styleMuted.Render("  agents waiting for you")
+		}
 	}
 	lines := []string{header}
 	for i := m.scroll; i < len(m.rows) && len(lines) < h; i++ {
