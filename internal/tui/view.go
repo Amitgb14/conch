@@ -181,7 +181,7 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		if mach == nil {
 			return "?", styleMuted, r.machine, labelStyle, ""
 		}
-		badge := joinRight(costChip(m.machineUsage(mach.id)), m.attentionBadge(mach.id, ""))
+		badge := joinRight(m.costChip(m.machineUsage(mach.id)), m.attentionBadge(mach.id, ""))
 		switch mach.state {
 		case stateOnline:
 			if mach.warning != "" {
@@ -202,7 +202,7 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		if proj.Error != "" {
 			right = styleErr.Render("git error")
 		}
-		right = joinRight(right, costChip(m.projectUsage(r.machine, proj.ID)))
+		right = joinRight(right, m.costChip(m.projectUsage(r.machine, proj.ID)))
 		return "◆", styleAccent, proj.Name, styleBold, joinRight(right, m.attentionBadge(r.machine, proj.ID))
 	case kindBranches:
 		return "", glyphStyle, "Branches", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
@@ -211,7 +211,7 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		if r.projectID == "" {
 			u = m.looseUsage(r.machine)
 		}
-		return "", glyphStyle, "Agents", styleMuted, joinRight(costChip(u), styleMuted.Render(fmt.Sprint(r.count)))
+		return "", glyphStyle, "Agents", styleMuted, joinRight(m.costChip(u), styleMuted.Render(fmt.Sprint(r.count)))
 	case kindTerminals:
 		return "", glyphStyle, "Terminals", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindSSH:
@@ -250,7 +250,7 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		} else if state != "" && p.Agent != nil {
 			right = style.Render(state)
 		}
-		return g, style, p.DisplayName(), labelStyle, joinRight(right, costChip(paneUsage(*p)))
+		return g, style, p.DisplayName(), labelStyle, joinRight(right, m.costChip(paneUsage(*p)))
 	}
 	return "", glyphStyle, r.id, labelStyle, ""
 }
@@ -774,8 +774,8 @@ func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string 
 		}
 	}
 	head := styleBold.Render("Agents") + styleMuted.Render(fmt.Sprintf("  %d", len(agents)))
-	if u := usageOf(agents); !u.empty() {
-		head = spread(head, styleMuted.Render(u.line("usage")), w)
+	if line := m.usageLine(usageOf(agents), "usage"); line != "" {
+		head = spread(head, styleMuted.Render(line), w)
 	}
 	lines = append(lines, head)
 	if len(agents) == 0 {
@@ -785,7 +785,7 @@ func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string 
 		g, state, style := m.paneGlyph(p)
 		left := fmt.Sprintf("  %s %s", style.Render(g), p.DisplayName())
 		right := joinRight(styleMuted.Render(p.Branch), style.Render(state))
-		lines = append(lines, spread(left, joinRight(right, costChip(paneUsage(p))), w))
+		lines = append(lines, spread(left, joinRight(right, m.costChip(paneUsage(p))), w))
 		if sum := m.summaryText(mid, p.ID); sum != "" {
 			lines = append(lines, "    "+styleAccent.Render("✦ ")+styleMuted.Render(ansi.Truncate(sum, max(w-6, 10), "…")))
 		}
@@ -896,7 +896,7 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 	switch mach.state {
 	case stateOnline:
 		lines = append(lines, styleMuted.Render(fmt.Sprintf("%d projects · %d panes · %d working · %d waiting", len(mach.projects), len(mach.panes), working, waiting)))
-		if line := usageOf(mach.panes).line("usage"); line != "" {
+		if line := m.usageLine(usageOf(mach.panes), "usage"); line != "" {
 			lines = append(lines, styleMuted.Render(line))
 		}
 		lines = append(lines, m.limitsLines(mach, cols)...)

@@ -54,7 +54,7 @@ Git repositories show `◆ git`, existing projects `◆ project`. From the CLI: 
 
 ### Branches
 
-Each agent row shows what it has spent — `$1.40` when the agent reports a cost (Claude Code and OpenCode do), otherwise what it has used, like `3.0k out` or `120k in` (Codex and Gemini CLI report no cost). The `Agents` section, the project and the machine show the total of the agents under them. This is only the usage conch has seen: plan windows are per account, so an agent you started outside conch spends the same window without appearing here. The project and machine pages spell that out in full.
+Each agent row shows what it has spent (Settings → Theme → Tree turns this off) — `$1.40` when the agent reports a cost (Claude Code and OpenCode do), otherwise what it has used, like `3.0k out` or `120k in` (Codex and Gemini CLI report no cost). The `Agents` section, the project and the machine show the total of the agents under them. This is only the usage conch has seen: plan windows are per account, so an agent you started outside conch spends the same window without appearing here. The project and machine pages spell that out in full.
 
 Branches list checked-out branches, the base branch, branches with panes and recent ones; the rest fold into `… N more`. Each shows uncommitted changes (`+42 −7`, `⚠` conflicts), commits ahead/behind the base (`↑2 ↓1`), and the state of agents working on it. Branch rows leave the cost out: they are busy enough, and the agents beneath them name their branch. Git state refreshes when git metadata changes, after an agent uses a tool, and every few seconds.
 
@@ -153,7 +153,9 @@ Press `,` or click `⚙` at the right end of the status bar. Changes are saved t
 
 Colour schemes: Conch, Dracula, Catppuccin Mocha, Nord, Gruvbox Dark, Tokyo Night, One Dark, Solarized Dark, Rosé Pine, Kanagawa, Everforest Dark, Monokai, GitHub Dark, Ayu Dark and Night Owl (applied instantly).
 
-Below them, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the themes installed on this computer. conch starts zsh with a wrapper that loads your own `.zshenv`/`.zprofile`/`.zshrc`/`.zlogin` first and then switches the theme for that terminal only (`omz theme use`), so your dotfiles are never edited; "Keep my .zshrc theme" turns it off.
+Under **Tree**, _What agents spend_ shows or hides the cost (and the token counts that stand in for it) on tree rows, in Sessions and on the project and machine pages — everything [the sidebar](#the-sidebar) shows.
+
+Below that, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the themes installed on this computer. conch starts zsh with a wrapper that loads your own `.zshenv`/`.zprofile`/`.zshrc`/`.zlogin` first and then switches the theme for that terminal only (`omz theme use`), so your dotfiles are never edited; "Keep my .zshrc theme" turns it off.
 
 ### Notifications
 

@@ -213,7 +213,7 @@ func (v *compareView) render(m Model) box {
 		if p := v.agentOf(m, r.branch); p != nil {
 			_, label, style := m.paneGlyph(*p)
 			state = style.Render(label)
-			cost = costChip(paneUsage(*p))
+			cost = m.costChip(paneUsage(*p))
 		}
 		what := styleMuted.Render("reading…")
 		switch {

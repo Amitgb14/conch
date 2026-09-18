@@ -27,7 +27,7 @@ func TestA3Defaults(t *testing.T) {
 	want := Config{
 		Keys:   Keys{Prefix: "ctrl+b"},
 		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true, Limits: true, LimitAt: []int{80, 95}},
-		UI:     UICfg{Mouse: true, Theme: "conch"},
+		UI:     UICfg{Mouse: true, Theme: "conch", Cost: true},
 		Agents: AgentsCfg{Default: "claude"},
 		Brain:  BrainCfg{Provider: "claude"},
 		Update: UpdateCfg{CheckReleases: true},

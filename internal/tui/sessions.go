@@ -598,7 +598,7 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 		case s.Interrupted:
 			right = append(right, "interrupted")
 		}
-		if chip := sessionUsage(s).chip(); chip != "" {
+		if chip := ansi.Strip(m.costChip(sessionUsage(s))); chip != "" {
 			right = append(right, chip)
 		}
 		right = append(right, ago(s.Updated))

@@ -151,13 +151,23 @@ func (m Model) branchUsage(mid, projectID, branch string) usage {
 }
 
 // costChip is a tree row's usage detail, styled and muted so it never
-// competes with what an agent is doing.
-func costChip(u usage) string {
+// competes with what an agent is doing. Settings → Theme → Tree turns it
+// off, and then nothing anywhere shows it.
+func (m Model) costChip(u usage) string {
 	chip := u.chip()
-	if chip == "" {
+	if chip == "" || !m.cfg.UI.Cost {
 		return ""
 	}
 	return styleMuted.Render(chip)
+}
+
+// usageLine is line() for the project and machine pages, subject to the
+// same setting.
+func (m Model) usageLine(u usage, what string) string {
+	if !m.cfg.UI.Cost {
+		return ""
+	}
+	return u.line(what)
 }
 
 // sessionUsage is what a saved conversation used, as its store recorded it.

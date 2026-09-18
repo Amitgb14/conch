@@ -75,7 +75,7 @@ func TestCostSums(t *testing.T) {
 		"unknown machine":  m.projectUsage("nope", "r1"),
 		"unknown project":  m.projectUsage(localMachine, "nope"),
 	} {
-		if !u.empty() || u.chip() != "" || u.line("usage") != "" || costChip(u) != "" {
+		if !u.empty() || u.chip() != "" || u.line("usage") != "" || m.costChip(u) != "" {
 			t.Fatalf("%s should show nothing: %+v", name, u)
 		}
 	}
@@ -363,5 +363,69 @@ func TestWaitingFilter(t *testing.T) {
 	m.rebuild()
 	if out := ansi.Strip(strings.Join(m.sidebarLines(40, 30), "\n")); !strings.Contains(out, "zsh") {
 		t.Fatalf("name filter:\n%s", out)
+	}
+}
+
+func TestCostCanBeTurnedOff(t *testing.T) {
+	m := a5Model(t)
+	mach := m.machines[0]
+	mach.state = stateOnline
+	for _, id := range []string{machineID(localMachine), workspaceID(localMachine), projectNodeID(localMachine, "r1"),
+		sectionID(localMachine, "r1", "agents")} {
+		m.expanded[id] = true
+	}
+	m.sessions = map[string]*sessionsData{sessionsKey(localMachine, "r1"): {list: []proto.SessionInfo{
+		{Agent: "claude", ID: "s1", Dir: "/src/api", Title: "Refactor auth", Updated: time.Now(), CostUSD: 1.4}}}}
+	sv := &sessionsView{machine: localMachine, projectID: "r1"}
+	proj := mach.projects[0]
+
+	// On by default, everywhere.
+	shown := []string{
+		ansi.Strip(strings.Join(m.sidebarLines(40, 30), "\n")),
+		ansi.Strip(strings.Join(m.projectLines(localMachine, proj, 100), "\n")),
+		ansi.Strip(strings.Join(m.machineLines(mach, 100, 30), "\n")),
+		ansi.Strip(strings.Join(sv.render(*m, 100, 20), "\n")),
+	}
+	for i, out := range shown {
+		if !strings.Contains(out, "$") {
+			t.Fatalf("view %d shows no cost with the setting on:\n%s", i, out)
+		}
+	}
+
+	// Off: nothing shows it, and the rest of each view is untouched.
+	m.cfg.UI.Cost = false
+	m.rebuild()
+	for _, c := range []struct{ out, keeps string }{
+		{ansi.Strip(strings.Join(m.sidebarLines(40, 30), "\n")), "claude"},
+		{ansi.Strip(strings.Join(m.projectLines(localMachine, proj, 100), "\n")), "Agents"},
+		{ansi.Strip(strings.Join(m.machineLines(mach, 100, 30), "\n")), "2 projects"},
+		{ansi.Strip(strings.Join(sv.render(*m, 100, 20), "\n")), "Refactor auth"},
+	} {
+		if strings.Contains(c.out, "$") || strings.Contains(c.out, "3.0k out") || strings.Contains(c.out, "usage conch has seen") {
+			t.Fatalf("still shows usage with the setting off:\n%s", c.out)
+		}
+		if !strings.Contains(c.out, c.keeps) {
+			t.Fatalf("lost %q with the setting off:\n%s", c.keeps, c.out)
+		}
+	}
+	if line := m.usageLine(m.projectUsage(localMachine, "r1"), "usage"); line != "" {
+		t.Fatalf("usage line with the setting off: %q", line)
+	}
+
+	// The settings screen has the toggle, and it writes the config.
+	s := &settings{shellErr: "no server"}
+	items := s.themeItems(m)
+	var toggle *settingItem
+	for i := range items {
+		if items[i].on == &m.cfg.UI.Cost {
+			toggle = &items[i]
+		}
+	}
+	if toggle == nil || !strings.Contains(toggle.label, "spend") {
+		t.Fatalf("no cost toggle in the theme tab: %+v", items)
+	}
+	toggle.run(m) // saving writes to CONCH_HOME, which the fixture isolates
+	if !m.cfg.UI.Cost {
+		t.Fatal("the toggle did not turn it back on")
 	}
 }
