@@ -6,7 +6,11 @@ on:
   push:
     branches: [master]
     paths: ["web/**", ".github/workflows/pages.yml"]
-    tags: ["v*"] # a release changes the version the site shows
+    # A release changes the version the site shows. For this to deploy and
+    # not just build, the github-pages environment needs a deployment branch
+    # policy allowing the v* tag; with only the master branch allowed, the
+    # deploy job is rejected by protection rules.
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
