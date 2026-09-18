@@ -126,8 +126,10 @@ func TestA6UntrackedFilesAllBlankPatterns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Without the guard in UntrackedFiles, nothing follows "--" and git
+	// lists every untracked file instead of none.
 	if len(got) != 0 {
-		t.Skipf("bug: worktree.go:113-118 only-blank patterns leave no pathspec after \"--\", so git lists every untracked file: %q", got)
+		t.Fatalf("only-blank patterns listed %q, want nothing", got)
 	}
 }
 

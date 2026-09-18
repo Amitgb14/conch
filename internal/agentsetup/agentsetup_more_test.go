@@ -467,8 +467,10 @@ func TestA6FrontmatterNestedKeys(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "SKILL.md")
 	os.WriteFile(p, []byte("---\nname: real-name\nmetadata:\n  name: nested-name\n  description: nested\ndescription: top\n---\n"), 0o644)
 	name, desc := frontmatter(p)
+	// An indented key belongs to the block above it: metadata's own name
+	// must not overwrite the skill's.
 	if name != "real-name" {
-		t.Skipf("bug: agentsetup.go:376-393 frontmatter matches indented (nested YAML) keys as top-level ones, so metadata.name overrides name: got %q", name)
+		t.Fatalf("name: %q, want real-name", name)
 	}
 	if desc != "top" {
 		t.Fatalf("desc: %q", desc)
