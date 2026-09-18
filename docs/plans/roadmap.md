@@ -39,16 +39,19 @@ history; details for big items live in their own plan files.
    Agents that report no cost show tokens; conch ships no price table. The
    task dialog warns when the chosen agent's plan window is past an alert
    threshold, and never refuses.
+10. **Brain actions for handoff and broadcast** — the planner can propose
+    `share` (one agent's conversation continued by another) and `broadcast`
+    (one message to several agents), still confirmed like every other
+    action and never aimed at a terminal. `/ !` filters the tree to the
+    agents waiting for an answer, across machines.
 
 ## Next
 
-10. **Brain actions for handoff and broadcast** — `share` and `broadcast`
-    join the planner's actions, still confirmed like every other action. A
-    tree filter shows agents waiting for input across machines.
 11. **Best-of-N tasks** — `conch task -n N` and `-agent claude,codex,...`
     start the same prompt in separate worktrees with suffixed branch names,
     and a compare view shows each attempt's diffstat, state and an optional
-    test command's result, finished through harvest. Needs item 9's plan-limit warning.
+    test command's result, finished through harvest. Needs item 9's
+    plan-limit warning.
 12. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
     Bring-back (phase 4) lands commits where harvest can finish them.
 13. **`conch wait`** — `conch wait PANE -state done` so people can script
