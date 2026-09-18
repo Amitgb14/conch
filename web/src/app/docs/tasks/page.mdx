@@ -10,6 +10,8 @@ A task is an agent on its own branch, in its own git worktree, so agents working
 
 Tasks use the default agent (Settings → Agents) unless the task dialog's Agent field, or `conch task -agent NAME`, names another.
 
+When that agent's plan window is already past an alert threshold (80% and 95% by default — see [notifications](/docs/configuration)), the task dialog says so before you start another one, and follows the Agent field as you change it. It is a warning, never a refusal: limits can be missing, stale, or unreported by an older server, and conch would rather let you work than block on a number it isn't sure of.
+
 ```sh
 conch task -cwd ~/src/api "Add a health check endpoint"   # pane, worktree, branch
 ```

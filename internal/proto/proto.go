@@ -741,6 +741,11 @@ type SessionInfo struct {
 	// Snippet is the text around a match inside the conversation, in
 	// session.search results; empty when the title or other details matched.
 	Snippet string `json:"snippet,omitempty"`
+	// CostUSD is what the agent said the conversation cost and Output the
+	// tokens it generated, when its store records them (Claude Code and
+	// OpenCode report a cost, Codex tokens only).
+	CostUSD float64 `json:"cost_usd,omitempty"`
+	Output  int     `json:"output,omitempty"`
 }
 
 // SessionSearchParams asks for the sessions of a project (or directory)

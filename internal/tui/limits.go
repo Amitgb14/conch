@@ -179,3 +179,45 @@ func pctStyleBar(p float64) func(...string) string {
 	}
 	return styleOK.Render
 }
+
+// limitWarning says that an agent's plan window is nearly used, for the task
+// dialog to show before starting one more. It warns and never blocks: when
+// the machine, the agent or its limits are unknown — an older server reports
+// none — there is nothing to say and work goes ahead.
+func (m Model) limitWarning(mid, agent string, now time.Time) string {
+	mach := m.machine(mid)
+	if mach == nil || agent == "" {
+		return ""
+	}
+	l, ok := mach.limits[agent]
+	if !ok {
+		return ""
+	}
+	thresholds := m.cfg.Notify.Thresholds()
+	least := float64(thresholds[0])
+	var worst *proto.LimitWindow
+	name := ""
+	for _, w := range []struct {
+		name string
+		win  *proto.LimitWindow
+	}{{"5-hour", l.FiveHour}, {"week", l.Week}, {"spend", l.Spend}} {
+		lw := liveWindow(w.win, now)
+		if lw == nil || lw.UsedPct < least {
+			continue
+		}
+		if worst == nil || lw.UsedPct > worst.UsedPct {
+			worst, name = lw, w.name
+		}
+	}
+	if worst == nil {
+		return ""
+	}
+	s := fmt.Sprintf("%s's %s limit is %d%% used", shortAgent(agent), name, int(math.Round(worst.UsedPct)))
+	if !worst.ResetsAt.IsZero() {
+		s += " and resets " + resetText(worst.ResetsAt, now)
+	}
+	if worst.UsedPct >= 100 {
+		return s + ". Starting a task now may get nothing done until then."
+	}
+	return s + ". Starting more agents spends the rest of it faster."
+}

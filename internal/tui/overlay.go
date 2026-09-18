@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -464,17 +465,30 @@ func newAddMachineDialog(m Model) *dialog {
 }
 
 func newTaskDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
-	d := newDialog(m, " New task · "+proj.Name+" ",
-		[]string{"Creates a branch and worktree, then starts the agent with the prompt."},
+	intro := "Creates a branch and worktree, then starts the agent with the prompt."
+	d := newDialog(m, " New task · "+proj.Name+" ", []string{intro},
 		[]string{"Prompt", "Branch", "Base", "Agent"}, nil)
 	d.fields[1].in.Placeholder = "derived from the prompt"
 	d.fields[2].in.Placeholder = proj.Base
 	d.fields[3].in.Placeholder = m.defaultAgent() + " (default · " + strings.Join(knownAgents(&m), ", ") + ")"
 	defaultAgent := m.defaultAgent()
+	// The warning follows the Agent field: each agent has its own plan.
+	warn := func(d *dialog) {
+		agent := strings.ToLower(strings.TrimSpace(d.fields[3].in.Value()))
+		if agent == "" {
+			agent = defaultAgent
+		}
+		d.text = []string{intro}
+		if w := m.limitWarning(mid, agent, time.Now()); w != "" {
+			d.text = append(d.text, styleWarn.Render("⚠")+" "+w)
+		}
+	}
+	warn(d)
 	d.onChange = func(d *dialog) {
 		if p := strings.TrimSpace(d.fields[0].in.Value()); p != "" {
 			d.fields[1].in.Placeholder = gitx.BranchFromPrompt(p)
 		}
+		warn(d)
 	}
 	id := proj.ID
 	d.submit = func(m *Model, v []string) tea.Cmd {
@@ -726,6 +740,10 @@ var helpText = []string{
 	"",
 	"Usage",
 	"  title bar: ctx = context in use / window size · out = tokens generated · $ = reported cost",
+	"  Sessions: what each saved conversation cost, or the tokens it generated",
+	"  tree: each agent's cost, and the total per project and machine — what conch has seen,",
+	"    not the whole plan window. Agents that report no cost (Codex, Gemini) show tokens",
+	"  a task warns before it starts when that agent's plan window is nearly used; it never refuses",
 	"  status bar: Claude 5h 42% · 7d 18% = plan limit windows (click for reset times)",
 	"  status bar: ⬆ version = updates; click, tick machines with space, u updates",
 	"",

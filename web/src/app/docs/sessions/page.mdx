@@ -6,17 +6,19 @@ Agents save their conversations; conch lists them per project so you can resume 
 
 ## Saved conversations
 
-Every project has a **Sessions** section in the tree. Select it to list, on the right, the conversations agents saved for the project and its worktrees — Claude Code, Codex, Gemini CLI, OpenCode and Devin — newest first, with the agent, title, branch and age:
+Every project has a **Sessions** section in the tree. Select it to list, on the right, the conversations agents saved for the project and its worktrees — Claude Code, Codex, Gemini CLI, OpenCode and Devin — newest first, with the agent, title, branch, what it used and its age:
 
 ```text
 Sessions · api        enter resume · / search · s share · d delete · a agent
 4 saved · all agents · ⚠ 1 interrupted (I resumes all, x dismisses)
 
-▸ ⚠ Claude Code  Fix the flaky login test          fix-login · interrupted · 2h
-  ● Codex        Add rate limiting                         rate-limit · open · 5m
-  · OpenCode     Refactor config                                      main · 1d
+▸ ⚠ Claude Code  Fix the flaky login test  fix-login · interrupted · $1.40 · 2h
+  ● Codex        Add rate limiting             rate-limit · open · 3.0k out · 5m
+  · OpenCode     Refactor config                             main · $0.12 · 1d
   · Gemini CLI   Explain the auth flow                                main · 3d
 ```
+
+What a session used comes from the agent's own store, so it differs by agent: Claude Code and OpenCode record a cost, Codex the tokens it generated, and Gemini CLI neither — that row simply says nothing rather than showing `$0.00`. Costs are read from the end of the store, so listing stays fast on long conversations.
 
 conch reads the agents' own session stores and never changes them (except `d`, which deletes one after asking); on remote machines the server there lists its sessions.
 

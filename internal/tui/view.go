@@ -178,7 +178,7 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		if mach == nil {
 			return "?", styleMuted, r.machine, labelStyle, ""
 		}
-		badge := m.attentionBadge(mach.id, "")
+		badge := joinRight(costChip(m.machineUsage(mach.id)), m.attentionBadge(mach.id, ""))
 		switch mach.state {
 		case stateOnline:
 			if mach.warning != "" {
@@ -199,11 +199,16 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		if proj.Error != "" {
 			right = styleErr.Render("git error")
 		}
+		right = joinRight(right, costChip(m.projectUsage(r.machine, proj.ID)))
 		return "◆", styleAccent, proj.Name, styleBold, joinRight(right, m.attentionBadge(r.machine, proj.ID))
 	case kindBranches:
 		return "", glyphStyle, "Branches", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindAgents:
-		return "", glyphStyle, "Agents", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
+		u := m.projectUsage(r.machine, r.projectID)
+		if r.projectID == "" {
+			u = m.looseUsage(r.machine)
+		}
+		return "", glyphStyle, "Agents", styleMuted, joinRight(costChip(u), styleMuted.Render(fmt.Sprint(r.count)))
 	case kindTerminals:
 		return "", glyphStyle, "Terminals", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindSSH:
@@ -242,7 +247,7 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		} else if state != "" && p.Agent != nil {
 			right = style.Render(state)
 		}
-		return g, style, p.DisplayName(), labelStyle, right
+		return g, style, p.DisplayName(), labelStyle, joinRight(right, costChip(paneUsage(*p)))
 	}
 	return "", glyphStyle, r.id, labelStyle, ""
 }
@@ -540,21 +545,6 @@ func usd(v float64) string {
 	return fmt.Sprintf("$%.2f", v)
 }
 
-// usageTotals sums what a machine's running agents report.
-func usageTotals(panes []proto.PaneInfo) (agents, input, output int, cost float64) {
-	for _, p := range panes {
-		if p.Agent == nil || p.Agent.Tokens == nil {
-			continue
-		}
-		t := p.Agent.Tokens
-		agents++
-		input += t.Input + t.CacheRead + t.CacheWrite
-		output += t.Output
-		cost += t.CostUSD
-	}
-	return
-}
-
 func humanCount(n int) string {
 	switch {
 	case n >= 1_000_000:
@@ -780,14 +770,19 @@ func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string 
 			agents = append(agents, p)
 		}
 	}
-	lines = append(lines, styleBold.Render("Agents")+styleMuted.Render(fmt.Sprintf("  %d", len(agents))))
+	head := styleBold.Render("Agents") + styleMuted.Render(fmt.Sprintf("  %d", len(agents)))
+	if u := usageOf(agents); !u.empty() {
+		head = spread(head, styleMuted.Render(u.line("usage")), w)
+	}
+	lines = append(lines, head)
 	if len(agents) == 0 {
 		lines = append(lines, styleMuted.Render("  none yet · t starts a task on its own branch"))
 	}
 	for _, p := range agents {
 		g, state, style := m.paneGlyph(p)
 		left := fmt.Sprintf("  %s %s", style.Render(g), p.DisplayName())
-		lines = append(lines, spread(left, joinRight(styleMuted.Render(p.Branch), style.Render(state)), w))
+		right := joinRight(styleMuted.Render(p.Branch), style.Render(state))
+		lines = append(lines, spread(left, joinRight(right, costChip(paneUsage(p))), w))
 		if sum := m.summaryText(mid, p.ID); sum != "" {
 			lines = append(lines, "    "+styleAccent.Render("✦ ")+styleMuted.Render(ansi.Truncate(sum, max(w-6, 10), "…")))
 		}
@@ -898,12 +893,8 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 	switch mach.state {
 	case stateOnline:
 		lines = append(lines, styleMuted.Render(fmt.Sprintf("%d projects · %d panes · %d working · %d waiting", len(mach.projects), len(mach.panes), working, waiting)))
-		if n, in, out, cost := usageTotals(mach.panes); n > 0 {
-			u := fmt.Sprintf("usage of %d running agent(s): in %s · out %s", n, humanCount(in), humanCount(out))
-			if cost > 0 {
-				u += " · " + usd(cost) + " reported"
-			}
-			lines = append(lines, styleMuted.Render(u))
+		if line := usageOf(mach.panes).line("usage"); line != "" {
+			lines = append(lines, styleMuted.Render(line))
 		}
 		lines = append(lines, m.limitsLines(mach, cols)...)
 		if len(mach.agentList) > 0 {

@@ -187,7 +187,8 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 
 	out := make([]proto.SessionInfo, 0, len(found))
 	for _, f := range found {
-		info := proto.SessionInfo{Agent: f.Agent, ID: f.ID, Dir: f.Dir, Branch: f.Branch, Title: f.Title, Started: f.Started, Updated: f.Updated}
+		info := proto.SessionInfo{Agent: f.Agent, ID: f.ID, Dir: f.Dir, Branch: f.Branch, Title: f.Title,
+			Started: f.Started, Updated: f.Updated, CostUSD: f.Cost, Output: f.Output}
 		out = append(out, info)
 	}
 
@@ -224,6 +225,16 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 		if best >= 0 {
 			claimed[best] = true
 			out[best].PaneID = pi.ID
+			// The pane reads the whole transcript as it grows, so its
+			// usage is ahead of anything the store scan found.
+			if t := pi.Agent.Tokens; t != nil {
+				if t.CostUSD > 0 {
+					out[best].CostUSD = t.CostUSD
+				}
+				if t.Output > 0 {
+					out[best].Output = t.Output
+				}
+			}
 		}
 	}
 

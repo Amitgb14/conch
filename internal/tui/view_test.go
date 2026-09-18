@@ -446,7 +446,7 @@ func TestA1ProjectAndMachineLines(t *testing.T) {
 	lines := func() string { return ansi.Strip(strings.Join(m.machineLines(mach, 100, 30), "\n")) }
 	got = lines()
 	for _, want := range []string{"buildbox  ssh me@box", "box.lan · linux/arm64 · conch build abc", "0 projects · 2 panes · 1 working · 1 waiting",
-		"usage of 1 running agent(s): in 1.5k · out 2.5M · $1.50 reported", "✓ Claude Code 1.0", "○ Codex", "server is old", "M  add a machine"} {
+		"usage conch has seen from 1 agent · in 1.5k · out 2.5M · $1.50 reported", "✓ Claude Code 1.0", "○ Codex", "server is old", "M  add a machine"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("online machine lacks %q:\n%s", want, got)
 		}
@@ -485,8 +485,8 @@ func TestA1LayoutHelpers(t *testing.T) {
 	if got := usd(12.345); got != "$12.35" {
 		t.Errorf("usd %q", got)
 	}
-	if n, in, out, cost := usageTotals([]proto.PaneInfo{{Agent: &proto.AgentStatus{}}, {}}); n != 0 || in != 0 || out != 0 || cost != 0 {
-		t.Error("usageTotals without tokens")
+	if u := usageOf([]proto.PaneInfo{{Agent: &proto.AgentStatus{}}, {}}); !u.empty() || u.agents != 0 {
+		t.Errorf("usage without tokens: %+v", u)
 	}
 	if got := exactly([]string{"a", "b", "c"}, 2); len(got) != 2 || got[1] != "b" {
 		t.Errorf("exactly cut %q", got)

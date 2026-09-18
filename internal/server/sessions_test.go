@@ -122,3 +122,59 @@ func TestSessionsInterruptedAndResume(t *testing.T) {
 		t.Fatalf("resuming in a missing folder: %v", err)
 	}
 }
+
+// TestSessionListReportsCost checks that a session's cost reaches the
+// client, from the store and — for one open in a pane — from the pane's
+// live usage, which is ahead of it.
+func TestSessionListReportsCost(t *testing.T) {
+	home, _ := filepath.EvalSymlinks(t.TempDir())
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_DATA_HOME"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("HOME", home)
+	dir, err := os.MkdirTemp("", "cs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _ = filepath.EvalSymlinks(dir)
+	defer os.RemoveAll(dir)
+	repo := filepath.Join(dir, "api")
+	os.MkdirAll(repo, 0o755)
+	enc := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return '-'
+	}, repo)
+	p := filepath.Join(home, ".claude", "projects", enc, "s1.jsonl")
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	line, _ := json.Marshal(map[string]any{"type": "user", "cwd": repo, "message": map[string]any{"role": "user", "content": "Fix the tests"}})
+	body := append(line, []byte("\n{\"type\":\"cost-state\",\"totalCostUSD\":0.25}\n")...)
+	os.WriteFile(p, body, 0o644)
+
+	sock := filepath.Join(dir, "s.sock")
+	srv := server.New(sock, dir)
+	go srv.Run()
+	defer func() { srv.Stop(); time.Sleep(100 * time.Millisecond) }()
+	var c *client.Client
+	for i := 0; i < 100; i++ {
+		if c, err = client.Dial(sock, "test"); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if c == nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	var list proto.SessionList
+	if err := c.Call(ctx, proto.MethodSessionList, proto.SessionListParams{Dir: repo}, &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Sessions) != 1 || list.Sessions[0].CostUSD != 0.25 {
+		t.Fatalf("cost from the store: %+v", list.Sessions)
+	}
+}
