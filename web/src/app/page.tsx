@@ -7,6 +7,7 @@ import { Architecture } from "@/components/landing/architecture"
 import { BrainDemo } from "@/components/landing/brain-demo"
 import { Features } from "@/components/landing/features"
 import { InstallCard } from "@/components/landing/install-card"
+import { Screenshots } from "@/components/landing/screenshots"
 import { Section } from "@/components/landing/section"
 import { TuiDemo } from "@/components/landing/tui-demo"
 import { TerminalWindow } from "@/components/terminal"
@@ -15,7 +16,7 @@ import { Button } from "@/components/ui/button"
 import { site } from "@/lib/site"
 
 const stats = [
-  { value: "4", label: "coding agents supported" },
+  { value: "5", label: "coding agents supported" },
   { value: "1", label: "branch and worktree per task" },
   { value: "0", label: "agents stopped when you quit the UI" },
   { value: "ssh", label: "is all a remote machine needs" },
@@ -41,6 +42,11 @@ const agents = [
     name: "OpenCode",
     state: "plugin events (busy, idle, permission, question) and the screen",
     install: "curl -fsSL https://opencode.ai/install | bash",
+  },
+  {
+    name: "Devin (preview)",
+    state: "recognised by its process; its working and waiting states aren't read yet",
+    install: "curl -fsSL https://cli.devin.ai/install.sh | bash",
   },
 ]
 
@@ -135,6 +141,15 @@ export default function Home() {
         lede="Machines, projects, git branches, agents and terminals sit beside a live view of whatever you select. Every card links to its docs."
       >
         <Features />
+      </Section>
+
+      <Section
+        id="screenshots"
+        label="the interface"
+        title="One tree, whatever you point it at"
+        lede="Select a machine to see what it is running and what the agents there have spent; open a project and it unfolds into branches, agents and terminals, each with its own tab."
+      >
+        <Screenshots />
       </Section>
 
       <Section
