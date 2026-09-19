@@ -55,20 +55,32 @@ history; details for big items live in their own plan files.
     broadcasts, so a shell can chain tasks without polling. It exits 124
     when `-timeout` runs out, as `timeout(1)` does.
 
+## Next
+
+13. **Review queue** — one view of what is waiting for a decision, across
+    every machine: branches whose agent has finished, what each changed,
+    what it cost and how long it has been sitting, ordered by what needs
+    answering first. The tree is a map of the fleet; this is the list of
+    what to do about it, and it ends in the actions harvest already has
+    (open the diff, commit, PR, merge, discard). Attention is the scarce
+    thing when ten agents are running, and nothing else here spends it
+    for you. Starts read-only over the existing branch, agent and cost
+    data; no new server state until the view earns it.
+
 ## Not now
 
-13. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
+14. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
     Deferred: a VM added as an ordinary machine already gives the isolation,
     so what is left to build is lifecycle convenience, not safety. Revisit
-    when agents are meant to act unattended — 14 and 15 below need a
+    when agents are meant to act unattended — 15 and 16 below need a
     boundary first — or when the code being worked on isn't trusted.
 
 ## Last
 
-14. **Auto-approve rules** — per-project rules that let agents run safe
-    commands without waiting for the user. Wants 13 first: rules that skip
+15. **Auto-approve rules** — per-project rules that let agents run safe
+    commands without waiting for the user. Wants 14 first: rules that skip
     the confirmation are only sane inside a sandbox.
-15. **Task graph** — server-side rules such as "when A is done, start a
+16. **Task graph** — server-side rules such as "when A is done, start a
     review agent on its worktree", only once auto-approve rules exist, since
     they run actions nobody confirmed. Notifies rather than moving focus.
 
