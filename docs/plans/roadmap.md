@@ -54,18 +54,14 @@ history; details for big items live in their own plan files.
     is done (or waiting, working, idle) using the events the server already
     broadcasts, so a shell can chain tasks without polling. It exits 124
     when `-timeout` runs out, as `timeout(1)` does.
-
-## Next
-
-13. **Review queue** — one view of what is waiting for a decision, across
-    every machine: branches whose agent has finished, what each changed,
-    what it cost and how long it has been sitting, ordered by what needs
-    answering first. The tree is a map of the fleet; this is the list of
-    what to do about it, and it ends in the actions harvest already has
-    (open the diff, commit, PR, merge, discard). Attention is the scarce
-    thing when ten agents are running, and nothing else here spends it
-    for you. Starts read-only over the existing branch, agent and cost
-    data; no new server state until the view earns it.
+13. **Review queue** — `Q` lists what needs a decision across every
+    machine: agents waiting, agents finished, commits not pushed or
+    merged, worktrees left dirty — in that order, longest wait first.
+    `enter` opens the pane when an agent is waiting and the branch's
+    changes otherwise, so the actions stay where harvest put them. Read
+    from what the TUI already holds, so it costs no server call and needs
+    no capability. Not yet: filtering, dismissing a row, and a count of
+    the queue in the status bar.
 
 ## Not now
 

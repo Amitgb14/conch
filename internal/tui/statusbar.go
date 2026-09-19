@@ -108,6 +108,9 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		chip = styleChip.Background(colorInput).Render("DIFF")
 		items = []statusItem{hint("↑", "up"), hint("↓", "down"), hint("pgup", "page"), hint("pgdn", "page"),
 			hint("space", "mark hunk"), hint("n", "next hunk"), hint("c", "commit"), hint("y", "copy"), hint("esc", "files")}
+	case m.focus == focusMain && r.kind == kindReviewQueue:
+		chip = styleChip.Background(colorInput).Render("QUEUE")
+		items = []statusItem{hint("↑", "up"), hint("↓", "down"), hint("enter", "open"), hint("esc", "tree")}
 	case m.focus == focusMain && r.kind == kindSessions && m.sessionsView != nil && m.sessionsView.typing:
 		chip = styleChip.Background(colorAccent).Render("SEARCH")
 		items = []statusItem{hint("enter", "keep"), hint("esc", "clear"), hint("↑", "results"), hint("↓", "results")}

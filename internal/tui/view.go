@@ -500,6 +500,8 @@ func (m Model) leafTitle(l *leaf) string {
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " sessions · " + proj.Name + " "
 		}
+	case kindReviewQueue:
+		return " review queue "
 	case kindBranches:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " branches · " + proj.Name + " "
@@ -596,6 +598,10 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 	case kindSessions:
 		if l.sessions != nil && mach != nil && mach.state == stateOnline {
 			return l.sessions.render(m, w, h)
+		}
+	case kindReviewQueue:
+		if l.queue != nil {
+			return l.queue.render(m, w, h)
 		}
 	case kindBranches:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {

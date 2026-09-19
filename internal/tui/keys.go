@@ -166,6 +166,9 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			i := indexOfRow(m.rows, r.id) - m.scroll
 			m.overlay = newRowMenu(m, r, min(m.sidebarW-2, 4+r.depth*2), 2+i)
 		}
+	case "Q":
+		m.focus = focusMain
+		return m, m.show(queueRow())
 	case "!":
 		return m, m.jumpToAttention()
 	case "y":
@@ -319,6 +322,14 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.sendKey(r.machine, p.ID, k)
 		m.forwardSynced(r.machine, p.ID, k)
 		return m, nil
+	case kindReviewQueue:
+		if m.queueView != nil {
+			back, cmd := m.queueView.key(&m, k)
+			if back {
+				m.focus = focusSidebar
+			}
+			return m, cmd
+		}
 	case kindSessions:
 		if m.sessionsView != nil {
 			back, cmd := m.sessionsView.key(&m, k)

@@ -24,6 +24,9 @@ const (
 	kindCLI       // a machine's agents and terminals outside every project
 	kindWorkspace // a machine's projects
 	kindSSH       // section: a machine's ssh sessions to other hosts
+	// kindReviewQueue is the cross-machine list of what needs a decision.
+	// It has no tree row; Q opens it in the focused split.
+	kindReviewQueue
 )
 
 // row is one visible line of the sidebar tree. IDs of panes and projects

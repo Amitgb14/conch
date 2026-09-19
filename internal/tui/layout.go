@@ -38,6 +38,7 @@ type leaf struct {
 	view     viewRef
 	changes  *changesView  // when the view is a branch
 	sessions *sessionsView // when the view lists sessions
+	queue    *queueView    // when the view is the review queue
 	// pick marks a leaf made empty on purpose (a new tab or split) to be
 	// filled by the next row the user opens, rather than following the
 	// tree's cursor.

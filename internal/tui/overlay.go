@@ -721,6 +721,7 @@ var helpText = []string{
 	"  /      filter (/ ! keeps only the agents waiting for you, on every machine)",
 	"  esc    clear filter    m  menu (or right-click)",
 	"  !      next agent waiting for you",
+	"  Q      review queue: what needs a decision, across every machine",
 	"  B      broadcast: one message to the agents and terminals of the selection (terminals run it as a command)",
 	"",
 	"Create",

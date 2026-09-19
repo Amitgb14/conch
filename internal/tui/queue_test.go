@@ -1,0 +1,290 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Amitgb14/conch/internal/proto"
+)
+
+// a2QueueModel has one of everything the queue orders: an agent waiting, an
+// older agent done, a branch with unpushed commits, a dirty branch, and
+// several rows that must stay out — the base branch, a merged-and-pushed
+// branch with an open PR, a clean branch, and a whole machine that is
+// offline.
+func a2QueueModel() (*Model, *queueView) {
+	now := time.Now()
+	m := a2Model()
+	mach := m.machines[0]
+	mach.projects = []proto.ProjectInfo{{ID: "r1", Name: "api", Path: "/src/api", Git: true, Base: "main",
+		Worktrees: []proto.WorktreeInfo{
+			{Path: "/src/api", Branch: "main", Main: true},
+			{Path: "/src/api-feat", Branch: "feat"},
+			{Path: "/src/api-wip", Branch: "wip", Status: &proto.GitStatus{Files: 3, Unstaged: 3}},
+			{Path: "/src/api-old", Branch: "shipped"},
+		},
+		Branches: []proto.BranchInfo{
+			{Name: "main"},
+			{Name: "feat", BaseAhead: 2, Committed: now.Add(-3 * time.Hour)},
+			{Name: "wip", Committed: now.Add(-30 * time.Hour)},
+			{Name: "shipped", Committed: now.Add(-time.Hour),
+				PR: &proto.PRInfo{Number: 7, State: "OPEN", URL: "https://example.invalid/pr/7"}},
+			{Name: "quiet", Committed: now.Add(-time.Minute)},
+			{Name: "answering", BaseAhead: 1, Committed: now.Add(-time.Minute)},
+		}}}
+	mach.panes = []proto.PaneInfo{
+		{ID: "p1", Name: "claude", State: proto.PaneRunning, ProjectID: "r1", Branch: "answering",
+			Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked, Since: now.Add(-5 * time.Minute),
+				Tokens: &proto.Tokens{CostUSD: 0.42}}},
+		{ID: "p2", Name: "codex", State: proto.PaneRunning, ProjectID: "r1", Branch: "feat",
+			Agent: &proto.AgentStatus{Name: "codex", State: proto.AgentDone, Since: now.Add(-2 * time.Hour)}},
+		{ID: "p3", Name: "claude", State: proto.PaneRunning, ProjectID: "r1", Branch: "quiet",
+			Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentWorking, Since: now.Add(-time.Minute)}},
+		{ID: "p4", Name: "zsh", State: proto.PaneRunning},
+	}
+	off := newMachine("box", "box", "dev@box")
+	off.state = stateOffline
+	off.panes = []proto.PaneInfo{{ID: "q1", Name: "claude", State: proto.PaneRunning, ProjectID: "r2", Branch: "ghost",
+		Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked, Since: now.Add(-time.Hour)}}}
+	m.machines = append(m.machines, off)
+	return m, &queueView{}
+}
+
+func TestA2QueueItems(t *testing.T) {
+	m, _ := a2QueueModel()
+	items := m.queueItems()
+
+	var got []string
+	for _, it := range items {
+		got = append(got, it.branch+":"+it.detail)
+	}
+	want := []string{
+		"answering:waiting for an answer", // blocked first, whatever its age
+		"feat:finished",                   // then done
+		"wip:3 files uncommitted",         // then work nobody committed
+	}
+	if len(got) != len(want) {
+		t.Fatalf("queue is %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("row %d is %q, want %q (all: %q)", i, got[i], want[i], got)
+		}
+	}
+	// The branch of a waiting agent is not also listed for its commits, the
+	// base branch and a clean branch never appear, an open PR with nothing
+	// unpushed is somebody else's move, and an offline machine's cached
+	// panes are not claimed to need anything.
+	for _, absent := range []string{"main", "shipped", "quiet", "ghost"} {
+		for _, it := range items {
+			if it.branch == absent {
+				t.Fatalf("%q should not be in the queue: %+v", absent, it)
+			}
+		}
+	}
+	if items[0].agent != "claude" || items[0].paneID != "p1" || items[0].cost.cost != 0.42 {
+		t.Fatalf("waiting row lost its agent: %+v", items[0])
+	}
+}
+
+func TestA2QueueOldestFirstWithinABand(t *testing.T) {
+	m, _ := a2QueueModel()
+	now := time.Now()
+	mach := m.machines[0]
+	// Two agents done: the one that has been sitting longer comes first.
+	mach.panes = []proto.PaneInfo{
+		{ID: "p1", Name: "claude", State: proto.PaneRunning, ProjectID: "r1", Branch: "feat",
+			Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentDone, Since: now.Add(-time.Minute)}},
+		{ID: "p2", Name: "codex", State: proto.PaneRunning, ProjectID: "r1", Branch: "quiet",
+			Agent: &proto.AgentStatus{Name: "codex", State: proto.AgentDone, Since: now.Add(-4 * time.Hour)}},
+	}
+	items := m.queueItems()
+	if len(items) < 2 || items[0].branch != "quiet" || items[1].branch != "feat" {
+		t.Fatalf("not oldest first: %+v", items)
+	}
+	// A failed agent says so rather than claiming it finished.
+	mach.panes[0].Agent.Failed = true
+	if it := m.queueItems()[1]; it.detail != "stopped with an error" {
+		t.Fatalf("failed agent: %q", it.detail)
+	}
+}
+
+func TestA2QueueRender(t *testing.T) {
+	m, qv := a2QueueModel()
+	m.focus = focusMain
+	w := 100
+	lines := qv.render(*m, w, 20)
+	out := a2Plain(lines)
+	for _, want := range []string{"Review queue", "3 things to look at", "1 waiting on you",
+		"api · answering", "Claude Code waiting for an answer", "api · feat", "Codex finished", "3 files uncommitted"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("render lacks %q:\n%s", want, out)
+		}
+	}
+	for i, l := range lines[queueListTop:] {
+		if lw := ansi.StringWidth(l); lw != w {
+			t.Fatalf("row %d is %d wide, want %d:\n%s", i, lw, w, out)
+		}
+	}
+	// One machine's queue doesn't repeat its name on every row; a queue
+	// spanning machines names them.
+	if strings.Contains(out, "local · api") {
+		t.Fatalf("single machine named on every row:\n%s", out)
+	}
+	box := m.machines[1]
+	box.state = stateOnline
+	box.projects = []proto.ProjectInfo{{ID: "r2", Name: "web", Git: true, Base: "main"}}
+	if out := a2Plain(qv.render(*m, w, 20)); !strings.Contains(out, "local · api") || !strings.Contains(out, "box · web · ghost") {
+		t.Fatalf("queue across machines unnamed:\n%s", out)
+	}
+	box.state = stateOffline
+
+	// A short view scrolls to keep the selection visible. The selection
+	// moves by key, as a person's would, so it carries its row with it.
+	qv.key(m, a2Key("G"))
+	lines = qv.render(*m, w, queueListTop+1)
+	if len(lines) != queueListTop+1 || qv.scroll != 2 || !strings.Contains(a2Plain(lines), "uncommitted") {
+		t.Fatalf("scroll %d:\n%s", qv.scroll, a2Plain(lines))
+	}
+	// Nothing waiting, and tiny sizes, both render.
+	empty, _ := a2QueueModel()
+	empty.machines[0].panes = nil
+	empty.machines[0].projects[0].Branches = []proto.BranchInfo{{Name: "main"}}
+	if out := a2Plain((&queueView{}).render(*empty, w, 10)); !strings.Contains(out, "Nothing is waiting for you") {
+		t.Fatalf("empty queue:\n%s", out)
+	}
+	qv.render(*m, 10, 3)
+	qv.render(*m, 1, 1)
+}
+
+func TestA2QueueKeys(t *testing.T) {
+	m, qv := a2QueueModel()
+	for _, step := range []struct {
+		key  string
+		want int
+	}{{"down", 1}, {"j", 2}, {"down", 2}, {"up", 1}, {"k", 0}, {"pgdown", 2}, {"pgup", 0}, {"G", 2}, {"g", 0}, {"end", 2}, {"home", 0}} {
+		if back, _ := qv.key(m, a2Key(step.key)); back || qv.sel != step.want {
+			t.Fatalf("after %s sel is %d, want %d", step.key, qv.sel, step.want)
+		}
+	}
+	for _, k := range []string{"esc", "q", "left", "h", "tab"} {
+		if back, _ := qv.key(m, a2Key(k)); !back {
+			t.Fatalf("%s should go back to the tree", k)
+		}
+	}
+}
+
+func TestA2QueueOpensWhereTheAnswerIs(t *testing.T) {
+	m, qv := a2QueueModel()
+	m.rebuild()
+
+	// A waiting agent needs its pane: that is where the question is.
+	qv.sel = 0
+	if _, cmd := qv.key(m, a2Key("enter")); cmd != nil {
+		a2Run(cmd)
+	}
+	if m.tab().focused().view.PaneID != "p1" {
+		t.Fatalf("waiting row opened %+v", m.tab().focused().view)
+	}
+	// Anything else needs the diff.
+	qv.sel = 2
+	if _, cmd := qv.key(m, a2Key("enter")); cmd != nil {
+		a2Run(cmd)
+	}
+	v := m.tab().focused().view
+	if v.Kind != kindBranch || v.Branch != "wip" {
+		t.Fatalf("uncommitted row opened %+v", v)
+	}
+}
+
+func TestA2QueueMouse(t *testing.T) {
+	m, qv := a2QueueModel()
+	m.rebuild()
+	qv.render(*m, 100, 20) // the mouse handler works in rendered rows
+
+	// A click selects; a second click on the same row opens it.
+	qv.mouse(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, 5, queueListTop+1)
+	if qv.sel != 1 {
+		t.Fatalf("click selected %d", qv.sel)
+	}
+	if cmd := qv.mouse(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, 5, queueListTop+1); cmd == nil {
+		t.Fatal("second click did nothing")
+	}
+	// Above the list, and past the end, change nothing.
+	qv.sel = 1
+	qv.mouse(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, 5, 0)
+	qv.mouse(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, 5, queueListTop+40)
+	if qv.sel != 1 {
+		t.Fatalf("stray clicks moved the selection to %d", qv.sel)
+	}
+	// The wheel moves the selection and stops at the ends.
+	qv.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown}, 5, 5)
+	qv.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown}, 5, 5)
+	if qv.sel != 2 {
+		t.Fatalf("wheel down: %d", qv.sel)
+	}
+	for i := 0; i < 5; i++ {
+		qv.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp}, 5, 5)
+	}
+	if qv.sel != 0 {
+		t.Fatalf("wheel up: %d", qv.sel)
+	}
+}
+
+// The selection stays on the same row when the queue is rebuilt underneath
+// it — rows are derived on every render, so an agent finishing elsewhere
+// must not move what is selected.
+func TestA2QueueSelectionFollowsItsRow(t *testing.T) {
+	m, qv := a2QueueModel()
+	qv.render(*m, 100, 20)
+	qv.sel = 1
+	qv.render(*m, 100, 20)
+	was := qv.selKey
+
+	now := time.Now()
+	mach := m.machines[0]
+	mach.panes = append([]proto.PaneInfo{{ID: "p9", Name: "claude", State: proto.PaneRunning, ProjectID: "r1", Branch: "newer",
+		Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked, Since: now.Add(-time.Hour)}}}, mach.panes...)
+	qv.render(*m, 100, 20)
+	if qv.selKey != was {
+		t.Fatalf("selection jumped from %q to %q", was, qv.selKey)
+	}
+	if items := m.queueItems(); items[qv.sel].key() != was {
+		t.Fatalf("selection is on %q, want %q", items[qv.sel].key(), was)
+	}
+}
+
+// Q opens the queue in the focused split from anywhere in the tree, and
+// keys then reach the view rather than the tree.
+func TestA1QueueOpensWithQ(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1Key(t, m, a2Key("Q"))
+	v := m.tab().focused().view
+	if v.Kind != kindReviewQueue || m.focus != focusMain || m.queueView == nil {
+		t.Fatalf("Q opened %+v (focus %v, view %v)", v, m.focus, m.queueView != nil)
+	}
+	if title := m.leafTitle(m.tab().focused()); !strings.Contains(title, "review queue") {
+		t.Fatalf("title %q", title)
+	}
+	// A movement key goes to the queue; esc hands focus back to the tree.
+	before := m.queueView.sel
+	a1Key(t, m, a2Key("j"))
+	if m.focus != focusMain {
+		t.Fatalf("j left the queue (sel %d → %d)", before, m.queueView.sel)
+	}
+	a1Key(t, m, a2Key("esc"))
+	if m.focus != focusSidebar {
+		t.Fatal("esc should go back to the tree")
+	}
+	// Opening it twice reuses the split rather than stacking tabs.
+	tabs := len(m.tabs)
+	a1Key(t, m, a2Key("Q"))
+	a1Key(t, m, a2Key("Q"))
+	if len(m.tabs) != tabs {
+		t.Fatalf("tabs %d → %d", tabs, len(m.tabs))
+	}
+}

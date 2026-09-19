@@ -92,6 +92,23 @@ Selecting a branch shows its **changes**: its pull request (checks, review), unc
 
 These also sit in a branch's menu (`m`). See [Finishing a task](/docs/tasks#finishing-a-task) for what each one checks first.
 
+## Review queue
+
+`Q` opens the **review queue** in the focused split: one list of what needs a decision, across every machine, instead of walking the tree to find it.
+
+| Order | Row | Why |
+| --- | --- | --- |
+| `!` | an agent is waiting | it is blocked on an answer and nothing proceeds until you give one |
+| `✓` | an agent finished | it is done and nobody has looked at what it did |
+| `↑` | commits not pushed or merged | work that is finished but hasn't shipped |
+| `·` | uncommitted changes | a worktree left dirty, with no agent running in it |
+
+Within each group the thing that has been waiting longest comes first, so nothing quietly rots at the bottom. Each row names the project and branch (and the machine, once the queue spans more than one), what it is waiting on, what the agent has spent, and how long it has been there.
+
+`enter` goes where the answer is: a waiting agent opens its pane so you can reply, and anything else opens the branch's [changes](#changes-view), where committing, pushing and opening a PR already live. `esc` returns to the tree.
+
+A branch with an open pull request and nothing unpushed is not in the queue — it is waiting on a reviewer, not on you. Nor is a machine that is offline, whose panes conch only holds a stale cache of.
+
 ## Splits and tabs
 
 The main area has tabs (click them, `+` adds one, `×` closes), and each tab can be split into several views: panes, branch changes, projects or machines side by side. The focused split has the highlighted border.
