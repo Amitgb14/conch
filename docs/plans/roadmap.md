@@ -1,6 +1,6 @@
 # Roadmap
 
-Order of upcoming work (updated 2026-09-18). Finished items move to the git
+Order of upcoming work (updated 2026-09-19). Finished items move to the git
 history; details for big items live in their own plan files.
 
 ## Done
@@ -55,15 +55,19 @@ history; details for big items live in their own plan files.
     broadcasts, so a shell can chain tasks without polling. It exits 124
     when `-timeout` runs out, as `timeout(1)` does.
 
-## Next
+## Not now
 
 13. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
-    Bring-back (phase 4) lands commits where harvest can finish them.
+    Deferred: a VM added as an ordinary machine already gives the isolation,
+    so what is left to build is lifecycle convenience, not safety. Revisit
+    when agents are meant to act unattended — 14 and 15 below need a
+    boundary first — or when the code being worked on isn't trusted.
 
 ## Last
 
 14. **Auto-approve rules** — per-project rules that let agents run safe
-    commands without waiting for the user.
+    commands without waiting for the user. Wants 13 first: rules that skip
+    the confirmation are only sane inside a sandbox.
 15. **Task graph** — server-side rules such as "when A is done, start a
     review agent on its worktree", only once auto-approve rules exist, since
     they run actions nobody confirmed. Notifies rather than moving focus.

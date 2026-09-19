@@ -1,6 +1,24 @@
 # Plan: microVM sandboxes for agents
 
-Status: draft, not started (2026-09-13). Nothing here is built yet.
+Status: **deferred (2026-09-19)** — not required for now. Phase 1 is done
+and shipped; phases 0 and 2 onwards are not started.
+
+Why it waits: a VM added as an ordinary conch machine already gives the
+boundary this plan is about. conch installs itself there, runs agents and
+tasks in it, and shows its panes, branches and diffs like any other machine,
+so the isolation is available today and what remains here is lifecycle
+convenience — creating, reconciling and destroying VMs from the TUI.
+
+To isolate an agent now, without any of this: make a VM with no host
+directories mounted (`limactl start --mount-none`, or a microVM on a Linux
+host with KVM), `conch machine add` it, clone the repository inside it, and
+give it no credentials beyond a token scoped to that one repository. Work
+comes back as commits or a `git bundle`.
+
+Revisit when agents are meant to act unattended — the roadmap's auto-approve
+rules and task graph need a boundary first — or when the code being worked on
+isn't trusted. The hardware decides the backend: Firecracker and Kata need
+Linux with KVM (a remote machine), while a Mac uses Apple `container` or Lima.
 
 ## Goal
 
