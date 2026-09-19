@@ -304,3 +304,13 @@ The remote rows, at last, with key login to busybox. Isolated on both sides: its
 - **Remote hot reload (4.5):** `conch machine upgrade` with a binary built at a different version installed it and reloaded the remote server **in place — same pid 6232**, its pane still running with its scrollback.
 - **Remote updates from the version popup (4.6, and the remote half of 5.4):** a TUI on the harness showed `⬆`, and the popup listed `[x] busybox   runs build 5a3f7aa19f3e · installs and reloads`. `space` toggled it to `[ ]` and back. Ticked, `u` installed and reloaded busybox (same pid, pane kept) and the `⬆` cleared; unticked, `u` left the remote on its old build. One remote only — 4.6's two-remote case still wants a second machine.
 - **Not covered:** password auth (4.2; busybox has key login now), and the TUI's own machine menu → Reload server, which `machine upgrade` stands in for here.
+
+### R14 — 2026-09-19, the v0.1.2 release, macOS arm64
+
+The release rows again, on the release that added `conch wait`. `scripts/release.sh 0.1.2` built the four archives; the tag published them through `release.yml` in 2m.
+
+- **install.sh (5.1):** the one-liner from master installed 0.1.2 for darwin/arm64, and the archive matched the published `checksums.txt`.
+- **go install:** `…/cmd/conch@v0.1.2` reported 0.1.2.
+- **Update from the previous release (5.2):** a real v0.1.1 binary ran `conch update` and replaced itself — `0.1.1 → 0.1.2`, same build hash as the install.sh copy.
+- **Pages on a release tag:** the tag's website deploy **succeeded**, where v0.1.1's was rejected by the environment's protection rules. The deployment branch policy added afterwards (a `v*` tag policy) is what fixed it, and this is the first real release to prove it; the site shows 0.1.2.
+- **Not run:** 5.3 and 5.4 again — R12 covered them, and nothing in this release touched the update path.
