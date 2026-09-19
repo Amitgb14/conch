@@ -288,6 +288,8 @@ func TestOtherAgentRules(t *testing.T) {
 		{"devin", "devin: hi", screen("⢰⠀ Typing · 3s (esc twice to interrupt)"), "interruptible"},
 		{"devin", "devin: hi", screen("❭ Guide Devin while it works", "SWE-1.6 Slow"), "working_placeholder"},
 		{"devin", "devin: hi", screen("❭ Ask Devin to build features, fix bugs, or work on your code", "SWE-1.6 Slow    Context: 17k / 200k tokens (8%)"), ""},
+		// The trust prompt on a first run is a real screen, so it is caught.
+		{"devin", "", screen(" ✱ Do you trust the authors of this directory?", "   For security, devin should not be run in directories with untrusted content.", " ❭ 1 Yes, trust", " · 2 No, exit"), "trust_prompt"},
 		// Devin asks in prose, with the idle chrome around it, so waiting
 		// reads as idle rather than as a guess.
 		{"devin", "devin: hi", screen(" This will permanently delete the file. Should I proceed?", "❭ Ask Devin to build features, fix bugs, or work on your code"), ""},

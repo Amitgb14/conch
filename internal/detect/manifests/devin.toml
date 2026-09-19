@@ -7,7 +7,11 @@
 # placeholder reads "Ask Devin to build features, fix bugs, or work on your
 # code" and the bar on the right shows the context used.
 #
-# There is deliberately no rule for waiting. Devin asks for permission in
+# The one waiting state it does show plainly is the trust prompt on the
+# first run in a directory ("Do you trust the authors of this directory?"
+# with "1 Yes, trust / 2 No, exit"), so that one is matched.
+#
+# There is otherwise deliberately no rule for waiting. Devin asks for permission in
 # prose in the conversation — "This will permanently delete the file. Should
 # I proceed?" — with the same input placeholder and status bar as when it is
 # idle, so nothing on the screen separates the two. Matching a trailing
@@ -27,3 +31,8 @@ pattern = 'esc twice to interrupt'
 name = "working_placeholder"
 state = "working"
 pattern = 'Guide Devin while it works'
+
+[[rules]]
+name = "trust_prompt"
+state = "blocked"
+pattern = 'Do you trust the authors of this directory'
