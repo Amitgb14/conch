@@ -1,7 +1,6 @@
 package remote
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -141,17 +140,12 @@ func SetUpKeyLogin(ctx context.Context, target, password string) (string, error)
 		return "", err
 	}
 	defer ap.close()
-	if _, err := runWith(ctx, target, authorizeScript, []byte(line+"\n"), sshOpts{askpass: ap}); err != nil {
+	tr := &sshTransport{target: target, opts: sshOpts{askpass: ap}}
+	if _, err := runScript(ctx, tr, authorizeScript, []byte(line+"\n")); err != nil {
 		return path, fmt.Errorf("add the key: %w", err)
 	}
-	cmd, err := sshCmdWith(ctx, target, "true", sshOpts{keyOnly: true})
-	if err != nil {
-		return path, err
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return path, fmt.Errorf("%w: %v", ErrKeyLoginUnverified, sshError(err, stderr.String()))
+	if _, err := runScript(ctx, sshKeyOnly(target), "true", nil); err != nil {
+		return path, fmt.Errorf("%w: %v", ErrKeyLoginUnverified, err)
 	}
 	return path, nil
 }

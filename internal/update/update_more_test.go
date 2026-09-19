@@ -22,6 +22,7 @@ import (
 	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
 )
 
 func a3Isolate(t *testing.T) {
@@ -466,7 +467,7 @@ func TestA3MachineWithoutPlatform(t *testing.T) {
 	a3Isolate(t)
 	c, f := a3Client(t, proto.HelloResult{Capabilities: []string{"server.reload.v1"}}, a3ReloadReply)
 	said := 0
-	err := Machine(context.Background(), c, "box", func(string) { said++ })
+	err := Machine(context.Background(), c, remote.SSH("box", false), func(string) { said++ })
 	if err == nil || !strings.Contains(err.Error(), "doesn't report its platform") {
 		t.Fatalf("got %v", err)
 	}
@@ -505,7 +506,7 @@ func TestA3Machine(t *testing.T) {
 	c, f := a3Client(t, proto.HelloResult{Platform: buildinfo.Platform(), Capabilities: []string{"server.reload.v1"}}, a3ReloadReply)
 
 	var said []string
-	if err := Machine(context.Background(), c, "box", func(s string) { said = append(said, s) }); err != nil {
+	if err := Machine(context.Background(), c, remote.SSH("box", false), func(s string) { said = append(said, s) }); err != nil {
 		t.Fatal(err)
 	}
 	if len(said) == 0 || said[len(said)-1] != "reloading the server" {
@@ -526,7 +527,7 @@ func TestA3MachineInstallFails(t *testing.T) {
 	a3Isolate(t)
 	a3FakeSSH(t, 255)
 	c, f := a3Client(t, proto.HelloResult{Platform: buildinfo.Platform(), Capabilities: []string{"server.reload.v1"}}, a3ReloadReply)
-	err := Machine(context.Background(), c, "box", func(string) {})
+	err := Machine(context.Background(), c, remote.SSH("box", false), func(string) {})
 	if err == nil || !strings.Contains(err.Error(), "Permission denied") {
 		t.Fatalf("got %v", err)
 	}

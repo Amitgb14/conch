@@ -13,6 +13,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/update"
 )
 
@@ -256,7 +257,7 @@ func (m *Model) updateMachine(mid string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		err := update.Machine(ctx, c, target, func(string) {})
+		err := update.Machine(ctx, c, remote.SSH(target, false), func(string) {})
 		time.Sleep(500 * time.Millisecond)
 		return machineUpdateMsg{machine: mid, err: err}
 	}

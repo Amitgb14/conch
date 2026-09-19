@@ -33,7 +33,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/proto` | Wire protocol: messages, methods, events, payload types, capability list, `Version` |
 | `internal/client` | Protocol client (calls, notifications, events, handshake) and starting a local server |
 | `internal/tui` | The TUI: tree, tabs/splits/scoping, keys, mouse, views (changes, sessions, setup), dialogs, settings, brain bar, updates |
-| `internal/remote` | SSH config and commands, remote install, bridging, machine catalog, release downloads, cross builds |
+| `internal/remote` | How a machine is reached (`Transport`: ssh today, a sandbox's exec later), ssh config and commands, remote install, bridging, machine catalog, release downloads, cross builds |
 | `internal/adapter` | How to launch each agent: commands, settings/hooks, resume and prompt arguments |
 | `internal/detect` | Which agent runs in a pane and its state (working, waiting, done, idle) from hooks, titles and screens |
 | `internal/brain` | Model providers (Claude CLI, Anthropic, OpenAI-compatible), planner, action execution, summaries |

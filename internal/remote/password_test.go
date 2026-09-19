@@ -125,10 +125,10 @@ func TestConnectWithPassword(t *testing.T) {
 	t.Setenv("A4_BRIDGE_SOCK", srv.sock)
 	f.setProbe(t, currentProbe("linux/amd64"))
 
-	if _, err := Connect(context.Background(), "dev@box", Options{Password: "wrong"}); err == nil || !strings.Contains(err.Error(), "Permission denied") {
+	if _, err := Connect(context.Background(), SSH("dev@box", false), Options{Password: "wrong"}); err == nil || !strings.Contains(err.Error(), "Permission denied") {
 		t.Fatalf("wrong password: %v", err)
 	}
-	c, err := Connect(context.Background(), "dev@box", Options{Password: "hunter2 ok"})
+	c, err := Connect(context.Background(), SSH("dev@box", false), Options{Password: "hunter2 ok"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestConnectWithPassword(t *testing.T) {
 		}
 	}
 	// Without a password nothing asks: the fake refuses, like BatchMode.
-	if _, err := Connect(context.Background(), "dev@box", Options{}); err == nil || !strings.Contains(err.Error(), "no askpass") {
+	if _, err := Connect(context.Background(), SSH("dev@box", false), Options{}); err == nil || !strings.Contains(err.Error(), "no askpass") {
 		t.Fatalf("no password: %v", err)
 	}
 }
@@ -255,7 +255,7 @@ func TestAskpassNoTempDir(t *testing.T) {
 		t.Fatal("no temporary folder, yet an askpass")
 	}
 	// Connecting with a password then fails before running ssh.
-	if _, err := Connect(context.Background(), "dev@box", Options{Password: "pw"}); err == nil {
+	if _, err := Connect(context.Background(), SSH("dev@box", false), Options{Password: "pw"}); err == nil {
 		t.Fatal("connect without an askpass")
 	}
 	if _, err := SetUpKeyLogin(context.Background(), "dev@box", "pw"); err == nil {

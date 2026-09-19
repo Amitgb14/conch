@@ -248,7 +248,7 @@ func (mach *machine) connect(install bool) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		c, err := remote.Connect(ctx, target, remote.Options{Install: install})
+		c, err := remote.Connect(ctx, remote.SSH(target, false), remote.Options{Install: install})
 		return machineConnectedMsg{machine: id, gen: gen, c: c, err: err}
 	}
 }
@@ -338,7 +338,7 @@ func addMachine(target, label, password string, keyLogin bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		c, err := remote.Connect(ctx, target, remote.Options{Install: true, Password: password})
+		c, err := remote.Connect(ctx, remote.SSH(target, false), remote.Options{Install: true, Password: password})
 		var outdated *remote.OutdatedServerError
 		if err != nil && !errors.As(err, &outdated) {
 			return errMsg{err}

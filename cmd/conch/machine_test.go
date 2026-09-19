@@ -355,7 +355,7 @@ func TestA4SameInstalled(t *testing.T) {
 	remoteSrv := startA4Server(t, "")
 	t.Setenv("A4_BRIDGE_SOCK", remoteSrv.sock)
 	f.setProbe(t, a4CurrentProbe())
-	c, err := remote.Bridge("box", "conch")
+	c, err := remote.Bridge(remote.SSH("box", false), "conch")
 	if err != nil {
 		t.Fatal(err)
 	}

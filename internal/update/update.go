@@ -157,12 +157,12 @@ func Reload(ctx context.Context, c *client.Client, bin string) error {
 
 // Machine installs this build on a remote machine and reloads its server
 // onto it, keeping its panes.
-func Machine(ctx context.Context, c *client.Client, target string, say func(string)) error {
+func Machine(ctx context.Context, c *client.Client, tr remote.Transport, say func(string)) error {
 	platform := c.Server.Platform
 	if platform == "" {
 		return fmt.Errorf("the server there doesn't report its platform")
 	}
-	path, err := remote.Install(ctx, target, platform, false, say)
+	path, err := remote.Install(ctx, tr, platform, say)
 	if err != nil {
 		return err
 	}

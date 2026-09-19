@@ -255,13 +255,21 @@ harness, and a local commit.
   10 s.
 - **Done when:** a short written note of findings, and this plan updated.
 
-### Phase 1: transport abstraction
-- `Transport`, `sshTransport`, `execTransport`; `Connect`/`Install`/`Bridge`
-  take a transport.
-- End-to-end test: `execTransport{"sh","-c"}` → `conch bridge` with a second
-  `CONCH_HOME` → create a pane, read its screen.
-- **Done when:** ssh machines behave exactly as before (Docker sshd tests), and
-  the exec path passes.
+### Phase 1: transport abstraction — done
+
+`Transport` is in `internal/remote/transport.go`, with `sshTransport` and
+`execTransport`; `ProbeMachine`, `Install`, `Connect` and `Bridge` take one,
+and callers pass `remote.SSH(target, interactive)`. `Options.Interactive`
+went with it: a transport already knows whether it may prompt. `Bridge` asks
+the transport for a non-prompting variant first, since its stdin and stdout
+carry the protocol.
+
+The exec path has the end-to-end test the plan asked for
+(`cmd/conch/transport_test.go`): `Exec("…", "/bin/sh", "-c")` against a
+scratch `HOME` and `CONCH_HOME` runs the whole path — probe, capability
+check, bridge, then a pane created and read — in about half a second,
+without ssh. ssh machines behave as before: the suite passed unchanged, and
+a real machine was exercised end to end in R13 the same day.
 
 ### Phase 2: backend + image
 - `internal/sandbox` with `apple` (and a `fake` backend for tests).

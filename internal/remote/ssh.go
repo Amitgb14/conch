@@ -4,7 +4,6 @@
 package remote
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -180,33 +179,6 @@ func CheckLoginTarget(target string) error {
 // IsLoginCommand reports whether a pane's command is an ssh session.
 func IsLoginCommand(command []string) bool {
 	return len(command) > 0 && filepath.Base(command[0]) == "ssh"
-}
-
-// run executes script on target and returns its stdout.
-func run(ctx context.Context, target, script string, stdin []byte, interactive bool) ([]byte, error) {
-	return runWith(ctx, target, script, stdin, sshOpts{interactive: interactive})
-}
-
-func runWith(ctx context.Context, target, script string, stdin []byte, o sshOpts) ([]byte, error) {
-	interactive := o.interactive && o.askpass == nil
-	cmd, err := sshCmdWith(ctx, target, script, o)
-	if err != nil {
-		return nil, err
-	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if stdin != nil {
-		cmd.Stdin = bytes.NewReader(stdin)
-	} else if interactive {
-		cmd.Stdin = os.Stdin
-	}
-	if interactive {
-		cmd.Stderr = os.Stderr // let ssh talk to the user
-	}
-	if err := cmd.Run(); err != nil {
-		return stdout.Bytes(), sshError(err, stderr.String())
-	}
-	return stdout.Bytes(), nil
 }
 
 // sshError turns a failed ssh run into a readable error.

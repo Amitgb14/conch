@@ -115,10 +115,10 @@ func TestA4SSHConfigUnwritableDir(t *testing.T) {
 	if _, err := sshCmd(context.Background(), "h", "true", false); err == nil {
 		t.Fatal("sshCmd without a config")
 	}
-	if _, err := run(context.Background(), "h", "true", nil, false); err == nil {
+	if _, err := runScript(context.Background(), SSH("h", false), "true", nil); err == nil {
 		t.Fatal("run without a config")
 	}
-	if _, err := Bridge("h", "/bin/conch"); err == nil {
+	if _, err := Bridge(SSH("h", false), "/bin/conch"); err == nil {
 		t.Fatal("Bridge without a config")
 	}
 }
@@ -154,7 +154,7 @@ func TestA4RunThroughFakeSSH(t *testing.T) {
 	t.Setenv("A4_STDIN_TO", stdinFile)
 	t.Setenv("A4_STDOUT", "remote says hi")
 
-	out, err := run(context.Background(), "dev@box", "do-thing", []byte("payload"), false)
+	out, err := runScript(context.Background(), SSH("dev@box", false), "do-thing", []byte("payload"))
 	if err != nil || string(out) != "remote says hi" {
 		t.Fatalf("run: %q %v", out, err)
 	}
@@ -181,7 +181,7 @@ func TestA4RunErrors(t *testing.T) {
 	t.Setenv("A4_STDOUT", "partial")
 	t.Setenv("A4_STDERR", "line1\nline2\nline3\nline4\nfinal words\n")
 	t.Setenv("A4_EXIT", "2")
-	out, err := run(context.Background(), "box", "x", nil, false)
+	out, err := runScript(context.Background(), SSH("box", false), "x", nil)
 	if err == nil || string(out) != "partial" {
 		t.Fatalf("failing run: %q %v", out, err)
 	}
@@ -190,14 +190,14 @@ func TestA4RunErrors(t *testing.T) {
 	}
 
 	t.Setenv("A4_STDERR", "")
-	_, err = run(context.Background(), "box", "x", nil, false)
+	_, err = runScript(context.Background(), SSH("box", false), "x", nil)
 	var exit *exec.ExitError
 	if !errors.As(err, &exit) || exit.ExitCode() != 2 {
 		t.Fatalf("no stderr keeps the exit error: %v", err)
 	}
 
 	t.Setenv("CONCH_SSH", filepath.Join(t.TempDir(), "no-such-ssh"))
-	if _, err := run(context.Background(), "box", "x", nil, false); err == nil {
+	if _, err := runScript(context.Background(), SSH("box", false), "x", nil); err == nil {
 		t.Fatal("missing ssh binary")
 	}
 }
@@ -222,7 +222,7 @@ func TestA4ProbeMachine(t *testing.T) {
 	a4Env(t)
 	f := newFakeSSH(t)
 	f.setProbe(t, currentProbe("linux/amd64"))
-	p, err := ProbeMachine(context.Background(), "dev@box", false)
+	p, err := ProbeMachine(context.Background(), SSH("dev@box", false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,12 +235,12 @@ func TestA4ProbeMachine(t *testing.T) {
 	}
 
 	f.setProbe(t, "Linux\n")
-	if _, err := ProbeMachine(context.Background(), "dev@box", false); err == nil || !strings.Contains(err.Error(), "unexpected probe output") {
+	if _, err := ProbeMachine(context.Background(), SSH("dev@box", false)); err == nil || !strings.Contains(err.Error(), "unexpected probe output") {
 		t.Fatalf("short probe: %v", err)
 	}
 
 	t.Setenv("A4_PROBE_FAIL", "ssh: Could not resolve hostname box")
-	if _, err := ProbeMachine(context.Background(), "dev@box", false); err == nil || !strings.Contains(err.Error(), "Could not resolve") {
+	if _, err := ProbeMachine(context.Background(), SSH("dev@box", false)); err == nil || !strings.Contains(err.Error(), "Could not resolve") {
 		t.Fatalf("probe ssh failure: %v", err)
 	}
 }
@@ -314,7 +314,7 @@ func TestA4InstallWithRemoteBinary(t *testing.T) {
 	t.Setenv("CONCH_REMOTE_BINARY", bin)
 
 	var steps []string
-	path, err := Install(context.Background(), "dev@box", otherPlatform(), false, func(s string) { steps = append(steps, s) })
+	path, err := Install(context.Background(), SSH("dev@box", false), otherPlatform(), func(s string) { steps = append(steps, s) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,17 +333,17 @@ func TestA4InstallWithRemoteBinary(t *testing.T) {
 	}
 
 	// A nil progress func is fine.
-	if _, err := Install(context.Background(), "dev@box", otherPlatform(), false, nil); err != nil {
+	if _, err := Install(context.Background(), SSH("dev@box", false), otherPlatform(), nil); err != nil {
 		t.Fatal(err)
 	}
 
 	t.Setenv("A4_INSTALL_FAIL", "mkdir: cannot create directory: Read-only file system")
-	if _, err := Install(context.Background(), "dev@box", otherPlatform(), false, nil); err == nil || !strings.HasPrefix(err.Error(), "install conch: ") || !strings.Contains(err.Error(), "Read-only") {
+	if _, err := Install(context.Background(), SSH("dev@box", false), otherPlatform(), nil); err == nil || !strings.HasPrefix(err.Error(), "install conch: ") || !strings.Contains(err.Error(), "Read-only") {
 		t.Fatalf("remote failure: %v", err)
 	}
 
 	t.Setenv("CONCH_REMOTE_BINARY", filepath.Join(t.TempDir(), "missing"))
-	if _, err := Install(context.Background(), "dev@box", otherPlatform(), false, nil); !errors.Is(err, os.ErrNotExist) {
+	if _, err := Install(context.Background(), SSH("dev@box", false), otherPlatform(), nil); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing binary: %v", err)
 	}
 }
@@ -368,7 +368,7 @@ func TestA4ConnectNeedsInstall(t *testing.T) {
 
 	f.setProbe(t, "Linux\nx86_64\n")
 	var steps []string
-	_, err := Connect(context.Background(), "dev@box", Options{Progress: func(s string) { steps = append(steps, s) }})
+	_, err := Connect(context.Background(), SSH("dev@box", false), Options{Progress: func(s string) { steps = append(steps, s) }})
 	var ie *InstallError
 	if !errors.As(err, &ie) || ie.Platform != "linux/amd64" || !strings.Contains(ie.Reason, "not installed on dev@box") {
 		t.Fatalf("not installed: %v", err)
@@ -378,13 +378,13 @@ func TestA4ConnectNeedsInstall(t *testing.T) {
 	}
 
 	f.setProbe(t, "Linux\nx86_64\nbin=/usr/local/bin/conch\n"+`{"version":"0.0.1","build":"old","capabilities":["pane.v1"]}`+"\n")
-	_, err = Connect(context.Background(), "dev@box", Options{})
+	_, err = Connect(context.Background(), SSH("dev@box", false), Options{})
 	if !errors.As(err, &ie) || !strings.Contains(ie.Reason, "older build") || !strings.Contains(ie.Reason, "pane.frame.v1") {
 		t.Fatalf("outdated binary: %v", err)
 	}
 
 	t.Setenv("A4_PROBE_FAIL", "ssh: connect to host box port 22: Operation timed out")
-	if _, err := Connect(context.Background(), "dev@box", Options{}); err == nil || !strings.Contains(err.Error(), "timed out") {
+	if _, err := Connect(context.Background(), SSH("dev@box", false), Options{}); err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("probe failure: %v", err)
 	}
 }
@@ -404,7 +404,7 @@ func TestA4ConnectInstallsAndBridges(t *testing.T) {
 	}
 
 	var steps []string
-	c, err := Connect(context.Background(), "dev@box", Options{Install: true, Progress: func(s string) { steps = append(steps, s) }})
+	c, err := Connect(context.Background(), SSH("dev@box", false), Options{Install: true, Progress: func(s string) { steps = append(steps, s) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func TestA4ConnectInstallFails(t *testing.T) {
 		f.setProbe(t, "Darwin\narm64\n")
 	}
 	t.Setenv("CONCH_REMOTE_BINARY", filepath.Join(t.TempDir(), "missing"))
-	if _, err := Connect(context.Background(), "dev@box", Options{Install: true}); err == nil {
+	if _, err := Connect(context.Background(), SSH("dev@box", false), Options{Install: true}); err == nil {
 		t.Fatal("install failure ignored")
 	}
 }
@@ -450,7 +450,7 @@ func TestA4ConnectOutdatedServer(t *testing.T) {
 	srv := startFakeServer(t, proto.HelloResult{Version: "0.0.1", Capabilities: []string{"pane.v1"}, PID: 7})
 	t.Setenv("A4_BRIDGE_SOCK", srv.sock)
 
-	c, err := Connect(context.Background(), "dev@box", Options{})
+	c, err := Connect(context.Background(), SSH("dev@box", false), Options{})
 	var oe *OutdatedServerError
 	if !errors.As(err, &oe) || c == nil {
 		t.Fatalf("outdated server: %v %v", c, err)
@@ -471,7 +471,7 @@ func TestA4BridgeFailureReportsStderr(t *testing.T) {
 	a4Env(t)
 	newFakeSSH(t)
 	t.Setenv("A4_BRIDGE_MODE", "fail")
-	_, err := Bridge("dev@box", "/home/dev/.local/bin/conch")
+	_, err := Bridge(SSH("dev@box", false), "/home/dev/.local/bin/conch")
 	if err == nil || !strings.Contains(err.Error(), "Permission denied") || !strings.Contains(err.Error(), "ssh-add") {
 		t.Fatalf("bridge failure: %v", err)
 	}
@@ -480,7 +480,7 @@ func TestA4BridgeFailureReportsStderr(t *testing.T) {
 func TestA4BridgeMissingSSH(t *testing.T) {
 	a4Env(t)
 	t.Setenv("CONCH_SSH", filepath.Join(t.TempDir(), "nope"))
-	if _, err := Bridge("dev@box", "conch"); err == nil {
+	if _, err := Bridge(SSH("dev@box", false), "conch"); err == nil {
 		t.Fatal("bridge with a missing ssh binary")
 	}
 }

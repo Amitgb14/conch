@@ -120,7 +120,7 @@ func machineAdd(args []string) error {
 	defer cancel()
 
 	fmt.Fprintf(os.Stderr, "Checking %s…\n", target)
-	probe, err := remote.ProbeMachine(ctx, target, true) // ssh may ask about host keys or passwords
+	probe, err := remote.ProbeMachine(ctx, remote.SSH(target, true)) // ssh may ask about host keys or passwords
 	if err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func machineAdd(args []string) error {
 		if !*yes && !confirm(fmt.Sprintf("  %s. Install it to ~/.local/bin/conch? [Y/n] ", what), true) {
 			return errors.New("not installed")
 		}
-		path, err := remote.Install(ctx, target, probe.Platform, true, progress)
+		path, err := remote.Install(ctx, remote.SSH(target, true), probe.Platform, progress)
 		if err != nil {
 			return err
 		}
@@ -142,7 +142,7 @@ func machineAdd(args []string) error {
 		fmt.Fprintf(os.Stderr, "  found %s (build %s)\n", probe.Bin, probe.Info.Build)
 	}
 
-	c, err := remote.Connect(ctx, target, remote.Options{})
+	c, err := remote.Connect(ctx, remote.SSH(target, false), remote.Options{})
 	var outdated *remote.OutdatedServerError
 	if errors.As(err, &outdated) {
 		fmt.Fprintf(os.Stderr, "  %v\n", err)
@@ -150,7 +150,7 @@ func machineAdd(args []string) error {
 			if err := stopServer(c, false); err != nil {
 				return err
 			}
-			c, err = remote.Connect(ctx, target, remote.Options{})
+			c, err = remote.Connect(ctx, remote.SSH(target, false), remote.Options{})
 		} else {
 			err = nil
 		}
@@ -184,16 +184,16 @@ func machineList() error {
 func machineUpgrade(m remote.Machine) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	probe, err := remote.ProbeMachine(ctx, m.Target, true)
+	probe, err := remote.ProbeMachine(ctx, remote.SSH(m.Target, true))
 	if err != nil {
 		return err
 	}
-	path, err := remote.Install(ctx, m.Target, probe.Platform, true, progress)
+	path, err := remote.Install(ctx, remote.SSH(m.Target, true), probe.Platform, progress)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "installed %s\n", path)
-	c, err := remote.Connect(ctx, m.Target, remote.Options{})
+	c, err := remote.Connect(ctx, remote.SSH(m.Target, false), remote.Options{})
 	var outdated *remote.OutdatedServerError
 	switch {
 	case errors.As(err, &outdated) && len(c.MissingCapabilities([]string{"server.reload.v1"})) == 0,
@@ -205,7 +205,7 @@ func machineUpgrade(m remote.Machine) error {
 		}
 		c.Close()
 		time.Sleep(time.Second)
-		if c, err = remote.Connect(ctx, m.Target, remote.Options{}); err != nil {
+		if c, err = remote.Connect(ctx, remote.SSH(m.Target, false), remote.Options{}); err != nil {
 			if c != nil {
 				c.Close()
 			}
@@ -219,7 +219,7 @@ func machineUpgrade(m remote.Machine) error {
 		if err := stopServer(c, false); err != nil {
 			return err
 		}
-		if c, err = remote.Connect(ctx, m.Target, remote.Options{}); err != nil {
+		if c, err = remote.Connect(ctx, remote.SSH(m.Target, false), remote.Options{}); err != nil {
 			if c != nil {
 				c.Close()
 			}
@@ -236,7 +236,7 @@ func machineUpgrade(m remote.Machine) error {
 // sameInstalled reports whether the server already runs the binary
 // installed on the machine.
 func sameInstalled(ctx context.Context, c *client.Client, target string) bool {
-	probe, err := remote.ProbeMachine(ctx, target, false)
+	probe, err := remote.ProbeMachine(ctx, remote.SSH(target, false))
 	if err != nil || probe.Info == nil {
 		return true // can't tell; don't reload needlessly
 	}
@@ -249,7 +249,7 @@ func connectMachine(ref string) (*client.Client, error) {
 	m := remote.FindMachine(ref)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	c, err := remote.Connect(ctx, m.Target, remote.Options{})
+	c, err := remote.Connect(ctx, remote.SSH(m.Target, false), remote.Options{})
 	var needs *remote.InstallError
 	var outdated *remote.OutdatedServerError
 	switch {

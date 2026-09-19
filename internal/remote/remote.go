@@ -33,13 +33,9 @@ for c in "$HOME/.local/bin/conch" "$(command -v conch 2>/dev/null)"; do
   if [ -n "$c" ] && [ -x "$c" ]; then echo "bin=$c"; "$c" version --json 2>/dev/null; break; fi
 done`
 
-// ProbeMachine inspects target.
-func ProbeMachine(ctx context.Context, target string, interactive bool) (Probe, error) {
-	return probeWith(ctx, target, sshOpts{interactive: interactive})
-}
-
-func probeWith(ctx context.Context, target string, o sshOpts) (Probe, error) {
-	out, err := runWith(ctx, target, probeScript, nil, o)
+// ProbeMachine inspects a machine.
+func ProbeMachine(ctx context.Context, tr Transport) (Probe, error) {
+	out, err := runScript(ctx, tr, probeScript, nil)
 	if err != nil {
 		return Probe{}, err
 	}
@@ -125,11 +121,7 @@ func (e *OutdatedServerError) Error() string {
 // ~/.local/bin/conch there, replacing any older one atomically. A server
 // already running keeps its old binary until it restarts. For a platform
 // other than this computer's, conch is built from source when needed.
-func Install(ctx context.Context, target, platform string, interactive bool, say func(string)) (string, error) {
-	return installWith(ctx, target, platform, sshOpts{interactive: interactive}, say)
-}
-
-func installWith(ctx context.Context, target, platform string, o sshOpts, say func(string)) (string, error) {
+func Install(ctx context.Context, tr Transport, platform string, say func(string)) (string, error) {
 	if say == nil {
 		say = func(string) {}
 	}
@@ -141,9 +133,9 @@ func installWith(ctx context.Context, target, platform string, o sshOpts, say fu
 	if err != nil {
 		return "", err
 	}
-	say(fmt.Sprintf("copying conch to %s (%d MB)", target, len(data)>>20))
+	say(fmt.Sprintf("copying conch to %s (%d MB)", tr.Describe(), len(data)>>20))
 	const script = `set -e; d="$HOME/.local/bin"; mkdir -p "$d"; cat > "$d/conch.new"; chmod 755 "$d/conch.new"; mv -f "$d/conch.new" "$d/conch"; echo "$d/conch"`
-	out, err := runWith(ctx, target, script, data, o) // ssh asks for passwords on the terminal (or askpass), not stdin
+	out, err := runScript(ctx, tr, script, data) // ssh asks for passwords on the terminal (or askpass), not stdin
 	if err != nil {
 		return "", fmt.Errorf("install conch: %w", err)
 	}
@@ -154,8 +146,6 @@ func installWith(ctx context.Context, target, platform string, o sshOpts, say fu
 type Options struct {
 	// Install lets Connect install or upgrade conch on the machine.
 	Install bool
-	// Interactive lets ssh prompt on the terminal.
-	Interactive bool
 	// Password answers ssh's password prompt without a terminal. It is
 	// handed to ssh through a short-lived askpass helper and never stored.
 	Password string
@@ -166,22 +156,28 @@ type Options struct {
 // Connect reaches the conch server on target, starting it if needed. When
 // the server is older than this client, the connected client is returned
 // together with an *OutdatedServerError.
-func Connect(ctx context.Context, target string, opts Options) (*client.Client, error) {
+func Connect(ctx context.Context, tr Transport, opts Options) (*client.Client, error) {
 	say := opts.Progress
 	if say == nil {
 		say = func(string) {}
 	}
-	o := sshOpts{interactive: opts.Interactive}
 	if opts.Password != "" {
-		ap, err := newAskpass(opts.Password)
+		asker, ok := tr.(interface {
+			withPassword(string) (Transport, func(), error)
+		})
+		if !ok {
+			return nil, fmt.Errorf("%s does not take a password", tr.Describe())
+		}
+		withPW, done, err := asker.withPassword(opts.Password)
 		if err != nil {
 			return nil, err
 		}
-		defer ap.close() // the bridge's connection is authenticated by then
-		o.askpass = ap
+		defer done() // the bridge's connection is authenticated by then
+		tr = withPW
 	}
+	target := tr.Describe()
 	say("probing " + target)
-	probe, err := probeWith(ctx, target, o)
+	probe, err := ProbeMachine(ctx, tr)
 	if err != nil {
 		return nil, err
 	}
@@ -195,13 +191,13 @@ func Connect(ctx context.Context, target string, opts Options) (*client.Client, 
 			return nil, &InstallError{Platform: probe.Platform, Reason: reason}
 		}
 		say(reason + "; installing")
-		if bin, err = installWith(ctx, target, probe.Platform, o, say); err != nil {
+		if bin, err = Install(ctx, tr, probe.Platform, say); err != nil {
 			return nil, err
 		}
 	}
 
 	say("connecting")
-	c, err := bridgeWith(target, bin, o)
+	c, err := Bridge(tr, bin)
 	if err != nil {
 		return nil, err
 	}
@@ -211,14 +207,11 @@ func Connect(ctx context.Context, target string, opts Options) (*client.Client, 
 	return c, nil
 }
 
-// Bridge runs `conch bridge` on target and speaks the protocol through it.
-func Bridge(target, bin string) (*client.Client, error) {
-	return bridgeWith(target, bin, sshOpts{})
-}
-
-func bridgeWith(target, bin string, o sshOpts) (*client.Client, error) {
-	o.interactive = false // the bridge's stdio is the protocol
-	cmd, err := sshCmdWith(context.Background(), target, shellQuote(bin)+" bridge", o)
+// Bridge runs `conch bridge` on the machine and speaks the protocol
+// through its stdin and stdout.
+func Bridge(tr Transport, bin string) (*client.Client, error) {
+	tr = tr.forBridge()
+	cmd, err := tr.Command(context.Background(), shellQuote(bin)+" bridge")
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +237,7 @@ func bridgeWith(target, bin string, o sshOpts) (*client.Client, error) {
 	if err != nil {
 		conn.Close()
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return nil, sshError(errors.New(msg), msg)
+			return nil, tr.failed(errors.New(msg), msg)
 		}
 		return nil, err
 	}
