@@ -282,6 +282,15 @@ func TestOtherAgentRules(t *testing.T) {
 		{"gemini", "", screen("│   No authentication method selected.   │"), "auth_needed"},
 		{"opencode", "OC | Fix tests", screen("  △ Permission required", "  Allow once   Allow always   Reject"), "permission"},
 		{"opencode", "OpenCode", screen("  esc interrupt"), "interruptible"},
+		// Seen live in devin v3000.10.31: the verb changes, the interrupt
+		// hint doesn't, and the placeholder changes with it.
+		{"devin", "devin: hi", screen("⠸⠀ Thinking · 0s (esc twice to interrupt)", "❭ Guide Devin while it works"), "interruptible"},
+		{"devin", "devin: hi", screen("⢰⠀ Typing · 3s (esc twice to interrupt)"), "interruptible"},
+		{"devin", "devin: hi", screen("❭ Guide Devin while it works", "SWE-1.6 Slow"), "working_placeholder"},
+		{"devin", "devin: hi", screen("❭ Ask Devin to build features, fix bugs, or work on your code", "SWE-1.6 Slow    Context: 17k / 200k tokens (8%)"), ""},
+		// Devin asks in prose, with the idle chrome around it, so waiting
+		// reads as idle rather than as a guess.
+		{"devin", "devin: hi", screen(" This will permanently delete the file. Should I proceed?", "❭ Ask Devin to build features, fix bugs, or work on your code"), ""},
 	} {
 		got := ""
 		if r := ms[tc.agent].Match(tc.screen, tc.title); r != nil {

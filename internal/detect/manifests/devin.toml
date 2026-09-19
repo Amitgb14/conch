@@ -1,8 +1,29 @@
 # Devin for Terminal (Cognition's devin CLI). Copy to
 # ~/.config/conch/agents/devin.toml to override.
-# The CLI's screen strings aren't documented; rules are added once they are
-# read from the real CLI. Until then the pane is recognised as Devin by its
-# process, and its state is unknown rather than guessed.
+# Strings read from devin v3000.10.31 on 2026-09-19: while it works the
+# status line reads "Thinking · 4s (esc twice to interrupt)" (also "Typing"
+# and other verbs, hence the match on the interrupt hint) and the input
+# placeholder becomes "Guide Devin while it works"; when it is free the
+# placeholder reads "Ask Devin to build features, fix bugs, or work on your
+# code" and the bar on the right shows the context used.
+#
+# There is deliberately no rule for waiting. Devin asks for permission in
+# prose in the conversation — "This will permanently delete the file. Should
+# I proceed?" — with the same input placeholder and status bar as when it is
+# idle, so nothing on the screen separates the two. Matching a trailing
+# question mark would call its ordinary answers waiting (its greeting ends
+# "What would you like to work on?"). Its terminal title is the session's
+# first prompt, e.g. "devin: hi", so there is nothing to read there either.
 agent = "devin"
 process_names = ["devin"]
 screen_lines = 30
+
+[[rules]]
+name = "interruptible"
+state = "working"
+pattern = 'esc twice to interrupt'
+
+[[rules]]
+name = "working_placeholder"
+state = "working"
+pattern = 'Guide Devin while it works'

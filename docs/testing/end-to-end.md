@@ -51,7 +51,7 @@ Status legend: ☐ not run · ◐ partly run (see note) · ✅ passed · ❌ fai
 | 2.5 💳 | OpenCode | `c` → OpenCode, one prompt, exit | State tracked; usage read from `opencode.db` | ◐ R2 message submitted; OpenCode's own xAI login had expired, so no answer — shown as done, **now `✗ failed`** |
 | 2.6 🌐 | Agent installers | On a machine without an agent, `c` → pick it → confirm install | Official installer runs in a pane; flash says installed; `c` then starts it | ☐ |
 | 2.7 | Agent setup view | `i` on a project with CLAUDE.md, skills and MCP servers | Lists instructions, skills, MCP servers (approved/pending) matching what the agent loads | ✅ R1 (`@` imports in CLAUDE.md / GEMINI.md now listed, since the run) |
-| 2.8 🌐 | Devin for Terminal | On a Mac without `devin`, `c` → Devin → install; then `devin auth login`; `c` → Devin in a trusted project; `t` task with Devin; resume from Sessions or `-r` | The official installer runs in a pane and puts `devin` in `~/.local/bin`; `c` starts it; a task passes its prompt after `--`; the pane shows as Devin; its sessions appear under the project's Sessions (via `devin list`), `enter` resumes one with `-r`, `d` deletes it. Then read its real screens and process name to add state rules, and check whether `--config` merges with the user's config before conch passes hooks | ☐ |
+| 2.8 🌐 | Devin for Terminal | On a Mac without `devin`, `c` → Devin → install; then `devin auth login`; `c` → Devin in a trusted project; `t` task with Devin; resume from Sessions or `-r` | The official installer runs in a pane and puts `devin` in `~/.local/bin`; `c` starts it; a task passes its prompt after `--`; the pane shows as Devin; its sessions appear under the project's Sessions (via `devin list`), `enter` resumes one with `-r`, `d` deletes it. Then read its real screens and process name to add state rules, and check whether `--config` merges with the user's config before conch passes hooks | ◐ R15 state rules read live (working only); install on a clean Mac and sessions resume/delete still untried |
 | 2.9 💳 | `conch wait` on a real agent | `conch new -agent claude`, send it a prompt, then `conch wait -state waiting,done PANE` from another shell; repeat with `-timeout 5s` while it works | The wait returns as the agent's state changes (prints `PANE claude done`), not on a timer; `-timeout` exits 124; closing the pane ends the wait with an error | ☐ |
 
 ## 3. Sessions
@@ -314,3 +314,13 @@ The release rows again, on the release that added `conch wait`. `scripts/release
 - **Update from the previous release (5.2):** a real v0.1.1 binary ran `conch update` and replaced itself — `0.1.1 → 0.1.2`, same build hash as the install.sh copy.
 - **Pages on a release tag:** the tag's website deploy **succeeded**, where v0.1.1's was rejected by the environment's protection rules. The deployment branch policy added afterwards (a `v*` tag policy) is what fixed it, and this is the first real release to prove it; the site shows 0.1.2.
 - **Not run:** 5.3 and 5.4 again — R12 covered them, and nothing in this release touched the update path.
+
+### R15 — 2026-09-19, reading Devin's real screens, macOS arm64
+
+Devin v3000.10.31 (free plan) resumed in a pane of the live server, prompted from the CLI while its screen was sampled every second.
+
+- **Working:** the status line reads `⠸⠀ Thinking · 0s (esc twice to interrupt)`, the verb changing (`Typing`, and a token counter appears after a second), and the input placeholder becomes `❭ Guide Devin while it works`. Both are now rules in `devin.toml`, so the tree shows the spinner.
+- **Idle:** the placeholder reads `❭ Ask Devin to build features, fix bugs, or work on your code` and the bar shows `Context: 17k / 200k tokens (8%)`.
+- **Waiting:** asked to delete a file, Devin printed the command and `This will permanently delete the file. Should I proceed?` **in prose, with the idle placeholder and status bar unchanged**. Nothing on screen separates waiting from idle, and a trailing question mark would catch its ordinary answers (its greeting ends "What would you like to work on?"), so no rule was added: a Devin pane needing an answer reads as idle and `!` will not jump to it. Hooks are the fix, once `--config` is known to merge.
+- **Title:** `devin: hi` — the session's first prompt, not a state, so nothing to match there.
+- **Not run:** installing Devin on a machine without it, and resuming or deleting its sessions from the Sessions view.
