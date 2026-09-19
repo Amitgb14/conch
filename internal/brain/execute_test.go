@@ -100,14 +100,23 @@ func startBrainServer(t *testing.T) (*client.Client, string) {
 // TestExecuteBroadcastAndShare runs both new actions against a real
 // server. The agents are fake scripts that echo what is typed into them.
 func TestExecuteBroadcastAndShare(t *testing.T) {
-	bin := t.TempDir()
+	// The fakes go where every adapter prepends to PATH inside the command
+	// it runs ($HOME/.local/bin), not just on this process's PATH: agents
+	// start through a login shell, and some of those replace PATH outright
+	// (Debian's /etc/profile does, so the agents went missing there while
+	// macOS and Ubuntu kept them).
+	home := t.TempDir()
+	bin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range []string{"claude", "codex"} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nstty -echo; exec cat\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Setenv("PATH", bin+":/usr/bin:/bin")
-	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HOME", home)
 	c, dir := startBrainServer(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
