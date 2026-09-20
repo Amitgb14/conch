@@ -113,6 +113,45 @@ func TestA2QueueOldestFirstWithinABand(t *testing.T) {
 	}
 }
 
+// Old branches drop out: the queue is what to do now, not a history of
+// every branch a repository ever had. A checked-out worktree stays,
+// however old its last commit, because its uncommitted changes are still
+// sitting there.
+func TestA2QueueLeavesOldBranchesOut(t *testing.T) {
+	m, _ := a2QueueModel()
+	proj := &m.machines[0].projects[0]
+	for i := range proj.Branches {
+		if proj.Branches[i].Name == "feat" {
+			proj.Branches[i].Committed = time.Now().Add(-40 * 24 * time.Hour)
+		}
+	}
+	m.machines[0].panes = nil // no agent holds feat's place any more
+
+	var got []string
+	for _, it := range m.queueItems() {
+		got = append(got, it.branch)
+	}
+	// feat is 40 days old with no worktree, so it goes. wip is 30 hours
+	// old but checked out with changes, and answering was committed a
+	// minute ago, so both stay.
+	if strings.Join(got, ",") != "answering,wip" {
+		t.Fatalf("queue is %q, want the recent branch and the checked-out one", got)
+	}
+	// A branch with no commit date at all (a fresh one) is not aged out.
+	for i := range proj.Branches {
+		if proj.Branches[i].Name == "feat" {
+			proj.Branches[i].Committed = time.Time{}
+		}
+	}
+	got = nil
+	for _, it := range m.queueItems() {
+		got = append(got, it.branch)
+	}
+	if len(got) != 3 {
+		t.Fatalf("queue is %q, want feat back", got)
+	}
+}
+
 func TestA2QueueRender(t *testing.T) {
 	m, qv := a2QueueModel()
 	m.focus = focusMain

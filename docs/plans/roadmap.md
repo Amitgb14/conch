@@ -60,8 +60,9 @@ history; details for big items live in their own plan files.
     `enter` opens the pane when an agent is waiting and the branch's
     changes otherwise, so the actions stay where harvest put them. Read
     from what the TUI already holds, so it costs no server call and needs
-    no capability. Not yet: filtering, dismissing a row, and a count of
-    the queue in the status bar.
+    no capability. Branch rows follow the tree's own window — nothing
+    stale enough for the tree to hide. Not yet: filtering, dismissing
+    a row, and a count of the queue in the status bar.
 
 ## Not now
 

@@ -90,6 +90,13 @@ func (m Model) queueItems() []queueItem {
 				if b.Name == proj.Base || seen[mach.id+"|"+proj.ID+"|"+b.Name] {
 					continue
 				}
+				// Branches the tree has stopped listing are archaeology, not
+				// a to-do list: a branch nobody has touched in a fortnight
+				// and isn't checked out has stopped being a decision you owe
+				// today. An agent's own row is never filtered this way.
+				if b.Worktree == "" && !b.Committed.IsZero() && time.Since(b.Committed) > recentBranchAge {
+					continue
+				}
 				it := queueItem{
 					machine: mach.id, machineLbl: m.machineLabel(mach.id),
 					projectID: proj.ID, project: proj.Name, branch: b.Name, since: b.Committed,

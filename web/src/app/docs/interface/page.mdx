@@ -107,7 +107,7 @@ Within each group the thing that has been waiting longest comes first, so nothin
 
 `enter` goes where the answer is: a waiting agent opens its pane so you can reply, and anything else opens the branch's [changes](#changes-view), where committing, pushing and opening a PR already live. `esc` returns to the tree.
 
-A branch with an open pull request and nothing unpushed is not in the queue — it is waiting on a reviewer, not on you. Nor is a machine that is offline, whose panes conch only holds a stale cache of.
+A branch with an open pull request and nothing unpushed is not in the queue — it is waiting on a reviewer, not on you. Nor is a machine that is offline, whose panes conch only holds a stale cache of. Branches the tree has stopped listing — nothing committed for a fortnight and not checked out — drop out too, so the queue stays a list of what to do now rather than a history of the repository. An agent waiting or finished is always listed, however old its branch.
 
 ## Splits and tabs
 
