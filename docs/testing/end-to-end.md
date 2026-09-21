@@ -154,7 +154,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 9.14 🖥 | Drop on a password-auth machine | A machine added with a password; drop a file on its pane | Uploaded over the existing connection; no password prompt | ☐ |
 | 9.15 🖥 | Drop on an outdated remote | A remote on a build without `fs.upload.v1` | Warning to update it; the local path is pasted unchanged | ✅ R10 (warning reworded so its cut-off form still reads) |
 | 9.16 | Which terminals bracket drops | Drop a file on a local pane running `cat -v` in each terminal you use (Terminal.app, iTerm2, Ghostty, WezTerm, kitty) | Record whether the path arrives as a bracketed paste (`^[[200~`); ones that type it can't be uploaded yet | ☐ |
-| 9.27 | Review queue on a real fleet | Several agents on two machines, some waiting, some done, plus a dirty worktree and an unpushed branch; press `Q` | The rows are the things actually needing a decision, waiting first and longest-wait first; `enter` lands on the pane for a waiting agent and on the changes for the rest; rows leave the queue as each is dealt with | ☐ |
+| 9.27 | Review queue on a real fleet | Several agents on two machines, some waiting, some done, plus a dirty worktree and an unpushed branch; press `Q` | The rows are the things actually needing a decision, waiting first and longest-wait first; `enter` lands on the pane for a waiting agent and on the changes for the rest; rows leave the queue as each is dealt with | ◐ R17 branch rows on the real projects: the right three, the 39-day-old branch filtered, readable down to 70 columns; agents waiting or done not yet seen in it |
 | 9.5 | Search large histories | A project with 100+ long Claude sessions | Conversation matches arrive within a few seconds; typing stays responsive | ✅ R1 35 MB of Claude history: 163 ms first search, ~10 ms after |
 
 ## Runs
@@ -337,3 +337,12 @@ The last part of 2.8 that automated tests can't reach: that `enter` in the Sessi
 - The session appeared in `session.list` as `devin · polydactyl-skateboard`, with its title from the prompt and its pane linked.
 - Its pane was closed, then `session.resume` — the call `enter` makes — started `devin -r polydactyl-skateboard`. The earlier exchange was on screen, and asking what word it had been told to remember answered **pomegranate**, so the conversation itself came back rather than the scrollback.
 - `session.delete` then removed that session (`devin rm --force`); it left the list and the real session stayed.
+
+### R17 — 2026-09-20, the review queue on real projects, macOS arm64
+
+The queue rendered against the real projects (their `projects.json` copied into a harness `CONCH_HOME`, own server, the real one untouched), then confirmed in the actual TUI after a restart.
+
+- **Rows:** three — `OneNutri · changelog-1.8` (22 files uncommitted), `onenutri-web · redesign/interactive-landing` (4 commits not merged) and `OneNutri · sandbox-recover/…` (1 commit not pushed) — ordered unshipped-then-dirty, oldest first within each. `feature/dietary-preferences`, 39 days old and not checked out, is filtered.
+- **Found:** at 50–70 columns every row truncated to the same stub (`OneNutri ·…  1 com…`), because the project and branch shared the space equally. Fixed: the context drops from the left so the branch survives; rows now read `sandbox-reco…`, `redesign/int…`, `changelog-1.8`.
+- **Found:** a restart of the *server* doesn't restart the TUI, and a TUI left running all day silently keeps the build it started with — which is what "the queue doesn't show properly" turned out to be. The TUI does offer a restart; it has to be taken.
+- **Not yet seen:** the waiting and done bands on a real fleet, since no agent was in either state during the run.
