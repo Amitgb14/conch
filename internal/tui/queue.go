@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -198,13 +199,16 @@ func (qv *queueView) render(m Model, w, h int) []string {
 	for i := qv.scroll; i < min(qv.scroll+listH, len(items)); i++ {
 		it := items[i]
 		glyph, style := queueGlyph(it.band)
-		where := it.branch
-		if where == "" {
-			where = "(no branch)"
+		name := it.branch
+		if name == "" {
+			name = "(no branch)"
 		}
-		where = it.project + " · " + where
+		// The branch names the row; the project and machine are context.
+		// When the split is narrow, drop the context from the left rather
+		// than truncate everything into uselessness.
+		parts := []string{it.project, name}
 		if spansMachines {
-			where = it.machineLbl + " · " + where
+			parts = append([]string{it.machineLbl}, parts...)
 		}
 		right := ""
 		if c := m.costChip(it.cost); c != "" {
@@ -218,8 +222,14 @@ func (qv *queueView) render(m Model, w, h int) []string {
 			detail = agentLabel(it.agent) + " " + detail
 		}
 		room := max(w-ansi.StringWidth(right)-8, 10)
-		left := fmt.Sprintf(" %s %s", style.Render(glyph), ansi.Truncate(where, room/2, "…"))
-		left += styleMuted.Render("  " + ansi.Truncate(detail, room/2, "…"))
+		whereRoom := max(room*3/5, 10)
+		where := strings.Join(parts, " · ")
+		for len(parts) > 1 && ansi.StringWidth(where) > whereRoom {
+			parts = parts[1:]
+			where = strings.Join(parts, " · ")
+		}
+		left := fmt.Sprintf(" %s %s", style.Render(glyph), ansi.Truncate(where, whereRoom, "…"))
+		left += styleMuted.Render("  " + ansi.Truncate(detail, max(room-whereRoom, 6), "…"))
 		line := spread(left, right, w)
 		if i == qv.sel {
 			sel := styleSel

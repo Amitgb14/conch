@@ -200,6 +200,39 @@ func TestA2QueueRender(t *testing.T) {
 	qv.render(*m, 1, 1)
 }
 
+// A narrow split keeps the branch — the one thing that says which row this
+// is — and gives up the project and machine around it.
+func TestA2QueueNarrowKeepsTheBranch(t *testing.T) {
+	m, qv := a2QueueModel()
+	m.machines[1].state = stateOnline // so rows carry a machine name too
+	m.machines[1].projects = []proto.ProjectInfo{{ID: "r2", Name: "web", Git: true, Base: "main"}}
+
+	wide := a2Plain(qv.render(*m, 110, 20))
+	if !strings.Contains(wide, "local · api · answering") {
+		t.Fatalf("wide render lost its context:\n%s", wide)
+	}
+	for _, w := range []int{70, 55, 44} {
+		lines := qv.render(*m, w, 20)
+		out := a2Plain(lines)
+		if !strings.Contains(out, "answering") {
+			t.Fatalf("at %d columns the branch is gone:\n%s", w, out)
+		}
+		for i, l := range lines[queueListTop:] {
+			if lw := ansi.StringWidth(l); lw != w {
+				t.Fatalf("at %d columns row %d is %d wide:\n%s", w, i, lw, out)
+			}
+		}
+	}
+	// Narrower still, something has to give, but nothing may overflow.
+	for _, w := range []int{30, 20, 12} {
+		for _, l := range qv.render(*m, w, 8) {
+			if ansi.StringWidth(l) > w {
+				t.Fatalf("at %d columns a line is %d wide: %q", w, ansi.StringWidth(l), ansi.Strip(l))
+			}
+		}
+	}
+}
+
 func TestA2QueueKeys(t *testing.T) {
 	m, qv := a2QueueModel()
 	for _, step := range []struct {
