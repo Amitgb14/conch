@@ -61,9 +61,11 @@ history; details for big items live in their own plan files.
     changes otherwise, so the actions stay where harvest put them. Read
     from what the TUI already holds, so it costs no server call and needs
     no capability. Branch rows follow the tree's own window — nothing
-    stale enough for the tree to hide. `x` dismisses a row until what
-    it says changes, and the status bar counts what is waiting. Not
-    yet: filtering, and dismissals last only as long as the TUI does.
+    stale enough for the tree to hide — and sit under a heading for their
+    project, so a repository is named once however many of its branches
+    need you. `x` dismisses a row until what it says changes, and the
+    status bar counts what is waiting. Not yet: filtering, and
+    dismissals last only as long as the TUI does.
 
 ## Not now
 
