@@ -44,6 +44,13 @@ func (it queueItem) key() string {
 	return it.machine + "|" + it.projectID + "|" + it.branch + "|" + it.paneID
 }
 
+// state is what the row says right now. Dismissing remembers it, so the row
+// comes back when it changes — another file edited, an agent finishing
+// again — rather than being hidden for good.
+func (it queueItem) state() string {
+	return fmt.Sprintf("%d|%s|%d", it.band, it.detail, it.since.Unix())
+}
+
 // queueItems collects what needs a decision, most urgent first and, within
 // a band, whatever has been waiting longest.
 func (m Model) queueItems() []queueItem {
@@ -125,6 +132,15 @@ func (m Model) queueItems() []queueItem {
 				items = append(items, it)
 			}
 		}
+	}
+	if len(m.queueSeen) > 0 {
+		kept := items[:0]
+		for _, it := range items {
+			if was, dismissed := m.queueSeen[it.key()]; !dismissed || was != it.state() {
+				kept = append(kept, it)
+			}
+		}
+		items = kept
 	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].band != items[j].band {
@@ -277,6 +293,16 @@ func (qv *queueView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		if qv.sel >= 0 && qv.sel < len(items) {
 			return false, qv.open(m, items[qv.sel])
 		}
+	case "x":
+		if qv.sel >= 0 && qv.sel < len(items) {
+			it := items[qv.sel]
+			if m.queueSeen == nil {
+				m.queueSeen = map[string]string{}
+			}
+			m.queueSeen[it.key()] = it.state()
+			m.setFlash("dismissed "+queueName(it)+"; it comes back if it changes", false)
+			qv.selKey = "" // the row is gone; keep the position, not the row
+		}
 	}
 	qv.sel = clamp(qv.sel, 0, max(len(items)-1, 0))
 	if qv.sel < len(items) {
@@ -322,6 +348,15 @@ func (qv *queueView) mouse(m *Model, msg tea.MouseMsg, x, y int) tea.Cmd {
 		qv.selKey = items[qv.sel].key()
 	}
 	return nil
+}
+
+// queueName is a row in a sentence: the branch, or the project when a row
+// has no branch of its own.
+func queueName(it queueItem) string {
+	if it.branch != "" {
+		return it.branch
+	}
+	return it.project
 }
 
 // queueRow is the synthetic row the queue is shown through; it has no place

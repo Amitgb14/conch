@@ -105,7 +105,9 @@ These also sit in a branch's menu (`m`). See [Finishing a task](/docs/tasks#fini
 
 Within each group the thing that has been waiting longest comes first, so nothing quietly rots at the bottom. Each row names the project and branch (and the machine, once the queue spans more than one), what it is waiting on, what the agent has spent, and how long it has been there.
 
-`enter` goes where the answer is: a waiting agent opens its pane so you can reply, and anything else opens the branch's [changes](#changes-view), where committing, pushing and opening a PR already live. `esc` returns to the tree.
+`enter` goes where the answer is: a waiting agent opens its pane so you can reply, and anything else opens the branch's [changes](#changes-view), where committing, pushing and opening a PR already live. `x` dismisses a row you have decided to leave alone; it comes back when what it says changes — another file edited, the agent finishing again — and everything returns when the TUI restarts. `esc` returns to the tree.
+
+The status bar counts what the queue holds (`3 to review`, beside `⚑ waiting`), so it is worth opening; clicking the count opens it.
 
 A branch with an open pull request and nothing unpushed is not in the queue — it is waiting on a reviewer, not on you. Nor is a machine that is offline, whose panes conch only holds a stale cache of. Branches the tree has stopped listing — nothing committed for a fortnight and not checked out — drop out too, so the queue stays a list of what to do now rather than a history of the repository. An agent waiting or finished is always listed, however old its branch.
 

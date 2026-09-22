@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -358,5 +359,95 @@ func TestA1QueueOpensWithQ(t *testing.T) {
 	a1Key(t, m, a2Key("Q"))
 	if len(m.tabs) != tabs {
 		t.Fatalf("tabs %d → %d", tabs, len(m.tabs))
+	}
+}
+
+// x hides a row until what it says changes, which is what makes the queue
+// a list to work through rather than a report to ignore.
+func TestA2QueueDismiss(t *testing.T) {
+	m, qv := a2QueueModel()
+	qv.render(*m, 100, 20)
+	before := len(m.queueItems())
+
+	qv.key(m, a2Key("x")) // the waiting agent
+	if n := len(m.queueItems()); n != before-1 {
+		t.Fatalf("after x there are %d rows, want %d", n, before-1)
+	}
+	if !strings.Contains(m.flash, "dismissed answering") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	// It stays hidden while it says the same thing…
+	qv.render(*m, 100, 20)
+	if n := len(m.queueItems()); n != before-1 {
+		t.Fatalf("it came back at once: %d rows", n)
+	}
+	// …and returns when it changes: the agent asks again later.
+	for i := range m.machines[0].panes {
+		if m.machines[0].panes[i].ID == "p1" {
+			m.machines[0].panes[i].Agent.Since = time.Now()
+		}
+	}
+	if n := len(m.queueItems()); n != before {
+		t.Fatalf("a changed row stayed hidden: %d rows, want %d", n, before)
+	}
+	// Dismissing everything empties the queue, and the view says so.
+	for i := 0; i < 5 && len(m.queueItems()) > 0; i++ {
+		qv.key(m, a2Key("x"))
+	}
+	if out := a2Plain(qv.render(*m, 100, 10)); !strings.Contains(out, "Nothing is waiting for you") {
+		t.Fatalf("emptied queue:\n%s", out)
+	}
+	// x on an empty queue does nothing rather than panicking.
+	qv.key(m, a2Key("x"))
+}
+
+// The status bar counts what the queue would show, and clicking it opens
+// the queue.
+func TestA1QueueCountInStatusBar(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	// The fixture's agents are idle and its branches shipped, so give it
+	// one thing to review: an agent that finished while nobody looked.
+	for i := range m.machines[0].panes {
+		if m.machines[0].panes[i].ID == "p1" {
+			m.machines[0].panes[i].Agent = &proto.AgentStatus{Name: "claude", State: proto.AgentDone, Since: time.Now().Add(-time.Hour)}
+		}
+	}
+	items := m.queueItems()
+	if len(items) != 1 {
+		t.Fatalf("expected one thing to review, got %+v", items)
+	}
+	var chip *statusItem
+	right := m.statusRightItems(rightFull)
+	for i := range right {
+		if strings.Contains(ansi.Strip(right[i].text), "to review") {
+			chip = &right[i]
+		}
+	}
+	if chip == nil {
+		t.Fatalf("no review chip among %d items", len(m.statusRightItems(rightFull)))
+	}
+	if want := fmt.Sprintf("%d to review", len(items)); !strings.Contains(ansi.Strip(chip.text), want) {
+		t.Fatalf("chip %q, want %q", ansi.Strip(chip.text), want)
+	}
+	if cmd := chip.act(m); cmd != nil {
+		a2Run(cmd)
+	}
+	if v := m.tab().focused().view; v.Kind != kindReviewQueue || m.focus != focusMain {
+		t.Fatalf("the chip opened %+v", v)
+	}
+	// A narrow status bar drops it rather than overflowing.
+	for _, it := range m.statusRightItems(rightNoExtras) {
+		if strings.Contains(ansi.Strip(it.text), "to review") {
+			t.Fatal("the count survived into a narrow status bar")
+		}
+	}
+	// With nothing to review there is no chip at all.
+	for _, mach := range m.machines {
+		mach.panes, mach.projects = nil, nil
+	}
+	for _, it := range m.statusRightItems(rightFull) {
+		if strings.Contains(ansi.Strip(it.text), "to review") {
+			t.Fatal("a chip with an empty queue")
+		}
 	}
 }

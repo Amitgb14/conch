@@ -259,8 +259,14 @@ func TestA1StatusRightAndNarrowWidths(t *testing.T) {
 	}
 	m.flash = ""
 	m.machines[0].warning = "server is old"
-	if got := ansi.Strip(m.statusRightItems(rightFull)[1].text); got != "server is old" {
-		t.Errorf("warning item %q", got)
+	found := ""
+	for _, it := range m.statusRightItems(rightFull) {
+		if got := ansi.Strip(it.text); got == "server is old" {
+			found = got
+		}
+	}
+	if found == "" {
+		t.Errorf("no warning item among %d", len(m.statusRightItems(rightFull)))
 	}
 	// Quiet hours label, and clicking it while snoozed resumes alerts.
 	m.snoozeUntil = time.Now().Add(time.Hour)

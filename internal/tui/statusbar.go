@@ -110,7 +110,7 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			hint("space", "mark hunk"), hint("n", "next hunk"), hint("c", "commit"), hint("y", "copy"), hint("esc", "files")}
 	case m.focus == focusMain && r.kind == kindReviewQueue:
 		chip = styleChip.Background(colorInput).Render("QUEUE")
-		items = []statusItem{hint("↑", "up"), hint("↓", "down"), hint("enter", "open"), hint("esc", "tree")}
+		items = []statusItem{hint("↑", "up"), hint("↓", "down"), hint("enter", "open"), hint("x", "dismiss"), hint("esc", "tree")}
 	case m.focus == focusMain && r.kind == kindSessions && m.sessionsView != nil && m.sessionsView.typing:
 		chip = styleChip.Background(colorAccent).Render("SEARCH")
 		items = []statusItem{hint("enter", "keep"), hint("esc", "clear"), hint("↑", "results"), hint("↓", "results")}
@@ -175,6 +175,13 @@ func (m Model) statusRightItems(level int) []statusItem {
 	if n := m.inboxCount(); n > 0 {
 		items = append(items, statusItem{text: styleWarn.Render(fmt.Sprintf("⚑ %d waiting", n)),
 			act: func(m *Model) tea.Cmd { return m.jumpToAttention() }})
+	}
+	if n := len(m.queueItems()); n > 0 && level < rightNoExtras {
+		items = append(items, statusItem{text: styleMuted.Render(fmt.Sprintf("%d to review", n)),
+			act: func(m *Model) tea.Cmd {
+				m.focus = focusMain
+				return m.show(queueRow())
+			}})
 	}
 	if level < rightNoExtras {
 		items = append(items, m.statusLimits(time.Now())...)

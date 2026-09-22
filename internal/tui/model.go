@@ -124,6 +124,7 @@ type Model struct {
 	sessions     map[string]*sessionsData // saved agent sessions per project (sessionsKey)
 	sessionsView *sessionsView            // the focused leaf's, when it lists sessions
 	queueView    *queueView               // the focused leaf's, when it is the review queue
+	queueSeen    map[string]string        // review queue rows dismissed, by what they said when dismissed
 }
 
 type (

@@ -61,8 +61,9 @@ history; details for big items live in their own plan files.
     changes otherwise, so the actions stay where harvest put them. Read
     from what the TUI already holds, so it costs no server call and needs
     no capability. Branch rows follow the tree's own window — nothing
-    stale enough for the tree to hide. Not yet: filtering, dismissing
-    a row, and a count of the queue in the status bar.
+    stale enough for the tree to hide. `x` dismisses a row until what
+    it says changes, and the status bar counts what is waiting. Not
+    yet: filtering, and dismissals last only as long as the TUI does.
 
 ## Not now
 
