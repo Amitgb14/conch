@@ -750,6 +750,7 @@ var helpText = []string{
 	"Pane and changes",
 	"  ctrl+b then any other key → back to the tree    ctrl+b z  zoom",
 	"  ctrl+b r  draw the pane again (stale text after a resize)",
+	"  ctrl+b b  back to where the split was before the last jump (again returns)",
 	"  ctrl+b [  scroll history (↑↓ pgup pgdn g) · wheel scrolls too",
 	"  changes: ↑↓ file · enter diff · esc back · y copy path / diff",
 	"    space mark a file · c commit (the marked files, else all) · P push · p open a pull request",

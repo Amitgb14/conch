@@ -263,6 +263,11 @@ func (m *Model) assign(l *leaf, r row) {
 // split or browsing tab takes one in, else it opens its own tab. Other rows
 // (projects, branches, sessions) share a browsing tab.
 func (m *Model) show(r row) tea.Cmd {
+	// Where we were, so ctrl+b b can go back to it: opening a check's
+	// terminal from the queue, say, and then returning to the list.
+	if was := m.tab().focused().view; !was.empty() && was.Row != r.id {
+		m.prevView = was
+	}
 	m.keepTab = true
 	if m.tab(); m.previewing { // the preview shows the row, or is about to: keep it as a tab
 		// Unless a tab already holds it: a branch clicked on the Branches

@@ -360,6 +360,15 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // layoutKey handles the split and tab commands that follow the prefix.
 func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 	switch key {
+	case "b":
+		// Back to where the split was before the last jump, and back again
+		// returns: the two swap, so it works like alt-tab.
+		if m.prevView.empty() {
+			m.setFlash("nothing to go back to", false)
+			return nil, true
+		}
+		v := m.prevView
+		return m.show(row{id: v.Row, kind: v.Kind, machine: v.Machine, projectID: v.ProjectID, branch: v.Branch, paneID: v.PaneID}), true
 	case "v", "%", "|":
 		return m.split(splitRight, viewRef{}), true
 	case "-", "\"", "_":

@@ -126,6 +126,7 @@ type Model struct {
 	queueView    *queueView               // the focused leaf's, when it is the review queue
 	queueSeen    map[string]string        // review queue rows dismissed, by what they said when dismissed
 	verifyRuns   map[string]verifyRun     // a branch's last run of its project's check, by machine|project|branch
+	prevView     viewRef                  // where the focused split was before the last jump, for ctrl+b b
 }
 
 type (
