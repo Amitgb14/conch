@@ -343,7 +343,10 @@ func (m *Model) tabShowing(rowID string) (int, *leaf) {
 // ownsTab reports whether a view keeps the tab it is in: a branch does, so
 // each branch stays open in its own tab while you look at another. Other
 // pages (a project, its sessions) share the group's browsing tab.
-func ownsTab(v viewRef) bool { return v.Kind == kindBranch }
+// ownsTab reports whether a view keeps a tab to itself rather than sharing
+// the browsing tab. A branch does, and so does the review queue: opening a
+// row from it must leave the queue where it was, not replace it.
+func ownsTab(v viewRef) bool { return v.Kind == kindBranch || v.Kind == kindReviewQueue }
 
 // focusLeaf moves focus to a leaf and the tree cursor to what it shows.
 func (m *Model) focusLeaf(id int) tea.Cmd {

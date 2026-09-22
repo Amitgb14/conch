@@ -491,3 +491,90 @@ func TestA2QueueSelectionOnEveryBand(t *testing.T) {
 		}
 	}
 }
+
+// Going back to the queue and opening another row must not pile up tabs.
+// The queue keeps its own tab: while it shared the browsing tab, opening a
+// branch both replaced the queue and opened a tab for the branch, so every
+// visit left another copy of the same branch behind.
+func TestA1QueueKeepsOneTab(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	for i := range m.machines[0].panes {
+		if m.machines[0].panes[i].ID == "p1" {
+			m.machines[0].panes[i].Agent = &proto.AgentStatus{Name: "claude", State: proto.AgentDone, Since: time.Now().Add(-time.Hour)}
+		}
+	}
+	openQueue := func(round int) {
+		t.Helper()
+		var chip *statusItem
+		right := m.statusRightItems(rightFull)
+		for i := range right {
+			if strings.Contains(ansi.Strip(right[i].text), "to review") {
+				chip = &right[i]
+			}
+		}
+		if chip == nil {
+			t.Fatalf("round %d: the status bar lost its review count", round)
+		}
+		if cmd := chip.act(m); cmd != nil {
+			a2Run(cmd)
+		}
+		if m.queueView == nil || m.tab().focused().view.Kind != kindReviewQueue {
+			t.Fatalf("round %d: the chip opened %+v", round, m.tab().focused().view)
+		}
+	}
+	for round := 1; round <= 4; round++ {
+		openQueue(round)
+		queueTabs := 0
+		for _, tb := range m.tabs {
+			for _, l := range tb.root.leaves() {
+				if l.view.Kind == kindReviewQueue {
+					queueTabs++
+				}
+			}
+		}
+		if queueTabs != 1 {
+			t.Fatalf("round %d: %d queue tabs", round, queueTabs)
+		}
+		if _, cmd := m.queueView.key(m, a2Key("enter")); cmd != nil {
+			a2Run(cmd)
+		}
+		if v := m.tab().focused().view; v.Kind != kindBranch {
+			t.Fatalf("round %d: enter opened %+v", round, v)
+		}
+		if len(m.tabs) != 2 { // the queue's tab and the branch's
+			var shown []string
+			for _, tb := range m.tabs {
+				for _, l := range tb.root.leaves() {
+					shown = append(shown, l.view.Row)
+				}
+			}
+			t.Fatalf("round %d: %d tabs (%v)", round, len(m.tabs), shown)
+		}
+	}
+}
+
+// Q opens the queue from a view as well as from the tree, but inside a pane
+// every key belongs to the program.
+func TestA1QueueKeyFromAView(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1At(t, m, branchNodeID(localMachine, "r1", "feat"))
+	a1Key(t, m, a2Key("enter")) // the branch's changes, focus in the main area
+	if m.focus != focusMain {
+		t.Fatal("enter on a branch should focus the main area")
+	}
+	a1Key(t, m, a2Key("Q"))
+	if m.tab().focused().view.Kind != kindReviewQueue {
+		t.Fatalf("Q from the changes view opened %+v", m.tab().focused().view)
+	}
+	// In a pane, Q is typed, not swallowed.
+	a1Key(t, m, a2Key("esc")) // leave the queue, back to the tree
+	a1At(t, m, paneNodeID(localMachine, "p1"))
+	a1Key(t, m, a2Key("enter"))
+	if m.tab().focused().view.Kind != kindPane {
+		t.Fatalf("enter on a pane opened %+v", m.tab().focused().view)
+	}
+	a1Key(t, m, a2Key("Q"))
+	if v := m.tab().focused().view; v.Kind != kindPane {
+		t.Fatalf("Q inside a pane opened %+v instead of being typed", v)
+	}
+}

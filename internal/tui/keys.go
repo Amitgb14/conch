@@ -268,6 +268,11 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if cmd, handled := m.numberKey(k.String()); handled {
 		return m, cmd
 	}
+	// Q opens the review queue from a view as well as from the tree. Not
+	// inside a pane: there every key belongs to the program.
+	if k.String() == "Q" && r.kind != kindPane {
+		return m, m.show(queueRow())
+	}
 	if m.prefixArmed {
 		m.prefixArmed = false
 		if cmd, handled := m.layoutKey(k.String()); handled {
