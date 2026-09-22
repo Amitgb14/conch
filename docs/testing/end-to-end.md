@@ -154,7 +154,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 9.14 🖥 | Drop on a password-auth machine | A machine added with a password; drop a file on its pane | Uploaded over the existing connection; no password prompt | ☐ |
 | 9.15 🖥 | Drop on an outdated remote | A remote on a build without `fs.upload.v1` | Warning to update it; the local path is pasted unchanged | ✅ R10 (warning reworded so its cut-off form still reads) |
 | 9.16 | Which terminals bracket drops | Drop a file on a local pane running `cat -v` in each terminal you use (Terminal.app, iTerm2, Ghostty, WezTerm, kitty) | Record whether the path arrives as a bracketed paste (`^[[200~`); ones that type it can't be uploaded yet | ☐ |
-| 9.27 | Review queue on a real fleet | Several agents on two machines, some waiting, some done, plus a dirty worktree and an unpushed branch; press `Q` | The rows are the things actually needing a decision, waiting first and longest-wait first; `enter` lands on the pane for a waiting agent and on the changes for the rest; rows leave the queue as each is dealt with | ◐ R17 branch rows on the real projects: the right three, the 39-day-old branch filtered, readable down to 70 columns; agents waiting or done not yet seen in it |
+| 9.27 | Review queue on a real fleet | Several agents on two machines, some waiting, some done, plus a dirty worktree and an unpushed branch; press `Q` | The rows are the things actually needing a decision, waiting first and longest-wait first; `enter` lands on the pane for a waiting agent and on the changes for the rest; rows leave the queue as each is dealt with | ◐ R17/R18 branch rows on the real projects, grouped by project, opened and dismissed in use; agents waiting or done not yet seen in it |
 | 9.5 | Search large histories | A project with 100+ long Claude sessions | Conversation matches arrive within a few seconds; typing stays responsive | ✅ R1 35 MB of Claude history: 163 ms first search, ~10 ms after |
 
 ## Runs
@@ -346,3 +346,13 @@ The queue rendered against the real projects (their `projects.json` copied into 
 - **Found:** at 50–70 columns every row truncated to the same stub (`OneNutri ·…  1 com…`), because the project and branch shared the space equally. Fixed: the context drops from the left so the branch survives; rows now read `sandbox-reco…`, `redesign/int…`, `changelog-1.8`.
 - **Found:** a restart of the *server* doesn't restart the TUI, and a TUI left running all day silently keeps the build it started with — which is what "the queue doesn't show properly" turned out to be. The TUI does offer a restart; it has to be taken.
 - **Not yet seen:** the waiting and done bands on a real fleet, since no agent was in either state during the run.
+
+### R18 — 2026-09-21, the queue in daily use, macOS arm64
+
+Three bugs found by using it, all from the screenshots rather than the tests, and all fixed and confirmed in the real TUI afterwards.
+
+- **A mangled glyph doubled rows.** The selected row was built by slicing two bytes off the drawn line to drop the band's glyph; `↑`, `✓` and `·` are multi-byte, so the row lost half a rune, measured wrong, wrapped, and left the row above drawn twice. That is what the duplicated `master` in the tree and the doubled status bar were — the data was never wrong.
+- **Opening a row piled up tabs.** The queue shared the browsing tab, which `syncView` reassigns to the tree cursor, so opening a branch replaced the queue *and* opened the branch's own tab: four visits, four tabs of the same branch. The queue owns its tab now.
+- **`Q` was unreachable from a view**, so after opening a row you could only return by clicking the status-bar count.
+- **Grouping:** a repository with two loose ends read as itself listed twice. Rows now sit under a heading per project.
+- **Still not seen on a real fleet:** the waiting and done bands, since no agent has been in either state while the queue was open.
