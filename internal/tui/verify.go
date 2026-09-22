@@ -65,6 +65,16 @@ func (m Model) verifyOf(machine, projectID, branch string) (verifyState, string)
 	return verifyRunning, "checking…"
 }
 
+// verifyPane is the terminal a branch's last check ran in, while it is
+// still around to read.
+func (m Model) verifyPane(machine, projectID, branch string) string {
+	run, ok := m.verifyRuns[verifyKey(machine, projectID, branch)]
+	if !ok || run.pane == "" || m.pane(machine, run.pane) == nil {
+		return ""
+	}
+	return run.pane
+}
+
 // verifyCommand is the command configured for a project, if any.
 func (m Model) verifyCommand(projectID string) string {
 	return strings.TrimSpace(m.cfg.Verify.Commands[projectID])

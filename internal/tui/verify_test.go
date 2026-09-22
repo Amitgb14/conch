@@ -204,3 +204,41 @@ func TestA2VerifyKeepsItsTerminalAndSaysSo(t *testing.T) {
 		t.Fatal("a check was matched across machines")
 	}
 }
+
+// o goes to the check's terminal, which is where a failure's output is.
+func TestA2VerifyOutputKey(t *testing.T) {
+	m, mach := a2VerifyModel()
+	m.rebuild()
+	qv := &queueView{}
+	qv.render(*m, 100, 20)
+	qv.sel = a2QueueAt(t, m, "wip")
+	qv.selKey = ""
+
+	// Nothing has run yet: o says so rather than doing nothing.
+	if _, cmd := qv.key(m, a2Key("o")); cmd != nil || !strings.Contains(m.flash, "nothing has checked wip yet") {
+		t.Fatalf("o before any check: %q", m.flash)
+	}
+	// With a run, o opens its terminal.
+	m.receiveVerifyStarted(verifyStartedMsg{machine: mach.id, projectID: "r1", branch: "wip",
+		info: proto.PaneInfo{ID: "check1", State: proto.PaneRunning}})
+	mach.panes = append(mach.panes, proto.PaneInfo{ID: "check1", Name: "check · wip", State: proto.PaneRunning})
+	m.verifyExited(mach.id, proto.PaneInfo{ID: "check1", State: proto.PaneExited, ExitCode: 1})
+	m.rebuild()
+	// Opening a pane subscribes to it, and this fixture's client is never
+	// read from; the check has already run, so drop it for the open.
+	mach.c = nil
+	// The command it returns subscribes to the pane; the view moves there
+	// without needing a connection, so the test doesn't run it.
+	if _, cmd := qv.key(m, a2Key("o")); cmd == nil {
+		t.Fatal("o with a check's terminal did nothing")
+	}
+	if v := m.tab().focused().view; v.Kind != kindPane || v.PaneID != "check1" {
+		t.Fatalf("o opened %+v, want the check's terminal", v)
+	}
+	// Once its terminal is closed, o says that instead of opening nothing.
+	mach.panes = mach.panes[:len(mach.panes)-1]
+	m.rebuild()
+	if _, cmd := qv.key(m, a2Key("o")); cmd != nil || !strings.Contains(m.flash, "been closed") {
+		t.Fatalf("o after the terminal went: %q", m.flash)
+	}
+}

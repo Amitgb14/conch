@@ -270,7 +270,7 @@ const queueListTop = 3 // header, count, blank
 
 func (qv *queueView) render(m Model, w, h int) []string {
 	lines := []string{
-		spread(styleBold.Render("Review queue"), styleMuted.Render("enter open · v check · x dismiss · esc tree"), w),
+		spread(styleBold.Render("Review queue"), styleMuted.Render("enter open · v check · o output · x dismiss · esc tree"), w),
 	}
 	list := m.queueLines()
 	if len(list) == 0 {
@@ -412,6 +412,19 @@ func (qv *queueView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 	case "enter", "right", "l":
 		if it, ok := itemAt(list, qv.sel); ok {
 			return false, qv.open(m, it)
+		}
+	case "o":
+		// The check's own terminal, where its output is.
+		if it, ok := itemAt(list, qv.sel); ok {
+			if pane := m.verifyPane(it.machine, it.projectID, it.branch); pane != "" {
+				return false, m.openPaneRow(it.machine, pane)
+			}
+			switch state, _ := m.verifyOf(it.machine, it.projectID, it.branch); state {
+			case verifyNone:
+				m.setFlash("nothing has checked "+queueName(it)+" yet — v runs its project's check", true)
+			default:
+				m.setFlash("that check's terminal has been closed — v runs it again", true)
+			}
 		}
 	case "v":
 		if it, ok := itemAt(list, qv.sel); ok {
