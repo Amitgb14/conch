@@ -59,9 +59,10 @@ func (m Model) verifyOf(machine, projectID, branch string) (verifyState, string)
 		return verifyFailed, fmt.Sprintf("check failed (exit %d)", run.exit)
 	case run.pane == "":
 		return verifyRunning, "checking…" // starting: its terminal isn't up yet
-	case m.pane(machine, run.pane) == nil:
-		return verifyBroken, "its terminal went away"
 	}
+	// A pane conch hasn't heard of yet is one whose pane.created is still
+	// in flight, not a lost one; a terminal that is really gone is caught
+	// when it closes.
 	return verifyRunning, "checking…"
 }
 
@@ -166,6 +167,18 @@ func (m *Model) verifyExited(machine string, info proto.PaneInfo) bool {
 		return true
 	}
 	return false
+}
+
+// verifyClosed marks a check whose terminal was closed before it finished:
+// conch keeps a check's terminal, so closing one is a person doing it.
+func (m *Model) verifyClosed(machine, paneID string) {
+	for key, run := range m.verifyRuns {
+		if run.pane == paneID && !run.done && strings.HasPrefix(key, machine+"|") {
+			run.err = "its terminal was closed before it finished"
+			m.verifyRuns[key] = run
+			return
+		}
+	}
 }
 
 // verifyOnDone runs the check when an agent finishes on a branch. Only when

@@ -310,6 +310,11 @@ func (qv *queueView) render(m Model, w, h int) []string {
 		qv.scroll = qv.sel - listH + 1
 	}
 	qv.scroll = clamp(qv.scroll, 0, max(len(list)-listH, 0))
+	// Keep a group's heading on screen with the first of its rows, or the
+	// rows below it belong to nothing you can see.
+	if qv.scroll > 0 && qv.sel == qv.scroll && list[qv.scroll-1].header != "" {
+		qv.scroll--
+	}
 	if it, ok := itemAt(list, qv.sel); ok {
 		qv.selKey = it.key()
 	}
@@ -514,5 +519,3 @@ func queueName(it queueItem) string {
 // queueRow is the synthetic row the queue is shown through; it has no place
 // in the tree, so it borrows the focused split.
 func queueRow() row { return row{id: "queue", kind: kindReviewQueue} }
-
-func isQueueRow(v viewRef) bool { return v.Kind == kindReviewQueue }

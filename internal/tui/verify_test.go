@@ -242,3 +242,166 @@ func TestA2VerifyOutputKey(t *testing.T) {
 		t.Fatalf("o after the terminal went: %q", m.flash)
 	}
 }
+
+// The dialog is how a check is named: it saves the command for the project
+// and clears it again when emptied.
+func TestA2VerifyCommandDialog(t *testing.T) {
+	m, mach := a2VerifyModel()
+	m.cfg.Verify.Commands = nil
+
+	m.askVerifyCommand(mach.id, "r1", "wip")
+	d, ok := m.overlay.(*dialog)
+	if !ok {
+		t.Fatalf("overlay is %T", m.overlay)
+	}
+	if !strings.Contains(strings.Join(d.text, " "), "when its agent finishes") {
+		t.Fatalf("dialog text %q", d.text)
+	}
+	// Naming a command saves it and runs it on the branch it was asked for.
+	if cmd := d.submit(m, []string{"  make check  "}); cmd == nil {
+		t.Fatal("naming a command neither saved nor ran anything")
+	}
+	if got := m.verifyCommand("r1"); got != "make check" {
+		t.Fatalf("saved %q, want it trimmed", got)
+	}
+	if m.overlay != nil {
+		t.Fatalf("the dialog stayed open: %T", m.overlay)
+	}
+	// Emptying it takes the check away, and says so.
+	m.askVerifyCommand(mach.id, "r1", "wip")
+	d = m.overlay.(*dialog)
+	d.submit(m, []string{"   "})
+	if _, ok := m.cfg.Verify.Commands["r1"]; ok {
+		t.Fatal("an emptied command was kept")
+	}
+	if !strings.Contains(m.flash, "no check for api") {
+		t.Fatalf("flash %q", m.flash)
+	}
+}
+
+// The states a check can be in that aren't a plain pass or fail.
+func TestA2VerifyOddStates(t *testing.T) {
+	m, mach := a2VerifyModel()
+
+	// A run that couldn't start says why, rather than pretending to run.
+	m.receiveVerifyStarted(verifyStartedMsg{machine: mach.id, projectID: "r1", branch: "wip", err: "no such directory"})
+	if state, text := m.verifyOf(mach.id, "r1", "wip"); state != verifyBroken || text != "no such directory" {
+		t.Fatalf("failed to start: %v %q", state, text)
+	}
+	// A pane conch hasn't heard of yet is still starting, not lost: its
+	// pane.created may not have arrived.
+	m.verifyRuns[verifyKey(mach.id, "r1", "wip")] = verifyRun{pane: "notyet"}
+	if state, _ := m.verifyOf(mach.id, "r1", "wip"); state != verifyRunning {
+		t.Fatalf("a pane not yet known: %v", state)
+	}
+	// Closing a check's terminal before it finishes is a person doing it,
+	// and the row says so rather than checking forever.
+	m.verifyClosed(mach.id, "notyet")
+	if state, text := m.verifyOf(mach.id, "r1", "wip"); state != verifyBroken || !strings.Contains(text, "closed before it finished") {
+		t.Fatalf("terminal closed: %v %q", state, text)
+	}
+	// A check that had already finished is not rewritten by a later close.
+	m.verifyRuns[verifyKey(mach.id, "r1", "wip")] = verifyRun{pane: "p9", done: true}
+	m.verifyClosed(mach.id, "p9")
+	if state, _ := m.verifyOf(mach.id, "r1", "wip"); state != verifyPassed {
+		t.Fatalf("a finished check was rewritten by its close: %v", state)
+	}
+	// A project that isn't there any more can't be checked.
+	m.machines[0].projects = nil
+	if cmd := m.startVerify(mach.id, "r1", "wip"); cmd != nil {
+		t.Fatal("checked a project that is gone")
+	}
+}
+
+// Only a finished agent on a branch of a project starts a check.
+func TestA2VerifyOnDoneGuards(t *testing.T) {
+	m, mach := a2VerifyModel()
+	done := &proto.AgentStatus{Name: "claude", State: proto.AgentDone, Since: time.Now()}
+	for _, tc := range []struct {
+		what string
+		pane proto.PaneInfo
+	}{
+		{"no agent", proto.PaneInfo{ID: "x", ProjectID: "r1", Branch: "wip"}},
+		{"still working", proto.PaneInfo{ID: "x", ProjectID: "r1", Branch: "wip",
+			Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentWorking}}},
+		{"no branch", proto.PaneInfo{ID: "x", ProjectID: "r1", Agent: done}},
+		{"no project", proto.PaneInfo{ID: "x", Branch: "wip", Agent: done}},
+	} {
+		if cmd := m.verifyOnDone(mach.id, tc.pane); cmd != nil {
+			t.Fatalf("%s: started a check", tc.what)
+		}
+	}
+	// The real thing does.
+	if cmd := m.verifyOnDone(mach.id, proto.PaneInfo{ID: "x", ProjectID: "r1", Branch: "wip", Agent: done}); cmd == nil {
+		t.Fatal("a finished agent on a checked project started nothing")
+	}
+}
+
+// The whole path as it happens in use: an agent's update arrives, the check
+// starts, its terminal exits, and conch keeps that terminal instead of
+// closing it as it does every other pane that exits.
+func TestA1VerifyThroughTheEventPath(t *testing.T) {
+	m, peer := a1Fixture(t, true)
+	m.cfg.Verify.Commands = map[string]string{"r1": "true"}
+	peer.setResult(proto.MethodPaneCreate, proto.PaneInfo{ID: "check9", Name: "check · feat", State: proto.PaneRunning})
+
+	// p1 is on branch feat; it finishes.
+	done := proto.PaneInfo{ID: "p1", Name: "claude", State: proto.PaneRunning, ProjectID: "r1", Branch: "feat",
+		Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentDone, Since: time.Now()}}
+	cmd := m.handleEvent(m.machines[0], eventMsg(t, proto.EventPaneUpdated, done))
+	msgs := a2Run(cmd)
+	var started bool
+	for _, msg := range msgs {
+		if v, ok := msg.(verifyStartedMsg); ok {
+			m.receiveVerifyStarted(v)
+			started = true
+		}
+	}
+	if !started {
+		t.Fatalf("a finished agent started no check: %#v", msgs)
+	}
+	if state, _ := m.verifyOf(localMachine, "r1", "feat"); state != verifyRunning {
+		t.Fatalf("after starting: %v", state)
+	}
+
+	// Its terminal exits. Every other pane would be closed; a check's is
+	// kept, because its output is the only record of what happened.
+	exit := proto.PaneInfo{ID: "check9", Name: "check · feat", State: proto.PaneExited, ExitCode: 0}
+	m.machines[0].panes = append(m.machines[0].panes, exit)
+	cmd = m.handleEvent(m.machines[0], eventMsg(t, proto.EventPaneExited, exit))
+	for _, msg := range a2Run(cmd) {
+		if _, ok := msg.(errMsg); ok {
+			t.Fatalf("closing: %#v", msg)
+		}
+	}
+	if n := peer.count(t, m.machines[0].c, proto.MethodPaneClose, "check9"); n != 0 {
+		t.Fatalf("a check's terminal was closed %d times", n)
+	}
+	if state, text := m.verifyOf(localMachine, "r1", "feat"); state != verifyPassed || text != "check passed" {
+		t.Fatalf("after it exited: %v %q", state, text)
+	}
+	if m.flash != "check passed on feat" {
+		t.Fatalf("flash %q", m.flash)
+	}
+}
+
+// A check that cannot even start its terminal says why, on the row.
+func TestA2VerifyStartFails(t *testing.T) {
+	m, peer := a1Fixture(t, true)
+	m.cfg.Verify.Commands = map[string]string{"r1": "true"}
+	peer.setError(proto.MethodPaneCreate, "too many panes")
+
+	cmd := m.startVerify(localMachine, "r1", "feat")
+	if cmd == nil {
+		t.Fatal("no check started")
+	}
+	for _, msg := range a2Run(cmd) {
+		if v, ok := msg.(verifyStartedMsg); ok {
+			m.receiveVerifyStarted(v)
+		}
+	}
+	state, text := m.verifyOf(localMachine, "r1", "feat")
+	if state != verifyBroken || !strings.Contains(text, "too many panes") {
+		t.Fatalf("a check that couldn't start says %v %q", state, text)
+	}
+}

@@ -608,3 +608,95 @@ func TestA1QueueKeyFromAView(t *testing.T) {
 		t.Fatalf("Q inside a pane opened %+v instead of being typed", v)
 	}
 }
+
+// The corners of the queue's own navigation: a row with no branch, a row
+// that is only a pane, and a selection left past the end of the list.
+func TestA2QueueRowEdges(t *testing.T) {
+	m, qv := a2QueueModel()
+	mach := m.machines[0]
+
+	// An agent working outside any project: it has a pane and no branch, so
+	// the row is named after its project and opening it goes to the pane.
+	mach.panes = []proto.PaneInfo{{ID: "p7", Name: "claude", State: proto.PaneRunning,
+		Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked, Since: time.Now()}}}
+	mach.projects = nil
+	m.rebuild()
+	items := m.queueItems()
+	if len(items) != 1 || items[0].branch != "" || items[0].paneID != "p7" {
+		t.Fatalf("loose agent: %+v", items)
+	}
+	if name := queueName(items[0]); name != items[0].project {
+		t.Fatalf("a row with no branch is called %q", name)
+	}
+	if out := a2Plain(qv.render(*m, 90, 12)); !strings.Contains(out, "(no branch)") || !strings.Contains(out, "(no project)") {
+		t.Fatalf("render of a loose agent:\n%s", out)
+	}
+	mach.c = nil // opening a pane subscribes; this fixture has no reader
+	if cmd := qv.open(m, items[0]); cmd == nil {
+		t.Fatal("a row that is only a pane didn't open it")
+	}
+	// A row that is neither a pane nor a branch opens nothing rather than
+	// panicking.
+	if cmd := qv.open(m, queueItem{machine: localMachine}); cmd != nil {
+		t.Fatal("an empty row opened something")
+	}
+	// A selection past the end comes back to the last row, and an empty
+	// queue leaves it alone.
+	qv.sel = 99
+	qv.onRow(m.queueLines())
+	if _, ok := itemAt(m.queueLines(), qv.sel); !ok {
+		t.Fatalf("selection %d is not on a row", qv.sel)
+	}
+	mach.panes = nil
+	qv.onRow(m.queueLines()) // nothing to select: must not panic
+}
+
+// The two details a branch row reports that the fixture doesn't otherwise
+// reach: commits ahead of an upstream, and commits that are pushed but not
+// merged into the base.
+func TestA2QueueBranchDetails(t *testing.T) {
+	m, _ := a2QueueModel()
+	mach := m.machines[0]
+	mach.panes = nil
+	now := time.Now()
+	mach.projects[0].Branches = []proto.BranchInfo{
+		{Name: "main"},
+		{Name: "pushing", BaseAhead: 3, Ahead: 2, Upstream: "origin/pushing", Committed: now.Add(-time.Hour)},
+		{Name: "merged-not", BaseAhead: 1, Ahead: 0, Upstream: "origin/merged-not", Committed: now.Add(-2 * time.Hour)},
+	}
+	want := map[string]string{
+		"pushing":    "2 commits ahead of origin/pushing",
+		"merged-not": "1 commit not merged into main",
+	}
+	got := map[string]string{}
+	for _, it := range m.queueItems() {
+		got[it.branch] = it.detail
+	}
+	for branch, detail := range want {
+		if got[branch] != detail {
+			t.Fatalf("%s says %q, want %q (all: %v)", branch, got[branch], detail, got)
+		}
+	}
+}
+
+// Scrolling back up, and the wheel above the top of a group.
+func TestA2QueueScrollsBothWays(t *testing.T) {
+	m, qv := a2QueueModel()
+	list := m.queueLines()
+	qv.render(*m, 90, queueListTop+2) // a window of two lines
+	qv.key(m, a2Key("G"))
+	qv.render(*m, 90, queueListTop+2)
+	if qv.scroll == 0 {
+		t.Fatalf("the end of a %d-line list didn't scroll", len(list))
+	}
+	qv.key(m, a2Key("g")) // back to the first row
+	out := a2Plain(qv.render(*m, 90, queueListTop+2))
+	if qv.scroll != 0 {
+		t.Fatalf("going back to the top left scroll at %d", qv.scroll)
+	}
+	// Its group's heading comes with it: rows under a heading you cannot
+	// see belong to nothing.
+	if !strings.Contains(out, "api") {
+		t.Fatalf("the first row lost its heading:\n%s", out)
+	}
+}
