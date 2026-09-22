@@ -25,6 +25,16 @@ type Config struct {
 	Brain  BrainCfg  `toml:"brain"`
 	Update UpdateCfg `toml:"update"`
 	Remote RemoteCfg `toml:"remote"`
+	Verify VerifyCfg `toml:"verify"`
+}
+
+// VerifyCfg holds the command conch runs in a branch's worktree when its
+// agent finishes, so the review queue can say whether the work stands up.
+// Commands are per project and there is no default: nothing runs until you
+// name one, since a project's own command can be slow or have side effects.
+type VerifyCfg struct {
+	// Commands maps a project ID to its command, e.g. "go test ./...".
+	Commands map[string]string `toml:"commands,omitempty"`
 }
 
 // RemoteCfg holds settings for panes on remote machines.

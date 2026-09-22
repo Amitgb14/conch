@@ -20,6 +20,7 @@ import (
 // Why a row is in the queue, most urgent first.
 const (
 	bandWaiting   = iota // an agent is blocked on an answer
+	bandFailed           // the project's check failed on it
 	bandDone             // an agent finished and nobody has looked
 	bandUnshipped        // commits that are neither pushed nor merged
 	bandDirty            // uncommitted work with no agent running
@@ -36,6 +37,8 @@ type queueItem struct {
 	detail              string    // why it is here, in words
 	since               time.Time // when it started needing you
 	cost                usage
+	check               verifyState // what the project's check came to
+	checkText           string
 }
 
 // key identifies a row across rebuilds, so the selection survives one.
@@ -82,6 +85,8 @@ func (m Model) queueItems() []queueItem {
 			}
 			if p.Branch != "" {
 				seen[mach.id+"|"+p.ProjectID+"|"+p.Branch] = true
+				it.check, it.checkText = m.verifyOf(mach.id, p.ProjectID, p.Branch)
+				it.band = failedFirst(it.band, it.check)
 			}
 			items = append(items, it)
 		}
@@ -128,6 +133,8 @@ func (m Model) queueItems() []queueItem {
 				default:
 					continue
 				}
+				it.check, it.checkText = m.verifyOf(mach.id, proj.ID, b.Name)
+				it.band = failedFirst(it.band, it.check)
 				items = append(items, it)
 			}
 		}
@@ -237,6 +244,16 @@ func nextRow(lines []queueLine, i, d int) int {
 	return -1
 }
 
+// failedFirst promotes a row whose check failed, whatever put it in the
+// queue: a command that comes back non-zero is the clearest call for
+// attention there is. An agent waiting on an answer still outranks it.
+func failedFirst(band int, check verifyState) int {
+	if check == verifyFailed && band > bandFailed {
+		return bandFailed
+	}
+	return band
+}
+
 // count is "1 commit" / "3 commits", reusing the package's plural suffix.
 func count(n int, what string) string {
 	return fmt.Sprintf("%d %s%s", n, what, plural(n))
@@ -253,7 +270,7 @@ const queueListTop = 3 // header, count, blank
 
 func (qv *queueView) render(m Model, w, h int) []string {
 	lines := []string{
-		spread(styleBold.Render("Review queue"), styleMuted.Render("enter open · x dismiss · esc tree"), w),
+		spread(styleBold.Render("Review queue"), styleMuted.Render("enter open · v check · x dismiss · esc tree"), w),
 	}
 	list := m.queueLines()
 	if len(list) == 0 {
@@ -320,6 +337,9 @@ func (qv *queueView) render(m Model, w, h int) []string {
 		if it.agent != "" {
 			detail = agentLabel(it.agent) + " " + detail
 		}
+		if it.checkText != "" {
+			detail += " · " + it.checkText
+		}
 		// The project is in the heading now, so the row is the branch and
 		// what it needs; the branch keeps the larger share when space runs out.
 		room := max(w-ansi.StringWidth(right)-8, 10)
@@ -347,6 +367,8 @@ func queueGlyph(band int) (string, lipgloss.Style) {
 	switch band {
 	case bandWaiting:
 		return "!", styleWarn
+	case bandFailed:
+		return "✗", styleErr
 	case bandDone:
 		return "✓", styleOK
 	case bandUnshipped:
@@ -390,6 +412,17 @@ func (qv *queueView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 	case "enter", "right", "l":
 		if it, ok := itemAt(list, qv.sel); ok {
 			return false, qv.open(m, it)
+		}
+	case "v":
+		if it, ok := itemAt(list, qv.sel); ok {
+			if m.verifyCommand(it.projectID) == "" {
+				return false, m.askVerifyCommand(it.machine, it.projectID, it.branch)
+			}
+			if cmd := m.startVerify(it.machine, it.projectID, it.branch); cmd != nil {
+				m.setFlash("checking "+queueName(it)+"…", false)
+				return false, cmd
+			}
+			m.setFlash("nothing to check "+queueName(it)+" in: it has no worktree", true)
 		}
 	case "x":
 		if it, ok := itemAt(list, qv.sel); ok {

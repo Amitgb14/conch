@@ -125,6 +125,7 @@ type Model struct {
 	sessionsView *sessionsView            // the focused leaf's, when it lists sessions
 	queueView    *queueView               // the focused leaf's, when it is the review queue
 	queueSeen    map[string]string        // review queue rows dismissed, by what they said when dismissed
+	verifyRuns   map[string]verifyRun     // a branch's last run of its project's check, by machine|project|branch
 }
 
 type (
@@ -353,6 +354,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case testStartedMsg:
 		return m, m.receiveTestStarted(msg)
 
+	case verifyStartedMsg:
+		m.receiveVerifyStarted(msg)
+		return m, nil
+
 	case attemptsDoneMsg:
 		return m, m.receiveAttempts(msg)
 
@@ -543,8 +548,15 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if info.State != proto.PaneRunning && m.isViewing(mach.id, info.ID) && m.focus == focusMain {
 			m.focus = focusSidebar
 		}
+		// A finished agent gets its branch checked, when the project has a
+		// command for it.
+		var checked tea.Cmd
+		if wasDone, isDone := agentDone(old), agentDone(info); isDone && !wasDone {
+			checked = m.verifyOnDone(mach.id, info)
+		}
 		var installed tea.Cmd
 		if msg.Event == proto.EventPaneExited {
+			m.verifyExited(mach.id, info)
 			installed = m.installerDone(mach, info)
 			if installed == nil && !launchFailed(info) {
 				// Exited on its own (a shell's exit, an agent's /exit or
@@ -559,7 +571,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				}
 			}
 		}
-		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), installed, m.observeAgent(mach, old, info))
+		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), installed, checked, m.observeAgent(mach, old, info))
 
 	case proto.EventPaneClosed:
 		var ref proto.PaneRef

@@ -64,8 +64,13 @@ history; details for big items live in their own plan files.
     stale enough for the tree to hide — and sit under a heading for their
     project, so a repository is named once however many of its branches
     need you. `x` dismisses a row until what it says changes, and the
-    status bar counts what is waiting. Not yet: filtering, and
-    dismissals last only as long as the TUI does.
+    status bar counts what is waiting. A project can name a **check** —
+    its own command — which conch runs in a branch's worktree when the
+    agent there finishes: the queue then says `checked` or `check failed
+    (exit 1)`, and a failure sorts to the top. No default, nothing runs
+    until a command is named, and `v` runs it on demand. Not yet:
+    filtering, dismissals last only as long as the TUI does, and a check
+    is not re-run when a branch changes on its own.
 
 ## Not now
 
