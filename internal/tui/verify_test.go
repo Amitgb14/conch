@@ -38,7 +38,7 @@ func TestA2VerifyNothingRunsWithoutACommand(t *testing.T) {
 	// And the queue says nothing about checks.
 	qv := &queueView{}
 	out := a2Plain(qv.render(*m, 100, 20))
-	for _, absent := range []string{"checked", "check failed", "checking"} {
+	for _, absent := range []string{"check passed", "check failed", "checking"} {
 		if strings.Contains(out, absent) {
 			t.Fatalf("queue says %q for a project with no check:\n%s", absent, out)
 		}
@@ -64,7 +64,7 @@ func TestA2VerifyRunsAndRecordsItsVerdict(t *testing.T) {
 	}
 	m.verifyExited(mach.id, proto.PaneInfo{ID: "check1", State: proto.PaneExited, ExitCode: 0})
 	mach.panes = mach.panes[:1] // conch closes it
-	if state, text := m.verifyOf(mach.id, "r1", "wip"); state != verifyPassed || text != "checked" {
+	if state, text := m.verifyOf(mach.id, "r1", "wip"); state != verifyPassed || text != "check passed" {
 		t.Fatalf("passed: %v %q", state, text)
 	}
 	// A failure keeps its exit code.
@@ -109,7 +109,7 @@ func TestA2VerifyFailurePromotesTheRow(t *testing.T) {
 	}
 	// The row that passed says so instead.
 	m.verifyExited(mach.id, proto.PaneInfo{ID: "check1", State: proto.PaneExited, ExitCode: 0})
-	if out := a2Plain((&queueView{}).render(*m, 150, 20)); !strings.Contains(out, "· checked") {
+	if out := a2Plain((&queueView{}).render(*m, 150, 20)); !strings.Contains(out, "· check passed") {
 		t.Fatalf("a passed check isn't shown:\\n%s", out)
 	}
 }

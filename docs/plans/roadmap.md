@@ -66,7 +66,7 @@ history; details for big items live in their own plan files.
     need you. `x` dismisses a row until what it says changes, and the
     status bar counts what is waiting. A project can name a **check** —
     its own command — which conch runs in a branch's worktree when the
-    agent there finishes: the queue then says `checked` or `check failed
+    agent there finishes: the queue then says `check passed` or `check failed
     (exit 1)`, and a failure sorts to the top. No default, nothing runs
     until a command is named, and `v` runs it on demand. Not yet:
     filtering, dismissals last only as long as the TUI does, and a check

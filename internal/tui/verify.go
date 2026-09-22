@@ -54,7 +54,7 @@ func (m Model) verifyOf(machine, projectID, branch string) (verifyState, string)
 	case run.err != "":
 		return verifyBroken, run.err
 	case run.done && run.exit == 0:
-		return verifyPassed, "checked"
+		return verifyPassed, "check passed"
 	case run.done:
 		return verifyFailed, fmt.Sprintf("check failed (exit %d)", run.exit)
 	case run.pane == "":
