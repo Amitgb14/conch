@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -155,6 +154,89 @@ func (m Model) queueItems() []queueItem {
 	return items
 }
 
+// queueLine is one line of the list: a project heading, or a row under it.
+// Headings and rows share an index so scrolling, clicking and the selection
+// all work on the same list; the selection only ever rests on a row.
+type queueLine struct {
+	header string
+	item   queueItem
+	last   bool // the last row of its group, so groups can breathe
+}
+
+// queueLines groups the queue by project. A project appears once, and the
+// projects themselves are ordered by their most urgent row, so the thing
+// that needs answering first is still at the top.
+func (m Model) queueLines() []queueLine {
+	items := m.queueItems()
+	if len(items) == 0 {
+		return nil
+	}
+	spansMachines := false
+	for _, it := range items {
+		spansMachines = spansMachines || it.machine != items[0].machine
+	}
+	var order []string
+	groups := map[string][]queueItem{}
+	for _, it := range items {
+		k := it.machine + "|" + it.projectID
+		if _, ok := groups[k]; !ok {
+			order = append(order, k) // items are sorted, so the first is the most urgent
+		}
+		groups[k] = append(groups[k], it)
+	}
+	var lines []queueLine
+	for _, k := range order {
+		in := groups[k]
+		name := in[0].project
+		if name == "" {
+			name = "(no project)"
+		}
+		if spansMachines {
+			name = in[0].machineLbl + " · " + name
+		}
+		lines = append(lines, queueLine{header: name})
+		for i, it := range in {
+			lines = append(lines, queueLine{item: it, last: i == len(in)-1})
+		}
+	}
+	return lines
+}
+
+// onRow keeps the selection on a row: it starts at the top of the list,
+// which is a heading, and a dismissal can leave it on one.
+func (qv *queueView) onRow(list []queueLine) {
+	if len(list) == 0 {
+		return
+	}
+	qv.sel = clamp(qv.sel, 0, len(list)-1)
+	if _, ok := itemAt(list, qv.sel); ok {
+		return
+	}
+	if i := nextRow(list, qv.sel, 1); i >= 0 {
+		qv.sel = i
+	} else if i := nextRow(list, qv.sel, -1); i >= 0 {
+		qv.sel = i
+	}
+}
+
+// itemAt is the row at i, if i is a row rather than a heading.
+func itemAt(lines []queueLine, i int) (queueItem, bool) {
+	if i >= 0 && i < len(lines) && lines[i].header == "" {
+		return lines[i].item, true
+	}
+	return queueItem{}, false
+}
+
+// nextRow is the next line at or after i in direction d that is a row.
+func nextRow(lines []queueLine, i, d int) int {
+	for ; i >= 0 && i < len(lines); i += d {
+		if lines[i].header == "" {
+			return i
+		}
+	}
+	return -1
+}
+
 // count is "1 commit" / "3 commits", reusing the package's plural suffix.
 func count(n int, what string) string {
 	return fmt.Sprintf("%d %s%s", n, what, plural(n))
@@ -170,61 +252,62 @@ type queueView struct {
 const queueListTop = 3 // header, count, blank
 
 func (qv *queueView) render(m Model, w, h int) []string {
-	items := m.queueItems()
 	lines := []string{
-		spread(styleBold.Render("Review queue"), styleMuted.Render("enter open · esc tree"), w),
+		spread(styleBold.Render("Review queue"), styleMuted.Render("enter open · x dismiss · esc tree"), w),
 	}
-	if len(items) == 0 {
+	list := m.queueLines()
+	if len(list) == 0 {
 		return append(lines, "", styleMuted.Render(fit("  Nothing is waiting for you.", w)))
 	}
-	waiting, spansMachines := 0, false
-	for _, it := range items {
-		if it.band == bandWaiting {
+	rows, waiting := 0, 0
+	for _, l := range list {
+		if l.header != "" {
+			continue
+		}
+		rows++
+		if l.item.band == bandWaiting {
 			waiting++
 		}
-		// Name the machine on each row only when there is something to
-		// tell apart; one machine's queue reads better without it.
-		spansMachines = spansMachines || it.machine != items[0].machine
 	}
-	summary := count(len(items), "thing") + " to look at"
+	summary := count(rows, "thing") + " to look at"
 	if waiting > 0 {
 		summary += fmt.Sprintf(" · %d waiting on you", waiting)
 	}
 	lines = append(lines, styleMuted.Render(fit("  "+summary, w)), "")
 
-	// Follow the row the selection was on, if it is still here.
+	// Keep the selection on the row it was on, and never on a heading.
 	if qv.selKey != "" {
-		for i, it := range items {
-			if it.key() == qv.selKey {
+		for i, l := range list {
+			if l.header == "" && l.item.key() == qv.selKey {
 				qv.sel = i
 				break
 			}
 		}
 	}
+	qv.onRow(list)
 	listH := max(h-queueListTop, 1)
-	qv.sel = clamp(qv.sel, 0, len(items)-1)
 	if qv.sel < qv.scroll {
 		qv.scroll = qv.sel
 	}
 	if qv.sel >= qv.scroll+listH {
 		qv.scroll = qv.sel - listH + 1
 	}
-	qv.scroll = clamp(qv.scroll, 0, max(len(items)-listH, 0))
-	qv.selKey = items[qv.sel].key()
+	qv.scroll = clamp(qv.scroll, 0, max(len(list)-listH, 0))
+	if it, ok := itemAt(list, qv.sel); ok {
+		qv.selKey = it.key()
+	}
 
-	for i := qv.scroll; i < min(qv.scroll+listH, len(items)); i++ {
-		it := items[i]
+	for i := qv.scroll; i < min(qv.scroll+listH, len(list)); i++ {
+		l := list[i]
+		if l.header != "" {
+			lines = append(lines, styleBold.Render(fit(" "+ansi.Truncate(l.header, max(w-2, 4), "…"), w)))
+			continue
+		}
+		it := l.item
 		glyph, style := queueGlyph(it.band)
 		name := it.branch
 		if name == "" {
 			name = "(no branch)"
-		}
-		// The branch names the row; the project and machine are context.
-		// When the split is narrow, drop the context from the left rather
-		// than truncate everything into uselessness.
-		parts := []string{it.project, name}
-		if spansMachines {
-			parts = append([]string{it.machineLbl}, parts...)
 		}
 		right := ""
 		if c := m.costChip(it.cost); c != "" {
@@ -237,28 +320,23 @@ func (qv *queueView) render(m Model, w, h int) []string {
 		if it.agent != "" {
 			detail = agentLabel(it.agent) + " " + detail
 		}
+		// The project is in the heading now, so the row is the branch and
+		// what it needs; the branch keeps the larger share when space runs out.
 		room := max(w-ansi.StringWidth(right)-8, 10)
-		whereRoom := max(room*3/5, 10)
-		where := strings.Join(parts, " · ")
-		for len(parts) > 1 && ansi.StringWidth(where) > whereRoom {
-			parts = parts[1:]
-			where = strings.Join(parts, " · ")
-		}
-		where = ansi.Truncate(where, whereRoom, "…")
-		detail = ansi.Truncate(detail, max(room-whereRoom, 6), "…")
+		nameRoom := max(room*3/5, 10)
+		name = ansi.Truncate(name, nameRoom, "…")
+		detail = ansi.Truncate(detail, max(room-nameRoom, 6), "…")
 		if i == qv.sel {
-			// The cursor replaces the band's glyph. Built from its parts,
-			// never by slicing the drawn line: the glyphs are multi-byte,
-			// and cutting one in half makes a line the wrong width, which
-			// wraps and leaves the row above drawn twice.
+			// Built from its parts: slicing the drawn line cut multi-byte
+			// glyphs in half, which wrapped the row and doubled the one above.
 			sel := styleSel
 			if m.focus != focusMain {
 				sel = styleSelDim
 			}
-			lines = append(lines, sel.Render(fit(spread(" ▸ "+where+"  "+detail, ansi.Strip(right), w), w)))
+			lines = append(lines, sel.Render(fit(spread("   ▸ "+name+"  "+detail, ansi.Strip(right), w), w)))
 			continue
 		}
-		left := fmt.Sprintf(" %s %s", style.Render(glyph), where)
+		left := fmt.Sprintf("   %s %s", style.Render(glyph), name)
 		left += styleMuted.Render("  " + detail)
 		lines = append(lines, spread(left, right, w))
 	}
@@ -279,29 +357,42 @@ func queueGlyph(band int) (string, lipgloss.Style) {
 }
 
 func (qv *queueView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
-	items := m.queueItems()
+	list := m.queueLines()
+	qv.onRow(list) // keys can arrive before the first render
+	move := func(d, n int) {
+		for ; n > 0; n-- {
+			i := nextRow(list, qv.sel+d, d)
+			if i < 0 {
+				return // already at the first or last row
+			}
+			qv.sel = i
+		}
+	}
 	switch k.String() {
 	case "esc", "q", "left", "h", "tab":
 		return true, nil
 	case "up", "k":
-		qv.sel--
+		move(-1, 1)
 	case "down", "j":
-		qv.sel++
+		move(1, 1)
 	case "pgup":
-		qv.sel -= 10
+		move(-1, 10)
 	case "pgdown":
-		qv.sel += 10
+		move(1, 10)
 	case "home", "g":
-		qv.sel = 0
+		if i := nextRow(list, 0, 1); i >= 0 {
+			qv.sel = i
+		}
 	case "end", "G":
-		qv.sel = len(items) - 1
+		if i := nextRow(list, len(list)-1, -1); i >= 0 {
+			qv.sel = i
+		}
 	case "enter", "right", "l":
-		if qv.sel >= 0 && qv.sel < len(items) {
-			return false, qv.open(m, items[qv.sel])
+		if it, ok := itemAt(list, qv.sel); ok {
+			return false, qv.open(m, it)
 		}
 	case "x":
-		if qv.sel >= 0 && qv.sel < len(items) {
-			it := items[qv.sel]
+		if it, ok := itemAt(list, qv.sel); ok {
 			if m.queueSeen == nil {
 				m.queueSeen = map[string]string{}
 			}
@@ -310,9 +401,8 @@ func (qv *queueView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 			qv.selKey = "" // the row is gone; keep the position, not the row
 		}
 	}
-	qv.sel = clamp(qv.sel, 0, max(len(items)-1, 0))
-	if qv.sel < len(items) {
-		qv.selKey = items[qv.sel].key()
+	if it, ok := itemAt(list, qv.sel); ok {
+		qv.selKey = it.key()
 	}
 	return false, nil
 }
@@ -333,25 +423,35 @@ func (qv *queueView) open(m *Model, it queueItem) tea.Cmd {
 }
 
 func (qv *queueView) mouse(m *Model, msg tea.MouseMsg, x, y int) tea.Cmd {
-	items := m.queueItems()
+	list := m.queueLines()
+	qv.onRow(list)
 	switch {
 	case msg.Button == tea.MouseButtonWheelUp:
-		qv.sel--
-	case msg.Button == tea.MouseButtonWheelDown:
-		qv.sel++
-	case msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft:
-		if i := qv.scroll + y - queueListTop; y >= queueListTop && i >= 0 && i < len(items) {
-			if i == qv.sel {
-				return qv.open(m, items[i])
-			}
+		if i := nextRow(list, qv.sel-1, -1); i >= 0 {
 			qv.sel = i
 		}
+	case msg.Button == tea.MouseButtonWheelDown:
+		if i := nextRow(list, qv.sel+1, 1); i >= 0 {
+			qv.sel = i
+		}
+	case msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft:
+		i := qv.scroll + y - queueListTop
+		if y < queueListTop || i < 0 || i >= len(list) {
+			return nil
+		}
+		it, ok := itemAt(list, i)
+		if !ok {
+			return nil // a heading is not a row to open
+		}
+		if i == qv.sel {
+			return qv.open(m, it)
+		}
+		qv.sel = i
 	default:
 		return nil
 	}
-	qv.sel = clamp(qv.sel, 0, max(len(items)-1, 0))
-	if qv.sel < len(items) {
-		qv.selKey = items[qv.sel].key()
+	if it, ok := itemAt(list, qv.sel); ok {
+		qv.selKey = it.key()
 	}
 	return nil
 }

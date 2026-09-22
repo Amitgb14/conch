@@ -103,7 +103,7 @@ These also sit in a branch's menu (`m`). See [Finishing a task](/docs/tasks#fini
 | `↑` | commits not pushed or merged | work that is finished but hasn't shipped |
 | `·` | uncommitted changes | a worktree left dirty, with no agent running in it |
 
-Within each group the thing that has been waiting longest comes first, so nothing quietly rots at the bottom. Each row names the project and branch (and the machine, once the queue spans more than one), what it is waiting on, what the agent has spent, and how long it has been there.
+Within each group the thing that has been waiting longest comes first, so nothing quietly rots at the bottom. Rows are gathered under the project they belong to — a repository is named once, however many of its branches need you — and the projects themselves are ordered by their most urgent row. Each row names the branch, what it is waiting on, what the agent has spent, and how long it has been there.
 
 `enter` goes where the answer is: a waiting agent opens its pane so you can reply, and anything else opens the branch's [changes](#changes-view), where committing, pushing and opening a PR already live. `x` dismisses a row you have decided to leave alone; it comes back when what it says changes — another file edited, the agent finishing again — and everything returns when the TUI restarts. `esc` returns to the tree.
 

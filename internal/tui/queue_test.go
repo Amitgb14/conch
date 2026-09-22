@@ -55,6 +55,19 @@ func a2QueueModel() (*Model, *queueView) {
 	return m, &queueView{}
 }
 
+// a2QueueAt is the index of the row for a branch in the grouped list, so
+// tests name what they select instead of counting headings.
+func a2QueueAt(t *testing.T, m *Model, branch string) int {
+	t.Helper()
+	for i, l := range m.queueLines() {
+		if l.header == "" && l.item.branch == branch {
+			return i
+		}
+	}
+	t.Fatalf("no row for %q in %d lines", branch, len(m.queueLines()))
+	return -1
+}
+
 func TestA2QueueItems(t *testing.T) {
 	m, _ := a2QueueModel()
 	items := m.queueItems()
@@ -160,7 +173,7 @@ func TestA2QueueRender(t *testing.T) {
 	lines := qv.render(*m, w, 20)
 	out := a2Plain(lines)
 	for _, want := range []string{"Review queue", "3 things to look at", "1 waiting on you",
-		"api · answering", "Claude Code waiting for an answer", "api · feat", "Codex finished", "3 files uncommitted"} {
+		"api", "answering", "Claude Code waiting for an answer", "feat", "Codex finished", "3 files uncommitted"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("render lacks %q:\n%s", want, out)
 		}
@@ -170,15 +183,15 @@ func TestA2QueueRender(t *testing.T) {
 			t.Fatalf("row %d is %d wide, want %d:\n%s", i, lw, w, out)
 		}
 	}
-	// One machine's queue doesn't repeat its name on every row; a queue
-	// spanning machines names them.
-	if strings.Contains(out, "local · api") {
-		t.Fatalf("single machine named on every row:\n%s", out)
+	// The project is a heading, named once, not repeated on every row; the
+	// machine joins it only when the queue spans machines.
+	if strings.Contains(out, "local · api") || strings.Count(out, "api") != 1 {
+		t.Fatalf("project not named once:\n%s", out)
 	}
 	box := m.machines[1]
 	box.state = stateOnline
 	box.projects = []proto.ProjectInfo{{ID: "r2", Name: "web", Git: true, Base: "main"}}
-	if out := a2Plain(qv.render(*m, w, 20)); !strings.Contains(out, "local · api") || !strings.Contains(out, "box · web · ghost") {
+	if out := a2Plain(qv.render(*m, w, 20)); !strings.Contains(out, "local · api") || !strings.Contains(out, "box · web") {
 		t.Fatalf("queue across machines unnamed:\n%s", out)
 	}
 	box.state = stateOffline
@@ -187,7 +200,7 @@ func TestA2QueueRender(t *testing.T) {
 	// moves by key, as a person's would, so it carries its row with it.
 	qv.key(m, a2Key("G"))
 	lines = qv.render(*m, w, queueListTop+1)
-	if len(lines) != queueListTop+1 || qv.scroll != 2 || !strings.Contains(a2Plain(lines), "uncommitted") {
+	if len(lines) != queueListTop+1 || !strings.Contains(a2Plain(lines), "uncommitted") {
 		t.Fatalf("scroll %d:\n%s", qv.scroll, a2Plain(lines))
 	}
 	// Nothing waiting, and tiny sizes, both render.
@@ -209,7 +222,7 @@ func TestA2QueueNarrowKeepsTheBranch(t *testing.T) {
 	m.machines[1].projects = []proto.ProjectInfo{{ID: "r2", Name: "web", Git: true, Base: "main"}}
 
 	wide := a2Plain(qv.render(*m, 110, 20))
-	if !strings.Contains(wide, "local · api · answering") {
+	if !strings.Contains(wide, "local · api") || !strings.Contains(wide, "answering") {
 		t.Fatalf("wide render lost its context:\n%s", wide)
 	}
 	for _, w := range []int{70, 55, 44} {
@@ -236,12 +249,21 @@ func TestA2QueueNarrowKeepsTheBranch(t *testing.T) {
 
 func TestA2QueueKeys(t *testing.T) {
 	m, qv := a2QueueModel()
-	for _, step := range []struct {
-		key  string
-		want int
-	}{{"down", 1}, {"j", 2}, {"down", 2}, {"up", 1}, {"k", 0}, {"pgdown", 2}, {"pgup", 0}, {"G", 2}, {"g", 0}, {"end", 2}, {"home", 0}} {
-		if back, _ := qv.key(m, a2Key(step.key)); back || qv.sel != step.want {
-			t.Fatalf("after %s sel is %d, want %d", step.key, qv.sel, step.want)
+	sel := func() string {
+		if it, ok := itemAt(m.queueLines(), qv.sel); ok {
+			return it.branch
+		}
+		return "(heading)"
+	}
+	// Movement steps over the headings and stops at the ends.
+	for _, step := range []struct{ key, want string }{
+		{"down", "feat"}, {"j", "wip"}, {"down", "wip"},
+		{"up", "feat"}, {"k", "answering"}, {"up", "answering"},
+		{"pgdown", "wip"}, {"pgup", "answering"},
+		{"G", "wip"}, {"g", "answering"}, {"end", "wip"}, {"home", "answering"},
+	} {
+		if back, _ := qv.key(m, a2Key(step.key)); back || sel() != step.want {
+			t.Fatalf("after %s the selection is %q, want %q", step.key, sel(), step.want)
 		}
 	}
 	for _, k := range []string{"esc", "q", "left", "h", "tab"} {
@@ -256,7 +278,7 @@ func TestA2QueueOpensWhereTheAnswerIs(t *testing.T) {
 	m.rebuild()
 
 	// A waiting agent needs its pane: that is where the question is.
-	qv.sel = 0
+	qv.sel = a2QueueAt(t, m, "answering")
 	if _, cmd := qv.key(m, a2Key("enter")); cmd != nil {
 		a2Run(cmd)
 	}
@@ -264,7 +286,7 @@ func TestA2QueueOpensWhereTheAnswerIs(t *testing.T) {
 		t.Fatalf("waiting row opened %+v", m.tab().focused().view)
 	}
 	// Anything else needs the diff.
-	qv.sel = 2
+	qv.sel = a2QueueAt(t, m, "wip")
 	if _, cmd := qv.key(m, a2Key("enter")); cmd != nil {
 		a2Run(cmd)
 	}
@@ -279,32 +301,40 @@ func TestA2QueueMouse(t *testing.T) {
 	m.rebuild()
 	qv.render(*m, 100, 20) // the mouse handler works in rendered rows
 
-	// A click selects; a second click on the same row opens it.
-	qv.mouse(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, 5, queueListTop+1)
-	if qv.sel != 1 {
-		t.Fatalf("click selected %d", qv.sel)
+	// A click selects; a second click on the same row opens it. A click on
+	// a heading does nothing.
+	feat := a2QueueAt(t, m, "feat")
+	click := func(line int) tea.Cmd {
+		return qv.mouse(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, 5, queueListTop+line-qv.scroll)
 	}
-	if cmd := qv.mouse(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, 5, queueListTop+1); cmd == nil {
+	if cmd := click(0); cmd != nil { // the first line of the list is a heading
+		t.Fatal("a click on a heading opened something")
+	}
+	click(feat)
+	if qv.sel != feat {
+		t.Fatalf("click selected %d, want %d", qv.sel, feat)
+	}
+	if cmd := click(feat); cmd == nil {
 		t.Fatal("second click did nothing")
 	}
 	// Above the list, and past the end, change nothing.
-	qv.sel = 1
+	qv.sel = feat
 	qv.mouse(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, 5, 0)
 	qv.mouse(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, 5, queueListTop+40)
-	if qv.sel != 1 {
+	if qv.sel != feat {
 		t.Fatalf("stray clicks moved the selection to %d", qv.sel)
 	}
 	// The wheel moves the selection and stops at the ends.
 	qv.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown}, 5, 5)
 	qv.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown}, 5, 5)
-	if qv.sel != 2 {
-		t.Fatalf("wheel down: %d", qv.sel)
+	if want := a2QueueAt(t, m, "wip"); qv.sel != want {
+		t.Fatalf("wheel down: %d, want %d", qv.sel, want)
 	}
 	for i := 0; i < 5; i++ {
 		qv.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp}, 5, 5)
 	}
-	if qv.sel != 0 {
-		t.Fatalf("wheel up: %d", qv.sel)
+	if want := a2QueueAt(t, m, "answering"); qv.sel != want {
+		t.Fatalf("wheel up: %d, want %d", qv.sel, want)
 	}
 }
 
@@ -314,7 +344,7 @@ func TestA2QueueMouse(t *testing.T) {
 func TestA2QueueSelectionFollowsItsRow(t *testing.T) {
 	m, qv := a2QueueModel()
 	qv.render(*m, 100, 20)
-	qv.sel = 1
+	qv.sel = a2QueueAt(t, m, "feat")
 	qv.render(*m, 100, 20)
 	was := qv.selKey
 
@@ -326,8 +356,8 @@ func TestA2QueueSelectionFollowsItsRow(t *testing.T) {
 	if qv.selKey != was {
 		t.Fatalf("selection jumped from %q to %q", was, qv.selKey)
 	}
-	if items := m.queueItems(); items[qv.sel].key() != was {
-		t.Fatalf("selection is on %q, want %q", items[qv.sel].key(), was)
+	if it, ok := itemAt(m.queueLines(), qv.sel); !ok || it.key() != was {
+		t.Fatalf("selection is on %q (row %v), want %q", it.key(), ok, was)
 	}
 }
 
