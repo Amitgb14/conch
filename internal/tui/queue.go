@@ -244,17 +244,23 @@ func (qv *queueView) render(m Model, w, h int) []string {
 			parts = parts[1:]
 			where = strings.Join(parts, " · ")
 		}
-		left := fmt.Sprintf(" %s %s", style.Render(glyph), ansi.Truncate(where, whereRoom, "…"))
-		left += styleMuted.Render("  " + ansi.Truncate(detail, max(room-whereRoom, 6), "…"))
-		line := spread(left, right, w)
+		where = ansi.Truncate(where, whereRoom, "…")
+		detail = ansi.Truncate(detail, max(room-whereRoom, 6), "…")
 		if i == qv.sel {
+			// The cursor replaces the band's glyph. Built from its parts,
+			// never by slicing the drawn line: the glyphs are multi-byte,
+			// and cutting one in half makes a line the wrong width, which
+			// wraps and leaves the row above drawn twice.
 			sel := styleSel
 			if m.focus != focusMain {
 				sel = styleSelDim
 			}
-			line = sel.Render(fit(" ▸"+ansi.Strip(line)[2:], w))
+			lines = append(lines, sel.Render(fit(spread(" ▸ "+where+"  "+detail, ansi.Strip(right), w), w)))
+			continue
 		}
-		lines = append(lines, line)
+		left := fmt.Sprintf(" %s %s", style.Render(glyph), where)
+		left += styleMuted.Render("  " + detail)
+		lines = append(lines, spread(left, right, w))
 	}
 	return lines
 }

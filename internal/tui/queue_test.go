@@ -451,3 +451,43 @@ func TestA1QueueCountInStatusBar(t *testing.T) {
 		}
 	}
 }
+
+// Every band's glyph is multi-byte except the waiting "!", and the
+// selected row used to be built by slicing the drawn line two bytes in.
+// That cut a rune in half: the row measured wrong, wrapped, and left the
+// row above it drawn twice on the screen.
+func TestA2QueueSelectionOnEveryBand(t *testing.T) {
+	m, qv := a2QueueModel()
+	m.focus = focusMain
+	w := 90
+	items := m.queueItems()
+	if len(items) < 3 {
+		t.Fatalf("want a row per band, got %+v", items)
+	}
+	for i := range items {
+		qv.sel = i
+		qv.selKey = items[i].key()
+		lines := qv.render(*m, w, 20)
+		out := a2Plain(lines)
+		if !strings.Contains(out, "▸") {
+			t.Fatalf("row %d has no cursor:\n%s", i, out)
+		}
+		if strings.ContainsAny(out, "\ufffd") {
+			t.Fatalf("row %d mangled a glyph:\n%s", i, out)
+		}
+		for j, l := range lines[queueListTop:] {
+			if lw := ansi.StringWidth(l); lw != w {
+				t.Fatalf("selection on band %d: row %d is %d wide, want %d:\n%s", items[i].band, j, lw, w, out)
+			}
+			// The plain text must be the same length too: a half-eaten
+			// rune measures narrow here and wide in a terminal.
+			if n := len([]rune(ansi.Strip(l))); n != w {
+				t.Fatalf("selection on band %d: row %d has %d runes, want %d: %q", items[i].band, j, n, w, ansi.Strip(l))
+			}
+		}
+		// The selected row still says what it is.
+		if name := items[i].branch; name != "" && !strings.Contains(out, name[:min(len(name), 8)]) {
+			t.Fatalf("selected row %d lost its branch %q:\n%s", i, name, out)
+		}
+	}
+}
