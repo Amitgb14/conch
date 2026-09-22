@@ -137,17 +137,25 @@ func agentDone(p proto.PaneInfo) bool {
 	return p.Agent != nil && p.Agent.State == proto.AgentDone
 }
 
-// verifyExited records what a check came to, as its pane exits and before
-// conch closes it.
-func (m *Model) verifyExited(machine string, info proto.PaneInfo) {
+// verifyExited records what a check came to, as its pane exits, and says
+// so. It reports whether the pane was a check, since a check's terminal is
+// kept rather than closed: it is the only place its output lives.
+func (m *Model) verifyExited(machine string, info proto.PaneInfo) bool {
 	for key, run := range m.verifyRuns {
 		if run.pane != info.ID || !strings.HasPrefix(key, machine+"|") {
 			continue
 		}
 		run.done, run.exit = true, info.ExitCode
 		m.verifyRuns[key] = run
-		return
+		branch := key[strings.LastIndex(key, "|")+1:]
+		if info.ExitCode == 0 {
+			m.setFlash("check passed on "+branch, false)
+		} else {
+			m.setFlash(fmt.Sprintf("check failed on %s (exit %d) — its terminal has the output", branch, info.ExitCode), true)
+		}
+		return true
 	}
+	return false
 }
 
 // verifyOnDone runs the check when an agent finishes on a branch. Only when

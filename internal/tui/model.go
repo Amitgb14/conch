@@ -556,9 +556,11 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		}
 		var installed tea.Cmd
 		if msg.Event == proto.EventPaneExited {
-			m.verifyExited(mach.id, info)
+			wasCheck := m.verifyExited(mach.id, info)
 			installed = m.installerDone(mach, info)
-			if installed == nil && !launchFailed(info) {
+			// A check's terminal is its report: it stays until you close
+			// it, or nothing would be left of a check that passed.
+			if installed == nil && !launchFailed(info) && !wasCheck {
 				// Exited on its own (a shell's exit, an agent's /exit or
 				// ctrl+c): close it, as tmux does. Only a pane that failed
 				// right away stays, so its error can be read.

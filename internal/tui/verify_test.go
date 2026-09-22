@@ -171,3 +171,36 @@ func TestA2VerifyFailurePromotesAnyRow(t *testing.T) {
 		t.Fatalf("a waiting agent lost its place: %+v", it)
 	}
 }
+
+// A check's terminal is its report: unlike a shell that exits, it is kept,
+// and the verdict is said out loud. A check that passed used to vanish
+// without a word.
+func TestA2VerifyKeepsItsTerminalAndSaysSo(t *testing.T) {
+	m, mach := a2VerifyModel()
+	m.receiveVerifyStarted(verifyStartedMsg{machine: mach.id, projectID: "r1", branch: "wip",
+		info: proto.PaneInfo{ID: "check1", State: proto.PaneRunning}})
+
+	// Passing: reported as a check, so the pane is not closed, and said.
+	if !m.verifyExited(mach.id, proto.PaneInfo{ID: "check1", State: proto.PaneExited, ExitCode: 0}) {
+		t.Fatal("a check's pane wasn't recognised as one")
+	}
+	if m.flash != "check passed on wip" || m.flashIsErr {
+		t.Fatalf("passing flash %q (err %v)", m.flash, m.flashIsErr)
+	}
+	// Failing: says where the output is.
+	if !m.verifyExited(mach.id, proto.PaneInfo{ID: "check1", State: proto.PaneExited, ExitCode: 2}) {
+		t.Fatal("a failing check's pane wasn't recognised")
+	}
+	if !strings.Contains(m.flash, "check failed on wip (exit 2)") || !strings.Contains(m.flash, "terminal") || !m.flashIsErr {
+		t.Fatalf("failing flash %q", m.flash)
+	}
+	// Any other pane is none of its business, and is closed as before.
+	if m.verifyExited(mach.id, proto.PaneInfo{ID: "p1", State: proto.PaneExited}) {
+		t.Fatal("an unrelated pane was taken for a check")
+	}
+	// A check on another machine with the same pane ID is not confused for
+	// this one.
+	if m.verifyExited("box", proto.PaneInfo{ID: "check1", State: proto.PaneExited}) {
+		t.Fatal("a check was matched across machines")
+	}
+}
