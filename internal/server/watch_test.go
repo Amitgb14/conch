@@ -620,3 +620,62 @@ func TestWatchWholeTreeBackendHasNoBudget(t *testing.T) {
 		return false
 	})
 }
+
+// TestWatchBudgetAccumulates: the totals have to grow as worktrees are
+// watched and shrink as they go, or the budget is not a budget at all. It
+// once read what it had just written and so always added nothing, which
+// would have let a kqueue watcher hold descriptors without limit again.
+func TestWatchBudgetAccumulates(t *testing.T) {
+	w := a7New(t)
+	if !w.be.budgeted() {
+		t.Skip("this backend charges nothing to ration")
+	}
+	one, two := a7Repo(t), a7Repo(t)
+
+	w.syncProject("r1", []string{one})
+	w.mu.Lock()
+	afterOne, dirsOne := w.nFDs, w.nDirs
+	w.mu.Unlock()
+	if afterOne <= 0 || dirsOne <= 0 {
+		t.Fatalf("watching one worktree charged %d dirs, %d descriptors", dirsOne, afterOne)
+	}
+
+	// A second worktree adds to the total rather than replacing it.
+	w.syncProject("r2", []string{two})
+	w.mu.Lock()
+	afterTwo, dirsTwo := w.nFDs, w.nDirs
+	w.mu.Unlock()
+	if afterTwo <= afterOne || dirsTwo <= dirsOne {
+		t.Fatalf("a second worktree took the totals from %d/%d to %d/%d",
+			dirsOne, afterOne, dirsTwo, afterTwo)
+	}
+
+	// Walking the first again keeps the total where it was, rather than
+	// charging it twice.
+	w.mu.Lock()
+	w.roots[one].walked = time.Now().Add(-2 * watchResyncEvery)
+	w.mu.Unlock()
+	w.syncProject("r1", []string{one})
+	w.mu.Lock()
+	afterRewalk := w.nFDs
+	w.mu.Unlock()
+	if afterRewalk != afterTwo {
+		t.Fatalf("re-walking changed the total from %d to %d", afterTwo, afterRewalk)
+	}
+
+	// Dropping one gives its share back, and dropping both clears it.
+	w.dropProject("r2")
+	w.mu.Lock()
+	afterDrop := w.nFDs
+	w.mu.Unlock()
+	if afterDrop != afterOne {
+		t.Fatalf("dropping the second left %d descriptors, want %d", afterDrop, afterOne)
+	}
+	w.dropProject("r1")
+	w.mu.Lock()
+	end, endDirs := w.nFDs, w.nDirs
+	w.mu.Unlock()
+	if end != 0 || endDirs != 0 {
+		t.Fatalf("after dropping both: %d dirs, %d descriptors", endDirs, end)
+	}
+}

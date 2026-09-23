@@ -339,12 +339,11 @@ func (w *worktreeWatcher) walkRoot(projectID, root string) {
 		w.roots[root] = r
 	}
 	r.projectID, r.ignored, r.walked = projectID, ignored, time.Now()
-	held := 0
-	if r.watched {
-		held = r.dirs // re-walking a root keeps what it already has
-	}
+	// r.dirs and r.fds are what this root already holds — zero unless it is
+	// watched, since dropping one gives them back. The room to check and the
+	// charge to make are both against those, so they stay in step.
 	budgeted := w.be.budgeted()
-	room := w.nDirs-held+dirs <= w.maxDirs && (!budgeted || w.nFDs-r.fds+fds <= w.maxFDs)
+	room := w.nDirs-r.dirs+dirs <= w.maxDirs && (!budgeted || w.nFDs-r.fds+fds <= w.maxFDs)
 	w.mu.Unlock()
 
 	if !room {
@@ -359,9 +358,13 @@ func (w *worktreeWatcher) walkRoot(projectID, root string) {
 	}
 	w.mu.Lock()
 	if r = w.roots[root]; r != nil {
-		r.watched, r.dirs, r.fds = true, dirs, fds
-		w.nDirs += dirs - held
+		// Give back what this root held before charging the new walk. The
+		// other order cancels to nothing: the assignment lands first, so
+		// the sums subtract the new figures from themselves and the totals
+		// never grow — which is the budget quietly not being a budget.
+		w.nDirs += dirs - r.dirs
 		w.nFDs += fds - r.fds
+		r.watched, r.dirs, r.fds = true, dirs, fds
 	}
 	w.mu.Unlock()
 }
