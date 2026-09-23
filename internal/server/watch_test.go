@@ -593,8 +593,11 @@ func TestWatchBudgetStaysUnderSelectsLimit(t *testing.T) {
 func TestWatchWholeTreeBackendHasNoBudget(t *testing.T) {
 	w := a7New(t)
 	repo := a7Repo(t)
-	if w.be.budgeted() {
-		t.Skip("this backend charges per path, so the budget applies")
+	// Only a backend that takes a whole tree for nothing is free of the
+	// budget. Linux's inotify charges no descriptors — budgeted() is false
+	// — but still a directory each, so the budget applies to it too.
+	if dirs, fds := w.be.cost(repo, nil); dirs != 0 || fds != 0 {
+		t.Skip("this backend charges per directory or descriptor, so the budget applies")
 	}
 	// Deep and wide enough that a per-path backend would have refused it.
 	for i := 0; i < 30; i++ {
