@@ -438,6 +438,10 @@ func TestA5AgentsThroughFakeShell(t *testing.T) {
 	if line := strings.Join(task.Command, " "); !strings.Contains(line, "Fix the login bug") {
 		t.Fatalf("task prompt not passed: %s", line)
 	}
+	// The branch is named after the project it is in, not after conch.
+	if task.Branch != "api/fix-login-bug" {
+		t.Fatalf("task branch %q, want it under the project's name", task.Branch)
+	}
 	// The same branch again is refused before anything starts.
 	branch := filepath.Base(task.Cwd)
 	err := c.Call(ctx, proto.MethodTaskCreate, proto.TaskCreateParams{ProjectID: proj.ID, Prompt: "again", Branch: "main"}, nil)

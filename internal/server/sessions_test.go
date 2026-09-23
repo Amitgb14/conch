@@ -178,3 +178,75 @@ func TestSessionListReportsCost(t *testing.T) {
 		t.Fatalf("cost from the store: %+v", list.Sessions)
 	}
 }
+
+// TestSessionListPartialWhenAnAgentIsSlow checks that a list says so when an
+// agent whose sessions come from another program (Devin's CLI) has not
+// answered yet, and still carries the agents whose sessions are files.
+func TestSessionListPartialWhenAnAgentIsSlow(t *testing.T) {
+	home, _ := filepath.EvalSymlinks(t.TempDir())
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_DATA_HOME"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("CONCH_SESSION_GRACE", "50ms")
+	dir, err := os.MkdirTemp("", "cp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _ = filepath.EvalSymlinks(dir)
+	defer os.RemoveAll(dir)
+	repo := filepath.Join(dir, "api")
+	os.MkdirAll(repo, 0o755)
+
+	// A devin that never answers in time. It is under HOME, which is looked
+	// at before PATH, so no real devin is ever run.
+	devin := filepath.Join(home, ".local", "bin", "devin")
+	os.MkdirAll(filepath.Dir(devin), 0o755)
+	if err := os.WriteFile(devin, []byte("#!/bin/sh\nsleep 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	enc := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return '-'
+	}, repo)
+	p := filepath.Join(home, ".claude", "projects", enc, "s1.jsonl")
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	line, _ := json.Marshal(map[string]any{"type": "user", "cwd": repo, "message": map[string]any{"role": "user", "content": "Fix the tests"}})
+	os.WriteFile(p, append(line, '\n'), 0o644)
+
+	sock := filepath.Join(dir, "s.sock")
+	srv := server.New(sock, dir)
+	go srv.Run()
+	defer func() { srv.Stop(); time.Sleep(100 * time.Millisecond) }()
+	var c *client.Client
+	for i := 0; i < 100; i++ {
+		if c, err = client.Dial(sock, "test"); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if c == nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	var list proto.SessionList
+	start := time.Now()
+	if err := c.Call(ctx, proto.MethodSessionList, proto.SessionListParams{Dir: repo}, &list); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 4*time.Second {
+		t.Fatalf("the list waited %v for devin", took)
+	}
+	if !list.Partial {
+		t.Error("want the list marked partial while devin is slow")
+	}
+	if len(list.Sessions) != 1 || list.Sessions[0].Agent != "claude" {
+		t.Fatalf("want the claude session anyway, got %+v", list.Sessions)
+	}
+}

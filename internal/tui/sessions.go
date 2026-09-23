@@ -19,15 +19,31 @@ type sessionsData struct {
 	err     string
 	loading bool
 	at      time.Time
+	// tries counts the lists in a row that came back without a slow
+	// agent's sessions, so asking again gives up instead of polling.
+	tries int
 }
 
 // sessionsTTL is how long a loaded list is shown before reloading.
 const sessionsTTL = 30 * time.Second
 
+// A list can come back without the sessions of an agent that keeps them
+// behind another program (Devin's CLI), which the server says had not
+// answered yet. Ask again, backing off, rather than every sessionsTTL.
+const sessionsRetry = 2 * time.Second
+
+const sessionsRetries = 3
+
 type sessionsMsg struct {
-	key  string
-	list []proto.SessionInfo
-	err  error
+	key     string
+	list    []proto.SessionInfo
+	partial bool
+	err     error
+}
+
+// sessionsRetryMsg asks for a list again after a partial one.
+type sessionsRetryMsg struct {
+	machine, project string
 }
 
 func sessionsKey(mid, pid string) string { return mid + "|" + pid }
@@ -65,21 +81,32 @@ func (m *Model) loadSessions(mid, pid string, force bool) tea.Cmd {
 	return func() tea.Msg {
 		var out proto.SessionList
 		err := callCtx(c, proto.MethodSessionList, proto.SessionListParams{ProjectID: pid}, &out)
-		return sessionsMsg{key: key, list: out.Sessions, err: err}
+		return sessionsMsg{key: key, list: out.Sessions, partial: out.Partial, err: err}
 	}
 }
 
-func (m *Model) receiveSessions(msg sessionsMsg) {
+func (m *Model) receiveSessions(msg sessionsMsg) tea.Cmd {
 	d := m.sessions[msg.key]
 	if d == nil {
-		return
+		return nil
 	}
 	d.loading, d.at = false, time.Now()
 	if msg.err != nil {
 		d.err = msg.err.Error()
-		return
+		return nil
 	}
 	d.err, d.list = "", msg.list
+	if !msg.partial {
+		d.tries = 0
+		return nil
+	}
+	if d.tries >= sessionsRetries {
+		return nil
+	}
+	d.tries++
+	wait := sessionsRetry << (d.tries - 1)
+	mid, pid, _ := strings.Cut(msg.key, "|")
+	return tea.Tick(wait, func(time.Time) tea.Msg { return sessionsRetryMsg{machine: mid, project: pid} })
 }
 
 // hasSessions reports whether a machine's server can list sessions.

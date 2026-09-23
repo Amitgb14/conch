@@ -93,7 +93,7 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			action(m.cfg.Keys.Prefix, "tree", toTree),
 			action(m.cfg.Keys.Prefix+" v", "split", func(m *Model) tea.Cmd { return m.split(splitRight, viewRef{}) }),
 			action(m.cfg.Keys.Prefix+" -", "split down", func(m *Model) tea.Cmd { return m.split(splitDown, viewRef{}) }),
-			action(m.cfg.Keys.Prefix+" c", "tab", func(m *Model) tea.Cmd { return m.newTab(viewRef{}) }),
+			action(m.cfg.Keys.Prefix+" c", "tab", func(m *Model) tea.Cmd { return m.newShellTab() }),
 			action(m.cfg.Keys.Prefix+" [", "scroll", scrollMode),
 			action(m.cfg.Keys.Prefix+" z", "zoom", func(m *Model) tea.Cmd { m.zoom = !m.zoom; return m.syncView() }),
 		}

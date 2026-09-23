@@ -39,14 +39,26 @@ func Slug(s string) string {
 	return out
 }
 
+// BranchPrefix is what conch puts task branches under in a project: its
+// name, slugged, ending in "/".
+func BranchPrefix(project string) string {
+	if strings.TrimSpace(project) == "" {
+		return "conch/"
+	}
+	return Slug(project) + "/"
+}
+
 var stopwords = map[string]bool{
 	"the": true, "a": true, "an": true, "to": true, "of": true, "and": true, "in": true,
 	"on": true, "for": true, "with": true, "please": true, "could": true, "you": true,
 }
 
-// BranchFromPrompt derives a branch name from an agent prompt, e.g.
-// "Fix the flaky login tests!" -> "conch/fix-flaky-login-tests".
-func BranchFromPrompt(prompt string) string {
+// BranchFromPrompt derives a branch name from an agent prompt, under the
+// project's own name, e.g. in a project called OneNutri
+// "Fix the flaky login tests!" -> "onenutri/fix-flaky-login-tests".
+// Branches conch makes are grouped that way in every project; without a
+// project name they fall back to "conch/".
+func BranchFromPrompt(project, prompt string) string {
 	prompt = strings.NewReplacer("'", "", "’", "").Replace(strings.ToLower(prompt))
 	words := strings.FieldsFunc(prompt, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
@@ -60,7 +72,7 @@ func BranchFromPrompt(prompt string) string {
 			break
 		}
 	}
-	return "conch/" + Slug(strings.Join(kept, "-"))
+	return BranchPrefix(project) + Slug(strings.Join(kept, "-"))
 }
 
 // AttemptBranch names one attempt at the same task: the base branch, then

@@ -68,16 +68,44 @@ const maxAge = 180 * 24 * time.Hour
 // List returns the sessions that ran in any of dirs (or below them), newest
 // first, at most limit.
 func List(e Env, dirs []string, limit int) []Session {
+	out, _ := ListStatus(e, dirs, limit)
+	return out
+}
+
+// ListStatus is List, and whether every store answered. complete is false
+// when an agent that keeps its sessions behind another program (see slow.go)
+// was too slow: that agent's sessions are missing from the list, which is
+// worth asking for again in a moment.
+func ListStatus(e Env, dirs []string, limit int) (list []Session, complete bool) {
+	stores := []struct {
+		name string
+		find func(Env, []string) []Session
+		slow bool // asks another program, so it can take seconds
+	}{
+		{"claude", claude, false},
+		{"codex", codex, false},
+		{"gemini", gemini, false},
+		{"opencode", opencode, true},
+		{"devin", devin, true},
+	}
 	var out []Session
+	ok := true
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for _, find := range []func(Env, []string) []Session{claude, codex, gemini, opencode, devin} {
+	for _, st := range stores {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			found := find(e, dirs)
+			var found []Session
+			done := true
+			if st.slow {
+				found, done = slowList(e, slowKey(st.name, e, dirs), func() []Session { return st.find(e, dirs) })
+			} else {
+				found = st.find(e, dirs)
+			}
 			mu.Lock()
 			out = append(out, found...)
+			ok = ok && done
 			mu.Unlock()
 		}()
 	}
@@ -86,7 +114,7 @@ func List(e Env, dirs []string, limit int) []Session {
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
 	}
-	return out
+	return out, ok
 }
 
 // within reports whether path is dir or inside it.

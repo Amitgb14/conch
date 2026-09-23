@@ -36,6 +36,8 @@ conch reads the agents' own session stores and never changes them (except `d`, w
 
 Devin keeps its sessions in a database of its own, so conch lists them by asking its CLI (`devin list`) in each folder, and `d` deletes one with `devin rm`. Devin conversations can't be searched inside or shared with another agent yet; their titles and IDs still match `/`.
 
+Asking another program takes a moment, and a slow or signed-out one used to hold up the whole list. It no longer does: the list waits about a second and a half for it, then shows the agents whose sessions are files on disk and fills the rest in a moment later.
+
 `●` sessions are already open and `enter` shows their pane. `a` filters by agent, and `R` reloads the list.
 
 ## Searching

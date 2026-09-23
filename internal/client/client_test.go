@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +29,27 @@ func TestMain(m *testing.M) {
 }
 
 func a3FakeServerMain() int {
+	if os.Getenv("A3_FAKE_SERVER_SILENT") == "1" {
+		// Binds and accepts, but serves nothing: a server that came up and
+		// then stopped answering.
+		ln, err := net.Listen("unix", os.Getenv("CONCH_SOCKET"))
+		if err != nil {
+			return 4
+		}
+		var held []net.Conn
+		go func() {
+			for {
+				nc, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				held = append(held, nc)
+			}
+		}()
+		time.Sleep(3 * time.Second)
+		ln.Close()
+		return 0
+	}
 	if os.Getenv("A3_FAKE_SERVER_FAIL") == "1" {
 		fmt.Fprintln(os.Stderr, "fake server: failing on purpose")
 		return 3
@@ -45,7 +67,19 @@ func a3FakeServerMain() int {
 			if err != nil {
 				return
 			}
-			nc.Close()
+			go func() {
+				defer nc.Close()
+				conn := proto.NewConn(nc)
+				for {
+					msg, err := conn.Read()
+					if err != nil {
+						return
+					}
+					if msg.Method == proto.MethodHello {
+						a3Reply(conn, msg, proto.HelloResult{Version: proto.Version}, nil)
+					}
+				}
+			}()
 		}
 	}()
 	time.Sleep(3 * time.Second)
@@ -925,5 +959,277 @@ func TestEventQueueIsBounded(t *testing.T) {
 	c.queueEvent(proto.Message{Event: proto.EventPaneUpdated})
 	if len(c.evQueue) != before {
 		t.Fatal("queued after close")
+	}
+}
+
+// a3Wedged is a socket that accepts connections and answers nothing: what a
+// server wedged partway through a reload leaves behind.
+func a3Wedged(t *testing.T) string {
+	t.Helper()
+	sock := filepath.Join(a3ShortDir(t), "s.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		var held []net.Conn
+		defer func() {
+			for _, nc := range held {
+				nc.Close()
+			}
+		}()
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			held = append(held, nc) // kept open, never answered
+		}
+	}()
+	return sock
+}
+
+// answers is the difference between a server that is there and one that only
+// looks like it: connecting proves nothing.
+func TestA3Answers(t *testing.T) {
+	a3Isolate(t)
+	dir := a3ShortDir(t)
+	if answers(filepath.Join(dir, "nothing.sock"), 200*time.Millisecond) {
+		t.Error("a socket that isn't there should not answer")
+	}
+	plain := filepath.Join(dir, "a-file")
+	if err := os.WriteFile(plain, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if answers(plain, 200*time.Millisecond) {
+		t.Error("a plain file should not answer")
+	}
+	start := time.Now()
+	if answers(a3Wedged(t), 200*time.Millisecond) {
+		t.Error("a socket nobody serves should not answer")
+	}
+	if took := time.Since(start); took > 3*time.Second {
+		t.Errorf("waited %v on a silent socket, want about the probe", took)
+	}
+	if s := a3NewServer(t, nil); !answers(s.sock, 5*time.Second) {
+		t.Error("a running server should answer")
+	}
+	// A server that refuses the handshake is still a server.
+	s := a3NewServer(t, nil)
+	s.hello = func(proto.HelloParams) (any, *proto.Error) {
+		return nil, &proto.Error{Code: "too_old", Message: "no"}
+	}
+	if !answers(s.sock, 5*time.Second) {
+		t.Error("a refusal still means a server is serving")
+	}
+}
+
+// The recovery that matters: a socket left by a wedged server is cleared out
+// of the way and a new server takes its place.
+func TestA3EnsureServerReplacesAWedgedSocket(t *testing.T) {
+	a3Isolate(t)
+	t.Setenv("A3_FAKE_SERVER", "1")
+	probeWait = 300 * time.Millisecond
+	t.Cleanup(func() { probeWait = 5 * time.Second })
+
+	sock := a3Wedged(t)
+	before, err := os.Stat(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(a3ShortDir(t), "logs", "server.log")
+	if err := EnsureServer(sock, logPath); err != nil {
+		t.Fatalf("EnsureServer on a wedged socket: %v", err)
+	}
+	after, err := os.Stat(sock)
+	if err != nil {
+		t.Fatalf("no socket after recovery: %v", err)
+	}
+	if os.SameFile(before, after) {
+		t.Error("the wedged socket was reused instead of replaced")
+	}
+	c, err := Dial(sock, "test")
+	if err != nil {
+		t.Fatalf("the new server does not answer: %v", err)
+	}
+	c.Close()
+}
+
+// A healthy server is never disturbed, however often it is looked at.
+func TestA3EnsureServerLeavesAHealthyOneAlone(t *testing.T) {
+	s := a3NewServer(t, nil)
+	before, err := os.Stat(s.sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := EnsureServer(s.sock, filepath.Join(a3ShortDir(t), "never.log")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, err := os.Stat(s.sock)
+	if err != nil || !os.SameFile(before, after) {
+		t.Fatalf("a running server's socket was replaced: %v", err)
+	}
+}
+
+// A server that hangs up as it is asked, and one that talks before it
+// answers: neither should be mistaken for silence.
+func TestA3AnswersHangupAndChatter(t *testing.T) {
+	a3Isolate(t)
+	// Accepts, then closes at once — a server on its way down.
+	sock := filepath.Join(a3ShortDir(t), "s.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			nc.Close()
+		}
+	}()
+	if answers(sock, time.Second) {
+		t.Error("a server that hangs up is not answering")
+	}
+
+	// Events can arrive before the reply; the probe reads past them.
+	chatty := filepath.Join(a3ShortDir(t), "c.sock")
+	cln, err := net.Listen("unix", chatty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cln.Close()
+	go func() {
+		for {
+			nc, err := cln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer nc.Close()
+				conn := proto.NewConn(nc)
+				msg, err := conn.Read()
+				if err != nil {
+					return
+				}
+				_ = conn.Write(proto.Message{Event: "pane.frame"})
+				_ = conn.Write(proto.Message{Event: "agent.state"})
+				a3Reply(conn, msg, proto.HelloResult{Version: proto.Version}, nil)
+			}()
+		}
+	}()
+	if !answers(chatty, 5*time.Second) {
+		t.Error("events before the reply should not hide the answer")
+	}
+}
+
+// A server that starts, binds and then serves nothing is not "running":
+// EnsureServer gives up instead of handing back a connection that hangs.
+func TestA3EnsureServerStartedButSilent(t *testing.T) {
+	a3Isolate(t)
+	t.Setenv("A3_FAKE_SERVER", "1")
+	t.Setenv("A3_FAKE_SERVER_SILENT", "1")
+	probeWait, startWait = 200*time.Millisecond, time.Second
+	t.Cleanup(func() { probeWait, startWait = 5*time.Second, 5*time.Second })
+	dir := a3ShortDir(t)
+	err := EnsureServer(filepath.Join(dir, "s.sock"), filepath.Join(dir, "server.log"))
+	if err == nil || !strings.Contains(err.Error(), "did not start within") {
+		t.Fatalf("a silent server should not pass for a running one: %v", err)
+	}
+}
+
+// A live server that misses one probe keeps its socket: only one that
+// answers nothing at all is replaced.
+func TestA3EnsureServerSecondChance(t *testing.T) {
+	a3Isolate(t)
+	sock := filepath.Join(a3ShortDir(t), "s.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	var seen atomic.Int32
+	go func() {
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer nc.Close()
+				conn := proto.NewConn(nc)
+				msg, err := conn.Read()
+				if err != nil {
+					return
+				}
+				if seen.Add(1) == 1 {
+					time.Sleep(2 * time.Second) // busy: misses the first probe
+					return
+				}
+				a3Reply(conn, msg, proto.HelloResult{Version: proto.Version}, nil)
+			}()
+		}
+	}()
+	before, err := os.Stat(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probeWait = 300 * time.Millisecond
+	t.Cleanup(func() { probeWait = 5 * time.Second })
+	// If a server is started at all the test fails: this one exits at once.
+	t.Setenv("A3_FAKE_SERVER", "1")
+	t.Setenv("A3_FAKE_SERVER_FAIL", "1")
+	if err := EnsureServer(sock, filepath.Join(a3ShortDir(t), "server.log")); err != nil {
+		t.Fatalf("a server that answered the second probe: %v", err)
+	}
+	after, err := os.Stat(sock)
+	if err != nil || !os.SameFile(before, after) {
+		t.Fatalf("a busy server's socket was replaced: %v", err)
+	}
+	if n := seen.Load(); n < 2 {
+		t.Fatalf("probed %d times, want a second chance", n)
+	}
+}
+
+// A socket that cannot be removed (a read-only directory) fails clearly
+// instead of hanging or looking like success.
+func TestA3EnsureServerCannotClearSocket(t *testing.T) {
+	a3Isolate(t)
+	t.Setenv("A3_FAKE_SERVER", "1")
+	dir := a3ShortDir(t)
+	sockDir := filepath.Join(dir, "sock")
+	if err := os.Mkdir(sockDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(sockDir, "s.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = nc // accepted, never answered
+		}
+	}()
+	if err := os.Chmod(sockDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(sockDir, 0o700) })
+	probeWait, startWait = 200*time.Millisecond, time.Second
+	t.Cleanup(func() { probeWait, startWait = 5*time.Second, 5*time.Second })
+	err = EnsureServer(sock, filepath.Join(dir, "server.log"))
+	if err == nil {
+		t.Fatal("want an error when the socket cannot be cleared")
 	}
 }

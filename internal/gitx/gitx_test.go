@@ -445,15 +445,30 @@ func TestNames(t *testing.T) {
 		}
 	}
 
-	prompts := []struct{ in, want string }{
-		{"Fix the flaky login tests!", "conch/fix-flaky-login-tests"},
-		{"Could you please add a README to the repo and CI", "conch/add-readme-repo-ci"},
-		{"Don't break /api/v2 routes in server.go now please ok", "conch/dont-break-api-v2-routes"},
-		{"", "conch/task"},
+	prompts := []struct{ project, in, want string }{
+		{"conch", "Fix the flaky login tests!", "conch/fix-flaky-login-tests"},
+		{"conch", "Could you please add a README to the repo and CI", "conch/add-readme-repo-ci"},
+		{"conch", "Don't break /api/v2 routes in server.go now please ok", "conch/dont-break-api-v2-routes"},
+		{"conch", "", "conch/task"},
+		// The branch belongs to the project it is made in.
+		{"OneNutri", "Fix the flaky login tests!", "onenutri/fix-flaky-login-tests"},
+		{"onenutri-web", "Add a health check", "onenutri-web/add-health-check"},
+		{"My App!", "Ship it", "my-app/ship-it"},
+		{"  ", "Ship it", "conch/ship-it"}, // no project name to go on
+		{"", "", "conch/task"},
 	}
 	for _, c := range prompts {
-		if got := BranchFromPrompt(c.in); got != c.want {
-			t.Errorf("BranchFromPrompt(%q) = %q, want %q", c.in, got, c.want)
+		if got := BranchFromPrompt(c.project, c.in); got != c.want {
+			t.Errorf("BranchFromPrompt(%q, %q) = %q, want %q", c.project, c.in, got, c.want)
+		}
+	}
+
+	for _, c := range []struct{ project, want string }{
+		{"conch", "conch/"}, {"OneNutri", "onenutri/"}, {"", "conch/"}, {" ", "conch/"},
+		{"task", "task/"}, {"api/v2", "api-v2/"},
+	} {
+		if got := BranchPrefix(c.project); got != c.want {
+			t.Errorf("BranchPrefix(%q) = %q, want %q", c.project, got, c.want)
 		}
 	}
 

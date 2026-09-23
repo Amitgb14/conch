@@ -245,6 +245,13 @@ func runStatus() error {
 		if machineFlag != "" && machineFlag != "local" {
 			return err // why the machine can't be reached, not "not running"
 		}
+		// A socket still in place after the server stopped serving — one
+		// wedged partway through a reload — is not the same as no server.
+		if _, serr := os.Stat(config.SocketPath()); serr == nil {
+			fmt.Println("server: not answering; its socket is still there but nothing serves it")
+			fmt.Println("run `conch` to start a fresh server (the old panes are lost)")
+			return nil
+		}
 		fmt.Println("server: not running")
 		return nil
 	}
@@ -495,7 +502,7 @@ func reloadServer(c *client.Client, bin string) (*client.Client, error) {
 		}
 		nc.Close()
 	}
-	return nil, errors.New("the server did not come back within 15s; see " + config.ServerLogPath())
+	return nil, errors.New("the server did not come back within 15s; its panes are lost — run `conch` to start a fresh one. See " + config.ServerLogPath())
 }
 
 // loadedAt is when a server's program started. Servers from before

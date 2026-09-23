@@ -411,6 +411,7 @@ func (m *Model) split(dir splitDir, v viewRef) tea.Cmd {
 	cmds := []tea.Cmd{m.syncView(), m.saveState()}
 	if newShell {
 		m.cursor = f.view.Row                // the new shell starts where the split pane runs
+		nl.await = true                      // and the half goes if it never starts
 		cmds = append(cmds, m.openAgent("")) // shown in the new half when it starts
 	}
 	return tea.Batch(cmds...)
@@ -429,6 +430,65 @@ func (m *Model) closeLeaf() tea.Cmd {
 	t.root = t.root.remove(t.focus)
 	t.focused()
 	return tea.Batch(m.focusLeaf(t.focus), m.saveState())
+}
+
+// newShellTab opens a tab with a terminal in it, wherever the tree is
+// pointing: ctrl+b c always gives you a shell, as tmux's new window does.
+// A tab that waited to be filled instead piled up unseen — the tab bar lists
+// only the tabs of the group the tree has selected — and half a dozen empty
+// ones appeared at once the next time a pane brought that group on screen.
+func (m *Model) newShellTab() tea.Cmd {
+	cmd := m.newTab(viewRef{})
+	l := m.tab().focused()
+	if !l.view.empty() || l.await {
+		return cmd // already showing something, or a shell is on its way
+	}
+	l.await = true
+	return tea.Batch(cmd, m.openAgent(""))
+}
+
+// dropAwaiting removes a leaf that was opened for a pane which never
+// started, closing its tab or split, and returns whether one went. Only the
+// newest is dropped: one failure, one leaf.
+func (m *Model) dropAwaiting() bool {
+	for i := len(m.tabs) - 1; i >= 0; i-- {
+		t := m.tabs[i]
+		leaves := t.root.leaves()
+		for j := len(leaves) - 1; j >= 0; j-- {
+			l := leaves[j]
+			if !l.await || !l.view.empty() {
+				continue
+			}
+			if len(leaves) == 1 {
+				if len(m.tabs) == 1 {
+					l.await = false // the only tab stays, empty
+					return false
+				}
+				m.tabs = append(m.tabs[:i], m.tabs[i+1:]...)
+				if m.activeTab >= i {
+					m.activeTab = max(m.activeTab-1, 0)
+				}
+				return true
+			}
+			t.root = t.root.remove(l.id)
+			if t.leaf(t.focus) == nil {
+				t.focus = t.root.leaves()[0].id
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// arrived clears the waiting mark once a pane is on screen.
+func (m *Model) arrived() {
+	for _, t := range m.tabs {
+		for _, l := range t.root.leaves() {
+			if !l.view.empty() {
+				l.await = false
+			}
+		}
+	}
 }
 
 // changesTab opens the changes of the branch the focused split is on, in a
@@ -488,6 +548,7 @@ func (m *Model) newTab(v viewRef) tea.Cmd {
 	cmds := []tea.Cmd{m.focusLeaf(l.id), m.saveState()}
 	if shellFrom != nil {
 		m.cursor = shellFrom.view.Row
+		l.await = true
 		cmds = append(cmds, m.openAgent(""))
 	}
 	return tea.Batch(cmds...)

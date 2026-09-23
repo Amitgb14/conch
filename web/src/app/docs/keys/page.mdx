@@ -34,7 +34,7 @@ Every key binding in the TUI, grouped by where it applies. Press `?` in conch to
 | `a` | add project |
 | `M` | add machine |
 | `r` | rename an agent, terminal or machine |
-| `x` | close / remove |
+| `x` | close / remove (a branch: its worktree, or the branch itself once that is gone) |
 | `R` | refresh git and PRs, or reconnect a machine |
 
 Other keys on tree items:
@@ -109,7 +109,7 @@ Other keys on tree items:
 | `ctrl+b space` | next layout: even-horizontal, even-vertical, main-horizontal, main-vertical, tiled (`ctrl+b alt+1`–`alt+5` pick one) |
 | `ctrl+b ctrl+arrow` / `alt+arrow` | resize by 1 / 5 cells; press the arrow again within half a second to keep resizing |
 | `ctrl+b x` | close the split; an agent or terminal in it ends, after you confirm |
-| `ctrl+b c`, `n`, `p`, `0-9`, `l` | new, next, previous, go to, last tab (among the tabs listed for the tree selection) |
+| `ctrl+b c`, `n`, `p`, `0-9`, `l` | new tab with a terminal in it, next, previous, go to, last tab (among the tabs listed for the tree selection) |
 | `ctrl+b <` / `>`, `.` | move the tab left / right, or to a position you type (among the tabs listed) |
 | `ctrl+b w` | pick any tab or split, grouped by project and CLI, with each split's branch or folder and agent state |
 | `ctrl+b &`, `,` | close, rename tab |

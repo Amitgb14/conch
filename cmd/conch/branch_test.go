@@ -342,7 +342,7 @@ func TestA4BranchOnAnotherMachine(t *testing.T) {
 func TestA4TaskAttempts(t *testing.T) {
 	// The naming is shared with the TUI; this covers the CLI's own flags.
 	existing := []proto.BranchInfo{{Name: "conch/fix-tests/claude"}}
-	plan := attemptPlan([]string{"claude", "codex"}, 0, "", "Fix the tests", existing)
+	plan := attemptPlan("conch", []string{"claude", "codex"}, 0, "", "Fix the tests", existing)
 	var got []string
 	for _, a := range plan {
 		got = append(got, a.agent+"@"+a.branch)
@@ -350,7 +350,7 @@ func TestA4TaskAttempts(t *testing.T) {
 	if strings.Join(got, " ") != "claude@conch/fix-tests/claude-2 codex@conch/fix-tests/codex" {
 		t.Fatalf("plan: %v", got)
 	}
-	if one := attemptPlan([]string{"claude"}, 1, "", "Fix the tests", nil); len(one) != 1 || one[0].branch != "" {
+	if one := attemptPlan("conch", []string{"claude"}, 1, "", "Fix the tests", nil); len(one) != 1 || one[0].branch != "" {
 		t.Fatalf("one attempt keeps the plain name: %+v", one)
 	}
 	if got := splitAgents(" Claude ,codex, "); strings.Join(got, ",") != "claude,codex" {
@@ -407,7 +407,8 @@ func TestA4TaskRunsEveryAttempt(t *testing.T) {
 	for _, c := range calls.Get() {
 		branches = append(branches, c.Agent+"@"+c.Branch)
 	}
-	if strings.Join(branches, " ") != "claude@conch/fix-tests/claude codex@conch/fix-tests/codex claude@conch/fix-tests/claude-2" {
+	// The attempts sit under the project's own name, not conch's.
+	if strings.Join(branches, " ") != "claude@api/fix-tests/claude codex@api/fix-tests/codex claude@api/fix-tests/claude-2" {
 		t.Fatalf("attempts: %v", branches)
 	}
 

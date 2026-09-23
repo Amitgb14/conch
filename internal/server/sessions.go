@@ -183,7 +183,7 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 	if limit <= 0 {
 		limit = 100
 	}
-	found := sessions.List(sessions.CurrentEnv(), dirs, limit)
+	found, complete := sessions.ListStatus(sessions.CurrentEnv(), dirs, limit)
 
 	out := make([]proto.SessionInfo, 0, len(found))
 	for _, f := range found {
@@ -280,7 +280,7 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 		}
 	}
 	sortSessions(out)
-	return proto.SessionList{Sessions: out}, nil
+	return proto.SessionList{Sessions: out, Partial: !complete}, nil
 }
 
 // sortSessions puts interrupted sessions first, then newest first.

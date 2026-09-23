@@ -43,6 +43,10 @@ type leaf struct {
 	// filled by the next row the user opens, rather than following the
 	// tree's cursor.
 	pick bool
+	// await marks a leaf opened for a pane that is starting. If the start
+	// fails — an offline machine, a server that went away — the leaf goes
+	// with it, instead of leaving a blank tab or split behind.
+	await bool
 }
 
 type layoutNode struct {

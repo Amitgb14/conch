@@ -35,6 +35,7 @@ const frameInterval = 33 * time.Millisecond
 // Server owns all panes on this machine.
 type Server struct {
 	sockPath  string
+	sockID    os.FileInfo // the socket file this server bound; see noteSocket
 	configDir string
 	started   time.Time // kept across reloads, for uptime
 	loaded    time.Time // this program's start
@@ -146,9 +147,7 @@ func (s *Server) Run() error {
 		if err != nil {
 			return fmt.Errorf("reload: listener: %w", err)
 		}
-		if ul, ok := ln.(*net.UnixListener); ok {
-			ul.SetUnlinkOnClose(true)
-		}
+		s.noteSocket(ln)
 		s.adopt(reloaded)
 	} else {
 		_ = os.Remove(s.sockPath) // stale socket from a crashed server
@@ -156,9 +155,10 @@ func (s *Server) Run() error {
 			return err
 		}
 		if err := os.Chmod(s.sockPath, 0o600); err != nil {
-			ln.Close()
+			ln.Close() // still unlinks the file it just made
 			return err
 		}
+		s.noteSocket(ln)
 	}
 	s.mu.Lock()
 	s.ln = ln
@@ -198,6 +198,33 @@ func (s *Server) Run() error {
 	return nil
 }
 
+// noteSocket takes charge of unlinking the socket file. A Go unix listener
+// deletes the path when it closes, whatever is there by then — so a server
+// that stopped after a newer one had bound the same path deleted the new
+// server's socket and left conch unreachable, with panes still running.
+// Remember which file is ours and unlink only that.
+func (s *Server) noteSocket(ln net.Listener) {
+	if ul, ok := ln.(*net.UnixListener); ok {
+		ul.SetUnlinkOnClose(false)
+	}
+	if st, err := os.Stat(s.sockPath); err == nil {
+		s.sockID = st
+	}
+}
+
+// unlinkSocket removes the socket file while it is still the one this server
+// bound. Called with s.mu held.
+func (s *Server) unlinkSocket() {
+	if s.sockID == nil {
+		return
+	}
+	st, err := os.Stat(s.sockPath)
+	if err != nil || !os.SameFile(st, s.sockID) {
+		return // already gone, or another server's socket now
+	}
+	_ = os.Remove(s.sockPath)
+}
+
 // Stop begins shutdown; Run returns once panes are closed.
 func (s *Server) Stop() {
 	s.quitOnce.Do(func() { close(s.quit) })
@@ -206,10 +233,10 @@ func (s *Server) Stop() {
 func (s *Server) shutdown() {
 	s.mu.Lock()
 	if s.ln != nil {
-		// Closing a unix listener also unlinks its socket file. Do it before
-		// closing panes (which can take seconds) so a replacement server can
-		// start meanwhile without us deleting its socket afterwards.
+		// Stop serving before closing panes (which can take seconds), so a
+		// replacement server can start meanwhile.
 		s.ln.Close()
+		s.unlinkSocket()
 	}
 	entries := make([]*entry, 0, len(s.panes))
 	for _, e := range s.panes {
@@ -902,7 +929,7 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 		tp.Agent = s.adapters[0].Name()
 	}
 	if tp.Branch == "" {
-		tp.Branch = gitx.BranchFromPrompt(tp.Prompt)
+		tp.Branch = gitx.BranchFromPrompt(p.snapshot().Name, tp.Prompt)
 	}
 	path, _, perr := s.projects.addWorktree(p, tp.Branch, tp.Base)
 	if perr != nil {

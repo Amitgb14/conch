@@ -891,3 +891,34 @@ func TestRunRedraw(t *testing.T) {
 		t.Fatalf("old server: %v", err)
 	}
 }
+
+// A socket left behind by a server that stopped serving reads as a server
+// that is there, so `conch status` says what it is and how to get back.
+func TestA4StatusUnservedSocket(t *testing.T) {
+	dir := a4Env(t)
+	sock := filepath.Join(dir, "s.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		var held []net.Conn
+		defer func() {
+			for _, nc := range held {
+				nc.Close()
+			}
+		}()
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			held = append(held, nc) // accepted, never answered
+		}
+	}()
+	code, out, _ := a4RunMain(t, "", "status")
+	if code != 0 || !strings.Contains(out, "not answering") || !strings.Contains(out, "start a fresh server") {
+		t.Fatalf("status on an unserved socket: %d %q", code, out)
+	}
+}

@@ -546,7 +546,7 @@ func TestA6BranchesErrorsAndGone(t *testing.T) {
 }
 
 func TestAttemptBranch(t *testing.T) {
-	base := BranchFromPrompt("Fix the flaky login test")
+	base := BranchFromPrompt("conch", "Fix the flaky login test")
 	if base != "conch/fix-flaky-login-test" {
 		t.Fatalf("base %q", base)
 	}

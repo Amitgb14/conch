@@ -19,26 +19,26 @@ func attemptNames(plan []attempt) string {
 
 func TestAttemptPlan(t *testing.T) {
 	// One agent, no count: the plain task it has always been.
-	if got := attemptNames(attemptPlan([]string{"claude"}, 0, "", "Fix the flaky login test", nil)); got != "claude@" {
+	if got := attemptNames(attemptPlan("conch", []string{"claude"}, 0, "", "Fix the flaky login test", nil)); got != "claude@" {
 		t.Fatalf("single: %q", got)
 	}
-	if got := attemptNames(attemptPlan(nil, 1, "feat", "prompt", nil)); got != "@feat" {
+	if got := attemptNames(attemptPlan("conch", nil, 1, "feat", "prompt", nil)); got != "@feat" {
 		t.Fatalf("no agent named: %q", got)
 	}
 	// Several agents: one attempt each, under the branch the prompt gives.
-	got := attemptNames(attemptPlan([]string{"claude", "codex"}, 0, "", "Fix the flaky login test", nil))
+	got := attemptNames(attemptPlan("conch", []string{"claude", "codex"}, 0, "", "Fix the flaky login test", nil))
 	want := "claude@conch/fix-flaky-login-test/claude codex@conch/fix-flaky-login-test/codex"
 	if got != want {
 		t.Fatalf("two agents:\n got %q\nwant %q", got, want)
 	}
 	// More attempts than agents: they cycle, and repeats are numbered.
-	got = attemptNames(attemptPlan([]string{"claude", "codex"}, 3, "feat", "p", nil))
+	got = attemptNames(attemptPlan("conch", []string{"claude", "codex"}, 3, "feat", "p", nil))
 	if got != "claude@feat/claude codex@feat/codex claude@feat/claude-2" {
 		t.Fatalf("cycling: %q", got)
 	}
 	// Branches already in the project are never reused.
 	existing := []proto.BranchInfo{{Name: "feat/claude"}, {Name: "feat/claude-2"}}
-	got = attemptNames(attemptPlan([]string{"claude"}, 2, "feat", "p", existing))
+	got = attemptNames(attemptPlan("conch", []string{"claude"}, 2, "feat", "p", existing))
 	if got != "claude@feat/claude-3 claude@feat/claude-4" {
 		t.Fatalf("avoiding taken names: %q", got)
 	}
@@ -80,7 +80,7 @@ func TestTaskDialogAttempts(t *testing.T) {
 	// Naming two agents shows the branches before anything starts.
 	d.setFocus(3)
 	a2Type(m, d, "claude,codex")
-	if !strings.Contains(text(), "2 attempts of the same prompt, one per branch: conch/fix-flaky-login-test/claude, conch/fix-flaky-login-test/codex.") {
+	if !strings.Contains(text(), "2 attempts of the same prompt, one per branch: api/fix-flaky-login-test/claude, api/fix-flaky-login-test/codex.") {
 		t.Fatalf("two agents: %q", text())
 	}
 	// A bad count is caught while typing, and refused on submit.
@@ -125,7 +125,7 @@ func TestTaskDialogAttempts(t *testing.T) {
 			branches = append(branches, p.Agent+"@"+p.Branch)
 		}
 	}
-	if strings.Join(branches, " ") != "claude@conch/fix-flaky-login-test/claude codex@conch/fix-flaky-login-test/codex claude@conch/fix-flaky-login-test/claude-2" {
+	if strings.Join(branches, " ") != "claude@api/fix-flaky-login-test/claude codex@api/fix-flaky-login-test/codex claude@api/fix-flaky-login-test/claude-2" {
 		t.Fatalf("task calls: %v", branches)
 	}
 	next, _ := m.update(done)

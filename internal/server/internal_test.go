@@ -677,6 +677,11 @@ func TestA5RunAdoptsReloadState(t *testing.T) {
 	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
 		t.Fatal("state file not consumed")
 	}
+	// A server that took over an inherited listener still clears the socket
+	// away when it stops, or the next one would find a dead file.
+	if _, err := os.Stat(sock); !os.IsNotExist(err) {
+		t.Fatalf("socket left behind by a reloaded server: %v", err)
+	}
 }
 
 // ---- usage ----

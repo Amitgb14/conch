@@ -173,7 +173,7 @@ func runTask(args []string) error {
 	if err := call(c, proto.MethodProjectAdd, proto.ProjectAddParams{Path: dir}, &proj); err != nil {
 		return err
 	}
-	attempts := attemptPlan(agents, *n, *branch, prompt, proj.Branches)
+	attempts := attemptPlan(proj.Name, agents, *n, *branch, prompt, proj.Branches)
 	var failed int
 	for _, at := range attempts {
 		var info proto.PaneInfo
@@ -206,13 +206,13 @@ type attempt struct{ agent, branch string }
 // attemptPlan names the attempts: one per agent by default, n of them when
 // asked, cycling through the agents. A single attempt keeps the plain
 // branch name, so the common case reads as it always did.
-func attemptPlan(agents []string, n int, branch, prompt string, existing []proto.BranchInfo) []attempt {
+func attemptPlan(project string, agents []string, n int, branch, prompt string, existing []proto.BranchInfo) []attempt {
 	if n <= 0 {
 		n = len(agents)
 	}
 	base := branch
 	if base == "" {
-		base = gitx.BranchFromPrompt(prompt)
+		base = gitx.BranchFromPrompt(project, prompt)
 	}
 	if n == 1 {
 		return []attempt{{agent: agents[0], branch: branch}}

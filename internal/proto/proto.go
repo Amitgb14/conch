@@ -827,6 +827,10 @@ type SessionShareResult struct {
 // SessionList is the result of session.list, newest first.
 type SessionList struct {
 	Sessions []SessionInfo `json:"sessions"`
+	// Partial says an agent whose sessions come from another program had
+	// not answered yet, so the list is missing that agent's: ask again in
+	// a moment. Absent from older servers, which always waited.
+	Partial bool `json:"partial,omitempty"`
 }
 
 // SessionRef names a session to resume or dismiss.

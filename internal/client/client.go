@@ -317,12 +317,64 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// EnsureServer makes sure a server is listening on sockPath, starting a
-// detached `conch server` (logging to logPath) if needed.
+// startWait is how long a server started here is given to answer.
+var startWait = 5 * time.Second
+
+// probeWait bounds one look at a socket: a healthy server answers hello in
+// milliseconds, so this only ever runs out for one that has stopped serving.
+var probeWait = 5 * time.Second
+
+// answers reports whether a server on sockPath replies to a hello. Connecting
+// is not enough: a server that closed its accept loop — one wedged partway
+// through a reload — still lets the kernel complete connections, and a client
+// that took that for a running server waited out its whole handshake and gave
+// up with no way back.
+func answers(sockPath string, wait time.Duration) bool {
+	nc, err := net.DialTimeout("unix", sockPath, wait)
+	if err != nil {
+		return false
+	}
+	defer nc.Close()
+	_ = nc.SetDeadline(time.Now().Add(wait))
+	conn := proto.NewConn(nc)
+	if err := conn.Write(proto.Message{ID: "probe", Method: proto.MethodHello, Params: mustJSON(proto.HelloParams{
+		Client: "conch-probe", Version: proto.Version, Protocol: proto.ProtocolVersion,
+	})}); err != nil {
+		return false
+	}
+	for {
+		msg, err := conn.Read()
+		if err != nil {
+			return false
+		}
+		if msg.ID == "probe" {
+			return true // an error reply still means a server is serving
+		}
+	}
+}
+
+func mustJSON(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
+}
+
+// EnsureServer makes sure a server is answering on sockPath, starting a
+// detached `conch server` (logging to logPath) if needed. A socket left
+// behind by a server that stopped serving is removed first, so a new server
+// can bind it instead of the user being stuck with a conch that won't start.
 func EnsureServer(sockPath, logPath string) error {
-	if nc, err := net.Dial("unix", sockPath); err == nil {
-		nc.Close()
+	if answers(sockPath, probeWait) {
 		return nil
+	}
+	if _, err := os.Stat(sockPath); err == nil {
+		// Taking a socket away from a server that is merely busy would
+		// leave it running and unreachable, panes and all, so give a
+		// second chance before deciding nothing is behind it.
+		time.Sleep(200 * time.Millisecond)
+		if answers(sockPath, probeWait) {
+			return nil
+		}
+		_ = os.Remove(sockPath)
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -348,17 +400,16 @@ func EnsureServer(sockPath, logPath string) error {
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 
-	deadline := time.After(5 * time.Second)
+	deadline := time.After(startWait)
 	for {
-		if nc, err := net.Dial("unix", sockPath); err == nil {
-			nc.Close()
+		if answers(sockPath, time.Second) {
 			return nil
 		}
 		select {
 		case err := <-exited:
 			return fmt.Errorf("server exited during startup (%v); see %s", err, logPath)
 		case <-deadline:
-			return fmt.Errorf("server did not start within 5s; see %s", logPath)
+			return fmt.Errorf("server did not start within %s; see %s", startWait, logPath)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}

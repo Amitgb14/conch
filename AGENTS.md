@@ -199,7 +199,10 @@ means all of these, each with tests (a fake binary on a scratch `PATH` or
   `d`. Read its session files when their format is known; when it keeps them
   somewhere undocumented (Devin's database), ask its CLI (`devin list
   --format json`). Find the binary through the `Env` a store is given, not
-  this process's `PATH`. Say in the docs if search or sharing can't read it.
+  this process's `PATH`. A store that runs another program is listed through
+  `slowList` (`internal/sessions/slow.go`), so a program that hangs holds up
+  the list for a grace and no longer; the list then says it is incomplete and
+  the TUI asks again. Say in the docs if search or sharing can't read it.
 - **Labels**: `agentLabels` in `internal/tui/model.go` and the handoff labels
   in `internal/sessions/handoff.go`.
 - **Docs and plans**: the Supported agents table (`web/src/app/docs/agents`),

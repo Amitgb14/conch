@@ -341,6 +341,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			mach.panes = append(mach.panes, msg.info)
 		}
 		m.revealPane(msg.machine, msg.info)
+		m.arrived()
 		m.focus = focusMain
 		if msg.note != "" {
 			m.setFlash(msg.note, false)
@@ -443,6 +444,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.setFlash(msg.err.Error(), true)
+		if m.dropAwaiting() { // a tab or split opened for a pane that never came
+			return m, tea.Batch(m.focusLeaf(m.tab().focus), m.saveState())
+		}
 		return m, nil
 
 	case summaryMsg:
@@ -450,8 +454,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sessionsMsg:
-		m.receiveSessions(msg)
-		return m, nil
+		return m, m.receiveSessions(msg)
+
+	case sessionsRetryMsg:
+		return m, m.loadSessions(msg.machine, msg.project, true)
 
 	case catalogTickMsg:
 		return m, tea.Batch(catalogTick(), m.syncCatalog())

@@ -394,7 +394,7 @@ func TestA1RenameAndRemove(t *testing.T) {
 	confirm("Remove worktree /src/api-feat?")
 	m.cursor = branchNodeID(localMachine, "r1", "main")
 	a1Key(t, m, runes("x"))
-	if m.overlay != nil || m.flash != "only linked worktrees can be removed" {
+	if m.overlay != nil || m.flash != "the base branch stays" {
 		t.Fatalf("x on main worktree: %q", m.flash)
 	}
 	m.cursor = machineID(localMachine)

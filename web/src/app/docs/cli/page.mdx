@@ -27,6 +27,8 @@ conch server stop                      # stops the server and all panes
 
 </Callout>
 
+If a reload ever leaves the socket in place with nothing serving it, `conch status` says the server is *not answering* rather than that it is gone, and simply running `conch` again clears that socket and starts a fresh server. The panes of the old one are lost; nothing else needs cleaning up by hand.
+
 ## Global flag
 
 `-m MACHINE` (or `--machine MACHINE`) before the subcommand runs it against a [remote machine](/docs/remote-machines) instead of this one; `local` means this machine.

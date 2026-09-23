@@ -119,10 +119,17 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		items = append(items, compareMenuItem(m, r)...)
 		items = append(items, harvestMenuItems(m, r)...)
 		if proj := m.project(r.machine, r.projectID); proj != nil {
+			worktree := false
 			for _, wt := range proj.Worktrees {
 				if wt.Branch == r.branch && !wt.Main {
-					items = append(items, menuItem{"x", "Remove worktree", act("x")})
+					worktree = true
 				}
+			}
+			switch {
+			case worktree:
+				items = append(items, menuItem{"x", "Remove worktree", act("x")})
+			case r.branch != proj.Base:
+				items = append(items, menuItem{"x", "Delete branch…", act("x")})
 			}
 		}
 	case kindProject:
@@ -487,7 +494,7 @@ func newTaskDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
 		case err != nil:
 			d.text = append(d.text, styleErr.Render("⚠ "+err.Error()))
 		case max(n, len(agents)) > 1:
-			plan := attemptPlan(agents, n, strings.TrimSpace(d.fields[1].in.Value()),
+			plan := attemptPlan(proj.Name, agents, n, strings.TrimSpace(d.fields[1].in.Value()),
 				strings.TrimSpace(d.fields[0].in.Value()), proj.Branches)
 			var names []string
 			for _, at := range plan {
@@ -503,11 +510,11 @@ func newTaskDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
 	warn(d)
 	d.onChange = func(d *dialog) {
 		if p := strings.TrimSpace(d.fields[0].in.Value()); p != "" {
-			d.fields[1].in.Placeholder = gitx.BranchFromPrompt(p)
+			d.fields[1].in.Placeholder = gitx.BranchFromPrompt(proj.Name, p)
 		}
 		warn(d)
 	}
-	id, branches := proj.ID, proj.Branches
+	id, name, branches := proj.ID, proj.Name, proj.Branches
 	d.submit = func(m *Model, v []string) tea.Cmd {
 		if strings.TrimSpace(v[0]) == "" {
 			return func() tea.Msg { return errMsg{errString("a task needs a prompt")} }
@@ -528,7 +535,7 @@ func newTaskDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
 			}
 		}
 		cols, rows := m.paneArea()
-		plan := attemptPlan(agents, n, strings.TrimSpace(v[1]), strings.TrimSpace(v[0]), branches)
+		plan := attemptPlan(name, agents, n, strings.TrimSpace(v[1]), strings.TrimSpace(v[0]), branches)
 		if len(plan) == 1 {
 			params := proto.TaskCreateParams{ProjectID: id, Prompt: v[0], Branch: plan[0].branch,
 				Base: strings.TrimSpace(v[2]), Agent: plan[0].agent, Cols: cols, Rows: rows}
@@ -730,7 +737,8 @@ var helpText = []string{
 	"  n  terminal here       a  add or create a project",
 	"  M  add machine (ssh)   R  reconnect a machine    A  start or install any agent",
 	"  H  ssh from this computer to a host (listed under CLI → SSH; nothing installed there)",
-	"  r  rename (pane, machine) x  close / remove     R  refresh git and PRs",
+	"  r  rename (pane, machine) x  close / remove (a branch: worktree, then the branch)",
+	"                            R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",
 	"  i  agent setup: instructions, skills, MCP servers, and what a worktree lacks",
 	"  F  local files (.env, local agent settings) copied into new worktrees",
@@ -740,7 +748,8 @@ var helpText = []string{
 	"  % or v split right   \" or - split down   x close split (ends its pane)   = equalize",
 	"  ←→↑↓ focus   o next split   ; last split   q split numbers (then a digit)   { } swap",
 	"  ctrl/alt+arrows resize (repeats)   space next layout   alt+1-5 even-h, even-v, main-h, main-v, tiled",
-	"  c new tab   C this split's branch changes in a tab   n / p next / previous   0-9 go to tab   l last tab",
+	"  c new tab (a terminal in it)   C this split's branch changes in a tab   n / p next / previous",
+	"  0-9 go to tab   l last tab",
 	"  < > . move tab   w every tab, grouped",
 	"  the tab bar lists the tabs of the Workspace, project, CLI, Agents, Terminals or SSH selected in the tree",
 	"  & close tab   , rename tab   z zoom   ! next waiting agent   : ask   d detach   ? this help",

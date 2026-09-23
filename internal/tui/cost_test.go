@@ -261,7 +261,7 @@ func TestTaskDialogWarnsAboutLimits(t *testing.T) {
 	if !strings.Contains(text(d), "⚠ Claude's 5-hour limit") {
 		t.Fatalf("warning did not return: %q", text(d))
 	}
-	if d.fields[1].in.Placeholder != "conch/fix-flaky-test" {
+	if d.fields[1].in.Placeholder != "api/fix-flaky-test" { // the project is named api
 		t.Fatalf("branch placeholder %q", d.fields[1].in.Placeholder)
 	}
 	out := a2Plain(d.render(*m).lines)

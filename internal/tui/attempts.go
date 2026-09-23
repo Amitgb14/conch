@@ -33,7 +33,7 @@ type attemptsDoneMsg struct {
 // attemptPlan names the attempts: one per agent by default, n of them when
 // asked, cycling through the agents. One attempt keeps the plain branch
 // name, so the usual case is unchanged.
-func attemptPlan(agents []string, n int, branch, prompt string, existing []proto.BranchInfo) []attempt {
+func attemptPlan(project string, agents []string, n int, branch, prompt string, existing []proto.BranchInfo) []attempt {
 	if len(agents) == 0 {
 		agents = []string{""}
 	}
@@ -42,7 +42,7 @@ func attemptPlan(agents []string, n int, branch, prompt string, existing []proto
 	}
 	base := branch
 	if base == "" {
-		base = gitx.BranchFromPrompt(prompt)
+		base = gitx.BranchFromPrompt(project, prompt)
 	}
 	if n == 1 {
 		return []attempt{{agent: agents[0], branch: branch}}

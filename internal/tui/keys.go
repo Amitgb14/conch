@@ -150,7 +150,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		m.openRename()
 	case "x":
-		m.openRemove()
+		return m, m.openRemove()
 	case "R":
 		if ok && r.kind == kindMachine {
 			return m, m.reconnect(r.machine, false)
@@ -424,7 +424,7 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 			}
 		}
 	case "c":
-		return m.newTab(viewRef{}), true
+		return m.newShellTab(), true
 	case "C":
 		return m.changesTab(), true
 	case "n":
@@ -595,23 +595,27 @@ func (m *Model) openRenameMachine(mid string) {
 }
 
 // openRemove confirms the removal that fits the selected row.
-func (m *Model) openRemove() {
+func (m *Model) openRemove() tea.Cmd {
 	r, _ := m.selectedRow()
 	switch r.kind {
 	case kindMachine:
 		if r.machine == localMachine {
 			m.setFlash("this computer can't be removed", true)
-			return
+			return nil
 		}
 		mid := r.machine
-		label := m.machine(mid).label
+		mach := m.machine(mid)
+		if mach == nil {
+			return nil
+		}
+		label := mach.label
 		m.overlay = newConfirm(fmt.Sprintf("Remove %s from conch? Its server and panes keep running there.", label), func(m *Model) tea.Cmd {
 			return m.removeMachine(mid)
 		})
 	case kindPane:
 		p := m.pane(r.machine, r.paneID)
 		if p == nil {
-			return
+			return nil
 		}
 		id, mid := p.ID, r.machine
 		m.overlay = newConfirm(fmt.Sprintf("Close %s? Its process is stopped.", p.DisplayName()), func(m *Model) tea.Cmd {
@@ -620,7 +624,7 @@ func (m *Model) openRemove() {
 	case kindBranch:
 		proj := m.project(r.machine, r.projectID)
 		if proj == nil {
-			return
+			return nil
 		}
 		for _, wt := range proj.Worktrees {
 			if wt.Branch == r.branch && !wt.Main {
@@ -630,20 +634,30 @@ func (m *Model) openRemove() {
 					func(m *Model) tea.Cmd {
 						return m.callOn(mid, proto.MethodWorktreeRemove, params, nil, func() tea.Msg { return flashMsg("worktree removed") })
 					})
-				return
+				return nil
 			}
 		}
-		m.setFlash("only linked worktrees can be removed", true)
+		// No worktree of its own left: the branch itself is what there is to
+		// remove, and discard says what that would lose before it goes.
+		switch {
+		case r.branch == proj.Base:
+			m.setFlash("the base branch stays", true)
+		case !m.hasCapability(r.machine, harvestCapability):
+			m.setFlash("this machine's conch is too old to delete a branch", true)
+		default:
+			return m.discardBranch(harvestTarget{machine: r.machine, projectID: r.projectID, branch: r.branch})
+		}
 	case kindProject:
 		proj := m.project(r.machine, r.projectID)
 		if proj == nil {
-			return
+			return nil
 		}
 		id, mid := proj.ID, r.machine
 		m.overlay = newConfirm(fmt.Sprintf("Remove %s from the sidebar? Files are not touched.", proj.Name), func(m *Model) tea.Cmd {
 			return m.callOn(mid, proto.MethodProjectRemove, proto.ProjectRef{ID: id}, nil, nil)
 		})
 	}
+	return nil
 }
 
 func (m *Model) openTaskDialog() tea.Cmd {
