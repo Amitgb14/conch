@@ -452,3 +452,49 @@ func TestA4CrossBuildCacheDirUnwritable(t *testing.T) {
 		t.Fatal("cache dir under a file accepted")
 	}
 }
+
+func TestA4ReleasesFeedURL(t *testing.T) {
+	t.Setenv("CONCH_RELEASE_URL", "")
+	if got := releasesFeedURL(); got != "https://github.com/Amitgb14/conch/releases.atom" {
+		t.Fatalf("default feed %q", got)
+	}
+	// A mirror, with or without a trailing slash, and the latest-release
+	// page beside it.
+	for _, base := range []string{"http://mirror.invalid/conch/", "http://mirror.invalid/conch"} {
+		t.Setenv("CONCH_RELEASE_URL", base)
+		if got := releasesFeedURL(); got != "http://mirror.invalid/conch/releases.atom" {
+			t.Fatalf("mirror %q: feed %q", base, got)
+		}
+	}
+}
+
+// TestA4ReleasesFromFeed reads the versions out of whatever the feed
+// carries: entries in any order, the same tag twice, tags among other links
+// and a pre-release suffix.
+func TestA4ReleasesFromFeed(t *testing.T) {
+	feed := `<?xml version="1.0" encoding="UTF-8"?>
+<feed><entry><title>v0.2.0</title>
+<link href="https://github.com/Amitgb14/conch/releases/tag/v0.2.0"/>
+<link href="https://github.com/Amitgb14/conch/compare/v0.1.0...v0.2.0"/></entry>
+<entry><link href="https://github.com/Amitgb14/conch/releases/tag/v0.2.0"/></entry>
+<entry><link href="https://github.com/Amitgb14/conch/releases/tag/v1.0.0-rc.1+ci.7"/></entry>
+<entry><link href="https://github.com/Amitgb14/conch/releases/tag/nightly"/></entry></feed>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/releases.atom" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(feed))
+	}))
+	defer srv.Close()
+	t.Setenv("CONCH_RELEASE_URL", srv.URL)
+
+	got, err := Releases(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"0.2.0", "1.0.0-rc.1+ci.7"} // feed order, once each; "nightly" is no version
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("Releases() = %v, want %v", got, want)
+	}
+}

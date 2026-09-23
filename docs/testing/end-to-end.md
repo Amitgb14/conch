@@ -90,6 +90,11 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 5.2 | `conch update` | From an older release | Downloads, verifies, replaces the binary; `conch version` shows the new one | ✅ R11 v0.1.0 → 0.1.1 on macOS arm64 |
 | 5.3 | Release check in the TUI | A release build older than the latest | Status bar shows `⬆`; version popup offers the update | ✅ R12 a real v0.1.0 TUI against the published 0.1.1 |
 | 5.4 | Update from the TUI | `u` in the version popup | Installs, reloads the server keeping panes, restarts the TUI, updates remotes | ✅ R12 local, R13 the remote half |
+| 5.5 | `conch update list` | On a release build, with two or more releases published | Lists them newest first, marks the running one with `*`, the latest, and any kept locally | ☐ |
+| 5.6 | Moving back | After a real `conch update`, run `conch update rollback` | Installs the kept copy with no download, reloads the server keeping panes, `conch version` shows the older release; a second `rollback` comes forward again | ☐ |
+| 5.7 | Moving back to a version never kept | `conch update VERSION` for an older release on a fresh `CONCH_HOME` | Downloads and verifies that release, replaces the binary, reloads the server | ☐ |
+| 5.8 | `[update] auto = true` | A release build older than the latest, `auto = true`, TUI open | The daily check installs the release on its own: flash, server reload, TUI restart, remotes | ☐ |
+| 5.9 | install.sh with a version | `curl … \| sh -s -- OLDER_VERSION` over an installed newer conch | Installs that release into `~/.local/bin` (no `conch update` involved) | ☐ |
 
 ## 6. Server hot reload and TUI updates
 

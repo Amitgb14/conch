@@ -781,6 +781,7 @@ var helpText = []string{
 	"  a task warns before it starts when that agent's plan window is nearly used; it never refuses",
 	"  status bar: Claude 5h 42% · 7d 18% = plan limit windows (click for reset times)",
 	"  status bar: ⬆ version = updates; click, tick machines with space, u updates",
+	"    conch update list shows every release · conch update rollback goes back one",
 	"",
 	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain",
 	"  q  detach (agents keep running)",

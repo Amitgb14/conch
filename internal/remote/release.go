@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -107,6 +108,46 @@ func LatestRelease(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("find latest conch release: no published release (%s)", resp.Status)
 	}
 	return loc[i+len("/tag/v"):], nil
+}
+
+// releasesFeedURL is where the published releases are listed. GitHub's
+// per-repository Atom feed needs no API token; $CONCH_RELEASE_URL (a mirror,
+// or a test server) serves it under /releases.atom.
+func releasesFeedURL() string {
+	base := releaseBase()
+	if os.Getenv("CONCH_RELEASE_URL") != "" {
+		return base + "/releases.atom"
+	}
+	return strings.TrimSuffix(base, "/download") + ".atom"
+}
+
+// tagLink matches the tag links the releases feed carries, e.g.
+// https://github.com/Amitgb14/conch/releases/tag/v0.2.0.
+var tagLink = regexp.MustCompile(`/releases/tag/v([0-9][0-9A-Za-z.+-]*)`)
+
+// Releases lists the published versions, in the order the feed gives them
+// (newest first on GitHub) and once each. Callers that need them ordered
+// sort them themselves — update.Releases does.
+func Releases(ctx context.Context) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	feed, err := fetch(ctx, releasesFeedURL())
+	if err != nil {
+		return nil, fmt.Errorf("list conch releases: %w", err)
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range tagLink.FindAllSubmatch(feed, -1) {
+		v := string(m[1])
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("list conch releases: no releases found at %s", releasesFeedURL())
+	}
+	return out, nil
 }
 
 // ReplaceExecutable atomically swaps the file at path for bin.

@@ -14,12 +14,21 @@ curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | 
 
 This downloads the latest release, checks it against the release checksums and installs `~/.local/bin/conch`.
 
+A version as an argument installs that release instead — including an older
+one, to go back to it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh -s -- 0.2.0
+```
+
 | Variable | Effect |
 | --- | --- |
-| `CONCH_VERSION=0.2.0` | install that release instead of the latest |
+| `CONCH_VERSION=0.2.0` | install that release instead of the latest (the argument wins) |
 | `CONCH_INSTALL_DIR` | install into another directory |
+| `CONCH_RELEASE_URL` | download releases from a mirror instead of GitHub |
 
-Later, `conch update` replaces the binary with the newest release.
+Later, `conch update` replaces the binary with the newest release — the same
+download, without the script.
 
 ## With Go
 
@@ -75,3 +84,33 @@ The version in the status bar then shows `⬆`; click it for the list and press 
 Remote machines behind your build are listed with checkboxes, all ticked. To update only some, move with `↑` `↓` and press `space` (or click a row) to untick the ones to leave alone; `a` ticks or unticks them all. The box then reads **u update 1 of 2 machines**. Unticked machines stay on their build, also after the TUI restarts; a machine that was offline when you pressed `u` is updated when it connects.
 
 `conch update` does steps 1–2 from a shell, and `conch machine upgrade ID` installs and reloads one machine.
+
+With `[update] auto = true` in [config.toml](/docs/configuration#update), that
+daily check installs the release it finds on its own — steps 1–4, without
+pressing **u** — and the status bar says so while it runs. It needs
+`check_releases`; it is off by default, so the default stays: conch tells you,
+you decide.
+
+## Going back to an older version
+
+Every update keeps the binary it replaces (the newest three) in
+`$CONCH_HOME/versions` and notes the version it left, so going back is a file
+copy, not a download:
+
+```sh
+conch update list        # every release published upstream, newest first
+conch update rollback    # back to the version before the last update
+conch update 0.2.0       # or straight to a version you name
+```
+
+`conch update list` marks the running version with `*`, the one
+`conch update` would install, and the versions kept locally. Going back notes
+the version it leaves in turn, so a second `conch update rollback` comes
+forward again.
+
+A version conch never had a copy of is downloaded from its release, exactly
+as an update is — so a version that was only ever a local build (`make
+build`) can be gone back to only while its kept copy is there. The local
+server is reloaded onto the older binary too, so panes keep running; remote
+machines follow when you press **u** in the version box or run
+`conch machine upgrade ID`.

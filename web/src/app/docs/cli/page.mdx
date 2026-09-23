@@ -139,7 +139,16 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 
 ### update
 
-`conch update [VERSION]` replaces this binary with the latest (or given) release and reloads the local server onto it. See [Auto-update](/docs/installation#auto-update).
+`conch update [VERSION | latest | list | rollback]` replaces this binary with a release and reloads the local server onto it, keeping panes.
+
+| Command | What it does |
+| --- | --- |
+| `conch update` | install the latest release, or say it is already running |
+| `conch update VERSION` | install that release; an older one moves conch back |
+| `conch update list` | list the releases published upstream, newest first, marking the running, latest and locally kept ones |
+| `conch update rollback` | go back to the version before the last update, from the copy it kept |
+
+See [Auto-update](/docs/installation#auto-update) and [Going back to an older version](/docs/installation#going-back-to-an-older-version).
 
 ### version
 

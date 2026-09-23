@@ -1,6 +1,6 @@
 # Roadmap
 
-Order of upcoming work (updated 2026-09-19). Finished items move to the git
+Order of upcoming work (updated 2026-09-21). Finished items move to the git
 history; details for big items live in their own plan files.
 
 ## Done
@@ -67,20 +67,32 @@ history; details for big items live in their own plan files.
     status bar counts what is waiting. Not yet: filtering, and
     dismissals last only as long as the TUI does.
 
+14. **Staying in step with upstream** — `conch update` installs the latest
+    release, `conch update list` shows what is published (marking the
+    running, latest and locally kept versions) and `conch update rollback`
+    goes back to the version before the last update, from the copy every
+    update keeps in `$CONCH_HOME/versions`; `conch update VERSION` goes to
+    any release, older ones included, and `install.sh` takes a version as an
+    argument for machines without conch yet. `[update] auto = true` installs
+    a newer release as soon as the daily check finds one, off by default.
+    Going back notes the version it leaves, so it also comes forward again.
+    Not yet: choosing a version from the TUI, and moving a remote machine
+    back (it follows this computer's build).
+
 ## Not now
 
-14. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
+15. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
     Deferred: a VM added as an ordinary machine already gives the isolation,
     so what is left to build is lifecycle convenience, not safety. Revisit
-    when agents are meant to act unattended — 15 and 16 below need a
+    when agents are meant to act unattended — 16 and 17 below need a
     boundary first — or when the code being worked on isn't trusted.
 
 ## Last
 
-15. **Auto-approve rules** — per-project rules that let agents run safe
-    commands without waiting for the user. Wants 14 first: rules that skip
+16. **Auto-approve rules** — per-project rules that let agents run safe
+    commands without waiting for the user. Wants 15 first: rules that skip
     the confirmation are only sane inside a sandbox.
-16. **Task graph** — server-side rules such as "when A is done, start a
+17. **Task graph** — server-side rules such as "when A is done, start a
     review agent on its worktree", only once auto-approve rules exist, since
     they run actions nobody confirmed. Notifies rather than moving focus.
 

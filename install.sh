@@ -1,6 +1,11 @@
 #!/bin/sh
 # Installs conch from a GitHub release.
 #   curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh
+# A version — older than the installed one, to go back to it — as an
+# argument or in CONCH_VERSION:
+#   curl -fsSL .../install.sh | sh -s -- 0.2.0
+# Once conch is installed, `conch update` does the same, `conch update list`
+# shows the releases and `conch update rollback` goes back one.
 # Environment:
 #   CONCH_VERSION      release to install (default: latest), e.g. 0.2.0
 #   CONCH_INSTALL_DIR  where to put the binary (default: ~/.local/bin)
@@ -33,9 +38,18 @@ else
 	fail "needs curl or wget"
 fi
 
-version=${CONCH_VERSION:-}
+version=${1:-${CONCH_VERSION:-}}
+if [ "$version" = latest ]; then
+	version=
+fi
 if [ -z "$version" ]; then
-	version=$(final_url "https://github.com/$repo/releases/latest" | sed -n 's#.*/tag/v##p' | tr -d '\r')
+	# The latest-release page redirects to its tag, so no API token is
+	# needed. A mirror in CONCH_RELEASE_URL is asked instead of GitHub.
+	latest="https://github.com/$repo/releases/latest"
+	if [ -n "${CONCH_RELEASE_URL:-}" ]; then
+		latest="${CONCH_RELEASE_URL%/}/latest"
+	fi
+	version=$(final_url "$latest" | sed -n 's#.*/tag/v##p' | tr -d '\r')
 	[ -n "$version" ] || fail "could not find the latest release"
 fi
 version=${version#v}
