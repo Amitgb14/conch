@@ -382,3 +382,49 @@ func TestRemoteUploadSettings(t *testing.T) {
 		t.Fatalf("round trip: %+v", got.Remote)
 	}
 }
+
+// TestA3UpdateAuto covers the [update] auto option: off unless a file
+// turns it on, kept by a save, and absent from files written before it
+// existed.
+func TestA3UpdateAuto(t *testing.T) {
+	_, conchHome := a3Isolate(t)
+	if Default().Update.Auto {
+		t.Fatal("auto is on by default")
+	}
+	path := filepath.Join(conchHome, "config.toml")
+
+	// A file from before the option leaves it off, and says nothing about
+	// the check it depends on.
+	if err := os.WriteFile(path, []byte("[update]\ncheck_releases = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil || cfg.Update.Auto || !cfg.Update.CheckReleases {
+		t.Fatalf("older file: %+v %v", cfg.Update, err)
+	}
+
+	if err := os.WriteFile(path, []byte("[update]\ncheck_releases = true\nauto = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err = Load(); err != nil || !cfg.Update.Auto {
+		t.Fatalf("auto = true: %+v %v", cfg.Update, err)
+	}
+	// The settings screen rewrites the file: the option survives, both ways.
+	for _, want := range []bool{true, false} {
+		cfg.Update.Auto = want
+		if err := Save(cfg); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Load()
+		if err != nil || got.Update.Auto != want {
+			t.Fatalf("round trip auto=%v: %+v %v", want, got.Update, err)
+		}
+	}
+	// auto without the check is a valid file: it simply never fires.
+	if err := os.WriteFile(path, []byte("[update]\ncheck_releases = false\nauto = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err = Load(); err != nil || !cfg.Update.Auto || cfg.Update.CheckReleases {
+		t.Fatalf("auto without the check: %+v %v", cfg.Update, err)
+	}
+}

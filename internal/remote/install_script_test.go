@@ -67,6 +67,11 @@ func TestInstallScript(t *testing.T) {
 			w.Write([]byte("0000  conch_9.9.9_plan9_mips.tar.gz\n" + serveSums.Load().(string)))
 		case "/v" + version + "/" + asset:
 			w.Write(archive)
+		case "/latest": // as GitHub's latest-release page does
+			w.Header().Set("Location", "/releases/tag/v"+version)
+			w.WriteHeader(http.StatusFound)
+		case "/releases/tag/v" + version:
+			w.WriteHeader(http.StatusOK)
 		default:
 			http.NotFound(w, r)
 		}
@@ -117,6 +122,58 @@ func TestInstallScript(t *testing.T) {
 	if out, err = installScript(t, srv.URL, dir, "CONCH_VERSION=1.2.3"); err == nil || !strings.Contains(out, "download") {
 		t.Fatalf("unknown version: %v\n%s", err, out)
 	}
+	// A version as an argument — how the curl one-liner goes back to an
+	// older release — and "latest" meaning the newest.
+	argDir := filepath.Join(t.TempDir(), "bin")
+	arg := exec.Command("sh", repoFile(t, "install.sh"), version)
+	arg.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "CONCH_RELEASE_URL=" + srv.URL, "CONCH_INSTALL_DIR=" + argDir}
+	if out, err := arg.CombinedOutput(); err != nil || !strings.Contains(string(out), "downloading conch "+version) {
+		t.Fatalf("version argument: %v\n%s", err, out)
+	}
+	if got, _ := exec.Command(filepath.Join(argDir, "conch")).Output(); string(got) != "conch 9.9.9\n" {
+		t.Fatalf("version argument installed: %q", got)
+	}
+	// No version and "latest" both resolve the newest release.
+	for _, args := range [][]string{{}, {"latest"}} {
+		dir := filepath.Join(t.TempDir(), "bin")
+		cmd := exec.Command("sh", append([]string{repoFile(t, "install.sh")}, args...)...)
+		cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "CONCH_RELEASE_URL=" + srv.URL, "CONCH_INSTALL_DIR=" + dir}
+		if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "downloading conch "+version) {
+			t.Fatalf("args %v: %v\n%s", args, err, out)
+		}
+		if got, _ := exec.Command(filepath.Join(dir, "conch")).Output(); string(got) != "conch 9.9.9\n" {
+			t.Fatalf("args %v installed: %q", args, got)
+		}
+	}
+	// A "v"-prefixed argument names the same release, and an argument
+	// wins over CONCH_VERSION; an empty one falls back to it.
+	for _, c := range []struct {
+		what string
+		args []string
+		env  string
+	}{
+		{"v-prefixed argument", []string{"v" + version}, "CONCH_VERSION=1.2.3"},
+		{"argument over CONCH_VERSION", []string{version}, "CONCH_VERSION=1.2.3"},
+		{"empty argument", []string{""}, "CONCH_VERSION=" + version},
+	} {
+		dir := filepath.Join(t.TempDir(), "bin")
+		cmd := exec.Command("sh", append([]string{repoFile(t, "install.sh")}, c.args...)...)
+		cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "CONCH_RELEASE_URL=" + srv.URL, "CONCH_INSTALL_DIR=" + dir, c.env}
+		if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "downloading conch "+version) {
+			t.Fatalf("%s: %v\n%s", c.what, err, out)
+		}
+		if got, _ := exec.Command(filepath.Join(dir, "conch")).Output(); string(got) != "conch 9.9.9\n" {
+			t.Fatalf("%s installed: %q", c.what, got)
+		}
+	}
+
+	// Nothing published: it says so instead of installing nothing.
+	empty := httptest.NewServer(http.NotFoundHandler())
+	defer empty.Close()
+	if out, err := installScript(t, empty.URL, filepath.Join(t.TempDir(), "bin")); err == nil || !strings.Contains(out, "could not find the latest release") {
+		t.Fatalf("no releases: %v\n%s", err, out)
+	}
+
 	// With its folder on PATH there is no hint.
 	cmd := exec.Command("sh", repoFile(t, "install.sh"))
 	cmd.Env = []string{"PATH=" + dir + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CONCH_RELEASE_URL=" + srv.URL, "CONCH_INSTALL_DIR=" + dir, "CONCH_VERSION=" + version}

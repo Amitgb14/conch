@@ -63,6 +63,11 @@ type UpdateCfg struct {
 	// CheckReleases asks GitHub once a day whether a newer release exists
 	// (release builds only; development builds update from source).
 	CheckReleases bool `toml:"check_releases"`
+	// Auto installs a newer release as soon as that check finds one —
+	// staying in step with upstream without pressing u — and reloads the
+	// local server onto it, keeping panes. Off by default. It needs
+	// CheckReleases. `conch update rollback` goes back.
+	Auto bool `toml:"auto"`
 }
 
 // BrainCfg configures conch's brain: the model behind the command bar and

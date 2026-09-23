@@ -29,8 +29,10 @@ curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | 
 ```
 
 Or with Go 1.25+: `go install github.com/Amitgb14/conch/cmd/conch@latest`.
-`conch update` upgrades to the newest release, and `conch server reload`
-moves the server onto a new build without stopping your agents.
+`conch update` upgrades to the newest release, `conch update list` shows
+what is published and `conch update rollback` goes back to the version
+before it; `conch server reload` moves the server onto a new build without
+stopping your agents.
 
 ## Quick start
 

@@ -409,6 +409,9 @@ func (v *versionInfo) render(m Model) box {
 				styleMuted.Render(" space tick · a all · ↑↓ move"))
 		}
 	}
+	if proto.IsRelease() {
+		lines = append(lines, "", styleMuted.Render(" conch update list shows every release · conch update rollback goes back one"))
+	}
 	if len(ids) > 0 && !running {
 		lines = append(lines, "", styleMuted.Render(" esc closes"))
 	} else {

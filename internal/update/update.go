@@ -133,16 +133,22 @@ func NewerRelease(ctx context.Context) (*Release, error) {
 	return &Release{Version: latest}, nil
 }
 
-// InstallRelease downloads a release for this platform over the executable
-// at exe.
+// InstallRelease puts the conch of version over the executable at exe: the
+// published release for this platform, or the copy kept when conch moved
+// off that version. The outgoing binary is kept and noted, so moving back
+// to it later needs no download. version may be older than the running
+// one — going backwards is the same swap.
 func InstallRelease(ctx context.Context, version, exe string) error {
-	bin, err := remote.FetchRelease(ctx, version, buildinfo.Platform())
+	version = strings.TrimPrefix(version, "v")
+	bin, err := binary(ctx, version)
 	if err != nil {
 		return err
 	}
+	keep(exe, proto.Version) // before the swap: exe still holds it
 	if err := remote.ReplaceExecutable(exe, bin); err != nil {
 		return fmt.Errorf("replace %s: %w", exe, err)
 	}
+	setPrevious(proto.Version)
 	return nil
 }
 

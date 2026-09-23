@@ -522,3 +522,140 @@ func TestPendingUpdatesComparesRemotesWithTheBuildOnDisk(t *testing.T) {
 		t.Fatal("no update state")
 	}
 }
+
+// TestA2AutoUpdateInstallsANewRelease covers [update] auto = true: the
+// daily check's result is installed without waiting for u.
+func TestA2AutoUpdateInstallsANewRelease(t *testing.T) {
+	rel := &update.Release{Version: "9.9.9"}
+
+	// Off by default: the release is only reported.
+	m := a2Model()
+	m.upd = &updateState{}
+	cmd, handled := m.handleUpdate(releaseCheckMsg{rel: rel})
+	if !handled || cmd != nil || m.upd.running || m.flash != "" {
+		t.Fatalf("auto off: cmd %v running %v flash %q", cmd != nil, m.upd.running, m.flash)
+	}
+
+	// On: the update starts. The command downloads, so it is not run here.
+	m = a2Model()
+	m.upd = &updateState{}
+	m.cfg.Update.Auto = true
+	cmd, handled = m.handleUpdate(releaseCheckMsg{rel: rel})
+	if !handled || cmd == nil || !m.upd.running {
+		t.Fatalf("auto on: cmd %v running %v", cmd != nil, m.upd.running)
+	}
+	if m.flash != "conch 9.9.9 released: updating…" || m.flashIsErr {
+		t.Fatalf("flash %q", m.flash)
+	}
+
+	// Nothing found, or an update already under way: nothing starts.
+	m2 := a2Model()
+	m2.upd = &updateState{}
+	m2.cfg.Update.Auto = true
+	if cmd, _ := m2.handleUpdate(releaseCheckMsg{rel: nil}); cmd != nil || m2.upd.running {
+		t.Fatal("no release: started an update")
+	}
+	m2.upd = &updateState{running: true}
+	if cmd, _ := m2.handleUpdate(releaseCheckMsg{rel: rel}); cmd != nil {
+		t.Fatal("already updating: started another")
+	}
+	if m2.upd.release == nil {
+		t.Fatal("the release was not recorded")
+	}
+}
+
+// TestVersionInfoShowsHowToGoBack: release builds say where the list of
+// releases and the way back are, at every screen size.
+func TestVersionInfoShowsHowToGoBack(t *testing.T) {
+	old := proto.Version
+	proto.Version = "0.9.0"
+	defer func() { proto.Version = old }()
+
+	m := a2Model()
+	m.upd = &updateState{}
+	v := newVersionInfo()
+	out := ansi.Strip(strings.Join(v.render(*m).lines, "\n"))
+	if !strings.Contains(out, "conch update list") || !strings.Contains(out, "conch update rollback") {
+		t.Fatalf("box:\n%s", out)
+	}
+	for _, size := range [][2]int{{1, 1}, {20, 5}, {39, 12}, {300, 100}} {
+		m.width, m.height = size[0], size[1]
+		b := v.render(*m)
+		for _, l := range b.lines {
+			if m.width > 2 && ansi.StringWidth(l) > m.width {
+				t.Fatalf("%v: line %d wide", size, ansi.StringWidth(l))
+			}
+		}
+	}
+
+	// Development builds update from source: no release hint.
+	proto.Version = "0.9.0-dev"
+	out = ansi.Strip(strings.Join(v.render(*m).lines, "\n"))
+	if strings.Contains(out, "conch update rollback") {
+		t.Fatalf("dev build box:\n%s", out)
+	}
+}
+
+// TestA2AutoUpdateNeedsTheReleaseCheck: auto hangs off the daily check, so
+// with the check off nothing ever asks upstream and auto never fires.
+func TestA2AutoUpdateNeedsTheReleaseCheck(t *testing.T) {
+	// Counting the batch without running it: the release check would talk
+	// to the network.
+	commands := func(cmd tea.Cmd) int {
+		if cmd == nil {
+			return 0
+		}
+		if b, ok := cmd().(tea.BatchMsg); ok {
+			return len(b)
+		}
+		return 1
+	}
+
+	m := a2Model()
+	m.upd = &updateState{}
+	m.cfg.Update.Auto, m.cfg.Update.CheckReleases = true, false
+	if n := commands(m.checkUpdates()); n != 1 {
+		t.Fatalf("check off: %d commands, want the tick alone", n)
+	}
+	if !m.upd.releaseChecked.IsZero() {
+		t.Fatal("check off: a release check was recorded")
+	}
+
+	m.cfg.Update.CheckReleases = true
+	if n := commands(m.checkUpdates()); n != 2 {
+		t.Fatalf("check on: %d commands, want the tick and the release check", n)
+	}
+	// Once a day, not once every tick.
+	if n := commands(m.checkUpdates()); n != 1 {
+		t.Fatalf("second tick: %d commands, want the tick alone", n)
+	}
+}
+
+// TestA2AutoUpdateStartsOnceForARelease: the same release arriving again
+// while the first update runs doesn't start a second one, and a check that
+// finds nothing clears the release without starting anything.
+func TestA2AutoUpdateStartsOnceForARelease(t *testing.T) {
+	rel := &update.Release{Version: "9.9.9"}
+	m := a2Model()
+	m.upd = &updateState{}
+	m.cfg.Update.Auto = true
+
+	cmd, _ := m.handleUpdate(releaseCheckMsg{rel: rel})
+	if cmd == nil || !m.upd.running {
+		t.Fatalf("first check: cmd %v running %v", cmd != nil, m.upd.running)
+	}
+	m.flash = ""
+	if cmd, _ := m.handleUpdate(releaseCheckMsg{rel: rel}); cmd != nil || m.flash != "" {
+		t.Fatalf("second check while updating: cmd %v flash %q", cmd != nil, m.flash)
+	}
+
+	// The update finishes, then a check finds nothing: the release is
+	// forgotten and nothing starts.
+	m.upd.running = false
+	if cmd, _ := m.handleUpdate(releaseCheckMsg{rel: nil}); cmd != nil {
+		t.Fatal("no release: started an update")
+	}
+	if m.upd.release != nil || m.upd.running {
+		t.Fatalf("release %v running %v", m.upd.release, m.upd.running)
+	}
+}

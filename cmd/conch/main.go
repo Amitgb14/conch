@@ -71,7 +71,10 @@ Usage:
   conch -m MACHINE upload FILE...
                                 copy files to a machine's uploads folder and print their paths there
   conch ask [-y | -n] REQUEST   ask the brain; it proposes actions and runs them once you confirm
-  conch update [VERSION]        replace this binary with the latest (or given) release
+  conch update [VERSION | latest | list | rollback]
+                                replace this binary with the latest release, a named one
+                                (an older version moves conch back), list what upstream
+                                publishes, or return to the version before the last update
   conch version [--json]        print version
 `
 

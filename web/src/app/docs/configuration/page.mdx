@@ -75,6 +75,7 @@ summaries = false
 
 [update]
 check_releases = true  # ask GitHub once a day for a newer release
+auto = false           # and install it as soon as it is found
 
 [remote]
 upload_drops = true    # upload files dropped on a remote pane and paste their paths there
@@ -97,7 +98,7 @@ The model behind `:` and agent summaries. `[brain]` also takes `base_url`, `api_
 
 ### update
 
-`check_releases` asks GitHub once a day whether a newer release exists (release builds only). See [Auto-update](/docs/installation#auto-update).
+`check_releases` asks GitHub once a day whether a newer release exists (release builds only). `auto = true` installs what that check finds without waiting for **u**, and reloads the local server onto it; it needs `check_releases`. `conch update rollback` goes back. See [Auto-update](/docs/installation#auto-update).
 
 ### remote
 

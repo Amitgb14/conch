@@ -270,6 +270,12 @@ func (m *Model) handleUpdate(msg tea.Msg) (tea.Cmd, bool) {
 		return m.checkUpdates(), true
 	case releaseCheckMsg:
 		m.upd.release = msg.rel
+		// [update] auto = true keeps this computer in step with upstream on
+		// its own: install the release the check found, as u would.
+		if msg.rel != nil && m.cfg.Update.Auto && !m.upd.running {
+			m.setFlash("conch "+msg.rel.Version+" released: updating…", false)
+			return m.startUpdate(nil), true
+		}
 		return nil, true
 	case updateStepMsg:
 		return m.updateRemotes(), true
