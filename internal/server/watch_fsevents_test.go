@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/fsnotify/fsevents"
 )
 
 // TestFSEventsPath: FSEvents reports paths relative to the device root, so
@@ -62,5 +65,67 @@ func TestFSEventsPathThroughASymlink(t *testing.T) {
 	under := filepath.Join(link, "a.go")
 	if got := fseventsPath(link, under); got != under {
 		t.Fatalf("a path under the root became %q", got)
+	}
+}
+
+// FSEvents hands batches over from a CoreFoundation callback, and a send
+// with nobody receiving blocks that callback inside cgo for good — which
+// also stops the process ever exec'ing itself again, so a reload hangs. The
+// pump must therefore read the stream's channel until the stream closes it,
+// stopped or not.
+func TestFSEventsPumpDrainsAfterStop(t *testing.T) {
+	events := make(chan []fsevents.Event)
+	b := &fseventsBackend{out: make(chan string, 1), stop: make(chan struct{}), streams: map[string]*fsevents.EventStream{}}
+	es := &fsevents.EventStream{Events: events}
+	done := make(chan struct{})
+	b.pumps.Add(1) // as watch() does before starting one
+	go func() { b.pump("/w", es); close(done) }()
+
+	// Stopped: the batch is still taken, not left blocking the callback.
+	close(b.stop)
+	for i := 0; i < 3; i++ {
+		select {
+		case events <- []fsevents.Event{{Path: "w/a.go"}}:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("batch %d was not taken: a callback would be stuck in cgo", i+1)
+		}
+	}
+	// Nothing is forwarded once stopped.
+	select {
+	case p := <-b.out:
+		t.Fatalf("forwarded %q after stopping", p)
+	default:
+	}
+	// The pump ends only when the stream closes its channel, as Stop does.
+	select {
+	case <-done:
+		t.Fatal("the pump left the channel before the stream closed it")
+	default:
+	}
+	close(events)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pump did not end with the stream")
+	}
+}
+
+// A reader that has stopped listening must not block the callback either:
+// batches keep being taken and their paths dropped.
+func TestFSEventsPumpDropsWhenTheReaderIsBehind(t *testing.T) {
+	events := make(chan []fsevents.Event)
+	b := &fseventsBackend{out: make(chan string), stop: make(chan struct{}), streams: map[string]*fsevents.EventStream{}}
+	es := &fsevents.EventStream{Events: events}
+	done := make(chan struct{})
+	b.pumps.Add(1) // as watch() does before starting one
+	go func() { b.pump("/w", es); close(done) }()
+	t.Cleanup(func() { close(events); <-done })
+
+	for i := 0; i < 3; i++ { // nobody reads b.out at all
+		select {
+		case events <- []fsevents.Event{{Path: "w/a.go"}, {Path: "w/b.go"}}:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("batch %d was not taken with no reader on the other side", i+1)
+		}
 	}
 }

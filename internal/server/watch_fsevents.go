@@ -29,6 +29,9 @@ type fseventsBackend struct {
 	out  chan string
 	stop chan struct{}
 
+	closeOnce sync.Once
+	pumps     sync.WaitGroup // one per started stream
+
 	mu      sync.Mutex
 	streams map[string]*fsevents.EventStream
 }
@@ -73,6 +76,7 @@ func (b *fseventsBackend) watch(root string, ignored []string) error {
 	b.mu.Lock()
 	b.streams[root] = es
 	b.mu.Unlock()
+	b.pumps.Add(1)
 	go b.pump(root, es)
 	return nil
 }
@@ -87,39 +91,58 @@ func (b *fseventsBackend) unwatch(root string) {
 	}
 }
 
+// close stops every stream and waits for their pumps, so that no
+// CoreFoundation thread of ours is left running. It can be called twice: a
+// reload closes the watches before exec'ing, and shutdown closes them again.
 func (b *fseventsBackend) close() {
-	close(b.stop)
-	b.mu.Lock()
-	streams := make([]*fsevents.EventStream, 0, len(b.streams))
-	for root, es := range b.streams {
-		streams = append(streams, es)
-		delete(b.streams, root)
-	}
-	b.mu.Unlock()
-	for _, es := range streams {
-		es.Stop()
-	}
+	b.closeOnce.Do(func() {
+		close(b.stop)
+		b.mu.Lock()
+		streams := make([]*fsevents.EventStream, 0, len(b.streams))
+		for root, es := range b.streams {
+			streams = append(streams, es)
+			delete(b.streams, root)
+		}
+		b.mu.Unlock()
+		for _, es := range streams {
+			es.Stop()
+		}
+		done := make(chan struct{})
+		go func() { b.pumps.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second): // never hold up a shutdown
+		}
+	})
 }
 
-// pump forwards one stream's paths until it is stopped.
+// pump forwards one stream's paths. It reads es.Events until the stream
+// closes it and never before: FSEvents delivers batches from a CoreFoundation
+// callback, and a callback whose send has nobody to receive it blocks inside
+// cgo, on a thread locked to it, for good. A thread stuck in a cgo callback
+// also stops syscall.Exec — runtime_BeforeExec waits on darwin for pending
+// preemption signals — so abandoning this channel left a server that could
+// never reload. Once stopped it keeps draining, dropping what it reads.
 func (b *fseventsBackend) pump(root string, es *fsevents.EventStream) {
-	for {
-		select {
-		case batch, ok := <-es.Events:
-			if !ok {
-				return
+	defer b.pumps.Done()
+	stopped := false
+	for batch := range es.Events {
+		if !stopped {
+			select {
+			case <-b.stop:
+				stopped = true
+			default:
 			}
-			for _, ev := range batch {
-				select {
-				case b.out <- fseventsPath(root, ev.Path):
-				case <-b.stop:
-					return
-				default: // the reader is behind; the next batch will do
-					log.Printf("worktree watch: dropped an event for %s", ev.Path)
-				}
+		}
+		if stopped {
+			continue // drained and dropped: the stream is on its way out
+		}
+		for _, ev := range batch {
+			select {
+			case b.out <- fseventsPath(root, ev.Path):
+			default: // the reader is behind; the next batch will do
+				log.Printf("worktree watch: dropped an event for %s", ev.Path)
 			}
-		case <-b.stop:
-			return
 		}
 	}
 }

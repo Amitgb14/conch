@@ -145,6 +145,9 @@ func (s *Server) reload(bin string) {
 		fail(err)
 		return
 	}
+	// Let go of the file watches before exec'ing: their threads belong to
+	// this process image, and the new one makes its own.
+	s.watcher.stop()
 	log.Printf("reloading into %s with %d pane(s)", bin, len(st.Panes))
 	env := config.MergeEnv(os.Environ(), reloadStateEnv+"="+path)
 	err = syscall.Exec(bin, []string{bin, "server"}, env)

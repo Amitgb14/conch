@@ -27,7 +27,7 @@ conch server stop                      # stops the server and all panes
 
 </Callout>
 
-If a reload ever leaves the socket in place with nothing serving it, `conch status` says the server is *not answering* rather than that it is gone, and simply running `conch` again clears that socket and starts a fresh server. The panes of the old one are lost; nothing else needs cleaning up by hand.
+On macOS the server runs with `GODEBUG=asyncpreemptoff=1`, restarting itself once at start-up to get there: a reload re-execs the server process, and macOS makes that wait for scheduling signals a busy server never takes, which would leave it serving nothing. If a reload ever leaves the socket in place with nothing serving it, `conch status` says the server is *not answering* rather than that it is gone, and simply running `conch` again clears that socket and starts a fresh server. The panes of the old one are lost; nothing else needs cleaning up by hand.
 
 ## Global flag
 

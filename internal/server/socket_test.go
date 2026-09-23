@@ -110,13 +110,3 @@ func TestA8StopWithoutItsSocket(t *testing.T) {
 		t.Fatalf("socket came back: %v", err)
 	}
 }
-
-// A reload on a long-running server once hung in syscall.Exec itself —
-// runtime_BeforeExec on darwin waits for pending preemption signals — so the
-// server neither came back nor kept serving, and conch could not be started
-// again until the socket was cleared by hand. It did not reproduce in a
-// harness with projects, FSEvents watches and panes; see row 9.34 in
-// docs/testing/end-to-end.md.
-func TestA8ReloadAlwaysComesBack(t *testing.T) {
-	t.Skip("bug: a reload wedged in syscall.Exec (runtime_BeforeExec) on a real long-running server; not reproduced here")
-}

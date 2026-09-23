@@ -143,6 +143,20 @@ helpers in `cmd/conch` and `internal/remote`.
   (`CONCH_RELOAD_STATE`). Anything added to a pane or server entry that must
   survive a reload has to be serialized there, and older state files must
   still load.
+  **`syscall.Exec` can hang on macOS.** `runtime_BeforeExec` waits there for
+  every pending async preemption signal to be taken, and in a process with
+  many threads — a pane each, clients, a CoreFoundation thread per FSEvents
+  stream — one is not, so the exec never happens: the server stops serving
+  (its listener is already handed over) but never comes back, panes still
+  running. Seen once on a real server, and reproducible with
+  `go test -race -count=2 ./internal/server/`, which hangs in
+  `TestA5ReloadExecFailureCarriesOn` and passes under
+  `GODEBUG=asyncpreemptoff=1` (Go issue #41702). So `conch server` starts
+  itself again once on macOS with that set (`withoutAsyncPreemption` in
+  `cmd/conch/main.go`), while it still has nothing to preempt — the one exec
+  that is safe to make. A client that meets a wedged server clears the socket
+  and starts a fresh one (`client.EnsureServer`), so conch always starts
+  again, but that server's panes are lost.
 - **Panes on macOS.** `poll` doesn't work on ttys and read deadlines aren't
   supported on ptys; the read loop uses `select`. Shared pane fields are
   guarded by `p.mu`/`p.emuMu` — check with `-race`.
@@ -181,6 +195,12 @@ helpers in `cmd/conch` and `internal/remote`.
   **FSEvents needs cgo**, which `scripts/release.sh` and the remote
   cross-builder cannot use across platforms: a macOS binary built without it
   still works, it just watches by kqueue and so mostly polls.
+  **FSEvents hands its batches over from a CoreFoundation callback**, so
+  whatever reads `EventStream.Events` must keep reading until the stream
+  closes it. A callback whose send has no receiver blocks inside cgo on a
+  thread locked to it and stays blocked, leaking that thread for the life of
+  the process — so the pump drains its stream for as long as the stream
+  lives, forwarding only while it is wanted.
 
 ## Adding an agent
 

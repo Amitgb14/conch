@@ -225,9 +225,13 @@ func (s *Server) unlinkSocket() {
 	_ = os.Remove(s.sockPath)
 }
 
-// Stop begins shutdown; Run returns once panes are closed.
+// Stop begins shutdown; Run returns once panes are closed. The watches go
+// at once rather than with the run loop: a server that never ran one — a
+// test's, or one that failed to start — would otherwise leave its streams,
+// and on macOS a CoreFoundation thread each, behind for good.
 func (s *Server) Stop() {
 	s.quitOnce.Do(func() { close(s.quit) })
+	s.watcher.stop()
 }
 
 func (s *Server) shutdown() {

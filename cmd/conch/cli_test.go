@@ -922,3 +922,27 @@ func TestA4StatusUnservedSocket(t *testing.T) {
 		t.Fatalf("status on an unserved socket: %d %q", code, out)
 	}
 }
+
+// The server runs with async preemption off, because a reload is a
+// syscall.Exec and macOS makes that wait for preemption signals a busy
+// server never takes. It starts itself again once to get there, and only
+// once.
+func TestA4AsyncPreemptOff(t *testing.T) {
+	for _, c := range []struct {
+		goos, godebug, want string
+		again               bool
+	}{
+		{"darwin", "", "asyncpreemptoff=1", true},
+		{"darwin", "madvdontneed=1", "madvdontneed=1,asyncpreemptoff=1", true},
+		{"darwin", "asyncpreemptoff=1", "asyncpreemptoff=1", false},
+		{"darwin", "madvdontneed=1,asyncpreemptoff=1", "madvdontneed=1,asyncpreemptoff=1", false},
+		{"darwin", "asyncpreemptoff=0", "asyncpreemptoff=0,asyncpreemptoff=1", true}, // last wins
+		{"linux", "", "", false},
+		{"linux", "asyncpreemptoff=1", "asyncpreemptoff=1", false},
+	} {
+		got, again := asyncPreemptOff(c.goos, c.godebug)
+		if got != c.want || again != c.again {
+			t.Errorf("asyncPreemptOff(%q, %q) = %q, %v; want %q, %v", c.goos, c.godebug, got, again, c.want, c.again)
+		}
+	}
+}

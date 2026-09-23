@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -232,11 +233,54 @@ func runServer(args []string) error {
 			return fmt.Errorf("unknown server subcommand %q", args[0])
 		}
 	}
+	if err := withoutAsyncPreemption(); err != nil {
+		return err
+	}
 	err := server.New(config.SocketPath(), config.Dir()).Run()
 	if errors.Is(err, server.ErrAlreadyRunning) {
 		return fmt.Errorf("%w on %s", err, config.SocketPath())
 	}
 	return err
+}
+
+// withoutAsyncPreemption makes sure the server runs with async preemption
+// off, starting itself again once to get there. A reload is a syscall.Exec,
+// and on macOS runtime_BeforeExec waits for every pending preemption signal
+// to be taken: in a server with a thread per pane, per client and per file
+// watch, one of them is not, and the exec never happens — the server stops
+// serving without ever coming back (see the hot reload note in AGENTS.md).
+// This runs before anything else, while there is nothing to preempt, so the
+// exec here is the one that is safe to make.
+func withoutAsyncPreemption() error {
+	godebug, again := asyncPreemptOff(runtime.GOOS, os.Getenv("GODEBUG"))
+	if !again {
+		return nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return nil // nothing to start again: carry on as we are
+	}
+	env := config.MergeEnv(os.Environ(), "GODEBUG="+godebug)
+	_ = syscall.Exec(exe, os.Args, env) // an exec that fails leaves us as we are
+	return nil
+}
+
+// asyncPreemptOff is the GODEBUG the server wants and whether it has to
+// start again to get it: only on macOS, and only once.
+func asyncPreemptOff(goos, godebug string) (string, bool) {
+	const off = "asyncpreemptoff=1"
+	if goos != "darwin" {
+		return godebug, false
+	}
+	for _, f := range strings.Split(godebug, ",") {
+		if strings.TrimSpace(f) == off {
+			return godebug, false
+		}
+	}
+	if godebug == "" {
+		return off, true
+	}
+	return godebug + "," + off, true
 }
 
 func runStatus() error {

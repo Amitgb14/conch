@@ -161,6 +161,17 @@ func (w *worktreeWatcher) run(quit <-chan struct{}) {
 	}
 }
 
+// stop ends every watch and lets go of whatever the backend was running on:
+// on macOS each FSEvents stream has a CoreFoundation thread of its own, and
+// exec'ing with those still up is what a reload used to do. Calling it twice
+// is fine — a reload stops the watches, and shutdown stops them again.
+func (w *worktreeWatcher) stop() {
+	if w == nil {
+		return
+	}
+	w.be.close()
+}
+
 // note records one event, and starts watching a directory that was created.
 func (w *worktreeWatcher) note(path string) {
 	root := w.rootOf(path)
