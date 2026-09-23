@@ -92,29 +92,29 @@ func (s *Server) shareSession(p proto.SessionShareParams) (proto.SessionShareRes
 		return res, proto.Errorf(proto.ErrBadRequest, "conch can't launch %q", p.To)
 	}
 
-	var found *sessions.Session
-	env := sessions.CurrentEnv()
-	for _, f := range sessions.List(env, []string{p.Dir}, 0) {
-		if f.Agent == p.Agent && f.ID == p.ID {
-			found = &f
-			break
+	var path string
+	if p.Doc != "" {
+		// Exported on another machine: there is no session here to read.
+		if len(p.Doc) > maxSharedDoc {
+			return res, proto.Errorf(proto.ErrBadRequest, "the conversation is too long to share (%d KiB)", len(p.Doc)>>10)
 		}
-	}
-	if found == nil {
-		return res, proto.Errorf(proto.ErrNotFound, "no %s session %s in %s", p.Agent, p.ID, p.Dir)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	turns, err := sessions.Transcript(ctx, env, *found)
-	if err != nil {
-		return res, proto.Errorf(proto.ErrBadRequest, "%v", err)
-	}
-	if len(turns) == 0 {
-		return res, proto.Errorf(proto.ErrBadRequest, "the %s session has no messages to share", sessions.AgentName(p.Agent))
-	}
-	path, err := writeHandoff(p.Dir, *found, sessions.Handoff(*found, turns))
-	if err != nil {
-		return res, proto.Errorf(proto.ErrInternal, "write the conversation: %v", err)
+		name := p.Name
+		if name == "" {
+			name = p.Agent + "-" + p.ID + ".md"
+		}
+		var err error
+		if path, err = writeHandoffFile(p.Dir, safeName(name), p.Doc); err != nil {
+			return res, proto.Errorf(proto.ErrInternal, "write the conversation: %v", err)
+		}
+	} else {
+		found, doc, perr := handoffDoc(p.Agent, p.ID, p.Dir)
+		if perr != nil {
+			return res, perr
+		}
+		var err error
+		if path, err = writeHandoff(p.Dir, found, doc); err != nil {
+			return res, proto.Errorf(proto.ErrInternal, "write the conversation: %v", err)
+		}
 	}
 	res.Path = path
 
@@ -123,14 +123,14 @@ func (s *Server) shareSession(p proto.SessionShareParams) (proto.SessionShareRes
 		if rel, err := filepath.Rel(target.dir, path); err == nil && !strings.HasPrefix(rel, "..") {
 			ref = rel
 		}
-		if err := s.submitPrompt(target, handoffPrompt(p.Agent, ref)); err != nil {
+		if err := s.submitPrompt(target, handoffPrompt(p.Agent, p.From, ref)); err != nil {
 			return res, proto.Errorf(proto.ErrBadRequest, "%v", err)
 		}
 		res.Pane = target.info()
 		log.Printf("shared %s session %s with pane %s (%s)", p.Agent, p.ID, p.PaneID, path)
 		return res, nil
 	}
-	info, perr := s.create(proto.PaneCreateParams{Agent: p.To, Prompt: handoffPrompt(p.Agent, filepath.Join(handoffDir, filepath.Base(path))),
+	info, perr := s.create(proto.PaneCreateParams{Agent: p.To, Prompt: handoffPrompt(p.Agent, p.From, filepath.Join(handoffDir, filepath.Base(path))),
 		Cwd: p.Dir, Cols: p.Cols, Rows: p.Rows})
 	if perr != nil {
 		return res, perr
@@ -138,6 +138,46 @@ func (s *Server) shareSession(p proto.SessionShareParams) (proto.SessionShareRes
 	res.Pane = info
 	log.Printf("shared %s session %s with %s in pane %s (%s)", p.Agent, p.ID, p.To, info.ID, path)
 	return res, nil
+}
+
+// maxSharedDoc bounds a handoff document sent from another machine; the
+// ones conch renders stay far below it.
+const maxSharedDoc = 2 << 20
+
+// handoffDoc finds a saved session in dir and renders its conversation.
+func handoffDoc(agent, id, dir string) (sessions.Session, string, *proto.Error) {
+	env := sessions.CurrentEnv()
+	for _, f := range sessions.List(env, []string{dir}, 0) {
+		if f.Agent != agent || f.ID != id {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		turns, err := sessions.Transcript(ctx, env, f)
+		if err != nil {
+			return f, "", proto.Errorf(proto.ErrBadRequest, "%v", err)
+		}
+		if len(turns) == 0 {
+			return f, "", proto.Errorf(proto.ErrBadRequest, "the %s session has no messages to share", sessions.AgentName(agent))
+		}
+		return f, sessions.Handoff(f, turns), nil
+	}
+	return sessions.Session{}, "", proto.Errorf(proto.ErrNotFound, "no %s session %s in %s", agent, id, dir)
+}
+
+// ---- session.export ----
+
+// exportSession renders a conversation for session.share on another
+// machine, which has no access to this one's session files.
+func (s *Server) exportSession(p proto.SessionRef) (proto.SessionExport, *proto.Error) {
+	if p.ID == "" {
+		return proto.SessionExport{}, proto.Errorf(proto.ErrBadRequest, "this run has no saved conversation to share")
+	}
+	found, doc, perr := handoffDoc(p.Agent, p.ID, p.Dir)
+	if perr != nil {
+		return proto.SessionExport{}, perr
+	}
+	return proto.SessionExport{Name: handoffName(found), Doc: doc}, nil
 }
 
 // submitDelay separates a pasted message from the Enter that submits it:
@@ -204,20 +244,34 @@ func entryInfo(e *entry) proto.PaneInfo {
 	return e.info()
 }
 
-// handoffPrompt asks an agent to pick up a shared conversation.
-func handoffPrompt(from, path string) string {
-	return fmt.Sprintf("Continue the work from an earlier %s session. Its conversation is saved in %s. "+
+// handoffPrompt asks an agent to pick up a shared conversation. A
+// conversation from another machine says so: its paths and files may not
+// match this checkout.
+func handoffPrompt(from, machine, path string) string {
+	where := ""
+	if machine != "" {
+		where = " on " + machine
+	}
+	return fmt.Sprintf("Continue the work from an earlier %s session%s. Its conversation is saved in %s. "+
 		"Read that file first, then briefly summarise what was done and what remains before changing anything.",
-		sessions.AgentName(from), path)
+		sessions.AgentName(from), where, path)
 }
 
 // writeHandoff saves a handoff document in dir and keeps .conch out of git.
 func writeHandoff(dir string, s sessions.Session, doc string) (string, error) {
+	return writeHandoffFile(dir, handoffName(s), doc)
+}
+
+// handoffName is the file a session's conversation is written to.
+func handoffName(s sessions.Session) string { return s.Agent + "-" + safeName(s.ID) + ".md" }
+
+// writeHandoffFile saves doc as name in dir's handoff folder and keeps
+// .conch out of git.
+func writeHandoffFile(dir, name, doc string) (string, error) {
 	folder := filepath.Join(dir, handoffDir)
 	if err := os.MkdirAll(folder, 0o755); err != nil {
 		return "", err
 	}
-	name := s.Agent + "-" + safeName(s.ID) + ".md"
 	path := filepath.Join(folder, name)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(doc), 0o644); err != nil {

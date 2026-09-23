@@ -306,7 +306,7 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true,
 	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodWorktreeFiles: true,
 	proto.MethodProjectFiles: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
-	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodFSUpload: true,
+	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
 	proto.MethodBranchMerge: true, proto.MethodBranchDiscard: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true,
@@ -732,6 +732,14 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		sp.Dir = realDir(sp.Dir)
 		return s.shareSession(sp)
+
+	case proto.MethodSessionExport:
+		rp, perr := decode[proto.SessionRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		rp.Dir = realDir(rp.Dir)
+		return s.exportSession(rp)
 
 	case proto.MethodSessionDismiss:
 		rp, perr := decode[proto.SessionRef](msg)

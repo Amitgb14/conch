@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -304,7 +305,8 @@ func (m *Model) receiveSessionSearch(msg sessionSearchMsg) {
 // ---- sharing ----
 
 // openShareMenu offers where to hand a session's conversation: a new agent
-// in its folder, or an agent already running in the project.
+// in its folder, an agent already running in the project, or a project on
+// another machine.
 func (m *Model) openShareMenu(sv *sessionsView, s proto.SessionInfo) {
 	switch {
 	case s.ID == "":
@@ -319,6 +321,27 @@ func (m *Model) openShareMenu(sv *sessionsView, s proto.SessionInfo) {
 		return
 	}
 	mid, pid := sv.machine, sv.projectID
+	items := shareTargets(mach, pid, s.PaneID, func(m *Model, p proto.SessionShareParams, to string) tea.Cmd {
+		return m.shareSession(mid, pid, s, p, to)
+	})
+	if len(m.handoffProjects(mid)) > 0 {
+		items = append(items, menuItem{"o", "On another machine…", func(m *Model) tea.Cmd {
+			m.openHandoffMenu(mid, s)
+			return nil
+		}})
+	}
+	if len(items) == 0 {
+		m.setFlash("no agent to share with: install one with c", true)
+		return
+	}
+	title := "Share “" + ansi.Truncate(s.Title, 40, "…") + "”"
+	m.overlay = &menu{title: title, items: items, x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
+}
+
+// shareTargets are the agents a conversation can go to in project pid on
+// mach: its installed agents to start, then those running in the project
+// (except the session's own pane, skip).
+func shareTargets(mach *machine, pid, skip string, share func(m *Model, p proto.SessionShareParams, to string) tea.Cmd) []menuItem {
 	list := mach.agentList
 	if len(list) == 0 {
 		for _, name := range []string{"claude", "codex", "gemini", "opencode"} {
@@ -340,11 +363,11 @@ func (m *Model) openShareMenu(sv *sessionsView, s proto.SessionInfo) {
 		}
 		to := a.Name
 		items = append(items, menuItem{key, "Start " + label + " with it", func(m *Model) tea.Cmd {
-			return m.shareSession(mid, pid, s, proto.SessionShareParams{To: to}, label)
+			return share(m, proto.SessionShareParams{To: to}, label)
 		}})
 	}
 	for _, p := range mach.panes {
-		if p.Agent == nil || p.State != proto.PaneRunning || p.ProjectID != pid || p.ID == s.PaneID {
+		if p.Agent == nil || p.State != proto.PaneRunning || p.ProjectID != pid || p.ID == skip {
 			continue
 		}
 		id, name := p.ID, p.DisplayName()
@@ -353,15 +376,124 @@ func (m *Model) openShareMenu(sv *sessionsView, s proto.SessionInfo) {
 			detail = styleMuted.Render("  " + p.Branch)
 		}
 		items = append(items, menuItem{"", "Send to " + name + detail, func(m *Model) tea.Cmd {
-			return m.shareSession(mid, pid, s, proto.SessionShareParams{PaneID: id}, name)
+			return share(m, proto.SessionShareParams{PaneID: id}, name)
+		}})
+	}
+	return items
+}
+
+// handoffTarget is a project on another machine a conversation can go to.
+type handoffTarget struct {
+	machine *machine
+	project proto.ProjectInfo
+}
+
+// handoffProjects lists the projects of the online machines other than mid.
+func (m Model) handoffProjects(mid string) []handoffTarget {
+	var out []handoffTarget
+	for _, mach := range m.machines {
+		if mach.id == mid || mach.c == nil || mach.state != stateOnline {
+			continue
+		}
+		for _, p := range mach.projects {
+			out = append(out, handoffTarget{mach, p})
+		}
+	}
+	return out
+}
+
+// openHandoffMenu asks which project on another machine gets a
+// conversation from machine mid.
+func (m *Model) openHandoffMenu(mid string, s proto.SessionInfo) {
+	if !m.hasCapability(mid, proto.CapSessionHandoff) {
+		m.setFlash("the server on "+m.machineLabel(mid)+" predates handing sessions to another machine; reload it", true)
+		return
+	}
+	var items []menuItem
+	for _, t := range m.handoffProjects(mid) {
+		key := ""
+		if len(items) < 9 {
+			key = fmt.Sprint(len(items) + 1)
+		}
+		t := t
+		items = append(items, menuItem{key, t.machine.label + " · " + t.project.Name, func(m *Model) tea.Cmd {
+			m.openHandoffAgents(mid, t, s)
+			return nil
 		}})
 	}
 	if len(items) == 0 {
-		m.setFlash("no agent to share with: install one with c", true)
+		m.setFlash("no other machine is online with a project", true)
 		return
 	}
-	title := "Share “" + ansi.Truncate(s.Title, 40, "…") + "”"
+	m.overlay = &menu{title: "Share on which machine and project?", items: items, x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
+}
+
+// openHandoffAgents offers the agents of a project on another machine.
+func (m *Model) openHandoffAgents(mid string, t handoffTarget, s proto.SessionInfo) {
+	if !m.hasCapability(t.machine.id, proto.CapSessionHandoff) {
+		m.setFlash("the server on "+t.machine.label+" predates receiving sessions from another machine; reload it", true)
+		return
+	}
+	dst, pid, dir := t.machine.id, t.project.ID, handoffDir(t.project, s.Branch)
+	items := shareTargets(t.machine, pid, "", func(m *Model, p proto.SessionShareParams, to string) tea.Cmd {
+		return m.handoffSession(mid, dst, pid, dir, s, p, to)
+	})
+	if len(items) == 0 {
+		m.setFlash("no agent on "+t.machine.label+" to share with: install one with c", true)
+		return
+	}
+	title := "Share on " + t.machine.label + " · " + ansi.Truncate(t.project.Name, 30, "…")
 	m.overlay = &menu{title: title, items: items, x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
+}
+
+// handoffDir is where in project a conversation on branch goes: the
+// checkout of that branch when there is one, else the project's folder.
+func handoffDir(project proto.ProjectInfo, branch string) string {
+	if branch != "" {
+		for _, w := range project.Worktrees {
+			if w.Branch == branch {
+				return w.Path
+			}
+		}
+	}
+	return project.Path
+}
+
+// handoffSession exports a conversation from machine src and shares it
+// with an agent in dir on machine dst, which can't read src's sessions.
+func (m Model) handoffSession(src, dst, pid, dir string, s proto.SessionInfo, p proto.SessionShareParams, to string) tea.Cmd {
+	from, into := m.clientOf(src), m.clientOf(dst)
+	switch {
+	case from == nil:
+		return func() tea.Msg { return errMsg{errString(m.offlineText(src))} }
+	case into == nil:
+		return func() tea.Msg { return errMsg{errString(m.offlineText(dst))} }
+	}
+	srcLabel, dstLabel := m.machineLabel(src), m.machineLabel(dst)
+	p.Agent, p.ID, p.Dir, p.From = s.Agent, s.ID, dir, srcLabel
+	p.Cols, p.Rows = m.paneArea()
+	key := sessionsKey(dst, pid)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var exp proto.SessionExport
+		if err := from.Call(ctx, proto.MethodSessionExport, proto.SessionRef{Agent: s.Agent, ID: s.ID, Dir: s.Dir}, &exp); err != nil {
+			return errMsg{fmt.Errorf("read the conversation on %s: %w", srcLabel, err)}
+		}
+		p.Doc, p.Name = exp.Doc, exp.Name
+		var res proto.SessionShareResult
+		if err := into.Call(ctx, proto.MethodSessionShare, p, &res); err != nil {
+			return errMsg{fmt.Errorf("share on %s: %w", dstLabel, err)}
+		}
+		note := "shared with " + to + " on " + dstLabel
+		if res.Path != "" {
+			note += " · " + filepath.Base(res.Path)
+		}
+		return tea.BatchMsg{
+			func() tea.Msg { return createdMsg{machine: dst, info: res.Pane, note: note} },
+			func() tea.Msg { return sessionsStaleMsg{key: key} },
+		}
+	}
 }
 
 // shareSession hands the conversation over and shows the receiving pane.

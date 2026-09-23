@@ -290,8 +290,11 @@ func TestSafeNameAndPrompt(t *testing.T) {
 			t.Errorf("%q: %q", in, got)
 		}
 	}
-	if p := handoffPrompt("gemini", "x.md"); !strings.Contains(p, "earlier Gemini CLI session") || !strings.Contains(p, "saved in x.md") {
+	if p := handoffPrompt("gemini", "", "x.md"); !strings.Contains(p, "earlier Gemini CLI session.") || !strings.Contains(p, "saved in x.md") {
 		t.Errorf("prompt: %q", p)
+	}
+	if p := handoffPrompt("codex", "busybox", "x.md"); !strings.Contains(p, "earlier Codex session on busybox.") {
+		t.Errorf("prompt from another machine: %q", p)
 	}
 }
 
@@ -354,5 +357,135 @@ func TestSessionMethodsResolveSymlinks(t *testing.T) {
 	}
 	if realDir("") != "" || realDir("/no/such/dir") != "/no/such/dir" {
 		t.Fatal("realDir fallbacks")
+	}
+}
+
+func TestExportSession(t *testing.T) {
+	s, _, work := shareFixture(t)
+	for _, c := range []struct {
+		ref  proto.SessionRef
+		code string
+	}{
+		{proto.SessionRef{Agent: "claude", Dir: work}, proto.ErrBadRequest},                // no ID
+		{proto.SessionRef{Agent: "claude", ID: "nope", Dir: work}, proto.ErrNotFound},      // no such session
+		{proto.SessionRef{Agent: "gemini", ID: "c1", Dir: work}, proto.ErrNotFound},        // wrong agent
+		{proto.SessionRef{Agent: "claude", ID: "c1", Dir: work + "-x"}, proto.ErrNotFound}, // another folder
+	} {
+		if _, perr := s.exportSession(c.ref); perr == nil || perr.Code != c.code {
+			t.Errorf("%+v: %v, want %s", c.ref, perr, c.code)
+		}
+	}
+
+	res, perr := s.exportSession(proto.SessionRef{Agent: "claude", ID: "c1", Dir: work})
+	if perr != nil || res.Name != "claude-c1.md" || !strings.Contains(res.Doc, "# Handoff: Deploy on arm64") ||
+		!strings.Contains(res.Doc, "The cross compiler is missing.") {
+		t.Fatalf("export: %+v %v", res, perr)
+	}
+	// Exporting writes nothing: the checkout stays as it was.
+	if _, err := os.Stat(filepath.Join(work, ".conch")); err == nil {
+		t.Fatal("export wrote a handoff")
+	}
+
+	// Through dispatch, as a client on another machine calls it.
+	b, _ := json.Marshal(proto.SessionRef{Agent: "codex", ID: "x1", Dir: work})
+	out, perr := s.dispatch(nil, proto.Message{ID: "1", Method: proto.MethodSessionExport, Params: b})
+	if exp, ok := out.(proto.SessionExport); perr != nil || !ok || exp.Name != "codex-x1.md" || !strings.Contains(exp.Doc, "tidy the README") {
+		t.Fatalf("dispatch: %#v %v", out, perr)
+	}
+	if !slowMethods[proto.MethodSessionExport] {
+		t.Fatal("session.export reads transcripts: it must not hold up the connection")
+	}
+}
+
+// A conversation exported on another machine is written as sent and
+// handed to an agent that is told where it came from.
+func TestShareSessionFromAnotherMachine(t *testing.T) {
+	s, home, _ := shareFixture(t)
+	// The receiving checkout has no sessions of its own.
+	there := filepath.Join(home, "there")
+	a5GitRepo(t, there)
+	record := filepath.Join(home, "argv")
+	sh := filepath.Join(home, "fake-shell")
+	os.WriteFile(sh, []byte("#!/bin/sh\nprintf '%s\\n' \"$PWD\" \"$@\" > "+record+"\nsleep 30\n"), 0o755)
+	t.Setenv("SHELL", sh)
+
+	doc := "# Handoff: from afar\n\nhello\n"
+	res, perr := s.shareSession(proto.SessionShareParams{Agent: "claude", ID: "c9", Dir: there, To: "codex",
+		Doc: doc, Name: "claude-c9.md", From: "laptop"})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	want := filepath.Join(there, ".conch", "handoff", "claude-c9.md")
+	if b, err := os.ReadFile(want); res.Path != want || err != nil || string(b) != doc {
+		t.Fatalf("result %+v, file %q %v", res, b, err)
+	}
+	a5WaitFor(t, "the agent's command line", func() bool {
+		b, _ := os.ReadFile(record)
+		return strings.Contains(string(b), ".conch/handoff/claude-c9.md")
+	})
+	if b, _ := os.ReadFile(record); !strings.Contains(string(b), "earlier Claude Code session on laptop") {
+		t.Fatalf("started as:\n%s", b)
+	}
+	if out, _ := exec.Command("git", "-C", there, "status", "--porcelain", "--untracked-files=all").Output(); strings.Contains(string(out), ".conch") {
+		t.Fatalf("git sees the handoff: %s", out)
+	}
+
+	// Into a running agent there.
+	e := agentPane(t, s, "p7", "claude", there, "stty -echo; exec cat")
+	if _, perr := s.shareSession(proto.SessionShareParams{Agent: "codex", ID: "x9", Dir: there, PaneID: "p7", Doc: doc, From: "laptop"}); perr != nil {
+		t.Fatal(perr)
+	}
+	a5WaitFor(t, "the prompt in the pane", func() bool {
+		return strings.Contains(strings.Join(e.p.PlainLines(), ""), "saved in .conch/handoff/codex-x9.md")
+	})
+}
+
+func TestShareSessionDocEdges(t *testing.T) {
+	s, _, work := shareFixture(t)
+	share := func(p proto.SessionShareParams) (proto.SessionShareResult, *proto.Error) {
+		p.Agent, p.Dir, p.PaneID = "claude", work, "p404" // the pane check fails after the doc checks pass
+		return s.shareSession(p)
+	}
+	// The receiving end is still checked before anything is written.
+	if _, perr := share(proto.SessionShareParams{ID: "c9", Doc: "x"}); perr == nil || perr.Code != proto.ErrNotFound {
+		t.Fatalf("unknown pane: %v", perr)
+	}
+	if _, err := os.Stat(filepath.Join(work, ".conch")); err == nil {
+		t.Fatal("a failed share wrote a handoff")
+	}
+	// No ID is still refused, even with a document.
+	if _, perr := s.shareSession(proto.SessionShareParams{Agent: "claude", Dir: work, To: "codex", Doc: "x"}); perr == nil || perr.Code != proto.ErrBadRequest {
+		t.Fatalf("no ID: %v", perr)
+	}
+
+	agentPane(t, s, "p1", "claude", work, "stty -echo; exec cat")
+	send := func(doc, name string) (proto.SessionShareResult, *proto.Error) {
+		return s.shareSession(proto.SessionShareParams{Agent: "claude", ID: "c9", Dir: work, PaneID: "p1", Doc: doc, Name: name})
+	}
+	// Too long: refused before writing.
+	if _, perr := send(strings.Repeat("x", maxSharedDoc+1), "big.md"); perr == nil || perr.Code != proto.ErrBadRequest || !strings.Contains(perr.Message, "too long") {
+		t.Fatalf("too long: %v", perr)
+	}
+	// Exactly the limit is fine.
+	if res, perr := send(strings.Repeat("x", maxSharedDoc), "big.md"); perr != nil || filepath.Base(res.Path) != "big.md" {
+		t.Fatalf("at the limit: %+v %v", res, perr)
+	}
+	// A name can't leave the handoff folder.
+	for name, want := range map[string]string{"../../evil.md": ".._.._evil.md", "/etc/x": "_etc_x", "..": "session", "": "claude-c9.md"} {
+		res, perr := send("doc", name)
+		if perr != nil || res.Path != filepath.Join(work, handoffDir, want) {
+			t.Errorf("name %q: %+v %v", name, res, perr)
+		}
+	}
+	// The session ID in a default name is made safe too.
+	res, perr := s.shareSession(proto.SessionShareParams{Agent: "claude", ID: "a/b", Dir: work, PaneID: "p1", Doc: "doc"})
+	if perr != nil || res.Path != filepath.Join(work, handoffDir, "claude-a_b.md") {
+		t.Fatalf("unsafe ID: %+v %v", res, perr)
+	}
+	// An unwritable folder is an internal error.
+	os.RemoveAll(filepath.Join(work, ".conch"))
+	os.WriteFile(filepath.Join(work, ".conch"), []byte("x"), 0o644)
+	if _, perr := send("doc", "x.md"); perr == nil || perr.Code != proto.ErrInternal {
+		t.Fatalf("unwritable: %v", perr)
 	}
 }

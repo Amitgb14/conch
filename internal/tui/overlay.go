@@ -770,7 +770,7 @@ var helpText = []string{
 	"    M merge into the base (undone if it conflicts) · D discard the branch and its worktree",
 	"    A compare the attempts at this task (t runs a command in each, o shows its terminal)",
 	"  y in the tree copies a branch name or directory",
-	"  Sessions (under a project): enter resume · / search titles and conversations · s share with another agent",
+	"  Sessions (under a project): enter resume · / search titles and conversations · s share with another agent, here or on another machine",
 	"    d delete · a agent filter · I resume all interrupted · x dismiss",
 	"",
 	"Mouse",

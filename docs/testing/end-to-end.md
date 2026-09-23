@@ -171,6 +171,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 9.36 | Task branches carry the project's name | Start a task in two different projects (say OneNutri and conch) | Each branch is under its own project's name (`onenutri/…`, `conch/…`); the task dialog's Branch placeholder shows the same before you start |  ☐ |
 | 9.37 | New tabs are terminals | With the tree selected (not a pane), press `ctrl+b c` three times, then `n` on a project row | Each `ctrl+b c` opens a tab with a shell in it — no tab says "empty" — and the terminal from `n` does not bring a row of empty tabs on screen with it; the `+` menu's **Empty tab** still makes one |  ☐ |
 | 9.5 | Search large histories | A project with 100+ long Claude sessions | Conversation matches arrive within a few seconds; typing stays responsive | ✅ R1 35 MB of Claude history: 163 ms first search, ~10 ms after |
+| 9.38 💳🖥 | Share a session on another machine | Local Claude session; `s` → `o` → busybox · a project with the same branch checked out → Start Codex | Codex starts on busybox in that branch's worktree, reads `.conch/handoff/claude-<id>.md`, and its prompt says the session was on the local machine; nothing is written locally; an older server on either side says to reload it | ☐ |
 
 ## Runs
 
