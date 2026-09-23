@@ -30,6 +30,8 @@ type fsnotifyBackend struct {
 	out  chan string
 	stop chan struct{}
 
+	closeOnce sync.Once
+
 	mu      sync.Mutex
 	ignored map[string][]string // root → directories not to watch
 	dirs    map[string]string   // watched directory → its root
@@ -105,9 +107,13 @@ func (b *fsnotifyBackend) unwatch(root string) {
 func (b *fsnotifyBackend) paths() <-chan string { return b.out }
 func (b *fsnotifyBackend) errs() <-chan error   { return b.fsw.Errors }
 
+// close can be called twice: a reload closes the watches before exec'ing,
+// and the run loop closes them again when the server stops.
 func (b *fsnotifyBackend) close() {
-	close(b.stop)
-	_ = b.fsw.Close()
+	b.closeOnce.Do(func() {
+		close(b.stop)
+		_ = b.fsw.Close()
+	})
 }
 
 // addTree watches dir and its unignored descendants, all belonging to root.

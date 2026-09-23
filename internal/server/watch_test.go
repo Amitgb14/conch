@@ -682,3 +682,20 @@ func TestWatchBudgetAccumulates(t *testing.T) {
 		t.Fatalf("after dropping both: %d dirs, %d descriptors", endDirs, end)
 	}
 }
+
+// Both a reload and a shutdown close the watches, so closing twice has to be
+// quiet — on Linux it used to panic with "close of closed channel", which no
+// macOS run could show.
+func TestWatchBackendClosesTwice(t *testing.T) {
+	be, err := newBackend()
+	if err != nil {
+		t.Skip("no watch backend here:", err)
+	}
+	be.close()
+	be.close() // must not panic
+	w := a7New(t)
+	w.stop()
+	w.stop()
+	var none *worktreeWatcher
+	none.stop() // a machine that gives no watches has none to close
+}
