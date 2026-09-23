@@ -186,9 +186,22 @@ func (p *Pane) startIO() {
 	}()
 }
 
+// fdSetSize is how many descriptors select's fd_set holds. Setting a bit
+// past it writes outside the array, so a pane whose terminal landed on a
+// high descriptor has to be turned away rather than crashing the server —
+// which is what happened once a worktree watcher held thousands of files
+// open and a new pane's pty came back numbered above the set.
+const fdSetSize = 1024
+
+// ErrFDTooHigh is returned for a descriptor select cannot wait on.
+var ErrFDTooHigh = errors.New("file descriptor is above select's limit")
+
 // readable waits up to timeout for fd to have input (or be closed). It uses
 // select, not poll: macOS's poll doesn't support terminal devices.
 func readable(fd int, timeout time.Duration) (bool, error) {
+	if fd < 0 || fd >= fdSetSize {
+		return false, fmt.Errorf("%w (%d, limit %d)", ErrFDTooHigh, fd, fdSetSize)
+	}
 	var set unix.FdSet
 	set.Set(fd)
 	tv := unix.NsecToTimeval(timeout.Nanoseconds())
