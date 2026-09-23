@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,7 @@ type palette struct {
 	work   lipgloss.Color // working agents, hunk headers, hashes
 	selDim lipgloss.Color // selection while focus is elsewhere
 	merged lipgloss.Color // merged pull requests
+	live   lipgloss.Color // wash behind a file being written; from warn
 }
 
 // themes in the order the settings screen lists them.
@@ -77,6 +79,7 @@ var (
 
 	styleMuted, styleBold, styleSel, styleSelDim, styleOK, styleErr lipgloss.Style
 	styleWarn, styleWork, styleAccent, styleChip, stylePRMerged     lipgloss.Style
+	styleLive                                                       lipgloss.Style
 )
 
 func init() { applyTheme("conch", "") }
@@ -101,6 +104,10 @@ func applyTheme(name, accent string) {
 	}
 	colorAccent, colorInput, colorWarn, colorErr, colorMuted, colorBorder = t.accent, t.ok, t.warn, t.err, t.muted, t.border
 
+	// A wash for a file an agent is writing: the theme's warn colour taken
+	// right down, so it reads as a tint rather than a highlight.
+	t.live = darken(t.warn, 0.26)
+	styleLive = lipgloss.NewStyle().Background(t.live).Foreground(textOn(t.live))
 	styleMuted = lipgloss.NewStyle().Foreground(t.muted)
 	styleBold = lipgloss.NewStyle().Bold(true)
 	styleSel = lipgloss.NewStyle().Bold(true).Foreground(t.selFG).Background(t.accent)
@@ -123,6 +130,22 @@ func textOn(bg lipgloss.Color) lipgloss.Color {
 		return "#F0F6FC"
 	}
 	return "#11151A"
+}
+
+// darken scales a #rrggbb colour toward black by f, for a background tint
+// the row's text still reads on. A colour it cannot parse comes back as it
+// was, which only costs the tint.
+func darken(c lipgloss.Color, f float64) lipgloss.Color {
+	s := string(c)
+	if len(s) != 7 || s[0] != '#' {
+		return c
+	}
+	v, err := strconv.ParseUint(s[1:], 16, 32)
+	if err != nil {
+		return c
+	}
+	r, g, b := float64(v>>16&0xFF)*f, float64(v>>8&0xFF)*f, float64(v&0xFF)*f
+	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", int(r), int(g), int(b)))
 }
 
 // luminance is the relative brightness of a #rrggbb colour, 0 (black) to 1

@@ -151,7 +151,8 @@ func (m *Model) syncView() tea.Cmd {
 		}
 		t.seen = f.id
 	}
-	if m.seenTab != t {
+	switched := m.seenTab != t
+	if switched {
 		if slices.Contains(m.tabs, m.seenTab) {
 			m.lastTab = m.seenTab
 		}
@@ -178,7 +179,8 @@ func (m *Model) syncView() tea.Cmd {
 			l.changes = nil
 			continue
 		}
-		if l.changes == nil || l.changes.machine != v.Machine || l.changes.projectID != v.ProjectID || l.changes.branch != v.Branch {
+		switch {
+		case l.changes == nil || l.changes.machine != v.Machine || l.changes.projectID != v.ProjectID || l.changes.branch != v.Branch:
 			cv, known := m.changesFor(v.Machine, v.ProjectID, v.Branch)
 			l.changes = cv
 			if known {
@@ -186,6 +188,11 @@ func (m *Model) syncView() tea.Cmd {
 			} else {
 				cmds = append(cmds, cv.reload(m))
 			}
+		case switched:
+			// Only the tab on screen is polled, and worktree events are
+			// applied to it alone, so a tab coming back may be holding
+			// something old. Read it again behind what it already shows.
+			cmds = append(cmds, l.changes.poll(m), l.changes.liveDiff(m))
 		}
 	}
 	m.changes = f.changes
@@ -373,7 +380,17 @@ func (m *Model) focusLeaf(id int) tea.Cmd {
 // gets a new shell beside it in the same directory, anything else an empty
 // half to pick something for.
 func (m *Model) split(dir splitDir, v viewRef) tea.Cmd {
-	m.promote()
+	// Browsing the tree shows the row in a preview rather than in a tab, and
+	// splitting from there means "put this beside what I was looking at". So
+	// the tab we were on is the one that divides: promoting the preview
+	// would split the row away from itself and leave the new half empty.
+	if m.previewing && !v.empty() && len(m.tabs) > 0 {
+		if pv := m.tab(); pv.focused().view.Row == v.Row {
+			m.previewing, m.preview = false, nil
+			m.activeTab = clamp(m.activeTab, 0, len(m.tabs)-1)
+		}
+	}
+	m.promote() // a preview of something else still becomes the tab to divide
 	m.keepTab = true
 	t := m.tab()
 	f := t.focused()
@@ -412,6 +429,30 @@ func (m *Model) closeLeaf() tea.Cmd {
 	t.root = t.root.remove(t.focus)
 	t.focused()
 	return tea.Batch(m.focusLeaf(t.focus), m.saveState())
+}
+
+// changesTab opens the changes of the branch the focused split is on, in a
+// tab of their own: an agent's pane and the diff it is writing, without
+// walking the tree to find the branch. A tab already showing them is gone
+// to rather than opened twice.
+func (m *Model) changesTab() tea.Cmd {
+	v := m.tab().focused().view
+	mid, pid, branch := v.Machine, v.ProjectID, v.Branch
+	if v.Kind == kindPane { // a pane knows the worktree it was started in
+		if p := m.pane(v.Machine, v.PaneID); p != nil {
+			pid, branch = p.ProjectID, p.Branch
+		}
+	}
+	if mid == "" || pid == "" || branch == "" {
+		m.setFlash("this split is not on a branch", true)
+		return nil
+	}
+	row := branchNodeID(mid, pid, branch)
+	if i, l := m.tabShowing(row); l != nil {
+		m.tabs[i].focus = l.id
+		return m.gotoTab(i)
+	}
+	return m.newTab(viewRef{Row: row, Kind: kindBranch, Machine: mid, ProjectID: pid, Branch: branch})
 }
 
 // newTab opens a tab showing v. Without a view it doesn't copy what is

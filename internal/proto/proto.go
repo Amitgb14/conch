@@ -34,8 +34,12 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1",
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapWorktreeWatch,
 }
+
+// CapWorktreeWatch is announced only by a server that really got its file
+// watches: without it clients poll instead.
+const CapWorktreeWatch = "worktree.watch.v1"
 
 // Methods.
 const (
@@ -116,6 +120,10 @@ const (
 	EventProjectRemoved = "project.removed"
 	// EventAgentLimits carries a PlanLimits that changed.
 	EventAgentLimits = "agent.limits"
+	// EventWorktreeChanged carries a WorktreeChanged: files in a worktree
+	// were written, moved or removed. It says nothing about what git makes
+	// of them — the reader re-reads what it is showing.
+	EventWorktreeChanged = "worktree.changed"
 )
 
 // Error codes.
@@ -423,12 +431,28 @@ type ChangesParams struct {
 
 // Changes is the result of project.changes.
 type Changes struct {
-	ProjectID string       `json:"project_id"`
-	Branch    string       `json:"branch"`
-	Base      string       `json:"base"`
-	Worktree  string       `json:"worktree,omitempty"` // set when the files are uncommitted work
-	Files     []FileChange `json:"files"`
-	Commits   []CommitInfo `json:"commits"`
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Base      string `json:"base"`
+	Worktree  string `json:"worktree,omitempty"` // set when the files are uncommitted work
+	// Watched says the server announces this worktree's edits as they
+	// happen. Without it a reader has to keep polling: a worktree can be
+	// too big for the server's watch budget even when the server watches
+	// others, so this is per worktree rather than a capability.
+	Watched bool         `json:"watched,omitempty"`
+	Files   []FileChange `json:"files"`
+	Commits []CommitInfo `json:"commits"`
+}
+
+// WorktreeChanged says a worktree's files changed on disk. Paths are
+// relative to Worktree, slash-separated, and capped: More says some were
+// left out, and a reader that cares about a particular file re-reads it
+// anyway rather than trusting the list to be complete.
+type WorktreeChanged struct {
+	ProjectID string   `json:"project_id"`
+	Worktree  string   `json:"worktree"`
+	Paths     []string `json:"paths,omitempty"`
+	More      bool     `json:"more,omitempty"`
 }
 
 // FileChange is one changed file.

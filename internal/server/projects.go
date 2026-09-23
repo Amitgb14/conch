@@ -259,6 +259,7 @@ func (pm *projectManager) remove(id string) *proto.Error {
 	}
 	pm.mu.Unlock()
 	pm.save()
+	pm.s.watcher.dropProject(id)
 	pm.s.broadcast(proto.EventProjectRemoved, proto.ProjectRef{ID: id})
 	return nil
 }
@@ -326,6 +327,17 @@ func (pm *projectManager) request(p *project) {
 	p.mu.Unlock()
 }
 
+// requestID asks for a refresh of the project with this id, if it is still
+// one. The watcher uses it: a file changed, so git has something new to say.
+func (pm *projectManager) requestID(id string) {
+	pm.mu.Lock()
+	p := pm.projects[id]
+	pm.mu.Unlock()
+	if p != nil {
+		pm.request(p)
+	}
+}
+
 // run refreshes projects until the server stops.
 func (pm *projectManager) run() {
 	t := time.NewTicker(projectTick)
@@ -385,6 +397,14 @@ func (pm *projectManager) refresh(p *project, stamp string) {
 	p.lastStatus = time.Now()
 	p.refreshing = false
 	p.mu.Unlock()
+
+	// Worktrees come and go with tasks; the watcher follows what git just
+	// reported rather than keeping a list of its own.
+	paths := make([]string, 0, len(info.Worktrees))
+	for _, wt := range info.Worktrees {
+		paths = append(paths, wt.Path)
+	}
+	pm.s.watcher.syncProject(p.id, paths)
 
 	if changed && pm.s.projectRegistered(p) {
 		pm.s.broadcast(proto.EventProjectUpdated, info)
@@ -536,6 +556,7 @@ func (pm *projectManager) changes(cp proto.ChangesParams) (proto.Changes, *proto
 	var err error
 	if wt, ok := p.branchWorktree(cp.Branch); ok {
 		out.Worktree = wt.Path
+		out.Watched = pm.s.watcher.watching(wt.Path)
 		ch, err = gitx.WorktreeChanges(ctx, wt.Path, base)
 	} else {
 		ch, err = gitx.BranchChanges(ctx, p.root, cp.Branch, base)

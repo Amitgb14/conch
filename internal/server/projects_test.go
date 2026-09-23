@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -403,5 +404,75 @@ func TestPaneRedraw(t *testing.T) {
 	}
 	if err := c.Call(ctx, proto.MethodPaneRedraw, proto.PaneRef{ID: "nope"}, nil); err == nil {
 		t.Fatal("redrawing an unknown pane")
+	}
+}
+
+// TestWorktreeChangedReachesAClient is the whole live-diff path through a
+// real server: a file written in a worktree, the watcher, the broadcast and
+// a client's event channel. Everything else about the watcher is tested on
+// its own; this proves it is actually wired up.
+func TestWorktreeChangedReachesAClient(t *testing.T) {
+	c, dir := startServer(t)
+	if len(c.MissingCapabilities([]string{proto.CapWorktreeWatch})) > 0 {
+		t.Skip("this machine gives no file watches")
+	}
+	repo := filepath.Join(dir, "api")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "init", "-q", "-b", "main")
+	git(t, repo, "config", "user.name", "t")
+	git(t, repo, "config", "user.email", "t@example.com")
+	if err := os.WriteFile(filepath.Join(repo, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-q", "-m", "init")
+
+	var added proto.ProjectInfo
+	if err := c.Call(context.Background(), proto.MethodProjectAdd, proto.ProjectAddParams{Path: repo}, &added); err != nil {
+		t.Fatal(err)
+	}
+	// The watcher starts with the project's first git refresh.
+	waitProject(t, c, func(p proto.ProjectInfo) bool { return p.ID == added.ID && len(p.Worktrees) > 0 })
+
+	// Rewrite the line in place: the file's +/− counts do not move, so only
+	// the watcher can notice this.
+	deadline := time.After(20 * time.Second)
+	retry := time.NewTicker(300 * time.Millisecond)
+	defer retry.Stop()
+	write := func(s string) {
+		if err := os.WriteFile(filepath.Join(repo, "a.go"), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("package a // one\n")
+	for {
+		select {
+		case m, open := <-c.Events:
+			if !open {
+				t.Fatalf("connection closed: %v", c.Err())
+			}
+			if m.Event != proto.EventWorktreeChanged {
+				continue
+			}
+			var wc proto.WorktreeChanged
+			if err := json.Unmarshal(m.Data, &wc); err != nil {
+				t.Fatalf("event payload: %v", err)
+			}
+			if wc.ProjectID != added.ID {
+				t.Fatalf("event for %q, want %q", wc.ProjectID, added.ID)
+			}
+			if !slices.Contains(wc.Paths, "a.go") {
+				t.Fatalf("paths %v", wc.Paths)
+			}
+			return
+		case <-retry.C:
+			// The watch goes on with the first refresh; a write that beat
+			// it by a hair would otherwise wait for the deadline.
+			write("package a // " + time.Now().Format("15:04:05.000") + "\n")
+		case <-deadline:
+			t.Fatal("no worktree.changed event for an edited file")
+		}
 	}
 }

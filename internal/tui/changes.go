@@ -30,13 +30,24 @@ type changesView struct {
 	// hunks the single hunks picked inside a file's diff.
 	marked map[string]bool
 	hunks  map[string]*fileHunks
+	// touched is when each file was last written, so the list can say which
+	// ones an agent is working in rather than only what the totals came to.
+	touched map[string]time.Time
 
 	diffFile    string // "" when the file list is shown
 	loadingDiff bool
+	diffLive    bool // a background re-read of the open diff is on its way
 	diff        []string
 	diffErr     string
 	diffScroll  int
 	hunkSel     int // the hunk the diff's cursor is on
+	// An open diff re-reads itself while an agent writes: fresh are the
+	// lines the last read brought, marked until freshUntil, and followTo
+	// is the first of them (1-based) to bring into view on the next render.
+	fresh      map[int]bool
+	freshUntil time.Time
+	followTo   int
+	noFollow   bool // the reader scrolled away, so new lines don't move the view
 }
 
 type changesMsg struct {
@@ -49,14 +60,26 @@ type changesMsg struct {
 // changesPollEvery is how often a visible changes view re-reads the branch,
 // so files an agent writes show up without waiting for the project's git
 // refresh (every 5 to 30 seconds).
-const changesPollEvery = 2 * time.Second
+//
+// A server that watches worktrees says so instead, within a debounce, so
+// against one the poll is only a backstop for an event that went missing —
+// and runs rarely enough to cost nothing.
+const (
+	changesPollEvery = 2 * time.Second
+	changesBackstop  = 15 * time.Second
+)
 
 type changesPollMsg struct{}
+
+// diffFreshFor is how long the lines a background re-read brought stay
+// marked, so a glance at the diff says what the agent just wrote.
+const diffFreshFor = 4 * time.Second
 
 type diffMsg struct {
 	projectID, branch, file string
 	diff                    string
 	err                     error
+	live                    bool // a background re-read, not a reader's own
 }
 
 // changesCacheMax is how many branches' changes are kept, so stepping
@@ -131,7 +154,8 @@ func (cv *changesView) poll(m *Model) tea.Cmd {
 
 func (cv *changesView) loadDiff(m *Model, file string) tea.Cmd {
 	cv.diffFile, cv.diff, cv.diffErr, cv.diffScroll, cv.hunkSel = file, nil, "", 0, 0
-	return cv.fetchDiff(m, file)
+	cv.fresh, cv.freshUntil, cv.followTo, cv.noFollow = nil, time.Time{}, 0, false
+	return cv.fetchDiff(m, file, false)
 }
 
 // refreshDiff re-reads the open diff, keeping it on screen (and scrolled)
@@ -140,19 +164,34 @@ func (cv *changesView) refreshDiff(m *Model) tea.Cmd {
 	if cv.diffFile == "" {
 		return nil
 	}
-	return cv.fetchDiff(m, cv.diffFile)
+	return cv.fetchDiff(m, cv.diffFile, false)
 }
 
-func (cv *changesView) fetchDiff(m *Model, file string) tea.Cmd {
-	cv.loadingDiff = true
+// liveDiff re-reads the open diff in the background, on every poll, so edits
+// an agent is making show as they land. It cannot wait for the file list to
+// change: rewriting a line in place leaves the branch's counts alone, and the
+// diff on screen would quietly go stale.
+func (cv *changesView) liveDiff(m *Model) tea.Cmd {
+	if cv.diffFile == "" || cv.diffLive || cv.loadingDiff {
+		return nil
+	}
+	return cv.fetchDiff(m, cv.diffFile, true)
+}
+
+func (cv *changesView) fetchDiff(m *Model, file string, live bool) tea.Cmd {
+	if live {
+		cv.diffLive = true
+	} else {
+		cv.loadingDiff = true
+	}
 	c, pid, branch := m.clientOf(cv.machine), cv.projectID, cv.branch
 	return func() tea.Msg {
 		var out proto.DiffResult
 		if c == nil {
-			return diffMsg{projectID: pid, branch: branch, file: file, err: errString("machine is offline")}
+			return diffMsg{projectID: pid, branch: branch, file: file, err: errString("machine is offline"), live: live}
 		}
 		err := callCtx(c, proto.MethodProjectDiff, proto.DiffParams{ProjectID: pid, Branch: branch, File: file}, &out)
-		return diffMsg{projectID: pid, branch: branch, file: file, diff: out.Diff, err: err}
+		return diffMsg{projectID: pid, branch: branch, file: file, diff: out.Diff, err: err, live: live}
 	}
 }
 
@@ -173,6 +212,22 @@ func (cv *changesView) receive(msg tea.Msg) (changed bool) {
 		}
 		if msg.poll && cv.data != nil && reflect.DeepEqual(*cv.data, msg.data) {
 			return false
+		}
+		if cv.data != nil {
+			// A file whose lines or state moved since the last read is being
+			// written. The watcher's events say so sooner and more exactly;
+			// this is what an older server leaves us.
+			was := make(map[string]proto.FileChange, len(cv.data.Files))
+			for _, f := range cv.data.Files {
+				was[f.Path] = f
+			}
+			var moved []string
+			for _, f := range msg.data.Files {
+				if old, ok := was[f.Path]; !ok || old.Added != f.Added || old.Deleted != f.Deleted || old.Code != f.Code {
+					moved = append(moved, f.Path)
+				}
+			}
+			cv.touch(moved)
 		}
 		selected := ""
 		if cv.data != nil && cv.sel < len(cv.data.Files) {
@@ -199,12 +254,28 @@ func (cv *changesView) receive(msg tea.Msg) (changed bool) {
 		if msg.projectID != cv.projectID || msg.branch != cv.branch || msg.file != cv.diffFile {
 			return
 		}
-		cv.loadingDiff = false
+		if msg.live {
+			cv.diffLive = false
+		} else {
+			cv.loadingDiff = false
+		}
 		if msg.err != nil {
+			if msg.live { // a flaky background read keeps what is on screen
+				return
+			}
 			cv.diffErr = msg.err.Error()
 			return
 		}
-		cv.diff = strings.Split(strings.TrimRight(msg.diff, "\n"), "\n")
+		prev := cv.diff
+		cv.diffErr, cv.diff, cv.followTo = "", diffLines(msg.diff), 0
+		if fresh := freshLines(prev, cv.diff); len(fresh) > 0 {
+			cv.fresh, cv.freshUntil = fresh, time.Now().Add(diffFreshFor)
+			first := len(cv.diff)
+			for i := range fresh {
+				first = min(first, i)
+			}
+			cv.followTo = first + 1
+		}
 		cv.pruneHunks(msg.file, cv.diff)
 		_, hunks, _ := cv.hunksOf()
 		cv.hunkSel = clamp(cv.hunkSel, 0, max(len(hunks)-1, 0))
@@ -222,17 +293,21 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		case "esc", "q", "left", "h":
 			cv.diffFile = ""
 		case "up", "k":
-			cv.diffScroll--
+			cv.diffScroll, cv.noFollow = cv.diffScroll-1, true
 		case "down", "j":
-			cv.diffScroll++
+			cv.diffScroll, cv.noFollow = cv.diffScroll+1, true
 		case "pgup", "b":
-			cv.diffScroll -= page
+			cv.diffScroll, cv.noFollow = cv.diffScroll-page, true
 		case "pgdown", "f":
-			cv.diffScroll += page
+			cv.diffScroll, cv.noFollow = cv.diffScroll+page, true
 		case "g", "home":
-			cv.diffScroll = 0
+			cv.diffScroll, cv.noFollow = 0, false
 		case "G", "end":
-			cv.diffScroll = len(cv.diff)
+			cv.diffScroll, cv.noFollow = len(cv.diff), true
+		case "F":
+			cv.noFollow = !cv.noFollow
+		case "R":
+			return false, cv.refreshDiff(m)
 		case "tab":
 			return true, nil
 		case "y":
@@ -240,8 +315,10 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		case " ", "x":
 			cv.markHunk(m, h)
 		case "n", "]":
+			cv.noFollow = true
 			cv.toHunk(m, cv.hunkSel+1, h)
 		case "N", "[":
+			cv.noFollow = true
 			cv.toHunk(m, cv.hunkSel-1, h)
 		case "c":
 			return false, m.openCommit(cv.target(), cv.selection())
@@ -423,6 +500,9 @@ func (cv *changesView) render(m Model, w, h int) []string {
 	if n := len(cv.marked); n > 0 {
 		header += styleOK.Render(fmt.Sprintf("  · %d marked", n))
 	}
+	if n := cv.changingNow(); n > 0 {
+		header += styleWarn.Render(fmt.Sprintf("  · %d changing", n))
+	}
 	lines = append(lines, header)
 
 	// Room for the files' "… more" line and the commits below: a blank line,
@@ -450,15 +530,34 @@ func (cv *changesView) render(m Model, w, h int) []string {
 		if f.OrigPath != "" {
 			name = f.OrigPath + " → " + f.Path
 		}
-		left := fmt.Sprintf("  %s %s", codeStyle(f.Code).Render(padRight(f.Code, 1)), name)
+		// The cursor keeps the first column and the "being written" mark the
+		// second, beside the name: on a wide pane the right-hand numbers are
+		// a screen away and a mark there goes unseen.
+		live := cv.changing(f.Path)
+		mark, cursor := " ", " "
+		if live {
+			mark = "▌"
+		}
 		if i == cv.sel {
+			cursor = "▸"
+		}
+		plain := fmt.Sprintf("%s%s %s %s", cursor, mark, f.Code, name)
+		switch {
+		case i == cv.sel:
 			sel := styleSelDim
 			if m.focus == focusMain {
 				sel = styleSel
 			}
-			left = sel.Render(ansi.Truncate(fmt.Sprintf("▸ %s %s", f.Code, name), w-12, "…"))
+			lines = append(lines, spread(sel.Render(ansi.Truncate(plain, w-12, "…")), stat, w))
+		case live:
+			// The whole row is washed, so which file is being written is
+			// plain from across the screen. Colours inside would reset the
+			// background, so the row is rendered without them.
+			lines = append(lines, styleLive.Render(spread(plain, ansi.Strip(stat), w)))
+		default:
+			left := fmt.Sprintf("%s%s %s %s", cursor, mark, codeStyle(f.Code).Render(padRight(f.Code, 1)), name)
+			lines = append(lines, spread(left, stat, w))
 		}
-		lines = append(lines, spread(left, stat, w))
 	}
 	if more := len(cv.data.Files) - (cv.scroll + listH); more > 0 {
 		lines = append(lines, styleMuted.Render(fmt.Sprintf("  … %d more", more)))
@@ -486,13 +585,28 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 	if cv.diff != nil && cv.loadingDiff {
 		right = "refreshing… · " + right
 	}
+	working := cv.data != nil && cv.data.Worktree != "" // only a checked-out branch changes under us
+	if working {
+		if cv.noFollow {
+			right = "F follow · " + right
+		} else {
+			right = "following · " + right
+		}
+	}
 	_, hunks, at := cv.hunksOf()
 	marks := map[int]int{} // diff line → hunk index
 	for i, line := range at {
 		marks[line] = i
 	}
 	title := cv.diffFile
-	if cv.data != nil && cv.data.Worktree != "" && len(hunks) > 0 {
+	fresh := cv.fresh
+	if !cv.freshUntil.After(time.Now()) {
+		fresh = nil
+	}
+	if n := len(fresh); n > 0 {
+		title += styleWarn.Render(fmt.Sprintf("  %d line%s just changed", n, plural(n)))
+	}
+	if working && len(hunks) > 0 {
 		right = "space mark · n next hunk · c commit · " + right
 		if fh := cv.hunks[cv.diffFile]; fh != nil {
 			title += styleOK.Render(fmt.Sprintf("  %d of %d hunks marked", len(fh.marked), len(hunks)))
@@ -504,6 +618,17 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 		return append(lines, styleErr.Render(cv.diffErr))
 	case cv.diff == nil:
 		return append(lines, styleWork.Render(spinner[m.spin%len(spinner)])+styleMuted.Render(" reading the diff…"))
+	case len(cv.diff) == 0:
+		// A live re-read found the file back as the branch has it: committed
+		// underneath, or the agent undid what it wrote.
+		return append(lines, styleMuted.Render("  no changes in this file"))
+	}
+	// Follow what just arrived, unless the reader scrolled somewhere.
+	if cv.followTo > 0 {
+		if start := cv.followTo - 1; !cv.noFollow && (start < cv.diffScroll || start >= cv.diffScroll+max(h-1, 1)) {
+			cv.diffScroll = clamp(start-1, 0, max(len(cv.diff)-(h-1), 0))
+		}
+		cv.followTo = 0
 	}
 	for i := cv.diffScroll; i < len(cv.diff) && len(lines) < h; i++ {
 		l := strings.ReplaceAll(cv.diff[i], "\t", "    ")
@@ -529,9 +654,96 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 		case strings.HasPrefix(l, "-"):
 			l = styleErr.Render(l)
 		}
-		lines = append(lines, prefix+l)
+		gutter := " "
+		if fresh[i] {
+			gutter = styleWarn.Render("▌")
+		}
+		lines = append(lines, gutter+prefix+l)
 	}
 	return lines
+}
+
+// touch marks files as being written now. The paths are relative to the
+// worktree, named the same way the file list names them.
+func (cv *changesView) touch(paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	if cv.touched == nil {
+		cv.touched = map[string]time.Time{}
+	}
+	now := time.Now()
+	for _, p := range paths {
+		cv.touched[p] = now
+	}
+	for p, at := range cv.touched { // keep only what is still worth showing
+		if now.Sub(at) > diffFreshFor {
+			delete(cv.touched, p)
+		}
+	}
+}
+
+// changing reports whether a file was written in the last few seconds.
+func (cv *changesView) changing(path string) bool {
+	at, ok := cv.touched[path]
+	return ok && time.Since(at) < diffFreshFor
+}
+
+// changingNow is how many of the files shown are being written.
+func (cv *changesView) changingNow() int {
+	n := 0
+	if cv.data == nil {
+		return 0
+	}
+	for _, f := range cv.data.Files {
+		if cv.changing(f.Path) {
+			n++
+		}
+	}
+	return n
+}
+
+// diffLines splits a diff into lines, with an empty diff no lines at all
+// rather than one blank one.
+func diffLines(diff string) []string {
+	text := strings.TrimRight(diff, "\n")
+	if text == "" {
+		return []string{}
+	}
+	return strings.Split(text, "\n")
+}
+
+// freshLines reports which lines of next are content prev did not have, so a
+// re-read can mark what an agent just wrote. Lines are matched by text and
+// each one of prev is spent once, so moved lines are not mistaken for new
+// ones but a line written twice counts twice. Only added and removed lines
+// count: context and headers shift around without anything having changed.
+func freshLines(prev, next []string) map[int]bool {
+	if prev == nil {
+		return nil // the first read of a file did not just change
+	}
+	left := make(map[string]int, len(prev))
+	for _, l := range prev {
+		left[l]++
+	}
+	var fresh map[int]bool
+	for i, l := range next {
+		if len(l) == 0 || (l[0] != '+' && l[0] != '-') {
+			continue
+		}
+		if strings.HasPrefix(l, "+++") || strings.HasPrefix(l, "---") {
+			continue
+		}
+		if left[l] > 0 {
+			left[l]--
+			continue
+		}
+		if fresh == nil {
+			fresh = map[int]bool{}
+		}
+		fresh[i] = true
+	}
+	return fresh
 }
 
 // mouse handles a mouse event at x, y relative to the main area.
@@ -544,7 +756,7 @@ func (cv *changesView) mouse(m *Model, msg tea.MouseMsg, x, y int) tea.Cmd {
 			delta = -3
 		}
 		if cv.diffFile != "" {
-			cv.diffScroll = clamp(cv.diffScroll+delta, 0, max(len(cv.diff)-(h-2), 0))
+			cv.diffScroll, cv.noFollow = clamp(cv.diffScroll+delta, 0, max(len(cv.diff)-(h-2), 0)), true
 		} else if cv.data != nil {
 			cv.sel = clamp(cv.sel+delta/3, 0, max(len(cv.data.Files)-1, 0))
 		}
@@ -615,5 +827,33 @@ func (m *Model) pollChanges() tea.Cmd {
 		return nil
 	}
 	m.changesPolling = true
-	return tea.Tick(changesPollEvery, func(time.Time) tea.Msg { return changesPollMsg{} })
+	return tea.Tick(m.changesPollEvery(), func(time.Time) tea.Msg { return changesPollMsg{} })
+}
+
+// changesPollEvery is how long to wait before re-reading the branches on
+// screen. Every machine showing one has to be watching its worktrees for the
+// slow backstop to be safe; one older server and they all keep polling.
+func (m *Model) changesPollEvery() time.Duration {
+	watched := false
+	for _, l := range m.tab().root.leaves() {
+		cv := l.changes
+		if cv == nil {
+			continue
+		}
+		c := m.clientOf(cv.machine)
+		if c == nil || len(c.MissingCapabilities([]string{proto.CapWorktreeWatch})) > 0 {
+			return changesPollEvery
+		}
+		// A server that watches may still not be watching *this* worktree:
+		// one too big for its budget is left to polling, and backing off
+		// for it would mean hearing about its edits a great deal later.
+		if cv.data == nil || !cv.data.Watched {
+			return changesPollEvery
+		}
+		watched = true
+	}
+	if !watched {
+		return changesPollEvery
+	}
+	return changesBackstop
 }

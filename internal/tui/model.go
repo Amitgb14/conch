@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -419,7 +420,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if c := m.clientOf(cv.machine); c != nil {
 					c.Notify(proto.MethodProjectRefresh, proto.ProjectRef{ID: cv.projectID})
 				}
-				cmds = append(cmds, cv.refreshDiff(&m))
+				cmds = append(cmds, cv.liveDiff(&m))
 			}
 		}
 		return m, tea.Batch(cmds...)
@@ -428,9 +429,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.changesPolling = false
 		var cmds []tea.Cmd
 		for _, l := range m.tab().root.leaves() {
-			if l.changes != nil && l.changes.data != nil {
+			if l.changes == nil {
+				continue
+			}
+			if l.changes.data != nil {
 				cmds = append(cmds, l.changes.poll(&m))
 			}
+			// An open diff re-reads itself too: a line rewritten in place
+			// leaves the file list identical, so nothing else would notice.
+			cmds = append(cmds, l.changes.liveDiff(&m))
 		}
 		return m, tea.Batch(append(cmds, m.pollChanges())...)
 
@@ -610,8 +617,40 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		}
 		cmds := []tea.Cmd{m.rebuild()}
 		for _, l := range m.tab().root.leaves() {
-			if cv := l.changes; cv != nil && cv.machine == mach.id && cv.projectID == info.ID {
+			cv := l.changes
+			if cv == nil || cv.machine != mach.id || cv.projectID != info.ID {
+				continue
+			}
+			if cv.data == nil {
 				cmds = append(cmds, cv.reload(m))
+				continue
+			}
+			// Something is already on screen, and the worktree watcher may
+			// have asked for this same read: poll, which skips one in flight.
+			cmds = append(cmds, cv.poll(m))
+		}
+		return tea.Batch(cmds...)
+
+	case proto.EventWorktreeChanged:
+		var wc proto.WorktreeChanged
+		if !decodeInto(msg, &wc) {
+			return nil
+		}
+		var cmds []tea.Cmd
+		for _, l := range m.tab().root.leaves() {
+			cv := l.changes
+			if cv == nil || cv.machine != mach.id || cv.projectID != wc.ProjectID {
+				continue
+			}
+			if cv.data == nil || cv.data.Worktree != wc.Worktree {
+				continue // another branch's worktree, or nothing read yet
+			}
+			cv.touch(wc.Paths) // the list says which files these are
+			cmds = append(cmds, cv.poll(m))
+			// The open file is re-read only when it is one of the ones that
+			// changed — or when the list was too long to carry.
+			if wc.More || slices.Contains(wc.Paths, cv.diffFile) {
+				cmds = append(cmds, cv.liveDiff(m))
 			}
 		}
 		return tea.Batch(cmds...)

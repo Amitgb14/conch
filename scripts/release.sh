@@ -20,8 +20,18 @@ for platform in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
 	name="conch_${version}_${os}_${arch}"
 	stage="$dist/$name"
 	mkdir -p "$stage"
-	echo "building $platform"
-	CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+	# macOS watches worktrees with FSEvents, which needs cgo. Cross-building
+	# it is not on, so only a build on a Mac of the same architecture gets
+	# it; the rest fall back to kqueue, which is budgeted and so watches
+	# little. Such a build still works — its clients poll instead.
+	cgo=0
+	if [ "$os" = darwin ] && [ "$(go env GOHOSTOS)" = darwin ] && [ "$(go env GOHOSTARCH)" = "$arch" ]; then
+		cgo=1
+	elif [ "$os" = darwin ]; then
+		echo "  note: $platform is built without cgo, so it watches by kqueue, not FSEvents"
+	fi
+	echo "building $platform (cgo=$cgo)"
+	CGO_ENABLED=$cgo GOOS=$os GOARCH=$arch go build -trimpath \
 		-ldflags "-s -w -X $module/internal/proto.Version=$version" \
 		-o "$stage/conch" ./cmd/conch
 	cp LICENSE README.md "$stage/"
