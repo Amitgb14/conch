@@ -595,3 +595,95 @@ func TestAttemptBranch(t *testing.T) {
 		}
 	}
 }
+
+// TestDiffChangesWhileCountsDoNot is the premise of the TUI's live diff: a
+// line rewritten in place leaves a file's +/− counts exactly as they were,
+// so only re-reading the diff itself notices what an agent wrote.
+func TestDiffChangesWhileCountsDoNot(t *testing.T) {
+	root := newRepo(t)
+	commit(t, root, "a.go", "one\ntwo\nthree\n", "add a.go")
+
+	count := func() (int, int) {
+		t.Helper()
+		ch, err := WorktreeChanges(ctx, root, "main")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ch.Files) != 1 || ch.Files[0].Path != "a.go" {
+			t.Fatalf("files %+v", ch.Files)
+		}
+		return ch.Files[0].Added, ch.Files[0].Deleted
+	}
+	diff := func() string {
+		t.Helper()
+		d, err := Diff(ctx, root, "a.go", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+
+	write(t, root, "a.go", "one\nTWO\nthree\n")
+	added, deleted := count()
+	first := diff()
+	if !strings.Contains(first, "+TWO") {
+		t.Fatalf("first diff:\n%s", first)
+	}
+
+	// The agent rewrites that same line differently.
+	write(t, root, "a.go", "one\ntwotwo\nthree\n")
+	if a, d := count(); a != added || d != deleted {
+		t.Fatalf("counts moved from %d/%d to %d/%d", added, deleted, a, d)
+	}
+	second := diff()
+	if second == first || !strings.Contains(second, "+twotwo") {
+		t.Fatalf("second diff:\n%s", second)
+	}
+	// Which is exactly what freshLines in the TUI keys off.
+	if strings.Contains(second, "+TWO\n") {
+		t.Fatalf("the old line survived:\n%s", second)
+	}
+
+	// Undoing the edit empties the diff, which the view shows as such.
+	write(t, root, "a.go", "one\ntwo\nthree\n")
+	if d := diff(); strings.TrimSpace(d) != "" {
+		t.Fatalf("diff after undo:\n%s", d)
+	}
+}
+
+func TestIgnoredDirs(t *testing.T) {
+	root := newRepo(t)
+	commit(t, root, ".gitignore", "node_modules/\nbuild/\n*.log\nempty/\n", "ignore rules")
+	write(t, root, "node_modules/pkg/index.js", "x\n")
+	write(t, root, "build/out/a.o", "x\n")
+	write(t, root, "debug.log", "x\n")
+	write(t, root, "src/main.go", "package main\n")
+	if err := os.MkdirAll(filepath.Join(root, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	dirs, err := IgnoredDirs(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(dirs)
+	if want := []string{"build", "node_modules"}; !reflect.DeepEqual(dirs, want) {
+		t.Fatalf("IgnoredDirs = %v, want %v", dirs, want)
+	}
+
+	// A repo with nothing ignored, and one with no .gitignore at all.
+	clean := newRepo(t)
+	if dirs, err := IgnoredDirs(ctx, clean); err != nil || len(dirs) != 0 {
+		t.Fatalf("clean repo: %v %v", dirs, err)
+	}
+	// Outside a repo it fails rather than guessing.
+	if _, err := IgnoredDirs(ctx, t.TempDir()); err == nil {
+		t.Fatal("IgnoredDirs outside a repo")
+	}
+	// A cancelled context stops it.
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := IgnoredDirs(cancelled, root); err == nil {
+		t.Fatal("IgnoredDirs with a cancelled context")
+	}
+}

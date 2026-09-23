@@ -28,7 +28,7 @@ Apache-2.0 · Default branch: `master`.
 | Path | What lives there |
 | --- | --- |
 | `cmd/conch` | The `conch` CLI: TUI launch, `server`, `new/send/read/close`, `project`, `task`, `branch`, `worktree`, `machine`, `ask`, `update`, hook reports, status line |
-| `internal/server` | The daemon: panes, projects/worktrees, sessions, agent hooks and usage, hot reload, local files, agent setup |
+| `internal/server` | The daemon: panes, projects/worktrees, sessions, agent hooks and usage, hot reload, local files, agent setup, worktree watching |
 | `internal/pane` | A program on a PTY with an emulated screen (charmbracelet/x/vt), key/mouse encoding, detach/adopt for reload |
 | `internal/proto` | Wire protocol: messages, methods, events, payload types, capability list, `Version` |
 | `internal/client` | Protocol client (calls, notifications, events, handshake) and starting a local server |
@@ -156,6 +156,31 @@ helpers in `cmd/conch` and `internal/remote`.
   `NoProject` and start in the home directory.
 - **Build identity.** `buildinfo.Build()` hashes the executable at start-up;
   stale-server and stale-TUI detection depend on it.
+- **Worktree watching.** `internal/server/watch.go` watches every project's
+  worktrees with fsnotify and broadcasts `worktree.changed`, so a diff on
+  screen follows an agent's edits: git's own metadata does not move when a
+  file is written, and rewriting a line leaves its `+`/`−` counts alone.
+  Directories git ignores are never watched (one `git ls-files --directory`
+  per walk keeps `node_modules` free), `.git` is left to the project ticker,
+  and the number of watched directories is capped. A machine that gives no
+  watches leaves `s.watcher` nil — every method is nil-safe — and the server
+  then *drops* `worktree.watch.v1` from its capabilities, so clients keep
+  polling. Never announce a capability the running server cannot honour.
+- **Watch backends differ by platform.** `watchBackend` (watch.go) hides
+  them: `watch_fsevents.go` (`darwin && cgo`) takes a whole tree per stream,
+  `watch_fsnotify.go` (everywhere else) is told about each directory.
+  fsnotify's kqueue backend opens a descriptor per watched path — the
+  directory *and* every file in it — while Linux's inotify keeps one for the
+  lot. Descriptors go out lowest first and `internal/pane.readable` waits on
+  a pty with `select`, whose `fd_set` holds 1024: a kqueue watcher holding
+  thousands once left a new pane's pty past the set and panicked the whole
+  server. So a backend that charges per path is `budgeted()`, keeps to
+  `watchMaxFDs` (far under 1024), and a worktree is watched whole or not at
+  all. `Changes.Watched` tells the client which it got, so an unwatched
+  worktree keeps the fast poll instead of silently going stale.
+  **FSEvents needs cgo**, which `scripts/release.sh` and the remote
+  cross-builder cannot use across platforms: a macOS binary built without it
+  still works, it just watches by kqueue and so mostly polls.
 
 ## Adding an agent
 

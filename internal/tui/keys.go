@@ -425,6 +425,8 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 		}
 	case "c":
 		return m.newTab(viewRef{}), true
+	case "C":
+		return m.changesTab(), true
 	case "n":
 		return m.stepTab(1), true
 	case "p":

@@ -484,3 +484,52 @@ func TestParseKeyPlusAndMissingKey(t *testing.T) {
 		}
 	}
 }
+
+// TestReadableRejectsHighDescriptors: select's fd_set holds 1024 bits, so
+// setting one past it writes outside the array. That killed a whole server
+// once — a worktree watcher held thousands of files open and a new pane's
+// pty came back numbered above the set, so the read loop panicked and took
+// every other pane with it. It has to be an error, never a panic.
+func TestReadableRejectsHighDescriptors(t *testing.T) {
+	for _, fd := range []int{fdSetSize, fdSetSize + 1, 4128, 1 << 20, -1} {
+		ok, err := readable(fd, time.Millisecond)
+		if ok {
+			t.Errorf("fd %d reported readable", fd)
+		}
+		if !errors.Is(err, ErrFDTooHigh) {
+			t.Errorf("fd %d: err %v, want ErrFDTooHigh", fd, err)
+		}
+	}
+
+	// A descriptor inside the set still works: a pipe with something in it
+	// is readable, an empty one is not.
+	var p [2]int
+	if err := unix.Pipe(p[:]); err != nil {
+		t.Skipf("pipe: %v", err)
+	}
+	defer unix.Close(p[0])
+	defer unix.Close(p[1])
+	if p[0] >= fdSetSize {
+		t.Skip("this process already holds too many descriptors")
+	}
+	if ok, err := readable(p[0], time.Millisecond); ok || err != nil {
+		t.Fatalf("empty pipe: ok=%v err=%v", ok, err)
+	}
+	if _, err := unix.Write(p[1], []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := readable(p[0], time.Second); !ok || err != nil {
+		t.Fatalf("pipe with a byte: ok=%v err=%v", ok, err)
+	}
+
+	// And the boundary itself: an fd placed exactly at the limit is refused
+	// rather than corrupting the set.
+	high, err := unix.Dup(p[0])
+	if err != nil {
+		t.Skipf("dup: %v", err)
+	}
+	defer unix.Close(high)
+	if _, err := readable(fdSetSize, time.Millisecond); !errors.Is(err, ErrFDTooHigh) {
+		t.Fatalf("fd exactly at the limit: %v", err)
+	}
+}

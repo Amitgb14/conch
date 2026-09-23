@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,6 +55,8 @@ type Server struct {
 	nextID  int
 	clients map[*client]struct{}
 
+	watcher *worktreeWatcher // nil when the machine gives no watches
+
 	quit     chan struct{}
 	quitOnce sync.Once
 }
@@ -81,6 +84,9 @@ func New(sockPath, configDir string) *Server {
 		quit:      make(chan struct{}),
 	}
 	s.projects = newProjectManager(s, configDir)
+	s.watcher = newWorktreeWatcher(
+		func(c proto.WorktreeChanged) { s.broadcast(proto.EventWorktreeChanged, c) },
+		func(id string) { s.projects.requestID(id) })
 	s.uploads = newUploads(configDir)
 	// A reload keeps the panes, so their runs are not interrupted.
 	s.runs = loadRunLog(configDir, os.Getenv(reloadStateEnv) != "")
@@ -130,6 +136,7 @@ func (s *Server) Run() error {
 		s.projects.run()
 	}()
 	go s.uploads.run(s.quit)
+	go s.watcher.run(s.quit)
 
 	var ln net.Listener
 	if reloaded != nil {
@@ -348,7 +355,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		return proto.HelloResult{
 			Version:      proto.Version,
 			Protocol:     proto.ProtocolVersion,
-			Capabilities: proto.Capabilities,
+			Capabilities: s.capabilities(),
 			PID:          os.Getpid(),
 			Started:      s.started,
 			LoadedAt:     s.loaded,
@@ -945,6 +952,18 @@ func (s *Server) alive(e *entry) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.panes[e.p.ID()] == e
+}
+
+// capabilities is what this server can actually do. Watching worktrees is
+// the machine's to give: without it clients must keep polling, so it is not
+// claimed.
+func (s *Server) capabilities() []string {
+	if s.watcher != nil {
+		return proto.Capabilities
+	}
+	return slices.DeleteFunc(slices.Clone(proto.Capabilities), func(c string) bool {
+		return c == proto.CapWorktreeWatch
+	})
 }
 
 func (s *Server) broadcast(event string, data any) {
