@@ -622,13 +622,10 @@ func (p *Pane) FrameAt(offset int) proto.Frame {
 // goes in pieces, so that the screen is looked at often enough to see what
 // scrolled off it. Called with emuMu held.
 func (p *Pane) writeToEmulator(b []byte) {
-	if !p.emu.IsAltScreen() {
-		_, _ = p.emu.Write(b)
-		p.noteAltScroll() // in case that write turned the alternate screen on
-		return
-	}
-	// Half a screen at a time: after a shift of that much, half the screen
-	// is still recognisable, even when its bottom rows were blank.
+	// Half a screen at a time, whichever screen is in use: after a shift of
+	// that much, half of it is still recognisable even when its bottom rows
+	// were blank. One burst can turn the alternate screen on and then scroll
+	// it, so the chunking cannot wait for the screen to already be on.
 	for _, chunk := range chunkByLines(b, max(p.emu.Height()/2, 1)) {
 		_, _ = p.emu.Write(chunk)
 		p.noteAltScroll()

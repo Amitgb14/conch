@@ -379,6 +379,7 @@ type dialog struct {
 	focus   int
 	confirm bool // yes/no question without fields
 	yesOnly bool // a confirm that enter doesn't accept, for what can't be undone
+	onNo    bool // which button the keyboard is on; Yes to begin with
 	// buttons is where a confirm's Yes and No sit, from the last render:
 	// the content line and each one's columns, for clicks.
 	buttons struct{ line, yes0, yes1, no0, no1 int }
@@ -561,15 +562,27 @@ func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	if d.confirm {
 		if isKey {
 			switch k.String() {
-			case "y", "Y", "enter":
-				if k.String() == "enter" && d.yesOnly {
-					return false, nil
-				}
+			case "y", "Y":
 				m.overlay = nil
 				return true, d.submit(m, nil)
 			case "n", "N", "esc", "q":
 				m.overlay = nil
 				return true, nil
+			case "left", "right", "tab", "shift+tab", "h", "l":
+				d.onNo = !d.onNo // two buttons: any of these moves between them
+				return false, nil
+			case "enter", " ":
+				if d.onNo {
+					m.overlay = nil
+					return true, nil
+				}
+				// What can't be undone takes y or the button, never a
+				// stray enter — but space on the button is deliberate.
+				if d.yesOnly && k.String() == "enter" {
+					return false, nil
+				}
+				m.overlay = nil
+				return true, d.submit(m, nil)
 			}
 		}
 		return false, nil
@@ -663,10 +676,17 @@ func (d *dialog) render(m Model) box {
 		d.buttons.yes0, d.buttons.yes1 = 1, 1+ansi.StringWidth(yes)
 		d.buttons.no0 = d.buttons.yes1 + 3
 		d.buttons.no1 = d.buttons.no0 + ansi.StringWidth(no)
-		lines = append(lines, " "+styleSel.Render(yes)+"   "+styleSelDim.Render(no))
-		if d.yesOnly {
+		yesStyle, noStyle := styleSel, styleSelDim
+		if d.onNo {
+			yesStyle, noStyle = styleSelDim, styleSel
+		}
+		lines = append(lines, " "+yesStyle.Render(yes)+"   "+noStyle.Render(no))
+		switch {
+		case d.yesOnly:
 			// What can't be undone takes y or the button, never a stray enter.
 			lines = append(lines, " "+styleMuted.Render("y or the button confirms; enter does not"))
+		default:
+			lines = append(lines, " "+styleMuted.Render("y / n · ← → move · enter takes the one shown · esc cancels"))
 		}
 	} else {
 		lines = append(lines, " "+styleMuted.Render("enter confirm · tab next field · esc cancel"))
