@@ -118,6 +118,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 7.8 | Pages and clicks | Click Workspace, a project, Branches, a branch, Agents, Terminals and their rows; with agent tabs already open; reopen a branch | Each row shows its own page; clicking a branch or pane opens it in its own tab, and reopening focuses that tab; the bar lists the group's tabs beside the page | ◐ R9 in a test TUI against a real server with open tabs; not yet over SSH or on a remote machine |
 | 7.9 | Typing into a clicked tab | Select Workspace, click an agent's tab, type | Keys reach that agent at once; the tree stays on Workspace | ◐ R9 with a shell on an isolated server (typing into real agents was avoided) |
 | 7.10 | Redraw | `ctrl+b r` on an agent whose box shows stale text, on a shell, and over SSH | The agent redraws with its input kept; a shell shows its prompt again on the next key | ◐ R9 a repainting test program redrew at the same size; not yet a real Claude box or SSH |
+| 7.11 | Resource monitor | Click `▁▃▆` with a busy agent and an idle shell open; compare with `top` or Activity Monitor; run the TUI inside a conch pane; close with a key, a click outside and the icon | Memory and CPU match `top` for the TUI, the server and each pane's processes; the total counts nothing twice; the icon lights only while open; sampling stops when closed | ☐ fakes plus the real `ps` format (Linux); not yet compared with `top` on macOS or Linux |
 
 ## 8. Git, GitHub and worktrees
 

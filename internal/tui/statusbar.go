@@ -235,7 +235,8 @@ func (m Model) statusRightItems(level int) []statusItem {
 			return nil
 		}})
 	}
-	return items
+	// Last, so it sits in the corner at every width.
+	return append(items, m.monitorItem())
 }
 
 // versionLabel is this build's version, e.g. "v0.1.4-dev".

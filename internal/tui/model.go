@@ -524,6 +524,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.receiveCleanup(msg)
 		return m, nil
 
+	case monitorSampleMsg, monitorTickMsg:
+		return m, m.receiveMonitor(msg)
+
 	case tickMsg:
 		m.ticking = false
 		m.spin++

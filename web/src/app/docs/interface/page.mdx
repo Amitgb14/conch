@@ -185,6 +185,28 @@ Programs that use the mouse themselves (vim, htop) still get the mouse; full-scr
 
 Dropping files on a pane pastes their paths. On a remote machine's pane conch uploads the files there first and pastes their paths there — see [Dropping files on a remote pane](/docs/remote-machines#dropping-files-on-a-remote-pane).
 
+## Resource monitor
+
+Click `▁▃▆` in the bottom-right corner of the status bar to see how much memory and CPU conch uses on this computer:
+
+```
+╭─ monitor ──────────────────────────────────────────────╮
+│                              memory     cpu            │
+│ This window (TUI)             30 MB   50.0% █████░░░░░ │
+│ Server · pid 100              20 MB   50.0% █████░░░░░ │
+│ Panes (2)                    319 MB  150.0% ██████████ │
+│   claude                     315 MB  150.0% ██████████ │
+│   zsh                          4 MB    0.0% ░░░░░░░░░░ │
+│ Total                        369 MB  250.0% ██████████ │
+╰────────────────────────────────────────────────────────╯
+```
+
+- A pane's row counts everything running inside it — the agent and the tools it starts. Panes are listed largest first; after 8 the rest share one "N more" row.
+- The total counts each process once, even when this TUI runs inside a conch pane.
+- CPU is worked out between two readings, so it shows `…` for the first 2 seconds. 100% is one full core, so a busy agent can go past it. The number and its bar are green, amber from 80% and red from 200%; the colours follow the theme.
+- It refreshes every 2 seconds while open, reading `ps`, and stops when closed. Any key, a click outside, or clicking the icon again closes it. The icon stays dim until the box is open.
+- It covers this computer only, not remote machines.
+
 ## Settings
 
 Press `,` or click `⚙` at the right end of the status bar. Changes are saved to `~/.config/conch/config.toml` (see [Configuration](/docs/configuration)).
