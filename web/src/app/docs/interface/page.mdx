@@ -25,8 +25,9 @@ MACHINES
   ▾ ❯ CLI                          2
     ▾ Terminals                    1
         › zsh
-    ▾ SSH                          1
+    ▾ SSH                          2
         › ssh dev@build-box
+        ○ ssh db-prod            saved
 ```
 
 Each machine has two groups. `Workspace` holds its projects (folders you added with `a`); selecting it shows every project with what runs in it, and the tab bar lists the tabs of all of them. `CLI` holds a machine's agents and terminals that belong to no project. `n` or `c` on the machine (or on `CLI`) starts one there, in your home folder.
@@ -34,6 +35,8 @@ Each machine has two groups. `Workspace` holds its projects (folders you added w
 ### SSH sessions
 
 `H` (or **SSH to a host…** in the tab bar's `+` menu, or in the menu of `local` and its `CLI`) opens a terminal on this computer logged in to another host. Pick a host from your `~/.ssh/config` or one of your machines, or type `user@host`, an alias or `ssh://user@host:port`. It runs your own `ssh` with your config and keys, so password and host-key prompts appear in the terminal. Nothing is installed on the host — unlike [adding a machine](/docs/remote-machines), which installs conch there to run agents. Sessions are listed under `CLI` → `SSH`, which has its own page and tabs like `Terminals`; closing the session (`exit`) closes its tab.
+
+Before connecting, conch asks whether to save the host. The default is not to: `enter` (or `n`) just connects, `y` saves it too. A saved host stays listed under `CLI` → `SSH` every time conch opens, even with no session to it (the `○ … saved` row above); `enter` or a click on it connects again without asking, and `x` forgets it. While a session to it is open, the session's own row stands in for it. Saved hosts come first in the `H` menu, and are kept in `ui.json` in the conch config folder.
 
 ### Projects
 

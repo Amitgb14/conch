@@ -116,6 +116,7 @@ type Model struct {
 
 	snoozeUntil time.Time      // alerts are silenced until then
 	limitSeen   map[string]int // plan limit alerts raised, per window (limitalerts.go)
+	savedSSH    []string       // ssh hosts the user chose to keep in the tree (ssh.go)
 	// catalogStamp is machines.json's modification time and size when last
 	// read, to notice machines added or removed with conch machine.
 	catalogStamp string
@@ -161,6 +162,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		sessions:   map[string]*sessionsData{},
 		upd:        newUpdateState(),
 		limitSeen:  st.LimitAlerts,
+		savedSSH:   cleanSavedSSH(st.SavedSSH),
 	}
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	if st.SidebarWidth > 0 {
@@ -745,8 +747,12 @@ func (m *Model) rebuild() tea.Cmd {
 	prevIndex := indexOfRow(m.rows, m.cursor)
 	in := treeInput{expanded: m.expanded, showAll: m.showAll, filter: m.filter, now: time.Now()}
 	for _, mach := range m.machines {
-		in.machines = append(in.machines, treeMachine{id: mach.id, panes: mach.panes, projects: mach.projects, agents: mach.agents,
-			sessions: m.hasSessions(mach.id)})
+		tm := treeMachine{id: mach.id, panes: mach.panes, projects: mach.projects, agents: mach.agents,
+			sessions: m.hasSessions(mach.id)}
+		if mach.id == localMachine { // ssh sessions start on this computer
+			tm.savedSSH = m.savedSSH
+		}
+		in.machines = append(in.machines, tm)
 	}
 	m.rows = buildTree(in)
 	if indexOfRow(m.rows, m.cursor) < 0 && len(m.rows) > 0 {

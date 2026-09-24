@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,6 +20,7 @@ type uiState struct {
 	Tabs         []savedTab      `json:"tabs,omitempty"`
 	ActiveTab    int             `json:"active_tab,omitempty"`
 	LimitAlerts  map[string]int  `json:"limit_alerts,omitempty"` // see limitalerts.go
+	SavedSSH     []string        `json:"saved_ssh,omitempty"`    // ssh hosts kept in the tree (ssh.go)
 }
 
 func uiStatePath() string { return filepath.Join(config.Dir(), "ui.json") }
@@ -65,7 +67,7 @@ func saveUIState(path string, st uiState) error {
 // maps are copied because the model keeps changing them.
 func (m Model) saveState() tea.Cmd {
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
-		Tabs: m.savedTabs(), ActiveTab: m.activeTab, LimitAlerts: map[string]int{}}
+		Tabs: m.savedTabs(), ActiveTab: m.activeTab, LimitAlerts: map[string]int{}, SavedSSH: slices.Clone(m.savedSSH)}
 	for k, v := range m.limitSeen {
 		st.LimitAlerts[k] = v
 	}

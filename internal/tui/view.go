@@ -216,6 +216,8 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		return "", glyphStyle, "Terminals", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindSSH:
 		return "", glyphStyle, "SSH", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
+	case kindSavedSSH:
+		return "○", styleMuted, "ssh " + sshName(savedSSHTarget(r.id)), styleMuted, styleMuted.Render("saved")
 	case kindCLI:
 		return "❯", styleAccent, "CLI", styleBold, styleMuted.Render(fmt.Sprint(r.count))
 	case kindWorkspace:
@@ -512,6 +514,8 @@ func (m Model) leafTitle(l *leaf) string {
 			return " " + what + " · " + proj.Name + " "
 		}
 		return " " + what + " · CLI "
+	case kindSavedSSH:
+		return " ssh · " + sshName(savedSSHTarget(v.Row)) + " "
 	case kindProject, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " " + proj.Name + " "
@@ -609,6 +613,8 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 		}
 	case kindAgents, kindTerminals, kindSSH:
 		return m.sectionLines(v.Machine, v.ProjectID, v.Kind, w)
+	case kindSavedSSH:
+		return savedSSHLines(savedSSHTarget(v.Row), w)
 	case kindProject, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return m.projectLines(v.Machine, *proj, w)
