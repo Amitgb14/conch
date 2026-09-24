@@ -19,6 +19,9 @@ type uiState struct {
 	Tabs         []savedTab      `json:"tabs,omitempty"`
 	ActiveTab    int             `json:"active_tab,omitempty"`
 	LimitAlerts  map[string]int  `json:"limit_alerts,omitempty"` // see limitalerts.go
+	// QueueDismissed is what x put aside in the review queue, by the row's
+	// key and the state it was in: a row comes back when that changes.
+	QueueDismissed map[string]string `json:"queue_dismissed,omitempty"`
 }
 
 func uiStatePath() string { return filepath.Join(config.Dir(), "ui.json") }
@@ -41,6 +44,9 @@ func loadUIState(path string) uiState {
 	}
 	if st.LimitAlerts == nil {
 		st.LimitAlerts = map[string]int{}
+	}
+	if st.QueueDismissed == nil {
+		st.QueueDismissed = map[string]string{}
 	}
 	pruneLimitAlerts(st.LimitAlerts, time.Now())
 	return st
@@ -65,9 +71,13 @@ func saveUIState(path string, st uiState) error {
 // maps are copied because the model keeps changing them.
 func (m Model) saveState() tea.Cmd {
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
-		Tabs: m.savedTabs(), ActiveTab: m.activeTab, LimitAlerts: map[string]int{}}
+		Tabs: m.savedTabs(), ActiveTab: m.activeTab, LimitAlerts: map[string]int{},
+		QueueDismissed: map[string]string{}}
 	for k, v := range m.limitSeen {
 		st.LimitAlerts[k] = v
+	}
+	for k, v := range m.queueSeen {
+		st.QueueDismissed[k] = v
 	}
 	for k, v := range m.expanded {
 		st.Expanded[k] = v

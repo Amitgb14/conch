@@ -103,7 +103,8 @@ type Model struct {
 	changesPolling bool   // a changesPollMsg is scheduled
 	statePath      string // where fold state is saved; "" disables saving
 
-	warning    string // shown once when the TUI starts (see Warn)
+	branchSigs map[string]sigSeen // when each branch last changed (see verify.go)
+	warning    string             // shown once when the TUI starts (see Warn)
 	flash      string
 	flashIsErr bool
 	flashUntil time.Time
@@ -161,6 +162,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		sessions:   map[string]*sessionsData{},
 		upd:        newUpdateState(),
 		limitSeen:  st.LimitAlerts,
+		queueSeen:  st.QueueDismissed,
 	}
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	if st.SidebarWidth > 0 {
@@ -638,7 +640,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if !found {
 			mach.projects = append(mach.projects, info)
 		}
-		cmds := []tea.Cmd{m.rebuild()}
+		cmds := []tea.Cmd{m.rebuild(), m.recheckSettled(time.Now())}
 		for _, l := range m.tab().root.leaves() {
 			cv := l.changes
 			if cv == nil || cv.machine != mach.id || cv.projectID != info.ID {

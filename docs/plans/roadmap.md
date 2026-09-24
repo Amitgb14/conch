@@ -69,8 +69,13 @@ history; details for big items live in their own plan files.
     agent there finishes: the queue then says `check passed` or `check failed
     (exit 1)`, and a failure sorts to the top. No default, nothing runs
     until a command is named, and `v` runs it on demand. Not yet:
-    filtering, dismissals last only as long as the TUI does, and a check
-    is not re-run when a branch changes on its own.
+    `/` filters the list by project, branch, agent, machine or reason —
+    every word has to appear — and the count says how much is hidden.
+    Dismissals are kept in `ui.json`, so they outlive the TUI, and are
+    forgotten once the row they were about is gone. A verdict is about the
+    branch as it stood: when the branch moves the check reads "out of
+    date", stops counting as a failure, and is run again once the branch
+    has been quiet for half a minute with no agent writing in it.
 
 14. **Staying in step with upstream** — `conch update` installs the latest
     release, `conch update list` shows what is published (marking the

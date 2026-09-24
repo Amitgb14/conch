@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -28,6 +29,10 @@ type verifyRun struct {
 	err  string // why it could not start
 	done bool
 	exit int
+	// sig is what the branch looked like when the check started: its last
+	// commit, what it is ahead by, and what is uncommitted in its worktree.
+	// A verdict is about that state, so when it moves the verdict is stale.
+	sig string
 }
 
 func verifyKey(machine, projectID, branch string) string {
@@ -43,16 +48,22 @@ const (
 	verifyPassed
 	verifyFailed
 	verifyBroken // the run could not start, or its pane is gone
+	verifyStale  // it passed or failed, but the branch has changed since
 )
 
 // verifyOf reports what the last run on a branch came to.
 func (m Model) verifyOf(machine, projectID, branch string) (verifyState, string) {
 	run, ok := m.verifyRuns[verifyKey(machine, projectID, branch)]
+	stale := ok && run.done && run.sig != "" && run.sig != m.branchSig(machine, projectID, branch)
 	switch {
 	case !ok:
 		return verifyNone, ""
 	case run.err != "":
 		return verifyBroken, run.err
+	case stale && run.exit == 0:
+		return verifyStale, "check out of date"
+	case stale:
+		return verifyStale, fmt.Sprintf("check failed (exit %d), and out of date", run.exit)
 	case run.done && run.exit == 0:
 		return verifyPassed, "check passed"
 	case run.done:
@@ -64,6 +75,99 @@ func (m Model) verifyOf(machine, projectID, branch string) (verifyState, string)
 	// in flight, not a lost one; a terminal that is really gone is caught
 	// when it closes.
 	return verifyRunning, "checking…"
+}
+
+// verifyResettle is how long a branch has to stop changing before a check
+// that went out of date is run again: an agent writes in bursts, and running
+// the command on every keystroke would be worse than not running it at all.
+const verifyResettle = 30 * time.Second
+
+// sigSeen is a branch's signature and when it last changed.
+type sigSeen struct {
+	sig string
+	at  time.Time
+}
+
+// recheckSettled runs a project's check again on branches whose verdict went
+// out of date and have since been quiet for verifyResettle — a commit, or an
+// agent that stopped writing. Branches with an agent still working are left
+// alone: it is not finished with them.
+func (m *Model) recheckSettled(now time.Time) tea.Cmd {
+	if m.branchSigs == nil {
+		m.branchSigs = map[string]sigSeen{}
+	}
+	var cmds []tea.Cmd
+	for _, mach := range m.machines {
+		if mach.state != stateOnline {
+			continue
+		}
+		for _, proj := range mach.projects {
+			if m.verifyCommand(proj.ID) == "" {
+				continue
+			}
+			for _, b := range proj.Branches {
+				key := verifyKey(mach.id, proj.ID, b.Name)
+				sig := m.branchSig(mach.id, proj.ID, b.Name)
+				was, seen := m.branchSigs[key]
+				if !seen || was.sig != sig {
+					m.branchSigs[key] = sigSeen{sig: sig, at: now}
+					continue // it just moved; let it settle
+				}
+				if state, _ := m.verifyOf(mach.id, proj.ID, b.Name); state != verifyStale {
+					continue
+				}
+				if now.Sub(was.at) < verifyResettle || m.agentWorkingOn(mach.id, proj.ID, b.Name) {
+					continue
+				}
+				if cmd := m.startVerify(mach.id, proj.ID, b.Name); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+// agentWorkingOn reports whether an agent is still writing on a branch.
+func (m Model) agentWorkingOn(machine, projectID, branch string) bool {
+	mach := m.machine(machine)
+	if mach == nil {
+		return false
+	}
+	for _, p := range mach.panes {
+		if p.Agent != nil && p.ProjectID == projectID && p.Branch == branch &&
+			p.Agent.State == proto.AgentWorking {
+			return true
+		}
+	}
+	return false
+}
+
+// branchSig is what a check's verdict is about: the branch's last commit,
+// how far ahead it is, and what is uncommitted in its worktree. An agent
+// committing, or anyone editing a file, moves it.
+func (m Model) branchSig(machine, projectID, branch string) string {
+	proj := m.project(machine, projectID)
+	if proj == nil {
+		return ""
+	}
+	sig := ""
+	for _, b := range proj.Branches {
+		if b.Name == branch {
+			sig = fmt.Sprintf("%d|%d|%d", b.Committed.Unix(), b.Ahead, b.BaseAhead)
+			break
+		}
+	}
+	for _, w := range proj.Worktrees {
+		if w.Branch != branch {
+			continue
+		}
+		if st := w.Status; st != nil { // a worktree whose status has not been read yet
+			sig += fmt.Sprintf("|%d|%d|%d|%d", st.Files, st.Added, st.Deleted, st.Untracked)
+		}
+		break
+	}
+	return sig
 }
 
 // verifyPane is the terminal a branch's last check ran in, while it is
@@ -111,7 +215,7 @@ func (m *Model) startVerify(machine, projectID, branch string) tea.Cmd {
 			return nil // one is already going
 		}
 	}
-	m.verifyRuns[key] = verifyRun{}
+	m.verifyRuns[key] = verifyRun{sig: m.branchSig(machine, projectID, branch)}
 	params := proto.PaneCreateParams{Name: "check · " + branch, Command: []string{"/bin/sh", "-lc", cmd},
 		Cwd: dir, Cols: 120, Rows: 40}
 	return func() tea.Msg {
@@ -135,11 +239,12 @@ func (m *Model) receiveVerifyStarted(msg verifyStartedMsg) {
 		m.verifyRuns = map[string]verifyRun{}
 	}
 	key := verifyKey(msg.machine, msg.projectID, msg.branch)
+	sig := m.verifyRuns[key].sig
 	if msg.err != "" {
-		m.verifyRuns[key] = verifyRun{err: msg.err}
+		m.verifyRuns[key] = verifyRun{err: msg.err, sig: sig}
 		return
 	}
-	m.verifyRuns[key] = verifyRun{pane: msg.info.ID}
+	m.verifyRuns[key] = verifyRun{pane: msg.info.ID, sig: sig}
 }
 
 // agentDone reports whether a pane's agent has finished and nobody has
