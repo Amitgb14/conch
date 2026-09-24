@@ -230,3 +230,30 @@ func TestA2EmptyTabStaysAvailable(t *testing.T) {
 		t.Fatal("an empty tab asked for on purpose is not waiting for a pane")
 	}
 }
+
+// Warn puts a message on screen as the TUI starts, so settings that could
+// not be read are visible instead of stopping conch.
+func TestA2WarnOnStart(t *testing.T) {
+	m := a2Model().Warn("settings not read (line 1); using the defaults")
+	var shown string
+	for _, msg := range a2Run(m.Init()) {
+		if e, ok := msg.(errMsg); ok {
+			shown = e.err.Error()
+		}
+	}
+	if !strings.Contains(shown, "settings not read") {
+		t.Fatalf("the warning never arrived: %q", shown)
+	}
+	next, _ := m.Update(errMsg{errString(shown)})
+	after := next.(Model)
+	if !strings.Contains(after.flash, "settings not read") || !after.flashIsErr {
+		t.Fatalf("flash %q (error: %v)", after.flash, after.flashIsErr)
+	}
+	// Nothing to say: nothing is shown.
+	quiet := a2Model().Warn("")
+	for _, msg := range a2Run(quiet.Init()) {
+		if _, ok := msg.(errMsg); ok {
+			t.Fatal("a model with no warning should not flash one")
+		}
+	}
+}

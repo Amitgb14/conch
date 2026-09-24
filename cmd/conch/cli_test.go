@@ -946,3 +946,34 @@ func TestA4AsyncPreemptOff(t *testing.T) {
 		}
 	}
 }
+
+// A config.toml conch can't parse used to stop the TUI starting at all.
+// It starts on the defaults now and says so.
+func TestA4ConfigForTUI(t *testing.T) {
+	dir := a4Env(t)
+	path := filepath.Join(dir, "config.toml")
+
+	// Nothing there: the defaults, no warning.
+	cfg, warning := configForTUI()
+	if warning != "" || cfg.Keys.Prefix == "" {
+		t.Fatalf("no config at all: %q %+v", warning, cfg.Keys)
+	}
+	// A good one is read, still without a warning.
+	if err := os.WriteFile(path, []byte("[ui]\ntheme = \"light\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, warning = configForTUI(); warning != "" || cfg.UI.Theme != "light" {
+		t.Fatalf("good config: %q %+v", warning, cfg.UI)
+	}
+	// A broken one: the defaults, and the reason to put on screen.
+	if err := os.WriteFile(path, []byte("nonsense = [[[\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, warning = configForTUI()
+	if !strings.Contains(warning, "settings not read") || !strings.Contains(warning, "using the defaults") {
+		t.Fatalf("broken config: %q", warning)
+	}
+	if cfg.UI.Theme == "light" || cfg.Keys.Prefix == "" {
+		t.Fatalf("want the defaults after a broken config: %+v", cfg)
+	}
+}

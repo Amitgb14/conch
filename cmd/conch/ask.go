@@ -27,9 +27,9 @@ func runAsk(args []string) error {
 	if request == "" {
 		return errors.New(`usage: conch ask [-y | -n] "start two agents on api to fix the flaky tests"`)
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		return err
+	cfg, cerr := config.Load()
+	if cerr != nil { // a config with a typo in it is not worth refusing over
+		fmt.Fprintln(os.Stderr, "conch: settings not read ("+cerr.Error()+"); using the defaults")
 	}
 	provider, err := brain.New(cfg.Brain)
 	if err != nil {

@@ -268,11 +268,27 @@ func Save(cfg Config) error {
 		return err
 	}
 	path := filepath.Join(Dir(), "config.toml")
+	keepUnreadable(path)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(b.String()), 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// keepUnreadable moves aside a config.toml conch could not parse, so that
+// writing the settings over it doesn't lose whatever was being edited. The
+// typo is then in config.toml.invalid to be put right or thrown away.
+func keepUnreadable(path string) {
+	st, err := os.Lstat(path)
+	if err != nil || !st.Mode().IsRegular() {
+		return // nothing there, or not a file conch could have written
+	}
+	var probe Config
+	if _, err := toml.DecodeFile(path, &probe); err == nil {
+		return
+	}
+	_ = os.Rename(path, path+".invalid")
 }
 
 // DefaultShell returns the user's login shell.

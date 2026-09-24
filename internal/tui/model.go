@@ -103,6 +103,7 @@ type Model struct {
 	changesPolling bool   // a changesPollMsg is scheduled
 	statePath      string // where fold state is saved; "" disables saving
 
+	warning    string // shown once when the TUI starts (see Warn)
 	flash      string
 	flashIsErr bool
 	flashUntil time.Time
@@ -182,6 +183,13 @@ func New(local *client.Client, cfg config.Config) Model {
 }
 
 // Init starts every machine's connection work.
+// Warn puts a message on screen as soon as the TUI starts — settings that
+// could not be read, say. It is shown like any other error, and fades.
+func (m Model) Warn(text string) Model {
+	m.warning = text
+	return m
+}
+
 func (m Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	for _, mach := range m.machines {
@@ -192,6 +200,9 @@ func (m Model) Init() tea.Cmd {
 		}
 	}
 	cmds = append(cmds, catalogTick())
+	if m.warning != "" {
+		cmds = append(cmds, func() tea.Msg { return errMsg{errString(m.warning)} })
+	}
 	if m.upd != nil {
 		cmds = append(cmds, updateTick())
 		if m.cfg.Update.CheckReleases {

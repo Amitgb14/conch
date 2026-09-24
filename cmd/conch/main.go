@@ -172,10 +172,7 @@ func runTUI() error {
 		return fmt.Errorf("this is already conch, in pane %s: detach first with %s d, "+
 			"or run `CONCH_PANE_ID= conch` to open one inside this pane anyway", id, tuiPrefix())
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("config: %w", err)
-	}
+	cfg, cfgWarning := configForTUI()
 	c, err := connect(true)
 	if err != nil {
 		return err
@@ -189,7 +186,7 @@ func runTUI() error {
 	if cfg.UI.Mouse {
 		opts = append(opts, tea.WithMouseCellMotion())
 	}
-	p := tea.NewProgram(tui.New(c, cfg), opts...)
+	p := tea.NewProgram(tui.New(c, cfg).Warn(cfgWarning), opts...)
 	final, err := p.Run()
 	if err == nil && tui.RestartRequested(final) {
 		// An update replaced this binary: run the new one in its place.
@@ -201,6 +198,18 @@ func runTUI() error {
 		return syscall.Exec(exe, os.Args, tui.RestartEnv(final))
 	}
 	return err
+}
+
+// configForTUI reads the settings, or says why it could not. A config.toml
+// with a typo in it used to stop conch starting at all — with no way in
+// short of editing the file — so it runs on the defaults instead and puts
+// the reason on screen.
+func configForTUI() (config.Config, string) {
+	cfg, err := config.Load()
+	if err == nil {
+		return cfg, ""
+	}
+	return cfg, "settings not read (" + err.Error() + "); using the defaults"
 }
 
 func runServer(args []string) error {

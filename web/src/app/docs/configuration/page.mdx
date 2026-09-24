@@ -33,6 +33,8 @@ Everything lives in `~/.config/conch`. Set `CONCH_HOME` to use another directory
 
 ## config.toml
 
+A `config.toml` conch cannot read never keeps you out: it starts on the defaults and says what was wrong with the file, in the TUI as a message on start-up and on the terminal for `conch ask`. Saving from the Settings screen then keeps the file that could not be read as `config.toml.invalid`, so a half-finished edit is never written over.
+
 All keys with their defaults:
 
 ```toml

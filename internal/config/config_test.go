@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -43,5 +45,64 @@ func TestQuietHours(t *testing.T) {
 		if got := tc.cfg.Quiet(tc.t); got != tc.want {
 			t.Errorf("%s-%s at %s: %v", tc.cfg.QuietStart, tc.cfg.QuietEnd, tc.t.Format("15:04"), got)
 		}
+	}
+}
+
+// A config.toml with a typo in it must not take conch's settings with it:
+// Load falls back to the defaults and says why, and saving keeps the file
+// that could not be read instead of writing over it.
+func TestLoadAndSaveWithABrokenConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CONCH_HOME", dir)
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("this is not = valid toml [[[\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err == nil {
+		t.Fatal("want an error for a config that cannot be parsed")
+	}
+	if cfg.Keys.Prefix != Default().Keys.Prefix || cfg.UI.Theme != Default().UI.Theme {
+		t.Fatalf("want the defaults back, got %+v", cfg)
+	}
+
+	// Saving keeps the unreadable file and writes a good one.
+	cfg.UI.Theme = "light"
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := os.ReadFile(path + ".invalid")
+	if err != nil || !strings.Contains(string(kept), "not = valid toml") {
+		t.Fatalf("the unreadable config was not kept: %v", err)
+	}
+	again, err := Load()
+	if err != nil || again.UI.Theme != "light" {
+		t.Fatalf("after saving: %+v %v", again, err)
+	}
+
+	// A config that reads fine is written over as before, with no copy.
+	if err := Save(again); err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := filepath.Glob(filepath.Join(dir, "*.invalid")); len(entries) != 1 {
+		t.Fatalf("a readable config should not be copied aside: %v", entries)
+	}
+	// And a config that isn't there at all is no trouble either.
+	os.Remove(path)
+	if err := Save(Default()); err != nil {
+		t.Fatal(err)
+	}
+	// Something that isn't a file of ours — a directory in its place — is
+	// left where it is, and saving fails as it always did.
+	other := t.TempDir()
+	t.Setenv("CONCH_HOME", other)
+	if err := os.MkdirAll(filepath.Join(other, "config.toml", "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(Default()); err == nil {
+		t.Fatal("want an error when config.toml is a directory")
+	}
+	if _, err := os.Stat(filepath.Join(other, "config.toml", "x")); err != nil {
+		t.Fatalf("the directory was moved aside: %v", err)
 	}
 }
