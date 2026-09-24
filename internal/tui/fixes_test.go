@@ -791,3 +791,43 @@ func TestA2SessionOfPane(t *testing.T) {
 		t.Fatalf("got %+v %v", s, ok)
 	}
 }
+
+// An agent draws on the alternate screen, which has no scrollback of its
+// own; conch keeps one now, so scroll mode and selection reach what the
+// agent said before the screen moved on.
+func TestA2ScrollModeInAnAgentPane(t *testing.T) {
+	m := a2Model()
+	m.viewing, m.viewMachine = "p1", localMachine
+	c, peer := a1FakeClient(t, "pane.scroll.v1")
+	m.machines[0].c = c
+	// What the server now sends for an agent's pane: the alternate screen,
+	// with history conch recorded as it scrolled.
+	m.frame = &proto.Frame{Mouse: true, AltScreen: true, History: 120, Lines: []string{"newest line", "and another"}}
+
+	m.enterScrollMode()
+	if !m.scrollMode {
+		t.Fatal("scroll mode should open on a pane with history")
+	}
+	m.scrollPane(10)
+	if m.offset != 10 {
+		t.Fatalf("offset %d, want 10", m.offset)
+	}
+	peer.waitMethod(t, proto.MethodPaneScroll, "")
+
+	// Selecting while scrolled back: the wheel is conch's, not the agent's,
+	// because there is history to move through.
+	m.sel = &selection{paneID: "p1", ay: 1, by: 1, hasContent: true}
+	before := m.offset
+	a2Run(m.paneMouse("p1", tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}, 1, 1, false, true))
+	if m.offset == before {
+		t.Fatal("the wheel should scroll the recorded history while selecting")
+	}
+	// With nothing selected it still belongs to the agent.
+	m.sel = nil
+	at := m.offset
+	a2Run(m.paneMouse("p1", tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}, 1, 1, false, true))
+	if m.offset != at {
+		t.Fatal("without a selection the agent should get the wheel")
+	}
+	peer.waitMethod(t, proto.MethodPaneSendMouse, "")
+}

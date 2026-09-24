@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -44,6 +44,12 @@ const CapSessionHandoff = "session.handoff.v1"
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
 const CapWorktreeWatch = "worktree.watch.v1"
+
+// CapPaneSearch is pane.search: finding text in a pane's history.
+const CapPaneSearch = "pane.search.v1"
+
+// CapPaneMonitor is pane.monitor and the Monitor and Alert of PaneInfo.
+const CapPaneMonitor = "pane.monitor.v1"
 
 // Methods.
 const (
@@ -65,6 +71,8 @@ const (
 	MethodPaneRedraw      = "pane.redraw"
 	MethodPaneSendMouse   = "pane.send_mouse"
 	MethodPaneScroll      = "pane.scroll"
+	MethodPaneSearch      = "pane.search"
+	MethodPaneMonitor     = "pane.monitor"
 	MethodAgentReport     = "agent.report"
 	MethodAgentExplain    = "agent.explain"
 	MethodAgentStatus     = "agent.status"
@@ -230,7 +238,33 @@ type PaneInfo struct {
 	// the branch checked out in the pane's directory, if any.
 	ProjectID string `json:"project_id,omitempty"`
 	Branch    string `json:"branch,omitempty"`
+	// Monitor is what the user asked to be told about this pane, and Alert
+	// what has happened since someone last looked at it (AlertActivity or
+	// AlertSilence).
+	Monitor *PaneMonitor `json:"monitor,omitempty"`
+	Alert   string       `json:"alert,omitempty"`
 }
+
+// PaneMonitor asks to be told about a pane's output, as tmux's
+// monitor-activity and monitor-silence do: Activity for any output while
+// nobody is looking at it, Silence for that many seconds without output
+// after some. A zero PaneMonitor stops monitoring.
+type PaneMonitor struct {
+	Activity bool `json:"activity,omitempty"`
+	Silence  int  `json:"silence,omitempty"`
+}
+
+// PaneMonitorParams sets a pane's monitoring.
+type PaneMonitorParams struct {
+	ID string `json:"id"`
+	PaneMonitor
+}
+
+// Alerts a monitored pane raises.
+const (
+	AlertActivity = "activity"
+	AlertSilence  = "silence"
+)
 
 // DisplayName is how a pane is labelled: the user's name, else an agent's
 // task title, else the command name.
@@ -1009,6 +1043,28 @@ type PaneSendKeysParams struct {
 // PaneReadResult is the plain-text visible screen of a pane.
 type PaneReadResult struct {
 	Lines []string `json:"lines"`
+}
+
+// PaneSearchParams looks for Query in a pane's history and screen, from
+// just after Line and Col (just before them, Backward). Line counts from the
+// oldest line of history; the screen starts at the result's History.
+type PaneSearchParams struct {
+	ID       string `json:"id"`
+	Query    string `json:"query"`
+	Line     int    `json:"line"`
+	Col      int    `json:"col"`
+	Backward bool   `json:"backward,omitempty"`
+}
+
+// PaneSearchResult is the next match, in the same lines as the params, and
+// Width cells wide. Wrapped says the search went round an end to find it.
+type PaneSearchResult struct {
+	Found   bool `json:"found,omitempty"`
+	Line    int  `json:"line,omitempty"`
+	Col     int  `json:"col,omitempty"`
+	Width   int  `json:"width,omitempty"`
+	History int  `json:"history,omitempty"`
+	Wrapped bool `json:"wrapped,omitempty"`
 }
 
 // PaneList is the result of pane.list.

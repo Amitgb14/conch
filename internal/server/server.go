@@ -470,6 +470,24 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return proto.PaneReadResult{Lines: e.p.PlainLines()}, nil
 
+	case proto.MethodPaneSearch:
+		sp, e, perr := withPane(s, msg, func(p proto.PaneSearchParams) string { return p.ID })
+		if perr != nil {
+			return nil, perr
+		}
+		return e.p.Search(sp.Query, sp.Line, sp.Col, sp.Backward), nil
+
+	case proto.MethodPaneMonitor:
+		mp, e, perr := withPane(s, msg, func(p proto.PaneMonitorParams) string { return p.ID })
+		if perr != nil {
+			return nil, perr
+		}
+		if mp.Silence < 0 {
+			return nil, proto.Errorf(proto.ErrBadRequest, "silence must be a number of seconds, not %d", mp.Silence)
+		}
+		s.setMonitor(e, mp.PaneMonitor)
+		return e.info(), nil
+
 	case proto.MethodPaneSubscribe:
 		_, e, perr := withPane(s, msg, func(p proto.PaneRef) string { return p.ID })
 		if perr != nil {

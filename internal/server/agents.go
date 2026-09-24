@@ -42,6 +42,8 @@ type entry struct {
 	transcript *usage.Transcript // the agent session's, once a hook names it
 	usage      *usageSource      // for agents without such hooks; watch goroutine only
 	tokens     *proto.Tokens
+
+	monitor paneMonitor // guarded by mu; see monitor.go
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -54,6 +56,7 @@ func (e *entry) info() proto.PaneInfo {
 	e.mu.Lock()
 	proj := e.project
 	st := e.tracker.Status()
+	info.Monitor, info.Alert = e.monitor.info()
 	e.mu.Unlock()
 	if proj != nil {
 		info.ProjectID = proj.id
@@ -128,10 +131,15 @@ type shown struct {
 	title, name, branch            string
 	tokens                         proto.Tokens
 	failed                         bool
+	monitor                        proto.PaneMonitor
+	alert                          string
 }
 
 func shownOf(info proto.PaneInfo) shown {
-	sh := shown{title: info.Title, name: info.Name, branch: info.Branch}
+	sh := shown{title: info.Title, name: info.Name, branch: info.Branch, alert: info.Alert}
+	if info.Monitor != nil {
+		sh.monitor = *info.Monitor
+	}
 	if a := info.Agent; a != nil {
 		sh.agent, sh.state, sh.message, sh.session, sh.failed = a.Name, a.State, a.Message, a.SessionID, a.Failed
 		if a.Tokens != nil {
@@ -151,12 +159,17 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 		before = shownOf(e.info())
 	}
 	proc, perr := e.p.Foreground()
+	output := false
 	if v := e.p.Version(); v != e.screenVersion {
+		// The first look, when the pane starts or a reload adopts it, is
+		// not output: there is nothing earlier to compare with.
+		output = e.screenVersion != ^uint64(0)
 		e.screen, e.screenVersion = e.p.PlainLines(), v
 	}
 	e.mu.Lock()
 	prevState := e.tracker.Status().State
 	fn(e.tracker)
+	e.monitor.step(time.Now(), output, e.watchers > 0)
 	e.tracker.Observe(detect.Observation{
 		Now:        time.Now(),
 		Process:    proc,
@@ -238,7 +251,10 @@ func (s *Server) userInput(e *entry) {
 func (s *Server) markSeen(e *entry) {
 	e.evalMu.Lock()
 	defer e.evalMu.Unlock()
-	s.evaluate(e, func(t *detect.Tracker) { t.MarkSeen(time.Now()) })
+	s.evaluate(e, func(t *detect.Tracker) {
+		t.MarkSeen(time.Now())
+		e.monitor.alert = ""
+	})
 }
 
 func (s *Server) rename(e *entry, name string) {
@@ -255,7 +271,10 @@ func (s *Server) setWatchers(e *entry, delta int) {
 	watched := e.watchers > 0
 	e.mu.Unlock()
 	if watched {
-		s.evaluate(e, func(t *detect.Tracker) { t.MarkSeen(time.Now()) })
+		s.evaluate(e, func(t *detect.Tracker) {
+			t.MarkSeen(time.Now())
+			e.monitor.alert = "" // looked at now
+		})
 	}
 }
 

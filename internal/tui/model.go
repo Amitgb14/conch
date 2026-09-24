@@ -98,6 +98,7 @@ type Model struct {
 	scrollMode bool          // keys move a cursor over the pane's history
 	curX, curY int           // that cursor, in view cells
 	sel        *selection    // text selected in the viewed pane
+	search     scrollSearch  // searching in scroll mode (scrollsearch.go)
 	click      *pendingClick // a press held back from a mouse-using program
 
 	changesPolling bool   // a changesPollMsg is scheduled
@@ -282,6 +283,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		id, gen := mach.id, mach.gen
 		retry := tea.Tick(retryLost, func(time.Time) tea.Msg { return machineRetryMsg{machine: id, gen: gen} })
 		return m, tea.Batch(m.rebuild(), retry)
+
+	case searchResultMsg:
+		m.showSearchResult(msg)
+		return m, nil
 
 	case reloadedMsg:
 		if mach := m.machine(msg.machine); mach != nil {
@@ -606,7 +611,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				}
 			}
 		}
-		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), installed, checked, m.observeAgent(mach, old, info))
+		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), m.notifyMonitor(mach, old, info), installed, checked, m.observeAgent(mach, old, info))
 
 	case proto.EventPaneClosed:
 		var ref proto.PaneRef

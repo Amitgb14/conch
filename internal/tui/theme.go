@@ -115,6 +115,7 @@ func applyTheme(name, accent string) {
 	styleOK = lipgloss.NewStyle().Foreground(t.ok)
 	styleErr = lipgloss.NewStyle().Foreground(t.err)
 	styleWarn = lipgloss.NewStyle().Foreground(t.warn).Bold(true)
+	styleSearchMatch = lipgloss.NewStyle().Background(t.warn).Foreground(textOn(t.warn))
 	styleWork = lipgloss.NewStyle().Foreground(t.work)
 	styleAccent = lipgloss.NewStyle().Foreground(t.accent).Bold(true)
 	styleChip = lipgloss.NewStyle().Bold(true).Foreground(t.selFG).Padding(0, 1)

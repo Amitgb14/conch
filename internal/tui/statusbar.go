@@ -76,10 +76,17 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		items = []statusItem{hint("v", "split"), hint("-", "split down"), hint("x", "close split"), hint("←→↑↓", "focus"),
 			hint("q", "numbers"), hint("space", "layout"), hint("c", "new tab"), hint("n", "next tab"), hint("[", "scroll"), hint("z", "zoom"),
 			action("esc", "tree", toTree)}
+	case m.focus == focusMain && r.kind == kindPane && m.scrollMode && m.search.typing:
+		chip = styleChip.Background(colorAccent).Render("SEARCH")
+		items = []statusItem{hint("enter", "find"), hint("esc", "cancel")}
 	case m.focus == focusMain && r.kind == kindPane && m.scrollMode:
 		chip = styleChip.Background(colorWarn).Render("SCROLL")
-		items = []statusItem{hint("↑↓←→", "move"), hint("v", "select"), hint("y", "copy"), hint("pgup", "page"),
-			hint("pgdn", "page"), hint("g", "oldest"), hint("esc", "live")}
+		items = []statusItem{hint("↑↓←→", "move"), hint("/", "search up"), hint("?", "search down")}
+		if m.search.query != "" {
+			items = append(items, hint("n", "next"), hint("N", "previous"))
+		}
+		items = append(items, hint("v", "select"), hint("y", "copy"), hint("pgup", "page"),
+			hint("pgdn", "page"), hint("g", "oldest"), hint("esc", "live"))
 	case m.focus == focusMain && r.kind == kindPane && m.offset > 0:
 		chip = styleChip.Background(colorWarn).Render("HISTORY")
 		items = []statusItem{

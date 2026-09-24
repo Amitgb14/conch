@@ -100,8 +100,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"c", "Start an agent here…", act("c")},
 			{"n", "New terminal here", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
-			{"x", "Close", act("x")},
 		}
+		items = append(items, m.monitorItems(r.machine, r.paneID)...)
+		items = append(items, menuItem{"x", "Close", act("x")})
 		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
 			items = append(items, menuItem{"Y", "Read and copy the conversation", act("Y")})
 		}
@@ -766,6 +767,9 @@ var helpText = []string{
 	"  ctrl+b r  draw the pane again (stale text after a resize)",
 	"  ctrl+b b  back to where the split was before the last jump (again returns)",
 	"  ctrl+b [  scroll history (↑↓ pgup pgdn g) · wheel scrolls too",
+	"    / search up · ? search down · n next · N previous (lower case matches either case)",
+	"  ctrl+b M  alert when the pane goes quiet after output (a build finishing) · ctrl+b A  alert on output",
+	"    a watched pane shows ~ (quiet) or # (output) in the tree until you look at it",
 	"  changes: ↑↓ file · enter diff · esc back · y copy path / diff",
 	"    space mark a file · c commit (the marked files, else all) · P push · p open a pull request",
 	"    in a diff: space marks the hunk under ▸ · n / N next, previous hunk · c commits the marked hunks",

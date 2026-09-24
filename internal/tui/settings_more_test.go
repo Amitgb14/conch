@@ -359,3 +359,27 @@ func TestA2SettingsMoveReachesListEdges(t *testing.T) {
 		t.Errorf("wheel up near the top should reach the first theme, sel %d", s.sel)
 	}
 }
+
+func TestSettingsSilenceSteps(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	s := &settings{tab: 1}
+	it := a2Item(t, s.items(m), "A watched pane goes quiet after")
+	if !strings.HasPrefix(it.detail, "30s") || !strings.Contains(it.detail, "ctrl+b M") {
+		t.Fatalf("detail %q", it.detail)
+	}
+	var seen []int
+	for i := 0; i < len(silencePresets); i++ {
+		a2Item(t, s.items(m), "A watched pane goes quiet after").run(m)
+		seen = append(seen, m.cfg.Notify.Silence)
+	}
+	if fmt.Sprint(seen) != "[60 120 300 10 30]" {
+		t.Fatalf("steps %v", seen)
+	}
+	// A value set by hand between presets moves to the next one up.
+	for cur, want := range map[int]int{45: 60, 0: 10, -1: 10, 301: 10, 1000: 10} {
+		if got := nextSilence(cur); got != want {
+			t.Fatalf("nextSilence(%d) = %d, want %d", cur, got, want)
+		}
+	}
+}

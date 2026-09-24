@@ -61,6 +61,9 @@ type Pane struct {
 	// held while acquiring emuMu.
 	emuMu sync.RWMutex
 	emu   *vt.Emulator
+	// alt keeps what has scrolled off the alternate screen, which has no
+	// scrollback of its own (see altscroll.go). Guarded by emuMu.
+	alt altScroll
 
 	// done is closed once the process has exited and output is drained.
 	done chan struct{}
@@ -242,7 +245,7 @@ func (p *Pane) readLoop(stop <-chan struct{}, done chan<- struct{}) {
 				p.mu.Unlock()
 			}
 			p.emuMu.Lock()
-			_, _ = p.emu.Write(strs.filter(buf[:n]))
+			p.writeToEmulator(strs.filter(buf[:n]))
 			p.emuMu.Unlock()
 			p.notify()
 		}
@@ -568,7 +571,9 @@ func (p *Pane) FrameAt(offset int) proto.Frame {
 	cols, rows := p.emu.Width(), p.emu.Height()
 	alt := p.emu.IsAltScreen()
 	history := 0
-	if !alt {
+	if alt {
+		history = len(p.alt.lines) // what conch kept as the program scrolled
+	} else {
 		history = p.emu.ScrollbackLen()
 	}
 	offset = max(0, min(offset, history))
@@ -579,6 +584,12 @@ func (p *Pane) FrameAt(offset int) proto.Frame {
 	start := history - offset // index into history followed by the screen
 	for y := 0; y < rows; y++ {
 		idx := start + y
+		if alt && idx < history {
+			// The alternate screen's history is kept as text: it was read
+			// off the screen rather than scrolled into the emulator.
+			lines[y] = p.alt.lines[idx]
+			continue
+		}
 		for x := 0; x < cols; x++ {
 			var c *uv.Cell
 			if idx < history {
@@ -607,12 +618,57 @@ func (p *Pane) FrameAt(offset int) proto.Frame {
 	}
 }
 
-// History returns how many lines have scrolled off the main screen.
+// writeToEmulator hands output to the emulator. On the alternate screen it
+// goes in pieces, so that the screen is looked at often enough to see what
+// scrolled off it. Called with emuMu held.
+func (p *Pane) writeToEmulator(b []byte) {
+	if !p.emu.IsAltScreen() {
+		_, _ = p.emu.Write(b)
+		p.noteAltScroll() // in case that write turned the alternate screen on
+		return
+	}
+	// Half a screen at a time: after a shift of that much, half the screen
+	// is still recognisable, even when its bottom rows were blank.
+	for _, chunk := range chunkByLines(b, max(p.emu.Height()/2, 1)) {
+		_, _ = p.emu.Write(chunk)
+		p.noteAltScroll()
+	}
+}
+
+// noteAltScroll keeps whatever has just scrolled off the alternate screen.
+// Called with emuMu held, after the emulator has taken the output.
+func (p *Pane) noteAltScroll() {
+	if !p.emu.IsAltScreen() {
+		if p.alt.on {
+			p.alt.reset() // back to the main screen, which has its own history
+			p.alt.on = false
+		}
+		return
+	}
+	p.alt.on = true
+	cols, rows := p.emu.Width(), p.emu.Height()
+	now := make([]string, rows)
+	line := make(uv.Line, cols)
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			if c := p.emu.CellAt(x, y); c != nil {
+				line[x] = *c
+			} else {
+				line[x] = uv.EmptyCell
+			}
+		}
+		now[y] = plainRow(line)
+	}
+	p.alt.note(now)
+}
+
+// History returns how many lines of history the pane has: scrolled off the
+// main screen, or kept from the alternate one.
 func (p *Pane) History() int {
 	p.emuMu.RLock()
 	defer p.emuMu.RUnlock()
 	if p.emu.IsAltScreen() {
-		return 0
+		return len(p.alt.lines) // kept by conch; see altscroll.go
 	}
 	return p.emu.ScrollbackLen()
 }
