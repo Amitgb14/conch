@@ -38,6 +38,7 @@ Over SSH the same stream runs through `conch bridge`. `hello` returns the server
 | Worktrees and tasks | `worktree.add`, `worktree.remove`, `worktree.copy_files`, `task.create` |
 | Branches | `branch.commit`, `branch.push`, `branch.pr`, `branch.merge`, `branch.discard` (capability `branch.harvest.v1`; a commit's `patch` field needs `branch.hunks.v1`) |
 | Worktree cleanup | `worktree.stale`, `worktree.cleanup` (capability `worktree.cleanup.v1`) |
+| Moving a worktree | `worktree.describe`, `worktree.pack`, `worktree.pack_read` on the machine it leaves; `worktree.have`, `fs.upload`, `worktree.unpack` and `project.clone` on the one it goes to (capability `worktree.move.v1`). The servers never talk to each other: the client carries the pack |
 | Sessions | `session.list`, `session.search`, `session.resume`, `session.share`, `session.delete`, `session.dismiss`; `session.export` and `session.share` with a `doc` hand a conversation to another machine (capability `session.handoff.v1`) |
 | Files and shell | `fs.list`, `fs.mkdir`, `fs.upload`, `shell.themes` |
 

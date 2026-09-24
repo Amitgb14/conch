@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -44,6 +44,11 @@ const CapSessionHandoff = "session.handoff.v1"
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
 const CapWorktreeWatch = "worktree.watch.v1"
+
+// CapWorktreeMove is moving a worktree to another machine: worktree.have,
+// worktree.describe, worktree.pack, worktree.pack_read, worktree.unpack and
+// project.clone.
+const CapWorktreeMove = "worktree.move.v1"
 
 // CapPaneSearch is pane.search: finding text in a pane's history.
 const CapPaneSearch = "pane.search.v1"
@@ -117,6 +122,13 @@ const (
 	// Leftover worktrees: list what each would lose, and remove them.
 	MethodWorktreeStale   = "worktree.stale"
 	MethodWorktreeCleanup = "worktree.cleanup"
+	// Moving a worktree to another machine (CapWorktreeMove).
+	MethodWorktreeDescribe = "worktree.describe"
+	MethodWorktreeHave     = "worktree.have"
+	MethodWorktreePack     = "worktree.pack"
+	MethodWorktreePackRead = "worktree.pack_read"
+	MethodWorktreeUnpack   = "worktree.unpack"
+	MethodProjectClone     = "project.clone"
 )
 
 // Events.
@@ -323,6 +335,9 @@ type ProjectInfo struct {
 	LocalFiles []string `json:"local_files,omitempty"`
 	// LocalFilesDefault is set while LocalFiles is the built-in list.
 	LocalFilesDefault bool `json:"local_files_default,omitempty"`
+	// Remote is the URL of the repository's origin, so the same project can
+	// be recognised on another machine. Absent from older servers.
+	Remote string `json:"remote,omitempty"`
 }
 
 // PRInfo is the pull request for a branch.
@@ -679,6 +694,88 @@ type WorktreeFilesParams struct {
 type WorktreeFilesResult struct {
 	Copied  []string `json:"copied,omitempty"`
 	Skipped []string `json:"skipped,omitempty"` // with a reason, e.g. ".env (exists)"
+}
+
+// WorktreeRef names a worktree of a project.
+type WorktreeRef struct {
+	ProjectID string `json:"project_id"`
+	Path      string `json:"path"`
+}
+
+// WorktreeMoveInfo is what moving a worktree would take, from
+// worktree.describe: its branch and commits, the candidates another machine
+// may already have (History, newest first) and its uncommitted work.
+type WorktreeMoveInfo struct {
+	Branch  string   `json:"branch"`
+	Head    string   `json:"head"`
+	Base    string   `json:"base,omitempty"`
+	Remote  string   `json:"remote,omitempty"`
+	History []string `json:"history,omitempty"`
+	// Staged and Unstaged count changed files; Other the untracked files
+	// that move along, Local the project's local files (.env and such).
+	Staged   int      `json:"staged,omitempty"`
+	Unstaged int      `json:"unstaged,omitempty"`
+	Other    int      `json:"other,omitempty"`
+	Local    []string `json:"local,omitempty"`
+}
+
+// WorktreeHaveParams asks which Commits a project's repository has.
+type WorktreeHaveParams struct {
+	ProjectID string   `json:"project_id"`
+	Commits   []string `json:"commits"`
+}
+
+// WorktreeHaveResult lists the commits found, in the order asked.
+type WorktreeHaveResult struct {
+	Have []string `json:"have"`
+}
+
+// WorktreePackParams packs a worktree for another machine that already has
+// commit Have ("" when it has none of the history).
+type WorktreePackParams struct {
+	ProjectID string `json:"project_id"`
+	Path      string `json:"path"`
+	Have      string `json:"have,omitempty"`
+}
+
+// WorktreePack is a packed worktree waiting to be read.
+type WorktreePack struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+// WorktreePackReadParams reads a pack from Offset; the server deletes the
+// pack once its end has been read.
+type WorktreePackReadParams struct {
+	ID     string `json:"id"`
+	Offset int64  `json:"offset"`
+}
+
+// WorktreePackChunk is one piece of a pack (at most UploadChunkSize).
+type WorktreePackChunk struct {
+	Data []byte `json:"data,omitempty"`
+	EOF  bool   `json:"eof,omitempty"`
+}
+
+// WorktreeUnpackParams recreates a packed worktree in a project from a
+// file uploaded with fs.upload.
+type WorktreeUnpackParams struct {
+	ProjectID string `json:"project_id"`
+	Pack      string `json:"pack"`
+}
+
+// WorktreeUnpackResult is the new worktree.
+type WorktreeUnpackResult struct {
+	Path   string   `json:"path"`
+	Branch string   `json:"branch"`
+	Files  []string `json:"files,omitempty"` // untracked and local files written
+}
+
+// ProjectCloneParams clones URL into Path and adds it as a project.
+type ProjectCloneParams struct {
+	URL  string `json:"url"`
+	Path string `json:"path"`
 }
 
 // WorktreeRemoveParams removes a (clean) linked worktree.

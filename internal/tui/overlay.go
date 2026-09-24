@@ -129,6 +129,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 					worktree = true
 				}
 			}
+			if checkedOut(proj, r.branch) && r.branch != proj.Base && m.hasCapability(r.machine, proto.CapWorktreeMove) {
+				items = append(items, menuItem{"T", "Move to another machine…", act("T")})
+			}
 			switch {
 			case worktree:
 				items = append(items, menuItem{"x", "Remove worktree", act("x")})
@@ -259,7 +262,7 @@ func (mu *menu) run(m *Model, i int) tea.Cmd {
 }
 
 func (mu *menu) render(m Model) box {
-	w := ansi.StringWidth(mu.title) + 2
+	w := ansi.StringWidth(mu.title) + 4 // the title is framed as " title " inside the corners
 	for _, it := range mu.items {
 		w = max(w, ansi.StringWidth(it.label)+10)
 	}
@@ -384,6 +387,7 @@ type dialog struct {
 	fields  []field
 	focus   int
 	confirm bool // yes/no question without fields
+	notice  bool // text to read, closed with enter or esc
 	yesOnly bool // a confirm that enter doesn't accept, for what can't be undone
 	onNo    bool // which button the keyboard is on; Yes to begin with
 	// buttons is where a confirm's Yes and No sit, from the last render:
@@ -418,6 +422,12 @@ func newDialog(m Model, title string, text []string, labels []string, values []s
 }
 
 func (d *dialog) focusCmd() tea.Cmd { return textinput.Blink }
+
+// newNotice shows text too long for the status bar, such as why something
+// failed.
+func newNotice(title string, text []string) *dialog {
+	return &dialog{title: title, text: text, notice: true}
+}
 
 func newConfirm(question string, yes func(m *Model) tea.Cmd) *dialog {
 	return &dialog{title: " Confirm ", text: []string{question}, confirm: true,
@@ -565,6 +575,14 @@ func (e errString) Error() string { return string(e) }
 
 func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	k, isKey := msg.(tea.KeyMsg)
+	if d.notice {
+		switch {
+		case !isKey:
+		case k.String() == "enter" || k.String() == "esc" || k.String() == "q" || k.String() == " ":
+			m.overlay = nil
+		}
+		return true, nil
+	}
 	if d.confirm {
 		if isKey {
 			switch k.String() {
@@ -694,6 +712,8 @@ func (d *dialog) render(m Model) box {
 		default:
 			lines = append(lines, " "+styleMuted.Render("y / n · ← → move · enter takes the one shown · esc cancels"))
 		}
+	} else if d.notice {
+		lines = append(lines, " "+styleMuted.Render("enter or esc closes"))
 	} else {
 		lines = append(lines, " "+styleMuted.Render("enter confirm · tab next field · esc cancel"))
 	}
@@ -709,6 +729,9 @@ func (d *dialog) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	}
 	if !b.contains(msg.X, msg.Y) {
 		m.overlay = nil
+		return nil
+	}
+	if d.notice {
 		return nil
 	}
 	if d.confirm {
@@ -804,6 +827,7 @@ var helpText = []string{
 	"    agent writes: ▌ marks what just changed, F follows it, R re-reads now",
 	"    M merge into the base (undone if it conflicts) · D discard the branch and its worktree",
 	"    A compare the attempts at this task (t runs a command in each, o shows its terminal)",
+	"    T move the branch's worktree to another machine; its agents continue there (also T in the tree)",
 	"  y in the tree copies a branch name or directory",
 	"  Sessions (under a project): enter resume · / search titles and conversations · s share with another agent, here or on another machine",
 	"    d delete · a agent filter · I resume all interrupted · x dismiss",
