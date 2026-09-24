@@ -197,6 +197,10 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.openBroadcast()
 	case "W":
 		return m, m.openCleanup()
+	case "T":
+		if ok && r.kind == kindBranch {
+			return m, m.openMoveWorktree(harvestTarget{machine: r.machine, projectID: r.projectID, branch: r.branch})
+		}
 	case "F":
 		pl := m.contextPlace()
 		proj := m.project(pl.machine, pl.projectID)

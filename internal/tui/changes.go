@@ -376,6 +376,8 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		return false, m.discardBranch(cv.target())
 	case "A":
 		return false, m.openCompare(cv.target())
+	case "T":
+		return false, m.openMoveWorktree(cv.target())
 	}
 	return false, nil
 }
