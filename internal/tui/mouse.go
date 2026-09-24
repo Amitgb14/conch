@@ -166,6 +166,13 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if f.sessions != nil {
 			return m, tea.Batch(focusCmd, f.sessions.mouse(&m, msg, x, y))
 		}
+	case kindFiles:
+		if press && left {
+			m.focus = focusMain
+		}
+		if f.files != nil {
+			return m, tea.Batch(focusCmd, f.files.mouse(&m, msg, x, y))
+		}
 	case kindBranch:
 		if press && left {
 			m.focus = focusMain

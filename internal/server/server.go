@@ -45,7 +45,8 @@ type Server struct {
 	projects  *projectManager
 	runs      *runLog // agents running in panes, for resuming after a restart
 	uploads   *uploads
-	packs     *packs // worktrees packed for another machine
+	packs     *packs     // worktrees packed for another machine
+	files     fileStates // git status of checkouts being browsed
 
 	limitsMu sync.Mutex
 	limits   map[string]proto.PlanLimits // by agent
@@ -87,7 +88,10 @@ func New(sockPath, configDir string) *Server {
 	}
 	s.projects = newProjectManager(s, configDir)
 	s.watcher = newWorktreeWatcher(
-		func(c proto.WorktreeChanged) { s.broadcast(proto.EventWorktreeChanged, c) },
+		func(c proto.WorktreeChanged) {
+			s.files.drop(c.Worktree)
+			s.broadcast(proto.EventWorktreeChanged, c)
+		},
 		func(id string) { s.projects.requestID(id) })
 	s.uploads = newUploads(configDir)
 	s.packs = newPacks(configDir)
@@ -310,7 +314,7 @@ var slowMethods = map[string]bool{
 	proto.MethodWorktreeAdd: true, proto.MethodWorktreeRemove: true, proto.MethodTaskCreate: true,
 	proto.MethodPaneCreate: true, proto.MethodPaneClose: true,
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
-	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true,
+	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true, proto.MethodFSRead: true,
 	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodWorktreeFiles: true,
 	proto.MethodProjectFiles: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
@@ -590,7 +594,20 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
+		if lp.Root != "" {
+			return s.listCheckout(lp)
+		}
+		if lp.Files {
+			return nil, proto.Errorf(proto.ErrBadRequest, "files are only listed inside a checkout: set root")
+		}
 		return s.listDir(lp)
+
+	case proto.MethodFSRead:
+		rp, perr := decode[proto.FSReadParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.readFile(rp)
 
 	case proto.MethodFSMkdir:
 		mp, perr := decode[proto.FSMkdirParams](msg)

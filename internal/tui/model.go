@@ -129,6 +129,7 @@ type Model struct {
 	sessions     map[string]*sessionsData // saved agent sessions per project (sessionsKey)
 	sessionsView *sessionsView            // the focused leaf's, when it lists sessions
 	queueView    *queueView               // the focused leaf's, when it is the review queue
+	filesView    *filesView               // the focused leaf's, when it is a file explorer
 	queueSeen    map[string]string        // review queue rows dismissed, by what they said when dismissed
 	verifyRuns   map[string]verifyRun     // a branch's last run of its project's check, by machine|project|branch
 	prevView     viewRef                  // where the focused split was before the last jump, for ctrl+b b
@@ -476,6 +477,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionsMsg:
 		return m, m.receiveSessions(msg)
 
+	case filesListMsg, filesReadMsg:
+		return m, m.filesReceive(msg)
+
 	case transcriptMsg:
 		if v, ok := m.overlay.(*transcriptView); ok {
 			v.receive(msg)
@@ -660,7 +664,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if !found {
 			mach.projects = append(mach.projects, info)
 		}
-		cmds := []tea.Cmd{m.rebuild(), m.recheckSettled(time.Now())}
+		cmds := []tea.Cmd{m.rebuild(), m.recheckSettled(time.Now()), m.filesProjectUpdated(mach.id, info.ID)}
 		for _, l := range m.tab().root.leaves() {
 			cv := l.changes
 			if cv == nil || cv.machine != mach.id || cv.projectID != info.ID {
@@ -698,6 +702,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				cmds = append(cmds, cv.liveDiff(m))
 			}
 		}
+		cmds = append(cmds, m.filesEvent(mach.id, wc))
 		return tea.Batch(cmds...)
 
 	case proto.EventAgentLimits:
@@ -1076,6 +1081,11 @@ func (m Model) contextPlace() place {
 			}
 		}
 		return place{machine: mid, projectID: proj.ID, branch: r.branch}
+	case kindFiles:
+		// The checkout being browsed, so an agent started from here works in it.
+		if root, branch, _ := m.filesCheckout(mid, r.projectID, r.branch); root != "" {
+			return place{machine: mid, projectID: r.projectID, dir: root, branch: branch}
+		}
 	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions:
 		if proj := m.project(mid, r.projectID); proj != nil {
 			return place{machine: mid, projectID: proj.ID, dir: proj.Path}

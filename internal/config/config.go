@@ -123,6 +123,10 @@ type UICfg struct {
 	// one, else the tokens it used — on tree rows, in the Sessions list and
 	// on the project and machine pages. On unless turned off.
 	Cost bool `toml:"cost"`
+	// Icons is how the file explorer marks each kind of file: "text" (the
+	// default, a coloured two-letter tag that works in any font), "nerd"
+	// (Nerd Font glyphs) or "off". Empty means text.
+	Icons string `toml:"icons,omitempty"`
 }
 
 // NotifyCfg controls how the TUI tells you an agent needs attention while

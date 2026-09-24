@@ -28,8 +28,11 @@ const (
 	// It has no tree row; Q opens it in the focused split.
 	kindReviewQueue
 	// kindSavedSSH is an ssh host kept in the tree with no session open to
-	// it. It comes last: saved tabs store kinds by number.
+	// it. Saved tabs store kinds by number, so it keeps its place.
 	kindSavedSSH
+	// kindFiles is a project's file explorer. Kinds are saved in ui.json by
+	// number, so new ones go last.
+	kindFiles
 )
 
 // row is one visible line of the sidebar tree. IDs of panes and projects
@@ -227,6 +230,9 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 			}
 		}
 
+		if filter == "" {
+			children = append(children, row{id: sectionID(mid, proj.ID, "files"), kind: kindFiles, depth: 3, machine: mid, projectID: proj.ID})
+		}
 		if mach.sessions && filter == "" {
 			children = append(children, row{id: sectionID(mid, proj.ID, "sessions"), kind: kindSessions, depth: 3, machine: mid, projectID: proj.ID})
 		}

@@ -31,3 +31,20 @@ func IgnoredDirs(ctx context.Context, dir string) ([]string, error) {
 	}
 	return dirs, nil
 }
+
+// IgnoredPaths lists what git ignores in the checkout at dir, relative to
+// dir and slash-separated: files as they are, and a wholly ignored directory
+// once, with a trailing slash, rather than everything in it.
+func IgnoredPaths(ctx context.Context, dir string) ([]string, error) {
+	out, err := run(ctx, dir, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z")
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, p := range strings.Split(string(out), "\x00") {
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths, nil
+}

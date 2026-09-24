@@ -135,6 +135,31 @@ The status bar counts what the queue holds (`3 to review`, beside `⚑ waiting`)
 
 A branch with an open pull request and nothing unpushed is not in the queue — it is waiting on a reviewer, not on you. Nor is a machine that is offline, whose panes conch only holds a stale cache of. Branches the tree has stopped listing — nothing committed for a fortnight and not checked out — drop out too, so the queue stays a list of what to do now rather than a history of the repository. An agent waiting or finished is always listed, however old its branch.
 
+## Files
+
+Every project has a **Files** row, and `f` opens it from anywhere in the tree: on a branch — or an agent or terminal working on one — it browses that branch's worktree, so "what did the agent on `fix-flaky` actually write?" is one key; anywhere else in a project it browses the main checkout. A branch with no worktree falls back to the main checkout and says so, and `w` moves through the project's checkouts.
+
+```
+ Files  conch · fix-flaky-tests          enter open · a → agent · y copy · / find
+ ~/.conch/wt/conch-fix-flaky-tests › internal › tui · 3 changed
+ ──────────────────────────────────────────┬─────────────────────────────────────
+ ▾    internal/                          M │ queue.go · 472 lines · modified
+   ▾    tui/                             M │   1  package tui
+       go model.go                       M │   2
+       go queue.go                       M │   3  import (
+       tx app.tsx                        ? │   4    "fmt"
+ ▸    web/                                 │   5    "sort"
+   rd README.md                            │
+```
+
+The tree opens a folder at a time, as you expand it, and the selected file shows beside it once the split is 100 columns wide; narrower, `enter` swaps the preview in and `esc` swaps it back. The letter on the right is the file's git status in the same letters as the [changes view](#changes-view) — `M` modified, `A` added, `?` untracked, `U` conflicted — and a folder carries the most telling one of what is in it. Dotfiles and whatever git ignores (`node_modules`, build output) are left out until `.` or `i` shows them, and `.git` always is.
+
+`a` is the one to remember: it types the selected file's path into the prompt of the agent working in that checkout — the one beside the explorer if there is one, else the one busy most recently — on whichever machine the checkout is on, relative to where the agent runs. `d` opens the file's diff in its branch's changes, `e` opens it in that machine's own `$EDITOR` in a new terminal, and `y` copies its path.
+
+The preview is plain text with line numbers, the first 256 KB of a file; a binary file is described (`binary · image/png · 1.2 MB`) rather than shown. Where the server watches worktrees, what an agent writes appears on its own — the open folders are listed again and the file in the preview read again — and `r` reads the checkout again anywhere. The explorer only reads files, and only inside the project's checkouts: a path, or a symlink, that leads out of one is refused by the server. A machine on a conch from before the explorer says it needs updating rather than showing an empty repository.
+
+Each kind of file gets an icon, by its whole name first (`Dockerfile`, `go.mod`, `package.json`) and then its extension, coloured from the theme. Settings → Theme chooses letters (`go`, `ts`, `tx` for `.tsx`, the default, since they read in any font), [Nerd Font](https://www.nerdfonts.com) glyphs — which need a Nerd Font in your terminal, and show as boxes without one — or none.
+
 ## Splits and tabs
 
 The main area has tabs (click them, `+` adds one, `×` closes), and each tab can be split into several views: panes, branch changes, projects or machines side by side. The focused split has the highlighted border.
@@ -210,6 +235,8 @@ Press `,` or click `⚙` at the right end of the status bar. Changes are saved t
 Colour schemes: Conch, Dracula, Catppuccin Mocha, Nord, Gruvbox Dark, Tokyo Night, One Dark, Solarized Dark, Rosé Pine, Kanagawa, Everforest Dark, Monokai, GitHub Dark, Ayu Dark and Night Owl (applied instantly).
 
 Under **Tree**, _What agents spend_ shows or hides the cost (and the token counts that stand in for it) on tree rows, in Sessions and on the project and machine pages — everything [the sidebar](#the-sidebar) shows.
+
+Under **File icons**, how [the file explorer](#files) marks each kind of file: _Letters, in any font_ (the default), _Nerd Font glyphs_ for a terminal with a Nerd Font, or _None_ (`[ui] icons` = `text`, `nerd` or `off`).
 
 Below that, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the themes installed on this computer. conch starts zsh with a wrapper that loads your own `.zshenv`/`.zprofile`/`.zshrc`/`.zlogin` first and then switches the theme for that terminal only (`omz theme use`), so your dotfiles are never edited; "Keep my .zshrc theme" turns it off.
 

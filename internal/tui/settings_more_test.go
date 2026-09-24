@@ -383,3 +383,26 @@ func TestSettingsSilenceSteps(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsFileIcons(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	s := &settings{shellErr: "no server"}
+	if !a2Item(t, s.themeItems(m), "Letters, in any font").mark {
+		t.Fatal("letters are the default")
+	}
+	a2Item(t, s.themeItems(m), "Nerd Font glyphs").run(m)
+	if m.cfg.UI.Icons != iconsNerd || !a2Item(t, s.themeItems(m), "Nerd Font glyphs").mark {
+		t.Fatalf("icons %q", m.cfg.UI.Icons)
+	}
+	a2Item(t, s.themeItems(m), "None").run(m)
+	if m.cfg.UI.Icons != iconsOff {
+		t.Fatalf("icons %q", m.cfg.UI.Icons)
+	}
+	if got := ansi.Strip(iconSample(iconsText)); got != "go ts tx rd" {
+		t.Fatalf("sample %q", got)
+	}
+	if ansi.Strip(iconSample(iconsOff)) != "names only" {
+		t.Fatal("off sample")
+	}
+}

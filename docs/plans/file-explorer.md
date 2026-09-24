@@ -1,8 +1,9 @@
 # Plan: a file explorer for a project's checkout
 
-Status: designed (2026-09-24), nothing built. Written from a design pass over
+Status: built (2026-09-24), all five phases. Written from a design pass over
 the current code; every file and line referenced below was read on that date,
-so check them again before relying on one.
+so check them again before relying on one. Where the build differs from the
+design, it says so below under "As built".
 
 ## Goal
 
@@ -250,3 +251,27 @@ segment to jump up. Model it on `queueView.mouse` and register it in
 for `[ui] icons`, and a row in `docs/testing/end-to-end.md` for the one thing
 fakes can never prove: that `` actually renders as a TypeScript logo in a
 real terminal with a real font, on macOS and Linux.
+
+## As built
+
+- **fs.list is confined by Root, not by a flag on the old call.** A listing
+  with `Root` set is of a checkout: the root must be a project's folder or
+  one of its worktrees, `Path` is relative to it, and every path — symlinks
+  resolved — must stay inside. `Files` without `Root` is refused, so the
+  project picker's unconfined listing is unchanged. The server code is in
+  `internal/server/files.go`.
+- **Git status** comes from one `git status` and one `git ls-files --ignored
+  --directory` per checkout, kept for two seconds and dropped when the
+  watcher announces an edit there, rather than hooked into the project's
+  refresh. Deleted files don't appear: the listing is of what is on disk.
+- **fs.read refuses anything but a regular file** before opening it (opening
+  a fifo blocks), and calls text that is not UTF-8 binary.
+- **Icons**: `text` tags are two letters; the nerd glyphs are from the Seti,
+  Devicons and Font Awesome ranges. Folders have no tag in `text` mode — the
+  `▸`/`▾` marker already says what they are.
+- **`a`** picks the running agent whose folder is in the checkout, preferring
+  one shown in a split of the current tab, else the one most recently busy,
+  and types the path relative to that agent's folder.
+- **Not built:** the explorer does not list deleted files, and a folder
+  truncated at 2000 entries can't be paged.
+

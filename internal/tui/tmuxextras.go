@@ -201,6 +201,8 @@ func (m Model) pickerLabel(v viewRef) string {
 		label = "changes · " + v.Branch
 	case kindSessions:
 		label = "sessions · " + label
+	case kindFiles:
+		label = "files · " + label
 	case kindReviewQueue:
 		label = "review queue"
 	}

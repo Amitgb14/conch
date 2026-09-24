@@ -169,6 +169,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "Q":
 		m.focus = focusMain
 		return m, m.show(queueRow())
+	case "f":
+		return m, m.openFiles()
 	case "!":
 		return m, m.jumpToAttention()
 	case "y":
@@ -226,7 +228,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // activate is enter (or a double click) on a row.
 func (m *Model) activate(r row) tea.Cmd {
 	switch r.kind {
-	case kindPane, kindBranch, kindSessions:
+	case kindPane, kindBranch, kindSessions, kindFiles:
 		m.focus = focusMain
 		return m.show(r)
 	case kindMore:
@@ -350,6 +352,14 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case kindSessions:
 		if m.sessionsView != nil {
 			back, cmd := m.sessionsView.key(&m, k)
+			if back {
+				m.focus = focusSidebar
+			}
+			return m, cmd
+		}
+	case kindFiles:
+		if m.filesView != nil {
+			back, cmd := m.filesView.key(&m, k)
 			if back {
 				m.focus = focusSidebar
 			}
@@ -589,7 +599,7 @@ func (m *Model) copyRow(r row) tea.Cmd {
 		if p := m.pane(r.machine, r.paneID); p != nil {
 			return copyText(p.Cwd)
 		}
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions:
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions, kindFiles:
 		if proj := m.project(r.machine, r.projectID); proj != nil {
 			return copyText(proj.Path)
 		}

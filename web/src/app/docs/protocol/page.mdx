@@ -40,7 +40,7 @@ Over SSH the same stream runs through `conch bridge`. `hello` returns the server
 | Worktree cleanup | `worktree.stale`, `worktree.cleanup` (capability `worktree.cleanup.v1`) |
 | Moving a worktree | `worktree.describe`, `worktree.pack`, `worktree.pack_read` on the machine it leaves; `worktree.have`, `fs.upload`, `worktree.unpack` and `project.clone` on the one it goes to (capability `worktree.move.v1`). The servers never talk to each other: the client carries the pack |
 | Sessions | `session.list`, `session.search`, `session.resume`, `session.share`, `session.delete`, `session.dismiss`; `session.export` and `session.share` with a `doc` hand a conversation to another machine (capability `session.handoff.v1`) |
-| Files and shell | `fs.list`, `fs.mkdir`, `fs.upload`, `shell.themes` |
+| Files and shell | `fs.list`, `fs.mkdir`, `fs.upload`, `shell.themes`; `fs.list` with a `root` lists a project's checkout — files too with `files`, each with its size, time and git status — and refuses any path that leaves it (capability `fs.files.v1`); `fs.read` returns the first 256 KB of a file in a checkout, or says it is binary (capability `fs.read.v1`) |
 
 ## Source layout
 

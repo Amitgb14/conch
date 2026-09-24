@@ -120,6 +120,7 @@ func applyTheme(name, accent string) {
 	styleAccent = lipgloss.NewStyle().Foreground(t.accent).Bold(true)
 	styleChip = lipgloss.NewStyle().Bold(true).Foreground(t.selFG).Padding(0, 1)
 	stylePRMerged = lipgloss.NewStyle().Foreground(t.merged)
+	applyIconTheme(t)
 }
 
 // textOn is a readable text colour for a background. A style that sets only

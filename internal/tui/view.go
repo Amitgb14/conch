@@ -234,6 +234,8 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 			right = joinRight(styleWarn.Render(fmt.Sprintf("⚠%d", n)), right)
 		}
 		return "", glyphStyle, "Sessions", styleMuted, right
+	case kindFiles:
+		return "", glyphStyle, "Files", styleMuted, ""
 	case kindBranch:
 		return m.branchParts(r)
 	case kindPane:
@@ -508,6 +510,14 @@ func (m Model) leafTitle(l *leaf) string {
 		}
 	case kindReviewQueue:
 		return " review queue "
+	case kindFiles:
+		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
+			t := " files · " + proj.Name + " "
+			if v.Branch != "" {
+				t += "· " + v.Branch + " "
+			}
+			return t
+		}
 	case kindBranches:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " branches · " + proj.Name + " "
@@ -611,6 +621,10 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 	case kindReviewQueue:
 		if l.queue != nil {
 			return l.queue.render(m, w, h)
+		}
+	case kindFiles:
+		if l.files != nil {
+			return l.files.render(m, w, h)
 		}
 	case kindBranches:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
