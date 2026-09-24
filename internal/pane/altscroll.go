@@ -101,12 +101,21 @@ func scrolledBy(prev, now []string) int {
 	// Find the top of the new screen in the old one: that distance is how
 	// far it moved. The lines below it have to follow in the same order, or
 	// this is a repaint that happens to share a line.
+	// The old screen's last line may have been caught half written: a read
+	// from the pty can end mid-line, and the rest arrives with the output
+	// that scrolls it. So that line only has to begin the new one.
+	same := func(i, j int) bool {
+		if i == last {
+			return strings.HasPrefix(now[j], prev[i])
+		}
+		return prev[i] == now[j]
+	}
 	for shift := 1; shift <= last; shift++ {
-		if prev[shift] != now[0] {
+		if !same(shift, 0) {
 			continue
 		}
 		run := 0
-		for i := 0; shift+i <= last && prev[shift+i] == now[i]; i++ {
+		for i := 0; shift+i <= last && same(shift+i, i); i++ {
 			run++
 		}
 		// Everything left of the old screen has to follow, and one line
