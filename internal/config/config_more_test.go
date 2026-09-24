@@ -201,7 +201,7 @@ func TestA3SaveFullRoundTrip(t *testing.T) {
 		Keys:   Keys{Prefix: "ctrl+space"},
 		Pane:   PaneCfg{DefaultCommand: "fish -l"},
 		Notify: NotifyCfg{Enabled: true, Desktop: false, Sound: true, Bell: true, Waiting: false, Done: true, QuietStart: "23:00", QuietEnd: "06:00", Limits: false, LimitAt: []int{50, 90}},
-		UI:     UICfg{Mouse: false, Theme: "tokyo-night", Accent: "#ff00aa"},
+		UI:     UICfg{Mouse: false, Theme: "tokyo-night", Accent: "#ff00aa", Icons: "nerd"},
 		Shell:  ShellCfg{OMZTheme: "robbyrussell"},
 		Agents: AgentsCfg{Default: "codex"},
 		Brain:  BrainCfg{Provider: "anthropic", Model: "m", SummaryModel: "s", Summaries: true, BaseURL: "https://x", APIKeyEnv: "MY_KEY", Command: "/opt/claude"},
@@ -446,5 +446,19 @@ func TestSilenceSetting(t *testing.T) {
 	}
 	if Default().Notify.SilenceAfter() != DefaultSilence {
 		t.Fatal("default")
+	}
+}
+
+func TestA3IconsFromAnOlderFile(t *testing.T) {
+	_, conchHome := a3Isolate(t)
+	// A file written before [ui] icons existed leaves it empty: letters.
+	a3WriteConfig(t, conchHome, "[ui]\ntheme = \"nord\"\n")
+	cfg, err := Load()
+	if err != nil || cfg.UI.Icons != "" {
+		t.Fatalf("icons %q %v", cfg.UI.Icons, err)
+	}
+	a3WriteConfig(t, conchHome, "[ui]\nicons = \"nerd\"\n")
+	if cfg, err := Load(); err != nil || cfg.UI.Icons != "nerd" {
+		t.Fatalf("icons %q %v", cfg.UI.Icons, err)
 	}
 }

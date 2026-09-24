@@ -687,3 +687,28 @@ func TestIgnoredDirs(t *testing.T) {
 		t.Fatal("IgnoredDirs with a cancelled context")
 	}
 }
+
+func TestIgnoredPaths(t *testing.T) {
+	root := newRepo(t)
+	commit(t, root, ".gitignore", "node_modules/\n*.log\nempty/\n", "ignore rules")
+	write(t, root, "node_modules/pkg/index.js", "x\n")
+	write(t, root, "debug.log", "x\n")
+	write(t, root, "src/trace.log", "x\n")
+	write(t, root, "src/main.go", "package main\n")
+
+	paths, err := IgnoredPaths(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(paths)
+	// A folder comes once with its slash; files come as they are, however deep.
+	if want := []string{"debug.log", "node_modules/", "src/trace.log"}; !reflect.DeepEqual(paths, want) {
+		t.Fatalf("IgnoredPaths = %v, want %v", paths, want)
+	}
+	if paths, err := IgnoredPaths(ctx, newRepo(t)); err != nil || len(paths) != 0 {
+		t.Fatalf("clean repo: %v %v", paths, err)
+	}
+	if _, err := IgnoredPaths(ctx, t.TempDir()); err == nil {
+		t.Fatal("IgnoredPaths outside a repo")
+	}
+}

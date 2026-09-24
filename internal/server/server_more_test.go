@@ -121,6 +121,7 @@ func TestA5DispatchErrors(t *testing.T) {
 		proto.MethodTaskCreate, proto.MethodAgentInstall, proto.MethodAgentExplain, proto.MethodSessionList,
 		proto.MethodSessionResume, proto.MethodSessionDelete, proto.MethodSessionDismiss, proto.MethodAgentSetup,
 		proto.MethodProjectFiles, proto.MethodWorktreeFiles, proto.MethodSessionSearch, proto.MethodSessionShare,
+		proto.MethodFSRead,
 	} {
 		err := c.Call(ctx, m, bad, nil)
 		var pe *proto.Error

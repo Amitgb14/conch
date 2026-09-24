@@ -39,6 +39,7 @@ type leaf struct {
 	changes  *changesView  // when the view is a branch
 	sessions *sessionsView // when the view lists sessions
 	queue    *queueView    // when the view is the review queue
+	files    *filesView    // when the view is a file explorer
 	// pick marks a leaf made empty on purpose (a new tab or split) to be
 	// filled by the next row the user opens, rather than following the
 	// tree's cursor.

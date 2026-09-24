@@ -1,6 +1,6 @@
 # Roadmap
 
-Order of upcoming work (updated 2026-09-21). Finished items move to the git
+Order of upcoming work (updated 2026-09-24). Finished items move to the git
 history; details for big items live in their own plan files.
 
 ## Done
@@ -89,20 +89,29 @@ history; details for big items live in their own plan files.
     Not yet: choosing a version from the TUI, and moving a remote machine
     back (it follows this computer's build).
 
+## Next
+
+15. **File explorer** — browse a project's checkout (or one branch's
+    worktree) in a split: a lazily expanded tree with a per-filetype icon,
+    git status beside the name and a preview pane, and `a` to drop a file's
+    path into the focused agent's prompt on the right machine. Wants
+    `fs.list` to return files at all, and a new `fs.read`, both behind
+    capabilities. See [file-explorer.md](file-explorer.md).
+
 ## Not now
 
-15. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
+16. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
     Deferred: a VM added as an ordinary machine already gives the isolation,
     so what is left to build is lifecycle convenience, not safety. Revisit
-    when agents are meant to act unattended — 16 and 17 below need a
+    when agents are meant to act unattended — 17 and 18 below need a
     boundary first — or when the code being worked on isn't trusted.
 
 ## Last
 
-16. **Auto-approve rules** — per-project rules that let agents run safe
-    commands without waiting for the user. Wants 15 first: rules that skip
+17. **Auto-approve rules** — per-project rules that let agents run safe
+    commands without waiting for the user. Wants 16 first: rules that skip
     the confirmation are only sane inside a sandbox.
-17. **Task graph** — server-side rules such as "when A is done, start a
+18. **Task graph** — server-side rules such as "when A is done, start a
     review agent on its worktree", only once auto-approve rules exist, since
     they run actions nobody confirmed. Notifies rather than moving focus.
 

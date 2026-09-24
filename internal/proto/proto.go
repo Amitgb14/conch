@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapFSFiles, CapFSRead,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -50,6 +50,13 @@ const CapPaneSearch = "pane.search.v1"
 
 // CapPaneMonitor is pane.monitor and the Monitor and Alert of PaneInfo.
 const CapPaneMonitor = "pane.monitor.v1"
+
+// CapFSFiles is fs.list taking Root and Files: a checkout's files, confined
+// to it, with git status. An older server answers with folders only.
+const CapFSFiles = "fs.files.v1"
+
+// CapFSRead is fs.read: the start of a file in a checkout, for a preview.
+const CapFSRead = "fs.read.v1"
 
 // Methods.
 const (
@@ -92,6 +99,7 @@ const (
 	MethodFSList         = "fs.list"
 	MethodFSMkdir        = "fs.mkdir"
 	MethodFSUpload       = "fs.upload"
+	MethodFSRead         = "fs.read"
 	MethodShellThemes    = "shell.themes"
 	MethodAgentSetup     = "agent.setup"
 	MethodProjectFiles   = "project.set_files"
@@ -408,9 +416,19 @@ type ProjectCreateParams struct {
 
 // FSListParams lists the folders in Path on the server's machine. "" and
 // "~" mean the home directory.
+//
+// With Root set the listing is of a checkout instead: Root must be a
+// project's folder or one of its worktrees, Path is relative to it ("" for
+// Root itself), and nothing outside Root is listed. Files adds the files
+// beside the folders, with their size, time and git status (fs.files.v1).
 type FSListParams struct {
 	Path   string `json:"path"`
 	Hidden bool   `json:"hidden,omitempty"`
+	Root   string `json:"root,omitempty"`
+	Files  bool   `json:"files,omitempty"`
+	// Ignored keeps what git ignores in a checkout listing; it is left out
+	// otherwise, which is what keeps node_modules out of the way.
+	Ignored bool `json:"ignored,omitempty"`
 }
 
 // FSList is the result of fs.list.
@@ -423,11 +441,46 @@ type FSList struct {
 	Truncated bool `json:"truncated,omitempty"`
 }
 
-// FSEntry is a folder inside a listed folder.
+// FSEntry is a folder inside a listed folder, or with Files a file.
 type FSEntry struct {
 	Name    string `json:"name"`
 	Git     bool   `json:"git,omitempty"`     // a git repository (has .git)
 	Project bool   `json:"project,omitempty"` // already a project
+
+	// The rest are only filled in a checkout listing (fs.files.v1).
+	Dir     bool      `json:"dir,omitempty"`
+	Size    int64     `json:"size,omitempty"`
+	ModTime time.Time `json:"mod_time,omitzero"`
+	Symlink bool      `json:"symlink,omitempty"`
+	Broken  bool      `json:"broken,omitempty"` // a symlink to nothing
+	Ignored bool      `json:"ignored,omitempty"`
+	// Status is the file's git status in the changes view's alphabet (M, A,
+	// D, R, U, ?); a folder carries the most telling one of what is in it.
+	Status string `json:"status,omitempty"`
+}
+
+// FSReadMax is the most fs.read returns at once: enough for a preview.
+const FSReadMax = 256 << 10
+
+// FSReadParams reads the start of a file in a checkout. Root and Path are as
+// in FSListParams; Max is capped at FSReadMax, and 0 means FSReadMax.
+type FSReadParams struct {
+	Root   string `json:"root"`
+	Path   string `json:"path"`
+	Offset int64  `json:"offset,omitempty"`
+	Max    int    `json:"max,omitempty"`
+}
+
+// FSReadResult is the result of fs.read. A binary file has no Data: it is
+// described rather than shown.
+type FSReadResult struct {
+	Path      string    `json:"path"` // absolute
+	Size      int64     `json:"size"`
+	ModTime   time.Time `json:"mod_time,omitzero"`
+	Data      string    `json:"data,omitempty"`
+	Truncated bool      `json:"truncated,omitempty"` // the file goes on past Data
+	Binary    bool      `json:"binary,omitempty"`
+	MIME      string    `json:"mime,omitempty"`
 }
 
 // FSMkdirParams creates one folder.

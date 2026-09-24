@@ -229,6 +229,23 @@ func (m *Model) syncView() tea.Cmd {
 	if f.view.Kind == kindReviewQueue {
 		m.queueView = f.queue
 	}
+	m.filesView = nil
+	for _, l := range leaves {
+		v := l.view
+		if v.Kind != kindFiles {
+			l.files = nil
+			continue
+		}
+		if fv := l.files; fv == nil || fv.machine != v.Machine || fv.projectID != v.ProjectID || fv.want != v.Branch {
+			l.files = m.newFilesView(v)
+			cmds = append(cmds, l.files.load(m))
+		} else if fv.err != "" && m.clientOf(fv.machine) != nil {
+			cmds = append(cmds, fv.load(m)) // the machine came back
+		}
+	}
+	if f.view.Kind == kindFiles {
+		m.filesView = f.files
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -874,7 +891,7 @@ func (m Model) viewLabel(v viewRef) string {
 		label = v.Branch
 	case kindReviewQueue:
 		label = "queue"
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions:
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions, kindFiles:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			label = proj.Name
 		}

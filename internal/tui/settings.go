@@ -107,6 +107,21 @@ func (s *settings) themeItems(m *Model) []settingItem {
 				return saveConfig(m.cfg)
 			}})
 
+	items = append(items, settingItem{}, settingItem{header: true, label: "File icons · in the file explorer"})
+	current = iconMode(m.cfg.UI.Icons)
+	for _, c := range []struct{ mode, label string }{
+		{iconsText, "Letters, in any font"},
+		{iconsNerd, "Nerd Font glyphs"},
+		{iconsOff, "None"},
+	} {
+		c := c
+		items = append(items, settingItem{label: c.label, detail: iconSample(c.mode), mark: c.mode == current,
+			run: func(m *Model) tea.Cmd {
+				m.cfg.UI.Icons = c.mode
+				return saveConfig(m.cfg)
+			}})
+	}
+
 	items = append(items, settingItem{}, settingItem{header: true, label: "Shell prompt · Oh My Zsh theme for new zsh terminals"})
 	switch {
 	case s.shellErr != "":
