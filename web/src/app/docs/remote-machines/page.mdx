@@ -85,6 +85,17 @@ Drag a screenshot or any file from Finder, the desktop or the floating screensho
 
 `conch -m gpu-box upload FILE...` does the same from a shell and prints each file's path there.
 
+## Moving a worktree to another machine
+
+When this computer is slow, or you're about to close the lid, move a task to a machine that stays up: `T` on a branch in the tree (or in its changes view, or `m` → **Move to another machine…**), pick the machine, then the project there.
+
+- **Which project:** projects cloned from the same origin come first, however the URL is written (`git@github.com:acme/api.git` and `https://github.com/acme/api` match). If the machine doesn't have it, **Clone … there** clones the origin into the folder you confirm — by default the same place under the home folder as here. The machine needs access to the repository itself; conch never copies keys or credentials.
+- **What moves:** the branch's commits, and only those the machine lacks (it compares the branch's history first, so a pushed branch sends none); staged changes arrive staged and unstaged ones unstaged; untracked files, and the project's [local files](/docs/tasks#local-files-in-worktrees) such as `.env`, go along. Files git ignores otherwise — `node_modules`, build output — stay behind. The worktree is recreated there like any conch worktree, under `<repo>.worktrees/`.
+- **Agents:** each agent working in the worktree continues there. Its conversation is [handed over](/docs/sessions#on-another-machine) to the same agent in the new worktree (an agent that saved none starts afresh), then its pane here is closed. Terminals stay. An agent in the middle of a task is stopped; changes it makes during the move stay here.
+- **This computer:** the worktree and branch are kept, so nothing is lost if something goes wrong; remove them with `x` when you're done.
+
+The status bar follows it: `moving feat to gpu-box · sending 40%`, then `moved feat to gpu-box · 2 agents continue there`. If a step fails, conch shows why in full, nothing changes on this computer, and the other machine undoes what it started. conch refuses when the branch is already checked out there, or has commits there that the moved one doesn't. A worktree with unresolved conflicts, and one whose pack is over 256 MB (large untracked files), can't be moved. Both machines need a conch with this; an older one says to reload it.
+
 ## Claude Code on a machine
 
 conch checks whether `claude` is installed on each machine (the machine view shows its version). If it isn't, `c` offers to install it, or press `C` (also in the machine menu, or `conch -m NAME agent install claude`). conch runs Anthropic's official installer (`curl -fsSL https://claude.ai/install.sh | bash`) in a pane you can watch; it installs `~/.local/bin/claude` for your user, no root.

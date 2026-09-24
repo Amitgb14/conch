@@ -24,9 +24,10 @@ const (
 	// fifty, so this is a few hundred screens: enough to look back through a
 	// long answer, far less than a session's whole output.
 	altHistoryMax = 5000
-	// altShiftMin is the least overlap counted as scrolling rather than a
-	// repaint that happens to share a line or two.
-	altShiftMin = 3
+	// altShiftMin is the least of the old screen that has to still be there,
+	// and line up, for this to be scrolling rather than a repaint that
+	// happens to share a line.
+	altShiftMin = 2
 )
 
 // chunkByLines splits output so that no more than n newlines go into the
@@ -90,23 +91,36 @@ func scrolledBy(prev, now []string) int {
 	if len(prev) == 0 || len(prev) != len(now) {
 		return 0
 	}
-	// Only what the screen had actually written counts. A program often
-	// leaves the bottom of the screen blank and fills it as it goes, and
-	// those rows hold new text after the scroll, not the old.
+	// Only what the screen had written counts: a program often leaves the
+	// bottom blank and fills it as it goes, and those rows hold new text
+	// after a scroll, not the old.
 	last := lastNonBlank(prev)
-	if last < 0 {
-		return 0 // nothing was there to scroll away
+	if last < 0 || strings.TrimSpace(now[0]) == "" {
+		return 0 // nothing was there to scroll away, or nothing arrived
+	}
+	// Find the top of the new screen in the old one: that distance is how
+	// far it moved. The lines below it have to follow in the same order, or
+	// this is a repaint that happens to share a line.
+	// The old screen's last line may have been caught half written: a read
+	// from the pty can end mid-line, and the rest arrives with the output
+	// that scrolls it. So that line only has to begin the new one.
+	same := func(i, j int) bool {
+		if i == last {
+			return strings.HasPrefix(now[j], prev[i])
+		}
+		return prev[i] == now[j]
 	}
 	for shift := 1; shift <= last; shift++ {
-		n := last - shift + 1 // rows of the old screen still showing
-		if n < altShiftMin {
-			return 0 // too little left to tell scrolling from a repaint
+		if !same(shift, 0) {
+			continue
 		}
-		same := true
-		for i := 0; i < n && same; i++ {
-			same = prev[i+shift] == now[i]
+		run := 0
+		for i := 0; shift+i <= last && same(shift+i, i); i++ {
+			run++
 		}
-		if same {
+		// Everything left of the old screen has to follow, and one line
+		// on its own says nothing: a repaint can share a line by chance.
+		if available := last - shift + 1; run == available && available >= altShiftMin {
 			return shift
 		}
 	}

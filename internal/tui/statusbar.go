@@ -140,7 +140,7 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 	case m.focus == focusMain:
 		chip = styleChip.Background(colorInput).Render("CHANGES")
 		items = []statusItem{hint("↑", "file"), hint("↓", "file"), hint("enter", "diff"), hint("space", "mark"), hint("c", "commit"),
-			hint("P", "push"), hint("p", "PR"), hint("M", "merge"), hint("D", "discard"), hint("A", "attempts"), hint("o", "open PR"), hint("R", "reload"), hint("esc", "tree")}
+			hint("P", "push"), hint("p", "PR"), hint("M", "merge"), hint("D", "discard"), hint("A", "attempts"), hint("T", "move"), hint("o", "open PR"), hint("R", "reload"), hint("esc", "tree")}
 	case m.filtering:
 		chip = styleChip.Background(colorAccent).Render("FILTER")
 		items = []statusItem{hint("enter", "keep"), hint("esc", "clear")}
@@ -150,6 +150,8 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		case kindPane:
 			items = []statusItem{hint("enter", "open"), hint("v", "split"), hint("O", "new tab"), hint("r", "rename"),
 				hint("x", "close"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
+		case kindSavedSSH:
+			items = []statusItem{hint("enter", "connect"), hint("x", "forget"), hint("H", "ssh"), hint("m", "menu")}
 		case kindFiles:
 			items = []statusItem{hint("enter", "browse files"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
 		case kindSessions:

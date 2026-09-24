@@ -45,6 +45,7 @@ type Server struct {
 	projects  *projectManager
 	runs      *runLog // agents running in panes, for resuming after a restart
 	uploads   *uploads
+	packs     *packs     // worktrees packed for another machine
 	files     fileStates // git status of checkouts being browsed
 
 	limitsMu sync.Mutex
@@ -93,6 +94,7 @@ func New(sockPath, configDir string) *Server {
 		},
 		func(id string) { s.projects.requestID(id) })
 	s.uploads = newUploads(configDir)
+	s.packs = newPacks(configDir)
 	// A reload keeps the panes, so their runs are not interrupted.
 	s.runs = loadRunLog(configDir, os.Getenv(reloadStateEnv) != "")
 	return s
@@ -141,6 +143,7 @@ func (s *Server) Run() error {
 		s.projects.run()
 	}()
 	go s.uploads.run(s.quit)
+	go s.packs.run(s.quit)
 	go s.watcher.run(s.quit)
 
 	var ln net.Listener
@@ -318,6 +321,8 @@ var slowMethods = map[string]bool{
 	proto.MethodBranchCommit: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
 	proto.MethodBranchMerge: true, proto.MethodBranchDiscard: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true,
+	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
+	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true,
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -663,6 +668,48 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		path, copied, perr := s.projects.addWorktree(p, wp.Branch, wp.Base)
 		return proto.WorktreeResult{Path: path, Copied: copied}, perr
+
+	case proto.MethodWorktreeDescribe:
+		rp, perr := decode[proto.WorktreeRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.describeWorktree(rp)
+
+	case proto.MethodWorktreeHave:
+		hp, perr := decode[proto.WorktreeHaveParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.haveCommits(hp)
+
+	case proto.MethodWorktreePack:
+		pp, perr := decode[proto.WorktreePackParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.packWorktree(pp)
+
+	case proto.MethodWorktreePackRead:
+		rp, perr := decode[proto.WorktreePackReadParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.packs.read(rp)
+
+	case proto.MethodWorktreeUnpack:
+		up, perr := decode[proto.WorktreeUnpackParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.unpackWorktree(up)
+
+	case proto.MethodProjectClone:
+		cp, perr := decode[proto.ProjectCloneParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.cloneProject(cp)
 
 	case proto.MethodWorktreeRemove:
 		wp, perr := decode[proto.WorktreeRemoveParams](msg)

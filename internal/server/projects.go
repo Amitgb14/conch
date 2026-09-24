@@ -309,6 +309,19 @@ func (p *project) worktreeFor(dir string) (proto.WorktreeInfo, bool) {
 }
 
 // branchWorktree returns where branch is checked out, if anywhere.
+// forgetWorktree drops a worktree from what the project last knew.
+func (p *project) forgetWorktree(path string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	kept := p.info.Worktrees[:0:0]
+	for _, wt := range p.info.Worktrees {
+		if wt.Path != path {
+			kept = append(kept, wt)
+		}
+	}
+	p.info.Worktrees = kept
+}
+
 func (p *project) branchWorktree(branch string) (proto.WorktreeInfo, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -504,6 +517,7 @@ func (p *project) load() proto.ProjectInfo {
 	defer cancel()
 	info := proto.ProjectInfo{ID: p.id, Name: filepath.Base(p.root), Path: p.root, Git: true}
 	info.Base = gitx.DefaultBase(ctx, p.root)
+	info.Remote = gitx.RemoteURL(ctx, p.root)
 
 	wts, err := gitx.Worktrees(ctx, p.root)
 	if err != nil {

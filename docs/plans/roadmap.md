@@ -98,20 +98,37 @@ history; details for big items live in their own plan files.
     `fs.list` to return files at all, and a new `fs.read`, both behind
     capabilities. See [file-explorer.md](file-explorer.md).
 
+16. **Send a worktree to another machine** — a session can be handed to an
+    agent on another machine, but only the conversation moves: the code
+    stays put, and the agent there is told to read a file about work it
+    cannot see. Sending the branch with it means three things across the
+    wire — the commits (a bundle of what the branch has beyond the remote,
+    or a push when both machines reach the same origin), the uncommitted
+    work as a patch, since that is usually the point of moving mid-task,
+    and the files git does not track (`.env`, `.envrc`), which hold secrets
+    and so are never carried without being asked. The far side fetches or
+    applies the bundle, adds the worktree and applies the patch, leaving a
+    branch ready for a handoff to land in. The parts exist already:
+    machines over ssh, `fs.upload`, `worktree.add`, the local-files copier
+    and harvest's push. What is missing is the orchestration and a way in —
+    most likely on a branch, beside the session handoff it completes. Worth
+    deciding first: which side owns the branch afterwards, since the same
+    branch in two places diverges.
+
 ## Not now
 
-16. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
+17. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
     Deferred: a VM added as an ordinary machine already gives the isolation,
     so what is left to build is lifecycle convenience, not safety. Revisit
-    when agents are meant to act unattended — 17 and 18 below need a
+    when agents are meant to act unattended — 18 and 19 below need a
     boundary first — or when the code being worked on isn't trusted.
 
 ## Last
 
-17. **Auto-approve rules** — per-project rules that let agents run safe
-    commands without waiting for the user. Wants 16 first: rules that skip
+18. **Auto-approve rules** — per-project rules that let agents run safe
+    commands without waiting for the user. Wants 17 first: rules that skip
     the confirmation are only sane inside a sandbox.
-18. **Task graph** — server-side rules such as "when A is done, start a
+19. **Task graph** — server-side rules such as "when A is done, start a
     review agent on its worktree", only once auto-approve rules exist, since
     they run actions nobody confirmed. Notifies rather than moving focus.
 

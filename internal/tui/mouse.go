@@ -420,6 +420,10 @@ func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Mode
 	m.cursor = r.id
 	m.focus = focusSidebar
 	cmd := m.syncView()
+	if left && r.kind == kindSavedSSH {
+		// A saved host has nothing to show until it is connected.
+		return m, tea.Batch(cmd, m.connectSSH(savedSSHTarget(r.id)))
+	}
 	if left && !r.expandable() {
 		// A click puts the row in the focused split. Keep what syncView
 		// asked for: it loads a branch's changes, and show() won't ask

@@ -27,6 +27,9 @@ const (
 	// kindReviewQueue is the cross-machine list of what needs a decision.
 	// It has no tree row; Q opens it in the focused split.
 	kindReviewQueue
+	// kindSavedSSH is an ssh host kept in the tree with no session open to
+	// it. Saved tabs store kinds by number, so it keeps its place.
+	kindSavedSSH
 	// kindFiles is a project's file explorer. Kinds are saved in ui.json by
 	// number, so new ones go last.
 	kindFiles
@@ -68,6 +71,7 @@ type treeMachine struct {
 	projects []proto.ProjectInfo
 	agents   map[string]bool // panes that have ever run an agent
 	sessions bool            // the server lists saved sessions
+	savedSSH []string        // ssh hosts kept in the tree (this computer only)
 }
 
 // treeInput is everything the tree is built from.
@@ -96,6 +100,7 @@ func paneNodeID(mid, id string) string       { return "pane:" + scoped(mid, id) 
 func moreID(mid, pid string) string          { return "more:" + scoped(mid, pid) }
 func looseTerminalsID(mid string) string     { return machineID(mid) + "/terminals" }
 func looseSSHID(mid string) string           { return machineID(mid) + "/ssh" }
+func savedSSHID(target string) string        { return "sshsaved:" + target }
 func cliID(mid string) string                { return machineID(mid) + "/cli" }
 func workspaceID(mid string) string          { return machineID(mid) + "/workspace" }
 
@@ -263,20 +268,29 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 			looseTerms = append(looseTerms, p)
 		}
 	}
+	// Saved hosts with no session open to them stay listed under SSH, to
+	// connect again with a click.
+	var saved []row
+	for _, target := range idleSavedSSH(mach.savedSSH, looseSSH) {
+		if match(target) || match(sshName(target)) {
+			saved = append(saved, row{id: savedSSHID(target), kind: kindSavedSSH, depth: 3, machine: mid})
+		}
+	}
 	for _, sec := range []struct {
 		id    string
 		kind  nodeKind
 		panes []proto.PaneInfo
-	}{{machineID(mid) + "/agents", kindAgents, looseAgents}, {looseTerminalsID(mid), kindTerminals, looseTerms}, {looseSSHID(mid), kindSSH, looseSSH}} {
-		if prows := paneRows(sec.panes, 3, false); len(prows) > 0 {
-			cli = append(cli, row{id: sec.id, kind: sec.kind, depth: 2, machine: mid, count: len(sec.panes)})
+		extra []row
+	}{{machineID(mid) + "/agents", kindAgents, looseAgents, nil}, {looseTerminalsID(mid), kindTerminals, looseTerms, nil}, {looseSSHID(mid), kindSSH, looseSSH, saved}} {
+		if prows := append(paneRows(sec.panes, 3, false), sec.extra...); len(prows) > 0 {
+			cli = append(cli, row{id: sec.id, kind: sec.kind, depth: 2, machine: mid, count: len(sec.panes) + len(sec.extra)})
 			if open(sec.id, true) {
 				cli = append(cli, prows...)
 			}
 		}
 	}
 	if len(cli) > 0 {
-		body = append(body, row{id: cliID(mid), kind: kindCLI, depth: 1, machine: mid, count: len(loose)})
+		body = append(body, row{id: cliID(mid), kind: kindCLI, depth: 1, machine: mid, count: len(loose) + len(saved)})
 		if open(cliID(mid), true) {
 			body = append(body, cli...)
 		}

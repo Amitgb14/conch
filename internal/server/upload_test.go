@@ -217,11 +217,20 @@ func TestUploadBelongsToConnection(t *testing.T) {
 func TestUploadWhileFramesStream(t *testing.T) {
 	c, _ := startServer(t)
 	var info proto.PaneInfo
+	// The loop gives up on its own: a test binary that is killed — by a
+	// timeout, or a run that hangs — takes its cleanup with it, and a
+	// hundred wake-ups a second left behind for good is a heavy thing to
+	// leave on somebody's machine.
+	tick := "n=0; while [ $n -lt 6000 ]; do echo tick; sleep 0.01; n=$((n+1)); done"
 	if err := c.Call(context.Background(), proto.MethodPaneCreate, proto.PaneCreateParams{
-		Command: []string{"/bin/sh", "-c", "while :; do echo tick; sleep 0.01; done"}, Cwd: os.TempDir(), NoProject: true, Cols: 40, Rows: 10,
+		Command: []string{"/bin/sh", "-c", tick}, Cwd: os.TempDir(), NoProject: true, Cols: 40, Rows: 10,
 	}, &info); err != nil {
 		t.Fatal(err)
 	}
+	// And it is closed here rather than left to the server's shutdown.
+	t.Cleanup(func() {
+		_ = c.Call(context.Background(), proto.MethodPaneClose, proto.PaneRef{ID: info.ID}, nil)
+	})
 	if err := c.Call(context.Background(), proto.MethodPaneSubscribe, proto.PaneRef{ID: info.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
