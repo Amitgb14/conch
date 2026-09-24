@@ -323,6 +323,24 @@ The remote rows, at last, with key login to busybox. Isolated on both sides: its
 - **Remote updates from the version popup (4.6, and the remote half of 5.4):** a TUI on the harness showed `⬆`, and the popup listed `[x] busybox   runs build 5a3f7aa19f3e · installs and reloads`. `space` toggled it to `[ ]` and back. Ticked, `u` installed and reloaded busybox (same pid, pane kept) and the `⬆` cleared; unticked, `u` left the remote on its old build. One remote only — 4.6's two-remote case still wants a second machine.
 - **Not covered:** password auth (4.2; busybox has key login now), and the TUI's own machine menu → Reload server, which `machine upgrade` stands in for here.
 
+### R20 — 2026-09-24, the v0.1.3 release, macOS arm64
+
+The release rows again, on the release that added the review queue with its
+checks, the live diff, staying in step with upstream, session handoff between
+machines, and the scrolling and copying work. The tag built on GitHub — tests,
+four platforms, checksums — and the website deployed from the tag as well.
+
+- **The archives (5.x):** all four are there with `checksums.txt`; the
+  darwin/arm64 archive's sha256 matches it, and the binary inside says
+  `conch 0.1.3 (build 95261ca45915, darwin/arm64)`.
+- **install.sh (5.1):** the one-liner from master, with a scratch `HOME`,
+  downloaded 0.1.3 for darwin/arm64 and installed it.
+- **conch update (5.2):** a real v0.1.2 binary, downloaded from its own
+  release, updated itself — "updated …/conch: 0.1.2 → 0.1.3" — and then
+  reported 0.1.3.
+
+Not covered here: the linux archives, and updating a remote machine to 0.1.3.
+
 ### R14 — 2026-09-19, the v0.1.2 release, macOS arm64
 
 The release rows again, on the release that added `conch wait`. `scripts/release.sh 0.1.2` built the four archives; the tag published them through `release.yml` in 2m.
