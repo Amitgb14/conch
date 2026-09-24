@@ -138,6 +138,8 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		case kindPane:
 			items = []statusItem{hint("enter", "open"), hint("v", "split"), hint("O", "new tab"), hint("r", "rename"),
 				hint("x", "close"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
+		case kindSavedSSH:
+			items = []statusItem{hint("enter", "connect"), hint("x", "forget"), hint("H", "ssh"), hint("m", "menu")}
 		case kindSessions:
 			items = []statusItem{hint("enter", "open sessions"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
 		case kindBranch:

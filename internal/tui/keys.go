@@ -227,6 +227,8 @@ func (m *Model) activate(r row) tea.Cmd {
 		return m.show(r)
 	case kindMore:
 		return m.toggle(r, nil)
+	case kindSavedSSH:
+		return m.connectSSH(savedSSHTarget(r.id))
 	}
 	return m.toggle(r, nil)
 }
@@ -650,6 +652,11 @@ func (m *Model) openRemove() tea.Cmd {
 		label := mach.label
 		m.overlay = newConfirm(fmt.Sprintf("Remove %s from conch? Its server and panes keep running there.", label), func(m *Model) tea.Cmd {
 			return m.removeMachine(mid)
+		})
+	case kindSavedSSH:
+		target := savedSSHTarget(r.id)
+		m.overlay = newConfirm(fmt.Sprintf("Forget ssh %s? It is no longer listed when conch opens.", sshName(target)), func(m *Model) tea.Cmd {
+			return m.forgetSSH(target)
 		})
 	case kindPane:
 		p := m.pane(r.machine, r.paneID)

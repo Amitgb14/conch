@@ -200,6 +200,12 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if mid != localMachine {
 			items = append(items, menuItem{"x", "Remove machine", act("x")})
 		}
+	case kindSavedSSH:
+		title = "ssh " + sshName(savedSSHTarget(r.id))
+		items = []menuItem{
+			{"enter", "Connect", enter},
+			{"x", "Forget (remove from the tree)", act("x")},
+		}
 	case kindWorkspace:
 		title = "Workspace"
 		items = []menuItem{
@@ -762,6 +768,7 @@ var helpText = []string{
 	"  n  terminal here       a  add or create a project",
 	"  M  add machine (ssh)   R  reconnect a machine    A  start or install any agent",
 	"  H  ssh from this computer to a host (listed under CLI → SSH; nothing installed there)",
+	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
 	"  r  rename (pane, machine) x  close / remove (a branch: worktree, then the branch)",
 	"                            R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",

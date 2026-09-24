@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
@@ -22,10 +23,89 @@ func sshPane(p proto.PaneInfo) bool {
 	return p.Agent == nil && remote.IsLoginCommand(p.Command)
 }
 
-// sshHosts are the hosts to offer: aliases from ~/.ssh/config, then the
-// targets of machines already added, each once.
+// sshTarget is the host an ssh session was started for: the argument
+// after "--" in the command LoginCommand builds.
+func sshTarget(p proto.PaneInfo) string {
+	if n := len(p.Command); sshPane(p) && n >= 2 && p.Command[n-2] == "--" {
+		return p.Command[n-1]
+	}
+	return ""
+}
+
+// idleSavedSSH are the saved hosts no open session is logged in to.
+func idleSavedSSH(saved []string, sessions []proto.PaneInfo) []string {
+	var out []string
+	for _, target := range saved {
+		if !slices.ContainsFunc(sessions, func(p proto.PaneInfo) bool { return sshTarget(p) == target }) {
+			out = append(out, target)
+		}
+	}
+	return out
+}
+
+// cleanSavedSSH drops what a hand-edited ui.json could hold that ssh would
+// not take as a host, and repeats.
+func cleanSavedSSH(saved []string) []string {
+	var out []string
+	for _, t := range saved {
+		if remote.CheckLoginTarget(t) == nil && !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// savedSSHTarget is the host of a saved SSH row.
+func savedSSHTarget(rowID string) string {
+	t, _ := strings.CutPrefix(rowID, "sshsaved:")
+	return t
+}
+
+// saveSSH keeps target in the tree across runs.
+func (m *Model) saveSSH(target string) tea.Cmd {
+	if slices.Contains(m.savedSSH, target) {
+		return nil
+	}
+	m.savedSSH = append(m.savedSSH, target)
+	return tea.Batch(m.rebuild(), m.saveState())
+}
+
+// forgetSSH takes a saved host out of the tree. An open session to it
+// keeps running.
+func (m *Model) forgetSSH(target string) tea.Cmd {
+	i := slices.Index(m.savedSSH, target)
+	if i < 0 {
+		return nil
+	}
+	m.savedSSH = slices.Delete(slices.Clone(m.savedSSH), i, i+1)
+	m.removeRow(savedSSHID(target))
+	m.setFlash("forgot "+sshName(target), false)
+	return tea.Batch(m.rebuild(), m.saveState())
+}
+
+// connectSSH opens a session to target, first asking whether to keep the
+// host in the tree when it isn't already. Not saving is the default: enter
+// on the question connects without saving.
+func (m *Model) connectSSH(target string) tea.Cmd {
+	if err := remote.CheckLoginTarget(target); err != nil {
+		return func() tea.Msg { return errMsg{err} }
+	}
+	if slices.Contains(m.savedSSH, target) {
+		return m.startSSH(target)
+	}
+	m.overlay = &menu{title: "Save " + sshName(target) + " in the tree?", x: max(m.width/2-20, 0), y: max(m.height/3, 0), items: []menuItem{
+		{"n", "Connect, don't save", func(m *Model) tea.Cmd { return m.startSSH(target) }},
+		{"y", "Save and connect (listed under SSH when conch opens)", func(m *Model) tea.Cmd {
+			return tea.Batch(m.saveSSH(target), m.startSSH(target))
+		}},
+	}}
+	return nil
+}
+
+// sshHosts are the hosts to offer: saved hosts, aliases from ~/.ssh/config,
+// then the targets of machines already added, each once.
 func (m Model) sshHosts() []string {
-	var hosts []string
+	hosts := slices.Clone(m.savedSSH)
 	for _, h := range remote.SSHHosts() {
 		if !slices.Contains(hosts, h) {
 			hosts = append(hosts, h)
@@ -63,7 +143,7 @@ func (m *Model) openSSH() tea.Cmd {
 		if i < 9 {
 			key = fmt.Sprint(i + 1)
 		}
-		items = append(items, menuItem{key, h, func(m *Model) tea.Cmd { return m.startSSH(h) }})
+		items = append(items, menuItem{key, h, func(m *Model) tea.Cmd { return m.connectSSH(h) }})
 	}
 	items = append(items, menuItem{"e", "Enter a host…", func(m *Model) tea.Cmd {
 		d := newSSHDialog(*m)
@@ -78,7 +158,7 @@ func newSSHDialog(m Model) *dialog {
 	d := newDialog(m, " SSH from local ", []string{"Opens a terminal here logged in to the host, with your ssh config and keys. Nothing is installed there."},
 		[]string{"Host"}, nil)
 	d.fields[0].in.Placeholder = "user@host, host alias or ssh://user@host:port"
-	d.submit = func(m *Model, v []string) tea.Cmd { return m.startSSH(strings.TrimSpace(v[0])) }
+	d.submit = func(m *Model, v []string) tea.Cmd { return m.connectSSH(strings.TrimSpace(v[0])) }
 	return d
 }
 
@@ -133,4 +213,13 @@ func newTabMenu(m Model, x, y int) *menu {
 		}},
 		{"H", "SSH to a host…", func(m *Model) tea.Cmd { return m.openSSH() }},
 	}}
+}
+
+// savedSSHLines is the page of a saved host with no session open to it.
+func savedSSHLines(target string, w int) []string {
+	return []string{
+		fit(styleBold.Render("ssh "+sshName(target))+styleMuted.Render("  saved · not connected"), w),
+		"",
+		styleMuted.Render(ansi.Truncate("enter or click connect · x forget", w, "…")),
+	}
 }

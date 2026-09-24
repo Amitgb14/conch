@@ -69,6 +69,8 @@ func (m Model) rowScope(r row) tabScope {
 		s := m.groupOf(r.machine, r.projectID)
 		s.section = r.kind
 		return s
+	case kindSavedSSH:
+		return tabScope{level: scopeCLI, machine: r.machine, section: kindSSH}
 	case kindPane:
 		pid := r.projectID
 		if p := m.pane(r.machine, r.paneID); p != nil {
@@ -274,7 +276,7 @@ func (m *Model) pickTab() {
 // of tabs.
 func pageRow(k nodeKind) bool {
 	switch k {
-	case kindProject, kindBranches, kindBranch, kindMore, kindSessions, kindAgents, kindTerminals, kindSSH, kindReviewQueue:
+	case kindProject, kindBranches, kindBranch, kindMore, kindSessions, kindAgents, kindTerminals, kindSSH, kindReviewQueue, kindSavedSSH:
 		return true
 	}
 	return false

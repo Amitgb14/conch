@@ -263,9 +263,13 @@ func TestSSHHostMenu(t *testing.T) {
 	}
 	a2CheckBox(t, mu.render(*m), *m)
 
-	// Clicking a host starts the session on this computer.
+	// Clicking a host asks whether to save it; enter connects unsaved.
 	b := mu.render(*m)
-	msgs := a2Run(a1Mouse(t, m, b.x+3, b.y+3, a1Left, a1Press))
+	a2Run(a1Mouse(t, m, b.x+3, b.y+3, a1Left, a1Press))
+	if _, ok := m.overlay.(*menu); !ok {
+		t.Fatalf("host click opened %T, want the save question", m.overlay)
+	}
+	msgs := a2Run(a1Key(t, m, tea.KeyMsg{Type: tea.KeyEnter}))
 	create := peer.waitFor(t, "pane.create", func(msg proto.Message) bool { return msg.Method == proto.MethodPaneCreate })
 	var p proto.PaneCreateParams
 	if err := json.Unmarshal(create.Params, &p); err != nil {
@@ -338,8 +342,8 @@ func TestSSHStart(t *testing.T) {
 	d := newSSHDialog(*m)
 	m.overlay = d
 	d.fields[0].in.SetValue("  ssh://me@box:2222  ")
-	cmd := a1Key(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	a2Run(cmd)
+	a2Run(a1Key(t, m, tea.KeyMsg{Type: tea.KeyEnter}))
+	a2Run(a1Key(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")}))
 	create := peer.waitFor(t, "pane.create", func(msg proto.Message) bool { return msg.Method == proto.MethodPaneCreate })
 	var p proto.PaneCreateParams
 	json.Unmarshal(create.Params, &p)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,6 +23,7 @@ type uiState struct {
 	// QueueDismissed is what x put aside in the review queue, by the row's
 	// key and the state it was in: a row comes back when that changes.
 	QueueDismissed map[string]string `json:"queue_dismissed,omitempty"`
+	SavedSSH       []string          `json:"saved_ssh,omitempty"` // ssh hosts kept in the tree (ssh.go)
 }
 
 func uiStatePath() string { return filepath.Join(config.Dir(), "ui.json") }
@@ -72,7 +74,7 @@ func saveUIState(path string, st uiState) error {
 func (m Model) saveState() tea.Cmd {
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
 		Tabs: m.savedTabs(), ActiveTab: m.activeTab, LimitAlerts: map[string]int{},
-		QueueDismissed: map[string]string{}}
+		QueueDismissed: map[string]string{}, SavedSSH: slices.Clone(m.savedSSH)}
 	for k, v := range m.limitSeen {
 		st.LimitAlerts[k] = v
 	}
