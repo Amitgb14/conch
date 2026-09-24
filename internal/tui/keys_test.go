@@ -818,11 +818,15 @@ func TestA1ScrollModeKeys(t *testing.T) {
 	if m.scrollMode || m.offset != 0 {
 		t.Fatalf("esc: scroll %v offset %d", m.scrollMode, m.offset)
 	}
-	// Mouse selection is dropped by scrolling; enterScrollMode needs a view.
+	// A mouse selection stays on its text as the screen scrolls under it;
+	// enterScrollMode needs a view.
 	m.sel = &selection{paneID: "p1"}
 	m.scrollPane(5)
-	if m.sel != nil {
-		t.Fatal("scrolling kept a mouse selection")
+	if m.sel == nil {
+		t.Fatal("scrolling threw the selection away")
+	}
+	if m.sel.ay != 5 || m.sel.by != 5 {
+		t.Fatalf("selection did not move with the text: %+v", m.sel)
 	}
 	m.viewing = ""
 	m.scrollMode = false

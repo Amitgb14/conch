@@ -38,6 +38,8 @@ Devin keeps its sessions in a database of its own, so conch lists them by asking
 
 Asking another program takes a moment, and a slow or signed-out one used to hold up the whole list. It no longer does: the list waits about a second and a half for it, then shows the agents whose sessions are files on disk and fills the rest in a moment later.
 
+`Y` opens a conversation to read and copy from — and `Y` on an agent in the tree opens the one it is writing now. It opens on the newest part. Scroll with the wheel or `↑` `↓`, a page at a time with `pgup` `pgdn`, and jump with `g` (top) and `G` (bottom, also `home` and `end`). Drag over the part you want — dragging past the top or bottom keeps scrolling — and releasing copies just that; `a` copies all of it, `esc` closes. What is shown is the conversation as text: escape sequences in it (people paste terminal output into agents) are taken out, so nothing the transcript holds can move your cursor or reach your clipboard as an escape. This is how a long answer is taken out of an agent: an agent draws on the alternate screen, which keeps no scrollback, so dragging over its pane can only ever reach what is on screen.
+
 `●` sessions are already open and `enter` shows their pane. `a` filters by agent, and `R` reloads the list.
 
 ## Searching

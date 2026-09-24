@@ -282,6 +282,22 @@ func (m *Model) paneMouse(paneID string, msg tea.MouseMsg, x, y int, press, whee
 	switch {
 	case f != nil && f.Mouse && !wheel && (m.selectsOverApp(paneID) || msg.Alt || msg.Ctrl):
 		return m.selectOrClick(c, paneID, msg, x, y)
+	case f != nil && f.Mouse && wheel && m.sel != nil && m.sel.paneID == paneID && f.History > 0:
+		// Text selected in a program that takes the mouse, in a pane conch
+		// has history for: the wheel scrolls that history while the
+		// selection lasts, so it can be taken past the top of the screen.
+		delta := -3
+		if msg.Button == tea.MouseButtonWheelUp {
+			delta = 3
+		}
+		m.scrollPane(delta)
+	case f != nil && f.Mouse && wheel && m.sel != nil && m.sel.paneID == paneID:
+		// An agent on the alternate screen keeps its own scrollback and
+		// conch has none to offer, so the wheel goes to the program as
+		// usual. The text underneath then moves, and a selection held over
+		// it would be a lie, so it goes.
+		m.sel = nil
+		forwardMouse(c, paneID, msg, x, y)
 	case f != nil && f.Mouse:
 		forwardMouse(c, paneID, msg, x, y)
 	case wheel && f != nil && f.AltScreen:

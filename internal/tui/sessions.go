@@ -110,6 +110,21 @@ func (m *Model) receiveSessions(msg sessionsMsg) tea.Cmd {
 	return tea.Tick(wait, func(time.Time) tea.Msg { return sessionsRetryMsg{machine: mid, project: pid} })
 }
 
+// sessionOfPane is the saved conversation an open pane is writing, if the
+// project's sessions have been read and one of them says so.
+func (m Model) sessionOfPane(mid, pid, paneID string) (proto.SessionInfo, bool) {
+	d := m.sessions[sessionsKey(mid, pid)]
+	if d == nil || paneID == "" {
+		return proto.SessionInfo{}, false
+	}
+	for _, s := range d.list {
+		if s.PaneID == paneID {
+			return s, true
+		}
+	}
+	return proto.SessionInfo{}, false
+}
+
 // hasSessions reports whether a machine's server can list sessions.
 func (m Model) hasSessions(mid string) bool {
 	c := m.clientOf(mid)
@@ -668,6 +683,10 @@ func (sv *sessionsView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 	case "y":
 		if sv.sel >= 0 && sv.sel < len(list) && list[sv.sel].ID != "" {
 			return false, copyText(list[sv.sel].ID)
+		}
+	case "Y":
+		if sv.sel >= 0 && sv.sel < len(list) {
+			return false, m.openTranscript(sv.machine, list[sv.sel])
 		}
 	case "R":
 		return false, m.loadSessions(sv.machine, sv.projectID, true)

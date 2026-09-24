@@ -102,6 +102,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
 			{"x", "Close", act("x")},
 		}
+		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
+			items = append(items, menuItem{"Y", "Read and copy the conversation", act("Y")})
+		}
 	case kindBranch:
 		title = r.branch
 		items = []menuItem{
@@ -776,6 +779,7 @@ var helpText = []string{
 	"Mouse",
 	"  click select · double-click open · right-click menu · wheel scroll",
 	"  drag in a pane to copy · double-click copies a word",
+	"  Y on an agent opens its conversation: scroll (g top · G bottom), drag over a part, release to copy",
 	"  drag the sidebar edge to resize · shift-drag for terminal selection",
 	"  drop files (a screenshot) on a remote pane: uploaded there, and their paths there pasted",
 	"",

@@ -977,3 +977,26 @@ func TestA4ConfigForTUI(t *testing.T) {
 		t.Fatalf("want the defaults after a broken config: %+v", cfg)
 	}
 }
+
+// Restarting onto a new build stays on the alternate screen, so the shell
+// underneath never shows between the old TUI quitting and the new one
+// drawing.
+func TestA4RestartScreen(t *testing.T) {
+	if !strings.HasPrefix(restartScreen, altScreen) {
+		t.Fatalf("the restart screen has to enter the alternate screen first: %q", restartScreen)
+	}
+	if !strings.Contains(restartScreen, "\x1b[2J") {
+		t.Fatalf("it should be cleared: %q", restartScreen)
+	}
+	if !strings.Contains(restartScreen, "new build") {
+		t.Fatalf("it should say what is happening: %q", restartScreen)
+	}
+	if leaveAltScreen != "\x1b[?1049l" || leaveAltScreen == altScreen {
+		t.Fatalf("giving the terminal back: %q", leaveAltScreen)
+	}
+	// Nothing in it may move the cursor into the scrollback or print a
+	// bare newline, which would leave a mark on the shell's screen.
+	if strings.Contains(restartScreen, "\n") && !strings.Contains(restartScreen, "\r\n") {
+		t.Fatalf("a bare newline would scroll the screen: %q", restartScreen)
+	}
+}

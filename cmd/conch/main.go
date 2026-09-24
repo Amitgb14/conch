@@ -195,10 +195,24 @@ func runTUI() error {
 		if xerr != nil {
 			return xerr
 		}
-		return syscall.Exec(exe, os.Args, tui.RestartEnv(final))
+		os.Stdout.WriteString(restartScreen)
+		if eerr := syscall.Exec(exe, os.Args, tui.RestartEnv(final)); eerr != nil {
+			os.Stdout.WriteString(leaveAltScreen) // nothing took over: give the terminal back
+			return eerr
+		}
 	}
 	return err
 }
+
+// Bubble Tea gives the terminal back when it quits, so a TUI exec'ing the
+// new build would show the shell underneath for as long as the new one takes
+// to draw. Going back to the alternate screen first keeps that flash out of
+// the way, and says what is going on in case the new build is slow to start.
+const (
+	altScreen      = "\x1b[?1049h"
+	leaveAltScreen = "\x1b[?1049l"
+	restartScreen  = altScreen + "\x1b[H\x1b[2J" + "  conch is starting the new build…\r\n"
+)
 
 // configForTUI reads the settings, or says why it could not. A config.toml
 // with a typo in it used to stop conch starting at all — with no way in

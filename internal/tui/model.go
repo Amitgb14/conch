@@ -467,6 +467,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionsMsg:
 		return m, m.receiveSessions(msg)
 
+	case transcriptMsg:
+		if v, ok := m.overlay.(*transcriptView); ok {
+			v.receive(msg)
+		}
+		return m, nil
+
 	case sessionsRetryMsg:
 		return m, m.loadSessions(msg.machine, msg.project, true)
 
@@ -899,10 +905,16 @@ func (m *Model) scrollPane(delta int) {
 	if next == m.offset {
 		return
 	}
-	if m.sel != nil && m.sel.keyboard {
-		m.sel.ay += next - m.offset // the anchored text moves down as we scroll back
-	} else {
-		m.sel = nil
+	if m.sel != nil {
+		// The selection stays on the text it was made on: everything it
+		// covers moves down the screen as we scroll back. A selection still
+		// being made keeps its head where the mouse or the cursor is, so
+		// dragging up through the top of the screen keeps selecting.
+		shift := next - m.offset
+		m.sel.ay += shift
+		if !m.sel.keyboard && !m.sel.dragging {
+			m.sel.by += shift
+		}
 	}
 	m.offset = next
 	c.Notify(proto.MethodPaneScroll, proto.PaneScrollParams{ID: m.viewing, Offset: next})

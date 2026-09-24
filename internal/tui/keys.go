@@ -173,6 +173,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.jumpToAttention()
 	case "y":
 		return m, m.copyRow(r)
+	case "Y":
+		return m, m.copyAgentConversation(r)
 	case "o":
 		if r.kind == kindBranch {
 			if pr := m.branchPR(r.machine, r.projectID, r.branch); pr != nil {
@@ -536,6 +538,27 @@ func (m Model) page() int {
 
 // copyRow copies the most useful text for a tree row: a branch name, a
 // project or pane directory.
+// copyAgentConversation opens what an agent's pane has been saying, from the
+// conversation it saves rather than from the screen, to be read and copied
+// from — whole, or the part that is dragged over.
+func (m *Model) copyAgentConversation(r row) tea.Cmd {
+	if r.kind != kindPane {
+		m.setFlash("select an agent to read its conversation", true)
+		return nil
+	}
+	p := m.pane(r.machine, r.paneID)
+	if p == nil || p.Agent == nil {
+		m.setFlash("that pane has no agent, so there is no conversation", true)
+		return nil
+	}
+	s, ok := m.sessionOfPane(r.machine, p.ProjectID, p.ID)
+	if !ok {
+		m.setFlash("no saved conversation for this agent yet", true)
+		return m.loadSessions(r.machine, p.ProjectID, true)
+	}
+	return m.openTranscript(r.machine, s)
+}
+
 func (m *Model) copyRow(r row) tea.Cmd {
 	switch r.kind {
 	case kindBranch:

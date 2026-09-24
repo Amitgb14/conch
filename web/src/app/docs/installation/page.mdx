@@ -83,6 +83,8 @@ The version in the status bar then shows `⬆`; click it for the list and press 
 
 Remote machines behind your build are listed with checkboxes, all ticked. To update only some, move with `↑` `↓` and press `space` (or click a row) to untick the ones to leave alone; `a` ticks or unticks them all. The box then reads **u update 1 of 2 machines**. Unticked machines stay on their build, also after the TUI restarts; a machine that was offline when you pressed `u` is updated when it connects.
 
+Step 3 is why the screen redraws: a running program cannot replace its own code, so the TUI execs the new binary in its place — same terminal, same process. Nothing you are running stops: the server keeps every pane, agent and terminal, the new TUI reattaches to them, and your tabs and folds come back. It stays on the alternate screen across the swap, so your shell never shows through.
+
 `conch update` does steps 1–2 from a shell, and `conch machine upgrade ID` installs and reloads one machine.
 
 With `[update] auto = true` in [config.toml](/docs/configuration#update), that
