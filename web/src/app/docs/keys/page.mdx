@@ -61,6 +61,8 @@ Other keys on tree items:
 | `ctrl+b r` | redraw the pane |
 | `ctrl+b b` | back to where the split was before the last jump; again returns |
 | `ctrl+b !` | next waiting |
+| `ctrl+b M` | [alert when the pane goes quiet](/docs/interface#watching-a-pane) after printing, like tmux's `monitor-silence`; again to stop |
+| `ctrl+b A` | [alert when the pane prints](/docs/interface#watching-a-pane) while you are elsewhere, like tmux's `monitor-activity`; again to stop |
 | `ctrl+b d` | detach |
 | `ctrl+b ?` | all keys |
 
@@ -133,6 +135,8 @@ These follow tmux's default bindings; `ctrl+b 1` is the first tab and `0` the te
 | `0` / `$` | line start / end |
 | `pgup` / `pgdn` | page |
 | `g` | oldest line |
+| `/` / `?` | search up (back through the history) / down; `enter` finds, `esc` cancels, `enter` alone repeats the last search |
+| `n` / `N` | next match the same way / the other way; a search that reaches an end goes on from the other |
 | `v` or `space` | start a selection |
 | `y` or `enter` | copy the selection |
 | any other key | return to live |

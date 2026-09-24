@@ -32,7 +32,7 @@ Over SSH the same stream runs through `conch bridge`. `hello` returns the server
 | Group | Methods |
 | --- | --- |
 | Server | `hello`, `ping`, `server.stop`, `server.reload` |
-| Panes | `pane.list`, `pane.create`, `pane.close`, `pane.resize`, `pane.send_text`, `pane.send_keys`, `pane.send_mouse`, `pane.scroll`, `pane.read`, `pane.rename`, `pane.subscribe`, `pane.unsubscribe`, `pane.mark_seen` |
+| Panes | `pane.list`, `pane.create`, `pane.close`, `pane.resize`, `pane.send_text`, `pane.send_keys`, `pane.send_mouse`, `pane.scroll`, `pane.read`, `pane.rename`, `pane.subscribe`, `pane.unsubscribe`, `pane.mark_seen`; `pane.search` finds text in a pane's history (capability `pane.search.v1`); `pane.monitor` watches a pane for output or silence, reported as `monitor` and `alert` in its info (capability `pane.monitor.v1`) |
 | Agents | `agent.report`, `agent.explain`, `agent.status`, `agent.install`, `agent.setup`, `agent.limits`, `agent.broadcast` |
 | Projects | `project.list`, `project.add`, `project.remove`, `project.refresh`, `project.changes`, `project.diff`, `project.create`, `project.set_files`, `project.resolve` (which project and branch a directory is in; capability `project.resolve.v1`) |
 | Worktrees and tasks | `worktree.add`, `worktree.remove`, `worktree.copy_files`, `task.create` |

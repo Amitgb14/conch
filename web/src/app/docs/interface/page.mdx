@@ -123,13 +123,13 @@ Within each group the thing that has been waiting longest comes first, so nothin
 
 `enter` goes where the answer is: a waiting agent opens its pane so you can reply, and anything else opens the branch's [changes](#changes-view), where committing, pushing and opening a PR already live. ### Checks
 
-A project can have a **check** — its own command, `go test ./...`, `npm test`, `make check` — which conch runs in a branch's worktree when the agent working there finishes. The queue then says what happened (`check passed`, `check failed (exit 1)`, `checking…`) instead of only that an agent stopped, and a branch whose check failed sorts to the top: that is the clearest call for your attention there is.
+A project can have a **check** — its own command, `go test ./...`, `npm test`, `make check` — which conch runs in a branch's worktree when the agent working there finishes. The queue then says what happened (`check passed`, `check failed (exit 1)`, `checking…`) instead of only that an agent stopped, and a branch whose check failed sorts to the top: that is the clearest call for your attention there is. A verdict is about the branch as it stood when the check ran, so a commit or an edit afterwards makes it read **check out of date** — it stops counting as a failure, and conch runs the check again once the branch has been quiet for half a minute and no agent is still writing in it. `v` runs one whenever you like.
 
 `v` on a row runs the check, or asks for the command when the project has none; `o` opens that check's terminal, which is where a failure's output is, and `ctrl+b b` comes back to the queue (pressing it again returns to the terminal). There is no default and nothing runs until you name one, since a project's own command can take minutes, touch a database or cost money. A project without a check is not scolded — its rows simply say nothing about checks. Each run happens in its own terminal, which is kept after it finishes — unlike a shell that exits — so the output is there to read; close it with `x` when you are done. conch also says what happened as it finishes, and a failure says where to look.
 
 A passing check means the tests passed. It does not mean the change is right, so it sorts the obvious failures out of your way rather than deciding anything for you.
 
-`x` dismisses a row you have decided to leave alone; it comes back when what it says changes — another file edited, the agent finishing again — and everything returns when the TUI restarts. `esc` returns to the tree.
+`/` filters the queue as you type — over the project, branch, agent, machine and the reason a row is there, so "onenutri failed" or "codex waiting" both work — and the count says how many rows it hides; `esc` clears the filter before it leaves the queue. `x` dismisses a row you have decided to leave alone; it comes back when what it says changes — another file edited, the agent finishing again — and dismissals are kept in `ui.json`, so they outlive the TUI; one is forgotten once the row it was about is gone. `esc` returns to the tree.
 
 The status bar counts what the queue holds (`3 to review`, beside `⚑ waiting`), so it is worth opening; clicking the count opens it, and `Q` works from a view as well as from the tree (inside a pane it is typed, like any other key). The queue keeps a tab of its own, so opening a row from it leaves the queue where it was to come back to.
 
@@ -170,7 +170,7 @@ Drag a border between splits to resize. Tabs and splits are remembered in `ui.js
 
 The wheel over a pane scrolls back through its history (10,000 lines); the view stays on the same text while output continues, and typing returns to the live screen.
 
-`ctrl+b [` (or `ctrl+b pgup`) enters scroll mode with a cursor:
+`ctrl+b [` (or `ctrl+b pgup`) enters scroll mode with a cursor. It works in an agent's pane too: an agent draws on the alternate screen, which keeps no scrollback of its own, so conch watches that screen and keeps the lines that scroll off it — what it said a page ago is there to read and select. A program that repaints its whole screen instead of scrolling (an editor) leaves nothing behind, because nothing scrolled away, and the kept lines are plain text without their colours.
 
 | Key | In scroll mode |
 | --- | --- |
@@ -178,15 +178,28 @@ The wheel over a pane scrolls back through its history (10,000 lines); the view 
 | `0` / `$` | line start / end |
 | `pgup` / `pgdn` | page |
 | `g` | oldest line |
+| `/` / `?` | search up / down |
+| `n` / `N` | next match, the same way / the other way |
 | `v` or `space` | start a selection |
 | `y` or `enter` | copy the selection |
 | any other key | return to live |
+
+`/` searches back through the whole history, `?` towards the live screen; the query is typed on the pane's bottom line. The view scrolls to the match and puts the cursor on it, so `v` and `y` select and copy from there, and every match on screen is highlighted. A query in lower case matches either case; one with a capital matches exactly. A search that reaches the oldest line (or the bottom) goes on from the other end and says so. Searching needs the pane's machine to run this build or newer.
 
 Drag across a pane to select and copy; double-click copies a word. Copies use OSC 52 (works over SSH) plus `pbcopy`/`wl-copy`/`xclip` locally. `y` copies a branch name or directory in the tree, a file path or the whole diff in the changes view.
 
 Programs that use the mouse themselves (vim, htop) still get the mouse; full-screen programs get arrow keys from the wheel.
 
 Dropping files on a pane pastes their paths. On a remote machine's pane conch uploads the files there first and pastes their paths there — see [Dropping files on a remote pane](/docs/remote-machines#dropping-files-on-a-remote-pane).
+
+## Watching a pane
+
+Agents say for themselves when they need you. For anything else — a build, a test run, a server's log — watch the pane, as tmux's `monitor-silence` and `monitor-activity` do:
+
+- `ctrl+b M` alerts when the pane **goes quiet** after printing: a build or test run has finished. How long counts as quiet is 30 seconds, set under Settings → Notifications (10 s to 5 min) or `[notify] silence` in config.toml; it applies to panes watched from then on.
+- `ctrl+b A` alerts when the pane **prints** while you are looking at something else.
+
+Press the same keys again to stop, or use the pane's menu (`m` or right-click in the tree), where a tick shows what is on. A pane that has something to tell shows `~` (quiet) or `#` (output) in the tree and tab bar, and a desktop notification goes out as for agents (quiet hours and snooze apply). Looking at the pane clears it. Only a pane nobody has on screen raises an alert, a pane already quiet when you start watching it waits for its next output, and the watching survives a server reload. The server does the watching, so alerts are waiting in the tree after you detach and come back.
 
 ## Settings
 
@@ -204,7 +217,7 @@ Below that, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the
 
 - A master switch.
 - How: desktop notification, system sound, terminal beep.
-- When: an agent is waiting, one finishes, and/or a plan limit is nearly used (Claude's or Codex's 5-hour or weekly window passing 80% and 95%, once per window).
+- When: an agent is waiting, one finishes, and/or a plan limit is nearly used (Claude's or Codex's 5-hour or weekly window passing 80% and 95%, once per window); and how long a [watched pane](#watching-a-pane) must be quiet.
 - **Quiet hours** (22:00–08:00 and other presets, or any `quiet_start` / `quiet_end` in config.toml) and **snooze for an hour**. While silenced the status bar shows `🔕` (click it to resume); waiting agents still show in the sidebar.
 - Send a test.
 

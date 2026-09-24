@@ -827,7 +827,7 @@ func (m *Model) openTabPicker() {
 // tabLabel names a tab: its custom name, else what its focused leaf shows.
 func (m Model) tabLabel(t *tab) string {
 	if t.name != "" {
-		return t.name
+		return t.name + m.tabAlert(t)
 	}
 	// Named after its first view, not the focused one, so a tab keeps its
 	// name while focus moves between its splits.
@@ -840,7 +840,26 @@ func (m Model) tabLabel(t *tab) string {
 	if n := len(t.root.leaves()); n > 1 {
 		label += " ⊞"
 	}
-	return ansi.Truncate(label, 20, "…")
+	return ansi.Truncate(label, 20, "…") + m.tabAlert(t)
+}
+
+// tabAlert flags a tab holding a watched pane with something to tell, as
+// tmux's window list does: ~ gone quiet, # printed.
+func (m Model) tabAlert(t *tab) string {
+	flag := ""
+	for _, l := range t.root.leaves() {
+		if l.view.Kind != kindPane {
+			continue
+		}
+		switch p := m.pane(l.view.Machine, l.view.PaneID); {
+		case p == nil:
+		case p.Alert == proto.AlertSilence:
+			return " ~" // it finished: says more than that it printed
+		case p.Alert == proto.AlertActivity:
+			flag = " #"
+		}
+	}
+	return flag
 }
 
 // viewLabel names what a leaf shows.

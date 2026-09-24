@@ -434,6 +434,10 @@ func (m Model) paneGlyph(p proto.PaneInfo) (glyph, label string, style lipgloss.
 		return "○", "exited", styleMuted
 	case p.State == proto.PaneExited:
 		return "✗", fmt.Sprintf("exit %d", p.ExitCode), styleErr
+	case p.Agent == nil && p.Alert == proto.AlertActivity:
+		return "#", "output", styleWarn // tmux's flags: # activity, ~ silence
+	case p.Agent == nil && p.Alert == proto.AlertSilence:
+		return "~", "quiet", styleWarn
 	case p.Agent == nil:
 		return "›", "", styleMuted
 	}
@@ -591,8 +595,9 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 			lines = m.sel.highlight(lines, w)
 		}
 		if focused && m.scrollMode {
+			lines = m.searchMatches(exactly(lines, h), w)
 			cursor := selection{ax: m.curX, ay: m.curY, bx: m.curX, by: m.curY}
-			lines = cursor.highlight(exactly(lines, h), w)
+			lines = m.searchPrompt(cursor.highlight(lines, w), w)
 		}
 		return lines
 	case kindBranch:

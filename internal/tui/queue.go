@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -55,7 +56,34 @@ func (it queueItem) state() string {
 
 // queueItems collects what needs a decision, most urgent first and, within
 // a band, whatever has been waiting longest.
+// queueItems is what needs a decision, dismissals taken out and in the order
+// they are shown.
 func (m Model) queueItems() []queueItem {
+	items := m.queueItemsAll()
+	if len(m.queueSeen) > 0 {
+		kept := items[:0]
+		for _, it := range items {
+			if was, dismissed := m.queueSeen[it.key()]; !dismissed || was != it.state() {
+				kept = append(kept, it)
+			}
+		}
+		items = kept
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].band != items[j].band {
+			return items[i].band < items[j].band
+		}
+		a, b := items[i].since, items[j].since
+		if a.IsZero() != b.IsZero() {
+			return b.IsZero() // something without a time goes last
+		}
+		return a.Before(b) // longest wait first
+	})
+	return items
+}
+
+// queueItemsAll is every row the queue knows of, dismissed ones included.
+func (m Model) queueItemsAll() []queueItem {
 	var items []queueItem
 	seen := map[string]bool{} // machine|project|branch, so a branch lands once
 	for _, mach := range m.machines {
@@ -139,26 +167,92 @@ func (m Model) queueItems() []queueItem {
 			}
 		}
 	}
-	if len(m.queueSeen) > 0 {
-		kept := items[:0]
-		for _, it := range items {
-			if was, dismissed := m.queueSeen[it.key()]; !dismissed || was != it.state() {
-				kept = append(kept, it)
-			}
-		}
-		items = kept
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].band != items[j].band {
-			return items[i].band < items[j].band
-		}
-		a, b := items[i].since, items[j].since
-		if a.IsZero() != b.IsZero() {
-			return b.IsZero() // something without a time goes last
-		}
-		return a.Before(b) // longest wait first
-	})
 	return items
+}
+
+// onlineMachines is which machines the queue could see rows on just now.
+func (m Model) onlineMachines() map[string]bool {
+	out := make(map[string]bool, len(m.machines))
+	for _, mach := range m.machines {
+		out[mach.id] = mach.state == stateOnline
+	}
+	return out
+}
+
+// filterKey edits the filter as it is typed: the list narrows with every
+// letter, enter keeps it, esc throws it away.
+func (qv *queueView) filterKey(m *Model, k tea.KeyMsg) tea.Cmd {
+	switch k.String() {
+	case "esc":
+		qv.filter, qv.typing = "", false
+	case "enter":
+		qv.typing = false
+	case "backspace":
+		if r := []rune(qv.filter); len(r) > 0 {
+			qv.filter = string(r[:len(r)-1])
+		}
+	default:
+		if k.Type == tea.KeyRunes {
+			qv.filter += string(k.Runes)
+		} else if k.Type == tea.KeySpace {
+			qv.filter += " "
+		}
+	}
+	qv.selKey = "" // the rows under the cursor have changed
+	return nil
+}
+
+// matches reports whether a row answers to every word of the filter, over
+// everything the row shows: its project, branch, agent, machine and why it
+// is here — so "onenutri failed" or "codex waiting" both work.
+func (it queueItem) matches(filter string) bool {
+	words := strings.Fields(strings.ToLower(filter))
+	if len(words) == 0 {
+		return true
+	}
+	hay := strings.ToLower(strings.Join([]string{
+		it.project, it.branch, it.agent, it.machineLbl, it.detail, it.checkText,
+	}, " "))
+	for _, w := range words {
+		if !strings.Contains(hay, w) {
+			return false
+		}
+	}
+	return true
+}
+
+// filtered is items narrowed by the filter, and how many that leaves out.
+func filterQueue(items []queueItem, filter string) (kept []queueItem, hidden int) {
+	if strings.TrimSpace(filter) == "" {
+		return items, 0
+	}
+	for _, it := range items {
+		if it.matches(filter) {
+			kept = append(kept, it)
+		}
+	}
+	return kept, len(items) - len(kept)
+}
+
+// pruneQueueSeen forgets what was dismissed for rows that no longer exist —
+// a branch deleted, an agent closed — so the saved dismissals cannot grow
+// for ever. It is given every row the queue knows of, dismissed or not.
+func pruneQueueSeen(seen map[string]string, all []queueItem, online map[string]bool) {
+	if len(seen) == 0 {
+		return
+	}
+	live := make(map[string]bool, len(all))
+	for _, it := range all {
+		live[it.key()] = true
+	}
+	for k := range seen {
+		machine, _, _ := strings.Cut(k, "|")
+		// A machine that is offline has no rows to match against; what was
+		// dismissed there waits for it to come back.
+		if online[machine] && !live[k] {
+			delete(seen, k)
+		}
+	}
 }
 
 // queueLine is one line of the list: a project heading, or a row under it.
@@ -173,8 +267,11 @@ type queueLine struct {
 // queueLines groups the queue by project. A project appears once, and the
 // projects themselves are ordered by their most urgent row, so the thing
 // that needs answering first is still at the top.
-func (m Model) queueLines() []queueLine {
-	items := m.queueItems()
+func (m Model) queueLines() []queueLine { return m.queueLinesFor("") }
+
+// queueLinesFor is the list narrowed by a filter; "" is everything.
+func (m Model) queueLinesFor(filter string) []queueLine {
+	items, _ := filterQueue(m.queueItems(), filter)
 	if len(items) == 0 {
 		return nil
 	}
@@ -264,17 +361,37 @@ func count(n int, what string) string {
 type queueView struct {
 	sel, scroll int
 	selKey      string // keeps the selection on the same row across rebuilds
+	// filter narrows the list to rows whose project, branch, agent, machine
+	// or reason contains every word typed; typing says whether it is being
+	// edited, as the tree's filter does.
+	filter string
+	typing bool
 }
 
 const queueListTop = 3 // header, count, blank
 
 func (qv *queueView) render(m Model, w, h int) []string {
-	lines := []string{
-		spread(styleBold.Render("Review queue"), styleMuted.Render("enter open · v check · o output · x dismiss · esc tree"), w),
+	hint := "enter open · v check · o output · x dismiss · / filter · esc tree"
+	title := styleBold.Render("Review queue")
+	if qv.typing || qv.filter != "" {
+		cursor := ""
+		if qv.typing {
+			cursor = "█"
+		}
+		title = styleBold.Render("Review queue") + styleMuted.Render("  / ") + qv.filter + cursor
+		hint = "enter keep · esc clear the filter"
+		if !qv.typing {
+			hint = "enter open · / edit the filter · esc clear it"
+		}
 	}
-	list := m.queueLines()
+	lines := []string{spread(title, styleMuted.Render(hint), w)}
+	list := m.queueLinesFor(qv.filter)
 	if len(list) == 0 {
-		return append(lines, "", styleMuted.Render(fit("  Nothing is waiting for you.", w)))
+		empty := "  Nothing is waiting for you."
+		if qv.filter != "" {
+			empty = "  Nothing matches " + qv.filter + "."
+		}
+		return append(lines, "", styleMuted.Render(fit(empty, w)))
 	}
 	rows, waiting := 0, 0
 	for _, l := range list {
@@ -289,6 +406,9 @@ func (qv *queueView) render(m Model, w, h int) []string {
 	summary := count(rows, "thing") + " to look at"
 	if waiting > 0 {
 		summary += fmt.Sprintf(" · %d waiting on you", waiting)
+	}
+	if _, hidden := filterQueue(m.queueItems(), qv.filter); hidden > 0 {
+		summary += fmt.Sprintf(" · %d hidden by the filter", hidden)
 	}
 	lines = append(lines, styleMuted.Render(fit("  "+summary, w)), "")
 
@@ -384,7 +504,10 @@ func queueGlyph(band int) (string, lipgloss.Style) {
 }
 
 func (qv *queueView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
-	list := m.queueLines()
+	if qv.typing {
+		return false, qv.filterKey(m, k)
+	}
+	list := m.queueLinesFor(qv.filter)
 	qv.onRow(list) // keys can arrive before the first render
 	move := func(d, n int) {
 		for ; n > 0; n-- {
@@ -396,8 +519,17 @@ func (qv *queueView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		}
 	}
 	switch k.String() {
-	case "esc", "q", "left", "h", "tab":
+	case "esc":
+		if qv.filter != "" {
+			qv.filter, qv.selKey = "", ""
+			return false, nil // clear the filter before leaving the queue
+		}
 		return true, nil
+	case "q", "left", "h", "tab":
+		return true, nil
+	case "/":
+		qv.typing = true
+		return false, nil
 	case "up", "k":
 		move(-1, 1)
 	case "down", "j":
@@ -448,14 +580,16 @@ func (qv *queueView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 				m.queueSeen = map[string]string{}
 			}
 			m.queueSeen[it.key()] = it.state()
+			pruneQueueSeen(m.queueSeen, m.queueItemsAll(), m.onlineMachines())
 			m.setFlash("dismissed "+queueName(it)+"; it comes back if it changes", false)
-			qv.selKey = "" // the row is gone; keep the position, not the row
+			cmd = m.saveState() // dismissals outlive the TUI now
+			qv.selKey = ""      // the row is gone; keep the position, not the row
 		}
 	}
 	if it, ok := itemAt(list, qv.sel); ok {
 		qv.selKey = it.key()
 	}
-	return false, nil
+	return false, cmd
 }
 
 // open goes where the row's answer is: an agent waiting needs its pane, and
@@ -474,7 +608,7 @@ func (qv *queueView) open(m *Model, it queueItem) tea.Cmd {
 }
 
 func (qv *queueView) mouse(m *Model, msg tea.MouseMsg, x, y int) tea.Cmd {
-	list := m.queueLines()
+	list := m.queueLinesFor(qv.filter)
 	qv.onRow(list)
 	switch {
 	case msg.Button == tea.MouseButtonWheelUp:

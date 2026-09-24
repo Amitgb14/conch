@@ -422,7 +422,8 @@ func TestA5TakeReloadState(t *testing.T) {
 
 	want := reloadState{FromBuild: "abc", ListenerFD: 7, NextID: 12,
 		Panes: []reloadPane{{Snapshot: pane.Snapshot{ID: "p3", Command: []string{"sh"}, Replay: "hi"}, FD: 9, Dir: "/x", Loose: true,
-			Tracker: detect.TrackerState{Hint: "claude", HookState: "working"}, Transcript: "/t.jsonl"}},
+			Tracker: detect.TrackerState{Hint: "claude", HookState: "working"}, Transcript: "/t.jsonl",
+			Monitor: &proto.PaneMonitor{Activity: true, Silence: 30}, Alert: proto.AlertSilence, MonitorArmed: true}},
 		Limits:  []proto.PlanLimits{{Agent: "codex", Week: &proto.LimitWindow{UsedPct: 5}}},
 		Started: time.Date(2026, 9, 1, 8, 30, 0, 0, time.UTC),
 	}
@@ -556,7 +557,8 @@ func TestA5Adopt(t *testing.T) {
 		Panes: []reloadPane{
 			{Snapshot: pane.Snapshot{ID: "p3", Name: "one", CustomName: "mine", Command: []string{"sleep"}, Cwd: dir, PID: pid1, Cols: 40, Rows: 6, Replay: "before-reload"},
 				FD: fd1, Dir: dir, Loose: true, Transcript: transcript,
-				Tracker: detect.TrackerState{Hint: "claude", Status: detect.Status{Agent: "claude", State: "working"}, Seen: true}},
+				Tracker: detect.TrackerState{Hint: "claude", Status: detect.Status{Agent: "claude", State: "working"}, Seen: true},
+				Monitor: &proto.PaneMonitor{Silence: 20}, Alert: proto.AlertActivity, MonitorArmed: true},
 			{Snapshot: pane.Snapshot{ID: "p5", Name: "two", Command: []string{"sleep"}, Cwd: repo, PID: pid2, Cols: 40, Rows: 6},
 				FD: fd2, Dir: repo},
 		},
@@ -579,6 +581,16 @@ func TestA5Adopt(t *testing.T) {
 	}
 	if list[1].ProjectID == "" {
 		t.Fatalf("pane in a repository lost its project: %+v", list[1])
+	}
+	// Monitoring carries over; state without it (an older build's) has none.
+	if m := list[0].Monitor; m == nil || m.Silence != 20 || m.Activity || list[0].Alert != proto.AlertActivity {
+		t.Fatalf("monitoring after reload: %+v %q", m, list[0].Alert)
+	}
+	if list[1].Monitor != nil || list[1].Alert != "" {
+		t.Fatalf("pane without monitoring gained some: %+v %q", list[1].Monitor, list[1].Alert)
+	}
+	if e := a5Entry(t, s, "p3"); func() bool { e.mu.Lock(); defer e.mu.Unlock(); return !e.monitor.armed }() {
+		t.Fatal("silence was armed before the reload and should stay so")
 	}
 	e := a5Entry(t, s, "p3")
 	e.mu.Lock()

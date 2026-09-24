@@ -157,6 +157,17 @@ helpers in `cmd/conch` and `internal/remote`.
   that is safe to make. A client that meets a wedged server clears the socket
   and starts a fresh one (`client.EnsureServer`), so conch always starts
   again, but that server's panes are lost.
+- **Scrollback on the alternate screen.** A program that takes the whole
+  screen — an agent's interface, vim, less — leaves no scrollback: the
+  screen is repainted, nothing scrolls off, and the emulator keeps none.
+  `internal/pane/altscroll.go` watches the screen between writes and keeps
+  the rows that moved off the top, so `ctrl+b [` and selection reach what an
+  agent said a page ago. It is recognition, not recording: output goes into
+  the emulator half a screen at a time so a burst cannot scroll a screenful
+  past unseen, and a program that repaints rather than scrolls leaves
+  nothing behind, which is right — none of it scrolled away. The lines are
+  kept as text, capped at `altHistoryMax`, dropped when the program leaves
+  the alternate screen, and not carried through a reload.
 - **Panes on macOS.** `poll` doesn't work on ttys and read deadlines aren't
   supported on ptys; the read loop uses `select`. Shared pane fields are
   guarded by `p.mu`/`p.emuMu` — check with `-race`.

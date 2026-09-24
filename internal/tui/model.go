@@ -98,12 +98,14 @@ type Model struct {
 	scrollMode bool          // keys move a cursor over the pane's history
 	curX, curY int           // that cursor, in view cells
 	sel        *selection    // text selected in the viewed pane
+	search     scrollSearch  // searching in scroll mode (scrollsearch.go)
 	click      *pendingClick // a press held back from a mouse-using program
 
 	changesPolling bool   // a changesPollMsg is scheduled
 	statePath      string // where fold state is saved; "" disables saving
 
-	warning    string // shown once when the TUI starts (see Warn)
+	branchSigs map[string]sigSeen // when each branch last changed (see verify.go)
+	warning    string             // shown once when the TUI starts (see Warn)
 	flash      string
 	flashIsErr bool
 	flashUntil time.Time
@@ -162,6 +164,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		sessions:   map[string]*sessionsData{},
 		upd:        newUpdateState(),
 		limitSeen:  st.LimitAlerts,
+		queueSeen:  st.QueueDismissed,
 		savedSSH:   cleanSavedSSH(st.SavedSSH),
 	}
 	m.restoreTabs(st.Tabs, st.ActiveTab)
@@ -282,6 +285,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		id, gen := mach.id, mach.gen
 		retry := tea.Tick(retryLost, func(time.Time) tea.Msg { return machineRetryMsg{machine: id, gen: gen} })
 		return m, tea.Batch(m.rebuild(), retry)
+
+	case searchResultMsg:
+		m.showSearchResult(msg)
+		return m, nil
 
 	case reloadedMsg:
 		if mach := m.machine(msg.machine); mach != nil {
@@ -606,7 +613,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				}
 			}
 		}
-		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), installed, checked, m.observeAgent(mach, old, info))
+		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), m.notifyMonitor(mach, old, info), installed, checked, m.observeAgent(mach, old, info))
 
 	case proto.EventPaneClosed:
 		var ref proto.PaneRef
@@ -640,7 +647,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if !found {
 			mach.projects = append(mach.projects, info)
 		}
-		cmds := []tea.Cmd{m.rebuild()}
+		cmds := []tea.Cmd{m.rebuild(), m.recheckSettled(time.Now())}
 		for _, l := range m.tab().root.leaves() {
 			cv := l.changes
 			if cv == nil || cv.machine != mach.id || cv.projectID != info.ID {

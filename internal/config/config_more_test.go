@@ -26,7 +26,7 @@ func TestA3Defaults(t *testing.T) {
 	d := Default()
 	want := Config{
 		Keys:   Keys{Prefix: "ctrl+b"},
-		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true, Limits: true, LimitAt: []int{80, 95}},
+		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true, Limits: true, LimitAt: []int{80, 95}, Silence: 30},
 		UI:     UICfg{Mouse: true, Theme: "conch", Cost: true},
 		Agents: AgentsCfg{Default: "claude"},
 		Brain:  BrainCfg{Provider: "claude"},
@@ -426,5 +426,25 @@ func TestA3UpdateAuto(t *testing.T) {
 	}
 	if cfg, err = Load(); err != nil || !cfg.Update.Auto || cfg.Update.CheckReleases {
 		t.Fatalf("auto without the check: %+v %v", cfg.Update, err)
+	}
+}
+
+func TestSilenceSetting(t *testing.T) {
+	_, conchHome := a3Isolate(t)
+	a3WriteConfig(t, conchHome, "[notify]\nsilence = 90\n")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notify.SilenceAfter() != 90 {
+		t.Fatalf("silence %d", cfg.Notify.SilenceAfter())
+	}
+	for _, v := range []int{0, -5} {
+		if got := (NotifyCfg{Silence: v}).SilenceAfter(); got != DefaultSilence {
+			t.Fatalf("silence %d gave %d", v, got)
+		}
+	}
+	if Default().Notify.SilenceAfter() != DefaultSilence {
+		t.Fatal("default")
 	}
 }

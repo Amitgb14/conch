@@ -100,8 +100,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"c", "Start an agent here…", act("c")},
 			{"n", "New terminal here", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
-			{"x", "Close", act("x")},
 		}
+		items = append(items, m.monitorItems(r.machine, r.paneID)...)
+		items = append(items, menuItem{"x", "Close", act("x")})
 		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
 			items = append(items, menuItem{"Y", "Read and copy the conversation", act("Y")})
 		}
@@ -384,6 +385,7 @@ type dialog struct {
 	focus   int
 	confirm bool // yes/no question without fields
 	yesOnly bool // a confirm that enter doesn't accept, for what can't be undone
+	onNo    bool // which button the keyboard is on; Yes to begin with
 	// buttons is where a confirm's Yes and No sit, from the last render:
 	// the content line and each one's columns, for clicks.
 	buttons struct{ line, yes0, yes1, no0, no1 int }
@@ -566,15 +568,27 @@ func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	if d.confirm {
 		if isKey {
 			switch k.String() {
-			case "y", "Y", "enter":
-				if k.String() == "enter" && d.yesOnly {
-					return false, nil
-				}
+			case "y", "Y":
 				m.overlay = nil
 				return true, d.submit(m, nil)
 			case "n", "N", "esc", "q":
 				m.overlay = nil
 				return true, nil
+			case "left", "right", "tab", "shift+tab", "h", "l":
+				d.onNo = !d.onNo // two buttons: any of these moves between them
+				return false, nil
+			case "enter", " ":
+				if d.onNo {
+					m.overlay = nil
+					return true, nil
+				}
+				// What can't be undone takes y or the button, never a
+				// stray enter — but space on the button is deliberate.
+				if d.yesOnly && k.String() == "enter" {
+					return false, nil
+				}
+				m.overlay = nil
+				return true, d.submit(m, nil)
 			}
 		}
 		return false, nil
@@ -668,10 +682,17 @@ func (d *dialog) render(m Model) box {
 		d.buttons.yes0, d.buttons.yes1 = 1, 1+ansi.StringWidth(yes)
 		d.buttons.no0 = d.buttons.yes1 + 3
 		d.buttons.no1 = d.buttons.no0 + ansi.StringWidth(no)
-		lines = append(lines, " "+styleSel.Render(yes)+"   "+styleSelDim.Render(no))
-		if d.yesOnly {
+		yesStyle, noStyle := styleSel, styleSelDim
+		if d.onNo {
+			yesStyle, noStyle = styleSelDim, styleSel
+		}
+		lines = append(lines, " "+yesStyle.Render(yes)+"   "+noStyle.Render(no))
+		switch {
+		case d.yesOnly:
 			// What can't be undone takes y or the button, never a stray enter.
 			lines = append(lines, " "+styleMuted.Render("y or the button confirms; enter does not"))
+		default:
+			lines = append(lines, " "+styleMuted.Render("y / n · ← → move · enter takes the one shown · esc cancels"))
 		}
 	} else {
 		lines = append(lines, " "+styleMuted.Render("enter confirm · tab next field · esc cancel"))
@@ -737,7 +758,8 @@ var helpText = []string{
 	"  /      filter (/ ! keeps only the agents waiting for you, on every machine)",
 	"  esc    clear filter    m  menu (or right-click)",
 	"  !      next agent waiting for you",
-	"  Q      review queue: what needs a decision, across every machine (v checks a row, o its output, x dismisses it)",
+	"  Q      review queue: what needs a decision, across every machine",
+	"         / filters it · v checks a row · o its output · x dismisses it (and it stays dismissed)",
 	"  B      broadcast: one message to the agents and terminals of the selection (terminals run it as a command)",
 	"",
 	"Create",
@@ -772,6 +794,9 @@ var helpText = []string{
 	"  ctrl+b r  draw the pane again (stale text after a resize)",
 	"  ctrl+b b  back to where the split was before the last jump (again returns)",
 	"  ctrl+b [  scroll history (↑↓ pgup pgdn g) · wheel scrolls too",
+	"    / search up · ? search down · n next · N previous (lower case matches either case)",
+	"  ctrl+b M  alert when the pane goes quiet after output (a build finishing) · ctrl+b A  alert on output",
+	"    a watched pane shows ~ (quiet) or # (output) in the tree until you look at it",
 	"  changes: ↑↓ file · enter diff · esc back · y copy path / diff",
 	"    space mark a file · c commit (the marked files, else all) · P push · p open a pull request",
 	"    in a diff: space marks the hunk under ▸ · n / N next, previous hunk · c commits the marked hunks",
