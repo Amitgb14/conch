@@ -89,8 +89,9 @@ func TestVersionInStatusBar(t *testing.T) {
 	m := Model{width: 160, machines: []*machine{{id: localMachine, label: "local", state: stateOnline}}, brain: newBrainState()}
 	line, _ := m.layoutStatus()
 	plain := ansi.Strip(line)
-	if !strings.HasSuffix(strings.TrimRight(plain, " "), versionLabel()) || !strings.Contains(plain, "⚙ Settings") {
-		t.Fatalf("version should end the status bar: %q", plain)
+	// The version is last but for the monitor icon in the corner.
+	if !strings.HasSuffix(strings.TrimRight(plain, " "), versionLabel()+"  "+monitorIcon) || !strings.Contains(plain, "⚙ Settings") {
+		t.Fatalf("version should end the status bar, before the monitor icon: %q", plain)
 	}
 	if strings.Index(plain, "⚙ Settings") > strings.Index(plain, versionLabel()) {
 		t.Fatalf("version should come after Settings: %q", plain)

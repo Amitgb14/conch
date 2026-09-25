@@ -228,8 +228,9 @@ func TestA1StatusRightAndNarrowWidths(t *testing.T) {
 	m, _ := a1Fixture(t, false)
 	m.machines[0].panes[0].Agent.State = proto.AgentBlocked
 	m.setFlash("something went wrong on the way to the thing", true)
+	m.width = 180 // room for the version beside the flash and the monitor icon
 	wide := ansi.Strip(m.statusBar())
-	for _, want := range []string{"⚑ 1 waiting", "something went wrong", "✦ Ask", "⚙ Settings", versionLabel()} {
+	for _, want := range []string{"⚑ 1 waiting", "something went wrong", "✦ Ask", "⚙ Settings", versionLabel(), monitorIcon} {
 		if !strings.Contains(wide, want) {
 			t.Errorf("wide bar lacks %q: %q", want, wide)
 		}
@@ -254,7 +255,7 @@ func TestA1StatusRightAndNarrowWidths(t *testing.T) {
 		t.Errorf("narrow bar: %q", narrow)
 	}
 	// Levels directly.
-	if items := m.statusRightItems(rightMinimal); len(items) != 3 { // waiting, ✦, ⚙
+	if items := m.statusRightItems(rightMinimal); len(items) != 4 { // waiting, ✦, ⚙, monitor
 		t.Errorf("minimal right items: %d", len(items))
 	}
 	m.flash = ""
