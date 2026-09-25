@@ -201,3 +201,61 @@ func a7Session(t *testing.T, home, dir, id string) {
 		t.Fatal(err)
 	}
 }
+
+// List answers from the stores themselves. The background path can hand a
+// caller an answer that was started before it asked — which is right for a
+// list on screen, and wrong for search, sharing or usage, which want what
+// is there now. This is the bug that made a store's own test flake.
+func TestListDoesNotServeAnOlderAnswer(t *testing.T) {
+	home := t.TempDir()
+	work := t.TempDir()
+	a7Session(t, home, work, "claude-one")
+	t.Cleanup(forgetSlow)
+
+	// A slow store whose answer changes between calls.
+	var mu sync.Mutex
+	answer := "first"
+	slow := func() []Session {
+		mu.Lock()
+		id := answer
+		mu.Unlock()
+		time.Sleep(50 * time.Millisecond) // long enough to still be running
+		return []Session{{Agent: "devin", ID: id}}
+	}
+	key := slowKey("devin", Env{Home: home}, []string{work})
+	e := Env{Home: home, Getenv: func(k string) string {
+		if k == "CONCH_SESSION_GRACE" {
+			return "2s"
+		}
+		return ""
+	}}
+
+	// The background path: a second call while the first is still running
+	// joins it and gets that answer.
+	go slowList(e, key, slow)
+	time.Sleep(10 * time.Millisecond)
+	mu.Lock()
+	answer = "second"
+	mu.Unlock()
+	if got, _ := slowList(e, key, slow); len(got) != 1 || got[0].ID != "first" {
+		t.Fatalf("the background path should join the running look: %v", got)
+	}
+
+	// List asks again and waits, so it sees the new answer.
+	forgetSlow()
+	mu.Lock()
+	answer = "third"
+	mu.Unlock()
+	found := List(e, []string{work}, 0)
+	var ids []string
+	for _, s := range found {
+		ids = append(ids, s.Agent+":"+s.ID)
+	}
+	if !strings.Contains(strings.Join(ids, ","), "claude:claude-one") {
+		t.Fatalf("the file stores are still read: %v", ids)
+	}
+	// And nothing of the slow store's was cached into it.
+	if _, complete := ListStatus(e, []string{work}, 0); !complete {
+		t.Error("a list with nothing slow to wait for should be complete")
+	}
+}

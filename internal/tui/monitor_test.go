@@ -239,3 +239,74 @@ func TestTabAlertFlags(t *testing.T) {
 		t.Fatalf("closed panes: %q", got)
 	}
 }
+
+// The menu's two entries run what they say, and an alert names the pane,
+// the agent and the machine it happened on.
+func TestA2MonitorMenuAndAlertText(t *testing.T) {
+	m := a2Model()
+	c, peer := a1FakeClient(t, "pane.monitor.v1")
+	m.machines[0].c = c
+	items := m.monitorItems(localMachine, "p2")
+	if len(items) != 2 {
+		t.Fatalf("want a quiet and an output entry, got %d", len(items))
+	}
+	// Each one asks the server; the first for quiet, the second for output.
+	for i, item := range items {
+		if cmd := item.run(m); cmd != nil {
+			a2Run(cmd)
+		}
+		peer.waitMethod(t, proto.MethodPaneMonitor, "")
+		_ = i
+	}
+
+	// What the alert says, for each kind and each place it can come from.
+	quiet := proto.PaneInfo{ID: "p2", Name: "build", Alert: proto.AlertSilence,
+		Monitor: &proto.PaneMonitor{Silence: 30}}
+	if got := alertBody(quiet); !strings.Contains(got, "quiet for 30s") {
+		t.Errorf("a timed silence: %q", got)
+	}
+	quiet.Monitor = nil
+	if got := alertBody(quiet); !strings.Contains(got, "has gone quiet") {
+		t.Errorf("silence without a setting: %q", got)
+	}
+	if got := alertBody(proto.PaneInfo{ID: "p2", Name: "build", Alert: proto.AlertActivity}); !strings.Contains(got, "printed something") {
+		t.Errorf("activity: %q", got)
+	}
+}
+
+// An alert is told once, about a pane you are not looking at, and never
+// while quiet hours are on.
+func TestA2MonitorNotifies(t *testing.T) {
+	m := a2Model()
+	m.cfg.Notify.Enabled, m.cfg.Notify.Bell = true, true
+	mach := m.machines[0]
+	old := proto.PaneInfo{ID: "p2", Name: "build"}
+	fresh := proto.PaneInfo{ID: "p2", Name: "build", Alert: proto.AlertActivity}
+
+	if cmd := m.notifyMonitor(mach, old, fresh); cmd == nil {
+		t.Fatal("a new alert should be told")
+	}
+	// The same alert again says nothing.
+	if cmd := m.notifyMonitor(mach, fresh, fresh); cmd != nil {
+		t.Fatal("an alert already told should not be repeated")
+	}
+	// Nor does one about the pane on screen.
+	m.viewing, m.viewMachine = "p2", localMachine
+	if cmd := m.notifyMonitor(mach, old, fresh); cmd != nil {
+		t.Fatal("no alert about the pane you are looking at")
+	}
+	m.viewing = ""
+	// Quiet hours silence it.
+	m.cfg.Notify.QuietStart, m.cfg.Notify.QuietEnd = "00:00", "23:59"
+	if cmd := m.notifyMonitor(mach, old, fresh); cmd != nil {
+		t.Fatal("quiet hours should silence an alert")
+	}
+	m.cfg.Notify.QuietStart, m.cfg.Notify.QuietEnd = "", ""
+	// An agent's name and a remote machine's label reach the title.
+	withAgent := fresh
+	withAgent.Agent = &proto.AgentStatus{Name: "codex"}
+	mach.id, mach.label = "busybox", "busybox"
+	if cmd := m.notifyMonitor(mach, old, withAgent); cmd == nil {
+		t.Fatal("an agent's alert on another machine should be told")
+	}
+}

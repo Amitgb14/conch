@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
 )
 
@@ -235,5 +236,33 @@ func TestScrolledByIgnoresTheBlankTail(t *testing.T) {
 	// A screen that was blank has nothing to have scrolled away.
 	if got := scrolledBy(screen("", "", ""), screen("a", "b", "c")); got != 0 {
 		t.Fatalf("a blank screen: %d", got)
+	}
+}
+
+// plainRow turns a screen row into the text the history keeps: empty cells
+// become spaces, the trailing ones go, and what is on screen stays as it is.
+func TestPlainRow(t *testing.T) {
+	row := func(cells ...string) uv.Line {
+		l := make(uv.Line, len(cells))
+		for i, c := range cells {
+			l[i] = uv.Cell{Content: c, Width: 1}
+		}
+		return l
+	}
+	for _, c := range []struct {
+		what string
+		in   uv.Line
+		want string
+	}{
+		{"plain text", row("h", "i"), "hi"},
+		{"gaps become spaces", row("a", "", "b"), "a b"},
+		{"trailing blanks go", row("a", "", "", ""), "a"},
+		{"an empty row", row("", "", ""), ""},
+		{"no cells at all", uv.Line{}, ""},
+		{"wide characters stay", row("日", "本"), "日本"},
+	} {
+		if got := plainRow(c.in); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.what, got, c.want)
+		}
 	}
 }
