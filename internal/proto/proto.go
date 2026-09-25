@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -44,6 +44,24 @@ const CapSessionHandoff = "session.handoff.v1"
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
 const CapWorktreeWatch = "worktree.watch.v1"
+
+// CapWorktreeMove is moving a worktree to another machine: worktree.have,
+// worktree.describe, worktree.pack, worktree.pack_read, worktree.unpack and
+// project.clone.
+const CapWorktreeMove = "worktree.move.v1"
+
+// CapPaneSearch is pane.search: finding text in a pane's history.
+const CapPaneSearch = "pane.search.v1"
+
+// CapPaneMonitor is pane.monitor and the Monitor and Alert of PaneInfo.
+const CapPaneMonitor = "pane.monitor.v1"
+
+// CapFSFiles is fs.list taking Root and Files: a checkout's files, confined
+// to it, with git status. An older server answers with folders only.
+const CapFSFiles = "fs.files.v1"
+
+// CapFSRead is fs.read: the start of a file in a checkout, for a preview.
+const CapFSRead = "fs.read.v1"
 
 // Methods.
 const (
@@ -65,6 +83,8 @@ const (
 	MethodPaneRedraw      = "pane.redraw"
 	MethodPaneSendMouse   = "pane.send_mouse"
 	MethodPaneScroll      = "pane.scroll"
+	MethodPaneSearch      = "pane.search"
+	MethodPaneMonitor     = "pane.monitor"
 	MethodAgentReport     = "agent.report"
 	MethodAgentExplain    = "agent.explain"
 	MethodAgentStatus     = "agent.status"
@@ -84,6 +104,7 @@ const (
 	MethodFSList         = "fs.list"
 	MethodFSMkdir        = "fs.mkdir"
 	MethodFSUpload       = "fs.upload"
+	MethodFSRead         = "fs.read"
 	MethodShellThemes    = "shell.themes"
 	MethodAgentSetup     = "agent.setup"
 	MethodProjectFiles   = "project.set_files"
@@ -109,6 +130,13 @@ const (
 	// Leftover worktrees: list what each would lose, and remove them.
 	MethodWorktreeStale   = "worktree.stale"
 	MethodWorktreeCleanup = "worktree.cleanup"
+	// Moving a worktree to another machine (CapWorktreeMove).
+	MethodWorktreeDescribe = "worktree.describe"
+	MethodWorktreeHave     = "worktree.have"
+	MethodWorktreePack     = "worktree.pack"
+	MethodWorktreePackRead = "worktree.pack_read"
+	MethodWorktreeUnpack   = "worktree.unpack"
+	MethodProjectClone     = "project.clone"
 )
 
 // Events.
@@ -230,7 +258,33 @@ type PaneInfo struct {
 	// the branch checked out in the pane's directory, if any.
 	ProjectID string `json:"project_id,omitempty"`
 	Branch    string `json:"branch,omitempty"`
+	// Monitor is what the user asked to be told about this pane, and Alert
+	// what has happened since someone last looked at it (AlertActivity or
+	// AlertSilence).
+	Monitor *PaneMonitor `json:"monitor,omitempty"`
+	Alert   string       `json:"alert,omitempty"`
 }
+
+// PaneMonitor asks to be told about a pane's output, as tmux's
+// monitor-activity and monitor-silence do: Activity for any output while
+// nobody is looking at it, Silence for that many seconds without output
+// after some. A zero PaneMonitor stops monitoring.
+type PaneMonitor struct {
+	Activity bool `json:"activity,omitempty"`
+	Silence  int  `json:"silence,omitempty"`
+}
+
+// PaneMonitorParams sets a pane's monitoring.
+type PaneMonitorParams struct {
+	ID string `json:"id"`
+	PaneMonitor
+}
+
+// Alerts a monitored pane raises.
+const (
+	AlertActivity = "activity"
+	AlertSilence  = "silence"
+)
 
 // DisplayName is how a pane is labelled: the user's name, else an agent's
 // task title, else the command name.
@@ -289,6 +343,9 @@ type ProjectInfo struct {
 	LocalFiles []string `json:"local_files,omitempty"`
 	// LocalFilesDefault is set while LocalFiles is the built-in list.
 	LocalFilesDefault bool `json:"local_files_default,omitempty"`
+	// Remote is the URL of the repository's origin, so the same project can
+	// be recognised on another machine. Absent from older servers.
+	Remote string `json:"remote,omitempty"`
 }
 
 // PRInfo is the pull request for a branch.
@@ -374,9 +431,19 @@ type ProjectCreateParams struct {
 
 // FSListParams lists the folders in Path on the server's machine. "" and
 // "~" mean the home directory.
+//
+// With Root set the listing is of a checkout instead: Root must be a
+// project's folder or one of its worktrees, Path is relative to it ("" for
+// Root itself), and nothing outside Root is listed. Files adds the files
+// beside the folders, with their size, time and git status (fs.files.v1).
 type FSListParams struct {
 	Path   string `json:"path"`
 	Hidden bool   `json:"hidden,omitempty"`
+	Root   string `json:"root,omitempty"`
+	Files  bool   `json:"files,omitempty"`
+	// Ignored keeps what git ignores in a checkout listing; it is left out
+	// otherwise, which is what keeps node_modules out of the way.
+	Ignored bool `json:"ignored,omitempty"`
 }
 
 // FSList is the result of fs.list.
@@ -389,11 +456,46 @@ type FSList struct {
 	Truncated bool `json:"truncated,omitempty"`
 }
 
-// FSEntry is a folder inside a listed folder.
+// FSEntry is a folder inside a listed folder, or with Files a file.
 type FSEntry struct {
 	Name    string `json:"name"`
 	Git     bool   `json:"git,omitempty"`     // a git repository (has .git)
 	Project bool   `json:"project,omitempty"` // already a project
+
+	// The rest are only filled in a checkout listing (fs.files.v1).
+	Dir     bool      `json:"dir,omitempty"`
+	Size    int64     `json:"size,omitempty"`
+	ModTime time.Time `json:"mod_time,omitzero"`
+	Symlink bool      `json:"symlink,omitempty"`
+	Broken  bool      `json:"broken,omitempty"` // a symlink to nothing
+	Ignored bool      `json:"ignored,omitempty"`
+	// Status is the file's git status in the changes view's alphabet (M, A,
+	// D, R, U, ?); a folder carries the most telling one of what is in it.
+	Status string `json:"status,omitempty"`
+}
+
+// FSReadMax is the most fs.read returns at once: enough for a preview.
+const FSReadMax = 256 << 10
+
+// FSReadParams reads the start of a file in a checkout. Root and Path are as
+// in FSListParams; Max is capped at FSReadMax, and 0 means FSReadMax.
+type FSReadParams struct {
+	Root   string `json:"root"`
+	Path   string `json:"path"`
+	Offset int64  `json:"offset,omitempty"`
+	Max    int    `json:"max,omitempty"`
+}
+
+// FSReadResult is the result of fs.read. A binary file has no Data: it is
+// described rather than shown.
+type FSReadResult struct {
+	Path      string    `json:"path"` // absolute
+	Size      int64     `json:"size"`
+	ModTime   time.Time `json:"mod_time,omitzero"`
+	Data      string    `json:"data,omitempty"`
+	Truncated bool      `json:"truncated,omitempty"` // the file goes on past Data
+	Binary    bool      `json:"binary,omitempty"`
+	MIME      string    `json:"mime,omitempty"`
 }
 
 // FSMkdirParams creates one folder.
@@ -645,6 +747,88 @@ type WorktreeFilesParams struct {
 type WorktreeFilesResult struct {
 	Copied  []string `json:"copied,omitempty"`
 	Skipped []string `json:"skipped,omitempty"` // with a reason, e.g. ".env (exists)"
+}
+
+// WorktreeRef names a worktree of a project.
+type WorktreeRef struct {
+	ProjectID string `json:"project_id"`
+	Path      string `json:"path"`
+}
+
+// WorktreeMoveInfo is what moving a worktree would take, from
+// worktree.describe: its branch and commits, the candidates another machine
+// may already have (History, newest first) and its uncommitted work.
+type WorktreeMoveInfo struct {
+	Branch  string   `json:"branch"`
+	Head    string   `json:"head"`
+	Base    string   `json:"base,omitempty"`
+	Remote  string   `json:"remote,omitempty"`
+	History []string `json:"history,omitempty"`
+	// Staged and Unstaged count changed files; Other the untracked files
+	// that move along, Local the project's local files (.env and such).
+	Staged   int      `json:"staged,omitempty"`
+	Unstaged int      `json:"unstaged,omitempty"`
+	Other    int      `json:"other,omitempty"`
+	Local    []string `json:"local,omitempty"`
+}
+
+// WorktreeHaveParams asks which Commits a project's repository has.
+type WorktreeHaveParams struct {
+	ProjectID string   `json:"project_id"`
+	Commits   []string `json:"commits"`
+}
+
+// WorktreeHaveResult lists the commits found, in the order asked.
+type WorktreeHaveResult struct {
+	Have []string `json:"have"`
+}
+
+// WorktreePackParams packs a worktree for another machine that already has
+// commit Have ("" when it has none of the history).
+type WorktreePackParams struct {
+	ProjectID string `json:"project_id"`
+	Path      string `json:"path"`
+	Have      string `json:"have,omitempty"`
+}
+
+// WorktreePack is a packed worktree waiting to be read.
+type WorktreePack struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+// WorktreePackReadParams reads a pack from Offset; the server deletes the
+// pack once its end has been read.
+type WorktreePackReadParams struct {
+	ID     string `json:"id"`
+	Offset int64  `json:"offset"`
+}
+
+// WorktreePackChunk is one piece of a pack (at most UploadChunkSize).
+type WorktreePackChunk struct {
+	Data []byte `json:"data,omitempty"`
+	EOF  bool   `json:"eof,omitempty"`
+}
+
+// WorktreeUnpackParams recreates a packed worktree in a project from a
+// file uploaded with fs.upload.
+type WorktreeUnpackParams struct {
+	ProjectID string `json:"project_id"`
+	Pack      string `json:"pack"`
+}
+
+// WorktreeUnpackResult is the new worktree.
+type WorktreeUnpackResult struct {
+	Path   string   `json:"path"`
+	Branch string   `json:"branch"`
+	Files  []string `json:"files,omitempty"` // untracked and local files written
+}
+
+// ProjectCloneParams clones URL into Path and adds it as a project.
+type ProjectCloneParams struct {
+	URL  string `json:"url"`
+	Path string `json:"path"`
 }
 
 // WorktreeRemoveParams removes a (clean) linked worktree.
@@ -1009,6 +1193,28 @@ type PaneSendKeysParams struct {
 // PaneReadResult is the plain-text visible screen of a pane.
 type PaneReadResult struct {
 	Lines []string `json:"lines"`
+}
+
+// PaneSearchParams looks for Query in a pane's history and screen, from
+// just after Line and Col (just before them, Backward). Line counts from the
+// oldest line of history; the screen starts at the result's History.
+type PaneSearchParams struct {
+	ID       string `json:"id"`
+	Query    string `json:"query"`
+	Line     int    `json:"line"`
+	Col      int    `json:"col"`
+	Backward bool   `json:"backward,omitempty"`
+}
+
+// PaneSearchResult is the next match, in the same lines as the params, and
+// Width cells wide. Wrapped says the search went round an end to find it.
+type PaneSearchResult struct {
+	Found   bool `json:"found,omitempty"`
+	Line    int  `json:"line,omitempty"`
+	Col     int  `json:"col,omitempty"`
+	Width   int  `json:"width,omitempty"`
+	History int  `json:"history,omitempty"`
+	Wrapped bool `json:"wrapped,omitempty"`
 }
 
 // PaneList is the result of pane.list.

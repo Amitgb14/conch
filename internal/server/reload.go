@@ -47,6 +47,10 @@ type reloadPane struct {
 	Tracker    detect.TrackerState `json:"tracker"`
 	Transcript string              `json:"transcript,omitempty"`
 	Loose      bool                `json:"loose,omitempty"` // in no project
+	// Monitoring (monitor.go); absent from older state files.
+	Monitor      *proto.PaneMonitor `json:"monitor,omitempty"`
+	Alert        string             `json:"alert,omitempty"`
+	MonitorArmed bool               `json:"monitor_armed,omitempty"`
 }
 
 // reloadBinary resolves and checks the program to reload into: it must run
@@ -131,6 +135,8 @@ func (s *Server) reload(bin string) {
 		e.mu.Lock()
 		rp.Loose = e.project == nil
 		rp.Tracker = e.tracker.Export()
+		rp.Monitor, rp.Alert = e.monitor.info()
+		rp.MonitorArmed = e.monitor.armed
 		e.mu.Unlock()
 		if e.transcript != nil {
 			rp.Transcript = e.transcript.Path()
@@ -197,6 +203,11 @@ func (s *Server) adopt(st *reloadState) {
 			proj = s.projects.ensure(rp.Dir)
 		}
 		e := newEntry(p, rp.Dir, detect.RestoreTracker(s.manifests, rp.Tracker), proj)
+		if rp.Monitor != nil {
+			e.monitor.PaneMonitor = *rp.Monitor
+		}
+		// Silence counts from the reload: when the last output was is lost.
+		e.monitor.alert, e.monitor.armed, e.monitor.lastOut = rp.Alert, rp.MonitorArmed, time.Now()
 		if rp.Transcript != "" {
 			e.transcript = usage.NewTranscript(rp.Transcript)
 			if tok, err := e.transcript.Update(); err == nil || tok.Output > 0 {

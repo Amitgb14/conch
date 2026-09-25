@@ -98,6 +98,7 @@ type Model struct {
 	scrollMode bool          // keys move a cursor over the pane's history
 	curX, curY int           // that cursor, in view cells
 	sel        *selection    // text selected in the viewed pane
+	search     scrollSearch  // searching in scroll mode (scrollsearch.go)
 	click      *pendingClick // a press held back from a mouse-using program
 
 	changesPolling bool   // a changesPollMsg is scheduled
@@ -117,6 +118,7 @@ type Model struct {
 
 	snoozeUntil time.Time      // alerts are silenced until then
 	limitSeen   map[string]int // plan limit alerts raised, per window (limitalerts.go)
+	savedSSH    []string       // ssh hosts the user chose to keep in the tree (ssh.go)
 	// catalogStamp is machines.json's modification time and size when last
 	// read, to notice machines added or removed with conch machine.
 	catalogStamp string
@@ -127,6 +129,7 @@ type Model struct {
 	sessions     map[string]*sessionsData // saved agent sessions per project (sessionsKey)
 	sessionsView *sessionsView            // the focused leaf's, when it lists sessions
 	queueView    *queueView               // the focused leaf's, when it is the review queue
+	filesView    *filesView               // the focused leaf's, when it is a file explorer
 	queueSeen    map[string]string        // review queue rows dismissed, by what they said when dismissed
 	verifyRuns   map[string]verifyRun     // a branch's last run of its project's check, by machine|project|branch
 	prevView     viewRef                  // where the focused split was before the last jump, for ctrl+b b
@@ -163,6 +166,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		upd:        newUpdateState(),
 		limitSeen:  st.LimitAlerts,
 		queueSeen:  st.QueueDismissed,
+		savedSSH:   cleanSavedSSH(st.SavedSSH),
 	}
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	if st.SidebarWidth > 0 {
@@ -282,6 +286,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		id, gen := mach.id, mach.gen
 		retry := tea.Tick(retryLost, func(time.Time) tea.Msg { return machineRetryMsg{machine: id, gen: gen} })
 		return m, tea.Batch(m.rebuild(), retry)
+
+	case searchResultMsg:
+		m.showSearchResult(msg)
+		return m, nil
 
 	case reloadedMsg:
 		if mach := m.machine(msg.machine); mach != nil {
@@ -469,6 +477,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionsMsg:
 		return m, m.receiveSessions(msg)
 
+	case filesListMsg, filesReadMsg:
+		return m, m.filesReceive(msg)
+
 	case transcriptMsg:
 		if v, ok := m.overlay.(*transcriptView); ok {
 			v.receive(msg)
@@ -489,6 +500,19 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dropStepMsg:
 		return m, m.dropStep(msg)
+
+	case moveDescribedMsg:
+		return m, m.receiveMoveDescribed(msg)
+
+	case moveClonedMsg:
+		m.receiveMoveCloned(msg)
+		return m, nil
+
+	case moveStepMsg:
+		return m, m.receiveMoveStep(msg)
+
+	case moveDoneMsg:
+		return m, m.receiveMoveDone(msg)
 
 	case broadcastDoneMsg:
 		m.receiveBroadcast(msg)
@@ -609,7 +633,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				}
 			}
 		}
-		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), installed, checked, m.observeAgent(mach, old, info))
+		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), m.notifyMonitor(mach, old, info), installed, checked, m.observeAgent(mach, old, info))
 
 	case proto.EventPaneClosed:
 		var ref proto.PaneRef
@@ -643,7 +667,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if !found {
 			mach.projects = append(mach.projects, info)
 		}
-		cmds := []tea.Cmd{m.rebuild(), m.recheckSettled(time.Now())}
+		cmds := []tea.Cmd{m.rebuild(), m.recheckSettled(time.Now()), m.filesProjectUpdated(mach.id, info.ID)}
 		for _, l := range m.tab().root.leaves() {
 			cv := l.changes
 			if cv == nil || cv.machine != mach.id || cv.projectID != info.ID {
@@ -681,6 +705,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				cmds = append(cmds, cv.liveDiff(m))
 			}
 		}
+		cmds = append(cmds, m.filesEvent(mach.id, wc))
 		return tea.Batch(cmds...)
 
 	case proto.EventAgentLimits:
@@ -750,8 +775,12 @@ func (m *Model) rebuild() tea.Cmd {
 	prevIndex := indexOfRow(m.rows, m.cursor)
 	in := treeInput{expanded: m.expanded, showAll: m.showAll, filter: m.filter, now: time.Now()}
 	for _, mach := range m.machines {
-		in.machines = append(in.machines, treeMachine{id: mach.id, panes: mach.panes, projects: mach.projects, agents: mach.agents,
-			sessions: m.hasSessions(mach.id)})
+		tm := treeMachine{id: mach.id, panes: mach.panes, projects: mach.projects, agents: mach.agents,
+			sessions: m.hasSessions(mach.id)}
+		if mach.id == localMachine { // ssh sessions start on this computer
+			tm.savedSSH = m.savedSSH
+		}
+		in.machines = append(in.machines, tm)
 	}
 	m.rows = buildTree(in)
 	if indexOfRow(m.rows, m.cursor) < 0 && len(m.rows) > 0 {
@@ -1055,6 +1084,11 @@ func (m Model) contextPlace() place {
 			}
 		}
 		return place{machine: mid, projectID: proj.ID, branch: r.branch}
+	case kindFiles:
+		// The checkout being browsed, so an agent started from here works in it.
+		if root, branch, _ := m.filesCheckout(mid, r.projectID, r.branch); root != "" {
+			return place{machine: mid, projectID: r.projectID, dir: root, branch: branch}
+		}
 	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions:
 		if proj := m.project(mid, r.projectID); proj != nil {
 			return place{machine: mid, projectID: proj.ID, dir: proj.Path}

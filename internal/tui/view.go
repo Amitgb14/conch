@@ -216,6 +216,8 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		return "", glyphStyle, "Terminals", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindSSH:
 		return "", glyphStyle, "SSH", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
+	case kindSavedSSH:
+		return "○", styleMuted, "ssh " + sshName(savedSSHTarget(r.id)), styleMuted, styleMuted.Render("saved")
 	case kindCLI:
 		return "❯", styleAccent, "CLI", styleBold, styleMuted.Render(fmt.Sprint(r.count))
 	case kindWorkspace:
@@ -232,6 +234,8 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 			right = joinRight(styleWarn.Render(fmt.Sprintf("⚠%d", n)), right)
 		}
 		return "", glyphStyle, "Sessions", styleMuted, right
+	case kindFiles:
+		return "", glyphStyle, "Files", styleMuted, ""
 	case kindBranch:
 		return m.branchParts(r)
 	case kindPane:
@@ -432,6 +436,10 @@ func (m Model) paneGlyph(p proto.PaneInfo) (glyph, label string, style lipgloss.
 		return "○", "exited", styleMuted
 	case p.State == proto.PaneExited:
 		return "✗", fmt.Sprintf("exit %d", p.ExitCode), styleErr
+	case p.Agent == nil && p.Alert == proto.AlertActivity:
+		return "#", "output", styleWarn // tmux's flags: # activity, ~ silence
+	case p.Agent == nil && p.Alert == proto.AlertSilence:
+		return "~", "quiet", styleWarn
 	case p.Agent == nil:
 		return "›", "", styleMuted
 	}
@@ -502,6 +510,14 @@ func (m Model) leafTitle(l *leaf) string {
 		}
 	case kindReviewQueue:
 		return " review queue "
+	case kindFiles:
+		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
+			t := " files · " + proj.Name + " "
+			if v.Branch != "" {
+				t += "· " + v.Branch + " "
+			}
+			return t
+		}
 	case kindBranches:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " branches · " + proj.Name + " "
@@ -512,6 +528,8 @@ func (m Model) leafTitle(l *leaf) string {
 			return " " + what + " · " + proj.Name + " "
 		}
 		return " " + what + " · CLI "
+	case kindSavedSSH:
+		return " ssh · " + sshName(savedSSHTarget(v.Row)) + " "
 	case kindProject, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " " + proj.Name + " "
@@ -587,8 +605,9 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 			lines = m.sel.highlight(lines, w)
 		}
 		if focused && m.scrollMode {
+			lines = m.searchMatches(exactly(lines, h), w)
 			cursor := selection{ax: m.curX, ay: m.curY, bx: m.curX, by: m.curY}
-			lines = cursor.highlight(exactly(lines, h), w)
+			lines = m.searchPrompt(cursor.highlight(lines, w), w)
 		}
 		return lines
 	case kindBranch:
@@ -603,12 +622,18 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 		if l.queue != nil {
 			return l.queue.render(m, w, h)
 		}
+	case kindFiles:
+		if l.files != nil {
+			return l.files.render(m, w, h)
+		}
 	case kindBranches:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return m.branchesLines(v.Machine, *proj, w)
 		}
 	case kindAgents, kindTerminals, kindSSH:
 		return m.sectionLines(v.Machine, v.ProjectID, v.Kind, w)
+	case kindSavedSSH:
+		return savedSSHLines(savedSSHTarget(v.Row), w)
 	case kindProject, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return m.projectLines(v.Machine, *proj, w)

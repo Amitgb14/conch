@@ -14,7 +14,7 @@ Everything lives in `~/.config/conch`. Set `CONCH_HOME` to use another directory
 | `server.log` | the server's log |
 | `projects.json` | the projects in the sidebar |
 | `claude-settings.json` | the hooks conch passes to Claude Code with `--settings` |
-| `ui.json` | fold state, sidebar width, tabs and splits |
+| `ui.json` | fold state, sidebar width, tabs and splits, saved ssh hosts |
 | `machines.json` | remote machines: only an ID, label and ssh target |
 | `ssh/config` | generated ssh config |
 | `binaries/<os>-<arch>/conch` | conch builds for other platforms |
@@ -55,6 +55,7 @@ quiet_start = "" # quiet hours, e.g. "22:00"
 quiet_end = ""   # e.g. "08:00"
 limits = true    # when a Claude or Codex plan limit window is nearly used
 limit_at = [80, 95] # percent used that alerts
+silence = 30     # seconds without output before a watched pane (ctrl+b M) alerts
 
 [ui]
 mouse = true
@@ -62,6 +63,7 @@ theme = "conch"  # conch, dracula, catppuccin, nord, gruvbox, tokyo-night, one-d
                  # rose-pine, kanagawa, everforest, monokai, github-dark, ayu, night-owl
 accent = ""      # override: teal, blue, green, orange, pink, red, gray, purple or "#rrggbb"
 cost = true      # show what agents spend in the tree, Sessions and the pages
+icons = "text"   # file explorer icons: text (letters, any font), nerd (Nerd Font glyphs) or off
 
 [shell]
 omz_theme = ""   # Oh My Zsh theme for new zsh terminals; "" keeps .zshrc's
@@ -87,6 +89,8 @@ upload_max_mb = 25     # refuse larger files (the server takes at most 256)
 ### notify
 
 `quiet_start` and `quiet_end` (`"HH:MM"`) silence alerts every day between them; the range may wrap past midnight. Waiting agents still show in the sidebar. Leave either empty for no quiet hours.
+
+`silence` is how long a pane watched with `ctrl+b M` must go without output before it alerts; see [Watching a pane](/docs/interface#watching-a-pane). Less than 1 means the default, 30.
 
 `limits` alerts when Claude's 5-hour or weekly window, Codex's windows or a spend limit passes a percentage in `limit_at` (1–100). Each threshold alerts once per window and machine, even across restarts of the TUI; a new window after a reset alerts again.
 

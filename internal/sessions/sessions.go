@@ -66,10 +66,11 @@ func (e Env) get(k string) string {
 const maxAge = 180 * 24 * time.Hour
 
 // List returns the sessions that ran in any of dirs (or below them), newest
-// first, at most limit.
+// first, at most limit. It asks every store itself and waits for the answer:
+// callers of this one — search, sharing, usage — want what is there now, not
+// what a store said a moment ago.
 func List(e Env, dirs []string, limit int) []Session {
-	out, _ := ListStatus(e, dirs, limit)
-	return out
+	return gather(e, dirs, limit, false)
 }
 
 // ListStatus is List, and whether every store answered. complete is false
@@ -77,6 +78,18 @@ func List(e Env, dirs []string, limit int) []Session {
 // was too slow: that agent's sessions are missing from the list, which is
 // worth asking for again in a moment.
 func ListStatus(e Env, dirs []string, limit int) (list []Session, complete bool) {
+	return gatherStatus(e, dirs, limit, true)
+}
+
+// gather reads every store. With background true, the stores that run
+// another program answer from slow.go — a list waits a grace for them and
+// no longer — and whether one was missing is reported through incomplete.
+func gather(e Env, dirs []string, limit int, background bool) []Session {
+	out, _ := gatherStatus(e, dirs, limit, background)
+	return out
+}
+
+func gatherStatus(e Env, dirs []string, limit int, background bool) ([]Session, bool) {
 	stores := []struct {
 		name string
 		find func(Env, []string) []Session
@@ -98,7 +111,7 @@ func ListStatus(e Env, dirs []string, limit int) (list []Session, complete bool)
 			defer wg.Done()
 			var found []Session
 			done := true
-			if st.slow {
+			if st.slow && background {
 				found, done = slowList(e, slowKey(st.name, e, dirs), func() []Session { return st.find(e, dirs) })
 			} else {
 				found = st.find(e, dirs)

@@ -16,7 +16,9 @@ Every key binding in the TUI, grouped by where it applies. Press `?` in conch to
 | `!` | next agent waiting for you |
 | `Q` | [review queue](/docs/interface#review-queue): what needs a decision, across every machine (`v` checks a row, `o` opens the check's output, `x` dismisses it) |
 | `B` | [broadcast](/docs/agents#broadcast) a message to the agents and terminals of the selection |
+| `f` | [files](/docs/interface#files): browse the selected project's checkout, or a branch's worktree |
 | `o` | open PR |
+| `T` | on a branch: [move its worktree to another machine](/docs/remote-machines#moving-a-worktree-to-another-machine) |
 | `y` | copy |
 | `m` | menu |
 | `?` | all keys |
@@ -30,7 +32,7 @@ Every key binding in the TUI, grouped by where it applies. Press `?` in conch to
 | `c` | default agent here |
 | `A` | start or install any agent |
 | `n` | terminal here |
-| `H` | [ssh to a host](/docs/interface#ssh-sessions) from this computer |
+| `H` | [ssh to a host](/docs/interface#ssh-sessions) from this computer; asks whether to save the host (default no) |
 | `a` | add project |
 | `M` | add machine |
 | `r` | rename an agent, terminal or machine |
@@ -61,6 +63,8 @@ Other keys on tree items:
 | `ctrl+b r` | redraw the pane |
 | `ctrl+b b` | back to where the split was before the last jump; again returns |
 | `ctrl+b !` | next waiting |
+| `ctrl+b M` | [alert when the pane goes quiet](/docs/interface#watching-a-pane) after printing, like tmux's `monitor-silence`; again to stop |
+| `ctrl+b A` | [alert when the pane prints](/docs/interface#watching-a-pane) while you are elsewhere, like tmux's `monitor-activity`; again to stop |
 | `ctrl+b d` | detach |
 | `ctrl+b ?` | all keys |
 
@@ -81,6 +85,7 @@ Other keys on tree items:
 | `M` | merge into the base |
 | `D` | discard the branch and its worktree |
 | `A` | [compare the attempts](/docs/tasks#comparing-them) at this task |
+| `T` | [move the worktree to another machine](/docs/remote-machines#moving-a-worktree-to-another-machine), agents and all |
 | `o` | open PR |
 | `y` | copy path / diff |
 | `esc` | back |
@@ -98,6 +103,25 @@ Other keys on tree items:
 | `R` | reload |
 | `I` | resume all interrupted runs |
 | `x` | dismiss an interrupted run |
+
+## Files
+
+| Key | Action |
+| --- | --- |
+| `↑↓` `jk`, `pgup` `pgdn`, `g` `G` | move |
+| `enter` `l` `→` | open a folder, or show a file (below 100 columns the preview takes the split; `esc` goes back) |
+| `h` `←` | fold the folder, or go up to the one it is in |
+| `/` | find by name in what has been loaded (`enter` keeps, `esc` clears) |
+| `a` | type the file's path into the agent working in this checkout |
+| `y` | copy the file's path |
+| `d` | the file's diff, in its branch's changes |
+| `e` | open it in `$EDITOR` in a new terminal, on its machine |
+| `.` / `i` | show dotfiles / files git ignores |
+| `w` | the project's next checkout: the main one, then each worktree |
+| `r` | read the checkout again |
+| `esc` `q` | back to the tree |
+
+Click a line to select it and again to open it; the wheel moves the selection, or scrolls the preview under the pointer; click a folder in the path above the list to go back up to it.
 
 ## Splits and tabs
 
@@ -133,6 +157,8 @@ These follow tmux's default bindings; `ctrl+b 1` is the first tab and `0` the te
 | `0` / `$` | line start / end |
 | `pgup` / `pgdn` | page |
 | `g` | oldest line |
+| `/` / `?` | search up (back through the history) / down; `enter` finds, `esc` cancels, `enter` alone repeats the last search |
+| `n` / `N` | next match the same way / the other way; a search that reaches an end goes on from the other |
 | `v` or `space` | start a selection |
 | `y` or `enter` | copy the selection |
 | any other key | return to live |

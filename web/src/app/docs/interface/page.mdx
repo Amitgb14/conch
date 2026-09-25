@@ -25,8 +25,9 @@ MACHINES
   ▾ ❯ CLI                          2
     ▾ Terminals                    1
         › zsh
-    ▾ SSH                          1
+    ▾ SSH                          2
         › ssh dev@build-box
+        ○ ssh db-prod            saved
 ```
 
 Each machine has two groups. `Workspace` holds its projects (folders you added with `a`); selecting it shows every project with what runs in it, and the tab bar lists the tabs of all of them. `CLI` holds a machine's agents and terminals that belong to no project. `n` or `c` on the machine (or on `CLI`) starts one there, in your home folder.
@@ -34,6 +35,8 @@ Each machine has two groups. `Workspace` holds its projects (folders you added w
 ### SSH sessions
 
 `H` (or **SSH to a host…** in the tab bar's `+` menu, or in the menu of `local` and its `CLI`) opens a terminal on this computer logged in to another host. Pick a host from your `~/.ssh/config` or one of your machines, or type `user@host`, an alias or `ssh://user@host:port`. It runs your own `ssh` with your config and keys, so password and host-key prompts appear in the terminal. Nothing is installed on the host — unlike [adding a machine](/docs/remote-machines), which installs conch there to run agents. Sessions are listed under `CLI` → `SSH`, which has its own page and tabs like `Terminals`; closing the session (`exit`) closes its tab.
+
+Before connecting, conch asks whether to save the host. The default is not to: `enter` (or `n`) just connects, `y` saves it too. A saved host stays listed under `CLI` → `SSH` every time conch opens, even with no session to it (the `○ … saved` row above); `enter` or a click on it connects again without asking, and `x` forgets it. While a session to it is open, the session's own row stands in for it. Saved hosts come first in the `H` menu, and are kept in `ui.json` in the conch config folder.
 
 ### Projects
 
@@ -132,6 +135,31 @@ The status bar counts what the queue holds (`3 to review`, beside `⚑ waiting`)
 
 A branch with an open pull request and nothing unpushed is not in the queue — it is waiting on a reviewer, not on you. Nor is a machine that is offline, whose panes conch only holds a stale cache of. Branches the tree has stopped listing — nothing committed for a fortnight and not checked out — drop out too, so the queue stays a list of what to do now rather than a history of the repository. An agent waiting or finished is always listed, however old its branch.
 
+## Files
+
+Every project has a **Files** row, and `f` opens it from anywhere in the tree: on a branch — or an agent or terminal working on one — it browses that branch's worktree, so "what did the agent on `fix-flaky` actually write?" is one key; anywhere else in a project it browses the main checkout. A branch with no worktree falls back to the main checkout and says so, and `w` moves through the project's checkouts.
+
+```
+ Files  conch · fix-flaky-tests          enter open · a → agent · y copy · / find
+ ~/.conch/wt/conch-fix-flaky-tests › internal › tui · 3 changed
+ ──────────────────────────────────────────┬─────────────────────────────────────
+ ▾    internal/                          M │ queue.go · 472 lines · modified
+   ▾    tui/                             M │   1  package tui
+       go model.go                       M │   2
+       go queue.go                       M │   3  import (
+       tx app.tsx                        ? │   4    "fmt"
+ ▸    web/                                 │   5    "sort"
+   rd README.md                            │
+```
+
+The tree opens a folder at a time, as you expand it, and the selected file shows beside it once the split is 100 columns wide; narrower, `enter` swaps the preview in and `esc` swaps it back. The letter on the right is the file's git status in the same letters as the [changes view](#changes-view) — `M` modified, `A` added, `?` untracked, `U` conflicted — and a folder carries the most telling one of what is in it. Dotfiles and whatever git ignores (`node_modules`, build output) are left out until `.` or `i` shows them, and `.git` always is.
+
+`a` is the one to remember: it types the selected file's path into the prompt of the agent working in that checkout — the one beside the explorer if there is one, else the one busy most recently — on whichever machine the checkout is on, relative to where the agent runs. `d` opens the file's diff in its branch's changes, `e` opens it in that machine's own `$EDITOR` in a new terminal, and `y` copies its path.
+
+The preview is plain text with line numbers, the first 256 KB of a file; a binary file is described (`binary · image/png · 1.2 MB`) rather than shown. Where the server watches worktrees, what an agent writes appears on its own — the open folders are listed again and the file in the preview read again — and `r` reads the checkout again anywhere. The explorer only reads files, and only inside the project's checkouts: a path, or a symlink, that leads out of one is refused by the server. A machine on a conch from before the explorer says it needs updating rather than showing an empty repository.
+
+Each kind of file gets an icon, by its whole name first (`Dockerfile`, `go.mod`, `package.json`) and then its extension, coloured from the theme. Settings → Theme chooses letters (`go`, `ts`, `tx` for `.tsx`, the default, since they read in any font), [Nerd Font](https://www.nerdfonts.com) glyphs — which need a Nerd Font in your terminal, and show as boxes without one — or none.
+
 ## Splits and tabs
 
 The main area has tabs (click them, `+` adds one, `×` closes), and each tab can be split into several views: panes, branch changes, projects or machines side by side. The focused split has the highlighted border.
@@ -167,7 +195,7 @@ Drag a border between splits to resize. Tabs and splits are remembered in `ui.js
 
 The wheel over a pane scrolls back through its history (10,000 lines); the view stays on the same text while output continues, and typing returns to the live screen.
 
-`ctrl+b [` (or `ctrl+b pgup`) enters scroll mode with a cursor:
+`ctrl+b [` (or `ctrl+b pgup`) enters scroll mode with a cursor. It works in an agent's pane too: an agent draws on the alternate screen, which keeps no scrollback of its own, so conch watches that screen and keeps the lines that scroll off it — what it said a page ago is there to read and select. A program that repaints its whole screen instead of scrolling (an editor) leaves nothing behind, because nothing scrolled away, and the kept lines are plain text without their colours.
 
 | Key | In scroll mode |
 | --- | --- |
@@ -175,15 +203,28 @@ The wheel over a pane scrolls back through its history (10,000 lines); the view 
 | `0` / `$` | line start / end |
 | `pgup` / `pgdn` | page |
 | `g` | oldest line |
+| `/` / `?` | search up / down |
+| `n` / `N` | next match, the same way / the other way |
 | `v` or `space` | start a selection |
 | `y` or `enter` | copy the selection |
 | any other key | return to live |
+
+`/` searches back through the whole history, `?` towards the live screen; the query is typed on the pane's bottom line. The view scrolls to the match and puts the cursor on it, so `v` and `y` select and copy from there, and every match on screen is highlighted. A query in lower case matches either case; one with a capital matches exactly. A search that reaches the oldest line (or the bottom) goes on from the other end and says so. Searching needs the pane's machine to run this build or newer.
 
 Drag across a pane to select and copy; double-click copies a word. Copies use OSC 52 (works over SSH) plus `pbcopy`/`wl-copy`/`xclip` locally. `y` copies a branch name or directory in the tree, a file path or the whole diff in the changes view.
 
 Programs that use the mouse themselves (vim, htop) still get the mouse; full-screen programs get arrow keys from the wheel.
 
 Dropping files on a pane pastes their paths. On a remote machine's pane conch uploads the files there first and pastes their paths there — see [Dropping files on a remote pane](/docs/remote-machines#dropping-files-on-a-remote-pane).
+
+## Watching a pane
+
+Agents say for themselves when they need you. For anything else — a build, a test run, a server's log — watch the pane, as tmux's `monitor-silence` and `monitor-activity` do:
+
+- `ctrl+b M` alerts when the pane **goes quiet** after printing: a build or test run has finished. How long counts as quiet is 30 seconds, set under Settings → Notifications (10 s to 5 min) or `[notify] silence` in config.toml; it applies to panes watched from then on.
+- `ctrl+b A` alerts when the pane **prints** while you are looking at something else.
+
+Press the same keys again to stop, or use the pane's menu (`m` or right-click in the tree), where a tick shows what is on. A pane that has something to tell shows `~` (quiet) or `#` (output) in the tree and tab bar, and a desktop notification goes out as for agents (quiet hours and snooze apply). Looking at the pane clears it. Only a pane nobody has on screen raises an alert, a pane already quiet when you start watching it waits for its next output, and the watching survives a server reload. The server does the watching, so alerts are waiting in the tree after you detach and come back.
 
 ## Resource monitor
 
@@ -217,13 +258,15 @@ Colour schemes: Conch, Dracula, Catppuccin Mocha, Nord, Gruvbox Dark, Tokyo Nigh
 
 Under **Tree**, _What agents spend_ shows or hides the cost (and the token counts that stand in for it) on tree rows, in Sessions and on the project and machine pages — everything [the sidebar](#the-sidebar) shows.
 
+Under **File icons**, how [the file explorer](#files) marks each kind of file: _Letters, in any font_ (the default), _Nerd Font glyphs_ for a terminal with a Nerd Font, or _None_ (`[ui] icons` = `text`, `nerd` or `off`).
+
 Below that, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the themes installed on this computer. conch starts zsh with a wrapper that loads your own `.zshenv`/`.zprofile`/`.zshrc`/`.zlogin` first and then switches the theme for that terminal only (`omz theme use`), so your dotfiles are never edited; "Keep my .zshrc theme" turns it off.
 
 ### Notifications
 
 - A master switch.
 - How: desktop notification, system sound, terminal beep.
-- When: an agent is waiting, one finishes, and/or a plan limit is nearly used (Claude's or Codex's 5-hour or weekly window passing 80% and 95%, once per window).
+- When: an agent is waiting, one finishes, and/or a plan limit is nearly used (Claude's or Codex's 5-hour or weekly window passing 80% and 95%, once per window); and how long a [watched pane](#watching-a-pane) must be quiet.
 - **Quiet hours** (22:00–08:00 and other presets, or any `quiet_start` / `quiet_end` in config.toml) and **snooze for an hour**. While silenced the status bar shows `🔕` (click it to resume); waiting agents still show in the sidebar.
 - Send a test.
 

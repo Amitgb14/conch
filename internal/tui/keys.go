@@ -169,6 +169,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "Q":
 		m.focus = focusMain
 		return m, m.show(queueRow())
+	case "f":
+		return m, m.openFiles()
 	case "!":
 		return m, m.jumpToAttention()
 	case "y":
@@ -197,6 +199,10 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.openBroadcast()
 	case "W":
 		return m, m.openCleanup()
+	case "T":
+		if ok && r.kind == kindBranch {
+			return m, m.openMoveWorktree(harvestTarget{machine: r.machine, projectID: r.projectID, branch: r.branch})
+		}
 	case "F":
 		pl := m.contextPlace()
 		proj := m.project(pl.machine, pl.projectID)
@@ -222,11 +228,13 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // activate is enter (or a double click) on a row.
 func (m *Model) activate(r row) tea.Cmd {
 	switch r.kind {
-	case kindPane, kindBranch, kindSessions:
+	case kindPane, kindBranch, kindSessions, kindFiles:
 		m.focus = focusMain
 		return m.show(r)
 	case kindMore:
 		return m.toggle(r, nil)
+	case kindSavedSSH:
+		return m.connectSSH(savedSSHTarget(r.id))
 	}
 	return m.toggle(r, nil)
 }
@@ -297,6 +305,10 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.syncView()
 		case "!":
 			return m, m.jumpToAttention()
+		case "M", "A":
+			if r.kind == kindPane {
+				return m, m.toggleMonitor(r.machine, r.paneID, k.String() == "M")
+			}
 		case "r":
 			return m, m.redrawPane(r)
 		default:
@@ -340,6 +352,14 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case kindSessions:
 		if m.sessionsView != nil {
 			back, cmd := m.sessionsView.key(&m, k)
+			if back {
+				m.focus = focusSidebar
+			}
+			return m, cmd
+		}
+	case kindFiles:
+		if m.filesView != nil {
+			back, cmd := m.filesView.key(&m, k)
 			if back {
 				m.focus = focusSidebar
 			}
@@ -470,11 +490,15 @@ func (m *Model) enterScrollMode() {
 	_, rows := m.paneArea()
 	m.scrollMode, m.focus = true, focusMain
 	m.curX, m.curY, m.sel = 0, rows-1, nil
+	m.search.typing = false
 }
 
 // scrollKey handles keys in scroll mode: a cursor moves over the history
 // (scrolling at the edges), v starts a selection and y or enter copies it.
 func (m *Model) scrollKey(k tea.KeyMsg) tea.Cmd {
+	if m.search.typing {
+		return m.searchTypingKey(k)
+	}
 	cols, rows := m.paneArea()
 	moveY := func(dy int) {
 		m.curY += dy
@@ -506,6 +530,14 @@ func (m *Model) scrollKey(k tea.KeyMsg) tea.Cmd {
 	case "g":
 		m.scrollPane(m.frame.History)
 		m.curY = 0
+	case "/", "?":
+		m.startSearch(k.String() == "/") // / looks back through the history
+		return nil
+	case "n", "N":
+		if m.search.query == "" {
+			return nil
+		}
+		return m.runSearch(m.search.back == (k.String() == "n"))
 	case "v", " ":
 		if m.sel != nil && m.sel.keyboard {
 			m.sel = nil
@@ -567,7 +599,7 @@ func (m *Model) copyRow(r row) tea.Cmd {
 		if p := m.pane(r.machine, r.paneID); p != nil {
 			return copyText(p.Cwd)
 		}
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions:
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions, kindFiles:
 		if proj := m.project(r.machine, r.projectID); proj != nil {
 			return copyText(proj.Path)
 		}
@@ -634,6 +666,11 @@ func (m *Model) openRemove() tea.Cmd {
 		label := mach.label
 		m.overlay = newConfirm(fmt.Sprintf("Remove %s from conch? Its server and panes keep running there.", label), func(m *Model) tea.Cmd {
 			return m.removeMachine(mid)
+		})
+	case kindSavedSSH:
+		target := savedSSHTarget(r.id)
+		m.overlay = newConfirm(fmt.Sprintf("Forget ssh %s? It is no longer listed when conch opens.", sshName(target)), func(m *Model) tea.Cmd {
+			return m.forgetSSH(target)
 		})
 	case kindPane:
 		p := m.pane(r.machine, r.paneID)

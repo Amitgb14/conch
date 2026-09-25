@@ -26,7 +26,7 @@ func TestA3Defaults(t *testing.T) {
 	d := Default()
 	want := Config{
 		Keys:   Keys{Prefix: "ctrl+b"},
-		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true, Limits: true, LimitAt: []int{80, 95}},
+		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true, Limits: true, LimitAt: []int{80, 95}, Silence: 30},
 		UI:     UICfg{Mouse: true, Theme: "conch", Cost: true},
 		Agents: AgentsCfg{Default: "claude"},
 		Brain:  BrainCfg{Provider: "claude"},
@@ -201,7 +201,7 @@ func TestA3SaveFullRoundTrip(t *testing.T) {
 		Keys:   Keys{Prefix: "ctrl+space"},
 		Pane:   PaneCfg{DefaultCommand: "fish -l"},
 		Notify: NotifyCfg{Enabled: true, Desktop: false, Sound: true, Bell: true, Waiting: false, Done: true, QuietStart: "23:00", QuietEnd: "06:00", Limits: false, LimitAt: []int{50, 90}},
-		UI:     UICfg{Mouse: false, Theme: "tokyo-night", Accent: "#ff00aa"},
+		UI:     UICfg{Mouse: false, Theme: "tokyo-night", Accent: "#ff00aa", Icons: "nerd"},
 		Shell:  ShellCfg{OMZTheme: "robbyrussell"},
 		Agents: AgentsCfg{Default: "codex"},
 		Brain:  BrainCfg{Provider: "anthropic", Model: "m", SummaryModel: "s", Summaries: true, BaseURL: "https://x", APIKeyEnv: "MY_KEY", Command: "/opt/claude"},
@@ -426,5 +426,39 @@ func TestA3UpdateAuto(t *testing.T) {
 	}
 	if cfg, err = Load(); err != nil || !cfg.Update.Auto || cfg.Update.CheckReleases {
 		t.Fatalf("auto without the check: %+v %v", cfg.Update, err)
+	}
+}
+
+func TestSilenceSetting(t *testing.T) {
+	_, conchHome := a3Isolate(t)
+	a3WriteConfig(t, conchHome, "[notify]\nsilence = 90\n")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notify.SilenceAfter() != 90 {
+		t.Fatalf("silence %d", cfg.Notify.SilenceAfter())
+	}
+	for _, v := range []int{0, -5} {
+		if got := (NotifyCfg{Silence: v}).SilenceAfter(); got != DefaultSilence {
+			t.Fatalf("silence %d gave %d", v, got)
+		}
+	}
+	if Default().Notify.SilenceAfter() != DefaultSilence {
+		t.Fatal("default")
+	}
+}
+
+func TestA3IconsFromAnOlderFile(t *testing.T) {
+	_, conchHome := a3Isolate(t)
+	// A file written before [ui] icons existed leaves it empty: letters.
+	a3WriteConfig(t, conchHome, "[ui]\ntheme = \"nord\"\n")
+	cfg, err := Load()
+	if err != nil || cfg.UI.Icons != "" {
+		t.Fatalf("icons %q %v", cfg.UI.Icons, err)
+	}
+	a3WriteConfig(t, conchHome, "[ui]\nicons = \"nerd\"\n")
+	if cfg, err := Load(); err != nil || cfg.UI.Icons != "nerd" {
+		t.Fatalf("icons %q %v", cfg.UI.Icons, err)
 	}
 }

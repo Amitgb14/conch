@@ -476,3 +476,33 @@ func TestWorktreeChangedReachesAClient(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowseACheckout(t *testing.T) {
+	c, dir := startServer(t)
+	repo := filepath.Join(dir, "repo")
+	os.MkdirAll(filepath.Join(repo, "src"), 0o755)
+	os.WriteFile(filepath.Join(repo, "src", "main.go"), []byte("package main\n"), 0o644)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if missing := c.MissingCapabilities([]string{proto.CapFSFiles, proto.CapFSRead}); len(missing) > 0 {
+		t.Fatalf("missing %v", missing)
+	}
+	var proj proto.ProjectInfo
+	if err := c.Call(ctx, proto.MethodProjectAdd, proto.ProjectAddParams{Path: repo}, &proj); err != nil {
+		t.Fatal(err)
+	}
+	var list proto.FSList
+	if err := c.Call(ctx, proto.MethodFSList, proto.FSListParams{Root: proj.Path, Path: "src", Files: true}, &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Entries) != 1 || list.Entries[0].Name != "main.go" || list.Entries[0].Dir {
+		t.Fatalf("listing: %+v", list)
+	}
+	var read proto.FSReadResult
+	if err := c.Call(ctx, proto.MethodFSRead, proto.FSReadParams{Root: proj.Path, Path: "src/main.go"}, &read); err != nil || read.Data != "package main\n" {
+		t.Fatalf("read: %+v %v", read, err)
+	}
+	if err := c.Call(ctx, proto.MethodFSRead, proto.FSReadParams{Root: dir, Path: "repo/src/main.go"}, &read); err == nil {
+		t.Fatal("read outside any project")
+	}
+}

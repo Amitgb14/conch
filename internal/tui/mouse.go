@@ -166,6 +166,13 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if f.sessions != nil {
 			return m, tea.Batch(focusCmd, f.sessions.mouse(&m, msg, x, y))
 		}
+	case kindFiles:
+		if press && left {
+			m.focus = focusMain
+		}
+		if f.files != nil {
+			return m, tea.Batch(focusCmd, f.files.mouse(&m, msg, x, y))
+		}
 	case kindBranch:
 		if press && left {
 			m.focus = focusMain
@@ -413,6 +420,10 @@ func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Mode
 	m.cursor = r.id
 	m.focus = focusSidebar
 	cmd := m.syncView()
+	if left && r.kind == kindSavedSSH {
+		// A saved host has nothing to show until it is connected.
+		return m, tea.Batch(cmd, m.connectSSH(savedSSHTarget(r.id)))
+	}
 	if left && !r.expandable() {
 		// A click puts the row in the focused split. Keep what syncView
 		// asked for: it loads a branch's changes, and show() won't ask

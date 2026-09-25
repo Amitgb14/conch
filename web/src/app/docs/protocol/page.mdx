@@ -32,14 +32,15 @@ Over SSH the same stream runs through `conch bridge`. `hello` returns the server
 | Group | Methods |
 | --- | --- |
 | Server | `hello`, `ping`, `server.stop`, `server.reload` |
-| Panes | `pane.list`, `pane.create`, `pane.close`, `pane.resize`, `pane.send_text`, `pane.send_keys`, `pane.send_mouse`, `pane.scroll`, `pane.read`, `pane.rename`, `pane.subscribe`, `pane.unsubscribe`, `pane.mark_seen` |
+| Panes | `pane.list`, `pane.create`, `pane.close`, `pane.resize`, `pane.send_text`, `pane.send_keys`, `pane.send_mouse`, `pane.scroll`, `pane.read`, `pane.rename`, `pane.subscribe`, `pane.unsubscribe`, `pane.mark_seen`; `pane.search` finds text in a pane's history (capability `pane.search.v1`); `pane.monitor` watches a pane for output or silence, reported as `monitor` and `alert` in its info (capability `pane.monitor.v1`) |
 | Agents | `agent.report`, `agent.explain`, `agent.status`, `agent.install`, `agent.setup`, `agent.limits`, `agent.broadcast` |
 | Projects | `project.list`, `project.add`, `project.remove`, `project.refresh`, `project.changes`, `project.diff`, `project.create`, `project.set_files`, `project.resolve` (which project and branch a directory is in; capability `project.resolve.v1`) |
 | Worktrees and tasks | `worktree.add`, `worktree.remove`, `worktree.copy_files`, `task.create` |
 | Branches | `branch.commit`, `branch.push`, `branch.pr`, `branch.merge`, `branch.discard` (capability `branch.harvest.v1`; a commit's `patch` field needs `branch.hunks.v1`) |
 | Worktree cleanup | `worktree.stale`, `worktree.cleanup` (capability `worktree.cleanup.v1`) |
+| Moving a worktree | `worktree.describe`, `worktree.pack`, `worktree.pack_read` on the machine it leaves; `worktree.have`, `fs.upload`, `worktree.unpack` and `project.clone` on the one it goes to (capability `worktree.move.v1`). The servers never talk to each other: the client carries the pack |
 | Sessions | `session.list`, `session.search`, `session.resume`, `session.share`, `session.delete`, `session.dismiss`; `session.export` and `session.share` with a `doc` hand a conversation to another machine (capability `session.handoff.v1`) |
-| Files and shell | `fs.list`, `fs.mkdir`, `fs.upload`, `shell.themes` |
+| Files and shell | `fs.list`, `fs.mkdir`, `fs.upload`, `shell.themes`; `fs.list` with a `root` lists a project's checkout — files too with `files`, each with its size, time and git status — and refuses any path that leaves it (capability `fs.files.v1`); `fs.read` returns the first 256 KB of a file in a checkout, or says it is binary (capability `fs.read.v1`) |
 
 ## Source layout
 

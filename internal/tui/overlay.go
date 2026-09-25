@@ -100,8 +100,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"c", "Start an agent here…", act("c")},
 			{"n", "New terminal here", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
-			{"x", "Close", act("x")},
 		}
+		items = append(items, m.monitorItems(r.machine, r.paneID)...)
+		items = append(items, menuItem{"x", "Close", act("x")})
 		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
 			items = append(items, menuItem{"Y", "Read and copy the conversation", act("Y")})
 		}
@@ -127,6 +128,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 				if wt.Branch == r.branch && !wt.Main {
 					worktree = true
 				}
+			}
+			if checkedOut(proj, r.branch) && r.branch != proj.Base && m.hasCapability(r.machine, proto.CapWorktreeMove) {
+				items = append(items, menuItem{"T", "Move to another machine…", act("T")})
 			}
 			switch {
 			case worktree:
@@ -199,6 +203,12 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if mid != localMachine {
 			items = append(items, menuItem{"x", "Remove machine", act("x")})
 		}
+	case kindSavedSSH:
+		title = "ssh " + sshName(savedSSHTarget(r.id))
+		items = []menuItem{
+			{"enter", "Connect", enter},
+			{"x", "Forget (remove from the tree)", act("x")},
+		}
 	case kindWorkspace:
 		title = "Workspace"
 		items = []menuItem{
@@ -252,7 +262,7 @@ func (mu *menu) run(m *Model, i int) tea.Cmd {
 }
 
 func (mu *menu) render(m Model) box {
-	w := ansi.StringWidth(mu.title) + 2
+	w := ansi.StringWidth(mu.title) + 4 // the title is framed as " title " inside the corners
 	for _, it := range mu.items {
 		w = max(w, ansi.StringWidth(it.label)+10)
 	}
@@ -377,7 +387,9 @@ type dialog struct {
 	fields  []field
 	focus   int
 	confirm bool // yes/no question without fields
+	notice  bool // text to read, closed with enter or esc
 	yesOnly bool // a confirm that enter doesn't accept, for what can't be undone
+	onNo    bool // which button the keyboard is on; Yes to begin with
 	// buttons is where a confirm's Yes and No sit, from the last render:
 	// the content line and each one's columns, for clicks.
 	buttons struct{ line, yes0, yes1, no0, no1 int }
@@ -410,6 +422,12 @@ func newDialog(m Model, title string, text []string, labels []string, values []s
 }
 
 func (d *dialog) focusCmd() tea.Cmd { return textinput.Blink }
+
+// newNotice shows text too long for the status bar, such as why something
+// failed.
+func newNotice(title string, text []string) *dialog {
+	return &dialog{title: title, text: text, notice: true}
+}
 
 func newConfirm(question string, yes func(m *Model) tea.Cmd) *dialog {
 	return &dialog{title: " Confirm ", text: []string{question}, confirm: true,
@@ -557,18 +575,38 @@ func (e errString) Error() string { return string(e) }
 
 func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	k, isKey := msg.(tea.KeyMsg)
+	if d.notice {
+		switch {
+		case !isKey:
+		case k.String() == "enter" || k.String() == "esc" || k.String() == "q" || k.String() == " ":
+			m.overlay = nil
+		}
+		return true, nil
+	}
 	if d.confirm {
 		if isKey {
 			switch k.String() {
-			case "y", "Y", "enter":
-				if k.String() == "enter" && d.yesOnly {
-					return false, nil
-				}
+			case "y", "Y":
 				m.overlay = nil
 				return true, d.submit(m, nil)
 			case "n", "N", "esc", "q":
 				m.overlay = nil
 				return true, nil
+			case "left", "right", "tab", "shift+tab", "h", "l":
+				d.onNo = !d.onNo // two buttons: any of these moves between them
+				return false, nil
+			case "enter", " ":
+				if d.onNo {
+					m.overlay = nil
+					return true, nil
+				}
+				// What can't be undone takes y or the button, never a
+				// stray enter — but space on the button is deliberate.
+				if d.yesOnly && k.String() == "enter" {
+					return false, nil
+				}
+				m.overlay = nil
+				return true, d.submit(m, nil)
 			}
 		}
 		return false, nil
@@ -662,11 +700,20 @@ func (d *dialog) render(m Model) box {
 		d.buttons.yes0, d.buttons.yes1 = 1, 1+ansi.StringWidth(yes)
 		d.buttons.no0 = d.buttons.yes1 + 3
 		d.buttons.no1 = d.buttons.no0 + ansi.StringWidth(no)
-		lines = append(lines, " "+styleSel.Render(yes)+"   "+styleSelDim.Render(no))
-		if d.yesOnly {
+		yesStyle, noStyle := styleSel, styleSelDim
+		if d.onNo {
+			yesStyle, noStyle = styleSelDim, styleSel
+		}
+		lines = append(lines, " "+yesStyle.Render(yes)+"   "+noStyle.Render(no))
+		switch {
+		case d.yesOnly:
 			// What can't be undone takes y or the button, never a stray enter.
 			lines = append(lines, " "+styleMuted.Render("y or the button confirms; enter does not"))
+		default:
+			lines = append(lines, " "+styleMuted.Render("y / n · ← → move · enter takes the one shown · esc cancels"))
 		}
+	} else if d.notice {
+		lines = append(lines, " "+styleMuted.Render("enter or esc closes"))
 	} else {
 		lines = append(lines, " "+styleMuted.Render("enter confirm · tab next field · esc cancel"))
 	}
@@ -682,6 +729,9 @@ func (d *dialog) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	}
 	if !b.contains(msg.X, msg.Y) {
 		m.overlay = nil
+		return nil
+	}
+	if d.notice {
 		return nil
 	}
 	if d.confirm {
@@ -734,6 +784,7 @@ var helpText = []string{
 	"  Q      review queue: what needs a decision, across every machine",
 	"         / filters it · v checks a row · o its output · x dismisses it (and it stays dismissed)",
 	"  B      broadcast: one message to the agents and terminals of the selection (terminals run it as a command)",
+	"  f      files: browse the checkout of the selected project, or of a branch's worktree",
 	"",
 	"Create",
 	"  t  new task: branch + worktree + an agent with a prompt (Attempts: try it several times)",
@@ -741,6 +792,7 @@ var helpText = []string{
 	"  n  terminal here       a  add or create a project",
 	"  M  add machine (ssh)   R  reconnect a machine    A  start or install any agent",
 	"  H  ssh from this computer to a host (listed under CLI → SSH; nothing installed there)",
+	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
 	"  r  rename (pane, machine) x  close / remove (a branch: worktree, then the branch)",
 	"                            R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",
@@ -766,6 +818,9 @@ var helpText = []string{
 	"  ctrl+b r  draw the pane again (stale text after a resize)",
 	"  ctrl+b b  back to where the split was before the last jump (again returns)",
 	"  ctrl+b [  scroll history (↑↓ pgup pgdn g) · wheel scrolls too",
+	"    / search up · ? search down · n next · N previous (lower case matches either case)",
+	"  ctrl+b M  alert when the pane goes quiet after output (a build finishing) · ctrl+b A  alert on output",
+	"    a watched pane shows ~ (quiet) or # (output) in the tree until you look at it",
 	"  changes: ↑↓ file · enter diff · esc back · y copy path / diff",
 	"    space mark a file · c commit (the marked files, else all) · P push · p open a pull request",
 	"    in a diff: space marks the hunk under ▸ · n / N next, previous hunk · c commits the marked hunks",
@@ -773,9 +828,13 @@ var helpText = []string{
 	"    agent writes: ▌ marks what just changed, F follows it, R re-reads now",
 	"    M merge into the base (undone if it conflicts) · D discard the branch and its worktree",
 	"    A compare the attempts at this task (t runs a command in each, o shows its terminal)",
+	"    T move the branch's worktree to another machine; its agents continue there (also T in the tree)",
 	"  y in the tree copies a branch name or directory",
 	"  Sessions (under a project): enter resume · / search titles and conversations · s share with another agent, here or on another machine",
 	"    d delete · a agent filter · I resume all interrupted · x dismiss",
+	"  Files (under a project, or f): enter open a folder or preview a file · h fold / up · / find in what is loaded",
+	"    a type the path into the agent in this checkout · y copy path · d its diff · e open in $EDITOR",
+	"    . dotfiles · i ignored files · w next checkout · r read again · icons: Settings → Theme",
 	"",
 	"Mouse",
 	"  click select · double-click open · right-click menu · wheel scroll",

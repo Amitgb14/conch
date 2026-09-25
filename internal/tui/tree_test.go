@@ -66,6 +66,7 @@ func TestBuildTreeDefault(t *testing.T) {
         pane:p1
       p:r1/terminals
         pane:p2
+      p:r1/files
     p:r2
   m:local/cli
     m:local/terminals
@@ -180,6 +181,7 @@ m:box
       p:box~r1/branches
       p:box~r1/terminals
         pane:box~p1
+      p:box~r1/files
 `
 	if got != want {
 		t.Fatalf("tree:\n%s\nwant:\n%s", got, want)

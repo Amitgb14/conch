@@ -107,6 +107,21 @@ func (s *settings) themeItems(m *Model) []settingItem {
 				return saveConfig(m.cfg)
 			}})
 
+	items = append(items, settingItem{}, settingItem{header: true, label: "File icons · in the file explorer"})
+	current = iconMode(m.cfg.UI.Icons)
+	for _, c := range []struct{ mode, label string }{
+		{iconsText, "Letters, in any font"},
+		{iconsNerd, "Nerd Font glyphs"},
+		{iconsOff, "None"},
+	} {
+		c := c
+		items = append(items, settingItem{label: c.label, detail: iconSample(c.mode), mark: c.mode == current,
+			run: func(m *Model) tea.Cmd {
+				m.cfg.UI.Icons = c.mode
+				return saveConfig(m.cfg)
+			}})
+	}
+
 	items = append(items, settingItem{}, settingItem{header: true, label: "Shell prompt · Oh My Zsh theme for new zsh terminals"})
 	switch {
 	case s.shellErr != "":
@@ -161,6 +176,11 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 		toggle("An agent is waiting for you", "permissions, questions", &n.Waiting, nil),
 		toggle("An agent finishes", "while you look elsewhere", &n.Done, nil),
 		toggle("A plan limit is nearly used", limitAtText(n.Thresholds()), &n.Limits, nil),
+		{label: "A watched pane goes quiet after", detail: fmt.Sprintf("%ds · %s M watches a pane", n.SilenceAfter(), m.cfg.Keys.Prefix),
+			run: func(m *Model) tea.Cmd {
+				m.cfg.Notify.Silence = nextSilence(m.cfg.Notify.SilenceAfter())
+				return saveConfig(m.cfg)
+			}},
 		{},
 		{header: true, label: "Quiet hours", detail: "no alerts; the sidebar still shows who waits"},
 	}
@@ -202,6 +222,19 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 			return notify(cfg, "conch", "Notifications work")
 		}},
 	)
+}
+
+// silencePresets are the quiet times enter steps through, in seconds.
+var silencePresets = []int{10, 30, 60, 120, 300}
+
+// nextSilence is the preset after cur, round to the first.
+func nextSilence(cur int) int {
+	for _, v := range silencePresets {
+		if v > cur {
+			return v
+		}
+	}
+	return silencePresets[0]
 }
 
 var quietPresets = [][2]string{{"", ""}, {"22:00", "08:00"}, {"23:00", "07:00"}, {"20:00", "09:00"}, {"09:00", "18:00"}}

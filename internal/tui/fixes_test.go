@@ -791,3 +791,130 @@ func TestA2SessionOfPane(t *testing.T) {
 		t.Fatalf("got %+v %v", s, ok)
 	}
 }
+
+// An agent draws on the alternate screen, which has no scrollback of its
+// own; conch keeps one now, so scroll mode and selection reach what the
+// agent said before the screen moved on.
+func TestA2ScrollModeInAnAgentPane(t *testing.T) {
+	m := a2Model()
+	m.viewing, m.viewMachine = "p1", localMachine
+	c, peer := a1FakeClient(t, "pane.scroll.v1")
+	m.machines[0].c = c
+	// What the server now sends for an agent's pane: the alternate screen,
+	// with history conch recorded as it scrolled.
+	m.frame = &proto.Frame{Mouse: true, AltScreen: true, History: 120, Lines: []string{"newest line", "and another"}}
+
+	m.enterScrollMode()
+	if !m.scrollMode {
+		t.Fatal("scroll mode should open on a pane with history")
+	}
+	m.scrollPane(10)
+	if m.offset != 10 {
+		t.Fatalf("offset %d, want 10", m.offset)
+	}
+	peer.waitMethod(t, proto.MethodPaneScroll, "")
+
+	// Selecting while scrolled back: the wheel is conch's, not the agent's,
+	// because there is history to move through.
+	m.sel = &selection{paneID: "p1", ay: 1, by: 1, hasContent: true}
+	before := m.offset
+	a2Run(m.paneMouse("p1", tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}, 1, 1, false, true))
+	if m.offset == before {
+		t.Fatal("the wheel should scroll the recorded history while selecting")
+	}
+	// With nothing selected it still belongs to the agent.
+	m.sel = nil
+	at := m.offset
+	a2Run(m.paneMouse("p1", tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}, 1, 1, false, true))
+	if m.offset != at {
+		t.Fatal("without a selection the agent should get the wheel")
+	}
+	peer.waitMethod(t, proto.MethodPaneSendMouse, "")
+}
+
+// A confirm has two buttons, and the keyboard has to reach both: the mouse
+// could pick either, but arrows and tab did nothing at all.
+func TestA2ConfirmKeyboard(t *testing.T) {
+	said := 0
+	open := func() *dialog {
+		d := newConfirm("Close check · master?", func(m *Model) tea.Cmd { said++; return nil })
+		return d
+	}
+	m := a2Model()
+
+	// Moving: any of these swaps the button, and the one shown is marked.
+	for _, key := range []string{"right", "left", "tab", "shift+tab", "h", "l"} {
+		d := open()
+		m.overlay = d
+		if d.onNo {
+			t.Fatalf("%s: a confirm should open on Yes", key)
+		}
+		if closed, cmd := d.update(m, a2Key(key)); closed || cmd != nil {
+			t.Fatalf("%s should only move between the buttons", key)
+		}
+		if !d.onNo {
+			t.Fatalf("%s did not move to No", key)
+		}
+		out := a2Plain(d.render(*m).lines)
+		if !strings.Contains(out, "Yes") || !strings.Contains(out, "No") {
+			t.Fatalf("%s: both buttons should still be there:\n%s", key, out)
+		}
+		// And back again.
+		d.update(m, a2Key(key))
+		if d.onNo {
+			t.Fatalf("%s did not move back to Yes", key)
+		}
+	}
+
+	// enter takes whichever button is shown.
+	before := said
+	d := open()
+	m.overlay = d
+	if closed, _ := d.update(m, a2Key("enter")); !closed || said != before+1 {
+		t.Fatal("enter on Yes should confirm")
+	}
+	d = open()
+	m.overlay = d
+	d.update(m, a2Key("right"))
+	before = said
+	closed, cmd := d.update(m, a2Key("enter"))
+	if !closed || cmd != nil || said != before {
+		t.Fatal("enter on No should cancel, not confirm")
+	}
+	if m.overlay != nil {
+		t.Fatal("it should close either way")
+	}
+
+	// y and n still work wherever the cursor is, and esc cancels.
+	d = open()
+	m.overlay = d
+	d.update(m, a2Key("right")) // on No
+	before = said
+	if closed, _ := d.update(m, a2Key("y")); !closed || said != before+1 {
+		t.Fatal("y should confirm even from the No button")
+	}
+	d = open()
+	m.overlay = d
+	before = said
+	if closed, cmd := d.update(m, a2Key("esc")); !closed || cmd != nil || said != before {
+		t.Fatal("esc should cancel")
+	}
+
+	// One that can't be undone still refuses a stray enter on Yes, and the
+	// hint says so.
+	d = open()
+	d.yesOnly = true
+	m.overlay = d
+	before = said
+	if closed, _ := d.update(m, a2Key("enter")); closed || said != before {
+		t.Fatal("enter should not confirm what cannot be undone")
+	}
+	if out := a2Plain(d.render(*m).lines); !strings.Contains(out, "enter does not") {
+		t.Fatalf("the hint should say so:\n%s", out)
+	}
+	// But moving to No and pressing enter still cancels it.
+	d.update(m, a2Key("right"))
+	if closed, _ := d.update(m, a2Key("enter")); !closed || said != before {
+		t.Fatal("enter on No should cancel even then")
+	}
+}

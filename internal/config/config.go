@@ -123,6 +123,10 @@ type UICfg struct {
 	// one, else the tokens it used — on tree rows, in the Sessions list and
 	// on the project and machine pages. On unless turned off.
 	Cost bool `toml:"cost"`
+	// Icons is how the file explorer marks each kind of file: "text" (the
+	// default, a coloured two-letter tag that works in any font), "nerd"
+	// (Nerd Font glyphs) or "off". Empty means text.
+	Icons string `toml:"icons,omitempty"`
 }
 
 // NotifyCfg controls how the TUI tells you an agent needs attention while
@@ -142,6 +146,21 @@ type NotifyCfg struct {
 	// weekly, Codex's) passes a percentage in LimitAt.
 	Limits  bool  `toml:"limits"`
 	LimitAt []int `toml:"limit_at"`
+	// Silence is how many seconds without output count as quiet, for a
+	// pane watched for it (ctrl+b M).
+	Silence int `toml:"silence"`
+}
+
+// DefaultSilence is how long a watched pane must be quiet, in seconds.
+const DefaultSilence = 30
+
+// SilenceAfter is Silence, or the default when it is unset or makes no
+// sense.
+func (n NotifyCfg) SilenceAfter() int {
+	if n.Silence < 1 {
+		return DefaultSilence
+	}
+	return n.Silence
 }
 
 // DefaultLimitAt is when plan limit alerts fire, in percent used.
@@ -205,7 +224,7 @@ type PaneCfg struct {
 func Default() Config {
 	return Config{
 		Keys:   Keys{Prefix: "ctrl+b"},
-		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true, Limits: true, LimitAt: append([]int(nil), DefaultLimitAt...)},
+		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true, Limits: true, LimitAt: append([]int(nil), DefaultLimitAt...), Silence: DefaultSilence},
 		UI:     UICfg{Mouse: true, Theme: "conch", Cost: true},
 		Agents: AgentsCfg{Default: "claude"},
 		Brain:  BrainCfg{Provider: "claude"},
