@@ -352,16 +352,8 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 			return false, copyText(cv.data.Files[cv.sel].Path)
 		}
 	case " ":
-		if files > 0 && cv.data.Worktree != "" {
-			path := cv.data.Files[cv.sel].Path
-			if cv.marked == nil {
-				cv.marked = map[string]bool{}
-			}
-			if cv.marked[path] {
-				delete(cv.marked, path)
-			} else {
-				cv.marked[path] = true
-			}
+		if files > 0 {
+			cv.toggleMark(m, cv.data.Files[cv.sel].Path)
 			cv.sel = clamp(cv.sel+1, 0, files-1)
 		}
 	case "c":
@@ -505,6 +497,11 @@ func (cv *changesView) render(m Model, w, h int) []string {
 	if n := cv.changingNow(); n > 0 {
 		header += styleWarn.Render(fmt.Sprintf("  · %d changing", n))
 	}
+	// The counts are state and the hint only a reminder, so a narrow pane
+	// keeps the counts and drops the hint rather than cutting both.
+	if hint := cv.listHint(m); ansi.StringWidth(header)+len(hint)+2 <= w {
+		header = spread(header, styleMuted.Render(hint), w)
+	}
 	lines = append(lines, header)
 
 	// Room for the files' "… more" line and the commits below: a blank line,
@@ -525,25 +522,26 @@ func (cv *changesView) render(m Model, w, h int) []string {
 		if f.Binary {
 			stat = styleMuted.Render("binary")
 		}
-		if cv.marked[f.Path] {
-			stat = styleOK.Render("✓ ") + stat
-		}
 		name := f.Path
 		if f.OrigPath != "" {
 			name = f.OrigPath + " → " + f.Path
 		}
-		// The cursor keeps the first column and the "being written" mark the
-		// second, beside the name: on a wide pane the right-hand numbers are
-		// a screen away and a mark there goes unseen.
+		// The cursor keeps the first column, the mark for the next commit
+		// the second and the "being written" mark the third, beside the
+		// name: on a wide pane the right-hand numbers are a screen away and
+		// a mark there goes unseen.
 		live := cv.changing(f.Path)
-		mark, cursor := " ", " "
+		tick, mark, cursor := " ", " ", " "
+		if cv.marked[f.Path] {
+			tick = "✓"
+		}
 		if live {
 			mark = "▌"
 		}
 		if i == cv.sel {
 			cursor = "▸"
 		}
-		plain := fmt.Sprintf("%s%s %s %s", cursor, mark, f.Code, name)
+		plain := fmt.Sprintf("%s%s%s %s %s", cursor, tick, mark, f.Code, name)
 		switch {
 		case i == cv.sel:
 			sel := styleSelDim
@@ -557,7 +555,7 @@ func (cv *changesView) render(m Model, w, h int) []string {
 			// background, so the row is rendered without them.
 			lines = append(lines, styleLive.Render(spread(plain, ansi.Strip(stat), w)))
 		default:
-			left := fmt.Sprintf("%s%s %s %s", cursor, mark, codeStyle(f.Code).Render(padRight(f.Code, 1)), name)
+			left := fmt.Sprintf("%s%s%s %s %s", cursor, styleOK.Render(tick), mark, codeStyle(f.Code).Render(padRight(f.Code, 1)), name)
 			lines = append(lines, spread(left, stat, w))
 		}
 	}
@@ -770,9 +768,47 @@ func (cv *changesView) mouse(m *Model, msg tea.MouseMsg, x, y int) tea.Cmd {
 	top := cv.filesTop(*m)
 	if i := cv.scroll + y - top; y >= top && i >= 0 && i < len(cv.data.Files) {
 		cv.sel = i
+		if x == tickColumn { // the column the ✓ is drawn in marks the file
+			cv.toggleMark(m, cv.data.Files[i].Path)
+			return nil
+		}
 		return cv.loadDiff(m, cv.data.Files[i].Path) // one click opens the diff
 	}
 	return nil
+}
+
+// tickColumn is where a file's ✓ is drawn, and so where a click marks it:
+// after the cursor's own column.
+const tickColumn = 1
+
+// toggleMark marks the file at path for the next commit, or unmarks it.
+// Only a checked-out branch has changes of its own to commit, so marking
+// says so rather than doing nothing when there is no worktree.
+func (cv *changesView) toggleMark(m *Model, path string) {
+	if cv.data == nil || cv.data.Worktree == "" {
+		m.setFlash("only a checked-out branch's own changes can be committed", true)
+		return
+	}
+	if cv.marked == nil {
+		cv.marked = map[string]bool{}
+	}
+	if cv.marked[path] {
+		delete(cv.marked, path)
+		return
+	}
+	cv.marked[path] = true
+}
+
+// listHint is the line at the right of the file list's header: what the
+// keys do in it, or how to reach them when the tree still has focus.
+func (cv *changesView) listHint(m Model) string {
+	if m.focus != focusMain {
+		return "enter to work in these changes"
+	}
+	if cv.data == nil || cv.data.Worktree == "" {
+		return "enter diff · esc back"
+	}
+	return "space or click ✓ marks · c commit"
 }
 
 func diffStat(added, deleted int) string {

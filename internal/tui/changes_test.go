@@ -568,3 +568,117 @@ func TestClickingABranchLoadsItsChanges(t *testing.T) {
 		t.Fatal("clicking the project re-read the branch")
 	}
 }
+
+// Marking a file for the next commit: with the keyboard, and with a click
+// in the ✓ column beside the cursor — the only way a mouse had of marking
+// one, since a click anywhere else on the row opens its diff. A new
+// (untracked) file marks like any other.
+func TestA2MarkFilesByClick(t *testing.T) {
+	m := a2Model()
+	m.width = 0
+	m.focus = focusMain
+	cv := &changesView{machine: localMachine, projectID: "r1", branch: "feat"}
+	d := a2Changes("a.go", "b.go")
+	d.Files[1].Code = "?" // a file git doesn't track yet
+	cv.data = &d
+
+	top := cv.filesTop(*m)
+	press := func(x, y int) tea.Cmd {
+		return cv.mouse(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, x, y)
+	}
+	// The ✓ column marks and does not open a diff.
+	if cmd := press(tickColumn, top+1); cmd != nil || cv.diffFile != "" {
+		t.Fatalf("a click in the ✓ column opened %q", cv.diffFile)
+	}
+	if !cv.marked["b.go"] || cv.sel != 1 {
+		t.Fatalf("the new file was not marked: %v sel %d", cv.marked, cv.sel)
+	}
+	// Clicking it again unmarks it; the mark is not left behind as false.
+	press(tickColumn, top+1)
+	if len(cv.marked) != 0 {
+		t.Fatalf("a second click left %v", cv.marked)
+	}
+	// The cursor's own column, and the name, still open the diff.
+	if cmd := press(0, top); cmd == nil || cv.diffFile != "a.go" {
+		t.Fatalf("a click on the cursor column: %q", cv.diffFile)
+	}
+	cv.diffFile = ""
+	if cmd := press(tickColumn+3, top+1); cmd == nil || cv.diffFile != "b.go" {
+		t.Fatalf("a click on the name: %q", cv.diffFile)
+	}
+	cv.diffFile = ""
+
+	// Marked files show a ✓ in that column, beside the cursor.
+	cv.marked = map[string]bool{"b.go": true}
+	out := a2Plain(cv.render(*m, 80, 24))
+	if !strings.Contains(out, "✓  ? b.go") || !strings.Contains(out, "1 marked") {
+		t.Fatalf("the ✓ column is not drawn:\n%s", out)
+	}
+	if strings.Contains(out, "✓ +2") {
+		t.Fatalf("the ✓ is still out by the numbers:\n%s", out)
+	}
+	// A file being written keeps its own mark in the next column along.
+	cv.touch([]string{"b.go"})
+	if out := a2Plain(cv.render(*m, 80, 24)); !strings.Contains(out, "✓▌ ? b.go") {
+		t.Fatalf("a marked file being written:\n%s", out)
+	}
+	// A narrow pane keeps the counts and drops the hint, and no row is
+	// wider than the pane.
+	for _, w := range []int{120, 80, 40, 20, 4, 1} {
+		out := cv.render(*m, w, 24)
+		for _, l := range out {
+			if strings.Contains(ansi.Strip(l), "b.go") && ansi.StringWidth(l) > w {
+				t.Fatalf("width %d: %q is %d wide", w, l, ansi.StringWidth(l))
+			}
+		}
+		plain := a2Plain(out)
+		if w >= 80 && !strings.Contains(plain, "1 marked") {
+			t.Fatalf("width %d lost the count:\n%s", w, plain)
+		}
+		if w < 80 && strings.Contains(plain, "c commit") {
+			t.Fatalf("width %d kept the hint:\n%s", w, plain)
+		}
+	}
+}
+
+// A branch with no worktree has no changes of its own to commit, so marking
+// says so rather than doing nothing; and the header says how to reach the
+// keys while the tree still has focus.
+func TestA2MarkNeedsAWorktree(t *testing.T) {
+	m := a2Model()
+	m.width = 0
+	m.focus = focusMain
+	cv := &changesView{machine: localMachine, projectID: "r1", branch: "old"}
+	d := a2Changes("a.go")
+	d.Worktree = "" // read from the base..branch range, not a checkout
+	cv.data = &d
+	cv.key(m, a2Key(" "))
+	if len(cv.marked) != 0 {
+		t.Fatalf("marked without a worktree: %v", cv.marked)
+	}
+	if !strings.Contains(m.flash, "only a checked-out branch") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	if out := a2Plain(cv.render(*m, 80, 24)); !strings.Contains(out, "enter diff · esc back") {
+		t.Fatalf("hint without a worktree:\n%s", out)
+	}
+	// The same click is refused, and leaves no empty map behind.
+	m.flash = ""
+	cv.mouse(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, tickColumn, cv.filesTop(*m))
+	if len(cv.marked) != 0 || !strings.Contains(m.flash, "only a checked-out branch") {
+		t.Fatalf("click without a worktree: %v %q", cv.marked, m.flash)
+	}
+
+	// With a worktree, the header says what the keys do — and, while the
+	// tree has focus, how to get to them.
+	with := &changesView{machine: localMachine, projectID: "r1", branch: "feat"}
+	wd := a2Changes("a.go")
+	with.data = &wd
+	if out := a2Plain(with.render(*m, 80, 24)); !strings.Contains(out, "space or click ✓ marks · c commit") {
+		t.Fatalf("hint when focused:\n%s", out)
+	}
+	m.focus = focusSidebar
+	if out := a2Plain(with.render(*m, 80, 24)); !strings.Contains(out, "enter to work in these changes") {
+		t.Fatalf("hint from the tree:\n%s", out)
+	}
+}
