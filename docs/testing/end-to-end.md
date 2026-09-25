@@ -332,6 +332,27 @@ The remote rows, at last, with key login to busybox. Isolated on both sides: its
 - **Remote updates from the version popup (4.6, and the remote half of 5.4):** a TUI on the harness showed `⬆`, and the popup listed `[x] busybox   runs build 5a3f7aa19f3e · installs and reloads`. `space` toggled it to `[ ]` and back. Ticked, `u` installed and reloaded busybox (same pid, pane kept) and the `⬆` cleared; unticked, `u` left the remote on its old build. One remote only — 4.6's two-remote case still wants a second machine.
 - **Not covered:** password auth (4.2; busybox has key login now), and the TUI's own machine menu → Reload server, which `machine upgrade` stands in for here.
 
+### R24 — 2026-09-25, the v0.1.4 release, macOS arm64
+
+The release rows again, on the release that added moving a worktree to another
+machine, the file explorer, reading a pane's past on the alternate screen, the
+finished review queue and terminal monitoring. The tag built on GitHub — tests,
+four platforms, checksums, 2m37s — and the website deployed from it in 53s.
+
+- **The archives (5.x):** all four are there with `checksums.txt`; the
+  darwin/arm64 archive's sha256 matches it, and the binary inside says
+  `conch 0.1.4 (build 71b54981694a, darwin/arm64)`.
+- **install.sh (5.1):** with a scratch `HOME` it downloaded 0.1.4 for
+  darwin/arm64, installed it to `~/.local/bin/conch` and said to add it to
+  `PATH`; the installed binary reports the same build.
+- **conch update (5.2):** a real v0.1.3 binary, downloaded from its own
+  release, updated itself — "updated …/conch: 0.1.3 → 0.1.4" — and then
+  reported 0.1.4 on the same build hash as the installed one.
+- **The website:** https://amitgb14.github.io/conch/docs/installation/ serves
+  0.1.4, resolved from the tag.
+
+Not covered here: the linux archives, and updating a remote machine to 0.1.4.
+
 ### R20 — 2026-09-24, the v0.1.3 release, macOS arm64
 
 The release rows again, on the release that added the review queue with its
