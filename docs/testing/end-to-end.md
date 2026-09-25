@@ -89,9 +89,9 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | --- | --- | --- | --- | --- |
 | 5.1 | `install.sh` | `curl -fsSL …/install.sh \| sh` on macOS and Linux (amd64, arm64) | Installs the right asset; checksum verified | ✅ R5 the published v0.1.0 one-liner (latest lookup) on macOS arm64 and Linux arm64 and amd64 |
 | 5.2 | `conch update` | From an older release | Downloads, verifies, replaces the binary; `conch version` shows the new one | ✅ R11 v0.1.0 → 0.1.1 on macOS arm64 |
-| 5.3 | Release check in the TUI | A release build older than the latest | Status bar shows `⬆`; version popup offers the update | ✅ R12 a real v0.1.0 TUI against the published 0.1.1 |
-| 5.4 | Update from the TUI | `u` in the version popup | Installs, reloads the server keeping panes, restarts the TUI, updates remotes | ✅ R12 local, R13 the remote half |
-| 5.5 | `conch update list` | On a release build, with two or more releases published | Lists them newest first, marks the running one with `*`, the latest, and any kept locally | ☐ |
+| 5.3 | Release check in the TUI | A release build older than the latest | Status bar shows `⬆`; version popup offers the update | ✅ R12 a real v0.1.0 TUI against the published 0.1.1, R24 a real v0.1.3 one against 0.1.4 |
+| 5.4 | Update from the TUI | `u` in the version popup | Installs, reloads the server keeping panes, restarts the TUI, updates remotes | ✅ R12 local, R13 the remote half, R24 again on 0.1.3 → 0.1.4 |
+| 5.5 | `conch update list` | On a release build, with two or more releases published | Lists them newest first, marks the running one with `*`, the latest, and any kept locally | ✅ R24 on a real 0.1.4 after updating from 0.1.3 |
 | 5.6 | Moving back | After a real `conch update`, run `conch update rollback` | Installs the kept copy with no download, reloads the server keeping panes, `conch version` shows the older release; a second `rollback` comes forward again | ☐ |
 | 5.7 | Moving back to a version never kept | `conch update VERSION` for an older release on a fresh `CONCH_HOME` | Downloads and verifies that release, replaces the binary, reloads the server | ☐ |
 | 5.8 | `[update] auto = true` | A release build older than the latest, `auto = true`, TUI open | The daily check installs the release on its own: flash, server reload, TUI restart, remotes | ☐ |
@@ -350,6 +350,17 @@ four platforms, checksums, 2m37s — and the website deployed from it in 53s.
   reported 0.1.4 on the same build hash as the installed one.
 - **The website:** https://amitgb14.github.io/conch/docs/installation/ serves
   0.1.4, resolved from the tag.
+
+- **The update in the TUI (5.3, 5.4):** a real v0.1.3 TUI, in its own `HOME`
+  and `CONCH_HOME` inside a harness pane, showed `⬆ v0.1.3` within seconds of
+  starting; clicking the version cell opened
+  "⬆ Release   0.1.4 available (running v0.1.3)". `u` downloaded it, reloaded
+  its server **in place — same pid 48973** and restarted the TUI onto
+  `v0.1.4` (build 71b54981694a) with the arrow gone, the memory icon of this
+  release in the corner, and the popup then saying "Server up to date".
+- **conch update list (5.5):** the updated binary listed
+  `* 0.1.4 (latest, what conch update installs · running)`, `0.1.3 (kept, no
+  download needed)`, then 0.1.2 to 0.1.0, and said rollback goes back to 0.1.3.
 
 Not covered here: the linux archives, and updating a remote machine to 0.1.4.
 
