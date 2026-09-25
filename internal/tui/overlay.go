@@ -823,7 +823,7 @@ var helpText = []string{
 	"    a watched pane shows ~ (quiet) or # (output) in the tree until you look at it",
 	"  changes: ↑↓ file · enter diff · esc back · y copy path / diff",
 	"    space or a click in the ✓ column marks a file · c commit (the marked files, else all)",
-	"    P push · p open a pull request",
+	"    P push (the remote ahead? it offers to take its commits first) · p open a pull request",
 	"    in a diff: space marks the hunk under ▸ · n / N next, previous hunk · c commits the marked hunks",
 	"    the file list washes the row of a file being written and marks it ▌; an open diff re-reads as the",
 	"    agent writes: ▌ marks what just changed, F follows it, R re-reads now",
@@ -901,8 +901,16 @@ func (help) mouse(m *Model, msg tea.MouseMsg, _ box) tea.Cmd {
 	return nil
 }
 
-// wrap breaks text into lines of at most w cells at spaces.
+// wrap breaks text into lines of at most w cells at spaces. A line that
+// already fits is kept as it is, blanks and indentation included, so a
+// notice can lay out a list of commands.
 func wrap(text string, w int) []string {
+	if text == "" {
+		return []string{""} // an empty line is a blank line, not nothing
+	}
+	if strings.TrimSpace(text) != "" && ansi.StringWidth(text) <= w {
+		return []string{text}
+	}
 	var lines []string
 	cur := ""
 	for _, word := range strings.Fields(text) {

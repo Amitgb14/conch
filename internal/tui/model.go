@@ -429,6 +429,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(mach.connect(false), m.rebuild(), m.saveState())
 
+	case pushRejectedMsg:
+		return m, m.receivePushRejected(msg)
+
+	case rebaseConflictMsg:
+		return m, m.receiveRebaseConflict(msg)
+
 	case changesMsg, diffMsg:
 		var cmds []tea.Cmd
 		for _, t := range m.openTabs() {
@@ -464,7 +470,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(append(cmds, m.pollChanges())...)
 
 	case errMsg:
-		m.setFlash(msg.err.Error(), true)
+		m.showError(msg.err)
 		if m.dropAwaiting() { // a tab or split opened for a pane that never came
 			return m, tea.Batch(m.focusLeaf(m.tab().focus), m.saveState())
 		}

@@ -148,11 +148,17 @@ func TestPush(t *testing.T) {
 	}
 	git(t, origin, "rev-parse", "--verify", "local")
 
-	// A rejected push returns git's reason.
+	// A push the remote is ahead of says so in its own words, as the error
+	// a rebase can mend rather than git's page of hints.
 	other := git(t, root, "commit-tree", "main^{tree}", "-p", "main", "-m", "someone else's")
 	git(t, root, "push", "-q", "--force", "origin", other+":refs/heads/feat")
-	if err := Push(ctx, root, "feat"); err == nil || !strings.Contains(err.Error(), "rejected") {
+	err := Push(ctx, root, "feat")
+	var rej *PushRejectedError
+	if !errors.As(err, &rej) || rej.Remote != "origin" || rej.Branch != "feat" {
 		t.Fatalf("non-fast-forward: %v", err)
+	}
+	if !strings.Contains(err.Error(), "commits this checkout does not have") {
+		t.Fatalf("rejection reads %q", err)
 	}
 
 	// Several remotes and no origin: refuse to guess.
@@ -563,5 +569,158 @@ func TestAhead(t *testing.T) {
 	}
 	if n := Ahead(ctx, root, "feat", "no-such-base"); n != 0 {
 		t.Fatalf("missing base: %d", n)
+	}
+}
+
+// pushed sets up a feat branch with an upstream on a bare origin, and
+// returns the repository, its worktree and origin's path.
+func pushed(t *testing.T) (root, wt, origin string) {
+	t.Helper()
+	root, wt = taskRepo(t)
+	origin = filepath.Join(t.TempDir(), "origin.git")
+	git(t, root, "init", "-q", "--bare", origin)
+	git(t, root, "remote", "add", "origin", origin)
+	commit(t, wt, "a.txt", "a\n", "first")
+	if err := Push(ctx, root, "feat"); err != nil {
+		t.Fatal(err)
+	}
+	return root, wt, origin
+}
+
+// aheadOnOrigin puts a commit on origin's feat that this checkout lacks, as
+// another machine or another person pushing would.
+func aheadOnOrigin(t *testing.T, root, origin, file, text string) {
+	t.Helper()
+	clone := filepath.Join(t.TempDir(), "theirs")
+	git(t, root, "clone", "-q", "-b", "feat", origin, clone)
+	write(t, clone, file, text)
+	git(t, clone, "add", "-A")
+	git(t, clone, "-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-q", "-m", "theirs")
+	git(t, clone, "push", "-q", "origin", "feat")
+}
+
+// PushRebase is what mends a rejected push: take what the remote has, put
+// this branch's own commits on top, push.
+func TestPushRebase(t *testing.T) {
+	root, wt, origin := pushed(t)
+	aheadOnOrigin(t, root, origin, "theirs.txt", "theirs\n")
+	commit(t, wt, "mine.txt", "mine\n", "mine")
+	mine := git(t, wt, "rev-parse", "HEAD")
+
+	if err := Push(ctx, root, "feat"); err == nil {
+		t.Fatal("the push should have been rejected")
+	}
+	took, err := PushRebase(ctx, wt, "feat")
+	if err != nil || took != 1 {
+		t.Fatalf("rebase and push: took %d, %v", took, err)
+	}
+	if got := git(t, origin, "rev-parse", "feat"); got != git(t, wt, "rev-parse", "HEAD") {
+		t.Fatalf("origin at %s, branch at %s", got, git(t, wt, "rev-parse", "HEAD"))
+	}
+	// Both sides' work is there, and mine sits on top of theirs.
+	for _, f := range []string{"theirs.txt", "mine.txt"} {
+		if _, err := os.Stat(filepath.Join(wt, f)); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+	}
+	if git(t, wt, "rev-parse", "HEAD") == mine {
+		t.Fatal("the branch was not rebased")
+	}
+	if subject := git(t, wt, "log", "-1", "--format=%s"); subject != "mine" {
+		t.Fatalf("mine is not on top: %q", subject)
+	}
+
+	// With nothing to take it is an ordinary push.
+	commit(t, wt, "more.txt", "more\n", "more")
+	if took, err := PushRebase(ctx, wt, "feat"); err != nil || took != 0 {
+		t.Fatalf("nothing to take: took %d, %v", took, err)
+	}
+	if git(t, origin, "rev-parse", "feat") != git(t, wt, "rev-parse", "HEAD") {
+		t.Fatal("the push did not happen")
+	}
+}
+
+// A rebase that conflicts is undone: the branch stays as it was, nothing is
+// pushed, and no rebase is left half finished.
+func TestPushRebaseConflict(t *testing.T) {
+	root, wt, origin := pushed(t)
+	aheadOnOrigin(t, root, origin, "a.txt", "theirs\n")
+	write(t, wt, "a.txt", "mine\n")
+	git(t, wt, "add", "-A")
+	git(t, wt, "-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-q", "-m", "mine")
+	head, remote := git(t, wt, "rev-parse", "HEAD"), git(t, origin, "rev-parse", "feat")
+
+	took, err := PushRebase(ctx, wt, "feat")
+	var conflict *RebaseConflictError
+	if !errors.As(err, &conflict) || took != 0 {
+		t.Fatalf("conflicting rebase: took %d, %v", took, err)
+	}
+	if len(conflict.Files) != 1 || conflict.Files[0] != "a.txt" || conflict.Remote != "origin" {
+		t.Fatalf("conflict names %+v", conflict)
+	}
+	if !strings.Contains(err.Error(), "nothing was changed or pushed") {
+		t.Fatalf("reads %q", err)
+	}
+	if git(t, wt, "rev-parse", "HEAD") != head {
+		t.Fatal("the branch moved")
+	}
+	if git(t, origin, "rev-parse", "feat") != remote {
+		t.Fatal("something was pushed")
+	}
+	if b := git(t, wt, "rev-parse", "--abbrev-ref", "HEAD"); b != "feat" {
+		t.Fatalf("left on %q", b) // a rebase stopped part way leaves a detached HEAD
+	}
+	if got, _ := os.ReadFile(filepath.Join(wt, "a.txt")); string(got) != "mine\n" {
+		t.Fatalf("the file reads %q", got)
+	}
+	// The worktree is usable again straight away.
+	if _, err := StatusFiles(ctx, wt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// What PushRebase refuses to do, so no uncommitted work is ever moved.
+func TestPushRebaseRefusals(t *testing.T) {
+	root, wt, origin := pushed(t)
+	aheadOnOrigin(t, root, origin, "theirs.txt", "theirs\n")
+
+	// Uncommitted changes to a tracked file stop it; an untracked file
+	// does not, since a rebase leaves those alone.
+	write(t, wt, "a.txt", "half written\n")
+	if _, err := PushRebase(ctx, wt, "feat"); err == nil || !strings.Contains(err.Error(), "commit or stash") {
+		t.Fatalf("dirty worktree: %v", err)
+	}
+	git(t, wt, "checkout", "--", "a.txt")
+	write(t, wt, "scratch.txt", "untracked\n")
+	if _, err := PushRebase(ctx, wt, "feat"); err != nil {
+		t.Fatalf("untracked file: %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(wt, "scratch.txt")); string(got) != "untracked\n" {
+		t.Fatalf("the untracked file reads %q", got)
+	}
+
+	// A directory where the branch is not checked out says which is.
+	if _, err := PushRebase(ctx, root, "feat"); err == nil || !strings.Contains(err.Error(), "not checked out") {
+		t.Fatalf("wrong worktree: %v", err)
+	}
+}
+
+// A push refused for another reason — a hook, no access — is not mistaken
+// for one the remote is merely ahead of: taking its commits would not mend
+// it, so it is reported as it is.
+func TestPushRefusedByAHook(t *testing.T) {
+	root, wt, origin := pushed(t)
+	hook := filepath.Join(origin, "hooks", "pre-receive")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho no thanks >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	commit(t, wt, "b.txt", "b\n", "second")
+	err := Push(ctx, root, "feat")
+	var rej *PushRejectedError
+	if err == nil || errors.As(err, &rej) {
+		t.Fatalf("a hook's refusal: %v", err)
+	}
+	if !strings.Contains(err.Error(), "no thanks") {
+		t.Fatalf("the hook's reason is lost: %v", err)
 	}
 }

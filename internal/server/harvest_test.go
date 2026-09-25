@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -423,4 +424,105 @@ func TestProjectResolve(t *testing.T) {
 		t.Fatalf("plain folder: %+v", plain)
 	}
 	wantErr(t, call(t, c, proto.MethodProjectResolve, proto.ProjectAddParams{Path: filepath.Join(repo, "nope")}, nil), "no such file")
+}
+
+// A push the remote is ahead of comes back as push_rejected, and asking
+// again with Rebase takes those commits and puts the branch's own on top.
+func TestHarvestPushRebase(t *testing.T) {
+	c, proj, repo, wt, origin := harvestFixture(t)
+	id := proj.ID
+	if miss := c.MissingCapabilities([]string{proto.CapBranchRebase}); len(miss) > 0 {
+		t.Fatalf("capability missing: %v", miss)
+	}
+	os.WriteFile(filepath.Join(wt, "mine.txt"), []byte("mine\n"), 0o644)
+	if err := call(t, c, proto.MethodBranchCommit, proto.BranchCommitParams{ProjectID: id, Branch: "feat", Message: "mine"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := call(t, c, proto.MethodBranchPush, proto.BranchPushParams{ProjectID: id, Branch: "feat"}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Somebody else pushes to feat, and this checkout falls behind.
+	theirs := filepath.Join(t.TempDir(), "theirs")
+	git(t, repo, "clone", "-q", "-b", "feat", origin, theirs)
+	os.WriteFile(filepath.Join(theirs, "theirs.txt"), []byte("theirs\n"), 0o644)
+	git(t, theirs, "add", "-A")
+	git(t, theirs, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "theirs")
+	git(t, theirs, "push", "-q", "origin", "feat")
+
+	os.WriteFile(filepath.Join(wt, "more.txt"), []byte("more\n"), 0o644)
+	if err := call(t, c, proto.MethodBranchCommit, proto.BranchCommitParams{ProjectID: id, Branch: "feat", Message: "more"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	err := call(t, c, proto.MethodBranchPush, proto.BranchPushParams{ProjectID: id, Branch: "feat"}, nil)
+	var perr *proto.Error
+	if !errors.As(err, &perr) || perr.Code != proto.ErrPushRejected {
+		t.Fatalf("rejected push: %v", err)
+	}
+	if !strings.Contains(perr.Message, "commits this checkout does not have") {
+		t.Fatalf("reads %q", perr.Message)
+	}
+
+	// Asking again with Rebase takes them and says how many.
+	var res proto.BranchPushResult
+	if err := call(t, c, proto.MethodBranchPush, proto.BranchPushParams{ProjectID: id, Branch: "feat", Rebase: true}, &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Took != 1 {
+		t.Fatalf("took %d commits", res.Took)
+	}
+	if gitOut(t, origin, "rev-parse", "feat") != gitOut(t, wt, "rev-parse", "HEAD") {
+		t.Fatal("origin and the branch differ after the rebase")
+	}
+	for _, f := range []string{"mine.txt", "theirs.txt", "more.txt"} {
+		if _, err := os.Stat(filepath.Join(wt, f)); err != nil {
+			t.Fatalf("%s after the rebase: %v", f, err)
+		}
+	}
+
+	// A conflicting rebase is undone and says so under its own code, with
+	// the branch and the remote left as they were.
+	git(t, theirs, "fetch", "-q", "origin", "feat")
+	git(t, theirs, "reset", "-q", "--hard", "FETCH_HEAD") // they take what was pushed above
+	os.WriteFile(filepath.Join(theirs, "mine.txt"), []byte("theirs\n"), 0o644)
+	git(t, theirs, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qam", "their edit")
+	git(t, theirs, "push", "-q", "origin", "feat")
+	os.WriteFile(filepath.Join(wt, "mine.txt"), []byte("mine again\n"), 0o644)
+	if err := call(t, c, proto.MethodBranchCommit, proto.BranchCommitParams{ProjectID: id, Branch: "feat", Message: "my edit"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	head, remote := gitOut(t, wt, "rev-parse", "HEAD"), gitOut(t, origin, "rev-parse", "feat")
+	err = call(t, c, proto.MethodBranchPush, proto.BranchPushParams{ProjectID: id, Branch: "feat", Rebase: true}, nil)
+	if !errors.As(err, &perr) || perr.Code != proto.ErrRebaseConflict {
+		t.Fatalf("conflicting rebase: %v", err)
+	}
+	if !strings.Contains(perr.Message, "conflicts in mine.txt") || !strings.Contains(perr.Message, "nothing was changed or pushed") {
+		t.Fatalf("reads %q", perr.Message)
+	}
+	if gitOut(t, wt, "rev-parse", "HEAD") != head || gitOut(t, origin, "rev-parse", "feat") != remote {
+		t.Fatal("the conflict moved the branch or the remote")
+	}
+	if b := gitOut(t, wt, "rev-parse", "--abbrev-ref", "HEAD"); b != "feat" {
+		t.Fatalf("left on %q", b)
+	}
+	git(t, wt, "reset", "-q", "--hard", "HEAD~1") // drop the conflicting commit
+	git(t, wt, "rebase", "-q", "origin/feat")
+
+	// A branch with no worktree cannot be rebased: there is nowhere to do
+	// it, and the plain push still works.
+	git(t, repo, "branch", "spare", "main")
+	wantErr(t, call(t, c, proto.MethodBranchPush, proto.BranchPushParams{ProjectID: id, Branch: "spare", Rebase: true}, nil), "not checked out here")
+	if err := call(t, c, proto.MethodBranchPush, proto.BranchPushParams{ProjectID: id, Branch: "spare"}, nil); err != nil {
+		t.Fatalf("plain push of a branch without a worktree: %v", err)
+	}
+
+	// An older client sends a BranchRef, which is these params without the
+	// flag: it must still push.
+	os.WriteFile(filepath.Join(wt, "again.txt"), []byte("again\n"), 0o644)
+	if err := call(t, c, proto.MethodBranchCommit, proto.BranchCommitParams{ProjectID: id, Branch: "feat", Message: "again"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := call(t, c, proto.MethodBranchPush, proto.BranchRef{ProjectID: id, Branch: "feat"}, nil); err != nil {
+		t.Fatalf("an older client's push: %v", err)
+	}
 }

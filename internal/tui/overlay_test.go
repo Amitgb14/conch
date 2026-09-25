@@ -557,6 +557,14 @@ func TestA2Wrap(t *testing.T) {
 	if wrap("   ", 5) != nil {
 		t.Fatal("blank text has no lines")
 	}
+	// An empty line is kept as a blank one, and a line that already fits
+	// keeps its own spacing, so a notice can lay out a list.
+	if got := wrap("", 5); len(got) != 1 || got[0] != "" {
+		t.Fatalf("an empty line: %q", got)
+	}
+	if got := wrap("  git pull --rebase", 40); len(got) != 1 || got[0] != "  git pull --rebase" {
+		t.Fatalf("indentation: %q", got)
+	}
 	if got := strings.Join(wrap("supercalifragilistic word", 5), "|"); got != "supercalifragilistic|word" {
 		t.Fatalf("long words stay whole: %q", got)
 	}

@@ -60,7 +60,7 @@ Usage:
   conch branch commit [-file PATH]... -m MESSAGE
                                 commit a task branch's changes (-cwd, -branch pick it;
                                 -cwd needed with -m)
-  conch branch push | pr [-title T] [-draft] | merge [-no-squash] | discard [-force]
+  conch branch push [-rebase] | pr [-title T] [-draft] | merge [-no-squash] | discard [-force]
                                 finish a branch: push, open a pull request, merge into
                                 the base, or delete it and its worktree
   conch worktree ls | clean [-y] [-force] [PATH...]

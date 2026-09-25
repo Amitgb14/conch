@@ -421,3 +421,173 @@ func TestChangesViewHarvestKeys(t *testing.T) {
 		t.Fatal("D")
 	}
 }
+
+// A push the remote is ahead of offers to take its commits: nothing is
+// rebased until the answer is yes, and a server too old to do it says what
+// to run instead.
+func TestHarvestPushRebase(t *testing.T) {
+	m, peer := harvestModel(t, harvestCapability, proto.CapBranchRebase)
+	peer.setCodedError(proto.MethodBranchPush, proto.ErrPushRejected, "feat on origin has commits this checkout does not have")
+	msgs := a2Run(m.pushBranch(feat))
+	rej, ok := msgs[0].(pushRejectedMsg)
+	if !ok || rej.target != feat || !strings.Contains(rej.why, "does not have") {
+		t.Fatalf("rejected push: %#v", msgs)
+	}
+	if m.overlay != nil {
+		t.Fatal("a dialog opened before the message was received")
+	}
+	m.receivePushRejected(rej)
+	d, ok := m.overlay.(*dialog)
+	if !ok || !d.confirm {
+		t.Fatalf("no confirmation: %T", m.overlay)
+	}
+	if text := strings.Join(d.text, " "); !strings.Contains(text, "put feat's own commits on top and push") ||
+		!strings.Contains(text, "Nothing is changed if the rebase conflicts") {
+		t.Fatalf("confirmation reads %q", text)
+	}
+	// Answering no leaves the branch alone.
+	before := len(peer.methods())
+	d.update(m, a2Key("esc"))
+	if m.overlay != nil || len(peer.methods()) != before {
+		t.Fatal("no rebased anyway")
+	}
+
+	// Yes asks again with Rebase, and the result says what was taken.
+	m.receivePushRejected(rej)
+	peer.setError(proto.MethodBranchPush, "")
+	peer.setResult(proto.MethodBranchPush, proto.BranchPushResult{Took: 2})
+	msgs = submitDialog(t, m)
+	if !strings.Contains(m.flash, "taking what the remote has on feat") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	done, ok := msgs[0].(harvestDoneMsg)
+	if !ok || done.text != "pushed feat after taking 2 commits from the remote" {
+		t.Fatalf("rebase result: %#v", msgs)
+	}
+	if p := lastParams[proto.BranchPushParams](t, peer, proto.MethodBranchPush, "rebase"); !p.Rebase || p.Branch != "feat" {
+		t.Fatalf("params %+v", p)
+	}
+	// One commit reads as one.
+	peer.setResult(proto.MethodBranchPush, proto.BranchPushResult{Took: 1})
+	if msgs := a2Run(m.push(feat, true)); msgs[0].(harvestDoneMsg).text != "pushed feat after taking 1 commit from the remote" {
+		t.Fatalf("one commit: %#v", msgs)
+	}
+
+	// A server without the capability says what to do by hand, and asks
+	// for nothing.
+	old, oldPeer := harvestModel(t, harvestCapability)
+	if cmd := old.push(feat, true); cmd != nil || !strings.Contains(old.flash, "pull --rebase") {
+		t.Fatalf("old server: %q", old.flash)
+	}
+	old.receivePushRejected(pushRejectedMsg{target: feat, why: "feat on origin has commits this checkout does not have"})
+	if old.overlay != nil || !strings.Contains(old.flash, "pull --rebase in its worktree") {
+		t.Fatalf("old server on rejection: %T %q", old.overlay, old.flash)
+	}
+	for _, method := range oldPeer.methods() {
+		if method == proto.MethodBranchPush {
+			t.Fatal("an old server was asked to rebase")
+		}
+	}
+}
+
+// A rebase stopped by a conflict says so, and says what to do next: the
+// worktree it happened in and the commands that finish it.
+func TestHarvestRebaseConflict(t *testing.T) {
+	m, peer := harvestModel(t, harvestCapability, proto.CapBranchRebase)
+	why := "rebasing feat onto origin/feat conflicts in a.go, b.go; nothing was changed or pushed"
+	peer.setCodedError(proto.MethodBranchPush, proto.ErrRebaseConflict, why)
+	msgs := a2Run(m.push(feat, true))
+	conflict, ok := msgs[0].(rebaseConflictMsg)
+	if !ok || conflict.target != feat || conflict.why != why {
+		t.Fatalf("conflict message: %#v", msgs)
+	}
+	m.receiveRebaseConflict(conflict)
+	if m.flash != why || !m.flashIsErr {
+		t.Fatalf("flash %q", m.flash)
+	}
+	d, ok := m.overlay.(*dialog)
+	if !ok || !d.notice {
+		t.Fatalf("no notice: %T", m.overlay)
+	}
+	joined := strings.Join(d.text, "\n")
+	for _, want := range []string{why, "Sort it out in /src/api-feat (n opens a terminal there)",
+		"git pull --rebase", "git rebase --continue", "P here, or git push, once it is done"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("the notice lacks %q:\n%s", want, joined)
+		}
+	}
+	// It asks for nothing: closing it leaves the branch alone.
+	before := len(peer.methods())
+	d.update(m, a2Key("esc"))
+	if m.overlay != nil || len(peer.methods()) != before {
+		t.Fatal("closing the notice did something")
+	}
+
+	// A branch whose worktree this client doesn't know still gets the
+	// steps, without inventing a path.
+	loose := harvestTarget{machine: localMachine, projectID: "r1", branch: "loose"}
+	m.receiveRebaseConflict(rebaseConflictMsg{target: loose, why: why})
+	joined = strings.Join(m.overlay.(*dialog).text, "\n")
+	if !strings.Contains(joined, "Sort it out in the branch's worktree:") || strings.Contains(joined, "/src/api-feat") {
+		t.Fatalf("unknown worktree:\n%s", joined)
+	}
+
+	// On another machine the notice says which one.
+	m.machines[0].id = "busybox"
+	m.machines[0].label = "busybox"
+	far := harvestTarget{machine: "busybox", projectID: "r1", branch: "feat"}
+	m.receiveRebaseConflict(rebaseConflictMsg{target: far, why: why})
+	if joined := strings.Join(m.overlay.(*dialog).text, "\n"); !strings.Contains(joined, "on busybox") {
+		t.Fatalf("remote worktree:\n%s", joined)
+	}
+}
+
+// A failure says what went wrong in the server's own words, without the
+// protocol code; one too long for the status bar opens a notice as well, so
+// the files a rebase or a merge stopped on can be read.
+func TestErrorsAreReadable(t *testing.T) {
+	m, _ := harvestModel(t, harvestCapability)
+	m.width = 100 // the bar shows 50 cells of a flash at most
+
+	m.showError(proto.Errorf(proto.ErrBadRequest, "no branch gone"))
+	if m.flash != "no branch gone" || m.overlay != nil {
+		t.Fatalf("short error: %q overlay %T", m.flash, m.overlay)
+	}
+	if strings.Contains(m.flash, proto.ErrBadRequest) {
+		t.Fatalf("the code leaked into %q", m.flash)
+	}
+
+	long := "rebasing feat onto origin/feat conflicts in internal/tui/changes.go, internal/tui/harvest.go; nothing was changed or pushed"
+	m.showError(proto.Errorf(proto.ErrBadRequest, "%s", long))
+	if m.flash != long {
+		t.Fatalf("flash %q", m.flash)
+	}
+	d, ok := m.overlay.(*dialog)
+	if !ok {
+		t.Fatalf("no notice for a long reason: %T", m.overlay)
+	}
+	joined := strings.Join(d.text, " ")
+	for _, want := range []string{"internal/tui/changes.go", "internal/tui/harvest.go", "nothing was changed or pushed"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("the notice lost %q:\n%s", want, joined)
+		}
+	}
+	// The dialog wraps it to its own width; no line of the rendered notice
+	// is wider than the pane.
+	for _, l := range d.render(*m).lines {
+		if ansi.StringWidth(l) > m.width {
+			t.Fatalf("notice line %q is %d wide", l, ansi.StringWidth(l))
+		}
+	}
+	// A plain error still reads as itself, and a tiny window still decides.
+	m.overlay = nil
+	m.showError(errString("machine is offline"))
+	if m.flash != "machine is offline" || m.overlay != nil {
+		t.Fatalf("plain error: %q %T", m.flash, m.overlay)
+	}
+	m.width = 1
+	m.showError(errString("a reason longer than ten cells"))
+	if m.overlay == nil {
+		t.Fatal("a tiny window shows nothing of a long reason")
+	}
+}

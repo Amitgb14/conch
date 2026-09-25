@@ -178,13 +178,38 @@ func branchCommit(args []string) error {
 
 func branchPush(args []string) error {
 	bf := newBranchFlags("push")
+	rebase := bf.fs.Bool("rebase", false, "when the remote is ahead, take its commits and put this branch's on top")
 	c, id, branch, err := bf.open(args)
 	if err != nil {
 		return err
 	}
 	defer c.Close()
-	if err := callFor(c, proto.MethodBranchPush, proto.BranchRef{ProjectID: id, Branch: branch}, nil, harvestWait); err != nil {
+	if *rebase {
+		if miss := c.MissingCapabilities([]string{proto.CapBranchRebase}); len(miss) > 0 {
+			return fmt.Errorf("the server there predates -rebase; pull --rebase in the worktree, then push")
+		}
+	}
+	var res proto.BranchPushResult
+	params := proto.BranchPushParams{ProjectID: id, Branch: branch, Rebase: *rebase}
+	if err := callFor(c, proto.MethodBranchPush, params, &res, harvestWait); err != nil {
+		var perr *proto.Error
+		if errors.As(err, &perr) {
+			switch perr.Code {
+			case proto.ErrPushRejected:
+				return fmt.Errorf("%v; push -rebase takes them and puts %s's own commits on top", err, branch)
+			case proto.ErrRebaseConflict:
+				// Sorting a conflict out is work in the worktree, so say
+				// what to run there rather than only what stopped.
+				return fmt.Errorf("%v\nsort it out in the worktree:\n  git pull --rebase\n"+
+					"  fix the files it names, then git rebase --continue\n"+
+					"  conch branch push, or git push, once it is done", err)
+			}
+		}
 		return err
+	}
+	if res.Took > 0 {
+		fmt.Printf("pushed %s after taking %d commit(s) from the remote\n", branch, res.Took)
+		return nil
 	}
 	fmt.Printf("pushed %s\n", branch)
 	return nil

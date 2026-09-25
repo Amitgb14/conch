@@ -858,11 +858,15 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		return s.projects.commitBranch(cp)
 
 	case proto.MethodBranchPush:
-		br, perr := decode[proto.BranchRef](msg)
+		pp, perr := decode[proto.BranchPushParams](msg)
 		if perr != nil {
 			return nil, perr
 		}
-		return nil, s.projects.pushBranch(br)
+		res, perr := s.projects.pushBranch(pp)
+		if perr != nil {
+			return nil, perr
+		}
+		return res, nil
 
 	case proto.MethodBranchPR:
 		pp, perr := decode[proto.BranchPRParams](msg)

@@ -105,7 +105,7 @@ Finishing a task from a script, the same steps as the [changes view](/docs/tasks
 | Command | Description |
 | --- | --- |
 | `conch branch commit -m MESSAGE [-file PATH]...` | commit every change on the branch, or only the `-file` paths (repeat the flag; a rename needs both its paths). Prints the new commit |
-| `conch branch push` | push the branch, setting its upstream on `origin` (or the only remote) the first time |
+| `conch branch push` | push the branch, setting its upstream on `origin` (or the only remote) the first time; a remote that has moved on refuses it, and `-rebase` takes its commits, puts the branch's own on top and pushes |
 | `conch branch pr [-title T] [-body B] [-draft]` | push, then open a pull request into the base with `gh`, and print its URL. Without `-title`, gh fills the title and body from the commits |
 | `conch branch merge [-no-squash] [-m MESSAGE]` | merge the branch into the base where the base is checked out, squashed unless `-no-squash`. A merge that conflicts is undone and the command fails |
 | `conch branch discard [-n] [-force]` | remove the branch's worktree and delete the branch. It refuses when that would lose uncommitted files or unpushed commits, unless `-force`; `-n` only prints what would go |

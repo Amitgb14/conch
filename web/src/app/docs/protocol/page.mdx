@@ -36,7 +36,7 @@ Over SSH the same stream runs through `conch bridge`. `hello` returns the server
 | Agents | `agent.report`, `agent.explain`, `agent.status`, `agent.install`, `agent.setup`, `agent.limits`, `agent.broadcast` |
 | Projects | `project.list`, `project.add`, `project.remove`, `project.refresh`, `project.changes`, `project.diff`, `project.create`, `project.set_files`, `project.resolve` (which project and branch a directory is in; capability `project.resolve.v1`) |
 | Worktrees and tasks | `worktree.add`, `worktree.remove`, `worktree.copy_files`, `task.create` |
-| Branches | `branch.commit`, `branch.push`, `branch.pr`, `branch.merge`, `branch.discard` (capability `branch.harvest.v1`; a commit's `patch` field needs `branch.hunks.v1`) |
+| Branches | `branch.commit`, `branch.push`, `branch.pr`, `branch.merge`, `branch.discard` (capability `branch.harvest.v1`; a commit's `patch` field needs `branch.hunks.v1`, a push's `rebase` field `branch.push.rebase.v1`, and a push the remote is ahead of comes back with the code `push_rejected`, and a rebase undone by conflicts with `rebase_conflict`) |
 | Worktree cleanup | `worktree.stale`, `worktree.cleanup` (capability `worktree.cleanup.v1`) |
 | Moving a worktree | `worktree.describe`, `worktree.pack`, `worktree.pack_read` on the machine it leaves; `worktree.have`, `fs.upload`, `worktree.unpack` and `project.clone` on the one it goes to (capability `worktree.move.v1`). The servers never talk to each other: the client carries the pack |
 | Sessions | `session.list`, `session.search`, `session.resume`, `session.share`, `session.delete`, `session.dismiss`; `session.export` and `session.share` with a `doc` hand a conversation to another machine (capability `session.handoff.v1`) |

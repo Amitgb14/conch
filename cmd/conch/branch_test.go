@@ -422,3 +422,89 @@ func TestA4TaskRunsEveryAttempt(t *testing.T) {
 		t.Fatalf("no prompt: %v", err)
 	}
 }
+
+// push -rebase asks the server to take what the remote has first, and a
+// push the remote is ahead of says what mends it.
+func TestA4BranchPushRebase(t *testing.T) {
+	srv, wt, seen := a4Harvest(t)
+	t.Chdir(wt)
+	rejected, conflict := newA4Var(true), newA4Var(false)
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		got := seen.Get()
+		got[msg.Method] = msg
+		seen.Set(got)
+		switch msg.Method {
+		case proto.MethodProjectResolve:
+			return proto.ProjectPlace{ProjectID: "api", Root: wt, Git: true, Base: "main", Worktree: wt, Branch: "feat"}, nil
+		case proto.MethodBranchPush:
+			var p proto.BranchPushParams
+			json.Unmarshal(msg.Params, &p)
+			if p.Rebase {
+				if conflict.Get() {
+					return nil, proto.Errorf(proto.ErrRebaseConflict,
+						"rebasing feat onto origin/feat conflicts in a.go; nothing was changed or pushed")
+				}
+				return proto.BranchPushResult{Took: 2}, nil
+			}
+			if rejected.Get() {
+				return nil, proto.Errorf(proto.ErrPushRejected, "feat on origin has commits this checkout does not have")
+			}
+			return proto.BranchPushResult{}, nil
+		}
+		return nil, nil
+	})
+
+	// Rejected: the reason, and what to run instead of reading git's hints.
+	_, _, err := a4Out(t, func() error { return runBranch([]string{"push"}) })
+	if err == nil || !strings.Contains(err.Error(), "commits this checkout does not have") ||
+		!strings.Contains(err.Error(), "push -rebase") {
+		t.Fatalf("rejected push: %v", err)
+	}
+	// -rebase takes them and says how many.
+	out, _, err := a4Out(t, func() error { return runBranch([]string{"push", "-rebase"}) })
+	if err != nil || !strings.Contains(out, "pushed feat after taking 2 commit(s) from the remote") {
+		t.Fatalf("push -rebase: %q %v", out, err)
+	}
+	var p proto.BranchPushParams
+	json.Unmarshal(seen.Get()[proto.MethodBranchPush].Params, &p)
+	if !p.Rebase || p.Branch != "feat" {
+		t.Fatalf("params %+v", p)
+	}
+	// An ordinary push that works says so, with nothing about rebasing.
+	rejected.Set(false)
+	out, _, err = a4Out(t, func() error { return runBranch([]string{"push"}) })
+	if err != nil || strings.TrimSpace(out) != "pushed feat" {
+		t.Fatalf("plain push: %q %v", out, err)
+	}
+
+	// A rebase stopped by a conflict says what to run in the worktree.
+	conflict.Set(true)
+	_, _, err = a4Out(t, func() error { return runBranch([]string{"push", "-rebase"}) })
+	if err == nil {
+		t.Fatal("a conflict should fail")
+	}
+	for _, want := range []string{"conflicts in a.go", "sort it out in the worktree",
+		"git pull --rebase", "git rebase --continue", "conch branch push, or git push"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the conflict lacks %q: %v", want, err)
+		}
+	}
+	conflict.Set(false)
+
+	// A server too old for -rebase says what to do by hand, and is not asked.
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		var kept []string
+		for _, cap := range h.Capabilities {
+			if cap != proto.CapBranchRebase {
+				kept = append(kept, cap)
+			}
+		}
+		h.Capabilities = kept
+		return h
+	})
+	if _, _, err := a4Out(t, func() error { return runBranch([]string{"push", "-rebase"}) }); err == nil ||
+		!strings.Contains(err.Error(), "predates -rebase") {
+		t.Fatalf("old server: %v", err)
+	}
+}

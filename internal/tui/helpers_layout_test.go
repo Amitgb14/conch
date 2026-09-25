@@ -20,6 +20,7 @@ type a1Peer struct {
 	mu     sync.Mutex
 	msgs   []proto.Message
 	errors map[string]string // method -> error message to answer with
+	codes  map[string]string // method -> protocol code for that error
 	result map[string]any    // method -> result to answer with
 }
 
@@ -27,7 +28,7 @@ type a1Peer struct {
 func a1FakeClient(t *testing.T, caps ...string) (*client.Client, *a1Peer) {
 	t.Helper()
 	cs, ss := net.Pipe()
-	peer := &a1Peer{errors: map[string]string{}, result: map[string]any{}}
+	peer := &a1Peer{errors: map[string]string{}, codes: map[string]string{}, result: map[string]any{}}
 	go func() {
 		conn := proto.NewConn(ss)
 		defer conn.Close()
@@ -43,14 +44,17 @@ func a1FakeClient(t *testing.T, caps ...string) (*client.Client, *a1Peer) {
 			}
 			peer.mu.Lock()
 			peer.msgs = append(peer.msgs, msg)
-			errText, result := peer.errors[msg.Method], peer.result[msg.Method]
+			errText, code, result := peer.errors[msg.Method], peer.codes[msg.Method], peer.result[msg.Method]
 			peer.mu.Unlock()
 			if msg.ID == "" {
 				continue
 			}
 			reply := proto.Message{ID: msg.ID}
 			if errText != "" {
-				reply.Error = &proto.Error{Code: "a1", Message: errText}
+				if code == "" {
+					code = "a1"
+				}
+				reply.Error = &proto.Error{Code: code, Message: errText}
 			} else if result != nil {
 				reply.Result = proto.Marshal(result)
 			}
@@ -69,6 +73,14 @@ func (p *a1Peer) setError(method, text string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.errors[method] = text
+}
+
+// setCodedError answers method with an error carrying a protocol code,
+// for the codes a client acts on rather than only shows.
+func (p *a1Peer) setCodedError(method, code, text string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.errors[method], p.codes[method] = text, code
 }
 
 func (p *a1Peer) setResult(method string, result any) {

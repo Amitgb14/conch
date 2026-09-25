@@ -223,7 +223,7 @@ func (m Model) statusRightItems(level int) []statusItem {
 			return nil
 		}})
 	}
-	msgW := max(m.width/2, 10)
+	msgW := m.flashRoom()
 	if level >= rightNoVersion {
 		msgW = max(m.width/4, 12)
 	}
@@ -261,6 +261,11 @@ func (m Model) statusRightItems(level int) []statusItem {
 	// Last, so it sits in the corner at every width.
 	return append(items, m.monitorItem())
 }
+
+// flashRoom is the most of a flash the status bar ever shows — it gives up
+// more of it as the bar fills — so a message longer than this is certain to
+// be cut and has to be shown somewhere it can be read.
+func (m Model) flashRoom() int { return max(m.width/2, 10) }
 
 // versionLabel is this build's version, e.g. "v0.1.5-dev".
 func versionLabel() string { return "v" + proto.Version }

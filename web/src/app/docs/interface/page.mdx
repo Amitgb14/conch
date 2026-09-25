@@ -86,7 +86,7 @@ Selecting a branch shows its **changes**: its pull request (checks, review), unc
 | `F` | inside a diff, follow what just changed (on until you scroll away) |
 | `R` | re-read the branch, or the open diff, now |
 | `c` | commit the marked files, or every change when none are marked |
-| `P` | push, setting the upstream the first time |
+| `P` | push, setting the upstream the first time; when the remote has commits this checkout lacks, conch says so and offers to rebase onto them and push. A rebase that conflicts is undone — the branch and the remote stay as they were — and the notice says where to sort it out and what to run |
 | `p` | push and open a pull request into the base |
 | `M` | merge into the base |
 | `D` | discard the branch and its worktree (`x` in the tree does the same once a branch has no worktree left) |

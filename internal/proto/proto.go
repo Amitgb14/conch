@@ -34,12 +34,17 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
 // conversation handed to an agent on another machine.
 const CapSessionHandoff = "session.handoff.v1"
+
+// CapBranchRebase is branch.push taking Rebase: a push the remote is ahead
+// of comes back as push_rejected, and asking again with Rebase takes those
+// commits, puts the branch's own on top and pushes.
+const CapBranchRebase = "branch.push.rebase.v1"
 
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
@@ -162,9 +167,16 @@ const (
 // Error codes.
 const (
 	ErrBadRequest = "bad_request"
-	ErrNotFound   = "not_found"
-	ErrInternal   = "internal"
-	ErrUnknown    = "unknown_method"
+	// ErrPushRejected is a push the remote is ahead of: taking its commits
+	// first (branch.push with Rebase) is what mends it.
+	ErrPushRejected = "push_rejected"
+	// ErrRebaseConflict is a rebase that stopped on conflicts and was
+	// undone: the branch is as it was and nothing was pushed, so what is
+	// left is to sort the conflict out in the worktree by hand.
+	ErrRebaseConflict = "rebase_conflict"
+	ErrNotFound       = "not_found"
+	ErrInternal       = "internal"
+	ErrUnknown        = "unknown_method"
 )
 
 // Message is the single envelope for requests, responses and events.
@@ -606,6 +618,22 @@ type WorktreeAddParams struct {
 type BranchRef struct {
 	ProjectID string `json:"project_id"`
 	Branch    string `json:"branch"`
+}
+
+// BranchPushParams pushes a branch. With Rebase, a push the remote is ahead
+// of takes the remote's commits first and puts the branch's own on top;
+// without it such a push comes back as ErrPushRejected. It is a BranchRef
+// with a field added, so an older server reads it as one.
+type BranchPushParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Rebase    bool   `json:"rebase,omitempty"`
+}
+
+// BranchPushResult says what a push did: Took counts the commits a rebase
+// brought in from the remote, 0 when nothing was taken.
+type BranchPushResult struct {
+	Took int `json:"took,omitempty"`
 }
 
 // BranchCommitParams commits the uncommitted changes where Branch is checked

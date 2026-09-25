@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -98,21 +99,46 @@ func (pm *projectManager) commitBranch(cp proto.BranchCommitParams) (proto.Commi
 	return proto.CommitResult{Hash: hash}, nil
 }
 
-func (pm *projectManager) pushBranch(br proto.BranchRef) *proto.Error {
-	p, perr := pm.gitProject(br.ProjectID)
+func (pm *projectManager) pushBranch(pp proto.BranchPushParams) (proto.BranchPushResult, *proto.Error) {
+	p, perr := pm.gitProject(pp.ProjectID)
 	if perr != nil {
-		return perr
+		return proto.BranchPushResult{}, perr
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), networkTimeout)
 	defer cancel()
-	err := gitx.Push(ctx, p.root, br.Branch)
+	var took int
+	var err error
+	if pp.Rebase {
+		// A rebase needs the branch checked out; pushing alone does not.
+		wt, ok := p.branchWorktree(pp.Branch)
+		if !ok {
+			pm.request(p)
+			return proto.BranchPushResult{}, proto.Errorf(proto.ErrBadRequest,
+				"%s is not checked out here, so its commits cannot be rebased onto the remote's", pp.Branch)
+		}
+		took, err = gitx.PushRebase(ctx, wt.Path, pp.Branch)
+	} else {
+		err = gitx.Push(ctx, p.root, pp.Branch)
+	}
 	pm.request(p)
 	if err != nil {
-		return proto.Errorf(proto.ErrBadRequest, "%v", err)
+		var rej *gitx.PushRejectedError
+		var conflict *gitx.RebaseConflictError
+		switch {
+		case errors.As(err, &rej):
+			return proto.BranchPushResult{}, proto.Errorf(proto.ErrPushRejected, "%v", err)
+		case errors.As(err, &conflict):
+			return proto.BranchPushResult{}, proto.Errorf(proto.ErrRebaseConflict, "%v", err)
+		}
+		return proto.BranchPushResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	pm.requestPRs(p)
-	log.Printf("project %s: pushed %s", p.id, br.Branch)
-	return nil
+	if took > 0 {
+		log.Printf("project %s: pushed %s after taking %d commit(s) from the remote", p.id, pp.Branch, took)
+	} else {
+		log.Printf("project %s: pushed %s", p.id, pp.Branch)
+	}
+	return proto.BranchPushResult{Took: took}, nil
 }
 
 // openPR pushes the branch and opens a pull request into the base.
@@ -135,6 +161,11 @@ func (pm *projectManager) openPR(pp proto.BranchPRParams) (proto.BranchPRResult,
 	}
 	if err := gitx.Push(ctx, p.root, pp.Branch); err != nil {
 		pm.request(p)
+		var rej *gitx.PushRejectedError
+		if errors.As(err, &rej) {
+			return proto.BranchPRResult{}, proto.Errorf(proto.ErrPushRejected,
+				"%v, so there is nothing to open a pull request from yet; push it first", err)
+		}
 		return proto.BranchPRResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	// gh wants the base as a branch on GitHub, not a local remote-tracking name.

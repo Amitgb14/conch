@@ -131,29 +131,123 @@ func firstLine(s string) string {
 	return s
 }
 
+// PushRejectedError is a push the remote refused because it holds commits
+// the checkout does not have: somebody else pushed, or the same branch was
+// pushed from another machine. The branch has to take them first.
+type PushRejectedError struct {
+	Branch, Remote string
+}
+
+func (e *PushRejectedError) Error() string {
+	return fmt.Sprintf("%s on %s has commits this checkout does not have", e.Branch, e.Remote)
+}
+
+// rejected reports whether git refused a push because the remote is ahead,
+// rather than for a reason taking its commits would not mend (no access, a
+// hook, a protected branch).
+func rejected(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "[rejected]") &&
+		(strings.Contains(s, "fetch first") || strings.Contains(s, "non-fast-forward") || strings.Contains(s, "stale info"))
+}
+
 // Push pushes branch to the branch of the same name on its upstream's
 // remote, or on origin (or the only remote), and makes that its upstream.
 // An upstream under another name is not pushed to: a task branch started
 // from origin/main tracks origin/main, and pushing there would put the
 // task's commits on main (git's push.default=simple refuses it too).
+// A push the remote is ahead of comes back as a *PushRejectedError, which
+// PushRebase can mend.
 func Push(ctx context.Context, root, branch string) error {
 	if !localBranchExists(ctx, root, branch) {
 		return fmt.Errorf("no branch %s", branch)
 	}
 	ref := "refs/heads/" + branch
-	remote := configValue(ctx, root, "branch."+branch+".remote")
-	if remote == "" || remote == "." {
-		var err error
-		if remote, err = pushRemote(ctx, root); err != nil {
-			return err
-		}
+	remote, err := branchRemote(ctx, root, branch)
+	if err != nil {
+		return err
 	}
 	args := []string{"push", "--quiet"}
 	if configValue(ctx, root, "branch."+branch+".merge") != ref {
 		args = append(args, "--set-upstream")
 	}
-	_, err := run(ctx, root, append(args, "--", remote, ref+":"+ref)...)
-	return err
+	if _, err := run(ctx, root, append(args, "--", remote, ref+":"+ref)...); err != nil {
+		if rejected(err) {
+			return &PushRejectedError{Branch: branch, Remote: remote}
+		}
+		return err
+	}
+	return nil
+}
+
+// branchRemote is where a branch is pushed: its upstream's remote, else
+// origin or the repository's only remote.
+func branchRemote(ctx context.Context, root, branch string) (string, error) {
+	if r := configValue(ctx, root, "branch."+branch+".remote"); r != "" && r != "." {
+		return r, nil
+	}
+	return pushRemote(ctx, root)
+}
+
+// RebaseConflictError is a rebase that stopped on conflicts and was undone:
+// the branch is as it was and nothing was pushed.
+type RebaseConflictError struct {
+	Branch, Remote string
+	Files          []string
+}
+
+func (e *RebaseConflictError) Error() string {
+	return fmt.Sprintf("rebasing %s onto %s/%s conflicts in %s; nothing was changed or pushed",
+		e.Branch, e.Remote, e.Branch, strings.Join(e.Files, ", "))
+}
+
+// PushRebase takes the commits the remote has on branch, puts the branch's
+// own on top of them and pushes. dir is the worktree the branch is checked
+// out in, since a rebase needs one. It reports how many commits came from
+// the remote. A rebase that conflicts is undone — the branch stays as it
+// was and nothing is pushed — and uncommitted changes to tracked files stop
+// it before it starts, so a rebase never moves work nobody committed.
+func PushRebase(ctx context.Context, dir, branch string) (took int, err error) {
+	head, err := revParse(ctx, dir, "--abbrev-ref", "HEAD")
+	if err != nil {
+		return 0, err
+	}
+	if head != branch {
+		return 0, fmt.Errorf("%s is not checked out at %s (%s is)", branch, dir, head)
+	}
+	files, err := statusFiles(ctx, dir)
+	if err != nil {
+		return 0, err
+	}
+	for _, f := range files {
+		if f.Code != "?" {
+			return 0, fmt.Errorf("%s has uncommitted changes (%s); commit or stash them first", branch, f.Path)
+		}
+	}
+	remote, err := branchRemote(ctx, dir, branch)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := run(ctx, dir, "fetch", "--quiet", "--", remote, "refs/heads/"+branch); err != nil {
+		return 0, err
+	}
+	took = revCount(ctx, dir, "HEAD..FETCH_HEAD")
+	if took > 0 {
+		if _, err := run(ctx, dir, "rebase", "--quiet", "FETCH_HEAD"); err != nil {
+			conflicts := conflictFiles(ctx, dir)
+			// The abort runs whatever stopped it, and without the caller's
+			// context: a cancelled one would leave the rebase half done.
+			_, _ = run(context.Background(), dir, "rebase", "--abort")
+			if len(conflicts) > 0 {
+				return 0, &RebaseConflictError{Branch: branch, Remote: remote, Files: conflicts}
+			}
+			return 0, err
+		}
+	}
+	return took, Push(ctx, dir, branch)
 }
 
 // pushRemote picks where a branch without an upstream goes: origin, or the

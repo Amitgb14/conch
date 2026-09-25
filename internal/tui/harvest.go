@@ -2,11 +2,13 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -33,6 +35,19 @@ type harvestDoneMsg struct {
 	target    harvestTarget
 	text      string
 	committed bool // clears the files marked for the commit
+}
+
+// pushRejectedMsg is a push the remote is ahead of, with the server's own
+// words for it.
+type pushRejectedMsg struct {
+	target harvestTarget
+	why    string
+}
+
+// rebaseConflictMsg is a rebase that stopped on conflicts and was undone.
+type rebaseConflictMsg struct {
+	target harvestTarget
+	why    string
 }
 
 // discardPlanMsg carries what discarding a branch would remove and lose.
@@ -150,14 +165,108 @@ func (m *Model) openCommit(t harvestTarget, sel commitSelection) tea.Cmd {
 	return d.focusCmd()
 }
 
-// pushBranch pushes the branch, setting its upstream the first time.
-func (m *Model) pushBranch(t harvestTarget) tea.Cmd {
+// pushBranch pushes the branch, setting its upstream the first time. A
+// remote that has moved on refuses the push; rebase then offers to take its
+// commits, which is what a person would do by hand.
+func (m *Model) pushBranch(t harvestTarget) tea.Cmd { return m.push(t, false) }
+
+func (m *Model) push(t harvestTarget, rebase bool) tea.Cmd {
 	if m.harvestProject(t, true) == nil {
 		return nil
 	}
-	m.setFlash("pushing "+t.branch+"…", false)
-	return m.harvestCall(t, proto.MethodBranchPush, proto.BranchRef{ProjectID: t.projectID, Branch: t.branch}, nil,
-		func() harvestDoneMsg { return harvestDoneMsg{text: "pushed " + t.branch} })
+	if rebase && !m.hasCapability(t.machine, proto.CapBranchRebase) {
+		m.setFlash("the server there predates rebasing onto the remote; pull --rebase in the worktree, then push", true)
+		return nil
+	}
+	if rebase {
+		m.setFlash("taking what the remote has on "+t.branch+", then pushing…", false)
+	} else {
+		m.setFlash("pushing "+t.branch+"…", false)
+	}
+	c := m.clientOf(t.machine)
+	if c == nil {
+		return func() tea.Msg { return errMsg{errString(m.offlineText(t.machine))} }
+	}
+	params := proto.BranchPushParams{ProjectID: t.projectID, Branch: t.branch, Rebase: rebase}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), harvestTimeout)
+		defer cancel()
+		var res proto.BranchPushResult
+		if err := c.Call(ctx, proto.MethodBranchPush, params, &res); err != nil {
+			var perr *proto.Error
+			if errors.As(err, &perr) {
+				switch perr.Code {
+				case proto.ErrPushRejected:
+					return pushRejectedMsg{target: t, why: perr.Message}
+				case proto.ErrRebaseConflict:
+					return rebaseConflictMsg{target: t, why: perr.Message}
+				}
+			}
+			return errMsg{err}
+		}
+		text := "pushed " + t.branch
+		if res.Took > 0 {
+			text = fmt.Sprintf("pushed %s after taking %s from the remote", t.branch, counted(res.Took, "commit"))
+		}
+		return harvestDoneMsg{target: t, text: text}
+	}
+}
+
+// receiveRebaseConflict says what stopped, and what is left to do: sorting
+// a conflict out is work in the worktree, and the commands for it are the
+// same ones whatever brought it about.
+func (m *Model) receiveRebaseConflict(msg rebaseConflictMsg) tea.Cmd {
+	t := msg.target
+	m.setFlash(msg.why, true)
+	text := []string{msg.why, ""}
+	if path := m.worktreeOf(t); path != "" {
+		where := m.tildify(t.machine, path)
+		if t.machine != localMachine {
+			where += " on " + m.machineLabel(t.machine)
+		}
+		text = append(text, "Sort it out in "+where+" (n opens a terminal there):")
+	} else {
+		text = append(text, "Sort it out in the branch's worktree:")
+	}
+	return m.notice(" "+ansi.Truncate(t.branch, 30, "…")+" ", append(text,
+		"  git pull --rebase",
+		"  fix the files it names, then git rebase --continue",
+		"  P here, or git push, once it is done"))
+}
+
+// notice opens a notice and asks for nothing.
+func (m *Model) notice(title string, text []string) tea.Cmd {
+	m.overlay = newNotice(title, text)
+	return nil
+}
+
+// worktreeOf is where a branch is checked out on its machine, or "".
+func (m Model) worktreeOf(t harvestTarget) string {
+	proj := m.project(t.machine, t.projectID)
+	if proj == nil {
+		return ""
+	}
+	for _, wt := range proj.Worktrees {
+		if wt.Branch == t.branch {
+			return wt.Path
+		}
+	}
+	return ""
+}
+
+// receivePushRejected offers what mends a rejected push: taking the
+// remote's commits and putting this branch's own on top. Nothing is
+// rebased until the answer is yes.
+func (m *Model) receivePushRejected(msg pushRejectedMsg) tea.Cmd {
+	t := msg.target
+	if !m.hasCapability(t.machine, proto.CapBranchRebase) {
+		m.setFlash(msg.why+"; pull --rebase in its worktree, then push", true)
+		return nil
+	}
+	m.overlay = newConfirm(
+		msg.why+". Take them, put "+t.branch+"'s own commits on top and push? Nothing is changed if the rebase conflicts.",
+		func(m *Model) tea.Cmd { return m.push(t, true) })
+	return nil
 }
 
 // openPullRequest asks for a title and opens a pull request into the base.
@@ -325,4 +434,15 @@ func listSome(items []string, n int) string {
 
 func shortHash(h string) string {
 	return h[:min(len(h), 7)]
+}
+
+// showError says what went wrong. A reason the status bar has no room for —
+// the files a merge or a rebase stopped on — opens a notice as well, so it
+// can be read rather than guessed at from its first few words.
+func (m *Model) showError(err error) {
+	text := errText(err)
+	m.setFlash(text, true)
+	if len([]rune(text)) > m.flashRoom() {
+		m.overlay = newNotice(" Failed ", []string{text}) // the dialog wraps it to its own width
+	}
 }
