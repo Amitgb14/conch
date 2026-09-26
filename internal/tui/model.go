@@ -411,6 +411,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.rebuild(), done)
 
+	case sandboxDoneMsg:
+		return m, m.sandboxDone(msg)
+
 	case machineAddedMsg:
 		mach := newMachine(msg.m.ID, msg.m.Label, msg.m.Target)
 		for i, existing := range m.machines {

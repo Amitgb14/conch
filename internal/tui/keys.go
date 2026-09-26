@@ -144,9 +144,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "H":
 		return m, m.openSSH()
 	case "M":
-		d := newAddMachineDialog(m)
-		m.overlay = d
-		return m, d.focusCmd()
+		m.overlay = newAddMenu()
+		return m, nil
 	case "r":
 		m.openRename()
 	case "x":

@@ -16,6 +16,20 @@ export DAYTONA_API_KEY=dtn_…
 
 conch reads the key from the environment every time and never writes it down. `api_key_env` in [`[sandbox.daytona]`](/docs/configuration#sandbox) names a different variable.
 
+## In the TUI
+
+Press `M` and choose **New Daytona sandbox…**. The dialog takes a label, a snapshot, a size and the names of environment variables to pass in; leave any of them empty for the defaults. conch creates the sandbox, sets itself up there and adds the machine to the tree, which takes a minute or two. If setting up fails, the sandbox is deleted rather than left to cost, and the reason is shown.
+
+`m` on a sandbox's row adds:
+
+| Item | What it does |
+| --- | --- |
+| **Start sandbox** | on a stopped sandbox: starts it and connects |
+| **Stop sandbox…** | ends its agents and terminals; its files stay. Asks first, saying how many agents are still working |
+| **Delete sandbox…** | deletes it and everything in it, and removes the machine. Asks first, listing the branches conch last saw there with commits no remote has, and uncommitted changes |
+
+A stopped sandbox shows `stopped` in the tree, and a spinner while it is starting, stopping or being deleted. **Remove machine** only takes it out of the tree; the sandbox keeps running, and costing, until `conch sandbox rm`.
+
 ## Commands
 
 ```sh
@@ -37,7 +51,7 @@ conch sandbox rm fix-login                     # deletes it and everything in it
 
 Daytona stops an idle sandbox after 15 minutes by default, and an agent working inside doesn't count as activity — only an ssh connection or an API call does. So a sandbox conch creates never stops on its own: close the TUI and its agents carry on. It costs for as long as it runs, so stop or delete it when you're done. `auto_stop` in [`[sandbox.daytona]`](/docs/configuration#sandbox) sets a timeout instead.
 
-A stopped sandbox shows as needing attention in the tree. conch doesn't start it by itself; run `conch sandbox start`.
+conch never starts a stopped sandbox by itself: use **Start sandbox** in its menu, or `conch sandbox start`.
 
 ## Getting the work out
 

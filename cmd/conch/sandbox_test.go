@@ -149,7 +149,7 @@ func TestA4SandboxCreate(t *testing.T) {
 	if out != "added fix-login (fix-login): daytona sandbox sbx1-0123456789, server pid 777 on sandbox-host\n" {
 		t.Fatalf("out %q", out)
 	}
-	for _, want := range []string{"Creating a Daytona sandbox…", "sandbox sbx1-0123456789 started", "Checking fix-login…", "copying conch to fix-login", "installed /home/dev/.local/bin/conch"} {
+	for _, want := range []string{"Creating a Daytona sandbox…", "sandbox sbx1-0123456789 started", "probing fix-login…", "copying conch to fix-login"} {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errOut)
 		}
@@ -386,25 +386,6 @@ func TestA4SandboxRemoveWarnsAboutUnpushedWork(t *testing.T) {
 	_, errOut := a4Capture(t, "n\n", func() { err = runSandbox([]string{"rm", "box"}) })
 	if err != nil || !strings.Contains(errOut, "api feat: 2 commits on no remote, 3 files uncommitted") || d.state("sb1") != "started" {
 		t.Fatalf("%v\n%s", err, errOut)
-	}
-}
-
-func TestA4DescribeUnsaved(t *testing.T) {
-	got := describeUnsaved([]proto.ProjectInfo{{Name: "api",
-		Worktrees: []proto.WorktreeInfo{{Path: "/w/a", Status: &proto.GitStatus{Files: 1}}, {Path: "/w/clean", Status: &proto.GitStatus{}}},
-		Branches: []proto.BranchInfo{
-			{Name: "a", Upstream: "origin/a", Ahead: 1, Worktree: "/w/a"},
-			{Name: "gone", Upstream: "origin/gone", Gone: true, BaseAhead: 4},
-			{Name: "pushed", Upstream: "origin/pushed"},
-			{Name: "clean", Worktree: "/w/clean"},
-			{Name: "nostatus", Worktree: "/w/unknown"},
-		}}})
-	want := []string{"api a: 1 commit not pushed, 1 file uncommitted", "api gone: 4 commits on no remote"}
-	if strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("got %q", got)
-	}
-	if describeUnsaved(nil) != nil {
-		t.Fatal("nothing to lose")
 	}
 }
 

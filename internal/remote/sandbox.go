@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
@@ -86,6 +88,58 @@ func TransportFor(ctx context.Context, label, target string, interactive bool) (
 		return nil, err
 	}
 	return sandboxSSH(label, a), nil
+}
+
+// DefaultSandboxLabel names a sandbox nobody named, after its ID.
+func DefaultSandboxLabel(id string) string {
+	if len(id) > 8 {
+		id = id[:8]
+	}
+	return "sandbox-" + id
+}
+
+// SetUpSandbox installs conch in a new sandbox and connects to its server.
+// Nothing asks first: the sandbox was made for this.
+func SetUpSandbox(ctx context.Context, m Machine, say func(string)) (*client.Client, error) {
+	tr, err := TransportFor(ctx, m.Label, m.Target, false)
+	if err != nil {
+		return nil, err
+	}
+	return Connect(ctx, tr, Options{Install: true, Progress: say})
+}
+
+// UnsavedWork lists what deleting a machine would lose: branches with
+// commits no remote has, and uncommitted changes.
+func UnsavedWork(projects []proto.ProjectInfo) []string {
+	count := func(n int, what string) string {
+		if n == 1 {
+			return "1 " + what
+		}
+		return fmt.Sprintf("%d %ss", n, what)
+	}
+	var lines []string
+	for _, p := range projects {
+		status := map[string]*proto.GitStatus{}
+		for _, w := range p.Worktrees {
+			status[w.Path] = w.Status
+		}
+		for _, b := range p.Branches {
+			var what []string
+			switch {
+			case b.Upstream != "" && !b.Gone && b.Ahead > 0:
+				what = append(what, count(b.Ahead, "commit")+" not pushed")
+			case (b.Upstream == "" || b.Gone) && b.BaseAhead > 0:
+				what = append(what, count(b.BaseAhead, "commit")+" on no remote")
+			}
+			if s := status[b.Worktree]; b.Worktree != "" && !s.Clean() {
+				what = append(what, count(s.Files, "file")+" uncommitted")
+			}
+			if len(what) > 0 {
+				lines = append(lines, fmt.Sprintf("%s %s: %s", p.Name, b.Name, strings.Join(what, ", ")))
+			}
+		}
+	}
+	return lines
 }
 
 // sandboxSSH reaches a sandbox through its provider's ssh gateway. It never

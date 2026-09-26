@@ -11,6 +11,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
 type machineState int
@@ -55,6 +56,11 @@ type machine struct {
 	state   machineState
 	err     string // why it is offline or needs attention
 	warning string // online but degraded, e.g. an outdated server
+	// busy is a sandbox being started, stopped or deleted ("starting"…).
+	busy string
+	// sandboxState is set while a sandbox can't be reached because it
+	// isn't running (stopped, archived…).
+	sandboxState sandbox.State
 
 	panes    []proto.PaneInfo
 	projects []proto.ProjectInfo
@@ -135,6 +141,7 @@ func (mach *machine) attach(c *client.Client) {
 	mach.gen++
 	mach.c, mach.server = c, c.Server
 	mach.state, mach.err, mach.warning, mach.failures = stateOnline, "", "", 0
+	mach.sandboxState = ""
 	mach.sizes = map[string][2]int{} // a new connection may see new sizes
 }
 
@@ -275,7 +282,7 @@ func (mach *machine) connected(msg machineConnectedMsg) tea.Cmd {
 	case errors.As(msg.err, &stopped):
 		// Starting it costs, so that is the user's call too; asking again
 		// on a timer would only poll the provider.
-		mach.state, mach.err = stateAttention, "sandbox "+string(stopped.State)+" · conch sandbox start "+mach.id
+		mach.state, mach.err, mach.sandboxState = stateAttention, "sandbox "+string(stopped.State), stopped.State
 		return nil
 	}
 	mach.state, mach.err = stateOffline, msg.err.Error()

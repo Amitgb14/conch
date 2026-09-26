@@ -8,8 +8,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
@@ -124,6 +126,25 @@ func Open(name string, cfg config.SandboxCfg) (Provider, error) {
 		return NewDaytona(cfg.Daytona), nil
 	}
 	return nil, fmt.Errorf("unknown sandbox provider %q", name)
+}
+
+// EnvFrom reads the named variables from this environment, to pass into a
+// new sandbox. A name that isn't set is refused, rather than passed in
+// empty for an agent to trip on.
+func EnvFrom(names []string) (map[string]string, error) {
+	vars := map[string]string{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || strings.ContainsAny(name, "= \t") {
+			return nil, fmt.Errorf("env %q: give a variable name", name)
+		}
+		v, ok := os.LookupEnv(name)
+		if !ok || v == "" {
+			return nil, fmt.Errorf("env %s: $%s isn't set here", name, name)
+		}
+		vars[name] = v
+	}
+	return vars, nil
 }
 
 // Label marks the sandboxes conch created, so List leaves others alone.

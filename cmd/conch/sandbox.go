@@ -10,7 +10,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
@@ -81,7 +80,7 @@ func sandboxCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	vars, err := sandboxEnv(append(append([]string{}, cfg.Sandbox.Daytona.Env...), env...))
+	vars, err := sandbox.EnvFrom(append(append([]string{}, cfg.Sandbox.Daytona.Env...), env...))
 	if err != nil {
 		return err
 	}
@@ -104,9 +103,9 @@ func sandboxCreate(args []string) error {
 	fmt.Fprintf(os.Stderr, "  sandbox %s started\n", s.ID)
 	m := remote.Machine{Label: strings.TrimSpace(*label), Target: remote.SandboxTarget(sandboxProvider, s.ID)}
 	if m.Label == "" {
-		m.Label = "sandbox-" + shortID(s.ID)
+		m.Label = remote.DefaultSandboxLabel(s.ID)
 	}
-	c, err := setUpSandbox(ctx, m)
+	c, err := remote.SetUpSandbox(ctx, m, progress)
 	if err != nil {
 		abandonSandbox(p, s.ID, *yes)
 		return err
@@ -118,54 +117,6 @@ func sandboxCreate(args []string) error {
 	}
 	fmt.Printf("added %s (%s): daytona sandbox %s, server pid %d on %s\n", saved.ID, saved.Label, s.ID, c.Server.PID, c.Server.Hostname)
 	return nil
-}
-
-// sandboxEnv reads the named variables from this environment. A name that
-// isn't set is refused, rather than passed in empty for an agent to trip on.
-func sandboxEnv(list []string) (map[string]string, error) {
-	vars := map[string]string{}
-	for _, name := range list {
-		name = strings.TrimSpace(name)
-		if name == "" || strings.ContainsAny(name, "= \t") {
-			return nil, fmt.Errorf("-env %q: give a variable name", name)
-		}
-		v, ok := os.LookupEnv(name)
-		if !ok || v == "" {
-			return nil, fmt.Errorf("-env %s: $%s isn't set here", name, name)
-		}
-		vars[name] = v
-	}
-	return vars, nil
-}
-
-func shortID(id string) string {
-	if len(id) > 8 {
-		return id[:8]
-	}
-	return id
-}
-
-// setUpSandbox installs conch in a new sandbox and connects to its server.
-// Nothing asks first: the sandbox was made for this.
-func setUpSandbox(ctx context.Context, m remote.Machine) (*client.Client, error) {
-	tr, err := remote.TransportFor(ctx, m.Label, m.Target, false)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Fprintf(os.Stderr, "Checking %s…\n", m.Label)
-	probe, err := remote.ProbeMachine(ctx, tr)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Fprintf(os.Stderr, "  platform %s\n", probe.Platform)
-	if probe.Bin == "" || len(probe.Missing()) > 0 {
-		path, err := remote.Install(ctx, tr, probe.Platform, progress)
-		if err != nil {
-			return nil, err
-		}
-		fmt.Fprintf(os.Stderr, "  installed %s\n", path)
-	}
-	return remote.Connect(ctx, tr, remote.Options{})
 }
 
 // abandonSandbox offers to delete a sandbox whose setting up failed, since
@@ -392,31 +343,5 @@ func unsavedWork(m remote.Machine) []string {
 	if err := c.Call(ctx, proto.MethodProjectList, nil, &list); err != nil {
 		return []string{"couldn't check for work that isn't pushed: " + err.Error()}
 	}
-	return describeUnsaved(list.Projects)
-}
-
-func describeUnsaved(projects []proto.ProjectInfo) []string {
-	var lines []string
-	for _, p := range projects {
-		status := map[string]*proto.GitStatus{}
-		for _, w := range p.Worktrees {
-			status[w.Path] = w.Status
-		}
-		for _, b := range p.Branches {
-			var what []string
-			switch {
-			case b.Upstream != "" && !b.Gone && b.Ahead > 0:
-				what = append(what, fmt.Sprintf("%d commit%s not pushed", b.Ahead, plural(b.Ahead)))
-			case (b.Upstream == "" || b.Gone) && b.BaseAhead > 0:
-				what = append(what, fmt.Sprintf("%d commit%s on no remote", b.BaseAhead, plural(b.BaseAhead)))
-			}
-			if s := status[b.Worktree]; b.Worktree != "" && !s.Clean() {
-				what = append(what, fmt.Sprintf("%d file%s uncommitted", s.Files, plural(s.Files)))
-			}
-			if len(what) > 0 {
-				lines = append(lines, fmt.Sprintf("%s %s: %s", p.Name, b.Name, strings.Join(what, ", ")))
-			}
-		}
-	}
-	return lines
+	return remote.UnsavedWork(list.Projects)
 }

@@ -166,6 +166,29 @@ func TestSandboxTransportKeepsTheTokenOutOfErrors(t *testing.T) {
 	}
 }
 
+func TestUnsavedWork(t *testing.T) {
+	got := UnsavedWork([]proto.ProjectInfo{{Name: "api",
+		Worktrees: []proto.WorktreeInfo{{Path: "/w/a", Status: &proto.GitStatus{Files: 1}}, {Path: "/w/clean", Status: &proto.GitStatus{}}},
+		Branches: []proto.BranchInfo{
+			{Name: "a", Upstream: "origin/a", Ahead: 1, Worktree: "/w/a"},
+			{Name: "gone", Upstream: "origin/gone", Gone: true, BaseAhead: 4},
+			{Name: "local", BaseAhead: 2, Worktree: "/w/b"},
+			{Name: "pushed", Upstream: "origin/pushed"},
+			{Name: "clean", Worktree: "/w/clean"},
+			{Name: "nostatus", Worktree: "/w/unknown"},
+		}}})
+	want := []string{"api a: 1 commit not pushed, 1 file uncommitted", "api gone: 4 commits on no remote", "api local: 2 commits on no remote"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got %q", got)
+	}
+	if UnsavedWork(nil) != nil || UnsavedWork([]proto.ProjectInfo{{Name: "empty"}}) != nil {
+		t.Fatal("nothing to lose")
+	}
+	if DefaultSandboxLabel("0123456789") != "sandbox-01234567" || DefaultSandboxLabel("ab") != "sandbox-ab" {
+		t.Fatal("DefaultSandboxLabel")
+	}
+}
+
 // The whole remote path to a sandbox runs through the gateway's ssh with
 // the provider's token, and nothing it says names the token.
 func TestConnectToASandbox(t *testing.T) {
