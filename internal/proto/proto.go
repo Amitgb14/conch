@@ -275,6 +275,11 @@ type PaneInfo struct {
 	// AlertSilence).
 	Monitor *PaneMonitor `json:"monitor,omitempty"`
 	Alert   string       `json:"alert,omitempty"`
+	// LastActive is when the pane last printed, or when it started if it
+	// never has. It says whether anything is happening in a machine at
+	// all, which is how conch decides a sandbox is idle. Zero from
+	// servers that predate it.
+	LastActive time.Time `json:"last_active,omitempty"`
 }
 
 // PaneMonitor asks to be told about a pane's output, as tmux's

@@ -1,7 +1,9 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -124,4 +126,70 @@ func TestPaneSearchOverTheProtocol(t *testing.T) {
 	if err := call(t, c, proto.MethodPaneSearch, proto.PaneSearchParams{ID: info.ID, Query: "nowhere"}, &none); err != nil || none.Found {
 		t.Fatalf("absent text: %+v %v", none, err)
 	}
+}
+
+// A pane says when it last printed, so a client can tell a machine
+// somebody is working in from one nobody is.
+func TestPaneLastActive(t *testing.T) {
+	c, _ := startServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var info proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{
+		Command: []string{"/bin/sh"}, Cwd: os.TempDir(), NoProject: true, Cols: 40, Rows: 10,
+	}, &info); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Call(context.Background(), proto.MethodPaneClose, proto.PaneRef{ID: info.ID}, nil) })
+
+	// It starts set, so a pane that has never printed is not idle since
+	// the beginning of time.
+	first := waitActive(t, c, info.ID, time.Time{})
+	if first.IsZero() {
+		t.Fatal("a new pane has no last-active time")
+	}
+	// Printing moves it on.
+	if err := c.Call(ctx, proto.MethodPaneSendText, proto.PaneSendTextParams{ID: info.ID, Text: "echo marker-one\n"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	after := waitActive(t, c, info.ID, first)
+	if !after.After(first) {
+		t.Fatalf("printing did not move it: %v then %v", first, after)
+	}
+	// Sitting quiet leaves it where it was.
+	time.Sleep(300 * time.Millisecond)
+	if got := paneOf(t, c, info.ID).LastActive; !got.Equal(after) {
+		t.Fatalf("a quiet pane moved: %v then %v", after, got)
+	}
+}
+
+// waitActive waits for a pane's last-active time to pass after.
+func waitActive(t *testing.T, c *client.Client, id string, after time.Time) time.Time {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := paneOf(t, c, id).LastActive; got.After(after) {
+			return got
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("pane %s never printed after %v", id, after)
+	return time.Time{}
+}
+
+func paneOf(t *testing.T, c *client.Client, id string) proto.PaneInfo {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var list proto.PaneList
+	if err := c.Call(ctx, proto.MethodPaneList, nil, &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range list.Panes {
+		if p.ID == id {
+			return p
+		}
+	}
+	t.Fatalf("no pane %s", id)
+	return proto.PaneInfo{}
 }

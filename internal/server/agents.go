@@ -31,6 +31,10 @@ type entry struct {
 
 	screen        []string // cached plain screen
 	screenVersion uint64
+	// lastActive is when the pane last printed, guarded by mu. It says
+	// whether anything is happening here, which is what tells a sandbox
+	// nobody is using from one an agent is working in.
+	lastActive time.Time
 
 	// sent is what the last pane.updated told clients, so a change made
 	// outside this pane — a checkout moving its branch, say — is noticed
@@ -57,6 +61,7 @@ func (e *entry) info() proto.PaneInfo {
 	proj := e.project
 	st := e.tracker.Status()
 	info.Monitor, info.Alert = e.monitor.info()
+	info.LastActive = e.lastActive
 	e.mu.Unlock()
 	if proj != nil {
 		info.ProjectID = proj.id
@@ -169,9 +174,13 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 	e.mu.Lock()
 	prevState := e.tracker.Status().State
 	fn(e.tracker)
-	e.monitor.step(time.Now(), output, e.watchers > 0)
+	at := time.Now()
+	if output || e.lastActive.IsZero() {
+		e.lastActive = at // what makes a machine busy, monitored or not
+	}
+	e.monitor.step(at, output, e.watchers > 0)
 	e.tracker.Observe(detect.Observation{
-		Now:        time.Now(),
+		Now:        at,
 		Process:    proc,
 		ProcessErr: perr,
 		Screen:     e.screen,
