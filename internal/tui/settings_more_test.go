@@ -429,7 +429,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 	out := plain()
 	for _, want := range []string{"Daytona|no key · $DAYTONA_API_KEY is not set", "API key variable|DAYTONA_API_KEY",
 		"Snapshot|Daytona's default", "Region|the account's default",
-		"Auto-stop|never · it runs until you stop it", "Pass in|nothing"} {
+		"Stop when idle|after 30m with no agent working and nothing printing", "Pass in|nothing"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in\n%s", want, out)
 		}
@@ -444,7 +444,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 		t.Fatalf("configured:\n%s", out)
 	}
 
-	// Auto-stop cycles through the choices and comes back to never.
+	// Stopping when idle cycles through the choices and round again.
 	item := func(label string) settingItem {
 		t.Helper()
 		for _, it := range s.items(m) {
@@ -456,16 +456,17 @@ func TestSettingsSandboxTab(t *testing.T) {
 		return settingItem{}
 	}
 	seen := []int{}
-	for i := 0; i < len(autoStopChoices)+1; i++ {
-		item("Auto-stop").run(m)
-		seen = append(seen, m.cfg.Sandbox.Of("daytona").AutoStop)
+	for i := 0; i < len(idleStopChoices)+1; i++ {
+		item("Stop when idle").run(m)
+		seen = append(seen, m.cfg.Sandbox.Of("daytona").IdleMinutes())
 	}
-	if fmt.Sprint(seen) != "[30 60 120 0 30]" {
-		t.Fatalf("auto-stop cycled %v", seen)
+	if fmt.Sprint(seen) != "[60 120 0 15 30 60]" {
+		t.Fatalf("idle stop cycled %v", seen)
 	}
-	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{AutoStop: 60})
-	if out := plain(); !strings.Contains(out, "Auto-stop|60 minutes idle") {
-		t.Fatalf("auto-stop text:\n%s", out)
+	sixty := 60
+	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{IdleStop: &sixty})
+	if out := plain(); !strings.Contains(out, "Stop when idle|after 60m with no agent working") {
+		t.Fatalf("idle stop text:\n%s", out)
 	}
 
 	// A field opened from the settings screen comes back to it, whether it
@@ -536,19 +537,19 @@ func TestSettingsSandboxTab(t *testing.T) {
 			t.Fatalf("another provider lacks %q:\n%s", want, out)
 		}
 	}
-	// Each provider has its own Auto-stop, saved under its own name.
+	// Each provider has its own idle stop, saved under its own name.
 	flyStop := 0
 	for _, it := range s.items(m) {
-		if ansi.Strip(it.label) == "Auto-stop" {
+		if ansi.Strip(it.label) == "Stop when idle" {
 			flyStop++
 			it.run(m) // the second one is Fly's
 		}
 	}
 	if flyStop != 2 {
-		t.Fatalf("each provider has an Auto-stop: %d", flyStop)
+		t.Fatalf("each provider has one: %d", flyStop)
 	}
-	if m.cfg.Sandbox.Of("fly").AutoStop == 0 {
-		t.Fatalf("Fly's auto-stop was not saved: %+v", m.cfg.Sandbox)
+	if fly := m.cfg.Sandbox.Of("fly"); fly.IdleStop == nil || *fly.IdleStop == config.IdleStopDefault {
+		t.Fatalf("Fly's idle stop was not saved: %+v", m.cfg.Sandbox)
 	}
 	if got := m.cfg.Sandbox.Of("daytona"); got.Snapshot != "my-snapshot" || got.Target != "eu" {
 		t.Fatalf("Daytona's settings changed with Fly's: %+v", got)
@@ -642,5 +643,53 @@ func TestSettingsSandboxKey(t *testing.T) {
 	}
 	if !strings.Contains(head(), "$MY_KEY is not set") {
 		t.Fatalf("heading names the wrong variable: %q", head())
+	}
+}
+
+// Whether conch keeps a note of what a sandbox was running is the user's
+// to decide, per provider.
+func TestSettingsSandboxRestore(t *testing.T) {
+	m, _ := sandboxModel(t)
+	s := &settings{}
+	s.setTab(len(settingsTabs) - 1)
+	item := func() settingItem {
+		t.Helper()
+		for _, it := range s.items(m) {
+			if ansi.Strip(it.label) == "Bring back what was running" {
+				return it
+			}
+		}
+		t.Fatal("no such setting")
+		return settingItem{}
+	}
+	// On unless said otherwise, and shown as a toggle that is on.
+	if got := item(); ansi.Strip(got.detail) != "offers the agents and terminals back, resumed where they left off" ||
+		got.on == nil || !*got.on {
+		t.Fatalf("by default: %q %v", got.detail, got.on)
+	}
+	if !m.cfg.Sandbox.Of("daytona").RestoresRunning() {
+		t.Fatal("the default should be to offer them back")
+	}
+	// Turned off, it says nothing is kept, and the configuration says so.
+	item().run(m)
+	if m.cfg.Sandbox.Of("daytona").RestoresRunning() {
+		t.Fatal("it is still on")
+	}
+	if got := item(); ansi.Strip(got.detail) != "no note is kept of what ran" || got.on == nil || *got.on {
+		t.Fatalf("turned off: %q %v", got.detail, got.on)
+	}
+	// And back on again.
+	item().run(m)
+	if !m.cfg.Sandbox.Of("daytona").RestoresRunning() {
+		t.Fatal("it did not come back on")
+	}
+	// Each provider decides for itself.
+	providers := sandbox.Providers
+	t.Cleanup(func() { sandbox.Providers = providers })
+	sandbox.Providers = []string{"daytona", "fly"}
+	no := false
+	m.cfg.Sandbox.Set("fly", config.ProviderCfg{Restore: &no})
+	if !m.cfg.Sandbox.Of("daytona").RestoresRunning() || m.cfg.Sandbox.Of("fly").RestoresRunning() {
+		t.Fatalf("one provider's answer is not another's: %+v", m.cfg.Sandbox)
 	}
 }

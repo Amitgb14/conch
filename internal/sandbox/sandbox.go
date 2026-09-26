@@ -128,6 +128,38 @@ type Provider interface {
 	SSHAccess(ctx context.Context, id string) (Access, error)
 }
 
+// Previewer is a provider that can give a link to a port inside a
+// sandbox, so a dev server an agent started can be looked at. Not every
+// provider can, so it is asked for separately.
+type Previewer interface {
+	// PreviewURL is a link to port inside the sandbox that a browser can
+	// open on its own, good for about the time asked for. Whatever
+	// credential it needs is in the link.
+	PreviewURL(ctx context.Context, id string, port int, expires time.Duration) (string, error)
+}
+
+// Snapshotter is a provider that can keep a sandbox as it stands and make
+// new ones from it: a checkout, its dependencies and an agent's login,
+// set up once and started again in a minute.
+type Snapshotter interface {
+	// Snapshot keeps the sandbox under name. What the provider needs of
+	// the sandbox first — stopped, usually — is its own business to
+	// refuse.
+	Snapshot(ctx context.Context, id, name string) error
+	// Snapshots lists what has been kept, newest first.
+	Snapshots(ctx context.Context) ([]Snap, error)
+	// ForgetSnapshot removes one.
+	ForgetSnapshot(ctx context.Context, name string) error
+}
+
+// Snap is a kept sandbox, as far as conch shows it.
+type Snap struct {
+	Name    string
+	State   string // the provider's own word: active, inactive, building…
+	Size    string // vCPU, memory and disk, when the provider says
+	Created time.Time
+}
+
 // Providers lists the providers conch knows.
 var Providers = []string{"daytona"}
 

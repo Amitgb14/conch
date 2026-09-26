@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -23,10 +25,12 @@ type fakeDaytona struct {
 	mu sync.Mutex
 
 	boxes   map[string]*fakeBox
-	created []map[string]any // create bodies
-	calls   []string         // "METHOD path"
-	pages   []string         // raw list replies, served in turn
-	fail    map[string][]int // "METHOD path" → statuses to answer first
+	created []map[string]any  // create bodies
+	calls   []string          // "METHOD path"
+	pages   []string          // raw list replies, served in turn
+	queries map[string]string // "METHOD path" → the last query string
+	bodies  map[string][]byte // "METHOD path" → the last body sent
+	fail    map[string][]int  // "METHOD path" → statuses to answer first
 	failMsg string
 	headers map[string]string // added to failure replies
 	access  string            // raw ssh-access reply
@@ -40,7 +44,7 @@ type fakeBox struct {
 
 func newFakeDaytona(t *testing.T) (*fakeDaytona, *Daytona) {
 	t.Helper()
-	f := &fakeDaytona{t: t, boxes: map[string]*fakeBox{}, fail: map[string][]int{}}
+	f := &fakeDaytona{t: t, boxes: map[string]*fakeBox{}, fail: map[string][]int{}, queries: map[string]string{}, bodies: map[string][]byte{}}
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 	t.Setenv("DAYTONA_API_KEY", "k-secret")
@@ -81,6 +85,13 @@ func (f *fakeDaytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api")
 	key := r.Method + " " + path
 	f.calls = append(f.calls, key)
+	f.queries[key] = r.URL.RawQuery
+	if r.Body != nil {
+		if b, err := io.ReadAll(io.LimitReader(r.Body, maxBody)); err == nil && len(b) > 0 {
+			f.bodies[key] = b
+			r.Body = io.NopCloser(bytes.NewReader(b)) // the handlers still read it
+		}
+	}
 	if st := f.fail[key]; len(st) > 0 {
 		f.fail[key] = st[1:]
 		for k, v := range f.headers {
@@ -120,6 +131,27 @@ func (f *fakeDaytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		page := f.pages[0]
 		f.pages = f.pages[1:]
 		fmt.Fprint(w, page)
+	case key == "GET /snapshots":
+		reply(map[string]any{"items": []map[string]any{
+			{"name": "older", "state": "active", "cpu": 1, "memory": 1, "disk": 3, "createdAt": "2026-09-20T10:00:00Z"},
+			{"name": "newest", "state": "building", "createdAt": "2026-09-25T10:00:00Z"},
+		}})
+	case len(parts) == 2 && parts[0] == "snapshots" && r.Method == http.MethodDelete:
+		w.WriteHeader(http.StatusNoContent)
+	case len(parts) == 3 && parts[0] == "sandbox" && parts[2] == "snapshot" && r.Method == http.MethodPost:
+		if f.boxes[parts[1]] == nil {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"statusCode":404,"message":"not found"}`)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+	case len(parts) == 5 && parts[0] == "sandbox" && parts[2] == "ports" && parts[4] == "signed-preview-url":
+		if f.boxes[parts[1]] == nil {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprintf(w, `{"statusCode":404,"message":"Sandbox %s not found"}`, parts[1])
+			return
+		}
+		reply(map[string]string{"url": "https://" + parts[3] + "-token.proxy.daytona.work", "token": "token"})
 	case len(parts) >= 2 && parts[0] == "sandbox":
 		box := f.boxes[parts[1]]
 		if box == nil {
@@ -768,5 +800,115 @@ func TestDaytonaDestroyedElsewhere(t *testing.T) {
 	f.fail["DELETE /sandbox/sb-gone"] = []int{http.StatusNotFound}
 	if err := d.Delete(ctx, "sb-gone"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("delete an unknown one: %v", err)
+	}
+}
+
+// A link to a port inside a sandbox: signed, so a browser can open it on
+// its own, and refused for the ports Daytona keeps for itself.
+func TestDaytonaPreviewURL(t *testing.T) {
+	f, d := newFakeDaytona(t)
+	ctx := ctxFor(t)
+	f.add("sb1", StateStarted)
+	f.pages = []string{`{"items":[],"nextCursor":null}`}
+
+	got, err := d.PreviewURL(ctx, "sb1", 3000, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "https://3000-token.proxy.daytona.work" {
+		t.Fatalf("link %q", got)
+	}
+	const path3000 = "GET /sandbox/sb1/ports/3000/signed-preview-url"
+	if !slices.Contains(f.called(), path3000) {
+		t.Fatalf("asked %v", f.called())
+	}
+	if q := f.queries[path3000]; q != "expiresInSeconds=3600" {
+		t.Fatalf("expiry asked for: %q", q)
+	}
+	// Daytona signs one for a day at most, and for a second at least.
+	if _, err := d.PreviewURL(ctx, "sb1", 3000, 48*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if q := f.queries[path3000]; q != "expiresInSeconds=86400" {
+		t.Fatalf("a link asked to last two days: %q", q)
+	}
+	if _, err := d.PreviewURL(ctx, "sb1", 3000, 0); err != nil {
+		t.Fatal(err)
+	}
+	if q := f.queries[path3000]; q != "expiresInSeconds=1" { // the last, a zero rounded up
+		t.Fatalf("the shortest link: %q", q)
+	}
+
+	// Ports that are not ports, and Daytona's own.
+	for _, c := range []struct {
+		port int
+		want string
+	}{{0, "1 to 65535"}, {70000, "1 to 65535"}, {22222, "web terminal"}, {2280, "toolbox API"}, {33333, "screen recordings"}} {
+		if _, err := d.PreviewURL(ctx, "sb1", c.port, time.Hour); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("port %d: %v", c.port, err)
+		}
+	}
+	if _, err := d.PreviewURL(ctx, "", 3000, time.Hour); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("no sandbox: %v", err)
+	}
+	// A sandbox Daytona doesn't have, and a reply with no link in it.
+	if _, err := d.PreviewURL(ctx, "nope", 3000, time.Hour); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown sandbox: %v", err)
+	}
+	f.fail["GET /sandbox/sb1/ports/8080/signed-preview-url"] = []int{http.StatusOK}
+	f.failMsg = `{}`
+	if _, err := d.PreviewURL(ctx, "sb1", 8080, time.Hour); err == nil || !strings.Contains(err.Error(), "no preview link") {
+		t.Fatalf("empty reply: %v", err)
+	}
+}
+
+// Keeping a sandbox to make others from, listing what is kept and
+// forgetting one.
+func TestDaytonaSnapshots(t *testing.T) {
+	f, d := newFakeDaytona(t)
+	ctx := ctxFor(t)
+	f.add("sb1", StateStopped)
+
+	if err := d.Snapshot(ctx, "sb1", " ready-to-go "); err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	_ = json.Unmarshal(f.bodies["POST /sandbox/sb1/snapshot"], &body)
+	if body["name"] != "ready-to-go" || body["includeMemory"] != false {
+		t.Fatalf("snapshot body %v", body)
+	}
+	// What it refuses before asking anything.
+	if err := d.Snapshot(ctx, "sb1", "  "); err == nil || !strings.Contains(err.Error(), "needs a name") {
+		t.Fatalf("no name: %v", err)
+	}
+	if err := d.Snapshot(ctx, "", "x"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("no sandbox: %v", err)
+	}
+	// Daytona's refusal — it wants a container sandbox stopped — is shown
+	// as it is rather than guessed at.
+	f.fail["POST /sandbox/sb1/snapshot"] = []int{http.StatusConflict}
+	f.failMsg = `{"statusCode":409,"message":"sandbox must be stopped"}`
+	if err := d.Snapshot(ctx, "sb1", "x"); err == nil || !strings.Contains(err.Error(), "must be stopped") {
+		t.Fatalf("a refusal: %v", err)
+	}
+
+	// The list comes back newest first, with what each one is.
+	list, err := d.Snapshots(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 || list[0].Name != "newest" || list[1].Name != "older" {
+		t.Fatalf("snapshots %+v", list)
+	}
+	if list[1].Size != "1 vCPU, 1 GiB, 3 GiB disk" || list[0].Size != "" || list[0].State != "building" {
+		t.Fatalf("read as %+v", list)
+	}
+
+	// Forgetting one, and forgetting nothing.
+	if err := d.ForgetSnapshot(ctx, "older"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ForgetSnapshot(ctx, " "); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("no name: %v", err)
 	}
 }

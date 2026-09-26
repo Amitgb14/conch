@@ -29,6 +29,37 @@ type Config struct {
 	Sandbox SandboxCfg `toml:"sandbox"`
 }
 
+// RestoresRunning reports whether conch should remember what a sandbox
+// was running and offer it back. Unset is true.
+func (p ProviderCfg) RestoresRunning() bool { return p.Restore == nil || *p.Restore }
+
+// IdleMinutes is how long a sandbox may sit idle before conch stops it:
+// what was set, or IdleStopDefault when nothing was. 0 never stops one.
+func (p ProviderCfg) IdleMinutes() int {
+	if p.IdleStop == nil {
+		return IdleStopDefault
+	}
+	return max(*p.IdleStop, 0)
+}
+
+// Priced reports whether a cost can be worked out at all.
+func (p ProviderCfg) Priced() bool {
+	return p.PriceCPUHour > 0 || p.PriceGiBHour > 0 || p.PriceDiskGiBHour > 0
+}
+
+// CostPerHour is what a sandbox of this size costs an hour while it runs,
+// or 0 when no prices are set.
+func (p ProviderCfg) CostPerHour(cpu, memGiB, diskGiB int) float64 {
+	return float64(cpu)*p.PriceCPUHour + float64(memGiB)*p.PriceGiBHour + float64(diskGiB)*p.PriceDiskGiBHour
+}
+
+// StoppedCostPerHour is what it costs an hour while it is stopped: the
+// disk it keeps. Providers charge for that until the sandbox is deleted,
+// which is the cost people forget.
+func (p ProviderCfg) StoppedCostPerHour(diskGiB int) float64 {
+	return float64(diskGiB) * p.PriceDiskGiBHour
+}
+
 // SandboxCfg holds the sandbox providers conch can use, keyed by the
 // provider's own name: `[sandbox.daytona]`, `[sandbox.e2b]` and so on.
 // Every provider takes the same settings, so one conch grows needs no
@@ -47,6 +78,11 @@ func (c *SandboxCfg) Set(name string, p ProviderCfg) {
 	}
 	(*c)[name] = p
 }
+
+// IdleStopDefault is how long a sandbox may sit idle before conch stops
+// it when nothing says otherwise: long enough to think, short enough that
+// a forgotten sandbox costs an evening rather than a month.
+const IdleStopDefault = 30
 
 // ProviderCfg configures one sandbox provider. The API key is never
 // stored: it is read from the environment variable APIKeyEnv names.
@@ -67,10 +103,30 @@ type ProviderCfg struct {
 	Target string `toml:"target,omitempty"`
 	// Snapshot (image) new sandboxes start from; "" is the provider's own.
 	Snapshot string `toml:"snapshot,omitempty"`
-	// AutoStop stops a sandbox after this many minutes without ssh or API
-	// activity. 0 (the default) never does: agents inside don't count as
-	// activity, so any other value stops them once the TUI is closed.
+	// AutoStop is the provider's own idle timer, in minutes; 0 (the
+	// default) turns it off. Providers count only what reaches them from
+	// outside — an ssh connection, an API call — so an agent working
+	// quietly inside looks idle to them and would be stopped. IdleStop
+	// below is conch's own, which knows better.
 	AutoStop int `toml:"auto_stop,omitempty"`
+	// Restore says whether conch writes down what a sandbox was running
+	// when it stops, and offers it back when it starts again. Unset is
+	// true: the agents' conversations are on the sandbox's own disk, so
+	// the offer costs nothing until it is taken. Set it false to have
+	// conch keep no note of what ran.
+	Restore *bool `toml:"restore_running,omitempty"`
+	// IdleStop is how many minutes a sandbox may go without an agent
+	// working or a pane printing before conch stops it, keeping its files
+	// and its memory. Unset is IdleStopDefault; 0 never stops one.
+	IdleStop *int `toml:"idle_stop,omitempty"`
+	// PriceCPUHour, PriceGiBHour and PriceDiskGiBHour are what an hour of
+	// a sandbox costs, for conch to show what one has run up. conch ships
+	// no price list — providers change theirs, and a stale one misleads —
+	// so nothing is shown until these are set, from the provider's own
+	// pricing page.
+	PriceCPUHour     float64 `toml:"price_cpu_hour,omitempty"`
+	PriceGiBHour     float64 `toml:"price_gib_hour,omitempty"`
+	PriceDiskGiBHour float64 `toml:"price_disk_gib_hour,omitempty"`
 	// Env names variables of this environment passed into new sandboxes,
 	// e.g. CLAUDE_CODE_OAUTH_TOKEN. The provider keeps their values with
 	// the sandbox.

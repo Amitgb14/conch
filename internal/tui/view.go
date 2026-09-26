@@ -187,10 +187,17 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		case mach.busy != "":
 			return spinner[m.spin%len(spinner)], styleWork, mach.label, styleMuted, styleMuted.Render(mach.busy)
 		case mach.state == stateAttention && mach.sandboxState != "":
-			return "■", styleMuted, mach.label, styleMuted, styleMuted.Render(string(mach.sandboxState))
+			right := styleMuted.Render(string(mach.sandboxState))
+			if spend := m.sandboxSpend(mach, time.Now()); spend != "" {
+				right = joinRight(styleMuted.Render(spend), right)
+			}
+			return "■", styleMuted, mach.label, styleMuted, right
 		}
 		switch mach.state {
 		case stateOnline:
+			if spend := m.sandboxSpend(mach, time.Now()); spend != "" {
+				badge = joinRight(styleMuted.Render(spend), badge)
+			}
 			if mach.warning != "" {
 				return "●", styleWarn, mach.label, styleBold, joinRight(styleWarn.Render("outdated"), badge)
 			}
@@ -940,6 +947,9 @@ func (m Model) sandboxesLines(provider string, w int) []string {
 		}
 	}
 	sort.SliceStable(boxes, func(i, j int) bool { return strings.ToLower(boxes[i].label) < strings.ToLower(boxes[j].label) })
+	now := time.Now()
+	var total, cost, stoppedRate float64
+	var anyPriced bool
 	lines := []string{styleBold.Render(title) + styleMuted.Render(fmt.Sprintf("  %d", len(boxes))), ""}
 	for _, mach := range boxes {
 		p, id, _ := remote.ParseSandboxTarget(mach.target)
@@ -968,13 +978,37 @@ func (m Model) sandboxesLines(provider string, w int) []string {
 		if mach.state != stateOnline {
 			right = ""
 		}
+		if spend := m.sandboxSpend(mach, now); spend != "" {
+			right = joinRight(styleMuted.Render(spend), right)
+			total += mach.runningFor(now).Hours()
+			if c, priced := m.sandboxCost(mach, now); priced {
+				cost, anyPriced = cost+c, true
+			}
+			stoppedRate += m.sandboxStoppedRate(mach)
+		}
 		left := "  " + mach.label + "  " + styleMuted.Render(providerLabel(p)+" "+id)
 		lines = append(lines, spread(left, joinRight(state, right), w))
 	}
 	if len(boxes) == 0 {
 		lines = append(lines, styleMuted.Render("  none yet · M → New sandbox… makes one"))
 	}
-	return append(lines, "", styleMuted.Render("enter opens one · m menu: start, stop, delete · M new · a running sandbox costs until stopped"))
+	if total > 0 || stoppedRate > 0 {
+		var said []string
+		if total > 0 {
+			running := fmt.Sprintf("running for %s in all", shortDuration(time.Duration(total*float64(time.Hour))))
+			if anyPriced {
+				running += " · " + money(cost)
+			}
+			said = append(said, running)
+		}
+		if stoppedRate > 0 {
+			// Stopped is not free: the disk stays until the sandbox is
+			// deleted, and so does the charge for it.
+			said = append(said, fmt.Sprintf("stopped ones keep %s/h of disk", money(stoppedRate)))
+		}
+		lines = append(lines, "", styleMuted.Render("  "+strings.Join(said, " · ")))
+	}
+	return append(lines, "", styleMuted.Render("enter opens one · m menu: open a port, snapshot, stop, delete · M new · one that runs, costs"))
 }
 
 func (m Model) machineLines(mach *machine, cols, rows int) []string {

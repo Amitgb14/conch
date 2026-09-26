@@ -209,8 +209,10 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		}
 		if isSandbox {
 			if mach.state == stateOnline {
+				items = append(items, menuItem{"o", "Open a port in the browser…", func(m *Model) tea.Cmd { return m.openSandboxPort(mid) }})
 				items = append(items, menuItem{"S", "Stop sandbox…", func(m *Model) tea.Cmd { m.confirmStopSandbox(mid); return nil }})
 			}
+			items = append(items, menuItem{"K", "Keep a snapshot…", func(m *Model) tea.Cmd { return m.openSnapshotDialog(mid) }})
 			items = append(items, menuItem{"D", "Delete sandbox…", func(m *Model) tea.Cmd { m.confirmDeleteSandbox(mid); return nil }})
 		}
 		items = append(items, menuItem{"M", "Add machine…", act("M")})

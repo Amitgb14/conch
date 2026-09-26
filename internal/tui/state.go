@@ -24,6 +24,9 @@ type uiState struct {
 	// key and the state it was in: a row comes back when that changes.
 	QueueDismissed map[string]string `json:"queue_dismissed,omitempty"`
 	SavedSSH       []string          `json:"saved_ssh,omitempty"` // ssh hosts kept in the tree (ssh.go)
+	// SandboxRan is what each sandbox was running when it stopped, by
+	// machine ID, to offer back when it starts again (sandboxran.go).
+	SandboxRan map[string][]ranPane `json:"sandbox_ran,omitempty"`
 }
 
 func uiStatePath() string { return filepath.Join(config.Dir(), "ui.json") }
@@ -75,6 +78,12 @@ func (m Model) saveState() tea.Cmd {
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
 		Tabs: m.savedTabs(), ActiveTab: m.activeTab, LimitAlerts: map[string]int{},
 		QueueDismissed: map[string]string{}, SavedSSH: slices.Clone(m.savedSSH)}
+	if len(m.sandboxRan) > 0 {
+		st.SandboxRan = make(map[string][]ranPane, len(m.sandboxRan))
+		for k, v := range m.sandboxRan {
+			st.SandboxRan[k] = slices.Clone(v)
+		}
+	}
 	for k, v := range m.limitSeen {
 		st.LimitAlerts[k] = v
 	}

@@ -58,6 +58,17 @@ func (d *a4Daytona) called() string {
 func (d *a4Daytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/"); len(parts) == 5 && parts[4] == "signed-preview-url" {
+		d.calls = append(d.calls, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery)
+		if d.boxes[parts[1]] == "" {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprintf(w, `{"statusCode":404,"message":"not found"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"url":"https://%s-signed.proxy.daytona.work","token":"signed"}`, parts[3])
+		return
+	}
 	d.calls = append(d.calls, r.Method+" "+r.URL.Path)
 	if r.Header.Get("Authorization") != "Bearer k-test" {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -439,6 +450,44 @@ func TestA4SandboxDestroyedElsewhere(t *testing.T) {
 	for _, m := range ms {
 		if m.Target == "daytona:sb-going" {
 			t.Fatalf("the machine is still in the catalog: %+v", m)
+		}
+	}
+}
+
+// conch sandbox url prints a link to a port inside a sandbox.
+func TestA4SandboxURL(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	d.set("sb-live", "started")
+	if _, err := remote.SaveMachine(remote.Machine{Label: "live", Target: "daytona:sb-live"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runSandbox([]string{"url", "live", "3000"}) })
+	if err != nil || strings.TrimSpace(out) != "https://3000-signed.proxy.daytona.work" {
+		t.Fatalf("url: %q %v", out, err)
+	}
+	if !strings.Contains(d.called(), "expiresInSeconds=3600") {
+		t.Fatalf("asked for: %s", d.called())
+	}
+	// A time of its own, in the shape a Go duration takes.
+	if _, _ = a4Capture(t, "", func() { err = runSandbox([]string{"url", "-expires", "10m", "live", "3000"}) }); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(d.called(), "expiresInSeconds=600") {
+		t.Fatalf("10m asked for: %s", d.called())
+	}
+	// What it refuses: a port that isn't one, too few arguments, an
+	// unknown sandbox.
+	for _, args := range [][]string{
+		{"url", "live", "nope"},
+		{"url", "live", "0"},
+		{"url", "live"},
+		{"url"},
+	} {
+		if _, _, err := a4Out(t, func() error { return runSandbox(args) }); err == nil {
+			t.Fatalf("%v was accepted", args)
 		}
 	}
 }

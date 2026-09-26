@@ -69,6 +69,16 @@ type machine struct {
 	// fresh says the last connection reached a server that had started
 	// afresh, so what was held by pane ID belongs to nobody.
 	fresh bool
+	// since is when this connection was made: where the idle watch counts
+	// from for a machine whose panes say nothing.
+	since time.Time
+	// lastPort is the port a preview link was last asked for here, so the
+	// same dev server is one keystroke away next time.
+	lastPort string
+	// box is what the provider last said about this sandbox: when it
+	// started and how big it is, which is what running time and cost are
+	// worked out from. Nil until the first look.
+	box   *sandbox.Sandbox
 	sizes map[string][2]int // last size sent per pane
 
 	// Which agents are installed there; nil until known (or when the server
@@ -154,6 +164,7 @@ func (mach *machine) attach(c *client.Client) (fresh bool) {
 	mach.gen++
 	mach.c, mach.server = c, c.Server
 	mach.state, mach.err, mach.warning, mach.failures = stateOnline, "", "", 0
+	mach.since = time.Now()
 	mach.sandboxState = ""
 	mach.sizes = map[string][2]int{} // a new connection may see new sizes
 	if fresh {

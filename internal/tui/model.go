@@ -73,8 +73,15 @@ type Model struct {
 	// changesCache keeps the branches whose changes were read, newest last
 	// in changesSeen, so going back to one shows at once.
 	changesCache map[string]*changesView
-	changesSeen  []string
-	overlay      overlay // menu or dialog on top, if any
+	// idleChecked is when the idle watch last looked at the sandboxes, and
+	// boxesAsked when the providers were last asked what they have.
+	idleChecked time.Time
+	boxesAsked  time.Time
+	// sandboxRan is what each sandbox was running when it stopped, to
+	// offer back when it starts again (sandboxran.go).
+	sandboxRan  map[string][]ranPane
+	changesSeen []string
+	overlay     overlay // menu or dialog on top, if any
 
 	// Tabs and splits in the main area.
 	tabs      []*tab
@@ -167,6 +174,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		limitSeen:  st.LimitAlerts,
 		queueSeen:  st.QueueDismissed,
 		savedSSH:   cleanSavedSSH(st.SavedSSH),
+		sandboxRan: st.SandboxRan,
 	}
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	if st.SidebarWidth > 0 {
@@ -266,6 +274,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(append(cmds, mach.waitEvent(), m.startTicking())...)
 
 	case machineClosedMsg:
+		m.rememberRunning(msg.machine)
 		mach := m.machine(msg.machine)
 		if mach == nil || msg.gen != mach.gen {
 			return m, nil
@@ -332,6 +341,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			mach.setPanes(msg.panes)
 			m.forgetGonePanes(mach)
 			m.flushHeld(mach)
+			if cmd := m.offerRestore(mach.id); cmd != nil {
+				return m, tea.Batch(cmd, m.rebuild())
+			}
 		}
 		return m, tea.Batch(m.rebuild(), m.startTicking())
 
@@ -436,6 +448,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setFlash("added "+mach.label+" · "+msg.note, strings.HasPrefix(msg.note, "key login not set up"))
 		}
 		return m, tea.Batch(mach.connect(false), m.rebuild(), m.saveState())
+
+	case previewDoneMsg:
+		return m, m.receivePreview(msg)
+
+	case snapshotDoneMsg:
+		return m, m.receiveSnapshot(msg)
+
+	case sandboxListMsg:
+		return m, m.receiveSandboxList(msg)
+
+	case restoreDoneMsg:
+		return m, m.receiveRestore(msg)
 
 	case pushRejectedMsg:
 		return m, m.receivePushRejected(msg)
@@ -568,7 +592,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.ticking = false
 		m.spin++
-		return m, m.startTicking()
+		now := time.Now()
+		var idle tea.Cmd
+		if now.Sub(m.idleChecked) >= idleCheckEvery {
+			m.idleChecked = now
+			idle = m.watchIdleSandboxes(now)
+		}
+		return m, tea.Batch(m.startTicking(), idle, m.pollSandboxes(now))
 
 	case tea.MouseMsg:
 		return m.handleMouse(msg)

@@ -377,26 +377,25 @@ func (s *settings) brainItems(m *Model) []settingItem {
 	return items
 }
 
-// autoStopChoices are the minutes a sandbox may idle before its provider
-// stops it. 0 never does, which is the default: an agent working inside
-// doesn't count as activity, so anything else stops agents once the TUI
-// lets go.
-var autoStopChoices = []int{0, 30, 60, 120}
+// idleStopChoices are the minutes a sandbox may sit idle before conch
+// stops it. The default is 30: a provider's own timer can't tell an agent
+// at work from an empty machine, so conch does the watching.
+var idleStopChoices = []int{15, 30, 60, 120, 0}
 
-func nextAutoStop(now int) int {
-	for i, v := range autoStopChoices {
+func nextIdleStop(now int) int {
+	for i, v := range idleStopChoices {
 		if v == now {
-			return autoStopChoices[(i+1)%len(autoStopChoices)]
+			return idleStopChoices[(i+1)%len(idleStopChoices)]
 		}
 	}
-	return autoStopChoices[0]
+	return config.IdleStopDefault
 }
 
-func autoStopText(min int) string {
+func idleStopText(min int) string {
 	if min <= 0 {
-		return "never · it runs until you stop it"
+		return "never · it runs, and costs, until you stop it"
 	}
-	return fmt.Sprintf("%d minutes idle · stops agents once the TUI lets go", min)
+	return fmt.Sprintf("after %dm with no agent working and nothing printing", min)
 }
 
 // sandboxItems is the Sandboxes tab: what a new sandbox is made from, per
@@ -473,9 +472,37 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 		field("Region", firstNonEmpty(cfg.Target, styleMuted.Render("the account's default")),
 			"Where sandboxes are made, e.g. us or eu. Empty means the account's default.",
 			cfg.Target, func(c *config.ProviderCfg, v string) error { c.Target = v; return nil }),
-		{label: "Auto-stop", detail: autoStopText(cfg.AutoStop), run: set(func(c *config.ProviderCfg) {
-			c.AutoStop = nextAutoStop(c.AutoStop)
+		{label: "Bring back what was running", detail: restoreText(cfg.RestoresRunning()), on: boolOf(cfg.RestoresRunning()),
+			run: set(func(c *config.ProviderCfg) {
+				v := !c.RestoresRunning()
+				c.Restore = &v
+			})},
+		{label: "Stop when idle", detail: idleStopText(cfg.IdleMinutes()), run: set(func(c *config.ProviderCfg) {
+			n := nextIdleStop(c.IdleMinutes())
+			c.IdleStop = &n
 		})},
+		{label: "Price an hour", detail: priceText(cfg), run: func(m *Model) tea.Cmd {
+			c := m.cfg.Sandbox.Of(provider)
+			d := newDialog(*m, " "+label+" · price an hour ",
+				[]string{"What an hour costs, so conch can say what a sandbox has run up. conch ships no price list — providers change theirs — so take these from " + label + "'s own pricing page. Empty or 0 shows running time alone."},
+				[]string{"Per vCPU", "Per GiB memory", "Per GiB disk"},
+				[]string{priceValue(c.PriceCPUHour), priceValue(c.PriceGiBHour), priceValue(c.PriceDiskGiBHour)})
+			d.back = s
+			d.submit = func(m *Model, v []string) tea.Cmd {
+				c := m.cfg.Sandbox.Of(provider)
+				for i, into := range []*float64{&c.PriceCPUHour, &c.PriceGiBHour, &c.PriceDiskGiBHour} {
+					got, err := parsePrice(v[i])
+					if err != nil {
+						return func() tea.Msg { return errMsg{err} }
+					}
+					*into = got
+				}
+				m.cfg.Sandbox.Set(provider, c)
+				return saveConfig(m.cfg)
+			}
+			m.overlay = d
+			return d.focusCmd()
+		}},
 		field("Pass in", envText(cfg.Env),
 			"Names of your environment variables to pass into every new "+label+" sandbox, separated by spaces or commas — an agent's token, say (CLAUDE_CODE_OAUTH_TOKEN). Their values are read when a sandbox is made, never stored here.",
 			strings.Join(cfg.Env, " "), func(c *config.ProviderCfg, v string) error {
@@ -501,6 +528,48 @@ func keyDetail(key, env string) string {
 		shown = "…" + string(r[len(r)-4:])
 	}
 	return styleWarn.Render("kept in config.toml " + shown)
+}
+
+// boolOf is a value a toggle can point at: settings are rebuilt on every
+// look, so the pointer lives as long as the line it draws.
+func boolOf(v bool) *bool { return &v }
+
+// restoreText says what remembering does, and what it does not.
+func restoreText(on bool) string {
+	if !on {
+		return styleMuted.Render("no note is kept of what ran")
+	}
+	return "offers the agents and terminals back, resumed where they left off"
+}
+
+// priceText says whether conch can work out what a sandbox costs.
+func priceText(cfg config.ProviderCfg) string {
+	if !cfg.Priced() {
+		return styleMuted.Render("not set · running time is shown without a cost")
+	}
+	return fmt.Sprintf("$%g vCPU · $%g GiB · $%g disk", cfg.PriceCPUHour, cfg.PriceGiBHour, cfg.PriceDiskGiBHour)
+}
+
+// priceValue is a price for the dialog to start from; nothing for zero,
+// rather than a 0 to delete.
+func priceValue(v float64) string {
+	if v <= 0 {
+		return ""
+	}
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// parsePrice reads a price a person typed, with or without its currency.
+func parsePrice(s string) (float64, error) {
+	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "$"))
+	if s == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || v < 0 {
+		return 0, fmt.Errorf("%q: give a price an hour, e.g. 0.0504", s)
+	}
+	return v, nil
 }
 
 // defaultKeyEnv is the variable a provider reads its key from when the

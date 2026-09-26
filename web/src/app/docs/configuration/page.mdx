@@ -93,8 +93,14 @@ api_key_env = ""       # variable holding the key; "" is DAYTONA_API_KEY
 api_url = ""           # "" is $DAYTONA_API_URL or the provider's own
 target = ""            # region, e.g. "us" or "eu"
 snapshot = ""          # what new sandboxes start from; "" is the provider's default
-auto_stop = 0          # minutes idle before the provider stops one; 0 never does
+restore_running = true # write down what a sandbox was running and offer it back on start
+idle_stop = 30         # minutes with no agent working and nothing printing before conch
+                       # stops the sandbox; 0 never does
+auto_stop = 0          # the provider's own idle timer, in minutes; 0 (the default) off
 env = []               # variables of yours passed into every new sandbox
+price_cpu_hour = 0     # what an hour costs, to show what a sandbox has run up:
+price_gib_hour = 0     # per vCPU, per GiB of memory, per GiB of disk.
+price_disk_gib_hour = 0  # 0 shows running time without a cost
 ```
 
 ### notify

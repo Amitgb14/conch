@@ -72,6 +72,10 @@ Usage:
                                 make a Daytona sandbox ($DAYTONA_API_KEY) and add it as a machine;
                                 it runs until stopped, so agents keep going with the TUI closed
   conch sandbox ls | start ID | stop [-y] ID | rm [-y] ID
+  conch sandbox url [-expires 1h] [-open] ID PORT
+                                a link to a port inside a sandbox
+  conch sandbox snapshot [-name N] ID | snapshots [-rm NAME]
+                                keep a sandbox to make others from, or list what is kept
                                 list conch's sandboxes, start or stop one, or delete it for good
   conch -m MACHINE COMMAND      run a command against a remote machine
   conch -m MACHINE upload FILE...

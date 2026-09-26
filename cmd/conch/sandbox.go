@@ -6,6 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -39,6 +42,12 @@ func runSandbox(args []string) error {
 		return sandboxStop(args[1:])
 	case "rm", "remove", "delete":
 		return sandboxRemove(args[1:])
+	case "url", "preview":
+		return sandboxURL(args[1:])
+	case "snapshot":
+		return sandboxSnapshot(args[1:])
+	case "snapshots":
+		return sandboxSnapshots(args[1:])
 	}
 	return fmt.Errorf("unknown sandbox subcommand %q", args[0])
 }
@@ -284,6 +293,146 @@ func sandboxStop(args []string) error {
 	}
 	fmt.Printf("%s stopped\n", name)
 	return nil
+}
+
+// sandboxURL prints a link to a port inside a sandbox, and can open it.
+func sandboxURL(args []string) error {
+	fs := flag.NewFlagSet("sandbox url", flag.ContinueOnError)
+	expires := fs.Duration("expires", time.Hour, "how long the link lasts (up to 24h)")
+	open := fs.Bool("open", false, "open it in the browser as well")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return errors.New("usage: conch sandbox url [-expires 1h] [-open] ID PORT")
+	}
+	port, err := strconv.Atoi(fs.Arg(1))
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("%q: give a port between 1 and 65535", fs.Arg(1))
+	}
+	m, id, err := resolveSandbox(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	p, err := openSandboxes()
+	if err != nil {
+		return err
+	}
+	pv, ok := p.(sandbox.Previewer)
+	if !ok {
+		return fmt.Errorf("%s cannot give a link to a port", sandboxProvider)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	url, err := pv.PreviewURL(ctx, id, port, *expires)
+	if err != nil {
+		return err
+	}
+	fmt.Println(url)
+	if *open {
+		// Anyone with the link can reach that port, so say so once.
+		fmt.Fprintf(os.Stderr, "opening %s · the link works for anyone until it expires\n", sandboxName(m, id))
+		tool := "xdg-open"
+		if runtime.GOOS == "darwin" {
+			tool = "open"
+		}
+		return exec.Command(tool, url).Start()
+	}
+	return nil
+}
+
+// snapshotter is the provider's snapshot side, or an error saying it has
+// none.
+func snapshotter() (sandbox.Snapshotter, error) {
+	p, err := openSandboxes()
+	if err != nil {
+		return nil, err
+	}
+	sn, ok := p.(sandbox.Snapshotter)
+	if !ok {
+		return nil, fmt.Errorf("%s cannot keep snapshots", sandboxProvider)
+	}
+	return sn, nil
+}
+
+// sandboxSnapshot keeps a sandbox as it stands, to make others from.
+func sandboxSnapshot(args []string) error {
+	fs := flag.NewFlagSet("sandbox snapshot", flag.ContinueOnError)
+	name := fs.String("name", "", "what to call it (default: the sandbox's label and the date)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: conch sandbox snapshot [-name N] ID")
+	}
+	m, id, err := resolveSandbox(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	sn, err := snapshotter()
+	if err != nil {
+		return err
+	}
+	label := *name
+	if label == "" {
+		who := id
+		if m != nil {
+			who = m.Label
+		}
+		label = fmt.Sprintf("%s-%s", who, time.Now().Format("2006-01-02-1504"))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	if err := sn.Snapshot(ctx, id, label); err != nil {
+		return err
+	}
+	fmt.Printf("keeping %s as %s\n", sandboxName(m, id), label)
+	fmt.Fprintf(os.Stderr, "it takes a few minutes to become usable · conch sandbox create -snapshot %s makes one from it\n", label)
+	return nil
+}
+
+// sandboxSnapshots lists what has been kept, and removes one.
+func sandboxSnapshots(args []string) error {
+	fs := flag.NewFlagSet("sandbox snapshots", flag.ContinueOnError)
+	rm := fs.String("rm", "", "forget this one instead of listing")
+	yes := fs.Bool("y", false, "don't ask before forgetting")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	sn, err := snapshotter()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if *rm != "" {
+		if !*yes && !confirm(fmt.Sprintf("Forget snapshot %s? Sandboxes already made from it are not touched. [y/N] ", *rm), false) {
+			return nil
+		}
+		if err := sn.ForgetSnapshot(ctx, *rm); err != nil {
+			return err
+		}
+		fmt.Printf("forgot %s\n", *rm)
+		return nil
+	}
+	list, err := sn.Snapshots(ctx)
+	if err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		fmt.Fprintln(os.Stderr, "no snapshots · conch sandbox snapshot ID keeps one")
+		return nil
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tSTATE\tSIZE\tKEPT")
+	for _, s := range list {
+		kept := "-"
+		if !s.Created.IsZero() {
+			kept = s.Created.Local().Format("2006-01-02 15:04")
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, firstNonEmptyStr(s.State, "-"), firstNonEmptyStr(s.Size, "-"), kept)
+	}
+	return tw.Flush()
 }
 
 func sandboxRemove(args []string) error {

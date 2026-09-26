@@ -7,11 +7,13 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/sandbox"
@@ -58,12 +60,19 @@ func TestSandboxStoppedNeedsTheUser(t *testing.T) {
 // sbProvider is a sandbox provider for TUI tests: it records what it was
 // asked and answers with the errors it is given.
 type sbProvider struct {
-	mu        sync.Mutex
-	calls     []string
-	checkErr  error
-	opErr     error
-	createErr error
-	created   sandbox.Sandbox
+	mu         sync.Mutex
+	calls      []string
+	checkErr   error
+	opErr      error
+	createErr  error
+	created    sandbox.Sandbox
+	preview    string // the link PreviewURL answers with
+	previewErr error
+}
+
+func (p *sbProvider) PreviewURL(_ context.Context, id string, port int, _ time.Duration) (string, error) {
+	p.record(fmt.Sprintf("preview %s %d", id, port))
+	return p.preview, p.previewErr
 }
 
 func (p *sbProvider) record(s string) {
@@ -560,7 +569,7 @@ func TestSandboxTreeGrouping(t *testing.T) {
 	m.expanded[sandboxesID()] = true
 	m.rebuild()
 	page := a2Plain(m.sandboxesLines("", 80))
-	for _, want := range []string{"Sandboxes  3", "sdx01", "sdx02", "Daytona sb-aaa", "E2B sb-ccc", "costs until stopped"} {
+	for _, want := range []string{"Sandboxes  3", "sdx01", "sdx02", "Daytona sb-aaa", "E2B sb-ccc", "one that runs, costs"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("the page lacks %q:\n%s", want, page)
 		}
@@ -582,5 +591,513 @@ func TestSandboxTreeGrouping(t *testing.T) {
 	}
 	if page := a2Plain(m.sandboxesLines("", 80)); !strings.Contains(page, "none yet · M → New sandbox…") {
 		t.Fatalf("empty page:\n%s", page)
+	}
+}
+
+// A sandbox nobody is using is stopped by conch itself, since a provider's
+// own timer can't tell an agent at work from an empty machine.
+func TestSandboxIdleStop(t *testing.T) {
+	m, mach := sandboxModel(t)
+	p := &sbProvider{}
+	useSandboxProvider(t, p)
+	now := time.Now()
+	mach.state, mach.since = stateOnline, now.Add(-2*time.Hour)
+	pane := func(state string, last time.Time) proto.PaneInfo {
+		info := proto.PaneInfo{ID: "p1", State: proto.PaneRunning, LastActive: last}
+		if state != "" {
+			info.Agent = &proto.AgentStatus{Name: "claude", State: state}
+		}
+		return info
+	}
+	idle := func(panes ...proto.PaneInfo) time.Duration {
+		mach.panes = panes
+		return now.Sub(m.idleSince(mach, now))
+	}
+
+	// An agent working, or waiting for an answer, is not idle at all.
+	for _, state := range []string{proto.AgentWorking, proto.AgentBlocked} {
+		if d := idle(pane(state, now.Add(-time.Hour))); d != 0 {
+			t.Fatalf("%s counts as idle after %v", state, d)
+		}
+	}
+	// Otherwise it is however long since anything printed.
+	if d := idle(pane(proto.AgentIdle, now.Add(-10*time.Minute))); d.Round(time.Minute) != 10*time.Minute {
+		t.Fatalf("idle %v", d)
+	}
+	// The newest pane wins, and one that has exited says nothing.
+	busy := proto.PaneInfo{ID: "p2", State: proto.PaneRunning, LastActive: now.Add(-time.Minute)}
+	gone := proto.PaneInfo{ID: "p3", State: proto.PaneExited, LastActive: now}
+	if d := idle(pane(proto.AgentIdle, now.Add(-time.Hour)), busy, gone); d.Round(time.Minute) != time.Minute {
+		t.Fatalf("newest pane: %v", d)
+	}
+	// With no panes at all it counts from when conch connected.
+	if d := idle(); d.Round(time.Minute) != 2*time.Hour {
+		t.Fatalf("no panes: %v", d)
+	}
+
+	// Below the limit nothing happens; past it the sandbox is stopped.
+	mach.panes = []proto.PaneInfo{pane(proto.AgentIdle, now.Add(-20*time.Minute))}
+	if cmd := m.watchIdleSandboxes(now); cmd != nil {
+		t.Fatal("stopped one that was only 20 minutes idle, with the default of 30")
+	}
+	mach.panes = []proto.PaneInfo{pane(proto.AgentIdle, now.Add(-31*time.Minute))}
+	cmd := m.watchIdleSandboxes(now)
+	if cmd == nil || !strings.Contains(m.flash, "idle for 30m") || !strings.Contains(m.flash, "files are kept") {
+		t.Fatalf("31 minutes idle: %q", m.flash)
+	}
+	a2Run(cmd)
+	if !strings.Contains(p.called(), "stop sb1") {
+		t.Fatalf("stopped: %q", p.called())
+	}
+
+	// Turned off, it is left alone however long it sits; a shorter limit
+	// is taken as it is.
+	mach.busy = ""
+	never := 0
+	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{IdleStop: &never})
+	if cmd := m.watchIdleSandboxes(now); cmd != nil {
+		t.Fatal("stopped one when the setting says never")
+	}
+	ten := 10
+	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{IdleStop: &ten})
+	if cmd := m.watchIdleSandboxes(now); cmd == nil {
+		t.Fatal("a shorter limit was not used")
+	}
+
+	// A machine that is offline, already busy, or not a sandbox at all is
+	// left to itself.
+	mach.busy = "stopping"
+	if cmd := m.watchIdleSandboxes(now); cmd != nil {
+		t.Fatal("stopped one that was already stopping")
+	}
+	mach.busy, mach.state = "", stateOffline
+	if cmd := m.watchIdleSandboxes(now); cmd != nil {
+		t.Fatal("stopped one that was offline")
+	}
+	if ssh := m.machine("gpu"); ssh != nil {
+		ssh.state, ssh.since, ssh.panes = stateOnline, now.Add(-10*time.Hour), nil
+		if cmd := m.watchIdleSandboxes(now); cmd != nil {
+			t.Fatal("stopped an ordinary machine")
+		}
+	}
+}
+
+// Opening a port inside a sandbox: the menu asks which, the provider is
+// asked for a link, and the link is opened and kept on the clipboard.
+func TestSandboxOpenPort(t *testing.T) {
+	m, mach := sandboxModel(t)
+	p := &sbProvider{preview: "https://3000-tok.proxy.daytona.work"}
+	useSandboxProvider(t, p)
+	// Nothing reaches the network in a test: the link is taken to answer.
+	old := checkPreview
+	checkPreview = func(context.Context, string) (int, string) { return 200, "" }
+	t.Cleanup(func() { checkPreview = old })
+	mach.state = stateOnline
+	m.rebuild()
+
+	// It is in the machine's menu while the sandbox is running.
+	r := row{id: machineID(mach.id), kind: kindMachine, machine: mach.id}
+	if labels := a2MenuLabels(newRowMenu(*m, r, 0, 0)); !strings.Contains(labels, "o Open a port in the browser…") {
+		t.Fatalf("menu: %s", labels)
+	}
+
+	cmd := m.openSandboxPort(mach.id)
+	d, ok := m.overlay.(*dialog)
+	if !ok || !strings.Contains(strings.Join(d.text, " "), "Anyone with the link") {
+		t.Fatalf("dialog: %#v", m.overlay)
+	}
+	if got := d.fields[0].in.Value(); got != "3000" {
+		t.Fatalf("the port offered is %q", got)
+	}
+	a2Run(cmd)
+
+	// A port that isn't one is refused before anything is asked.
+	for _, bad := range []string{"", "http", "0", "70000"} {
+		if msgs := a2Run(d.submit(m, []string{bad})); !strings.Contains(a2ErrText(msgs), "between 1 and 65535") {
+			t.Fatalf("port %q: %v", bad, msgs)
+		}
+	}
+	if p.called() != "" {
+		t.Fatalf("a bad port still asked the provider: %q", p.called())
+	}
+
+	// A good one asks for a link and remembers the port.
+	msgs := a2Run(d.submit(m, []string{" 8080 "}))
+	done, ok := msgs[0].(previewDoneMsg)
+	if !ok || done.url != "https://3000-tok.proxy.daytona.work" || done.err != nil {
+		t.Fatalf("preview: %#v", msgs)
+	}
+	if !strings.Contains(p.called(), "preview sb1 8080") {
+		t.Fatalf("provider asked: %q", p.called())
+	}
+	if m.machine(mach.id).lastPort != "8080" {
+		t.Fatalf("the port was not kept: %q", m.machine(mach.id).lastPort)
+	}
+	// The link is opened and copied, and said out loud.
+	if cmd := m.receivePreview(done); cmd == nil {
+		t.Fatal("nothing opened")
+	}
+	if !strings.Contains(m.flash, done.url) || !strings.Contains(m.flash, "copied") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	// A provider that says no is reported, not swallowed.
+	m.receivePreview(previewDoneMsg{machine: mach.id, err: errString("port 3000 is daytona's own (web terminal)")})
+	if !strings.Contains(m.flash, "daytona's own") {
+		t.Fatalf("error flash %q", m.flash)
+	}
+	// A stopped sandbox has no ports to open.
+	mach.state = stateAttention
+	if labels := a2MenuLabels(newRowMenu(*m, r, 0, 0)); strings.Contains(labels, "Open a port") {
+		t.Fatalf("offered on a stopped sandbox: %s", labels)
+	}
+}
+
+// What a sandbox has run up: how long it has been going, and what that
+// has cost where prices are set.
+func TestSandboxSpend(t *testing.T) {
+	m, mach := sandboxModel(t)
+	now := time.Now()
+	mach.state = stateOnline
+
+	// Nothing is known until a provider has been asked.
+	if got := m.sandboxSpend(mach, now); got != "" {
+		t.Fatalf("before the first look: %q", got)
+	}
+	m.receiveSandboxList(sandboxListMsg{provider: "daytona", boxes: []sandbox.Sandbox{
+		{ID: "sb1", State: sandbox.StateStarted, CPU: 2, Memory: 4, Disk: 10, Created: now.Add(-4*time.Hour - 12*time.Minute)},
+		{ID: "elsewhere", State: sandbox.StateStarted, Created: now},
+	}})
+	if mach.box == nil || mach.box.CPU != 2 {
+		t.Fatalf("what the provider said: %+v", mach.box)
+	}
+	// Running time alone, until prices are set.
+	if got := m.sandboxSpend(mach, now); got != "4h 12m" {
+		t.Fatalf("spend %q", got)
+	}
+	// With prices, what it has cost. 2 vCPU at $0.05 and 4 GiB at $0.01
+	// is $0.14 an hour, so 4.2 hours is about $0.59.
+	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{PriceCPUHour: 0.05, PriceGiBHour: 0.01, PriceDiskGiBHour: 0.0001})
+	got := m.sandboxSpend(mach, now)
+	if !strings.HasPrefix(got, "4h 12m · $0.5") {
+		t.Fatalf("with prices: %q", got)
+	}
+	// A stopped sandbox still keeps its disk, and the provider still
+	// charges for it: that shows as a rate, since conch is not told when
+	// it stopped and a total it cannot know would be worse.
+	mach.box.State = sandbox.StateStopped
+	if got := m.sandboxSpend(mach, now); got != "disk $0.001/h" {
+		t.Fatalf("stopped: %q", got)
+	}
+	if rate := m.sandboxStoppedRate(mach); rate != 10*0.0001 {
+		t.Fatalf("stopped rate %v", rate)
+	}
+	// With no price for disk there is nothing to say.
+	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{PriceCPUHour: 0.05})
+	if got := m.sandboxSpend(mach, now); got != "" {
+		t.Fatalf("stopped with no disk price: %q", got)
+	}
+	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{PriceCPUHour: 0.05, PriceGiBHour: 0.01, PriceDiskGiBHour: 0.0001})
+	// A running one is charged the whole rate, not the disk alone.
+	mach.box.State = sandbox.StateStarted
+	if rate := m.sandboxStoppedRate(mach); rate != 0 {
+		t.Fatalf("a running sandbox charged as stopped: %v", rate)
+	}
+	mach.box.State = sandbox.StateStopped
+	// One that has only just started reads in words rather than 0m.
+	mach.box.State, mach.box.Created = sandbox.StateStarted, now.Add(-10*time.Second)
+	if got := m.sandboxSpend(mach, now); !strings.HasPrefix(got, "just now") {
+		t.Fatalf("just started: %q", got)
+	}
+	// An ordinary machine has none of this.
+	if ssh := m.machine("gpu"); ssh != nil {
+		if got := m.sandboxSpend(ssh, now); got != "" {
+			t.Fatalf("an ssh machine: %q", got)
+		}
+	}
+
+	// How long things read.
+	for _, c := range []struct {
+		d    time.Duration
+		want string
+	}{{30 * time.Second, "just now"}, {5 * time.Minute, "5m"}, {time.Hour + 2*time.Minute, "1h 02m"},
+		{26 * time.Hour, "1d 2h"}, {49 * time.Hour, "2d 1h"}} {
+		if got := shortDuration(c.d); got != c.want {
+			t.Fatalf("%v reads %q, want %q", c.d, got, c.want)
+		}
+	}
+	// And money, finer while it is small.
+	for _, c := range []struct {
+		v    float64
+		want string
+	}{{0.004, "$0.004"}, {0.5, "$0.50"}, {12.345, "$12.35"}} {
+		if got := money(c.v); got != c.want {
+			t.Fatalf("%v reads %q, want %q", c.v, got, c.want)
+		}
+	}
+
+	// The provider is asked at most every couple of minutes, and not at
+	// all when there is no sandbox to ask about.
+	m.boxesAsked = time.Time{}
+	if cmd := m.pollSandboxes(now); cmd == nil {
+		t.Fatal("the first look asked nothing")
+	}
+	if cmd := m.pollSandboxes(now.Add(time.Minute)); cmd != nil {
+		t.Fatal("asked again a minute later")
+	}
+	if cmd := m.pollSandboxes(now.Add(sandboxPollEvery + time.Second)); cmd == nil {
+		t.Fatal("never asked again")
+	}
+	only := &Model{cfg: m.cfg, machines: []*machine{newMachine("gpu", "gpu", "dev@gpu")}}
+	if cmd := only.pollSandboxes(now); cmd != nil {
+		t.Fatal("asked with no sandboxes at all")
+	}
+	// An error from the provider is kept quiet: every action says for
+	// itself when it can't be reached.
+	before := mach.box
+	m.receiveSandboxList(sandboxListMsg{provider: "daytona", err: errString("no")})
+	if mach.box != before {
+		t.Fatal("a failed look threw away what was known")
+	}
+}
+
+// A link to a port nothing answers on opens a proxy error page, which
+// says nothing useful. conch asks first and says what usually mends it,
+// while keeping the link.
+func TestSandboxPreviewTrouble(t *testing.T) {
+	m, mach := sandboxModel(t)
+	p := &sbProvider{preview: "https://3000-x.daytonaproxy01.net"}
+	useSandboxProvider(t, p)
+	mach.state = stateOnline
+
+	answers := func(code int, body string) {
+		old := checkPreview
+		checkPreview = func(context.Context, string) (int, string) { return code, body }
+		t.Cleanup(func() { checkPreview = old })
+	}
+	// What Daytona's proxy says when the sandbox has no server on that port.
+	answers(502, `{"statusCode":502,"message":"proxy upstream error","source":"DAYTONA_DAEMON"}`)
+	why := previewTrouble(context.Background(), "https://3000-x.daytonaproxy01.net", "sdx1", 3000)
+	for _, want := range []string{"nothing is answering on port 3000 in sdx1", "found no server there",
+		"0.0.0.0 rather than 127.0.0.1", "vite --host"} {
+		if !strings.Contains(why, want) {
+			t.Fatalf("the reason lacks %q: %s", want, why)
+		}
+	}
+	// A page that answers, however it answers, is the program's business.
+	for _, code := range []int{200, 302, 404, 500} {
+		answers(code, "whatever")
+		if why := previewTrouble(context.Background(), "u", "sdx1", 3000); why != "" {
+			t.Fatalf("%d: %q", code, why)
+		}
+	}
+	// A link that cannot be reached at all says so.
+	answers(0, "dial tcp: no route to host")
+	if why := previewTrouble(context.Background(), "u", "sdx1", 3000); !strings.Contains(why, "no route to host") {
+		t.Fatalf("unreachable: %q", why)
+	}
+
+	// End to end: the dialog's submit reports the trouble and keeps the
+	// link, rather than opening a page that says 502.
+	answers(502, "proxy upstream error")
+	m.openSandboxPort(mach.id)
+	d := m.overlay.(*dialog)
+	msgs := a2Run(d.submit(m, []string{"3000"}))
+	done, ok := msgs[0].(previewDoneMsg)
+	if !ok || done.err == nil || done.url == "" {
+		t.Fatalf("submit: %#v", msgs)
+	}
+	if cmd := m.receivePreview(done); cmd == nil {
+		t.Fatal("the link was not kept")
+	}
+	if !strings.Contains(m.flash, "nothing is answering on port 3000") || !strings.Contains(m.flash, "on your clipboard") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	if _, isNotice := m.overlay.(*dialog); !isNotice {
+		t.Fatalf("no notice with the whole reason: %T", m.overlay)
+	}
+}
+
+// Stopping a sandbox ends what runs in it, so conch writes down what that
+// was and offers it back when the sandbox starts again: each agent on its
+// own conversation, each terminal in its own folder.
+func TestSandboxBringsBackWhatItWasRunning(t *testing.T) {
+	m, mach := sandboxModel(t)
+	p := &sbProvider{}
+	useSandboxProvider(t, p)
+	mach.state = stateOnline
+	mach.panes = []proto.PaneInfo{
+		{ID: "p1", Name: "claude", State: proto.PaneRunning, Cwd: "/home/daytona/api", Branch: "feat",
+			Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentWorking, SessionID: "sess-1"}},
+		{ID: "p2", Name: "codex", State: proto.PaneRunning, Cwd: "/home/daytona/api",
+			Agent: &proto.AgentStatus{Name: "codex", State: proto.AgentIdle}}, // no conversation saved
+		{ID: "p3", Name: "zsh", State: proto.PaneRunning, Cwd: "/home/daytona", Command: []string{"/bin/zsh", "-l"}},
+		{ID: "p4", Name: "gone", State: proto.PaneExited, Cwd: "/tmp"},
+	}
+
+	// Stopping writes it down.
+	a2Run(m.sandboxOp(mach.id, "stop"))
+	ran := m.sandboxRan[mach.id]
+	if len(ran) != 3 {
+		t.Fatalf("remembered %+v", ran)
+	}
+	if ran[0].Agent != "claude" || ran[0].Session != "sess-1" || ran[0].Dir != "/home/daytona/api" || ran[0].Branch != "feat" {
+		t.Fatalf("the agent: %+v", ran[0])
+	}
+	if ran[2].Agent != "" || len(ran[2].Command) != 2 {
+		t.Fatalf("the terminal: %+v", ran[2])
+	}
+
+	// It survives the TUI being restarted.
+	if st := (Model{sandboxRan: m.sandboxRan}).savedRan(); len(st["sb"]) != 0 && len(st[mach.id]) != 3 {
+		t.Fatalf("saved %+v", st)
+	}
+
+	// Coming back with nothing running, it offers them.
+	mach.panes, mach.busy = nil, ""
+	mach.state = stateOnline
+	if cmd := m.offerRestore(mach.id); cmd != nil {
+		t.Fatal("the offer should be a dialog, not a command")
+	}
+	d, ok := m.overlay.(*dialog)
+	if !ok || !d.confirm {
+		t.Fatalf("no confirmation: %T", m.overlay)
+	}
+	q := strings.Join(d.text, " ")
+	for _, want := range []string{"was running", "Claude Code", "Codex", "terminal", "carry on where they left off", "start afresh"} {
+		if !strings.Contains(q, want) {
+			t.Fatalf("the question lacks %q: %s", want, q)
+		}
+	}
+
+	// Yes starts them again: the one with a conversation is resumed, the
+	// others are started in their own folders, and what came of it is
+	// said out loud.
+	c, peer := a1FakeClient(t)
+	mach.c, mach.server = c, c.Server
+	peer.setResult(proto.MethodSessionResume, proto.PaneInfo{ID: "np1", Name: "claude"})
+	peer.setResult(proto.MethodPaneCreate, proto.PaneInfo{ID: "np2", Name: "started"})
+	msgs := a2Run(m.restoreRunning(mach.id))
+	if len(m.sandboxRan[mach.id]) != 0 {
+		t.Fatal("it was offered twice")
+	}
+	if !strings.Contains(m.flash, "starting") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	var done restoreDoneMsg
+	for _, msg := range msgs {
+		if d, ok := msg.(restoreDoneMsg); ok {
+			done = d
+		}
+	}
+	if done.started != 3 || len(done.failed) != 0 || done.first.ID != "np1" {
+		t.Fatalf("restore: %+v", done)
+	}
+	// One that says so is reported rather than swallowed, and the first
+	// pane is shown so that something is visibly running.
+	if cmd := m.receiveRestore(done); cmd == nil {
+		t.Fatal("nothing was shown")
+	}
+	if !strings.Contains(m.flash, "started 3 of them") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	m.receiveRestore(restoreDoneMsg{machine: mach.id, failed: []string{"Claude Code in /src: no such session"}})
+	if !strings.Contains(m.flash, "nothing could be started again") {
+		t.Fatalf("all failed: %q", m.flash)
+	}
+	m.receiveRestore(restoreDoneMsg{machine: mach.id, started: 1, first: proto.PaneInfo{ID: "np1"},
+		failed: []string{"Codex in /src: no such session"}})
+	if !strings.Contains(m.flash, "started 1 of them") || !strings.Contains(m.flash, "Codex in /src") {
+		t.Fatalf("some failed: %q", m.flash)
+	}
+
+	// Nothing is offered when something already runs there, or when the
+	// sandbox is deleted.
+	m.rememberRunning(mach.id)
+	mach.panes = []proto.PaneInfo{{ID: "p9", State: proto.PaneRunning}}
+	m.overlay = nil
+	m.sandboxRan[mach.id] = ran
+	m.offerRestore(mach.id)
+	if m.overlay != nil {
+		t.Fatal("offered while something was running")
+	}
+	mach.panes, mach.busy = nil, "" // as the finished stop would have left it
+	a2Run(m.sandboxOp(mach.id, "delete"))
+	if len(m.sandboxRan[mach.id]) != 0 {
+		t.Fatal("a deleted sandbox is still remembered")
+	}
+
+	// An ordinary machine is not remembered: it keeps running without conch.
+	if ssh := m.machine("gpu"); ssh != nil {
+		ssh.panes = []proto.PaneInfo{{ID: "p1", State: proto.PaneRunning, Cwd: "/src"}}
+		m.rememberRunning(ssh.id)
+		if len(m.sandboxRan[ssh.id]) != 0 {
+			t.Fatalf("remembered an ssh machine: %+v", m.sandboxRan)
+		}
+	}
+}
+
+// how the saved state sees it, for the test above.
+func (m Model) savedRan() map[string][]ranPane { return m.sandboxRan }
+
+// Asked not to, conch keeps no note of what a sandbox was running and
+// offers nothing back.
+func TestSandboxRestoreCanBeTurnedOff(t *testing.T) {
+	m, mach := sandboxModel(t)
+	useSandboxProvider(t, &sbProvider{})
+	mach.state = stateOnline
+	mach.panes = []proto.PaneInfo{{ID: "p1", Name: "claude", State: proto.PaneRunning, Cwd: "/src",
+		Agent: &proto.AgentStatus{Name: "claude", SessionID: "s1"}}}
+	no := false
+	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{Restore: &no})
+
+	m.rememberRunning(mach.id)
+	if len(m.sandboxRan[mach.id]) != 0 {
+		t.Fatalf("a note was kept anyway: %+v", m.sandboxRan)
+	}
+	// Even one kept earlier is dropped rather than offered.
+	m.sandboxRan = map[string][]ranPane{mach.id: {{Agent: "claude", Session: "s1", Dir: "/src"}}}
+	mach.panes = nil
+	m.offerRestore(mach.id)
+	if m.overlay != nil || len(m.sandboxRan[mach.id]) != 0 {
+		t.Fatalf("offered with it turned off: %T %+v", m.overlay, m.sandboxRan)
+	}
+	// And the stop confirmation makes no promise it won't keep.
+	mach.panes = []proto.PaneInfo{{ID: "p1", State: proto.PaneRunning, Agent: &proto.AgentStatus{Name: "claude"}}}
+	m.confirmStopSandbox(mach.id)
+	if d, ok := m.overlay.(*dialog); !ok || strings.Contains(strings.Join(d.text, " "), "offers it back") {
+		t.Fatalf("the confirmation promises a restore: %v", m.overlay)
+	}
+}
+
+// A conversation that has gone is no reason to lose the agent: the resume
+// is tried, and when the server says there is no such session the same
+// agent is started afresh in the same folder.
+func TestSandboxRestoreFallsBackToAFreshAgent(t *testing.T) {
+	a2Isolate(t)
+	c, peer := a1FakeClient(t)
+	peer.setCodedError(proto.MethodSessionResume, proto.ErrNotFound, `no session "sess-1"`)
+	peer.setResult(proto.MethodPaneCreate, proto.PaneInfo{ID: "fresh", Name: "claude"})
+
+	info, err := restoreOne(c, ranPane{Agent: "claude", Session: "sess-1", Dir: "/src", Name: "claude"}, 80, 24)
+	if err != nil || info.ID != "fresh" {
+		t.Fatalf("fell back to: %+v %v", info, err)
+	}
+	params := lastParams[proto.PaneCreateParams](t, peer, proto.MethodPaneCreate)
+	if params.Agent != "claude" || params.Cwd != "/src" || params.Cols != 80 {
+		t.Fatalf("started with %+v", params)
+	}
+
+	// Any other refusal is reported rather than started over: a server
+	// that is busy or broken should not quietly get a second agent.
+	peer.setCodedError(proto.MethodSessionResume, proto.ErrBadRequest, "claude is not installed there")
+	if _, err := restoreOne(c, ranPane{Agent: "claude", Session: "s", Dir: "/src"}, 80, 24); err == nil ||
+		!strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("other refusal: %v", err)
+	}
+	// A terminal is simply started again.
+	peer.setError(proto.MethodSessionResume, "")
+	peer.setResult(proto.MethodPaneCreate, proto.PaneInfo{ID: "term"})
+	if info, err := restoreOne(c, ranPane{Command: []string{"/bin/zsh", "-l"}, Dir: "/home"}, 80, 24); err != nil || info.ID != "term" {
+		t.Fatalf("terminal: %+v %v", info, err)
 	}
 }

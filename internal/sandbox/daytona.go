@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,16 @@ const DefaultDaytonaURL = "https://app.daytona.io/api"
 // daytonaSSHHost is where Daytona's ssh gateway listens when an access
 // reply doesn't say.
 const daytonaSSHHost = "ssh.app.daytona.io"
+
+// maxPreview is the longest Daytona signs a preview link for.
+const maxPreview = 24 * time.Hour
+
+// daytonaReservedPorts are Daytona's own, which a preview must not take.
+var daytonaReservedPorts = map[int]string{
+	22222: "web terminal",
+	2280:  "toolbox API",
+	33333: "screen recordings",
+}
 
 // pollEvery is how often a wait asks for the sandbox's state; tests shorten it.
 var pollEvery = 2 * time.Second
@@ -248,6 +259,101 @@ func (d *Daytona) Delete(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return fmt.Errorf("delete sandbox: %w", err)
+}
+
+// PreviewURL is a signed link to a port inside the sandbox. The plain
+// preview link needs a header a browser will not send, so conch asks for
+// the signed kind, which carries its token in the host name and expires
+// on its own. Daytona signs one for at most a day.
+func (d *Daytona) PreviewURL(ctx context.Context, id string, port int, expires time.Duration) (string, error) {
+	if id == "" {
+		return "", ErrNotFound
+	}
+	if port < 1 || port > 65535 {
+		return "", fmt.Errorf("port %d: a port is 1 to 65535", port)
+	}
+	if reserved := daytonaReservedPorts[port]; reserved != "" {
+		return "", fmt.Errorf("port %d is daytona's own (%s)", port, reserved)
+	}
+	secs := min(max(int(expires.Round(time.Second).Seconds()), 1), int(maxPreview.Seconds()))
+	q := url.Values{"expiresInSeconds": {strconv.Itoa(secs)}}
+	var out struct {
+		URL   string `json:"url"`
+		Token string `json:"token"`
+	}
+	path := fmt.Sprintf("/sandbox/%s/ports/%d/signed-preview-url", url.PathEscape(id), port)
+	if err := d.call(ctx, http.MethodGet, path, q, nil, &out); err != nil {
+		return "", fmt.Errorf("preview link: %w", err)
+	}
+	if out.URL == "" {
+		return "", fmt.Errorf("daytona gave no preview link for port %d", port)
+	}
+	return out.URL, nil
+}
+
+// Snapshot keeps the sandbox as it stands, to make others from. Daytona
+// takes a cold snapshot of a container sandbox, which wants it stopped
+// first: that is the caller's to arrange, and its refusal comes back as
+// it is rather than being guessed at.
+func (d *Daytona) Snapshot(ctx context.Context, id, name string) error {
+	if id == "" {
+		return ErrNotFound
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("a snapshot needs a name")
+	}
+	body := map[string]any{"name": name, "includeMemory": false}
+	path := "/sandbox/" + url.PathEscape(id) + "/snapshot"
+	if err := d.call(ctx, http.MethodPost, path, nil, body, nil); err != nil {
+		return fmt.Errorf("snapshot %s: %w", name, err)
+	}
+	return nil
+}
+
+// Snapshots lists what has been kept. Daytona pages them; conch asks for
+// the newest first and stops at a page it has seen.
+func (d *Daytona) Snapshots(ctx context.Context) ([]Snap, error) {
+	var out struct {
+		Items []struct {
+			Name      string `json:"name"`
+			State     string `json:"state"`
+			CPU       int    `json:"cpu"`
+			Memory    int    `json:"memory"`
+			Disk      int    `json:"disk"`
+			CreatedAt string `json:"createdAt"`
+		} `json:"items"`
+	}
+	q := url.Values{"limit": {"100"}}
+	if err := d.call(ctx, http.MethodGet, "/snapshots", q, nil, &out); err != nil {
+		return nil, fmt.Errorf("list snapshots: %w", err)
+	}
+	list := make([]Snap, 0, len(out.Items))
+	for _, s := range out.Items {
+		created, _ := time.Parse(time.RFC3339, s.CreatedAt)
+		size := ""
+		if s.CPU > 0 || s.Memory > 0 || s.Disk > 0 {
+			size = fmt.Sprintf("%d vCPU, %d GiB, %d GiB disk", s.CPU, s.Memory, s.Disk)
+		}
+		list = append(list, Snap{Name: s.Name, State: s.State, Size: size, Created: created})
+	}
+	slices.SortStableFunc(list, func(a, b Snap) int { return b.Created.Compare(a.Created) })
+	return list, nil
+}
+
+// ForgetSnapshot removes a kept sandbox. Daytona keeps charging for one
+// nobody uses, so this is the other half of making them.
+func (d *Daytona) ForgetSnapshot(ctx context.Context, name string) error {
+	if strings.TrimSpace(name) == "" {
+		return ErrNotFound
+	}
+	if err := d.call(ctx, http.MethodDelete, "/snapshots/"+url.PathEscape(name), nil, nil, nil); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return err
+		}
+		return fmt.Errorf("forget snapshot %s: %w", name, err)
+	}
+	return nil
 }
 
 func (d *Daytona) SSHAccess(ctx context.Context, id string) (Access, error) {

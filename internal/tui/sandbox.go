@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
@@ -48,6 +51,14 @@ func (m *Model) sandboxOp(mid, op string) tea.Cmd {
 	provider, id, ok := mach.sandbox()
 	if !ok {
 		return nil
+	}
+	switch op {
+	case "stop":
+		// The last moment its panes are known: what runs there ends with
+		// the sandbox, and a stop is meant to be undone.
+		m.rememberRunning(mid)
+	case "delete":
+		delete(m.sandboxRan, mid) // nothing to come back to
 	}
 	mach.busy = sandboxDoing[op]
 	m.setFlash(mach.busy+" "+mach.label+"…", false)
@@ -93,6 +104,8 @@ func (m *Model) sandboxDone(msg sandboxDoneMsg) tea.Cmd {
 	switch msg.op {
 	case "start":
 		m.setFlash("started "+mach.label, false)
+		// What it was running is offered back once its panes are known,
+		// which is after the connection (see receivePanes).
 		return m.reconnect(mach.id, true)
 	case "stop":
 		mach.close()
@@ -101,7 +114,7 @@ func (m *Model) sandboxDone(msg sandboxDoneMsg) tea.Cmd {
 		return m.rebuild()
 	case "delete":
 		m.setFlash("deleted "+mach.label, false)
-		return m.syncCatalog()
+		return tea.Batch(m.syncCatalog(), m.saveState())
 	}
 	return nil
 }
@@ -116,6 +129,11 @@ func (m *Model) confirmStopSandbox(mid string) {
 	text := []string{fmt.Sprintf("Stop %s? Its agents and terminals end; its files stay, and it stops costing for anything but disk.", mach.label)}
 	if n := workingAgents(mach.panes); n > 0 {
 		text = append(text, fmt.Sprintf("%d agent%s there %s still working.", n, plural(n), map[bool]string{true: "is", false: "are"}[n == 1]))
+	}
+	provider, _, _ := mach.sandbox()
+	if ran := runningIn(mach); len(ran) > 0 && m.cfg.Sandbox.Of(provider).RestoresRunning() {
+		// Stopping ends the processes; what they were doing comes back.
+		text = append(text, "conch writes down what is running and offers it back when you start it again: "+listRan(ran)+"."+resumeNote(ran))
 	}
 	d := newConfirm("", func(m *Model) tea.Cmd { return m.sandboxOp(mid, "stop") })
 	d.text = text
@@ -282,4 +300,404 @@ func createSandbox(provider string, spec sandbox.Spec, label string) tea.Cmd {
 		}
 		return errMsg{fmt.Errorf("setting up sandbox %s failed, so it was deleted: %w", s.ID, err)}
 	}
+}
+
+// Stopping a sandbox nobody is using. A provider's own idle timer counts
+// only what reaches it from outside — an ssh connection, an API call — so
+// an agent working quietly inside looks idle to it and would be stopped
+// mid-task. conch watches what it can see instead: an agent working, or a
+// pane printing. When neither has happened for [sandbox.<provider>]
+// idle_stop minutes (30 unless set, 0 never), the sandbox is paused, which
+// keeps its files and, where the provider can, its memory.
+
+// idleCheckEvery is how often the idle watch looks. Minutes are what is
+// being measured, so looking every half minute is often enough.
+const idleCheckEvery = 30 * time.Second
+
+// idleSince is when a machine was last doing something: the newest of its
+// panes' last output, or when an agent there was last working. A machine
+// with no panes at all counts from when conch connected to it.
+func (m Model) idleSince(mach *machine, now time.Time) time.Time {
+	last := mach.since
+	for _, p := range mach.panes {
+		if p.State != proto.PaneRunning {
+			continue
+		}
+		if p.Agent != nil && (p.Agent.State == proto.AgentWorking || p.Agent.NeedsAttention()) {
+			return now // working, or waiting for an answer: not idle at all
+		}
+		if p.LastActive.After(last) {
+			last = p.LastActive
+		}
+	}
+	return last
+}
+
+// watchIdleSandboxes stops the sandboxes nothing is happening in. It says
+// so first: the flash names what went and why, and the tree shows it
+// stopped, so a sandbox never disappears without a word.
+func (m *Model) watchIdleSandboxes(now time.Time) tea.Cmd {
+	var cmds []tea.Cmd
+	for _, mach := range m.machines {
+		provider, _, ok := mach.sandbox()
+		if !ok || mach.state != stateOnline || mach.busy != "" {
+			continue
+		}
+		mins := m.cfg.Sandbox.Of(provider).IdleMinutes()
+		if mins <= 0 {
+			continue // never, by configuration
+		}
+		if now.Sub(m.idleSince(mach, now)) < time.Duration(mins)*time.Minute {
+			continue
+		}
+		cmd := m.sandboxOp(mach.id, "stop")
+		// After the op, whose own flash says only that it is stopping:
+		// why it is stopping is the part worth reading.
+		m.setFlash(fmt.Sprintf("%s was idle for %dm · stopping it; its files are kept", mach.label, mins), false)
+		cmds = append(cmds, cmd)
+	}
+	return tea.Batch(cmds...)
+}
+
+// Looking at what runs inside a sandbox. An agent that starts a dev
+// server there has nothing to show for it: the port is inside somebody
+// else's machine. A provider that can hand out a link to one does, and
+// conch opens it here, where the browser is.
+
+// previewFor is how long a preview link is asked to last. Long enough to
+// read what is there without leaving a link lying about for a day.
+const previewFor = time.Hour
+
+// lastPreviewPort is offered again next time, per machine: the same dev
+// server usually.
+type previewDoneMsg struct {
+	machine, url string
+	err          error
+}
+
+// openSandboxPort asks which port, then opens its link in the browser.
+func (m *Model) openSandboxPort(mid string) tea.Cmd {
+	mach := m.machine(mid)
+	if mach == nil {
+		return nil
+	}
+	provider, id, ok := mach.sandbox()
+	if !ok {
+		return nil
+	}
+	p, err := openSandboxProvider(provider)
+	if err == nil {
+		if _, can := p.(sandbox.Previewer); !can {
+			err = fmt.Errorf("%s cannot give a link to a port", providerLabel(provider))
+		}
+	}
+	if err != nil {
+		m.setFlash(err.Error(), true)
+		return nil
+	}
+	d := newDialog(*m, " Open a port on "+ansi.Truncate(mach.label, 30, "…")+" ",
+		[]string{"A link to a port inside the sandbox, good for an hour. Anyone with the link can reach that port, so don't paste it about."},
+		[]string{"Port"}, []string{firstNonEmpty(mach.lastPort, "3000")})
+	d.submit = func(m *Model, v []string) tea.Cmd {
+		port, err := strconv.Atoi(strings.TrimSpace(v[0]))
+		if err != nil || port < 1 || port > 65535 {
+			return func() tea.Msg { return errMsg{fmt.Errorf("%q: give a port between 1 and 65535", v[0])} }
+		}
+		if mach := m.machine(mid); mach != nil {
+			mach.lastPort = strconv.Itoa(port)
+		}
+		m.setFlash(fmt.Sprintf("asking %s for a link to port %d…", providerLabel(provider), port), false)
+		label := mach.label
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			link, err := p.(sandbox.Previewer).PreviewURL(ctx, id, port, previewFor)
+			if err != nil {
+				return previewDoneMsg{machine: mid, err: err}
+			}
+			// A link to a port nothing answers on opens a proxy error
+			// page, which says nothing useful. Ask first, and say what
+			// it usually means.
+			if why := previewTrouble(ctx, link, label, port); why != "" {
+				return previewDoneMsg{machine: mid, url: link, err: errString(why)}
+			}
+			return previewDoneMsg{machine: mid, url: link}
+		}
+	}
+	m.overlay = d
+	return d.focusCmd()
+}
+
+// checkPreview fetches a preview link to see whether anything answers on
+// it; tests replace it.
+var checkPreview = func(ctx context.Context, link string) (int, string) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
+	if err != nil {
+		return 0, ""
+	}
+	// The proxy's warning page is for browsers; this asks past it.
+	req.Header.Set("X-Daytona-Skip-Preview-Warning", "true")
+	c := &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := c.Do(req)
+	if err != nil {
+		return 0, err.Error()
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	return resp.StatusCode, string(body)
+}
+
+// previewTrouble says what is wrong when nothing answers on a port, in
+// the words that mend it. It returns "" when the link is worth opening —
+// including for a page that answers with an error of its own, which is
+// the program's business rather than conch's.
+func previewTrouble(ctx context.Context, link, label string, port int) string {
+	code, body := checkPreview(ctx, link)
+	switch {
+	case code == 0:
+		return fmt.Sprintf("%s could not be reached: %s", link, body)
+	case code != http.StatusBadGateway && code != http.StatusServiceUnavailable:
+		return ""
+	}
+	// The proxy reached the sandbox and found nothing listening. A server
+	// bound to localhost is the usual reason: the proxy arrives on the
+	// sandbox's own interface, where loopback cannot be seen.
+	why := fmt.Sprintf("nothing is answering on port %d in %s.", port, label)
+	if strings.Contains(body, "DAYTONA_DAEMON") || strings.Contains(body, "upstream") {
+		why += " The proxy reached the sandbox but found no server there:"
+	}
+	return why + " start one, and have it listen on 0.0.0.0 rather than 127.0.0.1 — a server bound to localhost cannot be reached from outside the sandbox (next dev --hostname 0.0.0.0, vite --host, rails s -b 0.0.0.0)."
+}
+
+// receivePreview opens the link, and keeps it on the clipboard: a browser
+// that doesn't open leaves the user with the link rather than nothing.
+func (m *Model) receivePreview(msg previewDoneMsg) tea.Cmd {
+	if msg.err != nil {
+		if msg.url != "" {
+			// The link is good even when nothing answers yet: keep it on
+			// the clipboard so it can be tried again in a moment.
+			m.showError(errString(errText(msg.err) + " The link is on your clipboard: " + msg.url))
+			return copyText(msg.url)
+		}
+		m.showError(msg.err)
+		return nil
+	}
+	m.setFlash("opened "+msg.url+" · copied", false)
+	return tea.Batch(openURL(msg.url), copyText(msg.url))
+}
+
+// Keeping a sandbox to make others from: a checkout, its dependencies and
+// an agent's login, set up once. What the provider needs of the sandbox
+// first is the provider's own to say — Daytona wants a container sandbox
+// stopped — so its refusal is shown as it is rather than guessed at.
+
+type snapshotDoneMsg struct {
+	machine, name string
+	err           error
+}
+
+func (m *Model) openSnapshotDialog(mid string) tea.Cmd {
+	mach := m.machine(mid)
+	if mach == nil {
+		return nil
+	}
+	provider, id, ok := mach.sandbox()
+	if !ok {
+		return nil
+	}
+	p, err := openSandboxProvider(provider)
+	if err == nil {
+		if _, can := p.(sandbox.Snapshotter); !can {
+			err = fmt.Errorf("%s cannot keep snapshots", providerLabel(provider))
+		}
+	}
+	if err != nil {
+		m.setFlash(err.Error(), true)
+		return nil
+	}
+	text := []string{"Keeps this sandbox as it stands, to make others from: M → New sandbox… takes the name as its snapshot."}
+	if mach.state == stateOnline {
+		text = append(text, providerLabel(provider)+" may want it stopped first; it will say so, and nothing is changed if it does.")
+	}
+	d := newDialog(*m, " Keep "+ansi.Truncate(mach.label, 30, "…")+" ", text, []string{"Name"},
+		[]string{mach.label + "-" + time.Now().Format("2006-01-02-1504")})
+	d.submit = func(m *Model, v []string) tea.Cmd {
+		name := strings.TrimSpace(v[0])
+		if name == "" {
+			return func() tea.Msg { return errMsg{errString("a snapshot needs a name")} }
+		}
+		m.setFlash("keeping "+mach.label+" as "+name+"…", false)
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), sandboxWait)
+			defer cancel()
+			err := p.(sandbox.Snapshotter).Snapshot(ctx, id, name)
+			return snapshotDoneMsg{machine: mid, name: name, err: err}
+		}
+	}
+	m.overlay = d
+	return d.focusCmd()
+}
+
+func (m *Model) receiveSnapshot(msg snapshotDoneMsg) tea.Cmd {
+	if msg.err != nil {
+		m.showError(msg.err)
+		return nil
+	}
+	m.setFlash("keeping it as "+msg.name+" · usable in a few minutes · M → New sandbox… takes it as the snapshot", false)
+	return nil
+}
+
+// What a sandbox has run up. A provider bills by the hour it is started,
+// which is easy to forget about; the tree says how long each has been
+// running, and what that has cost where prices are set. conch ships no
+// price list — providers change theirs and a stale one misleads — so the
+// money only appears once [sandbox.<provider>] price_cpu_hour and its
+// neighbours are filled in.
+
+// sandboxPollEvery is how often the providers are asked about their
+// sandboxes. Sizes don't change and start times move slowly, so this is
+// about keeping a clock honest rather than watching anything.
+const sandboxPollEvery = 2 * time.Minute
+
+type sandboxListMsg struct {
+	provider string
+	boxes    []sandbox.Sandbox
+	err      error
+}
+
+// pollSandboxes asks each provider what it has, once every
+// sandboxPollEvery, and only while conch has a sandbox to ask about.
+func (m *Model) pollSandboxes(now time.Time) tea.Cmd {
+	if now.Sub(m.boxesAsked) < sandboxPollEvery {
+		return nil
+	}
+	want := map[string]bool{}
+	for _, mach := range m.machines {
+		if provider, _, ok := mach.sandbox(); ok {
+			want[provider] = true
+		}
+	}
+	if len(want) == 0 {
+		return nil
+	}
+	m.boxesAsked = now
+	var cmds []tea.Cmd
+	for provider := range want {
+		cmds = append(cmds, func() tea.Msg {
+			p, err := openSandboxProvider(provider)
+			if err == nil {
+				err = p.Check()
+			}
+			if err != nil {
+				return sandboxListMsg{provider: provider, err: err}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			boxes, err := p.List(ctx)
+			return sandboxListMsg{provider: provider, boxes: boxes, err: err}
+		})
+	}
+	return tea.Batch(cmds...)
+}
+
+// receiveSandboxList keeps what the provider said against each machine. An
+// error is not shown: this is a background look, and every action says for
+// itself when the provider can't be reached.
+func (m *Model) receiveSandboxList(msg sandboxListMsg) tea.Cmd {
+	if msg.err != nil {
+		return nil
+	}
+	byID := make(map[string]sandbox.Sandbox, len(msg.boxes))
+	for _, b := range msg.boxes {
+		byID[b.ID] = b
+	}
+	for _, mach := range m.machines {
+		provider, id, ok := mach.sandbox()
+		if !ok || provider != msg.provider {
+			continue
+		}
+		if b, found := byID[id]; found {
+			box := b
+			mach.box = &box
+		}
+	}
+	return nil
+}
+
+// runningFor is how long a sandbox has been up, or 0 when it isn't or
+// nothing is known yet.
+func (mach *machine) runningFor(now time.Time) time.Duration {
+	if mach.box == nil || mach.box.State != sandbox.StateStarted || mach.box.Created.IsZero() {
+		return 0
+	}
+	return now.Sub(mach.box.Created)
+}
+
+// sandboxCost is what a machine's sandbox has cost while it has been up,
+// and whether a price is known at all.
+func (m Model) sandboxCost(mach *machine, now time.Time) (float64, bool) {
+	provider, _, ok := mach.sandbox()
+	if !ok || mach.box == nil {
+		return 0, false
+	}
+	cfg := m.cfg.Sandbox.Of(provider)
+	if !cfg.Priced() {
+		return 0, false
+	}
+	hourly := cfg.CostPerHour(mach.box.CPU, mach.box.Memory, mach.box.Disk)
+	return hourly * mach.runningFor(now).Hours(), hourly > 0
+}
+
+// sandboxSpend is what a sandbox has been up for and what that has cost,
+// as the tree and the sandbox pages show it: "4h 12m · $0.28". A stopped
+// one keeps its disk, and the provider keeps charging for it, so that
+// shows as a rate — conch is not told when it stopped, and a total it
+// cannot know is worse than the rate it can.
+func (m Model) sandboxSpend(mach *machine, now time.Time) string {
+	if up := mach.runningFor(now); up > 0 {
+		out := shortDuration(up)
+		if cost, priced := m.sandboxCost(mach, now); priced {
+			out += " · " + money(cost)
+		}
+		return out
+	}
+	if rate := m.sandboxStoppedRate(mach); rate > 0 {
+		return "disk " + money(rate) + "/h"
+	}
+	return ""
+}
+
+// sandboxStoppedRate is what a stopped sandbox costs an hour for the disk
+// it keeps, or 0 when it is running, unknown or no price is set.
+func (m Model) sandboxStoppedRate(mach *machine) float64 {
+	provider, _, ok := mach.sandbox()
+	if !ok || mach.box == nil || mach.box.State == sandbox.StateStarted {
+		return 0
+	}
+	return m.cfg.Sandbox.Of(provider).StoppedCostPerHour(mach.box.Disk)
+}
+
+// shortDuration reads as a person would say it: 42m, 4h 12m, 3d 4h.
+func shortDuration(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh %02dm", int(d.Hours()), int(d.Minutes())%60)
+	default:
+		return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
+	}
+}
+
+// money is a cost in dollars, to the cent, or finer while it is small
+// enough that cents say nothing.
+func money(v float64) string {
+	if v < 0.1 {
+		return fmt.Sprintf("$%.3f", v)
+	}
+	return fmt.Sprintf("$%.2f", v)
 }

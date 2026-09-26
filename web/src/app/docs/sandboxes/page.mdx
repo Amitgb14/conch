@@ -47,6 +47,44 @@ Press `M`, choose **New sandbox…** and then the provider — Daytona for now, 
 
 A stopped sandbox shows `stopped` in the tree, and a spinner while it is starting, stopping or being deleted. **Remove machine** only takes it out of the tree; the sandbox keeps running, and costing, until `conch sandbox rm`.
 
+## Looking at what runs inside
+
+An agent that starts a dev server in a sandbox has nothing to show for it — the port is inside somebody else's machine. `m` → **Open a port in the browser…** asks which port (3000 to begin with, then whatever you used last) and opens a link to it. From a shell: `conch sandbox url ID PORT`, with `-open` to open it and `-expires` to change how long it lasts (an hour by default, a day at most).
+
+The link carries its own credential, so it works in any browser — and so anyone with the link can reach that port until it expires. Daytona keeps 22222, 2280 and 33333 for itself; conch refuses those rather than letting you wonder why the page is wrong.
+
+conch tries the link before opening it. When the proxy reaches the sandbox and finds nothing there — a `502 proxy upstream error` — it says so instead of opening that page, and says what usually mends it: **the server has to listen on `0.0.0.0`, not `127.0.0.1`**. The proxy arrives on the sandbox's own network interface, where a loopback-only server cannot be seen; `next dev --hostname 0.0.0.0`, `vite --host`, `rails s -b 0.0.0.0`. The link is put on your clipboard either way, so you can try it again once the server is up.
+
+## Keeping one to make others from
+
+A sandbox that is set up — the repository cloned, dependencies installed, an agent logged in — can be kept and used as the starting point for the next one. `m` → **Keep a snapshot…**, or `conch sandbox snapshot ID`, names it; `conch sandbox snapshots` lists what is kept and `-rm NAME` forgets one. Then **New sandbox…**, or `conch sandbox create -snapshot NAME`, starts from it.
+
+Daytona takes a cold snapshot, which wants the sandbox stopped first, and says so if it isn't — nothing is changed when it refuses. A snapshot takes a few minutes to become usable, is kept until you forget it, and is charged for storage meanwhile.
+
+## What one has cost
+
+A sandbox costs while it runs, so the tree shows how long each has been up — `4h 12m` beside its row, and the total on the Sandboxes page. Set what an hour costs in Settings → **Sandboxes** → **Price an hour** (per vCPU, per GiB of memory, per GiB of disk, from the provider's own pricing page) and the money appears beside the time: `4h 12m · $0.59`. conch ships no price list, because providers change theirs and a stale one misleads.
+
+**Stopped is not free.** The disk a stopped sandbox keeps is charged until the sandbox is deleted — on a small Daytona sandbox that is most of what it costs over a week. A stopped one therefore reads `disk $0.001/h` rather than nothing, and the Sandboxes page totals it: *stopped ones keep $0.002/h of disk*. It is a rate rather than a total because a provider doesn't say when a sandbox stopped, and a total conch cannot know would be worse than the rate it can.
+
+## Stopping one nobody is using
+
+A sandbox costs while it runs, and it is easy to leave one running. conch pauses a sandbox when no agent there is working, none is waiting for an answer, and no pane has printed for **30 minutes** — Settings → **Sandboxes** → **Stop when idle** changes it (15, 30, 60, 120 or never), per provider, as `idle_stop` in [`[sandbox.<provider>]`](/docs/configuration#sandbox). The status bar says which sandbox went and why, its files are kept, and `m` → **Start sandbox** brings it back where it was.
+
+This is conch's own watching, not the provider's. Daytona's `auto_stop` counts only what reaches it from outside — an ssh connection, a preview request, an API call — so an agent working quietly inside looks idle to it and would be stopped mid-task. conch leaves that timer off and watches the agents and panes it can actually see.
+
+## Starting one again
+
+Stopping a sandbox ends every process in it — that is what stopping means, and the provider keeps the filesystem rather than the memory. The work itself stays: the checkout is as it was, and an agent's conversation is saved in the sandbox's own home.
+
+So conch writes down what was running — each agent, its conversation and its folder, and each terminal — and offers it back when the sandbox starts again:
+
+> sdx1 was running 2 Claude Code agents and a terminal when it stopped. Start them again? 2 agents carry on where they left off.
+
+Each is started in turn, and conch says what came of it: *started 3 of them again in sdx1*, or the reason each one didn't — a sandbox that comes back with nothing showing and nothing said is the thing to avoid. The first pane to start is opened, so it is plain that something is running. An agent whose conversation has gone is started afresh in the same folder rather than skipped; any other refusal is reported instead, so a busy or broken server doesn't quietly get a second agent.
+
+Nothing is started until you say yes: an agent picking up where it left off is not always what you want to happen twice. Settings → **Sandboxes** → **Bring back what was running** turns the whole thing off, per provider (`restore_running`), and then conch keeps no note of what ran — the conversations are still on the sandbox's disk, and the Sessions view still finds them. Agents with a saved conversation are resumed on it; one that saved none starts afresh, and the question says which is which. The note survives conch restarting, and is forgotten when the sandbox is deleted or when something is already running there.
+
 ## Deleted somewhere else
 
 A sandbox deleted in Daytona's own interface is gone as far as conch is concerned, however long Daytona takes to finish: `conch sandbox ls` shows it as `gone` rather than sitting at `destroying`, starting or stopping it says so straight away instead of waiting, and the machine it left behind is cleared with `conch sandbox rm ID` (or **Delete sandbox…** in the tree, which then only tidies up). The listing says as much when anything is in that state.
