@@ -1,6 +1,6 @@
 # Roadmap
 
-Order of upcoming work (updated 2026-09-25). Finished items move to the git
+Order of upcoming work (updated 2026-09-26). Finished items move to the git
 history; details for big items live in their own plan files.
 
 ## Done
@@ -126,6 +126,18 @@ history; details for big items live in their own plan files.
 19. **Saved ssh sessions** — a host reached with `H` stays in the tree
     rather than being typed again after it ends or conch restarts.
 
+20. **Sandboxes** — a machine conch makes for you in the cloud, so a long
+    task runs away from the laptop and keeps going once it is closed.
+    `M` → **New Daytona sandbox…**, or `conch sandbox create|ls|start|stop|rm`:
+    conch creates the sandbox, installs itself there and adds it as an
+    ordinary remote machine, so the tree, `-m` and everything else work with
+    it unchanged. The API key is read from the environment every time and
+    never written down; a sandbox that fails to set itself up is deleted
+    rather than left to cost; stopping and deleting say what they would end
+    and what work has reached no remote. Daytona is the one provider so far,
+    behind an interface that others can follow. The docs are the
+    Sandboxes page under `web/src/app/docs/sandboxes`.
+
 ## Next
 
 Nothing queued: the items above went out as they were finished. What is
@@ -133,18 +145,23 @@ below waits on a decision rather than on time.
 
 ## Not now
 
-20. **MicroVM sandboxes** — see [microvm-sandbox.md](microvm-sandbox.md).
-    Deferred: a VM added as an ordinary machine already gives the isolation,
-    so what is left to build is lifecycle convenience, not safety. Revisit
-    when agents are meant to act unattended — 21 and 22 below need a
-    boundary first — or when the code being worked on isn't trusted.
+21. **MicroVM sandboxes on your own hardware** — see
+    [microvm-sandbox.md](microvm-sandbox.md). 20 covers the case that
+    mattered: somewhere isolated to run an agent, made and thrown away from
+    conch. What this plan adds is a sandbox on hardware you own — a
+    Firecracker or Kata microVM on a Linux host, Apple `container` or Lima
+    on a Mac — for code that can't leave the building, or when a cloud
+    provider is not wanted. Still deferred: a VM added as an ordinary
+    machine gives the same boundary today, so what is left is lifecycle
+    convenience.
 
 ## Last
 
-21. **Auto-approve rules** — per-project rules that let agents run safe
-    commands without waiting for the user. Wants 20 first: rules that skip
-    the confirmation are only sane inside a sandbox.
-22. **Task graph** — server-side rules such as "when A is done, start a
+22. **Auto-approve rules** — per-project rules that let agents run safe
+    commands without waiting for the user. A sandbox is the boundary these
+    need, and 20 gives one: the rules would be allowed there and nowhere
+    else, so a rule that skips a confirmation cannot reach the laptop.
+23. **Task graph** — server-side rules such as "when A is done, start a
     review agent on its worktree", only once auto-approve rules exist, since
     they run actions nobody confirmed. Notifies rather than moving focus.
 

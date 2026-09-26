@@ -1,7 +1,14 @@
 # Plan: microVM sandboxes for agents
 
-Status: **deferred (2026-09-19)** — not required for now. Phase 1 is done
+Status: **deferred (2026-09-26)** — narrower than it was. Phase 1 is done
 and shipped; phases 0 and 2 onwards are not started.
+
+What changed: sandboxes shipped from another direction. conch makes a
+Daytona sandbox, installs itself there and adds it as an ordinary machine
+(`conch sandbox create|ls|start|stop|rm`, or `M` in the tree), so an agent
+can work somewhere that isn't the laptop today. What is left here is a
+sandbox on hardware you own, for code that can't leave the building or when
+a cloud provider is not wanted.
 
 Why it waits: a VM added as an ordinary conch machine already gives the
 boundary this plan is about. conch installs itself there, runs agents and
