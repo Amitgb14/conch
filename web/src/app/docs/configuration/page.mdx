@@ -30,6 +30,8 @@ Everything lives in `~/.config/conch`. Set `CONCH_HOME` to use another directory
 | `CONCH_SOURCE` | conch's source tree, for cross-compiling to [remote machines](/docs/remote-machines#adding-a-machine) |
 | `CONCH_REMOTE_BINARY` | a prebuilt conch binary to install on remote machines |
 | `CONCH_VERSION`, `CONCH_INSTALL_DIR` | release and directory for the [install script](/docs/installation#install-script) |
+| `DAYTONA_API_KEY` | the key for [sandboxes](/docs/sandboxes) |
+| `DAYTONA_API_URL`, `DAYTONA_TARGET` | Daytona's API and region, when `[sandbox.daytona]` doesn't set them |
 
 ## config.toml
 
@@ -84,6 +86,14 @@ auto = false           # and install it as soon as it is found
 [remote]
 upload_drops = true    # upload files dropped on a remote pane and paste their paths there
 upload_max_mb = 25     # refuse larger files (the server takes at most 256)
+
+[sandbox.daytona]
+api_key_env = ""       # variable holding the key; "" is DAYTONA_API_KEY
+api_url = ""           # "" is $DAYTONA_API_URL or Daytona's own
+target = ""            # region, e.g. "us" or "eu"
+snapshot = ""          # what new sandboxes start from; "" is Daytona's default
+auto_stop = 0          # minutes idle before Daytona stops one; 0 never does
+env = []               # variables of yours passed into every new sandbox
 ```
 
 ### notify
@@ -109,6 +119,10 @@ The model behind `:` and agent summaries. `[brain]` also takes `base_url`, `api_
 ### remote
 
 `upload_drops` uploads local files dropped (pasted as paths) on a remote machine's pane to that machine and pastes their paths there; `false` pastes the local paths unchanged. `upload_max_mb` is the largest file uploaded. See [Dropping files on a remote pane](/docs/remote-machines#dropping-files-on-a-remote-pane).
+
+### sandbox
+
+`[sandbox.daytona]` sets up [sandboxes](/docs/sandboxes). The key itself is never stored: `api_key_env` only names the variable it is read from. `auto_stop` other than 0 lets Daytona stop a sandbox that long after the last ssh connection or API call — agents working inside don't count, so they stop too. `env` names variables passed into every sandbox `conch sandbox create` makes, on top of its `-env` flags; Daytona keeps their values with the sandbox.
 
 <Callout type="note">
 

@@ -29,6 +29,37 @@ func TestSaveLoadAndOldFiles(t *testing.T) {
 	}
 }
 
+func TestSandboxSettings(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CONCH_HOME", dir)
+	// A file from before [sandbox] existed loads with Daytona unset, which
+	// means never auto-stopping.
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[ui]\ntheme = \"nord\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load()
+	if err != nil || got.Sandbox.Daytona.AutoStop != 0 || got.Sandbox.Daytona.APIKeyEnv != "" {
+		t.Fatalf("old file: %+v %v", got.Sandbox, err)
+	}
+	toml := "[sandbox.daytona]\napi_key_env = \"DT_KEY\"\ntarget = \"eu\"\nsnapshot = \"daytona-medium\"\nauto_stop = 60\nenv = [\"CLAUDE_CODE_OAUTH_TOKEN\"]\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(toml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err = Load()
+	d := got.Sandbox.Daytona
+	if err != nil || d.APIKeyEnv != "DT_KEY" || d.Target != "eu" || d.Snapshot != "daytona-medium" || d.AutoStop != 60 ||
+		len(d.Env) != 1 || d.Env[0] != "CLAUDE_CODE_OAUTH_TOKEN" {
+		t.Fatalf("loaded %+v %v", d, err)
+	}
+	if err := Save(got); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Load()
+	if err != nil || again.Sandbox.Daytona.AutoStop != 60 || again.Sandbox.Daytona.Env[0] != "CLAUDE_CODE_OAUTH_TOKEN" {
+		t.Fatalf("round trip %+v %v", again.Sandbox, err)
+	}
+}
+
 func TestQuietHours(t *testing.T) {
 	at := func(h, m int) time.Time { return time.Date(2026, 9, 13, h, m, 0, 0, time.Local) }
 	night := NotifyCfg{QuietStart: "22:00", QuietEnd: "08:00"}

@@ -632,7 +632,11 @@ func (m *Model) openRenameMachine(mid string) {
 		m.setFlash("this computer is always called local", true)
 		return
 	}
-	d := newDialog(*m, " Rename machine ", []string{"The name shown in the tree; the ssh target (" + mach.target + ") stays."}, []string{"Label"}, []string{mach.label})
+	kept := "the ssh target (" + mach.target + ") stays."
+	if provider, id, ok := remote.ParseSandboxTarget(mach.target); ok {
+		kept = "the " + provider + " sandbox (" + id + ") stays."
+	}
+	d := newDialog(*m, " Rename machine ", []string{"The name shown in the tree; " + kept}, []string{"Label"}, []string{mach.label})
 	d.submit = func(m *Model, v []string) tea.Cmd {
 		saved, err := remote.RenameMachine(mid, v[0])
 		if err != nil {

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
 )
 
 const statusHeight = 1
@@ -916,7 +917,9 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 		}
 	}
 	where := "this computer"
-	if mach.target != "" {
+	if provider, id, ok := remote.ParseSandboxTarget(mach.target); ok {
+		where = provider + " sandbox " + id
+	} else if mach.target != "" {
 		where = "ssh " + mach.target
 	}
 	lines := []string{styleBold.Render(mach.label) + styleMuted.Render("  "+where)}

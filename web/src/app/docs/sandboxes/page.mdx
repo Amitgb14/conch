@@ -1,0 +1,54 @@
+export const metadata = { title: "Sandboxes", description: "Run agents in a Daytona sandbox that keeps going with your laptop closed." }
+
+# Sandboxes
+
+A sandbox is a machine in the cloud that conch creates for you, so a long agent task runs away from your laptop and keeps running when you close it. conch makes the sandbox, installs itself there and adds it as a [remote machine](/docs/remote-machines): it shows in the tree, and `-m` and every other machine feature work with it.
+
+[Daytona](https://www.daytona.io) is the provider conch supports so far.
+
+## Setting up
+
+Create an API key in Daytona's dashboard and put it in your environment:
+
+```sh
+export DAYTONA_API_KEY=dtn_…
+```
+
+conch reads the key from the environment every time and never writes it down. `api_key_env` in [`[sandbox.daytona]`](/docs/configuration#sandbox) names a different variable.
+
+## Commands
+
+```sh
+conch sandbox create -label fix-login          # make one, install conch, add it as a machine
+conch -m fix-login task -cwd /home/daytona/api "Fix the flaky tests"
+conch sandbox ls                               # conch's sandboxes and their state
+conch sandbox stop fix-login                   # ends its agents and terminals; files stay
+conch sandbox start fix-login
+conch sandbox rm fix-login                     # deletes it and everything in it
+```
+
+`create` takes `-snapshot`, `-cpu`, `-memory` and `-disk` (GiB), and `-env NAME` to pass one of your environment variables in, say `CLAUDE_CODE_OAUTH_TOKEN`. A named variable that isn't set is refused before anything is created. If setting conch up fails after the sandbox was made, `create` offers to delete it so it doesn't keep costing; `-yes` deletes it without asking.
+
+`start`, `stop` and `rm` take the machine's ID or label, or Daytona's own sandbox ID. `stop` and `rm` ask first; `-y` doesn't. Before deleting a running sandbox, `rm` lists branches there with commits no remote has and uncommitted changes.
+
+`conch sandbox ls` also lists sandboxes conch made that are no longer machines — one whose setting up failed, or one removed with `conch machine rm` — so you can delete them.
+
+## Running until you stop it
+
+Daytona stops an idle sandbox after 15 minutes by default, and an agent working inside doesn't count as activity — only an ssh connection or an API call does. So a sandbox conch creates never stops on its own: close the TUI and its agents carry on. It costs for as long as it runs, so stop or delete it when you're done. `auto_stop` in [`[sandbox.daytona]`](/docs/configuration#sandbox) sets a timeout instead.
+
+A stopped sandbox shows as needing attention in the tree. conch doesn't start it by itself; run `conch sandbox start`.
+
+## Getting the work out
+
+The code comes back the way it would from any machine: push the branch from the sandbox, or move the worktree back with **T** (see [Remote machines](/docs/remote-machines)). The sandbox needs its own access to a private repository — a token scoped to that repository, passed with `-env`.
+
+## How conch reaches it
+
+Each connection asks Daytona for a fresh ssh token and goes through Daytona's ssh gateway, so nothing that lets you in is saved. The token is kept out of conch's messages, but ssh has it on its command line while connected, where other users of your computer could see it in the process list. Daytona's gateway key is accepted the first time it is seen.
+
+<Callout type="note">
+
+Daytona keeps the values of `-env` variables with the sandbox. Pass only what the task needs.
+
+</Callout>

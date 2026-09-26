@@ -234,7 +234,7 @@ const maxEventBurst = 64
 func (mach *machine) connect(install bool) tea.Cmd {
 	mach.gen++
 	mach.state = stateConnecting
-	id, gen, target := mach.id, mach.gen, mach.target
+	id, gen, target, label := mach.id, mach.gen, mach.target, mach.label
 	return func() tea.Msg {
 		if target == "" {
 			sock := config.SocketPath()
@@ -248,7 +248,11 @@ func (mach *machine) connect(install bool) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		c, err := remote.Connect(ctx, remote.SSH(target, false), remote.Options{Install: install})
+		tr, err := remote.TransportFor(ctx, label, target, false)
+		if err != nil {
+			return machineConnectedMsg{machine: id, gen: gen, err: err}
+		}
+		c, err := remote.Connect(ctx, tr, remote.Options{Install: install})
 		return machineConnectedMsg{machine: id, gen: gen, c: c, err: err}
 	}
 }
@@ -257,6 +261,7 @@ func (mach *machine) connect(install bool) tea.Cmd {
 func (mach *machine) connected(msg machineConnectedMsg) tea.Cmd {
 	var outdated *remote.OutdatedServerError
 	var needs *remote.InstallError
+	var stopped *remote.SandboxStoppedError
 	switch {
 	case msg.err == nil || (errors.As(msg.err, &outdated) && msg.c != nil):
 		mach.attach(msg.c)
@@ -267,6 +272,11 @@ func (mach *machine) connected(msg machineConnectedMsg) tea.Cmd {
 	case errors.As(msg.err, &needs):
 		mach.state, mach.err = stateAttention, needs.Reason
 		return nil // installing is the user's call
+	case errors.As(msg.err, &stopped):
+		// Starting it costs, so that is the user's call too; asking again
+		// on a timer would only poll the provider.
+		mach.state, mach.err = stateAttention, "sandbox "+string(stopped.State)+" · conch sandbox start "+mach.id
+		return nil
 	}
 	mach.state, mach.err = stateOffline, msg.err.Error()
 	mach.failures++

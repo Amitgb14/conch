@@ -361,16 +361,16 @@ func TestA4SameInstalled(t *testing.T) {
 	}
 	defer c.Close()
 	ctx := t.Context()
-	if sameInstalled(ctx, c, "box") { // server build "fakebuild" differs
+	if sameInstalled(ctx, c, remote.SSH("box", false)) { // server build "fakebuild" differs
 		t.Fatal("different builds reported the same")
 	}
 	_, s, m := a4OtherPlatform()
 	f.setProbe(t, s+"\n"+m+"\n") // no version info: can't tell
-	if !sameInstalled(ctx, c, "box") {
+	if !sameInstalled(ctx, c, remote.SSH("box", false)) {
 		t.Fatal("unknown build must count as the same")
 	}
 	t.Setenv("A4_PROBE_FAIL", "down")
-	if !sameInstalled(ctx, c, "box") {
+	if !sameInstalled(ctx, c, remote.SSH("box", false)) {
 		t.Fatal("probe failure must count as the same")
 	}
 }

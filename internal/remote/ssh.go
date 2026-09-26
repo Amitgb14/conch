@@ -119,6 +119,9 @@ type sshOpts struct {
 	// keyOnly succeeds only through key login: no password, no shared
 	// connection that another command already authenticated.
 	keyOnly bool
+	// acceptNew takes a host's key the first time without asking, for a
+	// gateway nobody is there to vouch for (a sandbox provider's).
+	acceptNew bool
 }
 
 func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cmd, error) {
@@ -136,6 +139,9 @@ func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cm
 			"-o", "KbdInteractiveAuthentication=no", "-o", "ConnectTimeout=10")
 	case !o.interactive:
 		args = append(args, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
+		if o.acceptNew {
+			args = append(args, "-o", "StrictHostKeyChecking=accept-new")
+		}
 	}
 	args = append(args, "--", target, script)
 	cmd := exec.CommandContext(ctx, sshBinary(), args...)

@@ -68,6 +68,11 @@ Usage:
   conch machine add [-label L] SSH_TARGET
                                 add a remote machine (installs conch there)
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
+  conch sandbox create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
+                                make a Daytona sandbox ($DAYTONA_API_KEY) and add it as a machine;
+                                it runs until stopped, so agents keep going with the TUI closed
+  conch sandbox ls | start ID | stop [-y] ID | rm [-y] ID
+                                list conch's sandboxes, start or stop one, or delete it for good
   conch -m MACHINE COMMAND      run a command against a remote machine
   conch -m MACHINE upload FILE...
                                 copy files to a machine's uploads folder and print their paths there
@@ -126,6 +131,8 @@ func main() {
 		runReport(args) // called by agent hooks; must never fail the agent
 	case "machine", "machines":
 		err = runMachine(args)
+	case "sandbox", "sandboxes":
+		err = runSandbox(args)
 	case "bridge":
 		err = runBridge()
 	case "update":
