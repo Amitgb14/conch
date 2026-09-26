@@ -169,3 +169,94 @@ func TestA2MachineMessages(t *testing.T) {
 		t.Fatalf("closed: state %v subscribed %v viewing %q focus %v", box.state, nm.subscribed, nm.viewing, nm.focus)
 	}
 }
+
+// A machine whose server starts afresh hands out its pane IDs again from
+// p1. What the TUI remembered about the old panes — that one ran an agent,
+// how big it was, what its screen held — must not be inherited by the new
+// ones, or a plain shell turns up under Agents with somebody else's screen.
+func TestPanesOfARestartedServerAreNotTheOldOnes(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	mach.setPanes(mach.panes) // as a connection's first full list does
+	mach.server.Started = time.Now().Add(-time.Hour)
+	if !mach.agents["p1"] || !mach.agents["p4"] {
+		t.Fatalf("the fixture's agents: %v", mach.agents)
+	}
+	mach.sizes["p1"] = [2]int{80, 24}
+	m.frames[paneKey(localMachine, "p1")] = &proto.Frame{ID: "p1", Lines: []string{"the agent's screen"}}
+	m.subscribed[paneKey(localMachine, "p1")] = true
+
+	// An agent whose state flickers keeps its place: it is still listed.
+	same := append([]proto.PaneInfo(nil), mach.panes...)
+	same[0].Agent = nil
+	mach.setPanes(same)
+	m.forgetGonePanes(mach)
+	if !mach.agents["p1"] {
+		t.Fatal("a pane that is still there lost what it had run")
+	}
+
+	// The server restarts — a new Started, and its panes are numbered from
+	// p1 again — and this connection reaches that one.
+	c, _ := a1FakeClient(t)
+	c.Server.Started = mach.server.Started.Add(time.Hour)
+	// A server that says nothing about when it started is taken for the
+	// same one: nothing is thrown away on a guess.
+	quiet, _ := a1FakeClient(t)
+	if mach.attach(quiet) {
+		t.Fatal("a server without a start time was taken for a new one")
+	}
+	mach.server.Started = c.Server.Started.Add(-time.Hour)
+	if !mach.attach(c) {
+		t.Fatal("a server that started afresh was taken for the old one")
+	}
+	m.forgetPanesOf(mach)
+	mach.setPanes([]proto.PaneInfo{
+		{ID: "p1", Name: "zsh", State: proto.PaneRunning, ProjectID: "r1", Cwd: "/src/api"},
+	})
+	m.forgetGonePanes(mach)
+	if mach.agents["p1"] {
+		t.Fatal("a new shell inherited the old pane's agent")
+	}
+	if len(mach.agents) != 0 {
+		t.Fatalf("panes that are gone are remembered: %v", mach.agents)
+	}
+	if _, ok := mach.sizes["p1"]; ok {
+		t.Fatal("the old pane's size was kept")
+	}
+	if m.frames[paneKey(localMachine, "p1")] != nil || m.subscribed[paneKey(localMachine, "p1")] {
+		t.Fatal("the old pane's screen was kept")
+	}
+
+	// The tree puts it under Terminals, and lists no Agents section at all.
+	m.rebuild()
+	var sections []nodeKind
+	for _, r := range m.rows {
+		if r.kind == kindAgents || r.kind == kindTerminals {
+			sections = append(sections, r.kind)
+		}
+	}
+	if len(sections) != 1 || sections[0] != kindTerminals {
+		t.Fatalf("sections %v in\n%s", sections, render(m.rows))
+	}
+	// A reload keeps the same chain — same Started — so its panes, and
+	// what is remembered about them, stay as they are.
+	mach.agents["p1"] = true
+	reloaded, _ := a1FakeClient(t)
+	reloaded.Server.Started = mach.server.Started
+	if mach.attach(reloaded) {
+		t.Fatal("a reload was taken for a new server")
+	}
+	if !mach.agents["p1"] {
+		t.Fatal("a reload forgot what its panes had run")
+	}
+
+	// Another machine's panes are left alone.
+	other := newMachine("busybox", "busybox", "aghadge@10.0.0.115")
+	other.agents["p1"] = true
+	m.machines = append(m.machines, other)
+	m.frames[paneKey("busybox", "p1")] = &proto.Frame{ID: "p1"}
+	m.forgetGonePanes(mach)
+	if !other.agents["p1"] || m.frames[paneKey("busybox", "p1")] == nil {
+		t.Fatal("another machine's pane was forgotten")
+	}
+}

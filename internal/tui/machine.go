@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -58,8 +59,11 @@ type machine struct {
 
 	panes    []proto.PaneInfo
 	projects []proto.ProjectInfo
-	agents   map[string]bool   // panes that have run an agent
-	sizes    map[string][2]int // last size sent per pane
+	agents   map[string]bool // panes that have run an agent
+	// fresh says the last connection reached a server that had started
+	// afresh, so what was held by pane ID belongs to nobody.
+	fresh bool
+	sizes map[string][2]int // last size sent per pane
 
 	// Which agents are installed there; nil until known (or when the server
 	// can't tell).
@@ -131,11 +135,24 @@ func newMachine(id, label, target string) *machine {
 }
 
 // attach adopts a connected client.
-func (mach *machine) attach(c *client.Client) {
+// attach takes a connection. It reports whether the server on the other end
+// is a different one from the last: a reload keeps Started (and its panes),
+// while a server that started afresh numbers its panes from p1 again, so
+// nothing the TUI remembers by pane ID means anything any more.
+func (mach *machine) attach(c *client.Client) (fresh bool) {
+	// Only a server that says when it started, and says something else
+	// than last time, is known to be a new one; anything less is taken for
+	// the same chain, so nothing is thrown away on a guess.
+	fresh = !mach.server.Started.IsZero() && !c.Server.Started.IsZero() &&
+		!c.Server.Started.Equal(mach.server.Started)
 	mach.gen++
 	mach.c, mach.server = c, c.Server
 	mach.state, mach.err, mach.warning, mach.failures = stateOnline, "", "", 0
 	mach.sizes = map[string][2]int{} // a new connection may see new sizes
+	if fresh {
+		mach.agents = map[string]bool{}
+	}
+	return fresh
 }
 
 // listen starts receiving events and loads the machine's state.
@@ -259,7 +276,7 @@ func (mach *machine) connected(msg machineConnectedMsg) tea.Cmd {
 	var needs *remote.InstallError
 	switch {
 	case msg.err == nil || (errors.As(msg.err, &outdated) && msg.c != nil):
-		mach.attach(msg.c)
+		mach.fresh = mach.attach(msg.c)
 		if outdated != nil {
 			mach.warning = "server is from an older build · m → reload server"
 		}
@@ -302,9 +319,28 @@ func (mach *machine) close() {
 
 func (mach *machine) setPanes(panes []proto.PaneInfo) {
 	mach.panes = panes
+	live := make(map[string]bool, len(panes))
 	for _, p := range panes {
+		live[p.ID] = true
 		if p.Agent != nil {
 			mach.agents[p.ID] = true
+		}
+	}
+	// What a pane once ran is remembered by its ID, so that an agent whose
+	// state flickers — between turns, while it starts — doesn't hop out of
+	// the Agents group and back. A pane the machine no longer has is
+	// forgotten instead: a server that starts afresh numbers its panes from
+	// p1 again, and a new shell must not inherit a dead agent's row, its
+	// size or its screen. Only a full list says what is really there, which
+	// is why this is here and not in the pane events.
+	for id := range mach.agents {
+		if !live[id] {
+			delete(mach.agents, id)
+		}
+	}
+	for id := range mach.sizes {
+		if !live[id] {
+			delete(mach.sizes, id)
 		}
 	}
 }
@@ -360,5 +396,49 @@ func addMachine(target, label, password string, keyLogin bool) tea.Cmd {
 			return errMsg{err}
 		}
 		return machineAddedMsg{m: m, note: note}
+	}
+}
+
+// forgetPanesOf drops everything the TUI holds for a machine's panes, for
+// a server that started afresh: its pane IDs start at p1 again, so an old
+// screen under a new pane's row would be somebody else's entirely.
+func (m *Model) forgetPanesOf(mach *machine) {
+	mach.agents = map[string]bool{}
+	mach.sizes = map[string][2]int{}
+	prefix := mach.id + "|"
+	for key := range m.frames {
+		if strings.HasPrefix(key, prefix) {
+			delete(m.frames, key)
+		}
+	}
+	for key := range m.subscribed {
+		if strings.HasPrefix(key, prefix) {
+			delete(m.subscribed, key)
+		}
+	}
+	// The pane list itself is left until the new one arrives a moment
+	// later: an empty tree in between helps nobody, and every screen and
+	// mark that could be mistaken for a new pane's is gone already.
+}
+
+// forgetGonePanes drops what the TUI holds for panes a machine no longer
+// has: their screens and subscriptions. A disconnect brings no pane.closed
+// events, so without this a server that came back would show the old p1's
+// screen under the new one until a frame of its own arrived.
+func (m *Model) forgetGonePanes(mach *machine) {
+	live := make(map[string]bool, len(mach.panes))
+	for _, p := range mach.panes {
+		live[p.ID] = true
+	}
+	prefix := mach.id + "|"
+	for key := range m.frames {
+		if id, ok := strings.CutPrefix(key, prefix); ok && !live[id] {
+			delete(m.frames, key)
+		}
+	}
+	for key := range m.subscribed {
+		if id, ok := strings.CutPrefix(key, prefix); ok && !live[id] {
+			delete(m.subscribed, key)
+		}
 	}
 }

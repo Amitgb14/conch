@@ -315,6 +315,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		cmd := mach.connected(msg) // attaches first, so the auto update sees the server
+		if mach.fresh {
+			mach.fresh = false
+			m.forgetPanesOf(mach) // its panes are gone, whatever their IDs now say
+		}
 		cmd = tea.Batch(cmd, m.autoUpdateMachine(msg.machine))
 		for key, d := range m.sessions {
 			if strings.HasPrefix(key, mach.id+"|") {
@@ -326,6 +330,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case panesMsg:
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
 			mach.setPanes(msg.panes)
+			m.forgetGonePanes(mach)
 			m.flushHeld(mach)
 		}
 		return m, tea.Batch(m.rebuild(), m.startTicking())
