@@ -14,6 +14,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
 func a2Item(t *testing.T, items []settingItem, label string) settingItem {
@@ -245,7 +246,7 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 	for _, step := range []struct {
 		key string
 		tab int
-	}{{"tab", 1}, {"right", 2}, {"l", 3}, {"tab", 0}, {"shift+tab", 3}, {"left", 2}, {"h", 1}, {"4", 3}, {"1", 0}} {
+	}{{"tab", 1}, {"right", 2}, {"l", 3}, {"tab", 4}, {"tab", 0}, {"shift+tab", 4}, {"left", 3}, {"h", 2}, {"4", 3}, {"5", 4}, {"1", 0}} {
 		s.sel = 3
 		s.update(m, a2Key(step.key))
 		if s.tab != step.tab || s.sel != 0 {
@@ -404,5 +405,242 @@ func TestSettingsFileIcons(t *testing.T) {
 	}
 	if ansi.Strip(iconSample(iconsOff)) != "names only" {
 		t.Fatal("off sample")
+	}
+}
+
+// The Sandboxes tab: what a new sandbox is made from, and what of your
+// environment goes into it. The key itself is never among the settings —
+// it is read from the environment every time.
+func TestSettingsSandboxTab(t *testing.T) {
+	m, _ := sandboxModel(t)
+	s := &settings{}
+	s.setTab(len(settingsTabs) - 1)
+	if settingsTabs[s.tab] != "Sandboxes" {
+		t.Fatalf("tabs %v", settingsTabs)
+	}
+	plain := func() string {
+		var b strings.Builder
+		for _, it := range s.items(m) {
+			b.WriteString(ansi.Strip(it.label) + "|" + ansi.Strip(it.detail) + "\n")
+		}
+		return b.String()
+	}
+	// With no key, the header says so rather than pretending it is ready.
+	out := plain()
+	for _, want := range []string{"Daytona|no key · $DAYTONA_API_KEY is not set", "API key variable|DAYTONA_API_KEY",
+		"Snapshot|Daytona's default", "Region|the account's default",
+		"Auto-stop|never · it runs until you stop it", "Pass in|nothing"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in\n%s", want, out)
+		}
+	}
+	// The key can be kept here as well as in the environment; until it is,
+	// the row says which variable is used instead.
+	if !strings.Contains(out, "API key|not set · $DAYTONA_API_KEY is used") {
+		t.Fatalf("the key row:\n%s", out)
+	}
+	useSandboxProvider(t, &sbProvider{})
+	if out := plain(); !strings.Contains(out, "✓ $DAYTONA_API_KEY is set") {
+		t.Fatalf("configured:\n%s", out)
+	}
+
+	// Auto-stop cycles through the choices and comes back to never.
+	item := func(label string) settingItem {
+		t.Helper()
+		for _, it := range s.items(m) {
+			if ansi.Strip(it.label) == label {
+				return it
+			}
+		}
+		t.Fatalf("no item %q", label)
+		return settingItem{}
+	}
+	seen := []int{}
+	for i := 0; i < len(autoStopChoices)+1; i++ {
+		item("Auto-stop").run(m)
+		seen = append(seen, m.cfg.Sandbox.Of("daytona").AutoStop)
+	}
+	if fmt.Sprint(seen) != "[30 60 120 0 30]" {
+		t.Fatalf("auto-stop cycled %v", seen)
+	}
+	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{AutoStop: 60})
+	if out := plain(); !strings.Contains(out, "Auto-stop|60 minutes idle") {
+		t.Fatalf("auto-stop text:\n%s", out)
+	}
+
+	// A field opened from the settings screen comes back to it, whether it
+	// is saved or dropped, so several can be changed in a row.
+	item("Snapshot").run(m)
+	if d, ok := m.overlay.(*dialog); !ok || d.back != overlay(s) {
+		t.Fatalf("the field forgot where it came from: %#v", m.overlay)
+	}
+	if _, _ = m.overlay.(*dialog).update(m, a2Key("esc")); m.overlay != overlay(s) {
+		t.Fatalf("esc went to %#v", m.overlay)
+	}
+
+	// The text settings open a dialog that saves into the configuration.
+	for _, c := range []struct{ label, typed, want string }{
+		{"Snapshot", " my-snapshot ", "my-snapshot"},
+		{"Region", "eu", "eu"},
+		{"API key variable", "MY_DAYTONA_KEY", "MY_DAYTONA_KEY"},
+	} {
+		item(c.label).run(m)
+		d, ok := m.overlay.(*dialog)
+		if !ok || !strings.Contains(d.title, c.label) {
+			t.Fatalf("%s: %#v", c.label, m.overlay)
+		}
+		d.fields[0].in.SetValue(c.typed)
+		if _, cmd := d.update(m, a2Key("enter")); a2ErrText(a2Run(cmd)) != "" {
+			t.Fatalf("%s: %v", c.label, a2ErrText(a2Run(cmd)))
+		}
+		if m.overlay != overlay(s) {
+			t.Fatalf("%s did not come back to the settings: %#v", c.label, m.overlay)
+		}
+	}
+	got := m.cfg.Sandbox.Of("daytona")
+	if got.Snapshot != "my-snapshot" || got.Target != "eu" || got.APIKeyEnv != "MY_DAYTONA_KEY" {
+		t.Fatalf("saved %+v", got)
+	}
+	if out := plain(); !strings.Contains(out, "API key variable|MY_DAYTONA_KEY") || !strings.Contains(out, "$MY_DAYTONA_KEY") {
+		t.Fatalf("the named variable is not shown:\n%s", out)
+	}
+
+	// Pass in takes names, separated however, and refuses a value.
+	item("Pass in").run(m)
+	d := m.overlay.(*dialog)
+	if msgs := a2Run(d.submit(m, []string{"A_TOKEN=secret"})); !strings.Contains(a2ErrText(msgs), "give the name of a variable") {
+		t.Fatalf("a value: %v", msgs)
+	}
+	if len(m.cfg.Sandbox.Of("daytona").Env) != 0 {
+		t.Fatalf("a refused value was saved: %v", m.cfg.Sandbox.Of("daytona").Env)
+	}
+	a2Run(d.submit(m, []string{"A_TOKEN, B_TOKEN C_TOKEN"}))
+	if fmt.Sprint(m.cfg.Sandbox.Of("daytona").Env) != "[A_TOKEN B_TOKEN C_TOKEN]" {
+		t.Fatalf("env %v", m.cfg.Sandbox.Of("daytona").Env)
+	}
+	if out := plain(); !strings.Contains(out, "Pass in|A_TOKEN B_TOKEN C_TOKEN") {
+		t.Fatalf("env shown as:\n%s", out)
+	}
+	m.overlay = nil
+
+	// A build with no providers says so; one conch doesn't configure here
+	// is sent to config.toml rather than left blank.
+	providers := sandbox.Providers
+	t.Cleanup(func() { sandbox.Providers = providers })
+	// A provider conch grows gets the same settings, with no code of its
+	// own here, and saves under its own name.
+	sandbox.Providers = []string{"daytona", "fly"}
+	out = plain()
+	for _, want := range []string{"API key variable|FLY_API_KEY", "Snapshot|Fly's default", "Pass in|nothing"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("another provider lacks %q:\n%s", want, out)
+		}
+	}
+	// Each provider has its own Auto-stop, saved under its own name.
+	flyStop := 0
+	for _, it := range s.items(m) {
+		if ansi.Strip(it.label) == "Auto-stop" {
+			flyStop++
+			it.run(m) // the second one is Fly's
+		}
+	}
+	if flyStop != 2 {
+		t.Fatalf("each provider has an Auto-stop: %d", flyStop)
+	}
+	if m.cfg.Sandbox.Of("fly").AutoStop == 0 {
+		t.Fatalf("Fly's auto-stop was not saved: %+v", m.cfg.Sandbox)
+	}
+	if got := m.cfg.Sandbox.Of("daytona"); got.Snapshot != "my-snapshot" || got.Target != "eu" {
+		t.Fatalf("Daytona's settings changed with Fly's: %+v", got)
+	}
+	sandbox.Providers = nil
+	if out := plain(); !strings.Contains(out, "knows no sandbox providers") {
+		t.Fatalf("no providers:\n%s", out)
+	}
+}
+
+// The key can be kept in the settings as well as in the environment: the
+// row never shows it, a key kept here wins over the variable, and emptying
+// the field gives the variable back.
+func TestSettingsSandboxKey(t *testing.T) {
+	m, _ := sandboxModel(t)
+	s := &settings{}
+	s.setTab(len(settingsTabs) - 1)
+	item := func(label string) settingItem {
+		t.Helper()
+		for _, it := range s.items(m) {
+			if ansi.Strip(it.label) == label {
+				return it
+			}
+		}
+		t.Fatalf("no item %q", label)
+		return settingItem{}
+	}
+	row := func(label string) string { return ansi.Strip(item(label).detail) }
+	head := func() string {
+		for _, it := range s.items(m) {
+			if it.header && ansi.Strip(it.label) == "Daytona" {
+				return ansi.Strip(it.detail)
+			}
+		}
+		return ""
+	}
+
+	item("API key").run(m)
+	d, ok := m.overlay.(*dialog)
+	if !ok || !strings.Contains(strings.Join(d.text, " "), "kept in config.toml") {
+		t.Fatalf("the dialog does not say where it goes: %#v", m.overlay)
+	}
+	a2Run(d.submit(m, []string{"  dtn_secret_value_9f3a  "}))
+	if got := m.cfg.Sandbox.Of("daytona").APIKey; got != "dtn_secret_value_9f3a" {
+		t.Fatalf("saved %q", got)
+	}
+	// Shown by its last few characters only, never whole.
+	if got := row("API key"); got != "kept in config.toml …9f3a" {
+		t.Fatalf("the row reads %q", got)
+	}
+	for _, it := range s.items(m) {
+		if strings.Contains(ansi.Strip(it.label)+ansi.Strip(it.detail), "dtn_secret_value") {
+			t.Fatalf("the key is on screen: %q %q", it.label, it.detail)
+		}
+	}
+	// A short key gives nothing away at all.
+	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{APIKey: "abcd"})
+	if got := row("API key"); got != "kept in config.toml …" {
+		t.Fatalf("a short key reads %q", got)
+	}
+
+	// The provider takes it, with no variable set anywhere.
+	t.Setenv("DAYTONA_API_KEY", "")
+	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{APIKey: "dtn_from_settings"})
+	p, err := sandbox.Open("daytona", m.cfg.Sandbox)
+	if err != nil || p.Check() != nil {
+		t.Fatalf("a key in the settings: %v %v", err, p.Check())
+	}
+	// And it wins over a variable that is set.
+	t.Setenv("DAYTONA_API_KEY", "dtn_from_env")
+	if head() != "✓ key kept in the settings" {
+		t.Fatalf("heading %q", head())
+	}
+	// Emptied, the variable is used again.
+	item("API key").run(m)
+	a2Run(m.overlay.(*dialog).submit(m, []string{"   "}))
+	if got := m.cfg.Sandbox.Of("daytona").APIKey; got != "" {
+		t.Fatalf("clearing left %q", got)
+	}
+	if got := row("API key"); got != "not set · $DAYTONA_API_KEY is used" {
+		t.Fatalf("after clearing: %q", got)
+	}
+	if head() != "✓ $DAYTONA_API_KEY is set" {
+		t.Fatalf("heading after clearing: %q", head())
+	}
+	// A named variable is what the rows and the check talk about.
+	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{APIKeyEnv: "MY_KEY"})
+	t.Setenv("DAYTONA_API_KEY", "")
+	if got, want := row("API key"), "not set · $MY_KEY is used"; got != want {
+		t.Fatalf("named variable: %q", got)
+	}
+	if !strings.Contains(head(), "$MY_KEY is not set") {
+		t.Fatalf("heading names the wrong variable: %q", head())
 	}
 }

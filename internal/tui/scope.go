@@ -71,6 +71,10 @@ func (m Model) rowScope(r row) tabScope {
 		return s
 	case kindSavedSSH:
 		return tabScope{level: scopeCLI, machine: r.machine, section: kindSSH}
+	case kindSandboxes, kindSandboxProvider:
+		// Groups of machines, not of tabs: like a machine row, they list
+		// none and show a page of what is in them.
+		return tabScope{level: scopeMachine}
 	case kindPane:
 		pid := r.projectID
 		if p := m.pane(r.machine, r.paneID); p != nil {

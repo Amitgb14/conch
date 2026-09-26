@@ -49,7 +49,7 @@ func newFakeDaytona(t *testing.T) (*fakeDaytona, *Daytona) {
 	old := pollEvery
 	pollEvery = time.Millisecond
 	t.Cleanup(func() { pollEvery = old })
-	return f, NewDaytona(config.DaytonaCfg{})
+	return f, NewDaytona(config.ProviderCfg{})
 }
 
 // add puts a sandbox in place that will walk through states.
@@ -158,17 +158,17 @@ func TestNewDaytonaReadsConfigThenEnvironment(t *testing.T) {
 	t.Setenv("DAYTONA_API_KEY", "  from-env \n")
 	t.Setenv("DAYTONA_API_URL", "https://env.example/api/")
 	t.Setenv("DAYTONA_TARGET", "eu")
-	d := NewDaytona(config.DaytonaCfg{})
+	d := NewDaytona(config.ProviderCfg{})
 	if d.key != "from-env" || d.base != "https://env.example/api" || d.target != "eu" {
 		t.Fatalf("from env: key %q base %q target %q", d.key, d.base, d.target)
 	}
 	t.Setenv("MY_KEY", "mine")
-	d = NewDaytona(config.DaytonaCfg{APIKeyEnv: "MY_KEY", APIURL: "https://cfg.example", Target: "us", Snapshot: "daytona-large"})
+	d = NewDaytona(config.ProviderCfg{APIKeyEnv: "MY_KEY", APIURL: "https://cfg.example", Target: "us", Snapshot: "daytona-large"})
 	if d.key != "mine" || d.base != "https://cfg.example" || d.target != "us" || d.snap != "daytona-large" {
 		t.Fatalf("config wins: %+v", d)
 	}
 	t.Setenv("DAYTONA_API_URL", "")
-	if d := NewDaytona(config.DaytonaCfg{}); d.base != DefaultDaytonaURL {
+	if d := NewDaytona(config.ProviderCfg{}); d.base != DefaultDaytonaURL {
 		t.Fatalf("default base %q", d.base)
 	}
 	if d.Name() != "daytona" {
@@ -179,7 +179,7 @@ func TestNewDaytonaReadsConfigThenEnvironment(t *testing.T) {
 func TestDaytonaWithoutAKeyIsNotConfigured(t *testing.T) {
 	t.Setenv("DAYTONA_API_KEY", "")
 	t.Setenv("DAYTONA_API_URL", "http://127.0.0.1:1") // never reached
-	d := NewDaytona(config.DaytonaCfg{})
+	d := NewDaytona(config.ProviderCfg{})
 	err := d.Check()
 	if !errors.Is(err, ErrNotConfigured) || !strings.Contains(err.Error(), "$DAYTONA_API_KEY") {
 		t.Fatalf("check: %v", err)
@@ -188,7 +188,7 @@ func TestDaytonaWithoutAKeyIsNotConfigured(t *testing.T) {
 		t.Fatalf("get without a key: %v", err)
 	}
 	t.Setenv("OTHER", "")
-	if err := NewDaytona(config.DaytonaCfg{APIKeyEnv: "OTHER"}).Check(); !strings.Contains(err.Error(), "$OTHER") {
+	if err := NewDaytona(config.ProviderCfg{APIKeyEnv: "OTHER"}).Check(); !strings.Contains(err.Error(), "$OTHER") {
 		t.Fatalf("names the configured variable: %v", err)
 	}
 }
@@ -277,7 +277,7 @@ func TestDaytonaCreateWithoutAnID(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("DAYTONA_API_KEY", "k")
-	d := NewDaytona(config.DaytonaCfg{APIURL: srv.URL})
+	d := NewDaytona(config.ProviderCfg{APIURL: srv.URL})
 	if _, err := d.Create(ctxFor(t), Spec{}); err == nil || !strings.Contains(err.Error(), "no sandbox id") {
 		t.Fatalf("err %v", err)
 	}
@@ -345,7 +345,7 @@ func TestDaytonaEscapesTheID(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("DAYTONA_API_KEY", "k")
-	d := NewDaytona(config.DaytonaCfg{APIURL: srv.URL})
+	d := NewDaytona(config.ProviderCfg{APIURL: srv.URL})
 	_, _ = d.Get(ctxFor(t), "a/b")
 	_ = d.Delete(ctxFor(t), "../x")
 	_, _ = d.SSHAccess(ctxFor(t), "a?b")
@@ -397,7 +397,7 @@ func TestDaytonaListQuery(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("DAYTONA_API_KEY", "k")
-	d := NewDaytona(config.DaytonaCfg{APIURL: srv.URL})
+	d := NewDaytona(config.ProviderCfg{APIURL: srv.URL})
 	if _, err := d.List(ctxFor(t)); err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +428,7 @@ func TestDaytonaListStopsOnARepeatedOrEndlessCursor(t *testing.T) {
 		fmt.Fprintf(w, `{"items":[],"nextCursor":"c%d"}`, n)
 	}))
 	defer srv.Close()
-	d = NewDaytona(config.DaytonaCfg{APIURL: srv.URL})
+	d = NewDaytona(config.ProviderCfg{APIURL: srv.URL})
 	if _, err := d.List(ctxFor(t)); err == nil || n != maxPages {
 		t.Fatalf("endless cursor: %d pages, err %v", n, err)
 	}
@@ -652,7 +652,7 @@ func TestDaytonaOversizedReply(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("DAYTONA_API_KEY", "k")
-	d := NewDaytona(config.DaytonaCfg{APIURL: srv.URL})
+	d := NewDaytona(config.ProviderCfg{APIURL: srv.URL})
 	if _, err := d.Get(ctxFor(t), "sb"); err == nil || !strings.Contains(err.Error(), "over") {
 		t.Fatalf("err %v", err)
 	}
@@ -671,7 +671,7 @@ func TestDaytonaUnreachable(t *testing.T) {
 	t.Setenv("DAYTONA_API_KEY", "k")
 	srv := httptest.NewServer(http.NotFoundHandler())
 	srv.Close() // nothing listens there now
-	d := NewDaytona(config.DaytonaCfg{APIURL: srv.URL})
+	d := NewDaytona(config.ProviderCfg{APIURL: srv.URL})
 	if _, err := d.Get(ctxFor(t), "sb"); err == nil {
 		t.Fatal("expected an error")
 	}
@@ -679,5 +679,34 @@ func TestDaytonaUnreachable(t *testing.T) {
 	cancel()
 	if _, err := d.Get(ctx, "sb"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled: %v", err)
+	}
+}
+
+// A key kept in the settings is used, and wins over the environment: it
+// was put there on purpose, so a stale variable must not take over.
+func TestDaytonaKeyFromSettings(t *testing.T) {
+	t.Setenv("DAYTONA_API_KEY", "")
+	d := NewDaytona(config.ProviderCfg{APIKey: "  dtn_settings  "})
+	if err := d.Check(); err != nil {
+		t.Fatalf("a key in the settings: %v", err)
+	}
+	if d.key != "dtn_settings" {
+		t.Fatalf("key %q", d.key)
+	}
+	t.Setenv("DAYTONA_API_KEY", "dtn_env")
+	if d := NewDaytona(config.ProviderCfg{APIKey: "dtn_settings"}); d.key != "dtn_settings" {
+		t.Fatalf("the environment won: %q", d.key)
+	}
+	if d := NewDaytona(config.ProviderCfg{}); d.key != "dtn_env" {
+		t.Fatalf("without one kept: %q", d.key)
+	}
+	// Blank in the settings is no key at all, not an empty one.
+	if d := NewDaytona(config.ProviderCfg{APIKey: "   "}); d.key != "dtn_env" {
+		t.Fatalf("a blank key: %q", d.key)
+	}
+	t.Setenv("DAYTONA_API_KEY", "")
+	err := NewDaytona(config.ProviderCfg{}).Check()
+	if err == nil || !strings.Contains(err.Error(), "$DAYTONA_API_KEY") || !strings.Contains(err.Error(), "Settings → Sandboxes") {
+		t.Fatalf("with no key at all: %v", err)
 	}
 }

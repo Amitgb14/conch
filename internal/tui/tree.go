@@ -33,6 +33,11 @@ const (
 	// kindFiles is a project's file explorer. Kinds are saved in ui.json by
 	// number, so new ones go last.
 	kindFiles
+	// kindSandboxes groups the machines conch made itself, and
+	// kindSandboxProvider one provider's own, so several sandboxes sit
+	// under Sandboxes → Daytona → … rather than filling the tree's top.
+	kindSandboxes
+	kindSandboxProvider
 )
 
 // row is one visible line of the sidebar tree. IDs of panes and projects
@@ -50,7 +55,8 @@ type row struct {
 
 func (r row) expandable() bool {
 	switch r.kind {
-	case kindMachine, kindWorkspace, kindProject, kindBranches, kindAgents, kindTerminals, kindCLI, kindSSH:
+	case kindMachine, kindWorkspace, kindProject, kindBranches, kindAgents, kindTerminals, kindCLI, kindSSH,
+		kindSandboxes, kindSandboxProvider:
 		return true
 	}
 	return false
@@ -66,7 +72,11 @@ const localMachine = "local"
 
 // treeMachine is one machine's data for the tree.
 type treeMachine struct {
-	id       string
+	id string
+	// sandbox is the provider that made this machine, if conch did:
+	// "daytona" and so on. Ordinary machines have none.
+	sandbox  string
+	label    string
 	panes    []proto.PaneInfo
 	projects []proto.ProjectInfo
 	agents   map[string]bool // panes that have ever run an agent
@@ -93,6 +103,8 @@ func scoped(machine, id string) string {
 }
 
 func machineID(mid string) string            { return "m:" + mid }
+func sandboxesID() string                    { return "sandboxes" }
+func sandboxProviderID(p string) string      { return "sandboxes/" + p }
 func projectNodeID(mid, pid string) string   { return "p:" + scoped(mid, pid) }
 func sectionID(mid, pid, s string) string    { return "p:" + scoped(mid, pid) + "/" + s }
 func branchNodeID(mid, pid, b string) string { return "b:" + scoped(mid, pid) + ":" + b }
@@ -123,8 +135,63 @@ func buildTree(in treeInput) []row {
 		return def
 	}
 	var rows []row
+	var boxes []treeMachine
 	for _, mach := range in.machines {
+		if mach.sandbox != "" {
+			boxes = append(boxes, mach)
+			continue
+		}
 		rows = append(rows, machineRows(in, mach, filter, waiting, match, open)...)
+	}
+	return append(rows, sandboxRows(in, boxes, filter, waiting, match, open)...)
+}
+
+// sandboxRows groups the machines conch made under Sandboxes → provider →
+// sandbox, so a fleet of them doesn't fill the top of the tree. With none
+// there is no group at all: M makes the first.
+func sandboxRows(in treeInput, boxes []treeMachine, filter string, waiting bool, match func(string) bool, open func(string, bool) bool) []row {
+	if len(boxes) == 0 {
+		return nil
+	}
+	byProvider := map[string][]treeMachine{}
+	var order []string
+	for _, mach := range boxes {
+		if _, seen := byProvider[mach.sandbox]; !seen {
+			order = append(order, mach.sandbox)
+		}
+		byProvider[mach.sandbox] = append(byProvider[mach.sandbox], mach)
+	}
+	sort.Strings(order) // the providers conch knows, then any it doesn't
+	var body []row
+	total := 0
+	for _, provider := range order {
+		machines := byProvider[provider]
+		sort.Slice(machines, func(i, j int) bool { return machines[i].label < machines[j].label })
+		var kids []row
+		for _, mach := range machines {
+			rows := machineRows(in, mach, filter, waiting, match, open)
+			for i := range rows {
+				rows[i].depth += 2 // under Sandboxes → provider
+			}
+			kids = append(kids, rows...)
+		}
+		if len(kids) == 0 {
+			continue // filtered out
+		}
+		total += len(machines)
+		sid := sandboxProviderID(provider)
+		row := row{id: sid, kind: kindSandboxProvider, depth: 1, count: len(machines), branch: provider}
+		body = append(body, row)
+		if open(sid, true) {
+			body = append(body, kids...)
+		}
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	rows := []row{{id: sandboxesID(), kind: kindSandboxes, count: total}}
+	if open(sandboxesID(), true) {
+		rows = append(rows, body...)
 	}
 	return rows
 }

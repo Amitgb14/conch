@@ -38,7 +38,7 @@ func TestSandboxSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := Load()
-	if err != nil || got.Sandbox.Daytona.AutoStop != 0 || got.Sandbox.Daytona.APIKeyEnv != "" {
+	if err != nil || got.Sandbox.Of("daytona").AutoStop != 0 || got.Sandbox.Of("daytona").APIKeyEnv != "" {
 		t.Fatalf("old file: %+v %v", got.Sandbox, err)
 	}
 	toml := "[sandbox.daytona]\napi_key_env = \"DT_KEY\"\ntarget = \"eu\"\nsnapshot = \"daytona-medium\"\nauto_stop = 60\nenv = [\"CLAUDE_CODE_OAUTH_TOKEN\"]\n"
@@ -46,7 +46,7 @@ func TestSandboxSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err = Load()
-	d := got.Sandbox.Daytona
+	d := got.Sandbox.Of("daytona")
 	if err != nil || d.APIKeyEnv != "DT_KEY" || d.Target != "eu" || d.Snapshot != "daytona-medium" || d.AutoStop != 60 ||
 		len(d.Env) != 1 || d.Env[0] != "CLAUDE_CODE_OAUTH_TOKEN" {
 		t.Fatalf("loaded %+v %v", d, err)
@@ -55,8 +55,53 @@ func TestSandboxSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	again, err := Load()
-	if err != nil || again.Sandbox.Daytona.AutoStop != 60 || again.Sandbox.Daytona.Env[0] != "CLAUDE_CODE_OAUTH_TOKEN" {
+	if err != nil || again.Sandbox.Of("daytona").AutoStop != 60 || again.Sandbox.Of("daytona").Env[0] != "CLAUDE_CODE_OAUTH_TOKEN" {
 		t.Fatalf("round trip %+v %v", again.Sandbox, err)
+	}
+
+	// Every provider takes the same settings under its own name, and one
+	// this build doesn't know is kept rather than dropped when the
+	// settings are saved.
+	toml = "[sandbox.daytona]\nsnapshot = \"dt\"\n\n[sandbox.e2b]\napi_key_env = \"E2B_KEY\"\nsnapshot = \"base\"\n\n[sandbox.later]\ntarget = \"eu\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(toml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err = Load()
+	if err != nil || got.Sandbox.Of("e2b").APIKeyEnv != "E2B_KEY" || got.Sandbox.Of("e2b").Snapshot != "base" ||
+		got.Sandbox.Of("daytona").Snapshot != "dt" || got.Sandbox.Of("later").Target != "eu" {
+		t.Fatalf("several providers: %+v %v", got.Sandbox, err)
+	}
+	got.Sandbox.Set("e2b", ProviderCfg{Snapshot: "other"})
+	if err := Save(got); err != nil {
+		t.Fatal(err)
+	}
+	again, err = Load()
+	if err != nil || again.Sandbox.Of("e2b").Snapshot != "other" || again.Sandbox.Of("later").Target != "eu" ||
+		again.Sandbox.Of("daytona").Snapshot != "dt" {
+		t.Fatalf("saved %+v %v", again.Sandbox, err)
+	}
+	// A key kept in the settings round-trips, and the file it lands in is
+	// readable by nobody else.
+	got.Sandbox.Set("daytona", ProviderCfg{APIKey: "dtn_secret", Snapshot: "dt"})
+	if err := Save(got); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := os.Stat(filepath.Join(dir, "config.toml")); err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("config.toml is %v (%v)", st.Mode().Perm(), err)
+	}
+	again, err = Load()
+	if err != nil || again.Sandbox.Of("daytona").APIKey != "dtn_secret" {
+		t.Fatalf("the key did not survive: %+v %v", again.Sandbox, err)
+	}
+
+	// A provider with nothing set answers with zeroes rather than panicking.
+	var empty SandboxCfg
+	if got := empty.Of("nope"); got.Snapshot != "" || got.AutoStop != 0 {
+		t.Fatalf("empty: %+v", got)
+	}
+	empty.Set("nope", ProviderCfg{Target: "us"}) // makes the map
+	if empty.Of("nope").Target != "us" {
+		t.Fatalf("set on a nil map: %+v", empty)
 	}
 }
 

@@ -2,7 +2,22 @@ export const metadata = { title: "Sandboxes", description: "Run agents in a Dayt
 
 # Sandboxes
 
-A sandbox is a machine in the cloud that conch creates for you, so a long agent task runs away from your laptop and keeps running when you close it. conch makes the sandbox, installs itself there and adds it as a [remote machine](/docs/remote-machines): it shows in the tree, and `-m` and every other machine feature work with it.
+A sandbox is a machine in the cloud that conch creates for you, so a long agent task runs away from your laptop and keeps running when you close it. conch makes the sandbox, installs itself there and adds it as a [remote machine](/docs/remote-machines): `-m` and every other machine feature work with it.
+
+In the tree they sit together under **Sandboxes**, one group per provider, so a fleet of them doesn't fill the top:
+
+```
+▾ ● local
+▾ ● busybox
+▾ ▤ Sandboxes            3
+  ▾ Daytona              2
+    ▸ ● sdx01
+    ▸ ○ sdx02   stopped
+  ▾ E2B                  1
+    ▸ ● sdx01
+```
+
+Each one opens like any machine — its projects, agents and terminals underneath — and `m` on its row starts, stops or deletes it. Selecting **Sandboxes**, or one provider, shows what is in it with each sandbox's state. The group appears once there is a sandbox; the same label under two providers is two different sandboxes, and each keeps its own row.
 
 [Daytona](https://www.daytona.io) is the provider conch supports so far.
 
@@ -14,11 +29,13 @@ Create an API key in Daytona's dashboard and put it in your environment:
 export DAYTONA_API_KEY=dtn_…
 ```
 
-conch reads the key from the environment every time and never writes it down. `api_key_env` in [`[sandbox.daytona]`](/docs/configuration#sandbox) names a different variable.
+By default conch reads the key from the environment every time and never writes it down — set it where your shell will have it (`~/.zshrc`), and restart conch, since a running process keeps the environment it started with. The key is read by whatever connects: the TUI and the `conch sandbox` commands, never the server, and it never goes over the protocol. A different variable can be named in Settings (`,` → **Sandboxes**) or as `api_key_env` in [`[sandbox.daytona]`](/docs/configuration#sandbox), along with the snapshot, region, auto-stop and what of your environment every new sandbox gets.
+
+If you would rather not keep it in your shell at all, Settings → **Sandboxes** → **API key** takes the key itself. It is then written to `config.toml` (0600) as it is: anything running as you can read it, and it travels with a backup or a synced dotfile, so it is the convenient choice rather than the careful one. A key kept there wins over the variable, the settings show only its last few characters, and emptying the field gives the variable back.
 
 ## In the TUI
 
-Press `M` and choose **New Daytona sandbox…**. The dialog takes a label, a snapshot, a size and the names of environment variables to pass in; leave any of them empty for the defaults. conch creates the sandbox, sets itself up there and adds the machine to the tree, which takes a minute or two. If setting up fails, the sandbox is deleted rather than left to cost, and the reason is shown.
+Press `M`, choose **New sandbox…** and then the provider — Daytona for now, and whatever conch grows later sits beside it; `esc` goes back to the machine menu. The dialog takes a label, a snapshot, a size and the names of environment variables to pass in; leave any of them empty for the defaults. conch creates the sandbox, sets itself up there and adds the machine to the tree, which takes a minute or two. If setting up fails, the sandbox is deleted rather than left to cost, and the reason is shown.
 
 `m` on a sandbox's row adds:
 

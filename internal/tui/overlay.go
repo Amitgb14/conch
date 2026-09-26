@@ -68,6 +68,9 @@ type menu struct {
 	items []menuItem
 	sel   int
 	x, y  int
+	// back is the menu this one was opened from, if any: esc goes there
+	// rather than closing everything, so a wrong turn costs one key.
+	back *menu
 }
 
 func newRowMenu(m Model, r row, x, y int) *menu {
@@ -251,7 +254,15 @@ func (mu *menu) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		return false, nil
 	}
 	switch k.String() {
-	case "esc", "q", "m":
+	case "esc", "left", "h":
+		if mu.back != nil {
+			mu.back.sel = 0
+			m.overlay = mu.back
+			return true, nil
+		}
+		m.overlay = nil
+		return true, nil
+	case "q", "m":
 		m.overlay = nil
 		return true, nil
 	case "up", "k", "shift+tab":
@@ -410,6 +421,10 @@ type dialog struct {
 	submit  func(m *Model, values []string) tea.Cmd
 	// onChange runs after a field was edited, e.g. to update placeholders.
 	onChange func(d *dialog)
+	// back is what opened this dialog, if it should come back afterwards:
+	// a settings screen a field was reached from, say, so changing three
+	// things in a row costs three keys rather than nine.
+	back overlay
 }
 
 func (m Model) dialogWidth() int { return clamp(72, 30, max(m.width-4, 30)) }
@@ -628,7 +643,7 @@ func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	if isKey {
 		switch k.String() {
 		case "esc":
-			m.overlay = nil
+			m.overlay = d.back // nil unless something is waiting behind it
 			return true, nil
 		case "tab", "down":
 			return false, d.setFocus(d.focus + 1)
@@ -642,7 +657,7 @@ func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 					values[i] = map[bool]string{true: "on"}[*f.check]
 				}
 			}
-			m.overlay = nil
+			m.overlay = d.back
 			return true, d.submit(m, values)
 		case " ", "x":
 			if c := d.fields[d.focus].check; c != nil {
@@ -804,7 +819,8 @@ var helpText = []string{
 	"  t  new task: branch + worktree + an agent with a prompt (Attempts: try it several times)",
 	"  c  start an agent here: pick Claude, Codex, Gemini or OpenCode (click or 1-9)",
 	"  n  terminal here       a  add or create a project",
-	"  M  add machine: over ssh, or a new Daytona sandbox    R  reconnect a machine    A  start or install any agent",
+	"  M  add machine: over ssh, or a new sandbox · sandboxes group under Sandboxes → provider",
+	"  R  reconnect a machine    A  start or install any agent",
 	"     m on a sandbox: start, stop or delete it (a sandbox runs, and costs, until stopped)",
 	"  H  ssh from this computer to a host (listed under CLI → SSH; nothing installed there)",
 	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
@@ -877,7 +893,7 @@ var helpText = []string{
 	"  status bar: ▁▃▆ (bottom right) = memory and CPU conch uses on this computer; click again to close",
 	"    conch update list shows every release · conch update rollback goes back one",
 	"",
-	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain",
+	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain, sandboxes",
 	"  q  detach (agents keep running)",
 }
 

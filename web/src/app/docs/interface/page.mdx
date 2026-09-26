@@ -275,3 +275,16 @@ Below that, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the
 Every machine with each supported agent, installed (with version) or not; `enter` on a missing one installs it there. The default agent chosen here is what `c` pre-selects and what tasks use.
 
 Under **Remote machines**: whether files dropped on a remote pane are uploaded there, and the largest file to upload (10, 25, 50, 100 or 250 MB). See [Dropping files on a remote pane](/docs/remote-machines#dropping-files-on-a-remote-pane).
+
+### Sandboxes
+
+What a new [sandbox](/docs/sandboxes) is made from, with a section per provider conch knows — every provider takes the same settings, saved under its own name in `[sandbox.<provider>]` — and each heading saying whether its key is there to be found (`✓ $DAYTONA_API_KEY is set`).
+
+| Setting | What it does |
+| --- | --- |
+| **API key** | the key itself, if you would rather keep it here than in your environment. It is written to `config.toml` (0600) as it is, so anything running as you can read it and it travels with a backup or a synced dotfile; the row shows only its last few characters. Empty leaves it to the variable below |
+| **API key variable** | which variable of your environment the key is read from when none is kept above; empty means `DAYTONA_API_KEY` |
+| **Snapshot** | what new sandboxes start from; empty means the provider's default |
+| **Region** | where they are made, e.g. `us` or `eu` |
+| **Auto-stop** | never (the default), or 30, 60 or 120 minutes idle. Anything but never stops the agents inside once the TUI lets go, since they don't count as activity |
+| **Pass in** | names of your environment variables to put into every new sandbox — an agent's token, say — separated by spaces or commas. Names only: a `NAME=value` is refused. The dialog that makes a sandbox can add more, for that one only |

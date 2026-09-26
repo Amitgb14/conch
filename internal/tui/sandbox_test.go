@@ -299,7 +299,7 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 	next, _ := m.handleKey(a2Key("M"))
 	*m = next.(Model)
 	mu, ok := m.overlay.(*menu)
-	if !ok || a2MenuLabels(mu) != "s Over ssh… | d New Daytona sandbox…" {
+	if !ok || a2MenuLabels(mu) != "s Over ssh… | b New sandbox…" {
 		t.Fatalf("M: %#v", m.overlay)
 	}
 	mu.items[0].run(m)
@@ -307,8 +307,40 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 		t.Fatalf("ssh: %#v", m.overlay)
 	}
 
-	// With no key the dialog says so before anything is spent.
+	// The providers are a level down, listed from the registry, and esc
+	// goes back to the menu they were opened from.
+	m.overlay = mu
 	mu.items[1].run(m)
+	sub, ok := m.overlay.(*menu)
+	if !ok || a2MenuLabels(sub) != "d Daytona…" || sub.title != "New sandbox" {
+		t.Fatalf("sandbox menu: %#v", m.overlay)
+	}
+	if _, _ = sub.update(m, a2Key("esc")); m.overlay == nil {
+		t.Fatal("esc in the sandbox menu closed everything")
+	}
+	if back, ok := m.overlay.(*menu); !ok || back.title != "Add a machine" {
+		t.Fatalf("esc went to %#v", m.overlay)
+	}
+	// A provider conch grows appears without touching the menu.
+	providers := sandbox.Providers
+	t.Cleanup(func() { sandbox.Providers = providers })
+	sandbox.Providers = []string{"daytona", "fly"}
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | f Fly…" {
+		t.Fatalf("another provider: %q", got)
+	}
+	sandbox.Providers = []string{"daytona", "dune"} // a letter already taken
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… |  Dune…" {
+		t.Fatalf("a shared letter: %q", got)
+	}
+	sandbox.Providers = nil
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != " conch knows no sandbox providers" {
+		t.Fatalf("no providers: %q", got)
+	}
+	sandbox.Providers = providers
+
+	// With no key the dialog says so before anything is spent.
+	sub = newSandboxMenu(nil)
+	sub.items[0].run(m)
 	d, ok := m.overlay.(*dialog)
 	if !ok || !strings.Contains(d.title, "New Daytona sandbox") || !strings.Contains(strings.Join(d.text, " "), "Needs a Daytona API key: set $DAYTONA_API_KEY") {
 		t.Fatalf("sandbox dialog: %#v", m.overlay)
@@ -316,7 +348,7 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 
 	p := &sbProvider{created: sandbox.Sandbox{ID: "sbnew-0123456789", State: sandbox.StateStarted}}
 	useSandboxProvider(t, p)
-	d = newSandboxDialog(*m)
+	d = newSandboxDialog(*m, "daytona")
 	if strings.Contains(strings.Join(d.text, " "), "Needs") {
 		t.Fatalf("configured, yet: %v", d.text)
 	}
@@ -440,5 +472,115 @@ func TestSandboxMachineInTUI(t *testing.T) {
 	d, ok := m.overlay.(*dialog)
 	if !ok || !strings.Contains(strings.Join(d.text, " "), "the daytona sandbox (sb1) stays") {
 		t.Fatalf("dialog: %#v", m.overlay)
+	}
+}
+
+// Sandboxes are grouped in the tree: Sandboxes → provider → the machines
+// conch made, so a fleet of them doesn't fill its top. Ordinary machines
+// stay where they are.
+func TestSandboxTreeGrouping(t *testing.T) {
+	a2Isolate(t)
+	t.Setenv("DAYTONA_API_KEY", "")
+	// A second provider, to prove the grouping is not Daytona's alone.
+	providers := sandbox.Providers
+	t.Cleanup(func() { sandbox.Providers = providers })
+	sandbox.Providers = []string{"daytona", "e2b"}
+	m := a2Model()
+	for _, mm := range []remote.Machine{
+		{Label: "sdx01", Target: "daytona:sb-aaa"},
+		{Label: "sdx02", Target: "daytona:sb-bbb"},
+		{Label: "sdx01", Target: "e2b:sb-ccc"}, // the same label under another provider
+		{Label: "gpu", Target: "dev@gpu"},
+	} {
+		if _, err := remote.SaveMachine(mm); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.syncCatalog()
+	m.rebuild()
+
+	shape := func() string {
+		var b strings.Builder
+		for _, r := range m.rows {
+			label := r.id
+			if r.kind == kindMachine {
+				if mach := m.machine(r.machine); mach != nil {
+					label = mach.label
+				}
+			}
+			b.WriteString(fmt.Sprintf("%d %s\n", r.depth, label))
+		}
+		return b.String()
+	}
+	// Collapsed machines keep the shape readable.
+	for _, r := range m.rows {
+		if r.kind == kindMachine {
+			m.expanded[r.id] = false
+		}
+	}
+	m.rebuild()
+	want := "0 local\n0 gpu\n0 sandboxes\n1 sandboxes/daytona\n2 sdx01\n2 sdx02\n1 sandboxes/e2b\n2 sdx01\n"
+	if got := shape(); got != want {
+		t.Fatalf("tree:\n%s\nwant:\n%s", got, want)
+	}
+
+	// The group rows say how many, and read as their provider.
+	byID := map[string]row{}
+	for _, r := range m.rows {
+		byID[r.id] = r
+	}
+	if g := byID[sandboxesID()]; g.count != 3 || g.kind != kindSandboxes {
+		t.Fatalf("Sandboxes row: %+v", g)
+	}
+	if p := byID[sandboxProviderID("daytona")]; p.count != 2 || p.branch != "daytona" {
+		t.Fatalf("provider row: %+v", p)
+	}
+	_, _, label, _, right := m.rowParts(byID[sandboxProviderID("daytona")])
+	if ansi.Strip(label) != "Daytona" || ansi.Strip(right) != "2" {
+		t.Fatalf("provider row reads %q %q", label, right)
+	}
+	_, _, label, _, right = m.rowParts(byID[sandboxesID()])
+	if ansi.Strip(label) != "Sandboxes" || ansi.Strip(right) != "3" {
+		t.Fatalf("Sandboxes row reads %q %q", label, right)
+	}
+
+	// Collapsing a provider hides only its own.
+	m.expanded[sandboxProviderID("daytona")] = false
+	m.rebuild()
+	if got := shape(); strings.Contains(got, "2 sdx02") || !strings.Contains(got, "1 sandboxes/e2b") {
+		t.Fatalf("collapsed daytona:\n%s", got)
+	}
+	m.expanded[sandboxesID()] = false
+	m.rebuild()
+	if got := shape(); strings.Contains(got, "sandboxes/") {
+		t.Fatalf("collapsed sandboxes:\n%s", got)
+	}
+
+	// The page lists what is in the group, with a word about cost.
+	m.expanded[sandboxesID()] = true
+	m.rebuild()
+	page := a2Plain(m.sandboxesLines("", 80))
+	for _, want := range []string{"Sandboxes  3", "sdx01", "sdx02", "Daytona sb-aaa", "E2B sb-ccc", "costs until stopped"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("the page lacks %q:\n%s", want, page)
+		}
+	}
+	if one := a2Plain(m.sandboxesLines("e2b", 80)); !strings.Contains(one, "E2B sandboxes  1") || strings.Contains(one, "sb-aaa") {
+		t.Fatalf("one provider's page:\n%s", one)
+	}
+	// With none, the group is gone from the tree and the page says how to
+	// make one.
+	for _, mach := range m.machines {
+		if _, _, ok := remote.ParseSandboxTarget(mach.target); ok {
+			remote.RemoveMachine(mach.id)
+		}
+	}
+	m.syncCatalog()
+	m.rebuild()
+	if strings.Contains(shape(), "sandboxes") {
+		t.Fatalf("an empty group is still there:\n%s", shape())
+	}
+	if page := a2Plain(m.sandboxesLines("", 80)); !strings.Contains(page, "none yet · M → New sandbox…") {
+		t.Fatalf("empty page:\n%s", page)
 	}
 }

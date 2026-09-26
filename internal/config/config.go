@@ -29,31 +29,51 @@ type Config struct {
 	Sandbox SandboxCfg `toml:"sandbox"`
 }
 
-// SandboxCfg holds the providers conch can create sandboxes with.
-type SandboxCfg struct {
-	Daytona DaytonaCfg `toml:"daytona"`
+// SandboxCfg holds the sandbox providers conch can use, keyed by the
+// provider's own name: `[sandbox.daytona]`, `[sandbox.e2b]` and so on.
+// Every provider takes the same settings, so one conch grows needs no
+// change here — and a table for a provider this build doesn't know is
+// kept as it is rather than thrown away when the settings are saved.
+type SandboxCfg map[string]ProviderCfg
+
+// Of is the configuration for a provider, or the zero value when it has
+// none: every field's zero means "the provider's own default".
+func (c SandboxCfg) Of(name string) ProviderCfg { return c[name] }
+
+// Set stores a provider's configuration, making the map if it is nil.
+func (c *SandboxCfg) Set(name string, p ProviderCfg) {
+	if *c == nil {
+		*c = SandboxCfg{}
+	}
+	(*c)[name] = p
 }
 
-// DaytonaCfg configures Daytona sandboxes. The API key is never stored:
-// it is read from the environment variable APIKeyEnv names.
-type DaytonaCfg struct {
-	// APIKeyEnv names the variable holding the key; "" is DAYTONA_API_KEY.
+// ProviderCfg configures one sandbox provider. The API key is never
+// stored: it is read from the environment variable APIKeyEnv names.
+type ProviderCfg struct {
+	// APIKey is the key itself, when you would rather keep it here than in
+	// your environment. It is stored as it is: config.toml is written
+	// 0600, but anything running as you can read it, and it travels with
+	// a backup or a synced dotfile. Empty means the variable APIKeyEnv
+	// names is used instead.
+	APIKey string `toml:"api_key,omitempty"`
+	// APIKeyEnv names the variable holding the key; "" is the provider's
+	// own, e.g. DAYTONA_API_KEY. A key set above wins over it.
 	APIKeyEnv string `toml:"api_key_env,omitempty"`
-	// APIURL overrides the API endpoint; "" is $DAYTONA_API_URL or
-	// Daytona's own.
+	// APIURL overrides the API endpoint; "" is the provider's own, or what
+	// its environment variable says.
 	APIURL string `toml:"api_url,omitempty"`
-	// Target is the region, e.g. "us" or "eu"; "" is $DAYTONA_TARGET or
-	// the organization's default.
+	// Target is the region, e.g. "us" or "eu"; "" is the account default.
 	Target string `toml:"target,omitempty"`
-	// Snapshot new sandboxes start from; "" is Daytona's default.
+	// Snapshot (image) new sandboxes start from; "" is the provider's own.
 	Snapshot string `toml:"snapshot,omitempty"`
 	// AutoStop stops a sandbox after this many minutes without ssh or API
 	// activity. 0 (the default) never does: agents inside don't count as
 	// activity, so any other value stops them once the TUI is closed.
 	AutoStop int `toml:"auto_stop,omitempty"`
 	// Env names variables of this environment passed into new sandboxes,
-	// e.g. CLAUDE_CODE_OAUTH_TOKEN. Daytona keeps their values with the
-	// sandbox.
+	// e.g. CLAUDE_CODE_OAUTH_TOKEN. The provider keeps their values with
+	// the sandbox.
 	Env []string `toml:"env,omitempty"`
 }
 

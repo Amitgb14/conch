@@ -80,7 +80,8 @@ func sandboxCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	vars, err := sandbox.EnvFrom(append(append([]string{}, cfg.Sandbox.Daytona.Env...), env...))
+	pc := cfg.Sandbox.Of(sandboxProvider)
+	vars, err := sandbox.EnvFrom(append(append([]string{}, pc.Env...), env...))
 	if err != nil {
 		return err
 	}
@@ -93,7 +94,7 @@ func sandboxCreate(args []string) error {
 
 	fmt.Fprintln(os.Stderr, "Creating a Daytona sandbox…")
 	s, err := p.Create(ctx, sandbox.Spec{Snapshot: *snapshot, CPU: *cpu, Memory: *memory, Disk: *disk,
-		Env: vars, AutoStop: cfg.Sandbox.Daytona.AutoStop})
+		Env: vars, AutoStop: pc.AutoStop})
 	if err != nil {
 		if s.ID != "" {
 			abandonSandbox(p, s.ID, *yes)

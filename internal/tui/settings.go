@@ -12,6 +12,7 @@ import (
 	"github.com/Amitgb14/conch/internal/brain"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
 // settings is the settings overlay: colour and prompt themes,
@@ -26,7 +27,7 @@ type settings struct {
 	shellErr string
 }
 
-var settingsTabs = []string{"Theme", "Notifications", "Agents", "Brain"}
+var settingsTabs = []string{"Theme", "Notifications", "Agents", "Brain", "Sandboxes"}
 
 type shellThemesMsg struct {
 	themes proto.ShellThemes
@@ -75,6 +76,8 @@ func (s *settings) items(m *Model) []settingItem {
 		return s.notifyItems(m)
 	case 3:
 		return s.brainItems(m)
+	case 4:
+		return s.sandboxItems(m)
 	}
 	return s.agentItems(m)
 }
@@ -374,6 +377,159 @@ func (s *settings) brainItems(m *Model) []settingItem {
 	return items
 }
 
+// autoStopChoices are the minutes a sandbox may idle before its provider
+// stops it. 0 never does, which is the default: an agent working inside
+// doesn't count as activity, so anything else stops agents once the TUI
+// lets go.
+var autoStopChoices = []int{0, 30, 60, 120}
+
+func nextAutoStop(now int) int {
+	for i, v := range autoStopChoices {
+		if v == now {
+			return autoStopChoices[(i+1)%len(autoStopChoices)]
+		}
+	}
+	return autoStopChoices[0]
+}
+
+func autoStopText(min int) string {
+	if min <= 0 {
+		return "never · it runs until you stop it"
+	}
+	return fmt.Sprintf("%d minutes idle · stops agents once the TUI lets go", min)
+}
+
+// sandboxItems is the Sandboxes tab: what a new sandbox is made from, per
+// provider, and what of your environment goes into it. The API key is
+// never among them — it is read from your environment every time and
+// never written down.
+func (s *settings) sandboxItems(m *Model) []settingItem {
+	items := []settingItem{
+		{header: true, label: "Sandboxes", detail: "M → New sandbox… makes one and adds it as a machine"},
+	}
+	if len(sandbox.Providers) == 0 {
+		return append(items, settingItem{label: "  this build knows no sandbox providers"})
+	}
+	for _, name := range sandbox.Providers {
+		items = append(items, s.providerItems(m, name)...)
+	}
+	return append(items,
+		settingItem{},
+		settingItem{label: styleMuted.Render("  These are the defaults for new sandboxes; the dialog that makes one can")},
+		settingItem{label: styleMuted.Render("  change them, and pass in more, for that sandbox only.")})
+}
+
+// providerItems are one provider's settings. Every provider takes the same
+// ones, so a new one needs nothing here.
+func (s *settings) providerItems(m *Model, provider string) []settingItem {
+	cfg := m.cfg.Sandbox.Of(provider)
+	label := providerLabel(provider)
+	keyEnv := firstNonEmpty(cfg.APIKeyEnv, defaultKeyEnv(provider))
+	key := styleOK.Render("✓ $" + keyEnv + " is set")
+	if strings.TrimSpace(cfg.APIKey) != "" {
+		key = styleOK.Render("✓ key kept in the settings")
+	}
+	if p, err := openSandboxProvider(provider); err != nil {
+		key = styleErr.Render(ansi.Truncate(err.Error(), 44, "…"))
+	} else if err := p.Check(); err != nil {
+		key = styleWarn.Render("no key · $" + keyEnv + " is not set")
+	}
+	// set stores one field, leaving the provider's others as they are.
+	set := func(change func(c *config.ProviderCfg)) func(m *Model) tea.Cmd {
+		return func(m *Model) tea.Cmd {
+			c := m.cfg.Sandbox.Of(provider)
+			change(&c)
+			m.cfg.Sandbox.Set(provider, c)
+			return saveConfig(m.cfg)
+		}
+	}
+	field := func(name, detail, help, current string, save func(c *config.ProviderCfg, v string) error) settingItem {
+		return settingItem{label: name, detail: detail, run: func(m *Model) tea.Cmd {
+			d := newDialog(*m, " "+label+" · "+name+" ", []string{help}, []string{name}, []string{current})
+			d.back = s // esc, and saving, come back to the settings screen
+			d.submit = func(m *Model, v []string) tea.Cmd {
+				c := m.cfg.Sandbox.Of(provider)
+				if err := save(&c, strings.TrimSpace(v[0])); err != nil {
+					return func() tea.Msg { return errMsg{err} }
+				}
+				m.cfg.Sandbox.Set(provider, c)
+				return saveConfig(m.cfg)
+			}
+			m.overlay = d
+			return d.focusCmd()
+		}}
+	}
+	return []settingItem{
+		{}, {header: true, label: label, detail: key},
+		field("API key", keyDetail(cfg.APIKey, keyEnv),
+			"The key itself, kept in config.toml in your home — written 0600, but anything running as you can read it, and it travels with a backup or a synced dotfile. Empty leaves it to the variable below, which is what conch does otherwise.",
+			cfg.APIKey, func(c *config.ProviderCfg, v string) error { c.APIKey = v; return nil }),
+		field("API key variable", keyEnv,
+			"Which variable of your environment "+label+"'s key is read from, when no key is kept above. Empty means "+defaultKeyEnv(provider)+".",
+			cfg.APIKeyEnv, func(c *config.ProviderCfg, v string) error { c.APIKeyEnv = v; return nil }),
+		field("Snapshot", firstNonEmpty(cfg.Snapshot, styleMuted.Render(label+"'s default")),
+			"What new sandboxes start from. Empty means "+label+"'s default.",
+			cfg.Snapshot, func(c *config.ProviderCfg, v string) error { c.Snapshot = v; return nil }),
+		field("Region", firstNonEmpty(cfg.Target, styleMuted.Render("the account's default")),
+			"Where sandboxes are made, e.g. us or eu. Empty means the account's default.",
+			cfg.Target, func(c *config.ProviderCfg, v string) error { c.Target = v; return nil }),
+		{label: "Auto-stop", detail: autoStopText(cfg.AutoStop), run: set(func(c *config.ProviderCfg) {
+			c.AutoStop = nextAutoStop(c.AutoStop)
+		})},
+		field("Pass in", envText(cfg.Env),
+			"Names of your environment variables to pass into every new "+label+" sandbox, separated by spaces or commas — an agent's token, say (CLAUDE_CODE_OAUTH_TOKEN). Their values are read when a sandbox is made, never stored here.",
+			strings.Join(cfg.Env, " "), func(c *config.ProviderCfg, v string) error {
+				names, err := envNames(v)
+				if err != nil {
+					return err
+				}
+				c.Env = names
+				return nil
+			}),
+	}
+}
+
+// keyDetail says whether a key is kept here, without showing it: enough to
+// tell one from another, and nothing more.
+func keyDetail(key, env string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return styleMuted.Render("not set · $" + env + " is used")
+	}
+	shown := "…"
+	if r := []rune(key); len(r) > 4 {
+		shown = "…" + string(r[len(r)-4:])
+	}
+	return styleWarn.Render("kept in config.toml " + shown)
+}
+
+// defaultKeyEnv is the variable a provider reads its key from when the
+// settings name none.
+func defaultKeyEnv(provider string) string {
+	return strings.ToUpper(provider) + "_API_KEY"
+}
+
+// envText says what is passed into a new sandbox.
+func envText(names []string) string {
+	if len(names) == 0 {
+		return styleMuted.Render("nothing")
+	}
+	return strings.Join(names, " ")
+}
+
+// envNames splits a list of environment variable names, refusing anything
+// that isn't one: a value pasted in with it, or a name with spaces.
+func envNames(s string) ([]string, error) {
+	var names []string
+	for _, name := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
+		if strings.ContainsAny(name, "=\"'") {
+			return nil, fmt.Errorf("%s: give the name of a variable, not its value", name)
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
 // uploadLimits are the choices for the largest file dropped into a remote
 // pane, in MB. The server takes up to 256.
 var uploadLimits = []int{10, 25, 50, 100, 250}
@@ -435,8 +591,8 @@ func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			s.setTab((s.tab + 1) % len(settingsTabs))
 		case "shift+tab", "left", "h":
 			s.setTab((s.tab + len(settingsTabs) - 1) % len(settingsTabs))
-		case "1", "2", "3", "4":
-			s.setTab(int(msg.String()[0] - '1'))
+		case "1", "2", "3", "4", "5":
+			s.setTab(min(int(msg.String()[0]-'1'), len(settingsTabs)-1))
 		case "up", "k":
 			s.move(items, -1)
 		case "down", "j":

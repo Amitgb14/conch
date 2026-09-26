@@ -38,19 +38,29 @@ type Daytona struct {
 	base   string
 	keyEnv string
 	key    string
-	target string
-	snap   string
-	hc     *http.Client
+	// fromSettings says the key came from config.toml rather than the
+	// environment, which is what Check says when there is none.
+	fromSettings bool
+	target       string
+	snap         string
+	hc           *http.Client
 }
 
 // NewDaytona returns a Daytona provider for cfg, reading the key and any
 // unset endpoint or region from the environment.
-func NewDaytona(cfg config.DaytonaCfg) *Daytona {
+func NewDaytona(cfg config.ProviderCfg) *Daytona {
 	d := &Daytona{keyEnv: cfg.APIKeyEnv, snap: cfg.Snapshot, hc: &http.Client{Timeout: time.Minute}}
 	if d.keyEnv == "" {
 		d.keyEnv = "DAYTONA_API_KEY"
 	}
-	d.key = strings.TrimSpace(os.Getenv(d.keyEnv))
+	// A key kept in the settings wins over the environment: it was put
+	// there on purpose, and a stale variable should not quietly take over.
+	d.key = strings.TrimSpace(cfg.APIKey)
+	if d.key == "" {
+		d.key = strings.TrimSpace(os.Getenv(d.keyEnv))
+	} else {
+		d.fromSettings = true
+	}
 	d.base = strings.TrimRight(firstSet(cfg.APIURL, os.Getenv("DAYTONA_API_URL"), DefaultDaytonaURL), "/")
 	d.target = firstSet(cfg.Target, os.Getenv("DAYTONA_TARGET"))
 	return d
@@ -69,7 +79,7 @@ func (d *Daytona) Name() string { return "daytona" }
 
 func (d *Daytona) Check() error {
 	if d.key == "" {
-		return fmt.Errorf("%w: set $%s to a Daytona API key", ErrNotConfigured, d.keyEnv)
+		return fmt.Errorf("%w: set $%s to a Daytona API key, or put the key in Settings → Sandboxes", ErrNotConfigured, d.keyEnv)
 	}
 	return nil
 }

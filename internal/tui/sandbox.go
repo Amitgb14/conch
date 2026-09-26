@@ -156,7 +156,9 @@ func workingAgents(panes []proto.PaneInfo) int {
 	return n
 }
 
-// newAddMenu asks what kind of machine to add.
+// newAddMenu asks what kind of machine to add: one that already exists, or
+// a sandbox conch makes. The providers live a level down, so the menu stays
+// two lines however many of them conch grows.
 func newAddMenu() *menu {
 	return &menu{title: "Add a machine", items: []menuItem{
 		{"s", "Over ssh…", func(m *Model) tea.Cmd {
@@ -164,29 +166,55 @@ func newAddMenu() *menu {
 			m.overlay = d
 			return d.focusCmd()
 		}},
-		{"d", "New Daytona sandbox…", func(m *Model) tea.Cmd {
-			d := newSandboxDialog(*m)
-			m.overlay = d
-			return d.focusCmd()
+		{"b", "New sandbox…", func(m *Model) tea.Cmd {
+			m.overlay = newSandboxMenu(newAddMenu())
+			return nil
 		}},
 	}}
 }
 
-func newSandboxDialog(m Model) *dialog {
-	text := []string{"Creates a sandbox with Daytona, installs conch there and adds it as a machine. It runs, and costs, until you stop it (m → Stop sandbox)."}
-	if p, err := openSandboxProvider("daytona"); err != nil {
+// newSandboxMenu lists the providers conch can make a sandbox with. It is
+// built from the registry, so a new provider appears here by being in
+// sandbox.Providers and needs no menu of its own.
+func newSandboxMenu(back *menu) *menu {
+	mu := &menu{title: "New sandbox", back: back}
+	taken := map[string]bool{}
+	for _, name := range sandbox.Providers {
+		key := ""
+		if k := strings.ToLower(name[:1]); !taken[k] {
+			key, taken[k] = k, true // enter still picks one that shares a letter
+		}
+		mu.items = append(mu.items, menuItem{key, providerLabel(name) + "…", func(m *Model) tea.Cmd {
+			d := newSandboxDialog(*m, name)
+			m.overlay = d
+			return d.focusCmd()
+		}})
+	}
+	if len(mu.items) == 0 { // no provider is built in: say so rather than open nothing
+		mu.items = []menuItem{{"", "conch knows no sandbox providers", func(*Model) tea.Cmd { return nil }}}
+	}
+	return mu
+}
+
+// providerLabel is a provider's name as people write it.
+func providerLabel(name string) string { return sandbox.ProviderLabel(name) }
+
+func newSandboxDialog(m Model, provider string) *dialog {
+	label := providerLabel(provider)
+	text := []string{"Creates a sandbox with " + label + ", installs conch there and adds it as a machine. It runs, and costs, until you stop it (m → Stop sandbox)."}
+	if p, err := openSandboxProvider(provider); err != nil {
 		text = append(text, err.Error())
 	} else if err := p.Check(); err != nil {
-		text = append(text, "Needs a Daytona API key: "+strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")+".")
+		text = append(text, "Needs a "+label+" API key: "+strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")+".")
 	}
-	d := newDialog(m, " New Daytona sandbox ", text, []string{"Label", "Snapshot", "vCPUs", "Memory GiB", "Disk GiB", "Pass in"}, nil)
+	d := newDialog(m, " New "+label+" sandbox ", text, []string{"Label", "Snapshot", "vCPUs", "Memory GiB", "Disk GiB", "Pass in"}, nil)
 	d.fields[0].in.Placeholder = "defaults to sandbox-<id>"
-	d.fields[1].in.Placeholder = firstNonEmpty(m.cfg.Sandbox.Daytona.Snapshot, "Daytona's default")
+	d.fields[1].in.Placeholder = firstNonEmpty(m.cfg.Sandbox.Of(provider).Snapshot, label+"'s default")
 	d.fields[2].in.Placeholder = "the snapshot's"
 	d.fields[3].in.Placeholder = "the snapshot's"
 	d.fields[4].in.Placeholder = "the snapshot's"
 	d.fields[5].in.Placeholder = "names of your environment variables, e.g. CLAUDE_CODE_OAUTH_TOKEN"
-	cfg := m.cfg.Sandbox.Daytona
+	cfg := m.cfg.Sandbox.Of(provider)
 	d.submit = func(m *Model, v []string) tea.Cmd {
 		var sizes [3]int
 		for i, name := range []string{"vCPUs", "Memory", "Disk"} {
@@ -207,8 +235,8 @@ func newSandboxDialog(m Model) *dialog {
 			return func() tea.Msg { return errMsg{err} }
 		}
 		spec := sandbox.Spec{Snapshot: strings.TrimSpace(v[1]), CPU: sizes[0], Memory: sizes[1], Disk: sizes[2], Env: env, AutoStop: cfg.AutoStop}
-		m.setFlash("creating a Daytona sandbox (a minute or two)…", false)
-		return createSandbox("daytona", spec, strings.TrimSpace(v[0]))
+		m.setFlash("creating a "+label+" sandbox (a minute or two)…", false)
+		return createSandbox(provider, spec, strings.TrimSpace(v[0]))
 	}
 	return d
 }

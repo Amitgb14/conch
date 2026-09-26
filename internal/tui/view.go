@@ -229,6 +229,10 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		return "❯", styleAccent, "CLI", styleBold, styleMuted.Render(fmt.Sprint(r.count))
 	case kindWorkspace:
 		return "▤", styleAccent, "Workspace", styleBold, styleMuted.Render(fmt.Sprint(r.count))
+	case kindSandboxes:
+		return "▤", styleAccent, "Sandboxes", styleBold, styleMuted.Render(fmt.Sprint(r.count))
+	case kindSandboxProvider:
+		return "", glyphStyle, providerLabel(r.branch), styleBold, styleMuted.Render(fmt.Sprint(r.count))
 	case kindMore:
 		return "", glyphStyle, fmt.Sprintf("… %d more", r.count), styleMuted, ""
 	case kindSessions:
@@ -545,6 +549,10 @@ func (m Model) leafTitle(l *leaf) string {
 		if mach != nil {
 			return " " + mach.label + " · Workspace "
 		}
+	case kindSandboxes:
+		return " sandboxes "
+	case kindSandboxProvider:
+		return " " + providerLabel(v.Branch) + " sandboxes "
 	}
 	if mach != nil {
 		return " " + mach.label + " "
@@ -649,6 +657,10 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 		if mach != nil {
 			return m.workspaceLines(mach, w)
 		}
+	case kindSandboxes:
+		return m.sandboxesLines("", w)
+	case kindSandboxProvider:
+		return m.sandboxesLines(v.Branch, w)
 	}
 	if mach == nil {
 		return centered(w, h, styleMuted.Render("This machine was removed"))
@@ -910,6 +922,59 @@ func (m Model) workspaceLines(mach *machine, w int) []string {
 	}
 	lines = append(lines, "", styleMuted.Render("a add a project · t new task · B broadcast to project agents · m menu"))
 	return lines
+}
+
+// sandboxesLines is the page of the Sandboxes row, or of one provider's:
+// what conch made, where it is and what runs in it. It says what a
+// sandbox costs to leave running, because nothing else does.
+func (m Model) sandboxesLines(provider string, w int) []string {
+	title := "Sandboxes"
+	if provider != "" {
+		title = providerLabel(provider) + " sandboxes"
+	}
+	var boxes []*machine
+	for _, mach := range m.machines {
+		p, _, ok := remote.ParseSandboxTarget(mach.target)
+		if ok && (provider == "" || p == provider) {
+			boxes = append(boxes, mach)
+		}
+	}
+	sort.SliceStable(boxes, func(i, j int) bool { return strings.ToLower(boxes[i].label) < strings.ToLower(boxes[j].label) })
+	lines := []string{styleBold.Render(title) + styleMuted.Render(fmt.Sprintf("  %d", len(boxes))), ""}
+	for _, mach := range boxes {
+		p, id, _ := remote.ParseSandboxTarget(mach.target)
+		agents, terms := 0, 0
+		for _, pane := range mach.panes {
+			if pane.Agent != nil || mach.agents[pane.ID] {
+				agents++
+			} else {
+				terms++
+			}
+		}
+		state := styleOK.Render("running")
+		switch {
+		case mach.busy != "":
+			state = styleWork.Render(mach.busy)
+		case mach.sandboxState != "":
+			state = styleMuted.Render(string(mach.sandboxState))
+		case mach.state == stateConnecting:
+			state = styleWork.Render("connecting")
+		case mach.state == stateAttention:
+			state = styleWarn.Render("setup")
+		case mach.state != stateOnline:
+			state = styleErr.Render("offline")
+		}
+		right := styleMuted.Render(fmt.Sprintf("%d agents · %d terminals", agents, terms))
+		if mach.state != stateOnline {
+			right = ""
+		}
+		left := "  " + mach.label + "  " + styleMuted.Render(providerLabel(p)+" "+id)
+		lines = append(lines, spread(left, joinRight(state, right), w))
+	}
+	if len(boxes) == 0 {
+		lines = append(lines, styleMuted.Render("  none yet · M → New sandbox… makes one"))
+	}
+	return append(lines, "", styleMuted.Render("enter opens one · m menu: start, stop, delete · M new · a running sandbox costs until stopped"))
 }
 
 func (m Model) machineLines(mach *machine, cols, rows int) []string {

@@ -789,8 +789,11 @@ func (m *Model) rebuild() tea.Cmd {
 	prevIndex := indexOfRow(m.rows, m.cursor)
 	in := treeInput{expanded: m.expanded, showAll: m.showAll, filter: m.filter, now: time.Now()}
 	for _, mach := range m.machines {
-		tm := treeMachine{id: mach.id, panes: mach.panes, projects: mach.projects, agents: mach.agents,
-			sessions: m.hasSessions(mach.id)}
+		tm := treeMachine{id: mach.id, label: mach.label, panes: mach.panes, projects: mach.projects,
+			agents: mach.agents, sessions: m.hasSessions(mach.id)}
+		if provider, _, ok := remote.ParseSandboxTarget(mach.target); ok {
+			tm.sandbox = provider
+		}
 		if mach.id == localMachine { // ssh sessions start on this computer
 			tm.savedSSH = m.savedSSH
 		}

@@ -87,12 +87,13 @@ auto = false           # and install it as soon as it is found
 upload_drops = true    # upload files dropped on a remote pane and paste their paths there
 upload_max_mb = 25     # refuse larger files (the server takes at most 256)
 
-[sandbox.daytona]
+[sandbox.daytona]      # one table per provider; the same keys for each
+api_key = ""           # the key itself, kept in this file; "" reads it from the environment
 api_key_env = ""       # variable holding the key; "" is DAYTONA_API_KEY
-api_url = ""           # "" is $DAYTONA_API_URL or Daytona's own
+api_url = ""           # "" is $DAYTONA_API_URL or the provider's own
 target = ""            # region, e.g. "us" or "eu"
-snapshot = ""          # what new sandboxes start from; "" is Daytona's default
-auto_stop = 0          # minutes idle before Daytona stops one; 0 never does
+snapshot = ""          # what new sandboxes start from; "" is the provider's default
+auto_stop = 0          # minutes idle before the provider stops one; 0 never does
 env = []               # variables of yours passed into every new sandbox
 ```
 
@@ -122,7 +123,7 @@ The model behind `:` and agent summaries. `[brain]` also takes `base_url`, `api_
 
 ### sandbox
 
-`[sandbox.daytona]` sets up [sandboxes](/docs/sandboxes). The key itself is never stored: `api_key_env` only names the variable it is read from. `auto_stop` other than 0 lets Daytona stop a sandbox that long after the last ssh connection or API call — agents working inside don't count, so they stop too. `env` names variables passed into every sandbox `conch sandbox create` makes, on top of its `-env` flags; Daytona keeps their values with the sandbox.
+`[sandbox.<provider>]` sets up [sandboxes](/docs/sandboxes) — `[sandbox.daytona]` today, and the same keys for any provider conch grows; the Settings screen has them under **Sandboxes** (`,` then `5`), a section each. A table for a provider this build doesn't know is left alone rather than dropped when the settings are saved. `api_key` keeps the key in this file (0600) and wins over `api_key_env`; leave it empty to read the key from your environment every time, which is what conch does otherwise. The key itself is never stored: `api_key_env` only names the variable it is read from. `auto_stop` other than 0 lets Daytona stop a sandbox that long after the last ssh connection or API call — agents working inside don't count, so they stop too. `env` names variables passed into every sandbox `conch sandbox create` makes, on top of its `-env` flags; Daytona keeps their values with the sandbox.
 
 <Callout type="note">
 

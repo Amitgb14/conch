@@ -129,11 +129,26 @@ var Providers = []string{"daytona"}
 // Known reports whether name is a provider conch knows.
 func Known(name string) bool { return slices.Contains(Providers, name) }
 
+// labels are provider names as people write them, where capitalising the
+// first letter is not how it is done.
+var labels = map[string]string{"e2b": "E2B"}
+
+// ProviderLabel is a provider's name for people to read.
+func ProviderLabel(name string) string {
+	if l, ok := labels[name]; ok {
+		return l
+	}
+	if name == "" {
+		return ""
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
 // Open returns the named provider, set up from cfg.
 func Open(name string, cfg config.SandboxCfg) (Provider, error) {
 	switch name {
 	case "daytona":
-		return NewDaytona(cfg.Daytona), nil
+		return NewDaytona(cfg.Of(name)), nil
 	}
 	return nil, fmt.Errorf("unknown sandbox provider %q", name)
 }
