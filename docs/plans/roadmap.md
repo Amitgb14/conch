@@ -140,12 +140,31 @@ history; details for big items live in their own plan files.
 
 ## Next
 
-Nothing queued: the items above went out as they were finished. What is
-below waits on a decision rather than on time.
+21. **E2B sandboxes** — a second provider, started: `internal/sandbox/e2b.go`
+    makes, lists, pauses, resumes, ends and keeps alive an E2B sandbox
+    through its platform API, with tests against a fake one. It is not in
+    `sandbox.Providers` yet, so nothing offers to make a sandbox conch
+    cannot reach — because reaching it is the part left.
+
+    E2B has no ssh. Its agent inside the sandbox (envd) runs processes and
+    terminals over ConnectRPC on plain HTTPS: `Process/Start` with stdin
+    enabled, `Process/StreamInput` for what is typed, the start stream for
+    what comes back, `Process/Update` to resize a terminal. A conch
+    transport is "a local command whose stdin and stdout carry the
+    stream", so what is missing is a command that speaks that: `conch
+    sandbox exec`, which `remote.TransportFor` hands back as an ordinary
+    exec.Cmd, leaving install, bridge and panes as they are. This is the
+    "a sandbox's exec" transport the architecture notes already expect.
+
+    Also needed: registering the provider, and pushing the sandbox's clock
+    back while conch is connected — E2B ends a sandbox on a time to live
+    rather than on idleness (an hour on the free plan, a day on Pro). They
+    are made with auto-pause, so one whose clock runs out keeps its
+    filesystem *and* its memory instead of being destroyed.
 
 ## Not now
 
-21. **MicroVM sandboxes on your own hardware** — see
+22. **MicroVM sandboxes on your own hardware** — see
     [microvm-sandbox.md](microvm-sandbox.md). 20 covers the case that
     mattered: somewhere isolated to run an agent, made and thrown away from
     conch. What this plan adds is a sandbox on hardware you own — a
@@ -157,11 +176,11 @@ below waits on a decision rather than on time.
 
 ## Last
 
-22. **Auto-approve rules** — per-project rules that let agents run safe
+23. **Auto-approve rules** — per-project rules that let agents run safe
     commands without waiting for the user. A sandbox is the boundary these
     need, and 20 gives one: the rules would be allowed there and nowhere
     else, so a rule that skips a confirmation cannot reach the laptop.
-23. **Task graph** — server-side rules such as "when A is done, start a
+24. **Task graph** — server-side rules such as "when A is done, start a
     review agent on its worktree", only once auto-approve rules exist, since
     they run actions nobody confirmed. Notifies rather than moving focus.
 
