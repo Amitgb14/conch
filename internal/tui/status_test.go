@@ -224,6 +224,42 @@ func TestA1PressMapsKeys(t *testing.T) {
 	}
 }
 
+// The message stays on the bar at every width where it truly fits beside
+// the first hints. Separators between those hints were once counted twice,
+// so at about 84 columns (a machine row, a long message) the bar dropped the
+// message with room to spare.
+func TestA1StatusKeepsTheMessageWhereItFits(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	m.cursor = machineID(localMachine)
+	m.setFlash("creating a Daytona sandbox (a minute or two)…", false)
+	chip, hints := m.statusHints()
+	for w := 40; w <= 200; w++ {
+		m.width = w
+		// What the bar needs for the first four hints (a separator before
+		// each), the space before the right side, and the right side with
+		// the message cut to its narrowest.
+		need := ansi.StringWidth(chip) + 1
+		for _, h := range hints[:4] {
+			need += 2 + ansi.StringWidth(h.text)
+		}
+		for i, it := range m.statusRightItems(rightIcons) {
+			if i > 0 {
+				need += 2
+			}
+			need += ansi.StringWidth(it.text)
+		}
+		bar := ansi.Strip(m.statusBar())
+		if need <= w && !strings.Contains(bar, "creating a") {
+			t.Fatalf("width %d (needs %d): the message was dropped: %q", w, need, bar)
+		}
+		for _, h := range hints[:4] {
+			if need <= w && !strings.Contains(bar, ansi.Strip(h.text)) {
+				t.Fatalf("width %d: hint %q dropped: %q", w, ansi.Strip(h.text), bar)
+			}
+		}
+	}
+}
+
 func TestA1StatusRightAndNarrowWidths(t *testing.T) {
 	m, _ := a1Fixture(t, false)
 	m.machines[0].panes[0].Agent.State = proto.AgentBlocked
