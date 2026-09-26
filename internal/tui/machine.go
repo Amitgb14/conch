@@ -279,7 +279,7 @@ func (mach *machine) connected(msg machineConnectedMsg) tea.Cmd {
 	case errors.As(msg.err, &needs):
 		mach.state, mach.err = stateAttention, needs.Reason
 		return nil // installing is the user's call
-	case errors.As(msg.err, &stopped):
+	case errors.As(msg.err, &stopped) && !stopped.State.Moving():
 		// Starting it costs, so that is the user's call too; asking again
 		// on a timer would only poll the provider.
 		mach.state, mach.err, mach.sandboxState = stateAttention, "sandbox "+string(stopped.State), stopped.State

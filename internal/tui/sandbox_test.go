@@ -29,6 +29,25 @@ func TestSandboxStoppedNeedsTheUser(t *testing.T) {
 	if mach.state != stateAttention || mach.err != "sandbox stopped" || mach.sandboxState != sandbox.StateStopped || mach.failures != 2 {
 		t.Fatalf("state %v err %q sandbox %q failures %d", mach.state, mach.err, mach.sandboxState, mach.failures)
 	}
+	// On its way somewhere (seen on a real sandbox mid-stop): ask again
+	// later, as for any dropped connection, rather than wait on the user
+	// for a state that is about to change.
+	moving := newMachine("fix", "fix", "daytona:sb1")
+	for _, st := range []sandbox.State{sandbox.StateStopping, sandbox.StateStarting, sandbox.StateCreating, "archiving"} {
+		err := &remote.SandboxStoppedError{Label: "fix", State: st}
+		if cmd := moving.connected(machineConnectedMsg{machine: "fix", err: err}); cmd == nil {
+			t.Fatalf("%s: no retry", st)
+		}
+		if moving.state != stateOffline || moving.sandboxState != "" {
+			t.Fatalf("%s: state %v sandbox %q", st, moving.state, moving.sandboxState)
+		}
+	}
+	for _, st := range []sandbox.State{sandbox.StateArchived, sandbox.StateError} {
+		if cmd := moving.connected(machineConnectedMsg{err: &remote.SandboxStoppedError{State: st}}); cmd != nil || moving.sandboxState != st {
+			t.Fatalf("%s: settled states wait for the user", st)
+		}
+	}
+
 	// Connecting again after it was started forgets it was stopped.
 	mach.attach(&client.Client{Events: make(chan proto.Message)})
 	if mach.sandboxState != "" || mach.state != stateOnline {

@@ -181,6 +181,18 @@ func TestUnsavedWork(t *testing.T) {
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("got %q", got)
 	}
+	// Found on a real sandbox: a new repository has no branches until its
+	// first commit, and a detached worktree belongs to none, yet either can
+	// hold uncommitted files.
+	got = UnsavedWork([]proto.ProjectInfo{{Name: "demo", Worktrees: []proto.WorktreeInfo{
+		{Path: "/home/daytona/demo", Branch: "main", Main: true, Status: &proto.GitStatus{Untracked: 1, Files: 1}},
+		{Path: "/w/detached", Detached: true, Status: &proto.GitStatus{Unstaged: 2, Files: 2}},
+		{Path: "/w/clean", Branch: "clean"},
+	}}})
+	want = []string{"demo main: 1 file uncommitted", "demo /w/detached: 2 files uncommitted"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("no branches: got %q", got)
+	}
 	if UnsavedWork(nil) != nil || UnsavedWork([]proto.ProjectInfo{{Name: "empty"}}) != nil {
 		t.Fatal("nothing to lose")
 	}

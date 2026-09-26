@@ -123,6 +123,7 @@ func UnsavedWork(projects []proto.ProjectInfo) []string {
 		for _, w := range p.Worktrees {
 			status[w.Path] = w.Status
 		}
+		told := map[string]bool{}
 		for _, b := range p.Branches {
 			var what []string
 			switch {
@@ -133,10 +134,23 @@ func UnsavedWork(projects []proto.ProjectInfo) []string {
 			}
 			if s := status[b.Worktree]; b.Worktree != "" && !s.Clean() {
 				what = append(what, count(s.Files, "file")+" uncommitted")
+				told[b.Worktree] = true
 			}
 			if len(what) > 0 {
 				lines = append(lines, fmt.Sprintf("%s %s: %s", p.Name, b.Name, strings.Join(what, ", ")))
 			}
+		}
+		// A worktree no branch accounts for — a repository with no commits
+		// yet, or a detached HEAD — can still hold uncommitted work.
+		for _, w := range p.Worktrees {
+			if told[w.Path] || w.Status.Clean() {
+				continue
+			}
+			name := w.Branch
+			if name == "" {
+				name = w.Path
+			}
+			lines = append(lines, fmt.Sprintf("%s %s: %s uncommitted", p.Name, name, count(w.Status.Files, "file")))
 		}
 	}
 	return lines

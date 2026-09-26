@@ -50,6 +50,16 @@ func (s State) comingUp() bool {
 	return false
 }
 
+// Moving reports whether the sandbox is on its way to another state, so
+// asking again shortly will find it settled.
+func (s State) Moving() bool {
+	switch s {
+	case StateStopping, "archiving", "resizing", "snapshotting", "forking", "pausing":
+		return true
+	}
+	return s.comingUp()
+}
+
 // Sandbox is a provider's sandbox.
 type Sandbox struct {
 	ID      string

@@ -370,7 +370,9 @@ func TestDaytonaRefusedKeySaysWhereItCameFrom(t *testing.T) {
 func TestDaytonaListPagesThroughConchsSandboxes(t *testing.T) {
 	f, d := newFakeDaytona(t)
 	f.pages = []string{
-		`{"items":[{"id":"a","state":"started","labels":{"conch":"1"}}],"nextCursor":"c1"}`,
+		// Seen for real: straight after a delete, a sandbox still says
+		// started, with only its desired state giving it away.
+		`{"items":[{"id":"a","state":"started","labels":{"conch":"1"}},{"id":"deleted","state":"started","desiredState":"destroyed"}],"nextCursor":"c1"}`,
 		`{"items":[{"id":"b","state":"stopped","createdAt":"2026-09-25T10:00:00Z"}],"nextCursor":null}`,
 	}
 	got, err := d.List(ctxFor(t))

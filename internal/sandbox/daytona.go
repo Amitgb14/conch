@@ -86,6 +86,9 @@ type daytonaSandbox struct {
 	Disk        int               `json:"disk"`
 	Labels      map[string]string `json:"labels"`
 	CreatedAt   string            `json:"createdAt"`
+	// DesiredState is where Daytona is taking it: "destroyed" for a
+	// sandbox deleted moments ago that still reports its old state.
+	DesiredState State `json:"desiredState"`
 }
 
 func (s daytonaSandbox) sandbox() Sandbox {
@@ -159,6 +162,9 @@ func (d *Daytona) List(ctx context.Context) ([]Sandbox, error) {
 			return all, fmt.Errorf("list sandboxes: %w", err)
 		}
 		for _, s := range out.Items {
+			if s.DesiredState == StateDestroyed {
+				continue // deleted; Daytona just hasn't finished
+			}
 			all = append(all, s.sandbox())
 		}
 		if out.NextCursor == nil || *out.NextCursor == "" || *out.NextCursor == cursor {
