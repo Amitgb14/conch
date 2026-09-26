@@ -710,3 +710,63 @@ func TestDaytonaKeyFromSettings(t *testing.T) {
 		t.Fatalf("with no key at all: %v", err)
 	}
 }
+
+// A sandbox deleted somewhere else — Daytona's own web interface — is
+// gone as far as conch is concerned, however long Daytona takes to finish:
+// it is not listed, asking for it says so, and acting on it doesn't wait
+// for a state that never settles.
+func TestDaytonaDestroyedElsewhere(t *testing.T) {
+	f, d := newFakeDaytona(t)
+	ctx := ctxFor(t)
+	f.add("sb-live", StateStarted)
+	f.add("sb-going", StateDestroying)
+	f.add("sb-gone", StateDestroyed)
+	// Daytona lists what it is still deleting, by state alone when the
+	// delete came from its web interface rather than from conch.
+	f.pages = []string{`{"items":[` +
+		`{"id":"sb-live","state":"started","labels":{"conch":"1"}},` +
+		`{"id":"sb-going","state":"destroying","labels":{"conch":"1"}},` +
+		`{"id":"sb-gone","state":"destroyed","labels":{"conch":"1"}}],"nextCursor":null}`}
+
+	boxes, err := d.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(boxes) != 1 || boxes[0].ID != "sb-live" {
+		t.Fatalf("listed %+v", boxes)
+	}
+	for _, id := range []string{"sb-going", "sb-gone"} {
+		if _, err := d.Get(ctx, id); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("get %s: %v", id, err)
+		}
+		if _, err := d.Start(ctx, id); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("start %s: %v", id, err)
+		}
+		if err := d.Stop(ctx, id); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("stop %s: %v", id, err)
+		}
+		if _, err := d.SSHAccess(ctx, id); err == nil {
+			t.Fatalf("ssh access to %s", id)
+		}
+	}
+
+	// Deleting one Daytona is already deleting: it refuses, and conch
+	// takes the refusal for the outcome it asked for, so the machine can
+	// be cleaned up instead of sticking at "destroying".
+	f.fail["DELETE /sandbox/sb-going"] = []int{http.StatusConflict}
+	f.failMsg = `{"statusCode":409,"message":"sandbox is being destroyed"}`
+	if err := d.Delete(ctx, "sb-going"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("delete while destroying: %v", err)
+	}
+	// A refusal for another reason is still a refusal.
+	f.fail["DELETE /sandbox/sb-live"] = []int{http.StatusConflict}
+	err = d.Delete(ctx, "sb-live")
+	if err == nil || errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), "delete sandbox") {
+		t.Fatalf("delete a live one: %v", err)
+	}
+	// And one Daytona has already forgotten reads as gone.
+	f.fail["DELETE /sandbox/sb-gone"] = []int{http.StatusNotFound}
+	if err := d.Delete(ctx, "sb-gone"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("delete an unknown one: %v", err)
+	}
+}

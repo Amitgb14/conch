@@ -157,6 +157,7 @@ func sandboxList() error {
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tLABEL\tSANDBOX\tSTATE\tSIZE")
+	gone := 0
 	for _, m := range ms {
 		provider, id, ok := remote.ParseSandboxTarget(m.Target)
 		if !ok || provider != sandboxProvider {
@@ -164,9 +165,11 @@ func sandboxList() error {
 		}
 		s, found := byID[id]
 		delete(byID, id)
-		state := "gone" // deleted outside conch
+		state := "gone" // deleted outside conch, or on its way out
 		if found {
 			state = string(s.State)
+		} else {
+			gone++
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", m.ID, m.Label, id, state, size(s))
 	}
@@ -177,7 +180,15 @@ func sandboxList() error {
 			fmt.Fprintf(tw, "-\t-\t%s\t%s\t%s\n", s.ID, s.State, size(s))
 		}
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if gone > 0 {
+		// Deleted in Daytona's own interface, say: the machine is still
+		// here, and nothing else says how to be rid of it.
+		fmt.Fprintf(os.Stderr, "\n%d gone: deleted outside conch · conch sandbox rm ID removes what is left here\n", gone)
+	}
+	return nil
 }
 
 func size(s sandbox.Sandbox) string {

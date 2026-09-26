@@ -150,6 +150,11 @@ func (d *Daytona) Get(ctx context.Context, id string) (Sandbox, error) {
 	if err := d.call(ctx, http.MethodGet, "/sandbox/"+url.PathEscape(id), nil, nil, &out); err != nil {
 		return Sandbox{}, err
 	}
+	if out.DesiredState.Going() || out.State.Going() {
+		// It is on its way out and won't come back, so say what callers
+		// can act on rather than a state they would wait on for ever.
+		return Sandbox{}, ErrNotFound
+	}
 	return out.sandbox(), nil
 }
 
@@ -172,8 +177,12 @@ func (d *Daytona) List(ctx context.Context) ([]Sandbox, error) {
 			return all, fmt.Errorf("list sandboxes: %w", err)
 		}
 		for _, s := range out.Items {
-			if s.DesiredState == StateDestroyed {
-				continue // deleted; Daytona just hasn't finished
+			// Deleted, however it was deleted: conch's own rm sets the
+			// desired state, while a delete from Daytona's web interface
+			// shows up as the state alone. Either way it is gone, and
+			// listing it as "destroying" for ever helps nobody.
+			if s.DesiredState.Going() || s.State.Going() {
+				continue
 			}
 			all = append(all, s.sandbox())
 		}
@@ -228,10 +237,17 @@ func (d *Daytona) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return ErrNotFound
 	}
-	if err := d.call(ctx, http.MethodDelete, "/sandbox/"+url.PathEscape(id), nil, nil, nil); err != nil {
-		return fmt.Errorf("delete sandbox: %w", err)
+	err := d.call(ctx, http.MethodDelete, "/sandbox/"+url.PathEscape(id), nil, nil, nil)
+	if err == nil || errors.Is(err, ErrNotFound) {
+		return err
 	}
-	return nil
+	// Daytona refuses to delete what it is already deleting — from its own
+	// web interface, say. The outcome asked for is the one in hand, so say
+	// it is gone rather than handing back a refusal nobody can act on.
+	if _, gerr := d.Get(ctx, id); errors.Is(gerr, ErrNotFound) {
+		return ErrNotFound
+	}
+	return fmt.Errorf("delete sandbox: %w", err)
 }
 
 func (d *Daytona) SSHAccess(ctx context.Context, id string) (Access, error) {

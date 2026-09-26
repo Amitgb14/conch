@@ -50,6 +50,11 @@ func (s State) comingUp() bool {
 	return false
 }
 
+// Going reports whether the sandbox is on its way out, or already gone:
+// nothing brings it back, so conch treats it as no longer there rather
+// than waiting for a state that never settles.
+func (s State) Going() bool { return s == StateDestroying || s == StateDestroyed }
+
 // Moving reports whether the sandbox is on its way to another state, so
 // asking again shortly will find it settled.
 func (s State) Moving() bool {

@@ -395,3 +395,50 @@ func TestA4MachineAddRefusesASandboxTarget(t *testing.T) {
 		t.Fatalf("err %v", err)
 	}
 }
+
+// A sandbox destroyed in Daytona's own interface: conch lists it as gone
+// rather than stuck at "destroying", says what clears it, and rm clears it
+// even while Daytona is still deleting.
+func TestA4SandboxDestroyedElsewhere(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	d.set("sb-going", "destroying")
+	if _, err := remote.SaveMachine(remote.Machine{Label: "box", Target: "daytona:sb-going"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var err error
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"ls"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := strings.Join(strings.Fields(strings.Split(strings.TrimSpace(out), "\n")[1]), " ")
+	if row != "box box sb-going gone -" {
+		t.Fatalf("ls row %q in\n%s", row, out)
+	}
+	if !strings.Contains(errOut, "1 gone: deleted outside conch") || !strings.Contains(errOut, "conch sandbox rm ID") {
+		t.Fatalf("ls said nothing about it: %q", errOut)
+	}
+
+	// Starting or stopping it says it is gone, rather than waiting.
+	for _, args := range [][]string{{"start", "box"}, {"stop", "-y", "box"}} {
+		if _, _ = a4Capture(t, "", func() { err = runSandbox(args) }); err == nil {
+			t.Fatalf("%v on a deleted sandbox", args)
+		}
+	}
+
+	// rm clears what is left here, and the machine is gone from the catalog.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"rm", "-y", "box"}) })
+	if err != nil || !strings.Contains(out, "deleted box") {
+		t.Fatalf("rm: %q %v", out, err)
+	}
+	ms, err := remote.Machines()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range ms {
+		if m.Target == "daytona:sb-going" {
+			t.Fatalf("the machine is still in the catalog: %+v", m)
+		}
+	}
+}

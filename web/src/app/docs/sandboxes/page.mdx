@@ -47,6 +47,10 @@ Press `M`, choose **New sandbox…** and then the provider — Daytona for now, 
 
 A stopped sandbox shows `stopped` in the tree, and a spinner while it is starting, stopping or being deleted. **Remove machine** only takes it out of the tree; the sandbox keeps running, and costing, until `conch sandbox rm`.
 
+## Deleted somewhere else
+
+A sandbox deleted in Daytona's own interface is gone as far as conch is concerned, however long Daytona takes to finish: `conch sandbox ls` shows it as `gone` rather than sitting at `destroying`, starting or stopping it says so straight away instead of waiting, and the machine it left behind is cleared with `conch sandbox rm ID` (or **Delete sandbox…** in the tree, which then only tidies up). The listing says as much when anything is in that state.
+
 ## Commands
 
 ```sh
