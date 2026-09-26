@@ -257,7 +257,10 @@ func (m *Model) updateMachine(mid string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		err := update.Machine(ctx, c, remote.SSH(target, false), func(string) {})
+		tr, err := remote.TransportFor(ctx, label, target, false)
+		if err == nil {
+			err = update.Machine(ctx, c, tr, func(string) {})
+		}
 		time.Sleep(500 * time.Millisecond)
 		return machineUpdateMsg{machine: mid, err: err}
 	}

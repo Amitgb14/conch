@@ -167,7 +167,12 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		}
 		title = mach.label
 		mid := mach.id
+		_, _, isSandbox := mach.sandbox()
 		switch {
+		case isSandbox && mach.busy != "":
+			return &menu{title: title, x: x, y: y, items: []menuItem{{"", mach.busy + "…", func(*Model) tea.Cmd { return nil }}}}
+		case isSandbox && mach.sandboxState != "":
+			items = append(items, menuItem{"s", "Start sandbox", func(m *Model) tea.Cmd { return m.sandboxOp(mid, "start") }})
 		case mach.state == stateAttention && mid != localMachine:
 			items = append(items, menuItem{"i", "Install / upgrade conch there", func(m *Model) tea.Cmd { return m.reconnect(mid, true) }})
 		case mach.state == stateOffline && mid == localMachine:
@@ -199,8 +204,17 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 				return nil
 			}})
 		}
+		if isSandbox {
+			if mach.state == stateOnline {
+				items = append(items, menuItem{"S", "Stop sandbox…", func(m *Model) tea.Cmd { m.confirmStopSandbox(mid); return nil }})
+			}
+			items = append(items, menuItem{"D", "Delete sandbox…", func(m *Model) tea.Cmd { m.confirmDeleteSandbox(mid); return nil }})
+		}
 		items = append(items, menuItem{"M", "Add machine…", act("M")})
-		if mid != localMachine {
+		switch {
+		case isSandbox:
+			items = append(items, menuItem{"x", "Remove machine (the sandbox keeps running)", act("x")})
+		case mid != localMachine:
 			items = append(items, menuItem{"x", "Remove machine", act("x")})
 		}
 	case kindSavedSSH:
@@ -790,7 +804,8 @@ var helpText = []string{
 	"  t  new task: branch + worktree + an agent with a prompt (Attempts: try it several times)",
 	"  c  start an agent here: pick Claude, Codex, Gemini or OpenCode (click or 1-9)",
 	"  n  terminal here       a  add or create a project",
-	"  M  add machine (ssh)   R  reconnect a machine    A  start or install any agent",
+	"  M  add machine: over ssh, or a new Daytona sandbox    R  reconnect a machine    A  start or install any agent",
+	"     m on a sandbox: start, stop or delete it (a sandbox runs, and costs, until stopped)",
 	"  H  ssh from this computer to a host (listed under CLI → SSH; nothing installed there)",
 	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
 	"  r  rename (pane, machine) x  close / remove (a branch: worktree, then the branch)",

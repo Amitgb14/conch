@@ -16,16 +16,45 @@ import (
 
 // Config is the user configuration read from config.toml.
 type Config struct {
-	Keys   Keys      `toml:"keys"`
-	Pane   PaneCfg   `toml:"pane"`
-	Notify NotifyCfg `toml:"notify"`
-	UI     UICfg     `toml:"ui"`
-	Shell  ShellCfg  `toml:"shell"`
-	Agents AgentsCfg `toml:"agents"`
-	Brain  BrainCfg  `toml:"brain"`
-	Update UpdateCfg `toml:"update"`
-	Remote RemoteCfg `toml:"remote"`
-	Verify VerifyCfg `toml:"verify"`
+	Keys    Keys       `toml:"keys"`
+	Pane    PaneCfg    `toml:"pane"`
+	Notify  NotifyCfg  `toml:"notify"`
+	UI      UICfg      `toml:"ui"`
+	Shell   ShellCfg   `toml:"shell"`
+	Agents  AgentsCfg  `toml:"agents"`
+	Brain   BrainCfg   `toml:"brain"`
+	Update  UpdateCfg  `toml:"update"`
+	Remote  RemoteCfg  `toml:"remote"`
+	Verify  VerifyCfg  `toml:"verify"`
+	Sandbox SandboxCfg `toml:"sandbox"`
+}
+
+// SandboxCfg holds the providers conch can create sandboxes with.
+type SandboxCfg struct {
+	Daytona DaytonaCfg `toml:"daytona"`
+}
+
+// DaytonaCfg configures Daytona sandboxes. The API key is never stored:
+// it is read from the environment variable APIKeyEnv names.
+type DaytonaCfg struct {
+	// APIKeyEnv names the variable holding the key; "" is DAYTONA_API_KEY.
+	APIKeyEnv string `toml:"api_key_env,omitempty"`
+	// APIURL overrides the API endpoint; "" is $DAYTONA_API_URL or
+	// Daytona's own.
+	APIURL string `toml:"api_url,omitempty"`
+	// Target is the region, e.g. "us" or "eu"; "" is $DAYTONA_TARGET or
+	// the organization's default.
+	Target string `toml:"target,omitempty"`
+	// Snapshot new sandboxes start from; "" is Daytona's default.
+	Snapshot string `toml:"snapshot,omitempty"`
+	// AutoStop stops a sandbox after this many minutes without ssh or API
+	// activity. 0 (the default) never does: agents inside don't count as
+	// activity, so any other value stops them once the TUI is closed.
+	AutoStop int `toml:"auto_stop,omitempty"`
+	// Env names variables of this environment passed into new sandboxes,
+	// e.g. CLAUDE_CODE_OAUTH_TOKEN. Daytona keeps their values with the
+	// sandbox.
+	Env []string `toml:"env,omitempty"`
 }
 
 // VerifyCfg holds the command conch runs in a branch's worktree when its

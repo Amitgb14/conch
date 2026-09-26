@@ -477,8 +477,13 @@ func (m Model) layoutStatus() (string, []statusHit) {
 	}
 	// Keep at least the first few hints: shed right-side detail until they
 	// fit (or there is nothing left to shed).
+	// Each hint is written after a separator: width already counts those
+	// between them, so only the one after the chip is added.
 	want := hints[:min(len(hints), 4)]
-	need := ansi.StringWidth(chip) + width(want) + len(sep)*len(want) + 1
+	need := ansi.StringWidth(chip) + width(want) + 1
+	if len(want) > 0 {
+		need += len(sep)
+	}
 	right := m.statusRightItems(rightFull)
 	for level := rightFull + 1; need+width(right) > m.width && level <= rightMinimal; level++ {
 		right = m.statusRightItems(level)

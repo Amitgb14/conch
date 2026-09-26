@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
 )
 
 const statusHeight = 1
@@ -182,6 +183,12 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 			return "?", styleMuted, r.machine, labelStyle, ""
 		}
 		badge := joinRight(m.costChip(m.machineUsage(mach.id)), m.attentionBadge(mach.id, ""))
+		switch {
+		case mach.busy != "":
+			return spinner[m.spin%len(spinner)], styleWork, mach.label, styleMuted, styleMuted.Render(mach.busy)
+		case mach.state == stateAttention && mach.sandboxState != "":
+			return "■", styleMuted, mach.label, styleMuted, styleMuted.Render(string(mach.sandboxState))
+		}
 		switch mach.state {
 		case stateOnline:
 			if mach.warning != "" {
@@ -916,7 +923,9 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 		}
 	}
 	where := "this computer"
-	if mach.target != "" {
+	if provider, id, ok := remote.ParseSandboxTarget(mach.target); ok {
+		where = provider + " sandbox " + id
+	} else if mach.target != "" {
 		where = "ssh " + mach.target
 	}
 	lines := []string{styleBold.Render(mach.label) + styleMuted.Render("  "+where)}
@@ -924,6 +933,9 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 		lines = append(lines, styleMuted.Render(fmt.Sprintf("%s · %s · conch build %s", mach.server.Hostname, mach.server.Platform, mach.server.Build)))
 	}
 	lines = append(lines, "")
+	if mach.busy != "" {
+		lines = append(lines, styleWork.Render(mach.busy+" the sandbox…"), "")
+	}
 	switch mach.state {
 	case stateOnline:
 		lines = append(lines, styleMuted.Render(fmt.Sprintf("%d projects · %d panes · %d working · %d waiting", len(mach.projects), len(mach.panes), working, waiting)))
@@ -954,6 +966,11 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 	case stateConnecting:
 		lines = append(lines, styleWork.Render("connecting…"))
 	case stateAttention:
+		if mach.sandboxState != "" {
+			lines = append(lines, styleMuted.Render(mach.err+": its files are kept, nothing runs there"), "",
+				styleMuted.Render("m → Start sandbox   (or run: conch sandbox start "+mach.id+")"))
+			break
+		}
 		lines = append(lines, styleWarn.Render(mach.err), "", styleMuted.Render("m → Install / upgrade conch there   (or run: conch machine upgrade "+mach.id+")"))
 	default:
 		lines = append(lines, styleErr.Render("offline: "+mach.err))

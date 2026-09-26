@@ -135,6 +135,18 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 | `conch machine upgrade ID` | install this build on a machine and reload its server |
 | `conch machine hosts` | list the host aliases in `~/.ssh/config`, for suggesting machines to add |
 
+### sandbox
+
+| Command | Description |
+| --- | --- |
+| `conch sandbox create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]` | make a Daytona sandbox (key in `$DAYTONA_API_KEY`), install conch there and add it as a machine; it runs until stopped. `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails |
+| `conch sandbox ls` | conch's sandboxes, their state and size, including ones no longer added as machines (also plain `conch sandbox`) |
+| `conch sandbox start ID` | start a stopped sandbox |
+| `conch sandbox stop [-y] ID` | stop it: its agents and terminals end, its files stay |
+| `conch sandbox rm [-y] ID` | delete it for good and remove the machine; lists work that isn't pushed first |
+
+`ID` is the machine's ID or label, or Daytona's sandbox ID. See [Sandboxes](/docs/sandboxes).
+
 ### ask
 
 `conch ask [-y | -n] REQUEST` asks the [brain](/docs/brain); it proposes actions and runs them once you confirm. `-y` runs the plan without asking; `-n` only shows it.

@@ -12,6 +12,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
 type machineState int
@@ -56,6 +57,11 @@ type machine struct {
 	state   machineState
 	err     string // why it is offline or needs attention
 	warning string // online but degraded, e.g. an outdated server
+	// busy is a sandbox being started, stopped or deleted ("starting"…).
+	busy string
+	// sandboxState is set while a sandbox can't be reached because it
+	// isn't running (stopped, archived…).
+	sandboxState sandbox.State
 
 	panes    []proto.PaneInfo
 	projects []proto.ProjectInfo
@@ -148,6 +154,7 @@ func (mach *machine) attach(c *client.Client) (fresh bool) {
 	mach.gen++
 	mach.c, mach.server = c, c.Server
 	mach.state, mach.err, mach.warning, mach.failures = stateOnline, "", "", 0
+	mach.sandboxState = ""
 	mach.sizes = map[string][2]int{} // a new connection may see new sizes
 	if fresh {
 		mach.agents = map[string]bool{}
@@ -251,7 +258,7 @@ const maxEventBurst = 64
 func (mach *machine) connect(install bool) tea.Cmd {
 	mach.gen++
 	mach.state = stateConnecting
-	id, gen, target := mach.id, mach.gen, mach.target
+	id, gen, target, label := mach.id, mach.gen, mach.target, mach.label
 	return func() tea.Msg {
 		if target == "" {
 			sock := config.SocketPath()
@@ -265,7 +272,11 @@ func (mach *machine) connect(install bool) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		c, err := remote.Connect(ctx, remote.SSH(target, false), remote.Options{Install: install})
+		tr, err := remote.TransportFor(ctx, label, target, false)
+		if err != nil {
+			return machineConnectedMsg{machine: id, gen: gen, err: err}
+		}
+		c, err := remote.Connect(ctx, tr, remote.Options{Install: install})
 		return machineConnectedMsg{machine: id, gen: gen, c: c, err: err}
 	}
 }
@@ -274,6 +285,7 @@ func (mach *machine) connect(install bool) tea.Cmd {
 func (mach *machine) connected(msg machineConnectedMsg) tea.Cmd {
 	var outdated *remote.OutdatedServerError
 	var needs *remote.InstallError
+	var stopped *remote.SandboxStoppedError
 	switch {
 	case msg.err == nil || (errors.As(msg.err, &outdated) && msg.c != nil):
 		mach.fresh = mach.attach(msg.c)
@@ -284,6 +296,11 @@ func (mach *machine) connected(msg machineConnectedMsg) tea.Cmd {
 	case errors.As(msg.err, &needs):
 		mach.state, mach.err = stateAttention, needs.Reason
 		return nil // installing is the user's call
+	case errors.As(msg.err, &stopped) && !stopped.State.Moving():
+		// Starting it costs, so that is the user's call too; asking again
+		// on a timer would only poll the provider.
+		mach.state, mach.err, mach.sandboxState = stateAttention, "sandbox "+string(stopped.State), stopped.State
+		return nil
 	}
 	mach.state, mach.err = stateOffline, msg.err.Error()
 	mach.failures++

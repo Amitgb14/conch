@@ -116,6 +116,9 @@ func machineAdd(args []string) error {
 		return errors.New("usage: conch machine add [-label NAME] [-yes] SSH_TARGET")
 	}
 	target := fs.Arg(0)
+	if _, _, ok := remote.ParseSandboxTarget(target); ok {
+		return fmt.Errorf("%s is a sandbox: make one with conch sandbox create", target)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -181,23 +184,50 @@ func machineList() error {
 	return tw.Flush()
 }
 
+// transports returns how to reach m while a person watches (ssh may ask
+// about host keys or passwords) and in the background. A sandbox never
+// asks, and one set of credentials serves both.
+func transports(ctx context.Context, m remote.Machine) (watched, background remote.Transport, err error) {
+	if !m.IsSandbox() {
+		return remote.SSH(m.Target, true), remote.SSH(m.Target, false), nil
+	}
+	tr, err := remote.TransportFor(ctx, m.Label, m.Target, false)
+	if err != nil {
+		return nil, nil, sandboxAdvice(err, m)
+	}
+	return tr, tr, nil
+}
+
+// sandboxAdvice adds what to run to a stopped sandbox's error.
+func sandboxAdvice(err error, m remote.Machine) error {
+	var stopped *remote.SandboxStoppedError
+	if errors.As(err, &stopped) {
+		return fmt.Errorf("%w; run: conch sandbox start %s", err, m.ID)
+	}
+	return err
+}
+
 func machineUpgrade(m remote.Machine) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	probe, err := remote.ProbeMachine(ctx, remote.SSH(m.Target, true))
+	watched, background, err := transports(ctx, m)
 	if err != nil {
 		return err
 	}
-	path, err := remote.Install(ctx, remote.SSH(m.Target, true), probe.Platform, progress)
+	probe, err := remote.ProbeMachine(ctx, watched)
+	if err != nil {
+		return err
+	}
+	path, err := remote.Install(ctx, watched, probe.Platform, progress)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "installed %s\n", path)
-	c, err := remote.Connect(ctx, remote.SSH(m.Target, false), remote.Options{})
+	c, err := remote.Connect(ctx, background, remote.Options{})
 	var outdated *remote.OutdatedServerError
 	switch {
 	case errors.As(err, &outdated) && len(c.MissingCapabilities([]string{"server.reload.v1"})) == 0,
-		err == nil && c.Server.Build != "" && !sameInstalled(ctx, c, m.Target):
+		err == nil && c.Server.Build != "" && !sameInstalled(ctx, c, background):
 		fmt.Fprintf(os.Stderr, "reloading the server on %s onto it (panes keep running)…\n", m.Label)
 		if err := update.Reload(ctx, c, path); err != nil {
 			c.Close()
@@ -205,7 +235,7 @@ func machineUpgrade(m remote.Machine) error {
 		}
 		c.Close()
 		time.Sleep(time.Second)
-		if c, err = remote.Connect(ctx, remote.SSH(m.Target, false), remote.Options{}); err != nil {
+		if c, err = remote.Connect(ctx, background, remote.Options{}); err != nil {
 			if c != nil {
 				c.Close()
 			}
@@ -219,7 +249,7 @@ func machineUpgrade(m remote.Machine) error {
 		if err := stopServer(c, false); err != nil {
 			return err
 		}
-		if c, err = remote.Connect(ctx, remote.SSH(m.Target, false), remote.Options{}); err != nil {
+		if c, err = remote.Connect(ctx, background, remote.Options{}); err != nil {
 			if c != nil {
 				c.Close()
 			}
@@ -235,8 +265,8 @@ func machineUpgrade(m remote.Machine) error {
 
 // sameInstalled reports whether the server already runs the binary
 // installed on the machine.
-func sameInstalled(ctx context.Context, c *client.Client, target string) bool {
-	probe, err := remote.ProbeMachine(ctx, remote.SSH(target, false))
+func sameInstalled(ctx context.Context, c *client.Client, tr remote.Transport) bool {
+	probe, err := remote.ProbeMachine(ctx, tr)
 	if err != nil || probe.Info == nil {
 		return true // can't tell; don't reload needlessly
 	}
@@ -249,10 +279,16 @@ func connectMachine(ref string) (*client.Client, error) {
 	m := remote.FindMachine(ref)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	c, err := remote.Connect(ctx, remote.SSH(m.Target, false), remote.Options{})
+	_, tr, err := transports(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	c, err := remote.Connect(ctx, tr, remote.Options{})
 	var needs *remote.InstallError
 	var outdated *remote.OutdatedServerError
 	switch {
+	case errors.As(err, &needs) && m.IsSandbox():
+		return nil, fmt.Errorf("%v; run: conch machine upgrade %s", err, m.ID)
 	case errors.As(err, &needs):
 		return nil, fmt.Errorf("%v; run: conch machine add %s", err, m.Target)
 	case errors.As(err, &outdated):

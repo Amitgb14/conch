@@ -112,6 +112,9 @@ func (m Model) sshHosts() []string {
 		}
 	}
 	for _, mach := range m.machines {
+		if _, _, sandbox := remote.ParseSandboxTarget(mach.target); sandbox {
+			continue // there is no ssh host to offer: each login is a fresh token
+		}
 		if mach.id != localMachine && mach.target != "" && !slices.Contains(hosts, mach.target) {
 			hosts = append(hosts, mach.target)
 		}
