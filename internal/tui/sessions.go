@@ -397,13 +397,29 @@ func shareTargets(mach *machine, pid, skip string, share func(m *Model, p proto.
 	return items
 }
 
-// handoffTarget is a project on another machine a conversation can go to.
+// handoffTarget is somewhere on another machine a conversation can go to:
+// one of its projects, or — for a machine with no project yet, which is
+// what a new sandbox is — its home folder.
 type handoffTarget struct {
 	machine *machine
 	project proto.ProjectInfo
+	// home is the folder to hand it to when there is no project; the agent
+	// starts there and reads the conversation from it.
+	home string
 }
 
-// handoffProjects lists the projects of the online machines other than mid.
+// label names a target in a menu.
+func (t handoffTarget) label() string {
+	if t.home != "" {
+		return t.machine.label + " · home folder"
+	}
+	return t.machine.label + " · " + t.project.Name
+}
+
+// handoffProjects lists where a conversation can go on the online machines
+// other than mid: their projects, and the home folder of a machine that has
+// none — a sandbox conch has just made has nothing checked out yet, and
+// offering nothing at all left no way to hand a conversation to it.
 func (m Model) handoffProjects(mid string) []handoffTarget {
 	var out []handoffTarget
 	for _, mach := range m.machines {
@@ -411,7 +427,12 @@ func (m Model) handoffProjects(mid string) []handoffTarget {
 			continue
 		}
 		for _, p := range mach.projects {
-			out = append(out, handoffTarget{mach, p})
+			out = append(out, handoffTarget{machine: mach, project: p})
+		}
+		if len(mach.projects) == 0 {
+			if home := mach.server.Home; home != "" {
+				out = append(out, handoffTarget{machine: mach, home: home})
+			}
 		}
 	}
 	return out
@@ -431,13 +452,13 @@ func (m *Model) openHandoffMenu(mid string, s proto.SessionInfo) {
 			key = fmt.Sprint(len(items) + 1)
 		}
 		t := t
-		items = append(items, menuItem{key, t.machine.label + " · " + t.project.Name, func(m *Model) tea.Cmd {
+		items = append(items, menuItem{key, t.label(), func(m *Model) tea.Cmd {
 			m.openHandoffAgents(mid, t, s)
 			return nil
 		}})
 	}
 	if len(items) == 0 {
-		m.setFlash("no other machine is online with a project", true)
+		m.setFlash("no other machine is online to hand it to", true)
 		return
 	}
 	m.overlay = &menu{title: "Share on which machine and project?", items: items, x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
@@ -450,6 +471,9 @@ func (m *Model) openHandoffAgents(mid string, t handoffTarget, s proto.SessionIn
 		return
 	}
 	dst, pid, dir := t.machine.id, t.project.ID, handoffDir(t.project, s.Branch)
+	if t.home != "" {
+		pid, dir = "", t.home
+	}
 	items := shareTargets(t.machine, pid, "", func(m *Model, p proto.SessionShareParams, to string) tea.Cmd {
 		return m.handoffSession(mid, dst, pid, dir, s, p, to)
 	})
@@ -457,7 +481,7 @@ func (m *Model) openHandoffAgents(mid string, t handoffTarget, s proto.SessionIn
 		m.setFlash("no agent on "+t.machine.label+" to share with: install one with c", true)
 		return
 	}
-	title := "Share on " + t.machine.label + " · " + ansi.Truncate(t.project.Name, 30, "…")
+	title := "Share on " + ansi.Truncate(t.label(), 40, "…")
 	m.overlay = &menu{title: title, items: items, x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
 }
 

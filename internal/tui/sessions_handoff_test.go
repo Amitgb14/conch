@@ -291,3 +291,53 @@ func TestHandoffDir(t *testing.T) {
 		t.Errorf("no worktrees: %s", got)
 	}
 }
+
+// A sandbox conch has just made has nothing checked out, and a machine
+// with no project used to be no target at all: the share menu offered
+// nowhere to send a conversation. Its home folder is offered now.
+func TestShareSessionWithAMachineThatHasNoProject(t *testing.T) {
+	m, sv, _, _, remote := handoffModel(t)
+	// The sandbox: online, an agent installed, no projects, and a home.
+	box := newMachine("m3", "sandbox-bx_1", "boat:bx_1")
+	box.state = stateOnline
+	bc, _ := a1FakeClient(t, "session.v1", "session.share.v1", proto.CapSessionHandoff)
+	box.c = bc
+	box.server.Home = "/home/user"
+	box.agentList = []proto.AgentAvailability{{Name: "claude", Installed: true}}
+	m.machines = append(m.machines, box)
+
+	// Both are offered: busybox by project, the sandbox by its home folder.
+	sv.sel = 1
+	sv.key(m, a2Key("s"))
+	mu := m.overlay.(*menu)
+	if handled, _ := mu.update(m, a2Key("o")); !handled {
+		t.Fatal("o didn't open the next menu")
+	}
+	mu = m.overlay.(*menu)
+	if got := menuLabels(mu); got != "1 busybox · api | 2 sandbox-bx_1 · home folder" {
+		t.Fatalf("targets: %s", got)
+	}
+	// Choosing the sandbox offers its agents, and the title says where.
+	runItem(t, m, 1)
+	mu = m.overlay.(*menu)
+	if got := menuLabels(mu); got != "1 Start Claude Code with it" || !strings.Contains(mu.title, "home folder") {
+		t.Fatalf("agents there: %s (%q)", got, mu.title)
+	}
+	// What it would send: the home folder, and no project of its own.
+	cmd := runItem(t, m, 0)
+	if cmd == nil {
+		t.Fatal("choosing the agent did nothing")
+	}
+	// A machine with projects is offered by project only, not by home too.
+	remote.server.Home = "/home/aghadge"
+	if got := m.handoffProjects(localMachine); len(got) != 2 {
+		t.Fatalf("targets %d, want busybox's project and the sandbox's home", len(got))
+	}
+	// A machine with neither a project nor a home it reported is left out,
+	// rather than offered a folder conch cannot name.
+	box.server.Home = ""
+	got := m.handoffProjects(localMachine)
+	if len(got) != 1 || got[0].home != "" {
+		t.Fatalf("with no home: %+v", got)
+	}
+}
