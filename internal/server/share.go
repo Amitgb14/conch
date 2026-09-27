@@ -131,13 +131,25 @@ func (s *Server) shareSession(p proto.SessionShareParams) (proto.SessionShareRes
 		return res, nil
 	}
 	info, perr := s.create(proto.PaneCreateParams{Agent: p.To, Prompt: handoffPrompt(p.Agent, p.From, filepath.Join(handoffDir, filepath.Base(path))),
-		Cwd: p.Dir, Cols: p.Cols, Rows: p.Rows})
+		Cwd: p.Dir, Cols: p.Cols, Rows: p.Rows, Name: paneName(p.PaneName)})
 	if perr != nil {
 		return res, perr
 	}
 	res.Pane = info
 	log.Printf("shared %s session %s with %s in pane %s (%s)", p.Agent, p.ID, p.To, info.ID, path)
 	return res, nil
+}
+
+// paneName is what to call the pane a conversation is handed to: the name
+// it came from, kept to a length a tree row can show, and nothing when
+// there was none — then conch's own default, the agent's name, stands.
+// The agent replaces it with its own title as soon as it has one.
+func paneName(name string) string {
+	name = strings.TrimSpace(strings.ReplaceAll(name, "\n", " "))
+	if r := []rune(name); len(r) > 60 {
+		name = strings.TrimSpace(string(r[:60]))
+	}
+	return name
 }
 
 // maxSharedDoc bounds a handoff document sent from another machine; the

@@ -65,7 +65,7 @@ Every word must appear. `enter` keeps the results and returns to the list keys, 
 
 The [brain](/docs/brain#handing-work-to-another-agent) does the same from a plain request, such as _"hand the auth thread to Codex"_, for the conversation of an agent that is running.
 
-conch writes the conversation — the messages, without tool calls or their output — to `.conch/handoff/<agent>-<session>.md` in the session's folder and asks the agent to read it, summarise what was done and what remains, and continue. `.conch/` is added to the repository's local `.git/info/exclude`, so it never shows up as a change. Very long conversations keep the first request and the latest messages.
+conch writes the conversation — the messages, without tool calls or their output — to `.conch/handoff/<agent>-<session>.md` in the session's folder and asks the agent to read it, summarise what was done and what remains, and continue. The new pane takes the **same name** as the work it continues — the name of the pane the session is running in, or the session's title — so the tree shows two rows of the same piece of work rather than one called "fix the flaky login test" and one called "codex"; the agent replaces it with its own title once it has one. `.conch/` is added to the repository's local `.git/info/exclude`, so it never shows up as a change. Very long conversations keep the first request and the latest messages.
 
 ### On another machine
 

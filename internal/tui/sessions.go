@@ -397,6 +397,21 @@ func shareTargets(mach *machine, pid, skip string, share func(m *Model, p proto.
 	return items
 }
 
+// sharedName is what to call the pane a conversation is handed to: the
+// name of the pane it is running in, if it still is, else the session's
+// title. A handoff continues the same piece of work, and a tree row saying
+// "codex" beside one saying "fix the flaky login test" hides that.
+func sharedName(m *Model, mid string, s proto.SessionInfo) string {
+	if s.PaneID != "" {
+		if p := m.pane(mid, s.PaneID); p != nil {
+			if name := p.DisplayName(); name != "" {
+				return name
+			}
+		}
+	}
+	return s.Title
+}
+
 // handoffTarget is somewhere on another machine a conversation can go to:
 // one of its projects, or — for a machine with no project yet, which is
 // what a new sandbox is — its home folder.
@@ -510,6 +525,7 @@ func (m Model) handoffSession(src, dst, pid, dir string, s proto.SessionInfo, p 
 	}
 	srcLabel, dstLabel := m.machineLabel(src), m.machineLabel(dst)
 	p.Agent, p.ID, p.Dir, p.From = s.Agent, s.ID, dir, srcLabel
+	p.PaneName = sharedName(&m, src, s)
 	p.Cols, p.Rows = m.paneArea()
 	key := sessionsKey(dst, pid)
 	return func() tea.Msg {
@@ -538,6 +554,7 @@ func (m Model) handoffSession(src, dst, pid, dir string, s proto.SessionInfo, p 
 // shareSession hands the conversation over and shows the receiving pane.
 func (m *Model) shareSession(mid, pid string, s proto.SessionInfo, p proto.SessionShareParams, to string) tea.Cmd {
 	p.Agent, p.ID, p.Dir = s.Agent, s.ID, s.Dir
+	p.PaneName = sharedName(m, mid, s)
 	p.Cols, p.Rows = m.paneArea()
 	var res proto.SessionShareResult
 	key := sessionsKey(mid, pid)

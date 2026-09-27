@@ -1028,6 +1028,11 @@ type SessionShareParams struct {
 	Doc  string `json:"doc,omitempty"`
 	Name string `json:"name,omitempty"`
 	From string `json:"from,omitempty"`
+	// PaneName is what to call the pane that receives it: the name of the
+	// session it continues, so the tree shows the same work rather than a
+	// bare agent name. Empty leaves conch's default (the agent's name),
+	// and a server that predates this ignores it.
+	PaneName string `json:"pane_name,omitempty"`
 }
 
 // SessionExport is a saved conversation rendered as a handoff document,

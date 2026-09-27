@@ -341,3 +341,37 @@ func TestShareSessionWithAMachineThatHasNoProject(t *testing.T) {
 		t.Fatalf("with no home: %+v", got)
 	}
 }
+
+// What the receiving pane is called: the name of the pane the session is
+// running in, else the session's title — the same work, under the same
+// name, wherever it goes.
+func TestSharedSessionCarriesItsName(t *testing.T) {
+	m, sv, src, dst, _ := handoffModel(t)
+
+	// Handing it to another machine sends the session's title along.
+	sv.sel = 1 // s2, "Add feature"
+	sv.key(m, a2Key("s"))
+	mu := m.overlay.(*menu)
+	mu.update(m, a2Key("o"))
+	runItem(t, m, 0) // busybox · api
+	a2Run(runItem(t, m, 0))
+	share := dst.waitMethod(t, proto.MethodSessionShare, `"pane_name":"Add feature"`)
+	if !strings.Contains(string(share.Params), `"id":"s2"`) {
+		t.Fatalf("share params: %s", share.Params)
+	}
+
+	// Sharing here, with the session open in a pane, uses that pane's own
+	// name: what the tree shows is what the new pane is called.
+	m.machines[0].panes = []proto.PaneInfo{{ID: "p5", Name: "fix login", State: proto.PaneRunning, CustomName: true}}
+	s := proto.SessionInfo{Agent: "claude", ID: "s3", Dir: "/elsewhere", Title: "Open one", PaneID: "p5"}
+	a2Run(m.shareSession(localMachine, "r1", s, proto.SessionShareParams{To: "claude"}, "Claude Code"))
+	here := src.waitMethod(t, proto.MethodSessionShare, `"pane_name":"fix login"`)
+	if !strings.Contains(string(here.Params), `"id":"s3"`) {
+		t.Fatalf("share params: %s", here.Params)
+	}
+
+	// A session that is nowhere open falls back to its title.
+	s.PaneID = ""
+	a2Run(m.shareSession(localMachine, "r1", s, proto.SessionShareParams{To: "claude"}, "Claude Code"))
+	src.waitMethod(t, proto.MethodSessionShare, `"pane_name":"Open one"`)
+}

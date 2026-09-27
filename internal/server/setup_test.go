@@ -328,3 +328,49 @@ func TestAgentFilesComeBackBeforeALaunch(t *testing.T) {
 		t.Fatalf("the pane's command does not name the settings file: %+v", list.Panes)
 	}
 }
+
+// A conversation handed to an agent keeps the name of the work it
+// continues: a tree row saying "codex" beside one saying "fix the flaky
+// login test" hides that they are the same thing.
+func TestSharedPaneKeepsTheName(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	c, dir := startServer(t)
+	work := filepath.Join(dir, "work")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	share := func(name string) proto.PaneInfo {
+		t.Helper()
+		var res proto.SessionShareResult
+		err := c.Call(ctx, proto.MethodSessionShare, proto.SessionShareParams{
+			Agent: "claude", ID: "c1", Dir: work, To: "claude", Doc: "# what happened\n\nsomething",
+			Name: "claude-c1.md", From: "laptop", PaneName: name, Cols: 80, Rows: 24,
+		}, &res)
+		if err != nil {
+			t.Fatalf("share: %v", err)
+		}
+		t.Cleanup(func() { _ = c.Call(context.Background(), proto.MethodPaneClose, proto.PaneRef{ID: res.Pane.ID}, nil) })
+		return res.Pane
+	}
+
+	if got := share("fix the flaky login test").Name; got != "fix the flaky login test" {
+		t.Fatalf("the pane is called %q", got)
+	}
+	// Nothing to go on: conch's own default, the agent's name.
+	if got := share("").Name; got != "claude" {
+		t.Fatalf("with no name: %q", got)
+	}
+	// A name from somewhere else is tidied rather than trusted: one line,
+	// and short enough for a row.
+	long := strings.Repeat("ab ", 40)
+	got := share("two\nlines").Name
+	if got != "two lines" {
+		t.Fatalf("a name with a newline: %q", got)
+	}
+	if got := share(long).Name; len([]rune(got)) > 60 || strings.HasSuffix(got, " ") {
+		t.Fatalf("a long name came out %d runes: %q", len([]rune(got)), got)
+	}
+}
