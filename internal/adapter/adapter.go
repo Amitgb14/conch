@@ -95,6 +95,21 @@ type cliAgent struct {
 	resume, resumeLast string
 	env                []string
 	install            string
+	// prepare writes the files this agent is launched with — Claude's
+	// --settings, Gemini's defaults, OpenCode's plugin. They are written
+	// when the server starts, and again before each launch: the folder they
+	// live in can go (a tidy-up, a restored sandbox, somebody clearing
+	// ~/.config), and an agent started with a --settings file that is no
+	// longer there fails with "Settings file not found".
+	prepare func() error
+}
+
+// Ensure writes this agent's integration files again, if it has any.
+func (a *cliAgent) Ensure() error {
+	if a.prepare == nil {
+		return nil
+	}
+	return a.prepare()
 }
 
 func (a *cliAgent) Name() string  { return a.name }
@@ -210,8 +225,14 @@ func newClaude(exe, dir string) (*cliAgent, error) {
 	// window. conch's command reports them, then runs the user's own status
 	// line (if any) so it looks as before.
 	statusLine := map[string]any{"type": "command", "command": ShellQuote(exe) + " report claude-status"}
-	if err := writeJSON(path, map[string]any{"hooks": hooks, "statusLine": statusLine}); err != nil {
-		return nil, fmt.Errorf("write claude settings: %w", err)
+	write := func() error {
+		if err := writeJSON(path, map[string]any{"hooks": hooks, "statusLine": statusLine}); err != nil {
+			return fmt.Errorf("write claude settings: %w", err)
+		}
+		return nil
+	}
+	if err := write(); err != nil {
+		return nil, err
 	}
 	return &cliAgent{
 		name: "claude", label: "Claude Code", binary: "claude",
@@ -219,6 +240,7 @@ func newClaude(exe, dir string) (*cliAgent, error) {
 		dirs:    []string{"$HOME/.local/bin"},
 		flags:   "--settings " + ShellQuote(path),
 		install: claudeInstall,
+		prepare: write,
 	}, nil
 }
 
@@ -294,11 +316,18 @@ func newGemini(exe, dir string) (*cliAgent, error) {
 		hooks[ev] = []hookGroup{{Hooks: []hookCommand{{Type: "command", Command: ShellQuote(exe) + " report gemini-hook", Timeout: 5000}}}}
 	}
 	path := filepath.Join(dir, "gemini-defaults.json")
-	if err := writeJSON(path, map[string]any{"hooks": hooks}); err != nil {
-		return nil, fmt.Errorf("write gemini defaults: %w", err)
+	write := func() error {
+		if err := writeJSON(path, map[string]any{"hooks": hooks}); err != nil {
+			return fmt.Errorf("write gemini defaults: %w", err)
+		}
+		return nil
+	}
+	if err := write(); err != nil {
+		return nil, err
 	}
 	a := &cliAgent{
-		name: "gemini", label: "Gemini CLI", binary: "gemini",
+		prepare: write,
+		name:    "gemini", label: "Gemini CLI", binary: "gemini",
 		resume: "--resume %s", resumeLast: "--resume latest",
 		dirs: []string{"$HOME/.local/bin"},
 		install: `set -e
@@ -355,11 +384,18 @@ export const ConchPlugin = async () => ({
 func newOpenCode(exe, dir string) (*cliAgent, error) {
 	exeJSON, _ := json.Marshal(exe)
 	path := filepath.Join(dir, "opencode-conch.js")
-	if err := writeFileAtomic(path, []byte(fmt.Sprintf(openCodePlugin, exeJSON))); err != nil {
-		return nil, fmt.Errorf("write opencode plugin: %w", err)
+	write := func() error {
+		if err := writeFileAtomic(path, []byte(fmt.Sprintf(openCodePlugin, exeJSON))); err != nil {
+			return fmt.Errorf("write opencode plugin: %w", err)
+		}
+		return nil
+	}
+	if err := write(); err != nil {
+		return nil, err
 	}
 	a := &cliAgent{
-		name: "opencode", label: "OpenCode", binary: "opencode",
+		prepare: write,
+		name:    "opencode", label: "OpenCode", binary: "opencode",
 		resume: "--session %s", resumeLast: "--continue",
 		promptFlag: "--prompt", // a bare argument is a project path
 		dirs:       []string{"$HOME/.opencode/bin", "$HOME/bin", "$HOME/.local/bin"},
@@ -372,6 +408,13 @@ echo "Installed OpenCode; start it from conch and connect a provider (/connect).
 		a.env = []string{"OPENCODE_CONFIG_CONTENT=" + string(cfg)}
 	}
 	return a, nil
+}
+
+// Preparer is an adapter that writes files an agent is launched with, and
+// can write them again. The server asks before every launch: the folder
+// they live in can disappear between one and the next.
+type Preparer interface {
+	Ensure() error
 }
 
 func writeJSON(path string, v any) error {
@@ -445,6 +488,12 @@ func ShellQuote(s string) string {
 }
 
 func writeFileAtomic(path string, data []byte) error {
+	// The folder may have gone since the server started — somebody clearing
+	// ~/.config in a sandbox, a tidy-up — so make it again rather than
+	// failing to write what an agent is about to be launched with.
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {
 		return err

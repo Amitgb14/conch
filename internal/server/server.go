@@ -962,6 +962,14 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 		if !ok {
 			return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "agent %q cannot be launched by conch", cp.Agent)
 		}
+		// Write what the agent is launched with, every time: the folder can
+		// go between one launch and the next, and Claude started with a
+		// --settings file that is no longer there fails outright.
+		if pr, ok := ad.(adapter.Preparer); ok {
+			if err := pr.Ensure(); err != nil {
+				return proto.PaneInfo{}, proto.Errorf(proto.ErrInternal, "%v", err)
+			}
+		}
 		args := cp.AgentArgs
 		if p := ad.PromptArgs(cp.Prompt); p != "" {
 			args = strings.TrimSpace(args + " " + p)

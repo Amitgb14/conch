@@ -275,3 +275,56 @@ func TestAgentSyncKeepsItsRecordOutOfGit(t *testing.T) {
 		t.Fatalf("the record folder is %v (%v)", st.Mode().Perm(), err)
 	}
 }
+
+// Starting an agent writes the files it is launched with, even when the
+// folder they live in has gone since the server started: somebody clearing
+// ~/.config in a sandbox left Claude failing with "Settings file not
+// found: …/conch/claude-settings.json".
+func TestAgentFilesComeBackBeforeALaunch(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	c, dir := startServer(t)
+	settings := filepath.Join(dir, "claude-settings.json")
+	if _, err := os.Stat(settings); err != nil {
+		t.Fatalf("the server did not write it at start-up: %v", err)
+	}
+	// Everything conch keeps there, gone.
+	for _, name := range []string{"claude-settings.json", "gemini-defaults.json", "opencode-conch.js"} {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var info proto.PaneInfo
+	// claude is not installed here, so the pane's shell will fail — what
+	// matters is that conch wrote the file before launching anything.
+	err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{
+		Agent: "claude", Cwd: dir, NoProject: true, Cols: 80, Rows: 24,
+	}, &info)
+	if err != nil {
+		t.Fatalf("pane.create: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Call(context.Background(), proto.MethodPaneClose, proto.PaneRef{ID: info.ID}, nil) })
+	b, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatalf("the settings file did not come back: %v", err)
+	}
+	if !strings.Contains(string(b), "report claude-hook") || !strings.Contains(string(b), "statusLine") {
+		t.Fatalf("it came back without conch's own settings:\n%s", b)
+	}
+	// And the pane really was launched with that file.
+	var list proto.PaneList
+	if err := c.Call(ctx, proto.MethodPaneList, nil, &list); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, p := range list.Panes {
+		if p.ID == info.ID && strings.Contains(strings.Join(p.Command, " "), settings) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the pane's command does not name the settings file: %+v", list.Panes)
+	}
+}

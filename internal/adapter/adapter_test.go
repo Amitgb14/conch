@@ -110,3 +110,65 @@ func TestRegistryAndIntegrationFiles(t *testing.T) {
 		t.Fatalf("codex found in an empty home: %+v", av)
 	}
 }
+
+// The files an agent is launched with are written again before each
+// launch. They live in conch's config folder, and that folder can go —
+// somebody clearing ~/.config in a sandbox — after which Claude started
+// with a --settings file that is no longer there fails with "Settings file
+// not found".
+func TestEnsureWritesTheFilesAgain(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "conch")
+	reg, err := New("/usr/local/bin/conch", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := []string{"claude-settings.json", "gemini-defaults.json", "opencode-conch.js"}
+	before := map[string][]byte{}
+	for _, name := range files {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("%s was not written at all: %v", name, err)
+		}
+		before[name] = b
+	}
+
+	// The whole folder goes, as ~/.config going takes it.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"claude", "gemini", "opencode"} {
+		ad, ok := reg.Get(name)
+		if !ok {
+			t.Fatalf("no %s adapter", name)
+		}
+		pr, ok := ad.(Preparer)
+		if !ok {
+			t.Fatalf("%s cannot write its files again", name)
+		}
+		if err := pr.Ensure(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	for _, name := range files {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("%s did not come back: %v", name, err)
+		}
+		if string(b) != string(before[name]) {
+			t.Fatalf("%s came back different:\n%s", name, b)
+		}
+	}
+	// The folder is the user's own, not the world's.
+	st, err := os.Stat(dir)
+	if err != nil || st.Mode().Perm() != 0o700 {
+		t.Fatalf("the folder came back as %v (%v)", st.Mode().Perm(), err)
+	}
+	// An agent with nothing of its own to write says so by doing nothing.
+	if ad, ok := reg.Get("codex"); ok {
+		if pr, ok := ad.(Preparer); ok {
+			if err := pr.Ensure(); err != nil {
+				t.Fatalf("codex: %v", err)
+			}
+		}
+	}
+}
