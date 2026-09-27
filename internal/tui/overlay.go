@@ -103,6 +103,10 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"c", "Start an agent here…", act("c")},
 			{"n", "New terminal here", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
+			{"", "Open a link it printed (" + m.cfg.Keys.Prefix + " u)", func(m *Model) tea.Cmd {
+				r, _ := m.selectedRow()
+				return m.openLinks(r)
+			}},
 		}
 		items = append(items, m.monitorItems(r.machine, r.paneID)...)
 		items = append(items, menuItem{"x", "Close", act("x")})
@@ -839,6 +843,8 @@ var helpText = []string{
 	"  % or v split right   \" or - split down   x close split (ends its pane)   = equalize",
 	"  ←→↑↓ focus   o next split   ; last split   q split numbers (then a digit)   { } swap",
 	"  ctrl/alt+arrows resize (repeats)   space next layout   alt+1-5 even-h, even-v, main-h, main-v, tiled",
+	"  u  open a link the pane printed: put back together across the lines and the box it was",
+	"     drawn in, opened in the browser and copied — a login URL an agent asks you to visit",
 	"  c new tab (a terminal in it)   C this split's branch changes in a tab   n / p next / previous",
 	"  0-9 go to tab   l last tab",
 	"  < > . move tab   w every tab, grouped",

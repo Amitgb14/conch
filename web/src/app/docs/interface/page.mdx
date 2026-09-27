@@ -248,6 +248,21 @@ Click `▁▃▆` in the bottom-right corner of the status bar to see how much m
 - It refreshes every 2 seconds while open, reading `ps`, and stops when closed. Any key, a click outside, or clicking the icon again closes it. The icon stays dim until the box is open.
 - It covers this computer only, not remote machines.
 
+## Links an agent printed
+
+An agent that wants you to log in prints a URL and asks you to open it — and inside a sandbox or a remote machine, it has to be opened *here*, not there. Selecting it with the mouse rarely works: the URL is longer than the pane, so the agent wraps it inside its own box, and the selection comes back with the border and the line break in the middle of it:
+
+```
+│ …&scope=user%3Asessio │
+│ ns%3Aclaude_code&code… │
+
+Invalid OAuth Request · Unknown scope: user:sessio│ns:claude_code
+```
+
+`ctrl+b u`, or `m` on the pane → **Open a link it printed**, lists the links on the pane's screen with each one put back together: the box's borders and padding taken off, and the rows the link ran across joined. Choosing one opens it in this computer's browser *and* puts it on the clipboard, since a login URL often has to go somewhere else — a phone, another browser, someone else's machine.
+
+It goes by shape, since the agent did the wrapping and left no mark to read: a row that fills the screen may have run on, and the next row is the rest of it when it keeps the same left edge. That can be wrong — prose directly under a full-width link would lend it a word — so the whole link is shown before anything is opened, and at most nine are offered. A 400-character OAuth URL in a narrow pane is followed over as many rows as it takes. A link that has scrolled away comes back with `ctrl+b [` first.
+
 ## Settings
 
 Press `,` or click `⚙` at the right end of the status bar. Changes are saved to `~/.config/conch/config.toml` (see [Configuration](/docs/configuration)).

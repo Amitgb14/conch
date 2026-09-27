@@ -310,6 +310,8 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "r":
 			return m, m.redrawPane(r)
+		case "u":
+			return m, m.openLinks(r)
 		default:
 			m.focus = focusSidebar
 		}
