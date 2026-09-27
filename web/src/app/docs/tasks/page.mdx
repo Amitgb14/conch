@@ -176,7 +176,11 @@ What it does, and what it refuses to do:
 | **Hand-written files** | left alone. conch writes its own block, or a file that wasn't there; a file somebody wrote is reported as skipped, and a second sync updates the block rather than the rest |
 | **Undo** | `u` puts the last sync back, file by file, from a record under `.conch/agent-sync/`. A file conch created is removed; one it changed goes back to what it held |
 
-A file conch cannot rewrite without losing something is left alone and says so — a `.json` with comments in it, for instance, since rewriting it would drop them. The plan also says where the instructions came from, and reminds you that Codex reads a project's `config.toml` only once you have trusted the folder.
+A file conch cannot rewrite without losing something is left alone and says so — a `.json` with comments in it, for instance, since rewriting it would drop them.
+
+The plan also says where the instructions came from, and which agents want the folder trusted before they will read what was written: **Codex** reads a project's `config.toml` only once you have trusted it, and **Gemini** leaves a project's MCP servers *and* skills out until then — the servers with a warning, the skills silently, which is how an afternoon goes missing. Trust the folder in the agent itself (conch never answers that prompt for you) and both appear.
+
+Undoing names each thing it puts back, and takes away the folders the sync made — `.codex`, `.agents/skills` and the record's own `.conch` — so the checkout looks as it did. A folder with anything else in it stays.
 
 ```sh
 conch agent sync                                 # what it would do, from Claude Code

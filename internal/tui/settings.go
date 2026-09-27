@@ -266,6 +266,12 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				return saveConfig(m.cfg)
 			}})
 	}
+	// What an agent loads is a property of a checkout, not of conch, so it
+	// is not settings — but this is where people look for it.
+	items = append(items, settingItem{}, settingItem{header: true, label: "What each agent loads", detail: "per checkout, not here"},
+		settingItem{label: styleMuted.Render("  i on a project, branch or pane: instructions, skills, MCP servers")},
+		settingItem{label: styleMuted.Render("  s there gives the other agents that one's setup; u undoes it")})
+
 	r := &m.cfg.Remote
 	items = append(items, settingItem{}, settingItem{header: true, label: "Remote machines"},
 		settingItem{label: "Upload files dropped into remote panes", detail: "screenshots and other files", on: &r.UploadDrops,

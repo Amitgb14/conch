@@ -68,6 +68,28 @@ func TestSettingsTabs(t *testing.T) {
 	if m.cfg.Agents.Default != "codex" || m.defaultAgent() != "codex" {
 		t.Fatalf("default agent: %q", m.cfg.Agents.Default)
 	}
+	// What each agent loads is not settings, but this is where people look
+	// for it, so the tab says where it is instead of pretending it is here.
+	flat := func() string {
+		var b strings.Builder
+		for _, it := range s.agentItems(m) {
+			b.WriteString(ansi.Strip(it.label) + "|" + ansi.Strip(it.detail) + "\n")
+		}
+		return b.String()
+	}
+	out := flat()
+	for _, want := range []string{"What each agent loads|per checkout, not here",
+		"i on a project, branch or pane", "s there gives the other agents that one's setup"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("the pointer to agent setup lacks %q:\n%s", want, out)
+		}
+	}
+	// It points, and does nothing: nothing there is selectable by mistake.
+	for _, it := range s.agentItems(m) {
+		if strings.Contains(ansi.Strip(it.label), "i on a project") && it.run != nil {
+			t.Fatal("the pointer row does something")
+		}
+	}
 }
 
 func TestStatusBarClicks(t *testing.T) {

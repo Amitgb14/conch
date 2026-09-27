@@ -171,6 +171,13 @@ history; details for big items live in their own plan files.
     than a `${VAR}` reference is not copied at all — the reason says so.
     The docs are "One setup, every agent" on the Tasks page.
 
+    Checked against the real agents (R28): each one's own CLI shows the
+    server conch wrote in its own format, Codex answered from the
+    instructions copied into AGENTS.md, and Gemini read the skill linked
+    into `.agents/skills`. Trust is the thing that catches people out —
+    Gemini leaves a project's servers *and* skills out until the folder is
+    trusted, and says nothing about the skills — so the plan says so.
+
     The same person asked for "an actual UI for humans, especially for
     reviewing the work", which is what the changes view, the review queue
     and the checks already are. Worth remembering when that feedback comes
@@ -178,7 +185,33 @@ history; details for big items live in their own plan files.
 
 ## Next
 
-22. **E2B sandboxes** — a second provider, started: `internal/sandbox/e2b.go`
+22. **One setup, every agent: your own, not just a checkout's** — 21 syncs
+    what a *checkout* holds, on purpose: a mistake there is one `git
+    status` away from being seen, and one `u` away from being undone. The
+    half people actually complain about is the other one — the setup in
+    your home: `~/.claude/CLAUDE.md` and `~/.claude/skills`, Codex's
+    `~/.codex/config.toml`, `~/.gemini/settings.json`, OpenCode's
+    `~/.config/opencode`, and the MCP servers registered for you rather
+    than for a repository. That is machine-wide, so it belongs in Settings
+    (`,` → Agents), not on a row that names a folder.
+
+    The engine is the same — `internal/agentsetup/sync.go` with the user
+    scope's paths instead of the project's — and so are the rules that make
+    it safe: say what it would write, leave hand-written files alone, link
+    skills rather than copy them (`~/.agents/skills` is read by Codex,
+    Gemini and OpenCode alike), never carry a secret, and record every
+    write so it can be undone. Two things are new and want care: there is
+    no `git status` to show what changed, so the record and the preview are
+    all a person has, and a home directory has no obvious root to keep the
+    record in (`$CONCH_HOME/agent-sync/` rather than `.conch/`). It should
+    also refuse to touch a file that is a symlink into a dotfiles
+    repository without saying so first — that is how people keep these
+    files, and writing through the link edits the repository.
+
+    Worth doing only once 21 has some mileage, since this is the version
+    where a mistake is harder to see.
+
+23. **E2B sandboxes** — a second provider, started: `internal/sandbox/e2b.go`
     makes, lists, pauses, resumes, ends and keeps alive an E2B sandbox
     through its platform API, with tests against a fake one. It is not in
     `sandbox.Providers` yet, so nothing offers to make a sandbox conch
@@ -202,7 +235,7 @@ history; details for big items live in their own plan files.
 
 ## Not now
 
-23. **MicroVM sandboxes on your own hardware** — see
+24. **MicroVM sandboxes on your own hardware** — see
     [microvm-sandbox.md](microvm-sandbox.md). 20 covers the case that
     mattered: somewhere isolated to run an agent, made and thrown away from
     conch. What this plan adds is a sandbox on hardware you own — a
@@ -214,11 +247,11 @@ history; details for big items live in their own plan files.
 
 ## Last
 
-24. **Auto-approve rules** — per-project rules that let agents run safe
+25. **Auto-approve rules** — per-project rules that let agents run safe
     commands without waiting for the user. A sandbox is the boundary these
     need, and 20 gives one: the rules would be allowed there and nowhere
     else, so a rule that skips a confirmation cannot reach the laptop.
-25. **Task graph** — server-side rules such as "when A is done, start a
+26. **Task graph** — server-side rules such as "when A is done, start a
     review agent on its worktree", only once auto-approve rules exist, since
     they run actions nobody confirmed. Notifies rather than moving focus.
 

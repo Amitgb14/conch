@@ -502,3 +502,91 @@ func TestSyncFromOpenCode(t *testing.T) {
 		t.Fatalf("the remote server: %v", got)
 	}
 }
+
+// Undoing says what each thing was, and takes away the folders the sync
+// made — a checkout should look as it did, not keep empty .codex folders.
+func TestSyncUndoTidiesUp(t *testing.T) {
+	root := syncRepo(t)
+	res, err := Sync(root, "claude", []string{"codex", "gemini"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isDir(filepath.Join(root, ".codex")) || !isDir(filepath.Join(root, ".agents", "skills")) {
+		t.Fatal("the sync made no folders")
+	}
+	undone, err := UndoSync(root, res.Undo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]string{}
+	for _, c := range undone.Changes {
+		kinds[c.Name] = c.Kind
+	}
+	if kinds["AGENTS.md"] != SyncInstructions || kinds["review"] != SyncSkill || kinds["config.toml"] != SyncMCP {
+		t.Fatalf("undoing called them %v", kinds)
+	}
+	for _, dir := range []string{".codex", ".agents/skills", ".agents", ".gemini"} {
+		if _, err := os.Lstat(filepath.Join(root, dir)); !os.IsNotExist(err) {
+			t.Fatalf("%s was left behind", dir)
+		}
+	}
+	// Including the record's own folder, once it holds nothing.
+	if _, err := os.Lstat(filepath.Join(root, ".conch")); !os.IsNotExist(err) {
+		t.Fatal(".conch was left behind")
+	}
+	// What was there before a sync is not tidied away with it.
+	if !isDir(filepath.Join(root, ".claude", "skills", "review")) || !isFile(filepath.Join(root, "CLAUDE.md")) {
+		t.Fatal("undoing took the source with it")
+	}
+
+	// A folder with something else in it stays, and so does its file.
+	res, err = Sync(root, "claude", []string{"codex"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, ".codex", "notes.md"), "mine\n")
+	if _, err := UndoSync(root, res.Undo); err != nil {
+		t.Fatal(err)
+	}
+	if !isFile(filepath.Join(root, ".codex", "notes.md")) {
+		t.Fatal("a folder with somebody else's file in it was removed")
+	}
+
+	// A record from a build that did not say what things were still reads.
+	old := `{"stamp":"20260101-000000","from":"claude","files":[{"path":"AGENTS.md","absent":true}]}`
+	write(t, filepath.Join(root, undoDir, "20260101-000000.json"), old)
+	write(t, filepath.Join(root, "AGENTS.md"), "from an older sync\n")
+	back, err := UndoSync(root, "20260101-000000")
+	if err != nil || len(back.Changes) != 1 || back.Changes[0].Kind != "file" {
+		t.Fatalf("an older record: %+v %v", back.Changes, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatal("the older record did not remove its file")
+	}
+}
+
+// An agent that wants the folder trusted is said so once, before anybody
+// wonders why nothing happened.
+func TestSyncSaysWhoWantsTrust(t *testing.T) {
+	root := syncRepo(t)
+	res, err := Sync(root, "claude", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := strings.Join(res.Notes, " | ")
+	if !strings.Contains(notes, "Codex reads a project's config.toml only once") ||
+		!strings.Contains(notes, "Gemini leaves a project's MCP servers and skills out") {
+		t.Fatalf("notes %q", notes)
+	}
+	if n := strings.Count(notes, "Gemini"); n != 1 {
+		t.Fatalf("Gemini said %d times: %q", n, notes)
+	}
+	// Nothing written for an agent, nothing said about it.
+	res, err = Sync(root, "claude", []string{"opencode"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notes := strings.Join(res.Notes, " | "); strings.Contains(notes, "Gemini") || strings.Contains(notes, "Codex") {
+		t.Fatalf("notes about agents nobody asked for: %q", notes)
+	}
+}

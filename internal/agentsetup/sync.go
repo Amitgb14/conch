@@ -213,12 +213,21 @@ func Sync(dir, from string, to []string, apply bool) (SyncResult, error) {
 	if text != nil {
 		res.Notes = append(res.Notes, "instructions from "+textPath)
 	}
+	// Worth saying once each: what is written is there, but an agent that
+	// wants the folder trusted ignores it until you say so — silently, in
+	// Gemini's case, which is how an afternoon goes missing.
+	said := map[string]bool{}
 	for _, c := range res.Changes {
-		// Worth saying once: a server written into Codex's project config
-		// is there, but Codex ignores it until the folder is trusted.
-		if c.Agent == "codex" && c.Kind == SyncMCP && c.Writes() {
+		if !c.Writes() || said[c.Agent] {
+			continue
+		}
+		switch {
+		case c.Agent == "codex" && c.Kind == SyncMCP:
+			said[c.Agent] = true
 			res.Notes = append(res.Notes, "Codex reads a project's config.toml only once you have trusted the folder")
-			break
+		case c.Agent == "gemini" && (c.Kind == SyncMCP || c.Kind == SyncSkill):
+			said[c.Agent] = true
+			res.Notes = append(res.Notes, "Gemini leaves a project's MCP servers and skills out until you have trusted the folder, and says nothing about the skills")
 		}
 	}
 	sortChanges(res.Changes)
@@ -339,7 +348,7 @@ func planInstructions(root, agent string, t agentFiles, fromName string, text []
 	switch {
 	case os.IsNotExist(err):
 		c.Action, c.Detail = ActionCreate, detailFor(fromName, t.imports)
-		c.write = writeFile(path, want)
+		c.write = writeFile(path, SyncInstructions, want)
 		return c
 	case err != nil:
 		c.Action, c.Detail = ActionSkip, err.Error()
@@ -359,7 +368,7 @@ func planInstructions(root, agent string, t agentFiles, fromName string, text []
 		return c
 	}
 	c.Action, c.Detail = ActionUpdate, "conch's block in it, "+detailFor(fromName, t.imports)
-	c.write = writeFile(path, blockRe.ReplaceAll(have, want))
+	c.write = writeFile(path, SyncInstructions, blockRe.ReplaceAll(have, want))
 	return c
 }
 
@@ -447,7 +456,7 @@ func planSkill(root, agent string, t agentFiles, sk skill) SyncChange {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
-		u.creating(path)
+		u.creating(path, SyncSkill)
 		return os.Symlink(target, path)
 	}
 	return c
@@ -586,7 +595,7 @@ func planServerJSON(path string, c SyncChange, t agentFiles, s mcpServer) SyncCh
 		if out == nil {
 			return nil // somebody declared it meanwhile
 		}
-		return writeFile(path, out)(u)
+		return writeFile(path, SyncMCP, out)(u)
 	}
 	return c
 }
@@ -658,7 +667,7 @@ func planServerTOML(path string, c SyncChange, t agentFiles, s mcpServer) SyncCh
 			out = append(out, '\n')
 		}
 		out = append(out, tomlServer(t.mcpKey, s)...)
-		return writeFile(path, out)(u)
+		return writeFile(path, SyncMCP, out)(u)
 	}
 	return c
 }
@@ -727,12 +736,12 @@ func plural(n int) string {
 // ---- writing and undoing ----
 
 // writeFile records what was there and writes the new content.
-func writeFile(path string, content []byte) func(*undoLog) error {
+func writeFile(path, kind string, content []byte) func(*undoLog) error {
 	return func(u *undoLog) error {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
-		if err := u.writing(path); err != nil {
+		if err := u.writing(path, kind); err != nil {
 			return err
 		}
 		return os.WriteFile(path, content, 0o644)
@@ -752,29 +761,32 @@ type undoLog struct {
 }
 
 type undoEntry struct {
-	Path   string `json:"path"` // relative to the checkout
+	Path string `json:"path"` // relative to the checkout
+	// Kind is what it was — instructions, a skill, a server — so undoing
+	// says as much. A record from an older build has none.
+	Kind   string `json:"kind,omitempty"`
 	Before string `json:"before,omitempty"`
 	Absent bool   `json:"absent,omitempty"` // it did not exist
 }
 
 // writing records a file about to be written over.
-func (u *undoLog) writing(path string) error {
+func (u *undoLog) writing(path, kind string) error {
 	rel := u.rel(path)
 	b, err := os.ReadFile(path)
 	switch {
 	case os.IsNotExist(err):
-		u.Files = append(u.Files, undoEntry{Path: rel, Absent: true})
+		u.Files = append(u.Files, undoEntry{Path: rel, Kind: kind, Absent: true})
 		return nil
 	case err != nil:
 		return err
 	}
-	u.Files = append(u.Files, undoEntry{Path: rel, Before: string(b)})
+	u.Files = append(u.Files, undoEntry{Path: rel, Kind: kind, Before: string(b)})
 	return nil
 }
 
 // creating records something new, which undoing removes.
-func (u *undoLog) creating(path string) {
-	u.Files = append(u.Files, undoEntry{Path: u.rel(path), Absent: true})
+func (u *undoLog) creating(path, kind string) {
+	u.Files = append(u.Files, undoEntry{Path: u.rel(path), Kind: kind, Absent: true})
 }
 
 func (u *undoLog) rel(path string) string {
@@ -851,7 +863,11 @@ func UndoSync(dir, stamp string) (SyncResult, error) {
 	// Newest first, so a file written twice ends as it began.
 	for i := len(u.Files) - 1; i >= 0; i-- {
 		f := u.Files[i]
-		c := SyncChange{Kind: SyncInstructions, Name: filepath.Base(f.Path), Path: f.Path, Action: ActionUpdate}
+		kind := f.Kind
+		if kind == "" {
+			kind = "file" // a record from a build that did not say
+		}
+		c := SyncChange{Kind: kind, Name: filepath.Base(f.Path), Path: f.Path, Action: ActionUpdate}
 		target := filepath.Join(root, f.Path)
 		var err error
 		switch {
@@ -860,6 +876,9 @@ func UndoSync(dir, stamp string) (SyncResult, error) {
 			err = os.Remove(target)
 			if os.IsNotExist(err) {
 				err, c.Action, c.Detail = nil, ActionSame, "already gone"
+			}
+			if err == nil {
+				removeEmptyDirs(root, filepath.Dir(target))
 			}
 		default:
 			c.Detail = "put back as it was"
@@ -874,8 +893,21 @@ func UndoSync(dir, stamp string) (SyncResult, error) {
 	}
 	if err := os.Remove(path); err != nil {
 		res.Notes = append(res.Notes, "the record itself could not be removed: "+err.Error())
+	} else {
+		removeEmptyDirs(root, filepath.Dir(path)) // and .conch, if that is all it held
 	}
 	return res, nil
+}
+
+// removeEmptyDirs takes away the folders a sync made, as far up as they
+// are empty: .codex holding nothing but what conch wrote is conch's to
+// tidy. Anything with something in it stops it, and so does root.
+func removeEmptyDirs(root, dir string) {
+	for d := dir; d != root && strings.HasPrefix(d, root+string(filepath.Separator)); d = filepath.Dir(d) {
+		if os.Remove(d) != nil {
+			return
+		}
+	}
 }
 
 // ---- small helpers ----
