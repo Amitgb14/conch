@@ -437,8 +437,9 @@ func TestSandboxCreateFailures(t *testing.T) {
 	if got := a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, ""))); !strings.Contains(got, "so it was deleted") || p2.called() != "create cpu=0 env=0,delete sb10" {
 		t.Fatalf("%q %s", got, p2.called())
 	}
-	// Refused outright: nothing to delete.
-	p3 := &sbProvider{createErr: errors.New("daytona: quota (403)")}
+	// Refused outright: nothing to delete, and the provider's own words —
+	// its Create already says what failed, so conch does not repeat it.
+	p3 := &sbProvider{createErr: errors.New("create sandbox: daytona: quota (403)")}
 	useSandboxProvider(t, p3)
 	if got := a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, ""))); got != "create sandbox: daytona: quota (403)" || p3.called() != "create cpu=0 env=0" {
 		t.Fatalf("%q %s", got, p3.called())
@@ -1254,7 +1255,7 @@ func TestSandboxDialogNamedSizes(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("submit did nothing")
 	}
-	cmd()
+	a2Run(cmd) // the job, and the steps it reports on the way
 	if p.spec.Snapshot != "large" || p.spec.CPU != 0 || p.spec.Memory != 0 || p.spec.Disk != 0 ||
 		p.spec.Env["A2_TOKEN"] != "value" {
 		t.Fatalf("spec %+v", p.spec)
@@ -1296,5 +1297,105 @@ func TestPeriodWhat(t *testing.T) {
 	u.Periods = append(u.Periods, sandbox.UsagePeriod{From: now.Add(-2 * time.Hour), To: now.Add(-time.Hour), DiskGiB: 3})
 	if got := strings.Join(usageLines(mach, u), "\n"); !strings.Contains(got, "keeps its disk") {
 		t.Fatalf("a stopped period:\n%s", got)
+	}
+}
+
+// A job of minutes says what it is doing, and keeps saying it: a flash
+// fades after four seconds and leaves you wondering whether anything is
+// happening at all.
+func TestWorkingLineWhileASandboxIsMade(t *testing.T) {
+	m, _ := sandboxModel(t)
+	m.width, m.height = 120, 30
+
+	p := &sbProvider{created: sandbox.Sandbox{ID: "bx_1", State: sandbox.StateStarted}}
+	useSandboxProvider(t, p)
+	var saidTo []string
+	old := setUpSandboxFn
+	setUpSandboxFn = func(_ context.Context, mm remote.Machine, say func(string)) (*client.Client, error) {
+		say("probing " + mm.Label + "…")
+		say("copying conch to " + mm.Label + " (16 MB)…")
+		return nil, errors.New("far enough")
+	}
+	t.Cleanup(func() { setUpSandboxFn = old })
+
+	// The job, and then the steps it left behind — which is what the model
+	// does, one stepMsg at a time, each asking for the next.
+	ch := make(chan string, 16)
+	a2Run(createSandboxWith("boat", sandbox.Spec{}, "hull", ch))
+	for cmd := nextStep(ch); cmd != nil; {
+		msg := cmd()
+		st, ok := msg.(stepMsg)
+		if !ok {
+			break // the job closed the channel
+		}
+		saidTo = append(saidTo, st.step)
+		cmd = nextStep(st.ch)
+	}
+	want := []string{"asking boat.dev for a sandbox…", "sandbox bx_1 is up · setting conch up in it…",
+		"probing hull…", "copying conch to hull (16 MB)…", "setting it up failed · deleting sandbox bx_1…"}
+	if strings.Join(saidTo, " | ") != strings.Join(want, " | ") {
+		t.Fatalf("steps:\n got %q\nwant %q", saidTo, want)
+	}
+
+	// Each step goes to the status bar and stays there, with a spinner, and
+	// it asks for the next one.
+	for _, step := range saidTo {
+		next, cmd := m.Update(stepMsg{step: step, ch: make(chan string)})
+		*m = next.(Model)
+		if m.working != step || cmd == nil {
+			t.Fatalf("after %q: working %q cmd %v", step, m.working, cmd != nil)
+		}
+		bar := ansi.Strip(m.statusBar())
+		head := step
+		if r := []rune(step); len(r) > 24 { // the bar shortens a long step
+			head = string(r[:24])
+		}
+		if !strings.Contains(bar, head) || !strings.Contains(bar, spinner[m.spin%len(spinner)]) {
+			t.Fatalf("the bar does not say %q with a spinner:\n%s", head, bar)
+		}
+	}
+	// It outlasts a flash, and hides it while it runs: the job is the news.
+	m.setFlash("something else happened", false)
+	if bar := ansi.Strip(m.statusBar()); strings.Contains(bar, "something else happened") ||
+		!strings.Contains(bar, "setting it up failed") {
+		t.Fatalf("a flash took the line:\n%s", bar)
+	}
+	// The spinner keeps turning while it works.
+	m.ticking = false
+	if cmd := m.startTicking(); cmd == nil || !m.ticking {
+		t.Fatal("no spinner while working")
+	}
+	// Whatever ends the job clears the line.
+	next, _ := m.Update(errMsg{err: errors.New("it failed")})
+	if got := next.(Model).working; got != "" {
+		t.Fatalf("after an error: %q", got)
+	}
+	m.setWorking("still going…")
+	next, _ = m.Update(machineAddedMsg{m: remote.Machine{ID: "hull", Label: "hull"}})
+	if got := next.(Model).working; got != "" {
+		t.Fatalf("after a machine arrived: %q", got)
+	}
+}
+
+// A refusal is shown once, in the provider's words: the reason already
+// says what failed, so conch does not say it again.
+func TestCreateSandboxRefusalReadsOnce(t *testing.T) {
+	sandboxModel(t) // an isolated home, so nothing real is asked
+	p := &sbProvider{createErr: errors.New("create sandbox: boat: Start the $20/month Boat plan to create sandboxes. (402); boat.dev wants a plan")}
+	useSandboxProvider(t, p)
+	var said string
+	for _, msg := range a2Run(createSandbox("boat", sandbox.Spec{}, "hull")) {
+		if e, ok := msg.(errMsg); ok {
+			said = e.err.Error()
+		}
+	}
+	if strings.HasPrefix(said, "create sandbox: create sandbox") {
+		t.Fatalf("the reason says it twice: %q", said)
+	}
+	if !strings.HasPrefix(said, "create sandbox: boat:") {
+		t.Fatalf("the reason reads %q", said)
+	}
+	if !strings.Contains(said, "wants a plan") {
+		t.Fatalf("the provider's words are gone: %q", said)
 	}
 }

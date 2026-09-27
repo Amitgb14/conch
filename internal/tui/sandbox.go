@@ -299,11 +299,53 @@ func newSandboxDialog(m Model, provider string) *dialog {
 	return d
 }
 
+// stepMsg is a long job saying what it is doing now; ch is where the next
+// one comes from, so the TUI keeps listening until the job closes it.
+type stepMsg struct {
+	step string
+	ch   chan string
+}
+
+// nextStep waits for a job's next step. A closed channel ends it: the
+// job's own result — a machine, or an error — is what clears the line.
+func nextStep(ch chan string) tea.Cmd {
+	return func() tea.Msg {
+		step, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return stepMsg{step: step, ch: ch}
+	}
+}
+
+// steps is a progress callback that never blocks the job it reports on: a
+// step nobody is listening for is dropped rather than held.
+func steps(ch chan string) func(string) {
+	return func(step string) {
+		select {
+		case ch <- step:
+		default:
+		}
+	}
+}
+
 // createSandbox makes a sandbox, sets conch up in it and saves it as a
 // machine. A sandbox that can't be set up is deleted rather than left to
-// cost: nobody is there to ask.
+// cost: nobody is there to ask. It takes a minute or two, so it says what
+// it is doing as it goes.
 func createSandbox(provider string, spec sandbox.Spec, label string) tea.Cmd {
+	// The job first: Bubble Tea runs a batch's commands at once, and a
+	// channel with room for every step means neither waits for the other —
+	// but ordered this way the steps are still all there to read when the
+	// job has already finished.
+	ch := make(chan string, 16)
+	return tea.Batch(createSandboxWith(provider, spec, label, ch), nextStep(ch))
+}
+
+func createSandboxWith(provider string, spec sandbox.Spec, label string, ch chan string) tea.Cmd {
 	return func() tea.Msg {
+		defer close(ch)
+		say := steps(ch)
 		p, err := openSandboxProvider(provider)
 		if err == nil {
 			err = p.Check()
@@ -313,13 +355,15 @@ func createSandbox(provider string, spec sandbox.Spec, label string) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), sandboxWait)
 		defer cancel()
+		say("asking " + providerLabel(provider) + " for a sandbox…")
 		s, err := p.Create(ctx, spec)
 		if err == nil {
 			if label == "" {
 				label = remote.DefaultSandboxLabel(s.ID)
 			}
+			say("sandbox " + s.ID + " is up · setting conch up in it…")
 			m := remote.Machine{Label: label, Target: remote.SandboxTarget(provider, s.ID)}
-			c, setUpErr := setUpSandboxFn(ctx, m, func(string) {})
+			c, setUpErr := setUpSandboxFn(ctx, m, say)
 			if setUpErr == nil {
 				c.Close()
 				saved, err := remote.SaveMachine(m)
@@ -331,8 +375,11 @@ func createSandbox(provider string, spec sandbox.Spec, label string) tea.Cmd {
 			err = setUpErr
 		}
 		if s.ID == "" {
-			return errMsg{fmt.Errorf("create sandbox: %w", err)}
+			// Every provider's Create says "create sandbox" itself; saying
+			// it again reads as "create sandbox: create sandbox: …".
+			return errMsg{err}
 		}
+		say("setting it up failed · deleting sandbox " + s.ID + "…")
 		dctx, dcancel := context.WithTimeout(context.Background(), time.Minute)
 		defer dcancel()
 		if derr := p.Delete(dctx, s.ID); derr != nil && !errors.Is(derr, sandbox.ErrNotFound) {

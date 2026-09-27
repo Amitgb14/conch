@@ -397,15 +397,28 @@ func (mach *machine) paneIndex(id string) int {
 // addMachineFn adds a machine; tests replace it.
 var addMachineFn = addMachine
 
+// connectFn reaches a machine and installs conch there; tests replace it.
+var connectFn = remote.Connect
+
 // addMachine connects to target, installing conch there if needed, and
 // saves it. With a password, ssh gets it through an askpass helper, and
 // with keyLogin the password is then used once to authorize the user's ssh
 // key there, so reconnects need no password.
 func addMachine(target, label, password string, keyLogin bool) tea.Cmd {
+	// Installing conch on a machine takes as long as copying it there, so
+	// it says what it is doing meanwhile, as making a sandbox does.
+	ch := make(chan string, 16)
+	return tea.Batch(addMachineWith(target, label, password, keyLogin, ch), nextStep(ch))
+}
+
+func addMachineWith(target, label, password string, keyLogin bool, ch chan string) tea.Cmd {
 	return func() tea.Msg {
+		defer close(ch)
+		say := steps(ch)
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		c, err := remote.Connect(ctx, remote.SSH(target, false), remote.Options{Install: true, Password: password})
+		say("connecting to " + label + "…")
+		c, err := connectFn(ctx, remote.SSH(target, false), remote.Options{Install: true, Password: password, Progress: say})
 		var outdated *remote.OutdatedServerError
 		if err != nil && !errors.As(err, &outdated) {
 			return errMsg{err}
@@ -413,6 +426,7 @@ func addMachine(target, label, password string, keyLogin bool) tea.Cmd {
 		c.Close()
 		note := ""
 		if password != "" && keyLogin {
+			say("setting up key login on " + label + "…")
 			switch key, err := remote.SetUpKeyLogin(ctx, target, password); {
 			case err != nil:
 				note = "key login not set up: " + err.Error() + " · reconnects will fail without it"

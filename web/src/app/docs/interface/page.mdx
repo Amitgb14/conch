@@ -248,6 +248,10 @@ Click `▁▃▆` in the bottom-right corner of the status bar to see how much m
 - It refreshes every 2 seconds while open, reading `ps`, and stops when closed. Any key, a click outside, or clicking the icon again closes it. The icon stays dim until the box is open.
 - It covers this computer only, not remote machines.
 
+### A job that takes minutes
+
+Making a [sandbox](/docs/sandboxes) or adding a [machine](/docs/remote-machines) means installing conch at the other end: a minute or two of copying and connecting. The status bar shows what it is doing, with a spinner — *copying conch to hull (16 MB)…* — and keeps showing it until the job ends, rather than flashing once and leaving you to wonder. Whatever ends it, a machine in the tree or a reason it failed, takes the line away.
+
 ## Links an agent printed
 
 An agent that wants you to log in prints a URL and asks you to open it — and inside a sandbox or a remote machine, it has to be opened *here*, not there. Selecting it with the mouse rarely works: the URL is longer than the pane, so the agent wraps it inside its own box, and the selection comes back with the border and the line break in the middle of it:

@@ -229,6 +229,10 @@ func (m Model) statusRightItems(level int) []statusItem {
 	}
 	switch {
 	case level >= rightMinimal:
+	case m.working != "":
+		// A job of minutes, with its step: it stays while the job does.
+		items = append(items, statusItem{text: styleWork.Render(spinner[m.spin%len(spinner)]) + " " +
+			styleMuted.Render(ansi.Truncate(m.working, msgW, "…"))})
 	case m.flash != "":
 		style := styleOK
 		if m.flashIsErr {

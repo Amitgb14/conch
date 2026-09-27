@@ -118,6 +118,12 @@ type Model struct {
 	flashIsErr bool
 	flashUntil time.Time
 	flashTimer bool // a flashExpiredMsg is on its way
+	// working is a job that takes minutes and has nothing else on screen
+	// to show it — making a sandbox and installing conch in it — with the
+	// step it is on. Unlike a flash it stays until the job is done, since a
+	// message that fades after four seconds leaves you wondering whether
+	// anything is happening at all.
+	working string
 
 	spin    int
 	ticking bool
@@ -432,7 +438,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sandboxDoneMsg:
 		return m, m.sandboxDone(msg)
 
+	case stepMsg:
+		// A long job said what it is doing; keep listening for the next.
+		m.setWorking(msg.step)
+		return m, tea.Batch(nextStep(msg.ch), m.startTicking())
+
 	case machineAddedMsg:
+		m.setWorking("")
 		mach := newMachine(msg.m.ID, msg.m.Label, msg.m.Target)
 		for i, existing := range m.machines {
 			if existing.id == mach.id {
@@ -509,6 +521,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(append(cmds, m.pollChanges())...)
 
 	case errMsg:
+		m.setWorking("")
 		m.showError(msg.err)
 		if m.dropAwaiting() { // a tab or split opened for a pane that never came
 			return m, tea.Batch(m.focusLeaf(m.tab().focus), m.saveState())
@@ -1021,6 +1034,11 @@ func (m *Model) setFlash(s string, isErr bool) {
 
 const flashFor = 4 * time.Second
 
+// setWorking says what a long job is doing now; "" is done.
+func (m *Model) setWorking(step string) {
+	m.working = step
+}
+
 type flashExpiredMsg struct{}
 
 // Update handles a message, then schedules clearing the status bar message
@@ -1093,6 +1111,10 @@ func (m Model) branchPR(mid, projectID, branch string) *proto.PRInfo {
 func (m *Model) startTicking() tea.Cmd {
 	if m.ticking {
 		return nil
+	}
+	if m.working != "" {
+		m.ticking = true
+		return tea.Tick(spinInterval, func(time.Time) tea.Msg { return tickMsg{} })
 	}
 	if b, ok := m.overlay.(*askBar); ok && b.thinking() {
 		m.ticking = true
