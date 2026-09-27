@@ -236,8 +236,17 @@ func newSandboxDialog(m Model, provider string) *dialog {
 	text := []string{"Creates a sandbox with " + label + ", installs conch there and adds it as a machine. It runs, and costs, until you stop it (m → Stop sandbox)."}
 	if p, err := openSandboxProvider(provider); err != nil {
 		text = append(text, err.Error())
-	} else if err := p.Check(); err != nil {
-		text = append(text, "Needs a "+label+" API key: "+strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")+".")
+	} else {
+		if err := p.Check(); err != nil {
+			text = append(text, "Needs a "+label+" API key: "+strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")+".")
+		}
+		// A provider that gives a sandbox a fixed life says so here: it is
+		// its clock, not conch's, and it runs from now.
+		if l, ok := p.(sandbox.Lifetime); ok {
+			if life := l.Life(); life > 0 {
+				text = append(text, label+" gives it "+shortDuration(life)+" from now, whatever is happening in it (auto_stop in config.toml changes that). conch stops it sooner when nothing is.")
+			}
+		}
 	}
 	// A provider whose machines come in named sizes is not asked for
 	// numbers: the size goes where the snapshot does, so those three

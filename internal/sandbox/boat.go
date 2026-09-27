@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -28,10 +29,16 @@ const DefaultBoatURL = "https://boat.dev/api/v1"
 
 // boatTTL is how long a new sandbox is given. Boat counts from when the
 // sandbox was made rather than from the last thing that happened in it,
-// so a day is a compromise: long enough for an agent to work, short
-// enough that a forgotten sandbox is not a month's bill. conch's own idle
-// watch stops it sooner when nothing is happening.
-const boatTTL = 24 * time.Hour
+// and its free trial allows two hours, so that is what conch asks for:
+// a longer life is a setting (auto_stop, in minutes) rather than a
+// create that fails on the plan most people start on. conch's own idle
+// watch stops a sandbox nobody is using well before this.
+const boatTTL = 2 * time.Hour
+
+// boatAddressWait is how long conch waits for a new sandbox to be given an
+// address: boat answers ready a moment before the machine has one. Tests
+// shorten it.
+var boatAddressWait = 90 * time.Second
 
 // boatUser is who you are when you ssh into a boat sandbox.
 const boatUser = "user"
@@ -42,7 +49,9 @@ type Boat struct {
 	keyEnv string
 	key    string
 	size   string
-	hc     *http.Client
+	// autoStop is the life a new sandbox is given, in minutes; 0 is boatTTL.
+	autoStop int
+	hc       *http.Client
 	// fromSettings says the key came from config.toml rather than the
 	// environment.
 	fromSettings bool
@@ -50,7 +59,7 @@ type Boat struct {
 
 // NewBoat returns a boat.dev provider for cfg.
 func NewBoat(cfg config.ProviderCfg) *Boat {
-	b := &Boat{keyEnv: cfg.APIKeyEnv, size: cfg.Snapshot, hc: &http.Client{Timeout: time.Minute}}
+	b := &Boat{keyEnv: cfg.APIKeyEnv, size: cfg.Snapshot, autoStop: cfg.AutoStop, hc: &http.Client{Timeout: time.Minute}}
 	if b.keyEnv == "" {
 		b.keyEnv = "BOAT_API_KEY"
 	}
@@ -145,7 +154,16 @@ func (b *Boat) Create(ctx context.Context, spec Spec) (Sandbox, error) {
 		body["env"] = spec.Env
 	}
 	var out boatReply
-	if err := b.call(ctx, http.MethodPost, "/sandboxes", nil, body, &out); err != nil {
+	err := b.call(ctx, http.MethodPost, "/sandboxes", nil, body, &out)
+	// A plan has a longest life it allows, and says so rather than
+	// clamping: ask again for the longest it named instead of handing back
+	// a refusal the person can do nothing about.
+	if shorter, ok := shorterTTL(err, body["ttlSeconds"]); ok {
+		body["ttlSeconds"] = shorter
+		out = boatReply{}
+		err = b.call(ctx, http.MethodPost, "/sandboxes", nil, body, &out)
+	}
+	if err != nil {
 		return Sandbox{}, fmt.Errorf("create sandbox: %w", err)
 	}
 	if out.Sandbox == nil || out.Sandbox.ID == "" {
@@ -158,11 +176,18 @@ func (b *Boat) Create(ctx context.Context, spec Spec) (Sandbox, error) {
 
 // boatSizes are the machine sizes; anything else in the snapshot setting
 // is taken for the name of a snapshot to deploy from.
-var boatSizeNames = []string{"small", "default", "large", "xlarge"}
+// boatSizeNames are the sizes create takes. boat.dev sells an xlarge as
+// well, but its create only accepts these three — one has to be allocated
+// to the account first — so conch does not offer a size boat would refuse.
+var boatSizeNames = []string{"small", "default", "large"}
 
 // SizeNames says boat's machines are sized by name, so nothing offers a
 // number of vCPUs for one.
 func (b *Boat) SizeNames() []string { return append([]string(nil), boatSizeNames...) }
+
+// Life is how long a new sandbox is given, so the dialog that makes one
+// can say it: boat's clock, not conch's.
+func (b *Boat) Life() time.Duration { return ttlFor(Spec{AutoStop: b.autoStop}) }
 
 var boatSizes = func() map[string]bool {
 	m := map[string]bool{}
@@ -172,13 +197,56 @@ var boatSizes = func() map[string]bool {
 	return m
 }()
 
+// ttlSecondsRefused reads the longest life a refusal allows: boat says
+// what the plan permits, in seconds or in hours.
+var (
+	ttlSecondsRefused = regexp.MustCompile(`(?i)(\d{2,8})\s*seconds`)
+	ttlHoursRefused   = regexp.MustCompile(`(?i)(\d{1,4})\s*hours?`)
+)
+
+// boatMaxTTL is the longest life boat allows at all: 30 days.
+const boatMaxTTL = 30 * 24 * time.Hour
+
+// shorterTTL is the life to ask for again when a refusal was about the
+// length of it, and ok is false for any other error — or for a limit that
+// is not shorter than what was asked, which would only fail again.
+func shorterTTL(err error, asked any) (int, bool) {
+	var berr *BoatError
+	if !errors.As(err, &berr) || berr.Status < 400 || berr.Status > 499 {
+		return 0, false
+	}
+	msg := berr.Message
+	// The free trial's refusal is trial_auto_stop_required, whose message
+	// need not mention a ttl at all, so the code counts too.
+	if !strings.Contains(strings.ToLower(msg), "ttl") && !strings.Contains(strings.ToLower(msg), "auto-stop") &&
+		berr.Code != "trial_auto_stop_required" {
+		return 0, false
+	}
+	allowed := int(boatFreeTTL.Seconds()) // a limit conch cannot read: the free trial's
+	if m := ttlSecondsRefused.FindStringSubmatch(msg); m != nil {
+		allowed, _ = strconv.Atoi(m[1])
+	} else if m := ttlHoursRefused.FindStringSubmatch(msg); m != nil {
+		hours, _ := strconv.Atoi(m[1])
+		allowed = hours * 3600
+	}
+	was, _ := asked.(int)
+	if allowed < 60 || was <= allowed {
+		return 0, false
+	}
+	return allowed, true
+}
+
+// boatFreeTTL is what boat's free trial allows a sandbox, and what conch
+// falls back to when a refusal about the length names no number.
+const boatFreeTTL = 2 * time.Hour
+
 // ttlFor is how long a new sandbox is given. Boat's clock runs from when
 // it was made, not from the last thing that happened in it, so a spec
 // that asks to be stopped when idle is not what this is; conch's own idle
 // watch does that.
 func ttlFor(spec Spec) time.Duration {
 	if spec.AutoStop > 0 {
-		return time.Duration(spec.AutoStop) * time.Minute
+		return min(time.Duration(spec.AutoStop)*time.Minute, boatMaxTTL)
 	}
 	return boatTTL
 }
@@ -245,8 +313,14 @@ func (b *Boat) Start(ctx context.Context, id string) (Sandbox, error) {
 	if !s.State.comingUp() {
 		var out boatReply
 		body := map[string]any{"ttlSeconds": int(boatTTL.Seconds())}
-		if err := b.call(ctx, http.MethodPost, "/sandboxes/"+url.PathEscape(id)+"/resume", nil, body, &out); err != nil {
-			return s, fmt.Errorf("resume sandbox: %w", err)
+		path := "/sandboxes/" + url.PathEscape(id) + "/resume"
+		rerr := b.call(ctx, http.MethodPost, path, nil, body, &out)
+		if shorter, ok := shorterTTL(rerr, body["ttlSeconds"]); ok {
+			body["ttlSeconds"] = shorter
+			rerr = b.call(ctx, http.MethodPost, path, nil, body, &out)
+		}
+		if rerr != nil {
+			return s, fmt.Errorf("resume sandbox: %w", rerr)
 		}
 	}
 	return b.wait(ctx, s, StateStarted)
@@ -293,16 +367,35 @@ func (b *Boat) Delete(ctx context.Context, id string) error {
 // SSHAccess is where to ssh, once a key has been authorized: boat's
 // sandboxes have an sshd of their own, so there is no token in this —
 // AuthorizeKey is what makes the way in.
+//
+// A sandbox that has just come up may have no address for a moment — boat
+// reports it once the machine has one — so this waits for it rather than
+// failing a create that was going to work.
 func (b *Boat) SSHAccess(ctx context.Context, id string) (Access, error) {
 	if id == "" {
 		return Access{}, ErrNotFound
 	}
 	var out boatReply
-	if err := b.call(ctx, http.MethodGet, "/sandboxes/"+url.PathEscape(id), nil, nil, &out); err != nil {
-		return Access{}, err
-	}
-	if out.Sandbox == nil {
-		return Access{}, ErrNotFound
+	deadline := time.Now().Add(boatAddressWait)
+	for {
+		out = boatReply{}
+		if err := b.call(ctx, http.MethodGet, "/sandboxes/"+url.PathEscape(id), nil, nil, &out); err != nil {
+			return Access{}, err
+		}
+		if out.Sandbox == nil {
+			return Access{}, ErrNotFound
+		}
+		if out.Sandbox.IP != "" || strings.TrimSpace(out.Sandbox.SSHEndpoint) != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			return Access{}, fmt.Errorf("sandbox %s has no address yet (it is %s)", id, out.Sandbox.sandbox().State)
+		}
+		select {
+		case <-ctx.Done():
+			return Access{}, fmt.Errorf("sandbox %s has no address yet: %w", id, ctx.Err())
+		case <-time.After(pollEvery):
+		}
 	}
 	a := Access{User: boatUser, PlainUser: true, Host: out.Sandbox.IP}
 	// A machine with no public IPv4 of its own is reached through a
@@ -317,9 +410,6 @@ func (b *Boat) SSHAccess(ctx context.Context, id string) (Access, error) {
 			return Access{}, fmt.Errorf("boat gave an ssh endpoint conch cannot read: %q", ep)
 		}
 		a.Host, a.Port = host, n
-	}
-	if a.Host == "" {
-		return Access{}, fmt.Errorf("sandbox %s has no address yet", id)
 	}
 	return a, nil
 }
@@ -528,7 +618,8 @@ func (b *Boat) callWith(ctx context.Context, method, path string, q url.Values, 
 		return fmt.Errorf("boat: reply to %s %s is over %d bytes", method, path, maxBody)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return &BoatError{Status: resp.StatusCode, Message: boatMessage(data), keyEnv: b.keyEnv}
+		msg, code := boatMessage(data)
+		return &BoatError{Status: resp.StatusCode, Message: msg, Code: code, keyEnv: b.keyEnv}
 	}
 	if out == nil || len(bytes.TrimSpace(data)) == 0 {
 		return nil
@@ -536,8 +627,9 @@ func (b *Boat) callWith(ctx context.Context, method, path string, q url.Values, 
 	return json.Unmarshal(data, out)
 }
 
-// boatMessage is the reason out of an error reply.
-func boatMessage(data []byte) string {
+// boatMessage is the reason out of an error reply, and the code boat put
+// on it: the code is what conch can act on, the message what it shows.
+func boatMessage(data []byte) (msg, code string) {
 	var e struct {
 		Message string `json:"message"`
 		Error   struct {
@@ -547,20 +639,39 @@ func boatMessage(data []byte) string {
 		Code string `json:"code"`
 	}
 	if json.Unmarshal(data, &e) != nil {
-		return strings.TrimSpace(string(data))
+		return strings.TrimSpace(string(data)), ""
 	}
-	msg := firstSet(e.Error.Message, e.Message)
-	if code := firstSet(e.Error.Code, e.Code); code != "" && !strings.Contains(msg, code) {
+	msg, code = firstSet(e.Error.Message, e.Message), firstSet(e.Error.Code, e.Code)
+	if code != "" && !strings.Contains(msg, code) {
 		msg = firstSet(msg, code)
 	}
-	return msg
+	return msg, code
 }
 
 // BoatError is what boat.dev's API answered with.
 type BoatError struct {
 	Status  int
 	Message string
-	keyEnv  string
+	// Code is boat's own name for the refusal, e.g. billing_required.
+	Code   string
+	keyEnv string
+}
+
+// boatAdvice is what to do about the refusals a person meets, by boat's
+// own code: the message alone says what happened, not what would mend it.
+var boatAdvice = map[string]string{
+	"billing_required":                "boat.dev wants a plan or a payment method on the account before it will make sandboxes",
+	"account_not_ready":               "the boat.dev account is not ready yet — finish setting it up in the dashboard",
+	"ambiguous_org":                   "the key reaches more than one organisation; say which in boat.dev's dashboard",
+	"trial_auto_stop_required":        "the free trial allows a sandbox two hours at most; conch asks for that",
+	"trial_machine_class_not_allowed": "the free trial allows the small and default sizes only",
+	"limit_reached":                   "as many sandboxes as the plan allows are running (two on the free trial): stop or delete one",
+	"daily_limit_reached":             "as many sandboxes as the plan allows have been started today",
+	"member_limit_reached":            "as many sandboxes as the plan allows are running for this member",
+	"rate_limited":                    "boat.dev is being asked too often; try again in a moment",
+	"invalid_env":                     "boat.dev keeps some variable names for itself; rename the one it refused",
+	"unknown_environment":             "no boat.dev environment of that name",
+	"api_key_sandbox_forbidden":       "that key is scoped to one sandbox and cannot reach this one",
 }
 
 func (e *BoatError) Error() string {
@@ -569,11 +680,16 @@ func (e *BoatError) Error() string {
 		msg = http.StatusText(e.Status)
 	}
 	msg = fmt.Sprintf("boat: %s (%d)", msg, e.Status)
+	if advice := boatAdvice[e.Code]; advice != "" {
+		return msg + "; " + advice
+	}
 	switch e.Status {
 	case http.StatusUnauthorized, http.StatusForbidden:
 		msg += "; check the key in $" + e.keyEnv
 	case http.StatusPaymentRequired:
 		msg += "; boat.dev needs a plan before it will make sandboxes"
+	case http.StatusTooManyRequests:
+		msg += "; the plan allows only so many sandboxes at once"
 	}
 	return msg
 }

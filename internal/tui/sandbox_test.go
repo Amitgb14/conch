@@ -1221,6 +1221,16 @@ func TestSandboxDialogNamedSizes(t *testing.T) {
 	if got := labels(d); !strings.Contains(got, "vCPUs|the snapshot's") || !strings.Contains(got, "Disk GiB|") {
 		t.Fatalf("Daytona: %s", got)
 	}
+	// A provider that gives a sandbox a fixed life says so before making
+	// one; Daytona, which stops an idle one instead, says nothing.
+	if got := strings.Join(newSandboxDialog(*m, "boat").text, " "); !strings.Contains(got, "boat.dev gives it 2h 00m from now") ||
+		!strings.Contains(got, "conch stops it sooner") {
+		t.Fatalf("boat's dialog: %q", got)
+	}
+	if got := strings.Join(newSandboxDialog(*m, "daytona").text, " "); strings.Contains(got, "from now") {
+		t.Fatalf("Daytona's dialog: %q", got)
+	}
+
 	// boat.dev's sizes are names: no numbers, and the snapshot field says
 	// which names it takes.
 	d = newSandboxDialog(*m, "boat")
@@ -1228,7 +1238,7 @@ func TestSandboxDialogNamedSizes(t *testing.T) {
 	if strings.Contains(got, "vCPUs") || strings.Contains(got, "Memory") || strings.Contains(got, "Disk") {
 		t.Fatalf("boat was asked for numbers: %s", got)
 	}
-	if !strings.Contains(got, "Snapshot|a size (small, default, large, xlarge) or a snapshot") {
+	if !strings.Contains(got, "Snapshot|a size (small, default, large) or a snapshot") {
 		t.Fatalf("boat's snapshot field: %s", got)
 	}
 	if !strings.Contains(got, "Pass in|names of your environment variables") {

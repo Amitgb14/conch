@@ -898,6 +898,7 @@ var helpText = []string{
 	"    conch update list shows every release · conch update rollback goes back one",
 	"",
 	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain, sandboxes",
+	"     Sandboxes lists the providers; enter opens one's own page, esc goes back to the list",
 	"  q  detach (agents keep running)",
 }
 

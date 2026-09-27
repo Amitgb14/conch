@@ -425,6 +425,55 @@ func TestSettingsSandboxTab(t *testing.T) {
 		}
 		return b.String()
 	}
+	// The tab lists the providers rather than every provider's settings at
+	// once, each saying whether it is ready to be used.
+	list := plain()
+	for _, want := range []string{"Daytona|no key · $DAYTONA_API_KEY is not set", "boat.dev|no key · $BOAT_API_KEY is not set",
+		"Enter opens a provider"} {
+		if !strings.Contains(list, want) {
+			t.Fatalf("the list lacks %q in\n%s", want, list)
+		}
+	}
+	if strings.Contains(list, "API key variable") {
+		t.Fatalf("a provider's settings are on the list:\n%s", list)
+	}
+	// Opening one shows its own page, with the way back at the top.
+	item := func(label string) settingItem {
+		t.Helper()
+		for _, it := range s.items(m) {
+			if ansi.Strip(it.label) == label {
+				return it
+			}
+		}
+		t.Fatalf("no item %q in\n%s", label, plain())
+		return settingItem{}
+	}
+	// A click opens one too: the row is the target, not just enter.
+	m.width, m.height = 100, 40
+	b := s.render(*m)
+	// A row that opens a page is drawn as one, not as something to choose,
+	// and the hint says what esc does there.
+	page := ansi.Strip(strings.Join(b.lines, "\n"))
+	if !strings.Contains(page, "› Daytona") || !strings.Contains(page, "esc close") {
+		t.Fatalf("the list:\n%s", page)
+	}
+	rowY := func(i int) int { return b.y + 3 + i - s.scroll }
+	s.mouse(m, tea.MouseMsg{X: b.x + 3, Y: rowY(1), Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
+	if s.provider != "daytona" {
+		t.Fatalf("clicking Daytona opened %q", s.provider)
+	}
+	b = s.render(*m)
+	if got := ansi.Strip(strings.Join(b.lines, "\n")); !strings.Contains(got, "esc back to the providers") {
+		t.Fatalf("a provider page's hint:\n%s", got)
+	}
+	s.mouse(m, tea.MouseMsg{X: b.x + 3, Y: rowY(1), Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
+	if s.provider != "" {
+		t.Fatalf("clicking ‹ Sandboxes left %q open", s.provider)
+	}
+	item("Daytona").run(m)
+	if s.provider != "daytona" {
+		t.Fatalf("Daytona opened %q", s.provider)
+	}
 	// With no key, the header says so rather than pretending it is ready.
 	out := plain()
 	for _, want := range []string{"Daytona|no key · $DAYTONA_API_KEY is not set", "API key variable|DAYTONA_API_KEY",
@@ -439,29 +488,72 @@ func TestSettingsSandboxTab(t *testing.T) {
 	if !strings.Contains(out, "API key|not set · $DAYTONA_API_KEY is used") {
 		t.Fatalf("the key row:\n%s", out)
 	}
-	// Every provider has a section of its own, with its own key variable.
-	for _, want := range []string{"boat.dev|no key · $BOAT_API_KEY is not set", "API key variable|BOAT_API_KEY",
-		"Snapshot|boat.dev's default"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("missing %q in\n%s", want, out)
+	// Only the provider that is open, not every provider at once.
+	if strings.Contains(out, "BOAT_API_KEY") {
+		t.Fatalf("boat's settings are on Daytona's page:\n%s", out)
+	}
+	// esc goes back to the list, and the ‹ row does the same for the mouse.
+	if closed, _ := s.update(m, a2Key("esc")); closed || s.provider != "" {
+		t.Fatalf("esc in a provider page: closed %v provider %q", closed, s.provider)
+	}
+	item("boat.dev").run(m)
+	boat := plain()
+	for _, want := range []string{"API key variable|BOAT_API_KEY", "Snapshot|boat.dev's default",
+		"‹ Sandboxes|esc", "Life|2h 00m · the provider's own"} {
+		if !strings.Contains(boat, want) {
+			t.Fatalf("boat's page lacks %q in\n%s", want, boat)
 		}
 	}
+	// The life sits beside the idle stop, which is conch's own doing.
+	if idle, life := strings.Index(boat, "Stop when idle|"), strings.Index(boat, "Life|"); idle < 0 || life < idle {
+		t.Fatalf("Life should follow Stop when idle:\n%s", boat)
+	}
+	// It is set in minutes, and empty gives the provider's own length back.
+	lifeItem := item("Life")
+	lifeItem.run(m)
+	d, ok := m.overlay.(*dialog)
+	if !ok || !strings.Contains(strings.Join(d.text, " "), "boat.dev's default of 2h 00m") {
+		t.Fatalf("the life dialog: %#v", m.overlay)
+	}
+	d.submit(m, []string{"720"})
+	if got := m.cfg.Sandbox.Of("boat").AutoStop; got != 720 {
+		t.Fatalf("auto_stop is %d", got)
+	}
+	if got := ansi.Strip(item("Life").detail); got != "12h 00m from when it is made" {
+		t.Fatalf("the life row says %q", got)
+	}
+	if err := d.submit(m, []string{"soon"}); err == nil {
+		t.Fatal("a life that isn't a number was taken")
+	}
+	d.submit(m, []string{""})
+	if got := m.cfg.Sandbox.Of("boat").AutoStop; got != 0 {
+		t.Fatalf("emptying it left %d", got)
+	}
+	m.overlay = nil
+	// Daytona is not asked how long a sandbox lives: conch leaves its own
+	// idle timer off, so auto_stop would mean something else there.
+	if strings.Contains(out, "Life|") {
+		t.Fatalf("Daytona was asked for a life:\n%s", out)
+	}
+	item("‹ Sandboxes").run(m)
+	if s.provider != "" {
+		t.Fatalf("the back row went to %q", s.provider)
+	}
+	// Switching tab and coming back starts at the list again.
+	s.open("boat")
+	s.setTab(0)
+	s.setTab(len(settingsTabs) - 1)
+	if s.provider != "" {
+		t.Fatalf("a tab switch kept %q open", s.provider)
+	}
+	item("Daytona").run(m)
+	out = plain()
 	useSandboxProvider(t, &sbProvider{})
 	if out := plain(); !strings.Contains(out, "✓ $DAYTONA_API_KEY is set") {
 		t.Fatalf("configured:\n%s", out)
 	}
 
 	// Stopping when idle cycles through the choices and round again.
-	item := func(label string) settingItem {
-		t.Helper()
-		for _, it := range s.items(m) {
-			if ansi.Strip(it.label) == label {
-				return it
-			}
-		}
-		t.Fatalf("no item %q", label)
-		return settingItem{}
-	}
 	seen := []int{}
 	for i := 0; i < len(idleStopChoices)+1; i++ {
 		item("Stop when idle").run(m)
@@ -515,7 +607,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 
 	// Pass in takes names, separated however, and refuses a value.
 	item("Pass in").run(m)
-	d := m.overlay.(*dialog)
+	d = m.overlay.(*dialog)
 	if msgs := a2Run(d.submit(m, []string{"A_TOKEN=secret"})); !strings.Contains(a2ErrText(msgs), "give the name of a variable") {
 		t.Fatalf("a value: %v", msgs)
 	}
@@ -538,28 +630,29 @@ func TestSettingsSandboxTab(t *testing.T) {
 	// A provider conch grows gets the same settings, with no code of its
 	// own here, and saves under its own name.
 	sandbox.Providers = []string{"daytona", "fly"}
+	s.open("")
+	if got := plain(); !strings.Contains(got, "Fly|") {
+		t.Fatalf("a provider conch grows is not listed:\n%s", got)
+	}
+	s.open("fly")
 	out = plain()
 	for _, want := range []string{"API key variable|FLY_API_KEY", "Snapshot|Fly's default", "Pass in|nothing"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("another provider lacks %q:\n%s", want, out)
 		}
 	}
-	// Each provider has its own idle stop, saved under its own name.
-	flyStop := 0
-	for _, it := range s.items(m) {
-		if ansi.Strip(it.label) == "Stop when idle" {
-			flyStop++
-			it.run(m) // the second one is Fly's
-		}
-	}
-	if flyStop != 2 {
-		t.Fatalf("each provider has one: %d", flyStop)
-	}
+	// Each provider's settings are its own, saved under its own name.
+	item("Stop when idle").run(m)
 	if fly := m.cfg.Sandbox.Of("fly"); fly.IdleStop == nil || *fly.IdleStop == config.IdleStopDefault {
 		t.Fatalf("Fly's idle stop was not saved: %+v", m.cfg.Sandbox)
 	}
 	if got := m.cfg.Sandbox.Of("daytona"); got.Snapshot != "my-snapshot" || got.Target != "eu" {
 		t.Fatalf("Daytona's settings changed with Fly's: %+v", got)
+	}
+	// A provider that leaves the registry takes its page with it.
+	sandbox.Providers = []string{"daytona"}
+	if got := plain(); strings.Contains(got, "FLY_API_KEY") {
+		t.Fatalf("a provider this build no longer knows kept its page:\n%s", got)
 	}
 	sandbox.Providers = nil
 	if out := plain(); !strings.Contains(out, "knows no sandbox providers") {
@@ -574,6 +667,7 @@ func TestSettingsSandboxKey(t *testing.T) {
 	m, _ := sandboxModel(t)
 	s := &settings{}
 	s.setTab(len(settingsTabs) - 1)
+	s.open("daytona")
 	item := func(label string) settingItem {
 		t.Helper()
 		for _, it := range s.items(m) {
@@ -659,6 +753,7 @@ func TestSettingsSandboxRestore(t *testing.T) {
 	m, _ := sandboxModel(t)
 	s := &settings{}
 	s.setTab(len(settingsTabs) - 1)
+	s.open("daytona")
 	item := func() settingItem {
 		t.Helper()
 		for _, it := range s.items(m) {

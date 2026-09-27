@@ -278,15 +278,16 @@ Under **Remote machines**: whether files dropped on a remote pane are uploaded t
 
 ### Sandboxes
 
-What a new [sandbox](/docs/sandboxes) is made from, with a section per provider conch knows — every provider takes the same settings, saved under its own name in `[sandbox.<provider>]` — and each heading saying whether its key is there to be found (`✓ $DAYTONA_API_KEY is set`).
+The providers conch knows, each saying whether its key is there to be found (`✓ $DAYTONA_API_KEY is set`, or `no key · $BOAT_API_KEY is not set`). Enter, or a click, opens one; `esc` (or the `‹ Sandboxes` row) goes back to the list. Every provider takes the same settings, saved under its own name in `[sandbox.<provider>]`, so the tab lists them rather than growing a section with each one conch learns.
 
 | Setting | What it does |
 | --- | --- |
 | **API key** | the key itself, if you would rather keep it here than in your environment. It is written to `config.toml` (0600) as it is, so anything running as you can read it and it travels with a backup or a synced dotfile; the row shows only its last few characters. Empty leaves it to the variable below |
 | **API key variable** | which variable of your environment the key is read from when none is kept above; empty means the provider's own, `DAYTONA_API_KEY` or `BOAT_API_KEY` |
-| **Snapshot** | what new sandboxes start from; empty means the provider's default. For boat.dev this is also where a machine size goes — `small`, `default`, `large` or `xlarge` — since its machines are sized by name |
+| **Snapshot** | what new sandboxes start from; empty means the provider's default. For boat.dev this is also where a machine size goes — `small`, `default` or `large` — since its machines are sized by name |
 | **Region** | where they are made, e.g. `us` or `eu`. boat.dev has no regions and ignores it |
 | **Bring back what was running** | on by default: when a sandbox stops, conch writes down its agents (with the conversation each was on) and its terminals, and offers them back when it starts again. Off keeps no note at all |
 | **Stop when idle** | 30 minutes by default, or 15, 60, 120, or never. conch watches for an agent working and for panes printing, and pauses the sandbox when neither has happened for that long — its files, and where the provider can its memory, are kept. A provider's own timer sees only what reaches it from outside, so it would stop an agent working quietly; this doesn't |
+| **Life** | only for a provider that gives a sandbox a fixed life rather than stopping an idle one (boat.dev): how long a new one is given, in minutes, counted from when it was made. Empty means the provider's own — two hours for boat.dev, which is what its free trial allows. A plan that allows less says so, and conch asks again for the longest it named |
 | **Price an hour** | what an hour of a sandbox costs — per vCPU, per GiB of memory, per GiB of disk — so the tree can say what one has run up, and what a stopped one still costs for the disk it keeps. Empty shows running time alone; conch ships no price list |
 | **Pass in** | names of your environment variables to put into every new sandbox — an agent's token, say — separated by spaces or commas. Names only: a `NAME=value` is refused. The dialog that makes a sandbox can add more, for that one only |

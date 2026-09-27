@@ -43,9 +43,9 @@ func newFakeBoat(t *testing.T) (*fakeBoat, *Boat) {
 	t.Cleanup(srv.Close)
 	t.Setenv("BOAT_API_KEY", "boat_secret")
 	t.Setenv("BOAT_API_URL", srv.URL)
-	old := pollEvery
-	pollEvery = time.Millisecond
-	t.Cleanup(func() { pollEvery = old })
+	old, oldWait := pollEvery, boatAddressWait
+	pollEvery, boatAddressWait = time.Millisecond, 20*time.Millisecond
+	t.Cleanup(func() { pollEvery, boatAddressWait = old, oldWait })
 	return f, NewBoat(config.ProviderCfg{})
 }
 
@@ -420,9 +420,21 @@ func TestBoatSSHAccessAndKey(t *testing.T) {
 	if _, err := b.SSHAccess(ctx, "bx_23456781"); err == nil || !strings.Contains(err.Error(), "cannot read") {
 		t.Fatalf("a bad endpoint: %v", err)
 	}
+	// A machine with no address yet is waited for, and said to be without
+	// one only when it still has none.
 	f.edit("bx_23456781", func(s *boatSandbox) { s.SSHEndpoint, s.IP = "", "" })
-	if _, err := b.SSHAccess(ctx, "bx_23456781"); err == nil || !strings.Contains(err.Error(), "no address yet") {
+	if _, err := b.SSHAccess(ctx, "bx_23456781"); err == nil || !strings.Contains(err.Error(), "no address yet") ||
+		!strings.Contains(err.Error(), "it is started") {
 		t.Fatalf("no address: %v", err)
+	}
+	// One that is given an address a moment later is reached.
+	go func() {
+		time.Sleep(2 * time.Millisecond)
+		f.edit("bx_23456781", func(s *boatSandbox) { s.IP = "203.0.113.7" })
+	}()
+	a, err = b.SSHAccess(ctx, "bx_23456781")
+	if err != nil || a.Host != "203.0.113.7" {
+		t.Fatalf("an address that arrived late: %+v %v", a, err)
 	}
 	if _, err := b.SSHAccess(ctx, ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("no id: %v", err)
@@ -607,11 +619,160 @@ func TestBoatSizesNotNumbers(t *testing.T) {
 	f, b := newFakeBoat(t)
 	for _, spec := range []Spec{{CPU: 4}, {Memory: 8}, {Disk: 20}} {
 		_, err := b.Create(ctxFor(t), spec)
-		if err == nil || !strings.Contains(err.Error(), "come in sizes") || !strings.Contains(err.Error(), "xlarge") {
+		if err == nil || !strings.Contains(err.Error(), "come in sizes") || !strings.Contains(err.Error(), "small, default, large") {
 			t.Fatalf("%+v: %v", spec, err)
 		}
 	}
 	if got := f.creations(); len(got) != 0 {
 		t.Fatalf("boat was asked anyway: %v", got)
+	}
+}
+
+// Boat gives a sandbox a life from when it was made, and a plan has a
+// longest one it allows — two hours on the free trial. conch asks for
+// that, and when a plan allows even less it asks again for what the
+// refusal named rather than handing back an error nobody can act on.
+func TestBoatTTL(t *testing.T) {
+	f, b := newFakeBoat(t)
+	ctx := ctxFor(t)
+
+	// What a new sandbox is given, and what a setting makes of it.
+	if _, err := b.Create(ctx, Spec{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.creations()[0]["ttlSeconds"]; got != float64(7200) {
+		t.Fatalf("the default life is %v, want two hours", got)
+	}
+	if _, err := b.Create(ctx, Spec{AutoStop: 600}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.creations()[1]["ttlSeconds"]; got != float64(36000) {
+		t.Fatalf("auto_stop gave %v", got)
+	}
+
+	// What a new one is given is also what the dialog can say beforehand.
+	if got := b.Life(); got != 2*time.Hour {
+		t.Fatalf("Life is %v", got)
+	}
+	if got := NewBoat(config.ProviderCfg{AutoStop: 720}).Life(); got != 12*time.Hour {
+		t.Fatalf("Life with auto_stop is %v", got)
+	}
+
+	// A plan that allows less says so; conch asks again for that much.
+	f.refuse("POST /sandboxes", `{"ok":false,"error":{"code":"bad_request","message":"ttlSeconds must be at most 3600 seconds on this plan"}}`,
+		http.StatusBadRequest)
+	if _, err := b.Create(ctx, Spec{AutoStop: 600}); err != nil {
+		t.Fatalf("a life the plan allows less of: %v", err)
+	}
+	if got := f.creations()[2]["ttlSeconds"]; got != float64(3600) {
+		t.Fatalf("asked again for %v, want the 3600 the refusal named", got)
+	}
+	// One that names hours instead.
+	f.refuse("POST /sandboxes", `{"ok":false,"error":{"message":"the free trial allows a ttl of 2 hours"}}`, http.StatusForbidden)
+	if _, err := b.Create(ctx, Spec{AutoStop: 600}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.creations()[3]["ttlSeconds"]; got != float64(7200) {
+		t.Fatalf("hours became %v", got)
+	}
+	// One that names nothing falls back to the free trial's two hours.
+	f.refuse("POST /sandboxes", `{"ok":false,"error":{"message":"ttl too long for this plan"}}`, http.StatusBadRequest)
+	if _, err := b.Create(ctx, Spec{AutoStop: 600}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.creations()[4]["ttlSeconds"]; got != float64(7200) {
+		t.Fatalf("a refusal naming no number gave %v", got)
+	}
+	// A refusal that has nothing to do with the life is passed on, once.
+	asks := func() int {
+		n := 0
+		for _, c := range f.called() {
+			if c == "POST /sandboxes" {
+				n++
+			}
+		}
+		return n
+	}
+	f.refuse("POST /sandboxes", `{"ok":false,"error":{"code":"quota","message":"too many sandboxes"}}`, http.StatusPaymentRequired)
+	before := asks()
+	if _, err := b.Create(ctx, Spec{}); err == nil || !strings.Contains(err.Error(), "too many sandboxes") {
+		t.Fatalf("another refusal: %v", err)
+	}
+	if got := asks() - before; got != 1 {
+		t.Fatalf("it was asked %d times", got)
+	}
+	// And one about a life that is already short enough is not retried:
+	// asking again the same way would only fail again.
+	f.refuse("POST /sandboxes", `{"ok":false,"error":{"message":"ttlSeconds must be at most 7200 seconds"}}`, http.StatusBadRequest)
+	before = asks()
+	if _, err := b.Create(ctx, Spec{}); err == nil || !strings.Contains(err.Error(), "7200") {
+		t.Fatalf("a limit that is not shorter: %v", err)
+	}
+	if got := asks() - before; got != 1 {
+		t.Fatalf("it was asked %d times", got)
+	}
+
+	// A resume gives it the same life, and takes the same refusal.
+	f.allow()
+	f.add("bx_23456789", "archived")
+	f.refuse("POST /sandboxes/bx_23456789/resume", `{"ok":false,"error":{"message":"ttlSeconds must be at most 3600 seconds on this plan"}}`,
+		http.StatusBadRequest)
+	if _, err := b.Start(ctx, "bx_23456789"); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	var body map[string]any
+	_ = json.Unmarshal(f.body("POST /sandboxes/bx_23456789/resume"), &body)
+	if body["ttlSeconds"] != float64(3600) {
+		t.Fatalf("the resumed life is %v", body["ttlSeconds"])
+	}
+}
+
+// Boat names its refusals, and the name is what says how to mend them: a
+// message alone says what happened, not what to do about it.
+func TestBoatRefusalsSayWhatToDo(t *testing.T) {
+	f, b := newFakeBoat(t)
+	ctx := ctxFor(t)
+	for _, c := range []struct {
+		status int
+		code   string
+		want   string
+	}{
+		{402, "billing_required", "wants a plan or a payment method"},
+		{409, "account_not_ready", "not ready yet"},
+		{409, "ambiguous_org", "more than one organisation"},
+		{403, "trial_machine_class_not_allowed", "small and default sizes only"},
+		{429, "limit_reached", "two on the free trial"},
+		{429, "daily_limit_reached", "started today"},
+		{400, "invalid_env", "keeps some variable names"},
+		{400, "unknown_environment", "no boat.dev environment of that name"},
+		{429, "", "only so many sandboxes at once"}, // no code: the status still says something
+		{401, "", "check the key in $BOAT_API_KEY"},
+	} {
+		f.refuse("POST /sandboxes", fmt.Sprintf(`{"ok":false,"status":%d,"code":%q,"message":"no"}`, c.status, c.code), c.status)
+		_, err := b.Create(ctx, Spec{})
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%d %s: %v, want %q", c.status, c.code, err, c.want)
+		}
+	}
+	f.allow()
+
+	// The free trial's own refusal does not have to mention a ttl for conch
+	// to know it is about one.
+	f.refuse("POST /sandboxes", `{"ok":false,"code":"trial_auto_stop_required","message":"auto-stop is required on the trial"}`, http.StatusBadRequest)
+	if _, err := b.Create(ctx, Spec{AutoStop: 600}); err != nil {
+		t.Fatalf("the trial's refusal: %v", err)
+	}
+	if got := f.creations()[len(f.creations())-1]["ttlSeconds"]; got != float64(7200) {
+		t.Fatalf("asked again for %v, want two hours", got)
+	}
+
+	// A life longer than boat allows at all is asked for as the most it
+	// does: 30 days.
+	f.allow()
+	if _, err := b.Create(ctx, Spec{AutoStop: 60 * 24 * 60}); err != nil { // 60 days
+		t.Fatal(err)
+	}
+	if got := f.creations()[len(f.creations())-1]["ttlSeconds"]; got != float64(boatMaxTTL.Seconds()) {
+		t.Fatalf("a life of 60 days became %v", got)
 	}
 }

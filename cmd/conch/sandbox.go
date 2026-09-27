@@ -223,15 +223,21 @@ func sandboxList() error {
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", m.ID, m.Label, id, state, size(s))
 	}
-	// Made by conch but no longer in the catalog: a create that failed
-	// half-way, or a machine removed with conch machine rm.
+	// No machine here: a create that failed half-way, a machine removed
+	// with conch machine rm, or — where a provider lists the whole account
+	// — a sandbox somebody made themselves.
+	stray := 0
 	for _, s := range boxes {
 		if _, left := byID[s.ID]; left {
+			stray++
 			fmt.Fprintf(tw, "-\t-\t%s\t%s\t%s\n", s.ID, s.State, size(s))
 		}
 	}
 	if err := tw.Flush(); err != nil {
 		return err
+	}
+	if stray > 0 {
+		fmt.Fprintf(os.Stderr, "\n%d with no machine here: made outside conch, or its machine was removed · conch sandbox rm ID deletes one, and it costs until then\n", stray)
 	}
 	if gone > 0 {
 		// Deleted in Daytona's own interface, say: the machine is still
@@ -241,11 +247,23 @@ func sandboxList() error {
 	return nil
 }
 
+// size is what a sandbox is, naming only what the provider reported: boat
+// says nothing about disk, and "0 GiB disk" would read like a machine with
+// none.
 func size(s sandbox.Sandbox) string {
-	if s.CPU == 0 && s.Memory == 0 && s.Disk == 0 {
+	var parts []string
+	for _, part := range []struct {
+		n    int
+		unit string
+	}{{s.CPU, "vCPU"}, {s.Memory, "GiB"}, {s.Disk, "GiB disk"}} {
+		if part.n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", part.n, part.unit))
+		}
+	}
+	if len(parts) == 0 {
 		return "-"
 	}
-	return fmt.Sprintf("%d vCPU, %d GiB, %d GiB disk", s.CPU, s.Memory, s.Disk)
+	return strings.Join(parts, ", ")
 }
 
 // resolveSandbox finds a sandbox by its machine's ID, label or target, or

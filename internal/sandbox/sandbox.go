@@ -213,6 +213,14 @@ type NamedSizes interface {
 	SizeNames() []string
 }
 
+// Lifetime is a provider whose sandboxes are given a length of life when
+// they are made rather than being stopped when nobody uses them, so it is
+// worth saying how long before one is created.
+type Lifetime interface {
+	// Life is what a new sandbox gets, with this provider's settings.
+	Life() time.Duration
+}
+
 // Providers lists the providers conch knows.
 var Providers = []string{"daytona", "boat"}
 

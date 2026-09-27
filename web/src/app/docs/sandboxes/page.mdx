@@ -39,13 +39,13 @@ export BOAT_API_KEY=boat_…       # boat.dev
 
 Only the provider you use needs a key. A provider with no key is still listed, and says what is missing rather than failing when you try.
 
-By default conch reads the key from the environment every time and never writes it down — set it where your shell will have it (`~/.zshrc`), and restart conch, since a running process keeps the environment it started with. The key is read by whatever connects: the TUI and the `conch sandbox` commands, never the server, and it never goes over the protocol. A different variable can be named in Settings (`,` → **Sandboxes**) or as `api_key_env` in [`[sandbox.<provider>]`](/docs/configuration#sandbox), along with the snapshot, region, auto-stop and what of your environment every new sandbox gets. Each provider has its own section, and its own key.
+By default conch reads the key from the environment every time and never writes it down — set it where your shell will have it (`~/.zshrc`), and restart conch, since a running process keeps the environment it started with. The key is read by whatever connects: the TUI and the `conch sandbox` commands, never the server, and it never goes over the protocol. A different variable can be named in Settings (`,` → **Sandboxes** → the provider) or as `api_key_env` in [`[sandbox.<provider>]`](/docs/configuration#sandbox), along with the snapshot, region, auto-stop and what of your environment every new sandbox gets. Each provider has its own section, and its own key.
 
-If you would rather not keep it in your shell at all, Settings → **Sandboxes** → **API key** takes the key itself. It is then written to `config.toml` (0600) as it is: anything running as you can read it, and it travels with a backup or a synced dotfile, so it is the convenient choice rather than the careful one. A key kept there wins over the variable, the settings show only its last few characters, and emptying the field gives the variable back.
+If you would rather not keep it in your shell at all, Settings → **Sandboxes** → the provider → **API key** takes the key itself. It is then written to `config.toml` (0600) as it is: anything running as you can read it, and it travels with a backup or a synced dotfile, so it is the convenient choice rather than the careful one. A key kept there wins over the variable, the settings show only its last few characters, and emptying the field gives the variable back.
 
 ## In the TUI
 
-Press `M`, choose **New sandbox…** and then the provider — Daytona or boat.dev, and whatever conch grows later sits beside it; `esc` goes back to the machine menu. The dialog takes a label, a snapshot, a size and the names of environment variables to pass in; leave any of them empty for the defaults. boat.dev's machines come in named sizes rather than numbers: put `small`, `default`, `large` or `xlarge` where the snapshot goes and leave vCPUs, memory and disk empty — a number there is refused, with that sentence, rather than quietly ignored. conch creates the sandbox, sets itself up there and adds the machine to the tree, which takes a minute or two. If setting up fails, the sandbox is deleted rather than left to cost, and the reason is shown.
+Press `M`, choose **New sandbox…** and then the provider — Daytona or boat.dev, and whatever conch grows later sits beside it; `esc` goes back to the machine menu. The dialog takes a label, a snapshot, a size and the names of environment variables to pass in; leave any of them empty for the defaults. boat.dev's machines come in named sizes rather than numbers: put `small`, `default` or `large` where the snapshot goes and leave vCPUs, memory and disk empty — a number there is refused, with that sentence, rather than quietly ignored. conch creates the sandbox, sets itself up there and adds the machine to the tree, which takes a minute or two. If setting up fails, the sandbox is deleted rather than left to cost, and the reason is shown.
 
 `m` on a sandbox's row adds:
 
@@ -75,7 +75,7 @@ Daytona takes a cold snapshot, which wants the sandbox stopped first, and says s
 
 A sandbox costs while it runs, so the tree shows how long each has been up — `4h 12m` beside its row, and the total on the Sandboxes page. conch asks the provider what it has billed, every quarter of an hour, and shows that. Daytona reports per sandbox on its own analytics host; conch learns which organization to ask from the sandbox itself, so there is nothing to configure. boat.dev answers with one number for the whole sandbox — the seconds it has run and what they cost — so its detail page shows that single stretch rather than a period each. Those figures settle hours behind what is running, so until they arrive conch falls back to an estimate, marked with a `~`: `4h 12m · ~$0.59` is conch's arithmetic, `4h 12m · $0.03` is the provider's own number.
 
-Set what an hour costs in Settings → **Sandboxes** → **Price an hour** (per vCPU, per GiB of memory, per GiB of disk, from the provider's own pricing page) and the money appears beside the time: `4h 12m · $0.59`. conch ships no price list, because providers change theirs and a stale one misleads.
+Set what an hour costs in Settings → **Sandboxes** → the provider → **Price an hour** (per vCPU, per GiB of memory, per GiB of disk, from the provider's own pricing page) and the money appears beside the time: `4h 12m · $0.59`. conch ships no price list, because providers change theirs and a stale one misleads.
 
 `m` → **What it has cost…** asks the provider afresh and shows where the money went, newest first — each stretch the sandbox was billed for, what it was doing then, and what that cost:
 
@@ -95,7 +95,7 @@ $0.009 since 26 Sep 09:00
 
 ## Stopping one nobody is using
 
-A sandbox costs while it runs, and it is easy to leave one running. conch pauses a sandbox when no agent there is working, none is waiting for an answer, and no pane has printed for **30 minutes** — Settings → **Sandboxes** → **Stop when idle** changes it (15, 30, 60, 120 or never), per provider, as `idle_stop` in [`[sandbox.<provider>]`](/docs/configuration#sandbox). The status bar says which sandbox went and why, its files are kept, and `m` → **Start sandbox** brings it back where it was.
+A sandbox costs while it runs, and it is easy to leave one running. conch pauses a sandbox when no agent there is working, none is waiting for an answer, and no pane has printed for **30 minutes** — Settings → **Sandboxes** → the provider → **Stop when idle** changes it (15, 30, 60, 120 or never), per provider, as `idle_stop` in [`[sandbox.<provider>]`](/docs/configuration#sandbox). The status bar says which sandbox went and why, its files are kept, and `m` → **Start sandbox** brings it back where it was.
 
 This is conch's own watching, not the provider's. Daytona's `auto_stop` counts only what reaches it from outside — an ssh connection, a preview request, an API call — so an agent working quietly inside looks idle to it and would be stopped mid-task. conch leaves that timer off and watches the agents and panes it can actually see. boat.dev has no idle timer at all, only a lifetime from when the sandbox was made: conch gives a new one a day, which `auto_stop` changes, and its own watch is what stops one nobody is using before then.
 
@@ -109,7 +109,7 @@ So conch writes down what was running — each agent, its conversation and its f
 
 Each is started in turn, and conch says what came of it: *started 3 of them again in sdx1*, or the reason each one didn't — a sandbox that comes back with nothing showing and nothing said is the thing to avoid. The first pane to start is opened, so it is plain that something is running. An agent whose conversation has gone is started afresh in the same folder rather than skipped; any other refusal is reported instead, so a busy or broken server doesn't quietly get a second agent.
 
-Nothing is started until you say yes: an agent picking up where it left off is not always what you want to happen twice. Settings → **Sandboxes** → **Bring back what was running** turns the whole thing off, per provider (`restore_running`), and then conch keeps no note of what ran — the conversations are still on the sandbox's disk, and the Sessions view still finds them. Agents with a saved conversation are resumed on it; one that saved none starts afresh, and the question says which is which. The note survives conch restarting, and is forgotten when the sandbox is deleted or when something is already running there.
+Nothing is started until you say yes: an agent picking up where it left off is not always what you want to happen twice. Settings → **Sandboxes** → the provider → **Bring back what was running** turns the whole thing off, per provider (`restore_running`), and then conch keeps no note of what ran — the conversations are still on the sandbox's disk, and the Sessions view still finds them. Agents with a saved conversation are resumed on it; one that saved none starts afresh, and the question says which is which. The note survives conch restarting, and is forgotten when the sandbox is deleted or when something is already running there.
 
 ## Deleted somewhere else
 
@@ -133,11 +133,13 @@ conch sandbox rm fix-login                     # deletes it and everything in it
 
 `start`, `stop` and `rm` take the machine's ID or label, or the provider's own sandbox ID. `stop` and `rm` ask first; `-y` doesn't. Before deleting a running sandbox, `rm` lists branches there with commits no remote has and uncommitted changes.
 
-`conch sandbox ls` also lists sandboxes conch made that are no longer machines — one whose setting up failed, or one removed with `conch machine rm` — so you can delete them.
+`conch sandbox ls` also lists sandboxes with no machine here — one whose setting up failed, one removed with `conch machine rm`, or, with a provider that lists the whole account rather than only conch's own (boat.dev has no labels to tell them apart), one you made yourself. They show with `-` for the ID and label, and a line underneath says so: they cost until `conch sandbox rm ID` deletes them. The size column names only what the provider reports, so a boat.dev sandbox shows `4 vCPU, 8 GiB` rather than inventing a disk it said nothing about.
 
 ## Running until you stop it
 
-Daytona stops an idle sandbox after 15 minutes by default, and an agent working inside doesn't count as activity — only an ssh connection or an API call does. So a sandbox conch creates never stops on its own: close the TUI and its agents carry on. It costs for as long as it runs, so stop or delete it when you're done. `auto_stop` in [`[sandbox.<provider>]`](/docs/configuration#sandbox) sets a timeout instead — a day, for boat.dev, whose clock runs from when the sandbox was made rather than from the last thing that happened in it.
+Daytona stops an idle sandbox after 15 minutes by default, and an agent working inside doesn't count as activity — only an ssh connection or an API call does. So a sandbox conch creates never stops on its own: close the TUI and its agents carry on. It costs for as long as it runs, so stop or delete it when you're done. `auto_stop` in [`[sandbox.<provider>]`](/docs/configuration#sandbox) sets a timeout instead.
+
+boat.dev is the other way about: a sandbox is given a length of life when it is made, counted from then and not from the last thing that happened in it. conch asks for two hours, which is what the free trial allows, and Settings → **Sandboxes** → **boat.dev** → **Life** (`auto_stop`, in minutes) raises it on a paid plan; a plan that allows less says so, and conch asks again for the longest it named instead of failing. conch's own idle watch stops a sandbox nobody is using long before that clock runs out, and **Start sandbox** gives it a fresh two hours.
 
 conch never starts a stopped sandbox by itself: use **Start sandbox** in its menu, or `conch sandbox start`.
 
@@ -151,7 +153,7 @@ Both are reached over ssh, by different means.
 
 With Daytona, each connection asks for a fresh ssh token and goes through Daytona's ssh gateway, so nothing that lets you in is saved. The token is kept out of conch's messages, but ssh has it on its command line while connected, where other users of your computer could see it in the process list. Daytona's gateway key is accepted the first time it is seen.
 
-With boat.dev, the sandbox is a machine with an sshd of its own. conch authorizes your public key in it — your default `~/.ssh/id_*.pub`, or one conch makes for itself — and connects to the machine directly as `user`, so the half that opens it never leaves your computer and there is no token to hide. A sandbox that comes back from being stopped lands on another machine, so where to connect is read afresh each time, and the new host key is accepted as the gateway's is.
+With boat.dev, the sandbox is a machine with an sshd of its own. A new one is ready a moment before it has an address, so conch waits for one rather than failing a create that was going to work. conch authorizes your public key in it — your default `~/.ssh/id_*.pub`, or one conch makes for itself — and connects to the machine directly as `user`, offering that same key (`-i`, and nothing else), so the half that opens it never leaves your computer and there is no token to hide. Your key does not need to be in `ssh-agent`. A sandbox that comes back from being stopped lands on another machine, so where to connect is read afresh each time, and the new host key is accepted as the gateway's is.
 
 <Callout type="note">
 

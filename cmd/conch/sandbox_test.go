@@ -306,9 +306,16 @@ func TestA4SandboxListStartStopRemove(t *testing.T) {
 	}
 
 	var err error
-	out, _ := a4Capture(t, "", func() { err = runSandbox(nil) })
+	out, errOut := a4Capture(t, "", func() { err = runSandbox(nil) })
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Both kinds of row nobody could otherwise account for say what to do.
+	for _, want := range []string{"1 with no machine here", "conch sandbox rm ID deletes one",
+		"1 gone: deleted outside conch"} {
+		if !strings.Contains(errOut, want) {
+			t.Fatalf("stderr lacks %q:\n%s", want, errOut)
+		}
 	}
 	rows := strings.Split(strings.TrimSpace(out), "\n")
 	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
@@ -351,7 +358,7 @@ func TestA4SandboxListStartStopRemove(t *testing.T) {
 	}
 
 	// rm of one Daytona has lost still forgets it.
-	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"rm", "-y", "gone"}) })
+	out, errOut = a4Capture(t, "", func() { err = runSandbox([]string{"rm", "-y", "gone"}) })
 	if err != nil || out != "deleted gone\n" || !strings.Contains(errOut, "already gone from Daytona") {
 		t.Fatalf("rm gone: %q %q %v", out, errOut, err)
 	}
@@ -699,7 +706,9 @@ func TestA4SandboxProviderFlag(t *testing.T) {
 		t.Fatalf("url: %q %v", out, err)
 	}
 	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "boat", "ls"}) })
-	if err != nil || !strings.Contains(out, "bx_234561") || !strings.Contains(out, "hull") {
+	// boat says nothing about disk, so the size column doesn't invent it.
+	if err != nil || !strings.Contains(out, "bx_234561") || !strings.Contains(out, "hull") ||
+		!strings.Contains(out, "4 vCPU, 8 GiB") || strings.Contains(out, "GiB disk") {
 		t.Fatalf("ls: %q %v", out, err)
 	}
 	// Stopping and starting it again go to boat, not Daytona.

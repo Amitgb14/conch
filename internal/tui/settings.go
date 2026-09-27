@@ -22,6 +22,10 @@ type settings struct {
 	tab    int
 	sel    int
 	scroll int
+	// provider is the sandbox provider whose own page is open; "" is the
+	// list of them. Keeping every provider's settings on one page made the
+	// tab longer with each one conch learns.
+	provider string
 
 	shell    *proto.ShellThemes // this computer's prompt themes
 	shellErr string
@@ -41,6 +45,7 @@ type settingItem struct {
 	detail string // right-aligned
 	on     *bool  // a toggle
 	mark   bool   // the current choice in a list
+	page   bool   // opens a page of its own, rather than choosing anything
 	run    func(m *Model) tea.Cmd
 }
 
@@ -398,41 +403,77 @@ func idleStopText(min int) string {
 	return fmt.Sprintf("after %dm with no agent working and nothing printing", min)
 }
 
-// sandboxItems is the Sandboxes tab: what a new sandbox is made from, per
-// provider, and what of your environment goes into it. The API key is
-// never among them — it is read from your environment every time and
-// never written down.
+// sandboxItems is the Sandboxes tab: the providers conch knows, and the
+// page of one of them. Every provider takes the same settings, so the tab
+// lists them and opens one rather than growing by a section each time
+// conch learns another.
 func (s *settings) sandboxItems(m *Model) []settingItem {
+	if len(sandbox.Providers) == 0 {
+		return []settingItem{
+			{header: true, label: "Sandboxes", detail: "M → New sandbox… makes one and adds it as a machine"},
+			{label: "  this build knows no sandbox providers"},
+		}
+	}
+	if s.provider != "" && sandbox.Known(s.provider) {
+		return s.providerPage(m, s.provider)
+	}
 	items := []settingItem{
 		{header: true, label: "Sandboxes", detail: "M → New sandbox… makes one and adds it as a machine"},
 	}
-	if len(sandbox.Providers) == 0 {
-		return append(items, settingItem{label: "  this build knows no sandbox providers"})
-	}
 	for _, name := range sandbox.Providers {
-		items = append(items, s.providerItems(m, name)...)
+		name := name
+		items = append(items, settingItem{label: providerLabel(name), detail: providerState(m, name), page: true,
+			run: func(m *Model) tea.Cmd { s.open(name); return nil }})
 	}
+	return append(items,
+		settingItem{},
+		settingItem{label: styleMuted.Render("  Enter opens a provider: the key it uses, what its sandboxes are made")},
+		settingItem{label: styleMuted.Render("  from, and what of your environment goes into them.")})
+}
+
+// open shows one provider's page; esc goes back to the list.
+func (s *settings) open(provider string) {
+	s.provider, s.sel, s.scroll = provider, 0, 0
+}
+
+// providerPage is one provider's own page, with the way back at the top so
+// the mouse has one as well as esc.
+func (s *settings) providerPage(m *Model, provider string) []settingItem {
+	items := []settingItem{
+		{header: true, label: providerLabel(provider), detail: providerState(m, provider)},
+		{label: styleMuted.Render("‹ Sandboxes"), detail: styleMuted.Render("esc"),
+			run: func(m *Model) tea.Cmd { s.open(""); return nil }},
+	}
+	items = append(items, s.providerItems(m, provider)...)
 	return append(items,
 		settingItem{},
 		settingItem{label: styleMuted.Render("  These are the defaults for new sandboxes; the dialog that makes one can")},
 		settingItem{label: styleMuted.Render("  change them, and pass in more, for that sandbox only.")})
 }
 
+// providerState says whether a provider is ready to be used, without
+// showing the key.
+func providerState(m *Model, provider string) string {
+	cfg := m.cfg.Sandbox.Of(provider)
+	keyEnv := firstNonEmpty(cfg.APIKeyEnv, defaultKeyEnv(provider))
+	if p, err := openSandboxProvider(provider); err != nil {
+		return styleErr.Render(ansi.Truncate(err.Error(), 44, "…"))
+	} else if err := p.Check(); err != nil {
+		return styleWarn.Render("no key · $" + keyEnv + " is not set")
+	}
+	if strings.TrimSpace(cfg.APIKey) != "" {
+		return styleOK.Render("✓ key kept in the settings")
+	}
+	return styleOK.Render("✓ $" + keyEnv + " is set")
+}
+
 // providerItems are one provider's settings. Every provider takes the same
-// ones, so a new one needs nothing here.
+// ones, so a new one needs nothing here — except a life, which only a
+// provider that gives its sandboxes one is asked for.
 func (s *settings) providerItems(m *Model, provider string) []settingItem {
 	cfg := m.cfg.Sandbox.Of(provider)
 	label := providerLabel(provider)
 	keyEnv := firstNonEmpty(cfg.APIKeyEnv, defaultKeyEnv(provider))
-	key := styleOK.Render("✓ $" + keyEnv + " is set")
-	if strings.TrimSpace(cfg.APIKey) != "" {
-		key = styleOK.Render("✓ key kept in the settings")
-	}
-	if p, err := openSandboxProvider(provider); err != nil {
-		key = styleErr.Render(ansi.Truncate(err.Error(), 44, "…"))
-	} else if err := p.Check(); err != nil {
-		key = styleWarn.Render("no key · $" + keyEnv + " is not set")
-	}
 	// set stores one field, leaving the provider's others as they are.
 	set := func(change func(c *config.ProviderCfg)) func(m *Model) tea.Cmd {
 		return func(m *Model) tea.Cmd {
@@ -458,8 +499,28 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 			return d.focusCmd()
 		}}
 	}
-	return []settingItem{
-		{}, {header: true, label: label, detail: key},
+	// A provider that gives a sandbox a length of life, counted from when
+	// it was made, is asked how long, beside the idle stop that is conch's
+	// own. One that stops an idle sandbox itself is not asked: conch leaves
+	// that timer off on purpose, since an agent working quietly looks idle
+	// to it.
+	var life []settingItem
+	if p, err := openSandboxProvider(provider); err == nil {
+		if l, ok := p.(sandbox.Lifetime); ok {
+			life = append(life, field("Life", lifeText(cfg.AutoStop, l.Life()),
+				"How long a new sandbox is given, in minutes, counted from when it is made — "+label+"'s own clock, whatever is happening inside. Empty means "+
+					label+"'s default of "+shortDuration(l.Life())+". A plan that allows less says so, and conch asks again for the longest it named; conch's own idle watch stops a sandbox nobody is using well before either.",
+				lifeValue(cfg.AutoStop), func(c *config.ProviderCfg, v string) error {
+					n, err := parseMinutes(v)
+					if err != nil {
+						return err
+					}
+					c.AutoStop = n
+					return nil
+				}))
+		}
+	}
+	items := []settingItem{
 		field("API key", keyDetail(cfg.APIKey, keyEnv),
 			"The key itself, kept in config.toml in your home — written 0600, but anything running as you can read it, and it travels with a backup or a synced dotfile. Empty leaves it to the variable below, which is what conch does otherwise.",
 			cfg.APIKey, func(c *config.ProviderCfg, v string) error { c.APIKey = v; return nil }),
@@ -481,7 +542,10 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 			n := nextIdleStop(c.IdleMinutes())
 			c.IdleStop = &n
 		})},
-		{label: "Price an hour", detail: priceText(cfg), run: func(m *Model) tea.Cmd {
+	}
+	items = append(items, life...)
+	items = append(items,
+		settingItem{label: "Price an hour", detail: priceText(cfg), run: func(m *Model) tea.Cmd {
 			c := m.cfg.Sandbox.Of(provider)
 			d := newDialog(*m, " "+label+" · price an hour ",
 				[]string{"What an hour costs, so conch can say what a sandbox has run up. conch ships no price list — providers change theirs — so take these from " + label + "'s own pricing page. Empty or 0 shows running time alone."},
@@ -512,8 +576,37 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 				}
 				c.Env = names
 				return nil
-			}),
+			}))
+	return items
+}
+
+// lifeText says how long a new sandbox lives, and whether that is the
+// provider's own length or one you set.
+func lifeText(minutes int, life time.Duration) string {
+	if minutes <= 0 {
+		return styleMuted.Render(shortDuration(life) + " · the provider's own")
 	}
+	return shortDuration(time.Duration(minutes)*time.Minute) + " from when it is made"
+}
+
+func lifeValue(minutes int) string {
+	if minutes <= 0 {
+		return ""
+	}
+	return strconv.Itoa(minutes)
+}
+
+// parseMinutes reads a number of minutes; empty is the provider's default.
+func parseMinutes(v string) (int, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%q: give a number of minutes, or nothing for the provider's own", v)
+	}
+	return n, nil
 }
 
 // keyDetail says whether a key is kept here, without showing it: enough to
@@ -654,6 +747,11 @@ func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		items := s.items(m)
 		switch msg.String() {
 		case "esc", "q", ",":
+			// Inside a provider's page, esc is the way back to the list.
+			if s.provider != "" && msg.String() == "esc" {
+				s.open("")
+				return false, nil
+			}
 			m.overlay = nil
 			return true, nil
 		case "tab", "right", "l":
@@ -680,7 +778,7 @@ func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 }
 
 func (s *settings) setTab(t int) {
-	s.tab, s.sel, s.scroll = t, 0, 0
+	s.tab, s.sel, s.scroll, s.provider = t, 0, 0, ""
 }
 
 // move steps the selection by delta, skipping lines that do nothing.
@@ -749,7 +847,11 @@ func (s *settings) render(m Model) box {
 	if more := len(items) - (s.scroll + listH); more > 0 {
 		lines[len(lines)-1] = styleMuted.Render(fmt.Sprintf("  … %d more", more))
 	}
-	lines = append(lines, "", styleMuted.Render(" tab switch · ↑↓ move · enter choose/toggle · esc close"),
+	hint := " tab switch · ↑↓ move · enter choose/toggle · esc close"
+	if s.provider != "" {
+		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back to the providers"
+	}
+	lines = append(lines, "", styleMuted.Render(hint),
 		styleMuted.Render(" saved to "+ansi.Truncate(config.Dir()+"/config.toml", w-10, "…")))
 	b := box{lines: frameLines(" ⚙ Settings ", lines, w, colorAccent)}
 	b.x = max((m.width-b.width())/2, 0)
@@ -769,6 +871,8 @@ func (s *settings) itemLine(it settingItem, selected bool, w int) string {
 		prefix = " " + styleMuted.Render("□") + " "
 	case it.mark:
 		prefix = " " + styleAccent.Render("●") + " "
+	case it.page:
+		prefix = " " + styleMuted.Render("›") + " "
 	case it.run != nil:
 		prefix = " " + styleMuted.Render("○") + " "
 	}
