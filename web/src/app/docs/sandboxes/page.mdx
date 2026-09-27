@@ -63,9 +63,25 @@ Daytona takes a cold snapshot, which wants the sandbox stopped first, and says s
 
 ## What one has cost
 
-A sandbox costs while it runs, so the tree shows how long each has been up — `4h 12m` beside its row, and the total on the Sandboxes page. Set what an hour costs in Settings → **Sandboxes** → **Price an hour** (per vCPU, per GiB of memory, per GiB of disk, from the provider's own pricing page) and the money appears beside the time: `4h 12m · $0.59`. conch ships no price list, because providers change theirs and a stale one misleads.
+A sandbox costs while it runs, so the tree shows how long each has been up — `4h 12m` beside its row, and the total on the Sandboxes page. conch asks the provider what it has billed, every quarter of an hour, and shows that. Daytona reports per sandbox on its own analytics host; conch learns which organization to ask from the sandbox itself, so there is nothing to configure. Those figures settle hours behind what is running, so until they arrive conch falls back to an estimate, marked with a `~`: `4h 12m · ~$0.59` is conch's arithmetic, `4h 12m · $0.03` is the provider's own number.
 
-**Stopped is not free.** The disk a stopped sandbox keeps is charged until the sandbox is deleted — on a small Daytona sandbox that is most of what it costs over a week. A stopped one therefore reads `disk $0.001/h` rather than nothing, and the Sandboxes page totals it: *stopped ones keep $0.002/h of disk*. It is a rate rather than a total because a provider doesn't say when a sandbox stopped, and a total conch cannot know would be worse than the rate it can.
+Set what an hour costs in Settings → **Sandboxes** → **Price an hour** (per vCPU, per GiB of memory, per GiB of disk, from the provider's own pricing page) and the money appears beside the time: `4h 12m · $0.59`. conch ships no price list, because providers change theirs and a stale one misleads.
+
+`m` → **What it has cost…** asks the provider afresh and shows where the money went, newest first — each stretch the sandbox was billed for, what it was doing then, and what that cost:
+
+```
+Daytona f4c07743-2955-4c24-9977-9db242af22af
+
+$0.009 since 26 Sep 09:00
+
+26 Sep 17:32  5m 48s   $0.006  running · 1 vCPU, 1 GiB, 3 GiB disk
+26 Sep 16:45  47m 02s  $0.000  stopped · 3 GiB disk
+26 Sep 16:43  1m 35s   $0.002  running · 1 vCPU, 1 GiB, 3 GiB disk
+```
+
+`conch sandbox usage [-since 720h] ID` prints the same as a table. A provider with nothing to report yet says so rather than showing an empty page.
+
+**Stopped is not free.** The disk a stopped sandbox keeps is charged until the sandbox is deleted — on a small Daytona sandbox that is most of what it costs over a week. A stopped sandbox's row shows what it has cost all told, and — while the provider has yet to report anything — the rate its disk keeps costing: `disk $0.23/month` rather than nothing, and the Sandboxes page totals it: *stopped ones keep $0.47/month of disk*. Rates are shown in whatever unit says something — an hour, a day or a month — because a few GiB of disk rounds to `$0.000/h` and tells nobody anything. It is a rate rather than a total because a provider doesn't say when a sandbox stopped, and a total conch cannot know would be worse than the rate it can.
 
 ## Stopping one nobody is using
 

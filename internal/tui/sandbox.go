@@ -567,6 +567,21 @@ type sandboxListMsg struct {
 	err      error
 }
 
+// sandboxUsageMsg is what a provider says one of its sandboxes has cost.
+type sandboxUsageMsg struct {
+	machine string
+	usage   sandbox.Usage
+}
+
+// usageEvery is how often a provider is asked what a sandbox has cost.
+// Their billing settles hours behind, so asking often would be asking the
+// same question again.
+const usageEvery = 15 * time.Minute
+
+// usageSince is how far back to ask. A sandbox that has run for longer
+// than this is asked about the whole of it — from when it started.
+const usageSince = 30 * 24 * time.Hour
+
 // pollSandboxes asks each provider what it has, once every
 // sandboxPollEvery, and only while conch has a sandbox to ask about.
 func (m *Model) pollSandboxes(now time.Time) tea.Cmd {
@@ -584,6 +599,7 @@ func (m *Model) pollSandboxes(now time.Time) tea.Cmd {
 	}
 	m.boxesAsked = now
 	var cmds []tea.Cmd
+	cmds = append(cmds, m.askUsage(now)...)
 	for provider := range want {
 		cmds = append(cmds, func() tea.Msg {
 			p, err := openSandboxProvider(provider)
@@ -600,6 +616,54 @@ func (m *Model) pollSandboxes(now time.Time) tea.Cmd {
 		})
 	}
 	return tea.Batch(cmds...)
+}
+
+// askUsage asks each provider what its sandboxes have cost. A provider
+// that cannot say is not asked again for this round; one that says
+// nothing yet — its figures lag — leaves the estimate showing.
+func (m *Model) askUsage(now time.Time) []tea.Cmd {
+	if now.Sub(m.usageAsked) < usageEvery {
+		return nil
+	}
+	m.usageAsked = now
+	var cmds []tea.Cmd
+	for _, mach := range m.machines {
+		provider, id, ok := mach.sandbox()
+		if !ok {
+			continue
+		}
+		from := now.Add(-usageSince)
+		if mach.box != nil && !mach.box.Created.IsZero() && mach.box.Created.Before(from) {
+			from = mach.box.Created
+		}
+		mid := mach.id
+		cmds = append(cmds, func() tea.Msg {
+			p, err := openSandboxProvider(provider)
+			if err != nil || p.Check() != nil {
+				return nil
+			}
+			metered, can := p.(sandbox.Metered)
+			if !can {
+				return nil
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			u, err := metered.Usage(ctx, id, from, now)
+			if err != nil {
+				return nil // a background look; every action says for itself
+			}
+			return sandboxUsageMsg{machine: mid, usage: u}
+		})
+	}
+	return cmds
+}
+
+// receiveUsage keeps what a provider said one of its sandboxes has cost.
+func (m *Model) receiveUsage(msg sandboxUsageMsg) tea.Cmd {
+	if mach := m.machine(msg.machine); mach != nil && msg.usage.Known {
+		mach.usage = &msg.usage
+	}
+	return nil
 }
 
 // receiveSandboxList keeps what the provider said against each machine. An
@@ -635,19 +699,30 @@ func (mach *machine) runningFor(now time.Time) time.Duration {
 	return now.Sub(mach.box.Created)
 }
 
-// sandboxCost is what a machine's sandbox has cost while it has been up,
-// and whether a price is known at all.
-func (m Model) sandboxCost(mach *machine, now time.Time) (float64, bool) {
+// sandboxCost is what a machine's sandbox has cost: what the provider
+// says, when it says anything, and otherwise what the prices in the
+// settings work out to. told is false when neither can say; own is true
+// when the figure is the provider's own rather than conch's arithmetic.
+func (m Model) sandboxCost(mach *machine, now time.Time) (cost float64, told, own bool) {
 	provider, _, ok := mach.sandbox()
-	if !ok || mach.box == nil {
-		return 0, false
+	if !ok {
+		return 0, false, false
+	}
+	if mach.usage != nil && mach.usage.Known {
+		return mach.usage.Cost, true, true
 	}
 	cfg := m.cfg.Sandbox.Of(provider)
-	if !cfg.Priced() {
-		return 0, false
+	if mach.box == nil || !cfg.Priced() {
+		return 0, false, false
+	}
+	up := mach.runningFor(now)
+	if up <= 0 {
+		// Stopped: conch is not told when it stopped, so it cannot say
+		// what it has cost. The rate it keeps costing is what it can say.
+		return 0, false, false
 	}
 	hourly := cfg.CostPerHour(mach.box.CPU, mach.box.Memory, mach.box.Disk)
-	return hourly * mach.runningFor(now).Hours(), hourly > 0
+	return hourly * up.Hours(), hourly > 0, false
 }
 
 // sandboxSpend is what a sandbox has been up for and what that has cost,
@@ -656,17 +731,22 @@ func (m Model) sandboxCost(mach *machine, now time.Time) (float64, bool) {
 // shows as a rate — conch is not told when it stopped, and a total it
 // cannot know is worse than the rate it can.
 func (m Model) sandboxSpend(mach *machine, now time.Time) string {
+	var parts []string
 	if up := mach.runningFor(now); up > 0 {
-		out := shortDuration(up)
-		if cost, priced := m.sandboxCost(mach, now); priced {
-			out += " · " + money(cost)
-		}
-		return out
+		parts = append(parts, shortDuration(up))
 	}
-	if rate := m.sandboxStoppedRate(mach); rate > 0 {
-		return "disk " + money(rate) + "/h"
+	// What it has cost, whether it is running or stopped: a stopped
+	// sandbox has still cost whatever it cost, and that is the number
+	// worth seeing.
+	if cost, told, own := m.sandboxCost(mach, now); told && cost > 0 {
+		// "~" says the figure is conch's arithmetic on the prices in the
+		// settings, not what the provider has billed.
+		parts = append(parts, map[bool]string{false: "~"}[own]+money(cost))
+	} else if r := m.sandboxStoppedRate(mach); r > 0 {
+		// Nothing billed yet, but the disk it keeps is not free.
+		parts = append(parts, "disk "+rate(r))
 	}
-	return ""
+	return strings.Join(parts, " · ")
 }
 
 // sandboxStoppedRate is what a stopped sandbox costs an hour for the disk
@@ -700,4 +780,117 @@ func money(v float64) string {
 		return fmt.Sprintf("$%.3f", v)
 	}
 	return fmt.Sprintf("$%.2f", v)
+}
+
+// rate reads a cost per hour in whatever unit says something: a few cents
+// an hour as it is, a fraction of a cent by the day or the month. A rate
+// that rounds to $0.000/h tells nobody anything, and the whole point of
+// showing what a stopped sandbox costs is that it is not nothing.
+func rate(perHour float64) string {
+	switch {
+	case perHour <= 0:
+		return ""
+	case perHour >= 0.01:
+		return fmt.Sprintf("$%.2f/h", perHour)
+	case perHour*24 >= 0.01:
+		return fmt.Sprintf("$%.2f/day", perHour*24)
+	default:
+		return fmt.Sprintf("$%.2f/month", perHour*24*30)
+	}
+}
+
+// Where the money went. A provider bills a sandbox in periods, one per
+// stretch of it doing the same thing, so the periods say what was paid
+// for: running, or stopped and keeping its disk. The row has room for a
+// total; this has room for the rest.
+
+type usageShownMsg struct {
+	machine string
+	usage   sandbox.Usage
+	err     error
+}
+
+// openSandboxUsage asks the provider what this sandbox has cost, and
+// shows where it went.
+func (m *Model) openSandboxUsage(mid string) tea.Cmd {
+	mach := m.machine(mid)
+	if mach == nil {
+		return nil
+	}
+	provider, id, ok := mach.sandbox()
+	if !ok {
+		return nil
+	}
+	p, err := openSandboxProvider(provider)
+	if err == nil {
+		err = p.Check()
+	}
+	metered, can := p.(sandbox.Metered)
+	if err == nil && !can {
+		err = fmt.Errorf("%s does not say what a sandbox has cost", providerLabel(provider))
+	}
+	if err != nil {
+		m.setFlash(err.Error(), true)
+		return nil
+	}
+	m.setFlash("asking "+providerLabel(provider)+" what "+mach.label+" has cost…", false)
+	from := time.Now().Add(-usageSince)
+	if mach.box != nil && !mach.box.Created.IsZero() && mach.box.Created.Before(from) {
+		from = mach.box.Created
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		u, err := metered.Usage(ctx, id, from, time.Now())
+		return usageShownMsg{machine: mid, usage: u, err: err}
+	}
+}
+
+// receiveUsageShown puts the periods on screen, newest first.
+func (m *Model) receiveUsageShown(msg usageShownMsg) tea.Cmd {
+	mach := m.machine(msg.machine)
+	if mach == nil {
+		return nil
+	}
+	if msg.err != nil {
+		m.showError(msg.err)
+		return nil
+	}
+	m.flash = ""
+	m.overlay = newNotice(" "+ansi.Truncate(mach.label, 30, "…")+" · usage ", usageLines(mach, msg.usage))
+	if msg.usage.Known {
+		mach.usage = &msg.usage
+	}
+	return nil
+}
+
+// usageLinesMax is how many periods are listed; a sandbox started and
+// stopped all day has more than anybody reads.
+const usageLinesMax = 12
+
+// usageLines is what a sandbox has cost, and where it went.
+func usageLines(mach *machine, u sandbox.Usage) []string {
+	provider, id, _ := mach.sandbox()
+	head := providerLabel(provider) + " " + id
+	if !u.Known || len(u.Periods) == 0 {
+		return []string{head, "",
+			providerLabel(provider) + " has nothing to report for this sandbox yet.",
+			"Its figures settle hours behind what is running, so a sandbox made today may not appear until tomorrow."}
+	}
+	lines := []string{head, "", fmt.Sprintf("%s since %s", money(u.Cost), u.From.Local().Format("2 Jan 15:04")), ""}
+	periods := u.Periods
+	if n := len(periods) - usageLinesMax; n > 0 {
+		periods = periods[n:]
+		lines = append(lines, fmt.Sprintf("… %d earlier periods", n))
+	}
+	for i := len(periods) - 1; i >= 0; i-- { // newest first
+		p := periods[i]
+		what := fmt.Sprintf("stopped · %d GiB disk", p.DiskGiB)
+		if p.Running() {
+			what = fmt.Sprintf("running · %d vCPU, %d GiB, %d GiB disk", p.CPU, p.MemGiB, p.DiskGiB)
+		}
+		lines = append(lines, fmt.Sprintf("%s  %-8s  %s  %s",
+			p.From.Local().Format("2 Jan 15:04"), shortDuration(p.To.Sub(p.From)), money(p.Cost), what))
+	}
+	return append(lines, "", "A stopped sandbox keeps its disk, and is charged for it, until it is deleted.")
 }

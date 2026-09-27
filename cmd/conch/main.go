@@ -74,6 +74,8 @@ Usage:
   conch sandbox ls | start ID | stop [-y] ID | rm [-y] ID
   conch sandbox url [-expires 1h] [-open] ID PORT
                                 a link to a port inside a sandbox
+  conch sandbox usage [-since 720h] ID
+                                what a sandbox has cost, period by period
   conch sandbox snapshot [-name N] ID | snapshots [-rm NAME]
                                 keep a sandbox to make others from, or list what is kept
                                 list conch's sandboxes, start or stop one, or delete it for good

@@ -30,6 +30,7 @@ type fakeDaytona struct {
 	pages   []string          // raw list replies, served in turn
 	queries map[string]string // "METHOD path" → the last query string
 	bodies  map[string][]byte // "METHOD path" → the last body sent
+	usage   string            // the analytics host's reply
 	fail    map[string][]int  // "METHOD path" → statuses to answer first
 	failMsg string
 	headers map[string]string // added to failure replies
@@ -49,6 +50,7 @@ func newFakeDaytona(t *testing.T) (*fakeDaytona, *Daytona) {
 	t.Cleanup(srv.Close)
 	t.Setenv("DAYTONA_API_KEY", "k-secret")
 	t.Setenv("DAYTONA_API_URL", srv.URL+"/api/")
+	t.Setenv("DAYTONA_ANALYTICS_URL", srv.URL+"/api/")
 	t.Setenv("DAYTONA_TARGET", "")
 	old := pollEvery
 	pollEvery = time.Millisecond
@@ -131,6 +133,8 @@ func (f *fakeDaytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		page := f.pages[0]
 		f.pages = f.pages[1:]
 		fmt.Fprint(w, page)
+	case strings.HasSuffix(path, "/usage") && strings.HasPrefix(path, "/organization/"):
+		fmt.Fprint(w, firstSet(f.usage, "[]"))
 	case key == "GET /snapshots":
 		reply(map[string]any{"items": []map[string]any{
 			{"name": "older", "state": "active", "cpu": 1, "memory": 1, "disk": 3, "createdAt": "2026-09-20T10:00:00Z"},
@@ -910,5 +914,57 @@ func TestDaytonaSnapshots(t *testing.T) {
 	}
 	if err := d.ForgetSnapshot(ctx, " "); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("no name: %v", err)
+	}
+}
+
+// What Daytona says a sandbox has cost, from its analytics host: the
+// organization is learned from the sandbox rather than configured, and
+// having nothing to say yet is not an error — its figures settle hours
+// behind what is running.
+func TestDaytonaUsage(t *testing.T) {
+	f, d := newFakeDaytona(t)
+	ctx := ctxFor(t)
+	f.add("sb1", StateStarted)
+	f.boxes["sb1"].sandbox.OrganizationID = "org-7"
+	from, to := time.Now().Add(-24*time.Hour), time.Now()
+
+	// Nothing reported yet.
+	f.usage = `[]`
+	u, err := d.Usage(ctx, "sb1", from, to)
+	if err != nil || u.Known || u.Cost != 0 {
+		t.Fatalf("nothing said yet: %+v %v", u, err)
+	}
+	// Periods are added up.
+	f.usage = `[{"startAt":"2026-09-26T10:00:00Z","endAt":"2026-09-26T11:00:00Z","price":0.02},
+	            {"startAt":"2026-09-26T11:00:00Z","endAt":"2026-09-26T12:00:00Z","price":0.01}]`
+	u, err = d.Usage(ctx, "sb1", from, to)
+	if err != nil || !u.Known || fmt.Sprintf("%.2f", u.Cost) != "0.03" {
+		t.Fatalf("added up: %+v %v", u, err)
+	}
+	// The organization was learned from the sandbox, and asked for once.
+	if n := strings.Count(strings.Join(f.called(), "\n"), "GET /sandbox/sb1\n"); n > 1 {
+		t.Fatalf("asked which organization %d times: %v", n, f.called())
+	}
+	var asked string
+	for _, c := range f.called() {
+		if strings.Contains(c, "/usage") {
+			asked = c
+		}
+	}
+	if asked != "GET /organization/org-7/sandbox/sb1/usage" {
+		t.Fatalf("asked %q", asked)
+	}
+	if q := f.queries[asked]; !strings.Contains(q, "from=") || !strings.Contains(q, "to=") {
+		t.Fatalf("the window asked for: %q", q)
+	}
+
+	// A sandbox that isn't there, and one with no organization.
+	if _, err := d.Usage(ctx, "", from, to); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("no id: %v", err)
+	}
+	fresh, d2 := newFakeDaytona(t)
+	fresh.add("sb2", StateStarted) // no organization in the reply
+	if _, err := d2.Usage(ctx, "sb2", from, to); err == nil || !strings.Contains(err.Error(), "which organization") {
+		t.Fatalf("no organization: %v", err)
 	}
 }

@@ -77,6 +77,7 @@ type Model struct {
 	// boxesAsked when the providers were last asked what they have.
 	idleChecked time.Time
 	boxesAsked  time.Time
+	usageAsked  time.Time
 	// sandboxRan is what each sandbox was running when it stopped, to
 	// offer back when it starts again (sandboxran.go).
 	sandboxRan  map[string][]ranPane
@@ -460,6 +461,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case restoreDoneMsg:
 		return m, m.receiveRestore(msg)
+
+	case sandboxUsageMsg:
+		return m, m.receiveUsage(msg)
+
+	case usageShownMsg:
+		return m, m.receiveUsageShown(msg)
 
 	case pushRejectedMsg:
 		return m, m.receivePushRejected(msg)

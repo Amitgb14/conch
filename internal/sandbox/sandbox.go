@@ -160,6 +160,38 @@ type Snap struct {
 	Created time.Time
 }
 
+// Metered is a provider that can say what a sandbox has actually cost,
+// rather than leaving conch to work it out from prices somebody typed.
+type Metered interface {
+	// Usage is what the sandbox has cost between from and to. Known is
+	// false when the provider has nothing to say yet — its billing may
+	// lag hours behind — which is not an error.
+	Usage(ctx context.Context, id string, from, to time.Time) (Usage, error)
+}
+
+// Usage is what a provider says a sandbox has cost, and the periods it
+// was billed in: a provider charges by what the sandbox was doing, so the
+// periods say where the money went — running, or only keeping its disk.
+type Usage struct {
+	Cost     float64
+	Known    bool
+	From, To time.Time
+	Periods  []UsagePeriod // newest last, as the provider gives them
+}
+
+// UsagePeriod is one stretch a sandbox was billed for.
+type UsagePeriod struct {
+	From, To time.Time
+	CPU      int // vCPUs held; 0 while it is stopped
+	MemGiB   int
+	DiskGiB  int
+	Cost     float64
+}
+
+// Running reports whether the sandbox was up for this period, rather than
+// stopped and keeping its disk.
+func (p UsagePeriod) Running() bool { return p.CPU > 0 || p.MemGiB > 0 }
+
 // Providers lists the providers conch knows.
 var Providers = []string{"daytona"}
 

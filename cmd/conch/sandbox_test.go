@@ -19,6 +19,7 @@ import (
 // a4Daytona is Daytona's API as the sandbox commands use it: sandboxes
 // change state at once, and ssh access names a fake gateway.
 type a4Daytona struct {
+	usage   string // the analytics reply; "" is a sensible default
 	mu      sync.Mutex
 	boxes   map[string]string // id → state
 	created []map[string]any
@@ -34,6 +35,7 @@ func newA4Daytona(t *testing.T) *a4Daytona {
 	t.Cleanup(srv.Close)
 	t.Setenv("DAYTONA_API_KEY", "k-test")
 	t.Setenv("DAYTONA_API_URL", srv.URL)
+	t.Setenv("DAYTONA_ANALYTICS_URL", srv.URL)
 	return d
 }
 
@@ -58,6 +60,17 @@ func (d *a4Daytona) called() string {
 func (d *a4Daytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if strings.HasSuffix(r.URL.Path, "/usage") && strings.Contains(r.URL.Path, "/organization/") {
+		d.calls = append(d.calls, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if d.usage != "" {
+			fmt.Fprint(w, d.usage)
+			return
+		}
+		fmt.Fprint(w, `[{"startAt":"2026-09-26T10:00:00Z","endAt":"2026-09-26T10:02:00Z","cpu":1,"ramGB":1,"diskGB":3,"price":0.002},`+
+			`{"startAt":"2026-09-26T10:02:00Z","endAt":"2026-09-26T10:30:00Z","cpu":0,"ramGB":0,"diskGB":3,"price":0.001}]`)
+		return
+	}
 	if parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/"); len(parts) == 5 && parts[4] == "signed-preview-url" {
 		d.calls = append(d.calls, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery)
 		if d.boxes[parts[1]] == "" {
@@ -76,7 +89,8 @@ func (d *a4Daytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	box := func(id string) map[string]any {
-		return map[string]any{"id": id, "state": d.boxes[id], "cpu": 1, "memory": 1, "disk": 3}
+		return map[string]any{"id": id, "organizationId": "org-1", "state": d.boxes[id],
+			"cpu": 1, "memory": 1, "disk": 3}
 	}
 	reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 	switch {
@@ -486,6 +500,50 @@ func TestA4SandboxURL(t *testing.T) {
 		{"url", "live"},
 		{"url"},
 	} {
+		if _, _, err := a4Out(t, func() error { return runSandbox(args) }); err == nil {
+			t.Fatalf("%v was accepted", args)
+		}
+	}
+}
+
+// conch sandbox usage prints what a sandbox has cost, period by period.
+func TestA4SandboxUsage(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	d.set("sb-live", "started")
+	if _, err := remote.SaveMachine(remote.Machine{Label: "live", Target: "daytona:sb-live"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var err error
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"usage", "live"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := strings.Split(strings.TrimSpace(out), "\n")
+	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	if len(rows) != 4 || flat(rows[0]) != "FROM FOR COST WHAT" {
+		t.Fatalf("usage:\n%s", out)
+	}
+	if !strings.Contains(flat(rows[1]), "running, 1 vCPU, 1 GiB, 3 GiB disk") ||
+		!strings.Contains(flat(rows[2]), "stopped, 3 GiB disk") {
+		t.Fatalf("periods:\n%s", out)
+	}
+	if !strings.Contains(flat(rows[3]), "$0.003000 total since") {
+		t.Fatalf("total:\n%s", out)
+	}
+	if errOut != "" {
+		t.Fatalf("said on stderr: %q", errOut)
+	}
+
+	// Nothing reported yet says so, and is not an error.
+	d.usage = "[]"
+	out, errOut = a4Capture(t, "", func() { err = runSandbox([]string{"usage", "live"}) })
+	if err != nil || out != "" || !strings.Contains(errOut, "nothing to report") {
+		t.Fatalf("nothing yet: %q %q %v", out, errOut, err)
+	}
+	// And what it refuses.
+	for _, args := range [][]string{{"usage"}, {"usage", "live", "extra"}} {
 		if _, _, err := a4Out(t, func() error { return runSandbox(args) }); err == nil {
 			t.Fatalf("%v was accepted", args)
 		}

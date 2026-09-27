@@ -75,6 +75,9 @@ type machine struct {
 	// lastPort is the port a preview link was last asked for here, so the
 	// same dev server is one keystroke away next time.
 	lastPort string
+	// usage is what the provider last said this sandbox has cost, when it
+	// can say at all; nil leaves the estimate showing.
+	usage *sandbox.Usage
 	// box is what the provider last said about this sandbox: when it
 	// started and how big it is, which is what running time and cost are
 	// worked out from. Nil until the first look.

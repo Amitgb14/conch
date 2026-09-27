@@ -13,10 +13,16 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
 )
+
+// DefaultDaytonaAnalyticsURL is where Daytona reports what has been used.
+// It is a separate host from the API, and its numbers settle hours behind
+// what is running now.
+const DefaultDaytonaAnalyticsURL = "https://analytics.app.daytona.io"
 
 // DefaultDaytonaURL is Daytona's API.
 const DefaultDaytonaURL = "https://app.daytona.io/api"
@@ -46,7 +52,13 @@ const maxPages = 50
 
 // Daytona manages sandboxes through Daytona's REST API.
 type Daytona struct {
-	base   string
+	base string
+	// analytics is where Daytona reports what has been used; a separate
+	// host from the API.
+	analytics string
+	// mu guards org, which is learned from a sandbox and then kept.
+	mu     sync.Mutex
+	org    string
 	keyEnv string
 	key    string
 	// fromSettings says the key came from config.toml rather than the
@@ -73,6 +85,7 @@ func NewDaytona(cfg config.ProviderCfg) *Daytona {
 		d.fromSettings = true
 	}
 	d.base = strings.TrimRight(firstSet(cfg.APIURL, os.Getenv("DAYTONA_API_URL"), DefaultDaytonaURL), "/")
+	d.analytics = strings.TrimRight(firstSet(os.Getenv("DAYTONA_ANALYTICS_URL"), DefaultDaytonaAnalyticsURL), "/")
 	d.target = firstSet(cfg.Target, os.Getenv("DAYTONA_TARGET"))
 	return d
 }
@@ -88,6 +101,72 @@ func firstSet(vs ...string) string {
 
 func (d *Daytona) Name() string { return "daytona" }
 
+// Usage is what Daytona says the sandbox has cost. Its analytics are a
+// different host, keyed by the organization, which conch learns from the
+// sandbox itself rather than asking anyone to configure it. Nothing to
+// report is not an error: Daytona's figures settle well behind the hour
+// they are about.
+func (d *Daytona) Usage(ctx context.Context, id string, from, to time.Time) (Usage, error) {
+	if id == "" {
+		return Usage{}, ErrNotFound
+	}
+	org, err := d.orgOf(ctx, id)
+	if err != nil {
+		return Usage{}, err
+	}
+	q := url.Values{
+		"from": {from.UTC().Format(time.RFC3339)},
+		"to":   {to.UTC().Format(time.RFC3339)},
+	}
+	var periods []struct {
+		StartAt string  `json:"startAt"`
+		EndAt   string  `json:"endAt"`
+		CPU     int     `json:"cpu"`
+		RAMGB   int     `json:"ramGB"`
+		DiskGB  int     `json:"diskGB"`
+		Price   float64 `json:"price"`
+	}
+	path := fmt.Sprintf("/organization/%s/sandbox/%s/usage", url.PathEscape(org), url.PathEscape(id))
+	if err := d.callAt(ctx, d.analytics, http.MethodGet, path, q, nil, &periods); err != nil {
+		return Usage{}, fmt.Errorf("usage: %w", err)
+	}
+	if len(periods) == 0 {
+		return Usage{From: from, To: to}, nil // nothing said yet
+	}
+	u := Usage{Known: true, From: from, To: to}
+	for _, p := range periods {
+		start, _ := time.Parse(time.RFC3339, p.StartAt)
+		end, _ := time.Parse(time.RFC3339, p.EndAt)
+		u.Periods = append(u.Periods, UsagePeriod{From: start, To: end, CPU: p.CPU,
+			MemGiB: p.RAMGB, DiskGiB: p.DiskGB, Cost: p.Price})
+		u.Cost += p.Price
+	}
+	return u, nil
+}
+
+// orgOf is the organization a sandbox belongs to, which every sandbox the
+// API returns carries. It is remembered: an account has one, and asking
+// again for every look would be a request nobody needs.
+func (d *Daytona) orgOf(ctx context.Context, id string) (string, error) {
+	d.mu.Lock()
+	org := d.org
+	d.mu.Unlock()
+	if org != "" {
+		return org, nil
+	}
+	var out daytonaSandbox
+	if err := d.call(ctx, http.MethodGet, "/sandbox/"+url.PathEscape(id), nil, nil, &out); err != nil {
+		return "", err
+	}
+	if out.OrganizationID == "" {
+		return "", errors.New("daytona did not say which organization the sandbox belongs to")
+	}
+	d.mu.Lock()
+	d.org = out.OrganizationID
+	d.mu.Unlock()
+	return out.OrganizationID, nil
+}
+
 func (d *Daytona) Check() error {
 	if d.key == "" {
 		return fmt.Errorf("%w: set $%s to a Daytona API key, or put the key in Settings → Sandboxes", ErrNotConfigured, d.keyEnv)
@@ -97,16 +176,19 @@ func (d *Daytona) Check() error {
 
 // daytonaSandbox is the API's sandbox, as far as conch reads it.
 type daytonaSandbox struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	State       State             `json:"state"`
-	ErrorReason string            `json:"errorReason"`
-	Target      string            `json:"target"`
-	CPU         int               `json:"cpu"`
-	Memory      int               `json:"memory"`
-	Disk        int               `json:"disk"`
-	Labels      map[string]string `json:"labels"`
-	CreatedAt   string            `json:"createdAt"`
+	ID string `json:"id"`
+	// OrganizationID is which account it belongs to, which the analytics
+	// host wants in its paths.
+	OrganizationID string            `json:"organizationId"`
+	Name           string            `json:"name"`
+	State          State             `json:"state"`
+	ErrorReason    string            `json:"errorReason"`
+	Target         string            `json:"target"`
+	CPU            int               `json:"cpu"`
+	Memory         int               `json:"memory"`
+	Disk           int               `json:"disk"`
+	Labels         map[string]string `json:"labels"`
+	CreatedAt      string            `json:"createdAt"`
 	// DesiredState is where Daytona is taking it: "destroyed" for a
 	// sandbox deleted moments ago that still reports its old state.
 	DesiredState State `json:"desiredState"`
@@ -472,10 +554,15 @@ func (e *APIError) temporary() bool {
 
 // call sends one request. A nil body sends none; a nil out ignores the reply.
 func (d *Daytona) call(ctx context.Context, method, path string, q url.Values, body, out any) error {
+	return d.callAt(ctx, d.base, method, path, q, body, out)
+}
+
+// callAt is call against a named host: the API, or the analytics one.
+func (d *Daytona) callAt(ctx context.Context, base, method, path string, q url.Values, body, out any) error {
 	if err := d.Check(); err != nil {
 		return err
 	}
-	u := d.base + path
+	u := base + path
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}

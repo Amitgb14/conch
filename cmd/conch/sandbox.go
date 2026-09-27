@@ -48,6 +48,8 @@ func runSandbox(args []string) error {
 		return sandboxSnapshot(args[1:])
 	case "snapshots":
 		return sandboxSnapshots(args[1:])
+	case "usage", "cost":
+		return sandboxUsage(args[1:])
 	}
 	return fmt.Errorf("unknown sandbox subcommand %q", args[0])
 }
@@ -432,6 +434,54 @@ func sandboxSnapshots(args []string) error {
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, firstNonEmptyStr(s.State, "-"), firstNonEmptyStr(s.Size, "-"), kept)
 	}
+	return tw.Flush()
+}
+
+// sandboxUsage prints what a sandbox has cost, and where it went.
+func sandboxUsage(args []string) error {
+	fs := flag.NewFlagSet("sandbox usage", flag.ContinueOnError)
+	since := fs.Duration("since", 30*24*time.Hour, "how far back to ask")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: conch sandbox usage [-since 720h] ID")
+	}
+	m, id, err := resolveSandbox(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	p, err := openSandboxes()
+	if err != nil {
+		return err
+	}
+	metered, ok := p.(sandbox.Metered)
+	if !ok {
+		return fmt.Errorf("%s does not say what a sandbox has cost", sandboxProvider)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	now := time.Now()
+	u, err := metered.Usage(ctx, id, now.Add(-*since), now)
+	if err != nil {
+		return err
+	}
+	if !u.Known || len(u.Periods) == 0 {
+		fmt.Fprintf(os.Stderr, "%s has nothing to report for %s yet; its figures settle hours behind\n",
+			sandboxProvider, sandboxName(m, id))
+		return nil
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "FROM\tFOR\tCOST\tWHAT")
+	for _, pd := range u.Periods {
+		what := fmt.Sprintf("stopped, %d GiB disk", pd.DiskGiB)
+		if pd.Running() {
+			what = fmt.Sprintf("running, %d vCPU, %d GiB, %d GiB disk", pd.CPU, pd.MemGiB, pd.DiskGiB)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t$%.6f\t%s\n", pd.From.Local().Format("2006-01-02 15:04"),
+			pd.To.Sub(pd.From).Round(time.Second), pd.Cost, what)
+	}
+	fmt.Fprintf(tw, "\t\t$%.6f\ttotal since %s\n", u.Cost, u.From.Local().Format("2006-01-02 15:04"))
 	return tw.Flush()
 }
 

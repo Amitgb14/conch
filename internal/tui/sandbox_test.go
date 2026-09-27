@@ -68,6 +68,12 @@ type sbProvider struct {
 	created    sandbox.Sandbox
 	preview    string // the link PreviewURL answers with
 	previewErr error
+	usage      sandbox.Usage
+}
+
+func (p *sbProvider) Usage(_ context.Context, id string, _, _ time.Time) (sandbox.Usage, error) {
+	p.record("usage " + id)
+	return p.usage, nil
 }
 
 func (p *sbProvider) PreviewURL(_ context.Context, id string, port int, _ time.Duration) (string, error) {
@@ -777,15 +783,30 @@ func TestSandboxSpend(t *testing.T) {
 	// With prices, what it has cost. 2 vCPU at $0.05 and 4 GiB at $0.01
 	// is $0.14 an hour, so 4.2 hours is about $0.59.
 	m.cfg.Sandbox.Set("daytona", config.ProviderCfg{PriceCPUHour: 0.05, PriceGiBHour: 0.01, PriceDiskGiBHour: 0.0001})
+	// "~" says the figure is conch's arithmetic, not the provider's bill.
 	got := m.sandboxSpend(mach, now)
-	if !strings.HasPrefix(got, "4h 12m · $0.5") {
+	if !strings.HasPrefix(got, "4h 12m · ~$0.5") {
 		t.Fatalf("with prices: %q", got)
 	}
+	// What the provider itself says wins, and loses the tilde.
+	mach.usage = &sandbox.Usage{Known: true, Cost: 0.03}
+	if got := m.sandboxSpend(mach, now); got != "4h 12m · $0.030" {
+		t.Fatalf("with the provider's own figure: %q", got)
+	}
+	if c, told, own := m.sandboxCost(mach, now); !told || !own || c != 0.03 {
+		t.Fatalf("cost %v told=%v own=%v", c, told, own)
+	}
+	// One that says nothing yet — its billing lags — leaves the estimate.
+	mach.usage = &sandbox.Usage{Known: false}
+	if got := m.sandboxSpend(mach, now); !strings.HasPrefix(got, "4h 12m · ~$0.5") {
+		t.Fatalf("with nothing said yet: %q", got)
+	}
+	mach.usage = nil
 	// A stopped sandbox still keeps its disk, and the provider still
 	// charges for it: that shows as a rate, since conch is not told when
 	// it stopped and a total it cannot know would be worse.
 	mach.box.State = sandbox.StateStopped
-	if got := m.sandboxSpend(mach, now); got != "disk $0.001/h" {
+	if got := m.sandboxSpend(mach, now); got != "disk $0.02/day" {
 		t.Fatalf("stopped: %q", got)
 	}
 	if rate := m.sandboxStoppedRate(mach); rate != 10*0.0001 {
@@ -825,6 +846,22 @@ func TestSandboxSpend(t *testing.T) {
 			t.Fatalf("%v reads %q, want %q", c.d, got, c.want)
 		}
 	}
+	// A rate reads in whatever unit says something: a rounding to
+	// $0.000/h would tell nobody anything.
+	for _, c := range []struct {
+		perHour float64
+		want    string
+	}{
+		{0, ""}, {0.0666, "$0.07/h"}, {0.01, "$0.01/h"},
+		{0.0005, "$0.01/day"},
+		{0.000324, "$0.23/month"},  // 3 GiB of stopped disk on Daytona
+		{0.0000108, "$0.01/month"}, // a tenth of a GiB
+	} {
+		if got := rate(c.perHour); got != c.want {
+			t.Fatalf("%v an hour reads %q, want %q", c.perHour, got, c.want)
+		}
+	}
+
 	// And money, finer while it is small.
 	for _, c := range []struct {
 		v    float64
@@ -1099,5 +1136,68 @@ func TestSandboxRestoreFallsBackToAFreshAgent(t *testing.T) {
 	peer.setResult(proto.MethodPaneCreate, proto.PaneInfo{ID: "term"})
 	if info, err := restoreOne(c, ranPane{Command: []string{"/bin/zsh", "-l"}, Dir: "/home"}, 80, 24); err != nil || info.ID != "term" {
 		t.Fatalf("terminal: %+v %v", info, err)
+	}
+}
+
+// What a sandbox has cost, period by period: where the money went, rather
+// than one number on a row.
+func TestSandboxUsageDetails(t *testing.T) {
+	m, mach := sandboxModel(t)
+	at := func(h, min int) time.Time { return time.Date(2026, 9, 26, h, min, 0, 0, time.Local) }
+	u := sandbox.Usage{Known: true, Cost: 0.008919, From: at(9, 0), Periods: []sandbox.UsagePeriod{
+		{From: at(16, 43), To: at(16, 45), CPU: 1, MemGiB: 1, DiskGiB: 3, Cost: 0.001762},
+		{From: at(16, 45), To: at(17, 32), DiskGiB: 3, Cost: 0.000254},
+		{From: at(17, 32), To: at(17, 38), CPU: 1, MemGiB: 1, DiskGiB: 3, Cost: 0.006479},
+	}}
+	out := strings.Join(usageLines(mach, u), "\n")
+	for _, want := range []string{"Daytona sb1", "$0.009 since", "running · 1 vCPU, 1 GiB, 3 GiB disk",
+		"stopped · 3 GiB disk", "keeps its disk, and is charged for it"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("the breakdown lacks %q:\n%s", want, out)
+		}
+	}
+	// Newest first, so what just happened is at the top.
+	first := strings.Index(out, "17:32")
+	if last := strings.Index(out, "16:43"); first < 0 || last < first {
+		t.Fatalf("not newest first:\n%s", out)
+	}
+	// A busy day is cut short rather than scrolling for ever.
+	many := u
+	many.Periods = nil
+	for i := 0; i < usageLinesMax+5; i++ {
+		many.Periods = append(many.Periods, sandbox.UsagePeriod{From: at(9, i), To: at(9, i+1), DiskGiB: 3, Cost: 0.001})
+	}
+	if out := strings.Join(usageLines(mach, many), "\n"); !strings.Contains(out, "… 5 earlier periods") {
+		t.Fatalf("a busy day:\n%s", out)
+	}
+	// Nothing reported yet says why, rather than showing nothing.
+	out = strings.Join(usageLines(mach, sandbox.Usage{}), "\n")
+	if !strings.Contains(out, "nothing to report") || !strings.Contains(out, "settle hours behind") {
+		t.Fatalf("nothing yet:\n%s", out)
+	}
+
+	// It is in the menu, and what comes back is shown and kept.
+	useSandboxProvider(t, &sbProvider{usage: u})
+	mach.state = stateOnline
+	r := row{id: machineID(mach.id), kind: kindMachine, machine: mach.id}
+	if labels := a2MenuLabels(newRowMenu(*m, r, 0, 0)); !strings.Contains(labels, "$ What it has cost…") {
+		t.Fatalf("menu: %s", labels)
+	}
+	msgs := a2Run(m.openSandboxUsage(mach.id))
+	shown, ok := msgs[0].(usageShownMsg)
+	if !ok || shown.err != nil || !shown.usage.Known {
+		t.Fatalf("asked: %#v", msgs)
+	}
+	m.receiveUsageShown(shown)
+	if _, isNotice := m.overlay.(*dialog); !isNotice {
+		t.Fatalf("no notice: %T", m.overlay)
+	}
+	if mach.usage == nil || mach.usage.Cost != u.Cost {
+		t.Fatalf("not kept: %+v", mach.usage)
+	}
+	// The row now shows the real total, whether it is running or stopped.
+	mach.box = &sandbox.Sandbox{ID: "sb1", State: sandbox.StateStopped, Disk: 3}
+	if got := m.sandboxSpend(mach, time.Now()); got != "$0.009" {
+		t.Fatalf("a stopped sandbox's row: %q", got)
 	}
 }

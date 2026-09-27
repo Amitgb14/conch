@@ -949,7 +949,7 @@ func (m Model) sandboxesLines(provider string, w int) []string {
 	sort.SliceStable(boxes, func(i, j int) bool { return strings.ToLower(boxes[i].label) < strings.ToLower(boxes[j].label) })
 	now := time.Now()
 	var total, cost, stoppedRate float64
-	var anyPriced bool
+	var anyPriced, allOwn = false, true
 	lines := []string{styleBold.Render(title) + styleMuted.Render(fmt.Sprintf("  %d", len(boxes))), ""}
 	for _, mach := range boxes {
 		p, id, _ := remote.ParseSandboxTarget(mach.target)
@@ -981,8 +981,9 @@ func (m Model) sandboxesLines(provider string, w int) []string {
 		if spend := m.sandboxSpend(mach, now); spend != "" {
 			right = joinRight(styleMuted.Render(spend), right)
 			total += mach.runningFor(now).Hours()
-			if c, priced := m.sandboxCost(mach, now); priced {
+			if c, told, own := m.sandboxCost(mach, now); told {
 				cost, anyPriced = cost+c, true
+				allOwn = allOwn && own
 			}
 			stoppedRate += m.sandboxStoppedRate(mach)
 		}
@@ -997,14 +998,16 @@ func (m Model) sandboxesLines(provider string, w int) []string {
 		if total > 0 {
 			running := fmt.Sprintf("running for %s in all", shortDuration(time.Duration(total*float64(time.Hour))))
 			if anyPriced {
-				running += " · " + money(cost)
+				// "~" when any of it is conch's arithmetic rather than
+				// what the provider has billed.
+				running += " · " + map[bool]string{false: "~"}[allOwn] + money(cost)
 			}
 			said = append(said, running)
 		}
 		if stoppedRate > 0 {
 			// Stopped is not free: the disk stays until the sandbox is
 			// deleted, and so does the charge for it.
-			said = append(said, fmt.Sprintf("stopped ones keep %s/h of disk", money(stoppedRate)))
+			said = append(said, "stopped ones keep "+rate(stoppedRate)+" of disk")
 		}
 		lines = append(lines, "", styleMuted.Render("  "+strings.Join(said, " · ")))
 	}
