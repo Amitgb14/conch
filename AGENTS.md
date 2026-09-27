@@ -124,7 +124,13 @@ network. The person running the tests may be *inside* a live conch session.
   program's *output* contains — never text that also appears in the typed
   command line (that produced a flaky test). Avoid fixed sleeps.
 - **Clipboard, browser, notifications, sounds:** assert that a command is
-  returned; don't run it.
+  returned; don't run it. In `internal/tui` the reaching-out itself is
+  behind variables — `putClipboard`, `openInBrowser`, `runOutward`,
+  `startOutward`, `ringBell` — and `TestMain` replaces all of them, because
+  a test that ran a copy once put its own fixture on the developer's
+  clipboard: the OSC 52 escape conch prints was honoured by the terminal
+  running `go test`. Keep new outward effects behind a variable too, and
+  set it in `TestMain` rather than trusting every test to remember.
 - **git:** only in temporary repositories, with an explicit identity.
 
 Reuse the existing helpers before writing new ones — e.g. `startServer`

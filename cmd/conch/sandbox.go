@@ -393,11 +393,7 @@ func sandboxURL(args []string) error {
 	if *open {
 		// Anyone with the link can reach that port, so say so once.
 		fmt.Fprintf(os.Stderr, "opening %s · the link works for anyone until it expires\n", sandboxName(m, id))
-		tool := "xdg-open"
-		if runtime.GOOS == "darwin" {
-			tool = "open"
-		}
-		return exec.Command(tool, url).Start()
+		return openInBrowser(url)
 	}
 	return nil
 }
@@ -517,6 +513,16 @@ func periodWhat(p sandbox.UsagePeriod) string {
 		return state
 	}
 	return state + ", " + strings.Join(parts, ", ")
+}
+
+// openInBrowser hands a link to the desktop. A variable so tests can check
+// what would open without a window appearing on whoever runs them.
+var openInBrowser = func(url string) error {
+	tool := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		tool = "open"
+	}
+	return exec.Command(tool, url).Start()
 }
 
 // sandboxUsage prints what a sandbox has cost, and where it went.

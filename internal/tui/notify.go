@@ -22,7 +22,7 @@ func notify(cfg config.NotifyCfg, title, body string) tea.Cmd {
 	}
 	return func() tea.Msg {
 		if cfg.Bell {
-			_, _ = os.Stdout.WriteString("\a")
+			ringBell()
 		}
 		if cfg.Sound {
 			playSound()
@@ -42,12 +42,31 @@ func notify(cfg config.NotifyCfg, title, body string) tea.Cmd {
 				}
 			}
 			if cmd != nil {
-				_ = cmd.Run()
+				runOutward(cmd)
 			}
 		}
 		return nil
 	}
 }
+
+// runOutward and startOutward run something outside conch — a desktop
+// notification, a sound. Variables so the test suite can be sure a run of
+// it never rings the developer's own bell.
+var (
+	// ringBell is the terminal bell, which is outward too: the escape goes
+	// to whatever terminal conch is printing to.
+	ringBell = func() { _, _ = os.Stdout.WriteString("\a") }
+
+	runOutward = func(cmd *exec.Cmd) { _ = cmd.Run() }
+
+	startOutward = func(cmd *exec.Cmd) error {
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		go func() { _ = cmd.Wait() }()
+		return nil
+	}
+)
 
 // playSound plays a short system sound without waiting for it.
 func playSound() {
@@ -72,12 +91,11 @@ func playSound() {
 			}
 		}
 		cmd := exec.Command(c[0], c[1:]...)
-		if cmd.Start() == nil {
-			go func() { _ = cmd.Wait() }()
+		if startOutward(cmd) == nil {
 			return
 		}
 	}
-	_, _ = os.Stdout.WriteString("\a") // no player: fall back to the bell
+	ringBell() // no player: fall back to the bell
 }
 
 // silenced reports whether alerts are held back: snoozed, or quiet hours.

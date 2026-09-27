@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -176,5 +177,49 @@ func TestPaneLinksTheRealLoginURL(t *testing.T) {
 	screen := claudeBox(t, 45, url)
 	if got := paneLinks(screen); !strings.Contains(got[0], "user%3Asessions%3Aclaude_code") {
 		t.Fatalf("the scope is still broken: %q", got)
+	}
+}
+
+// Copying and opening reach out of the process, so the suite replaces
+// them — and this is the test that says what they are given. It also
+// stands guard: if the seams are ever removed, this fails rather than
+// quietly putting a fixture on the developer's clipboard.
+func TestCopyingAndOpeningGoThroughTheSeams(t *testing.T) {
+	a2Isolate(t)
+	lastClipboard, lastOpened = "", ""
+	if msg := copyText("a line to copy")(); msg != flashMsg("copied 14 characters") {
+		t.Fatalf("copy said %v", msg)
+	}
+	if lastClipboard != "a line to copy" {
+		t.Fatalf("the clipboard got %q", lastClipboard)
+	}
+	if msg := copyText("")(); msg != nil {
+		t.Fatalf("copying nothing said %v", msg)
+	}
+	if msg := openURL("https://example.com/x")(); msg != flashMsg("opened https://example.com/x") {
+		t.Fatalf("open said %v", msg)
+	}
+	if lastOpened != "https://example.com/x" {
+		t.Fatalf("the browser got %q", lastOpened)
+	}
+	// A browser that will not start is reported, not swallowed.
+	old := openInBrowser
+	openInBrowser = func(string) error { return errors.New("no browser") }
+	t.Cleanup(func() { openInBrowser = old })
+	if _, ok := openURL("https://example.com/x")().(errMsg); !ok {
+		t.Fatal("a browser that failed said nothing")
+	}
+	// Choosing a link from the menu does both.
+	lastClipboard, lastOpened = "", ""
+	openInBrowser = func(url string) error { lastOpened = url; return nil }
+	m := a2Model()
+	m.rows = []row{{id: "pane:p1", kind: kindPane, machine: localMachine, paneID: "p1"}}
+	m.cursor, m.viewing = "pane:p1", "p1"
+	m.frame = &proto.Frame{Lines: []string{"open https://example.com/login?code=1 to sign in"}}
+	m.openLinks(m.rows[0])
+	mu := m.overlay.(*menu)
+	a2Run(mu.items[0].run(m))
+	if lastOpened != "https://example.com/login?code=1" || lastClipboard != lastOpened {
+		t.Fatalf("opened %q, copied %q", lastOpened, lastClipboard)
 	}
 }

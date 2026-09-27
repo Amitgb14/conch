@@ -177,7 +177,7 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 		toggle("Desktop notification", "macOS / notify-send", &n.Desktop, nil),
 		toggle("Sound", "a system sound", &n.Sound, func(*Model) tea.Cmd { return func() tea.Msg { playSound(); return nil } }),
 		toggle("Terminal beep", "the bell character", &n.Bell, func(*Model) tea.Cmd {
-			return func() tea.Msg { _, _ = fmt.Print("\a"); return nil }
+			return func() tea.Msg { ringBell(); return nil }
 		}),
 		{},
 		{header: true, label: "When"},

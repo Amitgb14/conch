@@ -492,6 +492,21 @@ func TestA4SandboxURL(t *testing.T) {
 	if !strings.Contains(d.called(), "expiresInSeconds=3600") {
 		t.Fatalf("asked for: %s", d.called())
 	}
+	// -open hands the link to the desktop rather than only printing it —
+	// and says once that anyone with the link can reach that port. Nothing
+	// opens here: the test replaces the handing over.
+	var opened string
+	oldOpen := openInBrowser
+	openInBrowser = func(url string) error { opened = url; return nil }
+	t.Cleanup(func() { openInBrowser = oldOpen })
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"url", "-open", "live", "3000"}) })
+	if err != nil || opened != "https://3000-signed.proxy.daytona.work" {
+		t.Fatalf("-open: opened %q (%q) %v", opened, out, err)
+	}
+	if !strings.Contains(errOut, "the link works for anyone until it expires") {
+		t.Fatalf("-open said: %q", errOut)
+	}
+
 	// A time of its own, in the shape a Go duration takes.
 	if _, _ = a4Capture(t, "", func() { err = runSandbox([]string{"url", "-expires", "10m", "live", "3000"}) }); err != nil {
 		t.Fatal(err)
