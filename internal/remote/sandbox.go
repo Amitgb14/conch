@@ -86,20 +86,26 @@ func TransportFor(ctx context.Context, label, target string, interactive bool) (
 	// A provider that takes a key of your own rather than handing out a
 	// secret is given conch's public key, so the way in is one this
 	// computer already holds the other half of.
+	identity := ""
 	if ka, ok := p.(sandbox.KeyAuthorizer); ok {
-		line, _, err := publicKey(ctx)
+		line, path, err := publicKey(ctx)
 		if err != nil {
 			return nil, err
 		}
 		if err := ka.AuthorizeKey(ctx, id, line); err != nil {
 			return nil, err
 		}
+		// ssh has to offer the key conch just authorized. The generated
+		// config names conch's own key, which stops ssh trying the
+		// defaults, so the user's key would never be offered and the
+		// sandbox would refuse a login it was set up to allow.
+		identity = strings.TrimSuffix(path, ".pub")
 	}
 	a, err := p.SSHAccess(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return sandboxSSH(label, a), nil
+	return sandboxSSH(label, a, identity), nil
 }
 
 // DefaultSandboxLabel names a sandbox nobody named, after its ID.
@@ -171,9 +177,9 @@ func UnsavedWork(projects []proto.ProjectInfo) []string {
 // sandboxSSH reaches a sandbox through its provider's ssh gateway. It never
 // prompts: the token is the whole login, and the gateway's host key is
 // taken the first time, as nobody is there to answer for it.
-func sandboxSSH(label string, a sandbox.Access) Transport {
+func sandboxSSH(label string, a sandbox.Access, identity string) Transport {
 	t := &sandboxTransport{
-		ssh:  &sshTransport{target: a.Target(), opts: sshOpts{acceptNew: true}},
+		ssh:  &sshTransport{target: a.Target(), opts: sshOpts{acceptNew: true, identity: identity}},
 		name: label,
 	}
 	if !a.PlainUser {

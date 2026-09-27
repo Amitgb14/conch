@@ -78,11 +78,34 @@ func sshKeygenBinary() string {
 // conchKey is the key conch creates for machines when the user has none.
 func conchKey() string { return filepath.Join(config.Dir(), "ssh", "id_ed25519") }
 
+// defaultKeyNames are the keys ssh would try by itself, in its own order.
+var defaultKeyNames = []string{"id_ed25519", "id_ecdsa", "id_rsa"}
+
+// loginKeys are the private keys ssh should offer: conch's own, then the
+// user's defaults, whichever exist. Only keys that are there are named, so
+// ssh is not asked for a file it cannot read.
+func loginKeys() []string {
+	var keys []string
+	if key := conchKey(); exists(key) {
+		keys = append(keys, key)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return keys
+	}
+	for _, name := range defaultKeyNames {
+		if key := filepath.Join(home, ".ssh", name); exists(key) {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
 // publicKey returns a public key to authorize on machines: the user's own
 // default key, else conch's, which is created when missing.
 func publicKey(ctx context.Context) (line, path string, err error) {
 	if home, err := os.UserHomeDir(); err == nil {
-		for _, name := range []string{"id_ed25519", "id_ecdsa", "id_rsa"} {
+		for _, name := range defaultKeyNames {
 			p := filepath.Join(home, ".ssh", name+".pub")
 			if b, err := os.ReadFile(p); err == nil && validKeyLine(string(b)) {
 				return strings.TrimSpace(string(b)), p, nil

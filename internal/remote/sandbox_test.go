@@ -76,25 +76,27 @@ func (k *keyProvider) SSHAccess(context.Context, string) (sandbox.Access, error)
 	return sandbox.Access{User: "user", PlainUser: true, Host: "203.0.113.5"}, k.accessErr
 }
 
-// ownKey puts a public key in HOME, so nothing has to generate one.
-func ownKey(t *testing.T) string {
+// ownKey puts a public key in HOME, so nothing has to generate one; it
+// returns the key line and where it is.
+func ownKey(t *testing.T) (string, string) {
 	t.Helper()
 	dir := filepath.Join(os.Getenv("HOME"), ".ssh")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	line := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample conch@test"
-	if err := os.WriteFile(filepath.Join(dir, "id_ed25519.pub"), []byte(line+"\n"), 0o644); err != nil {
+	path := filepath.Join(dir, "id_ed25519.pub")
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return line
+	return line, path
 }
 
 // A provider that takes a key of your own is given conch's, and its
 // ordinary user name is not treated as a secret.
 func TestTransportForASandboxThatTakesAKey(t *testing.T) {
 	a4Env(t)
-	line := ownKey(t)
+	line, keyPath := ownKey(t)
 	p := &keyProvider{fakeProvider: fakeProvider{state: sandbox.StateStarted}}
 	useNamedProvider(t, "boat", p, nil)
 	tr, err := TransportFor(context.Background(), "fix-login", "boat:bx_23456781", true)
@@ -108,8 +110,30 @@ func TestTransportForASandboxThatTakesAKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if args := strings.Join(cmd.Args, " "); !strings.Contains(args, "user@203.0.113.5 uname -s") {
+	args := strings.Join(cmd.Args, " ")
+	if !strings.Contains(args, "user@203.0.113.5 uname -s") {
 		t.Fatalf("ssh args: %s", args)
+	}
+	// ssh must offer the key conch authorized, and only that one: the
+	// generated config names conch's own key, which stops ssh trying the
+	// defaults, and the agent may hold nothing.
+	key := strings.TrimSuffix(keyPath, ".pub")
+	if !strings.Contains(args, "-i "+key) || !strings.Contains(args, "IdentitiesOnly=yes") {
+		t.Fatalf("the authorized key is not offered: %s", args)
+	}
+	// A gateway that hands out a token instead is left as it was: there is
+	// no key of ours in that login.
+	useProvider(t, &fakeProvider{state: sandbox.StateStarted}, nil)
+	gwCmd, err := TransportFor(context.Background(), "gw", "daytona:sb1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2, err := gwCmd.Command(context.Background(), "uname -s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(c2.Args, " "); strings.Contains(got, "IdentitiesOnly") {
+		t.Fatalf("a gateway login named an identity: %s", got)
 	}
 	// "user" is an account name, not a token, so nothing is struck out of
 	// messages — a gateway that takes the token as the username keeps its
@@ -242,7 +266,7 @@ func TestTransportForSandboxThatCantBeReached(t *testing.T) {
 
 func TestSandboxTransportKeepsTheTokenOutOfErrors(t *testing.T) {
 	a4Env(t)
-	tr := sandboxSSH("box", sandbox.Access{User: "tok-secret", Host: "gw.test"})
+	tr := sandboxSSH("box", sandbox.Access{User: "tok-secret", Host: "gw.test"}, "")
 	err := tr.failed(errors.New("exit status 255"), "tok-secret@gw.test: Permission denied (publickey).\n")
 	if strings.Contains(err.Error(), "tok-secret") || !strings.Contains(err.Error(), "…@gw.test: Permission denied") {
 		t.Fatalf("err %q", err)

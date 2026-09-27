@@ -139,8 +139,9 @@ history; details for big items live in their own plan files.
     and what work has reached no remote. Two providers are supported:
     Daytona, reached with a fresh ssh token through its gateway, and
     boat.dev, whose sandboxes are whole machines with an sshd of their own —
-    conch authorizes its public key there and connects straight to them, so
-    nothing that opens one leaves this computer. Both take the same
+    conch authorizes its public key there, offers that same key, and
+    connects straight to them, so nothing that opens one leaves this
+    computer. Both take the same
     settings, and optional interfaces cover what only some of them can do:
     ports, snapshots, cost, and a key of your own (`Previewer`,
     `Snapshotter`, `Metered`, `KeyAuthorizer`). The docs are the

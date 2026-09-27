@@ -74,9 +74,12 @@ Host *
   ControlPath %s/%%C
   ControlPersist 60
 `, quoteConfig(ctl))
-	// The key conch made for machines when the user had none (see
-	// SetUpKeyLogin). Only then: naming a key stops ssh trying the defaults.
-	if key := conchKey(); exists(key) {
+	// The keys to log in with: conch's own, made when the user had none
+	// (see SetUpKeyLogin), and the user's defaults. Naming any key stops
+	// ssh trying the defaults, so once conch's key exists the user's would
+	// never be offered — and a machine authorized with the user's key, a
+	// sandbox among them, would refuse a login it was set up to allow.
+	for _, key := range loginKeys() {
 		fmt.Fprintf(&b, "  IdentityFile %s\n", quoteConfig(key))
 	}
 
@@ -122,6 +125,11 @@ type sshOpts struct {
 	// acceptNew takes a host's key the first time without asking, for a
 	// gateway nobody is there to vouch for (a sandbox provider's).
 	acceptNew bool
+	// identity is the private key to log in with, and only that one: where
+	// conch authorized a key itself it must offer that key, since the
+	// generated config names conch's own and so stops ssh trying the
+	// defaults, and the agent may hold nothing.
+	identity string
 }
 
 func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cmd, error) {
@@ -142,6 +150,9 @@ func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cm
 		if o.acceptNew {
 			args = append(args, "-o", "StrictHostKeyChecking=accept-new")
 		}
+	}
+	if o.identity != "" {
+		args = append(args, "-i", o.identity, "-o", "IdentitiesOnly=yes")
 	}
 	args = append(args, "--", target, script)
 	cmd := exec.CommandContext(ctx, sshBinary(), args...)

@@ -262,3 +262,52 @@ func TestAskpassNoTempDir(t *testing.T) {
 		t.Fatal("key login without an askpass")
 	}
 }
+
+// The generated config offers conch's key and the user's own. Naming any
+// key stops ssh trying the defaults, so once conch has made one a machine
+// authorized with the user's key — a boat.dev sandbox, say — would be
+// refused a login it was set up to allow.
+func TestSSHConfigOffersEveryKeyThereIs(t *testing.T) {
+	a4Env(t)
+	home := os.Getenv("HOME")
+	// Nothing yet: no key is named, so ssh does what it would anyway.
+	cfg, err := sshConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(cfg); strings.Contains(string(b), "IdentityFile") {
+		t.Fatalf("a key was named before there was one:\n%s", b)
+	}
+	// The user's own keys, and one that isn't there.
+	mine := filepath.Join(home, ".ssh", "id_ed25519")
+	rsa := filepath.Join(home, ".ssh", "id_rsa")
+	os.MkdirAll(filepath.Dir(mine), 0o700)
+	for _, p := range []string{mine, rsa} {
+		if err := os.WriteFile(p, []byte("private"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// conch's own as well, as SetUpKeyLogin would leave it.
+	os.MkdirAll(filepath.Dir(conchKey()), 0o700)
+	if err := os.WriteFile(conchKey(), []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resetConfig()
+	cfg, err = sshConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(cfg)
+	for _, want := range []string{"IdentityFile " + conchKey(), "IdentityFile " + mine, "IdentityFile " + rsa} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("config lacks %q:\n%s", want, b)
+		}
+	}
+	if strings.Contains(string(b), "id_ecdsa") {
+		t.Fatalf("a key that isn't there was named:\n%s", b)
+	}
+	// conch's own comes first: it is the one conch made for this.
+	if i, j := strings.Index(string(b), conchKey()), strings.Index(string(b), mine); i > j {
+		t.Fatalf("conch's key should come first:\n%s", b)
+	}
+}
