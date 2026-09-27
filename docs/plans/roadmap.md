@@ -162,9 +162,44 @@ history; details for big items live in their own plan files.
     are made with auto-pause, so one whose clock runs out keeps its
     filesystem *and* its memory instead of being destroyed.
 
+22. **One setup, every agent** — from a user who tried conch: "I feel
+    locked in to those models while I also like to use others for some
+    tasks. And then I have to sync settings, skills, mcps (and their auth)
+    with codex." Running several agents is what conch is for, and it is
+    the setting up that makes people pick one and stay there.
+
+    Half of this exists already, pointing the other way: `i` shows what
+    each agent loads in a checkout — instructions, skills, commands, MCP
+    servers, plugins — and in a worktree what it lacks beside the main
+    checkout, with `c` to copy that across (`internal/agentsetup`,
+    `internal/tui/setup.go`). Reading every agent's own arrangement is the
+    hard half, and it is done.
+
+    What is missing is writing: one place that says what the instructions,
+    skills and MCP servers are, and puts them where each agent looks for
+    them — CLAUDE.md and `.claude/`, AGENTS.md, `.mcp.json`, Codex's and
+    Gemini's and OpenCode's own. It should say what it would change before
+    it changes anything, leave alone what a person wrote by hand, and be
+    undoable, since these are the files an agent's behaviour hangs on.
+
+    Auth is the thorny part and should not be pretended at. An agent's
+    login is its own (Claude's token, Codex's, a `gh` login), and copying
+    credentials between tools is not conch's business. What conch can
+    honestly do is what it already does for sandboxes: name the
+    environment variables an MCP server needs and pass them through, so
+    the same server works wherever the agent runs. A first version that
+    syncs instructions, skills and MCP *definitions*, and is plain that
+    logins stay with each agent, is worth more than one that promises to
+    carry secrets about.
+
+    The same person asked for "an actual UI for humans, especially for
+    reviewing the work", which is what the changes view, the review queue
+    and the checks already are. Worth remembering when that feedback comes
+    again: it is the setup, not the reviewing, that is missing.
+
 ## Not now
 
-22. **MicroVM sandboxes on your own hardware** — see
+23. **MicroVM sandboxes on your own hardware** — see
     [microvm-sandbox.md](microvm-sandbox.md). 20 covers the case that
     mattered: somewhere isolated to run an agent, made and thrown away from
     conch. What this plan adds is a sandbox on hardware you own — a
@@ -176,11 +211,11 @@ history; details for big items live in their own plan files.
 
 ## Last
 
-23. **Auto-approve rules** — per-project rules that let agents run safe
+24. **Auto-approve rules** — per-project rules that let agents run safe
     commands without waiting for the user. A sandbox is the boundary these
     need, and 20 gives one: the rules would be allowed there and nowhere
     else, so a rule that skips a confirmation cannot reach the laptop.
-24. **Task graph** — server-side rules such as "when A is done, start a
+25. **Task graph** — server-side rules such as "when A is done, start a
     review agent on its worktree", only once auto-approve rules exist, since
     they run actions nobody confirmed. Notifies rather than moving focus.
 
