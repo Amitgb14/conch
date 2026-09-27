@@ -160,3 +160,118 @@ func TestWorktreeLocalFilesAndSetup(t *testing.T) {
 		t.Fatalf("default patterns should not be saved: %s", b)
 	}
 }
+
+// agent.setup.sync over the protocol: the plan writes nothing, applying
+// writes each agent's own files, and undoing puts the checkout back.
+func TestAgentSyncOverTheProtocol(t *testing.T) {
+	home := t.TempDir()
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("HOME", home)
+	c, dir := startServer(t)
+	repo := filepath.Join(dir, "api")
+	git(t, dir, "init", "-q", "-b", "main", repo)
+	write(t, filepath.Join(repo, "CLAUDE.md"), "# rules\n\nRun the tests.\n")
+	write(t, filepath.Join(repo, ".claude/skills/review/SKILL.md"), "---\nname: review\n---\n")
+	write(t, filepath.Join(repo, ".mcp.json"), `{"mcpServers":{"gh":{"command":"npx","args":["gh"]}}}`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	call := func(p proto.AgentSyncParams) proto.AgentSyncResult {
+		t.Helper()
+		var res proto.AgentSyncResult
+		if err := c.Call(ctx, proto.MethodAgentSync, p, &res); err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+
+	// A plan: changes, and nothing on disk.
+	plan := call(proto.AgentSyncParams{Dir: repo, From: "claude"})
+	if len(plan.Changes) == 0 || plan.Undo != "" || len(plan.To) != 3 {
+		t.Fatalf("plan %+v", plan)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatal("the plan wrote AGENTS.md")
+	}
+
+	// Applying, for one agent only.
+	done := call(proto.AgentSyncParams{Dir: repo, From: "claude", To: []string{"codex"}, Apply: true})
+	if !done.Applied || done.Undo == "" || len(done.Undos) != 1 {
+		t.Fatalf("applied %+v", done)
+	}
+	wrote := 0
+	for _, ch := range done.Changes {
+		if ch.Error != "" {
+			t.Fatalf("change failed: %+v", ch)
+		}
+		if ch.Done {
+			wrote++
+		}
+	}
+	if wrote != 3 { // AGENTS.md, the skill, the server
+		t.Fatalf("wrote %d of %+v", wrote, done.Changes)
+	}
+	if got, err := os.ReadFile(filepath.Join(repo, "AGENTS.md")); err != nil || !strings.Contains(string(got), "Run the tests.") {
+		t.Fatalf("AGENTS.md %q %v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(repo, ".codex", "config.toml")); err != nil || !strings.Contains(string(got), "[mcp_servers.gh]") {
+		t.Fatalf("config.toml %q %v", got, err)
+	}
+
+	// Undoing the last one.
+	back := call(proto.AgentSyncParams{Dir: repo, Undo: true})
+	if !back.Undone || back.Undo != done.Undo || len(back.Undos) != 0 {
+		t.Fatalf("undone %+v", back)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatal("AGENTS.md is still there")
+	}
+
+	// What it refuses: an agent it doesn't know, a folder that isn't one,
+	// and a checkout with nothing to copy.
+	for _, p := range []proto.AgentSyncParams{
+		{Dir: repo, From: "devin"},
+		{Dir: filepath.Join(repo, "nope"), From: "claude"},
+		{Dir: dir, From: "claude"},
+		{Dir: repo, Undo: true},
+	} {
+		if err := c.Call(ctx, proto.MethodAgentSync, p, nil); err == nil {
+			t.Fatalf("%+v was accepted", p)
+		}
+	}
+}
+
+// The record a sync leaves behind is kept out of git, as the handoff
+// documents beside it are.
+func TestAgentSyncKeepsItsRecordOutOfGit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+		t.Setenv(k, "")
+	}
+	c, dir := startServer(t)
+	repo := filepath.Join(dir, "api")
+	git(t, dir, "init", "-q", "-b", "main", repo)
+	write(t, filepath.Join(repo, "CLAUDE.md"), "# rules\n")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var res proto.AgentSyncResult
+	if err := c.Call(ctx, proto.MethodAgentSync, proto.AgentSyncParams{Dir: repo, From: "claude", To: []string{"codex"}, Apply: true}, &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Undo == "" {
+		t.Fatalf("nothing was written: %+v", res)
+	}
+	exclude, err := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude"))
+	if err != nil || !strings.Contains(string(exclude), ".conch/") {
+		t.Fatalf("exclude %q %v", exclude, err)
+	}
+	// The record itself is the user's own business, not the machine's.
+	st, err := os.Stat(filepath.Join(repo, ".conch", "agent-sync"))
+	if err != nil || st.Mode().Perm() != 0o700 {
+		t.Fatalf("the record folder is %v (%v)", st.Mode().Perm(), err)
+	}
+}

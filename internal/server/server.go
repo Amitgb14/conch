@@ -315,7 +315,7 @@ var slowMethods = map[string]bool{
 	proto.MethodPaneCreate: true, proto.MethodPaneClose: true,
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true, proto.MethodFSRead: true,
-	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodWorktreeFiles: true,
+	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodAgentSync: true, proto.MethodWorktreeFiles: true,
 	proto.MethodProjectFiles: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
@@ -842,6 +842,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.agentSetup(ap)
+
+	case proto.MethodAgentSync:
+		sp, perr := decode[proto.AgentSyncParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.agentSync(sp)
 
 	case proto.MethodProjectFiles:
 		fp, perr := decode[proto.ProjectFilesParams](msg)

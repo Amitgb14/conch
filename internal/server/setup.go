@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,19 +15,9 @@ import (
 // it also compares with the main checkout: local files the worktree lacks,
 // and setup items only the main checkout has.
 func (s *Server) agentSetup(ap proto.AgentSetupParams) (proto.AgentSetupResult, *proto.Error) {
-	dir := ap.Dir
-	if home, err := os.UserHomeDir(); err == nil && (dir == "~" || strings.HasPrefix(dir, "~/")) {
-		dir = filepath.Join(home, dir[1:])
-	}
-	abs, err := filepath.Abs(dir)
-	if err == nil {
-		abs, err = filepath.EvalSymlinks(abs)
-	}
-	if err != nil {
-		return proto.AgentSetupResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
-	}
-	if st, err := os.Stat(abs); err != nil || !st.IsDir() {
-		return proto.AgentSetupResult{}, proto.Errorf(proto.ErrBadRequest, "%s is not a directory", abs)
+	abs, perr := resolveSetupDir(ap.Dir)
+	if perr != nil {
+		return proto.AgentSetupResult{}, perr
 	}
 	names := agentsetup.Names()
 	if ap.Agent != "" {
@@ -64,6 +55,59 @@ func (s *Server) agentSetup(ap proto.AgentSetupParams) (proto.AgentSetupResult, 
 		res.Agents = append(res.Agents, setup)
 	}
 	return res, nil
+}
+
+// agentSync gives the agents named the setup another has in a checkout,
+// or puts an earlier sync back. Nothing is written unless Apply says so:
+// the client shows the plan first.
+func (s *Server) agentSync(sp proto.AgentSyncParams) (proto.AgentSyncResult, *proto.Error) {
+	dir, perr := resolveSetupDir(sp.Dir)
+	if perr != nil {
+		return proto.AgentSyncResult{}, perr
+	}
+	var res agentsetup.SyncResult
+	var err error
+	if sp.Undo {
+		res, err = agentsetup.UndoSync(dir, sp.Stamp)
+	} else {
+		res, err = agentsetup.Sync(dir, sp.From, sp.To, sp.Apply)
+	}
+	if err != nil {
+		return proto.AgentSyncResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	out := proto.AgentSyncResult{Dir: res.Dir, From: res.From, To: res.To, Notes: res.Notes,
+		Applied: sp.Apply && !sp.Undo, Undone: sp.Undo, Undo: res.Undo}
+	for _, c := range res.Changes {
+		out.Changes = append(out.Changes, proto.SyncChange{Agent: c.Agent, Kind: c.Kind, Name: c.Name,
+			Path: c.Path, Action: c.Action, Detail: c.Detail, Done: c.Done, Error: c.Error})
+	}
+	if out.Undo != "" {
+		// The record of what to put back lives in the checkout, so keep
+		// .conch out of git as the handoff documents do.
+		if err := excludeFromGit(res.Dir, ".conch/"); err != nil {
+			log.Printf("agent sync: keeping .conch out of git in %s: %v", res.Dir, err)
+		}
+	}
+	out.Undos = agentsetup.SyncUndos(res.Dir)
+	return out, nil
+}
+
+// resolveSetupDir turns a client's directory into one on this machine.
+func resolveSetupDir(dir string) (string, *proto.Error) {
+	if home, err := os.UserHomeDir(); err == nil && (dir == "~" || strings.HasPrefix(dir, "~/")) {
+		dir = filepath.Join(home, dir[1:])
+	}
+	abs, err := filepath.Abs(dir)
+	if err == nil {
+		abs, err = filepath.EvalSymlinks(abs)
+	}
+	if err != nil {
+		return "", proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	if st, err := os.Stat(abs); err != nil || !st.IsDir() {
+		return "", proto.Errorf(proto.ErrBadRequest, "%s is not a directory", abs)
+	}
+	return abs, nil
 }
 
 func isDirectory(p string) bool {

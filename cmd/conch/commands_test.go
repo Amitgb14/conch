@@ -679,3 +679,111 @@ func TestA4UpdateReloadsServer(t *testing.T) {
 		}
 	}
 }
+
+// conch agent sync says what it would do, does it with -apply, and puts it
+// back with -undo. The words matter: this is the only place the plan is
+// read before anything is written.
+func TestA4AgentSync(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		var p proto.AgentSyncParams
+		json.Unmarshal(msg.Params, &p)
+		res := proto.AgentSyncResult{Dir: p.Dir, From: p.From, To: []string{"codex", "gemini"},
+			Notes: []string{"instructions from CLAUDE.md"},
+			Changes: []proto.SyncChange{
+				{Agent: "codex", Kind: proto.SyncInstructions, Name: "AGENTS.md", Path: "AGENTS.md", Action: proto.SyncCreate, Detail: "a copy of CLAUDE.md"},
+				{Agent: "codex", Kind: proto.SyncSkill, Name: "review", Path: ".agents/skills/review", Action: proto.SyncLink},
+				{Agent: "gemini", Kind: proto.SyncMCP, Name: "paid", Action: proto.SyncSkip, Detail: "conch does not copy secrets"},
+			}}
+		switch {
+		case p.Undo:
+			res.Undone, res.Undo = true, "20260926-101500"
+			res.Changes = []proto.SyncChange{{Kind: proto.SyncInstructions, Name: "AGENTS.md", Path: "AGENTS.md", Action: proto.SyncRemove, Done: true}}
+		case p.Apply:
+			for i := range res.Changes {
+				res.Changes[i].Done = res.Changes[i].Action != proto.SyncSkip
+			}
+			res.Applied, res.Undo = true, "20260926-101500"
+		}
+		return res, nil
+	})
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runAgent([]string{"sync"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p proto.AgentSyncParams
+	srv.params(t, proto.MethodAgentSync, &p)
+	if p.Dir != dir || p.From != "claude" || p.Apply || p.Undo || len(p.To) != 0 {
+		t.Fatalf("sync params %+v", p)
+	}
+	for _, want := range []string{dir + " · claude → codex, gemini", "instructions from CLAUDE.md",
+		"AGENTS.md", "create", "a copy of CLAUDE.md", "does not copy secrets",
+		"2 changes; run it again with -apply to make them"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("plan lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "✓") {
+		t.Fatalf("a plan claimed to have done something:\n%s", out)
+	}
+
+	// -apply, and only the named agents.
+	out, _ = a4Capture(t, "", func() { err = runAgent([]string{"sync", "-from", "codex", "-to", "claude, gemini", "-apply"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.params(t, proto.MethodAgentSync, &p)
+	if !p.Apply || p.From != "codex" || strings.Join(p.To, "|") != "claude|gemini" {
+		t.Fatalf("apply params %+v", p)
+	}
+	if !strings.Contains(out, "✓ codex") || !strings.Contains(out, "undo with: conch agent sync -undo -stamp 20260926-101500") {
+		t.Fatalf("apply output:\n%s", out)
+	}
+
+	// -undo
+	out, _ = a4Capture(t, "", func() { err = runAgent([]string{"sync", "-undo", "-stamp", "20260926-101500"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.params(t, proto.MethodAgentSync, &p)
+	if !p.Undo || p.Stamp != "20260926-101500" {
+		t.Fatalf("undo params %+v", p)
+	}
+	if !strings.Contains(out, "put sync 20260926-101500 back") || !strings.Contains(out, "remove") {
+		t.Fatalf("undo output:\n%s", out)
+	}
+
+	// Nothing to do reads as nothing to do.
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		return proto.AgentSyncResult{Dir: dir, From: "claude", To: []string{"codex"},
+			Changes: []proto.SyncChange{{Agent: "codex", Kind: proto.SyncSkill, Name: "review", Action: proto.SyncSame, Detail: "already read from .agents/skills"}}}, nil
+	})
+	out, _ = a4Capture(t, "", func() { err = runAgent([]string{"sync"}) })
+	if err != nil || !strings.Contains(out, "nothing to do: every agent already has it") {
+		t.Fatalf("nothing to do: %q %v", out, err)
+	}
+
+	// Too many arguments, and a server too old to do it at all.
+	if err := runAgent([]string{"sync", "a", "b"}); err == nil || !strings.Contains(err.Error(), "usage: conch agent sync") {
+		t.Fatalf("two directories: %v", err)
+	}
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		var caps []string
+		for _, c := range h.Capabilities {
+			if c != proto.CapAgentSync {
+				caps = append(caps, c)
+			}
+		}
+		h.Capabilities = caps
+		return h
+	})
+	if err := runAgent([]string{"sync"}); err == nil || !strings.Contains(err.Error(), "too old to sync agent setup") {
+		t.Fatalf("an old server: %v", err)
+	}
+}

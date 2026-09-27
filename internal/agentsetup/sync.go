@@ -1,0 +1,937 @@
+package agentsetup
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+)
+
+// Writing, rather than reading: one agent's setup in a checkout given to
+// the others, so running several agents does not mean setting each one up
+// by hand. Only a checkout is touched — never the agents' own folders in
+// your home — and only three things travel: the project's instructions,
+// its skills, and the MCP servers it declares.
+//
+// Three rules keep it safe to run:
+//
+//   - Nothing is written until the plan has been seen. Sync with apply
+//     false says what it would do and touches nothing.
+//   - A file somebody wrote by hand is left alone. conch writes its own
+//     marked block, or a file that did not exist, and nothing else; a
+//     second sync updates that block and leaves the rest as it is.
+//   - What it did can be undone. Every write is recorded with what was
+//     there before, and Undo puts it back.
+//
+// Secrets stay where they are: a server whose environment or headers hold
+// a value rather than a ${VAR} reference is not copied, and the reason
+// says so. Logins are each agent's own and are never touched.
+
+// Kinds of setup a sync carries.
+const (
+	SyncInstructions = "instructions"
+	SyncSkill        = "skill"
+	SyncMCP          = "mcp server"
+)
+
+// What a change does. Create, Update and Link write; Same and Skip do not.
+const (
+	ActionCreate = "create"
+	ActionUpdate = "update"
+	ActionLink   = "link"
+	ActionSame   = "same"
+	ActionSkip   = "skip"
+)
+
+// SyncChange is one thing a sync would do, or did.
+type SyncChange struct {
+	Agent  string `json:"agent"`
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Path   string `json:"path"`   // relative to the checkout
+	Action string `json:"action"` // create, update, link, same, skip
+	Detail string `json:"detail,omitempty"`
+	Done   bool   `json:"done,omitempty"`  // written, when applying
+	Error  string `json:"error,omitempty"` // why it was not
+
+	// write is what applying it does; nil for same and skip.
+	write func(u *undoLog) error
+}
+
+// Writes reports whether the change would change anything.
+func (c SyncChange) Writes() bool {
+	switch c.Action {
+	case ActionCreate, ActionUpdate, ActionLink:
+		return true
+	}
+	return false
+}
+
+// SyncResult is a plan, or what came of applying one.
+type SyncResult struct {
+	Dir     string       `json:"dir"`
+	From    string       `json:"from"`
+	To      []string     `json:"to"`
+	Changes []SyncChange `json:"changes,omitempty"`
+	Notes   []string     `json:"notes,omitempty"`
+	// Undo names the record this apply left behind, for Undo.
+	Undo string `json:"undo,omitempty"`
+}
+
+// Writes counts the changes that would write, or wrote.
+func (r SyncResult) Writes() int {
+	n := 0
+	for _, c := range r.Changes {
+		if c.Writes() {
+			n++
+		}
+	}
+	return n
+}
+
+// agentFiles is where an agent keeps its project setup, for writing.
+type agentFiles struct {
+	// instructions is the file it reads at the checkout root.
+	instructions string
+	// imports says it expands "@path" in that file, so conch can point at
+	// another agent's file instead of copying it.
+	imports bool
+	// skills are the folders it reads skills from, relative to the root;
+	// conch puts a skill in the first, which is shared where it can be.
+	skills []string
+	// mcp is the file its servers are declared in, and mcpKey where in it.
+	mcp    string
+	mcpKey string
+}
+
+var writable = map[string]agentFiles{
+	"claude":   {"CLAUDE.md", true, []string{".claude/skills"}, ".mcp.json", "mcpServers"},
+	"codex":    {"AGENTS.md", false, []string{".agents/skills"}, ".codex/config.toml", "mcp_servers"},
+	"gemini":   {"GEMINI.md", true, []string{".agents/skills", ".gemini/skills"}, ".gemini/settings.json", "mcpServers"},
+	"opencode": {"AGENTS.md", false, []string{".agents/skills", ".opencode/skill"}, "opencode.json", "mcp"},
+}
+
+// SyncNames lists the agents a sync can read from and write for.
+func SyncNames() []string {
+	out := make([]string, 0, len(writable))
+	for name := range writable {
+		out = append(out, name)
+	}
+	sort.Slice(out, func(i, j int) bool { return rankAgent(out[i]) < rankAgent(out[j]) })
+	return out
+}
+
+func rankAgent(name string) int {
+	for i, n := range Names() {
+		if n == name {
+			return i
+		}
+	}
+	return len(writable)
+}
+
+// CanSync reports whether a sync knows where this agent keeps things.
+func CanSync(name string) bool { _, ok := writable[name]; return ok }
+
+// ErrNothingToSync means the agent a sync would copy from has nothing in
+// this checkout: no instructions, no skills, no servers.
+var ErrNothingToSync = errors.New("nothing to sync")
+
+// Sync gives every agent in to the setup from has in the checkout at dir.
+// With apply false nothing is written and the changes are what it would
+// do. to may be empty, meaning every other agent it knows.
+func Sync(dir, from string, to []string, apply bool) (SyncResult, error) {
+	root := RepoRoot(dir)
+	if root == "" {
+		root = dir
+	}
+	src, ok := writable[from]
+	if !ok {
+		return SyncResult{}, fmt.Errorf("conch cannot read %s's setup (it knows %s)", from, strings.Join(SyncNames(), ", "))
+	}
+	if len(to) == 0 {
+		for _, name := range SyncNames() {
+			if name != from {
+				to = append(to, name)
+			}
+		}
+	}
+	for _, name := range to {
+		if !CanSync(name) {
+			return SyncResult{}, fmt.Errorf("conch cannot set %s up (it knows %s)", name, strings.Join(SyncNames(), ", "))
+		}
+	}
+	res := SyncResult{Dir: root, From: from, To: to}
+
+	text, textPath := instructionsOf(root, src)
+	skills := skillsOf(root, src)
+	servers, secret := serversOf(root, src)
+	if text == nil && len(skills) == 0 && len(servers) == 0 && len(secret) == 0 {
+		return res, fmt.Errorf("%w: %s has no instructions, skills or MCP servers in %s", ErrNothingToSync, labelOf(from), root)
+	}
+
+	// Agents share files and folders — AGENTS.md is Codex's and
+	// OpenCode's, .agents/skills is read by three of them — so the same
+	// write is planned once and the others are told who it is shared with.
+	shared := map[string]string{}
+	add := func(c SyncChange, what string) {
+		key := c.Kind + "\x00" + c.Path + "\x00" + c.Name
+		if c.Writes() {
+			if with, done := shared[key]; done {
+				c.Action, c.Detail = ActionSame, "the same "+what+" as "+with
+				c.write = nil
+			} else {
+				shared[key] = labelOf(c.Agent)
+			}
+		}
+		res.Changes = append(res.Changes, c)
+	}
+	for _, name := range to {
+		if name == from {
+			continue
+		}
+		t := writable[name]
+		if text != nil && t.instructions != src.instructions {
+			add(planInstructions(root, name, t, src.instructions, text), "file")
+		}
+		for _, sk := range skills {
+			add(planSkill(root, name, t, sk), "folder")
+		}
+		for _, s := range servers {
+			add(planServer(root, name, t, s), "file")
+		}
+		for _, s := range secret {
+			add(SyncChange{Agent: name, Kind: SyncMCP, Name: s, Path: t.mcp,
+				Action: ActionSkip, Detail: "its environment holds a value, not a ${VAR} reference: conch does not copy secrets"}, "file")
+		}
+	}
+	if text != nil {
+		res.Notes = append(res.Notes, "instructions from "+textPath)
+	}
+	for _, c := range res.Changes {
+		// Worth saying once: a server written into Codex's project config
+		// is there, but Codex ignores it until the folder is trusted.
+		if c.Agent == "codex" && c.Kind == SyncMCP && c.Writes() {
+			res.Notes = append(res.Notes, "Codex reads a project's config.toml only once you have trusted the folder")
+			break
+		}
+	}
+	sortChanges(res.Changes)
+	if !apply {
+		return res, nil
+	}
+	return applySync(root, res)
+}
+
+// applySync writes what the plan says, recording what was there before.
+func applySync(root string, res SyncResult) (SyncResult, error) {
+	if res.Writes() == 0 {
+		return res, nil
+	}
+	u := &undoLog{root: root, Stamp: stampFor(root), From: res.From}
+	for i := range res.Changes {
+		c := &res.Changes[i]
+		if !c.Writes() || c.write == nil {
+			continue
+		}
+		if err := c.write(u); err != nil {
+			c.Error = err.Error()
+			continue
+		}
+		c.Done = true
+	}
+	if err := u.save(); err != nil {
+		res.Notes = append(res.Notes, "what was there before could not be recorded, so this cannot be undone: "+err.Error())
+		return res, nil
+	}
+	res.Undo = u.Stamp
+	return res, nil
+}
+
+// stampFor names a record, without taking one that is already there: two
+// syncs in the same second are not the same sync.
+func stampFor(root string) string {
+	base := time.Now().Format("20060102-150405")
+	stamp := base
+	for i := 2; i < 100; i++ {
+		if _, err := os.Stat(filepath.Join(root, undoDir, stamp+".json")); os.IsNotExist(err) {
+			return stamp
+		}
+		stamp = fmt.Sprintf("%s-%d", base, i)
+	}
+	return stamp
+}
+
+func sortChanges(cs []SyncChange) {
+	kind := func(k string) int {
+		switch k {
+		case SyncInstructions:
+			return 0
+		case SyncSkill:
+			return 1
+		}
+		return 2
+	}
+	sort.SliceStable(cs, func(i, j int) bool {
+		if a, b := rankAgent(cs[i].Agent), rankAgent(cs[j].Agent); a != b {
+			return a < b
+		}
+		if a, b := kind(cs[i].Kind), kind(cs[j].Kind); a != b {
+			return a < b
+		}
+		return cs[i].Name < cs[j].Name
+	})
+}
+
+func labelOf(agent string) string {
+	for _, in := range inspectors {
+		if in.name == agent {
+			return in.label
+		}
+	}
+	return agent
+}
+
+// ---- instructions ----
+
+// maxInstructions is the largest instruction file conch copies. Anything
+// bigger is somebody's book, not a project's instructions.
+const maxInstructions = 1 << 20
+
+// conch's own block in a file it shares with hand-written text. The name
+// of the file it came from is in the opening line, so it is plain where to
+// make the change.
+const (
+	blockStart = "<!-- conch:instructions from "
+	blockOpen  = " -->"
+	blockEnd   = "<!-- conch:end -->"
+)
+
+var blockRe = regexp.MustCompile(`(?s)<!-- conch:instructions from [^\n]*-->\n.*?<!-- conch:end -->\n?`)
+
+// instructionsOf reads the instruction file of the agent to copy from.
+func instructionsOf(root string, a agentFiles) ([]byte, string) {
+	path := filepath.Join(root, a.instructions)
+	st, err := os.Stat(path)
+	if err != nil || !st.Mode().IsRegular() || st.Size() > maxInstructions {
+		return nil, ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || len(strings.TrimSpace(string(b))) == 0 {
+		return nil, ""
+	}
+	return b, a.instructions
+}
+
+// planInstructions is what to write for one agent's instruction file: a
+// pointer at the other file for an agent that follows imports, and the
+// text itself for one that does not.
+func planInstructions(root, agent string, t agentFiles, fromName string, text []byte) SyncChange {
+	c := SyncChange{Agent: agent, Kind: SyncInstructions, Name: t.instructions, Path: t.instructions}
+	want := blockFor(fromName, text, t.imports)
+	path := filepath.Join(root, t.instructions)
+	have, err := os.ReadFile(path)
+	switch {
+	case os.IsNotExist(err):
+		c.Action, c.Detail = ActionCreate, detailFor(fromName, t.imports)
+		c.write = writeFile(path, want)
+		return c
+	case err != nil:
+		c.Action, c.Detail = ActionSkip, err.Error()
+		return c
+	}
+	block := blockRe.Find(have)
+	if block == nil {
+		c.Action = ActionSkip
+		c.Detail = t.instructions + " is somebody's own; conch leaves it alone"
+		if sameText(have, text) {
+			c.Action, c.Detail = ActionSame, "already the same as "+fromName
+		}
+		return c
+	}
+	if string(block) == string(want) {
+		c.Action, c.Detail = ActionSame, "conch's block is up to date"
+		return c
+	}
+	c.Action, c.Detail = ActionUpdate, "conch's block in it, "+detailFor(fromName, t.imports)
+	c.write = writeFile(path, blockRe.ReplaceAll(have, want))
+	return c
+}
+
+func detailFor(fromName string, imports bool) string {
+	if imports {
+		return "pointing at " + fromName
+	}
+	return "a copy of " + fromName
+}
+
+// blockFor is conch's block: an import of the other file where the agent
+// expands one, else the text itself.
+func blockFor(fromName string, text []byte, imports bool) []byte {
+	body := "@" + fromName + "\n"
+	if !imports {
+		body = strings.TrimRight(string(text), "\n") + "\n"
+	}
+	return []byte(blockStart + fromName + blockOpen + "\n" + body + blockEnd + "\n")
+}
+
+func sameText(a, b []byte) bool {
+	return strings.TrimSpace(string(a)) == strings.TrimSpace(string(b))
+}
+
+// ---- skills ----
+
+// skill is one skill of the checkout, by name and folder.
+type skill struct {
+	name string
+	dir  string // absolute
+}
+
+// skillsOf lists the skills the agent to copy from reads in the checkout.
+func skillsOf(root string, a agentFiles) []skill {
+	var out []skill
+	seen := map[string]bool{}
+	for _, rel := range a.skills {
+		dir := filepath.Join(root, rel)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, en := range entries {
+			sub := filepath.Join(dir, en.Name())
+			if !isFile(filepath.Join(sub, "SKILL.md")) {
+				continue
+			}
+			real := cleanPath(sub)
+			if seen[real] {
+				continue
+			}
+			seen[real] = true
+			out = append(out, skill{name: en.Name(), dir: sub})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	return out
+}
+
+// planSkill links a skill into the first folder the agent reads, so one
+// copy of it serves every agent that reads that folder.
+func planSkill(root, agent string, t agentFiles, sk skill) SyncChange {
+	rel := filepath.Join(t.skills[0], sk.name)
+	c := SyncChange{Agent: agent, Kind: SyncSkill, Name: sk.name, Path: rel}
+	// A folder the agent already reads it from is enough, wherever it is.
+	for _, dir := range t.skills {
+		there := filepath.Join(root, dir, sk.name)
+		if cleanPath(there) == cleanPath(sk.dir) {
+			c.Action, c.Detail = ActionSame, "already read from "+dir
+			c.Path = filepath.Join(dir, sk.name)
+			return c
+		}
+	}
+	path := filepath.Join(root, rel)
+	if _, err := os.Lstat(path); err == nil {
+		c.Action, c.Detail = ActionSkip, "something else is already there"
+		return c
+	}
+	target, err := filepath.Rel(filepath.Dir(path), sk.dir)
+	if err != nil {
+		target = sk.dir
+	}
+	c.Action, c.Detail = ActionLink, "pointing at "+target
+	c.write = func(u *undoLog) error {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		u.creating(path)
+		return os.Symlink(target, path)
+	}
+	return c
+}
+
+// ---- MCP servers ----
+
+// mcpServer is a server in a shape every agent's own format can be
+// written from.
+type mcpServer struct {
+	Name    string
+	Command string
+	Args    []string
+	Env     map[string]string
+	URL     string
+	Headers map[string]string
+}
+
+// serversOf reads the servers the agent to copy from declares in the
+// checkout. Servers whose environment holds a value rather than a ${VAR}
+// reference are named in secret instead: conch does not copy those.
+func serversOf(root string, a agentFiles) (list []mcpServer, secret []string) {
+	path := filepath.Join(root, a.mcp)
+	var raw map[string]any
+	if strings.HasSuffix(a.mcp, ".toml") {
+		raw = obj(readTOML(path), a.mcpKey)
+	} else {
+		raw = obj(readJSON(path), a.mcpKey)
+	}
+	for _, name := range sortedKeys(raw) {
+		m, _ := raw[name].(map[string]any)
+		if m == nil {
+			continue
+		}
+		s := mcpServer{Name: name, Command: str(m, "command"), URL: firstStr(m, "url", "httpUrl", "serverUrl")}
+		if cmd, ok := m["command"].([]any); ok && len(cmd) > 0 { // OpenCode: command is a list
+			s.Command = anyStr(cmd[0])
+			for _, v := range cmd[1:] {
+				s.Args = append(s.Args, anyStr(v))
+			}
+		}
+		s.Args = append(s.Args, strs(m["args"])...)
+		s.Env = strMap(m["env"])
+		if len(s.Env) == 0 {
+			s.Env = strMap(m["environment"]) // OpenCode's name for it
+		}
+		s.Headers = strMap(m["headers"])
+		if s.Command == "" && s.URL == "" {
+			continue
+		}
+		if holdsValue(s.Env) || holdsValue(s.Headers) {
+			secret = append(secret, name)
+			continue
+		}
+		list = append(list, s)
+	}
+	return list, secret
+}
+
+// varRef matches a value that only refers to a variable, e.g. "${TOKEN}".
+var varRef = regexp.MustCompile(`^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$`)
+
+// holdsValue reports whether any value is something other than a
+// reference to an environment variable — a key, a token, a password.
+func holdsValue(m map[string]string) bool {
+	for _, v := range m {
+		if v = strings.TrimSpace(v); v != "" && !varRef.MatchString(v) {
+			return true
+		}
+	}
+	return false
+}
+
+// planServer declares one server in the agent's own file and format.
+func planServer(root, agent string, t agentFiles, s mcpServer) SyncChange {
+	c := SyncChange{Agent: agent, Kind: SyncMCP, Name: s.Name, Path: t.mcp}
+	path := filepath.Join(root, t.mcp)
+	if strings.HasSuffix(t.mcp, ".toml") {
+		return planServerTOML(path, c, t, s)
+	}
+	return planServerJSON(path, c, t, s)
+}
+
+// planServerJSON adds the server to a JSON file, keeping everything else
+// in it. A file with comments is left alone: rewriting it would drop them.
+// The file is read again when the change is applied, so two servers going
+// into the same file do not write over each other.
+func planServerJSON(path string, c SyncChange, t agentFiles, s mcpServer) SyncChange {
+	agent := c.Agent
+	edit := func() ([]byte, bool, error) {
+		b, err := os.ReadFile(path)
+		doc := map[string]any{}
+		switch {
+		case os.IsNotExist(err):
+			b = nil
+		case err != nil:
+			return nil, false, err
+		default:
+			if json.Unmarshal(b, &doc) != nil {
+				return nil, false, errors.New(t.mcp + " is not plain JSON (comments, or a mistake in it): conch leaves it alone")
+			}
+		}
+		servers := obj(doc, t.mcpKey)
+		if servers == nil {
+			servers = map[string]any{}
+		}
+		if _, there := servers[s.Name]; there {
+			return nil, false, nil // already declared
+		}
+		servers[s.Name] = jsonServer(agent, s)
+		doc[t.mcpKey] = servers
+		out, err := json.MarshalIndent(doc, "", "  ")
+		if err != nil {
+			return nil, false, err
+		}
+		return append(out, '\n'), len(b) == 0, nil
+	}
+	out, fresh, err := edit()
+	switch {
+	case err != nil:
+		c.Action, c.Detail = ActionSkip, err.Error()
+		return c
+	case out == nil:
+		c.Action, c.Detail = ActionSame, "already declared there"
+		return c
+	}
+	c.Action, c.Detail = ActionUpdate, describe(s)
+	if fresh {
+		c.Action = ActionCreate
+	}
+	c.write = func(u *undoLog) error {
+		out, _, err := edit()
+		if err != nil {
+			return err
+		}
+		if out == nil {
+			return nil // somebody declared it meanwhile
+		}
+		return writeFile(path, out)(u)
+	}
+	return c
+}
+
+// jsonServer is the server in the shape the agent's file wants.
+func jsonServer(agent string, s mcpServer) map[string]any {
+	m := map[string]any{}
+	switch {
+	case agent == "opencode" && s.URL != "":
+		m["type"], m["url"], m["enabled"] = "remote", s.URL, true
+		if len(s.Headers) > 0 {
+			m["headers"] = toAny(s.Headers)
+		}
+	case agent == "opencode":
+		m["type"], m["enabled"] = "local", true
+		cmd := append([]string{s.Command}, s.Args...)
+		m["command"] = toAnyList(cmd)
+		if len(s.Env) > 0 {
+			m["environment"] = toAny(s.Env)
+		}
+	case s.URL != "":
+		m["type"], m["url"] = "http", s.URL
+		if len(s.Headers) > 0 {
+			m["headers"] = toAny(s.Headers)
+		}
+	default:
+		m["command"] = s.Command
+		if len(s.Args) > 0 {
+			m["args"] = toAnyList(s.Args)
+		}
+		if len(s.Env) > 0 {
+			m["env"] = toAny(s.Env)
+		}
+	}
+	return m
+}
+
+// planServerTOML appends the server to a TOML file rather than rewriting
+// it, so comments and everything else in it survive.
+func planServerTOML(path string, c SyncChange, t agentFiles, s mcpServer) SyncChange {
+	b, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		c.Action, c.Detail = ActionSkip, err.Error()
+		return c
+	}
+	if _, there := obj(readTOML(path), t.mcpKey)[s.Name]; there {
+		c.Action, c.Detail = ActionSame, "already declared there"
+		return c
+	}
+	c.Action, c.Detail = ActionUpdate, describe(s)
+	if len(b) == 0 {
+		c.Action = ActionCreate
+	}
+	// Read again when it is applied: two servers may be going into the
+	// same file, and the second must not lose the first.
+	c.write = func(u *undoLog) error {
+		have, err := os.ReadFile(path)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if _, there := obj(readTOML(path), t.mcpKey)[s.Name]; there {
+			return nil
+		}
+		out := have
+		if len(out) > 0 && !strings.HasSuffix(string(out), "\n") {
+			out = append(out, '\n')
+		}
+		if len(out) > 0 {
+			out = append(out, '\n')
+		}
+		out = append(out, tomlServer(t.mcpKey, s)...)
+		return writeFile(path, out)(u)
+	}
+	return c
+}
+
+// tomlServer writes one [mcp_servers.name] table.
+func tomlServer(key string, s mcpServer) []byte {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# added by conch\n[%s.%s]\n", key, tomlKey(s.Name))
+	if s.URL != "" {
+		fmt.Fprintf(&b, "url = %s\n", tomlString(s.URL))
+	} else {
+		fmt.Fprintf(&b, "command = %s\n", tomlString(s.Command))
+		if len(s.Args) > 0 {
+			parts := make([]string, len(s.Args))
+			for i, a := range s.Args {
+				parts[i] = tomlString(a)
+			}
+			fmt.Fprintf(&b, "args = [%s]\n", strings.Join(parts, ", "))
+		}
+	}
+	if len(s.Env) > 0 {
+		fmt.Fprintf(&b, "\n[%s.%s.env]\n", key, tomlKey(s.Name))
+		for _, k := range sortedStrings(s.Env) {
+			fmt.Fprintf(&b, "%s = %s\n", tomlKey(k), tomlString(s.Env[k]))
+		}
+	}
+	return []byte(b.String())
+}
+
+var bareKey = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+func tomlKey(s string) string {
+	if bareKey.MatchString(s) {
+		return s
+	}
+	return tomlString(s)
+}
+
+func tomlString(s string) string {
+	b, err := json.Marshal(s) // TOML's basic strings are JSON's
+	if err != nil {
+		return `""`
+	}
+	return string(b)
+}
+
+// describe says what a server is without showing what opens it.
+func describe(s mcpServer) string {
+	what := "stdio · " + s.Command
+	if s.URL != "" {
+		what = "http"
+	}
+	if len(s.Env) > 0 {
+		what += fmt.Sprintf(" · %d variable%s", len(s.Env), plural(len(s.Env)))
+	}
+	return what
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// ---- writing and undoing ----
+
+// writeFile records what was there and writes the new content.
+func writeFile(path string, content []byte) func(*undoLog) error {
+	return func(u *undoLog) error {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := u.writing(path); err != nil {
+			return err
+		}
+		return os.WriteFile(path, content, 0o644)
+	}
+}
+
+// undoDir is where a sync records what it changed, inside the checkout.
+const undoDir = ".conch/agent-sync"
+
+// undoLog is one sync's record: what each path held before, so it can be
+// put back. A path that did not exist is recorded as one to remove.
+type undoLog struct {
+	root  string
+	Stamp string      `json:"stamp"`
+	From  string      `json:"from"`
+	Files []undoEntry `json:"files"`
+}
+
+type undoEntry struct {
+	Path   string `json:"path"` // relative to the checkout
+	Before string `json:"before,omitempty"`
+	Absent bool   `json:"absent,omitempty"` // it did not exist
+}
+
+// writing records a file about to be written over.
+func (u *undoLog) writing(path string) error {
+	rel := u.rel(path)
+	b, err := os.ReadFile(path)
+	switch {
+	case os.IsNotExist(err):
+		u.Files = append(u.Files, undoEntry{Path: rel, Absent: true})
+		return nil
+	case err != nil:
+		return err
+	}
+	u.Files = append(u.Files, undoEntry{Path: rel, Before: string(b)})
+	return nil
+}
+
+// creating records something new, which undoing removes.
+func (u *undoLog) creating(path string) {
+	u.Files = append(u.Files, undoEntry{Path: u.rel(path), Absent: true})
+}
+
+func (u *undoLog) rel(path string) string {
+	if r, err := filepath.Rel(u.root, path); err == nil {
+		return r
+	}
+	return path
+}
+
+func (u *undoLog) save() error {
+	if len(u.Files) == 0 {
+		return nil
+	}
+	dir := filepath.Join(u.root, undoDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	// The record holds what the checkout's files said, so it is kept as
+	// closely as the handoff documents beside it.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(u, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, u.Stamp+".json"), append(b, '\n'), 0o600)
+}
+
+// SyncUndos lists the syncs of a checkout that can be undone, newest
+// first.
+func SyncUndos(dir string) []string {
+	root := RepoRoot(dir)
+	if root == "" {
+		root = dir
+	}
+	entries, err := os.ReadDir(filepath.Join(root, undoDir))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, en := range entries {
+		if name := strings.TrimSuffix(en.Name(), ".json"); name != en.Name() {
+			out = append(out, name)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(out)))
+	return out
+}
+
+// UndoSync puts back what a sync changed. stamp "" is the last one.
+func UndoSync(dir, stamp string) (SyncResult, error) {
+	root := RepoRoot(dir)
+	if root == "" {
+		root = dir
+	}
+	if stamp == "" {
+		list := SyncUndos(root)
+		if len(list) == 0 {
+			return SyncResult{Dir: root}, errors.New("conch has no sync to undo in " + root)
+		}
+		stamp = list[0]
+	}
+	path := filepath.Join(root, undoDir, stamp+".json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return SyncResult{Dir: root}, fmt.Errorf("no record of sync %s in %s", stamp, root)
+	}
+	var u undoLog
+	if err := json.Unmarshal(b, &u); err != nil {
+		return SyncResult{Dir: root}, fmt.Errorf("the record of sync %s cannot be read: %v", stamp, err)
+	}
+	res := SyncResult{Dir: root, From: u.From, Undo: stamp}
+	// Newest first, so a file written twice ends as it began.
+	for i := len(u.Files) - 1; i >= 0; i-- {
+		f := u.Files[i]
+		c := SyncChange{Kind: SyncInstructions, Name: filepath.Base(f.Path), Path: f.Path, Action: ActionUpdate}
+		target := filepath.Join(root, f.Path)
+		var err error
+		switch {
+		case f.Absent:
+			c.Action, c.Detail = "remove", "it was not there before"
+			err = os.Remove(target)
+			if os.IsNotExist(err) {
+				err, c.Action, c.Detail = nil, ActionSame, "already gone"
+			}
+		default:
+			c.Detail = "put back as it was"
+			err = os.WriteFile(target, []byte(f.Before), 0o644)
+		}
+		if err != nil {
+			c.Error = err.Error()
+		} else if c.Action != ActionSame {
+			c.Done = true
+		}
+		res.Changes = append(res.Changes, c)
+	}
+	if err := os.Remove(path); err != nil {
+		res.Notes = append(res.Notes, "the record itself could not be removed: "+err.Error())
+	}
+	return res, nil
+}
+
+// ---- small helpers ----
+
+func firstStr(m map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if v := str(m, k); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func anyStr(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+func strMap(v any) map[string]string {
+	m, _ := v.(map[string]any)
+	if len(m) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for k, val := range m {
+		if s, ok := val.(string); ok {
+			out[k] = s
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func toAny(m map[string]string) map[string]any {
+	out := map[string]any{}
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+func toAnyList(list []string) []any {
+	out := make([]any, len(list))
+	for i, v := range list {
+		out[i] = v
+	}
+	return out
+}
+
+func sortedStrings(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}

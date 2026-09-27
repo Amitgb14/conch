@@ -34,13 +34,13 @@ Apache-2.0 · Default branch: `master`.
 | `internal/client` | Protocol client (calls, notifications, events, handshake) and starting a local server |
 | `internal/tui` | The TUI: tree, tabs/splits/scoping, keys, mouse, views (changes, sessions, setup), dialogs, settings, brain bar, updates |
 | `internal/remote` | How a machine is reached (`Transport`: ssh, a sandbox through its provider's ssh gateway with a fresh token, or a local command), ssh config and commands, remote install, bridging, machine catalog, release downloads, cross builds |
-| `internal/sandbox` | Hosted sandbox providers (Daytona): create, start, stop, delete, list conch's own, fresh ssh access |
+| `internal/sandbox` | Hosted sandbox providers (Daytona, boat.dev): create, start, stop, delete, list conch's own, ssh access — a fresh token, or a key of your own authorized in the sandbox |
 | `internal/adapter` | How to launch each agent: commands, settings/hooks, resume and prompt arguments |
 | `internal/detect` | Which agent runs in a pane and its state (working, waiting, done, idle) from hooks, titles and screens |
 | `internal/brain` | Model providers (Claude CLI, Anthropic, OpenAI-compatible), planner, action execution, summaries |
 | `internal/sessions` | Reading and deleting each agent's saved conversations |
 | `internal/usage` | Token usage and plan limits from transcripts and rollouts |
-| `internal/agentsetup` | What an agent loads in a checkout: instructions, skills, MCP servers, trust |
+| `internal/agentsetup` | What an agent loads in a checkout: instructions, skills, MCP servers, trust — and, the other way, writing one agent's instructions, skills and servers where the others look for them (`sync.go`), with a record to undo it |
 | `internal/gitx` / `internal/ghx` | git status, branches, worktrees, untracked files / pull requests via the `gh` CLI |
 | `internal/update` | Version comparison, same-build checks, release installs, reloading servers |
 | `internal/config` | Paths (`CONCH_HOME`), `config.toml` loading and saving |

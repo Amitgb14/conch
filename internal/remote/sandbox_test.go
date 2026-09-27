@@ -3,6 +3,8 @@ package remote
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -39,14 +41,100 @@ func (f *fakeProvider) SSHAccess(context.Context, string) (sandbox.Access, error
 
 func useProvider(t *testing.T, p sandbox.Provider, err error) {
 	t.Helper()
+	useNamedProvider(t, "daytona", p, err)
+}
+
+func useNamedProvider(t *testing.T, want string, p sandbox.Provider, err error) {
+	t.Helper()
 	old := openProvider
 	openProvider = func(name string) (sandbox.Provider, error) {
-		if name != "daytona" {
-			t.Errorf("opened provider %q", name)
+		if name != want {
+			t.Errorf("opened provider %q, want %q", name, want)
 		}
 		return p, err
 	}
 	t.Cleanup(func() { openProvider = old })
+}
+
+// keyProvider is a provider whose sandboxes have an sshd of their own, so
+// conch's own public key is what lets it in (boat.dev's shape).
+type keyProvider struct {
+	fakeProvider
+	keys   []string
+	keyErr error
+}
+
+func (k *keyProvider) Name() string { return "boat" }
+
+func (k *keyProvider) AuthorizeKey(_ context.Context, _, publicKey string) error {
+	k.keys = append(k.keys, publicKey)
+	return k.keyErr
+}
+
+func (k *keyProvider) SSHAccess(context.Context, string) (sandbox.Access, error) {
+	k.accesses++
+	return sandbox.Access{User: "user", PlainUser: true, Host: "203.0.113.5"}, k.accessErr
+}
+
+// ownKey puts a public key in HOME, so nothing has to generate one.
+func ownKey(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("HOME"), ".ssh")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample conch@test"
+	if err := os.WriteFile(filepath.Join(dir, "id_ed25519.pub"), []byte(line+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return line
+}
+
+// A provider that takes a key of your own is given conch's, and its
+// ordinary user name is not treated as a secret.
+func TestTransportForASandboxThatTakesAKey(t *testing.T) {
+	a4Env(t)
+	line := ownKey(t)
+	p := &keyProvider{fakeProvider: fakeProvider{state: sandbox.StateStarted}}
+	useNamedProvider(t, "boat", p, nil)
+	tr, err := TransportFor(context.Background(), "fix-login", "boat:bx_23456781", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.keys) != 1 || p.keys[0] != line {
+		t.Fatalf("authorized %q", p.keys)
+	}
+	cmd, err := tr.Command(context.Background(), "uname -s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if args := strings.Join(cmd.Args, " "); !strings.Contains(args, "user@203.0.113.5 uname -s") {
+		t.Fatalf("ssh args: %s", args)
+	}
+	// "user" is an account name, not a token, so nothing is struck out of
+	// messages — a gateway that takes the token as the username keeps its
+	// hiding.
+	if st := tr.(*sandboxTransport); st.secret != "" {
+		t.Fatalf("an ordinary user name is kept as a secret: %q", st.secret)
+	}
+	useProvider(t, &fakeProvider{state: sandbox.StateStarted}, nil)
+	gw, err := TransportFor(context.Background(), "gw", "daytona:sb1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := gw.(*sandboxTransport); st.secret != "tok-secret" {
+		t.Fatalf("a token as a username is not hidden: %q", st.secret)
+	}
+	// A key the provider won't take stops there, before any ssh.
+	p2 := &keyProvider{fakeProvider: fakeProvider{state: sandbox.StateStarted}, keyErr: errors.New("boat: Forbidden (403)")}
+	useNamedProvider(t, "boat", p2, nil)
+	if _, err := TransportFor(context.Background(), "fix-login", "boat:bx_23456781", false); err == nil ||
+		!strings.Contains(err.Error(), "403") {
+		t.Fatalf("a key that was refused: %v", err)
+	}
+	if p2.accesses != 0 {
+		t.Fatal("asked where to ssh although the key was refused")
+	}
 }
 
 func TestParseSandboxTarget(t *testing.T) {
@@ -56,6 +144,7 @@ func TestParseSandboxTarget(t *testing.T) {
 	}{
 		{"daytona:sb1", "daytona", "sb1", true},
 		{"daytona:6f1c-4e2a", "daytona", "6f1c-4e2a", true},
+		{"boat:bx_2345678abcdef", "boat", "bx_2345678abcdef", true},
 		{"daytona:", "", "", false},
 		{"daytona", "", "", false},
 		{"", "", "", false},

@@ -95,10 +95,16 @@ type Spec struct {
 
 // Access is how to reach a sandbox over ssh, until Expires.
 type Access struct {
-	User    string // a secret: it is the token that lets ssh in
-	Host    string
-	Port    int // 0 is ssh's default
-	Expires time.Time
+	// User is who to log in as. With a provider whose gateway takes the
+	// API token as the username it is a secret and is kept out of
+	// messages; PlainUser says it is an ordinary account name instead,
+	// which must not be hidden — "user" would be struck out of every
+	// sentence that happened to contain it.
+	User      string
+	PlainUser bool
+	Host      string
+	Port      int // 0 is ssh's default
+	Expires   time.Time
 }
 
 // Target is the ssh destination for Access.
@@ -192,15 +198,30 @@ type UsagePeriod struct {
 // stopped and keeping its disk.
 func (p UsagePeriod) Running() bool { return p.CPU > 0 || p.MemGiB > 0 }
 
+// KeyAuthorizer is a provider whose sandboxes are reached with a key of
+// your own rather than a secret it hands out: conch authorizes its public
+// key through the API and the private half never leaves this computer.
+type KeyAuthorizer interface {
+	AuthorizeKey(ctx context.Context, id, publicKey string) error
+}
+
+// NamedSizes is a provider whose machines come in named sizes rather than
+// a number of vCPUs, GiB of memory and GiB of disk. The name goes where a
+// snapshot does, and asking for numbers is refused.
+type NamedSizes interface {
+	// SizeNames lists the sizes, smallest first.
+	SizeNames() []string
+}
+
 // Providers lists the providers conch knows.
-var Providers = []string{"daytona"}
+var Providers = []string{"daytona", "boat"}
 
 // Known reports whether name is a provider conch knows.
 func Known(name string) bool { return slices.Contains(Providers, name) }
 
 // labels are provider names as people write them, where capitalising the
 // first letter is not how it is done.
-var labels = map[string]string{"e2b": "E2B"}
+var labels = map[string]string{"e2b": "E2B", "boat": "boat.dev"}
 
 // ProviderLabel is a provider's name for people to read.
 func ProviderLabel(name string) string {
@@ -218,6 +239,8 @@ func Open(name string, cfg config.SandboxCfg) (Provider, error) {
 	switch name {
 	case "daytona":
 		return NewDaytona(cfg.Of(name)), nil
+	case "boat":
+		return NewBoat(cfg.Of(name)), nil
 	}
 	return nil, fmt.Errorf("unknown sandbox provider %q", name)
 }

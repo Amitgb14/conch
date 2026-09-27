@@ -23,6 +23,14 @@ func a2Isolate(t *testing.T) {
 	t.Setenv("CONCH_SOCKET", "")
 	t.Setenv("CONCH_PANE_ID", "")
 	t.Setenv("TMUX", "")
+	// A real provider key in the developer's environment must never show
+	// up in a settings row or make a dialog think it is configured.
+	for _, v := range []string{"DAYTONA_API_KEY", "BOAT_API_KEY"} {
+		t.Setenv(v, "")
+	}
+	for _, v := range []string{"DAYTONA_API_URL", "BOAT_API_URL"} {
+		t.Setenv(v, "http://127.0.0.1:1/unused")
+	}
 }
 
 // a2Key builds a key message the way bubbletea reports k.

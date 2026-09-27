@@ -283,9 +283,9 @@ What a new [sandbox](/docs/sandboxes) is made from, with a section per provider 
 | Setting | What it does |
 | --- | --- |
 | **API key** | the key itself, if you would rather keep it here than in your environment. It is written to `config.toml` (0600) as it is, so anything running as you can read it and it travels with a backup or a synced dotfile; the row shows only its last few characters. Empty leaves it to the variable below |
-| **API key variable** | which variable of your environment the key is read from when none is kept above; empty means `DAYTONA_API_KEY` |
-| **Snapshot** | what new sandboxes start from; empty means the provider's default |
-| **Region** | where they are made, e.g. `us` or `eu` |
+| **API key variable** | which variable of your environment the key is read from when none is kept above; empty means the provider's own, `DAYTONA_API_KEY` or `BOAT_API_KEY` |
+| **Snapshot** | what new sandboxes start from; empty means the provider's default. For boat.dev this is also where a machine size goes — `small`, `default`, `large` or `xlarge` — since its machines are sized by name |
+| **Region** | where they are made, e.g. `us` or `eu`. boat.dev has no regions and ignores it |
 | **Bring back what was running** | on by default: when a sandbox stops, conch writes down its agents (with the conversation each was on) and its terminals, and offers them back when it starts again. Off keeps no note at all |
 | **Stop when idle** | 30 minutes by default, or 15, 60, 120, or never. conch watches for an agent working and for panes printing, and pauses the sandbox when neither has happened for that long — its files, and where the provider can its memory, are kept. A provider's own timer sees only what reaches it from outside, so it would stop an agent working quietly; this doesn't |
 | **Price an hour** | what an hour of a sandbox costs — per vCPU, per GiB of memory, per GiB of disk — so the tree can say what one has run up, and what a stopped one still costs for the disk it keeps. Empty shows running time alone; conch ships no price list |

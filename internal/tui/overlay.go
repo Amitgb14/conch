@@ -831,6 +831,7 @@ var helpText = []string{
 	"                            R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",
 	"  i  agent setup: instructions, skills, MCP servers, and what a worktree lacks",
+	"     in it: s gives the other agents this one's setup (it says what it would write first), u undoes that",
 	"  F  local files (.env, local agent settings) copied into new worktrees",
 	"  W  clean up a project's worktrees: the finished ones (merged, folder gone) come ticked",
 	"",

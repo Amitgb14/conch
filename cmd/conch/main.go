@@ -52,6 +52,11 @@ Usage:
   conch agent explain ID        show how a pane's agent state was decided
   conch agent status | install claude
                                 check or install Claude Code (use -m for a machine)
+  conch agent setup [-agent NAME] [-copy] [DIR]
+                                what each agent loads there: instructions, skills, MCP servers
+  conch agent sync [-from NAME] [-to NAMES] [-apply] [-undo] [DIR]
+                                give the other agents one agent's setup in a checkout;
+                                without -apply it only says what it would do
   conch project add PATH | create [-no-git] PATH | ls | rm ID
                                 manage projects shown in the sidebar
   conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] PROMPT
@@ -68,9 +73,10 @@ Usage:
   conch machine add [-label L] SSH_TARGET
                                 add a remote machine (installs conch there)
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
-  conch sandbox create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
-                                make a Daytona sandbox ($DAYTONA_API_KEY) and add it as a machine;
-                                it runs until stopped, so agents keep going with the TUI closed
+  conch sandbox [-provider daytona|boat] create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
+                                make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY)
+                                and add it as a machine; it runs until stopped, so agents keep
+                                going with the TUI closed
   conch sandbox ls | start ID | stop [-y] ID | rm [-y] ID
   conch sandbox url [-expires 1h] [-open] ID PORT
                                 a link to a port inside a sandbox

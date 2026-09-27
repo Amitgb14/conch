@@ -128,19 +128,56 @@ history; details for big items live in their own plan files.
 
 20. **Sandboxes** — a machine conch makes for you in the cloud, so a long
     task runs away from the laptop and keeps going once it is closed.
-    `M` → **New Daytona sandbox…**, or `conch sandbox create|ls|start|stop|rm`:
+    `M` → **New sandbox…** → the provider, or
+    `conch sandbox [-provider NAME] create|ls|start|stop|rm`:
     conch creates the sandbox, installs itself there and adds it as an
     ordinary remote machine, so the tree, `-m` and everything else work with
-    it unchanged. The API key is read from the environment every time and
-    never written down; a sandbox that fails to set itself up is deleted
-    rather than left to cost; stopping and deleting say what they would end
-    and what work has reached no remote. Daytona is the one provider so far,
-    behind an interface that others can follow. The docs are the
+    it unchanged. The API key is read from the environment every time,
+    unless you choose to keep it in `config.toml`; a sandbox that fails to
+    set itself up is deleted rather than left to cost; stopping and
+    deleting say what they would end
+    and what work has reached no remote. Two providers are supported:
+    Daytona, reached with a fresh ssh token through its gateway, and
+    boat.dev, whose sandboxes are whole machines with an sshd of their own —
+    conch authorizes its public key there and connects straight to them, so
+    nothing that opens one leaves this computer. Both take the same
+    settings, and optional interfaces cover what only some of them can do:
+    ports, snapshots, cost, and a key of your own (`Previewer`,
+    `Snapshotter`, `Metered`, `KeyAuthorizer`). The docs are the
     Sandboxes page under `web/src/app/docs/sandboxes`.
+
+21. **One setup, every agent** — from a user who tried conch: "I feel
+    locked in to those models while I also like to use others for some
+    tasks. And then I have to sync settings, skills, mcps (and their auth)
+    with codex." So `i` on a checkout now writes as well as reads: `s`
+    takes the setup of the agent whose tab is open and gives it to the
+    others — its instructions, its skills and the MCP servers it declares,
+    each written where that agent looks for it — and `u` puts it back.
+    `conch agent sync [-from NAME] [-to NAMES] [-apply] [-undo]` does the
+    same from a shell, on a remote checkout too (`agent.setup.sync`, in
+    `internal/agentsetup/sync.go`).
+
+    What makes it safe to run rather than clever: nothing is written until
+    the plan has been seen; a file somebody wrote by hand is left alone
+    (conch writes its own marked block, or a file that wasn't there); a
+    skill is linked, not copied, so `.agents/skills` serves Codex, Gemini
+    and OpenCode at once; an agent that expands `@path` is pointed at the
+    other file rather than given a copy of it; and every write is recorded
+    under `.conch/agent-sync/` so it can be undone.
+
+    Auth stays where it is, as the plan said it should: an agent's login is
+    its own, and a server whose environment or headers hold a value rather
+    than a `${VAR}` reference is not copied at all — the reason says so.
+    The docs are "One setup, every agent" on the Tasks page.
+
+    The same person asked for "an actual UI for humans, especially for
+    reviewing the work", which is what the changes view, the review queue
+    and the checks already are. Worth remembering when that feedback comes
+    again: it was the setup, not the reviewing, that was missing.
 
 ## Next
 
-21. **E2B sandboxes** — a second provider, started: `internal/sandbox/e2b.go`
+22. **E2B sandboxes** — a second provider, started: `internal/sandbox/e2b.go`
     makes, lists, pauses, resumes, ends and keeps alive an E2B sandbox
     through its platform API, with tests against a fake one. It is not in
     `sandbox.Providers` yet, so nothing offers to make a sandbox conch
@@ -161,41 +198,6 @@ history; details for big items live in their own plan files.
     rather than on idleness (an hour on the free plan, a day on Pro). They
     are made with auto-pause, so one whose clock runs out keeps its
     filesystem *and* its memory instead of being destroyed.
-
-22. **One setup, every agent** — from a user who tried conch: "I feel
-    locked in to those models while I also like to use others for some
-    tasks. And then I have to sync settings, skills, mcps (and their auth)
-    with codex." Running several agents is what conch is for, and it is
-    the setting up that makes people pick one and stay there.
-
-    Half of this exists already, pointing the other way: `i` shows what
-    each agent loads in a checkout — instructions, skills, commands, MCP
-    servers, plugins — and in a worktree what it lacks beside the main
-    checkout, with `c` to copy that across (`internal/agentsetup`,
-    `internal/tui/setup.go`). Reading every agent's own arrangement is the
-    hard half, and it is done.
-
-    What is missing is writing: one place that says what the instructions,
-    skills and MCP servers are, and puts them where each agent looks for
-    them — CLAUDE.md and `.claude/`, AGENTS.md, `.mcp.json`, Codex's and
-    Gemini's and OpenCode's own. It should say what it would change before
-    it changes anything, leave alone what a person wrote by hand, and be
-    undoable, since these are the files an agent's behaviour hangs on.
-
-    Auth is the thorny part and should not be pretended at. An agent's
-    login is its own (Claude's token, Codex's, a `gh` login), and copying
-    credentials between tools is not conch's business. What conch can
-    honestly do is what it already does for sandboxes: name the
-    environment variables an MCP server needs and pass them through, so
-    the same server works wherever the agent runs. A first version that
-    syncs instructions, skills and MCP *definitions*, and is plain that
-    logins stay with each agent, is worth more than one that promises to
-    carry secrets about.
-
-    The same person asked for "an actual UI for humans, especially for
-    reviewing the work", which is what the changes view, the review queue
-    and the checks already are. Worth remembering when that feedback comes
-    again: it is the setup, not the reviewing, that is missing.
 
 ## Not now
 

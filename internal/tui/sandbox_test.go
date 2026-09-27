@@ -66,7 +66,8 @@ type sbProvider struct {
 	opErr      error
 	createErr  error
 	created    sandbox.Sandbox
-	preview    string // the link PreviewURL answers with
+	spec       sandbox.Spec // what the last create asked for
+	preview    string       // the link PreviewURL answers with
 	previewErr error
 	usage      sandbox.Usage
 }
@@ -96,6 +97,7 @@ func (p *sbProvider) called() string {
 func (p *sbProvider) Name() string { return "daytona" }
 func (p *sbProvider) Check() error { return p.checkErr }
 func (p *sbProvider) Create(_ context.Context, spec sandbox.Spec) (sandbox.Sandbox, error) {
+	p.spec = spec
 	p.record(fmt.Sprintf("create cpu=%d env=%d", spec.CPU, len(spec.Env)))
 	return p.created, p.createErr
 }
@@ -327,7 +329,7 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 	m.overlay = mu
 	mu.items[1].run(m)
 	sub, ok := m.overlay.(*menu)
-	if !ok || a2MenuLabels(sub) != "d Daytona…" || sub.title != "New sandbox" {
+	if !ok || a2MenuLabels(sub) != "d Daytona… | b boat.dev…" || sub.title != "New sandbox" {
 		t.Fatalf("sandbox menu: %#v", m.overlay)
 	}
 	if _, _ = sub.update(m, a2Key("esc")); m.overlay == nil {
@@ -1199,5 +1201,90 @@ func TestSandboxUsageDetails(t *testing.T) {
 	mach.box = &sandbox.Sandbox{ID: "sb1", State: sandbox.StateStopped, Disk: 3}
 	if got := m.sandboxSpend(mach, time.Now()); got != "$0.009" {
 		t.Fatalf("a stopped sandbox's row: %q", got)
+	}
+}
+
+// A provider whose machines come in named sizes is not asked for numbers:
+// the size goes where the snapshot does.
+func TestSandboxDialogNamedSizes(t *testing.T) {
+	m, _ := sandboxModel(t)
+
+	labels := func(d *dialog) string {
+		var out []string
+		for _, f := range d.fields {
+			out = append(out, strings.TrimSpace(f.label)+"|"+f.in.Placeholder)
+		}
+		return strings.Join(out, " · ")
+	}
+	// Daytona takes numbers, so all three fields are there.
+	d := newSandboxDialog(*m, "daytona")
+	if got := labels(d); !strings.Contains(got, "vCPUs|the snapshot's") || !strings.Contains(got, "Disk GiB|") {
+		t.Fatalf("Daytona: %s", got)
+	}
+	// boat.dev's sizes are names: no numbers, and the snapshot field says
+	// which names it takes.
+	d = newSandboxDialog(*m, "boat")
+	got := labels(d)
+	if strings.Contains(got, "vCPUs") || strings.Contains(got, "Memory") || strings.Contains(got, "Disk") {
+		t.Fatalf("boat was asked for numbers: %s", got)
+	}
+	if !strings.Contains(got, "Snapshot|a size (small, default, large, xlarge) or a snapshot") {
+		t.Fatalf("boat's snapshot field: %s", got)
+	}
+	if !strings.Contains(got, "Pass in|names of your environment variables") {
+		t.Fatalf("boat's last field: %s", got)
+	}
+	// Submitting it asks for no size, and passes the variables through.
+	// The dialog was built from the registry; what it submits goes to a
+	// fake, so nothing is created anywhere.
+	t.Setenv("A2_TOKEN", "value")
+	p := &sbProvider{createErr: errors.New("far enough")}
+	useSandboxProvider(t, p)
+	cmd := d.submit(m, []string{"hull", "large", "A2_TOKEN"})
+	if cmd == nil {
+		t.Fatal("submit did nothing")
+	}
+	cmd()
+	if p.spec.Snapshot != "large" || p.spec.CPU != 0 || p.spec.Memory != 0 || p.spec.Disk != 0 ||
+		p.spec.Env["A2_TOKEN"] != "value" {
+		t.Fatalf("spec %+v", p.spec)
+	}
+	// A settings snapshot is the placeholder when there is one.
+	pc := m.cfg.Sandbox.Of("boat")
+	pc.Snapshot = "hull-base"
+	m.cfg.Sandbox.Set("boat", pc)
+	if got := labels(newSandboxDialog(*m, "boat")); !strings.Contains(got, "Snapshot|hull-base") {
+		t.Fatalf("with a snapshot set: %s", got)
+	}
+}
+
+// A billed period names only what the provider reported.
+func TestPeriodWhat(t *testing.T) {
+	for _, c := range []struct {
+		p    sandbox.UsagePeriod
+		want string
+	}{
+		{sandbox.UsagePeriod{CPU: 1, MemGiB: 1, DiskGiB: 3}, "running · 1 vCPU, 1 GiB, 3 GiB disk"},
+		{sandbox.UsagePeriod{DiskGiB: 3}, "stopped · 3 GiB disk"},
+		{sandbox.UsagePeriod{CPU: 4, MemGiB: 8}, "running · 4 vCPU, 8 GiB"}, // boat: machine time only
+		{sandbox.UsagePeriod{}, "stopped"},
+	} {
+		if got := periodWhat(c.p); got != c.want {
+			t.Errorf("%+v: %q, want %q", c.p, got, c.want)
+		}
+	}
+	// The note about a stopped sandbox's disk is only there when the
+	// provider charged for one.
+	mach := &machine{id: "m1", label: "hull", target: "boat:bx_1"}
+	now := time.Now()
+	u := sandbox.Usage{Known: true, Cost: 0.25, From: now.Add(-time.Hour), To: now,
+		Periods: []sandbox.UsagePeriod{{From: now.Add(-time.Hour), To: now, Cost: 0.25, CPU: 4, MemGiB: 8}}}
+	got := strings.Join(usageLines(mach, u), "\n")
+	if strings.Contains(got, "keeps its disk") || !strings.Contains(got, "boat.dev bx_1") {
+		t.Fatalf("boat usage:\n%s", got)
+	}
+	u.Periods = append(u.Periods, sandbox.UsagePeriod{From: now.Add(-2 * time.Hour), To: now.Add(-time.Hour), DiskGiB: 3})
+	if got := strings.Join(usageLines(mach, u), "\n"); !strings.Contains(got, "keeps its disk") {
+		t.Fatalf("a stopped period:\n%s", got)
 	}
 }

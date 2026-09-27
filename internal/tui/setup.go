@@ -109,6 +109,11 @@ func (v *setupView) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			}
 		}
 		return false, nil
+	case setupSyncMsg:
+		if msg.view != v {
+			return false, nil
+		}
+		return false, v.receiveSync(m, msg)
 	case setupCopiedMsg:
 		if msg.view != v {
 			return false, nil
@@ -157,6 +162,15 @@ func (v *setupView) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		case "c":
 			if v.res != nil && v.res.Worktree != "" {
 				return false, v.copyMissing(m)
+			}
+		case "s":
+			// This agent's setup for the others, shown before it is written.
+			if v.res != nil {
+				return false, v.syncSetup(m, false, false)
+			}
+		case "u":
+			if v.res != nil {
+				return false, v.syncSetup(m, false, true)
 			}
 		case "f":
 			if proj := v.project(m); proj != nil && proj.Git {
@@ -338,7 +352,7 @@ func (v *setupView) render(m Model) box {
 	if more := len(body) - (v.scroll + listH); more > 0 {
 		lines[len(lines)-1] = styleMuted.Render(fmt.Sprintf("  … %d more lines", more))
 	}
-	hint := " tab agent · ↑↓ scroll · r reload · esc close"
+	hint := " tab agent · ↑↓ scroll · s sync to others · u undo · r reload · esc close"
 	if v.loading {
 		hint = " loading…" + hint
 	}

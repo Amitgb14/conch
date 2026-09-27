@@ -75,6 +75,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch agent status` | list each supported agent: installed (with version and path) or not |
 | `conch agent install NAME` | run an agent's installer in a pane and wait for it |
 | `conch agent setup [-agent NAME] [-copy] [-json] [DIR]` | show what each agent loads in a folder; `-agent` limits it to one agent, `-copy` copies missing local files from the main checkout first, `-json` prints JSON |
+| `conch agent sync [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]` | give the other agents one agent's setup in a checkout — instructions, skills, MCP servers. Without `-apply` it only says what it would do; `-undo` puts a sync back. See [One setup, every agent](/docs/tasks#one-setup-every-agent) |
 
 ### project
 
@@ -139,13 +140,18 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 
 | Command | Description |
 | --- | --- |
-| `conch sandbox create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]` | make a Daytona sandbox (key in `$DAYTONA_API_KEY`), install conch there and add it as a machine; it runs until stopped. `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails |
+| `conch sandbox [-provider daytona\|boat] …` | whose sandboxes the command means; Daytona without it. In front of any subcommand below |
+| `conch sandbox create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]` | make a sandbox (key in `$DAYTONA_API_KEY` or `$BOAT_API_KEY`), install conch there and add it as a machine; it runs until stopped. `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails |
 | `conch sandbox ls` | conch's sandboxes, their state and size, including ones no longer added as machines (also plain `conch sandbox`) |
 | `conch sandbox start ID` | start a stopped sandbox |
 | `conch sandbox stop [-y] ID` | stop it: its agents and terminals end, its files stay |
 | `conch sandbox rm [-y] ID` | delete it for good and remove the machine; lists work that isn't pushed first |
+| `conch sandbox url [-expires 1h] [-open] ID PORT` | a link to a port inside the sandbox |
+| `conch sandbox usage [-since 720h] ID` | what it has cost, period by period |
+| `conch sandbox snapshot [-name N] ID` | keep it, to make others from |
+| `conch sandbox snapshots [-rm NAME]` | list what is kept, or forget one |
 
-`ID` is the machine's ID or label, or Daytona's sandbox ID. See [Sandboxes](/docs/sandboxes).
+`ID` is the machine's ID or label, or the provider's own sandbox ID — and a command that names one takes the provider from that sandbox's machine, so `-provider` is only for `create`, `ls` and `snapshots`. See [Sandboxes](/docs/sandboxes).
 
 ### ask
 

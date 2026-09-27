@@ -99,6 +99,8 @@ func TestA4UsageErrors(t *testing.T) {
 		{"agent explain none", func() error { return runAgent([]string{"explain"}) }, "usage: conch agent"},
 		{"agent status extra", func() error { return runAgent([]string{"status", "x"}) }, "usage: conch agent"},
 		{"agent setup bad flag", func() error { return runAgent([]string{"setup", "-bad"}) }, "flag provided but not defined"},
+		{"agent sync bad flag", func() error { return runAgent([]string{"sync", "-bad"}) }, "flag provided but not defined"},
+		{"agent sync two dirs", func() error { return runAgent([]string{"sync", "a", "b"}) }, "usage: conch agent sync"},
 		{"task no prompt", func() error { return runTask(nil) }, "usage: conch task"},
 		{"task bad flag", func() error { return runTask([]string{"-zzz"}) }, "flag provided but not defined"},
 		{"ask no request", func() error { return runAsk([]string{"-y", "  "}) }, "usage: conch ask"},

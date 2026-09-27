@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -45,6 +45,11 @@ const CapSessionHandoff = "session.handoff.v1"
 // of comes back as push_rejected, and asking again with Rebase takes those
 // commits, puts the branch's own on top and pushes.
 const CapBranchRebase = "branch.push.rebase.v1"
+
+// CapAgentSync is agent.setup.sync: one agent's setup in a checkout given
+// to the others — instructions, skills and MCP servers — planned, applied
+// and undone.
+const CapAgentSync = "agent.setup.sync.v1"
 
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
@@ -112,6 +117,7 @@ const (
 	MethodFSRead         = "fs.read"
 	MethodShellThemes    = "shell.themes"
 	MethodAgentSetup     = "agent.setup"
+	MethodAgentSync      = "agent.setup.sync"
 	MethodProjectFiles   = "project.set_files"
 	MethodWorktreeFiles  = "worktree.copy_files"
 	MethodSessionList    = "session.list"
@@ -1136,6 +1142,65 @@ type SetupItem struct {
 	Path    string `json:"path,omitempty"`
 	Detail  string `json:"detail,omitempty"`
 	Missing bool   `json:"missing,omitempty"`
+}
+
+// AgentSyncParams gives the agents in To the setup From has in the
+// checkout at Dir. With Apply false nothing is written: the changes are
+// what it would do. Undo puts a sync back instead — Stamp names which, and
+// "" is the last one.
+type AgentSyncParams struct {
+	Dir   string   `json:"dir"`
+	From  string   `json:"from,omitempty"`
+	To    []string `json:"to,omitempty"`
+	Apply bool     `json:"apply,omitempty"`
+	Undo  bool     `json:"undo,omitempty"`
+	Stamp string   `json:"stamp,omitempty"`
+}
+
+// AgentSyncResult is what a sync would do, did, or put back.
+type AgentSyncResult struct {
+	Dir     string       `json:"dir"`
+	From    string       `json:"from,omitempty"`
+	To      []string     `json:"to,omitempty"`
+	Applied bool         `json:"applied,omitempty"`
+	Undone  bool         `json:"undone,omitempty"`
+	Changes []SyncChange `json:"changes,omitempty"`
+	Notes   []string     `json:"notes,omitempty"`
+	// Undo is the record this apply left behind, to put it back with.
+	Undo string `json:"undo,omitempty"`
+	// Undos are the syncs of this checkout that can still be undone,
+	// newest first.
+	Undos []string `json:"undos,omitempty"`
+}
+
+// What a sync change does: writing ones first.
+const (
+	SyncCreate = "create"
+	SyncUpdate = "update"
+	SyncLink   = "link"
+	SyncRemove = "remove"
+	SyncSame   = "same"
+	SyncSkip   = "skip"
+)
+
+// Kinds of setup a sync carries.
+const (
+	SyncInstructions = "instructions"
+	SyncSkill        = "skill"
+	SyncMCP          = "mcp server"
+)
+
+// SyncChange is one thing a sync would do, or did: Action is create,
+// update, link, same, skip or remove, and Path is inside the checkout.
+type SyncChange struct {
+	Agent  string `json:"agent,omitempty"`
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Path   string `json:"path,omitempty"`
+	Action string `json:"action"`
+	Detail string `json:"detail,omitempty"`
+	Done   bool   `json:"done,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 // AgentStatusResult is the result of agent.status.

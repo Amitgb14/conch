@@ -19,15 +19,54 @@ import (
 	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
-// sandboxProvider is the provider sandboxes are made with; Daytona is the
-// only one so far.
-const sandboxProvider = "daytona"
+// defaultSandboxProvider is whose sandboxes a command means when nothing
+// says otherwise.
+const defaultSandboxProvider = "daytona"
+
+// sandboxProvider is the provider a command works with. A command that
+// names a sandbox takes the provider from that sandbox's own machine, so
+// the flag is only for making one, or for listing what a provider holds.
+var sandboxProvider = defaultSandboxProvider
+
+// takeProvider pulls -provider NAME out of the arguments before the
+// subcommand sees them, so it can be given in front of any of them.
+func takeProvider(args []string) ([]string, error) {
+	sandboxProvider = defaultSandboxProvider // each command starts clean
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		name := ""
+		switch {
+		case args[i] == "-provider" || args[i] == "--provider":
+			if i+1 >= len(args) {
+				return nil, errors.New("-provider needs a name, e.g. -provider boat")
+			}
+			name = args[i+1]
+			i++
+		case strings.HasPrefix(args[i], "-provider="):
+			name = strings.TrimPrefix(args[i], "-provider=")
+		case strings.HasPrefix(args[i], "--provider="):
+			name = strings.TrimPrefix(args[i], "--provider=")
+		default:
+			out = append(out, args[i])
+			continue
+		}
+		if !sandbox.Known(name) {
+			return nil, fmt.Errorf("unknown sandbox provider %q; conch knows %s", name, strings.Join(sandbox.Providers, ", "))
+		}
+		sandboxProvider = name
+	}
+	return out, nil
+}
 
 // sandboxWait bounds creating or starting a sandbox and setting conch up
 // in it; tests shorten it.
 var sandboxWait = 10 * time.Minute
 
 func runSandbox(args []string) error {
+	args, err := takeProvider(args)
+	if err != nil {
+		return err
+	}
 	if len(args) == 0 {
 		args = []string{"ls"}
 	}
@@ -103,7 +142,7 @@ func sandboxCreate(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), sandboxWait)
 	defer cancel()
 
-	fmt.Fprintln(os.Stderr, "Creating a Daytona sandbox…")
+	fmt.Fprintln(os.Stderr, "Creating a "+sandbox.ProviderLabel(sandboxProvider)+" sandbox…")
 	s, err := p.Create(ctx, sandbox.Spec{Snapshot: *snapshot, CPU: *cpu, Memory: *memory, Disk: *disk,
 		Env: vars, AutoStop: pc.AutoStop})
 	if err != nil {
@@ -127,7 +166,7 @@ func sandboxCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("added %s (%s): daytona sandbox %s, server pid %d on %s\n", saved.ID, saved.Label, s.ID, c.Server.PID, c.Server.Hostname)
+	fmt.Printf("added %s (%s): %s sandbox %s, server pid %d on %s\n", saved.ID, saved.Label, sandboxProvider, s.ID, c.Server.PID, c.Server.Hostname)
 	return nil
 }
 
@@ -224,12 +263,14 @@ func resolveSandbox(ref string) (m *remote.Machine, id string, err error) {
 			continue
 		}
 		provider, id, ok := remote.ParseSandboxTarget(ms[i].Target)
-		if !ok || provider != sandboxProvider {
+		if !ok {
 			return nil, "", fmt.Errorf("%s is not a sandbox", ref)
 		}
+		sandboxProvider = provider // the sandbox says whose it is
 		return &ms[i], id, nil
 	}
-	if provider, id, ok := remote.ParseSandboxTarget(ref); ok && provider == sandboxProvider {
+	if provider, id, ok := remote.ParseSandboxTarget(ref); ok {
+		sandboxProvider = provider
 		return nil, id, nil
 	}
 	if strings.ContainsAny(ref, "@/: ") {
@@ -437,6 +478,29 @@ func sandboxSnapshots(args []string) error {
 	return tw.Flush()
 }
 
+// periodWhat says what the sandbox was doing for a billed period, naming
+// only what the provider reported: one that charges for machine time alone
+// says nothing about disk.
+func periodWhat(p sandbox.UsagePeriod) string {
+	var parts []string
+	for _, part := range []struct {
+		n    int
+		unit string
+	}{{p.CPU, "vCPU"}, {p.MemGiB, "GiB"}, {p.DiskGiB, "GiB disk"}} {
+		if part.n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", part.n, part.unit))
+		}
+	}
+	state := "stopped"
+	if p.Running() {
+		state = "running"
+	}
+	if len(parts) == 0 {
+		return state
+	}
+	return state + ", " + strings.Join(parts, ", ")
+}
+
 // sandboxUsage prints what a sandbox has cost, and where it went.
 func sandboxUsage(args []string) error {
 	fs := flag.NewFlagSet("sandbox usage", flag.ContinueOnError)
@@ -474,12 +538,8 @@ func sandboxUsage(args []string) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "FROM\tFOR\tCOST\tWHAT")
 	for _, pd := range u.Periods {
-		what := fmt.Sprintf("stopped, %d GiB disk", pd.DiskGiB)
-		if pd.Running() {
-			what = fmt.Sprintf("running, %d vCPU, %d GiB, %d GiB disk", pd.CPU, pd.MemGiB, pd.DiskGiB)
-		}
 		fmt.Fprintf(tw, "%s\t%s\t$%.6f\t%s\n", pd.From.Local().Format("2006-01-02 15:04"),
-			pd.To.Sub(pd.From).Round(time.Second), pd.Cost, what)
+			pd.To.Sub(pd.From).Round(time.Second), pd.Cost, periodWhat(pd))
 	}
 	fmt.Fprintf(tw, "\t\t$%.6f\ttotal since %s\n", u.Cost, u.From.Local().Format("2006-01-02 15:04"))
 	return tw.Flush()

@@ -549,3 +549,185 @@ func TestA4SandboxUsage(t *testing.T) {
 		}
 	}
 }
+
+// a4Boat is boat.dev's API as the sandbox commands use it: its sandboxes
+// have an sshd of their own, so a key is authorized and there is no token.
+type a4Boat struct {
+	mu      sync.Mutex
+	boxes   map[string]string // id → state
+	created []map[string]any
+	keys    []string
+	calls   []string
+}
+
+func newA4Boat(t *testing.T) *a4Boat {
+	t.Helper()
+	b := &a4Boat{boxes: map[string]string{}}
+	srv := httptest.NewServer(b)
+	t.Cleanup(srv.Close)
+	t.Setenv("BOAT_API_KEY", "boat_test")
+	t.Setenv("BOAT_API_URL", srv.URL)
+	// A key of conch's own, so nothing has to make one.
+	ssh := filepath.Join(os.Getenv("HOME"), ".ssh")
+	os.MkdirAll(ssh, 0o700)
+	os.WriteFile(filepath.Join(ssh, "id_ed25519.pub"),
+		[]byte("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample conch@test\n"), 0o644)
+	return b
+}
+
+func (b *a4Boat) called() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return strings.Join(b.calls, "\n")
+}
+
+func (b *a4Boat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.calls = append(b.calls, r.Method+" "+r.URL.Path)
+	if r.Header.Get("Authorization") != "Bearer boat_test" {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	var body map[string]any
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	box := func(id string) map[string]any {
+		return map[string]any{"id": id, "name": id, "state": b.boxes[id], "vcpu": 4, "memoryGB": 8,
+			"ip": "198.51.100.7", "subdomain": "frazil-pneuma-rallye"}
+	}
+	reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	switch {
+	case r.Method == http.MethodPost && r.URL.Path == "/sandboxes":
+		b.created = append(b.created, body)
+		id := fmt.Sprintf("bx_23456%d", len(b.created))
+		b.boxes[id] = "ready"
+		reply(map[string]any{"ok": true, "sandbox": box(id)})
+	case r.Method == http.MethodGet && r.URL.Path == "/sandboxes":
+		var list []any
+		for id := range b.boxes {
+			list = append(list, box(id))
+		}
+		reply(map[string]any{"ok": true, "sandboxes": list})
+	case len(parts) >= 2 && parts[0] == "sandboxes":
+		id := parts[1]
+		if _, ok := b.boxes[id]; !ok {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"ok":false,"error":{"code":"not_found","message":"sandbox not found"}}`)
+			return
+		}
+		switch {
+		case r.Method == http.MethodGet && len(parts) == 2:
+			reply(map[string]any{"ok": true, "sandbox": box(id)})
+		case r.Method == http.MethodDelete:
+			delete(b.boxes, id)
+		case len(parts) == 3 && parts[2] == "sshkey":
+			key, _ := body["key"].(string)
+			b.keys = append(b.keys, key)
+			reply(map[string]any{"ok": true, "machineIp": "198.51.100.7"})
+		case len(parts) == 3 && parts[2] == "stop":
+			b.boxes[id] = "archived"
+			reply(map[string]any{"ok": true, "sandbox": box(id)})
+		case len(parts) == 3 && parts[2] == "resume":
+			b.boxes[id] = "ready"
+			reply(map[string]any{"ok": true, "sandbox": box(id)})
+		case len(parts) == 3 && parts[2] == "host":
+			reply(map[string]any{"ok": true, "url": fmt.Sprintf("https://frazil-pneuma-rallye-%v.on.boat.dev", body["port"])})
+		case len(parts) == 3 && parts[2] == "usage":
+			fmt.Fprint(w, `{"ok":true,"seconds":3600,"dollars":0.25,"running":true}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+// -provider names whose sandboxes a command means; a command that names a
+// sandbox takes it from that sandbox's own machine instead.
+func TestA4SandboxProviderFlag(t *testing.T) {
+	a4Env(t)
+	b := newA4Boat(t)
+	f, _ := a4SandboxMachine(t)
+
+	var err error
+	out, errOut := a4Capture(t, "", func() {
+		err = runSandbox([]string{"-provider", "boat", "create", "-label", "hull"})
+	})
+	if err != nil {
+		t.Fatalf("create: %v\n%s", err, errOut)
+	}
+	if out != "added hull (hull): boat sandbox bx_234561, server pid 777 on sandbox-host\n" {
+		t.Fatalf("out %q", out)
+	}
+	if !strings.Contains(errOut, "Creating a boat.dev sandbox…") {
+		t.Fatalf("stderr:\n%s", errOut)
+	}
+	// conch's own key opened it, and ssh went to the machine as user.
+	if len(b.keys) != 1 || !strings.HasPrefix(b.keys[0], "ssh-ed25519 ") {
+		t.Fatalf("authorized %q", b.keys)
+	}
+	if argv := f.argv(t); !strings.Contains(argv, "user@198.51.100.7") {
+		t.Fatalf("ssh argv:\n%s", argv)
+	}
+	ms, _ := remote.Machines()
+	if len(ms) != 1 || ms[0].Target != "boat:bx_234561" {
+		t.Fatalf("saved %+v", ms)
+	}
+
+	// The next command starts clean: without the flag it means Daytona
+	// again, and asks boat nothing.
+	before := b.called()
+	if err := runSandbox([]string{"create"}); err == nil || !strings.Contains(err.Error(), "$DAYTONA_API_KEY") {
+		t.Fatalf("without the flag: %v", err)
+	}
+	if b.called() != before {
+		t.Fatalf("boat was asked anyway:\n%s", b.called())
+	}
+	// A named sandbox takes its provider from its own machine.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"usage", "hull"}) })
+	// boat charges for machine time only, so the line says what was
+	// running and nothing about disk.
+	if err != nil || !strings.Contains(out, "$0.250000") || !strings.Contains(out, "running, 4 vCPU, 8 GiB") ||
+		strings.Contains(out, "GiB disk") {
+		t.Fatalf("usage: %q %v", out, err)
+	}
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"url", "hull", "3000"}) })
+	if err != nil || !strings.Contains(out, "https://frazil-pneuma-rallye-3000.on.boat.dev") {
+		t.Fatalf("url: %q %v", out, err)
+	}
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "boat", "ls"}) })
+	if err != nil || !strings.Contains(out, "bx_234561") || !strings.Contains(out, "hull") {
+		t.Fatalf("ls: %q %v", out, err)
+	}
+	// Stopping and starting it again go to boat, not Daytona.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stop", "-y", "hull"}) })
+	if err != nil || !strings.Contains(out, "stopped") {
+		t.Fatalf("stop: %q %v", out, err)
+	}
+	if !strings.Contains(b.called(), "POST /sandboxes/bx_234561/stop") {
+		t.Fatalf("boat was not told to stop:\n%s", b.called())
+	}
+
+	// A provider conch doesn't know, and a flag with nothing after it.
+	for _, c := range []struct{ args, want []string }{
+		{[]string{"-provider", "fly", "ls"}, []string{`unknown sandbox provider "fly"`, "daytona, boat"}},
+		{[]string{"-provider"}, []string{"-provider needs a name"}},
+		{[]string{"--provider=nope", "ls"}, []string{`unknown sandbox provider "nope"`}},
+	} {
+		err := runSandbox(c.args)
+		for _, want := range c.want {
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("%v: %v, want %q", c.args, err, want)
+			}
+		}
+	}
+	// The long and short spellings both work, anywhere in the arguments.
+	for _, args := range [][]string{{"--provider", "boat", "ls"}, {"-provider=boat", "ls"}, {"ls", "-provider", "boat"}} {
+		if _, _ = a4Capture(t, "", func() { err = runSandbox(args) }); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+}

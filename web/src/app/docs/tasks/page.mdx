@@ -144,3 +144,46 @@ conch agent setup [-agent NAME] [-copy] [-json] [DIR]
 ```
 
 prints the same.
+
+## One setup, every agent
+
+Running several agents should not mean setting each one up three times. In the setup view, `s` takes the setup of the agent whose tab is open and gives it to the others, in this checkout: its instructions, its skills and the MCP servers it declares, each written where that agent looks for it.
+
+It says what it would write before it writes anything:
+
+```
+ Sync agent setup
+
+ Give Codex, Gemini CLI and OpenCode Claude Code's setup in this checkout?
+
+   create AGENTS.md (a copy of CLAUDE.md)
+   create GEMINI.md (pointing at CLAUDE.md)
+   link review → .agents/skills/review (pointing at ../../.claude/skills/review)
+   create gh → .codex/config.toml (stdio · npx · 1 variable)
+
+ Left out — 1 item: its environment holds a value, not a ${VAR} reference:
+ conch does not copy secrets
+```
+
+What it does, and what it refuses to do:
+
+| | |
+| --- | --- |
+| **Instructions** | an agent that expands `@path` (Claude Code, Gemini CLI) is pointed at the other file, so the two never drift; one that doesn't (Codex, OpenCode read `AGENTS.md`) gets the text in a block conch can find again, between `<!-- conch:instructions from … -->` and `<!-- conch:end -->` |
+| **Skills** | linked, not copied: one folder holds the skill and `.agents/skills` is read by Codex, Gemini and OpenCode alike, so one link serves three |
+| **MCP servers** | written in each agent's own format — `.mcp.json`, `.codex/config.toml`, `.gemini/settings.json`, `opencode.json` — keeping everything else in those files. A server already declared there is left as it is |
+| **Nothing else** | logins are each agent's own and are never touched. A server whose environment or headers hold a value rather than a `${VAR}` reference is not copied: conch does not carry secrets between files |
+| **Hand-written files** | left alone. conch writes its own block, or a file that wasn't there; a file somebody wrote is reported as skipped, and a second sync updates the block rather than the rest |
+| **Undo** | `u` puts the last sync back, file by file, from a record under `.conch/agent-sync/`. A file conch created is removed; one it changed goes back to what it held |
+
+A file conch cannot rewrite without losing something is left alone and says so — a `.json` with comments in it, for instance, since rewriting it would drop them. The plan also says where the instructions came from, and reminds you that Codex reads a project's `config.toml` only once you have trusted the folder.
+
+```sh
+conch agent sync                                 # what it would do, from Claude Code
+conch agent sync -from codex -to claude,gemini   # from another agent, to some of them
+conch agent sync -apply                          # write it
+conch agent sync -undo                           # put the last one back
+conch agent sync -undo -stamp 20260926-101500    # or a particular one
+```
+
+`-from` is `claude` unless you say otherwise, `-to` is every other agent, and without `-apply` nothing is written. It works on a remote machine's checkout with `-m` as well, since the server does the writing; a server too old to know how says so.

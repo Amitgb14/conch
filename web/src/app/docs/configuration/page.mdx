@@ -30,8 +30,9 @@ Everything lives in `~/.config/conch`. Set `CONCH_HOME` to use another directory
 | `CONCH_SOURCE` | conch's source tree, for cross-compiling to [remote machines](/docs/remote-machines#adding-a-machine) |
 | `CONCH_REMOTE_BINARY` | a prebuilt conch binary to install on remote machines |
 | `CONCH_VERSION`, `CONCH_INSTALL_DIR` | release and directory for the [install script](/docs/installation#install-script) |
-| `DAYTONA_API_KEY` | the key for [sandboxes](/docs/sandboxes) |
+| `DAYTONA_API_KEY`, `BOAT_API_KEY` | the key for [sandboxes](/docs/sandboxes), one per provider |
 | `DAYTONA_API_URL`, `DAYTONA_TARGET` | Daytona's API and region, when `[sandbox.daytona]` doesn't set them |
+| `BOAT_API_URL` | boat.dev's API, when `[sandbox.boat]` doesn't set it |
 
 ## config.toml
 
@@ -87,7 +88,7 @@ auto = false           # and install it as soon as it is found
 upload_drops = true    # upload files dropped on a remote pane and paste their paths there
 upload_max_mb = 25     # refuse larger files (the server takes at most 256)
 
-[sandbox.daytona]      # one table per provider; the same keys for each
+[sandbox.daytona]      # one table per provider ([sandbox.boat] too); the same keys for each
 api_key = ""           # the key itself, kept in this file; "" reads it from the environment
 api_key_env = ""       # variable holding the key; "" is DAYTONA_API_KEY
 api_url = ""           # "" is $DAYTONA_API_URL or the provider's own
@@ -129,7 +130,9 @@ The model behind `:` and agent summaries. `[brain]` also takes `base_url`, `api_
 
 ### sandbox
 
-`[sandbox.<provider>]` sets up [sandboxes](/docs/sandboxes) — `[sandbox.daytona]` today, and the same keys for any provider conch grows; the Settings screen has them under **Sandboxes** (`,` then `5`), a section each. A table for a provider this build doesn't know is left alone rather than dropped when the settings are saved. `api_key` keeps the key in this file (0600) and wins over `api_key_env`; leave it empty to read the key from your environment every time, which is what conch does otherwise. The key itself is never stored: `api_key_env` only names the variable it is read from. `auto_stop` other than 0 lets Daytona stop a sandbox that long after the last ssh connection or API call — agents working inside don't count, so they stop too. `env` names variables passed into every sandbox `conch sandbox create` makes, on top of its `-env` flags; Daytona keeps their values with the sandbox.
+`[sandbox.<provider>]` sets up [sandboxes](/docs/sandboxes) — `[sandbox.daytona]` and `[sandbox.boat]` today, and the same keys for any provider conch grows; the Settings screen has them under **Sandboxes** (`,` then `5`), a section each. A table for a provider this build doesn't know is left alone rather than dropped when the settings are saved. `api_key` keeps the key in this file (0600) and wins over `api_key_env`; leave it empty to read the key from your environment every time, which is what conch does otherwise. The key itself is never stored: `api_key_env` only names the variable it is read from. `auto_stop` other than 0 lets Daytona stop a sandbox that long after the last ssh connection or API call — agents working inside don't count, so they stop too. `env` names variables passed into every sandbox `conch sandbox create` makes, on top of its `-env` flags; the provider keeps their values with the sandbox.
+
+Not every key means something to every provider: boat.dev has no regions, so `target` is unused, and its machines come in named sizes (`small`, `default`, `large`, `xlarge`) which go in `snapshot` — anything else there is taken for the name of a snapshot to start from. It has no idle timer of its own either, so `auto_stop` is how long a new sandbox is given from when it was made — 1440 minutes by default — rather than how long it may sit unused; conch's own `idle_stop` is what stops one nobody is using.
 
 <Callout type="note">
 

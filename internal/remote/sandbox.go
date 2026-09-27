@@ -83,6 +83,18 @@ func TransportFor(ctx context.Context, label, target string, interactive bool) (
 	case s.State != sandbox.StateStarted:
 		return nil, &SandboxStoppedError{Label: label, State: s.State}
 	}
+	// A provider that takes a key of your own rather than handing out a
+	// secret is given conch's public key, so the way in is one this
+	// computer already holds the other half of.
+	if ka, ok := p.(sandbox.KeyAuthorizer); ok {
+		line, _, err := publicKey(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := ka.AuthorizeKey(ctx, id, line); err != nil {
+			return nil, err
+		}
+	}
 	a, err := p.SSHAccess(ctx, id)
 	if err != nil {
 		return nil, err
@@ -160,11 +172,14 @@ func UnsavedWork(projects []proto.ProjectInfo) []string {
 // prompts: the token is the whole login, and the gateway's host key is
 // taken the first time, as nobody is there to answer for it.
 func sandboxSSH(label string, a sandbox.Access) Transport {
-	return &sandboxTransport{
-		ssh:    &sshTransport{target: a.Target(), opts: sshOpts{acceptNew: true}},
-		name:   label,
-		secret: a.User,
+	t := &sandboxTransport{
+		ssh:  &sshTransport{target: a.Target(), opts: sshOpts{acceptNew: true}},
+		name: label,
 	}
+	if !a.PlainUser {
+		t.secret = a.User
+	}
+	return t
 }
 
 type sandboxTransport struct {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
@@ -24,8 +25,11 @@ func runAgent(args []string) error {
 		return agentInstall(args[1])
 	case len(args) >= 1 && args[0] == "setup":
 		return agentSetup(args[1:])
+	case len(args) >= 1 && args[0] == "sync":
+		return agentSync(args[1:])
 	case len(args) != 2 || args[0] != "explain":
-		return errors.New("usage: conch agent explain ID | status | install NAME | setup [-agent NAME] [-copy] [DIR]")
+		return errors.New("usage: conch agent explain ID | status | install NAME | setup [-agent NAME] [-copy] [DIR] | " +
+			"sync [-from NAME] [-to NAMES] [-apply] [-undo [STAMP]] [DIR]")
 	}
 	c, err := connect(false)
 	if err != nil {
@@ -206,6 +210,95 @@ func agentSetup(args []string) error {
 	}
 	printSetup(os.Stdout, res)
 	return nil
+}
+
+// agentSync gives the other agents the setup one of them has in a
+// checkout. It shows what it would do and changes nothing without -apply,
+// and -undo puts a sync back.
+func agentSync(args []string) error {
+	fs := flag.NewFlagSet("agent sync", flag.ContinueOnError)
+	from := fs.String("from", "claude", "the agent whose setup to copy")
+	to := fs.String("to", "", "only these agents, comma separated")
+	apply := fs.Bool("apply", false, "write the changes (without it, only says what it would do)")
+	undo := fs.Bool("undo", false, "put back a sync; -stamp names which, else the last one")
+	stamp := fs.String("stamp", "", "which sync to undo")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	dir := "."
+	if fs.NArg() > 1 {
+		return errors.New("usage: conch agent sync [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]")
+	}
+	if fs.NArg() == 1 {
+		dir = fs.Arg(0)
+	}
+	if machineFlag == "" {
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
+	}
+	c, err := connect(true)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if missing := c.MissingCapabilities([]string{proto.CapAgentSync}); len(missing) > 0 {
+		return fmt.Errorf("the server on this machine is too old to sync agent setup (needs %s); reload it with conch update", missing[0])
+	}
+	var names []string
+	for _, n := range strings.Split(*to, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			names = append(names, n)
+		}
+	}
+	params := proto.AgentSyncParams{Dir: dir, From: *from, To: names, Apply: *apply, Undo: *undo, Stamp: *stamp}
+	var res proto.AgentSyncResult
+	if err := call(c, proto.MethodAgentSync, params, &res); err != nil {
+		return err
+	}
+	printSync(os.Stdout, res, *apply || *undo)
+	return nil
+}
+
+func printSync(w io.Writer, res proto.AgentSyncResult, wrote bool) {
+	switch {
+	case res.Undone:
+		fmt.Fprintf(w, "%s · put sync %s back\n", res.Dir, res.Undo)
+	default:
+		fmt.Fprintf(w, "%s · %s → %s\n", res.Dir, res.From, strings.Join(res.To, ", "))
+	}
+	for _, n := range res.Notes {
+		fmt.Fprintf(w, "  %s\n", n)
+	}
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	n := 0
+	for _, c := range res.Changes {
+		mark := " "
+		switch {
+		case c.Error != "":
+			mark = "!"
+		case c.Done:
+			mark = "✓"
+		}
+		if c.Action != proto.SyncSame && c.Action != proto.SyncSkip {
+			n++
+		}
+		detail := c.Detail
+		if c.Error != "" {
+			detail = c.Error
+		}
+		fmt.Fprintf(tw, "%s %s\t%s\t%s\t%s\t%s\n", mark, c.Agent, c.Kind, c.Name, c.Action, detail)
+	}
+	tw.Flush()
+	switch {
+	case res.Undone:
+	case n == 0:
+		fmt.Fprintln(w, "\nnothing to do: every agent already has it")
+	case !wrote:
+		fmt.Fprintf(w, "\n%d change%s; run it again with -apply to make them\n", n, map[bool]string{true: "", false: "s"}[n == 1])
+	case res.Undo != "":
+		fmt.Fprintf(w, "\nundo with: conch agent sync -undo -stamp %s\n", res.Undo)
+	}
 }
 
 func printSetup(w io.Writer, res proto.AgentSetupResult) {

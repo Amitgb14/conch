@@ -214,6 +214,20 @@ func newSandboxMenu(back *menu) *menu {
 	return mu
 }
 
+// sandboxSizeNames is the sizes a provider's machines come in, or nothing
+// when it takes numbers. A provider conch cannot open is taken to take
+// numbers: the dialog says the key is missing, and nothing is created.
+func sandboxSizeNames(provider string) []string {
+	p, err := openSandboxProvider(provider)
+	if err != nil || p == nil {
+		return nil
+	}
+	if ns, ok := p.(sandbox.NamedSizes); ok {
+		return ns.SizeNames()
+	}
+	return nil
+}
+
 // providerLabel is a provider's name as people write it.
 func providerLabel(name string) string { return sandbox.ProviderLabel(name) }
 
@@ -225,17 +239,34 @@ func newSandboxDialog(m Model, provider string) *dialog {
 	} else if err := p.Check(); err != nil {
 		text = append(text, "Needs a "+label+" API key: "+strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")+".")
 	}
-	d := newDialog(m, " New "+label+" sandbox ", text, []string{"Label", "Snapshot", "vCPUs", "Memory GiB", "Disk GiB", "Pass in"}, nil)
+	// A provider whose machines come in named sizes is not asked for
+	// numbers: the size goes where the snapshot does, so those three
+	// fields would only be refused later.
+	sizeNames := sandboxSizeNames(provider)
+	labels := []string{"Label", "Snapshot"}
+	if len(sizeNames) == 0 {
+		labels = append(labels, "vCPUs", "Memory GiB", "Disk GiB")
+	}
+	labels = append(labels, "Pass in")
+	last := len(labels) - 1
+	d := newDialog(m, " New "+label+" sandbox ", text, labels, nil)
 	d.fields[0].in.Placeholder = "defaults to sandbox-<id>"
 	d.fields[1].in.Placeholder = firstNonEmpty(m.cfg.Sandbox.Of(provider).Snapshot, label+"'s default")
-	d.fields[2].in.Placeholder = "the snapshot's"
-	d.fields[3].in.Placeholder = "the snapshot's"
-	d.fields[4].in.Placeholder = "the snapshot's"
-	d.fields[5].in.Placeholder = "names of your environment variables, e.g. CLAUDE_CODE_OAUTH_TOKEN"
+	if len(sizeNames) > 0 {
+		d.fields[1].in.Placeholder = firstNonEmpty(m.cfg.Sandbox.Of(provider).Snapshot,
+			"a size ("+strings.Join(sizeNames, ", ")+") or a snapshot")
+	}
+	for i := 2; i < last; i++ {
+		d.fields[i].in.Placeholder = "the snapshot's"
+	}
+	d.fields[last].in.Placeholder = "names of your environment variables, e.g. CLAUDE_CODE_OAUTH_TOKEN"
 	cfg := m.cfg.Sandbox.Of(provider)
 	d.submit = func(m *Model, v []string) tea.Cmd {
 		var sizes [3]int
 		for i, name := range []string{"vCPUs", "Memory", "Disk"} {
+			if 2+i >= last {
+				break // this provider was not asked for numbers
+			}
 			s := strings.TrimSpace(v[2+i])
 			if s == "" {
 				continue
@@ -247,7 +278,7 @@ func newSandboxDialog(m Model, provider string) *dialog {
 			sizes[i] = n
 		}
 		names := append([]string{}, cfg.Env...)
-		names = append(names, strings.FieldsFunc(v[5], func(r rune) bool { return r == ',' || r == ' ' })...)
+		names = append(names, strings.FieldsFunc(v[last], func(r rune) bool { return r == ',' || r == ' ' })...)
 		env, err := sandbox.EnvFrom(names)
 		if err != nil {
 			return func() tea.Msg { return errMsg{err} }
@@ -868,6 +899,29 @@ func (m *Model) receiveUsageShown(msg usageShownMsg) tea.Cmd {
 // stopped all day has more than anybody reads.
 const usageLinesMax = 12
 
+// periodWhat says what the sandbox was doing for a billed period, naming
+// only what the provider reported: a provider that charges for machine
+// time alone says nothing about disk.
+func periodWhat(p sandbox.UsagePeriod) string {
+	var parts []string
+	add := func(n int, unit string) {
+		if n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, unit))
+		}
+	}
+	add(p.CPU, "vCPU")
+	add(p.MemGiB, "GiB")
+	add(p.DiskGiB, "GiB disk")
+	state := "stopped"
+	if p.Running() {
+		state = "running"
+	}
+	if len(parts) == 0 {
+		return state
+	}
+	return state + " · " + strings.Join(parts, ", ")
+}
+
 // usageLines is what a sandbox has cost, and where it went.
 func usageLines(mach *machine, u sandbox.Usage) []string {
 	provider, id, _ := mach.sandbox()
@@ -883,14 +937,19 @@ func usageLines(mach *machine, u sandbox.Usage) []string {
 		periods = periods[n:]
 		lines = append(lines, fmt.Sprintf("… %d earlier periods", n))
 	}
+	disk := false
 	for i := len(periods) - 1; i >= 0; i-- { // newest first
 		p := periods[i]
-		what := fmt.Sprintf("stopped · %d GiB disk", p.DiskGiB)
-		if p.Running() {
-			what = fmt.Sprintf("running · %d vCPU, %d GiB, %d GiB disk", p.CPU, p.MemGiB, p.DiskGiB)
+		if !p.Running() && p.DiskGiB > 0 {
+			disk = true
 		}
 		lines = append(lines, fmt.Sprintf("%s  %-8s  %s  %s",
-			p.From.Local().Format("2 Jan 15:04"), shortDuration(p.To.Sub(p.From)), money(p.Cost), what))
+			p.From.Local().Format("2 Jan 15:04"), shortDuration(p.To.Sub(p.From)), money(p.Cost), periodWhat(p)))
 	}
-	return append(lines, "", "A stopped sandbox keeps its disk, and is charged for it, until it is deleted.")
+	if disk {
+		// Only where the provider charges for it: boat.dev keeps a stopped
+		// sandbox's disk for nothing.
+		return append(lines, "", "A stopped sandbox keeps its disk, and is charged for it, until it is deleted.")
+	}
+	return lines
 }

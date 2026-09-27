@@ -439,6 +439,13 @@ func TestSettingsSandboxTab(t *testing.T) {
 	if !strings.Contains(out, "API key|not set · $DAYTONA_API_KEY is used") {
 		t.Fatalf("the key row:\n%s", out)
 	}
+	// Every provider has a section of its own, with its own key variable.
+	for _, want := range []string{"boat.dev|no key · $BOAT_API_KEY is not set", "API key variable|BOAT_API_KEY",
+		"Snapshot|boat.dev's default"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in\n%s", want, out)
+		}
+	}
 	useSandboxProvider(t, &sbProvider{})
 	if out := plain(); !strings.Contains(out, "✓ $DAYTONA_API_KEY is set") {
 		t.Fatalf("configured:\n%s", out)

@@ -284,3 +284,123 @@ func TestA2LocalFilesDialog(t *testing.T) {
 		}
 	}
 }
+
+// s gives the other agents the setup of the agent whose tab is open. The
+// plan is shown and answered before anything is written.
+func TestA2SetupSync(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	v := &setupView{mid: localMachine, dir: "/src/api", want: "claude"}
+	m.overlay = v
+	v.update(m, setupMsg{view: v, res: a2SetupResult()})
+
+	// Offline, and a server too old for it.
+	if _, cmd := v.update(m, a2Key("s")); cmd != nil || !strings.Contains(m.flash, "local is online") {
+		t.Fatalf("offline: %q", m.flash)
+	}
+	m.machines[0].c = a2Client("agent.setup.v1")
+	if _, cmd := v.update(m, a2Key("s")); cmd != nil || !strings.Contains(m.flash, "too old to sync agent setup") {
+		t.Fatalf("an old server: %q", m.flash)
+	}
+	m.machines[0].c = a2Client("agent.setup.v1", proto.CapAgentSync)
+	if _, cmd := v.update(m, a2Key("s")); cmd == nil || !v.loading {
+		t.Fatal("s asks for a plan")
+	}
+
+	// The plan: a question naming what it would write and what it leaves.
+	plan := proto.AgentSyncResult{Dir: "/src/api", From: "claude", To: []string{"codex", "gemini", "opencode"},
+		Changes: []proto.SyncChange{
+			{Agent: "codex", Kind: proto.SyncInstructions, Name: "AGENTS.md", Path: "AGENTS.md", Action: proto.SyncCreate, Detail: "a copy of CLAUDE.md"},
+			{Agent: "codex", Kind: proto.SyncSkill, Name: "review", Path: ".agents/skills/review", Action: proto.SyncLink},
+			{Agent: "gemini", Kind: proto.SyncSkill, Name: "review", Path: ".agents/skills/review", Action: proto.SyncSame, Detail: "the same folder as Codex"},
+			{Agent: "gemini", Kind: proto.SyncMCP, Name: "paid", Action: proto.SyncSkip, Detail: "conch does not copy secrets"},
+			{Agent: "opencode", Kind: proto.SyncMCP, Name: "paid", Action: proto.SyncSkip, Detail: "conch does not copy secrets"},
+		}}
+	v.update(m, setupSyncMsg{view: &setupView{}, res: plan})
+	if _, ok := m.overlay.(*dialog); ok {
+		t.Fatal("a reply for another view was shown")
+	}
+	v.update(m, setupSyncMsg{view: v, res: plan})
+	d, ok := m.overlay.(*dialog)
+	if !ok || !d.confirm || v.loading {
+		t.Fatalf("plan: %#v", m.overlay)
+	}
+	text := strings.Join(d.text, "\n")
+	for _, want := range []string{"Give Codex, Gemini CLI and OpenCode Claude Code's setup", "create AGENTS.md (a copy of CLAUDE.md)",
+		"link review → .agents/skills/review", "Left out — 2 items: conch does not copy secrets", "can be undone with u"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the question lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "the same folder as Codex") {
+		t.Fatalf("a question listing what it would not do:\n%s", text)
+	}
+	// Answering yes writes; the dialog's own submit is what does it.
+	if cmd := d.submit(m, nil); cmd == nil {
+		t.Fatal("yes did nothing")
+	}
+
+	// What came of it.
+	applied := plan
+	applied.Applied, applied.Undo = true, "20260926-101500"
+	for i := range applied.Changes {
+		applied.Changes[i].Done = writesChange(applied.Changes[i])
+	}
+	m.overlay = v
+	v.update(m, setupSyncMsg{view: v, res: applied})
+	if !strings.Contains(m.flash, "gave Codex, Gemini CLI and OpenCode Claude Code's setup · 2 changes") ||
+		!strings.Contains(m.flash, "u undoes it") {
+		t.Fatalf("applied: %q", m.flash)
+	}
+	// One that failed says so, and says it loudly.
+	failed := applied
+	failed.Changes = append([]proto.SyncChange{}, applied.Changes...)
+	failed.Changes[0] = proto.SyncChange{Agent: "codex", Name: "AGENTS.md", Action: proto.SyncCreate, Error: "permission denied"}
+	v.update(m, setupSyncMsg{view: v, res: failed})
+	if !strings.Contains(m.flash, "AGENTS.md: permission denied") || !m.flashIsErr {
+		t.Fatalf("a change that failed: %q (err %v)", m.flash, m.flashIsErr)
+	}
+
+	// Nothing to do says why, and asks nothing.
+	nothing := proto.AgentSyncResult{Dir: "/src/api", From: "claude", To: []string{"codex"},
+		Changes: []proto.SyncChange{
+			{Agent: "codex", Kind: proto.SyncSkill, Name: "review", Action: proto.SyncSame},
+			{Agent: "codex", Kind: proto.SyncMCP, Name: "paid", Action: proto.SyncSkip, Detail: "conch does not copy secrets"},
+		}}
+	m.overlay = v
+	v.update(m, setupSyncMsg{view: v, res: nothing})
+	if _, ok := m.overlay.(*dialog); ok {
+		t.Fatalf("asked about nothing: %#v", m.overlay)
+	}
+	if !strings.Contains(m.flash, "already in every agent here") || !strings.Contains(m.flash, "1 item already there, 1 item left alone") {
+		t.Fatalf("nothing to do: %q", m.flash)
+	}
+
+	// u puts it back, and says what it put back.
+	if _, cmd := v.update(m, a2Key("u")); cmd == nil {
+		t.Fatal("u asks the server")
+	}
+	undone := proto.AgentSyncResult{Dir: "/src/api", Undone: true, Undo: "20260926-101500",
+		Changes: []proto.SyncChange{{Kind: proto.SyncInstructions, Name: "AGENTS.md", Action: proto.SyncRemove, Done: true}}}
+	v.update(m, setupSyncMsg{view: v, res: undone})
+	if !strings.Contains(m.flash, "put sync 20260926-101500 back · 1 file") {
+		t.Fatalf("undone: %q", m.flash)
+	}
+	// A refusal from the server is shown as it came.
+	v.update(m, setupSyncMsg{view: v, err: errors.New("conch has no sync to undo in /src/api")})
+	if !strings.Contains(m.flash+strings.Join(noticeText(m.overlay), " "), "no sync to undo") {
+		t.Fatalf("a refusal: %q", m.flash)
+	}
+	// The hint says both keys.
+	if got := strings.Join(v.render(*m).lines, "\n"); !strings.Contains(ansi.Strip(got), "s sync to others · u undo") {
+		t.Fatalf("hint:\n%s", got)
+	}
+}
+
+// noticeText is a notice dialog's lines, or nothing.
+func noticeText(o overlay) []string {
+	if d, ok := o.(*dialog); ok {
+		return d.text
+	}
+	return nil
+}
