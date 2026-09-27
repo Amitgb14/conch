@@ -47,10 +47,18 @@ func TestCleanAndIdleSavedSSH(t *testing.T) {
 		t.Fatalf("clean %q", got)
 	}
 	login := func(target string) proto.PaneInfo {
-		return proto.PaneInfo{Command: []string{"ssh", "-F", "c", "--", target}}
+		return proto.PaneInfo{Command: []string{"ssh", "-F", "c", "-o", "ControlPath=none", "--", target}, State: proto.PaneRunning}
 	}
-	if got := idleSavedSSH([]string{"a", "b", "c"}, []proto.PaneInfo{login("b"), login("zzz")}); strings.Join(got, ",") != "a,c" {
+	// A session from a build before ControlPath=none still counts.
+	old := proto.PaneInfo{Command: []string{"ssh", "-F", "c", "--", "c"}, State: proto.PaneRunning}
+	if got := idleSavedSSH([]string{"a", "b", "c"}, []proto.PaneInfo{login("b"), login("zzz"), old}); strings.Join(got, ",") != "a" {
 		t.Fatalf("idle %q", got)
+	}
+	// A login that failed and stays on screen exited leaves its host listed.
+	failed := login("a")
+	failed.State, failed.ExitCode = proto.PaneExited, 255
+	if got := idleSavedSSH([]string{"a"}, []proto.PaneInfo{failed}); strings.Join(got, ",") != "a" {
+		t.Fatalf("failed login hides the host: %q", got)
 	}
 	if got := idleSavedSSH(nil, []proto.PaneInfo{login("a")}); got != nil {
 		t.Fatalf("idle with none saved %q", got)
@@ -367,5 +375,34 @@ func TestSavedSSHState(t *testing.T) {
 	cmd()
 	if st := loadUIState(m.statePath); strings.Join(st.SavedSSH, ",") != "box" {
 		t.Fatalf("saved %q", st.SavedSSH)
+	}
+}
+
+// A login that fails at once (the host is down, the password is refused)
+// stays on screen exited to show why. The saved host must stay listed
+// beside it, or there is nothing left to click to try again.
+func TestSavedSSHAfterFailedLogin(t *testing.T) {
+	sshEnv(t, "")
+	m, peer := sshFixture(t, true)
+	m.machines[0].panes = m.machines[0].panes[:4]
+	m.machines[0].panes = append(m.machines[0].panes, proto.PaneInfo{ID: "p8", Name: "ssh box",
+		Command: []string{"/fake/bin/ssh", "-F", "c", "-o", "ControlPath=none", "--", "box"}, State: proto.PaneExited, ExitCode: 255})
+	m.savedSSH = []string{"box"}
+	m.rebuild()
+	if indexOfRow(m.rows, paneNodeID(localMachine, "p8")) < 0 || indexOfRow(m.rows, savedSSHID("box")) < 0 {
+		t.Fatalf("want the failed login and the saved host:\n%s", render(m.rows))
+	}
+	if r := m.rows[indexOfRow(m.rows, looseSSHID(localMachine))]; r.count != 2 {
+		t.Fatalf("SSH count %d", r.count)
+	}
+	a1At(t, m, savedSSHID("box"))
+	a2Run(a1Key(t, m, tea.KeyMsg{Type: tea.KeyEnter}))
+	peer.waitFor(t, "a new login", func(msg proto.Message) bool { return msg.Method == proto.MethodPaneCreate })
+
+	// Once a session runs again, it stands in for the host.
+	m.machines[0].panes[4].State = proto.PaneRunning
+	m.rebuild()
+	if indexOfRow(m.rows, savedSSHID("box")) >= 0 {
+		t.Fatalf("running session and saved host both listed:\n%s", render(m.rows))
 	}
 }

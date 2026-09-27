@@ -279,7 +279,9 @@ func TestSSHHostMenu(t *testing.T) {
 	if p.Name != "ssh dev@box" || !p.NoProject || p.Cwd != home || p.Agent != "" || p.Cols <= 0 || p.Rows <= 0 {
 		t.Fatalf("create params %+v", p)
 	}
-	if len(p.Command) != 5 || p.Command[0] != "/fake/bin/ssh" || p.Command[1] != "-F" || p.Command[3] != "--" || p.Command[4] != "dev@box" {
+	// Its own connection: a shared master that died would hold the login.
+	if len(p.Command) != 7 || p.Command[0] != "/fake/bin/ssh" || p.Command[1] != "-F" || p.Command[3] != "-o" ||
+		p.Command[4] != "ControlPath=none" || p.Command[5] != "--" || p.Command[6] != "dev@box" {
 		t.Fatalf("command %q", p.Command)
 	}
 	if len(msgs) != 1 {

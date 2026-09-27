@@ -531,7 +531,7 @@ func TestLoginCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%q: %v", target, err)
 		}
-		want := []string{"/fake/ssh", "-F", cfg, "--", target}
+		want := []string{"/fake/ssh", "-F", cfg, "-o", "ControlPath=none", "--", target}
 		if strings.Join(got, "|") != strings.Join(want, "|") {
 			t.Fatalf("%q:\n got %q\nwant %q", target, got, want)
 		}
