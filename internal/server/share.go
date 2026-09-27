@@ -269,12 +269,20 @@ func handoffName(s sessions.Session) string { return s.Agent + "-" + safeName(s.
 // .conch out of git.
 func writeHandoffFile(dir, name, doc string) (string, error) {
 	folder := filepath.Join(dir, handoffDir)
-	if err := os.MkdirAll(folder, 0o755); err != nil {
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		return "", err
+	}
+	// A conversation is private: keep it from other users on a shared
+	// machine, including a folder an older build made readable.
+	if err := os.Chmod(folder, 0o700); err != nil {
 		return "", err
 	}
 	path := filepath.Join(folder, name)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(doc), 0o644); err != nil {
+	// WriteFile keeps the mode of a file that is already there, such as one
+	// left by an interrupted write.
+	os.Remove(tmp)
+	if err := os.WriteFile(tmp, []byte(doc), 0o600); err != nil {
 		return "", err
 	}
 	if err := os.Rename(tmp, path); err != nil {

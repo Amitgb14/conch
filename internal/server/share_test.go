@@ -326,6 +326,45 @@ func TestShareSessionHandoffUnwritable(t *testing.T) {
 	}
 }
 
+// Handoff files hold a whole conversation, so only their owner may read
+// them — also when an older build left the folder or a temporary file open.
+func TestWriteHandoffFilePrivate(t *testing.T) {
+	work := t.TempDir()
+	folder := filepath.Join(work, handoffDir)
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(folder, 0o755)
+	stale := filepath.Join(folder, "claude-c1.md.tmp")
+	if err := os.WriteFile(stale, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(stale, 0o644)
+
+	path, err := writeHandoffFile(work, "claude-c1.md", "doc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, err := os.Stat(path); err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("file mode: %v %v", st, err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "doc" {
+		t.Fatalf("content %q", b)
+	}
+	if st, err := os.Stat(folder); err != nil || st.Mode().Perm() != 0o700 {
+		t.Fatalf("folder mode: %v %v", st, err)
+	}
+
+	// A fresh checkout gets a private folder too.
+	fresh := t.TempDir()
+	if _, err := writeHandoffFile(fresh, "x.md", "doc"); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := os.Stat(filepath.Join(fresh, handoffDir)); err != nil || st.Mode().Perm() != 0o700 {
+		t.Fatalf("fresh folder mode: %v %v", st, err)
+	}
+}
+
 func sessionFor(agent, id string) sessions.Session { return sessions.Session{Agent: agent, ID: id} }
 
 // A directory named through a symlink finds the sessions recorded under its
