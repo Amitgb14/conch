@@ -167,6 +167,9 @@ func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cm
 
 // LoginCommand is the command for an interactive ssh session to target in
 // a terminal: conch's ssh config (the user's own first), no remote command.
+// The session makes its own connection, as a plain ssh would: sharing
+// conch's master meant that once the host stopped answering, a new login
+// sat on a blank screen until the dead master timed out, about a minute.
 func LoginCommand(target string) ([]string, error) {
 	if err := CheckLoginTarget(target); err != nil {
 		return nil, err
@@ -175,7 +178,7 @@ func LoginCommand(target string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []string{sshBinary(), "-F", cfg, "--", target}, nil
+	return []string{sshBinary(), "-F", cfg, "-o", "ControlPath=none", "--", target}, nil
 }
 
 // CheckLoginTarget rejects what ssh would not read as a single host: empty

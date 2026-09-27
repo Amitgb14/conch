@@ -32,11 +32,13 @@ func sshTarget(p proto.PaneInfo) string {
 	return ""
 }
 
-// idleSavedSSH are the saved hosts no open session is logged in to.
+// idleSavedSSH are the saved hosts no running session is logged in to. A
+// login that failed stays on screen, exited, to show why; the host is
+// listed beside it so it can be tried again.
 func idleSavedSSH(saved []string, sessions []proto.PaneInfo) []string {
 	var out []string
 	for _, target := range saved {
-		if !slices.ContainsFunc(sessions, func(p proto.PaneInfo) bool { return sshTarget(p) == target }) {
+		if !slices.ContainsFunc(sessions, func(p proto.PaneInfo) bool { return p.State == proto.PaneRunning && sshTarget(p) == target }) {
 			out = append(out, target)
 		}
 	}

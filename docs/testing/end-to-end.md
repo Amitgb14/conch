@@ -80,6 +80,7 @@ Status legend: ☐ not run · ◐ partly run (see note) · ✅ passed · ❌ fai
 | 4.8 | Connection loss | Drop the network or kill ssh | Machine shows connecting/offline, retries, recovers with panes intact | ✅ R4 killing the TUI's ssh bridge: offline at once, back online within 12 s by itself, remote panes intact |
 | 4.9 | `-m` commands | `conch -m host status`, `new`, `server stop` | Operate on the remote; `status` on an unreachable host prints the reason | ◐ R4 `-m` status by label, `new`, `close`; `server stop` and an unreachable host not run |
 | 4.10 | Saved SSH hosts | `H` to a real host; answer `enter` once and `y` once (two hosts); quit and reopen conch; `exit` the saved session; click the saved row; `x` it | `enter` connects unsaved and the host is gone after reopening; the `y` host is listed `○ … saved` under CLI → SSH after reopening, is hidden while its session runs, reconnects on a click without asking, and `x` forgets it | ☐ |
+| 4.11 | SSH login after the host stops answering | Open an SSH session, then make the host stop answering without closing (sleep it, drop the network, or `kill -STOP` its `sshd-session`); open a new session to it | The new login starts straight away (or fails straight away if the host is really down), never a blank terminal for a minute | ✅ R26 on busybox: with a paused shared master, `ssh -F <conch config> -o ControlPath=none` logged in in 0 s; without it, 60 s blank, then `mux_client_request_session: read from master failed: Broken pipe` |
 
 ## 5. Releases and updates 🌐
 
@@ -335,6 +336,16 @@ The remote rows, at last, with key login to busybox. Isolated on both sides: its
 - **Remote hot reload (4.5):** `conch machine upgrade` with a binary built at a different version installed it and reloaded the remote server **in place — same pid 6232**, its pane still running with its scrollback.
 - **Remote updates from the version popup (4.6, and the remote half of 5.4):** a TUI on the harness showed `⬆`, and the popup listed `[x] busybox   runs build 5a3f7aa19f3e · installs and reloads`. `space` toggled it to `[ ]` and back. Ticked, `u` installed and reloaded busybox (same pid, pane kept) and the `⬆` cleared; unticked, `u` left the remote on its old build. One remote only — 4.6's two-remote case still wants a second machine.
 - **Not covered:** password auth (4.2; busybox has key login now), and the TUI's own machine menu → Reload server, which `machine upgrade` stands in for here.
+
+### R26 — 2026-09-25, SSH logins after a host stops answering, macOS arm64 → busybox
+
+A saved SSH host "logged in once, then not again". Run with plain `ssh` and a copy of conch's generated config, in a scratch `HOME` with its own known_hosts, `IdentityAgent none`, and a private ControlPath directory, so the real TUI's master connection was never shared. Only the test logins' own `sshd-session` processes on busybox were touched, and all of them were ended afterwards.
+
+- **Host closes the connection:** killing the shared master's `sshd-session` let the next login connect at once. The master saw the close and went away.
+- **Host stops answering (4.11):** pausing it with `kill -STOP` instead left the master alive but dead. A login through conch's config then sat blank for **60 s**, printed `mux_client_request_session: read from master failed: Broken pipe`, and only then connected. That is the reported "can't connect". It isn't about passwords, since busybox uses key login.
+- **Fixed:** SSH sessions now pass `-o ControlPath=none` and make their own connection. With the same paused master, that login connected in **0 s**.
+- **Found and fixed:** a login that failed at once (exit 255) stays on screen exited, and it hid the saved host's row, so there was nothing left to click to try again. Only a running session stands in for the host now.
+- **Not run:** a host that only takes a password (busybox has none), and the TUI itself. The change is to the command the TUI runs, which the tests check.
 
 ### R24 — 2026-09-25, the v0.1.4 release, macOS arm64
 
