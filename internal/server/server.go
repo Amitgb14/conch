@@ -803,6 +803,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.broadcastMessage(bp)
 
+	case proto.MethodAgentPrompt:
+		pp, perr := decode[proto.AgentPromptParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.promptAgent(pp)
+
 	case proto.MethodSessionSearch:
 		sp, perr := decode[proto.SessionSearchParams](msg)
 		if perr != nil {

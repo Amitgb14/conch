@@ -48,6 +48,10 @@ type entry struct {
 	tokens     *proto.Tokens
 
 	monitor paneMonitor // guarded by mu; see monitor.go
+
+	// turns counts the agent starting work, guarded by mu: what tells a
+	// prompt's end from a state left over from before it (see prompt.go).
+	turns int
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -62,6 +66,7 @@ func (e *entry) info() proto.PaneInfo {
 	st := e.tracker.Status()
 	info.Monitor, info.Alert = e.monitor.info()
 	info.LastActive = e.lastActive
+	turns := e.turns
 	e.mu.Unlock()
 	if proj != nil {
 		info.ProjectID = proj.id
@@ -76,6 +81,7 @@ func (e *entry) info() proto.PaneInfo {
 		info.Agent = &proto.AgentStatus{
 			Name: st.Agent, State: st.State, Source: st.Source, Reason: st.Reason,
 			Message: st.Message, SessionID: st.SessionID, Since: st.Since, Tokens: tokens, Failed: st.Failed,
+			Turn: turns,
 		}
 	}
 	return info
@@ -187,6 +193,10 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 		Title:      e.p.Title(),
 		Watched:    e.watchers > 0,
 	})
+	// Going back to work after a question was answered is the same turn.
+	if now := e.tracker.Status().State; now == proto.AgentWorking && prevState != proto.AgentWorking && prevState != proto.AgentBlocked {
+		e.turns++
+	}
 	e.mu.Unlock()
 
 	info := e.info()

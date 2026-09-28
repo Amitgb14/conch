@@ -27,8 +27,10 @@ func runAgent(args []string) error {
 		return agentSetup(args[1:])
 	case len(args) >= 1 && args[0] == "sync":
 		return agentSync(args[1:])
+	case len(args) >= 1 && args[0] == "prompt":
+		return agentPrompt(args[1:])
 	case len(args) != 2 || args[0] != "explain":
-		return errors.New("usage: conch agent explain ID | status | install NAME | setup [-agent NAME] [-copy] [DIR] | " +
+		return errors.New("usage: conch agent explain ID | status | install NAME | prompt [-wait] ID TEXT | setup [-agent NAME] [-copy] [DIR] | " +
 			"sync [-from NAME] [-to NAMES] [-apply] [-undo [STAMP]] [DIR]")
 	}
 	c, err := connect(false)

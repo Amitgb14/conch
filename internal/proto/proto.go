@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentPrompt,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -55,6 +55,11 @@ const CapAgentSync = "agent.setup.sync.v1"
 // User field: a server without it would sync the checkout instead, so
 // clients check before asking.
 const CapAgentSyncUser = "agent.setup.sync.user.v1"
+
+// CapAgentPrompt is agent.prompt: a message submitted to one agent, refused
+// while it waits on a question, and the Turn of AgentStatus that says when
+// the work it started has ended.
+const CapAgentPrompt = "agent.prompt.v1"
 
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
@@ -135,6 +140,9 @@ const (
 	MethodAgentLimits    = "agent.limits"
 	// MethodAgentBroadcast types one message into several agents.
 	MethodAgentBroadcast = "agent.broadcast"
+	// MethodAgentPrompt submits a message to one agent, unless it is
+	// waiting on a question.
+	MethodAgentPrompt = "agent.prompt"
 
 	// Finishing a branch's work: commit, push, open a pull request, merge
 	// into the base, or throw the branch away.
@@ -185,9 +193,12 @@ const (
 	// undone: the branch is as it was and nothing was pushed, so what is
 	// left is to sort the conflict out in the worktree by hand.
 	ErrRebaseConflict = "rebase_conflict"
-	ErrNotFound       = "not_found"
-	ErrInternal       = "internal"
-	ErrUnknown        = "unknown_method"
+	// ErrAgentBlocked is a message refused because the agent is waiting
+	// on a question: typed in, its Enter could answer the question.
+	ErrAgentBlocked = "agent_blocked"
+	ErrNotFound     = "not_found"
+	ErrInternal     = "internal"
+	ErrUnknown      = "unknown_method"
 )
 
 // Message is the single envelope for requests, responses and events.
@@ -920,6 +931,11 @@ type AgentStatus struct {
 	Tokens    *Tokens   `json:"tokens,omitempty"`
 	// Failed means the last request ended with an error, not an answer.
 	Failed bool `json:"failed,omitempty"`
+	// Turn counts the times the agent started working in this pane, so a
+	// client that prompted it can tell the end of that work from a state
+	// left over from before. It starts again from zero when the server
+	// reloads, and servers without agent.prompt.v1 leave it zero.
+	Turn int `json:"turn,omitempty"`
 }
 
 // Tokens is an agent session's token usage, from its transcript.
@@ -1054,6 +1070,22 @@ type AgentBroadcastParams struct {
 	IDs    []string `json:"ids"`
 	Text   string   `json:"text"`
 	Shells bool     `json:"shells,omitempty"`
+}
+
+// AgentPromptParams submits Text to the agent in pane ID as its next
+// message.
+type AgentPromptParams struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
+
+// AgentPromptResult says which work answers the message: the agent's Turn
+// reaching Turn. An agent already working when it was sent is given the
+// message when that work ends, so its current Turn counts.
+type AgentPromptResult struct {
+	ID    string `json:"id"`
+	Agent string `json:"agent"`
+	Turn  int    `json:"turn"`
 }
 
 // AgentBroadcastResult reports, per pane, whether the message was sent.

@@ -16,6 +16,7 @@ conch project ls                       # projects, base, worktrees
 conch branch commit -m "Fix the flaky test" && conch branch pr   # finish a task
 conch worktree clean -y                # remove finished worktrees and their branches
 conch wait p1 && conch send p2 "review what p1 just changed"   # chain tasks
+conch agent prompt -wait p2 "check finding 3 again" && conch read p2   # one agent driving another
 conch close p1
 conch server reload                    # run a new build; panes keep running
 conch server stop                      # stops the server and all panes
@@ -74,6 +75,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch agent explain ID` | show how a pane's agent state was decided, as JSON |
 | `conch agent status` | list each supported agent: installed (with version and path) or not |
 | `conch agent install NAME` | run an agent's installer in a pane and wait for it |
+| `conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] ID TEXT...` | send the pane's agent its next message and submit it. Unlike `conch send` it only types into an agent, and never into one waiting on a question — a permission prompt, a menu — where its Enter could answer something nobody read: it exits 3 and types nothing (a question that comes up in the moment before Enter leaves the message typed but unsent). With `-wait` it blocks until the work the message starts has ended — not on the `done` or `idle` still showing from before it — and prints `ID AGENT STATE`; a question the agent asks ends it too, unless `-until` leaves `waiting` out. An agent already working gets the message when that work ends, so that work is the one waited for. Exits 124 if `-timeout` runs out, and fails if the pane ends or another program takes it over |
 | `conch agent setup [-agent NAME] [-copy] [-json] [DIR]` | show what each agent loads in a folder; `-agent` limits it to one agent, `-copy` copies missing local files from the main checkout first, `-json` prints JSON |
 | `conch agent sync [-user] [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]` | give the other agents one agent's setup — instructions, skills, MCP servers — in a checkout, or with `-user` the setup in your home. Without `-apply` it only says what it would do; `-undo` puts a sync back. See [One setup, every agent](/docs/tasks#one-setup-every-agent) |
 

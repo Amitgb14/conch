@@ -410,3 +410,38 @@ func TestA3ConnConcurrentWrites(t *testing.T) {
 		t.Fatalf("read %d messages, want %d", n, writers*each)
 	}
 }
+
+// agent.prompt's wire contract: an older server's status has no turn and
+// reads as zero, and a zero turn is left out for older clients.
+func TestAgentPromptWire(t *testing.T) {
+	b, _ := json.Marshal(AgentStatus{Name: "claude", State: AgentIdle})
+	if strings.Contains(string(b), `"turn"`) {
+		t.Fatalf("zero turn sent: %s", b)
+	}
+	var old AgentStatus
+	if err := json.Unmarshal([]byte(`{"name":"claude","state":"done","since":"2026-09-28T10:00:00Z"}`), &old); err != nil || old.Turn != 0 {
+		t.Fatalf("older status: %+v %v", old, err)
+	}
+	b, _ = json.Marshal(AgentStatus{Turn: 3})
+	if !strings.Contains(string(b), `"turn":3`) {
+		t.Fatalf("turn: %s", b)
+	}
+	b, _ = json.Marshal(AgentPromptParams{ID: "p1", Text: "go"})
+	if string(b) != `{"id":"p1","text":"go"}` {
+		t.Fatalf("params: %s", b)
+	}
+	b, _ = json.Marshal(AgentPromptResult{ID: "p1", Agent: "codex"})
+	if string(b) != `{"id":"p1","agent":"codex","turn":0}` {
+		t.Fatalf("result: %s", b)
+	}
+	if MethodAgentPrompt != "agent.prompt" || CapAgentPrompt != "agent.prompt.v1" || ErrAgentBlocked != "agent_blocked" {
+		t.Fatal("wire names changed")
+	}
+	found := false
+	for _, c := range Capabilities {
+		found = found || c == CapAgentPrompt
+	}
+	if !found {
+		t.Fatal("agent.prompt.v1 not announced")
+	}
+}

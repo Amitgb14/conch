@@ -50,6 +50,9 @@ Usage:
   conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]
                                 start Claude Code with state tracking
   conch agent explain ID        show how a pane's agent state was decided
+  conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] ID TEXT
+                                send an agent its next message, refused (exit 3) while it
+                                waits on a question; -wait blocks until that work ends
   conch agent status | install claude
                                 check or install Claude Code (use -m for a machine)
   conch agent setup [-agent NAME] [-copy] [DIR]
@@ -166,6 +169,11 @@ func main() {
 	if errors.As(err, &late) {
 		fmt.Fprintln(os.Stderr, "conch:", err)
 		os.Exit(124) // as timeout(1) does, so a script can tell it apart
+	}
+	var blocked agentBlocked
+	if errors.As(err, &blocked) {
+		fmt.Fprintln(os.Stderr, "conch:", err)
+		os.Exit(3) // the question is someone's to answer; retrying won't
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "conch:", err)
