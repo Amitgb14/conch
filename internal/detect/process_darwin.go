@@ -3,6 +3,7 @@ package detect
 import (
 	"bytes"
 	"encoding/binary"
+	"os"
 
 	"golang.org/x/sys/unix"
 )
@@ -39,4 +40,16 @@ func cString(b []byte) string {
 		b = b[:i]
 	}
 	return string(b)
+}
+
+// ParentPID returns the parent of process pid.
+func ParentPID(pid int) (int, error) {
+	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil {
+		return 0, err
+	}
+	if kp.Proc.P_pid != int32(pid) { // the kernel answers a pid that is gone with zeros
+		return 0, os.ErrNotExist
+	}
+	return int(kp.Eproc.Ppid), nil
 }

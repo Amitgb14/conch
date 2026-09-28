@@ -66,6 +66,9 @@ type Server struct {
 
 type client struct {
 	conn *proto.Conn
+	// pane is the pane the connection comes from, as the kernel says; ""
+	// from outside the panes. See scope.go.
+	pane string
 
 	mu   sync.Mutex
 	subs map[string]*subscription // by pane ID
@@ -272,7 +275,7 @@ func (s *Server) shutdown() {
 }
 
 func (s *Server) serve(nc net.Conn) {
-	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}}
+	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}, pane: s.callerPane(peerPID(nc))}
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
@@ -347,7 +350,7 @@ func (s *Server) handle(c *client, msg proto.Message) bool {
 	if err := c.conn.Write(resp); err != nil {
 		return false
 	}
-	if msg.Method == proto.MethodServerStop {
+	if msg.Method == proto.MethodServerStop && perr == nil { // refused (scope.go), it stays up
 		s.Stop()
 	}
 	if msg.Method == proto.MethodServerReload && perr == nil {
@@ -380,6 +383,9 @@ func withPane[T any](s *Server, msg proto.Message, id func(T) string) (T, *entry
 }
 
 func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
+	if perr := s.inScope(c, msg); perr != nil {
+		return nil, perr
+	}
 	switch msg.Method {
 	case proto.MethodHello:
 		hp, perr := decode[proto.HelloParams](msg)
@@ -431,7 +437,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		return s.create(cp)
+		return s.made(c)(s.create(cp))
 
 	case proto.MethodPaneClose:
 		ref, perr := decode[proto.PaneRef](msg)
@@ -723,7 +729,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		return s.createTask(tp)
+		return s.made(c)(s.createTask(tp))
 
 	case proto.MethodAgentStatus:
 		var res proto.AgentStatusResult
@@ -753,13 +759,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, proto.Errorf(proto.ErrBadRequest, "conch can't install %q", ip.Agent)
 		}
 		home, _ := os.UserHomeDir()
-		return s.create(proto.PaneCreateParams{
+		return s.made(c)(s.create(proto.PaneCreateParams{
 			Name:    "install " + ip.Agent,
 			Command: []string{config.DefaultShell(), "-lc", ad.InstallScript()},
 			Cwd:     home,
 			Cols:    ip.Cols,
 			Rows:    ip.Rows,
-		})
+		}))
 
 	case proto.MethodAgentExplain:
 		_, e, perr := withPane(s, msg, func(p proto.PaneRef) string { return p.ID })
@@ -786,7 +792,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		rp.Dir = realDir(rp.Dir)
-		return s.resumeSession(rp)
+		return s.made(c)(s.resumeSession(rp))
 
 	case proto.MethodSessionDelete:
 		rp, perr := decode[proto.SessionRef](msg)
@@ -824,7 +830,12 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		sp.Dir = realDir(sp.Dir)
-		return s.shareSession(sp)
+		res, perr := s.shareSession(sp)
+		if perr == nil && sp.PaneID == "" {
+			s.madeBy(c, res.Pane.ID)
+			res.Pane = s.infoOf(res.Pane)
+		}
+		return res, perr
 
 	case proto.MethodSessionExport:
 		rp, perr := decode[proto.SessionRef](msg)

@@ -184,6 +184,16 @@ helpers in `cmd/conch` and `internal/remote`.
   failures in the first seconds). The tab bar lists the tabs of the group
   selected in the tree (`internal/tui/scope.go`); the machine row lists none
   and shows a preview.
+- **Scoping agents that drive conch.** `internal/server/scope.go` keeps an
+  agent calling from inside its pane to its own work: panes it started (a
+  lineage, carried through reloads), panes in its project, and that
+  project's branches and worktrees. The caller is found from the socket's
+  peer pid (`peer_darwin.go`, `peer_linux.go`) walked up its parents to a
+  pane's program — never from `CONCH_PANE_ID` — and only a pane with an
+  agent detected in it is scoped. A new method that changes a pane or a
+  project belongs in `scoped` with a verb, or an agent can reach past its
+  scope through it. Tests put a real caller inside a pane by running the
+  test binary there (`TestScopeHelper`).
 - **Machine-level panes** (under a machine's `CLI` group) are created with
   `NoProject` and start in the home directory.
 - **Build identity.** `buildinfo.Build()` hashes the executable at start-up;

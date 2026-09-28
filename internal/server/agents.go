@@ -52,6 +52,10 @@ type entry struct {
 	// turns counts the agent starting work, guarded by mu: what tells a
 	// prompt's end from a state left over from before it (see prompt.go).
 	turns int
+
+	// lineage is the pane that started this one, then its creator, and so
+	// on; guarded by mu. Empty for a pane started from outside the panes.
+	lineage []string
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -67,6 +71,9 @@ func (e *entry) info() proto.PaneInfo {
 	info.Monitor, info.Alert = e.monitor.info()
 	info.LastActive = e.lastActive
 	turns := e.turns
+	if len(e.lineage) > 0 {
+		info.CreatedBy = e.lineage[0]
+	}
 	e.mu.Unlock()
 	if proj != nil {
 		info.ProjectID = proj.id

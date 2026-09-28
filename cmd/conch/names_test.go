@@ -476,3 +476,19 @@ func TestA4NamesWithSpaces(t *testing.T) {
 		t.Fatalf("rename: %q %v %+v", out, err, rp)
 	}
 }
+
+// A refusal from the server's scoping reaches the person as it was said.
+func TestA4OutOfScopeShown(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodPaneClose {
+			return nil, proto.Errorf(proto.ErrOutOfScope, "the claude agent in p4 may not close p1: it did not start it, and it is in another project; do it from the TUI or a terminal pane")
+		}
+		return nil, nil
+	})
+	code, _, errOut := a4RunMain(t, "", "close", "p1")
+	if code != 1 || !strings.Contains(errOut, "may not close p1: it did not start it, and it is in another project; do it from the TUI or a terminal pane") {
+		t.Fatalf("code %d %q", code, errOut)
+	}
+}

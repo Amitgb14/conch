@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentPrompt, CapTaskName,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentPrompt, CapTaskName, CapPaneScope,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -64,6 +64,10 @@ const CapAgentPrompt = "agent.prompt.v1"
 // CapTaskName is task.create taking Name: the task's pane named as it
 // starts. A server without it drops the field, so clients rename instead.
 const CapTaskName = "task.name.v1"
+
+// CapPaneScope is PaneInfo.CreatedBy, and the server refusing an agent's
+// changes to panes and projects that aren't its own with ErrOutOfScope.
+const CapPaneScope = "pane.scope.v1"
 
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
@@ -200,9 +204,12 @@ const (
 	// ErrAgentBlocked is a message refused because the agent is waiting
 	// on a question: typed in, its Enter could answer the question.
 	ErrAgentBlocked = "agent_blocked"
-	ErrNotFound     = "not_found"
-	ErrInternal     = "internal"
-	ErrUnknown      = "unknown_method"
+	// ErrOutOfScope is a change an agent asked for, from inside its pane,
+	// to a pane or project that isn't its own.
+	ErrOutOfScope = "out_of_scope"
+	ErrNotFound   = "not_found"
+	ErrInternal   = "internal"
+	ErrUnknown    = "unknown_method"
 )
 
 // Message is the single envelope for requests, responses and events.
@@ -306,6 +313,9 @@ type PaneInfo struct {
 	// all, which is how conch decides a sandbox is idle. Zero from
 	// servers that predate it.
 	LastActive time.Time `json:"last_active,omitempty"`
+	// CreatedBy is the pane this one was started from, if any: an agent
+	// there may change it, and what it starts in turn (see pane.scope.v1).
+	CreatedBy string `json:"created_by,omitempty"`
 }
 
 // PaneMonitor asks to be told about a pane's output, as tmux's

@@ -465,3 +465,27 @@ func TestTaskNameWire(t *testing.T) {
 		t.Fatal("task.name.v1 not announced")
 	}
 }
+
+// Scoping's wire contract: CreatedBy is optional, so panes from older
+// servers read the same, and the refusal has its own code.
+func TestPaneScopeWire(t *testing.T) {
+	b, _ := json.Marshal(PaneInfo{ID: "p1"})
+	if strings.Contains(string(b), `"created_by"`) {
+		t.Fatalf("empty creator sent: %s", b)
+	}
+	b, _ = json.Marshal(PaneInfo{ID: "p2", CreatedBy: "p1"})
+	if !strings.Contains(string(b), `"created_by":"p1"`) {
+		t.Fatalf("creator: %s", b)
+	}
+	var old PaneInfo
+	if err := json.Unmarshal([]byte(`{"id":"p3","name":"sh","state":"running"}`), &old); err != nil || old.CreatedBy != "" {
+		t.Fatalf("older pane: %+v %v", old, err)
+	}
+	found := false
+	for _, c := range Capabilities {
+		found = found || c == CapPaneScope
+	}
+	if !found || CapPaneScope != "pane.scope.v1" || ErrOutOfScope != "out_of_scope" {
+		t.Fatal("wire names")
+	}
+}

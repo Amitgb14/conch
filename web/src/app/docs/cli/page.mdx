@@ -83,6 +83,24 @@ conch agent prompt -wait reviewer "Check finding 3 again" && conch read reviewer
 - Names are exact and case sensitive. A name two running panes share is refused rather than guessed — say which with its ID. A pane that has ended still answers to its name until another running pane takes it.
 - Names belong to one machine's server, so `-m` looks them up there.
 
+### When an agent runs these commands
+
+An agent in a conch pane can drive conch with the same commands — start a reviewer, prompt it, read its answer. What it may *change* is kept to its own work:
+
+- **panes it started**, and the panes those started, in any project;
+- **panes in its own project**, whoever started them;
+- **its own project's** branches and worktrees.
+
+Anything else — typing into, closing, renaming or marking as seen another project's pane, sending it keys or a broadcast, removing another project, committing, pushing or discarding there — is refused with `out_of_scope`, and so is `conch server stop` or `reload`:
+
+```text
+conch: out_of_scope: the claude agent in p4 may not close p1: it did not start it, and it is in another project; do it from the TUI or a terminal pane
+```
+
+Reading is never refused (`read`, `status`, `wait`, sessions), and neither is starting panes and tasks: what an agent starts is its own, and each pane in the server's pane list carries who started it (`created_by`).
+
+conch tells who is asking from the operating system — the process at the other end of the socket, and its parents up to a pane — not from `CONCH_PANE_ID`, so unsetting that changes nothing. Only a pane with an agent running in it is held to this: a terminal pane, the TUI and scripts outside conch act as you. It is a guard against a confused agent closing the wrong session, not a sandbox: a program set on escaping can leave the pane's process tree. `-m` from inside a pane reaches the other machine as a caller from outside its panes, so it isn't scoped there yet.
+
 ### agent
 
 | Command | Description |
