@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -460,5 +461,58 @@ func TestA3IconsFromAnOlderFile(t *testing.T) {
 	a3WriteConfig(t, conchHome, "[ui]\nicons = \"nerd\"\n")
 	if cfg, err := Load(); err != nil || cfg.UI.Icons != "nerd" {
 		t.Fatalf("icons %q %v", cfg.UI.Icons, err)
+	}
+}
+
+// What a provider's settings mean on their own: the defaults where nothing
+// was set, and the arithmetic behind what the tree says a sandbox costs.
+func TestProviderCfgDefaultsAndPrices(t *testing.T) {
+	var none ProviderCfg
+	if !none.RestoresRunning() {
+		t.Fatal("unset should offer back what was running")
+	}
+	if got := none.IdleMinutes(); got != IdleStopDefault {
+		t.Fatalf("unset idle stop is %d, want %d", got, IdleStopDefault)
+	}
+	if none.Priced() {
+		t.Fatal("nothing is priced with no prices")
+	}
+	if got := none.CostPerHour(4, 8, 20); got != 0 {
+		t.Fatalf("an unpriced sandbox costs %v", got)
+	}
+	if got := none.StoppedCostPerHour(20); got != 0 {
+		t.Fatalf("an unpriced stopped sandbox costs %v", got)
+	}
+
+	// Said so explicitly, either way, and never below zero.
+	no, zero, neg := false, 0, -5
+	if (ProviderCfg{Restore: &no}).RestoresRunning() {
+		t.Fatal("false should keep no note")
+	}
+	if got := (ProviderCfg{IdleStop: &zero}).IdleMinutes(); got != 0 {
+		t.Fatalf("0 should never stop one, got %d", got)
+	}
+	if got := (ProviderCfg{IdleStop: &neg}).IdleMinutes(); got != 0 {
+		t.Fatalf("a negative idle stop became %d", got)
+	}
+
+	// Daytona's own prices, as a person would copy them off the page.
+	p := ProviderCfg{PriceCPUHour: 0.0504, PriceGiBHour: 0.0162, PriceDiskGiBHour: 0.000108}
+	if !p.Priced() {
+		t.Fatal("prices set, but not priced")
+	}
+	// 1 vCPU, 1 GiB, 3 GiB disk — the default Daytona sandbox.
+	if got := p.CostPerHour(1, 1, 3); fmt.Sprintf("%.6f", got) != "0.066924" {
+		t.Fatalf("an hour costs %v", got)
+	}
+	// Stopped, it is the disk alone — the cost people forget.
+	if got := p.StoppedCostPerHour(3); fmt.Sprintf("%.6f", got) != "0.000324" {
+		t.Fatalf("an hour stopped costs %v", got)
+	}
+	// Any one price on its own is enough to say something.
+	for _, only := range []ProviderCfg{{PriceCPUHour: 1}, {PriceGiBHour: 1}, {PriceDiskGiBHour: 1}} {
+		if !only.Priced() {
+			t.Fatalf("%+v should be priced", only)
+		}
 	}
 }

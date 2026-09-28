@@ -464,6 +464,39 @@ This Mac to busybox (`aghadge@10.0.0.115`), isolated on both sides. Here: its ow
 - **Found and fixed:** a menu whose title was its widest line lost the end of it ("Move feat to which machin…"), in every menu: the frame's spaces weren't counted.
 - **Not run:** a real Claude reading the handoff after a move (the handoff itself was checked in R19), and a pushed branch sending no commits (covered by the server tests).
 
+### R30 — 2026-09-27, the 0.1.5 release, rehearsed before the tag, macOS arm64
+
+The release rows done against a local mirror rather than GitHub, so the
+archives, the install script and `conch update` were checked before anything
+was tagged (`CONCH_RELEASE_URL` pointed at a `python3 -m http.server` serving
+`dist/`).
+
+- **The archives (5.x):** `scripts/release.sh 0.1.5` built all four —
+  darwin/amd64 (no cgo, so kqueue), darwin/arm64 (cgo, FSEvents), linux/amd64,
+  linux/arm64 — with `checksums.txt`; `shasum -c` says OK for all four, and the
+  binary inside the arm64 archive reports `conch 0.1.5 (build 5589d5a0d815,
+  darwin/arm64)`.
+- **install.sh (5.1):** with a scratch `HOME` and `CONCH_VERSION=0.1.5` it
+  downloaded, checked the sha256, installed to `~/.local/bin/conch` and said to
+  add it to `PATH`; the installed binary is the same build as the archive's,
+  byte for byte. Resolving *latest* could not be rehearsed: it follows GitHub's
+  redirect to the tag, which only exists after tagging.
+- **conch update (5.2):** a real **v0.1.4** binary, downloaded from its own
+  release, updated itself — *"updated …/conch: 0.1.4 → 0.1.5"* — and then
+  reported 0.1.5 on that same build.
+- **conch update rollback:** it went back to the 0.1.4 it had kept under
+  `versions/`, reporting *"moved back … 0.1.5 → 0.1.4"*.
+- **The linux archive really runs:** the linux/amd64 binary, copied to busybox
+  (Linux x86_64), reports `conch 0.1.5 (build 31aaa0c0e26d, linux/amd64)` — a
+  different hash from the Mac build, as a cross-build is.
+- **Tests:** `go vet`, `gofmt`, `go test -race -count=1 ./...` all clean, and a
+  `CGO_ENABLED=0` build, which is what the release script uses for three of the
+  four platforms. Coverage 93.0%.
+
+Not covered here, and left for after the tag: the GitHub build of the tag
+itself, *latest* resolution, the website deploying from the tag, and the
+update arriving in a real TUI (5.3, 5.4).
+
 ### R29 — 2026-09-27, a sandbox create from the TUI, macOS arm64, build 0.1.5-dev
 
 Driven through an isolated conch (its own `CONCH_HOME` and socket, the TUI in a pane of that server, keys sent with `conch send`), because the point was what the status bar says while a job of minutes runs.

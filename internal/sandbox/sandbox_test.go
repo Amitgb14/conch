@@ -38,3 +38,50 @@ func TestOpenAndKnown(t *testing.T) {
 		t.Fatalf("unknown: %v", err)
 	}
 }
+
+// What a state means, what a period says it was doing, and what a provider
+// is called: small answers the tree leans on.
+func TestStatesLabelsAndPeriods(t *testing.T) {
+	for _, c := range []struct {
+		state  State
+		moving bool
+	}{
+		{StateStarting, true}, {StateStopping, true}, {"archiving", true}, {"resizing", true},
+		{"snapshotting", true}, {"forking", true}, {"pausing", true}, {"creating", true},
+		{StateStarted, false}, {StateStopped, false}, {StateArchived, false}, {StateError, false}, {"", false},
+	} {
+		if got := c.state.Moving(); got != c.moving {
+			t.Errorf("%q moving = %v, want %v", c.state, got, c.moving)
+		}
+	}
+	// A period was running when it was charged for a machine, not just disk.
+	for _, c := range []struct {
+		p    UsagePeriod
+		want bool
+	}{
+		{UsagePeriod{CPU: 1}, true}, {UsagePeriod{MemGiB: 2}, true}, {UsagePeriod{CPU: 4, MemGiB: 8}, true},
+		{UsagePeriod{DiskGiB: 3}, false}, {UsagePeriod{}, false},
+	} {
+		if got := c.p.Running(); got != c.want {
+			t.Errorf("%+v running = %v, want %v", c.p, got, c.want)
+		}
+	}
+	// Providers are named as people write them, and an unknown one is
+	// capitalised rather than left bare.
+	for name, want := range map[string]string{
+		"daytona": "Daytona", "boat": "boat.dev", "e2b": "E2B", "fly": "Fly", "": "",
+	} {
+		if got := ProviderLabel(name); got != want {
+			t.Errorf("ProviderLabel(%q) = %q, want %q", name, got, want)
+		}
+	}
+	// boat's machines come in sizes, and those are the sizes create takes.
+	sizes := NewBoat(config.ProviderCfg{}).SizeNames()
+	if strings.Join(sizes, ",") != "small,default,large" {
+		t.Fatalf("boat's sizes: %v", sizes)
+	}
+	sizes[0] = "tampered"
+	if again := NewBoat(config.ProviderCfg{}).SizeNames(); again[0] != "small" {
+		t.Fatalf("the list is not a copy: %v", again)
+	}
+}

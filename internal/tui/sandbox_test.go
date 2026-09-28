@@ -121,7 +121,7 @@ func (p *sbProvider) SSHAccess(context.Context, string) (sandbox.Access, error) 
 	return sandbox.Access{}, errors.New("no ssh in TUI tests")
 }
 
-func useSandboxProvider(t *testing.T, p *sbProvider) {
+func useSandboxProvider(t *testing.T, p sandbox.Provider) {
 	t.Helper()
 	old := openSandboxProvider
 	openSandboxProvider = func(string) (sandbox.Provider, error) { return p, nil }
@@ -1398,4 +1398,123 @@ func TestCreateSandboxRefusalReadsOnce(t *testing.T) {
 	if !strings.Contains(said, "wants a plan") {
 		t.Fatalf("the provider's words are gone: %q", said)
 	}
+}
+
+// snapProvider keeps snapshots; sbProvider deliberately does not, so the
+// two together cover both answers to "can this provider keep one?".
+type snapProvider struct {
+	sbProvider
+	kept    []string
+	snapErr error
+}
+
+func (p *snapProvider) Snapshot(_ context.Context, id, name string) error {
+	p.kept = append(p.kept, id+":"+name)
+	return p.snapErr
+}
+
+func (p *snapProvider) Snapshots(context.Context) ([]sandbox.Snap, error) { return nil, nil }
+func (p *snapProvider) ForgetSnapshot(context.Context, string) error      { return nil }
+
+// m → Keep a snapshot…: what it says before it asks, what it sends, and
+// what comes back.
+func TestSnapshotDialog(t *testing.T) {
+	m, mach := sandboxModel(t)
+
+	// A provider that cannot keep one says so instead of opening a dialog.
+	useSandboxProvider(t, &sbProvider{})
+	if cmd := m.openSnapshotDialog(mach.id); cmd != nil || !strings.Contains(m.flash, "Daytona cannot keep snapshots") {
+		t.Fatalf("no snapshots: %q", m.flash)
+	}
+	// An unknown machine, and one that is not a sandbox at all.
+	if cmd := m.openSnapshotDialog("nope"); cmd != nil {
+		t.Fatal("a machine that isn't there opened something")
+	}
+	if cmd := m.openSnapshotDialog(m.machines[1].id); cmd != nil && m.machines[1].target == "dev@gpu" {
+		t.Fatal("an ssh machine opened a snapshot dialog")
+	}
+
+	p := &snapProvider{}
+	useSandboxProvider(t, p)
+	mach.state = stateOnline // as it is while you are working in it
+	cmd := m.openSnapshotDialog(mach.id)
+	d, ok := m.overlay.(*dialog)
+	if !ok || cmd == nil {
+		t.Fatalf("no dialog: %#v", m.overlay)
+	}
+	text := strings.Join(d.text, " ")
+	if !strings.Contains(text, "to make others from") {
+		t.Fatalf("the dialog says: %q", text)
+	}
+	// It is online, so it warns that the provider may want it stopped.
+	if !strings.Contains(text, "may want it stopped first") {
+		t.Fatalf("online, it should warn: %q", text)
+	}
+	// The name offered is the machine and the date, so two are never one.
+	if got := d.fields[0].in.Value(); !strings.HasPrefix(got, mach.label+"-") || len(got) < len(mach.label)+11 {
+		t.Fatalf("the name offered is %q", got)
+	}
+
+	// A name of nothing is refused, before the provider is asked.
+	if msgs := a2Run(d.submit(m, []string{"   "})); !strings.Contains(a2ErrText(msgs), "a snapshot needs a name") {
+		t.Fatalf("no name: %v", msgs)
+	}
+	if len(p.kept) != 0 {
+		t.Fatalf("it kept %v", p.kept)
+	}
+	// A name, and the provider is asked for that sandbox.
+	msgs := a2Run(d.submit(m, []string{" base "}))
+	if len(p.kept) != 1 || p.kept[0] != "sb1:base" {
+		t.Fatalf("kept %v", p.kept)
+	}
+	if !strings.Contains(m.flash, "keeping fix as base…") {
+		t.Fatalf("while it works: %q", m.flash)
+	}
+	var done *snapshotDoneMsg
+	for _, msg := range msgs {
+		if v, ok := msg.(snapshotDoneMsg); ok {
+			done = &v
+		}
+	}
+	if done == nil || done.name != "base" || done.err != nil {
+		t.Fatalf("done: %#v", msgs)
+	}
+	// What came of it, either way.
+	m.receiveSnapshot(*done)
+	if !strings.Contains(m.flash, "usable in a few minutes") {
+		t.Fatalf("after keeping it: %q", m.flash)
+	}
+	m.receiveSnapshot(snapshotDoneMsg{machine: mach.id, name: "base", err: errString("daytona: stop it first (409)")})
+	if !strings.Contains(m.flash+strings.Join(noticeText(m.overlay), " "), "stop it first") {
+		t.Fatalf("a refusal: %q", m.flash)
+	}
+
+	// A stopped sandbox gets no warning about stopping it.
+	mach.state = stateOffline
+	m.overlay = nil
+	m.openSnapshotDialog(mach.id)
+	if got := strings.Join(m.overlay.(*dialog).text, " "); strings.Contains(got, "may want it stopped") {
+		t.Fatalf("stopped, it should not warn: %q", got)
+	}
+}
+
+// What a provider says a sandbox has cost is kept against the machine, and
+// nothing it could not answer is.
+func TestReceiveUsage(t *testing.T) {
+	m, mach := sandboxModel(t)
+	now := time.Now()
+	u := sandbox.Usage{Known: true, Cost: 0.25, From: now.Add(-time.Hour), To: now,
+		Periods: []sandbox.UsagePeriod{{From: now.Add(-time.Hour), To: now, Cost: 0.25, CPU: 1, MemGiB: 1, DiskGiB: 3}}}
+	m.receiveUsage(sandboxUsageMsg{machine: mach.id, usage: u})
+	if mach.usage == nil || mach.usage.Cost != 0.25 {
+		t.Fatalf("usage %+v", mach.usage)
+	}
+	// Nothing to report leaves what was there: a provider's figures settle
+	// hours behind, and an empty answer is not news.
+	m.receiveUsage(sandboxUsageMsg{machine: mach.id, usage: sandbox.Usage{}})
+	if mach.usage == nil || mach.usage.Cost != 0.25 {
+		t.Fatalf("an unknown answer replaced it: %+v", mach.usage)
+	}
+	// A machine that has gone is not remembered at all.
+	m.receiveUsage(sandboxUsageMsg{machine: "nope", usage: u})
 }

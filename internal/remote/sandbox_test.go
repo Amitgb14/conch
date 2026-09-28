@@ -348,3 +348,37 @@ func TestConnectToASandbox(t *testing.T) {
 		}
 	}
 }
+
+// OpenProvider is what the CLI and the TUI reach a provider through: the
+// settings decide, and a provider conch does not know says so.
+func TestOpenProviderFromTheSettings(t *testing.T) {
+	a4Env(t)
+	t.Setenv("DAYTONA_API_KEY", "")
+	t.Setenv("BOAT_API_KEY", "")
+	// Nothing configured: the provider is still opened, and says what it
+	// lacks when asked, so a dialog can show that rather than failing.
+	p, err := OpenProvider("daytona")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Name() != "daytona" || !errors.Is(p.Check(), sandbox.ErrNotConfigured) {
+		t.Fatalf("daytona: %q %v", p.Name(), p.Check())
+	}
+	if p, err := OpenProvider("boat"); err != nil || p.Name() != "boat" {
+		t.Fatalf("boat: %v %v", p, err)
+	}
+	// A key in the settings is used, without the environment.
+	os.WriteFile(filepath.Join(os.Getenv("CONCH_HOME"), "config.toml"),
+		[]byte("[sandbox.boat]\napi_key = \"boat_from_settings\"\n"), 0o600)
+	p, err = OpenProvider("boat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Check(); err != nil {
+		t.Fatalf("a key in the settings: %v", err)
+	}
+	// One conch has never heard of.
+	if _, err := OpenProvider("fly"); err == nil || !strings.Contains(err.Error(), `unknown sandbox provider "fly"`) {
+		t.Fatalf("an unknown provider: %v", err)
+	}
+}

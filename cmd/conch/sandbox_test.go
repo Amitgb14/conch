@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,6 +25,7 @@ type a4Daytona struct {
 	mu      sync.Mutex
 	boxes   map[string]string // id → state
 	created []map[string]any
+	bodies  map[string][]byte
 	calls   []string
 	// createState is the state a new sandbox reports ("" is started).
 	createState string
@@ -30,7 +33,7 @@ type a4Daytona struct {
 
 func newA4Daytona(t *testing.T) *a4Daytona {
 	t.Helper()
-	d := &a4Daytona{boxes: map[string]string{}}
+	d := &a4Daytona{boxes: map[string]string{}, bodies: map[string][]byte{}}
 	srv := httptest.NewServer(d)
 	t.Cleanup(srv.Close)
 	t.Setenv("DAYTONA_API_KEY", "k-test")
@@ -55,6 +58,13 @@ func (d *a4Daytona) called() string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return strings.Join(d.calls, "\n")
+}
+
+// body is what a call was sent, for a test to check.
+func (d *a4Daytona) body(key string) []byte {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]byte(nil), d.bodies[key]...)
 }
 
 func (d *a4Daytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +93,12 @@ func (d *a4Daytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.calls = append(d.calls, r.Method+" "+r.URL.Path)
+	if r.Body != nil {
+		if b, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20)); len(b) > 0 {
+			d.bodies[r.Method+" "+r.URL.Path] = b
+			r.Body = io.NopCloser(bytes.NewReader(b)) // handlers read it again
+		}
+	}
 	if r.Header.Get("Authorization") != "Bearer k-test" {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
@@ -94,6 +110,11 @@ func (d *a4Daytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/snapshots":
+		fmt.Fprint(w, `{"items":[{"name":"live-2026-09-20-1000","state":"active","cpu":1,"memory":1,"disk":3,"createdAt":"2026-09-20T10:00:00Z"},`+
+			`{"name":"older","state":"active","createdAt":"2026-09-18T10:00:00Z"}]}`)
+	case len(strings.Split(strings.Trim(r.URL.Path, "/"), "/")) == 2 && strings.HasPrefix(r.URL.Path, "/snapshots/") && r.Method == http.MethodDelete:
+		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodPost && r.URL.Path == "/sandbox":
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -752,6 +773,77 @@ func TestA4SandboxProviderFlag(t *testing.T) {
 	for _, args := range [][]string{{"--provider", "boat", "ls"}, {"-provider=boat", "ls"}, {"ls", "-provider", "boat"}} {
 		if _, _ = a4Capture(t, "", func() { err = runSandbox(args) }); err != nil {
 			t.Fatalf("%v: %v", args, err)
+		}
+	}
+}
+
+// conch sandbox snapshot keeps a sandbox to make others from, and
+// snapshots lists what is kept or forgets one.
+func TestA4SandboxSnapshots(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	d.set("sb-live", "stopped")
+	if _, err := remote.SaveMachine(remote.Machine{Label: "live", Target: "daytona:sb-live"}); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+
+	// A name of its own, and the advice that it takes a while.
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"snapshot", "-name", "base", "live"}) })
+	if err != nil || strings.TrimSpace(out) != "keeping live as base" {
+		t.Fatalf("snapshot: %q %v", out, err)
+	}
+	if !strings.Contains(errOut, "conch sandbox create -snapshot base") {
+		t.Fatalf("it said: %q", errOut)
+	}
+	var body map[string]any
+	_ = json.Unmarshal(d.body("POST /sandbox/sb-live/snapshot"), &body)
+	if body["name"] != "base" || body["includeMemory"] != false {
+		t.Fatalf("snapshot body %v", body)
+	}
+	// No name: the label and the date, so two are never the same.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"snapshot", "live"}) })
+	if err != nil || !strings.HasPrefix(strings.TrimSpace(out), "keeping live as live-") {
+		t.Fatalf("default name: %q %v", out, err)
+	}
+
+	// The list, newest first, with what each one is.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"snapshots"}) })
+	rows := strings.Split(strings.TrimSpace(out), "\n")
+	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	if err != nil || len(rows) != 3 || flat(rows[0]) != "NAME STATE SIZE KEPT" ||
+		!strings.HasPrefix(flat(rows[1]), "live-2026-09-20-1000 active 1 vCPU, 1 GiB, 3 GiB disk") ||
+		!strings.HasPrefix(flat(rows[2]), "older active") {
+		t.Fatalf("snapshots:\n%s\n%v", out, err)
+	}
+
+	// Forgetting one asks first; no leaves it alone.
+	a4Capture(t, "n\n", func() { err = runSandbox([]string{"snapshots", "-rm", "older"}) })
+	if err != nil || strings.Contains(d.called(), "DELETE /snapshots/older") {
+		t.Fatalf("declined: %v\n%s", err, d.called())
+	}
+	out, _ = a4Capture(t, "y\n", func() { err = runSandbox([]string{"snapshots", "-rm", "older"}) })
+	if err != nil || !strings.Contains(out, "forgot older") || !strings.Contains(d.called(), "DELETE /snapshots/older") {
+		t.Fatalf("forgot: %q %v", out, err)
+	}
+	// -y forgets without asking.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"snapshots", "-rm", "base", "-y"}) })
+	if err != nil || !strings.Contains(out, "forgot base") {
+		t.Fatalf("-y: %q %v", out, err)
+	}
+
+	// What it refuses: a sandbox it doesn't know, no sandbox at all, and a
+	// provider that cannot keep snapshots.
+	for _, c := range []struct{ args, want []string }{
+		{[]string{"snapshot"}, []string{"usage: conch sandbox snapshot"}},
+		{[]string{"snapshot", "nope"}, []string{"Sandbox not found"}}, // a name conch has no machine for goes to the provider
+		{[]string{"snapshot", "-bogus", "live"}, []string{"flag provided but not defined"}},
+	} {
+		err = runSandbox(c.args)
+		for _, want := range c.want {
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("%v: %v, want %q", c.args, err, want)
+			}
 		}
 	}
 }
