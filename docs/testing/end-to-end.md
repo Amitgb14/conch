@@ -90,9 +90,9 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | --- | --- | --- | --- | --- |
 | 5.1 | `install.sh` | `curl -fsSL …/install.sh \| sh` on macOS and Linux (amd64, arm64) | Installs the right asset; checksum verified | ✅ R5 the published v0.1.0 one-liner (latest lookup) on macOS arm64 and Linux arm64 and amd64 |
 | 5.2 | `conch update` | From an older release | Downloads, verifies, replaces the binary; `conch version` shows the new one | ✅ R11 v0.1.0 → 0.1.1 on macOS arm64 |
-| 5.3 | Release check in the TUI | A release build older than the latest | Status bar shows `⬆`; version popup offers the update | ✅ R12 a real v0.1.0 TUI against the published 0.1.1, R24 a real v0.1.3 one against 0.1.4 |
-| 5.4 | Update from the TUI | `u` in the version popup | Installs, reloads the server keeping panes, restarts the TUI, updates remotes | ✅ R12 local, R13 the remote half, R24 again on 0.1.3 → 0.1.4 |
-| 5.5 | `conch update list` | On a release build, with two or more releases published | Lists them newest first, marks the running one with `*`, the latest, and any kept locally | ✅ R24 on a real 0.1.4 after updating from 0.1.3 |
+| 5.3 | Release check in the TUI | A release build older than the latest | Status bar shows `⬆`; version popup offers the update | ✅ R12 a real v0.1.0 TUI against the published 0.1.1, R24 a real v0.1.3 one against 0.1.4 · ✅ R32 2026-09-27 for v0.1.5: a real v0.1.4 TUI showed `⬆ v0.1.4` within seconds, and the popup read "⬆ Release   0.1.5 available (running v0.1.4)" |
+| 5.4 | Update from the TUI | `u` in the version popup | Installs, reloads the server keeping panes, restarts the TUI, updates remotes | ✅ R12 local, R13 the remote half, R24 again on 0.1.3 → 0.1.4 · ✅ R32 2026-09-27 for v0.1.5: `u` installed it, reloaded the server **in place, same pid 74788** (0.1.4 → 0.1.5) and restarted the TUI onto build 98cb5a903ad7 with the arrow gone. Remotes not covered: the harness had none |
+| 5.5 | `conch update list` | On a release build, with two or more releases published | Lists them newest first, marks the running one with `*`, the latest, and any kept locally | ✅ R24 on a real 0.1.4 after updating from 0.1.3 · ✅ R32 for v0.1.5 |
 | 5.6 | Moving back | After a real `conch update`, run `conch update rollback` | Installs the kept copy with no download, reloads the server keeping panes, `conch version` shows the older release; a second `rollback` comes forward again | ☐ |
 | 5.7 | Moving back to a version never kept | `conch update VERSION` for an older release on a fresh `CONCH_HOME` | Downloads and verifies that release, replaces the binary, reloads the server | ☐ |
 | 5.8 | `[update] auto = true` | A release build older than the latest, `auto = true`, TUI open | The daily check installs the release on its own: flash, server reload, TUI restart, remotes | ☐ |
@@ -192,6 +192,20 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 9.50 | A login URL an agent printed | An agent in a sandbox (or over ssh) running its login: `claude /login`, `codex login`, `gemini` — whatever prints a URL and asks you to open it; then `ctrl+b u`, and `m` → **Open a link it printed**; also with the URL scrolled off (`ctrl+b [` first), and in a narrow pane where the box wraps it twice | The menu lists the URL whole — no border, no line break, nothing missing — opening it signs the agent in and the clipboard holds the same text; a pane with no links says so; prose under a link is not glued to it (or, when it is, it is plain in the menu before anything opens) | ☐ |
 | 9.51 | What a long job is doing | `M` → **New sandbox…** on a provider that works, and `M` → **Over ssh** to a machine with no conch on it yet: watch the status bar for the whole minute or two | A line with a spinner says what it is doing and keeps saying it — asking the provider, the sandbox is up, probing, building, copying N MB, connecting — until the machine appears or a reason does; it is not a flash that fades after four seconds, and nothing else takes the line while it runs | ◐ R29 2026-09-27: the flow and the refusal (boat's plan had lapsed, so the create was refused in a second: the notice read "boat.dev wants a plan or a payment method…" once, not twice); a fast add showed only its "added" flash. Not run: watching the line through a slow install, which is the point of it |
 | 9.52 | Conch's own folder deleted under it | On a machine or sandbox with conch running: `rm -rf ~/.config/conch`, then start an agent (Claude, Gemini, OpenCode) from the TUI; then `conch -m ID status`; then a second server check (`ps` for `conch server`) | Starting the agent writes the files it is launched with again, so Claude does not fail with "Settings file not found"; the next connection starts a fresh server, which recreates the folder; the old server is left orphaned holding its panes, so its pid has to be killed by hand — nothing pretends those panes are still reachable | ◐ R29 2026-09-27: seen on a real Daytona sandbox — the binary in ~/.local/bin survived, `status` started a fresh server and the folder came back, and two servers were running (the orphan holding one shell). The launch-time rewrite is covered by tests; not yet tried on a real agent after the folder went |
+
+## Driving a TUI under test
+
+Keys go in with `conch send -keys ID KEY` (the flag before the id). Clicks
+need `internal/tools/clicker`, which sends `pane.send_mouse` through the
+protocol — `conch send` types text, and a raw mouse escape sequence is
+encoded as text rather than passed through:
+
+```sh
+go run ./internal/tools/clicker "$CONCH_SOCKET" p1 109 39   # 0-based cells
+```
+
+Read the screen back with `conch read ID`. Always with a scratch
+`CONCH_HOME` and socket, and `CONCH_PANE_ID` unset.
 
 ## Runs
 
@@ -464,6 +478,35 @@ This Mac to busybox (`aghadge@10.0.0.115`), isolated on both sides. Here: its ow
 - **Found and fixed:** the status bar cut the refusal to "moving feat failed: rebuild t…". Failures now open a notice with the whole reason, and the status bar keeps the short form. The server's messages said "here", which read as the Mac inside a notice that also said "nothing changed here". They no longer name a place, and the notice names both machines ("moving feat to busybox failed … Nothing changed on local.").
 - **Found and fixed:** a menu whose title was its widest line lost the end of it ("Move feat to which machin…"), in every menu: the frame's spaces weren't counted.
 - **Not run:** a real Claude reading the handoff after a move (the handoff itself was checked in R19), and a pushed branch sending no commits (covered by the server tests).
+
+### R32 — 2026-09-27, v0.1.5 arriving in a real TUI, macOS arm64
+
+The last part of the release path, done after the re-cut tag: a genuine
+**v0.1.4** binary (downloaded from its own release) with its own `HOME`,
+`CONCH_HOME` and socket, its TUI running in a pane of that isolated server,
+driven with `conch send` and — for the status bar — clicks through
+`pane.send_mouse`.
+
+- **5.3:** the 0.1.4 TUI showed `⬆ v0.1.4` in the status bar within seconds
+  of starting. Clicking the version cell opened the popup: *"Server up to
+  date · pid 74788 · running 3m"*, then *"Updates: ⬆ Release   0.1.5
+  available (running v0.1.4)"*. Its Settings had four tabs, no Sandboxes —
+  the old build, as intended.
+- **5.4:** `u` downloaded and applied it. The server **reloaded in place —
+  same pid 74788**, version 0.1.4 → 0.1.5 — the binary at
+  `~/.local/bin/conch` became `conch 0.1.5 (build 98cb5a903ad7)`, the one
+  install.sh serves, and the TUI restarted onto it: the machine row shows
+  that build and the status bar reads `v0.1.5` with the arrow gone.
+- **5.5:** `conch update list` then showed `* 0.1.5 (latest, what conch
+  update installs · running)` above `0.1.4 (kept, no download needed)` and
+  the rest.
+- **A tool came out of it:** `internal/tools/clicker` sends a click to a
+  pane through the protocol. `conch send` types text, and a raw mouse escape
+  sequence is encoded as text rather than passed through, so there was no
+  other way to press a status-bar cell in a TUI under test.
+
+Not covered: updating a remote machine from the popup (the harness had no
+remotes), and `[update] auto = true`.
 
 ### R31 — 2026-09-27, a Daytona create that failed, macOS arm64, build 0.1.5
 

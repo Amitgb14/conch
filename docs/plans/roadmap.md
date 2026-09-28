@@ -211,29 +211,26 @@ history; details for big items live in their own plan files.
     Worth doing only once 21 has some mileage, since this is the version
     where a mistake is harder to see.
 
-23. **E2B sandboxes** — a second provider, started: `internal/sandbox/e2b.go`
-    makes, lists, pauses, resumes, ends and keeps alive an E2B sandbox
-    through its platform API, with tests against a fake one. It is not in
-    `sandbox.Providers` yet, so nothing offers to make a sandbox conch
-    cannot reach — because reaching it is the part left.
-
-    E2B has no ssh. Its agent inside the sandbox (envd) runs processes and
-    terminals over ConnectRPC on plain HTTPS: `Process/Start` with stdin
-    enabled, `Process/StreamInput` for what is typed, the start stream for
-    what comes back, `Process/Update` to resize a terminal. A conch
-    transport is "a local command whose stdin and stdout carry the
-    stream", so what is missing is a command that speaks that: `conch
-    sandbox exec`, which `remote.TransportFor` hands back as an ordinary
-    exec.Cmd, leaving install, bridge and panes as they are. This is the
-    "a sandbox's exec" transport the architecture notes already expect.
-
-    Also needed: registering the provider, and pushing the sandbox's clock
-    back while conch is connected — E2B ends a sandbox on a time to live
-    rather than on idleness (an hour on the free plan, a day on Pro). They
-    are made with auto-pause, so one whose clock runs out keeps its
-    filesystem *and* its memory instead of being destroyed.
-
 ## Not now
+
+23. **E2B sandboxes** — deferred, and taken up later rather than next.
+    `internal/sandbox/e2b.go` makes, lists, pauses, resumes, ends and keeps
+    alive an E2B sandbox through its platform API, with tests against a
+    fake one; it stays in the tree, unregistered, so nothing offers to make
+    a sandbox conch cannot reach. What is missing is reaching it: E2B has
+    no ssh. Its agent inside the sandbox (envd) runs processes and
+    terminals over ConnectRPC on plain HTTPS — `Process/Start` with stdin
+    enabled, `Process/StreamInput` for what is typed, the start stream for
+    what comes back, `Process/Update` to resize — so what conch needs is a
+    command that speaks that: `conch sandbox exec`, handed back by
+    `remote.TransportFor` as an ordinary exec.Cmd, leaving install, bridge
+    and panes as they are. Also needed: registering the provider, and
+    pushing the sandbox's clock back while conch is connected, since E2B
+    ends one on a time to live rather than on idleness.
+
+    Two providers cover the case today, and boat.dev showed how much of a
+    provider is its own peculiarities rather than the interface. This waits
+    until there is a reason to want a third.
 
 24. **MicroVM sandboxes on your own hardware** — see
     [microvm-sandbox.md](microvm-sandbox.md). 20 covers the case that
