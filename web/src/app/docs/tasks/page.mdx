@@ -194,7 +194,7 @@ conch agent sync -undo -stamp 20260926-101500    # or a particular one
 
 ### Your own setup, not just a checkout's
 
-The half that follows you from project to project — `~/.claude/CLAUDE.md` and `~/.claude/skills`, `~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.config/opencode` — is machine-wide, so it lives in Settings → **Agents** rather than on a row that names a folder: **Give the others Claude Code's setup…**, and **Put the last one back…**. From a shell it is `-user`:
+The half that follows you from project to project — `~/.claude/CLAUDE.md` and `~/.claude/skills`, `~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.config/opencode` — is machine-wide, so it lives in Settings → **Agents** → **Your own setup…** rather than on a row that names a folder: a page with one row per agent to take the setup from, and **Put the last one back…**. From a shell it is `-user`:
 
 ```sh
 conch agent sync -user                    # what it would write in your home

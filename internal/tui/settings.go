@@ -26,6 +26,10 @@ type settings struct {
 	// list of them. Keeping every provider's settings on one page made the
 	// tab longer with each one conch learns.
 	provider string
+	// page is a page of the open tab, when it has one: "usersync" on the
+	// Agents tab. A screen read at twenty lines cannot also be a list of
+	// every agent's every action.
+	page string
 
 	shell    *proto.ShellThemes // this computer's prompt themes
 	shellErr string
@@ -256,7 +260,33 @@ func quietPreset(start, end string) bool {
 	return false
 }
 
+// userSyncItems is the Agents tab's own page: giving the other agents the
+// setup in your home, and putting the last one back. A page rather than
+// four more rows on a tab somebody reads at twenty lines.
+func (s *settings) userSyncItems(m *Model) []settingItem {
+	items := []settingItem{
+		{header: true, label: "Your own setup", detail: "what follows you, not a checkout's"},
+		{label: styleMuted.Render("‹ Agents"), detail: styleMuted.Render("esc"),
+			run: func(m *Model) tea.Cmd { s.openPage(""); return nil }},
+	}
+	for _, name := range knownAgents(m) {
+		name := name
+		items = append(items, settingItem{label: "Give the others " + agentLabel(name) + "'s setup…",
+			run: func(m *Model) tea.Cmd { return m.openUserSync(name) }})
+	}
+	return append(items,
+		settingItem{label: "Put the last one back…", detail: styleMuted.Render("undoes the last one"),
+			run: func(m *Model) tea.Cmd { return m.undoUserSync() }},
+		settingItem{},
+		settingItem{label: styleMuted.Render("  ~/.claude/CLAUDE.md and its skills, ~/.codex/config.toml,")},
+		settingItem{label: styleMuted.Render("  ~/.gemini/settings.json, ~/.config/opencode — written where")},
+		settingItem{label: styleMuted.Render("  each agent looks, after saying what it would write.")})
+}
+
 func (s *settings) agentItems(m *Model) []settingItem {
+	if s.page == "usersync" {
+		return s.userSyncItems(m)
+	}
 	items := []settingItem{{header: true, label: "Default agent", detail: "pre-selected when c asks which agent"}}
 	for _, name := range knownAgents(m) {
 		name := name
@@ -268,17 +298,12 @@ func (s *settings) agentItems(m *Model) []settingItem {
 	}
 	// What an agent loads in a checkout is that checkout's business, and
 	// `i` is where it lives; what it loads from your home is machine-wide,
-	// so that half belongs here.
+	// so that half belongs here — behind one row, not one per agent: this
+	// tab is long enough already in a small window.
 	items = append(items, settingItem{}, settingItem{header: true, label: "What each agent loads", detail: "your own setup, and each checkout's"},
-		settingItem{label: styleMuted.Render("  i on a project, branch or pane: this checkout's, and s to give it to the others")})
-	for _, name := range knownAgents(m) {
-		name := name
-		items = append(items, settingItem{label: "Give the others " + agentLabel(name) + "'s setup…", page: true,
-			detail: styleMuted.Render("from ~, says what it would write first"),
-			run:    func(m *Model) tea.Cmd { return m.openUserSync(name) }})
-	}
-	items = append(items, settingItem{label: "Put the last one back…", detail: styleMuted.Render("undoes a sync of your own setup"),
-		run: func(m *Model) tea.Cmd { return m.undoUserSync() }})
+		settingItem{label: styleMuted.Render("  i on a project, branch or pane: this checkout's, and s to give it to the others")},
+		settingItem{label: "Your own setup…", detail: styleMuted.Render("~/.claude and the rest, given to the other agents"), page: true,
+			run: func(m *Model) tea.Cmd { s.openPage("usersync"); return nil }})
 
 	r := &m.cfg.Remote
 	items = append(items, settingItem{}, settingItem{header: true, label: "Remote machines"},
@@ -448,6 +473,11 @@ func (s *settings) sandboxItems(m *Model) []settingItem {
 // open shows one provider's page; esc goes back to the list.
 func (s *settings) open(provider string) {
 	s.provider, s.sel, s.scroll = provider, 0, 0
+}
+
+// openPage shows a page of the tab that is open; "" goes back to the tab.
+func (s *settings) openPage(page string) {
+	s.page, s.sel, s.scroll = page, 0, 0
 }
 
 // providerPage is one provider's own page, with the way back at the top so
@@ -761,9 +791,10 @@ func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		items := s.items(m)
 		switch msg.String() {
 		case "esc", "q", ",":
-			// Inside a provider's page, esc is the way back to the list.
-			if s.provider != "" && msg.String() == "esc" {
+			// Inside a page of a tab, esc is the way back to the tab.
+			if msg.String() == "esc" && (s.provider != "" || s.page != "") {
 				s.open("")
+				s.openPage("")
 				return false, nil
 			}
 			m.overlay = nil
@@ -792,7 +823,7 @@ func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 }
 
 func (s *settings) setTab(t int) {
-	s.tab, s.sel, s.scroll, s.provider = t, 0, 0, ""
+	s.tab, s.sel, s.scroll, s.provider, s.page = t, 0, 0, "", ""
 }
 
 // move steps the selection by delta, skipping lines that do nothing.
@@ -821,7 +852,11 @@ func (s *settings) move(items []settingItem, delta int) {
 	}
 }
 
-func (m Model) settingsListHeight() int { return clamp(m.height-10, 6, 24) }
+// settingsListHeight is how many rows the list gets. The box costs eight
+// lines around it — the frame, the tabs, the hint, where it is saved — so
+// a short window gets a short list rather than a box taller than the
+// screen, which is how the settings ran off a 12-row terminal.
+func (m Model) settingsListHeight() int { return clamp(m.height-8, 3, 24) }
 
 func (s *settings) render(m Model) box {
 	w := clamp(78, 40, max(m.width-4, 40))
@@ -862,8 +897,11 @@ func (s *settings) render(m Model) box {
 		lines[len(lines)-1] = styleMuted.Render(fmt.Sprintf("  … %d more", more))
 	}
 	hint := " tab switch · ↑↓ move · enter choose/toggle · esc close"
-	if s.provider != "" {
+	switch {
+	case s.provider != "":
 		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back to the providers"
+	case s.page != "":
+		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back"
 	}
 	lines = append(lines, "", styleMuted.Render(hint),
 		styleMuted.Render(" saved to "+ansi.Truncate(config.Dir()+"/config.toml", w-10, "…")))

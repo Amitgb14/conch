@@ -279,8 +279,10 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 	}
 	s.update(m, a2Key("pgup"))
 	s.render(*m)
-	if s.sel != 2 || s.scroll != 2 {
-		t.Fatalf("pgup: sel %d scroll %d", s.sel, s.scroll)
+	// A page back, with the selection on screen: how far it scrolled
+	// depends on how tall the list is in this window.
+	if s.sel != 2 || s.scroll > s.sel || s.sel >= s.scroll+m.settingsListHeight() {
+		t.Fatalf("pgup: sel %d scroll %d of %d rows", s.sel, s.scroll, m.settingsListHeight())
 	}
 	// Enter chooses.
 	s.update(m, a2Key("enter"))

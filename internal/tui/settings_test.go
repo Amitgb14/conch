@@ -79,22 +79,77 @@ func TestSettingsTabs(t *testing.T) {
 	}
 	out := flat()
 	for _, want := range []string{"What each agent loads|your own setup, and each checkout's",
-		"i on a project, branch or pane", "Give the others Claude Code's setup…|from ~, says what it would write first",
-		"Put the last one back…|undoes a sync of your own setup"} {
+		"i on a project, branch or pane", "Your own setup…|~/.claude and the rest, given to the other agents"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("the agent setup rows lack %q:\n%s", want, out)
 		}
 	}
-	// The line about a checkout points and does nothing; the rows about
-	// your own setup do something.
+	// One row, not one per agent: the tab is long enough in a small window.
+	if strings.Contains(out, "Give the others") {
+		t.Fatalf("the tab lists an action per agent:\n%s", out)
+	}
+	// The line about a checkout points and does nothing.
 	for _, it := range s.agentItems(m) {
-		label := ansi.Strip(it.label)
-		if strings.Contains(label, "i on a project") && it.run != nil {
+		if strings.Contains(ansi.Strip(it.label), "i on a project") && it.run != nil {
 			t.Fatal("the pointer row does something")
 		}
-		if strings.HasPrefix(label, "Give the others ") && it.run == nil {
-			t.Fatalf("%q does nothing", label)
+	}
+
+	// Opening it is a page of its own: an agent to take the setup from,
+	// the way back, and the undo — and nothing else from the tab.
+	item := func(label string) settingItem {
+		t.Helper()
+		for _, it := range s.agentItems(m) {
+			if strings.HasPrefix(ansi.Strip(it.label), label) {
+				return it
+			}
 		}
+		t.Fatalf("no row %q in\n%s", label, flat())
+		return settingItem{}
+	}
+	item("Your own setup…").run(m)
+	if s.page != "usersync" {
+		t.Fatalf("it opened %q", s.page)
+	}
+	page := flat()
+	for _, want := range []string{"Your own setup|what follows you, not a checkout's", "‹ Agents|esc",
+		"Give the others Claude Code's setup…", "Put the last one back…|undoes the last one",
+		"~/.claude/CLAUDE.md and its skills"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("the page lacks %q:\n%s", want, page)
+		}
+	}
+	if strings.Contains(page, "Default agent") || strings.Contains(page, "Remote machines") {
+		t.Fatalf("the page kept the tab's own rows:\n%s", page)
+	}
+	// esc goes back to the tab, and so does the ‹ row.
+	if closed, _ := s.update(m, a2Key("esc")); closed || s.page != "" {
+		t.Fatalf("esc in a page: closed %v page %q", closed, s.page)
+	}
+	item("Your own setup…").run(m)
+	item("‹ Agents").run(m)
+	if s.page != "" {
+		t.Fatalf("the back row left %q open", s.page)
+	}
+	// Switching tab and coming back starts at the tab, not the page.
+	s.openPage("usersync")
+	s.setTab(0)
+	s.setTab(2)
+	if s.page != "" {
+		t.Fatalf("a tab switch kept %q open", s.page)
+	}
+
+	// In a small window it still fits: the page is what it is for.
+	for _, size := range [][2]int{{80, 20}, {60, 16}, {40, 12}} {
+		m.width, m.height = size[0], size[1]
+		s.openPage("usersync")
+		b := s.render(*m)
+		a2CheckBox(t, b, *m)
+		if got := strings.Count(a2Plain(b.lines), "\n") + 1; got > size[1] {
+			t.Fatalf("%dx%d: the page is %d lines", size[0], size[1], got)
+		}
+		s.openPage("")
+		a2CheckBox(t, s.render(*m), *m)
 	}
 }
 
