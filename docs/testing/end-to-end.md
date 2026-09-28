@@ -521,6 +521,13 @@ was tagged (`CONCH_RELEASE_URL` pointed at a `python3 -m http.server` serving
   `CGO_ENABLED=0` build, which is what the release script uses for three of the
   four platforms. Coverage 93.0%.
 
+**Re-cut the same evening:** after R31's three fixes, the tag and its
+release were deleted and remade from `37e8104`. GitHub built it again
+(success), the assets are the four archives and `checksums.txt`, the notes
+were restored with the new line, and a fresh `install.sh` run installed
+`conch 0.1.5 (build 98cb5a903ad7)` — which carries the fix. Only this
+machine had installed the first build.
+
 **After the tag, the same day:** GitHub built `v0.1.5` (tests, four
 platforms, checksums, gh release create) and the website deployed from it in
 47 s, serving 0.1.5 on
