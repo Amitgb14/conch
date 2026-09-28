@@ -189,7 +189,7 @@ func TestAgentSyncOverTheProtocol(t *testing.T) {
 
 	// A plan: changes, and nothing on disk.
 	plan := call(proto.AgentSyncParams{Dir: repo, From: "claude"})
-	if len(plan.Changes) == 0 || plan.Undo != "" || len(plan.To) != 3 {
+	if len(plan.Changes) == 0 || plan.Undo != "" || len(plan.To) != 4 {
 		t.Fatalf("plan %+v", plan)
 	}
 	if _, err := os.Stat(filepath.Join(repo, "AGENTS.md")); !os.IsNotExist(err) {
@@ -232,7 +232,7 @@ func TestAgentSyncOverTheProtocol(t *testing.T) {
 	// What it refuses: an agent it doesn't know, a folder that isn't one,
 	// and a checkout with nothing to copy.
 	for _, p := range []proto.AgentSyncParams{
-		{Dir: repo, From: "devin"},
+		{Dir: repo, From: "cursor"},
 		{Dir: filepath.Join(repo, "nope"), From: "claude"},
 		{Dir: dir, From: "claude"},
 		{Dir: repo, Undo: true},
@@ -432,5 +432,91 @@ func TestAgentSyncUserOverTheProtocol(t *testing.T) {
 	// A checkout sync in the same call shape still means the checkout.
 	if err := c.Call(ctx, proto.MethodAgentSync, proto.AgentSyncParams{Dir: home, From: "claude"}, nil); err == nil {
 		t.Fatal("a home with no project setup should have nothing to sync as a checkout")
+	}
+}
+
+// agent.library over the protocol: saving and importing write nothing to
+// any agent, a plan writes nothing, applying does, and undoing puts it back.
+func TestAgentLibraryOverTheProtocol(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CONCH_HOME", filepath.Join(home, ".config", "conch"))
+	t.Setenv("PATH", t.TempDir()) // no agent to be found, real or not
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+		t.Setenv(k, "")
+	}
+	write(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{"gh":{"command":"npx","env":{"GH_TOKEN":"${GH_TOKEN}"}}}}`)
+
+	c, _ := startServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	get := func(p proto.AgentLibraryParams) proto.AgentLibraryResult {
+		t.Helper()
+		var res proto.AgentLibraryResult
+		if err := c.Call(ctx, proto.MethodAgentLibrary, p, &res); err != nil {
+			t.Fatalf("%+v: %v", p, err)
+		}
+		return res
+	}
+	apply := func(p proto.LibraryApplyParams) proto.AgentSyncResult {
+		t.Helper()
+		var res proto.AgentSyncResult
+		if err := c.Call(ctx, proto.MethodLibraryApply, p, &res); err != nil {
+			t.Fatalf("%+v: %v", p, err)
+		}
+		return res
+	}
+
+	empty := get(proto.AgentLibraryParams{})
+	if empty.Library.Servers == nil || len(empty.Cells) != 0 || strings.Join(empty.Agents, ",") != "claude,codex,gemini,opencode,devin" {
+		t.Fatalf("empty %+v", empty)
+	}
+	imp := get(proto.AgentLibraryParams{Import: "claude"})
+	if strings.Join(imp.Imported, ",") != "gh" || len(imp.Library.Servers) != 1 {
+		t.Fatalf("import %+v", imp)
+	}
+	// Turn it on for Codex too.
+	lib := imp.Library
+	lib.Servers[0].Agents = append(lib.Servers[0].Agents, "codex")
+	set := get(proto.AgentLibraryParams{Set: &lib})
+	pending := false
+	for _, cell := range set.Cells {
+		if cell.Agent == "codex" && cell.State == "pending" {
+			pending = true
+		}
+	}
+	if !pending {
+		t.Fatalf("cells %+v", set.Cells)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex")); !os.IsNotExist(err) {
+		t.Fatal("saving wrote to an agent")
+	}
+	plan := apply(proto.LibraryApplyParams{})
+	if len(plan.Changes) == 0 || plan.Applied || plan.Undo != "" {
+		t.Fatalf("plan %+v", plan)
+	}
+	done := apply(proto.LibraryApplyParams{Apply: true})
+	if !done.Applied || done.Undo == "" || len(done.Undos) != 1 {
+		t.Fatalf("applied %+v", done)
+	}
+	if got, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml")); err != nil || !strings.Contains(string(got), `env_vars = ["GH_TOKEN"]`) {
+		t.Fatalf("codex: %q %v", got, err)
+	}
+	back := apply(proto.LibraryApplyParams{Undo: true})
+	if !back.Undone || len(back.Undos) != 0 {
+		t.Fatalf("undone %+v", back)
+	}
+	// What it refuses: a secret, an agent it doesn't know, an undo of nothing.
+	bad := proto.Library{Servers: []proto.LibraryServer{{Name: "x", Command: "x", Env: map[string]string{"K": "sk-1"}}}}
+	for _, p := range []any{
+		proto.AgentLibraryParams{Set: &bad},
+		proto.AgentLibraryParams{Import: "cursor"},
+	} {
+		if err := c.Call(ctx, proto.MethodAgentLibrary, p, nil); err == nil {
+			t.Fatalf("%+v was accepted", p)
+		}
+	}
+	if err := c.Call(ctx, proto.MethodLibraryApply, proto.LibraryApplyParams{Undo: true}, nil); err == nil {
+		t.Fatal("an undo of nothing was accepted")
 	}
 }

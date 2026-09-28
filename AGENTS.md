@@ -40,7 +40,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/brain` | Model providers (Claude CLI, Anthropic, OpenAI-compatible), planner, action execution, summaries |
 | `internal/sessions` | Reading and deleting each agent's saved conversations |
 | `internal/usage` | Token usage and plan limits from transcripts and rollouts |
-| `internal/agentsetup` | What an agent loads in a checkout: instructions, skills, MCP servers, trust — and, the other way, writing one agent's instructions, skills and servers where the others look for them (`sync.go`), with a record to undo it |
+| `internal/agentsetup` | What an agent loads in a checkout: instructions, skills, MCP servers, trust — and, the other way, writing one agent's instructions, skills and servers where the others look for them (`sync.go`), with a record to undo it; the library of servers and skills the agents follow (`library.go`); each agent's way of naming a variable (`vars.go`) |
 | `internal/gitx` / `internal/ghx` | git status, branches, worktrees, untracked files / pull requests via the `gh` CLI |
 | `internal/update` | Version comparison, same-build checks, release installs, reloading servers |
 | `internal/config` | Paths (`CONCH_HOME`), `config.toml` loading and saving |
@@ -241,6 +241,11 @@ means all of these, each with tests (a fake binary on a scratch `PATH` or
   `slowList` (`internal/sessions/slow.go`), so a program that hangs holds up
   the list for a grace and no longer; the list then says it is incomplete and
   the TUI asks again. Say in the docs if search or sharing can't read it.
+- **Setup** (`internal/agentsetup`): an inspector for the `i` view, where it
+  keeps instructions, skills and MCP servers in a checkout (`writable`) and
+  in your home (`userFiles`), how it refers to a variable (`vars.go`), and
+  which other agents' files it reads by itself, so sync and the library
+  don't give it a second copy.
 - **Labels**: `agentLabels` in `internal/tui/model.go` and the handoff labels
   in `internal/sessions/handoff.go`.
 - **Docs and plans**: the Supported agents table (`web/src/app/docs/agents`),

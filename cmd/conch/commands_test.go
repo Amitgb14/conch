@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -840,5 +841,152 @@ func TestA4AgentSyncUser(t *testing.T) {
 	// …while a checkout sync still works there.
 	if _, _ = a4Capture(t, "", func() { err = runAgent([]string{"sync"}) }); err != nil {
 		t.Fatalf("a checkout sync on that server: %v", err)
+	}
+}
+
+// conch agent library edits the library through the server and plans,
+// applies and undoes it.
+func TestA4AgentLibrary(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	var mu sync.Mutex
+	lib := proto.Library{Servers: []proto.LibraryServer{}, Skills: []proto.LibrarySkill{}}
+	agents := []string{"claude", "codex", "gemini", "opencode", "devin"}
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch msg.Method {
+		case proto.MethodAgentLibrary:
+			var p proto.AgentLibraryParams
+			json.Unmarshal(msg.Params, &p)
+			res := proto.AgentLibraryResult{Agents: agents}
+			if p.Set != nil {
+				lib = *p.Set
+			}
+			if p.Import == "claude" {
+				lib.Servers = append(lib.Servers, proto.LibraryServer{Name: "imported", Command: "x", Agents: []string{"claude"}})
+				res.Imported, res.Skipped = []string{"imported"}, []string{"paid: its environment holds a value"}
+			}
+			res.Library = lib
+			for _, s := range lib.Servers {
+				for _, a := range s.Agents {
+					res.Cells = append(res.Cells, proto.LibraryCell{Kind: proto.SyncMCP, Name: s.Name, Agent: a, State: "pending"})
+				}
+			}
+			return res, nil
+		case proto.MethodLibraryApply:
+			var p proto.LibraryApplyParams
+			json.Unmarshal(msg.Params, &p)
+			res := proto.AgentSyncResult{Dir: "~", From: "library", To: agents, Applied: p.Apply, Undone: p.Undo,
+				Changes: []proto.SyncChange{{Agent: "codex", Kind: proto.SyncMCP, Name: "gh", Path: "~/.codex/config.toml",
+					Action: proto.SyncCreate, Detail: "stdio · npx", Done: p.Apply}}}
+			if p.Apply {
+				res.Undo = "20260928-010203"
+			}
+			return res, nil
+		}
+		return nil, nil
+	})
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		var err error
+		out, _ := a4Capture(t, "", func() { err = runAgent(append([]string{"library"}, args...)) })
+		return out, err
+	}
+
+	out, err := run()
+	if err != nil || !strings.Contains(out, "the library is empty") {
+		t.Fatalf("empty: %v\n%s", err, out)
+	}
+	out, err = run("add", "-to", "codex,devin", "-env", "GITHUB_TOKEN=${GITHUB_TOKEN}", "gh", "--", "npx", "-y", "server-github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lib.Servers[0]; got.Command != "npx" || strings.Join(got.Args, " ") != "-y server-github" ||
+		got.Env["GITHUB_TOKEN"] != "${GITHUB_TOKEN}" || strings.Join(got.Agents, ",") != "codex,devin" {
+		t.Fatalf("added %+v", got)
+	}
+	if !strings.Contains(out, "gh") || !strings.Contains(out, "+") || !strings.Contains(out, "library plan") {
+		t.Fatalf("add output:\n%s", out)
+	}
+	// A URL is an http server; -sse says which kind; the same name replaces.
+	if _, err := run("add", "-sse", "-header", "Authorization=Bearer ${T}", "gh", "https://x.example/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	if got := lib.Servers; len(got) != 1 || got[0].URL != "https://x.example/mcp" || got[0].Transport != "sse" ||
+		got[0].Headers["Authorization"] != "Bearer ${T}" || len(got[0].Agents) != 5 {
+		t.Fatalf("replaced %+v", got)
+	}
+	if _, err := run("skill", "-to", "claude", "tide", "~/skills/tide"); err != nil {
+		t.Fatal(err)
+	}
+	if got := lib.Skills; len(got) != 1 || got[0].Path != "~/skills/tide" {
+		t.Fatalf("skill %+v", got)
+	}
+	if _, err := run("off", "gh", "claude,gemini"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(lib.Servers[0].Agents, ","); got != "codex,opencode,devin" {
+		t.Fatalf("off: %s", got)
+	}
+	if _, err := run("on", "tide", "devin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(lib.Skills[0].Agents, ","); got != "claude,devin" {
+		t.Fatalf("on: %s", got)
+	}
+	if _, err := run("rm", "tide"); err != nil || len(lib.Skills) != 0 {
+		t.Fatalf("rm: %v %+v", err, lib.Skills)
+	}
+	if _, err := run("rm", "nothing"); err == nil || !strings.Contains(err.Error(), "no server or skill called nothing") {
+		t.Fatalf("rm unknown: %v", err)
+	}
+	out, err = run("import", "claude")
+	if err != nil || !strings.Contains(out, "imported imported") || !strings.Contains(out, "left out paid") {
+		t.Fatalf("import: %v\n%s", err, out)
+	}
+
+	out, err = run("plan")
+	var ap proto.LibraryApplyParams
+	srv.params(t, proto.MethodLibraryApply, &ap)
+	if err != nil || ap.Apply || !strings.Contains(out, "conch agent library apply makes them") {
+		t.Fatalf("plan: %v %+v\n%s", err, ap, out)
+	}
+	out, err = run("apply")
+	srv.params(t, proto.MethodLibraryApply, &ap)
+	if err != nil || !ap.Apply || !strings.Contains(out, "conch agent library undo -stamp 20260928-010203") {
+		t.Fatalf("apply: %v %+v\n%s", err, ap, out)
+	}
+	if _, err = run("undo", "-stamp", "20260928-010203"); err != nil {
+		t.Fatal(err)
+	}
+	srv.params(t, proto.MethodLibraryApply, &ap)
+	if !ap.Undo || ap.Stamp != "20260928-010203" {
+		t.Fatalf("undo params %+v", ap)
+	}
+
+	for _, bad := range [][]string{
+		{"add", "gh"}, {"add", "-env", "nope", "gh", "x"}, {"skill", "tide"}, {"on", "gh"}, {"rm"},
+		{"import"}, {"plan", "-stamp", "x"}, {"list", "extra"}, {"what"},
+	} {
+		if _, err := run(bad...); err == nil || !strings.Contains(err.Error(), "usage") {
+			t.Errorf("%v: %v", bad, err)
+		}
+	}
+
+	// An older server says what it lacks.
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		var caps []string
+		for _, c := range h.Capabilities {
+			if c != proto.CapAgentLibrary {
+				caps = append(caps, c)
+			}
+		}
+		h.Capabilities = caps
+		return h
+	})
+	if _, err := run(); err == nil || !strings.Contains(err.Error(), proto.CapAgentLibrary) {
+		t.Fatalf("an older server: %v", err)
 	}
 }

@@ -68,7 +68,7 @@ type SyncChange struct {
 // Writes reports whether the change would change anything.
 func (c SyncChange) Writes() bool {
 	switch c.Action {
-	case ActionCreate, ActionUpdate, ActionLink:
+	case ActionCreate, ActionUpdate, ActionLink, ActionRemove:
 		return true
 	}
 	return false
@@ -98,6 +98,8 @@ func (r SyncResult) Writes() int {
 
 // agentFiles is where an agent keeps its project setup, for writing.
 type agentFiles struct {
+	// name is the agent's, so its servers are read in its own format.
+	name string
 	// instructions is the file it reads at the checkout root.
 	instructions string
 	// imports says it expands "@path" in that file, so conch can point at
@@ -117,6 +119,21 @@ type agentFiles struct {
 	// abs says the paths are already absolute (the user scope), so nothing
 	// is joined to a checkout.
 	abs bool
+	// readsInstructions and readsMCP are other agents' files this one
+	// reads by itself — Devin reads Claude Code's CLAUDE.md and .mcp.json —
+	// so what is in them needs no copy. A copy would be read twice.
+	readsInstructions []string
+	readsMCP          []string
+}
+
+// reads reports whether the agent already reads the file at path itself.
+func (a agentFiles) reads(root, path string, list []string) bool {
+	for _, rel := range list {
+		if cleanPath(a.at(root, rel)) == cleanPath(path) {
+			return true
+		}
+	}
+	return false
 }
 
 // at is where a file of this agent's lives, given the root a project scope
@@ -140,6 +157,39 @@ var writable = map[string]agentFiles{
 		skills: []string{".agents/skills", ".gemini/skills"}, mcp: ".gemini/settings.json", mcpKey: "mcpServers"},
 	"opencode": {instructions: "AGENTS.md",
 		skills: []string{".agents/skills", ".opencode/skill"}, mcp: "opencode.json", mcpKey: "mcp"},
+	// Devin also reads Claude Code's files, and OpenCode's servers; the
+	// skills it reads from .claude/skills come last so nothing is linked
+	// there for it.
+	"devin": {instructions: "AGENTS.md",
+		skills: []string{".agents/skills", ".devin/skills", ".claude/skills"}, mcp: ".devin/mcp_config.json", mcpKey: "mcpServers",
+		readsInstructions: []string{"CLAUDE.md"}, readsMCP: []string{".mcp.json", "opencode.json"}},
+}
+
+// withoutDevinCompat drops what Devin reads of other agents' files when its
+// read_config_from turns that off.
+func withoutDevinCompat(e Env, projectRoot string, a agentFiles) agentFiles {
+	var skills, instr, mcp []string
+	for _, s := range a.skills {
+		if !strings.Contains(s, ".claude") || devinReads(e, projectRoot, "claude") {
+			skills = append(skills, s)
+		}
+	}
+	for _, p := range a.readsInstructions {
+		if devinReads(e, projectRoot, "claude") {
+			instr = append(instr, p)
+		}
+	}
+	for _, p := range a.readsMCP {
+		tool := "claude"
+		if strings.Contains(p, "opencode") {
+			tool = "opencode"
+		}
+		if devinReads(e, projectRoot, tool) {
+			mcp = append(mcp, p)
+		}
+	}
+	a.skills, a.readsInstructions, a.readsMCP = skills, instr, mcp
+	return a
 }
 
 // userFiles is where an agent keeps the setup that follows you rather than
@@ -196,6 +246,21 @@ func userFiles(e Env, agent string) (agentFiles, bool) {
 			skills:       []string{shared, filepath.Join(dir, "skill")},
 			mcp:          filepath.Join(dir, "opencode.json"), mcpKey: "mcp",
 		}, true
+	case "devin":
+		// Devin does not read ~/.agents/skills, so a skill is linked into
+		// its own folder.
+		dir := devinHome(e)
+		oc := filepath.Join(home, ".config", "opencode")
+		if x := e.get("XDG_CONFIG_HOME"); x != "" {
+			oc = filepath.Join(x, "opencode")
+		}
+		return withoutDevinCompat(e, "", agentFiles{
+			instructions: filepath.Join(dir, "AGENTS.md"),
+			skills:       []string{filepath.Join(dir, "skills")},
+			mcp:          filepath.Join(dir, "mcp_config.json"), mcpKey: "mcpServers",
+			readsInstructions: []string{filepath.Join(home, ".claude", "CLAUDE.md")},
+			readsMCP:          []string{filepath.Join(home, ".claude.json"), filepath.Join(oc, "opencode.json")},
+		}), true
 	}
 	return agentFiles{}, false
 }
@@ -249,8 +314,12 @@ func Sync(dir, from string, to []string, apply bool) (SyncResult, error) {
 			return SyncResult{}, fmt.Errorf("conch cannot set %s up (it knows %s)", name, strings.Join(SyncNames(), ", "))
 		}
 	}
+	e := CurrentEnv()
 	return sync(root, filepath.Join(root, undoDir), from, to, apply, func(name string) (agentFiles, bool) {
 		a, ok := writable[name]
+		if name == "devin" {
+			a = withoutDevinCompat(e, root, a)
+		}
 		return a, ok
 	})
 }
@@ -298,6 +367,7 @@ var userRecordDir = func() string { return filepath.Join(config.Dir(), "agent-sy
 // each agent keeps things.
 func sync(root, recordDir, from string, to []string, apply bool, files func(string) (agentFiles, bool)) (SyncResult, error) {
 	src, _ := files(from)
+	src.name = from
 	res := SyncResult{Dir: root, From: from, To: to}
 
 	text, textPath := instructionsOf(root, src)
@@ -333,16 +403,37 @@ func sync(root, recordDir, from string, to []string, apply bool, files func(stri
 			continue
 		}
 		t, _ := files(name)
-		if text != nil && t.instructions != src.instructions {
+		t.name = name
+		switch {
+		case text == nil || t.instructions == src.instructions:
+		case t.reads(root, src.at(root, textPath), t.readsInstructions):
+			res.Changes = append(res.Changes, SyncChange{Agent: name, Kind: SyncInstructions, Name: filepath.Base(textPath),
+				Path: fromShow, Action: ActionSame, Detail: labelOf(name) + " reads " + fromShow + " itself"})
+		default:
 			add(planInstructions(root, name, t, fromRef, fromShow, text), "file")
 		}
 		for _, sk := range skills {
 			add(planSkill(root, name, t, sk), "folder")
 		}
+		mcpFrom := src.mcpRead
+		if mcpFrom == "" {
+			mcpFrom = src.mcp
+		}
+		readsThem := mcpFrom != "" && t.reads(root, src.at(root, mcpFrom), t.readsMCP)
 		for _, s := range servers {
+			if readsThem {
+				res.Changes = append(res.Changes, SyncChange{Agent: name, Kind: SyncMCP, Name: s.Name,
+					Path: show(root, src.at(root, mcpFrom), src), Action: ActionSame, Detail: labelOf(name) + " reads it there itself"})
+				continue
+			}
 			add(planServer(root, name, t, s), "file")
 		}
 		for _, s := range secret {
+			if readsThem { // its secret stays where it is, and is read from there
+				res.Changes = append(res.Changes, SyncChange{Agent: name, Kind: SyncMCP, Name: s,
+					Path: show(root, src.at(root, mcpFrom), src), Action: ActionSame, Detail: labelOf(name) + " reads it there itself"})
+				continue
+			}
 			add(SyncChange{Agent: name, Kind: SyncMCP, Name: s, Path: t.mcp,
 				Action: ActionSkip, Detail: "its environment holds a value, not a ${VAR} reference: conch does not copy secrets"}, "file")
 		}
@@ -633,6 +724,7 @@ func planSkill(root, agent string, t agentFiles, sk skill) SyncChange {
 
 // mcpServer is a server in a shape every agent's own format can be
 // written from.
+// References to variables in it are in one form, ${VAR} (vars.go).
 type mcpServer struct {
 	Name    string
 	Command string
@@ -640,6 +732,9 @@ type mcpServer struct {
 	Env     map[string]string
 	URL     string
 	Headers map[string]string
+	// Transport is "sse" for a server that speaks it; "" is streamable
+	// HTTP, or stdio without a URL.
+	Transport string
 }
 
 // serversOf reads the servers the agent to copy from declares in the
@@ -662,19 +757,7 @@ func serversOf(root string, a agentFiles) (list []mcpServer, secret []string) {
 		if m == nil {
 			continue
 		}
-		s := mcpServer{Name: name, Command: str(m, "command"), URL: firstStr(m, "url", "httpUrl", "serverUrl")}
-		if cmd, ok := m["command"].([]any); ok && len(cmd) > 0 { // OpenCode: command is a list
-			s.Command = anyStr(cmd[0])
-			for _, v := range cmd[1:] {
-				s.Args = append(s.Args, anyStr(v))
-			}
-		}
-		s.Args = append(s.Args, strs(m["args"])...)
-		s.Env = strMap(m["env"])
-		if len(s.Env) == 0 {
-			s.Env = strMap(m["environment"]) // OpenCode's name for it
-		}
-		s.Headers = strMap(m["headers"])
+		s := serverOf(a.name, name, m)
 		if s.Command == "" && s.URL == "" {
 			continue
 		}
@@ -687,14 +770,79 @@ func serversOf(root string, a agentFiles) (list []mcpServer, secret []string) {
 	return list, secret
 }
 
-// varRef matches a value that only refers to a variable, e.g. "${TOKEN}".
-var varRef = regexp.MustCompile(`^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$`)
+// serverOf reads one server from agent's file, in its own format, with
+// its references put in the one form.
+func serverOf(agent, name string, m map[string]any) mcpServer {
+	s := mcpServer{Name: name, Command: neutral(str(m, "command")), URL: neutral(firstStr(m, "httpUrl", "url", "serverUrl"))}
+	if cmd, ok := m["command"].([]any); ok && len(cmd) > 0 { // OpenCode: command is a list
+		s.Command = neutral(anyStr(cmd[0]))
+		for _, v := range cmd[1:] {
+			s.Args = append(s.Args, neutral(anyStr(v)))
+		}
+	}
+	for _, v := range strs(m["args"]) {
+		s.Args = append(s.Args, neutral(v))
+	}
+	s.Env = neutralMap(strMap(m["env"]))
+	if len(s.Env) == 0 {
+		s.Env = neutralMap(strMap(m["environment"])) // OpenCode's name for it
+	}
+	s.Headers = neutralMap(strMap(m["headers"]))
+	switch t := firstStr(m, "type", "transport"); {
+	case t == "sse":
+		s.Transport = "sse"
+	case t == "" && agent == "gemini" && str(m, "httpUrl") == "" && s.URL != "":
+		s.Transport = "sse" // Gemini's url is SSE, its httpUrl streamable HTTP
+	}
+	if agent == "codex" {
+		// Codex names the variables to pass on rather than referring to them.
+		for _, v := range anyList(m["env_vars"]) {
+			n := anyStr(v)
+			if o, ok := v.(map[string]any); ok {
+				n = str(o, "name")
+			}
+			if n != "" {
+				s.Env = setKey(s.Env, n, "${"+n+"}")
+			}
+		}
+		if t := str(m, "bearer_token_env_var"); t != "" {
+			s.Headers = setKey(s.Headers, "Authorization", "Bearer ${"+t+"}")
+		}
+		for h, v := range strMap(m["env_http_headers"]) {
+			s.Headers = setKey(s.Headers, h, "${"+v+"}")
+		}
+		for h, v := range strMap(m["http_headers"]) {
+			s.Headers = setKey(s.Headers, h, v)
+		}
+	}
+	return s
+}
+
+func neutralMap(m map[string]string) map[string]string {
+	for k, v := range m {
+		m[k] = neutral(v)
+	}
+	return m
+}
+
+func setKey(m map[string]string, k, v string) map[string]string {
+	if m == nil {
+		m = map[string]string{}
+	}
+	m[k] = v
+	return m
+}
+
+func anyList(v any) []any {
+	l, _ := v.([]any)
+	return l
+}
 
 // holdsValue reports whether any value is something other than a
 // reference to an environment variable — a key, a token, a password.
 func holdsValue(m map[string]string) bool {
 	for _, v := range m {
-		if v = strings.TrimSpace(v); v != "" && !varRef.MatchString(v) {
+		if !safeValue(v) {
 			return true
 		}
 	}
@@ -715,6 +863,10 @@ func planServer(root, agent string, t agentFiles, s mcpServer) SyncChange {
 	// and writing through the link edits that repository.
 	if st, err := os.Lstat(path); err == nil && st.Mode()&os.ModeSymlink != 0 {
 		c.Action, c.Detail = ActionSkip, "it is a link into somewhere else (a dotfiles repository?): conch leaves it alone"
+		return c
+	}
+	if why := unwritable(agent, s); why != "" {
+		c.Action, c.Detail = ActionSkip, why
 		return c
 	}
 	if strings.HasSuffix(t.mcp, ".toml") {
@@ -783,35 +935,54 @@ func planServerJSON(path string, c SyncChange, t agentFiles, s mcpServer) SyncCh
 	return c
 }
 
-// jsonServer is the server in the shape the agent's file wants.
+// jsonServer is the server in the shape the agent's file wants, its
+// references written the way that agent expands them.
 func jsonServer(agent string, s mcpServer) map[string]any {
 	m := map[string]any{}
+	url := refFor(agent, s.URL)
+	headers := refsFor(agent, s.Headers)
+	env := refsFor(agent, s.Env)
+	args := make([]string, len(s.Args))
+	for i, a := range s.Args {
+		args[i] = refFor(agent, a)
+	}
+	command := refFor(agent, s.Command)
 	switch {
-	case agent == "opencode" && s.URL != "":
-		m["type"], m["url"], m["enabled"] = "remote", s.URL, true
-		if len(s.Headers) > 0 {
-			m["headers"] = toAny(s.Headers)
-		}
+	case agent == "opencode" && url != "":
+		m["type"], m["url"], m["enabled"] = "remote", url, true
 	case agent == "opencode":
 		m["type"], m["enabled"] = "local", true
-		cmd := append([]string{s.Command}, s.Args...)
-		m["command"] = toAnyList(cmd)
-		if len(s.Env) > 0 {
-			m["environment"] = toAny(s.Env)
+		m["command"] = toAnyList(append([]string{command}, args...))
+		if len(env) > 0 {
+			m["environment"] = toAny(env)
 		}
-	case s.URL != "":
-		m["type"], m["url"] = "http", s.URL
-		if len(s.Headers) > 0 {
-			m["headers"] = toAny(s.Headers)
+	case url != "" && agent == "gemini":
+		if s.Transport == "sse" {
+			m["url"] = url
+		} else {
+			m["httpUrl"] = url
+		}
+	case url != "" && agent == "devin":
+		m["url"], m["transport"] = url, "http"
+		if s.Transport == "sse" {
+			m["transport"] = "sse"
+		}
+	case url != "":
+		m["type"], m["url"] = "http", url
+		if s.Transport == "sse" {
+			m["type"] = "sse"
 		}
 	default:
-		m["command"] = s.Command
-		if len(s.Args) > 0 {
-			m["args"] = toAnyList(s.Args)
+		m["command"] = command
+		if len(args) > 0 {
+			m["args"] = toAnyList(args)
 		}
-		if len(s.Env) > 0 {
-			m["env"] = toAny(s.Env)
+		if len(env) > 0 {
+			m["env"] = toAny(env)
 		}
+	}
+	if url != "" && len(headers) > 0 {
+		m["headers"] = toAny(headers)
 	}
 	return m
 }
@@ -855,29 +1026,49 @@ func planServerTOML(path string, c SyncChange, t agentFiles, s mcpServer) SyncCh
 	return c
 }
 
-// tomlServer writes one [mcp_servers.name] table.
+// tomlServer writes one [mcp_servers.name] table for Codex, which is
+// told the names of the variables to pass on rather than given references
+// (codexVarsOf has already said whether it can be).
 func tomlServer(key string, s mcpServer) []byte {
+	cv, _ := codexVarsOf(s)
 	var b strings.Builder
-	fmt.Fprintf(&b, "# added by conch\n[%s.%s]\n", key, tomlKey(s.Name))
+	table := key + "." + tomlKey(s.Name)
+	fmt.Fprintf(&b, "# added by conch\n[%s]\n", table)
 	if s.URL != "" {
 		fmt.Fprintf(&b, "url = %s\n", tomlString(s.URL))
+		if cv.bearer != "" {
+			fmt.Fprintf(&b, "bearer_token_env_var = %s\n", tomlString(cv.bearer))
+		}
 	} else {
 		fmt.Fprintf(&b, "command = %s\n", tomlString(s.Command))
 		if len(s.Args) > 0 {
-			parts := make([]string, len(s.Args))
-			for i, a := range s.Args {
-				parts[i] = tomlString(a)
-			}
-			fmt.Fprintf(&b, "args = [%s]\n", strings.Join(parts, ", "))
+			fmt.Fprintf(&b, "args = %s\n", tomlList(s.Args))
 		}
 	}
-	if len(s.Env) > 0 {
-		fmt.Fprintf(&b, "\n[%s.%s.env]\n", key, tomlKey(s.Name))
-		for _, k := range sortedStrings(s.Env) {
-			fmt.Fprintf(&b, "%s = %s\n", tomlKey(k), tomlString(s.Env[k]))
+	if len(cv.envVars) > 0 {
+		fmt.Fprintf(&b, "env_vars = %s\n", tomlList(cv.envVars))
+	}
+	for _, sub := range []struct {
+		name string
+		m    map[string]string
+	}{{"env", cv.literalEnv}, {"http_headers", cv.literalHead}, {"env_http_headers", cv.headerVars}} {
+		if len(sub.m) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "\n[%s.%s]\n", table, sub.name)
+		for _, k := range sortedStrings(sub.m) {
+			fmt.Fprintf(&b, "%s = %s\n", tomlKey(k), tomlString(sub.m[k]))
 		}
 	}
 	return []byte(b.String())
+}
+
+func tomlList(list []string) string {
+	parts := make([]string, len(list))
+	for i, a := range list {
+		parts[i] = tomlString(a)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 var bareKey = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -945,6 +1136,10 @@ type undoLog struct {
 	Stamp string      `json:"stamp"`
 	From  string      `json:"from"`
 	Files []undoEntry `json:"files"`
+	// Library marks an apply of the library, and Written is what conch
+	// owned before it, which undoing restores.
+	Library bool         `json:"library,omitempty"`
+	Written []libWritten `json:"written,omitempty"`
 }
 
 type undoEntry struct {
@@ -954,6 +1149,11 @@ type undoEntry struct {
 	Kind   string `json:"kind,omitempty"`
 	Before string `json:"before,omitempty"`
 	Absent bool   `json:"absent,omitempty"` // it did not exist
+	// Link is where a link conch took away pointed, which undoing makes
+	// again; Command is a command that undoes what another command did
+	// (claude mcp add-json, for a server Claude keeps in its own file).
+	Link    string   `json:"link,omitempty"`
+	Command []string `json:"command,omitempty"`
 }
 
 // writing records a file about to be written over.
@@ -974,6 +1174,20 @@ func (u *undoLog) writing(path, kind string) error {
 // creating records something new, which undoing removes.
 func (u *undoLog) creating(path, kind string) {
 	u.Files = append(u.Files, undoEntry{Path: u.rel(path), Kind: kind, Absent: true})
+}
+
+// unlinking records a link taken away, which undoing makes again.
+func (u *undoLog) unlinking(path, target string) {
+	u.Files = append(u.Files, undoEntry{Path: u.rel(path), Kind: SyncSkill, Link: target})
+}
+
+// command records the command that undoes one conch ran.
+func (u *undoLog) command(args []string, kind string) {
+	name := ""
+	if len(args) > 3 {
+		name = args[3]
+	}
+	u.Files = append(u.Files, undoEntry{Path: name, Kind: kind, Command: args})
 }
 
 func (u *undoLog) rel(path string) string {
@@ -1038,7 +1252,7 @@ func undosIn(dir string) []string {
 func UserSyncUndos() []string { return undosIn(userRecordDir()) }
 
 func UndoUserSync(stamp string) (SyncResult, error) {
-	return undoFrom(userRecordDir(), "", stamp, "your home")
+	return undoFrom(CurrentEnv(), userRecordDir(), "", stamp, "your home")
 }
 
 // UndoSync puts back what a sync changed. stamp "" is the last one.
@@ -1047,13 +1261,13 @@ func UndoSync(dir, stamp string) (SyncResult, error) {
 	if root == "" {
 		root = dir
 	}
-	return undoFrom(filepath.Join(root, undoDir), root, stamp, root)
+	return undoFrom(CurrentEnv(), filepath.Join(root, undoDir), root, stamp, root)
 }
 
 // undoFrom puts back the sync named by stamp ("" is the last), whose
 // record is in recordDir and whose paths are relative to root ("" when
 // they are whole). where names the place in messages.
-func undoFrom(recordDir, root, stamp, where string) (SyncResult, error) {
+func undoFrom(e Env, recordDir, root, stamp, where string) (SyncResult, error) {
 	if stamp == "" {
 		list := undosIn(recordDir)
 		if len(list) == 0 {
@@ -1088,6 +1302,14 @@ func undoFrom(recordDir, root, stamp, where string) (SyncResult, error) {
 		}
 		var err error
 		switch {
+		case len(f.Command) > 0:
+			c.Path, c.Detail = "", "with "+f.Command[0]+" "+strings.Join(f.Command[1:min(3, len(f.Command))], " ")
+			err = runAgent(e, f.Command[0], f.Command[1:]...)
+		case f.Link != "":
+			c.Action, c.Detail = ActionLink, "linked again"
+			if err = os.MkdirAll(filepath.Dir(target), 0o755); err == nil {
+				err = os.Symlink(f.Link, target)
+			}
 		case f.Absent:
 			c.Action, c.Detail = "remove", "it was not there before"
 			err = os.Remove(target)
@@ -1107,6 +1329,11 @@ func undoFrom(recordDir, root, stamp, where string) (SyncResult, error) {
 			c.Done = true
 		}
 		res.Changes = append(res.Changes, c)
+	}
+	if u.Library {
+		if err := writeJSONFile(writtenPath(), u.Written); err != nil {
+			res.Notes = append(res.Notes, "what conch owns could not be put back: "+err.Error())
+		}
 	}
 	if err := os.Remove(path); err != nil {
 		res.Notes = append(res.Notes, "the record itself could not be removed: "+err.Error())

@@ -97,6 +97,13 @@ func (v *setupView) receiveSync(m *Model, msg setupSyncMsg) tea.Cmd {
 func syncLines(res proto.AgentSyncResult) []string {
 	lines := []string{fmt.Sprintf("Give %s %s's setup in this checkout?", listAgents(res.To), agentLabel(res.From)),
 		""}
+	lines = append(lines, syncChangeLines(res)...)
+	return append(lines, "", "Files somebody wrote by hand are left alone, skills are linked rather than copied, and this can be undone with u.")
+}
+
+// syncChangeLines lists what a plan writes, and what it leaves out.
+func syncChangeLines(res proto.AgentSyncResult) []string {
+	var lines []string
 	shown := 0
 	for _, c := range res.Changes {
 		if !writesChange(c) {
@@ -119,7 +126,7 @@ func syncLines(res proto.AgentSyncResult) []string {
 	if skipped := syncSkipped(res); skipped != "" {
 		lines = append(lines, "", skipped)
 	}
-	return append(lines, "", "Files somebody wrote by hand are left alone, skills are linked rather than copied, and this can be undone with u.")
+	return lines
 }
 
 // syncSkipped says what is being left out and why, once per reason: a
@@ -168,7 +175,7 @@ func syncWhyNot(res proto.AgentSyncResult) string {
 
 func writesChange(c proto.SyncChange) bool {
 	switch c.Action {
-	case proto.SyncCreate, proto.SyncUpdate, proto.SyncLink:
+	case proto.SyncCreate, proto.SyncUpdate, proto.SyncLink, proto.SyncRemove:
 		return true
 	}
 	return false
