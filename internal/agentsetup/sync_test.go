@@ -590,3 +590,170 @@ func TestSyncSaysWhoWantsTrust(t *testing.T) {
 		t.Fatalf("notes about agents nobody asked for: %q", notes)
 	}
 }
+
+// userHome is a home with Claude Code set up in it: instructions, a skill,
+// and servers in the file Claude keeps its own state in.
+func userHome(t *testing.T) (string, Env) {
+	t.Helper()
+	home := t.TempDir()
+	conchHome := filepath.Join(home, ".config", "conch")
+	t.Setenv("HOME", home)
+	t.Setenv("CONCH_HOME", conchHome)
+	for _, v := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+		t.Setenv(v, "")
+	}
+	write(t, filepath.Join(home, ".claude", "CLAUDE.md"), "# My rules\n\nBritish English, always.\n")
+	write(t, filepath.Join(home, ".claude", "skills", "tide", "SKILL.md"), "---\nname: tide\ndescription: the tide\n---\n")
+	write(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{"gh":{"command":"npx","args":["gh"],"env":{"TOKEN":"${GH_TOKEN}"}}},"projects":{"/src":{"history":["keep me"]}}}`)
+	return home, Env{Home: home, Getenv: os.Getenv}
+}
+
+// The setup that follows you, rather than a checkout's: your home.
+func TestSyncUser(t *testing.T) {
+	home, e := userHome(t)
+
+	res, err := SyncUser(e, "claude", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// It says where things go with the ~ back on, so nothing about the
+	// plan is guesswork.
+	plan := changeLines(res)
+	for _, want := range []string{"~/.codex/AGENTS.md", "~/.gemini/GEMINI.md", "~/.agents/skills/tide",
+		"~/.codex/config.toml", "~/.gemini/settings.json", "~/.config/opencode/opencode.json"} {
+		if !strings.Contains(plan, want) {
+			t.Fatalf("the plan lacks %q:\n%s", want, plan)
+		}
+	}
+	if strings.Contains(plan, home) {
+		t.Fatalf("a whole path leaked into the plan:\n%s", plan)
+	}
+	// Nothing is written by a plan.
+	if _, err := os.Stat(filepath.Join(home, ".codex", "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatal("the plan wrote something")
+	}
+
+	done, err := SyncUser(e, "claude", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Codex and OpenCode share ~/.agents/skills with Gemini, and the skill
+	// is linked into it once.
+	if !isFile(filepath.Join(home, ".agents", "skills", "tide", "SKILL.md")) {
+		t.Fatalf("the skill was not linked:\n%s", changeLines(done))
+	}
+	// The instructions travel, as a copy or as a pointer.
+	if got := read(t, filepath.Join(home, ".codex", "AGENTS.md")); !strings.Contains(got, "British English") {
+		t.Fatalf("codex's instructions:\n%s", got)
+	}
+	if got := read(t, filepath.Join(home, ".gemini", "GEMINI.md")); !strings.Contains(got, "@") {
+		t.Fatalf("gemini's instructions:\n%s", got)
+	}
+	// The server Claude keeps in its own state file is written where each
+	// agent keeps its own.
+	if got := read(t, filepath.Join(home, ".codex", "config.toml")); !strings.Contains(got, "[mcp_servers.gh]") {
+		t.Fatalf("codex's servers:\n%s", got)
+	}
+	if got := read(t, filepath.Join(home, ".config", "opencode", "opencode.json")); !strings.Contains(got, `"gh"`) {
+		t.Fatalf("opencode's servers:\n%s", got)
+	}
+	// And Claude's own state file is not rewritten for it.
+	if got := read(t, filepath.Join(home, ".claude.json")); !strings.Contains(got, `"keep me"`) {
+		t.Fatalf("Claude's state file changed:\n%s", got)
+	}
+
+	// The record lives in conch's own folder, not in your home's root.
+	if _, err := os.Stat(filepath.Join(home, ".conch")); !os.IsNotExist(err) {
+		t.Fatal("it put a .conch in the home directory")
+	}
+	if got := UserSyncUndos(); len(got) != 1 || got[0] != done.Undo {
+		t.Fatalf("records %v, want %q", got, done.Undo)
+	}
+	// Undoing puts the home back as it was.
+	if _, err := UndoUserSync(""); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{".codex/AGENTS.md", ".gemini/GEMINI.md", ".agents/skills/tide",
+		".codex/config.toml", ".gemini/settings.json", ".config/opencode/opencode.json"} {
+		if _, err := os.Lstat(filepath.Join(home, p)); !os.IsNotExist(err) {
+			t.Fatalf("%s is still there", p)
+		}
+	}
+	if !isFile(filepath.Join(home, ".claude", "CLAUDE.md")) {
+		t.Fatal("undoing took the source with it")
+	}
+	if _, err := UndoUserSync(""); err == nil {
+		t.Fatal("undoing twice said nothing")
+	}
+}
+
+// A file kept in a dotfiles repository is a link into it, and writing
+// through the link edits that repository. conch leaves it alone and says
+// so — the one thing the user scope must never do quietly.
+func TestSyncUserLeavesDotfileLinksAlone(t *testing.T) {
+	home, e := userHome(t)
+	dotfiles := filepath.Join(home, "dotfiles")
+	write(t, filepath.Join(dotfiles, "codex-config.toml"), "# kept in git\nmodel = \"o3\"\n")
+	write(t, filepath.Join(dotfiles, "AGENTS.md"), "# my own, in git\n")
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dotfiles, "codex-config.toml"), filepath.Join(home, ".codex", "config.toml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dotfiles, "AGENTS.md"), filepath.Join(home, ".codex", "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := SyncUser(e, "claude", []string{"codex"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range res.Changes {
+		if c.Agent != "codex" {
+			continue
+		}
+		if c.Kind == SyncMCP || c.Kind == SyncInstructions {
+			if c.Action != ActionSkip || !strings.Contains(c.Detail, "a dotfiles repository?") {
+				t.Fatalf("%s %s: %+v", c.Kind, c.Name, c)
+			}
+		}
+	}
+	// The repository is untouched, links and all.
+	if got := read(t, filepath.Join(dotfiles, "codex-config.toml")); strings.Contains(got, "mcp_servers") {
+		t.Fatalf("it wrote through the link:\n%s", got)
+	}
+	if got := read(t, filepath.Join(dotfiles, "AGENTS.md")); strings.Contains(got, "British English") {
+		t.Fatalf("it wrote through the instructions link:\n%s", got)
+	}
+}
+
+// What it refuses before it starts.
+func TestSyncUserRefusals(t *testing.T) {
+	_, e := userHome(t)
+	if _, err := SyncUser(Env{}, "claude", nil, false); err == nil || !strings.Contains(err.Error(), "where your home is") {
+		t.Fatalf("no home: %v", err)
+	}
+	if _, err := SyncUser(e, "devin", nil, false); err == nil || !strings.Contains(err.Error(), "cannot read devin's setup") {
+		t.Fatalf("unknown source: %v", err)
+	}
+	if _, err := SyncUser(e, "claude", []string{"devin"}, false); err == nil || !strings.Contains(err.Error(), "cannot set devin up") {
+		t.Fatalf("unknown target: %v", err)
+	}
+	// A home with nothing in it says so rather than writing empty files.
+	empty := t.TempDir()
+	if _, err := SyncUser(Env{Home: empty, Getenv: os.Getenv}, "claude", nil, false); !errors.Is(err, ErrNothingToSync) {
+		t.Fatalf("an empty home: %v", err)
+	}
+	// Claude is never given servers here: they live in the file it keeps
+	// its own state in.
+	res, err := SyncUser(e, "codex", []string{"claude"}, false)
+	if err != nil && !errors.Is(err, ErrNothingToSync) {
+		t.Fatal(err)
+	}
+	for _, c := range res.Changes {
+		if c.Kind == SyncMCP && c.Agent == "claude" && c.Action != ActionSkip {
+			t.Fatalf("it would write Claude's servers: %+v", c)
+		}
+	}
+}

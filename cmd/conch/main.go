@@ -54,9 +54,10 @@ Usage:
                                 check or install Claude Code (use -m for a machine)
   conch agent setup [-agent NAME] [-copy] [DIR]
                                 what each agent loads there: instructions, skills, MCP servers
-  conch agent sync [-from NAME] [-to NAMES] [-apply] [-undo] [DIR]
-                                give the other agents one agent's setup in a checkout;
-                                without -apply it only says what it would do
+  conch agent sync [-user] [-from NAME] [-to NAMES] [-apply] [-undo] [DIR]
+                                give the other agents one agent's setup — a checkout's, or
+                                with -user your own (~/.claude and the rest); without
+                                -apply it only says what it would do
   conch project add PATH | create [-no-git] PATH | ls | rm ID
                                 manage projects shown in the sidebar
   conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] PROMPT

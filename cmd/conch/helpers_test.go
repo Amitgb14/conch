@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -326,6 +327,13 @@ case "$last" in
   if [ -n "$A4_PROBE_FAIL" ]; then echo "$A4_PROBE_FAIL" >&2; exit 255; fi
   if [ -s "$A4_INSTALLED" ] && [ -f "$A4_PROBE_AFTER" ]; then /bin/cat "$A4_PROBE_AFTER"; else /bin/cat "$A4_PROBE"; fi ;;
 *conch.new*)
+  # A gateway that drops the first few copies, as one does to a machine
+  # that has only just started; A4_SSH_DROPS says how many.
+  if [ -n "$A4_SSH_DROPS" ]; then
+    n=$(/bin/cat "$A4_SSH_DROPPED" 2>/dev/null || echo 0)
+    n=$((n+1)); echo $n > "$A4_SSH_DROPPED"
+    if [ "$n" -le "$A4_SSH_DROPS" ]; then exit 255; fi
+  fi
   /bin/cat > "$A4_INSTALLED"; echo "/home/dev/.local/bin/conch" ;;
 *" bridge")
   A4_HELPER_MODE=bridge exec "$A4_HELPER" ;;
@@ -333,6 +341,7 @@ true)
   # conch waits for a machine to answer at all before asking anything of
   # it; a real ssh would run this and say nothing.
   if [ -n "$A4_PROBE_FAIL" ]; then echo "$A4_PROBE_FAIL" >&2; exit 255; fi
+  if [ -n "$A4_SSH_SILENT_255" ]; then exit 255; fi
   exit 0 ;;
 *)
   exit 1 ;;
@@ -360,7 +369,19 @@ func newA4SSH(t *testing.T) *a4SSH {
 	t.Setenv("A4_PROBE_AFTER", filepath.Join(dir, "probe-after.txt"))
 	t.Setenv("A4_PROBE_FAIL", "")
 	t.Setenv("A4_BRIDGE_SOCK", "")
+	t.Setenv("A4_SSH_DROPS", "")
+	t.Setenv("A4_SSH_SILENT_255", "")
+	t.Setenv("A4_SSH_DROPPED", filepath.Join(dir, "dropped.txt"))
 	return f
+}
+
+// dropCopies makes the fake ssh drop the connection on the first n copies
+// of the binary, which is what a gateway does to a machine that has only
+// just started.
+func (f *a4SSH) dropCopies(t *testing.T, n int) {
+	t.Helper()
+	t.Setenv("A4_SSH_DROPS", strconv.Itoa(n))
+	os.Remove(filepath.Join(f.dir, "dropped.txt"))
 }
 
 func (f *a4SSH) setProbe(t *testing.T, s string) {

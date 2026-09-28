@@ -75,7 +75,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch agent status` | list each supported agent: installed (with version and path) or not |
 | `conch agent install NAME` | run an agent's installer in a pane and wait for it |
 | `conch agent setup [-agent NAME] [-copy] [-json] [DIR]` | show what each agent loads in a folder; `-agent` limits it to one agent, `-copy` copies missing local files from the main checkout first, `-json` prints JSON |
-| `conch agent sync [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]` | give the other agents one agent's setup in a checkout — instructions, skills, MCP servers. Without `-apply` it only says what it would do; `-undo` puts a sync back. See [One setup, every agent](/docs/tasks#one-setup-every-agent) |
+| `conch agent sync [-user] [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]` | give the other agents one agent's setup — instructions, skills, MCP servers — in a checkout, or with `-user` the setup in your home. Without `-apply` it only says what it would do; `-undo` puts a sync back. See [One setup, every agent](/docs/tasks#one-setup-every-agent) |
 
 ### project
 

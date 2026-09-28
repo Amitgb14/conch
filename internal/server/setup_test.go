@@ -374,3 +374,63 @@ func TestSharedPaneKeepsTheName(t *testing.T) {
 		t.Fatalf("a long name came out %d runes: %q", len([]rune(got)), got)
 	}
 }
+
+// agent.setup.sync with User: the setup in your home, not a checkout's.
+func TestAgentSyncUserOverTheProtocol(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	conchHome := filepath.Join(home, ".config", "conch")
+	t.Setenv("CONCH_HOME", conchHome)
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+		t.Setenv(k, "")
+	}
+	write(t, filepath.Join(home, ".claude", "CLAUDE.md"), "# mine\n\nBritish English.\n")
+	write(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{"gh":{"command":"npx"}},"projects":{"/src":{}}}`)
+
+	c, _ := startServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	call := func(p proto.AgentSyncParams) proto.AgentSyncResult {
+		t.Helper()
+		var res proto.AgentSyncResult
+		if err := c.Call(ctx, proto.MethodAgentSync, p, &res); err != nil {
+			t.Fatalf("%+v: %v", p, err)
+		}
+		return res
+	}
+
+	// A plan needs no directory at all, and writes nothing.
+	plan := call(proto.AgentSyncParams{User: true, From: "claude"})
+	if len(plan.Changes) == 0 || plan.Undo != "" {
+		t.Fatalf("plan %+v", plan)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex", "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatal("the plan wrote something")
+	}
+	// Applying writes in the home, and the record goes to conch's folder.
+	done := call(proto.AgentSyncParams{User: true, From: "claude", To: []string{"codex"}, Apply: true})
+	if !done.Applied || done.Undo == "" || len(done.Undos) != 1 {
+		t.Fatalf("applied %+v", done)
+	}
+	if got, err := os.ReadFile(filepath.Join(home, ".codex", "AGENTS.md")); err != nil || !strings.Contains(string(got), "British English") {
+		t.Fatalf("codex's instructions: %q %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(conchHome, "agent-sync")); err != nil {
+		t.Fatalf("the record is not in conch's folder: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".conch")); !os.IsNotExist(err) {
+		t.Fatal("it put a .conch in the home directory")
+	}
+	// And undoing it puts the home back.
+	back := call(proto.AgentSyncParams{User: true, Undo: true})
+	if !back.Undone || len(back.Undos) != 0 {
+		t.Fatalf("undone %+v", back)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex", "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatal("it is still there")
+	}
+	// A checkout sync in the same call shape still means the checkout.
+	if err := c.Call(ctx, proto.MethodAgentSync, proto.AgentSyncParams{Dir: home, From: "claude"}, nil); err == nil {
+		t.Fatal("a home with no project setup should have nothing to sync as a checkout")
+	}
+}

@@ -787,3 +787,58 @@ func TestA4AgentSync(t *testing.T) {
 		t.Fatalf("an old server: %v", err)
 	}
 }
+
+// conch agent sync -user asks for the setup in your home, and says so.
+func TestA4AgentSyncUser(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		var p proto.AgentSyncParams
+		json.Unmarshal(msg.Params, &p)
+		return proto.AgentSyncResult{Dir: "/Users/x", From: p.From, To: []string{"codex"},
+			Changes: []proto.SyncChange{{Agent: "codex", Kind: proto.SyncInstructions, Name: "AGENTS.md",
+				Path: "~/.codex/AGENTS.md", Action: proto.SyncCreate, Detail: "a copy of ~/.claude/CLAUDE.md"}}}, nil
+	})
+	t.Chdir(t.TempDir())
+
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runAgent([]string{"sync", "-user"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p proto.AgentSyncParams
+	srv.params(t, proto.MethodAgentSync, &p)
+	if !p.User || p.From != "claude" || p.Apply {
+		t.Fatalf("params %+v", p)
+	}
+	for _, want := range []string{"~/.codex/AGENTS.md", "a copy of ~/.claude/CLAUDE.md", "run it again with -apply"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("out lacks %q:\n%s", want, out)
+		}
+	}
+	// -user -undo puts your own back, not a checkout's.
+	a4Capture(t, "", func() { err = runAgent([]string{"sync", "-user", "-undo"}) })
+	srv.params(t, proto.MethodAgentSync, &p)
+	if !p.User || !p.Undo {
+		t.Fatalf("undo params %+v", p)
+	}
+	// A server that knows sync but not the user half says which it lacks.
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		var caps []string
+		for _, c := range h.Capabilities {
+			if c != proto.CapAgentSyncUser {
+				caps = append(caps, c)
+			}
+		}
+		h.Capabilities = caps
+		return h
+	})
+	if err := runAgent([]string{"sync", "-user"}); err == nil || !strings.Contains(err.Error(), proto.CapAgentSyncUser) {
+		t.Fatalf("an older server: %v", err)
+	}
+	// …while a checkout sync still works there.
+	if _, _ = a4Capture(t, "", func() { err = runAgent([]string{"sync"}) }); err != nil {
+		t.Fatalf("a checkout sync on that server: %v", err)
+	}
+}

@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -50,6 +50,11 @@ const CapBranchRebase = "branch.push.rebase.v1"
 // to the others — instructions, skills and MCP servers — planned, applied
 // and undone.
 const CapAgentSync = "agent.setup.sync.v1"
+
+// CapAgentSyncUser is the same for the setup in your home, through the
+// User field: a server without it would sync the checkout instead, so
+// clients check before asking.
+const CapAgentSyncUser = "agent.setup.sync.user.v1"
 
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
@@ -1154,7 +1159,11 @@ type SetupItem struct {
 // what it would do. Undo puts a sync back instead — Stamp names which, and
 // "" is the last one.
 type AgentSyncParams struct {
-	Dir   string   `json:"dir"`
+	Dir string `json:"dir"`
+	// User syncs the setup in your home rather than a checkout's: the
+	// instructions, skills and servers that follow you from project to
+	// project. Dir is then only what a message calls the place.
+	User  bool     `json:"user,omitempty"`
 	From  string   `json:"from,omitempty"`
 	To    []string `json:"to,omitempty"`
 	Apply bool     `json:"apply,omitempty"`

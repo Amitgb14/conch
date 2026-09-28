@@ -61,15 +61,23 @@ func (s *Server) agentSetup(ap proto.AgentSetupParams) (proto.AgentSetupResult, 
 // or puts an earlier sync back. Nothing is written unless Apply says so:
 // the client shows the plan first.
 func (s *Server) agentSync(sp proto.AgentSyncParams) (proto.AgentSyncResult, *proto.Error) {
-	dir, perr := resolveSetupDir(sp.Dir)
-	if perr != nil {
-		return proto.AgentSyncResult{}, perr
+	dir := sp.Dir
+	if !sp.User { // the home is the place for a user sync; nothing to resolve
+		var perr *proto.Error
+		if dir, perr = resolveSetupDir(sp.Dir); perr != nil {
+			return proto.AgentSyncResult{}, perr
+		}
 	}
 	var res agentsetup.SyncResult
 	var err error
-	if sp.Undo {
+	switch {
+	case sp.User && sp.Undo:
+		res, err = agentsetup.UndoUserSync(sp.Stamp)
+	case sp.User:
+		res, err = agentsetup.SyncUser(agentsetup.CurrentEnv(), sp.From, sp.To, sp.Apply)
+	case sp.Undo:
 		res, err = agentsetup.UndoSync(dir, sp.Stamp)
-	} else {
+	default:
 		res, err = agentsetup.Sync(dir, sp.From, sp.To, sp.Apply)
 	}
 	if err != nil {
@@ -81,14 +89,18 @@ func (s *Server) agentSync(sp proto.AgentSyncParams) (proto.AgentSyncResult, *pr
 		out.Changes = append(out.Changes, proto.SyncChange{Agent: c.Agent, Kind: c.Kind, Name: c.Name,
 			Path: c.Path, Action: c.Action, Detail: c.Detail, Done: c.Done, Error: c.Error})
 	}
-	if out.Undo != "" {
+	if out.Undo != "" && !sp.User {
 		// The record of what to put back lives in the checkout, so keep
 		// .conch out of git as the handoff documents do.
 		if err := excludeFromGit(res.Dir, ".conch/"); err != nil {
 			log.Printf("agent sync: keeping .conch out of git in %s: %v", res.Dir, err)
 		}
 	}
-	out.Undos = agentsetup.SyncUndos(res.Dir)
+	if sp.User {
+		out.Undos = agentsetup.UserSyncUndos()
+	} else {
+		out.Undos = agentsetup.SyncUndos(res.Dir)
+	}
 	return out, nil
 }
 

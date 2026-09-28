@@ -219,3 +219,76 @@ func listAgents(names []string) string {
 	}
 	return strings.Join(labels[:len(labels)-1], ", ") + " and " + labels[len(labels)-1]
 }
+
+// The other half: the setup in your home — ~/.claude and the rest — which
+// follows you from project to project. It is machine-wide, so it is asked
+// for from Settings rather than from a row that names a folder, and it is
+// the riskier half: there is no git status to show what changed, so the
+// plan carries the whole of it and a file that is a link into a dotfiles
+// repository is left alone rather than written through.
+
+// openUserSync asks the local server what giving the other agents this
+// one's own setup would write.
+func (m *Model) openUserSync(from string) tea.Cmd {
+	return m.userSync(from, false, false)
+}
+
+// undoUserSync puts the last one back.
+func (m *Model) undoUserSync() tea.Cmd { return m.userSync("", false, true) }
+
+func (m *Model) userSync(from string, apply, undo bool) tea.Cmd {
+	c := m.clientOf(localMachine)
+	if c == nil {
+		m.setFlash(m.offlineText(localMachine), true)
+		return nil
+	}
+	if len(c.MissingCapabilities([]string{proto.CapAgentSyncUser})) > 0 {
+		m.setFlash("the server on this computer is too old to sync your own setup; reload it", true)
+		return nil
+	}
+	params := proto.AgentSyncParams{User: true, Dir: "~", From: from, Apply: apply, Undo: undo}
+	return func() tea.Msg {
+		var res proto.AgentSyncResult
+		err := callCtx(c, proto.MethodAgentSync, params, &res)
+		return userSyncMsg{res: res, err: err, from: from}
+	}
+}
+
+type userSyncMsg struct {
+	res  proto.AgentSyncResult
+	err  error
+	from string
+}
+
+// receiveUserSync shows the plan and asks, or says what came of it.
+func (m *Model) receiveUserSync(msg userSyncMsg) tea.Cmd {
+	if msg.err != nil {
+		m.showError(msg.err)
+		return nil
+	}
+	res := msg.res
+	switch {
+	case res.Undone:
+		m.setFlash(fmt.Sprintf("put your setup back as it was · %s", counted(doneCount(res), "file")), false)
+		return nil
+	case res.Applied:
+		text := fmt.Sprintf("gave %s %s's setup, in your home · %s", listAgents(res.To), agentLabel(res.From), counted(doneCount(res), "change"))
+		if failed := failedSync(res); len(failed) > 0 {
+			m.setFlash(text+" · "+strings.Join(failed, "; "), true)
+			return nil
+		}
+		m.setFlash(text+" · Settings → Agents puts it back", false)
+		return nil
+	}
+	if syncWrites(res) == 0 {
+		m.setFlash(agentLabel(res.From)+"'s setup is already in every agent in your home: "+syncWhyNot(res), false)
+		return nil
+	}
+	from := msg.from
+	d := newConfirm("", func(m *Model) tea.Cmd { return m.userSync(from, true, false) })
+	d.title = " Sync your own agent setup "
+	d.text = append([]string{"This writes in your home, where there is no git status to show what changed — the record under conch's folder is what puts it back."},
+		syncLines(res)...)
+	m.overlay = d
+	return nil
+}

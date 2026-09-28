@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Amitgb14/conch/internal/config"
 )
 
 // Writing, rather than reading: one agent's setup in a checkout given to
@@ -105,15 +107,97 @@ type agentFiles struct {
 	// conch puts a skill in the first, which is shared where it can be.
 	skills []string
 	// mcp is the file its servers are declared in, and mcpKey where in it.
+	// An empty mcp means conch will not write servers for this agent here.
 	mcp    string
 	mcpKey string
+	// mcpRead is where its servers are read from when that is not where
+	// they would be written: Claude keeps its own in ~/.claude.json, which
+	// conch reads and never rewrites.
+	mcpRead string
+	// abs says the paths are already absolute (the user scope), so nothing
+	// is joined to a checkout.
+	abs bool
+}
+
+// at is where a file of this agent's lives, given the root a project scope
+// joins to.
+func (a agentFiles) at(root, rel string) string {
+	if rel == "" {
+		return ""
+	}
+	if a.abs {
+		return rel
+	}
+	return filepath.Join(root, rel)
 }
 
 var writable = map[string]agentFiles{
-	"claude":   {"CLAUDE.md", true, []string{".claude/skills"}, ".mcp.json", "mcpServers"},
-	"codex":    {"AGENTS.md", false, []string{".agents/skills"}, ".codex/config.toml", "mcp_servers"},
-	"gemini":   {"GEMINI.md", true, []string{".agents/skills", ".gemini/skills"}, ".gemini/settings.json", "mcpServers"},
-	"opencode": {"AGENTS.md", false, []string{".agents/skills", ".opencode/skill"}, "opencode.json", "mcp"},
+	"claude": {instructions: "CLAUDE.md", imports: true,
+		skills: []string{".claude/skills"}, mcp: ".mcp.json", mcpKey: "mcpServers"},
+	"codex": {instructions: "AGENTS.md",
+		skills: []string{".agents/skills"}, mcp: ".codex/config.toml", mcpKey: "mcp_servers"},
+	"gemini": {instructions: "GEMINI.md", imports: true,
+		skills: []string{".agents/skills", ".gemini/skills"}, mcp: ".gemini/settings.json", mcpKey: "mcpServers"},
+	"opencode": {instructions: "AGENTS.md",
+		skills: []string{".agents/skills", ".opencode/skill"}, mcp: "opencode.json", mcpKey: "mcp"},
+}
+
+// userFiles is where an agent keeps the setup that follows you rather than
+// a checkout: your home. The folders each agent reads are its own, and the
+// environment can move them, so they are resolved rather than written down
+// as constants.
+//
+// Claude is not given MCP servers here: its user-scope ones live in
+// ~/.claude.json, the file it keeps its own state and every project's
+// history in, and conch does not rewrite that for a setting. It is read
+// from there happily enough.
+func userFiles(e Env, agent string) (agentFiles, bool) {
+	home := e.Home
+	if home == "" {
+		return agentFiles{}, false
+	}
+	shared := filepath.Join(home, ".agents", "skills") // read by all but Claude
+	switch agent {
+	case "claude":
+		dir := filepath.Join(home, ".claude")
+		if d := e.get("CLAUDE_CONFIG_DIR"); d != "" {
+			dir = d
+		}
+		return agentFiles{
+			instructions: filepath.Join(dir, "CLAUDE.md"), imports: true,
+			skills: []string{filepath.Join(dir, "skills")},
+			mcp:    "", mcpKey: "mcpServers",
+			mcpRead: filepath.Join(home, ".claude.json"),
+		}, true
+	case "codex":
+		dir := filepath.Join(home, ".codex")
+		if d := e.get("CODEX_HOME"); d != "" {
+			dir = d
+		}
+		return agentFiles{
+			instructions: filepath.Join(dir, "AGENTS.md"),
+			skills:       []string{shared, filepath.Join(dir, "skills")},
+			mcp:          filepath.Join(dir, "config.toml"), mcpKey: "mcp_servers",
+		}, true
+	case "gemini":
+		dir := filepath.Join(home, ".gemini")
+		return agentFiles{
+			instructions: filepath.Join(dir, "GEMINI.md"), imports: true,
+			skills: []string{shared, filepath.Join(dir, "skills")},
+			mcp:    filepath.Join(dir, "settings.json"), mcpKey: "mcpServers",
+		}, true
+	case "opencode":
+		dir := filepath.Join(home, ".config", "opencode")
+		if x := e.get("XDG_CONFIG_HOME"); x != "" {
+			dir = filepath.Join(x, "opencode")
+		}
+		return agentFiles{
+			instructions: filepath.Join(dir, "AGENTS.md"),
+			skills:       []string{shared, filepath.Join(dir, "skill")},
+			mcp:          filepath.Join(dir, "opencode.json"), mcpKey: "mcp",
+		}, true
+	}
+	return agentFiles{}, false
 }
 
 // SyncNames lists the agents a sync can read from and write for.
@@ -150,8 +234,7 @@ func Sync(dir, from string, to []string, apply bool) (SyncResult, error) {
 	if root == "" {
 		root = dir
 	}
-	src, ok := writable[from]
-	if !ok {
+	if _, ok := writable[from]; !ok {
 		return SyncResult{}, fmt.Errorf("conch cannot read %s's setup (it knows %s)", from, strings.Join(SyncNames(), ", "))
 	}
 	if len(to) == 0 {
@@ -166,9 +249,63 @@ func Sync(dir, from string, to []string, apply bool) (SyncResult, error) {
 			return SyncResult{}, fmt.Errorf("conch cannot set %s up (it knows %s)", name, strings.Join(SyncNames(), ", "))
 		}
 	}
+	return sync(root, filepath.Join(root, undoDir), from, to, apply, func(name string) (agentFiles, bool) {
+		a, ok := writable[name]
+		return a, ok
+	})
+}
+
+// SyncUser gives the agents in to the setup from has in your home, rather
+// than in a checkout: the instructions, skills and MCP servers that follow
+// you from project to project. Nothing is written with apply false.
+//
+// It is the riskier half and says so: there is no git status to show what
+// changed, so the plan and the record are all there is, and a file that is
+// a link into a dotfiles repository is left alone rather than written
+// through.
+func SyncUser(e Env, from string, to []string, apply bool) (SyncResult, error) {
+	if e.Home == "" {
+		return SyncResult{}, errors.New("conch does not know where your home is")
+	}
+	if _, ok := userFiles(e, from); !ok {
+		return SyncResult{}, fmt.Errorf("conch cannot read %s's setup (it knows %s)", from, strings.Join(SyncNames(), ", "))
+	}
+	if len(to) == 0 {
+		for _, name := range SyncNames() {
+			if name != from {
+				to = append(to, name)
+			}
+		}
+	}
+	for _, name := range to {
+		if _, ok := userFiles(e, name); !ok {
+			return SyncResult{}, fmt.Errorf("conch cannot set %s up (it knows %s)", name, strings.Join(SyncNames(), ", "))
+		}
+	}
+	return sync(e.Home, userRecordDir(), from, to, apply, func(name string) (agentFiles, bool) {
+		a, ok := userFiles(e, name)
+		a.abs = true
+		return a, ok
+	})
+}
+
+// userRecordDir is where a user-scope sync's record is kept: conch's own
+// folder, since a home directory has no root to put a .conch in.
+var userRecordDir = func() string { return filepath.Join(config.Dir(), "agent-sync") }
+
+// sync is the whole of it, for either scope: root is what the paths are
+// shown against, recordDir where the record goes, and files says where
+// each agent keeps things.
+func sync(root, recordDir, from string, to []string, apply bool, files func(string) (agentFiles, bool)) (SyncResult, error) {
+	src, _ := files(from)
 	res := SyncResult{Dir: root, From: from, To: to}
 
 	text, textPath := instructionsOf(root, src)
+	fromShow := show(root, src.at(root, textPath), src)
+	fromRef := textPath // what an import in another file points at
+	if src.abs {
+		fromRef = fromShow // ~/.claude/CLAUDE.md, which every agent resolves
+	}
 	skills := skillsOf(root, src)
 	servers, secret := serversOf(root, src)
 	if text == nil && len(skills) == 0 && len(servers) == 0 && len(secret) == 0 {
@@ -195,9 +332,9 @@ func Sync(dir, from string, to []string, apply bool) (SyncResult, error) {
 		if name == from {
 			continue
 		}
-		t := writable[name]
+		t, _ := files(name)
 		if text != nil && t.instructions != src.instructions {
-			add(planInstructions(root, name, t, src.instructions, text), "file")
+			add(planInstructions(root, name, t, fromRef, fromShow, text), "file")
 		}
 		for _, sk := range skills {
 			add(planSkill(root, name, t, sk), "folder")
@@ -211,7 +348,7 @@ func Sync(dir, from string, to []string, apply bool) (SyncResult, error) {
 		}
 	}
 	if text != nil {
-		res.Notes = append(res.Notes, "instructions from "+textPath)
+		res.Notes = append(res.Notes, "instructions from "+fromShow)
 	}
 	// Worth saying once each: what is written is there, but an agent that
 	// wants the folder trusted ignores it until you say so — silently, in
@@ -222,27 +359,33 @@ func Sync(dir, from string, to []string, apply bool) (SyncResult, error) {
 			continue
 		}
 		switch {
-		case c.Agent == "codex" && c.Kind == SyncMCP:
+		case c.Agent == "codex" && c.Kind == SyncMCP && !src.abs:
 			said[c.Agent] = true
 			res.Notes = append(res.Notes, "Codex reads a project's config.toml only once you have trusted the folder")
 		case c.Agent == "gemini" && (c.Kind == SyncMCP || c.Kind == SyncSkill):
 			said[c.Agent] = true
-			res.Notes = append(res.Notes, "Gemini leaves a project's MCP servers and skills out until you have trusted the folder, and says nothing about the skills")
+			if src.abs {
+				// Trust bites here too: an untrusted folder suppresses even
+				// the servers and skills that are yours rather than its.
+				res.Notes = append(res.Notes, "Gemini leaves MCP servers and skills out — even your own — in a folder you have not trusted")
+			} else {
+				res.Notes = append(res.Notes, "Gemini leaves a project's MCP servers and skills out until you have trusted the folder, and says nothing about the skills")
+			}
 		}
 	}
 	sortChanges(res.Changes)
 	if !apply {
 		return res, nil
 	}
-	return applySync(root, res)
+	return applySync(root, recordDir, res)
 }
 
 // applySync writes what the plan says, recording what was there before.
-func applySync(root string, res SyncResult) (SyncResult, error) {
+func applySync(root, recordDir string, res SyncResult) (SyncResult, error) {
 	if res.Writes() == 0 {
 		return res, nil
 	}
-	u := &undoLog{root: root, Stamp: stampFor(root), From: res.From}
+	u := &undoLog{Root: root, dir: recordDir, Stamp: stampFor(recordDir), From: res.From}
 	for i := range res.Changes {
 		c := &res.Changes[i]
 		if !c.Writes() || c.write == nil {
@@ -264,11 +407,11 @@ func applySync(root string, res SyncResult) (SyncResult, error) {
 
 // stampFor names a record, without taking one that is already there: two
 // syncs in the same second are not the same sync.
-func stampFor(root string) string {
+func stampFor(recordDir string) string {
 	base := time.Now().Format("20060102-150405")
 	stamp := base
 	for i := 2; i < 100; i++ {
-		if _, err := os.Stat(filepath.Join(root, undoDir, stamp+".json")); os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(recordDir, stamp+".json")); os.IsNotExist(err) {
 			return stamp
 		}
 		stamp = fmt.Sprintf("%s-%d", base, i)
@@ -306,6 +449,22 @@ func labelOf(agent string) string {
 	return agent
 }
 
+// show is how a path reads in a plan: inside a checkout, relative to it;
+// in your home, with the ~ back on. The whole path is never hidden — what
+// is about to be written is the point.
+func show(root, path string, a agentFiles) string {
+	if !a.abs {
+		if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
+			return rel
+		}
+		return path
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(path, home+string(filepath.Separator)) {
+		return "~" + path[len(home):]
+	}
+	return path
+}
+
 // ---- instructions ----
 
 // maxInstructions is the largest instruction file conch copies. Anything
@@ -325,7 +484,7 @@ var blockRe = regexp.MustCompile(`(?s)<!-- conch:instructions from [^\n]*-->\n.*
 
 // instructionsOf reads the instruction file of the agent to copy from.
 func instructionsOf(root string, a agentFiles) ([]byte, string) {
-	path := filepath.Join(root, a.instructions)
+	path := a.at(root, a.instructions)
 	st, err := os.Stat(path)
 	if err != nil || !st.Mode().IsRegular() || st.Size() > maxInstructions {
 		return nil, ""
@@ -340,14 +499,22 @@ func instructionsOf(root string, a agentFiles) ([]byte, string) {
 // planInstructions is what to write for one agent's instruction file: a
 // pointer at the other file for an agent that follows imports, and the
 // text itself for one that does not.
-func planInstructions(root, agent string, t agentFiles, fromName string, text []byte) SyncChange {
-	c := SyncChange{Agent: agent, Kind: SyncInstructions, Name: t.instructions, Path: t.instructions}
-	want := blockFor(fromName, text, t.imports)
-	path := filepath.Join(root, t.instructions)
+// planInstructions is what to write for one agent's instruction file. ref
+// is how the source file is named in what conch writes — a relative name
+// inside a checkout, a ~ path in your home, since an agent resolves an
+// import against the file that holds it.
+func planInstructions(root, agent string, t agentFiles, ref, from string, text []byte) SyncChange {
+	path := t.at(root, t.instructions)
+	c := SyncChange{Agent: agent, Kind: SyncInstructions, Name: filepath.Base(t.instructions), Path: show(root, path, t)}
+	want := blockFor(ref, from, text, t.imports)
+	if st, lerr := os.Lstat(path); lerr == nil && st.Mode()&os.ModeSymlink != 0 {
+		c.Action, c.Detail = ActionSkip, "it is a link into somewhere else (a dotfiles repository?): conch leaves it alone"
+		return c
+	}
 	have, err := os.ReadFile(path)
 	switch {
 	case os.IsNotExist(err):
-		c.Action, c.Detail = ActionCreate, detailFor(fromName, t.imports)
+		c.Action, c.Detail = ActionCreate, detailFor(from, t.imports)
 		c.write = writeFile(path, SyncInstructions, want)
 		return c
 	case err != nil:
@@ -357,9 +524,9 @@ func planInstructions(root, agent string, t agentFiles, fromName string, text []
 	block := blockRe.Find(have)
 	if block == nil {
 		c.Action = ActionSkip
-		c.Detail = t.instructions + " is somebody's own; conch leaves it alone"
+		c.Detail = filepath.Base(t.instructions) + " is somebody's own; conch leaves it alone"
 		if sameText(have, text) {
-			c.Action, c.Detail = ActionSame, "already the same as "+fromName
+			c.Action, c.Detail = ActionSame, "already the same as "+from
 		}
 		return c
 	}
@@ -367,7 +534,7 @@ func planInstructions(root, agent string, t agentFiles, fromName string, text []
 		c.Action, c.Detail = ActionSame, "conch's block is up to date"
 		return c
 	}
-	c.Action, c.Detail = ActionUpdate, "conch's block in it, "+detailFor(fromName, t.imports)
+	c.Action, c.Detail = ActionUpdate, "conch's block in it, "+detailFor(from, t.imports)
 	c.write = writeFile(path, SyncInstructions, blockRe.ReplaceAll(have, want))
 	return c
 }
@@ -380,13 +547,14 @@ func detailFor(fromName string, imports bool) string {
 }
 
 // blockFor is conch's block: an import of the other file where the agent
-// expands one, else the text itself.
-func blockFor(fromName string, text []byte, imports bool) []byte {
-	body := "@" + fromName + "\n"
+// expands one, else the text itself. The opening line names where it came
+// from as a person would write it, so the block says its own provenance.
+func blockFor(ref, from string, text []byte, imports bool) []byte {
+	body := "@" + ref + "\n"
 	if !imports {
 		body = strings.TrimRight(string(text), "\n") + "\n"
 	}
-	return []byte(blockStart + fromName + blockOpen + "\n" + body + blockEnd + "\n")
+	return []byte(blockStart + from + blockOpen + "\n" + body + blockEnd + "\n")
 }
 
 func sameText(a, b []byte) bool {
@@ -406,7 +574,7 @@ func skillsOf(root string, a agentFiles) []skill {
 	var out []skill
 	seen := map[string]bool{}
 	for _, rel := range a.skills {
-		dir := filepath.Join(root, rel)
+		dir := a.at(root, rel)
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
@@ -431,18 +599,17 @@ func skillsOf(root string, a agentFiles) []skill {
 // planSkill links a skill into the first folder the agent reads, so one
 // copy of it serves every agent that reads that folder.
 func planSkill(root, agent string, t agentFiles, sk skill) SyncChange {
-	rel := filepath.Join(t.skills[0], sk.name)
-	c := SyncChange{Agent: agent, Kind: SyncSkill, Name: sk.name, Path: rel}
+	path := filepath.Join(t.at(root, t.skills[0]), sk.name)
+	c := SyncChange{Agent: agent, Kind: SyncSkill, Name: sk.name, Path: show(root, path, t)}
 	// A folder the agent already reads it from is enough, wherever it is.
 	for _, dir := range t.skills {
-		there := filepath.Join(root, dir, sk.name)
+		there := filepath.Join(t.at(root, dir), sk.name)
 		if cleanPath(there) == cleanPath(sk.dir) {
-			c.Action, c.Detail = ActionSame, "already read from "+dir
-			c.Path = filepath.Join(dir, sk.name)
+			c.Action, c.Detail = ActionSame, "already read from "+show(root, t.at(root, dir), t)
+			c.Path = show(root, there, t)
 			return c
 		}
 	}
-	path := filepath.Join(root, rel)
 	if _, err := os.Lstat(path); err == nil {
 		c.Action, c.Detail = ActionSkip, "something else is already there"
 		return c
@@ -479,7 +646,11 @@ type mcpServer struct {
 // checkout. Servers whose environment holds a value rather than a ${VAR}
 // reference are named in secret instead: conch does not copy those.
 func serversOf(root string, a agentFiles) (list []mcpServer, secret []string) {
-	path := filepath.Join(root, a.mcp)
+	where := a.mcpRead
+	if where == "" {
+		where = a.mcp
+	}
+	path := a.at(root, where)
 	var raw map[string]any
 	if strings.HasSuffix(a.mcp, ".toml") {
 		raw = obj(readTOML(path), a.mcpKey)
@@ -532,8 +703,20 @@ func holdsValue(m map[string]string) bool {
 
 // planServer declares one server in the agent's own file and format.
 func planServer(root, agent string, t agentFiles, s mcpServer) SyncChange {
-	c := SyncChange{Agent: agent, Kind: SyncMCP, Name: s.Name, Path: t.mcp}
-	path := filepath.Join(root, t.mcp)
+	path := t.at(root, t.mcp)
+	c := SyncChange{Agent: agent, Kind: SyncMCP, Name: s.Name, Path: show(root, path, t)}
+	if t.mcp == "" {
+		// Claude's user-scope servers live in the file it keeps its own
+		// state in; conch reads that and does not rewrite it.
+		c.Action, c.Detail = ActionSkip, "conch does not write "+labelOf(agent)+"'s servers here; add it with its own command"
+		return c
+	}
+	// A file somebody keeps in a dotfiles repository is a link into it,
+	// and writing through the link edits that repository.
+	if st, err := os.Lstat(path); err == nil && st.Mode()&os.ModeSymlink != 0 {
+		c.Action, c.Detail = ActionSkip, "it is a link into somewhere else (a dotfiles repository?): conch leaves it alone"
+		return c
+	}
 	if strings.HasSuffix(t.mcp, ".toml") {
 		return planServerTOML(path, c, t, s)
 	}
@@ -754,7 +937,11 @@ const undoDir = ".conch/agent-sync"
 // undoLog is one sync's record: what each path held before, so it can be
 // put back. A path that did not exist is recorded as one to remove.
 type undoLog struct {
-	root  string
+	dir string // where the record itself goes
+	// Root is what the paths are kept relative to — the checkout, or your
+	// home — so undoing puts them back where they came from, whatever the
+	// working directory is by then.
+	Root  string      `json:"root,omitempty"`
 	Stamp string      `json:"stamp"`
 	From  string      `json:"from"`
 	Files []undoEntry `json:"files"`
@@ -790,7 +977,10 @@ func (u *undoLog) creating(path, kind string) {
 }
 
 func (u *undoLog) rel(path string) string {
-	if r, err := filepath.Rel(u.root, path); err == nil {
+	if u.Root == "" {
+		return path
+	}
+	if r, err := filepath.Rel(u.Root, path); err == nil && !strings.HasPrefix(r, "..") {
 		return r
 	}
 	return path
@@ -800,7 +990,7 @@ func (u *undoLog) save() error {
 	if len(u.Files) == 0 {
 		return nil
 	}
-	dir := filepath.Join(u.root, undoDir)
+	dir := u.dir
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -823,7 +1013,12 @@ func SyncUndos(dir string) []string {
 	if root == "" {
 		root = dir
 	}
-	entries, err := os.ReadDir(filepath.Join(root, undoDir))
+	return undosIn(filepath.Join(root, undoDir))
+}
+
+// undosIn lists the records in a folder, newest first.
+func undosIn(dir string) []string {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
@@ -837,27 +1032,46 @@ func SyncUndos(dir string) []string {
 	return out
 }
 
+// UserSyncUndos lists the user-scope syncs that can be undone, newest
+// first, and UndoUserSync puts one back. They are kept in conch's own
+// folder, since your home has no root to put a .conch in.
+func UserSyncUndos() []string { return undosIn(userRecordDir()) }
+
+func UndoUserSync(stamp string) (SyncResult, error) {
+	return undoFrom(userRecordDir(), "", stamp, "your home")
+}
+
 // UndoSync puts back what a sync changed. stamp "" is the last one.
 func UndoSync(dir, stamp string) (SyncResult, error) {
 	root := RepoRoot(dir)
 	if root == "" {
 		root = dir
 	}
+	return undoFrom(filepath.Join(root, undoDir), root, stamp, root)
+}
+
+// undoFrom puts back the sync named by stamp ("" is the last), whose
+// record is in recordDir and whose paths are relative to root ("" when
+// they are whole). where names the place in messages.
+func undoFrom(recordDir, root, stamp, where string) (SyncResult, error) {
 	if stamp == "" {
-		list := SyncUndos(root)
+		list := undosIn(recordDir)
 		if len(list) == 0 {
-			return SyncResult{Dir: root}, errors.New("conch has no sync to undo in " + root)
+			return SyncResult{Dir: root}, errors.New("conch has no sync to undo in " + where)
 		}
 		stamp = list[0]
 	}
-	path := filepath.Join(root, undoDir, stamp+".json")
+	path := filepath.Join(recordDir, stamp+".json")
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return SyncResult{Dir: root}, fmt.Errorf("no record of sync %s in %s", stamp, root)
+		return SyncResult{Dir: root}, fmt.Errorf("no record of sync %s in %s", stamp, where)
 	}
 	var u undoLog
 	if err := json.Unmarshal(b, &u); err != nil {
 		return SyncResult{Dir: root}, fmt.Errorf("the record of sync %s cannot be read: %v", stamp, err)
+	}
+	if u.Root != "" {
+		root = u.Root // where it was written, not where we are now
 	}
 	res := SyncResult{Dir: root, From: u.From, Undo: stamp}
 	// Newest first, so a file written twice ends as it began.
@@ -868,7 +1082,10 @@ func UndoSync(dir, stamp string) (SyncResult, error) {
 			kind = "file" // a record from a build that did not say
 		}
 		c := SyncChange{Kind: kind, Name: filepath.Base(f.Path), Path: f.Path, Action: ActionUpdate}
-		target := filepath.Join(root, f.Path)
+		target := f.Path // whole, in your home
+		if root != "" {
+			target = filepath.Join(root, f.Path)
+		}
 		var err error
 		switch {
 		case f.Absent:
@@ -877,7 +1094,7 @@ func UndoSync(dir, stamp string) (SyncResult, error) {
 			if os.IsNotExist(err) {
 				err, c.Action, c.Detail = nil, ActionSame, "already gone"
 			}
-			if err == nil {
+			if err == nil && root != "" {
 				removeEmptyDirs(root, filepath.Dir(target))
 			}
 		default:

@@ -293,7 +293,7 @@ Below that, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the
 
 Every machine with each supported agent, installed (with version) or not; `enter` on a missing one installs it there. The default agent chosen here is what `c` pre-selects and what tasks use.
 
-Under **What each agent loads**, a line saying where that lives rather than pretending it is a setting: `i` on a project, branch or pane shows what each agent loads *there* — instructions, skills, MCP servers — and `s` gives the other agents that one's setup, `u` undoes it. It is per checkout because that is what those files belong to; see [One setup, every agent](/docs/tasks#one-setup-every-agent).
+Under **What each agent loads**: a line saying that a *checkout's* setup lives on its own rows (`i` on a project, branch or pane, and `s` there), and then the half that is machine-wide — **Give the others Claude Code's setup…** for each agent installed, which syncs what is in your home, and **Put the last one back…**. Both say what they would write before writing it. See [One setup, every agent](/docs/tasks#one-setup-every-agent).
 
 Under **Remote machines**: whether files dropped on a remote pane are uploaded there, and the largest file to upload (10, 25, 50, 100 or 250 MB). See [Dropping files on a remote pane](/docs/remote-machines#dropping-files-on-a-remote-pane).
 

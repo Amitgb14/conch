@@ -847,3 +847,65 @@ func TestA4SandboxSnapshots(t *testing.T) {
 		}
 	}
 }
+
+// The 0.1.5 failure, as a test: a sandbox is made, the connection to it
+// drops, and conch used to give up at once and delete it — with "install
+// conch: exit status 255" for a reason, which said nothing.
+func TestA4SandboxCreateSurvivesADroppedConnection(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	f, _ := a4SandboxMachine(t)
+	oldTries, oldWait := remote.ConnectionTriesForTest(3, time.Millisecond)
+	t.Cleanup(func() { remote.ConnectionTriesForTest(oldTries, oldWait) })
+
+	// An ssh whose first two copies drop the connection, as a gateway does
+	// to a machine that has only just started.
+	f.dropCopies(t, 2)
+
+	var err error
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"create", "-label", "flaky"}) })
+	if err != nil {
+		t.Fatalf("create: %v\n%s", err, errOut)
+	}
+	if !strings.HasPrefix(out, "added flaky (flaky): daytona sandbox") {
+		t.Fatalf("out %q", out)
+	}
+	// It said which attempt it was on, and the sandbox was never deleted.
+	if !strings.Contains(errOut, "attempt 2") {
+		t.Fatalf("it never said it was trying again:\n%s", errOut)
+	}
+	if strings.Contains(errOut, "deleted sandbox") {
+		t.Fatalf("it threw the sandbox away:\n%s", errOut)
+	}
+	if ms, _ := remote.Machines(); len(ms) != 1 {
+		t.Fatalf("saved %+v", ms)
+	}
+	if d.state("sbx1-0123456789") != "started" {
+		t.Fatalf("the sandbox is %q", d.state("sbx1-0123456789"))
+	}
+}
+
+// And when it really cannot connect: the reason says what ssh meant, not
+// the number it exited with, and the sandbox is deleted rather than left
+// to cost.
+func TestA4SandboxCreateSaysWhyItCouldNotConnect(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	a4SandboxMachine(t)
+	oldTries, oldWait := remote.ConnectionTriesForTest(2, time.Millisecond)
+	t.Cleanup(func() { remote.ConnectionTriesForTest(oldTries, oldWait) })
+	t.Setenv("A4_PROBE_FAIL", "") // ssh itself fails, saying nothing at all
+	t.Setenv("A4_SSH_SILENT_255", "1")
+
+	var err error
+	_, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"create", "-yes"}) })
+	if err == nil {
+		t.Fatal("a machine that never answers should fail")
+	}
+	if !strings.Contains(err.Error(), "the ssh connection failed (255)") {
+		t.Fatalf("the reason reads %q", err)
+	}
+	if !strings.Contains(errOut, "deleted sandbox sbx1-0123456789") || d.state("sbx1-0123456789") != "" {
+		t.Fatalf("it was not deleted: %q %s", d.state("sbx1-0123456789"), errOut)
+	}
+}

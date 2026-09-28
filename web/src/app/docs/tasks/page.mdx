@@ -191,3 +191,20 @@ conch agent sync -undo -stamp 20260926-101500    # or a particular one
 ```
 
 `-from` is `claude` unless you say otherwise, `-to` is every other agent, and without `-apply` nothing is written. It works on a remote machine's checkout with `-m` as well, since the server does the writing; a server too old to know how says so.
+
+### Your own setup, not just a checkout's
+
+The half that follows you from project to project — `~/.claude/CLAUDE.md` and `~/.claude/skills`, `~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.config/opencode` — is machine-wide, so it lives in Settings → **Agents** rather than on a row that names a folder: **Give the others Claude Code's setup…**, and **Put the last one back…**. From a shell it is `-user`:
+
+```sh
+conch agent sync -user                    # what it would write in your home
+conch agent sync -user -apply
+conch agent sync -user -undo
+```
+
+The rules are the checkout's, with two differences that matter:
+
+- **There is no `git status` here.** Nothing shows what changed in your home afterwards, so the plan carries every path in full (`~/.codex/AGENTS.md`, `~/.agents/skills/tide-check`) and the record — under `~/.config/conch/agent-sync/`, not a `.conch` in your home — is what puts it back.
+- **A file that is a link is left alone.** These files are often symlinks into a dotfiles repository, and writing through the link would edit that repository. conch skips one and says so rather than touching it.
+
+Claude is never *given* MCP servers here: its own live in `~/.claude.json`, the file it keeps its state and every project's history in, and conch does not rewrite that for a setting — it reads from it happily enough, so Claude's servers still reach the other agents.

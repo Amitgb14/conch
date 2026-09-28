@@ -78,16 +78,22 @@ func TestSettingsTabs(t *testing.T) {
 		return b.String()
 	}
 	out := flat()
-	for _, want := range []string{"What each agent loads|per checkout, not here",
-		"i on a project, branch or pane", "s there gives the other agents that one's setup"} {
+	for _, want := range []string{"What each agent loads|your own setup, and each checkout's",
+		"i on a project, branch or pane", "Give the others Claude Code's setup…|from ~, says what it would write first",
+		"Put the last one back…|undoes a sync of your own setup"} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("the pointer to agent setup lacks %q:\n%s", want, out)
+			t.Fatalf("the agent setup rows lack %q:\n%s", want, out)
 		}
 	}
-	// It points, and does nothing: nothing there is selectable by mistake.
+	// The line about a checkout points and does nothing; the rows about
+	// your own setup do something.
 	for _, it := range s.agentItems(m) {
-		if strings.Contains(ansi.Strip(it.label), "i on a project") && it.run != nil {
+		label := ansi.Strip(it.label)
+		if strings.Contains(label, "i on a project") && it.run != nil {
 			t.Fatal("the pointer row does something")
+		}
+		if strings.HasPrefix(label, "Give the others ") && it.run == nil {
+			t.Fatalf("%q does nothing", label)
 		}
 	}
 }

@@ -438,6 +438,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sandboxDoneMsg:
 		return m, m.sandboxDone(msg)
 
+	case userSyncMsg:
+		return m, m.receiveUserSync(msg)
+
 	case stepMsg:
 		// A long job said what it is doing; keep listening for the next.
 		m.setWorking(msg.step)

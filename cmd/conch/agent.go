@@ -222,12 +222,13 @@ func agentSync(args []string) error {
 	apply := fs.Bool("apply", false, "write the changes (without it, only says what it would do)")
 	undo := fs.Bool("undo", false, "put back a sync; -stamp names which, else the last one")
 	stamp := fs.String("stamp", "", "which sync to undo")
+	user := fs.Bool("user", false, "your own setup (~/.claude and the rest) rather than this checkout's")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	dir := "."
 	if fs.NArg() > 1 {
-		return errors.New("usage: conch agent sync [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]")
+		return errors.New("usage: conch agent sync [-user] [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]")
 	}
 	if fs.NArg() == 1 {
 		dir = fs.Arg(0)
@@ -242,7 +243,11 @@ func agentSync(args []string) error {
 		return err
 	}
 	defer c.Close()
-	if missing := c.MissingCapabilities([]string{proto.CapAgentSync}); len(missing) > 0 {
+	want := []string{proto.CapAgentSync}
+	if *user {
+		want = append(want, proto.CapAgentSyncUser)
+	}
+	if missing := c.MissingCapabilities(want); len(missing) > 0 {
 		return fmt.Errorf("the server on this machine is too old to sync agent setup (needs %s); reload it with conch update", missing[0])
 	}
 	var names []string
@@ -251,7 +256,7 @@ func agentSync(args []string) error {
 			names = append(names, n)
 		}
 	}
-	params := proto.AgentSyncParams{Dir: dir, From: *from, To: names, Apply: *apply, Undo: *undo, Stamp: *stamp}
+	params := proto.AgentSyncParams{Dir: dir, From: *from, To: names, Apply: *apply, Undo: *undo, Stamp: *stamp, User: *user}
 	var res proto.AgentSyncResult
 	if err := call(c, proto.MethodAgentSync, params, &res); err != nil {
 		return err
@@ -287,7 +292,13 @@ func printSync(w io.Writer, res proto.AgentSyncResult, wrote bool) {
 		if c.Error != "" {
 			detail = c.Error
 		}
-		fmt.Fprintf(tw, "%s %s\t%s\t%s\t%s\t%s\n", mark, c.Agent, c.Kind, c.Name, c.Action, detail)
+		// Where it goes is the point, especially in your home, so the path
+		// is a column of its own unless it is the name again.
+		where := c.Path
+		if where == c.Name {
+			where = ""
+		}
+		fmt.Fprintf(tw, "%s %s\t%s\t%s\t%s\t%s\t%s\n", mark, c.Agent, c.Kind, c.Name, c.Action, where, detail)
 	}
 	tw.Flush()
 	switch {

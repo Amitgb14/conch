@@ -266,11 +266,19 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				return saveConfig(m.cfg)
 			}})
 	}
-	// What an agent loads is a property of a checkout, not of conch, so it
-	// is not settings — but this is where people look for it.
-	items = append(items, settingItem{}, settingItem{header: true, label: "What each agent loads", detail: "per checkout, not here"},
-		settingItem{label: styleMuted.Render("  i on a project, branch or pane: instructions, skills, MCP servers")},
-		settingItem{label: styleMuted.Render("  s there gives the other agents that one's setup; u undoes it")})
+	// What an agent loads in a checkout is that checkout's business, and
+	// `i` is where it lives; what it loads from your home is machine-wide,
+	// so that half belongs here.
+	items = append(items, settingItem{}, settingItem{header: true, label: "What each agent loads", detail: "your own setup, and each checkout's"},
+		settingItem{label: styleMuted.Render("  i on a project, branch or pane: this checkout's, and s to give it to the others")})
+	for _, name := range knownAgents(m) {
+		name := name
+		items = append(items, settingItem{label: "Give the others " + agentLabel(name) + "'s setup…", page: true,
+			detail: styleMuted.Render("from ~, says what it would write first"),
+			run:    func(m *Model) tea.Cmd { return m.openUserSync(name) }})
+	}
+	items = append(items, settingItem{label: "Put the last one back…", detail: styleMuted.Render("undoes a sync of your own setup"),
+		run: func(m *Model) tea.Cmd { return m.undoUserSync() }})
 
 	r := &m.cfg.Remote
 	items = append(items, settingItem{}, settingItem{header: true, label: "Remote machines"},

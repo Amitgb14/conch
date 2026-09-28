@@ -183,33 +183,31 @@ history; details for big items live in their own plan files.
     and the checks already are. Worth remembering when that feedback comes
     again: it was the setup, not the reviewing, that was missing.
 
+22. **One setup, every agent: your own, not just a checkout's** — 21 gave
+    the other agents what a *checkout* holds; this gives them what your
+    home does, which is the half people complain about: `~/.claude/CLAUDE.md`
+    and `~/.claude/skills`, `~/.codex/config.toml`, `~/.gemini/settings.json`,
+    `~/.config/opencode`. It is machine-wide, so it is in Settings → Agents
+    ("Give the others Claude Code's setup…", "Put the last one back…") and
+    `conch agent sync -user`, behind `agent.setup.sync.user.v1`.
+
+    The engine is 21's, with the user scope's paths; two things are its
+    own. There is no `git status` in a home directory, so the plan carries
+    every path in full and the record — under `$CONCH_HOME/agent-sync/`,
+    since a home has no root for a `.conch` — is what puts it back. And a
+    file that is a symlink is left alone with a reason, because these are
+    kept in dotfiles repositories and writing through the link would edit
+    one. Claude is read from `~/.claude.json` but never written there: that
+    file holds its state and every project's history.
+
+    Checked against the agents themselves in a scratch home: `codex mcp
+    list` showed the server conch wrote in `~/.codex/config.toml`, and
+    `gemini skills list` the skill linked into `~/.agents/skills`.
+
 ## Next
 
-22. **One setup, every agent: your own, not just a checkout's** — 21 syncs
-    what a *checkout* holds, on purpose: a mistake there is one `git
-    status` away from being seen, and one `u` away from being undone. The
-    half people actually complain about is the other one — the setup in
-    your home: `~/.claude/CLAUDE.md` and `~/.claude/skills`, Codex's
-    `~/.codex/config.toml`, `~/.gemini/settings.json`, OpenCode's
-    `~/.config/opencode`, and the MCP servers registered for you rather
-    than for a repository. That is machine-wide, so it belongs in Settings
-    (`,` → Agents), not on a row that names a folder.
-
-    The engine is the same — `internal/agentsetup/sync.go` with the user
-    scope's paths instead of the project's — and so are the rules that make
-    it safe: say what it would write, leave hand-written files alone, link
-    skills rather than copy them (`~/.agents/skills` is read by Codex,
-    Gemini and OpenCode alike), never carry a secret, and record every
-    write so it can be undone. Two things are new and want care: there is
-    no `git status` to show what changed, so the record and the preview are
-    all a person has, and a home directory has no obvious root to keep the
-    record in (`$CONCH_HOME/agent-sync/` rather than `.conch/`). It should
-    also refuse to touch a file that is a symlink into a dotfiles
-    repository without saying so first — that is how people keep these
-    files, and writing through the link edits the repository.
-
-    Worth doing only once 21 has some mileage, since this is the version
-    where a mistake is harder to see.
+Nothing chosen yet: the next thing is whatever the next week of using
+conch asks for. What is parked sits under **Not now** and **Last**.
 
 ## Not now
 
