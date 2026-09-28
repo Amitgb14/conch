@@ -578,3 +578,141 @@ func TestIsLoginCommand(t *testing.T) {
 		}
 	}
 }
+
+// ssh's own "the connection failed" is told from a command that ran and
+// said no, and says something when ssh itself said nothing.
+func TestConnectionFailuresReadAndRetry(t *testing.T) {
+	a4Env(t)
+	// 255 with nothing on stderr: the bare exit code told nobody anything.
+	fail := exec.Command("/bin/sh", "-c", "exit 255").Run()
+	err := sshError(fail, "")
+	var conn *ConnectionError
+	if !errors.As(err, &conn) {
+		t.Fatalf("255 is not a connection failure: %T %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "the ssh connection failed (255)") {
+		t.Fatalf("it reads %q", err)
+	}
+	// With ssh's own words, they are what is shown, advice and all.
+	err = sshError(fail, "ssh: connect to host gw.test port 22: Connection refused")
+	if !errors.As(err, &conn) || !strings.Contains(err.Error(), "Connection refused") {
+		t.Fatalf("with stderr: %v", err)
+	}
+	if got := sshError(fail, "dev@box: Permission denied (publickey)."); !strings.Contains(got.Error(), "conch machine add") {
+		t.Fatalf("permission denied should still advise: %v", got)
+	}
+	// A command that ran and failed is not a connection failure: trying
+	// again would only fail the same way.
+	ran := exec.Command("/bin/sh", "-c", "exit 1").Run()
+	if err := sshError(ran, "cat: /nope: No such file"); errors.As(err, &conn) {
+		t.Fatalf("a failed command was taken for a dropped connection: %v", err)
+	}
+
+	// retryConnection tries again after a connection failure, and not
+	// after anything else.
+	oldTries, oldWait := connectionTries, connectionWait
+	connectionTries, connectionWait = 3, time.Millisecond
+	t.Cleanup(func() { connectionTries, connectionWait = oldTries, oldWait })
+
+	tries := 0
+	err = retryConnection(context.Background(), func(attempt int) error {
+		tries++
+		if attempt < 3 {
+			return &ConnectionError{Err: fail}
+		}
+		return nil
+	})
+	if err != nil || tries != 3 {
+		t.Fatalf("gave up after %d tries: %v", tries, err)
+	}
+	tries = 0
+	err = retryConnection(context.Background(), func(int) error { tries++; return &ConnectionError{Err: fail} })
+	if err == nil || tries != connectionTries {
+		t.Fatalf("tried %d times: %v", tries, err)
+	}
+	tries = 0
+	want := errors.New("no space left on device")
+	if err := retryConnection(context.Background(), func(int) error { tries++; return want }); err != want || tries != 1 {
+		t.Fatalf("retried something that would not mend: %d %v", tries, err)
+	}
+	// A context that ends stops the waiting.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	tries = 0
+	if err := retryConnection(ctx, func(int) error { tries++; return &ConnectionError{Err: fail} }); err == nil || tries != 1 {
+		t.Fatalf("a cancelled context tried %d times: %v", tries, err)
+	}
+}
+
+// Installing tries again when the copy's connection drops, which is the
+// longest thing conch asks of one — and says which attempt it is on.
+func TestInstallRetriesADroppedCopy(t *testing.T) {
+	a4Env(t)
+	oldTries, oldWait := connectionTries, connectionWait
+	connectionTries, connectionWait = 3, time.Millisecond
+	t.Cleanup(func() { connectionTries, connectionWait = oldTries, oldWait })
+
+	bin := filepath.Join(t.TempDir(), "conch-remote")
+	if err := os.WriteFile(bin, []byte("a build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CONCH_REMOTE_BINARY", bin)
+
+	// An ssh that drops the first two connections, then works.
+	dir := t.TempDir()
+	count := filepath.Join(dir, "n")
+	ssh := filepath.Join(dir, "ssh")
+	os.WriteFile(ssh, []byte("#!/bin/sh\nn=$(cat "+count+" 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > "+count+
+		"\nif [ $n -lt 3 ]; then exit 255; fi\ncat > /dev/null\necho /home/u/.local/bin/conch\n"), 0o755)
+	t.Setenv("CONCH_SSH", ssh)
+
+	var said []string
+	path, err := Install(context.Background(), SSH("dev@box", false), otherPlatform(), func(s string) { said = append(said, s) })
+	if err != nil || path != "/home/u/.local/bin/conch" {
+		t.Fatalf("install: %q %v", path, err)
+	}
+	if b, _ := os.ReadFile(count); strings.TrimSpace(string(b)) != "3" {
+		t.Fatalf("it tried %q times", b)
+	}
+	if !strings.Contains(strings.Join(said, " | "), "attempt 2") {
+		t.Fatalf("it never said which attempt: %v", said)
+	}
+
+	// One that never answers gives up with ssh's own meaning, not a number.
+	os.Remove(count)
+	os.WriteFile(ssh, []byte("#!/bin/sh\nexit 255\n"), 0o755)
+	_, err = Install(context.Background(), SSH("dev@box", false), otherPlatform(), nil)
+	if err == nil || !strings.Contains(err.Error(), "install conch: ") ||
+		!strings.Contains(err.Error(), "the ssh connection failed (255)") {
+		t.Fatalf("a machine that never answers: %v", err)
+	}
+}
+
+// A sandbox is waited for: a provider says it is started before its sshd
+// is, and the first thing conch tries would otherwise fail.
+func TestWaitReachable(t *testing.T) {
+	a4Env(t)
+	oldTries, oldWait := connectionTries, connectionWait
+	connectionTries, connectionWait = 4, time.Millisecond
+	t.Cleanup(func() { connectionTries, connectionWait = oldTries, oldWait })
+
+	dir := t.TempDir()
+	count := filepath.Join(dir, "n")
+	ssh := filepath.Join(dir, "ssh")
+	os.WriteFile(ssh, []byte("#!/bin/sh\nn=$(cat "+count+" 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > "+count+
+		"\nif [ $n -lt 2 ]; then exit 255; fi\nexit 0\n"), 0o755)
+	t.Setenv("CONCH_SSH", ssh)
+	if err := WaitReachable(context.Background(), SSH("dev@box", false)); err != nil {
+		t.Fatalf("it should have waited: %v", err)
+	}
+	if b, _ := os.ReadFile(count); strings.TrimSpace(string(b)) != "2" {
+		t.Fatalf("tried %q times", b)
+	}
+	// One that never answers is given up on, with a reason.
+	os.Remove(count)
+	os.WriteFile(ssh, []byte("#!/bin/sh\necho 'ssh: connect to host gw port 22: Connection refused' >&2\nexit 255\n"), 0o755)
+	err := WaitReachable(context.Background(), SSH("dev@box", false))
+	if err == nil || !strings.Contains(err.Error(), "Connection refused") {
+		t.Fatalf("never answering: %v", err)
+	}
+}

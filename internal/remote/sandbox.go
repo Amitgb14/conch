@@ -123,6 +123,15 @@ func SetUpSandbox(ctx context.Context, m Machine, say func(string)) (*client.Cli
 	if err != nil {
 		return nil, err
 	}
+	// A provider says a sandbox is started before it is answering —
+	// Daytona says so within a second of being asked for one — so wait
+	// until it does rather than failing the first thing conch tries.
+	if say != nil {
+		say("waiting for " + m.Label + " to answer")
+	}
+	if err := WaitReachable(ctx, tr); err != nil {
+		return nil, fmt.Errorf("%s never answered: %w", m.Label, err)
+	}
 	return Connect(ctx, tr, Options{Install: true, Progress: say})
 }
 

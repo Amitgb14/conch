@@ -133,13 +133,65 @@ func Install(ctx context.Context, tr Transport, platform string, say func(string
 	if err != nil {
 		return "", err
 	}
-	say(fmt.Sprintf("copying conch to %s (%d MB)", tr.Describe(), len(data)>>20))
 	const script = `set -e; d="$HOME/.local/bin"; mkdir -p "$d"; cat > "$d/conch.new"; chmod 755 "$d/conch.new"; mv -f "$d/conch.new" "$d/conch"; echo "$d/conch"`
-	out, err := runScript(ctx, tr, script, data) // ssh asks for passwords on the terminal (or askpass), not stdin
+	// Copying 16 MB is the longest thing conch asks of a connection, and a
+	// machine made a moment ago is the likeliest to drop it. A connection
+	// that failed is worth trying again; a command that ran and said no is
+	// not, and is passed straight back.
+	var out []byte
+	err = retryConnection(ctx, func(attempt int) error {
+		what := fmt.Sprintf("copying conch to %s (%d MB)", tr.Describe(), len(data)>>20)
+		if attempt > 1 {
+			what += fmt.Sprintf(" · attempt %d", attempt)
+		}
+		say(what)
+		var err error
+		out, err = runScript(ctx, tr, script, data) // ssh asks for passwords on the terminal (or askpass), not stdin
+		return err
+	})
 	if err != nil {
 		return "", fmt.Errorf("install conch: %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// connectionTries is how often something worth retrying is tried, and
+// connectionWait how long between: enough for a machine that has just been
+// made to start answering, short enough that a real failure is not sat on.
+var (
+	connectionTries = 3
+	connectionWait  = 2 * time.Second
+)
+
+// retryConnection runs do until it succeeds, the context ends, or it fails
+// for a reason that trying again cannot mend.
+func retryConnection(ctx context.Context, do func(attempt int) error) error {
+	var err error
+	for attempt := 1; attempt <= connectionTries; attempt++ {
+		if err = do(attempt); err == nil {
+			return nil
+		}
+		var conn *ConnectionError
+		if !errors.As(err, &conn) || attempt == connectionTries {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(connectionWait):
+		}
+	}
+	return err
+}
+
+// WaitReachable waits until the machine answers at all. A provider says a
+// sandbox is started before its sshd is, so the first thing conch does
+// there would otherwise fail on a machine that was seconds from ready.
+func WaitReachable(ctx context.Context, tr Transport) error {
+	return retryConnection(ctx, func(int) error {
+		_, err := runScript(ctx, tr, "true", nil)
+		return err
+	})
 }
 
 // Options control Connect.

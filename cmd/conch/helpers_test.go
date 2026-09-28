@@ -329,6 +329,11 @@ case "$last" in
   /bin/cat > "$A4_INSTALLED"; echo "/home/dev/.local/bin/conch" ;;
 *" bridge")
   A4_HELPER_MODE=bridge exec "$A4_HELPER" ;;
+true)
+  # conch waits for a machine to answer at all before asking anything of
+  # it; a real ssh would run this and say nothing.
+  if [ -n "$A4_PROBE_FAIL" ]; then echo "$A4_PROBE_FAIL" >&2; exit 255; fi
+  exit 0 ;;
 *)
   exit 1 ;;
 esac

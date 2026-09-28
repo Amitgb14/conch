@@ -5,6 +5,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -207,6 +208,13 @@ func sshError(err error, stderr string) error {
 	if lines := strings.Split(msg, "\n"); len(lines) > 3 {
 		msg = strings.Join(lines[len(lines)-3:], "\n")
 	}
+	// 255 is ssh's own code for "the connection failed", as against a
+	// remote command that ran and returned something. It can come with
+	// nothing on stderr at all — a gateway closing on a machine that has
+	// only just started — and then "exit status 255" is all anybody sees.
+	if sshConnectionFailed(err) {
+		return &ConnectionError{Err: err, Stderr: msg}
+	}
 	if msg == "" {
 		return err
 	}
@@ -215,3 +223,29 @@ func sshError(err error, stderr string) error {
 	}
 	return fmt.Errorf("%s", msg)
 }
+
+// sshConnectionFailed reports ssh's own "could not connect" exit code.
+func sshConnectionFailed(err error) bool {
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && exit.ExitCode() == 255
+}
+
+// ConnectionError is ssh failing to connect rather than a command failing:
+// worth trying again, since a sandbox that has only just been made may not
+// be answering yet, and a long copy can be dropped.
+type ConnectionError struct {
+	Err    error
+	Stderr string
+}
+
+func (e *ConnectionError) Error() string {
+	if e.Stderr != "" {
+		if strings.Contains(e.Stderr, "Permission denied") || strings.Contains(e.Stderr, "Host key verification failed") {
+			return e.Stderr + " (run `conch machine add` in a terminal once to answer ssh prompts, or load your key with ssh-add)"
+		}
+		return e.Stderr
+	}
+	return "the ssh connection failed (255), with nothing said: the machine may not be answering yet"
+}
+
+func (e *ConnectionError) Unwrap() error { return e.Err }
