@@ -482,3 +482,65 @@ func TestUserSyncFromSettings(t *testing.T) {
 		t.Fatalf("nothing to do: %q", m.flash)
 	}
 }
+
+// Five agents' tabs, Devin's the last: every window size keeps the box
+// whole, the keyboard reaches the last tab even where the strip is cut
+// short, and a click on it opens it where it shows.
+func TestSetupFiveAgentTabs(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	res := a2SetupResult()
+	res.Agents = append(res.Agents,
+		proto.AgentSetup{Agent: "gemini", Label: "Gemini CLI"},
+		proto.AgentSetup{Agent: "opencode", Label: "OpenCode"},
+		proto.AgentSetup{Agent: "devin", Label: "Devin", Notes: []string{"Devin asks whether to trust a folder"},
+			Groups: []proto.SetupGroup{{Title: "Instructions", Items: []proto.SetupItem{{Name: "CLAUDE.md", Scope: "project", Detail: "Claude Code compatibility"}}}}})
+	v := &setupView{mid: localMachine, res: &res}
+	m.overlay = v
+	for _, size := range [][2]int{{120, 40}, {80, 24}, {60, 16}, {40, 12}, {20, 5}} {
+		m.width, m.height = size[0], size[1]
+		for tab := 0; tab < len(res.Agents); tab++ {
+			v.tab = tab
+			a2CheckBox(t, v.render(*m), *m)
+		}
+	}
+	m.width, m.height = 40, 12
+	v.tab = 0
+	for i := 0; i < 4; i++ {
+		v.update(m, a2Key("tab"))
+	}
+	// The strip moves along so the open tab shows, and says it has.
+	strip := a2Plain(v.render(*m).lines[1:2])
+	if v.tab != 4 || v.agentName() != "devin" || !strings.Contains(strip, "5 Devin") || !strings.Contains(strip, "‹") {
+		t.Fatalf("tab %d at 40 columns:\n%s", v.tab, a2Plain(v.render(*m).lines))
+	}
+	// A click on a tab of the moved strip opens that one.
+	b40 := v.render(*m)
+	lead := strings.Index(strip, "4 OpenCode")
+	if lead < 0 {
+		t.Fatalf("OpenCode's tab is not beside Devin's: %q", strip)
+	}
+	v.mouse(m, tea.MouseMsg{X: b40.x + ansi.StringWidth(strip[:lead]) + 1, Y: b40.y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b40)
+	if v.tab != 3 {
+		t.Fatalf("clicking OpenCode's tab in the moved strip: tab %d", v.tab)
+	}
+	v.tab = 4
+	m.height = 40
+	if out := a2Plain(v.render(*m).lines); !strings.Contains(out, "CLAUDE.md") || !strings.Contains(out, "Devin asks whether to trust") {
+		t.Fatalf("Devin's setup:\n%s", a2Plain(v.render(*m).lines))
+	}
+	v.update(m, a2Key("tab"))
+	if v.tab != 0 {
+		t.Fatalf("tab past the last: %d", v.tab)
+	}
+	m.width, m.height = 120, 40
+	b := v.render(*m)
+	x := b.x + 1
+	for _, l := range v.tabLabels()[:4] {
+		x += ansi.StringWidth(l) + 1
+	}
+	v.mouse(m, tea.MouseMsg{X: x + 1, Y: b.y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
+	if v.tab != 4 {
+		t.Fatalf("clicking Devin's tab: tab %d", v.tab)
+	}
+}

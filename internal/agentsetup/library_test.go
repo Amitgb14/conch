@@ -559,3 +559,34 @@ func TestLibraryReplaceCodexAndClaude(t *testing.T) {
 		t.Fatal("conch wrote Claude's state file")
 	}
 }
+
+// Records written before undo knew about links and commands still put
+// things back: an older user sync's, with no kind either, and a library
+// record whose ownership list is empty.
+func TestUndoOlderRecords(t *testing.T) {
+	home, e := libHome(t)
+	target := filepath.Join(home, ".codex", "AGENTS.md")
+	write(t, target, "written by the sync")
+	write(t, filepath.Join(userRecordDir(), "20260901-000000.json"),
+		`{"stamp":"20260901-000000","from":"claude","files":[{"path":"`+target+`","absent":true}]}`)
+	res, err := UndoUserSync("")
+	if err != nil || len(res.Changes) != 1 || res.Changes[0].Kind != "file" || !res.Changes[0].Done {
+		t.Fatalf("old user record: %v %+v", err, res)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatal("the file is still there")
+	}
+
+	write(t, writtenPath(), `[{"agent":"codex","kind":"mcp server","name":"gh"}]`)
+	write(t, filepath.Join(libraryUndoDir(), "20260902-000000.json"),
+		`{"stamp":"20260902-000000","from":"library","library":true,"files":[]}`)
+	if _, err := UndoLibrary(e, ""); err != nil {
+		t.Fatal(err)
+	}
+	if w := loadWritten(); len(w) != 0 {
+		t.Fatalf("ownership not put back to what the record says: %+v", w)
+	}
+	if len(LibraryUndos()) != 0 {
+		t.Fatal("the record is still there")
+	}
+}

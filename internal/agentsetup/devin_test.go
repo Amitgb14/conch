@@ -140,3 +140,36 @@ func TestSyncUserToDevin(t *testing.T) {
 		t.Fatal("linked where Devin does not look")
 	}
 }
+
+// In your home too: with Devin told not to read Claude's files, it is
+// given its own instructions and servers.
+func TestSyncUserToDevinWithoutClaude(t *testing.T) {
+	home, e := userHome(t)
+	write(t, filepath.Join(home, ".config", "devin", "config.json"), `{"read_config_from":{"claude":false}}`)
+	res, err := SyncUser(e, "claude", []string{"devin"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := find(t, res, "devin", SyncInstructions, "AGENTS.md"); !c.Done || c.Path != "~/.config/devin/AGENTS.md" {
+		t.Fatalf("instructions: %+v", c)
+	}
+	if got := read(t, filepath.Join(home, ".config", "devin", "AGENTS.md")); !strings.Contains(got, "British English") {
+		t.Fatalf("AGENTS.md:\n%s", got)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(read(t, filepath.Join(home, ".config", "devin", "mcp_config.json"))), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if got := obj(obj(doc, "mcpServers"), "gh"); str(obj(got, "env"), "GH_TOKEN") != "${env:GH_TOKEN}" {
+		t.Fatalf("devin gh %v", doc)
+	}
+	// The same setting keeps the library from counting on Claude's copy.
+	libHome := filepath.Join(home, "lib")
+	t.Setenv("CONCH_HOME", libHome)
+	mustSave(t, Library{Servers: []LibServer{{Name: "docs", URL: "https://docs.example/mcp", Agents: []string{"claude", "devin"}}}})
+	write(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{"docs":{"type":"http","url":"https://docs.example/mcp"}}}`)
+	_, cs, err := LibraryStatus(e)
+	if err != nil || !strings.Contains(cells(cs, SyncMCP, "docs"), "devin=pending") {
+		t.Fatalf("library: %v %s", err, cells(cs, SyncMCP, "docs"))
+	}
+}
