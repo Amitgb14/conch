@@ -38,8 +38,12 @@ func runAgent(args []string) error {
 		return err
 	}
 	defer c.Close()
+	id, err := resolvePane(c, args[1])
+	if err != nil {
+		return err
+	}
 	var out json.RawMessage
-	if err := call(c, proto.MethodAgentExplain, proto.PaneRef{ID: args[1]}, &out); err != nil {
+	if err := call(c, proto.MethodAgentExplain, proto.PaneRef{ID: id}, &out); err != nil {
 		return err
 	}
 	enc := json.NewEncoder(os.Stdout)

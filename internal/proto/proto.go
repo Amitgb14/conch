@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentPrompt,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentPrompt, CapTaskName,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -60,6 +60,10 @@ const CapAgentSyncUser = "agent.setup.sync.user.v1"
 // while it waits on a question, and the Turn of AgentStatus that says when
 // the work it started has ended.
 const CapAgentPrompt = "agent.prompt.v1"
+
+// CapTaskName is task.create taking Name: the task's pane named as it
+// starts. A server without it drops the field, so clients rename instead.
+const CapTaskName = "task.name.v1"
 
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
@@ -332,6 +336,21 @@ func (p PaneInfo) DisplayName() string {
 		return p.Title
 	}
 	return p.Name
+}
+
+// IsPaneID reports whether ref has the shape of a pane ID ("p" and a
+// number). Commands take a pane's name in place of its ID, so a name of
+// that shape is refused: it would stand for another pane.
+func IsPaneID(ref string) bool {
+	if len(ref) < 2 || ref[0] != 'p' {
+		return false
+	}
+	for _, c := range ref[1:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // PaneRenameParams renames a pane; an empty name restores the default.
@@ -907,8 +926,11 @@ type TaskCreateParams struct {
 	Branch    string `json:"branch,omitempty"`
 	Base      string `json:"base,omitempty"`
 	Agent     string `json:"agent,omitempty"` // default: the server's first agent (claude)
-	Cols      int    `json:"cols,omitempty"`
-	Rows      int    `json:"rows,omitempty"`
+	// Name names the pane, as pane.rename does, so it can be addressed
+	// by it; see IsPaneID.
+	Name string `json:"name,omitempty"`
+	Cols int    `json:"cols,omitempty"`
+	Rows int    `json:"rows,omitempty"`
 }
 
 // Agent states.

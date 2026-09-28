@@ -47,13 +47,15 @@ func runWait(args []string) error {
 	if err != nil {
 		return err
 	}
-	id := fs.Arg(0)
-
 	c, err := connect(false)
 	if err != nil {
 		return errors.New("server is not running")
 	}
 	defer c.Close()
+	id, err := resolvePane(c, fs.Arg(0))
+	if err != nil {
+		return err
+	}
 
 	// Connected before the pane is read, so an update between the two can
 	// only be queued for the loop below, never missed.

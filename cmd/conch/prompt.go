@@ -40,7 +40,7 @@ func agentPrompt(args []string) error {
 	if err != nil {
 		return err
 	}
-	id, text := fs.Arg(0), strings.Join(fs.Args()[1:], " ")
+	text := strings.Join(fs.Args()[1:], " ")
 
 	c, err := connect(false)
 	if err != nil {
@@ -49,6 +49,10 @@ func agentPrompt(args []string) error {
 	defer c.Close()
 	if miss := c.MissingCapabilities([]string{proto.CapAgentPrompt}); len(miss) > 0 {
 		return errors.New("the server there predates `conch agent prompt`; update it, or use `conch send`")
+	}
+	id, err := resolvePane(c, fs.Arg(0))
+	if err != nil {
+		return err
 	}
 	// Connected before the message goes in, so the updates that answer it
 	// can only be queued for the loop below, never missed.

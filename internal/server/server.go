@@ -1051,17 +1051,48 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 	if tp.Branch == "" {
 		tp.Branch = gitx.BranchFromPrompt(p.snapshot().Name, tp.Prompt)
 	}
+	// Checked before the worktree is made, so a refused name leaves nothing.
+	tp.Name = strings.TrimSpace(tp.Name)
+	if perr := s.nameFree(tp.Name); perr != nil {
+		return proto.PaneInfo{}, perr
+	}
 	path, _, perr := s.projects.addWorktree(p, tp.Branch, tp.Base)
 	if perr != nil {
 		return proto.PaneInfo{}, perr
 	}
-	return s.create(proto.PaneCreateParams{
+	info, perr := s.create(proto.PaneCreateParams{
 		Agent:  tp.Agent,
 		Prompt: tp.Prompt,
 		Cwd:    path,
 		Cols:   tp.Cols,
 		Rows:   tp.Rows,
 	})
+	if perr != nil || tp.Name == "" {
+		return info, perr
+	}
+	e, perr := s.get(info.ID)
+	if perr != nil { // it ended already
+		return info, nil
+	}
+	s.rename(e, tp.Name)
+	return e.info(), nil
+}
+
+// nameFree checks that a task's pane can take name: not the shape of a
+// pane ID, and held by no running pane, so the name picks out this one.
+func (s *Server) nameFree(name string) *proto.Error {
+	if name == "" {
+		return nil
+	}
+	if proto.IsPaneID(name) {
+		return proto.Errorf(proto.ErrBadRequest, "%q is shaped like a pane ID; choose another name", name)
+	}
+	for _, info := range s.list() {
+		if info.State == proto.PaneRunning && info.Name == name {
+			return proto.Errorf(proto.ErrBadRequest, "pane %s is already named %q", info.ID, name)
+		}
+	}
+	return nil
 }
 
 func (s *Server) close(id string) *proto.Error {

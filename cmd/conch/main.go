@@ -43,6 +43,8 @@ Usage:
   conch send ID TEXT            type TEXT into a pane (-keys to send key names)
   conch read ID                 print a pane's visible screen
   conch close ID                close a pane
+  conch rename ID [NAME]        name a pane; without NAME it gets its own back. Every
+                                command taking a pane ID takes its name too
   conch redraw ID               draw a pane's screen again (after a program left stale text)
   conch wait ID [-state done] [-timeout 30m]
                                 block until a pane's agent is done (or waiting, working, idle);
@@ -63,9 +65,10 @@ Usage:
                                 -apply it only says what it would do
   conch project add PATH | create [-no-git] PATH | ls | rm ID
                                 manage projects shown in the sidebar
-  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] PROMPT
+  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] PROMPT
                                 new branch + worktree + Claude with PROMPT (-cwd needed with -m);
-                                -n / several agents try it once each, one branch per attempt
+                                -n / several agents try it once each, one branch per attempt;
+                                -name names the pane
   conch branch commit [-file PATH]... -m MESSAGE
                                 commit a task branch's changes (-cwd, -branch pick it;
                                 -cwd needed with -m)
@@ -127,6 +130,8 @@ func main() {
 		err = runSend(args)
 	case "read":
 		err = runRead(args)
+	case "rename":
+		err = runRename(args)
 	case "close":
 		err = runClose(args)
 	case "redraw":
@@ -442,12 +447,16 @@ func runSend(args []string) error {
 	if fs.NArg() < 2 {
 		return errors.New("usage: conch send [-keys] ID TEXT...")
 	}
-	id, rest := fs.Arg(0), fs.Args()[1:]
+	rest := fs.Args()[1:]
 	c, err := connect(false)
 	if err != nil {
 		return err
 	}
 	defer c.Close()
+	id, err := resolvePane(c, fs.Arg(0))
+	if err != nil {
+		return err
+	}
 	if *keys {
 		return call(c, proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: id, Keys: rest}, nil)
 	}
@@ -463,8 +472,12 @@ func runRead(args []string) error {
 		return err
 	}
 	defer c.Close()
+	id, err := resolvePane(c, args[0])
+	if err != nil {
+		return err
+	}
 	var res proto.PaneReadResult
-	if err := call(c, proto.MethodPaneRead, proto.PaneRef{ID: args[0]}, &res); err != nil {
+	if err := call(c, proto.MethodPaneRead, proto.PaneRef{ID: id}, &res); err != nil {
 		return err
 	}
 	// Drop trailing blank rows.
@@ -488,7 +501,11 @@ func runRedraw(args []string) error {
 	if len(c.MissingCapabilities([]string{"pane.redraw.v1"})) > 0 {
 		return errors.New("the conch server predates redrawing panes; reload it with `conch server reload`")
 	}
-	return call(c, proto.MethodPaneRedraw, proto.PaneRef{ID: args[0]}, nil)
+	id, err := resolvePane(c, args[0])
+	if err != nil {
+		return err
+	}
+	return call(c, proto.MethodPaneRedraw, proto.PaneRef{ID: id}, nil)
 }
 
 func runClose(args []string) error {
@@ -500,7 +517,11 @@ func runClose(args []string) error {
 		return err
 	}
 	defer c.Close()
-	return call(c, proto.MethodPaneClose, proto.PaneRef{ID: args[0]}, nil)
+	id, err := resolvePane(c, args[0])
+	if err != nil {
+		return err
+	}
+	return call(c, proto.MethodPaneClose, proto.PaneRef{ID: id}, nil)
 }
 
 // stopServer asks the server to stop and waits until it has, so a following

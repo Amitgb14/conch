@@ -445,3 +445,23 @@ func TestAgentPromptWire(t *testing.T) {
 		t.Fatal("agent.prompt.v1 not announced")
 	}
 }
+
+// A task's name is optional on the wire, so older servers read the same
+// params, and announced so clients know whether it is honoured.
+func TestTaskNameWire(t *testing.T) {
+	b, _ := json.Marshal(TaskCreateParams{ProjectID: "r1", Prompt: "go"})
+	if strings.Contains(string(b), `"name"`) {
+		t.Fatalf("empty name sent: %s", b)
+	}
+	b, _ = json.Marshal(TaskCreateParams{Name: "reviewer"})
+	if !strings.Contains(string(b), `"name":"reviewer"`) {
+		t.Fatalf("name: %s", b)
+	}
+	found := false
+	for _, c := range Capabilities {
+		found = found || c == CapTaskName
+	}
+	if !found || CapTaskName != "task.name.v1" {
+		t.Fatal("task.name.v1 not announced")
+	}
+}
