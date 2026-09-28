@@ -350,7 +350,7 @@ func (s *settings) userSyncItems(m *Model) []settingItem {
 			run: func(m *Model) tea.Cmd { return m.undoUserSync() }},
 		settingItem{},
 		settingItem{label: styleMuted.Render("  ~/.claude/CLAUDE.md and its skills, ~/.codex/config.toml,")},
-		settingItem{label: styleMuted.Render("  ~/.gemini/settings.json, ~/.config/opencode — written where")},
+		settingItem{label: styleMuted.Render("  ~/.gemini, ~/.config/opencode and ~/.config/devin — written where")},
 		settingItem{label: styleMuted.Render("  each agent looks, after saying what it would write.")})
 }
 
@@ -426,8 +426,11 @@ func (s *settings) machineAgentItems(m *Model, id string) []settingItem {
 }
 
 func (s *settings) agentItems(m *Model) []settingItem {
-	if s.page == "usersync" {
+	switch s.page {
+	case "usersync":
 		return s.userSyncItems(m)
+	case "library":
+		return s.libraryItems(m)
 	}
 	if id, ok := cutPrefix(s.page, "agents:"); ok {
 		return s.machineAgentItems(m, id)
@@ -448,7 +451,13 @@ func (s *settings) agentItems(m *Model) []settingItem {
 	items = append(items, settingItem{}, settingItem{header: true, label: "What each agent loads", detail: "your own setup, and each checkout's"},
 		settingItem{label: styleMuted.Render("  i on a project, branch or pane: this checkout's, and s to give it to the others")},
 		settingItem{label: "Your own setup…", detail: styleMuted.Render("~/.claude and the rest, given to the other agents"), page: true,
-			run: func(m *Model) tea.Cmd { s.openPage("usersync"); return nil }})
+			run: func(m *Model) tea.Cmd { s.openPage("usersync"); return nil }},
+		settingItem{label: "Shared MCP servers & skills…", detail: styleMuted.Render("kept in conch, given to the agents you choose"), page: true,
+			run: func(m *Model) tea.Cmd {
+				s.openPage("library")
+				m.libraryErr = ""
+				return m.loadLibrary(proto.AgentLibraryParams{}, "")
+			}})
 
 	r := &m.cfg.Remote
 	items = append(items, settingItem{}, settingItem{header: true, label: "Remote machines"},

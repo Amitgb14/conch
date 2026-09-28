@@ -27,9 +27,11 @@ func runAgent(args []string) error {
 		return agentSetup(args[1:])
 	case len(args) >= 1 && args[0] == "sync":
 		return agentSync(args[1:])
+	case len(args) >= 1 && args[0] == "library":
+		return agentLibrary(args[1:])
 	case len(args) != 2 || args[0] != "explain":
 		return errors.New("usage: conch agent explain ID | status | install NAME | setup [-agent NAME] [-copy] [DIR] | " +
-			"sync [-from NAME] [-to NAMES] [-apply] [-undo [STAMP]] [DIR]")
+			"sync [-from NAME] [-to NAMES] [-apply] [-undo [STAMP]] [DIR] | library [list | add | skill | on | off | rm | import | plan | apply | undo]")
 	}
 	c, err := connect(false)
 	if err != nil {
@@ -266,6 +268,13 @@ func agentSync(args []string) error {
 }
 
 func printSync(w io.Writer, res proto.AgentSyncResult, wrote bool) {
+	printSyncWith(w, res, wrote, "", "conch agent sync -undo")
+}
+
+// printSyncWith prints a plan or its outcome; again is the command that
+// applies a plan ("" says to run it with -apply), undo the one that puts
+// an apply back.
+func printSyncWith(w io.Writer, res proto.AgentSyncResult, wrote bool, again, undo string) {
 	switch {
 	case res.Undone:
 		fmt.Fprintf(w, "%s · put sync %s back\n", res.Dir, res.Undo)
@@ -305,10 +314,12 @@ func printSync(w io.Writer, res proto.AgentSyncResult, wrote bool) {
 	case res.Undone:
 	case n == 0:
 		fmt.Fprintln(w, "\nnothing to do: every agent already has it")
+	case !wrote && again != "":
+		fmt.Fprintf(w, "\n%d change%s; %s makes them\n", n, map[bool]string{true: "", false: "s"}[n == 1], again)
 	case !wrote:
 		fmt.Fprintf(w, "\n%d change%s; run it again with -apply to make them\n", n, map[bool]string{true: "", false: "s"}[n == 1])
 	case res.Undo != "":
-		fmt.Fprintf(w, "\nundo with: conch agent sync -undo -stamp %s\n", res.Undo)
+		fmt.Fprintf(w, "\nundo with: %s -stamp %s\n", undo, res.Undo)
 	}
 }
 

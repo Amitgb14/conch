@@ -207,6 +207,30 @@ func (v *setupView) tabLabels() []string {
 	return out
 }
 
+// tabsCut marks a tab strip that starts after its first tabs.
+const tabsCut = "‹ "
+
+// firstTab is the first tab the strip shows in w columns: the first of
+// all while the open one fits, else as far along as it takes to show the
+// open one — five agents' names do not fit a narrow window, and a strip
+// cut short before the open tab would not say whose setup this is.
+func (v *setupView) firstTab(w int) int {
+	labels := v.tabLabels()
+	end := 0
+	for i := 0; i <= v.tab && i < len(labels); i++ {
+		end += ansi.StringWidth(labels[i]) + 1
+	}
+	first := 0
+	for first < v.tab && end > w {
+		end -= ansi.StringWidth(labels[first]) + 1
+		if first == 0 {
+			end += ansi.StringWidth(tabsCut)
+		}
+		first++
+	}
+	return first
+}
+
 func missingCount(a proto.AgentSetup) int {
 	n := 0
 	for _, g := range a.Groups {
@@ -333,7 +357,14 @@ func (v *setupView) render(m Model) box {
 	v.scroll = clamp(v.scroll, 0, max(len(body)-listH, 0))
 
 	var tabs strings.Builder
+	first := v.firstTab(w - 2)
+	if first > 0 {
+		tabs.WriteString(styleMuted.Render(tabsCut))
+	}
 	for i, label := range v.tabLabels() {
+		if i < first {
+			continue
+		}
 		if i == v.tab {
 			tabs.WriteString(styleSel.Render(label))
 		} else {
@@ -382,7 +413,14 @@ func (v *setupView) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 		return nil
 	}
 	x := msg.X - b.x - 1
+	first := v.firstTab(b.width() - 4)
+	if first > 0 {
+		x -= ansi.StringWidth(tabsCut)
+	}
 	for i, label := range v.tabLabels() {
+		if i < first {
+			continue
+		}
 		width := ansi.StringWidth(label) + 1
 		if x < width {
 			v.tab, v.scroll = i, 0

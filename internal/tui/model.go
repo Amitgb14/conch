@@ -36,7 +36,11 @@ const (
 
 // Model is the root Bubble Tea model.
 type Model struct {
-	cfg config.Config
+	// library is the MCP servers and skills conch keeps for the agents on
+	// this computer, as last read, and libraryErr why it could not be.
+	library    *proto.AgentLibraryResult
+	libraryErr string
+	cfg        config.Config
 
 	width, height int
 
@@ -440,6 +444,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case userSyncMsg:
 		return m, m.receiveUserSync(msg)
+
+	case libraryMsg:
+		return m, m.receiveLibrary(msg)
+
+	case libraryApplyMsg:
+		return m, m.receiveLibraryApply(msg)
 
 	case stepMsg:
 		// A long job said what it is doing; keep listening for the next.

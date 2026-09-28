@@ -129,10 +129,10 @@ conch project files ID -none        # copy no local files
 
 ## Agent setup
 
-`i` on a project, branch or pane shows what each agent loads there, read from the agents' own configuration (conch only reads it):
+`i` on a project, branch or pane shows what each agent loads there, read from the agents' own configuration (conch only reads it), a tab per agent — `tab` moves between them. In a narrow window the tab strip moves along to keep the open tab in view, with `‹` where it has left tabs off:
 
 - **Instructions** — `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` and friends, from your home and every folder the agent reads them from, plus the files `CLAUDE.md` and `GEMINI.md` pull in with `@path` imports (marked *imported by*)
-- **Skills** — `~/.claude/skills`, `.agents/skills` (Codex, Gemini, OpenCode), `.gemini/skills`, `.opencode/skills`, plugin skills
+- **Skills** — `~/.claude/skills`, `.agents/skills` (Codex, Gemini, OpenCode, Devin), `.gemini/skills`, `.opencode/skills`, `.devin/skills`, plugin skills. Devin's tab also lists what it reads of Claude Code's — `CLAUDE.md`, `.claude/skills`, `.mcp.json` — marked *Claude Code compatibility*
 - **Commands and subagents**, **MCP servers** (names and transport only — never commands, URLs or secrets), **plugins and extensions**
 - **Added by conch** — the hooks or plugin conch injects for state tracking
 - Warnings, e.g. a folder Claude or Codex hasn't trusted yet
@@ -171,7 +171,9 @@ What it does, and what it refuses to do:
 | --- | --- |
 | **Instructions** | an agent that expands `@path` (Claude Code, Gemini CLI) is pointed at the other file, so the two never drift; one that doesn't (Codex, OpenCode read `AGENTS.md`) gets the text in a block conch can find again, between `<!-- conch:instructions from … -->` and `<!-- conch:end -->` |
 | **Skills** | linked, not copied: one folder holds the skill and `.agents/skills` is read by Codex, Gemini and OpenCode alike, so one link serves three |
-| **MCP servers** | written in each agent's own format — `.mcp.json`, `.codex/config.toml`, `.gemini/settings.json`, `opencode.json` — keeping everything else in those files. A server already declared there is left as it is |
+| **MCP servers** | written in each agent's own format — `.mcp.json`, `.codex/config.toml`, `.gemini/settings.json`, `opencode.json`, `.devin/mcp_config.json` — keeping everything else in those files. A server already declared there is left as it is |
+| **Variables** | each agent names one its own way, and conch writes that way: `${TOKEN}` for Claude Code and Gemini, `{env:TOKEN}` for OpenCode, `${env:TOKEN}` for Devin. Codex expands nothing in its config, so it is told the names to pass on — `env_vars = ["TOKEN"]`, `bearer_token_env_var` for an `Authorization: Bearer ${TOKEN}` header, `env_http_headers` for the rest. A server Codex cannot express — a variable passed under another name, a reference in its arguments, an SSE server — is left out for Codex with the reason |
+| **Devin** | reads Claude Code's `CLAUDE.md`, `.claude/skills` and `.mcp.json`, and OpenCode's servers, by itself, so it is given only what it would not otherwise see — a second copy would be read twice. Turn that off with `read_config_from` in Devin's `config.json` and it gets its own `AGENTS.md`, skills link and `.devin/mcp_config.json` |
 | **Nothing else** | logins are each agent's own and are never touched. A server whose environment or headers hold a value rather than a `${VAR}` reference is not copied: conch does not carry secrets between files |
 | **Hand-written files** | left alone. conch writes its own block, or a file that wasn't there; a file somebody wrote is reported as skipped, and a second sync updates the block rather than the rest |
 | **Undo** | `u` puts the last sync back, file by file, from a record under `.conch/agent-sync/`. A file conch created is removed; one it changed goes back to what it held |
@@ -207,4 +209,45 @@ The rules are the checkout's, with two differences that matter:
 - **There is no `git status` here.** Nothing shows what changed in your home afterwards, so the plan carries every path in full (`~/.codex/AGENTS.md`, `~/.agents/skills/tide-check`) and the record — under `~/.config/conch/agent-sync/`, not a `.conch` in your home — is what puts it back.
 - **A file that is a link is left alone.** These files are often symlinks into a dotfiles repository, and writing through the link would edit that repository. conch skips one and says so rather than touching it.
 
-Claude is never *given* MCP servers here: its own live in `~/.claude.json`, the file it keeps its state and every project's history in, and conch does not rewrite that for a setting — it reads from it happily enough, so Claude's servers still reach the other agents.
+Claude is never *given* MCP servers here: its own live in `~/.claude.json`, the file it keeps its state and every project's history in, and conch does not rewrite that for a setting — it reads from it happily enough, so Claude's servers still reach the other agents. (The library below gives Claude servers through its own `claude mcp add-json` instead.) Devin's go in `~/.config/devin/mcp_config.json` and its skills in `~/.config/devin/skills`, since it does not read `~/.agents/skills`.
+
+## Shared MCP servers and skills
+
+A sync copies one agent's setup to the others, once. The library is what they *follow*: MCP servers and skills kept in conch, each ticked for the agents that should have it. Untick an agent and applying takes the server back out of it; change a server and every agent that has it is told. It lives in Settings → **Agents** → **Shared MCP servers & skills…**, is kept per machine in `~/.config/conch/library/`, and covers your home — the setup that follows you from project to project.
+
+```
+ Shared MCP servers & skills          given to the agents you choose
+ ‹ Agents                                                        esc
+
+ MCP servers                                          Cl Cx Gm Oc Dv
+ ○ docs http                                          ✓  +  ·  ·  ✓
+ ○ github stdio · npx                                 ✓  ✓  !  ·  ✓
+      Gm declared there by hand, differently: conch leaves it alone
+ ○ Add a server…
+
+ Skills                                               Cl Cx Gm Oc Dv
+ ○ review ~/skills/review                             ✓  ✓  ✓  ✓  ·
+```
+
+- **Take an agent's into the library…** starts it from what you have: an agent's servers and skills in your home go in, ticked for it and for any agent that already has the same. Nothing is written to any agent.
+- **Add a server…** takes a command (`npx -y @modelcontextprotocol/server-github`) or a URL, its environment and headers as `NAME=value; …`, and a box per agent. A value must refer to a variable — `GITHUB_TOKEN=${GITHUB_TOKEN}`, `Authorization=Bearer ${TOKEN}` — and a literal token is refused: the secret stays in your environment, and each agent is given its own way of naming it.
+- **Add a skill…** takes a folder holding a `SKILL.md`, wherever you keep it. Each agent gets a link to it: one in `~/.claude/skills`, one in `~/.agents/skills` for Codex, Gemini and OpenCode together, one in `~/.config/devin/skills`. Since that middle link is shared, it stays while any of the three still wants it, and the row says so.
+- **Apply…** shows every write first, then makes it. **Put the last one back…** undoes the last apply, file by file.
+
+What keeps it safe is the sync's, plus one thing of its own: conch remembers what it wrote (`library/written.json`), and only that is ever changed or taken out. A server somebody declared by hand under the same name is marked `!` or `○` and left alone; a config that is a link into a dotfiles repository is skipped. Claude's servers are added with `claude mcp add-json --scope user` and taken out with `claude mcp remove`, since conch does not write `~/.claude.json`. Devin is not given a server Claude Code or OpenCode already has, because it reads theirs.
+
+From a shell:
+
+```sh
+conch agent library                                        # the library, a column per agent
+conch agent library import claude                          # take Claude Code's in
+conch agent library add -to codex,devin -env GITHUB_TOKEN='${GITHUB_TOKEN}' github -- npx -y @modelcontextprotocol/server-github
+conch agent library add -header 'Authorization=Bearer ${DOCS_TOKEN}' docs https://docs.example/mcp
+conch agent library skill review ~/skills/review
+conch agent library off github codex                       # untick one
+conch agent library plan                                   # what apply would write
+conch agent library apply
+conch agent library undo
+```
+
+Quote the `${…}` in a shell, or the shell expands it before conch sees it.
