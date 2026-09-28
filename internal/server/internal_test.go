@@ -1329,3 +1329,61 @@ func TestA5CreateErrors(t *testing.T) {
 		t.Fatalf("default pane: %+v", info)
 	}
 }
+
+func TestA5ThemeSamples(t *testing.T) {
+	if got := themeSamples("/nowhere", nil); got != nil {
+		t.Fatalf("no themes: %v", got)
+	}
+	t.Run("no zsh", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		if got := themeSamples("/nowhere", []string{"a"}); got != nil {
+			t.Fatalf("without zsh: %v", got)
+		}
+	})
+	if _, err := exec.LookPath("zsh"); err != nil {
+		t.Skip("zsh is not installed")
+	}
+
+	home := a5IsolateEnv(t)
+	s, _ := a5Server(t)
+	omz := filepath.Join(home, ".oh-my-zsh")
+	if err := os.MkdirAll(filepath.Join(omz, "themes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(omz, "oh-my-zsh.sh"), nil, 0o644)
+	for name, body := range map[string]string{
+		"plain":  "PROMPT='plain> '\n",
+		"colour": "PROMPT='%{%F{red}%}red%{%f%}> '\n",
+		"two":    "PROMPT=$'first\\nsecond> '\n",
+		"broken": "PROMPT=( ; unbalanced\n",
+		"sub":    "conch_hi() { print -n hello }\nPROMPT='%{%F{blue}%}$(conch_hi) $ '\n",
+	} {
+		if err := os.WriteFile(filepath.Join(omz, "themes", name+".zsh-theme"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A name with no file of its own is simply left out, not fatal.
+	samples := themeSamples(omz, []string{"plain", "colour", "two", "broken", "sub", "gone"})
+	if samples["plain"] != "plain>" {
+		t.Errorf("plain: %q", samples["plain"])
+	}
+	if !strings.Contains(samples["colour"], "\x1b[31mred") || !strings.HasSuffix(samples["colour"], ">") {
+		t.Errorf("colour: %q", samples["colour"])
+	}
+	if samples["two"] != "first second>" { // a two-line prompt is shown on one
+		t.Errorf("two: %q", samples["two"])
+	}
+	// A theme whose prompt calls something is run, the way the shell runs it.
+	if !strings.Contains(samples["sub"], "hello $") {
+		t.Errorf("sub: %q", samples["sub"])
+	}
+	if samples["broken"] != "" || samples["gone"] != "" {
+		t.Errorf("a theme that said nothing: %q %q", samples["broken"], samples["gone"])
+	}
+
+	// And shellThemes hands them over beside the names.
+	th := s.shellThemes()
+	if !th.OMZ || len(th.Themes) != 5 || th.Samples["plain"] != "plain>" {
+		t.Fatalf("shellThemes: %+v", th)
+	}
+}

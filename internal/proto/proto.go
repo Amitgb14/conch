@@ -1273,6 +1273,10 @@ type ShellThemes struct {
 	OMZ     bool     `json:"omz"`               // Oh My Zsh is installed
 	Current string   `json:"current,omitempty"` // ZSH_THEME set in .zshrc
 	Themes  []string `json:"themes,omitempty"`  // sorted
+	// Samples is each theme's prompt as zsh expands it, so a person can
+	// see what they are choosing. A server that cannot run zsh, or one
+	// from an older build, sends none and the names stand alone.
+	Samples map[string]string `json:"samples,omitempty"`
 }
 
 // PaneRef addresses a pane.

@@ -193,6 +193,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 9.50 | A login URL an agent printed | An agent in a sandbox (or over ssh) running its login: `claude /login`, `codex login`, `gemini` — whatever prints a URL and asks you to open it; then `ctrl+b u`, and `m` → **Open a link it printed**; also with the URL scrolled off (`ctrl+b [` first), and in a narrow pane where the box wraps it twice | The menu lists the URL whole — no border, no line break, nothing missing — opening it signs the agent in and the clipboard holds the same text; a pane with no links says so; prose under a link is not glued to it (or, when it is, it is plain in the menu before anything opens) | ☐ |
 | 9.51 | What a long job is doing | `M` → **New sandbox…** on a provider that works, and `M` → **Over ssh** to a machine with no conch on it yet: watch the status bar for the whole minute or two | A line with a spinner says what it is doing and keeps saying it — asking the provider, the sandbox is up, probing, building, copying N MB, connecting — until the machine appears or a reason does; it is not a flash that fades after four seconds, and nothing else takes the line while it runs | ◐ R29 2026-09-27: the flow and the refusal (boat's plan had lapsed, so the create was refused in a second: the notice read "boat.dev wants a plan or a payment method…" once, not twice); a fast add showed only its "added" flash. Not run: watching the line through a slow install, which is the point of it |
 | 9.52 | Conch's own folder deleted under it | On a machine or sandbox with conch running: `rm -rf ~/.config/conch`, then start an agent (Claude, Gemini, OpenCode) from the TUI; then `conch -m ID status`; then a second server check (`ps` for `conch server`) | Starting the agent writes the files it is launched with again, so Claude does not fail with "Settings file not found"; the next connection starts a fresh server, which recreates the folder; the old server is left orphaned holding its panes, so its pid has to be killed by hand — nothing pretends those panes are still reachable | ◐ R29 2026-09-27: seen on a real Daytona sandbox — the binary in ~/.local/bin survived, `status` started a fresh server and the folder came back, and two servers were running (the orphan holding one shell). The launch-time rewrite is covered by tests; not yet tried on a real agent after the folder went |
+| 9.56 | A prompt theme as it really looks | On a computer with Oh My Zsh: Settings → Theme → **Shell prompt**, in a wide window and a narrow one; pick one and open a new zsh terminal; and against a local server built before this change | Each theme shows the prompt it draws, in its colours — agnoster's powerline segments, a two-line theme on one line, a long one cut with `…`; the terminal that opens draws the same prompt; a theme zsh could not expand shows nothing rather than `$(git_prompt_info)`; an older server simply shows the names, as before (the list is the local computer's either way) | ◐ R34 2026-09-28: the expansion itself against this Mac's 143 real themes (agnoster, bira, fino, gnzh, cloud, af-magic, minimal, robbyrussell) — see R34. Not run: the rows in the TUI at either width, opening a terminal to compare, and an older server |
 
 ## Driving a TUI under test
 
@@ -479,6 +480,26 @@ This Mac to busybox (`aghadge@10.0.0.115`), isolated on both sides. Here: its ow
 - **Found and fixed:** the status bar cut the refusal to "moving feat failed: rebuild t…". Failures now open a notice with the whole reason, and the status bar keeps the short form. The server's messages said "here", which read as the Mac inside a notice that also said "nothing changed here". They no longer name a place, and the notice names both machines ("moving feat to busybox failed … Nothing changed on local.").
 - **Found and fixed:** a menu whose title was its widest line lost the end of it ("Move feat to which machin…"), in every menu: the frame's spaces weren't counted.
 - **Not run:** a real Claude reading the handoff after a move (the handoff itself was checked in R19), and a pushed branch sending no commits (covered by the server tests).
+
+### R34 — 2026-09-28, how each Oh My Zsh theme's prompt is expanded, macOS arm64
+
+The script `themeSamples` runs, by hand against the real `~/.oh-my-zsh`
+(143 themes), in a temporary `HOME` that is no repository.
+
+- `print -rP -- "$PROMPT"` — the obvious way — left the substitutions a
+  theme defers: `robbyrussell` ended in a literal `$(git_prompt_info)`,
+  `af-magic` in `${(l.$(afmagic_dashes)..-.)}` and `agnoster` was nothing
+  but `$(build_prompt)`. Nobody would recognise their prompt in that.
+- `${(%%e)PROMPT}` ran them but left the escapes the helpers printed
+  (`%{%K{black}%}` all through agnoster).
+- `${(%%)${(e)PROMPT}}` — substitute first, then expand the prompt escapes
+  that came back — drew them as the shell does: agnoster with its
+  powerline segments and background colours, `bira` and `fino` over two
+  lines joined into one, `cloud`, `gnzh`, `minimal` each in their colours.
+  That is what shipped.
+- The temporary `HOME` shows in the samples as `~`, and a git-aware theme
+  shows its plain form because the folder is no repository — which is the
+  point: a sample is the theme, not this checkout's branch.
 
 ### R33 — 2026-09-27, your own setup given to the other agents, macOS arm64
 
