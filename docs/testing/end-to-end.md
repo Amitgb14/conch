@@ -493,9 +493,20 @@ was tagged (`CONCH_RELEASE_URL` pointed at a `python3 -m http.server` serving
   `CGO_ENABLED=0` build, which is what the release script uses for three of the
   four platforms. Coverage 93.0%.
 
-Not covered here, and left for after the tag: the GitHub build of the tag
-itself, *latest* resolution, the website deploying from the tag, and the
-update arriving in a real TUI (5.3, 5.4).
+**After the tag, the same day:** GitHub built `v0.1.5` (tests, four
+platforms, checksums, gh release create) and the website deployed from it in
+47 s, serving 0.1.5 on
+https://amitgb14.github.io/conch/docs/installation/. `install.sh` with no
+version resolved *latest* through GitHub's redirect and installed the
+CI-built binary, `conch 0.1.5 (build 22673fb1944e)` — a different hash from
+the local build, as another machine's is. A real v0.1.4 binary then ran
+`conch update` with no argument, resolved 0.1.5 by itself and installed the
+copy it had kept ("kept, no download needed"), and `conch update list`
+showed `* 0.1.5 (latest, what conch update installs · running · kept…)`
+above 0.1.4 down to 0.1.1.
+
+Still not covered: the update arriving in a real TUI (5.3, 5.4), and the
+linux archives installed by `install.sh` rather than copied by hand.
 
 ### R29 — 2026-09-27, a sandbox create from the TUI, macOS arm64, build 0.1.5-dev
 
