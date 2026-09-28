@@ -343,3 +343,136 @@ func TestA4NamesRealServer(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// fakeTaskServer answers a task's calls; panes is what pane.list returns,
+// rename what pane.rename does.
+func fakeTaskServer(t *testing.T, old bool, panes []proto.PaneInfo, rename *proto.Error) *a4Server {
+	t.Helper()
+	srv := startA4Server(t, config.SocketPath())
+	if old {
+		srv.setHello(func(n int) proto.HelloResult {
+			h := currentHello(n)
+			h.Capabilities = []string{"pane.v1", "project.v1"}
+			return h
+		})
+	}
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodProjectAdd:
+			return proto.ProjectInfo{ID: "proj1", Name: "api"}, nil
+		case proto.MethodPaneList:
+			return proto.PaneList{Panes: panes}, nil
+		case proto.MethodTaskCreate:
+			return proto.PaneInfo{ID: "p5", Name: "claude", Cwd: "/src/wt", Branch: "review"}, nil
+		case proto.MethodPaneRename:
+			if rename != nil {
+				return nil, rename
+			}
+			return proto.PaneInfo{ID: "p5", Name: "reviewer", Cwd: "/src/wt", Branch: "review"}, nil
+		}
+		return nil, nil
+	})
+	return srv
+}
+
+// An older server can't refuse a taken name, so the CLI does, before the
+// task starts: renaming after would leave two panes with one name.
+func TestA4TaskNameTakenOnOlderServer(t *testing.T) {
+	a4Env(t)
+	srv := fakeTaskServer(t, true, []proto.PaneInfo{a4Named("p2", "reviewer", proto.PaneRunning)}, nil)
+	err := runTask([]string{"-cwd", "/src", "-name", "reviewer", "go"})
+	if err == nil || !strings.Contains(err.Error(), `pane p2 is already named "reviewer"`) {
+		t.Fatalf("taken: %v", err)
+	}
+	for _, m := range srv.methods() {
+		if m == proto.MethodTaskCreate || m == proto.MethodPaneRename {
+			t.Fatalf("went on to %s", m)
+		}
+	}
+
+	// An ended pane's name is free there too.
+	a4Env(t)
+	fakeTaskServer(t, true, []proto.PaneInfo{a4Named("p2", "reviewer", proto.PaneExited)}, nil)
+	if _, err := a4CaptureErr(t, func() error { return runTask([]string{"-cwd", "/src", "-name", "reviewer", "go"}) }); err != nil {
+		t.Fatalf("ended pane's name: %v", err)
+	}
+}
+
+// The task has started when naming it fails; say which pane, so it can be
+// named by hand or closed.
+func TestA4TaskNameRenameFails(t *testing.T) {
+	a4Env(t)
+	fakeTaskServer(t, true, nil, proto.Errorf(proto.ErrNotFound, `no pane "p5"`))
+	err := runTask([]string{"-cwd", "/src", "-name", "reviewer", "go"})
+	if err == nil || !strings.Contains(err.Error(), `p5 started, but naming it failed: not_found: no pane "p5"`) {
+		t.Fatalf("rename failed: %v", err)
+	}
+}
+
+func a4CaptureErr(t *testing.T, fn func() error) (string, error) {
+	t.Helper()
+	var err error
+	out, _ := a4Capture(t, "", func() { err = fn() })
+	return out, err
+}
+
+// A failing list fails the command, and the pane is left alone: without
+// it the name can't be known to mean anything.
+func TestA4NamesListFails(t *testing.T) {
+	for _, args := range [][]string{
+		{"send", "reviewer", "hi"}, {"read", "reviewer"}, {"close", "reviewer"}, {"wait", "reviewer"},
+		{"agent", "prompt", "reviewer", "go"}, {"rename", "reviewer", "x"}, {"rename", "p1", "x"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			a4Env(t)
+			srv := startA4Server(t, config.SocketPath())
+			srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+				if msg.Method == proto.MethodPaneList {
+					return nil, proto.Errorf(proto.ErrInternal, "list broke")
+				}
+				return nil, nil
+			})
+			code, _, errOut := a4RunMain(t, "", args...)
+			if code != 1 || !strings.Contains(errOut, "list broke") {
+				t.Fatalf("code %d %q", code, errOut)
+			}
+			if got := strings.Join(srv.methods(), ","); got != proto.MethodPaneList {
+				t.Fatalf("calls %s", got)
+			}
+		})
+	}
+}
+
+// A name that only an ended pane has still finds it, so a wait says the
+// pane ended instead of that there is no such pane.
+func TestA4WaitOnEndedPaneByName(t *testing.T) {
+	a4Env(t)
+	gone := a4Pane("p4", "working")
+	gone.Name, gone.State, gone.ExitCode = "reviewer", proto.PaneExited, 2
+	a4NamesServer(t, gone)
+	err := runWait([]string{"-timeout", "5s", "reviewer"})
+	if err == nil || !strings.Contains(err.Error(), "pane p4 ended (exit 2) before it was done") {
+		t.Fatalf("ended: %v", err)
+	}
+}
+
+// A name is one argument however it is spelt: spaces, other scripts.
+func TestA4NamesWithSpaces(t *testing.T) {
+	a4Env(t)
+	srv := a4NamesServer(t, a4Named("p3", "code review ✓", proto.PaneRunning))
+	if code, _, errOut := a4RunMain(t, "", "send", "code review ✓", "hello", "there"); code != 0 {
+		t.Fatalf("send: %s", errOut)
+	}
+	var sp proto.PaneSendTextParams
+	srv.params(t, proto.MethodPaneSendText, &sp)
+	if sp.ID != "p3" || sp.Text != "hello there" {
+		t.Fatalf("sent %+v", sp)
+	}
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runRename([]string{"code review ✓", "ünïcode name"}) })
+	var rp proto.PaneRenameParams
+	srv.params(t, proto.MethodPaneRename, &rp)
+	if err != nil || rp != (proto.PaneRenameParams{ID: "p3", Name: "ünïcode name"}) || out != "p3 ünïcode name\n" {
+		t.Fatalf("rename: %q %v %+v", out, err, rp)
+	}
+}

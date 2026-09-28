@@ -182,8 +182,20 @@ func runTask(args []string) error {
 	if *name != "" && len(attempts) > 1 {
 		return fmt.Errorf("-name names one pane, and this starts %d; leave it out, or rename them after", len(attempts))
 	}
-	// An older server drops Name, so the pane is renamed once it starts.
+	// An older server drops Name, so the pane is renamed once it starts —
+	// and can't refuse a taken name, so that is checked here first.
 	renameAfter := *name != "" && len(c.MissingCapabilities([]string{proto.CapTaskName})) > 0
+	if renameAfter {
+		var list proto.PaneList
+		if err := call(c, proto.MethodPaneList, nil, &list); err != nil {
+			return err
+		}
+		for _, p := range list.Panes {
+			if p.State == proto.PaneRunning && p.Name == *name {
+				return fmt.Errorf("pane %s is already named %q", p.ID, *name)
+			}
+		}
+	}
 	var failed int
 	for _, at := range attempts {
 		var info proto.PaneInfo
