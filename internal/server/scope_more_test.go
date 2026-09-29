@@ -405,3 +405,45 @@ func TestCreatorEveryWayFromAfar(t *testing.T) {
 		}
 	}
 }
+
+// The library and sync methods read and write with the same method:
+// listing and planning stay open to an agent, changing the person's setup
+// doesn't — here or from another machine.
+func TestScopeHomeWrites(t *testing.T) {
+	s, _, work := shareFixture(t)
+	agentPane(t, s, "p1", "claude", work, "stty -echo; exec cat")
+	far := &client{}
+	s.actFor(far, proto.ActForParams{ID: "laptop/p4@1", Agent: "codex"})
+	for _, c := range []struct {
+		method string
+		params string
+		writes bool
+	}{
+		{proto.MethodAgentLibrary, `{}`, false},
+		{proto.MethodAgentLibrary, `{"set":null}`, false},
+		{proto.MethodAgentLibrary, `{"set":{"servers":[]}}`, true},
+		{proto.MethodAgentLibrary, `{"import":"claude"}`, true},
+		{proto.MethodLibraryApply, `{}`, false},
+		{proto.MethodLibraryApply, `{"apply":true}`, true},
+		{proto.MethodLibraryApply, `{"undo":true,"stamp":"s"}`, true},
+		{proto.MethodAgentSync, `{"dir":"/x","from":"claude"}`, false},
+		{proto.MethodAgentSync, `{"dir":"/x","from":"claude","apply":true}`, true},
+		{proto.MethodAgentSync, `{"user":true,"undo":true}`, true},
+	} {
+		for name, caller := range map[string]*client{"agent here": {pane: "p1"}, "agent afar": far} {
+			perr := s.inScope(caller, proto.Message{Method: c.method, Params: []byte(c.params)})
+			if c.writes != (perr != nil) || (perr != nil && (perr.Code != proto.ErrOutOfScope || !strings.Contains(perr.Message, "the person's own setup"))) {
+				t.Errorf("%s %s from %s: %v, want refused=%v", c.method, c.params, name, perr, c.writes)
+			}
+		}
+		// From outside the panes, and from a terminal pane, anything goes.
+		if perr := s.inScope(&client{}, proto.Message{Method: c.method, Params: []byte(c.params)}); perr != nil {
+			t.Errorf("%s from outside: %v", c.method, perr)
+		}
+	}
+	for m := range writesHome {
+		if _, ok := verbs[m]; !ok {
+			t.Errorf("%s has no verb for its refusal", m)
+		}
+	}
+}

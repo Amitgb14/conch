@@ -82,12 +82,26 @@ var scoped = map[string]scopeKind{
 	proto.MethodAgentSkill: scopeHome,
 }
 
+// writesHome lists methods that only sometimes change the person's setup:
+// listing the library or planning a sync is reading, and left open; the
+// same method setting, importing, applying or undoing is theirs.
+var writesHome = map[string]func(ref scopeRef) bool{
+	proto.MethodAgentLibrary: func(r scopeRef) bool { return len(r.Set) > 0 && string(r.Set) != "null" || r.Import != "" },
+	proto.MethodLibraryApply: func(r scopeRef) bool { return r.Apply || r.Undo },
+	proto.MethodAgentSync:    func(r scopeRef) bool { return r.Apply || r.Undo },
+}
+
 // scopeRef is every field scoped methods name their target by.
 type scopeRef struct {
 	ID        string   `json:"id"`
 	IDs       []string `json:"ids"`
 	PaneID    string   `json:"pane_id"`
 	ProjectID string   `json:"project_id"`
+	// What says whether a writesHome method writes.
+	Set    json.RawMessage `json:"set"`
+	Import string          `json:"import"`
+	Apply  bool            `json:"apply"`
+	Undo   bool            `json:"undo"`
 }
 
 // inScope refuses a scoped method from an agent's pane when its target is
@@ -97,6 +111,9 @@ func (s *Server) inScope(c *client, msg proto.Message) *proto.Error {
 	kind := scoped[msg.Method]
 	if msg.Method == proto.MethodSessionShare {
 		kind = scopePane // only when handing to a running pane; see below
+	}
+	if _, ok := writesHome[msg.Method]; ok {
+		kind = scopeHome // only when it writes; see below
 	}
 	if kind == 0 {
 		return nil
@@ -108,6 +125,9 @@ func (s *Server) inScope(c *client, msg proto.Message) *proto.Error {
 	var ref scopeRef
 	if len(msg.Params) > 0 && json.Unmarshal(msg.Params, &ref) != nil {
 		return nil // the method reports its own bad params
+	}
+	if writes, ok := writesHome[msg.Method]; ok && !writes(ref) {
+		return nil
 	}
 	switch kind {
 	case scopeServer:
@@ -256,7 +276,9 @@ var verbs = map[string]string{
 	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchCommit: "commit",
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
 	proto.MethodBranchMerge: "merge", proto.MethodBranchDiscard: "discard a branch",
-	proto.MethodAgentSkill: "install or remove the agents' conch skill",
+	proto.MethodAgentSkill:   "install or remove the agents' conch skill",
+	proto.MethodAgentLibrary: "change the library of MCP servers and skills", proto.MethodLibraryApply: "apply the library to the agents",
+	proto.MethodAgentSync: "sync one agent's setup to the others",
 }
 
 // madeBy records that the connection's pane started pane id: it and the
