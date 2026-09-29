@@ -61,12 +61,17 @@ func TestScopeHelper(t *testing.T) {
 			}
 			there, err := client.Dial(arg, "scope-helper")
 			if err != nil {
-				fmt.Printf("=> %d error\n", n)
+				fmt.Printf("=> %d dial\n", n)
 				continue
 			}
 			if who.Scoped {
-				if err := there.Call(context.Background(), proto.MethodActFor,
-					proto.ActForParams{ID: who.ID, Label: who.Label, Agent: who.Agent}, nil); err != nil {
+				err := there.Call(context.Background(), proto.MethodActFor,
+					proto.ActForParams{ID: who.ID, Label: who.Label, Agent: who.Agent}, nil)
+				var perr *proto.Error
+				if errors.As(err, &perr) {
+					fmt.Printf("=> %d %s\n", n, perr.Code)
+					continue
+				} else if err != nil {
 					fmt.Printf("=> %d error\n", n)
 					continue
 				}
@@ -420,5 +425,17 @@ func TestScopeAcrossMachinesFromATerminal(t *testing.T) {
 	}
 	if code, _ := h.do(proto.MethodPaneClose, theirs); code != "ok" {
 		t.Fatalf("close there: %s", code)
+	}
+}
+
+// An agent pane declaring itself to its own server: it is already scoped
+// as its pane there, and the declaration is refused rather than let it
+// trade its pane's scope for another.
+func TestScopeActForFromOwnPane(t *testing.T) {
+	c, a, _, _, _, _, _, _ := scopeFixture(t)
+	h := startHelper(t, c, a, "claude")
+	sock := filepath.Join(filepath.Dir(a), "s.sock")
+	if code, _ := h.do("reach", sock); code != proto.ErrBadRequest {
+		t.Fatalf("declared to its own server: %s", code)
 	}
 }

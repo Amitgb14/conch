@@ -325,3 +325,83 @@ func TestScopeRemoteCaller(t *testing.T) {
 		t.Errorf("anonymous: %v", perr)
 	}
 }
+
+// Slow methods run beside the connection's reader, so a declaration and
+// the checks that read it can meet; -race says whether they do safely.
+func TestActForConcurrent(t *testing.T) {
+	s, _, work := shareFixture(t)
+	agentPane(t, s, "p1", "claude", work, "stty -echo; exec cat")
+	far := &client{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			s.inScope(far, proto.Message{Method: proto.MethodPaneClose, Params: proto.Marshal(proto.PaneRef{ID: "p1"})})
+			s.madeBy(far, "p404")
+		}
+	}()
+	for i := 0; i < 200; i++ {
+		s.actFor(far, proto.ActForParams{ID: "laptop/p4@1"})
+	}
+	<-done
+	if perr := s.inScope(far, proto.Message{Method: proto.MethodPaneClose, Params: proto.Marshal(proto.PaneRef{ID: "p1"})}); perr == nil {
+		t.Fatal("declared, yet not held")
+	}
+}
+
+// The same pane ID on the same machine, started later, is someone else:
+// it can't reach what the first started.
+func TestActForReusedPaneID(t *testing.T) {
+	s, _, work := shareFixture(t)
+	s.nextID = 0
+	first, later := &client{}, &client{}
+	s.actFor(first, proto.ActForParams{ID: "laptop/p4@100", Agent: "claude"})
+	s.actFor(later, proto.ActForParams{ID: "laptop/p4@200", Agent: "claude"})
+	res, perr := s.dispatch(first, proto.Message{Method: proto.MethodPaneCreate,
+		Params: proto.Marshal(proto.PaneCreateParams{Command: []string{"/bin/sleep", "30"}, Cwd: work})})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	id := res.(proto.PaneInfo).ID
+	closeFrom := func(c *client) *proto.Error {
+		return s.inScope(c, proto.Message{Method: proto.MethodPaneClose, Params: proto.Marshal(proto.PaneRef{ID: id})})
+	}
+	if perr := closeFrom(first); perr != nil {
+		t.Fatalf("its own: %v", perr)
+	}
+	if perr := closeFrom(later); perr == nil {
+		t.Fatal("a later pane with the same ID reached it")
+	}
+}
+
+// Every way a pane starts, from a connection acting for an agent on
+// another machine, names that agent.
+func TestCreatorEveryWayFromAfar(t *testing.T) {
+	s, _, work := shareFixture(t)
+	fakeLoginShell(t)
+	proj, err := s.projects.add(work, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	far := &client{}
+	s.actFor(far, proto.ActForParams{ID: "laptop/p4@1", Agent: "claude"})
+	for name, m := range map[string]proto.Message{
+		"pane":    {Method: proto.MethodPaneCreate, Params: proto.Marshal(proto.PaneCreateParams{Command: []string{"/bin/sleep", "30"}, Cwd: work})},
+		"task":    {Method: proto.MethodTaskCreate, Params: proto.Marshal(proto.TaskCreateParams{ProjectID: proj.id, Prompt: "go", Branch: "from-afar"})},
+		"install": {Method: proto.MethodAgentInstall, Params: proto.Marshal(proto.AgentInstallParams{Agent: "codex"})},
+		"resume":  {Method: proto.MethodSessionResume, Params: proto.Marshal(proto.SessionRef{Agent: "claude", ID: "c1", Dir: work})},
+		"share":   {Method: proto.MethodSessionShare, Params: proto.Marshal(proto.SessionShareParams{Agent: "claude", ID: "c1", Dir: work, To: "codex"})},
+	} {
+		res, perr := s.dispatch(far, m)
+		if perr != nil {
+			t.Fatalf("%s: %v", name, perr)
+		}
+		info, ok := res.(proto.PaneInfo)
+		if sr, isShare := res.(proto.SessionShareResult); isShare {
+			info, ok = sr.Pane, true
+		}
+		if !ok || info.CreatedBy != "laptop/p4@1" {
+			t.Errorf("%s: created by %q", name, info.CreatedBy)
+		}
+	}
+}

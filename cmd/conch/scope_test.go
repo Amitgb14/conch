@@ -196,3 +196,47 @@ func TestA4MachineFlagCarriesScope(t *testing.T) {
 		})
 	}
 }
+
+// -m local is this machine's server, which sees the caller itself: there
+// is nothing to carry, and it is not asked.
+func TestA4MachineLocalAsksNothing(t *testing.T) {
+	a4Env(t)
+	srv := a4Local(t, scopedAgent, nil, false)
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodPaneRead {
+			return proto.PaneReadResult{Lines: []string{"here"}}, nil
+		}
+		return scopedAgent, nil
+	})
+	old := machineFlag
+	machineFlag = "local"
+	t.Cleanup(func() { machineFlag = old })
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runRead([]string{"p1"}) })
+	if err != nil || out != "here\n" {
+		t.Fatalf("read: %q %v", out, err)
+	}
+	if called(srv, proto.MethodPaneCaller) || called(srv, proto.MethodActFor) {
+		t.Fatalf("asked: %v", srv.methods())
+	}
+}
+
+// This machine's server going away mid-question fails the command: it
+// can't be told the command is unscoped.
+func TestActForHereLocalHangsUp(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, conn *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodPaneCaller {
+			conn.Close()
+		}
+		return nil, nil
+	})
+	far, c := a4Remote(t, false)
+	if err := actForHere(c, "gpu-box"); err == nil {
+		t.Fatal("went on unscoped")
+	}
+	if called(far, proto.MethodActFor) {
+		t.Fatal("declared anyway")
+	}
+}
