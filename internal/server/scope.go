@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/Amitgb14/conch/internal/detect"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -94,10 +95,10 @@ func (s *Server) inScope(c *client, msg proto.Message) *proto.Error {
 	if msg.Method == proto.MethodSessionShare {
 		kind = scopePane // only when handing to a running pane; see below
 	}
-	if kind == 0 || c.pane == "" {
+	if kind == 0 {
 		return nil
 	}
-	caller, ok := s.agentCaller(c)
+	caller, ok := s.scopedCaller(c)
 	if !ok {
 		return nil
 	}
@@ -130,50 +131,105 @@ func (s *Server) inScope(c *client, msg proto.Message) *proto.Error {
 	return s.paneInScope(caller, msg.Method, id)
 }
 
-// agentCaller is the connection's pane when an agent runs in it now.
-func (s *Server) agentCaller(c *client) (proto.PaneInfo, bool) {
-	e, perr := s.get(c.pane)
-	if perr != nil {
-		return proto.PaneInfo{}, false
-	}
-	info := e.info()
-	return info, info.State == proto.PaneRunning && info.Agent != nil
+// scopeCaller is an agent a connection is scoped to: one in a pane here,
+// or one on another machine that the connection acts for (remote), which
+// has no pane or project here, only what it started.
+type scopeCaller struct {
+	id, label, agent, project string
+	remote                    bool
 }
 
-func (s *Server) paneInScope(caller proto.PaneInfo, method, id string) *proto.Error {
-	e, perr := s.get(id)
-	if perr != nil || id == caller.ID {
-		return nil
-	}
-	target := e.info()
-	if caller.ProjectID != "" && target.ProjectID == caller.ProjectID {
-		return nil
-	}
-	for _, by := range e.creators() {
-		if by == caller.ID {
-			return nil
+// scopedCaller is who the connection is held to, if anyone: the agent it
+// acts for, else the agent running in its pane now.
+func (s *Server) scopedCaller(c *client) (scopeCaller, bool) {
+	c.mu.Lock()
+	actFor := c.actFor
+	c.mu.Unlock()
+	if actFor.ID != "" {
+		label := actFor.Label
+		if label == "" {
+			label = actFor.ID
 		}
+		return scopeCaller{id: actFor.ID, label: label, agent: actFor.Agent, remote: true}, true
+	}
+	if c.pane == "" {
+		return scopeCaller{}, false
+	}
+	e, perr := s.get(c.pane)
+	if perr != nil {
+		return scopeCaller{}, false
+	}
+	info := e.info()
+	if info.State != proto.PaneRunning || info.Agent == nil {
+		return scopeCaller{}, false
+	}
+	return scopeCaller{id: info.ID, label: info.ID, agent: info.Agent.Name, project: info.ProjectID}, true
+}
+
+// startedBy reports whether caller started e, or started what started it.
+func startedBy(e *entry, caller scopeCaller) bool {
+	for _, by := range e.creators() {
+		if by == caller.id {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) paneInScope(caller scopeCaller, method, id string) *proto.Error {
+	e, perr := s.get(id)
+	if perr != nil || (!caller.remote && id == caller.id) {
+		return nil
+	}
+	if caller.project != "" && e.info().ProjectID == caller.project {
+		return nil
+	}
+	if startedBy(e, caller) {
+		return nil
+	}
+	if caller.remote {
+		return outOfScope(caller, "%s %s: it did not start it", verb(method), id)
 	}
 	return outOfScope(caller, "%s %s: it did not start it, and it is in another project", verb(method), id)
 }
 
-func (s *Server) projectInScope(caller proto.PaneInfo, method, id string) *proto.Error {
-	if id == "" || id == caller.ProjectID {
+// projectInScope: a project is the agent's when it works in it — for an
+// agent on another machine, when it started a pane there.
+func (s *Server) projectInScope(caller scopeCaller, method, id string) *proto.Error {
+	if id == "" || id == caller.project {
 		return nil
 	}
 	if _, perr := s.projects.get(id); perr != nil {
 		return nil
 	}
+	if caller.remote {
+		s.mu.Lock()
+		entries := make([]*entry, 0, len(s.panes))
+		for _, e := range s.panes {
+			entries = append(entries, e)
+		}
+		s.mu.Unlock()
+		for _, e := range entries {
+			if startedBy(e, caller) && e.info().ProjectID == id {
+				return nil
+			}
+		}
+		return outOfScope(caller, "%s in project %s: it started nothing there", verb(method), id)
+	}
 	where := "no project"
-	if caller.ProjectID != "" {
-		where = "project " + caller.ProjectID
+	if caller.project != "" {
+		where = "project " + caller.project
 	}
 	return outOfScope(caller, "%s in project %s: it works in %s", verb(method), id, where)
 }
 
-func outOfScope(caller proto.PaneInfo, format string, args ...any) *proto.Error {
-	return proto.Errorf(proto.ErrOutOfScope, "the %s agent in %s may not %s; do it from the TUI or a terminal pane",
-		caller.Agent.Name, caller.ID, fmt.Sprintf(format, args...))
+func outOfScope(caller scopeCaller, format string, args ...any) *proto.Error {
+	who := "the agent"
+	if caller.agent != "" {
+		who = "the " + caller.agent + " agent"
+	}
+	return proto.Errorf(proto.ErrOutOfScope, "%s in %s may not %s; do it from the TUI or a terminal pane",
+		who, caller.label, fmt.Sprintf(format, args...))
 }
 
 // verb says what a method does, for a refusal.
@@ -201,16 +257,26 @@ var verbs = map[string]string{
 // panes that started it may then act on the new one. Panes started from
 // outside any pane have no creator.
 func (s *Server) madeBy(c *client, id string) {
-	if c.pane == "" || id == "" || id == c.pane {
+	c.mu.Lock()
+	actFor := c.actFor.ID
+	c.mu.Unlock()
+	var lineage []string
+	switch {
+	case id == "":
 		return
+	case actFor != "": // an agent on another machine
+		lineage = []string{actFor}
+	case c.pane == "" || id == c.pane:
+		return
+	default:
+		lineage = []string{c.pane}
+		if by, perr := s.get(c.pane); perr == nil {
+			lineage = append(lineage, by.creators()...)
+		}
 	}
 	e, perr := s.get(id)
 	if perr != nil {
 		return
-	}
-	lineage := []string{c.pane}
-	if by, perr := s.get(c.pane); perr == nil {
-		lineage = append(lineage, by.creators()...)
 	}
 	e.mu.Lock()
 	if e.lineage == nil {
@@ -247,4 +313,44 @@ func (s *Server) infoOf(info proto.PaneInfo) proto.PaneInfo {
 		return e.info()
 	}
 	return info
+}
+
+// callerInfo answers pane.caller: the connection's pane, and the name its
+// agent goes by on other machines.
+func (s *Server) callerInfo(c *client) proto.CallerInfo {
+	if c.pane == "" {
+		return proto.CallerInfo{}
+	}
+	e, perr := s.get(c.pane)
+	if perr != nil {
+		return proto.CallerInfo{}
+	}
+	info := e.info()
+	ci := proto.CallerInfo{Pane: info.ID}
+	if info.State == proto.PaneRunning && info.Agent != nil {
+		host, _ := os.Hostname()
+		ci.Agent, ci.Scoped = info.Agent.Name, true
+		ci.ID = fmt.Sprintf("%s/%s@%d", host, info.ID, info.Created.Unix())
+		ci.Label = info.ID + " on " + host
+	}
+	return ci
+}
+
+// actFor holds the connection to an agent on another machine. Only a
+// connection from outside this machine's panes may ask — one from inside
+// is already its own pane — and only once.
+func (s *Server) actFor(c *client, p proto.ActForParams) *proto.Error {
+	if p.ID == "" {
+		return proto.Errorf(proto.ErrBadRequest, "scope.act_for needs the caller's id")
+	}
+	if c.pane != "" {
+		return proto.Errorf(proto.ErrBadRequest, "this connection comes from pane %s here, and is scoped as that", c.pane)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.actFor.ID != "" && c.actFor.ID != p.ID {
+		return proto.Errorf(proto.ErrBadRequest, "this connection already acts for %s", c.actFor.ID)
+	}
+	c.actFor = p
+	return nil
 }

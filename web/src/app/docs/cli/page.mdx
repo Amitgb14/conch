@@ -99,7 +99,9 @@ conch: out_of_scope: the claude agent in p4 may not close p1: it did not start i
 
 Reading is never refused (`read`, `status`, `wait`, sessions), and neither is starting panes and tasks: what an agent starts is its own, and each pane in the server's pane list carries who started it (`created_by`).
 
-conch tells who is asking from the operating system — the process at the other end of the socket, and its parents up to a pane — not from `CONCH_PANE_ID`, so unsetting that changes nothing. Only a pane with an agent running in it is held to this: a terminal pane, the TUI and scripts outside conch act as you. It is a guard against a confused agent closing the wrong session, not a sandbox: a program set on escaping can leave the pane's process tree. `-m` from inside a pane reaches the other machine as a caller from outside its panes, so it isn't scoped there yet.
+conch tells who is asking from the operating system — the process at the other end of the socket, and its parents up to a pane — not from `CONCH_PANE_ID`, so unsetting that changes nothing. Only a pane with an agent running in it is held to this: a terminal pane, the TUI and scripts outside conch act as you. It is a guard against a confused agent closing the wrong session, not a sandbox: a program set on escaping can leave the pane's process tree.
+
+**On other machines.** `-m` from an agent's pane carries its scope along: conch asks this machine's server who is running the command and, for an agent, has the other machine's server hold the connection to what that agent started there — its panes (and theirs), and the projects it started them in. It has no project there otherwise, so another project's panes stay out of reach even when they share a name with its own. A machine whose conch predates this isn't driven from an agent's pane at all; `conch machine upgrade` it. A terminal pane's `-m` is you, as before. Like the rest, this asks conch: an agent that runs `ssh` itself, or points `CONCH_SOCKET` elsewhere so this machine's server can't be asked, is not held by it.
 
 ### agent
 

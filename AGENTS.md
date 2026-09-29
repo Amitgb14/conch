@@ -194,6 +194,12 @@ helpers in `cmd/conch` and `internal/remote`.
   project belongs in `scoped` with a verb, or an agent can reach past its
   scope through it. Tests put a real caller inside a pane by running the
   test binary there (`TestScopeHelper`).
+  Across machines the remote server can't see the caller, so `conch -m`
+  asks the local one (`pane.caller`) and, for a scoped agent, declares it
+  there (`scope.act_for`, `cmd/conch/scope.go`); a connection that acts
+  for an agent elsewhere reaches only what that agent started. Declaring
+  only narrows, so it is taken at its word; a remote without
+  `scope.remote.v1` isn't driven from an agent's pane.
 - **Machine-level panes** (under a machine's `CLI` group) are created with
   `NoProject` and start in the home directory.
 - **Build identity.** `buildinfo.Build()` hashes the executable at start-up;

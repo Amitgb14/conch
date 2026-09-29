@@ -642,7 +642,15 @@ func tuiPrefix() string {
 
 func connect(start bool) (*client.Client, error) {
 	if machineFlag != "" && machineFlag != "local" {
-		return connectMachine(machineFlag)
+		c, err := connectMachine(machineFlag)
+		if err != nil {
+			return nil, err
+		}
+		if err := actForHere(c, machineFlag); err != nil {
+			c.Close()
+			return nil, err
+		}
+		return c, nil
 	}
 	sock := config.SocketPath()
 	if start {

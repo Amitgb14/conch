@@ -5,6 +5,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,5 +192,136 @@ func TestRefusedStopKeepsServer(t *testing.T) {
 	}
 	if !stopped() {
 		t.Fatal("a stop from outside the panes didn't stop it")
+	}
+}
+
+func TestActFor(t *testing.T) {
+	s, _, work := shareFixture(t)
+	agentPane(t, s, "p1", "claude", work, "stty -echo; exec cat")
+	far := &client{}
+	for _, c := range []struct {
+		c    *client
+		p    proto.ActForParams
+		want string
+	}{
+		{far, proto.ActForParams{}, "needs the caller's id"},
+		{&client{pane: "p1"}, proto.ActForParams{ID: "laptop/p4@1"}, "comes from pane p1 here"},
+		{far, proto.ActForParams{ID: "laptop/p4@1", Agent: "claude"}, ""},
+		{far, proto.ActForParams{ID: "laptop/p4@1", Agent: "claude"}, ""}, // the same again is fine
+		{far, proto.ActForParams{ID: "laptop/p9@2"}, "already acts for laptop/p4@1"},
+	} {
+		perr := s.actFor(c.c, c.p)
+		if (c.want == "") != (perr == nil) || (perr != nil && !strings.Contains(perr.Message, c.want)) {
+			t.Errorf("%+v: %v, want %q", c.p, perr, c.want)
+		}
+	}
+	if far.actFor.ID != "laptop/p4@1" {
+		t.Fatalf("held to %q", far.actFor.ID)
+	}
+}
+
+func TestCallerInfo(t *testing.T) {
+	s, _, work := shareFixture(t)
+	agent := agentPane(t, s, "p1", "claude", work, "stty -echo; exec cat")
+	agentPane(t, s, "p2", "", work, "stty -echo; exec cat")
+	host, _ := os.Hostname()
+	if got := s.callerInfo(&client{}); got != (proto.CallerInfo{}) {
+		t.Errorf("outside: %+v", got)
+	}
+	if got := s.callerInfo(&client{pane: "p2"}); got != (proto.CallerInfo{Pane: "p2"}) {
+		t.Errorf("terminal: %+v", got)
+	}
+	want := proto.CallerInfo{Pane: "p1", Agent: "claude", Scoped: true,
+		ID: host + "/p1@" + strconv.FormatInt(agent.info().Created.Unix(), 10), Label: "p1 on " + host}
+	if got := s.callerInfo(&client{pane: "p1"}); got != want {
+		t.Errorf("agent: %+v, want %+v", got, want)
+	}
+	if got := s.callerInfo(&client{pane: "p404"}); got != (proto.CallerInfo{}) {
+		t.Errorf("gone: %+v", got)
+	}
+}
+
+// A caller from another machine has no pane or project here, only what it
+// started: every scoped method is refused on the rest and let through on
+// that, and a project is its own once it started a pane there.
+func TestScopeRemoteCaller(t *testing.T) {
+	s, _, work := shareFixture(t)
+	fakeLoginShell(t)
+	proj, err := s.projects.add(work, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := agentPane(t, s, "p1", "claude", work, "stty -echo; exec cat") // someone else's, in the project
+	local.mu.Lock()
+	local.project = proj
+	local.mu.Unlock()
+	s.nextID = 1
+	far := &client{}
+	if perr := s.actFor(far, proto.ActForParams{ID: "laptop/p4@1", Label: "p4 on laptop", Agent: "codex"}); perr != nil {
+		t.Fatal(perr)
+	}
+	msg := func(method string, params any) proto.Message {
+		return proto.Message{Method: method, Params: proto.Marshal(params)}
+	}
+	// Before it starts anything, the project isn't its own either.
+	perr := s.inScope(far, msg(proto.MethodBranchDiscard, proto.BranchDiscardParams{ProjectID: proj.id, Branch: "b"}))
+	if perr == nil || perr.Message != "the codex agent in p4 on laptop may not discard a branch in project "+proj.id+": it started nothing there; do it from the TUI or a terminal pane" {
+		t.Fatalf("project before: %v", perr)
+	}
+	res, perr := s.dispatch(far, msg(proto.MethodPaneCreate, proto.PaneCreateParams{Command: []string{"/bin/sleep", "30"}, Cwd: work}))
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	mine := res.(proto.PaneInfo)
+	if mine.CreatedBy != "laptop/p4@1" {
+		t.Fatalf("created by %q", mine.CreatedBy)
+	}
+	// What its pane starts is its too.
+	agentPane(t, s, "p7", "", work, "exec sleep 30")
+	s.madeBy(&client{pane: mine.ID}, "p7")
+
+	for method, kind := range scoped {
+		target, own := "p1", mine.ID
+		var out, in any
+		switch kind {
+		case scopePane:
+			out, in = map[string]any{"id": target, "text": "x"}, map[string]any{"id": own, "text": "x"}
+		case scopePanes:
+			out, in = map[string]any{"ids": []string{own, target}, "text": "x"}, map[string]any{"ids": []string{own, "p7"}, "text": "x"}
+		case scopeProjID, scopeProject:
+			continue // below
+		case scopeServer:
+			out = nil
+		}
+		if perr := s.inScope(far, msg(method, out)); perr == nil || perr.Code != proto.ErrOutOfScope {
+			t.Errorf("%s on another's: %v", method, perr)
+		}
+		if kind != scopeServer {
+			if perr := s.inScope(far, msg(method, in)); perr != nil {
+				t.Errorf("%s on its own: %v", method, perr)
+			}
+		}
+	}
+	if perr := s.inScope(far, msg(proto.MethodPaneClose, proto.PaneRef{ID: "p7"})); perr != nil {
+		t.Errorf("what its pane started: %v", perr)
+	}
+	// Same project as p1 is no leeway for a caller with no project here.
+	if perr := s.inScope(far, msg(proto.MethodPaneClose, proto.PaneRef{ID: "p1"})); perr == nil ||
+		!strings.HasSuffix(perr.Message, "may not close p1: it did not start it; do it from the TUI or a terminal pane") {
+		t.Errorf("p1: %v", perr)
+	}
+	// Now it has a pane in the project, the project's branches are its.
+	if perr := s.inScope(far, msg(proto.MethodBranchDiscard, proto.BranchDiscardParams{ProjectID: proj.id, Branch: "b"})); perr != nil {
+		t.Errorf("project after: %v", perr)
+	}
+	if perr := s.inScope(far, msg(proto.MethodProjectRemove, proto.ProjectRef{ID: proj.id})); perr != nil {
+		t.Errorf("remove its project: %v", perr)
+	}
+	// A caller that gave no agent name is still named in a refusal.
+	anon := &client{}
+	s.actFor(anon, proto.ActForParams{ID: "box/p2@3"})
+	if perr := s.inScope(anon, msg(proto.MethodPaneClose, proto.PaneRef{ID: "p1"})); perr == nil ||
+		!strings.HasPrefix(perr.Message, "the agent in box/p2@3 may not close p1") {
+		t.Errorf("anonymous: %v", perr)
 	}
 }

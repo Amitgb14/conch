@@ -69,6 +69,9 @@ type client struct {
 	// pane is the pane the connection comes from, as the kernel says; ""
 	// from outside the panes. See scope.go.
 	pane string
+	// actFor is the agent on another machine the connection is held to
+	// (scope.act_for), guarded by mu.
+	actFor proto.ActForParams
 
 	mu   sync.Mutex
 	subs map[string]*subscription // by pane ID
@@ -414,6 +417,16 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 
 	case proto.MethodPing:
 		return map[string]string{"type": "pong"}, nil
+
+	case proto.MethodPaneCaller:
+		return s.callerInfo(c), nil
+
+	case proto.MethodActFor:
+		ap, perr := decode[proto.ActForParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.actFor(c, ap)
 
 	case proto.MethodServerStop:
 		return nil, nil // Stop runs after the reply is written.

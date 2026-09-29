@@ -23,6 +23,11 @@ import (
 // the typed line never contains. Other lines — text a test typed into this
 // pane as a target — are skipped. It drops CONCH_PANE_ID first: who is
 // calling is the kernel's to say.
+//
+// "N reach SOCK" does what `conch -m` does: it asks its own server who it
+// is, connects to the server at SOCK — another machine's, reached from
+// outside its panes — and, when its own server says it is a scoped agent,
+// asks to be held to that there. Later lines go to that server.
 func TestScopeHelper(t *testing.T) {
 	if os.Getenv("CONCH_SCOPE_HELPER") != "1" {
 		t.Skip("run by the scope tests")
@@ -47,6 +52,37 @@ func TestScopeHelper(t *testing.T) {
 		arg := ""
 		if len(f) > 1 {
 			arg = f[1]
+		}
+		if f[0] == "reach" {
+			var who proto.CallerInfo
+			if err := c.Call(context.Background(), proto.MethodPaneCaller, nil, &who); err != nil {
+				fmt.Printf("=> %d error\n", n)
+				continue
+			}
+			there, err := client.Dial(arg, "scope-helper")
+			if err != nil {
+				fmt.Printf("=> %d error\n", n)
+				continue
+			}
+			if who.Scoped {
+				if err := there.Call(context.Background(), proto.MethodActFor,
+					proto.ActForParams{ID: who.ID, Label: who.Label, Agent: who.Agent}, nil); err != nil {
+					fmt.Printf("=> %d error\n", n)
+					continue
+				}
+			}
+			c = there
+			fmt.Printf("=> %d ok %v\n", n, who.Scoped)
+			continue
+		}
+		if f[0] == proto.MethodPaneCaller {
+			var who proto.CallerInfo
+			if err := c.Call(context.Background(), proto.MethodPaneCaller, nil, &who); err != nil {
+				fmt.Printf("=> %d error\n", n)
+			} else {
+				fmt.Printf("=> %d ok %s\n", n, who.ID)
+			}
+			continue
 		}
 		var params any
 		switch f[0] {
@@ -294,3 +330,95 @@ func TestScopeOutsideThePanes(t *testing.T) {
 }
 
 const detectTicks = 500 * time.Millisecond
+
+// secondServer is another machine's server, for a helper to reach: its own
+// socket, a project, and a pane nobody on the first machine started.
+func secondServer(t *testing.T) (c *client.Client, sock, repo string, proj proto.ProjectInfo, theirs string) {
+	t.Helper()
+	c, dir := startServer(t)
+	sock = filepath.Join(dir, "s.sock")
+	repo = filepath.Join(dir, "gpu")
+	os.MkdirAll(repo, 0o755)
+	git(t, repo, "init", "-q", "-b", "main")
+	git(t, repo, "config", "user.name", "t")
+	git(t, repo, "config", "user.email", "t@example.com")
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "init")
+	if err := c.Call(t.Context(), proto.MethodProjectAdd, proto.ProjectAddParams{Path: repo}, &proj); err != nil {
+		t.Fatal(err)
+	}
+	var info proto.PaneInfo
+	if err := c.Call(t.Context(), proto.MethodPaneCreate, proto.PaneCreateParams{Command: []string{"/bin/sleep", "60"},
+		Cwd: repo, Cols: 40, Rows: 5}, &info); err != nil {
+		t.Fatal(err)
+	}
+	return c, sock, repo, proj, info.ID
+}
+
+// An agent on this machine reaching another, as `conch -m` does: held
+// there to what it starts there.
+func TestScopeAcrossMachines(t *testing.T) {
+	c, a, _, _, _, _, _, _ := scopeFixture(t)
+	far, sock, repo, proj, theirs := secondServer(t)
+	h := startHelper(t, c, a, "claude")
+
+	code, id := h.do(proto.MethodPaneCaller, "")
+	host, _ := os.Hostname()
+	if code != "ok" || !regexp.MustCompile("^"+regexp.QuoteMeta(host)+"/"+h.id+`@\d+$`).MatchString(id) {
+		t.Fatalf("who it is: %s %q", code, id)
+	}
+	if code, scoped := h.do("reach", sock); code != "ok" || scoped != "true" {
+		t.Fatalf("reach: %s %s", code, scoped)
+	}
+	for _, step := range []struct{ method, arg, want string }{
+		{proto.MethodPaneClose, theirs, proto.ErrOutOfScope},
+		{proto.MethodPaneSendText, theirs, proto.ErrOutOfScope},
+		{proto.MethodBranchDiscard, proj.ID, proto.ErrOutOfScope}, // it has started nothing there yet
+		{proto.MethodServerStop, "", proto.ErrOutOfScope},
+	} {
+		if code, _ := h.do(step.method, step.arg); code != step.want {
+			t.Errorf("%s %s there: %s, want %s", step.method, step.arg, code, step.want)
+		}
+	}
+	code, made := h.do(proto.MethodPaneCreate, repo)
+	if code != "ok" {
+		t.Fatalf("create there: %s", code)
+	}
+	var list proto.PaneList
+	far.Call(t.Context(), proto.MethodPaneList, nil, &list)
+	for _, p := range list.Panes {
+		if p.ID == made && p.CreatedBy != id {
+			t.Fatalf("created there by %q, want %q", p.CreatedBy, id)
+		}
+	}
+	// Its own pane there is its own, and so now is that pane's project.
+	if code, _ := h.do(proto.MethodPaneSendText, made); code != "ok" {
+		t.Errorf("type into its own there: %s", code)
+	}
+	if code, _ := h.do(proto.MethodBranchDiscard, proj.ID); code == proto.ErrOutOfScope {
+		t.Errorf("discard in the project it works in there: %s", code)
+	}
+	if code, _ := h.do(proto.MethodPaneClose, made); code != "ok" {
+		t.Errorf("close its own there: %s", code)
+	}
+	// Nothing refused was done there.
+	far.Call(t.Context(), proto.MethodPaneList, nil, &list)
+	for _, p := range list.Panes {
+		if p.ID == theirs && p.State != proto.PaneRunning {
+			t.Fatalf("their pane: %+v", p)
+		}
+	}
+}
+
+// A terminal pane reaching another machine carries nothing: it is you.
+func TestScopeAcrossMachinesFromATerminal(t *testing.T) {
+	c, a, _, _, _, _, _, _ := scopeFixture(t)
+	_, sock, _, _, theirs := secondServer(t)
+	h := startHelper(t, c, a, "")
+	time.Sleep(3 * detectTicks)
+	if code, scoped := h.do("reach", sock); code != "ok" || scoped != "false" {
+		t.Fatalf("reach: %s %s", code, scoped)
+	}
+	if code, _ := h.do(proto.MethodPaneClose, theirs); code != "ok" {
+		t.Fatalf("close there: %s", code)
+	}
+}

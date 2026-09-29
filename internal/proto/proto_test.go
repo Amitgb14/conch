@@ -489,3 +489,27 @@ func TestPaneScopeWire(t *testing.T) {
 		t.Fatal("wire names")
 	}
 }
+
+// Scoping across machines on the wire: an unscoped caller says nothing,
+// and the names are fixed for servers of other builds.
+func TestScopeRemoteWire(t *testing.T) {
+	b, _ := json.Marshal(CallerInfo{})
+	if string(b) != `{}` {
+		t.Fatalf("nobody: %s", b)
+	}
+	b, _ = json.Marshal(CallerInfo{Pane: "p4", Agent: "claude", Scoped: true, ID: "laptop/p4@1", Label: "p4 on laptop"})
+	if string(b) != `{"pane":"p4","agent":"claude","scoped":true,"id":"laptop/p4@1","label":"p4 on laptop"}` {
+		t.Fatalf("caller: %s", b)
+	}
+	b, _ = json.Marshal(ActForParams{ID: "laptop/p4@1"})
+	if string(b) != `{"id":"laptop/p4@1"}` {
+		t.Fatalf("act for: %s", b)
+	}
+	found := false
+	for _, c := range Capabilities {
+		found = found || c == CapScopeRemote
+	}
+	if !found || CapScopeRemote != "scope.remote.v1" || MethodPaneCaller != "pane.caller" || MethodActFor != "scope.act_for" {
+		t.Fatal("wire names")
+	}
+}

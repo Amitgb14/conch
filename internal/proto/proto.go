@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentPrompt, CapTaskName, CapPaneScope,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -68,6 +68,11 @@ const CapTaskName = "task.name.v1"
 // CapPaneScope is PaneInfo.CreatedBy, and the server refusing an agent's
 // changes to panes and projects that aren't its own with ErrOutOfScope.
 const CapPaneScope = "pane.scope.v1"
+
+// CapScopeRemote is pane.caller and scope.act_for: a scoped agent's own
+// server says who it is, and a connection to another machine asks to be
+// held to what that agent started there.
+const CapScopeRemote = "scope.remote.v1"
 
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
@@ -151,6 +156,11 @@ const (
 	// MethodAgentPrompt submits a message to one agent, unless it is
 	// waiting on a question.
 	MethodAgentPrompt = "agent.prompt"
+	// MethodPaneCaller says which pane the connection comes from and
+	// whether it is scoped; MethodActFor asks a connection from another
+	// machine to be scoped as that caller.
+	MethodPaneCaller = "pane.caller"
+	MethodActFor     = "scope.act_for"
 
 	// Finishing a branch's work: commit, push, open a pull request, merge
 	// into the base, or throw the branch away.
@@ -1118,6 +1128,28 @@ type AgentPromptResult struct {
 	ID    string `json:"id"`
 	Agent string `json:"agent"`
 	Turn  int    `json:"turn"`
+}
+
+// CallerInfo is who a connection comes from, as its server sees it: the
+// pane, and whether an agent runs there, so the server scopes it. ID names
+// that agent's pane to other machines — the host, the pane and when it
+// started, so a pane ID used again later is someone else — and Label says
+// it to people.
+type CallerInfo struct {
+	Pane   string `json:"pane,omitempty"`
+	Agent  string `json:"agent,omitempty"`
+	Scoped bool   `json:"scoped,omitempty"`
+	ID     string `json:"id,omitempty"`
+	Label  string `json:"label,omitempty"`
+}
+
+// ActForParams holds a connection to what the agent CallerInfo names
+// started on this machine. It can only narrow what the connection may do,
+// so the server takes it at its word; it can't be changed once given.
+type ActForParams struct {
+	ID    string `json:"id"`
+	Label string `json:"label,omitempty"`
+	Agent string `json:"agent,omitempty"`
 }
 
 // AgentBroadcastResult reports, per pane, whether the message was sent.
