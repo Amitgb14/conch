@@ -53,6 +53,10 @@ Status legend: ☐ not run · ◐ partly run (see note) · ✅ passed · ❌ fai
 | 2.7 | Agent setup view | `i` on a project with CLAUDE.md, skills and MCP servers | Lists instructions, skills, MCP servers (approved/pending) matching what the agent loads | ✅ R1 (`@` imports in CLAUDE.md / GEMINI.md now listed, since the run) |
 | 2.8 🌐 | Devin for Terminal | On a Mac without `devin`, `c` → Devin → install; then `devin auth login`; `c` → Devin in a trusted project; `t` task with Devin; resume from Sessions or `-r` | The official installer runs in a pane and puts `devin` in `~/.local/bin`; `c` starts it; a task passes its prompt after `--`; the pane shows as Devin; its sessions appear under the project's Sessions (via `devin list`), `enter` resumes one with `-r`, `d` deletes it. Then read its real screens and process name to add state rules, and check whether `--config` merges with the user's config before conch passes hooks | ◐ R15/R16 working and the trust prompt read live; sessions listed, resumed and deleted; installing it on a machine without it is all that is left |
 | 2.9 💳 | `conch wait` on a real agent | `conch new -agent claude`, send it a prompt, then `conch wait -state waiting,done PANE` from another shell; repeat with `-timeout 5s` while it works | The wait returns as the agent's state changes (prints `PANE claude done`), not on a timer; `-timeout` exits 124; closing the pane ends the wait with an error | ☐ |
+| 2.10 💳 | `conch agent prompt` on real agents | Claude and Codex in panes. `conch agent prompt -wait PANE "say OK"` on each while idle, again while working, and again after it finished unseen (`done`); then send one a prompt needing a permission and, while it asks, `conch agent prompt PANE "go on"`; also with Codex showing its update menu | Each wait returns only after the new answer (`PANE claude done`), never at once on the old `done`/`idle`; the one sent while working returns when the message it queued is answered; the blocked one exits 3, says what it is asking, and nothing appears in its input; the update menu is refused the same way. Not provable with fakes: that each agent's working state is seen after the message, so the turn moves — an agent read only from its screen that answers between two samples would leave the wait running to its timeout | ◐ R36 Claude: refused on its trust prompt (exit 3, cursor unmoved); idle, done and working all waited for the answer, the log showing done → idle at the keystroke that a state-only wait would have taken. Codex: its update menu and trust prompt refused; answers not seen (its API key was rejected, 401) |
+| 2.11 💳 | Scoping a real agent | Two projects, a terminal pane in each. In project A start Claude and ask it to run `conch close` on B's terminal, `conch send` to it, `conch server stop`, and then `conch task -name helper "say hi"` and `conch close helper`; repeat with Codex and OpenCode. Then from A's terminal pane close B's terminal by hand | Each command the agent runs through its own shell tool is refused with `out_of_scope` naming the agent and the pane, nothing happens to B or the server; the task it starts has its pane as `created_by` in the pane list, and the agent may close it. The terminal pane is not scoped. Not provable with fakes: that each agent's tool processes descend from its pane (a tool that daemonises or double-forks would escape the walk) | ◐ R36 Claude: its tools descend from its pane — send and close to B's terminal and `server stop` refused with the agent and pane named; A's terminal reached; `task -name helper` started and closed. Codex and OpenCode not run |
+| 2.12 💳🌐 | Scoping a real agent on another machine | A machine (busybox) with a pane of your own there. From Claude in a local project ask it to run `conch -m busybox close` on that pane, then `conch -m busybox task -cwd /abs/repo -name helper "say hi"` and `conch -m busybox close helper`; then repeat against a machine running an older conch | The close of your pane is refused `out_of_scope` naming "p4 on <this host>"; the task starts there with `created_by` that agent, and closing it works; against the older remote every `-m` command from the agent is refused with the upgrade hint, while the same commands from a terminal pane work | ◐ R36 Claude against busybox (a scratch server there): `close mine` refused as "p1 on Amits-MacBook-Pro-2.local", `server stop` refused; the task it started there closed. The older-remote half not run, to leave the shared server alone |
+| 2.13 💳 | The conch skill in real agents | `conch agent skill -apply`, then in a project start Claude, Codex, Gemini and OpenCode in turn and ask each "get a second opinion on this branch from another agent"; answer a permission prompt in the helper only when asked to | Each agent lists or loads the `conch` skill; it checks it is in conch, commits, starts a helper with `conch task -name … -base <its branch>`, prompts it with `conch agent prompt -wait`, and reads the answer from the helper's file; when the helper asks a question it stops and says which pane is waiting rather than answering or prompting again; it closes the helper at the end. `conch agent skill -remove -apply` takes it away and the agents no longer list it | ◐ R36 Claude: loaded the skill, started a reviewer with the uncommitted diff in its prompt, read its REVIEW.md, closed it. Found the stale-hook bug (fixed). A helper asking a question not seen: auto mode asked nothing. Other agents not run |
 
 ## 3. Sessions
 
@@ -90,9 +94,9 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | --- | --- | --- | --- | --- |
 | 5.1 | `install.sh` | `curl -fsSL …/install.sh \| sh` on macOS and Linux (amd64, arm64) | Installs the right asset; checksum verified | ✅ R5 the published v0.1.0 one-liner (latest lookup) on macOS arm64 and Linux arm64 and amd64 |
 | 5.2 | `conch update` | From an older release | Downloads, verifies, replaces the binary; `conch version` shows the new one | ✅ R11 v0.1.0 → 0.1.1 on macOS arm64 |
-| 5.3 | Release check in the TUI | A release build older than the latest | Status bar shows `⬆`; version popup offers the update | ✅ R12 a real v0.1.0 TUI against the published 0.1.1, R24 a real v0.1.3 one against 0.1.4 |
-| 5.4 | Update from the TUI | `u` in the version popup | Installs, reloads the server keeping panes, restarts the TUI, updates remotes | ✅ R12 local, R13 the remote half, R24 again on 0.1.3 → 0.1.4 |
-| 5.5 | `conch update list` | On a release build, with two or more releases published | Lists them newest first, marks the running one with `*`, the latest, and any kept locally | ✅ R24 on a real 0.1.4 after updating from 0.1.3 |
+| 5.3 | Release check in the TUI | A release build older than the latest | Status bar shows `⬆`; version popup offers the update | ✅ R12 a real v0.1.0 TUI against the published 0.1.1, R24 a real v0.1.3 one against 0.1.4 · ✅ R32 2026-09-27 for v0.1.5: a real v0.1.4 TUI showed `⬆ v0.1.4` within seconds, and the popup read "⬆ Release   0.1.5 available (running v0.1.4)" |
+| 5.4 | Update from the TUI | `u` in the version popup | Installs, reloads the server keeping panes, restarts the TUI, updates remotes | ✅ R12 local, R13 the remote half, R24 again on 0.1.3 → 0.1.4 · ✅ R32 2026-09-27 for v0.1.5: `u` installed it, reloaded the server **in place, same pid 74788** (0.1.4 → 0.1.5) and restarted the TUI onto build 98cb5a903ad7 with the arrow gone. Remotes not covered: the harness had none |
+| 5.5 | `conch update list` | On a release build, with two or more releases published | Lists them newest first, marks the running one with `*`, the latest, and any kept locally | ✅ R24 on a real 0.1.4 after updating from 0.1.3 · ✅ R32 for v0.1.5 |
 | 5.6 | Moving back | After a real `conch update`, run `conch update rollback` | Installs the kept copy with no download, reloads the server keeping panes, `conch version` shows the older release; a second `rollback` comes forward again | ☐ |
 | 5.7 | Moving back to a version never kept | `conch update VERSION` for an older release on a fresh `CONCH_HOME` | Downloads and verifies that release, replaces the binary, reloads the server | ☐ |
 | 5.8 | `[update] auto = true` | A release build older than the latest, `auto = true`, TUI open | The daily check installs the release on its own: flash, server reload, TUI restart, remotes | ☐ |
@@ -178,23 +182,44 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 9.41 | Scrollback in an agent's pane | With a real agent that has printed more than a screenful, press `ctrl+b [` in its pane and scroll back; select some of it and copy; then do the same in `vim` and in `less` on a long file | The agent's earlier output is there to read and select, in order and without repeated screens; copying gives that text. `less` scrolls back the same way. `vim`, which repaints rather than scrolls, keeps nothing — the pane still behaves normally and nothing is lost from the live screen |  ☐ |
 | 9.42 | Searching a pane's history | In a terminal, `seq 1 20000`, then `ctrl+b [`, `/1999` `enter`, `n` a few times, `N`, `?`; then in a real agent's pane search for a word it said a few screens ago; on a remote machine with an older conch, press `/` | The view jumps to each match with the cursor on it and every match on screen is highlighted; `n` goes on up, `N` back down; past the oldest line it says it went on from the bottom; the agent's earlier words are found in its kept scrollback; `v`/`y` from the match copies it; the older machine says to update it rather than failing |  ☐ |
 | 9.43 | Watching a terminal for quiet and output | In a terminal run `sleep 5; make test` (or any command that prints for a while), press `ctrl+b M`, switch to another tab; separately `ctrl+b A` on an idle terminal, switch away, `echo hi` into it via `conch send`; detach and come back while one is raised; reload the server with one watched | The first shows `~` in the tree and tab bar and a desktop notification about 30 s after the last output; the second shows `#` and notifies; opening either clears the mark; the marks are still there after detaching; the watching (menu ticks) survives the reload; nothing alerts while the pane is on screen, and an idle shell being watched does not alert on its own |  ☐ |
-| 9.44 | File explorer icons in real fonts | Settings → Theme → File icons → Nerd Font glyphs, in a terminal with a Nerd Font and in one without, on macOS and Linux and over SSH; open Files on a project with `.go`, `.ts`, `.tsx`, `.md`, `Dockerfile` | With a Nerd Font the `.ts` file shows the TypeScript logo and `.tsx` the React atom, each in its own theme colour, and every row stays aligned (no glyph drawn two cells wide pushing the status letter out); without one the glyphs are boxes but nothing misaligns; Letters reads everywhere | ☐ |
+| 9.44 | File explorer icons in real fonts | Settings → Theme → File icons → Nerd Font glyphs, in a terminal with a Nerd Font and in one without, on macOS and Linux and over SSH; open Files on a project with `.go`, `.ts`, `.tsx`, `.md`, `Dockerfile`, and on one holding the newer kinds (`.ipynb`, `.xlsx`, `.pem`, `.zst`, `.heic`, `Jenkinsfile`, `.prettierrc`) | With a Nerd Font the `.ts` file shows the TypeScript logo and `.tsx` the React atom, each in its own theme colour, and every row stays aligned (no glyph drawn two cells wide pushing the status letter out); no glyph in the table is a box in a Nerd Font v2 or v3 (they are all in the Private Use Area of the BMP, which is why the Material range is avoided); without a Nerd Font the glyphs are boxes but nothing misaligns; Letters reads everywhere | ◐ R35 2026-09-28: both halves on this Mac in iTerm2 — blank icon column with the terminal's own font, every icon drawn once a Nerd Font's Mono variant was the profile's font (JetBrains first, then MesloLGS, which is the one kept), and Letters reading throughout in between. That was the build before this change, so it proves the modes and the column, not the newer kinds; Linux, ssh and a font that draws boxes rather than blanks are still not run |
 | 9.45 | File explorer on a real checkout | `f` on a branch an agent is working on; expand `internal/`, select a file the agent is writing; `a`; `d`; `e`; `.` and `i` in a repository with `node_modules`; `w`; the same on a remote machine 🖥 | The branch's worktree is listed with the agent's files marked `M`/`?`; the preview follows the agent's writes without `r`; `a` puts the path in the agent's prompt (relative to its folder); `d` opens the diff; `e` opens `$EDITOR` in a new tab; `node_modules` only shows with `i`; on the remote every path is the remote's, and an older remote server says to update | ◐ R23 2026-09-24, a scratch repository with a fake agent: `f` listed it with folders first and type icons, `M` on a modified file, `?` on an untracked one and `A` carried up to the folder holding a staged one, header "3 changed". Folders opened a level at a time with the breadcrumb following; the preview showed "README.md · 2 lines · modified" with numbered lines and described a PNG as "binary · image/png · 2.0 KB" rather than printing it; `/` narrowed to matches and said "nothing loaded matches app" before the folder holding it was opened; `y` copied the path; `a` said "no agent is working in this checkout" with none running, and with one running put `internal/tui/app.go` in its prompt. Not covered here: a real agent's writes appearing without `r`, `d`, `e`, `node_modules` and `i`, `w`, and the whole of it against a remote machine |
 | 9.5 | Search large histories | A project with 100+ long Claude sessions | Conversation matches arrive within a few seconds; typing stays responsive | ✅ R1 35 MB of Claude history: 163 ms first search, ~10 ms after |
 | 9.53 💳🌐 | Share a session with a fresh sandbox | A sandbox with nothing cloned in it: `s` on a local session → `o` → the sandbox (offered as **home folder**) → Start Claude there | The sandbox is offered although it has no project; the conversation lands in `~/.conch/handoff/<agent>-<id>.md` there, the agent starts in the home folder, reads it and says what was done and what remains | ☐ |
 | 9.38 💳🖥 | Share a session on another machine | Local Claude session; `s` → `o` → busybox · a project with the same branch checked out → Start Codex | Codex starts on busybox in that branch's worktree, reads `.conch/handoff/claude-<id>.md`, and its prompt says the session was on the local machine; nothing is written locally; an older server on either side says to reload it | ✅ R19 real Claude session handed from this Mac to busybox (linux/amd64): the file landed in the remote checkout, Claude read it, summarised what was done and what remained, and noticed by itself that the code it referred to was not in that checkout; nothing written locally |
 | 9.44 💳🖥 | Move a worktree to another machine | A task worktree on the Mac with unpushed commits, staged and unstaged edits, an untracked file and a `.env`, a Claude agent working in it; `T` → busybox → the same project there (then again with busybox lacking the project: **Clone … there**) | The worktree appears on busybox on the same commit with the same staged/unstaged split and files; Claude starts there, reads the handoff and summarises; the Mac's Claude pane closes and its worktree stays; a branch already checked out on busybox is refused with nothing changed; clone over ssh without access fails with git's reason rather than hanging | ◐ R21 every path with a fake Claude (below): clone, move, handover, refusal, unreachable origin. A real Claude reading the handoff not run · R22 2026-09-24, the move for real from this Mac to busybox: `T` → machine → project (the picker offered **Clone aghadge/move-test there…** as well), a confirm naming "1 staged, 1 changed, 2 untracked" and the agent it would continue. On busybox the branch arrived on the same commit with `M  README.md` staged, ` M src/main.go` unstaged, `NOTES.txt` untracked and `.env` with its contents; the agent started there and the Mac's pane closed, its worktree kept with every change. The agent moved had no saved conversation, so the handover leg took the "starts afresh" path; the clone-there option and a branch already checked out on busybox are still only covered by fakes. |
 | 9.54 💳🌐 | A sandbox that is not answering yet | Make a sandbox and watch what conch says while it sets itself up; then make several in a row, so that one of them meets a gateway that is not ready or drops the 16 MB copy | It says *waiting for X to answer*, then probes and copies; a dropped connection is tried again (three attempts, two seconds apart) and says which attempt it is on, instead of deleting the sandbox at the first failure; if it really cannot connect, the reason reads *the ssh connection failed (255)* with ssh's own words when it had any | ◐ R31 2026-09-27: the waiting step and a clean create against real Daytona; the retry itself only against a fake ssh that drops two connections, since the drop is not one you can ask for |
-| 9.55 💳🌐 | A shell in a sandbox | With a Daytona sandbox `dt` and a boat.dev sandbox `hull` running: `conch sandbox -provider daytona ssh dt`, type a few commands and `exit`; `conch sandbox -provider daytona ssh dt uname -a; echo $?`; `conch sandbox -provider daytona ssh dt false; echo $?`; `conch sandbox -provider daytona ssh -t dt top`; the same three on `hull` with `-provider boat`; `conch sandbox -provider daytona ssh` on a stopped one | The shell is a real terminal (prompt, line editing, `ctrl+c` reaches the sandbox, resizing the window reflows it); a command prints its output and `$?` is its own status (0, then 1); `-t top` draws and `q` ends it; on boat.dev it logs in with this computer's key as `user`; the stopped one says to run `conch sandbox start`; no token is printed | ✓ R32 2026-09-29: on Daytona and boat.dev — a command with its output and status (0, 1, 7), a shell driven through a pty (commands ran, `/dev/pts/N`, `exit` closed it), `-t` got a pty and no `-t` got none, `hull` logged in as `user` with this computer's key, the stopped one said `run: conch sandbox -provider boat start hull`, a wrong provider was refused naming the right one, no token printed. Not run: resizing the window mid-session |
-| 9.56 💳🌐 | A task in a sandbox's home | With a sandbox `dt` holding no repository: `conch -m dt task -agent claude "Plan a CLI for tracking expenses"`; then `conch -m dt task -cwd /tmp "…"`; then `t` on `dt`'s row in the TUI, with a prompt and Agent `claude,codex` | The agent starts in the sandbox's home with the prompt already sent and shows under the machine's CLI group, not as a project; the `/tmp` one runs in `/tmp`; nothing asks for a git repository; `-branch` is refused saying the folder is not one; `t` opens a dialog with Prompt, Agent and Attempts only, warns that two attempts share the folder, and starts both in the home | ✓ R32 2026-09-29: `-m dt task` started Claude in `/home/daytona` with the prompt (server log: `exec claude --settings … 'Plan a CLI for tracking expenses'`), under the machine's CLI group with no project; `-cwd /tmp` started Codex there; `-branch` refused; `-m hull task` the same on boat.dev in `/home/user`; `t` on `dt`'s row in the real TUI showed the three-field dialog, warned that two attempts share the folder, and started Claude and Codex in the home. Neither agent was logged in, so no model usage |
-| 9.57 💳🌐 | Every provider at once | With a Daytona sandbox and a boat.dev sandbox (one running, one stopped), and a sandbox made in Daytona's own dashboard: `conch sandbox stats`; then unset `BOAT_API_KEY` and run it again; then `conch sandbox stop dt` with no `-provider`, and `conch sandbox -provider boat stop dt` | One table lists both providers' sandboxes with the right state and size, the dashboard one with `-` for ID and label, and a line per provider counts them by state and sums the running vCPUs and memory; without the key boat.dev's machine shows `?`, the line says why, and the command exits non-zero; the stop without a provider is refused asking for one, and the one under boat is refused naming Daytona | ◐ R32 2026-09-29: both providers in one table with the right states and sizes, the counts and running vCPU/memory per provider, a stopped boat sandbox out of the running total, one whose machine was removed shown with `-`, boat with no key and no machine *not set up* (exit 0), with a machine `?` and exit 1, a bad Daytona key's 401 named, `-provider daytona stats` narrowed it; `stop` without a provider and under the wrong one refused. Not run: a sandbox made in Daytona's own dashboard |
+| 9.59 💳🌐 | A shell in a sandbox | With a Daytona sandbox `dt` and a boat.dev sandbox `hull` running: `conch sandbox -provider daytona ssh dt`, type a few commands and `exit`; `conch sandbox -provider daytona ssh dt uname -a; echo $?`; `conch sandbox -provider daytona ssh dt false; echo $?`; `conch sandbox -provider daytona ssh -t dt top`; the same three on `hull` with `-provider boat`; `conch sandbox -provider daytona ssh` on a stopped one | The shell is a real terminal (prompt, line editing, `ctrl+c` reaches the sandbox, resizing the window reflows it); a command prints its output and `$?` is its own status (0, then 1); `-t top` draws and `q` ends it; on boat.dev it logs in with this computer's key as `user`; the stopped one says to run `conch sandbox start`; no token is printed | ✓ R37 2026-09-29: on Daytona and boat.dev — a command with its output and status (0, 1, 7), a shell driven through a pty (commands ran, `/dev/pts/N`, `exit` closed it), `-t` got a pty and no `-t` got none, `hull` logged in as `user` with this computer's key, the stopped one said `run: conch sandbox -provider boat start hull`, a wrong provider was refused naming the right one, no token printed. Not run: resizing the window mid-session |
+| 9.60 💳🌐 | A task in a sandbox's home | With a sandbox `dt` holding no repository: `conch -m dt task -agent claude "Plan a CLI for tracking expenses"`; then `conch -m dt task -cwd /tmp "…"`; then `t` on `dt`'s row in the TUI, with a prompt and Agent `claude,codex` | The agent starts in the sandbox's home with the prompt already sent and shows under the machine's CLI group, not as a project; the `/tmp` one runs in `/tmp`; nothing asks for a git repository; `-branch` is refused saying the folder is not one; `t` opens a dialog with Prompt, Agent and Attempts only, warns that two attempts share the folder, and starts both in the home | ✓ R37 2026-09-29: `-m dt task` started Claude in `/home/daytona` with the prompt (server log: `exec claude --settings … 'Plan a CLI for tracking expenses'`), under the machine's CLI group with no project; `-cwd /tmp` started Codex there; `-branch` refused; `-m hull task` the same on boat.dev in `/home/user`; `t` on `dt`'s row in the real TUI showed the three-field dialog, warned that two attempts share the folder, and started Claude and Codex in the home. Neither agent was logged in, so no model usage |
+| 9.61 💳🌐 | Every provider at once | With a Daytona sandbox and a boat.dev sandbox (one running, one stopped), and a sandbox made in Daytona's own dashboard: `conch sandbox stats`; then unset `BOAT_API_KEY` and run it again; then `conch sandbox stop dt` with no `-provider`, and `conch sandbox -provider boat stop dt` | One table lists both providers' sandboxes with the right state and size, the dashboard one with `-` for ID and label, and a line per provider counts them by state and sums the running vCPUs and memory; without the key boat.dev's machine shows `?`, the line says why, and the command exits non-zero; the stop without a provider is refused asking for one, and the one under boat is refused naming Daytona | ◐ R37 2026-09-29: both providers in one table with the right states and sizes, the counts and running vCPU/memory per provider, a stopped boat sandbox out of the running total, one whose machine was removed shown with `-`, boat with no key and no machine *not set up* (exit 0), with a machine `?` and exit 1, a bad Daytona key's 401 named, `-provider daytona stats` narrowed it; `stop` without a provider and under the wrong one refused. Not run: a sandbox made in Daytona's own dashboard |
 | 9.46 💳🌐 | A Daytona sandbox as a machine | With `DAYTONA_API_KEY` set: `conch sandbox -provider daytona create -label dt`; `conch -m dt status`; open the TUI and start a terminal and a fake or real agent in `dt`; close the TUI for longer than 15 minutes and come back; `conch sandbox -provider daytona stop dt`, `conch -m dt status`, `conch sandbox -provider daytona start dt`; `conch sandbox -provider daytona rm dt` with a branch there that isn't pushed | `create` makes a sandbox with auto-stop off, installs conch through Daytona's ssh gateway (a non-interactive `ssh token@ssh.app.daytona.io 'sh -c …'` with piped input and output, which Daytona's docs don't promise) and saves it; the TUI shows it as a machine; the agent is still running after the TUI was away; a stopped sandbox says to run `conch sandbox start` instead of retrying; `rm` lists the unpushed branch before asking; no ssh token is printed anywhere | ◐ R25 2026-09-26: create, install through the gateway (the non-interactive ssh works, 17 MB copied over stdin), `-m`, a pane, a git project, stop/`-m` refused/start with files kept, `rm` listing uncommitted work, all against real Daytona; no token printed. Not run: leaving it more than 15 minutes with the TUI closed, and an unpushed branch (only an uncommitted file) |
 | 9.47 💳🌐 | Sandboxes from the TUI | With `DAYTONA_API_KEY` set: `M` → **New Daytona sandbox…** with a label and one `Pass in` variable; start an agent there; `m` → **Stop sandbox…**, then **Start sandbox**; `m` → **Delete sandbox…** with a branch there that isn't pushed; then the dialog again without the key | The new machine appears once conch is set up there, with the flash saying it runs until stopped; Stop asks (naming working agents), the row then says `stopped` and the page offers Start; Start reconnects and the agent's files are there; Delete lists the unpushed branch before asking and the machine leaves the tree; without a key the dialog says so and nothing is created | ◐ R25 2026-09-26: the menus, Stop (spinner, then `stopped` and **Start** on the page), Start (reconnected), **New Daytona sandbox…** (created `dt2` and added it) and Delete (gone from the tree and Daytona) on real sandboxes. Not run: `Pass in`, an agent working when stopping, the dialog without a key, and the "creating…" flash, which did not show (no flash did at the time, `R` included: a status bar bug at about 84 columns, since fixed — see R25) |
 | 9.48 💳🌐 | A boat.dev sandbox as a machine | With `BOAT_API_KEY` set: `conch sandbox -provider boat create -label hull`; `conch -m hull status`; a terminal and an agent there from the TUI; `conch sandbox -provider boat url hull 3000` with a server listening on `0.0.0.0:3000`; `conch sandbox -provider boat usage hull`; `conch sandbox -provider boat stop hull` then `start hull`; `conch sandbox -provider boat snapshot -name hull-base hull`, `snapshots`, `snapshots -rm hull-base`; `conch sandbox -provider boat rm hull`; and, on a paid plan, `auto_stop` longer than the plan allows, plus what boat does to a sandbox whose two hours run out | `create` authorizes this computer's public key in the sandbox, installs conch over ssh as `user` to the machine's own address (or its `sshEndpoint` when it has no public IPv4), and saves the machine as `boat:bx_…`; a size in `-cpu`/`-memory`/`-disk` is refused with the named sizes instead; the preview link answers at the sandbox's own subdomain and still does the next time; `usage` shows the seconds and dollars boat reports; a resumed sandbox lands on another machine and conch reaches it without being told; the stopped sandbox costs nothing; the named snapshot appears, deploys a new sandbox with `-snapshot hull-base`, and is forgotten again; a life longer than the plan allows is asked for again at the length the refusal named rather than failing; what boat does when the life runs out is written down here once it is seen; nothing but the key line is sent to boat | ◐ R27 2026-09-26: create, the key, install over ssh to `sshEndpoint`, `-m hull2 status`, `ls`, `rm`; sizes and life. Not run: stop/resume, the preview link, usage, named snapshots, a plan that allows less, and what boat does when a life runs out |
 | 9.49 💳 | One setup, every agent | A real checkout with Claude Code set up in it (CLAUDE.md, `.claude/skills/*`, `.mcp.json` with a real server): `i` → `s`, read the question, answer yes; then start Codex, Gemini and OpenCode there and ask each what instructions, skills and MCP servers it has; `i` → `u`; the same over `-m` to a remote checkout 🖥; `conch agent sync -apply` on a repository whose AGENTS.md somebody wrote | The question lists each write with its path; after yes, Codex and OpenCode read the copied AGENTS.md, Gemini follows `@CLAUDE.md`, all three list the skill from `.agents/skills`, and each agent really lists the synced MCP server when asked (the formats are the part fakes cannot prove); a server whose env holds a token is left out and said so; `u` puts the checkout back exactly, `git status` clean; the hand-written AGENTS.md is reported skipped and unchanged | ◐ R28 2026-09-27: every MCP format against each agent's own CLI, Codex reading the copied AGENTS.md for real, Gemini reading the linked skill from `.agents/skills`, undo leaving the checkout as it was. Not run: Gemini's `@CLAUDE.md` import and OpenCode's AGENTS.md with a model (neither is logged in non-interactively here), a hand-written AGENTS.md, and the whole of it over `-m` |
+| 9.55 💳 | Your own setup, given to the others | With Claude Code set up in your home (CLAUDE.md, ~/.claude/skills, servers in ~/.claude.json): Settings → Agents → **Give the others Claude Code's setup…**, read the question, answer yes; then ask Codex, Gemini and OpenCode what they load, anywhere; then **Put the last one back…**; and again with one of the files symlinked into a dotfiles repository | The question names every path in full and warns there is no git status; afterwards each agent's own CLI lists the synced server and skill wherever you are, not only in one checkout; Claude's ~/.claude.json is untouched; putting it back leaves the home as it was, and the record is under ~/.config/conch/agent-sync; a symlinked file is skipped with "a dotfiles repository?" and the repository is unchanged | ◐ R33 2026-09-27: the plan, apply and undo in a scratch home, `codex mcp list` showing the server from ~/.codex/config.toml and `gemini skills list` the skill from ~/.agents/skills, and the symlink guard by test. Not run: a real home of somebody's own, and OpenCode's CLI (its login is expired here) |
+| 9.56 💳 | Each agent's own way of naming a variable | A real server needing a token (e.g. GitHub's, `GITHUB_TOKEN`) and an HTTP one with `Authorization: Bearer ${TOKEN}`, declared for Claude Code; `conch agent sync -apply` to Codex, Gemini, OpenCode and Devin (with Devin's `read_config_from.claude` off, so it gets its own file); then in each agent list the servers and use one | Codex's config.toml has `env_vars = ["GITHUB_TOKEN"]` and `bearer_token_env_var`, no `${…}`, and the server authenticates; OpenCode's has `{env:GITHUB_TOKEN}`; Devin's `.devin/mcp_config.json` has `${env:GITHUB_TOKEN}` and `transport: "http"`, and `devin mcp list` shows both working — the docs only promise `${env:…}` in its OAuth fields, so this is the check that it works in `env` and `headers`; Gemini lists the HTTP server from `httpUrl`. A server whose variable is renamed (`GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_TOKEN}`) is left out for Codex, with the reason | ☐ |
+| 9.57 💳 | Devin reads the others' setup | In a checkout set up for Claude Code: `i` → Devin tab; start Devin there and ask what instructions, skills and MCP servers it has; then set `read_config_from.claude = false` in `~/.config/devin/config.json` and ask again | The tab lists CLAUDE.md, `.claude/skills` and `.mcp.json` as "Claude Code compatibility", matching what Devin says it loaded; with the setting off they leave the tab and Devin's answer alike; a sync to Devin writes nothing while it reads Claude's, and gives it its own files once it doesn't. Also check with `devin mcp list` whether a server declared both in `.mcp.json` and `.devin/mcp_config.json` shows twice | ☐ |
+| 9.58 💳 | The library | Settings → Agents → **Shared MCP servers & skills…**: take Claude Code's into the library, add a server with a `${VAR}` and a skill folder, tick Codex, Gemini and Devin, **Apply…**; ask each agent what it loads; untick Codex and apply; remove the server and apply; **Put the last one back…**; the same with `conch agent library` | The page shows a column per agent and the question lists every write; Claude's server is added with `claude mcp add-json --scope user` and `claude mcp list` shows it, while `~/.claude.json` keeps its project history; Devin is not given a server Claude already has; unticking takes only conch's copy out, leaving the rest of `config.toml` and any hand-declared server as they were; a shared `~/.agents/skills` link stays while another agent wants it; undo puts it all back, Claude's through `claude mcp remove` | ☐ |
 | 9.50 | A login URL an agent printed | An agent in a sandbox (or over ssh) running its login: `claude /login`, `codex login`, `gemini` — whatever prints a URL and asks you to open it; then `ctrl+b u`, and `m` → **Open a link it printed**; also with the URL scrolled off (`ctrl+b [` first), and in a narrow pane where the box wraps it twice | The menu lists the URL whole — no border, no line break, nothing missing — opening it signs the agent in and the clipboard holds the same text; a pane with no links says so; prose under a link is not glued to it (or, when it is, it is plain in the menu before anything opens) | ☐ |
 | 9.51 | What a long job is doing | `M` → **New sandbox…** on a provider that works, and `M` → **Over ssh** to a machine with no conch on it yet: watch the status bar for the whole minute or two | A line with a spinner says what it is doing and keeps saying it — asking the provider, the sandbox is up, probing, building, copying N MB, connecting — until the machine appears or a reason does; it is not a flash that fades after four seconds, and nothing else takes the line while it runs | ◐ R29 2026-09-27: the flow and the refusal (boat's plan had lapsed, so the create was refused in a second: the notice read "boat.dev wants a plan or a payment method…" once, not twice); a fast add showed only its "added" flash. Not run: watching the line through a slow install, which is the point of it |
 | 9.52 | Conch's own folder deleted under it | On a machine or sandbox with conch running: `rm -rf ~/.config/conch`, then start an agent (Claude, Gemini, OpenCode) from the TUI; then `conch -m ID status`; then a second server check (`ps` for `conch server`) | Starting the agent writes the files it is launched with again, so Claude does not fail with "Settings file not found"; the next connection starts a fresh server, which recreates the folder; the old server is left orphaned holding its panes, so its pid has to be killed by hand — nothing pretends those panes are still reachable | ◐ R29 2026-09-27: seen on a real Daytona sandbox — the binary in ~/.local/bin survived, `status` started a fresh server and the folder came back, and two servers were running (the orphan holding one shell). The launch-time rewrite is covered by tests; not yet tried on a real agent after the folder went |
+| 9.56 | A prompt theme as it really looks | On a computer with Oh My Zsh: Settings → Theme → **Shell prompt**, in a wide window and a narrow one; pick one and open a new zsh terminal; and against a local server built before this change | Each theme shows the prompt it draws, in its colours — agnoster's powerline segments, a two-line theme on one line, a long one cut with `…`; the terminal that opens draws the same prompt; a theme zsh could not expand shows nothing rather than `$(git_prompt_info)`; an older server simply shows the names, as before (the list is the local computer's either way) | ◐ R34 2026-09-28: the expansion itself against this Mac's 143 real themes (agnoster, bira, fino, gnzh, cloud, af-magic, minimal, robbyrussell) — see R34. Not run: the rows in the TUI at either width, opening a terminal to compare, and an older server |
+| 9.57 | Dragging a selection past a pane's edge | In iTerm2, Terminal.app and Ghostty: in a shell with a long history, and in a real agent's pane after more than a screenful, drag from mid-pane up over the tab bar and hold; then down over the status bar; then turn the wheel with the button held; release. In a diff and on the Branches page, drag over some lines and release; click a row without dragging | The terminal keeps reporting the held drag outside the pane: the history scrolls while the pointer stays above or below, the wheel scrolls mid-drag, and the clipboard has every line passed over, not only the ones on screen. On a page the dragged text is copied and a plain click still opens its row |  ☐ |
+| 9.58 | History of an agent's full-screen interface | With Claude Code in its full-screen mode (prompt box fixed at the bottom), have it print a long answer; then wheel up and down over it a few times; then drag a selection from its pane up over the tab bar and hold | conch has kept the conversation as it scrolled above the prompt: the drag scrolls back through it, in order, with no line repeated by the agent's own scrolling, and the copy has every line passed over |  ☐ |
+
+## Driving a TUI under test
+
+Keys go in with `conch send -keys ID KEY` (the flag before the id). Clicks
+need `internal/tools/clicker`, which sends `pane.send_mouse` through the
+protocol — `conch send` types text, and a raw mouse escape sequence is
+encoded as text rather than passed through:
+
+```sh
+go run ./internal/tools/clicker "$CONCH_SOCKET" p1 109 39   # 0-based cells
+```
+
+Read the screen back with `conch read ID`. Always with a scratch
+`CONCH_HOME` and socket, and `CONCH_PANE_ID` unset.
 
 ## Runs
 
@@ -468,9 +493,9 @@ This Mac to busybox (`aghadge@10.0.0.115`), isolated on both sides. Here: its ow
 - **Found and fixed:** a menu whose title was its widest line lost the end of it ("Move feat to which machin…"), in every menu: the frame's spaces weren't counted.
 - **Not run:** a real Claude reading the handoff after a move (the handoff itself was checked in R19), and a pushed branch sending no commits (covered by the server tests).
 
-### R32 — 2026-09-29, providers named, stats, ssh and tasks without git, macOS arm64, build f3ffe4b1431c
+### R37 — 2026-09-29, providers named, stats, ssh and tasks without git, macOS arm64, build f3ffe4b1431c
 
-Rows 9.55–9.57 against real Daytona (`us`, default snapshot) and boat.dev,
+Rows 9.59–9.61 against real Daytona (`us`, default snapshot) and boat.dev,
 with a scratch `CONCH_HOME` holding only the `[sandbox]` keys, and the TUI
 run inside a pane of a second scratch server. Both sandboxes were deleted
 at the end and both accounts listed nothing.
@@ -484,13 +509,167 @@ at the end and both accounts listed nothing.
 - **Tasks without git:** neither sandbox's home is a repository, and
   neither mattered: Claude, Codex and a two-agent `t` all started there
   with the prompt.
-- **stats:** see row 9.57. Right after `rm`, Daytona still listed the
+- **stats:** see row 9.61. Right after `rm`, Daytona still listed the
   deleted sandbox as `started` with no machine for a few seconds; the next
   stats had it gone.
 - **Found and fixed:** the machine page hinted *"t new task in a project"*;
   `t` there now starts one in the machine's home, and the hint says so.
 - **Noticed, not changed:** a bad Daytona key read from `config.toml` is
   reported as *"check the key in $DAYTONA_API_KEY"*.
+
+### R36 — 2026-09-28, agents driving agents, macOS arm64 → Linux amd64, build 0.1.6-dev (8cef9ef)
+
+Rows 2.10–2.13 with real agents, through a test server of its own (a
+scratch `CONCH_HOME`, the person's real `HOME` so the agents were signed
+in), and for 2.12 a scratch server on busybox reached through a
+`CONCH_SSH` wrapper that ran every remote script under `/tmp/ce-r`. Claude
+Code v2.1.284 (auto mode on), Codex 0.144.1. The build was installed at
+`~/.local/bin/conch` first: every adapter puts that folder first on the
+agent's `PATH`, so an older conch there is what the agents would have run.
+
+- **The blocked guard on real screens.** Claude's first-run trust question
+  opens with the cursor on *No, exit*, and Codex's update menu on *Update
+  now* (a `curl … | sh`): an Enter typed onto either is the harm the guard
+  exists for. `agent prompt` refused all three with exit 3, and the cursor
+  hadn't moved.
+- **The turn, not the state.** Prompted while done, Claude went done →
+  idle the moment the message was typed — the log has it at 22:17:15 — and
+  a wait on state would have returned there; the turn wait returned after
+  working → done a second later. A message sent while Claude worked was
+  folded into that turn (one UserPromptSubmit, one Stop), and the wait
+  ended with it.
+- **A helper that backgrounds its work ends its turn early.** Asked to run
+  `sleep 20`, Claude ran it in the background and stopped, promising to
+  answer when it finished; `-wait` returned then, correctly by its rule.
+  Claude did take the work up again by itself when the job ended (a turn
+  with no prompt, 25 s later). So the skill now has helpers asked to run
+  commands in the foreground, and says to check the result, not the exit.
+- **Scoping holds with a real agent's tools.** Commands Claude ran through
+  its Bash tool were refused from the kernel's view of its pane, not from
+  anything it could unset — the question the fakes could not answer. Over
+  `-m` the refusal named it "p1 on Amits-MacBook-Pro-2.local".
+- **Found and fixed:** Claude read as done while it worked. Its manifest
+  knew work by "esc to interrupt", which v2.1.284 no longer shows; after
+  8 s without a hook (`hook_working_stale`) a long think or a long command
+  fell back to the screen and read as idle. Both panes in 2.13 did, and
+  the driving agent noticed `conch` saying done while the reviewer's screen
+  said working. A `spinner` rule now knows the line it shows instead —
+  `✢ Effecting… (32s · ↓ 1.5k tokens)`, `✻ Galloping… (running Stop hook ·
+  20s · …)` — and not the finished `✻ Crunched for 16s · done`.
+- **Changed in the skill:** asked for a second opinion with the change
+  uncommitted, Claude chose not to commit without being asked and put the
+  diff in the helper's prompt, which is better than the skill's "commit
+  first". The skill now says that.
+- **Codex's failures look like done.** Its API key was rejected (401) on
+  every request; with no hooks, conch reads Codex from its screen, which
+  went working → done either way, so `-wait` exited 0. The skill now says
+  a failed request ends a turn too.
+- **Clean-up:** the skill removed again, the two trust entries the run
+  wrote (`~/.claude.json`'s project, `~/.codex/config.toml`'s) taken out,
+  both test servers stopped, busybox's shared server untouched.
+- **Not run:** Codex's answers (its key is to be fixed before a rerun), OpenCode
+  and Gemini, a helper stopping to ask a question (auto mode asked none),
+  and `-m` against an older remote (the shared server was left alone).
+
+### R35 — 2026-09-28, the icon column with and without a Nerd Font, macOS arm64
+
+Reported as "file icon is not showing in Files", with `[ui] icons = "nerd"`
+set. iTerm2, and `~/Library/Fonts` and `/Library/Fonts` held no Nerd Font.
+
+- In `nerd` mode the column was **blank** — not a box. A terminal that
+  draws nothing for a Private Use Area glyph makes a missing font look
+  exactly like a missing feature, which is how this was first read as a
+  bug in the explorer.
+- Settings → Theme → File icons → **Letters** filled the same column with
+  `go`, `ts`, `md`: the table and the column were fine all along. That is
+  the check to ask for first, and the reason Letters is the default.
+- `brew install --cask font-jetbrains-mono-nerd-font` and iTerm2 →
+  Profiles → Text → **JetBrainsMono Nerd Font Mono** (the Mono variant,
+  whose glyphs keep to one cell, since conch fixes the column at two by
+  measuring). The icons then drew, with no conch restart: the mode is
+  read on every render.
+- **Which** Nerd Font is the user's own business, and the first one was
+  sent back: JetBrains Mono replaced the text face as well as the icons,
+  which is the whole profile changed to get an icon column. Either fix
+  keeps the letters: a symbols-only Nerd Font as iTerm2's non-ASCII font
+  beside the font they already had, or a Nerd Font of a face they want
+  anyway — MesloLGS/LGM, which is Menlo's shape and what the powerline
+  prompt themes are drawn against. Meslo is what stuck, and the icons
+  draw with it.
+- Not seen here: a terminal that draws a box instead of a blank, the
+  alignment of a non-Mono variant, Linux, and the same over ssh.
+
+### R34 — 2026-09-28, how each Oh My Zsh theme's prompt is expanded, macOS arm64
+
+The script `themeSamples` runs, by hand against the real `~/.oh-my-zsh`
+(143 themes), in a temporary `HOME` that is no repository.
+
+- `print -rP -- "$PROMPT"` — the obvious way — left the substitutions a
+  theme defers: `robbyrussell` ended in a literal `$(git_prompt_info)`,
+  `af-magic` in `${(l.$(afmagic_dashes)..-.)}` and `agnoster` was nothing
+  but `$(build_prompt)`. Nobody would recognise their prompt in that.
+- `${(%%e)PROMPT}` ran them but left the escapes the helpers printed
+  (`%{%K{black}%}` all through agnoster).
+- `${(%%)${(e)PROMPT}}` — substitute first, then expand the prompt escapes
+  that came back — drew them as the shell does: agnoster with its
+  powerline segments and background colours, `bira` and `fino` over two
+  lines joined into one, `cloud`, `gnzh`, `minimal` each in their colours.
+  That is what shipped.
+- The temporary `HOME` shows in the samples as `~`, and a git-aware theme
+  shows its plain form because the folder is no repository — which is the
+  point: a sample is the theme, not this checkout's branch.
+
+### R33 — 2026-09-27, your own setup given to the other agents, macOS arm64
+
+A scratch home — `~/.claude/CLAUDE.md`, a `tide-check` skill, and a server
+in `~/.claude.json` beside a project history that had to survive — synced
+with `conch agent sync -user` through a server of its own.
+
+- The plan named every path in full (`~/.codex/AGENTS.md`,
+  `~/.agents/skills/tide-check`, `~/.config/opencode/opencode.json`) and
+  wrote nothing. Applying it wrote them; `~/.claude.json` was untouched,
+  project history and all; the record went to `~/.config/conch/agent-sync`,
+  and no `.conch` appeared in the home.
+- **The agents' own CLIs, in that home:** `codex mcp list` showed
+  `tidewatch` from the `~/.codex/config.toml` conch wrote, its variable
+  masked; `gemini skills list` showed `tide-check` from the
+  `~/.agents/skills` conch linked into.
+- Undoing put the home back: every file conch wrote gone, the sources kept.
+- **Found while doing it:** the trust notes were a checkout's. In your home
+  Codex's project-trust note does not apply, and Gemini's is worse than the
+  checkout one — it suppresses *your own* servers and skills in a folder
+  you have not trusted — so the note now says which it is.
+- The dotfiles guard (a file that is a symlink is skipped, the repository
+  left alone) is covered by tests rather than by a real dotfiles setup.
+
+### R32 — 2026-09-27, v0.1.5 arriving in a real TUI, macOS arm64
+
+The last part of the release path, done after the re-cut tag: a genuine
+**v0.1.4** binary (downloaded from its own release) with its own `HOME`,
+`CONCH_HOME` and socket, its TUI running in a pane of that isolated server,
+driven with `conch send` and — for the status bar — clicks through
+`pane.send_mouse`.
+
+- **5.3:** the 0.1.4 TUI showed `⬆ v0.1.4` in the status bar within seconds
+  of starting. Clicking the version cell opened the popup: *"Server up to
+  date · pid 74788 · running 3m"*, then *"Updates: ⬆ Release   0.1.5
+  available (running v0.1.4)"*. Its Settings had four tabs, no Sandboxes —
+  the old build, as intended.
+- **5.4:** `u` downloaded and applied it. The server **reloaded in place —
+  same pid 74788**, version 0.1.4 → 0.1.5 — the binary at
+  `~/.local/bin/conch` became `conch 0.1.5 (build 98cb5a903ad7)`, the one
+  install.sh serves, and the TUI restarted onto it: the machine row shows
+  that build and the status bar reads `v0.1.5` with the arrow gone.
+- **5.5:** `conch update list` then showed `* 0.1.5 (latest, what conch
+  update installs · running)` above `0.1.4 (kept, no download needed)` and
+  the rest.
+- **A tool came out of it:** `internal/tools/clicker` sends a click to a
+  pane through the protocol. `conch send` types text, and a raw mouse escape
+  sequence is encoded as text rather than passed through, so there was no
+  other way to press a status-bar cell in a TUI under test.
+
+Not covered: updating a remote machine from the popup (the harness had no
+remotes), and `[update] auto = true`.
 
 ### R31 — 2026-09-27, a Daytona create that failed, macOS arm64, build 0.1.5
 
@@ -547,6 +726,13 @@ was tagged (`CONCH_RELEASE_URL` pointed at a `python3 -m http.server` serving
 - **Tests:** `go vet`, `gofmt`, `go test -race -count=1 ./...` all clean, and a
   `CGO_ENABLED=0` build, which is what the release script uses for three of the
   four platforms. Coverage 93.0%.
+
+**Re-cut the same evening:** after R31's three fixes, the tag and its
+release were deleted and remade from `37e8104`. GitHub built it again
+(success), the assets are the four archives and `checksums.txt`, the notes
+were restored with the new line, and a fresh `install.sh` run installed
+`conch 0.1.5 (build 98cb5a903ad7)` — which carries the fix. Only this
+machine had installed the first build.
 
 **After the tag, the same day:** GitHub built `v0.1.5` (tests, four
 platforms, checksums, gh release create) and the website deployed from it in

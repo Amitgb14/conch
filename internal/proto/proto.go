@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -50,6 +50,37 @@ const CapBranchRebase = "branch.push.rebase.v1"
 // to the others — instructions, skills and MCP servers — planned, applied
 // and undone.
 const CapAgentSync = "agent.setup.sync.v1"
+
+// CapAgentSyncUser is the same for the setup in your home, through the
+// User field: a server without it would sync the checkout instead, so
+// clients check before asking.
+const CapAgentSyncUser = "agent.setup.sync.user.v1"
+
+// CapAgentLibrary is agent.library and agent.library.apply: MCP servers
+// and skills kept in conch and given to the agents chosen for each.
+const CapAgentLibrary = "agent.library.v1"
+
+// CapAgentPrompt is agent.prompt: a message submitted to one agent, refused
+// while it waits on a question, and the Turn of AgentStatus that says when
+// the work it started has ended.
+const CapAgentPrompt = "agent.prompt.v1"
+
+// CapTaskName is task.create taking Name: the task's pane named as it
+// starts. A server without it drops the field, so clients rename instead.
+const CapTaskName = "task.name.v1"
+
+// CapPaneScope is PaneInfo.CreatedBy, and the server refusing an agent's
+// changes to panes and projects that aren't its own with ErrOutOfScope.
+const CapPaneScope = "pane.scope.v1"
+
+// CapScopeRemote is pane.caller and scope.act_for: a scoped agent's own
+// server says who it is, and a connection to another machine asks to be
+// held to what that agent started there.
+const CapScopeRemote = "scope.remote.v1"
+
+// CapAgentSkill is agent.skill: conch's own skill installed where each
+// agent reads the person's skills, or taken away again.
+const CapAgentSkill = "agent.skill.v1"
 
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
@@ -118,6 +149,8 @@ const (
 	MethodShellThemes    = "shell.themes"
 	MethodAgentSetup     = "agent.setup"
 	MethodAgentSync      = "agent.setup.sync"
+	MethodAgentLibrary   = "agent.library"
+	MethodLibraryApply   = "agent.library.apply"
 	MethodProjectFiles   = "project.set_files"
 	MethodWorktreeFiles  = "worktree.copy_files"
 	MethodSessionList    = "session.list"
@@ -130,6 +163,16 @@ const (
 	MethodAgentLimits    = "agent.limits"
 	// MethodAgentBroadcast types one message into several agents.
 	MethodAgentBroadcast = "agent.broadcast"
+	// MethodAgentPrompt submits a message to one agent, unless it is
+	// waiting on a question.
+	MethodAgentPrompt = "agent.prompt"
+	// MethodPaneCaller says which pane the connection comes from and
+	// whether it is scoped; MethodActFor asks a connection from another
+	// machine to be scoped as that caller.
+	MethodPaneCaller = "pane.caller"
+	MethodActFor     = "scope.act_for"
+	// MethodAgentSkill installs or removes conch's skill for agents.
+	MethodAgentSkill = "agent.skill"
 
 	// Finishing a branch's work: commit, push, open a pull request, merge
 	// into the base, or throw the branch away.
@@ -180,9 +223,15 @@ const (
 	// undone: the branch is as it was and nothing was pushed, so what is
 	// left is to sort the conflict out in the worktree by hand.
 	ErrRebaseConflict = "rebase_conflict"
-	ErrNotFound       = "not_found"
-	ErrInternal       = "internal"
-	ErrUnknown        = "unknown_method"
+	// ErrAgentBlocked is a message refused because the agent is waiting
+	// on a question: typed in, its Enter could answer the question.
+	ErrAgentBlocked = "agent_blocked"
+	// ErrOutOfScope is a change an agent asked for, from inside its pane,
+	// to a pane or project that isn't its own.
+	ErrOutOfScope = "out_of_scope"
+	ErrNotFound   = "not_found"
+	ErrInternal   = "internal"
+	ErrUnknown    = "unknown_method"
 )
 
 // Message is the single envelope for requests, responses and events.
@@ -286,6 +335,9 @@ type PaneInfo struct {
 	// all, which is how conch decides a sandbox is idle. Zero from
 	// servers that predate it.
 	LastActive time.Time `json:"last_active,omitempty"`
+	// CreatedBy is the pane this one was started from, if any: an agent
+	// there may change it, and what it starts in turn (see pane.scope.v1).
+	CreatedBy string `json:"created_by,omitempty"`
 }
 
 // PaneMonitor asks to be told about a pane's output, as tmux's
@@ -316,6 +368,21 @@ func (p PaneInfo) DisplayName() string {
 		return p.Title
 	}
 	return p.Name
+}
+
+// IsPaneID reports whether ref has the shape of a pane ID ("p" and a
+// number). Commands take a pane's name in place of its ID, so a name of
+// that shape is refused: it would stand for another pane.
+func IsPaneID(ref string) bool {
+	if len(ref) < 2 || ref[0] != 'p' {
+		return false
+	}
+	for _, c := range ref[1:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // PaneRenameParams renames a pane; an empty name restores the default.
@@ -891,8 +958,11 @@ type TaskCreateParams struct {
 	Branch    string `json:"branch,omitempty"`
 	Base      string `json:"base,omitempty"`
 	Agent     string `json:"agent,omitempty"` // default: the server's first agent (claude)
-	Cols      int    `json:"cols,omitempty"`
-	Rows      int    `json:"rows,omitempty"`
+	// Name names the pane, as pane.rename does, so it can be addressed
+	// by it; see IsPaneID.
+	Name string `json:"name,omitempty"`
+	Cols int    `json:"cols,omitempty"`
+	Rows int    `json:"rows,omitempty"`
 }
 
 // Agent states.
@@ -915,6 +985,11 @@ type AgentStatus struct {
 	Tokens    *Tokens   `json:"tokens,omitempty"`
 	// Failed means the last request ended with an error, not an answer.
 	Failed bool `json:"failed,omitempty"`
+	// Turn counts the times the agent started working in this pane, so a
+	// client that prompted it can tell the end of that work from a state
+	// left over from before. It starts again from zero when the server
+	// reloads, and servers without agent.prompt.v1 leave it zero.
+	Turn int `json:"turn,omitempty"`
 }
 
 // Tokens is an agent session's token usage, from its transcript.
@@ -1051,6 +1126,70 @@ type AgentBroadcastParams struct {
 	Shells bool     `json:"shells,omitempty"`
 }
 
+// AgentPromptParams submits Text to the agent in pane ID as its next
+// message.
+type AgentPromptParams struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
+
+// AgentPromptResult says which work answers the message: the agent's Turn
+// reaching Turn. An agent already working when it was sent is given the
+// message when that work ends, so its current Turn counts.
+type AgentPromptResult struct {
+	ID    string `json:"id"`
+	Agent string `json:"agent"`
+	Turn  int    `json:"turn"`
+}
+
+// CallerInfo is who a connection comes from, as its server sees it: the
+// pane, and whether an agent runs there, so the server scopes it. ID names
+// that agent's pane to other machines — the host, the pane and when it
+// started, so a pane ID used again later is someone else — and Label says
+// it to people.
+type CallerInfo struct {
+	Pane   string `json:"pane,omitempty"`
+	Agent  string `json:"agent,omitempty"`
+	Scoped bool   `json:"scoped,omitempty"`
+	ID     string `json:"id,omitempty"`
+	Label  string `json:"label,omitempty"`
+}
+
+// ActForParams holds a connection to what the agent CallerInfo names
+// started on this machine. It can only narrow what the connection may do,
+// so the server takes it at its word; it can't be changed once given.
+type ActForParams struct {
+	ID    string `json:"id"`
+	Label string `json:"label,omitempty"`
+	Agent string `json:"agent,omitempty"`
+}
+
+// AgentSkillParams installs conch's skill for Agents (all it knows, when
+// empty), or with Remove takes conch's copy away. Without Apply nothing is
+// written: the result says what would be.
+type AgentSkillParams struct {
+	Agents []string `json:"agents,omitempty"`
+	Remove bool     `json:"remove,omitempty"`
+	Apply  bool     `json:"apply,omitempty"`
+}
+
+// AgentSkillResult is what happens to each SKILL.md.
+type AgentSkillResult struct {
+	Changes []SkillChange `json:"changes"`
+	Applied bool          `json:"applied,omitempty"`
+}
+
+// SkillChange is one SKILL.md and the agents that read it. Action is
+// create, update, same, remove or skip (a skill of that name conch didn't
+// write, left alone).
+type SkillChange struct {
+	Path   string   `json:"path"`
+	Agents []string `json:"agents"`
+	Action string   `json:"action"`
+	Detail string   `json:"detail,omitempty"`
+	Error  string   `json:"error,omitempty"`
+}
+
 // AgentBroadcastResult reports, per pane, whether the message was sent.
 type AgentBroadcastResult struct {
 	Results []BroadcastOutcome `json:"results"`
@@ -1154,7 +1293,11 @@ type SetupItem struct {
 // what it would do. Undo puts a sync back instead — Stamp names which, and
 // "" is the last one.
 type AgentSyncParams struct {
-	Dir   string   `json:"dir"`
+	Dir string `json:"dir"`
+	// User syncs the setup in your home rather than a checkout's: the
+	// instructions, skills and servers that follow you from project to
+	// project. Dir is then only what a message calls the place.
+	User  bool     `json:"user,omitempty"`
 	From  string   `json:"from,omitempty"`
 	To    []string `json:"to,omitempty"`
 	Apply bool     `json:"apply,omitempty"`
@@ -1176,6 +1319,70 @@ type AgentSyncResult struct {
 	// Undos are the syncs of this checkout that can still be undone,
 	// newest first.
 	Undos []string `json:"undos,omitempty"`
+}
+
+// LibraryServer is an MCP server in conch's library. References to
+// variables are written ${VAR}; conch writes each agent's own form.
+type LibraryServer struct {
+	Name      string            `json:"name"`
+	Command   string            `json:"command,omitempty"`
+	Args      []string          `json:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Transport string            `json:"transport,omitempty"` // "sse", or "" for streamable HTTP
+	Agents    []string          `json:"agents"`
+}
+
+// LibrarySkill is a skill in the library: a folder holding a SKILL.md,
+// linked into each agent's folder.
+type LibrarySkill struct {
+	Name   string   `json:"name"`
+	Path   string   `json:"path"` // ~ is the home directory there
+	Agents []string `json:"agents"`
+}
+
+// Library is the MCP servers and skills conch keeps for the agents.
+type Library struct {
+	Servers []LibraryServer `json:"servers"`
+	Skills  []LibrarySkill  `json:"skills"`
+}
+
+// LibraryCell is where one server or skill stands with one agent: on,
+// pending, remove, off, theirs, differs or cannot.
+type LibraryCell struct {
+	Kind   string `json:"kind"` // "mcp server" or "skill"
+	Name   string `json:"name"`
+	Agent  string `json:"agent"`
+	State  string `json:"state"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// AgentLibraryParams asks for the library and where it stands. Set saves
+// a new library first, and Import takes an agent's servers and skills into
+// it first; neither writes to any agent.
+type AgentLibraryParams struct {
+	Set    *Library `json:"set,omitempty"`
+	Import string   `json:"import,omitempty"`
+}
+
+// AgentLibraryResult is the library, where each item stands with each
+// agent, and what an import took and left out.
+type AgentLibraryResult struct {
+	Library  Library       `json:"library"`
+	Cells    []LibraryCell `json:"cells,omitempty"`
+	Agents   []string      `json:"agents"`
+	Undos    []string      `json:"undos,omitempty"`
+	Imported []string      `json:"imported,omitempty"`
+	Skipped  []string      `json:"skipped,omitempty"`
+}
+
+// LibraryApplyParams gives each agent what the library says. With Apply
+// false nothing is written; Undo puts an apply back (Stamp, "" the last).
+type LibraryApplyParams struct {
+	Apply bool   `json:"apply,omitempty"`
+	Undo  bool   `json:"undo,omitempty"`
+	Stamp string `json:"stamp,omitempty"`
 }
 
 // What a sync change does: writing ones first.
@@ -1264,6 +1471,10 @@ type ShellThemes struct {
 	OMZ     bool     `json:"omz"`               // Oh My Zsh is installed
 	Current string   `json:"current,omitempty"` // ZSH_THEME set in .zshrc
 	Themes  []string `json:"themes,omitempty"`  // sorted
+	// Samples is each theme's prompt as zsh expands it, so a person can
+	// see what they are choosing. A server that cannot run zsh, or one
+	// from an older build, sends none and the names stand alone.
+	Samples map[string]string `json:"samples,omitempty"`
 }
 
 // PaneRef addresses a pane.

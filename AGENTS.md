@@ -40,7 +40,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/brain` | Model providers (Claude CLI, Anthropic, OpenAI-compatible), planner, action execution, summaries |
 | `internal/sessions` | Reading and deleting each agent's saved conversations |
 | `internal/usage` | Token usage and plan limits from transcripts and rollouts |
-| `internal/agentsetup` | What an agent loads in a checkout: instructions, skills, MCP servers, trust — and, the other way, writing one agent's instructions, skills and servers where the others look for them (`sync.go`), with a record to undo it |
+| `internal/agentsetup` | What an agent loads in a checkout: instructions, skills, MCP servers, trust — and, the other way, writing one agent's instructions, skills and servers where the others look for them (`sync.go`), with a record to undo it; the library of servers and skills the agents follow (`library.go`); each agent's way of naming a variable (`vars.go`); conch's own skill for agents driving agents (`skill/SKILL.md`, installed by `skill.go`) — its commands are checked against the CLI's usage by a test |
 | `internal/gitx` / `internal/ghx` | git status, branches, worktrees, untracked files / pull requests via the `gh` CLI |
 | `internal/update` | Version comparison, same-build checks, release installs, reloading servers |
 | `internal/config` | Paths (`CONCH_HOME`), `config.toml` loading and saving |
@@ -172,7 +172,12 @@ helpers in `cmd/conch` and `internal/remote`.
   agent said a page ago. It is recognition, not recording: output goes into
   the emulator half a screen at a time so a burst cannot scroll a screenful
   past unseen, and a program that repaints rather than scrolls leaves
-  nothing behind, which is right — none of it scrolled away. The lines are
+  nothing behind, which is right — none of it scrolled away. An agent's
+  interface scrolls only the conversation, above a prompt and status line
+  that stay put, so each finished frame — where a synchronized update
+  (mode 2026) ends, or at the end of a write — is also compared with the
+  last for a scroll in part of the screen (`scrolledRegion`); lines the
+  agent brings back by scrolling its own view are not kept twice. The lines are
   kept as text, capped at `altHistoryMax`, dropped when the program leaves
   the alternate screen, and not carried through a reload.
 - **Panes on macOS.** `poll` doesn't work on ttys and read deadlines aren't
@@ -184,6 +189,22 @@ helpers in `cmd/conch` and `internal/remote`.
   failures in the first seconds). The tab bar lists the tabs of the group
   selected in the tree (`internal/tui/scope.go`); the machine row lists none
   and shows a preview.
+- **Scoping agents that drive conch.** `internal/server/scope.go` keeps an
+  agent calling from inside its pane to its own work: panes it started (a
+  lineage, carried through reloads), panes in its project, and that
+  project's branches and worktrees. The caller is found from the socket's
+  peer pid (`peer_darwin.go`, `peer_linux.go`) walked up its parents to a
+  pane's program — never from `CONCH_PANE_ID` — and only a pane with an
+  agent detected in it is scoped. A new method that changes a pane or a
+  project belongs in `scoped` with a verb, or an agent can reach past its
+  scope through it. Tests put a real caller inside a pane by running the
+  test binary there (`TestScopeHelper`).
+  Across machines the remote server can't see the caller, so `conch -m`
+  asks the local one (`pane.caller`) and, for a scoped agent, declares it
+  there (`scope.act_for`, `cmd/conch/scope.go`); a connection that acts
+  for an agent elsewhere reaches only what that agent started. Declaring
+  only narrows, so it is taken at its word; a remote without
+  `scope.remote.v1` isn't driven from an agent's pane.
 - **Machine-level panes** (under a machine's `CLI` group) are created with
   `NoProject` and start in the home directory.
 - **Build identity.** `buildinfo.Build()` hashes the executable at start-up;
@@ -241,6 +262,11 @@ means all of these, each with tests (a fake binary on a scratch `PATH` or
   `slowList` (`internal/sessions/slow.go`), so a program that hangs holds up
   the list for a grace and no longer; the list then says it is incomplete and
   the TUI asks again. Say in the docs if search or sharing can't read it.
+- **Setup** (`internal/agentsetup`): an inspector for the `i` view, where it
+  keeps instructions, skills and MCP servers in a checkout (`writable`) and
+  in your home (`userFiles`), how it refers to a variable (`vars.go`), and
+  which other agents' files it reads by itself, so sync and the library
+  don't give it a second copy.
 - **Labels**: `agentLabels` in `internal/tui/model.go` and the handoff labels
   in `internal/sessions/handoff.go`.
 - **Docs and plans**: the Supported agents table (`web/src/app/docs/agents`),

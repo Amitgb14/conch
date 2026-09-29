@@ -43,6 +43,8 @@ Usage:
   conch send ID TEXT            type TEXT into a pane (-keys to send key names)
   conch read ID                 print a pane's visible screen
   conch close ID                close a pane
+  conch rename ID [NAME]        name a pane; without NAME it gets its own back. Every
+                                command taking a pane ID takes its name too
   conch redraw ID               draw a pane's screen again (after a program left stale text)
   conch wait ID [-state done] [-timeout 30m]
                                 block until a pane's agent is done (or waiting, working, idle);
@@ -50,20 +52,32 @@ Usage:
   conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]
                                 start Claude Code with state tracking
   conch agent explain ID        show how a pane's agent state was decided
+  conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] ID TEXT
+                                send an agent its next message, refused (exit 3) while it
+                                waits on a question; -wait blocks until that work ends
+  conch agent skill [-agent NAMES] [-remove] [-apply]
+                                teach the agents to start, prompt and read other agents in
+                                conch: its skill, in each agent's own skills folder
   conch agent status | install claude
                                 check or install Claude Code (use -m for a machine)
   conch agent setup [-agent NAME] [-copy] [DIR]
                                 what each agent loads there: instructions, skills, MCP servers
-  conch agent sync [-from NAME] [-to NAMES] [-apply] [-undo] [DIR]
-                                give the other agents one agent's setup in a checkout;
-                                without -apply it only says what it would do
+  conch agent sync [-user] [-from NAME] [-to NAMES] [-apply] [-undo] [DIR]
+                                give the other agents one agent's setup — a checkout's, or
+                                with -user your own (~/.claude and the rest); without
+                                -apply it only says what it would do
+  conch agent library [add | skill | on | off | rm | import AGENT | plan | apply | undo]
+                                MCP servers and skills kept in conch, each given to the
+                                agents you choose: add NAME (URL | -- COMMAND ARGS),
+                                -to NAMES, -env K=${VAR}; plan says what apply writes
   conch project add PATH | create [-no-git] PATH | ls | rm ID
                                 manage projects shown in the sidebar
-  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] PROMPT
+  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] PROMPT
                                 new branch + worktree + Claude with PROMPT; in a folder that isn't a
                                 git repository the agent works there instead (with -m and no -cwd:
                                 that machine's home);
-                                -n / several agents try it once each, one branch per attempt
+                                -n / several agents try it once each, one branch per attempt;
+                                -name names the pane
   conch branch commit [-file PATH]... -m MESSAGE
                                 commit a task branch's changes (-cwd, -branch pick it;
                                 -cwd needed with -m)
@@ -132,6 +146,8 @@ func main() {
 		err = runSend(args)
 	case "read":
 		err = runRead(args)
+	case "rename":
+		err = runRename(args)
 	case "close":
 		err = runClose(args)
 	case "redraw":
@@ -178,6 +194,11 @@ func main() {
 	var status exitStatus
 	if errors.As(err, &status) {
 		os.Exit(int(status)) // a command run elsewhere; it has said why
+	}
+	var blocked agentBlocked
+	if errors.As(err, &blocked) {
+		fmt.Fprintln(os.Stderr, "conch:", err)
+		os.Exit(3) // the question is someone's to answer; retrying won't
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "conch:", err)
@@ -446,12 +467,16 @@ func runSend(args []string) error {
 	if fs.NArg() < 2 {
 		return errors.New("usage: conch send [-keys] ID TEXT...")
 	}
-	id, rest := fs.Arg(0), fs.Args()[1:]
+	rest := fs.Args()[1:]
 	c, err := connect(false)
 	if err != nil {
 		return err
 	}
 	defer c.Close()
+	id, err := resolvePane(c, fs.Arg(0))
+	if err != nil {
+		return err
+	}
 	if *keys {
 		return call(c, proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: id, Keys: rest}, nil)
 	}
@@ -467,8 +492,12 @@ func runRead(args []string) error {
 		return err
 	}
 	defer c.Close()
+	id, err := resolvePane(c, args[0])
+	if err != nil {
+		return err
+	}
 	var res proto.PaneReadResult
-	if err := call(c, proto.MethodPaneRead, proto.PaneRef{ID: args[0]}, &res); err != nil {
+	if err := call(c, proto.MethodPaneRead, proto.PaneRef{ID: id}, &res); err != nil {
 		return err
 	}
 	// Drop trailing blank rows.
@@ -492,7 +521,11 @@ func runRedraw(args []string) error {
 	if len(c.MissingCapabilities([]string{"pane.redraw.v1"})) > 0 {
 		return errors.New("the conch server predates redrawing panes; reload it with `conch server reload`")
 	}
-	return call(c, proto.MethodPaneRedraw, proto.PaneRef{ID: args[0]}, nil)
+	id, err := resolvePane(c, args[0])
+	if err != nil {
+		return err
+	}
+	return call(c, proto.MethodPaneRedraw, proto.PaneRef{ID: id}, nil)
 }
 
 func runClose(args []string) error {
@@ -504,7 +537,11 @@ func runClose(args []string) error {
 		return err
 	}
 	defer c.Close()
-	return call(c, proto.MethodPaneClose, proto.PaneRef{ID: args[0]}, nil)
+	id, err := resolvePane(c, args[0])
+	if err != nil {
+		return err
+	}
+	return call(c, proto.MethodPaneClose, proto.PaneRef{ID: id}, nil)
 }
 
 // stopServer asks the server to stop and waits until it has, so a following
@@ -625,7 +662,15 @@ func tuiPrefix() string {
 
 func connect(start bool) (*client.Client, error) {
 	if machineFlag != "" && machineFlag != "local" {
-		return connectMachine(machineFlag)
+		c, err := connectMachine(machineFlag)
+		if err != nil {
+			return nil, err
+		}
+		if err := actForHere(c, machineFlag); err != nil {
+			c.Close()
+			return nil, err
+		}
+		return c, nil
 	}
 	sock := config.SocketPath()
 	if start {

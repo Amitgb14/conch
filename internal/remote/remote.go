@@ -163,6 +163,15 @@ var (
 	connectionWait  = 2 * time.Second
 )
 
+// ConnectionTriesForTest sets how often a connection is tried and how long
+// between, returning what they were. Tests in other packages shorten them;
+// nothing else calls it.
+func ConnectionTriesForTest(tries int, wait time.Duration) (int, time.Duration) {
+	oldTries, oldWait := connectionTries, connectionWait
+	connectionTries, connectionWait = tries, wait
+	return oldTries, oldWait
+}
+
 // retryConnection runs do until it succeeds, the context ends, or it fails
 // for a reason that trying again cannot mend.
 func retryConnection(ctx context.Context, do func(attempt int) error) error {

@@ -53,18 +53,43 @@ func TestSettingsTabs(t *testing.T) {
 		t.Fatal("notifications still enabled")
 	}
 
-	// Agents tab: default choice, installed, missing (installable) and offline rows.
+	// Agents tab: the default agent to choose, and a row per machine
+	// saying how it stands — its agents are a page of their own.
 	details, labels := map[string]bool{}, map[string]bool{}
 	for _, it := range s.agentItems(m) {
-		details[it.detail], labels[it.label] = true, true
+		details[ansi.Strip(it.detail)], labels[ansi.Strip(it.label)] = true, true
 		if it.label == "Codex" && it.run != nil {
 			it.run(m)
 		}
 	}
-	if !details[styleOK.Render("✓ 2.1.270")] || !details[styleWarn.Render("not installed · enter installs")] ||
-		!labels[styleMuted.Render("  agents unknown while offline")] {
-		t.Fatalf("agent rows: %v %v", details, labels)
+	if !labels["local"] || !details["1 installed · 1 not"] || !details["offline"] {
+		t.Fatalf("machine rows: %v %v", details, labels)
 	}
+	// And that page has the versions and what is missing.
+	s.openPage("agents:" + localMachine)
+	rows := map[string]string{}
+	for _, it := range s.agentItems(m) {
+		rows[ansi.Strip(it.label)] = ansi.Strip(it.detail)
+	}
+	if rows["Claude Code"] != "✓ 2.1.270" || rows["Codex"] != "not installed · enter installs" ||
+		rows["‹ Agents"] != "esc" || rows["Check again"] != "on local" {
+		t.Fatalf("local's page: %v", rows)
+	}
+	// An offline machine says so there rather than listing nothing.
+	s.openPage("agents:gpu")
+	off := map[string]bool{}
+	for _, it := range s.agentItems(m) {
+		off[ansi.Strip(it.label)] = true
+	}
+	if !off["  agents unknown while offline"] {
+		t.Fatalf("an offline machine's page: %v", off)
+	}
+	// A machine that has gone while its page was open falls back to the tab.
+	s.openPage("agents:nope")
+	if s.agentItems(m); s.page != "" {
+		t.Fatalf("a machine that is not there left %q open", s.page)
+	}
+	s.openPage("")
 	if m.cfg.Agents.Default != "codex" || m.defaultAgent() != "codex" {
 		t.Fatalf("default agent: %q", m.cfg.Agents.Default)
 	}
@@ -78,17 +103,78 @@ func TestSettingsTabs(t *testing.T) {
 		return b.String()
 	}
 	out := flat()
-	for _, want := range []string{"What each agent loads|per checkout, not here",
-		"i on a project, branch or pane", "s there gives the other agents that one's setup"} {
+	for _, want := range []string{"What each agent loads|your own setup, and each checkout's",
+		"i on a project, branch or pane", "Your own setup…|~/.claude and the rest, given to the other agents"} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("the pointer to agent setup lacks %q:\n%s", want, out)
+			t.Fatalf("the agent setup rows lack %q:\n%s", want, out)
 		}
 	}
-	// It points, and does nothing: nothing there is selectable by mistake.
+	// One row, not one per agent: the tab is long enough in a small window.
+	if strings.Contains(out, "Give the others") {
+		t.Fatalf("the tab lists an action per agent:\n%s", out)
+	}
+	// The line about a checkout points and does nothing.
 	for _, it := range s.agentItems(m) {
 		if strings.Contains(ansi.Strip(it.label), "i on a project") && it.run != nil {
 			t.Fatal("the pointer row does something")
 		}
+	}
+
+	// Opening it is a page of its own: an agent to take the setup from,
+	// the way back, and the undo — and nothing else from the tab.
+	item := func(label string) settingItem {
+		t.Helper()
+		for _, it := range s.agentItems(m) {
+			if strings.HasPrefix(ansi.Strip(it.label), label) {
+				return it
+			}
+		}
+		t.Fatalf("no row %q in\n%s", label, flat())
+		return settingItem{}
+	}
+	item("Your own setup…").run(m)
+	if s.page != "usersync" {
+		t.Fatalf("it opened %q", s.page)
+	}
+	page := flat()
+	for _, want := range []string{"Your own setup|what follows you, not a checkout's", "‹ Agents|esc",
+		"Give the others Claude Code's setup…", "Put the last one back…|undoes the last one",
+		"~/.claude/CLAUDE.md and its skills"} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("the page lacks %q:\n%s", want, page)
+		}
+	}
+	if strings.Contains(page, "Default agent") || strings.Contains(page, "Remote machines") {
+		t.Fatalf("the page kept the tab's own rows:\n%s", page)
+	}
+	// esc goes back to the tab, and so does the ‹ row.
+	if closed, _ := s.update(m, a2Key("esc")); closed || s.page != "" {
+		t.Fatalf("esc in a page: closed %v page %q", closed, s.page)
+	}
+	item("Your own setup…").run(m)
+	item("‹ Agents").run(m)
+	if s.page != "" {
+		t.Fatalf("the back row left %q open", s.page)
+	}
+	// Switching tab and coming back starts at the tab, not the page.
+	s.openPage("usersync")
+	s.setTab(0)
+	s.setTab(2)
+	if s.page != "" {
+		t.Fatalf("a tab switch kept %q open", s.page)
+	}
+
+	// In a small window it still fits: the page is what it is for.
+	for _, size := range [][2]int{{80, 20}, {60, 16}, {40, 12}} {
+		m.width, m.height = size[0], size[1]
+		s.openPage("usersync")
+		b := s.render(*m)
+		a2CheckBox(t, b, *m)
+		if got := strings.Count(a2Plain(b.lines), "\n") + 1; got > size[1] {
+			t.Fatalf("%dx%d: the page is %d lines", size[0], size[1], got)
+		}
+		s.openPage("")
+		a2CheckBox(t, s.render(*m), *m)
 	}
 }
 
@@ -156,5 +242,73 @@ func TestAgentPicker(t *testing.T) {
 	}
 	if !strings.Contains(mu.title, "devbox") {
 		t.Fatalf("title %q should name the machine", mu.title)
+	}
+}
+
+func TestThemePromptSamples(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	defer applyTheme("conch", "")
+	m := &Model{cfg: config.Default(), width: 100, height: 40}
+	long := strings.Repeat("prompt ", 20)
+	s := &settings{shell: &proto.ShellThemes{OMZ: true, Current: "robbyrussell",
+		Themes: []string{"agnoster", "plain", "quiet", "long", "titled"},
+		Samples: map[string]string{
+			"agnoster": "\x1b[34muser\x1b[0m@host ~",
+			"plain":    "plain>",
+			"long":     long,
+			"titled":   "\x1b]0;a window title\x07ok>",
+		}}}
+	rows, raw := map[string]string{}, map[string]string{}
+	for _, it := range s.themeItems(m) {
+		rows[ansi.Strip(it.label)] = ansi.Strip(it.detail)
+		raw[ansi.Strip(it.label)] = it.detail
+	}
+	if rows["plain"] != "plain>" || rows["agnoster"] != "user@host ~" {
+		t.Fatalf("samples on the rows: %q %q", rows["plain"], rows["agnoster"])
+	}
+	// A theme nobody could expand keeps its row and says nothing.
+	if rows["quiet"] != "" {
+		t.Fatalf("a theme with no sample: %q", rows["quiet"])
+	}
+	// The colours are kept, and closed off so none reaches the frame.
+	if !strings.Contains(raw["agnoster"], "\x1b[34m") || !strings.HasSuffix(raw["agnoster"], "\x1b[0m") {
+		t.Fatalf("agnoster's colours: %q", raw["agnoster"])
+	}
+	// A long prompt is cut, and an escape that would retitle the terminal is gone.
+	if w := ansi.StringWidth(rows["long"]); w != promptSampleMax || !strings.HasSuffix(rows["long"], "…") {
+		t.Fatalf("a long prompt: %d cells, %q", w, rows["long"])
+	}
+	if rows["titled"] != "ok>" || strings.Contains(raw["titled"], "\x1b]") {
+		t.Fatalf("an OSC in a prompt: %q", raw["titled"])
+	}
+
+	// Whatever a theme prints, the box keeps its width — in a tiny window too.
+	for _, size := range [][2]int{{100, 40}, {60, 16}, {40, 12}} {
+		m.width, m.height = size[0], size[1]
+		a2CheckBox(t, s.render(*m), *m)
+	}
+}
+
+func TestOnlyColour(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"", ""},
+		{"plain>", "plain>"},
+		{"\x1b[31mred\x1b[0m", "\x1b[31mred\x1b[0m"},
+		{"\x1b[2Jclear", " clear"},      // a sequence that isn't a colour
+		{"\x1b]0;title\x07ok", " ok"},   // OSC ended by BEL
+		{"\x1b]0;title\x1b\\ok", " ok"}, // OSC ended by ST
+		{"\x1b(Bok", " ok"},             // a two-byte escape
+		{"a\x01b\tc\nd", "a b c d"},     // control characters
+		{"\x1b[", " "},                  // a sequence cut short
+		{"\x1b]0;never ends", " "},      // an OSC cut short
+		{"\x1b", " "},                   // an escape at the very end
+		{"\x1b[38;5;41mcolour\x1b[39m", "\x1b[38;5;41mcolour\x1b[39m"},
+	} {
+		if got := onlyColour(c.in); got != c.want {
+			t.Errorf("onlyColour(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	if got := promptSample("  \x1b[31m\x1b[0m  "); got != "" {
+		t.Errorf("a prompt that shows nothing: %q", got)
 	}
 }

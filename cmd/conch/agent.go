@@ -27,17 +27,27 @@ func runAgent(args []string) error {
 		return agentSetup(args[1:])
 	case len(args) >= 1 && args[0] == "sync":
 		return agentSync(args[1:])
+	case len(args) >= 1 && args[0] == "prompt":
+		return agentPrompt(args[1:])
+	case len(args) >= 1 && args[0] == "skill":
+		return agentSkill(args[1:])
+	case len(args) >= 1 && args[0] == "library":
+		return agentLibrary(args[1:])
 	case len(args) != 2 || args[0] != "explain":
-		return errors.New("usage: conch agent explain ID | status | install NAME | setup [-agent NAME] [-copy] [DIR] | " +
-			"sync [-from NAME] [-to NAMES] [-apply] [-undo [STAMP]] [DIR]")
+		return errors.New("usage: conch agent explain ID | status | install NAME | prompt [-wait] ID TEXT | skill [-remove] [-apply] | setup [-agent NAME] [-copy] [DIR] | " +
+			"sync [-from NAME] [-to NAMES] [-apply] [-undo [STAMP]] [DIR] | library [list | add | skill | on | off | rm | import | plan | apply | undo]")
 	}
 	c, err := connect(false)
 	if err != nil {
 		return err
 	}
 	defer c.Close()
+	id, err := resolvePane(c, args[1])
+	if err != nil {
+		return err
+	}
 	var out json.RawMessage
-	if err := call(c, proto.MethodAgentExplain, proto.PaneRef{ID: args[1]}, &out); err != nil {
+	if err := call(c, proto.MethodAgentExplain, proto.PaneRef{ID: id}, &out); err != nil {
 		return err
 	}
 	enc := json.NewEncoder(os.Stdout)
@@ -222,12 +232,13 @@ func agentSync(args []string) error {
 	apply := fs.Bool("apply", false, "write the changes (without it, only says what it would do)")
 	undo := fs.Bool("undo", false, "put back a sync; -stamp names which, else the last one")
 	stamp := fs.String("stamp", "", "which sync to undo")
+	user := fs.Bool("user", false, "your own setup (~/.claude and the rest) rather than this checkout's")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	dir := "."
 	if fs.NArg() > 1 {
-		return errors.New("usage: conch agent sync [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]")
+		return errors.New("usage: conch agent sync [-user] [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]")
 	}
 	if fs.NArg() == 1 {
 		dir = fs.Arg(0)
@@ -242,7 +253,11 @@ func agentSync(args []string) error {
 		return err
 	}
 	defer c.Close()
-	if missing := c.MissingCapabilities([]string{proto.CapAgentSync}); len(missing) > 0 {
+	want := []string{proto.CapAgentSync}
+	if *user {
+		want = append(want, proto.CapAgentSyncUser)
+	}
+	if missing := c.MissingCapabilities(want); len(missing) > 0 {
 		return fmt.Errorf("the server on this machine is too old to sync agent setup (needs %s); reload it with conch update", missing[0])
 	}
 	var names []string
@@ -251,7 +266,7 @@ func agentSync(args []string) error {
 			names = append(names, n)
 		}
 	}
-	params := proto.AgentSyncParams{Dir: dir, From: *from, To: names, Apply: *apply, Undo: *undo, Stamp: *stamp}
+	params := proto.AgentSyncParams{Dir: dir, From: *from, To: names, Apply: *apply, Undo: *undo, Stamp: *stamp, User: *user}
 	var res proto.AgentSyncResult
 	if err := call(c, proto.MethodAgentSync, params, &res); err != nil {
 		return err
@@ -261,6 +276,13 @@ func agentSync(args []string) error {
 }
 
 func printSync(w io.Writer, res proto.AgentSyncResult, wrote bool) {
+	printSyncWith(w, res, wrote, "", "conch agent sync -undo")
+}
+
+// printSyncWith prints a plan or its outcome; again is the command that
+// applies a plan ("" says to run it with -apply), undo the one that puts
+// an apply back.
+func printSyncWith(w io.Writer, res proto.AgentSyncResult, wrote bool, again, undo string) {
 	switch {
 	case res.Undone:
 		fmt.Fprintf(w, "%s · put sync %s back\n", res.Dir, res.Undo)
@@ -287,17 +309,25 @@ func printSync(w io.Writer, res proto.AgentSyncResult, wrote bool) {
 		if c.Error != "" {
 			detail = c.Error
 		}
-		fmt.Fprintf(tw, "%s %s\t%s\t%s\t%s\t%s\n", mark, c.Agent, c.Kind, c.Name, c.Action, detail)
+		// Where it goes is the point, especially in your home, so the path
+		// is a column of its own unless it is the name again.
+		where := c.Path
+		if where == c.Name {
+			where = ""
+		}
+		fmt.Fprintf(tw, "%s %s\t%s\t%s\t%s\t%s\t%s\n", mark, c.Agent, c.Kind, c.Name, c.Action, where, detail)
 	}
 	tw.Flush()
 	switch {
 	case res.Undone:
 	case n == 0:
 		fmt.Fprintln(w, "\nnothing to do: every agent already has it")
+	case !wrote && again != "":
+		fmt.Fprintf(w, "\n%d change%s; %s makes them\n", n, map[bool]string{true: "", false: "s"}[n == 1], again)
 	case !wrote:
 		fmt.Fprintf(w, "\n%d change%s; run it again with -apply to make them\n", n, map[bool]string{true: "", false: "s"}[n == 1])
 	case res.Undo != "":
-		fmt.Fprintf(w, "\nundo with: conch agent sync -undo -stamp %s\n", res.Undo)
+		fmt.Fprintf(w, "\nundo with: %s -stamp %s\n", undo, res.Undo)
 	}
 }
 
@@ -335,4 +365,57 @@ func printSetup(w io.Writer, res proto.AgentSetupResult) {
 			}
 		}
 	}
+}
+
+// agentSkill installs conch's skill where the agents on the machine read
+// the person's skills, so an agent in a conch pane knows how to start,
+// prompt and read another. Like sync, it only says what it would do
+// without -apply.
+func agentSkill(args []string) error {
+	fs := flag.NewFlagSet("agent skill", flag.ContinueOnError)
+	agents := fs.String("agent", "", "only these agents, separated by commas (default: all)")
+	remove := fs.Bool("remove", false, "take conch's skill away again")
+	apply := fs.Bool("apply", false, "write the changes; without it, only say what they would be")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return errors.New("usage: conch agent skill [-agent NAMES] [-remove] [-apply]")
+	}
+	c, err := connect(true)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if len(c.MissingCapabilities([]string{proto.CapAgentSkill})) > 0 {
+		return errors.New("the conch server there predates `conch agent skill`; reload it with `conch server reload`")
+	}
+	var res proto.AgentSkillResult
+	if err := call(c, proto.MethodAgentSkill, proto.AgentSkillParams{Agents: splitAgents(*agents), Remove: *remove, Apply: *apply}, &res); err != nil {
+		return err
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	pending, failed := 0, 0
+	for _, ch := range res.Changes {
+		note := strings.Join(ch.Agents, ", ")
+		if ch.Detail != "" {
+			note += " — " + ch.Detail
+		}
+		if ch.Error != "" {
+			note += " — failed: " + ch.Error
+			failed++
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", ch.Action, ch.Path, note)
+		if ch.Action == proto.SyncCreate || ch.Action == proto.SyncUpdate || ch.Action == proto.SyncRemove {
+			pending++
+		}
+	}
+	tw.Flush()
+	switch {
+	case failed > 0:
+		return fmt.Errorf("%d of %d could not be written", failed, len(res.Changes))
+	case pending > 0 && !res.Applied:
+		fmt.Println("run again with -apply to write it")
+	}
+	return nil
 }

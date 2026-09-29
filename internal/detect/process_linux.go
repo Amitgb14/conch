@@ -18,3 +18,12 @@ func processInfo(pid int) (Process, error) {
 	}
 	return p, nil
 }
+
+// ParentPID returns the parent of process pid.
+func ParentPID(pid int) (int, error) {
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return 0, err
+	}
+	return statParent(stat)
+}

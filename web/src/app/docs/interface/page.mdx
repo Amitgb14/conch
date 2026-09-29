@@ -158,7 +158,7 @@ The tree opens a folder at a time, as you expand it, and the selected file shows
 
 The preview is plain text with line numbers, the first 256 KB of a file; a binary file is described (`binary · image/png · 1.2 MB`) rather than shown. Where the server watches worktrees, what an agent writes appears on its own — the open folders are listed again and the file in the preview read again — and `r` reads the checkout again anywhere. The explorer only reads files, and only inside the project's checkouts: a path, or a symlink, that leads out of one is refused by the server. A machine on a conch from before the explorer says it needs updating rather than showing an empty repository.
 
-Each kind of file gets an icon, by its whole name first (`Dockerfile`, `go.mod`, `package.json`) and then its extension, coloured from the theme. Settings → Theme chooses letters (`go`, `ts`, `tx` for `.tsx`, the default, since they read in any font), [Nerd Font](https://www.nerdfonts.com) glyphs — which need a Nerd Font in your terminal, and show as boxes without one — or none.
+Each kind of file gets an icon, by its whole name first (`Dockerfile`, `go.mod`, `pom.xml`, `Jenkinsfile`, `.prettierrc`, `CHANGELOG.md`) and then its extension, coloured from the theme. The table covers about 220 extensions and 95 names — the languages, templates, manifests, lock files, tables, documents, media, bundles, keys and certificates a repository actually holds — with the glyphs taken from the Nerd Fonts glyph list and nvim-web-devicons, so a file looks here the way it looks in the editors you also have open. Anything unknown keeps the plain file icon. Settings → Theme chooses letters (`go`, `ts`, `tx` for `.tsx`, the default, since they read in any font), [Nerd Font](https://www.nerdfonts.com) glyphs — which need a Nerd Font in your terminal, and show as boxes without one — or none.
 
 ## Splits and tabs
 
@@ -211,7 +211,7 @@ The wheel over a pane scrolls back through its history (10,000 lines); the view 
 
 `/` searches back through the whole history, `?` towards the live screen; the query is typed on the pane's bottom line. The view scrolls to the match and puts the cursor on it, so `v` and `y` select and copy from there, and every match on screen is highlighted. A query in lower case matches either case; one with a capital matches exactly. A search that reaches the oldest line (or the bottom) goes on from the other end and says so. Searching needs the pane's machine to run this build or newer.
 
-Drag across a pane to select and copy; double-click copies a word. Copies use OSC 52 (works over SSH) plus `pbcopy`/`wl-copy`/`xclip` locally. `y` copies a branch name or directory in the tree, a file path or the whole diff in the changes view.
+Drag across a pane to select and copy; double-click copies a word. Hold the drag past the pane's top or bottom edge — over the tab bar or the status bar — and the history scrolls to take in more, or turn the wheel while the button is down; the copy has every line passed over, not just what is left on screen. The same works in an agent's pane, over the history conch keeps for it. Pages in a tab or split — a diff, a file, the sessions or branches list — select and copy the same way; a click that doesn't drag still clicks, and lands on release. Copies use OSC 52 (works over SSH) plus `pbcopy`/`wl-copy`/`xclip` locally. `y` copies a branch name or directory in the tree, a file path or the whole diff in the changes view.
 
 Programs that use the mouse themselves (vim, htop) still get the mouse; full-screen programs get arrow keys from the wheel.
 
@@ -279,7 +279,7 @@ Under **Tree**, _What agents spend_ shows or hides the cost (and the token count
 
 Under **File icons**, how [the file explorer](#files) marks each kind of file: _Letters, in any font_ (the default), _Nerd Font glyphs_ for a terminal with a Nerd Font, or _None_ (`[ui] icons` = `text`, `nerd` or `off`).
 
-Below that, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the themes installed on this computer. conch starts zsh with a wrapper that loads your own `.zshenv`/`.zprofile`/`.zshrc`/`.zlogin` first and then switches the theme for that terminal only (`omz theme use`), so your dotfiles are never edited; "Keep my .zshrc theme" turns it off.
+Below that, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the themes installed on this computer. Each theme shows **the prompt it draws** beside its name, in its own colours: conch asks zsh to expand it, in an empty folder that is no repository, so a git-aware theme shows its plain form. A prompt of two lines is shown on one, a long one is cut to fit, and a theme zsh could not expand simply shows nothing. conch starts zsh with a wrapper that loads your own `.zshenv`/`.zprofile`/`.zshrc`/`.zlogin` first and then switches the theme for that terminal only (`omz theme use`), so your dotfiles are never edited; "Keep my .zshrc theme" turns it off.
 
 ### Notifications
 
@@ -291,9 +291,11 @@ Below that, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the
 
 ### Agents
 
-Every machine with each supported agent, installed (with version) or not; `enter` on a missing one installs it there. The default agent chosen here is what `c` pre-selects and what tasks use.
+The default agent chosen here is what `c` pre-selects and what tasks use. Under **Agents on each machine**, one row per machine saying how it stands — *all 4 installed*, *1 installed · 1 not*, *offline* — which opens a page of its own with each supported agent and its version, or *not installed · enter installs*; `esc` or the `‹ Agents` row goes back. A machine is a row rather than a section so the tab still fits a small window.
 
-Under **What each agent loads**, a line saying where that lives rather than pretending it is a setting: `i` on a project, branch or pane shows what each agent loads *there* — instructions, skills, MCP servers — and `s` gives the other agents that one's setup, `u` undoes it. It is per checkout because that is what those files belong to; see [One setup, every agent](/docs/tasks#one-setup-every-agent).
+Under **What each agent loads**: a line saying that a *checkout's* setup lives on its own rows (`i` on a project, branch or pane, and `s` there), and **Your own setup…**, which opens a page of its own — one row per agent to take the setup from, and **Put the last one back…** — rather than putting an action per agent on a tab that is long enough already. Both say what they would write before writing it. See [One setup, every agent](/docs/tasks#one-setup-every-agent).
+
+**Shared MCP servers & skills…** opens the library: a row per server and skill, with a column per agent (`Cl` Claude Code, `Cx` Codex, `Gm` Gemini, `Oc` OpenCode, `Dv` Devin) marked `✓` has it, `+` Apply writes it, `−` Apply takes it out, `·` off, `○` set by hand, `!` declared differently by hand and left alone, `✗` cannot. What an agent cannot be given is said on a line under the row. `enter` on a row edits it — its command or URL, its variables, a box per agent, and Remove; **Add a server…**, **Add a skill…** and **Take an agent's into the library…** add to it; **Apply…** shows every write before making it, and **Put the last one back…** undoes the last apply. See [Shared MCP servers and skills](/docs/tasks#shared-mcp-servers-and-skills).
 
 Under **Remote machines**: whether files dropped on a remote pane are uploaded there, and the largest file to upload (10, 25, 50, 100 or 250 MB). See [Dropping files on a remote pane](/docs/remote-machines#dropping-files-on-a-remote-pane).
 

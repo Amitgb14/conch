@@ -1,6 +1,6 @@
 # Roadmap
 
-Order of upcoming work (updated 2026-09-26). Finished items move to the git
+Order of upcoming work (updated 2026-09-29). Finished items move to the git
 history; details for big items live in their own plan files.
 
 ## Done
@@ -183,59 +183,122 @@ history; details for big items live in their own plan files.
     and the checks already are. Worth remembering when that feedback comes
     again: it was the setup, not the reviewing, that was missing.
 
+22. **One setup, every agent: your own, not just a checkout's** — 21 gave
+    the other agents what a *checkout* holds; this gives them what your
+    home does, which is the half people complain about: `~/.claude/CLAUDE.md`
+    and `~/.claude/skills`, `~/.codex/config.toml`, `~/.gemini/settings.json`,
+    `~/.config/opencode`. It is machine-wide, so it is in Settings → Agents
+    ("Give the others Claude Code's setup…", "Put the last one back…") and
+    `conch agent sync -user`, behind `agent.setup.sync.user.v1`.
+
+    The engine is 21's, with the user scope's paths; two things are its
+    own. There is no `git status` in a home directory, so the plan carries
+    every path in full and the record — under `$CONCH_HOME/agent-sync/`,
+    since a home has no root for a `.conch` — is what puts it back. And a
+    file that is a symlink is left alone with a reason, because these are
+    kept in dotfiles repositories and writing through the link would edit
+    one. Claude is read from `~/.claude.json` but never written there: that
+    file holds its state and every project's history.
+
+    Checked against the agents themselves in a scratch home: `codex mcp
+    list` showed the server conch wrote in `~/.codex/config.toml`, and
+    `gemini skills list` the skill linked into `~/.agents/skills`.
+
+23. **A library the agents follow, Devin included, and each agent's own
+    way of naming a variable** — sync copies one agent's setup once; the
+    library (Settings → Agents → **Shared MCP servers & skills…**, `conch
+    agent library`, behind `agent.library.v1`) keeps servers and skills in
+    conch, each ticked for the agents that should have it. Apply writes what
+    is missing, updates what conch wrote before, and takes out what is no
+    longer wanted — only ever what conch wrote, which it remembers in
+    `library/written.json` since JSON has nowhere to mark it. Claude's
+    servers go in with `claude mcp add-json --scope user`, since
+    `~/.claude.json` is its state file and conch still does not write it.
+
+    Found on the way: sync copied `${TOKEN}` as it stood, and only Claude and
+    Gemini expand that. Codex expands nothing in `config.toml` (it passes a
+    variable by name: `env_vars`, `bearer_token_env_var`, `env_http_headers`),
+    OpenCode writes `{env:TOKEN}` and Devin `${env:TOKEN}` — so a server
+    reached them with the literal text for a token. References are now put in
+    one form when read and written in each agent's own (`vars.go`); a server
+    Codex cannot express — a renamed variable, a reference in its arguments,
+    SSE — is left out with the reason. Gemini's streamable HTTP servers were
+    also under `url`, which Gemini reads as SSE; they go under `httpUrl`.
+
+    Devin is in the setup view (`i`) and in sync and the library. It reads
+    Claude Code's instructions, skills and servers, and OpenCode's servers,
+    by itself (`read_config_from` turns that off), so conch gives it only
+    what it would not otherwise see — a second copy would be read twice.
+
+24. **Agents working together** — an agent in a conch pane starts another
+    agent, prompts it, waits for it and reads what it did, kept to its own
+    work (PR #22, fixes from its first real run in #23). `conch agent
+    prompt` (`agent.prompt.v1`) types only into an agent and never onto a
+    question it is asking, and `-wait` waits on the agent's turn rather
+    than its state. Panes take names (`conch rename`, `task -name`,
+    `task.name.v1`). The server records who started each pane and keeps an
+    agent calling from its pane to its own panes and project
+    (`pane.scope.v1`), finding the caller from the kernel rather than
+    `CONCH_PANE_ID`, and carries that scope to other machines through `-m`
+    (`scope.remote.v1`). `conch agent skill` installs conch's skill, which
+    teaches the agents all this (`agent.skill.v1`). All of it is
+    command-line and agent-facing; the TUI shows helpers only as ordinary
+    panes — see 25. Page: [Agents working together](https://amitgb14.github.io/conch/docs/agents-together).
+
 ## Next
 
-22. **One setup, every agent: your own, not just a checkout's** — 21 syncs
-    what a *checkout* holds, on purpose: a mistake there is one `git
-    status` away from being seen, and one `u` away from being undone. The
-    half people actually complain about is the other one — the setup in
-    your home: `~/.claude/CLAUDE.md` and `~/.claude/skills`, Codex's
-    `~/.codex/config.toml`, `~/.gemini/settings.json`, OpenCode's
-    `~/.config/opencode`, and the MCP servers registered for you rather
-    than for a repository. That is machine-wide, so it belongs in Settings
-    (`,` → Agents), not on a row that names a folder.
+25. **Agents working together, in the TUI** — 24 is driven from the
+    command line and by agents themselves; in the TUI a helper is just
+    another pane. Three things to bring in:
 
-    The engine is the same — `internal/agentsetup/sync.go` with the user
-    scope's paths instead of the project's — and so are the rules that make
-    it safe: say what it would write, leave hand-written files alone, link
-    skills rather than copy them (`~/.agents/skills` is read by Codex,
-    Gemini and OpenCode alike), never carry a secret, and record every
-    write so it can be undone. Two things are new and want care: there is
-    no `git status` to show what changed, so the record and the preview are
-    all a person has, and a home directory has no obvious root to keep the
-    record in (`$CONCH_HOME/agent-sync/` rather than `.conch/`). It should
-    also refuse to touch a file that is a symlink into a dotfiles
-    repository without saying so first — that is how people keep these
-    files, and writing through the link edits the repository.
+    - **The skill, from the setup view.** `i` (and Settings → Agents,
+      beside the library) shows whether conch's skill is installed for
+      each agent on the machine and installs or removes it through
+      `agent.skill` — plan first, as `conch agent skill` does, then apply.
+      A skill of that name conch didn't write shows as the person's, not
+      as installed. Per machine, through that machine's server.
+    - **Who started what, in the tree.** A helper's row says which pane
+      started it (`created_by`), or sits under that agent's row, so a
+      reviewer reads as the reviewer of something; its creator's row can
+      say how many helpers it has and whether any is waiting. `!`, the
+      review queue (`Q`) and notifications name the agent a waiting helper
+      works for. Clicking and selecting it follow the same paths as keys.
+    - **Prompt and wait, from the pane menu.** A *Prompt…* action on an
+      agent sends one message through `agent.prompt` — refused, and saying
+      so, when the agent is waiting for an answer — and reports when the
+      turn it started ends: done, waiting for you, or failed, as a status
+      message or a notification when the pane isn't in view.
 
-    Worth doing only once 21 has some mileage, since this is the version
-    where a mistake is harder to see.
+    Servers without `agent.prompt.v1`, `pane.scope.v1` or `agent.skill.v1`
+    (an older remote) get each piece left out with a word why, not a
+    failed call. Docs: the help overlay, `interface` and `keys` pages, and
+    the agents-together page; a row in the end-to-end plan for the TUI
+    paths with real agents, mouse included.
 
-23. **E2B sandboxes** — a second provider, started: `internal/sandbox/e2b.go`
-    makes, lists, pauses, resumes, ends and keeps alive an E2B sandbox
-    through its platform API, with tests against a fake one. It is not in
-    `sandbox.Providers` yet, so nothing offers to make a sandbox conch
-    cannot reach — because reaching it is the part left.
-
-    E2B has no ssh. Its agent inside the sandbox (envd) runs processes and
-    terminals over ConnectRPC on plain HTTPS: `Process/Start` with stdin
-    enabled, `Process/StreamInput` for what is typed, the start stream for
-    what comes back, `Process/Update` to resize a terminal. A conch
-    transport is "a local command whose stdin and stdout carry the
-    stream", so what is missing is a command that speaks that: `conch
-    sandbox exec`, which `remote.TransportFor` hands back as an ordinary
-    exec.Cmd, leaving install, bridge and panes as they are. This is the
-    "a sandbox's exec" transport the architecture notes already expect.
-
-    Also needed: registering the provider, and pushing the sandbox's clock
-    back while conch is connected — E2B ends a sandbox on a time to live
-    rather than on idleness (an hour on the free plan, a day on Pro). They
-    are made with auto-pause, so one whose clock runs out keeps its
-    filesystem *and* its memory instead of being destroyed.
+What is parked sits under **Not now** and **Last**.
 
 ## Not now
 
-24. **MicroVM sandboxes on your own hardware** — see
+26. **E2B sandboxes** — deferred, and taken up later rather than next.
+    `internal/sandbox/e2b.go` makes, lists, pauses, resumes, ends and keeps
+    alive an E2B sandbox through its platform API, with tests against a
+    fake one; it stays in the tree, unregistered, so nothing offers to make
+    a sandbox conch cannot reach. What is missing is reaching it: E2B has
+    no ssh. Its agent inside the sandbox (envd) runs processes and
+    terminals over ConnectRPC on plain HTTPS — `Process/Start` with stdin
+    enabled, `Process/StreamInput` for what is typed, the start stream for
+    what comes back, `Process/Update` to resize — so what conch needs is a
+    command that speaks that: `conch sandbox exec`, handed back by
+    `remote.TransportFor` as an ordinary exec.Cmd, leaving install, bridge
+    and panes as they are. Also needed: registering the provider, and
+    pushing the sandbox's clock back while conch is connected, since E2B
+    ends one on a time to live rather than on idleness.
+
+    Two providers cover the case today, and boat.dev showed how much of a
+    provider is its own peculiarities rather than the interface. This waits
+    until there is a reason to want a third.
+
+27. **MicroVM sandboxes on your own hardware** — see
     [microvm-sandbox.md](microvm-sandbox.md). 20 covers the case that
     mattered: somewhere isolated to run an agent, made and thrown away from
     conch. What this plan adds is a sandbox on hardware you own — a
@@ -247,11 +310,11 @@ history; details for big items live in their own plan files.
 
 ## Last
 
-25. **Auto-approve rules** — per-project rules that let agents run safe
+28. **Auto-approve rules** — per-project rules that let agents run safe
     commands without waiting for the user. A sandbox is the boundary these
     need, and 20 gives one: the rules would be allowed there and nowhere
     else, so a rule that skips a confirmation cannot reach the laptop.
-26. **Task graph** — server-side rules such as "when A is done, start a
+29. **Task graph** — server-side rules such as "when A is done, start a
     review agent on its worktree", only once auto-approve rules exist, since
     they run actions nobody confirmed. Notifies rather than moving focus.
 

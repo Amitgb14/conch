@@ -404,3 +404,143 @@ func noticeText(o overlay) []string {
 	}
 	return nil
 }
+
+// Your own setup — ~/.claude and the rest — is asked for from Settings,
+// since it is machine-wide, and the question says where it writes.
+func TestUserSyncFromSettings(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+
+	// Offline, and a server too old for it.
+	if cmd := m.openUserSync("claude"); cmd != nil || !strings.Contains(m.flash, "local is online") {
+		t.Fatalf("offline: %q", m.flash)
+	}
+	m.machines[0].c = a2Client("agent.setup.v1", proto.CapAgentSync)
+	if cmd := m.openUserSync("claude"); cmd != nil || !strings.Contains(m.flash, "too old to sync your own setup") {
+		t.Fatalf("an old server: %q", m.flash)
+	}
+	m.machines[0].c = a2Client("agent.setup.v1", proto.CapAgentSync, proto.CapAgentSyncUser)
+	if cmd := m.openUserSync("claude"); cmd == nil {
+		t.Fatal("it should ask the server")
+	}
+
+	// The plan: the same lines as a checkout's, with a warning of its own.
+	plan := proto.AgentSyncResult{Dir: "/Users/x", From: "claude", To: []string{"codex", "gemini"},
+		Changes: []proto.SyncChange{
+			{Agent: "codex", Kind: proto.SyncInstructions, Name: "AGENTS.md", Path: "~/.codex/AGENTS.md", Action: proto.SyncCreate, Detail: "a copy of ~/.claude/CLAUDE.md"},
+			{Agent: "codex", Kind: proto.SyncMCP, Name: "gh", Path: "~/.codex/config.toml", Action: proto.SyncSkip, Detail: "it is a link into somewhere else (a dotfiles repository?): conch leaves it alone"},
+			{Agent: "gemini", Kind: proto.SyncSkill, Name: "tide", Path: "~/.agents/skills/tide", Action: proto.SyncLink},
+		}}
+	m.receiveUserSync(userSyncMsg{res: plan, from: "claude"})
+	d, ok := m.overlay.(*dialog)
+	if !ok || !d.confirm || !strings.Contains(d.title, "your own agent setup") {
+		t.Fatalf("plan: %#v", m.overlay)
+	}
+	text := strings.Join(d.text, "\n")
+	for _, want := range []string{"no git status to show what changed", "create AGENTS.md → ~/.codex/AGENTS.md",
+		"link tide → ~/.agents/skills/tide", "a dotfiles repository?"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the question lacks %q:\n%s", want, text)
+		}
+	}
+	if cmd := d.submit(m, nil); cmd == nil {
+		t.Fatal("yes did nothing")
+	}
+
+	// What came of it, and where to put it back.
+	applied := plan
+	applied.Applied = true
+	for i := range applied.Changes {
+		applied.Changes[i].Done = writesChange(applied.Changes[i])
+	}
+	m.receiveUserSync(userSyncMsg{res: applied})
+	if !strings.Contains(m.flash, "gave Codex and Gemini CLI Claude Code's setup, in your home") ||
+		!strings.Contains(m.flash, "Settings → Agents puts it back") {
+		t.Fatalf("applied: %q", m.flash)
+	}
+	// Undoing, and a refusal from the server.
+	if cmd := m.undoUserSync(); cmd == nil {
+		t.Fatal("undo asks the server")
+	}
+	m.receiveUserSync(userSyncMsg{res: proto.AgentSyncResult{Undone: true,
+		Changes: []proto.SyncChange{{Name: "AGENTS.md", Action: proto.SyncRemove, Done: true}}}})
+	if !strings.Contains(m.flash, "put your setup back as it was · 1 file") {
+		t.Fatalf("undone: %q", m.flash)
+	}
+	m.receiveUserSync(userSyncMsg{err: errors.New("conch has no sync to undo in your home")})
+	if !strings.Contains(m.flash+strings.Join(noticeText(m.overlay), " "), "no sync to undo") {
+		t.Fatalf("a refusal: %q", m.flash)
+	}
+	// Nothing to do says so rather than asking.
+	m.overlay = nil
+	m.receiveUserSync(userSyncMsg{res: proto.AgentSyncResult{From: "claude", To: []string{"codex"},
+		Changes: []proto.SyncChange{{Agent: "codex", Kind: proto.SyncSkill, Name: "tide", Action: proto.SyncSame}}}})
+	if _, ok := m.overlay.(*dialog); ok {
+		t.Fatalf("asked about nothing: %#v", m.overlay)
+	}
+	if !strings.Contains(m.flash, "already in every agent in your home") {
+		t.Fatalf("nothing to do: %q", m.flash)
+	}
+}
+
+// Five agents' tabs, Devin's the last: every window size keeps the box
+// whole, the keyboard reaches the last tab even where the strip is cut
+// short, and a click on it opens it where it shows.
+func TestSetupFiveAgentTabs(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	res := a2SetupResult()
+	res.Agents = append(res.Agents,
+		proto.AgentSetup{Agent: "gemini", Label: "Gemini CLI"},
+		proto.AgentSetup{Agent: "opencode", Label: "OpenCode"},
+		proto.AgentSetup{Agent: "devin", Label: "Devin", Notes: []string{"Devin asks whether to trust a folder"},
+			Groups: []proto.SetupGroup{{Title: "Instructions", Items: []proto.SetupItem{{Name: "CLAUDE.md", Scope: "project", Detail: "Claude Code compatibility"}}}}})
+	v := &setupView{mid: localMachine, res: &res}
+	m.overlay = v
+	for _, size := range [][2]int{{120, 40}, {80, 24}, {60, 16}, {40, 12}, {20, 5}} {
+		m.width, m.height = size[0], size[1]
+		for tab := 0; tab < len(res.Agents); tab++ {
+			v.tab = tab
+			a2CheckBox(t, v.render(*m), *m)
+		}
+	}
+	m.width, m.height = 40, 12
+	v.tab = 0
+	for i := 0; i < 4; i++ {
+		v.update(m, a2Key("tab"))
+	}
+	// The strip moves along so the open tab shows, and says it has.
+	strip := a2Plain(v.render(*m).lines[1:2])
+	if v.tab != 4 || v.agentName() != "devin" || !strings.Contains(strip, "5 Devin") || !strings.Contains(strip, "‹") {
+		t.Fatalf("tab %d at 40 columns:\n%s", v.tab, a2Plain(v.render(*m).lines))
+	}
+	// A click on a tab of the moved strip opens that one.
+	b40 := v.render(*m)
+	lead := strings.Index(strip, "4 OpenCode")
+	if lead < 0 {
+		t.Fatalf("OpenCode's tab is not beside Devin's: %q", strip)
+	}
+	v.mouse(m, tea.MouseMsg{X: b40.x + ansi.StringWidth(strip[:lead]) + 1, Y: b40.y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b40)
+	if v.tab != 3 {
+		t.Fatalf("clicking OpenCode's tab in the moved strip: tab %d", v.tab)
+	}
+	v.tab = 4
+	m.height = 40
+	if out := a2Plain(v.render(*m).lines); !strings.Contains(out, "CLAUDE.md") || !strings.Contains(out, "Devin asks whether to trust") {
+		t.Fatalf("Devin's setup:\n%s", a2Plain(v.render(*m).lines))
+	}
+	v.update(m, a2Key("tab"))
+	if v.tab != 0 {
+		t.Fatalf("tab past the last: %d", v.tab)
+	}
+	m.width, m.height = 120, 40
+	b := v.render(*m)
+	x := b.x + 1
+	for _, l := range v.tabLabels()[:4] {
+		x += ansi.StringWidth(l) + 1
+	}
+	v.mouse(m, tea.MouseMsg{X: x + 1, Y: b.y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
+	if v.tab != 4 {
+		t.Fatalf("clicking Devin's tab: tab %d", v.tab)
+	}
+}

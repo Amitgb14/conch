@@ -602,8 +602,18 @@ func humanCount(n int) string {
 	return fmt.Sprint(n)
 }
 
-// leafLines renders what a leaf shows into w×h cells.
+// leafLines renders what a leaf shows into w×h cells, with text selected
+// on its page drawn over it.
 func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
+	lines := m.leafBody(l, w, h, focused)
+	if m.sel != nil && m.sel.leaf == l.id && l.view.Kind != kindPane {
+		lines = m.sel.highlight(exactly(lines, h), w)
+	}
+	return lines
+}
+
+// leafBody is what a leaf shows, before a page selection is drawn on it.
+func (m Model) leafBody(l *leaf, w, h int, focused bool) []string {
 	v := l.view
 	if v.empty() {
 		return centered(w, h, styleMuted.Render("Pick something in the tree for this split"), "",
@@ -623,7 +633,7 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 			return centered(w, h, styleMuted.Render("connecting…"))
 		}
 		lines := f.Lines
-		if focused && m.sel != nil && m.sel.paneID == m.viewing {
+		if focused && m.sel != nil && m.sel.leaf == 0 && m.sel.paneID == m.viewing {
 			lines = m.sel.highlight(lines, w)
 		}
 		if focused && m.scrollMode {

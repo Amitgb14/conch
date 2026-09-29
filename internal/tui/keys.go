@@ -544,12 +544,13 @@ func (m *Model) scrollKey(k tea.KeyMsg) tea.Cmd {
 			m.sel = nil
 		} else {
 			m.sel = &selection{paneID: m.viewing, ax: m.curX, ay: m.curY, bx: m.curX, by: m.curY, hasContent: true, keyboard: true}
+			m.rememberSel()
 		}
 	case "y", "enter":
 		if m.sel == nil || m.frame == nil {
 			return nil
 		}
-		text := m.sel.text(m.frame.Lines, cols)
+		text := m.selText()
 		m.sel, m.scrollMode = nil, false
 		m.scrollPane(-m.offset)
 		return copyText(text)

@@ -51,6 +51,9 @@ type reloadPane struct {
 	Monitor      *proto.PaneMonitor `json:"monitor,omitempty"`
 	Alert        string             `json:"alert,omitempty"`
 	MonitorArmed bool               `json:"monitor_armed,omitempty"`
+	// CreatedBy is the pane's lineage (scope.go); absent from older state
+	// files, whose panes then have no creator.
+	CreatedBy []string `json:"created_by,omitempty"`
 }
 
 // reloadBinary resolves and checks the program to reload into: it must run
@@ -137,6 +140,7 @@ func (s *Server) reload(bin string) {
 		rp.Tracker = e.tracker.Export()
 		rp.Monitor, rp.Alert = e.monitor.info()
 		rp.MonitorArmed = e.monitor.armed
+		rp.CreatedBy = e.lineage
 		e.mu.Unlock()
 		if e.transcript != nil {
 			rp.Transcript = e.transcript.Path()
@@ -208,6 +212,7 @@ func (s *Server) adopt(st *reloadState) {
 		}
 		// Silence counts from the reload: when the last output was is lost.
 		e.monitor.alert, e.monitor.armed, e.monitor.lastOut = rp.Alert, rp.MonitorArmed, time.Now()
+		e.lineage = rp.CreatedBy
 		if rp.Transcript != "" {
 			e.transcript = usage.NewTranscript(rp.Transcript)
 			if tok, err := e.transcript.Update(); err == nil || tok.Output > 0 {

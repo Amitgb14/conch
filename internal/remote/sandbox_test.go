@@ -10,6 +10,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sandbox"
+	"time"
 )
 
 // fakeProvider is a sandbox provider holding one sandbox's state.
@@ -465,5 +466,47 @@ func TestSandboxShellRefuses(t *testing.T) {
 	useProvider(t, &fakeProvider{getErr: context.Canceled}, nil)
 	if _, err := SandboxShell(cctx, "box", "daytona:sb1", "", false); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled: %v", err)
+	}
+}
+
+// Setting up a sandbox waits for it to answer: a provider says one is
+// started before its sshd is, and the first thing conch asks of it would
+// otherwise fail and take the sandbox down with it.
+func TestSetUpSandboxWaitsForTheMachine(t *testing.T) {
+	a4Env(t)
+	oldTries, oldWait := ConnectionTriesForTest(4, time.Millisecond)
+	t.Cleanup(func() { ConnectionTriesForTest(oldTries, oldWait) })
+	useProvider(t, &fakeProvider{state: sandbox.StateStarted}, nil)
+
+	dir := t.TempDir()
+	count := filepath.Join(dir, "n")
+	ssh := filepath.Join(dir, "ssh")
+	// Not answering yet, then answering; the probe then fails, which is as
+	// far as this needs to go — what matters is that it got that far.
+	os.WriteFile(ssh, []byte("#!/bin/sh\nn=$(cat "+count+" 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > "+count+
+		"\nif [ $n -lt 3 ]; then exit 255; fi\necho 'probe said no' >&2; exit 1\n"), 0o755)
+	t.Setenv("CONCH_SSH", ssh)
+
+	var said []string
+	_, err := SetUpSandbox(context.Background(), Machine{ID: "box", Label: "box", Target: "daytona:sb1"},
+		func(s string) { said = append(said, s) })
+	if err == nil || !strings.Contains(err.Error(), "probe said no") {
+		t.Fatalf("it should have got as far as the probe: %v", err)
+	}
+	if b, _ := os.ReadFile(count); strings.TrimSpace(string(b)) != "3" {
+		t.Fatalf("ssh was run %q times, want 3 (two refusals, then the probe)", b)
+	}
+	if got := strings.Join(said, " | "); !strings.Contains(got, "waiting for box to answer") {
+		t.Fatalf("it never said it was waiting: %v", said)
+	}
+
+	// One that never answers says so, naming the machine, and never gets
+	// as far as installing anything.
+	os.Remove(count)
+	os.WriteFile(ssh, []byte("#!/bin/sh\nexit 255\n"), 0o755)
+	_, err = SetUpSandbox(context.Background(), Machine{ID: "box", Label: "box", Target: "daytona:sb1"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "box never answered") ||
+		!strings.Contains(err.Error(), "the ssh connection failed (255)") {
+		t.Fatalf("never answering: %v", err)
 	}
 }

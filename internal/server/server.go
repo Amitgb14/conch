@@ -66,6 +66,12 @@ type Server struct {
 
 type client struct {
 	conn *proto.Conn
+	// pane is the pane the connection comes from, as the kernel says; ""
+	// from outside the panes. See scope.go.
+	pane string
+	// actFor is the agent on another machine the connection is held to
+	// (scope.act_for), guarded by mu.
+	actFor proto.ActForParams
 
 	mu   sync.Mutex
 	subs map[string]*subscription // by pane ID
@@ -272,7 +278,7 @@ func (s *Server) shutdown() {
 }
 
 func (s *Server) serve(nc net.Conn) {
-	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}}
+	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}, pane: s.callerPane(peerPID(nc))}
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
@@ -315,7 +321,7 @@ var slowMethods = map[string]bool{
 	proto.MethodPaneCreate: true, proto.MethodPaneClose: true,
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true, proto.MethodFSRead: true,
-	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodAgentSync: true, proto.MethodWorktreeFiles: true,
+	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodAgentSync: true, proto.MethodAgentLibrary: true, proto.MethodLibraryApply: true, proto.MethodWorktreeFiles: true,
 	proto.MethodProjectFiles: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
@@ -347,7 +353,7 @@ func (s *Server) handle(c *client, msg proto.Message) bool {
 	if err := c.conn.Write(resp); err != nil {
 		return false
 	}
-	if msg.Method == proto.MethodServerStop {
+	if msg.Method == proto.MethodServerStop && perr == nil { // refused (scope.go), it stays up
 		s.Stop()
 	}
 	if msg.Method == proto.MethodServerReload && perr == nil {
@@ -380,6 +386,9 @@ func withPane[T any](s *Server, msg proto.Message, id func(T) string) (T, *entry
 }
 
 func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
+	if perr := s.inScope(c, msg); perr != nil {
+		return nil, perr
+	}
 	switch msg.Method {
 	case proto.MethodHello:
 		hp, perr := decode[proto.HelloParams](msg)
@@ -409,6 +418,16 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 	case proto.MethodPing:
 		return map[string]string{"type": "pong"}, nil
 
+	case proto.MethodPaneCaller:
+		return s.callerInfo(c), nil
+
+	case proto.MethodActFor:
+		ap, perr := decode[proto.ActForParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.actFor(c, ap)
+
 	case proto.MethodServerStop:
 		return nil, nil // Stop runs after the reply is written.
 
@@ -431,7 +450,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		return s.create(cp)
+		return s.made(c)(s.create(cp))
 
 	case proto.MethodPaneClose:
 		ref, perr := decode[proto.PaneRef](msg)
@@ -723,7 +742,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		return s.createTask(tp)
+		return s.made(c)(s.createTask(tp))
 
 	case proto.MethodAgentStatus:
 		var res proto.AgentStatusResult
@@ -753,13 +772,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, proto.Errorf(proto.ErrBadRequest, "conch can't install %q", ip.Agent)
 		}
 		home, _ := os.UserHomeDir()
-		return s.create(proto.PaneCreateParams{
+		return s.made(c)(s.create(proto.PaneCreateParams{
 			Name:    "install " + ip.Agent,
 			Command: []string{config.DefaultShell(), "-lc", ad.InstallScript()},
 			Cwd:     home,
 			Cols:    ip.Cols,
 			Rows:    ip.Rows,
-		})
+		}))
 
 	case proto.MethodAgentExplain:
 		_, e, perr := withPane(s, msg, func(p proto.PaneRef) string { return p.ID })
@@ -786,7 +805,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		rp.Dir = realDir(rp.Dir)
-		return s.resumeSession(rp)
+		return s.made(c)(s.resumeSession(rp))
 
 	case proto.MethodSessionDelete:
 		rp, perr := decode[proto.SessionRef](msg)
@@ -803,6 +822,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.broadcastMessage(bp)
 
+	case proto.MethodAgentPrompt:
+		pp, perr := decode[proto.AgentPromptParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.promptAgent(pp)
+
 	case proto.MethodSessionSearch:
 		sp, perr := decode[proto.SessionSearchParams](msg)
 		if perr != nil {
@@ -817,7 +843,12 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		sp.Dir = realDir(sp.Dir)
-		return s.shareSession(sp)
+		res, perr := s.shareSession(sp)
+		if perr == nil && sp.PaneID == "" {
+			s.madeBy(c, res.Pane.ID)
+			res.Pane = s.infoOf(res.Pane)
+		}
+		return res, perr
 
 	case proto.MethodSessionExport:
 		rp, perr := decode[proto.SessionRef](msg)
@@ -843,12 +874,33 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.agentSetup(ap)
 
+	case proto.MethodAgentSkill:
+		kp, perr := decode[proto.AgentSkillParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.agentSkill(kp)
+
 	case proto.MethodAgentSync:
 		sp, perr := decode[proto.AgentSyncParams](msg)
 		if perr != nil {
 			return nil, perr
 		}
 		return s.agentSync(sp)
+
+	case proto.MethodAgentLibrary:
+		lp, perr := decode[proto.AgentLibraryParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.agentLibrary(lp)
+
+	case proto.MethodLibraryApply:
+		ap, perr := decode[proto.LibraryApplyParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.libraryApply(ap)
 
 	case proto.MethodProjectFiles:
 		fp, perr := decode[proto.ProjectFilesParams](msg)
@@ -1044,17 +1096,48 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 	if tp.Branch == "" {
 		tp.Branch = gitx.BranchFromPrompt(p.snapshot().Name, tp.Prompt)
 	}
+	// Checked before the worktree is made, so a refused name leaves nothing.
+	tp.Name = strings.TrimSpace(tp.Name)
+	if perr := s.nameFree(tp.Name); perr != nil {
+		return proto.PaneInfo{}, perr
+	}
 	path, _, perr := s.projects.addWorktree(p, tp.Branch, tp.Base)
 	if perr != nil {
 		return proto.PaneInfo{}, perr
 	}
-	return s.create(proto.PaneCreateParams{
+	info, perr := s.create(proto.PaneCreateParams{
 		Agent:  tp.Agent,
 		Prompt: tp.Prompt,
 		Cwd:    path,
 		Cols:   tp.Cols,
 		Rows:   tp.Rows,
 	})
+	if perr != nil || tp.Name == "" {
+		return info, perr
+	}
+	e, perr := s.get(info.ID)
+	if perr != nil { // it ended already
+		return info, nil
+	}
+	s.rename(e, tp.Name)
+	return e.info(), nil
+}
+
+// nameFree checks that a task's pane can take name: not the shape of a
+// pane ID, and held by no running pane, so the name picks out this one.
+func (s *Server) nameFree(name string) *proto.Error {
+	if name == "" {
+		return nil
+	}
+	if proto.IsPaneID(name) {
+		return proto.Errorf(proto.ErrBadRequest, "%q is shaped like a pane ID; choose another name", name)
+	}
+	for _, info := range s.list() {
+		if info.State == proto.PaneRunning && info.Name == name {
+			return proto.Errorf(proto.ErrBadRequest, "pane %s is already named %q", info.ID, name)
+		}
+	}
+	return nil
 }
 
 func (s *Server) close(id string) *proto.Error {

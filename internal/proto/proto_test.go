@@ -410,3 +410,124 @@ func TestA3ConnConcurrentWrites(t *testing.T) {
 		t.Fatalf("read %d messages, want %d", n, writers*each)
 	}
 }
+
+// agent.prompt's wire contract: an older server's status has no turn and
+// reads as zero, and a zero turn is left out for older clients.
+func TestAgentPromptWire(t *testing.T) {
+	b, _ := json.Marshal(AgentStatus{Name: "claude", State: AgentIdle})
+	if strings.Contains(string(b), `"turn"`) {
+		t.Fatalf("zero turn sent: %s", b)
+	}
+	var old AgentStatus
+	if err := json.Unmarshal([]byte(`{"name":"claude","state":"done","since":"2026-09-28T10:00:00Z"}`), &old); err != nil || old.Turn != 0 {
+		t.Fatalf("older status: %+v %v", old, err)
+	}
+	b, _ = json.Marshal(AgentStatus{Turn: 3})
+	if !strings.Contains(string(b), `"turn":3`) {
+		t.Fatalf("turn: %s", b)
+	}
+	b, _ = json.Marshal(AgentPromptParams{ID: "p1", Text: "go"})
+	if string(b) != `{"id":"p1","text":"go"}` {
+		t.Fatalf("params: %s", b)
+	}
+	b, _ = json.Marshal(AgentPromptResult{ID: "p1", Agent: "codex"})
+	if string(b) != `{"id":"p1","agent":"codex","turn":0}` {
+		t.Fatalf("result: %s", b)
+	}
+	if MethodAgentPrompt != "agent.prompt" || CapAgentPrompt != "agent.prompt.v1" || ErrAgentBlocked != "agent_blocked" {
+		t.Fatal("wire names changed")
+	}
+	found := false
+	for _, c := range Capabilities {
+		found = found || c == CapAgentPrompt
+	}
+	if !found {
+		t.Fatal("agent.prompt.v1 not announced")
+	}
+}
+
+// A task's name is optional on the wire, so older servers read the same
+// params, and announced so clients know whether it is honoured.
+func TestTaskNameWire(t *testing.T) {
+	b, _ := json.Marshal(TaskCreateParams{ProjectID: "r1", Prompt: "go"})
+	if strings.Contains(string(b), `"name"`) {
+		t.Fatalf("empty name sent: %s", b)
+	}
+	b, _ = json.Marshal(TaskCreateParams{Name: "reviewer"})
+	if !strings.Contains(string(b), `"name":"reviewer"`) {
+		t.Fatalf("name: %s", b)
+	}
+	found := false
+	for _, c := range Capabilities {
+		found = found || c == CapTaskName
+	}
+	if !found || CapTaskName != "task.name.v1" {
+		t.Fatal("task.name.v1 not announced")
+	}
+}
+
+// Scoping's wire contract: CreatedBy is optional, so panes from older
+// servers read the same, and the refusal has its own code.
+func TestPaneScopeWire(t *testing.T) {
+	b, _ := json.Marshal(PaneInfo{ID: "p1"})
+	if strings.Contains(string(b), `"created_by"`) {
+		t.Fatalf("empty creator sent: %s", b)
+	}
+	b, _ = json.Marshal(PaneInfo{ID: "p2", CreatedBy: "p1"})
+	if !strings.Contains(string(b), `"created_by":"p1"`) {
+		t.Fatalf("creator: %s", b)
+	}
+	var old PaneInfo
+	if err := json.Unmarshal([]byte(`{"id":"p3","name":"sh","state":"running"}`), &old); err != nil || old.CreatedBy != "" {
+		t.Fatalf("older pane: %+v %v", old, err)
+	}
+	found := false
+	for _, c := range Capabilities {
+		found = found || c == CapPaneScope
+	}
+	if !found || CapPaneScope != "pane.scope.v1" || ErrOutOfScope != "out_of_scope" {
+		t.Fatal("wire names")
+	}
+}
+
+// Scoping across machines on the wire: an unscoped caller says nothing,
+// and the names are fixed for servers of other builds.
+func TestScopeRemoteWire(t *testing.T) {
+	b, _ := json.Marshal(CallerInfo{})
+	if string(b) != `{}` {
+		t.Fatalf("nobody: %s", b)
+	}
+	b, _ = json.Marshal(CallerInfo{Pane: "p4", Agent: "claude", Scoped: true, ID: "laptop/p4@1", Label: "p4 on laptop"})
+	if string(b) != `{"pane":"p4","agent":"claude","scoped":true,"id":"laptop/p4@1","label":"p4 on laptop"}` {
+		t.Fatalf("caller: %s", b)
+	}
+	b, _ = json.Marshal(ActForParams{ID: "laptop/p4@1"})
+	if string(b) != `{"id":"laptop/p4@1"}` {
+		t.Fatalf("act for: %s", b)
+	}
+	found := false
+	for _, c := range Capabilities {
+		found = found || c == CapScopeRemote
+	}
+	if !found || CapScopeRemote != "scope.remote.v1" || MethodPaneCaller != "pane.caller" || MethodActFor != "scope.act_for" {
+		t.Fatal("wire names")
+	}
+}
+
+func TestAgentSkillWire(t *testing.T) {
+	b, _ := json.Marshal(AgentSkillParams{})
+	if string(b) != `{}` {
+		t.Fatalf("empty: %s", b)
+	}
+	b, _ = json.Marshal(AgentSkillResult{Changes: []SkillChange{{Path: "/p", Agents: []string{"claude"}, Action: SyncCreate}}})
+	if string(b) != `{"changes":[{"path":"/p","agents":["claude"],"action":"create"}]}` {
+		t.Fatalf("result: %s", b)
+	}
+	found := false
+	for _, c := range Capabilities {
+		found = found || c == CapAgentSkill
+	}
+	if !found || CapAgentSkill != "agent.skill.v1" || MethodAgentSkill != "agent.skill" {
+		t.Fatal("wire names")
+	}
+}
