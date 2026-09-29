@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -73,6 +73,10 @@ const CapPaneScope = "pane.scope.v1"
 // server says who it is, and a connection to another machine asks to be
 // held to what that agent started there.
 const CapScopeRemote = "scope.remote.v1"
+
+// CapAgentSkill is agent.skill: conch's own skill installed where each
+// agent reads the person's skills, or taken away again.
+const CapAgentSkill = "agent.skill.v1"
 
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
@@ -161,6 +165,8 @@ const (
 	// machine to be scoped as that caller.
 	MethodPaneCaller = "pane.caller"
 	MethodActFor     = "scope.act_for"
+	// MethodAgentSkill installs or removes conch's skill for agents.
+	MethodAgentSkill = "agent.skill"
 
 	// Finishing a branch's work: commit, push, open a pull request, merge
 	// into the base, or throw the branch away.
@@ -1150,6 +1156,32 @@ type ActForParams struct {
 	ID    string `json:"id"`
 	Label string `json:"label,omitempty"`
 	Agent string `json:"agent,omitempty"`
+}
+
+// AgentSkillParams installs conch's skill for Agents (all it knows, when
+// empty), or with Remove takes conch's copy away. Without Apply nothing is
+// written: the result says what would be.
+type AgentSkillParams struct {
+	Agents []string `json:"agents,omitempty"`
+	Remove bool     `json:"remove,omitempty"`
+	Apply  bool     `json:"apply,omitempty"`
+}
+
+// AgentSkillResult is what happens to each SKILL.md.
+type AgentSkillResult struct {
+	Changes []SkillChange `json:"changes"`
+	Applied bool          `json:"applied,omitempty"`
+}
+
+// SkillChange is one SKILL.md and the agents that read it. Action is
+// create, update, same, remove or skip (a skill of that name conch didn't
+// write, left alone).
+type SkillChange struct {
+	Path   string   `json:"path"`
+	Agents []string `json:"agents"`
+	Action string   `json:"action"`
+	Detail string   `json:"detail,omitempty"`
+	Error  string   `json:"error,omitempty"`
 }
 
 // AgentBroadcastResult reports, per pane, whether the message was sent.

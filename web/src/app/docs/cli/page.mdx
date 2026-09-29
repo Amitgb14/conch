@@ -85,7 +85,7 @@ conch agent prompt -wait reviewer "Check finding 3 again" && conch read reviewer
 
 ### When an agent runs these commands
 
-An agent in a conch pane can drive conch with the same commands — start a reviewer, prompt it, read its answer. What it may *change* is kept to its own work:
+An agent in a conch pane can drive conch with the same commands — start a reviewer, prompt it, read its answer. `conch agent skill -apply` teaches it how, and when to stop and ask you. What it may *change* is kept to its own work:
 
 - **panes it started**, and the panes those started, in any project;
 - **panes in its own project**, whoever started them;
@@ -111,6 +111,7 @@ conch tells who is asking from the operating system — the process at the other
 | `conch agent status` | list each supported agent: installed (with version and path) or not |
 | `conch agent install NAME` | run an agent's installer in a pane and wait for it |
 | `conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] ID TEXT...` | send the pane's agent its next message and submit it. Unlike `conch send` it only types into an agent, and never into one waiting on a question — a permission prompt, a menu — where its Enter could answer something nobody read: it exits 3 and types nothing (a question that comes up in the moment before Enter leaves the message typed but unsent). With `-wait` it blocks until the work the message starts has ended — not on the `done` or `idle` still showing from before it — and prints `ID AGENT STATE`; a question the agent asks ends it too, unless `-until` leaves `waiting` out. An agent already working gets the message when that work ends, so that work is the one waited for. Exits 124 if `-timeout` runs out, and fails if the pane ends or another program takes it over |
+| `conch agent skill [-agent NAMES] [-remove] [-apply]` | install conch's skill — how an agent in a conch pane starts, prompts and reads another — where each agent reads your skills: `~/.claude/skills/conch` for Claude, `~/.agents/skills/conch` for Codex, Gemini and OpenCode. Without `-apply` it only says what it would do; `-remove` takes it away again. A `conch` skill there that conch didn't write is left alone. With `-m` it installs on that machine. Not from an agent's pane: it is your setup |
 | `conch agent setup [-agent NAME] [-copy] [-json] [DIR]` | show what each agent loads in a folder; `-agent` limits it to one agent, `-copy` copies missing local files from the main checkout first, `-json` prints JSON |
 | `conch agent sync [-user] [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]` | give the other agents one agent's setup — instructions, skills, MCP servers — in a checkout, or with `-user` the setup in your home. Without `-apply` it only says what it would do; `-undo` puts a sync back. See [One setup, every agent](/docs/tasks#one-setup-every-agent) |
 

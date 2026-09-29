@@ -57,6 +57,7 @@ const (
 	scopeProject                      // params.project_id is a project
 	scopeProjID                       // params.id is a project
 	scopeServer                       // the whole server
+	scopeHome                         // the person's own setup in their home
 )
 
 // scoped lists the methods that change something an agent could get wrong:
@@ -77,6 +78,8 @@ var scoped = map[string]scopeKind{
 	proto.MethodBranchMerge: scopeProject, proto.MethodBranchDiscard: scopeProject,
 
 	proto.MethodServerStop: scopeServer, proto.MethodServerReload: scopeServer,
+
+	proto.MethodAgentSkill: scopeHome,
 }
 
 // scopeRef is every field scoped methods name their target by.
@@ -109,6 +112,8 @@ func (s *Server) inScope(c *client, msg proto.Message) *proto.Error {
 	switch kind {
 	case scopeServer:
 		return outOfScope(caller, "%s the server: it runs every pane, not only this agent's", verb(msg.Method))
+	case scopeHome:
+		return outOfScope(caller, "%s: that is the person's own setup", verb(msg.Method))
 	case scopeProjID:
 		return s.projectInScope(caller, msg.Method, ref.ID)
 	case scopeProject:
@@ -251,6 +256,7 @@ var verbs = map[string]string{
 	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchCommit: "commit",
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
 	proto.MethodBranchMerge: "merge", proto.MethodBranchDiscard: "discard a branch",
+	proto.MethodAgentSkill: "install or remove the agents' conch skill",
 }
 
 // madeBy records that the connection's pane started pane id: it and the

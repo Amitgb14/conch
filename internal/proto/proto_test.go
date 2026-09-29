@@ -513,3 +513,21 @@ func TestScopeRemoteWire(t *testing.T) {
 		t.Fatal("wire names")
 	}
 }
+
+func TestAgentSkillWire(t *testing.T) {
+	b, _ := json.Marshal(AgentSkillParams{})
+	if string(b) != `{}` {
+		t.Fatalf("empty: %s", b)
+	}
+	b, _ = json.Marshal(AgentSkillResult{Changes: []SkillChange{{Path: "/p", Agents: []string{"claude"}, Action: SyncCreate}}})
+	if string(b) != `{"changes":[{"path":"/p","agents":["claude"],"action":"create"}]}` {
+		t.Fatalf("result: %s", b)
+	}
+	found := false
+	for _, c := range Capabilities {
+		found = found || c == CapAgentSkill
+	}
+	if !found || CapAgentSkill != "agent.skill.v1" || MethodAgentSkill != "agent.skill" {
+		t.Fatal("wire names")
+	}
+}

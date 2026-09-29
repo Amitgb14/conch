@@ -874,6 +874,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.agentSetup(ap)
 
+	case proto.MethodAgentSkill:
+		kp, perr := decode[proto.AgentSkillParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.agentSkill(kp)
+
 	case proto.MethodAgentSync:
 		sp, perr := decode[proto.AgentSyncParams](msg)
 		if perr != nil {

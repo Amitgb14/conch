@@ -66,9 +66,9 @@ func TestScopeEveryMethod(t *testing.T) {
 			t.Errorf("%s on another's: %v", method, out)
 		}
 		in := s.inScope(caller, proto.Message{Method: method, Params: params(kind, "p1", mine.id)})
-		if kind == scopeServer {
+		if kind == scopeServer || kind == scopeHome {
 			if in == nil {
-				t.Errorf("%s: the server is never an agent's", method)
+				t.Errorf("%s: the server and the person's setup are never an agent's", method)
 			}
 		} else if in != nil {
 			t.Errorf("%s on its own: %v", method, in)
@@ -290,13 +290,13 @@ func TestScopeRemoteCaller(t *testing.T) {
 			out, in = map[string]any{"ids": []string{own, target}, "text": "x"}, map[string]any{"ids": []string{own, "p7"}, "text": "x"}
 		case scopeProjID, scopeProject:
 			continue // below
-		case scopeServer:
+		case scopeServer, scopeHome:
 			out = nil
 		}
 		if perr := s.inScope(far, msg(method, out)); perr == nil || perr.Code != proto.ErrOutOfScope {
 			t.Errorf("%s on another's: %v", method, perr)
 		}
-		if kind != scopeServer {
+		if kind != scopeServer && kind != scopeHome {
 			if perr := s.inScope(far, msg(method, in)); perr != nil {
 				t.Errorf("%s on its own: %v", method, perr)
 			}

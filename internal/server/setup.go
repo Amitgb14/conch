@@ -60,6 +60,19 @@ func (s *Server) agentSetup(ap proto.AgentSetupParams) (proto.AgentSetupResult, 
 // agentSync gives the agents named the setup another has in a checkout,
 // or puts an earlier sync back. Nothing is written unless Apply says so:
 // the client shows the plan first.
+// agentSkill installs or removes conch's skill in this machine's home.
+func (s *Server) agentSkill(p proto.AgentSkillParams) (proto.AgentSkillResult, *proto.Error) {
+	changes, err := agentsetup.InstallSkill(agentsetup.CurrentEnv(), p.Agents, p.Remove, p.Apply)
+	if err != nil {
+		return proto.AgentSkillResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	out := proto.AgentSkillResult{Changes: []proto.SkillChange{}, Applied: p.Apply}
+	for _, c := range changes {
+		out.Changes = append(out.Changes, proto.SkillChange{Path: c.Path, Agents: c.Agents, Action: c.Action, Detail: c.Detail, Error: c.Error})
+	}
+	return out, nil
+}
+
 func (s *Server) agentSync(sp proto.AgentSyncParams) (proto.AgentSyncResult, *proto.Error) {
 	dir := sp.Dir
 	if !sp.User { // the home is the place for a user sync; nothing to resolve

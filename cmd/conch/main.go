@@ -55,6 +55,9 @@ Usage:
   conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] ID TEXT
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends
+  conch agent skill [-agent NAMES] [-remove] [-apply]
+                                teach the agents to start, prompt and read other agents in
+                                conch: its skill, in each agent's own skills folder
   conch agent status | install claude
                                 check or install Claude Code (use -m for a machine)
   conch agent setup [-agent NAME] [-copy] [DIR]
