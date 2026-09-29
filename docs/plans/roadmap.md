@@ -204,6 +204,32 @@ history; details for big items live in their own plan files.
     list` showed the server conch wrote in `~/.codex/config.toml`, and
     `gemini skills list` the skill linked into `~/.agents/skills`.
 
+23. **A library the agents follow, Devin included, and each agent's own
+    way of naming a variable** — sync copies one agent's setup once; the
+    library (Settings → Agents → **Shared MCP servers & skills…**, `conch
+    agent library`, behind `agent.library.v1`) keeps servers and skills in
+    conch, each ticked for the agents that should have it. Apply writes what
+    is missing, updates what conch wrote before, and takes out what is no
+    longer wanted — only ever what conch wrote, which it remembers in
+    `library/written.json` since JSON has nowhere to mark it. Claude's
+    servers go in with `claude mcp add-json --scope user`, since
+    `~/.claude.json` is its state file and conch still does not write it.
+
+    Found on the way: sync copied `${TOKEN}` as it stood, and only Claude and
+    Gemini expand that. Codex expands nothing in `config.toml` (it passes a
+    variable by name: `env_vars`, `bearer_token_env_var`, `env_http_headers`),
+    OpenCode writes `{env:TOKEN}` and Devin `${env:TOKEN}` — so a server
+    reached them with the literal text for a token. References are now put in
+    one form when read and written in each agent's own (`vars.go`); a server
+    Codex cannot express — a renamed variable, a reference in its arguments,
+    SSE — is left out with the reason. Gemini's streamable HTTP servers were
+    also under `url`, which Gemini reads as SSE; they go under `httpUrl`.
+
+    Devin is in the setup view (`i`) and in sync and the library. It reads
+    Claude Code's instructions, skills and servers, and OpenCode's servers,
+    by itself (`read_config_from` turns that off), so conch gives it only
+    what it would not otherwise see — a second copy would be read twice.
+
 ## Next
 
 Nothing chosen yet: the next thing is whatever the next week of using

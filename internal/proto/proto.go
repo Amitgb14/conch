@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -55,6 +55,10 @@ const CapAgentSync = "agent.setup.sync.v1"
 // User field: a server without it would sync the checkout instead, so
 // clients check before asking.
 const CapAgentSyncUser = "agent.setup.sync.user.v1"
+
+// CapAgentLibrary is agent.library and agent.library.apply: MCP servers
+// and skills kept in conch and given to the agents chosen for each.
+const CapAgentLibrary = "agent.library.v1"
 
 // CapAgentPrompt is agent.prompt: a message submitted to one agent, refused
 // while it waits on a question, and the Turn of AgentStatus that says when
@@ -145,6 +149,8 @@ const (
 	MethodShellThemes    = "shell.themes"
 	MethodAgentSetup     = "agent.setup"
 	MethodAgentSync      = "agent.setup.sync"
+	MethodAgentLibrary   = "agent.library"
+	MethodLibraryApply   = "agent.library.apply"
 	MethodProjectFiles   = "project.set_files"
 	MethodWorktreeFiles  = "worktree.copy_files"
 	MethodSessionList    = "session.list"
@@ -1315,6 +1321,70 @@ type AgentSyncResult struct {
 	Undos []string `json:"undos,omitempty"`
 }
 
+// LibraryServer is an MCP server in conch's library. References to
+// variables are written ${VAR}; conch writes each agent's own form.
+type LibraryServer struct {
+	Name      string            `json:"name"`
+	Command   string            `json:"command,omitempty"`
+	Args      []string          `json:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Transport string            `json:"transport,omitempty"` // "sse", or "" for streamable HTTP
+	Agents    []string          `json:"agents"`
+}
+
+// LibrarySkill is a skill in the library: a folder holding a SKILL.md,
+// linked into each agent's folder.
+type LibrarySkill struct {
+	Name   string   `json:"name"`
+	Path   string   `json:"path"` // ~ is the home directory there
+	Agents []string `json:"agents"`
+}
+
+// Library is the MCP servers and skills conch keeps for the agents.
+type Library struct {
+	Servers []LibraryServer `json:"servers"`
+	Skills  []LibrarySkill  `json:"skills"`
+}
+
+// LibraryCell is where one server or skill stands with one agent: on,
+// pending, remove, off, theirs, differs or cannot.
+type LibraryCell struct {
+	Kind   string `json:"kind"` // "mcp server" or "skill"
+	Name   string `json:"name"`
+	Agent  string `json:"agent"`
+	State  string `json:"state"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// AgentLibraryParams asks for the library and where it stands. Set saves
+// a new library first, and Import takes an agent's servers and skills into
+// it first; neither writes to any agent.
+type AgentLibraryParams struct {
+	Set    *Library `json:"set,omitempty"`
+	Import string   `json:"import,omitempty"`
+}
+
+// AgentLibraryResult is the library, where each item stands with each
+// agent, and what an import took and left out.
+type AgentLibraryResult struct {
+	Library  Library       `json:"library"`
+	Cells    []LibraryCell `json:"cells,omitempty"`
+	Agents   []string      `json:"agents"`
+	Undos    []string      `json:"undos,omitempty"`
+	Imported []string      `json:"imported,omitempty"`
+	Skipped  []string      `json:"skipped,omitempty"`
+}
+
+// LibraryApplyParams gives each agent what the library says. With Apply
+// false nothing is written; Undo puts an apply back (Stamp, "" the last).
+type LibraryApplyParams struct {
+	Apply bool   `json:"apply,omitempty"`
+	Undo  bool   `json:"undo,omitempty"`
+	Stamp string `json:"stamp,omitempty"`
+}
+
 // What a sync change does: writing ones first.
 const (
 	SyncCreate = "create"
@@ -1401,6 +1471,10 @@ type ShellThemes struct {
 	OMZ     bool     `json:"omz"`               // Oh My Zsh is installed
 	Current string   `json:"current,omitempty"` // ZSH_THEME set in .zshrc
 	Themes  []string `json:"themes,omitempty"`  // sorted
+	// Samples is each theme's prompt as zsh expands it, so a person can
+	// see what they are choosing. A server that cannot run zsh, or one
+	// from an older build, sends none and the names stand alone.
+	Samples map[string]string `json:"samples,omitempty"`
 }
 
 // PaneRef addresses a pane.

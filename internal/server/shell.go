@@ -2,11 +2,14 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -68,8 +71,75 @@ func (s *Server) shellThemes() proto.ShellThemes {
 		}
 	}
 	sort.Strings(res.Themes)
+	res.Samples = themeSamples(dir, res.Themes)
 	return res
 }
+
+// themeSamples is what each theme's prompt looks like: zsh is asked to
+// expand it, since a theme is a shell script and nothing else can say what
+// it prints. One zsh does the lot, in a folder that is no repository, so a
+// git-aware theme shows its plain form rather than this checkout's branch.
+//
+// Anything that goes wrong — no zsh, a theme that hangs, a shell that
+// takes too long — simply leaves the samples out: they are a nicety beside
+// the names, which are what a person chooses by.
+func themeSamples(omz string, names []string) map[string]string {
+	if len(names) == 0 {
+		return nil
+	}
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		return nil
+	}
+	dir, err := os.MkdirTemp("", "conch-prompt")
+	if err != nil {
+		return nil
+	}
+	defer os.RemoveAll(dir)
+
+	// Each theme in a subshell, so one that dies takes none of the others
+	// with it; the name and its prompt on one line, tab separated.
+	var b strings.Builder
+	b.WriteString("emulate -L zsh\nautoload -Uz colors && colors 2>/dev/null\nZSH=" + shellQuote(omz) + "\n")
+	for _, name := range names {
+		file := filepath.Join(omz, "themes", name+".zsh-theme")
+		if _, err := os.Stat(file); err != nil {
+			continue
+		}
+		// ${(e)…} runs what the prompt substitutes — a theme's git or
+		// hostname helper — and ${(%%)…} then expands the prompt escapes
+		// that came back, which is how the shell itself draws it.
+		b.WriteString("(PROMPT=''; RPROMPT=''; source " + shellQuote(file) + " >/dev/null 2>&1; " +
+			"p=\"${(%%)${(e)PROMPT}}\"; print -rn -- " + shellQuote(name) + "$'\\t'; " +
+			"print -r -- \"${p//$'\\n'/ }\") 2>/dev/null\n")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, zsh, "-f", "-c", b.String())
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "HOME="+dir, "PROMPT_EOL_MARK=")
+	out, err := cmd.Output()
+	if err != nil && len(out) == 0 {
+		return nil
+	}
+	samples := map[string]string{}
+	for _, line := range strings.Split(string(out), "\n") {
+		name, prompt, ok := strings.Cut(line, "\t")
+		if !ok {
+			continue
+		}
+		if prompt = strings.TrimSpace(prompt); prompt != "" {
+			samples[name] = prompt
+		}
+	}
+	if len(samples) == 0 {
+		return nil
+	}
+	return samples
+}
+
+// shellQuote wraps a path for the script above.
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // zshWrapper is a ZDOTDIR whose startup files load the user's own files
 // (from their real ZDOTDIR) and then switch the Oh My Zsh theme for this

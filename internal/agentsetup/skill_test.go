@@ -55,9 +55,11 @@ func TestSkillTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Claude has its own folder; Codex, Gemini and OpenCode share one.
+	// Claude and Devin have folders of their own; Codex, Gemini and
+	// OpenCode share one.
 	want := " " + filepath.Join(e.Home, ".claude", "skills", "conch", "SKILL.md") + " claude\n" +
-		" " + filepath.Join(e.Home, ".agents", "skills", "conch", "SKILL.md") + " codex,gemini,opencode\n"
+		" " + filepath.Join(e.Home, ".agents", "skills", "conch", "SKILL.md") + " codex,gemini,opencode\n" +
+		" " + filepath.Join(e.Home, ".config", "devin", "skills", "conch", "SKILL.md") + " devin\n"
 	if summary(got) != want {
 		t.Fatalf("targets:\n%s\nwant\n%s", summary(got), want)
 	}
@@ -73,7 +75,7 @@ func TestSkillTargets(t *testing.T) {
 	if len(got) != 1 || got[0].Path != filepath.Join(e.Home, ".agents", "skills", "conch", "SKILL.md") || strings.Join(got[0].Agents, ",") != "opencode" {
 		t.Fatalf("opencode: %s", summary(got))
 	}
-	if _, err := SkillTargets(e, []string{"claude", "devin"}); err == nil || !strings.Contains(err.Error(), "doesn't know where devin keeps skills") {
+	if _, err := SkillTargets(e, []string{"claude", "aider"}); err == nil || !strings.Contains(err.Error(), "doesn't know where aider keeps skills") {
 		t.Fatalf("unknown agent: %v", err)
 	}
 }
@@ -95,7 +97,7 @@ func TestInstallSkill(t *testing.T) {
 
 	// Asked what it would do, it writes nothing.
 	got, err := InstallSkill(e, nil, false, false)
-	if err != nil || actions(got) != "create,create" {
+	if err != nil || actions(got) != "create,create,create" {
 		t.Fatalf("plan: %s %v", summary(got), err)
 	}
 	if _, err := os.Stat(filepath.Join(e.Home, ".claude")); err == nil {
@@ -103,7 +105,7 @@ func TestInstallSkill(t *testing.T) {
 	}
 
 	got, _ = InstallSkill(e, nil, false, true)
-	if actions(got) != "create,create" {
+	if actions(got) != "create,create,create" {
 		t.Fatalf("install: %s", summary(got))
 	}
 	for _, p := range []string{claude, shared} {
@@ -114,14 +116,14 @@ func TestInstallSkill(t *testing.T) {
 			t.Fatalf("%s: the temporary copy was left", p)
 		}
 	}
-	if got, _ = InstallSkill(e, nil, false, true); actions(got) != "same,same" {
+	if got, _ = InstallSkill(e, nil, false, true); actions(got) != "same,same,same" {
 		t.Fatalf("again: %s", summary(got))
 	}
 
 	// An older conch's copy is brought up to date.
 	os.WriteFile(shared, []byte("---\nname: conch\nmetadata:\n  installed-by: conch\n---\nold\n"), 0o644)
 	got, _ = InstallSkill(e, nil, false, true)
-	if actions(got) != "same,update" || got[1].Detail != "from an older conch" {
+	if actions(got) != "same,update,same" || got[1].Detail != "from an older conch" {
 		t.Fatalf("update: %s", summary(got))
 	}
 	if b, _ := os.ReadFile(shared); !bytes.Equal(b, Skill) {
@@ -192,7 +194,7 @@ func TestInstallSkillFailures(t *testing.T) {
 	os.MkdirAll(locked, 0o555)
 	t.Cleanup(func() { os.Chmod(locked, 0o755) })
 	got, _ = InstallSkill(e, nil, false, true)
-	if len(got) != 2 || got[0].Error != "" || got[1].Error == "" {
+	if len(got) != 3 || got[0].Error != "" || got[1].Error == "" || got[2].Error != "" {
 		t.Fatalf("read-only folder: %+v", got)
 	}
 	if b, err := os.ReadFile(got[0].Path); err != nil || !bytes.Equal(b, Skill) {

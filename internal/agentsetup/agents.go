@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -387,4 +388,127 @@ func inspectOpenCode(e Env, dir, root string) *report {
 		}
 	}
 	return r
+}
+
+// ---- Devin for Terminal ----
+
+// devinHome is where Devin keeps its own configuration.
+func devinHome(e Env) string { return filepath.Join(e.Home, ".config", "devin") }
+
+// devinReads says whether Devin reads another tool's configuration, which
+// it does by default: read_config_from in its config.json turns each off,
+// and the project's file overrides yours.
+func devinReads(e Env, projectRoot, tool string) bool {
+	on := true
+	for _, p := range []string{
+		filepath.Join(devinHome(e), "config.json"),
+		filepath.Join(projectRoot, ".devin", "config.json"),
+		filepath.Join(projectRoot, ".devin", "config.local.json"),
+	} {
+		if projectRoot == "" && !strings.HasPrefix(p, devinHome(e)) {
+			continue
+		}
+		if b, ok := obj(readJSON(p), "read_config_from")[tool].(bool); ok {
+			on = b
+		}
+	}
+	return on
+}
+
+func inspectDevin(e Env, dir, root string) *report {
+	r := newReport()
+	home := devinHome(e)
+	projectRoot := root
+	if projectRoot == "" {
+		projectRoot = dir
+	}
+	claude := devinReads(e, projectRoot, "claude")
+	opencode := devinReads(e, projectRoot, "opencode")
+	const compat = "Claude Code compatibility"
+	r.add(GroupConch, proto.SetupItem{Name: "nothing", Scope: ScopeConch, Detail: "state is read from the screen"})
+
+	r.instruction(filepath.Join(home, "AGENTS.md"), ScopeUser, "")
+	r.instruction(filepath.Join(e.Home, ".devin", "global_rules.md"), ScopeUser, "")
+	r.markdown(GroupInstructions, filepath.Join(e.Home, ".devin", "rules"), ".md", "rules/", ScopeUser, "")
+	if claude {
+		r.instruction(filepath.Join(e.Home, ".claude", "CLAUDE.md"), ScopeUser, compat)
+	}
+	// Files at the root load when it starts; those below it once Devin
+	// works in that folder, with the ones above it up to the root.
+	for _, d := range downTo(projectRoot, dir) {
+		r.instruction(filepath.Join(d, "AGENTS.md"), ScopeProject, "")
+		r.instruction(filepath.Join(d, "AGENT.md"), ScopeProject, "")
+		r.instruction(filepath.Join(d, "AGENTS.local.md"), ScopeLocal, "")
+		if claude {
+			r.instruction(filepath.Join(d, "CLAUDE.md"), ScopeProject, compat)
+		}
+		r.instruction(filepath.Join(d, ".windsurfrules"), ScopeProject, "Windsurf compatibility")
+	}
+	r.instruction(filepath.Join(projectRoot, ".devin", "global_rules.md"), ScopeProject, "")
+	r.markdown(GroupInstructions, filepath.Join(projectRoot, ".devin", "rules"), ".md", "rules/", ScopeProject, "")
+
+	r.skills(filepath.Join(home, "skills"), ScopeUser, "")
+	for _, d := range projectDirs(dir, root) {
+		for _, sub := range []string{".devin/skills", ".agents/skills", ".windsurf/skills"} {
+			r.skills(filepath.Join(d, sub), ScopeProject, "")
+		}
+		if claude {
+			r.skills(filepath.Join(d, ".claude", "skills"), ScopeProject, compat)
+			// Claude's commands are skills to Devin, and its slash commands.
+			r.markdown(GroupCommands, filepath.Join(d, ".claude", "commands"), ".md", "/", ScopeProject, compat)
+		}
+	}
+
+	r.devinAgents(filepath.Join(home, "agents"), ScopeUser)
+	r.devinAgents(filepath.Join(projectRoot, ".devin", "agents"), ScopeProject)
+	r.devinAgents(filepath.Join(projectRoot, ".agents", "agents"), ScopeProject)
+
+	r.mcp(obj(readJSON(filepath.Join(home, "mcp_config.json")), "mcpServers"), ScopeUser, filepath.Join(home, "mcp_config.json"), "")
+	for _, f := range []struct{ name, scope string }{{"mcp_config.json", ScopeProject}, {"mcp_config.local.json", ScopeLocal}} {
+		p := filepath.Join(projectRoot, ".devin", f.name)
+		r.mcp(obj(readJSON(p), "mcpServers"), f.scope, p, "")
+	}
+	if claude {
+		state := readJSON(filepath.Join(e.Home, ".claude.json"))
+		r.mcp(obj(state, "mcpServers"), ScopeUser, filepath.Join(e.Home, ".claude.json"), compat)
+		for _, key := range uniq(dir, root) {
+			r.mcp(obj(obj(obj(state, "projects"), key), "mcpServers"), ScopeLocal, filepath.Join(e.Home, ".claude.json"), compat)
+		}
+		p := filepath.Join(projectRoot, ".mcp.json")
+		r.mcp(obj(readJSON(p), "mcpServers"), ScopeProject, p, compat)
+	}
+	if opencode {
+		oc := filepath.Join(e.Home, ".config", "opencode", "opencode.json")
+		r.mcp(obj(readJSON(oc), "mcp"), ScopeUser, oc, "OpenCode compatibility")
+		p := filepath.Join(projectRoot, "opencode.json")
+		r.mcp(obj(readJSON(p), "mcp"), ScopeProject, p, "OpenCode compatibility")
+	}
+	// Where Devin records trust is not documented, so conch cannot say
+	// whether this folder is trusted — only that the question comes.
+	for _, g := range []string{GroupSkills, GroupMCP} {
+		for _, it := range r.groups[g] {
+			if it.Scope == ScopeProject || it.Scope == ScopeLocal {
+				r.note("Devin asks whether to trust a folder the first time it starts there.")
+				return r
+			}
+		}
+	}
+	return r
+}
+
+// devinAgents adds Devin's subagents: <name>.md, or <name>/AGENT.md.
+func (r *report) devinAgents(dir, scope string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, en := range entries {
+		p := filepath.Join(dir, en.Name())
+		switch {
+		case en.IsDir() && isFile(filepath.Join(p, "AGENT.md")):
+			r.add(GroupSubagents, proto.SetupItem{Name: en.Name(), Scope: scope, Path: filepath.Join(p, "AGENT.md")})
+		case !en.IsDir() && strings.HasSuffix(en.Name(), ".md"):
+			r.add(GroupSubagents, proto.SetupItem{Name: strings.TrimSuffix(en.Name(), ".md"), Scope: scope, Path: p})
+		}
+	}
 }

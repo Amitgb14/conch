@@ -46,7 +46,7 @@ func isOurSkill(b []byte) bool {
 
 // SkillChange is what installing or removing the skill does to one file.
 // Agents are the ones that read it: Codex, Gemini and OpenCode share
-// ~/.agents/skills, Claude has its own.
+// ~/.agents/skills; Claude and Devin have their own.
 type SkillChange struct {
 	Path   string
 	Agents []string
@@ -162,9 +162,6 @@ func writeSkill(path string, remove bool) error {
 	}
 	return os.Rename(tmp, path) // never a half-written skill for an agent to read
 }
-
-// ActionRemove is the skill taken away again.
-const ActionRemove = "remove"
 
 func linked(path string) bool {
 	fi, err := os.Lstat(path)

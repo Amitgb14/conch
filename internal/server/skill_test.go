@@ -26,7 +26,7 @@ func TestAgentSkillMethod(t *testing.T) {
 	claude := filepath.Join(home, ".claude", "skills", "conch", "SKILL.md")
 
 	res, perr := run(&client{}, proto.AgentSkillParams{})
-	if perr != nil || res.Applied || len(res.Changes) != 2 || res.Changes[0].Action != proto.SyncCreate || res.Changes[0].Path != claude {
+	if perr != nil || res.Applied || len(res.Changes) != 3 || res.Changes[0].Action != proto.SyncCreate || res.Changes[0].Path != claude {
 		t.Fatalf("plan: %+v %v", res, perr)
 	}
 	if _, err := os.Stat(claude); err == nil {
@@ -38,7 +38,7 @@ func TestAgentSkillMethod(t *testing.T) {
 	if b, _ := os.ReadFile(claude); !bytes.Equal(b, agentsetup.Skill) {
 		t.Fatal("not written")
 	}
-	if _, perr := run(&client{}, proto.AgentSkillParams{Agents: []string{"devin"}}); perr == nil || perr.Code != proto.ErrBadRequest {
+	if _, perr := run(&client{}, proto.AgentSkillParams{Agents: []string{"aider"}}); perr == nil || perr.Code != proto.ErrBadRequest {
 		t.Fatalf("unknown agent: %v", perr)
 	}
 

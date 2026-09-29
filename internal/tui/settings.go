@@ -151,7 +151,10 @@ func (s *settings) themeItems(m *Model) []settingItem {
 			run: func(m *Model) tea.Cmd { m.cfg.Shell.OMZTheme = ""; return saveConfig(m.cfg) }})
 		for _, name := range s.shell.Themes {
 			name := name
-			items = append(items, settingItem{label: name, mark: m.cfg.Shell.OMZTheme == name,
+			// The prompt itself beside the name: nobody knows what
+			// "agnoster" looks like, and the row has the room.
+			items = append(items, settingItem{label: name, detail: promptSample(s.shell.Samples[name]),
+				mark: m.cfg.Shell.OMZTheme == name,
 				run: func(m *Model) tea.Cmd {
 					m.cfg.Shell.OMZTheme = name
 					m.setFlash("new zsh terminals use the "+name+" prompt", false)
@@ -160,6 +163,74 @@ func (s *settings) themeItems(m *Model) []settingItem {
 		}
 	}
 	return items
+}
+
+// promptSample fits a theme's expanded prompt beside its name. The colours
+// the theme sets are kept — they are most of what tells the themes apart —
+// but nothing else a shell can print is: an escape that would retitle the
+// user's terminal, a stray control character, the second line of a two-line
+// prompt. A theme that said nothing simply has no sample.
+func promptSample(prompt string) string {
+	prompt = strings.Join(strings.Fields(onlyColour(prompt)), " ")
+	if ansi.Strip(prompt) == "" {
+		return ""
+	}
+	prompt = ansi.Truncate(prompt, promptSampleMax, "…")
+	if strings.ContainsRune(prompt, 0x1b) {
+		prompt += "\x1b[0m" // the theme's last colour ends here, not on the frame
+	}
+	return prompt
+}
+
+// promptSampleMax is how much of a prompt is shown; spread() cuts it again
+// when the window is narrow.
+const promptSampleMax = 46
+
+// onlyColour keeps SGR sequences and drops every other escape and control
+// character, turning each into a space so words don't run together.
+func onlyColour(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		c := s[i]
+		switch {
+		case c == 0x1b && i+1 < len(s) && s[i+1] == '[':
+			j := i + 2
+			for j < len(s) && s[j] >= 0x20 && s[j] <= 0x3f {
+				j++
+			}
+			if j < len(s) && s[j] == 'm' {
+				b.WriteString(s[i : j+1])
+			} else {
+				b.WriteByte(' ') // a sequence that moves or clears, not a colour
+			}
+			i = min(j+1, len(s))
+		case c == 0x1b && i+1 < len(s) && s[i+1] == ']':
+			// An OSC (a window title, say) runs to BEL or ST.
+			j := i + 2
+			for j < len(s) && s[j] != 0x07 && !(s[j] == 0x1b && j+1 < len(s) && s[j+1] == '\\') {
+				j++
+			}
+			if j < len(s) && s[j] == 0x1b {
+				j++
+			}
+			i = min(j+1, len(s))
+			b.WriteByte(' ')
+		case c == 0x1b:
+			n := 2
+			if i+1 < len(s) && strings.ContainsRune("()*+%#", rune(s[i+1])) {
+				n = 3 // a character set: ESC ( B and the like
+			}
+			i = min(i+n, len(s))
+			b.WriteByte(' ')
+		case c < 0x20 || c == 0x7f:
+			b.WriteByte(' ')
+			i++
+		default:
+			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
 }
 
 func (s *settings) notifyItems(m *Model) []settingItem {
@@ -279,13 +350,90 @@ func (s *settings) userSyncItems(m *Model) []settingItem {
 			run: func(m *Model) tea.Cmd { return m.undoUserSync() }},
 		settingItem{},
 		settingItem{label: styleMuted.Render("  ~/.claude/CLAUDE.md and its skills, ~/.codex/config.toml,")},
-		settingItem{label: styleMuted.Render("  ~/.gemini/settings.json, ~/.config/opencode — written where")},
+		settingItem{label: styleMuted.Render("  ~/.gemini, ~/.config/opencode and ~/.config/devin — written where")},
 		settingItem{label: styleMuted.Render("  each agent looks, after saying what it would write.")})
 }
 
+// agentsSummary is what a machine's row says about its agents: how many
+// are there, or why conch cannot tell.
+func agentsSummary(mach *machine) string {
+	switch {
+	case mach.state != stateOnline:
+		return styleMuted.Render(mach.state.String())
+	case mach.available == nil:
+		return styleMuted.Render("unknown · its server predates agent checks")
+	}
+	installed, missing := 0, 0
+	for _, a := range mach.agentList {
+		if a.Installed {
+			installed++
+		} else {
+			missing++
+		}
+	}
+	switch {
+	case installed == 0:
+		return styleWarn.Render("none installed")
+	case missing == 0:
+		return styleOK.Render(fmt.Sprintf("all %d installed", installed))
+	}
+	return styleOK.Render(fmt.Sprintf("%d installed", installed)) + styleMuted.Render(fmt.Sprintf(" · %d not", missing))
+}
+
+// machineAgentItems is one machine's page: what it has, at which version,
+// and enter to install what it lacks.
+func (s *settings) machineAgentItems(m *Model, id string) []settingItem {
+	mach := m.machine(id)
+	if mach == nil {
+		s.openPage("")
+		return s.agentItems(m)
+	}
+	items := []settingItem{
+		{header: true, label: mach.label, detail: agentsSummary(mach)},
+		{label: styleMuted.Render("‹ Agents"), detail: styleMuted.Render("esc"),
+			run: func(m *Model) tea.Cmd { s.openPage(""); return nil }},
+	}
+	switch {
+	case mach.state != stateOnline:
+		return append(items, settingItem{label: styleMuted.Render("  agents unknown while " + mach.state.String())})
+	case mach.available == nil:
+		return append(items, settingItem{label: styleMuted.Render("  agents unknown: the server there predates agent checks; upgrade it")})
+	}
+	for _, a := range mach.agentList {
+		a := a
+		item := settingItem{label: firstNonEmpty(a.Label, agentLabel(a.Name))}
+		if a.Installed {
+			item.detail = styleOK.Render("✓ " + a.Version)
+			item.run = func(m *Model) tea.Cmd {
+				m.setFlash(fmt.Sprintf("%s %s on %s at %s", firstNonEmpty(a.Label, agentLabel(a.Name)), a.Version, mach.label, a.Path), false)
+				return nil
+			}
+		} else {
+			item.detail = styleWarn.Render("not installed · enter installs")
+			item.run = func(m *Model) tea.Cmd {
+				m.overlay = nil
+				return m.installAgent(mach.id, a.Name)
+			}
+		}
+		items = append(items, item)
+	}
+	return append(items, settingItem{},
+		settingItem{label: "Check again", detail: styleMuted.Render("on " + mach.label),
+			run: func(m *Model) tea.Cmd {
+				m.setFlash("checking agents on "+mach.label+"…", false)
+				return mach.checkAgents()
+			}})
+}
+
 func (s *settings) agentItems(m *Model) []settingItem {
-	if s.page == "usersync" {
+	switch s.page {
+	case "usersync":
 		return s.userSyncItems(m)
+	case "library":
+		return s.libraryItems(m)
+	}
+	if id, ok := cutPrefix(s.page, "agents:"); ok {
+		return s.machineAgentItems(m, id)
 	}
 	items := []settingItem{{header: true, label: "Default agent", detail: "pre-selected when c asks which agent"}}
 	for _, name := range knownAgents(m) {
@@ -303,7 +451,13 @@ func (s *settings) agentItems(m *Model) []settingItem {
 	items = append(items, settingItem{}, settingItem{header: true, label: "What each agent loads", detail: "your own setup, and each checkout's"},
 		settingItem{label: styleMuted.Render("  i on a project, branch or pane: this checkout's, and s to give it to the others")},
 		settingItem{label: "Your own setup…", detail: styleMuted.Render("~/.claude and the rest, given to the other agents"), page: true,
-			run: func(m *Model) tea.Cmd { s.openPage("usersync"); return nil }})
+			run: func(m *Model) tea.Cmd { s.openPage("usersync"); return nil }},
+		settingItem{label: "Shared MCP servers & skills…", detail: styleMuted.Render("kept in conch, given to the agents you choose"), page: true,
+			run: func(m *Model) tea.Cmd {
+				s.openPage("library")
+				m.libraryErr = ""
+				return m.loadLibrary(proto.AgentLibraryParams{}, "")
+			}})
 
 	r := &m.cfg.Remote
 	items = append(items, settingItem{}, settingItem{header: true, label: "Remote machines"},
@@ -318,39 +472,14 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				return saveConfig(m.cfg)
 			}},
 	)
+	// A machine's agents are a page of its own — this computer, a devbox, a
+	// sandbox each. Listing every agent of every machine here made the tab
+	// as long as the fleet.
+	items = append(items, settingItem{}, settingItem{header: true, label: "Agents on each machine", detail: "versions, and what is missing"})
 	for _, mach := range m.machines {
 		mach := mach
-		state := ""
-		if mach.state != stateOnline {
-			state = mach.state.String()
-		}
-		items = append(items, settingItem{}, settingItem{header: true, label: mach.label, detail: state})
-		switch {
-		case mach.state != stateOnline:
-			items = append(items, settingItem{label: styleMuted.Render("  agents unknown while " + mach.state.String())})
-			continue
-		case mach.available == nil:
-			items = append(items, settingItem{label: styleMuted.Render("  agents unknown: the server there predates agent checks; upgrade it")})
-			continue
-		}
-		for _, a := range mach.agentList {
-			a := a
-			item := settingItem{label: "  " + firstNonEmpty(a.Label, agentLabel(a.Name))}
-			if a.Installed {
-				item.detail = styleOK.Render("✓ " + a.Version)
-				item.run = func(m *Model) tea.Cmd {
-					m.setFlash(fmt.Sprintf("%s %s on %s at %s", item.label[2:], a.Version, mach.label, a.Path), false)
-					return nil
-				}
-			} else {
-				item.detail = styleWarn.Render("not installed · enter installs")
-				item.run = func(m *Model) tea.Cmd {
-					m.overlay = nil
-					return m.installAgent(mach.id, a.Name)
-				}
-			}
-			items = append(items, item)
-		}
+		items = append(items, settingItem{label: mach.label, detail: agentsSummary(mach), page: true,
+			run: func(m *Model) tea.Cmd { s.openPage("agents:" + mach.id); return nil }})
 	}
 	items = append(items, settingItem{},
 		settingItem{label: "Check again", run: func(m *Model) tea.Cmd {

@@ -8,7 +8,7 @@ metadata:
 # Working with other agents through conch
 
 conch is the terminal you are running in. It can start other coding agents
-(Claude Code, Codex, Gemini CLI, OpenCode) in panes of their own, each on
+(Claude Code, Codex, Gemini CLI, OpenCode, Devin) in panes of their own, each on
 its own git branch and worktree, and lets you prompt them and read their
 answers. The person sees every pane you start in conch's tree and can step
 in at any time.
@@ -33,8 +33,8 @@ conch task -name reviewer -agent codex "Review the changes on this branch agains
   `-base "$(git branch --show-current)"`. It sees only what you committed.
 - `-name` lets you address it as `reviewer` from then on. Pick a name no
   other running pane has.
-- `-agent` is `claude`, `codex`, `gemini` or `opencode`; leave it out for
-  the person's default.
+- `-agent` is `claude`, `codex`, `gemini`, `opencode` or `devin`; leave it
+  out for the person's default.
 - Start one helper per job, and only as many as the task needs: each one
   is an agent spending the person's usage.
 

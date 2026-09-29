@@ -171,19 +171,26 @@ func TestA2SettingsAgentsAndBrain(t *testing.T) {
 	m.machines[0].available = map[string]proto.AgentAvailability{"claude": claude, "codex": codex}
 	m.machines = append(m.machines, &machine{id: "old", label: "old", state: stateOnline})
 	s := &settings{tab: 2}
+	// Each machine is a row on the tab; its agents are a page of its own.
 	items := s.items(m)
-	a2Item(t, items, "  agents unknown: the server there predates agent checks; upgrade it")
-	a2Item(t, items, "  Claude Code").run(m)
+	a2Item(t, items, "old")
+	s.openPage("agents:old")
+	a2Item(t, s.items(m), "  agents unknown: the server there predates agent checks; upgrade it")
+
+	s.openPage("agents:" + localMachine)
+	items = s.items(m)
+	a2Item(t, items, "Claude Code").run(m)
 	if m.flash != "Claude Code 2.0 on local at /bin/claude" {
 		t.Fatalf("installed agent: %q", m.flash)
 	}
 	m.overlay = s
-	if msg := a2ErrText(a2Run(a2Item(t, items, "  Codex").run(m))); msg != "local is online" || m.overlay != nil {
+	if msg := a2ErrText(a2Run(a2Item(t, items, "Codex").run(m))); msg != "local is online" || m.overlay != nil {
 		t.Fatalf("install offline: %q", msg)
 	}
-	if a2Item(t, items, "Check again").run(m); m.flash != "checking agents on every machine…" {
+	if a2Item(t, items, "Check again").run(m); m.flash != "checking agents on local…" {
 		t.Fatalf("check again: %q", m.flash)
 	}
+	s.openPage("")
 	m.machines[0].agentList = nil
 	if got := strings.Join(knownAgents(m), ","); got != "claude,codex,gemini,opencode" {
 		t.Fatalf("known agents fallback %q", got)

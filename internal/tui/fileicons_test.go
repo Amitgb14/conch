@@ -83,10 +83,23 @@ func TestIconFor(t *testing.T) {
 		{name: "LICENSE", want: "li"},
 		{name: "noext", want: "  "},
 		{name: "weird.unknownext", want: "  "},
-		{name: ".bashrc", want: "  "}, // a dotfile's name is not an extension
+		{name: ".bashrc", want: "sh"},    // a known dotfile is matched whole
+		{name: ".unknownrc", want: "  "}, // a dotfile's name is not an extension
 		{name: ".", want: "  "},
 		{name: "..", want: "  "},
 		{name: "", want: "  "},
+		{name: "mix.exs", want: "ex"}, // the name wins over .exs
+		{name: "server.exs", want: "ex"},
+		{name: "Analysis.R", want: "r "}, // one-letter extensions
+		{name: "start.s", want: "as"},
+		{name: "libfoo.so", want: "bn"},
+		{name: "main.tf", want: "tf"},
+		{name: "notes.ipynb", want: "nb"},
+		{name: "report.xlsx", want: "xl"},
+		{name: "id_rsa.pub", want: "ky"},
+		{name: "site.tar.zst", want: "zp"},
+		{name: "CHANGELOG.md", want: "ch"}, // the name wins over .md
+		{name: "Jenkinsfile", want: "jk"},
 		{name: "café.go", want: "go"},
 		{name: "éclair.py", want: "py"}, // combining mark
 		{name: "🚀.rs", want: "rs"},
@@ -130,6 +143,60 @@ func TestFitCells(t *testing.T) {
 	} {
 		if got := fitCells(c.in, c.n); got != c.want {
 			t.Errorf("fitCells(%q, %d) = %q, want %q", c.in, c.n, got, c.want)
+		}
+	}
+}
+
+// TestIconTableIsSane guards the two things a wrong codepoint or a careless
+// tag would break: a glyph that is not a Nerd Font glyph at all (it would
+// draw as an ordinary character in every font), and two letters that mean
+// one kind of file in one row and another kind in the next.
+func TestIconTableIsSane(t *testing.T) {
+	for key, ic := range allIcons() {
+		r := []rune(ic.nerd)[0]
+		// The Private Use Area, where Nerd Fonts put their glyphs.
+		if !(r >= 0xE000 && r <= 0xF8FF) && !(r >= 0xF0000 && r <= 0xFFFFD) {
+			t.Errorf("%s: glyph %q (U+%04X) is outside the Private Use Area", key, ic.nerd, r)
+		}
+		for _, c := range ic.text {
+			if c < 0x20 || c > 0x7e {
+				t.Errorf("%s: tag %q is not plain ASCII, so it needs a font too", key, ic.text)
+			}
+		}
+	}
+	// Within the extensions, one tag means one kind of file: the tag is all
+	// somebody has to go on in a list of names.
+	roles := map[string]string{}
+	for ext, ic := range iconExts {
+		if was, ok := roles[ic.text]; ok && was != "" {
+			if prev := iconExts[was]; prev.role != ic.role {
+				t.Errorf("tag %q is %v for %s and %v for %s", ic.text, prev.role, was, ic.role, ext)
+			}
+		}
+		roles[ic.text] = ext
+	}
+}
+
+// TestIconsCoverWhatRepositoriesHold is the list this table exists for: the
+// files somebody opening the explorer on a real project sees. A miss here is
+// a blank column, so a new one is added rather than the case deleted.
+func TestIconsCoverWhatRepositoriesHold(t *testing.T) {
+	for _, name := range []string{
+		"main.go", "server.ts", "App.tsx", "index.js", "app.vue", "page.svelte", "site.astro",
+		"main.rs", "lib.c", "lib.h", "node.cc", "Main.java", "App.kt", "app.swift", "Program.cs",
+		"main.zig", "app.ex", "node.erl", "core.clj", "types.ml", "Main.fs", "plot.jl", "model.r",
+		"train.py", "notebook.ipynb", "app.rb", "index.php", "init.lua", "run.sh", "build.ps1",
+		"notes.md", "spec.rst", "book.tex", "paper.pdf", "slides.pptx", "budget.xlsx", "letter.docx",
+		"config.json", "values.yaml", "Cargo.toml", "app.ini", "nginx.conf", "main.tf", "flake.nix",
+		"schema.prisma", "api.graphql", "query.sql", "users.csv", "events.jsonl", "store.sqlite",
+		"logo.png", "icon.svg", "shot.heic", "theme.psd", "talk.mp4", "tune.flac", "Inter.woff2",
+		"dist.tar.gz", "pack.zst", "app.dmg", "lib.jar", "conch.exe", "module.wasm",
+		"server.pem", "id_ed25519.pub", "build.log", "fix.patch", "bundle.js.map",
+		"Dockerfile", "Makefile", "package.json", "go.mod", "pom.xml", "Jenkinsfile", ".prettierrc",
+		".gitlab-ci.yml", ".bashrc", "poetry.lock", "bun.lockb", "CHANGELOG.md", "CONTRIBUTING.md",
+	} {
+		if ic := iconFor(name, false, false, false); ic == iconDefault {
+			t.Errorf("%s has no icon of its own", name)
 		}
 	}
 }

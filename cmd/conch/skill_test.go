@@ -115,9 +115,9 @@ func TestA4AgentSkill(t *testing.T) {
 	}
 	// The server's own refusal (an unknown agent) comes through.
 	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
-		return nil, proto.Errorf(proto.ErrBadRequest, "conch doesn't know where devin keeps skills")
+		return nil, proto.Errorf(proto.ErrBadRequest, "conch doesn't know where aider keeps skills")
 	})
-	if err := runAgent([]string{"skill", "-agent", "devin"}); err == nil || !strings.Contains(err.Error(), "devin keeps skills") {
+	if err := runAgent([]string{"skill", "-agent", "aider"}); err == nil || !strings.Contains(err.Error(), "aider keeps skills") {
 		t.Fatalf("unknown agent: %v", err)
 	}
 	if err := runAgent([]string{"skill", "extra"}); err == nil || !strings.Contains(err.Error(), "usage: conch agent skill") {
