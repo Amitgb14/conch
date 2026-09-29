@@ -53,10 +53,10 @@ Status legend: ☐ not run · ◐ partly run (see note) · ✅ passed · ❌ fai
 | 2.7 | Agent setup view | `i` on a project with CLAUDE.md, skills and MCP servers | Lists instructions, skills, MCP servers (approved/pending) matching what the agent loads | ✅ R1 (`@` imports in CLAUDE.md / GEMINI.md now listed, since the run) |
 | 2.8 🌐 | Devin for Terminal | On a Mac without `devin`, `c` → Devin → install; then `devin auth login`; `c` → Devin in a trusted project; `t` task with Devin; resume from Sessions or `-r` | The official installer runs in a pane and puts `devin` in `~/.local/bin`; `c` starts it; a task passes its prompt after `--`; the pane shows as Devin; its sessions appear under the project's Sessions (via `devin list`), `enter` resumes one with `-r`, `d` deletes it. Then read its real screens and process name to add state rules, and check whether `--config` merges with the user's config before conch passes hooks | ◐ R15/R16 working and the trust prompt read live; sessions listed, resumed and deleted; installing it on a machine without it is all that is left |
 | 2.9 💳 | `conch wait` on a real agent | `conch new -agent claude`, send it a prompt, then `conch wait -state waiting,done PANE` from another shell; repeat with `-timeout 5s` while it works | The wait returns as the agent's state changes (prints `PANE claude done`), not on a timer; `-timeout` exits 124; closing the pane ends the wait with an error | ☐ |
-| 2.10 💳 | `conch agent prompt` on real agents | Claude and Codex in panes. `conch agent prompt -wait PANE "say OK"` on each while idle, again while working, and again after it finished unseen (`done`); then send one a prompt needing a permission and, while it asks, `conch agent prompt PANE "go on"`; also with Codex showing its update menu | Each wait returns only after the new answer (`PANE claude done`), never at once on the old `done`/`idle`; the one sent while working returns when the message it queued is answered; the blocked one exits 3, says what it is asking, and nothing appears in its input; the update menu is refused the same way. Not provable with fakes: that each agent's working state is seen after the message, so the turn moves — an agent read only from its screen that answers between two samples would leave the wait running to its timeout | ☐ |
-| 2.11 💳 | Scoping a real agent | Two projects, a terminal pane in each. In project A start Claude and ask it to run `conch close` on B's terminal, `conch send` to it, `conch server stop`, and then `conch task -name helper "say hi"` and `conch close helper`; repeat with Codex and OpenCode. Then from A's terminal pane close B's terminal by hand | Each command the agent runs through its own shell tool is refused with `out_of_scope` naming the agent and the pane, nothing happens to B or the server; the task it starts has its pane as `created_by` in the pane list, and the agent may close it. The terminal pane is not scoped. Not provable with fakes: that each agent's tool processes descend from its pane (a tool that daemonises or double-forks would escape the walk) | ☐ |
-| 2.12 💳🌐 | Scoping a real agent on another machine | A machine (busybox) with a pane of your own there. From Claude in a local project ask it to run `conch -m busybox close` on that pane, then `conch -m busybox task -cwd /abs/repo -name helper "say hi"` and `conch -m busybox close helper`; then repeat against a machine running an older conch | The close of your pane is refused `out_of_scope` naming "p4 on <this host>"; the task starts there with `created_by` that agent, and closing it works; against the older remote every `-m` command from the agent is refused with the upgrade hint, while the same commands from a terminal pane work | ☐ |
-| 2.13 💳 | The conch skill in real agents | `conch agent skill -apply`, then in a project start Claude, Codex, Gemini and OpenCode in turn and ask each "get a second opinion on this branch from another agent"; answer a permission prompt in the helper only when asked to | Each agent lists or loads the `conch` skill; it checks it is in conch, commits, starts a helper with `conch task -name … -base <its branch>`, prompts it with `conch agent prompt -wait`, and reads the answer from the helper's file; when the helper asks a question it stops and says which pane is waiting rather than answering or prompting again; it closes the helper at the end. `conch agent skill -remove -apply` takes it away and the agents no longer list it | ☐ |
+| 2.10 💳 | `conch agent prompt` on real agents | Claude and Codex in panes. `conch agent prompt -wait PANE "say OK"` on each while idle, again while working, and again after it finished unseen (`done`); then send one a prompt needing a permission and, while it asks, `conch agent prompt PANE "go on"`; also with Codex showing its update menu | Each wait returns only after the new answer (`PANE claude done`), never at once on the old `done`/`idle`; the one sent while working returns when the message it queued is answered; the blocked one exits 3, says what it is asking, and nothing appears in its input; the update menu is refused the same way. Not provable with fakes: that each agent's working state is seen after the message, so the turn moves — an agent read only from its screen that answers between two samples would leave the wait running to its timeout | ◐ R36 Claude: refused on its trust prompt (exit 3, cursor unmoved); idle, done and working all waited for the answer, the log showing done → idle at the keystroke that a state-only wait would have taken. Codex: its update menu and trust prompt refused; answers not seen (its API key was rejected, 401) |
+| 2.11 💳 | Scoping a real agent | Two projects, a terminal pane in each. In project A start Claude and ask it to run `conch close` on B's terminal, `conch send` to it, `conch server stop`, and then `conch task -name helper "say hi"` and `conch close helper`; repeat with Codex and OpenCode. Then from A's terminal pane close B's terminal by hand | Each command the agent runs through its own shell tool is refused with `out_of_scope` naming the agent and the pane, nothing happens to B or the server; the task it starts has its pane as `created_by` in the pane list, and the agent may close it. The terminal pane is not scoped. Not provable with fakes: that each agent's tool processes descend from its pane (a tool that daemonises or double-forks would escape the walk) | ◐ R36 Claude: its tools descend from its pane — send and close to B's terminal and `server stop` refused with the agent and pane named; A's terminal reached; `task -name helper` started and closed. Codex and OpenCode not run |
+| 2.12 💳🌐 | Scoping a real agent on another machine | A machine (busybox) with a pane of your own there. From Claude in a local project ask it to run `conch -m busybox close` on that pane, then `conch -m busybox task -cwd /abs/repo -name helper "say hi"` and `conch -m busybox close helper`; then repeat against a machine running an older conch | The close of your pane is refused `out_of_scope` naming "p4 on <this host>"; the task starts there with `created_by` that agent, and closing it works; against the older remote every `-m` command from the agent is refused with the upgrade hint, while the same commands from a terminal pane work | ◐ R36 Claude against busybox (a scratch server there): `close mine` refused as "p1 on Amits-MacBook-Pro-2.local", `server stop` refused; the task it started there closed. The older-remote half not run, to leave the shared server alone |
+| 2.13 💳 | The conch skill in real agents | `conch agent skill -apply`, then in a project start Claude, Codex, Gemini and OpenCode in turn and ask each "get a second opinion on this branch from another agent"; answer a permission prompt in the helper only when asked to | Each agent lists or loads the `conch` skill; it checks it is in conch, commits, starts a helper with `conch task -name … -base <its branch>`, prompts it with `conch agent prompt -wait`, and reads the answer from the helper's file; when the helper asks a question it stops and says which pane is waiting rather than answering or prompting again; it closes the helper at the end. `conch agent skill -remove -apply` takes it away and the agents no longer list it | ◐ R36 Claude: loaded the skill, started a reviewer with the uncommitted diff in its prompt, read its REVIEW.md, closed it. Found the stale-hook bug (fixed). A helper asking a question not seen: auto mode asked nothing. Other agents not run |
 
 ## 3. Sessions
 
@@ -489,6 +489,60 @@ This Mac to busybox (`aghadge@10.0.0.115`), isolated on both sides. Here: its ow
 - **Found and fixed:** the status bar cut the refusal to "moving feat failed: rebuild t…". Failures now open a notice with the whole reason, and the status bar keeps the short form. The server's messages said "here", which read as the Mac inside a notice that also said "nothing changed here". They no longer name a place, and the notice names both machines ("moving feat to busybox failed … Nothing changed on local.").
 - **Found and fixed:** a menu whose title was its widest line lost the end of it ("Move feat to which machin…"), in every menu: the frame's spaces weren't counted.
 - **Not run:** a real Claude reading the handoff after a move (the handoff itself was checked in R19), and a pushed branch sending no commits (covered by the server tests).
+
+### R36 — 2026-09-28, agents driving agents, macOS arm64 → Linux amd64, build 0.1.6-dev (8cef9ef)
+
+Rows 2.10–2.13 with real agents, through a test server of its own (a
+scratch `CONCH_HOME`, the person's real `HOME` so the agents were signed
+in), and for 2.12 a scratch server on busybox reached through a
+`CONCH_SSH` wrapper that ran every remote script under `/tmp/ce-r`. Claude
+Code v2.1.284 (auto mode on), Codex 0.144.1. The build was installed at
+`~/.local/bin/conch` first: every adapter puts that folder first on the
+agent's `PATH`, so an older conch there is what the agents would have run.
+
+- **The blocked guard on real screens.** Claude's first-run trust question
+  opens with the cursor on *No, exit*, and Codex's update menu on *Update
+  now* (a `curl … | sh`): an Enter typed onto either is the harm the guard
+  exists for. `agent prompt` refused all three with exit 3, and the cursor
+  hadn't moved.
+- **The turn, not the state.** Prompted while done, Claude went done →
+  idle the moment the message was typed — the log has it at 22:17:15 — and
+  a wait on state would have returned there; the turn wait returned after
+  working → done a second later. A message sent while Claude worked was
+  folded into that turn (one UserPromptSubmit, one Stop), and the wait
+  ended with it.
+- **A helper that backgrounds its work ends its turn early.** Asked to run
+  `sleep 20`, Claude ran it in the background and stopped, promising to
+  answer when it finished; `-wait` returned then, correctly by its rule.
+  Claude did take the work up again by itself when the job ended (a turn
+  with no prompt, 25 s later). So the skill now has helpers asked to run
+  commands in the foreground, and says to check the result, not the exit.
+- **Scoping holds with a real agent's tools.** Commands Claude ran through
+  its Bash tool were refused from the kernel's view of its pane, not from
+  anything it could unset — the question the fakes could not answer. Over
+  `-m` the refusal named it "p1 on Amits-MacBook-Pro-2.local".
+- **Found and fixed:** Claude read as done while it worked. Its manifest
+  knew work by "esc to interrupt", which v2.1.284 no longer shows; after
+  8 s without a hook (`hook_working_stale`) a long think or a long command
+  fell back to the screen and read as idle. Both panes in 2.13 did, and
+  the driving agent noticed `conch` saying done while the reviewer's screen
+  said working. A `spinner` rule now knows the line it shows instead —
+  `✢ Effecting… (32s · ↓ 1.5k tokens)`, `✻ Galloping… (running Stop hook ·
+  20s · …)` — and not the finished `✻ Crunched for 16s · done`.
+- **Changed in the skill:** asked for a second opinion with the change
+  uncommitted, Claude chose not to commit without being asked and put the
+  diff in the helper's prompt, which is better than the skill's "commit
+  first". The skill now says that.
+- **Codex's failures look like done.** Its API key was rejected (401) on
+  every request; with no hooks, conch reads Codex from its screen, which
+  went working → done either way, so `-wait` exited 0. The skill now says
+  a failed request ends a turn too.
+- **Clean-up:** the skill removed again, the two trust entries the run
+  wrote (`~/.claude.json`'s project, `~/.codex/config.toml`'s) taken out,
+  both test servers stopped, busybox's shared server untouched.
+- **Not run:** Codex's answers (its key is to be fixed before a rerun), OpenCode
+  and Gemini, a helper stopping to ask a question (auto mode asked none),
+  and `-m` against an older remote (the shared server was left alone).
 
 ### R35 — 2026-09-28, the icon column with and without a Nerd Font, macOS arm64
 

@@ -1,0 +1,111 @@
+export const metadata = { title: "Agents working together", description: "Let one agent hand work to another — a reviewer, a tester — and read what it did." }
+
+# Agents working together
+
+An agent in a conch pane can start another agent, prompt it, wait for it and read its answer — a reviewer for its change, a tester, a second opinion — without you passing messages between them. Each helper runs in a pane of its own, on its own branch, and shows in the tree like any other agent, so you can watch it, answer it or close it at any time.
+
+## Setting it up
+
+The agents learn how from a skill conch carries. Install it once on each machine:
+
+```sh
+conch agent skill            # says where it would write, and writes nothing
+conch agent skill -apply     # writes it
+```
+
+It goes where each agent reads your skills — `~/.claude/skills/conch` for Claude Code, `~/.agents/skills/conch` for Codex, Gemini CLI and OpenCode, and `~/.config/devin/skills/conch` for Devin — beside your own skills, replacing none of them. `-agent claude,codex` installs it for some agents only, `-remove -apply` takes it away again, and `conch -m MACHINE agent skill -apply` installs it on another machine. Claude Code picks it up at once, even mid-session; restart the others if they don't list it.
+
+## Asking an agent for a second opinion
+
+In a project, start an agent (`c`) and ask in plain words:
+
+> Get a second opinion on the change on this branch from another agent, and tell me what it found.
+
+What happens, as it did in a real run with Claude Code:
+
+1. The agent sees it is in conch and loads the skill.
+2. It starts a helper as a task — `conch task -name login-reviewer "…"` — which appears under the project in the tree, on a branch and worktree of its own.
+3. Its change wasn't committed, so rather than commit your work to hand it over, it put the diff in the helper's prompt.
+4. It waits for the helper, then reads the `REVIEW.md` the helper wrote in its worktree.
+5. It tells you what the reviewer found, and closes the reviewer's pane. The reviewer's branch and worktree stay for you to keep or [clean up](/docs/tasks#cleaning-up-worktrees).
+
+If the helper stops to ask something — a permission, a question — the agent doesn't answer for it: it tells you which pane is waiting. Open that pane and answer it yourself.
+
+Other things to ask for the same way: *"have Codex write tests for this and run them"*, *"ask another agent to try the migration on a copy of the branch"*, *"get Claude and Gemini to each review it and compare"*.
+
+## Doing it yourself
+
+The commands the agents use are plain `conch` commands, so a script — or you, in a terminal pane — can drive agents the same way:
+
+```sh
+# A reviewer on its own branch, starting from yours (commit first: it sees only commits).
+conch task -name reviewer -agent codex -base "$(git branch --show-current)" \
+  "Review this branch against main. Run commands in the foreground. Write findings to REVIEW.md."
+
+# Wait for its first answer.
+conch wait -state done,waiting -timeout 30m reviewer
+
+# A follow-up: typed in, submitted, and waited for in one step.
+conch agent prompt -wait -timeout 30m reviewer "Now check the error handling in login.py too."
+case $? in
+  0)   echo "finished" ;;
+  3)   echo "it is asking something:"; conch read reviewer ;;
+  124) echo "still working after 30 minutes" ;;
+esac
+
+conch read reviewer          # its screen
+conch close reviewer         # its branch and worktree stay
+```
+
+`conch agent prompt` is the safe way to message an agent. It types only into an agent, never into one waiting for an answer — a permission prompt, a trust question or a menu, where its Enter would answer something nobody read — and with `-wait` it waits for the work that message starts, not for the state the agent was in before it. It exits:
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | the agent's turn ended |
+| `3` | the agent is waiting for an answer; nothing was typed |
+| `124` | `-timeout` ran out; it may still be working |
+| `1` | anything else: the pane ended, another program took it over, a name two panes share |
+
+`conch send` still types anything anywhere — for your terminals, not for agents.
+
+`conch wait` sees an agent `done` only while nobody is looking at it: finished in front of you, it goes straight to `idle`. Wait for `-state done,waiting` in scripts that run unwatched.
+
+### Names
+
+`-name reviewer` on `conch task`, or `conch rename ID NAME` on any pane, lets every pane command address it by name: `send`, `read`, `close`, `redraw`, `wait`, `agent prompt`, `agent explain`. An ID (`p` and a number) always means the ID, so names of that shape are refused, and a name two running panes share is refused rather than guessed. See [pane names](/docs/cli#pane-names).
+
+## What an agent may do
+
+An agent calling conch from inside its pane may start panes and tasks and read anything. What it may **change** is kept to its own work:
+
+| It may change | It may not |
+| --- | --- |
+| panes it started, and the panes those started | other panes in other projects: typing, keys, closing, renaming, marking as seen |
+| any pane in its own project | another project's branches and worktrees |
+| its own project's branches and worktrees: commit, push, discard | `conch server stop` or `reload` |
+| | your own setup: the skill, the [library](/docs/tasks#shared-mcp-servers-and-skills), syncing one agent's setup to the others |
+
+The rest is refused, and the agent is told why:
+
+```text
+conch: out_of_scope: the claude agent in p1 may not close p4: it did not start it, and it is in another project; do it from the TUI or a terminal pane
+```
+
+You are never held to this: the TUI, your terminal panes and scripts run outside conch act as you. conch tells who is asking from the operating system — the process at the other end of its socket and that process's parents, up to a pane — so an agent can't get round it by changing its environment. It is a guard against an agent closing the wrong session, not a sandbox: a program set on escaping can leave its pane's process tree.
+
+### On another machine
+
+`conch -m MACHINE` from an agent's pane carries the agent's scope along: on the other machine it reaches only the panes it started there, and the projects it started them in.
+
+```text
+conch: out_of_scope: the claude agent in p1 on laptop.local may not close p1: it did not start it; do it from the TUI or a terminal pane
+```
+
+A machine whose conch predates this isn't driven from an agent's pane at all — `conch machine upgrade` it. Like the rest, this holds for agents going through conch: one that runs `ssh` itself isn't held by it.
+
+## Good to know
+
+- **A helper sees only committed work.** It starts on a branch of its own. With your work committed, pass your branch as `-base`; if it isn't, the skill has the agent put the diff in the helper's prompt instead of committing for you.
+- **Exit 0 is the end of a turn, not always of the work.** A helper that puts a long command in the background ends its turn and takes the work up again later; a request that failed (an expired API key, say) ends a turn too. Ask helpers to run commands in the foreground, and check the result — the file you asked for — before relying on it.
+- **Codex and Devin are read from their screen.** conch can't see a failed request there: it ends like a finished one. Claude Code, Gemini CLI and OpenCode report it through their hooks.
+- **Every helper spends usage.** The skill tells agents to start only as many as the job needs.
