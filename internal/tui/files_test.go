@@ -642,7 +642,12 @@ func TestFilesMouseThroughModel(t *testing.T) {
 	m.View()
 	rects, _ := m.leafRects()
 	r := rects[m.tab().focus]
-	next, _ := m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: r.x + 5, Y: r.y + 1 + filesTop + 2})
+	at := tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: r.x + 5, Y: r.y + 1 + filesTop + 2}
+	next, _ := m.Update(at)
+	*m = next.(Model)
+	// A click lands on release, once it is clear it is not a selection.
+	at.Action = tea.MouseActionRelease
+	next, _ = m.Update(at)
 	*m = next.(Model)
 	if m.focus != focusMain || m.tab().focused().files.selPath != "README.md" {
 		t.Fatalf("focus %v sel %q", m.focus, fv.selPath)

@@ -49,6 +49,13 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// A selection being dragged goes wherever the pointer does: over the
+	// tab bar, the status bar or the tree, and past the pane's edge the
+	// history scrolls to take more.
+	if cmd, ok := m.dragSelection(msg); ok {
+		return m, cmd
+	}
+
 	// Status bar: every hint, the waiting counter and Settings are buttons.
 	if msg.Y == m.height-1 {
 		if press && left {
@@ -133,63 +140,70 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	f := t.focused()
 	in := m.inner(rects[f.id])
 	x, y := msg.X-in.x, msg.Y-in.y
-	// A selection drag keeps going when the pointer leaves the pane.
-	// Inside the pane, a held click is settled by selectOrClick, which passes
-	// it on to the program when nothing was dragged.
-	outside := x < 0 || y < 0 || x >= in.w || y >= in.h
-	if f.view.Kind == kindPane && m.sel != nil && m.sel.dragging && (m.click == nil || outside) {
-		if msg.Action == tea.MouseActionRelease {
-			m.click = nil
-		}
-		return m, m.selectMouse(msg, clamp(x, 0, in.w-1), clamp(y, 0, in.h-1))
-	}
 	if x < 0 || y < 0 || x >= in.w || y >= in.h {
 		if press && left && f.view.Kind == kindPane {
 			m.focus = focusMain
 		}
 		return m, focusCmd
 	}
+	if f.view.Kind != kindPane && press && left {
+		// A press on a page may start a selection; what it clicks is
+		// decided on release, once it is clear nothing was dragged.
+		m.focus = focusMain
+		m.click = &pendingClick{msg: msg, x: x, y: y}
+		m.sel = &selection{leaf: f.id, ax: x, ay: y, bx: x, by: y, dragging: true}
+		return m, focusCmd
+	}
+	cmd := m.viewMouse(f, msg, x, y) // before m is returned: it changes m
+	return m, tea.Batch(focusCmd, cmd)
+}
+
+// viewMouse passes a mouse event to what leaf f shows, at x, y inside it.
+func (m *Model) viewMouse(f *leaf, msg tea.MouseMsg, x, y int) tea.Cmd {
+	press := msg.Action == tea.MouseActionPress
+	left := msg.Button == tea.MouseButtonLeft
+	wheel := msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown
 	switch f.view.Kind {
 	case kindPane:
-		return m, tea.Batch(focusCmd, m.paneMouse(f.view.PaneID, msg, x, y, press, wheel))
+		return m.paneMouse(f.view.PaneID, msg, x, y, press, wheel)
 	case kindReviewQueue:
 		if press && left {
 			m.focus = focusMain
 		}
 		if f.queue != nil {
-			return m, tea.Batch(focusCmd, f.queue.mouse(&m, msg, x, y))
+			return f.queue.mouse(m, msg, x, y)
 		}
 	case kindSessions:
 		if press && left {
 			m.focus = focusMain
 		}
 		if f.sessions != nil {
-			return m, tea.Batch(focusCmd, f.sessions.mouse(&m, msg, x, y))
+			return f.sessions.mouse(m, msg, x, y)
 		}
 	case kindFiles:
 		if press && left {
 			m.focus = focusMain
 		}
 		if f.files != nil {
-			return m, tea.Batch(focusCmd, f.files.mouse(&m, msg, x, y))
+			return f.files.mouse(m, msg, x, y)
 		}
 	case kindBranch:
 		if press && left {
 			m.focus = focusMain
 		}
 		if f.changes != nil {
-			return m, tea.Batch(focusCmd, f.changes.mouse(&m, msg, x, y))
+			return f.changes.mouse(m, msg, x, y)
 		}
 	case kindBranches:
 		if press && left {
-			return m, tea.Batch(focusCmd, m.clickBranch(f.view, y))
+			return m.clickBranch(f.view, y)
 		}
 	case kindAgents, kindTerminals, kindSSH:
 		if press && left {
-			return m, tea.Batch(focusCmd, m.clickSectionPane(f.view, y))
+			return m.clickSectionPane(f.view, y)
 		}
 	}
-	return m, focusCmd
+	return nil
 }
 
 // branchesPageHeader is how many lines come before the first branch on the
@@ -381,6 +395,7 @@ func (m *Model) selectMouse(msg tea.MouseMsg, x, y int) tea.Cmd {
 			}
 		}
 		m.sel = &selection{paneID: m.viewing, ax: x, ay: y, bx: x, by: y, dragging: true}
+		m.rememberSel()
 	case msg.Action == tea.MouseActionMotion && m.sel != nil && m.sel.dragging:
 		m.sel.bx, m.sel.by = x, y
 		m.sel.hasContent = m.sel.hasContent || x != m.sel.ax || y != m.sel.ay
@@ -390,9 +405,159 @@ func (m *Model) selectMouse(msg tea.MouseMsg, x, y int) tea.Cmd {
 			m.sel = nil
 			return nil
 		}
-		return copyText(m.sel.text(m.frame.Lines, cols))
+		return copyText(m.selText())
 	}
 	return nil
+}
+
+// rememberSel keeps the text of the pane rows on screen with the
+// selection, so it still copies them once they have scrolled away. A frame
+// not yet caught up with a scroll is passed over: its rows are not where
+// the selection thinks they are.
+func (m *Model) rememberSel() {
+	if m.sel != nil && m.sel.leaf == 0 && m.frame != nil && m.frame.Offset == m.offset {
+		m.sel.remember(m.frame.Lines)
+	}
+}
+
+// selText is the text of the selection in the viewed pane, with the rows
+// that have scrolled out of sight.
+func (m *Model) selText() string {
+	if m.sel == nil {
+		return ""
+	}
+	cols, _ := m.paneArea()
+	m.rememberSel()
+	var lines []string
+	if m.frame != nil && m.frame.Offset == m.offset {
+		lines = m.frame.Lines
+	}
+	return m.sel.text(lines, cols)
+}
+
+// dragSelection carries on a selection while its button is held, wherever
+// the pointer goes. It reports whether it took the event: a held click
+// inside its own pane or page is left to the usual handling, which settles
+// it on release.
+func (m *Model) dragSelection(msg tea.MouseMsg) (tea.Cmd, bool) {
+	if m.sel == nil || !m.sel.dragging {
+		return nil, false
+	}
+	rects, _ := m.leafRects()
+	id := m.tab().focus
+	if m.sel.leaf != 0 {
+		id = m.sel.leaf
+	}
+	r, ok := rects[id]
+	if !ok { // its leaf went while the button was down
+		m.sel, m.click, m.selEdge = nil, nil, 0
+		return nil, false
+	}
+	in := m.inner(r)
+	x, y := msg.X-in.x, msg.Y-in.y
+	outside := x < 0 || y < 0 || x >= in.w || y >= in.h
+	cx, cy := clamp(x, 0, in.w-1), clamp(y, 0, in.h-1)
+
+	if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+		if m.sel.leaf != 0 {
+			// A page scrolls under the selection, which would then be over
+			// other text: it goes, and the page takes the wheel.
+			m.sel, m.click = nil, nil
+			return nil, false
+		}
+		if m.frame != nil && m.frame.History > 0 {
+			delta := -3
+			if msg.Button == tea.MouseButtonWheelUp {
+				delta = 3
+			}
+			m.scrollPane(delta)
+			return nil, true
+		}
+		return nil, m.click == nil || outside
+	}
+
+	if m.sel.leaf != 0 {
+		return m.dragPageSelection(msg, id, in, cx, cy), true
+	}
+	if m.click != nil && !outside {
+		m.selEdge = 0
+		return nil, false // selectOrClick settles it
+	}
+	var tick tea.Cmd
+	switch msg.Action {
+	case tea.MouseActionRelease:
+		m.click, m.selEdge = nil, 0
+	case tea.MouseActionMotion:
+		m.selEdge = 0
+		switch {
+		case y < 0:
+			m.selEdge = min(-y, 3) // above the top: back into history
+		case y >= in.h:
+			m.selEdge = -min(y-in.h+1, 3)
+		}
+		if m.selEdge != 0 && !m.selTicking {
+			m.selTicking = true
+			tick = m.selAutoScroll()
+		}
+	}
+	return tea.Batch(m.selectMouse(msg, cx, cy), tick), true
+}
+
+// selScrollMsg keeps a selection scrolling while the pointer is held past
+// its pane's top or bottom edge, as terminals do.
+type selScrollMsg struct{}
+
+const selScrollEvery = 60 * time.Millisecond
+
+// selAutoScroll scrolls the pane under a selection held past its edge,
+// and schedules the next step until the drag ends, the pointer comes back
+// in, or the history runs out.
+func (m *Model) selAutoScroll() tea.Cmd {
+	if m.sel == nil || !m.sel.dragging || m.sel.leaf != 0 || m.selEdge == 0 {
+		m.selTicking = false
+		return nil
+	}
+	before := m.offset
+	m.scrollPane(m.selEdge)
+	if m.offset == before {
+		m.selTicking = false
+		return nil
+	}
+	return tea.Tick(selScrollEvery, func(time.Time) tea.Msg { return selScrollMsg{} })
+}
+
+// dragPageSelection drives a selection over the page leaf id shows: drag
+// extends it, release copies it — or, when nothing was dragged, passes the
+// held click to the page.
+func (m *Model) dragPageSelection(msg tea.MouseMsg, id int, in rect, x, y int) tea.Cmd {
+	switch msg.Action {
+	case tea.MouseActionMotion:
+		m.sel.bx, m.sel.by = x, y
+		m.sel.hasContent = m.sel.hasContent || x != m.sel.ax || y != m.sel.ay
+	case tea.MouseActionRelease:
+		click := m.click
+		m.sel.dragging, m.click = false, nil
+		if m.sel.hasContent {
+			return copyText(m.sel.text(m.pageLines(id, in), in.w))
+		}
+		m.sel = nil
+		l := m.tab().leaf(id)
+		if click == nil || l == nil {
+			return nil
+		}
+		return tea.Batch(m.viewMouse(l, click.msg, click.x, click.y), m.viewMouse(l, msg, x, y))
+	}
+	return nil
+}
+
+// pageLines is what leaf id shows in its inner area, as drawn.
+func (m Model) pageLines(id int, in rect) []string {
+	t := m.tab()
+	l := t.leaf(id)
+	if l == nil {
+		return nil
+	}
+	return exactly(m.leafBody(l, in.w, in.h, id == t.focus), in.h)
 }
 
 func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Model, tea.Cmd) {

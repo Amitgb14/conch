@@ -8,14 +8,22 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// selection is a text selection over the visible pane, in view cells.
+// selection is a text selection over the visible pane, in view cells, or
+// over the page a leaf shows (a diff, a file, the sessions list).
 type selection struct {
 	paneID     string
+	leaf       int // the leaf whose page is selected; 0 for the viewed pane
 	ax, ay     int // anchor: where the drag started
 	bx, by     int // head: where it is now
 	dragging   bool
 	hasContent bool // moved past the anchor, so there is something to copy
 	keyboard   bool // made in scroll mode; it follows the history as it scrolls
+
+	// rows is the text of every pane row seen on screen while the
+	// selection lasted, by view row, moved along as the history scrolls.
+	// A selection taller than the screen copies whole from it: the rows
+	// scrolled away are no longer in the frame.
+	rows map[int]string
 }
 
 var styleSelection = lipgloss.NewStyle().Reverse(true)
@@ -45,18 +53,56 @@ func (s selection) span(y, w int) (from, to int, ok bool) {
 	return clamp(from, 0, w), clamp(to, 0, w), from < to
 }
 
-// text extracts the selected text from rendered lines. Trailing spaces are
-// trimmed from each line, as terminals do.
+// text extracts the selected text from rendered lines, and from the rows
+// remembered for it where it reaches past them. Trailing spaces are trimmed
+// from each line, as terminals do.
 func (s selection) text(lines []string, w int) string {
+	_, y1, _, y2 := s.ordered()
 	var out []string
-	for y := range lines {
+	for y := y1; y <= y2; y++ {
+		var line string
+		switch {
+		case y >= 0 && y < len(lines):
+			line = ansi.Strip(lines[y])
+		case s.rows != nil:
+			l, ok := s.rows[y]
+			if !ok {
+				continue
+			}
+			line = l
+		default:
+			continue
+		}
 		from, to, ok := s.span(y, w)
 		if !ok {
 			continue
 		}
-		out = append(out, strings.TrimRight(ansi.Cut(ansi.Strip(lines[y]), from, to), " "))
+		out = append(out, strings.TrimRight(ansi.Cut(line, from, to), " "))
 	}
 	return strings.Join(out, "\n")
+}
+
+// remember keeps the text of the rows on screen now.
+func (s *selection) remember(lines []string) {
+	if s.rows == nil {
+		s.rows = map[int]string{}
+	}
+	for y, l := range lines {
+		s.rows[y] = ansi.Strip(l)
+	}
+}
+
+// shiftRows moves the remembered rows n lines down the screen, as
+// scrolling n lines back moves the text they hold.
+func (s *selection) shiftRows(n int) {
+	if n == 0 || len(s.rows) == 0 {
+		return
+	}
+	moved := make(map[int]string, len(s.rows))
+	for y, l := range s.rows {
+		moved[y+n] = l
+	}
+	s.rows = moved
 }
 
 // highlight draws the selection over rendered lines.
