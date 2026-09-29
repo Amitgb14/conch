@@ -199,3 +199,120 @@ func TestInstallSkillFailures(t *testing.T) {
 		t.Fatal("the writable one was not written")
 	}
 }
+
+// A skill file or folder linked in from elsewhere — a dotfiles repository
+// — is the person's arrangement: conch neither writes through the link
+// nor replaces it with a file, and doesn't remove it.
+func TestInstallSkillLeavesLinks(t *testing.T) {
+	for _, what := range []string{"file", "folder"} {
+		t.Run(what, func(t *testing.T) {
+			e := skillEnv(t, nil)
+			dotfiles := t.TempDir()
+			ours := append([]byte(nil), Skill...)
+			ours = bytes.Replace(ours, []byte("# Working"), []byte("# Old working"), 1) // conch's, but older
+			conchDir := filepath.Join(e.Home, ".claude", "skills", "conch")
+			var link, target string
+			if what == "file" {
+				os.MkdirAll(conchDir, 0o755)
+				target, link = filepath.Join(dotfiles, "SKILL.md"), filepath.Join(conchDir, "SKILL.md")
+				os.WriteFile(target, ours, 0o644)
+			} else {
+				os.MkdirAll(filepath.Dir(conchDir), 0o755)
+				target, link = dotfiles, conchDir
+				os.WriteFile(filepath.Join(dotfiles, "SKILL.md"), ours, 0o644)
+			}
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+			for _, remove := range []bool{false, true} {
+				got, err := InstallSkill(e, []string{"claude"}, remove, true)
+				if err != nil || len(got) != 1 || got[0].Action != ActionSkip || !strings.Contains(got[0].Detail, "link") {
+					t.Fatalf("remove=%v: %s %v", remove, summary(got), err)
+				}
+				if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+					t.Fatalf("remove=%v: the link is gone or replaced", remove)
+				}
+				file := target
+				if what == "folder" {
+					file = filepath.Join(dotfiles, "SKILL.md")
+				}
+				if b, _ := os.ReadFile(file); !bytes.Equal(b, ours) {
+					t.Fatalf("remove=%v: wrote through the link", remove)
+				}
+			}
+		})
+	}
+}
+
+// The mark counts only in the frontmatter: a person's own skill may well
+// say "installed-by: conch" in its text.
+func TestSkillMarkOnlyInFrontmatter(t *testing.T) {
+	e := skillEnv(t, nil)
+	theirs := filepath.Join(e.Home, ".agents", "skills", "conch", "SKILL.md")
+	os.MkdirAll(filepath.Dir(theirs), 0o755)
+	mine := []byte("---\nname: conch\ndescription: notes\n---\nconch's own skill has installed-by: conch in its metadata.\n")
+	os.WriteFile(theirs, mine, 0o644)
+	got, _ := InstallSkill(e, []string{"codex"}, true, true)
+	if got[0].Action != ActionSkip {
+		t.Fatalf("took the person's skill for conch's: %s", summary(got))
+	}
+	if b, _ := os.ReadFile(theirs); !bytes.Equal(b, mine) {
+		t.Fatal("removed it")
+	}
+	for text, want := range map[string]bool{
+		string(Skill): true,
+		"---\nname: conch\nmetadata:\n  installed-by: conch\n---\n": true,
+		"---\nname: conch\n---\ninstalled-by: conch\n":              false,
+		"installed-by: conch\n":                                     false,
+		"":                                                          false,
+		"---\nname: conch\nmetadata:\n  installed-by: conch\n":       false, // never closed
+		"---\nname: conch\nmetadata:\n  installed-by: conchx\n---\n": false,
+	} {
+		if got := isOurSkill([]byte(text)); got != want {
+			t.Errorf("%q: %v", text, got)
+		}
+	}
+}
+
+// An empty SKILL.md is someone's, however little it says.
+func TestInstallSkillEmptyFileIsTheirs(t *testing.T) {
+	e := skillEnv(t, nil)
+	p := filepath.Join(e.Home, ".claude", "skills", "conch", "SKILL.md")
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	os.WriteFile(p, nil, 0o644)
+	if got, _ := InstallSkill(e, []string{"claude"}, false, true); got[0].Action != ActionSkip {
+		t.Fatalf("empty: %s", summary(got))
+	}
+}
+
+// An agent named twice is one reader.
+func TestSkillTargetsOnceEach(t *testing.T) {
+	e := skillEnv(t, nil)
+	got, err := SkillTargets(e, []string{"codex", "codex", "gemini", "claude", "claude"})
+	if err != nil || len(got) != 2 || strings.Join(got[0].Agents, ",") != "codex,gemini" || strings.Join(got[1].Agents, ",") != "claude" {
+		t.Fatalf("%s %v", summary(got), err)
+	}
+}
+
+// A copy left half-written by a crash doesn't keep conch's folder behind
+// on removal, nor get in the way of the next install.
+func TestInstallSkillLeftoverCopy(t *testing.T) {
+	e := skillEnv(t, nil)
+	InstallSkill(e, []string{"claude"}, false, true)
+	p := filepath.Join(e.Home, ".claude", "skills", "conch", "SKILL.md")
+	os.WriteFile(p+".conch-tmp", []byte("half"), 0o644)
+	if got, _ := InstallSkill(e, []string{"claude"}, true, true); got[0].Action != ActionRemove || got[0].Error != "" {
+		t.Fatalf("remove: %s", summary(got))
+	}
+	if _, err := os.Stat(filepath.Dir(p)); err == nil {
+		t.Fatal("the folder stayed for a leftover copy")
+	}
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	os.WriteFile(p+".conch-tmp", []byte("half"), 0o444)
+	if got, _ := InstallSkill(e, []string{"claude"}, false, true); got[0].Action != ActionCreate || got[0].Error != "" {
+		t.Fatalf("install over a leftover: %s", summary(got))
+	}
+	if _, err := os.Stat(p + ".conch-tmp"); err == nil {
+		t.Fatal("leftover still there")
+	}
+}

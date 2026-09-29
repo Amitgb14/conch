@@ -22,8 +22,27 @@ var Skill []byte
 const skillName = "conch"
 
 // skillMark is how conch knows a SKILL.md there is its own to update or
-// remove: a skill of the same name the person wrote is left alone.
+// remove: a skill of the same name the person wrote is left alone. It
+// counts only in the frontmatter (isOurSkill), where conch puts it.
 var skillMark = []byte("installed-by: conch")
+
+// isOurSkill reports whether a SKILL.md is conch's: its frontmatter, and
+// only that, carries the mark on a line of its own.
+func isOurSkill(b []byte) bool {
+	if !bytes.HasPrefix(b, []byte("---\n")) {
+		return false
+	}
+	end := bytes.Index(b[4:], []byte("\n---"))
+	if end < 0 {
+		return false
+	}
+	for _, line := range bytes.Split(b[4:4+end], []byte("\n")) {
+		if bytes.Equal(bytes.TrimSpace(line), skillMark) {
+			return true
+		}
+	}
+	return false
+}
 
 // SkillChange is what installing or removing the skill does to one file.
 // Agents are the ones that read it: Codex, Gemini and OpenCode share
@@ -59,7 +78,9 @@ func SkillTargets(e Env, agents []string) ([]SkillChange, error) {
 			byPath[path] = &SkillChange{Path: path}
 			order = append(order, path)
 		}
-		byPath[path].Agents = append(byPath[path].Agents, a)
+		if !contains(byPath[path].Agents, a) {
+			byPath[path].Agents = append(byPath[path].Agents, a)
+		}
 	}
 	out := make([]SkillChange, 0, len(order))
 	for _, p := range order {
@@ -82,13 +103,19 @@ func InstallSkill(e Env, agents []string, remove, apply bool) ([]SkillChange, er
 	}
 	for i := range changes {
 		c := &changes[i]
+		// A link — to a dotfiles repository, say — is the person's
+		// arrangement: neither written through nor replaced.
+		if linked(c.Path) || linked(filepath.Dir(c.Path)) {
+			c.Action, c.Detail = ActionSkip, "it is a link into somewhere else (a dotfiles repository?): conch leaves it alone"
+			continue
+		}
 		old, err := os.ReadFile(c.Path)
 		exists := err == nil
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			c.Action, c.Error = ActionSkip, err.Error()
 			continue
 		}
-		ours := exists && bytes.Contains(old, skillMark)
+		ours := exists && isOurSkill(old)
 		switch {
 		case exists && !ours:
 			c.Action, c.Detail = ActionSkip, "a conch skill there isn't conch's own; left as it is"
@@ -117,6 +144,8 @@ func InstallSkill(e Env, agents []string, remove, apply bool) ([]SkillChange, er
 }
 
 func writeSkill(path string, remove bool) error {
+	tmp := path + ".conch-tmp"
+	_ = os.Remove(tmp) // a copy an interrupted write left
 	if remove {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -128,7 +157,6 @@ func writeSkill(path string, remove bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".conch-tmp"
 	if err := os.WriteFile(tmp, Skill, 0o644); err != nil {
 		return err
 	}
@@ -137,3 +165,8 @@ func writeSkill(path string, remove bool) error {
 
 // ActionRemove is the skill taken away again.
 const ActionRemove = "remove"
+
+func linked(path string) bool {
+	fi, err := os.Lstat(path)
+	return err == nil && fi.Mode()&os.ModeSymlink != 0
+}
