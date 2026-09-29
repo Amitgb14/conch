@@ -40,6 +40,19 @@ func TestBuiltinClaudeRules(t *testing.T) {
 		// Seen live: a narrower pane wraps the trust question mid-sentence.
 		{screen(" Quick safety check: Is this a project you created or one", " you trust? (Like your own code)"), "trust_prompt"},
 		{screen(" │ Do you want to", " │ proceed?"), "permission_prompt"},
+		// Seen live in v2.1.284 (e2e run R36): the spinner line no longer
+		// says "esc to interrupt". Thinking, running a tool, running a hook.
+		{screen("✻ Canoodling… (22s · ↓ 479 tokens · thinking)", "─────", "❯ ", "─────", "  ⏵⏵ auto mode on"), "spinner"},
+		{screen("✢ Effecting… (32s · ↓ 1.5k tokens)", "❯ "), "spinner"},
+		{screen("✻ Galloping… (running Stop hook · 20s · ↓ 1.2k tokens · thought for 6s)", "❯ "), "spinner"},
+		{screen("✳ Pondering… (1m 12s · ↑ 3.4k tokens)", "❯ "), "spinner"}, // the same line past a minute
+		// Finished, it says how long it took — not working.
+		{screen("✻ Sautéed for 22s · done 10:20 PM", "❯ "), ""},
+		{screen("✻ Crunched for 16s · done 10:28 PM", "❯ fix the issues it found"), ""},
+		// Claude's own answers and tool output can say the same words.
+		{screen("⏺ Loading… (5s · the build takes a while)", "❯ "), ""},
+		{screen("  ⎿  Waiting… (3s elapsed)", "❯ "), ""},
+		{screen("The log said Retrying… (4s · attempt 2) and then stopped.", "❯ "), ""},
 	} {
 		got := ""
 		if r := m.MatchScreen(tc.screen); r != nil {
@@ -320,5 +333,26 @@ func TestOpenCodeAndGeminiHookEvents(t *testing.T) {
 	}
 	if got, _ := hookState(HookEvent{Event: "Notification", NotificationType: "ToolPermission"}); got != StateBlocked {
 		t.Errorf("gemini ToolPermission → %q", got)
+	}
+}
+
+// The bug e2e run R36 found: with no hook for 8s — a long think, a long
+// command — the stale-hook check fell back to the screen, which in Claude
+// v2.1.284 never says "esc to interrupt", so a working agent read as done
+// and `conch agent prompt -wait` returned before it had answered.
+func TestClaudeSpinnerKeepsWorking(t *testing.T) {
+	tr := NewTracker(manifests(t), "")
+	t0 := time.Now()
+	tr.Hook(HookEvent{Event: "UserPromptSubmit"}, t0)
+	for i, line := range []string{"✢ Effecting… (32s · ↓ 1.5k tokens)", "✻ Galloping… (running Stop hook · 20s · ↓ 1.2k tokens · thought for 6s)"} {
+		tr.Observe(obs(t0.Add(time.Duration(10+i*10)*time.Second), claudeProc, false, line, "❯ "))
+		if s := tr.Status(); s.State != StateWorking {
+			t.Fatalf("%q after %ds without a hook: %+v", line, 10+i*10, s)
+		}
+	}
+	// And once the spinner goes, the stale hook is let go as before.
+	tr.Observe(obs(t0.Add(45*time.Second), claudeProc, false, "✻ Crunched for 16s · done 10:28 PM", "❯ "))
+	if s := tr.Status(); s.State != StateDone || s.Reason != "hook_working_stale" {
+		t.Fatalf("after the spinner: %+v", s)
 	}
 }

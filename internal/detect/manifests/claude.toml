@@ -28,3 +28,14 @@ pattern = '(?m)^[\s│]*❯\s*1\.\s+Yes'
 name = "interruptible"
 state = "working"
 pattern = '(?i)esc to interrupt'
+
+# Claude v2.1.284's spinner line, which no longer says "esc to interrupt":
+# a glyph, a word ending in "…", then its elapsed time — "✢ Effecting… (32s
+# · ↓ 1.5k tokens)", "✻ Galloping… (running Stop hook · 20s · …)". Finished,
+# it reads "✻ Crunched for 16s · done", which this leaves alone, as it does
+# Claude's answers (⏺) and tool output (⎿). Without it, a long think or a
+# long command with no hook for hook_working_stale read as done.
+[[rules]]
+name = "spinner"
+state = "working"
+pattern = '(?m)^\s*[^\s\w⏺⎿❯>│]\s+\p{L}[\p{L}-]*…\s+\((?:[^()\n]*·\s*)?\d+[smh]\b'

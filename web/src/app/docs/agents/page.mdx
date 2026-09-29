@@ -52,6 +52,10 @@ Most reliable first:
 
 `conch agent explain p1` shows the evidence behind a state.
 
+## Agents working together
+
+An agent can start another — a reviewer for its change, a tester — prompt it and read its answer, kept to its own work while it does. See [Agents working together](/docs/agents-together).
+
 ## Broadcast
 
 `B` types one message into several panes at once and submits it. The [brain](/docs/brain#one-message-to-several-agents) can propose the same thing from a plain request, such as _"tell every agent in api to run the tests"_. An agent gets it as its next message — "run the tests and fix anything you broke" to every agent in a project — and a terminal runs it as a command — `git pull` in every checkout.
