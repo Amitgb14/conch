@@ -105,9 +105,11 @@ type Model struct {
 	offset     int           // lines the viewed pane is scrolled back
 	scrollMode bool          // keys move a cursor over the pane's history
 	curX, curY int           // that cursor, in view cells
-	sel        *selection    // text selected in the viewed pane
+	sel        *selection    // text selected in the viewed pane, or in a leaf's page
 	search     scrollSearch  // searching in scroll mode (scrollsearch.go)
-	click      *pendingClick // a press held back from a mouse-using program
+	click      *pendingClick // a press held back from a mouse-using program or a page
+	selEdge    int           // lines a held drag past the pane's edge scrolls per tick
+	selTicking bool          // a selScrollMsg is scheduled
 
 	changesPolling bool   // a changesPollMsg is scheduled
 	statePath      string // where fold state is saved; "" disables saving
@@ -626,6 +628,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
 
+	case selScrollMsg:
+		return m, m.selAutoScroll()
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -646,8 +651,12 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		}
 		m.frames[paneKey(mach.id, f.ID)] = &f
 		if mach.id == m.viewMachine && f.ID == m.viewing {
+			inStep := f.Offset == m.offset // not one still catching up with a scroll
 			m.frame = &f
 			m.offset = f.Offset // the server keeps it anchored as output arrives
+			if inStep {
+				m.rememberSel()
+			}
 		}
 		return nil
 
@@ -1009,7 +1018,7 @@ func (m *Model) scrollPane(delta int) {
 	if next == m.offset {
 		return
 	}
-	if m.sel != nil {
+	if m.sel != nil && m.sel.leaf == 0 {
 		// The selection stays on the text it was made on: everything it
 		// covers moves down the screen as we scroll back. A selection still
 		// being made keeps its head where the mouse or the cursor is, so
@@ -1019,6 +1028,7 @@ func (m *Model) scrollPane(delta int) {
 		if !m.sel.keyboard && !m.sel.dragging {
 			m.sel.by += shift
 		}
+		m.sel.shiftRows(shift)
 	}
 	m.offset = next
 	c.Notify(proto.MethodPaneScroll, proto.PaneScrollParams{ID: m.viewing, Offset: next})

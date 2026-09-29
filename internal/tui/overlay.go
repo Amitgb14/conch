@@ -880,7 +880,7 @@ var helpText = []string{
 	"",
 	"Mouse",
 	"  click select · double-click open · right-click menu · wheel scroll",
-	"  drag in a pane to copy · double-click copies a word",
+	"  drag in a pane or a page to copy · past the edge or with the wheel it scrolls · double-click copies a word",
 	"  Y on an agent opens its conversation: scroll (g top · G bottom), drag over a part, release to copy",
 	"  drag the sidebar edge to resize · shift-drag for terminal selection",
 	"  drop files (a screenshot) on a remote pane: uploaded there, and their paths there pasted",

@@ -190,6 +190,7 @@ func TestSSHSectionRowAndPage(t *testing.T) {
 	rects, _ := m.leafRects()
 	in := m.inner(rects[m.tab().focus])
 	a2Run(a1Mouse(t, m, in.x+4, in.y+branchesPageHeader, a1Left, a1Press))
+	a2Run(a1Mouse(t, m, in.x+4, in.y+branchesPageHeader, a1Left, a1Release))
 	if m.cursor != paneNodeID(localMachine, "p5") || m.tab().focused().view.PaneID != "p5" {
 		t.Fatalf("click opened %q, shows %+v", m.cursor, m.tab().focused().view)
 	}
