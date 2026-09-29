@@ -172,7 +172,12 @@ helpers in `cmd/conch` and `internal/remote`.
   agent said a page ago. It is recognition, not recording: output goes into
   the emulator half a screen at a time so a burst cannot scroll a screenful
   past unseen, and a program that repaints rather than scrolls leaves
-  nothing behind, which is right — none of it scrolled away. The lines are
+  nothing behind, which is right — none of it scrolled away. An agent's
+  interface scrolls only the conversation, above a prompt and status line
+  that stay put, so each finished frame — where a synchronized update
+  (mode 2026) ends, or at the end of a write — is also compared with the
+  last for a scroll in part of the screen (`scrolledRegion`); lines the
+  agent brings back by scrolling its own view are not kept twice. The lines are
   kept as text, capped at `altHistoryMax`, dropped when the program leaves
   the alternate screen, and not carried through a reload.
 - **Panes on macOS.** `poll` doesn't work on ttys and read deadlines aren't

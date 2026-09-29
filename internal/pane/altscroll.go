@@ -1,6 +1,8 @@
 package pane
 
 import (
+	"bytes"
+	"slices"
 	"strings"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -55,10 +57,30 @@ func chunkByLines(b []byte, n int) [][]byte {
 	return out
 }
 
+// splitAfter splits b after every occurrence of sep; every byte comes out
+// once, in order.
+func splitAfter(b []byte, sep string) [][]byte {
+	var out [][]byte
+	for len(b) > 0 {
+		i := bytes.Index(b, []byte(sep))
+		if i < 0 {
+			break
+		}
+		out = append(out, b[:i+len(sep)])
+		b = b[i+len(sep):]
+	}
+	if len(b) > 0 {
+		out = append(out, b)
+	}
+	return out
+}
+
 // altScroll keeps what scrolled off the alternate screen.
 type altScroll struct {
 	lines []string // oldest first
 	prev  []string // the screen as it was at the last look
+	base  []string // the screen as it was when the last whole frame was in
+	back  int      // lines the program's own view has moved back, and not yet forward
 	on    bool     // whether the alternate screen is in use
 }
 
@@ -69,19 +91,101 @@ func (a *altScroll) note(now []string) {
 		return
 	}
 	shift := scrolledBy(a.prev, now)
-	for i := 0; i < shift; i++ {
-		a.lines = append(a.lines, a.prev[i])
+	a.keep(a.prev[:shift])
+	a.prev = append(a.prev[:0], now...)
+	if shift > 0 {
+		a.base = append(a.base[:0], now...) // the next frame starts from here
 	}
+}
+
+// keep adds lines that scrolled away, dropping the oldest past the cap.
+func (a *altScroll) keep(lines []string) {
+	a.lines = append(a.lines, lines...)
 	if n := len(a.lines) - altHistoryMax; n > 0 {
 		a.lines = append(a.lines[:0], a.lines[n:]...)
 	}
-	a.prev = append(a.prev[:0], now...)
+}
+
+// noteFrame is given the screen once a program has finished drawing a
+// frame, and keeps what scrolled off the top of the part of it that moved.
+// An agent's interface scrolls its conversation above a prompt and a
+// status line that stay where they are — and the status line changes as
+// it works — so the screen as a whole never lines up shifted, and note
+// sees nothing. It compares whole frames: halfway through a repaint the
+// screen is part new and part old, which would look like a scroll of the
+// wrong lines.
+func (a *altScroll) noteFrame(now []string) {
+	if len(now) == 0 {
+		return
+	}
+	if top, shift := scrolledRegion(a.base, now); shift > 0 {
+		// Lines the program showed again by scrolling its own view back
+		// are kept already; only what comes after them is new.
+		old := min(a.back, shift)
+		a.back -= old
+		a.keep(a.base[top+old : top+shift])
+	} else if _, down := scrolledRegion(now, a.base); down > 0 {
+		a.back += down // its view moved back: the wheel over an agent
+	} else if !slices.Equal(a.base, now) && len(a.base) == len(now) && changedAbove(a.base, now) {
+		a.back = 0 // redrawn outright, as a jump to the bottom does
+	}
+	a.base = append(a.base[:0], now...)
+}
+
+// changedAbove reports whether anything changed in the upper two thirds of
+// the screen: more than a prompt or a status line.
+func changedAbove(prev, now []string) bool {
+	for i := 0; i < len(prev)*2/3; i++ {
+		if prev[i] != now[i] {
+			return true
+		}
+	}
+	return false
 }
 
 // reset forgets everything: the program left the alternate screen, or the
 // pane is being resized, and what was kept no longer lines up.
 func (a *altScroll) reset() {
-	a.lines, a.prev = nil, nil
+	a.lines, a.prev, a.base, a.back = nil, nil, nil, 0
+}
+
+// scrolledRegion finds a scroll in part of the screen: rows at the top
+// that stayed the same (a header), then a long run of the old screen's
+// rows shifted up by shift, with what is left below the run taken for a
+// footer that stayed put or was redrawn. It reports where the part that
+// moved begins and how far it moved; shift is 0 when nothing did.
+//
+// Only a long run counts, measured in rows with text on them: a repaint
+// that shares a few lines with the screen before is not a scroll. And the
+// header and footer are held to a third of the screen each, so a prompt
+// being typed into or a status line ticking over — the bottom of the
+// screen changing under a conversation that stayed still — is not taken
+// for one.
+func scrolledRegion(prev, now []string) (top, shift int) {
+	n := len(prev)
+	if n == 0 || n != len(now) {
+		return 0, 0
+	}
+	for top < n && prev[top] == now[top] {
+		top++
+	}
+	if top > n/3 {
+		return 0, 0 // unchanged, or changed too little of it to tell
+	}
+	need := max(altShiftMin+1, n/5)
+	for s := 1; top+s < n; s++ {
+		run, text := 0, 0
+		for top+s+run < n && prev[top+s+run] == now[top+run] {
+			if strings.TrimSpace(now[top+run]) != "" {
+				text++
+			}
+			run++
+		}
+		if text >= need && n-(top+s+run) <= n/3 {
+			return top, s
+		}
+	}
+	return 0, 0
 }
 
 // scrolledBy reports how many lines the screen moved up between two looks:

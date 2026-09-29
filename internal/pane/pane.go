@@ -626,10 +626,26 @@ func (p *Pane) writeToEmulator(b []byte) {
 	// that much, half of it is still recognisable even when its bottom rows
 	// were blank. One burst can turn the alternate screen on and then scroll
 	// it, so the chunking cannot wait for the screen to already be on.
-	for _, chunk := range chunkByLines(b, max(p.emu.Height()/2, 1)) {
-		_, _ = p.emu.Write(chunk)
-		p.noteAltScroll()
+	//
+	// A frame is whole where a synchronized update ends, or, for a program
+	// that uses none, once the output is in: each is looked at there.
+	for _, frame := range splitAfter(b, ansi.ResetModeSynchronizedOutput) {
+		for _, chunk := range chunkByLines(frame, max(p.emu.Height()/2, 1)) {
+			_, _ = p.emu.Write(chunk)
+			p.noteAltScroll()
+		}
+		if p.alt.on && !p.synchronizing() {
+			p.alt.noteFrame(p.alt.prev)
+		}
 	}
+}
+
+// synchronizing reports whether the program is between the start and end
+// of a synchronized update (mode 2026): drawing a frame not yet finished.
+func (p *Pane) synchronizing() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.modes[ansi.ModeSynchronizedOutput]
 }
 
 // noteAltScroll keeps whatever has just scrolled off the alternate screen.
