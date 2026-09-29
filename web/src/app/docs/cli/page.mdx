@@ -16,6 +16,7 @@ conch project ls                       # projects, base, worktrees
 conch branch commit -m "Fix the flaky test" && conch branch pr   # finish a task
 conch worktree clean -y                # remove finished worktrees and their branches
 conch wait p1 && conch send p2 "review what p1 just changed"   # chain tasks
+conch agent prompt -wait p2 "check finding 3 again" && conch read p2   # one agent driving another
 conch close p1
 conch server reload                    # run a new build; panes keep running
 conch server stop                      # stops the server and all panes
@@ -63,9 +64,44 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch send [-keys] ID TEXT...` | type text into a pane; with `-keys`, the arguments are key names (e.g. `enter`, `ctrl+c`) |
 | `conch read ID` | print a pane's visible screen |
 | `conch close ID` | close a pane |
+| `conch rename ID [NAME]` | name a pane; without `NAME` it gets its own back. Refused when a running pane already has the name |
 | `conch redraw ID` | draw a pane's screen again, for stale text a program left behind |
 | `conch wait ID [-state done] [-timeout 30m]` | block until the pane's agent is `done` (or `waiting`, `working`, `idle` — several, comma separated, stop on the first to happen). Prints `ID AGENT STATE`. Exits 124 if the time runs out, so a script can tell that from a failure; without `-timeout` it waits as long as it takes |
 | `conch [-m MACHINE] upload FILE...` | copy files to the machine's uploads folder (`~/.config/conch/uploads`) and print each one's path there, as dropping them on its pane does |
+
+### Pane names
+
+Every command that takes a pane's ID — `send`, `read`, `close`, `redraw`, `wait`, `rename`, `agent explain`, `agent prompt` — takes its name as well: the one in `conch status`'s name column, set with `conch rename` or `conch task -name`. That is how one agent addresses another it started, without keeping track of IDs:
+
+```sh
+conch task -name reviewer -agent codex "Review the diff on this branch"
+conch agent prompt -wait reviewer "Check finding 3 again" && conch read reviewer
+```
+
+- An ID is always an ID: `p` and a number is never looked up as a name, so names of that shape are refused.
+- A name is looked up once, when the command starts; a `wait` then stays with that pane.
+- Names are exact and case sensitive. A name two running panes share is refused rather than guessed — say which with its ID. A pane that has ended still answers to its name until another running pane takes it.
+- Names belong to one machine's server, so `-m` looks them up there.
+
+### When an agent runs these commands
+
+An agent in a conch pane can drive conch with the same commands — start a reviewer, prompt it, read its answer. `conch agent skill -apply` teaches it how, and when to stop and ask you. What it may *change* is kept to its own work:
+
+- **panes it started**, and the panes those started, in any project;
+- **panes in its own project**, whoever started them;
+- **its own project's** branches and worktrees.
+
+Anything else — typing into, closing, renaming or marking as seen another project's pane, sending it keys or a broadcast, removing another project, committing, pushing or discarding there — is refused with `out_of_scope`, and so is `conch server stop` or `reload`:
+
+```text
+conch: out_of_scope: the claude agent in p4 may not close p1: it did not start it, and it is in another project; do it from the TUI or a terminal pane
+```
+
+Reading is never refused (`read`, `status`, `wait`, sessions), and neither is starting panes and tasks: what an agent starts is its own, and each pane in the server's pane list carries who started it (`created_by`).
+
+conch tells who is asking from the operating system — the process at the other end of the socket, and its parents up to a pane — not from `CONCH_PANE_ID`, so unsetting that changes nothing. Only a pane with an agent running in it is held to this: a terminal pane, the TUI and scripts outside conch act as you. It is a guard against a confused agent closing the wrong session, not a sandbox: a program set on escaping can leave the pane's process tree.
+
+**On other machines.** `-m` from an agent's pane carries its scope along: conch asks this machine's server who is running the command and, for an agent, has the other machine's server hold the connection to what that agent started there — its panes (and theirs), and the projects it started them in. It has no project there otherwise, so another project's panes stay out of reach even when they share a name with its own. A machine whose conch predates this isn't driven from an agent's pane at all; `conch machine upgrade` it. A terminal pane's `-m` is you, as before. Like the rest, this asks conch: an agent that runs `ssh` itself, or points `CONCH_SOCKET` elsewhere so this machine's server can't be asked, is not held by it.
 
 ### agent
 
@@ -74,6 +110,8 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch agent explain ID` | show how a pane's agent state was decided, as JSON |
 | `conch agent status` | list each supported agent: installed (with version and path) or not |
 | `conch agent install NAME` | run an agent's installer in a pane and wait for it |
+| `conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] ID TEXT...` | send the pane's agent its next message and submit it. Unlike `conch send` it only types into an agent, and never into one waiting on a question — a permission prompt, a menu — where its Enter could answer something nobody read: it exits 3 and types nothing (a question that comes up in the moment before Enter leaves the message typed but unsent). With `-wait` it blocks until the work the message starts has ended — not on the `done` or `idle` still showing from before it — and prints `ID AGENT STATE`; a question the agent asks ends it too, unless `-until` leaves `waiting` out. An agent already working gets the message when that work ends, so that work is the one waited for. Exits 124 if `-timeout` runs out, and fails if the pane ends or another program takes it over |
+| `conch agent skill [-agent NAMES] [-remove] [-apply]` | install conch's skill — how an agent in a conch pane starts, prompts and reads another — where each agent reads your skills: `~/.claude/skills/conch` for Claude, `~/.agents/skills/conch` for Codex, Gemini and OpenCode, `~/.config/devin/skills/conch` for Devin. Without `-apply` it only says what it would do; `-remove` takes it away again. A `conch` skill there that conch didn't write is left alone. With `-m` it installs on that machine. Not from an agent's pane: it is your setup |
 | `conch agent setup [-agent NAME] [-copy] [-json] [DIR]` | show what each agent loads in a folder; `-agent` limits it to one agent, `-copy` copies missing local files from the main checkout first, `-json` prints JSON |
 | `conch agent sync [-user] [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]` | give the other agents one agent's setup — instructions, skills, MCP servers — in a checkout, or with `-user` the setup in your home. Without `-apply` it only says what it would do; `-undo` puts a sync back. See [One setup, every agent](/docs/tasks#one-setup-every-agent) |
 | `conch agent library [list \| add \| skill \| on \| off \| rm \| import AGENT \| plan \| apply \| undo]` | MCP servers and skills kept in conch, each given to the agents you choose. `add NAME URL` or `add NAME -- COMMAND ARGS` with `-to NAMES`, `-env K=${VAR}`, `-header K=V`, `-sse`; `skill NAME FOLDER`; `on`/`off NAME AGENTS`; `plan` says what `apply` would write. See [Shared MCP servers and skills](/docs/tasks#shared-mcp-servers-and-skills) |
@@ -90,7 +128,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 
 ### task
 
-`conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] PROMPT` creates a branch and worktree and starts an agent with the prompt. See [Tasks](/docs/tasks).
+`conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] [-n N] [-name N] PROMPT` creates a branch and worktree and starts an agent with the prompt. See [Tasks](/docs/tasks).
 
 | Flag | Default |
 | --- | --- |
@@ -99,6 +137,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `-base B` | branch to start from; default: the project's base |
 | `-agent NAME` | `claude`, `codex`, `gemini` or `opencode`, or several separated by commas; default: `[agents] default` |
 | `-n N` | attempts at the same prompt, each on its own branch (default: one per agent, at most 10) |
+| `-name N` | name the task's pane, to address it by in place of its ID (see [Pane names](#pane-names)). Refused while a running pane has that name, and with more than one attempt |
 
 ### branch
 

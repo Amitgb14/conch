@@ -27,10 +27,14 @@ func runAgent(args []string) error {
 		return agentSetup(args[1:])
 	case len(args) >= 1 && args[0] == "sync":
 		return agentSync(args[1:])
+	case len(args) >= 1 && args[0] == "prompt":
+		return agentPrompt(args[1:])
+	case len(args) >= 1 && args[0] == "skill":
+		return agentSkill(args[1:])
 	case len(args) >= 1 && args[0] == "library":
 		return agentLibrary(args[1:])
 	case len(args) != 2 || args[0] != "explain":
-		return errors.New("usage: conch agent explain ID | status | install NAME | setup [-agent NAME] [-copy] [DIR] | " +
+		return errors.New("usage: conch agent explain ID | status | install NAME | prompt [-wait] ID TEXT | skill [-remove] [-apply] | setup [-agent NAME] [-copy] [DIR] | " +
 			"sync [-from NAME] [-to NAMES] [-apply] [-undo [STAMP]] [DIR] | library [list | add | skill | on | off | rm | import | plan | apply | undo]")
 	}
 	c, err := connect(false)
@@ -38,8 +42,12 @@ func runAgent(args []string) error {
 		return err
 	}
 	defer c.Close()
+	id, err := resolvePane(c, args[1])
+	if err != nil {
+		return err
+	}
 	var out json.RawMessage
-	if err := call(c, proto.MethodAgentExplain, proto.PaneRef{ID: args[1]}, &out); err != nil {
+	if err := call(c, proto.MethodAgentExplain, proto.PaneRef{ID: id}, &out); err != nil {
 		return err
 	}
 	enc := json.NewEncoder(os.Stdout)
@@ -357,4 +365,57 @@ func printSetup(w io.Writer, res proto.AgentSetupResult) {
 			}
 		}
 	}
+}
+
+// agentSkill installs conch's skill where the agents on the machine read
+// the person's skills, so an agent in a conch pane knows how to start,
+// prompt and read another. Like sync, it only says what it would do
+// without -apply.
+func agentSkill(args []string) error {
+	fs := flag.NewFlagSet("agent skill", flag.ContinueOnError)
+	agents := fs.String("agent", "", "only these agents, separated by commas (default: all)")
+	remove := fs.Bool("remove", false, "take conch's skill away again")
+	apply := fs.Bool("apply", false, "write the changes; without it, only say what they would be")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return errors.New("usage: conch agent skill [-agent NAMES] [-remove] [-apply]")
+	}
+	c, err := connect(true)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if len(c.MissingCapabilities([]string{proto.CapAgentSkill})) > 0 {
+		return errors.New("the conch server there predates `conch agent skill`; reload it with `conch server reload`")
+	}
+	var res proto.AgentSkillResult
+	if err := call(c, proto.MethodAgentSkill, proto.AgentSkillParams{Agents: splitAgents(*agents), Remove: *remove, Apply: *apply}, &res); err != nil {
+		return err
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	pending, failed := 0, 0
+	for _, ch := range res.Changes {
+		note := strings.Join(ch.Agents, ", ")
+		if ch.Detail != "" {
+			note += " — " + ch.Detail
+		}
+		if ch.Error != "" {
+			note += " — failed: " + ch.Error
+			failed++
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", ch.Action, ch.Path, note)
+		if ch.Action == proto.SyncCreate || ch.Action == proto.SyncUpdate || ch.Action == proto.SyncRemove {
+			pending++
+		}
+	}
+	tw.Flush()
+	switch {
+	case failed > 0:
+		return fmt.Errorf("%d of %d could not be written", failed, len(res.Changes))
+	case pending > 0 && !res.Applied:
+		fmt.Println("run again with -apply to write it")
+	}
+	return nil
 }

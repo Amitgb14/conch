@@ -423,7 +423,8 @@ func TestA5TakeReloadState(t *testing.T) {
 	want := reloadState{FromBuild: "abc", ListenerFD: 7, NextID: 12,
 		Panes: []reloadPane{{Snapshot: pane.Snapshot{ID: "p3", Command: []string{"sh"}, Replay: "hi"}, FD: 9, Dir: "/x", Loose: true,
 			Tracker: detect.TrackerState{Hint: "claude", HookState: "working"}, Transcript: "/t.jsonl",
-			Monitor: &proto.PaneMonitor{Activity: true, Silence: 30}, Alert: proto.AlertSilence, MonitorArmed: true}},
+			Monitor: &proto.PaneMonitor{Activity: true, Silence: 30}, Alert: proto.AlertSilence, MonitorArmed: true,
+			CreatedBy: []string{"p2", "p1"}}},
 		Limits:  []proto.PlanLimits{{Agent: "codex", Week: &proto.LimitWindow{UsedPct: 5}}},
 		Started: time.Date(2026, 9, 1, 8, 30, 0, 0, time.UTC),
 	}
@@ -558,7 +559,8 @@ func TestA5Adopt(t *testing.T) {
 			{Snapshot: pane.Snapshot{ID: "p3", Name: "one", CustomName: "mine", Command: []string{"sleep"}, Cwd: dir, PID: pid1, Cols: 40, Rows: 6, Replay: "before-reload"},
 				FD: fd1, Dir: dir, Loose: true, Transcript: transcript,
 				Tracker: detect.TrackerState{Hint: "claude", Status: detect.Status{Agent: "claude", State: "working"}, Seen: true},
-				Monitor: &proto.PaneMonitor{Silence: 20}, Alert: proto.AlertActivity, MonitorArmed: true},
+				Monitor: &proto.PaneMonitor{Silence: 20}, Alert: proto.AlertActivity, MonitorArmed: true,
+				CreatedBy: []string{"p2", "p1"}},
 			{Snapshot: pane.Snapshot{ID: "p5", Name: "two", Command: []string{"sleep"}, Cwd: repo, PID: pid2, Cols: 40, Rows: 6},
 				FD: fd2, Dir: repo},
 		},
@@ -588,6 +590,13 @@ func TestA5Adopt(t *testing.T) {
 	}
 	if list[1].Monitor != nil || list[1].Alert != "" {
 		t.Fatalf("pane without monitoring gained some: %+v %q", list[1].Monitor, list[1].Alert)
+	}
+	// So does who started a pane, all the way up; older state has no one.
+	if got := a5Entry(t, s, "p3").creators(); list[0].CreatedBy != "p2" || strings.Join(got, ",") != "p2,p1" {
+		t.Fatalf("creators after reload: %q %v", list[0].CreatedBy, got)
+	}
+	if list[1].CreatedBy != "" || a5Entry(t, s, "p5").creators() != nil {
+		t.Fatalf("pane from older state gained a creator: %q", list[1].CreatedBy)
 	}
 	if e := a5Entry(t, s, "p3"); func() bool { e.mu.Lock(); defer e.mu.Unlock(); return !e.monitor.armed }() {
 		t.Fatal("silence was armed before the reload and should stay so")

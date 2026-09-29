@@ -131,12 +131,17 @@ func runTask(args []string) error {
 	base := fs.String("base", "", "branch to start from (default: the project's base)")
 	agent := fs.String("agent", "", "claude, codex, gemini or opencode, or several separated by commas (default: [agents] default)")
 	n := fs.Int("n", 0, "how many attempts at the same prompt, each on its own branch (default: one per agent)")
+	name := fs.String("name", "", "name the pane, to address it by in place of its ID")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	prompt := strings.Join(fs.Args(), " ")
 	if prompt == "" {
-		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] PROMPT")
+		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] [-name N] PROMPT")
+	}
+	*name = strings.TrimSpace(*name)
+	if proto.IsPaneID(*name) {
+		return fmt.Errorf("-name %q is shaped like a pane ID; choose another name", *name)
 	}
 	agents := splitAgents(*agent)
 	if len(agents) == 0 {
@@ -174,11 +179,31 @@ func runTask(args []string) error {
 		return err
 	}
 	attempts := attemptPlan(proj.Name, agents, *n, *branch, prompt, proj.Branches)
+	if *name != "" && len(attempts) > 1 {
+		return fmt.Errorf("-name names one pane, and this starts %d; leave it out, or rename them after", len(attempts))
+	}
+	// An older server drops Name, so the pane is renamed once it starts —
+	// and can't refuse a taken name, so that is checked here first.
+	renameAfter := *name != "" && len(c.MissingCapabilities([]string{proto.CapTaskName})) > 0
+	if renameAfter {
+		var list proto.PaneList
+		if err := call(c, proto.MethodPaneList, nil, &list); err != nil {
+			return err
+		}
+		for _, p := range list.Panes {
+			if p.State == proto.PaneRunning && p.Name == *name {
+				return fmt.Errorf("pane %s is already named %q", p.ID, *name)
+			}
+		}
+	}
 	var failed int
 	for _, at := range attempts {
 		var info proto.PaneInfo
 		params := proto.TaskCreateParams{ProjectID: proj.ID, Prompt: prompt, Branch: at.branch,
-			Base: *base, Agent: at.agent, Cols: 120, Rows: 40}
+			Base: *base, Agent: at.agent, Name: *name, Cols: 120, Rows: 40}
+		if renameAfter {
+			params.Name = ""
+		}
 		if err := callFor(c, proto.MethodTaskCreate, params, &info, harvestWait); err != nil {
 			if len(attempts) == 1 {
 				return err
@@ -188,6 +213,11 @@ func runTask(args []string) error {
 			fmt.Fprintf(os.Stderr, "conch: %s: %v\n", at.branch, err)
 			failed++
 			continue
+		}
+		if renameAfter {
+			if err := call(c, proto.MethodPaneRename, proto.PaneRenameParams{ID: info.ID, Name: *name}, &info); err != nil {
+				return fmt.Errorf("%s started, but naming it failed: %v", info.ID, err)
+			}
 		}
 		fmt.Printf("%s  %s  %s\n", info.ID, info.Cwd, info.Branch)
 	}

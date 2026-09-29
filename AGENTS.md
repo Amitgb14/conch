@@ -40,7 +40,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/brain` | Model providers (Claude CLI, Anthropic, OpenAI-compatible), planner, action execution, summaries |
 | `internal/sessions` | Reading and deleting each agent's saved conversations |
 | `internal/usage` | Token usage and plan limits from transcripts and rollouts |
-| `internal/agentsetup` | What an agent loads in a checkout: instructions, skills, MCP servers, trust — and, the other way, writing one agent's instructions, skills and servers where the others look for them (`sync.go`), with a record to undo it; the library of servers and skills the agents follow (`library.go`); each agent's way of naming a variable (`vars.go`) |
+| `internal/agentsetup` | What an agent loads in a checkout: instructions, skills, MCP servers, trust — and, the other way, writing one agent's instructions, skills and servers where the others look for them (`sync.go`), with a record to undo it; the library of servers and skills the agents follow (`library.go`); each agent's way of naming a variable (`vars.go`); conch's own skill for agents driving agents (`skill/SKILL.md`, installed by `skill.go`) — its commands are checked against the CLI's usage by a test |
 | `internal/gitx` / `internal/ghx` | git status, branches, worktrees, untracked files / pull requests via the `gh` CLI |
 | `internal/update` | Version comparison, same-build checks, release installs, reloading servers |
 | `internal/config` | Paths (`CONCH_HOME`), `config.toml` loading and saving |
@@ -189,6 +189,22 @@ helpers in `cmd/conch` and `internal/remote`.
   failures in the first seconds). The tab bar lists the tabs of the group
   selected in the tree (`internal/tui/scope.go`); the machine row lists none
   and shows a preview.
+- **Scoping agents that drive conch.** `internal/server/scope.go` keeps an
+  agent calling from inside its pane to its own work: panes it started (a
+  lineage, carried through reloads), panes in its project, and that
+  project's branches and worktrees. The caller is found from the socket's
+  peer pid (`peer_darwin.go`, `peer_linux.go`) walked up its parents to a
+  pane's program — never from `CONCH_PANE_ID` — and only a pane with an
+  agent detected in it is scoped. A new method that changes a pane or a
+  project belongs in `scoped` with a verb, or an agent can reach past its
+  scope through it. Tests put a real caller inside a pane by running the
+  test binary there (`TestScopeHelper`).
+  Across machines the remote server can't see the caller, so `conch -m`
+  asks the local one (`pane.caller`) and, for a scoped agent, declares it
+  there (`scope.act_for`, `cmd/conch/scope.go`); a connection that acts
+  for an agent elsewhere reaches only what that agent started. Declaring
+  only narrows, so it is taken at its word; a remote without
+  `scope.remote.v1` isn't driven from an agent's pane.
 - **Machine-level panes** (under a machine's `CLI` group) are created with
   `NoProject` and start in the home directory.
 - **Build identity.** `buildinfo.Build()` hashes the executable at start-up;
