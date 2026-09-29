@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // plainTaskModel is an online local machine with a git project, a folder
@@ -186,6 +187,10 @@ func TestPlainTaskMenus(t *testing.T) {
 	}
 	if !has(newRowMenu(*m, row{kind: kindProject, machine: localMachine, projectID: "r1"}, 0, 0), "New task (branch + worktree + agent)") {
 		t.Fatal("git project's menu")
+	}
+	// And the machine's page says where t starts one.
+	if page := ansi.Strip(strings.Join(m.machineLines(m.machines[0], 100, 30), "\n")); !strings.Contains(page, "t  new task in its home") {
+		t.Fatalf("machine page:\n%s", page)
 	}
 }
 

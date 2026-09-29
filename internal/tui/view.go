@@ -1061,7 +1061,7 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 			lines = append(lines, styleWarn.Render(mach.warning))
 		}
 		lines = append(lines, "",
-			styleMuted.Render("a  add a project      t  new task in a project"),
+			styleMuted.Render("a  add a project      t  new task in its home"),
 			styleMuted.Render("c  start an agent     n  open a terminal"),
 			styleMuted.Render("M  add a machine      m  machine menu   ?  all keys"),
 		)
