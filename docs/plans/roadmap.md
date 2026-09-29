@@ -1,6 +1,6 @@
 # Roadmap
 
-Order of upcoming work (updated 2026-09-26). Finished items move to the git
+Order of upcoming work (updated 2026-09-29). Finished items move to the git
 history; details for big items live in their own plan files.
 
 ## Done
@@ -230,14 +230,56 @@ history; details for big items live in their own plan files.
     by itself (`read_config_from` turns that off), so conch gives it only
     what it would not otherwise see — a second copy would be read twice.
 
+24. **Agents working together** — an agent in a conch pane starts another
+    agent, prompts it, waits for it and reads what it did, kept to its own
+    work (PR #22, fixes from its first real run in #23). `conch agent
+    prompt` (`agent.prompt.v1`) types only into an agent and never onto a
+    question it is asking, and `-wait` waits on the agent's turn rather
+    than its state. Panes take names (`conch rename`, `task -name`,
+    `task.name.v1`). The server records who started each pane and keeps an
+    agent calling from its pane to its own panes and project
+    (`pane.scope.v1`), finding the caller from the kernel rather than
+    `CONCH_PANE_ID`, and carries that scope to other machines through `-m`
+    (`scope.remote.v1`). `conch agent skill` installs conch's skill, which
+    teaches the agents all this (`agent.skill.v1`). All of it is
+    command-line and agent-facing; the TUI shows helpers only as ordinary
+    panes — see 25. Page: [Agents working together](https://amitgb14.github.io/conch/docs/agents-together).
+
 ## Next
 
-Nothing chosen yet: the next thing is whatever the next week of using
-conch asks for. What is parked sits under **Not now** and **Last**.
+25. **Agents working together, in the TUI** — 24 is driven from the
+    command line and by agents themselves; in the TUI a helper is just
+    another pane. Three things to bring in:
+
+    - **The skill, from the setup view.** `i` (and Settings → Agents,
+      beside the library) shows whether conch's skill is installed for
+      each agent on the machine and installs or removes it through
+      `agent.skill` — plan first, as `conch agent skill` does, then apply.
+      A skill of that name conch didn't write shows as the person's, not
+      as installed. Per machine, through that machine's server.
+    - **Who started what, in the tree.** A helper's row says which pane
+      started it (`created_by`), or sits under that agent's row, so a
+      reviewer reads as the reviewer of something; its creator's row can
+      say how many helpers it has and whether any is waiting. `!`, the
+      review queue (`Q`) and notifications name the agent a waiting helper
+      works for. Clicking and selecting it follow the same paths as keys.
+    - **Prompt and wait, from the pane menu.** A *Prompt…* action on an
+      agent sends one message through `agent.prompt` — refused, and saying
+      so, when the agent is waiting for an answer — and reports when the
+      turn it started ends: done, waiting for you, or failed, as a status
+      message or a notification when the pane isn't in view.
+
+    Servers without `agent.prompt.v1`, `pane.scope.v1` or `agent.skill.v1`
+    (an older remote) get each piece left out with a word why, not a
+    failed call. Docs: the help overlay, `interface` and `keys` pages, and
+    the agents-together page; a row in the end-to-end plan for the TUI
+    paths with real agents, mouse included.
+
+What is parked sits under **Not now** and **Last**.
 
 ## Not now
 
-23. **E2B sandboxes** — deferred, and taken up later rather than next.
+26. **E2B sandboxes** — deferred, and taken up later rather than next.
     `internal/sandbox/e2b.go` makes, lists, pauses, resumes, ends and keeps
     alive an E2B sandbox through its platform API, with tests against a
     fake one; it stays in the tree, unregistered, so nothing offers to make
@@ -256,7 +298,7 @@ conch asks for. What is parked sits under **Not now** and **Last**.
     provider is its own peculiarities rather than the interface. This waits
     until there is a reason to want a third.
 
-24. **MicroVM sandboxes on your own hardware** — see
+27. **MicroVM sandboxes on your own hardware** — see
     [microvm-sandbox.md](microvm-sandbox.md). 20 covers the case that
     mattered: somewhere isolated to run an agent, made and thrown away from
     conch. What this plan adds is a sandbox on hardware you own — a
@@ -268,11 +310,11 @@ conch asks for. What is parked sits under **Not now** and **Last**.
 
 ## Last
 
-25. **Auto-approve rules** — per-project rules that let agents run safe
+28. **Auto-approve rules** — per-project rules that let agents run safe
     commands without waiting for the user. A sandbox is the boundary these
     need, and 20 gives one: the rules would be allowed there and nowhere
     else, so a rule that skips a confirmation cannot reach the laptop.
-26. **Task graph** — server-side rules such as "when A is done, start a
+29. **Task graph** — server-side rules such as "when A is done, start a
     review agent on its worktree", only once auto-approve rules exist, since
     they run actions nobody confirmed. Notifies rather than moving focus.
 
