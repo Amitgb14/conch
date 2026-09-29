@@ -24,13 +24,16 @@ If either is missing, you are not in a conch pane: don't use this skill.
 ## Start a helper on its own branch
 
 ```sh
-conch task -name reviewer -agent codex "Review the changes on this branch against main. Write your findings to REVIEW.md, most serious first."
+conch task -name reviewer -agent codex "Review the changes on this branch against main. Run any commands in the foreground, not in the background. Write your findings to REVIEW.md, most serious first."
 ```
 
 - It prints `PANE  WORKTREE  BRANCH`. The helper works in that worktree, on
   that new branch, starting from the project's base branch.
-- To have it start from **your** work, commit first and pass your branch:
-  `-base "$(git branch --show-current)"`. It sees only what you committed.
+- It sees only what is committed on the branch it starts from. If your
+  work is committed, pass your branch: `-base "$(git branch --show-current)"`.
+  If it isn't, don't commit just to hand it off — the person decides what
+  is committed. Put the diff (`git diff`) in the prompt instead, or give the
+  helper your worktree's path to read.
 - `-name` lets you address it as `reviewer` from then on. Pick a name no
   other running pane has.
 - `-agent` is `claude`, `codex`, `gemini`, `opencode` or `devin`; leave it
@@ -46,7 +49,11 @@ conch agent prompt -wait -timeout 30m reviewer "Check finding 3 again after my f
 
 It exits:
 
-- `0` — the helper finished the work your message started;
+- `0` — the helper's turn ended. That is usually the work done, but not
+  always: a helper that put a long command in the background ends its turn
+  and picks the work up later, and one whose request failed (an API error)
+  ends it too. So check the result — the file you asked for — before you
+  rely on it; if it isn't there yet, `conch read` the helper and wait again;
 - `3` — the helper is **waiting for an answer** (a permission prompt, a
   question, a menu). Nothing was typed. Read what it is asking (below). Do
   not prompt it again and do not answer it yourself: tell the person which
