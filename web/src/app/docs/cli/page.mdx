@@ -128,7 +128,7 @@ conch tells who is asking from the operating system — the process at the other
 
 ### task
 
-`conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] [-n N] [-name N] PROMPT` creates a branch and worktree and starts an agent with the prompt. See [Tasks](/docs/tasks).
+`conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] [-n N] [-name N] PROMPT` creates a branch and worktree and starts an agent with the prompt; in a folder that isn't a git repository — or, with `-m` and no `-cwd`, the machine's home — the agent works there with no branch. See [Tasks](/docs/tasks).
 
 | Flag | Default |
 | --- | --- |
@@ -180,18 +180,20 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 
 | Command | Description |
 | --- | --- |
-| `conch sandbox [-provider daytona\|boat] …` | whose sandboxes the command means; Daytona without it. In front of any subcommand below |
-| `conch sandbox create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]` | make a sandbox (key in `$DAYTONA_API_KEY` or `$BOAT_API_KEY`), install conch there and add it as a machine; it runs until stopped. `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails |
-| `conch sandbox ls` | conch's sandboxes, their state and size, including ones no longer added as machines (also plain `conch sandbox`) |
-| `conch sandbox start ID` | start a stopped sandbox |
-| `conch sandbox stop [-y] ID` | stop it: its agents and terminals end, its files stay |
-| `conch sandbox rm [-y] ID` | delete it for good and remove the machine; lists work that isn't pushed first |
-| `conch sandbox url [-expires 1h] [-open] ID PORT` | a link to a port inside the sandbox |
-| `conch sandbox usage [-since 720h] ID` | what it has cost, period by period |
-| `conch sandbox snapshot [-name N] ID` | keep it, to make others from |
-| `conch sandbox snapshots [-rm NAME]` | list what is kept, or forget one |
+| `conch sandbox stats [-provider P]` | every provider's sandboxes in one table, and a line per provider: how many, in which states, what is running; no provider needed |
+| `conch sandbox -provider daytona\|boat …` | whose sandboxes the command means, in front of any subcommand below. Required for all of them — there is no default, and a sandbox named under another provider is refused |
+| `conch sandbox -provider P create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]` | make a sandbox (key in `$DAYTONA_API_KEY` or `$BOAT_API_KEY`), install conch there and add it as a machine; it runs until stopped. `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails |
+| `conch sandbox -provider P ls` | conch's sandboxes, their state and size, including ones no longer added as machines (also plain `conch sandbox -provider P`) |
+| `conch sandbox -provider P ssh [-t] ID [COMMAND...]` | a shell in a running sandbox, or `COMMAND` run there (`-t` gives it a terminal); exits with its status |
+| `conch sandbox -provider P start ID` | start a stopped sandbox |
+| `conch sandbox -provider P stop [-y] ID` | stop it: its agents and terminals end, its files stay |
+| `conch sandbox -provider P rm [-y] ID` | delete it for good and remove the machine; lists work that isn't pushed first |
+| `conch sandbox -provider P url [-expires 1h] [-open] ID PORT` | a link to a port inside the sandbox |
+| `conch sandbox -provider P usage [-since 720h] ID` | what it has cost, period by period |
+| `conch sandbox -provider P snapshot [-name N] ID` | keep it, to make others from |
+| `conch sandbox -provider P snapshots [-rm NAME]` | list what is kept, or forget one |
 
-`ID` is the machine's ID or label, or the provider's own sandbox ID — and a command that names one takes the provider from that sandbox's machine, so `-provider` is only for `create`, `ls` and `snapshots`. See [Sandboxes](/docs/sandboxes).
+`ID` is the machine's ID or label, the provider's own sandbox ID, or `PROVIDER:ID`; it must belong to the provider `-provider` names. See [Sandboxes](/docs/sandboxes).
 
 ### ask
 

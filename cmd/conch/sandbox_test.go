@@ -187,7 +187,7 @@ func TestA4SandboxCreate(t *testing.T) {
 
 	var err error
 	out, errOut := a4Capture(t, "", func() {
-		err = runSandbox([]string{"create", "-label", "fix-login", "-cpu", "2"})
+		err = runSandbox([]string{"-provider", "daytona", "create", "-label", "fix-login", "-cpu", "2"})
 	})
 	if err != nil {
 		t.Fatalf("create: %v\n%s", err, errOut)
@@ -222,7 +222,7 @@ func TestA4SandboxCreate(t *testing.T) {
 	}
 
 	// No label: named after the sandbox.
-	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"create"}) })
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "create"}) })
 	if err != nil || !strings.HasPrefix(out, "added sandbox-sbx2-012 (sandbox-sbx2-012)") {
 		t.Fatalf("default label: %q %v", out, err)
 	}
@@ -232,7 +232,7 @@ func TestA4SandboxCreateRefusesBeforeSpending(t *testing.T) {
 	a4Env(t)
 	var err error
 	// No key: nothing is created.
-	a4Capture(t, "", func() { err = runSandbox([]string{"create"}) })
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "create"}) })
 	if err == nil || !strings.Contains(err.Error(), "$DAYTONA_API_KEY") {
 		t.Fatalf("no key: %v", err)
 	}
@@ -242,12 +242,17 @@ func TestA4SandboxCreateRefusesBeforeSpending(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"create", "-env", "UNSET_ONE"}, "$UNSET_ONE isn't set here"},
-		{[]string{"create", "-env", "A=B"}, "give a variable name"},
-		{[]string{"create", "-env", ""}, "give a variable name"},
-		{[]string{"create", "-cpu", "-1"}, "can't be negative"},
-		{[]string{"create", "extra"}, "usage: conch sandbox create"},
-		{[]string{"create", "-bogus"}, "flag provided but not defined"},
+		{[]string{"-provider", "daytona", "create", "-env", "UNSET_ONE"}, "$UNSET_ONE isn't set here"},
+		{[]string{"-provider", "daytona", "create", "-env", "A=B"}, "give a variable name"},
+		{[]string{"-provider", "daytona", "create", "-env", ""}, "give a variable name"},
+		{[]string{"-provider", "daytona", "create", "-cpu", "-1"}, "can't be negative"},
+		{[]string{"-provider", "daytona", "create", "extra"}, "usage: conch sandbox -provider P create"},
+		{[]string{"-provider", "daytona", "create", "-bogus"}, "flag provided but not defined"},
+		// No provider: there is no default to bill.
+		{[]string{"create"}, "which provider? give -provider NAME (daytona, boat)"},
+		{[]string{"create", "-label", "x"}, "which provider?"},
+		{[]string{"ls"}, "which provider?"},
+		{nil, "which provider?"}, // plain conch sandbox lists, and so needs one too
 	} {
 		a4Capture(t, "", func() { err = runSandbox(c.args) })
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -257,7 +262,7 @@ func TestA4SandboxCreateRefusesBeforeSpending(t *testing.T) {
 	if d.called() != "" {
 		t.Fatalf("Daytona was called:\n%s", d.called())
 	}
-	if err := runSandbox([]string{"frobnicate"}); err == nil || !strings.Contains(err.Error(), `unknown sandbox subcommand "frobnicate"`) {
+	if err := runSandbox([]string{"-provider", "daytona", "frobnicate"}); err == nil || !strings.Contains(err.Error(), `unknown sandbox subcommand "frobnicate"`) {
 		t.Fatalf("unknown: %v", err)
 	}
 }
@@ -270,7 +275,7 @@ func TestA4SandboxCreateFailsHalfWay(t *testing.T) {
 
 	// Asked, and the default deletes it.
 	var err error
-	_, errOut := a4Capture(t, "\n", func() { err = runSandbox([]string{"create"}) })
+	_, errOut := a4Capture(t, "\n", func() { err = runSandbox([]string{"-provider", "daytona", "create"}) })
 	if err == nil || strings.Contains(err.Error(), "tok-secret") || !strings.Contains(err.Error(), "Permission denied") {
 		t.Fatalf("err %v", err)
 	}
@@ -285,13 +290,13 @@ func TestA4SandboxCreateFailsHalfWay(t *testing.T) {
 	}
 
 	// Kept when the user says no.
-	_, errOut = a4Capture(t, "n\n", func() { err = runSandbox([]string{"create"}) })
-	if err == nil || !strings.Contains(errOut, "kept it; delete it with: conch sandbox rm sbx2-0123456789") || d.state("sbx2-0123456789") != "started" {
+	_, errOut = a4Capture(t, "n\n", func() { err = runSandbox([]string{"-provider", "daytona", "create"}) })
+	if err == nil || !strings.Contains(errOut, "kept it; delete it with: conch sandbox -provider daytona rm sbx2-0123456789") || d.state("sbx2-0123456789") != "started" {
 		t.Fatalf("kept: %v\n%s", err, errOut)
 	}
 
 	// -yes deletes without asking.
-	_, errOut = a4Capture(t, "", func() { err = runSandbox([]string{"create", "-yes"}) })
+	_, errOut = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "create", "-yes"}) })
 	if err == nil || strings.Contains(errOut, "[Y/n]") || d.state("sbx3-0123456789") != "" {
 		t.Fatalf("-yes: %v\n%s", err, errOut)
 	}
@@ -302,7 +307,7 @@ func TestA4SandboxCreateThatNeverStarts(t *testing.T) {
 	d := newA4Daytona(t)
 	d.createState = "build_failed"
 	var err error
-	_, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"create", "-yes"}) })
+	_, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "create", "-yes"}) })
 	if err == nil || !strings.Contains(err.Error(), "is build_failed") {
 		t.Fatalf("err %v", err)
 	}
@@ -327,12 +332,12 @@ func TestA4SandboxListStartStopRemove(t *testing.T) {
 	}
 
 	var err error
-	out, errOut := a4Capture(t, "", func() { err = runSandbox(nil) })
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona"}) })
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Both kinds of row nobody could otherwise account for say what to do.
-	for _, want := range []string{"1 with no machine here", "conch sandbox rm ID deletes one",
+	for _, want := range []string{"1 with no machine here", "conch sandbox -provider daytona rm ID deletes one",
 		"1 gone: deleted outside conch"} {
 		if !strings.Contains(errOut, want) {
 			t.Fatalf("stderr lacks %q:\n%s", want, errOut)
@@ -348,11 +353,11 @@ func TestA4SandboxListStartStopRemove(t *testing.T) {
 	}
 
 	// Stop asks first; no leaves it running.
-	a4Capture(t, "n\n", func() { err = runSandbox([]string{"stop", "live"}) })
+	a4Capture(t, "n\n", func() { err = runSandbox([]string{"-provider", "daytona", "stop", "live"}) })
 	if err != nil || d.state("sb-live") != "started" {
 		t.Fatalf("declined stop: %v %s", err, d.state("sb-live"))
 	}
-	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stop", "-y", "live"}) })
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "stop", "-y", "live"}) })
 	if err != nil || out != "live stopped\n" || d.state("sb-live") != "stopped" {
 		t.Fatalf("stop: %q %v", out, err)
 	}
@@ -361,35 +366,35 @@ func TestA4SandboxListStartStopRemove(t *testing.T) {
 	machineFlag = "live"
 	_, err = connectMachine("live")
 	machineFlag = ""
-	if err == nil || !strings.Contains(err.Error(), "sandbox live is stopped; run: conch sandbox start live") {
+	if err == nil || !strings.Contains(err.Error(), "sandbox live is stopped; run: conch sandbox -provider daytona start live") {
 		t.Fatalf("-m stopped: %v", err)
 	}
 	err = machineUpgrade(remote.FindMachine("live"))
-	if err == nil || !strings.Contains(err.Error(), "conch sandbox start live") {
+	if err == nil || !strings.Contains(err.Error(), "conch sandbox -provider daytona start live") {
 		t.Fatalf("upgrade stopped: %v", err)
 	}
 
-	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"start", "daytona:sb-live"}) })
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "start", "daytona:sb-live"}) })
 	if err != nil || out != "live started\n" || d.state("sb-live") != "started" {
 		t.Fatalf("start by target: %q %v", out, err)
 	}
-	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"start", "sb-orphan"}) })
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "start", "sb-orphan"}) })
 	if err != nil || out != "sb-orphan started\n" {
 		t.Fatalf("start by sandbox id: %q %v", out, err)
 	}
 
 	// rm of one Daytona has lost still forgets it.
-	out, errOut = a4Capture(t, "", func() { err = runSandbox([]string{"rm", "-y", "gone"}) })
+	out, errOut = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "rm", "-y", "gone"}) })
 	if err != nil || out != "deleted gone\n" || !strings.Contains(errOut, "already gone from Daytona") {
 		t.Fatalf("rm gone: %q %q %v", out, errOut, err)
 	}
 	// rm asks, and no keeps everything.
 	d.set("sb-live", "stopped")
-	_, errOut = a4Capture(t, "\n", func() { err = runSandbox([]string{"rm", "live"}) })
+	_, errOut = a4Capture(t, "\n", func() { err = runSandbox([]string{"-provider", "daytona", "rm", "live"}) })
 	if err != nil || d.state("sb-live") != "stopped" || !strings.Contains(errOut, "live is stopped, so conch can't check it") {
 		t.Fatalf("declined rm: %v\n%s", err, errOut)
 	}
-	out, _ = a4Capture(t, "y\n", func() { err = runSandbox([]string{"rm", "live"}) })
+	out, _ = a4Capture(t, "y\n", func() { err = runSandbox([]string{"-provider", "daytona", "rm", "live"}) })
 	if err != nil || out != "deleted live\n" || d.state("sb-live") != "" {
 		t.Fatalf("rm: %q %v", out, err)
 	}
@@ -402,12 +407,16 @@ func TestA4SandboxListStartStopRemove(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"start"}, "usage: conch sandbox start ID"},
-		{[]string{"stop"}, "usage: conch sandbox stop"},
-		{[]string{"rm", "a", "b"}, "usage: conch sandbox rm"},
-		{[]string{"start", "gpu"}, "gpu is not a sandbox"},
-		{[]string{"rm", "-y", "dev@elsewhere"}, `no sandbox "dev@elsewhere"`},
-		{[]string{"start", "nope"}, "Sandbox not found"},
+		{[]string{"-provider", "daytona", "start"}, "usage: conch sandbox -provider P start ID"},
+		{[]string{"-provider", "daytona", "stop"}, "usage: conch sandbox -provider P stop"},
+		{[]string{"-provider", "daytona", "rm", "a", "b"}, "usage: conch sandbox -provider P rm"},
+		{[]string{"-provider", "daytona", "start", "gpu"}, "gpu is not a sandbox"},
+		{[]string{"-provider", "daytona", "rm", "-y", "dev@elsewhere"}, `no sandbox "dev@elsewhere"`},
+		{[]string{"-provider", "daytona", "start", "nope"}, "Sandbox not found"},
+		// Every command names the provider, and a sandbox under another's
+		// is refused (a machine under another's: TestA4SandboxShell).
+		{[]string{"start", "gpu"}, "which provider? give -provider NAME"},
+		{[]string{"-provider", "boat", "start", "daytona:sb-live"}, "daytona:sb-live is a Daytona sandbox, not boat.dev"},
 	} {
 		a4Capture(t, "", func() { err = runSandbox(c.args) })
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -436,7 +445,7 @@ func TestA4SandboxRemoveWarnsAboutUnpushedWork(t *testing.T) {
 	t.Setenv("A4_PROBE", f) // conch is already there
 
 	var err error
-	_, errOut := a4Capture(t, "n\n", func() { err = runSandbox([]string{"rm", "box"}) })
+	_, errOut := a4Capture(t, "n\n", func() { err = runSandbox([]string{"-provider", "daytona", "rm", "box"}) })
 	if err != nil || !strings.Contains(errOut, "api feat: 2 commits on no remote, 3 files uncommitted") || d.state("sb1") != "started" {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
@@ -444,7 +453,7 @@ func TestA4SandboxRemoveWarnsAboutUnpushedWork(t *testing.T) {
 
 func TestA4MachineAddRefusesASandboxTarget(t *testing.T) {
 	a4Env(t)
-	if err := runMachine([]string{"add", "daytona:sb1"}); err == nil || !strings.Contains(err.Error(), "conch sandbox create") {
+	if err := runMachine([]string{"add", "daytona:sb1"}); err == nil || !strings.Contains(err.Error(), "conch sandbox -provider daytona create") {
 		t.Fatalf("err %v", err)
 	}
 }
@@ -461,7 +470,7 @@ func TestA4SandboxDestroyedElsewhere(t *testing.T) {
 	}
 
 	var err error
-	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"ls"}) })
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "ls"}) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,19 +478,19 @@ func TestA4SandboxDestroyedElsewhere(t *testing.T) {
 	if row != "box box sb-going gone -" {
 		t.Fatalf("ls row %q in\n%s", row, out)
 	}
-	if !strings.Contains(errOut, "1 gone: deleted outside conch") || !strings.Contains(errOut, "conch sandbox rm ID") {
+	if !strings.Contains(errOut, "1 gone: deleted outside conch") || !strings.Contains(errOut, "conch sandbox -provider daytona rm ID") {
 		t.Fatalf("ls said nothing about it: %q", errOut)
 	}
 
 	// Starting or stopping it says it is gone, rather than waiting.
-	for _, args := range [][]string{{"start", "box"}, {"stop", "-y", "box"}} {
+	for _, args := range [][]string{{"-provider", "daytona", "start", "box"}, {"-provider", "daytona", "stop", "-y", "box"}} {
 		if _, _ = a4Capture(t, "", func() { err = runSandbox(args) }); err == nil {
 			t.Fatalf("%v on a deleted sandbox", args)
 		}
 	}
 
 	// rm clears what is left here, and the machine is gone from the catalog.
-	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"rm", "-y", "box"}) })
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "rm", "-y", "box"}) })
 	if err != nil || !strings.Contains(out, "deleted box") {
 		t.Fatalf("rm: %q %v", out, err)
 	}
@@ -506,7 +515,7 @@ func TestA4SandboxURL(t *testing.T) {
 	}
 
 	var err error
-	out, _ := a4Capture(t, "", func() { err = runSandbox([]string{"url", "live", "3000"}) })
+	out, _ := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "url", "live", "3000"}) })
 	if err != nil || strings.TrimSpace(out) != "https://3000-signed.proxy.daytona.work" {
 		t.Fatalf("url: %q %v", out, err)
 	}
@@ -520,7 +529,7 @@ func TestA4SandboxURL(t *testing.T) {
 	oldOpen := openInBrowser
 	openInBrowser = func(url string) error { opened = url; return nil }
 	t.Cleanup(func() { openInBrowser = oldOpen })
-	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"url", "-open", "live", "3000"}) })
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "url", "-open", "live", "3000"}) })
 	if err != nil || opened != "https://3000-signed.proxy.daytona.work" {
 		t.Fatalf("-open: opened %q (%q) %v", opened, out, err)
 	}
@@ -529,7 +538,7 @@ func TestA4SandboxURL(t *testing.T) {
 	}
 
 	// A time of its own, in the shape a Go duration takes.
-	if _, _ = a4Capture(t, "", func() { err = runSandbox([]string{"url", "-expires", "10m", "live", "3000"}) }); err != nil {
+	if _, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "url", "-expires", "10m", "live", "3000"}) }); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(d.called(), "expiresInSeconds=600") {
@@ -538,10 +547,10 @@ func TestA4SandboxURL(t *testing.T) {
 	// What it refuses: a port that isn't one, too few arguments, an
 	// unknown sandbox.
 	for _, args := range [][]string{
-		{"url", "live", "nope"},
-		{"url", "live", "0"},
-		{"url", "live"},
-		{"url"},
+		{"-provider", "daytona", "url", "live", "nope"},
+		{"-provider", "daytona", "url", "live", "0"},
+		{"-provider", "daytona", "url", "live"},
+		{"-provider", "daytona", "url"},
 	} {
 		if _, _, err := a4Out(t, func() error { return runSandbox(args) }); err == nil {
 			t.Fatalf("%v was accepted", args)
@@ -559,7 +568,7 @@ func TestA4SandboxUsage(t *testing.T) {
 	}
 
 	var err error
-	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"usage", "live"}) })
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "usage", "live"}) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -581,12 +590,12 @@ func TestA4SandboxUsage(t *testing.T) {
 
 	// Nothing reported yet says so, and is not an error.
 	d.usage = "[]"
-	out, errOut = a4Capture(t, "", func() { err = runSandbox([]string{"usage", "live"}) })
+	out, errOut = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "usage", "live"}) })
 	if err != nil || out != "" || !strings.Contains(errOut, "nothing to report") {
 		t.Fatalf("nothing yet: %q %q %v", out, errOut, err)
 	}
 	// And what it refuses.
-	for _, args := range [][]string{{"usage"}, {"usage", "live", "extra"}} {
+	for _, args := range [][]string{{"-provider", "daytona", "usage"}, {"-provider", "daytona", "usage", "live", "extra"}} {
 		if _, _, err := a4Out(t, func() error { return runSandbox(args) }); err == nil {
 			t.Fatalf("%v was accepted", args)
 		}
@@ -688,8 +697,8 @@ func (b *a4Boat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// -provider names whose sandboxes a command means; a command that names a
-// sandbox takes it from that sandbox's own machine instead.
+// -provider names whose sandboxes a command means, for every command; a
+// sandbox named under another provider is refused.
 func TestA4SandboxProviderFlag(t *testing.T) {
 	a4Env(t)
 	b := newA4Boat(t)
@@ -720,24 +729,24 @@ func TestA4SandboxProviderFlag(t *testing.T) {
 		t.Fatalf("saved %+v", ms)
 	}
 
-	// The next command starts clean: without the flag it means Daytona
-	// again, and asks boat nothing.
+	// The next command starts clean: without the flag there is no provider
+	// to make one with, and boat is asked nothing.
 	before := b.called()
-	if err := runSandbox([]string{"create"}); err == nil || !strings.Contains(err.Error(), "$DAYTONA_API_KEY") {
+	if err := runSandbox([]string{"create"}); err == nil || !strings.Contains(err.Error(), "which provider? give -provider NAME (daytona, boat)") {
 		t.Fatalf("without the flag: %v", err)
 	}
 	if b.called() != before {
 		t.Fatalf("boat was asked anyway:\n%s", b.called())
 	}
 	// A named sandbox takes its provider from its own machine.
-	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"usage", "hull"}) })
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "boat", "usage", "hull"}) })
 	// boat charges for machine time only, so the line says what was
 	// running and nothing about disk.
 	if err != nil || !strings.Contains(out, "$0.250000") || !strings.Contains(out, "running, 4 vCPU, 8 GiB") ||
 		strings.Contains(out, "GiB disk") {
 		t.Fatalf("usage: %q %v", out, err)
 	}
-	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"url", "hull", "3000"}) })
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "boat", "url", "hull", "3000"}) })
 	if err != nil || !strings.Contains(out, "https://frazil-pneuma-rallye-3000.on.boat.dev") {
 		t.Fatalf("url: %q %v", out, err)
 	}
@@ -748,7 +757,7 @@ func TestA4SandboxProviderFlag(t *testing.T) {
 		t.Fatalf("ls: %q %v", out, err)
 	}
 	// Stopping and starting it again go to boat, not Daytona.
-	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stop", "-y", "hull"}) })
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "boat", "stop", "-y", "hull"}) })
 	if err != nil || !strings.Contains(out, "stopped") {
 		t.Fatalf("stop: %q %v", out, err)
 	}
@@ -789,11 +798,11 @@ func TestA4SandboxSnapshots(t *testing.T) {
 	var err error
 
 	// A name of its own, and the advice that it takes a while.
-	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"snapshot", "-name", "base", "live"}) })
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "snapshot", "-name", "base", "live"}) })
 	if err != nil || strings.TrimSpace(out) != "keeping live as base" {
 		t.Fatalf("snapshot: %q %v", out, err)
 	}
-	if !strings.Contains(errOut, "conch sandbox create -snapshot base") {
+	if !strings.Contains(errOut, "conch sandbox -provider daytona create -snapshot base") {
 		t.Fatalf("it said: %q", errOut)
 	}
 	var body map[string]any
@@ -802,13 +811,13 @@ func TestA4SandboxSnapshots(t *testing.T) {
 		t.Fatalf("snapshot body %v", body)
 	}
 	// No name: the label and the date, so two are never the same.
-	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"snapshot", "live"}) })
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "snapshot", "live"}) })
 	if err != nil || !strings.HasPrefix(strings.TrimSpace(out), "keeping live as live-") {
 		t.Fatalf("default name: %q %v", out, err)
 	}
 
 	// The list, newest first, with what each one is.
-	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"snapshots"}) })
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "snapshots"}) })
 	rows := strings.Split(strings.TrimSpace(out), "\n")
 	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
 	if err != nil || len(rows) != 3 || flat(rows[0]) != "NAME STATE SIZE KEPT" ||
@@ -818,16 +827,16 @@ func TestA4SandboxSnapshots(t *testing.T) {
 	}
 
 	// Forgetting one asks first; no leaves it alone.
-	a4Capture(t, "n\n", func() { err = runSandbox([]string{"snapshots", "-rm", "older"}) })
+	a4Capture(t, "n\n", func() { err = runSandbox([]string{"-provider", "daytona", "snapshots", "-rm", "older"}) })
 	if err != nil || strings.Contains(d.called(), "DELETE /snapshots/older") {
 		t.Fatalf("declined: %v\n%s", err, d.called())
 	}
-	out, _ = a4Capture(t, "y\n", func() { err = runSandbox([]string{"snapshots", "-rm", "older"}) })
+	out, _ = a4Capture(t, "y\n", func() { err = runSandbox([]string{"-provider", "daytona", "snapshots", "-rm", "older"}) })
 	if err != nil || !strings.Contains(out, "forgot older") || !strings.Contains(d.called(), "DELETE /snapshots/older") {
 		t.Fatalf("forgot: %q %v", out, err)
 	}
 	// -y forgets without asking.
-	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"snapshots", "-rm", "base", "-y"}) })
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "snapshots", "-rm", "base", "-y"}) })
 	if err != nil || !strings.Contains(out, "forgot base") {
 		t.Fatalf("-y: %q %v", out, err)
 	}
@@ -835,9 +844,11 @@ func TestA4SandboxSnapshots(t *testing.T) {
 	// What it refuses: a sandbox it doesn't know, no sandbox at all, and a
 	// provider that cannot keep snapshots.
 	for _, c := range []struct{ args, want []string }{
-		{[]string{"snapshot"}, []string{"usage: conch sandbox snapshot"}},
-		{[]string{"snapshot", "nope"}, []string{"Sandbox not found"}}, // a name conch has no machine for goes to the provider
-		{[]string{"snapshot", "-bogus", "live"}, []string{"flag provided but not defined"}},
+		{[]string{"-provider", "daytona", "snapshot"}, []string{"usage: conch sandbox -provider P snapshot"}},
+		{[]string{"-provider", "daytona", "snapshot", "nope"}, []string{"Sandbox not found"}}, // a name conch has no machine for goes to the provider
+		{[]string{"snapshot", "live"}, []string{"which provider?"}},
+		{[]string{"snapshots"}, []string{"which provider?"}},
+		{[]string{"-provider", "daytona", "snapshot", "-bogus", "live"}, []string{"flag provided but not defined"}},
 	} {
 		err = runSandbox(c.args)
 		for _, want := range c.want {
@@ -845,6 +856,168 @@ func TestA4SandboxSnapshots(t *testing.T) {
 				t.Fatalf("%v: %v, want %q", c.args, err, want)
 			}
 		}
+	}
+}
+
+// conch sandbox ssh opens a shell in a sandbox, or runs a command there,
+// wired to this terminal and exiting with the command's status.
+func TestA4SandboxShell(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	d.set("sb-live", "started")
+	d.set("sb-orphan", "started")
+	d.set("sb-off", "stopped")
+	for _, m := range []remote.Machine{{Label: "live", Target: "daytona:sb-live"}, {Label: "off", Target: "daytona:sb-off"}, {Label: "gpu", Target: "dev@gpu.lab"}} {
+		if _, err := remote.SaveMachine(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// ssh says what it was asked, echoes what it is given, and exits as told.
+	dir := t.TempDir()
+	ssh := filepath.Join(dir, "ssh")
+	os.WriteFile(ssh, []byte("#!/bin/sh\nfor a; do printf '[%s]' \"$a\"; done; echo\ncat\nexit ${FAKE_EXIT:-0}\n"), 0o755)
+	t.Setenv("CONCH_SSH", ssh)
+	t.Setenv("FAKE_EXIT", "")
+
+	var err error
+	out, _ := a4Capture(t, "typed\n", func() { err = runSandbox([]string{"-provider", "daytona", "ssh", "live"}) })
+	if err != nil || !strings.HasSuffix(out, "[--][tok-secret@gw.test]\ntyped\n") || strings.Contains(out, "[-t]") {
+		t.Fatalf("shell: %q %v", out, err)
+	}
+	// The command's words reach ssh as one, flags after the ID included.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "shell", "-t", "live", "ls", "-la", "/tmp"}) })
+	if err != nil || !strings.Contains(out, "[-t]") || !strings.Contains(out, "[tok-secret@gw.test][ls -la /tmp]\n") {
+		t.Fatalf("command: %q %v", out, err)
+	}
+	// By its catalog target, which names the provider itself.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "ssh", "daytona:sb-live", "pwd"}) })
+	if err != nil || !strings.Contains(out, "[tok-secret@gw.test][pwd]") {
+		t.Fatalf("by target: %q %v", out, err)
+	}
+	// By the provider's own ID, which then needs the provider named.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "exec", "sb-orphan", "uptime"}) })
+	if err != nil || !strings.Contains(out, "[uptime]") {
+		t.Fatalf("by sandbox id: %q %v", out, err)
+	}
+	// A command that fails passes its status on, and nothing more.
+	t.Setenv("FAKE_EXIT", "3")
+	_, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "ssh", "live", "false"}) })
+	if err != exitStatus(3) {
+		t.Fatalf("exit: %v", err)
+	}
+	t.Setenv("FAKE_EXIT", "")
+
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-provider", "daytona", "ssh"}, "usage: conch sandbox -provider P ssh [-t] ID [COMMAND...]"},
+		{[]string{"-provider", "daytona", "ssh", "-bogus", "live"}, "flag provided but not defined"},
+		{[]string{"-provider", "daytona", "ssh", "gpu"}, "gpu is not a sandbox"},
+		{[]string{"-provider", "daytona", "ssh", "off"}, "sandbox off is stopped; run: conch sandbox -provider daytona start off"},
+		{[]string{"ssh", "live"}, "which provider?"},
+		{[]string{"-provider", "boat", "ssh", "live"}, "live is a Daytona sandbox, not boat.dev"},
+		{[]string{"-provider", "daytona", "ssh", "nope"}, "no longer exists"},
+	} {
+		a4Capture(t, "", func() { err = runSandbox(c.args) })
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v, want %q", c.args, err, c.want)
+		}
+	}
+}
+
+// main exits with the status of a command run in a sandbox, adding no
+// "conch:" line of its own.
+func TestA4SandboxShellExitStatus(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	d.set("sb-live", "started")
+	if _, err := remote.SaveMachine(remote.Machine{Label: "live", Target: "daytona:sb-live"}); err != nil {
+		t.Fatal(err)
+	}
+	ssh := filepath.Join(t.TempDir(), "ssh")
+	os.WriteFile(ssh, []byte("#!/bin/sh\necho ran >&2\nexit 7\n"), 0o755)
+	t.Setenv("CONCH_SSH", ssh)
+	code, _, errOut := a4RunMain(t, "", "sandbox", "-provider", "daytona", "ssh", "live", "false")
+	if code != 7 || strings.Contains(errOut, "conch:") || !strings.Contains(errOut, "ran") {
+		t.Fatalf("code %d, stderr %q", code, errOut)
+	}
+}
+
+// conch sandbox stats shows every provider's sandboxes together, and needs
+// no -provider.
+func TestA4SandboxStats(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	d.set("sb-live", "started")
+	d.set("sb-orphan", "stopped")
+	b := newA4Boat(t)
+	b.boxes["bx_1"] = "ready"
+	for _, m := range []remote.Machine{
+		{Label: "live", Target: "daytona:sb-live"},
+		{Label: "gone", Target: "daytona:sb-deleted"},
+		{Label: "hull", Target: "boat:bx_1"},
+		{Label: "gpu", Target: "dev@gpu.lab"},
+	} {
+		if _, err := remote.SaveMachine(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runSandbox([]string{"stats"}) })
+	if err != nil {
+		t.Fatalf("stats: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"PROVIDER ID LABEL SANDBOX STATE SIZE",
+		"Daytona live live sb-live started 1 vCPU, 1 GiB, 3 GiB disk",
+		"Daytona gone gone sb-deleted gone -",
+		"Daytona - - sb-orphan stopped 1 vCPU, 1 GiB, 3 GiB disk",
+		"boat.dev hull hull bx_1 started 4 vCPU, 8 GiB",
+		"Daytona: 3 sandboxes · 1 started, 1 gone, 1 stopped · 1 vCPU, 1 GiB running · 1 with no machine here",
+		"boat.dev: 1 sandbox · 1 started · 4 vCPU, 8 GiB running",
+	} {
+		if !strings.Contains(flat(out), want) {
+			t.Errorf("stats lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "gpu") {
+		t.Errorf("an ssh machine is listed:\n%s", out)
+	}
+	// -provider narrows it to one.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "boat", "stats"}) })
+	if err != nil || strings.Contains(out, "Daytona") || !strings.Contains(out, "boat.dev: 1 sandbox") {
+		t.Fatalf("one provider: %q %v", out, err)
+	}
+	if err := runSandbox([]string{"stats", "extra"}); err == nil || !strings.Contains(err.Error(), "usage: conch sandbox stats") {
+		t.Fatalf("extra args: %v", err)
+	}
+
+	// A provider with no key and no sandboxes of conch's is only not set up.
+	b.boxes = map[string]string{}
+	if err := remote.RemoveMachine(remote.FindMachine("hull").ID); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BOAT_API_KEY", "")
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stats"}) })
+	if err != nil || !strings.Contains(out, "boat.dev: not set up") || !strings.Contains(out, "Daytona: 3 sandboxes") {
+		t.Fatalf("not set up: %q %v", out, err)
+	}
+	// With a machine of its own it can't be asked about, it says so, shows
+	// the machine as unknown, and the command fails.
+	remote.SaveMachine(remote.Machine{Label: "hull", Target: "boat:bx_1"})
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stats"}) })
+	if err == nil || !strings.Contains(err.Error(), "1 provider of 2 couldn't be asked") ||
+		!strings.Contains(flat(out), "boat.dev hull hull bx_1 ? -") || !strings.Contains(out, "boat.dev: couldn't ask it:") ||
+		!strings.Contains(out, "Daytona: 3 sandboxes") {
+		t.Fatalf("unknown: %q %v", out, err)
+	}
+	// A provider that is down fails the command too, the other still shown.
+	t.Setenv("DAYTONA_API_URL", "http://127.0.0.1:1")
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stats"}) })
+	if err == nil || !strings.Contains(err.Error(), "2 providers of 2") || !strings.Contains(out, "Daytona: couldn't ask it:") {
+		t.Fatalf("down: %q %v", out, err)
 	}
 }
 
@@ -863,7 +1036,7 @@ func TestA4SandboxCreateSurvivesADroppedConnection(t *testing.T) {
 	f.dropCopies(t, 2)
 
 	var err error
-	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"create", "-label", "flaky"}) })
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "create", "-label", "flaky"}) })
 	if err != nil {
 		t.Fatalf("create: %v\n%s", err, errOut)
 	}
@@ -898,7 +1071,7 @@ func TestA4SandboxCreateSaysWhyItCouldNotConnect(t *testing.T) {
 	t.Setenv("A4_SSH_SILENT_255", "1")
 
 	var err error
-	_, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"create", "-yes"}) })
+	_, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "create", "-yes"}) })
 	if err == nil {
 		t.Fatal("a machine that never answers should fail")
 	}

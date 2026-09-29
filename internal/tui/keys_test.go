@@ -241,10 +241,10 @@ func TestA1TreeActionKeysOffline(t *testing.T) {
 	if e, ok := cmd().(errMsg); !ok || !strings.Contains(e.err.Error(), "offline") {
 		t.Fatalf("n offline: %#v", cmd())
 	}
-	// t needs a git project.
+	// t on the machine would start in its home, which needs its server.
 	a1Key(t, m, runes("t"))
-	if m.flash != "select a git project to start a task" {
-		t.Fatalf("t on machine: %q", m.flash)
+	if !m.flashIsErr || !strings.Contains(m.flash, "local is offline") || m.overlay != nil {
+		t.Fatalf("t on an offline machine: %q %T", m.flash, m.overlay)
 	}
 	m.cursor = projectNodeID(localMachine, "r1")
 	a1Key(t, m, runes("t"))

@@ -770,7 +770,7 @@ func TestA4MainDispatch(t *testing.T) {
 		case proto.MethodPaneCreate:
 			return proto.PaneInfo{ID: "p1"}, nil
 		case proto.MethodProjectAdd:
-			return proto.ProjectInfo{ID: "proj"}, nil
+			return proto.ProjectInfo{ID: "proj", Git: true}, nil
 		case proto.MethodTaskCreate:
 			return proto.PaneInfo{ID: "p2"}, nil
 		}

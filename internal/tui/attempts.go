@@ -28,6 +28,7 @@ type attemptsDoneMsg struct {
 	machine string
 	panes   []proto.PaneInfo
 	errs    []string
+	shared  bool // no repository: every attempt works in the same folder
 }
 
 // attemptPlan names the attempts: one per agent by default, n of them when
@@ -118,6 +119,8 @@ func (m *Model) receiveAttempts(msg attemptsDoneMsg) tea.Cmd {
 		return m.rebuild()
 	case len(msg.errs) > 0:
 		m.setFlash(fmt.Sprintf("started %s; %s", counted(len(msg.panes), "attempt"), strings.Join(msg.errs, "; ")), true)
+	case len(msg.panes) > 1 && msg.shared:
+		m.setFlash("started "+counted(len(msg.panes), "attempt")+" in the same folder", false)
 	case len(msg.panes) > 1:
 		m.setFlash("started "+counted(len(msg.panes), "attempts")+" on their own branches", false)
 	}

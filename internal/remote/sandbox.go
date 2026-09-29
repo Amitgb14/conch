@@ -221,3 +221,41 @@ func (t *sandboxTransport) failed(err error, stderr string) error {
 	}
 	return errors.New(strings.ReplaceAll(err.Error(), t.secret, "…"))
 }
+
+// SandboxShell is ssh into a running sandbox for a person at a terminal: a
+// login shell when command is empty, otherwise command run there. tty asks
+// for a terminal for the command too, for one that draws a screen; a shell
+// gets one whenever this side has one. The command is not tied to ctx,
+// which only bounds asking the provider for access: a shell lasts as long
+// as the person keeps it.
+func SandboxShell(ctx context.Context, label, target, command string, tty bool) (*exec.Cmd, error) {
+	if _, _, ok := ParseSandboxTarget(target); !ok {
+		return nil, fmt.Errorf("%s is not a sandbox", label)
+	}
+	tr, err := TransportFor(ctx, label, target, false)
+	if err != nil {
+		return nil, err
+	}
+	st, ok := tr.(*sandboxTransport)
+	if !ok {
+		return nil, fmt.Errorf("%s is not a sandbox", label)
+	}
+	cfg, err := sshConfig()
+	if err != nil {
+		return nil, err
+	}
+	// Its own connection, as LoginCommand makes, and the gateway's host
+	// key taken the first time as every other conch connection to it does.
+	args := []string{"-F", cfg, "-o", "ControlPath=none", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15"}
+	if tty {
+		args = append(args, "-t")
+	}
+	if o := st.ssh.opts; o.identity != "" {
+		args = append(args, "-i", o.identity, "-o", "IdentitiesOnly=yes")
+	}
+	args = append(args, "--", st.ssh.target)
+	if command != "" {
+		args = append(args, command)
+	}
+	return exec.Command(sshBinary(), args...), nil
+}

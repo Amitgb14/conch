@@ -55,11 +55,11 @@ Press `M`, choose **New sandbox…** and then the provider — Daytona or boat.d
 | **Stop sandbox…** | ends its agents and terminals; its files stay. Asks first, saying how many agents are still working |
 | **Delete sandbox…** | deletes it and everything in it, and removes the machine. Asks first, listing the branches conch last saw there with commits no remote has, and uncommitted changes |
 
-A stopped sandbox shows `stopped` in the tree, and a spinner while it is starting, stopping or being deleted. **Remove machine** only takes it out of the tree; the sandbox keeps running, and costing, until `conch sandbox rm`.
+A stopped sandbox shows `stopped` in the tree, and a spinner while it is starting, stopping or being deleted. **Remove machine** only takes it out of the tree; the sandbox keeps running, and costing, until `conch sandbox -provider P rm`.
 
 ## Looking at what runs inside
 
-An agent that starts a dev server in a sandbox has nothing to show for it — the port is inside somebody else's machine. `m` → **Open a port in the browser…** asks which port (3000 to begin with, then whatever you used last) and opens a link to it. From a shell: `conch sandbox url ID PORT`, with `-open` to open it and `-expires` to change how long it lasts (an hour by default, a day at most).
+An agent that starts a dev server in a sandbox has nothing to show for it — the port is inside somebody else's machine. `m` → **Open a port in the browser…** asks which port (3000 to begin with, then whatever you used last) and opens a link to it. From a shell: `conch sandbox -provider P url ID PORT`, with `-open` to open it and `-expires` to change how long it lasts (an hour by default, a day at most).
 
 The link carries its own credential, so it works in any browser — and so anyone with the link can reach that port until it expires. Daytona keeps 22222, 2280 and 33333 for itself; conch refuses those rather than letting you wonder why the page is wrong. boat.dev's links are the other kind: one per port, at the sandbox's own address, which stays the same the next time you ask and lasts as long as the sandbox — `-expires` means nothing to it.
 
@@ -67,7 +67,7 @@ conch tries the link before opening it. When the proxy reaches the sandbox and f
 
 ## Keeping one to make others from
 
-A sandbox that is set up — the repository cloned, dependencies installed, an agent logged in — can be kept and used as the starting point for the next one. `m` → **Keep a snapshot…**, or `conch sandbox snapshot ID`, names it; `conch sandbox snapshots` lists what is kept and `-rm NAME` forgets one. Then **New sandbox…**, or `conch sandbox create -snapshot NAME`, starts from it.
+A sandbox that is set up — the repository cloned, dependencies installed, an agent logged in — can be kept and used as the starting point for the next one. `m` → **Keep a snapshot…**, or `conch sandbox -provider P snapshot ID`, names it; `conch sandbox -provider P snapshots` lists what is kept and `-rm NAME` forgets one. Then **New sandbox…**, or `conch sandbox -provider P create -snapshot NAME`, starts from it.
 
 Daytona takes a cold snapshot, which wants the sandbox stopped first, and says so if it isn't — nothing is changed when it refuses. boat.dev takes it from a running sandbox instead, and keeps ten named ones, so forgetting one is how you make room. Either way a snapshot takes a few minutes to become usable, is kept until you forget it, and is charged for storage meanwhile.
 
@@ -89,7 +89,7 @@ $0.009 since 26 Sep 09:00
 26 Sep 16:43  1m 35s   $0.002  running · 1 vCPU, 1 GiB, 3 GiB disk
 ```
 
-`conch sandbox usage [-since 720h] ID` prints the same as a table. A provider with nothing to report yet says so rather than showing an empty page.
+`conch sandbox -provider P usage [-since 720h] ID` prints the same as a table. A provider with nothing to report yet says so rather than showing an empty page.
 
 **Stopped is not always free.** The disk a stopped sandbox keeps is charged until the sandbox is deleted — on a small Daytona sandbox that is most of what it costs over a week. boat.dev is the exception: it charges for machine time only, so a stopped sandbox there costs nothing and shows nothing. A stopped sandbox's row shows what it has cost all told, and — while the provider has yet to report anything — the rate its disk keeps costing: `disk $0.23/month` rather than nothing, and the Sandboxes page totals it: *stopped ones keep $0.47/month of disk*. Rates are shown in whatever unit says something — an hour, a day or a month — because a few GiB of disk rounds to `$0.000/h` and tells nobody anything. It is a rate rather than a total because a provider doesn't say when a sandbox stopped, and a total conch cannot know would be worse than the rate it can.
 
@@ -113,27 +113,35 @@ Nothing is started until you say yes: an agent picking up where it left off is n
 
 ## Deleted somewhere else
 
-A sandbox deleted in the provider's own interface is gone as far as conch is concerned, however long Daytona takes to finish: `conch sandbox ls` shows it as `gone` rather than sitting at `destroying`, starting or stopping it says so straight away instead of waiting, and the machine it left behind is cleared with `conch sandbox rm ID` (or **Delete sandbox…** in the tree, which then only tidies up). The listing says as much when anything is in that state.
+A sandbox deleted in the provider's own interface is gone as far as conch is concerned, however long Daytona takes to finish: `conch sandbox -provider P ls` shows it as `gone` rather than sitting at `destroying`, starting or stopping it says so straight away instead of waiting, and the machine it left behind is cleared with `conch sandbox -provider P rm ID` (or **Delete sandbox…** in the tree, which then only tidies up). The listing says as much when anything is in that state.
 
 ## Commands
 
 ```sh
-conch sandbox create -label fix-login          # make one, install conch, add it as a machine
-conch sandbox -provider boat create -label hull   # the same with boat.dev
-conch -m fix-login task -cwd /home/daytona/api "Fix the flaky tests"
-conch sandbox ls                               # conch's sandboxes and their state
-conch sandbox stop fix-login                   # ends its agents and terminals; files stay
-conch sandbox start fix-login
-conch sandbox rm fix-login                     # deletes it and everything in it
+conch sandbox -provider daytona create -label fix-login   # make one, install conch, add it as a machine
+conch sandbox -provider boat create -label hull           # the same with boat.dev
+conch -m fix-login task -cwd /home/daytona/api "Fix the flaky tests"   # a branch in a checkout there
+conch -m fix-login task "Plan a CLI for tracking expenses"             # an agent in its home, no repository (t on its row)
+conch sandbox -provider daytona ls             # conch's Daytona sandboxes and their state
+conch sandbox stats                            # every provider's sandboxes at once
+conch sandbox -provider daytona ssh fix-login  # a shell in it
+conch sandbox -provider daytona ssh fix-login git -C api status   # or one command, exiting with its status
+conch sandbox -provider daytona stop fix-login # ends its agents and terminals; files stay
+conch sandbox -provider daytona start fix-login
+conch sandbox -provider daytona rm fix-login   # deletes it and everything in it
 ```
 
 `create` takes `-snapshot`, `-cpu`, `-memory` and `-disk` (GiB), and `-env NAME` to pass one of your environment variables in, say `CLAUDE_CODE_OAUTH_TOKEN`. A named variable that isn't set is refused before anything is created. If setting conch up fails after the sandbox was made, `create` offers to delete it so it doesn't keep costing; `-yes` deletes it without asking.
 
-`-provider boat` in front of any subcommand says whose sandboxes you mean — `conch sandbox -provider boat ls`, `conch sandbox -provider boat create` — and Daytona is what a command means without it. A subcommand that names a sandbox takes the provider from that sandbox's own machine, so `stop`, `start`, `rm`, `url`, `usage` and `snapshot` need no flag.
+`-provider daytona` or `-provider boat`, in front of any subcommand, says whose sandboxes you mean. Every subcommand but `stats` needs it, and there is no default: a command without it is refused rather than guessing at an account you didn't pick, and a sandbox named under a provider that isn't its own — `-provider boat stop fix-login` for a Daytona sandbox — is refused with the provider it does belong to.
+
+`conch sandbox stats` needs no provider: it asks every provider at once and lists all their sandboxes in one table, with the provider in the first column, then a line for each provider — how many sandboxes it has, how many are in each state, the vCPUs and memory of the running ones, and how many have no machine here. A provider with no key says it is not set up; one that can't be asked (a bad key, the service down) says why, shows its machines' state as `?`, and makes the command fail, so a script can tell. `-provider P` narrows it to one.
+
+`conch sandbox -provider P ssh ID` opens a shell in a running sandbox, through the same fresh access conch connects with, so there is no token to copy. Anything after the ID is run there instead, and it exits with its status, so it works in scripts; `-t` gives such a command a terminal, for one that draws a screen (`conch sandbox -provider daytona ssh -t fix-login htop`). A stopped sandbox is refused with the command that starts it.
 
 `start`, `stop` and `rm` take the machine's ID or label, or the provider's own sandbox ID. `stop` and `rm` ask first; `-y` doesn't. Before deleting a running sandbox, `rm` lists branches there with commits no remote has and uncommitted changes.
 
-`conch sandbox ls` also lists sandboxes with no machine here — one whose setting up failed, one removed with `conch machine rm`, or, with a provider that lists the whole account rather than only conch's own (boat.dev has no labels to tell them apart), one you made yourself. They show with `-` for the ID and label, and a line underneath says so: they cost until `conch sandbox rm ID` deletes them. The size column names only what the provider reports, so a boat.dev sandbox shows `4 vCPU, 8 GiB` rather than inventing a disk it said nothing about.
+`conch sandbox -provider P ls` also lists sandboxes with no machine here — one whose setting up failed, one removed with `conch machine rm`, or, with a provider that lists the whole account rather than only conch's own (boat.dev has no labels to tell them apart), one you made yourself. They show with `-` for the ID and label, and a line underneath says so: they cost until `conch sandbox -provider P rm ID` deletes them. The size column names only what the provider reports, so a boat.dev sandbox shows `4 vCPU, 8 GiB` rather than inventing a disk it said nothing about.
 
 ## Running until you stop it
 
@@ -141,7 +149,7 @@ Daytona stops an idle sandbox after 15 minutes by default, and an agent working 
 
 boat.dev is the other way about: a sandbox is given a length of life when it is made, counted from then and not from the last thing that happened in it. conch asks for two hours, which is what the free trial allows, and Settings → **Sandboxes** → **boat.dev** → **Life** (`auto_stop`, in minutes) raises it on a paid plan; a plan that allows less says so, and conch asks again for the longest it named instead of failing. conch's own idle watch stops a sandbox nobody is using long before that clock runs out, and **Start sandbox** gives it a fresh two hours.
 
-conch never starts a stopped sandbox by itself: use **Start sandbox** in its menu, or `conch sandbox start`.
+conch never starts a stopped sandbox by itself: use **Start sandbox** in its menu, or `conch sandbox -provider P start ID`.
 
 ## Getting the work out
 

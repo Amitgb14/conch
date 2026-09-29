@@ -73,7 +73,9 @@ Usage:
   conch project add PATH | create [-no-git] PATH | ls | rm ID
                                 manage projects shown in the sidebar
   conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] PROMPT
-                                new branch + worktree + Claude with PROMPT (-cwd needed with -m);
+                                new branch + worktree + Claude with PROMPT; in a folder that isn't a
+                                git repository the agent works there instead (with -m and no -cwd:
+                                that machine's home);
                                 -n / several agents try it once each, one branch per attempt;
                                 -name names the pane
   conch branch commit [-file PATH]... -m MESSAGE
@@ -87,18 +89,25 @@ Usage:
   conch machine add [-label L] SSH_TARGET
                                 add a remote machine (installs conch there)
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
-  conch sandbox [-provider daytona|boat] create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
+  conch sandbox -provider daytona|boat create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
                                 make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY)
                                 and add it as a machine; it runs until stopped, so agents keep
-                                going with the TUI closed
-  conch sandbox ls | start ID | stop [-y] ID | rm [-y] ID
-  conch sandbox url [-expires 1h] [-open] ID PORT
-                                a link to a port inside a sandbox
-  conch sandbox usage [-since 720h] ID
-                                what a sandbox has cost, period by period
-  conch sandbox snapshot [-name N] ID | snapshots [-rm NAME]
-                                keep a sandbox to make others from, or list what is kept
+                                going with the TUI closed. Every sandbox command but stats needs
+                                -provider: there is no default, and a sandbox named under another
+                                provider is refused
+  conch sandbox stats           every provider's sandboxes, their state and size, and a line
+                                per provider (-provider P narrows it to one)
+  conch sandbox -provider P ls | start ID | stop [-y] ID | rm [-y] ID
                                 list conch's sandboxes, start or stop one, or delete it for good
+  conch sandbox -provider P ssh [-t] ID [COMMAND...]
+                                a shell in a running sandbox, or COMMAND run there
+                                (-t gives it a terminal); exits with its status
+  conch sandbox -provider P url [-expires 1h] [-open] ID PORT
+                                a link to a port inside a sandbox
+  conch sandbox -provider P usage [-since 720h] ID
+                                what a sandbox has cost, period by period
+  conch sandbox -provider P snapshot [-name N] ID | snapshots [-rm NAME]
+                                keep a sandbox to make others from, or list what is kept
   conch -m MACHINE COMMAND      run a command against a remote machine
   conch -m MACHINE upload FILE...
                                 copy files to a machine's uploads folder and print their paths there
@@ -181,6 +190,10 @@ func main() {
 	if errors.As(err, &late) {
 		fmt.Fprintln(os.Stderr, "conch:", err)
 		os.Exit(124) // as timeout(1) does, so a script can tell it apart
+	}
+	var status exitStatus
+	if errors.As(err, &status) {
+		os.Exit(int(status)) // a command run elsewhere; it has said why
 	}
 	var blocked agentBlocked
 	if errors.As(err, &blocked) {

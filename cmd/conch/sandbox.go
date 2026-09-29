@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -19,19 +20,17 @@ import (
 	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
-// defaultSandboxProvider is whose sandboxes a command means when nothing
-// says otherwise.
-const defaultSandboxProvider = "daytona"
-
-// sandboxProvider is the provider a command works with. A command that
-// names a sandbox takes the provider from that sandbox's own machine, so
-// the flag is only for making one, or for listing what a provider holds.
-var sandboxProvider = defaultSandboxProvider
+// sandboxProvider is the provider a command works with. Every command but
+// stats must name one: there is no default, since a provider the user
+// never chose could bill an account they didn't mean, and a sandbox named
+// under the wrong provider is refused rather than quietly taken from its
+// machine.
+var sandboxProvider string
 
 // takeProvider pulls -provider NAME out of the arguments before the
 // subcommand sees them, so it can be given in front of any of them.
 func takeProvider(args []string) ([]string, error) {
-	sandboxProvider = defaultSandboxProvider // each command starts clean
+	sandboxProvider = "" // each command starts clean
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		name := ""
@@ -70,6 +69,12 @@ func runSandbox(args []string) error {
 	if len(args) == 0 {
 		args = []string{"ls"}
 	}
+	if args[0] == "stats" {
+		return sandboxStats(args[1:])
+	}
+	if sandboxProvider == "" {
+		return errNoProvider()
+	}
 	switch args[0] {
 	case "create", "new":
 		return sandboxCreate(args[1:])
@@ -89,6 +94,8 @@ func runSandbox(args []string) error {
 		return sandboxSnapshots(args[1:])
 	case "usage", "cost":
 		return sandboxUsage(args[1:])
+	case "ssh", "shell", "exec":
+		return sandboxShell(args[1:])
 	}
 	return fmt.Errorf("unknown sandbox subcommand %q", args[0])
 }
@@ -99,7 +106,28 @@ type names []string
 func (n *names) String() string     { return strings.Join(*n, ",") }
 func (n *names) Set(v string) error { *n = append(*n, v); return nil }
 
+// errNoProvider asks for the provider every command but stats needs.
+func errNoProvider() error {
+	return fmt.Errorf("which provider? give -provider NAME (%s), e.g. conch sandbox -provider daytona ls; conch sandbox stats shows them all",
+		strings.Join(sandbox.Providers, ", "))
+}
+
+// sandboxCmd is a conch sandbox command line to suggest, with the provider
+// it needs.
+func sandboxCmd(provider, rest string) string {
+	return "conch sandbox -provider " + provider + " " + rest
+}
+
+// wrongProvider refuses a sandbox named under a provider that isn't its own.
+func wrongProvider(ref, provider string) error {
+	return fmt.Errorf("%s is a %s sandbox, not %s: give -provider %s",
+		ref, sandbox.ProviderLabel(provider), sandbox.ProviderLabel(sandboxProvider), provider)
+}
+
 func openSandboxes() (sandbox.Provider, error) {
+	if sandboxProvider == "" {
+		return nil, errNoProvider()
+	}
 	p, err := remote.OpenProvider(sandboxProvider)
 	if err != nil {
 		return nil, err
@@ -121,7 +149,7 @@ func sandboxCreate(args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return errors.New("usage: conch sandbox create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]")
+		return errors.New("usage: conch sandbox -provider P create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]")
 	}
 	if *cpu < 0 || *memory < 0 || *disk < 0 {
 		return errors.New("-cpu, -memory and -disk can't be negative")
@@ -174,13 +202,13 @@ func sandboxCreate(args []string) error {
 // it costs for as long as it runs.
 func abandonSandbox(p sandbox.Provider, id string, yes bool) {
 	if !yes && !confirm(fmt.Sprintf("  Setting up sandbox %s failed. Delete it? [Y/n] ", id), true) {
-		fmt.Fprintf(os.Stderr, "  kept it; delete it with: conch sandbox rm %s\n", id)
+		fmt.Fprintf(os.Stderr, "  kept it; delete it with: %s\n", sandboxCmd(p.Name(), "rm "+id))
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if err := p.Delete(ctx, id); err != nil && !errors.Is(err, sandbox.ErrNotFound) {
-		fmt.Fprintf(os.Stderr, "  couldn't delete it (%v); try: conch sandbox rm %s\n", err, id)
+		fmt.Fprintf(os.Stderr, "  couldn't delete it (%v); try: %s\n", err, sandboxCmd(p.Name(), "rm "+id))
 		return
 	}
 	fmt.Fprintf(os.Stderr, "  deleted sandbox %s\n", id)
@@ -237,12 +265,12 @@ func sandboxList() error {
 		return err
 	}
 	if stray > 0 {
-		fmt.Fprintf(os.Stderr, "\n%d with no machine here: made outside conch, or its machine was removed · conch sandbox rm ID deletes one, and it costs until then\n", stray)
+		fmt.Fprintf(os.Stderr, "\n%d with no machine here: made outside conch, or its machine was removed · %s deletes one, and it costs until then\n", stray, sandboxCmd(sandboxProvider, "rm ID"))
 	}
 	if gone > 0 {
 		// Deleted in Daytona's own interface, say: the machine is still
 		// here, and nothing else says how to be rid of it.
-		fmt.Fprintf(os.Stderr, "\n%d gone: deleted outside conch · conch sandbox rm ID removes what is left here\n", gone)
+		fmt.Fprintf(os.Stderr, "\n%d gone: deleted outside conch · %s removes what is left here\n", gone, sandboxCmd(sandboxProvider, "rm ID"))
 	}
 	return nil
 }
@@ -284,11 +312,15 @@ func resolveSandbox(ref string) (m *remote.Machine, id string, err error) {
 		if !ok {
 			return nil, "", fmt.Errorf("%s is not a sandbox", ref)
 		}
-		sandboxProvider = provider // the sandbox says whose it is
+		if provider != sandboxProvider {
+			return nil, "", wrongProvider(ref, provider)
+		}
 		return &ms[i], id, nil
 	}
 	if provider, id, ok := remote.ParseSandboxTarget(ref); ok {
-		sandboxProvider = provider
+		if provider != sandboxProvider {
+			return nil, "", wrongProvider(ref, provider)
+		}
 		return nil, id, nil
 	}
 	if strings.ContainsAny(ref, "@/: ") {
@@ -306,7 +338,7 @@ func sandboxName(m *remote.Machine, id string) string {
 
 func sandboxStart(args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: conch sandbox start ID")
+		return errors.New("usage: conch sandbox -provider P start ID")
 	}
 	m, id, err := resolveSandbox(args[0])
 	if err != nil {
@@ -333,7 +365,7 @@ func sandboxStop(args []string) error {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: conch sandbox stop [-y] ID")
+		return errors.New("usage: conch sandbox -provider P stop [-y] ID")
 	}
 	m, id, err := resolveSandbox(fs.Arg(0))
 	if err != nil {
@@ -365,7 +397,7 @@ func sandboxURL(args []string) error {
 		return err
 	}
 	if fs.NArg() != 2 {
-		return errors.New("usage: conch sandbox url [-expires 1h] [-open] ID PORT")
+		return errors.New("usage: conch sandbox -provider P url [-expires 1h] [-open] ID PORT")
 	}
 	port, err := strconv.Atoi(fs.Arg(1))
 	if err != nil || port < 1 || port > 65535 {
@@ -420,7 +452,7 @@ func sandboxSnapshot(args []string) error {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: conch sandbox snapshot [-name N] ID")
+		return errors.New("usage: conch sandbox -provider P snapshot [-name N] ID")
 	}
 	m, id, err := resolveSandbox(fs.Arg(0))
 	if err != nil {
@@ -444,7 +476,7 @@ func sandboxSnapshot(args []string) error {
 		return err
 	}
 	fmt.Printf("keeping %s as %s\n", sandboxName(m, id), label)
-	fmt.Fprintf(os.Stderr, "it takes a few minutes to become usable · conch sandbox create -snapshot %s makes one from it\n", label)
+	fmt.Fprintf(os.Stderr, "it takes a few minutes to become usable · %s makes one from it\n", sandboxCmd(sandboxProvider, "create -snapshot "+label))
 	return nil
 }
 
@@ -477,7 +509,7 @@ func sandboxSnapshots(args []string) error {
 		return err
 	}
 	if len(list) == 0 {
-		fmt.Fprintln(os.Stderr, "no snapshots · conch sandbox snapshot ID keeps one")
+		fmt.Fprintln(os.Stderr, "no snapshots · "+sandboxCmd(sandboxProvider, "snapshot ID")+" keeps one")
 		return nil
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -533,7 +565,7 @@ func sandboxUsage(args []string) error {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: conch sandbox usage [-since 720h] ID")
+		return errors.New("usage: conch sandbox -provider P usage [-since 720h] ID")
 	}
 	m, id, err := resolveSandbox(fs.Arg(0))
 	if err != nil {
@@ -576,7 +608,7 @@ func sandboxRemove(args []string) error {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: conch sandbox rm [-y] ID")
+		return errors.New("usage: conch sandbox -provider P rm [-y] ID")
 	}
 	m, id, err := resolveSandbox(fs.Arg(0))
 	if err != nil {
@@ -601,7 +633,7 @@ func sandboxRemove(args []string) error {
 	defer cancel()
 	switch err := p.Delete(ctx, id); {
 	case errors.Is(err, sandbox.ErrNotFound):
-		fmt.Fprintf(os.Stderr, "  %s was already gone from Daytona\n", name)
+		fmt.Fprintf(os.Stderr, "  %s was already gone from %s\n", name, sandbox.ProviderLabel(sandboxProvider))
 	case err != nil:
 		return err
 	}
@@ -639,4 +671,200 @@ func unsavedWork(m remote.Machine) []string {
 		return []string{"couldn't check for work that isn't pushed: " + err.Error()}
 	}
 	return remote.UnsavedWork(list.Projects)
+}
+
+// exitStatus is a command run elsewhere that exited non-zero: its own
+// output has said why, so main exits with its status and adds nothing.
+type exitStatus int
+
+func (e exitStatus) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
+
+// sandboxShellCommand builds the ssh for conch sandbox ssh; tests replace
+// the ssh binary through $CONCH_SSH, not this.
+var sandboxShellCommand = remote.SandboxShell
+
+// sandboxShell opens a shell in a sandbox, or runs a command there, over
+// the same fresh access conch itself connects with.
+func sandboxShell(args []string) error {
+	fs := flag.NewFlagSet("sandbox ssh", flag.ContinueOnError)
+	tty := fs.Bool("t", false, "give the command a terminal, for one that draws a screen")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		return errors.New("usage: conch sandbox -provider P ssh [-t] ID [COMMAND...]")
+	}
+	m, id, err := resolveSandbox(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	label, target := sandboxName(m, id), remote.SandboxTarget(sandboxProvider, id)
+	if m != nil {
+		target = m.Target
+	}
+	command := strings.Join(fs.Args()[1:], " ")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd, err := sandboxShellCommand(ctx, label, target, command, *tty)
+	var stopped *remote.SandboxStoppedError
+	if errors.As(err, &stopped) {
+		return fmt.Errorf("%w; run: %s", err, sandboxCmd(sandboxProvider, "start "+fs.Arg(0)))
+	}
+	if err != nil {
+		return err
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	err = cmd.Run()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() > 0 {
+		return exitStatus(exit.ExitCode())
+	}
+	return err
+}
+
+// providerStats is what one provider said for conch sandbox stats.
+type providerStats struct {
+	name  string
+	boxes []sandbox.Sandbox
+	err   error // nil, or why it couldn't be asked
+}
+
+// sandboxStats lists every provider's sandboxes together, with a line per
+// provider, so nothing running and costing hides behind a provider nobody
+// thought to ask. -provider narrows it to one.
+func sandboxStats(args []string) error {
+	if len(args) != 0 {
+		return errors.New("usage: conch sandbox stats [-provider P]")
+	}
+	ms, err := remote.Machines()
+	if err != nil {
+		return err
+	}
+	names := sandbox.Providers
+	if sandboxProvider != "" {
+		names = []string{sandboxProvider}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	// Ask them all at once: one that hangs costs its own wait, not theirs.
+	stats := make([]providerStats, len(names))
+	var wg sync.WaitGroup
+	for i, name := range names {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			stats[i] = providerStats{name: name}
+			p, err := remote.OpenProvider(name)
+			if err == nil {
+				err = p.Check()
+			}
+			if err == nil {
+				stats[i].boxes, err = p.List(ctx)
+			}
+			stats[i].err = err
+		}()
+	}
+	wg.Wait()
+
+	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "PROVIDER\tID\tLABEL\tSANDBOX\tSTATE\tSIZE")
+	var summary []string
+	failed := 0
+	for _, st := range stats {
+		label := sandbox.ProviderLabel(st.name)
+		byID := map[string]sandbox.Sandbox{}
+		for _, s := range st.boxes {
+			byID[s.ID] = s
+		}
+		states := map[string]int{}
+		var order []string
+		count := func(state string) {
+			if states[state] == 0 {
+				order = append(order, state)
+			}
+			states[state]++
+		}
+		cpu, mem := 0, 0
+		machines := 0
+		for _, m := range ms {
+			provider, id, ok := remote.ParseSandboxTarget(m.Target)
+			if !ok || provider != st.name {
+				continue
+			}
+			machines++
+			s, found := byID[id]
+			delete(byID, id)
+			state := "gone"
+			switch {
+			case st.err != nil:
+				state = "?" // the provider couldn't be asked
+			case found:
+				state = string(s.State)
+			}
+			if st.err == nil {
+				count(state)
+			}
+			if s.State == sandbox.StateStarted {
+				cpu, mem = cpu+s.CPU, mem+s.Memory
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", label, m.ID, m.Label, id, state, size(s))
+		}
+		stray := 0
+		for _, s := range st.boxes {
+			if _, left := byID[s.ID]; !left {
+				continue
+			}
+			stray++
+			count(string(s.State))
+			if s.State == sandbox.StateStarted {
+				cpu, mem = cpu+s.CPU, mem+s.Memory
+			}
+			fmt.Fprintf(tw, "%s\t-\t-\t%s\t%s\t%s\n", label, s.ID, s.State, size(s))
+		}
+		switch {
+		case errors.Is(st.err, sandbox.ErrNotConfigured) && machines == 0:
+			summary = append(summary, fmt.Sprintf("%s: not set up (%v)", label, st.err))
+		case st.err != nil:
+			failed++
+			summary = append(summary, fmt.Sprintf("%s: couldn't ask it: %v", label, st.err))
+		default:
+			line := fmt.Sprintf("%s: %s", label, counted(machines+stray, "sandbox"))
+			var parts []string
+			for _, state := range order {
+				parts = append(parts, fmt.Sprintf("%d %s", states[state], state))
+			}
+			if len(parts) > 0 {
+				line += " · " + strings.Join(parts, ", ")
+			}
+			if cpu > 0 || mem > 0 {
+				line += fmt.Sprintf(" · %d vCPU, %d GiB running", cpu, mem)
+			}
+			if stray > 0 {
+				line += fmt.Sprintf(" · %d with no machine here", stray)
+			}
+			summary = append(summary, line)
+		}
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	fmt.Println()
+	for _, line := range summary {
+		fmt.Println(line)
+	}
+	if failed > 0 {
+		return fmt.Errorf("%s of %d couldn't be asked", counted(failed, "provider"), len(stats))
+	}
+	return nil
+}
+
+// counted is n and what, made plural when n isn't one.
+func counted(n int, what string) string {
+	if n == 1 {
+		return "1 " + what
+	}
+	if strings.HasSuffix(what, "x") {
+		return fmt.Sprintf("%d %ses", n, what)
+	}
+	return fmt.Sprintf("%d %ss", n, what)
 }

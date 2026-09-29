@@ -157,7 +157,8 @@ func TestSandboxRowAndMenu(t *testing.T) {
 		t.Fatalf("stopped menu: %s", got)
 	}
 	page := ansi.Strip(strings.Join(m.machineLines(mach, 100, 30), "\n"))
-	if !strings.Contains(page, "sandbox stopped: its files are kept") || !strings.Contains(page, "m → Start sandbox") {
+	if !strings.Contains(page, "sandbox stopped: its files are kept") || !strings.Contains(page, "m → Start sandbox") ||
+		!strings.Contains(page, "conch sandbox -provider daytona start "+mach.id) {
 		t.Fatalf("stopped page:\n%s", page)
 	}
 
@@ -428,7 +429,7 @@ func TestSandboxCreateFailures(t *testing.T) {
 	// And if deleting fails too, it says how to clean up.
 	p.opErr = errors.New("daytona: down (503)")
 	got = a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, "")))
-	if !strings.Contains(got, "deleting it failed too (daytona: down (503)): conch sandbox rm sb9") {
+	if !strings.Contains(got, "deleting it failed too (daytona: down (503)): conch sandbox -provider daytona rm sb9") {
 		t.Fatalf("%q", got)
 	}
 	// A build that fails still leaves an ID to delete.

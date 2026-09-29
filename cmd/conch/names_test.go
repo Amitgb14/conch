@@ -238,7 +238,7 @@ func TestA4TaskName(t *testing.T) {
 			srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
 				switch msg.Method {
 				case proto.MethodProjectAdd:
-					return proto.ProjectInfo{ID: "proj1", Name: "api"}, nil
+					return proto.ProjectInfo{ID: "proj1", Name: "api", Git: true}, nil
 				case proto.MethodTaskCreate:
 					return proto.PaneInfo{ID: "p5", Name: "claude", Cwd: "/src/wt", Branch: "review"}, nil
 				case proto.MethodPaneRename:
@@ -268,7 +268,7 @@ func TestA4TaskName(t *testing.T) {
 	srv := startA4Server(t, config.SocketPath())
 	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
 		if msg.Method == proto.MethodProjectAdd {
-			return proto.ProjectInfo{ID: "proj1", Name: "api"}, nil
+			return proto.ProjectInfo{ID: "proj1", Name: "api", Git: true}, nil
 		}
 		return nil, nil
 	})
@@ -359,7 +359,7 @@ func fakeTaskServer(t *testing.T, old bool, panes []proto.PaneInfo, rename *prot
 	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
 		switch msg.Method {
 		case proto.MethodProjectAdd:
-			return proto.ProjectInfo{ID: "proj1", Name: "api"}, nil
+			return proto.ProjectInfo{ID: "proj1", Name: "api", Git: true}, nil
 		case proto.MethodPaneList:
 			return proto.PaneList{Panes: panes}, nil
 		case proto.MethodTaskCreate:

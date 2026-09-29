@@ -383,7 +383,7 @@ func createSandboxWith(provider string, spec sandbox.Spec, label string, ch chan
 		dctx, dcancel := context.WithTimeout(context.Background(), time.Minute)
 		defer dcancel()
 		if derr := p.Delete(dctx, s.ID); derr != nil && !errors.Is(derr, sandbox.ErrNotFound) {
-			return errMsg{fmt.Errorf("setting up sandbox %s failed: %v; deleting it failed too (%v): conch sandbox rm %s", s.ID, err, derr, s.ID)}
+			return errMsg{fmt.Errorf("setting up sandbox %s failed: %v; deleting it failed too (%v): conch sandbox -provider %s rm %s", s.ID, err, derr, p.Name(), s.ID)}
 		}
 		return errMsg{fmt.Errorf("setting up sandbox %s failed, so it was deleted: %w", s.ID, err)}
 	}

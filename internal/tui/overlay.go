@@ -150,8 +150,12 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if proj := m.project(r.machine, r.projectID); proj != nil {
 			title = proj.Name
 		}
+		taskLabel := "New task (branch + worktree + agent)"
+		if proj := m.project(r.machine, r.projectID); proj != nil && !proj.Git {
+			taskLabel = "New task (an agent with a prompt, here)"
+		}
 		items = []menuItem{
-			{"t", "New task (branch + worktree + agent)", act("t")},
+			{"t", taskLabel, act("t")},
 			{"c", "Start an agent in project…", act("c")},
 			{"n", "Open terminal in project", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
@@ -188,6 +192,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if mach.state == stateOnline {
 			items = append(items,
 				menuItem{"c", "Start or install an agent…", act("c")},
+				menuItem{"t", "New task in the home directory…", act("t")},
 				menuItem{"a", "Add project…", act("a")},
 				menuItem{"n", "New terminal", act("n")},
 			)
@@ -823,7 +828,8 @@ var helpText = []string{
 	"  f      files: browse the checkout of the selected project, or of a branch's worktree",
 	"",
 	"Create",
-	"  t  new task: branch + worktree + an agent with a prompt (Attempts: try it several times)",
+	"  t  new task: branch + worktree + an agent with a prompt (Attempts: try it several times);",
+	"     on a machine, or a folder that isn't a git repository, the agent works right there",
 	"  c  start an agent here: pick Claude, Codex, Gemini or OpenCode (click or 1-9)",
 	"  n  terminal here       a  add or create a project",
 	"  M  add machine: over ssh, or a new sandbox · sandboxes group under Sandboxes → provider",

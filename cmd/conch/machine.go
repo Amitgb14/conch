@@ -116,8 +116,8 @@ func machineAdd(args []string) error {
 		return errors.New("usage: conch machine add [-label NAME] [-yes] SSH_TARGET")
 	}
 	target := fs.Arg(0)
-	if _, _, ok := remote.ParseSandboxTarget(target); ok {
-		return fmt.Errorf("%s is a sandbox: make one with conch sandbox create", target)
+	if provider, _, ok := remote.ParseSandboxTarget(target); ok {
+		return fmt.Errorf("%s is a sandbox: make one with conch sandbox -provider %s create", target, provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -201,8 +201,8 @@ func transports(ctx context.Context, m remote.Machine) (watched, background remo
 // sandboxAdvice adds what to run to a stopped sandbox's error.
 func sandboxAdvice(err error, m remote.Machine) error {
 	var stopped *remote.SandboxStoppedError
-	if errors.As(err, &stopped) {
-		return fmt.Errorf("%w; run: conch sandbox start %s", err, m.ID)
+	if provider, _, ok := remote.ParseSandboxTarget(m.Target); ok && errors.As(err, &stopped) {
+		return fmt.Errorf("%w; run: %s", err, sandboxCmd(provider, "start "+m.ID))
 	}
 	return err
 }

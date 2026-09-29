@@ -434,7 +434,8 @@ func TestA4DashMMachine(t *testing.T) {
 // conch -m MACHINE new without -cwd used to send this computer's working
 // directory, which the remote server refused ("directory … does not
 // exist"). It now leaves the directory to the server: that machine's home,
-// as a machine-level pane. conch task needs a real directory there.
+// as a machine-level pane. conch task does the same: its agent starts in
+// that home with the prompt, no repository needed.
 func TestA4DashMCwd(t *testing.T) {
 	a4Env(t)
 	f := newA4SSH(t)
@@ -445,7 +446,7 @@ func TestA4DashMCwd(t *testing.T) {
 		case proto.MethodPaneCreate:
 			return proto.PaneInfo{ID: "r3"}, nil
 		case proto.MethodProjectAdd:
-			return proto.ProjectInfo{ID: "rproj"}, nil
+			return proto.ProjectInfo{ID: "rproj", Git: true}, nil
 		case proto.MethodTaskCreate:
 			return proto.PaneInfo{ID: "r4", Cwd: "/home/dev/src/api-wt", Branch: "go"}, nil
 		}
@@ -501,10 +502,6 @@ func TestA4DashMCwd(t *testing.T) {
 		}
 	}
 
-	// task: no project here to guess from.
-	if err := runTask([]string{"go"}); err == nil || !strings.Contains(err.Error(), "conch -m gpu task needs -cwd") {
-		t.Fatalf("remote task without -cwd: %v", err)
-	}
 	remoteSrv.mu.Lock()
 	sent := remoteSrv.calls[calls:]
 	remoteSrv.mu.Unlock()
@@ -513,7 +510,36 @@ func TestA4DashMCwd(t *testing.T) {
 			t.Fatalf("refused command still sent %s", c.Method)
 		}
 	}
+
+	// task with no -cwd: the agent starts in that machine's home with the
+	// prompt, no project made of it and no repository asked for.
 	var tout string
+	tout, _ = a4Capture(t, "", func() { err = runTask([]string{"-agent", "codex", "plan", "the", "work"}) })
+	var home proto.PaneCreateParams
+	remoteSrv.params(t, proto.MethodPaneCreate, &home)
+	if err != nil || tout != "r3  \n" || home.Cwd != "" || !home.NoProject || home.Agent != "codex" || home.Prompt != "plan the work" {
+		t.Fatalf("remote task in home: %q %+v %v", tout, home, err)
+	}
+	// With no default agent set it is claude, as a task's always was — not
+	// a shell, which a pane with no agent would be.
+	a4Capture(t, "", func() { err = runTask([]string{"go"}) })
+	remoteSrv.params(t, proto.MethodPaneCreate, &home)
+	if err != nil || home.Agent != "claude" || !home.NoProject {
+		t.Fatalf("default agent: %+v %v", home, err)
+	}
+	// A machine that can't be reached: nothing starts, and it says why.
+	t.Setenv("A4_PROBE_FAIL", "ssh: connect to host gpu.lab port 22: Connection refused")
+	if err := runTask([]string{"go"}); err == nil || !strings.Contains(err.Error(), "Connection refused") {
+		t.Fatalf("unreachable machine: %v", err)
+	}
+	t.Setenv("A4_PROBE_FAIL", "")
+	// A branch means nothing in a home that isn't a repository.
+	for _, args := range [][]string{{"-branch", "b", "go"}, {"-base", "main", "go"}} {
+		if err := runTask(args); err == nil || !strings.Contains(err.Error(), "need a git repository, and the home directory of gpu is not one") {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+
 	tout, _ = a4Capture(t, "", func() { err = runTask([]string{"-cwd", "/home/dev/src/api", "go"}) })
 	var add proto.ProjectAddParams
 	remoteSrv.params(t, proto.MethodProjectAdd, &add)
