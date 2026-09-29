@@ -382,3 +382,88 @@ func TestOpenProviderFromTheSettings(t *testing.T) {
 		t.Fatalf("an unknown provider: %v", err)
 	}
 }
+
+// SandboxShell is ssh for a person: a shell when there is no command, the
+// command otherwise, its own connection, and a terminal only when asked.
+func TestSandboxShell(t *testing.T) {
+	a4Env(t)
+	t.Setenv("CONCH_SSH", "/fake/ssh")
+	ctx := context.Background()
+	p := &fakeProvider{state: sandbox.StateStarted}
+	useProvider(t, p, nil)
+
+	cmd, err := SandboxShell(ctx, "box", "daytona:sb1", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Join(cmd.Args, " ")
+	if cmd.Args[0] != "/fake/ssh" || !strings.HasSuffix(args, "-- ssh://tok-secret@gw.test:2222") {
+		t.Fatalf("shell: %s", args)
+	}
+	for _, want := range []string{"ControlPath=none", "StrictHostKeyChecking=accept-new"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("shell lacks %q: %s", want, args)
+		}
+	}
+	// A shell prompts nobody through the batch options background runs use,
+	// and gets no forced terminal: ssh gives it one when there is one here.
+	for _, not := range []string{"BatchMode", " -T", " -t", "IdentitiesOnly"} {
+		if strings.Contains(args, not) {
+			t.Errorf("shell has %q: %s", not, args)
+		}
+	}
+	if cmd.Cancel != nil {
+		t.Fatal("a shell must outlive the context used to ask for access")
+	}
+
+	cmd, err = SandboxShell(ctx, "box", "daytona:sb1", "ls -la /tmp", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := len(cmd.Args)
+	if cmd.Args[n-1] != "ls -la /tmp" || cmd.Args[n-2] != "ssh://tok-secret@gw.test:2222" || !strings.Contains(strings.Join(cmd.Args, " "), " -t ") {
+		t.Fatalf("command: %q", cmd.Args)
+	}
+	if p.accesses != 2 {
+		t.Fatalf("each shell asks for fresh access; asked %d times", p.accesses)
+	}
+
+	// A key-authorized sandbox offers that key.
+	_, keyPath := ownKey(t)
+	useNamedProvider(t, "boat", &keyProvider{fakeProvider: fakeProvider{state: sandbox.StateStarted}}, nil)
+	cmd, err = SandboxShell(ctx, "hull", "boat:bx_1", "uptime", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args = strings.Join(cmd.Args, " ")
+	if !strings.Contains(args, "-i "+strings.TrimSuffix(keyPath, ".pub")+" -o IdentitiesOnly=yes") || !strings.HasSuffix(args, "-- user@203.0.113.5 uptime") {
+		t.Fatalf("key shell: %s", args)
+	}
+}
+
+func TestSandboxShellRefuses(t *testing.T) {
+	a4Env(t)
+	ctx := context.Background()
+	useProvider(t, nil, errors.New("must not be opened"))
+	for _, target := range []string{"dev@gpu.lab", "", "fly:sb1", "daytona:"} {
+		if _, err := SandboxShell(ctx, "gpu", target, "", false); err == nil || err.Error() != "gpu is not a sandbox" {
+			t.Errorf("%q: %v", target, err)
+		}
+	}
+	p := &fakeProvider{state: sandbox.StateStopped}
+	useProvider(t, p, nil)
+	var stopped *SandboxStoppedError
+	if _, err := SandboxShell(ctx, "box", "daytona:sb1", "", false); !errors.As(err, &stopped) || p.accesses != 0 {
+		t.Fatalf("stopped: %v, %d tokens", err, p.accesses)
+	}
+	useProvider(t, &fakeProvider{getErr: sandbox.ErrNotFound}, nil)
+	if _, err := SandboxShell(ctx, "box", "daytona:sb1", "", false); err == nil || !strings.Contains(err.Error(), "no longer exists") {
+		t.Fatalf("deleted: %v", err)
+	}
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	useProvider(t, &fakeProvider{getErr: context.Canceled}, nil)
+	if _, err := SandboxShell(cctx, "box", "daytona:sb1", "", false); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled: %v", err)
+	}
+}

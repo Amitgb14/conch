@@ -20,6 +20,12 @@ conch task -cwd ~/src/api "Add a health check endpoint"   # pane, worktree, bran
 
 `conch task` also takes `-branch B` to name the branch and `-base B` to start from another branch than the project's base.
 
+No git repository is needed. `t` on a machine row — a sandbox's included — asks for a prompt, an agent and a number of attempts, and starts the agent in that machine's home directory, outside every project; `t` on a project that isn't a repository does the same in its folder. From a shell, in a folder that isn't one, `conch task` starts the agent there with the prompt — no branch, no worktree — which is what you want for a planning agent or a scratch folder. `-branch` and `-base` are refused there, and several attempts (`-n`, or several agents) share the folder, which conch says as it starts them. With `-m MACHINE` and no `-cwd`, the agent starts in that machine's home directory, outside every project:
+
+```sh
+conch -m fix-login task -agent claude "Plan a CLI for tracking expenses"   # in the sandbox's home
+```
+
 - `c`/`n` on a branch that isn't checked out creates its worktree first.
 - `x` on a branch removes its worktree (never with uncommitted changes, never the main one).
 

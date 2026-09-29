@@ -169,7 +169,7 @@ func TestA4Task(t *testing.T) {
 	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
 		switch msg.Method {
 		case proto.MethodProjectAdd:
-			return proto.ProjectInfo{ID: "proj1"}, nil
+			return proto.ProjectInfo{ID: "proj1", Git: true}, nil
 		case proto.MethodTaskCreate:
 			return proto.PaneInfo{ID: "p5", Cwd: "/src/wt", Branch: "fix-tests"}, nil
 		}
@@ -204,7 +204,7 @@ func TestA4Task(t *testing.T) {
 		if msg.Method == proto.MethodTaskCreate {
 			return nil, proto.Errorf(proto.ErrBadRequest, "dirty worktree")
 		}
-		return proto.ProjectInfo{ID: "proj1"}, nil
+		return proto.ProjectInfo{ID: "proj1", Git: true}, nil
 	})
 	if err := runTask([]string{"x"}); err == nil || !strings.Contains(err.Error(), "dirty worktree") {
 		t.Fatalf("task create error: %v", err)
@@ -214,6 +214,77 @@ func TestA4Task(t *testing.T) {
 	})
 	if err := runTask([]string{"x"}); err == nil || !strings.Contains(err.Error(), "not a git repo") {
 		t.Fatalf("project add error: %v", err)
+	}
+}
+
+// A task in a folder that isn't a git repository starts its agents there
+// with the prompt: no branch, no worktree, and nothing asked of git.
+func TestA4TaskWithoutGit(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	var creates a4Var[[]proto.PaneCreateParams]
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodProjectAdd:
+			return proto.ProjectInfo{ID: "notes", Path: "/src/notes"}, nil
+		case proto.MethodPaneCreate:
+			var p proto.PaneCreateParams
+			json.Unmarshal(msg.Params, &p)
+			creates.Set(append(creates.Get(), p))
+			if p.Agent == "gemini" {
+				return nil, proto.Errorf(proto.ErrBadRequest, "gemini is not installed")
+			}
+			return proto.PaneInfo{ID: fmt.Sprintf("p%d", len(creates.Get())), Cwd: p.Cwd}, nil
+		case proto.MethodTaskCreate:
+			return nil, proto.Errorf(proto.ErrBadRequest, "task.create must not be called")
+		}
+		return nil, nil
+	})
+	work := t.TempDir()
+	t.Chdir(work)
+
+	var err error
+	out, errOut := a4Capture(t, "", func() { err = runTask([]string{"-agent", "codex", "plan", "a", "cli"}) })
+	got := creates.Get()
+	if err != nil || out != "p1  "+work+"\n" || errOut != "" || len(got) != 1 {
+		t.Fatalf("plain task: %q %q %v %+v", out, errOut, err, got)
+	}
+	if p := got[0]; p.Agent != "codex" || p.Prompt != "plan a cli" || p.Cwd != work || p.NoProject || p.Cols != 120 {
+		t.Fatalf("params %+v", p)
+	}
+
+	// Several attempts share the folder, and say so; one failing leaves
+	// the others running.
+	creates.Set(nil)
+	out, errOut = a4Capture(t, "", func() { err = runTask([]string{"-cwd", "/src/notes", "-agent", "claude,gemini", "-n", "3", "plan"}) })
+	if err == nil || !strings.Contains(err.Error(), "1 of 3 attempts could not start") {
+		t.Fatalf("attempts: %v", err)
+	}
+	if !strings.Contains(errOut, "/src/notes is not a git repository, so all 3 attempts work in the same folder") ||
+		!strings.Contains(errOut, "conch: gemini: ") || !strings.Contains(errOut, "gemini is not installed") || strings.Count(out, "\n") != 2 {
+		t.Fatalf("attempts output: %q %q", out, errOut)
+	}
+	var agents []string
+	for _, p := range creates.Get() {
+		agents = append(agents, p.Agent+"@"+p.Cwd)
+	}
+	if strings.Join(agents, " ") != "claude@/src/notes gemini@/src/notes claude@/src/notes" {
+		t.Fatalf("agents: %v", agents)
+	}
+
+	// A branch needs a repository; nothing starts.
+	creates.Set(nil)
+	for _, args := range [][]string{{"-branch", "b", "p"}, {"-base", "main", "p"}} {
+		if err := runTask(args); err == nil || !strings.Contains(err.Error(), "-branch and -base need a git repository, and "+work+" is not one") {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	// A single attempt that fails is the command's error.
+	if err := runTask([]string{"-agent", "gemini", "p"}); err == nil || !strings.Contains(err.Error(), "gemini is not installed") {
+		t.Fatalf("single failure: %v", err)
+	}
+	if n := len(creates.Get()); n != 1 {
+		t.Fatalf("%d panes asked for, want only the failing one", n)
 	}
 }
 

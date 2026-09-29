@@ -1069,8 +1069,9 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 		lines = append(lines, styleWork.Render("connecting…"))
 	case stateAttention:
 		if mach.sandboxState != "" {
+			provider, _, _ := mach.sandbox()
 			lines = append(lines, styleMuted.Render(mach.err+": its files are kept, nothing runs there"), "",
-				styleMuted.Render("m → Start sandbox   (or run: conch sandbox start "+mach.id+")"))
+				styleMuted.Render("m → Start sandbox   (or run: conch sandbox -provider "+provider+" start "+mach.id+")"))
 			break
 		}
 		lines = append(lines, styleWarn.Render(mach.err), "", styleMuted.Render("m → Install / upgrade conch there   (or run: conch machine upgrade "+mach.id+")"))

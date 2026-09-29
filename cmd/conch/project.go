@@ -8,6 +8,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -155,8 +156,9 @@ func runTask(args []string) error {
 	dir := *cwd
 	switch {
 	case onRemoteMachine() && dir == "":
-		// A task needs a project there; this directory is only one here.
-		return fmt.Errorf("conch -m %s task needs -cwd: a directory in a project on %s", machineFlag, machineFlag)
+		// Nothing here says where on that machine: the agent starts in its
+		// home, as a machine-level pane, like conch -m M new -agent.
+		return runPlainTask(nil, "", agents, *n, *branch, *base, prompt)
 	case onRemoteMachine():
 		if err := remoteDir(dir); err != nil {
 			return err
@@ -172,6 +174,10 @@ func runTask(args []string) error {
 	var proj proto.ProjectInfo
 	if err := call(c, proto.MethodProjectAdd, proto.ProjectAddParams{Path: dir}, &proj); err != nil {
 		return err
+	}
+	if !proj.Git {
+		// No repository to branch: the agent works in the folder itself.
+		return runPlainTask(c, dir, agents, *n, *branch, *base, prompt)
 	}
 	attempts := attemptPlan(proj.Name, agents, *n, *branch, prompt, proj.Branches)
 	var failed int
@@ -193,6 +199,54 @@ func runTask(args []string) error {
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d of %d attempts could not start", failed, len(attempts))
+	}
+	return nil
+}
+
+// runPlainTask starts the agents on the prompt in dir, with no branch or
+// worktree: dir is not a git repository, or is "" for the machine's home.
+// c is nil when nothing has connected yet.
+func runPlainTask(c *client.Client, dir string, agents []string, n int, branch, base, prompt string) error {
+	where := dir
+	if where == "" {
+		where = "the home directory of " + machineFlag
+	}
+	if branch != "" || base != "" {
+		return fmt.Errorf("-branch and -base need a git repository, and %s is not one", where)
+	}
+	if n <= 0 {
+		n = len(agents)
+	}
+	if n > 1 {
+		// Nothing keeps them apart without branches.
+		fmt.Fprintf(os.Stderr, "conch: %s is not a git repository, so all %d attempts work in the same folder\n", where, n)
+	}
+	if c == nil {
+		var err error
+		if c, err = connect(true); err != nil {
+			return err
+		}
+		defer c.Close()
+	}
+	var failed int
+	for i := 0; i < n; i++ {
+		// The server would start a shell for no agent, where a task's
+		// server picks its first: claude.
+		agent := firstNonEmptyStr(agents[i%len(agents)], "claude")
+		params := proto.PaneCreateParams{Agent: agent, Prompt: prompt, Cwd: dir, NoProject: dir == "", Cols: 120, Rows: 40}
+		var info proto.PaneInfo
+		if err := call(c, proto.MethodPaneCreate, params, &info); err != nil {
+			if n == 1 {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "conch: %s: %v\n", agent, err)
+			failed++
+			continue
+		}
+		fmt.Printf("%s  %s\n", info.ID, info.Cwd)
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d attempts could not start", failed, n)
 	}
 	return nil
 }

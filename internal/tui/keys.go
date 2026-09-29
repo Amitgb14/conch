@@ -728,11 +728,30 @@ func (m *Model) openRemove() tea.Cmd {
 func (m *Model) openTaskDialog() tea.Cmd {
 	pl := m.contextPlace()
 	proj := m.project(pl.machine, pl.projectID)
-	if proj == nil || !proj.Git {
-		m.setFlash("select a git project to start a task", true)
+	if proj != nil && proj.Git {
+		d := newTaskDialog(*m, pl.machine, *proj)
+		m.overlay = d
+		return d.focusCmd()
+	}
+	// No repository here: the agent works in the folder itself, or in the
+	// machine's home.
+	mach := m.machine(pl.machine)
+	if mach == nil || mach.c == nil {
+		m.setFlash(m.offlineText(pl.machine), true)
 		return nil
 	}
-	d := newTaskDialog(*m, pl.machine, *proj)
+	home := mach.server.Home
+	if pl.machine == localMachine {
+		home, _ = os.UserHomeDir()
+	}
+	title, where := mach.label, pl.dir
+	switch {
+	case pl.loose && (pl.dir == "" || pl.dir == home):
+		where = "the home directory of " + mach.label
+	case proj != nil:
+		title = proj.Name
+	}
+	d := newPlainTaskDialog(*m, pl.machine, title, where, pl.dir, pl.loose)
 	m.overlay = d
 	return d.focusCmd()
 }
