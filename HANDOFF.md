@@ -462,3 +462,17 @@ key row with sticky modifiers.
   `TERMINAL_KEYS`, `kids`, tested in node; the old key bar and
   `textKeys` went. Size budget raised from 64 to 96 KiB (78 KB now).
 - Browser run R41; real-device rows 9.81 (typing) and the earlier ones.
+
+After Amit's first runs on his iPhone:
+
+- **Pairing defaults to `full`** (`conch web pair`, `P` in the TUI) — his
+  decision, after two pairings as `reply` that couldn't type. phone.md
+  says `reply`; `-permission reply|view` and `r` / `v` still give less.
+  `conch web permission ID …` changes a paired device.
+- **The terminal takes the visible area** (above the keyboard), key row
+  under it, following the prompt.
+- **Scrollback**: socket `scroll {pane, offset}` (view; phone-api.md
+  changelog), `pane.scroll` on the socket's own connection.
+  `lib.mjs` `scrollback`/`olderOffset` stitch pages above the live rows;
+  `paneScreen` in `app.mjs` is the one screen both the chat and the
+  terminal use. Runs R42 and R43.

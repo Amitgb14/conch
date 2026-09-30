@@ -47,7 +47,7 @@ func TestRoutesAreTheContract(t *testing.T) {
 		t.Fatalf("routes:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 	wantSocket := map[string]string{"agents.watch": "view", "frame.open": "view", "frame.close": "view", "keys": "full", "ping": "view",
-		"panes.watch": "view", "text": "full"}
+		"panes.watch": "view", "text": "full", "scroll": "view"}
 	if len(socketNeeds) != len(wantSocket) {
 		t.Fatalf("socket messages: %v", socketNeeds)
 	}

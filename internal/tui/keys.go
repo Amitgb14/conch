@@ -190,7 +190,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.overlay = newHelp()
 	case "P":
-		m.overlay = newPairDialog(phone.PermReply)
+		m.overlay = newPairDialog(phone.PermFull)
 	case "i":
 		return m, m.openSetup()
 	case ":":

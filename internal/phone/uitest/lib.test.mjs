@@ -307,3 +307,58 @@ test("children nested any deep, with nothing in them", async () => {
   assert.deepEqual(kids([]), [])
   assert.deepEqual(kids([[[null]]]), [])
 })
+
+test("scrollback: the live screen, lines scrolling off it, and older pages", async () => {
+  const { scrollback, olderOffset } = await import("../ui/lib.mjs")
+  const frame = (history, offset, first, n = 4) => ({ history, offset, lines: Array.from({ length: n }, (_, i) => `L${first + i}`) })
+  // The live screen: lines 100..103 of a pane with 100 lines of history.
+  let { state, out } = scrollback(null, frame(100, 0, 100))
+  assert.deepEqual(out, { live: ["L100", "L101", "L102", "L103"], reset: true })
+  assert.equal(state.top, 100)
+  assert.equal(olderOffset(state), 4) // one screen up
+  // Two lines scroll off: they join the history shown.
+  ;({ state, out } = scrollback(state, frame(102, 0, 102)))
+  assert.deepEqual(out.append, ["L100", "L101"])
+  assert.deepEqual(out.live, ["L102", "L103", "L104", "L105"])
+  assert.equal(state.top, 100)
+  // The same frame again: nothing moves.
+  ;({ state, out } = scrollback(state, frame(102, 0, 102)))
+  assert.deepEqual(out.append, [])
+  // The page above, asked for with olderOffset: lines 96..99.
+  assert.equal(olderOffset(state), 6)
+  ;({ state, out } = scrollback(state, frame(102, 6, 96)))
+  assert.deepEqual(out, { prepend: ["L96", "L97", "L98", "L99"] })
+  assert.equal(state.top, 96)
+  // A page that overlaps what is shown gives only what is new; one that
+  // is wholly shown gives nothing.
+  ;({ state, out } = scrollback(state, frame(102, 8, 94)))
+  assert.deepEqual(out.prepend, ["L94", "L95"])
+  ;({ state, out } = scrollback(state, frame(102, 8, 94)))
+  assert.deepEqual(out, {})
+  // Near the oldest line the server stops at it.
+  ;({ state, out } = scrollback({ history: 3, top: 3, live: ["a", "b", "c", "d"] }, { history: 3, offset: 3, lines: ["L0", "L1", "L2", "a"] }))
+  assert.deepEqual(out.prepend, ["L0", "L1", "L2"])
+  assert.equal(state.top, 0)
+  assert.equal(olderOffset(state), 0) // nothing older
+})
+
+test("scrollback starts over when it no longer joins up", async () => {
+  const { scrollback, olderOffset } = await import("../ui/lib.mjs")
+  const live = (history, lines) => ({ history, offset: 0, lines })
+  let { state } = scrollback(null, live(50, ["a", "b", "c"]))
+  let out
+  // More went by than the screen held.
+  ;({ state, out } = scrollback(state, live(60, ["x", "y", "z"])))
+  assert.equal(out.reset, true)
+  assert.equal(state.top, 60)
+  // The history was cleared (a full-screen program left).
+  ;({ state, out } = scrollback(state, live(0, ["p"])))
+  assert.equal(out.reset, true)
+  assert.equal(state.top, 0)
+  // A page before any live frame, and frames with nothing in them.
+  assert.deepEqual(scrollback(null, { history: 9, offset: 3, lines: ["q"] }), { state: null, out: {} })
+  ;({ state, out } = scrollback(null, {}))
+  assert.deepEqual(out.live, [])
+  assert.equal(olderOffset(null), 0)
+  assert.equal(olderOffset({ history: 5, top: 5, live: [] }), 1)
+})

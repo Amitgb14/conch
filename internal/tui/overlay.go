@@ -866,7 +866,7 @@ var helpText = []string{
 	"  R  reconnect a machine    A  start or install any agent",
 	"     m on a sandbox: start, stop or delete it (a sandbox runs, and costs, until stopped)",
 	"  H  ssh from this computer to a host (listed under CLI → SSH; nothing installed there)",
-	"  P  pair a phone with this computer: a QR code for conch web (v / r / f its permission)",
+	"  P  pair a phone with this computer: a QR code for conch web, to type into terminals too (v / r / f: less)",
 	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
 	"  r  rename (pane, machine) x  close / remove (a branch: worktree, then the branch)",
 	"                            R  refresh git and PRs",

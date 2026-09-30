@@ -42,7 +42,7 @@ func TestPairKeyShowsACodeThatPairs(t *testing.T) {
 	if !ok {
 		t.Fatalf("overlay %T", m.overlay)
 	}
-	if d.permission != phone.PermReply || d.err != "" || len(d.code) != 7 || time.Until(d.expires) > phone.PairTTL {
+	if d.permission != phone.PermFull || d.err != "" || len(d.code) != 7 || time.Until(d.expires) > phone.PairTTL {
 		t.Fatalf("dialog %+v", d)
 	}
 
@@ -50,7 +50,7 @@ func TestPairKeyShowsACodeThatPairs(t *testing.T) {
 	a2CheckBox(t, b, *m)
 	out := a2Plain(b.lines)
 	for _, want := range []string{"Pair a phone with this computer", "Scan it with the phone's camera", d.code,
-		"· reply ·", "https://laptop.tail1234.ts.net", "v/r/f new code", "y copy link"} {
+		"· full ·", "https://laptop.tail1234.ts.net", "v/r/f new code", "y copy link"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("dialog lacks %q:\n%s", want, out)
 		}
@@ -65,7 +65,7 @@ func TestPairKeyShowsACodeThatPairs(t *testing.T) {
 
 	// The code shown is the one a phone can pair with.
 	dev, _, err := store.Redeem(d.code, "phone", time.Now())
-	if err != nil || dev.Permission != phone.PermReply {
+	if err != nil || dev.Permission != phone.PermFull {
 		t.Fatalf("pairing with the shown code: %+v %v", dev, err)
 	}
 }

@@ -113,8 +113,12 @@ h2 { display: flex; align-items: center; gap: 8px; font: 600 0.72rem var(--sans)
 pre.screen { margin: 0; padding: 12px 14px; background: var(--screen); color: var(--screen-fg); border-radius: var(--r-l);
   font: 12.5px/1.4 var(--mono); overflow-x: auto; }
 pre.screen div { white-space: pre; min-height: 1.4em; }
-pre.screen.tail div { white-space: pre-wrap; overflow-wrap: anywhere; }
-pre.screen.tail:empty::before { content: "Nothing yet."; color: #8a877f; }
+pre.screen .hist > div, pre.screen .live > div { white-space: pre; min-height: 1.4em; }
+pre.screen.tail { max-height: 58dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+pre.screen.tail .hist > div, pre.screen.tail .live > div { white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.screen:focus { outline: none; }
+.older { display: block; width: 100%; min-height: 32px; margin: 0 0 6px; padding: 4px; border: 0; border-radius: var(--r-s); background: rgb(255 255 255 / 0.07);
+  color: #a09d96; font: 500 0.75rem var(--sans); }
 
 /* The composer, as in the Claude app: a rounded card at the bottom. */
 .composer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; padding: 6px max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
@@ -141,7 +145,7 @@ body[data-view="terminal"] main { padding: 0; }
 .term-bar .link { padding: 8px 4px; }
 .term-bar .hint { margin: 0; font-size: 0.8rem; }
 pre.screen.terminal { flex: 1; min-height: 0; overflow: auto; line-height: 1.25; cursor: text; -webkit-overflow-scrolling: touch; }
-pre.screen.terminal div { min-height: 1.25em; }
+pre.screen.terminal .hist > div, pre.screen.terminal .live > div { min-height: 1.25em; }
 .tty { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; font-size: 16px; border: 0; padding: 0; resize: none; caret-color: transparent; }
 .dock { flex: none; margin: 0 calc(-1 * max(10px, env(safe-area-inset-right))) 0 calc(-1 * max(10px, env(safe-area-inset-left)));
   padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));

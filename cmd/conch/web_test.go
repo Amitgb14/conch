@@ -43,16 +43,20 @@ func TestWebPairDevicesRevoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := regexp.MustCompile(`pairing code: (\d{3}-\d{3})\n`).FindStringSubmatch(out)
-	if m == nil || !strings.Contains(out, "reply permission") || !strings.Contains(out, "start the gateway with `conch web`") {
+	if m == nil || !strings.Contains(out, "full permission") || !strings.Contains(out, "start the gateway with `conch web`") {
 		t.Fatalf("pair printed %q", out)
 	}
 	// The code is not what is kept.
 	if b, _ := os.ReadFile(store.Path()); bytes.Contains(b, []byte(m[1])) || bytes.Contains(b, []byte(strings.ReplaceAll(m[1], "-", ""))) {
 		t.Fatalf("the code is in the file: %s", b)
 	}
+	// Paired to type, unless asked for less.
 	dev, _, err := store.Redeem(m[1], "Pixel", time.Now())
-	if err != nil || dev.Permission != phone.PermReply {
+	if err != nil || dev.Permission != phone.PermFull {
 		t.Fatalf("redeem: %+v %v", dev, err)
+	}
+	if ok, err := store.SetPermission(dev.ID, phone.PermReply); !ok || err != nil {
+		t.Fatal(ok, err)
 	}
 
 	// With a gateway's address on record, pair says where to go — and on
@@ -61,9 +65,9 @@ func TestWebPairDevicesRevoke(t *testing.T) {
 	oldTTY := stdoutIsTerminal
 	t.Cleanup(func() { stdoutIsTerminal = oldTTY })
 	stdoutIsTerminal = func() bool { return false }
-	out, err = runWebCaptured(t, "pair", "-permission", "full")
-	if err != nil || !strings.Contains(out, "open https://laptop.tail1234.ts.net on it") || !strings.Contains(out, "full permission") {
-		t.Fatalf("pair -permission full: %q %v", out, err)
+	out, err = runWebCaptured(t, "pair", "-permission", "view")
+	if err != nil || !strings.Contains(out, "open https://laptop.tail1234.ts.net on it") || !strings.Contains(out, "view permission") {
+		t.Fatalf("pair -permission view: %q %v", out, err)
 	}
 	if strings.Contains(out, "\x1b[") {
 		t.Fatalf("escape codes written to something that isn't a terminal: %q", out)

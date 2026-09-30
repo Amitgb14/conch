@@ -515,6 +515,10 @@ This Mac to busybox (`aghadge@10.0.0.115`), isolated on both sides. Here: its ow
 - **Found and fixed:** a menu whose title was its widest line lost the end of it ("Move feat to which machin…"), in every menu: the frame's spaces weren't counted.
 - **Not run:** a real Claude reading the handoff after a move (the handoff itself was checked in R19), and a pushed branch sending no commits (covered by the server tests).
 
+### R43 — 2026-09-30, scrolling back, in headless Chrome, macOS arm64, build 0.1.6-dev
+
+Amit: the agent chat could not be scrolled up — it showed the last 24 rows of the screen and nothing else. With the socket's new `scroll` and the stitched history: a shell after `seq 1 300` and a stand-in agent after 60 typed messages, at 390×844. Scrolling the terminal to its top again and again loaded page after page until the first line; all 300 numbers were there once each and in order, the "Earlier output" line went, and a command typed afterwards still landed at the bottom, once. In the chat the first of the 60 messages, far above the screen, came into reach the same way, all 60 present. Pairing now defaults to `full` (`conch web pair`, `P`).  Not on a real phone yet: momentum scrolling on iOS while a page is being put in above.
+
 ### R42 — 2026-09-30, the terminal with the keyboard up, in headless Chrome, macOS arm64, build 0.1.6-dev
 
 Amit, on his iPhone: "the terminal keyboard covers the screen and not able to type" — the phone was paired as `reply` (typing needs `full`), and the key row sat fixed over a screen that didn't shrink. After the fix, a shell with `seq 1 120` in it, at 390×844, then with the visible height cut to 504 as a keyboard does: the terminal ended exactly at the keyboard, the key row just above it, the last prompt in view, the page not scrolling; `echo still-here` typed with the keyboard up and ran. `conch web permission ID full` raised a paired device, taking effect on its open socket (tested). Not yet on the iPhone: the real keyboard, and iOS scrolling the page for a focused field.

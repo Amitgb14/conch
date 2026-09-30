@@ -101,7 +101,10 @@ func notFromAnAgent(what string) error {
 
 func webPair(args []string) error {
 	fs := flag.NewFlagSet("web pair", flag.ContinueOnError)
-	permission := fs.String("permission", phone.PermReply, "what the device may do: view, reply or full")
+	// full by default: a phone is paired to be a terminal as much as to
+	// answer, and a pairing that can't type looked broken. -permission
+	// reply or view pairs one that may do less.
+	permission := fs.String("permission", phone.PermFull, "what the device may do: view, reply or full")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

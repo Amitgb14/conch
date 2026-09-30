@@ -188,3 +188,59 @@ func TestPermissionChangesTakeEffectAtOnce(t *testing.T) {
 		t.Fatal("a permission that isn't one")
 	}
 }
+
+// Scrolling back: the phone's own view of a pane goes into its history,
+// the frames say how far, and another phone's view of the same pane
+// stays live.
+func TestSocketScroll(t *testing.T) {
+	f := newFixture(t)
+	pane := f.pane("", "i=1; while [ $i -le 200 ]; do echo line-$i; i=$((i+1)); done; echo END-MARK; exec sleep 30")
+	waitFor(t, "the output", func() bool { return strings.Contains(f.screen(pane), "END-MARK") })
+	s, other := f.pair(PermView).socket(), f.pair(PermView).socket()
+	has := func(fr *Frame, text string) bool {
+		return strings.Contains(strings.Join(fr.Lines, "\n")+"\n", text+"\n")
+	}
+
+	// Not before the pane is open on this socket.
+	s.send(ClientMessage{Type: MsgScroll, ID: "early", Pane: pane, Offset: 10})
+	if got := s.next("the refusal", func(m ServerMessage) bool { return m.Type == MsgError && m.ID == "early" }); got.Error.Code != CodeBadRequest {
+		t.Fatalf("scroll before open: %+v", got.Error)
+	}
+	for _, sock := range []*fakeSocket{s, other} {
+		sock.send(ClientMessage{Type: MsgFrameOpen, Pane: pane})
+	}
+	live := s.next("the live frame", func(m ServerMessage) bool { return m.Type == MsgFrame && has(m.Frame, "END-MARK") })
+	if live.Frame.Offset != 0 || live.Frame.History < 150 || has(live.Frame, "line-100") {
+		t.Fatalf("live frame: offset %d history %d", live.Frame.Offset, live.Frame.History)
+	}
+	other.next("the other's live frame", func(m ServerMessage) bool { return m.Type == MsgFrame && has(m.Frame, "END-MARK") })
+
+	s.send(ClientMessage{Type: MsgScroll, ID: "up", Pane: pane, Offset: 100})
+	back := s.next("the scrolled frame", func(m ServerMessage) bool { return m.Type == MsgFrame && m.Frame.Offset == 100 })
+	if has(back.Frame, "END-MARK") || !has(back.Frame, "line-100") || back.Frame.History != live.Frame.History {
+		t.Fatalf("scrolled frame: history %d, lines %q", back.Frame.History, back.Frame.Lines[:3])
+	}
+	// Further than there is history stops at the oldest line.
+	s.send(ClientMessage{Type: MsgScroll, Pane: pane, Offset: 100000})
+	top := s.next("the oldest lines", func(m ServerMessage) bool { return m.Type == MsgFrame && has(m.Frame, "line-1") })
+	if top.Frame.Offset != top.Frame.History {
+		t.Fatalf("at the top: offset %d of %d", top.Frame.Offset, top.Frame.History)
+	}
+	s.send(ClientMessage{Type: MsgScroll, Pane: pane, Offset: 0})
+	s.next("live again", func(m ServerMessage) bool {
+		return m.Type == MsgFrame && m.Frame.Offset == 0 && has(m.Frame, "END-MARK")
+	})
+
+	// The other phone saw none of it.
+	for _, m := range other.until("after") {
+		if m.Type == MsgFrame && m.Frame.Offset != 0 {
+			t.Fatalf("another socket's view scrolled: offset %d", m.Frame.Offset)
+		}
+	}
+	for _, bad := range []ClientMessage{{Type: MsgScroll, ID: "b1", Pane: pane, Offset: -1}, {Type: MsgScroll, ID: "b2", Pane: "zsh"}, {Type: MsgScroll, ID: "b3", Pane: "p999"}} {
+		s.send(bad)
+		if got := s.next("the refusal of "+bad.ID, func(m ServerMessage) bool { return m.Type == MsgError && m.ID == bad.ID }); got.Error.Code != CodeBadRequest {
+			t.Errorf("%s: %+v", bad.ID, got.Error)
+		}
+	}
+}

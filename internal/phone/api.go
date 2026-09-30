@@ -314,6 +314,7 @@ const (
 	MsgPing        = "ping"
 	MsgPanesWatch  = "panes.watch"
 	MsgText        = "text"
+	MsgScroll      = "scroll"
 
 	MsgAgents    = "agents"
 	MsgAgent     = "agent"
@@ -343,6 +344,8 @@ type ClientMessage struct {
 	Pane string   `json:"pane,omitempty"`
 	Keys []string `json:"keys,omitempty"`
 	Text string   `json:"text,omitempty"`
+	// Offset is how many lines back into history a scroll goes; 0 is live.
+	Offset int `json:"offset,omitempty"`
 }
 
 // ServerMessage is what the gateway sends on the socket; Type says which
@@ -370,4 +373,5 @@ var socketNeeds = map[string]string{
 	MsgPing:        PermView,
 	MsgPanesWatch:  PermView,
 	MsgText:        PermFull,
+	MsgScroll:      PermView,
 }

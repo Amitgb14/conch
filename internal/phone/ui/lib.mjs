@@ -312,3 +312,38 @@ export const TERMINAL_KEYS = [
 export function kids(children) {
   return children.flat(Infinity).filter((c) => c != null && c !== false)
 }
+
+// Scrollback, stitched from frames. A frame shows rows of a pane from
+// line `history - offset` (counting from its oldest kept line): the live
+// screen at offset 0, an older page above it otherwise. `scrollback`
+// takes what is known and a frame, and says what to do with the screen:
+//   append  — rows that scrolled off the live screen, to put under history
+//   prepend — older rows a requested page brought, to put above it
+//   live    — the live rows now (absent for a page)
+//   reset   — throw the history shown away: it no longer joins up
+// and returns the new state {history, top, live}, where top is the oldest
+// line shown. Lines are the frame's strings, untouched.
+export function scrollback(state, f) {
+  const lines = f.lines || [], history = f.history || 0, offset = f.offset || 0
+  if (offset > 0) {
+    if (!state) return { state, out: {} } // a page nobody asked for yet
+    const pageTop = Math.max(0, history - offset)
+    if (pageTop >= state.top) return { state, out: {} }
+    const prepend = lines.slice(0, Math.min(state.top - pageTop, lines.length))
+    return { state: { ...state, top: pageTop }, out: { prepend } }
+  }
+  if (!state) return { state: { history, top: history, live: lines }, out: { live: lines, reset: true } }
+  const moved = history - state.history
+  if (moved < 0 || moved > state.live.length) {
+    // The history was cleared, or more went by than the screen held.
+    return { state: { history, top: history, live: lines }, out: { live: lines, reset: true } }
+  }
+  return { state: { history, top: state.top, live: lines }, out: { live: lines, append: state.live.slice(0, moved) } }
+}
+
+// olderOffset is the offset to ask for to get the page above what is
+// shown, or 0 when the oldest line is already there.
+export function olderOffset(state) {
+  if (!state || state.top <= 0) return 0
+  return state.history - state.top + Math.max(1, state.live.length)
+}

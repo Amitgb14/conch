@@ -237,6 +237,23 @@ func (s *socket) handle(m ClientMessage) {
 		s.mu.Unlock()
 		s.send(ServerMessage{Type: MsgPanes, ID: m.ID, Panes: &panes})
 
+	case MsgScroll:
+		if aerr := paneID(m.Pane); aerr != nil {
+			s.fail(m.ID, aerr)
+			return
+		}
+		s.mu.Lock()
+		open := s.open[m.Pane]
+		s.mu.Unlock()
+		if !open || m.Offset < 0 {
+			s.fail(m.ID, apiErr(CodeBadRequest, "scroll takes a pane this socket has open and an offset of 0 or more"))
+			return
+		}
+		// This socket's own connection: only its view of the pane moves.
+		if err := s.call(proto.MethodPaneScroll, proto.PaneScrollParams{ID: m.Pane, Offset: m.Offset}, nil); err != nil {
+			s.fail(m.ID, fromServer(err))
+		}
+
 	case MsgText:
 		if aerr := paneID(m.Pane); aerr != nil {
 			s.fail(m.ID, aerr)

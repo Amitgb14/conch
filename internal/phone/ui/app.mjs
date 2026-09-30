@@ -6,9 +6,9 @@
 // Everything the gateway sends is shown with textContent: an agent's
 // title, its question and its screen are text, never markup.
 import {
-  parseLine, frameRows, tailRows, sortPanes, upsertPane, removeAgent, groupAgents, agentLabel,
+  parseLine, frameRows, sortPanes, upsertPane, removeAgent, groupAgents, agentLabel,
   ago, route, can, backoff, codeFromHash, fontSizeFor, chunks, keyBytes, appPath,
-  keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids,
+  keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset,
 } from "/lib.mjs"
 
 const API_VERSION = 1
@@ -468,7 +468,8 @@ function inboxView() {
 function chatView(pane) {
   const status = h("div", { class: "status" })
   const ask = h("div", {})
-  const tail = h("pre", { class: "screen tail", "aria-label": "What the agent said last" })
+  const scr = paneScreen(pane, "tail", "What the agent said: scroll up for earlier output")
+  const tail = scr.el
   const note = h("p", { class: "error", role: "alert" })
   const text = h("textarea", { placeholder: "Reply…", rows: "1", "aria-label": "Reply" })
   const action = h("button", { class: "send", "aria-label": "Send" }, "↑")
@@ -512,7 +513,7 @@ function chatView(pane) {
     mayType() ? h("a", { href: `/agent/${pane}/terminal`, "data-nav": true, class: "icon", "aria-label": "Terminal" }, "⌨") : null,
     text, action))
   const el = h("section", { class: "chat" }, status, ask, note,
-    h("div", { class: "section-head" }, h("h2", {}, "Latest"),
+    h("div", { class: "section-head" }, h("h2", {}, "Output"),
       h("a", { href: `/agent/${pane}/terminal`, "data-nav": true, class: "link" }, "Terminal ›")),
     tail, composer)
 
@@ -549,32 +550,96 @@ function chatView(pane) {
   }
   return {
     name: "chat", el, update,
-    frame: (f) => { if (f.pane === pane) drawRows(tail, tailRows(frameRows(f.lines), 24)) },
+    frame: (f) => { if (f.pane === pane) scr.frame(f) },
     connected: () => send({ type: "frame.open", pane }),
     socketError: (e) => { if (e?.code !== "not_found") note.textContent = e?.message || "" },
     leave: () => send({ type: "frame.close", pane }),
   }
 }
 
-// drawRows puts rows of styled runs on screen as text.
-function drawRows(screen, rows) {
-  screen.replaceChildren(...rows.map((runs) => {
-    const line = document.createElement("div")
-    for (const run of runs) {
-      const span = document.createElement("span")
-      span.textContent = run.text
-      let fg = run.fg, bg = run.bg
-      if (run.inverse) [fg, bg] = [bg || "#1a1918", fg || "#e8e6df"]
-      if (fg) span.style.color = fg
-      if (bg) span.style.backgroundColor = bg
-      if (run.bold) span.style.fontWeight = "700"
-      if (run.dim) span.style.opacity = "0.6"
-      if (run.italic) span.style.fontStyle = "italic"
-      if (run.underline) span.style.textDecoration = "underline"
-      line.append(span)
-    }
-    return line
-  }))
+// rowNode is one row of styled runs as an element; its text is text.
+function rowNode(runs) {
+  const line = document.createElement("div")
+  for (const run of runs) {
+    const span = document.createElement("span")
+    span.textContent = run.text
+    let fg = run.fg, bg = run.bg
+    if (run.inverse) [fg, bg] = [bg || "#1a1918", fg || "#e8e6df"]
+    if (fg) span.style.color = fg
+    if (bg) span.style.backgroundColor = bg
+    if (run.bold) span.style.fontWeight = "700"
+    if (run.dim) span.style.opacity = "0.6"
+    if (run.italic) span.style.fontStyle = "italic"
+    if (run.underline) span.style.textDecoration = "underline"
+    line.append(span)
+  }
+  return line
+}
+
+// How many rows of history a screen keeps on the page; older ones go.
+const HISTORY_ROWS = 4000
+
+// paneScreen is a pane's screen with its history above it: the live rows
+// redrawn with every frame, and older output loaded a page at a time when
+// you scroll to the top (or tap the line there), stitched on above. It
+// follows the newest line unless you have scrolled up to read.
+function paneScreen(pane, cls, label) {
+  const older = h("button", { class: "older", hidden: true }, "Earlier output")
+  const hist = h("div", { class: "hist" })
+  const live = h("div", { class: "live" })
+  const el = h("pre", { class: `screen ${cls}`, "aria-label": label, tabindex: "0" }, older, hist, live)
+  let sb = null, loading = null, stick = true, last = null
+
+  const stop = () => { clearTimeout(loading); loading = null }
+  const more = () => {
+    const offset = olderOffset(sb)
+    if (!offset || loading) return
+    older.textContent = "Loading earlier output…"
+    send({ type: "scroll", pane, offset })
+    // If no page comes back, go back to following the pane.
+    loading = setTimeout(() => { loading = null; send({ type: "scroll", pane, offset: 0 }); label2() }, 4000)
+  }
+  const label2 = () => {
+    older.hidden = !sb || sb.top <= 0
+    older.textContent = "↑ Earlier output"
+  }
+  older.addEventListener("click", more)
+  el.addEventListener("scroll", () => {
+    stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 24
+    if (el.scrollTop < 80) more()
+  })
+  const toBottom = () => { if (stick) el.scrollTop = el.scrollHeight }
+
+  return {
+    el,
+    get last() { return last },
+    toBottom,
+    follow: () => { stick = true; toBottom() },
+    frame(f) {
+      const r = scrollback(sb, f)
+      sb = r.state
+      const out = r.out
+      if ((f.offset || 0) > 0) {
+        // A page of older output: above what is shown, without moving it.
+        if (out.prepend?.length) {
+          const before = el.scrollHeight
+          hist.prepend(...out.prepend.map((l) => rowNode(parseLine(l))))
+          el.scrollTop += el.scrollHeight - before
+        }
+        stop()
+        send({ type: "scroll", pane, offset: 0 }) // and back to following it
+        label2()
+        return
+      }
+      last = f
+      if (out.reset) hist.replaceChildren()
+      if (out.append?.length) hist.append(...out.append.map((l) => rowNode(parseLine(l))))
+      while (hist.childElementCount > HISTORY_ROWS) hist.firstChild.remove()
+      live.replaceChildren(...frameRows(out.live || []).map(rowNode))
+      if (!loading) label2()
+      toBottom()
+    },
+  }
 }
 
 // The terminal's text size, kept per device: a number is that size and a
@@ -590,13 +655,14 @@ function termSize() {
 // The textarea the phone's keyboard types into holds this and nothing
 // else between keystrokes: a keystroke that shortens it is a backspace,
 // which an empty field would not report.
-const SENTINEL = "​"
+const SENTINEL = "\u200b"
 
 // terminalView is a pane's whole screen, typed into directly: tap it and
 // the phone's keyboard goes to the pane, key by key, with the keys a
 // phone lacks in a row above it.
 function terminalView(pane) {
-  const screen = h("pre", { class: "screen terminal", "aria-label": "The terminal. Tap to type." })
+  const scr = paneScreen(pane, "terminal", "The terminal. Tap to type; scroll up for earlier output.")
+  const screen = scr.el
   const note = h("p", { class: "error", role: "alert" })
   const typing = mayType()
   const tty = h("textarea", {
@@ -604,7 +670,6 @@ function terminalView(pane) {
     enterkeyhint: "enter", "aria-label": "Type into the terminal",
   })
   tty.value = SENTINEL
-  let last = null
   const mods = { ctrl: undefined, alt: undefined }
   let sent = 0
 
@@ -700,15 +765,12 @@ function terminalView(pane) {
   })
   showSize()
   const draw = () => {
-    if (!last) return
+    const f = scr.last
+    if (!f) return
     const s = termSize()
-    screen.style.fontSize = (s === "fit" ? fontSizeFor(last.cols, screen.clientWidth - 16) : Number(s)) + "px"
-    drawRows(screen, frameRows(last.lines))
-    if (stick) screen.scrollTop = screen.scrollHeight
+    screen.style.fontSize = (s === "fit" ? fontSizeFor(f.cols, screen.clientWidth - 16) : Number(s)) + "px"
+    scr.toBottom()
   }
-  // The screen follows the prompt, unless you have scrolled up to read.
-  let stick = true
-  screen.addEventListener("scroll", () => { stick = screen.scrollTop + screen.clientHeight >= screen.scrollHeight - 24 })
 
   const dock = typing
     ? h("div", { class: "dock" }, bar)
@@ -733,12 +795,12 @@ function terminalView(pane) {
     const bottom = vv ? vv.offsetTop + vv.height : window.innerHeight
     el.style.top = top + "px"
     el.style.height = Math.max(120, bottom - top) + "px"
-    if (stick) screen.scrollTop = screen.scrollHeight
+    scr.toBottom()
   }
   vv?.addEventListener("resize", layout)
   vv?.addEventListener("scroll", layout)
   window.addEventListener("resize", layout)
-  tty.addEventListener("focus", () => { stick = true; setTimeout(layout, 50); setTimeout(layout, 350) })
+  tty.addEventListener("focus", () => { scr.follow(); setTimeout(layout, 50); setTimeout(layout, 350) })
   requestAnimationFrame(layout)
 
   return {
@@ -748,7 +810,7 @@ function terminalView(pane) {
       if (p) { $("title").textContent = agentLabel(p); $("sub").textContent = p.kind === "terminal" ? subtitle(p) : subtitle(p) + " · terminal" }
       for (const b of bar.querySelectorAll("button")) b.disabled = !state.online
     },
-    frame: (f) => { if (f.pane === pane) { last = f; draw() } },
+    frame: (f) => { if (f.pane === pane) { scr.frame(f); if (!(f.offset > 0)) draw() } },
     connected: () => send({ type: "frame.open", pane }),
     socketError: (e) => { note.textContent = e?.message || "" },
     leave: () => {

@@ -118,7 +118,8 @@ Usage:
                                 phones open (the one tailscale serve gives)
   conch web pair [-permission view|reply|full]
                                 a one-time code (5 minutes) that pairs a phone, with a QR code
-                                that opens it; reply by default
+                                that opens it; full by default (-permission reply or
+                                view for a phone that may only answer, or only look)
   conch web devices | revoke ID | permission ID view|reply|full
                                 list the paired phones, cut one off at once, or change
                                 what one may do (full types into terminals)
