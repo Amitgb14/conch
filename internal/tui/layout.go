@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"time"
 )
 
 // A tab holds a layout: a binary tree whose leaves each show one view (a
@@ -342,4 +343,16 @@ func loadNode(s *savedNode, next func() int) (*layoutNode, int, error) {
 		n.ratio = 0.5
 	}
 	return n, max(fa, fb), nil
+}
+
+// swapMarkFor is how long the two halves of a swap stay marked: long
+// enough to see which two moved, short enough not to sit there.
+const swapMarkFor = 700 * time.Millisecond
+
+// swapped reports whether a leaf is one of the two a drag just exchanged.
+func (m Model) swapped(id int) bool {
+	if m.swapUntil.IsZero() || time.Now().After(m.swapUntil) {
+		return false
+	}
+	return id == m.swapMark[0] || id == m.swapMark[1]
 }
