@@ -104,6 +104,12 @@ export function frameRows(lines) {
   return rows.slice(0, end)
 }
 
+// tailRows is the last n rows of a frame that has lost its empty rows at
+// the bottom: what an agent said last, without the screen above it.
+export function tailRows(rows, n) {
+  return n > 0 ? rows.slice(-n) : []
+}
+
 // What needs you comes first, as in the TUI's review queue.
 const stateOrder = { waiting: 0, done: 1, working: 2, idle: 3 }
 

@@ -514,6 +514,10 @@ This Mac to busybox (`aghadge@10.0.0.115`), isolated on both sides. Here: its ow
 - **Found and fixed:** a menu whose title was its widest line lost the end of it ("Move feat to which machin…"), in every menu: the frame's spaces weren't counted.
 - **Not run:** a real Claude reading the handoff after a move (the handoff itself was checked in R19), and a pushed branch sending no commits (covered by the server tests).
 
+### R40 — 2026-09-30, the app's redesign in headless Chrome, macOS arm64, build 0.1.6-dev
+
+After Amit found the first design "very bad" on his phone. Checked at 390×844 in both schemes against an isolated conch with the stand-in agents: a header with a back arrow, the title and a live dot; agents as cards with a state pill and the question quoted; on an agent, its question first with each choice a large numbered button, then its latest output wrapped at a readable size, and the reply box pinned to the bottom; the terminal at 10px, scrolling sideways, with its empty rows dropped and a text-size chip (10, 12, 8, fit width); settings in grouped cards. No page wider than the phone. **Found and fixed:** a button's own display brought back what the page had hidden (Settings showed *Turn off* with notifications off). Not yet seen on the iPhone itself.
+
 ### R39 — 2026-09-30, the terminal view in headless Chrome, macOS arm64, build 0.1.6-dev
 
 As R38: an isolated conch, `conch web -listen 127.0.0.1:18722`, the stand-in `claude` asking a three-choice question, Chrome headless at 390×844.

@@ -135,6 +135,14 @@ func TestUIFiles(t *testing.T) {
 		t.Errorf("the app is %d bytes; keep it under 64 KiB", total)
 	}
 
+	// Buttons and links are given a display of their own; without this the
+	// hidden attribute stops hiding them (Settings once showed "Turn off"
+	// with notifications off).
+	css, _ := uiFiles.ReadFile("ui/app.css")
+	if !strings.Contains(string(css), "[hidden] { display: none !important; }") {
+		t.Error("app.css lets a display override the hidden attribute")
+	}
+
 	page, _ := uiFiles.ReadFile("ui/index.html")
 	if regexp.MustCompile(`(?i)<script(?:\s+type="module")?\s*>|<style|\son[a-z]+=|style="`).Match(page) {
 		t.Error("index.html has inline script or style, which its policy blocks")

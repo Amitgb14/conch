@@ -242,3 +242,12 @@ test("a tapped notification goes only to the app's own views", () => {
     assert.equal(appPath(bad), "/", String(bad))
   }
 })
+
+test("the tail of a frame", async () => {
+  const { tailRows } = await import("../ui/lib.mjs")
+  const rows = frameRows(["a", "b", "c", "", ""])
+  assert.deepEqual(tailRows(rows, 2).map(text), ["b", "c"])
+  assert.deepEqual(tailRows(rows, 10).map(text), ["a", "b", "c"])
+  assert.deepEqual(tailRows(rows, 0), [])
+  assert.deepEqual(tailRows([], 5), [])
+})

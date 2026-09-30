@@ -5,7 +5,7 @@
 // Everything the gateway sends is shown with textContent: an agent's
 // title, its question and its screen are text, never markup.
 import {
-  parseLine, frameRows, sortAgents, upsertAgent, removeAgent, groupAgents, agentLabel,
+  frameRows, tailRows, sortAgents, upsertAgent, removeAgent, groupAgents, agentLabel,
   ago, route, can, backoff, codeFromHash, fontSizeFor, KEYBAR, textKeys, chunks, keyBytes, appPath,
 } from "/lib.mjs"
 
@@ -79,6 +79,7 @@ function setOnline(online) {
   if (state.online === online) return
   state.online = online
   showBanner()
+  showLive()
   state.view?.update?.()
 }
 
@@ -195,18 +196,36 @@ document.addEventListener("visibilitychange", () => {
 
 // ---- views ----
 
-function show(view, where = "") {
+// show puts a view on screen under a header: its title, what it is about,
+// and a way back when it isn't the list.
+function show(view, { title = "conch", sub = "", back = "" } = {}) {
   state.view?.leave?.()
   state.view = view
   // After the old view has closed its frames: going from an agent to its
   // terminal closes and opens the same pane, in that order.
   view.connected?.()
-  $("where").textContent = where
+  setHeader(title, sub, back)
   $("new").hidden = !state.hello || !can(state.hello.permission, "full")
   $("settings").hidden = !state.hello
+  document.body.dataset.view = view.name || ""
   $("view").replaceChildren(view.el)
   view.update?.()
   window.scrollTo(0, 0)
+}
+
+function setHeader(title, sub, back) {
+  $("home").textContent = title
+  $("where").textContent = sub
+  $("back").hidden = !back
+  if (back) $("back").setAttribute("href", back)
+}
+
+// The dot in the header: live while the socket is open.
+function showLive() {
+  const live = $("live")
+  live.hidden = !state.hello
+  live.classList.toggle("on", state.online)
+  live.title = state.online ? "Connected to your laptop" : "Not connected"
 }
 
 function navigate(path) {
@@ -215,13 +234,14 @@ function navigate(path) {
 }
 
 function render() {
-  if (!state.hello) return show(pairView())
+  showLive()
+  if (!state.hello) return show(pairView(), { title: "Pair this device" })
   const r = route(location.pathname)
-  if (r.view === "agent") return show(agentView(r.pane))
-  if (r.view === "terminal") return show(terminalView(r.pane))
-  if (r.view === "settings") return show(settingsView(), "Settings")
-  if (r.view === "new" && can(state.hello.permission, "full")) return show(newTaskView(), "New task")
-  show(listView())
+  if (r.view === "agent") return show(agentView(r.pane), { back: "/" })
+  if (r.view === "terminal") return show(terminalView(r.pane), { back: `/agent/${r.pane}` })
+  if (r.view === "settings") return show(settingsView(), { title: "Settings", back: "/" })
+  if (r.view === "new" && can(state.hello.permission, "full")) return show(newTaskView(), { title: "New task", back: "/" })
+  show(listView(), { title: "Agents" })
 }
 
 document.addEventListener("click", (ev) => {
@@ -251,12 +271,16 @@ function deviceName() {
   return "Browser"
 }
 
+// pill is an agent's state as a coloured label.
+const pill = (s) => h("span", { class: `pill ${s}` }, s)
+
 function pairView() {
   const status = h("p", { class: "error", role: "alert" })
-  const code = h("input", { inputmode: "numeric", autocomplete: "one-time-code", placeholder: "123-456", required: true, value: codeFromHash(location.hash) })
-  const name = h("input", { maxlength: "64", value: deviceName() })
-  const button = h("button", { class: "primary" }, "Pair")
+  const code = h("input", { class: "code", inputmode: "numeric", autocomplete: "one-time-code", placeholder: "123-456", required: true, value: codeFromHash(location.hash), "aria-label": "Pairing code" })
+  const name = h("input", { maxlength: "64", value: deviceName(), "aria-label": "This device's name" })
+  const button = h("button", { class: "primary wide" }, "Pair")
   const form = h("form", {
+    class: "card",
     onsubmit: async (ev) => {
       ev.preventDefault()
       button.disabled = true
@@ -273,7 +297,6 @@ function pairView() {
       }
     },
   },
-  h("p", {}, "Run ", h("code", {}, "conch web pair"), " on your laptop and enter the code it shows."),
   h("label", {}, "Pairing code", code),
   h("label", {}, "This device's name", name),
   button, status)
@@ -291,41 +314,62 @@ function pairView() {
     status.textContent = "This page isn't on HTTPS, so this browser can't keep the device's key. " +
       "Open conch at its HTTPS address (the one tailscale serve gives, passed to conch web as -url) and pair there."
   }
-  return { el: h("section", {}, h("h2", {}, "Pair this device"), form) }
+  return {
+    name: "pair",
+    el: h("section", { class: "pair" },
+      h("img", { src: "/icon.svg", alt: "", class: "logo" }),
+      h("p", { class: "lead" }, "Your coding agents, from your phone."),
+      h("p", { class: "quiet" }, "On your laptop, press ", h("kbd", {}, "P"), " in conch or run ", h("code", {}, "conch web pair"),
+        ", then scan the QR code — or type the code here."),
+      form),
+  }
 }
 
 function listView() {
-  const el = h("section")
+  const el = h("section", { class: "list" })
   const update = () => {
     if (state.agents.length === 0) {
-      el.replaceChildren(h("p", { class: "quiet" }, state.listed ? "No agents are running." : state.online ? "Loading…" : "Nothing to show yet."))
+      el.replaceChildren(h("div", { class: "empty" },
+        h("p", { class: "lead" }, state.listed ? "No agents running" : state.online ? "Loading…" : "Nothing to show yet"),
+        state.listed && can(state.hello.permission, "full")
+          ? h("p", { class: "quiet" }, "Start one with ", h("a", { href: "/new", "data-nav": true }, "a new task"), ".")
+          : null))
       return
     }
-    el.replaceChildren(...groupAgents(state.agents).flatMap((g) => [
-      h("h2", {}, g.name),
-      h("ul", { class: "agents" }, ...g.agents.map((a) =>
-        h("li", {}, h("a", { href: `/agent/${a.pane}`, "data-nav": true },
-          h("span", { class: `dot ${a.state}`, title: a.state }),
-          h("span", { class: "label" }, agentLabel(a)),
-          h("span", { class: "age" }, ago(a.since)),
-          h("span", { class: "meta" }, [a.state, a.agent, a.branch, a.cost_usd ? `$${a.cost_usd.toFixed(2)}` : "", a.failed ? "last request failed" : ""].filter(Boolean).join(" · ")),
-          a.question ? h("span", { class: "asks" }, a.question.text || "Waiting for you") : null)))),
+    const counts = {}
+    for (const a of state.agents) counts[a.state] = (counts[a.state] || 0) + 1
+    const summary = h("div", { class: "summary" }, ...["waiting", "done", "working", "idle"]
+      .filter((s) => counts[s]).map((s) => h("span", { class: `pill ${s}` }, `${counts[s]} ${s}`)))
+    el.replaceChildren(summary, ...groupAgents(state.agents).flatMap((g) => [
+      h("h2", {}, g.name, h("span", { class: "count" }, String(g.agents.length))),
+      h("ul", { class: "cards" }, ...g.agents.map((a) =>
+        h("li", {}, h("a", { href: `/agent/${a.pane}`, "data-nav": true, class: `card agent ${a.state}` },
+          h("div", { class: "top" }, pill(a.state), h("span", { class: "label" }, agentLabel(a)), h("span", { class: "age" }, ago(a.since))),
+          h("div", { class: "meta" }, [a.agent, a.branch, a.cost_usd ? `$${a.cost_usd.toFixed(2)}` : ""].filter(Boolean).join(" · "),
+            a.failed ? h("span", { class: "error" }, " · last request failed") : null),
+          a.question ? h("div", { class: "asks" }, a.question.text || "Waiting for you") : null)))),
     ]))
   }
   const tick = setInterval(update, 30000) // the ages move on
-  return { el, update, leave: () => clearInterval(tick) }
+  return { name: "list", el, update, leave: () => clearInterval(tick) }
 }
 
 function agentView(pane) {
-  const head = h("p", {})
+  const head = h("div", { class: "hero" })
   const ask = h("div", {})
-  const screen = h("pre", { class: "screen", "aria-label": "The agent's screen" })
+  const tail = h("pre", { class: "screen tail", "aria-label": "The agent's latest output" })
   const note = h("p", { class: "error", role: "alert" })
-  const text = h("textarea", { placeholder: "Reply to the agent…", rows: "2", "aria-label": "Reply" })
-  const sendButton = h("button", { class: "primary" }, "Send")
-  const replyNote = h("p", { class: "quiet" })
+  const text = h("textarea", { placeholder: "Reply…", rows: "1", "aria-label": "Reply" })
+  const sendButton = h("button", { class: "send", "aria-label": "Send" }, "↑")
+  const replyNote = h("p", { class: "hint" })
   const mayReply = can(state.hello.permission, "reply")
+  // The box grows with what is typed, up to a few lines.
+  text.addEventListener("input", () => {
+    text.style.height = "auto"
+    text.style.height = Math.min(text.scrollHeight, 140) + "px"
+  })
   const reply = h("form", {
+    class: "composer",
     hidden: !mayReply,
     onsubmit: async (ev) => {
       ev.preventDefault()
@@ -335,15 +379,17 @@ function agentView(pane) {
       try {
         await api("POST", "/api/reply", { pane, text: text.value })
         text.value = ""
+        text.style.height = "auto"
       } catch (err) {
         note.textContent = err.code === "agent_blocked" ? "It is waiting for an answer, so nothing was sent. Answer its question first." : err.message
       } finally {
         update()
       }
     },
-  }, h("div", { class: "row" }, text, sendButton), replyNote)
-  const terminal = h("p", {}, h("a", { href: `/agent/${pane}/terminal`, "data-nav": true, class: "button" }, "Terminal"))
-  const el = h("section", {}, head, ask, note, screen, terminal, reply)
+  }, replyNote, h("div", { class: "row" }, text, sendButton))
+  const output = h("div", { class: "section-head" }, h("h2", {}, "Latest output"),
+    h("a", { href: `/agent/${pane}/terminal`, "data-nav": true, class: "link" }, "Terminal ›"))
+  const el = h("section", { class: "agent-view" }, head, ask, note, output, tail, reply)
 
   let shownQuestion = null
   const answer = async (q, choice, buttons) => {
@@ -362,14 +408,16 @@ function agentView(pane) {
     if (key === shownQuestion) return // the same question: leave its buttons as they are
     shownQuestion = key
     if (!q) return ask.replaceChildren()
-    const box = h("div", { class: "question" }, h("p", {}, q.text || "The agent is waiting for an answer."))
+    const box = h("div", { class: "question" }, h("div", { class: "kicker" }, "Waiting for you"),
+      h("p", {}, q.text || "The agent is waiting for an answer."))
     if (q.choices?.length && mayReply) {
-      const buttons = q.choices.map((c) => h("button", { type: "button" }, c.label + (c.default ? "  ·  selected" : "")))
+      const buttons = q.choices.map((c) => h("button", { class: "choice" },
+        h("span", { class: "num" }, c.choice), h("span", { class: "text" }, c.label), c.default ? h("span", { class: "current" }, "selected") : null))
       buttons.forEach((b, i) => b.addEventListener("click", () => answer(q, q.choices[i], buttons)))
       box.append(h("div", { class: "choices" }, ...buttons))
     } else if (can(state.hello.permission, "full")) {
-      box.append(h("p", { class: "quiet" }, "conch couldn't read the choices off its screen. ",
-        h("a", { href: `/agent/${pane}/terminal`, "data-nav": true }, "Answer it in the terminal"), "."))
+      box.append(h("p", { class: "quiet" }, "conch couldn't read the choices off its screen. "),
+        h("a", { href: `/agent/${pane}/terminal`, "data-nav": true, class: "button wide" }, "Answer it in the terminal"))
     } else if (mayReply) {
       box.append(h("p", { class: "quiet" }, "conch couldn't read the choices off its screen. Answer this one at your laptop."))
     } else {
@@ -380,51 +428,49 @@ function agentView(pane) {
 
   const update = () => {
     const a = state.agents.find((x) => x.pane === pane)
-    $("where").textContent = a ? agentLabel(a) : pane
+    $("home").textContent = a ? agentLabel(a) : pane
+    $("where").textContent = a ? [a.agent, a.project?.name].filter(Boolean).join(" · ") : ""
     if (!a) {
-      head.replaceChildren(state.listed ? "This agent has gone: its pane closed, or the agent left it." : "Loading…")
+      head.replaceChildren(h("p", { class: "quiet" }, state.listed ? "This agent has gone: its pane closed, or the agent left it." : "Loading…"))
       showQuestion(null)
       reply.hidden = true
       return
     }
     const since = ago(a.since)
-    head.replaceChildren(...[
-      h("span", { class: `state ${a.state}` }, a.state), since === "now" || !since ? " just now" : ` for ${since}`,
-      h("span", { class: "quiet" }, " · " + [a.agent, a.project?.name, a.branch].filter(Boolean).join(" · ")),
-      a.failed && h("span", { class: "error" }, " · its last request failed"),
-    ].filter(Boolean))
+    head.replaceChildren(pill(a.state), h("span", { class: "since" }, !since || since === "now" ? "just now" : `for ${since}`),
+      h("span", { class: "meta" }, [a.branch, a.cost_usd ? `$${a.cost_usd.toFixed(2)}` : ""].filter(Boolean).join(" · ")),
+      ...(a.failed ? [h("p", { class: "error" }, "Its last request failed.")] : []))
     showQuestion(a.state === "waiting" ? a.question : null)
     reply.hidden = !mayReply
     const waiting = a.state === "waiting"
     text.disabled = waiting || !state.online
     sendButton.disabled = waiting || !state.online
-    replyNote.textContent = waiting ? "It is waiting for an answer; a reply would be typed onto the question."
-      : a.state === "working" ? "It is working; it gets your reply when this work ends." : ""
+    replyNote.textContent = waiting ? "Answer its question first: a reply now would be typed onto it."
+      : a.state === "working" ? "It's working — it gets your reply when this work ends." : ""
+    replyNote.hidden = !replyNote.textContent
   }
 
   const frame = (f) => {
-    if (f.pane === pane) drawFrame(screen, f, frameRows(f.lines))
+    if (f.pane === pane) drawRows(tail, tailRows(frameRows(f.lines), 18))
   }
 
   const connected = () => send({ type: "frame.open", pane })
   return {
-    el, update, frame, connected,
+    name: "agent", el, update, frame, connected,
     socketError: (e) => { if (e?.code !== "not_found") note.textContent = e?.message || "" },
     leave: () => send({ type: "frame.close", pane }),
   }
 }
 
-// drawFrame puts a frame's rows on screen as styled text, as small as it
-// takes to fit the phone's width, down to what is readable.
-function drawFrame(screen, f, rows) {
-  screen.style.fontSize = fontSizeFor(f.cols, screen.clientWidth - 16) + "px"
+// drawRows puts rows of styled runs on screen as text.
+function drawRows(screen, rows) {
   screen.replaceChildren(...rows.map((runs) => {
     const row = document.createElement("div")
     for (const run of runs) {
       const span = document.createElement("span")
       span.textContent = run.text
       let fg = run.fg, bg = run.bg
-      if (run.inverse) [fg, bg] = [bg || "#101114", fg || "#d6d6d2"]
+      if (run.inverse) [fg, bg] = [bg || "#0b0d10", fg || "#d8dade"]
       if (fg) span.style.color = fg
       if (bg) span.style.backgroundColor = bg
       if (run.bold) span.style.fontWeight = "700"
@@ -437,20 +483,46 @@ function drawFrame(screen, f, rows) {
   }))
 }
 
+// The terminal's text size: a number is that size, and a wide screen
+// scrolls sideways; "fit" shrinks the whole width onto the phone, which
+// for a wide terminal is too small to read, so it isn't the default.
+// Kept per device.
+const TERM_SIZES = ["10", "12", "8", "fit"]
+function termSize() {
+  let size = ""
+  try { size = localStorage.getItem("conch.termSize") || "" } catch { /* private mode */ }
+  return TERM_SIZES.includes(size) ? size : TERM_SIZES[0]
+}
+
 // terminalView is a pane's whole screen, every frame, and for a device
 // with full the keys a phone's keyboard lacks and a line to type from.
 function terminalView(pane) {
   const screen = h("pre", { class: "screen terminal", "aria-label": "The terminal" })
   const note = h("p", { class: "error", role: "alert" })
   const mayType = can(state.hello.permission, "full")
-  let sent = 0
+  let sent = 0, last = null
   const sendKeys = (keys) => {
     note.textContent = ""
     for (const part of chunks(keys)) send({ type: "keys", id: `k${++sent}`, pane, keys: part })
   }
+  const draw = () => {
+    if (!last) return
+    const size = termSize()
+    screen.style.fontSize = (size === "fit" ? fontSizeFor(last.cols, screen.clientWidth - 16) : Number(size)) + "px"
+    drawRows(screen, frameRows(last.lines)) // not the empty rows under the last line
+  }
+  const sizeButton = h("button", { class: "chip", "aria-label": "Text size" })
+  const showSize = () => { sizeButton.textContent = termSize() === "fit" ? "Aa fit width" : `Aa ${termSize()}px` }
+  sizeButton.addEventListener("click", () => {
+    const next = TERM_SIZES[(TERM_SIZES.indexOf(termSize()) + 1) % TERM_SIZES.length]
+    try { localStorage.setItem("conch.termSize", next) } catch { /* private mode */ }
+    showSize()
+    draw()
+  })
+  showSize()
 
   const bar = h("div", { class: "keybar", role: "toolbar", "aria-label": "Keys" }, ...KEYBAR.map((k) => {
-    const b = h("button", { type: "button", "aria-label": k.key }, k.label)
+    const b = h("button", { class: "key", "aria-label": k.key }, k.label)
     let armed = null
     b.addEventListener("click", () => {
       if (k.confirm && !armed) {
@@ -480,24 +552,24 @@ function terminalView(pane) {
       sendKeys(keys) // typed, not submitted: ⏎ is its own key
       line.value = ""
     },
-  }, line, h("button", { class: "primary" }, "Type"))
+  }, line, h("button", { class: "send", "aria-label": "Type" }, "↑"))
   const keys = mayType
-    ? h("div", { class: "keys" }, bar, typing)
-    : h("p", { class: "quiet" }, "This device can look but not type: that needs the full permission.")
+    ? h("div", { class: "composer keys" }, bar, typing)
+    : h("p", { class: "hint" }, "This device can look but not type: that needs the full permission.")
   const el = h("section", { class: "terminal-view" },
-    h("p", {}, h("a", { href: `/agent/${pane}`, "data-nav": true }, "← Back to the agent")),
-    screen, note, keys)
+    h("div", { class: "toolbar" }, sizeButton), screen, note, keys)
 
   const update = () => {
     const a = state.agents.find((x) => x.pane === pane)
-    $("where").textContent = (a ? agentLabel(a) : pane) + " · terminal"
+    $("home").textContent = a ? agentLabel(a) : pane
+    $("where").textContent = "terminal"
     const off = !state.online
-    for (const b of el.querySelectorAll("button")) b.disabled = off
+    for (const b of el.querySelectorAll(".composer button")) b.disabled = off
     line.disabled = off
   }
   return {
-    el, update,
-    frame: (f) => { if (f.pane === pane) drawFrame(screen, f, f.lines.map(parseLine)) },
+    name: "terminal", el, update,
+    frame: (f) => { if (f.pane === pane) { last = f; draw() } },
     connected: () => send({ type: "frame.open", pane }),
     socketError: (e) => { note.textContent = e?.message || "" },
     leave: () => send({ type: "frame.close", pane }),
@@ -515,8 +587,8 @@ function settingsView() {
   const status = h("p", { role: "status" })
   const error = h("p", { class: "error", role: "alert" })
   const done = h("input", { type: "checkbox" })
-  const on = h("button", { class: "primary", type: "button" }, "Turn on notifications")
-  const off = h("button", { type: "button" }, "Turn off")
+  const on = h("button", { class: "primary wide" }, "Turn on notifications")
+  const off = h("button", { class: "wide" }, "Turn off")
   const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window
 
   const registration = () => navigator.serviceWorker.ready
@@ -543,8 +615,8 @@ function settingsView() {
     }
     const sub = await current()
     status.textContent = sub
-      ? "Notifications are on: you are told when an agent is waiting for you" + (done.checked ? ", and when one finishes." : ".")
-      : "Notifications are off."
+      ? "On: you are told when an agent is waiting for you" + (done.checked ? ", and when one finishes." : ".")
+      : "Off."
     on.hidden = !!sub
     off.hidden = !sub
   }
@@ -591,18 +663,18 @@ function settingsView() {
   try { done.checked = localStorage.getItem("conch.pushDone") === "1" } catch { /* private mode */ }
 
   const me = state.hello || {}
+  const row = (k, v) => h("div", { class: "kv" }, h("span", {}, k), h("span", { class: "quiet" }, v))
   const el = h("section", {},
     h("h2", {}, "Notifications"),
-    status,
-    h("label", { class: "check" }, done, " Also when an agent finishes"),
-    h("div", { class: "row" }, on, off),
-    error,
-    h("p", { class: "quiet" }, "A notification says which agent and which project, never what it asks or shows: it passes through Apple's or Google's servers."),
+    h("div", { class: "card" }, status,
+      h("label", { class: "check" }, done, " Also when an agent finishes"),
+      on, off, error),
+    h("p", { class: "hint" }, "A notification says which agent and which project, never what it asks or shows: it passes through Apple's or Google's servers."),
     h("h2", {}, "This device"),
-    h("p", { class: "quiet" }, `${me.device_id || ""} · ${me.permission || ""} · conch ${me.conch_version || ""}`),
-    h("p", { class: "quiet" }, "To unpair it, run ", h("code", {}, `conch web revoke ${me.device_id || "ID"}`), " on your laptop."))
+    h("div", { class: "card" }, row("Device", me.device_id || ""), row("Permission", me.permission || ""), row("conch", me.conch_version || "")),
+    h("p", { class: "hint" }, "To unpair it, run ", h("code", {}, `conch web revoke ${me.device_id || "ID"}`), " on your laptop."))
   refresh().catch((err) => { error.textContent = err.message })
-  return { el }
+  return { name: "settings", el }
 }
 
 function newTaskView() {
@@ -610,8 +682,8 @@ function newTaskView() {
   const project = h("select", { required: true }, h("option", { value: "" }, "Loading…"))
   const agent = h("select", {}, h("option", { value: "" }, "conch's default"), ...AGENTS.map((a) => h("option", { value: a }, a)))
   const name = h("input", { maxlength: "64", placeholder: "optional, e.g. reviewer" })
-  const prompt = h("textarea", { required: true, rows: "5", placeholder: "What should it do?" })
-  const button = h("button", { class: "primary" }, "Start")
+  const prompt = h("textarea", { required: true, rows: "6", placeholder: "What should it do?" })
+  const button = h("button", { class: "primary wide" }, "Start")
   api("GET", "/api/projects").then(({ projects }) => {
     project.replaceChildren(...(projects.length
       ? projects.map((p) => h("option", { value: p.id }, p.name || p.path))
@@ -634,12 +706,14 @@ function newTaskView() {
       }
     },
   },
-  h("label", {}, "Project", project),
-  h("label", {}, "Agent", agent),
-  h("label", {}, "Name", name),
-  h("label", {}, "Task", prompt),
+  h("div", { class: "card" },
+    h("label", {}, "Project", project),
+    h("label", {}, "Agent", agent),
+    h("label", {}, "Name", name)),
+  h("div", { class: "card" }, h("label", {}, "Task", prompt)),
+  h("p", { class: "hint" }, "conch makes a branch and a worktree for it, and starts the agent there."),
   button, status)
-  return { el: h("section", {}, h("p", { class: "quiet" }, "A new branch and worktree, and an agent started there."), form) }
+  return { name: "new", el: h("section", {}, form) }
 }
 
 // ---- start ----
