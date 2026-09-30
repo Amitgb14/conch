@@ -27,10 +27,14 @@ func TestRoutesAreTheContract(t *testing.T) {
 		"DELETE /api/push/subscribe view",
 		"GET /api/agents view",
 		"GET /api/hello view",
+		"GET /api/panes view",
 		"GET /api/projects view",
 		"GET /api/push/key view",
 		"POST /api/answer reply",
+		"POST /api/close full",
+		"POST /api/panes full",
 		"POST /api/push/subscribe view",
+		"POST /api/rename full",
 		"POST /api/reply reply",
 		"POST /api/task full",
 	}
@@ -42,7 +46,8 @@ func TestRoutesAreTheContract(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("routes:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	wantSocket := map[string]string{"agents.watch": "view", "frame.open": "view", "frame.close": "view", "keys": "full", "ping": "view"}
+	wantSocket := map[string]string{"agents.watch": "view", "frame.open": "view", "frame.close": "view", "keys": "full", "ping": "view",
+		"panes.watch": "view", "text": "full"}
 	if len(socketNeeds) != len(wantSocket) {
 		t.Fatalf("socket messages: %v", socketNeeds)
 	}

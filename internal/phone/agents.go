@@ -101,3 +101,63 @@ func sortAgents(agents []Agent) {
 		return a.Since.Before(b.Since)
 	})
 }
+
+// isRunning reports whether a pane is one the pane list carries.
+func isRunning(p proto.PaneInfo) bool { return p.State == proto.PaneRunning }
+
+// buildPane is any running pane as the phone sees it.
+func buildPane(p proto.PaneInfo, projects map[string]string, screen []string) Pane {
+	if p.Agent != nil {
+		return Pane{Agent: buildAgent(p, projects, screen), Kind: KindAgent, Cwd: p.Cwd}
+	}
+	a := Agent{Machine: Machine, Pane: p.ID, Name: p.Name, Branch: p.Branch, State: StateIdle,
+		Since: p.Created.UTC(), Title: p.Title, CreatedBy: p.CreatedBy}
+	if p.ProjectID != "" {
+		a.Project = &ProjectRef{ID: p.ProjectID, Name: projects[p.ProjectID]}
+	}
+	return Pane{Agent: a, Kind: KindTerminal, Cwd: p.Cwd}
+}
+
+// paneOf builds one pane, reading its screen when its agent waits.
+func paneOf(ctx context.Context, c caller, p proto.PaneInfo, projects map[string]string) Pane {
+	var screen proto.PaneReadResult
+	if p.Agent != nil && p.Agent.State == proto.AgentBlocked {
+		_ = c.Call(ctx, proto.MethodPaneRead, proto.PaneRef{ID: p.ID}, &screen)
+	}
+	return buildPane(p, projects, screen.Lines)
+}
+
+// paneList is every running pane: the agents in the list's order, then
+// the terminals, oldest first.
+func paneList(ctx context.Context, c caller) ([]Pane, error) {
+	var list proto.PaneList
+	if err := c.Call(ctx, proto.MethodPaneList, nil, &list); err != nil {
+		return nil, err
+	}
+	projects, err := projectNames(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	var agents []Agent
+	byPane := map[string]Pane{}
+	var terminals []Pane
+	for _, p := range list.Panes {
+		if !isRunning(p) {
+			continue
+		}
+		pn := paneOf(ctx, c, p, projects)
+		if pn.Kind == KindAgent {
+			agents = append(agents, pn.Agent)
+			byPane[p.ID] = pn
+		} else {
+			terminals = append(terminals, pn)
+		}
+	}
+	sortAgents(agents)
+	panes := []Pane{}
+	for _, a := range agents {
+		panes = append(panes, byPane[a.Pane])
+	}
+	sort.SliceStable(terminals, func(i, j int) bool { return terminals[i].Since.Before(terminals[j].Since) })
+	return append(panes, terminals...), nil
+}

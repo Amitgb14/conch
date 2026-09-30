@@ -304,6 +304,10 @@ var routes = []route{
 	{"GET", "/api/push/key", PermView, (*Gateway).pushKey},
 	{"POST", "/api/push/subscribe", PermView, (*Gateway).pushSubscribe},
 	{"DELETE", "/api/push/subscribe", PermView, (*Gateway).pushUnsubscribe},
+	{"GET", "/api/panes", PermView, (*Gateway).listPanes},
+	{"POST", "/api/panes", PermFull, (*Gateway).newPane},
+	{"POST", "/api/close", PermFull, (*Gateway).closePane},
+	{"POST", "/api/rename", PermFull, (*Gateway).renamePane},
 }
 
 // SocketPath is where the WebSocket is opened.
@@ -797,4 +801,96 @@ func (g *Gateway) pushUnsubscribe(rq *request) (any, *APIError) {
 		return nil, apiErr(CodeServerUnavailable, "the subscription couldn't be removed")
 	}
 	return nil, nil
+}
+
+func (g *Gateway) listPanes(rq *request) (any, *APIError) {
+	c, aerr := g.server()
+	if aerr != nil {
+		return nil, aerr
+	}
+	ctx, cancel := context.WithTimeout(rq.r.Context(), callTimeout)
+	defer cancel()
+	panes, err := paneList(ctx, c)
+	if err != nil {
+		return nil, fromServer(err)
+	}
+	return PaneList{Panes: panes}, nil
+}
+
+// newPane is pane.create: a login shell, or an agent launched the way
+// conch launches it, in a project's folder or the home folder.
+func (g *Gateway) newPane(rq *request) (any, *APIError) {
+	var req NewPaneRequest
+	if aerr := rq.decode(&req); aerr != nil {
+		return nil, aerr
+	}
+	// A name of a pane ID's shape would stand for another pane wherever
+	// panes are named; pane.create doesn't refuse one, so this does.
+	if proto.IsPaneID(req.Name) {
+		return nil, apiErr(CodeBadRequest, "a pane can't be named like a pane ID")
+	}
+	params := proto.PaneCreateParams{Name: req.Name, Cols: 120, Rows: 40}
+	switch req.Kind {
+	case KindTerminal:
+		if req.Agent != "" || req.Prompt != "" {
+			return nil, apiErr(CodeBadRequest, "a terminal takes no agent or prompt")
+		}
+	case KindAgent:
+		if req.Agent == "" {
+			return nil, apiErr(CodeBadRequest, "an agent pane needs agent")
+		}
+		params.Agent, params.Prompt = req.Agent, req.Prompt
+	default:
+		return nil, apiErr(CodeBadRequest, "kind is terminal or agent")
+	}
+	if req.Project == "" {
+		params.NoProject = true // the home folder, in no project, as the TUI's machine-level panes
+	} else {
+		var list proto.ProjectList
+		if aerr := g.call(rq, callTimeout, proto.MethodProjectList, nil, &list); aerr != nil {
+			return nil, aerr
+		}
+		i := slices.IndexFunc(list.Projects, func(p proto.ProjectInfo) bool { return p.ID == req.Project })
+		if i < 0 {
+			return nil, apiErr(CodeNotFound, "no project "+req.Project)
+		}
+		params.Cwd = list.Projects[i].Path
+	}
+	var info proto.PaneInfo
+	if aerr := g.call(rq, callTimeout, proto.MethodPaneCreate, params, &info); aerr != nil {
+		return nil, aerr
+	}
+	return NewPaneResponse{Pane: info.ID}, nil
+}
+
+func (g *Gateway) closePane(rq *request) (any, *APIError) {
+	var req CloseRequest
+	if aerr := rq.decode(&req); aerr != nil {
+		return nil, aerr
+	}
+	if aerr := paneID(req.Pane); aerr != nil {
+		return nil, aerr
+	}
+	if aerr := g.call(rq, callTimeout, proto.MethodPaneClose, proto.PaneRef{ID: req.Pane}, nil); aerr != nil {
+		return nil, aerr
+	}
+	return CloseResponse{Pane: req.Pane, Closed: true}, nil
+}
+
+func (g *Gateway) renamePane(rq *request) (any, *APIError) {
+	var req RenameRequest
+	if aerr := rq.decode(&req); aerr != nil {
+		return nil, aerr
+	}
+	if aerr := paneID(req.Pane); aerr != nil {
+		return nil, aerr
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if proto.IsPaneID(req.Name) {
+		return nil, apiErr(CodeBadRequest, "a pane can't be named like a pane ID")
+	}
+	if aerr := g.call(rq, callTimeout, proto.MethodPaneRename, proto.PaneRenameParams{ID: req.Pane, Name: req.Name}, nil); aerr != nil {
+		return nil, aerr
+	}
+	return req, nil
 }

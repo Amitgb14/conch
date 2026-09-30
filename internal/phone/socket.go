@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,8 +36,11 @@ type socket struct {
 	mu       sync.Mutex
 	watching bool
 	known    map[string]bool // panes whose agent the phone has been told of
-	open     map[string]bool // panes it is drawing
-	projects map[string]string
+	// For panes.watch: every pane, terminals too.
+	watchingPanes bool
+	knownPanes    map[string]bool
+	open          map[string]bool // panes it is drawing
+	projects      map[string]string
 
 	byeOnce sync.Once
 }
@@ -70,7 +74,7 @@ func (g *Gateway) serveSocket(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s := &socket{g: g, conn: conn, devID: dev.ID, tokenHash: hashSecret(token), ctx: ctx, cancel: cancel,
-		known: map[string]bool{}, open: map[string]bool{}, projects: map[string]string{}}
+		known: map[string]bool{}, knownPanes: map[string]bool{}, open: map[string]bool{}, projects: map[string]string{}}
 	g.logf("socket %s open", dev.ID)
 
 	g.mu.Lock()
@@ -215,6 +219,40 @@ func (s *socket) handle(m ClientMessage) {
 		s.mu.Unlock()
 		s.send(ServerMessage{Type: MsgAgents, ID: m.ID, Agents: &agents})
 
+	case MsgPanesWatch:
+		s.mu.Lock()
+		s.watchingPanes = true
+		s.mu.Unlock()
+		ctx, cancel := context.WithTimeout(s.ctx, callTimeout)
+		panes, err := paneList(ctx, s.c)
+		cancel()
+		if err != nil {
+			s.fail(m.ID, fromServer(err))
+			return
+		}
+		s.mu.Lock()
+		for _, p := range panes {
+			s.knownPanes[p.Pane] = true
+		}
+		s.mu.Unlock()
+		s.send(ServerMessage{Type: MsgPanes, ID: m.ID, Panes: &panes})
+
+	case MsgText:
+		if aerr := paneID(m.Pane); aerr != nil {
+			s.fail(m.ID, aerr)
+			return
+		}
+		if m.Text == "" {
+			s.fail(m.ID, apiErr(CodeBadRequest, "text needs something to type"))
+			return
+		}
+		// Across lines it is a paste, so a program that asked for bracketed
+		// paste doesn't take each line's end for Enter.
+		params := proto.PaneSendTextParams{ID: m.Pane, Text: m.Text, Paste: strings.ContainsAny(m.Text, "\r\n")}
+		if err := s.call(proto.MethodPaneSendText, params, nil); err != nil {
+			s.fail(m.ID, fromServer(err))
+		}
+
 	case MsgFrameOpen:
 		if aerr := paneID(m.Pane); aerr != nil {
 			s.fail(m.ID, aerr)
@@ -313,8 +351,11 @@ func (s *socket) event(msg proto.Message) {
 			return
 		}
 		s.mu.Lock()
-		watching := s.watching
+		watching, watchingPanes := s.watching, s.watchingPanes
 		s.mu.Unlock()
+		if watchingPanes {
+			s.paneChanged(p)
+		}
 		if !watching {
 			return
 		}
@@ -337,9 +378,36 @@ func (s *socket) event(msg proto.Message) {
 		}
 		s.mu.Lock()
 		delete(s.open, ref.ID)
+		wasPane := s.knownPanes[ref.ID]
+		delete(s.knownPanes, ref.ID)
 		s.mu.Unlock()
 		s.gone(ref.ID)
+		if wasPane {
+			s.send(ServerMessage{Type: MsgPaneGone, Pane: ref.ID})
+		}
 	}
+}
+
+// paneChanged tells a phone watching every pane about one that appeared
+// or changed, or that it has gone when it no longer runs.
+func (s *socket) paneChanged(p proto.PaneInfo) {
+	if !isRunning(p) {
+		s.mu.Lock()
+		was := s.knownPanes[p.ID]
+		delete(s.knownPanes, p.ID)
+		s.mu.Unlock()
+		if was {
+			s.send(ServerMessage{Type: MsgPaneGone, Pane: p.ID})
+		}
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, callTimeout)
+	pn := paneOf(ctx, s.c, p, s.projectNames(ctx, p.ProjectID))
+	cancel()
+	s.mu.Lock()
+	s.knownPanes[p.ID] = true
+	s.mu.Unlock()
+	s.send(ServerMessage{Type: MsgPaneChanged, Info: &pn})
 }
 
 // gone tells the phone an agent it knew of has left.

@@ -142,6 +142,58 @@ type Choice struct {
 	Default bool   `json:"default,omitempty"`
 }
 
+// Kinds of pane.
+const (
+	KindAgent    = "agent"
+	KindTerminal = "terminal"
+)
+
+// Pane is any pane, an agent's or a plain terminal's: the Agent object
+// with its kind and directory. A terminal's agent is "", its state idle,
+// and since is when it started.
+type Pane struct {
+	Agent
+	Kind string `json:"kind"`
+	Cwd  string `json:"cwd,omitempty"`
+}
+
+// PaneList is GET /api/panes and the socket's "panes".
+type PaneList struct {
+	Panes []Pane `json:"panes"`
+}
+
+// NewPaneRequest is POST /api/panes: a terminal, or an agent with an
+// optional first message, in a project's folder or the home folder.
+type NewPaneRequest struct {
+	Kind    string `json:"kind"`
+	Project string `json:"project,omitempty"`
+	Agent   string `json:"agent,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Prompt  string `json:"prompt,omitempty"`
+}
+
+// NewPaneResponse is the pane started.
+type NewPaneResponse struct {
+	Pane string `json:"pane"`
+}
+
+// CloseRequest is POST /api/close.
+type CloseRequest struct {
+	Pane string `json:"pane"`
+}
+
+// CloseResponse says the pane is closed.
+type CloseResponse struct {
+	Pane   string `json:"pane"`
+	Closed bool   `json:"closed"`
+}
+
+// RenameRequest is POST /api/rename, and its response.
+type RenameRequest struct {
+	Pane string `json:"pane"`
+	Name string `json:"name"`
+}
+
 // Frame is a pane's screen as the server renders it: a snapshot, drawn
 // whole each time.
 type Frame struct {
@@ -260,6 +312,8 @@ const (
 	MsgFrameClose  = "frame.close"
 	MsgKeys        = "keys"
 	MsgPing        = "ping"
+	MsgPanesWatch  = "panes.watch"
+	MsgText        = "text"
 
 	MsgAgents    = "agents"
 	MsgAgent     = "agent"
@@ -268,6 +322,10 @@ const (
 	MsgError     = "error"
 	MsgPong      = "pong"
 	MsgBye       = "bye"
+
+	MsgPanes       = "panes"
+	MsgPaneChanged = "pane.changed"
+	MsgPaneGone    = "pane.gone"
 )
 
 // Reasons a socket is closed for.
@@ -284,6 +342,7 @@ type ClientMessage struct {
 	ID   string   `json:"id,omitempty"`
 	Pane string   `json:"pane,omitempty"`
 	Keys []string `json:"keys,omitempty"`
+	Text string   `json:"text,omitempty"`
 }
 
 // ServerMessage is what the gateway sends on the socket; Type says which
@@ -292,6 +351,8 @@ type ServerMessage struct {
 	Type   string    `json:"type"`
 	ID     string    `json:"id,omitempty"`
 	Agents *[]Agent  `json:"agents,omitempty"`
+	Panes  *[]Pane   `json:"panes,omitempty"`
+	Info   *Pane     `json:"info,omitempty"`
 	Agent  *Agent    `json:"agent,omitempty"`
 	Pane   string    `json:"pane,omitempty"`
 	Frame  *Frame    `json:"frame,omitempty"`
@@ -307,4 +368,6 @@ var socketNeeds = map[string]string{
 	MsgFrameClose:  PermView,
 	MsgKeys:        PermFull,
 	MsgPing:        PermView,
+	MsgPanesWatch:  PermView,
+	MsgText:        PermFull,
 }
