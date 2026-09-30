@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -507,5 +508,108 @@ func TestSidebarResizesFromEitherBorder(t *testing.T) {
 	a1Mouse(t, m, m.sidebarW, 5, a1Right, a1Press)
 	if m.dragging {
 		t.Fatal("a right click started a resize")
+	}
+}
+
+// TestA1MouseDragTabReorders drags tabs along the bar: the order follows the
+// pointer, the drag owns the mouse until it is let go, and the paths that
+// must not move a tab don't.
+func TestA1MouseDragTabReorders(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1FourTabs(t, m)
+	a1At(t, m, cliID(localMachine)) // a group that lists tabs
+	mr := m.mainRect()
+	order := func() string {
+		var b strings.Builder
+		for _, i := range m.visibleTabs() {
+			b.WriteString(m.tabs[i].root.leaves()[0].view.PaneID + " ")
+		}
+		return strings.TrimSpace(b.String())
+	}
+	tabX := func(pos int) int {
+		t.Helper()
+		vis := m.visibleTabs()
+		if pos >= len(vis) {
+			t.Fatalf("no visible tab %d of %d", pos, len(vis))
+		}
+		_, hits := m.tabBar(mr.w)
+		for _, h := range hits {
+			if h.tab == vis[pos] {
+				return mr.x + h.x0 + 1
+			}
+		}
+		t.Fatalf("no hit for tab at %d", pos)
+		return 0
+	}
+	start := order()
+	if len(strings.Fields(start)) < 2 {
+		t.Fatalf("this group lists %q", start)
+	}
+
+	// Press the last tab and drag it onto the first: it lands there, and
+	// every other tab keeps its order.
+	last := len(m.visibleTabs()) - 1
+	dragged := strings.Fields(start)[last]
+	a1Mouse(t, m, tabX(last), mr.y, a1Left, a1Press)
+	if !m.tabDrag {
+		t.Fatal("pressing a tab did not start a drag")
+	}
+	a1Mouse(t, m, tabX(0), mr.y, tea.MouseButtonNone, a1Motion)
+	if got := strings.Fields(order())[0]; got != dragged {
+		t.Fatalf("drag to the front: %q (was %q)", order(), start)
+	}
+	// Motion over the tab it now is does not move it again — the reason the
+	// bar doesn't flicker back and forth under a held pointer.
+	was := order()
+	a1Mouse(t, m, tabX(0), mr.y, tea.MouseButtonNone, a1Motion)
+	if order() != was {
+		t.Fatalf("a second motion moved it: %q then %q", was, order())
+	}
+	// Off the bar nothing moves, and the drag is still on.
+	a1Mouse(t, m, tabX(0), mr.y+4, tea.MouseButtonNone, a1Motion)
+	if order() != was || !m.tabDrag {
+		t.Fatalf("off the bar: %q, dragging %v", order(), m.tabDrag)
+	}
+	// Dragging past the last tab — over the + — takes it to the end.
+	_, hits := m.tabBar(mr.w)
+	end := mr.x + hits[len(hits)-1].x0
+	a1Mouse(t, m, end, mr.y, tea.MouseButtonNone, a1Motion)
+	if got := strings.Fields(order()); got[len(got)-1] != dragged {
+		t.Fatalf("drag to the end: %q", order())
+	}
+	// Letting go ends it, and motion afterwards moves nothing.
+	a1Mouse(t, m, end, mr.y, a1Left, a1Release)
+	if m.tabDrag {
+		t.Fatal("release left the drag on")
+	}
+	was = order()
+	a1Mouse(t, m, tabX(0), mr.y, tea.MouseButtonNone, a1Motion)
+	if order() != was {
+		t.Fatalf("motion after the release moved a tab: %q then %q", was, order())
+	}
+}
+
+// TestA1MouseDragTabAlone: one tab has nowhere to go, and a preview is not a
+// tab to drag at all.
+func TestA1MouseDragTabAlone(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1Open(t, m, paneNodeID(localMachine, "p1"))
+	mr := m.mainRect()
+	_, hits := m.tabBar(mr.w)
+	x := mr.x
+	for _, h := range hits {
+		if h.tab >= 0 {
+			x = mr.x + h.x0
+		}
+	}
+	a1Mouse(t, m, x, mr.y, a1Left, a1Press)
+	if m.tabDrag {
+		t.Fatal("a lone tab started a drag")
+	}
+	// Whatever arrives next, nothing moves and nothing panics.
+	a1Mouse(t, m, x+20, mr.y, tea.MouseButtonNone, a1Motion)
+	a1Mouse(t, m, x+20, mr.y, a1Left, a1Release)
+	if len(m.tabs) != 1 {
+		t.Fatalf("tabs: %d", len(m.tabs))
 	}
 }

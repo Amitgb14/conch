@@ -29,6 +29,30 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Dragging a tab along the bar. Pressing one already made it active, so
+	// the drag moves the active tab to whichever tab the pointer is over —
+	// the bar reorders under the pointer rather than drawing a marker, and
+	// the pointer then sits on the tab it moved, which is what stops it
+	// swapping back and forth. The drag owns the mouse until it is let go,
+	// wherever that happens.
+	if m.tabDrag {
+		switch msg.Action {
+		case tea.MouseActionMotion:
+			mr := m.mainRect()
+			if msg.Y != mr.y {
+				return m, nil // off the bar: nothing moves until it comes back
+			}
+			if pos := m.tabPosAt(msg.X - mr.x); pos >= 0 {
+				return m, m.moveTabTo(pos)
+			}
+			return m, nil
+		case tea.MouseActionRelease:
+			m.tabDrag = false
+			return m, nil
+		}
+		return m, nil
+	}
+
 	// Resizing splits by dragging the boundary between two leaves; the drag
 	// ends wherever the button is released, over the sidebar or status bar too.
 	if m.barDrag != nil {
@@ -101,6 +125,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 						return m, m.closeTabAsk(m.activeTab)
 					}
 					cmd := m.switchTab(h.tab)
+					m.tabDrag = len(m.visibleTabs()) > 1 && !m.previewing
 					// A tab of an agent or terminal is there to type into.
 					if v := m.tab().focused().view; v.Kind == kindPane {
 						if p := m.pane(v.Machine, v.PaneID); p != nil && p.State == proto.PaneRunning {

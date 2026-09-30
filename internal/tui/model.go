@@ -104,6 +104,7 @@ type Model struct {
 	frames      map[string]*proto.Frame // latest frame per visible pane (paneKey)
 	subscribed  map[string]bool
 	barDrag     *splitBar // a split boundary being dragged
+	tabDrag     bool      // a tab is being dragged along the bar
 	pendingShow string    // row to put on screen once the tree has it
 
 	offset     int           // lines the viewed pane is scrolled back

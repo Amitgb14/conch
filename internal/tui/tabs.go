@@ -945,6 +945,35 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 	return fit(b.String(), w), hits
 }
 
+// tabPosAt is the visible position (0-based) of the tab at column x of the
+// bar, for a tab being dragged: past the last tab — the space, the close
+// button or the + — is the last position, so a tab dragged to the end goes
+// there rather than nowhere. It gives -1 when there are no tabs to speak of.
+func (m Model) tabPosAt(x int) int {
+	vis := m.visibleTabs()
+	if len(vis) == 0 {
+		return -1
+	}
+	_, hits := m.tabBar(m.mainRect().w)
+	last := -1
+	for _, h := range hits {
+		if h.tab < 0 {
+			continue
+		}
+		pos := slices.Index(vis, h.tab)
+		if pos < 0 {
+			continue
+		}
+		if x >= h.x0 && x < h.x1 {
+			return pos
+		}
+		if h.x1 <= x && pos > last {
+			last = pos // the furthest tab the pointer has gone past
+		}
+	}
+	return last
+}
+
 func itoa(i int) string {
 	if i < 10 {
 		return string(rune('0' + i))
