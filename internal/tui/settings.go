@@ -431,9 +431,14 @@ func (s *settings) agentItems(m *Model) []settingItem {
 		return s.userSyncItems(m)
 	case "library":
 		return s.libraryItems(m)
+	case "skill":
+		return s.skillItems(m)
 	}
 	if id, ok := cutPrefix(s.page, "agents:"); ok {
 		return s.machineAgentItems(m, id)
+	}
+	if id, ok := cutPrefix(s.page, "skill:"); ok {
+		return s.skillMachineItems(m, id)
 	}
 	items := []settingItem{{header: true, label: "Default agent", detail: "pre-selected when c asks which agent"}}
 	for _, name := range knownAgents(m) {
@@ -457,6 +462,17 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				s.openPage("library")
 				m.libraryErr = ""
 				return m.loadLibrary(proto.AgentLibraryParams{}, "")
+			}},
+		settingItem{label: "conch's own skill…", detail: styleMuted.Render("so an agent can start, prompt and read another"), page: true,
+			run: func(m *Model) tea.Cmd {
+				s.openPage("skill")
+				var cmds []tea.Cmd
+				for _, mach := range m.machines {
+					if c := m.clientOf(mach.id); c != nil {
+						cmds = append(cmds, m.loadSkill(mach.id, ""))
+					}
+				}
+				return tea.Batch(cmds...)
 			}})
 
 	r := &m.cfg.Remote

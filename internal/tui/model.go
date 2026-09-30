@@ -40,7 +40,11 @@ type Model struct {
 	// this computer, as last read, and libraryErr why it could not be.
 	library    *proto.AgentLibraryResult
 	libraryErr string
-	cfg        config.Config
+	// skill is what each machine last said about conch's own skill for its
+	// agents, keyed by machine: read when its page is opened, since it asks
+	// that machine's server.
+	skill map[string]*skillPlan
+	cfg   config.Config
 
 	width, height int
 
@@ -448,6 +452,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case userSyncMsg:
 		return m, m.receiveUserSync(msg)
 
+	case skillMsg:
+		return m, m.receiveSkill(msg)
 	case libraryMsg:
 		return m, m.receiveLibrary(msg)
 

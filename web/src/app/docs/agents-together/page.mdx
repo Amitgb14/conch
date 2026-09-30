@@ -13,6 +13,8 @@ conch agent skill            # says where it would write, and writes nothing
 conch agent skill -apply     # writes it
 ```
 
+Or without leaving the TUI: `,` → **Agents** → **conch's own skill…** lists every machine and how it stands there — *every agent has it*, *1 have it · 1 not*, or the reason it could not be asked — and opening a machine names each agent and what would happen to it. **Install it for every agent…** and **Take conch's copy away…** name every path in a question before anything is written, the way the command plans before `-apply`. A machine at a time, through that machine's own server.
+
 It goes where each agent reads your skills — `~/.claude/skills/conch` for Claude Code, `~/.agents/skills/conch` for Codex, Gemini CLI and OpenCode, and `~/.config/devin/skills/conch` for Devin — beside your own skills, replacing none of them. `-agent claude,codex` installs it for some agents only, `-remove -apply` takes it away again, and `conch -m MACHINE agent skill -apply` installs it on another machine. Claude Code picks it up at once, even mid-session; restart the others if they don't list it.
 
 ## Asking an agent for a second opinion
