@@ -73,6 +73,20 @@ Agents are named after their task (Claude's title) until you rename them with `r
 
 Fold state and sidebar width are remembered in `~/.config/conch/ui.json`.
 
+### Git panel
+
+Click a branch — or press `b` or `$` on it, `$` in its changes, or pick **Git panel** from its menu — and a command window opens in the middle of the right-hand panel, while the branch's changes load behind it. The tree stays in view: a click on another branch moves the window to that one. On a screen too narrow for that, it takes the whole width. It opens empty and holds only what your commands print, and the prompt — the files and where the branch stands (upstream, base, its pull request) are on the branch's changes behind it.
+
+Type any git command — `log -5 --stat`, `switch -c spike`, `commit -m 'fix: the "quoted" bit'` — and it runs in that branch's worktree; a leading `git` is optional. Quotes group words as in a shell, but nothing is expanded, so `*.go` reaches git as it is. The command starts with git's subcommand: options before it, like `-C` or `-c`, are refused, so it can't reach another repository. Nothing waits for an editor or a password: a merge or `rebase --continue` takes git's own message, `commit` with no `-m` stops, and a fetch that needs credentials fails rather than hangs.
+
+`tab` shows the everyday ones in place of the output, each with a key: **Status**, **Log**, **Diff stat**, **Fetch**, **Pull** (rebasing, with your changes stashed around it), **Push**, **Commit…**, **Amend**, **Stash**, **Pop stash**, **Stashes**, **Branches**, **Rebase on** and **Merge in** the base, **Undo last commit** (the changes stay, staged), and **Discard changes…**. Amend, undo and discard ask first, and discard only takes `y`. Push and commit are the same as `P` and `c` in the changes view, so a push the remote is ahead of still offers to rebase. `tab` or `esc` goes back to the prompt.
+
+When a rebase, merge, cherry-pick or revert stops on conflicts, a line above the output says so, and the actions start with **Continue**, **Abort** and — with an agent on the branch — **Ask it to resolve**.
+
+With an agent working on the branch, `ctrl+t` (or a click on the prompt's label) sends what you type to it as its next message instead, and the actions become instructions for it: review the changes, commit its work, write tests, rebase on the base, resolve a conflict, or open its pane. An agent waiting on a question isn't sent anything, and the window says so.
+
+Servers older than the window still open it, with push, commit and messages for the agent; typed git commands need the server reloaded.
+
 ### Changes view
 
 Selecting a branch shows its **changes**: its pull request (checks, review), uncommitted files (or files changed since the base when it isn't checked out), commits ahead, and diffs.
@@ -92,6 +106,7 @@ Selecting a branch shows its **changes**: its pull request (checks, review), unc
 | `D` | discard the branch and its worktree (`x` in the tree does the same once a branch has no worktree left) |
 | `A` | compare the attempts at this task, when a prompt was tried several times |
 | `o` | open the PR |
+| `$` | the branch's [git window](#git-panel) |
 | `y` | copy the file path or the whole diff |
 | `esc` | back |
 

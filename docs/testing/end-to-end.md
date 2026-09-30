@@ -134,6 +134,8 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 8.2 💳 | Task | `t` → branch name + prompt | Worktree under `<repo>.worktrees/<slug>`, local files copied, agent starts with the prompt | ☐ |
 | 8.3 | Local files | `F` patterns like `.env`, `config/*.local.json` | Matching ignored/untracked files are copied into new worktrees | ✅ R1 |
 | 8.4 | Changes view | Edit, add, rename, delete and binary files | Counts, diffs and renames correct; refreshes within ~2s | ✅ R1 |
+| 8.5 | Git panel in a real terminal | Click a branch in the tree; try Fetch and Pull against a real remote, Stash / Pop, `log -5` typed, a rebase on the base that conflicts, then Continue and Abort; on a narrow (< 40 columns) and a large terminal | The panel opens beside the row, output shows from its first line, the conflict brings Continue / Abort / Ask to resolve, the tree's counts follow; a fetch needing credentials fails at once instead of hanging | ☐ |
+| 8.6 💳 | Git panel to a real agent | With Claude on a branch, `ctrl+t` in the panel, type an instruction; then leave a rebase conflicted and press Ask to resolve | The message arrives as Claude's next prompt; it resolves and continues the rebase; a Claude waiting on a permission gets nothing and the panel says why | ☐ |
 
 ## 9. Planned features (add rows as they land)
 

@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit,
 }
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
@@ -64,6 +64,10 @@ const CapAgentLibrary = "agent.library.v1"
 // while it waits on a question, and the Turn of AgentStatus that says when
 // the work it started has ended.
 const CapAgentPrompt = "agent.prompt.v1"
+
+// CapBranchGit is branch.git: git commands run in a branch's worktree for
+// the TUI's git panel, and what they left unfinished.
+const CapBranchGit = "branch.git.v1"
 
 // CapTaskName is task.create taking Name: the task's pane named as it
 // starts. A server without it drops the field, so clients rename instead.
@@ -181,6 +185,9 @@ const (
 	MethodBranchPR      = "branch.pr"
 	MethodBranchMerge   = "branch.merge"
 	MethodBranchDiscard = "branch.discard"
+	// MethodBranchGit runs git commands in a branch's worktree
+	// (CapBranchGit).
+	MethodBranchGit = "branch.git"
 	// Leftover worktrees: list what each would lose, and remove them.
 	MethodWorktreeStale   = "worktree.stale"
 	MethodWorktreeCleanup = "worktree.cleanup"
@@ -769,6 +776,28 @@ type BranchDiscardParams struct {
 	Branch    string `json:"branch"`
 	DryRun    bool   `json:"dry_run,omitempty"`
 	Force     bool   `json:"force,omitempty"`
+}
+
+// BranchGitParams runs Commands, one after another, in the worktree where
+// Branch is checked out, stopping at the first that fails. Each is git's
+// arguments without "git", starting with the subcommand. With none it only
+// reports the worktree's state.
+type BranchGitParams struct {
+	ProjectID string     `json:"project_id"`
+	Branch    string     `json:"branch"`
+	Commands  [][]string `json:"commands,omitempty"`
+}
+
+// BranchGitResult is what the commands printed, each under a "$ git …"
+// line, and how the last one run ended. InProgress names an operation left
+// unfinished in the worktree ("rebase", "merge", "cherry-pick", "revert",
+// "am") so the panel can offer to continue or abort it.
+type BranchGitResult struct {
+	Worktree   string `json:"worktree"`
+	Output     string `json:"output,omitempty"`
+	ExitCode   int    `json:"exit_code,omitempty"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	InProgress string `json:"in_progress,omitempty"`
 }
 
 // BranchDiscardResult says what discarding a branch removes or would lose.

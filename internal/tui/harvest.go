@@ -97,6 +97,9 @@ func (m Model) harvestCall(t harvestTarget, method string, params, out any, done
 
 func (m *Model) receiveHarvest(msg harvestDoneMsg) tea.Cmd {
 	m.setFlash(msg.text, false)
+	if g, open := m.gitPanelFor(msg.target); open {
+		g.add(msg.text)
+	}
 	var cmds []tea.Cmd
 	for _, t := range m.openTabs() {
 		for _, l := range t.root.leaves() {
@@ -263,9 +266,13 @@ func (m *Model) receivePushRejected(msg pushRejectedMsg) tea.Cmd {
 		m.setFlash(msg.why+"; pull --rebase in its worktree, then push", true)
 		return nil
 	}
-	m.overlay = newConfirm(
+	d := newConfirm(
 		msg.why+". Take them, put "+t.branch+"'s own commits on top and push? Nothing is changed if the rebase conflicts.",
 		func(m *Model) tea.Cmd { return m.push(t, true) })
+	if g, open := m.gitPanelFor(t); open {
+		d.back = g // a push from the git panel goes back to it
+	}
+	m.overlay = d
 	return nil
 }
 

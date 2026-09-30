@@ -242,6 +242,17 @@ func TestScopeProjects(t *testing.T) {
 	if perr := remove(in, theirs.id); perr == nil {
 		t.Fatal("removed another project")
 	}
+	// The git panel's commands change a worktree as much as a commit does.
+	gitIn := func(proj string) *proto.Error {
+		return s.inScope(&client{pane: in.info().ID}, proto.Message{Method: proto.MethodBranchGit,
+			Params: proto.Marshal(proto.BranchGitParams{ProjectID: proj, Branch: "b", Commands: [][]string{{"reset", "--hard"}}})})
+	}
+	if perr := gitIn(mine.id); perr != nil {
+		t.Fatalf("git in its own project: %v", perr)
+	}
+	if perr := gitIn(theirs.id); perr == nil || !strings.Contains(perr.Message, "run git in project "+theirs.id) {
+		t.Fatalf("git in another project: %v", perr)
+	}
 	if perr := discard(loose, mine.id); perr == nil || !strings.Contains(perr.Message, "it works in no project") {
 		t.Fatalf("from no project: %v", perr)
 	}

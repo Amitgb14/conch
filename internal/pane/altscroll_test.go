@@ -135,7 +135,9 @@ func TestPaneKeepsAltScreenHistory(t *testing.T) {
 		t.Fatalf("offset %d, want %d", back.Offset, f.History)
 	}
 	// Leaving the alternate screen gives the main screen's own history back.
-	if err := p.SendText("printf '\\033[?1049l'; echo back-on-main", false); err != nil {
+	// The marker is split in the typed line, so only the output matches:
+	// waiting on the echoed command let the check run before printf did.
+	if err := p.SendText("printf '\\033[?1049l'; echo back-on-''main", false); err != nil {
 		t.Fatal(err)
 	}
 	p.SendKeys([]string{"enter"})

@@ -117,6 +117,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		title = r.branch
 		items = []menuItem{
 			{"enter", "View changes", enter},
+			{"b", "Git panel (commands, ask its agent)…", act("b")},
 			{"c", "Start an agent on this branch…", act("c")},
 			{"n", "Open terminal on this branch", act("n")},
 			{"t", "New task in project", act("t")},
@@ -628,17 +629,17 @@ func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		if isKey {
 			switch k.String() {
 			case "y", "Y":
-				m.overlay = nil
+				m.overlay = d.back
 				return true, d.submit(m, nil)
 			case "n", "N", "esc", "q":
-				m.overlay = nil
+				m.overlay = d.back
 				return true, nil
 			case "left", "right", "tab", "shift+tab", "h", "l":
 				d.onNo = !d.onNo // two buttons: any of these moves between them
 				return false, nil
 			case "enter", " ":
 				if d.onNo {
-					m.overlay = nil
+					m.overlay = d.back
 					return true, nil
 				}
 				// What can't be undone takes y or the button, never a
@@ -646,7 +647,7 @@ func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 				if d.yesOnly && k.String() == "enter" {
 					return false, nil
 				}
-				m.overlay = nil
+				m.overlay = d.back
 				return true, d.submit(m, nil)
 			}
 		}
@@ -782,10 +783,10 @@ func (d *dialog) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 		}
 		switch x := msg.X - b.x - 1; {
 		case x >= d.buttons.yes0 && x < d.buttons.yes1:
-			m.overlay = nil
+			m.overlay = d.back
 			return d.submit(m, nil)
 		case x >= d.buttons.no0 && x < d.buttons.no1:
-			m.overlay = nil
+			m.overlay = d.back
 		}
 		return nil
 	}
@@ -840,6 +841,11 @@ var helpText = []string{
 	"  r  rename (pane, machine) x  close / remove (a branch: worktree, then the branch)",
 	"                            R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",
+	"  b  git window for a branch (a click, or $ here or in its changes, opens it too):",
+	"     any git command; tab shows the everyday ones (status, log, fetch, pull, push, commit,",
+	"     stash, rebase, undo, …);",
+	"     ctrl+t sends to an agent on the branch instead; a rebase that stops offers continue,",
+	"     abort, or handing the conflict to the agent",
 	"  i  agent setup: instructions, skills, MCP servers, and what a worktree lacks",
 	"     in it: s gives the other agents this one's setup (it says what it would write first), u undoes that",
 	"  F  local files (.env, local agent settings) copied into new worktrees",

@@ -139,7 +139,7 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			hint("I", "resume interrupted"), hint("x", "dismiss"), hint("R", "reload"), hint("esc", "tree")}
 	case m.focus == focusMain:
 		chip = styleChip.Background(colorInput).Render("CHANGES")
-		items = []statusItem{hint("↑", "file"), hint("↓", "file"), hint("enter", "diff"), hint("space", "mark"), hint("c", "commit"),
+		items = []statusItem{hint("$", "git"), hint("↑", "file"), hint("↓", "file"), hint("enter", "diff"), hint("space", "mark"), hint("c", "commit"),
 			hint("P", "push"), hint("p", "PR"), hint("M", "merge"), hint("D", "discard"), hint("A", "attempts"), hint("T", "move"), hint("o", "open PR"), hint("R", "reload"), hint("esc", "tree")}
 	case m.filtering:
 		chip = styleChip.Background(colorAccent).Render("FILTER")
@@ -157,7 +157,7 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		case kindSessions:
 			items = []statusItem{hint("enter", "open sessions"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
 		case kindBranch:
-			items = []statusItem{hint("enter", "changes"), hint("v", "split"), hint("o", "PR"), hint("c", "agent"), hint("n", "shell"),
+			items = []statusItem{hint("enter", "changes"), hint("b", "git"), hint("v", "split"), hint("o", "PR"), hint("c", "agent"), hint("n", "shell"),
 				hint("x", "rm worktree"), hint("y", "copy"), hint("m", "menu")}
 		case kindProject:
 			items = []statusItem{hint("t", "task"), hint("c", "agent"), hint("n", "shell"), hint("B", "broadcast"), hint("space", "fold"),
