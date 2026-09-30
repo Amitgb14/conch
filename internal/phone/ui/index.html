@@ -2,28 +2,26 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14161a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="conch">
 <title>conch</title>
-<link rel="stylesheet" href="app.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<main>
-  <h1>conch</h1>
-  <p id="status">Checking this device…</p>
-
-  <form id="pair" hidden>
-    <p>Run <code>conch web pair</code> on your laptop and enter the code it shows.</p>
-    <label>Pairing code <input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="123-456" required></label>
-    <label>This device's name <input id="name" placeholder="My phone" maxlength="64"></label>
-    <button>Pair</button>
-  </form>
-
-  <section id="agents" hidden>
-    <h2>Agents</h2>
-    <ul id="list"></ul>
-    <p class="note">This page is a placeholder: the phone app is not built yet.</p>
-  </section>
-</main>
-<script src="app.js"></script>
+<header>
+  <a id="home" href="/" data-nav>conch</a>
+  <span id="where"></span>
+  <a id="new" href="/new" data-nav hidden aria-label="New task">＋</a>
+</header>
+<p id="banner" role="status" hidden></p>
+<main id="view"><p class="quiet">Loading…</p></main>
+<noscript><p>conch on your phone needs JavaScript.</p></noscript>
+<script type="module" src="/app.mjs"></script>
 </body>
 </html>

@@ -221,6 +221,8 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 9.72 📱 | Revoke a phone mid-session | The phone's page open on the agents list; `conch web revoke ID` on the laptop | The phone's connection closes within a second and its next request is refused; another paired phone is untouched | ☐ |
 | 9.73 📱 | The laptop sleeps and wakes | Pair, close the lid for a minute, open it | The gateway is still listening on the Tailscale address, the phone is still paired and the list loads again without re-pairing | ☐ |
 | 9.74 | `conch web` with no Tailscale | On a machine with Tailscale stopped: `conch web`, then `conch web -listen 127.0.0.1:8722` | The first refuses and says why; the second starts and prints the warning | ☐ |
+| 9.75 📱 | The app on a real phone | After 9.70 on iOS Safari and Android Chrome: add to the home screen and open it from there; open an agent; rotate; reply; start a task with **＋** | It opens without browser bars, with the icon and name; the list follows agents changing on the laptop within a second; an agent's screen is readable and scrolls sideways when wide; the keyboard doesn't cover the reply box; the new task's agent opens | ◐ R38 in headless Chrome at 390×844 only: pairing from a `#code=` link, the list, an answer by button, a reply, the new-task form, light and dark. No real phone, no home screen, no task started |
+| 9.76 📱 | The app while the laptop sleeps | With the app installed and paired: close the laptop's lid, open the app; open the lid | The app opens from the home screen, says the laptop can't be reached and when it last was, and shows the agents from then; once the laptop is back the banner goes and the list is live again, without re-pairing | ◐ R38 with Chrome's network switched off and on: opened from the service worker's copy, banner with the time, caught up by itself. A real sleep not run |
 
 ## Driving a TUI under test
 
@@ -507,6 +509,19 @@ This Mac to busybox (`aghadge@10.0.0.115`), isolated on both sides. Here: its ow
 - **Found and fixed:** the status bar cut the refusal to "moving feat failed: rebuild t…". Failures now open a notice with the whole reason, and the status bar keeps the short form. The server's messages said "here", which read as the Mac inside a notice that also said "nothing changed here". They no longer name a place, and the notice names both machines ("moving feat to busybox failed … Nothing changed on local.").
 - **Found and fixed:** a menu whose title was its widest line lost the end of it ("Move feat to which machin…"), in every menu: the frame's spaces weren't counted.
 - **Not run:** a real Claude reading the handoff after a move (the handoff itself was checked in R19), and a pushed branch sending no commits (covered by the server tests).
+
+### R38 — 2026-09-30, the phone app in headless Chrome, macOS arm64, build 0.1.6-dev
+
+An isolated conch (its own `HOME`, `CONCH_HOME` and socket, `CONCH_PANE_ID` unset), `conch web -listen 127.0.0.1:18722`, and two panes running a stand-in program named `claude` — one asking a three-choice question. Chrome was driven headless over its debugging port at 390×844, mobile, in both colour schemes. No Tailscale, no phone, no real agent.
+
+- **Pairing:** a link ending `#code=…` filled the code in; submitting paired (Chrome accepts the `Secure` cookie on loopback) and the code left the address bar.
+- **List and agent:** both agents under their project, the waiting one first with its question; the agent's page showed the question, three buttons and the screen with its colours. No page was wider than the phone.
+- **Answer and reply:** the third button moved the cursor two rows and pressed Enter — the program reported choice 3 — and the question left the page by itself. A reply then appeared on the agent's screen.
+- **Offline:** with the network off, a reload opened the app from the service worker's copy, with the banner and the list from before; with it back on, the banner went without a reload. The cache held the app's files and nothing from `/api`.
+- **Revoked:** `conch web revoke` from the laptop put the app back on the pairing form and cleared what it had kept.
+- **Found and fixed:** the agent's heading ended in the word `null`; a terminal's forty rows were drawn though three had text.
+- **Noted for 9.71:** the first stand-in read each burst of keys as one key and so missed the answer's — its own bug, but a real agent that drops keys arriving together would show the same way.
+- **Not covered:** a real phone, the home screen, Safari, `tailscale serve`, starting a task from the form.
 
 ### R37 — 2026-09-29, providers named, stats, ssh and tasks without git, macOS arm64, build f3ffe4b1431c
 

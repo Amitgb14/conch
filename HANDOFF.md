@@ -1,7 +1,7 @@
-# Handoff: `conch web`, the phone gateway (phase 1)
+# Handoff: `conch web`, the phone gateway (phase 1) and the phone app (phase 2)
 
-Branch `conch/build-conch-web-phone-gateway`, one commit on top of `0d25b65`.
-Not pushed, not merged.
+Branch `conch/build-conch-web-phone-gateway`, two commits on top of `0d25b65`:
+the gateway, then the app. Not pushed, not merged. Phase 2 is at the end.
 
 ## Contract used
 
@@ -37,7 +37,8 @@ and error statuses, so drift from the contract fails a test.
 
 ## Decisions the contract left open
 
-1. **What an answer sends.** phone.md's v1 says "that option's number and
+1. **What an answer sends** (confirmed by Amit on 2026-09-30: keep arrow
+   keys and Enter). phone.md's v1 says "that option's number and
    Enter", under a heading that calls it an open question. I send **arrow
    keys from the cursor's row to the chosen row, then Enter**. Claude takes
    a number as the answer by itself, so the Enter after it would land on
@@ -136,3 +137,72 @@ different gateway with its own `cmd/conch/web.go`, `internal/web` and
 `web/src/app/docs/phone/page.mdx`. It was not read or reused. Merging both
 will conflict on those two paths, `main.go`, `go.mod`, `docs.ts` and the CLI
 docs page.
+
+---
+
+# Phase 2: the phone app
+
+Contract: the same `phone-api.md`, `api_version` 1, unchanged. The app uses
+only routes and messages that were already there; the gateway gained no
+route.
+
+## What was built
+
+`internal/phone/ui/`, embedded as it is — no build step, no dependency:
+
+- `index.html`, `app.css`, `app.mjs` — the app: pairing (a `#code=` link
+  fills the code in), the agents list grouped by project and kept live over
+  the socket, an agent's page (state, question with its choices as buttons,
+  the screen drawn from frames, reply), a new-task form for `full` devices.
+- `lib.mjs` — the logic with no page in it: ANSI rows to styled runs,
+  ordering, grouping, routes, backoff. `uitest/lib.test.mjs` tests it.
+- `sw.js`, `manifest.webmanifest`, icons — installable, and it opens while
+  the laptop is away: network first, the cached copy when that fails,
+  nothing from `/api` or `/pair` ever cached.
+- `ui.go` now serves each file with its own type at its exact address, and
+  the page at `/agent/pN` and `/new` — the push payload's `url` is
+  `/agent/p3`, so views are paths, not fragments. The CSP names the
+  socket's address, since not every browser takes `'self'` to cover `wss:`.
+
+## Decisions
+
+1. **Answer buttons are in.** The plan puts answering in phase 3, but the
+   route existed and an agent's page that shows a question you can't answer
+   is the wrong half. Phase 3 is left with the terminal view and its key
+   bar, and with checking choices against real agents (9.71).
+2. **No framework, no xterm.js.** Frames are snapshots, so rows become
+   spans. The whole app is under 64 KiB, which a test holds it to.
+3. **The agent picker is a fixed list** (claude, codex, gemini, opencode,
+   devin, or conch's default): the contract has no route for which are
+   installed. Worth a `GET /api/agent-names` in a later contract version.
+4. **Offline keeps the list, not the questions**, in `localStorage`; a
+   question can quote a command. Revoking or a 401 clears it.
+5. **An out-of-date page reloads itself once** when `hello`'s
+   `api_version` isn't the one it was written for.
+
+## Tested
+
+- `go test -race -count=1 ./...` passes; `gofmt` and `go vet` clean.
+- Go: every file served with its type, the view addresses, nothing served
+  by walking out of `ui/`, the CSP, no inline script or style, no address
+  outside the gateway, every route and socket message the app uses is one
+  the gateway has, the size budget, the manifest.
+- node (17 tests, run by `TestUILogic`; **skipped where node is missing** —
+  GitHub's runners have it): styling, colours in every form, escapes
+  dropped, markup kept as text, ordering, grouping, routes, permissions.
+- A real browser: run R38 in `docs/testing/end-to-end.md` — headless
+  Chrome at phone size against an isolated conch with a stand-in agent.
+  Pair, list, answer by button, reply, offline and back, revoke.
+
+## Not tested, not built
+
+- **No real phone, no Safari, no home-screen install, no Tailscale.** Rows
+  9.75 and 9.76. iOS is where this is most likely to differ: the keyboard
+  over the reply box, the service worker's lifetime, `100vh`.
+- `app.mjs` itself has no unit tests — it is the DOM and the network; only
+  `lib.mjs` does. The browser run is what covers it, and it is not
+  automated in the suite.
+- Starting a task from the form was not submitted in the browser run (the
+  route is covered by the gateway's test).
+- Terminal view and key bar (phase 3), push (phase 4), QR and TUI key
+  (phase 5). The docs site was not built.

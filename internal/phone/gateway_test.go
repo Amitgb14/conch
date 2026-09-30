@@ -403,7 +403,7 @@ func TestCSRF(t *testing.T) {
 	}
 }
 
-func TestHelloAndTheStubPage(t *testing.T) {
+func TestHelloAndUnknownRoutes(t *testing.T) {
 	f := newFixture(t)
 	p := f.pair(PermView)
 	var h Hello
@@ -412,31 +412,6 @@ func TestHelloAndTheStubPage(t *testing.T) {
 	}
 	if h.APIVersion != 1 || h.ConchVersion != proto.Version || h.DeviceID != p.id || h.Permission != PermView || len(h.CSRFToken) != 32 {
 		t.Fatalf("hello %+v", h)
-	}
-
-	// The page is there for anyone — it is where pairing happens — and
-	// may load nothing from elsewhere.
-	res, err := http.Get(f.web.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	page, _ := io.ReadAll(res.Body)
-	res.Body.Close()
-	if res.StatusCode != 200 || !bytes.Contains(page, []byte(`<script src="app.js">`)) {
-		t.Fatalf("page: %d %.200s", res.StatusCode, page)
-	}
-	if csp := res.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") {
-		t.Fatalf("CSP %q", csp)
-	}
-	if res.Header.Get("X-Content-Type-Options") != "nosniff" {
-		t.Fatal("no nosniff")
-	}
-	for _, path := range []string{"/app.js", "/app.css"} {
-		res, _ := http.Get(f.web.URL + path)
-		res.Body.Close()
-		if res.StatusCode != 200 {
-			t.Errorf("%s: %d", path, res.StatusCode)
-		}
 	}
 
 	// Unknown routes and methods answer in the error shape.

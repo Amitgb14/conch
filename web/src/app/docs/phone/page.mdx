@@ -6,7 +6,7 @@ export const metadata = { title: "Phone", description: "See your agents from you
 
 <Callout type="note">
 
-What is built so far is the gateway: pairing, permissions and the API the phone app will use. The page it serves is a placeholder that pairs a phone and lists your agents. The app itself and notifications are still to come.
+Notifications are still to come, and so is a terminal view with a key bar. Until then the app shows each agent's screen and lets you reply and pick an answer; anything else is answered at the laptop.
 
 </Callout>
 
@@ -23,6 +23,18 @@ conch web pair            # a one-time code for the phone
 **It listens only on the Tailscale address.** A paired phone can type into your agents, so this is remote access to your machine, and by default the only devices that can reach it at all are the ones on your tailnet. With no Tailscale address it refuses to start. `-listen ADDR` names another address and prints a warning; `-port N` changes the port.
 
 **Phones need HTTPS.** The device's token travels in a cookie marked `Secure`, which a browser only sends over HTTPS. `tailscale serve` puts HTTPS in front with a certificate for your machine's tailnet name — open that `https://…ts.net` address on the phone. Or give conch a certificate yourself with `-cert FILE -key FILE` (`tailscale cert` makes one).
+
+## The app
+
+The gateway serves the app itself, so it always matches your conch build; there is nothing to install from a store. Open the gateway's address in the phone's browser. **Add it to the home screen** (Safari: Share → Add to Home Screen; Chrome: Install app) and it opens like an app, without the browser's bars.
+
+- **Agents** — every agent on the machine, under its project. The ones waiting for you come first, the longest wait on top, then the ones that finished, then the ones working. The list follows the agents as they change; nothing needs refreshing.
+- **An agent** — its state, the question it is asking with its choices as buttons, its screen as the terminal shows it, and a box to reply. While it waits on a question the reply box is off, and says why.
+- **＋** (devices with `full`) — a new task: pick a project and an agent, describe the work, and conch makes the branch and worktree and starts the agent there.
+
+**When the laptop can't be reached** — asleep, or off the tailnet — the app still opens, says so, and shows the agents as they were when it last heard from the laptop, with the time. It keeps trying and catches up by itself. Questions are not kept on the phone between visits: they can quote a command.
+
+A screen wider than the phone is drawn small, and scrolls sideways when even that doesn't fit.
 
 ## Pair a phone
 
@@ -69,7 +81,9 @@ When conch can't read choices — no menu, or no cursor to steer by — the ques
 
 ## What it doesn't do yet
 
-- The phone app (the page is a placeholder) and push notifications. Push subscriptions are stored, but nothing is sent.
+- Push notifications. Push subscriptions are stored, but nothing is sent.
+- A terminal view with keys (esc, arrows, ctrl+c). A question whose choices conch can't read is answered at the laptop.
+- A list of the agents installed on the laptop: the new-task form offers every agent conch knows, installed or not.
 - Other machines: a gateway shows the agents of the machine it runs on.
 - A QR code for pairing, and a key in the TUI to show one.
 

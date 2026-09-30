@@ -297,7 +297,7 @@ func (g *Gateway) Handler() http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("X-Frame-Options", "DENY")
-		h.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; frame-ancestors 'none'")
+		h.Set("Content-Security-Policy", contentPolicy(r.Host))
 		mux.ServeHTTP(w, r)
 	})
 }
