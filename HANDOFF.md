@@ -1,8 +1,8 @@
-# Handoff: `conch web` — the phone gateway (phase 1), app (phase 2), terminal (phase 3) and push (phase 4)
+# Handoff: `conch web` — the phone gateway (phase 1), app (phase 2), terminal (phase 3), push (phase 4) and pairing by QR code (phase 5)
 
-Branch `conch/build-conch-web-phone-gateway`, four commits on top of `0d25b65`:
-the gateway, the app, the terminal, push. Not pushed, not merged. Phases 2–4
-are at the end.
+Branch `conch/build-conch-web-phone-gateway`, five commits on top of `0d25b65`:
+the gateway, the app, the terminal, push, pairing by QR code. Not pushed, not
+merged. Phases 2–5 are at the end.
 
 ## Contract used
 
@@ -331,3 +331,64 @@ contract's `{type, pane, name, project, url}`.
   covered by the node run of `sw.js`.
 - Turning notifications on in a browser (it subscribes with Google's
   service, over the network).
+
+---
+
+# Phase 5: the QR code and the TUI key
+
+Contract: unchanged. The QR code holds `<url>/#code=NNN-NNN`, which the
+app has read since phase 2.
+
+## What was built
+
+- `internal/phone/qr.go` — `PairLink` and `QRLines`: the code drawn with
+  half blocks, two modules a cell, dark on light whatever the terminal's
+  colours, with a two-module margin. Encoding is `rsc.io/qr` (new
+  dependency, BSD, no dependencies of its own, from the module cache).
+- `conch web pair` prints the QR code above the code, when stdout is a
+  terminal (`charmbracelet/x/term`, already in the module graph, now
+  direct).
+- `conch web -url URL` — the address phones open, recorded for pairing,
+  for the `https://…ts.net` name `tailscale serve` gives. Without it the
+  listener's own address is recorded, as before.
+- The TUI: **`P`** in the tree opens "Pair a phone with this computer" —
+  a fresh `reply` code, its QR code, the address; `v` / `r` / `f` issue a
+  new code with that permission, `y` copies the link, any other key or a
+  click outside closes. It is in the help overlay, and `P phone` ends the
+  local machine row's status hints (not a remote's: it pairs this
+  computer's gateway) — last, so a narrow bar drops it before `? keys`,
+  which a test caught it pushing off.
+- Docs: the phone page, the keys page, the CLI page; e2e row 9.80.
+
+## Decisions
+
+1. **Margin of two modules**, not the standard's four: a terminal has few
+   rows, and phone cameras read two. If 9.80 finds a phone that can't,
+   `qrQuiet` is the one number to change.
+2. **The QR code shows only when all of it fits**, box and words included;
+   otherwise the code and address alone, and a line saying how big a
+   terminal it needs. 80×24 is enough (tested).
+3. **`P` issues a code as it opens**, as `conch web pair` does: the dialog
+   is the pairing, not a preview of it.
+
+## Tested
+
+- `go test -race -count=1 ./...` passes; `gofmt`, `go vet` clean.
+- The drawn code read back cell by cell equals the encoder's modules, for
+  a short, a typical and a long link; too much text is refused.
+- `conch web pair`: QR code only on a terminal, and it is the link to the
+  code printed under it; `-url` checked and recorded (by a real
+  `conch web` process in the test).
+- TUI: `P` opens it with a code that pairs; `v`/`r`/`f` replace the code;
+  `y` copies the link; other keys and clicks outside close it; ticks
+  don't; sizes 1×1 to 200×60 stay on screen, with the QR code shown whole
+  or not at all; no gateway on record, and an unreadable `phone.json`;
+  the help and the hints.
+
+## Not tested
+
+- **No camera has scanned it** (row 9.80). There is no QR decoder here,
+  and headless Chrome has no barcode detector.
+- The whole phone path end to end — pair by QR over Tailscale, a push
+  arriving, answering from the lock screen — is rows 9.70–9.80, all still
+  to do on real devices.

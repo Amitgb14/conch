@@ -13,16 +13,16 @@ Notifications are built but haven't been seen on a real phone yet. On an iPhone 
 ## Start it
 
 ```sh
-conch web                 # listens on this machine's Tailscale address, port 8722
-tailscale serve --bg http://100.101.102.103:8722   # HTTPS in front of it
-conch web pair            # a one-time code for the phone
+tailscale serve --bg http://100.101.102.103:8722   # HTTPS in front of the gateway
+conch web -url https://laptop.tail1234.ts.net      # listens on the Tailscale address, port 8722
+conch web pair            # a QR code and a one-time code for the phone — or P in the TUI
 ```
 
 `conch web` starts conch's server if it isn't running, and keeps running in the foreground; stop it with `ctrl+c`. It is a client of that server like the TUI is, so agents keep running whether or not the gateway does.
 
 **It listens only on the Tailscale address.** A paired phone can type into your agents, so this is remote access to your machine, and by default the only devices that can reach it at all are the ones on your tailnet. With no Tailscale address it refuses to start. `-listen ADDR` names another address and prints a warning; `-port N` changes the port.
 
-**Phones need HTTPS.** The device's token travels in a cookie marked `Secure`, which a browser only sends over HTTPS. `tailscale serve` puts HTTPS in front with a certificate for your machine's tailnet name — open that `https://…ts.net` address on the phone. Or give conch a certificate yourself with `-cert FILE -key FILE` (`tailscale cert` makes one).
+**Phones need HTTPS.** The device's token travels in a cookie marked `Secure`, which a browser only sends over HTTPS. `tailscale serve` puts HTTPS in front with a certificate for your machine's tailnet name; tell conch that address with `-url`, so the QR code points phones there rather than at the plain address it listens on. Or give conch a certificate yourself with `-cert FILE -key FILE` (`tailscale cert` makes one).
 
 ## The app
 
@@ -55,7 +55,11 @@ conch web pair -permission view      # look only
 conch web pair -permission full      # also the terminal's keys and new tasks
 ```
 
-This prints a six-digit code. Open the gateway's address on the phone, enter the code, and the phone is paired: it gets a token of its own, kept in a cookie the page's scripts can't read.
+This prints a QR code and a six-digit code. Point the phone's camera at the QR code: it opens conch with the code filled in, and one tap pairs it. Or open the gateway's address on the phone and type the code. Either way the phone gets a token of its own, kept in a cookie the page's scripts can't read.
+
+**In the TUI, press `P`** in the tree for the same: a QR code and a code, for a phone with `reply`. `v`, `r` and `f` give a new code for `view`, `reply` or `full`; `y` copies the link. The QR code needs about 37 columns by 17 rows, so it shows in an 80×24 terminal; a smaller one shows the code and the address alone. It pairs with this computer's `conch web`, whichever machine is selected in the tree.
+
+The code travels in the link's fragment (`#code=…`), which a browser never sends to a server, so it is in no log.
 
 - A code works **once**, for **5 minutes**. Asking for a new one cancels the old.
 - Guesses are limited: a few attempts a minute, and five wrong codes cancel the one outstanding.
@@ -96,7 +100,6 @@ When conch can't read choices — no menu, or no cursor to steer by — the ques
 - Scrolling back through a terminal's history: the terminal shows the screen as it is now.
 - A list of the agents installed on the laptop: the new-task form offers every agent conch knows, installed or not.
 - Other machines: a gateway shows the agents of the machine it runs on.
-- A QR code for pairing, and a key in the TUI to show one.
 
 ## What is logged
 

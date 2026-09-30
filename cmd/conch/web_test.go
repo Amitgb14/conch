@@ -53,11 +53,28 @@ func TestWebPairDevicesRevoke(t *testing.T) {
 		t.Fatalf("redeem: %+v %v", dev, err)
 	}
 
-	// With a gateway's address on record, pair says where to go.
-	store.SetURL("http://100.101.102.103:8722")
+	// With a gateway's address on record, pair says where to go — and on
+	// a terminal draws the code that opens it.
+	store.SetURL("https://laptop.tail1234.ts.net")
+	oldTTY := stdoutIsTerminal
+	t.Cleanup(func() { stdoutIsTerminal = oldTTY })
+	stdoutIsTerminal = func() bool { return false }
 	out, err = runWebCaptured(t, "pair", "-permission", "full")
-	if err != nil || !strings.Contains(out, "open http://100.101.102.103:8722 on the phone") || !strings.Contains(out, "full permission") {
+	if err != nil || !strings.Contains(out, "open https://laptop.tail1234.ts.net on it") || !strings.Contains(out, "full permission") {
 		t.Fatalf("pair -permission full: %q %v", out, err)
+	}
+	if strings.Contains(out, "\x1b[") {
+		t.Fatalf("escape codes written to something that isn't a terminal: %q", out)
+	}
+	stdoutIsTerminal = func() bool { return true }
+	out, err = runWebCaptured(t, "pair")
+	code := regexp.MustCompile(`pairing code: (\d{3}-\d{3})\n`).FindStringSubmatch(out)
+	if err != nil || code == nil {
+		t.Fatalf("pair on a terminal: %q %v", out, err)
+	}
+	want, _ := phone.QRLines(phone.PairLink("https://laptop.tail1234.ts.net", code[1]))
+	if !strings.HasPrefix(out, strings.Join(want, "\n")+"\n") {
+		t.Fatalf("the QR code isn't the link to this code:\n%s", out)
 	}
 
 	out, err = runWebCaptured(t, "devices")
@@ -90,6 +107,11 @@ func TestWebPairDevicesRevoke(t *testing.T) {
 		{"-key", "k.pem"},
 		{"-port", "0"},
 		{"-port", "70000"},
+		{"-url", "laptop.ts.net"},
+		{"-url", "ftp://laptop.ts.net"},
+		{"-url", "https://laptop.ts.net/?x=1"},
+		{"-url", "https://laptop.ts.net/#code=1"},
+		{"-url", "https://me@laptop.ts.net"},
 	} {
 		if _, err := runWebCaptured(t, bad...); err == nil {
 			t.Errorf("conch web %v: no error", bad)
@@ -160,7 +182,7 @@ func TestWebServes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := a4Command(exe, "web", "-listen", "127.0.0.1:0")
+	cmd := a4Command(exe, "web", "-listen", "127.0.0.1:0", "-url", "https://laptop.tail1234.ts.net/")
 	stdout, _ := cmd.StdoutPipe()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -206,9 +228,10 @@ func TestWebServes(t *testing.T) {
 	if res.StatusCode != 401 {
 		t.Fatalf("hello unpaired: %d", res.StatusCode)
 	}
+	// What pairing points phones at is the address given, not the listener.
 	store := phone.OpenStore(dir)
-	if store.URL() != url {
-		t.Fatalf("recorded %q, listening on %q", store.URL(), url)
+	if store.URL() != "https://laptop.tail1234.ts.net" {
+		t.Fatalf("recorded %q", store.URL())
 	}
 	code, err := store.NewCode(phone.PermView, time.Now())
 	if err != nil {
@@ -255,7 +278,7 @@ func TestWebServes(t *testing.T) {
 
 // The usage names the commands as they are.
 func TestWebUsage(t *testing.T) {
-	for _, want := range []string{"conch web [-listen ADDR]", "conch web pair [-permission view|reply|full]", "conch web devices | revoke ID"} {
+	for _, want := range []string{"conch web [-listen ADDR] [-port N] [-url URL]", "conch web pair [-permission view|reply|full]", "conch web devices | revoke ID"} {
 		if !strings.Contains(usage, want) {
 			t.Errorf("usage lacks %q", want)
 		}

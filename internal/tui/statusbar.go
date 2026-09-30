@@ -179,6 +179,10 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 				hint("/", "filter"), hint("m", "menu")}
 		}
 		items = append(items, hint("!", "waiting"), hint("?", "keys"))
+		// Last, so a narrow bar drops it before the way to every key.
+		if r.kind == kindMachine && r.machine == localMachine {
+			items = append(items, hint("P", "phone"))
+		}
 	}
 	return chip, items
 }

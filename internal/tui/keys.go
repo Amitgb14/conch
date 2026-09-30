@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Amitgb14/conch/internal/phone"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 )
@@ -188,6 +189,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.syncView()
 	case "?":
 		m.overlay = newHelp()
+	case "P":
+		m.overlay = newPairDialog(phone.PermReply)
 	case "i":
 		return m, m.openSetup()
 	case ":":
