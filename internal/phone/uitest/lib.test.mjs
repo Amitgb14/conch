@@ -2,7 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import {
   parseLine, frameRows, color256, sortAgents, upsertAgent, removeAgent, groupAgents, agentLabel,
-  ago, route, can, backoff, codeFromHash, fontSizeFor, KEYBAR, textKeys, chunks, keyBytes, appPath,
+  ago, route, can, backoff, codeFromHash, fontSizeFor, chunks, keyBytes, appPath,
 } from "../ui/lib.mjs"
 
 const text = (runs) => runs.map((r) => r.text).join("")
@@ -198,16 +198,6 @@ test("a frame loses the empty rows under its last line, and keeps the cursor's",
   assert.deepEqual(frameRows(undefined), [])
 })
 
-test("text as keys", () => {
-  assert.deepEqual(textKeys("git st"), ["g", "i", "t", "space", "s", "t"])
-  assert.deepEqual(textKeys("a\tb\nc\r\nd\re"), ["a", "tab", "b", "enter", "c", "enter", "d", "enter", "e"])
-  assert.deepEqual(textKeys("é+ñ😀"), ["é", "+", "ñ", "😀"])
-  // Control characters are not typed: a paste can't smuggle an escape in.
-  assert.deepEqual(textKeys("a\x1b[2Jb\x03\x7f"), ["a", "[", "2", "J", "b"])
-  assert.deepEqual(textKeys(""), [])
-  assert.deepEqual(textKeys(undefined), [])
-  assert.deepEqual(textKeys(null), [])
-})
 
 test("keys go in messages of 64 at most", () => {
   assert.deepEqual(chunks([]), [])
@@ -219,13 +209,6 @@ test("keys go in messages of 64 at most", () => {
   assert.equal(chunks(Array(64).fill("x")).length, 1)
 })
 
-test("the key bar", () => {
-  const keys = KEYBAR.map((k) => k.key)
-  assert.equal(new Set(keys).size, keys.length)
-  for (const k of ["esc", "tab", "up", "down", "left", "right", "enter", "ctrl+c"]) assert.ok(keys.includes(k), k)
-  assert.deepEqual(KEYBAR.filter((k) => k.confirm).map((k) => k.key), ["ctrl+c"])
-  for (const k of KEYBAR) assert.ok(k.label && k.label.length <= 4, k.label)
-})
 
 test("a push key as bytes", () => {
   // The RFC 8291 example's receiver key: 65 bytes, uncompressed (0x04).
@@ -250,4 +233,77 @@ test("the tail of a frame", async () => {
   assert.deepEqual(tailRows(rows, 10).map(text), ["a", "b", "c"])
   assert.deepEqual(tailRows(rows, 0), [])
   assert.deepEqual(tailRows([], 5), [])
+})
+
+test("every pane in order: agents, then terminals", async () => {
+  const { sortPanes, upsertPane } = await import("../ui/lib.mjs")
+  const t = (pane, since) => ({ pane, kind: "terminal", state: "idle", since })
+  const a = (pane, state, since) => ({ pane, kind: "agent", state, since })
+  const list = sortPanes([t("p1", "2"), a("p2", "idle", "1"), t("p3", "1"), a("p4", "waiting", "3")])
+  assert.deepEqual(list.map((p) => p.pane), ["p4", "p2", "p3", "p1"])
+  assert.deepEqual(upsertPane(list, a("p1", "working", "4")).map((p) => p.pane), ["p4", "p1", "p2", "p3"])
+  assert.deepEqual(sortPanes([]), [])
+})
+
+test("hardware keys as key names", async () => {
+  const { keyFromEvent } = await import("../ui/lib.mjs")
+  const k = (key, extra = {}, mods) => keyFromEvent({ key, ...extra }, mods)
+  assert.equal(k("Enter"), "enter")
+  assert.equal(k("Backspace"), "backspace")
+  assert.equal(k("ArrowUp"), "up")
+  assert.equal(k("Escape"), "esc")
+  assert.equal(k("Tab", { shiftKey: true }), "shift+tab")
+  assert.equal(k("c", { ctrlKey: true }), "ctrl+c")
+  assert.equal(k("C", { ctrlKey: true, shiftKey: true }), "ctrl+c")
+  assert.equal(k("x", { altKey: true }), "alt+x")
+  assert.equal(k(" ", { ctrlKey: true }), "ctrl+space")
+  assert.equal(k("ArrowLeft", { ctrlKey: true }), "ctrl+left")
+  // Sticky modifiers from the key bar count as held.
+  assert.equal(k("d", {}, { ctrl: true }), "ctrl+d")
+  assert.equal(k("Enter", {}, { alt: true }), "alt+enter")
+  // Text is the input event's; the browser keeps cmd; IME is mid-word.
+  for (const ev of [{ key: "a" }, { key: "é" }, { key: "A", shiftKey: true }, { key: "c", metaKey: true }, { key: "Enter", isComposing: true },
+    { key: "Shift", shiftKey: true }, { key: "Control", ctrlKey: true }, { key: "Dead", altKey: true }]) {
+    assert.equal(keyFromEvent(ev), null, JSON.stringify(ev))
+  }
+  assert.equal(keyFromEvent(null), null)
+})
+
+test("modifiers in front of a key", async () => {
+  const { withMods } = await import("../ui/lib.mjs")
+  assert.equal(withMods("x", { ctrl: true }), "ctrl+x")
+  assert.equal(withMods("x", { ctrl: true, alt: true }), "ctrl+alt+x")
+  assert.equal(withMods("up", {}), "up")
+  assert.equal(withMods("ctrl+c", { ctrl: true }), "ctrl+c")
+  assert.equal(withMods("+", { ctrl: true }), "ctrl++")
+})
+
+test("a sticky modifier: once, locked, off", async () => {
+  const { tapModifier, usedModifier } = await import("../ui/lib.mjs")
+  let m = tapModifier(undefined, 1000)
+  assert.equal(m.state, "once")
+  assert.equal(usedModifier(m).state, "off") // spent by the next key
+  m = tapModifier(m, 1200)
+  assert.equal(m.state, "locked") // a second tap soon after
+  assert.equal(usedModifier(m).state, "locked")
+  assert.equal(tapModifier(m, 5000).state, "off")
+  // A second tap long after is a change of mind, not a lock.
+  assert.equal(tapModifier(tapModifier(undefined, 0), 1000).state, "off")
+  assert.equal(usedModifier(undefined), undefined)
+})
+
+test("the terminal's key bar", async () => {
+  const { TERMINAL_KEYS } = await import("../ui/lib.mjs")
+  const keys = TERMINAL_KEYS.filter((k) => k.key).map((k) => k.key)
+  for (const k of ["esc", "tab", "up", "down", "left", "right", "ctrl+c"]) assert.ok(keys.includes(k), k)
+  assert.deepEqual(TERMINAL_KEYS.filter((k) => k.mod).map((k) => k.mod), ["ctrl", "alt"])
+  assert.deepEqual(TERMINAL_KEYS.filter((k) => k.confirm).map((k) => k.key), ["ctrl+c"])
+  assert.equal(new Set(TERMINAL_KEYS.map((k) => k.label)).size, TERMINAL_KEYS.length)
+})
+
+test("children nested any deep, with nothing in them", async () => {
+  const { kids } = await import("../ui/lib.mjs")
+  assert.deepEqual(kids(["a", null, ["b", [false, ["c", undefined]], []], 0, ""]), ["a", "b", "c", 0, ""])
+  assert.deepEqual(kids([]), [])
+  assert.deepEqual(kids([[[null]]]), [])
 })

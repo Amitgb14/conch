@@ -227,6 +227,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 9.78 📱🌐 | A real push, on iOS and Android | The app on the Home Screen (iOS 16.4+) and in Android Chrome: ⚙ → Turn on notifications, tick *Also when an agent finishes*; lock the phone; make an agent ask a question, then another finish while nobody watches it in the TUI | Each arrives within seconds on the lock screen, saying the agent and project and nothing of the question; tapping opens that agent's page, with the app already open and with it closed; an agent already waiting when `conch web` started sends nothing; Turn off stops them | ☐ Not run: pushes were tested against a loopback push service and the RFC's example only. In headless Chrome the settings page rendered, but a push delivered through the debugging port never reached the worker, so the notification itself is unseen |
 | 9.79 📱🌐 | Pushes after the phone forgets | Turn notifications on, then remove the app from the Home Screen (or clear the site's data) and make an agent wait | The push service answers 404/410 and conch drops that subscription from `phone.json` (`conch web devices` still lists the device) | ☐ |
 | 9.80 📱 | Pair by QR code | `conch web -url https://<name>.ts.net` behind `tailscale serve`; `P` in the TUI in an 80×24 terminal, in both a dark and a light theme; scan with the iPhone and Android camera; then `conch web pair` in a terminal and scan that | The camera offers the link, it opens conch with the code filled in, one tap pairs; the code reads in both themes (it is drawn dark on light whatever the theme); `f` in the dialog gives a code that pairs as full | ☐ The drawing is checked module for module against the encoder, but no camera has read it; Chrome's barcode detector isn't in headless Chrome |
+| 9.81 📱 | Type into a terminal on a real phone | iPhone Safari (Home Screen) and Android Chrome: open a terminal, tap it, type a command with autocorrect-prone words, an accent, an emoji; paste two lines; use ctrl (once and locked), alt, the arrows, ^C; rotate | Each key arrives once and as typed (no autocorrect, no capital first letter), backspace deletes one character, the key row stays on top of the keyboard, paste arrives as a paste, ctrl locks and unlocks | ◐ R41 in headless Chrome only |
 
 ## Driving a TUI under test
 
@@ -513,6 +514,18 @@ This Mac to busybox (`aghadge@10.0.0.115`), isolated on both sides. Here: its ow
 - **Found and fixed:** the status bar cut the refusal to "moving feat failed: rebuild t…". Failures now open a notice with the whole reason, and the status bar keeps the short form. The server's messages said "here", which read as the Mac inside a notice that also said "nothing changed here". They no longer name a place, and the notice names both machines ("moving feat to busybox failed … Nothing changed on local.").
 - **Found and fixed:** a menu whose title was its widest line lost the end of it ("Move feat to which machin…"), in every menu: the frame's spaces weren't counted.
 - **Not run:** a real Claude reading the handoff after a move (the handoff itself was checked in R19), and a pushed branch sending no commits (covered by the server tests).
+
+### R41 — 2026-09-30, the app rebuilt after the Claude app, in headless Chrome, macOS arm64, build 0.1.6-dev
+
+Amit asked for a UI like the Claude mobile app with direct terminal access and everything else. A research pass over the Claude app, Happy (its source), Blink and Termius gave the palette, fonts, the drawer, the composer, inline approval and the key row. Checked at 390×844, light and dark, against an isolated conch with the stand-in agents and a real `/bin/sh` terminal:
+
+- The inbox led with "One agent needs you" and its question with three choice buttons in the card; the drawer listed the project's two agents and the terminal.
+- In the conversation, choice 2 was answered (the stand-in printed *chose 2*), the question left, a reply typed in the composer arrived on the agent's screen.
+- ⋯ offered Terminal, Rename and Close. ＋ → Terminal opened a login shell and the app went to its screen.
+- **Typed directly into the shell:** `echo hi-from-$((20+22))` and Enter from the (emulated) phone keyboard gave `hi-from-42`. `echo oops`, then **ctrl** on the key row (lit once) and `u` cleared the line — ctrl went back off — and `echo clean` ran alone.
+- Nothing wider than the phone on any page.
+- **Found and fixed:** the drawer and the inbox's sections printed `null` and `[object HTMLHeadingElement]` — lists given straight to the DOM; a waiting row inside the inbox card stacked vertically, its state's class clashing with the container's.
+- **Not covered:** a real iPhone or Android keyboard (autocorrect, dictation, the key row riding on the keyboard through `visualViewport`), stop (■) on a real working agent, rename and close from the menu, starting an agent or a task from the sheet.
 
 ### R40 — 2026-09-30, the app's redesign in headless Chrome, macOS arm64, build 0.1.6-dev
 

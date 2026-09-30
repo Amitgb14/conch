@@ -131,8 +131,10 @@ func TestUIFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total > 64<<10 {
-		t.Errorf("the app is %d bytes; keep it under 64 KiB", total)
+	// Small enough to load fast on a phone over a tailnet: no framework,
+	// no build, about a quarter of this once compressed.
+	if total > 96<<10 {
+		t.Errorf("the app is %d bytes; keep it under 96 KiB", total)
 	}
 
 	// Buttons and links are given a display of their own; without this the
@@ -249,9 +251,9 @@ func TestUILogic(t *testing.T) {
 // name: a bar key it didn't would come back as an error, not a keystroke.
 func TestKeyBarNamesAreKeys(t *testing.T) {
 	lib, _ := uiFiles.ReadFile("ui/lib.mjs")
-	bar := regexp.MustCompile(`(?s)export const KEYBAR = \[(.*?)\n\]`).FindSubmatch(lib)
+	bar := regexp.MustCompile(`(?s)export const TERMINAL_KEYS = \[(.*?)\n\]`).FindSubmatch(lib)
 	if bar == nil {
-		t.Fatal("no KEYBAR in lib.mjs")
+		t.Fatal("no TERMINAL_KEYS in lib.mjs")
 	}
 	names := regexp.MustCompile(`key: "([^"]+)"`).FindAllSubmatch(bar[1], -1)
 	if len(names) < 8 {

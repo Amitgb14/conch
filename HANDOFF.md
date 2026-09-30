@@ -430,3 +430,35 @@ listened there). So with `-url`, `conch web` now listens on
 `-url` it still listens on the Tailscale address. Tested by
 `TestWebWithURLListensOnLoopback`; not yet confirmed through the real
 `tailscale serve`.
+
+---
+
+# The app, rebuilt after the Claude app
+
+Asked for by Amit after the first redesign: "review other webui or mobile
+app ui and build best ui … direct terminal access, all functionality, ui
+similar like claude mobile app". A research pass (a subagent; the Claude
+app, Happy's source, Blink and Termius docs) gave the palette (#FAF9F5 /
+#262624, coral #C96442 / #D97757), fonts (a system serif for headings,
+monospace for terminals), the drawer, the composer, inline approval, the
+key row with sticky modifiers.
+
+- **Contract additions** (phone-api.md, "Additions — 2026-09-30", with a
+  changelog; additive, `api_version` 1): Pane (any pane, with `kind` and
+  `cwd`), `GET/POST /api/panes`, `/api/close`, `/api/rename`; socket
+  `panes.watch` (`panes`, `pane.changed`, `pane.gone`) and `text`.
+  Starting, renaming, closing and typing need `full`; a name shaped like
+  a pane ID is refused (pane.create doesn't). Tested in `panes_test.go`
+  and by the permission tests, which walk the route table.
+- **The app** (`ui/`): an inbox that answers questions in place; a drawer
+  of every agent and terminal by project; an agent as a conversation with
+  a composer whose send turns into stop (Esc) while it works; its terminal
+  typed into directly — a hidden field holds a zero-width sentinel so a
+  backspace on an empty field still reports, text goes as `text`, special
+  keys as `keys`, ctrl/alt sticky (once, locked), the key row placed on
+  the keyboard with `visualViewport`; ⋯ for terminal/rename/close; ＋ for
+  task, agent or terminal. `lib.mjs` gained `sortPanes`, `upsertPane`,
+  `keyFromEvent`, `withMods`, `tapModifier`, `usedModifier`,
+  `TERMINAL_KEYS`, `kids`, tested in node; the old key bar and
+  `textKeys` went. Size budget raised from 64 to 96 KiB (78 KB now).
+- Browser run R41; real-device rows 9.81 (typing) and the earlier ones.

@@ -203,35 +203,6 @@ export function fontSizeFor(cols, width, min = 7, max = 14) {
   return Math.max(min, Math.min(max, Math.floor((width / cols / 0.6) * 10) / 10))
 }
 
-// The terminal view's key bar: the keys a phone's keyboard doesn't have,
-// named as the gateway's `keys` message takes them (`conch send -keys`).
-// ctrl+c asks for a second tap: one stray touch shouldn't stop an agent.
-export const KEYBAR = [
-  { label: "esc", key: "esc" },
-  { label: "tab", key: "tab" },
-  { label: "⇧tab", key: "shift+tab" },
-  { label: "↑", key: "up" },
-  { label: "↓", key: "down" },
-  { label: "←", key: "left" },
-  { label: "→", key: "right" },
-  { label: "⏎", key: "enter" },
-  { label: "⌫", key: "backspace" },
-  { label: "^C", key: "ctrl+c", confirm: true },
-]
-
-// textKeys is text as key names, one per character: what the terminal
-// view types when there is no way to send text as such. A space, a new
-// line and a tab have names of their own; anything else is itself.
-export function textKeys(text) {
-  const named = { " ": "space", "\n": "enter", "\r": "enter", "\t": "tab" }
-  const keys = []
-  for (const ch of String(text ?? "").replace(/\r\n/g, "\n")) {
-    if (named[ch]) keys.push(named[ch])
-    else if (ch >= " " && ch !== "\x7f") keys.push(ch)
-  }
-  return keys
-}
-
 // chunks splits keys into messages the gateway takes: at most 64 each.
 export function chunks(keys, size = 64) {
   const out = []
@@ -250,4 +221,94 @@ export function keyBytes(b64url) {
 // tapped: one of its own views, never anywhere else.
 export function appPath(url) {
   return typeof url === "string" && (url === "/" || route(url).view !== "list") ? url : "/"
+}
+
+// sortPanes orders every pane: agents as sortAgents does, then terminals,
+// oldest first.
+export function sortPanes(panes) {
+  const agents = sortAgents(panes.filter((p) => p.kind !== "terminal"))
+  const terminals = panes.filter((p) => p.kind === "terminal")
+    .sort((a, b) => String(a.since).localeCompare(String(b.since)))
+  return [...agents, ...terminals]
+}
+
+// upsertPane is the list with one pane added or replaced.
+export function upsertPane(panes, pane) {
+  return sortPanes([...panes.filter((p) => p.pane !== pane.pane), pane])
+}
+
+// The keys a hardware keyboard sends that aren't text: what they are
+// called in the gateway's `keys` message.
+const specialKeys = {
+  Enter: "enter", Backspace: "backspace", Tab: "tab", Escape: "esc", Delete: "delete",
+  ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+  Home: "home", End: "end", PageUp: "pgup", PageDown: "pgdown",
+}
+
+// keyFromEvent is the key name for a keydown the terminal should send as
+// a key: a special key, or a letter with ctrl or alt held (on top of the
+// sticky ones, mods). Plain text returns null — the input event carries
+// it, which is what keeps accents and phone keyboards working. A key with
+// cmd/meta belongs to the browser.
+export function keyFromEvent(ev, mods = {}) {
+  if (!ev || ev.metaKey || ev.isComposing) return null
+  const ctrl = ev.ctrlKey || mods.ctrl, alt = ev.altKey || mods.alt
+  let name = specialKeys[ev.key]
+  if (name === "tab" && ev.shiftKey) name = "shift+tab"
+  if (!name) {
+    if (!(ctrl || alt) || typeof ev.key !== "string" || [...ev.key].length !== 1) return null
+    name = ev.key === " " ? "space" : ev.key.toLowerCase()
+  }
+  return withMods(name, { ctrl, alt })
+}
+
+// withMods puts modifiers in front of a key name: "ctrl+alt+x".
+export function withMods(key, mods = {}) {
+  if (key.includes("+") && key !== "+") {
+    const [first] = key.split("+")
+    if (["ctrl", "alt", "shift"].includes(first)) return key // already modified
+  }
+  return (mods.ctrl ? "ctrl+" : "") + (mods.alt ? "alt+" : "") + key
+}
+
+// A sticky modifier on the key bar: one tap holds it for the next key,
+// a second tap soon after locks it, a tap on a locked one lets it go.
+export function tapModifier(mod, now) {
+  const { state = "off", at = 0 } = mod || {}
+  if (state === "off") return { state: "once", at: now }
+  if (state === "once" && now - at < 400) return { state: "locked", at: now }
+  return { state: "off", at: now }
+}
+
+// usedModifier is a modifier after a key went out with it: a one-off is
+// spent, a lock stays.
+export function usedModifier(mod) {
+  return mod && mod.state === "once" ? { state: "off", at: mod.at } : mod
+}
+
+// The key bar under a terminal, after Blink and Termius: the keys a phone
+// keyboard lacks. ctrl and alt are sticky modifiers; ^C asks twice.
+export const TERMINAL_KEYS = [
+  { label: "esc", key: "esc" },
+  { label: "tab", key: "tab" },
+  { label: "ctrl", mod: "ctrl" },
+  { label: "alt", mod: "alt" },
+  { label: "←", key: "left" },
+  { label: "↑", key: "up" },
+  { label: "↓", key: "down" },
+  { label: "→", key: "right" },
+  { label: "⇧tab", key: "shift+tab" },
+  { label: "|", key: "|" },
+  { label: "~", key: "~" },
+  { label: "/", key: "/" },
+  { label: "-", key: "-" },
+  { label: "^C", key: "ctrl+c", confirm: true },
+]
+
+// kids is what a view may give as an element's children — nodes, strings,
+// lists of them nested any deep, and null or false for nothing — as the
+// nodes and strings to put in. Given straight to the DOM, a list or a
+// null would be written out as text.
+export function kids(children) {
+  return children.flat(Infinity).filter((c) => c != null && c !== false)
 }

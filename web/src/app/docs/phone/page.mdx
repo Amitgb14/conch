@@ -26,26 +26,16 @@ conch web pair            # a QR code and a one-time code for the phone — or P
 
 ## The app
 
-The gateway serves the app itself, so it always matches your conch build; there is nothing to install from a store. Open the gateway's address in the phone's browser. **Add it to the home screen** (Safari: Share → Add to Home Screen; Chrome: Install app) and it opens like an app, without the browser's bars.
+The gateway serves the app itself, so it always matches your conch build; there is nothing to install from a store. Open the gateway's address in the phone's browser. **Add it to the Home Screen** (Safari: Share → Add to Home Screen; Chrome: Install app) and it opens like an app, without the browser's bars. It is laid out like the Claude app: warm colours, one conversation at a time, everything else a tap away.
 
-- **Agents** — every agent on the machine, under its project. The ones waiting for you come first, the longest wait on top, then the ones that finished, then the ones working. The list follows the agents as they change; nothing needs refreshing.
-- **An agent** — its state, the question it is asking with its choices as buttons, its screen as the terminal shows it, and a box to reply. While it waits on a question the reply box is off, and says why.
-- **Terminal** — an agent's whole screen, as it changes. On a device with `full`, a key bar underneath has the keys a phone's keyboard lacks — esc, tab, shift+tab, the arrows, Enter, backspace and ctrl+c — and a line to type from. What you type goes in as it is, without Enter, which is its own key. ctrl+c asks for a second tap within two seconds, so a stray touch doesn't stop an agent.
-- **＋** (devices with `full`) — a new task: pick a project and an agent, describe the work, and conch makes the branch and worktree and starts the agent there.
+- **Inbox** — what needs you, first. An agent waiting on a question shows the question and its choices right there: tap one to answer without opening anything. Below it, what finished, what is working, what is idle, and your terminals.
+- **☰ the drawer** — every agent and terminal on the machine, by project, as Claude lists its chats; ＋ New and Settings at the ends.
+- **An agent** — a conversation: its state, the question it asks with its choices as buttons, what it said last, and a composer pinned to the bottom. While it works and the box is empty, the send button becomes **■ stop** (Esc, as at the laptop; needs `full`). A reply is held back while it waits on a question, and it says why.
+- **Its terminal** — the whole screen, live. **Tap it and type**: the phone's keyboard goes straight to the pane, accents, paste and all. A row of keys rides on top of the keyboard — esc, tab, **ctrl** and **alt** (tap once for the next key, twice to lock), the arrows, shift+tab, `| ~ / -`, and ^C (two taps). **Aa** changes the text size; a wide terminal scrolls sideways. A plain terminal opens straight on its screen.
+- **⋯** on an agent or terminal — switch between conversation and terminal, rename it, or close it (two taps).
+- **＋** (devices with `full`) — a new **task** (branch, worktree and agent), a new **agent** in a project or your home folder, with an optional first message, or a new **terminal**.
 
-**When the laptop can't be reached** — asleep, or off the tailnet — the app still opens, says so, and shows the agents as they were when it last heard from the laptop, with the time. It keeps trying and catches up by itself. Questions are not kept on the phone between visits: they can quote a command.
-
-A screen wider than the phone is drawn small, and scrolls sideways when even that doesn't fit.
-
-## Notifications
-
-**⚙ → Turn on notifications** asks the phone for permission and subscribes it. From then on the laptop sends a notification when an agent **starts waiting for you**, and — if you tick **Also when an agent finishes** — when one finishes while nobody is looking at it. Tapping one opens that agent.
-
-- **When:** on the change only. An agent that was already waiting when `conch web` started, or that goes on waiting, doesn't send another. A notification not yet delivered is replaced by the next one about the same agent.
-- **What it says:** the agent's name and its project. Never the question or anything on its screen: a notification passes through Apple's, Google's or Mozilla's push service, and a question can quote a command. It is encrypted for your phone, and signed with a key conch makes and keeps in `phone.json`.
-- **Where it goes:** only to those push services' addresses. A subscription the push service says is gone is dropped.
-- **On an iPhone or iPad**, add conch to the Home Screen first (iOS 16.4 or later) and turn notifications on from there: Safari only lets an installed web app ask.
-- `conch web` has to be running on the laptop for any to be sent, and the laptop awake.
+**When the laptop can't be reached** — asleep, or off the tailnet — the app still opens, says so, and shows the agents and terminals as they were when it last heard from the laptop, with the time. It keeps trying and catches up by itself. Questions are not kept on the phone between visits: they can quote a command.
 
 ## Pair a phone
 
@@ -69,7 +59,7 @@ The code travels in the link's fragment (`#code=…`), which a browser never sen
 | --- | --- |
 | `view` | see the agents, their state and their screens |
 | `reply` (default) | also send an agent its next message, and pick an answer to the question it asks |
-| `full` | also send keys to a pane's terminal, and start tasks |
+| `full` | also type into terminals, stop an agent, start tasks, agents and terminals, rename and close them |
 
 The permission is checked on every request and on every message over the live connection, not only when the phone connects.
 

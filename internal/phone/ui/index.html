@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f5f5f2" media="(prefers-color-scheme: light)">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#262624" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="conch">
 <title>conch</title>
 <link rel="manifest" href="/manifest.webmanifest">
@@ -17,17 +17,26 @@
 </head>
 <body>
 <header>
-  <a id="back" href="/" data-nav hidden aria-label="Back">‹</a>
+  <button id="menu" class="icon" aria-label="All agents and terminals" hidden>☰</button>
+  <a id="back" class="icon" href="/" data-nav hidden aria-label="Back">‹</a>
   <div class="titles">
-    <a id="home" href="/" data-nav>conch</a>
-    <span id="where"></span>
+    <span id="title">conch</span>
+    <span id="sub"></span>
   </div>
   <span id="live" hidden></span>
-  <a id="new" href="/new" data-nav hidden aria-label="New task">＋</a>
-  <a id="settings" href="/settings" data-nav hidden aria-label="Settings">⚙</a>
+  <button id="more" class="icon" aria-label="More" hidden>⋯</button>
+  <button id="new" class="icon" aria-label="New" hidden>＋</button>
 </header>
 <p id="banner" role="status" hidden></p>
 <main id="view"><p class="quiet">Loading…</p></main>
+<div id="drawer" hidden>
+  <div id="drawer-scrim" class="scrim"></div>
+  <nav class="panel" aria-label="Agents and terminals">
+    <div class="drawer-head"><img src="/icon.svg" alt="" class="mark"><span>conch</span></div>
+    <div id="drawer-list"></div>
+  </nav>
+</div>
+<div id="sheet" hidden></div>
 <noscript><p>conch on your phone needs JavaScript.</p></noscript>
 <script type="module" src="/app.mjs"></script>
 </body>
