@@ -31,7 +31,7 @@ The gateway serves the app itself, so it always matches your conch build; there 
 - **Inbox** — what needs you, first. An agent waiting on a question shows the question and its choices right there: tap one to answer without opening anything. Below it, what finished, what is working, what is idle, and your terminals.
 - **☰ the drawer** — every agent and terminal on the machine, by project, as Claude lists its chats; ＋ New and Settings at the ends.
 - **An agent** — a conversation: its state, the question it asks with its choices as buttons, what it said last, and a composer pinned to the bottom. While it works and the box is empty, the send button becomes **■ stop** (Esc, as at the laptop; needs `full`). A reply is held back while it waits on a question, and it says why.
-- **Its terminal** — the whole screen, live. **Tap it and type**: the phone's keyboard goes straight to the pane, accents, paste and all. A row of keys rides on top of the keyboard — esc, tab, **ctrl** and **alt** (tap once for the next key, twice to lock), the arrows, shift+tab, `| ~ / -`, and ^C (two taps). **Aa** changes the text size; a wide terminal scrolls sideways. A plain terminal opens straight on its screen.
+- **Its terminal** — the whole screen, live, fitted to what the keyboard leaves visible so the prompt and the key row stay in view. **Tap it and type**: the phone's keyboard goes straight to the pane, accents, paste and all. A row of keys rides on top of the keyboard — esc, tab, **ctrl** and **alt** (tap once for the next key, twice to lock), the arrows, shift+tab, `| ~ / -`, and ^C (two taps). **Aa** changes the text size; a wide terminal scrolls sideways. A plain terminal opens straight on its screen.
 - **⋯** on an agent or terminal — switch between conversation and terminal, rename it, or close it (two taps).
 - **＋** (devices with `full`) — a new **task** (branch, worktree and agent), a new **agent** in a project or your home folder, with an optional first message, or a new **terminal**.
 
@@ -68,6 +68,7 @@ The permission is checked on every request and on every message over the live co
 ```sh
 conch web devices        # ID, name, permission, when it was paired
 conch web revoke d_7h2k  # cut one off
+conch web permission d_7h2k full   # let it type into terminals, without pairing again
 ```
 
 Revoking takes effect at once: the token stops working, and a running gateway closes the connections that device has open — within a quarter of a second — telling the phone why.

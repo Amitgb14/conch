@@ -515,6 +515,10 @@ This Mac to busybox (`aghadge@10.0.0.115`), isolated on both sides. Here: its ow
 - **Found and fixed:** a menu whose title was its widest line lost the end of it ("Move feat to which machin…"), in every menu: the frame's spaces weren't counted.
 - **Not run:** a real Claude reading the handoff after a move (the handoff itself was checked in R19), and a pushed branch sending no commits (covered by the server tests).
 
+### R42 — 2026-09-30, the terminal with the keyboard up, in headless Chrome, macOS arm64, build 0.1.6-dev
+
+Amit, on his iPhone: "the terminal keyboard covers the screen and not able to type" — the phone was paired as `reply` (typing needs `full`), and the key row sat fixed over a screen that didn't shrink. After the fix, a shell with `seq 1 120` in it, at 390×844, then with the visible height cut to 504 as a keyboard does: the terminal ended exactly at the keyboard, the key row just above it, the last prompt in view, the page not scrolling; `echo still-here` typed with the keyboard up and ran. `conch web permission ID full` raised a paired device, taking effect on its open socket (tested). Not yet on the iPhone: the real keyboard, and iOS scrolling the page for a focused field.
+
 ### R41 — 2026-09-30, the app rebuilt after the Claude app, in headless Chrome, macOS arm64, build 0.1.6-dev
 
 Amit asked for a UI like the Claude mobile app with direct terminal access and everything else. A research pass over the Claude app, Happy (its source), Blink and Termius gave the palette, fonts, the drawer, the composer, inline approval and the key row. Checked at 390×844, light and dark, against an isolated conch with the stand-in agents and a real `/bin/sh` terminal:

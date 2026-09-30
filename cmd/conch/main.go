@@ -119,8 +119,9 @@ Usage:
   conch web pair [-permission view|reply|full]
                                 a one-time code (5 minutes) that pairs a phone, with a QR code
                                 that opens it; reply by default
-  conch web devices | revoke ID
-                                list the paired phones, or cut one off at once
+  conch web devices | revoke ID | permission ID view|reply|full
+                                list the paired phones, cut one off at once, or change
+                                what one may do (full types into terminals)
   conch ask [-y | -n] REQUEST   ask the brain; it proposes actions and runs them once you confirm
   conch update [VERSION | latest | list | rollback]
                                 replace this binary with the latest release, a named one

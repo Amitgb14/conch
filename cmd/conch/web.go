@@ -29,7 +29,8 @@ import (
 const webUsage = `usage: conch web [-listen ADDR] [-port N] [-url URL] [-cert FILE -key FILE]
        conch web pair [-permission view|reply|full]
        conch web devices
-       conch web revoke ID`
+       conch web revoke ID
+       conch web permission ID view|reply|full`
 
 // interfaceAddrs is this machine's addresses; a test puts its own here.
 var interfaceAddrs = net.InterfaceAddrs
@@ -75,6 +76,8 @@ func runWeb(args []string) error {
 			return webDevices()
 		case "revoke":
 			return webRevoke(args[1:])
+		case "permission":
+			return webPermission(args[1:])
 		}
 	}
 	return webServe(args)
@@ -162,6 +165,29 @@ func webRevoke(args []string) error {
 		return fmt.Errorf("no device %q; `conch web devices` lists them", args[0])
 	}
 	fmt.Printf("revoked %s: its token no longer works, and a running gateway closes its connections\n", args[0])
+	return nil
+}
+
+// webPermission changes what a paired device may do, without pairing it
+// again: a phone paired to reply that should type into terminals.
+func webPermission(args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: conch web permission ID view|reply|full")
+	}
+	if err := notFromAnAgent("change what a device may do"); err != nil {
+		return err
+	}
+	found, err := phone.OpenStore(config.Dir()).SetPermission(args[0], args[1])
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("no device %q; `conch web devices` lists them", args[0])
+	}
+	fmt.Printf("%s may now %s; a running gateway takes it from its next request\n", args[0], map[string]string{
+		phone.PermView: "look only", phone.PermReply: "reply and answer",
+		phone.PermFull: "reply, answer, type into terminals and start, rename and close panes",
+	}[args[1]])
 	return nil
 }
 

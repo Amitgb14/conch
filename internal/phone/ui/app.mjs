@@ -152,6 +152,12 @@ function connect() {
     setOnline(true)
     send({ type: "panes.watch" })
     state.view?.connected?.()
+    api("GET", "/api/hello").then((hello) => {
+      if (hello && state.hello && hello.permission !== state.hello.permission) {
+        state.hello = hello
+        render() // a permission changed on the laptop: new controls, or fewer
+      }
+    }).catch(() => {})
   }
   ws.onmessage = (ev) => {
     state.heard = Date.now()
@@ -698,26 +704,42 @@ function terminalView(pane) {
     const s = termSize()
     screen.style.fontSize = (s === "fit" ? fontSizeFor(last.cols, screen.clientWidth - 16) : Number(s)) + "px"
     drawRows(screen, frameRows(last.lines))
+    if (stick) screen.scrollTop = screen.scrollHeight
   }
+  // The screen follows the prompt, unless you have scrolled up to read.
+  let stick = true
+  screen.addEventListener("scroll", () => { stick = screen.scrollTop + screen.clientHeight >= screen.scrollHeight - 24 })
 
   const dock = typing
     ? h("div", { class: "dock" }, bar)
-    : h("p", { class: "hint dock" }, "This device can look but not type: that needs the full permission.")
+    : h("p", { class: "hint dock" }, "Typing needs the full permission. On your laptop, run ",
+      h("code", {}, `conch web permission ${state.hello?.device_id || "ID"} full`), ", then reload this page.")
   const p0 = paneOf(pane)
   const el = h("section", { class: "term" },
-    h("div", { class: "section-head" },
+    h("div", { class: "term-bar" },
       p0?.kind !== "terminal" ? h("a", { href: `/agent/${pane}`, "data-nav": true, class: "link" }, "‹ Chat") : h("span"),
+      typing ? h("span", { class: "hint" }, "Tap the screen to type") : h("span"),
       size),
-    screen, typing ? tty : null, note,
-    typing ? h("p", { class: "hint" }, "Tap the screen to type.") : null,
-    dock)
+    screen, typing ? tty : null, note, dock)
 
-  // The key row rides on top of the phone's keyboard.
+  // The terminal takes exactly what is visible under the header: when
+  // the phone's keyboard opens, the visible part shrinks, the screen with
+  // it, and the key row stays just above the keyboard with the prompt in
+  // view — rather than the keyboard covering both.
   const vv = window.visualViewport
-  const place = () => { if (vv) dock.style.bottom = Math.max(0, window.innerHeight - vv.height - vv.offsetTop) + "px" }
-  vv?.addEventListener("resize", place)
-  vv?.addEventListener("scroll", place)
-  place()
+  const layout = () => {
+    const top = Math.max($("banner").hidden ? document.querySelector("header").getBoundingClientRect().bottom
+      : $("banner").getBoundingClientRect().bottom, vv ? vv.offsetTop : 0)
+    const bottom = vv ? vv.offsetTop + vv.height : window.innerHeight
+    el.style.top = top + "px"
+    el.style.height = Math.max(120, bottom - top) + "px"
+    if (stick) screen.scrollTop = screen.scrollHeight
+  }
+  vv?.addEventListener("resize", layout)
+  vv?.addEventListener("scroll", layout)
+  window.addEventListener("resize", layout)
+  tty.addEventListener("focus", () => { stick = true; setTimeout(layout, 50); setTimeout(layout, 350) })
+  requestAnimationFrame(layout)
 
   return {
     name: "terminal", el,
@@ -731,8 +753,9 @@ function terminalView(pane) {
     socketError: (e) => { note.textContent = e?.message || "" },
     leave: () => {
       send({ type: "frame.close", pane })
-      vv?.removeEventListener("resize", place)
-      vv?.removeEventListener("scroll", place)
+      vv?.removeEventListener("resize", layout)
+      vv?.removeEventListener("scroll", layout)
+      window.removeEventListener("resize", layout)
     },
   }
 }

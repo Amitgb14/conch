@@ -87,6 +87,20 @@ func TestWebPairDevicesRevoke(t *testing.T) {
 		t.Fatalf("devices prints the token's hash: %q", out)
 	}
 
+	// Raised to full without pairing again.
+	out, err = runWebCaptured(t, "permission", dev.ID, "full")
+	if err != nil || !strings.Contains(out, dev.ID+" may now reply, answer, type into terminals") {
+		t.Fatalf("permission full: %q %v", out, err)
+	}
+	if devs, _ := store.Devices(); len(devs) != 1 || devs[0].Permission != phone.PermFull || devs[0].TokenHash != dev.TokenHash {
+		t.Fatalf("after permission: %+v", devs)
+	}
+	for _, bad := range [][]string{{"permission"}, {"permission", dev.ID}, {"permission", dev.ID, "admin"}, {"permission", "d_nope", "full"}, {"permission", dev.ID, "full", "x"}} {
+		if _, err := runWebCaptured(t, bad...); err == nil {
+			t.Errorf("conch web %v: no error", bad)
+		}
+	}
+
 	if _, err := runWebCaptured(t, "revoke", "d_nope"); err == nil || !strings.Contains(err.Error(), `no device "d_nope"`) {
 		t.Fatalf("revoking nobody: %v", err)
 	}
@@ -159,7 +173,7 @@ func TestWebPairRefusedFromAnAgentsPane(t *testing.T) {
 	store := phone.OpenStore(dir)
 	store.SetURL("x")
 	before, _ := os.ReadFile(store.Path())
-	for _, args := range [][]string{{"pair"}, {"pair", "-permission", "full"}, {"revoke", "d_abcd"}} {
+	for _, args := range [][]string{{"pair"}, {"pair", "-permission", "full"}, {"revoke", "d_abcd"}, {"permission", "d_abcd", "full"}} {
 		out, err := runWebCaptured(t, args...)
 		if err == nil || !strings.Contains(err.Error(), "the codex agent in p4 may not") || strings.Contains(out, "pairing code") {
 			t.Fatalf("conch web %v from an agent's pane: %q %v", args, out, err)
@@ -280,7 +294,7 @@ func TestWebServes(t *testing.T) {
 
 // The usage names the commands as they are.
 func TestWebUsage(t *testing.T) {
-	for _, want := range []string{"conch web [-listen ADDR] [-port N] [-url URL]", "conch web pair [-permission view|reply|full]", "conch web devices | revoke ID"} {
+	for _, want := range []string{"conch web [-listen ADDR] [-port N] [-url URL]", "conch web pair [-permission view|reply|full]", "conch web devices | revoke ID | permission ID view|reply|full"} {
 		if !strings.Contains(usage, want) {
 			t.Errorf("usage lacks %q", want)
 		}

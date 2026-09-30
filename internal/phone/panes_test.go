@@ -150,3 +150,41 @@ func TestSocketText(t *testing.T) {
 		}
 	}
 }
+
+// A phone paired to reply is raised to full from the laptop: its next
+// request and its next socket message may type, without pairing again —
+// and lowered, it can't.
+func TestPermissionChangesTakeEffectAtOnce(t *testing.T) {
+	f := newFixture(t)
+	pane := f.pane("", "stty -echo; printf 'ready>\\n'; exec cat")
+	waitFor(t, "the pane's prompt", func() bool { return strings.Contains(f.screen(pane), "ready>") })
+	p := f.pair(PermReply)
+	s := p.socket()
+	s.send(ClientMessage{Type: MsgText, ID: "a", Pane: pane, Text: "first"})
+	if got := s.next("the refusal", func(m ServerMessage) bool { return m.Type == MsgError && m.ID == "a" }); got.Error.Code != CodeForbidden {
+		t.Fatalf("reply typing: %+v", got.Error)
+	}
+	if ok, err := f.store.SetPermission(p.id, PermFull); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	s.send(ClientMessage{Type: MsgText, ID: "b", Pane: pane, Text: "second\r"})
+	waitFor(t, "the typed line", func() bool { return strings.Contains(f.screen(pane), "second") })
+	if strings.Contains(f.screen(pane), "first") {
+		t.Fatal("the refused text was typed")
+	}
+	var h Hello
+	if p.get("/api/hello", &h); h.Permission != PermFull {
+		t.Fatalf("hello says %q", h.Permission)
+	}
+	f.store.SetPermission(p.id, PermView)
+	s.send(ClientMessage{Type: MsgText, ID: "c", Pane: pane, Text: "third"})
+	if got := s.next("the refusal", func(m ServerMessage) bool { return m.Type == MsgError && m.ID == "c" }); got.Error.Code != CodeForbidden {
+		t.Fatalf("view typing: %+v", got.Error)
+	}
+	if ok, err := f.store.SetPermission("d_nope", PermFull); ok || err != nil {
+		t.Fatalf("an unknown device: %v %v", ok, err)
+	}
+	if _, err := f.store.SetPermission(p.id, "root"); err == nil {
+		t.Fatal("a permission that isn't one")
+	}
+}

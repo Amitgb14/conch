@@ -301,6 +301,25 @@ func (s *Store) Revoke(id string) (bool, error) {
 	return found, err
 }
 
+// SetPermission changes what a paired device may do, and reports whether
+// there was one. A running gateway reads it on the device's next request
+// or socket message; nothing has to be paired again.
+func (s *Store) SetPermission(id, permission string) (bool, error) {
+	if !ValidPermission(permission) {
+		return false, fmt.Errorf("unknown permission %q: view, reply or full", permission)
+	}
+	found := false
+	err := s.update(func(st *state) error {
+		for i := range st.Devices {
+			if st.Devices[i].ID == id {
+				st.Devices[i].Permission, found = permission, true
+			}
+		}
+		return nil
+	})
+	return found, err
+}
+
 // SetURL records where the gateway listens.
 func (s *Store) SetURL(url string) error {
 	return s.update(func(st *state) error { st.URL = url; return nil })

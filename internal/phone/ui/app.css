@@ -53,7 +53,6 @@ body:not([data-view="inbox"]):not([data-view="pair"]) header { border-bottom: 1p
 
 main { max-width: 42rem; margin: 0 auto; padding: 4px max(16px, env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
 body[data-view="chat"] main { padding-bottom: calc(160px + env(safe-area-inset-bottom)); }
-body[data-view="terminal"] main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 h2 { display: flex; align-items: center; gap: 8px; font: 600 0.72rem var(--sans); text-transform: uppercase; letter-spacing: 0.07em; color: var(--quiet); margin: 26px 4px 6px; }
 .count { font-weight: 500; letter-spacing: 0; }
 .quiet { color: var(--quiet); }
@@ -131,12 +130,23 @@ pre.screen.tail:empty::before { content: "Nothing yet."; color: #8a877f; }
 .send.stop { background: var(--fg); color: var(--bg); font-size: 0.8rem; }
 .send:disabled { background: var(--raised); color: var(--quiet); opacity: 1; }
 
-/* The terminal: tap to type; the key row rides on the keyboard. */
-pre.screen.terminal { min-height: 45dvh; line-height: 1.25; cursor: text; }
+/* The terminal: exactly the visible area under the header, a column of
+   the screen and the key row; the script sizes it to what the keyboard
+   leaves. Nothing behind it scrolls. */
+body[data-view="terminal"] { overflow: hidden; }
+body[data-view="terminal"] main { padding: 0; }
+.term { position: fixed; left: 0; right: 0; top: 52px; height: calc(100dvh - 52px); display: flex; flex-direction: column; z-index: 5;
+  padding: 0 max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left)); background: var(--bg); }
+.term-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; }
+.term-bar .link { padding: 8px 4px; }
+.term-bar .hint { margin: 0; font-size: 0.8rem; }
+pre.screen.terminal { flex: 1; min-height: 0; overflow: auto; line-height: 1.25; cursor: text; -webkit-overflow-scrolling: touch; }
 pre.screen.terminal div { min-height: 1.25em; }
-.tty { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; font-size: 16px; border: 0; padding: 0; resize: none; caret-color: transparent; }
-.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; margin: 0; padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
-  background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid var(--line); }
+.tty { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; font-size: 16px; border: 0; padding: 0; resize: none; caret-color: transparent; }
+.dock { flex: none; margin: 0 calc(-1 * max(10px, env(safe-area-inset-right))) 0 calc(-1 * max(10px, env(safe-area-inset-left)));
+  padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  background: var(--panel); border-top: 1px solid var(--line); }
+p.dock { font-size: 0.85rem; color: var(--quiet); }
 .keybar { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 .keybar::-webkit-scrollbar { display: none; }
 .key { flex: none; min-width: 44px; min-height: 40px; padding: 6px 12px; border-radius: var(--r-s); border: 1px solid var(--line);
