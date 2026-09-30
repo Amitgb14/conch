@@ -198,6 +198,10 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.openBroadcast()
 	case "W":
 		return m, m.openCleanup()
+	case "b", "$":
+		if ok && r.kind == kindBranch {
+			return m, m.openGitPanel(harvestTarget{machine: r.machine, projectID: r.projectID, branch: r.branch})
+		}
 	case "T":
 		if ok && r.kind == kindBranch {
 			return m, m.openMoveWorktree(harvestTarget{machine: r.machine, projectID: r.projectID, branch: r.branch})
@@ -367,6 +371,9 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 	case kindBranch:
+		if k.String() == "$" { // the git window, from the branch's changes
+			return m, m.openGitPanel(harvestTarget{machine: r.machine, projectID: r.projectID, branch: r.branch})
+		}
 		if m.changes != nil {
 			if back, cmd := m.changes.key(&m, k); back {
 				m.focus = focusSidebar

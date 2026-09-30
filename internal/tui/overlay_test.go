@@ -125,7 +125,7 @@ func TestA2RowMenus(t *testing.T) {
 
 	mu = newRowMenu(*m, row{kind: kindBranch, machine: localMachine, projectID: "r1", branch: "feat"}, 0, 0)
 	got := a2MenuLabels(mu)
-	if mu.title != "feat" || !strings.HasPrefix(got, "enter View changes | o Open pull request #7 | c ") || !strings.HasSuffix(got, "x Remove worktree") {
+	if mu.title != "feat" || !strings.HasPrefix(got, "enter View changes | o Open pull request #7 | b Git panel (commands, ask its agent)… | c ") || !strings.HasSuffix(got, "x Remove worktree") {
 		t.Fatalf("branch menu: %s", got)
 	}
 	if got := a2MenuLabels(newRowMenu(*m, row{kind: kindBranch, machine: localMachine, projectID: "r1", branch: "main"}, 0, 0)); strings.Contains(got, "Remove worktree") || strings.Contains(got, "pull request") {

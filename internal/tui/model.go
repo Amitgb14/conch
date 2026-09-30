@@ -609,6 +609,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case harvestDoneMsg:
 		return m, m.receiveHarvest(msg)
 
+	case gitPanelMsg:
+		return m, m.receiveGitPanel(msg)
+
+	case gitPromptMsg:
+		m.receiveGitPrompt(msg)
+		return m, nil
+
 	case discardPlanMsg:
 		m.confirmDiscard(msg)
 		return m, nil

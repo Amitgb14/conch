@@ -18,6 +18,7 @@ Every key binding in the TUI, grouped by where it applies. Press `?` in conch to
 | `B` | [broadcast](/docs/agents#broadcast) a message to the agents and terminals of the selection |
 | `f` | [files](/docs/interface#files): browse the selected project's checkout, or a branch's worktree |
 | `o` | open PR |
+| `b` `$` | on a branch: the [git window](/docs/interface#git-panel) — any git command, the everyday ones behind `tab`, and messages for the agent working there |
 | `T` | on a branch: [move its worktree to another machine](/docs/remote-machines#moving-a-worktree-to-another-machine) |
 | `y` | copy |
 | `m` | menu |
@@ -164,9 +165,20 @@ These follow tmux's default bindings; `ctrl+b 1` is the first tab and `0` the te
 | `y` or `enter` | copy the selection |
 | any other key | return to live |
 
+## Git panel
+
+| Key | In the git panel |
+| --- | --- |
+| `enter` | run what is typed: git's arguments (a leading `git` is optional), or a message for the agent |
+| `↑↓` | earlier commands |
+| `tab` | show the everyday actions in place of the output; each has its own key, the arrows move and `enter` runs one; `tab` or `esc` goes back |
+| `ctrl+t` | send to the next agent on the branch instead, then to git again |
+| `pgup` `pgdn` | scroll the output (the wheel too) |
+| `esc` | close |
+
 ## Mouse
 
-- Click to select; click a selected folder (or its arrow) to fold.
+- Click to select; click a selected folder (or its arrow) to fold. A click on a branch also opens its [git window](/docs/interface#git-panel); a click anywhere else closes it and still does what it would have.
 - Double-click to open.
 - Right-click for a context menu.
 - Wheel to scroll; over a pane, the wheel scrolls back through its history.
