@@ -275,6 +275,46 @@ history; details for big items live in their own plan files.
     the agents-together page; a row in the end-to-end plan for the TUI
     paths with real agents, mouse included.
 
+30. **Mouse-first polish** — the one felt every day, because this is how
+    conch is driven: a thing that needs a key may as well not exist. Most of
+    it already works — clicking a split to focus it, dragging a split's
+    border and the sidebar's edge, tabs and their `×`, `+` for a new tab,
+    right-click row menus, double-click to expand a row or take a word in a
+    pane, shift-drag for the terminal's own selection, the wheel over the
+    tree, a pane's history and every list, and the git window's clicks — so
+    what is left is specific, in the order it is missed:
+
+    - **Drag a tab to reorder it.** `ctrl+b < >` moves tabs and the mouse
+      cannot: the clearest key-only path left.
+    - **Drag a pane into another split or tab.** There is no mouse way to
+      move a pane at all; grabbing its title and dropping it is the obvious
+      one.
+    - **Scrollbars to grab.** Every list and diff scrolls by wheel alone. A
+      thumb in the margin, dragged, and a click in the trough for a page.
+    - **Triple-click for a whole line**, since double-click already takes a
+      word (`wordAt` in `internal/tui/selection.go`).
+    - **Hover.** Motion events are handled for drags already, so the row or
+      button under the pointer can light up; nothing does today, so nothing
+      looks clickable until it is clicked.
+
+    Tests drive mouse messages, not keys — press, motion and release as a
+    terminal sends them, a drag that ends outside the window, a drag that
+    never releases — and `internal/tools/clicker` drives a real TUI for the
+    end-to-end row.
+31. **Agents driving conch through MCP** — `conch agent prompt`, pane names
+    and the skill (24) are the command-line half; an agent that calls a tool
+    gets a typed result and an error it can act on, where one that shells out
+    gets a screenful of text it parses wrong under load. `conch mcp` is a
+    stdio MCP server in front of the same socket, with tools for `start`,
+    `prompt`, `wait`, `read`, `task`, `list` and `rename`. Scoping needs no
+    new rules: the server finds the caller from the socket's peer pid walked
+    up to a pane's program, so an MCP process started inside a pane inherits
+    that pane's scope. `agent library` already writes an MCP server into
+    every agent's own configuration, so installing it is one action rather
+    than five formats. Tests: the handshake and each tool against a fake
+    server, a call from outside any pane, a call to an agent that is waiting,
+    and a `wait` that runs out of time.
+
 What is parked sits under **Not now** and **Last**.
 
 ## Not now
@@ -307,6 +347,31 @@ What is parked sits under **Not now** and **Last**.
     provider is not wanted. Still deferred: a VM added as an ordinary
     machine gives the same boundary today, so what is left is lifecycle
     convenience.
+32. **Two tiers of agent support** — conch supports five agents where the
+    widest tools detect twenty, because `AGENTS.md` asks for an adapter,
+    detection from the real agent, sessions that list, resume and delete, a
+    setup inspector, docs and an end-to-end row. Those catalogs *detect*; conch
+    *supports*. Rather than fifteen more to that bar: **supported** keeps the
+    contract, and **runs here** is a manifest anybody can drop in
+    (`$CONCH_HOME/agents/<name>.toml`) naming the binary, how a first prompt
+    and a resume are passed, and the detect rules, with `conch agent add`
+    writing one. Detection falls back to the process name and the generic
+    screen rules; sessions and the setup view say *not read for this agent*
+    rather than pretending, and each row says which tier it is.
+    `internal/detect` already loads manifests, so the work is making
+    `internal/adapter`'s `Registry` data as well as code. It waits because
+    the five that are supported are the five in use here.
+33. **Review in the terminal** — side-by-side diff above a width threshold,
+    word-level highlighting inside a changed line, and opening the file at
+    the selected hunk in `$EDITOR`. The changes view already picks hunks, so
+    this is the reading of them, not the picking. Where review is the
+    bottleneck the honest answer stays pairing conch with `gh` or a graphical
+    tool, and the docs should say so.
+34. **Custom actions** — an `[actions]` table in `config.toml` putting a named
+    command on the pane menu with `CONCH_PANE`, `CONCH_PROJECT` and
+    `CONCH_BRANCH` in its environment. It is what most of a plugin system is
+    for, without a registry to host or an API to keep stable for other
+    people's code.
 
 ## Last
 
@@ -320,6 +385,19 @@ What is parked sits under **Not now** and **Last**.
 
 ## Decisions
 
+- conch stays one Go binary in a terminal somebody already has: no embedded
+  browser, no desktop or mobile application. A phone reaches it over ssh with
+  any terminal client, and if that ever needs more it should be
+  `conch status`-shaped — read-only, one screen — not a second interface to
+  keep in step.
+- **Windows waits.** The pane layer is `select(2)` on ptys, unix sockets and
+  `syscall.Exec` for the hot reload; a port means ConPTY, named pipes and
+  another reload story, each of them somewhere the reload can wedge with
+  panes running. WSL2 runs conch today, and the website and README should say
+  so rather than leave it an open question.
+- **No plugin marketplace.** 34 covers what plugins are mostly for; a
+  marketplace is a distribution business and an API surface to keep stable
+  for other people's code.
 - New worktrees keep copying `.env`, `.env.*` and `.envrc` by default
   (`internal/server/localfiles.go`), so agents in a task have the same local
   setup as the main checkout.
