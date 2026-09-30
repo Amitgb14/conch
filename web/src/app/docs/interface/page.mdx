@@ -79,6 +79,23 @@ Click a branch — or press `b` or `$` on it, `$` in its changes, or pick **Git 
 
 Type any git command — `log -5 --stat`, `switch -c spike`, `commit -m 'fix: the "quoted" bit'` — and it runs in that branch's worktree; a leading `git` is optional. Quotes group words as in a shell, but nothing is expanded, so `*.go` reaches git as it is. The command starts with git's subcommand: options before it, like `-C` or `-c`, are refused, so it can't reach another repository. Nothing waits for an editor or a password: a merge or `rebase --continue` takes git's own message, `commit` with no `-m` stops, and a fetch that needs credentials fails rather than hangs.
 
+A session in it reads as a transcript — what you typed, and what git printed:
+
+```
+status -sb
+## fix-login...origin/fix-login [ahead 1]
+ M internal/tui/keys.go
+?? notes.md
+
+add -A
+
+commit -m 'fix: the "quoted" bit'
+[fix-login 9f3c1a2] fix: the "quoted" bit
+ 2 files changed, 18 insertions(+), 3 deletions(-)
+
+push
+```
+
 `tab` shows the everyday ones in place of the output, each with a key: **Status**, **Log**, **Diff stat**, **Fetch**, **Pull** (rebasing, with your changes stashed around it), **Push**, **Commit…**, **Amend**, **Stash**, **Pop stash**, **Stashes**, **Branches**, **Rebase on** and **Merge in** the base, **Undo last commit** (the changes stay, staged), and **Discard changes…**. Amend, undo and discard ask first, and discard only takes `y`. Push and commit are the same as `P` and `c` in the changes view, so a push the remote is ahead of still offers to rebase. `tab` or `esc` goes back to the prompt.
 
 When a rebase, merge, cherry-pick or revert stops on conflicts, a line above the output says so, and the actions start with **Continue**, **Abort** and — with an agent on the branch — **Ask it to resolve**.
