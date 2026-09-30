@@ -50,7 +50,8 @@ func TestSkillText(t *testing.T) {
 	// What e2e run R36 taught, in the skill's own words: an agent doesn't
 	// commit the person's work to hand it off, and a turn's end is checked,
 	// not trusted — backgrounded commands and failed requests end one too.
-	for _, want := range []string{"don't commit just to hand it off", "check the result", "in the foreground, not in the background"} {
+	for _, want := range []string{"don't commit just to hand it off", "check the result", "in the foreground, not in the background",
+		"ask the person to add the pattern", "absolute path to read"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the skill no longer says %q", want)
 		}
