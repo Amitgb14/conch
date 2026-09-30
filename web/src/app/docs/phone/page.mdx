@@ -13,14 +13,14 @@ Notifications are built but haven't been seen on a real phone yet. On an iPhone 
 ## Start it
 
 ```sh
-tailscale serve --bg http://100.101.102.103:8722   # HTTPS in front of the gateway
-conch web -url https://laptop.tail1234.ts.net      # listens on the Tailscale address, port 8722
+tailscale serve --bg http://127.0.0.1:8722        # Tailscale's HTTPS in front of the gateway
+conch web -url https://laptop.tail1234.ts.net      # listens on 127.0.0.1:8722, for tailscale serve
 conch web pair            # a QR code and a one-time code for the phone — or P in the TUI
 ```
 
 `conch web` starts conch's server if it isn't running, and keeps running in the foreground; stop it with `ctrl+c`. It is a client of that server like the TUI is, so agents keep running whether or not the gateway does.
 
-**It listens only on the Tailscale address.** A paired phone can type into your agents, so this is remote access to your machine, and by default the only devices that can reach it at all are the ones on your tailnet. With no Tailscale address it refuses to start. `-listen ADDR` names another address and prints a warning; `-port N` changes the port.
+**It is reachable only over your tailnet.** A paired phone can type into your agents, so this is remote access to your machine. With `-url`, `tailscale serve` is in front and `conch web` listens on `127.0.0.1` only: the Tailscale app can't proxy back to the machine's own tailnet address (on macOS it gets "connection refused"), and nothing on the tailnet should reach the plain-http port directly. Without `-url` it listens on the Tailscale address, and with no Tailscale address it refuses to start. `-listen ADDR` names another address (with a warning unless it is loopback or Tailscale's); `-port N` changes the port.
 
 **Phones need HTTPS.** The device's token travels in a cookie marked `Secure`, which a browser only sends over HTTPS. `tailscale serve` puts HTTPS in front with a certificate for your machine's tailnet name; tell conch that address with `-url`, so the QR code points phones there rather than at the plain address it listens on, and so pages from it count as the gateway's own. Without either, `conch web` prints the two commands to run, with your machine's tailnet name filled in. Pairing from a plain `http://` page is refused with that reason — the browser would pair and then drop the key — except on the laptop itself (`localhost`), which browsers treat as secure. Or give conch a certificate yourself with `-cert FILE -key FILE` (`tailscale cert` makes one).
 

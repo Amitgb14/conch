@@ -420,3 +420,13 @@ that could never get in.
   `TestTailnetNameWithoutTailscale`; and in headless Chrome at
   `http://100.101.102.103:18723` (an isolated conch): the button is disabled
   with the reason, a direct POST gets 400, no device is made.
+
+Then, on Amit's Mac: `tailscale serve --bg http://100.101.102.103:8722` answered
+502 / hung. The Tailscale app can't dial the machine's own tailnet address
+(`tailscale nc 100.101.102.103 8722`: "connection refused" while the gateway
+listened there). So with `-url`, `conch web` now listens on
+`127.0.0.1:<port>` unless `-listen` says otherwise, and prints the
+`tailscale serve --bg http://127.0.0.1:<port>` to put in front; without
+`-url` it still listens on the Tailscale address. Tested by
+`TestWebWithURLListensOnLoopback`; not yet confirmed through the real
+`tailscale serve`.

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -311,7 +312,7 @@ func TestWebSaysHowToGetHTTPS(t *testing.T) {
 		}
 	}
 	text := strings.Join(out, "\n")
-	for _, want := range []string{"phones can't pair over plain http", "  tailscale serve --bg http://127.0.0.1:", "  conch web -url https://laptop.tail1234.ts.net\n"} {
+	for _, want := range []string{"phones can't pair over plain http", "  tailscale serve --bg http://127.0.0.1:8722\n", "  conch web -url https://laptop.tail1234.ts.net\n"} {
 		if !strings.Contains(text+"\n", want) {
 			t.Fatalf("lacks %q:\n%s", want, text)
 		}
@@ -329,5 +330,54 @@ func TestTailnetNameWithoutTailscale(t *testing.T) {
 	t.Setenv("CONCH_TAILSCALE", bad)
 	if n := tailnetName(); n != "" {
 		t.Fatalf("name %q from nonsense", n)
+	}
+}
+
+// With -url, tailscale serve is in front, and it reaches the gateway on
+// loopback: that is where it listens, and nowhere on the tailnet.
+func TestWebWithURLListensOnLoopback(t *testing.T) {
+	a4Env(t)
+	startA4Server(t, config.SocketPath())
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	exe, _ := os.Executable()
+	cmd := a4Command(exe, "web", "-port", fmt.Sprint(port), "-url", "https://laptop.tail1234.ts.net")
+	stdout, _ := cmd.StdoutPipe()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill() })
+	sc := bufio.NewScanner(stdout)
+	var out []string
+	for sc.Scan() {
+		out = append(out, sc.Text())
+		if strings.HasPrefix(sc.Text(), "pair a phone") {
+			break
+		}
+	}
+	text := strings.Join(out, "\n")
+	want := fmt.Sprintf("conch web: listening on http://127.0.0.1:%d\nphones open https://laptop.tail1234.ts.net\n"+
+		"with Tailscale's HTTPS in front of it: tailscale serve --bg http://127.0.0.1:%d", port, port)
+	if !strings.HasPrefix(text, want) {
+		t.Fatalf("printed:\n%s\nwant it to start:\n%s", text, want)
+	}
+	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/hello", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 401 {
+		t.Fatalf("hello: %d", res.StatusCode)
+	}
+	cmd.Process.Signal(syscall.SIGTERM)
+	cmd.Wait() // stderr is written until then
+	if strings.Contains(stderr.String(), "warning") {
+		t.Fatalf("warned about loopback: %s", stderr.String())
 	}
 }

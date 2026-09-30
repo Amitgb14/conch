@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -166,7 +167,7 @@ func webRevoke(args []string) error {
 
 func webServe(args []string) error {
 	fs := flag.NewFlagSet("web", flag.ContinueOnError)
-	listen := fs.String("listen", "", "listen on ADDR instead of this machine's Tailscale address")
+	listen := fs.String("listen", "", "listen on ADDR instead of this machine's Tailscale address (or loopback, with -url)")
 	port := fs.Int("port", phone.DefaultPort, "port to listen on")
 	cert := fs.String("cert", "", "TLS certificate, to serve HTTPS here instead of through `tailscale serve`")
 	key := fs.String("key", "", "the certificate's key")
@@ -189,13 +190,21 @@ func webServe(args []string) error {
 	if *port < 1 || *port > 65535 {
 		return fmt.Errorf("-port %d: not a port", *port)
 	}
-	addrs, err := interfaceAddrs()
-	if err != nil {
-		return err
-	}
-	addr, warning, err := phone.ListenAddr(*listen, *port, addrs)
-	if err != nil {
-		return err
+	var addr, warning string
+	if *public != "" && *listen == "" {
+		// Behind tailscale serve, which reaches the gateway on loopback:
+		// the Tailscale app on macOS can't proxy back to the machine's own
+		// tailnet address, and nothing on the tailnet should reach the
+		// plain-http port directly anyway.
+		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(*port))
+	} else {
+		addrs, err := interfaceAddrs()
+		if err != nil {
+			return err
+		}
+		if addr, warning, err = phone.ListenAddr(*listen, *port, addrs); err != nil {
+			return err
+		}
 	}
 	if warning != "" {
 		fmt.Fprintln(os.Stderr, "conch: warning:", warning)
@@ -236,6 +245,9 @@ func webServe(args []string) error {
 			return err
 		}
 		fmt.Printf("phones open %s\n", open)
+		if host, p, _ := net.SplitHostPort(ln.Addr().String()); net.ParseIP(host).IsLoopback() {
+			fmt.Printf("with Tailscale's HTTPS in front of it: tailscale serve --bg http://127.0.0.1:%s\n", p)
+		}
 	} else if *cert == "" {
 		// The device cookie is Secure, so a browser keeps it only over
 		// HTTPS: pairing at this address is refused, and says why.
@@ -243,8 +255,8 @@ func webServe(args []string) error {
 		if n := tailnetName(); n != "" {
 			name = n
 		}
-		fmt.Printf("phones can't pair over plain http. Put Tailscale's HTTPS in front and give conch its address:\n"+
-			"  tailscale serve --bg %s\n  conch web -url https://%s\n(or pass -cert and -key)\n", url, name)
+		fmt.Printf("phones can't pair over plain http. Put Tailscale's HTTPS in front: stop this, then run\n"+
+			"  tailscale serve --bg http://127.0.0.1:%d\n  conch web -url https://%s\n(or pass -cert and -key)\n", *port, name)
 	}
 	fmt.Println("pair a phone with `conch web pair`")
 
