@@ -173,3 +173,68 @@ func a3Labels(s *settings, m *Model) []string {
 	}
 	return out
 }
+
+// TestSetupViewShowsTheSkill: the i view says whether conch's skill is there
+// for the agent whose tab is open, and S installs or removes it for that one
+// agent after a question naming the file.
+func TestSetupViewShowsTheSkill(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	res := a2SetupResult()
+	v := &setupView{mid: localMachine, dir: "/src/api-feat", res: &res}
+	m.overlay = v
+	m.skill = map[string]*skillPlan{}
+	body := func() string { return a2Plain(v.body(*m, 96)) }
+
+	// Nobody has asked yet.
+	if !strings.Contains(body(), "conch's skill  reading…") {
+		t.Fatalf("before the answer:\n%s", body())
+	}
+	m.skill[localMachine] = &skillPlan{res: &proto.AgentSkillResult{Changes: []proto.SkillChange{
+		{Path: "~/.claude/skills/conch/SKILL.md", Agents: []string{"claude"}, Action: proto.SyncSame},
+		{Path: "~/.agents/skills/conch/SKILL.md", Agents: []string{"codex"}, Action: proto.SyncCreate},
+	}}}
+	// Claude's tab: it has it, and S would take it away.
+	v.tab = 0
+	if got := body(); !strings.Contains(got, "✓ has it") || !strings.Contains(got, "S takes it away") {
+		t.Fatalf("claude's tab:\n%s", got)
+	}
+	// Codex's tab: it hasn't, and S would install it.
+	v.tab = 1
+	if got := body(); !strings.Contains(got, "not installed") || !strings.Contains(got, "S installs it") {
+		t.Fatalf("codex's tab:\n%s", got)
+	}
+	// S asks first, and only about this agent's file.
+	v.update(m, a2Key("S"))
+	d, ok := m.overlay.(*dialog)
+	if !ok {
+		t.Fatalf("S opened %T", m.overlay)
+	}
+	text := strings.Join(d.text, "\n")
+	if !strings.Contains(text, "~/.agents/skills/conch/SKILL.md") || strings.Contains(text, ".claude") {
+		t.Fatalf("the question is not about codex alone:\n%s", text)
+	}
+	m.overlay = v
+
+	// A skill of the person's own is left alone and says why.
+	m.skill[localMachine].res.Changes[1].Action = proto.SyncSkip
+	v.update(m, a2Key("S"))
+	if _, isDialog := m.overlay.(*dialog); isDialog || !strings.Contains(m.flash, "yours, not conch's") {
+		t.Fatalf("a skill of your own: overlay %T flash %q", m.overlay, m.flash)
+	}
+	// An agent the skill does not reach says so rather than asking.
+	m.skill[localMachine].res.Changes = m.skill[localMachine].res.Changes[:1]
+	v.update(m, a2Key("S"))
+	if !strings.Contains(m.flash, "not read by codex") {
+		t.Fatalf("an agent with no skills folder: %q", m.flash)
+	}
+	// A machine that could not be asked says it on the line itself.
+	m.skill[localMachine] = &skillPlan{err: "its server predates the skill; reload or upgrade it"}
+	if !strings.Contains(body(), "predates the skill") {
+		t.Fatalf("an old server:\n%s", body())
+	}
+	// The hint names the key.
+	if !strings.Contains(a2Plain(v.render(*m).lines), "S conch's skill") {
+		t.Fatal("the hint does not mention S")
+	}
+}

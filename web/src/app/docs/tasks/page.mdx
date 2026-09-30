@@ -142,6 +142,7 @@ conch project files ID -none        # copy no local files
 - **Commands and subagents**, **MCP servers** (names and transport only — never commands, URLs or secrets), **plugins and extensions**
 - **Added by conch** — the hooks or plugin conch injects for state tracking
 - Warnings, e.g. a folder Claude or Codex hasn't trusted yet
+- **conch** — whether conch's own skill, the one that teaches an agent to start, prompt and read other agents, is installed for this agent **on this machine**: `S` installs it or takes it away, after a question naming the file. A skill of that name conch didn't write is yours and is left alone. Settings → Agents → **conch's own skill…** does the same for every agent at once; see [Agents working together](/docs/agents-together)
 
 In a worktree it also compares with the main checkout: local files that are missing (`c` copies them) and setup that only the main checkout has, such as Claude MCP servers registered for that folder or an uncommitted `.mcp.json`.
 

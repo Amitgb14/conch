@@ -68,11 +68,21 @@ func (v *setupView) load(m *Model) tea.Cmd {
 	}
 	v.loading = true
 	params := proto.AgentSetupParams{Dir: v.dir}
-	return func() tea.Msg {
+	// conch's own skill is this machine's business rather than this
+	// checkout's, so it is asked for separately and shown per agent tab.
+	return tea.Batch(m.loadSkill(v.mid, ""), func() tea.Msg {
 		var res proto.AgentSetupResult
 		err := callCtx(c, proto.MethodAgentSetup, params, &res)
 		return setupMsg{view: v, res: res, err: err}
+	})
+}
+
+// agent is the name of the agent whose tab is open.
+func (v *setupView) agent() string {
+	if v.res == nil || v.tab < 0 || v.tab >= len(v.res.Agents) {
+		return ""
 	}
+	return v.res.Agents[v.tab].Agent
 }
 
 func (v *setupView) copyMissing(m *Model) tea.Cmd {
@@ -171,6 +181,21 @@ func (v *setupView) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		case "u":
 			if v.res != nil {
 				return false, v.syncSetup(m, false, true)
+			}
+		case "S":
+			// conch's skill for this agent, on this machine: the question
+			// names the file before anything is written.
+			if agent := v.agent(); agent != "" {
+				ch, ok := m.skillFor(v.mid, agent)
+				if !ok {
+					m.setFlash("conch's skill is not read by "+agent, true)
+					return false, nil
+				}
+				if ch.Action == proto.SyncSkip {
+					m.setFlash("that skill is yours, not conch's: it is left alone", true)
+					return false, nil
+				}
+				return false, m.confirmSkill(v.mid, ch.Action == proto.SyncSame, agent)
 			}
 		case "f":
 			if proj := v.project(m); proj != nil && proj.Git {
@@ -339,6 +364,10 @@ func (v *setupView) body(m Model, w int) []string {
 		}
 		lines = append(lines, "")
 	}
+	// What this agent loads is the checkout's; conch's own skill is the
+	// machine's, so it sits at the end under its own heading rather than
+	// among the groups the server listed.
+	lines = append(lines, " "+styleBold.Render("conch"), m.skillLine(v.mid, a.Agent), "")
 	return lines
 }
 
@@ -383,7 +412,7 @@ func (v *setupView) render(m Model) box {
 	if more := len(body) - (v.scroll + listH); more > 0 {
 		lines[len(lines)-1] = styleMuted.Render(fmt.Sprintf("  … %d more lines", more))
 	}
-	hint := " tab agent · ↑↓ scroll · s sync to others · u undo · r reload · esc close"
+	hint := " tab agent · ↑↓ scroll · s sync to others · u undo · S conch's skill · r reload · esc close"
 	if v.loading {
 		hint = " loading…" + hint
 	}

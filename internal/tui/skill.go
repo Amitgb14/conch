@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -56,7 +57,9 @@ func (m *Model) loadSkill(mid string, flash string) tea.Cmd {
 }
 
 // applySkill writes the skill on a machine, or takes conch's copy away.
-func (m *Model) applySkill(mid string, remove bool) tea.Cmd {
+// agents narrows it to some of them — the setup view acts on the agent
+// whose tab is open, the settings page on all of them.
+func (m *Model) applySkill(mid string, remove bool, agents ...string) tea.Cmd {
 	c := m.clientOf(mid)
 	if c == nil {
 		m.setFlash(m.offlineText(mid), true)
@@ -72,7 +75,7 @@ func (m *Model) applySkill(mid string, remove bool) tea.Cmd {
 	}
 	return func() tea.Msg {
 		var res proto.AgentSkillResult
-		if err := callCtx(c, proto.MethodAgentSkill, proto.AgentSkillParams{Remove: remove, Apply: true}, &res); err != nil {
+		if err := callCtx(c, proto.MethodAgentSkill, proto.AgentSkillParams{Agents: agents, Remove: remove, Apply: true}, &res); err != nil {
 			return skillMsg{machine: mid, err: err}
 		}
 		return skillMsg{machine: mid, res: res, flash: "conch's skill " + what + " on " + label}
@@ -246,8 +249,8 @@ func (s *settings) skillMachineItems(m *Model, mid string) []settingItem {
 }
 
 // confirmSkill asks before writing, naming every path, since these are
-// files in the agents' own folders.
-func (m *Model) confirmSkill(mid string, remove bool) tea.Cmd {
+// files in the agents' own folders. agents narrows it to some of them.
+func (m *Model) confirmSkill(mid string, remove bool, agents ...string) tea.Cmd {
 	p := m.skill[mid]
 	if p == nil || p.res == nil {
 		return m.loadSkill(mid, "")
@@ -258,6 +261,9 @@ func (m *Model) confirmSkill(mid string, remove bool) tea.Cmd {
 	}
 	var paths []string
 	for _, ch := range p.res.Changes {
+		if len(agents) > 0 && !slices.ContainsFunc(ch.Agents, func(a string) bool { return slices.Contains(agents, a) }) {
+			continue
+		}
 		switch {
 		case remove && ch.Action == proto.SyncSame,
 			!remove && (ch.Action == proto.SyncCreate || ch.Action == proto.SyncUpdate):
@@ -273,6 +279,45 @@ func (m *Model) confirmSkill(mid string, remove bool) tea.Cmd {
 		what = "Take conch's skill from"
 	}
 	question := what + " " + count(len(paths), "file") + " on " + label + "?\n  " + strings.Join(paths, "\n  ")
-	m.overlay = newConfirm(question, func(m *Model) tea.Cmd { return m.applySkill(mid, remove) })
+	m.overlay = newConfirm(question, func(m *Model) tea.Cmd { return m.applySkill(mid, remove, agents...) })
 	return nil
+}
+
+// skillFor is the change covering one agent on a machine, and whether the
+// machine has been asked at all.
+func (m Model) skillFor(mid, agent string) (proto.SkillChange, bool) {
+	p := m.skill[mid]
+	if p == nil || p.res == nil {
+		return proto.SkillChange{}, false
+	}
+	for _, ch := range p.res.Changes {
+		if slices.Contains(ch.Agents, agent) {
+			return ch, true
+		}
+	}
+	return proto.SkillChange{}, false
+}
+
+// skillLine is what the setup view says about conch's skill for the agent
+// whose tab is open: one line, in the same shape as the groups above it.
+func (m Model) skillLine(mid, agent string) string {
+	p := m.skill[mid]
+	switch {
+	case p != nil && p.err != "":
+		return styleMuted.Render("   conch's skill  ") + styleWarn.Render(p.err)
+	case p == nil || (p.loading && p.res == nil):
+		return styleMuted.Render("   conch's skill  reading…")
+	}
+	ch, ok := m.skillFor(mid, agent)
+	if !ok {
+		return styleMuted.Render("   conch's skill  this agent does not read skills")
+	}
+	hint := ""
+	switch ch.Action {
+	case proto.SyncSame:
+		hint = styleMuted.Render(" · S takes it away")
+	case proto.SyncCreate, proto.SyncUpdate:
+		hint = styleMuted.Render(" · S installs it")
+	}
+	return styleMuted.Render("   conch's skill  ") + skillAction(ch) + hint
 }
