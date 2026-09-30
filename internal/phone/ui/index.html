@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>conch</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<main>
+  <h1>conch</h1>
+  <p id="status">Checking this device…</p>
+
+  <form id="pair" hidden>
+    <p>Run <code>conch web pair</code> on your laptop and enter the code it shows.</p>
+    <label>Pairing code <input id="code" inputmode="numeric" autocomplete="one-time-code" placeholder="123-456" required></label>
+    <label>This device's name <input id="name" placeholder="My phone" maxlength="64"></label>
+    <button>Pair</button>
+  </form>
+
+  <section id="agents" hidden>
+    <h2>Agents</h2>
+    <ul id="list"></ul>
+    <p class="note">This page is a placeholder: the phone app is not built yet.</p>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

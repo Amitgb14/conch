@@ -111,6 +111,14 @@ Usage:
   conch -m MACHINE COMMAND      run a command against a remote machine
   conch -m MACHINE upload FILE...
                                 copy files to a machine's uploads folder and print their paths there
+  conch web [-listen ADDR] [-port N] [-cert FILE -key FILE]
+                                serve your phone: see the agents, reply to one and answer what
+                                it asks. Listens only on this machine's Tailscale address
+                                unless -listen names another
+  conch web pair [-permission view|reply|full]
+                                a one-time code (5 minutes) that pairs a phone; reply by default
+  conch web devices | revoke ID
+                                list the paired phones, or cut one off at once
   conch ask [-y | -n] REQUEST   ask the brain; it proposes actions and runs them once you confirm
   conch update [VERSION | latest | list | rollback]
                                 replace this binary with the latest release, a named one
@@ -178,6 +186,8 @@ func main() {
 		err = runUpload(args)
 	case "ask":
 		err = runAsk(args)
+	case "web":
+		err = runWeb(args)
 	case "version", "--version", "-v":
 		runVersion(args)
 	case "help", "--help", "-h":

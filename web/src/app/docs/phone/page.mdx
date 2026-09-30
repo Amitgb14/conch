@@ -1,0 +1,78 @@
+export const metadata = { title: "Phone", description: "See your agents from your phone, reply to one and answer what it asks." }
+
+# Phone
+
+`conch web` lets a phone reach the agents on this machine: see what each is doing, reply to one, and answer the question it is waiting on. It is a small web server that conch runs on your laptop, in front of the same server the TUI talks to. Nothing goes through a service of conch's; the phone reaches the laptop over [Tailscale](https://tailscale.com).
+
+<Callout type="note">
+
+What is built so far is the gateway: pairing, permissions and the API the phone app will use. The page it serves is a placeholder that pairs a phone and lists your agents. The app itself and notifications are still to come.
+
+</Callout>
+
+## Start it
+
+```sh
+conch web                 # listens on this machine's Tailscale address, port 8722
+tailscale serve --bg http://100.101.102.103:8722   # HTTPS in front of it
+conch web pair            # a one-time code for the phone
+```
+
+`conch web` starts conch's server if it isn't running, and keeps running in the foreground; stop it with `ctrl+c`. It is a client of that server like the TUI is, so agents keep running whether or not the gateway does.
+
+**It listens only on the Tailscale address.** A paired phone can type into your agents, so this is remote access to your machine, and by default the only devices that can reach it at all are the ones on your tailnet. With no Tailscale address it refuses to start. `-listen ADDR` names another address and prints a warning; `-port N` changes the port.
+
+**Phones need HTTPS.** The device's token travels in a cookie marked `Secure`, which a browser only sends over HTTPS. `tailscale serve` puts HTTPS in front with a certificate for your machine's tailnet name — open that `https://…ts.net` address on the phone. Or give conch a certificate yourself with `-cert FILE -key FILE` (`tailscale cert` makes one).
+
+## Pair a phone
+
+```sh
+conch web pair                       # reply: see agents, reply, answer questions
+conch web pair -permission view      # look only
+conch web pair -permission full      # also the terminal's keys and new tasks
+```
+
+This prints a six-digit code. Open the gateway's address on the phone, enter the code, and the phone is paired: it gets a token of its own, kept in a cookie the page's scripts can't read.
+
+- A code works **once**, for **5 minutes**. Asking for a new one cancels the old.
+- Guesses are limited: a few attempts a minute, and five wrong codes cancel the one outstanding.
+- conch keeps only a hash of each token, in `phone.json` in its [directory](/docs/configuration). The file alone doesn't let anyone in.
+
+| Permission | The device can |
+| --- | --- |
+| `view` | see the agents, their state and their screens |
+| `reply` (default) | also send an agent its next message, and pick an answer to the question it asks |
+| `full` | also send keys to a pane's terminal, and start tasks |
+
+The permission is checked on every request and on every message over the live connection, not only when the phone connects.
+
+## Devices
+
+```sh
+conch web devices        # ID, name, permission, when it was paired
+conch web revoke d_7h2k  # cut one off
+```
+
+Revoking takes effect at once: the token stops working, and a running gateway closes the connections that device has open — within a quarter of a second — telling the phone why.
+
+An agent that conch [keeps to its own work](/docs/cli#when-an-agent-runs-these-commands) may not run `conch web pair` or `revoke`: a paired phone acts as you, not as the agent.
+
+## Replying and answering
+
+These are two different things, on purpose.
+
+**A reply** is the agent's next message, as [`conch agent prompt`](/docs/cli#agent) sends it. It is refused while the agent waits on a question — typed in, its Enter would answer the question — and the phone is told the agent is waiting.
+
+**An answer** picks one of the choices of the question an agent is asking. conch reads the choices off the agent's screen — a numbered menu with a cursor on one row — and the phone shows them as buttons. Tapping one moves the cursor to that row and presses Enter; nothing else is sent. The answer carries the ID of the question it was shown for, and is refused if the agent is no longer asking that question, so a tap that arrives late can't answer the next one.
+
+When conch can't read choices — no menu, or no cursor to steer by — the question comes without any, and only a device with `full` can answer, by sending keys to the terminal.
+
+## What it doesn't do yet
+
+- The phone app (the page is a placeholder) and push notifications. Push subscriptions are stored, but nothing is sent.
+- Other machines: a gateway shows the agents of the machine it runs on.
+- A QR code for pairing, and a key in the TUI to show one.
+
+## What is logged
+
+One line per request and per message: its kind, its status and its size. Never a screen, a reply, a question or a token.

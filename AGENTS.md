@@ -27,7 +27,7 @@ Apache-2.0 · Default branch: `master`.
 
 | Path | What lives there |
 | --- | --- |
-| `cmd/conch` | The `conch` CLI: TUI launch, `server`, `new/send/read/close`, `project`, `task`, `branch`, `worktree`, `machine`, `ask`, `update`, hook reports, status line |
+| `cmd/conch` | The `conch` CLI: TUI launch, `server`, `new/send/read/close`, `project`, `task`, `branch`, `worktree`, `machine`, `ask`, `web`, `update`, hook reports, status line |
 | `internal/server` | The daemon: panes, projects/worktrees, sessions, agent hooks and usage, hot reload, local files, agent setup, worktree watching |
 | `internal/pane` | A program on a PTY with an emulated screen (charmbracelet/x/vt), key/mouse encoding, detach/adopt for reload |
 | `internal/proto` | Wire protocol: messages, methods, events, payload types, capability list, `Version` |
@@ -35,6 +35,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/tui` | The TUI: tree, tabs/splits/scoping, keys, mouse, views (changes, sessions, setup), dialogs, settings, brain bar, updates |
 | `internal/remote` | How a machine is reached (`Transport`: ssh, a sandbox through its provider's ssh gateway with a fresh token, or a local command), ssh config and commands, remote install, bridging, machine catalog, release downloads, cross builds |
 | `internal/sandbox` | Hosted sandbox providers (Daytona, boat.dev): create, start, stop, delete, list conch's own, ssh access — a fresh token, or a key of your own authorized in the sandbox |
+| `internal/phone` | The gateway `conch web` runs for a phone: HTTP and a WebSocket in front of the local server (a client of it, like the TUI), pairing codes, per-device tokens kept hashed in `phone.json`, `view`/`reply`/`full` checked on every route and socket message, reading a waiting agent's choices off its screen, and the embedded UI (`ui/`, a stub). Its shapes are a contract (`api.go`) a test pins |
 | `internal/adapter` | How to launch each agent: commands, settings/hooks, resume and prompt arguments |
 | `internal/detect` | Which agent runs in a pane and its state (working, waiting, done, idle) from hooks, titles and screens |
 | `internal/brain` | Model providers (Claude CLI, Anthropic, OpenAI-compatible), planner, action execution, summaries |
