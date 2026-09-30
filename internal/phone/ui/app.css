@@ -42,3 +42,13 @@ input, select, textarea { display: block; width: 100%; margin-top: 4px; padding:
 textarea { min-height: 5em; resize: vertical; }
 form .row { display: flex; gap: 8px; align-items: end; }
 form .row textarea { flex: 1; min-height: 44px; }
+.button { display: inline-block; text-decoration: none; }
+.terminal-view pre.screen.terminal { margin-bottom: 8px; }
+.keys { position: sticky; bottom: 0; background: var(--bg); padding: 8px 0 max(8px, env(safe-area-inset-bottom)); }
+.keybar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 8px; }
+.keybar button { text-align: center; padding: 8px 0; font-family: ui-monospace, Menlo, monospace; }
+.keybar button.armed { background: var(--bad); border-color: var(--bad); color: #fff; }
+.keys form.row { display: flex; gap: 8px; }
+.keys form.row input { flex: 1; margin-top: 0; }
+main a { color: var(--accent); }
+main a.button { color: inherit; }

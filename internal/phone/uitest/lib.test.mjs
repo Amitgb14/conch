@@ -2,7 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import {
   parseLine, frameRows, color256, sortAgents, upsertAgent, removeAgent, groupAgents, agentLabel,
-  ago, route, can, backoff, codeFromHash, fontSizeFor,
+  ago, route, can, backoff, codeFromHash, fontSizeFor, KEYBAR, textKeys, chunks,
 } from "../ui/lib.mjs"
 
 const text = (runs) => runs.map((r) => r.text).join("")
@@ -142,7 +142,9 @@ test("routes", () => {
   assert.deepEqual(route("/agent/p3"), { view: "agent", pane: "p3" })
   assert.deepEqual(route("/agent/p12/"), { view: "agent", pane: "p12" })
   assert.deepEqual(route("/new"), { view: "new" })
-  for (const other of ["/agent/", "/agent/reviewer", "/agent/p3/x", "/agent/p", "/newer", "/api/agents", "/agent/p3?x"]) {
+  assert.deepEqual(route("/agent/p3/terminal"), { view: "terminal", pane: "p3" })
+  assert.deepEqual(route("/agent/p3/terminal/"), { view: "terminal", pane: "p3" })
+  for (const other of ["/agent/", "/agent/reviewer", "/agent/p3/x", "/agent/p", "/newer", "/api/agents", "/agent/p3?x", "/agent/terminal", "/agent/p3/terminals", "/agent/x/terminal"]) {
     assert.deepEqual(route(other), { view: "list" }, other)
   }
 })
@@ -193,4 +195,33 @@ test("a frame loses the empty rows under its last line, and keeps the cursor's",
   assert.equal(frameRows(["", "", ""]).length, 1)
   assert.deepEqual(frameRows([]), [])
   assert.deepEqual(frameRows(undefined), [])
+})
+
+test("text as keys", () => {
+  assert.deepEqual(textKeys("git st"), ["g", "i", "t", "space", "s", "t"])
+  assert.deepEqual(textKeys("a\tb\nc\r\nd\re"), ["a", "tab", "b", "enter", "c", "enter", "d", "enter", "e"])
+  assert.deepEqual(textKeys("é+ñ😀"), ["é", "+", "ñ", "😀"])
+  // Control characters are not typed: a paste can't smuggle an escape in.
+  assert.deepEqual(textKeys("a\x1b[2Jb\x03\x7f"), ["a", "[", "2", "J", "b"])
+  assert.deepEqual(textKeys(""), [])
+  assert.deepEqual(textKeys(undefined), [])
+  assert.deepEqual(textKeys(null), [])
+})
+
+test("keys go in messages of 64 at most", () => {
+  assert.deepEqual(chunks([]), [])
+  assert.deepEqual(chunks(["a"]), [["a"]])
+  const keys = Array.from({ length: 129 }, (_, i) => String(i % 10))
+  const parts = chunks(keys)
+  assert.deepEqual(parts.map((p) => p.length), [64, 64, 1])
+  assert.deepEqual(parts.flat(), keys)
+  assert.equal(chunks(Array(64).fill("x")).length, 1)
+})
+
+test("the key bar", () => {
+  const keys = KEYBAR.map((k) => k.key)
+  assert.equal(new Set(keys).size, keys.length)
+  for (const k of ["esc", "tab", "up", "down", "left", "right", "enter", "ctrl+c"]) assert.ok(keys.includes(k), k)
+  assert.deepEqual(KEYBAR.filter((k) => k.confirm).map((k) => k.key), ["ctrl+c"])
+  for (const k of KEYBAR) assert.ok(k.label && k.label.length <= 4, k.label)
 })

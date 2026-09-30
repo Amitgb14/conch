@@ -6,7 +6,7 @@ export const metadata = { title: "Phone", description: "See your agents from you
 
 <Callout type="note">
 
-Notifications are still to come, and so is a terminal view with a key bar. Until then the app shows each agent's screen and lets you reply and pick an answer; anything else is answered at the laptop.
+Notifications are still to come. Everything else here works: the agents, replies, answers, the terminal and new tasks.
 
 </Callout>
 
@@ -30,6 +30,7 @@ The gateway serves the app itself, so it always matches your conch build; there 
 
 - **Agents** — every agent on the machine, under its project. The ones waiting for you come first, the longest wait on top, then the ones that finished, then the ones working. The list follows the agents as they change; nothing needs refreshing.
 - **An agent** — its state, the question it is asking with its choices as buttons, its screen as the terminal shows it, and a box to reply. While it waits on a question the reply box is off, and says why.
+- **Terminal** — an agent's whole screen, as it changes. On a device with `full`, a key bar underneath has the keys a phone's keyboard lacks — esc, tab, shift+tab, the arrows, Enter, backspace and ctrl+c — and a line to type from. What you type goes in as it is, without Enter, which is its own key. ctrl+c asks for a second tap within two seconds, so a stray touch doesn't stop an agent.
 - **＋** (devices with `full`) — a new task: pick a project and an agent, describe the work, and conch makes the branch and worktree and starts the agent there.
 
 **When the laptop can't be reached** — asleep, or off the tailnet — the app still opens, says so, and shows the agents as they were when it last heard from the laptop, with the time. It keeps trying and catches up by itself. Questions are not kept on the phone between visits: they can quote a command.
@@ -77,12 +78,12 @@ These are two different things, on purpose.
 
 **An answer** picks one of the choices of the question an agent is asking. conch reads the choices off the agent's screen — a numbered menu with a cursor on one row — and the phone shows them as buttons. Tapping one moves the cursor to that row and presses Enter; nothing else is sent. The answer carries the ID of the question it was shown for, and is refused if the agent is no longer asking that question, so a tap that arrives late can't answer the next one.
 
-When conch can't read choices — no menu, or no cursor to steer by — the question comes without any, and only a device with `full` can answer, by sending keys to the terminal.
+When conch can't read choices — no menu, or no cursor to steer by — the question comes without any. A device with `full` answers it in the terminal, with the key bar; the others at the laptop.
 
 ## What it doesn't do yet
 
 - Push notifications. Push subscriptions are stored, but nothing is sent.
-- A terminal view with keys (esc, arrows, ctrl+c). A question whose choices conch can't read is answered at the laptop.
+- Scrolling back through a terminal's history: the terminal shows the screen as it is now.
 - A list of the agents installed on the laptop: the new-task form offers every agent conch knows, installed or not.
 - Other machines: a gateway shows the agents of the machine it runs on.
 - A QR code for pairing, and a key in the TUI to show one.

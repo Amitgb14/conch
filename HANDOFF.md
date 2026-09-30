@@ -1,7 +1,8 @@
-# Handoff: `conch web`, the phone gateway (phase 1) and the phone app (phase 2)
+# Handoff: `conch web` — the phone gateway (phase 1), app (phase 2) and terminal (phase 3)
 
-Branch `conch/build-conch-web-phone-gateway`, two commits on top of `0d25b65`:
-the gateway, then the app. Not pushed, not merged. Phase 2 is at the end.
+Branch `conch/build-conch-web-phone-gateway`, three commits on top of `0d25b65`:
+the gateway, the app, the terminal. Not pushed, not merged. Phases 2 and 3
+are at the end.
 
 ## Contract used
 
@@ -206,3 +207,52 @@ route.
   route is covered by the gateway's test).
 - Terminal view and key bar (phase 3), push (phase 4), QR and TUI key
   (phase 5). The docs site was not built.
+
+---
+
+# Phase 3: the terminal view and key bar
+
+Contract: `phone-api.md`, `api_version` 1, unchanged. The terminal uses the
+socket's `frame.open`/`frame.close` and `keys`, which were already there.
+Answering (the `answer` route and the buttons) was built in phases 1–2;
+Amit confirmed it sends arrow keys and Enter.
+
+## What was built
+
+- **`/agent/pN/terminal`**: the pane's whole screen, every frame. For a
+  `full` device, a key bar — esc, tab, shift+tab, ↑ ↓ ← →, ⏎, backspace,
+  ^C — and a line whose text is typed as keys, without Enter. Other
+  devices see the screen and are told typing needs `full`.
+- **^C takes two taps** within two seconds; the first only arms it.
+- The agent page links to the terminal, and a question with no readable
+  choices says "Answer it in the terminal" to a `full` device.
+- `lib.mjs`: `KEYBAR`, `textKeys` (space, tab and new lines by name,
+  control characters dropped so a paste can't carry an escape), `chunks`
+  (64 keys a message, the gateway's limit), the terminal route.
+- **Fixed on the way:** a view opened its frame before the one it replaced
+  closed its own, so going from an agent to its terminal (the same pane)
+  could close the frame just opened. Views now open frames in `show()`,
+  after the old view has left.
+
+## Tested
+
+- `go test -race -count=1 ./...` passes; `gofmt`, `go vet` clean; 20 node
+  tests pass, and `node --check` now parses `app.mjs` and `sw.js` too.
+- Every key on the bar is a name `pane.ParseKey` accepts (a Go test reads
+  them out of `lib.mjs`); the key names `textKeys` produces — `space`,
+  `é`, `+` — are typed as they read into a real pane over the socket.
+- The terminal address is served; near misses are not.
+- Codex's update menu as the detection tests record it is read as two
+  choices with the cursor on the first.
+- Browser: run R39 in the end-to-end plan.
+
+## Not tested, not built
+
+- **Real agents' question screens.** Answering is proven on stand-ins and
+  on the shapes the detection tests record, several of which are cut
+  short. No recorded screen of Gemini's, OpenCode's or Devin's questions exists
+  here; a menu whose cursor isn't `❯`, `›` or `>` comes with no choices
+  and is answered in the terminal.
+  Row 9.71 settles it per agent; 9.77 is the terminal on a real phone.
+- Scrollback in the terminal (`pane.scroll` isn't in the contract).
+- Push (phase 4), QR and TUI key (phase 5).

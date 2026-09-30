@@ -5,8 +5,8 @@
 // Everything the gateway sends is shown with textContent: an agent's
 // title, its question and its screen are text, never markup.
 import {
-  frameRows, sortAgents, upsertAgent, removeAgent, groupAgents, agentLabel,
-  ago, route, can, backoff, codeFromHash, fontSizeFor,
+  parseLine, frameRows, sortAgents, upsertAgent, removeAgent, groupAgents, agentLabel,
+  ago, route, can, backoff, codeFromHash, fontSizeFor, KEYBAR, textKeys, chunks,
 } from "/lib.mjs"
 
 const API_VERSION = 1
@@ -198,6 +198,9 @@ document.addEventListener("visibilitychange", () => {
 function show(view, where = "") {
   state.view?.leave?.()
   state.view = view
+  // After the old view has closed its frames: going from an agent to its
+  // terminal closes and opens the same pane, in that order.
+  view.connected?.()
   $("where").textContent = where
   $("new").hidden = !state.hello || !can(state.hello.permission, "full")
   $("view").replaceChildren(view.el)
@@ -214,6 +217,7 @@ function render() {
   if (!state.hello) return show(pairView())
   const r = route(location.pathname)
   if (r.view === "agent") return show(agentView(r.pane))
+  if (r.view === "terminal") return show(terminalView(r.pane))
   if (r.view === "new" && can(state.hello.permission, "full")) return show(newTaskView(), "New task")
   show(listView())
 }
@@ -321,7 +325,8 @@ function agentView(pane) {
       }
     },
   }, h("div", { class: "row" }, text, sendButton), replyNote)
-  const el = h("section", {}, head, ask, note, screen, reply)
+  const terminal = h("p", {}, h("a", { href: `/agent/${pane}/terminal`, "data-nav": true, class: "button" }, "Terminal"))
+  const el = h("section", {}, head, ask, note, screen, terminal, reply)
 
   let shownQuestion = null
   const answer = async (q, choice, buttons) => {
@@ -345,6 +350,9 @@ function agentView(pane) {
       const buttons = q.choices.map((c) => h("button", { type: "button" }, c.label + (c.default ? "  ·  selected" : "")))
       buttons.forEach((b, i) => b.addEventListener("click", () => answer(q, q.choices[i], buttons)))
       box.append(h("div", { class: "choices" }, ...buttons))
+    } else if (can(state.hello.permission, "full")) {
+      box.append(h("p", { class: "quiet" }, "conch couldn't read the choices off its screen. ",
+        h("a", { href: `/agent/${pane}/terminal`, "data-nav": true }, "Answer it in the terminal"), "."))
     } else if (mayReply) {
       box.append(h("p", { class: "quiet" }, "conch couldn't read the choices off its screen. Answer this one at your laptop."))
     } else {
@@ -378,32 +386,103 @@ function agentView(pane) {
   }
 
   const frame = (f) => {
-    if (f.pane !== pane) return
-    screen.style.fontSize = fontSizeFor(f.cols, screen.clientWidth - 16) + "px"
-    screen.replaceChildren(...frameRows(f.lines).map((runs) => {
-      const row = document.createElement("div")
-      for (const run of runs) {
-        const span = document.createElement("span")
-        span.textContent = run.text
-        let fg = run.fg, bg = run.bg
-        if (run.inverse) [fg, bg] = [bg || "#101114", fg || "#d6d6d2"]
-        if (fg) span.style.color = fg
-        if (bg) span.style.backgroundColor = bg
-        if (run.bold) span.style.fontWeight = "700"
-        if (run.dim) span.style.opacity = "0.6"
-        if (run.italic) span.style.fontStyle = "italic"
-        if (run.underline) span.style.textDecoration = "underline"
-        row.append(span)
-      }
-      return row
-    }))
+    if (f.pane === pane) drawFrame(screen, f, frameRows(f.lines))
   }
 
   const connected = () => send({ type: "frame.open", pane })
-  connected()
   return {
     el, update, frame, connected,
     socketError: (e) => { if (e?.code !== "not_found") note.textContent = e?.message || "" },
+    leave: () => send({ type: "frame.close", pane }),
+  }
+}
+
+// drawFrame puts a frame's rows on screen as styled text, as small as it
+// takes to fit the phone's width, down to what is readable.
+function drawFrame(screen, f, rows) {
+  screen.style.fontSize = fontSizeFor(f.cols, screen.clientWidth - 16) + "px"
+  screen.replaceChildren(...rows.map((runs) => {
+    const row = document.createElement("div")
+    for (const run of runs) {
+      const span = document.createElement("span")
+      span.textContent = run.text
+      let fg = run.fg, bg = run.bg
+      if (run.inverse) [fg, bg] = [bg || "#101114", fg || "#d6d6d2"]
+      if (fg) span.style.color = fg
+      if (bg) span.style.backgroundColor = bg
+      if (run.bold) span.style.fontWeight = "700"
+      if (run.dim) span.style.opacity = "0.6"
+      if (run.italic) span.style.fontStyle = "italic"
+      if (run.underline) span.style.textDecoration = "underline"
+      row.append(span)
+    }
+    return row
+  }))
+}
+
+// terminalView is a pane's whole screen, every frame, and for a device
+// with full the keys a phone's keyboard lacks and a line to type from.
+function terminalView(pane) {
+  const screen = h("pre", { class: "screen terminal", "aria-label": "The terminal" })
+  const note = h("p", { class: "error", role: "alert" })
+  const mayType = can(state.hello.permission, "full")
+  let sent = 0
+  const sendKeys = (keys) => {
+    note.textContent = ""
+    for (const part of chunks(keys)) send({ type: "keys", id: `k${++sent}`, pane, keys: part })
+  }
+
+  const bar = h("div", { class: "keybar", role: "toolbar", "aria-label": "Keys" }, ...KEYBAR.map((k) => {
+    const b = h("button", { type: "button", "aria-label": k.key }, k.label)
+    let armed = null
+    b.addEventListener("click", () => {
+      if (k.confirm && !armed) {
+        // One tap arms it; a second within two seconds sends it.
+        b.textContent = "again"
+        b.classList.add("armed")
+        armed = setTimeout(() => { armed = null; b.textContent = k.label; b.classList.remove("armed") }, 2000)
+        return
+      }
+      if (armed) {
+        clearTimeout(armed)
+        armed = null
+        b.textContent = k.label
+        b.classList.remove("armed")
+      }
+      sendKeys([k.key])
+    })
+    return b
+  }))
+  const line = h("input", { placeholder: "Type into the terminal…", autocapitalize: "off", autocorrect: "off", spellcheck: "false", enterkeyhint: "send", "aria-label": "Text to type" })
+  const typing = h("form", {
+    class: "row",
+    onsubmit: (ev) => {
+      ev.preventDefault()
+      const keys = textKeys(line.value)
+      if (keys.length === 0) return
+      sendKeys(keys) // typed, not submitted: ⏎ is its own key
+      line.value = ""
+    },
+  }, line, h("button", { class: "primary" }, "Type"))
+  const keys = mayType
+    ? h("div", { class: "keys" }, bar, typing)
+    : h("p", { class: "quiet" }, "This device can look but not type: that needs the full permission.")
+  const el = h("section", { class: "terminal-view" },
+    h("p", {}, h("a", { href: `/agent/${pane}`, "data-nav": true }, "← Back to the agent")),
+    screen, note, keys)
+
+  const update = () => {
+    const a = state.agents.find((x) => x.pane === pane)
+    $("where").textContent = (a ? agentLabel(a) : pane) + " · terminal"
+    const off = !state.online
+    for (const b of el.querySelectorAll("button")) b.disabled = off
+    line.disabled = off
+  }
+  return {
+    el, update,
+    frame: (f) => { if (f.pane === pane) drawFrame(screen, f, f.lines.map(parseLine)) },
+    connected: () => send({ type: "frame.open", pane }),
+    socketError: (e) => { note.textContent = e?.message || "" },
     leave: () => send({ type: "frame.close", pane }),
   }
 }

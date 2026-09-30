@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/Amitgb14/conch/internal/pane"
 )
 
 func fetch(t *testing.T, method, url string) (*http.Response, string) {
@@ -33,7 +35,7 @@ func fetch(t *testing.T, method, url string) (*http.Response, string) {
 func TestUIIsServed(t *testing.T) {
 	f := newFixture(t)
 	page, _ := uiFiles.ReadFile("ui/index.html")
-	for _, p := range []string{"/", "/index.html", "/agent/p3", "/agent/p12/", "/new", "/new/"} {
+	for _, p := range []string{"/", "/index.html", "/agent/p3", "/agent/p12/", "/agent/p3/terminal", "/agent/p3/terminal/", "/new", "/new/"} {
 		res, body := fetch(t, "GET", f.web.URL+p)
 		if res.StatusCode != 200 || body != string(page) || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/html") {
 			t.Errorf("%s: %d %s", p, res.StatusCode, res.Header.Get("Content-Type"))
@@ -55,7 +57,7 @@ func TestUIIsServed(t *testing.T) {
 	// What isn't the app isn't there — nor is anything reached by walking
 	// out of it.
 	for _, p := range []string{"/agent/", "/agent/reviewer", "/agent/p3/x", "/nope.js", "/ui/index.html", "/../ui.go",
-		"/%2e%2e/ui.go", "/ui.go", "/app.mjs/", "/newer", "/.hidden.js", "/index.html/"} {
+		"/%2e%2e/ui.go", "/ui.go", "/app.mjs/", "/newer", "/.hidden.js", "/index.html/", "/agent/p3/terminals", "/agent/reviewer/terminal", "/terminal"} {
 		if res, body := fetch(t, "GET", f.web.URL+p); res.StatusCode == 200 {
 			t.Errorf("%s: served %.60q", p, body)
 		}
@@ -221,9 +223,35 @@ func TestUILogic(t *testing.T) {
 	if err != nil {
 		t.Skip("node is not installed; the app's JavaScript tests (uitest/) were not run")
 	}
-	cmd := exec.Command(node, "--test", "uitest/lib.test.mjs")
-	cmd.Env = append(os.Environ(), "NODE_OPTIONS=", "NO_COLOR=1")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("node --test: %v\n%s", err, out)
+	for _, args := range [][]string{
+		{"--test", "uitest/lib.test.mjs"},
+		// The rest has no tests of its own; it must at least parse.
+		{"--check", "ui/app.mjs"},
+		{"--check", "ui/sw.js"},
+	} {
+		cmd := exec.Command(node, args...)
+		cmd.Env = append(os.Environ(), "NODE_OPTIONS=", "NO_COLOR=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("node %v: %v\n%s", args, err, out)
+		}
+	}
+}
+
+// Every key on the terminal view's bar is a key the server knows by that
+// name: a bar key it didn't would come back as an error, not a keystroke.
+func TestKeyBarNamesAreKeys(t *testing.T) {
+	lib, _ := uiFiles.ReadFile("ui/lib.mjs")
+	bar := regexp.MustCompile(`(?s)export const KEYBAR = \[(.*?)\n\]`).FindSubmatch(lib)
+	if bar == nil {
+		t.Fatal("no KEYBAR in lib.mjs")
+	}
+	names := regexp.MustCompile(`key: "([^"]+)"`).FindAllSubmatch(bar[1], -1)
+	if len(names) < 8 {
+		t.Fatalf("only %d keys on the bar", len(names))
+	}
+	for _, m := range names {
+		if _, err := pane.ParseKey(string(m[1])); err != nil {
+			t.Errorf("the bar's %q: %v", m[1], err)
+		}
 	}
 }

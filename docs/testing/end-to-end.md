@@ -223,6 +223,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 9.74 | `conch web` with no Tailscale | On a machine with Tailscale stopped: `conch web`, then `conch web -listen 127.0.0.1:8722` | The first refuses and says why; the second starts and prints the warning | ☐ |
 | 9.75 📱 | The app on a real phone | After 9.70 on iOS Safari and Android Chrome: add to the home screen and open it from there; open an agent; rotate; reply; start a task with **＋** | It opens without browser bars, with the icon and name; the list follows agents changing on the laptop within a second; an agent's screen is readable and scrolls sideways when wide; the keyboard doesn't cover the reply box; the new task's agent opens | ◐ R38 in headless Chrome at 390×844 only: pairing from a `#code=` link, the list, an answer by button, a reply, the new-task form, light and dark. No real phone, no home screen, no task started |
 | 9.76 📱 | The app while the laptop sleeps | With the app installed and paired: close the laptop's lid, open the app; open the lid | The app opens from the home screen, says the laptop can't be reached and when it last was, and shows the agents from then; once the laptop is back the banner goes and the list is live again, without re-pairing | ◐ R38 with Chrome's network switched off and on: opened from the service worker's copy, banner with the time, caught up by itself. A real sleep not run |
+| 9.77 📱💳 | The terminal from a phone | On a real phone with a `full` device: open a Claude agent's **Terminal**; answer a question whose choices the agent page can't offer (Gemini's confirmation, a Codex approval) with the arrows and ⏎; type a line and ⏎ it; shift+tab through Claude's modes; ^C once, then twice | Every key does what it does at the laptop; typed text arrives as typed, accents included, with no Enter of its own; one ^C tap sends nothing and two stop the agent; the key bar stays above the phone's keyboard | ◐ R39 in headless Chrome with a stand-in agent: arrows and ⏎ picked choice 3, a typed line and ⏎ arrived, one ^C sent nothing (5 key messages at the gateway), two sent it (6). No real phone or agent |
 
 ## Driving a TUI under test
 
@@ -509,6 +510,17 @@ This Mac to busybox (`aghadge@10.0.0.115`), isolated on both sides. Here: its ow
 - **Found and fixed:** the status bar cut the refusal to "moving feat failed: rebuild t…". Failures now open a notice with the whole reason, and the status bar keeps the short form. The server's messages said "here", which read as the Mac inside a notice that also said "nothing changed here". They no longer name a place, and the notice names both machines ("moving feat to busybox failed … Nothing changed on local.").
 - **Found and fixed:** a menu whose title was its widest line lost the end of it ("Move feat to which machin…"), in every menu: the frame's spaces weren't counted.
 - **Not run:** a real Claude reading the handoff after a move (the handoff itself was checked in R19), and a pushed branch sending no commits (covered by the server tests).
+
+### R39 — 2026-09-30, the terminal view in headless Chrome, macOS arm64, build 0.1.6-dev
+
+As R38: an isolated conch, `conch web -listen 127.0.0.1:18722`, the stand-in `claude` asking a three-choice question, Chrome headless at 390×844.
+
+- From the agent's page, **Terminal** opened `/agent/p1/terminal` with all 40 rows of the screen and the ten keys; nothing wider than the phone.
+- ↓ moved the stand-in's cursor to row 2, ↓ again to 3, ⏎ picked it: *chose 3*.
+- One ^C tap turned the key red and read *again*; the gateway's log showed no key message for it, and after two seconds it went back. Two taps sent it.
+- `git status -s` typed from the line arrived as typed, with no Enter until ⏎; the line cleared.
+- Back to the agent's page, the screen went on following the pane: the frame was closed by the terminal and opened again by the page, in that order.
+- **Found and fixed:** the Type button wrapped under the line; links showed the browser's visited purple.
 
 ### R38 — 2026-09-30, the phone app in headless Chrome, macOS arm64, build 0.1.6-dev
 

@@ -55,6 +55,13 @@ func TestSocket(t *testing.T) {
 		return m.Type == MsgFrame && m.Frame.Pane == pane && strings.Contains(strings.Join(m.Frame.Lines, "\n"), "QW")
 	})
 
+	// Keys as the terminal view sends typed text: a space by its name, and
+	// characters beyond ASCII as themselves.
+	s.send(ClientMessage{Type: MsgKeys, ID: "k2", Pane: pane, Keys: []string{"h", "i", "space", "é", "+", "ñ"}})
+	s.next("typed text drawn", func(m ServerMessage) bool {
+		return m.Type == MsgFrame && m.Frame.Pane == pane && strings.Contains(strings.Join(m.Frame.Lines, "\n"), "QWhi é+ñ")
+	})
+
 	// What the contract refuses, each with the message's own id.
 	for _, c := range []struct {
 		m    ClientMessage
@@ -88,7 +95,7 @@ func TestSocket(t *testing.T) {
 	s.send(ClientMessage{Type: MsgFrameClose, Pane: pane})
 	s.until("closed")
 	f.call(proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: pane, Keys: []string{"J"}}, nil)
-	waitFor(t, "the key on screen", func() bool { return strings.Contains(f.screen(pane), "QWJ") })
+	waitFor(t, "the key on screen", func() bool { return strings.Contains(f.screen(pane), "QWhi é+ñJ") })
 	for _, m := range s.until("after-close") {
 		if m.Type == MsgFrame {
 			t.Fatalf("a frame after frame.close: %+v", m.Frame)

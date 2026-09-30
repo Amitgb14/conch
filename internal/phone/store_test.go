@@ -308,6 +308,9 @@ func TestReadMenu(t *testing.T) {
 		{"a gap", menuScreen("❯ 1. Yes", "  3. No"), "", 0},
 		{"a list in an answer", menuScreen("I did three things:", "1. read the file", "2. fixed the bug", "3. ran the tests"), "", 0},
 		{"rows apart", menuScreen("❯ 1. Yes", "", "  2. No"), "", 0},
+		// Codex's update menu, as the detection tests record it from
+		// codex rust-v0.144.1.
+		{"codex update", menuScreen("  ✨ Update available! 0.144.1 -> 0.145.0", "› 1. Update now", "  2. Skip", "  Press enter to continue"), "Update now|Skip", 0},
 		{"nothing", nil, "", 0},
 		{"blank", menuScreen("", "   "), "", 0},
 	} {

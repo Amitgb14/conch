@@ -158,9 +158,11 @@ export function ago(since, now = Date.now()) {
   return Math.floor(s / 86400) + "d"
 }
 
-// route reads the page's path: the list, one agent, or a new task.
-// Anything else is the list.
+// route reads the page's path: the list, one agent, its terminal, or a
+// new task. Anything else is the list.
 export function route(path) {
+  const t = /^\/agent\/(p[0-9]+)\/terminal\/?$/.exec(path)
+  if (t) return { view: "terminal", pane: t[1] }
   const m = /^\/agent\/(p[0-9]+)\/?$/.exec(path)
   if (m) return { view: "agent", pane: m[1] }
   if (/^\/new\/?$/.test(path)) return { view: "new" }
@@ -192,4 +194,40 @@ export function fontSizeFor(cols, width, min = 7, max = 14) {
   if (!(cols > 0) || !(width > 0)) return max
   // A monospace character is about 0.6 of its size wide.
   return Math.max(min, Math.min(max, Math.floor((width / cols / 0.6) * 10) / 10))
+}
+
+// The terminal view's key bar: the keys a phone's keyboard doesn't have,
+// named as the gateway's `keys` message takes them (`conch send -keys`).
+// ctrl+c asks for a second tap: one stray touch shouldn't stop an agent.
+export const KEYBAR = [
+  { label: "esc", key: "esc" },
+  { label: "tab", key: "tab" },
+  { label: "⇧tab", key: "shift+tab" },
+  { label: "↑", key: "up" },
+  { label: "↓", key: "down" },
+  { label: "←", key: "left" },
+  { label: "→", key: "right" },
+  { label: "⏎", key: "enter" },
+  { label: "⌫", key: "backspace" },
+  { label: "^C", key: "ctrl+c", confirm: true },
+]
+
+// textKeys is text as key names, one per character: what the terminal
+// view types when there is no way to send text as such. A space, a new
+// line and a tab have names of their own; anything else is itself.
+export function textKeys(text) {
+  const named = { " ": "space", "\n": "enter", "\r": "enter", "\t": "tab" }
+  const keys = []
+  for (const ch of String(text ?? "").replace(/\r\n/g, "\n")) {
+    if (named[ch]) keys.push(named[ch])
+    else if (ch >= " " && ch !== "\x7f") keys.push(ch)
+  }
+  return keys
+}
+
+// chunks splits keys into messages the gateway takes: at most 64 each.
+export function chunks(keys, size = 64) {
+  const out = []
+  for (let i = 0; i < keys.length; i += size) out.push(keys.slice(i, i + size))
+  return out
 }
