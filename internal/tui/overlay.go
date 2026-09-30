@@ -939,7 +939,7 @@ var helpText = []string{
 	"    Settings → Theme → Tree hides all of it",
 	"    not the whole plan window. Agents that report no cost (Codex, Gemini) show tokens",
 	"  a task warns before it starts when that agent's plan window is nearly used; it never refuses",
-	"  status bar: Claude 5h 42% · 7d 18% = plan limit windows (click for reset times)",
+	"  status bar: Claude 5h 42% · 7d 18% = plan limit windows (click for the lot: resets, every agent, every machine)",
 	"  status bar: ⬆ version = updates; click, tick machines with space, u updates",
 	"  status bar: ▁▃▆ (bottom right) = memory and CPU conch uses on this computer; click again to close",
 	"    conch update list shows every release · conch update rollback goes back one",

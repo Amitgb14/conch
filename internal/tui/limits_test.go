@@ -33,11 +33,17 @@ func TestA2StatusLimits(t *testing.T) {
 	if got := ansi.Strip(items[0].text); got != "Claude 5h 72% · spend 3%" {
 		t.Fatalf("claude pane: %q", got)
 	}
-	// Clicking spells the windows out.
+	// Clicking opens the window that spells them out, rather than a line
+	// that fades before it can be read.
 	items[0].act(m)
-	if m.flash != "Claude Code: 5-hour 72% used · spend 3% used" {
-		t.Fatalf("detail flash %q", m.flash)
+	v, ok := m.overlay.(*limitsView)
+	if !ok {
+		t.Fatalf("the chip opened %T", m.overlay)
 	}
+	if text := a2Plain(v.render(*m).lines); !strings.Contains(text, "5-hour") || !strings.Contains(text, "72%") {
+		t.Fatalf("the window does not spell them out:\n%s", text)
+	}
+	m.overlay = nil
 	// A shell pane falls back to claude, then codex.
 	m.cursor = "pane:p2"
 	if got := ansi.Strip(m.statusLimits(now)[0].text); !strings.HasPrefix(got, "Claude") {

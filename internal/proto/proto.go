@@ -1049,7 +1049,22 @@ type PlanLimits struct {
 	FiveHour *LimitWindow `json:"five_hour,omitempty"`
 	Week     *LimitWindow `json:"week,omitempty"`
 	Spend    *LimitWindow `json:"spend,omitempty"`
-	At       time.Time    `json:"at"` // when it was reported
+	// Windows is every window the agent named, in the agent's own words.
+	// An account with a per-model allowance reports more than the three
+	// above — a weekly window for one model beside the weekly window for
+	// all of them — and a new one appears whenever the plans change, so
+	// what is passed on is the list rather than the three conch happens to
+	// know. The three stay for servers and clients of older builds.
+	Windows []NamedWindow `json:"windows,omitempty"`
+	At      time.Time     `json:"at"` // when it was reported
+}
+
+// NamedWindow is one plan window under the name its agent gave it
+// (five_hour, seven_day, seven_day_fable, spend_limit…).
+type NamedWindow struct {
+	Key      string    `json:"key"`
+	UsedPct  float64   `json:"used_pct"`
+	ResetsAt time.Time `json:"resets_at,omitempty"`
 }
 
 // AgentLimitsResult is the result of agent.limits.

@@ -88,34 +88,20 @@ func (m Model) statusLimits(now time.Time) []statusItem {
 			continue
 		}
 		if chip := limitsChip(l, now); chip != "" {
-			lim := l
+			// A window of its own rather than a line that fades: what
+			// somebody wants from this chip — when it resets, whose
+			// account, what else is running — does not fit in a flash.
+			at := mid
 			return []statusItem{{text: chip, act: func(m *Model) tea.Cmd {
-				m.setFlash(limitsDetail(lim, time.Now()), false)
-				return nil
+				if _, open := m.overlay.(*limitsView); open {
+					m.overlay = nil
+					return nil
+				}
+				return m.openLimits(at)
 			}}}
 		}
 	}
 	return nil
-}
-
-// limitsDetail spells the windows out with reset times.
-func limitsDetail(l proto.PlanLimits, now time.Time) string {
-	var parts []string
-	for _, w := range []struct {
-		name string
-		win  *proto.LimitWindow
-	}{{"5-hour", l.FiveHour}, {"week", l.Week}, {"spend", l.Spend}} {
-		lw := liveWindow(w.win, now)
-		if lw == nil {
-			continue
-		}
-		s := fmt.Sprintf("%s %d%% used", w.name, int(math.Round(lw.UsedPct)))
-		if !lw.ResetsAt.IsZero() {
-			s += ", resets " + resetText(lw.ResetsAt, now)
-		}
-		parts = append(parts, s)
-	}
-	return agentLabel(l.Agent) + ": " + strings.Join(parts, " · ")
 }
 
 func resetText(t, now time.Time) string {

@@ -107,7 +107,7 @@ func (s *Server) statusLine(e *entry, rp proto.AgentReportParams) {
 // setLimits records an agent's plan limits and tells clients when what
 // they show changed.
 func (s *Server) setLimits(l proto.PlanLimits) {
-	if l.FiveHour == nil && l.Week == nil && l.Spend == nil {
+	if l.FiveHour == nil && l.Week == nil && l.Spend == nil && len(l.Windows) == 0 {
 		return
 	}
 	if l.At.IsZero() {
@@ -120,10 +120,25 @@ func (s *Server) setLimits(l proto.PlanLimits) {
 	old, had := s.limits[l.Agent]
 	s.limits[l.Agent] = l
 	s.limitsMu.Unlock()
-	if had && sameWindow(old.FiveHour, l.FiveHour) && sameWindow(old.Week, l.Week) && sameWindow(old.Spend, l.Spend) {
+	if had && sameWindow(old.FiveHour, l.FiveHour) && sameWindow(old.Week, l.Week) &&
+		sameWindow(old.Spend, l.Spend) && sameNamed(old.Windows, l.Windows) {
 		return
 	}
 	s.broadcast(proto.EventAgentLimits, l)
+}
+
+// sameNamed reports whether two lists of named windows say the same thing,
+// so a report that only repeats itself wakes nobody.
+func sameNamed(a, b []proto.NamedWindow) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Key != b[i].Key || a[i].UsedPct != b[i].UsedPct || !a[i].ResetsAt.Equal(b[i].ResetsAt) {
+			return false
+		}
+	}
+	return true
 }
 
 func sameWindow(a, b *proto.LimitWindow) bool {

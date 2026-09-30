@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -91,6 +92,26 @@ func statusParams(paneID string, in statusInput, now time.Time) proto.AgentRepor
 			return lw
 		}
 		l.FiveHour, l.Week, l.Spend = window("five_hour"), window("seven_day"), window("spend_limit")
+		// And every window it named, whatever it named them: an account
+		// with a per-model allowance reports a weekly window for that model
+		// as well, and conch has no business deciding which of an agent's
+		// own limits are worth passing on.
+		keys := make([]string, 0, len(in.RateLimits))
+		for key := range in.RateLimits {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			w := in.RateLimits[key]
+			if w == nil {
+				continue
+			}
+			nw := proto.NamedWindow{Key: key, UsedPct: w.UsedPercentage}
+			if w.ResetsAt > 0 {
+				nw.ResetsAt = time.Unix(int64(w.ResetsAt), 0)
+			}
+			l.Windows = append(l.Windows, nw)
+		}
 		params.Limits = l
 	}
 	return params
