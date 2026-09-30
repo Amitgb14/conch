@@ -90,6 +90,25 @@ func (n *layoutNode) leaves() []*leaf {
 	return append(n.a.leaves(), n.b.leaves()...)
 }
 
+// swapLeaves exchanges what two leaves of a tab show, everything each one
+// was keeping with it: a branch's changes keep their scroll, a file
+// explorer its folder. The layout itself does not move, so the splits stay
+// the size they were dragged to.
+func (t *tab) swapLeaves(a, b int) bool {
+	la, lb := t.leaf(a), t.leaf(b)
+	if la == nil || lb == nil || la == lb {
+		return false
+	}
+	la.view, lb.view = lb.view, la.view
+	la.changes, lb.changes = lb.changes, la.changes
+	la.sessions, lb.sessions = lb.sessions, la.sessions
+	la.queue, lb.queue = lb.queue, la.queue
+	la.files, lb.files = lb.files, la.files
+	la.pick, lb.pick = lb.pick, la.pick
+	la.await, lb.await = lb.await, la.await
+	return true
+}
+
 func (t *tab) leaf(id int) *leaf {
 	for _, l := range t.root.leaves() {
 		if l.id == id {

@@ -46,11 +46,22 @@ func (b box) contains(x, y int) bool {
 
 // frameLines wraps content lines (already w wide) in a rounded border.
 func frameLines(title string, content []string, w int, color lipgloss.Color) []string {
+	return frameLinesBar(title, content, w, color, nil)
+}
+
+// frameLinesBar is frameLines with something drawn on the right border of
+// the content lines mark names — the scrollbar's thumb. The border is
+// already a column of its own, so a bar there costs no content.
+func frameLinesBar(title string, content []string, w int, color lipgloss.Color, mark map[int]string) []string {
 	bs := lipgloss.NewStyle().Foreground(color)
 	title = ansi.Truncate(title, max(w-2, 0), "…")
 	out := []string{bs.Render("╭─") + styleBold.Render(title) + bs.Render(strings.Repeat("─", max(w-1-ansi.StringWidth(title), 0))+"╮")}
-	for _, l := range content {
-		out = append(out, bs.Render("│")+fit(l, w)+bs.Render("│"))
+	for i, l := range content {
+		right := bs.Render("│")
+		if g, ok := mark[i]; ok {
+			right = g
+		}
+		out = append(out, bs.Render("│")+fit(l, w)+right)
 	}
 	return append(out, bs.Render("╰"+strings.Repeat("─", w)+"╯"))
 }
@@ -882,7 +893,7 @@ var helpText = []string{
 	"  & close tab   , rename tab   z zoom   ! next waiting agent   : ask   d detach   ? this help",
 	"  S type into every split of the tab at once (again to stop; synced borders turn amber)",
 	"  in the tree: v open in a split right · s below · O in a new tab (beside what the tab already shows)",
-	"  mouse: click a split to focus it · drag borders to resize · click tabs and × · drag a tab to reorder · + new tab, terminal, agent or ssh",
+	"  mouse: click a split to focus it · drag borders to resize · drag a split's title onto another to swap them · drag the bar on a pane's right edge to scroll its history · click tabs and × · drag a tab to reorder · + new tab, terminal, agent or ssh",
 	"",
 	"Pane and changes",
 	"  ctrl+b then any other key → back to the tree    ctrl+b z  zoom",

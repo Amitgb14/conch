@@ -68,6 +68,8 @@ func (m Model) View() string {
 		} else {
 			color := colorBorder
 			switch {
+			case m.leafDrag == l.id:
+				color = colorWarn // being dragged: let go on another split
 			case t.sync && l.view.Kind == kindPane:
 				color = colorWarn // typing goes to every pane in the tab
 			case focused && m.focus == focusMain:
@@ -75,7 +77,7 @@ func (m Model) View() string {
 			case focused && len(t.root.leaves()) > 1:
 				color = colorAccent
 			}
-			lines = frameLines(m.leafTitle(l), content, in.w, color)
+			lines = frameLinesBar(m.leafTitle(l), content, in.w, color, m.scrollbarMark(l.view, len(content)))
 		}
 		for i, line := range lines {
 			if y := r.y + i; y >= 0 && y < rows {

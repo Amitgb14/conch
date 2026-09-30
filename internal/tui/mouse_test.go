@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -611,5 +612,134 @@ func TestA1MouseDragTabAlone(t *testing.T) {
 	a1Mouse(t, m, x+20, mr.y, a1Left, a1Release)
 	if len(m.tabs) != 1 {
 		t.Fatalf("tabs: %d", len(m.tabs))
+	}
+}
+
+// TestA1ClickCountsInAPane: one click starts a drag, two take the word,
+// three take the line, and a click somewhere else starts counting again.
+func TestA1ClickCountsInAPane(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	m.viewing, m.viewMachine = "p1", localMachine
+	m.frame = &proto.Frame{ID: "p1", Lines: []string{"run go test ./internal/... now   ", "second line"}}
+	press := func(x, y int) {
+		m.selectMouse(tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, x, y)
+	}
+	sel := func() (int, int, bool) {
+		if m.sel == nil {
+			return 0, 0, false
+		}
+		return m.sel.ax, m.sel.bx, m.sel.hasContent
+	}
+
+	// One: an anchor, nothing selected yet.
+	press(8, 0)
+	if _, _, has := sel(); has {
+		t.Fatal("one click selected something")
+	}
+	// Two: the word under it.
+	press(8, 0)
+	ax, bx, has := sel()
+	if !has || ansi.Cut(m.frame.Lines[0], ax, bx+1) != "test" {
+		t.Fatalf("double click took %q", ansi.Cut(m.frame.Lines[0], ax, bx+1))
+	}
+	// Three: the whole line, without the blanks it is padded with.
+	press(8, 0)
+	ax, bx, has = sel()
+	if !has || ax != 0 || ansi.Cut(m.frame.Lines[0], ax, bx+1) != "run go test ./internal/... now" {
+		t.Fatalf("triple click took %q (%d..%d)", ansi.Cut(m.frame.Lines[0], ax, bx+1), ax, bx)
+	}
+	// A fourth does no harm: it keeps the line.
+	press(8, 0)
+	if ax, bx, _ := sel(); ax != 0 || bx == 0 {
+		t.Fatalf("a fourth click: %d..%d", ax, bx)
+	}
+	// Clicking elsewhere starts counting from one again.
+	press(3, 1)
+	if _, _, has := sel(); has {
+		t.Fatal("a click on another spot counted as a double")
+	}
+	// A line with nothing on it selects nothing, however often it is clicked.
+	m.frame.Lines = []string{"      "}
+	press(2, 0)
+	press(2, 0)
+	press(2, 0)
+	if _, _, has := sel(); has {
+		t.Fatal("a blank line was selected")
+	}
+}
+
+// TestA1DragSplitSwaps: a split dragged by its title onto another swaps the
+// two, and every way of letting go that should change nothing changes
+// nothing.
+func TestA1DragSplitSwaps(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1Open(t, m, paneNodeID(localMachine, "p1"))
+	m.cursor = paneNodeID(localMachine, "p4")
+	m.split(splitRight, viewOf(m.rows[indexOfRow(m.rows, paneNodeID(localMachine, "p4"))]))
+	leaves := m.tab().root.leaves()
+	if len(leaves) != 2 {
+		t.Fatalf("leaves: %d", len(leaves))
+	}
+	shown := func() []string {
+		var out []string
+		for _, l := range m.tab().root.leaves() {
+			out = append(out, l.view.PaneID)
+		}
+		return out
+	}
+	before := strings.Join(shown(), ",")
+	rects, _ := m.leafRects()
+	title := func(id int) (int, int) { return rects[id].x + 2, rects[id].y }
+
+	// A press on a leaf's title starts the drag and focuses it.
+	x, y := title(leaves[0].id)
+	a1Mouse(t, m, x, y, a1Left, a1Press)
+	if m.leafDrag != leaves[0].id {
+		t.Fatalf("no drag started: %d", m.leafDrag)
+	}
+	// Letting go on the other leaf swaps them.
+	ox, oy := title(leaves[1].id)
+	a1Mouse(t, m, ox+1, oy+2, a1Left, a1Release)
+	if got := strings.Join(shown(), ","); got == before {
+		t.Fatalf("nothing swapped: %s", got)
+	}
+	if m.leafDrag != 0 {
+		t.Fatal("the drag outlived the release")
+	}
+	// Letting go on itself changes nothing.
+	was := strings.Join(shown(), ",")
+	x, y = title(leaves[0].id)
+	a1Mouse(t, m, x, y, a1Left, a1Press)
+	a1Mouse(t, m, x+1, y+1, a1Left, a1Release)
+	if got := strings.Join(shown(), ","); got != was {
+		t.Fatalf("dropping on itself swapped: %s", got)
+	}
+	// Letting go outside the splits — over the tree — changes nothing.
+	a1Mouse(t, m, x, y, a1Left, a1Press)
+	a1Mouse(t, m, 1, 5, a1Left, a1Release)
+	if got := strings.Join(shown(), ","); got != was || m.leafDrag != 0 {
+		t.Fatalf("dropping outside: %s, drag %d", got, m.leafDrag)
+	}
+}
+
+// TestA1DragSplitNeedsTwo: one split has nothing to swap with, and a click
+// inside a pane is not a title.
+func TestA1DragSplitNeedsTwo(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1Open(t, m, paneNodeID(localMachine, "p1"))
+	rects, _ := m.leafRects()
+	id := m.tab().root.leaves()[0].id
+	a1Mouse(t, m, rects[id].x+2, rects[id].y, a1Left, a1Press)
+	if m.leafDrag != 0 {
+		t.Fatal("a lone split started a drag")
+	}
+	m.cursor = paneNodeID(localMachine, "p4")
+	m.split(splitRight, viewOf(m.rows[indexOfRow(m.rows, paneNodeID(localMachine, "p4"))]))
+	rects, _ = m.leafRects()
+	id = m.tab().root.leaves()[0].id
+	in := m.inner(rects[id])
+	a1Mouse(t, m, in.x+1, in.y+1, a1Left, a1Press)
+	if m.leafDrag != 0 {
+		t.Fatal("a click inside a pane started a drag")
 	}
 }

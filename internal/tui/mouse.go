@@ -53,6 +53,39 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Dragging the scrollbar on a pane's right border.
+	if m.scrollDrag != 0 {
+		switch msg.Action {
+		case tea.MouseActionMotion:
+			m.scrollTo(msg.Y)
+			return m, nil
+		case tea.MouseActionRelease:
+			m.scrollDrag = 0
+			return m, nil
+		}
+		return m, nil
+	}
+
+	// Dragging a split by its title onto another swaps the two, so a tree
+	// of panes can be rearranged without closing anything. The layout
+	// itself does not move: the halves stay the size they were given.
+	if m.leafDrag != 0 {
+		switch msg.Action {
+		case tea.MouseActionRelease:
+			from := m.leafDrag
+			m.leafDrag = 0
+			rects, _ := m.leafRects()
+			to := m.leafAt(rects, msg.X, msg.Y)
+			if to == 0 || to == from || !m.tab().swapLeaves(from, to) {
+				return m, nil // let go over nothing, or over itself
+			}
+			return m, tea.Batch(m.focusLeaf(to), m.syncView(), m.saveState())
+		case tea.MouseActionMotion:
+			return m, nil // the title stays marked until it is let go
+		}
+		return m, nil
+	}
+
 	// Resizing splits by dragging the boundary between two leaves; the drag
 	// ends wherever the button is released, over the sidebar or status bar too.
 	if m.barDrag != nil {
@@ -154,6 +187,29 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				m.barDrag = &bar
 				return m, nil
 			}
+		}
+	}
+
+	if press && left && !m.zoom {
+		if id := m.leafAt(rects, msg.X, msg.Y); id != 0 && msg.X == rects[id].x+rects[id].w-1 {
+			if l := m.tab().leaf(id); l != nil && l.view.Kind == kindPane {
+				if f := m.frames[paneKey(l.view.Machine, l.view.PaneID)]; f != nil && f.History > 0 {
+					cmd := m.focusLeaf(id)
+					m.scrollDrag = id
+					m.scrollTop = rects[id].y + 1
+					m.scrollH = max(rects[id].h-2, 1)
+					m.scrollTo(msg.Y)
+					return m, cmd
+				}
+			}
+		}
+	}
+
+	if press && left && !m.zoom && len(m.tab().root.leaves()) > 1 {
+		if id := m.leafAt(rects, msg.X, msg.Y); id != 0 && msg.Y == rects[id].y &&
+			!m.inner(rects[id]).contains(msg.X, msg.Y) {
+			m.leafDrag = id
+			return m, m.focusLeaf(id)
 		}
 	}
 
@@ -410,10 +466,19 @@ func (m *Model) selectMouse(msg tea.MouseMsg, x, y int) tea.Cmd {
 	case msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft:
 		now := time.Now()
 		key := fmt.Sprintf("sel:%d:%d", x, y)
-		double := m.lastClickID == key && now.Sub(m.lastClickAt) < doubleClickWindow
+		if m.lastClickID == key && now.Sub(m.lastClickAt) < doubleClickWindow {
+			m.lastClickN++
+		} else {
+			m.lastClickN = 1
+		}
 		m.lastClickID, m.lastClickAt = key, now
-		if double && m.frame != nil && y < len(m.frame.Lines) {
+		// Twice takes the word, three times the line — what every other
+		// terminal does, and the line without the blanks it is padded to.
+		if m.lastClickN >= 2 && m.frame != nil && y < len(m.frame.Lines) {
 			from, to := wordAt(m.frame.Lines[y], x)
+			if m.lastClickN >= 3 {
+				from, to = lineAt(m.frame.Lines[y])
+			}
 			if to > from {
 				m.sel = &selection{paneID: m.viewing, ax: from, ay: y, bx: to, by: y, hasContent: true}
 				return copyText(m.sel.text(m.frame.Lines, cols))

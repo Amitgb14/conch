@@ -120,6 +120,18 @@ func (s selection) highlight(lines []string, w int) []string {
 	return out
 }
 
+// lineAt is the cell range of the text on a rendered line, without the
+// spaces it ends with: a triple click takes the line, and a line of
+// trailing blanks copied with it would be the terminal's padding, not the
+// program's output. An empty line selects nothing.
+func lineAt(line string) (from, to int) {
+	plain := strings.TrimRight(ansi.Strip(line), " \t")
+	if w := ansi.StringWidth(plain); w > 0 {
+		return 0, w - 1
+	}
+	return 0, -1
+}
+
 // wordAt returns the cell range of the word under x on a rendered line.
 func wordAt(line string, x int) (from, to int) {
 	plain := ansi.Strip(line)

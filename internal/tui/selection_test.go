@@ -56,6 +56,26 @@ func TestWordAt(t *testing.T) {
 	}
 }
 
+func TestLineAt(t *testing.T) {
+	for _, c := range []struct {
+		in       string
+		from, to int
+	}{
+		{"hello world", 0, 10},
+		{"  padded to the width of the pane      ", 0, 32},
+		{"", 0, -1},
+		{"       ", 0, -1},           // a blank line selects nothing
+		{"\x1b[31mred\x1b[0m", 0, 2}, // colour is not width
+		{"héllo", 0, 4},
+		{"界界", 0, 3}, // two cells each
+	} {
+		from, to := lineAt(c.in)
+		if from != c.from || to != c.to {
+			t.Errorf("lineAt(%q) = %d,%d want %d,%d", c.in, from, to, c.from, c.to)
+		}
+	}
+}
+
 func TestUIStateRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ui.json")
 	if st := loadUIState(path); st.Expanded == nil || st.ShowAll == nil {

@@ -74,6 +74,7 @@ type Model struct {
 	dragging     bool
 	lastClickID  string
 	lastClickAt  time.Time
+	lastClickN   int // clicks in a row on the same spot: 2 a word, 3 a line
 
 	// The pane shown in the main area.
 	viewMachine string
@@ -112,7 +113,11 @@ type Model struct {
 	subscribed  map[string]bool
 	barDrag     *splitBar // a split boundary being dragged
 	tabDrag     bool      // a tab is being dragged along the bar
-	pendingShow string    // row to put on screen once the tree has it
+	leafDrag    int       // a split being dragged by its title, to swap
+	scrollDrag  int       // a leaf whose scrollbar is being dragged
+	scrollTop   int       // the track's first screen row, and its height
+	scrollH     int
+	pendingShow string // row to put on screen once the tree has it
 
 	offset     int           // lines the viewed pane is scrolled back
 	scrollMode bool          // keys move a cursor over the pane's history
