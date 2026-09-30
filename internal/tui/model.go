@@ -863,7 +863,7 @@ func (m Model) notifyAttention(mach *machine, old, info proto.PaneInfo) tea.Cmd 
 		(info.Agent.State == proto.AgentDone && !m.cfg.Notify.Done) {
 		return nil
 	}
-	body := attentionBody(info)
+	body := attentionBody(info) + m.forWhom(mach.id, info)
 	title := "conch · " + info.Agent.Name
 	if mach.id != localMachine {
 		title += " on " + mach.label
@@ -1017,6 +1017,11 @@ func (m *Model) jumpToAttention() tea.Cmd {
 	if p := m.pane(mid, id); p != nil {
 		m.filter = ""
 		m.revealPane(mid, *p)
+		// A helper waiting is waiting on somebody's behalf: say whose, so
+		// the jump lands somewhere that makes sense.
+		if who := m.forWhom(mid, *p); who != "" {
+			m.setFlash(p.DisplayName()+who, false)
+		}
 	}
 	return m.rebuild()
 }

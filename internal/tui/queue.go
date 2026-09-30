@@ -102,6 +102,9 @@ func (m Model) queueItemsAll() []queueItem {
 			if p.Agent.Failed {
 				detail = "stopped with an error"
 			}
+			// A helper waiting is waiting on behalf of the agent that
+			// started it: say whose, or the queue is a list of strangers.
+			detail += m.forWhom(mach.id, p)
 			it := queueItem{
 				band: band, machine: mach.id, machineLbl: m.machineLabel(mach.id),
 				projectID: p.ProjectID, project: m.projectName(mach.id, p.ProjectID),

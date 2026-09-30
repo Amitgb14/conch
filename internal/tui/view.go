@@ -272,6 +272,12 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		} else if state != "" && p.Agent != nil {
 			right = style.Render(state)
 		}
+		// Who started it, and what it started: a helper reads as somebody's
+		// helper, and the agent that asked says how many it has out.
+		right = joinRight(right, m.helperChip(r.machine, p.ID))
+		if who := m.forWhom(r.machine, *p); who != "" {
+			right = joinRight(styleMuted.Render("↳"+who), right)
+		}
 		return g, style, p.DisplayName(), labelStyle, joinRight(right, m.costChip(paneUsage(*p)))
 	}
 	return "", glyphStyle, r.id, labelStyle, ""

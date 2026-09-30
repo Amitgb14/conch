@@ -35,6 +35,12 @@ If the helper stops to ask something — a permission, a question — the agent 
 
 Other things to ask for the same way: *"have Codex write tests for this and run them"*, *"ask another agent to try the migration on a copy of the branch"*, *"get Claude and Gemini to each review it and compare"*.
 
+## Who started what
+
+A pane an agent started carries the pane it came from, so the tree reads as a chain of work rather than a list of strangers. A helper's row says **↳ for claude**; the agent that started them carries **⑂2**, which turns amber as **⑂2!** when one of them is waiting on a question. The review queue (`Q`), the jump to whoever needs you (`!`) and desktop notifications all name the same thing — *waiting for an answer for claude* — so the three read as one.
+
+A pane nobody started says nothing either way, and a creator that has gone leaves its helpers unclaimed rather than naming a pane that is not there.
+
 ## From the tree
 
 `m` on an agent's pane — or a right-click — has **Prompt…**: type the message, and it goes in as that agent's next one. conch then watches the work it started and says when it ends: *finished what you asked*, *is waiting for you*, or *ended before it answered*, in the status bar, or as a desktop notification when that pane is not the one you are looking at. You are told once.
