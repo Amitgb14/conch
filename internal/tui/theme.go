@@ -78,7 +78,7 @@ var (
 	colorAccent, colorInput, colorWarn, colorErr, colorMuted, colorBorder lipgloss.Color
 
 	styleMuted, styleBold, styleSel, styleSelDim, styleOK, styleErr lipgloss.Style
-	styleHover                                                      lipgloss.Style
+	styleHover, styleThumb                                          lipgloss.Style
 	styleWarn, styleWork, styleAccent, styleChip, stylePRMerged     lipgloss.Style
 	styleLive                                                       lipgloss.Style
 )
@@ -116,6 +116,9 @@ func applyTheme(name, accent string) {
 	// Hover is fainter than the dim selection: it says the pointer is here,
 	// not that anything is chosen.
 	styleHover = lipgloss.NewStyle().Background(darken(t.selDim, 0.5))
+	// The scrollbar's thumb: a coloured cell, never a glyph whose width a
+	// font may disagree about.
+	styleThumb = lipgloss.NewStyle().Background(t.accent)
 	styleOK = lipgloss.NewStyle().Foreground(t.ok)
 	styleErr = lipgloss.NewStyle().Foreground(t.err)
 	styleWarn = lipgloss.NewStyle().Foreground(t.warn).Bold(true)

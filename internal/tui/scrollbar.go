@@ -8,6 +8,12 @@ import (
 // the screen is, and a thumb to drag it there directly. The wheel was the
 // only way to move through a long conversation with the mouse, which says
 // nothing about how much of it there is.
+//
+// The thumb is a space with a background, not a block glyph. █ measures one
+// cell (its width is Ambiguous) and some fonts draw it two, which pushes
+// every line with a thumb a column out and scatters the frame — the same
+// trap the file icons keep to one cell by measuring. A coloured space is
+// one cell in every font there is.
 
 // scrollThumb is the rows of a track of h lines the thumb covers for a
 // frame scrolled back by Offset of History lines: from, and how many.
@@ -34,7 +40,7 @@ func (m Model) scrollbarMark(v viewRef, h int) map[int]string {
 	}
 	mark := map[int]string{}
 	for i := from; i < from+size; i++ {
-		mark[i] = styleAccent.Render("█")
+		mark[i] = styleThumb.Render(" ")
 	}
 	return mark
 }
