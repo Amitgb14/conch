@@ -46,7 +46,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/config` | Paths (`CONCH_HOME`), `config.toml` loading and saving |
 | `internal/buildinfo` | Build identity (executable hash) used to detect stale servers and TUIs |
 | `web/` | The documentation website (Next.js, MDX under `web/src/app/docs`) |
-| `docs/plans` | Design plans for deferred work, and the [roadmap](docs/plans/roadmap.md) |
+| `docs/plans` | Design plans for deferred work. The roadmap and the gap plan are kept out of the repository (see `.gitignore`); ask for them rather than looking for them here |
 | `docs/testing` | The [end-to-end plan](docs/testing/end-to-end.md): paths the automated tests only cover with fakes |
 
 ## Build, run, test
