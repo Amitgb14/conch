@@ -447,3 +447,48 @@ func TestScopeHomeWrites(t *testing.T) {
 		}
 	}
 }
+
+// A project's local-file patterns decide which ignored files — secrets
+// among them — are copied into every new worktree. That is the person's
+// call, so an agent may not change them, not even for its own project;
+// from outside the panes (the TUI, a terminal) nothing changes.
+func TestScopeProjectFiles(t *testing.T) {
+	s, _, work := shareFixture(t)
+	proj, err := s.projects.add(work, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := agentPane(t, s, "p1", "claude", work, "stty -echo; exec cat")
+	in.mu.Lock()
+	in.project = proj
+	in.mu.Unlock()
+	far := &client{}
+	s.actFor(far, proto.ActForParams{ID: "laptop/p4@1", Agent: "codex"})
+	set := func(c *client, params proto.ProjectFilesParams) *proto.Error {
+		return s.inScope(c, proto.Message{Method: proto.MethodProjectFiles, Params: proto.Marshal(params)})
+	}
+	for name, params := range map[string]proto.ProjectFilesParams{
+		"widen":  {ProjectID: proj.id, Patterns: []string{"*"}},
+		"reset":  {ProjectID: proj.id, Reset: true},
+		"narrow": {ProjectID: proj.id, Patterns: []string{}},
+	} {
+		for from, c := range map[string]*client{"its own project": {pane: "p1"}, "another machine": far} {
+			perr := set(c, params)
+			if perr == nil || perr.Code != proto.ErrOutOfScope || !strings.Contains(perr.Message, "local files") {
+				t.Errorf("%s from %s: %v", name, from, perr)
+			}
+		}
+		if perr := set(&client{}, params); perr != nil {
+			t.Errorf("%s from outside the panes: %v", name, perr)
+		}
+	}
+	// Refused before it could change anything.
+	res, perr := s.dispatch(&client{pane: "p1"}, proto.Message{Method: proto.MethodProjectFiles,
+		Params: proto.Marshal(proto.ProjectFilesParams{ProjectID: proj.id, Patterns: []string{"*"}})})
+	if perr == nil || res != nil {
+		t.Fatalf("dispatch from the agent: %v %v", res, perr)
+	}
+	if got := proj.snapshot().LocalFiles; len(got) == 1 && got[0] == "*" {
+		t.Fatal("the agent's patterns were set")
+	}
+}

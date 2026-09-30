@@ -47,6 +47,79 @@ A pane nobody started says nothing either way, and a creator that has gone leave
 
 An agent that is already waiting on a question of its own is not sent anything — the menu says so before you open it, and the server refuses it in its own words if it starts waiting in between. A machine whose server predates `agent.prompt.v1` says that instead of offering it.
 
+## A long-running job
+
+A build that takes most of an hour needs a little more care than a review, because an agent's shell tool isn't made for it: Claude Code's stops a command after 2 minutes by default, and an agent that moves a long command into the background ends its turn early — so "done" would come long before the build is. The way round it is to run the build in a **terminal pane** of its own, which has no time limit and outlives the agent's turns, and to have it leave a file saying it finished.
+
+Start an agent in the project and ask:
+
+> Hand the full build of this project to a helper agent and tell me how it went.
+>
+> Start the helper with `conch task -name builder`. Tell it to:
+> - build the entire package with `make all`, in its own worktree;
+> - the build takes about 40 minutes — too long for its shell tool — so run it in a conch terminal pane:
+>   `conch new -name build-run -cwd <its worktree> -- sh -c 'make all > build.log 2>&1; echo $? > build.exit'`
+> - then check every couple of minutes whether `build.exit` exists, running each check in the foreground, never in the background;
+> - if the build fails, fix the cause, run it again the same way, and repeat — at most 3 attempts;
+> - at the end write `BUILD.md`: pass or fail, the exit code, how long it took, the first error if any, and what it changed;
+> - close `build-run` when done. Don't commit, push or merge anything.
+>
+> Then wait for the helper with `conch agent prompt -wait -timeout 2h` or `conch wait`, and when it stops, read `BUILD.md` from its worktree. If `BUILD.md` isn't there yet, it's still going — wait again rather than report.
+>
+> If the helper, or anything it runs, asks for a permission or a decision, stop and tell me which pane is waiting — don't answer for it.
+
+Put your own build command and time in place of `make all` and 40 minutes. Three panes appear under the project — the agent you asked, `builder` on a branch of its own, and `build-run`, the terminal the build scrolls in — and you can open any of them while it runs:
+
+```text
+you ──▶ your agent (p1)
+          │ conch task -name builder "…"
+          ▼
+        builder (p2, its own branch and worktree)
+          │ conch new -name build-run -- sh -c 'make all > build.log …'
+          ▼
+        build-run (p3, a terminal) ── writes build.log and build.exit
+          ▲
+          └─ builder checks build.exit, fixes, runs again, writes BUILD.md
+your agent ◀── reads BUILD.md and tells you
+```
+
+Why each instruction is there:
+
+| Instruction | Why |
+| --- | --- |
+| the build in a terminal pane | no time limit, and it outlives the helper's turns |
+| `echo $? > build.exit` | a file that says it finished, and how — surer than reading a scrolling screen |
+| checks in the foreground | keeps the helper's turn open while it waits, so its end means the job's end |
+| `BUILD.md` | the result is read from a file, not guessed from a screen |
+| at most 3 attempts | a build it can't fix doesn't spend your usage for ever |
+| no commit, push or merge | that is yours to decide; the branch stays for you |
+| stop when it asks | a question is yours to answer; `conch agent prompt` won't type onto it anyway |
+
+Without an agent in between, start the builder from a terminal pane and wait for it yourself:
+
+```sh
+conch task -name builder "Build the entire package with make all … (the instructions above)"
+conch wait -state done,waiting -timeout 2h builder
+cat "$(conch status | awk '$2 == "builder" { print $6 }')/BUILD.md"
+```
+
+## Giving helpers files that aren't committed
+
+A helper works in a fresh worktree, which holds what is committed on its branch — so a design plan you keep out of git, a spec you haven't committed, or notes in `.gitignore` aren't there. Two ways to hand them over:
+
+- **Let conch copy them in.** When it makes a worktree, conch copies files from the project's main checkout that git ignores and that match the project's [local files](/docs/tasks#local-files-in-worktrees) — `.env` and a few others by default. Add a pattern for yours, keeping the defaults, since the list replaces them:
+
+  ```sh
+  conch project ls       # the project's ID
+  conch project files ID .env '.env.*' .envrc .claude/settings.local.json CLAUDE.local.md \
+    .mcp.json AGENTS.override.md .gemini/.env 'docs/plans/*.md'
+  ```
+
+  Every task from then on starts with those files in its worktree — copied, never committed, so never pushed. The files must be in the **main checkout**, and git must ignore them there (`.gitignore`, or `.git/info/exclude` to keep even the names private).
+- **Or give the path.** Name the file's absolute path in the helper's prompt — *"build against `~/src/app/docs/plans/api.md`"* — and it reads it from there. Every worktree is on the same disk.
+
+Don't commit a private file, or force-add an ignored one, just to hand it over: it would then be in the branch's history for anyone who fetches it. The skill tells agents the same, and to ask you to add a pattern rather than change the project's local files themselves.
+
 ## Doing it yourself
 
 The commands the agents use are plain `conch` commands, so a script — or you, in a terminal pane — can drive agents the same way:
@@ -97,7 +170,7 @@ An agent calling conch from inside its pane may start panes and tasks and read a
 | panes it started, and the panes those started | other panes in other projects: typing, keys, closing, renaming, marking as seen |
 | any pane in its own project | another project's branches and worktrees |
 | its own project's branches and worktrees: commit, push, discard | `conch server stop` or `reload` |
-| | your own setup: the skill, the [library](/docs/tasks#shared-mcp-servers-and-skills), syncing one agent's setup to the others |
+| | your own setup: the skill, the [library](/docs/tasks#shared-mcp-servers-and-skills), syncing one agent's setup to the others, and which [local files](/docs/tasks#local-files-in-worktrees) a project copies into its worktrees — even in its own project |
 
 The rest is refused, and the agent is told why:
 
@@ -120,6 +193,7 @@ A machine whose conch predates this isn't driven from an agent's pane at all —
 ## Good to know
 
 - **A helper sees only committed work.** It starts on a branch of its own. With your work committed, pass your branch as `-base`; if it isn't, the skill has the agent put the diff in the helper's prompt instead of committing for you.
+- **Files a helper needs that aren't committed** — a spec, a plan, notes kept out of git — don't reach its worktree on their own. See [giving helpers files that aren't committed](#giving-helpers-files-that-arent-committed).
 - **Exit 0 is the end of a turn, not always of the work.** A helper that puts a long command in the background ends its turn and takes the work up again later; a request that failed (an expired API key, say) ends a turn too. Ask helpers to run commands in the foreground, and check the result — the file you asked for — before relying on it.
 - **Codex and Devin are read from their screen.** conch can't see a failed request there: it ends like a finished one. Claude Code, Gemini CLI and OpenCode report it through their hooks.
 - **Every helper spends usage.** The skill tells agents to start only as many as the job needs.

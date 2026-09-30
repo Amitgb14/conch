@@ -34,6 +34,14 @@ conch task -name reviewer -agent codex "Review the changes on this branch agains
   If it isn't, don't commit just to hand it off — the person decides what
   is committed. Put the diff (`git diff`) in the prompt instead, or give the
   helper your worktree's path to read.
+- Files it needs that aren't committed — a spec, a plan, notes kept out of
+  git — don't reach its worktree on their own. Files git ignores are copied
+  in from the main checkout when they match the project's local files
+  (`conch project files`; `.env` does by default): if the helper needs one
+  that doesn't match, ask the person to add the pattern — don't change the
+  project's patterns yourself. Otherwise give the helper the file's
+  absolute path to read. Never commit a private file, or copy it into the
+  helper's worktree, to hand it over.
 - `-name` lets you address it as `reviewer` from then on. Pick a name no
   other running pane has.
 - `-agent` is `claude`, `codex`, `gemini`, `opencode` or `devin`; leave it
