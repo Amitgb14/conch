@@ -53,9 +53,14 @@ func (g *Gateway) serveSocket(w http.ResponseWriter, r *http.Request) {
 		g.fail(w, r, aerr)
 		return
 	}
-	// Accept refuses a page from another site: a socket carries the cookie
-	// but no CSRF header, so the Origin is what is checked.
-	conn, err := websocket.Accept(w, r, nil)
+	// A page from another site is refused: a socket carries the cookie
+	// but no CSRF header, so the Origin is what is checked — here, and by
+	// Accept, which is told the public address is the gateway's own.
+	if !g.sameOrigin(r) {
+		g.fail(w, r, apiErr(CodeForbidden, "the socket has to come from the gateway's own page"))
+		return
+	}
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		g.logf("GET %s refused", r.URL.Path)
 		return

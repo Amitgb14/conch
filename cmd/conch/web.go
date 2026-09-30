@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	neturl "net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -30,6 +32,29 @@ const webUsage = `usage: conch web [-listen ADDR] [-port N] [-url URL] [-cert FI
 
 // interfaceAddrs is this machine's addresses; a test puts its own here.
 var interfaceAddrs = net.InterfaceAddrs
+
+// tailnetName is this machine's name on the tailnet, as Tailscale says
+// it ("laptop.tail1234.ts.net"), or "" when that can't be learnt.
+// CONCH_TAILSCALE names the tailscale program; tests put a fake there.
+var tailnetName = func() string {
+	bin := os.Getenv("CONCH_TAILSCALE")
+	if bin == "" {
+		bin = "tailscale"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "status", "--json").Output()
+	if err != nil {
+		return ""
+	}
+	var st struct {
+		Self struct{ DNSName string }
+	}
+	if json.Unmarshal(out, &st) != nil {
+		return ""
+	}
+	return strings.TrimSuffix(st.Self.DNSName, ".")
+}
 
 // stdoutIsTerminal says whether a QR code printed now would be seen, not
 // written into a file or a pipe as escape codes.
@@ -206,10 +231,20 @@ func webServe(args []string) error {
 	}
 	fmt.Printf("conch web: listening on %s\n", url)
 	if *public != "" {
+		if err := g.AllowOrigin(open); err != nil {
+			ln.Close()
+			return err
+		}
 		fmt.Printf("phones open %s\n", open)
 	} else if *cert == "" {
-		// The device cookie is Secure, so a phone only sends it over HTTPS.
-		fmt.Printf("phones need HTTPS: put it in front with `tailscale serve --bg %s` and pass its https address as -url, or pass -cert and -key\n", url)
+		// The device cookie is Secure, so a browser keeps it only over
+		// HTTPS: pairing at this address is refused, and says why.
+		name := "<this machine>.<tailnet>.ts.net"
+		if n := tailnetName(); n != "" {
+			name = n
+		}
+		fmt.Printf("phones can't pair over plain http. Put Tailscale's HTTPS in front and give conch its address:\n"+
+			"  tailscale serve --bg %s\n  conch web -url https://%s\n(or pass -cert and -key)\n", url, name)
 	}
 	fmt.Println("pair a phone with `conch web pair`")
 

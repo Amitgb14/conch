@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
@@ -282,5 +283,51 @@ func TestWebUsage(t *testing.T) {
 		if !strings.Contains(usage, want) {
 			t.Errorf("usage lacks %q", want)
 		}
+	}
+}
+
+// Without -url or a certificate, pairing can't work, and conch web says
+// what to run — with this machine's tailnet name when Tailscale knows it.
+func TestWebSaysHowToGetHTTPS(t *testing.T) {
+	dir := a4Env(t)
+	startA4Server(t, config.SocketPath())
+	fake := filepath.Join(dir, "tailscale")
+	os.WriteFile(fake, []byte("#!/bin/sh\n[ \"$1 $2\" = \"status --json\" ] || exit 1\n"+
+		"echo '{\"Self\":{\"DNSName\":\"laptop.tail1234.ts.net.\"}}'\n"), 0o755)
+	t.Setenv("CONCH_TAILSCALE", fake)
+	exe, _ := os.Executable()
+	cmd := a4Command(exe, "web", "-listen", "127.0.0.1:0")
+	stdout, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { cmd.Process.Signal(syscall.SIGTERM); cmd.Wait() }()
+	sc := bufio.NewScanner(stdout)
+	var out []string
+	for sc.Scan() {
+		out = append(out, sc.Text())
+		if strings.HasPrefix(sc.Text(), "pair a phone") {
+			break
+		}
+	}
+	text := strings.Join(out, "\n")
+	for _, want := range []string{"phones can't pair over plain http", "  tailscale serve --bg http://127.0.0.1:", "  conch web -url https://laptop.tail1234.ts.net\n"} {
+		if !strings.Contains(text+"\n", want) {
+			t.Fatalf("lacks %q:\n%s", want, text)
+		}
+	}
+}
+
+// With no Tailscale to ask, the name is a placeholder, not a failure.
+func TestTailnetNameWithoutTailscale(t *testing.T) {
+	dir := a4Env(t)
+	if n := tailnetName(); n != "" {
+		t.Fatalf("name %q with no tailscale", n)
+	}
+	bad := filepath.Join(dir, "tailscale")
+	os.WriteFile(bad, []byte("#!/bin/sh\necho not json\n"), 0o755)
+	t.Setenv("CONCH_TAILSCALE", bad)
+	if n := tailnetName(); n != "" {
+		t.Fatalf("name %q from nonsense", n)
 	}
 }

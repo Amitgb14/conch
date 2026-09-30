@@ -22,7 +22,7 @@ conch web pair            # a QR code and a one-time code for the phone — or P
 
 **It listens only on the Tailscale address.** A paired phone can type into your agents, so this is remote access to your machine, and by default the only devices that can reach it at all are the ones on your tailnet. With no Tailscale address it refuses to start. `-listen ADDR` names another address and prints a warning; `-port N` changes the port.
 
-**Phones need HTTPS.** The device's token travels in a cookie marked `Secure`, which a browser only sends over HTTPS. `tailscale serve` puts HTTPS in front with a certificate for your machine's tailnet name; tell conch that address with `-url`, so the QR code points phones there rather than at the plain address it listens on. Or give conch a certificate yourself with `-cert FILE -key FILE` (`tailscale cert` makes one).
+**Phones need HTTPS.** The device's token travels in a cookie marked `Secure`, which a browser only sends over HTTPS. `tailscale serve` puts HTTPS in front with a certificate for your machine's tailnet name; tell conch that address with `-url`, so the QR code points phones there rather than at the plain address it listens on, and so pages from it count as the gateway's own. Without either, `conch web` prints the two commands to run, with your machine's tailnet name filled in. Pairing from a plain `http://` page is refused with that reason — the browser would pair and then drop the key — except on the laptop itself (`localhost`), which browsers treat as secure. Or give conch a certificate yourself with `-cert FILE -key FILE` (`tailscale cert` makes one).
 
 ## The app
 

@@ -839,3 +839,90 @@ func TestOversizedBody(t *testing.T) {
 		t.Fatalf("no body: %d %s", status, b)
 	}
 }
+
+// A browser on a plain-http page other than this computer drops the
+// device's cookie, so pairing there is refused before the code is spent —
+// instead of making a device that can never get in. Behind tailscale
+// serve, the https address given as -url is the gateway's own.
+func TestPairingNeedsHTTPS(t *testing.T) {
+	f := newFixture(t)
+	code, _ := f.store.NewCode(PermReply, f.now())
+	post := func(origin, host string) (int, *APIError) {
+		t.Helper()
+		f.forgetAttempts()
+		body, _ := json.Marshal(PairRequest{Code: code, DeviceName: "phone"})
+		req, _ := http.NewRequest("POST", f.web.URL+"/pair", bytes.NewReader(body))
+		req.Header.Set("Origin", origin)
+		if host != "" {
+			req.Host = host
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, decodeResult(t, res.StatusCode, b, nil)
+	}
+	for _, origin := range []string{"http://100.101.102.103:8722", "http://laptop.tail1234.ts.net", "http://192.168.1.20:8722"} {
+		host := strings.TrimPrefix(origin, "http://")
+		status, e := post(origin, host)
+		if status != 400 || e.Code != CodeBadRequest || !strings.Contains(e.Message, "pairing needs HTTPS") {
+			t.Fatalf("%s: %d %+v", origin, status, e)
+		}
+	}
+	if devs, _ := f.store.Devices(); len(devs) != 0 {
+		t.Fatalf("a device made over http: %+v", devs)
+	}
+
+	// tailscale serve in front: the page is https://….ts.net, the Host
+	// the gateway sees may be its own address. Refused as another site
+	// until the gateway is told that address is its own.
+	if status, e := post("https://laptop.tail1234.ts.net", "100.101.102.103:8722"); status != 403 || e.Code != CodeForbidden {
+		t.Fatalf("an unannounced public address: %d %+v", status, e)
+	}
+	for _, bad := range []string{"", "laptop.ts.net", "ftp://x", "https://"} {
+		if f.g.AllowOrigin(bad) == nil {
+			t.Errorf("AllowOrigin(%q) took it", bad)
+		}
+	}
+	if err := f.g.AllowOrigin("https://Laptop.tail1234.ts.net/"); err != nil {
+		t.Fatal(err)
+	}
+	if status, e := post("https://evil.example", "100.101.102.103:8722"); status != 403 {
+		t.Fatalf("another site, with a public address set: %d %+v", status, e)
+	}
+	// The same code still works: the refusals above didn't spend it.
+	if status, e := post("https://laptop.tail1234.ts.net", "100.101.102.103:8722"); status != 200 {
+		t.Fatalf("from the public address: %d %+v", status, e)
+	}
+
+	// On this computer plain http is a secure context and keeps the cookie.
+	code, _ = f.store.NewCode(PermReply, f.now())
+	if status, e := post(f.web.URL, ""); status != 200 {
+		t.Fatalf("from loopback: %d %+v", status, e)
+	}
+	code, _ = f.store.NewCode(PermReply, f.now())
+	if status, e := post("http://localhost:8722", "localhost:8722"); status != 200 {
+		t.Fatalf("from localhost: %d %+v", status, e)
+	}
+
+	// The socket takes the public address too, and still no other site.
+	p := f.pair(PermView)
+	for origin, want := range map[string]int{"https://laptop.tail1234.ts.net": 101, "https://evil.example": 403} {
+		req, _ := http.NewRequest("GET", f.web.URL+SocketPath, nil)
+		req.AddCookie(&http.Cookie{Name: CookieName, Value: p.token})
+		for k, v := range map[string]string{"Connection": "Upgrade", "Upgrade": "websocket", "Sec-WebSocket-Version": "13",
+			"Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==", "Origin": origin} {
+			req.Header.Set(k, v)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != want {
+			t.Errorf("socket from %s: %d, want %d", origin, res.StatusCode, want)
+		}
+	}
+}

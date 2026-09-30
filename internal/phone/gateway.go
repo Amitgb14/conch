@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -46,6 +47,8 @@ type Gateway struct {
 
 	quit chan struct{}
 	done chan struct{}
+
+	publicOrigin string // see AllowOrigin
 
 	pushAllowed func(endpoint string) bool
 	pushClient  *http.Client
@@ -352,15 +355,53 @@ func (g *Gateway) authenticate(r *http.Request, need string) (Device, string, *A
 	return dev, ck.Value, nil
 }
 
+// AllowOrigin names the address phones open the gateway at when it isn't
+// the one the gateway sees in Host: `tailscale serve` in front, with its
+// https://….ts.net name. Pages from there are the gateway's own. Call it
+// before serving.
+func (g *Gateway) AllowOrigin(publicURL string) error {
+	u, err := url.Parse(publicURL)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return fmt.Errorf("%q is not an http or https address", publicURL)
+	}
+	g.mu.Lock()
+	g.publicOrigin = strings.ToLower(u.Scheme + "://" + u.Host)
+	g.mu.Unlock()
+	return nil
+}
+
 // sameOrigin refuses a request a browser says came from another site. A
 // request with no Origin is not from a page at all.
-func sameOrigin(r *http.Request) bool {
+func (g *Gateway) sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true
 	}
 	u, err := url.Parse(origin)
-	return err == nil && strings.EqualFold(u.Host, r.Host)
+	if err != nil {
+		return false
+	}
+	g.mu.Lock()
+	public := g.publicOrigin
+	g.mu.Unlock()
+	return strings.EqualFold(u.Host, r.Host) || public != "" && strings.EqualFold(u.Scheme+"://"+u.Host, public)
+}
+
+// insecurePage reports whether a request comes from a page on plain http
+// somewhere other than this computer. A browser there drops the device's
+// cookie — it is Secure — so a pairing would make a device that can never
+// get in. Loopback is a secure context to browsers, and keeps it.
+func insecurePage(r *http.Request) bool {
+	u, err := url.Parse(r.Header.Get("Origin"))
+	if err != nil || u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip == nil || !ip.IsLoopback()
 }
 
 func (g *Gateway) serveRoute(w http.ResponseWriter, r *http.Request, rts []route) {
@@ -379,7 +420,7 @@ func (g *Gateway) serveRoute(w http.ResponseWriter, r *http.Request, rts []route
 	if r.Method != http.MethodGet {
 		// A change needs the token hello gave out as well as the cookie a
 		// browser sends by itself.
-		if !sameOrigin(r) || subtle.ConstantTimeCompare([]byte(r.Header.Get(CSRFHeader)), []byte(csrfToken(token))) != 1 {
+		if !g.sameOrigin(r) || subtle.ConstantTimeCompare([]byte(r.Header.Get(CSRFHeader)), []byte(csrfToken(token))) != 1 {
 			g.fail(w, r, apiErr(CodeForbidden, "the "+CSRFHeader+" header is missing or wrong; take it from /api/hello"))
 			return
 		}
@@ -483,8 +524,15 @@ func (g *Gateway) servePair(w http.ResponseWriter, r *http.Request) {
 		g.failStatus(w, r, http.StatusMethodNotAllowed, apiErr(CodeBadRequest, r.Method+" isn't supported here"))
 		return
 	}
-	if !sameOrigin(r) {
+	if !g.sameOrigin(r) {
 		g.fail(w, r, apiErr(CodeForbidden, "pairing has to come from the gateway's own page"))
+		return
+	}
+	if insecurePage(r) {
+		// Refused before the code is spent: pairing from the https
+		// address still works with it.
+		g.fail(w, r, apiErr(CodeBadRequest, "pairing needs HTTPS: over plain http the browser won't keep this device's key. "+
+			"Open conch at its https:// address (tailscale serve gives one) and enter the code there"))
 		return
 	}
 	addr, _, err := net.SplitHostPort(r.RemoteAddr)

@@ -264,6 +264,7 @@ function pairView() {
       try {
         await api("POST", "/pair", { code: code.value, device_name: name.value })
         history.replaceState(null, "", location.pathname) // the code is spent; drop it from the address
+        state.justPaired = true
         await start()
       } catch (err) {
         status.textContent = err.message
@@ -276,6 +277,20 @@ function pairView() {
   h("label", {}, "Pairing code", code),
   h("label", {}, "This device's name", name),
   button, status)
+  if (state.justPaired) {
+    // Paired, and still not in: the cookie didn't stick — blocked
+    // cookies, or a window that keeps none.
+    state.justPaired = false
+    status.textContent = "Paired, but this browser didn't keep the device's key (are cookies blocked for this site?). " +
+      "Allow them and pair again with a new code."
+  }
+  // Over plain http (other than on this computer) the browser won't keep
+  // the device's key, and the gateway refuses to pair: say so first.
+  if (!window.isSecureContext) {
+    button.disabled = true
+    status.textContent = "This page isn't on HTTPS, so this browser can't keep the device's key. " +
+      "Open conch at its HTTPS address (the one tailscale serve gives, passed to conch web as -url) and pair there."
+  }
   return { el: h("section", {}, h("h2", {}, "Pair this device"), form) }
 }
 
@@ -661,6 +676,7 @@ async function start() {
     }
   }
   state.tries = 0
+  state.justPaired = false
   render()
   connect()
 }

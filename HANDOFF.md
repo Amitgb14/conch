@@ -392,3 +392,31 @@ app has read since phase 2.
 - The whole phone path end to end — pair by QR over Tailscale, a push
   arriving, answering from the lock screen — is rows 9.70–9.80, all still
   to do on real devices.
+
+---
+
+# Fix after phase 5: pairing over plain http
+
+Found by Amit: pairing at `http://100.101.102.103:8722` "worked" four times and
+every request after it came back `unauthorized`. The device key is a
+`Secure` cookie, which a browser drops on a plain-http page, so each
+pairing made a device (four stray `Browser` devices in `phone.json`)
+that could never get in.
+
+- `/pair` from a page on plain http, other than loopback or `localhost`,
+  is refused (`bad_request`, "pairing needs HTTPS…") before the code is
+  spent, so no stray device is made.
+- `conch web -url` now also tells the gateway that address is its own
+  (`Gateway.AllowOrigin`): behind `tailscale serve` the page's origin is
+  the `.ts.net` name while the Host the gateway sees may be its own
+  address, which the same-origin checks on `/pair`, changes and the
+  socket would otherwise refuse.
+- Without `-url` or a certificate, `conch web` prints the two commands to
+  run, with the tailnet name from `tailscale status --json`
+  (`CONCH_TAILSCALE` names the program; tests use a fake).
+- The app says so before a code is spent on an insecure page, and says
+  when pairing succeeded but the browser still didn't keep the cookie.
+- Tested: `TestPairingNeedsHTTPS`, `TestWebSaysHowToGetHTTPS`,
+  `TestTailnetNameWithoutTailscale`; and in headless Chrome at
+  `http://100.101.102.103:18723` (an isolated conch): the button is disabled
+  with the reason, a direct POST gets 400, no device is made.
