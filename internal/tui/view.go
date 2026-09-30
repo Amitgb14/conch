@@ -171,7 +171,13 @@ func (m Model) rowLine(r row, w int) string {
 		left += " "
 	}
 	left += labelStyle.Render(label)
-	return spread(left, right, w)
+	line := spread(left, right, w)
+	if m.hovering(r.id) {
+		// A tint under what the pointer is on, keeping the row's own
+		// colours: it says "this is what you would click", nothing more.
+		return styleHover.Render(line)
+	}
+	return line
 }
 
 // rowParts describes how a row looks: a status glyph, a label and a

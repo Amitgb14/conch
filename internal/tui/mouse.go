@@ -11,7 +11,16 @@ import (
 
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if m.overlay != nil {
+		m.clearHover()
 		return m, m.overlay.mouse(&m, msg, m.overlay.render(m))
+	}
+	// A pointer moving with nothing held is conch's own business: it lights
+	// what is under it and goes no further, so a program in a pane still
+	// sees only the mouse it asked for.
+	if m.cfg.UI.Hover && msg.Action == tea.MouseActionMotion && msg.Button == tea.MouseButtonNone &&
+		m.sel == nil && m.barDrag == nil && !m.dragging && !m.tabDrag && m.leafDrag == 0 && m.scrollDrag == 0 {
+		m.hoverAt(msg)
+		return m, nil
 	}
 	press := msg.Action == tea.MouseActionPress
 	left := msg.Button == tea.MouseButtonLeft

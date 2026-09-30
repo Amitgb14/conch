@@ -119,6 +119,16 @@ func (s *settings) themeItems(m *Model) []settingItem {
 				return saveConfig(m.cfg)
 			}})
 
+	items = append(items, settingItem{label: "Light what the pointer is on", detail: "a message per cell crossed; off on a slow link",
+		on: &m.cfg.UI.Hover, run: func(m *Model) tea.Cmd {
+			m.cfg.UI.Hover = !m.cfg.UI.Hover
+			if !m.cfg.UI.Hover {
+				m.clearHover()
+			}
+			m.setFlash("hover applies to new conch windows: quit and start it again", false)
+			return saveConfig(m.cfg)
+		}})
+
 	items = append(items, settingItem{}, settingItem{header: true, label: "File icons · in the file explorer"})
 	current = iconMode(m.cfg.UI.Icons)
 	for _, c := range []struct{ mode, label string }{

@@ -313,6 +313,8 @@ Colour schemes: Conch, Dracula, Catppuccin Mocha, Nord, Gruvbox Dark, Tokyo Nigh
 
 Under **Tree**, _What agents spend_ shows or hides the cost (and the token counts that stand in for it) on tree rows, in Sessions and on the project and machine pages — everything [the sidebar](#the-sidebar) shows.
 
+**Light what the pointer is on** tints the tree row or tab under the pointer. It needs the terminal to report every pointer move rather than only drags, which is a message per cell crossed — nothing on this computer, more over a slow ssh link — so it is off by default and applies to conch windows started afterwards. Nothing a program in a pane receives changes: a move with no button held is conch's own.
+
 Under **File icons**, how [the file explorer](#files) marks each kind of file: _Letters, in any font_ (the default), _Nerd Font glyphs_ for a terminal with a Nerd Font, or _None_ (`[ui] icons` = `text`, `nerd` or `off`).
 
 Below that, an **Oh My Zsh prompt theme** for new zsh terminals, picked from the themes installed on this computer. Each theme shows **the prompt it draws** beside its name, in its own colours: conch asks zsh to expand it, in an empty folder that is no repository, so a git-aware theme shows its plain form. A prompt of two lines is shown on one, a long one is cut to fit, and a theme zsh could not expand simply shows nothing. conch starts zsh with a wrapper that loads your own `.zshenv`/`.zprofile`/`.zshrc`/`.zlogin` first and then switches the theme for that terminal only (`omz theme use`), so your dotfiles are never edited; "Keep my .zshrc theme" turns it off.

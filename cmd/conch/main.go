@@ -237,7 +237,14 @@ func runTUI() error {
 
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if cfg.UI.Mouse {
-		opts = append(opts, tea.WithMouseCellMotion())
+		// All-motion reports every cell the pointer crosses, which is what
+		// lighting the row under it needs; without hover, only drags are
+		// reported, which is one message per drag instead of per cell.
+		if cfg.UI.Hover {
+			opts = append(opts, tea.WithMouseAllMotion())
+		} else {
+			opts = append(opts, tea.WithMouseCellMotion())
+		}
 	}
 	p := tea.NewProgram(tui.New(c, cfg).Warn(cfgWarning), opts...)
 	final, err := p.Run()

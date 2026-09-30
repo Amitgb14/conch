@@ -114,6 +114,8 @@ type Model struct {
 	barDrag     *splitBar // a split boundary being dragged
 	tabDrag     bool      // a tab is being dragged along the bar
 	leafDrag    int       // a split being dragged by its title, to swap
+	hoverRow    string    // the tree row under the pointer, with [ui] hover
+	hoverTab    int       // the tab under it, as an index into m.tabs; -1 none
 	scrollDrag  int       // a leaf whose scrollbar is being dragged
 	scrollTop   int       // the track's first screen row, and its height
 	scrollH     int

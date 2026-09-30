@@ -935,6 +935,8 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 				put(styleSel.Render(label), i)
 				put(styleSel.Render("× "), -2)
 			}
+		} else if m.cfg.UI.Hover && m.hoverTab == i {
+			put(styleHover.Render(label), i)
 		} else {
 			put(styleMuted.Render(label), i)
 		}
