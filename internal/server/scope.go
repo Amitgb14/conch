@@ -80,6 +80,9 @@ var scoped = map[string]scopeKind{
 	proto.MethodServerStop: scopeServer, proto.MethodServerReload: scopeServer,
 
 	proto.MethodAgentSkill: scopeHome,
+	// Which ignored files — secrets among them — are copied into every new
+	// worktree: the person's call, even in the agent's own project.
+	proto.MethodProjectFiles: scopeHome,
 }
 
 // writesHome lists methods that only sometimes change the person's setup:
@@ -278,6 +281,7 @@ var verbs = map[string]string{
 	proto.MethodBranchMerge: "merge", proto.MethodBranchDiscard: "discard a branch",
 	proto.MethodBranchGit:    "run git",
 	proto.MethodAgentSkill:   "install or remove the agents' conch skill",
+	proto.MethodProjectFiles: "change which local files a project copies into its worktrees",
 	proto.MethodAgentLibrary: "change the library of MCP servers and skills", proto.MethodLibraryApply: "apply the library to the agents",
 	proto.MethodAgentSync: "sync one agent's setup to the others",
 }
