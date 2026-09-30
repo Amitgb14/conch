@@ -486,4 +486,26 @@ func (m *Model) forgetGonePanes(mach *machine) {
 			delete(m.subscribed, key)
 		}
 	}
+	// And the tabs and splits showing them. A pane that exits while the TUI
+	// is running closes its split or tab on the event; one that goes while
+	// it is closed — a server restarted, a shell ended, a pane closed from
+	// the command line — leaves a tab behind that says only "empty", and
+	// they pile up across sessions. A full list is the moment to know.
+	var gone []string
+	seen := map[string]bool{}
+	for _, t := range append(append([]*tab{}, m.tabs...), m.preview) {
+		if t == nil {
+			continue
+		}
+		for _, l := range t.root.leaves() {
+			v := l.view
+			if v.Kind == kindPane && v.Machine == mach.id && !live[v.PaneID] && !seen[v.PaneID] {
+				seen[v.PaneID] = true
+				gone = append(gone, v.PaneID)
+			}
+		}
+	}
+	for _, id := range gone {
+		m.dropPane(mach.id, id)
+	}
 }
