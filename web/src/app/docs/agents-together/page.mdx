@@ -35,6 +35,12 @@ If the helper stops to ask something — a permission, a question — the agent 
 
 Other things to ask for the same way: *"have Codex write tests for this and run them"*, *"ask another agent to try the migration on a copy of the branch"*, *"get Claude and Gemini to each review it and compare"*.
 
+## From the tree
+
+`m` on an agent's pane — or a right-click — has **Prompt…**: type the message, and it goes in as that agent's next one. conch then watches the work it started and says when it ends: *finished what you asked*, *is waiting for you*, or *ended before it answered*, in the status bar, or as a desktop notification when that pane is not the one you are looking at. You are told once.
+
+An agent that is already waiting on a question of its own is not sent anything — the menu says so before you open it, and the server refuses it in its own words if it starts waiting in between. A machine whose server predates `agent.prompt.v1` says that instead of offering it.
+
 ## Doing it yourself
 
 The commands the agents use are plain `conch` commands, so a script — or you, in a terminal pane — can drive agents the same way:

@@ -108,6 +108,24 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 				return m.openLinks(r)
 			}},
 		}
+		// A message to the agent in this pane, if there is one: the pane
+		// menu is where everything else about that pane already is.
+		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
+			mid, pane := r.machine, r.paneID
+			switch {
+			case !m.hasCapability(mid, proto.CapAgentPrompt):
+				items = append(items, menuItem{"", "Prompt… (its server is too old)", func(m *Model) tea.Cmd {
+					m.setFlash("the server there predates prompting an agent; reload it", true)
+					return nil
+				}})
+			default:
+				label := "Prompt…"
+				if p.Agent.State == proto.AgentBlocked {
+					label = "Prompt… (it is waiting for an answer)"
+				}
+				items = append(items, menuItem{"", label, func(m *Model) tea.Cmd { return m.openPrompt(mid, pane) }})
+			}
+		}
 		items = append(items, m.monitorItems(r.machine, r.paneID)...)
 		items = append(items, menuItem{"x", "Close", act("x")})
 		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {

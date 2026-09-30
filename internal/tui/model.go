@@ -44,7 +44,10 @@ type Model struct {
 	// agents, keyed by machine: read when its page is opened, since it asks
 	// that machine's server.
 	skill map[string]*skillPlan
-	cfg   config.Config
+	// prompts are messages sent to an agent from the tree and not yet
+	// answered, keyed by machine and pane: what watchPrompt reports on.
+	prompts map[string]*promptWatch
+	cfg     config.Config
 
 	width, height int
 
@@ -452,6 +455,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case userSyncMsg:
 		return m, m.receiveUserSync(msg)
 
+	case promptSentMsg:
+		return m, m.receivePromptSent(msg)
 	case skillMsg:
 		return m, m.receiveSkill(msg)
 	case libraryMsg:
@@ -733,7 +738,8 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				}
 			}
 		}
-		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), m.notifyMonitor(mach, old, info), installed, checked, m.observeAgent(mach, old, info))
+		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), m.notifyMonitor(mach, old, info), installed, checked,
+			m.observeAgent(mach, old, info), m.watchPrompt(mach, info, msg.Event == proto.EventPaneExited))
 
 	case proto.EventPaneClosed:
 		var ref proto.PaneRef
