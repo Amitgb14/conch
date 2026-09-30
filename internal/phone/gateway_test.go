@@ -736,24 +736,26 @@ func TestPushSubscriptions(t *testing.T) {
 	keys := PushKeys{P256dh: "BNc", Auth: "au"}
 	for _, bad := range []PushSubscription{
 		{},
-		{Endpoint: "http://push.example/x", Keys: keys},
+		{Endpoint: "http://fcm.googleapis.com/fcm/send/x", Keys: keys},
+		{Endpoint: "https://push.example/x", Keys: keys}, // not a push service
+		{Endpoint: "https://127.0.0.1/x", Keys: keys},
 		{Endpoint: "https://", Keys: keys},
 		{Endpoint: "javascript:alert(1)", Keys: keys},
-		{Endpoint: "https://push.example/x"},
-		{Endpoint: "https://push.example/x", Keys: PushKeys{P256dh: "BNc"}},
-		{Endpoint: "https://push.example/x", Keys: keys, On: []string{"working"}},
+		{Endpoint: "https://fcm.googleapis.com/fcm/send/x"},
+		{Endpoint: "https://fcm.googleapis.com/fcm/send/x", Keys: PushKeys{P256dh: "BNc"}},
+		{Endpoint: "https://fcm.googleapis.com/fcm/send/x", Keys: keys, On: []string{"working"}},
 	} {
 		if status, _ := p.post("/api/push/subscribe", bad, nil); status != 400 {
 			t.Errorf("%+v: %d", bad, status)
 		}
 	}
-	sub := PushSubscription{Endpoint: "https://push.example/x", Keys: keys, On: []string{"waiting", "done"}}
+	sub := PushSubscription{Endpoint: "https://fcm.googleapis.com/fcm/send/x", Keys: keys, On: []string{"waiting", "done"}}
 	for range 2 { // subscribing again replaces, it doesn't pile up
 		if status, b := p.do("POST", "/api/push/subscribe", sub); status != 204 || len(b) != 0 {
 			t.Fatalf("subscribe: %d %s", status, b)
 		}
 	}
-	if status, _ := other.post("/api/push/subscribe", PushSubscription{Endpoint: "https://push.example/y", Keys: keys}, nil); status != 204 {
+	if status, _ := other.post("/api/push/subscribe", PushSubscription{Endpoint: "https://web.push.apple.com/y", Keys: keys}, nil); status != 204 {
 		t.Fatal(status)
 	}
 	push := func(id string) []PushSubscription {
@@ -792,7 +794,7 @@ func TestServerUnavailable(t *testing.T) {
 	isolate(t)
 	dir := t.TempDir()
 	store := OpenStore(dir)
-	g := New(store, func() (*client.Client, error) { return nil, errors.New("no server") }, nil)
+	g := newGateway(store, func() (*client.Client, error) { return nil, errors.New("no server") }, nil, pushOptions{client: noNetwork})
 	web := httptest.NewServer(g.Handler())
 	t.Cleanup(func() { g.Close(); web.Close() })
 	f := &fixture{t: t, dir: dir, store: store, g: g, web: web}

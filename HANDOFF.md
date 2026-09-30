@@ -1,7 +1,7 @@
-# Handoff: `conch web` — the phone gateway (phase 1), app (phase 2) and terminal (phase 3)
+# Handoff: `conch web` — the phone gateway (phase 1), app (phase 2), terminal (phase 3) and push (phase 4)
 
-Branch `conch/build-conch-web-phone-gateway`, three commits on top of `0d25b65`:
-the gateway, the app, the terminal. Not pushed, not merged. Phases 2 and 3
+Branch `conch/build-conch-web-phone-gateway`, four commits on top of `0d25b65`:
+the gateway, the app, the terminal, push. Not pushed, not merged. Phases 2–4
 are at the end.
 
 ## Contract used
@@ -256,3 +256,78 @@ Amit confirmed it sends arrow keys and Enter.
   Row 9.71 settles it per agent; 9.77 is the terminal on a real phone.
 - Scrollback in the terminal (`pane.scroll` isn't in the contract).
 - Push (phase 4), QR and TUI key (phase 5).
+
+---
+
+# Phase 4: push notifications
+
+Contract: `phone-api.md`, `api_version` 1, unchanged — the payload is the
+contract's `{type, pane, name, project, url}`.
+
+## What was built
+
+- `webpush.go` — Web Push with the standard library only: the payload
+  encrypted for the subscribing browser (RFC 8291, aes128gcm; a test
+  checks the RFC's own worked example byte for byte), and a VAPID JWT
+  signed with the key in `phone.json` (RFC 8292). Headers: `TTL` a day,
+  `Urgency` high for waiting and normal for done, `Topic` per pane so an
+  undelivered push is replaced by the next.
+- `push.go` — a watcher with its own server connection. It learns every
+  agent's state from `pane.list` when it connects (at start and after a
+  server reload) and queues a push only on a change into waiting, or into
+  done. A single sender goes through the subscriptions that asked for that
+  kind; 404/410 drops the subscription.
+- The app: ⚙ → settings, where notifications are turned on (permission,
+  `pushManager.subscribe` with the gateway's key, `POST
+  /api/push/subscribe`) and off, with "also when an agent finishes". The
+  service worker shows the notification and, on a tap, tells an open app to
+  go to the agent or opens a window there.
+
+## Decisions
+
+1. **Pushes go only to known push services** — `fcm.googleapis.com`,
+   `updates.push.services.mozilla.com`, `web.push.apple.com`,
+   `*.notify.windows.com` — checked when subscribing and again when
+   sending, over https on the default port, with redirects not followed.
+   Otherwise a `view` device could have the laptop POST anywhere it can
+   reach. A browser with another push service can't be subscribed; say if
+   that matters.
+2. **The VAPID subject is the project's URL**, not a person's address:
+   Apple requires one, and there is no one person behind every conch.
+3. **`name` is the pane's display name** (the task's title when the agent
+   set one), as the TUI labels it — the list uses the pane name.
+4. **"Show the question in notifications"** from the contract has no
+   field to switch it on, so the question is never sent.
+5. **Missed while disconnected:** a change that happens while the watcher
+   has no connection (a server reload) is not pushed; it learns the new
+   state quietly.
+
+## Tested
+
+- `go test -race -count=1 ./...` passes; `gofmt`, `go vet` clean.
+- RFC 8291's example; bad keys and oversized payloads refused; the VAPID
+  JWT's claims and its signature verified with the gateway's key.
+- Against a loopback TLS push service that decrypts as a browser would
+  (`TestPushOnTransitions`): a push within 5 s of an agent starting to
+  wait, to each subscription; none for an agent already waiting at start;
+  none again while it keeps waiting; done only to the subscription that
+  asked; none to a revoked device; a 410 drops that subscription; the
+  payload has exactly the four fields; the log has no endpoint.
+- Redirects not followed, non-2xx reported, the known-host check (look-alike
+  hosts, ports, userinfo, http refused), a full queue dropping rather than
+  blocking.
+- node: the real `sw.js` run in a sandbox — the notice's words, tag and
+  target for each kind of push, a push that tries to aim a tap elsewhere,
+  a tap with the app open and closed. `keyBytes`, `appPath`.
+- Headless Chrome: the settings page renders and reports "off".
+
+## Not tested
+
+- **No push has gone through a real push service or reached a real
+  phone** — that needs the network and a device. Rows 9.78 and 9.79.
+- In headless Chrome a push delivered through the debugging port
+  (`ServiceWorker.deliverPushMessage`) never reached the worker, so the
+  notification was not seen in a real browser either; the handler is only
+  covered by the node run of `sw.js`.
+- Turning notifications on in a browser (it subscribes with Google's
+  service, over the network).

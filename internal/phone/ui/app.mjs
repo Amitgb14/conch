@@ -6,7 +6,7 @@
 // title, its question and its screen are text, never markup.
 import {
   parseLine, frameRows, sortAgents, upsertAgent, removeAgent, groupAgents, agentLabel,
-  ago, route, can, backoff, codeFromHash, fontSizeFor, KEYBAR, textKeys, chunks,
+  ago, route, can, backoff, codeFromHash, fontSizeFor, KEYBAR, textKeys, chunks, keyBytes, appPath,
 } from "/lib.mjs"
 
 const API_VERSION = 1
@@ -203,6 +203,7 @@ function show(view, where = "") {
   view.connected?.()
   $("where").textContent = where
   $("new").hidden = !state.hello || !can(state.hello.permission, "full")
+  $("settings").hidden = !state.hello
   $("view").replaceChildren(view.el)
   view.update?.()
   window.scrollTo(0, 0)
@@ -218,6 +219,7 @@ function render() {
   const r = route(location.pathname)
   if (r.view === "agent") return show(agentView(r.pane))
   if (r.view === "terminal") return show(terminalView(r.pane))
+  if (r.view === "settings") return show(settingsView(), "Settings")
   if (r.view === "new" && can(state.hello.permission, "full")) return show(newTaskView(), "New task")
   show(listView())
 }
@@ -485,6 +487,107 @@ function terminalView(pane) {
     socketError: (e) => { note.textContent = e?.message || "" },
     leave: () => send({ type: "frame.close", pane }),
   }
+}
+
+// A tapped notification, when the app is already open, arrives from the
+// service worker as a message rather than a new window.
+navigator.serviceWorker?.addEventListener("message", (ev) => {
+  if (ev.data?.type === "open") navigate(appPath(ev.data.url))
+})
+
+// settingsView turns notifications on and off for this device.
+function settingsView() {
+  const status = h("p", { role: "status" })
+  const error = h("p", { class: "error", role: "alert" })
+  const done = h("input", { type: "checkbox" })
+  const on = h("button", { class: "primary", type: "button" }, "Turn on notifications")
+  const off = h("button", { type: "button" }, "Turn off")
+  const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window
+
+  const registration = () => navigator.serviceWorker.ready
+  const current = async () => (await registration()).pushManager.getSubscription()
+  const events = () => (done.checked ? ["waiting", "done"] : ["waiting"])
+  const save = async (sub) => {
+    const { endpoint, keys } = sub.toJSON()
+    await api("POST", "/api/push/subscribe", { endpoint, keys, on: events() })
+    try { localStorage.setItem("conch.pushDone", done.checked ? "1" : "") } catch { /* private mode */ }
+  }
+  const refresh = async () => {
+    error.textContent = ""
+    if (!supported) {
+      status.textContent = /iPhone|iPad/.test(navigator.userAgent)
+        ? "To get notifications on an iPhone or iPad, add conch to your Home Screen (Share → Add to Home Screen, iOS 16.4 or later) and open it from there."
+        : "This browser can't receive notifications from conch."
+      on.hidden = off.hidden = true
+      return
+    }
+    if (Notification.permission === "denied") {
+      status.textContent = "Notifications are blocked for this site. Allow them in the browser's settings, then come back."
+      on.hidden = off.hidden = true
+      return
+    }
+    const sub = await current()
+    status.textContent = sub
+      ? "Notifications are on: you are told when an agent is waiting for you" + (done.checked ? ", and when one finishes." : ".")
+      : "Notifications are off."
+    on.hidden = !!sub
+    off.hidden = !sub
+  }
+  on.addEventListener("click", async () => {
+    on.disabled = true
+    try {
+      if (await Notification.requestPermission() !== "granted") return
+      const { vapid_public_key } = await api("GET", "/api/push/key")
+      const reg = await registration()
+      let sub = await reg.pushManager.getSubscription()
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(vapid_public_key) })
+      await save(sub)
+    } catch (err) {
+      error.textContent = err.message
+    } finally {
+      on.disabled = false
+      refresh().catch(() => {})
+    }
+  })
+  off.addEventListener("click", async () => {
+    off.disabled = true
+    try {
+      const sub = await current()
+      if (sub) {
+        await api("DELETE", "/api/push/subscribe", { endpoint: sub.endpoint }).catch(() => {})
+        await sub.unsubscribe()
+      }
+    } catch (err) {
+      error.textContent = err.message
+    } finally {
+      off.disabled = false
+      refresh().catch(() => {})
+    }
+  })
+  done.addEventListener("change", async () => {
+    try {
+      const sub = supported && await current()
+      if (sub) await save(sub)
+    } catch (err) {
+      error.textContent = err.message
+    }
+    refresh().catch(() => {})
+  })
+  try { done.checked = localStorage.getItem("conch.pushDone") === "1" } catch { /* private mode */ }
+
+  const me = state.hello || {}
+  const el = h("section", {},
+    h("h2", {}, "Notifications"),
+    status,
+    h("label", { class: "check" }, done, " Also when an agent finishes"),
+    h("div", { class: "row" }, on, off),
+    error,
+    h("p", { class: "quiet" }, "A notification says which agent and which project, never what it asks or shows: it passes through Apple's or Google's servers."),
+    h("h2", {}, "This device"),
+    h("p", { class: "quiet" }, `${me.device_id || ""} · ${me.permission || ""} · conch ${me.conch_version || ""}`),
+    h("p", { class: "quiet" }, "To unpair it, run ", h("code", {}, `conch web revoke ${me.device_id || "ID"}`), " on your laptop."))
+  refresh().catch((err) => { error.textContent = err.message })
+  return { el }
 }
 
 function newTaskView() {

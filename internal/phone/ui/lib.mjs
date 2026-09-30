@@ -166,6 +166,7 @@ export function route(path) {
   const m = /^\/agent\/(p[0-9]+)\/?$/.exec(path)
   if (m) return { view: "agent", pane: m[1] }
   if (/^\/new\/?$/.test(path)) return { view: "new" }
+  if (/^\/settings\/?$/.test(path)) return { view: "settings" }
   return { view: "list" }
 }
 
@@ -230,4 +231,17 @@ export function chunks(keys, size = 64) {
   const out = []
   for (let i = 0; i < keys.length; i += size) out.push(keys.slice(i, i + size))
   return out
+}
+
+// keyBytes is a base64url key as pushManager.subscribe wants it.
+export function keyBytes(b64url) {
+  const s = String(b64url || "").replace(/-/g, "+").replace(/_/g, "/")
+  const bin = atob(s + "=".repeat((4 - (s.length % 4)) % 4))
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0))
+}
+
+// appPath is an address the app may go to when a notification is
+// tapped: one of its own views, never anywhere else.
+export function appPath(url) {
+  return typeof url === "string" && (url === "/" || route(url).view !== "list") ? url : "/"
 }

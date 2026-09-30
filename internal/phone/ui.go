@@ -28,9 +28,9 @@ var uiTypes = map[string]string{
 }
 
 // appPage matches the addresses that are views of the app rather than
-// files: an agent (where a notification will point), its terminal, and
-// the new task form.
-var appPage = regexp.MustCompile(`^/(agent/p[0-9]+(/terminal)?/?|new/?)$`)
+// files: an agent (where a notification points), its terminal, the new
+// task form and the settings.
+var appPage = regexp.MustCompile(`^/(agent/p[0-9]+(/terminal)?/?|new/?|settings/?)$`)
 
 // uiHandler serves the app. Anyone may load it — pairing happens on it —
 // and nothing in it is secret.

@@ -35,7 +35,7 @@ func fetch(t *testing.T, method, url string) (*http.Response, string) {
 func TestUIIsServed(t *testing.T) {
 	f := newFixture(t)
 	page, _ := uiFiles.ReadFile("ui/index.html")
-	for _, p := range []string{"/", "/index.html", "/agent/p3", "/agent/p12/", "/agent/p3/terminal", "/agent/p3/terminal/", "/new", "/new/"} {
+	for _, p := range []string{"/", "/index.html", "/agent/p3", "/agent/p12/", "/agent/p3/terminal", "/agent/p3/terminal/", "/new", "/new/", "/settings"} {
 		res, body := fetch(t, "GET", f.web.URL+p)
 		if res.StatusCode != 200 || body != string(page) || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/html") {
 			t.Errorf("%s: %d %s", p, res.StatusCode, res.Header.Get("Content-Type"))
@@ -154,7 +154,7 @@ func TestUIFiles(t *testing.T) {
 	if len(refs) < 12 {
 		t.Fatalf("only %d references found", len(refs))
 	}
-	have := map[string]bool{"": true, "new": true} // the page itself, and its views
+	have := map[string]bool{"": true, "new": true, "settings": true} // the page itself, and its views
 	for _, n := range names {
 		have[n] = true
 	}
@@ -209,7 +209,7 @@ func TestUIFiles(t *testing.T) {
 		}
 	}
 	for _, m := range regexp.MustCompile(`type: "([a-z.]+)"`).FindAllStringSubmatch(string(app), -1) {
-		if _, ok := socketNeeds[m[1]]; !ok && m[1] != "button" {
+		if _, ok := socketNeeds[m[1]]; !ok && m[1] != "button" && m[1] != "checkbox" {
 			t.Errorf("app.mjs sends %q, which isn't a socket message", m[1])
 		}
 	}
@@ -224,7 +224,7 @@ func TestUILogic(t *testing.T) {
 		t.Skip("node is not installed; the app's JavaScript tests (uitest/) were not run")
 	}
 	for _, args := range [][]string{
-		{"--test", "uitest/lib.test.mjs"},
+		{"--test", "uitest/lib.test.mjs", "uitest/sw.test.mjs"},
 		// The rest has no tests of its own; it must at least parse.
 		{"--check", "ui/app.mjs"},
 		{"--check", "ui/sw.js"},

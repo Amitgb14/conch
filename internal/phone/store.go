@@ -343,28 +343,37 @@ func (s *Store) Unsubscribe(deviceID, endpoint string) error {
 	})
 }
 
-// VAPIDPublicKey is the key a phone subscribes to pushes with, as browsers
-// want it: the uncompressed P-256 point, base64url. The private half is
-// made the first time it is asked for and kept.
-func (s *Store) VAPIDPublicKey() (string, error) {
-	var pub string
+// VAPIDKey is the key pushes are signed with. It is made the first time
+// it is asked for and kept, so subscriptions made against it go on working.
+func (s *Store) VAPIDKey() (*ecdh.PrivateKey, error) {
+	var key *ecdh.PrivateKey
 	err := s.update(func(st *state) error {
 		if st.VAPIDKey != "" {
-			if raw, err := base64.RawURLEncoding.DecodeString(st.VAPIDKey); err == nil {
-				if key, err := ecdh.P256().NewPrivateKey(raw); err == nil {
-					pub = base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
-					return nil
-				}
+			raw, err := base64.RawURLEncoding.DecodeString(st.VAPIDKey)
+			if err == nil {
+				key, err = ecdh.P256().NewPrivateKey(raw)
 			}
-			return errors.New("the push key in " + s.path + " can't be read")
+			if err != nil {
+				return errors.New("the push key in " + s.path + " can't be read")
+			}
+			return nil
 		}
-		key, err := ecdh.P256().GenerateKey(rand.Reader)
-		if err != nil {
+		var err error
+		if key, err = ecdh.P256().GenerateKey(rand.Reader); err != nil {
 			return err
 		}
 		st.VAPIDKey = base64.RawURLEncoding.EncodeToString(key.Bytes())
-		pub = base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
 		return nil
 	})
-	return pub, err
+	return key, err
+}
+
+// VAPIDPublicKey is the key a phone subscribes to pushes with, as browsers
+// want it: the uncompressed P-256 point, base64url.
+func (s *Store) VAPIDPublicKey() (string, error) {
+	key, err := s.VAPIDKey()
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes()), nil
 }

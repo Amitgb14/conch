@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -128,11 +129,25 @@ type fixture struct {
 	logs  []string
 }
 
+// noNetwork is a push client that never leaves the test.
+var noNetwork = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+	return nil, errors.New("no network in tests")
+})}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 func newFixture(t *testing.T) *fixture {
+	t.Helper()
+	return newFixtureWith(t, pushOptions{client: noNetwork})
+}
+
+func newFixtureWith(t *testing.T, po pushOptions) *fixture {
 	t.Helper()
 	c, dir, sock := startServer(t)
 	f := &fixture{t: t, c: c, dir: dir, store: OpenStore(dir)}
-	f.g = New(f.store, func() (*client.Client, error) { return client.Dial(sock, "conch-web-test") }, f.logf)
+	f.g = newGateway(f.store, func() (*client.Client, error) { return client.Dial(sock, "conch-web-test") }, f.logf, po)
 	f.g.now = f.now
 	f.web = httptest.NewServer(f.g.Handler())
 	t.Cleanup(func() { f.g.Close(); f.web.Close() })

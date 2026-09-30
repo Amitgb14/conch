@@ -46,6 +46,13 @@ type Gateway struct {
 
 	quit chan struct{}
 	done chan struct{}
+
+	pushAllowed func(endpoint string) bool
+	pushClient  *http.Client
+	pushQueue   chan pushJob
+	// pushWatching is told when the push watcher has learnt what every
+	// agent is doing; a test waits for it before changing any.
+	pushWatching func()
 }
 
 // revokeCheck is how often the devices file is looked at for a device
@@ -56,17 +63,43 @@ const revokeCheck = 250 * time.Millisecond
 // New makes a gateway over the devices in store, reaching the conch server
 // through dial and logging through logf (nil for none). Close it when done.
 func New(store *Store, dial func() (*client.Client, error), logf func(format string, args ...any)) *Gateway {
+	return newGateway(store, dial, logf, pushOptions{})
+}
+
+// pushOptions is where pushes may go and how they are sent; a test's
+// push service is on loopback, which knownPushService refuses.
+type pushOptions struct {
+	allowed  func(endpoint string) bool
+	client   *http.Client
+	watching func()
+}
+
+func newGateway(store *Store, dial func() (*client.Client, error), logf func(format string, args ...any), po pushOptions) *Gateway {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
+	if po.allowed == nil {
+		po.allowed = knownPushService
+	}
+	if po.client == nil {
+		po.client = &http.Client{
+			Timeout: 15 * time.Second,
+			// A push service answers; it doesn't send the laptop elsewhere.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+	}
 	g := &Gateway{
 		store: store, dial: dial, now: time.Now,
-		logf:     logf,
-		sockets:  map[*socket]struct{}{},
-		attempts: map[string][]time.Time{},
-		quit:     make(chan struct{}), done: make(chan struct{}),
+		pushAllowed: po.allowed, pushClient: po.client, pushWatching: po.watching,
+		pushQueue: make(chan pushJob, 64),
+		logf:      logf,
+		sockets:   map[*socket]struct{}{},
+		attempts:  map[string][]time.Time{},
+		quit:      make(chan struct{}), done: make(chan struct{}),
 	}
 	go g.watch()
+	go g.pushes()
+	go g.sendPushes()
 	return g
 }
 
@@ -681,10 +714,9 @@ func (g *Gateway) pushSubscribe(rq *request) (any, *APIError) {
 		return nil, aerr
 	}
 	// Pushes are POSTed to this address from the laptop, so it has to be
-	// a push service's: https, and nothing else.
-	u, err := url.Parse(sub.Endpoint)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return nil, apiErr(CodeBadRequest, "endpoint has to be an https address")
+	// a push service's, and nothing else.
+	if !g.pushAllowed(sub.Endpoint) {
+		return nil, apiErr(CodeBadRequest, "endpoint has to be a browser push service's https address")
 	}
 	if sub.Keys.P256dh == "" || sub.Keys.Auth == "" {
 		return nil, apiErr(CodeBadRequest, "a subscription needs keys.p256dh and keys.auth")

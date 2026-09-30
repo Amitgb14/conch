@@ -2,7 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import {
   parseLine, frameRows, color256, sortAgents, upsertAgent, removeAgent, groupAgents, agentLabel,
-  ago, route, can, backoff, codeFromHash, fontSizeFor, KEYBAR, textKeys, chunks,
+  ago, route, can, backoff, codeFromHash, fontSizeFor, KEYBAR, textKeys, chunks, keyBytes, appPath,
 } from "../ui/lib.mjs"
 
 const text = (runs) => runs.map((r) => r.text).join("")
@@ -143,6 +143,7 @@ test("routes", () => {
   assert.deepEqual(route("/agent/p12/"), { view: "agent", pane: "p12" })
   assert.deepEqual(route("/new"), { view: "new" })
   assert.deepEqual(route("/agent/p3/terminal"), { view: "terminal", pane: "p3" })
+  assert.deepEqual(route("/settings"), { view: "settings" })
   assert.deepEqual(route("/agent/p3/terminal/"), { view: "terminal", pane: "p3" })
   for (const other of ["/agent/", "/agent/reviewer", "/agent/p3/x", "/agent/p", "/newer", "/api/agents", "/agent/p3?x", "/agent/terminal", "/agent/p3/terminals", "/agent/x/terminal"]) {
     assert.deepEqual(route(other), { view: "list" }, other)
@@ -224,4 +225,20 @@ test("the key bar", () => {
   for (const k of ["esc", "tab", "up", "down", "left", "right", "enter", "ctrl+c"]) assert.ok(keys.includes(k), k)
   assert.deepEqual(KEYBAR.filter((k) => k.confirm).map((k) => k.key), ["ctrl+c"])
   for (const k of KEYBAR) assert.ok(k.label && k.label.length <= 4, k.label)
+})
+
+test("a push key as bytes", () => {
+  // The RFC 8291 example's receiver key: 65 bytes, uncompressed (0x04).
+  const k = keyBytes("BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4")
+  assert.equal(k.length, 65)
+  assert.equal(k[0], 4)
+  assert.deepEqual([...keyBytes("_-8")], [0xff, 0xef])
+  assert.deepEqual([...keyBytes("")], [])
+})
+
+test("a tapped notification goes only to the app's own views", () => {
+  for (const ok of ["/", "/agent/p3", "/agent/p3/terminal", "/new", "/settings"]) assert.equal(appPath(ok), ok)
+  for (const bad of ["https://evil.example/", "//evil.example", "/agent/x", "javascript:alert(1)", "", undefined, null, 3, {}]) {
+    assert.equal(appPath(bad), "/", String(bad))
+  }
 })

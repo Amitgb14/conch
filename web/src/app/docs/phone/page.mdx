@@ -6,7 +6,7 @@ export const metadata = { title: "Phone", description: "See your agents from you
 
 <Callout type="note">
 
-Notifications are still to come. Everything else here works: the agents, replies, answers, the terminal and new tasks.
+Notifications are built but haven't been seen on a real phone yet. On an iPhone they need iOS 16.4 or later and conch added to the Home Screen.
 
 </Callout>
 
@@ -36,6 +36,16 @@ The gateway serves the app itself, so it always matches your conch build; there 
 **When the laptop can't be reached** — asleep, or off the tailnet — the app still opens, says so, and shows the agents as they were when it last heard from the laptop, with the time. It keeps trying and catches up by itself. Questions are not kept on the phone between visits: they can quote a command.
 
 A screen wider than the phone is drawn small, and scrolls sideways when even that doesn't fit.
+
+## Notifications
+
+**⚙ → Turn on notifications** asks the phone for permission and subscribes it. From then on the laptop sends a notification when an agent **starts waiting for you**, and — if you tick **Also when an agent finishes** — when one finishes while nobody is looking at it. Tapping one opens that agent.
+
+- **When:** on the change only. An agent that was already waiting when `conch web` started, or that goes on waiting, doesn't send another. A notification not yet delivered is replaced by the next one about the same agent.
+- **What it says:** the agent's name and its project. Never the question or anything on its screen: a notification passes through Apple's, Google's or Mozilla's push service, and a question can quote a command. It is encrypted for your phone, and signed with a key conch makes and keeps in `phone.json`.
+- **Where it goes:** only to those push services' addresses. A subscription the push service says is gone is dropped.
+- **On an iPhone or iPad**, add conch to the Home Screen first (iOS 16.4 or later) and turn notifications on from there: Safari only lets an installed web app ask.
+- `conch web` has to be running on the laptop for any to be sent, and the laptop awake.
 
 ## Pair a phone
 
@@ -82,7 +92,7 @@ When conch can't read choices — no menu, or no cursor to steer by — the ques
 
 ## What it doesn't do yet
 
-- Push notifications. Push subscriptions are stored, but nothing is sent.
+- Showing the question in a notification: there is no setting for it, so it is never shown.
 - Scrolling back through a terminal's history: the terminal shows the screen as it is now.
 - A list of the agents installed on the laptop: the new-task form offers every agent conch knows, installed or not.
 - Other machines: a gateway shows the agents of the machine it runs on.
