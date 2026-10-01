@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	neturl "net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/brain"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/phone"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sandbox"
 )
@@ -35,7 +37,13 @@ type settings struct {
 	shellErr string
 }
 
-var settingsTabs = []string{"Theme", "Notifications", "Agents", "Brain", "Sandboxes"}
+var settingsTabs = []string{"Theme", "Notifications", "Agents", "Brain", "Sandboxes", "Web"}
+
+// The tabs that are found by number.
+const (
+	sandboxTab = 4
+	webTab     = 5
+)
 
 type shellThemesMsg struct {
 	themes proto.ShellThemes
@@ -85,8 +93,10 @@ func (s *settings) items(m *Model) []settingItem {
 		return s.notifyItems(m)
 	case 3:
 		return s.brainItems(m)
-	case 4:
+	case sandboxTab:
 		return s.sandboxItems(m)
+	case webTab:
+		return s.phoneItems(m)
 	}
 	return s.agentItems(m)
 }
@@ -518,6 +528,108 @@ func (s *settings) agentItems(m *Model) []settingItem {
 		}},
 	)
 	return items
+}
+
+// phoneItems is the phone gateway, conch web: the address phones open and
+// its port, kept in [web] in config.toml, pairing a phone, and starting or
+// stopping conch web in the background.
+func (s *settings) phoneItems(m *Model) []settingItem {
+	w := m.cfg.Web
+	field := func(name, detail, help, current string, save func(v string) error) settingItem {
+		return settingItem{label: name, detail: detail, run: func(m *Model) tea.Cmd {
+			d := newDialog(*m, " Web · "+name+" ", []string{help}, []string{name}, []string{current})
+			d.back = s // esc, and saving, come back to the settings screen
+			d.submit = func(m *Model, v []string) tea.Cmd {
+				if err := save(strings.TrimSpace(v[0])); err != nil {
+					return func() tea.Msg { return errMsg{err} }
+				}
+				if _, running := phone.OpenStore(config.Dir()).Gateway(); running {
+					m.setFlash("conch web takes it when it next starts: stop it and start it here", false)
+				}
+				return saveConfig(m.cfg)
+			}
+			m.overlay = d
+			return d.focusCmd()
+		}}
+	}
+	url := w.URL
+	if url == "" {
+		url = styleWarn.Render("not set")
+	}
+	items := []settingItem{{header: true, label: "conch web", detail: "your agents from your phone, over Tailscale"},
+		field("Address phones open", url,
+			"The https address phones open: the name `tailscale serve` gives this computer, like https://laptop.tail1234.ts.net. "+
+				"conch web listens on 127.0.0.1 behind it, and the pairing QR code points here. Empty clears it.",
+			w.URL, func(v string) error {
+				if v != "" {
+					u, err := neturl.Parse(v)
+					if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+						return fmt.Errorf("%q isn't an address like https://laptop.tail1234.ts.net", v)
+					}
+				}
+				m.cfg.Web.URL = strings.TrimRight(v, "/")
+				return nil
+			}),
+		field("Port", strconv.Itoa(w.PortOrDefault()),
+			fmt.Sprintf("The port conch web listens on, on this computer. Empty is %d.", config.DefaultWebPort),
+			strconv.Itoa(w.PortOrDefault()), func(v string) error {
+				if v == "" {
+					m.cfg.Web.Port = 0
+					return nil
+				}
+				n, err := strconv.Atoi(v)
+				if err != nil || n < 1 || n > 65535 {
+					return fmt.Errorf("%q isn't a port", v)
+				}
+				m.cfg.Web.Port = n
+				return nil
+			}),
+		{},
+	}
+	run, running := phone.OpenStore(config.Dir()).Gateway()
+	switch {
+	case running:
+		items = append(items, settingItem{label: styleOK.Render("● conch web is running"), detail: fmt.Sprintf("pid %d", run.PID)},
+			settingItem{label: "Stop conch web", run: func(m *Model) tea.Cmd {
+				if err := stopGateway(); err != nil {
+					return func() tea.Msg { return errMsg{err} }
+				}
+				m.setFlash("stopping conch web", false)
+				return nil
+			}})
+	case w.URL != "":
+		items = append(items, settingItem{label: styleWarn.Render("○ conch web isn't running")},
+			settingItem{label: "Start conch web", detail: "in the background; web.log beside config.toml", run: func(m *Model) tea.Cmd {
+				if err := startGateway(nil); err != nil {
+					return func() tea.Msg { return errMsg{err} }
+				}
+				m.setFlash("starting conch web on "+m.cfg.Web.URL, false)
+				return nil
+			}})
+	default:
+		items = append(items, settingItem{label: styleMuted.Render("  Set the address first: conch web starts from here once it knows it.")})
+	}
+	items = append(items, settingItem{label: "Pair a phone…", detail: "its QR code and code · 🌐 in the status bar", run: func(m *Model) tea.Cmd {
+		m.overlay = newPairDialog(m.cfg.Web, phone.PermFull)
+		return nil
+	}},
+		settingItem{label: "Devices…", detail: devicesSummary(), page: true, run: func(m *Model) tea.Cmd {
+			m.overlay = newDevicesPanel(s)
+			return nil
+		}},
+		settingItem{},
+		copyItem("In front of it", fmt.Sprintf("tailscale serve --bg http://127.0.0.1:%d", w.PortOrDefault())),
+		copyItem("Paired phones, in a terminal", "conch web devices"),
+	)
+	return items
+}
+
+// copyItem is a command to run in a terminal, copied by enter or a click:
+// the settings draw over the screen, so their text can't be selected.
+func copyItem(what, command string) settingItem {
+	return settingItem{label: "  " + what + ": " + command, detail: styleMuted.Render("enter copies"), run: func(m *Model) tea.Cmd {
+		return copyText(command)
+	}}
 }
 
 func (s *settings) brainItems(m *Model) []settingItem {
@@ -958,7 +1070,7 @@ func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			s.setTab((s.tab + 1) % len(settingsTabs))
 		case "shift+tab", "left", "h":
 			s.setTab((s.tab + len(settingsTabs) - 1) % len(settingsTabs))
-		case "1", "2", "3", "4", "5":
+		case "1", "2", "3", "4", "5", "6":
 			s.setTab(min(int(msg.String()[0]-'1'), len(settingsTabs)-1))
 		case "up", "k":
 			s.move(items, -1)

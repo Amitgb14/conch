@@ -195,6 +195,19 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 
 `ID` is the machine's ID or label, the provider's own sandbox ID, or `PROVIDER:ID`; it must belong to the provider `-provider` names. See [Sandboxes](/docs/sandboxes).
 
+### web
+
+```sh
+conch web [-listen ADDR] [-port N] [-url URL] [-cert FILE -key FILE]   # the gateway a phone reaches
+conch web pair [-permission view|reply|full]                # a QR code and one-time code, good for 5 minutes
+conch web devices                                           # the paired phones
+conch web revoke ID                                         # cut one off at once
+conch web permission ID view|reply|full                     # change what one may do
+conch web stop                                              # end one running in the background
+```
+
+`conch web` serves your [phone](/docs/phone) on this machine's Tailscale address and nowhere else, unless `-listen` names another address. `-url` is the address phones open — the `https://…ts.net` one `tailscale serve` gives — which the QR code points at. `pair` draws the QR code only when it prints to a terminal. It takes no `-m`: it shows the agents of the machine it runs on. `pair` and `revoke` are refused from an agent's pane.
+
 ### ask
 
 `conch ask [-y | -n] REQUEST` asks the [brain](/docs/brain); it proposes actions and runs them once you confirm. `-y` runs the plan without asking; `-n` only shows it.

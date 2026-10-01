@@ -16,6 +16,7 @@ Everything lives in `~/.config/conch`. Set `CONCH_HOME` to use another directory
 | `claude-settings.json` | the hooks conch passes to Claude Code with `--settings` |
 | `ui.json` | fold state, sidebar width, tabs and splits, saved ssh hosts |
 | `machines.json` | remote machines: only an ID, label and ssh target |
+| `phone.json` | the phones paired with [`conch web`](/docs/phone): a name, a permission and a hash of each one's token, their push subscriptions, and the key pushes are signed with |
 | `ssh/config` | generated ssh config |
 | `binaries/<os>-<arch>/conch` | conch builds for other platforms |
 | `agents/claude.toml` | optional override of Claude's [screen rules](/docs/agents#how-the-state-is-decided) |
@@ -140,3 +141,14 @@ Not every key means something to every provider: boat.dev has no regions, so `ta
 The Settings screen rewrites `config.toml`, so comments in a hand-edited file are not preserved.
 
 </Callout>
+
+## `[web]`
+
+The phone gateway, [`conch web`](/docs/phone). Set from **Settings → Web** in the TUI.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `url` | none | the address phones open: the `https://…ts.net` name `tailscale serve` gives. With it, `conch web` listens on loopback behind Tailscale, and the pairing QR code points here |
+| `port` | `8722` | where `conch web` listens |
+
+`-url` and `-port` given to `conch web` win over these.

@@ -72,6 +72,7 @@ func a4Env(t *testing.T) string {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("SHELL", "/bin/sh")
 	t.Setenv("A4_HELPER_MODE", "")
+	t.Setenv("CONCH_TAILSCALE", filepath.Join(dir, "no-tailscale")) // never the real one
 	// A real Daytona key in the developer's environment must never be used.
 	t.Setenv("DAYTONA_API_KEY", "")
 	t.Setenv("DAYTONA_API_URL", "http://127.0.0.1:1/unused")

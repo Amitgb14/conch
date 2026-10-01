@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/buildinfo"
+	"github.com/Amitgb14/conch/internal/phone"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -179,6 +180,10 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 				hint("/", "filter"), hint("m", "menu")}
 		}
 		items = append(items, hint("!", "waiting"), hint("?", "keys"))
+		// Last, so a narrow bar drops it before the way to every key.
+		if r.kind == kindMachine && r.machine == localMachine {
+			items = append(items, hint("P", "phone"))
+		}
 	}
 	return chip, items
 }
@@ -252,6 +257,17 @@ func (m Model) statusRightItems(level int) []statusItem {
 		m.overlay = s
 		return cmd
 	}})
+	// Pairing a phone, a click away: the QR code and the code, and the
+	// gateway started from there when it isn't running.
+	// A globe, alone: a word more and the bar loses "? keys" at an ordinary
+	// width. It is two cells wide in every terminal (an emoji of its own),
+	// so the narrowest bars go without it; P in the tree still opens it.
+	if level < rightMinimal {
+		items = append(items, statusItem{text: "🌐", act: func(m *Model) tea.Cmd {
+			m.overlay = newPairDialog(m.cfg.Web, phone.PermFull)
+			return nil
+		}})
+	}
 	if level < rightNoVersion {
 		style, text := styleMuted, versionLabel()
 		if len(m.pendingUpdates()) > 0 {

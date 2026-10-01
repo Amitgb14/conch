@@ -253,7 +253,7 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 	for _, step := range []struct {
 		key string
 		tab int
-	}{{"tab", 1}, {"right", 2}, {"l", 3}, {"tab", 4}, {"tab", 0}, {"shift+tab", 4}, {"left", 3}, {"h", 2}, {"4", 3}, {"5", 4}, {"1", 0}} {
+	}{{"tab", 1}, {"right", 2}, {"l", 3}, {"tab", 4}, {"tab", 5}, {"tab", 0}, {"shift+tab", 5}, {"left", 4}, {"h", 3}, {"4", 3}, {"5", 4}, {"6", 5}, {"1", 0}} {
 		s.sel = 3
 		s.update(m, a2Key(step.key))
 		if s.tab != step.tab || s.sel != 0 {
@@ -423,7 +423,7 @@ func TestSettingsFileIcons(t *testing.T) {
 func TestSettingsSandboxTab(t *testing.T) {
 	m, _ := sandboxModel(t)
 	s := &settings{}
-	s.setTab(len(settingsTabs) - 1)
+	s.setTab(sandboxTab)
 	if settingsTabs[s.tab] != "Sandboxes" {
 		t.Fatalf("tabs %v", settingsTabs)
 	}
@@ -551,7 +551,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 	// Switching tab and coming back starts at the list again.
 	s.open("boat")
 	s.setTab(0)
-	s.setTab(len(settingsTabs) - 1)
+	s.setTab(sandboxTab)
 	if s.provider != "" {
 		t.Fatalf("a tab switch kept %q open", s.provider)
 	}
@@ -675,7 +675,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 func TestSettingsSandboxKey(t *testing.T) {
 	m, _ := sandboxModel(t)
 	s := &settings{}
-	s.setTab(len(settingsTabs) - 1)
+	s.setTab(sandboxTab)
 	s.open("daytona")
 	item := func(label string) settingItem {
 		t.Helper()
@@ -761,7 +761,7 @@ func TestSettingsSandboxKey(t *testing.T) {
 func TestSettingsSandboxRestore(t *testing.T) {
 	m, _ := sandboxModel(t)
 	s := &settings{}
-	s.setTab(len(settingsTabs) - 1)
+	s.setTab(sandboxTab)
 	s.open("daytona")
 	item := func() settingItem {
 		t.Helper()

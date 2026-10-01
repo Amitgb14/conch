@@ -22,6 +22,7 @@ export const docs: DocSection[] = [
       { title: "Sessions", href: "/docs/sessions", description: "Resume saved conversations and interrupted runs." },
       { title: "Remote machines", href: "/docs/remote-machines", description: "Run agents on other machines over ssh." },
       { title: "Sandboxes", href: "/docs/sandboxes", description: "Run agents in a Daytona sandbox that keeps going with your laptop closed." },
+      { title: "Phone", href: "/docs/phone", description: "See your agents from your phone, reply to one and answer what it asks." },
       { title: "Brain", href: "/docs/brain", description: "Ask for work in plain words and approve the plan." },
     ],
   },

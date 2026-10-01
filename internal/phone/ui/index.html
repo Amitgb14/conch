@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#262624" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="conch">
+<title>conch</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <button id="menu" class="icon" aria-label="All agents and terminals" hidden>☰</button>
+  <a id="back" class="icon" href="/" data-nav hidden aria-label="Back">‹</a>
+  <div class="titles">
+    <span id="title">conch</span>
+    <span id="sub"></span>
+  </div>
+  <span id="live" hidden></span>
+  <button id="more" class="icon" aria-label="More" hidden>⋯</button>
+  <button id="new" class="icon" aria-label="New" hidden>＋</button>
+</header>
+<p id="banner" role="status" hidden></p>
+<main id="view"><p class="quiet">Loading…</p></main>
+<div id="drawer" hidden>
+  <div id="drawer-scrim" class="scrim"></div>
+  <nav class="panel" aria-label="Agents and terminals">
+    <div class="drawer-head"><img src="/icon.svg" alt="" class="mark"><span>conch</span></div>
+    <div id="drawer-list"></div>
+  </nav>
+</div>
+<div id="sheet" hidden></div>
+<noscript><p>conch on your phone needs JavaScript.</p></noscript>
+<script type="module" src="/app.mjs"></script>
+</body>
+</html>
