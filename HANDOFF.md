@@ -181,9 +181,9 @@ direct.
 
 ## Not tested, open
 
-- **On real devices.** Amit has paired his iPhone, used the app over
-  Tailscale and typed into terminals. Nothing beyond that has been
-  confirmed on a device. Open rows in `docs/testing/end-to-end.md`:
+- **On real devices.** Confirmed on Amit's iPhone over Tailscale:
+  pairing, the app, scrolling, and typing into terminals (after the R45
+  fix). Nothing beyond that has been confirmed on a device. Open rows in `docs/testing/end-to-end.md`:
   - **9.71:** answering real Claude and Codex questions. Gemini, OpenCode
     and Devin have no recorded question screens; they get no choices and
     are answered in the terminal.
@@ -215,7 +215,8 @@ Each of these has a test now.
   existing device.
 - **Typing on an iPhone sent backspaces.** iOS left the cursor ahead of
   the hidden field's sentinel; letters were read as deletions. Now read
-  from either side of it, the cursor put back after it (R45).
+  from either side of it, the cursor put back after it (R45). Confirmed
+  on his iPhone.
 - **The keyboard covered the terminal.** The terminal is now sized to what
   the keyboard leaves.
 - **The chat couldn't scroll back.** Fixed with scrollback, then the wheel
