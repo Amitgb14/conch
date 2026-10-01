@@ -63,6 +63,16 @@ type state struct {
 	VAPIDKey string `json:"vapid_key,omitempty"`
 	// URL is where the gateway last listened, for `conch web pair` to say.
 	URL string `json:"url,omitempty"`
+	// Gateway is the last conch web: how it was started, so the TUI can
+	// start it again the same way, and its process while it runs.
+	Gateway *GatewayRun `json:"gateway,omitempty"`
+}
+
+// GatewayRun is a conch web as it was started. PID is 0 once it stopped.
+type GatewayRun struct {
+	PID     int       `json:"pid,omitempty"`
+	Args    []string  `json:"args"`
+	Started time.Time `json:"started"`
 }
 
 // Store reads and writes the devices file.
@@ -318,6 +328,43 @@ func (s *Store) SetPermission(id, permission string) (bool, error) {
 		return nil
 	})
 	return found, err
+}
+
+// GatewayStarted records a conch web now serving, as process pid with args.
+func (s *Store) GatewayStarted(pid int, args []string, now time.Time) error {
+	return s.update(func(st *state) error {
+		st.Gateway = &GatewayRun{PID: pid, Args: append([]string{}, args...), Started: now.UTC()}
+		return nil
+	})
+}
+
+// GatewayStopped records that conch web pid has stopped, keeping how it
+// was started. A newer gateway's record is left alone.
+func (s *Store) GatewayStopped(pid int) error {
+	return s.update(func(st *state) error {
+		if st.Gateway != nil && st.Gateway.PID == pid {
+			st.Gateway.PID = 0
+		}
+		return nil
+	})
+}
+
+// Gateway is the last conch web's record, and whether its process is
+// still there.
+func (s *Store) Gateway() (GatewayRun, bool) {
+	st, err := s.read()
+	if err != nil || st.Gateway == nil {
+		return GatewayRun{}, false
+	}
+	run := *st.Gateway
+	return run, run.PID > 0 && processAlive(run.PID)
+}
+
+// processAlive reports whether a process exists: one we may not signal
+// is still there.
+func processAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // SetURL records where the gateway listens.

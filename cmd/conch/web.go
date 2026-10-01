@@ -30,7 +30,8 @@ const webUsage = `usage: conch web [-listen ADDR] [-port N] [-url URL] [-cert FI
        conch web pair [-permission view|reply|full]
        conch web devices
        conch web revoke ID
-       conch web permission ID view|reply|full`
+       conch web permission ID view|reply|full
+       conch web stop`
 
 // interfaceAddrs is this machine's addresses; a test puts its own here.
 var interfaceAddrs = net.InterfaceAddrs
@@ -78,6 +79,8 @@ func runWeb(args []string) error {
 			return webRevoke(args[1:])
 		case "permission":
 			return webPermission(args[1:])
+		case "stop":
+			return webStop(args[1:])
 		}
 	}
 	return webServe(args)
@@ -169,6 +172,30 @@ func webRevoke(args []string) error {
 	}
 	fmt.Printf("revoked %s: its token no longer works, and a running gateway closes its connections\n", args[0])
 	return nil
+}
+
+// webStop stops the conch web running in the background — one the TUI
+// started, with no terminal of its own to press ctrl+c in.
+func webStop(args []string) error {
+	if len(args) != 0 {
+		return errors.New("usage: conch web stop")
+	}
+	store := phone.OpenStore(config.Dir())
+	run, running := store.Gateway()
+	if !running {
+		fmt.Println("conch web is not running")
+		return nil
+	}
+	if err := syscall.Kill(run.PID, syscall.SIGTERM); err != nil {
+		return fmt.Errorf("stopping conch web (pid %d): %w", run.PID, err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if _, running := store.Gateway(); !running {
+			fmt.Printf("stopped conch web (pid %d)\n", run.PID)
+			return nil
+		}
+	}
+	return fmt.Errorf("conch web (pid %d) did not stop within 5s", run.PID)
 }
 
 // webPermission changes what a paired device may do, without pairing it
@@ -267,6 +294,13 @@ func webServe(args []string) error {
 		ln.Close()
 		return err
 	}
+	// And how this gateway was started, so the TUI can tell it runs and
+	// start it again the same way when it doesn't.
+	if err := store.GatewayStarted(os.Getpid(), args, time.Now()); err != nil {
+		ln.Close()
+		return err
+	}
+	defer store.GatewayStopped(os.Getpid())
 	fmt.Printf("conch web: listening on %s\n", url)
 	if *public != "" {
 		if err := g.AllowOrigin(open); err != nil {

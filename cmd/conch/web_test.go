@@ -253,6 +253,11 @@ func TestWebServes(t *testing.T) {
 	if store.URL() != "https://laptop.tail1234.ts.net" {
 		t.Fatalf("recorded %q", store.URL())
 	}
+	// And how it was started, with its process, for the TUI.
+	run, running := store.Gateway()
+	if !running || run.PID != cmd.Process.Pid || strings.Join(run.Args, " ") != "-listen 127.0.0.1:0 -url https://laptop.tail1234.ts.net/" {
+		t.Fatalf("gateway record %+v %v", run, running)
+	}
 	code, err := store.NewCode(phone.PermView, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -279,14 +284,24 @@ func TestWebServes(t *testing.T) {
 		t.Fatalf("agents through the fake server: %d %+v", res.StatusCode, list)
 	}
 
-	cmd.Process.Signal(syscall.SIGTERM)
+	// conch web stop is what ends it, as a TUI-started one has no
+	// terminal to press ctrl+c in.
+	if out, err := runWebCaptured(t, "stop"); err != nil || !strings.Contains(out, fmt.Sprintf("stopped conch web (pid %d)", cmd.Process.Pid)) {
+		t.Fatalf("web stop: %q %v", out, err)
+	}
 	select {
 	case err := <-exited:
 		if err != nil {
 			t.Fatalf("exit: %v\n%s", err, stderr.String())
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("conch web did not stop on SIGTERM")
+		t.Fatal("conch web did not stop")
+	}
+	if run, running := store.Gateway(); running || run.PID != 0 || len(run.Args) != 4 {
+		t.Fatalf("after stopping: %+v %v", run, running)
+	}
+	if out, err := runWebCaptured(t, "stop"); err != nil || !strings.Contains(out, "not running") {
+		t.Fatalf("stop with none running: %q %v", out, err)
 	}
 	if !strings.Contains(stderr.String(), "warning: listening on 127.0.0.1:0, which is not this machine's Tailscale address") {
 		t.Fatalf("no warning for -listen: %s", stderr.String())
@@ -298,7 +313,7 @@ func TestWebServes(t *testing.T) {
 
 // The usage names the commands as they are.
 func TestWebUsage(t *testing.T) {
-	for _, want := range []string{"conch web [-listen ADDR] [-port N] [-url URL]", "conch web pair [-permission view|reply|full]", "conch web devices | revoke ID | permission ID view|reply|full"} {
+	for _, want := range []string{"conch web [-listen ADDR] [-port N] [-url URL]", "conch web pair [-permission view|reply|full]", "conch web devices | revoke ID | permission ID view|reply|full | stop"} {
 		if !strings.Contains(usage, want) {
 			t.Errorf("usage lacks %q", want)
 		}

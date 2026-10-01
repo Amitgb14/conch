@@ -120,9 +120,10 @@ Usage:
                                 a one-time code (5 minutes) that pairs a phone, with a QR code
                                 that opens it; full by default (-permission reply or
                                 view for a phone that may only answer, or only look)
-  conch web devices | revoke ID | permission ID view|reply|full
+  conch web devices | revoke ID | permission ID view|reply|full | stop
                                 list the paired phones, cut one off at once, or change
-                                what one may do (full types into terminals)
+                                what one may do (full types into terminals); stop ends a
+                                conch web running in the background (as P in the TUI starts it)
   conch ask [-y | -n] REQUEST   ask the brain; it proposes actions and runs them once you confirm
   conch update [VERSION | latest | list | rollback]
                                 replace this binary with the latest release, a named one

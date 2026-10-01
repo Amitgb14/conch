@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/buildinfo"
+	"github.com/Amitgb14/conch/internal/phone"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -255,6 +256,13 @@ func (m Model) statusRightItems(level int) []statusItem {
 		s, cmd := newSettings(m)
 		m.overlay = s
 		return cmd
+	}})
+	// Pairing a phone, a click away: the QR code and the code, and the
+	// gateway started from there when it isn't running.
+	// An icon alone: a word more and the narrowest bars lose "? keys".
+	items = append(items, statusItem{text: styleAccent.Render("☏"), act: func(m *Model) tea.Cmd {
+		m.overlay = newPairDialog(phone.PermFull)
+		return nil
 	}})
 	if level < rightNoVersion {
 		style, text := styleMuted, versionLabel()

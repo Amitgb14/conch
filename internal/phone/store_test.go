@@ -413,3 +413,38 @@ func TestQuestionAndKeys(t *testing.T) {
 		t.Error("keys for a menu with no cursor")
 	}
 }
+
+func TestGatewayRecord(t *testing.T) {
+	s := OpenStore(t.TempDir())
+	if _, running := s.Gateway(); running {
+		t.Fatal("a gateway from nowhere")
+	}
+	now := time.Now()
+	args := []string{"-url", "https://laptop.ts.net"}
+	if err := s.GatewayStarted(os.Getpid(), args, now); err != nil {
+		t.Fatal(err)
+	}
+	args[1] = "changed" // the record keeps its own copy
+	run, running := s.Gateway()
+	if !running || run.PID != os.Getpid() || len(run.Args) != 2 || run.Args[1] != "https://laptop.ts.net" {
+		t.Fatalf("running: %+v %v", run, running)
+	}
+	// Another gateway's stop leaves this one's record.
+	s.GatewayStopped(os.Getpid() + 1)
+	if _, running := s.Gateway(); !running {
+		t.Fatal("stopped by another pid")
+	}
+	s.GatewayStopped(os.Getpid())
+	run, running = s.Gateway()
+	if running || run.PID != 0 || run.Args[1] != "https://laptop.ts.net" {
+		t.Fatalf("stopped: %+v %v", run, running)
+	}
+	// A record whose process has gone is not running.
+	s.GatewayStarted(1<<30, nil, now)
+	if _, running := s.Gateway(); running {
+		t.Fatal("a process that isn't there runs")
+	}
+	if !processAlive(os.Getpid()) || processAlive(1<<30) {
+		t.Fatal("processAlive")
+	}
+}

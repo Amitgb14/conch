@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -145,8 +146,15 @@ func TestPairDialogSizes(t *testing.T) {
 			t.Fatalf("%v: the QR code shown in a box of %dx%d", size, b.width(), len(b.lines))
 		}
 		// An ordinary terminal is room enough; a narrow or short one isn't.
-		if want := size[0] >= 80 && size[1] >= 24 || size == [2]int{qrW + 4, 40}; shown != want {
-			t.Fatalf("%v: QR shown %v:\n%s", size, shown, a2Plain(b.lines))
+		switch size {
+		case [2]int{80, 24}, [2]int{200, 60}, [2]int{qrW + 4, 40}:
+			if !shown {
+				t.Fatalf("%v: no QR code:\n%s", size, a2Plain(b.lines))
+			}
+		case [2]int{1, 1}, [2]int{20, 5}, [2]int{30, 10}, [2]int{39, 20}, [2]int{qrW + 3, 40}:
+			if shown {
+				t.Fatalf("%v: a QR code that can't fit", size)
+			}
 		}
 		if !shown && m.width >= 40 && !strings.Contains(a2Plain(b.lines), "A larger terminal shows a QR code") {
 			t.Fatalf("%v: no word about the missing code:\n%s", size, a2Plain(b.lines))
@@ -212,5 +220,94 @@ func TestPairIsInTheHelpAndHints(t *testing.T) {
 	a1At(t, m, machineID("dev"))
 	if strings.Contains(hints(), "P phone") {
 		t.Fatalf("a remote machine offers pairing: %q", hints())
+	}
+}
+
+// The status bar's ☏ opens the dialog; the dialog says whether conch web
+// runs, and s starts it again as it was last started.
+func TestPairFromTheStatusBarAndStartingTheGateway(t *testing.T) {
+	store := pairHome(t, "https://laptop.tail1234.ts.net")
+	m, _ := a1Fixture(t, false)
+	var phoneItem *statusItem
+	var texts []string
+	for _, it := range m.statusRightItems(rightFull) {
+		texts = append(texts, ansi.Strip(it.text))
+		if ansi.Strip(it.text) == "☏" {
+			it := it
+			phoneItem = &it
+		}
+	}
+	joined := strings.Join(texts, "|")
+	if phoneItem == nil || !strings.Contains(joined, "⚙ Settings |☏|"+versionLabel()) {
+		t.Fatalf("right items %q", joined)
+	}
+	phoneItem.act(m)
+	d, ok := m.overlay.(*pairDialog)
+	if !ok || d.permission != phone.PermFull || d.code == "" {
+		t.Fatalf("overlay %T %+v", m.overlay, m.overlay)
+	}
+	// At the narrowest level it is still there.
+	found := false
+	for _, it := range m.statusRightItems(rightMinimal) {
+		found = found || ansi.Strip(it.text) == "☏"
+	}
+	if !found {
+		t.Fatal("no ☏ on a narrow bar")
+	}
+
+	// conch web never ran: nothing to start, and s does nothing.
+	var started []*exec.Cmd
+	old := startOutward
+	t.Cleanup(func() { startOutward = old })
+	startOutward = func(c *exec.Cmd) error { started = append(started, c); return nil }
+	if out := a2Plain(d.render(*m).lines); strings.Contains(out, "isn't running") {
+		t.Fatalf("a start offered with nothing to start from:\n%s", out)
+	}
+	d.update(m, a2Key("s"))
+	if len(started) != 0 {
+		t.Fatal("started with no record of how")
+	}
+
+	// It ran once and stopped: s starts it again, the same way, in the
+	// background, and the dialog looks again a moment later.
+	store.GatewayStarted(1<<30, []string{"-url", "https://laptop.tail1234.ts.net"}, time.Now())
+	m.width, m.height = 80, 24
+	d = newPairDialog(phone.PermFull)
+	m.overlay = d
+	b := d.render(*m)
+	a2CheckBox(t, b, *m)
+	if out := a2Plain(b.lines); !strings.Contains(out, "conch web isn't running — s starts it") || !strings.Contains(strings.Join(b.lines, "\n"), d.qr[0]) {
+		t.Fatalf("not running, at 80x24:\n%s", out)
+	}
+	closed, cmd := d.update(m, a2Key("s"))
+	if closed || cmd == nil || len(started) != 1 || !d.starting {
+		t.Fatalf("s: closed %v cmd %v started %d", closed, cmd != nil, len(started))
+	}
+	c := started[0]
+	if exe, _ := os.Executable(); c.Path != exe || strings.Join(c.Args[1:], " ") != "web -url https://laptop.tail1234.ts.net" ||
+		c.SysProcAttr == nil || !c.SysProcAttr.Setsid || c.Stdout == nil {
+		t.Fatalf("started %v %+v", c.Args, c.SysProcAttr)
+	}
+	if !strings.Contains(a2Plain(d.render(*m).lines), "starting conch web") {
+		t.Fatal("no word while it starts")
+	}
+	d.update(m, a2Key("s")) // not twice
+	if len(started) != 1 {
+		t.Fatal("started twice")
+	}
+	// The look again: it didn't come up (nothing really ran here).
+	d.update(m, pairCheckMsg{})
+	if d.starting || d.running || !strings.Contains(d.err, "web.log") {
+		t.Fatalf("after the check: %+v", d)
+	}
+	// Running: said so, and s does nothing.
+	store.GatewayStarted(os.Getpid(), []string{"-url", "x"}, time.Now())
+	d = newPairDialog(phone.PermFull)
+	if !d.running || !strings.Contains(a2Plain(d.render(*m).lines), "conch web is running") {
+		t.Fatalf("running: %+v", d)
+	}
+	d.update(m, a2Key("s"))
+	if len(started) != 1 {
+		t.Fatal("started one that runs")
 	}
 }

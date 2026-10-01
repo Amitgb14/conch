@@ -203,6 +203,7 @@ conch web pair [-permission view|reply|full]                # a QR code and one-
 conch web devices                                           # the paired phones
 conch web revoke ID                                         # cut one off at once
 conch web permission ID view|reply|full                     # change what one may do
+conch web stop                                              # end one running in the background
 ```
 
 `conch web` serves your [phone](/docs/phone) on this machine's Tailscale address and nowhere else, unless `-listen` names another address. `-url` is the address phones open — the `https://…ts.net` one `tailscale serve` gives — which the QR code points at. `pair` draws the QR code only when it prints to a terminal. It takes no `-m`: it shows the agents of the machine it runs on. `pair` and `revoke` are refused from an agent's pane.
