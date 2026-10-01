@@ -362,3 +362,14 @@ test("scrollback starts over when it no longer joins up", async () => {
   assert.equal(olderOffset(null), 0)
   assert.equal(olderOffset({ history: 5, top: 5, live: [] }), 1)
 })
+
+test("a swipe as wheel steps", async () => {
+  const { wheelSteps } = await import("../ui/lib.mjs")
+  assert.deepEqual(wheelSteps(0, 30, 26), { acc: 4, steps: 1 })
+  assert.deepEqual(wheelSteps(4, 22, 26), { acc: 0, steps: 1 }) // what was left over counts
+  assert.deepEqual(wheelSteps(0, -60, 26), { acc: -8, steps: -2 })
+  assert.deepEqual(wheelSteps(0, 10, 26), { acc: 10, steps: 0 })
+  // Turning back cancels what had built up rather than stepping both ways.
+  assert.deepEqual(wheelSteps(20, -30, 26), { acc: -10, steps: 0 })
+  assert.deepEqual(wheelSteps(undefined, NaN, 26), { acc: 0, steps: 0 })
+})

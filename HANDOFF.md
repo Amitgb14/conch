@@ -488,3 +488,11 @@ After Amit's first runs on his iPhone:
   pairing dialog uses the address set, and `s` starts `conch web` with no
   flags when the settings say where. Stopping goes through
   `signalProcess`, which the TUI tests replace.
+- **Scrolling a full-screen agent**: Claude Code runs on the alternate
+  screen and keeps its own history (conch had 20 lines of this session's).
+  Frame gains `mouse`; the socket gains `wheel {pane, direction, count}`
+  (reply; `pane.send_mouse` over the upper middle of the pane). In the app,
+  past the top or bottom edge of the output box a swipe or the wheel
+  becomes wheel steps (`wheelSteps` in lib.mjs) when the frame says
+  `mouse`; otherwise history pages load as before. The laptop sees the
+  agent scrolled too — it is the agent's own view. Run R44.

@@ -515,6 +515,10 @@ This Mac to busybox (`aghadge@10.0.0.115`), isolated on both sides. Here: its ow
 - **Found and fixed:** a menu whose title was its widest line lost the end of it ("Move feat to which machin…"), in every menu: the frame's spaces weren't counted.
 - **Not run:** a real Claude reading the handoff after a move (the handoff itself was checked in R19), and a pushed branch sending no commits (covered by the server tests).
 
+### R44 — 2026-09-30, scrolling an agent's own view, in headless Chrome and on this Mac's own pane, macOS arm64, build 0.1.6-dev
+
+Amit: the agent window couldn't be scrolled up as on the laptop. A read-only look at a real Claude Code pane (this session's own) showed why: it runs on the alternate screen with mouse reports on, and conch had kept only 20 lines of it — Claude keeps its conversation itself, and the laptop scrolls it by passing the wheel on. Frames now say `mouse`, and the socket takes `wheel`. With a stand-in that behaves the same (alternate screen, SGR mouse, 200 lines, 3 per wheel step), at 390×844 with touch: four pulls down at the top of the box took its view from line 171 to 39, six wheel turns to line 1, wheel down at the bottom brought it forward to 34. Not yet: the real Claude Code on the iPhone, whose wheel step and screen layout differ from the stand-in's.
+
 ### R43 — 2026-09-30, scrolling back, in headless Chrome, macOS arm64, build 0.1.6-dev
 
 Amit: the agent chat could not be scrolled up — it showed the last 24 rows of the screen and nothing else. With the socket's new `scroll` and the stitched history: a shell after `seq 1 300` and a stand-in agent after 60 typed messages, at 390×844. Scrolling the terminal to its top again and again loaded page after page until the first line; all 300 numbers were there once each and in order, the "Earlier output" line went, and a command typed afterwards still landed at the bottom, once. In the chat the first of the 60 messages, far above the screen, came into reach the same way, all 60 present. Pairing now defaults to `full` (`conch web pair`, `P`).  Not on a real phone yet: momentum scrolling on iOS while a page is being put in above.

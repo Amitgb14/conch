@@ -8,7 +8,7 @@
 import {
   parseLine, frameRows, sortPanes, upsertPane, removeAgent, groupAgents, agentLabel,
   ago, route, can, backoff, codeFromHash, fontSizeFor, chunks, keyBytes, appPath,
-  keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset,
+  keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps,
 } from "/lib.mjs"
 
 const API_VERSION = 1
@@ -589,9 +589,36 @@ function paneScreen(pane, cls, label) {
   const live = h("div", { class: "live" })
   const el = h("pre", { class: `screen ${cls}`, "aria-label": label, tabindex: "0" }, older, hist, live)
   let sb = null, loading = null, stick = true, last = null
+  // A program that took the mouse — an agent's full-screen view — keeps
+  // its history itself: past the edge of the box, a swipe or the wheel is
+  // turned into wheel steps for it, as the laptop does.
+  let mouse = false, acc = 0, lastY = null
 
   const stop = () => { clearTimeout(loading); loading = null }
+  const atTop = () => el.scrollTop <= 0
+  const atBottom = () => el.scrollTop + el.clientHeight >= el.scrollHeight - 1
+  const wheel = (dy, step) => {
+    const r = wheelSteps(acc, dy, step)
+    acc = r.acc
+    if (r.steps) send({ type: "wheel", pane, direction: r.steps > 0 ? "up" : "down", count: Math.min(10, Math.abs(r.steps)) })
+  }
+  // Only at the box's own edge: inside it, it scrolls as any box does.
+  const pastEdge = (dy) => (dy > 0 && atTop()) || (dy < 0 && atBottom())
+  el.addEventListener("touchstart", (ev) => { lastY = ev.touches[0].clientY; acc = 0 }, { passive: true })
+  el.addEventListener("touchmove", (ev) => {
+    if (!mouse || !mayReply() || lastY == null) return
+    const y = ev.touches[0].clientY, dy = y - lastY
+    lastY = y
+    if (pastEdge(dy)) { ev.preventDefault(); wheel(dy, 26) }
+  }, { passive: false })
+  el.addEventListener("wheel", (ev) => {
+    if (!mouse || !mayReply()) return
+    const dy = -ev.deltaY * (ev.deltaMode === 1 ? 16 : 1)
+    if (pastEdge(dy)) { ev.preventDefault(); wheel(dy, 40) }
+  }, { passive: false })
+
   const more = () => {
+    if (mouse) return // the program keeps its own history
     const offset = olderOffset(sb)
     if (!offset || loading) return
     older.textContent = "Loading earlier output…"
@@ -600,10 +627,18 @@ function paneScreen(pane, cls, label) {
     loading = setTimeout(() => { loading = null; send({ type: "scroll", pane, offset: 0 }); label2() }, 4000)
   }
   const label2 = () => {
+    if (mouse) {
+      older.hidden = !mayReply()
+      older.textContent = "↑ Pull down here, or tap, to scroll back"
+      return
+    }
     older.hidden = !sb || sb.top <= 0
     older.textContent = "↑ Earlier output"
   }
-  older.addEventListener("click", more)
+  older.addEventListener("click", () => {
+    if (mouse) send({ type: "wheel", pane, direction: "up", count: 5 })
+    else more()
+  })
   el.addEventListener("scroll", () => {
     stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 24
     if (el.scrollTop < 80) more()
@@ -632,6 +667,7 @@ function paneScreen(pane, cls, label) {
         return
       }
       last = f
+      mouse = !!f.mouse
       if (out.reset) hist.replaceChildren()
       if (out.append?.length) hist.append(...out.append.map((l) => rowNode(parseLine(l))))
       while (hist.childElementCount > HISTORY_ROWS) hist.firstChild.remove()

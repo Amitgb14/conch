@@ -244,3 +244,42 @@ func TestSocketScroll(t *testing.T) {
 		}
 	}
 }
+
+// The wheel, for a program that asked for mouse input: the frames say it
+// did, and a wheel message reaches the program as a wheel — what scrolls
+// an agent's full-screen conversation, as at the laptop.
+func TestSocketWheel(t *testing.T) {
+	f := newFixture(t)
+	// Asks for mouse reports (SGR), then prints every byte it is sent.
+	pane := f.pane("", `stty raw -echo; printf '\033[?1000h\033[?1006hmouse-ready\r\n'; while :; do printf '%s.' "$(dd bs=1 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')"; done`)
+	waitFor(t, "the program", func() bool { return strings.Contains(f.screen(pane), "mouse-ready") })
+	s := f.pair(PermReply).socket()
+	s.send(ClientMessage{Type: MsgFrameOpen, Pane: pane})
+	fr := s.next("a frame", func(m ServerMessage) bool { return m.Type == MsgFrame && m.Frame.Pane == pane })
+	if !fr.Frame.Mouse {
+		t.Fatalf("frame doesn't say the program wants the mouse: %+v", fr.Frame)
+	}
+	s.send(ClientMessage{Type: MsgWheel, ID: "w", Pane: pane, Direction: "up", Count: 2})
+	// Two SGR wheel-up reports: ESC [ < 64 ; x ; y M, as hex.
+	waitFor(t, "two wheel reports", func() bool { return strings.Count(f.screen(pane), "1b.5b.3c.36.34.") == 2 })
+	s.send(ClientMessage{Type: MsgWheel, Pane: pane, Direction: "down"})
+	waitFor(t, "a wheel down", func() bool { return strings.Count(f.screen(pane), "1b.5b.3c.36.35.") == 1 })
+
+	for _, bad := range []ClientMessage{
+		{Type: MsgWheel, ID: "b1", Pane: pane, Direction: "left"},
+		{Type: MsgWheel, ID: "b2", Pane: pane, Direction: "up", Count: 11},
+		{Type: MsgWheel, ID: "b3", Pane: pane, Direction: "up", Count: -1},
+		{Type: MsgWheel, ID: "b4", Pane: "zsh", Direction: "up"},
+	} {
+		s.send(bad)
+		if got := s.next("the refusal of "+bad.ID, func(m ServerMessage) bool { return m.Type == MsgError && m.ID == bad.ID }); got.Error.Code != CodeBadRequest {
+			t.Errorf("%s: %+v", bad.ID, got.Error)
+		}
+	}
+	// A view device may look, not turn the wheel.
+	v := f.pair(PermView).socket()
+	v.send(ClientMessage{Type: MsgWheel, ID: "v", Pane: pane, Direction: "up"})
+	if got := v.next("the refusal", func(m ServerMessage) bool { return m.Type == MsgError && m.ID == "v" }); got.Error.Code != CodeForbidden {
+		t.Fatalf("view: %+v", got.Error)
+	}
+}

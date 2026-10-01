@@ -41,6 +41,7 @@ type socket struct {
 	knownPanes    map[string]bool
 	open          map[string]bool // panes it is drawing
 	projects      map[string]string
+	sizes         map[string][2]int // each open pane's columns and rows, from its frames
 
 	byeOnce sync.Once
 }
@@ -74,7 +75,7 @@ func (g *Gateway) serveSocket(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s := &socket{g: g, conn: conn, devID: dev.ID, tokenHash: hashSecret(token), ctx: ctx, cancel: cancel,
-		known: map[string]bool{}, knownPanes: map[string]bool{}, open: map[string]bool{}, projects: map[string]string{}}
+		known: map[string]bool{}, knownPanes: map[string]bool{}, open: map[string]bool{}, projects: map[string]string{}, sizes: map[string][2]int{}}
 	g.logf("socket %s open", dev.ID)
 
 	g.mu.Lock()
@@ -237,6 +238,37 @@ func (s *socket) handle(m ClientMessage) {
 		s.mu.Unlock()
 		s.send(ServerMessage{Type: MsgPanes, ID: m.ID, Panes: &panes})
 
+	case MsgWheel:
+		if aerr := paneID(m.Pane); aerr != nil {
+			s.fail(m.ID, aerr)
+			return
+		}
+		button := map[string]string{"up": "wheel_up", "down": "wheel_down"}[m.Direction]
+		if button == "" {
+			s.fail(m.ID, apiErr(CodeBadRequest, "direction is up or down"))
+			return
+		}
+		n := m.Count
+		if n == 0 {
+			n = 1
+		}
+		if n < 0 || n > 10 {
+			s.fail(m.ID, apiErr(CodeBadRequest, "count is between 1 and 10"))
+			return
+		}
+		// Over the upper middle of the pane, where an agent's conversation
+		// is, rather than its prompt at the bottom.
+		s.mu.Lock()
+		size := s.sizes[m.Pane]
+		s.mu.Unlock()
+		x, y := max(size[0]/2, 0), max(size[1]/3, 0)
+		for range n {
+			if err := s.call(proto.MethodPaneSendMouse, proto.PaneSendMouseParams{ID: m.Pane, X: x, Y: y, Button: button, Action: proto.MouseWheel}, nil); err != nil {
+				s.fail(m.ID, fromServer(err))
+				return
+			}
+		}
+
 	case MsgScroll:
 		if aerr := paneID(m.Pane); aerr != nil {
 			s.fail(m.ID, aerr)
@@ -352,6 +384,9 @@ func (s *socket) event(msg proto.Message) {
 		}
 		s.mu.Lock()
 		open := s.open[f.ID]
+		if open {
+			s.sizes[f.ID] = [2]int{f.Cols, f.Rows}
+		}
 		s.mu.Unlock()
 		if !open {
 			return
@@ -360,7 +395,7 @@ func (s *socket) event(msg proto.Message) {
 			f.Lines = []string{}
 		}
 		s.send(ServerMessage{Type: MsgFrame, Frame: &Frame{Pane: f.ID, Cols: f.Cols, Rows: f.Rows, Lines: f.Lines,
-			Offset: f.Offset, History: f.History, AltScreen: f.AltScreen}})
+			Offset: f.Offset, History: f.History, AltScreen: f.AltScreen, Mouse: f.Mouse}})
 
 	case proto.EventPaneUpdated, proto.EventPaneCreated:
 		var p proto.PaneInfo

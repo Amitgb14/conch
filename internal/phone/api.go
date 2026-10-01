@@ -204,6 +204,9 @@ type Frame struct {
 	Offset    int      `json:"offset"`
 	History   int      `json:"history"`
 	AltScreen bool     `json:"alt_screen"`
+	// Mouse says the program asked for mouse input: the wheel scrolls its
+	// own view (an agent's conversation) rather than the pane's history.
+	Mouse bool `json:"mouse"`
 }
 
 // Project is a project a task can be started in.
@@ -315,6 +318,7 @@ const (
 	MsgPanesWatch  = "panes.watch"
 	MsgText        = "text"
 	MsgScroll      = "scroll"
+	MsgWheel       = "wheel"
 
 	MsgAgents    = "agents"
 	MsgAgent     = "agent"
@@ -346,6 +350,9 @@ type ClientMessage struct {
 	Text string   `json:"text,omitempty"`
 	// Offset is how many lines back into history a scroll goes; 0 is live.
 	Offset int `json:"offset,omitempty"`
+	// Direction and Count are a wheel's: up or down, that many steps.
+	Direction string `json:"direction,omitempty"`
+	Count     int    `json:"count,omitempty"`
 }
 
 // ServerMessage is what the gateway sends on the socket; Type says which
@@ -374,4 +381,5 @@ var socketNeeds = map[string]string{
 	MsgPanesWatch:  PermView,
 	MsgText:        PermFull,
 	MsgScroll:      PermView,
+	MsgWheel:       PermReply,
 }

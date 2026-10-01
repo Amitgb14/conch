@@ -347,3 +347,13 @@ export function olderOffset(state) {
   if (!state || state.top <= 0) return 0
   return state.history - state.top + Math.max(1, state.live.length)
 }
+
+// wheelSteps turns a swipe or a wheel into wheel steps for a program that
+// takes the mouse: dy is how far the content was pulled (down positive:
+// toward older lines), step how far one wheel step is. It returns what is
+// left over and the steps, positive for up (older), negative for down.
+export function wheelSteps(acc, dy, step) {
+  const total = (Number(acc) || 0) + (Number(dy) || 0)
+  const steps = Math.trunc(total / step) || 0 // not -0
+  return { acc: total - steps * step, steps }
+}
