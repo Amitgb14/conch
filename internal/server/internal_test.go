@@ -1396,3 +1396,43 @@ func TestA5ThemeSamples(t *testing.T) {
 		t.Fatalf("shellThemes: %+v", th)
 	}
 }
+
+// TestA5LimitsCarryEveryWindow: a report with windows the server does not
+// know by name is kept and broadcast, and one that only repeats itself
+// wakes nobody.
+func TestA5LimitsCarryEveryWindow(t *testing.T) {
+	a5IsolateEnv(t)
+	s, _ := a5Server(t)
+	now := time.Now().Truncate(time.Second)
+	l := proto.PlanLimits{Agent: "claude", At: now, Windows: []proto.NamedWindow{
+		{Key: "five_hour", UsedPct: 9, ResetsAt: now.Add(time.Hour)},
+		{Key: "seven_day_fable", UsedPct: 0},
+	}}
+	s.setLimits(l)
+	got := s.allLimits()
+	if len(got.Limits) != 1 || len(got.Limits[0].Windows) != 2 {
+		t.Fatalf("what the server kept: %+v", got.Limits)
+	}
+	if got.Limits[0].Windows[1].Key != "seven_day_fable" {
+		t.Fatalf("a window the server does not know was dropped: %+v", got.Limits[0].Windows)
+	}
+	// The same report again changes nothing; a different one does.
+	if !sameNamed(l.Windows, got.Limits[0].Windows) {
+		t.Fatal("sameNamed says a list differs from itself")
+	}
+	other := append([]proto.NamedWindow{}, l.Windows...)
+	other[1].UsedPct = 5
+	if sameNamed(l.Windows, other) {
+		t.Fatal("sameNamed missed a changed percentage")
+	}
+	if sameNamed(l.Windows, l.Windows[:1]) {
+		t.Fatal("sameNamed missed a window going")
+	}
+	// A report with nothing in it is not kept at all.
+	s.setLimits(proto.PlanLimits{Agent: "gemini", At: now})
+	for _, k := range s.allLimits().Limits {
+		if k.Agent == "gemini" {
+			t.Fatal("an empty report was kept")
+		}
+	}
+}

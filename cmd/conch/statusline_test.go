@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -57,5 +58,50 @@ func TestUserStatusLine(t *testing.T) {
 	put(filepath.Join(project, ".claude", "settings.local.json"), "/x/conch report claude-status")
 	if got := userStatusLine(in); got != "project-status" {
 		t.Fatalf("conch's own command must be skipped: %q", got)
+	}
+}
+
+// TestStatusParamsCarriesEveryWindow: an account with a per-model
+// allowance reports more windows than the three conch grew up with, and
+// they are passed on under the agent's own names rather than dropped.
+func TestStatusParamsCarriesEveryWindow(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	in := statusInput{}
+	in.RateLimits = map[string]*struct {
+		UsedPercentage float64 `json:"used_percentage"`
+		ResetsAt       float64 `json:"resets_at"`
+	}{
+		"five_hour":       {UsedPercentage: 9, ResetsAt: float64(now.Add(time.Hour).Unix())},
+		"seven_day":       {UsedPercentage: 38},
+		"seven_day_fable": {UsedPercentage: 0},
+		"spend_limit":     {UsedPercentage: 3},
+	}
+	p := statusParams("p1", in, now)
+	if p.Limits == nil {
+		t.Fatal("no limits reported")
+	}
+	// The three conch has always sent are still there, for older servers.
+	if p.Limits.FiveHour == nil || p.Limits.Week == nil || p.Limits.Spend == nil {
+		t.Fatalf("the known windows went missing: %+v", p.Limits)
+	}
+	// And every one the agent named, in a settled order.
+	var keys []string
+	for _, w := range p.Limits.Windows {
+		keys = append(keys, w.Key)
+	}
+	if got := strings.Join(keys, ","); got != "five_hour,seven_day,seven_day_fable,spend_limit" {
+		t.Fatalf("named windows: %q", got)
+	}
+	for _, w := range p.Limits.Windows {
+		if w.Key == "five_hour" && !w.ResetsAt.Equal(now.Add(time.Hour)) {
+			t.Fatalf("reset time lost: %v", w.ResetsAt)
+		}
+		if w.Key == "seven_day" && !w.ResetsAt.IsZero() {
+			t.Fatalf("a window with no reset time invented one: %v", w.ResetsAt)
+		}
+	}
+	// No rate limits at all: nothing is reported rather than an empty one.
+	if p := statusParams("p1", statusInput{}, now); p.Limits != nil {
+		t.Fatalf("limits out of nothing: %+v", p.Limits)
 	}
 }

@@ -102,14 +102,38 @@ func TestScrollbarDrawnAndDragged(t *testing.T) {
 	}
 }
 
+// TestThumbIsOneCellInAnyFont guards the bug that scattered a whole screen:
+// the thumb was █, whose width is Ambiguous — one cell by measurement, two
+// in some fonts — so every line carrying it pushed the frame out a column.
+// Whatever it is drawn with must measure one cell and be no glyph at all.
+func TestThumbIsOneCellInAnyFont(t *testing.T) {
+	applyTheme("conch", "")
+	m, _ := a1Fixture(t, false)
+	m.frames[paneKey(localMachine, "p1")] = &proto.Frame{ID: "p1", History: 300}
+	mark := m.scrollbarMark(viewRef{Kind: kindPane, Machine: localMachine, PaneID: "p1"}, 20)
+	if len(mark) == 0 {
+		t.Fatal("no thumb to check")
+	}
+	for i, g := range mark {
+		if w := ansi.StringWidth(g); w != 1 {
+			t.Errorf("row %d: the thumb measures %d cells: %q", i, w, g)
+		}
+		for _, r := range ansi.Strip(g) {
+			if r != ' ' {
+				t.Errorf("row %d: the thumb draws %q — a glyph a font may widen", i, string(r))
+			}
+		}
+	}
+}
+
 func TestFrameLinesBarDrawsTheThumb(t *testing.T) {
 	lines := frameLinesBar(" title ", []string{"a", "b", "c"}, 10, colorBorder,
-		map[int]string{1: styleAccent.Render("█")})
+		map[int]string{1: styleThumb.Render(" ")})
 	if len(lines) != 5 {
 		t.Fatalf("lines: %d", len(lines))
 	}
-	if !strings.HasSuffix(ansi.Strip(lines[2]), "█") {
-		t.Fatalf("no thumb on the marked row: %q", ansi.Strip(lines[2]))
+	if strings.HasSuffix(ansi.Strip(lines[2]), "│") {
+		t.Fatalf("the marked row still draws the border: %q", ansi.Strip(lines[2]))
 	}
 	if !strings.HasSuffix(ansi.Strip(lines[1]), "│") || !strings.HasSuffix(ansi.Strip(lines[3]), "│") {
 		t.Fatal("the border was lost where there is no thumb")

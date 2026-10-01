@@ -70,6 +70,10 @@ func (m Model) View() string {
 			switch {
 			case m.leafDrag == l.id:
 				color = colorWarn // being dragged: let go on another split
+			case m.leafDrag != 0 && m.leafDrop == l.id:
+				color = colorAccent // where it would land, while held
+			case m.swapped(l.id):
+				color = colorInput // the two that just swapped, for a moment
 			case t.sync && l.view.Kind == kindPane:
 				color = colorWarn // typing goes to every pane in the tab
 			case focused && m.focus == focusMain:

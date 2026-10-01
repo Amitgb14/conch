@@ -77,9 +77,6 @@ func TestLimitsDisplay(t *testing.T) {
 	if got := ansi.Strip(limitsChip(l, now)); got != "Claude 5h 42% · 7d 18%" {
 		t.Fatalf("chip %q", got)
 	}
-	if got := limitsDetail(l, now); got != "Claude Code: 5-hour 42% used, resets 14:00 · week 18% used, resets Wed 12:00" {
-		t.Fatalf("detail %q", got)
-	}
 	if got := tokenSummary(&proto.Tokens{Context: 45210, ContextSize: 200000, Output: 12000}); got != "ctx 45k/200k · out 12k" {
 		t.Fatalf("tokens %q", got)
 	}

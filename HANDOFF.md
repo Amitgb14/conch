@@ -107,7 +107,7 @@ with no build step. It's about 84 KB of code; the icons are separate.
 **Docs:**
 - `web/src/app/docs/phone/page.mdx`, plus the CLI, keys and configuration pages.
 - The repository map in `AGENTS.md`.
-- `docs/testing/end-to-end.md`: rows 9.70–9.81 and runs R38–R44.
+- `docs/testing/end-to-end.md`: rows 9.71–9.82 and runs R38–R45.
 
 **Dependencies:** `github.com/coder/websocket`, `rsc.io/qr`, and
 `charmbracelet/x/term`, which was already in the module graph and is now
@@ -184,15 +184,15 @@ direct.
 - **On real devices.** Confirmed on Amit's iPhone over Tailscale:
   pairing, the app, scrolling, and typing into terminals (after the R45
   fix). Nothing beyond that has been confirmed on a device. Open rows in `docs/testing/end-to-end.md`:
-  - **9.71:** answering real Claude and Codex questions. Gemini, OpenCode
+  - **9.72:** answering real Claude and Codex questions. Gemini, OpenCode
     and Devin have no recorded question screens; they get no choices and
     are answered in the terminal.
-  - **9.75–9.77, 9.81:** the Home Screen app, offline, the terminal and the
+  - **9.76–9.78, 9.82:** the Home Screen app, offline, the terminal and the
     keyboard on iOS and Android.
-  - **9.78–9.79:** a real push. In headless Chrome a push sent through the
+  - **9.79–9.80:** a real push. In headless Chrome a push sent through the
     debugging port never reached the worker; the handler is covered only by
     running `sw.js` in node.
-  - **9.80:** a camera scanning the QR code.
+  - **9.81:** a camera scanning the QR code.
   - **R44:** scrolling the real Claude Code from the phone. The stand-in's
     3-lines-per-step may not match Claude's.
 - **Untested paths:**

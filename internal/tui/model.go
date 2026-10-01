@@ -114,10 +114,13 @@ type Model struct {
 	barDrag     *splitBar // a split boundary being dragged
 	tabDrag     bool      // a tab is being dragged along the bar
 	leafDrag    int       // a split being dragged by its title, to swap
-	hoverRow    string    // the tree row under the pointer, with [ui] hover
-	hoverTab    int       // the tab under it, as an index into m.tabs; -1 none
-	scrollDrag  int       // a leaf whose scrollbar is being dragged
-	scrollTop   int       // the track's first screen row, and its height
+	leafDrop    int       // the split under the pointer while it is dragged
+	swapMark    [2]int    // the two splits that just swapped, marked briefly
+	swapUntil   time.Time
+	hoverRow    string // the tree row under the pointer, with [ui] hover
+	hoverTab    int    // the tab under it, as an index into m.tabs; -1 none
+	scrollDrag  int    // a leaf whose scrollbar is being dragged
+	scrollTop   int    // the track's first screen row, and its height
 	scrollH     int
 	pendingShow string // row to put on screen once the tree has it
 
@@ -1094,11 +1097,17 @@ func (m *Model) setWorking(step string) {
 	m.working = step
 }
 
+type swapMarkExpiredMsg struct{}
+
 type flashExpiredMsg struct{}
 
 // Update handles a message, then schedules clearing the status bar message
 // when one is showing.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(swapMarkExpiredMsg); ok {
+		m.swapMark, m.swapUntil = [2]int{}, time.Time{}
+		return m, nil
+	}
 	if _, ok := msg.(flashExpiredMsg); ok {
 		m.flashTimer = false
 		if m.flash != "" && !time.Now().Before(m.flashUntil) {

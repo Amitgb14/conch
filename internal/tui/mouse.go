@@ -81,16 +81,28 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if m.leafDrag != 0 {
 		switch msg.Action {
 		case tea.MouseActionRelease:
-			from := m.leafDrag
-			m.leafDrag = 0
+			from, to := m.leafDrag, 0
+			m.leafDrag, m.leafDrop = 0, 0
 			rects, _ := m.leafRects()
-			to := m.leafAt(rects, msg.X, msg.Y)
+			to = m.leafAt(rects, msg.X, msg.Y)
 			if to == 0 || to == from || !m.tab().swapLeaves(from, to) {
 				return m, nil // let go over nothing, or over itself
 			}
-			return m, tea.Batch(m.focusLeaf(to), m.syncView(), m.saveState())
+			// Both halves are marked for a moment afterwards: a swap of two
+			// panes full of text is otherwise hard to see happen at all.
+			m.swapMark, m.swapUntil = [2]int{from, to}, time.Now().Add(swapMarkFor)
+			return m, tea.Batch(m.focusLeaf(to), m.syncView(), m.saveState(),
+				tea.Tick(swapMarkFor, func(time.Time) tea.Msg { return swapMarkExpiredMsg{} }))
 		case tea.MouseActionMotion:
-			return m, nil // the title stays marked until it is let go
+			// What it would swap with, while the button is held: the drop
+			// is marked as well as the split being carried.
+			rects, _ := m.leafRects()
+			if id := m.leafAt(rects, msg.X, msg.Y); id != m.leafDrag {
+				m.leafDrop = id
+			} else {
+				m.leafDrop = 0
+			}
+			return m, nil
 		}
 		return m, nil
 	}

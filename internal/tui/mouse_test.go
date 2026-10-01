@@ -743,3 +743,55 @@ func TestA1DragSplitNeedsTwo(t *testing.T) {
 		t.Fatal("a click inside a pane started a drag")
 	}
 }
+
+// TestA1DragSplitShowsWhereItLands: while the button is held the split
+// under the pointer is marked as the place it would go, and after the
+// release both halves stay marked for a moment — a swap of two panes full
+// of text is otherwise hard to see happen.
+func TestA1DragSplitShowsWhereItLands(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1Open(t, m, paneNodeID(localMachine, "p1"))
+	m.cursor = paneNodeID(localMachine, "p4")
+	m.split(splitRight, viewOf(m.rows[indexOfRow(m.rows, paneNodeID(localMachine, "p4"))]))
+	leaves := m.tab().root.leaves()
+	rects, _ := m.leafRects()
+	title := func(id int) (int, int) { return rects[id].x + 2, rects[id].y }
+
+	x, y := title(leaves[0].id)
+	a1Mouse(t, m, x, y, a1Left, a1Press)
+	// Over itself: nothing is marked as a destination.
+	a1Mouse(t, m, x+1, y+1, tea.MouseButtonNone, a1Motion)
+	if m.leafDrop != 0 {
+		t.Fatalf("its own split is marked as the drop: %d", m.leafDrop)
+	}
+	// Over the other: that one is where it would land.
+	ox, oy := title(leaves[1].id)
+	a1Mouse(t, m, ox+1, oy+2, tea.MouseButtonNone, a1Motion)
+	if m.leafDrop != leaves[1].id {
+		t.Fatalf("the drop is %d, want %d", m.leafDrop, leaves[1].id)
+	}
+	// Letting go marks both for a moment and clears the drag.
+	cmd := a1Mouse(t, m, ox+1, oy+2, a1Left, a1Release)
+	if m.leafDrag != 0 || m.leafDrop != 0 {
+		t.Fatalf("the drag outlived the release: %d %d", m.leafDrag, m.leafDrop)
+	}
+	if !m.swapped(leaves[0].id) || !m.swapped(leaves[1].id) {
+		t.Fatal("the two that swapped are not marked")
+	}
+	if m.swapped(0) {
+		t.Fatal("a leaf that took no part is marked")
+	}
+	if cmd == nil {
+		t.Fatal("nothing asked for the mark to be taken away again")
+	}
+	// The mark goes by itself, and the message that clears it does too.
+	m.swapUntil = time.Now().Add(-time.Second)
+	if m.swapped(leaves[0].id) {
+		t.Fatal("the mark outstayed its time")
+	}
+	m.swapUntil = time.Now().Add(time.Minute)
+	next, _ := m.Update(swapMarkExpiredMsg{})
+	if mm := next.(Model); mm.swapped(leaves[0].id) {
+		t.Fatal("the message did not clear the mark")
+	}
+}

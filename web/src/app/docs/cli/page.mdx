@@ -91,7 +91,7 @@ An agent in a conch pane can drive conch with the same commands — start a revi
 - **panes in its own project**, whoever started them;
 - **its own project's** branches and worktrees.
 
-Anything else — typing into, closing, renaming or marking as seen another project's pane, sending it keys or a broadcast, removing another project, committing, pushing or discarding there — is refused with `out_of_scope`, and so is `conch server stop` or `reload`:
+Anything else — typing into, closing, renaming or marking as seen another project's pane, sending it keys or a broadcast, removing another project, committing, pushing or discarding there — is refused with `out_of_scope`, and so is `conch server stop` or `reload`, and changing your own setup: the agents' skill, the library, a sync, or which local files a project copies into its worktrees:
 
 ```text
 conch: out_of_scope: the claude agent in p4 may not close p1: it did not start it, and it is in another project; do it from the TUI or a terminal pane

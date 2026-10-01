@@ -14,11 +14,15 @@ import (
 
 // usage is what one or more agents have used so far.
 type usage struct {
-	agents  int
-	output  int // tokens generated
-	input   int // prompt tokens, cache reads and writes included
-	cost    float64
-	costFor int // how many of the agents reported a cost
+	agents int
+	output int // tokens generated
+	input  int // prompt tokens, cache reads and writes included
+	// The parts of input, kept apart for anywhere that has room to say so:
+	// an agent's own panel lists them separately, and a total that folds
+	// 25m of cache reads into "input" cannot be reconciled with it.
+	prompt, cacheRead, cacheWrite int
+	cost                          float64
+	costFor                       int // how many of the agents reported a cost
 }
 
 func (u usage) empty() bool { return u.agents == 0 || (u.output == 0 && u.input == 0 && u.cost == 0) }
@@ -36,6 +40,9 @@ func (u *usage) add(p proto.PaneInfo) {
 	u.agents++
 	u.output += t.Output
 	u.input += t.Input + t.CacheRead + t.CacheWrite
+	u.prompt += t.Input
+	u.cacheRead += t.CacheRead
+	u.cacheWrite += t.CacheWrite
 	if t.CostUSD > 0 {
 		u.cost += t.CostUSD
 		u.costFor++

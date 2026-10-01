@@ -70,7 +70,7 @@ Usage:
                                 MCP servers and skills kept in conch, each given to the
                                 agents you choose: add NAME (URL | -- COMMAND ARGS),
                                 -to NAMES, -env K=${VAR}; plan says what apply writes
-  conch project add PATH | create [-no-git] PATH | ls | rm ID
+  conch project add PATH | create [-no-git] PATH | ls | rm ID | files ID [-reset | -none | PATTERN...]
                                 manage projects shown in the sidebar
   conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] PROMPT
                                 new branch + worktree + Claude with PROMPT; in a folder that isn't a
