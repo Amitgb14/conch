@@ -496,3 +496,7 @@ After Amit's first runs on his iPhone:
   becomes wheel steps (`wheelSteps` in lib.mjs) when the frame says
   `mouse`; otherwise history pages load as before. The laptop sees the
   agent scrolled too — it is the agent's own view. Run R44.
+- **Settings → Phone → Devices…** (`internal/tui/devices.go`): a panel of
+  the paired devices; `v`/`r`/`f` set the permission, `x` twice revokes,
+  esc back to the settings. The TUI acts as the person, so it isn't held
+  by the agent guard that `conch web permission` has.

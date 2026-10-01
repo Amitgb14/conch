@@ -75,6 +75,10 @@ The permission is checked on every request and on every message over the live co
 
 ## Devices
 
+In the TUI, **⚙ Settings → Phone → Devices…** opens a panel of every paired phone and browser: its name, ID, what it may do and when it was paired. `v`, `r` and `f` set what the selected one may do, `x` twice revokes it, esc goes back. A change applies to the device's next request at once.
+
+From a terminal:
+
 ```sh
 conch web devices        # ID, name, permission, when it was paired
 conch web revoke d_7h2k  # cut one off

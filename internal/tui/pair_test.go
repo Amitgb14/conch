@@ -491,8 +491,7 @@ func TestPairAndSettingsCopy(t *testing.T) {
 	// Settings → Phone: each command copies.
 	s := &settings{}
 	s.setTab(phoneTab)
-	want := map[string]bool{"tailscale serve --bg http://127.0.0.1:8722": false, "conch web devices": false,
-		"conch web permission ID full": false, "conch web revoke ID": false}
+	want := map[string]bool{"tailscale serve --bg http://127.0.0.1:8722": false, "conch web devices": false}
 	for _, it := range s.items(m) {
 		for cmd := range want {
 			if strings.HasSuffix(ansi.Strip(it.label), cmd) {

@@ -613,11 +613,13 @@ func (s *settings) phoneItems(m *Model) []settingItem {
 		m.overlay = newPairDialog(m.cfg.Web, phone.PermFull)
 		return nil
 	}},
+		settingItem{label: "Devices…", detail: devicesSummary(), page: true, run: func(m *Model) tea.Cmd {
+			m.overlay = newDevicesPanel(s)
+			return nil
+		}},
 		settingItem{},
 		copyItem("In front of it", fmt.Sprintf("tailscale serve --bg http://127.0.0.1:%d", w.PortOrDefault())),
-		copyItem("Paired phones", "conch web devices"),
-		copyItem("Let one type", "conch web permission ID full"),
-		copyItem("Cut one off", "conch web revoke ID"),
+		copyItem("Paired phones, in a terminal", "conch web devices"),
 	)
 	return items
 }
