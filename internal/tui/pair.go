@@ -35,6 +35,9 @@ type pairDialog struct {
 	running  bool
 	lastArgs []string
 	starting bool
+	// codeRow is the box row the code is on, as last drawn: a click there
+	// copies the code, a click elsewhere in the box the link.
+	codeRow int
 }
 
 // pairCheckMsg asks the dialog to look again at whether the gateway runs,
@@ -150,6 +153,10 @@ func (d *pairDialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		if l := d.link(); l != "" {
 			return false, copyText(l)
 		}
+	case "c":
+		if d.code != "" {
+			return false, copyText(d.code)
+		}
 	default:
 		m.overlay = nil
 		return true, nil
@@ -206,18 +213,22 @@ func (d *pairDialog) layout(m Model, withQR bool) box {
 		}
 	}
 	// v, r and f name the permissions the code line shows.
-	keys := "v/r/f new code as view/reply/full · other keys close"
+	keys := "v/r/f new code: view/reply/full · click or c copies the code"
 	if d.link() != "" {
-		keys = "v/r/f new code · y copy link · other keys close"
+		keys = "v/r/f new code · click or y/c copies link/code · esc closes"
 	}
 	add(styleMuted.Render(keys))
 
 	var lines []string
+	d.codeRow = -1
 	if withQR {
 		pad := (w - ansi.StringWidth(d.qr[0])) / 2
 		for _, l := range d.qr {
 			lines = append(lines, fmt.Sprintf("%*s%s", pad, "", l))
 		}
+	}
+	if d.err == "" && d.code != "" {
+		d.codeRow = len(lines) + 1 // the code line comes first after the QR code; +1 for the border
 	}
 	for _, l := range text {
 		lines = append(lines, " "+l)
@@ -228,9 +239,24 @@ func (d *pairDialog) layout(m Model, withQR bool) box {
 	return b
 }
 
+// mouse closes the dialog on a click outside it. A click inside copies:
+// the code on its line, the link anywhere else — the dialog draws over
+// the screen, so its text can't be selected the ordinary way.
 func (d *pairDialog) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
-	if msg.Action == tea.MouseActionPress && !b.contains(msg.X, msg.Y) {
+	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+		return nil
+	}
+	if !b.contains(msg.X, msg.Y) {
 		m.overlay = nil
+		return nil
+	}
+	switch {
+	case msg.Y-b.y == d.codeRow && d.code != "":
+		return copyText(d.code)
+	case d.link() != "":
+		return copyText(d.link())
+	case d.code != "":
+		return copyText(d.code)
 	}
 	return nil
 }

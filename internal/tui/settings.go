@@ -614,10 +614,20 @@ func (s *settings) phoneItems(m *Model) []settingItem {
 		return nil
 	}},
 		settingItem{},
-		settingItem{label: styleMuted.Render(fmt.Sprintf("  In front of it: tailscale serve --bg http://127.0.0.1:%d", w.PortOrDefault()))},
-		settingItem{label: styleMuted.Render("  Paired phones: conch web devices · revoke ID · permission ID full")},
+		copyItem("In front of it", fmt.Sprintf("tailscale serve --bg http://127.0.0.1:%d", w.PortOrDefault())),
+		copyItem("Paired phones", "conch web devices"),
+		copyItem("Let one type", "conch web permission ID full"),
+		copyItem("Cut one off", "conch web revoke ID"),
 	)
 	return items
+}
+
+// copyItem is a command to run in a terminal, copied by enter or a click:
+// the settings draw over the screen, so their text can't be selected.
+func copyItem(what, command string) settingItem {
+	return settingItem{label: "  " + what + ": " + command, detail: styleMuted.Render("enter copies"), run: func(m *Model) tea.Cmd {
+		return copyText(command)
+	}}
 }
 
 func (s *settings) brainItems(m *Model) []settingItem {

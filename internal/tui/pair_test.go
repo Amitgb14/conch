@@ -53,7 +53,7 @@ func TestPairKeyShowsACodeThatPairs(t *testing.T) {
 	a2CheckBox(t, b, *m)
 	out := a2Plain(b.lines)
 	for _, want := range []string{"Pair a phone with this computer", "Scan it with the phone's camera", d.code,
-		"· full ·", "https://laptop.tail1234.ts.net", "v/r/f new code", "y copy link"} {
+		"· full ·", "https://laptop.tail1234.ts.net", "v/r/f new code", "click or y/c copies link/code"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("dialog lacks %q:\n%s", want, out)
 		}
@@ -119,11 +119,11 @@ func TestPairDialogKeys(t *testing.T) {
 	// A click outside closes it; one inside doesn't.
 	m.overlay = d
 	b := d.render(*m)
-	d.mouse(m, tea.MouseMsg{X: b.x + 1, Y: b.y + 1, Action: tea.MouseActionPress}, b)
+	d.mouse(m, tea.MouseMsg{X: b.x + 1, Y: b.y + 1, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, b)
 	if m.overlay != d {
 		t.Fatal("a click inside closed it")
 	}
-	d.mouse(m, tea.MouseMsg{X: b.x + b.width() + 1, Y: b.y, Action: tea.MouseActionPress}, b)
+	d.mouse(m, tea.MouseMsg{X: b.x + b.width() + 1, Y: b.y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, b)
 	if m.overlay != nil {
 		t.Fatal("a click outside left it open")
 	}
@@ -180,7 +180,7 @@ func TestPairDialogWithoutAGateway(t *testing.T) {
 	m := a2Model()
 	d := newPairDialog(config.WebCfg{}, phone.PermReply)
 	out := a2Plain(d.render(*m).lines)
-	if d.qr != nil || d.link() != "" || !strings.Contains(out, "Settings → Phone") || !strings.Contains(out, d.code) || strings.Contains(out, "y copy") || !strings.Contains(out, "view/reply/full") {
+	if d.qr != nil || d.link() != "" || !strings.Contains(out, "Settings → Phone") || !strings.Contains(out, d.code) || strings.Contains(out, "y/c") || !strings.Contains(out, "view/reply/full") {
 		t.Fatalf("no gateway:\n%s", out)
 	}
 	lastClipboard = "before"
@@ -432,3 +432,79 @@ func TestSettingsPhoneTab(t *testing.T) {
 }
 
 func processAliveForTest(pid int) bool { return syscall.Kill(pid, 0) == nil }
+
+// The dialog draws over the screen, so nothing in it can be selected: a
+// click copies instead — the code on its line, the link anywhere else —
+// and c copies the code. Settings → Phone's commands copy the same way.
+func TestPairAndSettingsCopy(t *testing.T) {
+	pairHome(t, "https://laptop.tail1234.ts.net")
+	m := a2Model()
+	m.width, m.height = 100, 40
+	d := newPairDialog(config.WebCfg{}, phone.PermFull)
+	m.overlay = d
+	b := d.render(*m)
+	click := func(x, y int) {
+		t.Helper()
+		lastClipboard = ""
+		a2Run(d.mouse(m, tea.MouseMsg{X: x, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, b))
+	}
+	if d.codeRow < 1 || !strings.Contains(ansi.Strip(b.lines[d.codeRow]), d.code) {
+		t.Fatalf("code row %d: %q", d.codeRow, ansi.Strip(b.lines[max(d.codeRow, 0)]))
+	}
+	click(b.x+5, b.y+d.codeRow)
+	if lastClipboard != d.code || m.overlay != d {
+		t.Fatalf("click on the code: %q, overlay %T", lastClipboard, m.overlay)
+	}
+	click(b.x+5, b.y+3) // in the QR code
+	if lastClipboard != d.link() {
+		t.Fatalf("click elsewhere: %q", lastClipboard)
+	}
+	lastClipboard = ""
+	a2Run(d.mouse(m, tea.MouseMsg{X: b.x + 5, Y: b.y + 3, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease}, b))
+	if lastClipboard != "" {
+		t.Fatal("a release copied")
+	}
+	lastClipboard = ""
+	_, cmd := d.update(m, a2Key("c"))
+	a2Run(cmd)
+	if lastClipboard != d.code || m.overlay != d {
+		t.Fatalf("c: %q", lastClipboard)
+	}
+	if !strings.Contains(a2Plain(b.lines), "click or y/c copies link/code") {
+		t.Fatalf("hint:\n%s", a2Plain(b.lines))
+	}
+	click(b.x+b.width()+2, b.y) // outside closes
+	if m.overlay != nil {
+		t.Fatal("a click outside left it open")
+	}
+
+	// Without a gateway address there is no link: a click copies the code.
+	pairHome(t, "")
+	d = newPairDialog(config.WebCfg{}, phone.PermFull)
+	m.overlay = d
+	b = d.render(*m)
+	click(b.x+3, b.y+b.width()/2%len(b.lines))
+	if lastClipboard != d.code {
+		t.Fatalf("no link, click: %q", lastClipboard)
+	}
+
+	// Settings → Phone: each command copies.
+	s := &settings{}
+	s.setTab(phoneTab)
+	want := map[string]bool{"tailscale serve --bg http://127.0.0.1:8722": false, "conch web devices": false,
+		"conch web permission ID full": false, "conch web revoke ID": false}
+	for _, it := range s.items(m) {
+		for cmd := range want {
+			if strings.HasSuffix(ansi.Strip(it.label), cmd) {
+				lastClipboard = ""
+				a2Run(it.run(m))
+				want[cmd] = lastClipboard == cmd
+			}
+		}
+	}
+	for cmd, copied := range want {
+		if !copied {
+			t.Errorf("%q not copied", cmd)
+		}
+	}
+}
