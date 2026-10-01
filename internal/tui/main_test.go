@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os/exec"
+	"syscall"
 	"testing"
 )
 
@@ -18,6 +19,7 @@ func TestMain(m *testing.M) {
 	runOutward = func(*exec.Cmd) {}
 	startOutward = func(*exec.Cmd) error { return nil }
 	ringBell = func() { bells++ }
+	signalProcess = func(pid int, sig syscall.Signal) error { signalled = append(signalled, pid); return nil }
 	m.Run()
 }
 
@@ -26,4 +28,5 @@ var (
 	lastClipboard string
 	lastOpened    string
 	bells         int
+	signalled     []int
 )

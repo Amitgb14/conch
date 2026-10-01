@@ -234,6 +234,19 @@ func webServe(args []string) error {
 	if fs.NArg() > 0 {
 		return errors.New(webUsage)
 	}
+	// What isn't given here comes from [web] in config.toml — what the
+	// TUI's settings set — so `conch web` alone, or the TUI starting it,
+	// listens and pairs as it was set up.
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	if cfg, err := config.Load(); err == nil {
+		if !given["url"] && cfg.Web.URL != "" {
+			*public = cfg.Web.URL
+		}
+		if !given["port"] {
+			*port = cfg.Web.PortOrDefault()
+		}
+	}
 	if *public != "" {
 		u, err := neturl.Parse(*public)
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {

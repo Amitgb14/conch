@@ -414,3 +414,40 @@ func TestWebWithURLListensOnLoopback(t *testing.T) {
 		t.Fatalf("warned about loopback: %s", stderr.String())
 	}
 }
+
+// With [web] set in config.toml — as the TUI's settings set it — plain
+// `conch web` listens on that port and pairs phones to that address; a
+// flag still wins.
+func TestWebTakesItsSettingsFromConfig(t *testing.T) {
+	dir := a4Env(t)
+	startA4Server(t, config.SocketPath())
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	os.WriteFile(filepath.Join(dir, "config.toml"), []byte(fmt.Sprintf("[web]\nurl = \"https://laptop.tail1234.ts.net\"\nport = %d\n", port)), 0o600)
+	exe, _ := os.Executable()
+	cmd := a4Command(exe, "web")
+	stdout, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	sc := bufio.NewScanner(stdout)
+	var out []string
+	for sc.Scan() {
+		out = append(out, sc.Text())
+		if strings.HasPrefix(sc.Text(), "pair a phone") {
+			break
+		}
+	}
+	text := strings.Join(out, "\n")
+	if !strings.Contains(text, fmt.Sprintf("listening on http://127.0.0.1:%d", port)) || !strings.Contains(text, "phones open https://laptop.tail1234.ts.net") {
+		t.Fatalf("printed:\n%s", text)
+	}
+	if run, _ := phone.OpenStore(dir).Gateway(); len(run.Args) != 0 {
+		t.Fatalf("recorded args %v: started with none", run.Args)
+	}
+}

@@ -141,3 +141,14 @@ Not every key means something to every provider: boat.dev has no regions, so `ta
 The Settings screen rewrites `config.toml`, so comments in a hand-edited file are not preserved.
 
 </Callout>
+
+## `[web]`
+
+The phone gateway, [`conch web`](/docs/phone). Set from **Settings → Phone** in the TUI.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `url` | none | the address phones open: the `https://…ts.net` name `tailscale serve` gives. With it, `conch web` listens on loopback behind Tailscale, and the pairing QR code points here |
+| `port` | `8722` | where `conch web` listens |
+
+`-url` and `-port` given to `conch web` win over these.

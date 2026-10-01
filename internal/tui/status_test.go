@@ -291,7 +291,7 @@ func TestA1StatusRightAndNarrowWidths(t *testing.T) {
 		t.Errorf("narrow bar: %q", narrow)
 	}
 	// Levels directly.
-	if items := m.statusRightItems(rightMinimal); len(items) != 5 { // waiting, ✦, ⚙, ☏, monitor
+	if items := m.statusRightItems(rightMinimal); len(items) != 4 { // waiting, ✦, ⚙, monitor: no 🌐 this narrow
 		t.Errorf("minimal right items: %d", len(items))
 	}
 	m.flash = ""

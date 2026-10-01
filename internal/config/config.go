@@ -27,6 +27,26 @@ type Config struct {
 	Remote  RemoteCfg  `toml:"remote"`
 	Verify  VerifyCfg  `toml:"verify"`
 	Sandbox SandboxCfg `toml:"sandbox"`
+	Web     WebCfg     `toml:"web"`
+}
+
+// WebCfg is the phone gateway, conch web. URL is the address phones open —
+// the https name `tailscale serve` gives — and Port where it listens;
+// either flag given to conch web wins over them.
+type WebCfg struct {
+	URL  string `toml:"url,omitempty"`
+	Port int    `toml:"port,omitempty"`
+}
+
+// DefaultWebPort is where conch web listens unless told otherwise.
+const DefaultWebPort = 8722
+
+// PortOrDefault is the port set, or the default.
+func (w WebCfg) PortOrDefault() int {
+	if w.Port < 1 || w.Port > 65535 {
+		return DefaultWebPort
+	}
+	return w.Port
 }
 
 // RestoresRunning reports whether conch should remember what a sandbox

@@ -5,12 +5,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/phone"
 )
 
@@ -74,7 +76,7 @@ func TestPairKeyShowsACodeThatPairs(t *testing.T) {
 func TestPairDialogKeys(t *testing.T) {
 	store := pairHome(t, "https://laptop.tail1234.ts.net")
 	m := a2Model()
-	d := newPairDialog(phone.PermReply)
+	d := newPairDialog(config.WebCfg{}, phone.PermReply)
 	m.overlay = d
 
 	// v and f give a new code with that permission; the old one is spent.
@@ -132,7 +134,7 @@ func TestPairDialogKeys(t *testing.T) {
 func TestPairDialogSizes(t *testing.T) {
 	pairHome(t, "https://laptop.tail1234.ts.net")
 	m := a2Model()
-	d := newPairDialog(phone.PermReply)
+	d := newPairDialog(config.WebCfg{}, phone.PermReply)
 	qrW := ansi.StringWidth(d.qr[0])
 	for _, size := range [][2]int{{1, 1}, {20, 5}, {30, 10}, {39, 20}, {qrW + 3, 40}, {qrW + 4, 40}, {80, 23}, {80, 24}, {200, 60}} {
 		m.width, m.height = size[0], size[1]
@@ -176,9 +178,9 @@ func TestPairDialogSizes(t *testing.T) {
 func TestPairDialogWithoutAGateway(t *testing.T) {
 	store := pairHome(t, "")
 	m := a2Model()
-	d := newPairDialog(phone.PermReply)
+	d := newPairDialog(config.WebCfg{}, phone.PermReply)
 	out := a2Plain(d.render(*m).lines)
-	if d.qr != nil || d.link() != "" || !strings.Contains(out, "conch web has never run here") || !strings.Contains(out, d.code) || strings.Contains(out, "y copy") || !strings.Contains(out, "view/reply/full") {
+	if d.qr != nil || d.link() != "" || !strings.Contains(out, "Settings → Phone") || !strings.Contains(out, d.code) || strings.Contains(out, "y copy") || !strings.Contains(out, "view/reply/full") {
 		t.Fatalf("no gateway:\n%s", out)
 	}
 	lastClipboard = "before"
@@ -187,7 +189,7 @@ func TestPairDialogWithoutAGateway(t *testing.T) {
 	}
 
 	os.WriteFile(filepath.Join(filepath.Dir(store.Path()), phone.StoreFile), []byte("{"), 0o600)
-	d = newPairDialog(phone.PermReply)
+	d = newPairDialog(config.WebCfg{}, phone.PermReply)
 	b := d.render(*m)
 	a2CheckBox(t, b, *m)
 	if out := a2Plain(b.lines); d.code != "" || !strings.Contains(out, "No pairing code:") {
@@ -232,13 +234,13 @@ func TestPairFromTheStatusBarAndStartingTheGateway(t *testing.T) {
 	var texts []string
 	for _, it := range m.statusRightItems(rightFull) {
 		texts = append(texts, ansi.Strip(it.text))
-		if ansi.Strip(it.text) == "☏" {
+		if ansi.Strip(it.text) == "🌐" {
 			it := it
 			phoneItem = &it
 		}
 	}
 	joined := strings.Join(texts, "|")
-	if phoneItem == nil || !strings.Contains(joined, "⚙ Settings |☏|"+versionLabel()) {
+	if phoneItem == nil || !strings.Contains(joined, "⚙ Settings |🌐|"+versionLabel()) {
 		t.Fatalf("right items %q", joined)
 	}
 	phoneItem.act(m)
@@ -246,13 +248,18 @@ func TestPairFromTheStatusBarAndStartingTheGateway(t *testing.T) {
 	if !ok || d.permission != phone.PermFull || d.code == "" {
 		t.Fatalf("overlay %T %+v", m.overlay, m.overlay)
 	}
-	// At the narrowest level it is still there.
-	found := false
-	for _, it := range m.statusRightItems(rightMinimal) {
-		found = found || ansi.Strip(it.text) == "☏"
+	// With icons only it is still there; on the narrowest bar it gives
+	// way to the monitor in the corner.
+	has := func(level int) bool {
+		for _, it := range m.statusRightItems(level) {
+			if ansi.Strip(it.text) == "🌐" {
+				return true
+			}
+		}
+		return false
 	}
-	if !found {
-		t.Fatal("no ☏ on a narrow bar")
+	if !has(rightIcons) || has(rightMinimal) {
+		t.Fatalf("🌐 at icons %v, at minimal %v", has(rightIcons), has(rightMinimal))
 	}
 
 	// conch web never ran: nothing to start, and s does nothing.
@@ -272,7 +279,7 @@ func TestPairFromTheStatusBarAndStartingTheGateway(t *testing.T) {
 	// background, and the dialog looks again a moment later.
 	store.GatewayStarted(1<<30, []string{"-url", "https://laptop.tail1234.ts.net"}, time.Now())
 	m.width, m.height = 80, 24
-	d = newPairDialog(phone.PermFull)
+	d = newPairDialog(config.WebCfg{}, phone.PermFull)
 	m.overlay = d
 	b := d.render(*m)
 	a2CheckBox(t, b, *m)
@@ -302,7 +309,7 @@ func TestPairFromTheStatusBarAndStartingTheGateway(t *testing.T) {
 	}
 	// Running: said so, and s does nothing.
 	store.GatewayStarted(os.Getpid(), []string{"-url", "x"}, time.Now())
-	d = newPairDialog(phone.PermFull)
+	d = newPairDialog(config.WebCfg{}, phone.PermFull)
 	if !d.running || !strings.Contains(a2Plain(d.render(*m).lines), "conch web is running") {
 		t.Fatalf("running: %+v", d)
 	}
@@ -311,3 +318,117 @@ func TestPairFromTheStatusBarAndStartingTheGateway(t *testing.T) {
 		t.Fatal("started one that runs")
 	}
 }
+
+// Settings → Phone: the address phones open and the port, saved in [web];
+// conch web started and stopped from there; and the pairing dialog using
+// the address set, starting conch web with no flags since it reads them.
+func TestSettingsPhoneTab(t *testing.T) {
+	store := pairHome(t, "")
+	m, _ := a1Fixture(t, false)
+	s := &settings{}
+	s.setTab(phoneTab)
+	if settingsTabs[phoneTab] != "Phone" {
+		t.Fatalf("tabs %v", settingsTabs)
+	}
+	find := func(label string) settingItem {
+		t.Helper()
+		for _, it := range s.items(m) {
+			if strings.HasPrefix(ansi.Strip(it.label), label) {
+				return it
+			}
+		}
+		t.Fatalf("no item %q", label)
+		return settingItem{}
+	}
+	plain := func() string {
+		var out []string
+		for _, it := range s.items(m) {
+			out = append(out, ansi.Strip(it.label+" "+it.detail))
+		}
+		return strings.Join(out, "\n")
+	}
+	if out := plain(); !strings.Contains(out, "Address phones open not set") || !strings.Contains(out, "Port 8722") ||
+		!strings.Contains(out, "Set the address first") || strings.Contains(out, "Start conch web") {
+		t.Fatalf("nothing set:\n%s", out)
+	}
+	submit := func(label, value string) error {
+		t.Helper()
+		find(label).run(m)
+		d, ok := m.overlay.(*dialog)
+		if !ok {
+			t.Fatalf("%s: overlay %T", label, m.overlay)
+		}
+		for _, msg := range a2Run(d.submit(m, []string{value})) {
+			if e, ok := msg.(errMsg); ok {
+				return e.err
+			}
+		}
+		return nil
+	}
+	for _, bad := range []string{"laptop.ts.net", "ftp://x", "https://x/?a=1", "https://me@x"} {
+		if submit("Address phones open", bad) == nil {
+			t.Errorf("address %q taken", bad)
+		}
+	}
+	for _, bad := range []string{"0", "70000", "http"} {
+		if submit("Port", bad) == nil {
+			t.Errorf("port %q taken", bad)
+		}
+	}
+	if m.cfg.Web != (config.WebCfg{}) {
+		t.Fatalf("refused values were kept: %+v", m.cfg.Web)
+	}
+	if err := submit("Address phones open", " https://laptop.tail1234.ts.net/ "); err != nil {
+		t.Fatal(err)
+	}
+	if err := submit("Port", "9000"); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := config.Load()
+	if m.cfg.Web != (config.WebCfg{URL: "https://laptop.tail1234.ts.net", Port: 9000}) || saved.Web != m.cfg.Web {
+		t.Fatalf("set %+v, saved %+v", m.cfg.Web, saved.Web)
+	}
+	if out := plain(); !strings.Contains(out, "conch web isn't running") || !strings.Contains(out, "tailscale serve --bg http://127.0.0.1:9000") {
+		t.Fatalf("set:\n%s", out)
+	}
+
+	// Start: conch web with no flags — it reads what was just set.
+	var started []*exec.Cmd
+	old := startOutward
+	t.Cleanup(func() { startOutward = old })
+	startOutward = func(c *exec.Cmd) error { started = append(started, c); return nil }
+	find("Start conch web").run(m)
+	if len(started) != 1 || strings.Join(started[0].Args[1:], " ") != "web" || !started[0].SysProcAttr.Setsid {
+		t.Fatalf("started %v", started)
+	}
+
+	// The dialog: the address set, and s starting it the same way.
+	find("Pair a phone").run(m)
+	d, ok := m.overlay.(*pairDialog)
+	if !ok || d.link() != phone.PairLink("https://laptop.tail1234.ts.net", d.code) {
+		t.Fatalf("dialog %+v", m.overlay)
+	}
+	d.update(m, a2Key("s"))
+	if len(started) != 2 || strings.Join(started[1].Args[1:], " ") != "web" {
+		t.Fatalf("s started %v", started[len(started)-1].Args)
+	}
+
+	// Running: Stop signals that process, and nothing else.
+	store.GatewayStarted(4242, nil, time.Now())
+	signalled = nil
+	defer func() { signalled = nil }()
+	if !processAliveForTest(4242) {
+		// No process 4242 here: record this one instead, which is alive.
+		store.GatewayStarted(os.Getpid(), nil, time.Now())
+	}
+	if out := plain(); !strings.Contains(out, "conch web is running") {
+		t.Fatalf("running:\n%s", out)
+	}
+	find("Stop conch web").run(m)
+	run, _ := store.Gateway()
+	if len(signalled) != 1 || signalled[0] != run.PID {
+		t.Fatalf("signalled %v, want %d", signalled, run.PID)
+	}
+}
+
+func processAliveForTest(pid int) bool { return syscall.Kill(pid, 0) == nil }

@@ -476,9 +476,15 @@ After Amit's first runs on his iPhone:
   `lib.mjs` `scrollback`/`olderOffset` stitch pages above the live rows;
   `paneScreen` in `app.mjs` is the one screen both the chat and the
   terminal use. Runs R42 and R43.
-- **☏ in the TUI's status bar** (between Settings and the version) opens
+- **🌐 in the TUI's status bar** (first ☏, too small) (between Settings and the version) opens
   the pairing dialog. `conch web` records how it was started and its pid
   in `phone.json` (cleared when it stops); the dialog says whether it
   runs, and `s` starts it again with the same flags in its own session,
   logging to `web.log`. `conch web stop` ends it. Asked for so that
   pairing needs no second terminal window.
+- **Settings → Phone** in the TUI: the address phones open and the port,
+  saved as `[web] url` / `port` in config.toml, which `conch web` reads
+  when its flags aren't given; Start / Stop conch web; Pair a phone. The
+  pairing dialog uses the address set, and `s` starts `conch web` with no
+  flags when the settings say where. Stopping goes through
+  `signalProcess`, which the TUI tests replace.

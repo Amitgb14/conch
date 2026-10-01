@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 // code for typing. Opening it issues the code, as `conch web pair` does;
 // it is this computer's gateway whatever machine the tree has selected.
 type pairDialog struct {
+	web        config.WebCfg // the address and port set in ⚙ Settings → Phone
 	permission string
 	code       string
 	url        string // where the gateway said phones open it; "" if it never ran
@@ -39,8 +41,8 @@ type pairDialog struct {
 // after s started it.
 type pairCheckMsg struct{}
 
-func newPairDialog(permission string) *pairDialog {
-	d := &pairDialog{permission: permission}
+func newPairDialog(web config.WebCfg, permission string) *pairDialog {
+	d := &pairDialog{web: web, permission: permission}
 	store := phone.OpenStore(config.Dir())
 	d.checkGateway(store)
 	now := time.Now()
@@ -49,7 +51,9 @@ func newPairDialog(permission string) *pairDialog {
 		d.err = err.Error()
 		return d
 	}
-	d.code, d.expires, d.url = code, now.Add(phone.PairTTL), store.URL()
+	// The address set in the settings, else the one the gateway last
+	// listened at.
+	d.code, d.expires, d.url = code, now.Add(phone.PairTTL), firstNonEmpty(strings.TrimRight(web.URL, "/"), store.URL())
 	if d.url != "" {
 		d.qr, _ = phone.QRLines(phone.PairLink(d.url, code)) // without one, the code is still there to type
 	}
@@ -87,10 +91,21 @@ func startGateway(args []string) error {
 	if err := startOutward(cmd); err != nil {
 		return err
 	}
+	// The TUI's own copy of the log closes here; the gateway keeps its.
 	if cmd.Process != nil {
 		go func() { _ = cmd.Wait() }() // reaped when it ends, not left a zombie
 	}
 	return nil
+}
+
+// startArgs is how s starts conch web: with no flags when the settings
+// say where (it reads them), else as it was last started. ok is false when
+// neither says anything.
+func (d *pairDialog) startArgs() ([]string, bool) {
+	if d.web.URL != "" {
+		return nil, true
+	}
+	return d.lastArgs, d.lastArgs != nil
 }
 
 func (d *pairDialog) link() string {
@@ -115,21 +130,22 @@ func (d *pairDialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	}
 	switch k.String() {
 	case "s":
-		if d.running || d.lastArgs == nil || d.starting {
+		args, ok := d.startArgs()
+		if d.running || !ok || d.starting {
 			return false, nil
 		}
-		if err := startGateway(d.lastArgs); err != nil {
+		if err := startGateway(args); err != nil {
 			d.err = "conch web didn't start: " + err.Error()
 			return false, nil
 		}
 		d.starting = true
 		return false, tea.Tick(1500*time.Millisecond, func(time.Time) tea.Msg { return pairCheckMsg{} })
 	case "v":
-		m.overlay = newPairDialog(phone.PermView)
+		m.overlay = newPairDialog(d.web, phone.PermView)
 	case "r":
-		m.overlay = newPairDialog(phone.PermReply)
+		m.overlay = newPairDialog(d.web, phone.PermReply)
 	case "f":
-		m.overlay = newPairDialog(phone.PermFull)
+		m.overlay = newPairDialog(d.web, phone.PermFull)
 	case "y":
 		if l := d.link(); l != "" {
 			return false, copyText(l)
@@ -168,7 +184,7 @@ func (d *pairDialog) layout(m Model, withQR bool) box {
 		add(fmt.Sprintf("Code %s · %s · until %s, once", styleBold.Render(d.code), d.permission, d.expires.Format("15:04")))
 		switch {
 		case d.url == "":
-			add("conch web has never run here. Start it once in a terminal (conch web, with -url for the address tailscale serve gives); after that, this starts it.")
+			add("Set the address phones open — the https name tailscale serve gives — in ⚙ Settings → Phone; then s here starts conch web.")
 		case withQR:
 			add("Scan it with the phone's camera, or open " + d.url + " and type the code.")
 		default:
@@ -184,8 +200,10 @@ func (d *pairDialog) layout(m Model, withQR bool) box {
 		add(styleOK.Render("● conch web is running"))
 	case d.starting:
 		add(styleWarn.Render("○ starting conch web…"))
-	case d.lastArgs != nil:
-		add(styleWarn.Render("○ conch web isn't running — s starts it in the background"))
+	default:
+		if _, ok := d.startArgs(); ok {
+			add(styleWarn.Render("○ conch web isn't running — s starts it in the background"))
+		}
 	}
 	// v, r and f name the permissions the code line shows.
 	keys := "v/r/f new code as view/reply/full · other keys close"
@@ -216,3 +234,17 @@ func (d *pairDialog) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	}
 	return nil
 }
+
+// stopGateway asks the conch web running in the background to stop, as
+// `conch web stop` does.
+func stopGateway() error {
+	run, running := phone.OpenStore(config.Dir()).Gateway()
+	if !running {
+		return nil
+	}
+	return signalProcess(run.PID, syscall.SIGTERM)
+}
+
+// signalProcess signals another process. It is a variable because it
+// reaches out of this one: the tests replace it.
+var signalProcess = syscall.Kill

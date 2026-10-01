@@ -259,11 +259,15 @@ func (m Model) statusRightItems(level int) []statusItem {
 	}})
 	// Pairing a phone, a click away: the QR code and the code, and the
 	// gateway started from there when it isn't running.
-	// An icon alone: a word more and the narrowest bars lose "? keys".
-	items = append(items, statusItem{text: styleAccent.Render("☏"), act: func(m *Model) tea.Cmd {
-		m.overlay = newPairDialog(phone.PermFull)
-		return nil
-	}})
+	// A globe, alone: a word more and the bar loses "? keys" at an ordinary
+	// width. It is two cells wide in every terminal (an emoji of its own),
+	// so the narrowest bars go without it; P in the tree still opens it.
+	if level < rightMinimal {
+		items = append(items, statusItem{text: "🌐", act: func(m *Model) tea.Cmd {
+			m.overlay = newPairDialog(m.cfg.Web, phone.PermFull)
+			return nil
+		}})
+	}
 	if level < rightNoVersion {
 		style, text := styleMuted, versionLabel()
 		if len(m.pendingUpdates()) > 0 {
