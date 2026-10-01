@@ -102,14 +102,18 @@ func TestContentPolicyHost(t *testing.T) {
 // style, nothing loaded from elsewhere, nothing written as markup. And it
 // stays small enough to load fast on a phone.
 func TestUIFiles(t *testing.T) {
-	total := 0
+	total, images := 0, 0
 	var names []string
 	err := fs.WalkDir(uiFiles, "ui", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
 		b, _ := uiFiles.ReadFile(p)
-		total += len(b)
+		if path.Ext(p) == ".png" {
+			images += len(b)
+		} else {
+			total += len(b)
+		}
 		names = append(names, strings.TrimPrefix(p, "ui/"))
 		if _, ok := uiTypes[path.Ext(p)]; !ok || strings.Count(p, "/") != 1 {
 			t.Errorf("%s would not be served", p)
@@ -132,9 +136,13 @@ func TestUIFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Small enough to load fast on a phone over a tailnet: no framework,
-	// no build, about a quarter of this once compressed.
+	// no build, about a quarter of this once compressed. The PNG icons are
+	// fetched when the app is put on a Home Screen, not on each visit.
 	if total > 96<<10 {
 		t.Errorf("the app is %d bytes; keep it under 96 KiB", total)
+	}
+	if images > 64<<10 {
+		t.Errorf("the icons are %d bytes; keep them under 64 KiB", images)
 	}
 
 	// Buttons and links are given a display of their own; without this the
