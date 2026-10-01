@@ -15,13 +15,13 @@ import (
 // the rows move with the history as it scrolls.
 func TestSelectionRememberedRows(t *testing.T) {
 	s := selection{ax: 2, ay: -1, bx: 1, by: 1}
-	if got := s.text([]string{"abcd", "efgh"}, 4); got != "abcd\nef" {
+	if got := s.text([]string{"abcd", "efgh"}, 6); got != "abcd\nef" {
 		t.Fatalf("nothing remembered: %q", got)
 	}
 	s.remember([]string{"\x1b[1mzzzz\x1b[0m"})
 	s.shiftRows(-1) // it scrolled up a line: row 0 is now row -1
 	s.shiftRows(0)
-	if got := s.text([]string{"abcd", "efgh"}, 4); got != "zz\nabcd\nef" {
+	if got := s.text([]string{"abcd", "efgh"}, 6); got != "zz\nabcd\nef" {
 		t.Fatalf("with a remembered row: %q", got)
 	}
 	// Rows never seen are left out rather than made up.

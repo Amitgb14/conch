@@ -171,10 +171,10 @@ A branch with an open pull request and nothing unpushed is not in the queue — 
 
 ## Files
 
-Every project has a **Files** row, and `f` opens it from anywhere in the tree: on a branch — or an agent or terminal working on one — it browses that branch's worktree, so "what did the agent on `fix-flaky` actually write?" is one key; anywhere else in a project it browses the main checkout. A branch with no worktree falls back to the main checkout and says so, and `w` moves through the project's checkouts.
+Every project has a **Files** row, and `f` opens it from anywhere in the tree: on a branch — or an agent or terminal working on one — it browses that branch's worktree, so "what did the agent on `fix-flaky` actually write?" is one key; anywhere else in a project it browses the main checkout. A branch with no worktree falls back to the main checkout and says so, and `w` moves through the project's checkouts. `w` says which checkout it landed on, since a project with four worktrees otherwise leaves you counting.
 
 ```
- Files  conch · fix-flaky-tests          enter open · a → agent · y copy · / find
+ Files  conch · fix-flaky-tests   enter open · a → agent · y path · d diff · w checkout · / find
  ~/.conch/wt/conch-fix-flaky-tests › internal › tui · 3 changed
  ──────────────────────────────────────────┬─────────────────────────────────────
  ▾    internal/                          M │ queue.go · 472 lines · modified
@@ -193,6 +193,10 @@ The tree opens a folder at a time, as you expand it, and the selected file shows
 The preview is plain text with line numbers, the first 256 KB of a file; a binary file is described (`binary · image/png · 1.2 MB`) rather than shown. Where the server watches worktrees, what an agent writes appears on its own — the open folders are listed again and the file in the preview read again — and `r` reads the checkout again anywhere. The explorer only reads files, and only inside the project's checkouts: a path, or a symlink, that leads out of one is refused by the server. A machine on a conch from before the explorer says it needs updating rather than showing an empty repository.
 
 Each kind of file gets an icon, by its whole name first (`Dockerfile`, `go.mod`, `pom.xml`, `Jenkinsfile`, `.prettierrc`, `CHANGELOG.md`) and then its extension, coloured from the theme. The table covers about 220 extensions and 95 names — the languages, templates, manifests, lock files, tables, documents, media, bundles, keys and certificates a repository actually holds — with the glyphs taken from the Nerd Fonts glyph list and nvim-web-devicons, so a file looks here the way it looks in the editors you also have open. Anything unknown keeps the plain file icon. Settings → Theme chooses letters (`go`, `ts`, `tx` for `.tsx`, the default, since they read in any font), [Nerd Font](https://www.nerdfonts.com) glyphs — which need a Nerd Font in your terminal, and show as boxes without one — or none.
+
+The explorer browses; it does not manage. There is no creating or deleting here: `n` opens a terminal in the folder you are looking at, which does the whole job rather than the two verbs a file manager would reimplement. `y` copies a file's path, `e` opens it in `$EDITOR`, `a` hands it to the agent working in that checkout, `d` shows its diff.
+
+Dragging to select keeps to the column it started in — the list or the preview — so copying a file's text does not bring the file names sitting on the same rows with it.
 
 ## Splits and tabs
 
@@ -247,7 +251,7 @@ The wheel over a pane scrolls back through its history (10,000 lines); the view 
 
 A pane that has history shows a thumb on its right border — where the screen is in that history, and how much of it there is — and dragging the thumb goes straight there. A border shared with another split resizes as before; the outer edge scrolls.
 
-Drag across a pane to select and copy; double-click copies a word, triple-click the line it is on — the text, not the padding. Hold the drag past the pane's top or bottom edge — over the tab bar or the status bar — and the history scrolls to take in more, or turn the wheel while the button is down; the copy has every line passed over, not just what is left on screen. The same works in an agent's pane, over the history conch keeps for it. Pages in a tab or split — a diff, a file, the sessions or branches list — select and copy the same way; a click that doesn't drag still clicks, and lands on release. Copies use OSC 52 (works over SSH) plus `pbcopy`/`wl-copy`/`xclip` locally. `y` copies a branch name or directory in the tree, a file path or the whole diff in the changes view.
+Drag across a pane to select and copy; double-click copies a word, triple-click the line it is on — the text, not the padding, and the whole line even when it wrapped over several rows. What is copied joins the rows a long line wrapped over, so a command that reached the edge of the pane pastes into a shell as one command rather than two halves. A row that stops short of the edge ended there and keeps its newline; conch judges this by the row being full, since the terminal emulator does not record which rows were continuations. Hold the drag past the pane's top or bottom edge — over the tab bar or the status bar — and the history scrolls to take in more, or turn the wheel while the button is down; the copy has every line passed over, not just what is left on screen. The same works in an agent's pane, over the history conch keeps for it. Pages in a tab or split — a diff, a file, the sessions or branches list — select and copy the same way; a click that doesn't drag still clicks, and lands on release. Copies use OSC 52 (works over SSH) plus `pbcopy`/`wl-copy`/`xclip` locally. `y` copies a branch name or directory in the tree, a file path or the whole diff in the changes view.
 
 Programs that use the mouse themselves (vim, htop) still get the mouse; full-screen programs get arrow keys from the wheel.
 
@@ -300,6 +304,8 @@ Invalid OAuth Request · Unknown scope: user:sessio│ns:claude_code
 ```
 
 `ctrl+b u`, or `m` on the pane → **Open a link it printed**, lists the links on the pane's screen with each one put back together: the box's borders and padding taken off, and the rows the link ran across joined. Choosing one opens it in this computer's browser *and* puts it on the clipboard, since a login URL often has to go somewhere else — a phone, another browser, someone else's machine.
+
+Clicking one opens it too: put the pointer on a link and click, and conch opens it and copies it. In a pane running something that asked for the mouse — an agent's own interface, vim — hold **alt** or **ctrl**, because a plain click there belongs to the program. A link that wrapped over several rows opens whole, the same reading that `ctrl+b u` does.
 
 It goes by shape, since the agent did the wrapping and left no mark to read: a row that fills the screen may have run on, and the next row is the rest of it when it keeps the same left edge. That can be wrong — prose directly under a full-width link would lend it a word — so the whole link is shown before anything is opened, and at most nine are offered. A 400-character OAuth URL in a narrow pane is followed over as many rows as it takes. A link that has scrolled away comes back with `ctrl+b [` first.
 

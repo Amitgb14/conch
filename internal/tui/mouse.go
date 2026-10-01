@@ -253,7 +253,9 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		// decided on release, once it is clear nothing was dragged.
 		m.focus = focusMain
 		m.click = &pendingClick{msg: msg, x: x, y: y}
-		m.sel = &selection{leaf: f.id, ax: x, ay: y, bx: x, by: y, dragging: true}
+		sel := &selection{leaf: f.id, ax: x, ay: y, bx: x, by: y, dragging: true}
+		sel.colFrom, sel.colTo = pageColumns(f, x, in.w)
+		m.sel = sel
 		return m, focusCmd
 	}
 	cmd := m.viewMouse(f, msg, x, y) // before m is returned: it changes m
@@ -402,6 +404,13 @@ func (m *Model) paneMouse(paneID string, msg tea.MouseMsg, x, y int, press, whee
 		m.focus = focusMain
 	}
 	f := m.frame
+	// A link an agent printed, before anything else looks at the click: in
+	// a pane whose program takes the mouse it needs alt or ctrl, since that
+	// program is owed its clicks; anywhere else a plain click opens it,
+	// because nothing else was using it.
+	if cmd, took := m.clickedLink(msg, x, y, f != nil && f.Mouse); took {
+		return cmd
+	}
 	switch {
 	case f != nil && f.Mouse && !wheel && (m.selectsOverApp(paneID) || msg.Alt || msg.Ctrl):
 		return m.selectOrClick(c, paneID, msg, x, y)
@@ -497,11 +506,16 @@ func (m *Model) selectMouse(msg tea.MouseMsg, x, y int) tea.Cmd {
 		// terminal does, and the line without the blanks it is padded to.
 		if m.lastClickN >= 2 && m.frame != nil && y < len(m.frame.Lines) {
 			from, to := wordAt(m.frame.Lines[y], x)
+			ay, by := y, y
 			if m.lastClickN >= 3 {
-				from, to = lineAt(m.frame.Lines[y])
+				// The line, not the row: a line too long for the pane is
+				// several rows, and taking one of them is half a command.
+				ay, by = wrappedLine(m.frame.Lines, y, cols)
+				from, _ = lineAt(m.frame.Lines[ay])
+				_, to = lineAt(m.frame.Lines[by])
 			}
-			if to > from {
-				m.sel = &selection{paneID: m.viewing, ax: from, ay: y, bx: to, by: y, hasContent: true}
+			if to > from || by > ay {
+				m.sel = &selection{paneID: m.viewing, ax: from, ay: ay, bx: to, by: by, hasContent: true}
 				return copyText(m.sel.text(m.frame.Lines, cols))
 			}
 		}
@@ -765,4 +779,13 @@ func forwardMouse(c interface {
 		}
 	}
 	c.Notify(proto.MethodPaneSendMouse, p)
+}
+
+// pageColumns is the column range a selection started at x belongs to, for
+// a page that draws in columns. Everything else selects the whole width.
+func pageColumns(l *leaf, x, w int) (from, to int) {
+	if l != nil && l.files != nil {
+		return l.files.columns(x, w)
+	}
+	return 0, 0
 }

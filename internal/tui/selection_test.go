@@ -254,3 +254,97 @@ func TestUnfocusedSelectionStaysReadable(t *testing.T) {
 		t.Errorf("mid grey luminance %.2f", l)
 	}
 }
+
+// TestCopyJoinsWrappedLines: a command too long for the pane is several
+// rows on screen but one line in the shell. Copied with the break in it,
+// pasting runs half a command and fails — which is how this was found.
+func TestCopyJoinsWrappedLines(t *testing.T) {
+	const w = 20
+	// A 46-character command across three rows: two full, the last short.
+	rows := []string{
+		"git log --oneline -n",
+		"20 --stat -- interna",
+		"l/tui | head",
+	}
+	s := selection{ax: 0, ay: 0, bx: w - 1, by: 2}
+	want := "git log --oneline -n20 --stat -- internal/tui | head"
+	if got := s.text(rows, w); got != want {
+		t.Fatalf("a wrapped command copied as:\n%q\nwant\n%q", got, want)
+	}
+
+	// Rows that end short keep their newlines: they were separate lines.
+	short := []string{"first line", "second line", "third"}
+	s = selection{ax: 0, ay: 0, bx: w - 1, by: 2}
+	if got := s.text(short, w); got != "first line\nsecond line\nthird" {
+		t.Fatalf("separate lines were run together: %q", got)
+	}
+
+	// A mixture: one long line wrapping, then a short one.
+	mixed := []string{"aaaaaaaaaaaaaaaaaaaa", "bbb", "ccc"}
+	s = selection{ax: 0, ay: 0, bx: w - 1, by: 2}
+	if got := s.text(mixed, w); got != "aaaaaaaaaaaaaaaaaaaabbb\nccc" {
+		t.Fatalf("mixed: %q", got)
+	}
+
+	// The last row never joins anything, however full it is.
+	s = selection{ax: 0, ay: 0, bx: w - 1, by: 0}
+	if got := s.text([]string{"aaaaaaaaaaaaaaaaaaaa"}, w); got != "aaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("one row: %q", got)
+	}
+
+	// A selection is by line, not by rectangle: ending part way into the
+	// second row still takes all of the first, and the two are one line, so
+	// what comes out is one line cut where the selection ended.
+	s = selection{ax: 0, ay: 0, bx: 4, by: 1}
+	if got := s.text(rows, w); got != "git log --oneline -n20 --" {
+		t.Fatalf("a selection ending mid-row: %q", got)
+	}
+
+	// Trailing blanks never make a row look full.
+	if runsOn("short      ", w) {
+		t.Fatal("a padded row counted as full")
+	}
+	if !runsOn("12345678901234567890", w) {
+		t.Fatal("a full row was not noticed")
+	}
+	if runsOn("anything", 0) {
+		t.Fatal("a zero-width screen")
+	}
+}
+
+// TestTripleClickTakesTheWholeLine: the row somebody hits is part of a
+// line, and the line is what they can paste.
+func TestTripleClickTakesTheWholeLine(t *testing.T) {
+	const w = 20
+	lines := []string{
+		"before",
+		"git log --oneline -n",
+		"20 --stat | head",
+		"after",
+	}
+	for _, c := range []struct{ y, first, last int }{
+		{0, 0, 0}, // a short row is its own line
+		{1, 1, 2}, // the start of a wrapped line reaches its end
+		{2, 1, 2}, // and so does its continuation
+		{3, 3, 3},
+	} {
+		if first, last := wrappedLine(lines, c.y, w); first != c.first || last != c.last {
+			t.Errorf("row %d belongs to %d..%d, want %d..%d", c.y, first, last, c.first, c.last)
+		}
+	}
+	// A line wrapped over three rows, and one that runs to the last row on
+	// screen, both end where the rows do.
+	long := []string{"aaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbb", "cc"}
+	if first, last := wrappedLine(long, 1, w); first != 0 || last != 2 {
+		t.Errorf("three rows: %d..%d", first, last)
+	}
+	full := []string{"aaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbb"}
+	if first, last := wrappedLine(full, 0, w); first != 0 || last != 1 {
+		t.Errorf("running off the bottom: %d..%d", first, last)
+	}
+	// What a triple click would copy, through the selection itself.
+	s := selection{ax: 0, ay: 1, bx: w - 1, by: 2}
+	if got := s.text(lines, w); got != "git log --oneline -n20 --stat | head" {
+		t.Fatalf("the line copied as %q", got)
+	}
+}

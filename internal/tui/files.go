@@ -426,7 +426,7 @@ func (fv *filesView) render(m Model, w, h int) []string {
 		fv.treeW = clamp(w*2/5, filesTreeMin, filesTreeMax)
 	}
 	title := styleBold.Render("Files") + "  " + m.filesTitle(fv)
-	hint := "enter open · a → agent · y copy · / find · esc tree"
+	hint := "enter open · a → agent · y path · d diff · e edit · w checkout · / find · esc tree"
 	if fv.typing || fv.filter != "" {
 		cursor := ""
 		if fv.typing {
@@ -435,7 +435,7 @@ func (fv *filesView) render(m Model, w, h int) []string {
 		}
 		title += styleMuted.Render("  / ") + fv.filter + cursor
 	} else if fv.reading {
-		hint = "↑↓ scroll · e edit · a → agent · esc back"
+		hint = "↑↓ scroll · e edit · a → agent · y path · esc back"
 	}
 	lines := []string{spread(title, styleMuted.Render(hint), w), fv.crumbLine(m, w)}
 	if fv.wide {
@@ -1104,6 +1104,13 @@ func (m *Model) filesNextCheckout(fv *filesView) tea.Cmd {
 	}
 	next := wants[(i+1)%len(wants)]
 	fv.want = next
+	// Say which checkout this now is: w cycles, and a project with four
+	// worktrees otherwise leaves somebody guessing which one they are in.
+	where := "the main checkout"
+	if next != "" {
+		where = next
+	}
+	m.setFlash("browsing "+where+" · w for the next", false)
 	fv.root, fv.branch, fv.note = m.filesCheckout(fv.machine, fv.projectID, next)
 	fv.reset()
 	if l := m.tab().focused(); l.files == fv {
@@ -1214,4 +1221,18 @@ func (m *Model) filesReceive(msg tea.Msg) tea.Cmd {
 		}
 	}
 	return tea.Batch(cmds...)
+}
+
+// columns is where the file explorer's two columns sit: the list, then the
+// preview beside it. A selection started in one keeps to it, so dragging
+// through a file does not take the list's rows with it. Both are 0 when
+// the window is too narrow for two columns and the view is one thing.
+func (fv *filesView) columns(x, w int) (from, to int) {
+	if !fv.wide || fv.treeW <= 0 || fv.treeW >= w {
+		return 0, 0
+	}
+	if x < fv.treeW {
+		return 0, fv.treeW
+	}
+	return fv.treeW, w
 }

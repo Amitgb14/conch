@@ -18,6 +18,9 @@ type selection struct {
 	dragging   bool
 	hasContent bool // moved past the anchor, so there is something to copy
 	keyboard   bool // made in scroll mode; it follows the history as it scrolls
+	// colFrom..colTo bound a selection to the columns it started in, for a
+	// page drawn in columns; zero means the whole width.
+	colFrom, colTo int
 
 	// rows is the text of every pane row seen on screen while the
 	// selection lasted, by view row, moved along as the history scrolls.
@@ -50,6 +53,13 @@ func (s selection) span(y, w int) (from, to int, ok bool) {
 	if y == y2 {
 		to = x2 + 1
 	}
+	// A page drawn in columns — a file explorer's list beside its preview —
+	// says which columns the selection started in, so dragging through the
+	// preview takes the file and not the list sitting on the same rows.
+	if s.colTo > s.colFrom {
+		from = max(from, s.colFrom)
+		to = min(to, s.colTo)
+	}
 	return clamp(from, 0, w), clamp(to, 0, w), from < to
 }
 
@@ -59,6 +69,7 @@ func (s selection) span(y, w int) (from, to int, ok bool) {
 func (s selection) text(lines []string, w int) string {
 	_, y1, _, y2 := s.ordered()
 	var out []string
+	var wrapped []bool // whether each piece runs on into the next
 	for y := y1; y <= y2; y++ {
 		var line string
 		switch {
@@ -78,8 +89,39 @@ func (s selection) text(lines []string, w int) string {
 			continue
 		}
 		out = append(out, strings.TrimRight(ansi.Cut(line, from, to), " "))
+		wrapped = append(wrapped, runsOn(line, w) && to >= w)
 	}
-	return strings.Join(out, "\n")
+	// A line too long for the screen is several rows, and pasting it back
+	// with a newline in the middle runs half a command. The emulator does
+	// not say which rows are continuations, so this goes by the thing that
+	// gives it away: a row filled to the last column had nowhere left to
+	// put the next character.
+	var b strings.Builder
+	for i, piece := range out {
+		b.WriteString(piece)
+		if i == len(out)-1 {
+			break
+		}
+		if wrapped[i] {
+			continue // it runs on: no break between them
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// runsOn reports whether a row of w columns was filled to its end, which is
+// what a line that wrapped looks like once the flag is gone. A row ending in
+// a blank had room to spare, so it ended there.
+func runsOn(line string, w int) bool {
+	if w <= 0 {
+		return false
+	}
+	// Exactly full, not nearly: joining two lines that were never one is
+	// worse than leaving a wrap in, so a row with any room left ends there.
+	// (A wide character that would not fit leaves a blank last column, and
+	// that wrap is missed — the rarer of the two mistakes.)
+	return ansi.StringWidth(strings.TrimRight(line, " ")) == w
 }
 
 // remember keeps the text of the rows on screen now.
@@ -152,4 +194,18 @@ func wordAt(line string, x int) (from, to int) {
 		to++
 	}
 	return from, to
+}
+
+// wrappedLine is the first and last row of the line row y belongs to: a
+// line longer than the screen is several rows, and a triple click means the
+// line somebody can paste, not the row they happened to hit.
+func wrappedLine(lines []string, y, w int) (first, last int) {
+	first, last = y, y
+	for first > 0 && runsOn(ansi.Strip(lines[first-1]), w) {
+		first--
+	}
+	for last+1 < len(lines) && runsOn(ansi.Strip(lines[last]), w) {
+		last++
+	}
+	return first, last
 }
