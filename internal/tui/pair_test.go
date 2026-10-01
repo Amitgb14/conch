@@ -180,7 +180,7 @@ func TestPairDialogWithoutAGateway(t *testing.T) {
 	m := a2Model()
 	d := newPairDialog(config.WebCfg{}, phone.PermReply)
 	out := a2Plain(d.render(*m).lines)
-	if d.qr != nil || d.link() != "" || !strings.Contains(out, "Settings → Phone") || !strings.Contains(out, d.code) || strings.Contains(out, "y/c") || !strings.Contains(out, "view/reply/full") {
+	if d.qr != nil || d.link() != "" || !strings.Contains(out, "Settings → Web") || !strings.Contains(out, d.code) || strings.Contains(out, "y/c") || !strings.Contains(out, "view/reply/full") {
 		t.Fatalf("no gateway:\n%s", out)
 	}
 	lastClipboard = "before"
@@ -319,15 +319,15 @@ func TestPairFromTheStatusBarAndStartingTheGateway(t *testing.T) {
 	}
 }
 
-// Settings → Phone: the address phones open and the port, saved in [web];
+// Settings → Web: the address phones open and the port, saved in [web];
 // conch web started and stopped from there; and the pairing dialog using
 // the address set, starting conch web with no flags since it reads them.
 func TestSettingsPhoneTab(t *testing.T) {
 	store := pairHome(t, "")
 	m, _ := a1Fixture(t, false)
 	s := &settings{}
-	s.setTab(phoneTab)
-	if settingsTabs[phoneTab] != "Phone" {
+	s.setTab(webTab)
+	if settingsTabs[webTab] != "Web" {
 		t.Fatalf("tabs %v", settingsTabs)
 	}
 	find := func(label string) settingItem {
@@ -435,7 +435,7 @@ func processAliveForTest(pid int) bool { return syscall.Kill(pid, 0) == nil }
 
 // The dialog draws over the screen, so nothing in it can be selected: a
 // click copies instead — the code on its line, the link anywhere else —
-// and c copies the code. Settings → Phone's commands copy the same way.
+// and c copies the code. Settings → Web's commands copy the same way.
 func TestPairAndSettingsCopy(t *testing.T) {
 	pairHome(t, "https://laptop.tail1234.ts.net")
 	m := a2Model()
@@ -488,9 +488,9 @@ func TestPairAndSettingsCopy(t *testing.T) {
 		t.Fatalf("no link, click: %q", lastClipboard)
 	}
 
-	// Settings → Phone: each command copies.
+	// Settings → Web: each command copies.
 	s := &settings{}
-	s.setTab(phoneTab)
+	s.setTab(webTab)
 	want := map[string]bool{"tailscale serve --bg http://127.0.0.1:8722": false, "conch web devices": false}
 	for _, it := range s.items(m) {
 		for cmd := range want {

@@ -23,7 +23,7 @@ import (
 // code for typing. Opening it issues the code, as `conch web pair` does;
 // it is this computer's gateway whatever machine the tree has selected.
 type pairDialog struct {
-	web        config.WebCfg // the address and port set in ⚙ Settings → Phone
+	web        config.WebCfg // the address and port set in ⚙ Settings → Web
 	permission string
 	code       string
 	url        string // where the gateway said phones open it; "" if it never ran
@@ -191,7 +191,7 @@ func (d *pairDialog) layout(m Model, withQR bool) box {
 		add(fmt.Sprintf("Code %s · %s · until %s, once", styleBold.Render(d.code), d.permission, d.expires.Format("15:04")))
 		switch {
 		case d.url == "":
-			add("Set the address phones open — the https name tailscale serve gives — in ⚙ Settings → Phone; then s here starts conch web.")
+			add("Set the address phones open — the https name tailscale serve gives — in ⚙ Settings → Web; then s here starts conch web.")
 		case withQR:
 			add("Scan it with the phone's camera, or open " + d.url + " and type the code.")
 		default:

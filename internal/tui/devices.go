@@ -14,7 +14,7 @@ import (
 // ---- paired devices ----
 
 // devicesPanel lists the phones and browsers paired with conch web, from
-// Settings → Phone: what each may do, changed here, and revoking one. The
+// Settings → Web: what each may do, changed here, and revoking one. The
 // gateway reads the file on each request, so a change applies at once.
 // The TUI is the person, so none of this is held back as an agent is.
 type devicesPanel struct {
@@ -159,7 +159,7 @@ func (p *devicesPanel) render(m Model) box {
 		}
 	}
 	add(styleMuted.Render("v view · r reply · f full · x revoke · ↑↓ · esc back"))
-	b := box{lines: frameLines(" Phone · paired devices ", lines, w, colorAccent)}
+	b := box{lines: frameLines(" Web · paired devices ", lines, w, colorAccent)}
 	b.x = max((m.width-b.width())/2, 0)
 	b.y = max((m.height-len(b.lines))/3, 0)
 	return b

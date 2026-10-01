@@ -37,12 +37,12 @@ type settings struct {
 	shellErr string
 }
 
-var settingsTabs = []string{"Theme", "Notifications", "Agents", "Brain", "Sandboxes", "Phone"}
+var settingsTabs = []string{"Theme", "Notifications", "Agents", "Brain", "Sandboxes", "Web"}
 
 // The tabs that are found by number.
 const (
 	sandboxTab = 4
-	phoneTab   = 5
+	webTab     = 5
 )
 
 type shellThemesMsg struct {
@@ -95,7 +95,7 @@ func (s *settings) items(m *Model) []settingItem {
 		return s.brainItems(m)
 	case sandboxTab:
 		return s.sandboxItems(m)
-	case phoneTab:
+	case webTab:
 		return s.phoneItems(m)
 	}
 	return s.agentItems(m)
@@ -537,7 +537,7 @@ func (s *settings) phoneItems(m *Model) []settingItem {
 	w := m.cfg.Web
 	field := func(name, detail, help, current string, save func(v string) error) settingItem {
 		return settingItem{label: name, detail: detail, run: func(m *Model) tea.Cmd {
-			d := newDialog(*m, " Phone · "+name+" ", []string{help}, []string{name}, []string{current})
+			d := newDialog(*m, " Web · "+name+" ", []string{help}, []string{name}, []string{current})
 			d.back = s // esc, and saving, come back to the settings screen
 			d.submit = func(m *Model, v []string) tea.Cmd {
 				if err := save(strings.TrimSpace(v[0])); err != nil {

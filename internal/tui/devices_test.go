@@ -30,14 +30,14 @@ func pairDevices(t *testing.T, store *phone.Store, perms ...string) []phone.Devi
 	return devs
 }
 
-// Settings → Phone → Devices: every paired device, what it may do changed
+// Settings → Web → Devices: every paired device, what it may do changed
 // in place, revoking one with a second x, and back to the settings.
 func TestDevicesPanel(t *testing.T) {
 	store := pairHome(t, "https://laptop.tail1234.ts.net")
 	devs := pairDevices(t, store, phone.PermReply, phone.PermFull, phone.PermView)
 	m := a2Model()
 	s := &settings{}
-	s.setTab(phoneTab)
+	s.setTab(webTab)
 	m.overlay = s
 	var row settingItem
 	for _, it := range s.items(m) {

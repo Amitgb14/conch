@@ -357,3 +357,17 @@ export function wheelSteps(acc, dy, step) {
   const steps = Math.trunc(total / step) || 0 // not -0
   return { acc: total - steps * step, steps }
 }
+
+// ttyInput reads what a keystroke did to the hidden field the terminal is
+// typed through. Between keystrokes the field holds only the sentinel, so
+// that deleting it is a backspace even when nothing else is there. What
+// was typed is what is in the field besides it — before or after it: iOS
+// can leave the cursor ahead of the sentinel, and then a letter lands in
+// front. A field without the sentinel had it deleted: one backspace, and
+// whatever was typed in its place.
+export function ttyInput(value, sentinel) {
+  const v = String(value ?? "")
+  const at = v.indexOf(sentinel)
+  if (at < 0) return { backspace: true, text: v }
+  return { backspace: false, text: v.slice(0, at) + v.slice(at + sentinel.length) }
+}

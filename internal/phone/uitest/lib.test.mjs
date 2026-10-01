@@ -373,3 +373,18 @@ test("a swipe as wheel steps", async () => {
   assert.deepEqual(wheelSteps(20, -30, 26), { acc: -10, steps: 0 })
   assert.deepEqual(wheelSteps(undefined, NaN, 26), { acc: 0, steps: 0 })
 })
+
+test("what a keystroke did to the terminal's hidden field", async () => {
+  const { ttyInput } = await import("../ui/lib.mjs")
+  const S = "​"
+  assert.deepEqual(ttyInput(S + "a", S), { backspace: false, text: "a" })
+  // iOS: the cursor was ahead of the sentinel, so the letter landed in front.
+  assert.deepEqual(ttyInput("a" + S, S), { backspace: false, text: "a" })
+  assert.deepEqual(ttyInput("he" + S + "llo", S), { backspace: false, text: "hello" })
+  assert.deepEqual(ttyInput(S, S), { backspace: false, text: "" })
+  assert.deepEqual(ttyInput(S + "\n", S), { backspace: false, text: "\n" })
+  // The sentinel deleted: a backspace, and anything typed in its place.
+  assert.deepEqual(ttyInput("", S), { backspace: true, text: "" })
+  assert.deepEqual(ttyInput("x", S), { backspace: true, text: "x" })
+  assert.deepEqual(ttyInput(undefined, S), { backspace: true, text: "" })
+})

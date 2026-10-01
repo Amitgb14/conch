@@ -14,13 +14,13 @@ What works on Amit's Mac today:
 
 1. **Tailscale.** Run `tailscale serve --bg http://127.0.0.1:8722` once. The
    phone needs Tailscale on and connected.
-2. **Address and gateway.** In the TUI, open ⚙ Settings → Phone. Set the
+2. **Address and gateway.** In the TUI, open ⚙ Settings → Web. Set the
    address to `https://laptop.tail1234.ts.net`, then choose
    **Start conch web**. Or, from a terminal pane:
    `conch web -url https://…ts.net`.
 3. **Pairing.** Click 🌐 in the status bar, or press `P` in the tree, and scan
    the QR code with the phone's camera. Pairing gives `full` by default.
-4. **Devices.** ⚙ Settings → Phone → Devices… lists paired devices. There,
+4. **Devices.** ⚙ Settings → Web → Devices… lists paired devices. There,
    `v` / `r` / `f` change a device's permission and `x` twice revokes it.
 
 ## The contract
@@ -100,7 +100,7 @@ with no build step. It's about 84 KB of code; the icons are separate.
   shows the QR code and code; a click copies the code or the link; `s`
   starts conch web.
 - `devices.go`: the Devices panel.
-- Settings → Phone (`settings.go`): address, port, Start/Stop, Pair, Devices…,
+- Settings → Web (`settings.go`): address, port, Start/Stop, Pair, Devices…,
   and copyable commands.
 - The help overlay is updated.
 
@@ -213,6 +213,9 @@ Each of these has a test now.
 - **Pairing defaulted to `reply`,** so the phone couldn't type. It now
   defaults to `full`, and `permission` and the Devices panel can raise an
   existing device.
+- **Typing on an iPhone sent backspaces.** iOS left the cursor ahead of
+  the hidden field's sentinel; letters were read as deletions. Now read
+  from either side of it, the cursor put back after it (R45).
 - **The keyboard covered the terminal.** The terminal is now sized to what
   the keyboard leaves.
 - **The chat couldn't scroll back.** Fixed with scrollback, then the wheel

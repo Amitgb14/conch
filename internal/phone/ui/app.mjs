@@ -8,7 +8,7 @@
 import {
   parseLine, frameRows, sortPanes, upsertPane, removeAgent, groupAgents, agentLabel,
   ago, route, can, backoff, codeFromHash, fontSizeFor, chunks, keyBytes, appPath,
-  keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps,
+  keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps, ttyInput,
 } from "/lib.mjs"
 
 const API_VERSION = 1
@@ -705,7 +705,6 @@ function terminalView(pane) {
     class: "tty", autocapitalize: "off", autocomplete: "off", autocorrect: "off", spellcheck: "false",
     enterkeyhint: "enter", "aria-label": "Type into the terminal",
   })
-  tty.value = SENTINEL
   const mods = { ctrl: undefined, alt: undefined }
   let sent = 0
 
@@ -727,22 +726,28 @@ function terminalView(pane) {
   // What the keyboard put in the field goes to the pane, and the field
   // goes back to holding only the sentinel.
   let composing = false
+  // Back to holding only the sentinel, with the cursor after it: Safari
+  // on iOS puts it in front when the value is set, and every letter then
+  // landed ahead of the sentinel and was taken for a backspace.
+  const reset = () => {
+    tty.value = SENTINEL
+    tty.setSelectionRange(SENTINEL.length, SENTINEL.length)
+  }
   const flush = () => {
     if (composing) return
-    const v = tty.value
-    tty.value = SENTINEL
-    if (!v.startsWith(SENTINEL)) {
-      sendKeys([withMods("backspace", held())]) // the sentinel was deleted
-      spend()
+    const { backspace, text: t } = ttyInput(tty.value, SENTINEL)
+    reset()
+    if (backspace) sendKeys([withMods("backspace", held())])
+    if (!t) {
+      if (backspace) spend()
       return
     }
-    const t = v.slice(SENTINEL.length)
-    if (!t) return
     if (t === "\n") sendKeys([withMods("enter", held())])
     else if ([...t].length === 1 && (held().ctrl || held().alt)) sendKeys([withMods(t === " " ? "space" : t.toLowerCase(), held())])
     else sendText(t.replace(/\n/g, "\r"))
     spend()
   }
+  tty.value = SENTINEL
   tty.addEventListener("input", flush)
   tty.addEventListener("compositionstart", () => { composing = true })
   tty.addEventListener("compositionend", () => { composing = false; flush() })
@@ -836,7 +841,7 @@ function terminalView(pane) {
   vv?.addEventListener("resize", layout)
   vv?.addEventListener("scroll", layout)
   window.addEventListener("resize", layout)
-  tty.addEventListener("focus", () => { scr.follow(); setTimeout(layout, 50); setTimeout(layout, 350) })
+  tty.addEventListener("focus", () => { reset(); scr.follow(); setTimeout(layout, 50); setTimeout(layout, 350) })
   requestAnimationFrame(layout)
 
   return {

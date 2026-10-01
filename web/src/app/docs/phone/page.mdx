@@ -12,7 +12,7 @@ Notifications are built but haven't been seen on a real phone yet. On an iPhone 
 
 ## Start it
 
-The simplest way is from the TUI: **⚙ Settings → Phone**. Set the address phones open — the `https://…ts.net` name `tailscale serve` gives this computer — and, if you like, the port; then **Start conch web**. It runs in the background, with no window of its own, and keeps running when the TUI closes; **Stop conch web** there, or `conch web stop`, ends it. Put Tailscale's HTTPS in front of it once: `tailscale serve --bg http://127.0.0.1:8722`. The settings are saved in `config.toml`:
+The simplest way is from the TUI: **⚙ Settings → Web**. Set the address phones open — the `https://…ts.net` name `tailscale serve` gives this computer — and, if you like, the port; then **Start conch web**. It runs in the background, with no window of its own, and keeps running when the TUI closes; **Stop conch web** there, or `conch web stop`, ends it. Put Tailscale's HTTPS in front of it once: `tailscale serve --bg http://127.0.0.1:8722`. The settings are saved in `config.toml`:
 
 ```toml
 [web]
@@ -75,7 +75,7 @@ The permission is checked on every request and on every message over the live co
 
 ## Devices
 
-In the TUI, **⚙ Settings → Phone → Devices…** opens a panel of every paired phone and browser: its name, ID, what it may do and when it was paired. `v`, `r` and `f` set what the selected one may do, `x` twice revokes it, esc goes back. A change applies to the device's next request at once.
+In the TUI, **⚙ Settings → Web → Devices…** opens a panel of every paired phone and browser: its name, ID, what it may do and when it was paired. `v`, `r` and `f` set what the selected one may do, `x` twice revokes it, esc goes back. A change applies to the device's next request at once.
 
 From a terminal:
 
