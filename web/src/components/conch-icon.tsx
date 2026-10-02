@@ -1,12 +1,17 @@
-import { useId } from "react"
-
 import { cn } from "@/lib/utils"
 
-// A queen conch: a knobbed spire pointing left, a tan body whorl and a
-// flared pink lip. Animated with CSS (see .conch-* in globals.css): the
-// shell rocks now and then and its mouth glows; with `waves`, sound rings
-// out of the opening like a conch being blown. Motion stops when the
-// viewer prefers reduced motion.
+// A conch drawn in one line: a spiral whorl above a tapering canal, with
+// the lip's edge beside it — the same drawing as app/icon.svg, in the page
+// rather than the tab. It takes its colour from the text around it, so it
+// follows the brand in light and dark.
+//
+// Animated with CSS (see .conch-* in globals.css): the shell rocks now and
+// then, and with `waves`, sound rings out of the opening like a conch being
+// blown. Motion stops when the viewer prefers reduced motion.
+//
+// The coordinates are the icon's own 512 space, cropped to the drawing so
+// it fills the box it is given instead of sitting in the margin the square
+// artboard leaves around it.
 export function ConchIcon({
   className,
   animated = true,
@@ -16,89 +21,27 @@ export function ConchIcon({
   animated?: boolean
   waves?: boolean
 }) {
-  const id = useId().replace(/:/g, "")
-  const url = (name: string) => `url(#${id}-${name})`
   return (
     <svg
-      viewBox={waves ? "0 0 128 96" : "0 0 96 96"}
+      viewBox={waves ? "160 80 400 350" : "160 80 210 350"}
       aria-hidden
       className={cn("overflow-visible", animated && "conch-animated", className)}
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
     >
-      <defs>
-        <linearGradient id={`${id}-lip`} x1="0.15" y1="0" x2="0.85" y2="1">
-          <stop offset="0" stopColor="#ffe1cc" />
-          <stop offset="0.5" stopColor="#f9a594" />
-          <stop offset="1" stopColor="#e96a7f" />
-        </linearGradient>
-        <radialGradient id={`${id}-mouth`} cx="0.66" cy="0.5" r="0.5">
-          <stop offset="0" stopColor="#d9446a" stopOpacity="0.85" />
-          <stop offset="1" stopColor="#f58f93" stopOpacity="0" />
-        </radialGradient>
-        <linearGradient id={`${id}-body`} x1="0.1" y1="0.1" x2="0.9" y2="0.9">
-          <stop offset="0" stopColor="#f9e0b4" />
-          <stop offset="0.55" stopColor="#eab274" />
-          <stop offset="1" stopColor="#cf8744" />
-        </linearGradient>
-        <linearGradient id={`${id}-spire`} x1="0" y1="0" x2="1" y2="0.3">
-          <stop offset="0" stopColor="#fff7ea" />
-          <stop offset="1" stopColor="#f1d3a6" />
-        </linearGradient>
-      </defs>
-
       {waves && (
-        <g fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
-          <path className="conch-wave" d="M96 22 C104 30 106 44 102 56" />
-          <path className="conch-wave conch-wave-2" d="M104 12 C116 24 119 44 112 62" />
-          <path className="conch-wave conch-wave-3" d="M112 3 C127 19 131 45 122 68" />
+        <g strokeWidth="13" opacity="0.85">
+          <path className="conch-wave" d="M392 236 C420 264 420 304 392 332" />
+          <path className="conch-wave conch-wave-2" d="M432 206 C476 254 476 314 432 362" />
+          <path className="conch-wave conch-wave-3" d="M472 176 C532 244 532 324 472 392" />
         </g>
       )}
 
-      <g className="conch-shell" strokeLinejoin="round">
-        <path
-          d="M24 32 C27 17 37 6 47 6 C63 7 81 23 88 44 C92 55 92 65 90 72 L86 67 C74 52 58 38 43 28 Z"
-          fill={url("lip")}
-          stroke="#c9536b"
-          strokeWidth="1.2"
-        />
-        <path
-          className="conch-glow"
-          d="M42 26 C52 20 66 26 76 40 C82 49 85 58 86 64 C75 51 60 38 46 30 Z"
-          fill={url("mouth")}
-        />
-        <path
-          d="M25 33 C29 28 33 25 35 24 L37 16 L41 26 C45 28 49 30 52 32 C66 42 79 54 88 65 C92 70 93 75 89 79 C86 81 81 81 78 77 C69 74 57 73 45 76 C41 78 38 83 36 88 C34 90 31 89 31 85 C31 80 30 74 27 70 C24 66 22 62 21 57 Z"
-          fill={url("body")}
-          stroke="#a8652f"
-          strokeWidth="1.2"
-        />
-        <path
-          d="M41 34 C54 42 68 54 80 68 M35 45 C48 51 61 61 71 72 M31 58 C41 62 51 67 59 73"
-          fill="none"
-          stroke="#b87538"
-          strokeWidth="1"
-          strokeLinecap="round"
-          opacity="0.5"
-        />
-        <path
-          d="M29 30 L27 26.5 L24.5 31 L21 31 L19.5 28 L17 32.5 L13.5 33.5 L12 31 L10.5 35 C8.5 35.7 6.5 36.5 4.5 37.5 C6 39.5 8 41 10 42 L10.5 45.5 L13 43.5 L16 46 L16.5 49.5 L19.5 48.5 L21.5 52.5 L24 50.5 L27 54 C26.5 46 27 38 29 30 Z"
-          fill={url("spire")}
-          stroke="#b58250"
-          strokeWidth="1.1"
-        />
-        <path
-          d="M9 38.5 C14 39.5 20 40.5 27 41"
-          fill="none"
-          stroke="#c99a66"
-          strokeWidth="0.9"
-          strokeLinecap="round"
-          opacity="0.7"
-        />
-        <path
-          d="M25 59 L18.5 62.5 L25.5 64.5 Z M27.5 68 L22 73 L29 72.5 Z"
-          fill="#efc88f"
-          stroke="#a8652f"
-          strokeWidth="1"
-        />
+      <g className="conch-shell" strokeWidth="18">
+        <path d="M 263.73 183.93 L 265.87 186.03 L 267.31 189.12 L 267.70 192.93 L 266.77 197.10 L 264.38 201.17 L 260.54 204.65 L 255.44 207.06 L 249.39 207.96 L 242.87 207.04 L 236.43 204.12 L 230.71 199.21 L 226.30 192.50 L 223.77 184.39 L 223.55 175.40 L 225.92 166.23 L 230.93 157.62 L 238.43 150.36 L 248.05 145.17 L 259.19 142.65 L 271.08 143.25 L 282.84 147.17 L 293.52 154.38 L 302.20 164.55 L 308.05 177.12 L 310.41 191.28 L 308.86 206.04 L 303.25 220.32 L 293.75 232.98 L 280.84 242.95 L 265.29 249.32 L 248.11 251.39 L 230.51 248.76 L 213.80 241.35 L 199.26 229.46 L 188.12 213.74 L 181.36 195.17 L 179.72 174.99 L 183.58 154.60 L 192.91 135.52 L 207.28 119.22 L 225.86 107.02 L 247.47 100.02 L 270.65 98.96 L 293.77 104.16 L 315.14 115.52 L 333.10 132.46 L 346.21 153.96 L 353.32 178.63 L 353.68 204.79 L 346.99 230.60 L 333.49 254.16 L 313.90 273.67 L 302.18 281.41 C 328.18 327.41 304.00 358.00 258 414" />
+        <path d="M 208 286 L 242 386" />
       </g>
     </svg>
   )
