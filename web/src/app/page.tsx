@@ -201,6 +201,10 @@ export default function Home() {
               title: "Reload in place",
               body: "conch server reload execs a new build keeping its process ID, terminals and socket — agents never notice the upgrade.",
             },
+            {
+              title: "Reach it from a phone",
+              body: "conch web serves the same agents to a phone over your own tailnet — see what each is doing, answer the question it is waiting on, type into a terminal. No service of conch's in between.",
+            },
           ].map((c) => (
             <div key={c.title} className="rounded-xl border bg-card p-5">
               <h3 className="font-semibold tracking-tight">{c.title}</h3>

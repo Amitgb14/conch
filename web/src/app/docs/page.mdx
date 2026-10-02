@@ -13,6 +13,8 @@ conch has two parts:
 
 Because the server owns the panes, you can close your terminal, lose your ssh session or update conch without stopping an agent. The server on a [remote machine](/docs/remote-machines) keeps working when your laptop sleeps, and the TUI connects to every machine at once.
 
+The TUI is not the only client. `conch web` is another: it serves the same agents to [a phone](/docs/phone) over your own tailnet, so you can see what each one is doing and answer the question it is waiting on from somewhere else. Nothing goes through a service of conch's; the phone reaches your laptop directly.
+
 ## The tree
 
 The TUI organises everything as a tree beside a live view of whatever you select:

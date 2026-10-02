@@ -10,6 +10,14 @@ Notifications are built but haven't been seen on a real phone yet. On an iPhone 
 
 </Callout>
 
+## What you need
+
+- **Tailscale on both.** The phone reaches the laptop over your tailnet, so install Tailscale on the phone as well and sign in to the same account. There is no relay and no service of conch's in between: the two talk directly, and a phone that is not on the tailnet cannot reach the gateway at all.
+- **`tailscale serve`**, once, to put HTTPS in front — phones need it, and the next section says why.
+- **conch running on the laptop.** `conch web` starts the server itself if it is not up.
+
+Without a tailnet there are two other ways — a certificate of your own (`-cert`/`-key`) or any tunnel that terminates HTTPS in front of a loopback gateway (`-url`). Both are below under [Without Tailscale](#without-tailscale).
+
 ## Start it
 
 The simplest way is from the TUI: **⚙ Settings → Web**. Set the address phones open — the `https://…ts.net` name `tailscale serve` gives this computer — and, if you like, the port; then **Start conch web**. It runs in the background, with no window of its own, and keeps running when the TUI closes; **Stop conch web** there, or `conch web stop`, ends it. Put Tailscale's HTTPS in front of it once: `tailscale serve --bg http://127.0.0.1:8722`. The settings are saved in `config.toml`:
@@ -98,6 +106,16 @@ These are two different things, on purpose.
 **An answer** picks one of the choices of the question an agent is asking. conch reads the choices off the agent's screen — a numbered menu with a cursor on one row — and the phone shows them as buttons. Tapping one moves the cursor to that row and presses Enter; nothing else is sent. The answer carries the ID of the question it was shown for, and is refused if the agent is no longer asking that question, so a tap that arrives late can't answer the next one.
 
 When conch can't read choices — no menu, or no cursor to steer by — the question comes without any. A device with `full` answers it in the terminal, with the key bar; the others at the laptop.
+
+## Without Tailscale
+
+Phones need HTTPS, so something has to provide it. Three ways, in the order they are worth trying:
+
+1. **Any tunnel in front of a loopback gateway** — Cloudflare Tunnel, ngrok, a VPS with Caddy. conch does not care which: `conch web -listen 127.0.0.1 -port 8722 -url https://conch.example.com`, with the tunnel forwarding to that port. `-url` is the same seam `tailscale serve` uses: it tells conch what phones will open, so the QR code and the cookie's origin agree. This is the one that works away from your network.
+2. **A certificate of your own** — `conch web -listen 0.0.0.0 -port 8443 -cert FILE -key FILE -url https://192.168.1.23:8443`. The work is on the phone, not in conch: it has to trust the certificate, which for a local CA (`mkcert`) means installing the root on the phone and turning full trust on. Your LAN only.
+3. **An SSH port forward from the phone**, if its SSH app can hold one: `conch web -listen 127.0.0.1`, forward the port, and open `http://localhost:8722` on the phone. Browsers treat `localhost` as a secure context, so the cookie and the service worker work with no certificate anywhere. It lasts as long as the forward does.
+
+`-listen` on anything but loopback or a Tailscale address warns, deliberately: a paired phone can type into your agents, so you are publishing control of this machine and the pairing code is what stands in the way.
 
 ## What it doesn't do yet
 

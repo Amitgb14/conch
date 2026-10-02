@@ -197,10 +197,28 @@ export function codeFromHash(hash) {
 
 // fontSizeFor is the text size at which a frame `cols` wide fits `width`
 // pixels, within what is readable; below that the frame scrolls sideways.
-export function fontSizeFor(cols, width, min = 7, max = 14) {
+export function fontSizeFor(cols, width, min = 7, max = 14, rows = 0, height = 0) {
   if (!(cols > 0) || !(width > 0)) return max
-  // A monospace character is about 0.6 of its size wide.
-  return Math.max(min, Math.min(max, Math.floor((width / cols / 0.6) * 10) / 10))
+  // A monospace character is about 0.6 of its size wide. On a phone the
+  // comfortable ceiling is the default max; a desktop browser window is
+  // several times as wide, and holding to a phone's ceiling there leaves
+  // half the window empty — so the text may grow to fill it, as far as the
+  // rows still fit the height.
+  let size = width / cols / 0.6
+  if (rows > 0 && height > 0) size = Math.min(size, height / rows / LINE_HEIGHT)
+  return Math.max(min, Math.min(max, Math.floor(size * 10) / 10))
+}
+
+// LINE_HEIGHT is the line box a frame's rows are drawn in, as a multiple of
+// the font size; app.css sets it.
+export const LINE_HEIGHT = 1.25
+
+// fitFontSize is fontSizeFor with the ceiling a window of this width
+// deserves: a phone keeps the comfortable 14, a wide window may go bigger
+// rather than leaving the half of it empty.
+export function fitFontSize(cols, width, rows = 0, height = 0) {
+  const max = width >= 900 ? 22 : 14
+  return fontSizeFor(cols, width, 7, max, rows, height)
 }
 
 // chunks splits keys into messages the gateway takes: at most 64 each.

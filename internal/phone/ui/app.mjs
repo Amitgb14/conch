@@ -7,7 +7,7 @@
 // title, its question and its screen are text, never markup.
 import {
   parseLine, frameRows, sortPanes, upsertPane, removeAgent, groupAgents, agentLabel,
-  ago, route, can, backoff, codeFromHash, fontSizeFor, chunks, keyBytes, appPath,
+  ago, route, can, backoff, codeFromHash, fontSizeFor, fitFontSize, chunks, keyBytes, appPath,
   keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps, ttyInput,
 } from "/lib.mjs"
 
@@ -809,7 +809,8 @@ function terminalView(pane) {
     const f = scr.last
     if (!f) return
     const s = termSize()
-    screen.style.fontSize = (s === "fit" ? fontSizeFor(f.cols, screen.clientWidth - 16) : Number(s)) + "px"
+    screen.style.fontSize =
+      (s === "fit" ? fitFontSize(f.cols, screen.clientWidth - 16, f.rows, screen.clientHeight) : Number(s)) + "px"
     scr.toBottom()
   }
 

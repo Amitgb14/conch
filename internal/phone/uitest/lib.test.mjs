@@ -2,7 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import {
   parseLine, frameRows, color256, sortAgents, upsertAgent, removeAgent, groupAgents, agentLabel,
-  ago, route, can, backoff, codeFromHash, fontSizeFor, chunks, keyBytes, appPath,
+  ago, route, can, backoff, codeFromHash, fontSizeFor, fitFontSize, chunks, keyBytes, appPath,
 } from "../ui/lib.mjs"
 
 const text = (runs) => runs.map((r) => r.text).join("")
@@ -185,6 +185,23 @@ test("a frame's text size", () => {
   assert.equal(fontSizeFor(0, 390), 14)
   assert.equal(fontSizeFor(80, 0), 14)
   assert.equal(fontSizeFor(undefined, undefined), 14)
+  // The rows have to fit the height as well, when it is given.
+  assert.equal(fontSizeFor(80, 390, 7, 14, 40, 200), 7) // 40 rows in 200px: smallest
+  assert.equal(fontSizeFor(40, 900, 7, 14, 10, 1000), 14) // room either way: the ceiling
+})
+
+test("a frame fills a window wider than a phone", () => {
+  // A phone keeps the comfortable ceiling.
+  assert.equal(fitFontSize(80, 390, 40, 800), 8.1)
+  assert.equal(fitFontSize(40, 390, 40, 800), 14)
+  // A desktop window: the text grows rather than leaving half of it empty,
+  // which is what a 14px ceiling did — 120 columns took 1000px of 1900.
+  assert.ok(fitFontSize(120, 1900, 40, 1200) > 14, "it stayed at the phone's ceiling")
+  assert.equal(fitFontSize(120, 1900, 40, 1200), 22)
+  // Unless the rows would not fit: then the height decides.
+  assert.equal(fitFontSize(120, 1900, 40, 600), 12)
+  // And never beyond the ceiling, however big the window.
+  assert.equal(fitFontSize(40, 4000, 10, 4000), 22)
 })
 
 test("a frame loses the empty rows under its last line, and keeps the cursor's", () => {
