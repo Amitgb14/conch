@@ -98,6 +98,7 @@ type filesView struct {
 	reading    bool // the preview has the keys, and the body when narrow
 	prev       filesPreview
 	prevScroll int
+	prevGutter int // cells the preview drew before a file's text (line numbers)
 
 	// From the last render, for the mouse and for reading ahead.
 	wide   bool
@@ -601,6 +602,7 @@ func (fv *filesView) previewLines(m Model, w, h int) []string {
 		return out
 	}
 	p := fv.prev
+	fv.prevGutter = 0
 	if p.rel != l.rel {
 		hint := " enter shows it"
 		if fv.wide {
@@ -634,6 +636,9 @@ func (fv *filesView) previewLines(m Model, w, h int) []string {
 		}
 		head += styleMuted.Render(fmt.Sprintf(" · %d%s line%s", len(src), more, plural(len(src))))
 		numW := len(fmt.Sprint(len(src)))
+		if len(src) > 0 {
+			fv.prevGutter = numW + 3 // " %*d " and the space after it
+		}
 		fv.prevScroll = clamp(fv.prevScroll, 0, max(len(src)-(h-1), 0))
 		for i := fv.prevScroll; i < len(src) && len(body) < h-1; i++ {
 			num := styleMuted.Render(fmt.Sprintf(" %*d ", numW, i+1))
@@ -1233,6 +1238,12 @@ func (fv *filesView) columns(x, w int) (from, to int) {
 	}
 	if x < fv.treeW {
 		return 0, fv.treeW
+	}
+	// Past the line numbers the preview drew: a command read out of a file
+	// then pastes as a command, not as "  12  go test". A drag that starts
+	// on the numbers themselves still takes them.
+	if text := fv.treeW + 1 + fv.prevGutter; fv.prevGutter > 0 && text < w && x >= text {
+		return text, w
 	}
 	return fv.treeW, w
 }

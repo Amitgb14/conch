@@ -3,6 +3,10 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // TestFilesSelectionKeepsToItsColumn: the explorer draws the list beside
@@ -55,5 +59,71 @@ func TestFilesSelectionKeepsToItsColumn(t *testing.T) {
 	list := selection{leaf: 1, ax: 0, ay: 0, bx: 29, by: 1, colFrom: 0, colTo: 30}
 	if got := list.text(lines, 100); got != "src/main.go\nsrc/util.go" {
 		t.Fatalf("the list copied as %q", got)
+	}
+}
+
+// TestFilesCopyLeavesTheLineNumbers: the preview numbers every line it
+// draws. A drag down several of them took the numbers and the column rule
+// with it — only the first row starts where the pointer did — so a command
+// read out of a file pasted as "  12  go test" and ran nothing.
+func TestFilesCopyLeavesTheLineNumbers(t *testing.T) {
+	m, _, fv := filesFixture(t)
+	filesSelect(t, fv, "main.go")
+	fv.prev = filesPreview{rel: "main.go", res: &proto.FSReadResult{
+		Data: "go test -race ./...\n  indented line\nlast\n"}}
+	const w, h = 120, 20
+	lines := fv.render(*m, w, h)
+
+	y := -1
+	for i, l := range lines {
+		if strings.Contains(ansi.Strip(l), "go test -race ./...") {
+			y = i
+			break
+		}
+	}
+	if y < 0 {
+		t.Fatalf("the preview did not draw the file:\n%s", strings.Join(lines, "\n"))
+	}
+	st := ansi.Strip(lines[y])
+	x := ansi.StringWidth(st[:strings.Index(st, "go test")]) // columns, not bytes
+	from, to := fv.columns(x, w)
+	s := selection{ax: x, ay: y, bx: w - 1, by: y + 2, colFrom: from, colTo: to}
+	want := "go test -race ./...\n  indented line\nlast"
+	if got := s.text(lines, w); got != want {
+		t.Fatalf("copied\n %q\nwant\n %q", got, want)
+	}
+
+	// A drag that starts on the numbers takes them: somebody quoting a
+	// file with its line numbers still can.
+	if from, _ := fv.columns(fv.treeW+1, w); from != fv.treeW {
+		t.Fatalf("started on the numbers: from %d, want %d", from, fv.treeW)
+	}
+
+	// Ten lines or more widen the gutter, and the bound follows it.
+	narrow := fv.prevGutter
+	fv.prev = filesPreview{rel: "main.go", res: &proto.FSReadResult{Data: strings.Repeat("x\n", 12)}}
+	fv.render(*m, w, h)
+	if fv.prevGutter != narrow+1 {
+		t.Fatalf("gutter for 12 lines: %d, want %d", fv.prevGutter, narrow+1)
+	}
+	if from, _ := fv.columns(w-1, w); from != fv.treeW+1+fv.prevGutter {
+		t.Fatalf("wide gutter: from %d, want %d", from, fv.treeW+1+fv.prevGutter)
+	}
+
+	// Nothing numbered — a binary, an unreadable file, an empty one — is
+	// bounded to the preview as before, with no gutter to skip.
+	for _, p := range []filesPreview{
+		{rel: "main.go", res: &proto.FSReadResult{Binary: true, MIME: "image/png"}},
+		{rel: "main.go", err: "permission denied"},
+		{rel: "main.go", res: &proto.FSReadResult{}},
+	} {
+		fv.prev = p
+		fv.render(*m, w, h)
+		if fv.prevGutter != 0 {
+			t.Fatalf("%+v drew a gutter of %d", p, fv.prevGutter)
+		}
+		if from, to := fv.columns(w-1, w); from != fv.treeW || to != w {
+			t.Fatalf("%+v: %d..%d", p, from, to)
+		}
 	}
 }
