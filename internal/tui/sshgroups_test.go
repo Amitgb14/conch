@@ -102,6 +102,14 @@ func TestSSHGroupsInTree(t *testing.T) {
 	if r := m.rows[i+1]; r.count != 2 || r.branch != "prod" || r.kind != kindSSHGroup {
 		t.Fatalf("prod row %+v", r)
 	}
+	// An empty group shows no fold arrow: there is nothing to fold, and ▸
+	// would say it was folded. One with hosts shows ▾ open, ▸ folded.
+	if l := ansi.Strip(m.rowLine(m.rows[i+4], 40)); !strings.HasPrefix(l, "        eng") {
+		t.Fatalf("empty group %q", l)
+	}
+	if l := ansi.Strip(m.rowLine(m.rows[i+1], 40)); !strings.HasPrefix(l, "      ▾ prod") {
+		t.Fatalf("open group %q", l)
+	}
 	if label := ansi.Strip(m.rowLine(m.rows[indexOfRow(m.rows, savedSSHID("db"))], 40)); !strings.Contains(label, "prod db") {
 		t.Fatalf("db is shown as %q", label)
 	}
@@ -532,6 +540,11 @@ func TestDragSSHHostOntoGroup(t *testing.T) {
 	// The drop is marked, and every line still fits.
 	if v := ansi.Strip(m.View()); !strings.Contains(v, "drop here") {
 		t.Fatalf("drop not marked:\n%s", v)
+	}
+	// One space between the expander and the name, as on every other row
+	// (a group has no glyph).
+	if l := ansi.Strip(m.rowLine(m.rows[indexOfRow(m.rows, sshGroupID("eng"))], 30)); !strings.HasPrefix(l, "        eng") {
+		t.Fatalf("drop row %q", l)
 	}
 	for _, w := range []int{1, 8, 30} {
 		if l := m.rowLine(m.rows[indexOfRow(m.rows, sshGroupID("eng"))], w); ansi.StringWidth(l) > w {

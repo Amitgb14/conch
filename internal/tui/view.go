@@ -147,7 +147,7 @@ func (m Model) sidebarLines(w, h int) []string {
 func (m Model) rowLine(r row, w int) string {
 	indent := strings.Repeat("  ", r.depth)
 	expander := "  "
-	if r.expandable() {
+	if r.expandable() && !(r.kind == kindSSHGroup && r.count == 0) { // an empty group has nothing to fold
 		if m.isOpen(r) {
 			expander = "▾ "
 		} else {
@@ -158,7 +158,11 @@ func (m Model) rowLine(r row, w int) string {
 	selected := r.id == m.cursor
 	if m.sshDrag != nil && r.id == m.sshDropRow() {
 		// Where a dragged host would go when let go.
-		return styleSel.Render(spread(indent+expander+glyph+" "+label, "drop here", w))
+		plain := indent + expander + glyph
+		if glyph != "" {
+			plain += " "
+		}
+		return styleSel.Render(spread(plain+label, "drop here", w))
 	}
 
 	if selected {
