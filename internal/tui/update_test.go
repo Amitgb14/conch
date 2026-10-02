@@ -95,7 +95,16 @@ func TestA2CheckUpdatesNoticesRebuild(t *testing.T) {
 	}
 }
 
+// TestA2PendingUpdates: what the update list holds, for a source build —
+// remotes are compared with the build on disk — and for a release, where
+// they are installed by version instead. The version is pinned because
+// stamping a real one for the 0.1.6 release flipped remoteBehind's branch
+// and broke this test after it had passed.
 func TestA2PendingUpdates(t *testing.T) {
+	old := proto.Version
+	proto.Version = "0.9.0-dev"
+	defer func() { proto.Version = old }()
+
 	m := a2Model()
 	if m.pendingUpdates() != nil {
 		t.Fatal("no update state, nothing pending")
@@ -126,6 +135,16 @@ func TestA2PendingUpdates(t *testing.T) {
 	if got != want {
 		t.Fatalf("pending:\n got %s\nwant %s", got, want)
 	}
+
+	// A release build installs a remote by version, not by matching this
+	// computer's hash, so a remote already on this build is not behind
+	// while one on another build still is.
+	proto.Version = "0.9.0"
+	if got := a2Labels(m.pendingUpdates()); strings.Contains(got, "same:") || !strings.Contains(got, "box:") {
+		t.Fatalf("release build: %s", got)
+	}
+	proto.Version = "0.9.0-dev"
+
 	// A server already on the target build is not behind.
 	local.server.Build = "disk123"
 	if m.serverBehindDisk() {
