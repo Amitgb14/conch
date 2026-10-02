@@ -156,6 +156,10 @@ func (m Model) rowLine(r row, w int) string {
 	}
 	glyph, glyphStyle, label, labelStyle, right := m.rowParts(r)
 	selected := r.id == m.cursor
+	if m.sshDrag != nil && r.id == m.sshDropRow() {
+		// Where a dragged host would go when let go.
+		return styleSel.Render(spread(indent+expander+glyph+" "+label, "drop here", w))
+	}
 
 	if selected {
 		plain := indent + expander + glyph
@@ -243,7 +247,10 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 	case kindSSH:
 		return "", glyphStyle, "SSH", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindSavedSSH:
-		return "○", styleMuted, "ssh " + sshName(savedSSHTarget(r.id)), styleMuted, styleMuted.Render("saved")
+		target := savedSSHTarget(r.id)
+		return "○", styleMuted, sshDisplay(target, m.sshInfo[target]), styleMuted, styleMuted.Render("saved")
+	case kindSSHGroup:
+		return "", glyphStyle, r.branch, styleBold, styleMuted.Render(fmt.Sprint(r.count))
 	case kindCLI:
 		return "❯", styleAccent, "CLI", styleBold, styleMuted.Render(fmt.Sprint(r.count))
 	case kindWorkspace:
@@ -565,7 +572,13 @@ func (m Model) leafTitle(l *leaf) string {
 		}
 		return " " + what + " · CLI "
 	case kindSavedSSH:
-		return " ssh · " + sshName(savedSSHTarget(v.Row)) + " "
+		target := savedSSHTarget(v.Row)
+		if name := m.sshInfo[target].Name; name != "" {
+			return " " + name + " "
+		}
+		return " ssh · " + sshName(target) + " "
+	case kindSSHGroup:
+		return " ssh group · " + strings.TrimPrefix(v.Row, "sshgroup:") + " "
 	case kindProject, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " " + proj.Name + " "
@@ -683,7 +696,10 @@ func (m Model) leafBody(l *leaf, w, h int, focused bool) []string {
 	case kindAgents, kindTerminals, kindSSH:
 		return m.sectionLines(v.Machine, v.ProjectID, v.Kind, w)
 	case kindSavedSSH:
-		return savedSSHLines(savedSSHTarget(v.Row), w)
+		target := savedSSHTarget(v.Row)
+		return savedSSHLines(target, m.sshInfo[target], w)
+	case kindSSHGroup:
+		return m.sshGroupLines(strings.TrimPrefix(v.Row, "sshgroup:"), w)
 	case kindProject, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return m.projectLines(v.Machine, *proj, w)

@@ -95,6 +95,14 @@ and macOS**. Code and tests must work on both.
    in `cmd/conch/main.go`, and the pages under `web/src/app/docs` (notably
    `interface/page.mdx` and `keys/page.mdx`).
 7. **Commit only when asked**, with a message that says what changed and why.
+8. **Nothing is pushed red.** Every new change — a feature, a fix, a doc
+   tweak that touches code — carries its own tests, and before any push the
+   whole regression suite must be green on the final state of the branch:
+   `go test -race -count=1 ./...`, `go vet ./...`, and `gofmt -l cmd internal`
+   printing nothing. Re-run it after the *last* edit, not just after the
+   big one: a one-line follow-up fix checked only in its own package is not
+   verified. If something fails, fix it before pushing; never push with a
+   failing, skipped-to-pass or retried-until-green test.
 
 ## Test isolation — required
 
@@ -206,6 +214,12 @@ helpers in `cmd/conch` and `internal/remote`.
   for an agent elsewhere reaches only what that agent started. Declaring
   only narrows, so it is taken at its word; a remote without
   `scope.remote.v1` isn't driven from an agent's pane.
+- **Saved ssh hosts and groups** live in `ui.json`, not `machines.json`
+  (`internal/tui/ssh.go`, `sshgroups.go`). `saved_ssh` stays the plain list
+  of hosts older builds read; a host's name, group and extra ssh options
+  sit beside it in `ssh_hosts` (by host) and the group order in
+  `ssh_groups`. Options are checked by `remote.NormalizeLoginArgs` and go
+  before the `--`, so `sshTarget` still finds the host as the last word.
 - **Machine-level panes** (under a machine's `CLI` group) are created with
   `NoProject` and start in the home directory.
 - **Build identity.** `buildinfo.Build()` hashes the executable at start-up;
@@ -282,7 +296,7 @@ user's own configuration.
 
 - [ ] Tests added or updated for the change, covering edge cases
 - [ ] `gofmt -l cmd internal` prints nothing; `go vet ./...` is clean
-- [ ] `go test -race -count=1 ./...` passes
+- [ ] `go test -race -count=1 ./...` passes — run again after the last edit, before any push
 - [ ] Help text, CLI usage and web docs updated for user-visible changes
 - [ ] Summary says what was tested, what wasn't, and any skipped bug tests
 - [ ] A new agent's sessions show, resume and delete in the Sessions view

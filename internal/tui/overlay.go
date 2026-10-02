@@ -138,6 +138,13 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			}
 		}
 		items = append(items, m.monitorItems(r.machine, r.paneID)...)
+		if target := m.sshTargetOfRow(r); target != "" {
+			items = append(items,
+				menuItem{"e", "Edit ssh host (save it with a name, group, options)…", act("e")},
+				menuItem{"g", "Move ssh host to group…", func(m *Model) tea.Cmd { m.overlay = newMoveSSHMenu(*m, target, x, y); return nil }},
+				menuItem{"K", "Set up login without a password (copy ssh key)", act("K")},
+			)
+		}
 		items = append(items, menuItem{"x", "Close", act("x")})
 		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
 			items = append(items, menuItem{"Y", "Read and copy the conversation", act("Y")})
@@ -263,10 +270,23 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			items = append(items, menuItem{"x", "Remove machine", act("x")})
 		}
 	case kindSavedSSH:
-		title = "ssh " + sshName(savedSSHTarget(r.id))
+		target := savedSSHTarget(r.id)
+		title = sshDisplay(target, m.sshInfo[target])
 		items = []menuItem{
 			{"enter", "Connect", enter},
+			{"e", "Edit host, name, group, ssh options…", act("e")},
+			{"g", "Move to group…", func(m *Model) tea.Cmd { m.overlay = newMoveSSHMenu(*m, target, x, y); return nil }},
+			{"K", "Set up login without a password (copy ssh key)", act("K")},
+			{"N", "New group…", act("N")},
 			{"x", "Forget (remove from the tree)", act("x")},
+		}
+	case kindSSHGroup:
+		title = "ssh group " + r.branch
+		items = []menuItem{
+			{"a", "Add a host to this group…", act("a")},
+			{"r", "Rename group…", act("r")},
+			{"N", "New group…", act("N")},
+			{"x", "Remove group (its hosts are kept)", act("x")},
 		}
 	case kindWorkspace:
 		title = "Workspace"
@@ -285,6 +305,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if r.machine == localMachine && r.projectID == "" {
 			// The local CLI group and its sections: where ssh sessions go.
 			items = append(items[:3], append([]menuItem{{"H", "SSH to a host…", act("H")}}, items[3:]...)...)
+			if r.kind == kindSSH {
+				items = append(items, menuItem{"N", "New ssh group (eng, staging, prod…)…", act("N")})
+			}
 		}
 	}
 	return &menu{title: title, items: items, x: x, y: y}
@@ -866,9 +889,13 @@ var helpText = []string{
 	"  R  reconnect a machine    A  start or install any agent",
 	"     m on a sandbox: start, stop or delete it (a sandbox runs, and costs, until stopped)",
 	"  H  ssh from this computer to a host (listed under CLI → SSH; nothing installed there)",
+	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
+	"     extra ssh options (-o KexAlgorithms=… -p 2222) go in its SSH options field, and stay with a saved host",
+	"     on a saved host or ssh session: e edit host, name, group, options · K login without a password (copies your key)",
+	"     N new ssh group (eng, staging, prod) · drag a host onto a group to move it (onto SSH: no group)",
+	"     on a group: a add a host · r rename · x remove (its hosts are kept)",
 	"  P  pair a phone with this computer: a QR code for conch web, to type into terminals too (v / r / f: less);",
 	"     a click on its code copies the code, anywhere else in it the link (c, y)",
-	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
 	"  r  rename (pane, machine) x  close / remove (a branch: worktree, then the branch)",
 	"                            R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",

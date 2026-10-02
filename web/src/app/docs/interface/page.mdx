@@ -25,9 +25,11 @@ MACHINES
   ▾ ❯ CLI                          2
     ▾ Terminals                    1
         › zsh
-    ▾ SSH                          2
-        › ssh dev@build-box
-        ○ ssh db-prod            saved
+    ▾ SSH                          3
+      ▾ prod                       2
+          › ssh dev@build-box
+          ○ prod db              saved
+        ○ ssh staging-1          saved
 ```
 
 Each machine has two groups. `Workspace` holds its projects (folders you added with `a`); selecting it shows every project with what runs in it, and the tab bar lists the tabs of all of them. `CLI` holds a machine's agents and terminals that belong to no project. `n` or `c` on the machine (or on `CLI`) starts one there, in your home folder.
@@ -37,6 +39,23 @@ Each machine has two groups. `Workspace` holds its projects (folders you added w
 `H` (or **SSH to a host…** in the tab bar's `+` menu, or in the menu of `local` and its `CLI`) opens a terminal on this computer logged in to another host. Pick a host from your `~/.ssh/config` or one of your machines, or type `user@host`, an alias or `ssh://user@host:port`. It runs your own `ssh` with your config and keys, so password and host-key prompts appear in the terminal. Each session makes its own connection, as a plain `ssh` does, so a host that stopped answering never holds up the next login. Nothing is installed on the host — unlike [adding a machine](/docs/remote-machines), which installs conch there to run agents. Sessions are listed under `CLI` → `SSH`, which has its own page and tabs like `Terminals`; closing the session (`exit`) closes its tab.
 
 Before connecting, conch asks whether to save the host. The default is not to: `enter` (or `n`) just connects, `y` saves it too. A saved host stays listed under `CLI` → `SSH` every time conch opens, even with no session to it (the `○ … saved` row above); `enter` or a click on it connects again without asking, and `x` forgets it. While a session to it is running, the session's own row stands in for it; a login that failed stays on screen, exited, to show why, with the saved host beside it to try again. Saved hosts come first in the `H` menu, and are kept in `ui.json` in the conch config folder.
+
+**SSH options.** Some hosts need more than a name: an old switch that only speaks an old key exchange, a port, a jump host. The **SSH options** field (when you type a host after `H`, and in the host editor) takes them as you would type them after `ssh`: `-o KexAlgorithms=+diffie-hellman-group14-sha1 -p 2222 -J bastion`. A word like `HostKeyAlgorithms=+ssh-rsa` on its own is taken as `-o HostKeyAlgorithms=+ssh-rsa`, as it is written in `ssh_config`. Only options are accepted — a stray word would be read by `ssh` as the host — and not those that would stop it logging in (`-F`, `-G`, `-V`, `-Q`, `-O`, `-W`). A saved host keeps its options and uses them on every connect; a session already open keeps the ones it started with.
+
+**Editing a host.** `e` on a saved host (or **Edit host…** in its menu) changes the host itself, a name to show in its place (`prod db` rather than `ssh admin@10.0.4.12`), its group and its options. `e` on an open ssh session does the same for its host, saving it if it wasn't.
+
+### SSH groups
+
+Saved hosts can be sorted into groups — `eng`, `staging`, `prod`, a group per cluster — listed under `SSH`, each folding like any other section, with the hosts in no group below them. Sessions sit in their host's group. To make one, press `N` on `SSH` (or **New ssh group…** in its menu), or just type a new group's name in a host's editor. To put a host in a group:
+
+- **drag it**: press on a saved host or an ssh session in the tree, carry it onto a group (or onto a host already in it) — the row it would land on says *drop here* — and let go. Drop it on `SSH` itself to take it out of its group. Dragging a session to a host that isn't saved saves it. A press and release on the same row is still a click: a saved host connects.
+- **from the keyboard**: **Move to group…** in the host's menu (`m`), or the **Group** field of its editor (`e`).
+
+Selecting a group shows its hosts, which are connected, and their options. `a` on a group adds a host to it, `r` renames it (its hosts move with it; renaming onto another group merges the two), and `x` removes the group, keeping its hosts.
+
+### Login without a password
+
+`K` on a saved host or an ssh session (**Set up login without a password** in its menu) opens a terminal that copies your public key to the host's `~/.ssh/authorized_keys` — what `ssh-copy-id` does, but through conch's ssh with the host's own options. It uses the first of `~/.ssh/id_ed25519.pub`, `id_ecdsa.pub` and `id_rsa.pub`; with none, it runs `ssh-keygen` to make `~/.ssh/id_ed25519` first, asking for a passphrase you may leave empty. The host asks for its password one last time; a key already there is not added twice. The terminal stays open to say whether it worked, until you press `enter`.
 
 ### Projects
 

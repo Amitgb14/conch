@@ -18,13 +18,18 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// what is under it and goes no further, so a program in a pane still
 	// sees only the mouse it asked for.
 	if m.cfg.UI.Hover && msg.Action == tea.MouseActionMotion && msg.Button == tea.MouseButtonNone &&
-		m.sel == nil && m.barDrag == nil && !m.dragging && !m.tabDrag && m.leafDrag == 0 && m.scrollDrag == 0 {
+		m.sel == nil && m.barDrag == nil && !m.dragging && !m.tabDrag && m.leafDrag == 0 && m.scrollDrag == 0 && m.sshDrag == nil {
 		m.hoverAt(msg)
 		return m, nil
 	}
 	press := msg.Action == tea.MouseActionPress
 	left := msg.Button == tea.MouseButtonLeft
 	wheel := msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown
+
+	// A saved host or ssh session carried onto a group in the tree.
+	if m.sshDrag != nil {
+		return m.sshDragMouse(msg)
+	}
 
 	// Resizing the sidebar by dragging its right edge.
 	if m.dragging {
@@ -710,9 +715,15 @@ func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Mode
 	m.cursor = r.id
 	m.focus = focusSidebar
 	cmd := m.syncView()
-	if left && r.kind == kindSavedSSH {
-		// A saved host has nothing to show until it is connected.
-		return m, tea.Batch(cmd, m.connectSSH(savedSSHTarget(r.id)))
+	if t := m.sshTargetOfRow(r); left && t != "" {
+		// A host can be dragged onto a group; whether this was a click is
+		// known when the button is let go.
+		m.sshDrag = &sshDrag{row: r.id, target: t, over: r.id}
+		if r.kind == kindSavedSSH {
+			// A saved host has nothing to show until it is connected,
+			// which a click does on release.
+			return m, cmd
+		}
 	}
 	if left && !r.expandable() {
 		// A click puts the row in the focused split. Keep what syncView
