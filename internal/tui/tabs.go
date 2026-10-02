@@ -935,6 +935,8 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 				put(styleSel.Render(label), i)
 				put(styleSel.Render("× "), -2)
 			}
+		} else if m.leafDrag != 0 && m.tabDrop == i {
+			put(styleAccent.Render(label), i) // a split is being carried here
 		} else if m.cfg.UI.Hover && m.hoverTab == i {
 			put(styleHover.Render(label), i)
 		} else {
@@ -945,6 +947,55 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 	}
 	put(styleAccent.Render(" + "), -1)
 	return fit(b.String(), w), hits
+}
+
+// tabAt is the tab at column x of the bar, or -1 for anywhere else: the
+// space between tabs, the close button, the +. tabPosAt answers for a tab
+// being dragged along the bar, where past the last one means the end;
+// dropping a split wants the tab actually under the pointer and nothing.
+func (m Model) tabAt(x int) int {
+	_, hits := m.tabBar(m.mainRect().w)
+	for _, h := range hits {
+		if h.tab >= 0 && x >= h.x0 && x < h.x1 {
+			return h.tab
+		}
+	}
+	return -1
+}
+
+// moveLeafToTab moves a split out of the active tab and into tab ti,
+// dividing that tab's focused split. A pane is shown in one place only, so
+// it leaves its own tree rather than being copied: the split it was in
+// closes as closing a split does, and a tab left with nothing goes with
+// it. The tab it was dropped on is then the one shown, since that is where
+// the split went and the point of carrying it there.
+func (m *Model) moveLeafToTab(id, ti int) tea.Cmd {
+	from := m.activeTab
+	if m.previewing || from < 0 || from >= len(m.tabs) || ti < 0 || ti >= len(m.tabs) || ti == from {
+		return nil
+	}
+	src, dst := m.tabs[from], m.tabs[ti]
+	l := src.leaf(id)
+	if l == nil || dst.root == nil {
+		return nil
+	}
+	f := dst.focused()
+	if !dst.root.split(f.id, splitRight, l) {
+		return nil // nothing to divide there: the split stays where it is
+	}
+	src.root = src.root.remove(id)
+	dst.focus = l.id
+	m.zoom = false
+	if src.root == nil {
+		m.tabs = slices.Delete(m.tabs, from, from+1)
+		if from < ti {
+			ti-- // the tabs after it moved up
+		}
+	} else if src.focus == id {
+		src.focus = src.root.leaves()[0].id
+	}
+	m.activeTab, m.keepTab = ti, true
+	return tea.Batch(m.focusLeaf(l.id), m.syncView(), m.saveState())
 }
 
 // tabPosAt is the visible position (0-based) of the tab at column x of the

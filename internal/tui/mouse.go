@@ -82,7 +82,15 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		switch msg.Action {
 		case tea.MouseActionRelease:
 			from, to := m.leafDrag, 0
-			m.leafDrag, m.leafDrop = 0, 0
+			tab := m.tabDrop
+			m.leafDrag, m.leafDrop, m.tabDrop = 0, 0, -1
+			// Let go on a tab: the split moves there instead of swapping.
+			if mr := m.mainRect(); msg.Y == mr.y {
+				if tab >= 0 && tab == m.tabAt(msg.X-mr.x) {
+					return m, m.moveLeafToTab(from, tab)
+				}
+				return m, nil // the bar, but not on a tab
+			}
 			rects, _ := m.leafRects()
 			to = m.leafAt(rects, msg.X, msg.Y)
 			if to == 0 || to == from || !m.tab().swapLeaves(from, to) {
@@ -94,6 +102,13 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.focusLeaf(to), m.syncView(), m.saveState(),
 				tea.Tick(swapMarkFor, func(time.Time) tea.Msg { return swapMarkExpiredMsg{} }))
 		case tea.MouseActionMotion:
+			// Over the bar, it is a tab it would move to, not a split it
+			// would swap with; the tab under the pointer is marked.
+			if mr := m.mainRect(); msg.Y == mr.y {
+				m.tabDrop, m.leafDrop = m.tabAt(msg.X-mr.x), 0
+				return m, nil
+			}
+			m.tabDrop = -1
 			// What it would swap with, while the button is held: the drop
 			// is marked as well as the split being carried.
 			rects, _ := m.leafRects()
@@ -226,10 +241,13 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if press && left && !m.zoom && len(m.tab().root.leaves()) > 1 {
+	// A split's title is a grip when there is somewhere to carry it: another
+	// split to swap with, or another tab to move it into — the only split of
+	// a tab is still worth dragging if the bar has somewhere to put it.
+	if press && left && !m.zoom && (len(m.tab().root.leaves()) > 1 || len(m.visibleTabs()) > 1) {
 		if id := m.leafAt(rects, msg.X, msg.Y); id != 0 && msg.Y == rects[id].y &&
 			!m.inner(rects[id]).contains(msg.X, msg.Y) {
-			m.leafDrag = id
+			m.leafDrag, m.tabDrop = id, -1
 			return m, m.focusLeaf(id)
 		}
 	}

@@ -115,6 +115,7 @@ type Model struct {
 	tabDrag     bool      // a tab is being dragged along the bar
 	leafDrag    int       // a split being dragged by its title, to swap
 	leafDrop    int       // the split under the pointer while it is dragged
+	tabDrop     int       // the tab under it instead, to move the split there (-1: none)
 	swapMark    [2]int    // the two splits that just swapped, marked briefly
 	swapUntil   time.Time
 	hoverRow    string // the tree row under the pointer, with [ui] hover
