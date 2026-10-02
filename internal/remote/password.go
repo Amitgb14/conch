@@ -138,7 +138,7 @@ func validKeyLine(s string) bool {
 
 func resetConfig() {
 	configOnce.Lock()
-	configOnce.path = ""
+	configOnce.path, configOnce.login = "", ""
 	configOnce.Unlock()
 }
 

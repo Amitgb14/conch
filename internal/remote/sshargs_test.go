@@ -59,7 +59,7 @@ func TestNormalizeLoginArgs(t *testing.T) {
 func TestLoginCommandWithArgs(t *testing.T) {
 	a4Env(t)
 	t.Setenv("CONCH_SSH", "/fake/ssh")
-	cfg, err := sshConfig()
+	cfg, err := loginSSHConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
