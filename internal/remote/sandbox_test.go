@@ -401,7 +401,7 @@ func TestSandboxShell(t *testing.T) {
 	if cmd.Args[0] != "/fake/ssh" || !strings.HasSuffix(args, "-- ssh://tok-secret@gw.test:2222") {
 		t.Fatalf("shell: %s", args)
 	}
-	for _, want := range []string{"ControlPath=none", "StrictHostKeyChecking=accept-new"} {
+	for _, want := range []string{"ControlPath=none", "StrictHostKeyChecking=accept-new", "/login_config "} {
 		if !strings.Contains(args, want) {
 			t.Errorf("shell lacks %q: %s", want, args)
 		}
