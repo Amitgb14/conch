@@ -2,6 +2,9 @@
 /dist/
 /conch
 
+# macOS leaves one in every folder it has been looked at in
+.DS_Store
+
 # Planning notes kept out of the repository (confidential)
 docs/plans/roadmap.md
 docs/plans/closing-the-gaps.md

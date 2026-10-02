@@ -10,6 +10,11 @@ Works with **Claude Code**, **Codex**, **Gemini CLI**, **OpenCode** and
 
 **[Website](https://amitgb14.github.io/conch/) · [Documentation](https://amitgb14.github.io/conch/docs/)**
 
+![Adding a project in conch: choosing a folder under ~/workspace, then the new project in the tree, expanded to its branch and its files](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/add_project.gif)
+
+Adding a project: pick a folder, and its branches, agents and terminals are
+there to open.
+
 ![conch showing a machine: its projects in the tree, plan usage and the agents installed](https://raw.githubusercontent.com/Amitgb14/conch/master/docs/images/overview.png)
 
 A machine at a glance: what is running, how much of the plan window is left,
