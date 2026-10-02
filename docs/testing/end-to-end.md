@@ -250,8 +250,12 @@ protocol — `conch send` types text, and a raw mouse escape sequence is
 encoded as text rather than passed through:
 
 ```sh
-go run ./internal/tools/clicker "$CONCH_SOCKET" p1 109 39   # 0-based cells
+go run ./internal/tools/clicker "$CONCH_SOCKET" p1 109 39      # click
+go run ./internal/tools/clicker "$CONCH_SOCKET" p1 10 3 60 0   # drag: press, move, let go
 ```
+
+A drag is three events, so a press and a release alone are not one: the rows
+for dragging a tab, a split or a scrollbar need the second pair of cells.
 
 Read the screen back with `conch read ID`. Always with a scratch
 `CONCH_HOME` and socket, and `CONCH_PANE_ID` unset.
