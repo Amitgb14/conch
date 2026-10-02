@@ -318,6 +318,7 @@ const (
 	MsgPanesWatch  = "panes.watch"
 	MsgText        = "text"
 	MsgScroll      = "scroll"
+	MsgResize      = "resize"
 	MsgWheel       = "wheel"
 
 	MsgAgents    = "agents"
@@ -353,6 +354,10 @@ type ClientMessage struct {
 	// Direction and Count are a wheel's: up or down, that many steps.
 	Direction string `json:"direction,omitempty"`
 	Count     int    `json:"count,omitempty"`
+	// Cols and Rows resize the pane itself, for a window that can show
+	// more than the laptop gave it.
+	Cols int `json:"cols,omitempty"`
+	Rows int `json:"rows,omitempty"`
 }
 
 // ServerMessage is what the gateway sends on the socket; Type says which
@@ -381,5 +386,14 @@ var socketNeeds = map[string]string{
 	MsgPanesWatch:  PermView,
 	MsgText:        PermFull,
 	MsgScroll:      PermView,
+	MsgResize:      PermReply,
 	MsgWheel:       PermReply,
 }
+
+// Resize bounds. A pane may be made as small as a phone and as large as a
+// wide screen, and no further: a program given a thousand columns draws a
+// thousand columns, and every client watching pays for them.
+const (
+	MinPaneCols, MaxPaneCols = 20, 500
+	MinPaneRows, MaxPaneRows = 5, 200
+)

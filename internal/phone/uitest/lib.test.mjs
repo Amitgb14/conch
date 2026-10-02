@@ -2,7 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import {
   parseLine, frameRows, color256, sortAgents, upsertAgent, removeAgent, groupAgents, agentLabel,
-  ago, route, can, backoff, codeFromHash, fontSizeFor, fitFontSize, chunks, keyBytes, appPath,
+  ago, route, can, backoff, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, chunks, keyBytes, appPath,
 } from "../ui/lib.mjs"
 
 const text = (runs) => runs.map((r) => r.text).join("")
@@ -404,4 +404,39 @@ test("what a keystroke did to the terminal's hidden field", async () => {
   assert.deepEqual(ttyInput("", S), { backspace: true, text: "" })
   assert.deepEqual(ttyInput("x", S), { backspace: true, text: "x" })
   assert.deepEqual(ttyInput(undefined, S), { backspace: true, text: "" })
+})
+
+test("the pane a window could show, and when it is worth asking", () => {
+  // A desktop window: more columns than any pane the laptop would give it.
+  assert.deepEqual(fitPane(1884, 860), { cols: 241, rows: 52 })
+  // A phone: a pane it could show, which is small.
+  assert.deepEqual(fitPane(374, 700), { cols: 47, rows: 43 })
+  // Nothing to go on, and a window too small for a pane at all.
+  assert.equal(fitPane(0, 0), null)
+  assert.equal(fitPane(100, 60), null) // under the gateway's smallest
+  // Counted at the size the rows are drawn at, not a size conch prefers:
+  // somebody who chose 12px on a 34-inch monitor wants the columns that
+  // fit at 12px.
+  assert.deepEqual(fitPane(1974, 700, undefined, undefined, undefined, undefined, 12), { cols: 274, rows: 46 })
+  assert.deepEqual(fitPane(1974, 700, undefined, undefined, undefined, undefined, 8), { cols: 411, rows: 70 })
+  assert.equal(fitPane(1974, 700, undefined, undefined, undefined, undefined, 0), null)
+
+  // Never past the gateway's bounds, however big the window.
+  const huge = fitPane(100000, 100000)
+  assert.equal(huge.cols, 500)
+  assert.equal(huge.rows, 200)
+
+  // Worth asking: the window has room the pane's columns cannot fill.
+  assert.equal(worthResizing({ cols: 120, rows: 40 }, fitPane(1884, 860)), true)
+  // Not worth asking: the pane is already as wide, or wider — a phone must
+  // never shrink the pane the laptop is working in.
+  assert.equal(worthResizing({ cols: 268, rows: 50 }, fitPane(1884, 860)), false)
+  assert.equal(worthResizing({ cols: 241, rows: 52 }, fitPane(1884, 860)), false)
+  assert.equal(worthResizing({ cols: 300, rows: 80 }, fitPane(374, 700)), false)
+  // A column or two is not worth a resize.
+  assert.equal(worthResizing({ cols: 238, rows: 50 }, { cols: 241, rows: 52 }), false)
+  assert.equal(worthResizing({ cols: 230, rows: 50 }, { cols: 241, rows: 52 }), true)
+  // Nothing to compare.
+  assert.equal(worthResizing(null, { cols: 100, rows: 40 }), false)
+  assert.equal(worthResizing({ cols: 100, rows: 40 }, null), false)
 })

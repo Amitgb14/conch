@@ -7,7 +7,7 @@
 // title, its question and its screen are text, never markup.
 import {
   parseLine, frameRows, sortPanes, upsertPane, removeAgent, groupAgents, agentLabel,
-  ago, route, can, backoff, codeFromHash, fontSizeFor, fitFontSize, chunks, keyBytes, appPath,
+  ago, route, can, backoff, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, READABLE, chunks, keyBytes, appPath,
   keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps, ttyInput,
 } from "/lib.mjs"
 
@@ -470,6 +470,10 @@ function chatView(pane) {
   const ask = h("div", {})
   const scr = paneScreen(pane, "tail", "What the agent said: scroll up for earlier output")
   const tail = scr.el
+  // The conversation draws the pane's own rows, so it is as wide as the
+  // pane and no wider: a window with room to spare asks for more columns,
+  // exactly as the terminal view does.
+  const askWide = widener(pane, tail)
   const note = h("p", { class: "error", role: "alert" })
   const text = h("textarea", { placeholder: "Reply…", rows: "1", "aria-label": "Reply" })
   const action = h("button", { class: "send", "aria-label": "Send" }, "↑")
@@ -550,10 +554,33 @@ function chatView(pane) {
   }
   return {
     name: "chat", el, update,
-    frame: (f) => { if (f.pane === pane) scr.frame(f) },
+    frame: (f) => { if (f.pane === pane) { scr.frame(f); askWide(f) } },
     connected: () => send({ type: "frame.open", pane }),
     socketError: (e) => { if (e?.code !== "not_found") note.textContent = e?.message || "" },
     leave: () => send({ type: "frame.close", pane }),
+  }
+}
+
+// widener asks for a pane to be made as wide as the window could show.
+// Growing the type fills a window only as far as the pane's columns go, so
+// a window with room to spare asks for the pane itself instead. It only
+// ever asks to grow — a phone must not shrink the pane the laptop is
+// working in — only when the gap is worth a resize, and once per size, so
+// a frame arriving cannot start a conversation that never ends.
+function widener(pane, el) {
+  let asked = null
+  return (f) => {
+    if (!f || f.pane !== pane || !el?.clientWidth) return
+    // At the size it is actually drawn at: somebody who chose 10px wants
+    // the columns that fit at 10px, not at a size conch prefers.
+    const chosen = termSize()
+    const at = chosen === "fit" ? READABLE : Number(chosen)
+    const want = fitPane(el.clientWidth - 16, el.clientHeight, undefined, undefined, undefined, undefined, at)
+    if (!want || !worthResizing({ cols: f.cols, rows: f.rows }, want)) return
+    const key = want.cols + "x" + want.rows
+    if (asked === key) return // asked once for this size; the laptop may say no
+    asked = key
+    send({ type: "resize", pane, cols: want.cols, rows: want.rows })
   }
 }
 
@@ -814,6 +841,8 @@ function terminalView(pane) {
     scr.toBottom()
   }
 
+  const askWider = widener(pane, screen)
+
   const dock = typing
     ? h("div", { class: "dock" }, bar)
     : h("p", { class: "hint dock" }, "Typing needs the full permission. On your laptop, run ",
@@ -852,7 +881,7 @@ function terminalView(pane) {
       if (p) { $("title").textContent = agentLabel(p); $("sub").textContent = p.kind === "terminal" ? subtitle(p) : subtitle(p) + " · terminal" }
       for (const b of bar.querySelectorAll("button")) b.disabled = !state.online
     },
-    frame: (f) => { if (f.pane === pane) { scr.frame(f); if (!(f.offset > 0)) draw() } },
+    frame: (f) => { if (f.pane === pane) { scr.frame(f); if (!(f.offset > 0)) draw(); askWider(f) } },
     connected: () => send({ type: "frame.open", pane }),
     socketError: (e) => { note.textContent = e?.message || "" },
     leave: () => {

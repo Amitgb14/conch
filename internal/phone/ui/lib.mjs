@@ -221,6 +221,34 @@ export function fitFontSize(cols, width, rows = 0, height = 0) {
   return fontSizeFor(cols, width, 7, max, rows, height)
 }
 
+// fitPane is the pane size a window of this width and height would show
+// comfortably: as many columns as fit at a readable size, within what the
+// gateway accepts. Growing the type fills a window only as far as the
+// pane's own columns go — a 120-column pane in a wide window runs out of
+// columns long before it runs out of room — so a window with room to spare
+// asks for the pane to be made bigger instead.
+export function fitPane(width, height, min = 20, max = 500, minRows = 5, maxRows = 200, at = READABLE) {
+  if (!(width > 0) || !(height > 0) || !(at > 0)) return null
+  // Counted at the size the rows are actually drawn at: somebody who chose
+  // 10px wants the columns that fit at 10px, not at a size conch prefers.
+  const cols = Math.floor(width / (at * 0.6))
+  const rows = Math.floor(height / (at * LINE_HEIGHT))
+  if (!(cols >= min) || !(rows >= minRows)) return null
+  return { cols: Math.min(cols, max), rows: Math.min(rows, maxRows) }
+}
+
+// READABLE is the type size a desktop window's columns are counted at.
+export const READABLE = 13
+
+// worthResizing says whether a pane is far enough from what the window
+// could show to be worth asking to change it: a column or two either way
+// is not, and a pane that is already wider than the window is left alone —
+// the laptop is looking at it too, and it is theirs.
+export function worthResizing(have, want) {
+  if (!have || !want) return false
+  return want.cols - have.cols >= 8 || want.rows - have.rows >= 4
+}
+
 // chunks splits keys into messages the gateway takes: at most 64 each.
 export function chunks(keys, size = 64) {
   const out = []

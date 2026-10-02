@@ -283,3 +283,50 @@ func TestSocketWheel(t *testing.T) {
 		t.Fatalf("view: %+v", got.Error)
 	}
 }
+
+// TestSocketResize: a window that can show more than the laptop gave the
+// pane asks for the pane itself to be bigger, since a web client can only
+// change the size of its type and the columns are the laptop's.
+func TestSocketResize(t *testing.T) {
+	f := newFixture(t)
+	pane := f.pane("", "exec sleep 30")
+	s := f.pair(PermFull).socket()
+
+	// Not before the pane is open on this socket.
+	s.send(ClientMessage{Type: MsgResize, ID: "early", Pane: pane, Cols: 200, Rows: 50})
+	if got := s.next("the refusal", func(m ServerMessage) bool { return m.Type == MsgError && m.ID == "early" }); got.Error.Code != CodeBadRequest {
+		t.Fatalf("resize before open: %+v", got.Error)
+	}
+
+	s.send(ClientMessage{Type: MsgFrameOpen, Pane: pane})
+	s.next("the first frame", func(m ServerMessage) bool { return m.Type == MsgFrame })
+	s.send(ClientMessage{Type: MsgResize, Pane: pane, Cols: 200, Rows: 50})
+	got := s.next("the resized frame", func(m ServerMessage) bool { return m.Type == MsgFrame && m.Frame.Cols == 200 })
+	if got.Frame.Rows != 50 {
+		t.Fatalf("resized to %dx%d", got.Frame.Cols, got.Frame.Rows)
+	}
+
+	// Sizes nobody should ask for are refused, with the bounds in the words.
+	for _, c := range []struct{ cols, rows int }{{0, 50}, {19, 50}, {501, 50}, {200, 0}, {200, 4}, {200, 201}} {
+		s.send(ClientMessage{Type: MsgResize, ID: "bad", Pane: pane, Cols: c.cols, Rows: c.rows})
+		got := s.next("the refusal", func(m ServerMessage) bool { return m.Type == MsgError && m.ID == "bad" })
+		if got.Error.Code != CodeBadRequest || !strings.Contains(got.Error.Message, "columns") {
+			t.Fatalf("%dx%d: %+v", c.cols, c.rows, got.Error)
+		}
+	}
+}
+
+// TestResizeNeedsMoreThanLooking: resizing changes what everybody watching
+// sees — the laptop included — so a device that may only look may not.
+func TestResizeNeedsMoreThanLooking(t *testing.T) {
+	f := newFixture(t)
+	pane := f.pane("", "exec sleep 30")
+	s := f.pair(PermView).socket()
+	s.send(ClientMessage{Type: MsgFrameOpen, Pane: pane})
+	s.next("the first frame", func(m ServerMessage) bool { return m.Type == MsgFrame })
+	s.send(ClientMessage{Type: MsgResize, ID: "no", Pane: pane, Cols: 200, Rows: 50})
+	got := s.next("the refusal", func(m ServerMessage) bool { return m.Type == MsgError && m.ID == "no" })
+	if got.Error.Code != CodeForbidden {
+		t.Fatalf("a view-only device resized: %+v", got.Error)
+	}
+}

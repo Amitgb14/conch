@@ -3,6 +3,7 @@ package phone
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -283,6 +284,31 @@ func (s *socket) handle(m ClientMessage) {
 		}
 		// This socket's own connection: only its view of the pane moves.
 		if err := s.call(proto.MethodPaneScroll, proto.PaneScrollParams{ID: m.Pane, Offset: m.Offset}, nil); err != nil {
+			s.fail(m.ID, fromServer(err))
+		}
+
+	case MsgResize:
+		if aerr := paneID(m.Pane); aerr != nil {
+			s.fail(m.ID, aerr)
+			return
+		}
+		s.mu.Lock()
+		open := s.open[m.Pane]
+		s.mu.Unlock()
+		if !open {
+			s.fail(m.ID, apiErr(CodeBadRequest, "resize takes a pane this socket has open"))
+			return
+		}
+		if m.Cols < MinPaneCols || m.Cols > MaxPaneCols || m.Rows < MinPaneRows || m.Rows > MaxPaneRows {
+			s.fail(m.ID, apiErr(CodeBadRequest, fmt.Sprintf("resize takes %d–%d columns and %d–%d rows",
+				MinPaneCols, MaxPaneCols, MinPaneRows, MaxPaneRows)))
+			return
+		}
+		// The pane itself, not this socket's view of it: a terminal has one
+		// size and everybody watching sees it. A laptop whose TUI is also
+		// showing the pane will set it back to its own, which is the same
+		// rule the TUI has always had — the last one to look wins.
+		if err := s.call(proto.MethodPaneResize, proto.PaneResizeParams{ID: m.Pane, Cols: m.Cols, Rows: m.Rows}, nil); err != nil {
 			s.fail(m.ID, fromServer(err))
 		}
 
