@@ -171,7 +171,7 @@ func TestSavedSSHRowAndPage(t *testing.T) {
 		}
 	}
 	for _, w := range []int{1, 5, 20, 39, 100} {
-		for _, l := range savedSSHLines("a-very-long-host-name.example.internal", w) {
+		for _, l := range savedSSHLines("a-very-long-host-name.example.internal", sshHostInfo{}, w) {
 			if ansi.StringWidth(l) > w {
 				t.Fatalf("width %d: %q is %d wide", w, ansi.Strip(l), ansi.StringWidth(l))
 			}
@@ -192,12 +192,16 @@ func TestSavedSSHRowAndPage(t *testing.T) {
 	for _, it := range items {
 		hints = append(hints, ansi.Strip(it.text))
 	}
-	if got := strings.Join(hints, "|"); !strings.HasPrefix(got, "enter connect|x forget|H ssh|m menu") {
+	if got := strings.Join(hints, "|"); !strings.HasPrefix(got, "enter connect|e edit|K copy key|x forget|H ssh|m menu") {
 		t.Fatalf("hints %q", got)
 	}
 	mu := newRowMenu(*m, m.rows[indexOfRow(m.rows, id)], 0, 0)
-	if mu.title != "ssh me@db:2222" || len(mu.items) != 2 || mu.items[0].key != "enter" || mu.items[1].key != "x" {
-		t.Fatalf("menu %q %+v", mu.title, mu.items)
+	var keys []string
+	for _, it := range mu.items {
+		keys = append(keys, it.key)
+	}
+	if mu.title != "ssh me@db:2222" || strings.Join(keys, ",") != "enter,e,g,K,N,x" {
+		t.Fatalf("menu %q %q", mu.title, keys)
 	}
 }
 
@@ -266,7 +270,7 @@ func TestSSHAsksToSave(t *testing.T) {
 	if cmd := m.connectSSH("box"); cmd == nil || m.overlay != nil {
 		t.Fatalf("saved host asked again: %T", m.overlay)
 	}
-	if a2Run(m.saveSSH("box")); len(m.savedSSH) != 1 {
+	if a2Run(m.saveSSH("box", nil)); len(m.savedSSH) != 1 {
 		t.Fatalf("saved twice %q", m.savedSSH)
 	}
 	// Saved hosts come first in the H menu.
@@ -296,9 +300,14 @@ func TestSavedSSHConnectsAndForgets(t *testing.T) {
 		t.Fatalf("params %+v", p)
 	}
 
-	// So does a click on it.
+	// So does a click on it, once the button is let go: a press alone
+	// may be the start of a drag.
 	i := indexOfRow(m.rows, savedSSHID("db")) - m.scroll
 	a2Run(a1Mouse(t, m, 6, 2+i, a1Left, a1Press))
+	if m.sshDrag == nil {
+		t.Fatal("press didn't pick the host up")
+	}
+	a2Run(a1Mouse(t, m, 6, 2+i, a1Left, a1Release))
 	peer.waitFor(t, "pane.create for db", func(msg proto.Message) bool {
 		if msg.Method != proto.MethodPaneCreate {
 			return false

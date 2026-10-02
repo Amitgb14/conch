@@ -154,9 +154,12 @@ type Model struct {
 
 	brain *brainState // summaries and command bar history
 
-	snoozeUntil time.Time      // alerts are silenced until then
-	limitSeen   map[string]int // plan limit alerts raised, per window (limitalerts.go)
-	savedSSH    []string       // ssh hosts the user chose to keep in the tree (ssh.go)
+	snoozeUntil time.Time              // alerts are silenced until then
+	limitSeen   map[string]int         // plan limit alerts raised, per window (limitalerts.go)
+	savedSSH    []string               // ssh hosts the user chose to keep in the tree (ssh.go)
+	sshInfo     map[string]sshHostInfo // saved hosts' names, groups and options (sshgroups.go)
+	sshGroups   []string               // groups of saved hosts, in order
+	sshDrag     *sshDrag               // a host being dragged onto a group
 	// catalogStamp is machines.json's modification time and size when last
 	// read, to notice machines added or removed with conch machine.
 	catalogStamp string
@@ -207,6 +210,8 @@ func New(local *client.Client, cfg config.Config) Model {
 		savedSSH:   cleanSavedSSH(st.SavedSSH),
 		sandboxRan: st.SandboxRan,
 	}
+	m.sshInfo = cleanSSHInfo(m.savedSSH, st.SSHHosts)
+	m.sshGroups = cleanSSHGroups(st.SSHGroups, m.sshInfo, m.savedSSH)
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	if st.SidebarWidth > 0 {
 		m.sidebarW = st.SidebarWidth
@@ -897,7 +902,7 @@ func (m *Model) rebuild() tea.Cmd {
 			tm.sandbox = provider
 		}
 		if mach.id == localMachine { // ssh sessions start on this computer
-			tm.savedSSH = m.savedSSH
+			tm.savedSSH, tm.sshInfo, tm.sshGroup = m.savedSSH, m.sshInfo, m.sshGroups
 		}
 		in.machines = append(in.machines, tm)
 	}

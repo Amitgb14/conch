@@ -171,15 +171,24 @@ func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cm
 // The session makes its own connection, as a plain ssh would: sharing
 // conch's master meant that once the host stopped answering, a new login
 // sat on a blank screen until the dead master timed out, about a minute.
-func LoginCommand(target string) ([]string, error) {
+//
+// args are extra ssh options for this host, such as -o KexAlgorithms=…
+// for an old server; they go before the "--", so they can only be options.
+func LoginCommand(target string, args ...string) ([]string, error) {
 	if err := CheckLoginTarget(target); err != nil {
+		return nil, err
+	}
+	args, err := NormalizeLoginArgs(args)
+	if err != nil {
 		return nil, err
 	}
 	cfg, err := sshConfig()
 	if err != nil {
 		return nil, err
 	}
-	return []string{sshBinary(), "-F", cfg, "-o", "ControlPath=none", "--", target}, nil
+	command := []string{sshBinary(), "-F", cfg, "-o", "ControlPath=none"}
+	command = append(command, args...)
+	return append(command, "--", target), nil
 }
 
 // CheckLoginTarget rejects what ssh would not read as a single host: empty

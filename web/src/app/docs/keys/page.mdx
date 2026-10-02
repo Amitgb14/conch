@@ -33,7 +33,10 @@ Every key binding in the TUI, grouped by where it applies. Press `?` in conch to
 | `c` | default agent here |
 | `A` | start or install any agent |
 | `n` | terminal here |
-| `H` | [ssh to a host](/docs/interface#ssh-sessions) from this computer; asks whether to save the host (default no) |
+| `H` | [ssh to a host](/docs/interface#ssh-sessions) from this computer, with extra ssh options if you need them; asks whether to save the host (default no) |
+| `e` | on a saved ssh host or an ssh session: edit its host, name, [group](/docs/interface#ssh-groups) and ssh options (on a group: rename it) |
+| `K` | on a saved ssh host or an ssh session: set up login without a password — copies your public key to the host (makes `~/.ssh/id_ed25519` first if you have no key) |
+| `N` | under `SSH`: new ssh group (eng, staging, prod…) · `a` on a group adds a host to it · `r` renames it · `x` removes it (its hosts are kept) |
 | `P` | [pair a phone](/docs/phone#pair-a-phone) with this computer: a QR code and a one-time code for `conch web`, for a phone that may type into terminals too; in it `v` / `r` / `f` give a new code for view, reply or full, `y` copies the link and `c` the code (or click them), `s` starts `conch web` when it isn't running. 🌐 in the status bar opens it too |
 | `a` | add project |
 | `M` | add a machine: **Over ssh…**, or **New sandbox…** and a provider ([sandboxes](/docs/sandboxes)) |

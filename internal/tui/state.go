@@ -24,6 +24,11 @@ type uiState struct {
 	// key and the state it was in: a row comes back when that changes.
 	QueueDismissed map[string]string `json:"queue_dismissed,omitempty"`
 	SavedSSH       []string          `json:"saved_ssh,omitempty"` // ssh hosts kept in the tree (ssh.go)
+	// SSHHosts are saved hosts' names, groups and options, by host, and
+	// SSHGroups the groups in order (sshgroups.go). The hosts themselves
+	// stay in SavedSSH, which older builds read.
+	SSHHosts  map[string]sshHostInfo `json:"ssh_hosts,omitempty"`
+	SSHGroups []string               `json:"ssh_groups,omitempty"`
 	// SandboxRan is what each sandbox was running when it stopped, by
 	// machine ID, to offer back when it starts again (sandboxran.go).
 	SandboxRan map[string][]ranPane `json:"sandbox_ran,omitempty"`
@@ -78,6 +83,14 @@ func (m Model) saveState() tea.Cmd {
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
 		Tabs: m.savedTabs(), ActiveTab: m.activeTab, LimitAlerts: map[string]int{},
 		QueueDismissed: map[string]string{}, SavedSSH: slices.Clone(m.savedSSH)}
+	if len(m.sshInfo) > 0 {
+		st.SSHHosts = make(map[string]sshHostInfo, len(m.sshInfo))
+		for k, v := range m.sshInfo {
+			v.Args = slices.Clone(v.Args)
+			st.SSHHosts[k] = v
+		}
+	}
+	st.SSHGroups = slices.Clone(m.sshGroups)
 	if len(m.sandboxRan) > 0 {
 		st.SandboxRan = make(map[string][]ranPane, len(m.sandboxRan))
 		for k, v := range m.sandboxRan {

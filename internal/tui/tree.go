@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -38,6 +39,9 @@ const (
 	// under Sandboxes → Daytona → … rather than filling the tree's top.
 	kindSandboxes
 	kindSandboxProvider
+	// kindSSHGroup is a group of saved ssh hosts under SSH (sshgroups.go);
+	// its name is in the row's branch.
+	kindSSHGroup
 )
 
 // row is one visible line of the sidebar tree. IDs of panes and projects
@@ -56,7 +60,7 @@ type row struct {
 func (r row) expandable() bool {
 	switch r.kind {
 	case kindMachine, kindWorkspace, kindProject, kindBranches, kindAgents, kindTerminals, kindCLI, kindSSH,
-		kindSandboxes, kindSandboxProvider:
+		kindSandboxes, kindSandboxProvider, kindSSHGroup:
 		return true
 	}
 	return false
@@ -82,6 +86,8 @@ type treeMachine struct {
 	agents   map[string]bool // panes that have ever run an agent
 	sessions bool            // the server lists saved sessions
 	savedSSH []string        // ssh hosts kept in the tree (this computer only)
+	sshInfo  map[string]sshHostInfo
+	sshGroup []string // groups of saved hosts, in order
 }
 
 // treeInput is everything the tree is built from.
@@ -335,29 +341,27 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 			looseTerms = append(looseTerms, p)
 		}
 	}
-	// Saved hosts with no session open to them stay listed under SSH, to
-	// connect again with a click.
-	var saved []row
-	for _, target := range idleSavedSSH(mach.savedSSH, looseSSH) {
-		if match(target) || match(sshName(target)) {
-			saved = append(saved, row{id: savedSSHID(target), kind: kindSavedSSH, depth: 3, machine: mid})
-		}
-	}
+	sshRows, savedCount := sshSectionRows(mach, looseSSH, filter, match, open, paneRows)
 	for _, sec := range []struct {
 		id    string
 		kind  nodeKind
 		panes []proto.PaneInfo
-		extra []row
-	}{{machineID(mid) + "/agents", kindAgents, looseAgents, nil}, {looseTerminalsID(mid), kindTerminals, looseTerms, nil}, {looseSSHID(mid), kindSSH, looseSSH, saved}} {
-		if prows := append(paneRows(sec.panes, 3, false), sec.extra...); len(prows) > 0 {
-			cli = append(cli, row{id: sec.id, kind: sec.kind, depth: 2, machine: mid, count: len(sec.panes) + len(sec.extra)})
+		rows  []row
+		count int
+	}{
+		{machineID(mid) + "/agents", kindAgents, looseAgents, paneRows(looseAgents, 3, false), len(looseAgents)},
+		{looseTerminalsID(mid), kindTerminals, looseTerms, paneRows(looseTerms, 3, false), len(looseTerms)},
+		{looseSSHID(mid), kindSSH, looseSSH, sshRows, len(looseSSH) + savedCount},
+	} {
+		if len(sec.rows) > 0 {
+			cli = append(cli, row{id: sec.id, kind: sec.kind, depth: 2, machine: mid, count: sec.count})
 			if open(sec.id, true) {
-				cli = append(cli, prows...)
+				cli = append(cli, sec.rows...)
 			}
 		}
 	}
 	if len(cli) > 0 {
-		body = append(body, row{id: cliID(mid), kind: kindCLI, depth: 1, machine: mid, count: len(loose) + len(saved)})
+		body = append(body, row{id: cliID(mid), kind: kindCLI, depth: 1, machine: mid, count: len(loose) + savedCount})
 		if open(cliID(mid), true) {
 			body = append(body, cli...)
 		}
@@ -371,6 +375,56 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 		rows = append(rows, body...)
 	}
 	return rows
+}
+
+// sshSectionRows are the rows under a machine's SSH section: each group of
+// saved hosts with the sessions and idle saved hosts in it, then those in
+// no group. Saved hosts with no session open to them stay listed, to
+// connect again with a click. saved counts the idle saved hosts listed.
+func sshSectionRows(mach treeMachine, sessions []proto.PaneInfo, filter string, match func(string) bool,
+	open func(string, bool) bool, paneRows func([]proto.PaneInfo, int, bool) []row) (rows []row, saved int) {
+	mid := mach.id
+	groupOf := func(target string) string {
+		if g := mach.sshInfo[target].Group; g != "" && slices.Contains(mach.savedSSH, target) {
+			return g
+		}
+		return ""
+	}
+	members := func(group string, depth int, groupMatched bool) ([]row, int) {
+		var panes []proto.PaneInfo
+		for _, p := range sessions {
+			if groupOf(sshTarget(p)) == group {
+				panes = append(panes, p)
+			}
+		}
+		out := paneRows(panes, depth, groupMatched)
+		idle := 0
+		for _, target := range idleSavedSSH(mach.savedSSH, sessions) {
+			if groupOf(target) != group {
+				continue
+			}
+			if groupMatched || match(target) || match(sshName(target)) || match(mach.sshInfo[target].Name) {
+				out = append(out, row{id: savedSSHID(target), kind: kindSavedSSH, depth: depth, machine: mid})
+				idle++
+			}
+		}
+		return out, idle
+	}
+	for _, g := range mach.sshGroup {
+		matched := filter != "" && match(g)
+		kids, idle := members(g, 4, matched)
+		saved += idle
+		if filter != "" && !matched && len(kids) == 0 {
+			continue // an empty group is listed to drop hosts on, not to match
+		}
+		id := sshGroupID(g)
+		rows = append(rows, row{id: id, kind: kindSSHGroup, depth: 3, machine: mid, branch: g, count: len(kids)})
+		if open(id, true) {
+			rows = append(rows, kids...)
+		}
+	}
+	kids, idle := members("", 3, false)
+	return append(rows, kids...), saved + idle
 }
 
 // listedBranches picks the branches worth showing: checked-out ones (main

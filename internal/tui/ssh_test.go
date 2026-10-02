@@ -235,7 +235,7 @@ func TestSSHKeyOffline(t *testing.T) {
 	if m.overlay != nil || !strings.Contains(m.flash, "local is") {
 		t.Fatalf("offline: overlay %T, flash %q", m.overlay, m.flash)
 	}
-	if cmd := m.startSSH("box"); !strings.Contains(a2ErrText(a2Run(cmd)), "local is") {
+	if cmd := m.startSSH("box", nil); !strings.Contains(a2ErrText(a2Run(cmd)), "local is") {
 		t.Fatal("startSSH offline")
 	}
 }
@@ -331,7 +331,7 @@ func TestSSHStart(t *testing.T) {
 
 	// Hosts ssh would read as options, or as several words, never start.
 	for _, bad := range []string{"", "-oProxyCommand=touch x", "a b", "box\n"} {
-		if got := a2ErrText(a2Run(m.startSSH(bad))); got == "" {
+		if got := a2ErrText(a2Run(m.startSSH(bad, nil))); got == "" {
 			t.Fatalf("%q started", bad)
 		}
 	}
@@ -356,7 +356,7 @@ func TestSSHStart(t *testing.T) {
 
 	// The server refusing is reported.
 	peer.setError(proto.MethodPaneCreate, "no pty")
-	if got := a2ErrText(a2Run(m.startSSH("box"))); !strings.Contains(got, "no pty") {
+	if got := a2ErrText(a2Run(m.startSSH("box", nil))); !strings.Contains(got, "no pty") {
 		t.Fatalf("server error %q", got)
 	}
 

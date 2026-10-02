@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Amitgb14/conch/internal/phone"
@@ -125,6 +126,11 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "t":
 		return m, m.openTaskDialog()
 	case "a":
+		if ok && r.kind == kindSSHGroup {
+			d := newSSHHostDialog(m, "", r.branch)
+			m.overlay = d
+			return m, d.focusCmd()
+		}
 		pl := m.contextPlace()
 		if m.clientOf(pl.machine) == nil {
 			m.setFlash(m.offlineText(pl.machine), true)
@@ -144,10 +150,34 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case "H":
 		return m, m.openSSH()
+	case "e":
+		if t := m.sshTargetOfRow(r); ok && t != "" {
+			return m, m.openEditSSH(t)
+		}
+		if ok && r.kind == kindSSHGroup {
+			m.overlay = newSSHGroupDialog(m, r.branch)
+			return m, textinput.Blink
+		}
+	case "K":
+		if t := m.sshTargetOfRow(r); ok && t != "" {
+			return m, m.copySSHKey(t)
+		}
+	case "N":
+		if ok && (r.kind == kindSSH || r.kind == kindSSHGroup || m.sshTargetOfRow(r) != "") && r.machine == localMachine {
+			m.overlay = newSSHGroupDialog(m, "")
+			return m, textinput.Blink
+		}
 	case "M":
 		m.overlay = newAddMenu()
 		return m, nil
 	case "r":
+		if ok && r.kind == kindSSHGroup {
+			m.overlay = newSSHGroupDialog(m, r.branch)
+			return m, textinput.Blink
+		}
+		if ok && r.kind == kindSavedSSH {
+			return m, m.openEditSSH(savedSSHTarget(r.id))
+		}
 		m.openRename()
 	case "x":
 		return m, m.openRemove()
@@ -683,6 +713,8 @@ func (m *Model) openRemove() tea.Cmd {
 		m.overlay = newConfirm(fmt.Sprintf("Remove %s from conch? Its server and panes keep running there.", label), func(m *Model) tea.Cmd {
 			return m.removeMachine(mid)
 		})
+	case kindSSHGroup:
+		m.confirmRemoveSSHGroup(r.branch)
 	case kindSavedSSH:
 		target := savedSSHTarget(r.id)
 		m.overlay = newConfirm(fmt.Sprintf("Forget ssh %s? It is no longer listed when conch opens.", sshName(target)), func(m *Model) tea.Cmd {
