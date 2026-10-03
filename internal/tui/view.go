@@ -253,9 +253,11 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 	case kindTab:
 		return "", glyphStyle, r.label, styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindFolder:
-		// No glyph: the expander already marks it, as it does every other
-		// section, and a second arrow reads as two.
-		return "", glyphStyle, r.label, styleMuted, styleMuted.Render(fmt.Sprint(r.count))
+		// A mark of its own, not an arrow: the expander is already one, and
+		// a second read as two. It also puts the name where the names of
+		// the panes beside it are — a folder and a pane in no folder are
+		// the same thing at the same level, and should line up.
+		return "▪", glyphStyle, r.label, styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindSSH:
 		return "", glyphStyle, "SSH", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindSavedSSH:

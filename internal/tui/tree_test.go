@@ -326,7 +326,7 @@ func TestBuildTreeFolders(t *testing.T) {
 	if !strings.Contains(got, "folder:r1/4/eng\n") {
 		t.Fatalf("the folder went with its pane:\n%s", got)
 	}
-	if !strings.Contains(got, "      p:r1/terminals\n        pane:p2\n        folder:r1/4/eng\n") {
+	if !strings.Contains(got, "      p:r1/terminals\n        folder:r1/4/eng\n        pane:p2\n") {
 		t.Fatalf("the pane did not stay outside it:\n%s", got)
 	}
 
@@ -364,9 +364,10 @@ func TestBuildTreeFolders(t *testing.T) {
 		t.Fatalf("a machine's own folder:\n%s", got)
 	}
 
-	// Panes in no folder come before the folders, at project and machine
-	// level alike: listed after an open folder, one step out from what is
-	// in it, they read as more of it.
+	// Folders come before the panes in none of them, at project and machine
+	// level alike, as the file explorer lists folders before files. A pane
+	// listed after an open folder sits one step out from what is in it,
+	// which is the tree saying it is not in it; its own mark says so too.
 	mixed := sampleInput()
 	mixed.machines[0].panes = append(mixed.machines[0].panes,
 		proto.PaneInfo{ID: "p4", Name: "b", ProjectID: "r1", Branch: "main", State: proto.PaneRunning},
@@ -377,11 +378,11 @@ func TestBuildTreeFolders(t *testing.T) {
 	}
 	got = render(buildTree(mixed))
 	for _, want := range []string{
-		"      p:r1/terminals\n        pane:p4\n        folder:r1/4/eng\n          pane:p2\n      p:r1/files\n",
-		"    m:local/terminals\n      pane:p5\n      folder:/4/boxes\n        pane:p3\n",
+		"      p:r1/terminals\n        folder:r1/4/eng\n          pane:p2\n        pane:p4\n      p:r1/files\n",
+		"    m:local/terminals\n      folder:/4/boxes\n        pane:p3\n      pane:p5\n",
 	} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("loose panes not before the folders, want\n%s\nin\n%s", want, got)
+			t.Fatalf("folders not before the panes in none, want\n%s\nin\n%s", want, got)
 		}
 	}
 

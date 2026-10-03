@@ -413,8 +413,11 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 			sid := sectionID(mid, proj.ID, sec.name)
 			children = append(children, row{id: sid, kind: sec.kind, depth: 3, machine: mid, projectID: proj.ID, count: len(sec.panes)})
 			if open(sid, true) {
-				children = append(children, prows...)
+				// Folders first, then what is in none of them: a folder is
+				// something you put there, and it should not be below the
+				// list it was made to tidy.
 				children = append(children, frows...)
+				children = append(children, prows...)
 			}
 		}
 
@@ -471,7 +474,7 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 		extra []row
 	}{{machineID(mid) + "/agents", kindAgents, looseAgents, nil}, {looseTerminalsID(mid), kindTerminals, looseTerms, nil}, {looseSSHID(mid), kindSSH, looseSSH, saved}} {
 		frows, loose := foldered(in, mid, "", sec.kind, sec.panes, 3, false, paneRows, open)
-		if prows := append(append(paneRows(loose, 3, false), sec.extra...), frows...); len(prows) > 0 {
+		if prows := append(append(frows, paneRows(loose, 3, false)...), sec.extra...); len(prows) > 0 {
 			cli = append(cli, row{id: sec.id, kind: sec.kind, depth: 2, machine: mid, count: len(sec.panes) + len(sec.extra)})
 			if open(sec.id, true) {
 				cli = append(cli, prows...)
