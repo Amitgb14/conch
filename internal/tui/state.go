@@ -27,6 +27,22 @@ type uiState struct {
 	// SandboxRan is what each sandbox was running when it stopped, by
 	// machine ID, to offer back when it starts again (sandboxran.go).
 	SandboxRan map[string][]ranPane `json:"sandbox_ran,omitempty"`
+	// Folders are the groups of your own in the tree (folders.go), by the
+	// section they sit in. Absent for anybody who never made one.
+	Folders map[string][]savedFolder `json:"folders,omitempty"`
+}
+
+// savedFolder is one folder of the tree and what is in it. A pane is held
+// by name and by id: ids die with the server, and the name is what was
+// typed, so a folder finds its panes again after a restart.
+type savedFolder struct {
+	Name    string        `json:"name"`
+	Members []savedMember `json:"members,omitempty"`
+}
+
+type savedMember struct {
+	Name string `json:"name,omitempty"`
+	ID   string `json:"id,omitempty"`
 }
 
 func uiStatePath() string { return filepath.Join(config.Dir(), "ui.json") }
@@ -78,6 +94,12 @@ func (m Model) saveState() tea.Cmd {
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
 		Tabs: m.savedTabs(), ActiveTab: m.activeTab, LimitAlerts: map[string]int{},
 		QueueDismissed: map[string]string{}, SavedSSH: slices.Clone(m.savedSSH)}
+	if len(m.folders) > 0 {
+		st.Folders = make(map[string][]savedFolder, len(m.folders))
+		for k, v := range m.folders {
+			st.Folders[k] = slices.Clone(v)
+		}
+	}
 	if len(m.sandboxRan) > 0 {
 		st.SandboxRan = make(map[string][]ranPane, len(m.sandboxRan))
 		for k, v := range m.sandboxRan {

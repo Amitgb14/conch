@@ -92,7 +92,10 @@ type Model struct {
 	usageAsked  time.Time
 	// sandboxRan is what each sandbox was running when it stopped, to
 	// offer back when it starts again (sandboxran.go).
-	sandboxRan  map[string][]ranPane
+	sandboxRan map[string][]ranPane
+	// folders are the groups of your own in the tree, by section key
+	// (folders.go). Empty for anybody who never made one.
+	folders     map[string][]savedFolder
 	changesSeen []string
 	overlay     overlay // menu or dialog on top, if any
 
@@ -210,6 +213,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		queueSeen:  st.QueueDismissed,
 		savedSSH:   cleanSavedSSH(st.SavedSSH),
 		sandboxRan: st.SandboxRan,
+		folders:    st.Folders,
 	}
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	if st.SidebarWidth > 0 {
@@ -908,6 +912,7 @@ func (m *Model) rebuild() tea.Cmd {
 	if treeGroups(m.cfg.UI.TreeGroups) == "tabs" {
 		in.tabs = m.treeTabs()
 	}
+	in.folders = m.folders
 	m.treeSig = m.layoutSig()
 	m.rows = buildTree(in)
 	if indexOfRow(m.rows, m.cursor) < 0 && len(m.rows) > 0 {

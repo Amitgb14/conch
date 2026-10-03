@@ -69,7 +69,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		switch msg.Action {
 		case tea.MouseActionMotion:
 			m.rowDrop = ""
-			if r, ok := m.rowAtY(msg.X, msg.Y); ok && r.kind == kindTab {
+			if r, ok := m.rowAtY(msg.X, msg.Y); ok && (r.kind == kindTab || r.kind == kindFolder || m.sectionOf(r)) {
 				m.rowDrop = r.id
 			}
 			return m, nil
@@ -762,7 +762,7 @@ func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Mode
 	// Grouped by tab, a pane row can be carried to a tab's section. The
 	// press still selects and shows the row, as it always did: a drag is
 	// only a drag once the pointer has moved onto a section.
-	if left && r.kind == kindPane && treeGroups(m.cfg.UI.TreeGroups) == "tabs" {
+	if left && r.kind == kindPane && (treeGroups(m.cfg.UI.TreeGroups) == "tabs" || len(m.folders) > 0) {
 		m.rowDrag, m.rowDrop = r.id, ""
 	}
 	wasSelected := r.id == m.cursor
@@ -876,8 +876,43 @@ func (m *Model) dropRowOnTab(fromID, toID string) tea.Cmd {
 			to = r
 		}
 	}
-	if from.kind != kindPane || to.kind != kindTab || from.paneID == "" {
+	if from.kind != kindPane || from.paneID == "" {
 		return nil
 	}
-	return m.movePaneToTab(from.machine, from.paneID, to.tabIndex)
+	p := m.pane(from.machine, from.paneID)
+	switch {
+	case to.kind == kindTab:
+		return m.movePaneToTab(from.machine, from.paneID, to.tabIndex)
+	case to.kind == kindFolder && p != nil:
+		// Into a folder of its own section: a pane moved to a folder of
+		// another section would be listed in neither.
+		if to.machine != from.machine || to.section != m.paneSection(from.machine, from.paneID) {
+			return nil
+		}
+		if !m.putInFolder(to.machine, to.projectID, to.section, to.label, *p) {
+			return nil
+		}
+		m.expanded[to.id] = true
+		return tea.Batch(m.rebuild(), m.saveState())
+	case m.sectionOf(to) && p != nil:
+		// Out of whatever folder it is in, back to the section's own list.
+		if to.machine != from.machine || to.kind != m.paneSection(from.machine, from.paneID) {
+			return nil
+		}
+		if !m.takeOutOfFolders(to.machine, to.projectID, to.kind, *p) {
+			return nil
+		}
+		return tea.Batch(m.rebuild(), m.saveState())
+	}
+	return nil
+}
+
+// sectionOf reports whether a row is a section panes are listed under, and
+// so somewhere a pane can be dragged out of a folder onto.
+func (m Model) sectionOf(r row) bool {
+	switch r.kind {
+	case kindAgents, kindTerminals, kindSSH:
+		return true
+	}
+	return false
 }

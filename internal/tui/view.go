@@ -252,6 +252,10 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		return "", glyphStyle, "Terminals", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindTab:
 		return "", glyphStyle, r.label, styleMuted, styleMuted.Render(fmt.Sprint(r.count))
+	case kindFolder:
+		// No glyph: the expander already marks it, as it does every other
+		// section, and a second arrow reads as two.
+		return "", glyphStyle, r.label, styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindSSH:
 		return "", glyphStyle, "SSH", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindSavedSSH:

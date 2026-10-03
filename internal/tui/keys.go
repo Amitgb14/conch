@@ -149,6 +149,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "r":
 		m.openRename()
+	case "N":
+		return m, m.openNewFolder()
 	case "x":
 		return m, m.openRemove()
 	case "R":
@@ -669,6 +671,15 @@ func (m *Model) openRenameMachine(mid string) {
 func (m *Model) openRemove() tea.Cmd {
 	r, _ := m.selectedRow()
 	switch r.kind {
+	case kindFolder:
+		mid, pid, kind, name := r.machine, r.projectID, r.section, r.label
+		m.overlay = newConfirm(fmt.Sprintf("Remove the folder %s? What is in it goes back to %s; nothing closes.", name, sectionWord(kind)),
+			func(m *Model) tea.Cmd {
+				if !m.removeFolder(mid, pid, kind, name) {
+					return nil
+				}
+				return tea.Batch(m.rebuild(), m.saveState())
+			})
 	case kindMachine:
 		if r.machine == localMachine {
 			m.setFlash("this computer can't be removed", true)

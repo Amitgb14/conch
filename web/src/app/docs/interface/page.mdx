@@ -71,6 +71,22 @@ Pull requests come from the `gh` CLI (your existing GitHub login): `#12✓` chec
 
 Agents are named after their task (Claude's title) until you rename them with `r`. Their states are described in [Agents](/docs/agents#agent-states); every project also has a [Sessions](/docs/sessions) section.
 
+### Folders of your own
+
+conch groups panes by what they are and, with the setting below, by the tab they are open in. Neither says what *you* think belongs together, and names repeat across environments. **`N`** on Agents, Terminals or SSH — or on a pane in one — makes a folder; drag rows into it, and back onto the section to take them out. `x` on a folder removes it and its panes go back to the list; nothing closes.
+
+```
+Terminals
+  ▸ eng                 2
+      › vm1
+      › vm2
+  ▸ prod                1
+      › vm1
+    › vm3
+```
+
+A folder holds each pane **by name and by id**. Ids belong to a running server, so a folder finds its panes again after a restart by the name you gave them (`r` in the tree, or `conch rename`) and keeps up with them by id in between — a pane you never named is held by id alone and leaves its folder when the server goes. A pane is in one folder at a time, and folders live in `ui.json` per machine, project and section, so they cost nothing to anyone who never makes one.
+
 ### Grouped by tab
 
 A project lists its panes under **Agents** and **Terminals** — what each one is. **Settings → Tree grouping → By tab** lists them under the tab each is open in instead, so the tree says what the tab bar says:

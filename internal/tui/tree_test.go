@@ -283,3 +283,98 @@ func TestBuildTreeGroupedByTab(t *testing.T) {
 		t.Fatalf("the setting off changed the tree:\n%s\nwant\n%s", got, plain)
 	}
 }
+
+// TestBuildTreeFolders: groups of your own inside a pane section — the
+// panes you put in them, then the ones you did not, as they always were.
+func TestBuildTreeFolders(t *testing.T) {
+	in := sampleInput()
+	key := folderKey(localMachine, "r1", kindTerminals)
+	in.folders = map[string][]savedFolder{key: {
+		{Name: "eng", Members: []savedMember{{Name: "zsh", ID: "p2"}}},
+		{Name: "prod"},
+	}}
+	got := render(buildTree(in))
+	want := `m:local
+  m:local/workspace
+    p:r1
+      p:r1/branches
+        b:r1:main
+        b:r1:feat/login
+        b:r1:fix/flaky
+        more:r1
+      p:r1/agents
+        pane:p1
+      p:r1/terminals
+        folder:r1/4/eng
+          pane:p2
+        folder:r1/4/prod
+      p:r1/files
+    p:r2
+  m:local/cli
+    m:local/terminals
+      pane:p3
+`
+	if got != want {
+		t.Fatalf("with folders:\n%s\nwant\n%s", got, want)
+	}
+
+	// A pane the folder names but conch does not have is simply not there,
+	// and the folder stays — the pane may come back.
+	in.folders = map[string][]savedFolder{key: {{Name: "eng", Members: []savedMember{{Name: "gone", ID: "p9"}}}}}
+	got = render(buildTree(in))
+	if !strings.Contains(got, "folder:r1/4/eng\n") {
+		t.Fatalf("the folder went with its pane:\n%s", got)
+	}
+	if !strings.Contains(got, "      p:r1/terminals\n        folder:r1/4/eng\n        pane:p2\n") {
+		t.Fatalf("the pane did not stay outside it:\n%s", got)
+	}
+
+	// Held by name alone, as a folder holds a pane whose id died with the
+	// server it was started on.
+	in.folders = map[string][]savedFolder{key: {{Name: "eng", Members: []savedMember{{Name: "zsh"}}}}}
+	if got := render(buildTree(in)); !strings.Contains(got, "folder:r1/4/eng\n          pane:p2\n") {
+		t.Fatalf("a pane held by name was not found:\n%s", got)
+	}
+
+	// By id alone, for a pane that never had a name.
+	in.folders = map[string][]savedFolder{key: {{Name: "eng", Members: []savedMember{{ID: "p2"}}}}}
+	if got := render(buildTree(in)); !strings.Contains(got, "folder:r1/4/eng\n          pane:p2\n") {
+		t.Fatalf("a pane held by id was not found:\n%s", got)
+	}
+
+	// Two folders naming the same pane: the first keeps it, so it is in one
+	// place rather than two.
+	in.folders = map[string][]savedFolder{key: {
+		{Name: "eng", Members: []savedMember{{ID: "p2"}}},
+		{Name: "prod", Members: []savedMember{{ID: "p2"}}},
+	}}
+	got = render(buildTree(in))
+	if strings.Count(got, "pane:p2") != 1 {
+		t.Fatalf("the pane is in two places:\n%s", got)
+	}
+
+	// A machine's own section takes folders too.
+	in.folders = map[string][]savedFolder{
+		folderKey(localMachine, "", kindTerminals): {{Name: "boxes", Members: []savedMember{{ID: "p3"}}}},
+	}
+	// scoped() leaves this computer's ids bare, so its own sections key on
+	// the empty project rather than on "local".
+	if got := render(buildTree(in)); !strings.Contains(got, "    m:local/terminals\n      folder:/4/boxes\n        pane:p3\n") {
+		t.Fatalf("a machine's own folder:\n%s", got)
+	}
+
+	// Folded, the folder is listed without what is in it.
+	in.folders = map[string][]savedFolder{key: {{Name: "eng", Members: []savedMember{{ID: "p2"}}}}}
+	in.expanded = map[string]bool{folderRowID(localMachine, "r1", kindTerminals, "eng"): false}
+	got = render(buildTree(in))
+	if !strings.Contains(got, "folder:r1/4/eng") || strings.Contains(got, "          pane:p2") {
+		t.Fatalf("folded:\n%s", got)
+	}
+
+	// No folders at all — state from a conch that never had them — and the
+	// tree is exactly as it was.
+	in.folders, in.expanded = nil, map[string]bool{}
+	if got, plain := render(buildTree(in)), render(buildTree(sampleInput())); got != plain {
+		t.Fatalf("no folders changed the tree:\n%s\nwant\n%s", got, plain)
+	}
+}

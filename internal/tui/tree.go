@@ -42,7 +42,49 @@ const (
 	// [ui] tree_groups = "tabs". Kinds are saved in ui.json by number, so
 	// new ones go last.
 	kindTab
+	// kindFolder is a group of your own inside a pane section (folders.go).
+	// Kinds are saved in ui.json by number, so new ones go last.
+	kindFolder
 )
+
+// foldered splits a section's panes into the folders of that section and
+// what is left over. A folder with nothing in it is still listed, so one
+// made and not filled yet does not vanish; the panes outside them keep
+// their place below, as they were before folders existed.
+func foldered(in treeInput, mid, pid string, kind nodeKind, panes []proto.PaneInfo,
+	depth int, projMatched bool, rows func([]proto.PaneInfo, int, bool) []row,
+	open func(string, bool) bool) (out []row, loose []proto.PaneInfo) {
+	fs := in.folders[folderKey(mid, pid, kind)]
+	if len(fs) == 0 {
+		return nil, panes
+	}
+	taken := map[string]bool{}
+	for _, f := range fs {
+		var mine []proto.PaneInfo
+		for _, p := range panes {
+			if !taken[p.ID] && f.holds(p) {
+				taken[p.ID] = true
+				mine = append(mine, p)
+			}
+		}
+		fid := folderRowID(mid, pid, kind, f.Name)
+		prows := rows(mine, depth+1, projMatched)
+		if in.filter != "" && len(prows) == 0 {
+			continue // narrowed away with everything in it
+		}
+		out = append(out, row{id: fid, kind: kindFolder, depth: depth, machine: mid, projectID: pid,
+			count: len(mine), label: f.Name, section: kind})
+		if open(fid, true) {
+			out = append(out, prows...)
+		}
+	}
+	for _, p := range panes {
+		if !taken[p.ID] {
+			loose = append(loose, p)
+		}
+	}
+	return out, loose
+}
 
 // row is one visible line of the sidebar tree. IDs of panes and projects
 // are only unique per machine, so every row carries its machine.
@@ -54,15 +96,16 @@ type row struct {
 	projectID string
 	branch    string
 	paneID    string
-	count     int    // sections: children; more: hidden branches
-	label     string // a tab section's name, as the bar writes it
-	tabIndex  int    // a tab section: which tab it stands for
+	count     int      // sections: children; more: hidden branches
+	label     string   // a tab section's name, as the bar writes it
+	tabIndex  int      // a tab section: which tab it stands for
+	section   nodeKind // a folder: the section it sits in
 }
 
 func (r row) expandable() bool {
 	switch r.kind {
 	case kindMachine, kindWorkspace, kindProject, kindBranches, kindAgents, kindTerminals, kindCLI, kindSSH,
-		kindSandboxes, kindSandboxProvider, kindTab:
+		kindSandboxes, kindSandboxProvider, kindTab, kindFolder:
 		return true
 	}
 	return false
@@ -106,9 +149,10 @@ type treeTab struct {
 
 type treeInput struct {
 	machines []treeMachine
-	tabs     []treeTab       // empty unless [ui] tree_groups = "tabs"
-	expanded map[string]bool // explicit expand/collapse choices
-	showAll  map[string]bool // scoped project IDs listing every branch
+	tabs     []treeTab                // empty unless [ui] tree_groups = "tabs"
+	folders  map[string][]savedFolder // groups of your own, by section key
+	expanded map[string]bool          // explicit expand/collapse choices
+	showAll  map[string]bool          // scoped project IDs listing every branch
 	filter   string
 	now      time.Time
 }
@@ -122,10 +166,14 @@ func scoped(machine, id string) string {
 	return machine + "~" + id
 }
 
-func machineID(mid string) string            { return "m:" + mid }
-func sandboxesID() string                    { return "sandboxes" }
-func sandboxProviderID(p string) string      { return "sandboxes/" + p }
-func projectNodeID(mid, pid string) string   { return "p:" + scoped(mid, pid) }
+func machineID(mid string) string          { return "m:" + mid }
+func sandboxesID() string                  { return "sandboxes" }
+func sandboxProviderID(p string) string    { return "sandboxes/" + p }
+func projectNodeID(mid, pid string) string { return "p:" + scoped(mid, pid) }
+func folderRowID(mid, pid string, kind nodeKind, name string) string {
+	return "folder:" + folderKey(mid, pid, kind) + "/" + name
+}
+
 func sectionID(mid, pid, s string) string    { return "p:" + scoped(mid, pid) + "/" + s }
 func branchNodeID(mid, pid, b string) string { return "b:" + scoped(mid, pid) + ":" + b }
 func paneNodeID(mid, id string) string       { return "pane:" + scoped(mid, id) }
@@ -356,13 +404,15 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 			kind  nodeKind
 			panes []proto.PaneInfo
 		}{{"agents", kindAgents, agents}, {"terminals", kindTerminals, terms}} {
-			prows := paneRows(sec.panes, 4, projMatched)
-			if len(prows) == 0 {
+			frows, loose := foldered(in, mid, proj.ID, sec.kind, sec.panes, 4, projMatched, paneRows, open)
+			prows := paneRows(loose, 4, projMatched)
+			if len(prows) == 0 && len(frows) == 0 {
 				continue
 			}
 			sid := sectionID(mid, proj.ID, sec.name)
 			children = append(children, row{id: sid, kind: sec.kind, depth: 3, machine: mid, projectID: proj.ID, count: len(sec.panes)})
 			if open(sid, true) {
+				children = append(children, frows...)
 				children = append(children, prows...)
 			}
 		}
@@ -419,7 +469,8 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 		panes []proto.PaneInfo
 		extra []row
 	}{{machineID(mid) + "/agents", kindAgents, looseAgents, nil}, {looseTerminalsID(mid), kindTerminals, looseTerms, nil}, {looseSSHID(mid), kindSSH, looseSSH, saved}} {
-		if prows := append(paneRows(sec.panes, 3, false), sec.extra...); len(prows) > 0 {
+		frows, loose := foldered(in, mid, "", sec.kind, sec.panes, 3, false, paneRows, open)
+		if prows := append(append(frows, paneRows(loose, 3, false)...), sec.extra...); len(prows) > 0 {
 			cli = append(cli, row{id: sec.id, kind: sec.kind, depth: 2, machine: mid, count: len(sec.panes) + len(sec.extra)})
 			if open(sec.id, true) {
 				cli = append(cli, prows...)

@@ -862,6 +862,7 @@ var helpText = []string{
 	"     on a machine, or a folder that isn't a git repository, the agent works right there",
 	"  c  start an agent here: pick Claude, Codex, Gemini or OpenCode (click or 1-9)",
 	"  n  terminal here       a  add or create a project",
+	"  N  new folder in Agents, Terminals or SSH: a group of your own · drag rows in, x removes it",
 	"  M  add machine: over ssh, or a new sandbox · sandboxes group under Sandboxes → provider",
 	"  R  reconnect a machine    A  start or install any agent",
 	"     m on a sandbox: start, stop or delete it (a sandbox runs, and costs, until stopped)",
