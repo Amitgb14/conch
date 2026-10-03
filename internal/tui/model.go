@@ -116,6 +116,7 @@ type Model struct {
 	leafDrag    int       // a split being dragged by its title, to swap
 	leafDrop    int       // the split under the pointer while it is dragged
 	tabDrop     int       // the tab under it instead, to move the split there (-1: none)
+	treeSig     string    // the layout the tree was last grouped by, when grouped by tab
 	swapMark    [2]int    // the two splits that just swapped, marked briefly
 	swapUntil   time.Time
 	hoverRow    string // the tree row under the pointer, with [ui] hover
@@ -905,6 +906,7 @@ func (m *Model) rebuild() tea.Cmd {
 	if treeGroups(m.cfg.UI.TreeGroups) == "tabs" {
 		in.tabs = m.treeTabs()
 	}
+	m.treeSig = m.layoutSig()
 	m.rows = buildTree(in)
 	if indexOfRow(m.rows, m.cursor) < 0 && len(m.rows) > 0 {
 		m.cursor = m.rows[clamp(prevIndex, 0, len(m.rows)-1)].id
@@ -1132,6 +1134,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nm.flashTimer = true
 		wait := max(time.Until(nm.flashUntil), 100*time.Millisecond)
 		cmd = tea.Batch(cmd, tea.Tick(wait, func(time.Time) tea.Msg { return flashExpiredMsg{} }))
+	}
+	// Grouped by tab, the tabs are the tree's groups, so a tab opened,
+	// closed, renamed, split or carried elsewhere leaves the tree behind.
+	// One check here rather than a call in every path that moves a tab:
+	// rebuild ends in syncView, so it cannot be hooked from there.
+	if sig := nm.layoutSig(); sig != nm.treeSig {
+		nm.treeSig = sig
+		cmd = tea.Batch(cmd, nm.rebuild())
 	}
 	return nm, cmd
 }

@@ -898,7 +898,7 @@ var helpText = []string{
 	"  & close tab   , rename tab   z zoom   ! next waiting agent   : ask   d detach   ? this help",
 	"  S type into every split of the tab at once (again to stop; synced borders turn amber)",
 	"  in the tree: v open in a split right · s below · O in a new tab (beside what the tab already shows)",
-	"  mouse: click a split to focus it · drag borders to resize · drag a split's title onto another to swap them, or onto a tab to move it there · drag the bar on a pane's right edge to scroll its history · click tabs and × · drag a tab to reorder · + new tab, terminal, agent or ssh",
+	"  mouse: click a split to focus it · drag borders to resize · drag a split's title onto another to swap them, onto a tab to move it there, onto + for a tab of its own · drag the bar on a pane's right edge to scroll its history · click tabs and × · drag a tab to reorder · + new tab, terminal, agent or ssh",
 	"  mouse: click a link an agent printed to open it (alt+click inside an agent's own interface, which is owed its clicks)",
 	"",
 	"Pane and changes",

@@ -943,3 +943,55 @@ func TestA1TreeTabsForTheTree(t *testing.T) {
 		t.Fatalf("tabs of nothing were listed: %+v", got)
 	}
 }
+
+// TestA1TreeRegroupsWhenTabsChange: grouped by tab, the tabs are the tree's
+// groups, so a tab opened or closed has to reach the tree. It did not: the
+// groups only appeared when something else — a pane starting, a project
+// polled — happened to rebuild it.
+func TestA1TreeRegroupsWhenTabsChange(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1FourTabs(t, m)
+	hasTabRow := func(rows []row) bool {
+		for _, r := range rows {
+			if r.kind == kindTab {
+				return true
+			}
+		}
+		return false
+	}
+	if hasTabRow(m.rows) {
+		t.Fatal("grouped by tab before it was asked for")
+	}
+
+	// Asked for, with tabs already open and the tree built without them.
+	m.cfg.UI.TreeGroups = "tabs"
+	if m.layoutSig() == "" {
+		t.Fatal("no layout to group by")
+	}
+	nm, _ := m.Update(flashExpiredMsg{})
+	m2 := nm.(Model)
+	if !hasTabRow(m2.rows) {
+		t.Fatalf("the tree did not regroup:\n%s", render(m2.rows))
+	}
+
+	// Settled: nothing changed, so nothing is rebuilt again.
+	sig := m2.treeSig
+	nm, _ = m2.Update(flashExpiredMsg{})
+	if m3 := nm.(Model); m3.treeSig != sig {
+		t.Fatal("the tree regrouped with nothing changed")
+	}
+
+	// A tab closing reaches it too.
+	m2.closeTab(0)
+	nm, _ = m2.Update(flashExpiredMsg{})
+	if m3 := nm.(Model); m3.treeSig == sig {
+		t.Fatal("closing a tab left the tree as it was")
+	}
+
+	// Grouped the other way there is nothing to watch, so no rebuild is
+	// ever asked for on a tab's account.
+	m2.cfg.UI.TreeGroups = ""
+	if m2.layoutSig() != "" {
+		t.Fatalf("a layout to watch with the grouping off: %q", m2.layoutSig())
+	}
+}

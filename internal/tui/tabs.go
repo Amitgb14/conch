@@ -908,9 +908,19 @@ func (m Model) viewLabel(v viewRef) string {
 	return label
 }
 
+// tabHitPlus and tabHitClose are the bar's buttons, where a tabHit's tab
+// is otherwise the tab's own index.
+const (
+	tabHitPlus  = -1
+	tabHitClose = -2
+	// tabDropNone is m.tabDrop with the pointer on no tab and no button of
+	// the bar, since tabHitPlus is a target of its own now.
+	tabDropNone = -3
+)
+
 type tabHit struct {
 	x0, x1 int
-	tab    int // -1: new tab button; -2: close active tab
+	tab    int // tabHitPlus, tabHitClose, or a tab's index
 }
 
 // tabBar renders the tab bar across the main area and where each tab is.
@@ -945,7 +955,11 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 		b.WriteString(" ")
 		x++
 	}
-	put(styleAccent.Render(" + "), -1)
+	plus := styleAccent
+	if m.leafDrag != 0 && m.tabDrop == tabHitPlus {
+		plus = styleSel // a split is being carried out to a tab of its own
+	}
+	put(plus.Render(" + "), tabHitPlus)
 	return fit(b.String(), w), hits
 }
 
@@ -961,6 +975,43 @@ func (m Model) tabAt(x int) int {
 		}
 	}
 	return -1
+}
+
+// plusAt reports whether column x of the bar is the + — a drop target of
+// its own, for carrying a split out to a tab it does not have yet.
+func (m Model) plusAt(x int) bool {
+	_, hits := m.tabBar(m.mainRect().w)
+	for _, h := range hits {
+		if h.tab == tabHitPlus && x >= h.x0 && x < h.x1 {
+			return true
+		}
+	}
+	return false
+}
+
+// moveLeafToNewTab takes a split out of its tab and gives it one of its
+// own, beside the tab it left and in the same group, so a split can be
+// carried out as well as across. The only split of a tab is already a tab
+// of its own, so it stays where it is rather than closing a tab to open an
+// identical one.
+func (m *Model) moveLeafToNewTab(id int) tea.Cmd {
+	from := m.activeTab
+	if m.previewing || from < 0 || from >= len(m.tabs) {
+		return nil
+	}
+	src := m.tabs[from]
+	l := src.leaf(id)
+	if l == nil || len(src.root.leaves()) < 2 {
+		return nil
+	}
+	src.root = src.root.remove(id)
+	if src.focus == id {
+		src.focus = src.root.leaves()[0].id
+	}
+	m.tabs = slices.Insert(m.tabs, from+1, &tab{root: &layoutNode{leaf: l}, focus: l.id, home: src.home})
+	m.activeTab, m.keepTab = from+1, true
+	m.zoom = false
+	return tea.Batch(m.focusLeaf(l.id), m.syncView(), m.saveState())
 }
 
 // moveLeafToTab moves a split out of the active tab and into tab ti,
@@ -1210,4 +1261,22 @@ func (m *Model) treeTabs() []treeTab {
 		out = append(out, tt)
 	}
 	return out
+}
+
+// layoutSig is everything the tree is grouped by when it groups by tab, so
+// a change to it can be noticed in one place. It is empty when the tree is
+// grouped the other way, which costs nothing and never asks for a rebuild.
+func (m *Model) layoutSig() string {
+	if treeGroups(m.cfg.UI.TreeGroups) != "tabs" {
+		return ""
+	}
+	var b strings.Builder
+	for _, tb := range m.treeTabs() {
+		b.WriteString(tb.machine + "|" + tb.projectID + "|" + tb.label + "|")
+		for _, p := range tb.panes {
+			b.WriteString(p + ",")
+		}
+		b.WriteString(";")
+	}
+	return b.String()
 }

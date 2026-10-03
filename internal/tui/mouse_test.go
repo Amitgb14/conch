@@ -860,7 +860,7 @@ func TestA1DragSplitOntoTabMoves(t *testing.T) {
 	// Let go there: the split joins that tab, and the tab it was the last
 	// split of goes with it.
 	a1Mouse(t, m, dstX, mr.y, a1Left, a1Release)
-	if m.leafDrag != 0 || m.tabDrop != -1 {
+	if m.leafDrag != 0 || m.tabDrop != tabDropNone {
 		t.Fatalf("the drag outlived the release: %d, %d", m.leafDrag, m.tabDrop)
 	}
 	if len(m.tabs) != tabs-1 {
@@ -895,17 +895,55 @@ func TestA1DragSplitOntoTabMoves(t *testing.T) {
 	plus := -1
 	_, hits := m.tabBar(mr.w)
 	for _, h := range hits {
-		if h.tab == -1 {
-			plus = mr.x + h.x0
+		if h.tab == tabHitPlus {
+			plus = mr.x + h.x0 + 1
 		}
 	}
 	if plus < 0 {
 		t.Fatal("no + on the bar")
 	}
-	press(carried)
+	// The only split of a tab is already a tab of its own, so the + leaves
+	// it where it is rather than closing a tab to open an identical one.
+	if len(ids(at)) == 1 {
+		press(carried)
+		a1Mouse(t, m, plus, mr.y, a1Left, a1Release)
+		if got := ids(at); !slices.Equal(got, was) || len(m.tabs) != tabs {
+			t.Fatalf("the + took a lone split: %v, %d tabs", got, len(m.tabs))
+		}
+	}
+
+	// Dropped on the +, a split of a tab that holds more than one goes to
+	// a tab of its own, beside the one it left.
+	if len(ids(at)) < 2 {
+		t.Fatalf("expected two splits for the +: %v", ids(at))
+	}
+	tabs, leaving := len(m.tabs), ids(at)[0]
+	kept := m.tabs[at]
+	press(leaving)
+	a1Mouse(t, m, plus, mr.y, tea.MouseButtonNone, a1Motion)
+	if m.tabDrop != tabHitPlus {
+		t.Fatalf("over the +: tabDrop %d", m.tabDrop)
+	}
 	a1Mouse(t, m, plus, mr.y, a1Left, a1Release)
-	if got := ids(at); !slices.Equal(got, was) || len(m.tabs) != tabs {
-		t.Fatalf("the + took it: %v, %d tabs", got, len(m.tabs))
+	if len(m.tabs) != tabs+1 {
+		t.Fatalf("%d tabs, want %d: the + made none", len(m.tabs), tabs+1)
+	}
+	if slices.Contains(ids(slices.Index(m.tabs, kept)), leaving) {
+		t.Fatal("the split stayed in the tab it left")
+	}
+	if ids(m.activeTab)[0] != leaving || len(ids(m.activeTab)) != 1 {
+		t.Fatalf("the new tab holds %v, want just %d", ids(m.activeTab), leaving)
+	}
+	if m.activeTab != slices.Index(m.tabs, kept)+1 {
+		t.Fatalf("the new tab is at %d, want beside the one it left", m.activeTab)
+	}
+
+	// Back where it was, for what follows.
+	if cmd := m.moveLeafToTab(leaving, slices.Index(m.tabs, kept)); cmd == nil {
+		t.Fatal("could not put it back")
+	}
+	if len(m.tabs) != tabs {
+		t.Fatalf("%d tabs after putting it back, want %d", len(m.tabs), tabs)
 	}
 
 	// A tab of more than one split keeps standing when one is carried off,
