@@ -139,6 +139,19 @@ func (s *settings) themeItems(m *Model) []settingItem {
 			return saveConfig(m.cfg)
 		}})
 
+	items = append(items, settingItem{}, settingItem{header: true, label: "Tree grouping · how a project's panes are listed"})
+	for _, c := range []struct{ mode, label, detail string }{
+		{"sections", "Agents and Terminals", "every pane of the project, by what it is"},
+		{"tabs", "By tab", "a section per tab, holding the panes open in it; the rest keep their sections below"},
+	} {
+		c := c
+		items = append(items, settingItem{label: c.label, detail: c.detail, mark: c.mode == treeGroups(m.cfg.UI.TreeGroups),
+			run: func(m *Model) tea.Cmd {
+				m.cfg.UI.TreeGroups = c.mode
+				return tea.Batch(m.rebuild(), saveConfig(m.cfg))
+			}})
+	}
+
 	items = append(items, settingItem{}, settingItem{header: true, label: "File icons · in the file explorer"})
 	current = iconMode(m.cfg.UI.Icons)
 	for _, c := range []struct{ mode, label string }{

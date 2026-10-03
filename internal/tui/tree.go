@@ -38,6 +38,10 @@ const (
 	// under Sandboxes → Daytona → … rather than filling the tree's top.
 	kindSandboxes
 	kindSandboxProvider
+	// kindTab groups a project's panes by the tab they are open in, with
+	// [ui] tree_groups = "tabs". Kinds are saved in ui.json by number, so
+	// new ones go last.
+	kindTab
 )
 
 // row is one visible line of the sidebar tree. IDs of panes and projects
@@ -50,13 +54,14 @@ type row struct {
 	projectID string
 	branch    string
 	paneID    string
-	count     int // sections: children; more: hidden branches
+	count     int    // sections: children; more: hidden branches
+	label     string // a tab section's name, as the bar writes it
 }
 
 func (r row) expandable() bool {
 	switch r.kind {
 	case kindMachine, kindWorkspace, kindProject, kindBranches, kindAgents, kindTerminals, kindCLI, kindSSH,
-		kindSandboxes, kindSandboxProvider:
+		kindSandboxes, kindSandboxProvider, kindTab:
 		return true
 	}
 	return false
@@ -85,8 +90,21 @@ type treeMachine struct {
 }
 
 // treeInput is everything the tree is built from.
+// treeTab is one tab of the bar, for grouping a project's panes by the tab
+// each is open in. The tree is a pure function of its input, so the layout
+// arrives as data rather than the tree reaching into the model.
+type treeTab struct {
+	machine   string
+	projectID string   // whose project's section it belongs under
+	label     string   // what the bar shows, a renamed tab included
+	n         int      // its number in the bar
+	splits    bool     // more than one split in it
+	panes     []string // pane IDs, in the order the tab holds them
+}
+
 type treeInput struct {
 	machines []treeMachine
+	tabs     []treeTab       // empty unless [ui] tree_groups = "tabs"
 	expanded map[string]bool // explicit expand/collapse choices
 	showAll  map[string]bool // scoped project IDs listing every branch
 	filter   string
@@ -260,6 +278,56 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 		projMatched := filter != "" && match(proj.Name)
 
 		var children []row
+		// Grouped by tab: a section per tab holding the panes open in it,
+		// above the rest. A pane in no tab keeps its Agents or Terminals
+		// section below, so closing a tab never hides one.
+		inTab := map[string]bool{}
+		byID := make(map[string]proto.PaneInfo, len(panes))
+		for _, p := range panes {
+			byID[p.ID] = p
+		}
+		for _, tb := range in.tabs {
+			if tb.machine != mid || tb.projectID != proj.ID {
+				continue
+			}
+			var prows []row
+			for _, id := range tb.panes {
+				p, ok := byID[id]
+				if !ok {
+					continue
+				}
+				inTab[id] = true
+				if waiting && !p.Agent.NeedsAttention() {
+					continue
+				}
+				if !waiting && !(projMatched || match(p.DisplayName()) || match(p.Branch)) {
+					continue
+				}
+				prows = append(prows, row{id: paneNodeID(mid, p.ID), kind: kindPane, depth: 4, machine: mid,
+					projectID: p.ProjectID, branch: p.Branch, paneID: p.ID})
+			}
+			if len(prows) == 0 {
+				continue
+			}
+			sid := sectionID(mid, proj.ID, "tab/"+itoa(tb.n))
+			children = append(children, row{id: sid, kind: kindTab, depth: 3, machine: mid, projectID: proj.ID,
+				count: len(prows), label: tb.label})
+			if open(sid, true) {
+				children = append(children, prows...)
+			}
+		}
+		if len(inTab) > 0 {
+			keep := func(ps []proto.PaneInfo) []proto.PaneInfo {
+				var out []proto.PaneInfo
+				for _, p := range ps {
+					if !inTab[p.ID] {
+						out = append(out, p)
+					}
+				}
+				return out
+			}
+			agents, terms = keep(agents), keep(terms)
+		}
 		if proj.Git {
 			all := in.showAll[scoped(mid, proj.ID)] || filter != ""
 			branches, hidden := listedBranches(proj, panes, all, in.now)
@@ -434,4 +502,14 @@ func indexOfRow(rows []row, id string) int {
 		}
 	}
 	return -1
+}
+
+// treeGroups is how a project's panes are grouped in the tree: "sections"
+// unless "tabs" was asked for. Anything else is sections, so a config from
+// a newer conch does not leave the tree empty.
+func treeGroups(s string) string {
+	if s == "tabs" {
+		return "tabs"
+	}
+	return "sections"
 }

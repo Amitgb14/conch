@@ -1165,3 +1165,49 @@ func (m *Model) closeTabAsk(i int) tea.Cmd {
 	m.overlay = newConfirm(fmt.Sprintf("Close this tab? It ends %s.", strings.Join(names, ", ")), closeAll)
 	return nil
 }
+
+// treeTabs is the layout as the tree needs it: which panes each tab holds,
+// and what to call it. Every tab, not only the ones the bar is listing —
+// the bar shows one group at a time and the tree shows them all — so a tab
+// is numbered among its own project's, which is what the bar shows when
+// that project is selected.
+//
+// A tab belongs under the project its panes are in. One holding panes from
+// two projects, or from none, belongs under neither and is left out, so its
+// panes keep their Agents and Terminals sections.
+func (m *Model) treeTabs() []treeTab {
+	var out []treeTab
+	seen := map[string]int{}
+	for _, t := range m.tabs {
+		tt := treeTab{splits: len(t.root.leaves()) > 1}
+		mixed := false
+		for _, l := range t.root.leaves() {
+			if l.view.Kind != kindPane || l.view.PaneID == "" {
+				continue
+			}
+			p := m.pane(l.view.Machine, l.view.PaneID)
+			if p == nil {
+				continue
+			}
+			switch {
+			case len(tt.panes) == 0:
+				tt.machine, tt.projectID = l.view.Machine, p.ProjectID
+			case tt.machine != l.view.Machine || tt.projectID != p.ProjectID:
+				mixed = true
+			}
+			tt.panes = append(tt.panes, l.view.PaneID)
+		}
+		if mixed || tt.projectID == "" || len(tt.panes) == 0 {
+			continue
+		}
+		key := tt.machine + "|" + tt.projectID
+		seen[key]++
+		tt.n = seen[key]
+		tt.label = "Tab " + itoa(tt.n) + "  " + m.tabLabel(t)
+		if tt.splits {
+			tt.label += " ⊞" // as the bar marks a tab of more than one split
+		}
+		out = append(out, tt)
+	}
+	return out
+}

@@ -204,3 +204,82 @@ func TestLooseAgentsGetTheirOwnSection(t *testing.T) {
 		t.Fatalf("machine sections not under CLI:\n%s", render(rows))
 	}
 }
+
+// TestBuildTreeGroupedByTab: with [ui] tree_groups = "tabs" a project's
+// panes are listed under the tab each is open in, and the panes open in no
+// tab keep their own sections below — closing a tab hides nothing.
+func TestBuildTreeGroupedByTab(t *testing.T) {
+	in := sampleInput()
+	in.tabs = []treeTab{{machine: localMachine, projectID: "r1", label: "Tab 1  claude", n: 1, panes: []string{"p1"}}}
+	got := render(buildTree(in))
+	want := `m:local
+  m:local/workspace
+    p:r1
+      p:r1/tab/1
+        pane:p1
+      p:r1/branches
+        b:r1:main
+        b:r1:feat/login
+        b:r1:fix/flaky
+        more:r1
+      p:r1/terminals
+        pane:p2
+      p:r1/files
+    p:r2
+  m:local/cli
+    m:local/terminals
+      pane:p3
+`
+	if got != want {
+		t.Fatalf("grouped by tab:\n%s\nwant\n%s", got, want)
+	}
+
+	// A tab of both panes takes both, and the sections for them go.
+	in.tabs = []treeTab{{machine: localMachine, projectID: "r1", label: "Tab 1  claude ⊞", n: 1, splits: true,
+		panes: []string{"p1", "p2"}}}
+	got = render(buildTree(in))
+	for _, s := range []string{"p:r1/tab/1\n", "pane:p1\n", "pane:p2\n"} {
+		if !strings.Contains(got, s) {
+			t.Fatalf("a tab of two panes:\n%s", got)
+		}
+	}
+	if strings.Contains(got, "p:r1/agents") || strings.Contains(got, "p:r1/terminals") {
+		t.Fatalf("a section stayed for a pane that is in a tab:\n%s", got)
+	}
+
+	// Panes the tab names that conch does not know are skipped, and a tab
+	// left with none of its own is not listed at all.
+	in.tabs = []treeTab{{machine: localMachine, projectID: "r1", label: "Tab 1  gone", n: 1, panes: []string{"p9"}}}
+	got = render(buildTree(in))
+	if strings.Contains(got, "p:r1/tab/1") {
+		t.Fatalf("a tab of panes that are gone was listed:\n%s", got)
+	}
+	if !strings.Contains(got, "p:r1/agents") || !strings.Contains(got, "p:r1/terminals") {
+		t.Fatalf("the sections did not come back:\n%s", got)
+	}
+
+	// A tab of another machine's or another project's panes is not this
+	// project's business.
+	in.tabs = []treeTab{{machine: "box", projectID: "r1", label: "Tab 1  elsewhere", n: 1, panes: []string{"p1"}}}
+	if got := render(buildTree(in)); strings.Contains(got, "p:r1/tab/1") {
+		t.Fatalf("another machine's tab was listed:\n%s", got)
+	}
+	in.tabs = []treeTab{{machine: localMachine, projectID: "r2", label: "Tab 1  other", n: 1, panes: []string{"p1"}}}
+	if got := render(buildTree(in)); strings.Contains(got, "p:r1/tab/1") {
+		t.Fatalf("another project's tab took r1's pane:\n%s", got)
+	}
+
+	// Folded, the tab is listed without its panes.
+	in.tabs = []treeTab{{machine: localMachine, projectID: "r1", label: "Tab 1  claude", n: 1, panes: []string{"p1"}}}
+	in.expanded = map[string]bool{"p:r1/tab/1": false}
+	got = render(buildTree(in))
+	if !strings.Contains(got, "p:r1/tab/1") || strings.Contains(got, "pane:p1\n") {
+		t.Fatalf("folded:\n%s", got)
+	}
+
+	// With no tabs given — the setting off — the tree is exactly as it was.
+	in.tabs, in.expanded = nil, map[string]bool{}
+	if got, plain := render(buildTree(in)), render(buildTree(sampleInput())); got != plain {
+		t.Fatalf("the setting off changed the tree:\n%s\nwant\n%s", got, plain)
+	}
+}

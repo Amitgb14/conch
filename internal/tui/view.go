@@ -240,6 +240,8 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		return "", glyphStyle, "Agents", styleMuted, joinRight(m.costChip(u), styleMuted.Render(fmt.Sprint(r.count)))
 	case kindTerminals:
 		return "", glyphStyle, "Terminals", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
+	case kindTab:
+		return "", glyphStyle, r.label, styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindSSH:
 		return "", glyphStyle, "SSH", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindSavedSSH:

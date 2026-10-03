@@ -257,6 +257,11 @@ type UICfg struct {
 	// default, a coloured two-letter tag that works in any font), "nerd"
 	// (Nerd Font glyphs) or "off". Empty means text.
 	Icons string `toml:"icons,omitempty"`
+	// TreeGroups is how a project's panes are grouped in the tree:
+	// "sections" (the default: Agents and Terminals) or "tabs", a section
+	// per tab of the bar holding the panes open in it. Panes open in no tab
+	// keep their sections either way, so nothing is hidden by being closed.
+	TreeGroups string `toml:"tree_groups,omitempty"`
 }
 
 // NotifyCfg controls how the TUI tells you an agent needs attention while

@@ -902,6 +902,9 @@ func (m *Model) rebuild() tea.Cmd {
 		}
 		in.machines = append(in.machines, tm)
 	}
+	if treeGroups(m.cfg.UI.TreeGroups) == "tabs" {
+		in.tabs = m.treeTabs()
+	}
 	m.rows = buildTree(in)
 	if indexOfRow(m.rows, m.cursor) < 0 && len(m.rows) > 0 {
 		m.cursor = m.rows[clamp(prevIndex, 0, len(m.rows)-1)].id
@@ -1230,7 +1233,7 @@ func (m Model) contextPlace() place {
 		if root, branch, _ := m.filesCheckout(mid, r.projectID, r.branch); root != "" {
 			return place{machine: mid, projectID: r.projectID, dir: root, branch: branch}
 		}
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions:
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions, kindTab:
 		if proj := m.project(mid, r.projectID); proj != nil {
 			return place{machine: mid, projectID: proj.ID, dir: proj.Path}
 		}

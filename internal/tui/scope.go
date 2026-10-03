@@ -69,6 +69,10 @@ func (m Model) rowScope(r row) tabScope {
 		s := m.groupOf(r.machine, r.projectID)
 		s.section = r.kind
 		return s
+	case kindTab:
+		// A tab's own section: the group it belongs to, every tab of it
+		// listed, so the bar still shows the tab beside its neighbours.
+		return m.groupOf(r.machine, r.projectID)
 	case kindSavedSSH:
 		return tabScope{level: scopeCLI, machine: r.machine, section: kindSSH}
 	case kindSandboxes, kindSandboxProvider:

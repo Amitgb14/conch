@@ -887,3 +887,59 @@ func a1TabLabels(m *Model) []string {
 	}
 	return out
 }
+
+// TestA1TreeTabsForTheTree: the layout the tree is grouped by — which panes
+// each tab holds, named as the bar names it. A tab conch cannot place under
+// one project is left out, so its panes keep their sections.
+func TestA1TreeTabsForTheTree(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1FourTabs(t, m)
+	tabs := m.treeTabs()
+	if len(tabs) == 0 {
+		t.Fatal("no tabs for the tree")
+	}
+	for i, tb := range tabs {
+		if !strings.HasPrefix(tb.label, "Tab "+itoa(tb.n)+"  ") {
+			t.Fatalf("tab %d is labelled %q", i, tb.label)
+		}
+		if tb.projectID == "" || tb.machine == "" {
+			t.Fatalf("tab %d is placed nowhere: %+v", i, tb)
+		}
+		if len(tb.panes) == 0 {
+			t.Fatalf("tab %d holds no panes", i)
+		}
+	}
+
+	// A tab holding panes from two places belongs under neither — another
+	// project, or outside every project.
+	before := len(tabs)
+	t0 := m.tabs[0]
+	for _, other := range m.machines[0].panes {
+		if other.ProjectID != tabs[0].projectID {
+			l := m.newLeaf(viewRef{Row: paneNodeID(localMachine, other.ID), Kind: kindPane,
+				Machine: localMachine, PaneID: other.ID})
+			t0.root.split(t0.root.leaves()[0].id, splitRight, l)
+			break
+		}
+	}
+	if got := len(m.treeTabs()); got != before-1 {
+		t.Fatalf("a tab of two projects is still listed: %d tabs, was %d", got, before)
+	}
+
+	// Splits are marked as the bar marks them.
+	for _, tb := range m.treeTabs() {
+		if tb.splits && !strings.HasSuffix(tb.label, "⊞") {
+			t.Fatalf("a tab of splits is unmarked: %q", tb.label)
+		}
+	}
+
+	// A tab outside every project — a machine's own — is not a project's.
+	for i := range m.tabs {
+		for _, l := range m.tabs[i].root.leaves() {
+			l.view = viewRef{}
+		}
+	}
+	if got := m.treeTabs(); len(got) != 0 {
+		t.Fatalf("tabs of nothing were listed: %+v", got)
+	}
+}

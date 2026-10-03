@@ -71,6 +71,22 @@ Pull requests come from the `gh` CLI (your existing GitHub login): `#12✓` chec
 
 Agents are named after their task (Claude's title) until you rename them with `r`. Their states are described in [Agents](/docs/agents#agent-states); every project also has a [Sessions](/docs/sessions) section.
 
+### Grouped by tab
+
+A project lists its panes under **Agents** and **Terminals** — what each one is. **Settings → Tree grouping → By tab** lists them under the tab each is open in instead, so the tree says what the tab bar says:
+
+```
+▾ ◆ conch
+  ▾ Tab 1  claude ⊞
+      › claude
+      › zsh
+  ▾ Tab 2  codex
+      › codex
+    Branches            13
+```
+
+A tab's row is named as the bar names it, a renamed tab (`ctrl+b ,`) and the `⊞` for a tab of more than one split included, and it is numbered among that project's tabs. Panes open in **no** tab keep their Agents and Terminals sections below, so closing a tab never hides a pane. A tab holding panes from two projects, or from none, belongs under neither and is left out; its panes keep their sections. It is `[ui] tree_groups = "tabs"` in [config.toml](/docs/configuration).
+
 ### Fold state
 
 Fold state and sidebar width are remembered in `~/.config/conch/ui.json`.
