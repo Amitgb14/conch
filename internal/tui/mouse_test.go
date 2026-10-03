@@ -1021,3 +1021,145 @@ func TestA1DragSplitOntoTabMoves(t *testing.T) {
 		t.Fatalf("a lone split in a lone tab was dragged: %d", m.leafDrag)
 	}
 }
+
+// TestA1DragTreeRowOntoTabSection: grouped by tab, a pane dragged from the
+// tree onto a tab's section goes into that tab — the same move as dropping
+// a split on the bar, reached from the tree, which had no drag at all.
+func TestA1DragTreeRowOntoTabSection(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1FourTabs(t, m)
+	m.cfg.UI.TreeGroups = "tabs"
+	nm, _ := m.Update(flashExpiredMsg{}) // the tree regroups for the tabs
+	*m = nm.(Model)
+	m.focus = focusSidebar
+
+	rowY := func(id string) (int, int) {
+		t.Helper()
+		for i, r := range m.rows {
+			if r.id == id {
+				return 2, i - m.scroll + 2
+			}
+		}
+		t.Fatalf("no row %q in\n%s", id, render(m.rows))
+		return 0, 0
+	}
+	var paneRow, tabRow row
+	for _, r := range m.rows {
+		if r.kind == kindTab {
+			tabRow = r
+			break
+		}
+	}
+	if tabRow.id == "" {
+		t.Fatalf("no tab section in\n%s", render(m.rows))
+	}
+	// A pane that is not already in the tab it will be dropped on.
+	held := map[string]bool{}
+	for _, l := range m.tabs[tabRow.tabIndex].root.leaves() {
+		held[l.view.PaneID] = true
+	}
+	for _, r := range m.rows {
+		if r.kind == kindPane && !held[r.paneID] {
+			paneRow = r
+			break
+		}
+	}
+	if paneRow.id == "" {
+		t.Fatalf("no pane to carry in\n%s", render(m.rows))
+	}
+	before := len(m.tabs[tabRow.tabIndex].root.leaves())
+
+	// Press the row: it still selects, and a drag begins.
+	x, y := rowY(paneRow.id)
+	a1Mouse(t, m, x, y, a1Left, a1Press)
+	if m.rowDrag != paneRow.id {
+		t.Fatalf("no drag started: %q", m.rowDrag)
+	}
+	if m.cursor != paneRow.id {
+		t.Fatalf("the press stopped selecting: %q", m.cursor)
+	}
+	// Over the tab's section, that section is marked.
+	tx, ty := rowY(tabRow.id)
+	a1Mouse(t, m, tx, ty, tea.MouseButtonNone, a1Motion)
+	if m.rowDrop != tabRow.id {
+		t.Fatalf("over the section: rowDrop %q", m.rowDrop)
+	}
+	// Let go: the pane is in that tab.
+	a1Mouse(t, m, tx, ty, a1Left, a1Release)
+	if m.rowDrag != "" || m.rowDrop != "" {
+		t.Fatalf("the drag outlived the release: %q %q", m.rowDrag, m.rowDrop)
+	}
+	got := 0
+	for _, l := range m.tabs[m.activeTab].root.leaves() {
+		if l.view.PaneID == paneRow.paneID {
+			got++
+		}
+	}
+	if got != 1 {
+		t.Fatalf("the pane did not arrive: %d of it in the tab", got)
+	}
+	if len(m.tabs[m.activeTab].root.leaves()) != before+1 {
+		t.Fatalf("the tab holds %d splits, want %d", len(m.tabs[m.activeTab].root.leaves()), before+1)
+	}
+
+	// The same pane onto the same section again: it is already there.
+	at := m.activeTab
+	was := len(m.tabs[at].root.leaves())
+	if m.movePaneToTab(paneRow.machine, paneRow.paneID, at) != nil {
+		t.Fatal("moved a pane into the tab it is in")
+	}
+	if len(m.tabs[at].root.leaves()) != was {
+		t.Fatal("the tab changed anyway")
+	}
+
+	// Let go over a row that is not a tab's section, and nothing moves.
+	nm, _ = m.Update(flashExpiredMsg{})
+	*m = nm.(Model)
+	var other row
+	for _, r := range m.rows {
+		if r.kind == kindBranches || r.kind == kindBranch {
+			other = r
+			break
+		}
+	}
+	if other.id != "" {
+		x, y = rowY(paneRow.id)
+		a1Mouse(t, m, x, y, a1Left, a1Press)
+		ox, oy := rowY(other.id)
+		a1Mouse(t, m, ox, oy, tea.MouseButtonNone, a1Motion)
+		if m.rowDrop != "" {
+			t.Fatalf("a row that takes no pane was marked: %q", m.rowDrop)
+		}
+		a1Mouse(t, m, ox, oy, a1Left, a1Release)
+		if m.rowDrag != "" {
+			t.Fatal("the drag outlived a release over nothing")
+		}
+	}
+
+	// A row that is not a pane, and a tab that is not there, move nothing.
+	if m.dropRowOnTab(tabRow.id, tabRow.id) != nil {
+		t.Fatal("a section was carried into a tab")
+	}
+	if m.movePaneToTab(paneRow.machine, paneRow.paneID, len(m.tabs)) != nil {
+		t.Fatal("moved into a tab past the end")
+	}
+	if m.movePaneToTab(paneRow.machine, "", 0) != nil {
+		t.Fatal("moved a pane with no id")
+	}
+
+	// Grouped the other way there is nowhere to drop one, so no drag
+	// starts: the tree works exactly as it did.
+	m.cfg.UI.TreeGroups = ""
+	nm, _ = m.Update(flashExpiredMsg{})
+	*m = nm.(Model)
+	for _, r := range m.rows {
+		if r.kind == kindPane {
+			x, y = rowY(r.id)
+			a1Mouse(t, m, x, y, a1Left, a1Press)
+			if m.rowDrag != "" {
+				t.Fatalf("a drag started with the grouping off: %q", m.rowDrag)
+			}
+			break
+		}
+	}
+}

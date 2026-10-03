@@ -62,6 +62,28 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Dragging a row of the tree onto a tab's section, where the tree is
+	// grouped by tab: the same move as dropping a split on a tab, reached
+	// from the tree. The drag owns the mouse until it is let go.
+	if m.rowDrag != "" {
+		switch msg.Action {
+		case tea.MouseActionMotion:
+			m.rowDrop = ""
+			if r, ok := m.rowAtY(msg.X, msg.Y); ok && r.kind == kindTab {
+				m.rowDrop = r.id
+			}
+			return m, nil
+		case tea.MouseActionRelease:
+			from, to := m.rowDrag, m.rowDrop
+			m.rowDrag, m.rowDrop = "", ""
+			if to == "" {
+				return m, nil // let go over nothing that takes a pane
+			}
+			return m, m.dropRowOnTab(from, to)
+		}
+		return m, nil
+	}
+
 	// Dragging the scrollbar on a pane's right border.
 	if m.scrollDrag != 0 {
 		switch msg.Action {
@@ -737,6 +759,12 @@ func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Mode
 		return m, nil
 	}
 	r := m.rows[i]
+	// Grouped by tab, a pane row can be carried to a tab's section. The
+	// press still selects and shows the row, as it always did: a drag is
+	// only a drag once the pointer has moved onto a section.
+	if left && r.kind == kindPane && treeGroups(m.cfg.UI.TreeGroups) == "tabs" {
+		m.rowDrag, m.rowDrop = r.id, ""
+	}
 	wasSelected := r.id == m.cursor
 	m.cursor = r.id
 	m.focus = focusSidebar
@@ -819,4 +847,37 @@ func pageColumns(l *leaf, x, w int) (from, to int) {
 		return l.files.columns(x, w)
 	}
 	return 0, 0
+}
+
+// rowAtY is the tree row at a point in the sidebar, if the point is in the
+// sidebar and on a row at all. Row 0 of the content is the header and the
+// border takes a line, as sidebarMouse counts them.
+func (m Model) rowAtY(x, y int) (row, bool) {
+	if m.zoom || x < 0 || x >= m.sidebarW || y < 2 {
+		return row{}, false
+	}
+	i := m.scroll + y - 2
+	if i < 0 || i >= len(m.rows) {
+		return row{}, false
+	}
+	return m.rows[i], true
+}
+
+// dropRowOnTab moves the pane a tree row stands for into the tab another
+// row stands for. Only a pane goes: a branch or a section is not a thing a
+// tab holds one of.
+func (m *Model) dropRowOnTab(fromID, toID string) tea.Cmd {
+	var from, to row
+	for _, r := range m.rows {
+		switch r.id {
+		case fromID:
+			from = r
+		case toID:
+			to = r
+		}
+	}
+	if from.kind != kindPane || to.kind != kindTab || from.paneID == "" {
+		return nil
+	}
+	return m.movePaneToTab(from.machine, from.paneID, to.tabIndex)
 }

@@ -85,6 +85,8 @@ A project lists its panes under **Agents** and **Terminals** — what each one i
     Branches            13
 ```
 
+Drag an agent or terminal row onto a tab's section to put it in that tab: it leaves whatever tab it was in — which closes if that was its last split — or, if it was open in none, it is opened there. The section under the pointer is marked while you hold.
+
 A tab's row is named as the bar names it, a renamed tab (`ctrl+b ,`) and the `⊞` for a tab of more than one split included, and it is numbered among that project's tabs. Panes open in **no** tab keep their Agents and Terminals sections below, so closing a tab never hides a pane. A tab holding panes from two projects, or from none, belongs under neither and is left out; its panes keep their sections. It is `[ui] tree_groups = "tabs"` in [config.toml](/docs/configuration).
 
 ### Fold state

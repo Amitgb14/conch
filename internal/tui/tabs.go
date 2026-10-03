@@ -1014,6 +1014,59 @@ func (m *Model) moveLeafToNewTab(id int) tea.Cmd {
 	return tea.Batch(m.focusLeaf(l.id), m.syncView(), m.saveState())
 }
 
+// movePaneToTab puts a pane in tab ti, wherever it is now: carried out of
+// the tab holding it — which closes if that was its last split — or opened
+// there when it was in no tab at all, which is what dragging a row from
+// Agents or Terminals onto a tab's section means.
+func (m *Model) movePaneToTab(machine, paneID string, ti int) tea.Cmd {
+	if m.previewing || ti < 0 || ti >= len(m.tabs) || paneID == "" {
+		return nil
+	}
+	dst := m.tabs[ti]
+	if dst.root == nil {
+		return nil
+	}
+	for i, t := range m.tabs {
+		for _, l := range t.root.leaves() {
+			if l.view.Kind != kindPane || l.view.Machine != machine || l.view.PaneID != paneID {
+				continue
+			}
+			if i == ti {
+				return nil // already there
+			}
+			f := dst.focused()
+			if !dst.root.split(f.id, splitRight, l) {
+				return nil
+			}
+			t.root = t.root.remove(l.id)
+			dst.focus = l.id
+			if t.root == nil {
+				m.tabs = slices.Delete(m.tabs, i, i+1)
+				if i < ti {
+					ti--
+				}
+			} else if t.focus == l.id {
+				t.focus = t.root.leaves()[0].id
+			}
+			m.activeTab, m.keepTab, m.zoom = ti, true, false
+			return tea.Batch(m.focusLeaf(l.id), m.syncView(), m.saveState())
+		}
+	}
+	// In no tab: open it in that one, beside what is already there.
+	p := m.pane(machine, paneID)
+	if p == nil {
+		return nil
+	}
+	nl := m.newLeaf(viewRef{Row: paneNodeID(machine, paneID), Kind: kindPane, Machine: machine,
+		PaneID: paneID, ProjectID: p.ProjectID, Branch: p.Branch})
+	if !dst.root.split(dst.focused().id, splitRight, nl) {
+		return nil
+	}
+	dst.focus = nl.id
+	m.activeTab, m.keepTab, m.zoom = ti, true, false
+	return tea.Batch(m.focusLeaf(nl.id), m.syncView(), m.saveState())
+}
+
 // moveLeafToTab moves a split out of the active tab and into tab ti,
 // dividing that tab's focused split. A pane is shown in one place only, so
 // it leaves its own tree rather than being copied: the split it was in
@@ -1229,8 +1282,8 @@ func (m *Model) closeTabAsk(i int) tea.Cmd {
 func (m *Model) treeTabs() []treeTab {
 	var out []treeTab
 	seen := map[string]int{}
-	for _, t := range m.tabs {
-		tt := treeTab{splits: len(t.root.leaves()) > 1}
+	for i, t := range m.tabs {
+		tt := treeTab{index: i, splits: len(t.root.leaves()) > 1}
 		mixed := false
 		for _, l := range t.root.leaves() {
 			if l.view.Kind != kindPane || l.view.PaneID == "" {
@@ -1254,10 +1307,7 @@ func (m *Model) treeTabs() []treeTab {
 		key := tt.machine + "|" + tt.projectID
 		seen[key]++
 		tt.n = seen[key]
-		tt.label = "Tab " + itoa(tt.n) + "  " + m.tabLabel(t)
-		if tt.splits {
-			tt.label += " ⊞" // as the bar marks a tab of more than one split
-		}
+		tt.label = "Tab " + itoa(tt.n) + "  " + m.tabLabel(t) // ⊞ for splits included
 		out = append(out, tt)
 	}
 	return out

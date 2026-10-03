@@ -157,6 +157,16 @@ func (m Model) rowLine(r row, w int) string {
 	glyph, glyphStyle, label, labelStyle, right := m.rowParts(r)
 	selected := r.id == m.cursor
 
+	// While a row is carried to a tab's section, the section it would land
+	// in is marked, as a split's drop target is on the bar.
+	if m.rowDrag != "" && m.rowDrop == r.id {
+		plain := indent + expander + glyph
+		if glyph != "" {
+			plain += " "
+		}
+		return styleSel.Render(spread(plain+label, ansi.Strip(right), w))
+	}
+
 	if selected {
 		plain := indent + expander + glyph
 		if glyph != "" {

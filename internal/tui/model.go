@@ -117,6 +117,8 @@ type Model struct {
 	leafDrop    int       // the split under the pointer while it is dragged
 	tabDrop     int       // the tab under it instead, to move the split there (-1: none)
 	treeSig     string    // the layout the tree was last grouped by, when grouped by tab
+	rowDrag     string    // a tree row being carried to a tab's section (its id)
+	rowDrop     string    // the tab section under it, while it is held
 	swapMark    [2]int    // the two splits that just swapped, marked briefly
 	swapUntil   time.Time
 	hoverRow    string // the tree row under the pointer, with [ui] hover

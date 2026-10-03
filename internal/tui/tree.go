@@ -56,6 +56,7 @@ type row struct {
 	paneID    string
 	count     int    // sections: children; more: hidden branches
 	label     string // a tab section's name, as the bar writes it
+	tabIndex  int    // a tab section: which tab it stands for
 }
 
 func (r row) expandable() bool {
@@ -96,6 +97,7 @@ type treeMachine struct {
 type treeTab struct {
 	machine   string
 	projectID string   // whose project's section it belongs under
+	index     int      // where it is in the model's tabs
 	label     string   // what the bar shows, a renamed tab included
 	n         int      // its number in the bar
 	splits    bool     // more than one split in it
@@ -311,7 +313,7 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 			}
 			sid := sectionID(mid, proj.ID, "tab/"+itoa(tb.n))
 			children = append(children, row{id: sid, kind: kindTab, depth: 3, machine: mid, projectID: proj.ID,
-				count: len(prows), label: tb.label})
+				count: len(prows), label: tb.label, tabIndex: tb.index})
 			if open(sid, true) {
 				children = append(children, prows...)
 			}
