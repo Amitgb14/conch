@@ -49,8 +49,9 @@ const (
 
 // foldered splits a section's panes into the folders of that section and
 // what is left over. A folder with nothing in it is still listed, so one
-// made and not filled yet does not vanish; the panes outside them keep
-// their place below, as they were before folders existed.
+// made and not filled yet does not vanish. The panes outside them go first
+// and the folders after: a pane listed below an open folder, one step out
+// from what is in it, read as more of the folder's contents.
 func foldered(in treeInput, mid, pid string, kind nodeKind, panes []proto.PaneInfo,
 	depth int, projMatched bool, rows func([]proto.PaneInfo, int, bool) []row,
 	open func(string, bool) bool) (out []row, loose []proto.PaneInfo) {
@@ -412,8 +413,8 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 			sid := sectionID(mid, proj.ID, sec.name)
 			children = append(children, row{id: sid, kind: sec.kind, depth: 3, machine: mid, projectID: proj.ID, count: len(sec.panes)})
 			if open(sid, true) {
-				children = append(children, frows...)
 				children = append(children, prows...)
+				children = append(children, frows...)
 			}
 		}
 
@@ -470,7 +471,7 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 		extra []row
 	}{{machineID(mid) + "/agents", kindAgents, looseAgents, nil}, {looseTerminalsID(mid), kindTerminals, looseTerms, nil}, {looseSSHID(mid), kindSSH, looseSSH, saved}} {
 		frows, loose := foldered(in, mid, "", sec.kind, sec.panes, 3, false, paneRows, open)
-		if prows := append(append(frows, paneRows(loose, 3, false)...), sec.extra...); len(prows) > 0 {
+		if prows := append(append(paneRows(loose, 3, false), sec.extra...), frows...); len(prows) > 0 {
 			cli = append(cli, row{id: sec.id, kind: sec.kind, depth: 2, machine: mid, count: len(sec.panes) + len(sec.extra)})
 			if open(sec.id, true) {
 				cli = append(cli, prows...)

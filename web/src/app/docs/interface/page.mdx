@@ -77,13 +77,15 @@ conch groups panes by what they are and, with the setting below, by the tab they
 
 ```
 Terminals
-  ▸ eng                 2
+  › vm3
+  ▾ eng                 2
       › vm1
       › vm2
-  ▸ prod                1
+  ▾ prod                1
       › vm1
-    › vm3
 ```
+
+Panes in no folder are listed first and the folders after them, so whatever sits under an open folder is in it.
 
 A folder holds each pane **by name and by id**. Ids belong to a running server, so a folder finds its panes again after a restart by the name you gave them (`r` in the tree, or `conch rename`) and keeps up with them by id in between — a pane you never named is held by id alone and leaves its folder when the server goes. A pane is in one folder at a time, and folders live in `ui.json` per machine, project and section, so they cost nothing to anyone who never makes one.
 
