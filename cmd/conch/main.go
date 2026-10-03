@@ -89,8 +89,9 @@ Usage:
   conch machine add [-label L] SSH_TARGET
                                 add a remote machine (installs conch there)
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
-  conch sandbox -provider daytona|boat create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
-                                make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY)
+  conch sandbox -provider daytona|boat|sandbox-cli create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-dir DIR] [-env NAME]...
+                                make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY,
+                                sandbox-cli: its sandboxd; -dir mounts a folder when that is here)
                                 and add it as a machine; it runs until stopped, so agents keep
                                 going with the TUI closed. Every sandbox command but stats needs
                                 -provider: there is no default, and a sandbox named under another
@@ -184,7 +185,9 @@ func main() {
 	case "sandbox", "sandboxes":
 		err = runSandbox(args)
 	case "bridge":
-		err = runBridge()
+		err = runBridge(args)
+	case "sandbox-io":
+		err = runSandboxIO(args) // how conch reaches a sandbox with no ssh
 	case "update":
 		err = runUpdate(args)
 	case "upload":

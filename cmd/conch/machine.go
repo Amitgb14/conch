@@ -50,10 +50,25 @@ func runVersion(args []string) {
 
 // runBridge connects stdio to this machine's server, starting it if needed.
 // It is what a remote client runs over ssh, so stdout carries only protocol.
-func runBridge() error {
+func runBridge(args []string) error {
+	fs := flag.NewFlagSet("bridge", flag.ContinueOnError)
+	listen := fs.String("listen", "", "carry one connection from this TCP address instead of stdin and stdout")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	sock := config.SocketPath()
 	if err := client.EnsureServer(sock, config.ServerLogPath()); err != nil {
 		return err
+	}
+	var in io.Reader = os.Stdin
+	var out io.Writer = os.Stdout
+	if *listen != "" {
+		conn, err := acceptOne(*listen, os.Stdout)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		in, out = conn, conn
 	}
 	nc, err := net.Dial("unix", sock)
 	if err != nil {
@@ -61,10 +76,30 @@ func runBridge() error {
 	}
 	defer nc.Close()
 	done := make(chan struct{}, 2)
-	go func() { _, _ = io.Copy(nc, os.Stdin); done <- struct{}{} }()
-	go func() { _, _ = io.Copy(os.Stdout, nc); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(nc, in); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(out, nc); done <- struct{}{} }()
 	<-done // either side ending ends the bridge
 	return nil
+}
+
+// bridgeAcceptWait is how long conch bridge -listen waits for the one
+// connection it is there for, so one nobody comes for doesn't linger.
+var bridgeAcceptWait = 30 * time.Second
+
+// acceptOne listens on addr — a sandbox's own loopback, which a tunnel
+// reaches when there is no ssh to carry stdin and stdout — says which port
+// on say, and takes the first connection.
+func acceptOne(addr string, say io.Writer) (net.Conn, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	defer ln.Close()
+	fmt.Fprintf(say, "listening %d\n", ln.Addr().(*net.TCPAddr).Port)
+	if tl, ok := ln.(*net.TCPListener); ok {
+		_ = tl.SetDeadline(time.Now().Add(bridgeAcceptWait))
+	}
+	return ln.Accept()
 }
 
 func runMachine(args []string) error {

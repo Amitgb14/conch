@@ -14,8 +14,15 @@ import (
 	"testing"
 	"time"
 
+	"bufio"
+	"errors"
+	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/sandbox"
+	"github.com/Amitgb14/conch/internal/sandbox/sandboxdtest"
+	"net"
+	"os/exec"
 )
 
 // a4Daytona is Daytona's API as the sandbox commands use it: sandboxes
@@ -249,7 +256,7 @@ func TestA4SandboxCreateRefusesBeforeSpending(t *testing.T) {
 		{[]string{"-provider", "daytona", "create", "extra"}, "usage: conch sandbox -provider P create"},
 		{[]string{"-provider", "daytona", "create", "-bogus"}, "flag provided but not defined"},
 		// No provider: there is no default to bill.
-		{[]string{"create"}, "which provider? give -provider NAME (daytona, boat)"},
+		{[]string{"create"}, "which provider? give -provider NAME (daytona, boat, sandbox-cli)"},
 		{[]string{"create", "-label", "x"}, "which provider?"},
 		{[]string{"ls"}, "which provider?"},
 		{nil, "which provider?"}, // plain conch sandbox lists, and so needs one too
@@ -732,7 +739,7 @@ func TestA4SandboxProviderFlag(t *testing.T) {
 	// The next command starts clean: without the flag there is no provider
 	// to make one with, and boat is asked nothing.
 	before := b.called()
-	if err := runSandbox([]string{"create"}); err == nil || !strings.Contains(err.Error(), "which provider? give -provider NAME (daytona, boat)") {
+	if err := runSandbox([]string{"create"}); err == nil || !strings.Contains(err.Error(), "which provider? give -provider NAME (daytona, boat, sandbox-cli)") {
 		t.Fatalf("without the flag: %v", err)
 	}
 	if b.called() != before {
@@ -1008,7 +1015,7 @@ func TestA4SandboxStats(t *testing.T) {
 	// the machine as unknown, and the command fails.
 	remote.SaveMachine(remote.Machine{Label: "hull", Target: "boat:bx_1"})
 	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stats"}) })
-	if err == nil || !strings.Contains(err.Error(), "1 provider of 2 couldn't be asked") ||
+	if err == nil || !strings.Contains(err.Error(), "1 provider of 3 couldn't be asked") ||
 		!strings.Contains(flat(out), "boat.dev hull hull bx_1 ? -") || !strings.Contains(out, "boat.dev: couldn't ask it:") ||
 		!strings.Contains(out, "Daytona: 3 sandboxes") {
 		t.Fatalf("unknown: %q %v", out, err)
@@ -1016,7 +1023,7 @@ func TestA4SandboxStats(t *testing.T) {
 	// A provider that is down fails the command too, the other still shown.
 	t.Setenv("DAYTONA_API_URL", "http://127.0.0.1:1")
 	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stats"}) })
-	if err == nil || !strings.Contains(err.Error(), "2 providers of 2") || !strings.Contains(out, "Daytona: couldn't ask it:") {
+	if err == nil || !strings.Contains(err.Error(), "2 providers of 3") || !strings.Contains(out, "Daytona: couldn't ask it:") {
 		t.Fatalf("down: %q %v", out, err)
 	}
 }
@@ -1080,5 +1087,189 @@ func TestA4SandboxCreateSaysWhyItCouldNotConnect(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "deleted sandbox sbx1-0123456789") || d.state("sbx1-0123456789") != "" {
 		t.Fatalf("it was not deleted: %q %s", d.state("sbx1-0123456789"), errOut)
+	}
+}
+
+// a4Sandboxd is a fake sandboxd whose processes are the fake ssh machine's
+// (a4SandboxMachine): a script goes to it, and conch's bridge listens on a
+// port that reaches the fake server. conch's own sandbox-io is this test
+// binary, run as conch.
+func a4Sandboxd(t *testing.T) *sandboxdtest.Server {
+	t.Helper()
+	f := sandboxdtest.New(t)
+	f.Token = "tok-0123456789abcdef"
+	os.WriteFile(filepath.Join(os.Getenv("CONCH_HOME"), "config.toml"),
+		[]byte("[sandbox.sandbox-cli]\napi_url = \""+f.URL+"\"\napi_key = \""+f.Token+"\"\n"), 0o600)
+	t.Setenv("A4_HELPER_MODE", "main")
+	f.SetRun(func(p sandboxdtest.Proc) int {
+		script := p.Argv[len(p.Argv)-1]
+		if strings.HasSuffix(script, " bridge -listen 127.0.0.1:0") {
+			return sandboxdtest.Listen(p, func(c net.Conn) {
+				defer c.Close()
+				nc, err := net.Dial("unix", os.Getenv("A4_BRIDGE_SOCK"))
+				if err != nil {
+					return
+				}
+				defer nc.Close()
+				go io.Copy(nc, c)
+				io.Copy(c, nc)
+			})
+		}
+		cmd := exec.Command(os.Getenv("CONCH_SSH"), script)
+		cmd.Env = append(os.Environ(), "A4_HELPER_MODE=")
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = p.Stdin, p.Stdout, p.Stderr
+		if err := cmd.Run(); err != nil {
+			var exit *exec.ExitError
+			if errors.As(err, &exit) {
+				return exit.ExitCode()
+			}
+			return 127
+		}
+		return 0
+	})
+	return f
+}
+
+func TestA4SandboxCLI(t *testing.T) {
+	a4Env(t)
+	ssh, _ := a4SandboxMachine(t)
+	f := a4Sandboxd(t)
+	t.Setenv("MY_TOKEN", "oauth-value")
+
+	var err error
+	out, errOut := a4Capture(t, "", func() {
+		err = runSandbox([]string{"-provider", "sandbox-cli", "create", "-cpu", "2", "-env", "MY_TOKEN"})
+	})
+	if err != nil {
+		t.Fatalf("create: %v\n%s", err, errOut)
+	}
+	if out != "added sandbox-00000001 (sandbox-00000001): sandbox-cli sandbox sbx_000000010123, server pid 777 on sandbox-host\n" {
+		t.Fatalf("out %q\n%s", out, errOut)
+	}
+	body := f.Creates()[0]
+	if body["cpus"] != 2.0 || body["labels"].(map[string]any)["conch"] != "1" || body["env"].(map[string]any)["MY_TOKEN"] != "oauth-value" {
+		t.Fatalf("create body %v", body)
+	}
+	// conch was copied in through a process's stdin, and its connection
+	// went through a tunnel.
+	if b, _ := os.ReadFile(filepath.Join(ssh.dir, "installed.bin")); string(b) != "remote build" {
+		t.Fatalf("installed %q", b)
+	}
+	if !strings.Contains(f.Called(), "/tunnel?port=") {
+		t.Fatalf("no tunnel:\n%s", f.Called())
+	}
+	ms, _ := remote.Machines()
+	if len(ms) != 1 || ms[0].Target != "sandbox-cli:sbx_000000010123" {
+		t.Fatalf("saved %+v", ms)
+	}
+
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "sandbox-cli", "ls"}) })
+	if flat := strings.Join(strings.Fields(out), " "); err != nil || !strings.Contains(flat, "sandbox-00000001 sandbox-00000001 sbx_000000010123 started 2 vCPU") {
+		t.Fatalf("ls: %q %v", out, err)
+	}
+
+	// A command goes through sandbox-io too, and its status comes back.
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "sandbox-cli", "ssh", "sandbox-00000001", "true"}) })
+	argvs := f.Argvs()
+	if err != nil || strings.Join(argvs[len(argvs)-1], " ") != "sh -c true" {
+		t.Fatalf("ssh: %v %q", err, argvs[len(argvs)-1])
+	}
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "sandbox-cli", "ssh", "sandbox-00000001", "nonsense"}) })
+	if err != exitStatus(1) {
+		t.Fatalf("a failing command: %v", err)
+	}
+
+	// This sandboxd can't suspend: stopping says so, and it keeps running.
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "sandbox-cli", "stop", "-y", "sandbox-00000001"}) })
+	if !errors.Is(err, sandbox.ErrCannotStop) || f.State("sbx_000000010123") != "running" {
+		t.Fatalf("stop without suspend: %v", err)
+	}
+	f.Caps["suspend"] = true
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "sandbox-cli", "stop", "-y", "sandbox-00000001"}) })
+	if err != nil || f.State("sbx_000000010123") != "suspended" {
+		t.Fatalf("stop: %v %s", err, f.State("sbx_000000010123"))
+	}
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "sandbox-cli", "ssh", "sandbox-00000001", "true"}) })
+	if err == nil || !strings.Contains(err.Error(), "run: conch sandbox -provider sandbox-cli start") {
+		t.Fatalf("ssh into a stopped one: %v", err)
+	}
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "sandbox-cli", "start", "sandbox-00000001"}) })
+	if err != nil || f.State("sbx_000000010123") != "running" {
+		t.Fatalf("start: %v", err)
+	}
+
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "sandbox-cli", "rm", "-y", "sandbox-00000001"}) })
+	if err != nil || out != "deleted sandbox-00000001\n" || f.State("sbx_000000010123") != "terminated" {
+		t.Fatalf("rm: %q %v", out, err)
+	}
+	if ms, _ := remote.Machines(); len(ms) != 0 {
+		t.Fatalf("machine kept: %+v", ms)
+	}
+}
+
+func TestA4SandboxCLIRefuses(t *testing.T) {
+	a4Env(t)
+	var err error
+	// No sandboxd here: it says so before anything is made.
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "sandbox-cli", "create"}) })
+	if err == nil || !strings.Contains(err.Error(), "sandboxd isn't running here") {
+		t.Fatalf("no sandboxd: %v", err)
+	}
+	// -dir is for a sandboxd on this computer, not one over the network.
+	f := a4Sandboxd(t)
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "sandbox-cli", "create", "-dir", t.TempDir()}) })
+	if err == nil || !strings.Contains(err.Error(), "can't mount a folder of this computer") || len(f.Creates()) != 0 {
+		t.Fatalf("-dir over the network: %v", err)
+	}
+	// Nor for a provider that never can.
+	newA4Daytona(t)
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "create", "-dir", t.TempDir()}) })
+	if err == nil || !strings.Contains(err.Error(), "can't mount a folder") {
+		t.Fatalf("daytona -dir: %v", err)
+	}
+	// sandbox-io is refused for a provider reached over ssh.
+	if err := runSandboxIO([]string{"-provider", "daytona", "sb1", "true"}); err == nil || !strings.Contains(err.Error(), "reached over ssh") {
+		t.Fatalf("sandbox-io daytona: %v", err)
+	}
+	if err := runSandboxIO([]string{"sb1"}); err == nil || !strings.Contains(err.Error(), "usage: conch sandbox-io") {
+		t.Fatalf("sandbox-io usage: %v", err)
+	}
+}
+
+// conch bridge -listen says which port, takes one connection and carries
+// it to the server.
+func TestA4BridgeListen(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, "")
+	t.Setenv("CONCH_SOCKET", srv.sock)
+	r, w, _ := os.Pipe()
+	old := os.Stdout
+	os.Stdout = w
+	done := make(chan error, 1)
+	go func() { done <- runBridge([]string{"-listen", "127.0.0.1:0"}) }()
+	line, _ := bufio.NewReader(r).ReadString('\n')
+	os.Stdout = old
+	port := strings.TrimSpace(strings.TrimPrefix(line, "listening "))
+	conn, err := net.Dial("tcp", "127.0.0.1:"+port)
+	if err != nil {
+		t.Fatalf("%q: %v", line, err)
+	}
+	c, err := client.New(conn, "t")
+	if err != nil {
+		t.Fatalf("hello through the bridge: %v", err)
+	}
+	c.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	// Nobody comes: it gives up rather than lingering.
+	oldWait := bridgeAcceptWait
+	bridgeAcceptWait = 50 * time.Millisecond
+	t.Cleanup(func() { bridgeAcceptWait = oldWait })
+	if _, err := acceptOne("127.0.0.1:0", io.Discard); err == nil {
+		t.Fatal("accepted nothing, yet no error")
+	}
+	if err := runBridge([]string{"-bogus"}); err == nil {
+		t.Fatal("a bad flag")
 	}
 }
