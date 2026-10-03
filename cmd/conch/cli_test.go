@@ -493,7 +493,7 @@ func TestA4Bridge(t *testing.T) {
 	oldIn, oldOut := os.Stdin, os.Stdout
 	os.Stdin, os.Stdout = inR, outW
 	done := make(chan error, 1)
-	go func() { done <- runBridge() }()
+	go func() { done <- runBridge(nil) }()
 	restore := func() { os.Stdin, os.Stdout = oldIn, oldOut }
 
 	enc := json.NewEncoder(inW)
@@ -526,7 +526,7 @@ func TestA4Bridge(t *testing.T) {
 	os.Remove(config.SocketPath())
 	t.Setenv("CONCH_SOCKET", filepath.Join(t.TempDir(), "none.sock"))
 	var berr error
-	a4Capture(t, "", func() { berr = runBridge() })
+	a4Capture(t, "", func() { berr = runBridge(nil) })
 	if berr == nil {
 		t.Fatal("bridge without a server")
 	}

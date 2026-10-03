@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -508,5 +509,88 @@ func TestSetUpSandboxWaitsForTheMachine(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "box never answered") ||
 		!strings.Contains(err.Error(), "the ssh connection failed (255)") {
 		t.Fatalf("never answering: %v", err)
+	}
+}
+
+// execProvider is a provider with no ssh (sandbox-cli's shape), reached by
+// a command run here: /bin/sh, in these tests.
+type execProvider struct {
+	fakeProvider
+}
+
+func (e *execProvider) Name() string { return "sandbox-cli" }
+func (e *execProvider) ExecArgv(id string, tty bool) []string {
+	if tty {
+		return []string{"/bin/sh", "-t", id, "-c"}
+	}
+	return []string{"/bin/sh", "-c"}
+}
+func (e *execProvider) BridgeArgv(id string) []string { return []string{"/bin/echo", "bridge", id} }
+
+func TestTransportForASandboxWithNoSSH(t *testing.T) {
+	a4Env(t)
+	ctx := context.Background()
+	p := &execProvider{fakeProvider: fakeProvider{state: sandbox.StateStarted}}
+	useNamedProvider(t, "sandbox-cli", p, nil)
+	tr, err := TransportFor(ctx, "box", "sandbox-cli:sbx_1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Describe() != "box" || p.accesses != 0 {
+		t.Fatalf("transport %q, %d ssh accesses", tr.Describe(), p.accesses)
+	}
+	// It runs things there: the probe conch starts with works through it.
+	probe, err := ProbeMachine(ctx, tr)
+	if err != nil || !strings.HasPrefix(probe.Platform, runtime.GOOS+"/") {
+		t.Fatalf("probe %+v %v", probe, err)
+	}
+	// conch's own connection goes by the provider's bridge command.
+	cmd, err := tr.forBridge().Command(ctx, "'/x/conch' bridge")
+	if err != nil || strings.Join(cmd.Args, " ") != "/bin/echo bridge sbx_1 '/x/conch' bridge" {
+		t.Fatalf("bridge %q %v", cmd.Args, err)
+	}
+	// A failure keeps the command's own words.
+	if _, err := runScript(ctx, tr, "echo it broke >&2; exit 4", nil); err == nil || err.Error() != "it broke" {
+		t.Fatalf("failure: %v", err)
+	}
+	// Stopped is refused like any sandbox, before anything runs.
+	p.state = sandbox.StateStopped
+	var stopped *SandboxStoppedError
+	if _, err := TransportFor(ctx, "box", "sandbox-cli:sbx_1", false); !errors.As(err, &stopped) {
+		t.Fatalf("stopped: %v", err)
+	}
+}
+
+func TestSandboxShellWithNoSSH(t *testing.T) {
+	a4Env(t)
+	ctx := context.Background()
+	useNamedProvider(t, "sandbox-cli", &execProvider{fakeProvider: fakeProvider{state: sandbox.StateStarted}}, nil)
+	// A shell always gets a terminal: nothing gives it one otherwise.
+	cmd, err := SandboxShell(ctx, "box", "sandbox-cli:sbx_1", "", false)
+	if err != nil || strings.Join(cmd.Args, " ") != "/bin/sh -t sbx_1 -c exec bash -l 2>/dev/null || exec sh -l" {
+		t.Fatalf("shell %q %v", cmd.Args, err)
+	}
+	// A command gets one only when asked.
+	if cmd, _ := SandboxShell(ctx, "box", "sandbox-cli:sbx_1", "git status", false); strings.Join(cmd.Args, " ") != "/bin/sh -c git status" {
+		t.Fatalf("command %q", cmd.Args)
+	}
+	if cmd, _ := SandboxShell(ctx, "box", "sandbox-cli:sbx_1", "htop", true); strings.Join(cmd.Args, " ") != "/bin/sh -t sbx_1 -c htop" {
+		t.Fatalf("tty %q", cmd.Args)
+	}
+	if cmd.Cancel != nil {
+		t.Fatal("a shell must outlive the context used to look the sandbox up")
+	}
+}
+
+func TestDefaultSandboxLabelOfASandboxdID(t *testing.T) {
+	for id, want := range map[string]string{
+		"sbx_7f3a9c2e41d0":   "sandbox-7f3a9c2e",
+		"f4c07743-2955-4c24": "sandbox-f4c07743",
+		"bx_1":               "sandbox-bx_1",
+		"sbx_":               "sandbox-sbx_",
+	} {
+		if got := DefaultSandboxLabel(id); got != want {
+			t.Errorf("%q: %q, want %q", id, got, want)
+		}
 	}
 }
