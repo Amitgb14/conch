@@ -181,6 +181,17 @@ helpers in `cmd/conch` and `internal/remote`.
   agent brings back by scrolling its own view are not kept twice. The lines are
   kept as text, capped at `altHistoryMax`, dropped when the program leaves
   the alternate screen, and not carried through a reload.
+- **History is text, not cells.** The emulator stores every character as a
+  cell of over a hundred bytes, so ten thousand lines of scrollback cost
+  ~145 MB a pane. After each piece of output, `internal/pane/history.go`
+  renders what scrolled off the main screen to text (colours and links as
+  escape codes) into `p.hist` and clears the emulator's own scrollback;
+  frames, search and the reload replay read `p.hist`. The emulator also
+  keeps an unreadable scrollback for the alternate screen, which an agent's
+  full-screen interface filled just as fast; `dropAltScrollback` turns it
+  off by reflection, since the emulator gives no way in — after upgrading
+  `charmbracelet/x/vt`, `TestAltScreenKeepsNoCells` and `TestHistoryMemory`
+  say whether that still holds.
 - **Panes on macOS.** `poll` doesn't work on ttys and read deadlines aren't
   supported on ptys; the read loop uses `select`. Shared pane fields are
   guarded by `p.mu`/`p.emuMu` — check with `-race`.

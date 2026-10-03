@@ -92,9 +92,9 @@ func (p *Pane) textLines() (lines []string, history int) {
 		history = len(p.alt.lines)
 		lines = append(lines, p.alt.lines...)
 	} else {
-		history = p.emu.ScrollbackLen()
-		for y := 0; y < history; y++ {
-			lines = append(lines, cellText(cols, func(x int) *uv.Cell { return p.emu.ScrollbackCellAt(x, y) }))
+		history = len(p.hist)
+		for _, l := range p.hist {
+			lines = append(lines, historyText(l, cols))
 		}
 	}
 	for y := 0; y < rows; y++ {
