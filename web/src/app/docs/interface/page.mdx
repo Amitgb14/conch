@@ -87,7 +87,7 @@ Terminals
 
 Panes in no folder are listed first and the folders after them, so whatever sits under an open folder is in it.
 
-A folder holds each pane **by name and by id**. Ids belong to a running server, so a folder finds its panes again after a restart by the name you gave them (`r` in the tree, or `conch rename`) and keeps up with them by id in between — a pane you never named is held by id alone and leaves its folder when the server goes. A pane is in one folder at a time, and folders live in `ui.json` per machine, project and section, so they cost nothing to anyone who never makes one.
+A folder holds each pane **by name and by id**. The id says which pane while that pane lives — two terminals may share a name, and the id is the only thing that tells `vm1` in `eng` from `vm1` in `prod` — and the name finds it again after a restart, when every id has been handed out afresh (`r` in the tree, or `conch rename`, gives a pane its name). Two consequences worth knowing: a pane you never named is held by id alone and leaves its folder when the server goes, and if **two** panes share a name across a restart the folder keeps neither of them, there being nothing left to choose by. A pane is in one folder at a time, and folders live in `ui.json` per machine, project and section, so they cost nothing to anyone who never makes one.
 
 ### Grouped by tab
 

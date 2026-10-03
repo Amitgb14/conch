@@ -127,36 +127,137 @@ func TestA1FoldersInTheTree(t *testing.T) {
 	}
 }
 
-// TestFolderHoldsByNameNotARecycledID: a member written down with a name is
-// found by that name alone. Ids belong to a running server and the next one
-// hands them out again, so matching the id as well once put a folder's pane
-// and whatever later took its id both in the folder — seen on a real tree
-// after a restart, with the folder holding vm2 and an unrelated spacer2.
-func TestFolderHoldsByNameNotARecycledID(t *testing.T) {
-	f := savedFolder{Name: "eng", Members: []savedMember{{Name: "vm2", ID: "p2"}}}
-	if !f.holds(proto.PaneInfo{ID: "p4", Name: "vm2"}) {
-		t.Fatal("the pane was not found again by its name")
+// TestFolderClaimsTheRightPanes: which panes a folder holds, where the id
+// and the name disagree.
+//
+// Two of these came from use. A member matched by id *or* name put a
+// folder's own pane and whatever later took that pane's id both in the
+// folder, after a restart handed the id out again. Matching by name alone
+// then swallowed every pane sharing a name — and sharing one is the point:
+// vm1 in eng and vm1 in prod are different machines.
+func TestFolderClaimsTheRightPanes(t *testing.T) {
+	claim := func(f savedFolder, panes ...proto.PaneInfo) []string {
+		var ids []string
+		for _, p := range f.claim(panes, map[string]bool{}) {
+			ids = append(ids, p.ID)
+		}
+		return ids
 	}
-	if f.holds(proto.PaneInfo{ID: "p2", Name: "spacer2"}) {
-		t.Fatal("a pane that took the old id was taken for it")
+	eq := func(got []string, want ...string) bool {
+		if len(got) != len(want) {
+			return false
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				return false
+			}
+		}
+		return true
 	}
-	if f.holds(proto.PaneInfo{ID: "p2"}) {
-		t.Fatal("a nameless pane on the old id was taken for it")
-	}
-	if f.holds(proto.PaneInfo{ID: "p9", Name: "vm3"}) {
-		t.Fatal("another pane entirely")
+	eng := savedFolder{Name: "eng", Members: []savedMember{{Name: "vm1", ID: "p1"}}}
+
+	// Two panes of one name: the id says which, and the other is untouched.
+	if got := claim(eng, proto.PaneInfo{ID: "p1", Name: "vm1"}, proto.PaneInfo{ID: "p7", Name: "vm1"}); !eq(got, "p1") {
+		t.Fatalf("with two vm1 it holds %v, want just p1", got)
 	}
 
-	// A pane that never had a name is held by id, and only until the server
-	// that gave it goes.
-	g := savedFolder{Name: "eng", Members: []savedMember{{ID: "p7"}}}
-	if !g.holds(proto.PaneInfo{ID: "p7"}) {
-		t.Fatal("a nameless pane was not held by its id")
+	// The id gone, one pane of that name: found again, which is what makes
+	// a folder survive a restart.
+	if got := claim(eng, proto.PaneInfo{ID: "p9", Name: "vm1"}); !eq(got, "p9") {
+		t.Fatalf("after a restart it holds %v, want p9", got)
 	}
-	if !g.holds(proto.PaneInfo{ID: "p7", Name: "named later"}) {
-		t.Fatal("naming it threw it out")
+
+	// The id gone and two of that name: nothing to choose by, so it holds
+	// neither rather than both.
+	if got := claim(eng, proto.PaneInfo{ID: "p8", Name: "vm1"}, proto.PaneInfo{ID: "p9", Name: "vm1"}); len(got) != 0 {
+		t.Fatalf("with no id and two vm1 it holds %v, want none", got)
 	}
-	if g.holds(proto.PaneInfo{ID: "p8"}) {
-		t.Fatal("another id")
+
+	// An id handed out again to another pane is not this pane.
+	if got := claim(eng, proto.PaneInfo{ID: "p1", Name: "spacer"}); len(got) != 0 {
+		t.Fatalf("a recycled id gave it %v", got)
+	}
+	// ...and the name still finds the real one beside it.
+	if got := claim(eng, proto.PaneInfo{ID: "p1", Name: "spacer"}, proto.PaneInfo{ID: "p4", Name: "vm1"}); !eq(got, "p4") {
+		t.Fatalf("beside a recycled id it holds %v, want p4", got)
+	}
+
+	// A pane that never had a name is held by its id, and only until the
+	// server that gave it goes.
+	none := savedFolder{Name: "eng", Members: []savedMember{{ID: "p7"}}}
+	if got := claim(none, proto.PaneInfo{ID: "p7"}); !eq(got, "p7") {
+		t.Fatalf("a nameless pane: %v", got)
+	}
+	if got := claim(none, proto.PaneInfo{ID: "p8", Name: "vm1"}); len(got) != 0 {
+		t.Fatalf("its id gone, it holds %v", got)
+	}
+
+	// A pane already claimed by the folder before it is left alone.
+	taken := map[string]bool{"p1": true}
+	if got := eng.claim([]proto.PaneInfo{{ID: "p1", Name: "vm1"}}, taken); len(got) != 0 {
+		t.Fatalf("took a pane another folder has: %v", got)
+	}
+}
+
+// TestA1FolderTakesTwoPanesOfOneName: putting one pane in a folder used to
+// take another of the same name out of it — found in use, with two zsh —
+// because the member to delete was chosen by name. A folder of vm1 and vm1
+// is the point of folders, so it has to hold both.
+func TestA1FolderTakesTwoPanesOfOneName(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	var pid string
+	for _, p := range mach.panes {
+		if p.ProjectID != "" && m.paneSection(localMachine, p.ID) == kindTerminals {
+			pid = p.ProjectID
+			break
+		}
+	}
+	if pid == "" {
+		t.Fatal("no project terminal in the fixture")
+	}
+	a := proto.PaneInfo{ID: "pa", Name: "zsh", ProjectID: pid, State: proto.PaneRunning}
+	b := proto.PaneInfo{ID: "pb", Name: "zsh", ProjectID: pid, State: proto.PaneRunning}
+	mach.panes = append(mach.panes, a, b)
+
+	if !m.newFolder(localMachine, pid, kindTerminals, "eng") {
+		t.Fatal("no folder")
+	}
+	if !m.putInFolder(localMachine, pid, kindTerminals, "eng", a) {
+		t.Fatal("the first did not go in")
+	}
+	if !m.putInFolder(localMachine, pid, kindTerminals, "eng", b) {
+		t.Fatal("the second did not go in")
+	}
+	fs := m.foldersIn(localMachine, pid, kindTerminals)
+	if len(fs) != 1 || len(fs[0].Members) != 2 {
+		t.Fatalf("the folder holds %+v, want both", fs[0].Members)
+	}
+
+	// And the tree lists both, each by its own id.
+	held := fs[0].claim(m.sectionPanes(localMachine, pid, kindTerminals), map[string]bool{})
+	var ids []string
+	for _, p := range held {
+		ids = append(ids, p.ID)
+	}
+	if len(ids) != 2 || ids[0] != "pa" || ids[1] != "pb" {
+		t.Fatalf("the tree lists %v, want pa and pb", ids)
+	}
+
+	// Taking one out leaves the other, though they share a name.
+	if !m.takeOutOfFolders(localMachine, pid, kindTerminals, a) {
+		t.Fatal("the first did not come out")
+	}
+	fs = m.foldersIn(localMachine, pid, kindTerminals)
+	if len(fs[0].Members) != 1 || fs[0].Members[0].ID != "pb" {
+		t.Fatalf("after taking pa out: %+v, want pb alone", fs[0].Members)
+	}
+
+	// A pane that is not a pane goes in no folder.
+	if m.putInFolder(localMachine, pid, kindTerminals, "eng", proto.PaneInfo{}) {
+		t.Fatal("a pane with no id went in")
+	}
+	if len(m.foldersIn(localMachine, pid, kindTerminals)[0].Members) != 1 {
+		t.Fatal("it left something behind")
 	}
 }

@@ -61,13 +61,7 @@ func foldered(in treeInput, mid, pid string, kind nodeKind, panes []proto.PaneIn
 	}
 	taken := map[string]bool{}
 	for _, f := range fs {
-		var mine []proto.PaneInfo
-		for _, p := range panes {
-			if !taken[p.ID] && f.holds(p) {
-				taken[p.ID] = true
-				mine = append(mine, p)
-			}
-		}
+		mine := f.claim(panes, taken)
 		fid := folderRowID(mid, pid, kind, f.Name)
 		prows := rows(mine, depth+1, projMatched)
 		if in.filter != "" && len(prows) == 0 {

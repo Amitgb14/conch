@@ -36,26 +36,63 @@ func folderMember(p proto.PaneInfo) savedMember {
 	return m
 }
 
-// stands reports whether a folder's member is this pane. A member that was
-// written down with a name is found by that name alone: ids are a running
-// server's and are handed out again by the next one, so matching an id as
-// well once put a folder's pane and whatever later took its id both in it.
-// Only a pane that never had a name of its own is held by id, and it leaves
-// its folder when the server goes, there being nothing else to know it by.
-func (mem savedMember) stands(p proto.PaneInfo) bool {
-	if mem.Name != "" {
-		return p.Name != "" && mem.Name == p.Name
+// claim works out which of a section's panes a folder holds, taking each
+// one it claims out of taken so no pane is listed in two folders.
+//
+// The id decides while it is still that pane — the name written down beside
+// it agreeing — because two panes may share a name and the id is the only
+// thing that tells them apart: a folder holding one vm1 must not swallow the
+// other. The name finds a pane again when the id has gone, which is what
+// happens on every server restart, but only when one pane answers to it:
+// with two called vm1 and no id to choose by, the folder holds neither
+// rather than both. An id whose pane now has another name was handed out
+// again by a new server and is not this pane at all.
+func (f savedFolder) claim(panes []proto.PaneInfo, taken map[string]bool) []proto.PaneInfo {
+	var out []proto.PaneInfo
+	for _, c := range f.claims(panes, taken) {
+		out = append(out, c.pane)
 	}
-	return mem.ID != "" && mem.ID == p.ID
+	return out
 }
 
-func (f savedFolder) holds(p proto.PaneInfo) bool {
-	for _, mem := range f.Members {
-		if mem.stands(p) {
-			return true
+// folderClaim is one of a folder's members and the pane it stands for.
+type folderClaim struct {
+	member int
+	pane   proto.PaneInfo
+}
+
+// claims is which member holds which pane, so that taking a pane out knows
+// *which* line to delete. Deciding that by name alone made a folder of two
+// panes called zsh impossible: putting the second one in took the first one
+// out, their names being the same.
+func (f savedFolder) claims(panes []proto.PaneInfo, taken map[string]bool) []folderClaim {
+	byID := make(map[string]proto.PaneInfo, len(panes))
+	for _, p := range panes {
+		byID[p.ID] = p
+	}
+	var out []folderClaim
+	for i, mem := range f.Members {
+		if p, ok := byID[mem.ID]; mem.ID != "" && ok && !taken[p.ID] && (mem.Name == "" || p.Name == mem.Name) {
+			taken[p.ID] = true
+			out = append(out, folderClaim{i, p})
+			continue
+		}
+		if mem.Name == "" {
+			continue // nothing but an id, and that id is not here any more
+		}
+		var only proto.PaneInfo
+		n := 0
+		for _, p := range panes {
+			if !taken[p.ID] && p.Name == mem.Name {
+				only, n = p, n+1
+			}
+		}
+		if n == 1 {
+			taken[only.ID] = true
+			out = append(out, folderClaim{i, only})
 		}
 	}
-	return false
+	return out
 }
 
 // foldersIn is the folders of one section, in the order they were made.
@@ -87,6 +124,9 @@ func (m *Model) newFolder(machine, projectID string, section nodeKind, name stri
 // putInFolder moves a pane into the folder of that name, taking it out of
 // any other folder of the same section first: a pane is in one place.
 func (m *Model) putInFolder(machine, projectID string, section nodeKind, name string, p proto.PaneInfo) bool {
+	if p.ID == "" {
+		return false // nothing to put in, and a member of nothing holds nothing
+	}
 	key := folderKey(machine, projectID, section)
 	fs := m.folders[key]
 	at := slices.IndexFunc(fs, func(f savedFolder) bool { return f.Name == name })
@@ -100,21 +140,26 @@ func (m *Model) putInFolder(machine, projectID string, section nodeKind, name st
 	return true
 }
 
-// takeOutOfFolders removes a pane from every folder of a section, leaving
-// the folders themselves alone: an empty one stays until it is removed.
+// takeOutOfFolders removes a pane from the folders of a section, leaving
+// the folders themselves alone: an empty one stays until it is removed. It
+// deletes the member that stands for this pane and no other, worked out the
+// same way the tree works out what a folder holds — by id while the pane
+// lives, by name only where the id has gone — so putting one of two panes
+// called zsh in a folder leaves the other where it is.
 func (m *Model) takeOutOfFolders(machine, projectID string, section nodeKind, p proto.PaneInfo) bool {
 	key := folderKey(machine, projectID, section)
 	fs, out := m.folders[key], false
+	panes := m.sectionPanes(machine, projectID, section)
 	for i := range fs {
-		kept := fs[i].Members[:0]
-		for _, mem := range fs[i].Members {
-			if mem.stands(p) {
-				out = true
+		taken := map[string]bool{}
+		for _, c := range fs[i].claims(panes, taken) {
+			if c.pane.ID != p.ID {
 				continue
 			}
-			kept = append(kept, mem)
+			fs[i].Members = slices.Delete(fs[i].Members, c.member, c.member+1)
+			out = true
+			break
 		}
-		fs[i].Members = kept
 	}
 	if out {
 		m.folders[key] = fs
