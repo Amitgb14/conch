@@ -264,6 +264,20 @@ go run ./internal/tools/clicker "$CONCH_SOCKET" p1 10 3 60 0   # drag: press, mo
 A drag is three events, so a press and a release alone are not one: the rows
 for dragging a tab, a split or a scrollbar need the second pair of cells.
 
+Rows that need a pane conch takes for an agent — the tree's helper rows and
+⑂N counts, the sections, the state column — but not an agent's judgement can
+use `internal/tools/standin`, which conch detects by the name it is built
+under and which starts panes as an agent does:
+
+```sh
+go build -o /tmp/fake/claude ./internal/tools/standin
+conch new -name main -- /tmp/fake/claude      # a pane conch reads as Claude Code
+```
+
+It is not an agent and prints nothing an agent prints, so anything that
+reads an agent's *screen* — its states, the choices in a question — still
+wants the real thing and keeps its 💳.
+
 Read the screen back with `conch read ID`. Always with a scratch
 `CONCH_HOME` and socket, and `CONCH_PANE_ID` unset.
 
