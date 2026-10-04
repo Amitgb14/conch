@@ -205,6 +205,15 @@ helpers in `cmd/conch` and `internal/remote`.
   off by reflection, since the emulator gives no way in — after upgrading
   `charmbracelet/x/vt`, `TestAltScreenKeepsNoCells` and `TestHistoryMemory`
   say whether that still holds.
+- **One owner per pty.** `Detach` hands the *same* `*os.File` to the caller,
+  so for a moment two panes hold one descriptor: the one that gave it away
+  and the one that adopted it, each with its own `mu`. The pane that gave it
+  away marks itself `handedOver` and no longer closes the terminal when its
+  program ends (`Resume` takes it back) — otherwise it closes a descriptor
+  the adopted pane is using, which the race detector saw intermittently as
+  `wait`'s `Close` against `Adopt`'s `Fd`. Anything new that writes to
+  `p.ptmx` outside the read loop has to answer the same question: whose is
+  it now?
 - **Panes on macOS.** `poll` doesn't work on ttys and read deadlines aren't
   supported on ptys; the read loop uses `select`. Shared pane fields are
   guarded by `p.mu`/`p.emuMu` — check with `-race`.

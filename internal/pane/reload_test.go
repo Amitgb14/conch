@@ -1,12 +1,17 @@
 package pane
 
 import (
+	"errors"
+	"os"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 func TestDetachReplayAdopt(t *testing.T) {
@@ -171,5 +176,69 @@ func TestAdoptAltHistoryFromOtherServers(t *testing.T) {
 			t.Errorf("%s: history %d, want %d", c.what, n, c.want)
 		}
 		q.Close()
+	}
+}
+
+// TestDetachLeavesTheTerminalToWhoeverTookIt: Detach hands the same
+// *os.File to the caller, so from then on two panes hold one descriptor —
+// the one that gave it away and the one that adopted it, each with its own
+// mutex. The pane that gave it away must not close it when its program
+// ends: that closes a descriptor the adopted pane is using (and the race
+// detector saw it, intermittently, as Close against Adopt's Fd in
+// TestAdoptReplaysHistoryIntoText).
+func TestDetachLeavesTheTerminalToWhoeverTookIt(t *testing.T) {
+	p := startShell(t)
+	waitScreen(t, p, "$")
+	snap, ptmx, err := p.Detach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The program ends while the handover is in flight, which is what the
+	// wait goroutine is there for.
+	if err := syscall.Kill(snap.PID, syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	waitExited(t, p)
+	if _, err := ptmx.Stat(); errors.Is(err, os.ErrClosed) {
+		t.Fatal("the pane closed the terminal it had handed over")
+	}
+	// And it is still usable, which is what the pane adopting it needs.
+	if _, err := Adopt(snap, ptmx); err != nil && errors.Is(err, os.ErrClosed) {
+		t.Fatalf("adopting what was handed over: %v", err)
+	}
+}
+
+// TestResumeTakesTheTerminalBack: a handover that failed is undone by
+// Resume, and then the terminal is this pane's again — so its program
+// ending does close it, as it always did.
+func TestResumeTakesTheTerminalBack(t *testing.T) {
+	p := startShell(t)
+	waitScreen(t, p, "$")
+	snap, ptmx, err := p.Detach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Resume()
+	if err := syscall.Kill(snap.PID, syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	waitExited(t, p)
+	if _, err := ptmx.Stat(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("after Resume the pane owns the terminal again, so it must close it: %v", err)
+	}
+}
+
+// waitExited waits for the pane's program to end and its wait goroutine to
+// finish: done closes last, after the terminal would have been closed, so
+// what follows is not a race with it.
+func waitExited(t *testing.T, p *Pane) {
+	t.Helper()
+	select {
+	case <-p.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("pane did not exit (it is %s)", p.Info().State)
+	}
+	if st := p.Info().State; st != proto.PaneExited {
+		t.Fatalf("pane is %s, not exited", st)
 	}
 }

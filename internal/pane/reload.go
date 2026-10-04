@@ -77,6 +77,13 @@ func (p *Pane) Detach() (Snapshot, *os.File, error) {
 		snap.AltHistory = slices.Clone(p.alt.lines)
 	}
 	p.emuMu.RUnlock()
+
+	// The terminal is the caller's from here: this pane keeps a reference
+	// so Resume can take it back, but must not close it behind the pane
+	// that adopts it.
+	p.mu.Lock()
+	p.handedOver = true
+	p.mu.Unlock()
 	return snap, p.ptmx, nil
 }
 
@@ -95,6 +102,7 @@ func (p *Pane) Resume() {
 	p.mu.Lock()
 	old := p.readDone
 	p.stopRead, p.readDone = stop, done
+	p.handedOver = false // the handover failed: the terminal is ours again
 	p.mu.Unlock()
 	go func() {
 		<-old

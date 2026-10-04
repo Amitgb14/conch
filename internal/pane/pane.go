@@ -48,6 +48,12 @@ type Pane struct {
 	cmd  *exec.Cmd   // nil for a pane adopted after a reload
 	proc *os.Process // the program; a child of this process either way
 	ptmx *os.File
+	// handedOver says Detach gave the terminal to someone else, who owns
+	// it from then on — the pane that adopts it. This pane must not close
+	// it when its program ends, or it closes a descriptor another pane is
+	// using (and the race detector sees two panes' mutexes guarding one
+	// os.File). Resume takes it back. Guarded by mu.
+	handedOver bool
 
 	// stopRead asks the read loop to stop (for a reload); readDone closes
 	// when it has.
@@ -291,8 +297,11 @@ func (p *Pane) wait() {
 	p.state = proto.PaneExited
 	p.exitCode = code
 	// Close under mu so Foreground never issues an ioctl on a closed (and
-	// possibly reused) descriptor.
-	_ = p.ptmx.Close()
+	// possibly reused) descriptor — and not at all once Detach has given
+	// the terminal away: it belongs to the pane that adopted it.
+	if !p.handedOver {
+		_ = p.ptmx.Close()
+	}
 	p.mu.Unlock()
 
 	// End the reply-copy goroutine by closing the emulator's input pipe.
