@@ -522,7 +522,7 @@ func TestA4BridgeConnCloseKillsStuckSSH(t *testing.T) {
 func TestLoginCommand(t *testing.T) {
 	a4Env(t)
 	t.Setenv("CONCH_SSH", "/fake/ssh")
-	cfg, err := sshConfig()
+	cfg, err := loginSSHConfig()
 	if err != nil {
 		t.Fatal(err)
 	}

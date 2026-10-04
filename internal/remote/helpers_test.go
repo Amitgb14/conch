@@ -96,11 +96,7 @@ func a4Env(t *testing.T) string {
 	return dir
 }
 
-func resetSSHConfig() {
-	configOnce.Lock()
-	configOnce.path = ""
-	configOnce.Unlock()
-}
+func resetSSHConfig() { resetConfig() }
 
 // fakeSSH is the path of an ssh stand-in that logs its argv and acts on
 // the remote script it is given.

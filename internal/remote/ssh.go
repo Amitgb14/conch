@@ -27,7 +27,8 @@ func sshBinary() string {
 
 var configOnce struct {
 	sync.Mutex
-	path string
+	path  string // shares connections
+	login string // doesn't
 }
 
 // sshConfig writes the ssh config conch uses and returns its path. It
@@ -35,14 +36,32 @@ var configOnce struct {
 // wins; conch only adds keepalives and connection sharing on top.
 // $CONCH_SSH_CONFIG names an extra config included before the user's.
 func sshConfig() (string, error) {
+	shared, _, err := sshConfigs()
+	return shared, err
+}
+
+// loginSSHConfig is sshConfig without connection sharing, for a terminal
+// logged in to a host. -o ControlPath=none on the command line covers the
+// host itself but not a jump host on the way (-J, or ProxyJump in the
+// user's config): ssh starts the hop as a new ssh with only -F passed on,
+// which then shared conch's master — and a master gone dead held each
+// login through that jump host on a blank screen for about a minute.
+// Sharing set up in the user's own config still applies, as it would to
+// a plain ssh.
+func loginSSHConfig() (string, error) {
+	_, login, err := sshConfigs()
+	return login, err
+}
+
+func sshConfigs() (shared, login string, err error) {
 	configOnce.Lock()
 	defer configOnce.Unlock()
-	if configOnce.path != "" {
-		return configOnce.path, nil
+	if configOnce.path != "" && configOnce.login != "" {
+		return configOnce.path, configOnce.login, nil
 	}
 	dir := filepath.Join(config.Dir(), "ssh")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
+		return "", "", err
 	}
 	// Control sockets need a short path (unix socket limit), so they live
 	// in a private directory under /tmp rather than the config dir.
@@ -51,7 +70,7 @@ func sshConfig() (string, error) {
 		ctl = fmt.Sprintf("/tmp/conch-ssh-%d", os.Getuid())
 	}
 	if err := os.MkdirAll(ctl, 0o700); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	var b strings.Builder
@@ -67,31 +86,43 @@ func sshConfig() (string, error) {
 	if exists("/etc/ssh/ssh_config") {
 		b.WriteString("Include /etc/ssh/ssh_config\n")
 	}
-	fmt.Fprintf(&b, `
-Host *
-  ServerAliveInterval 15
-  ServerAliveCountMax 3
-  ControlMaster auto
-  ControlPath %s/%%C
-  ControlPersist 60
-`, quoteConfig(ctl))
+	head := b.String()
+	var keys strings.Builder
 	// The keys to log in with: conch's own, made when the user had none
 	// (see SetUpKeyLogin), and the user's defaults. Naming any key stops
 	// ssh trying the defaults, so once conch's key exists the user's would
 	// never be offered — and a machine authorized with the user's key, a
 	// sandbox among them, would refuse a login it was set up to allow.
 	for _, key := range loginKeys() {
-		fmt.Fprintf(&b, "  IdentityFile %s\n", quoteConfig(key))
+		fmt.Fprintf(&keys, "  IdentityFile %s\n", quoteConfig(key))
 	}
+	sharedText := head + fmt.Sprintf(`
+Host *
+  ServerAliveInterval 15
+  ServerAliveCountMax 3
+  ControlMaster auto
+  ControlPath %s/%%C
+  ControlPersist 60
+`, quoteConfig(ctl)) + keys.String()
+	loginText := head + `
+Host *
+  ServerAliveInterval 15
+  ServerAliveCountMax 3
+  ControlMaster no
+  ControlPath none
+` + keys.String()
 
-	// Other conch processes may be running ssh -F on this file right now;
-	// replace it whole rather than truncating it under them.
-	path := filepath.Join(dir, "config")
-	if err := writeFileAtomic(path, []byte(b.String())); err != nil {
-		return "", err
+	// Other conch processes may be running ssh -F on these files right
+	// now; replace them whole rather than truncating them under them.
+	shared, login = filepath.Join(dir, "config"), filepath.Join(dir, "login_config")
+	if err := writeFileAtomic(shared, []byte(sharedText)); err != nil {
+		return "", "", err
 	}
-	configOnce.path = path
-	return path, nil
+	if err := writeFileAtomic(login, []byte(loginText)); err != nil {
+		return "", "", err
+	}
+	configOnce.path, configOnce.login = shared, login
+	return shared, login, nil
 }
 
 func quoteConfig(s string) string {
@@ -182,7 +213,7 @@ func LoginCommand(target string, args ...string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := sshConfig()
+	cfg, err := loginSSHConfig()
 	if err != nil {
 		return nil, err
 	}

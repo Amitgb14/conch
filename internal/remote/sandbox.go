@@ -254,7 +254,7 @@ func SandboxShell(ctx context.Context, label, target, command string, tty bool) 
 	if !ok {
 		return nil, fmt.Errorf("%s is not a sandbox", label)
 	}
-	cfg, err := sshConfig()
+	cfg, err := loginSSHConfig()
 	if err != nil {
 		return nil, err
 	}
