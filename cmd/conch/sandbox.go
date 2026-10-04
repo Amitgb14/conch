@@ -143,14 +143,13 @@ func sandboxCreate(args []string) error {
 	memory := fs.Int("memory", 0, "memory in GiB")
 	disk := fs.Int("disk", 0, "disk in GiB")
 	yes := fs.Bool("yes", false, "delete the sandbox without asking if setting it up fails")
-	dir := fs.String("dir", "", "a folder of this computer to mount at /workspace, where the provider can (sandbox-cli on this computer)")
 	var env names
 	fs.Var(&env, "env", "pass this environment variable in (repeat for more)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return errors.New("usage: conch sandbox -provider P create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-dir DIR] [-env NAME]... [-yes]")
+		return errors.New("usage: conch sandbox -provider P create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]")
 	}
 	if *cpu < 0 || *memory < 0 || *disk < 0 {
 		return errors.New("-cpu, -memory and -disk can't be negative")
@@ -168,15 +167,12 @@ func sandboxCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	if b, ok := p.(sandbox.Binder); *dir != "" && (!ok || !b.CanBind()) {
-		return fmt.Errorf("-dir: a %s sandbox can't mount a folder of this computer", sandbox.ProviderLabel(sandboxProvider))
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), sandboxWait)
 	defer cancel()
 
 	fmt.Fprintln(os.Stderr, "Creating a "+sandbox.ProviderLabel(sandboxProvider)+" sandbox…")
 	s, err := p.Create(ctx, sandbox.Spec{Snapshot: *snapshot, CPU: *cpu, Memory: *memory, Disk: *disk,
-		Env: vars, AutoStop: pc.AutoStop, Dir: *dir})
+		Env: vars, AutoStop: pc.AutoStop})
 	if err != nil {
 		if s.ID != "" {
 			abandonSandbox(p, s.ID, *yes)

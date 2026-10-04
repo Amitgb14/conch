@@ -2,7 +2,7 @@ export const metadata = { title: "Sandboxes", description: "Run agents in a clou
 
 # Sandboxes
 
-A sandbox is a machine in the cloud that conch creates for you, so a long agent task runs away from your laptop and keeps running when you close it — or, with [sandbox-cli](#sandbox-cli), a microVM of its own on this computer or a Linux machine you run. conch makes the sandbox, installs itself there and adds it as a [remote machine](/docs/remote-machines): `-m` and every other machine feature work with it.
+A sandbox is a machine in the cloud that conch creates for you, so a long agent task runs away from your laptop and keeps running when you close it. conch makes the sandbox, installs itself there and adds it as a [remote machine](/docs/remote-machines): `-m` and every other machine feature work with it.
 
 In the tree they sit together under **Sandboxes**, one group per provider, so a fleet of them doesn't fill the top:
 
@@ -19,15 +19,14 @@ In the tree they sit together under **Sandboxes**, one group per provider, so a 
 
 Each one opens like any machine — its projects, agents and terminals underneath — and `m` on its row starts, stops or deletes it. Selecting **Sandboxes**, or one provider, shows what is in it with each sandbox's state. The group appears once there is a sandbox; the same label under two providers is two different sandboxes, and each keeps its own row.
 
-Three providers are supported:
+Two providers are supported:
 
 | Provider | What it is | How conch gets in |
 | --- | --- | --- |
 | [Daytona](https://www.daytona.io) | sandboxes with an ssh gateway, sized in vCPUs, memory and disk | a fresh ssh token per connection, through Daytona's gateway |
 | [boat.dev](https://boat.dev) | whole Ubuntu machines in named sizes, with an sshd of their own | your own public key, authorized in the sandbox |
-| [sandbox-cli](https://github.com/Amitgb14/sandbox-cli) | a microVM per sandbox — Apple's `container` runtime on a Mac, Firecracker on a Linux machine of yours — behind sandbox-cli's `sandboxd` | sandboxd's API: no ssh at all |
 
-Everything on this page works with Daytona and boat.dev; where they differ — sizes, prices, snapshots, what stopping keeps — it says so. sandbox-cli has [its own section](#sandbox-cli).
+Everything on this page works with both. Where they differ — sizes, prices, snapshots, what stopping keeps — it says so.
 
 ## Setting up
 
@@ -156,32 +155,9 @@ conch never starts a stopped sandbox by itself: use **Start sandbox** in its men
 
 The code comes back the way it would from any machine: push the branch from the sandbox, or move the worktree back with **T** (see [Remote machines](/docs/remote-machines)). The sandbox needs its own access to a private repository — a token scoped to that repository, passed with `-env`.
 
-## sandbox-cli
-
-[sandbox-cli](https://github.com/Amitgb14/sandbox-cli) runs each sandbox as a VM with its own kernel, served by its daemon `sandboxd` — on your Mac (macOS 26 or later, Apple silicon, through Apple's `container` runtime), on a Linux machine with KVM (Firecracker), or hosted. conch talks to sandboxd's API, the same API the `sandbox-cli` command uses, so it neither knows nor cares which of those is behind it.
-
-There is no account and no key. conch finds sandboxd the way sandbox-cli does: the context sandbox-cli is using (`sandbox-cli context use …`), which is `local` — the socket of a sandboxd on this computer — unless you have chosen another. Settings → **Sandboxes** → **sandbox-cli** says where that is, or what is missing: *sandboxd isn't running here* until you have installed and started it as sandbox-cli's own docs say. **Context** there picks another; **Endpoint** names one directly (`https://box.internal:7443`), with its token in `$SANDBOXD_TOKEN` or **Token**.
-
-```sh
-conch sandbox -provider sandbox-cli create -label vm1 -env CLAUDE_CODE_OAUTH_TOKEN
-conch -m vm1 task "Plan a CLI for tracking expenses"
-conch sandbox -provider sandbox-cli create -dir ~/projects/api      # mount a folder (local sandboxd only)
-```
-
-or `M` → **New sandbox…** → **sandbox-cli…**. The machine is named after the sandbox's ID (`sbx_7f3a9c2e…` becomes `sandbox-7f3a9c2e`) unless you give it a label.
-
-What is different:
-
-- **No ssh.** sandboxd runs processes through its API, so conch does too: a script — the probe, copying conch in — is a process whose stdin and stdout conch attaches to, and conch's own connection goes through a tunnel to `conch bridge -listen` on the sandbox's loopback, since sandboxd keeps an attached process's output for replay and stops passing it on past 8 MB. `conch sandbox -provider sandbox-cli ssh ID` works the same way: a shell on a terminal, or a command with its status.
-- **It starts empty.** `/workspace` has nothing in it, as a cloud sandbox's home does: clone a repository there, or start a task in the home. With a sandboxd on this computer (and its operator's `allow_bind`), `-dir` — or **Folder** in the dialog, which suggests the project the tree is on but leaves it empty — mounts a folder of yours at `/workspace` instead, and then the work is in that folder. sandboxd refuses `/`, your home and anything above it.
-- **The network is sandboxd's to give.** A sandbox gets sandboxd's default egress unless **Network** says otherwise — and on a Mac that default is *none*, where an agent cannot reach its own API. Set **Network** to `open` there (if sandboxd's operator allows it), or `allowlist` with the names in **Allow** where the backend enforces one (Linux).
-- **Stopping is suspending, where there is one.** On a Linux sandboxd, **Stop sandbox** suspends it, keeping its memory and disk, and **Start sandbox** resumes it — refused while a process is running there, which sandboxd won't cut off. A Mac's sandboxd can't suspend, so it can only be deleted: conch says so once and leaves its idle watch off that sandbox.
-- **sandboxd's own idle timer deletes.** A sandbox with no request and no process for its idle timeout is terminated, not paused, so conch asks for the longest sandboxd allows, a week; `auto_stop` (minutes) changes it. And sandboxd keeps its sandboxes in memory: restarting it loses them, so conch then shows them as gone.
-- **Only conch's own.** conch labels the sandboxes it makes (`conch=1`) and lists, stops and deletes only those; a `sandbox-cli run` of yours is never touched. There is no cost to show, port link or snapshot yet.
-
 ## How conch reaches it
 
-Daytona and boat.dev are reached over ssh, by different means; sandbox-cli through sandboxd's API (see above).
+Both are reached over ssh, by different means.
 
 With Daytona, each connection asks for a fresh ssh token and goes through Daytona's ssh gateway, so nothing that lets you in is saved. The token is kept out of conch's messages, but ssh has it on its command line while connected, where other users of your computer could see it in the process list. Daytona's gateway key is accepted the first time it is seen.
 

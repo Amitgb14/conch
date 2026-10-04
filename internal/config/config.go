@@ -120,17 +120,7 @@ type ProviderCfg struct {
 	// its environment variable says.
 	APIURL string `toml:"api_url,omitempty"`
 	// Target is the region, e.g. "us" or "eu"; "" is the account default.
-	// For sandbox-cli it is the context to use, as `sandbox-cli context`
-	// names them; "" is the one sandbox-cli is using.
 	Target string `toml:"target,omitempty"`
-	// CAFile is the certificate authority an https endpoint of your own
-	// (APIURL) is signed by, trusted for it alone.
-	CAFile string `toml:"ca_file,omitempty"`
-	// Network is the egress a new sandbox asks for, where the provider
-	// lets it be chosen (sandbox-cli: none, allowlist or open); "" is the
-	// provider's default. Allow is the allowlist's names.
-	Network string   `toml:"network,omitempty"`
-	Allow   []string `toml:"allow,omitempty"`
 	// Snapshot (image) new sandboxes start from; "" is the provider's own.
 	Snapshot string `toml:"snapshot,omitempty"`
 	// AutoStop is the provider's own idle timer, in minutes; 0 (the

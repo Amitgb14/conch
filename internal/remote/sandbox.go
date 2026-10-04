@@ -83,10 +83,6 @@ func TransportFor(ctx context.Context, label, target string, interactive bool) (
 	case s.State != sandbox.StateStarted:
 		return nil, &SandboxStoppedError{Label: label, State: s.State}
 	}
-	// One with no ssh is reached by a command conch runs here.
-	if ex, ok := p.(sandbox.Execer); ok {
-		return &execTransport{name: label, argv: ex.ExecArgv(id, false), bridge: ex.BridgeArgv(id)}, nil
-	}
 	// A provider that takes a key of your own rather than handing out a
 	// secret is given conch's public key, so the way in is one this
 	// computer already holds the other half of.
@@ -112,13 +108,8 @@ func TransportFor(ctx context.Context, label, target string, interactive bool) (
 	return sandboxSSH(label, a, identity), nil
 }
 
-// DefaultSandboxLabel names a sandbox nobody named, after its ID: its
-// first eight characters, past a prefix that says only what kind of ID it
-// is (sandboxd's sbx_).
+// DefaultSandboxLabel names a sandbox nobody named, after its ID.
 func DefaultSandboxLabel(id string) string {
-	if rest := strings.TrimPrefix(id, "sbx_"); rest != "" {
-		id = rest
-	}
 	if len(id) > 8 {
 		id = id[:8]
 	}
@@ -231,24 +222,19 @@ func (t *sandboxTransport) failed(err error, stderr string) error {
 	return errors.New(strings.ReplaceAll(err.Error(), t.secret, "…"))
 }
 
-// SandboxShell is ssh into a running sandbox for a person at a terminal —
-// or, for a provider with no ssh, the command it is reached by: a
+// SandboxShell is ssh into a running sandbox for a person at a terminal: a
 // login shell when command is empty, otherwise command run there. tty asks
 // for a terminal for the command too, for one that draws a screen; a shell
 // gets one whenever this side has one. The command is not tied to ctx,
 // which only bounds asking the provider for access: a shell lasts as long
 // as the person keeps it.
 func SandboxShell(ctx context.Context, label, target, command string, tty bool) (*exec.Cmd, error) {
-	provider, id, ok := ParseSandboxTarget(target)
-	if !ok {
+	if _, _, ok := ParseSandboxTarget(target); !ok {
 		return nil, fmt.Errorf("%s is not a sandbox", label)
 	}
 	tr, err := TransportFor(ctx, label, target, false)
 	if err != nil {
 		return nil, err
-	}
-	if _, ok := tr.(*execTransport); ok {
-		return execShell(provider, id, command, tty)
 	}
 	st, ok := tr.(*sandboxTransport)
 	if !ok {
@@ -272,23 +258,4 @@ func SandboxShell(ctx context.Context, label, target, command string, tty bool) 
 		args = append(args, command)
 	}
 	return exec.Command(sshBinary(), args...), nil
-}
-
-// execShell is SandboxShell for a provider with no ssh. ssh gives a shell a
-// terminal by itself; here it has to be asked for, so a shell always gets
-// one, and a command when tty says so.
-func execShell(provider, id, command string, tty bool) (*exec.Cmd, error) {
-	p, err := openProvider(provider)
-	if err != nil {
-		return nil, err
-	}
-	ex, ok := p.(sandbox.Execer)
-	if !ok {
-		return nil, fmt.Errorf("%s sandboxes are reached over ssh", provider)
-	}
-	if command == "" {
-		tty, command = true, "exec bash -l 2>/dev/null || exec sh -l"
-	}
-	argv := ex.ExecArgv(id, tty)
-	return exec.Command(argv[0], append(argv[1:], command)...), nil
 }

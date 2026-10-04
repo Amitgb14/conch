@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"os"
 	"os/exec"
 	"syscall"
 	"testing"
@@ -21,10 +20,6 @@ func TestMain(m *testing.M) {
 	startOutward = func(*exec.Cmd) error { return nil }
 	ringBell = func() { bells++ }
 	signalProcess = func(pid int, sig syscall.Signal) error { signalled = append(signalled, pid); return nil }
-	// sandbox-cli's sandboxd is never the developer's, wherever it listens.
-	for _, v := range []string{"XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "SANDBOX_CONTEXT", "SANDBOXD_TOKEN"} {
-		os.Unsetenv(v)
-	}
 	m.Run()
 }
 

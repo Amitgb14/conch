@@ -97,11 +97,6 @@ func (m *Model) sandboxDone(msg sandboxDoneMsg) tea.Cmd {
 		return nil
 	}
 	mach.busy = ""
-	if msg.op == "stop" && errors.Is(msg.err, sandbox.ErrCannotStop) {
-		mach.cannotStop = true
-		m.setFlash(fmt.Sprintf("%s can't be stopped, only deleted: it runs until you delete it (m → Delete sandbox)", mach.label), true)
-		return m.rebuild()
-	}
 	if msg.err != nil {
 		m.setFlash(fmt.Sprintf("%s %s failed: %v", msg.op, mach.label, msg.err), true)
 		return m.rebuild()
@@ -236,38 +231,14 @@ func sandboxSizeNames(provider string) []string {
 // providerLabel is a provider's name as people write it.
 func providerLabel(name string) string { return sandbox.ProviderLabel(name) }
 
-// sandboxFolder is the folder offered for a sandbox that can mount one: the
-// local project the tree is on, or nothing.
-func (m *Model) sandboxFolder() string {
-	if r, ok := m.selectedRow(); ok && r.machine == localMachine && r.projectID != "" {
-		if p := m.project(localMachine, r.projectID); p != nil {
-			return p.Path
-		}
-	}
-	return ""
-}
-
 func newSandboxDialog(m Model, provider string) *dialog {
 	label := providerLabel(provider)
 	text := []string{"Creates a sandbox with " + label + ", installs conch there and adds it as a machine. It runs, and costs, until you stop it (m → Stop sandbox)."}
-	endpointed, canBind := false, false
 	if p, err := openSandboxProvider(provider); err != nil {
 		text = append(text, err.Error())
 	} else {
-		_, endpointed = p.(sandbox.Endpointed)
-		if b, ok := p.(sandbox.Binder); ok {
-			canBind = b.CanBind()
-		}
-		if endpointed {
-			text = []string{"Creates a " + label + " sandbox — a VM of its own — at " + p.(sandbox.Endpointed).Endpoint() + ", installs conch there and adds it as a machine. It runs until you stop or delete it."}
-		}
 		if err := p.Check(); err != nil {
-			msg := strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")
-			if endpointed {
-				text = append(text, msg+".")
-			} else {
-				text = append(text, "Needs a "+label+" API key: "+msg+".")
-			}
+			text = append(text, "Needs a "+label+" API key: "+strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")+".")
 		}
 		// A provider that gives a sandbox a fixed life says so here: it is
 		// its clock, not conch's, and it runs from now.
@@ -278,71 +249,40 @@ func newSandboxDialog(m Model, provider string) *dialog {
 		}
 	}
 	// A provider whose machines come in named sizes is not asked for
-	// numbers: the size goes where the snapshot does, so those fields would
-	// only be refused later. One that can mount a folder of this computer
-	// is offered that too.
+	// numbers: the size goes where the snapshot does, so those three
+	// fields would only be refused later.
 	sizeNames := sandboxSizeNames(provider)
-	labels := []string{"Label"}
-	if canBind {
-		labels = append(labels, "Folder")
-	}
-	snapLabel := "Snapshot"
-	if endpointed {
-		snapLabel = "Image"
-	}
-	labels = append(labels, snapLabel)
+	labels := []string{"Label", "Snapshot"}
 	if len(sizeNames) == 0 {
 		labels = append(labels, "vCPUs", "Memory GiB", "Disk GiB")
 	}
 	labels = append(labels, "Pass in")
-	at := func(name string) int {
-		for i, l := range labels {
-			if l == name {
-				return i
-			}
-		}
-		return -1
-	}
-	snap, last := at(snapLabel), len(labels)-1
+	last := len(labels) - 1
 	d := newDialog(m, " New "+label+" sandbox ", text, labels, nil)
 	d.fields[0].in.Placeholder = "defaults to sandbox-<id>"
-	d.fields[snap].in.Placeholder = firstNonEmpty(m.cfg.Sandbox.Of(provider).Snapshot, label+"'s default")
+	d.fields[1].in.Placeholder = firstNonEmpty(m.cfg.Sandbox.Of(provider).Snapshot, label+"'s default")
 	if len(sizeNames) > 0 {
-		d.fields[snap].in.Placeholder = firstNonEmpty(m.cfg.Sandbox.Of(provider).Snapshot,
+		d.fields[1].in.Placeholder = firstNonEmpty(m.cfg.Sandbox.Of(provider).Snapshot,
 			"a size ("+strings.Join(sizeNames, ", ")+") or a snapshot")
 	}
-	if i := at("Folder"); i >= 0 {
-		// Offered, not filled in: a sandbox that mounts nothing is the
-		// careful default, and the field says what it would be.
-		d.fields[i].in.Placeholder = "none · /workspace starts empty"
-		if f := m.sandboxFolder(); f != "" {
-			d.fields[i].in.Placeholder = "none, or e.g. " + f
-		}
-	}
-	for _, name := range []string{"vCPUs", "Memory GiB", "Disk GiB"} {
-		if i := at(name); i >= 0 {
-			d.fields[i].in.Placeholder = "the snapshot's"
-			if endpointed {
-				d.fields[i].in.Placeholder = label + "'s default"
-			}
-		}
+	for i := 2; i < last; i++ {
+		d.fields[i].in.Placeholder = "the snapshot's"
 	}
 	d.fields[last].in.Placeholder = "names of your environment variables, e.g. CLAUDE_CODE_OAUTH_TOKEN"
 	cfg := m.cfg.Sandbox.Of(provider)
 	d.submit = func(m *Model, v []string) tea.Cmd {
 		var sizes [3]int
-		for i, name := range []string{"vCPUs", "Memory GiB", "Disk GiB"} {
-			f := at(name)
-			if f < 0 {
-				continue // this provider was not asked for it
+		for i, name := range []string{"vCPUs", "Memory", "Disk"} {
+			if 2+i >= last {
+				break // this provider was not asked for numbers
 			}
-			s := strings.TrimSpace(v[f])
+			s := strings.TrimSpace(v[2+i])
 			if s == "" {
 				continue
 			}
 			n, err := strconv.Atoi(s)
 			if err != nil || n < 0 {
-				return func() tea.Msg { return errMsg{fmt.Errorf("%s: give a whole number", strings.TrimSuffix(name, " GiB"))} }
+				return func() tea.Msg { return errMsg{fmt.Errorf("%s: give a whole number", name)} }
 			}
 			sizes[i] = n
 		}
@@ -352,10 +292,7 @@ func newSandboxDialog(m Model, provider string) *dialog {
 		if err != nil {
 			return func() tea.Msg { return errMsg{err} }
 		}
-		spec := sandbox.Spec{Snapshot: strings.TrimSpace(v[snap]), CPU: sizes[0], Memory: sizes[1], Disk: sizes[2], Env: env, AutoStop: cfg.AutoStop}
-		if i := at("Folder"); i >= 0 {
-			spec.Dir = strings.TrimSpace(v[i])
-		}
+		spec := sandbox.Spec{Snapshot: strings.TrimSpace(v[1]), CPU: sizes[0], Memory: sizes[1], Disk: sizes[2], Env: env, AutoStop: cfg.AutoStop}
 		m.setFlash("creating a "+label+" sandbox (a minute or two)…", false)
 		return createSandbox(provider, spec, strings.TrimSpace(v[0]))
 	}
@@ -490,7 +427,7 @@ func (m *Model) watchIdleSandboxes(now time.Time) tea.Cmd {
 	var cmds []tea.Cmd
 	for _, mach := range m.machines {
 		provider, _, ok := mach.sandbox()
-		if !ok || mach.state != stateOnline || mach.busy != "" || mach.cannotStop {
+		if !ok || mach.state != stateOnline || mach.busy != "" {
 			continue
 		}
 		mins := m.cfg.Sandbox.Of(provider).IdleMinutes()

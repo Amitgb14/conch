@@ -78,10 +78,6 @@ func a4Env(t *testing.T) string {
 	t.Setenv("DAYTONA_API_URL", "http://127.0.0.1:1/unused")
 	t.Setenv("DAYTONA_TARGET", "")
 	t.Setenv("BOAT_API_KEY", "")
-	// sandbox-cli's sandboxd: never the developer's, wherever it listens.
-	t.Setenv("XDG_RUNTIME_DIR", "")
-	t.Setenv("SANDBOX_CONTEXT", "")
-	t.Setenv("SANDBOXD_TOKEN", "")
 	t.Setenv("BOAT_API_URL", "http://127.0.0.1:1/unused")
 	gh := filepath.Join(dir, "gh")
 	os.WriteFile(gh, []byte("#!/bin/sh\nexit 1\n"), 0o755)

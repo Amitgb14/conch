@@ -87,9 +87,6 @@ func Exec(name string, argv ...string) Transport {
 type execTransport struct {
 	name string
 	argv []string
-	// bridge, when set, is the command that carries conch's connection
-	// instead of argv.
-	bridge []string
 }
 
 func (t *execTransport) Command(ctx context.Context, script string) (*exec.Cmd, error) {
@@ -109,12 +106,7 @@ func (t *execTransport) Describe() string {
 
 func (t *execTransport) interactive() bool { return false }
 
-func (t *execTransport) forBridge() Transport {
-	if len(t.bridge) == 0 {
-		return t
-	}
-	return &execTransport{name: t.name, argv: t.bridge}
-}
+func (t *execTransport) forBridge() Transport { return t }
 
 // failed keeps the command's own message: there is no ssh advice to add.
 func (t *execTransport) failed(err error, stderr string) error {

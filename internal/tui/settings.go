@@ -780,18 +780,9 @@ func (s *settings) providerPage(m *Model, provider string) []settingItem {
 func providerState(m *Model, provider string) string {
 	cfg := m.cfg.Sandbox.Of(provider)
 	keyEnv := firstNonEmpty(cfg.APIKeyEnv, defaultKeyEnv(provider))
-	p, err := openSandboxProvider(provider)
-	if err != nil {
+	if p, err := openSandboxProvider(provider); err != nil {
 		return styleErr.Render(ansi.Truncate(err.Error(), 44, "…"))
-	}
-	// One reached at an endpoint of your own says whether it is there.
-	if ep, ok := p.(sandbox.Endpointed); ok {
-		if err := p.Check(); err != nil {
-			return styleWarn.Render(ansi.Truncate(strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": "), 44, "…"))
-		}
-		return styleOK.Render("✓ " + ansi.Truncate(ep.Endpoint(), 42, "…"))
-	}
-	if err := p.Check(); err != nil {
+	} else if err := p.Check(); err != nil {
 		return styleWarn.Render("no key · $" + keyEnv + " is not set")
 	}
 	if strings.TrimSpace(cfg.APIKey) != "" {
@@ -853,11 +844,6 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 				}))
 		}
 	}
-	if p, err := openSandboxProvider(provider); err == nil {
-		if _, ok := p.(sandbox.Endpointed); ok {
-			return s.endpointItems(m, provider, field, set)
-		}
-	}
 	items := []settingItem{
 		field("API key", keyDetail(cfg.APIKey, keyEnv),
 			"The key itself, kept in config.toml in your home — written 0600, but anything running as you can read it, and it travels with a backup or a synced dotfile. Empty leaves it to the variable below, which is what conch does otherwise.",
@@ -916,70 +902,6 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 				return nil
 			}))
 	return items
-}
-
-// endpointItems are the settings of a provider reached at an endpoint you
-// run yourself (sandbox-cli's sandboxd): where it is and how to get in,
-// rather than an account's key, region and prices.
-func (s *settings) endpointItems(m *Model, provider string,
-	field func(name, detail, help, current string, save func(c *config.ProviderCfg, v string) error) settingItem,
-	set func(change func(c *config.ProviderCfg)) func(m *Model) tea.Cmd) []settingItem {
-	cfg := m.cfg.Sandbox.Of(provider)
-	label := providerLabel(provider)
-	return []settingItem{
-		field("Context", firstNonEmpty(cfg.Target, styleMuted.Render("the one "+label+" is using")),
-			"Which of "+label+"'s contexts to use (sandbox-cli context ls): local is sandboxd on this computer. Empty means the one "+label+" is using. An endpoint below wins over it.",
-			cfg.Target, func(c *config.ProviderCfg, v string) error { c.Target = v; return nil }),
-		field("Endpoint", firstNonEmpty(cfg.APIURL, styleMuted.Render("from the context")),
-			"Where sandboxd is, when not from a context: unix:///path/to/sandboxd.sock, or https://host:port for one of your own, which needs a token ($SANDBOXD_TOKEN, or the token below). Empty uses the context.",
-			cfg.APIURL, func(c *config.ProviderCfg, v string) error {
-				if v != "" && !strings.HasPrefix(v, "unix://") && !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
-					return fmt.Errorf("%q: give unix:///path, http://… or https://…", v)
-				}
-				c.APIURL = v
-				return nil
-			}),
-		field("Token", keyDetail(cfg.APIKey, firstNonEmpty(cfg.APIKeyEnv, "SANDBOXD_TOKEN")),
-			"The token for an endpoint above, kept in config.toml (0600). Empty reads $SANDBOXD_TOKEN. A context brings its own token; this is not used with one.",
-			cfg.APIKey, func(c *config.ProviderCfg, v string) error { c.APIKey = v; return nil }),
-		field("Image", firstNonEmpty(cfg.Snapshot, styleMuted.Render(label+"'s default")),
-			"The image new sandboxes start from. Empty means sandboxd's default (sandbox-base).",
-			cfg.Snapshot, func(c *config.ProviderCfg, v string) error { c.Snapshot = v; return nil }),
-		field("Network", firstNonEmpty(cfg.Network, styleMuted.Render("sandboxd's default")),
-			"What a new sandbox may reach: none, allowlist (the names below, on a backend that enforces one) or open. Empty is sandboxd's default — none on a Mac, where an agent then can't reach its own API. sandboxd refuses anything looser than its operator allows.",
-			cfg.Network, func(c *config.ProviderCfg, v string) error {
-				if v != "" && v != "none" && v != "allowlist" && v != "open" {
-					return fmt.Errorf("%q: give none, allowlist or open", v)
-				}
-				c.Network = v
-				return nil
-			}),
-		field("Allow", envText(cfg.Allow),
-			"With the allowlist, the names a sandbox may reach, separated by spaces or commas, e.g. api.anthropic.com. Empty is sandboxd's own list.",
-			strings.Join(cfg.Allow, " "), func(c *config.ProviderCfg, v string) error {
-				c.Allow = strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' })
-				return nil
-			}),
-		{label: "Bring back what was running", detail: restoreText(cfg.RestoresRunning()), on: boolOf(cfg.RestoresRunning()),
-			run: set(func(c *config.ProviderCfg) {
-				v := !c.RestoresRunning()
-				c.Restore = &v
-			})},
-		{label: "Stop when idle", detail: idleStopText(cfg.IdleMinutes()), run: set(func(c *config.ProviderCfg) {
-			n := nextIdleStop(c.IdleMinutes())
-			c.IdleStop = &n
-		})},
-		field("Pass in", envText(cfg.Env),
-			"Names of your environment variables to pass into every new "+label+" sandbox, separated by spaces or commas — an agent's token, say (CLAUDE_CODE_OAUTH_TOKEN). Their values are read when a sandbox is made, never stored here.",
-			strings.Join(cfg.Env, " "), func(c *config.ProviderCfg, v string) error {
-				names, err := envNames(v)
-				if err != nil {
-					return err
-				}
-				c.Env = names
-				return nil
-			}),
-	}
 }
 
 // lifeText says how long a new sandbox lives, and whether that is the

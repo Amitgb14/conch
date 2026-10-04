@@ -22,10 +22,6 @@ import (
 func TestMain(m *testing.M) {
 	switch os.Getenv("A4_HELPER_MODE") {
 	case "":
-		// sandbox-cli's sandboxd is never the developer's.
-		for _, v := range []string{"XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "SANDBOX_CONTEXT", "SANDBOXD_TOKEN"} {
-			os.Unsetenv(v)
-		}
 		os.Exit(m.Run())
 	case "bridge":
 		nc, err := net.Dial("unix", os.Getenv("A4_BRIDGE_SOCK"))

@@ -91,9 +91,6 @@ type Spec struct {
 	// AutoStop is the minutes without activity before the provider stops
 	// the sandbox; 0 never does.
 	AutoStop int
-	// Dir is a folder of this computer to mount at /workspace, for a
-	// provider that can (a Binder); "" starts the sandbox without one.
-	Dir string
 }
 
 // Access is how to reach a sandbox over ssh, until Expires.
@@ -224,47 +221,15 @@ type Lifetime interface {
 	Life() time.Duration
 }
 
-// Execer is a provider whose sandboxes are reached by a command conch runs
-// here, rather than over ssh: SSHAccess refuses, and conch runs what these
-// name instead, with the script appended as one argument.
-type Execer interface {
-	// ExecArgv runs a script in the sandbox, its stdin, stdout, stderr and
-	// exit status passed through. tty gives it a terminal, for a person.
-	ExecArgv(id string, tty bool) []string
-	// BridgeArgv carries conch's own connection, a stream that lasts as
-	// long as conch is connected; the script is the conch binary there
-	// with "bridge".
-	BridgeArgv(id string) []string
-}
-
-// Binder is a provider that can mount a folder of this computer in a
-// sandbox (Spec.Dir) instead of starting it with none.
-type Binder interface {
-	CanBind() bool
-}
-
-// Endpointed is a provider reached at an endpoint you run yourself — a
-// socket on this computer, or a server of your own — rather than one
-// company's API, so it is set up with where to find it and needs a token
-// only for some.
-type Endpointed interface {
-	// Endpoint is where it is reached, for people to read.
-	Endpoint() string
-}
-
-// ErrCannotStop is a provider that can't stop a sandbox and start it again
-// where it was — only delete it.
-var ErrCannotStop = errors.New("this sandbox can't be stopped and started again, only deleted")
-
 // Providers lists the providers conch knows.
-var Providers = []string{"daytona", "boat", "sandbox-cli"}
+var Providers = []string{"daytona", "boat"}
 
 // Known reports whether name is a provider conch knows.
 func Known(name string) bool { return slices.Contains(Providers, name) }
 
 // labels are provider names as people write them, where capitalising the
 // first letter is not how it is done.
-var labels = map[string]string{"e2b": "E2B", "boat": "boat.dev", "sandbox-cli": "sandbox-cli"}
+var labels = map[string]string{"e2b": "E2B", "boat": "boat.dev"}
 
 // ProviderLabel is a provider's name for people to read.
 func ProviderLabel(name string) string {
@@ -284,8 +249,6 @@ func Open(name string, cfg config.SandboxCfg) (Provider, error) {
 		return NewDaytona(cfg.Of(name)), nil
 	case "boat":
 		return NewBoat(cfg.Of(name)), nil
-	case "sandbox-cli":
-		return NewSandboxd(cfg.Of(name)), nil
 	}
 	return nil, fmt.Errorf("unknown sandbox provider %q", name)
 }

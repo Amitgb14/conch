@@ -33,8 +33,8 @@ Apache-2.0 · Default branch: `master`.
 | `internal/proto` | Wire protocol: messages, methods, events, payload types, capability list, `Version` |
 | `internal/client` | Protocol client (calls, notifications, events, handshake) and starting a local server |
 | `internal/tui` | The TUI: tree, tabs/splits/scoping, keys, mouse, views (changes, sessions, setup), dialogs, settings, brain bar, updates |
-| `internal/remote` | How a machine is reached (`Transport`: ssh, a sandbox through its provider's ssh gateway with a fresh token, or a local command — `conch sandbox-io` for sandbox-cli), ssh config and commands, remote install, bridging, machine catalog, release downloads, cross builds |
-| `internal/sandbox` | Sandbox providers (Daytona, boat.dev, and sandbox-cli through its `sandboxd` API): create, start, stop, delete, list conch's own, ssh access — a fresh token, or a key of your own authorized in the sandbox. sandboxd has no ssh: an `Execer` is reached through `conch sandbox-io`, which runs a script as a process attached through the API and carries conch's connection through a tunnel to `conch bridge -listen` inside. `sandboxdtest` is a fake sandboxd for tests |
+| `internal/remote` | How a machine is reached (`Transport`: ssh, a sandbox through its provider's ssh gateway with a fresh token, or a local command), ssh config and commands, remote install, bridging, machine catalog, release downloads, cross builds |
+| `internal/sandbox` | Hosted sandbox providers (Daytona, boat.dev): create, start, stop, delete, list conch's own, ssh access — a fresh token, or a key of your own authorized in the sandbox |
 | `internal/phone` | The gateway `conch web` runs for a phone: HTTP and a WebSocket in front of the local server (a client of it, like the TUI), pairing codes, per-device tokens kept hashed in `phone.json`, `view`/`reply`/`full` checked on every route and socket message, reading a waiting agent's choices off its screen, and the phone's app (`ui/`: plain HTML, CSS and ES modules embedded as they are, no build step; its logic in `ui/lib.mjs`, tested with node from `uitest/` through `TestUILogic`, which skips without node). Its shapes are a contract (`api.go`) a test pins |
 | `internal/adapter` | How to launch each agent: commands, settings/hooks, resume and prompt arguments |
 | `internal/detect` | Which agent runs in a pane and its state (working, waiting, done, idle) from hooks, titles and screens |
@@ -125,7 +125,7 @@ network. The person running the tests may be *inside* a live conch session.
   `opencode`, and don't spend API usage. Use fake scripts on a temporary
   `PATH`, a fake `SHELL`, or `/bin/sh` commands; model providers go through
   `httptest` servers.
-- **No network or SSH.** Fake sandbox-cli's sandboxd with `internal/sandbox/sandboxdtest`, and clear `XDG_RUNTIME_DIR`/`SANDBOX_CONTEXT` so a real one is never found. Use the hooks: `CONCH_SSH` (fake ssh script),
+- **No network or SSH.** Use the hooks: `CONCH_SSH` (fake ssh script),
   `CONCH_SSH_CONFIG`, `CONCH_RELEASE_URL` (httptest), `CONCH_REMOTE_BINARY`,
   `CONCH_SOURCE`, `CONCH_GH` (fake gh).
 - **Unix sockets:** macOS limits socket paths to ~104 bytes; make socket dirs

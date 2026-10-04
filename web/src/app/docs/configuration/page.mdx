@@ -97,9 +97,6 @@ api_key_env = ""       # variable holding the key; "" is DAYTONA_API_KEY
 api_url = ""           # "" is $DAYTONA_API_URL or the provider's own
 target = ""            # region, e.g. "us" or "eu"
 snapshot = ""          # what new sandboxes start from; "" is the provider's default
-ca_file = ""           # sandbox-cli: the CA an https endpoint (api_url) is signed by
-network = ""           # sandbox-cli: none, allowlist or open; "" is sandboxd's default
-allow = []             # sandbox-cli: the allowlist's names
 restore_running = true # write down what a sandbox was running and offer it back on start
 idle_stop = 30         # minutes with no agent working and nothing printing before conch
                        # stops the sandbox; 0 never does
@@ -139,8 +136,6 @@ The model behind `:` and agent summaries. `[brain]` also takes `base_url`, `api_
 `[sandbox.<provider>]` sets up [sandboxes](/docs/sandboxes) — `[sandbox.daytona]` and `[sandbox.boat]` today, and the same keys for any provider conch grows; the Settings screen has them under **Sandboxes** (`,` then `5`), which lists the providers and opens one. A table for a provider this build doesn't know is left alone rather than dropped when the settings are saved. `api_key` keeps the key in this file (0600) and wins over `api_key_env`; leave it empty to read the key from your environment every time, which is what conch does otherwise. The key itself is never stored: `api_key_env` only names the variable it is read from. `auto_stop` other than 0 lets Daytona stop a sandbox that long after the last ssh connection or API call — agents working inside don't count, so they stop too. `env` names variables passed into every sandbox `conch sandbox create` makes, on top of its `-env` flags; the provider keeps their values with the sandbox.
 
 Not every key means something to every provider: boat.dev has no regions, so `target` is unused, and its machines come in named sizes (`small`, `default`, `large`) which go in `snapshot` — anything else there is taken for the name of a snapshot to start from. It has no idle timer of its own either, so `auto_stop` is how long a new sandbox is *given*, counted from when it was made, rather than how long it may sit unused: 120 minutes by default, which is what boat.dev's free trial allows, and **Life** in its settings page. Raise it on a paid plan; if the plan allows less than you ask for, conch asks again for the longest that plan named rather than failing. conch's own `idle_stop` is what stops a sandbox nobody is using, and normally gets there first.
-
-`[sandbox.sandbox-cli]` is reached through sandbox-cli's `sandboxd`, not an account, and reads the keys its own way. `target` is the sandbox-cli context to use (`sandbox-cli context ls`; empty is the one sandbox-cli is using, `local` the sandboxd on this computer). `api_url` names an endpoint instead — `unix:///path/sandboxd.sock` or `https://host:port` — whose token is `api_key` or `$SANDBOXD_TOKEN` (`api_key_env` renames it), signed by `ca_file` when it has a private CA; a context brings its own token and CA. `snapshot` is the image, `network` and `allow` the egress a new sandbox asks for (sandboxd refuses anything looser than its operator allows), and `auto_stop` sandboxd's idle timeout in minutes — a week when unset, the longest it allows, since sandboxd *deletes* a sandbox it finds idle. `region` and the prices mean nothing to it.
 
 <Callout type="note">
 
