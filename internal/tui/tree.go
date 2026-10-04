@@ -70,7 +70,7 @@ func foldered(in treeInput, mid, pid string, kind nodeKind, panes []proto.PaneIn
 		}
 		out = append(out, row{id: fid, kind: kindFolder, depth: depth, machine: mid, projectID: pid,
 			count: len(mine), label: f.Name, section: kind})
-		if open(fid, true) {
+		if open(fid, false) { // folded until opened: what follows an open one is its own
 			out = append(out, prows...)
 		}
 	}
@@ -552,7 +552,7 @@ func sshSectionRows(in treeInput, mach treeMachine, sessions []proto.PaneInfo, m
 		fid := folderRowID(mid, "", kindSSH, f.Name)
 		rows = append(rows, row{id: fid, kind: kindFolder, depth: 3, machine: mid, count: len(mine[i]) + len(hosts),
 			label: f.Name, section: kindSSH})
-		if open(fid, true) {
+		if open(fid, false) { // folded until opened: what follows an open one is its own
 			rows = append(rows, kids...)
 		}
 	}

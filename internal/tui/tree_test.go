@@ -290,6 +290,12 @@ func TestBuildTreeGroupedByTab(t *testing.T) {
 func TestBuildTreeFolders(t *testing.T) {
 	in := sampleInput()
 	key := folderKey(localMachine, "r1", kindTerminals)
+	// Folders are folded until opened, so what sits under an open one is
+	// its own. These cases look inside, so they open them.
+	eng := folderRowID(localMachine, "r1", kindTerminals, "eng")
+	prod := folderRowID(localMachine, "r1", kindTerminals, "prod")
+	boxes := folderRowID(localMachine, "", kindTerminals, "boxes")
+	in.expanded = map[string]bool{eng: true, prod: true, boxes: true}
 	in.folders = map[string][]savedFolder{key: {
 		{Name: "eng", Members: []savedMember{{Name: "zsh", ID: "p2"}}},
 		{Name: "prod"},
@@ -369,6 +375,7 @@ func TestBuildTreeFolders(t *testing.T) {
 	// listed after an open folder sits one step out from what is in it,
 	// which is the tree saying it is not in it; its own mark says so too.
 	mixed := sampleInput()
+	mixed.expanded = map[string]bool{eng: true, boxes: true}
 	mixed.machines[0].panes = append(mixed.machines[0].panes,
 		proto.PaneInfo{ID: "p4", Name: "b", ProjectID: "r1", Branch: "main", State: proto.PaneRunning},
 		proto.PaneInfo{ID: "p5", Name: "c", State: proto.PaneRunning})
@@ -386,9 +393,10 @@ func TestBuildTreeFolders(t *testing.T) {
 		}
 	}
 
-	// Folded, the folder is listed without what is in it.
+	// Folded is the default — nothing said about it — and the folder is
+	// listed without what is in it.
 	in.folders = map[string][]savedFolder{key: {{Name: "eng", Members: []savedMember{{ID: "p2"}}}}}
-	in.expanded = map[string]bool{folderRowID(localMachine, "r1", kindTerminals, "eng"): false}
+	in.expanded = map[string]bool{}
 	got = render(buildTree(in))
 	if !strings.Contains(got, "folder:r1/4/eng") || strings.Contains(got, "          pane:p2") {
 		t.Fatalf("folded:\n%s", got)

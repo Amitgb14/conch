@@ -31,6 +31,8 @@ func foldersFixture(t *testing.T, withClient bool) (*Model, *a1Peer) {
 		{Name: "prod", Members: []savedMember{{Host: "box"}, {Host: "db"}}},
 		{Name: "eng"},
 	}}
+	// Folders are folded until opened; these tests look at what is in them.
+	m.expanded[sshFolderRow("prod")], m.expanded[sshFolderRow("eng")] = true, true
 	m.rebuild()
 	return m, peer
 }
@@ -160,14 +162,17 @@ func TestMigrateFromUIJSON(t *testing.T) {
 
 func TestSSHFoldersInTree(t *testing.T) {
 	m, _ := foldersFixture(t, false)
+	// Folded until opened, which is what a folder does with nothing said
+	// about it: what sits under an open one is then its own, and nothing
+	// one step out can be read as more of it.
+	clear(m.expanded)
+	m.rebuild()
 	want := []struct {
 		id    string
 		depth int
 	}{
 		{looseSSHID(localMachine), 2},
 		{sshFolderRow("prod"), 3},
-		{paneNodeID(localMachine, "p5"), 4}, // the open session to box, in its host's folder
-		{savedSSHID("db"), 4},
 		{sshFolderRow("eng"), 3}, // empty, listed to drop hosts on
 		{savedSSHID("web"), 3},   // in no folder
 	}
@@ -178,6 +183,26 @@ func TestSSHFoldersInTree(t *testing.T) {
 	for j, w := range want {
 		if r := m.rows[i+j]; r.id != w.id || r.depth != w.depth {
 			t.Fatalf("row %d: %+v, want %+v\n%s", j, r, w, render(m.rows))
+		}
+	}
+
+	// Opened, it holds what it held: the session to box, and the saved db.
+	m.expanded[sshFolderRow("prod")] = true
+	m.rebuild()
+	opened := []struct {
+		id    string
+		depth int
+	}{
+		{sshFolderRow("prod"), 3},
+		{paneNodeID(localMachine, "p5"), 4}, // the open session to box, in its host's folder
+		{savedSSHID("db"), 4},
+		{sshFolderRow("eng"), 3},
+		{savedSSHID("web"), 3},
+	}
+	at := indexOfRow(m.rows, sshFolderRow("prod"))
+	for j, w := range opened {
+		if r := m.rows[at+j]; r.id != w.id || r.depth != w.depth {
+			t.Fatalf("opened row %d: %+v, want %+v\n%s", j, r, w, render(m.rows))
 		}
 	}
 	if indexOfRow(m.rows, savedSSHID("box")) >= 0 {
@@ -192,6 +217,10 @@ func TestSSHFoldersInTree(t *testing.T) {
 	if label := ansi.Strip(m.rowLine(m.rows[indexOfRow(m.rows, savedSSHID("db"))], 40)); !strings.Contains(label, "prod db") {
 		t.Fatalf("db is shown as %q", label)
 	}
+
+	// Both open from here on, since what follows looks at what is in them.
+	m.expanded[sshFolderRow("prod")], m.expanded[sshFolderRow("eng")] = true, true
+	m.rebuild()
 
 	// A pane member elsewhere naming box's session doesn't split it from
 	// its host: the host decides.

@@ -227,7 +227,6 @@ func (m *Model) openNewFolder() tea.Cmd {
 			m.setFlash("there is already a folder called "+name+" there", true)
 			return nil
 		}
-		m.expanded[folderRowID(mid, pid, kind, name)] = true
 		return tea.Batch(m.rebuild(), m.saveState())
 	}
 	m.overlay = d
