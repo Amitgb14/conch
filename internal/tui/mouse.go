@@ -18,18 +18,13 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// what is under it and goes no further, so a program in a pane still
 	// sees only the mouse it asked for.
 	if m.cfg.UI.Hover && msg.Action == tea.MouseActionMotion && msg.Button == tea.MouseButtonNone &&
-		m.sel == nil && m.barDrag == nil && !m.dragging && !m.tabDrag && m.leafDrag == 0 && m.scrollDrag == 0 && m.sshDrag == nil {
+		m.sel == nil && m.barDrag == nil && !m.dragging && !m.tabDrag && m.leafDrag == 0 && m.scrollDrag == 0 {
 		m.hoverAt(msg)
 		return m, nil
 	}
 	press := msg.Action == tea.MouseActionPress
 	left := msg.Button == tea.MouseButtonLeft
 	wheel := msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown
-
-	// A saved host or ssh session carried onto a group in the tree.
-	if m.sshDrag != nil {
-		return m.sshDragMouse(msg)
-	}
 
 	// Resizing the sidebar by dragging its right edge.
 	if m.dragging {
@@ -67,6 +62,34 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Dragging a row of the tree onto a tab's section, where the tree is
+	// grouped by tab: the same move as dropping a split on a tab, reached
+	// from the tree. The drag owns the mouse until it is let go.
+	if m.rowDrag != "" {
+		switch msg.Action {
+		case tea.MouseActionMotion:
+			m.rowDrop = ""
+			if r, ok := m.rowAtY(msg.X, msg.Y); ok && (r.kind == kindTab || r.kind == kindFolder || m.sectionOf(r)) {
+				m.rowDrop = r.id
+			}
+			return m, nil
+		case tea.MouseActionRelease:
+			from, to := m.rowDrag, m.rowDrop
+			m.rowDrag, m.rowDrop = "", ""
+			if to == "" {
+				// A saved host is connected by a click, and a press on it
+				// may have been the start of a drag: let go where it was
+				// picked up, it was the click.
+				if r, ok := m.rowAtY(msg.X, msg.Y); ok && r.id == from && r.kind == kindSavedSSH {
+					return m, m.connectSSH(savedSSHTarget(r.id))
+				}
+				return m, nil // let go over nothing that takes a pane
+			}
+			return m, m.dropRowOnTab(from, to)
+		}
+		return m, nil
+	}
+
 	// Dragging the scrollbar on a pane's right border.
 	if m.scrollDrag != 0 {
 		switch msg.Action {
@@ -87,7 +110,19 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		switch msg.Action {
 		case tea.MouseActionRelease:
 			from, to := m.leafDrag, 0
-			m.leafDrag, m.leafDrop = 0, 0
+			tab := m.tabDrop
+			m.leafDrag, m.leafDrop, m.tabDrop = 0, 0, tabDropNone
+			// Let go on a tab: the split moves there instead of swapping.
+			// On the +, it goes to a tab of its own.
+			if mr := m.mainRect(); msg.Y == mr.y {
+				switch x := msg.X - mr.x; {
+				case tab >= 0 && tab == m.tabAt(x):
+					return m, m.moveLeafToTab(from, tab)
+				case tab == tabHitPlus && m.plusAt(x):
+					return m, m.moveLeafToNewTab(from)
+				}
+				return m, nil // the bar, but neither a tab nor the +
+			}
 			rects, _ := m.leafRects()
 			to = m.leafAt(rects, msg.X, msg.Y)
 			if to == 0 || to == from || !m.tab().swapLeaves(from, to) {
@@ -99,6 +134,22 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.focusLeaf(to), m.syncView(), m.saveState(),
 				tea.Tick(swapMarkFor, func(time.Time) tea.Msg { return swapMarkExpiredMsg{} }))
 		case tea.MouseActionMotion:
+			// Over the bar, it is a tab it would move to, not a split it
+			// would swap with; the tab under the pointer is marked.
+			if mr := m.mainRect(); msg.Y == mr.y {
+				x := msg.X - mr.x
+				m.leafDrop = 0
+				switch i := m.tabAt(x); {
+				case i >= 0:
+					m.tabDrop = i
+				case m.plusAt(x):
+					m.tabDrop = tabHitPlus // out to a tab of its own
+				default:
+					m.tabDrop = tabDropNone // the gap, or the close button
+				}
+				return m, nil
+			}
+			m.tabDrop = tabDropNone
 			// What it would swap with, while the button is held: the drop
 			// is marked as well as the split being carried.
 			rects, _ := m.leafRects()
@@ -231,10 +282,13 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if press && left && !m.zoom && len(m.tab().root.leaves()) > 1 {
+	// A split's title is a grip when there is somewhere to carry it: another
+	// split to swap with, or another tab to move it into — the only split of
+	// a tab is still worth dragging if the bar has somewhere to put it.
+	if press && left && !m.zoom && (len(m.tab().root.leaves()) > 1 || len(m.visibleTabs()) > 1) {
 		if id := m.leafAt(rects, msg.X, msg.Y); id != 0 && msg.Y == rects[id].y &&
 			!m.inner(rects[id]).contains(msg.X, msg.Y) {
-			m.leafDrag = id
+			m.leafDrag, m.tabDrop = id, tabDropNone
 			return m, m.focusLeaf(id)
 		}
 	}
@@ -711,19 +765,25 @@ func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Mode
 		return m, nil
 	}
 	r := m.rows[i]
+	// Grouped by tab, a pane row can be carried to a tab's section. The
+	// press still selects and shows the row, as it always did: a drag is
+	// only a drag once the pointer has moved onto a section.
+	if left && r.kind == kindPane && (treeGroups(m.cfg.UI.TreeGroups) == "tabs" || len(m.folders) > 0) {
+		m.rowDrag, m.rowDrop = r.id, ""
+	}
 	wasSelected := r.id == m.cursor
 	m.cursor = r.id
 	m.focus = focusSidebar
 	cmd := m.syncView()
-	if t := m.sshTargetOfRow(r); left && t != "" {
-		// A host can be dragged onto a group; whether this was a click is
-		// known when the button is let go.
-		m.sshDrag = &sshDrag{row: r.id, target: t, over: r.id}
-		if r.kind == kindSavedSSH {
-			// A saved host has nothing to show until it is connected,
-			// which a click does on release.
+	if left && r.kind == kindSavedSSH {
+		// A saved host has nothing to show until it is connected. With an
+		// SSH folder to drag it to, the press may start a drag, and the
+		// click connects on release instead.
+		if len(m.folders[sshFolderKey()]) > 0 {
+			m.rowDrag, m.rowDrop = r.id, ""
 			return m, cmd
 		}
+		return m, tea.Batch(cmd, m.connectSSH(savedSSHTarget(r.id)))
 	}
 	if left && !r.expandable() {
 		// A click puts the row in the focused split. Keep what syncView
@@ -799,4 +859,77 @@ func pageColumns(l *leaf, x, w int) (from, to int) {
 		return l.files.columns(x, w)
 	}
 	return 0, 0
+}
+
+// rowAtY is the tree row at a point in the sidebar, if the point is in the
+// sidebar and on a row at all. Row 0 of the content is the header and the
+// border takes a line, as sidebarMouse counts them.
+func (m Model) rowAtY(x, y int) (row, bool) {
+	if m.zoom || x < 0 || x >= m.sidebarW || y < 2 {
+		return row{}, false
+	}
+	i := m.scroll + y - 2
+	if i < 0 || i >= len(m.rows) {
+		return row{}, false
+	}
+	return m.rows[i], true
+}
+
+// dropRowOnTab moves the pane a tree row stands for into the tab another
+// row stands for. Only a pane goes: a branch or a section is not a thing a
+// tab holds one of.
+func (m *Model) dropRowOnTab(fromID, toID string) tea.Cmd {
+	var from, to row
+	for _, r := range m.rows {
+		switch r.id {
+		case fromID:
+			from = r
+		case toID:
+			to = r
+		}
+	}
+	// A saved host, or a session to one, goes in an SSH folder as the
+	// host, so its sessions follow it.
+	if cmd, ok := m.dropOnSSHFolder(from, to); ok {
+		return cmd
+	}
+	if from.kind != kindPane || from.paneID == "" {
+		return nil
+	}
+	p := m.pane(from.machine, from.paneID)
+	switch {
+	case to.kind == kindTab:
+		return m.movePaneToTab(from.machine, from.paneID, to.tabIndex)
+	case to.kind == kindFolder && p != nil:
+		// Into a folder of its own section: a pane moved to a folder of
+		// another section would be listed in neither.
+		if to.machine != from.machine || to.section != m.paneSection(from.machine, from.paneID) {
+			return nil
+		}
+		if !m.putInFolder(to.machine, to.projectID, to.section, to.label, *p) {
+			return nil
+		}
+		m.expanded[to.id] = true
+		return tea.Batch(m.rebuild(), m.saveState())
+	case m.sectionOf(to) && p != nil:
+		// Out of whatever folder it is in, back to the section's own list.
+		if to.machine != from.machine || to.kind != m.paneSection(from.machine, from.paneID) {
+			return nil
+		}
+		if !m.takeOutOfFolders(to.machine, to.projectID, to.kind, *p) {
+			return nil
+		}
+		return tea.Batch(m.rebuild(), m.saveState())
+	}
+	return nil
+}
+
+// sectionOf reports whether a row is a section panes are listed under, and
+// so somewhere a pane can be dragged out of a folder onto.
+func (m Model) sectionOf(r row) bool {
+	switch r.kind {
+	case kindAgents, kindTerminals, kindSSH:
+		return true
+	}
+	return false
 }

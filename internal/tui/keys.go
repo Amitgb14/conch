@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Amitgb14/conch/internal/phone"
@@ -126,8 +125,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "t":
 		return m, m.openTaskDialog()
 	case "a":
-		if ok && r.kind == kindSSHGroup {
-			d := newSSHHostDialog(m, "", r.branch)
+		if ok && r.kind == kindFolder && r.section == kindSSH && r.machine == localMachine && r.projectID == "" {
+			d := newSSHHostDialog(m, "", r.label) // a host to keep in this folder
 			m.overlay = d
 			return m, d.focusCmd()
 		}
@@ -154,31 +153,20 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if t := m.sshTargetOfRow(r); ok && t != "" {
 			return m, m.openEditSSH(t)
 		}
-		if ok && r.kind == kindSSHGroup {
-			m.overlay = newSSHGroupDialog(m, r.branch)
-			return m, textinput.Blink
-		}
 	case "K":
 		if t := m.sshTargetOfRow(r); ok && t != "" {
 			return m, m.copySSHKey(t)
-		}
-	case "N":
-		if ok && (r.kind == kindSSH || r.kind == kindSSHGroup || m.sshTargetOfRow(r) != "") && r.machine == localMachine {
-			m.overlay = newSSHGroupDialog(m, "")
-			return m, textinput.Blink
 		}
 	case "M":
 		m.overlay = newAddMenu()
 		return m, nil
 	case "r":
-		if ok && r.kind == kindSSHGroup {
-			m.overlay = newSSHGroupDialog(m, r.branch)
-			return m, textinput.Blink
-		}
 		if ok && r.kind == kindSavedSSH {
 			return m, m.openEditSSH(savedSSHTarget(r.id))
 		}
 		m.openRename()
+	case "N":
+		return m, m.openNewFolder()
 	case "x":
 		return m, m.openRemove()
 	case "R":
@@ -641,7 +629,7 @@ func (m *Model) copyRow(r row) tea.Cmd {
 		if p := m.pane(r.machine, r.paneID); p != nil {
 			return copyText(p.Cwd)
 		}
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions, kindFiles:
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions, kindFiles, kindTab:
 		if proj := m.project(r.machine, r.projectID); proj != nil {
 			return copyText(proj.Path)
 		}
@@ -699,6 +687,15 @@ func (m *Model) openRenameMachine(mid string) {
 func (m *Model) openRemove() tea.Cmd {
 	r, _ := m.selectedRow()
 	switch r.kind {
+	case kindFolder:
+		mid, pid, kind, name := r.machine, r.projectID, r.section, r.label
+		m.overlay = newConfirm(fmt.Sprintf("Remove the folder %s? What is in it goes back to %s; nothing closes.", name, sectionWord(kind)),
+			func(m *Model) tea.Cmd {
+				if !m.removeFolder(mid, pid, kind, name) {
+					return nil
+				}
+				return tea.Batch(m.rebuild(), m.saveState())
+			})
 	case kindMachine:
 		if r.machine == localMachine {
 			m.setFlash("this computer can't be removed", true)
@@ -713,8 +710,6 @@ func (m *Model) openRemove() tea.Cmd {
 		m.overlay = newConfirm(fmt.Sprintf("Remove %s from conch? Its server and panes keep running there.", label), func(m *Model) tea.Cmd {
 			return m.removeMachine(mid)
 		})
-	case kindSSHGroup:
-		m.confirmRemoveSSHGroup(r.branch)
 	case kindSavedSSH:
 		target := savedSSHTarget(r.id)
 		m.overlay = newConfirm(fmt.Sprintf("Forget ssh %s? It is no longer listed when conch opens.", sshName(target)), func(m *Model) tea.Cmd {

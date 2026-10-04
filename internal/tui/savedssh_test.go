@@ -171,7 +171,7 @@ func TestSavedSSHRowAndPage(t *testing.T) {
 		}
 	}
 	for _, w := range []int{1, 5, 20, 39, 100} {
-		for _, l := range savedSSHLines("a-very-long-host-name.example.internal", sshHostInfo{}, w) {
+		for _, l := range savedSSHLines("a-very-long-host-name.example.internal", sshHostInfo{}, "", w) {
 			if ansi.StringWidth(l) > w {
 				t.Fatalf("width %d: %q is %d wide", w, ansi.Strip(l), ansi.StringWidth(l))
 			}
@@ -300,14 +300,10 @@ func TestSavedSSHConnectsAndForgets(t *testing.T) {
 		t.Fatalf("params %+v", p)
 	}
 
-	// So does a click on it, once the button is let go: a press alone
-	// may be the start of a drag.
+	// So does a click on it. (With an SSH folder to drag it to, it
+	// connects on release instead: sshhosts_test.go.)
 	i := indexOfRow(m.rows, savedSSHID("db")) - m.scroll
 	a2Run(a1Mouse(t, m, 6, 2+i, a1Left, a1Press))
-	if m.sshDrag == nil {
-		t.Fatal("press didn't pick the host up")
-	}
-	a2Run(a1Mouse(t, m, 6, 2+i, a1Left, a1Release))
 	peer.waitFor(t, "pane.create for db", func(msg proto.Message) bool {
 		if msg.Method != proto.MethodPaneCreate {
 			return false

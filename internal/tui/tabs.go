@@ -908,9 +908,19 @@ func (m Model) viewLabel(v viewRef) string {
 	return label
 }
 
+// tabHitPlus and tabHitClose are the bar's buttons, where a tabHit's tab
+// is otherwise the tab's own index.
+const (
+	tabHitPlus  = -1
+	tabHitClose = -2
+	// tabDropNone is m.tabDrop with the pointer on no tab and no button of
+	// the bar, since tabHitPlus is a target of its own now.
+	tabDropNone = -3
+)
+
 type tabHit struct {
 	x0, x1 int
-	tab    int // -1: new tab button; -2: close active tab
+	tab    int // tabHitPlus, tabHitClose, or a tab's index
 }
 
 // tabBar renders the tab bar across the main area and where each tab is.
@@ -935,6 +945,8 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 				put(styleSel.Render(label), i)
 				put(styleSel.Render("× "), -2)
 			}
+		} else if m.leafDrag != 0 && m.tabDrop == i {
+			put(styleAccent.Render(label), i) // a split is being carried here
 		} else if m.cfg.UI.Hover && m.hoverTab == i {
 			put(styleHover.Render(label), i)
 		} else {
@@ -943,8 +955,151 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 		b.WriteString(" ")
 		x++
 	}
-	put(styleAccent.Render(" + "), -1)
+	plus := styleAccent
+	if m.leafDrag != 0 && m.tabDrop == tabHitPlus {
+		plus = styleSel // a split is being carried out to a tab of its own
+	}
+	put(plus.Render(" + "), tabHitPlus)
 	return fit(b.String(), w), hits
+}
+
+// tabAt is the tab at column x of the bar, or -1 for anywhere else: the
+// space between tabs, the close button, the +. tabPosAt answers for a tab
+// being dragged along the bar, where past the last one means the end;
+// dropping a split wants the tab actually under the pointer and nothing.
+func (m Model) tabAt(x int) int {
+	_, hits := m.tabBar(m.mainRect().w)
+	for _, h := range hits {
+		if h.tab >= 0 && x >= h.x0 && x < h.x1 {
+			return h.tab
+		}
+	}
+	return -1
+}
+
+// plusAt reports whether column x of the bar is the + — a drop target of
+// its own, for carrying a split out to a tab it does not have yet.
+func (m Model) plusAt(x int) bool {
+	_, hits := m.tabBar(m.mainRect().w)
+	for _, h := range hits {
+		if h.tab == tabHitPlus && x >= h.x0 && x < h.x1 {
+			return true
+		}
+	}
+	return false
+}
+
+// moveLeafToNewTab takes a split out of its tab and gives it one of its
+// own, beside the tab it left and in the same group, so a split can be
+// carried out as well as across. The only split of a tab is already a tab
+// of its own, so it stays where it is rather than closing a tab to open an
+// identical one.
+func (m *Model) moveLeafToNewTab(id int) tea.Cmd {
+	from := m.activeTab
+	if m.previewing || from < 0 || from >= len(m.tabs) {
+		return nil
+	}
+	src := m.tabs[from]
+	l := src.leaf(id)
+	if l == nil || len(src.root.leaves()) < 2 {
+		return nil
+	}
+	src.root = src.root.remove(id)
+	if src.focus == id {
+		src.focus = src.root.leaves()[0].id
+	}
+	m.tabs = slices.Insert(m.tabs, from+1, &tab{root: &layoutNode{leaf: l}, focus: l.id, home: src.home})
+	m.activeTab, m.keepTab = from+1, true
+	m.zoom = false
+	return tea.Batch(m.focusLeaf(l.id), m.syncView(), m.saveState())
+}
+
+// movePaneToTab puts a pane in tab ti, wherever it is now: carried out of
+// the tab holding it — which closes if that was its last split — or opened
+// there when it was in no tab at all, which is what dragging a row from
+// Agents or Terminals onto a tab's section means.
+func (m *Model) movePaneToTab(machine, paneID string, ti int) tea.Cmd {
+	if m.previewing || ti < 0 || ti >= len(m.tabs) || paneID == "" {
+		return nil
+	}
+	dst := m.tabs[ti]
+	if dst.root == nil {
+		return nil
+	}
+	for i, t := range m.tabs {
+		for _, l := range t.root.leaves() {
+			if l.view.Kind != kindPane || l.view.Machine != machine || l.view.PaneID != paneID {
+				continue
+			}
+			if i == ti {
+				return nil // already there
+			}
+			f := dst.focused()
+			if !dst.root.split(f.id, splitRight, l) {
+				return nil
+			}
+			t.root = t.root.remove(l.id)
+			dst.focus = l.id
+			if t.root == nil {
+				m.tabs = slices.Delete(m.tabs, i, i+1)
+				if i < ti {
+					ti--
+				}
+			} else if t.focus == l.id {
+				t.focus = t.root.leaves()[0].id
+			}
+			m.activeTab, m.keepTab, m.zoom = ti, true, false
+			return tea.Batch(m.focusLeaf(l.id), m.syncView(), m.saveState())
+		}
+	}
+	// In no tab: open it in that one, beside what is already there.
+	p := m.pane(machine, paneID)
+	if p == nil {
+		return nil
+	}
+	nl := m.newLeaf(viewRef{Row: paneNodeID(machine, paneID), Kind: kindPane, Machine: machine,
+		PaneID: paneID, ProjectID: p.ProjectID, Branch: p.Branch})
+	if !dst.root.split(dst.focused().id, splitRight, nl) {
+		return nil
+	}
+	dst.focus = nl.id
+	m.activeTab, m.keepTab, m.zoom = ti, true, false
+	return tea.Batch(m.focusLeaf(nl.id), m.syncView(), m.saveState())
+}
+
+// moveLeafToTab moves a split out of the active tab and into tab ti,
+// dividing that tab's focused split. A pane is shown in one place only, so
+// it leaves its own tree rather than being copied: the split it was in
+// closes as closing a split does, and a tab left with nothing goes with
+// it. The tab it was dropped on is then the one shown, since that is where
+// the split went and the point of carrying it there.
+func (m *Model) moveLeafToTab(id, ti int) tea.Cmd {
+	from := m.activeTab
+	if m.previewing || from < 0 || from >= len(m.tabs) || ti < 0 || ti >= len(m.tabs) || ti == from {
+		return nil
+	}
+	src, dst := m.tabs[from], m.tabs[ti]
+	l := src.leaf(id)
+	if l == nil || dst.root == nil {
+		return nil
+	}
+	f := dst.focused()
+	if !dst.root.split(f.id, splitRight, l) {
+		return nil // nothing to divide there: the split stays where it is
+	}
+	src.root = src.root.remove(id)
+	dst.focus = l.id
+	m.zoom = false
+	if src.root == nil {
+		m.tabs = slices.Delete(m.tabs, from, from+1)
+		if from < ti {
+			ti-- // the tabs after it moved up
+		}
+	} else if src.focus == id {
+		src.focus = src.root.leaves()[0].id
+	}
+	m.activeTab, m.keepTab = ti, true
+	return tea.Batch(m.focusLeaf(l.id), m.syncView(), m.saveState())
 }
 
 // tabPosAt is the visible position (0-based) of the tab at column x of the
@@ -1113,4 +1268,65 @@ func (m *Model) closeTabAsk(i int) tea.Cmd {
 	}
 	m.overlay = newConfirm(fmt.Sprintf("Close this tab? It ends %s.", strings.Join(names, ", ")), closeAll)
 	return nil
+}
+
+// treeTabs is the layout as the tree needs it: which panes each tab holds,
+// and what to call it. Every tab, not only the ones the bar is listing —
+// the bar shows one group at a time and the tree shows them all — so a tab
+// is numbered among its own project's, which is what the bar shows when
+// that project is selected.
+//
+// A tab belongs under the project its panes are in. One holding panes from
+// two projects, or from none, belongs under neither and is left out, so its
+// panes keep their Agents and Terminals sections.
+func (m *Model) treeTabs() []treeTab {
+	var out []treeTab
+	seen := map[string]int{}
+	for i, t := range m.tabs {
+		tt := treeTab{index: i, splits: len(t.root.leaves()) > 1}
+		mixed := false
+		for _, l := range t.root.leaves() {
+			if l.view.Kind != kindPane || l.view.PaneID == "" {
+				continue
+			}
+			p := m.pane(l.view.Machine, l.view.PaneID)
+			if p == nil {
+				continue
+			}
+			switch {
+			case len(tt.panes) == 0:
+				tt.machine, tt.projectID = l.view.Machine, p.ProjectID
+			case tt.machine != l.view.Machine || tt.projectID != p.ProjectID:
+				mixed = true
+			}
+			tt.panes = append(tt.panes, l.view.PaneID)
+		}
+		if mixed || tt.projectID == "" || len(tt.panes) == 0 {
+			continue
+		}
+		key := tt.machine + "|" + tt.projectID
+		seen[key]++
+		tt.n = seen[key]
+		tt.label = "Tab " + itoa(tt.n) + "  " + m.tabLabel(t) // ⊞ for splits included
+		out = append(out, tt)
+	}
+	return out
+}
+
+// layoutSig is everything the tree is grouped by when it groups by tab, so
+// a change to it can be noticed in one place. It is empty when the tree is
+// grouped the other way, which costs nothing and never asks for a rebuild.
+func (m *Model) layoutSig() string {
+	if treeGroups(m.cfg.UI.TreeGroups) != "tabs" {
+		return ""
+	}
+	var b strings.Builder
+	for _, tb := range m.treeTabs() {
+		b.WriteString(tb.machine + "|" + tb.projectID + "|" + tb.label + "|")
+		for _, p := range tb.panes {
+			b.WriteString(p + ",")
+		}
+		b.WriteString(";")
+	}
+	return b.String()
 }

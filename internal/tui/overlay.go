@@ -140,8 +140,8 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		items = append(items, m.monitorItems(r.machine, r.paneID)...)
 		if target := m.sshTargetOfRow(r); target != "" {
 			items = append(items,
-				menuItem{"e", "Edit ssh host (save it with a name, group, options)…", act("e")},
-				menuItem{"g", "Move ssh host to group…", func(m *Model) tea.Cmd { m.overlay = newMoveSSHMenu(*m, target, x, y); return nil }},
+				menuItem{"e", "Edit ssh host (save it with a name, folder, options)…", act("e")},
+				menuItem{"g", "Move to folder…", func(m *Model) tea.Cmd { m.overlay = newMoveSSHMenu(*m, r, x, y); return nil }},
 				menuItem{"K", "Set up login without a password (copy ssh key)", act("K")},
 			)
 		}
@@ -274,20 +274,21 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		title = sshDisplay(target, m.sshInfo[target])
 		items = []menuItem{
 			{"enter", "Connect", enter},
-			{"e", "Edit host, name, group, ssh options…", act("e")},
-			{"g", "Move to group…", func(m *Model) tea.Cmd { m.overlay = newMoveSSHMenu(*m, target, x, y); return nil }},
+			{"e", "Edit host, name, folder, ssh options…", act("e")},
+			{"g", "Move to folder…", func(m *Model) tea.Cmd { m.overlay = newMoveSSHMenu(*m, r, x, y); return nil }},
 			{"K", "Set up login without a password (copy ssh key)", act("K")},
-			{"N", "New group…", act("N")},
+			{"N", "New folder…", act("N")},
 			{"x", "Forget (remove from the tree)", act("x")},
 		}
-	case kindSSHGroup:
-		title = "ssh group " + r.branch
-		items = []menuItem{
-			{"a", "Add a host to this group…", act("a")},
-			{"r", "Rename group…", act("r")},
-			{"N", "New group…", act("N")},
-			{"x", "Remove group (its hosts are kept)", act("x")},
+	case kindFolder:
+		title = r.label
+		if r.section == kindSSH && r.machine == localMachine && r.projectID == "" {
+			items = append(items, menuItem{"a", "Add a host to this folder…", act("a")}, menuItem{"H", "SSH to a host…", act("H")})
 		}
+		items = append(items,
+			menuItem{"N", "New folder…", act("N")},
+			menuItem{"x", "Remove folder (what is in it stays, nothing closes)", act("x")},
+		)
 	case kindWorkspace:
 		title = "Workspace"
 		items = []menuItem{
@@ -306,7 +307,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			// The local CLI group and its sections: where ssh sessions go.
 			items = append(items[:3], append([]menuItem{{"H", "SSH to a host…", act("H")}}, items[3:]...)...)
 			if r.kind == kindSSH {
-				items = append(items, menuItem{"N", "New ssh group (eng, staging, prod…)…", act("N")})
+				items = append(items, menuItem{"N", "New folder (eng, staging, prod…)…", act("N")})
 			}
 		}
 	}
@@ -885,15 +886,15 @@ var helpText = []string{
 	"     on a machine, or a folder that isn't a git repository, the agent works right there",
 	"  c  start an agent here: pick Claude, Codex, Gemini or OpenCode (click or 1-9)",
 	"  n  terminal here       a  add or create a project",
+	"  N  new folder in Agents, Terminals or SSH: a group of your own · drag rows in, x removes it",
 	"  M  add machine: over ssh, or a new sandbox · sandboxes group under Sandboxes → provider",
 	"  R  reconnect a machine    A  start or install any agent",
 	"     m on a sandbox: start, stop or delete it (a sandbox runs, and costs, until stopped)",
 	"  H  ssh from this computer to a host (listed under CLI → SSH; nothing installed there)",
 	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
 	"     extra ssh options (-o KexAlgorithms=… -p 2222) go in its SSH options field, and stay with a saved host",
-	"     on a saved host or ssh session: e edit host, name, group, options · K login without a password (copies your key)",
-	"     N new ssh group (eng, staging, prod) · drag a host onto a group to move it (onto SSH: no group)",
-	"     on a group: a add a host · r rename · x remove (its hosts are kept)",
+	"     on a saved host or ssh session: e edit host, name, folder, options · K login without a password (copies your key)",
+	"     a saved host goes in an SSH folder (N) as a host: its sessions follow it · a on an SSH folder adds a host to it",
 	"  P  pair a phone with this computer: a QR code for conch web, to type into terminals too (v / r / f: less);",
 	"     a click on its code copies the code, anywhere else in it the link (c, y)",
 	"  r  rename (pane, machine) x  close / remove (a branch: worktree, then the branch)",
@@ -925,7 +926,7 @@ var helpText = []string{
 	"  & close tab   , rename tab   z zoom   ! next waiting agent   : ask   d detach   ? this help",
 	"  S type into every split of the tab at once (again to stop; synced borders turn amber)",
 	"  in the tree: v open in a split right · s below · O in a new tab (beside what the tab already shows)",
-	"  mouse: click a split to focus it · drag borders to resize · drag a split's title onto another to swap them · drag the bar on a pane's right edge to scroll its history · click tabs and × · drag a tab to reorder · + new tab, terminal, agent or ssh",
+	"  mouse: click a split to focus it · drag borders to resize · drag a split's title onto another to swap them, onto a tab to move it there, onto + for a tab of its own · drag the bar on a pane's right edge to scroll its history · click tabs and × · drag a tab to reorder · + new tab, terminal, agent or ssh",
 	"  mouse: click a link an agent printed to open it (alt+click inside an agent's own interface, which is owed its clicks)",
 	"",
 	"Pane and changes",

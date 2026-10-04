@@ -92,7 +92,10 @@ type Model struct {
 	usageAsked  time.Time
 	// sandboxRan is what each sandbox was running when it stopped, to
 	// offer back when it starts again (sandboxran.go).
-	sandboxRan  map[string][]ranPane
+	sandboxRan map[string][]ranPane
+	// folders are the groups of your own in the tree, by section key
+	// (folders.go). Empty for anybody who never made one.
+	folders     map[string][]savedFolder
 	changesSeen []string
 	overlay     overlay // menu or dialog on top, if any
 
@@ -115,6 +118,10 @@ type Model struct {
 	tabDrag     bool      // a tab is being dragged along the bar
 	leafDrag    int       // a split being dragged by its title, to swap
 	leafDrop    int       // the split under the pointer while it is dragged
+	tabDrop     int       // the tab under it instead, to move the split there (-1: none)
+	treeSig     string    // the layout the tree was last grouped by, when grouped by tab
+	rowDrag     string    // a tree row being carried to a tab's section (its id)
+	rowDrop     string    // the tab section under it, while it is held
 	swapMark    [2]int    // the two splits that just swapped, marked briefly
 	swapUntil   time.Time
 	hoverRow    string // the tree row under the pointer, with [ui] hover
@@ -157,9 +164,7 @@ type Model struct {
 	snoozeUntil time.Time              // alerts are silenced until then
 	limitSeen   map[string]int         // plan limit alerts raised, per window (limitalerts.go)
 	savedSSH    []string               // ssh hosts the user chose to keep in the tree (ssh.go)
-	sshInfo     map[string]sshHostInfo // saved hosts' names, groups and options (sshgroups.go)
-	sshGroups   []string               // groups of saved hosts, in order
-	sshDrag     *sshDrag               // a host being dragged onto a group
+	sshInfo     map[string]sshHostInfo // saved hosts' names and options (sshhosts.go)
 	// catalogStamp is machines.json's modification time and size when last
 	// read, to notice machines added or removed with conch machine.
 	catalogStamp string
@@ -209,9 +214,10 @@ func New(local *client.Client, cfg config.Config) Model {
 		queueSeen:  st.QueueDismissed,
 		savedSSH:   cleanSavedSSH(st.SavedSSH),
 		sandboxRan: st.SandboxRan,
+		folders:    st.Folders,
 	}
 	m.sshInfo = cleanSSHInfo(m.savedSSH, st.SSHHosts)
-	m.sshGroups = cleanSSHGroups(st.SSHGroups, m.sshInfo, m.savedSSH)
+	m.folders = migrateSSHGroups(m.folders, st.SSHGroups, m.savedSSH, m.sshInfo)
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	if st.SidebarWidth > 0 {
 		m.sidebarW = st.SidebarWidth
@@ -902,10 +908,15 @@ func (m *Model) rebuild() tea.Cmd {
 			tm.sandbox = provider
 		}
 		if mach.id == localMachine { // ssh sessions start on this computer
-			tm.savedSSH, tm.sshInfo, tm.sshGroup = m.savedSSH, m.sshInfo, m.sshGroups
+			tm.savedSSH, tm.sshInfo = m.savedSSH, m.sshInfo
 		}
 		in.machines = append(in.machines, tm)
 	}
+	if treeGroups(m.cfg.UI.TreeGroups) == "tabs" {
+		in.tabs = m.treeTabs()
+	}
+	in.folders = m.folders
+	m.treeSig = m.layoutSig()
 	m.rows = buildTree(in)
 	if indexOfRow(m.rows, m.cursor) < 0 && len(m.rows) > 0 {
 		m.cursor = m.rows[clamp(prevIndex, 0, len(m.rows)-1)].id
@@ -1134,6 +1145,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		wait := max(time.Until(nm.flashUntil), 100*time.Millisecond)
 		cmd = tea.Batch(cmd, tea.Tick(wait, func(time.Time) tea.Msg { return flashExpiredMsg{} }))
 	}
+	// Grouped by tab, the tabs are the tree's groups, so a tab opened,
+	// closed, renamed, split or carried elsewhere leaves the tree behind.
+	// One check here rather than a call in every path that moves a tab:
+	// rebuild ends in syncView, so it cannot be hooked from there.
+	if sig := nm.layoutSig(); sig != nm.treeSig {
+		nm.treeSig = sig
+		cmd = tea.Batch(cmd, nm.rebuild())
+	}
 	return nm, cmd
 }
 
@@ -1234,7 +1253,7 @@ func (m Model) contextPlace() place {
 		if root, branch, _ := m.filesCheckout(mid, r.projectID, r.branch); root != "" {
 			return place{machine: mid, projectID: r.projectID, dir: root, branch: branch}
 		}
-	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions:
+	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions, kindTab:
 		if proj := m.project(mid, r.projectID); proj != nil {
 			return place{machine: mid, projectID: proj.ID, dir: proj.Path}
 		}

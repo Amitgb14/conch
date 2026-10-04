@@ -39,10 +39,48 @@ const (
 	// under Sandboxes → Daytona → … rather than filling the tree's top.
 	kindSandboxes
 	kindSandboxProvider
-	// kindSSHGroup is a group of saved ssh hosts under SSH (sshgroups.go);
-	// its name is in the row's branch.
-	kindSSHGroup
+	// kindTab groups a project's panes by the tab they are open in, with
+	// [ui] tree_groups = "tabs". Kinds are saved in ui.json by number, so
+	// new ones go last.
+	kindTab
+	// kindFolder is a group of your own inside a pane section (folders.go).
+	// Kinds are saved in ui.json by number, so new ones go last.
+	kindFolder
 )
+
+// foldered splits a section's panes into the folders of that section and
+// what is left over. A folder with nothing in it is still listed, so one
+// made and not filled yet does not vanish. The panes outside them go first
+// and the folders after: a pane listed below an open folder, one step out
+// from what is in it, read as more of the folder's contents.
+func foldered(in treeInput, mid, pid string, kind nodeKind, panes []proto.PaneInfo,
+	depth int, projMatched bool, rows func([]proto.PaneInfo, int, bool) []row,
+	open func(string, bool) bool) (out []row, loose []proto.PaneInfo) {
+	fs := in.folders[folderKey(mid, pid, kind)]
+	if len(fs) == 0 {
+		return nil, panes
+	}
+	taken := map[string]bool{}
+	for _, f := range fs {
+		mine := f.claim(panes, taken)
+		fid := folderRowID(mid, pid, kind, f.Name)
+		prows := rows(mine, depth+1, projMatched)
+		if in.filter != "" && len(prows) == 0 {
+			continue // narrowed away with everything in it
+		}
+		out = append(out, row{id: fid, kind: kindFolder, depth: depth, machine: mid, projectID: pid,
+			count: len(mine), label: f.Name, section: kind})
+		if open(fid, true) {
+			out = append(out, prows...)
+		}
+	}
+	for _, p := range panes {
+		if !taken[p.ID] {
+			loose = append(loose, p)
+		}
+	}
+	return out, loose
+}
 
 // row is one visible line of the sidebar tree. IDs of panes and projects
 // are only unique per machine, so every row carries its machine.
@@ -54,13 +92,16 @@ type row struct {
 	projectID string
 	branch    string
 	paneID    string
-	count     int // sections: children; more: hidden branches
+	count     int      // sections: children; more: hidden branches
+	label     string   // a tab section's name, as the bar writes it
+	tabIndex  int      // a tab section: which tab it stands for
+	section   nodeKind // a folder: the section it sits in
 }
 
 func (r row) expandable() bool {
 	switch r.kind {
 	case kindMachine, kindWorkspace, kindProject, kindBranches, kindAgents, kindTerminals, kindCLI, kindSSH,
-		kindSandboxes, kindSandboxProvider, kindSSHGroup:
+		kindSandboxes, kindSandboxProvider, kindTab, kindFolder:
 		return true
 	}
 	return false
@@ -83,18 +124,32 @@ type treeMachine struct {
 	label    string
 	panes    []proto.PaneInfo
 	projects []proto.ProjectInfo
-	agents   map[string]bool // panes that have ever run an agent
-	sessions bool            // the server lists saved sessions
-	savedSSH []string        // ssh hosts kept in the tree (this computer only)
-	sshInfo  map[string]sshHostInfo
-	sshGroup []string // groups of saved hosts, in order
+	agents   map[string]bool        // panes that have ever run an agent
+	sessions bool                   // the server lists saved sessions
+	savedSSH []string               // ssh hosts kept in the tree (this computer only)
+	sshInfo  map[string]sshHostInfo // saved hosts' names and options
 }
 
 // treeInput is everything the tree is built from.
+// treeTab is one tab of the bar, for grouping a project's panes by the tab
+// each is open in. The tree is a pure function of its input, so the layout
+// arrives as data rather than the tree reaching into the model.
+type treeTab struct {
+	machine   string
+	projectID string   // whose project's section it belongs under
+	index     int      // where it is in the model's tabs
+	label     string   // what the bar shows, a renamed tab included
+	n         int      // its number in the bar
+	splits    bool     // more than one split in it
+	panes     []string // pane IDs, in the order the tab holds them
+}
+
 type treeInput struct {
 	machines []treeMachine
-	expanded map[string]bool // explicit expand/collapse choices
-	showAll  map[string]bool // scoped project IDs listing every branch
+	tabs     []treeTab                // empty unless [ui] tree_groups = "tabs"
+	folders  map[string][]savedFolder // groups of your own, by section key
+	expanded map[string]bool          // explicit expand/collapse choices
+	showAll  map[string]bool          // scoped project IDs listing every branch
 	filter   string
 	now      time.Time
 }
@@ -108,10 +163,14 @@ func scoped(machine, id string) string {
 	return machine + "~" + id
 }
 
-func machineID(mid string) string            { return "m:" + mid }
-func sandboxesID() string                    { return "sandboxes" }
-func sandboxProviderID(p string) string      { return "sandboxes/" + p }
-func projectNodeID(mid, pid string) string   { return "p:" + scoped(mid, pid) }
+func machineID(mid string) string          { return "m:" + mid }
+func sandboxesID() string                  { return "sandboxes" }
+func sandboxProviderID(p string) string    { return "sandboxes/" + p }
+func projectNodeID(mid, pid string) string { return "p:" + scoped(mid, pid) }
+func folderRowID(mid, pid string, kind nodeKind, name string) string {
+	return "folder:" + folderKey(mid, pid, kind) + "/" + name
+}
+
 func sectionID(mid, pid, s string) string    { return "p:" + scoped(mid, pid) + "/" + s }
 func branchNodeID(mid, pid, b string) string { return "b:" + scoped(mid, pid) + ":" + b }
 func paneNodeID(mid, id string) string       { return "pane:" + scoped(mid, id) }
@@ -266,6 +325,56 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 		projMatched := filter != "" && match(proj.Name)
 
 		var children []row
+		// Grouped by tab: a section per tab holding the panes open in it,
+		// above the rest. A pane in no tab keeps its Agents or Terminals
+		// section below, so closing a tab never hides one.
+		inTab := map[string]bool{}
+		byID := make(map[string]proto.PaneInfo, len(panes))
+		for _, p := range panes {
+			byID[p.ID] = p
+		}
+		for _, tb := range in.tabs {
+			if tb.machine != mid || tb.projectID != proj.ID {
+				continue
+			}
+			var prows []row
+			for _, id := range tb.panes {
+				p, ok := byID[id]
+				if !ok {
+					continue
+				}
+				inTab[id] = true
+				if waiting && !p.Agent.NeedsAttention() {
+					continue
+				}
+				if !waiting && !(projMatched || match(p.DisplayName()) || match(p.Branch)) {
+					continue
+				}
+				prows = append(prows, row{id: paneNodeID(mid, p.ID), kind: kindPane, depth: 4, machine: mid,
+					projectID: p.ProjectID, branch: p.Branch, paneID: p.ID})
+			}
+			if len(prows) == 0 {
+				continue
+			}
+			sid := sectionID(mid, proj.ID, "tab/"+itoa(tb.n))
+			children = append(children, row{id: sid, kind: kindTab, depth: 3, machine: mid, projectID: proj.ID,
+				count: len(prows), label: tb.label, tabIndex: tb.index})
+			if open(sid, true) {
+				children = append(children, prows...)
+			}
+		}
+		if len(inTab) > 0 {
+			keep := func(ps []proto.PaneInfo) []proto.PaneInfo {
+				var out []proto.PaneInfo
+				for _, p := range ps {
+					if !inTab[p.ID] {
+						out = append(out, p)
+					}
+				}
+				return out
+			}
+			agents, terms = keep(agents), keep(terms)
+		}
 		if proj.Git {
 			all := in.showAll[scoped(mid, proj.ID)] || filter != ""
 			branches, hidden := listedBranches(proj, panes, all, in.now)
@@ -292,13 +401,18 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 			kind  nodeKind
 			panes []proto.PaneInfo
 		}{{"agents", kindAgents, agents}, {"terminals", kindTerminals, terms}} {
-			prows := paneRows(sec.panes, 4, projMatched)
-			if len(prows) == 0 {
+			frows, loose := foldered(in, mid, proj.ID, sec.kind, sec.panes, 4, projMatched, paneRows, open)
+			prows := paneRows(loose, 4, projMatched)
+			if len(prows) == 0 && len(frows) == 0 {
 				continue
 			}
 			sid := sectionID(mid, proj.ID, sec.name)
 			children = append(children, row{id: sid, kind: sec.kind, depth: 3, machine: mid, projectID: proj.ID, count: len(sec.panes)})
 			if open(sid, true) {
+				// Folders first, then what is in none of them: a folder is
+				// something you put there, and it should not be below the
+				// list it was made to tidy.
+				children = append(children, frows...)
 				children = append(children, prows...)
 			}
 		}
@@ -341,7 +455,7 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 			looseTerms = append(looseTerms, p)
 		}
 	}
-	sshRows, savedCount := sshSectionRows(mach, looseSSH, filter, match, open, paneRows)
+	sshRows, savedCount := sshSectionRows(in, mach, looseSSH, match, open, paneRows)
 	for _, sec := range []struct {
 		id    string
 		kind  nodeKind
@@ -349,14 +463,19 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 		rows  []row
 		count int
 	}{
-		{machineID(mid) + "/agents", kindAgents, looseAgents, paneRows(looseAgents, 3, false), len(looseAgents)},
-		{looseTerminalsID(mid), kindTerminals, looseTerms, paneRows(looseTerms, 3, false), len(looseTerms)},
+		{machineID(mid) + "/agents", kindAgents, looseAgents, nil, len(looseAgents)},
+		{looseTerminalsID(mid), kindTerminals, looseTerms, nil, len(looseTerms)},
 		{looseSSHID(mid), kindSSH, looseSSH, sshRows, len(looseSSH) + savedCount},
 	} {
-		if len(sec.rows) > 0 {
+		prows := sec.rows
+		if sec.kind != kindSSH {
+			frows, loose := foldered(in, mid, "", sec.kind, sec.panes, 3, false, paneRows, open)
+			prows = append(frows, paneRows(loose, 3, false)...)
+		}
+		if len(prows) > 0 {
 			cli = append(cli, row{id: sec.id, kind: sec.kind, depth: 2, machine: mid, count: sec.count})
 			if open(sec.id, true) {
-				cli = append(cli, sec.rows...)
+				cli = append(cli, prows...)
 			}
 		}
 	}
@@ -377,54 +496,80 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 	return rows
 }
 
-// sshSectionRows are the rows under a machine's SSH section: each group of
-// saved hosts with the sessions and idle saved hosts in it, then those in
-// no group. Saved hosts with no session open to them stay listed, to
-// connect again with a click. saved counts the idle saved hosts listed.
-func sshSectionRows(mach treeMachine, sessions []proto.PaneInfo, filter string, match func(string) bool,
+// sshSectionRows are the rows under a machine's SSH section: its folders
+// (folders.go), then the sessions and idle saved hosts in none. A folder
+// there holds saved hosts as well as panes: a host's sessions are listed in
+// its folder, and the host itself while no session is open to it. A host's
+// place is settled before any pane's, so a session is never split from its
+// host by a pane member naming it elsewhere. saved counts the idle saved
+// hosts listed.
+func sshSectionRows(in treeInput, mach treeMachine, sessions []proto.PaneInfo, match func(string) bool,
 	open func(string, bool) bool, paneRows func([]proto.PaneInfo, int, bool) []row) (rows []row, saved int) {
 	mid := mach.id
-	groupOf := func(target string) string {
-		if g := mach.sshInfo[target].Group; g != "" && slices.Contains(mach.savedSSH, target) {
-			return g
+	idle := idleSavedSSH(mach.savedSSH, sessions)
+	hostRows := func(targets []string, depth int) []row {
+		var out []row
+		for _, t := range targets {
+			if match(t) || match(sshName(t)) || match(mach.sshInfo[t].Name) {
+				out = append(out, row{id: savedSSHID(t), kind: kindSavedSSH, depth: depth, machine: mid})
+			}
 		}
-		return ""
+		return out
 	}
-	members := func(group string, depth int, groupMatched bool) ([]row, int) {
-		var panes []proto.PaneInfo
-		for _, p := range sessions {
-			if groupOf(sshTarget(p)) == group {
-				panes = append(panes, p)
+	fs := in.folders[folderKey(mid, "", kindSSH)]
+	folderOf := map[string]int{}
+	for i, f := range fs {
+		for _, mem := range f.Members {
+			if _, seen := folderOf[mem.Host]; mem.Host != "" && !seen && slices.Contains(mach.savedSSH, mem.Host) {
+				folderOf[mem.Host] = i
 			}
 		}
-		out := paneRows(panes, depth, groupMatched)
-		idle := 0
-		for _, target := range idleSavedSSH(mach.savedSSH, sessions) {
-			if groupOf(target) != group {
-				continue
-			}
-			if groupMatched || match(target) || match(sshName(target)) || match(mach.sshInfo[target].Name) {
-				out = append(out, row{id: savedSSHID(target), kind: kindSavedSSH, depth: depth, machine: mid})
-				idle++
-			}
-		}
-		return out, idle
 	}
-	for _, g := range mach.sshGroup {
-		matched := filter != "" && match(g)
-		kids, idle := members(g, 4, matched)
-		saved += idle
-		if filter != "" && !matched && len(kids) == 0 {
-			continue // an empty group is listed to drop hosts on, not to match
+	taken := map[string]bool{}
+	mine := make([][]proto.PaneInfo, len(fs))
+	for _, p := range sessions {
+		if i, ok := folderOf[sshTarget(p)]; ok {
+			mine[i] = append(mine[i], p)
+			taken[p.ID] = true
 		}
-		id := sshGroupID(g)
-		rows = append(rows, row{id: id, kind: kindSSHGroup, depth: 3, machine: mid, branch: g, count: len(kids)})
-		if open(id, true) {
+	}
+	for i, f := range fs {
+		mine[i] = append(mine[i], f.claim(sessions, taken)...)
+	}
+	for i, f := range fs {
+		var hosts []string
+		for _, t := range idle {
+			if j, ok := folderOf[t]; ok && j == i {
+				hosts = append(hosts, t)
+			}
+		}
+		hrows := hostRows(hosts, 4)
+		saved += len(hrows)
+		kids := append(paneRows(mine[i], 4, false), hrows...)
+		if in.filter != "" && len(kids) == 0 {
+			continue // narrowed away with everything in it
+		}
+		fid := folderRowID(mid, "", kindSSH, f.Name)
+		rows = append(rows, row{id: fid, kind: kindFolder, depth: 3, machine: mid, count: len(mine[i]) + len(hosts),
+			label: f.Name, section: kindSSH})
+		if open(fid, true) {
 			rows = append(rows, kids...)
 		}
 	}
-	kids, idle := members("", 3, false)
-	return append(rows, kids...), saved + idle
+	var loose []proto.PaneInfo
+	for _, p := range sessions {
+		if !taken[p.ID] {
+			loose = append(loose, p)
+		}
+	}
+	var hosts []string
+	for _, t := range idle {
+		if _, ok := folderOf[t]; !ok {
+			hosts = append(hosts, t)
+		}
+	}
+	hrows := hostRows(hosts, 3)
+	return append(append(rows, paneRows(loose, 3, false)...), hrows...), saved + len(hrows)
 }
 
 // listedBranches picks the branches worth showing: checked-out ones (main
@@ -488,4 +633,14 @@ func indexOfRow(rows []row, id string) int {
 		}
 	}
 	return -1
+}
+
+// treeGroups is how a project's panes are grouped in the tree: "sections"
+// unless "tabs" was asked for. Anything else is sections, so a config from
+// a newer conch does not leave the tree empty.
+func treeGroups(s string) string {
+	if s == "tabs" {
+		return "tabs"
+	}
+	return "sections"
 }
