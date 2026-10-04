@@ -1163,3 +1163,31 @@ func TestA1DragTreeRowOntoTabSection(t *testing.T) {
 		}
 	}
 }
+
+// TestA1ClickBranchShowsChangesNotTheGitWindow: a click on a branch opened
+// the git window over the whole right-hand side, which is a lot to do for
+// one click on a row — reported from use. A click shows the branch's
+// changes; b or $ opens the window.
+func TestA1ClickBranchShowsChangesNotTheGitWindow(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	m.focus = focusSidebar
+	id := branchNodeID(localMachine, "r1", "feat")
+	i := indexOfRow(m.rows, id)
+	if i < 0 {
+		t.Fatalf("no branch row in\n%s", render(m.rows))
+	}
+
+	a1Mouse(t, m, 4, i-m.scroll+2, a1Left, a1Press)
+	if m.overlay != nil {
+		t.Fatalf("a click on a branch opened %T", m.overlay)
+	}
+	if m.cursor != id {
+		t.Fatalf("the click selected %q, want the branch", m.cursor)
+	}
+	if l := m.tab().focused(); l.view.Branch != "feat" {
+		t.Fatalf("the click showed %+v, want the branch's changes", l.view)
+	}
+
+	// b opening it is what openPanel does in every git panel test, on the
+	// fixture that has a server to run git for it.
+}

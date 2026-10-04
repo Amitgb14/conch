@@ -900,7 +900,7 @@ var helpText = []string{
 	"  r  rename (pane, machine) x  close / remove (a branch: worktree, then the branch)",
 	"                            R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",
-	"  b  git window for a branch (a click, or $ here or in its changes, opens it too):",
+	"  b  git window for a branch ($ does too, here or in its changes; a click shows the changes):",
 	"     any git command; tab shows the everyday ones (status, log, fetch, pull, push, commit,",
 	"     stash, rebase, undo, …);",
 	"     ctrl+t sends to an agent on the branch instead; a rebase that stops offers continue,",

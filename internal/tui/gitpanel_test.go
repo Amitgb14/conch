@@ -75,18 +75,24 @@ func panelText(m *Model, g *gitPanel) string {
 
 // A click on a branch in the tree shows its changes as before and opens
 // the command window in the middle of the screen, asking the worktree for
-// its status.
-func TestGitPanelOpensOnClick(t *testing.T) {
+// its status. A click on the branch does not: it shows the changes, and the
+// window is a key away, since opening a window over the right-hand side is
+// more than one click on a row should do.
+func TestGitPanelOpensOnKey(t *testing.T) {
 	m, peer := gitPanelModel(t)
 	i := indexOfRow(m.rows, branchNodeID(localMachine, "r1", "feat"))
 	if i < 0 {
 		t.Fatalf("no feat row: %s", render(m.rows))
 	}
 	y := i - m.scroll + 2
-	msgs := a2Run(a1Mouse(t, m, 8, y, tea.MouseButtonLeft, tea.MouseActionPress))
+	a2Run(a1Mouse(t, m, 8, y, tea.MouseButtonLeft, tea.MouseActionPress)) // shows its changes
+	if m.overlay != nil {
+		t.Fatalf("a click on feat opened %T", m.overlay)
+	}
+	msgs := a2Run(a1Key(t, m, runes("b")))
 	g, ok := m.overlay.(*gitPanel)
 	if !ok || g.t != feat {
-		t.Fatalf("a click on feat opened %T", m.overlay)
+		t.Fatalf("b on feat opened %T", m.overlay)
 	}
 	peer.waitMethod(t, proto.MethodProjectChanges, `"branch":"feat"`) // its changes still load
 	// Opening runs nothing: the files are on the changes page already. It
@@ -225,12 +231,13 @@ func TestGitPanelAnswersGoToTheirOwnPanel(t *testing.T) {
 
 // A double click on a branch still opens it in the main area: the second
 // click closes the panel the first opened, and is passed on.
-func TestGitPanelDoubleClick(t *testing.T) {
+func TestGitPanelClickOutsideClosesAndPassesThrough(t *testing.T) {
 	m, _ := gitPanelModel(t)
 	y := indexOfRow(m.rows, branchNodeID(localMachine, "r1", "feat")) - m.scroll + 2
-	a1Mouse(t, m, 8, y, tea.MouseButtonLeft, tea.MouseActionPress)
+	a1At(t, m, branchNodeID(localMachine, "r1", "feat"))
+	a2Run(a1Key(t, m, runes("b")))
 	if _, ok := m.overlay.(*gitPanel); !ok {
-		t.Fatalf("first click opened %T", m.overlay)
+		t.Fatalf("b opened %T", m.overlay)
 	}
 	a1Mouse(t, m, 8, y, tea.MouseButtonLeft, tea.MouseActionRelease)
 	cmd := a1Mouse(t, m, 8, y, tea.MouseButtonLeft, tea.MouseActionPress) // outside the panel: closes it
@@ -239,8 +246,11 @@ func TestGitPanelDoubleClick(t *testing.T) {
 	}
 	next, _ := m.Update(cmd()) // the same click, passed through
 	*m = next.(Model)
-	if m.overlay != nil || m.focus != focusMain {
-		t.Fatalf("double click: overlay %T focus %v", m.overlay, m.focus)
+	if m.overlay != nil {
+		t.Fatalf("the passed-through click opened %T", m.overlay)
+	}
+	if m.cursor != branchNodeID(localMachine, "r1", "feat") {
+		t.Fatalf("it landed on %q, want the branch it was over", m.cursor)
 	}
 }
 

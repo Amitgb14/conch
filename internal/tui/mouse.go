@@ -809,9 +809,6 @@ func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Mode
 			return m, tea.Batch(cmd, m.toggle(r, nil))
 		case double:
 			return m, tea.Batch(cmd, m.activate(r))
-		case r.kind == kindBranch:
-			t := harvestTarget{machine: r.machine, projectID: r.projectID, branch: r.branch}
-			return m, tea.Batch(cmd, m.openGitPanel(t))
 		}
 	}
 	return m, cmd
