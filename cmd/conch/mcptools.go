@@ -80,10 +80,10 @@ func mcpTools() []mcpTool {
 		{
 			Name:        "read",
 			Title:       "Read a pane's screen",
-			Description: "What is on a pane's screen now — an agent's last answer, or the question it is waiting on. This is the screen, not a transcript: what scrolled away is not in it.",
+			Description: "What is on a pane's screen now — an agent's last answer, or the question it is waiting on. This is the screen, not a transcript: what scrolled away is not in it. Leave tail out for an agent: its interface keeps a prompt box and a status line at the bottom, so the last few lines are that furniture and not what it said. tail is for a program that prints and scrolls, like a build or a test run.",
 			Schema: schema([]string{"pane"}, map[string]any{
 				"pane": strProp(paneArg),
-				"tail": numProp("only the last N lines; all of the screen when left out"),
+				"tail": numProp("only the last N lines, for a program that prints and scrolls; leave it out for an agent, whose last lines are its prompt box"),
 			}),
 			run: mcpRead,
 		},

@@ -171,6 +171,19 @@ func TestA4MCPToolList(t *testing.T) {
 			}
 		}
 	}
+	// What a real agent got wrong until the description said so: it read
+	// the last 6 lines of a helper, got the prompt box and the status line,
+	// and concluded the helper had never been prompted — while its answer
+	// sat above, on the same screen (run R48).
+	for _, tool := range replies[0].Result.Tools {
+		if tool.Name != "read" {
+			continue
+		}
+		if !strings.Contains(tool.Description, "leave tail out for an agent") &&
+			!strings.Contains(tool.Description, "Leave tail out for an agent") {
+			t.Errorf("read does not warn what tail means for an agent: %q", tool.Description)
+		}
+	}
 	want := []string{"list", "read", "start", "prompt", "wait", "task", "rename"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("tools %v, want %v", names, want)
