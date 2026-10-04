@@ -24,6 +24,13 @@ type uiState struct {
 	// key and the state it was in: a row comes back when that changes.
 	QueueDismissed map[string]string `json:"queue_dismissed,omitempty"`
 	SavedSSH       []string          `json:"saved_ssh,omitempty"` // ssh hosts kept in the tree (ssh.go)
+	// SSHHosts are saved hosts' names and options, by host (sshhosts.go).
+	// The hosts themselves stay in SavedSSH, which older builds read; a
+	// host's folder is a member of that folder.
+	SSHHosts map[string]sshHostInfo `json:"ssh_hosts,omitempty"`
+	// SSHGroups is the order of ssh groups from a build before they became
+	// folders: read once to make the folders, never written.
+	SSHGroups []string `json:"ssh_groups,omitempty"`
 	// SandboxRan is what each sandbox was running when it stopped, by
 	// machine ID, to offer back when it starts again (sandboxran.go).
 	SandboxRan map[string][]ranPane `json:"sandbox_ran,omitempty"`
@@ -43,6 +50,9 @@ type savedFolder struct {
 type savedMember struct {
 	Name string `json:"name,omitempty"`
 	ID   string `json:"id,omitempty"`
+	// Host is a saved ssh host in a folder of the SSH section: the host,
+	// not a pane, so its sessions follow it in (sshhosts.go).
+	Host string `json:"host,omitempty"`
 }
 
 func uiStatePath() string { return filepath.Join(config.Dir(), "ui.json") }
@@ -94,6 +104,13 @@ func (m Model) saveState() tea.Cmd {
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
 		Tabs: m.savedTabs(), ActiveTab: m.activeTab, LimitAlerts: map[string]int{},
 		QueueDismissed: map[string]string{}, SavedSSH: slices.Clone(m.savedSSH)}
+	if len(m.sshInfo) > 0 {
+		st.SSHHosts = make(map[string]sshHostInfo, len(m.sshInfo))
+		for k, v := range m.sshInfo {
+			v.Args = slices.Clone(v.Args)
+			st.SSHHosts[k] = v
+		}
+	}
 	if len(m.folders) > 0 {
 		st.Folders = make(map[string][]savedFolder, len(m.folders))
 		for k, v := range m.folders {

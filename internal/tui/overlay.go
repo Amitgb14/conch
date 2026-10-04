@@ -138,6 +138,13 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			}
 		}
 		items = append(items, m.monitorItems(r.machine, r.paneID)...)
+		if target := m.sshTargetOfRow(r); target != "" {
+			items = append(items,
+				menuItem{"e", "Edit ssh host (save it with a name, folder, options)…", act("e")},
+				menuItem{"g", "Move to folder…", func(m *Model) tea.Cmd { m.overlay = newMoveSSHMenu(*m, r, x, y); return nil }},
+				menuItem{"K", "Set up login without a password (copy ssh key)", act("K")},
+			)
+		}
 		items = append(items, menuItem{"x", "Close", act("x")})
 		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
 			items = append(items, menuItem{"Y", "Read and copy the conversation", act("Y")})
@@ -263,11 +270,25 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			items = append(items, menuItem{"x", "Remove machine", act("x")})
 		}
 	case kindSavedSSH:
-		title = "ssh " + sshName(savedSSHTarget(r.id))
+		target := savedSSHTarget(r.id)
+		title = sshDisplay(target, m.sshInfo[target])
 		items = []menuItem{
 			{"enter", "Connect", enter},
+			{"e", "Edit host, name, folder, ssh options…", act("e")},
+			{"g", "Move to folder…", func(m *Model) tea.Cmd { m.overlay = newMoveSSHMenu(*m, r, x, y); return nil }},
+			{"K", "Set up login without a password (copy ssh key)", act("K")},
+			{"N", "New folder…", act("N")},
 			{"x", "Forget (remove from the tree)", act("x")},
 		}
+	case kindFolder:
+		title = r.label
+		if r.section == kindSSH && r.machine == localMachine && r.projectID == "" {
+			items = append(items, menuItem{"a", "Add a host to this folder…", act("a")}, menuItem{"H", "SSH to a host…", act("H")})
+		}
+		items = append(items,
+			menuItem{"N", "New folder…", act("N")},
+			menuItem{"x", "Remove folder (what is in it stays, nothing closes)", act("x")},
+		)
 	case kindWorkspace:
 		title = "Workspace"
 		items = []menuItem{
@@ -285,6 +306,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if r.machine == localMachine && r.projectID == "" {
 			// The local CLI group and its sections: where ssh sessions go.
 			items = append(items[:3], append([]menuItem{{"H", "SSH to a host…", act("H")}}, items[3:]...)...)
+			if r.kind == kindSSH {
+				items = append(items, menuItem{"N", "New folder (eng, staging, prod…)…", act("N")})
+			}
 		}
 	}
 	return &menu{title: title, items: items, x: x, y: y}
@@ -867,9 +891,12 @@ var helpText = []string{
 	"  R  reconnect a machine    A  start or install any agent",
 	"     m on a sandbox: start, stop or delete it (a sandbox runs, and costs, until stopped)",
 	"  H  ssh from this computer to a host (listed under CLI → SSH; nothing installed there)",
+	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
+	"     extra ssh options (-o KexAlgorithms=… -p 2222) go in its SSH options field, and stay with a saved host",
+	"     on a saved host or ssh session: e edit host, name, folder, options · K login without a password (copies your key)",
+	"     a saved host goes in an SSH folder (N) as a host: its sessions follow it · a on an SSH folder adds a host to it",
 	"  P  pair a phone with this computer: a QR code for conch web, to type into terminals too (v / r / f: less);",
 	"     a click on its code copies the code, anywhere else in it the link (c, y)",
-	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
 	"  r  rename (pane, machine) x  close / remove (a branch: worktree, then the branch)",
 	"                            R  refresh git and PRs",
 	"  o  open a branch's pull request                 y  copy name / path",

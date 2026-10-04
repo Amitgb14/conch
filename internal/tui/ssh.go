@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -63,12 +64,15 @@ func savedSSHTarget(rowID string) string {
 	return t
 }
 
-// saveSSH keeps target in the tree across runs.
-func (m *Model) saveSSH(target string) tea.Cmd {
+// saveSSH keeps target in the tree across runs, with the options it was
+// connected with.
+func (m *Model) saveSSH(target string, args []string) tea.Cmd {
 	if slices.Contains(m.savedSSH, target) {
 		return nil
 	}
-	m.savedSSH = append(m.savedSSH, target)
+	if err := m.putSSHHost("", target, sshHostInfo{Args: args}, ""); err != nil {
+		return func() tea.Msg { return errMsg{err} }
+	}
 	return tea.Batch(m.rebuild(), m.saveState())
 }
 
@@ -80,25 +84,37 @@ func (m *Model) forgetSSH(target string) tea.Cmd {
 		return nil
 	}
 	m.savedSSH = slices.Delete(slices.Clone(m.savedSSH), i, i+1)
+	if _, ok := m.sshInfo[target]; ok {
+		info := maps.Clone(m.sshInfo)
+		delete(info, target)
+		m.sshInfo = info
+	}
+	m.takeHostOutOfFolders(target)
 	m.removeRow(savedSSHID(target))
 	m.setFlash("forgot "+sshName(target), false)
 	return tea.Batch(m.rebuild(), m.saveState())
 }
 
-// connectSSH opens a session to target, first asking whether to keep the
-// host in the tree when it isn't already. Not saving is the default: enter
-// on the question connects without saving.
+// connectSSH opens a session to a saved host with its options, or to
+// another host with none.
 func (m *Model) connectSSH(target string) tea.Cmd {
+	return m.connectSSHWith(target, m.sshInfo[target].Args)
+}
+
+// connectSSHWith opens a session to target with extra ssh options, first
+// asking whether to keep the host in the tree when it isn't already. Not
+// saving is the default: enter on the question connects without saving.
+func (m *Model) connectSSHWith(target string, args []string) tea.Cmd {
 	if err := remote.CheckLoginTarget(target); err != nil {
 		return func() tea.Msg { return errMsg{err} }
 	}
 	if slices.Contains(m.savedSSH, target) {
-		return m.startSSH(target)
+		return m.startSSH(target, args)
 	}
 	m.overlay = &menu{title: "Save " + sshName(target) + " in the tree?", x: max(m.width/2-20, 0), y: max(m.height/3, 0), items: []menuItem{
-		{"n", "Connect, don't save", func(m *Model) tea.Cmd { return m.startSSH(target) }},
+		{"n", "Connect, don't save", func(m *Model) tea.Cmd { return m.startSSH(target, args) }},
 		{"y", "Save and connect (listed under SSH when conch opens)", func(m *Model) tea.Cmd {
-			return tea.Batch(m.saveSSH(target), m.startSSH(target))
+			return tea.Batch(m.saveSSH(target, args), m.startSSH(target, args))
 		}},
 	}}
 	return nil
@@ -161,16 +177,29 @@ func (m *Model) openSSH() tea.Cmd {
 
 func newSSHDialog(m Model) *dialog {
 	d := newDialog(m, " SSH from local ", []string{"Opens a terminal here logged in to the host, with your ssh config and keys. Nothing is installed there."},
-		[]string{"Host"}, nil)
+		[]string{"Host", "SSH options"}, nil)
 	d.fields[0].in.Placeholder = "user@host, host alias or ssh://user@host:port"
-	d.submit = func(m *Model, v []string) tea.Cmd { return m.connectSSH(strings.TrimSpace(v[0])) }
+	d.fields[1].in.Placeholder = "optional, e.g. -o KexAlgorithms=+diffie-hellman-group14-sha1 -p 2222"
+	d.submit = func(m *Model, v []string) tea.Cmd {
+		args, err := parseSSHArgs(v[1])
+		if err != nil {
+			m.overlay = d // keep what was typed
+			m.setFlash(err.Error(), true)
+			return nil
+		}
+		target := strings.TrimSpace(v[0])
+		if len(args) == 0 {
+			return m.connectSSH(target) // a saved host keeps its own
+		}
+		return m.connectSSHWith(target, args)
+	}
 	return d
 }
 
-// startSSH opens a terminal on this computer running ssh to target, outside
-// every project.
-func (m Model) startSSH(target string) tea.Cmd {
-	command, err := remote.LoginCommand(target)
+// startSSH opens a terminal on this computer running ssh to target with
+// extra options, outside every project.
+func (m Model) startSSH(target string, args []string) tea.Cmd {
+	command, err := remote.LoginCommand(target, args...)
 	if err != nil {
 		return func() tea.Msg { return errMsg{err} }
 	}
@@ -180,7 +209,7 @@ func (m Model) startSSH(target string) tea.Cmd {
 	}
 	cols, rows := m.paneArea()
 	home, _ := os.UserHomeDir()
-	params := proto.PaneCreateParams{Name: "ssh " + sshName(target), Command: command, Cwd: home, Cols: cols, Rows: rows, NoProject: true}
+	params := proto.PaneCreateParams{Name: sshDisplay(target, m.sshInfo[target]), Command: command, Cwd: home, Cols: cols, Rows: rows, NoProject: true}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -221,10 +250,19 @@ func newTabMenu(m Model, x, y int) *menu {
 }
 
 // savedSSHLines is the page of a saved host with no session open to it.
-func savedSSHLines(target string, w int) []string {
-	return []string{
-		fit(styleBold.Render("ssh "+sshName(target))+styleMuted.Render("  saved · not connected"), w),
-		"",
-		styleMuted.Render(ansi.Truncate("enter or click connect · x forget", w, "…")),
+func savedSSHLines(target string, info sshHostInfo, folder string, w int) []string {
+	lines := []string{fit(styleBold.Render(sshDisplay(target, info))+styleMuted.Render("  saved · not connected"), w), ""}
+	if info.Name != "" {
+		lines = append(lines, fit(styleMuted.Render("host     ")+sshName(target), w))
 	}
+	if folder != "" {
+		lines = append(lines, fit(styleMuted.Render("folder   ")+folder, w))
+	}
+	if len(info.Args) > 0 {
+		lines = append(lines, fit(styleMuted.Render("options  ")+sshArgsText(info.Args), w))
+	}
+	if len(lines) > 2 {
+		lines = append(lines, "")
+	}
+	return append(lines, styleMuted.Render(ansi.Truncate("enter or click connect · e edit · K copy key (no password) · drag into a folder · x forget", w, "…")))
 }

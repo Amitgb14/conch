@@ -77,6 +77,12 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			from, to := m.rowDrag, m.rowDrop
 			m.rowDrag, m.rowDrop = "", ""
 			if to == "" {
+				// A saved host is connected by a click, and a press on it
+				// may have been the start of a drag: let go where it was
+				// picked up, it was the click.
+				if r, ok := m.rowAtY(msg.X, msg.Y); ok && r.id == from && r.kind == kindSavedSSH {
+					return m, m.connectSSH(savedSSHTarget(r.id))
+				}
 				return m, nil // let go over nothing that takes a pane
 			}
 			return m, m.dropRowOnTab(from, to)
@@ -770,7 +776,13 @@ func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Mode
 	m.focus = focusSidebar
 	cmd := m.syncView()
 	if left && r.kind == kindSavedSSH {
-		// A saved host has nothing to show until it is connected.
+		// A saved host has nothing to show until it is connected. With an
+		// SSH folder to drag it to, the press may start a drag, and the
+		// click connects on release instead.
+		if len(m.folders[sshFolderKey()]) > 0 {
+			m.rowDrag, m.rowDrop = r.id, ""
+			return m, cmd
+		}
 		return m, tea.Batch(cmd, m.connectSSH(savedSSHTarget(r.id)))
 	}
 	if left && !r.expandable() {
@@ -875,6 +887,11 @@ func (m *Model) dropRowOnTab(fromID, toID string) tea.Cmd {
 		case toID:
 			to = r
 		}
+	}
+	// A saved host, or a session to one, goes in an SSH folder as the
+	// host, so its sessions follow it.
+	if cmd, ok := m.dropOnSSHFolder(from, to); ok {
+		return cmd
 	}
 	if from.kind != kindPane || from.paneID == "" {
 		return nil

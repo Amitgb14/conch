@@ -192,6 +192,8 @@ func (m *Model) folderSection(r row) (machine, projectID string, kind nodeKind, 
 		return r.machine, r.projectID, r.kind, true
 	case kindFolder:
 		return r.machine, r.projectID, r.section, true
+	case kindSavedSSH: // a saved host is listed in its machine's SSH
+		return r.machine, "", kindSSH, true
 	case kindPane:
 		p := m.pane(r.machine, r.paneID)
 		if p == nil {

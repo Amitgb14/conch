@@ -156,7 +156,6 @@ func (m Model) rowLine(r row, w int) string {
 	}
 	glyph, glyphStyle, label, labelStyle, right := m.rowParts(r)
 	selected := r.id == m.cursor
-
 	// While a row is carried to a tab's section, the section it would land
 	// in is marked, as a split's drop target is on the bar.
 	if m.rowDrag != "" && m.rowDrop == r.id {
@@ -261,7 +260,8 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 	case kindSSH:
 		return "", glyphStyle, "SSH", styleMuted, styleMuted.Render(fmt.Sprint(r.count))
 	case kindSavedSSH:
-		return "○", styleMuted, "ssh " + sshName(savedSSHTarget(r.id)), styleMuted, styleMuted.Render("saved")
+		target := savedSSHTarget(r.id)
+		return "○", styleMuted, sshDisplay(target, m.sshInfo[target]), styleMuted, styleMuted.Render("saved")
 	case kindCLI:
 		return "❯", styleAccent, "CLI", styleBold, styleMuted.Render(fmt.Sprint(r.count))
 	case kindWorkspace:
@@ -583,7 +583,11 @@ func (m Model) leafTitle(l *leaf) string {
 		}
 		return " " + what + " · CLI "
 	case kindSavedSSH:
-		return " ssh · " + sshName(savedSSHTarget(v.Row)) + " "
+		target := savedSSHTarget(v.Row)
+		if name := m.sshInfo[target].Name; name != "" {
+			return " " + name + " "
+		}
+		return " ssh · " + sshName(target) + " "
 	case kindProject, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " " + proj.Name + " "
@@ -701,7 +705,8 @@ func (m Model) leafBody(l *leaf, w, h int, focused bool) []string {
 	case kindAgents, kindTerminals, kindSSH:
 		return m.sectionLines(v.Machine, v.ProjectID, v.Kind, w)
 	case kindSavedSSH:
-		return savedSSHLines(savedSSHTarget(v.Row), w)
+		target := savedSSHTarget(v.Row)
+		return savedSSHLines(target, m.sshInfo[target], m.hostFolder(target), w)
 	case kindProject, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return m.projectLines(v.Machine, *proj, w)

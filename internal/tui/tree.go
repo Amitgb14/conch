@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -123,9 +124,10 @@ type treeMachine struct {
 	label    string
 	panes    []proto.PaneInfo
 	projects []proto.ProjectInfo
-	agents   map[string]bool // panes that have ever run an agent
-	sessions bool            // the server lists saved sessions
-	savedSSH []string        // ssh hosts kept in the tree (this computer only)
+	agents   map[string]bool        // panes that have ever run an agent
+	sessions bool                   // the server lists saved sessions
+	savedSSH []string               // ssh hosts kept in the tree (this computer only)
+	sshInfo  map[string]sshHostInfo // saved hosts' names and options
 }
 
 // treeInput is everything the tree is built from.
@@ -453,30 +455,32 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 			looseTerms = append(looseTerms, p)
 		}
 	}
-	// Saved hosts with no session open to them stay listed under SSH, to
-	// connect again with a click.
-	var saved []row
-	for _, target := range idleSavedSSH(mach.savedSSH, looseSSH) {
-		if match(target) || match(sshName(target)) {
-			saved = append(saved, row{id: savedSSHID(target), kind: kindSavedSSH, depth: 3, machine: mid})
-		}
-	}
+	sshRows, savedCount := sshSectionRows(in, mach, looseSSH, match, open, paneRows)
 	for _, sec := range []struct {
 		id    string
 		kind  nodeKind
 		panes []proto.PaneInfo
-		extra []row
-	}{{machineID(mid) + "/agents", kindAgents, looseAgents, nil}, {looseTerminalsID(mid), kindTerminals, looseTerms, nil}, {looseSSHID(mid), kindSSH, looseSSH, saved}} {
-		frows, loose := foldered(in, mid, "", sec.kind, sec.panes, 3, false, paneRows, open)
-		if prows := append(append(frows, paneRows(loose, 3, false)...), sec.extra...); len(prows) > 0 {
-			cli = append(cli, row{id: sec.id, kind: sec.kind, depth: 2, machine: mid, count: len(sec.panes) + len(sec.extra)})
+		rows  []row
+		count int
+	}{
+		{machineID(mid) + "/agents", kindAgents, looseAgents, nil, len(looseAgents)},
+		{looseTerminalsID(mid), kindTerminals, looseTerms, nil, len(looseTerms)},
+		{looseSSHID(mid), kindSSH, looseSSH, sshRows, len(looseSSH) + savedCount},
+	} {
+		prows := sec.rows
+		if sec.kind != kindSSH {
+			frows, loose := foldered(in, mid, "", sec.kind, sec.panes, 3, false, paneRows, open)
+			prows = append(frows, paneRows(loose, 3, false)...)
+		}
+		if len(prows) > 0 {
+			cli = append(cli, row{id: sec.id, kind: sec.kind, depth: 2, machine: mid, count: sec.count})
 			if open(sec.id, true) {
 				cli = append(cli, prows...)
 			}
 		}
 	}
 	if len(cli) > 0 {
-		body = append(body, row{id: cliID(mid), kind: kindCLI, depth: 1, machine: mid, count: len(loose) + len(saved)})
+		body = append(body, row{id: cliID(mid), kind: kindCLI, depth: 1, machine: mid, count: len(loose) + savedCount})
 		if open(cliID(mid), true) {
 			body = append(body, cli...)
 		}
@@ -490,6 +494,82 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 		rows = append(rows, body...)
 	}
 	return rows
+}
+
+// sshSectionRows are the rows under a machine's SSH section: its folders
+// (folders.go), then the sessions and idle saved hosts in none. A folder
+// there holds saved hosts as well as panes: a host's sessions are listed in
+// its folder, and the host itself while no session is open to it. A host's
+// place is settled before any pane's, so a session is never split from its
+// host by a pane member naming it elsewhere. saved counts the idle saved
+// hosts listed.
+func sshSectionRows(in treeInput, mach treeMachine, sessions []proto.PaneInfo, match func(string) bool,
+	open func(string, bool) bool, paneRows func([]proto.PaneInfo, int, bool) []row) (rows []row, saved int) {
+	mid := mach.id
+	idle := idleSavedSSH(mach.savedSSH, sessions)
+	hostRows := func(targets []string, depth int) []row {
+		var out []row
+		for _, t := range targets {
+			if match(t) || match(sshName(t)) || match(mach.sshInfo[t].Name) {
+				out = append(out, row{id: savedSSHID(t), kind: kindSavedSSH, depth: depth, machine: mid})
+			}
+		}
+		return out
+	}
+	fs := in.folders[folderKey(mid, "", kindSSH)]
+	folderOf := map[string]int{}
+	for i, f := range fs {
+		for _, mem := range f.Members {
+			if _, seen := folderOf[mem.Host]; mem.Host != "" && !seen && slices.Contains(mach.savedSSH, mem.Host) {
+				folderOf[mem.Host] = i
+			}
+		}
+	}
+	taken := map[string]bool{}
+	mine := make([][]proto.PaneInfo, len(fs))
+	for _, p := range sessions {
+		if i, ok := folderOf[sshTarget(p)]; ok {
+			mine[i] = append(mine[i], p)
+			taken[p.ID] = true
+		}
+	}
+	for i, f := range fs {
+		mine[i] = append(mine[i], f.claim(sessions, taken)...)
+	}
+	for i, f := range fs {
+		var hosts []string
+		for _, t := range idle {
+			if j, ok := folderOf[t]; ok && j == i {
+				hosts = append(hosts, t)
+			}
+		}
+		hrows := hostRows(hosts, 4)
+		saved += len(hrows)
+		kids := append(paneRows(mine[i], 4, false), hrows...)
+		if in.filter != "" && len(kids) == 0 {
+			continue // narrowed away with everything in it
+		}
+		fid := folderRowID(mid, "", kindSSH, f.Name)
+		rows = append(rows, row{id: fid, kind: kindFolder, depth: 3, machine: mid, count: len(mine[i]) + len(hosts),
+			label: f.Name, section: kindSSH})
+		if open(fid, true) {
+			rows = append(rows, kids...)
+		}
+	}
+	var loose []proto.PaneInfo
+	for _, p := range sessions {
+		if !taken[p.ID] {
+			loose = append(loose, p)
+		}
+	}
+	var hosts []string
+	for _, t := range idle {
+		if _, ok := folderOf[t]; !ok {
+			hosts = append(hosts, t)
+		}
+	}
+	hrows := hostRows(hosts, 3)
+	return append(append(rows, paneRows(loose, 3, false)...), hrows...), saved + len(hrows)
 }
 
 // listedBranches picks the branches worth showing: checked-out ones (main

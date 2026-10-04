@@ -125,6 +125,11 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "t":
 		return m, m.openTaskDialog()
 	case "a":
+		if ok && r.kind == kindFolder && r.section == kindSSH && r.machine == localMachine && r.projectID == "" {
+			d := newSSHHostDialog(m, "", r.label) // a host to keep in this folder
+			m.overlay = d
+			return m, d.focusCmd()
+		}
 		pl := m.contextPlace()
 		if m.clientOf(pl.machine) == nil {
 			m.setFlash(m.offlineText(pl.machine), true)
@@ -144,10 +149,21 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case "H":
 		return m, m.openSSH()
+	case "e":
+		if t := m.sshTargetOfRow(r); ok && t != "" {
+			return m, m.openEditSSH(t)
+		}
+	case "K":
+		if t := m.sshTargetOfRow(r); ok && t != "" {
+			return m, m.copySSHKey(t)
+		}
 	case "M":
 		m.overlay = newAddMenu()
 		return m, nil
 	case "r":
+		if ok && r.kind == kindSavedSSH {
+			return m, m.openEditSSH(savedSSHTarget(r.id))
+		}
 		m.openRename()
 	case "N":
 		return m, m.openNewFolder()
