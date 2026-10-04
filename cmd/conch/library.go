@@ -10,12 +10,14 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/Amitgb14/conch/internal/agentsetup"
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
 const libraryUsage = `usage: conch agent library [list]
        conch agent library add [-to NAMES] [-env K=${V}]... [-header K=V]... [-sse] NAME (URL | -- COMMAND [ARGS...])
+       conch agent library mcp [-to NAMES]
        conch agent library skill [-to NAMES] NAME FOLDER
        conch agent library on|off NAME NAMES
        conch agent library rm NAME
@@ -110,6 +112,22 @@ func runLibrary(c *client.Client, w io.Writer, cmd string, args []string) error 
 			lib.Servers = append(lib.Servers, s)
 		}
 		return save(lib)
+
+	case "mcp":
+		// conch's own tools, in one action: the entry is the same for
+		// every agent, so there is nothing to type and nothing to get
+		// wrong (agentsetup.ConchServer).
+		fs := flag.NewFlagSet("agent library mcp", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		to := fs.String("to", "all", "the agents to give it to, comma separated, or all")
+		if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+			return errors.New(libraryUsage)
+		}
+		res, err := get(proto.AgentLibraryParams{})
+		if err != nil {
+			return err
+		}
+		return save(agentsetup.WithConch(res.Library, agentList(*to, res.Agents)))
 
 	case "skill":
 		fs := flag.NewFlagSet("agent library skill", flag.ContinueOnError)

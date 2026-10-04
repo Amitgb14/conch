@@ -250,6 +250,7 @@ conch agent library                                        # the library, a colu
 conch agent library import claude                          # take Claude Code's in
 conch agent library add -to codex,devin -env GITHUB_TOKEN='${GITHUB_TOKEN}' github -- npx -y @modelcontextprotocol/server-github
 conch agent library add -header 'Authorization=Bearer ${DOCS_TOKEN}' docs https://docs.example/mcp
+conch agent library mcp                                    # conch's own tools (conch mcp), one action
 conch agent library skill review ~/skills/review
 conch agent library off github codex                       # untick one
 conch agent library plan                                   # what apply would write

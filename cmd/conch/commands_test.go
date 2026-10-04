@@ -1019,6 +1019,37 @@ func TestA4AgentLibrary(t *testing.T) {
 		got[0].Headers["Authorization"] != "Bearer ${T}" || len(got[0].Agents) != 5 {
 		t.Fatalf("replaced %+v", got)
 	}
+	// conch's own tools in one action: nothing to type, and twice is once.
+	if _, err := run("mcp"); err != nil {
+		t.Fatalf("library mcp: %v", err)
+	}
+	if _, err := run("mcp", "-to", "codex"); err != nil {
+		t.Fatalf("library mcp -to: %v", err)
+	}
+	mu.Lock()
+	var conch []proto.LibraryServer
+	for _, sv := range lib.Servers {
+		if sv.Name == "conch" {
+			conch = append(conch, sv)
+		}
+	}
+	mu.Unlock()
+	if len(conch) != 1 {
+		t.Fatalf("%d entries called conch, want 1: %+v", len(conch), conch)
+	}
+	if conch[0].Command != "conch" || strings.Join(conch[0].Args, " ") != "mcp" {
+		t.Errorf("conch entry runs %q %v", conch[0].Command, conch[0].Args)
+	}
+	if strings.Join(conch[0].Agents, ",") != "codex" {
+		t.Errorf("-to codex gave it to %v", conch[0].Agents)
+	}
+	if _, err := run("mcp", "extra"); err == nil {
+		t.Error("library mcp takes no arguments, but accepted one")
+	}
+	if _, err := run("rm", "conch"); err != nil {
+		t.Fatalf("rm conch: %v", err)
+	}
+
 	if _, err := run("skill", "-to", "claude", "tide", "~/skills/tide"); err != nil {
 		t.Fatal(err)
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Amitgb14/conch/internal/agentsetup"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -298,5 +299,60 @@ func TestSplitAndJoinArgs(t *testing.T) {
 	}
 	if libraryAgent("claude") != "Cl" || libraryAgent("aider") != "ai" || libraryAgent("x") != "x" {
 		t.Fatal("libraryAgent")
+	}
+}
+
+// TestLibraryOffersConchsOwnTools: installing conch's MCP server is one
+// row, because the entry is the same for every agent and there is nothing
+// to fill in. It is offered only while it is missing — once it is in the
+// library it is an ordinary row, and a second "add" would be a way to get
+// two of it.
+func TestLibraryOffersConchsOwnTools(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	s := &settings{tab: 2}
+	m.overlay = s
+	s.openPage("library")
+	m.machines[0].c = a2Client(proto.CapAgentLibrary)
+	m.receiveLibrary(libraryMsg{res: libFixture()})
+
+	find := func(prefix string) (settingItem, bool) {
+		for _, it := range s.libraryItems(m) {
+			if strings.HasPrefix(ansi.Strip(it.label), prefix) {
+				return it, true
+			}
+		}
+		return settingItem{}, false
+	}
+	row, ok := find("Add conch's own tools")
+	if !ok {
+		t.Fatalf("no row for conch's own tools:\n%s", libPage(t, m, s))
+	}
+	if !strings.Contains(ansi.Strip(row.detail), "conch mcp") {
+		t.Errorf("the row does not say what it runs: %q", ansi.Strip(row.detail))
+	}
+	if row.run == nil || row.run(m) == nil {
+		t.Fatal("choosing it does not ask the server to save")
+	}
+
+	// What it would save: the entry agentsetup decides, beside the server
+	// that was already there.
+	lib := agentsetup.WithConch(libFixture().Library, libAgents)
+	if len(lib.Servers) != 2 || lib.Servers[0].Name != "gh" {
+		t.Fatalf("it disturbed the rest: %+v", lib.Servers)
+	}
+	if got := lib.Servers[1]; got.Name != "conch" || got.Command != "conch" || strings.Join(got.Args, " ") != "mcp" {
+		t.Fatalf("the entry is %+v", got)
+	}
+
+	// With it in the library, the row is gone and the server is listed.
+	res := libFixture()
+	res.Library = lib
+	m.receiveLibrary(libraryMsg{res: res})
+	if _, ok := find("Add conch's own tools"); ok {
+		t.Errorf("it is offered again although the library has it:\n%s", libPage(t, m, s))
+	}
+	if page := libPage(t, m, s); !strings.Contains(page, "conch stdio · conch") {
+		t.Errorf("conch is not listed as a server:\n%s", page)
 	}
 }

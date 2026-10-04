@@ -66,10 +66,11 @@ Usage:
                                 give the other agents one agent's setup — a checkout's, or
                                 with -user your own (~/.claude and the rest); without
                                 -apply it only says what it would do
-  conch agent library [add | skill | on | off | rm | import AGENT | plan | apply | undo]
+  conch agent library [add | mcp | skill | on | off | rm | import AGENT | plan | apply | undo]
                                 MCP servers and skills kept in conch, each given to the
                                 agents you choose: add NAME (URL | -- COMMAND ARGS),
-                                -to NAMES, -env K=${VAR}; plan says what apply writes
+                                -to NAMES, -env K=${VAR}; mcp adds conch's own tools
+                                (conch mcp); plan says what apply writes
   conch project add PATH | create [-no-git] PATH | ls | rm ID | files ID [-reset | -none | PATTERN...]
                                 manage projects shown in the sidebar
   conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] PROMPT

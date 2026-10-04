@@ -189,15 +189,46 @@ conch close reviewer         # its branch and worktree stay
 An agent that would rather call a tool than run a command can reach the same work through `conch mcp`, an MCP server over stdin and stdout:
 
 ```sh
-conch agent library add conch -- conch mcp
-conch agent library apply
+conch agent library mcp          # conch's own tools, as a server in the library
+conch agent library apply        # write it into each agent's configuration
 ```
+
+Or in the TUI: `,` → **Agents** → **Shared MCP servers & skills…** → **Add conch's own tools…**, then **Apply…**. Restart an agent afterwards for its client to list the tools.
 
 The [library](/docs/tasks#shared-mcp-servers-and-skills) writes it into each agent's own configuration, so this is one action rather than five formats. Its tools are `list`, `read`, `start`, `prompt`, `wait`, `task` and `rename` — the same server calls the commands above make, so neither door tells the agent something the other wouldn't. A tool call comes back as a typed result and a refusal written for the agent to act on: a prompt onto an open question says to read the screen and answer it, and a wait that runs out says it timed out rather than failing.
 
 `list` says which subagents are running inside each agent too (the ones above), so an agent waiting on a helper can see it is busy without reading its screen.
 
 The skill above teaches the commands. An agent that has both should use whichever its client makes easier; nothing goes wrong if it mixes them, since both reach one server.
+
+### Three reviewers at once
+
+Where the tools earn their keep is a job with several helpers in it. One agent reviewing `auth.py`, another `billing.py`, a third the tests — three agents, three branches, three worktrees — driven by a lead agent that never runs a shell command:
+
+```jsonc
+task   {"prompt":"review auth.py",    "branch":"review-auth",    "agent":"claude", "name":"auth"}
+→ p2: claude started on branch review-auth in /src/api.worktrees/review-auth.
+  Wait for it (the wait tool) before prompting it: conch has to see the agent start
+
+task   {"prompt":"review billing.py", "branch":"review-billing", "agent":"codex",  "name":"billing"}
+task   {"prompt":"review the tests",  "branch":"review-tests",   "agent":"gemini", "name":"tests"}
+
+wait   {"pane":"auth", "state":["idle","waiting"], "timeout_seconds":1800}
+→ p2: claude is idle
+
+prompt {"pane":"auth", "text":"Write what you found to FINDINGS.md, worst first."}
+read   {"pane":"auth", "tail":20}
+→ …what it said
+```
+
+Four things that are harder from a shell, and why each matters:
+
+- **Nothing is parsed.** `list` answers with data — `{"pane":"p3","name":"billing","agent":"codex","agent_state":"idle","branch":"review-billing"}` — where `conch status` answers with a table whose columns move when a name gets longer. With three helpers to keep track of, a mis-split prompts the wrong agent.
+- **Three kinds of agent, one interface.** `agent` is just a name; how each is launched, resumed and detected is conch's business. Reviewers that disagree usefully are the point of fanning out.
+- **The order comes from the tool.** Each `task` says to wait before prompting, because conch has to *see* an agent start before it can be messaged. Without that, a prompt sent in the same breath is refused — and an agent that then reaches for `conch send` types into whatever is on screen, which may be a trust question nobody read.
+- **It stops at the boundary.** Every pane above is the lead's own. Reach outside and the answer is `out_of_scope: … it did not start it, and it is in another project`, which an agent can repeat to you instead of working around.
+
+For one helper and one question, `conch task` and `conch wait` in a terminal are two lines and need none of this. The tools pay off when there are several helpers, several kinds of agent, or a client where every shell command needs your approval and a tool can be allowed once.
 
 ## What an agent may do
 

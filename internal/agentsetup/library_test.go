@@ -590,3 +590,56 @@ func TestUndoOlderRecords(t *testing.T) {
 		t.Fatal("the record is still there")
 	}
 }
+
+// TestConchServerEntry: conch's own tools are one entry, the same for every
+// agent, so installing them is one action rather than five formats. The
+// command is the bare name on purpose — an update moves this binary, and
+// an agent conch starts has ~/.local/bin first.
+func TestConchServerEntry(t *testing.T) {
+	s := ConchServer([]string{"codex", "claude"})
+	if s.Name != ConchName || ConchName != "conch" {
+		t.Errorf("name %q", s.Name)
+	}
+	if s.Command != "conch" || len(s.Args) != 1 || s.Args[0] != "mcp" {
+		t.Errorf("runs %q %v", s.Command, s.Args)
+	}
+	if s.URL != "" || s.Transport != "" || len(s.Env) != 0 || len(s.Headers) != 0 {
+		t.Errorf("stdio only, and no secrets: %+v", s)
+	}
+	// Agents come back in the order conch lists them, not as given.
+	if strings.Join(s.Agents, ",") != "claude,codex" {
+		t.Errorf("agents %v", s.Agents)
+	}
+	// Whatever is wrong with a library, this entry must not be it.
+	if err := CheckLibrary(Library{Servers: []LibServer{s}}); err != nil {
+		t.Errorf("conch's own entry is refused: %v", err)
+	}
+}
+
+// TestWithConchIsIdempotent: adding it twice is adding it once, and it
+// leaves everything else where it was.
+func TestWithConchIsIdempotent(t *testing.T) {
+	lib := Library{Servers: []LibServer{{Name: "gh", Command: "npx", Agents: []string{"claude"}}}}
+	lib = WithConch(lib, []string{"claude"})
+	if len(lib.Servers) != 2 {
+		t.Fatalf("%d servers: %+v", len(lib.Servers), lib.Servers)
+	}
+	lib = WithConch(lib, []string{"codex"})
+	if len(lib.Servers) != 2 {
+		t.Fatalf("added twice: %+v", lib.Servers)
+	}
+	if lib.Servers[0].Name != "gh" || lib.Servers[0].Command != "npx" {
+		t.Errorf("the other server moved or changed: %+v", lib.Servers[0])
+	}
+	// The second call is what stands: the agents asked for most recently.
+	if i := indexServer(lib, ConchName); i < 0 || strings.Join(lib.Servers[i].Agents, ",") != "codex" {
+		t.Errorf("conch entry %+v", lib.Servers)
+	}
+	// An entry somebody wrote by hand under that name is replaced, not
+	// doubled: the library has one server per name.
+	lib = Library{Servers: []LibServer{{Name: ConchName, Command: "something-else", Agents: []string{"devin"}}}}
+	lib = WithConch(lib, []string{"claude"})
+	if len(lib.Servers) != 1 || lib.Servers[0].Command != "conch" {
+		t.Errorf("a hand-written entry: %+v", lib.Servers)
+	}
+}

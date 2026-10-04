@@ -1055,3 +1055,32 @@ func indexServer(lib Library, name string) int {
 	}
 	return -1
 }
+
+// ConchName is what conch's own MCP server is called in the library and in
+// every agent's configuration.
+const ConchName = "conch"
+
+// ConchServer is conch's own tools as a library entry, so installing them
+// is one action rather than one per agent's format: `conch mcp` on stdio,
+// which reaches the server over the socket the CLI uses and is scoped to
+// the pane the agent runs in.
+//
+// The command is the bare name rather than this binary's path: an agent is
+// started by conch, which puts ~/.local/bin first, and a path would pin a
+// build that an update moves. Nothing is passed in the environment —
+// `conch mcp` finds its socket the way every other command does.
+func ConchServer(agents []string) LibServer {
+	return LibServer{Name: ConchName, Command: "conch", Args: []string{"mcp"}, Agents: agentOrder(agents)}
+}
+
+// WithConch is lib with conch's own server in it, replacing an entry of
+// that name — adding it twice is the same as adding it once.
+func WithConch(lib Library, agents []string) Library {
+	s := ConchServer(agents)
+	if i := indexServer(lib, ConchName); i >= 0 {
+		lib.Servers[i] = s
+		return lib
+	}
+	lib.Servers = append(lib.Servers, s)
+	return lib
+}

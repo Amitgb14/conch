@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Amitgb14/conch/internal/agentsetup"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -148,6 +149,18 @@ func (m *Model) receiveLibraryApply(msg libraryApplyMsg) tea.Cmd {
 	return nil
 }
 
+// indexOfServer is where the server called name sits, or -1.
+func indexOfServer(servers []proto.LibraryServer, name string) int {
+	for i, s := range servers {
+		if s.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func ptr[T any](v T) *T { return &v }
+
 // libraryItems is the page: a row per server and skill with a column per
 // agent, and the ways to add, take in and apply.
 func (s *settings) libraryItems(m *Model) []settingItem {
@@ -196,6 +209,18 @@ func (s *settings) libraryItems(m *Model) []settingItem {
 		row(proto.SyncMCP, sv.Name, serverWhat(sv), func(m *Model) tea.Cmd { return m.openLibraryServer(s, &sv) })
 	}
 	items = append(items, settingItem{label: "Add a server…", run: func(m *Model) tea.Cmd { return m.openLibraryServer(s, nil) }})
+	// conch's own tools, in one row: the entry is the same for every agent,
+	// so there is nothing to fill in. Listed only while it is missing —
+	// once it is there it is a row above, like any other server.
+	if indexOfServer(lib.Library.Servers, agentsetup.ConchName) < 0 {
+		agents := lib.Agents
+		items = append(items, settingItem{label: "Add conch's own tools…",
+			detail: styleMuted.Render("conch mcp: start, prompt, wait on and read other agents"),
+			run: func(m *Model) tea.Cmd {
+				return m.loadLibrary(proto.AgentLibraryParams{Set: ptr(agentsetup.WithConch(lib.Library, agents))},
+					"conch's tools added; Apply gives them to the agents")
+			}})
+	}
 
 	items = append(items, settingItem{}, settingItem{header: true, label: "Skills", detail: head})
 	skills := append([]proto.LibrarySkill(nil), lib.Library.Skills...)

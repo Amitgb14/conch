@@ -85,6 +85,16 @@ Close the helpers you started once you have what you need:
 `conch close reviewer`. Their branches and worktrees stay for the person
 to review, merge or discard.
 
+## The same work as tools, if your client has them
+
+If your client lists conch's MCP tools — `list`, `read`, `start`, `prompt`,
+`wait`, `task`, `rename` — use those instead of the commands above. They are
+the same work: one server, the same scope, the same refusals, but a typed
+result rather than text to parse. If they are not listed, the commands above
+are the way, and the person can add the tools with
+`conch agent library mcp` and `conch agent library apply`. Mixing them is
+fine; don't ask the person to set them up mid-task.
+
 ## Rules
 
 - Use `conch agent prompt` to message an agent, never `conch send`:

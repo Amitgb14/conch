@@ -114,7 +114,7 @@ conch tells who is asking from the operating system — the process at the other
 | `conch agent skill [-agent NAMES] [-remove] [-apply]` | install conch's skill — how an agent in a conch pane starts, prompts and reads another — where each agent reads your skills: `~/.claude/skills/conch` for Claude, `~/.agents/skills/conch` for Codex, Gemini and OpenCode, `~/.config/devin/skills/conch` for Devin. Without `-apply` it only says what it would do; `-remove` takes it away again. A `conch` skill there that conch didn't write is left alone. With `-m` it installs on that machine. Not from an agent's pane: it is your setup |
 | `conch agent setup [-agent NAME] [-copy] [-json] [DIR]` | show what each agent loads in a folder; `-agent` limits it to one agent, `-copy` copies missing local files from the main checkout first, `-json` prints JSON |
 | `conch agent sync [-user] [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]` | give the other agents one agent's setup — instructions, skills, MCP servers — in a checkout, or with `-user` the setup in your home. Without `-apply` it only says what it would do; `-undo` puts a sync back. See [One setup, every agent](/docs/tasks#one-setup-every-agent) |
-| `conch agent library [list \| add \| skill \| on \| off \| rm \| import AGENT \| plan \| apply \| undo]` | MCP servers and skills kept in conch, each given to the agents you choose. `add NAME URL` or `add NAME -- COMMAND ARGS` with `-to NAMES`, `-env K=${VAR}`, `-header K=V`, `-sse`; `skill NAME FOLDER`; `on`/`off NAME AGENTS`; `plan` says what `apply` would write. See [Shared MCP servers and skills](/docs/tasks#shared-mcp-servers-and-skills) |
+| `conch agent library [list \| add \| mcp \| skill \| on \| off \| rm \| import AGENT \| plan \| apply \| undo]` | MCP servers and skills kept in conch, each given to the agents you choose. `add NAME URL` or `add NAME -- COMMAND ARGS` with `-to NAMES`, `-env K=${VAR}`, `-header K=V`, `-sse`; `skill NAME FOLDER`; `on`/`off NAME AGENTS`; `plan` says what `apply` would write. See [Shared MCP servers and skills](/docs/tasks#shared-mcp-servers-and-skills) |
 
 ### project
 
@@ -228,12 +228,16 @@ An agent that would rather call a tool than a command talks to conch through `co
 
 The tools are the same work as [`conch agent prompt`](#agent), `conch wait`, `conch task` and the rest — the same server methods with the same payloads — so the two doors cannot drift. Scope comes for free: conch finds the caller from the socket's peer pid walked up to a pane's program, so an MCP server an agent starts inside its own pane reaches only [what that pane may reach](/docs/agents-together#what-an-agent-may-do), and nothing in a tool call can widen it.
 
-Install it the way you install any server, with the [library](/docs/tasks#shared-mcp-servers-and-skills) so every agent gets it in its own format:
+Installing it is one action, because the entry is the same for every agent — the [library](/docs/tasks#shared-mcp-servers-and-skills) writes it in each one's own format:
 
 ```sh
-conch agent library add conch -- conch mcp
-conch agent library apply
+conch agent library mcp          # conch's own tools, as a server in the library
+conch agent library apply        # write it into each agent's configuration
 ```
+
+Or in the TUI: `,` → **Agents** → **Shared MCP servers & skills…** → **Add conch's own tools…**, then **Apply…**. It is `conch mcp` on stdio with nothing in its environment — it finds its socket the way every other command does — and the command is the bare name, so an update that moves the binary doesn't strand it. Adding it twice is adding it once. Restart an agent afterwards for its client to list the tools.
+
+[Three reviewers at once](/docs/agents-together#three-reviewers-at-once) is what this is for: several helpers, several kinds of agent, no shell.
 
 Stdin and stdout are the protocol: notes go to stderr, requests are answered one at a time in order, and a `wait` tool holds the session until it ends, as `conch wait` holds a shell.
 
