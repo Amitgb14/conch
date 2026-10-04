@@ -184,6 +184,21 @@ conch close reviewer         # its branch and worktree stay
 
 `-name reviewer` on `conch task`, or `conch rename ID NAME` on any pane, lets every pane command address it by name: `send`, `read`, `close`, `redraw`, `wait`, `agent prompt`, `agent explain`. An ID (`p` and a number) always means the ID, so names of that shape are refused, and a name two running panes share is refused rather than guessed. See [pane names](/docs/cli#pane-names).
 
+## Through MCP instead of the command line
+
+An agent that would rather call a tool than run a command can reach the same work through `conch mcp`, an MCP server over stdin and stdout:
+
+```sh
+conch agent library add conch -- conch mcp
+conch agent library apply
+```
+
+The [library](/docs/tasks#shared-mcp-servers-and-skills) writes it into each agent's own configuration, so this is one action rather than five formats. Its tools are `list`, `read`, `start`, `prompt`, `wait`, `task` and `rename` — the same server calls the commands above make, so neither door tells the agent something the other wouldn't. A tool call comes back as a typed result and a refusal written for the agent to act on: a prompt onto an open question says to read the screen and answer it, and a wait that runs out says it timed out rather than failing.
+
+`list` says which subagents are running inside each agent too (the ones above), so an agent waiting on a helper can see it is busy without reading its screen.
+
+The skill above teaches the commands. An agent that has both should use whichever its client makes easier; nothing goes wrong if it mixes them, since both reach one server.
+
 ## What an agent may do
 
 An agent calling conch from inside its pane may start panes and tasks and read anything. What it may **change** is kept to its own work:

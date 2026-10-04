@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -71,43 +70,11 @@ func agentPrompt(args []string) error {
 	return waitTurn(c, res, want, *until, *timeout)
 }
 
-// waitTurn waits for the agent to reach one of the states wanted in the
-// turn that answers the prompt. A question it asks ends the wait whatever
-// the turn: none was open when the message went in.
+// waitTurn waits for the work that answers a prompt and says how it ended.
 func waitTurn(c *client.Client, res proto.AgentPromptResult, want map[string]bool, until string, timeout time.Duration) error {
-	var late <-chan time.Time
-	if timeout > 0 {
-		t := time.NewTimer(timeout)
-		defer t.Stop()
-		late = t.C
+	info, state, err := awaitTurn(c, res, want, until, timeout)
+	if err != nil {
+		return err
 	}
-	for {
-		select {
-		case msg, ok := <-c.Events:
-			if !ok {
-				if err := c.Err(); err != nil {
-					return err
-				}
-				return errors.New("the server closed the connection")
-			}
-			var p proto.PaneInfo
-			if msg.Data == nil || json.Unmarshal(msg.Data, &p) != nil || p.ID != res.ID {
-				continue
-			}
-			switch msg.Event {
-			case proto.EventPaneUpdated:
-				a := p.Agent
-				if a == nil || a.Name != res.Agent {
-					return fmt.Errorf("the %s agent in %s is gone before it was %s", res.Agent, res.ID, until)
-				}
-				if want[a.State] && (a.Turn >= res.Turn || a.State == proto.AgentBlocked) {
-					return printWaited(p, a.State)
-				}
-			case proto.EventPaneExited, proto.EventPaneClosed:
-				return endedErr(p, until)
-			}
-		case <-late:
-			return waitTimeout{after: timeout}
-		}
-	}
+	return printWaited(info, state)
 }

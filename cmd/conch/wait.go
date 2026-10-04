@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -58,57 +57,14 @@ func runWait(args []string) error {
 	}
 
 	// Connected before the pane is read, so an update between the two can
-	// only be queued for the loop below, never missed.
-	var list proto.PaneList
-	if err := call(c, proto.MethodPaneList, nil, &list); err != nil {
+	// only be queued for awaitState's loop, never missed.
+	info, got, err := awaitState(c, id, want, *state, *timeout, func(s string) {
+		fmt.Fprintln(os.Stderr, s)
+	})
+	if err != nil {
 		return err
 	}
-	info, ok := paneByID(list.Panes, id)
-	if !ok {
-		return fmt.Errorf("no pane %q", id)
-	}
-	if s := agentState(info); want[s] {
-		return printWaited(info, s)
-	}
-	// A pane that ended before the wait began sends no event to end it.
-	if info.State == proto.PaneExited {
-		return endedErr(info, *state)
-	}
-	if info.Agent == nil {
-		fmt.Fprintf(os.Stderr, "waiting for an agent to start in %s…\n", id)
-	}
-
-	var late <-chan time.Time
-	if *timeout > 0 {
-		t := time.NewTimer(*timeout)
-		defer t.Stop()
-		late = t.C
-	}
-	for {
-		select {
-		case msg, ok := <-c.Events:
-			if !ok {
-				if err := c.Err(); err != nil {
-					return err
-				}
-				return errors.New("the server closed the connection")
-			}
-			var p proto.PaneInfo
-			if msg.Data == nil || json.Unmarshal(msg.Data, &p) != nil || p.ID != id {
-				continue
-			}
-			switch msg.Event {
-			case proto.EventPaneUpdated:
-				if s := agentState(p); want[s] {
-					return printWaited(p, s)
-				}
-			case proto.EventPaneExited, proto.EventPaneClosed:
-				return endedErr(p, *state)
-			}
-		case <-late:
-			return waitTimeout{after: *timeout}
-		}
-	}
+	return printWaited(info, got)
 }
 
 // wantedStates turns "done,waiting" into the states to stop on.

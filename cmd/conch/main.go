@@ -124,6 +124,9 @@ Usage:
                                 list the paired phones, cut one off at once, or change
                                 what one may do (full types into terminals); stop ends a
                                 conch web running in the background (as P in the TUI starts it)
+  conch mcp                     an MCP server on stdin and stdout, for an agent that would rather
+                                call a tool than a command: start, prompt, wait, read, task, list
+                                and rename, with the scope of the pane it is started in
   conch ask [-y | -n] REQUEST   ask the brain; it proposes actions and runs them once you confirm
   conch update [VERSION | latest | list | rollback]
                                 replace this binary with the latest release, a named one
@@ -193,6 +196,8 @@ func main() {
 		err = runAsk(args)
 	case "web":
 		err = runWeb(args)
+	case "mcp":
+		err = runMCP(args)
 	case "version", "--version", "-v":
 		runVersion(args)
 	case "help", "--help", "-h":
