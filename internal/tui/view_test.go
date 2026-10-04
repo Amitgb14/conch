@@ -258,6 +258,19 @@ func TestA1RowParts(t *testing.T) {
 	// A pane on an offline machine is muted but still labelled.
 	mach.state = stateOffline
 	check("offline pane", pr("p1"), "○", "claude", "feat")
+	mach.state = stateOnline
+
+	// The dot says which agent, where the glyph in front of it says what the
+	// agent is doing. A terminal has none, nor has an agent conch has no dot
+	// for, and `icons = "off"` leaves every one of them out.
+	check("terminal has no dot", pr("p3"), "○", "bash", "exited")
+	was := mach.panes[0].Agent.Name
+	mach.panes[0].Agent.Name = "something-new"
+	check("an agent with no dot", pr("p1"), "○", "claude", "feat")
+	mach.panes[0].Agent.Name = was
+	m.cfg.UI.Icons = iconsOff
+	check("icons off", pr("p1"), "○", "claude", "feat")
+	m.cfg.UI.Icons = ""
 }
 
 func TestA1RowLineSelection(t *testing.T) {
@@ -764,6 +777,92 @@ func TestAgentsPageSummaryLineClicks(t *testing.T) {
 		a2Run(m.clickSectionPane(v, y))
 		if m.cursor != paneNodeID(localMachine, "p1") {
 			t.Fatalf("click at %d opened %q", y, m.cursor)
+		}
+	}
+}
+
+// TestA1AgentMarksKeepTheSidebarInside: the dots are emoji, two cells wide
+// where every other glyph is one, and the width of an emoji is the thing
+// terminals disagree about most — an ambiguous-width character drawn a cell
+// wider than it measures is what made the scrollbar's thumb scatter a
+// screen earlier. Every line the tree draws must still fit the sidebar it
+// is drawn in, at any width, with the marks on.
+func TestA1AgentMarksKeepTheSidebarInside(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	for name := range agentLabels {
+		if _, ok := agentDots[name]; !ok {
+			t.Errorf("no dot for %s, which agentLabels names", name)
+		}
+		if _, ok := agentGlyphs[name]; !ok {
+			t.Errorf("no glyph for %s, which agentLabels names", name)
+		}
+	}
+	// A row's width is worked out from these, so each has to measure what
+	// its kind measures: a dot is an emoji and two cells, a Nerd Font glyph
+	// is one.
+	for name, mark := range agentDots {
+		if w := ansi.StringWidth(mark); w != 2 {
+			t.Errorf("the dot for %s, %q, measures %d cells, not 2", name, mark, w)
+		}
+	}
+	for name, mark := range agentGlyphs {
+		if w := ansi.StringWidth(mark); w != 1 {
+			t.Errorf("the glyph for %s, %q, measures %d cells, not 1", name, mark, w)
+		}
+	}
+
+	// Every pane an agent, so every row carries one.
+	mach := m.machines[0]
+	for i := range mach.panes {
+		mach.panes[i].Agent = &proto.AgentStatus{Name: "claude", State: proto.AgentIdle}
+	}
+	m.rebuild()
+	for _, icons := range []string{iconsText, iconsNerd, iconsOff} {
+		m.cfg.UI.Icons = icons
+		for _, w := range []int{20, 24, 30, 34, 40, 60, 120} {
+			m.sidebarW = w
+			for i, r := range m.rows {
+				line := m.rowLine(r, w)
+				if got := ansi.StringWidth(line); got > w {
+					t.Fatalf("%s: row %d (%s) is %d wide in a sidebar of %d: %q", icons, i, r.id, got, w, ansi.Strip(line))
+				}
+			}
+		}
+	}
+	m.cfg.UI.Icons = ""
+
+	// Nerd Font glyphs instead of dots, and nothing at all with icons off.
+	m.cfg.UI.Icons = iconsNerd
+	got, style := m.agentMark(mach.panes[0])
+	if got != agentGlyphs["claude"]+" " {
+		t.Fatalf("nerd mode gave %q", got)
+	}
+	// The glyph is the agent's own colour, which is why it is drawn apart
+	// from the name: the label's style would otherwise take it.
+	if fg := style.GetForeground(); fg != agentColors["claude"] {
+		t.Fatalf("the glyph is %v, want Anthropic's %v", fg, agentColors["claude"])
+	}
+	m.cfg.UI.Icons = iconsOff
+	if got, _ := m.agentMark(mach.panes[0]); got != "" {
+		t.Fatalf("icons off gave %q", got)
+	}
+	m.cfg.UI.Icons = ""
+}
+
+// TestAgentGlyphsStayInTheBMP: the file icons keep to the Private Use Area
+// of the BMP because a Nerd Fonts v2 font draws nothing in the Material
+// range Nerd Fonts v3 moved to U+F0000, and a glyph a font has not got is
+// worse than none (fileicons.go). The agents' glyphs answer to the same
+// rule — one of them was a Material robot until this test was written.
+func TestAgentGlyphsStayInTheBMP(t *testing.T) {
+	for name, g := range agentGlyphs {
+		rs := []rune(g)
+		if len(rs) != 1 {
+			t.Errorf("%s: %q is %d runes, want one", name, g, len(rs))
+			continue
+		}
+		if r := rs[0]; r < 0xE000 || r > 0xF8FF {
+			t.Errorf("%s: U+%04X is outside the BMP private use area (U+E000-U+F8FF)", name, r)
 		}
 	}
 }

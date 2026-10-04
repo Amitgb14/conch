@@ -155,6 +155,15 @@ func (m Model) rowLine(r row, w int) string {
 		}
 	}
 	glyph, glyphStyle, label, labelStyle, right := m.rowParts(r)
+	// Which agent, between the glyph that says what it is doing and the
+	// name somebody gave it. It is drawn apart from the label so it can
+	// keep the agent's own colour, which the label's style would take.
+	mark, markStyle := "", styleMuted
+	if r.kind == kindPane {
+		if p := m.pane(r.machine, r.paneID); p != nil {
+			mark, markStyle = m.agentMark(*p)
+		}
+	}
 	selected := r.id == m.cursor
 	// While a row is carried to a tab's section, the section it would land
 	// in is marked, as a split's drop target is on the bar.
@@ -163,7 +172,7 @@ func (m Model) rowLine(r row, w int) string {
 		if glyph != "" {
 			plain += " "
 		}
-		return styleSel.Render(spread(plain+label, ansi.Strip(right), w))
+		return styleSel.Render(spread(plain+mark+label, ansi.Strip(right), w))
 	}
 
 	if selected {
@@ -171,7 +180,7 @@ func (m Model) rowLine(r row, w int) string {
 		if glyph != "" {
 			plain += " "
 		}
-		plain += label
+		plain += mark + label
 		style := styleSelDim
 		if m.focus == focusSidebar && m.overlay == nil {
 			style = styleSel
@@ -183,7 +192,7 @@ func (m Model) rowLine(r row, w int) string {
 	if glyph != "" {
 		left += " "
 	}
-	left += labelStyle.Render(label)
+	left += markStyle.Render(mark) + labelStyle.Render(label)
 	line := spread(left, right, w)
 	if m.hovering(r.id) {
 		// A tint under what the pointer is on, keeping the row's own
@@ -1207,4 +1216,80 @@ func centered(w, h int, content ...string) []string {
 		lines[top+i] = pad + c
 	}
 	return lines
+}
+
+// agentMarks are the marks in front of an agent's name in the tree, one per
+// agent, so which agent a pane runs reads at a glance rather than from the
+// name somebody gave the pane. The state glyph in front of them is left
+// alone: it says whether the agent wants you, which is the thing worth
+// seeing first.
+//
+// Two sets, because a terminal draws text and a logo is a picture. With
+// `[ui] icons = "nerd"` these are Nerd Font glyphs, of which exactly one is
+// the agent's own logo — Google's, for Gemini. Nerd Fonts carries Font
+// Awesome, Devicons, Material, Octicons, Codicons, Powerline, Seti and
+// Weather, and none of them has an Anthropic or an OpenAI mark, so the
+// others are a plain thing that suits the agent rather than a pretend
+// logo. The real marks would need a terminal's image protocol, which not
+// every terminal has and ssh and tmux lose.
+//
+// Each is in the Private Use Area of the BMP, for the reason the file icons
+// are (fileicons.go): a Nerd Fonts v2 font draws nothing in the Material
+// range at U+F0000, and a glyph a font has not got is worse than none.
+//
+// Otherwise they are coloured dots: emoji, so two cells wide where a glyph
+// is one, and the width of an emoji is the thing terminals disagree about
+// most. Every line the tree draws is measured with ansi.StringWidth and cut
+// to fit, so a terminal that draws one wider than it measures shortens the
+// name rather than spilling. `icons = "off"` leaves them out.
+var (
+	agentDots = map[string]string{
+		"claude":   "🟠", // terracotta, as Claude's own
+		"codex":    "🟢",
+		"gemini":   "🔵",
+		"opencode": "🟣",
+		"devin":    "🟡",
+	}
+	// agentColors are the agents' own, for the glyph in nerd mode. A dot
+	// carries its colour in the emoji itself and ignores a foreground.
+	agentColors = map[string]lipgloss.Color{
+		"claude":   "#D97757", // Anthropic's terracotta
+		"codex":    "#10A37F", // OpenAI's green
+		"gemini":   "#4285F4", // Google's blue
+		"opencode": "#C792EA",
+		"devin":    "#E3B341",
+	}
+	agentGlyphs = map[string]string{
+		"claude":   "\uf069", // an asterisk, which is the shape of Anthropic's own
+		"codex":    "\uf121", // </>
+		"gemini":   "\uf1a0", // Google's own, the one real logo here
+		"opencode": "\uf120", // a terminal
+		"devin":    "\uf135", // a rocket
+	}
+)
+
+// agentMark is the mark for a pane's agent, with the space after it, and
+// the colour to draw it in — the agent's own, so Claude's glyph is
+// Anthropic's terracotta. It is "" for a pane that is no agent, an agent
+// conch has no mark for, or icons off.
+func (m Model) agentMark(p proto.PaneInfo) (string, lipgloss.Style) {
+	if p.Agent == nil {
+		return "", styleMuted
+	}
+	marks := agentDots
+	switch iconMode(m.cfg.UI.Icons) {
+	case iconsOff:
+		return "", styleMuted
+	case iconsNerd:
+		marks = agentGlyphs
+	}
+	mark, ok := marks[p.Agent.Name]
+	if !ok {
+		return "", styleMuted
+	}
+	style := styleMuted
+	if c, ok := agentColors[p.Agent.Name]; ok {
+		style = lipgloss.NewStyle().Foreground(c)
+	}
+	return mark + " ", style
 }
