@@ -32,7 +32,11 @@ Status legend: ☐ not run · ◐ partly run (see note) · ✅ passed · ❌ fai
   for good: a run below and the plans refer to rows by number. Two branches
   adding rows at once both reached for the same next number six times, so
   check the highest in use before adding one — the row that had it first
-  keeps it (9.86-9.91 are the colliders, renumbered 2026-10-02).
+  keeps it (9.86-9.91 were renumbered on 2026-10-02, 9.99 and 9.100 on
+  2026-10-03). Branches that cannot see each other kept taking the same
+  next number, so `TestEndToEndPlanNumbersAreUnique` in `cmd/conch` now
+  reads this file and fails on a repeat, naming both rows and the next
+  free number.
 - Record the build (`conch version`), OS and date with each result.
 
 ## 1. Brain (model providers)
