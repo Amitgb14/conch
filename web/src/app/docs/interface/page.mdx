@@ -77,7 +77,7 @@ Git repositories show `◆ git`, existing projects `◆ project`. From the CLI: 
 
 ### Branches
 
-An agent started by another agent shows **↳ for** the pane that started it, and that pane shows **⑂N** for the helpers it has out — amber with `!` when one of them is waiting. See [Agents working together](/docs/agents-together).
+An agent started by another agent is **listed under it**, indented, and folds away with it; the agent that started them shows **⑂N** for the helpers it has out — amber with `!` when one of them is waiting. Where a helper cannot be listed under its agent — another section, another machine, or narrowed away by a search — it says **↳ for** the pane that started it instead, as it always did. See [Agents working together](/docs/agents-together).
 
 Each agent row shows what it has spent (Settings → Theme → Tree turns this off) — `$1.40` when the agent reports a cost (Claude Code and OpenCode do), otherwise what it has used, like `3.0k out` or `120k in` (Codex and Gemini CLI report no cost). The `Agents` section, the project and the machine show the total of the agents under them. This is only the usage conch has seen: plan windows are per account, so an agent you started outside conch spends the same window without appearing here. The project and machine pages spell that out in full.
 

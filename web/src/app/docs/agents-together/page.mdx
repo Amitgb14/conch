@@ -37,7 +37,17 @@ Other things to ask for the same way: *"have Codex write tests for this and run 
 
 ## Who started what
 
-A pane an agent started carries the pane it came from, so the tree reads as a chain of work rather than a list of strangers. A helper's row says **↳ for claude**; the agent that started them carries **⑂2**, which turns amber as **⑂2!** when one of them is waiting on a question. The review queue (`Q`), the jump to whoever needs you (`!`) and desktop notifications all name the same thing — *waiting for an answer for claude* — so the three read as one.
+A pane an agent started carries the pane it came from, so the tree reads as a chain of work rather than a list of strangers. It is **listed under** the agent that started it:
+
+```
+Agents
+  ▾ claude                      ⑂2
+      ↳ reviewer
+      ↳ tester
+    codex
+```
+
+Fold the agent and its helpers go with it. The agent that started them carries **⑂2**, which turns amber as **⑂2!** when one of them is waiting on a question. A helper that cannot sit under its agent — it is in another section, on another machine, or a search has narrowed the agent away — says **↳ for claude** on its own row instead. The review queue (`Q`), the jump to whoever needs you (`!`) and desktop notifications all name the same thing — *waiting for an answer for claude* — so the three read as one.
 
 A pane nobody started says nothing either way, and a creator that has gone leaves its helpers unclaimed rather than naming a pane that is not there.
 

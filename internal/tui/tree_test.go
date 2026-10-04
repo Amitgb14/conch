@@ -409,3 +409,54 @@ func TestBuildTreeFolders(t *testing.T) {
 		t.Fatalf("no folders changed the tree:\n%s\nwant\n%s", got, plain)
 	}
 }
+
+// TestBuildTreeNestsHelpers: a pane started by an agent is listed under it,
+// so who is working for whom is the shape of the tree and not a chip on
+// every row.
+func TestBuildTreeNestsHelpers(t *testing.T) {
+	in := sampleInput()
+	ps := &in.machines[0].panes
+	*ps = append(*ps,
+		proto.PaneInfo{ID: "p4", Name: "reviewer", ProjectID: "r1", Branch: "review", State: proto.PaneRunning,
+			CreatedBy: "p1", Agent: &proto.AgentStatus{Name: "claude"}},
+		proto.PaneInfo{ID: "p5", Name: "tester", ProjectID: "r1", Branch: "test", State: proto.PaneRunning,
+			CreatedBy: "p1", Agent: &proto.AgentStatus{Name: "codex"}},
+		proto.PaneInfo{ID: "p6", Name: "deep", ProjectID: "r1", State: proto.PaneRunning,
+			CreatedBy: "p4", Agent: &proto.AgentStatus{Name: "claude"}})
+	got := render(buildTree(in))
+	want := "      p:r1/agents\n        pane:p1\n          pane:p4\n            pane:p6\n          pane:p5\n"
+	if !strings.Contains(got, want) {
+		t.Fatalf("not nested:\n%s\nwant\n%s", got, want)
+	}
+
+	// Folded, the agent keeps its helpers to itself.
+	in.expanded = map[string]bool{paneNodeID(localMachine, "p1"): false}
+	got = render(buildTree(in))
+	if strings.Contains(got, "pane:p4") || !strings.Contains(got, "pane:p1") {
+		t.Fatalf("folded:\n%s", got)
+	}
+	in.expanded = map[string]bool{}
+
+	// A creator in another section is not a parent here: the helper is
+	// listed where it belongs, as it was before any of this.
+	in.machines[0].panes[len(in.machines[0].panes)-3].CreatedBy = "p2" // a terminal
+	got = render(buildTree(in))
+	if !strings.Contains(got, "      p:r1/agents\n        pane:p1\n          pane:p5\n") {
+		t.Fatalf("the other helper moved:\n%s", got)
+	}
+	if !strings.Contains(got, "        pane:p4\n") {
+		t.Fatalf("a helper of another section went missing:\n%s", got)
+	}
+
+	// A pane that claims to have started itself, and a pair that claim each
+	// other, are still listed — once each.
+	in.machines[0].panes[len(in.machines[0].panes)-3].CreatedBy = "p4"
+	in.machines[0].panes[len(in.machines[0].panes)-2].CreatedBy = "p6"
+	in.machines[0].panes[len(in.machines[0].panes)-1].CreatedBy = "p5"
+	got = render(buildTree(in))
+	for _, id := range []string{"pane:p4", "pane:p5", "pane:p6"} {
+		if n := strings.Count(got, id+"\n"); n != 1 {
+			t.Fatalf("%s listed %d times:\n%s", id, n, got)
+		}
+	}
+}

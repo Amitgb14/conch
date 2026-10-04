@@ -96,9 +96,14 @@ type row struct {
 	label     string   // a tab section's name, as the bar writes it
 	tabIndex  int      // a tab section: which tab it stands for
 	section   nodeKind // a folder: the section it sits in
+	kids      int      // a pane: how many panes it started are listed under it
+	nested    bool     // a pane: listed under the pane that started it
 }
 
 func (r row) expandable() bool {
+	if r.kind == kindPane {
+		return r.kids > 0 // an agent with helpers under it folds them away
+	}
 	switch r.kind {
 	case kindMachine, kindWorkspace, kindProject, kindBranches, kindAgents, kindTerminals, kindCLI, kindSSH,
 		kindSandboxes, kindSandboxProvider, kindTab, kindFolder:
@@ -292,19 +297,85 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 		return strings.ToLower(projects[i].Name) < strings.ToLower(projects[j].Name)
 	})
 
+	paneRow := func(p proto.PaneInfo, depth, kids int, nested bool) row {
+		return row{id: paneNodeID(mid, p.ID), kind: kindPane, depth: depth, machine: mid,
+			projectID: p.ProjectID, branch: p.Branch, paneID: p.ID, kids: kids, nested: nested}
+	}
+	// paneRows lists panes, with the ones an agent started under the agent
+	// that started it: a helper is somebody's helper, and reading the shape
+	// beats reading it off a chip on every row. A pane whose creator is not
+	// in the same list — another section, another machine, or filtered away
+	// — is listed where it would have been, with the ↳ chip it always had.
 	paneRows := func(panes []proto.PaneInfo, depth int, projectMatched bool) []row {
-		var out []row
+		shown := make([]proto.PaneInfo, 0, len(panes))
 		for _, p := range panes {
 			if waiting {
 				if p.Agent.NeedsAttention() {
-					out = append(out, row{id: paneNodeID(mid, p.ID), kind: kindPane, depth: depth, machine: mid,
-						projectID: p.ProjectID, branch: p.Branch, paneID: p.ID})
+					shown = append(shown, p)
 				}
 				continue
 			}
 			if projectMatched || match(p.DisplayName()) || match(p.Branch) {
-				out = append(out, row{id: paneNodeID(mid, p.ID), kind: kindPane, depth: depth, machine: mid,
-					projectID: p.ProjectID, branch: p.Branch, paneID: p.ID})
+				shown = append(shown, p)
+			}
+		}
+		here := make(map[string]bool, len(shown))
+		for _, p := range shown {
+			here[p.ID] = true
+		}
+		kids := map[string][]proto.PaneInfo{}
+		for _, p := range shown {
+			if p.CreatedBy != "" && here[p.CreatedBy] && p.CreatedBy != p.ID {
+				kids[p.CreatedBy] = append(kids[p.CreatedBy], p)
+			}
+		}
+		root := func(p proto.PaneInfo) bool {
+			return p.CreatedBy == "" || !here[p.CreatedBy] || p.CreatedBy == p.ID
+		}
+		// Which panes have a place in the forest at all, folded or not:
+		// folding an agent hides its helpers, it does not set them loose.
+		placed := map[string]bool{}
+		var walk func(p proto.PaneInfo)
+		walk = func(p proto.PaneInfo) {
+			if placed[p.ID] {
+				return // a pane that descends from itself stops here
+			}
+			placed[p.ID] = true
+			for _, k := range kids[p.ID] {
+				walk(k)
+			}
+		}
+		for _, p := range shown {
+			if root(p) {
+				walk(p)
+			}
+		}
+		var out []row
+		var emit func(p proto.PaneInfo, d int, seen map[string]bool)
+		emit = func(p proto.PaneInfo, d int, seen map[string]bool) {
+			if seen[p.ID] {
+				return
+			}
+			seen[p.ID] = true
+			out = append(out, paneRow(p, d, len(kids[p.ID]), d > depth))
+			if len(kids[p.ID]) == 0 || !open(paneNodeID(mid, p.ID), true) {
+				return
+			}
+			for _, k := range kids[p.ID] {
+				emit(k, d+1, seen)
+			}
+		}
+		seen := map[string]bool{}
+		for _, p := range shown {
+			if root(p) {
+				emit(p, depth, seen)
+			}
+		}
+		// A ring of panes each started by the next belongs to no root, and
+		// is listed rather than lost.
+		for _, p := range shown {
+			if !placed[p.ID] {
+				emit(p, depth, seen)
 			}
 		}
 		return out

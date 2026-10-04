@@ -305,7 +305,9 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		// Who started it, and what it started: a helper reads as somebody's
 		// helper, and the agent that asked says how many it has out.
 		right = joinRight(right, m.helperChip(r.machine, p.ID))
-		if who := m.forWhom(r.machine, *p); who != "" {
+		// Listed under the pane that started it, the indent already says
+		// whose it is; the chip is for a helper listed anywhere else.
+		if who := m.forWhom(r.machine, *p); who != "" && !r.nested {
 			right = joinRight(styleMuted.Render("↳"+who), right)
 		}
 		return g, style, p.DisplayName(), labelStyle, joinRight(right, m.costChip(paneUsage(*p)))
