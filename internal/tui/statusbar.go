@@ -153,8 +153,11 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 				hint("x", "close"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
 		case kindSavedSSH:
 			items = []statusItem{hint("enter", "connect"), hint("e", "edit"), hint("K", "copy key"), hint("x", "forget"), hint("H", "ssh"), hint("m", "menu")}
-		case kindSSHGroup:
-			items = []statusItem{hint("a", "add host"), hint("r", "rename"), hint("x", "remove"), hint("space", "fold"), hint("m", "menu")}
+		case kindFolder:
+			items = []statusItem{hint("N", "new folder"), hint("x", "remove"), hint("space", "fold"), hint("m", "menu")}
+			if r.section == kindSSH && r.machine == localMachine && r.projectID == "" {
+				items = append([]statusItem{hint("a", "add host")}, items...)
+			}
 		case kindFiles:
 			items = []statusItem{hint("enter", "browse files"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
 		case kindSessions:

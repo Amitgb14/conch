@@ -887,3 +887,111 @@ func a1TabLabels(m *Model) []string {
 	}
 	return out
 }
+
+// TestA1TreeTabsForTheTree: the layout the tree is grouped by — which panes
+// each tab holds, named as the bar names it. A tab conch cannot place under
+// one project is left out, so its panes keep their sections.
+func TestA1TreeTabsForTheTree(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1FourTabs(t, m)
+	tabs := m.treeTabs()
+	if len(tabs) == 0 {
+		t.Fatal("no tabs for the tree")
+	}
+	for i, tb := range tabs {
+		if !strings.HasPrefix(tb.label, "Tab "+itoa(tb.n)+"  ") {
+			t.Fatalf("tab %d is labelled %q", i, tb.label)
+		}
+		if tb.projectID == "" || tb.machine == "" {
+			t.Fatalf("tab %d is placed nowhere: %+v", i, tb)
+		}
+		if len(tb.panes) == 0 {
+			t.Fatalf("tab %d holds no panes", i)
+		}
+	}
+
+	// A tab holding panes from two places belongs under neither — another
+	// project, or outside every project.
+	before := len(tabs)
+	t0 := m.tabs[0]
+	for _, other := range m.machines[0].panes {
+		if other.ProjectID != tabs[0].projectID {
+			l := m.newLeaf(viewRef{Row: paneNodeID(localMachine, other.ID), Kind: kindPane,
+				Machine: localMachine, PaneID: other.ID})
+			t0.root.split(t0.root.leaves()[0].id, splitRight, l)
+			break
+		}
+	}
+	if got := len(m.treeTabs()); got != before-1 {
+		t.Fatalf("a tab of two projects is still listed: %d tabs, was %d", got, before)
+	}
+
+	// Splits are marked as the bar marks them.
+	for _, tb := range m.treeTabs() {
+		if tb.splits && !strings.HasSuffix(tb.label, "⊞") {
+			t.Fatalf("a tab of splits is unmarked: %q", tb.label)
+		}
+	}
+
+	// A tab outside every project — a machine's own — is not a project's.
+	for i := range m.tabs {
+		for _, l := range m.tabs[i].root.leaves() {
+			l.view = viewRef{}
+		}
+	}
+	if got := m.treeTabs(); len(got) != 0 {
+		t.Fatalf("tabs of nothing were listed: %+v", got)
+	}
+}
+
+// TestA1TreeRegroupsWhenTabsChange: grouped by tab, the tabs are the tree's
+// groups, so a tab opened or closed has to reach the tree. It did not: the
+// groups only appeared when something else — a pane starting, a project
+// polled — happened to rebuild it.
+func TestA1TreeRegroupsWhenTabsChange(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1FourTabs(t, m)
+	hasTabRow := func(rows []row) bool {
+		for _, r := range rows {
+			if r.kind == kindTab {
+				return true
+			}
+		}
+		return false
+	}
+	if hasTabRow(m.rows) {
+		t.Fatal("grouped by tab before it was asked for")
+	}
+
+	// Asked for, with tabs already open and the tree built without them.
+	m.cfg.UI.TreeGroups = "tabs"
+	if m.layoutSig() == "" {
+		t.Fatal("no layout to group by")
+	}
+	nm, _ := m.Update(flashExpiredMsg{})
+	m2 := nm.(Model)
+	if !hasTabRow(m2.rows) {
+		t.Fatalf("the tree did not regroup:\n%s", render(m2.rows))
+	}
+
+	// Settled: nothing changed, so nothing is rebuilt again.
+	sig := m2.treeSig
+	nm, _ = m2.Update(flashExpiredMsg{})
+	if m3 := nm.(Model); m3.treeSig != sig {
+		t.Fatal("the tree regrouped with nothing changed")
+	}
+
+	// A tab closing reaches it too.
+	m2.closeTab(0)
+	nm, _ = m2.Update(flashExpiredMsg{})
+	if m3 := nm.(Model); m3.treeSig == sig {
+		t.Fatal("closing a tab left the tree as it was")
+	}
+
+	// Grouped the other way there is nothing to watch, so no rebuild is
+	// ever asked for on a tab's account.
+	m2.cfg.UI.TreeGroups = ""
+	if m2.layoutSig() != "" {
+		t.Fatalf("a layout to watch with the grouping off: %q", m2.layoutSig())
+	}
+}

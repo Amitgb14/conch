@@ -9,7 +9,6 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/vt"
 	"golang.org/x/sys/unix"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -33,6 +32,9 @@ type Snapshot struct {
 	// cursor and the modes in a fresh emulator.
 	Replay string `json:"replay"`
 }
+
+// replayChunk is how many lines of a replay go into the emulator at once.
+const replayChunk = 500
 
 // ErrNotRunning means the pane's program has exited, so there is nothing to
 // hand over.
@@ -111,9 +113,10 @@ func (p *Pane) replayLocked(modes []ansi.Mode, cursorVisible bool) string {
 	alt := p.emu.IsAltScreen()
 	var lines []string
 	if !alt {
-		for y := 0; y < p.emu.ScrollbackLen(); y++ {
-			y := y
-			lines = append(lines, line(func(x int) *uv.Cell { return p.emu.ScrollbackCellAt(x, y) }))
+		for _, l := range p.hist {
+			// Cut to the width, or a line kept while the pane was wider
+			// would wrap in the new emulator and push the rest down.
+			lines = append(lines, fitWidth(l, cols))
 		}
 	}
 	for y := 0; y < rows; y++ {
@@ -155,7 +158,6 @@ func Adopt(snap Snapshot, ptmx *os.File) (*Pane, error) {
 	p := &Pane{
 		id: snap.ID, name: snap.Name, customName: snap.CustomName, command: snap.Command, cwd: snap.Cwd,
 		created: snap.Created, title: snap.Title,
-		emu:           vt.NewEmulator(snap.Cols, snap.Rows),
 		done:          make(chan struct{}),
 		state:         proto.PaneRunning,
 		cursorVisible: true,
@@ -165,8 +167,13 @@ func Adopt(snap Snapshot, ptmx *os.File) (*Pane, error) {
 		proc:          proc,
 		ptmx:          ptmx,
 	}
-	p.setCallbacks()
-	_, _ = p.emu.Write([]byte(snap.Replay))
+	p.newEmulator(snap.Cols, snap.Rows)
+	// A piece at a time, so the history being replayed goes into text as
+	// it scrolls rather than all of it into the emulator's cells first.
+	for _, chunk := range chunkByLines([]byte(snap.Replay), replayChunk) {
+		_, _ = p.emu.Write(chunk)
+		p.takeScrollback()
+	}
 	// Replies the replay provoked (none are expected) must not reach the
 	// program: start copying only now.
 	p.startIO()

@@ -181,8 +181,8 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 | Command | Description |
 | --- | --- |
 | `conch sandbox stats [-provider P]` | every provider's sandboxes in one table, and a line per provider: how many, in which states, what is running; no provider needed |
-| `conch sandbox -provider daytona\|boat …` | whose sandboxes the command means, in front of any subcommand below. Required for all of them — there is no default, and a sandbox named under another provider is refused |
-| `conch sandbox -provider P create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]` | make a sandbox (key in `$DAYTONA_API_KEY` or `$BOAT_API_KEY`), install conch there and add it as a machine; it runs until stopped. `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails |
+| `conch sandbox -provider daytona\|boat\|sandbox-cli …` | whose sandboxes the command means, in front of any subcommand below. Required for all of them — there is no default, and a sandbox named under another provider is refused |
+| `conch sandbox -provider P create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-dir DIR] [-env NAME]... [-yes]` | make a sandbox (key in `$DAYTONA_API_KEY` or `$BOAT_API_KEY`; sandbox-cli uses its sandboxd), install conch there and add it as a machine; it runs until stopped. `-dir` mounts a folder of this computer at `/workspace`, with sandbox-cli's sandboxd on this computer only; `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails |
 | `conch sandbox -provider P ls` | conch's sandboxes, their state and size, including ones no longer added as machines (also plain `conch sandbox -provider P`) |
 | `conch sandbox -provider P ssh [-t] ID [COMMAND...]` | a shell in a running sandbox, or `COMMAND` run there (`-t` gives it a terminal); exits with its status |
 | `conch sandbox -provider P start ID` | start a stopped sandbox |

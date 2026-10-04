@@ -62,6 +62,9 @@ type machine struct {
 	// sandboxState is set while a sandbox can't be reached because it
 	// isn't running (stopped, archived…).
 	sandboxState sandbox.State
+	// cannotStop says its provider refused to stop it — it can only be
+	// deleted — so the idle watch leaves it be rather than asking again.
+	cannotStop bool
 
 	panes    []proto.PaneInfo
 	projects []proto.ProjectInfo

@@ -100,10 +100,7 @@ func (a *altScroll) note(now []string) {
 
 // keep adds lines that scrolled away, dropping the oldest past the cap.
 func (a *altScroll) keep(lines []string) {
-	a.lines = append(a.lines, lines...)
-	if n := len(a.lines) - altHistoryMax; n > 0 {
-		a.lines = append(a.lines[:0], a.lines[n:]...)
-	}
+	a.lines = keepLast(append(a.lines, lines...), altHistoryMax)
 }
 
 // noteFrame is given the screen once a program has finished drawing a

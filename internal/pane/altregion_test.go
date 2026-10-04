@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/vt"
 )
 
 // scrolledRegion finds a conversation scrolling above a footer that stays
@@ -79,8 +78,8 @@ func agentFrame(first, rows int, status string, sync bool) string {
 }
 
 func agentPane(rows int) *Pane {
-	p := &Pane{emu: vt.NewEmulator(40, rows), modes: map[ansi.Mode]bool{}, mouseModes: map[ansi.Mode]bool{}}
-	p.setCallbacks()
+	p := &Pane{modes: map[ansi.Mode]bool{}, mouseModes: map[ansi.Mode]bool{}}
+	p.newEmulator(40, rows)
 	return p
 }
 

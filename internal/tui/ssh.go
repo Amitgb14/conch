@@ -70,7 +70,7 @@ func (m *Model) saveSSH(target string, args []string) tea.Cmd {
 	if slices.Contains(m.savedSSH, target) {
 		return nil
 	}
-	if err := m.putSSHHost("", target, sshHostInfo{Args: args}); err != nil {
+	if err := m.putSSHHost("", target, sshHostInfo{Args: args}, ""); err != nil {
 		return func() tea.Msg { return errMsg{err} }
 	}
 	return tea.Batch(m.rebuild(), m.saveState())
@@ -89,6 +89,7 @@ func (m *Model) forgetSSH(target string) tea.Cmd {
 		delete(info, target)
 		m.sshInfo = info
 	}
+	m.takeHostOutOfFolders(target)
 	m.removeRow(savedSSHID(target))
 	m.setFlash("forgot "+sshName(target), false)
 	return tea.Batch(m.rebuild(), m.saveState())
@@ -249,13 +250,13 @@ func newTabMenu(m Model, x, y int) *menu {
 }
 
 // savedSSHLines is the page of a saved host with no session open to it.
-func savedSSHLines(target string, info sshHostInfo, w int) []string {
+func savedSSHLines(target string, info sshHostInfo, folder string, w int) []string {
 	lines := []string{fit(styleBold.Render(sshDisplay(target, info))+styleMuted.Render("  saved · not connected"), w), ""}
 	if info.Name != "" {
 		lines = append(lines, fit(styleMuted.Render("host     ")+sshName(target), w))
 	}
-	if info.Group != "" {
-		lines = append(lines, fit(styleMuted.Render("group    ")+info.Group, w))
+	if folder != "" {
+		lines = append(lines, fit(styleMuted.Render("folder   ")+folder, w))
 	}
 	if len(info.Args) > 0 {
 		lines = append(lines, fit(styleMuted.Render("options  ")+sshArgsText(info.Args), w))
@@ -263,5 +264,5 @@ func savedSSHLines(target string, info sshHostInfo, w int) []string {
 	if len(lines) > 2 {
 		lines = append(lines, "")
 	}
-	return append(lines, styleMuted.Render(ansi.Truncate("enter or click connect · e edit · K copy key (no password) · drag onto a group · x forget", w, "…")))
+	return append(lines, styleMuted.Render(ansi.Truncate("enter or click connect · e edit · K copy key (no password) · drag into a folder · x forget", w, "…")))
 }

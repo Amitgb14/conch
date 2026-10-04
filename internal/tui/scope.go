@@ -69,7 +69,11 @@ func (m Model) rowScope(r row) tabScope {
 		s := m.groupOf(r.machine, r.projectID)
 		s.section = r.kind
 		return s
-	case kindSavedSSH, kindSSHGroup:
+	case kindTab:
+		// A tab's own section: the group it belongs to, every tab of it
+		// listed, so the bar still shows the tab beside its neighbours.
+		return m.groupOf(r.machine, r.projectID)
+	case kindSavedSSH:
 		return tabScope{level: scopeCLI, machine: r.machine, section: kindSSH}
 	case kindSandboxes, kindSandboxProvider:
 		// Groups of machines, not of tabs: like a machine row, they list
@@ -280,7 +284,7 @@ func (m *Model) pickTab() {
 // of tabs.
 func pageRow(k nodeKind) bool {
 	switch k {
-	case kindProject, kindBranches, kindBranch, kindMore, kindSessions, kindAgents, kindTerminals, kindSSH, kindReviewQueue, kindSavedSSH, kindFiles, kindSSHGroup:
+	case kindProject, kindBranches, kindBranch, kindMore, kindSessions, kindAgents, kindTerminals, kindSSH, kindReviewQueue, kindSavedSSH, kindFiles:
 		return true
 	}
 	return false

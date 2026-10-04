@@ -42,16 +42,17 @@ Before connecting, conch asks whether to save the host. The default is not to: `
 
 **SSH options.** Some hosts need more than a name: an old switch that only speaks an old key exchange, a port, a jump host. The **SSH options** field (when you type a host after `H`, and in the host editor) takes them as you would type them after `ssh`: `-o KexAlgorithms=+diffie-hellman-group14-sha1 -p 2222 -J bastion`. A word like `HostKeyAlgorithms=+ssh-rsa` on its own is taken as `-o HostKeyAlgorithms=+ssh-rsa`, as it is written in `ssh_config`. Only options are accepted — a stray word would be read by `ssh` as the host — and not those that would stop it logging in (`-F`, `-G`, `-V`, `-Q`, `-O`, `-W`). A saved host keeps its options and uses them on every connect; a session already open keeps the ones it started with.
 
-**Editing a host.** `e` on a saved host (or **Edit host…** in its menu) changes the host itself, a name to show in its place (`prod db` rather than `ssh admin@10.0.4.12`), its group and its options. `e` on an open ssh session does the same for its host, saving it if it wasn't.
+**Editing a host.** `e` on a saved host (or **Edit host…** in its menu) changes the host itself, a name to show in its place (`prod db` rather than `ssh admin@10.0.4.12`), its folder and its options. `e` on an open ssh session does the same for its host, saving it if it wasn't.
 
-### SSH groups
+### SSH folders
 
-Saved hosts can be sorted into groups — `eng`, `staging`, `prod`, a group per cluster — listed under `SSH`, each folding like any other section, with the hosts in no group below them. Sessions sit in their host's group. To make one, press `N` on `SSH` (or **New ssh group…** in its menu), or just type a new group's name in a host's editor. To put a host in a group:
+`SSH` takes [folders](#folders-of-your-own) like `Agents` and `Terminals` — `eng`, `staging`, `prod`, one per cluster — and a folder there holds **saved hosts** as well as sessions. A saved host in a folder is listed in it while nothing is open to it, and every session to it is listed there instead, so a host and its sessions stay together and connecting again moves nothing. A session to a host you haven't saved goes in by itself, as any pane does.
 
-- **drag it**: press on a saved host or an ssh session in the tree, carry it onto a group (or onto a host already in it) — the row it would land on says *drop here* — and let go. Drop it on `SSH` itself to take it out of its group. Dragging a session to a host that isn't saved saves it. A press and release on the same row is still a click: a saved host connects.
-- **from the keyboard**: **Move to group…** in the host's menu (`m`), or the **Group** field of its editor (`e`).
+- **Make one**: `N` on `SSH`, on a saved host or on a session (or **New folder…** in their menus) — or type a new folder's name in a host's editor.
+- **Drag a host in**: press on a saved host or a session to one, carry it onto a folder (the row under the pointer is marked), and let go; drop it on `SSH` itself to take it out. With a folder to drag to, a press and release on a saved host is still a click and connects; with none, the press connects as it always did.
+- **From the keyboard**: **Move to folder…** in the host's menu (`m`), or the **Folder** field of its editor (`e`). `a` on an SSH folder adds a saved host to it without connecting.
 
-Selecting a group shows its hosts, which are connected, and their options. `a` on a group adds a host to it, `r` renames it (its hosts move with it; renaming onto another group merges the two), and `x` removes the group, keeping its hosts.
+`x` on a folder removes it; the hosts and sessions in it go back to `SSH`, and nothing closes. Forgetting a host takes it out of its folder.
 
 ### Login without a password
 
@@ -89,6 +90,42 @@ Pull requests come from the `gh` CLI (your existing GitHub login): `#12✓` chec
 ### Agents
 
 Agents are named after their task (Claude's title) until you rename them with `r`. Their states are described in [Agents](/docs/agents#agent-states); every project also has a [Sessions](/docs/sessions) section.
+
+### Folders of your own
+
+conch groups panes by what they are and, with the setting below, by the tab they are open in. Neither says what *you* think belongs together, and names repeat across environments. **`N`** on Agents, Terminals or SSH — or on a pane in one — makes a folder; drag rows into it, and back onto the section to take them out. `x` on a folder removes it and its panes go back to the list; nothing closes. A folder of `SSH` holds saved hosts too, with their sessions: see [SSH folders](#ssh-folders).
+
+```
+Terminals
+  › vm3
+  ▾ eng                 2
+      › vm1
+      › vm2
+  ▾ prod                1
+      › vm1
+```
+
+Panes in no folder are listed first and the folders after them, so whatever sits under an open folder is in it.
+
+A folder holds each pane **by name and by id**. The id says which pane while that pane lives — two terminals may share a name, and the id is the only thing that tells `vm1` in `eng` from `vm1` in `prod` — and the name finds it again after a restart, when every id has been handed out afresh (`r` in the tree, or `conch rename`, gives a pane its name). Two consequences worth knowing: a pane you never named is held by id alone and leaves its folder when the server goes, and if **two** panes share a name across a restart the folder keeps neither of them, there being nothing left to choose by. A pane is in one folder at a time, and folders live in `ui.json` per machine, project and section, so they cost nothing to anyone who never makes one.
+
+### Grouped by tab
+
+A project lists its panes under **Agents** and **Terminals** — what each one is. **Settings → Tree grouping → By tab** lists them under the tab each is open in instead, so the tree says what the tab bar says:
+
+```
+▾ ◆ conch
+  ▾ Tab 1  claude ⊞
+      › claude
+      › zsh
+  ▾ Tab 2  codex
+      › codex
+    Branches            13
+```
+
+Drag an agent or terminal row onto a tab's section to put it in that tab: it leaves whatever tab it was in — which closes if that was its last split — or, if it was open in none, it is opened there. The section under the pointer is marked while you hold.
+
+A tab's row is named as the bar names it, a renamed tab (`ctrl+b ,`) and the `⊞` for a tab of more than one split included, and it is numbered among that project's tabs. Panes open in **no** tab keep their Agents and Terminals sections below, so closing a tab never hides a pane. A tab holding panes from two projects, or from none, belongs under neither and is left out; its panes keep their sections. It is `[ui] tree_groups = "tabs"` in [config.toml](/docs/configuration).
 
 ### Fold state
 
@@ -234,6 +271,7 @@ The tab bar lists the tabs of what you select in the tree: a project shows its t
 | `ctrl+b space` | next layout: even-horizontal, even-vertical, main-horizontal, main-vertical, tiled (`ctrl+b alt+1`–`alt+5` pick one) |
 | `ctrl+b ctrl+arrow` / `alt+arrow` | resize by 1 / 5 cells; press the arrow again within half a second to keep resizing |
 | `ctrl+b x` | close the split; an agent or terminal in it ends, after you confirm |
+| drag a split's title | onto another split swaps the two; onto a tab in the bar moves it into that tab, and the tab it leaves closes if that was its last split; onto the `+` gives it a tab of its own |
 | `ctrl+b c`, `n`, `p`, `0-9`, `l` | new, next, previous, go to, last tab (among the tabs listed for the tree selection) |
 | `ctrl+b <` / `>`, `.` | move the tab left / right, or to a position you type (among the tabs listed); dragging a tab along the bar with the mouse does the same |
 | `ctrl+b w` | pick any tab or split, grouped by project and CLI, with each split's branch or folder and agent state |
@@ -377,3 +415,5 @@ The providers conch knows, each saying whether its key is there to be found (`�
 | **Life** | only for a provider that gives a sandbox a fixed life rather than stopping an idle one (boat.dev): how long a new one is given, in minutes, counted from when it was made. Empty means the provider's own — two hours for boat.dev, which is what its free trial allows. A plan that allows less says so, and conch asks again for the longest it named |
 | **Price an hour** | what an hour of a sandbox costs — per vCPU, per GiB of memory, per GiB of disk — so the tree can say what one has run up, and what a stopped one still costs for the disk it keeps. Empty shows running time alone; conch ships no price list |
 | **Pass in** | names of your environment variables to put into every new sandbox — an agent's token, say — separated by spaces or commas. Names only: a `NAME=value` is refused. The dialog that makes a sandbox can add more, for that one only |
+
+**sandbox-cli** is reached through its own `sandboxd` rather than an account, so its row shows where (`✓ unix:///…/sandboxd.sock`), or what is missing (*sandboxd isn't running here*), and its page asks other things: **Context** (which `sandbox-cli context`; empty is the one sandbox-cli uses), **Endpoint** (a socket or `https://` address instead, checked as you type it), **Token** (for such an endpoint; empty reads `$SANDBOXD_TOKEN`), **Image**, **Network** (`none`, `allowlist` or `open`) and **Allow** (the allowlist's names), then **Bring back what was running**, **Stop when idle** and **Pass in** as above.

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -793,5 +794,372 @@ func TestA1DragSplitShowsWhereItLands(t *testing.T) {
 	next, _ := m.Update(swapMarkExpiredMsg{})
 	if mm := next.(Model); mm.swapped(leaves[0].id) {
 		t.Fatal("the message did not clear the mark")
+	}
+}
+
+// TestA1DragSplitOntoTabMoves: a split carried onto a tab in the bar moves
+// into that tab instead of swapping with another split — the last path of
+// roadmap 30 that needed a key — and every way of letting go that should
+// move nothing moves nothing.
+func TestA1DragSplitOntoTabMoves(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1FourTabs(t, m)
+	a1At(t, m, cliID(localMachine)) // a group that lists tabs
+	mr := m.mainRect()
+	ids := func(ti int) []int {
+		var out []int
+		for _, l := range m.tabs[ti].root.leaves() {
+			out = append(out, l.id)
+		}
+		return out
+	}
+	// Where each tab sits on the bar; a tab the bar has no room for is one
+	// nothing can be dropped on either.
+	drawn := func() map[int]int {
+		out := map[int]int{}
+		_, hits := m.tabBar(mr.w)
+		for _, h := range hits {
+			if h.tab >= 0 {
+				out[h.tab] = mr.x + h.x0 + 1
+			}
+		}
+		return out
+	}
+	press := func(id int) {
+		t.Helper()
+		rects, _ := m.leafRects()
+		a1Mouse(t, m, rects[id].x+2, rects[id].y, a1Left, a1Press)
+		if m.leafDrag != id {
+			t.Fatalf("no drag started on %d: %d", id, m.leafDrag)
+		}
+	}
+
+	src := m.activeTab
+	carried, tabs := ids(src)[0], len(m.tabs)
+
+	// Carried over the bar, the tab under the pointer is marked and no
+	// split is. Where the tabs are is read after the press: taking hold of
+	// a split selects it, and the bar lists the tabs of what is selected.
+	press(carried)
+	a1At(t, m, cliID(localMachine)) // taking hold selected the pane; the bar back on its group
+	dst, dstX := -1, 0
+	for _, i := range m.visibleTabs() {
+		if x, ok := drawn()[i]; ok && i != src {
+			dst, dstX = i, x
+			break
+		}
+	}
+	if dst < 0 {
+		t.Fatalf("one tab on the bar: %v of %d", drawn(), len(m.tabs))
+	}
+	landing := m.tabs[dst] // by identity: indices shift when a tab closes
+	a1Mouse(t, m, dstX, mr.y, tea.MouseButtonNone, a1Motion)
+	if m.tabDrop != dst || m.leafDrop != 0 {
+		t.Fatalf("over tab %d: tabDrop %d, leafDrop %d", dst, m.tabDrop, m.leafDrop)
+	}
+	// Let go there: the split joins that tab, and the tab it was the last
+	// split of goes with it.
+	a1Mouse(t, m, dstX, mr.y, a1Left, a1Release)
+	if m.leafDrag != 0 || m.tabDrop != tabDropNone {
+		t.Fatalf("the drag outlived the release: %d, %d", m.leafDrag, m.tabDrop)
+	}
+	if len(m.tabs) != tabs-1 {
+		t.Fatalf("%d tabs, want %d: the emptied one stayed", len(m.tabs), tabs-1)
+	}
+	at := slices.Index(m.tabs, landing)
+	if at < 0 {
+		t.Fatal("the tab it was dropped on is gone")
+	}
+	if !slices.Contains(ids(at), carried) {
+		t.Fatalf("the split did not arrive: %v", ids(at))
+	}
+	if m.activeTab != at {
+		t.Fatalf("active tab %d, want the one it was dropped on (%d)", m.activeTab, at)
+	}
+	if m.tabs[at].focus != carried {
+		t.Fatalf("focus %d, want the split that moved (%d)", m.tabs[at].focus, carried)
+	}
+
+	// Onto the tab it is already in, and onto the + — a hit on the bar that
+	// is no tab — nothing moves and no tab is made.
+	was, tabs := slices.Clone(ids(at)), len(m.tabs)
+	ownX, ok := drawn()[at]
+	if !ok {
+		t.Fatalf("its own tab is not on the bar: %v", drawn())
+	}
+	press(carried)
+	a1Mouse(t, m, ownX, mr.y, a1Left, a1Release)
+	if got := ids(at); !slices.Equal(got, was) || len(m.tabs) != tabs {
+		t.Fatalf("dropping on its own tab moved it: %v, %d tabs", got, len(m.tabs))
+	}
+	plus := -1
+	_, hits := m.tabBar(mr.w)
+	for _, h := range hits {
+		if h.tab == tabHitPlus {
+			plus = mr.x + h.x0 + 1
+		}
+	}
+	if plus < 0 {
+		t.Fatal("no + on the bar")
+	}
+	// The only split of a tab is already a tab of its own, so the + leaves
+	// it where it is rather than closing a tab to open an identical one.
+	if len(ids(at)) == 1 {
+		press(carried)
+		a1Mouse(t, m, plus, mr.y, a1Left, a1Release)
+		if got := ids(at); !slices.Equal(got, was) || len(m.tabs) != tabs {
+			t.Fatalf("the + took a lone split: %v, %d tabs", got, len(m.tabs))
+		}
+	}
+
+	// Dropped on the +, a split of a tab that holds more than one goes to
+	// a tab of its own, beside the one it left.
+	if len(ids(at)) < 2 {
+		t.Fatalf("expected two splits for the +: %v", ids(at))
+	}
+	tabs, leaving := len(m.tabs), ids(at)[0]
+	kept := m.tabs[at]
+	press(leaving)
+	a1Mouse(t, m, plus, mr.y, tea.MouseButtonNone, a1Motion)
+	if m.tabDrop != tabHitPlus {
+		t.Fatalf("over the +: tabDrop %d", m.tabDrop)
+	}
+	a1Mouse(t, m, plus, mr.y, a1Left, a1Release)
+	if len(m.tabs) != tabs+1 {
+		t.Fatalf("%d tabs, want %d: the + made none", len(m.tabs), tabs+1)
+	}
+	if slices.Contains(ids(slices.Index(m.tabs, kept)), leaving) {
+		t.Fatal("the split stayed in the tab it left")
+	}
+	if ids(m.activeTab)[0] != leaving || len(ids(m.activeTab)) != 1 {
+		t.Fatalf("the new tab holds %v, want just %d", ids(m.activeTab), leaving)
+	}
+	if m.activeTab != slices.Index(m.tabs, kept)+1 {
+		t.Fatalf("the new tab is at %d, want beside the one it left", m.activeTab)
+	}
+
+	// Back where it was, for what follows.
+	if cmd := m.moveLeafToTab(leaving, slices.Index(m.tabs, kept)); cmd == nil {
+		t.Fatal("could not put it back")
+	}
+	if len(m.tabs) != tabs {
+		t.Fatalf("%d tabs after putting it back, want %d", len(m.tabs), tabs)
+	}
+
+	// A tab of more than one split keeps standing when one is carried off,
+	// and the split that stays takes the focus.
+	if len(ids(at)) < 2 {
+		t.Fatalf("expected two splits to move between: %v", ids(at))
+	}
+	into := -1
+	for i := range m.tabs {
+		if i != at {
+			into = i
+			break
+		}
+	}
+	if into < 0 {
+		t.Fatal("no other tab left")
+	}
+	keeping := m.tabs[at]
+	moved, stays := ids(at)[0], ids(at)[1]
+	keeping.focus = moved // the one being carried is the focused one
+	if cmd := m.moveLeafToTab(moved, into); cmd == nil {
+		t.Fatal("nothing moved")
+	}
+	if slices.Index(m.tabs, keeping) < 0 {
+		t.Fatal("a tab with a split left in it closed")
+	}
+	if keeping.focus != stays {
+		t.Fatalf("focus %d, want the split still there (%d)", keeping.focus, stays)
+	}
+
+	// What must move nothing at all.
+	m.previewing = true
+	if m.moveLeafToTab(stays, 0) != nil {
+		t.Fatal("a preview moved a split")
+	}
+	m.previewing = false
+	if m.moveLeafToTab(stays, len(m.tabs)) != nil {
+		t.Fatal("moved into a tab past the end")
+	}
+	if m.moveLeafToTab(stays, -1) != nil {
+		t.Fatal("moved into a tab before the first")
+	}
+	if m.moveLeafToTab(-1, 0) != nil {
+		t.Fatal("moved a split that does not exist")
+	}
+	if m.moveLeafToTab(stays, m.activeTab) != nil {
+		t.Fatal("moved a split into the tab it is already in")
+	}
+
+	// Zoomed there is one split on screen and no bar under the pointer, so
+	// nothing is picked up.
+	m.zoom = true
+	rects, _ := m.leafRects()
+	id := m.tab().root.leaves()[0].id
+	a1Mouse(t, m, rects[id].x+2, rects[id].y, a1Left, a1Press)
+	if m.leafDrag != 0 {
+		t.Fatalf("a zoomed split was dragged: %d", m.leafDrag)
+	}
+	m.zoom = false
+
+	// One tab holding one split: nowhere to carry it, so no drag starts —
+	// the old rule, kept for the case the new one does not cover.
+	for len(m.tabs) > 1 {
+		m.closeTab(len(m.tabs) - 1)
+	}
+	tb := m.tab()
+	for len(tb.root.leaves()) > 1 {
+		tb.root = tb.root.remove(tb.root.leaves()[1].id)
+	}
+	tb.focus = tb.root.leaves()[0].id
+	rects, _ = m.leafRects()
+	id = tb.root.leaves()[0].id
+	a1Mouse(t, m, rects[id].x+2, rects[id].y, a1Left, a1Press)
+	if m.leafDrag != 0 {
+		t.Fatalf("a lone split in a lone tab was dragged: %d", m.leafDrag)
+	}
+}
+
+// TestA1DragTreeRowOntoTabSection: grouped by tab, a pane dragged from the
+// tree onto a tab's section goes into that tab — the same move as dropping
+// a split on the bar, reached from the tree, which had no drag at all.
+func TestA1DragTreeRowOntoTabSection(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1FourTabs(t, m)
+	m.cfg.UI.TreeGroups = "tabs"
+	nm, _ := m.Update(flashExpiredMsg{}) // the tree regroups for the tabs
+	*m = nm.(Model)
+	m.focus = focusSidebar
+
+	rowY := func(id string) (int, int) {
+		t.Helper()
+		for i, r := range m.rows {
+			if r.id == id {
+				return 2, i - m.scroll + 2
+			}
+		}
+		t.Fatalf("no row %q in\n%s", id, render(m.rows))
+		return 0, 0
+	}
+	var paneRow, tabRow row
+	for _, r := range m.rows {
+		if r.kind == kindTab {
+			tabRow = r
+			break
+		}
+	}
+	if tabRow.id == "" {
+		t.Fatalf("no tab section in\n%s", render(m.rows))
+	}
+	// A pane that is not already in the tab it will be dropped on.
+	held := map[string]bool{}
+	for _, l := range m.tabs[tabRow.tabIndex].root.leaves() {
+		held[l.view.PaneID] = true
+	}
+	for _, r := range m.rows {
+		if r.kind == kindPane && !held[r.paneID] {
+			paneRow = r
+			break
+		}
+	}
+	if paneRow.id == "" {
+		t.Fatalf("no pane to carry in\n%s", render(m.rows))
+	}
+	before := len(m.tabs[tabRow.tabIndex].root.leaves())
+
+	// Press the row: it still selects, and a drag begins.
+	x, y := rowY(paneRow.id)
+	a1Mouse(t, m, x, y, a1Left, a1Press)
+	if m.rowDrag != paneRow.id {
+		t.Fatalf("no drag started: %q", m.rowDrag)
+	}
+	if m.cursor != paneRow.id {
+		t.Fatalf("the press stopped selecting: %q", m.cursor)
+	}
+	// Over the tab's section, that section is marked.
+	tx, ty := rowY(tabRow.id)
+	a1Mouse(t, m, tx, ty, tea.MouseButtonNone, a1Motion)
+	if m.rowDrop != tabRow.id {
+		t.Fatalf("over the section: rowDrop %q", m.rowDrop)
+	}
+	// Let go: the pane is in that tab.
+	a1Mouse(t, m, tx, ty, a1Left, a1Release)
+	if m.rowDrag != "" || m.rowDrop != "" {
+		t.Fatalf("the drag outlived the release: %q %q", m.rowDrag, m.rowDrop)
+	}
+	got := 0
+	for _, l := range m.tabs[m.activeTab].root.leaves() {
+		if l.view.PaneID == paneRow.paneID {
+			got++
+		}
+	}
+	if got != 1 {
+		t.Fatalf("the pane did not arrive: %d of it in the tab", got)
+	}
+	if len(m.tabs[m.activeTab].root.leaves()) != before+1 {
+		t.Fatalf("the tab holds %d splits, want %d", len(m.tabs[m.activeTab].root.leaves()), before+1)
+	}
+
+	// The same pane onto the same section again: it is already there.
+	at := m.activeTab
+	was := len(m.tabs[at].root.leaves())
+	if m.movePaneToTab(paneRow.machine, paneRow.paneID, at) != nil {
+		t.Fatal("moved a pane into the tab it is in")
+	}
+	if len(m.tabs[at].root.leaves()) != was {
+		t.Fatal("the tab changed anyway")
+	}
+
+	// Let go over a row that is not a tab's section, and nothing moves.
+	nm, _ = m.Update(flashExpiredMsg{})
+	*m = nm.(Model)
+	var other row
+	for _, r := range m.rows {
+		if r.kind == kindBranches || r.kind == kindBranch {
+			other = r
+			break
+		}
+	}
+	if other.id != "" {
+		x, y = rowY(paneRow.id)
+		a1Mouse(t, m, x, y, a1Left, a1Press)
+		ox, oy := rowY(other.id)
+		a1Mouse(t, m, ox, oy, tea.MouseButtonNone, a1Motion)
+		if m.rowDrop != "" {
+			t.Fatalf("a row that takes no pane was marked: %q", m.rowDrop)
+		}
+		a1Mouse(t, m, ox, oy, a1Left, a1Release)
+		if m.rowDrag != "" {
+			t.Fatal("the drag outlived a release over nothing")
+		}
+	}
+
+	// A row that is not a pane, and a tab that is not there, move nothing.
+	if m.dropRowOnTab(tabRow.id, tabRow.id) != nil {
+		t.Fatal("a section was carried into a tab")
+	}
+	if m.movePaneToTab(paneRow.machine, paneRow.paneID, len(m.tabs)) != nil {
+		t.Fatal("moved into a tab past the end")
+	}
+	if m.movePaneToTab(paneRow.machine, "", 0) != nil {
+		t.Fatal("moved a pane with no id")
+	}
+
+	// Grouped the other way there is nowhere to drop one, so no drag
+	// starts: the tree works exactly as it did.
+	m.cfg.UI.TreeGroups = ""
+	nm, _ = m.Update(flashExpiredMsg{})
+	*m = nm.(Model)
+	for _, r := range m.rows {
+		if r.kind == kindPane {
+			x, y = rowY(r.id)
+			a1Mouse(t, m, x, y, a1Left, a1Press)
+			if m.rowDrag != "" {
+				t.Fatalf("a drag started with the grouping off: %q", m.rowDrag)
+			}
+			break
+		}
 	}
 }
