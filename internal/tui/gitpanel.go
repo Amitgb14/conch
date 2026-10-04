@@ -13,8 +13,10 @@ import (
 )
 
 // The git panel: a command window in the middle of the right-hand panel,
-// opened by clicking a branch in the tree (b or $ on its row, or $ in its
-// changes). It is a prompt that runs
+// opened with b or $ on a branch in the tree, $ in its changes, or Git
+// panel from its row menu. A click on a branch shows its changes and leaves
+// the window closed: a window over the right-hand side is more than one
+// click on a row should do. It is a prompt that runs
 // any git command in the branch's worktree, or gives an agent working there
 // its next message, over what the last commands printed. The git a
 // developer reaches for every day waits behind tab, so the window itself
@@ -801,8 +803,8 @@ func (g *gitPanel) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 		return nil
 	case !inside:
 		// A click elsewhere closes the panel and still does what it
-		// would have: another branch opens its own panel, a pane takes
-		// focus.
+		// would have: another branch shows its changes, a pane takes
+		// focus. Moving the window to that branch is b on it.
 		m.overlay = nil
 		return func() tea.Msg { return msg }
 	case msg.Button != tea.MouseButtonLeft:
