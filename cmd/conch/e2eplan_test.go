@@ -22,6 +22,37 @@ const e2ePlan = "../../docs/testing/end-to-end.md"
 
 var e2eRow = regexp.MustCompile(`^\|\s*(\d+)\.(\d+)\s*[^|]*\|\s*([^|]*)`)
 
+// statusMarks end a row of the plan. The file explains the plan as well as
+// holding it, and those explanations have tables whose first column is a
+// row's number too, so the mark is what tells a row from a sentence about
+// one — found when a table added here was read as a duplicate of the row it
+// was describing.
+const statusMarks = "☐◐✅✓"
+
+// planRow reports whether a line is a row of a plan table rather than prose
+// about one, and gives its number and title.
+func planRow(line string) (sec, n int, title string, ok bool) {
+	m := e2eRow.FindStringSubmatch(line)
+	if m == nil {
+		return 0, 0, "", false
+	}
+	// \| is an escaped pipe inside a cell, not a cell of its own.
+	cells := strings.Split(strings.ReplaceAll(line, `\|`, "\x00"), "|")
+	last := ""
+	for i := len(cells) - 1; i >= 0; i-- {
+		if c := strings.TrimSpace(cells[i]); c != "" {
+			last = c
+			break
+		}
+	}
+	if !strings.ContainsAny(last, statusMarks) {
+		return 0, 0, "", false
+	}
+	sec, _ = strconv.Atoi(m[1])
+	n, _ = strconv.Atoi(m[2])
+	return sec, n, strings.TrimSpace(m[3]), true
+}
+
 func TestEndToEndPlanNumbersAreUnique(t *testing.T) {
 	b, err := os.ReadFile(e2ePlan)
 	if os.IsNotExist(err) {
@@ -42,9 +73,8 @@ func TestEndToEndPlanNumbersAreUnique(t *testing.T) {
 	highest := map[int]int{}
 	rows := 0
 	for _, line := range lines {
-		if m := e2eRow.FindStringSubmatch(line); m != nil {
-			sec, _ := strconv.Atoi(m[1])
-			if n, _ := strconv.Atoi(m[2]); n > highest[sec] {
+		if sec, n, _, ok := planRow(line); ok {
+			if n > highest[sec] {
 				highest[sec] = n
 			}
 			rows++
@@ -56,12 +86,11 @@ func TestEndToEndPlanNumbersAreUnique(t *testing.T) {
 
 	seen := map[string]where{}
 	for i, line := range lines {
-		m := e2eRow.FindStringSubmatch(line)
-		if m == nil {
+		sec, n, title, ok := planRow(line)
+		if !ok {
 			continue
 		}
-		sec, _ := strconv.Atoi(m[1])
-		id, title := m[1]+"."+m[2], strings.TrimSpace(m[3])
+		id := strconv.Itoa(sec) + "." + strconv.Itoa(n)
 		if first, dup := seen[id]; dup {
 			t.Errorf("row %s is used twice: line %d %q and line %d %q\n"+
 				"the row that had it first keeps it; the next free number in section %d is %d.%d",

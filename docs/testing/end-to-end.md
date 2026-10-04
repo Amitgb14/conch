@@ -250,7 +250,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 9.95 | The tree grouped by tab | On a project with agents and terminals, some open in tabs and some not: Settings → **Tree grouping** → **By tab**; rename a tab (`ctrl+b ,`), split one, close a tab, open a pane that was in none, and carry a split to another tab (9.94); then a tab holding panes from two projects, one holding a branch's changes rather than a pane, and the setting back to Agents and Terminals | Each tab is a section named as the bar names it — its number among that project's tabs, its name, `⊞` when it holds splits — holding the panes open in it; panes in no tab keep Agents and Terminals below; renaming, splitting, closing and moving are followed without a restart; a tab of two projects' panes is listed under neither and its panes keep their sections; folding is remembered; the setting back leaves the tree exactly as it was |  ☐ |
 | 9.96 | Carrying a tree row into a tab | With the tree grouped by tab (9.95), in a real terminal: drag an agent's row onto another tab's section; drag a terminal that is in no tab onto one; drag onto a branch, a section that is not a tab, and off the tree entirely; drag the last pane of a tab onto another; press a row and let go without moving; then over ssh 🖥 and with the grouping off | The section under the pointer is marked while the button is held; letting go on it puts the pane in that tab and shows it, the pane still running; a pane that was in no tab is opened there and leaves its Agents or Terminals section; the tab a pane was the last split of closes; letting go anywhere else moves nothing; a press that does not move still selects and opens the row as it always did; with the grouping off no drag starts |  ◐ R46 grouped by tab, a row dropped on another tab's section moved there and the emptied section's tab closed. A pane in no tab, a drop on a branch, over ssh, and the grouping off not run |
 | 9.97 | Folders of your own in the tree | In a project with several terminals and agents: `N` on Terminals, name it `eng`, drag two rows in and one back out; `N` on Agents and on SSH; a second folder of the same name; rename a pane in a folder (`r`); give two terminals the same name and put one in a folder; close a pane in one; restart the server (`conch server stop`, then open conch again) and look; `x` on the folder; then the same on a remote machine 🖥 and with the tree grouped by tab | A folder is listed in its section before the panes in none, folded until opened, with what is in it under it once it is; a row dragged in leaves the list and one dragged onto the section comes back; a folder of another section refuses the row; a second folder of the same name is refused by name; a renamed pane stays where it was put; a closed pane leaves no gap and the folder stays; two panes of one name are told apart by the folder while they run, the other staying where it is, and after a restart the folder keeps neither, having nothing to choose by; after a restart the folder has found its other panes again by name, and a pane that never had one is loose; `x` removes the folder and nothing closes; folders survive a conch restart |  ☐ |
-| 9.100 💳 | Helpers listed under their agent | With a real agent that starts helpers (its skill, or `conch agent prompt` from its pane): watch the tree as each starts; fold the agent; let a helper start one of its own; close a helper, then the agent; a helper on another machine 🖥 and one whose agent a search has narrowed away | Each helper is listed under the agent that started it, indented, without the ↳ chip the indent would repeat; folding the agent takes its helpers with it and a helper's own helpers too; ⑂N counts them and turns amber when one waits; a helper conch cannot list under its agent says ↳ for it instead; closing a helper leaves no gap, and closing the agent leaves its helpers listed where they belong |  ☐ |
+| 9.100 | Helpers listed under their agent | With a real agent that starts helpers (its skill, or `conch agent prompt` from its pane): watch the tree as each starts; fold the agent; let a helper start one of its own; close a helper, then the agent; a helper on another machine 🖥 and one whose agent a search has narrowed away | Each helper is listed under the agent that started it, indented, without the ↳ chip the indent would repeat; folding the agent takes its helpers with it and a helper's own helpers too; ⑂N counts them and turns amber when one waits; a helper conch cannot list under its agent says ↳ for it instead; closing a helper leaves no gap, and closing the agent leaves its helpers listed where they belong |  ◐ R47 2026-10-04 with internal/tools/standin, which conch detects as an agent: a helper nested under it as it started, two levels when a helper started one of its own, folding the agent took all of them, closing a helper dropped ⑂2 to ⑂1, and closing the agent left its helper listed with its own child. The ↳ chip is gone from a nested row. Not run: a helper on another machine 🖥, and one whose agent a search has narrowed away |
 | 9.98 💳 | A server's memory with busy panes | On a build from before this change, run three or four agents (Claude Code, and Codex or OpenCode for the alternate screen) and a terminal running `yes "$(printf '%0120d' 0)" \| head -200000`, at about 120 columns, until each has printed well past ten thousand lines; note the server's memory (`ps -o rss= -p $(pgrep -f 'conch server')`). Reload onto this build (6.1) and repeat; in each pane `ctrl+b [` back to the top, search (9.42) and select across colours and a link | The server holds a few MB a pane rather than 100 MB or more; scrolling back shows the same history as before, in colour, in order and to the same depth (ten thousand lines on the main screen), and the reload keeps it; ESC[3J (`clear` in most shells, `/clear` in Claude) empties it; a pane narrowed after printing shows its older lines cut to the width rather than wrapped |  ☐ |
 
 ## Driving a TUI under test
@@ -282,10 +282,44 @@ It is not an agent and prints nothing an agent prints, so anything that
 reads an agent's *screen* — its states, the choices in a question — still
 wants the real thing and keeps its 💳.
 
+What it carries, and what is left over in each row:
+
+| Row | standin does | a real agent is still wanted for |
+| --- | --- | --- |
+| 9.100 helpers under their agent | all of it (R47) | the remote half |
+| 9.66 who started what | the ↳ and ⑂N as helpers come and go | a helper that *works*, *waits* and ends, and the notification |
+| 2.11 scoping a real agent | the refusals: it runs what is typed as a child, and conch scopes a pane it detects an agent in | nothing, unless the point is that agent's own shell |
+| 6.1 reload with live agents | screens, scrollback and titles surviving | panes that are *working* across the reload |
+| 9.98 a server's memory | the output and the panes | the alternate screen — `vim` or `less` would do instead |
+
+Everything else marked 💳 wants a model: the brain's providers (1.x), an
+agent's own state hooks and usage (2.1-2.5, 9.1, 9.21, 9.22, 9.70), saved
+conversations (9.3, 9.4, 9.38), what an agent makes of a prompt or a
+screenshot (8.6, 9.10, 9.23-9.26), its config formats (9.49, 9.55-9.58),
+and its questions (9.72). The sandbox rows carry 💳 for the sandbox, not
+the agent.
+
 Read the screen back with `conch read ID`. Always with a scratch
 `CONCH_HOME` and socket, and `CONCH_PANE_ID` unset.
 
 ## Runs
+
+### R47 — 2026-10-04, helpers in the tree without an agent, macOS arm64, build b0e6fa68b1cf
+
+`internal/tools/standin` built as `claude` and `codex`, in a scratch conch:
+a pane conch detects as an agent, starting helpers as an agent does. The
+whole of 9.100 but its remote half, with no model asked anything.
+
+A helper appeared under the agent as it started; one started from inside a
+helper nested two deep; `⑂2` counted them and fell to `⑂1` when one was
+closed; folding the agent took all of them, including the helper's own;
+closing the agent left that helper listed where it belonged with its child
+still under it. Nested rows carry no ↳ chip — the indent says it.
+
+This is what the stand-in is for: nothing here asked an agent to think, so
+nothing here needed one. What it cannot do is the rest of 9.66 — a helper
+that works, waits and ends — because those states are read from what a real
+agent prints.
 
 ### R46 — 2026-10-04, the mouse rows driven through the protocol, macOS arm64, build 2e640dcf9f48
 
