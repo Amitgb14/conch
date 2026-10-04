@@ -651,7 +651,8 @@ func TestA5RunAdoptsReloadState(t *testing.T) {
 	runs, _ := json.Marshal(runLogFile{Active: []agentRun{{Pane: "p2", Agent: "claude", Dir: dir, Seen: time.Now()}}})
 	os.WriteFile(filepath.Join(dir, "agent-runs.json"), runs, 0o600)
 	st, _ := json.Marshal(reloadState{FromBuild: "old", ListenerFD: lfd, NextID: 2,
-		Panes: []reloadPane{{Snapshot: pane.Snapshot{ID: "p2", Command: []string{"sleep"}, Cwd: dir, PID: pid, Cols: 40, Rows: 6}, FD: pfd, Dir: dir, Loose: true}}})
+		Panes: []reloadPane{{Snapshot: pane.Snapshot{ID: "p2", Command: []string{"sleep"}, Cwd: dir, PID: pid, Cols: 40, Rows: 6}, FD: pfd, Dir: dir, Loose: true,
+			Subagents: []proto.Subagent{{ID: "a1", Type: "Explore"}}, SubagentSession: "s1"}}})
 	statePath := filepath.Join(dir, "reload-state.json")
 	os.WriteFile(statePath, st, 0o600)
 	t.Setenv(reloadStateEnv, statePath)
@@ -681,6 +682,13 @@ func TestA5RunAdoptsReloadState(t *testing.T) {
 		if m.ID == "1" {
 			if json.Unmarshal(m.Result, &list) != nil || len(list.Panes) != 1 || list.Panes[0].ID != "p2" {
 				t.Fatalf("adopted panes: %s", m.Result)
+			}
+			e := a5Entry(t, s, "p2")
+			e.mu.Lock()
+			subs, session := e.subagents.list, e.subagents.session
+			e.mu.Unlock()
+			if len(subs) != 1 || subs[0].ID != "a1" || session != "s1" {
+				t.Fatalf("adopted subagents: %+v (%s)", subs, session)
 			}
 			break
 		}

@@ -320,6 +320,8 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 			right = joinRight(styleMuted.Render("↳"+who), right)
 		}
 		return g, style, p.DisplayName(), labelStyle, joinRight(right, m.costChip(paneUsage(*p)))
+	case kindSubagent:
+		return m.subagentParts(r)
 	}
 	return "", glyphStyle, r.id, labelStyle, ""
 }
@@ -1292,4 +1294,33 @@ func (m Model) agentMark(p proto.PaneInfo) (string, lipgloss.Style) {
 		style = lipgloss.NewStyle().Foreground(c)
 	}
 	return mark + " ", style
+}
+
+// subagentParts draws a subagent under the agent running it: what it was
+// asked to do, and what kind of agent it is. One is listed only while it
+// runs, so it is always at work.
+func (m Model) subagentParts(r row) (string, lipgloss.Style, string, lipgloss.Style, string) {
+	glyph, style := spinner[m.spin%len(spinner)], styleWork
+	if mach := m.machine(r.machine); mach != nil && mach.state != stateOnline {
+		style = styleMuted // last seen; not live
+	}
+	p := m.pane(r.machine, r.paneID)
+	if p == nil || p.Agent == nil {
+		return glyph, style, r.label, styleMuted, ""
+	}
+	for _, a := range p.Agent.Subagents {
+		if a.ID != r.label {
+			continue
+		}
+		switch {
+		case a.Description != "" && a.Type != "":
+			return glyph, style, a.Description, lipgloss.NewStyle(), styleMuted.Render(a.Type)
+		case a.Description != "":
+			return glyph, style, a.Description, lipgloss.NewStyle(), ""
+		case a.Type != "":
+			return glyph, style, a.Type, lipgloss.NewStyle(), ""
+		}
+		break
+	}
+	return glyph, style, "subagent", lipgloss.NewStyle(), ""
 }

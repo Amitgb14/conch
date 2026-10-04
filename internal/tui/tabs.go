@@ -98,7 +98,7 @@ func (m *Model) syncView() tea.Cmd {
 	// A browsing tab follows the tree's cursor over pages; agents and
 	// terminals open (in their own tab) only when activated.
 	if r, ok := m.selectedRow(); ok && len(leaves) == 1 && !m.zoom && !leaves[0].pick &&
-		r.kind != kindPane && (r.kind != kindMachine || m.previewing) && browsing(leaves[0]) && !ownsTab(leaves[0].view) {
+		r.kind != kindPane && r.kind != kindSubagent && (r.kind != kindMachine || m.previewing) && browsing(leaves[0]) && !ownsTab(leaves[0].view) {
 		m.assign(leaves[0], r)
 	}
 	if f, ok := m.tabFilter(); ok && !m.previewing && m.focus != focusMain {

@@ -46,6 +46,11 @@ const (
 	// kindFolder is a group of your own inside a pane section (folders.go).
 	// Kinds are saved in ui.json by number, so new ones go last.
 	kindFolder
+	// kindSubagent is an agent running inside another agent's process
+	// (Claude's Agent tool), listed under it. It has no pane: on screen it
+	// is the agent that runs it. Kinds are saved in ui.json by number, so
+	// new ones go last.
+	kindSubagent
 )
 
 // foldered splits a section's panes into the folders of that section and
@@ -96,7 +101,7 @@ type row struct {
 	label     string   // a tab section's name, as the bar writes it
 	tabIndex  int      // a tab section: which tab it stands for
 	section   nodeKind // a folder: the section it sits in
-	kids      int      // a pane: how many panes it started are listed under it
+	kids      int      // a pane: how many panes it started, and subagents it runs, are listed under it
 	nested    bool     // a pane: listed under the pane that started it
 }
 
@@ -179,6 +184,7 @@ func folderRowID(mid, pid string, kind nodeKind, name string) string {
 func sectionID(mid, pid, s string) string    { return "p:" + scoped(mid, pid) + "/" + s }
 func branchNodeID(mid, pid, b string) string { return "b:" + scoped(mid, pid) + ":" + b }
 func paneNodeID(mid, id string) string       { return "pane:" + scoped(mid, id) }
+func subagentID(mid, pane, id string) string { return paneNodeID(mid, pane) + "/sub/" + id }
 func moreID(mid, pid string) string          { return "more:" + scoped(mid, pid) }
 func looseTerminalsID(mid string) string     { return machineID(mid) + "/terminals" }
 func looseSSHID(mid string) string           { return machineID(mid) + "/ssh" }
@@ -357,13 +363,15 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 				return
 			}
 			seen[p.ID] = true
-			out = append(out, paneRow(p, d, len(kids[p.ID]), d > depth))
-			if len(kids[p.ID]) == 0 || !open(paneNodeID(mid, p.ID), true) {
+			subs := subagentRows(mid, p, d+1)
+			out = append(out, paneRow(p, d, len(kids[p.ID])+len(subs), d > depth))
+			if len(kids[p.ID])+len(subs) == 0 || !open(paneNodeID(mid, p.ID), true) {
 				return
 			}
 			for _, k := range kids[p.ID] {
 				emit(k, d+1, seen)
 			}
+			out = append(out, subs...)
 		}
 		seen := map[string]bool{}
 		for _, p := range shown {
@@ -409,6 +417,7 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 				continue
 			}
 			var prows []row
+			npanes := 0
 			for _, id := range tb.panes {
 				p, ok := byID[id]
 				if !ok {
@@ -421,15 +430,20 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 				if !waiting && !(projMatched || match(p.DisplayName()) || match(p.Branch)) {
 					continue
 				}
+				npanes++
+				subs := subagentRows(mid, p, 5)
 				prows = append(prows, row{id: paneNodeID(mid, p.ID), kind: kindPane, depth: 4, machine: mid,
-					projectID: p.ProjectID, branch: p.Branch, paneID: p.ID})
+					projectID: p.ProjectID, branch: p.Branch, paneID: p.ID, kids: len(subs)})
+				if len(subs) > 0 && open(paneNodeID(mid, p.ID), true) {
+					prows = append(prows, subs...)
+				}
 			}
 			if len(prows) == 0 {
 				continue
 			}
 			sid := sectionID(mid, proj.ID, "tab/"+itoa(tb.n))
 			children = append(children, row{id: sid, kind: kindTab, depth: 3, machine: mid, projectID: proj.ID,
-				count: len(prows), label: tb.label, tabIndex: tb.index})
+				count: npanes, label: tb.label, tabIndex: tb.index})
 			if open(sid, true) {
 				children = append(children, prows...)
 			}
@@ -685,6 +699,31 @@ func listedBranches(proj proto.ProjectInfo, panes []proto.PaneInfo, all bool, no
 		}
 	}
 	return list, hidden
+}
+
+// subagentRows lists the subagents a pane's agent runs, to go under it.
+func subagentRows(mid string, p proto.PaneInfo, depth int) []row {
+	if p.Agent == nil || p.State != proto.PaneRunning {
+		return nil
+	}
+	var out []row
+	for _, a := range p.Agent.Subagents {
+		out = append(out, row{id: subagentID(mid, p.ID, a.ID), kind: kindSubagent, depth: depth, machine: mid,
+			projectID: p.ProjectID, branch: p.Branch, paneID: p.ID, label: a.ID, nested: true})
+	}
+	return out
+}
+
+// agentRowOf is the row of the agent running a subagent, which is what is
+// shown for it, having no screen of its own. Any other row is itself.
+func (m *Model) agentRowOf(r row) row {
+	if r.kind != kindSubagent {
+		return r
+	}
+	if i := indexOfRow(m.rows, paneNodeID(r.machine, r.paneID)); i >= 0 {
+		return m.rows[i]
+	}
+	return r
 }
 
 // parentID returns the id of the row's parent in rows, or "".

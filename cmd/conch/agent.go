@@ -136,6 +136,9 @@ func runReport(args []string) {
 			NotificationType string `json:"notification_type"`
 			Message          string `json:"message"`
 			TranscriptPath   string `json:"transcript_path"`
+			AgentID          string `json:"agent_id"`
+			AgentType        string `json:"agent_type"`
+			TaskDescription  string `json:"task_description"`
 		}
 		data, _ := io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
 		if json.Unmarshal(data, &in) != nil || in.Event == "" {
@@ -147,6 +150,10 @@ func runReport(args []string) {
 		}
 		if params.Agent == "claude" { // Claude's transcript format is the one usage reads
 			params.TranscriptPath = in.TranscriptPath
+		}
+		// Every hook a subagent fires names it; only these two are about it.
+		if in.Event == "SubagentStart" || in.Event == "SubagentStop" {
+			params.AgentID, params.AgentType, params.TaskDescription = in.AgentID, in.AgentType, in.TaskDescription
 		}
 	default:
 		return

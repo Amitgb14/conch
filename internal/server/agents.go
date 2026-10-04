@@ -56,6 +56,10 @@ type entry struct {
 	// lineage is the pane that started this one, then its creator, and so
 	// on; guarded by mu. Empty for a pane started from outside the panes.
 	lineage []string
+
+	// subagents are the agents the pane's agent runs in its own process
+	// (subagents.go); guarded by mu.
+	subagents subagents
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -71,6 +75,7 @@ func (e *entry) info() proto.PaneInfo {
 	info.Monitor, info.Alert = e.monitor.info()
 	info.LastActive = e.lastActive
 	turns := e.turns
+	subs := append([]proto.Subagent(nil), e.subagents.list...)
 	if len(e.lineage) > 0 {
 		info.CreatedBy = e.lineage[0]
 	}
@@ -88,7 +93,7 @@ func (e *entry) info() proto.PaneInfo {
 		info.Agent = &proto.AgentStatus{
 			Name: st.Agent, State: st.State, Source: st.Source, Reason: st.Reason,
 			Message: st.Message, SessionID: st.SessionID, Since: st.Since, Tokens: tokens, Failed: st.Failed,
-			Turn: turns,
+			Turn: turns, Subagents: subs,
 		}
 	}
 	return info
@@ -151,6 +156,7 @@ type shown struct {
 	failed                         bool
 	monitor                        proto.PaneMonitor
 	alert                          string
+	subagents                      string
 }
 
 func shownOf(info proto.PaneInfo) shown {
@@ -163,6 +169,8 @@ func shownOf(info proto.PaneInfo) shown {
 		if a.Tokens != nil {
 			sh.tokens = *a.Tokens
 		}
+		sa := subagents{list: a.Subagents}
+		sh.subagents = sa.key()
 	}
 	return sh
 }
@@ -235,11 +243,15 @@ func (s *Server) report(e *entry, rp proto.AgentReportParams) {
 	e.evalMu.Lock()
 	defer e.evalMu.Unlock()
 	s.updateUsage(e, rp.TranscriptPath)
+	found := s.subagentTasks(e, rp)
 	s.evaluate(e, func(t *detect.Tracker) {
+		now := time.Now()
 		t.Hook(detect.HookEvent{
 			Agent: rp.Agent, Event: rp.Event, NotificationType: rp.NotificationType,
 			Message: rp.Message, SessionID: rp.SessionID,
-		}, time.Now())
+		}, now)
+		e.subagents.step(rp, now)
+		e.subagents.describe(found)
 	})
 	if refreshEvents[rp.Event] && e.project != nil {
 		s.projects.request(e.project)

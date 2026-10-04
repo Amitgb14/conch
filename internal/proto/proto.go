@@ -1019,6 +1019,19 @@ type AgentStatus struct {
 	// left over from before. It starts again from zero when the server
 	// reloads, and servers without agent.prompt.v1 leave it zero.
 	Turn int `json:"turn,omitempty"`
+	// Subagents are the agents this one has running inside its own
+	// process — Claude Code's Agent tool — which have no pane of their
+	// own. Servers from before them send none.
+	Subagents []Subagent `json:"subagents,omitempty"`
+}
+
+// Subagent is an agent running inside another agent's process, known from
+// the hooks that say it started and stopped.
+type Subagent struct {
+	ID          string    `json:"id"`
+	Type        string    `json:"type,omitempty"`        // e.g. general-purpose, Explore
+	Description string    `json:"description,omitempty"` // the task it was given, when known
+	Since       time.Time `json:"since"`
 }
 
 // Tokens is an agent session's token usage, from its transcript.
@@ -1481,6 +1494,12 @@ type AgentReportParams struct {
 	Message          string `json:"message,omitempty"`
 	SessionID        string `json:"session_id,omitempty"`
 	TranscriptPath   string `json:"transcript_path,omitempty"`
+	// SubagentStart and SubagentStop name the subagent they are about.
+	AgentID   string `json:"agent_id,omitempty"`
+	AgentType string `json:"agent_type,omitempty"`
+	// TaskDescription is what a SubagentStart's subagent was asked to do,
+	// from Claude builds that say.
+	TaskDescription string `json:"task_description,omitempty"`
 	// From Claude's status line input: plan limits and the context window.
 	Limits      *PlanLimits `json:"limits,omitempty"`
 	ContextUsed int         `json:"context_used,omitempty"`

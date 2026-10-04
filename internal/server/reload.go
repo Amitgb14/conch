@@ -54,6 +54,10 @@ type reloadPane struct {
 	// CreatedBy is the pane's lineage (scope.go); absent from older state
 	// files, whose panes then have no creator.
 	CreatedBy []string `json:"created_by,omitempty"`
+	// Subagents still running in the pane's agent (subagents.go); absent
+	// from older state files.
+	Subagents       []proto.Subagent `json:"subagents,omitempty"`
+	SubagentSession string           `json:"subagent_session,omitempty"`
 }
 
 // reloadBinary resolves and checks the program to reload into: it must run
@@ -141,6 +145,7 @@ func (s *Server) reload(bin string) {
 		rp.Monitor, rp.Alert = e.monitor.info()
 		rp.MonitorArmed = e.monitor.armed
 		rp.CreatedBy = e.lineage
+		rp.Subagents, rp.SubagentSession = e.subagents.list, e.subagents.session
 		e.mu.Unlock()
 		if e.transcript != nil {
 			rp.Transcript = e.transcript.Path()
@@ -213,6 +218,7 @@ func (s *Server) adopt(st *reloadState) {
 		// Silence counts from the reload: when the last output was is lost.
 		e.monitor.alert, e.monitor.armed, e.monitor.lastOut = rp.Alert, rp.MonitorArmed, time.Now()
 		e.lineage = rp.CreatedBy
+		e.subagents = subagents{list: rp.Subagents, session: rp.SubagentSession}
 		if rp.Transcript != "" {
 			e.transcript = usage.NewTranscript(rp.Transcript)
 			if tok, err := e.transcript.Update(); err == nil || tok.Output > 0 {

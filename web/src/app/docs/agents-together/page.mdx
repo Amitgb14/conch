@@ -51,6 +51,19 @@ Fold the agent and its helpers go with it. The agent that started them carries *
 
 A pane nobody started says nothing either way, and a creator that has gone leaves its helpers unclaimed rather than naming a pane that is not there.
 
+### Claude's own subagents
+
+Claude Code can also hand work to **subagents** of its own — its Agent tool, background tasks — which run inside the same `claude` process and have no terminal. conch lists them under the agent too, from the hooks Claude reports when one starts and stops, each with the task it was given and its kind:
+
+```
+Agents
+  ▾ claude
+      ⠋ Writing gateway e2e tests      general-purpose
+      ⠋ Running race tests             Explore
+```
+
+A subagent is listed only while it runs, and goes when it finishes or the session ends. It has no screen of its own, so selecting it shows the agent running it, and `enter` opens that agent — where Claude itself shows what its subagents are doing. There is nothing to type into, close or rename. Agents other than Claude Code report no subagents, and a remote machine lists them once its conch is updated.
+
 ## From the tree
 
 `m` on an agent's pane — or a right-click — has **Prompt…**: type the message, and it goes in as that agent's next one. conch then watches the work it started and says when it ends: *finished what you asked*, *is waiting for you*, or *ended before it answered*, in the status bar, or as a desktop notification when that pane is not the one you are looking at. You are told once.

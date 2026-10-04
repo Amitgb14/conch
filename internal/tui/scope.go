@@ -235,6 +235,7 @@ func (m *Model) pickTab() {
 	if !ok {
 		return
 	}
+	r = m.agentRowOf(r)
 	f := m.rowScope(r)
 	if r.kind != kindMachine {
 		if !m.previewing && len(m.tabs) > 0 && tabShows(m.tabs[m.activeTab], r.id) {

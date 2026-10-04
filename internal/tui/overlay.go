@@ -149,6 +149,12 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
 			items = append(items, menuItem{"Y", "Read and copy the conversation", act("Y")})
 		}
+	case kindSubagent: // no pane of its own: what there is to do is with its agent
+		title = "subagent"
+		if p := m.pane(r.machine, r.paneID); p != nil {
+			title = "subagent of " + p.DisplayName()
+		}
+		items = []menuItem{{"enter", "Open its agent", enter}}
 	case kindBranch:
 		title = r.branch
 		items = []menuItem{
