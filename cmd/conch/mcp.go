@@ -57,6 +57,11 @@ const (
 // for as long as the agent sat there.
 const mcpDefaultWait = 30 * time.Minute
 
+// mcpMaxWait caps a timeout a caller asks for: seconds times a billion
+// overflows an int64 duration, and a timer built from the negative one
+// that comes out fires at once.
+const mcpMaxWait = 24 * time.Hour
+
 type mcpRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
@@ -118,6 +123,11 @@ func (s *mcpSession) serve(r io.Reader) error {
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
+			continue
+		}
+		if line[0] == '[' {
+			s.reply(mcpResponse{ID: nil, Error: &mcpError{mcpInvalidRequest,
+				"conch mcp takes one request per line; this revision of MCP has no batches"}})
 			continue
 		}
 		var req mcpRequest

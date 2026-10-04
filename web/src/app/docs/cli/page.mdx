@@ -219,7 +219,7 @@ An agent that would rather call a tool than a command talks to conch through `co
 | Tool | What it does |
 | --- | --- |
 | `list` | the panes you may see, each with what its agent is doing and the [subagents](/docs/agents-together#claudes-own-subagents) running inside it |
-| `read` | a pane's screen now (`tail` for its last lines only) |
+| `read` | a pane's screen now (`tail` for its last lines — leave it out for an agent, whose last lines are its prompt box) |
 | `start` | an agent in a pane of its own, in a folder that exists |
 | `prompt` | an agent's next message; `wait` holds until the work it starts has ended |
 | `wait` | block until a pane's agent is `done`, `idle`, `waiting` or `working` |
@@ -239,7 +239,7 @@ Or in the TUI: `,` → **Agents** → **Shared MCP servers & skills…** → **A
 
 [Three reviewers at once](/docs/agents-together#three-reviewers-at-once) is what this is for: several helpers, several kinds of agent, no shell.
 
-Stdin and stdout are the protocol: notes go to stderr, requests are answered one at a time in order, and a `wait` tool holds the session until it ends, as `conch wait` holds a shell.
+Stdin and stdout are the protocol: notes go to stderr, one request per line (this revision of MCP has no batches), answered one at a time in order, and a `wait` tool holds the session until it ends, as `conch wait` holds a shell. A tool that names a pane refuses a name shaped like a pane id or one another running pane holds, as `conch rename` does — ids win, so such a name would pick out nothing. `timeout_seconds` defaults to 1800, 0 waits with no limit, and anything over a day is capped.
 
 ### ask
 

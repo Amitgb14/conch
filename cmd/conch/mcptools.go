@@ -200,6 +200,13 @@ func mcpWaitFor(sec *float64) (time.Duration, error) {
 		return mcpDefaultWait, nil
 	case *sec < 0:
 		return 0, fmt.Errorf("timeout_seconds cannot be negative (%v)", *sec)
+	case *sec == 0:
+		return 0, nil // no limit, which the schema says
+	case *sec > mcpMaxWait.Seconds():
+		// Seconds times a billion overflows an int64 duration, and a
+		// timer built from a negative one fires at once — the opposite of
+		// what was asked for. Nobody means more than a day.
+		return mcpMaxWait, nil
 	}
 	return time.Duration(*sec * float64(time.Second)), nil
 }
@@ -244,6 +251,31 @@ func defaultAgent() string {
 		return cfg.Agents.Default
 	}
 	return ""
+}
+
+// freeName is a name a tool may give a pane: not the shape of a pane ID,
+// and held by no other running pane, so the name picks out one pane. The
+// commands check both (`conch rename`, and the server for a task), and a
+// tool that skipped them would let an agent make a name nothing can
+// address — ids win when a name looks like one.
+func freeName(c *client.Client, name, forPane string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	if proto.IsPaneID(name) {
+		return fmt.Errorf("%q is shaped like a pane id; choose another name", name)
+	}
+	var list proto.PaneList
+	if err := call(c, proto.MethodPaneList, nil, &list); err != nil {
+		return err
+	}
+	for _, p := range list.Panes {
+		if p.ID != forPane && p.State == proto.PaneRunning && p.Name == name {
+			return fmt.Errorf("pane %s is already named %q; choose another name", p.ID, name)
+		}
+	}
+	return nil
 }
 
 func mcpList(c *client.Client, raw json.RawMessage) (any, error) {
@@ -318,6 +350,7 @@ func mcpRead(c *client.Client, raw json.RawMessage) (any, error) {
 	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
 		lines = lines[:len(lines)-1]
 	}
+	blank := len(lines) == 0
 	if args.Tail != nil {
 		n := int(*args.Tail)
 		if n < 0 {
@@ -331,8 +364,14 @@ func mcpRead(c *client.Client, raw json.RawMessage) (any, error) {
 	if text == "" {
 		// Nothing on it at all: say so, rather than handing a model an
 		// empty answer it has to guess at. A pane that has only just
-		// started is the usual reason.
-		text = "nothing on " + id + "'s screen yet"
+		// started is the usual reason — but a tail of 0 asked for no
+		// lines, and calling that an empty screen would be a lie.
+		switch {
+		case blank:
+			text = "nothing on " + id + "'s screen yet"
+		default:
+			text = "tail 0 asks for no lines of " + id
+		}
 	}
 	return toolResult(text, map[string]any{"pane": id, "lines": lines}), nil
 }
@@ -355,6 +394,9 @@ func mcpStart(c *client.Client, raw json.RawMessage) (any, error) {
 	cwd := args.Cwd
 	if strings.TrimSpace(cwd) == "" {
 		cwd, _ = os.Getwd()
+	}
+	if err := freeName(c, args.Name, ""); err != nil {
+		return nil, err
 	}
 	params := proto.PaneCreateParams{Agent: agent, AgentArgs: args.Args, Prompt: args.Prompt,
 		Name: args.Name, Cwd: cwd, Cols: 120, Rows: 40}
@@ -476,6 +518,9 @@ func mcpTask(c *client.Client, raw json.RawMessage) (any, error) {
 	if strings.TrimSpace(dir) == "" {
 		dir, _ = os.Getwd()
 	}
+	if err := freeName(c, args.Name, ""); err != nil {
+		return nil, err
+	}
 	var proj proto.ProjectInfo
 	if err := call(c, proto.MethodProjectAdd, proto.ProjectAddParams{Path: dir}, &proj); err != nil {
 		return nil, err
@@ -516,6 +561,9 @@ func mcpRename(c *client.Client, raw json.RawMessage) (any, error) {
 	}
 	id, err := mcpPane(c, args.Pane)
 	if err != nil {
+		return nil, err
+	}
+	if err := freeName(c, args.Name, id); err != nil {
 		return nil, err
 	}
 	var info proto.PaneInfo

@@ -272,7 +272,9 @@ func TestA4MCPToolsReachTheSameMethods(t *testing.T) {
 	}
 
 	// start: pane.create with the agent, the folder and the first message.
-	r = a4MCPOne(t, "start", map[string]any{"agent": "codex", "cwd": "/w", "name": "reviewer",
+	// A name no running pane holds: "reviewer" is p4's above, and taking it
+	// again is refused (TestA4MCPNamesStayAddressable).
+	r = a4MCPOne(t, "start", map[string]any{"agent": "codex", "cwd": "/w", "name": "second",
 		"prompt": "look at the diff", "args": "--model o3"})
 	if r.Result.IsError || !strings.Contains(r.text(), "p4: codex started in /w") {
 		t.Errorf("start: %q", r.text())
@@ -286,7 +288,7 @@ func TestA4MCPToolsReachTheSameMethods(t *testing.T) {
 	}
 	var create proto.PaneCreateParams
 	if srv.params(t, proto.MethodPaneCreate, &create) {
-		if create.Agent != "codex" || create.Cwd != "/w" || create.Name != "reviewer" ||
+		if create.Agent != "codex" || create.Cwd != "/w" || create.Name != "second" ||
 			create.Prompt != "look at the diff" || create.AgentArgs != "--model o3" ||
 			create.Cols != 120 || create.Rows != 40 {
 			t.Errorf("pane.create params %+v", create)
@@ -776,5 +778,237 @@ func TestA4MCPListSaysWhatIsInsideAnAgent(t *testing.T) {
 	}
 	if len(listed.Panes[1].Subagents) != 0 {
 		t.Errorf("a pane with no subagents has %+v", listed.Panes[1].Subagents)
+	}
+}
+
+// TestA4MCPTransportOddities: what a client that is not the one in front of
+// you sends. A string id, an id that is not there, CRLF from a client on
+// another platform, a batch (which this revision of MCP dropped), and an
+// arguments field that is not an object. None of it may end the session.
+func TestA4MCPTransportOddities(t *testing.T) {
+	a4Env(t)
+	a4WaitServer(t, []proto.PaneInfo{a4Pane("p1", "done")})
+	replies, _, err := a4MCP(t,
+		`{"jsonrpc":"2.0","id":"abc","method":"ping"}`,         // ids may be strings
+		"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}\r", // CRLF
+		`{"id":3,"method":"ping"}`,                             // no jsonrpc field: answered anyway
+		`[{"jsonrpc":"2.0","id":4,"method":"ping"}]`,           // a batch
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read","arguments":"p1"}}`,
+		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"read"}}`, // no arguments at all
+		`{"jsonrpc":"2.0","id":7,"method":"ping"}`,                                // still answering
+	)
+	if err != nil {
+		t.Fatalf("serve: %v", err)
+	}
+	if len(replies) != 7 {
+		t.Fatalf("%d replies, want 7: %+v", len(replies), replies)
+	}
+	// A string id comes back as the same string, quotes and all: a client
+	// matches replies by it.
+	if string(replies[0].ID) != `"abc"` || replies[0].Error != nil {
+		t.Errorf("string id: %s %+v", replies[0].ID, replies[0].Error)
+	}
+	if string(replies[1].ID) != "2" || replies[1].Error != nil {
+		t.Errorf("CRLF line: %s %+v", replies[1].ID, replies[1].Error)
+	}
+	if replies[2].Error != nil {
+		t.Errorf("a missing jsonrpc field is not worth refusing over: %+v", replies[2].Error)
+	}
+	// A batch is told what conch takes, not called bad JSON: it is valid
+	// JSON, and a client that sends one needs to know why it was refused.
+	if replies[3].Error == nil || replies[3].Error.Code != mcpInvalidRequest ||
+		!strings.Contains(replies[3].Error.Message, "one request per line") {
+		t.Errorf("a batch: %+v", replies[3].Error)
+	}
+	if !replies[4].Result.IsError || !strings.Contains(replies[4].text(), "cannot be read") {
+		t.Errorf("arguments that are not an object: %q", replies[4].text())
+	}
+	if !replies[5].Result.IsError || !strings.Contains(replies[5].text(), "which pane") {
+		t.Errorf("no arguments at all: %q", replies[5].text())
+	}
+	if replies[6].Error != nil {
+		t.Error("the session stopped answering after the odd ones")
+	}
+}
+
+// TestA4MCPNamesStayAddressable: a name shaped like a pane id, or one
+// another running pane holds, makes a name that picks out nothing — ids
+// win. The commands refuse both (`conch rename`, and the server for a
+// task), so the tools must refuse them too, or the two doors tell an agent
+// different things.
+func TestA4MCPNamesStayAddressable(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, conn *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodPaneList:
+			return proto.PaneList{Panes: []proto.PaneInfo{a4Pane("p1", "idle"),
+				{ID: "p2", Name: "reviewer", State: proto.PaneRunning},
+				{ID: "p3", Name: "old", State: proto.PaneExited}}}, nil
+		case proto.MethodPaneCreate, proto.MethodPaneRename, proto.MethodTaskCreate:
+			return proto.PaneInfo{ID: "p9", State: "running"}, nil
+		case proto.MethodProjectAdd:
+			return proto.ProjectInfo{ID: "pr1", Name: "api", Git: true}, nil
+		}
+		return nil, nil
+	})
+	wrote := func(method string) bool {
+		for _, m := range srv.methods() {
+			if m == method {
+				return true
+			}
+		}
+		return false
+	}
+	for _, c := range []struct {
+		what, tool string
+		args       map[string]any
+		method     string
+	}{
+		{"rename to a pane id", "rename", map[string]any{"pane": "p1", "name": "p7"}, proto.MethodPaneRename},
+		{"rename to a taken name", "rename", map[string]any{"pane": "p1", "name": "reviewer"}, proto.MethodPaneRename},
+		{"start with a pane id", "start", map[string]any{"agent": "claude", "name": "p7"}, proto.MethodPaneCreate},
+		{"start with a taken name", "start", map[string]any{"agent": "claude", "name": "reviewer"}, proto.MethodPaneCreate},
+		{"task with a pane id", "task", map[string]any{"prompt": "go", "name": "p7"}, proto.MethodTaskCreate},
+	} {
+		r := a4MCPOne(t, c.tool, c.args)
+		if !r.Result.IsError {
+			t.Errorf("%s was allowed: %q", c.what, r.text())
+		}
+		if wrote(c.method) {
+			t.Errorf("%s reached the server as %s", c.what, c.method)
+		}
+	}
+	// A name only an *ended* pane holds is free: the running one is what a
+	// name has to pick out.
+	if r := a4MCPOne(t, "rename", map[string]any{"pane": "p1", "name": "old"}); r.Result.IsError {
+		t.Errorf("a name an ended pane had: %q", r.text())
+	}
+	// And a pane keeping its own name is not a clash with itself.
+	if r := a4MCPOne(t, "rename", map[string]any{"pane": "p2", "name": "reviewer"}); r.Result.IsError {
+		t.Errorf("renaming a pane to what it is already called: %q", r.text())
+	}
+}
+
+// TestA4MCPWaitLimits: the timeout a caller gives. Absent is the default,
+// 0 is no limit, and an absurd one is capped — seconds times a billion
+// overflows an int64 duration, and a timer built from the negative that
+// comes out fires at once, which is the opposite of what was asked for.
+func TestA4MCPWaitLimits(t *testing.T) {
+	a4Env(t)
+	a4WaitServer(t, []proto.PaneInfo{a4Pane("p1", "done")})
+
+	none, err := mcpWaitFor(nil)
+	if err != nil || none != mcpDefaultWait {
+		t.Errorf("absent: %v %v", none, err)
+	}
+	zero := 0.0
+	if d, err := mcpWaitFor(&zero); err != nil || d != 0 {
+		t.Errorf("0 is no limit: %v %v", d, err)
+	}
+	huge := 1e18
+	if d, err := mcpWaitFor(&huge); err != nil || d != mcpMaxWait {
+		t.Errorf("1e18 seconds: %v %v, want %v", d, err, mcpMaxWait)
+	}
+	if d, _ := mcpWaitFor(&huge); d <= 0 {
+		t.Fatal("a capped timeout must still be a timeout, not an immediate one")
+	}
+	// No limit, on a pane that is already there: it answers at once rather
+	// than waiting on events that never come.
+	r := a4MCPOne(t, "wait", map[string]any{"pane": "p1", "timeout_seconds": 0})
+	if r.Result.IsError || !strings.Contains(r.text(), "is done") {
+		t.Errorf("no limit on a pane already done: %q", r.text())
+	}
+	// Several states at once, as the schema offers.
+	r = a4MCPOne(t, "wait", map[string]any{"pane": "p1", "state": []string{"idle", "done"}})
+	if r.Result.IsError {
+		t.Errorf("two states: %q", r.text())
+	}
+	// An empty list is not an empty set of states: it means the default.
+	r = a4MCPOne(t, "wait", map[string]any{"pane": "p1", "state": []string{}})
+	if r.Result.IsError {
+		t.Errorf("an empty state list: %q", r.text())
+	}
+}
+
+// TestA4MCPTailZero: a tail of 0 asked for no lines. Saying the screen is
+// empty would be a lie about a screen with plenty on it.
+func TestA4MCPTailZero(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, conn *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodPaneList:
+			return proto.PaneList{Panes: []proto.PaneInfo{a4Pane("p1", "idle")}}, nil
+		case proto.MethodPaneRead:
+			return proto.PaneReadResult{Lines: []string{"a busy screen", "with lines on it"}}, nil
+		}
+		return nil, nil
+	})
+	r := a4MCPOne(t, "read", map[string]any{"pane": "p1", "tail": 0})
+	if r.Result.IsError {
+		t.Fatalf("tail 0: %q", r.text())
+	}
+	if strings.Contains(r.text(), "nothing on") {
+		t.Errorf("tail 0 called a screen with lines on it empty: %q", r.text())
+	}
+	if !strings.Contains(r.text(), "no lines") {
+		t.Errorf("tail 0 says %q", r.text())
+	}
+}
+
+// TestA4MCPServerGoesAwayMidWait: the server stopping while a tool waits is
+// the agent's to hear about — it may be a reload, and waiting again is the
+// thing to do.
+func TestA4MCPServerGoesAwayMidWait(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, conn *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodPaneList {
+			go func() {
+				time.Sleep(100 * time.Millisecond)
+				srv.stop()
+			}()
+			return proto.PaneList{Panes: []proto.PaneInfo{a4Pane("p1", "working")}}, nil
+		}
+		return nil, nil
+	})
+	r := a4MCPOne(t, "wait", map[string]any{"pane": "p1", "timeout_seconds": 10})
+	if !r.Result.IsError {
+		t.Fatalf("a server that went away: %q", r.text())
+	}
+	if r.Error != nil {
+		t.Errorf("it came back as a protocol error: %+v", r.Error)
+	}
+}
+
+// TestA4MCPPromptNeedsSomethingToSend: whitespace is not a message.
+func TestA4MCPPromptNeedsSomethingToSend(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, conn *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodPaneList {
+			return proto.PaneList{Panes: []proto.PaneInfo{a4Pane("p1", "idle")}}, nil
+		}
+		return nil, nil
+	})
+	for _, text := range []string{"", "   ", "\t\n"} {
+		r := a4MCPOne(t, "prompt", map[string]any{"pane": "p1", "text": text})
+		if !r.Result.IsError || !strings.Contains(r.text(), "say what to send") {
+			t.Errorf("text %q: %q", text, r.text())
+		}
+	}
+	for _, m := range srv.methods() {
+		if m == proto.MethodAgentPrompt {
+			t.Error("an empty message reached the agent")
+		}
+	}
+	// A message that is only punctuation, or an emoji, is a message.
+	if r := a4MCPOne(t, "prompt", map[string]any{"pane": "p1", "text": "👍 ship it"}); r.Result.IsError {
+		t.Errorf("an emoji message: %q", r.text())
+	}
+	var sent proto.AgentPromptParams
+	if srv.params(t, proto.MethodAgentPrompt, &sent); sent.Text != "👍 ship it" {
+		t.Errorf("what reached the agent: %q", sent.Text)
 	}
 }
