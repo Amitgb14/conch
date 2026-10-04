@@ -474,8 +474,11 @@ func (p *Pane) Resize(cols, rows int) error {
 func (p *Pane) Repaint() error {
 	p.emuMu.Lock()
 	cols, rows := p.emu.Width(), p.emu.Height()
-	_, _ = p.emu.Write([]byte("\x1b[H\x1b[2J")) // conch's copy only; the program sees nothing
-	p.takeScrollback()                          // the erased screen went into history
+	// Erase from the top left (ESC[J) rather than the whole display: the
+	// emulator saves the screen into history at ESC[2J, and this one is
+	// stale — it would sit in history above the program's fresh draw. This
+	// is conch's copy only; the program sees nothing.
+	_, _ = p.emu.Write([]byte("\x1b[H\x1b[J"))
 	p.emuMu.Unlock()
 	p.notify()
 	if !p.running() || cols <= 1 || rows <= 0 {

@@ -189,7 +189,11 @@ helpers in `cmd/conch` and `internal/remote`.
   last for a scroll in part of the screen (`scrolledRegion`); lines the
   agent brings back by scrolling its own view are not kept twice. The lines are
   kept as text, capped at `altHistoryMax`, dropped when the program leaves
-  the alternate screen, and not carried through a reload.
+  the alternate screen, and carried through a reload in
+  `Snapshot.AltHistory`: text read off the screen, which no replay could
+  rebuild. A pane reloaded on the alternate screen also replays the main
+  screen's history first, or it would be lost — both once were, at every
+  reload, for every agent with a full-screen interface.
 - **History is text, not cells.** The emulator stores every character as a
   cell of over a hundred bytes, so ten thousand lines of scrollback cost
   ~145 MB a pane. After each piece of output, `internal/pane/history.go`

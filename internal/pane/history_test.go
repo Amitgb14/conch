@@ -185,18 +185,52 @@ func TestHistoryErase(t *testing.T) {
 	}
 }
 
-// Repaint clears conch's copy of the screen with ESC[2J; what was on it
-// goes into the history, not the emulator.
-func TestRepaintMovesTheScreenIntoHistory(t *testing.T) {
-	p := textPane(40, 5)
-	p.state = "exited" // so Repaint does not try to resize a terminal
-	p.changed = make(chan struct{})
-	p.feed(numbered(0, 3, 10))
-	if err := p.Repaint(); err != nil {
-		t.Fatal(err)
-	}
-	if n := p.emu.ScrollbackLen(); n != 0 || p.History() != 3 {
-		t.Fatalf("emulator %d, history %d", n, p.History())
+// Repaint clears conch's copy of the screen without saving it: the stale
+// screen must not land in history above the program's fresh draw, and what
+// was already there stays as it was.
+func TestRepaintLeavesHistoryAlone(t *testing.T) {
+	for _, c := range []struct {
+		what   string
+		lines  int // printed on a five-row screen
+		before int // lines in history before the repaint
+	}{
+		{"nothing scrolled", 3, 0},
+		{"history kept", 8, 4},
+		{"alternate screen", 0, 0},
+	} {
+		p := textPane(40, 5)
+		p.state = "exited" // so Repaint does not try to resize a terminal
+		p.changed = make(chan struct{})
+		if c.what == "alternate screen" {
+			p.feed("\x1b[?1049h" + "on the alternate screen")
+		}
+		p.feed(numbered(0, c.lines, 10))
+		was := plainHistory(p)
+		if len(was) != c.before {
+			t.Fatalf("%s: history %d before the repaint, want %d", c.what, len(was), c.before)
+		}
+		if err := p.Repaint(); err != nil {
+			t.Fatal(err)
+		}
+		if n := p.emu.ScrollbackLen(); n != 0 {
+			t.Errorf("%s: emulator kept %d lines", c.what, n)
+		}
+		if got := plainHistory(p); !slices.Equal(got, was) {
+			t.Errorf("%s: history %q after the repaint, want %q", c.what, got, was)
+		}
+		if screen := strings.TrimSpace(strings.Join(p.PlainLines(), "")); screen != "" {
+			t.Errorf("%s: screen not cleared: %q", c.what, screen)
+		}
+		// The program's next output, drawn from the top, still scrolls
+		// into history as usual: six lines on five rows push two off.
+		p.feed(numbered(100, 6, 10))
+		want := append(was, "line 100 x", "line 101 x")
+		if c.what == "alternate screen" {
+			want = was // the main screen's history is not the alternate one's
+		}
+		if got := plainHistory(p); !slices.Equal(got, want) {
+			t.Errorf("%s: history after more output %q, want %q", c.what, got, want)
+		}
 	}
 }
 
