@@ -240,9 +240,18 @@ func TestA4MCPToolsReachTheSameMethods(t *testing.T) {
 	if r = a4MCPOne(t, "read", map[string]any{"pane": "p4", "tail": 99}); r.text() != "one\n\ntwo\nthree" {
 		t.Errorf("read tail 99: %q", r.text())
 	}
-	// A screen with nothing on it at all is empty, not a column of blanks.
-	if r = a4MCPOne(t, "read", map[string]any{"pane": "p5", "tail": 5}); r.text() != "" || r.Result.IsError {
+	// A screen with nothing on it at all says so: an empty answer is one a
+	// model has to guess at, and a pane that just started is the usual
+	// reason for one.
+	r = a4MCPOne(t, "read", map[string]any{"pane": "p5", "tail": 5})
+	if r.Result.IsError || !strings.Contains(r.text(), "nothing on p5's screen yet") {
 		t.Errorf("read a blank screen: %q", r.text())
+	}
+	var read struct {
+		Lines []string `json:"lines"`
+	}
+	if json.Unmarshal(r.Result.Structured, &read) != nil || len(read.Lines) != 0 {
+		t.Errorf("a blank screen has lines: %s", r.Result.Structured)
 	}
 	// A pane is found by its name as well as its id, as every command does.
 	if r = a4MCPOne(t, "read", map[string]any{"pane": "reviewer"}); r.Result.IsError {
@@ -254,6 +263,13 @@ func TestA4MCPToolsReachTheSameMethods(t *testing.T) {
 		"prompt": "look at the diff", "args": "--model o3"})
 	if r.Result.IsError || !strings.Contains(r.text(), "p4: codex started in /w") {
 		t.Errorf("start: %q", r.text())
+	}
+	// conch does not see an agent the instant its process starts, so a
+	// prompt in the same breath is refused: both tools that start one say
+	// to wait first. Found by driving a real `conch mcp` from inside a
+	// pane, where task was followed straight by prompt.
+	if !strings.Contains(r.text(), "Wait for it") {
+		t.Errorf("start does not say to wait: %q", r.text())
 	}
 	var create proto.PaneCreateParams
 	if srv.params(t, proto.MethodPaneCreate, &create) {
@@ -279,6 +295,9 @@ func TestA4MCPToolsReachTheSameMethods(t *testing.T) {
 		"branch": "tests", "base": "main", "agent": "claude", "name": "tester"})
 	if r.Result.IsError || !strings.Contains(r.text(), "started on branch feat") {
 		t.Errorf("task: %q", r.text())
+	}
+	if !strings.Contains(r.text(), "Wait for it") {
+		t.Errorf("task does not say to wait: %q", r.text())
 	}
 	var task proto.TaskCreateParams
 	if srv.params(t, proto.MethodTaskCreate, &task) {
@@ -316,6 +335,9 @@ func TestA4MCPTaskWithoutAGitRepository(t *testing.T) {
 	r := a4MCPOne(t, "task", map[string]any{"prompt": "tidy these notes", "cwd": "/notes"})
 	if r.Result.IsError || !strings.Contains(r.text(), "not a git repository") {
 		t.Fatalf("task in a plain folder: %q", r.text())
+	}
+	if !strings.Contains(r.text(), "Wait for it") {
+		t.Errorf("task in a plain folder does not say to wait: %q", r.text())
 	}
 	for _, m := range srv.methods() {
 		if m == proto.MethodTaskCreate {

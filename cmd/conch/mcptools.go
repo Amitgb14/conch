@@ -57,6 +57,13 @@ func listProp(desc string) map[string]any {
 // paneArg is the argument every tool that names a pane takes.
 const paneArg = "the pane: its id (p3) or the name it was given (reviewer)"
 
+// whenItIsReady ends the answer from start and task. An agent is not
+// detected the instant its process does: conch reads the pane for it, so a
+// prompt sent in the same breath is refused for a pane "not running an
+// agent". Saying so is cheaper than a round trip on every prompt, and it is
+// what the commands say too — `conch wait` prints the same thing.
+const whenItIsReady = "Wait for it (the wait tool) before prompting it: conch has to see the agent start"
+
 // agentArg says which agents there are without pinning them in an enum: a
 // server that knows a new one should take it without a new conch here.
 const agentArg = "which agent: claude, codex, gemini, opencode or devin; leave it out for the person's default"
@@ -96,7 +103,7 @@ func mcpTools() []mcpTool {
 		{
 			Name:        "prompt",
 			Title:       "Prompt an agent",
-			Description: "Send an agent its next message. Refused while it is waiting on a question of its own — read it first. With wait, this does not return until the work the message starts has ended.",
+			Description: "Send an agent its next message. Refused while it is waiting on a question of its own — read it first — and while conch has yet to see an agent start in the pane, so wait for one you have only just started. With wait, this does not return until the work the message starts has ended.",
 			Schema: schema([]string{"pane", "text"}, map[string]any{
 				"pane":            strProp(paneArg),
 				"text":            strProp("the message"),
@@ -320,7 +327,14 @@ func mcpRead(c *client.Client, raw json.RawMessage) (any, error) {
 			lines = lines[len(lines)-n:]
 		}
 	}
-	return toolResult(strings.Join(lines, "\n"), map[string]any{"pane": id, "lines": lines}), nil
+	text := strings.Join(lines, "\n")
+	if text == "" {
+		// Nothing on it at all: say so, rather than handing a model an
+		// empty answer it has to guess at. A pane that has only just
+		// started is the usual reason.
+		text = "nothing on " + id + "'s screen yet"
+	}
+	return toolResult(text, map[string]any{"pane": id, "lines": lines}), nil
 }
 
 func mcpStart(c *client.Client, raw json.RawMessage) (any, error) {
@@ -352,7 +366,7 @@ func mcpStart(c *client.Client, raw json.RawMessage) (any, error) {
 	if info.Name != "" {
 		text += fmt.Sprintf(", addressable as %q", info.Name)
 	}
-	return toolResult(text, paneFacts(info)), nil
+	return toolResult(text+". "+whenItIsReady, paneFacts(info)), nil
 }
 
 func mcpPrompt(c *client.Client, raw json.RawMessage) (any, error) {
@@ -479,8 +493,8 @@ func mcpTask(c *client.Client, raw json.RawMessage) (any, error) {
 		if err := callFor(c, proto.MethodPaneCreate, params, &info, 30*time.Second); err != nil {
 			return nil, err
 		}
-		return toolResult(fmt.Sprintf("%s: %s started in %s — %s is not a git repository, so there is no branch",
-			info.ID, agent, info.Cwd, proj.Name), paneFacts(info)), nil
+		return toolResult(fmt.Sprintf("%s: %s started in %s — %s is not a git repository, so there is no branch. %s",
+			info.ID, agent, info.Cwd, proj.Name, whenItIsReady), paneFacts(info)), nil
 	}
 	params := proto.TaskCreateParams{ProjectID: proj.ID, Prompt: args.Prompt, Branch: args.Branch,
 		Base: args.Base, Agent: agent, Name: args.Name, Cols: 120, Rows: 40}
@@ -488,7 +502,7 @@ func mcpTask(c *client.Client, raw json.RawMessage) (any, error) {
 	if err := callFor(c, proto.MethodTaskCreate, params, &info, harvestWait); err != nil {
 		return nil, err
 	}
-	return toolResult(fmt.Sprintf("%s: %s started on branch %s in %s", info.ID, agent, info.Branch, info.Cwd),
+	return toolResult(fmt.Sprintf("%s: %s started on branch %s in %s. %s", info.ID, agent, info.Branch, info.Cwd, whenItIsReady),
 		paneFacts(info)), nil
 }
 
