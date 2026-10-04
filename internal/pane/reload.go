@@ -3,6 +3,7 @@ package pane
 import (
 	"errors"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -31,6 +32,10 @@ type Snapshot struct {
 	// Replay is terminal output that rebuilds the history, the screen, the
 	// cursor and the modes in a fresh emulator.
 	Replay string `json:"replay"`
+	// AltHistory is what conch kept as it scrolled off the alternate screen
+	// (altscroll.go): text read off the screen, which no replay can rebuild.
+	// Empty on the main screen, and in a snapshot from an older server.
+	AltHistory []string `json:"alt_history,omitempty"`
 }
 
 // replayChunk is how many lines of a replay go into the emulator at once.
@@ -68,6 +73,9 @@ func (p *Pane) Detach() (Snapshot, *os.File, error) {
 	p.emuMu.RLock()
 	snap.Cols, snap.Rows = p.emu.Width(), p.emu.Height()
 	snap.Replay = p.replayLocked(modes, cursorVisible)
+	if p.emu.IsAltScreen() {
+		snap.AltHistory = slices.Clone(p.alt.lines)
+	}
 	p.emuMu.RUnlock()
 	return snap, p.ptmx, nil
 }
@@ -112,12 +120,21 @@ func (p *Pane) replayLocked(modes []ansi.Mode, cursorVisible bool) string {
 	}
 	alt := p.emu.IsAltScreen()
 	var lines []string
-	if !alt {
-		for _, l := range p.hist {
-			// Cut to the width, or a line kept while the pane was wider
-			// would wrap in the new emulator and push the rest down.
-			lines = append(lines, fitWidth(l, cols))
-		}
+	for _, l := range p.hist {
+		// Cut to the width, or a line kept while the pane was wider
+		// would wrap in the new emulator and push the rest down.
+		lines = append(lines, fitWidth(l, cols))
+	}
+	if alt && len(lines) > 0 {
+		// The main screen's history goes in before the alternate screen
+		// is drawn, or a pane on it — an agent's full-screen interface —
+		// would lose it at every reload. Blank rows push all of it off the
+		// main screen into history; the main screen's own rows are not
+		// reachable while the alternate one is in use.
+		b.WriteString(ansi.ResetStyle)
+		b.WriteString(strings.Join(lines, "\r\n"+ansi.ResetStyle))
+		b.WriteString(strings.Repeat("\r\n", rows))
+		lines = nil
 	}
 	for y := 0; y < rows; y++ {
 		y := y
@@ -173,6 +190,10 @@ func Adopt(snap Snapshot, ptmx *os.File) (*Pane, error) {
 	for _, chunk := range chunkByLines([]byte(snap.Replay), replayChunk) {
 		_, _ = p.emu.Write(chunk)
 		p.takeScrollback()
+	}
+	if p.emu.IsAltScreen() {
+		p.alt.on = true
+		p.alt.lines = keepLast(slices.Clone(snap.AltHistory), altHistoryMax)
 	}
 	// Replies the replay provoked (none are expected) must not reach the
 	// program: start copying only now.

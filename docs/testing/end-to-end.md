@@ -117,7 +117,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 
 | # | Path | Steps | Expected | Status |
 | --- | --- | --- | --- | --- |
-| 6.1 💳 | Reload with live agents | Two agents working, a split and a scrolled pane; rebuild; `r` in the version popup | Agents keep working; screens, scrollback, titles and state survive; no stale text | ◐ R1 with shells and scrollback, no agents |
+| 6.1 💳 | Reload with live agents | Two agents working — one with a full-screen interface (Codex, OpenCode, Gemini) scrolled well past a screen — a split and a scrolled pane; rebuild; `r` in the version popup | Agents keep working; screens, scrollback, titles and state survive, the full-screen agent's `ctrl+b [` history included, and the main screen's history is there once it exits; no stale text | ◐ R1 with shells and scrollback, no agents |
 | 6.2 | Failed reload | Reload into a binary that can't start (`conch server reload -binary /bin/false`) | Server stays up on the old build; panes keep running; error shown | ✅ R1 |
 | 6.3 | Stale TUI | Rebuild while a TUI is open | TUI notices within ~5s and offers to restart onto the new build | ✅ R1 |
 
