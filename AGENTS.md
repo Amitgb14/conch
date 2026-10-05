@@ -46,6 +46,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/update` | Version comparison, same-build checks, release installs, reloading servers |
 | `internal/config` | Paths (`CONCH_HOME`), `config.toml` loading and saving |
 | `internal/buildinfo` | Build identity (executable hash) used to detect stale servers and TUIs |
+| `internal/report` | What `conch bug` and the TUI's *Report a problem…* hand over: versions, counts, sizes, a server's missing capabilities and conch's own last error, rendered for a GitHub issue. **Facts, never contents** — no path, project, branch, pane title or screen — which is what makes one keystroke safe; it sends nothing itself |
 | `internal/tools` | Programs for driving conch under test: `clicker` clicks and drags a pane through the protocol, `standin` is a pane conch detects as an agent (by the name it is built under) that starts panes as an agent does |
 | `web/` | The documentation website (Next.js, MDX under `web/src/app/docs`) |
 | `docs/plans` | Design plans for deferred work. The roadmap and the gap plan are kept out of the repository (see `.gitignore`); ask for them rather than looking for them here |

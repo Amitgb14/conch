@@ -91,6 +91,14 @@ Pull requests come from the `gh` CLI (your existing GitHub login): `#12✓` chec
 
 Agents are named after their task (Claude's title) until you rename them with `r`. A mark in front of the name says **which agent** it is, while the glyph before that says what it is **doing** — the thing worth seeing first. With `[ui] icons = "nerd"` the marks are Nerd Font glyphs, of which one is the agent's own logo: Google's, for Gemini. Nerd Fonts carries Font Awesome, Devicons, Material, Octicons, Codicons, Powerline, Seti and Weather, and none has an Anthropic or an OpenAI mark, so Claude Code gets an asterisk — the shape of Anthropic's own — and Codex `</>`. A real logo would need a terminal's image protocol, which not every terminal has and ssh and tmux lose. Otherwise the marks are coloured dots — 🟠 Claude Code, 🟢 Codex, 🔵 Gemini CLI, 🟣 OpenCode, 🟡 Devin — which are emoji and so two cells wide; every line of the tree is measured and cut to fit, so a narrow sidebar shortens the name rather than spilling. `icons = "off"` leaves them out altogether. Their states are described in [Agents](/docs/agents#agent-states); every project also has a [Sessions](/docs/sessions) section.
 
+### Reporting a problem
+
+`,` → **Report a problem…** shows what conch knows about itself — its build, the build of the server it is talking to (not always the same one), what is missing between them, how many panes and agents are running, how big the terminal is, and the last error it showed you — and offers to open a GitHub issue with it, copy it, or copy the path of the server's log. `conch bug` is the same thing from a terminal.
+
+The report carries **facts, not contents**. No path, no project, no branch, no pane title, nothing off a screen: that is what makes it safe behind one key, since nothing has to be read through before it is handed over. The log is the exception and is never included — it holds paths and branch names — so conch gives you its path and leaves it to you.
+
+Nothing is sent by conch. `-open` ends in a browser with every word visible, and you press submit.
+
 ### Folders of your own
 
 conch groups panes by what they are and, with the setting below, by the tab they are open in. Neither says what *you* think belongs together, and names repeat across environments. **`N`** on Agents, Terminals or SSH — or on a pane in one — makes a folder; drag rows into it, and back onto the section to take them out. `x` on a folder removes it and its panes go back to the list; nothing closes. A folder of `SSH` holds saved hosts too, with their sessions: see [SSH folders](#ssh-folders).

@@ -128,6 +128,10 @@ Usage:
   conch mcp                     an MCP server on stdin and stdout, for an agent that would rather
                                 call a tool than a command: start, prompt, wait, read, task, list
                                 and rename, with the scope of the pane it is started in
+  conch bug [-open] [-log] [WHAT HAPPENED...]
+                                the facts about this conch for a bug report — versions, counts
+                                and the last error, never a path or a screen; -open fills in a
+                                GitHub issue with them, which you read before you submit it
   conch ask [-y | -n] REQUEST   ask the brain; it proposes actions and runs them once you confirm
   conch update [VERSION | latest | list | rollback]
                                 replace this binary with the latest release, a named one
@@ -199,6 +203,8 @@ func main() {
 		err = runWeb(args)
 	case "mcp":
 		err = runMCP(args)
+	case "bug":
+		err = runBug(args)
 	case "version", "--version", "-v":
 		runVersion(args)
 	case "help", "--help", "-h":

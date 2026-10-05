@@ -508,6 +508,10 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				return tea.Batch(cmds...)
 			}})
 
+	items = append(items, settingItem{}, settingItem{header: true, label: "Something wrong?"},
+		settingItem{label: "Report a problem…", detail: styleMuted.Render("the facts about this conch, for an issue"),
+			run: func(m *Model) tea.Cmd { return m.openBugReport() }})
+
 	r := &m.cfg.Remote
 	items = append(items, settingItem{}, settingItem{header: true, label: "Remote machines"},
 		settingItem{label: "Upload files dropped into remote panes", detail: "screenshots and other files", on: &r.UploadDrops,

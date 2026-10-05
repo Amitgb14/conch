@@ -241,6 +241,32 @@ Or in the TUI: `,` → **Agents** → **Shared MCP servers & skills…** → **A
 
 Stdin and stdout are the protocol: notes go to stderr, one request per line (this revision of MCP has no batches), answered one at a time in order, and a `wait` tool holds the session until it ends, as `conch wait` holds a shell. A tool that names a pane refuses a name shaped like a pane id or one another running pane holds, as `conch rename` does — ids win, so such a name would pick out nothing. `timeout_seconds` defaults to 1800, 0 waits with no limit, and anything over a day is capped.
 
+### bug
+
+```sh
+conch bug                                                   # the facts about this conch
+conch bug -open "the tree lost a terminal"                  # …in a GitHub issue, already filled in
+conch bug -log                                              # where the server's log is
+```
+
+What to hand over when conch itself is the problem, without writing anything down:
+
+```
+conch 0.1.7-dev (build 29945acfb71a, darwin/arm64)
+server: 0.1.7-dev (build 01096cd11ad4, darwin/arm64), pid 28356, up 6d
+  reloaded 5h06m ago
+panes: 25 · claude×16
+machines: 2, 1 reachable
+terminal: iTerm.app, xterm-256color, 247×48, icons=nerd
+last error: out_of_scope: the claude agent in p1 may not reload the server
+```
+
+It is **facts, not contents**: versions, counts, sizes, the capabilities a server is missing, and conch's own last error. Never a path, a project, a branch, a pane's title or anything off a screen — which is what makes it safe to send without reading it through first. The two builds above being different is the sort of thing it is for.
+
+`-open` opens a GitHub issue with the block already in it; nothing is sent until you press submit there. Over ssh, or anywhere with no desktop, it prints the link instead. `-log` says where the server's log is and what is in it — paths, branch names and pane titles — and leaves attaching it to you.
+
+In the TUI the same thing is `,` → **Report a problem…**, which shows the report and offers to open the issue, copy it, or copy the log's path.
+
 ### ask
 
 `conch ask [-y | -n] REQUEST` asks the [brain](/docs/brain); it proposes actions and runs them once you confirm. `-y` runs the plan without asking; `-n` only shows it.

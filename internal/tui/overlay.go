@@ -991,6 +991,7 @@ var helpText = []string{
 	"    conch update list shows every release · conch update rollback goes back one",
 	"",
 	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain, sandboxes",
+	"     Settings → Report a problem… is this conch's own facts, ready for a GitHub issue",
 	"     Sandboxes lists the providers; enter opens one's own page, esc goes back to the list",
 	"  q  detach (agents keep running)",
 }
