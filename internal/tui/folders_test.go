@@ -161,25 +161,17 @@ func TestFolderClaimsTheRightPanes(t *testing.T) {
 		t.Fatalf("with two vm1 it holds %v, want just p1", got)
 	}
 
-	// The id gone, one pane of that name: found again, which is what makes
-	// a folder survive a restart.
-	if got := claim(eng, proto.PaneInfo{ID: "p9", Name: "vm1"}); !eq(got, "p9") {
-		t.Fatalf("after a restart it holds %v, want p9", got)
-	}
-
-	// The id gone and two of that name: nothing to choose by, so it holds
-	// neither rather than both.
-	if got := claim(eng, proto.PaneInfo{ID: "p8", Name: "vm1"}, proto.PaneInfo{ID: "p9", Name: "vm1"}); len(got) != 0 {
-		t.Fatalf("with no id and two vm1 it holds %v, want none", got)
+	// The id gone: nothing is claimed by name here. Finding a pane again
+	// by name is settleFolders' job, once per connection — a claim that
+	// searched on every rebuild would take a pane nobody gave it
+	// (TestFolderDoesNotTakeAPaneThatOutlivedItsNamesake).
+	if got := claim(eng, proto.PaneInfo{ID: "p9", Name: "vm1"}); len(got) != 0 {
+		t.Fatalf("it found %v by name, which only settling may do", got)
 	}
 
 	// An id handed out again to another pane is not this pane.
 	if got := claim(eng, proto.PaneInfo{ID: "p1", Name: "spacer"}); len(got) != 0 {
 		t.Fatalf("a recycled id gave it %v", got)
-	}
-	// ...and the name still finds the real one beside it.
-	if got := claim(eng, proto.PaneInfo{ID: "p1", Name: "spacer"}, proto.PaneInfo{ID: "p4", Name: "vm1"}); !eq(got, "p4") {
-		t.Fatalf("beside a recycled id it holds %v, want p4", got)
 	}
 
 	// A pane that never had a name is held by its id, and only until the
@@ -191,6 +183,7 @@ func TestFolderClaimsTheRightPanes(t *testing.T) {
 	if got := claim(none, proto.PaneInfo{ID: "p8", Name: "vm1"}); len(got) != 0 {
 		t.Fatalf("its id gone, it holds %v", got)
 	}
+	_ = eq
 
 	// A pane already claimed by the folder before it is left alone.
 	taken := map[string]bool{"p1": true}
@@ -259,5 +252,101 @@ func TestA1FolderTakesTwoPanesOfOneName(t *testing.T) {
 	}
 	if len(m.foldersIn(localMachine, pid, kindTerminals)[0].Members) != 1 {
 		t.Fatal("it left something behind")
+	}
+}
+
+// TestFolderDoesNotTakeAPaneThatOutlivedItsNamesake: the bug from a real
+// tree. A folder eng in Terminals had a member written down as "zsh" whose
+// id was from an older server, and two terminals called zsh were running
+// loose. The folder held neither, the name being ambiguous — and then one
+// of them was closed, the name stopped being ambiguous, and the survivor
+// walked into a folder nobody had put it in.
+func TestFolderDoesNotTakeAPaneThatOutlivedItsNamesake(t *testing.T) {
+	m := &Model{folders: map[string][]savedFolder{
+		"r1/4": {{Name: "eng", Members: []savedMember{{Name: "zsh", ID: "p77"}}}},
+	}}
+	two := []proto.PaneInfo{{ID: "p1", Name: "zsh"}, {ID: "p2", Name: "zsh"}}
+
+	// Settling with two of that name and no live id lets the member go:
+	// there is nothing to choose by, and keeping it leaves the trap.
+	if !m.settleFolders(localMachine, two) {
+		t.Fatal("settling changed nothing")
+	}
+	if mem := m.folders["r1/4"][0].Members; len(mem) != 0 {
+		t.Fatalf("it kept %+v", mem)
+	}
+
+	// With the member gone, closing one zsh leaves the other where it was.
+	for _, panes := range [][]proto.PaneInfo{two, {two[1]}} {
+		if got := m.folders["r1/4"][0].claim(panes, map[string]bool{}); len(got) != 0 {
+			t.Fatalf("with %d panes the folder holds %+v", len(panes), got)
+		}
+	}
+}
+
+// TestSettleFindsPanesAgainAfterARestart: the reason the name is written
+// down at all. A server that restarts hands out new ids, and the folder
+// finds its pane again by name — once, and the id it adopts is what holds
+// it from then on.
+func TestSettleFindsPanesAgainAfterARestart(t *testing.T) {
+	m := &Model{folders: map[string][]savedFolder{
+		"r1/4": {{Name: "eng", Members: []savedMember{{Name: "vm1", ID: "old-p3"}, {Name: "vm2", ID: "old-p4"}}}},
+	}}
+	// One of them is running under a new id; the other is not there.
+	if !m.settleFolders(localMachine, []proto.PaneInfo{{ID: "p9", Name: "vm1"}, {ID: "p8", Name: "spare"}}) {
+		t.Fatal("settling changed nothing")
+	}
+	mem := m.folders["r1/4"][0].Members
+	if len(mem) != 1 || mem[0].ID != "p9" || mem[0].Name != "vm1" {
+		t.Fatalf("members %+v", mem)
+	}
+	// And from then on it is held by that id, through renames and all.
+	got := m.folders["r1/4"][0].claim([]proto.PaneInfo{{ID: "p9", Name: "vm1"}}, map[string]bool{})
+	if len(got) != 1 || got[0].ID != "p9" {
+		t.Fatalf("it holds %+v", got)
+	}
+	// Settling again with the pane still there changes nothing: a reload
+	// keeps the ids, so there is nothing to find.
+	if m.settleFolders(localMachine, []proto.PaneInfo{{ID: "p9", Name: "vm1"}}) {
+		t.Error("settling an unchanged machine rewrote the folder")
+	}
+}
+
+// TestSettleLeavesOtherMachinesAlone: folders are keyed by machine, and a
+// machine's panes say nothing about another's.
+func TestSettleLeavesOtherMachinesAlone(t *testing.T) {
+	m := &Model{folders: map[string][]savedFolder{
+		"r1/4":         {{Name: "eng", Members: []savedMember{{Name: "zsh", ID: "p1"}}}},
+		"busybox~r1/4": {{Name: "eng", Members: []savedMember{{Name: "zsh", ID: "p1"}}}},
+	}}
+	// This computer's panes: the local folder settles, busybox's is left.
+	m.settleFolders(localMachine, []proto.PaneInfo{{ID: "p5", Name: "zsh"}})
+	if mem := m.folders["r1/4"][0].Members; len(mem) != 1 || mem[0].ID != "p5" {
+		t.Fatalf("local %+v", mem)
+	}
+	if mem := m.folders["busybox~r1/4"][0].Members; len(mem) != 1 || mem[0].ID != "p1" {
+		t.Fatalf("busybox was settled by this computer's panes: %+v", mem)
+	}
+	if got := folderKeyMachine("r1/4"); got != localMachine {
+		t.Errorf("a local key reads as machine %q", got)
+	}
+	if got := folderKeyMachine("busybox~r1/4"); got != "busybox" {
+		t.Errorf("a remote key reads as machine %q", got)
+	}
+}
+
+// TestSettleKeepsTwoPanesOfOneName: a folder that really does hold two
+// panes called zsh keeps both, each by its own id.
+func TestSettleKeepsTwoPanesOfOneName(t *testing.T) {
+	m := &Model{folders: map[string][]savedFolder{
+		"r1/4": {{Name: "eng", Members: []savedMember{{Name: "zsh", ID: "p1"}, {Name: "zsh", ID: "p2"}}}},
+	}}
+	panes := []proto.PaneInfo{{ID: "p1", Name: "zsh"}, {ID: "p2", Name: "zsh"}, {ID: "p3", Name: "zsh"}}
+	if m.settleFolders(localMachine, panes) {
+		t.Fatal("both are live: there was nothing to settle")
+	}
+	got := m.folders["r1/4"][0].claim(panes, map[string]bool{})
+	if len(got) != 2 || got[0].ID != "p1" || got[1].ID != "p2" {
+		t.Fatalf("it holds %+v, and p3 is nobody's", got)
 	}
 }

@@ -39,14 +39,14 @@ func folderMember(p proto.PaneInfo) savedMember {
 // claim works out which of a section's panes a folder holds, taking each
 // one it claims out of taken so no pane is listed in two folders.
 //
-// The id decides while it is still that pane — the name written down beside
-// it agreeing — because two panes may share a name and the id is the only
-// thing that tells them apart: a folder holding one vm1 must not swallow the
-// other. The name finds a pane again when the id has gone, which is what
-// happens on every server restart, but only when one pane answers to it:
-// with two called vm1 and no id to choose by, the folder holds neither
-// rather than both. An id whose pane now has another name was handed out
-// again by a new server and is not this pane at all.
+// The id decides, and only the id — the name written down beside it has to
+// agree, because an id whose pane now has another name was handed out again
+// by a new server and is not this pane at all. Finding a pane again *by*
+// name happens once, when a machine's panes first arrive (settleFolders),
+// and never after: a folder that went looking on every rebuild would take a
+// pane it was never given. Two terminals called zsh, one of them closed,
+// and the survivor walked into the folder the other had left — because the
+// name stopped being ambiguous, not because anybody put it there.
 func (f savedFolder) claim(panes []proto.PaneInfo, taken map[string]bool) []proto.PaneInfo {
 	var out []proto.PaneInfo
 	for _, c := range f.claims(panes, taken) {
@@ -62,9 +62,10 @@ type folderClaim struct {
 }
 
 // claims is which member holds which pane, so that taking a pane out knows
-// *which* line to delete. Deciding that by name alone made a folder of two
-// panes called zsh impossible: putting the second one in took the first one
-// out, their names being the same.
+// *which* line to delete. By id: deciding it by name made a folder of two
+// panes called zsh impossible — putting the second one in took the first one
+// out, their names being the same — and made a folder able to take a pane
+// nobody gave it.
 func (f savedFolder) claims(panes []proto.PaneInfo, taken map[string]bool) []folderClaim {
 	byID := make(map[string]proto.PaneInfo, len(panes))
 	for _, p := range panes {
@@ -72,27 +73,92 @@ func (f savedFolder) claims(panes []proto.PaneInfo, taken map[string]bool) []fol
 	}
 	var out []folderClaim
 	for i, mem := range f.Members {
-		if p, ok := byID[mem.ID]; mem.ID != "" && ok && !taken[p.ID] && (mem.Name == "" || p.Name == mem.Name) {
-			taken[p.ID] = true
-			out = append(out, folderClaim{i, p})
+		p, ok := byID[mem.ID]
+		if mem.ID == "" || !ok || taken[p.ID] || (mem.Name != "" && p.Name != mem.Name) {
 			continue
 		}
-		if mem.Name == "" {
-			continue // nothing but an id, and that id is not here any more
-		}
-		var only proto.PaneInfo
-		n := 0
-		for _, p := range panes {
-			if !taken[p.ID] && p.Name == mem.Name {
-				only, n = p, n+1
-			}
-		}
-		if n == 1 {
-			taken[only.ID] = true
-			out = append(out, folderClaim{i, only})
-		}
+		taken[p.ID] = true
+		out = append(out, folderClaim{i, p})
 	}
 	return out
+}
+
+// settleFolders is the one moment a folder looks for its panes by name: a
+// machine's panes have arrived on a new connection, and the ids written
+// down are from whatever server was there before. A member whose id is
+// among them is already right. One whose id is gone takes the pane of its
+// name when exactly one answers; with two of that name, or none, the member
+// is dropped — not kept to be claimed later, which is how a folder came to
+// swallow a pane that merely outlived its namesake.
+//
+// It runs once per connection, so a reload (which keeps the panes and their
+// ids) settles nothing, and a restart (which does not) finds them again.
+func (m *Model) settleFolders(machine string, panes []proto.PaneInfo) bool {
+	live := make(map[string]proto.PaneInfo, len(panes))
+	for _, p := range panes {
+		live[p.ID] = p
+	}
+	// Panes a member already holds by id are nobody else's to take.
+	taken := map[string]bool{}
+	for key, folders := range m.folders {
+		if folderKeyMachine(key) != machine {
+			continue
+		}
+		for _, f := range folders {
+			for _, mem := range f.Members {
+				if p, ok := live[mem.ID]; ok && (mem.Name == "" || p.Name == mem.Name) {
+					taken[p.ID] = true
+				}
+			}
+		}
+	}
+	changed := false
+	for key, folders := range m.folders {
+		if folderKeyMachine(key) != machine {
+			continue
+		}
+		for fi := range folders {
+			kept := folders[fi].Members[:0]
+			for _, mem := range folders[fi].Members {
+				if p, ok := live[mem.ID]; ok && (mem.Name == "" || p.Name == mem.Name) {
+					kept = append(kept, mem)
+					continue
+				}
+				changed = true
+				if mem.Name == "" {
+					continue // an id and nothing else, and that id has gone
+				}
+				var only proto.PaneInfo
+				n := 0
+				for _, p := range panes {
+					if !taken[p.ID] && p.Name == mem.Name {
+						only, n = p, n+1
+					}
+				}
+				if n != 1 {
+					continue // none of that name, or more than one: let it go
+				}
+				taken[only.ID] = true
+				kept = append(kept, savedMember{ID: only.ID, Name: only.Name})
+			}
+			folders[fi].Members = kept
+		}
+		m.folders[key] = folders
+	}
+	return changed
+}
+
+// folderKeyMachine reads the machine out of a folder's key, which is
+// scoped(machine, project) + "/" + section — and scoped leaves this
+// computer's name out, so a key with no "~" before the section is local.
+func folderKeyMachine(key string) string {
+	if i := strings.IndexByte(key, '/'); i >= 0 {
+		key = key[:i]
+	}
+	if i := strings.IndexByte(key, '~'); i >= 0 {
+		return key[:i]
+	}
+	return localMachine
 }
 
 // foldersIn is the folders of one section, in the order they were made.

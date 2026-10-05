@@ -336,11 +336,12 @@ func TestBuildTreeFolders(t *testing.T) {
 		t.Fatalf("the pane did not stay outside it:\n%s", got)
 	}
 
-	// Held by name alone, as a folder holds a pane whose id died with the
-	// server it was started on.
+	// A member with a name and no id holds nothing: the tree does not go
+	// looking by name, which settleFolders does once when a machine's
+	// panes arrive (folders.go).
 	in.folders = map[string][]savedFolder{key: {{Name: "eng", Members: []savedMember{{Name: "zsh"}}}}}
-	if got := render(buildTree(in)); !strings.Contains(got, "folder:r1/4/eng\n          pane:p2\n") {
-		t.Fatalf("a pane held by name was not found:\n%s", got)
+	if got := render(buildTree(in)); strings.Contains(got, "folder:r1/4/eng\n          pane:p2\n") {
+		t.Fatalf("the tree found a pane by name:\n%s", got)
 	}
 
 	// By id alone, for a pane that never had a name.

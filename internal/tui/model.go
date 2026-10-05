@@ -379,15 +379,25 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, m.rebuild())
 
 	case panesMsg:
+		var settled tea.Cmd
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
 			mach.setPanes(msg.panes)
+			// The one moment a folder may look for its panes by name: the
+			// ids it wrote down are from whatever server was there before
+			// this connection (folders.go).
+			if mach.settled != msg.gen {
+				mach.settled = msg.gen
+				if m.settleFolders(mach.id, msg.panes) {
+					settled = m.saveState()
+				}
+			}
 			m.forgetGonePanes(mach)
 			m.flushHeld(mach)
 			if cmd := m.offerRestore(mach.id); cmd != nil {
-				return m, tea.Batch(cmd, m.rebuild())
+				return m, tea.Batch(cmd, settled, m.rebuild())
 			}
 		}
-		return m, tea.Batch(m.rebuild(), m.startTicking())
+		return m, tea.Batch(settled, m.rebuild(), m.startTicking())
 
 	case limitsMsg:
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {

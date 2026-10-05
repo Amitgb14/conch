@@ -69,6 +69,11 @@ type machine struct {
 	// fresh says the last connection reached a server that had started
 	// afresh, so what was held by pane ID belongs to nobody.
 	fresh bool
+	// settled is the connection whose panes the folders were matched
+	// against by name (folders.go). A folder looks for its panes by name
+	// once per connection and never again, or it takes one that merely
+	// outlived its namesake.
+	settled int
 	// since is when this connection was made: where the idle watch counts
 	// from for a machine whose panes say nothing.
 	since time.Time
