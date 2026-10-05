@@ -28,7 +28,6 @@ const (
 type socket struct {
 	g         *Gateway
 	conn      *websocket.Conn
-	c         *client.Client
 	devID     string
 	tokenHash string
 	ctx       context.Context
@@ -36,13 +35,21 @@ type socket struct {
 
 	mu       sync.Mutex
 	watching bool
-	known    map[string]bool // panes whose agent the phone has been told of
+	// clients is this socket's own connection per machine: its events are
+	// what the phone follows, so it holds them rather than sharing the
+	// gateway's. A machine that comes up later is added by pumpAll.
+	clients map[string]*client.Client
+	pumping map[string]bool
+	// Every map below is keyed by the composite pane id (machine:pane),
+	// because p3 exists on every machine.
+	known map[string]bool // panes whose agent the phone has been told of
 	// For panes.watch: every pane, terminals too.
 	watchingPanes bool
 	knownPanes    map[string]bool
-	open          map[string]bool // panes it is drawing
-	projects      map[string]string
+	open          map[string]bool   // panes it is drawing
 	sizes         map[string][2]int // each open pane's columns and rows, from its frames
+	// projects is each machine's project names: ids are a server's own.
+	projects map[string]map[string]string
 
 	byeOnce sync.Once
 }
@@ -76,7 +83,9 @@ func (g *Gateway) serveSocket(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s := &socket{g: g, conn: conn, devID: dev.ID, tokenHash: hashSecret(token), ctx: ctx, cancel: cancel,
-		known: map[string]bool{}, knownPanes: map[string]bool{}, open: map[string]bool{}, projects: map[string]string{}, sizes: map[string][2]int{}}
+		clients: map[string]*client.Client{}, pumping: map[string]bool{}, known: map[string]bool{},
+		knownPanes: map[string]bool{}, open: map[string]bool{}, sizes: map[string][2]int{},
+		projects: map[string]map[string]string{}}
 	g.logf("socket %s open", dev.ID)
 
 	g.mu.Lock()
@@ -96,14 +105,16 @@ func (g *Gateway) serveSocket(w http.ResponseWriter, r *http.Request) {
 		g.logf("socket %s closed", dev.ID)
 	}()
 
+	// This computer must answer: without it there is nothing to show. The
+	// others are joined as they come up, and a phone sees them arrive.
 	c, err := g.dial()
 	if err != nil {
 		s.bye(ByeServerGone)
 		return
 	}
-	defer c.Close()
-	s.c = c
-	go s.pump()
+	defer s.closeClients()
+	s.join(LocalMachine, c)
+	go s.follow()
 	s.read()
 }
 
@@ -190,10 +201,11 @@ func logType(t string) string {
 	return "unknown"
 }
 
-func (s *socket) call(method string, params, out any) error {
+// call is one call on a machine's connection.
+func (s *socket) call(c *client.Client, method string, params, out any) error {
 	ctx, cancel := context.WithTimeout(s.ctx, callTimeout)
 	defer cancel()
-	return s.c.Call(ctx, method, params, out)
+	return c.Call(ctx, method, params, out)
 }
 
 func (s *socket) handle(m ClientMessage) {
@@ -208,17 +220,14 @@ func (s *socket) handle(m ClientMessage) {
 		s.watching = true
 		s.mu.Unlock()
 		ctx, cancel := context.WithTimeout(s.ctx, callTimeout)
-		agents, err := agentList(ctx, s.c)
+		agents, machines := s.g.everyAgent(ctx)
 		cancel()
-		if err != nil {
-			s.fail(m.ID, fromServer(err))
-			return
-		}
 		s.mu.Lock()
 		for _, a := range agents {
 			s.known[a.Pane] = true
 		}
 		s.mu.Unlock()
+		s.send(ServerMessage{Type: MsgMachines, Machines: &machines})
 		s.send(ServerMessage{Type: MsgAgents, ID: m.ID, Agents: &agents})
 
 	case MsgPanesWatch:
@@ -226,12 +235,9 @@ func (s *socket) handle(m ClientMessage) {
 		s.watchingPanes = true
 		s.mu.Unlock()
 		ctx, cancel := context.WithTimeout(s.ctx, callTimeout)
-		panes, err := paneList(ctx, s.c)
+		panes, machines := s.g.everyPane(ctx)
 		cancel()
-		if err != nil {
-			s.fail(m.ID, fromServer(err))
-			return
-		}
+		s.send(ServerMessage{Type: MsgMachines, Machines: &machines})
 		s.mu.Lock()
 		for _, p := range panes {
 			s.knownPanes[p.Pane] = true
@@ -240,7 +246,8 @@ func (s *socket) handle(m ClientMessage) {
 		s.send(ServerMessage{Type: MsgPanes, ID: m.ID, Panes: &panes})
 
 	case MsgWheel:
-		if aerr := paneID(m.Pane); aerr != nil {
+		c, pane, id, aerr := s.paneOn(m.Pane)
+		if aerr != nil {
 			s.fail(m.ID, aerr)
 			return
 		}
@@ -260,40 +267,42 @@ func (s *socket) handle(m ClientMessage) {
 		// Over the upper middle of the pane, where an agent's conversation
 		// is, rather than its prompt at the bottom.
 		s.mu.Lock()
-		size := s.sizes[m.Pane]
+		size := s.sizes[id]
 		s.mu.Unlock()
 		x, y := max(size[0]/2, 0), max(size[1]/3, 0)
 		for range n {
-			if err := s.call(proto.MethodPaneSendMouse, proto.PaneSendMouseParams{ID: m.Pane, X: x, Y: y, Button: button, Action: proto.MouseWheel}, nil); err != nil {
+			if err := s.call(c, proto.MethodPaneSendMouse, proto.PaneSendMouseParams{ID: pane, X: x, Y: y, Button: button, Action: proto.MouseWheel}, nil); err != nil {
 				s.fail(m.ID, fromServer(err))
 				return
 			}
 		}
 
 	case MsgScroll:
-		if aerr := paneID(m.Pane); aerr != nil {
+		c, pane, id, aerr := s.paneOn(m.Pane)
+		if aerr != nil {
 			s.fail(m.ID, aerr)
 			return
 		}
 		s.mu.Lock()
-		open := s.open[m.Pane]
+		open := s.open[id]
 		s.mu.Unlock()
 		if !open || m.Offset < 0 {
 			s.fail(m.ID, apiErr(CodeBadRequest, "scroll takes a pane this socket has open and an offset of 0 or more"))
 			return
 		}
 		// This socket's own connection: only its view of the pane moves.
-		if err := s.call(proto.MethodPaneScroll, proto.PaneScrollParams{ID: m.Pane, Offset: m.Offset}, nil); err != nil {
+		if err := s.call(c, proto.MethodPaneScroll, proto.PaneScrollParams{ID: pane, Offset: m.Offset}, nil); err != nil {
 			s.fail(m.ID, fromServer(err))
 		}
 
 	case MsgResize:
-		if aerr := paneID(m.Pane); aerr != nil {
+		c, pane, id, aerr := s.paneOn(m.Pane)
+		if aerr != nil {
 			s.fail(m.ID, aerr)
 			return
 		}
 		s.mu.Lock()
-		open := s.open[m.Pane]
+		open := s.open[id]
 		s.mu.Unlock()
 		if !open {
 			s.fail(m.ID, apiErr(CodeBadRequest, "resize takes a pane this socket has open"))
@@ -308,12 +317,13 @@ func (s *socket) handle(m ClientMessage) {
 		// size and everybody watching sees it. A laptop whose TUI is also
 		// showing the pane will set it back to its own, which is the same
 		// rule the TUI has always had — the last one to look wins.
-		if err := s.call(proto.MethodPaneResize, proto.PaneResizeParams{ID: m.Pane, Cols: m.Cols, Rows: m.Rows}, nil); err != nil {
+		if err := s.call(c, proto.MethodPaneResize, proto.PaneResizeParams{ID: pane, Cols: m.Cols, Rows: m.Rows}, nil); err != nil {
 			s.fail(m.ID, fromServer(err))
 		}
 
 	case MsgText:
-		if aerr := paneID(m.Pane); aerr != nil {
+		c, pane, _, aerr := s.paneOn(m.Pane)
+		if aerr != nil {
 			s.fail(m.ID, aerr)
 			return
 		}
@@ -323,20 +333,21 @@ func (s *socket) handle(m ClientMessage) {
 		}
 		// Across lines it is a paste, so a program that asked for bracketed
 		// paste doesn't take each line's end for Enter.
-		params := proto.PaneSendTextParams{ID: m.Pane, Text: m.Text, Paste: strings.ContainsAny(m.Text, "\r\n")}
-		if err := s.call(proto.MethodPaneSendText, params, nil); err != nil {
+		params := proto.PaneSendTextParams{ID: pane, Text: m.Text, Paste: strings.ContainsAny(m.Text, "\r\n")}
+		if err := s.call(c, proto.MethodPaneSendText, params, nil); err != nil {
 			s.fail(m.ID, fromServer(err))
 		}
 
 	case MsgFrameOpen:
-		if aerr := paneID(m.Pane); aerr != nil {
+		c, pane, id, aerr := s.paneOn(m.Pane)
+		if aerr != nil {
 			s.fail(m.ID, aerr)
 			return
 		}
 		s.mu.Lock()
-		already, full := s.open[m.Pane], len(s.open) >= maxOpenFrames
+		already, full := s.open[id], len(s.open) >= maxOpenFrames
 		if !already && !full {
-			s.open[m.Pane] = true // before asking: the first frame may beat the answer
+			s.open[id] = true // before asking: the first frame may beat the answer
 		}
 		s.mu.Unlock()
 		if already {
@@ -346,28 +357,30 @@ func (s *socket) handle(m ClientMessage) {
 			s.fail(m.ID, apiErr(CodeBadRequest, "too many panes open on this socket; close one first"))
 			return
 		}
-		if err := s.call(proto.MethodPaneSubscribe, proto.PaneRef{ID: m.Pane}, nil); err != nil {
+		if err := s.call(c, proto.MethodPaneSubscribe, proto.PaneRef{ID: pane}, nil); err != nil {
 			s.mu.Lock()
-			delete(s.open, m.Pane)
+			delete(s.open, id)
 			s.mu.Unlock()
 			s.fail(m.ID, fromServer(err))
 		}
 
 	case MsgFrameClose:
-		if aerr := paneID(m.Pane); aerr != nil {
+		c, pane, id, aerr := s.paneOn(m.Pane)
+		if aerr != nil {
 			s.fail(m.ID, aerr)
 			return
 		}
 		s.mu.Lock()
-		was := s.open[m.Pane]
-		delete(s.open, m.Pane)
+		was := s.open[id]
+		delete(s.open, id)
 		s.mu.Unlock()
 		if was {
-			_ = s.call(proto.MethodPaneUnsubscribe, proto.PaneRef{ID: m.Pane}, nil)
+			_ = s.call(c, proto.MethodPaneUnsubscribe, proto.PaneRef{ID: pane}, nil)
 		}
 
 	case MsgKeys:
-		if aerr := paneID(m.Pane); aerr != nil {
+		c, pane, _, aerr := s.paneOn(m.Pane)
+		if aerr != nil {
 			s.fail(m.ID, aerr)
 			return
 		}
@@ -375,43 +388,68 @@ func (s *socket) handle(m ClientMessage) {
 			s.fail(m.ID, apiErr(CodeBadRequest, "keys takes between 1 and 64 key names"))
 			return
 		}
-		if err := s.call(proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: m.Pane, Keys: m.Keys}, nil); err != nil {
+		if err := s.call(c, proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: pane, Keys: m.Keys}, nil); err != nil {
 			s.fail(m.ID, fromServer(err))
 		}
 	}
 }
 
-// pump passes on what the server says, for as long as the socket lives.
-func (s *socket) pump() {
+// pump passes on what one machine's server says, for as long as the socket
+// lives. This computer going away ends the socket — there is nothing left
+// to show; another machine going away leaves the rest of them, and the
+// machine list says what happened.
+func (s *socket) pump(machine string, c *client.Client) {
+	defer func() {
+		s.mu.Lock()
+		delete(s.clients, machine)
+		delete(s.pumping, machine)
+		s.mu.Unlock()
+		c.Close()
+		if machine != LocalMachine {
+			s.tellMachines()
+		}
+	}()
 	for {
 		select {
-		case msg, ok := <-s.c.Events:
+		case msg, ok := <-c.Events:
 			if !ok {
-				s.bye(ByeServerGone)
+				if machine == LocalMachine {
+					s.bye(ByeServerGone)
+				}
 				return
 			}
 			if paired, _ := s.allowed(PermView); !paired {
 				s.bye(ByeRevoked)
 				return
 			}
-			s.event(msg)
+			s.event(machine, msg)
 		case <-s.ctx.Done():
 			return
 		}
 	}
 }
 
-func (s *socket) event(msg proto.Message) {
+// tellMachines sends this socket the machine list again, after one has
+// come or gone.
+func (s *socket) tellMachines() {
+	ctx, cancel := context.WithTimeout(s.ctx, callTimeout)
+	defer cancel()
+	_, machines := s.g.everyAgent(ctx)
+	s.send(ServerMessage{Type: MsgMachines, Machines: &machines})
+}
+
+func (s *socket) event(machine string, msg proto.Message) {
 	switch msg.Event {
 	case proto.EventPaneFrame:
 		var f proto.Frame
 		if json.Unmarshal(msg.Data, &f) != nil {
 			return
 		}
+		ref := composePaneID(machine, f.ID)
 		s.mu.Lock()
-		open := s.open[f.ID]
+		open := s.open[ref]
 		if open {
-			s.sizes[f.ID] = [2]int{f.Cols, f.Rows}
+			s.sizes[ref] = [2]int{f.Cols, f.Rows}
 		}
 		s.mu.Unlock()
 		if !open {
@@ -420,7 +458,7 @@ func (s *socket) event(msg proto.Message) {
 		if f.Lines == nil {
 			f.Lines = []string{}
 		}
-		s.send(ServerMessage{Type: MsgFrame, Frame: &Frame{Pane: f.ID, Cols: f.Cols, Rows: f.Rows, Lines: f.Lines,
+		s.send(ServerMessage{Type: MsgFrame, Frame: &Frame{Pane: ref, Cols: f.Cols, Rows: f.Rows, Lines: f.Lines,
 			Offset: f.Offset, History: f.History, AltScreen: f.AltScreen, Mouse: f.Mouse}})
 
 	case proto.EventPaneUpdated, proto.EventPaneCreated:
@@ -432,20 +470,24 @@ func (s *socket) event(msg proto.Message) {
 		watching, watchingPanes := s.watching, s.watchingPanes
 		s.mu.Unlock()
 		if watchingPanes {
-			s.paneChanged(p)
+			s.paneChanged(machine, p)
 		}
 		if !watching {
 			return
 		}
 		if !isAgent(p) {
-			s.gone(p.ID)
+			s.gone(composePaneID(machine, p.ID))
 			return
 		}
+		c := s.clientOn(machine)
+		if c == nil {
+			return // it went while this event was in flight
+		}
 		ctx, cancel := context.WithTimeout(s.ctx, callTimeout)
-		a := agentOf(ctx, s.c, p, s.projectNames(ctx, p.ProjectID))
+		a := agentOf(ctx, machine, c, p, s.projectNames(ctx, machine, c, p.ProjectID))
 		cancel()
 		s.mu.Lock()
-		s.known[p.ID] = true
+		s.known[a.Pane] = true
 		s.mu.Unlock()
 		s.send(ServerMessage{Type: MsgAgent, Agent: &a})
 
@@ -454,36 +496,42 @@ func (s *socket) event(msg proto.Message) {
 		if json.Unmarshal(msg.Data, &ref) != nil {
 			return
 		}
+		id := composePaneID(machine, ref.ID)
 		s.mu.Lock()
-		delete(s.open, ref.ID)
-		wasPane := s.knownPanes[ref.ID]
-		delete(s.knownPanes, ref.ID)
+		delete(s.open, id)
+		wasPane := s.knownPanes[id]
+		delete(s.knownPanes, id)
 		s.mu.Unlock()
-		s.gone(ref.ID)
+		s.gone(id)
 		if wasPane {
-			s.send(ServerMessage{Type: MsgPaneGone, Pane: ref.ID})
+			s.send(ServerMessage{Type: MsgPaneGone, Pane: id})
 		}
 	}
 }
 
 // paneChanged tells a phone watching every pane about one that appeared
 // or changed, or that it has gone when it no longer runs.
-func (s *socket) paneChanged(p proto.PaneInfo) {
+func (s *socket) paneChanged(machine string, p proto.PaneInfo) {
+	id := composePaneID(machine, p.ID)
 	if !isRunning(p) {
 		s.mu.Lock()
-		was := s.knownPanes[p.ID]
-		delete(s.knownPanes, p.ID)
+		was := s.knownPanes[id]
+		delete(s.knownPanes, id)
 		s.mu.Unlock()
 		if was {
-			s.send(ServerMessage{Type: MsgPaneGone, Pane: p.ID})
+			s.send(ServerMessage{Type: MsgPaneGone, Pane: id})
 		}
 		return
 	}
+	c := s.clientOn(machine)
+	if c == nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(s.ctx, callTimeout)
-	pn := paneOf(ctx, s.c, p, s.projectNames(ctx, p.ProjectID))
+	pn := paneOf(ctx, machine, c, p, s.projectNames(ctx, machine, c, p.ProjectID))
 	cancel()
 	s.mu.Lock()
-	s.knownPanes[p.ID] = true
+	s.knownPanes[id] = true
 	s.mu.Unlock()
 	s.send(ServerMessage{Type: MsgPaneChanged, Info: &pn})
 }
@@ -501,20 +549,119 @@ func (s *socket) gone(pane string) {
 
 // projectNames is the projects' names, asked for again when one turns up
 // that the socket hasn't heard of.
-func (s *socket) projectNames(ctx context.Context, id string) map[string]string {
+func (s *socket) projectNames(ctx context.Context, machine string, c *client.Client, id string) map[string]string {
 	s.mu.Lock()
-	_, have := s.projects[id]
-	names := s.projects
+	names := s.projects[machine]
+	_, have := names[id]
 	s.mu.Unlock()
 	if id == "" || have {
 		return names
 	}
-	fresh, err := projectNames(ctx, s.c)
+	fresh, err := projectNames(ctx, c)
 	if err != nil {
 		return names
 	}
 	s.mu.Lock()
-	s.projects = fresh
+	s.projects[machine] = fresh
 	s.mu.Unlock()
 	return fresh
+}
+
+// join adds a machine's connection to this socket and starts following its
+// events. The caller owns nothing afterwards: closeClients closes them all.
+func (s *socket) join(machine string, c *client.Client) {
+	s.mu.Lock()
+	if s.clients[machine] != nil || s.pumping[machine] {
+		s.mu.Unlock()
+		c.Close()
+		return
+	}
+	s.clients[machine] = c
+	s.pumping[machine] = true
+	s.mu.Unlock()
+	go s.pump(machine, c)
+}
+
+// follow joins the machines that are up and keeps looking for ones that
+// come later, so a phone left open sees a machine arrive. Local is already
+// joined; a machine that drops is dropped from the socket and joined again
+// when the gateway has it back.
+func (s *socket) follow() {
+	t := time.NewTicker(machineJoinEvery)
+	defer t.Stop()
+	for {
+		for _, mc := range s.g.machines() {
+			if mc.id == LocalMachine {
+				continue
+			}
+			s.mu.Lock()
+			have := s.clients[mc.id] != nil || s.pumping[mc.id]
+			s.mu.Unlock()
+			if have || mc.client() == nil {
+				continue
+			}
+			// Its own connection, so this socket's events are its own: the
+			// gateway's client is shared by every request.
+			c, err := s.g.dialMachine(mc.id)
+			if err != nil {
+				continue
+			}
+			s.join(mc.id, c)
+			// The phone hears about it from this socket, which is the only
+			// one that knows it has joined: the gateway's own broadcast
+			// may have happened before this socket was open.
+			s.tellMachines()
+		}
+		select {
+		case <-t.C:
+		case <-s.ctx.Done():
+			return
+		}
+	}
+}
+
+// machineJoinEvery is how often a socket looks for a machine that has come
+// up since it opened. Tests shorten it.
+var machineJoinEvery = 2 * time.Second
+
+// closeClients ends every connection this socket holds.
+func (s *socket) closeClients() {
+	s.mu.Lock()
+	cs := make([]*client.Client, 0, len(s.clients))
+	for _, c := range s.clients {
+		cs = append(cs, c)
+	}
+	s.clients = map[string]*client.Client{}
+	s.mu.Unlock()
+	for _, c := range cs {
+		c.Close()
+	}
+}
+
+// clientOn is the connection to a machine, or nothing when this socket has
+// none — a machine that is still being reached, or has gone.
+func (s *socket) clientOn(machine string) *client.Client {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := s.clients[machine]
+	if c != nil && c.Err() != nil {
+		return nil
+	}
+	return c
+}
+
+// paneOn resolves an id the phone sent to the machine's client, the pane id
+// that machine's server knows, and the canonical machine:pane — which is
+// what every map here is keyed by, so a bare `p3` and `local:p3` are the
+// same pane and not two.
+func (s *socket) paneOn(ref string) (c *client.Client, pane, id string, aerr *APIError) {
+	machine, pane, aerr := splitPaneID(ref)
+	if aerr != nil {
+		return nil, "", "", aerr
+	}
+	c = s.clientOn(machine)
+	if c == nil {
+		return nil, "", "", apiErr(CodeServerUnavailable, "this phone has no connection to "+machine+" yet")
+	}
+	return c, pane, composePaneID(machine, pane), nil
 }

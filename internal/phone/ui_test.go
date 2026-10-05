@@ -208,10 +208,27 @@ func TestUIFiles(t *testing.T) {
 		}
 	}
 
-	// The version the app expects is the gateway's.
-	if !strings.Contains(string(app), "const API_VERSION = 1\n") || APIVersion != 1 {
+	// The version the app expects is the gateway's. Written out rather
+	// than built from APIVersion: the point is that both were changed.
+	if !strings.Contains(string(app), "const API_VERSION = 2\n") || APIVersion != 2 {
 		t.Error("app.mjs and the gateway disagree on the API version; change both")
 	}
+	// The app draws the machines: a tag on a row that is somewhere else,
+	// and a strip for a machine that is not answering, so an empty list is
+	// an empty list rather than a phone quietly missing half of them.
+	for _, want := range []string{`case "machines":`, "function machineStrip", "machine-tag",
+		`p.machine === "local"`, "state.machines = state.hello.machines"} {
+		if !strings.Contains(string(app), want) {
+			t.Errorf("app.mjs does not have %q: the machines would not show", want)
+		}
+	}
+	style, _ := uiFiles.ReadFile("ui/app.css")
+	for _, want := range []string{".machine-tag", ".machines", ".machine.offline", ".machine.connecting"} {
+		if !strings.Contains(string(style), want) {
+			t.Errorf("app.css has no %s", want)
+		}
+	}
+
 	// Every route the app calls is one the gateway has.
 	served := map[string]bool{"POST /pair": true}
 	for _, rt := range routes {

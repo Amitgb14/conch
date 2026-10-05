@@ -28,9 +28,9 @@ func isAgent(p proto.PaneInfo) bool {
 
 // buildAgent is a pane as the phone sees it. projects names the projects
 // by ID; screen is the pane's plain screen, needed only while it waits.
-func buildAgent(p proto.PaneInfo, projects map[string]string, screen []string) Agent {
+func buildAgent(machine string, p proto.PaneInfo, projects map[string]string, screen []string) Agent {
 	a := Agent{
-		Machine: Machine, Pane: p.ID, Name: p.Name, Branch: p.Branch,
+		Machine: machine, Pane: composePaneID(machine, p.ID), Name: p.Name, Branch: p.Branch,
 		Agent: p.Agent.Name, State: phoneState(p.Agent.State), Since: p.Agent.Since.UTC(),
 		Title: p.Title, CreatedBy: p.CreatedBy, Failed: p.Agent.Failed,
 		Question: readQuestion(p, screen),
@@ -60,17 +60,17 @@ func projectNames(ctx context.Context, c caller) (map[string]string, error) {
 // agentOf builds one pane's agent, reading its screen when it waits. A
 // screen that can't be read — the pane went as we asked — leaves the
 // question without choices rather than failing the list.
-func agentOf(ctx context.Context, c caller, p proto.PaneInfo, projects map[string]string) Agent {
+func agentOf(ctx context.Context, machine string, c caller, p proto.PaneInfo, projects map[string]string) Agent {
 	var screen proto.PaneReadResult
 	if p.Agent.State == proto.AgentBlocked {
 		_ = c.Call(ctx, proto.MethodPaneRead, proto.PaneRef{ID: p.ID}, &screen)
 	}
-	return buildAgent(p, projects, screen.Lines)
+	return buildAgent(machine, p, projects, screen.Lines)
 }
 
 // agentList is every agent, waiting first and longest wait first, as the
 // TUI's review queue orders them.
-func agentList(ctx context.Context, c caller) ([]Agent, error) {
+func agentList(ctx context.Context, machine string, c caller) ([]Agent, error) {
 	var list proto.PaneList
 	if err := c.Call(ctx, proto.MethodPaneList, nil, &list); err != nil {
 		return nil, err
@@ -82,7 +82,7 @@ func agentList(ctx context.Context, c caller) ([]Agent, error) {
 	agents := []Agent{}
 	for _, p := range list.Panes {
 		if isAgent(p) {
-			agents = append(agents, agentOf(ctx, c, p, projects))
+			agents = append(agents, agentOf(ctx, machine, c, p, projects))
 		}
 	}
 	sortAgents(agents)
@@ -106,11 +106,11 @@ func sortAgents(agents []Agent) {
 func isRunning(p proto.PaneInfo) bool { return p.State == proto.PaneRunning }
 
 // buildPane is any running pane as the phone sees it.
-func buildPane(p proto.PaneInfo, projects map[string]string, screen []string) Pane {
+func buildPane(machine string, p proto.PaneInfo, projects map[string]string, screen []string) Pane {
 	if p.Agent != nil {
-		return Pane{Agent: buildAgent(p, projects, screen), Kind: KindAgent, Cwd: p.Cwd}
+		return Pane{Agent: buildAgent(machine, p, projects, screen), Kind: KindAgent, Cwd: p.Cwd}
 	}
-	a := Agent{Machine: Machine, Pane: p.ID, Name: p.Name, Branch: p.Branch, State: StateIdle,
+	a := Agent{Machine: machine, Pane: composePaneID(machine, p.ID), Name: p.Name, Branch: p.Branch, State: StateIdle,
 		Since: p.Created.UTC(), Title: p.Title, CreatedBy: p.CreatedBy}
 	if p.ProjectID != "" {
 		a.Project = &ProjectRef{ID: p.ProjectID, Name: projects[p.ProjectID]}
@@ -119,17 +119,17 @@ func buildPane(p proto.PaneInfo, projects map[string]string, screen []string) Pa
 }
 
 // paneOf builds one pane, reading its screen when its agent waits.
-func paneOf(ctx context.Context, c caller, p proto.PaneInfo, projects map[string]string) Pane {
+func paneOf(ctx context.Context, machine string, c caller, p proto.PaneInfo, projects map[string]string) Pane {
 	var screen proto.PaneReadResult
 	if p.Agent != nil && p.Agent.State == proto.AgentBlocked {
 		_ = c.Call(ctx, proto.MethodPaneRead, proto.PaneRef{ID: p.ID}, &screen)
 	}
-	return buildPane(p, projects, screen.Lines)
+	return buildPane(machine, p, projects, screen.Lines)
 }
 
 // paneList is every running pane: the agents in the list's order, then
 // the terminals, oldest first.
-func paneList(ctx context.Context, c caller) ([]Pane, error) {
+func paneList(ctx context.Context, machine string, c caller) ([]Pane, error) {
 	var list proto.PaneList
 	if err := c.Call(ctx, proto.MethodPaneList, nil, &list); err != nil {
 		return nil, err
@@ -145,10 +145,10 @@ func paneList(ctx context.Context, c caller) ([]Pane, error) {
 		if !isRunning(p) {
 			continue
 		}
-		pn := paneOf(ctx, c, p, projects)
+		pn := paneOf(ctx, machine, c, p, projects)
 		if pn.Kind == KindAgent {
 			agents = append(agents, pn.Agent)
-			byPane[p.ID] = pn
+			byPane[pn.Pane] = pn // keyed as the phone sees it, which is how it is looked up
 		} else {
 			terminals = append(terminals, pn)
 		}

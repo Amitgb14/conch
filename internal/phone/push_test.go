@@ -124,7 +124,7 @@ func (ps *pushService) waitFor(typ, pane string, paths ...string) map[string]pus
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		for _, p := range ps.all() {
-			if p.msg.Type == typ && p.msg.Pane == pane {
+			if p.msg.Type == typ && p.msg.Pane == phoneID(pane) {
 				found[p.path] = p
 			}
 		}
@@ -186,14 +186,14 @@ func TestPushOnTransitions(t *testing.T) {
 		NotificationType: "permission_prompt", Message: "Claude needs your permission to run rm -rf build"}, nil)
 	got := ps.waitFor("waiting", asker, "/both", "/waiting", "/gone")
 	p := got["/both"]
-	if p.msg != (PushMessage{Type: "waiting", Pane: asker, Name: "sh", URL: "/agent/" + asker}) {
+	if p.msg != (PushMessage{Type: "waiting", Pane: phoneID(asker), Name: "sh", URL: "/agent/" + phoneID(asker)}) {
 		t.Fatalf("message %+v", p.msg)
 	}
 	// Nothing from the question travels through the push service.
 	if len(p.raw) != 4 {
 		t.Fatalf("payload fields %v", p.raw)
 	}
-	for k, want := range map[string]string{"Content-Encoding": "aes128gcm", "TTL": "86400", "Urgency": "high", "Topic": "conch-" + asker} {
+	for k, want := range map[string]string{"Content-Encoding": "aes128gcm", "TTL": "86400", "Urgency": "high", "Topic": "conch-" + strings.ReplaceAll(phoneID(asker), ":", "-")} {
 		if p.header.Get(k) != want {
 			t.Errorf("%s: %q, want %q", k, p.header.Get(k), want)
 		}
@@ -237,14 +237,14 @@ func TestPushOnTransitions(t *testing.T) {
 	count := map[string]int{}
 	for _, p := range ps.all() {
 		count[p.msg.Type+" "+p.msg.Pane+" "+p.path]++
-		if p.msg.Pane == before {
+		if p.msg.Pane == phoneID(before) {
 			t.Errorf("a push for %s, which was waiting before the gateway started: %+v", before, p.msg)
 		}
 	}
 	want := map[string]int{
-		"waiting " + asker + " /both": 1, "waiting " + asker + " /waiting": 1, "waiting " + asker + " /gone": 1,
-		"done " + worker + " /both":     1,
-		"waiting " + last + " /waiting": 1,
+		"waiting " + phoneID(asker) + " /both": 1, "waiting " + phoneID(asker) + " /waiting": 1, "waiting " + phoneID(asker) + " /gone": 1,
+		"done " + phoneID(worker) + " /both":     1,
+		"waiting " + phoneID(last) + " /waiting": 1,
 	}
 	if len(count) != len(want) {
 		t.Fatalf("pushes %v, want %v", count, want)
@@ -255,7 +255,7 @@ func TestPushOnTransitions(t *testing.T) {
 		}
 	}
 	// The log names devices and kinds, never an endpoint.
-	if log := f.logged(); strings.Contains(log, ps.srv.URL) || !strings.Contains(log, "push waiting "+asker+": sent to 2 of 3") {
+	if log := f.logged(); strings.Contains(log, ps.srv.URL) || !strings.Contains(log, "push waiting "+phoneID(asker)+": sent to 2 of 3") {
 		t.Fatalf("log:\n%s", log)
 	}
 }

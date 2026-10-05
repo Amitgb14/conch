@@ -223,7 +223,11 @@ func sendPush(ctx context.Context, hc *http.Client, key *ecdh.PrivateKey, sub Pu
 		req.Header.Set("Urgency", "normal")
 	}
 	// One undelivered message per pane: a newer one replaces it.
-	req.Header.Set("Topic", "conch-"+msg.Pane)
+	// A topic is a URL-safe token (RFC 8030), and a pane ID now holds a
+	// colon, which is not: the machine and the pane are joined with a dash
+	// instead, so a newer notification still replaces an older one for the
+	// same pane.
+	req.Header.Set("Topic", "conch-"+strings.ReplaceAll(msg.Pane, ":", "-"))
 	res, err := hc.Do(req)
 	if err != nil {
 		return err

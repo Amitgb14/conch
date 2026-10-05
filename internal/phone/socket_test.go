@@ -24,18 +24,18 @@ func TestSocket(t *testing.T) {
 
 	s.send(ClientMessage{Type: MsgAgentsWatch, ID: "w1"})
 	list := s.next("the list", func(m ServerMessage) bool { return m.Type == MsgAgents })
-	if list.ID != "w1" || list.Agents == nil || len(*list.Agents) != 1 || (*list.Agents)[0].Pane != early {
+	if list.ID != "w1" || list.Agents == nil || len(*list.Agents) != 1 || (*list.Agents)[0].Pane != phoneID(early) {
 		t.Fatalf("agents %+v", list)
 	}
 
 	// An agent that starts later arrives by itself, and so does its question.
 	pane := f.pane("claude", "stty raw -echo; printf 'booted-marker\\r\\n'; exec cat")
 	s.next("the new agent", func(m ServerMessage) bool {
-		return m.Type == MsgAgent && m.Agent.Pane == pane && m.Agent.Agent == "claude" && m.Agent.State == StateIdle
+		return m.Type == MsgAgent && m.Agent.Pane == phoneID(pane) && m.Agent.Agent == "claude" && m.Agent.State == StateIdle
 	})
 	f.call(proto.MethodAgentReport, proto.AgentReportParams{ID: pane, Agent: "claude", Event: "PermissionRequest", Message: "May I?"}, nil)
 	asked := s.next("its question", func(m ServerMessage) bool {
-		return m.Type == MsgAgent && m.Agent.Pane == pane && m.Agent.State == StateWaiting
+		return m.Type == MsgAgent && m.Agent.Pane == phoneID(pane) && m.Agent.State == StateWaiting
 	})
 	if q := asked.Agent.Question; q == nil || q.ID == "" || q.Choices == nil {
 		t.Fatalf("question %+v", asked.Agent.Question)
@@ -47,19 +47,19 @@ func TestSocket(t *testing.T) {
 	frame := s.next("a frame", func(m ServerMessage) bool {
 		return m.Type == MsgFrame && strings.Contains(strings.Join(m.Frame.Lines, "\n"), "booted-marker")
 	})
-	if frame.Frame.Pane != pane || frame.Frame.Cols != 100 || frame.Frame.Rows != 24 || len(frame.Frame.Lines) != 24 {
+	if frame.Frame.Pane != phoneID(pane) || frame.Frame.Cols != 100 || frame.Frame.Rows != 24 || len(frame.Frame.Lines) != 24 {
 		t.Fatalf("frame %+v", frame.Frame)
 	}
 	s.send(ClientMessage{Type: MsgKeys, ID: "k1", Pane: pane, Keys: []string{"Q", "W"}})
 	s.next("the keys drawn", func(m ServerMessage) bool {
-		return m.Type == MsgFrame && m.Frame.Pane == pane && strings.Contains(strings.Join(m.Frame.Lines, "\n"), "QW")
+		return m.Type == MsgFrame && m.Frame.Pane == phoneID(pane) && strings.Contains(strings.Join(m.Frame.Lines, "\n"), "QW")
 	})
 
 	// Keys as the terminal view sends typed text: a space by its name, and
 	// characters beyond ASCII as themselves.
 	s.send(ClientMessage{Type: MsgKeys, ID: "k2", Pane: pane, Keys: []string{"h", "i", "space", "é", "+", "ñ"}})
 	s.next("typed text drawn", func(m ServerMessage) bool {
-		return m.Type == MsgFrame && m.Frame.Pane == pane && strings.Contains(strings.Join(m.Frame.Lines, "\n"), "QWhi é+ñ")
+		return m.Type == MsgFrame && m.Frame.Pane == phoneID(pane) && strings.Contains(strings.Join(m.Frame.Lines, "\n"), "QWhi é+ñ")
 	})
 
 	// What the contract refuses, each with the message's own id.
@@ -119,7 +119,7 @@ func TestSocket(t *testing.T) {
 	f.call(proto.MethodPaneClose, proto.PaneRef{ID: opened[0]}, nil)
 	f.call(proto.MethodPaneClose, proto.PaneRef{ID: pane}, nil)
 	gone := s.next("agent.gone", func(m ServerMessage) bool { return m.Type == MsgAgentGone })
-	if gone.Pane != pane {
+	if gone.Pane != phoneID(pane) {
 		t.Fatalf("gone %+v", gone)
 	}
 	// Once, though the pane both exits and closes.

@@ -11,7 +11,7 @@ import {
   keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps, ttyInput,
 } from "/lib.mjs"
 
-const API_VERSION = 1
+const API_VERSION = 2
 // The agents conch can start. There is no route that lists the ones
 // installed, so a new agent names one of these or leaves it to conch.
 const AGENTS = ["claude", "codex", "gemini", "opencode", "devin"]
@@ -19,6 +19,7 @@ const AGENTS = ["claude", "codex", "gemini", "opencode", "devin"]
 const state = {
   hello: null, // who this device is, once paired
   panes: [], // every pane: agents first, then terminals
+  machines: [], // every machine the gateway reaches, this computer first
   listed: false, // the list has come from the gateway at least once
   online: false,
   reached: 0, // when the gateway last answered
@@ -153,7 +154,9 @@ function connect() {
     send({ type: "panes.watch" })
     state.view?.connected?.()
     api("GET", "/api/hello").then((hello) => {
-      if (hello && state.hello && hello.permission !== state.hello.permission) {
+      if (!hello) return
+      if (hello.machines) state.machines = hello.machines
+      if (state.hello && hello.permission !== state.hello.permission) {
         state.hello = hello
         render() // a permission changed on the laptop: new controls, or fewer
       }
@@ -181,6 +184,12 @@ function onMessage(m) {
   switch (m.type) {
     case "panes":
       setPanes(sortPanes(m.panes || []))
+      break
+    case "machines":
+      // A machine coming up or going says so on its own; the rows it
+      // contributes arrive as panes, so only the strip changes here.
+      state.machines = m.machines || []
+      state.view?.update?.()
       break
     case "pane.changed":
       if (m.info) setPanes(upsertPane(state.panes, m.info))
@@ -225,15 +234,43 @@ function subtitle(p) {
   return [p.kind === "terminal" ? "terminal" : p.agent, p.project?.name, p.branch].filter(Boolean).join(" · ")
 }
 
+// machineName is a machine's label, or its id until the list arrives.
+function machineName(id) {
+  const m = state.machines.find((x) => x.id === id)
+  return m ? m.label : id
+}
+
+// elsewhere says a pane is on another machine. On a phone that reaches only
+// this computer — the usual case — there is nothing to say, so nothing is
+// drawn: the machine is only ever news when there is more than one.
+function elsewhere(p) {
+  if (!p.machine || p.machine === "local" || state.machines.length < 2) return null
+  return h("span", { class: "machine-tag" }, machineName(p.machine))
+}
+
 // row is one pane in a list: what it is, where, and how long it has been so.
 function row(p, extra) {
   return h("a", { href: `/agent/${p.pane}`, "data-nav": true, class: `row ${p.state}` },
     dot(p),
     h("span", { class: "body" },
-      h("span", { class: "name" }, agentLabel(p)),
+      h("span", { class: "name" }, agentLabel(p), elsewhere(p)),
       h("span", { class: "sub" }, subtitle(p) || p.cwd || "")),
     h("span", { class: "when" }, ago(p.since)),
     extra)
+}
+
+// machineStrip says what is wrong with a machine, and nothing at all when
+// every machine answers: an empty list is then an empty list, not a phone
+// that has quietly lost half of them.
+function machineStrip() {
+  const trouble = state.machines.filter((m) => m.state !== "online")
+  if (!trouble.length) return null
+  return h("div", { class: "machines" }, trouble.map((m) =>
+    h("div", { class: `machine ${m.state}` },
+      h("span", { class: "machine-dot" }),
+      h("span", { class: "machine-name" }, m.label),
+      h("span", { class: "machine-what" },
+        m.state === "connecting" ? "connecting…" : m.detail || "not answering"))))
 }
 
 // choiceButtons answers a question with a tap. The question's id goes
@@ -455,6 +492,7 @@ function inboxView() {
       state.listed && !state.panes.length && mayType()
         ? h("button", { class: "primary", onclick: () => openNew() }, "Start something") : null,
       note,
+      machineStrip(),
       waiting.length ? h("div", { class: "needs" }, waiting.map((p) =>
         h("div", { class: "card waiting-card" }, row(p), questionCard(p, (m) => { note.textContent = m })))) : null,
       section("Finished", done), section("Working", working), section("Idle", idle), section("Terminals", terminals))
@@ -945,16 +983,29 @@ function openNew(kind = "task") {
   const err = h("p", { class: "error", role: "alert" })
   const tabs = [["task", "Task"], ["agent", "Agent"], ["terminal", "Terminal"]]
   const project = h("select", { "aria-label": "Project" }, h("option", { value: "" }, "Loading…"))
+  // Which machine to start it on. Only machines that answer can take one,
+  // and with a single machine there is nothing to choose: the row is left
+  // out rather than offering one option.
+  const reachable = state.machines.filter((m) => m.state === "online")
+  const machine = h("select", { "aria-label": "Machine" },
+    reachable.map((m) => h("option", { value: m.id }, m.label)))
   const agent = h("select", { "aria-label": "Agent" }, h("option", { value: "" }, "conch's default"), AGENTS.map((a) => h("option", { value: a }, a)))
   const name = h("input", { maxlength: "64", placeholder: "optional", "aria-label": "Name" })
   const prompt = h("textarea", { rows: "4", placeholder: kind === "task" ? "What should it do?" : "Its first message (optional)", "aria-label": "Prompt" })
   const go = h("button", { class: "primary wide" }, kind === "task" ? "Start task" : kind === "agent" ? "Start agent" : "Open terminal")
-  api("GET", "/api/projects").then(({ projects }) => {
-    put(project, 
-      kind !== "task" ? h("option", { value: "" }, "No project (home folder)") : null,
-      projects.map((p) => h("option", { value: p.id }, p.name || p.path)))
-    if (kind === "task" && !projects.length) project.replaceChildren(h("option", { value: "" }, "No projects: add one in conch first"))
-  }).catch((e) => { err.textContent = e.message })
+  // A project belongs to a machine, so changing the machine loads its own.
+  const loadProjects = () => {
+    project.replaceChildren(h("option", { value: "" }, "Loading…"))
+    const where = machine.value && machine.value !== "local" ? `?machine=${encodeURIComponent(machine.value)}` : ""
+    api("GET", "/api/projects" + where).then(({ projects }) => {
+      put(project,
+        kind !== "task" ? h("option", { value: "" }, "No project (home folder)") : null,
+        projects.map((p) => h("option", { value: p.id }, p.name || p.path)))
+      if (kind === "task" && !projects.length) project.replaceChildren(h("option", { value: "" }, "No projects: add one in conch first"))
+    }).catch((e) => { err.textContent = e.message })
+  }
+  machine.addEventListener("change", loadProjects)
+  loadProjects()
   const form = h("form", {
     onsubmit: async (ev) => {
       ev.preventDefault()
@@ -964,11 +1015,13 @@ function openNew(kind = "task") {
         let res
         if (kind === "task") {
           const body = { project: project.value, prompt: prompt.value }
+          if (machine.value && machine.value !== "local") body.machine = machine.value
           if (agent.value) body.agent = agent.value
           if (name.value.trim()) body.name = name.value.trim()
           res = await api("POST", "/api/task", body)
         } else {
           const body = { kind }
+          if (machine.value && machine.value !== "local") body.machine = machine.value
           if (project.value) body.project = project.value
           if (name.value.trim()) body.name = name.value.trim()
           if (kind === "agent") {
@@ -985,6 +1038,7 @@ function openNew(kind = "task") {
       }
     },
   },
+  reachable.length > 1 ? h("label", {}, "Machine", machine) : null,
   h("label", {}, "Project", project),
   kind !== "terminal" ? h("label", {}, "Agent", agent) : null,
   kind !== "terminal" ? h("label", {}, kind === "task" ? "Task" : "First message", prompt) : null,
@@ -1104,6 +1158,9 @@ $("new").addEventListener("click", () => openNew())
 async function start() {
   try {
     state.hello = await api("GET", "/api/hello")
+    // The machines come with hello, so a machine still being reached is
+    // drawn before anything else is asked for.
+    state.machines = state.hello.machines || []
   } catch (err) {
     if (err.code === "offline" && state.panes.length) {
       // Paired before, and the laptop is away: show what was last seen.

@@ -376,7 +376,7 @@ func (p *fakePhone) waiting(pane string, ok func(*Question) bool) *Question {
 	var q *Question
 	waitFor(p.t, pane+" waiting on its question", func() bool {
 		for _, a := range p.agents() {
-			if a.Pane == pane && a.State == StateWaiting && a.Question != nil && ok(a.Question) {
+			if a.Pane == phoneID(pane) && a.State == StateWaiting && a.Question != nil && ok(a.Question) {
 				q = a.Question
 				return true
 			}
@@ -492,3 +492,8 @@ func (s *fakeSocket) closed() []ServerMessage {
 		}
 	}
 }
+
+// phoneID is the ID the phone is given for a pane of this computer: pane
+// IDs are a server's own, so the gateway hands out machine:pane and takes
+// back what it gave (api_version 2).
+func phoneID(id string) string { return composePaneID(LocalMachine, id) }

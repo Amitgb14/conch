@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/url"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
@@ -30,11 +31,58 @@ func (g *Gateway) pushes() {
 	if g.dial == nil {
 		return // no server to watch
 	}
+	// One watcher per machine: a waiting agent on another machine is the
+	// reason a phone wants a notification at all. Local is watched here;
+	// the others are picked up as they come up and watched beside it.
+	go g.pushesElsewhere()
 	for {
 		c, err := g.dial()
 		if err == nil {
-			g.watchForPushes(c)
+			g.watchForPushes(LocalMachine, c)
 			c.Close()
+		}
+		select {
+		case <-g.quit:
+			return
+		case <-time.After(pushRetry):
+		}
+	}
+}
+
+// pushesElsewhere watches every other machine for agents that start
+// waiting, one goroutine per machine, started when it first answers and
+// ended when it goes.
+func (g *Gateway) pushesElsewhere() {
+	watching := map[string]bool{}
+	var mu sync.Mutex
+	for {
+		for _, mc := range g.machines() {
+			if mc.id == LocalMachine || mc.client() == nil {
+				continue
+			}
+			mu.Lock()
+			already := watching[mc.id]
+			if !already {
+				watching[mc.id] = true
+			}
+			mu.Unlock()
+			if already {
+				continue
+			}
+			id := mc.id
+			go func() {
+				defer func() {
+					mu.Lock()
+					delete(watching, id)
+					mu.Unlock()
+				}()
+				c, err := g.dialMachine(id)
+				if err != nil {
+					return
+				}
+				defer c.Close()
+				g.watchForPushes(id, c)
+			}()
 		}
 		select {
 		case <-g.quit:
@@ -46,7 +94,7 @@ func (g *Gateway) pushes() {
 
 // watchForPushes follows one connection until it ends or the gateway
 // closes.
-func (g *Gateway) watchForPushes(c *client.Client) {
+func (g *Gateway) watchForPushes(machine string, c *client.Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
 	var list proto.PaneList
 	err := c.Call(ctx, proto.MethodPaneList, nil, &list)
@@ -60,6 +108,8 @@ func (g *Gateway) watchForPushes(c *client.Client) {
 			last[p.ID] = phoneState(p.Agent.State)
 		}
 	}
+	// What the phone is told, and what a tap on the notification opens.
+	paneRef := func(id string) string { return composePaneID(machine, id) }
 	if g.pushWatching != nil {
 		g.pushWatching()
 	}
@@ -94,7 +144,8 @@ func (g *Gateway) watchForPushes(c *client.Client) {
 					}
 					cancel()
 				}
-				g.queuePush(PushMessage{Type: now, Pane: p.ID, Name: p.DisplayName(), Project: projects[p.ProjectID], URL: "/agent/" + p.ID})
+				g.queuePush(PushMessage{Type: now, Pane: paneRef(p.ID), Name: p.DisplayName(),
+					Project: projects[p.ProjectID], URL: "/agent/" + paneRef(p.ID)})
 			case proto.EventPaneExited, proto.EventPaneClosed:
 				var ref proto.PaneRef
 				if json.Unmarshal(msg.Data, &ref) == nil {

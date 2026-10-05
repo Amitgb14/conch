@@ -27,6 +27,7 @@ func TestRoutesAreTheContract(t *testing.T) {
 		"DELETE /api/push/subscribe view",
 		"GET /api/agents view",
 		"GET /api/hello view",
+		"GET /api/machines view",
 		"GET /api/panes view",
 		"GET /api/projects view",
 		"GET /api/push/key view",
@@ -415,8 +416,13 @@ func TestHelloAndUnknownRoutes(t *testing.T) {
 	if status := p.get("/api/hello", &h); status != 200 {
 		t.Fatal(status)
 	}
-	if h.APIVersion != 1 || h.ConchVersion != proto.Version || h.DeviceID != p.id || h.Permission != PermView || len(h.CSRFToken) != 32 {
+	if h.APIVersion != APIVersion || h.ConchVersion != proto.Version || h.DeviceID != p.id || h.Permission != PermView || len(h.CSRFToken) != 32 {
 		t.Fatalf("hello %+v", h)
+	}
+	// hello carries the machines, so the app can draw them before it asks
+	// for anything: this computer, online, always first.
+	if len(h.Machines) != 1 || h.Machines[0].ID != LocalMachine || h.Machines[0].State != MachineOnline {
+		t.Fatalf("hello machines %+v", h.Machines)
 	}
 
 	// Unknown routes and methods answer in the error shape.
@@ -459,7 +465,7 @@ func TestAgentsList(t *testing.T) {
 			agents[2].State == StateWorking && agents[3].State == StateIdle
 	})
 	// Waiting first, the longest wait first.
-	if agents[0].Pane != menu || agents[1].Pane != asked || agents[2].Pane != working || agents[3].Pane != idle {
+	if agents[0].Pane != phoneID(menu) || agents[1].Pane != phoneID(asked) || agents[2].Pane != phoneID(working) || agents[3].Pane != phoneID(idle) {
 		t.Fatalf("order: %s %s %s %s", agents[0].Pane, agents[1].Pane, agents[2].Pane, agents[3].Pane)
 	}
 	a := agents[0]
@@ -549,7 +555,7 @@ func TestAnswerSendsTheKeysForTheQuestionShown(t *testing.T) {
 	if status, e := p.post("/api/answer", AnswerRequest{Pane: pane, QuestionID: q1.ID, Choice: "3"}, &res); status != 200 {
 		t.Fatalf("answer: %d %+v", status, e)
 	}
-	if res != (AnswerResponse{Pane: pane, Sent: true}) {
+	if res != (AnswerResponse{Pane: phoneID(pane), Sent: true}) {
 		t.Fatalf("answer result %+v", res)
 	}
 	// Exactly those bytes since the question appeared: the refusals above
@@ -615,7 +621,7 @@ func TestReply(t *testing.T) {
 	if status, e := p.post("/api/reply", ReplyRequest{Pane: pane, Text: "check finding three again"}, &res); status != 200 {
 		t.Fatalf("reply: %d %+v", status, e)
 	}
-	if res != (ReplyResponse{Pane: pane, Agent: "claude", Turn: 1}) {
+	if res != (ReplyResponse{Pane: phoneID(pane), Agent: "claude", Turn: 1}) {
 		t.Fatalf("reply result %+v", res)
 	}
 	// cat prints the line once Enter reaches it.
@@ -716,11 +722,11 @@ func TestProjectsAndTask(t *testing.T) {
 	if status, e := full.post("/api/task", req, &res); status != 200 {
 		t.Fatalf("task: %d %+v", status, e)
 	}
-	if !proto.IsPaneID(res.Pane) || !strings.HasPrefix(res.Worktree, filepath.Join(f.dir, "api.worktrees")) || res.Branch == "" {
+	if res.Pane != phoneID("p1") || !strings.HasPrefix(res.Worktree, filepath.Join(f.dir, "api.worktrees")) || res.Branch == "" {
 		t.Fatalf("task result %+v", res)
 	}
 	f.call(proto.MethodPaneList, nil, &panes)
-	if len(panes.Panes) != 1 || panes.Panes[0].ID != res.Pane || panes.Panes[0].Name != "reviewer" || panes.Panes[0].Cwd != res.Worktree {
+	if len(panes.Panes) != 1 || phoneID(panes.Panes[0].ID) != res.Pane || panes.Panes[0].Name != "reviewer" || panes.Panes[0].Cwd != res.Worktree {
 		t.Fatalf("panes %+v", panes.Panes)
 	}
 }

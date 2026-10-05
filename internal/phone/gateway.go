@@ -36,8 +36,15 @@ type Gateway struct {
 	logf func(format string, args ...any)
 	now  func() time.Time
 
+	// machMu guards conns, the client per machine (machines.go). It is its
+	// own lock because reaching a machine takes seconds: holding mu for
+	// that would stop every request the gateway is serving.
+	machMu sync.Mutex
+	conns  map[string]*machineConn
+	machWG sync.WaitGroup
+
 	mu       sync.Mutex
-	c        *client.Client // for HTTP requests; a socket has its own
+	c        *client.Client // the local server; a socket has its own
 	devices  []Device
 	stamp    os.FileInfo
 	loaded   bool
@@ -139,6 +146,7 @@ func (g *Gateway) Close() {
 
 	close(g.quit)
 	<-g.done
+	g.closeMachines()
 	var wg sync.WaitGroup
 	for _, s := range socks {
 		wg.Add(1)
@@ -297,6 +305,7 @@ type route struct {
 var routes = []route{
 	{"GET", "/api/hello", PermView, (*Gateway).hello},
 	{"GET", "/api/agents", PermView, (*Gateway).listAgents},
+	{"GET", "/api/machines", PermView, (*Gateway).listMachines},
 	{"GET", "/api/projects", PermView, (*Gateway).listProjects},
 	{"POST", "/api/reply", PermReply, (*Gateway).reply},
 	{"POST", "/api/answer", PermReply, (*Gateway).answer},
@@ -589,39 +598,61 @@ const (
 	taskTimeout = 60 * time.Second
 )
 
-// call makes one call on the shared connection.
+// call makes one call on this computer's connection, for the routes that
+// are about this computer (projects, pairing).
 func (g *Gateway) call(rq *request, timeout time.Duration, method string, params, out any) *APIError {
 	c, aerr := g.server()
 	if aerr != nil {
 		return aerr
 	}
+	return g.callOn(rq, c, timeout, method, params, out)
+}
+
+// callOn makes one call on a named machine's connection: what a route that
+// acts on a pane uses, having resolved the pane's machine (paneOn).
+func (g *Gateway) callOn(rq *request, c *client.Client, timeout time.Duration, method string, params, out any) *APIError {
 	ctx, cancel := context.WithTimeout(rq.r.Context(), timeout)
 	defer cancel()
 	return fromServer(c.Call(ctx, method, params, out))
 }
 
 func (g *Gateway) hello(rq *request) (any, *APIError) {
+	// The machines come with hello so the app can draw them before asking
+	// for anything else; a machine still being reached says so, and the
+	// socket says again when it answers.
 	return Hello{APIVersion: APIVersion, ConchVersion: proto.Version, DeviceID: rq.dev.ID,
-		Permission: rq.dev.Permission, CSRFToken: csrfToken(rq.token)}, nil
+		Permission: rq.dev.Permission, CSRFToken: csrfToken(rq.token),
+		Machines: machineList(g.machines(), nil)}, nil
 }
 
 func (g *Gateway) listAgents(rq *request) (any, *APIError) {
-	c, aerr := g.server()
-	if aerr != nil {
-		return nil, aerr
-	}
 	ctx, cancel := context.WithTimeout(rq.r.Context(), callTimeout)
 	defer cancel()
-	agents, err := agentList(ctx, c)
-	if err != nil {
-		return nil, fromServer(err)
+	agents, machines := g.everyAgent(ctx)
+	if len(machines) > 0 && machines[0].State != MachineOnline && len(agents) == 0 {
+		// Not even this computer answered: that is the gateway being
+		// unavailable, not an empty list.
+		return nil, apiErr(CodeServerUnavailable, "the conch server isn't reachable")
 	}
 	return AgentList{Agents: agents}, nil
 }
 
+func (g *Gateway) listMachines(rq *request) (any, *APIError) {
+	ctx, cancel := context.WithTimeout(rq.r.Context(), callTimeout)
+	defer cancel()
+	_, machines := g.everyAgent(ctx)
+	return MachineList{Machines: machines}, nil
+}
+
 func (g *Gateway) listProjects(rq *request) (any, *APIError) {
+	// A project ID is a server's own, so the projects are the named
+	// machine's; ?machine= left out is this computer, as it always was.
+	c, _, aerr := g.machineFor(rq.r.URL.Query().Get("machine"))
+	if aerr != nil {
+		return nil, aerr
+	}
 	var list proto.ProjectList
-	if aerr := g.call(rq, callTimeout, proto.MethodProjectList, nil, &list); aerr != nil {
+	if aerr := g.callOn(rq, c, callTimeout, proto.MethodProjectList, nil, &list); aerr != nil {
 		return nil, aerr
 	}
 	out := ProjectList{Projects: []Project{}}
@@ -631,15 +662,6 @@ func (g *Gateway) listProjects(rq *request) (any, *APIError) {
 	return out, nil
 }
 
-// paneID checks a pane is named by its ID, as the contract asks: a name
-// can move to another pane between the list and the tap.
-func paneID(id string) *APIError {
-	if !proto.IsPaneID(id) {
-		return apiErr(CodeBadRequest, "a pane is named by its ID, like p3")
-	}
-	return nil
-}
-
 // reply is agent.prompt: the server refuses it while the agent waits on a
 // question, and that refusal is passed on.
 func (g *Gateway) reply(rq *request) (any, *APIError) {
@@ -647,13 +669,10 @@ func (g *Gateway) reply(rq *request) (any, *APIError) {
 	if aerr := rq.decode(&req); aerr != nil {
 		return nil, aerr
 	}
-	if aerr := paneID(req.Pane); aerr != nil {
-		return nil, aerr
-	}
 	if strings.TrimSpace(req.Text) == "" {
 		return nil, apiErr(CodeBadRequest, "a reply needs some text")
 	}
-	c, aerr := g.server()
+	c, pane, id, aerr := g.paneOn(req.Pane)
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -663,10 +682,12 @@ func (g *Gateway) reply(rq *request) (any, *APIError) {
 		return nil, apiErr(CodeServerUnavailable, "the conch server predates replies; reload it with `conch server reload`")
 	}
 	var res proto.AgentPromptResult
-	if aerr := g.call(rq, callTimeout, proto.MethodAgentPrompt, proto.AgentPromptParams{ID: req.Pane, Text: req.Text}, &res); aerr != nil {
+	if aerr := g.callOn(rq, c, callTimeout, proto.MethodAgentPrompt, proto.AgentPromptParams{ID: pane, Text: req.Text}, &res); aerr != nil {
 		return nil, aerr
 	}
-	return ReplyResponse{Pane: res.ID, Agent: res.Agent, Turn: res.Turn}, nil
+	// The pane comes back as the phone addressed it, not as that server
+	// calls it: the app sends this back.
+	return ReplyResponse{Pane: id, Agent: res.Agent, Turn: res.Turn}, nil
 }
 
 // answer picks one of a waiting agent's choices. It is refused before
@@ -677,17 +698,18 @@ func (g *Gateway) answer(rq *request) (any, *APIError) {
 	if aerr := rq.decode(&req); aerr != nil {
 		return nil, aerr
 	}
-	if aerr := paneID(req.Pane); aerr != nil {
-		return nil, aerr
-	}
 	if req.QuestionID == "" || req.Choice == "" {
 		return nil, apiErr(CodeBadRequest, "an answer needs question_id and choice")
 	}
-	var list proto.PaneList
-	if aerr := g.call(rq, callTimeout, proto.MethodPaneList, nil, &list); aerr != nil {
+	c, pane, id, aerr := g.paneOn(req.Pane)
+	if aerr != nil {
 		return nil, aerr
 	}
-	i := slices.IndexFunc(list.Panes, func(p proto.PaneInfo) bool { return p.ID == req.Pane })
+	var list proto.PaneList
+	if aerr := g.callOn(rq, c, callTimeout, proto.MethodPaneList, nil, &list); aerr != nil {
+		return nil, aerr
+	}
+	i := slices.IndexFunc(list.Panes, func(p proto.PaneInfo) bool { return p.ID == pane })
 	if i < 0 {
 		return nil, apiErr(CodeNotFound, "no pane "+req.Pane)
 	}
@@ -698,7 +720,7 @@ func (g *Gateway) answer(rq *request) (any, *APIError) {
 	// The screen is read once, and both the question and the keys come
 	// from that one reading.
 	var screen proto.PaneReadResult
-	if aerr := g.call(rq, callTimeout, proto.MethodPaneRead, proto.PaneRef{ID: req.Pane}, &screen); aerr != nil {
+	if aerr := g.callOn(rq, c, callTimeout, proto.MethodPaneRead, proto.PaneRef{ID: pane}, &screen); aerr != nil {
 		return nil, aerr
 	}
 	q := readQuestion(info, screen.Lines)
@@ -712,10 +734,10 @@ func (g *Gateway) answer(rq *request) (any, *APIError) {
 	if !ok {
 		return nil, apiErr(CodeBadRequest, "the question has no choice "+strconv.Quote(req.Choice))
 	}
-	if aerr := g.call(rq, callTimeout, proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: req.Pane, Keys: keys}, nil); aerr != nil {
+	if aerr := g.callOn(rq, c, callTimeout, proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: pane, Keys: keys}, nil); aerr != nil {
 		return nil, aerr
 	}
-	return AnswerResponse{Pane: req.Pane, Sent: true}, nil
+	return AnswerResponse{Pane: id, Sent: true}, nil
 }
 
 // task is task.create, and on a server that drops the name, pane.rename
@@ -728,12 +750,12 @@ func (g *Gateway) task(rq *request) (any, *APIError) {
 	if req.Project == "" || strings.TrimSpace(req.Prompt) == "" {
 		return nil, apiErr(CodeBadRequest, "a task needs project and prompt")
 	}
-	c, aerr := g.server()
+	c, machine, aerr := g.machineFor(req.Machine)
 	if aerr != nil {
 		return nil, aerr
 	}
 	var info proto.PaneInfo
-	aerr = g.call(rq, taskTimeout, proto.MethodTaskCreate, proto.TaskCreateParams{
+	aerr = g.callOn(rq, c, taskTimeout, proto.MethodTaskCreate, proto.TaskCreateParams{
 		ProjectID: req.Project, Prompt: req.Prompt, Agent: req.Agent, Name: req.Name, Cols: 120, Rows: 40}, &info)
 	if aerr != nil {
 		return nil, aerr
@@ -741,9 +763,9 @@ func (g *Gateway) task(rq *request) (any, *APIError) {
 	if req.Name != "" && len(c.MissingCapabilities([]string{proto.CapTaskName})) > 0 {
 		// The task runs either way; a name that didn't take isn't worth
 		// reporting the task as failed for.
-		_ = g.call(rq, callTimeout, proto.MethodPaneRename, proto.PaneRenameParams{ID: info.ID, Name: req.Name}, nil)
+		_ = g.callOn(rq, c, callTimeout, proto.MethodPaneRename, proto.PaneRenameParams{ID: info.ID, Name: req.Name}, nil)
 	}
-	return TaskResponse{Pane: info.ID, Worktree: info.Cwd, Branch: info.Branch}, nil
+	return TaskResponse{Pane: composePaneID(machine, info.ID), Worktree: info.Cwd, Branch: info.Branch}, nil
 }
 
 func (g *Gateway) pushKey(rq *request) (any, *APIError) {
@@ -804,15 +826,11 @@ func (g *Gateway) pushUnsubscribe(rq *request) (any, *APIError) {
 }
 
 func (g *Gateway) listPanes(rq *request) (any, *APIError) {
-	c, aerr := g.server()
-	if aerr != nil {
-		return nil, aerr
-	}
 	ctx, cancel := context.WithTimeout(rq.r.Context(), callTimeout)
 	defer cancel()
-	panes, err := paneList(ctx, c)
-	if err != nil {
-		return nil, fromServer(err)
+	panes, machines := g.everyPane(ctx)
+	if len(machines) > 0 && machines[0].State != MachineOnline && len(panes) == 0 {
+		return nil, apiErr(CodeServerUnavailable, "the conch server isn't reachable")
 	}
 	return PaneList{Panes: panes}, nil
 }
@@ -828,6 +846,10 @@ func (g *Gateway) newPane(rq *request) (any, *APIError) {
 	// panes are named; pane.create doesn't refuse one, so this does.
 	if proto.IsPaneID(req.Name) {
 		return nil, apiErr(CodeBadRequest, "a pane can't be named like a pane ID")
+	}
+	c, machine, aerr := g.machineFor(req.Machine)
+	if aerr != nil {
+		return nil, aerr
 	}
 	params := proto.PaneCreateParams{Name: req.Name, Cols: 120, Rows: 40}
 	switch req.Kind {
@@ -846,8 +868,9 @@ func (g *Gateway) newPane(rq *request) (any, *APIError) {
 	if req.Project == "" {
 		params.NoProject = true // the home folder, in no project, as the TUI's machine-level panes
 	} else {
+		// A project ID is the machine's own, so it is looked up there.
 		var list proto.ProjectList
-		if aerr := g.call(rq, callTimeout, proto.MethodProjectList, nil, &list); aerr != nil {
+		if aerr := g.callOn(rq, c, callTimeout, proto.MethodProjectList, nil, &list); aerr != nil {
 			return nil, aerr
 		}
 		i := slices.IndexFunc(list.Projects, func(p proto.ProjectInfo) bool { return p.ID == req.Project })
@@ -857,10 +880,10 @@ func (g *Gateway) newPane(rq *request) (any, *APIError) {
 		params.Cwd = list.Projects[i].Path
 	}
 	var info proto.PaneInfo
-	if aerr := g.call(rq, callTimeout, proto.MethodPaneCreate, params, &info); aerr != nil {
+	if aerr := g.callOn(rq, c, callTimeout, proto.MethodPaneCreate, params, &info); aerr != nil {
 		return nil, aerr
 	}
-	return NewPaneResponse{Pane: info.ID}, nil
+	return NewPaneResponse{Pane: composePaneID(machine, info.ID)}, nil
 }
 
 func (g *Gateway) closePane(rq *request) (any, *APIError) {
@@ -868,13 +891,14 @@ func (g *Gateway) closePane(rq *request) (any, *APIError) {
 	if aerr := rq.decode(&req); aerr != nil {
 		return nil, aerr
 	}
-	if aerr := paneID(req.Pane); aerr != nil {
+	c, pane, id, aerr := g.paneOn(req.Pane)
+	if aerr != nil {
 		return nil, aerr
 	}
-	if aerr := g.call(rq, callTimeout, proto.MethodPaneClose, proto.PaneRef{ID: req.Pane}, nil); aerr != nil {
+	if aerr := g.callOn(rq, c, callTimeout, proto.MethodPaneClose, proto.PaneRef{ID: pane}, nil); aerr != nil {
 		return nil, aerr
 	}
-	return CloseResponse{Pane: req.Pane, Closed: true}, nil
+	return CloseResponse{Pane: id, Closed: true}, nil
 }
 
 func (g *Gateway) renamePane(rq *request) (any, *APIError) {
@@ -882,15 +906,17 @@ func (g *Gateway) renamePane(rq *request) (any, *APIError) {
 	if aerr := rq.decode(&req); aerr != nil {
 		return nil, aerr
 	}
-	if aerr := paneID(req.Pane); aerr != nil {
+	c, pane, id, aerr := g.paneOn(req.Pane)
+	if aerr != nil {
 		return nil, aerr
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if proto.IsPaneID(req.Name) {
 		return nil, apiErr(CodeBadRequest, "a pane can't be named like a pane ID")
 	}
-	if aerr := g.call(rq, callTimeout, proto.MethodPaneRename, proto.PaneRenameParams{ID: req.Pane, Name: req.Name}, nil); aerr != nil {
+	if aerr := g.callOn(rq, c, callTimeout, proto.MethodPaneRename, proto.PaneRenameParams{ID: pane, Name: req.Name}, nil); aerr != nil {
 		return nil, aerr
 	}
+	req.Pane = id // as the phone should address it from now on
 	return req, nil
 }

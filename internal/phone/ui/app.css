@@ -85,6 +85,24 @@ h2 { display: flex; align-items: center; gap: 8px; font: 600 0.72rem var(--sans)
 .row .sub { color: var(--quiet); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .when { color: var(--quiet); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 
+/* Which machine a pane is on, where that is news: nothing is drawn for
+   this computer, or for a phone that reaches only one machine. */
+.row .name .machine-tag { margin-left: 7px; padding: 1px 6px; border-radius: 999px; background: var(--raised);
+  color: var(--quiet); font-size: 0.72rem; font-weight: 500; vertical-align: 1px; white-space: nowrap; }
+
+/* A machine that is not answering. Shown only while something is wrong, so
+   an empty list is an empty list and not a phone missing half of them. */
+.machines { display: grid; gap: 8px; margin: 14px 0 4px; }
+.machine { display: flex; align-items: baseline; gap: 8px; padding: 9px 12px; border-radius: var(--r-m);
+  background: var(--panel); color: var(--body); font-size: 0.86rem; }
+.machine-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--idle); flex: none; align-self: center; }
+.machine.connecting .machine-dot { background: var(--working); animation: machine-pulse 1.4s ease-in-out infinite; }
+.machine.offline .machine-dot { background: var(--bad); }
+.machine-name { font-weight: 500; color: var(--fg); }
+.machine-what { color: var(--quiet); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes machine-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .machine.connecting .machine-dot { animation: none; } }
+
 /* The inbox: what needs you, answerable where it is. */
 .greeting { margin-top: 18px; }
 .needs { display: grid; gap: 12px; }

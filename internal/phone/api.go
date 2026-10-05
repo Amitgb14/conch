@@ -9,8 +9,9 @@ package phone
 import "time"
 
 // APIVersion is what hello reports, so a UI cached from an older build can
-// see that it is out of date.
-const APIVersion = 1
+// see that it is out of date. 2 is machines: a pane ID is machine:pane,
+// which is not something an older app can read.
+const APIVersion = 2
 
 // CookieName carries the device token.
 const CookieName = "conch_device"
@@ -18,8 +19,31 @@ const CookieName = "conch_device"
 // CSRFHeader carries hello's csrf_token on state-changing requests.
 const CSRFHeader = "X-CSRF-Token"
 
-// Machine is the only machine v1 reaches.
-const Machine = "local"
+// LocalMachine is this computer, which is always listed and always first.
+const LocalMachine = "local"
+
+// Machine states, as the phone sees them.
+const (
+	MachineOnline     = "online"
+	MachineConnecting = "connecting"
+	MachineOffline    = "offline"
+)
+
+// Machine is one machine the gateway reaches. Agents counts what the list
+// carries for it, so the app can show a machine with none without counting
+// them itself; Detail says why an offline one is offline, for people.
+type Machine struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	State  string `json:"state"`
+	Agents int    `json:"agents"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// MachineList is GET /api/machines and the socket's "machines".
+type MachineList struct {
+	Machines []Machine `json:"machines"`
+}
 
 // Permissions, lowest first. A device with a higher one can do everything
 // a lower one can.
@@ -165,7 +189,10 @@ type PaneList struct {
 // NewPaneRequest is POST /api/panes: a terminal, or an agent with an
 // optional first message, in a project's folder or the home folder.
 type NewPaneRequest struct {
-	Kind    string `json:"kind"`
+	Kind string `json:"kind"`
+	// Machine is where to start it; "" is this computer. A project ID is
+	// that machine's own.
+	Machine string `json:"machine,omitempty"`
 	Project string `json:"project,omitempty"`
 	Agent   string `json:"agent,omitempty"`
 	Name    string `json:"name,omitempty"`
@@ -236,6 +263,9 @@ type Hello struct {
 	DeviceID     string `json:"device_id"`
 	Permission   string `json:"permission"`
 	CSRFToken    string `json:"csrf_token"`
+	// Machines is every machine the gateway reaches, local first, so the
+	// app can draw them before asking for anything else.
+	Machines []Machine `json:"machines"`
 }
 
 // AgentList is GET /api/agents and the socket's "agents".
@@ -274,8 +304,10 @@ type AnswerResponse struct {
 	Sent bool   `json:"sent"`
 }
 
-// TaskRequest is POST /api/task.
+// TaskRequest is POST /api/task. Machine is where to start it; "" is this
+// computer, and the project is that machine's own..
 type TaskRequest struct {
+	Machine string `json:"machine,omitempty"`
 	Project string `json:"project"`
 	Agent   string `json:"agent,omitempty"`
 	Name    string `json:"name,omitempty"`
@@ -329,6 +361,7 @@ const (
 	MsgPong      = "pong"
 	MsgBye       = "bye"
 
+	MsgMachines    = "machines"
 	MsgPanes       = "panes"
 	MsgPaneChanged = "pane.changed"
 	MsgPaneGone    = "pane.gone"
@@ -363,16 +396,17 @@ type ClientMessage struct {
 // ServerMessage is what the gateway sends on the socket; Type says which
 // of the other fields are there.
 type ServerMessage struct {
-	Type   string    `json:"type"`
-	ID     string    `json:"id,omitempty"`
-	Agents *[]Agent  `json:"agents,omitempty"`
-	Panes  *[]Pane   `json:"panes,omitempty"`
-	Info   *Pane     `json:"info,omitempty"`
-	Agent  *Agent    `json:"agent,omitempty"`
-	Pane   string    `json:"pane,omitempty"`
-	Frame  *Frame    `json:"frame,omitempty"`
-	Error  *APIError `json:"error,omitempty"`
-	Reason string    `json:"reason,omitempty"`
+	Type     string     `json:"type"`
+	ID       string     `json:"id,omitempty"`
+	Agents   *[]Agent   `json:"agents,omitempty"`
+	Machines *[]Machine `json:"machines,omitempty"`
+	Panes    *[]Pane    `json:"panes,omitempty"`
+	Info     *Pane      `json:"info,omitempty"`
+	Agent    *Agent     `json:"agent,omitempty"`
+	Pane     string     `json:"pane,omitempty"`
+	Frame    *Frame     `json:"frame,omitempty"`
+	Error    *APIError  `json:"error,omitempty"`
+	Reason   string     `json:"reason,omitempty"`
 }
 
 // socketNeeds is the permission each socket message needs. A type that

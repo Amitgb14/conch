@@ -32,12 +32,12 @@ func TestPanesListStartRenameClose(t *testing.T) {
 		t.Fatalf("panes %+v", first)
 	}
 	ps := *first.Panes
-	if ps[0].Pane != agent || ps[0].Kind != KindAgent || ps[0].Agent.Agent != "claude" ||
-		ps[1].Pane != term || ps[1].Kind != KindTerminal || ps[1].Agent.Agent != "" || ps[1].State != StateIdle || ps[1].Cwd != f.dir || ps[1].Since.IsZero() {
+	if ps[0].Pane != phoneID(agent) || ps[0].Kind != KindAgent || ps[0].Agent.Agent != "claude" ||
+		ps[1].Pane != phoneID(term) || ps[1].Kind != KindTerminal || ps[1].Agent.Agent != "" || ps[1].State != StateIdle || ps[1].Cwd != f.dir || ps[1].Since.IsZero() {
 		t.Fatalf("panes %+v", ps)
 	}
 	var list PaneList
-	if status := view.get("/api/panes", &list); status != 200 || len(list.Panes) != 2 || list.Panes[1].Pane != term {
+	if status := view.get("/api/panes", &list); status != 200 || len(list.Panes) != 2 || list.Panes[1].Pane != phoneID(term) {
 		t.Fatalf("GET /api/panes: %d %+v", status, list)
 	}
 
@@ -88,7 +88,7 @@ func TestPanesListStartRenameClose(t *testing.T) {
 	var panes proto.PaneList
 	f.call(proto.MethodPaneList, nil, &panes)
 	for _, p := range panes.Panes {
-		if p.ID == ag.Pane && (!strings.Contains(strings.Join(p.Command, " "), "claude") || !strings.Contains(strings.Join(p.Command, " "), "review it") || p.Cwd != repo) {
+		if phoneID(p.ID) == ag.Pane && (!strings.Contains(strings.Join(p.Command, " "), "claude") || !strings.Contains(strings.Join(p.Command, " "), "review it") || p.Cwd != repo) {
 			t.Fatalf("agent pane %+v", p)
 		}
 	}
@@ -250,12 +250,14 @@ func TestSocketScroll(t *testing.T) {
 // an agent's full-screen conversation, as at the laptop.
 func TestSocketWheel(t *testing.T) {
 	f := newFixture(t)
-	// Asks for mouse reports (SGR), then prints every byte it is sent.
-	pane := f.pane("", `stty raw -echo; printf '\033[?1000h\033[?1006hmouse-ready\r\n'; while :; do printf '%s.' "$(dd bs=1 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')"; done`)
+	// Asks for mouse reports (SGR), then prints every byte it is sent. It
+	// stops at end of input: a loop that didn't once outlived its test,
+	// orphaned, spinning on a closed terminal for days.
+	pane := f.pane("", `stty raw -echo; printf '\033[?1000h\033[?1006hmouse-ready\r\n'; while b="$(dd bs=1 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')"; [ -n "$b" ]; do printf '%s.' "$b"; done`)
 	waitFor(t, "the program", func() bool { return strings.Contains(f.screen(pane), "mouse-ready") })
 	s := f.pair(PermReply).socket()
 	s.send(ClientMessage{Type: MsgFrameOpen, Pane: pane})
-	fr := s.next("a frame", func(m ServerMessage) bool { return m.Type == MsgFrame && m.Frame.Pane == pane })
+	fr := s.next("a frame", func(m ServerMessage) bool { return m.Type == MsgFrame && m.Frame.Pane == phoneID(pane) })
 	if !fr.Frame.Mouse {
 		t.Fatalf("frame doesn't say the program wants the mouse: %+v", fr.Frame)
 	}
