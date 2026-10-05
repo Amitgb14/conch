@@ -57,8 +57,10 @@ func TestA2MachineLifecycle(t *testing.T) {
 	if mach.c != c || mach.state != stateOnline || mach.err != "" || mach.failures != 0 || mach.gen != gen+1 || len(mach.sizes) != 0 || mach.server.Build != "b1" {
 		t.Fatalf("attached: %+v", mach)
 	}
-	if len(mach.listen()) != 5 || mach.checkAgents() == nil {
-		t.Fatal("listen starts five loaders")
+	// Events, agents, limits, panes, projects, and which pane this conch
+	// is in (ownPane, tabs.go).
+	if len(mach.listen()) != 6 || mach.checkAgents() == nil {
+		t.Fatal("listen starts six loaders")
 	}
 	// An outdated server that still answered is used, with a warning.
 	mach.connected(machineConnectedMsg{c: c, err: &remote.OutdatedServerError{Missing: []string{"x"}}})

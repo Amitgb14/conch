@@ -117,6 +117,9 @@ func (m *Model) syncView() tea.Cmd {
 		if !shown || v.Kind != kindPane || mach == nil || mach.c == nil {
 			continue
 		}
+		if m.isOwnPane(v.Machine, v.PaneID) {
+			continue // ours: never resized, never subscribed to
+		}
 		key := paneKey(v.Machine, v.PaneID)
 		want[key] = true
 		if p := mach.pane(v.PaneID); p != nil && p.State == proto.PaneRunning && m.width > 0 {
@@ -287,6 +290,12 @@ func (m *Model) assign(l *leaf, r row) {
 // split or browsing tab takes one in, else it opens its own tab. Other rows
 // (projects, branches, sessions) share a browsing tab.
 func (m *Model) show(r row) tea.Cmd {
+	// Not our own pane: it would resize us, and we would resize it, until
+	// there was nothing left of either (ownPane, below).
+	if m.ownPaneRow(r) {
+		m.setFlash("that pane is this conch — open it from another terminal, or detach first", false)
+		return nil
+	}
 	// Where we were, so ctrl+b b can go back to it: opening a check's
 	// terminal from the queue, say, and then returning to the list.
 	if was := m.tab().focused().view; !was.empty() && was.Row != r.id {
@@ -1329,4 +1338,51 @@ func (m *Model) layoutSig() string {
 		b.WriteString(";")
 	}
 	return b.String()
+}
+
+// A conch running inside a pane must not show that pane. conch refuses to
+// open a TUI in one, and says how to do it anyway (`CONCH_PANE_ID= conch`)
+// — which is useful, and leaves this: the TUI resizes every pane it shows
+// to the space it has for it, so showing its own pane makes the terminal it
+// is drawing in smaller, which makes the space smaller, which makes the
+// pane smaller, down to 1×1. The frames would chase each other too, each
+// redraw producing the next.
+//
+// Which pane that is comes from the server (pane.caller, machine.go), not
+// from CONCH_PANE_ID, because clearing CONCH_PANE_ID is how somebody got
+// here.
+
+// isOwnPane reports whether that pane is the one this conch is running in.
+func (m Model) isOwnPane(machine, pane string) bool {
+	if pane == "" {
+		return false
+	}
+	mach := m.machine(machine)
+	return mach != nil && mach.ownPane == pane
+}
+
+// ownPaneRow reports whether a row is this conch's own pane.
+func (m Model) ownPaneRow(r row) bool {
+	return r.kind == kindPane && m.isOwnPane(r.machine, r.paneID)
+}
+
+// dropOwnPane takes this conch's own pane off the screen, for the case
+// where it was put there before the server said which pane we are.
+func (m *Model) dropOwnPane(machine, pane string) tea.Cmd {
+	id := paneNodeID(machine, pane)
+	dropped := false
+	for _, t := range m.tabs {
+		for _, l := range t.root.leaves() {
+			if l.view.Row == id {
+				l.view = viewRef{}
+				l.changes = nil
+				dropped = true
+			}
+		}
+	}
+	if !dropped {
+		return nil
+	}
+	m.setFlash("that pane is this conch; showing it would shrink it to nothing", false)
+	return m.syncView()
 }

@@ -378,6 +378,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmd, m.rebuild())
 
+	case callerMsg:
+		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
+			mach.ownPane = msg.pane
+			// Whatever is already on screen: if this pane is in it, take
+			// it out before it resizes us to nothing.
+			if cmd := m.dropOwnPane(msg.machine, msg.pane); cmd != nil {
+				return m, cmd
+			}
+		}
+		return m, nil
+
 	case panesMsg:
 		var settled tea.Cmd
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {

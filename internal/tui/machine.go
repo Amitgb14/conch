@@ -69,6 +69,10 @@ type machine struct {
 	// fresh says the last connection reached a server that had started
 	// afresh, so what was held by pane ID belongs to nobody.
 	fresh bool
+	// ownPane is the pane this conch is running in on that machine, when
+	// it is running in one at all (tabs.go: showing it would be showing
+	// ourselves, and resizing it shrinks the terminal we draw in).
+	ownPane string
 	// settled is the connection whose panes the folders were matched
 	// against by name (folders.go). A folder looks for its panes by name
 	// once per connection and never again, or it takes one that merely
@@ -131,6 +135,14 @@ type (
 		m    remote.Machine
 		note string // about key login, when a password was used
 	}
+	// callerMsg says this conch is running inside one of that machine's
+	// panes, which it must not try to show.
+	callerMsg struct {
+		machine string
+		gen     int
+		pane    string
+	}
+
 	panesMsg struct {
 		machine string
 		gen     int
@@ -210,6 +222,19 @@ func (mach *machine) listen() []tea.Cmd {
 				return nil
 			}
 			return projectsMsg{machine: id, gen: gen, projects: list.Projects}
+		},
+		// Which pane this conch is *in*, if it is in one. Usually none:
+		// conch refuses to open a TUI inside a pane. It can be told to
+		// anyway (`CONCH_PANE_ID= conch`, which its own refusal suggests),
+		// and then showing that pane would be showing itself — see
+		// ownPane in tabs.go. The server is asked rather than the
+		// environment, because the environment is what was cleared.
+		func() tea.Msg {
+			var who proto.CallerInfo
+			if err := callCtx(c, proto.MethodPaneCaller, nil, &who); err != nil || who.Pane == "" {
+				return nil
+			}
+			return callerMsg{machine: id, gen: gen, pane: who.Pane}
 		},
 	}
 }

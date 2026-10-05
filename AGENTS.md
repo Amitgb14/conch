@@ -215,6 +215,15 @@ helpers in `cmd/conch` and `internal/remote`.
   `wait`'s `Close` against `Adopt`'s `Fd`. Anything new that writes to
   `p.ptmx` outside the read loop has to answer the same question: whose is
   it now?
+- **A conch inside a pane never shows that pane.** conch refuses to open a
+  TUI in one and says how to do it anyway (`CONCH_PANE_ID= conch`), which
+  leaves the case: the TUI resizes every pane it draws to the space it has,
+  so showing its own pane shrinks the terminal it is drawing in, which
+  shrinks the space, which shrinks the pane — 1×1, with each redraw
+  producing the next. Which pane that is comes from the server
+  (`pane.caller`, as scoping does), never from `CONCH_PANE_ID`: clearing
+  that variable is how somebody got here. `show` refuses it and `syncView`
+  skips it (`internal/tui/tabs.go`, `ownPane`).
 - **Panes on macOS.** `poll` doesn't work on ttys and read deadlines aren't
   supported on ptys; the read loop uses `select`. Shared pane fields are
   guarded by `p.mu`/`p.emuMu` — check with `-race`.
