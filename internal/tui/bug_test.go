@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -125,5 +126,59 @@ func TestBugReportMenu(t *testing.T) {
 	}
 	if !strings.Contains(copied, "conch ") || strings.Contains(copied, "/src/") {
 		t.Fatalf("copied %q", copied)
+	}
+}
+
+// TestBugButtonEarnsItsPlace: the 🐞 on the status bar opens the report in
+// one click — but the bar keeps only its first four hints when it runs out
+// of room and lets the rest go quietly, so a button that merely fitted
+// would be taking "? keys" off bars that had it. It is there only when
+// every hint still fits beside it.
+func TestBugButtonEarnsItsPlace(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	m.machines[0].c = a2Client()
+
+	narrow := 0
+	for _, w := range []int{80, 100, 120, 140, 160, 200, 240} {
+		m.width = w
+		m.rebuild()
+		line, hits := m.layoutStatus()
+		plain := ansi.Strip(line)
+		if got := ansi.StringWidth(line); got != w {
+			t.Fatalf("width %d: the bar is %d wide", w, got)
+		}
+		bug := strings.Contains(plain, "🐞")
+		keys := strings.Contains(plain, "keys")
+		switch {
+		case bug && !keys:
+			t.Errorf("width %d: the button pushed the key hints off:\n%s", w, plain)
+		case !bug:
+			narrow++
+			continue
+		}
+		// Where it is shown, it is clickable, and the click opens the
+		// report rather than anything else.
+		col := ansi.StringWidth(plain[:strings.Index(plain, "🐞")])
+		var act func(m *Model) tea.Cmd
+		for _, h := range hits {
+			if col >= h.x0 && col < h.x1 {
+				act = h.act
+			}
+		}
+		if act == nil {
+			t.Fatalf("width %d: the button is drawn but not clickable", w)
+		}
+		if w == 240 {
+			act(m)
+			mn, ok := m.overlay.(*menu)
+			if !ok || mn.title != " Report a problem " {
+				t.Fatalf("clicking it opened %#v", m.overlay)
+			}
+			m.overlay = nil
+		}
+	}
+	if narrow == 0 {
+		t.Error("the button is on every bar, so it is never the thing that gives way")
 	}
 }

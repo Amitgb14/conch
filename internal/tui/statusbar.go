@@ -207,7 +207,20 @@ const (
 	rightMinimal   // no message either
 )
 
-func (m Model) statusRightItems(level int) []statusItem {
+// everyHintFits says whether the left side can be written in full beside a
+// right side of rightW: the chip, then each hint after its separator, and a
+// column between the two halves.
+func everyHintFits(chip string, hints []statusItem, rightW, total int) bool {
+	w := ansi.StringWidth(chip)
+	for _, it := range hints {
+		w += 2 + ansi.StringWidth(it.text) // the separator before it
+	}
+	return w+1+rightW <= total
+}
+
+// statusRightItems is the bar's right side at a width level. bug adds the
+// button that reports a problem, which only the widest bar has room for.
+func (m Model) statusRightItems(level int, bug bool) []statusItem {
 	var items []statusItem
 	if n := m.inboxCount(); n > 0 {
 		items = append(items, statusItem{text: styleWarn.Render(fmt.Sprintf("⚑ %d waiting", n)),
@@ -261,6 +274,10 @@ func (m Model) statusRightItems(level int) []statusItem {
 		ask, label = "✦", " ⚙ "
 	}
 	items = append(items, statusItem{text: styleAccent.Render(ask), act: func(m *Model) tea.Cmd { return m.openAsk() }})
+	if bug {
+		items = append(items, statusItem{text: "🐞", act: func(m *Model) tea.Cmd { return m.openBugReport() }})
+	}
+
 	items = append(items, statusItem{text: styleSel.Render(label), act: func(m *Model) tea.Cmd {
 		s, cmd := newSettings(m)
 		m.overlay = s
@@ -513,9 +530,25 @@ func (m Model) layoutStatus() (string, []statusHit) {
 	if len(want) > 0 {
 		need += len(sep)
 	}
-	right := m.statusRightItems(rightFull)
-	for level := rightFull + 1; need+width(right) > m.width && level <= rightMinimal; level++ {
-		right = m.statusRightItems(level)
+	level := rightFull
+	right := m.statusRightItems(level, false)
+	for need+width(right) > m.width && level < rightMinimal {
+		level++
+		right = m.statusRightItems(level, false)
+	}
+	// Reporting a problem, one click away: the moment it is wanted is the
+	// moment nobody wants to go looking through Settings for it. A bug
+	// rather than ⚑, which this bar already uses for the agents waiting.
+	//
+	// It is there only when every hint still fits beside it. The loop
+	// above keeps the first four hints and lets the rest go quietly, so a
+	// button that merely "fitted" would be taking "? keys" off bars that
+	// had it — and what this opens is in Settings too, so it is the one
+	// thing on the bar that has to earn its place.
+	if level == rightFull {
+		if withBug := m.statusRightItems(rightFull, true); everyHintFits(chip, hints, width(withBug), m.width) {
+			right = withBug
+		}
 	}
 	rightW := width(right)
 

@@ -447,14 +447,14 @@ func TestA1QueueCountInStatusBar(t *testing.T) {
 		t.Fatalf("expected one thing to review, got %+v", items)
 	}
 	var chip *statusItem
-	right := m.statusRightItems(rightFull)
+	right := m.statusRightItems(rightFull, false)
 	for i := range right {
 		if strings.Contains(ansi.Strip(right[i].text), "to review") {
 			chip = &right[i]
 		}
 	}
 	if chip == nil {
-		t.Fatalf("no review chip among %d items", len(m.statusRightItems(rightFull)))
+		t.Fatalf("no review chip among %d items", len(m.statusRightItems(rightFull, false)))
 	}
 	if want := fmt.Sprintf("%d to review", len(items)); !strings.Contains(ansi.Strip(chip.text), want) {
 		t.Fatalf("chip %q, want %q", ansi.Strip(chip.text), want)
@@ -466,7 +466,7 @@ func TestA1QueueCountInStatusBar(t *testing.T) {
 		t.Fatalf("the chip opened %+v", v)
 	}
 	// A narrow status bar drops it rather than overflowing.
-	for _, it := range m.statusRightItems(rightNoExtras) {
+	for _, it := range m.statusRightItems(rightNoExtras, false) {
 		if strings.Contains(ansi.Strip(it.text), "to review") {
 			t.Fatal("the count survived into a narrow status bar")
 		}
@@ -475,7 +475,7 @@ func TestA1QueueCountInStatusBar(t *testing.T) {
 	for _, mach := range m.machines {
 		mach.panes, mach.projects = nil, nil
 	}
-	for _, it := range m.statusRightItems(rightFull) {
+	for _, it := range m.statusRightItems(rightFull, false) {
 		if strings.Contains(ansi.Strip(it.text), "to review") {
 			t.Fatal("a chip with an empty queue")
 		}
@@ -536,7 +536,7 @@ func TestA1QueueKeepsOneTab(t *testing.T) {
 	openQueue := func(round int) {
 		t.Helper()
 		var chip *statusItem
-		right := m.statusRightItems(rightFull)
+		right := m.statusRightItems(rightFull, false)
 		for i := range right {
 			if strings.Contains(ansi.Strip(right[i].text), "to review") {
 				chip = &right[i]

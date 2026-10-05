@@ -242,7 +242,7 @@ func TestA1StatusKeepsTheMessageWhereItFits(t *testing.T) {
 		for _, h := range hints[:4] {
 			need += 2 + ansi.StringWidth(h.text)
 		}
-		for i, it := range m.statusRightItems(rightIcons) {
+		for i, it := range m.statusRightItems(rightIcons, false) {
 			if i > 0 {
 				need += 2
 			}
@@ -291,23 +291,23 @@ func TestA1StatusRightAndNarrowWidths(t *testing.T) {
 		t.Errorf("narrow bar: %q", narrow)
 	}
 	// Levels directly.
-	if items := m.statusRightItems(rightMinimal); len(items) != 4 { // waiting, ✦, ⚙, monitor: no 🌐 this narrow
+	if items := m.statusRightItems(rightMinimal, false); len(items) != 4 { // waiting, ✦, ⚙, monitor: no 🌐 this narrow
 		t.Errorf("minimal right items: %d", len(items))
 	}
 	m.flash = ""
 	m.machines[0].warning = "server is old"
 	found := ""
-	for _, it := range m.statusRightItems(rightFull) {
+	for _, it := range m.statusRightItems(rightFull, false) {
 		if got := ansi.Strip(it.text); got == "server is old" {
 			found = got
 		}
 	}
 	if found == "" {
-		t.Errorf("no warning item among %d", len(m.statusRightItems(rightFull)))
+		t.Errorf("no warning item among %d", len(m.statusRightItems(rightFull, false)))
 	}
 	// Quiet hours label, and clicking it while snoozed resumes alerts.
 	m.snoozeUntil = time.Now().Add(time.Hour)
-	items := m.statusRightItems(rightFull)
+	items := m.statusRightItems(rightFull, false)
 	var snooze *statusItem
 	for i := range items {
 		if strings.Contains(ansi.Strip(items[i].text), "snoozed until") {
@@ -322,13 +322,13 @@ func TestA1StatusRightAndNarrowWidths(t *testing.T) {
 		t.Fatalf("resume: %q", m.flash)
 	}
 	// The waiting counter jumps to the agent.
-	m.statusRightItems(rightFull)[0].act(m)
+	m.statusRightItems(rightFull, false)[0].act(m)
 	if m.cursor != paneNodeID(localMachine, "p1") {
 		t.Fatalf("waiting click went to %s", m.cursor)
 	}
 	// ✦ opens the command bar; the version opens its box.
 	m.width = 160
-	for _, it := range m.statusRightItems(rightFull) {
+	for _, it := range m.statusRightItems(rightFull, false) {
 		text := ansi.Strip(it.text)
 		switch {
 		case text == "✦ Ask":

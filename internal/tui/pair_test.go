@@ -232,7 +232,7 @@ func TestPairFromTheStatusBarAndStartingTheGateway(t *testing.T) {
 	m, _ := a1Fixture(t, false)
 	var phoneItem *statusItem
 	var texts []string
-	for _, it := range m.statusRightItems(rightFull) {
+	for _, it := range m.statusRightItems(rightFull, false) {
 		texts = append(texts, ansi.Strip(it.text))
 		if ansi.Strip(it.text) == "🌐" {
 			it := it
@@ -251,7 +251,7 @@ func TestPairFromTheStatusBarAndStartingTheGateway(t *testing.T) {
 	// With icons only it is still there; on the narrowest bar it gives
 	// way to the monitor in the corner.
 	has := func(level int) bool {
-		for _, it := range m.statusRightItems(level) {
+		for _, it := range m.statusRightItems(level, false) {
 			if ansi.Strip(it.text) == "🌐" {
 				return true
 			}

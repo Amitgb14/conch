@@ -195,6 +195,12 @@ func (s *settings) themeItems(m *Model) []settingItem {
 				}})
 		}
 	}
+	// On the first tab, because somebody looking for it is not looking for
+	// agents or sandboxes. The 🐞 in the status bar opens the same thing
+	// without coming here at all.
+	items = append(items, settingItem{}, settingItem{header: true, label: "Something wrong?"},
+		settingItem{label: "Report a problem…", detail: styleMuted.Render("the facts about this conch, for an issue"),
+			run: func(m *Model) tea.Cmd { return m.openBugReport() }})
 	return items
 }
 
@@ -507,10 +513,6 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				}
 				return tea.Batch(cmds...)
 			}})
-
-	items = append(items, settingItem{}, settingItem{header: true, label: "Something wrong?"},
-		settingItem{label: "Report a problem…", detail: styleMuted.Render("the facts about this conch, for an issue"),
-			run: func(m *Model) tea.Cmd { return m.openBugReport() }})
 
 	r := &m.cfg.Remote
 	items = append(items, settingItem{}, settingItem{header: true, label: "Remote machines"},
