@@ -222,8 +222,8 @@ func everyHintFits(chip string, hints []statusItem, rightW, total int) bool {
 // button that reports a problem, which only the widest bar has room for.
 func (m Model) statusRightItems(level int, bug bool) []statusItem {
 	var items []statusItem
-	if n := m.inboxCount(); n > 0 {
-		items = append(items, statusItem{text: styleWarn.Render(fmt.Sprintf("⚑ %d waiting", n)),
+	if label := inboxLabel(m.inboxCount()); label != "" {
+		items = append(items, statusItem{text: label,
 			act: func(m *Model) tea.Cmd { return m.jumpToAttention() }})
 	}
 	if n := len(m.queueItems()); n > 0 && level < rightNoExtras {
