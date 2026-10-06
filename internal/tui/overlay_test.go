@@ -526,7 +526,7 @@ func TestA2Help(t *testing.T) {
 	b := h.render(*m)
 	a2CheckBox(t, b, *m)
 	out := a2Plain(b.lines)
-	if !strings.Contains(out, "Keys · any key closes") || !strings.Contains(out, "Splits and tabs") {
+	if !strings.Contains(out, "Keys · ↑↓ ←→ scroll") || !strings.Contains(out, "Tree") {
 		t.Fatalf("help:\n%s", out)
 	}
 	narrow := Model{width: 40, height: 20}
@@ -546,7 +546,157 @@ func TestA2Help(t *testing.T) {
 	}
 	m.overlay = h
 	if closed, _ := h.update(m, a2Key("x")); !closed || m.overlay != nil {
-		t.Fatal("any key closes help")
+		t.Fatal("any other key closes help")
+	}
+	m.overlay = h
+	if closed, _ := h.update(m, a2Key("esc")); !closed || m.overlay != nil {
+		t.Fatal("esc closes help")
+	}
+}
+
+// The help is taller than most screens and wider than narrow ones: it
+// scrolls by keys and the wheel, both ways, and stops at its ends.
+func TestHelpScrolls(t *testing.T) {
+	m := &Model{width: 60, height: 20}
+	h := newHelp()
+	m.overlay = h
+	rows := m.height - 2
+	shown := func() string { return a2Plain(h.render(*m).lines) }
+
+	for _, k := range []string{"up", "k", "left", "h", "pgup", "home"} {
+		if closed, _ := h.update(m, a2Key(k)); closed || m.overlay == nil || h.top != 0 || h.left != 0 {
+			t.Fatalf("%s at the top left: closed %v, at %d,%d", k, closed, h.top, h.left)
+		}
+	}
+	h.update(m, a2Key("down"))
+	h.update(m, a2Key("j"))
+	if h.top != 2 || strings.Contains(shown(), "│ Tree") {
+		t.Fatalf("down twice: top %d\n%s", h.top, shown())
+	}
+	h.update(m, a2Key("pgdown"))
+	if h.top != 2+rows {
+		t.Fatalf("a page down: %d", h.top)
+	}
+	h.update(m, a2Key("end"))
+	last := len(helpText) - rows
+	if h.top != last || !strings.Contains(shown(), "q  detach") {
+		t.Fatalf("end: top %d, want %d\n%s", h.top, last, shown())
+	}
+	h.update(m, a2Key("down"))
+	if h.top != last {
+		t.Fatal("scrolled past the end")
+	}
+	h.update(m, a2Key("g"))
+	if h.top != 0 {
+		t.Fatal("g goes to the top")
+	}
+
+	h.update(m, a2Key("right"))
+	if h.left != helpStep || strings.Contains(shown(), "Tree") {
+		t.Fatalf("right: %d\n%s", h.left, shown())
+	}
+	for range 100 {
+		h.update(m, a2Key("l"))
+	}
+	widest := 0
+	for _, l := range helpText {
+		widest = max(widest, ansi.StringWidth(l)+1)
+	}
+	w, _ := h.view(*m)
+	if h.left != widest-w {
+		t.Fatalf("right stops at %d, want %d", h.left, widest-w)
+	}
+	h.update(m, a2Key("h"))
+	if h.left != widest-w-helpStep {
+		t.Fatalf("left: %d", h.left)
+	}
+
+	// The wheel: up and down scroll, sideways (or with shift) pans.
+	*h = help{}
+	h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress}, box{})
+	if h.top != 3 || m.overlay == nil {
+		t.Fatalf("wheel down: %d", h.top)
+	}
+	h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}, box{})
+	if h.top != 0 {
+		t.Fatalf("wheel up: %d", h.top)
+	}
+	h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelRight, Action: tea.MouseActionPress}, box{})
+	h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown, Shift: true, Action: tea.MouseActionPress}, box{})
+	if h.left != 2*helpStep || h.top != 0 {
+		t.Fatalf("sideways wheel: %d,%d", h.top, h.left)
+	}
+	h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelLeft, Action: tea.MouseActionPress}, box{})
+	h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Shift: true, Action: tea.MouseActionPress}, box{})
+	if h.left != 0 || m.overlay == nil {
+		t.Fatalf("back left: %d", h.left)
+	}
+}
+
+// A help scrolled to the end and then given a taller screen shows its last
+// page rather than running short, and render leaves the offsets alone.
+func TestHelpResize(t *testing.T) {
+	m := &Model{width: 200, height: 10}
+	h := newHelp()
+	m.overlay = h
+	h.update(m, a2Key("end"))
+	top := h.top
+	m.height = 40
+	b := h.render(*m)
+	a2CheckBox(t, b, *m)
+	if len(b.lines) != 40 || h.top != top {
+		t.Fatalf("taller: %d lines, top %d (was %d)", len(b.lines), h.top, top)
+	}
+	if !strings.Contains(a2Plain(b.lines), "q  detach") {
+		t.Fatal("the last line is gone")
+	}
+	// Everything fits: no thumb, no scrolling.
+	m.height = len(helpText) + 2
+	if helpThumb(0, len(helpText), len(helpText)) != nil {
+		t.Fatal("a thumb when it all fits")
+	}
+	h.update(m, a2Key("end"))
+	if h.top != 0 {
+		t.Fatalf("scrolled with nothing to scroll: %d", h.top)
+	}
+}
+
+func TestHelpThumb(t *testing.T) {
+	for _, tc := range []struct{ top, rows, total, from, size int }{
+		{0, 10, 100, 0, 1},
+		{90, 10, 100, 9, 1},
+		{0, 10, 20, 0, 5},
+		{10, 10, 20, 5, 5},
+	} {
+		mark := helpThumb(tc.top, tc.rows, tc.total)
+		if len(mark) != tc.size {
+			t.Fatalf("%+v: %d marked", tc, len(mark))
+		}
+		if _, ok := mark[tc.from]; !ok {
+			t.Fatalf("%+v: %v", tc, mark)
+		}
+	}
+	if helpThumb(0, 2, 100) != nil {
+		t.Fatal("a track of 2 rows has no thumb")
+	}
+}
+
+// Tiny screens: the box is never wider than its width allows and each line
+// is the box's width.
+func TestHelpTiny(t *testing.T) {
+	for w := 1; w <= 30; w += 7 {
+		for ht := 1; ht <= 6; ht++ {
+			m := &Model{width: w, height: ht}
+			h := newHelp()
+			h.update(m, a2Key("end"))
+			h.update(m, a2Key("right"))
+			b := h.render(*m)
+			for i, l := range b.lines {
+				if ansi.StringWidth(l) != b.width() {
+					t.Fatalf("%dx%d line %d is %d wide, box %d", w, ht, i, ansi.StringWidth(l), b.width())
+				}
+			}
+		}
 	}
 }
 

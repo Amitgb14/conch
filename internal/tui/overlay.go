@@ -871,9 +871,13 @@ func (d *dialog) textLines(m Model) []string {
 
 // ---- help ----
 
-type help struct{}
+// help is the keys overlay. It is taller than most screens and wider than
+// some, so it scrolls both ways: top and left are where it is scrolled to.
+type help struct {
+	top, left int
+}
 
-func newHelp() help { return help{} }
+func newHelp() *help { return &help{} }
 
 var helpText = []string{
 	"Tree",
@@ -990,42 +994,116 @@ var helpText = []string{
 	"  status bar: ▁▃▆ (bottom right) = memory and CPU conch uses on this computer; click again to close",
 	"    conch update list shows every release · conch update rollback goes back one",
 	"",
+	"  this list: ↑↓ jk pgup pgdn g G or the wheel scroll it · ←→ hl (shift+wheel) pan long lines",
+	"",
 	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain, sandboxes",
 	"     Settings → Report a problem… (or 🐞 on the bar) is this conch's own facts, for an issue",
 	"     Sandboxes lists the providers; enter opens one's own page, esc goes back to the list",
 	"  q  detach (agents keep running)",
 }
 
-func (help) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
-	if _, ok := msg.(tea.KeyMsg); ok {
+func (h *help) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
+	k, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return false, nil
+	}
+	_, rows := h.view(*m)
+	switch k.String() {
+	case "up", "k":
+		h.scroll(*m, -1, 0)
+	case "down", "j":
+		h.scroll(*m, 1, 0)
+	case "pgup", "b":
+		h.scroll(*m, -rows, 0)
+	case "pgdown", " ", "f":
+		h.scroll(*m, rows, 0)
+	case "home", "g":
+		h.scroll(*m, -len(helpText), 0)
+	case "end", "G":
+		h.scroll(*m, len(helpText), 0)
+	case "left", "h":
+		h.scroll(*m, 0, -helpStep)
+	case "right", "l":
+		h.scroll(*m, 0, helpStep)
+	default:
 		m.overlay = nil
 		return true, nil
 	}
 	return false, nil
 }
 
-func (help) render(m Model) box {
-	w := 0
+// helpStep is how far ← and → move the help sideways.
+const helpStep = 8
+
+// view is the help's inner width and how many of its lines fit on the
+// screen: the frame takes a line above and below.
+func (help) view(m Model) (w, rows int) {
 	for _, l := range helpText {
 		w = max(w, ansi.StringWidth(l)+2)
 	}
-	w = min(w, max(m.width-4, 20))
-	lines := make([]string, 0, len(helpText))
+	return min(w, max(m.width-4, 20)), max(m.height-2, 1)
+}
+
+// scroll moves the help by dy lines and dx columns, kept to its text, so a
+// help taller or wider than the screen can still be read to the end.
+func (h *help) scroll(m Model, dy, dx int) {
+	w, rows := h.view(m)
+	widest := 0
 	for _, l := range helpText {
+		widest = max(widest, ansi.StringWidth(l)+1)
+	}
+	h.top = clamp(h.top+dy, 0, max(len(helpText)-rows, 0))
+	h.left = clamp(h.left+dx, 0, max(widest-w, 0))
+}
+
+func (h *help) render(m Model) box {
+	w, rows := h.view(m)
+	at := *h
+	at.scroll(m, 0, 0) // a resize can leave the offsets past the end
+	h = &at
+	shown := helpText[h.top:min(h.top+rows, len(helpText))]
+	lines := make([]string, 0, len(shown))
+	for _, l := range shown {
+		cut := ansi.TruncateLeft(l, h.left, "")
 		if l != "" && !strings.HasPrefix(l, " ") {
-			lines = append(lines, " "+styleBold.Render(l))
+			lines = append(lines, " "+styleBold.Render(cut))
 		} else {
-			lines = append(lines, " "+l)
+			lines = append(lines, " "+cut)
 		}
 	}
-	b := box{lines: frameLines(" Keys · any key closes ", lines, w, colorAccent)}
+	title := " Keys · ↑↓ ←→ scroll · other keys close "
+	b := box{lines: frameLinesBar(title, lines, w, colorAccent, helpThumb(h.top, rows, len(helpText)))}
 	b.x = max((m.width-b.width())/2, 0)
 	b.y = max((m.height-len(b.lines))/3, 0)
 	return b
 }
 
-func (help) mouse(m *Model, msg tea.MouseMsg, _ box) tea.Cmd {
-	if msg.Action == tea.MouseActionPress {
+// helpThumb marks the right border with where the shown rows sit in a text
+// of total lines, when there is more of it than fits.
+func helpThumb(top, rows, total int) map[int]string {
+	if total <= rows || rows < 3 {
+		return nil
+	}
+	size := max(rows*rows/total, 1)
+	from := clamp(top*(rows-size)/(total-rows), 0, rows-size)
+	mark := map[int]string{}
+	for i := from; i < from+size; i++ {
+		mark[i] = styleThumb.Render(" ")
+	}
+	return mark
+}
+
+func (h *help) mouse(m *Model, msg tea.MouseMsg, _ box) tea.Cmd {
+	switch {
+	case msg.Button == tea.MouseButtonWheelLeft || msg.Shift && msg.Button == tea.MouseButtonWheelUp:
+		h.scroll(*m, 0, -helpStep)
+	case msg.Button == tea.MouseButtonWheelRight || msg.Shift && msg.Button == tea.MouseButtonWheelDown:
+		h.scroll(*m, 0, helpStep)
+	case msg.Button == tea.MouseButtonWheelUp:
+		h.scroll(*m, -3, 0)
+	case msg.Button == tea.MouseButtonWheelDown:
+		h.scroll(*m, 3, 0)
+	case msg.Action == tea.MouseActionPress:
 		m.overlay = nil
 	}
 	return nil
