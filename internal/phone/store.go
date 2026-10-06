@@ -67,6 +67,12 @@ type pairCode struct {
 	Hash       string    `json:"hash"`
 	Permission string    `json:"permission"`
 	Expires    time.Time `json:"expires"`
+	// Machines the device will reach besides this computer, decided when
+	// the code is made: a phone that is being paired *for* a machine
+	// should not need a second command afterwards, and the decision is
+	// the same one either way. A code from an older conch has none, so
+	// it pairs for this computer alone.
+	Machines []string `json:"machines,omitempty"`
 }
 
 // state is what the file holds. `conch web pair` and `conch web revoke`
@@ -194,9 +200,13 @@ func codeDigits(code string) string {
 // NewCode issues a one-time pairing code for a device with permission,
 // good for PairTTL. It replaces any code still outstanding: one pairing
 // at a time.
-func (s *Store) NewCode(permission string, now time.Time) (string, error) {
+func (s *Store) NewCode(permission string, now time.Time, machines ...string) (string, error) {
 	if !ValidPermission(permission) {
 		return "", fmt.Errorf("unknown permission %q: view, reply or full", permission)
+	}
+	clean, err := cleanMachines(machines)
+	if err != nil {
+		return "", err
 	}
 	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
 	if err != nil {
@@ -204,7 +214,8 @@ func (s *Store) NewCode(permission string, now time.Time) (string, error) {
 	}
 	digits := fmt.Sprintf("%06d", n.Int64())
 	err = s.update(func(st *state) error {
-		st.Codes = []pairCode{{Hash: hashSecret(digits), Permission: permission, Expires: now.Add(PairTTL)}}
+		st.Codes = []pairCode{{Hash: hashSecret(digits), Permission: permission,
+			Expires: now.Add(PairTTL), Machines: clean}}
 		st.Failures = 0
 		return nil
 	})
@@ -244,7 +255,7 @@ func (s *Store) Redeem(code, name string, now time.Time) (Device, string, error)
 			verdict = ErrPairExpired
 			return nil // the count is worth writing
 		}
-		permission := st.Codes[i].Permission
+		permission, machines := st.Codes[i].Permission, st.Codes[i].Machines
 		st.Codes = slices.Delete(st.Codes, i, i+1)
 		if len(st.Devices) >= maxDevices {
 			verdict = fmt.Errorf("%d devices are paired already; revoke one with `conch web revoke`", maxDevices)
@@ -259,7 +270,8 @@ func (s *Store) Redeem(code, name string, now time.Time) (Device, string, error)
 		if err != nil {
 			return err
 		}
-		dev = Device{ID: id, Name: cleanName(name), Permission: permission, TokenHash: hashSecret(token), Created: now.UTC()}
+		dev = Device{ID: id, Name: cleanName(name), Permission: permission, TokenHash: hashSecret(token),
+			Created: now.UTC(), Machines: machines}
 		st.Devices = append(st.Devices, dev)
 		return nil
 	})
@@ -348,6 +360,33 @@ func (s *Store) SetPermission(id, permission string) (bool, error) {
 	return found, err
 }
 
+// cleanMachines is a list of machine names as it is recorded: this
+// computer dropped (it is always reached, so naming it says nothing),
+// blanks and repeats dropped, the rest sorted and checked for the shape
+// the catalog gives an ID.
+//
+// Checked for shape and not for being in the catalog: a machine may be
+// added after the device that is to reach it, and one the catalog has
+// lost is refused by the gateway anyway, as a machine that is merely off
+// is.
+func cleanMachines(machines []string) ([]string, error) {
+	clean := []string{}
+	for _, m := range machines {
+		m = strings.TrimSpace(m)
+		switch {
+		case m == "" || m == LocalMachine:
+			continue
+		case !machineIDOK(m):
+			return nil, fmt.Errorf("%q does not name a machine: lower-case letters, digits and dashes", m)
+		case slices.Contains(clean, m):
+			continue
+		}
+		clean = append(clean, m)
+	}
+	slices.Sort(clean)
+	return clean, nil
+}
+
 // SetMachines says which other machines a device reaches, replacing what
 // it had; none leaves it with this computer alone. A running gateway takes
 // it from the device's next request or socket message, so a machine taken
@@ -358,22 +397,12 @@ func (s *Store) SetPermission(id, permission string) (bool, error) {
 // it, and a machine the catalog has lost is refused by the gateway anyway
 // — as a machine that is merely off is.
 func (s *Store) SetMachines(id string, machines []string) (bool, error) {
-	clean := []string{}
-	for _, m := range machines {
-		m = strings.TrimSpace(m)
-		switch {
-		case m == "" || m == LocalMachine:
-			continue // this computer is always reached; saying so adds nothing
-		case !machineIDOK(m):
-			return false, fmt.Errorf("%q does not name a machine: lower-case letters, digits and dashes", m)
-		case slices.Contains(clean, m):
-			continue
-		}
-		clean = append(clean, m)
+	clean, err := cleanMachines(machines)
+	if err != nil {
+		return false, err
 	}
-	slices.Sort(clean)
 	found := false
-	err := s.update(func(st *state) error {
+	err = s.update(func(st *state) error {
 		for i := range st.Devices {
 			if st.Devices[i].ID == id {
 				found = true

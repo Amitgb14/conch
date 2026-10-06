@@ -553,3 +553,57 @@ func TestWebPermissionMachines(t *testing.T) {
 		t.Error("a machine was given to a device that is not paired")
 	}
 }
+
+// What `conch web pair` says and does about machines. A phone reaching
+// this computer alone is the thing people are surprised by — twice over,
+// in use — so pairing says where as well as what, and can pair a device
+// for a machine in one command instead of two.
+func TestWebPairSaysWhereAndPairsForAMachine(t *testing.T) {
+	dir := a4Env(t)
+	store := phone.OpenStore(dir)
+
+	// Plain: it says this computer only, and how to change that.
+	out, err := runWebCaptured(t, "pair")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"this computer only", "-machine NAME"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pairing does not say %q:\n%s", want, out)
+		}
+	}
+
+	// For a machine: said, and carried onto the device that redeems it.
+	out, err = runWebCaptured(t, "pair", "-permission", "reply", "-machine", "busybox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "this computer and busybox") || !strings.Contains(out, "your own credentials") {
+		t.Fatalf("pairing for a machine says:\n%s", out)
+	}
+	code := regexp.MustCompile(`pairing code: ([0-9]{3}-[0-9]{3})`).FindStringSubmatch(out)
+	if code == nil {
+		t.Fatalf("no code in:\n%s", out)
+	}
+	dev, _, err := store.Redeem(code[1], "Pixel", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dev.Machines) != 1 || dev.Machines[0] != "busybox" {
+		t.Fatalf("the device was paired with %v", dev.Machines)
+	}
+	if dev.Permission != phone.PermReply {
+		t.Errorf("permission %q", dev.Permission)
+	}
+	out, err = runWebCaptured(t, "devices")
+	if err != nil || !strings.Contains(out, "this computer, busybox") {
+		t.Fatalf("devices: %q %v", out, err)
+	}
+
+	// A name that could not be a machine is refused, and no code is left
+	// outstanding for it: a code that cannot do what was asked is worse
+	// than none.
+	if _, err := runWebCaptured(t, "pair", "-machine", "NOPE!"); err == nil {
+		t.Error("a code was made for a machine that cannot exist")
+	}
+}

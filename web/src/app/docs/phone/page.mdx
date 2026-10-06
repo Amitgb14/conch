@@ -62,7 +62,10 @@ The gateway serves the app itself, so it always matches your conch build; there 
 conch web pair                       # full: everything, typing into terminals included
 conch web pair -permission reply     # see agents, reply, answer questions — no typing
 conch web pair -permission view      # look only
+conch web pair -machine busybox      # and let it reach that machine, not only this computer
 ```
+
+Pairing says where the device will reach as well as what it may do, because a phone that reaches this computer alone is the thing people are surprised by: a machine it was not given is not shown to it at all. `-machine` pairs it for one in the same breath; without it, `conch web permission ID PERM -machine NAME` adds one afterwards.
 
 This prints a QR code and a six-digit code. Point the phone's camera at the QR code: it opens conch with the code filled in, and one tap pairs it. Or open the gateway's address on the phone and type the code. Either way the phone gets a token of its own, kept in a cookie the page's scripts can't read.
 

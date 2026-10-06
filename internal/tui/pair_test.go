@@ -507,3 +507,30 @@ func TestPairAndSettingsCopy(t *testing.T) {
 		}
 	}
 }
+
+// TestPairDialogSaysWhereItReaches: the dialog says what the device may
+// do and where it may do it, because nothing else in the app does — a
+// machine a device was not given is simply not shown, which reads as
+// conch having lost it rather than as a permission.
+func TestPairDialogSaysWhereItReaches(t *testing.T) {
+	pairHome(t, "https://laptop.tail1234.ts.net")
+	m, _ := a1Fixture(t, false)
+	a1At(t, m, machineID(localMachine))
+	next, _ := m.handleKey(a2Key("P"))
+	*m = next.(Model)
+	d, ok := m.overlay.(*pairDialog)
+	if !ok {
+		t.Fatalf("overlay %T", m.overlay)
+	}
+	out := a2Plain(d.render(*m).lines)
+	if !strings.Contains(out, "this computer only") {
+		t.Fatalf("the dialog does not say where it reaches:\n%s", out)
+	}
+	// On one line with the code, since the QR has to fit beside the words
+	// in an 80×24 terminal: a line of its own cost the QR code.
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "this computer only") && !strings.Contains(line, "Code") {
+			t.Errorf("it took a line of its own: %q", line)
+		}
+	}
+}

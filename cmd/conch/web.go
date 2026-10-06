@@ -27,7 +27,7 @@ import (
 )
 
 const webUsage = `usage: conch web [-listen ADDR] [-port N] [-url URL] [-cert FILE -key FILE]
-       conch web pair [-permission view|reply|full]
+       conch web pair [-permission view|reply|full] [-machine NAME]...
        conch web devices
        conch web revoke ID
        conch web permission ID view|reply|full [-machine NAME]...
@@ -108,6 +108,11 @@ func webPair(args []string) error {
 	// answer, and a pairing that can't type looked broken. -permission
 	// reply or view pairs one that may do less.
 	permission := fs.String("permission", phone.PermFull, "what the device may do: view, reply or full")
+	// A device reaches this computer and the machines named here. Said at
+	// pairing because that is when somebody knows what the phone is for;
+	// without it they pair, look for a machine, and find it missing.
+	var machines machineNames
+	fs.Var(&machines, "machine", "a machine this device may reach as well as this computer; repeat for several")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -118,7 +123,7 @@ func webPair(args []string) error {
 		return err
 	}
 	store := phone.OpenStore(config.Dir())
-	code, err := store.NewCode(*permission, time.Now())
+	code, err := store.NewCode(*permission, time.Now(), machines.names...)
 	if err != nil {
 		return err
 	}
@@ -131,6 +136,10 @@ func webPair(args []string) error {
 	}
 	fmt.Printf("pairing code: %s\n", code)
 	fmt.Printf("good for %d minutes, once, for a device with the %s permission\n", int(phone.PairTTL.Minutes()), *permission)
+	// Where, as well as what: a phone that reaches this computer only is
+	// the thing people are surprised by, so it is said rather than left
+	// to be discovered when a machine is missing from the app.
+	fmt.Println(reachWords(machines.names))
 	if url != "" {
 		fmt.Printf("scan the code with the phone's camera, or open %s on it and enter the code\n", url)
 	} else {
@@ -264,6 +273,19 @@ func webPermission(args []string) error {
 	fmt.Printf("%s also reaches %s\n", id, strings.Join(machines.names, ", "))
 	fmt.Println("a machine it reaches is reached with your credentials; `conch web devices` lists what each device holds")
 	return nil
+}
+
+// reachWords says where the device being paired will reach, and how to
+// change it afterwards. Every device reaches this computer; anything else
+// is named on purpose, because a machine is reached with your own
+// credentials and conch cannot tell a test box from a production one.
+func reachWords(machines []string) string {
+	if len(machines) == 0 {
+		return "it will reach this computer only; -machine NAME at pairing, or `conch web permission ID " +
+			"PERM -machine NAME` later, lets it reach a machine"
+	}
+	return "it will reach this computer and " + strings.Join(machines, ", ") +
+		" — reached with your own credentials, as you"
 }
 
 // machineNames collects a repeated -machine. It remembers having been

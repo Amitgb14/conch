@@ -375,3 +375,106 @@ func TestPushesOnlyGoWhereTheDeviceReaches(t *testing.T) {
 		Event: "PermissionRequest", Message: "May I?"}, nil)
 	ps.waitFor("waiting", here, "/granted", "/laptop-only")
 }
+
+// TestPairingForAMachine: a phone is usually paired *for* something — a
+// machine somebody is about to be away from — and needing a second
+// command afterwards is how a device ends up reaching this computer alone
+// without anybody noticing. The code carries the machines, so the device
+// has them the moment it is paired.
+func TestPairingForAMachine(t *testing.T) {
+	dir := t.TempDir()
+	s := OpenStore(dir)
+	now := time.Now()
+
+	code, err := s.NewCode(PermFull, now, "busybox", "gpu-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, _, err := s.Redeem(code, "phone", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(dev.Machines, []string{"busybox", "gpu-1"}) {
+		t.Fatalf("paired with %v", dev.Machines)
+	}
+	if !dev.Reaches("busybox") || !dev.Reaches(LocalMachine) || dev.Reaches("vm9") {
+		t.Error("it does not reach what it was paired for")
+	}
+	// It is the device's own, kept as such.
+	devs, _ := s.Devices()
+	if len(devs) != 1 || !slices.Equal(devs[0].Machines, []string{"busybox", "gpu-1"}) {
+		t.Fatalf("stored %+v", devs)
+	}
+
+	// A code with no machine pairs a device for this computer, which is
+	// what every code from an older conch is.
+	code, err = s.NewCode(PermView, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, _, err = s.Redeem(code, "another", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dev.Machines) != 0 || dev.Reaches("busybox") {
+		t.Fatalf("a plain code paired with %v", dev.Machines)
+	}
+
+	// A name that could not be a machine is refused before a code exists:
+	// a code that cannot be redeemed into what was asked for is worse
+	// than no code.
+	for _, bad := range []string{"NOPE!", "has space", "a:b", "../etc"} {
+		if _, err := s.NewCode(PermFull, now, bad); err == nil {
+			t.Errorf("a code was made for machine %q", bad)
+		}
+	}
+	// And this computer named in a code adds nothing, as everywhere else.
+	code, err = s.NewCode(PermFull, now, LocalMachine, "busybox", "busybox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, _, err = s.Redeem(code, "third", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(dev.Machines, []string{"busybox"}) {
+		t.Fatalf("machines %v", dev.Machines)
+	}
+}
+
+// TestAFileFromBeforePairingMachines: a code written by an older conch has
+// no machines field at all, and must still redeem — into a device that
+// reaches this computer, as it would have then.
+func TestAFileFromBeforePairingMachines(t *testing.T) {
+	dir := t.TempDir()
+	s := OpenStore(dir)
+	now := time.Now()
+	code, err := s.NewCode(PermFull, now, "busybox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Rewrite the waiting code as the older conch wrote it.
+	path := filepath.Join(dir, StoreFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st map[string]any
+	if err := json.Unmarshal(raw, &st); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range st["codes"].([]any) {
+		delete(c.(map[string]any), "machines")
+	}
+	old, _ := json.Marshal(st)
+	if err := os.WriteFile(path, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dev, _, err := s.Redeem(code, "phone", now)
+	if err != nil {
+		t.Fatalf("an older code would not redeem: %v", err)
+	}
+	if len(dev.Machines) != 0 {
+		t.Errorf("it paired with %v", dev.Machines)
+	}
+}

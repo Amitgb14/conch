@@ -188,7 +188,14 @@ func (d *pairDialog) layout(m Model, withQR bool) box {
 	case d.err != "":
 		add(styleErr.Render("No pairing code: " + d.err))
 	default:
-		add(fmt.Sprintf("Code %s · %s · until %s, once", styleBold.Render(d.code), d.permission, d.expires.Format("15:04")))
+		// What it may do, where, and until when. The where is said because
+		// a phone reaches this computer and only the machines somebody
+		// names for it, and nothing else in the app says so — a machine
+		// the device was not given is simply not shown, which reads as
+		// conch having lost it. It rides on this line rather than its own:
+		// the QR code has to fit in an 80×24 terminal beside the words.
+		add(fmt.Sprintf("Code %s · %s · this computer only · until %s, once",
+			styleBold.Render(d.code), d.permission, d.expires.Format("15:04")))
 		switch {
 		case d.url == "":
 			add("Set the address phones open — the https name tailscale serve gives — in ⚙ Settings → Web; then s here starts conch web.")

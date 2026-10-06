@@ -199,7 +199,9 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 
 ```sh
 conch web [-listen ADDR] [-port N] [-url URL] [-cert FILE -key FILE]   # the gateway a phone reaches
-conch web pair [-permission view|reply|full]                # a QR code and one-time code, good for 5 minutes
+conch web pair [-permission view|reply|full] [-machine NAME]  # a QR code and one-time code, good for 5
+                                                            # minutes; it reaches this computer unless
+                                                            # -machine names a machine
 conch web devices                                           # the paired phones
 conch web revoke ID                                         # cut one off at once
 conch web permission ID view|reply|full [-machine NAME]...  # change what one may do, and which
