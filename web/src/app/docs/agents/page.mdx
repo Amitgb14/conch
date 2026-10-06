@@ -47,7 +47,7 @@ A desktop notification fires when an agent you aren't viewing needs you (see [no
 Most reliable first:
 
 1. **Hooks.** Claude panes started by conch get `--settings ~/.config/conch/claude-settings.json`, adding hooks that call `conch report claude-hook`. Your own settings files are untouched and their hooks still run. conch writes that file — and Gemini's defaults and OpenCode's plugin beside it — when its server starts *and* before every launch, so clearing `~/.config` does not leave an agent failing with *Settings file not found*; the folder is made again if it has gone.
-2. **Screen rules.** Regexes over the bottom of the screen (tolerant of line wrapping), e.g. "Do you want to proceed?" with its numbered choices under it → waiting; the question alone (typed, logged or quoted) is not. Also covers `claude` started by hand. Override `internal/detect/manifests/claude.toml` by copying it to `~/.config/conch/agents/claude.toml`.
+2. **Screen rules.** Regexes over the bottom of the screen (tolerant of line wrapping), e.g. "Do you want to proceed?" → waiting. Also covers `claude` started by hand. Override `internal/detect/manifests/claude.toml` by copying it to `~/.config/conch/agents/claude.toml`.
 3. **Foreground process.** A pane is only an agent while the agent is the terminal's foreground process.
 
 `conch agent explain p1` shows the evidence behind a state.
