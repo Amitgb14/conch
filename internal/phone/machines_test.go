@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,26 @@ type otherMachine struct {
 	sock      string
 	c         *client.Client // the test's own connection, for making panes there
 	srv       *server.Server
+	// without is what this machine's conch does not have, for a machine
+	// running an older build than the gateway; delay is what reaching it
+	// costs. Both are settled by the options before anything connects.
+	without []string
+	delay   time.Duration
+}
+
+// machineOpt settles what kind of machine this is before anything can
+// connect to it: the gateway dials in the background, so a field set after
+// addMachine returns may be read too late.
+type machineOpt func(*otherMachine)
+
+// slowToReach makes each connection take that long, which is what reaching
+// a machine over ssh really costs.
+func slowToReach(d time.Duration) machineOpt { return func(m *otherMachine) { m.delay = d } }
+
+// runningAnOlderConch makes it answer as a conch without those
+// capabilities, as a machine nobody has upgraded does.
+func runningAnOlderConch(caps ...string) machineOpt {
+	return func(m *otherMachine) { m.without = caps }
 }
 
 // addMachine starts a second server and makes the gateway reach it as a
@@ -33,7 +54,7 @@ type otherMachine struct {
 // connection take that long, which is what reaching a machine over ssh
 // really costs — and the only way to catch what a socket does while its
 // own connection is still on its way.
-func addMachine(t *testing.T, f *fixture, id string, reachable bool, delay ...time.Duration) *otherMachine {
+func addMachine(t *testing.T, f *fixture, id string, reachable bool, opts ...machineOpt) *otherMachine {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "ph2")
 	if err != nil {
@@ -44,6 +65,9 @@ func addMachine(t *testing.T, f *fixture, id string, reachable bool, delay ...ti
 	srv := server.New(sock, dir)
 	go srv.Run()
 	m := &otherMachine{id: id, label: id, sock: sock, srv: srv}
+	for _, opt := range opts {
+		opt(m)
+	}
 	t.Cleanup(func() { srv.Stop(); time.Sleep(50 * time.Millisecond); os.RemoveAll(dir) })
 	for range 100 {
 		if m.c, err = client.Dial(sock, "test2"); err == nil {
@@ -68,14 +92,28 @@ func addMachine(t *testing.T, f *fixture, id string, reachable bool, delay ...ti
 		if !reachable {
 			return nil, errors.New("ssh: connect to host " + want.Target + " port 22: Host is unreachable\nand a second line nobody needs")
 		}
-		if len(delay) > 0 {
+		if m.delay > 0 {
 			select {
-			case <-time.After(delay[0]):
+			case <-time.After(m.delay):
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
 		}
-		return client.Dial(sock, "conch-web-test-2")
+		c, err := client.Dial(sock, "conch-web-test-2")
+		if err != nil || len(m.without) == 0 {
+			return c, err
+		}
+		// An older conch there: the handshake is what a client knows a
+		// server by, so taking capabilities out of it is exactly what
+		// reaching a machine that has not been upgraded gives.
+		kept := []string{}
+		for _, cap := range c.Server.Capabilities {
+			if !slices.Contains(m.without, cap) {
+				kept = append(kept, cap)
+			}
+		}
+		c.Server.Capabilities = kept
+		return c, nil
 	}, func() ([]remote.Machine, error) { return saved, nil })
 	t.Cleanup(func() { setMachineHooks(oldConnect, oldSaved) })
 	return m
@@ -548,7 +586,7 @@ func TestAPaneOnAnotherMachineOpensOnTheFirstTap(t *testing.T) {
 	f := newFixture(t)
 	// Reaching a machine takes time, which is the whole point: the
 	// socket's own connection is still on its way when the tap lands.
-	other := addMachine(t, f, "busybox", true, 1200*time.Millisecond)
+	other := addMachine(t, f, "busybox", true, slowToReach(1200*time.Millisecond))
 	p := f.pair(PermFull)
 	f.grant(p, "busybox")
 	there := startPaneOn(t, other, "claude", "stty raw -echo; printf 'from-busybox\\r\\n'; exec cat")
@@ -602,4 +640,104 @@ func TestAMachineThatIsNotUpSaysSoAtOnce(t *testing.T) {
 	if !strings.Contains(m.Error.Message, "vm1 is not answering") || !strings.Contains(m.Error.Message, "Host is unreachable") {
 		t.Errorf("the refusal does not say why: %s", m.Error.Message)
 	}
+}
+
+// TestAMachineRunningAnOlderConchSaysSo: a phone reaches machines, and
+// each has its own conch — one that was not upgraded with this one, or
+// that somebody else keeps. The capabilities the app needs are therefore
+// asked of every machine and not of this computer once.
+//
+// What must hold: the machine list says what that machine cannot do
+// before anything is tried, the refusal names the machine and the command
+// that mends it (not "reload the server", which is the wrong advice about
+// a machine you are not sitting at), and everything the older conch *can*
+// do still works.
+func TestAMachineRunningAnOlderConchSaysSo(t *testing.T) {
+	f := newFixture(t)
+	other := addMachine(t, f, "busybox", true, runningAnOlderConch(proto.CapAgentPrompt, proto.CapTaskName))
+	p := f.pair(PermFull)
+	f.grant(p, "busybox")
+	there := startPaneOn(t, other, "claude", "stty -echo; exec cat")
+	ref := composePaneID("busybox", there)
+	waitMachine(t, f, p, "busybox", MachineOnline)
+
+	// Said in the list, in words, before the phone tries anything.
+	var list MachineList
+	p.get("/api/machines", &list)
+	var busybox, here Machine
+	for _, m := range list.Machines {
+		switch m.ID {
+		case "busybox":
+			busybox = m
+		case LocalMachine:
+			here = m
+		}
+	}
+	if busybox.Behind == "" || !strings.Contains(busybox.Behind, "replies") || !strings.Contains(busybox.Behind, "newer conch") {
+		t.Fatalf("busybox says %q", busybox.Behind)
+	}
+	if !slices.Contains(busybox.Missing, proto.CapAgentPrompt) || !slices.Contains(busybox.Missing, proto.CapTaskName) {
+		t.Errorf("missing %v", busybox.Missing)
+	}
+	// This computer is on this build, so it is behind in nothing — the
+	// check is per machine, not one verdict for the lot.
+	if here.Behind != "" || len(here.Missing) != 0 {
+		t.Errorf("this computer reads as behind: %q %v", here.Behind, here.Missing)
+	}
+
+	// Refused with the machine named and the right command.
+	// The pane is on busybox, so the report goes to busybox's server.
+	callOn(t, other, proto.MethodAgentReport, proto.AgentReportParams{ID: there, Agent: "claude", Event: "Stop"})
+	_, e := p.post("/api/reply", ReplyRequest{Pane: ref, Text: "go on"}, nil)
+	if e == nil || e.Code != CodeServerUnavailable {
+		t.Fatalf("replying to an older conch: %+v", e)
+	}
+	for _, want := range []string{"busybox", "older than this one", "conch machine upgrade busybox"} {
+		if !strings.Contains(e.Message, want) {
+			t.Errorf("the refusal does not say %q: %s", want, e.Message)
+		}
+	}
+	if strings.Contains(e.Message, "conch server reload") {
+		t.Errorf("it told them to reload a server they are not at: %s", e.Message)
+	}
+
+	// What it can still do, it does: a terminal there, typed into and
+	// closed, and a task without a name.
+	var made NewPaneResponse
+	if status, e := p.post("/api/panes", NewPaneRequest{Kind: KindTerminal, Machine: "busybox"}, &made); e != nil || status != 200 {
+		t.Fatalf("a terminal on an older conch: %d %+v", status, e)
+	}
+	if _, e := p.post("/api/close", CloseRequest{Pane: made.Pane}, nil); e != nil {
+		t.Errorf("closing it: %+v", e)
+	}
+}
+
+// TestThisComputerBeingBehindSaysReload: the same refusal about this
+// computer tells them to reload, since that is what mends it here.
+func TestThisComputerBeingBehindSaysReload(t *testing.T) {
+	f := newFixture(t)
+	aerr := f.g.lacks(LocalMachine, missingCaps{proto.CapAgentPrompt}, proto.CapAgentPrompt)
+	if aerr == nil {
+		t.Fatal("nothing was refused")
+	}
+	if !strings.Contains(aerr.Message, "conch server reload") || strings.Contains(aerr.Message, "machine upgrade") {
+		t.Fatalf("about this computer it says: %s", aerr.Message)
+	}
+	// And nothing is refused when nothing is missing.
+	if aerr := f.g.lacks(LocalMachine, missingCaps{}, proto.CapAgentPrompt); aerr != nil {
+		t.Errorf("a server that has it was refused: %+v", aerr)
+	}
+}
+
+// missingCaps is a server that lacks exactly these capabilities.
+type missingCaps []string
+
+func (m missingCaps) MissingCapabilities(want []string) []string {
+	var out []string
+	for _, w := range want {
+		if slices.Contains(m, w) {
+			out = append(out, w)
+		}
+	}
+	return out
 }

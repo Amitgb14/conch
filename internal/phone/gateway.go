@@ -677,9 +677,12 @@ func (g *Gateway) reply(rq *request) (any, *APIError) {
 		return nil, aerr
 	}
 	// Without agent.prompt there is nothing that refuses a reply typed
-	// onto a question, so there is no safe way to send one.
-	if len(c.MissingCapabilities([]string{proto.CapAgentPrompt})) > 0 {
-		return nil, apiErr(CodeServerUnavailable, "the conch server predates replies; reload it with `conch server reload`")
+	// onto a question, so there is no safe way to send one. Asked of the
+	// machine the pane is on: a phone reaches machines, and each has its
+	// own conch — "reload the server" was the wrong thing to tell
+	// somebody about a machine they are not sitting at.
+	if aerr := g.lacks(machineOf(id), c, proto.CapAgentPrompt); aerr != nil {
+		return nil, aerr
 	}
 	var res proto.AgentPromptResult
 	if aerr := g.callOn(rq, c, callTimeout, proto.MethodAgentPrompt, proto.AgentPromptParams{ID: pane, Text: req.Text}, &res); aerr != nil {
@@ -761,8 +764,9 @@ func (g *Gateway) task(rq *request) (any, *APIError) {
 		return nil, aerr
 	}
 	if req.Name != "" && len(c.MissingCapabilities([]string{proto.CapTaskName})) > 0 {
-		// The task runs either way; a name that didn't take isn't worth
-		// reporting the task as failed for.
+		// The task runs either way, so a name that did not take is not
+		// worth failing it for; the machine list says that machine's conch
+		// is behind (Machine.Behind), which is where the person reads it.
 		_ = g.callOn(rq, c, callTimeout, proto.MethodPaneRename, proto.PaneRenameParams{ID: info.ID, Name: req.Name}, nil)
 	}
 	return TaskResponse{Pane: composePaneID(machine, info.ID), Worktree: info.Cwd, Branch: info.Branch}, nil

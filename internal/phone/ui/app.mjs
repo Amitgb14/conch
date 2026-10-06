@@ -267,14 +267,16 @@ function row(p, extra) {
 // every machine answers: an empty list is then an empty list, not a phone
 // that has quietly lost half of them.
 function machineStrip() {
-  const trouble = state.machines.filter((m) => m.state !== "online")
+  // Not answering, or answering with a conch too old for part of the app:
+  // both are things about a machine that the list of panes cannot say.
+  const trouble = state.machines.filter((m) => m.state !== "online" || m.behind)
   if (!trouble.length) return null
   return h("div", { class: "machines" }, trouble.map((m) =>
     h("div", { class: `machine ${m.state}` },
       h("span", { class: "machine-dot" }),
       h("span", { class: "machine-name" }, m.label),
       h("span", { class: "machine-what" },
-        m.state === "connecting" ? "connecting…" : m.detail || "not answering"))))
+        m.state === "connecting" ? "connecting…" : m.state !== "online" ? (m.detail || "not answering") : m.behind))))
 }
 
 // choiceButtons answers a question with a tap. The question's id goes
@@ -339,7 +341,9 @@ function machineHead(m) {
     h("span", { class: "machine-name" }, m.label),
     how !== "online"
       ? h("span", { class: "machine-what" }, how === "connecting" ? "connecting…" : m.detail || "not answering")
-      : null)
+      // A machine answering with an older conch does less, and says so
+      // here rather than when something is tried and refused.
+      : m.behind ? h("span", { class: "machine-what" }, m.behind) : null)
 }
 
 const drawer = {

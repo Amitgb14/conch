@@ -289,15 +289,79 @@ func (g *Gateway) tellMachines() {
 // off does not sit as "connecting" for ever.
 var machineConnectWait = 45 * time.Second
 
+// phoneNeeds is what the gateway asks of a server for the phone to work
+// fully. A machine is reached with its own conch, which may be older than
+// this one — a machine that has not been upgraded since, or one somebody
+// else keeps — so this is asked of each machine and not of this computer
+// once. Only what the phone actually uses belongs here: everything else
+// the app does is older than the protocol's capability list.
+var phoneNeeds = []string{proto.CapAgentPrompt, proto.CapTaskName}
+
+// behindWords says what an older conch there costs the person, in the
+// order it will bite them. A capability nobody has a word for is named as
+// itself rather than left silent.
+func behindWords(missing []string) string {
+	var parts []string
+	for _, m := range missing {
+		switch m {
+		case proto.CapAgentPrompt:
+			parts = append(parts, "replies")
+		case proto.CapTaskName:
+			parts = append(parts, "naming a task")
+		default:
+			parts = append(parts, m)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " and ") + " need a newer conch there"
+}
+
 // machineList is what the phone is told about every machine, with the
-// agents each one contributed.
+// agents each one contributed and what its own conch cannot do.
 func machineList(snaps []machineState, counts map[string]int) []Machine {
 	out := make([]Machine, 0, len(snaps))
 	for _, mc := range snaps {
-		out = append(out, Machine{ID: mc.id, Label: mc.label, State: mc.state,
-			Agents: counts[mc.id], Detail: mc.detail})
+		m := Machine{ID: mc.id, Label: mc.label, State: mc.state,
+			Agents: counts[mc.id], Detail: mc.detail}
+		if c := mc.client(); c != nil {
+			m.Missing = c.MissingCapabilities(phoneNeeds)
+			m.Behind = behindWords(m.Missing)
+		}
+		out = append(out, m)
 	}
 	return out
+}
+
+// upgradeHere is what to run to make a machine's conch new enough: a
+// reload for this computer, an upgrade for anywhere else. Said in the
+// refusal, because "reload the server" is the wrong advice for a machine
+// the person is not sitting at.
+func upgradeHere(machine, label string) string {
+	if machine == LocalMachine {
+		return "reload it with `conch server reload`"
+	}
+	return "upgrade it with `conch machine upgrade " + machine + "`"
+}
+
+// lacks reports what a machine's conch cannot do, for a refusal that names
+// the machine and how to mend it rather than failing when it is tried.
+func (g *Gateway) lacks(machine string, c interface {
+	MissingCapabilities([]string) []string
+}, want ...string) *APIError {
+	missing := c.MissingCapabilities(want)
+	if len(missing) == 0 {
+		return nil
+	}
+	label := machine
+	for _, mc := range g.machines() {
+		if mc.id == machine {
+			label = mc.label
+		}
+	}
+	return apiErr(CodeServerUnavailable, "the conch on "+label+" is older than this one: "+
+		behindWords(missing)+", so "+upgradeHere(machine, label))
 }
 
 // firstLine keeps a message to one line: ssh's refusals run to several, and

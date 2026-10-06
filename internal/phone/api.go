@@ -38,6 +38,15 @@ type Machine struct {
 	State  string `json:"state"`
 	Agents int    `json:"agents"`
 	Detail string `json:"detail,omitempty"`
+	// Behind says this machine's conch is older than what the app needs,
+	// in words for a person: "replies need a newer conch there". A phone
+	// shows it beside the machine rather than offering something that
+	// will be refused when it is tried. Empty for a machine that can do
+	// everything — which is every machine on the same build.
+	Behind string `json:"behind,omitempty"`
+	// Missing names the capabilities it lacks, for a report rather than
+	// for a person (internal/report's rule: facts, not contents).
+	Missing []string `json:"missing,omitempty"`
 }
 
 // MachineList is GET /api/machines and the socket's "machines".
