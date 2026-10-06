@@ -929,6 +929,7 @@ var helpText = []string{
 	"  0-9 go to tab   l last tab",
 	"  < > . move tab   w every tab, grouped",
 	"  the tab bar lists the tabs of the Workspace, project, CLI, Agents, Terminals or SSH selected in the tree",
+	"  a tab marked ! (amber) has an agent waiting for your answer",
 	"  & close tab   , rename tab   z zoom   ! next waiting agent   : ask   d detach   ? this help",
 	"  S type into every split of the tab at once (again to stop; synced borders turn amber)",
 	"  in the tree: v open in a split right · s below · O in a new tab (beside what the tab already shows)",

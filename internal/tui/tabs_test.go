@@ -995,3 +995,63 @@ func TestA1TreeRegroupsWhenTabsChange(t *testing.T) {
 		t.Fatalf("a layout to watch with the grouping off: %q", m2.layoutSig())
 	}
 }
+
+// A tab showing an agent that waits for an answer says so, as the tree's
+// row does; one merely done, or idle, doesn't.
+func TestTabBarMarksWaitingAgent(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1FourTabs(t, m)
+	a1At(t, m, cliID(localMachine))
+	plainBar := func(w int) string {
+		bar, _ := m.tabBar(w)
+		if ansi.StringWidth(bar) != w {
+			t.Fatalf("bar width %d, want %d", ansi.StringWidth(bar), w)
+		}
+		return ansi.Strip(bar)
+	}
+	if bar := plainBar(80); strings.Contains(bar, "!") {
+		t.Fatalf("nothing waiting: %q", bar)
+	}
+
+	codex := &m.machines[0].panes[3] // p4, an inactive tab here
+	codex.Agent = &proto.AgentStatus{Name: "codex", State: proto.AgentDone}
+	if bar := plainBar(80); strings.Contains(bar, "!") {
+		t.Fatalf("done is not waiting: %q", bar)
+	}
+	codex.Agent.State = proto.AgentBlocked
+	if bar := plainBar(80); !strings.Contains(bar, " 2 ! codex ") {
+		t.Fatalf("waiting tab unmarked: %q", bar)
+	}
+	// The clicks still land on the tab drawn there, wider label and all.
+	bar, hits := m.tabBar(80)
+	plain := ansi.Strip(bar)
+	at := ansi.StringWidth(plain[:strings.Index(plain, "! codex")])
+	if got := m.tabAt(at); got != 3 {
+		t.Fatalf("tab under the marked label: %d (hits %v)", got, hits)
+	}
+	// Too narrow for it: still never wider than the bar.
+	plainBar(5)
+	plainBar(1)
+
+	// The active tab says so too, and a split that isn't focused counts.
+	m.activeTab = 3
+	if bar := plainBar(80); !strings.Contains(bar, "! codex") {
+		t.Fatalf("active waiting tab: %q", bar)
+	}
+	codex.Agent = nil
+	if m.tabWaiting(m.tabs[3]) {
+		t.Fatal("a pane without an agent is not waiting")
+	}
+	m.tabs[3].root = &layoutNode{dir: splitRight, a: &layoutNode{leaf: &leaf{id: 70, view: viewRef{Kind: kindPane, Machine: localMachine, PaneID: "p3"}}},
+		b: &layoutNode{leaf: &leaf{id: 71, view: viewRef{Kind: kindPane, Machine: localMachine, PaneID: "p1"}}}}
+	m.machines[0].panes[0].Agent = &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked}
+	if !m.tabWaiting(m.tabs[3]) {
+		t.Fatal("a waiting agent in the other split")
+	}
+	if m.tabWaiting(&tab{root: &layoutNode{leaf: &leaf{id: 72, view: viewRef{Kind: kindPane, Machine: localMachine, PaneID: "gone"}}}}) {
+		t.Fatal("a closed pane is not waiting")
+	}
+	if m.tabWaiting(&tab{}) {
+		t.Fatal("an empty tab is not waiting")
+	}
+}
