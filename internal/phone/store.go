@@ -42,6 +42,24 @@ type Device struct {
 	TokenHash  string             `json:"token_hash"`
 	Created    time.Time          `json:"created"`
 	Push       []PushSubscription `json:"push,omitempty"`
+	// Machines are the other machines this device reaches, by catalog ID.
+	// Empty means this computer alone, which is what every device paired
+	// before the gateway could reach machines has — and what a file
+	// written by an older conch loads as. The permission says what a
+	// device may do; this says where, and the two are checked together.
+	//
+	// It is not a convenience. A machine is reached with the person's own
+	// credentials and conch cannot tell a test box from a production one,
+	// so nobody's phone gains reach because they updated conch: a machine
+	// is added to a device on purpose, one at a time.
+	Machines []string `json:"machines,omitempty"`
+}
+
+// Reaches reports whether this device may be shown, and act on, a
+// machine. This computer is always included; anything else has to have
+// been given.
+func (d Device) Reaches(machine string) bool {
+	return machine == LocalMachine || slices.Contains(d.Machines, machine)
 }
 
 // pairCode is a code waiting to be exchanged, kept as a hash too.
@@ -323,6 +341,47 @@ func (s *Store) SetPermission(id, permission string) (bool, error) {
 		for i := range st.Devices {
 			if st.Devices[i].ID == id {
 				st.Devices[i].Permission, found = permission, true
+			}
+		}
+		return nil
+	})
+	return found, err
+}
+
+// SetMachines says which other machines a device reaches, replacing what
+// it had; none leaves it with this computer alone. A running gateway takes
+// it from the device's next request or socket message, so a machine taken
+// away stops being served at once rather than at the end of a session.
+//
+// An ID is checked for the shape the catalog gives one, not for being in
+// the catalog: a machine may be added after the device that is to reach
+// it, and a machine the catalog has lost is refused by the gateway anyway
+// — as a machine that is merely off is.
+func (s *Store) SetMachines(id string, machines []string) (bool, error) {
+	clean := []string{}
+	for _, m := range machines {
+		m = strings.TrimSpace(m)
+		switch {
+		case m == "" || m == LocalMachine:
+			continue // this computer is always reached; saying so adds nothing
+		case !machineIDOK(m):
+			return false, fmt.Errorf("%q does not name a machine: lower-case letters, digits and dashes", m)
+		case slices.Contains(clean, m):
+			continue
+		}
+		clean = append(clean, m)
+	}
+	slices.Sort(clean)
+	found := false
+	err := s.update(func(st *state) error {
+		for i := range st.Devices {
+			if st.Devices[i].ID == id {
+				found = true
+				if len(clean) == 0 {
+					st.Devices[i].Machines = nil
+					continue
+				}
+				st.Devices[i].Machines = clean
 			}
 		}
 		return nil

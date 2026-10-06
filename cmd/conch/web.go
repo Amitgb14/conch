@@ -30,7 +30,7 @@ const webUsage = `usage: conch web [-listen ADDR] [-port N] [-url URL] [-cert FI
        conch web pair [-permission view|reply|full]
        conch web devices
        conch web revoke ID
-       conch web permission ID view|reply|full
+       conch web permission ID view|reply|full [-machine NAME]...
        conch web stop`
 
 // interfaceAddrs is this machine's addresses; a test puts its own here.
@@ -149,9 +149,16 @@ func webDevices() error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tNAME\tPERMISSION\tPAIRED")
+	fmt.Fprintln(tw, "ID\tNAME\tPERMISSION\tMACHINES\tPAIRED")
 	for _, d := range devs {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", d.ID, d.Name, d.Permission, d.Created.Local().Format("2006-01-02 15:04"))
+		// What a device reaches is as much a permission as what it may
+		// do, so it is listed beside it rather than having to be asked for.
+		where := "this computer"
+		if len(d.Machines) > 0 {
+			where = "this computer, " + strings.Join(d.Machines, ", ")
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", d.ID, d.Name, d.Permission, where,
+			d.Created.Local().Format("2006-01-02 15:04"))
 	}
 	return tw.Flush()
 }
@@ -198,26 +205,84 @@ func webStop(args []string) error {
 	return fmt.Errorf("conch web (pid %d) did not stop within 5s", run.PID)
 }
 
-// webPermission changes what a paired device may do, without pairing it
-// again: a phone paired to reply that should type into terminals.
+// webPermission changes what a paired device may do, and with -machine
+// where: a phone paired to reply that should type into terminals, or one
+// that should reach a machine as well as this computer.
+//
+// A device reaches this computer and nothing else until a machine is
+// named here. That is on purpose: a machine is reached with your own
+// credentials, so a phone gaining one is a decision, not a side effect of
+// updating conch.
 func webPermission(args []string) error {
-	if len(args) != 2 {
-		return errors.New("usage: conch web permission ID view|reply|full")
+	fs := flag.NewFlagSet("web permission", flag.ContinueOnError)
+	var machines machineNames
+	fs.Var(&machines, "machine", "a machine this device may reach as well as this computer; repeat for several, `local` for none")
+	// The ID and what it may do come first, so -machine lands after them:
+	// Go's flag package stops at the first argument that is not a flag,
+	// so the flags are parsed from what follows the two.
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	rest := fs.Args()
+	if len(rest) < 2 {
+		return errors.New("usage: conch web permission ID view|reply|full [-machine NAME]...")
+	}
+	id, permission := rest[0], rest[1]
+	if err := fs.Parse(rest[2:]); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return errors.New("usage: conch web permission ID view|reply|full [-machine NAME]...")
 	}
 	if err := notFromAnAgent("change what a device may do"); err != nil {
 		return err
 	}
-	found, err := phone.OpenStore(config.Dir()).SetPermission(args[0], args[1])
+	store := phone.OpenStore(config.Dir())
+	found, err := store.SetPermission(id, permission)
 	if err != nil {
 		return err
 	}
 	if !found {
-		return fmt.Errorf("no device %q; `conch web devices` lists them", args[0])
+		return fmt.Errorf("no device %q; `conch web devices` lists them", id)
 	}
-	fmt.Printf("%s may now %s; a running gateway takes it from its next request\n", args[0], map[string]string{
+	fmt.Printf("%s may now %s; a running gateway takes it from its next request\n", id, map[string]string{
 		phone.PermView: "look only", phone.PermReply: "reply and answer",
 		phone.PermFull: "reply, answer, type into terminals and start, rename and close panes",
-	}[args[1]])
+	}[permission])
+	// -machine left out leaves the machines alone: changing what a device
+	// may do should not quietly change where.
+	if !machines.given {
+		return nil
+	}
+	if _, err := store.SetMachines(id, machines.names); err != nil {
+		return err
+	}
+	if len(machines.names) == 0 || len(machines.names) == 1 && machines.names[0] == "local" {
+		fmt.Printf("%s reaches this computer only\n", id)
+		return nil
+	}
+	fmt.Printf("%s also reaches %s\n", id, strings.Join(machines.names, ", "))
+	fmt.Println("a machine it reaches is reached with your credentials; `conch web devices` lists what each device holds")
+	return nil
+}
+
+// machineNames collects a repeated -machine. It remembers having been
+// given at all, so `permission ID view` alone leaves the machines as they
+// were while `-machine local` clears them.
+type machineNames struct {
+	names []string
+	given bool
+}
+
+func (m *machineNames) String() string { return strings.Join(m.names, ",") }
+
+func (m *machineNames) Set(v string) error {
+	m.given = true
+	for _, name := range strings.Split(v, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			m.names = append(m.names, name)
+		}
+	}
 	return nil
 }
 

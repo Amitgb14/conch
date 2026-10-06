@@ -170,6 +170,7 @@ func TestMachinesListAndMerge(t *testing.T) {
 	f := newFixture(t)
 	other := addMachine(t, f, "busybox", true)
 	p := f.pair(PermFull)
+	f.grant(p, "busybox") // nothing reaches a machine until a device is given it
 
 	here := f.pane("claude", "stty -echo; exec cat")
 	there := startPaneOn(t, other, "claude", "stty -echo; exec cat")
@@ -213,11 +214,17 @@ func TestMachinesListAndMerge(t *testing.T) {
 	if cl.Pane != composePaneID("busybox", there) {
 		t.Errorf("close answered %+v", cl)
 	}
-	// And a machine nobody has is not found, while a pane shape that makes
-	// no sense is a bad request.
-	if _, e := p.post("/api/close", CloseRequest{Pane: "nowhere:p1"}, nil); e == nil || e.Code != CodeNotFound {
+	// And a machine this device was not given is refused, whether or not
+	// there is such a machine; a pane shape that makes no sense is a bad
+	// request before any of that.
+	if _, e := p.post("/api/close", CloseRequest{Pane: "nowhere:p1"}, nil); e == nil || e.Code != CodeForbidden {
 		t.Errorf("a machine that is not there: %+v", e)
 	}
+	f.grant(p, "busybox", "nowhere")
+	if _, e := p.post("/api/close", CloseRequest{Pane: "nowhere:p1"}, nil); e == nil || e.Code != CodeNotFound {
+		t.Errorf("a granted machine that is not there: %+v", e)
+	}
+	f.grant(p, "busybox")
 	if _, e := p.post("/api/close", CloseRequest{Pane: "busybox:nonsense"}, nil); e == nil || e.Code != CodeBadRequest {
 		t.Errorf("a pane that is not a pane: %+v", e)
 	}
@@ -230,6 +237,7 @@ func TestMachineOfflineDoesNotTakeTheOthers(t *testing.T) {
 	f := newFixture(t)
 	addMachine(t, f, "vm1", false)
 	p := f.pair(PermReply)
+	f.grant(p, "vm1") // nothing reaches a machine until a device is given it
 	here := f.pane("claude", "stty -echo; exec cat")
 
 	m := waitMachine(t, f, p, "vm1", MachineOffline)
@@ -264,6 +272,7 @@ func TestMachineArrivesOnTheSocket(t *testing.T) {
 	f := newFixture(t)
 	other := addMachine(t, f, "busybox", true)
 	p := f.pair(PermFull)
+	f.grant(p, "busybox") // nothing reaches a machine until a device is given it
 
 	// Reaching a machine happens in the background, and a socket is told
 	// when one comes up — but a socket opened *after* it came up is told
@@ -339,6 +348,7 @@ func TestStartSomethingOnAnotherMachine(t *testing.T) {
 	f := newFixture(t)
 	other := addMachine(t, f, "busybox", true)
 	p := f.pair(PermFull)
+	f.grant(p, "busybox") // nothing reaches a machine until a device is given it
 	waitMachine(t, f, p, "busybox", MachineOnline)
 
 	var res NewPaneResponse
@@ -360,10 +370,18 @@ func TestStartSomethingOnAnotherMachine(t *testing.T) {
 	if len(mine.Panes) != 0 {
 		t.Fatalf("it started here instead: %+v", mine.Panes)
 	}
-	// A machine nobody has, and one that is merely not up.
-	if _, e := p.post("/api/panes", NewPaneRequest{Kind: KindTerminal, Machine: "nowhere"}, nil); e == nil || e.Code != CodeNotFound {
+	// A machine this device was not given is refused before conch says
+	// whether there is such a machine at all, so asking is not a way to
+	// learn what is in the catalog.
+	if _, e := p.post("/api/panes", NewPaneRequest{Kind: KindTerminal, Machine: "nowhere"}, nil); e == nil || e.Code != CodeForbidden {
 		t.Errorf("a machine that is not there: %+v", e)
 	}
+	// Given it, the same request says there is no such machine.
+	f.grant(p, "busybox", "nowhere")
+	if _, e := p.post("/api/panes", NewPaneRequest{Kind: KindTerminal, Machine: "nowhere"}, nil); e == nil || e.Code != CodeNotFound {
+		t.Errorf("a granted machine that is not there: %+v", e)
+	}
+	f.grant(p, "busybox")
 	if _, e := p.post("/api/panes", NewPaneRequest{Kind: KindTerminal, Machine: "NOPE!"}, nil); e == nil || e.Code != CodeBadRequest {
 		t.Errorf("a machine id that could not exist: %+v", e)
 	}
@@ -382,6 +400,7 @@ func TestMachineGoneFromTheCatalog(t *testing.T) {
 	f := newFixture(t)
 	addMachine(t, f, "busybox", true)
 	p := f.pair(PermView)
+	f.grant(p, "busybox") // nothing reaches a machine until a device is given it
 	waitMachine(t, f, p, "busybox", MachineOnline)
 
 	// Turned off in the catalog: not listed at all, as the contract says.
@@ -412,6 +431,7 @@ func TestProjectsComeFromTheMachineAsked(t *testing.T) {
 	f := newFixture(t)
 	other := addMachine(t, f, "busybox", true)
 	p := f.pair(PermFull)
+	f.grant(p, "busybox") // nothing reaches a machine until a device is given it
 	waitMachine(t, f, p, "busybox", MachineOnline)
 
 	// A project here, and a different one there. The paths come back as
@@ -438,8 +458,14 @@ func TestProjectsComeFromTheMachineAsked(t *testing.T) {
 		t.Fatalf("busybox's projects %+v", theirs.Projects)
 	}
 	// A machine that is not there says so rather than answering with this
-	// computer's, which would start work in the wrong place.
+	// computer's, which would start work in the wrong place — once the
+	// device may ask about it at all. Ungranted, it is refused first, so
+	// the projects of a machine nobody gave it are never a 404 away.
 	var none ProjectList
+	if status := p.get("/api/projects?machine=nowhere", &none); status != 403 {
+		t.Fatalf("an ungranted machine: %d %+v", status, none)
+	}
+	f.grant(p, "busybox", "nowhere")
 	if status := p.get("/api/projects?machine=nowhere", &none); status != 404 {
 		t.Fatalf("a machine that is not there: %d %+v", status, none)
 	}
@@ -457,6 +483,7 @@ func TestMachineComesUpWhileThePhoneWatches(t *testing.T) {
 	f := newFixture(t)
 	other := addMachine(t, f, "busybox", false) // refusing, at first
 	p := f.pair(PermFull)
+	f.grant(p, "busybox") // nothing reaches a machine until a device is given it
 	waitMachine(t, f, p, "busybox", MachineOffline)
 
 	s := p.socket()

@@ -78,6 +78,19 @@ func (p *devicesPanel) revoke(m *Model) {
 	p.load()
 }
 
+// deviceReach is where a device may do it: this computer always, and the
+// machines it has been given by name.
+func deviceReach(d phone.Device) string {
+	switch len(d.Machines) {
+	case 0:
+		return "on this computer only"
+	case 1:
+		return "on this computer and " + d.Machines[0]
+	}
+	return "on this computer, " + strings.Join(d.Machines[:len(d.Machines)-1], ", ") +
+		" and " + d.Machines[len(d.Machines)-1]
+}
+
 var permissionWords = map[string]string{
 	phone.PermView:  "look only",
 	phone.PermReply: "reply and answer",
@@ -155,7 +168,16 @@ func (p *devicesPanel) render(m Model) box {
 		if p.confirm == d.ID {
 			add(styleWarn.Render(fmt.Sprintf("x again revokes %s (%s): it is signed out at once", d.Name, d.ID)))
 		} else {
-			add(styleMuted.Render(fmt.Sprintf("%s may %s.", d.Name, permissionWords[d.Permission])))
+			// What a device may do and where it may do it are two
+			// permissions, and the second is the one nobody expects: a
+			// phone reaches this computer and only the machines somebody
+			// named for it, because a machine is reached with your own
+			// credentials.
+			add(styleMuted.Render(fmt.Sprintf("%s may %s, %s.", d.Name, permissionWords[d.Permission], deviceReach(d))))
+			if len(d.Machines) == 0 {
+				add(styleMuted.Render(fmt.Sprintf("conch web permission %s %s -machine NAME adds one.",
+					d.ID, d.Permission)))
+			}
 		}
 	}
 	add(styleMuted.Render("v view · r reply · f full · x revoke · ↑↓ · esc back"))

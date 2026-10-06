@@ -202,7 +202,9 @@ conch web [-listen ADDR] [-port N] [-url URL] [-cert FILE -key FILE]   # the gat
 conch web pair [-permission view|reply|full]                # a QR code and one-time code, good for 5 minutes
 conch web devices                                           # the paired phones
 conch web revoke ID                                         # cut one off at once
-conch web permission ID view|reply|full                     # change what one may do
+conch web permission ID view|reply|full [-machine NAME]...  # change what one may do, and which
+                                                            # machines it reaches (this computer only
+                                                            # until you name one; 'local' clears them)
 conch web stop                                              # end one running in the background
 ```
 

@@ -622,13 +622,13 @@ func (g *Gateway) hello(rq *request) (any, *APIError) {
 	// socket says again when it answers.
 	return Hello{APIVersion: APIVersion, ConchVersion: proto.Version, DeviceID: rq.dev.ID,
 		Permission: rq.dev.Permission, CSRFToken: csrfToken(rq.token),
-		Machines: machineList(g.machines(), nil)}, nil
+		Machines: machineList(g.machinesFor(rq.dev), nil)}, nil
 }
 
 func (g *Gateway) listAgents(rq *request) (any, *APIError) {
 	ctx, cancel := context.WithTimeout(rq.r.Context(), callTimeout)
 	defer cancel()
-	agents, machines := g.everyAgent(ctx)
+	agents, machines := g.everyAgent(ctx, rq.dev)
 	if len(machines) > 0 && machines[0].State != MachineOnline && len(agents) == 0 {
 		// Not even this computer answered: that is the gateway being
 		// unavailable, not an empty list.
@@ -640,14 +640,14 @@ func (g *Gateway) listAgents(rq *request) (any, *APIError) {
 func (g *Gateway) listMachines(rq *request) (any, *APIError) {
 	ctx, cancel := context.WithTimeout(rq.r.Context(), callTimeout)
 	defer cancel()
-	_, machines := g.everyAgent(ctx)
+	_, machines := g.everyAgent(ctx, rq.dev)
 	return MachineList{Machines: machines}, nil
 }
 
 func (g *Gateway) listProjects(rq *request) (any, *APIError) {
 	// A project ID is a server's own, so the projects are the named
 	// machine's; ?machine= left out is this computer, as it always was.
-	c, _, aerr := g.machineFor(rq.r.URL.Query().Get("machine"))
+	c, _, aerr := g.machineFor(rq.dev, rq.r.URL.Query().Get("machine"))
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -672,7 +672,7 @@ func (g *Gateway) reply(rq *request) (any, *APIError) {
 	if strings.TrimSpace(req.Text) == "" {
 		return nil, apiErr(CodeBadRequest, "a reply needs some text")
 	}
-	c, pane, id, aerr := g.paneOn(req.Pane)
+	c, pane, id, aerr := g.paneOn(rq.dev, req.Pane)
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -701,7 +701,7 @@ func (g *Gateway) answer(rq *request) (any, *APIError) {
 	if req.QuestionID == "" || req.Choice == "" {
 		return nil, apiErr(CodeBadRequest, "an answer needs question_id and choice")
 	}
-	c, pane, id, aerr := g.paneOn(req.Pane)
+	c, pane, id, aerr := g.paneOn(rq.dev, req.Pane)
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -750,7 +750,7 @@ func (g *Gateway) task(rq *request) (any, *APIError) {
 	if req.Project == "" || strings.TrimSpace(req.Prompt) == "" {
 		return nil, apiErr(CodeBadRequest, "a task needs project and prompt")
 	}
-	c, machine, aerr := g.machineFor(req.Machine)
+	c, machine, aerr := g.machineFor(rq.dev, req.Machine)
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -828,7 +828,7 @@ func (g *Gateway) pushUnsubscribe(rq *request) (any, *APIError) {
 func (g *Gateway) listPanes(rq *request) (any, *APIError) {
 	ctx, cancel := context.WithTimeout(rq.r.Context(), callTimeout)
 	defer cancel()
-	panes, machines := g.everyPane(ctx)
+	panes, machines := g.everyPane(ctx, rq.dev)
 	if len(machines) > 0 && machines[0].State != MachineOnline && len(panes) == 0 {
 		return nil, apiErr(CodeServerUnavailable, "the conch server isn't reachable")
 	}
@@ -847,7 +847,7 @@ func (g *Gateway) newPane(rq *request) (any, *APIError) {
 	if proto.IsPaneID(req.Name) {
 		return nil, apiErr(CodeBadRequest, "a pane can't be named like a pane ID")
 	}
-	c, machine, aerr := g.machineFor(req.Machine)
+	c, machine, aerr := g.machineFor(rq.dev, req.Machine)
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -891,7 +891,7 @@ func (g *Gateway) closePane(rq *request) (any, *APIError) {
 	if aerr := rq.decode(&req); aerr != nil {
 		return nil, aerr
 	}
-	c, pane, id, aerr := g.paneOn(req.Pane)
+	c, pane, id, aerr := g.paneOn(rq.dev, req.Pane)
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -906,7 +906,7 @@ func (g *Gateway) renamePane(rq *request) (any, *APIError) {
 	if aerr := rq.decode(&req); aerr != nil {
 		return nil, aerr
 	}
-	c, pane, id, aerr := g.paneOn(req.Pane)
+	c, pane, id, aerr := g.paneOn(rq.dev, req.Pane)
 	if aerr != nil {
 		return nil, aerr
 	}

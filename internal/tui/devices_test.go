@@ -61,9 +61,27 @@ func TestDevicesPanel(t *testing.T) {
 			t.Fatalf("lacks %s:\n%s", d.ID, out)
 		}
 	}
-	if !strings.Contains(out, "iPhone may reply and answer.") || !strings.Contains(out, "x revoke") {
+	if !strings.Contains(out, "iPhone may reply and answer, on this computer only.") || !strings.Contains(out, "x revoke") {
 		t.Fatalf("panel:\n%s", out)
 	}
+	// Where a device may act is shown beside what it may do, with the
+	// command that changes it — a phone reaching another machine is the
+	// part nobody expects, so the panel says it without being asked.
+	if !strings.Contains(out, "-machine NAME adds one.") {
+		t.Fatalf("the panel does not say how to give it a machine:\n%s", out)
+	}
+	if _, err := store.SetMachines(devs[0].ID, []string{"busybox", "vm2", "gpu-1"}); err != nil {
+		t.Fatal(err)
+	}
+	p.load()
+	out = a2Plain(p.render(*m).lines)
+	if !strings.Contains(out, "on this computer, busybox, gpu-1 and vm2.") {
+		t.Fatalf("the machines a device reaches:\n%s", out)
+	}
+	if strings.Contains(out, "-machine NAME adds one") {
+		t.Errorf("it still offers to give a machine to one that has three:\n%s", out)
+	}
+	a2CheckBox(t, p.render(*m), *m)
 
 	// f on the first: full, saved, and said.
 	p.update(m, a2Key("f"))

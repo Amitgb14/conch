@@ -296,6 +296,21 @@ func (f *fixture) pair(permission string) *fakePhone {
 	return p
 }
 
+// grant gives a paired phone a machine, as `conch web permission ID PERM
+// -machine NAME` does. Nothing reaches a machine without it — that is the
+// rule these tests are written against — so every test that crosses to
+// another machine says so here, in one line, rather than inheriting it
+// from a helper.
+func (f *fixture) grant(p *fakePhone, machines ...string) {
+	f.t.Helper()
+	found, err := f.store.SetMachines(p.id, machines)
+	if err != nil || !found {
+		f.t.Fatalf("granting %v to %s: found=%v err=%v", machines, p.id, found, err)
+	}
+	// No reconnecting and no waiting: the gateway reads the devices from
+	// the file whenever it has changed, so the next request has this.
+}
+
 // do makes a request with the phone's cookie and CSRF token, and returns
 // the status and the body.
 func (p *fakePhone) do(method, path string, body any) (int, []byte) {

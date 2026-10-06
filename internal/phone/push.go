@@ -183,6 +183,12 @@ func (g *Gateway) sendPushes() {
 			sub    PushSubscription
 		}
 		for _, d := range g.currentDevices() {
+			// A notification names a pane on a machine, and taps through
+			// to it: a device that may not see that machine is not told
+			// its agents are waiting either.
+			if !d.Reaches(machineOf(job.msg.Pane)) {
+				continue
+			}
 			for _, s := range d.Push {
 				if slices.Contains(s.On, job.msg.Type) {
 					subs = append(subs, struct {

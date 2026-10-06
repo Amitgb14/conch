@@ -160,6 +160,20 @@ func (s *socket) allowed(need string) (paired, ok bool) {
 	return true, allows(dev.Permission, need)
 }
 
+// device is the record as it stands now, not as it was when the socket
+// opened: a machine given to a device reaches it without reconnecting,
+// and one taken away stops being served at once. A device that has been
+// revoked reads as the zero one, which reaches this computer only — the
+// socket is about to be closed by allowed in any case.
+func (s *socket) device() Device {
+	dev, _ := s.g.deviceByHash(s.tokenHash)
+	return dev
+}
+
+// reaches is the socket's own refusal for a machine this device was not
+// given, worded as the gateway's.
+func (s *socket) reaches(machine string) *APIError { return s.g.reaches(s.device(), machine) }
+
 // read takes the phone's messages until the socket ends.
 func (s *socket) read() {
 	for {
@@ -220,7 +234,7 @@ func (s *socket) handle(m ClientMessage) {
 		s.watching = true
 		s.mu.Unlock()
 		ctx, cancel := context.WithTimeout(s.ctx, callTimeout)
-		agents, machines := s.g.everyAgent(ctx)
+		agents, machines := s.g.everyAgent(ctx, s.device())
 		cancel()
 		s.mu.Lock()
 		for _, a := range agents {
@@ -235,7 +249,7 @@ func (s *socket) handle(m ClientMessage) {
 		s.watchingPanes = true
 		s.mu.Unlock()
 		ctx, cancel := context.WithTimeout(s.ctx, callTimeout)
-		panes, machines := s.g.everyPane(ctx)
+		panes, machines := s.g.everyPane(ctx, s.device())
 		cancel()
 		s.send(ServerMessage{Type: MsgMachines, Machines: &machines})
 		s.mu.Lock()
@@ -434,11 +448,17 @@ func (s *socket) pump(machine string, c *client.Client) {
 func (s *socket) tellMachines() {
 	ctx, cancel := context.WithTimeout(s.ctx, callTimeout)
 	defer cancel()
-	_, machines := s.g.everyAgent(ctx)
+	_, machines := s.g.everyAgent(ctx, s.device())
 	s.send(ServerMessage{Type: MsgMachines, Machines: &machines})
 }
 
 func (s *socket) event(machine string, msg proto.Message) {
+	// The pump for a machine taken away from this device ends within a
+	// tick of follow; until it does, nothing from it goes out. A frame is
+	// a whole screen, so this is the check that matters most.
+	if machine != LocalMachine && !s.device().Reaches(machine) {
+		return
+	}
 	switch msg.Event {
 	case proto.EventPaneFrame:
 		var f proto.Frame
@@ -590,8 +610,12 @@ func (s *socket) follow() {
 	t := time.NewTicker(machineJoinEvery)
 	defer t.Stop()
 	for {
+		dev := s.device()
+		// A machine taken away from this device mid-session goes now,
+		// rather than at the end of a session that may last days.
+		s.dropUnreached(dev)
 		for _, mc := range s.g.machines() {
-			if mc.id == LocalMachine {
+			if mc.id == LocalMachine || !dev.Reaches(mc.id) {
 				continue
 			}
 			s.mu.Lock()
@@ -623,6 +647,29 @@ func (s *socket) follow() {
 // machineJoinEvery is how often a socket looks for a machine that has come
 // up since it opened. Tests shorten it.
 var machineJoinEvery = 2 * time.Second
+
+// dropUnreached closes the connections to machines this device no longer
+// reaches. Their pumps end with them, so no further event from one is
+// sent; the panes the phone had open there simply stop answering, which
+// is what it already shows for a machine that has gone.
+func (s *socket) dropUnreached(dev Device) {
+	s.mu.Lock()
+	var gone []*client.Client
+	for machine, c := range s.clients {
+		if machine == LocalMachine || dev.Reaches(machine) {
+			continue
+		}
+		gone = append(gone, c)
+		delete(s.clients, machine)
+	}
+	s.mu.Unlock()
+	for _, c := range gone {
+		c.Close()
+	}
+	if len(gone) > 0 {
+		s.tellMachines()
+	}
+}
 
 // closeClients ends every connection this socket holds.
 func (s *socket) closeClients() {
@@ -657,6 +704,9 @@ func (s *socket) clientOn(machine string) *client.Client {
 func (s *socket) paneOn(ref string) (c *client.Client, pane, id string, aerr *APIError) {
 	machine, pane, aerr := splitPaneID(ref)
 	if aerr != nil {
+		return nil, "", "", aerr
+	}
+	if aerr := s.reaches(machine); aerr != nil {
 		return nil, "", "", aerr
 	}
 	c = s.clientOn(machine)

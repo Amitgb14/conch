@@ -82,17 +82,36 @@ The code travels in the link's fragment (`#code=…`), which a browser never sen
 
 The permission is checked on every request and on every message over the live connection, not only when the phone connects.
 
+### And where: a phone reaches this computer only
+
+A permission says what a device may do. It does not say **where**, and the gateway can reach every [machine](/docs/remote-machines) in your catalog — over ssh, with your own credentials. So a device reaches **this computer and nothing else** until you name a machine for it:
+
+```sh
+conch web permission d_7h2k full -machine busybox          # and this computer, always
+conch web permission d_7h2k full -machine busybox -machine gpu-1
+conch web permission d_7h2k full -machine local            # take them away again
+```
+
+A phone without a machine is not merely unable to act on it: it is never told the machine exists. It is left out of the machine list, out of the agent and pane lists, out of `hello`, and out of notifications — a push names a pane and taps through to it, so one about a machine the device may not see is not sent. A request naming it is refused before conch says whether there is such a machine, so asking is not a way to learn what is in your catalog.
+
+The reason is that conch cannot tell a test box from a production one, and a machine is reached as you. Pairing a phone is one decision; letting it into a machine is another, taken on purpose, one machine at a time. **Devices paired before conch could reach machines keep this computer alone** — nobody's phone gained reach because conch was updated.
+
+Giving or taking away a machine applies at once, on connections already open: a phone loses a machine mid-session without being paired again, and gains one without reconnecting.
+
 ## Devices
 
-In the TUI, **⚙ Settings → Web → Devices…** opens a panel of every paired phone and browser: its name, ID, what it may do and when it was paired. `v`, `r` and `f` set what the selected one may do, `x` twice revokes it, esc goes back. A change applies to the device's next request at once.
+In the TUI, **⚙ Settings → Web → Devices…** opens a panel of every paired phone and browser: its name, ID, what it may do, the machines it reaches and when it was paired. `v`, `r` and `f` set what the selected one may do, `x` twice revokes it, esc goes back. A change applies to the device's next request at once.
 
 From a terminal:
 
 ```sh
-conch web devices        # ID, name, permission, when it was paired
+conch web devices        # ID, name, permission, the machines it reaches, when it was paired
 conch web revoke d_7h2k  # cut one off
 conch web permission d_7h2k full   # let it type into terminals, without pairing again
+conch web permission d_7h2k full -machine busybox   # and let it reach a machine
 ```
+
+`permission` without `-machine` leaves the machines as they were: what a device may do and where it may do it are two decisions, and changing one does not quietly change the other.
 
 Revoking takes effect at once: the token stops working, and a running gateway closes the connections that device has open — within a quarter of a second — telling the phone why.
 

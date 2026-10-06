@@ -313,7 +313,10 @@ func TestWebServes(t *testing.T) {
 
 // The usage names the commands as they are.
 func TestWebUsage(t *testing.T) {
-	for _, want := range []string{"conch web [-listen ADDR] [-port N] [-url URL]", "conch web pair [-permission view|reply|full]", "conch web devices | revoke ID | permission ID view|reply|full | stop"} {
+	for _, want := range []string{"conch web [-listen ADDR] [-port N] [-url URL]", "conch web pair [-permission view|reply|full]", "conch web devices | revoke ID | permission ID view|reply|full [-machine NAME] | stop",
+		// where a device may act is part of what it may do, so the
+		// usage says it rather than leaving it to the docs
+		"machines it reaches"} {
 		if !strings.Contains(usage, want) {
 			t.Errorf("usage lacks %q", want)
 		}
@@ -449,5 +452,104 @@ func TestWebTakesItsSettingsFromConfig(t *testing.T) {
 	}
 	if run, _ := phone.OpenStore(dir).Gateway(); len(run.Args) != 0 {
 		t.Fatalf("recorded args %v: started with none", run.Args)
+	}
+}
+
+// A device reaches this computer until a machine is named for it, and
+// `conch web permission -machine` is the only way to name one. The flag
+// is where the decision is made, so it is also where the mistakes are:
+// changing what a device may do must not quietly change where, and a
+// name that could not be a machine must not be written down.
+func TestWebPermissionMachines(t *testing.T) {
+	dir := a4Env(t)
+	store := phone.OpenStore(dir)
+	code, err := store.NewCode(phone.PermReply, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, _, err := store.Redeem(code, "Pixel", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	machines := func() []string {
+		t.Helper()
+		devs, err := store.Devices()
+		if err != nil || len(devs) != 1 {
+			t.Fatalf("devices %+v: %v", devs, err)
+		}
+		return devs[0].Machines
+	}
+
+	// Paired with none, and listed as reaching this computer.
+	if len(machines()) != 0 {
+		t.Fatalf("paired with machines %v", machines())
+	}
+	out, err := runWebCaptured(t, "devices")
+	if err != nil || !strings.Contains(out, "MACHINES") || !strings.Contains(out, "this computer") {
+		t.Fatalf("devices: %q %v", out, err)
+	}
+
+	// Given one, by name, with what it may do said in the same breath.
+	out, err = runWebCaptured(t, "permission", dev.ID, "full", "-machine", "busybox")
+	if err != nil || !strings.Contains(out, dev.ID+" also reaches busybox") {
+		t.Fatalf("permission -machine: %q %v", out, err)
+	}
+	if !strings.Contains(out, "reached with your credentials") {
+		t.Errorf("it does not say what granting a machine means: %q", out)
+	}
+	if got := machines(); len(got) != 1 || got[0] != "busybox" {
+		t.Fatalf("machines %v", got)
+	}
+	if devs, _ := store.Devices(); devs[0].Permission != phone.PermFull {
+		t.Errorf("permission %q", devs[0].Permission)
+	}
+	out, err = runWebCaptured(t, "devices")
+	if err != nil || !strings.Contains(out, "this computer, busybox") {
+		t.Fatalf("devices with a machine: %q %v", out, err)
+	}
+
+	// Several, repeatable and in one go; the record is sorted and deduped.
+	if _, err := runWebCaptured(t, "permission", dev.ID, "full", "-machine", "vm2", "-machine", "busybox", "-machine", "vm2"); err != nil {
+		t.Fatal(err)
+	}
+	if got := machines(); len(got) != 2 || got[0] != "busybox" || got[1] != "vm2" {
+		t.Fatalf("machines %v", got)
+	}
+
+	// Changing what it may do leaves where alone: the two are separate
+	// decisions, and a phone demoted to view should not silently lose its
+	// machines (or keep them without anyone saying so).
+	if _, err := runWebCaptured(t, "permission", dev.ID, "view"); err != nil {
+		t.Fatal(err)
+	}
+	if got := machines(); len(got) != 2 {
+		t.Fatalf("changing the permission changed the machines: %v", got)
+	}
+
+	// And `local` takes them away.
+	out, err = runWebCaptured(t, "permission", dev.ID, "view", "-machine", "local")
+	if err != nil || !strings.Contains(out, dev.ID+" reaches this computer only") {
+		t.Fatalf("permission -machine local: %q %v", out, err)
+	}
+	if got := machines(); len(got) != 0 {
+		t.Fatalf("machines after local: %v", got)
+	}
+
+	// A name that could not be a machine is refused, and the device is
+	// left as it was — including the permission, which is set first.
+	if _, err := runWebCaptured(t, "permission", dev.ID, "full", "-machine", "busybox"); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"NOPE!", "has space", "a:b", "../etc"} {
+		if _, err := runWebCaptured(t, "permission", dev.ID, "full", "-machine", bad); err == nil {
+			t.Errorf("-machine %q was accepted", bad)
+		}
+		if got := machines(); len(got) != 1 || got[0] != "busybox" {
+			t.Fatalf("-machine %q changed the record: %v", bad, got)
+		}
+	}
+	// A device that isn't there is said so rather than invented.
+	if _, err := runWebCaptured(t, "permission", "d_nope", "full", "-machine", "busybox"); err == nil {
+		t.Error("a machine was given to a device that is not paired")
 	}
 }

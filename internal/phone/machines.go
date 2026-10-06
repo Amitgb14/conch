@@ -187,6 +187,35 @@ func (g *Gateway) machines() []machineState {
 	return append([]machineState{local.snapLocked()}, out...)
 }
 
+// machinesFor is machines() as one device may see it: this computer, and
+// the machines that device has been given. Every list the phone is shown
+// is built from this rather than from machines(), so a machine nobody
+// granted is not merely un-actionable but invisible — its name, its label
+// and whether it is up are the person's business, not the device's.
+func (g *Gateway) machinesFor(dev Device) []machineState {
+	all := g.machines()
+	out := make([]machineState, 0, len(all))
+	for _, mc := range all {
+		if dev.Reaches(mc.id) {
+			out = append(out, mc)
+		}
+	}
+	return out
+}
+
+// reaches refuses a machine a device was not given, and says how it would
+// be. The refusal names the machine the phone asked for — it sent the
+// name, so nothing is disclosed — and the command, because a device that
+// cannot reach a machine looks exactly like one whose machine is off.
+func (g *Gateway) reaches(dev Device, machine string) *APIError {
+	if dev.Reaches(machine) {
+		return nil
+	}
+	return apiErr(CodeForbidden, fmt.Sprintf(
+		"this device reaches this computer only; `conch web permission %s %s -machine %s` adds %s to it",
+		dev.ID, dev.Permission, machine, machine))
+}
+
 // ensureLocked starts reaching a machine that is not up, unless one is
 // already being started or it failed too recently to be worth retrying.
 // The caller holds machMu.
@@ -301,6 +330,16 @@ func splitPaneID(ref string) (machine, pane string, err *APIError) {
 	return machine, pane, nil
 }
 
+// machineOf is the machine a `machine:pane` names, for deciding what a
+// device may be told rather than what it asked for: a reference with no
+// machine in it is this computer's, as it is everywhere else.
+func machineOf(ref string) string {
+	if i := strings.IndexByte(ref, ':'); i >= 0 {
+		return ref[:i]
+	}
+	return LocalMachine
+}
+
 // machineIDOK is the shape the catalog gives an ID (remote.slug): lower
 // case letters, digits and dashes, and never a colon.
 func machineIDOK(id string) bool {
@@ -320,9 +359,12 @@ func machineIDOK(id string) bool {
 // keys panes one way. A machine the gateway does not reach is not_found, as
 // an unknown pane is; one that is merely not up yet says so as itself,
 // since trying again shortly is the thing to do.
-func (g *Gateway) paneOn(ref string) (c *client.Client, pane, id string, aerr *APIError) {
+func (g *Gateway) paneOn(dev Device, ref string) (c *client.Client, pane, id string, aerr *APIError) {
 	machine, pane, aerr := splitPaneID(ref)
 	if aerr != nil {
+		return nil, "", "", aerr
+	}
+	if aerr := g.reaches(dev, machine); aerr != nil {
 		return nil, "", "", aerr
 	}
 	id = composePaneID(machine, pane)
@@ -364,8 +406,8 @@ func (g *Gateway) closeMachines() {
 // waited longest is first wherever it runs. A machine that is not up
 // contributes none and does not fail the list — it says for itself what
 // is wrong (machineList).
-func (g *Gateway) everyAgent(ctx context.Context) ([]Agent, []Machine) {
-	conns := g.machines()
+func (g *Gateway) everyAgent(ctx context.Context, dev Device) ([]Agent, []Machine) {
+	conns := g.machinesFor(dev)
 	agents := []Agent{}
 	counts := map[string]int{}
 	for _, mc := range conns {
@@ -389,8 +431,8 @@ func (g *Gateway) everyAgent(ctx context.Context) ([]Agent, []Machine) {
 
 // everyPane is everyAgent for panes, agents before terminals as one
 // machine's list has them, machine by machine.
-func (g *Gateway) everyPane(ctx context.Context) ([]Pane, []Machine) {
-	conns := g.machines()
+func (g *Gateway) everyPane(ctx context.Context, dev Device) ([]Pane, []Machine) {
+	conns := g.machinesFor(dev)
 	panes := []Pane{}
 	counts := map[string]int{}
 	for _, mc := range conns {
@@ -466,12 +508,15 @@ func (g *Gateway) dialMachine(id string) (*client.Client, error) {
 // machineFor is the client of a machine a request names, "" being this
 // computer: what the routes that *make* something on a machine use, where
 // paneOn is for the ones that act on a pane that exists.
-func (g *Gateway) machineFor(id string) (*client.Client, string, *APIError) {
+func (g *Gateway) machineFor(dev Device, id string) (*client.Client, string, *APIError) {
 	if id == "" {
 		id = LocalMachine
 	}
 	if !machineIDOK(id) {
 		return nil, "", apiErr(CodeBadRequest, fmt.Sprintf("%q does not name a machine", id))
+	}
+	if aerr := g.reaches(dev, id); aerr != nil {
+		return nil, "", aerr
 	}
 	for _, mc := range g.machines() {
 		if mc.id != id {
