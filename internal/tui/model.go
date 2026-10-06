@@ -143,6 +143,8 @@ type Model struct {
 	noProjectOffer []string
 
 	offset     int           // lines the viewed pane is scrolled back
+	asked      *scrollAsk    // the scroll last asked of the server, until a frame shows it
+	lastWheel  time.Time     // when the wheel last scrolled a pane (wheelStep)
 	scrollMode bool          // keys move a cursor over the pane's history
 	curX, curY int           // that cursor, in view cells
 	sel        *selection    // text selected in the viewed pane, or in a leaf's page
@@ -743,7 +745,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if mach.id == m.viewMachine && f.ID == m.viewing {
 			inStep := f.Offset == m.offset // not one still catching up with a scroll
 			m.frame = &f
-			m.offset = f.Offset // the server keeps it anchored as output arrives
+			m.settleOffset(&f)
 			if inStep {
 				m.rememberSel()
 			}
@@ -1132,7 +1134,37 @@ func (m *Model) scrollPane(delta int) {
 		m.sel.shiftRows(shift)
 	}
 	m.offset = next
+	m.asked = &scrollAsk{offset: next, top: m.frame.History - next, at: time.Now()}
 	c.Notify(proto.MethodPaneScroll, proto.PaneScrollParams{ID: m.viewing, Offset: next})
+}
+
+// scrollAsk is a scroll this client asked the server for. Every wheel
+// notch asks for one, and frames rendered for the notches before it are
+// still on their way: taking their offset as the view's own pulled it back
+// a notch or two each time one landed, so the next notch started from
+// there and a quick scroll stuttered, stalled, even stepped backwards.
+type scrollAsk struct {
+	offset int       // the offset asked for
+	top    int       // History-offset when asked, which anchoring keeps as output arrives
+	at     time.Time // a frame that never matches is believed after scrollSettle
+}
+
+// scrollSettle is how long a scroll asked for outranks the frames that
+// arrive: long enough for any frame already on its way, short enough that
+// one the server clamped or moved is taken soon after.
+const scrollSettle = 500 * time.Millisecond
+
+// settleOffset takes the viewed pane's offset from its frame f — the
+// server keeps it anchored as output arrives — unless f predates the
+// scroll last asked for, which the offset stays at.
+func (m *Model) settleOffset(f *proto.Frame) {
+	if a := m.asked; a != nil {
+		if f.Offset != a.offset && f.History-f.Offset != a.top && time.Since(a.at) < scrollSettle {
+			return // one rendered before the server had the scroll
+		}
+		m.asked = nil
+	}
+	m.offset = f.Offset
 }
 
 // setFlash shows a message in the status bar for a few seconds (errors a

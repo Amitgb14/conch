@@ -488,11 +488,7 @@ func (m *Model) paneMouse(machine, paneID string, msg tea.MouseMsg, x, y int, pr
 		// Text selected in a program that takes the mouse, in a pane conch
 		// has history for: the wheel scrolls that history while the
 		// selection lasts, so it can be taken past the top of the screen.
-		delta := -3
-		if msg.Button == tea.MouseButtonWheelUp {
-			delta = 3
-		}
-		m.scrollPane(delta)
+		m.scrollPane(m.wheelDelta(msg))
 	case f != nil && f.Mouse && wheel && m.sel != nil && m.sel.paneID == paneID:
 		// An agent on the alternate screen keeps its own scrollback and
 		// conch has none to offer, so the wheel goes to the program as
@@ -507,20 +503,53 @@ func (m *Model) paneMouse(machine, paneID string, msg tea.MouseMsg, x, y int, pr
 		if msg.Button == tea.MouseButtonWheelUp {
 			key = "up"
 		}
-		c.Notify(proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: paneID, Keys: []string{key, key, key}})
+		keys := make([]string, m.wheelStep())
+		for i := range keys {
+			keys[i] = key
+		}
+		c.Notify(proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: paneID, Keys: keys})
 	case wheel && !ours:
 		// Not the pane on screen yet: this wheel asked for its focus, and
 		// scrolling would have moved the one that is. The next turns it.
 	case wheel:
-		delta := -3
-		if msg.Button == tea.MouseButtonWheelUp {
-			delta = 3
-		}
-		m.scrollPane(delta)
+		m.scrollPane(m.wheelDelta(msg))
 	default:
 		return m.selectMouse(msg, x, y)
 	}
 	return nil
+}
+
+// wheelClock is when a wheel event arrived; tests replace it.
+var wheelClock = time.Now
+
+// wheelBurst is the gap below which wheel events are one gesture: a
+// trackpad reports a swipe as a stream of them a few milliseconds apart,
+// where a mouse wheel's notches come one by one.
+const wheelBurst = 40 * time.Millisecond
+
+// wheelStep is how many lines one wheel event over a pane moves it: three
+// for a notch on its own, as before, and one for each event after it in a
+// burst. A trackpad swipe moved three lines an event, so the history
+// leapt in steps of three and ran away from the finger; a line at a time
+// follows it, and a fast swipe still goes as far as its events take it.
+func (m *Model) wheelStep() int {
+	now := wheelClock()
+	step := 3
+	if !m.lastWheel.IsZero() && now.Sub(m.lastWheel) >= 0 && now.Sub(m.lastWheel) < wheelBurst {
+		step = 1
+	}
+	m.lastWheel = now
+	return step
+}
+
+// wheelDelta is the history offset a wheel event moves the pane by: up
+// goes back into history.
+func (m *Model) wheelDelta(msg tea.MouseMsg) int {
+	step := m.wheelStep()
+	if msg.Button == tea.MouseButtonWheelUp {
+		return step
+	}
+	return -step
 }
 
 // selectsOverApp reports whether dragging selects text even though the
@@ -664,11 +693,7 @@ func (m *Model) dragSelection(msg tea.MouseMsg) (tea.Cmd, bool) {
 			return nil, false
 		}
 		if m.frame != nil && m.frame.History > 0 {
-			delta := -3
-			if msg.Button == tea.MouseButtonWheelUp {
-				delta = 3
-			}
-			m.scrollPane(delta)
+			m.scrollPane(m.wheelDelta(msg))
 			return nil, true
 		}
 		return nil, m.click == nil || outside
