@@ -264,12 +264,17 @@ func TestMachineArrivesOnTheSocket(t *testing.T) {
 	f := newFixture(t)
 	other := addMachine(t, f, "busybox", true)
 	p := f.pair(PermFull)
+
+	// Reaching a machine happens in the background, and a socket is told
+	// when one comes up — but a socket opened *after* it came up is told
+	// by agents.watch instead, which sends the machines before the list.
+	// Waiting for either in turn was a race with itself: next() throws
+	// away what it is not waiting for, so the machines message could be
+	// eaten by the wait for the list and never come again. So: let it come
+	// up first, then open the socket, where the order is the handler's.
+	waitMachine(t, f, p, "busybox", MachineOnline)
 	s := p.socket()
 	s.send(ClientMessage{Type: MsgAgentsWatch, ID: "w1"})
-	s.next("the list", func(m ServerMessage) bool { return m.Type == MsgAgents })
-
-	// The machines come over the socket, and busybox is among them once it
-	// has answered.
 	s.next("the machines", func(m ServerMessage) bool {
 		if m.Type != MsgMachines || m.Machines == nil {
 			return false
@@ -281,6 +286,7 @@ func TestMachineArrivesOnTheSocket(t *testing.T) {
 		}
 		return false
 	})
+	s.next("the list", func(m ServerMessage) bool { return m.Type == MsgAgents })
 
 	// An agent that starts there arrives by itself, addressed with its
 	// machine, which is the whole point of following every machine.
@@ -437,4 +443,46 @@ func TestProjectsComeFromTheMachineAsked(t *testing.T) {
 	if status := p.get("/api/projects?machine=nowhere", &none); status != 404 {
 		t.Fatalf("a machine that is not there: %d %+v", status, none)
 	}
+}
+
+// TestMachineComesUpWhileThePhoneWatches: the other half of the arrival,
+// and the one a phone left open depends on — a machine that was not
+// answering starts to, and the socket says so without being asked. Driven
+// by making the connect succeed, rather than by waiting on a race.
+func TestMachineComesUpWhileThePhoneWatches(t *testing.T) {
+	oldJoin, oldRetry := machineJoinEvery, machineRetry
+	machineJoinEvery, machineRetry = 100*time.Millisecond, 100*time.Millisecond
+	t.Cleanup(func() { machineJoinEvery, machineRetry = oldJoin, oldRetry })
+
+	f := newFixture(t)
+	other := addMachine(t, f, "busybox", false) // refusing, at first
+	p := f.pair(PermFull)
+	waitMachine(t, f, p, "busybox", MachineOffline)
+
+	s := p.socket()
+	s.send(ClientMessage{Type: MsgAgentsWatch, ID: "w1"})
+	s.next("the list", func(m ServerMessage) bool { return m.Type == MsgAgents })
+
+	// Now it answers. The gateway reaches it on its next look and the
+	// socket joins it; either of them tells the phone.
+	setMachineHooks(func(_ context.Context, want remote.Machine) (*client.Client, error) {
+		return client.Dial(other.sock, "conch-web-test-2")
+	}, nil)
+	s.next("busybox coming up", func(m ServerMessage) bool {
+		if m.Type != MsgMachines || m.Machines == nil {
+			return false
+		}
+		for _, mc := range *m.Machines {
+			if mc.ID == "busybox" && mc.State == MachineOnline {
+				return true
+			}
+		}
+		return false
+	})
+
+	// And its agents arrive from then on, which is what the phone wanted.
+	there := startPaneOn(t, other, "claude", "stty -echo; exec cat")
+	s.next("the agent on busybox", func(m ServerMessage) bool {
+		return m.Type == MsgAgent && m.Agent != nil && m.Agent.Pane == composePaneID("busybox", there)
+	})
 }
