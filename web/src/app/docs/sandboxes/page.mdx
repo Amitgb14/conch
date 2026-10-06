@@ -19,14 +19,15 @@ In the tree they sit together under **Sandboxes**, one group per provider, so a 
 
 Each one opens like any machine — its projects, agents and terminals underneath — and `m` on its row starts, stops or deletes it. Selecting **Sandboxes**, or one provider, shows what is in it with each sandbox's state. The group appears once there is a sandbox; the same label under two providers is two different sandboxes, and each keeps its own row.
 
-Two providers are supported:
+Three providers are supported:
 
 | Provider | What it is | How conch gets in |
 | --- | --- | --- |
 | [Daytona](https://www.daytona.io) | sandboxes with an ssh gateway, sized in vCPUs, memory and disk | a fresh ssh token per connection, through Daytona's gateway |
 | [boat.dev](https://boat.dev) | whole Ubuntu machines in named sizes, with an sshd of their own | your own public key, authorized in the sandbox |
+| [Devin Cloud](https://docs.devin.ai/cli/cloud) | the VM of a Devin Cloud session, with Devin in it; sized by Devin, placed on a platform or an outpost pool | `devin ssh`, the devin CLI's own approved connection |
 
-Everything on this page works with both. Where they differ — sizes, prices, snapshots, what stopping keeps — it says so.
+Everything on this page works with all of them unless it says otherwise. Where they differ — sizes, prices, snapshots, what stopping keeps — it says so. Devin Cloud does least of it: no preview links, snapshots or billed cost, since its API has none to give.
 
 ## Setting up
 
@@ -35,7 +36,10 @@ Create an API key in the provider's dashboard and put it in your environment:
 ```sh
 export DAYTONA_API_KEY=dtn_…     # Daytona
 export BOAT_API_KEY=boat_…       # boat.dev
+export DEVIN_API_KEY=cog_…       # Devin Cloud: a service user's key
 ```
+
+Devin Cloud also needs the [devin CLI](https://docs.devin.ai/cli/cloud), installed (`conch agent install devin`) and signed in (`devin auth login`): its API makes the session, but only the CLI's login can open the way into its VM. conch makes the session in the organization `$DEVIN_ORG_ID` names, or else the one Devin says the key's sessions run in.
 
 Only the provider you use needs a key. A provider with no key is still listed, and says what is missing rather than failing when you try.
 
@@ -45,7 +49,7 @@ If you would rather not keep it in your shell at all, Settings → **Sandboxes**
 
 ## In the TUI
 
-Press `M`, choose **New sandbox…** and then the provider — Daytona or boat.dev, and whatever conch grows later sits beside it; `esc` goes back to the machine menu. The dialog takes a label, a snapshot, a size and the names of environment variables to pass in; leave any of them empty for the defaults. boat.dev's machines come in named sizes rather than numbers: put `small`, `default` or `large` where the snapshot goes and leave vCPUs, memory and disk empty — a number there is refused, with that sentence, rather than quietly ignored. conch creates the sandbox, sets itself up there and adds the machine to the tree, which takes a minute or two — and says what it is doing while it does it, in the status bar with a spinner: *asking boat.dev for a sandbox…*, *waiting for hull to answer…*, *copying conch to hull (16 MB)…*. A provider says a sandbox is started before its sshd is (Daytona says so within a second), so conch waits for it to answer, and tries again when a connection drops — copying 16 MB is the longest thing it asks of one — rather than throwing the sandbox away at the first refusal. That line stays until the job is done, unlike a message that fades. If setting up fails, the sandbox is deleted rather than left to cost — it says that too — and the reason is shown.
+Press `M`, choose **New sandbox…** and then the provider — Daytona (`d`), boat.dev (`b`) or Devin Cloud (`e`), and whatever conch grows later sits beside it under the first letter of its name nobody else has; `esc` goes back to the machine menu. The dialog takes a label, a snapshot, a size and the names of environment variables to pass in; leave any of them empty for the defaults. boat.dev's machines come in named sizes rather than numbers: put `small`, `default` or `large` where the snapshot goes and leave vCPUs, memory and disk empty — a number there is refused, with that sentence, rather than quietly ignored. Devin Cloud's dialog asks for a **Platform** where the snapshot goes and no size at all, and says before anything is made that Devin works, and bills, in the session. conch creates the sandbox, sets itself up there and adds the machine to the tree, which takes a minute or two — and says what it is doing while it does it, in the status bar with a spinner: *asking boat.dev for a sandbox…*, *waiting for hull to answer…*, *copying conch to hull (16 MB)…*. A provider says a sandbox is started before its sshd is (Daytona says so within a second), so conch waits for it to answer, and tries again when a connection drops — copying 16 MB is the longest thing it asks of one — rather than throwing the sandbox away at the first refusal. That line stays until the job is done, unlike a message that fades. If setting up fails, the sandbox is deleted rather than left to cost — it says that too — and the reason is shown.
 
 `m` on a sandbox's row adds:
 
@@ -145,6 +149,8 @@ conch sandbox -provider daytona rm fix-login   # deletes it and everything in it
 
 ## Running until you stop it
 
+A Devin Cloud session is never just a machine: Devin has to be given a task, and works on it. conch gives it one asking it to change nothing and wait, so it does as little as it can — but it is billed in ACUs while the session runs, like any session. Devin also puts a session to sleep when nothing has happened in it for a while, and a sleeping session's VM is not running: conch shows it **stopped**, and **Start sandbox** wakes it (with a message, which is the only way Devin's API has). Stopping one archives it, which is how the API puts a session to sleep; starting it unarchives it again. Deleting one ends the session for good. A session asleep for a reason waiting won't mend — out of credits, a usage limit — says so instead of starting.
+
 Daytona stops an idle sandbox after 15 minutes by default, and an agent working inside doesn't count as activity — only an ssh connection or an API call does. So a sandbox conch creates never stops on its own: close the TUI and its agents carry on. It costs for as long as it runs, so stop or delete it when you're done. `auto_stop` in [`[sandbox.<provider>]`](/docs/configuration#sandbox) sets a timeout instead.
 
 boat.dev is the other way about: a sandbox is given a length of life when it is made, counted from then and not from the last thing that happened in it. conch asks for two hours, which is what the free trial allows, and Settings → **Sandboxes** → **boat.dev** → **Life** (`auto_stop`, in minutes) raises it on a paid plan; a plan that allows less says so, and conch asks again for the longest it named instead of failing. conch's own idle watch stops a sandbox nobody is using long before that clock runs out, and **Start sandbox** gives it a fresh two hours.
@@ -157,11 +163,13 @@ The code comes back the way it would from any machine: push the branch from the 
 
 ## How conch reaches it
 
-Both are reached over ssh, by different means.
+All are reached over ssh, by different means.
 
 With Daytona, each connection asks for a fresh ssh token and goes through Daytona's ssh gateway, so nothing that lets you in is saved. The token is kept out of conch's messages, but ssh has it on its command line while connected, where other users of your computer could see it in the process list. Daytona's gateway key is accepted the first time it is seen.
 
 With boat.dev, the sandbox is a machine with an sshd of its own. A new one is ready a moment before it has an address, so conch waits for one rather than failing a create that was going to work. conch authorizes your public key in it — your default `~/.ssh/id_*.pub`, or one conch makes for itself — and connects to the machine directly as `user`, offering that same key (`-i`, and nothing else), so the half that opens it never leaves your computer and there is no token to hide. Your key does not need to be in `ssh-agent`. A sandbox that comes back from being stopped lands on another machine, so where to connect is read afresh each time, and the new host key is accepted as the gateway's is.
+
+With Devin Cloud, conch runs `devin ssh SESSION`, which wraps ssh to Devin's gateway (`ssh.devin.ai`) and approves the connection with the CLI's own login — plain ssh there would ask for approval in a browser, and the API hands out no credential for it. What conch runs there goes as an ssh `RemoteCommand`, encoded, so it arrives whole whatever the CLI does with the options it is given. `conch sandbox -provider devin ssh` opens a shell the same way. A session whose CLI isn't signed in says so (`not logged in — run devin auth login first`) rather than hanging.
 
 <Callout type="note">
 

@@ -418,9 +418,10 @@ The providers conch knows, each saying whether its key is there to be found (`�
 | Setting | What it does |
 | --- | --- |
 | **API key** | the key itself, if you would rather keep it here than in your environment. It is written to `config.toml` (0600) as it is, so anything running as you can read it and it travels with a backup or a synced dotfile; the row shows only its last few characters. Empty leaves it to the variable below |
-| **API key variable** | which variable of your environment the key is read from when none is kept above; empty means the provider's own, `DAYTONA_API_KEY` or `BOAT_API_KEY` |
+| **API key variable** | which variable of your environment the key is read from when none is kept above; empty means the provider's own, `DAYTONA_API_KEY`, `BOAT_API_KEY` or `DEVIN_API_KEY` |
 | **Snapshot** | what new sandboxes start from; empty means the provider's default. For boat.dev this is also where a machine size goes — `small`, `default` or `large` — since its machines are sized by name |
 | **Region** | where they are made, e.g. `us` or `eu`. boat.dev has no regions and ignores it |
+| **Platform** | Devin Cloud's in place of Snapshot and Region: where new sessions run — an OS your organization offers, such as `windows`, or an outpost pool. Empty means the organization's default |
 | **Bring back what was running** | on by default: when a sandbox stops, conch writes down its agents (with the conversation each was on) and its terminals, and offers them back when it starts again. Off keeps no note at all |
 | **Stop when idle** | 30 minutes by default, or 15, 60, 120, or never. conch watches for an agent working and for panes printing, and pauses the sandbox when neither has happened for that long — its files, and where the provider can its memory, are kept. A provider's own timer sees only what reaches it from outside, so it would stop an agent working quietly; this doesn't |
 | **Life** | only for a provider that gives a sandbox a fixed life rather than stopping an idle one (boat.dev): how long a new one is given, in minutes, counted from when it was made. Empty means the provider's own — two hours for boat.dev, which is what its free trial allows. A plan that allows less says so, and conch asks again for the longest it named |

@@ -198,9 +198,14 @@ func newSandboxMenu(back *menu) *menu {
 	mu := &menu{title: "New sandbox", back: back}
 	taken := map[string]bool{}
 	for _, name := range sandbox.Providers {
+		// The first letter of its name another hasn't taken: Devin is e,
+		// beside Daytona's d. Enter still picks one that found none.
 		key := ""
-		if k := strings.ToLower(name[:1]); !taken[k] {
-			key, taken[k] = k, true // enter still picks one that shares a letter
+		for _, r := range strings.ToLower(name) {
+			if k := string(r); r >= 'a' && r <= 'z' && !taken[k] {
+				key, taken[k] = k, true
+				break
+			}
 		}
 		mu.items = append(mu.items, menuItem{key, providerLabel(name) + "…", func(m *Model) tea.Cmd {
 			d := newSandboxDialog(*m, name)
@@ -228,6 +233,20 @@ func sandboxSizeNames(provider string) []string {
 	return nil
 }
 
+// sandboxPlaceHint is what goes where the snapshot does for a provider
+// that places its machines rather than sizing them, or "" for one that
+// takes sizes.
+func sandboxPlaceHint(provider string) string {
+	p, err := openSandboxProvider(provider)
+	if err != nil || p == nil {
+		return ""
+	}
+	if pl, ok := p.(sandbox.Placed); ok {
+		return pl.PlaceHint()
+	}
+	return ""
+}
+
 // providerLabel is a provider's name as people write it.
 func providerLabel(name string) string { return sandbox.ProviderLabel(name) }
 
@@ -239,6 +258,9 @@ func newSandboxDialog(m Model, provider string) *dialog {
 	} else {
 		if err := p.Check(); err != nil {
 			text = append(text, "Needs a "+label+" API key: "+strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")+".")
+		}
+		if n, ok := p.(sandbox.Noted); ok {
+			text = append(text, n.Note())
 		}
 		// A provider that gives a sandbox a fixed life says so here: it is
 		// its clock, not conch's, and it runs from now.
@@ -252,8 +274,12 @@ func newSandboxDialog(m Model, provider string) *dialog {
 	// numbers: the size goes where the snapshot does, so those three
 	// fields would only be refused later.
 	sizeNames := sandboxSizeNames(provider)
+	place := sandboxPlaceHint(provider)
 	labels := []string{"Label", "Snapshot"}
-	if len(sizeNames) == 0 {
+	if place != "" {
+		labels[1] = "Platform"
+	}
+	if len(sizeNames) == 0 && place == "" {
 		labels = append(labels, "vCPUs", "Memory GiB", "Disk GiB")
 	}
 	labels = append(labels, "Pass in")
@@ -264,6 +290,9 @@ func newSandboxDialog(m Model, provider string) *dialog {
 	if len(sizeNames) > 0 {
 		d.fields[1].in.Placeholder = firstNonEmpty(m.cfg.Sandbox.Of(provider).Snapshot,
 			"a size ("+strings.Join(sizeNames, ", ")+") or a snapshot")
+	}
+	if place != "" {
+		d.fields[1].in.Placeholder = firstNonEmpty(m.cfg.Sandbox.Of(provider).Snapshot, place+"; empty is the default")
 	}
 	for i := 2; i < last; i++ {
 		d.fields[i].in.Placeholder = "the snapshot's"

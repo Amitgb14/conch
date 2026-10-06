@@ -170,6 +170,7 @@ func TestParseSandboxTarget(t *testing.T) {
 		{"daytona:sb1", "daytona", "sb1", true},
 		{"daytona:6f1c-4e2a", "daytona", "6f1c-4e2a", true},
 		{"boat:bx_2345678abcdef", "boat", "bx_2345678abcdef", true},
+		{"devin:devin-0123abcd", "devin", "devin-0123abcd", true},
 		{"daytona:", "", "", false},
 		{"daytona", "", "", false},
 		{"", "", "", false},
@@ -310,7 +311,8 @@ func TestUnsavedWork(t *testing.T) {
 	if UnsavedWork(nil) != nil || UnsavedWork([]proto.ProjectInfo{{Name: "empty"}}) != nil {
 		t.Fatal("nothing to lose")
 	}
-	if DefaultSandboxLabel("0123456789") != "sandbox-01234567" || DefaultSandboxLabel("ab") != "sandbox-ab" {
+	if DefaultSandboxLabel("0123456789") != "sandbox-01234567" || DefaultSandboxLabel("ab") != "sandbox-ab" ||
+		DefaultSandboxLabel("devin-0123456789abcdef") != "sandbox-01234567" {
 		t.Fatal("DefaultSandboxLabel")
 	}
 }

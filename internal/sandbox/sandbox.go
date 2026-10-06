@@ -221,15 +221,38 @@ type Lifetime interface {
 	Life() time.Duration
 }
 
+// CommandAccess is a provider whose sandboxes are reached through a
+// program of its own that wraps ssh — Devin's `devin ssh` — rather than at
+// an address conch can ssh to itself. ssh's options and the command to run
+// go after what it returns.
+type CommandAccess interface {
+	SSHCommand(id string) ([]string, error)
+}
+
+// Placed is a provider whose machines are neither sized nor made from a
+// snapshot but placed: on a platform, or on a pool of machines of your
+// own. That place's name goes where the snapshot does, and numbers are
+// refused.
+type Placed interface {
+	// PlaceHint says what the snapshot field takes, for a placeholder.
+	PlaceHint() string
+}
+
+// Noted is a provider with something to say before a sandbox is made with
+// it: a cost or a limit a person would not expect of a machine.
+type Noted interface {
+	Note() string
+}
+
 // Providers lists the providers conch knows.
-var Providers = []string{"daytona", "boat"}
+var Providers = []string{"daytona", "boat", "devin"}
 
 // Known reports whether name is a provider conch knows.
 func Known(name string) bool { return slices.Contains(Providers, name) }
 
 // labels are provider names as people write them, where capitalising the
 // first letter is not how it is done.
-var labels = map[string]string{"e2b": "E2B", "boat": "boat.dev"}
+var labels = map[string]string{"e2b": "E2B", "boat": "boat.dev", "devin": "Devin Cloud"}
 
 // ProviderLabel is a provider's name for people to read.
 func ProviderLabel(name string) string {
@@ -249,6 +272,8 @@ func Open(name string, cfg config.SandboxCfg) (Provider, error) {
 		return NewDaytona(cfg.Of(name)), nil
 	case "boat":
 		return NewBoat(cfg.Of(name)), nil
+	case "devin":
+		return NewDevin(cfg.Of(name)), nil
 	}
 	return nil, fmt.Errorf("unknown sandbox provider %q", name)
 }
