@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/Amitgb14/conch/internal/config"
 )
 
 // Transport runs commands on a machine. Everything this package does to a
@@ -27,6 +29,21 @@ type Transport interface {
 	// forBridge is the transport to run the bridge with: its stdin and
 	// stdout carry the protocol, so nothing may prompt on them.
 	forBridge() Transport
+}
+
+// Compress reports whether conch's connections to a machine deflate what
+// they carry. A frame is the whole screen as styled text and goes out an
+// order of magnitude smaller for tens of microseconds of work, against
+// milliseconds on any network — so it is on unless config.toml turns it
+// off. It is read where the ssh config is written (sshConfig), because
+// compression belongs to a connection and conch shares connections: a flag
+// on one session of a master already up does nothing at all.
+func Compress() bool {
+	cfg, err := config.Load()
+	if err != nil {
+		return true
+	}
+	return !cfg.Remote.NoCompression
 }
 
 // SSH reaches a machine over ssh. An interactive transport lets ssh prompt

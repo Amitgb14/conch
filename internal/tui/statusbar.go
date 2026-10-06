@@ -190,10 +190,10 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			items = []statusItem{hint("a", "project"), hint("t", "task"), hint("c", "agent"), hint("n", "shell"),
 				hint("/", "filter"), hint("m", "menu")}
 		}
-		// With an agent waiting, the key to it leads, in the tree's colour
-		// for waiting: a short bar keeps only its first few hints, and this
-		// is the one wanted now.
-		if m.inboxCount() > 0 {
+		// With an agent waiting — asking something, not merely done — the
+		// key to it leads, in the tree's colour for waiting: a short bar
+		// keeps only its first few hints, and this is the one wanted now.
+		if waiting, _ := m.inboxCount(); waiting > 0 {
 			waiting := hint("!", "waiting")
 			waiting.text = styleWarn.Render("! waiting")
 			items = append([]statusItem{waiting}, items...)
@@ -234,8 +234,8 @@ func everyHintFits(chip string, hints []statusItem, rightW, total int) bool {
 // button that reports a problem, which only the widest bar has room for.
 func (m Model) statusRightItems(level int, bug bool) []statusItem {
 	var items []statusItem
-	if n := m.inboxCount(); n > 0 {
-		items = append(items, statusItem{text: styleWarn.Render(fmt.Sprintf("⚑ %d waiting", n)),
+	if label := inboxLabel(m.inboxCount()); label != "" {
+		items = append(items, statusItem{text: label,
 			act: func(m *Model) tea.Cmd { return m.jumpToAttention() }})
 	}
 	if n := len(m.queueItems()); n > 0 && level < rightNoExtras {

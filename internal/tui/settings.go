@@ -515,10 +515,24 @@ func (s *settings) agentItems(m *Model) []settingItem {
 			}})
 
 	r := &m.cfg.Remote
+	// The box is ticked when compression is on, while the setting records
+	// the exception — a local, since the row is built afresh each draw and
+	// nothing writes through this pointer.
+	compressing := !r.NoCompression
 	items = append(items, settingItem{}, settingItem{header: true, label: "Remote machines"},
 		settingItem{label: "Upload files dropped into remote panes", detail: "screenshots and other files", on: &r.UploadDrops,
 			run: func(m *Model) tea.Cmd {
 				m.cfg.Remote.UploadDrops = !m.cfg.Remote.UploadDrops
+				return saveConfig(m.cfg)
+			}},
+		settingItem{label: "Compress what a machine's panes send", on: &compressing,
+			detail: styleMuted.Render("asked for on the ssh connection that carries frames; never on this computer"),
+			run: func(m *Model) tea.Cmd {
+				m.cfg.Remote.NoCompression = !m.cfg.Remote.NoCompression
+				// ssh settles compression when a connection is made, and
+				// conch writes the config it asks with once per process,
+				// so this is for the next conch, not this one.
+				m.setFlash("takes effect when conch next starts", false)
 				return saveConfig(m.cfg)
 			}},
 		settingItem{label: "Largest file to upload", detail: mbText(r.UploadLimit()) + " · enter changes",

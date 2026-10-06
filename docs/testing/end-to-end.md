@@ -97,6 +97,7 @@ Status legend: ☐ not run · ◐ partly run (see note) · ✅ passed · ❌ fai
 | 4.10 | Saved SSH hosts | `H` to a real host; answer `enter` once and `y` once (two hosts); quit and reopen conch; `exit` the saved session; click the saved row; `x` it | `enter` connects unsaved and the host is gone after reopening; the `y` host is listed `○ … saved` under CLI → SSH after reopening, is hidden while its session runs, reconnects on a click without asking, and `x` forgets it | ☐ |
 | 4.11 | SSH login after the host stops answering | Open an SSH session, then make the host stop answering without closing (sleep it, drop the network, or `kill -STOP` its `sshd-session`); open a new session to it | The new login starts straight away (or fails straight away if the host is really down), never a blank terminal for a minute | ✅ R26 on busybox: with a paused shared master, `ssh -F <conch config> -o ControlPath=none` logged in in 0 s; without it, 60 s blank, then `mux_client_request_session: read from master failed: Broken pipe` · R38 2026-10-02, through a jump host: a login to `aghadge@127.0.0.1` with `-J busybox` left conch's shared master to busybox running after `exit` (the hop is a new ssh that gets `-F` but not `-o ControlPath=none`); with logins on `login_config` (sharing off) the hop shares nothing and nothing is left |
 | 4.12 | SSH folders, options, editing, key copy | `N` under SSH → `prod`; drag a saved host and an open session onto it, then one onto `SSH`; `e` a host: rename it, change its folder, add `-o KexAlgorithms=+diffie-hellman-group14-sha1 -p 2222`; quit and reopen; connect; `K` on a host that asks for a password (once with a key, once with `~/.ssh` emptied); open an older build on the same `ui.json` | The drop target says *drop here* in iTerm2, Terminal.app and Ghostty and the host lands where it was dropped; groups, names and options survive reopening; the login carries the options (`ps` shows them before `--`); `K` asks for the password once, says the key is installed, the next login asks for none, a second `K` adds no duplicate line; with no key, ssh-keygen runs first; the older build still lists the saved hosts | ◐ R38 2026-10-02 on busybox, isolated TUI driven through a harness pane: a private `sshd` on busybox (port 2299, only `diffie-hellman-group14-sha1`, `SetEnv HOME` to a scratch folder so the real `authorized_keys` was untouched) refused a plain login and took one with `-J busybox -p 2299 KexAlgorithms=+diffie-hellman-group14-sha1` typed in `H`'s options; `ps` showed them before `--`. `N` made groups; SGR mouse sequences dragged a session onto a group (*drop here* shown) and a saved host back onto SSH; a click connected; `K` ran `ssh-keygen`, copied the key through the jump, the new key alone then logged in while an uncopied one was refused, and a second `K` left one line; `e` renamed and regrouped the host; all of it survived reopening the TUI. Found and fixed: a doubled space on the drop row, and empty groups drawn `▸` as if folded. Not run: a host that really asks for a password, a real mouse in iTerm2/Terminal.app/Ghostty, an older build reading the same `ui.json` · 2026-10-03: groups became the SSH section's folders (merged with master's folders); the tree, drag and editor are covered by tests against the model with mouse events, the real-host parts above are unchanged, but the folder version has not been driven on busybox yet |
+| 4.13 🖥 | Compression really happens | With conch's generated config, open a connection to a machine on a control path of your own: `ssh -F ~/.config/conch/ssh/config -o ControlPath=/tmp/m/%C -v user@host true`; then run a second session over that same master and time a compressible stream through it against one over a master opened with `-o Compression=no` | The first says `compression: zlib@openssh.com` and `Enabling compression`; the multiplexed session is faster than the uncompressed one. (Fakes cannot show this: a fake `ssh` has no transport to negotiate, which is how `-C` on the bridge's command line shipped once doing nothing) | ✅ R49 2026-10-05 on busybox: a fresh master negotiated `zlib@openssh.com` at level 6; 60k styled lines over it took 0.04–0.17 s against 0.16–0.27 s over an uncompressed master. `ssh -C` on a session riding an existing master was ignored, `auto-mux: Trying existing master` and no compression line — which is what moved it into the config |
 
 ## 5. Releases and updates 🌐
 
@@ -308,6 +309,30 @@ Read the screen back with `conch read ID`. Always with a scratch
 `CONCH_HOME` and socket, and `CONCH_PANE_ID` unset.
 
 ## Runs
+
+### R49 — 2026-10-05, compression on a real ssh connection, macOS arm64 → busybox (Linux), build 0.1.7-dev
+
+The row that prompted this: conch had shipped `ssh -C` on the bridge's
+command line, and against the real machine it did nothing. `ssh -v` for a
+bridge-shaped session said `auto-mux: Trying existing master` and never
+named a compression method — compression is settled when a connection is
+opened, and conch shares connections (`ControlMaster auto`), so the flag
+arrived too late to mean anything. No fake could have shown it: a fake
+`ssh` has no transport to negotiate.
+
+With `Compression yes` in the config conch generates instead, a fresh
+master to busybox said `kex: … compression: zlib@openssh.com` both ways and
+`Enabling compression at level 6`. A second session multiplexed onto that
+master — which is what a bridge is — carried 60,000 lines of styled text
+in 0.04–0.17 s against 0.16–0.27 s over a master opened with
+`Compression=no`, so the sharing that swallowed the flag passes the
+compression on.
+
+Run with a scratch `CONCH_HOME` and control paths of its own, closed with
+`ssh -O exit` afterwards, so the real conch's masters were untouched.
+
+Not run: a slow link (this was a LAN, where compression already wins), and
+the setting toggled in the TUI and seen to take effect on the next start.
 
 ### R48 — 2026-10-04, conch's MCP tools inside real Claude Code, macOS arm64, build 21573544a591
 

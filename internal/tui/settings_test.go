@@ -211,7 +211,7 @@ func TestStatusBarClicks(t *testing.T) {
 	}
 	m.overlay = nil
 	find("keys").act(&m)
-	if _, ok := m.overlay.(help); !ok {
+	if _, ok := m.overlay.(*help); !ok {
 		t.Fatalf("keys hint opened %T", m.overlay)
 	}
 

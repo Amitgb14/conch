@@ -458,19 +458,21 @@ func (m Model) branchAgentGlyph(mid, projectID, branch string) (string, lipgloss
 }
 
 func (m Model) attentionBadge(mid, projectID string) string {
-	waiting, working := 0, 0
+	waiting, done, working := 0, 0, 0
 	mach := m.machine(mid)
 	if mach == nil {
 		return ""
 	}
 	for _, p := range mach.panes {
-		if projectID != "" && p.ProjectID != projectID {
+		if projectID != "" && p.ProjectID != projectID || p.Agent == nil {
 			continue
 		}
-		switch {
-		case p.Agent.NeedsAttention():
+		switch p.Agent.State {
+		case proto.AgentBlocked:
 			waiting++
-		case p.Agent != nil && p.Agent.State == proto.AgentWorking:
+		case proto.AgentDone:
+			done++
+		case proto.AgentWorking:
 			working++
 		}
 	}
@@ -480,6 +482,9 @@ func (m Model) attentionBadge(mid, projectID string) string {
 	}
 	if waiting > 0 {
 		parts = append(parts, styleWarn.Render(fmt.Sprintf("⚑%d", waiting)))
+	}
+	if done > 0 {
+		parts = append(parts, styleOK.Render(fmt.Sprintf("✓%d", done)))
 	}
 	return strings.Join(parts, " ")
 }
@@ -526,14 +531,34 @@ func (m Model) paneGlyph(p proto.PaneInfo) (glyph, label string, style lipgloss.
 	}
 }
 
-func (m Model) inboxCount() int {
-	n := 0
+// inboxCount is how many agents need you, told apart: waiting ones have
+// stopped to ask something, done ones finished while nobody watched and
+// only want looking at.
+func (m Model) inboxCount() (waiting, done int) {
 	for _, p := range m.allPanes() {
-		if p.Agent.NeedsAttention() {
-			n++
+		switch {
+		case p.Agent == nil:
+		case p.Agent.State == proto.AgentBlocked:
+			waiting++
+		case p.Agent.State == proto.AgentDone:
+			done++
 		}
 	}
-	return n
+	return waiting, done
+}
+
+// inboxLabel is the status bar's count of them: "⚑ 1 waiting · 1 done",
+// either half alone, or nothing.
+func inboxLabel(waiting, done int) string {
+	switch {
+	case waiting > 0 && done > 0:
+		return styleWarn.Render(fmt.Sprintf("⚑ %d waiting", waiting)) + styleMuted.Render(" · ") + styleOK.Render(fmt.Sprintf("%d done", done))
+	case waiting > 0:
+		return styleWarn.Render(fmt.Sprintf("⚑ %d waiting", waiting))
+	case done > 0:
+		return styleOK.Render(fmt.Sprintf("✓ %d done", done))
+	}
+	return ""
 }
 
 // ---- main area ----

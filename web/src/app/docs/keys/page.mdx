@@ -22,7 +22,7 @@ Every key binding in the TUI, grouped by where it applies. Press `?` in conch to
 | `T` | on a branch: [move its worktree to another machine](/docs/remote-machines#moving-a-worktree-to-another-machine) |
 | `y` | copy |
 | `m` | menu |
-| `?` | all keys |
+| `?` | all keys: `↑↓` `jk` `pgup` `pgdn` `g` `G` and the wheel scroll the list, `←→` `hl` (or shift+wheel) pan across long lines, any other key or a click closes it |
 | `q` | detach |
 
 ## Create
@@ -197,7 +197,7 @@ These follow tmux's default bindings; `ctrl+b 1` is the first tab and `0` the te
 - Drag across a pane or a page (a diff, a file, a list) to select and copy; double-click copies a word in a pane, triple-click the whole line (without the blanks it is padded to). A line too long for the pane is several rows on screen but one line when copied: conch joins the rows it wrapped over, so a command pasted into a shell runs as one command. Dragging past the top or bottom edge, or turning the wheel mid-drag, scrolls and keeps selecting.
 - Drop files on a remote machine's pane to upload them there and paste their paths there.
 - **Click a link an agent printed** to open it in the browser; it is copied as well. Inside an agent's own interface — anything that asked for the mouse — hold **alt** (or ctrl), since plain clicks belong to the program. A link wrapped over several rows opens whole. `ctrl+b u` still lists every link on the screen, which is the way to reach one that has scrolled away.
-- Click `⚑ N waiting` to jump.
+- Click `⚑ N waiting · N done` to jump to the next agent that needs you.
 - Click the plan chip (`Claude 5h 42% · 7d 18%`) for a window with all of it, at the bottom right beside the chip: every agent that has reported on every machine, and **every window it named** — the five-hour, the week, a weekly allowance for one model, a spend limit — each with a bar that fills as it opens, the percentage, when it resets (both how long and at what time), when the agent last said so, and what conch itself has seen that machine spend — which counts **whole conversations, as each agent counts them**, with the prompt, cache-read, cache-write and output tokens kept apart. That is not the same as the agent's own usage panel, which counts the run it is on: a conversation days old reads as hundreds of dollars here and a few in a panel opened a minute ago, and both are right. Click it again or press `esc` to close.
 
 Clicks inside a pane go to programs that use the mouse. Hold shift (option in iTerm2) to select text with your terminal, or set `[ui] mouse = false`.

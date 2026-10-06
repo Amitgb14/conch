@@ -525,7 +525,8 @@ func TestPrefixBarLeadsWithTheWayBack(t *testing.T) {
 }
 
 // With an agent waiting, "! waiting" leads the tree's hints so a bar short
-// of room keeps it; with none, it stays where it was, before "? keys".
+// of room keeps it; with none — or one only done — it stays where it was,
+// before "? keys".
 func TestTreeHintsLeadWithWaiting(t *testing.T) {
 	m, _ := a1Fixture(t, false)
 	a1At(t, m, paneNodeID(localMachine, "p3"))
@@ -537,7 +538,12 @@ func TestTreeHintsLeadWithWaiting(t *testing.T) {
 		t.Fatalf("pane row: %s", got)
 	}
 
-	for _, state := range []string{proto.AgentBlocked, proto.AgentDone} {
+	m.machines[0].panes[0].Agent = &proto.AgentStatus{Name: "claude", State: proto.AgentDone}
+	if got := a1HintText(m); strings.HasPrefix(got, "! waiting") || !strings.HasSuffix(got, "! waiting|? keys") {
+		t.Fatalf("only done: %s", got)
+	}
+
+	for _, state := range []string{proto.AgentBlocked} {
 		m.machines[0].panes[0].Agent = &proto.AgentStatus{Name: "claude", State: state}
 		for _, id := range []string{paneNodeID(localMachine, "p3"), machineID(localMachine), cliID(localMachine)} {
 			m.cursor = id
@@ -578,4 +584,64 @@ func a1ColumnOf(m *Model, text string) int {
 		return -1
 	}
 	return ansi.StringWidth(plain[:i])
+}
+
+// The bar tells an agent that asked something from one that only finished:
+// both are counted, under their own names, and the count is still the way
+// to the next of them.
+func TestStatusWaitingAndDone(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	m.width = 200
+	bar := func() string { return ansi.Strip(m.statusBar()) }
+	if strings.Contains(bar(), "waiting ·") || strings.Contains(bar(), " done") {
+		t.Fatalf("nothing needs you, yet: %q", bar())
+	}
+
+	m.machines[0].panes[0].Agent.State = proto.AgentBlocked
+	m.machines[0].panes[3].Agent.State = proto.AgentDone
+	if !strings.Contains(bar(), "⚑ 1 waiting · 1 done") {
+		t.Fatalf("both: %q", bar())
+	}
+
+	m.machines[0].panes[0].Agent.State = proto.AgentIdle
+	if b := bar(); !strings.Contains(b, "✓ 1 done") || strings.Contains(b, "⚑") {
+		t.Fatalf("done alone: %q", b)
+	}
+	m.machines[0].panes[0].Agent.State = proto.AgentBlocked
+	m.machines[0].panes[3].Agent.State = proto.AgentWorking
+	if b := bar(); !strings.Contains(b, "⚑ 1 waiting") || strings.Contains(b, "done") {
+		t.Fatalf("waiting alone: %q", b)
+	}
+
+	// Clicking the count jumps to an agent that needs you, as before.
+	m.machines[0].panes[3].Agent.State = proto.AgentDone
+	line, hits := m.layoutStatus()
+	for _, h := range hits {
+		if !strings.Contains(ansi.Strip(ansi.Cut(line, h.x0, h.x1)), "waiting · 1 done") {
+			continue
+		}
+		m.cursor = ""
+		h.act(m)
+		if m.cursor == "" || m.flash == "no agents need you" {
+			t.Fatalf("the count jumped nowhere: cursor %q, flash %q", m.cursor, m.flash)
+		}
+		return
+	}
+	t.Fatalf("no clickable count in %q", ansi.Strip(line))
+}
+
+func TestInboxLabel(t *testing.T) {
+	for _, tc := range []struct {
+		waiting, done int
+		want          string
+	}{
+		{0, 0, ""},
+		{1, 0, "⚑ 1 waiting"},
+		{0, 1, "✓ 1 done"},
+		{2, 3, "⚑ 2 waiting · 3 done"},
+	} {
+		if got := ansi.Strip(inboxLabel(tc.waiting, tc.done)); got != tc.want {
+			t.Errorf("%d, %d: %q, want %q", tc.waiting, tc.done, got, tc.want)
+		}
+	}
 }

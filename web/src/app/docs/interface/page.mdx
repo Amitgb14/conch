@@ -32,6 +32,8 @@ MACHINES
         ○ ssh staging-1          saved
 ```
 
+The badges on a machine or project count its agents: `⠋1` working, `⚑1` waiting for an answer from you, `✓1` done — finished while nobody was looking; it turns idle once you open or type into it. The status bar adds them up across every machine (`⚑ 1 waiting · 1 done`), and clicking that, like `!`, goes to the next one.
+
 Each machine has two groups. `Workspace` holds its projects (folders you added with `a`); selecting it shows every project with what runs in it, and the tab bar lists the tabs of all of them. `CLI` holds a machine's agents and terminals that belong to no project. `n` or `c` on the machine (or on `CLI`) starts one there, in your home folder.
 
 Where you start conch counts. Run it in a project's folder (or anywhere in it, or in one of its worktrees) and the tree opens on that project, so `c` starts an agent there. Run it in a git repository that isn't a project yet and conch asks whether to add it: **Yes** adds it and selects it, **No** stops conch asking about that repository (kept in `ui.json`), and `esc` leaves the question for next time. A home folder kept in git is never offered, and a TUI restarting onto a new build keeps your place.
@@ -234,7 +236,7 @@ A passing check means the tests passed. It does not mean the change is right, so
 
 `/` filters the queue as you type — over the project, branch, agent, machine and the reason a row is there, so "onenutri failed" or "codex waiting" both work — and the count says how many rows it hides; `esc` clears the filter before it leaves the queue. `x` dismisses a row you have decided to leave alone; it comes back when what it says changes — another file edited, the agent finishing again — and dismissals are kept in `ui.json`, so they outlive the TUI; one is forgotten once the row it was about is gone. `esc` returns to the tree.
 
-The status bar counts what the queue holds (`3 to review`, beside `⚑ waiting`), so it is worth opening; clicking the count opens it, and `Q` works from a view as well as from the tree (inside a pane it is typed, like any other key). The queue keeps a tab of its own, so opening a row from it leaves the queue where it was to come back to.
+The status bar counts what the queue holds (`3 to review`, beside `⚑ 1 waiting · 1 done`), so it is worth opening; clicking the count opens it, and `Q` works from a view as well as from the tree (inside a pane it is typed, like any other key). The queue keeps a tab of its own, so opening a row from it leaves the queue where it was to come back to.
 
 A branch with an open pull request and nothing unpushed is not in the queue — it is waiting on a reviewer, not on you. Nor is a machine that is offline, whose panes conch only holds a stale cache of. Branches the tree has stopped listing — nothing committed for a fortnight and not checked out — drop out too, so the queue stays a list of what to do now rather than a history of the repository. An agent waiting or finished is always listed, however old its branch.
 
