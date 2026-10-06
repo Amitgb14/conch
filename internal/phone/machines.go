@@ -387,6 +387,49 @@ func (g *Gateway) paneOn(dev Device, ref string) (c *client.Client, pane, id str
 	return nil, "", "", apiErr(CodeNotFound, fmt.Sprintf("no machine %q", machine))
 }
 
+// machineUp reports whether the gateway itself has a machine, which is
+// what a socket needs before it can have one of its own.
+func (g *Gateway) machineUp(machine string) bool {
+	for _, mc := range g.machines() {
+		if mc.id == machine {
+			return mc.client() != nil
+		}
+	}
+	return false
+}
+
+// machineWhy is why a machine cannot be used, in the words the phone
+// shows: being reached, not answering with ssh's own reason, or gone from
+// the catalog. A phone that is told "no connection yet" and nothing more
+// cannot tell a machine that is coming from one that never will.
+func (g *Gateway) machineWhy(machine string) string {
+	for _, mc := range g.machines() {
+		if mc.id != machine {
+			continue
+		}
+		switch {
+		case mc.state == MachineConnecting:
+			return mc.label + " is being reached; try again in a moment"
+		case mc.detail != "":
+			return mc.label + " is not answering: " + mc.detail
+		case mc.client() == nil:
+			return mc.label + " is not answering"
+		}
+		return mc.label + " has not answered this phone yet; try again in a moment"
+	}
+	return "no machine " + machine
+}
+
+// machineJoinWait is how long a message that needs another machine waits
+// for this socket's own connection to it, and machineJoinPoll how often
+// it looks. Long enough for ssh on a connection the gateway already has
+// open (its master is up, so this is a channel on it), short enough that
+// a phone is never left holding a tap.
+var (
+	machineJoinWait = 6 * time.Second
+	machineJoinPoll = 100 * time.Millisecond
+)
+
 // closeMachines drops every remote connection and waits for the attempts
 // in flight, so a closed gateway leaves no ssh behind.
 func (g *Gateway) closeMachines() {

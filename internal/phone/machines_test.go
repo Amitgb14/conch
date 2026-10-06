@@ -29,8 +29,11 @@ type otherMachine struct {
 
 // addMachine starts a second server and makes the gateway reach it as a
 // machine of that id. reachable false leaves it in the catalog but
-// refusing, as a machine that is switched off does.
-func addMachine(t *testing.T, f *fixture, id string, reachable bool) *otherMachine {
+// refusing, as a machine that is switched off does. A delay makes each
+// connection take that long, which is what reaching a machine over ssh
+// really costs — and the only way to catch what a socket does while its
+// own connection is still on its way.
+func addMachine(t *testing.T, f *fixture, id string, reachable bool, delay ...time.Duration) *otherMachine {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "ph2")
 	if err != nil {
@@ -58,12 +61,19 @@ func addMachine(t *testing.T, f *fixture, id string, reachable bool) *otherMachi
 	}()
 
 	saved := []remote.Machine{{ID: id, Label: id, Target: id + ".example", Enabled: true}}
-	oldConnect, oldSaved := setMachineHooks(func(_ context.Context, want remote.Machine) (*client.Client, error) {
+	oldConnect, oldSaved := setMachineHooks(func(ctx context.Context, want remote.Machine) (*client.Client, error) {
 		if want.ID != id {
 			return nil, errors.New("no such machine in this test")
 		}
 		if !reachable {
 			return nil, errors.New("ssh: connect to host " + want.Target + " port 22: Host is unreachable\nand a second line nobody needs")
+		}
+		if len(delay) > 0 {
+			select {
+			case <-time.After(delay[0]):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		}
 		return client.Dial(sock, "conch-web-test-2")
 	}, func() ([]remote.Machine, error) { return saved, nil })
@@ -518,4 +528,78 @@ func TestMachineComesUpWhileThePhoneWatches(t *testing.T) {
 	s.next("the agent on busybox", func(m ServerMessage) bool {
 		return m.Type == MsgAgent && m.Agent != nil && m.Agent.Pane == composePaneID("busybox", there)
 	})
+}
+
+// TestAPaneOnAnotherMachineOpensOnTheFirstTap: a socket is a second old
+// when somebody taps the agent they came to the app for, and its own
+// connection to that machine — the one the frames come down — may not be
+// made yet. Refusing then said "this phone has no connection to busybox
+// yet", the tap did nothing, and trying again two seconds later worked:
+// seen on a real machine, where the agent simply would not open.
+//
+// So a message that needs a machine dials it and waits a moment. The tick
+// is turned off here, so what is tested is the dialling on demand and not
+// the tick arriving in time.
+func TestAPaneOnAnotherMachineOpensOnTheFirstTap(t *testing.T) {
+	old := machineJoinEvery
+	machineJoinEvery = time.Hour // the tick must not be what saves this
+	t.Cleanup(func() { machineJoinEvery = old })
+
+	f := newFixture(t)
+	// Reaching a machine takes time, which is the whole point: the
+	// socket's own connection is still on its way when the tap lands.
+	other := addMachine(t, f, "busybox", true, 1200*time.Millisecond)
+	p := f.pair(PermFull)
+	f.grant(p, "busybox")
+	there := startPaneOn(t, other, "claude", "stty raw -echo; printf 'from-busybox\\r\\n'; exec cat")
+	ref := composePaneID("busybox", there)
+	// The gateway reaches it; the socket has not, since it does not exist
+	// yet. That is the state a phone opens in.
+	waitMachine(t, f, p, "busybox", MachineOnline)
+
+	s := p.socket()
+	s.send(ClientMessage{Type: MsgPanesWatch, ID: "w1"})
+	s.send(ClientMessage{Type: MsgFrameOpen, ID: "f1", Pane: ref})
+	got := s.next("a frame from busybox", func(m ServerMessage) bool {
+		if m.Type == MsgError && m.ID == "f1" {
+			t.Fatalf("opening a pane on another machine was refused: %+v", m.Error)
+		}
+		return m.Type == MsgFrame && m.Frame != nil && m.Frame.Pane == ref
+	})
+	if !strings.Contains(strings.Join(got.Frame.Lines, "\n"), "from-busybox") {
+		t.Errorf("the frame is not that pane's screen: %+v", got.Frame.Lines)
+	}
+}
+
+// TestAMachineThatIsNotUpSaysSoAtOnce: the waiting must not turn a
+// machine that is off into a phone that hangs on every tap, and the
+// refusal has to say which of the two it is — being reached, or not
+// answering and why.
+func TestAMachineThatIsNotUpSaysSoAtOnce(t *testing.T) {
+	old, oldWait := machineJoinEvery, machineJoinWait
+	machineJoinEvery, machineJoinWait = time.Hour, 300*time.Millisecond
+	t.Cleanup(func() { machineJoinEvery, machineJoinWait = old, oldWait })
+
+	f := newFixture(t)
+	addMachine(t, f, "vm1", false) // in the catalog, refusing ssh
+	p := f.pair(PermFull)
+	f.grant(p, "vm1")
+	waitMachine(t, f, p, "vm1", MachineOffline)
+
+	s := p.socket()
+	s.send(ClientMessage{Type: MsgPanesWatch, ID: "w1"})
+	start := time.Now()
+	s.send(ClientMessage{Type: MsgFrameOpen, ID: "f1", Pane: "vm1:p1"})
+	m := s.next("the refusal", func(m ServerMessage) bool { return m.Type == MsgError && m.ID == "f1" })
+	if took := time.Since(start); took > 5*time.Second {
+		t.Errorf("it held the tap for %v", took)
+	}
+	if m.Error.Code != CodeServerUnavailable {
+		t.Fatalf("refusal %+v", m.Error)
+	}
+	// ssh's own words, which is what tells somebody their machine is off
+	// rather than conch being broken.
+	if !strings.Contains(m.Error.Message, "vm1 is not answering") || !strings.Contains(m.Error.Message, "Host is unreachable") {
+		t.Errorf("the refusal does not say why: %s", m.Error.Message)
+	}
 }

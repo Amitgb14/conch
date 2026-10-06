@@ -615,26 +615,9 @@ func (s *socket) follow() {
 		// rather than at the end of a session that may last days.
 		s.dropUnreached(dev)
 		for _, mc := range s.g.machines() {
-			if mc.id == LocalMachine || !dev.Reaches(mc.id) {
-				continue
+			if dev.Reaches(mc.id) {
+				s.joinMachine(mc.id)
 			}
-			s.mu.Lock()
-			have := s.clients[mc.id] != nil || s.pumping[mc.id]
-			s.mu.Unlock()
-			if have || mc.client() == nil {
-				continue
-			}
-			// Its own connection, so this socket's events are its own: the
-			// gateway's client is shared by every request.
-			c, err := s.g.dialMachine(mc.id)
-			if err != nil {
-				continue
-			}
-			s.join(mc.id, c)
-			// The phone hears about it from this socket, which is the only
-			// one that knows it has joined: the gateway's own broadcast
-			// may have happened before this socket was open.
-			s.tellMachines()
 		}
 		select {
 		case <-t.C:
@@ -642,6 +625,65 @@ func (s *socket) follow() {
 			return
 		}
 	}
+}
+
+// joinMachine gives this socket its own connection to a machine, if it
+// has none and the gateway has one. Its own, because the frames a phone
+// sees come from its own subscriptions: the gateway's client is shared by
+// every request, and one phone's subscribing would then decide another's.
+//
+// It reports whether the socket has a connection now, so a message that
+// needs one can say what it is waiting for.
+func (s *socket) joinMachine(machine string) bool {
+	if machine == LocalMachine {
+		return true // joined when the socket opened
+	}
+	s.mu.Lock()
+	have, busy := s.clients[machine] != nil, s.pumping[machine]
+	s.mu.Unlock()
+	if have {
+		return true
+	}
+	if busy {
+		return false // a dial is already on its way
+	}
+	if !s.g.machineUp(machine) {
+		return false // nothing to join yet; the gateway says why
+	}
+	c, err := s.g.dialMachine(machine)
+	if err != nil {
+		s.g.logf("socket %s: %s: %v", s.devID, machine, err)
+		return false
+	}
+	s.join(machine, c)
+	// The phone hears about it from this socket, which is the only one
+	// that knows it has joined: the gateway's own broadcast may have
+	// happened before this socket was open.
+	s.tellMachines()
+	return true
+}
+
+// machineReady is joinMachine for a message that cannot wait for the next
+// tick: tapping an agent on another machine is the first thing somebody
+// does after opening the app, and the socket may be a second old. It
+// dials now and waits a moment, rather than refusing something that would
+// work on the next try — which read as the pane being unopenable.
+func (s *socket) machineReady(machine string) bool {
+	if s.joinMachine(machine) {
+		return true
+	}
+	deadline := s.g.now().Add(machineJoinWait)
+	for s.g.now().Before(deadline) {
+		select {
+		case <-s.ctx.Done():
+			return false
+		case <-time.After(machineJoinPoll):
+		}
+		if s.joinMachine(machine) {
+			return true
+		}
+	}
+	return false
 }
 
 // machineJoinEvery is how often a socket looks for a machine that has come
@@ -709,9 +751,12 @@ func (s *socket) paneOn(ref string) (c *client.Client, pane, id string, aerr *AP
 	if aerr := s.reaches(machine); aerr != nil {
 		return nil, "", "", aerr
 	}
+	if !s.machineReady(machine) {
+		return nil, "", "", apiErr(CodeServerUnavailable, s.g.machineWhy(machine))
+	}
 	c = s.clientOn(machine)
 	if c == nil {
-		return nil, "", "", apiErr(CodeServerUnavailable, "this phone has no connection to "+machine+" yet")
+		return nil, "", "", apiErr(CodeServerUnavailable, s.g.machineWhy(machine))
 	}
 	return c, pane, composePaneID(machine, pane), nil
 }
