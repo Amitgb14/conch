@@ -162,6 +162,15 @@ type sshOpts struct {
 	// generated config names conch's own and so stops ssh trying the
 	// defaults, and the agent may hold nothing.
 	identity string
+	// compress asks ssh to deflate the channel (-C), for the one
+	// connection that carries the protocol: a pane's frames are the whole
+	// screen as styled text, which compresses by ten to sixty times —
+	// 12 KB of a busy screen goes out as under a kilobyte. It costs tens
+	// of microseconds a frame against milliseconds on any network, which
+	// is why it is here and not on the local socket, where the sums come
+	// out the other way round: compressing what a unix socket moves in
+	// 12µs would take 26µs to do.
+	compress bool
 }
 
 func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cmd, error) {
@@ -185,6 +194,9 @@ func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cm
 	}
 	if o.identity != "" {
 		args = append(args, "-i", o.identity, "-o", "IdentitiesOnly=yes")
+	}
+	if o.compress {
+		args = append(args, "-C")
 	}
 	args = append(args, "--", target, script)
 	cmd := exec.CommandContext(ctx, sshBinary(), args...)

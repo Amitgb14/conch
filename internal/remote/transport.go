@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/Amitgb14/conch/internal/config"
 )
 
 // Transport runs commands on a machine. Everything this package does to a
@@ -27,6 +29,20 @@ type Transport interface {
 	// forBridge is the transport to run the bridge with: its stdin and
 	// stdout carry the protocol, so nothing may prompt on them.
 	forBridge() Transport
+}
+
+// Compress reports whether the connection carrying a machine's panes asks
+// ssh to deflate it. A frame is the whole screen as styled text and goes
+// out ten to sixty times smaller for tens of microseconds of work, against
+// milliseconds on any network — so it is on unless config.toml turns it
+// off. It is asked here, once per bridge, rather than cached, so a change
+// takes effect on the next connection.
+func Compress() bool {
+	cfg, err := config.Load()
+	if err != nil {
+		return true
+	}
+	return !cfg.Remote.NoCompression
 }
 
 // SSH reaches a machine over ssh. An interactive transport lets ssh prompt
@@ -62,6 +78,11 @@ func (t *sshTransport) failed(err error, stderr string) error { return sshError(
 func (t *sshTransport) forBridge() Transport {
 	next := &sshTransport{target: t.target, opts: t.opts}
 	next.opts.interactive = false // an askpass, if any, still answers
+	// Only this connection is compressed: it is the one carrying frames,
+	// and a frame is a screenful of styled text that deflates to a
+	// fraction of itself. Installing conch there copies a binary that
+	// gains nothing from it, and a probe is a line long.
+	next.opts.compress = Compress()
 	return next
 }
 

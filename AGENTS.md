@@ -215,6 +215,15 @@ helpers in `cmd/conch` and `internal/remote`.
   `wait`'s `Close` against `Adopt`'s `Fd`. Anything new that writes to
   `p.ptmx` outside the read loop has to answer the same question: whose is
   it now?
+- **Only the bridge is compressed.** `forBridge()` adds `ssh -C`, because
+  that connection carries frames: a screenful of styled text, measured at
+  12 KB deflating to under 1 KB, for tens of microseconds against
+  milliseconds of network. Nothing else gets it — installing conch copies
+  a binary, a probe is one line — and the local socket never does: it
+  moves a frame in ~12µs and compressing would cost ~26µs, so it would be
+  slower, which is the whole reason this is a transport option rather
+  than something in `internal/proto`. `[remote] no_compression` turns it
+  off for a link as fast as the processor.
 - **The mouse goes to the pane under the pointer, not the focused one.**
   A click or a wheel over another split asks for that split's focus, and
   the asking is a command that has not run yet — so for that event the
