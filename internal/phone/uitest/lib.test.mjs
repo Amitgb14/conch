@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import {
-  parseLine, frameRows, color256, sortAgents, upsertAgent, removeAgent, groupAgents, agentLabel,
+  parseLine, frameRows, color256, sortAgents, upsertAgent, removeAgent, groupAgents, groupByMachine, agentLabel,
   ago, route, can, backoff, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, chunks, keyBytes, appPath,
 } from "../ui/lib.mjs"
 
@@ -439,4 +439,61 @@ test("the pane a window could show, and when it is worth asking", () => {
   // Nothing to compare.
   assert.equal(worthResizing(null, { cols: 100, rows: 40 }), false)
   assert.equal(worthResizing({ cols: 100, rows: 40 }, null), false)
+})
+
+// The drawer lists machines as the tree does: this computer, then the
+// others, each with its own projects under it. A phone that reaches one
+// machine — the usual case — is given no machine headings at all, and the
+// machine that matters most to show is the one with nothing running: a
+// list built from panes alone cannot show it, and its absence reads as
+// the phone having lost it.
+test("the drawer groups by machine", () => {
+  const pane = (id, machine, project) => ({
+    pane: id, machine, state: "idle", name: "claude", kind: "agent", since: "2026-10-06T00:00:00Z",
+    ...(project ? { project } : {}),
+  })
+  const api = { id: "r1", name: "api" }
+
+  // One machine: no sections, the projects as they always were.
+  const one = groupByMachine([pane("local:p1", "local", api)], [{ id: "local", label: "this computer", state: "online" }])
+  assert.deepEqual(one.machines, [])
+  assert.deepEqual(one.groups.map((g) => g.name), ["api"])
+  // And with no machine list at all, as an app that has not heard yet.
+  assert.deepEqual(groupByMachine([pane("p1", "local")], []).groups.map((g) => g.name), ["No project"])
+
+  // Two machines: a section each, in the order given (this computer
+  // first, as the gateway sends them), with the projects inside.
+  const machines = [
+    { id: "local", label: "this computer", state: "online" },
+    { id: "busybox", label: "busybox", state: "online" },
+    { id: "gpu-1", label: "gpu-1", state: "offline", detail: "ssh: connect to host gpu-1 port 22: no route to host" },
+  ]
+  const got = groupByMachine([
+    pane("local:p1", "local", api), pane("busybox:p1", "busybox"), pane("busybox:p2", "busybox", api),
+  ], machines)
+  assert.deepEqual(got.groups, [])
+  assert.deepEqual(got.machines.map((m) => [m.id, m.label, m.state, m.groups.map((g) => [g.name, g.agents.map((p) => p.pane)])]), [
+    ["local", "this computer", "online", [["api", ["local:p1"]]]],
+    ["busybox", "busybox", "online", [["No project", ["busybox:p1"]], ["api", ["busybox:p2"]]]],
+    // The machine with nothing on it is a section all the same, and
+    // carries why it is not answering.
+    ["gpu-1", "gpu-1", "offline", []],
+  ])
+  assert.equal(got.machines[2].detail.startsWith("ssh: connect"), true)
+
+  // A machine with nothing running is still listed: this is what the
+  // whole grouping is for.
+  const empty = groupByMachine([], machines)
+  assert.deepEqual(empty.machines.map((m) => m.id), ["local", "busybox", "gpu-1"])
+  assert.deepEqual(empty.machines.map((m) => m.groups.length), [0, 0, 0])
+
+  // A pane on a machine the list does not have is still the person's
+  // pane: it gets a section rather than being dropped.
+  const stray = groupByMachine([pane("vm9:p1", "vm9")], machines)
+  assert.deepEqual(stray.machines.map((m) => m.id), ["local", "busybox", "gpu-1", "vm9"])
+  assert.deepEqual(stray.machines[3].groups.map((g) => g.agents.map((p) => p.pane)), [["vm9:p1"]])
+  // A pane with no machine at all belongs to this computer, as every
+  // other part of the app reads it.
+  const bare = groupByMachine([{ pane: "p1", state: "idle", kind: "agent" }], machines)
+  assert.deepEqual(bare.machines[0].groups.map((g) => g.agents.map((p) => p.pane)), [["p1"]])
 })

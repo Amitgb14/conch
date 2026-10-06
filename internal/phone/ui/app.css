@@ -204,6 +204,20 @@ label.check input { width: 22px; height: 22px; margin: 0; accent-color: var(--ac
 .drawer-head { display: flex; align-items: center; gap: 10px; font: 500 1.2rem var(--serif); padding: 4px 6px 12px; }
 .drawer-head .mark { width: 32px; height: 32px; }
 #drawer h4 { font: 600 0.72rem var(--sans); text-transform: uppercase; letter-spacing: 0.07em; color: var(--quiet); margin: 18px 8px 4px; }
+/* A machine in the drawer, above its projects: the tree's order, and a dot
+   for a machine that is being reached or is not answering. It is drawn
+   whether or not anything runs there, so a machine with nothing on it is
+   still visibly reachable. Only with more than one machine does any of
+   this appear (groupByMachine). */
+#drawer .machine-head { display: flex; align-items: center; gap: 8px; font: 500 0.95rem var(--sans); color: var(--fg);
+  margin: 20px 6px 2px; padding-top: 12px; border-top: 1px solid var(--line); }
+#drawer .machine-head:first-of-type { border-top: 0; padding-top: 0; }
+#drawer .machine-head .machine-what { font: 400 0.78rem var(--sans); }
+#drawer .machine-head.connecting .machine-dot { background: var(--working); animation: machine-pulse 1.4s ease-in-out infinite; }
+#drawer .machine-head.offline .machine-dot { background: var(--bad); }
+#drawer .machine-head.online .machine-dot { background: var(--done); }
+#drawer .machine-head + h4 { margin-top: 8px; }
+#drawer .hint { color: var(--quiet); margin: 4px 10px 0; }
 #drawer .row { border-radius: var(--r-m); padding: 8px 10px; min-height: 50px; }
 .nav-item { display: block; padding: 11px 10px; border-radius: var(--r-m); color: var(--fg); text-decoration: none; font-weight: 500; }
 .nav-item:active { background: var(--raised); }

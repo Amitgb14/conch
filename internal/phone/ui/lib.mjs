@@ -148,6 +148,43 @@ export function groupAgents(agents) {
   return groups
 }
 
+// groupByMachine puts the drawer's panes under the machine they are on,
+// and each machine's under its projects — the tree's own order, machines
+// then projects. Every machine the gateway offers is a section, with
+// nothing in it when nothing runs there: a machine that is reachable and
+// empty is the one thing a list built from panes alone cannot show, and
+// not showing it reads as the phone having lost it.
+//
+// One machine is the usual case and needs no headings, so it is given
+// none: the sections are the projects, as they always were.
+export function groupByMachine(panes, machines = []) {
+  if (machines.length < 2) return { machines: [], groups: groupAgents(panes) }
+  const sections = []
+  const byID = new Map()
+  for (const m of machines) {
+    const s = { id: m.id, label: m.label || m.id, state: m.state || "", detail: m.detail || "", groups: [] }
+    byID.set(s.id, s)
+    sections.push(s)
+  }
+  const mine = new Map()
+  for (const p of panes) {
+    const id = p.machine || "local"
+    if (!mine.has(id)) mine.set(id, [])
+    mine.get(id).push(p)
+  }
+  for (const [id, list] of mine) {
+    // A pane on a machine the list does not have is still the person's
+    // pane: it gets a section of its own rather than being dropped.
+    if (!byID.has(id)) {
+      const s = { id, label: id, state: "", detail: "", groups: [] }
+      byID.set(id, s)
+      sections.push(s)
+    }
+    byID.get(id).groups = groupAgents(list)
+  }
+  return { machines: sections, groups: [] }
+}
+
 // agentLabel is what to call an agent: its task's title, else its name.
 export function agentLabel(a) {
   return a.title || a.name || a.pane

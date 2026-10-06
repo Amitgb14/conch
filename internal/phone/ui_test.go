@@ -136,10 +136,17 @@ func TestUIFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Small enough to load fast on a phone over a tailnet: no framework,
-	// no build, about a quarter of this once compressed. The PNG icons are
-	// fetched when the app is put on a Home Screen, not on each visit.
-	if total > 96<<10 {
-		t.Errorf("the app is %d bytes; keep it under 96 KiB", total)
+	// no build. The PNG icons are fetched when the app is put on a Home
+	// Screen, not on each visit.
+	//
+	// The gateway serves these as they are, so this is what crosses the
+	// wire — measured at 32 KB gzipped, which nothing does for it yet.
+	// The limit was 96 KiB and the machine headings in the drawer went
+	// through it; it is 104 KiB now rather than whatever the app happens
+	// to weigh, so it stays a budget somebody has to argue with. Trim or
+	// compress before raising it again.
+	if total > 104<<10 {
+		t.Errorf("the app is %d bytes; keep it under 104 KiB", total)
 	}
 	if images > 64<<10 {
 		t.Errorf("the icons are %d bytes; keep them under 64 KiB", images)

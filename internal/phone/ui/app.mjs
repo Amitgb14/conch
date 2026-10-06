@@ -6,7 +6,7 @@
 // Everything the gateway sends is shown with textContent: an agent's
 // title, its question and its screen are text, never markup.
 import {
-  parseLine, frameRows, sortPanes, upsertPane, removeAgent, groupAgents, agentLabel,
+  parseLine, frameRows, sortPanes, upsertPane, removeAgent, groupAgents, groupByMachine, agentLabel,
   ago, route, can, backoff, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, READABLE, chunks, keyBytes, appPath,
   keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps, ttyInput,
 } from "/lib.mjs"
@@ -186,10 +186,14 @@ function onMessage(m) {
       setPanes(sortPanes(m.panes || []))
       break
     case "machines":
-      // A machine coming up or going says so on its own; the rows it
-      // contributes arrive as panes, so only the strip changes here.
+      // A machine coming up, going, or being given to this device says so
+      // on its own; the rows it contributes arrive as panes. The drawer
+      // lists the machines themselves, so it is redrawn too — otherwise a
+      // machine granted while the page is open would not show until
+      // something ran on it.
       state.machines = m.machines || []
       state.view?.update?.()
+      drawer.update()
       break
     case "pane.changed":
       if (m.info) setPanes(upsertPane(state.panes, m.info))
@@ -323,7 +327,20 @@ const sheet = {
   },
 }
 
-// ---- the drawer: every pane by project, as Claude lists its chats ----
+// ---- the drawer: every pane by machine and project, as the tree is ----
+
+// machineHead is a machine's heading in the drawer: its name, and a dot
+// saying whether it answers. A machine is drawn whether or not anything
+// runs on it — which is the point of listing machines at all.
+function machineHead(m) {
+  const how = m.state || "online"
+  return h("h3", { class: `machine-head ${how}` },
+    h("span", { class: "machine-dot" }),
+    h("span", { class: "machine-name" }, m.label),
+    how !== "online"
+      ? h("span", { class: "machine-what" }, how === "connecting" ? "connecting…" : m.detail || "not answering")
+      : null)
+}
 
 const drawer = {
   open() {
@@ -334,12 +351,18 @@ const drawer = {
   update() {
     const nav = $("drawer-list")
     if (!nav || !state.hello) return
-    const groups = groupAgents(state.panes)
+    const { machines, groups } = groupByMachine(state.panes, state.machines)
+    const projects = (gs) => gs.map((g) => [h("h4", {}, g.name), g.agents.map((p) => row(p))])
     put(nav, 
       mayType() ? h("button", { class: "new wide", onclick: () => { drawer.close(); openNew() } }, "＋ New") : null,
       h("a", { href: "/", "data-nav": true, class: "nav-item" }, "Inbox"),
-      groups.length === 0 ? h("p", { class: "hint" }, state.listed ? "Nothing running." : "") : null,
-      groups.map((g) => [h("h4", {}, g.name), g.agents.map((p) => row(p))]),
+      // One machine: the projects alone, as before. Several: each machine
+      // with its own under it, and a word where one has nothing running.
+      machines.length
+        ? machines.map((m) => [machineHead(m), m.groups.length
+          ? projects(m.groups)
+          : h("p", { class: "hint" }, m.state === "online" || !m.state ? "Nothing running." : "")])
+        : [groups.length === 0 ? h("p", { class: "hint" }, state.listed ? "Nothing running." : "") : null, projects(groups)],
       h("a", { href: "/settings", "data-nav": true, class: "nav-item foot" }, "⚙  Settings"))
   },
 }
