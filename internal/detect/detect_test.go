@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,7 +40,21 @@ func TestBuiltinClaudeRules(t *testing.T) {
 		{screen("> ", "  ? for shortcuts"), ""},
 		// Seen live: a narrower pane wraps the trust question mid-sentence.
 		{screen(" Quick safety check: Is this a project you created or one", " you trust? (Like your own code)"), "trust_prompt"},
-		{screen(" │ Do you want to", " │ proceed?"), "permission_prompt"},
+		{screen(" │ Do you want to", " │ proceed?", " │ ❯ 1. Yes", " │   2. No"), "permission_prompt"},
+		// The cursor moved off the first choice: no ❯ on it.
+		{screen("Do you want to make this edit to main.go?", "  1. Yes", "  2. Yes, allow all edits", "❯ 3. No"), "permission_prompt"},
+		{screen(" Bash command", "", "   ls -la", "   List files", "", " Do you want to proceed?",
+			" ❯ 1. Yes", "   2. Yes, and don't ask again for: ls", "   3. No", "", " Esc to cancel · Tab to amend"), "permission_prompt"},
+		// Bordered and padded to the pane's width, as a wide pane draws it.
+		{screen("│ Do you want to proceed?"+strings.Repeat(" ", 150)+"│", "│ ❯ 1. Yes"+strings.Repeat(" ", 150)+"│"), "permission_prompt"},
+		// The question without its choices is not the dialog: typed, printed,
+		// logged or quoted, it read as waiting once.
+		{screen(`> printf "Do you want to proceed%s\n" "?"`, "Do you want to proceed?", "> "), ""},
+		{screen("Do you want to proceed?", "❯ "), ""},
+		{screen("⏺ The installer stopped at \"Do you want to proceed?\" and needs a yes.", "❯ "), ""},
+		{screen("$ grep -r 'Do you want to run' docs/", "docs/faq.md: Do you want to run it twice?", "❯ "), ""},
+		// "1. Yes" far below an old question is a different thing.
+		{screen("Do you want to proceed?", strings.Repeat("log line that goes on and on\n", 12), "  1. Yes, that was the plan"), ""},
 		// Seen live in v2.1.284 (e2e run R36): the spinner line no longer
 		// says "esc to interrupt". Thinking, running a tool, running a hook.
 		{screen("✻ Canoodling… (22s · ↓ 479 tokens · thinking)", "─────", "❯ ", "─────", "  ⏵⏵ auto mode on"), "spinner"},

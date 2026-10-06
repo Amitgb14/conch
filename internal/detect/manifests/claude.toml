@@ -9,10 +9,16 @@ hook_working_stale = "8s"
 # Rules are tried top to bottom against the last screen_lines rows; the
 # first match wins. "blocked" is kept strict: only real questions to the user.
 
+# The question alone is not the dialog: the words turn up in a typed
+# command, a log, Claude quoting one, and the pane read as waiting when it
+# was not. Claude's dialog puts its numbered choices right under the
+# question, "1. Yes" first — with ❯ on it, or not once the cursor has moved
+# to another — so both are wanted, close together. (?s) lets the gap span
+# rows; the flattened screen has none.
 [[rules]]
 name = "permission_prompt"
 state = "blocked"
-pattern = 'Do you want to (proceed|make this edit|create|allow|run|overwrite|delete|fetch|use)'
+pattern = '(?s)Do you want to (proceed|make this edit|create|allow|run|overwrite|delete|fetch|use)\b.{0,200}?\s(❯\s*)?1\.\s+Yes\b'
 
 [[rules]]
 name = "trust_prompt"
