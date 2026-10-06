@@ -158,7 +158,7 @@ func TestPromptAgentWorkingKeepsItsTurn(t *testing.T) {
 func TestPromptAgentQuestionBeforeEnter(t *testing.T) {
 	s, _, work := shareFixture(t)
 	e := agentPane(t, s, "p1", "claude", work, `stty raw -echo; exec awk 'BEGIN { RS = "r" }
-NR == 1 { printf "Do you want to proceed?\r\n"; fflush(); RS = "\r"; next }
+NR == 1 { printf "Do you want to proceed?\r\n❯ 1. Yes\r\n  2. No\r\n"; fflush(); RS = "\r"; next }
 { printf "entered:%s\r\n", $0; fflush() }'`)
 
 	_, perr := s.promptAgent(proto.AgentPromptParams{ID: "p1", Text: "run the tests"})
