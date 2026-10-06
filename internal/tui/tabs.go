@@ -949,6 +949,10 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 	for n, i := range m.visibleTabs() {
 		t := m.tabs[i]
 		label := " " + itoa(n+1) + " " + m.tabLabel(t) + " "
+		waiting := m.tabWaiting(t)
+		if waiting {
+			label = " " + itoa(n+1) + " ! " + m.tabLabel(t) + " "
+		}
 		if i == m.activeTab && !m.previewing {
 			if x+ansi.StringWidth(label)+2 <= w { // the close button only beside its tab
 				put(styleSel.Render(label), i)
@@ -958,6 +962,8 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 			put(styleAccent.Render(label), i) // a split is being carried here
 		} else if m.cfg.UI.Hover && m.hoverTab == i {
 			put(styleHover.Render(label), i)
+		} else if waiting {
+			put(styleWarn.Render(label), i)
 		} else {
 			put(styleMuted.Render(label), i)
 		}
@@ -970,6 +976,21 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 	}
 	put(plus.Render(" + "), tabHitPlus)
 	return fit(b.String(), w), hits
+}
+
+// tabWaiting reports whether a tab shows an agent waiting for an answer —
+// blocked, the tree's "!", not merely done — so the bar can say so as the
+// tree does: from the tabs alone a waiting agent looked like any other.
+func (m Model) tabWaiting(t *tab) bool {
+	for _, l := range t.root.leaves() {
+		if l.view.Kind != kindPane {
+			continue
+		}
+		if p := m.pane(l.view.Machine, l.view.PaneID); p != nil && p.Agent != nil && p.Agent.State == proto.AgentBlocked {
+			return true
+		}
+	}
+	return false
 }
 
 // tabAt is the tab at column x of the bar, or -1 for anywhere else: the

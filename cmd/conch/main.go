@@ -274,7 +274,8 @@ func runTUI() error {
 			opts = append(opts, tea.WithMouseCellMotion())
 		}
 	}
-	p := tea.NewProgram(tui.New(c, cfg).Warn(cfgWarning), opts...)
+	wd, _ := os.Getwd()
+	p := tea.NewProgram(tui.New(c, cfg).Warn(cfgWarning).LaunchedIn(wd), opts...)
 	final, err := p.Run()
 	if err == nil && tui.RestartRequested(final) {
 		// An update replaced this binary: run the new one in its place.

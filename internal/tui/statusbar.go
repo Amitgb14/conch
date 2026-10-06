@@ -74,9 +74,11 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 	switch {
 	case m.prefixArmed:
 		chip = styleChip.Background(colorWarn).Render("PREFIX")
-		items = []statusItem{hint("v", "split"), hint("-", "split down"), hint("x", "close split"), hint("←→↑↓", "focus"),
-			hint("q", "numbers"), hint("space", "layout"), hint("c", "new tab"), hint("n", "next tab"), hint("[", "scroll"), hint("z", "zoom"),
-			action("esc", "tree", toTree)}
+		// The way back first: the bar keeps only its first few hints when
+		// it is short of room, and the pane's bar promised "tree" here.
+		items = []statusItem{action("esc", "tree", toTree), hint("v", "split"), hint("-", "split down"), hint("x", "close split"),
+			hint("←→↑↓", "focus"), hint("q", "numbers"), hint("space", "layout"), hint("c", "new tab"), hint("n", "next tab"),
+			hint("[", "scroll"), hint("z", "zoom")}
 	case m.focus == focusMain && r.kind == kindPane && m.scrollMode && m.search.typing:
 		chip = styleChip.Background(colorAccent).Render("SEARCH")
 		items = []statusItem{hint("enter", "find"), hint("esc", "cancel")}
@@ -149,8 +151,8 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		chip = styleChip.Background(colorAccent).Render("TREE")
 		switch r.kind {
 		case kindPane:
-			items = []statusItem{hint("enter", "open"), hint("v", "split"), hint("O", "new tab"), hint("r", "rename"),
-				hint("x", "close"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
+			items = []statusItem{hint("enter", "open"), hint("c", "agent"), hint("n", "shell"), hint("v", "split"),
+				hint("O", "new tab"), hint("r", "rename"), hint("x", "close"), hint("m", "menu")}
 		case kindSavedSSH:
 			items = []statusItem{hint("enter", "connect"), hint("e", "edit"), hint("K", "copy key"), hint("x", "forget"), hint("H", "ssh"), hint("m", "menu")}
 		case kindFolder:
@@ -188,7 +190,17 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			items = []statusItem{hint("a", "project"), hint("t", "task"), hint("c", "agent"), hint("n", "shell"),
 				hint("/", "filter"), hint("m", "menu")}
 		}
-		items = append(items, hint("!", "waiting"), hint("?", "keys"))
+		// With an agent waiting — asking something, not merely done — the
+		// key to it leads, in the tree's colour for waiting: a short bar
+		// keeps only its first few hints, and this is the one wanted now.
+		if waiting, _ := m.inboxCount(); waiting > 0 {
+			waiting := hint("!", "waiting")
+			waiting.text = styleWarn.Render("! waiting")
+			items = append([]statusItem{waiting}, items...)
+			items = append(items, hint("?", "keys"))
+		} else {
+			items = append(items, hint("!", "waiting"), hint("?", "keys"))
+		}
 		// Last, so a narrow bar drops it before the way to every key.
 		if r.kind == kindMachine && r.machine == localMachine {
 			items = append(items, hint("P", "phone"))

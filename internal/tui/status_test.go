@@ -499,6 +499,93 @@ func TestA1ClipboardTools(t *testing.T) {
 	}
 }
 
+// The prefix bar is where somebody lands after the pane's bar said
+// "ctrl+b tree", so the way back to the tree is the hint a short bar keeps.
+func TestPrefixBarLeadsWithTheWayBack(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	m.prefixArmed = true
+	if got := a1HintText(m); !strings.HasPrefix(got, "esc tree|") {
+		t.Fatalf("prefix hints: %s", got)
+	}
+	for _, w := range []int{120, 80, 60} {
+		m.width = w
+		line, _ := m.layoutStatus()
+		if !strings.Contains(ansi.Strip(line), "esc tree") {
+			t.Errorf("width %d: no way back in %q", w, ansi.Strip(line))
+		}
+		if ansi.StringWidth(line) > w {
+			t.Errorf("width %d: bar is %d wide", w, ansi.StringWidth(line))
+		}
+	}
+	m.width = 120
+	m.clickStatus(a1ColumnOf(m, "esc tree"))
+	if m.prefixArmed || m.focus != focusSidebar {
+		t.Fatalf("clicking esc tree: prefix %v focus %v", m.prefixArmed, m.focus)
+	}
+}
+
+// With an agent waiting, "! waiting" leads the tree's hints so a bar short
+// of room keeps it; with none — or one only done — it stays where it was,
+// before "? keys".
+func TestTreeHintsLeadWithWaiting(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	a1At(t, m, paneNodeID(localMachine, "p3"))
+	if got := a1HintText(m); strings.HasPrefix(got, "! waiting") || !strings.HasSuffix(got, "! waiting|? keys") {
+		t.Fatalf("nothing waiting: %s", got)
+	}
+	// An agent's row keeps the way to start another among the first few.
+	if got := a1HintText(m); !strings.HasPrefix(got, "enter open|c agent|n shell|") {
+		t.Fatalf("pane row: %s", got)
+	}
+
+	m.machines[0].panes[0].Agent = &proto.AgentStatus{Name: "claude", State: proto.AgentDone}
+	if got := a1HintText(m); strings.HasPrefix(got, "! waiting") || !strings.HasSuffix(got, "! waiting|? keys") {
+		t.Fatalf("only done: %s", got)
+	}
+
+	for _, state := range []string{proto.AgentBlocked} {
+		m.machines[0].panes[0].Agent = &proto.AgentStatus{Name: "claude", State: state}
+		for _, id := range []string{paneNodeID(localMachine, "p3"), machineID(localMachine), cliID(localMachine)} {
+			m.cursor = id
+			got := a1HintText(m)
+			if !strings.HasPrefix(got, "! waiting|") || strings.Count(got, "! waiting") != 1 || !strings.Contains(got, "|? keys") {
+				t.Errorf("%s %s: %s", state, id, got)
+			}
+		}
+		m.cursor = paneNodeID(localMachine, "p3")
+		for _, w := range []int{120, 80, 50, 20, 1} {
+			m.width = w
+			line, _ := m.layoutStatus()
+			if ansi.StringWidth(line) > w {
+				t.Errorf("%s width %d: bar is %d wide", state, w, ansi.StringWidth(line))
+			}
+			if w >= 80 && !strings.Contains(ansi.Strip(line), "! waiting") {
+				t.Errorf("%s width %d: %q", state, w, ansi.Strip(line))
+			}
+		}
+	}
+
+	// Clicking it jumps to the waiting agent, as the key does.
+	m.machines[0].panes[0].Agent = &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked}
+	m.width = 120
+	m.cursor = paneNodeID(localMachine, "p3")
+	m.clickStatus(a1ColumnOf(m, "! waiting"))
+	if m.cursor != paneNodeID(localMachine, "p1") {
+		t.Fatalf("click on ! waiting: cursor %s", m.cursor)
+	}
+}
+
+// a1ColumnOf is the column of text on the status bar as it is drawn.
+func a1ColumnOf(m *Model, text string) int {
+	line, _ := m.layoutStatus()
+	plain := ansi.Strip(line)
+	i := strings.Index(plain, text)
+	if i < 0 {
+		return -1
+	}
+	return ansi.StringWidth(plain[:i])
+}
+
 // The bar tells an agent that asked something from one that only finished:
 // both are counted, under their own names, and the count is still the way
 // to the next of them.
