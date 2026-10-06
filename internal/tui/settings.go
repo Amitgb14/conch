@@ -526,10 +526,13 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				return saveConfig(m.cfg)
 			}},
 		settingItem{label: "Compress what a machine's panes send", on: &compressing,
-			detail: styleMuted.Render("ssh -C on the connection carrying frames; never on this computer"),
+			detail: styleMuted.Render("asked for on the ssh connection that carries frames; never on this computer"),
 			run: func(m *Model) tea.Cmd {
 				m.cfg.Remote.NoCompression = !m.cfg.Remote.NoCompression
-				m.setFlash("takes effect when a machine next connects", false)
+				// ssh settles compression when a connection is made, and
+				// conch writes the config it asks with once per process,
+				// so this is for the next conch, not this one.
+				m.setFlash("takes effect when conch next starts", false)
 				return saveConfig(m.cfg)
 			}},
 		settingItem{label: "Largest file to upload", detail: mbText(r.UploadLimit()) + " · enter changes",

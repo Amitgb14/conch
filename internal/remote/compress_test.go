@@ -1,47 +1,55 @@
 package remote
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// The connection that carries a machine's panes is compressed, and only
-// that one. A frame is a screenful of styled text that deflates to a tenth
-// or less; the tens of microseconds it costs buy milliseconds back on any
-// network. Nothing local goes near it, and the connections that copy a
-// binary or ask a question gain nothing and pay for nothing.
+// conch's connections to a machine deflate what they carry, because a
+// frame is the whole screen as styled text: 4.3 MB of real frame traffic
+// crossed a LAN as 54 KB, and faster in wall clock even there.
+//
+// It is in the ssh config rather than on the bridge's command line, and
+// that is the whole point of these tests. Compression belongs to a
+// connection; conch shares connections (ControlMaster auto); so `ssh -C`
+// on a session riding a master an earlier probe opened is ignored —
+// silently, which is how it shipped once.
 
-func TestOnlyTheBridgeIsCompressed(t *testing.T) {
+func TestCompressionIsOnTheConnection(t *testing.T) {
 	isolateCompress(t)
-	plain, ok := SSH("busybox", false).(*sshTransport)
-	if !ok {
-		t.Fatal("ssh transport")
-	}
-	if args := sshArgsOf(t, plain); contains(args, "-C") {
-		t.Errorf("an ordinary ssh command is compressed: %v", args)
-	}
-	bridge, ok := plain.forBridge().(*sshTransport)
-	if !ok {
-		t.Fatal("bridge transport")
-	}
-	if args := sshArgsOf(t, bridge); !contains(args, "-C") {
-		t.Errorf("the bridge is not compressed: %v", args)
-	}
-	// An interactive login is a person's terminal, not the protocol.
-	login, err := LoginCommand("busybox")
+	cfg, err := sshConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if contains(login, "-C") {
-		t.Errorf("a login is compressed: %v", login)
+	text := readFile(t, cfg)
+	if !strings.Contains(text, "Compression yes") {
+		t.Fatalf("the shared config does not compress:\n%s", text)
+	}
+	// It belongs with the sharing it has to survive.
+	if !strings.Contains(text, "ControlMaster auto") {
+		t.Fatalf("the shared config no longer shares; this test is about the two together:\n%s", text)
+	}
+	// And not on the command line, where sharing would swallow it.
+	tr, ok := SSH("busybox", false).(*sshTransport)
+	if !ok {
+		t.Fatal("ssh transport")
+	}
+	cmd, err := tr.forBridge().(*sshTransport).Command(t.Context(), "echo hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range cmd.Args {
+		if a == "-C" {
+			t.Errorf("the bridge asks for -C on its command line, which a shared master ignores: %v", cmd.Args)
+		}
 	}
 }
 
 // TestCompressionCanBeTurnedOff: on a link as fast as the processor the
-// sums come out the other way, so config.toml can say no.
+// sums come out the other way, so config.toml can say no. It is read when
+// the config is written, so it applies to connections made after that.
 func TestCompressionCanBeTurnedOff(t *testing.T) {
 	dir := isolateCompress(t)
 	if !Compress() {
@@ -54,9 +62,13 @@ func TestCompressionCanBeTurnedOff(t *testing.T) {
 	if Compress() {
 		t.Fatal("no_compression was ignored")
 	}
-	bridge := SSH("busybox", false).(*sshTransport).forBridge().(*sshTransport)
-	if args := sshArgsOf(t, bridge); contains(args, "-C") {
-		t.Errorf("it compressed anyway: %v", args)
+	resetConfig()
+	cfg, err := sshConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := readFile(t, cfg); strings.Contains(text, "Compression yes") {
+		t.Fatalf("it compressed anyway:\n%s", text)
 	}
 	// A config that cannot be read leaves it on: the setting is the
 	// exception, not the rule.
@@ -68,6 +80,19 @@ func TestCompressionCanBeTurnedOff(t *testing.T) {
 	}
 }
 
+// TestLoginIsNotCompressed: an interactive login is a person at a terminal,
+// makes its own connection, and gains nothing from deflating keystrokes.
+func TestLoginIsNotCompressed(t *testing.T) {
+	isolateCompress(t)
+	cfg, err := loginSSHConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := readFile(t, cfg); strings.Contains(text, "Compression yes") {
+		t.Errorf("a login config compresses:\n%s", text)
+	}
+}
+
 func isolateCompress(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -75,23 +100,16 @@ func isolateCompress(t *testing.T) string {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CONCH_SSH", "")
 	t.Setenv("CONCH_SSH_CONFIG", "")
+	resetConfig()
+	t.Cleanup(resetConfig)
 	return dir
 }
 
-func sshArgsOf(t *testing.T, tr *sshTransport) []string {
+func readFile(t *testing.T, path string) string {
 	t.Helper()
-	cmd, err := tr.Command(context.Background(), "echo hi")
+	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return cmd.Args
-}
-
-func contains(args []string, want string) bool {
-	for _, a := range args {
-		if a == want || strings.HasPrefix(a, want+" ") {
-			return true
-		}
-	}
-	return false
+	return string(b)
 }

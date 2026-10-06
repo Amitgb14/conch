@@ -169,13 +169,15 @@ type RemoteCfg struct {
 	UploadDrops bool `toml:"upload_drops"`
 	// UploadMaxMB refuses larger files; 0 or less means the default.
 	UploadMaxMB int `toml:"upload_max_mb"`
-	// NoCompression stops conch asking ssh to deflate the connection that
-	// carries a machine's panes (ssh -C). It is on otherwise: a frame is a
-	// screenful of styled text, which deflates to a tenth or less, and the
-	// tens of microseconds that costs buy milliseconds back on any
-	// network. Worth turning off only where the link is as fast as the
-	// processor — a machine on the same host, say — or where the CPU is
-	// the scarce thing. Nothing local is ever compressed.
+	// NoCompression stops conch asking ssh to deflate its connections to
+	// other machines (Compression yes in the config it generates). It is on
+	// otherwise: those connections carry panes, and a frame is a screenful
+	// of styled text, which deflates to a tenth or less — the tens of
+	// microseconds that costs buy milliseconds back on any network. Worth
+	// turning off only where the link is as fast as the processor — a
+	// machine on the same host, say — or where the CPU is the scarce thing.
+	// Nothing local is ever compressed: there is no connection to settle
+	// it on, only a unix socket.
 	NoCompression bool `toml:"no_compression,omitempty"`
 }
 

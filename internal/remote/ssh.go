@@ -96,6 +96,22 @@ func sshConfigs() (shared, login string, err error) {
 	for _, key := range loginKeys() {
 		fmt.Fprintf(&keys, "  IdentityFile %s\n", quoteConfig(key))
 	}
+	// Compression belongs to a connection, not to a session on it, and
+	// conch shares connections (ControlMaster): a bridge that asked for -C
+	// while riding a master an earlier probe had opened got nothing — ssh
+	// ignores the flag and multiplexes onto what is already there, which a
+	// run against a real machine showed plainly. So it is asked for here,
+	// where the master is made.
+	//
+	// A machine's panes are what it is for: a frame is the whole screen as
+	// styled text, and 4.3 MB of real frame traffic crossed a LAN as 54 KB
+	// — seventy-nine times less, and faster in wall clock even there. The
+	// same connection carries installs too, where it costs little and a Go
+	// binary deflates well anyway.
+	compression := ""
+	if Compress() {
+		compression = "  Compression yes\n"
+	}
 	sharedText := head + fmt.Sprintf(`
 Host *
   ServerAliveInterval 15
@@ -103,7 +119,7 @@ Host *
   ControlMaster auto
   ControlPath %s/%%C
   ControlPersist 60
-`, quoteConfig(ctl)) + keys.String()
+`, quoteConfig(ctl)) + compression + keys.String()
 	loginText := head + `
 Host *
   ServerAliveInterval 15
@@ -162,15 +178,6 @@ type sshOpts struct {
 	// generated config names conch's own and so stops ssh trying the
 	// defaults, and the agent may hold nothing.
 	identity string
-	// compress asks ssh to deflate the channel (-C), for the one
-	// connection that carries the protocol: a pane's frames are the whole
-	// screen as styled text, which compresses by ten to sixty times —
-	// 12 KB of a busy screen goes out as under a kilobyte. It costs tens
-	// of microseconds a frame against milliseconds on any network, which
-	// is why it is here and not on the local socket, where the sums come
-	// out the other way round: compressing what a unix socket moves in
-	// 12µs would take 26µs to do.
-	compress bool
 }
 
 func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cmd, error) {
@@ -194,9 +201,6 @@ func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cm
 	}
 	if o.identity != "" {
 		args = append(args, "-i", o.identity, "-o", "IdentitiesOnly=yes")
-	}
-	if o.compress {
-		args = append(args, "-C")
 	}
 	args = append(args, "--", target, script)
 	cmd := exec.CommandContext(ctx, sshBinary(), args...)

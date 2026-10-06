@@ -215,14 +215,23 @@ helpers in `cmd/conch` and `internal/remote`.
   `wait`'s `Close` against `Adopt`'s `Fd`. Anything new that writes to
   `p.ptmx` outside the read loop has to answer the same question: whose is
   it now?
-- **Only the bridge is compressed.** `forBridge()` adds `ssh -C`, because
-  that connection carries frames: a screenful of styled text, measured at
-  12 KB deflating to under 1 KB, for tens of microseconds against
-  milliseconds of network. Nothing else gets it — installing conch copies
-  a binary, a probe is one line — and the local socket never does: it
-  moves a frame in ~12µs and compressing would cost ~26µs, so it would be
-  slower, which is the whole reason this is a transport option rather
-  than something in `internal/proto`. `[remote] no_compression` turns it
+- **Compression belongs to a connection, not to a session on it.** Asking
+  for it per command does nothing here: conch shares connections
+  (`ControlMaster auto`), so a bridge run with `ssh -C` multiplexes onto
+  whatever master a probe or an install opened first and ssh ignores the
+  flag — `-v` says `auto-mux: Trying existing master` and never names a
+  compression method. That shipped once and did nothing. So it is asked
+  for where the master is made, in the config conch generates
+  (`Compression yes`, `sshConfigs` in `internal/remote/ssh.go`), which
+  means it is per machine and settled when that machine's first
+  connection is, and `Compress()` is read while the config is written —
+  a setting changed now is for the next conch, not this one. Worth it
+  because those connections carry frames: a screenful of styled text,
+  12 KB deflating to under 1 KB, 4.3 MB of real traffic crossing a LAN
+  as 54 KB and arriving sooner. The local socket never gets it — there
+  is no connection to settle it on, and it moves a frame in ~12µs where
+  compressing would cost ~26µs, which is why this is an ssh matter and
+  not something in `internal/proto`. `[remote] no_compression` turns it
   off for a link as fast as the processor.
 - **The mouse goes to the pane under the pointer, not the focused one.**
   A click or a wheel over another split asks for that split's focus, and

@@ -31,12 +31,13 @@ type Transport interface {
 	forBridge() Transport
 }
 
-// Compress reports whether the connection carrying a machine's panes asks
-// ssh to deflate it. A frame is the whole screen as styled text and goes
-// out ten to sixty times smaller for tens of microseconds of work, against
+// Compress reports whether conch's connections to a machine deflate what
+// they carry. A frame is the whole screen as styled text and goes out an
+// order of magnitude smaller for tens of microseconds of work, against
 // milliseconds on any network — so it is on unless config.toml turns it
-// off. It is asked here, once per bridge, rather than cached, so a change
-// takes effect on the next connection.
+// off. It is read where the ssh config is written (sshConfig), because
+// compression belongs to a connection and conch shares connections: a flag
+// on one session of a master already up does nothing at all.
 func Compress() bool {
 	cfg, err := config.Load()
 	if err != nil {
@@ -78,11 +79,6 @@ func (t *sshTransport) failed(err error, stderr string) error { return sshError(
 func (t *sshTransport) forBridge() Transport {
 	next := &sshTransport{target: t.target, opts: t.opts}
 	next.opts.interactive = false // an askpass, if any, still answers
-	// Only this connection is compressed: it is the one carrying frames,
-	// and a frame is a screenful of styled text that deflates to a
-	// fraction of itself. Installing conch there copies a binary that
-	// gains nothing from it, and a probe is a line long.
-	next.opts.compress = Compress()
 	return next
 }
 
