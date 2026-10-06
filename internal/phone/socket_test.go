@@ -2,8 +2,14 @@ package phone
 
 import (
 	"context"
+	"encoding/json"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -221,5 +227,129 @@ func TestSocketsEndWithTheGatewayAndTheServer(t *testing.T) {
 	f2.call(proto.MethodServerStop, nil, nil)
 	if msgs := s2.closed(); len(msgs) != 1 || msgs[0].Type != MsgBye || msgs[0].Reason != ByeServerGone {
 		t.Fatalf("server gone: %+v", msgs)
+	}
+}
+
+// countingListener counts what the server really writes, so a saving can
+// be measured rather than assumed: the library gives no figure, and the
+// whole point of deflating this socket is the bytes that leave the
+// machine.
+type countingListener struct {
+	net.Listener
+	n *atomic.Int64
+}
+
+func (l countingListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return c, err
+	}
+	return countingConn{Conn: c, n: l.n}, nil
+}
+
+type countingConn struct {
+	net.Conn
+	n *atomic.Int64
+}
+
+func (c countingConn) Write(b []byte) (int, error) {
+	n, err := c.Conn.Write(b)
+	c.n.Add(int64(n))
+	return n, err
+}
+
+// TestFramesAreDeflatedOnTheWire: a frame is the whole screen as styled
+// text, and an agent at work sends one several times a second — the
+// largest thing conch sends anywhere, over a tailnet that may be mobile
+// data. The socket deflates with the window kept across messages, since
+// each frame is the last with a few rows changed.
+//
+// This measures what the server wrote to the socket, for the same burst,
+// with and without the client accepting it.
+func TestFramesAreDeflatedOnTheWire(t *testing.T) {
+	f := newFixture(t)
+	p := f.pair(PermFull)
+	pane := f.pane("", "stty raw -echo; exec cat")
+
+	burst := func(compress websocket.CompressionMode) int64 {
+		t.Helper()
+		var wrote atomic.Int64
+		srv := httptest.NewUnstartedServer(f.g.Handler())
+		srv.Listener = countingListener{Listener: srv.Listener, n: &wrote}
+		srv.Start()
+		defer srv.Close()
+
+		h := http.Header{"Cookie": {CookieName + "=" + p.token}}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		conn, res, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+SocketPath,
+			&websocket.DialOptions{HTTPHeader: h, CompressionMode: compress})
+		if err != nil {
+			t.Fatalf("dial: %v", err)
+		}
+		defer conn.CloseNow()
+		conn.SetReadLimit(1 << 20)
+		// The handshake says whether it was agreed, which is the contract
+		// a browser holds us to.
+		ext := res.Header.Get("Sec-WebSocket-Extensions")
+		if want := compress != websocket.CompressionDisabled; strings.Contains(ext, "permessage-deflate") != want {
+			t.Fatalf("Sec-WebSocket-Extensions %q with mode %v", ext, compress)
+		}
+
+		write := func(m ClientMessage) {
+			b, _ := json.Marshal(m)
+			if err := conn.Write(ctx, websocket.MessageText, b); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+		}
+		write(ClientMessage{Type: MsgPanesWatch, ID: "w1"})
+		write(ClientMessage{Type: MsgFrameOpen, ID: "f1", Pane: pane})
+
+		// Fill the screen, then change a few rows at a time, which is
+		// what an agent's output looks like.
+		const want = 12
+		frames, raw := 0, 0
+		deadline := time.Now().Add(20 * time.Second)
+		for frames < want && time.Now().Before(deadline) {
+			f.call(proto.MethodPaneSendText, proto.PaneSendTextParams{ID: pane,
+				Text: strings.Repeat("the agent said something about internal/phone/socket.go and then some more\r\n", 6)}, nil)
+			for {
+				conn.SetReadLimit(1 << 20)
+				ctx2, cancel2 := context.WithTimeout(ctx, 2*time.Second)
+				typ, data, err := conn.Read(ctx2)
+				cancel2()
+				if err != nil {
+					break
+				}
+				if typ != websocket.MessageText {
+					continue
+				}
+				var m ServerMessage
+				if json.Unmarshal(data, &m) == nil && m.Type == MsgFrame && m.Frame != nil {
+					frames++
+					raw += len(data)
+					// The screen must really be arriving, not an empty one.
+					if len(m.Frame.Lines) == 0 {
+						t.Fatal("a frame with no lines")
+					}
+				}
+				break
+			}
+		}
+		if frames < want {
+			t.Fatalf("only %d frames arrived", frames)
+		}
+		t.Logf("mode %v: %d frames, %d bytes of JSON, %d bytes written to the socket",
+			compress, frames, raw, wrote.Load())
+		return wrote.Load()
+	}
+
+	plain := burst(websocket.CompressionDisabled)
+	deflated := burst(websocket.CompressionContextTakeover)
+	t.Logf("the same burst: %d bytes plain, %d deflated (%.1fx)", plain, deflated, float64(plain)/float64(deflated))
+	// Frames repeat heavily; anything less than half would mean it is not
+	// really on, and the measured saving is far beyond that.
+	if deflated*2 >= plain {
+		t.Errorf("deflating wrote %d bytes against %d plain; it is not working", deflated, plain)
 	}
 }
