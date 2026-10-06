@@ -204,9 +204,14 @@ export function ago(since, now = Date.now()) {
 // route reads the page's path: the list, one agent, its terminal, or a
 // new task. Anything else is the list.
 export function route(path) {
-  const t = /^\/agent\/(p[0-9]+)\/terminal\/?$/.exec(path)
+  // A pane on another machine is `machine:pane`, and that is what its page
+  // is called: /agent/busybox:p1. Matching `p3` alone sent every remote
+  // agent's page to the list instead — the row was there, the tap did
+  // nothing. The machine is the catalog's shape (lower case, digits,
+  // dashes), so nothing else can slip in through the path.
+  const t = /^\/agent\/((?:[a-z0-9-]+:)?p[0-9]+)\/terminal\/?$/.exec(path)
   if (t) return { view: "terminal", pane: t[1] }
-  const m = /^\/agent\/(p[0-9]+)\/?$/.exec(path)
+  const m = /^\/agent\/((?:[a-z0-9-]+:)?p[0-9]+)\/?$/.exec(path)
   if (m) return { view: "agent", pane: m[1] }
   if (/^\/new\/?$/.test(path)) return { view: "new" }
   if (/^\/settings\/?$/.test(path)) return { view: "settings" }

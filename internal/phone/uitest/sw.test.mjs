@@ -61,6 +61,19 @@ test("a done push, and pushes with little in them", async () => {
   ])
 })
 
+test("a notice about an agent on another machine opens that agent", async () => {
+  const sw = load()
+  await sw.fire("push", push({ type: "waiting", pane: "busybox:p1", name: "reviewer", project: "api", url: "/agent/busybox:p1" }))
+  const n = sw.shown.at(-1)
+  // The pane carries its machine, so the tap lands on that agent's page
+  // rather than on the list — which is what a bare `p[0-9]+` left.
+  assert.equal(n.data.url, "/agent/busybox:p1")
+  // The tag only groups notices in the browser, so the machine's colon
+  // is no trouble there; the push Topic header, which must be URL-safe,
+  // is sanitised on the Go side (TestPushOnTransitions).
+  assert.equal(n.tag, "conch-busybox:p1")
+})
+
 test("a push can't aim a tap anywhere but its agent", async () => {
   const sw = load()
   for (const url of ["https://evil.example/", "//evil.example/x", "/agent/p9", "/settings"]) {

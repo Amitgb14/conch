@@ -145,7 +145,17 @@ test("routes", () => {
   assert.deepEqual(route("/agent/p3/terminal"), { view: "terminal", pane: "p3" })
   assert.deepEqual(route("/settings"), { view: "settings" })
   assert.deepEqual(route("/agent/p3/terminal/"), { view: "terminal", pane: "p3" })
-  for (const other of ["/agent/", "/agent/reviewer", "/agent/p3/x", "/agent/p", "/newer", "/api/agents", "/agent/p3?x", "/agent/terminal", "/agent/p3/terminals", "/agent/x/terminal"]) {
+  // An agent on another machine: its page is named `machine:pane`, as
+  // everything else addresses it. Matching `p3` alone sent every one of
+  // these to the list, so the row was there and the tap did nothing.
+  assert.deepEqual(route("/agent/busybox:p1"), { view: "agent", pane: "busybox:p1" })
+  assert.deepEqual(route("/agent/busybox:p1/"), { view: "agent", pane: "busybox:p1" })
+  assert.deepEqual(route("/agent/gpu-1:p12/terminal"), { view: "terminal", pane: "gpu-1:p12" })
+  assert.deepEqual(route("/agent/local:p3"), { view: "agent", pane: "local:p3" })
+  for (const other of ["/agent/", "/agent/reviewer", "/agent/p3/x", "/agent/p", "/newer", "/api/agents", "/agent/p3?x", "/agent/terminal", "/agent/p3/terminals", "/agent/x/terminal",
+    // A machine is the catalog's shape and a pane is a pane: nothing else
+    // reaches a page through the path.
+    "/agent/BUSYBOX:p1", "/agent/busy box:p1", "/agent/../p1", "/agent/a:b:p1", "/agent/busybox:", "/agent/busybox:x1", "/agent/:p1"]) {
     assert.deepEqual(route(other), { view: "list" }, other)
   }
 })

@@ -41,7 +41,9 @@ self.addEventListener("fetch", (event) => {
 // nothing in it is taken for an address but an agent's own page.
 function notice(m) {
   const who = typeof m.name === "string" && m.name ? m.name : "An agent"
-  const pane = typeof m.pane === "string" && /^p[0-9]+$/.test(m.pane) ? m.pane : ""
+  // `machine:pane` for an agent on another machine, as every other part
+  // of the app addresses it; a notification about one opened the list.
+  const pane = typeof m.pane === "string" && /^(?:[a-z0-9-]+:)?p[0-9]+$/.test(m.pane) ? m.pane : ""
   return {
     title: m.type === "done" ? `${who} is done` : `${who} is waiting for you`,
     body: typeof m.project === "string" && m.project ? `in ${m.project}` : "",
