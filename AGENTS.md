@@ -215,6 +215,17 @@ helpers in `cmd/conch` and `internal/remote`.
   `wait`'s `Close` against `Adopt`'s `Fd`. Anything new that writes to
   `p.ptmx` outside the read loop has to answer the same question: whose is
   it now?
+- **The mouse goes to the pane under the pointer, not the focused one.**
+  A click or a wheel over another split asks for that split's focus, and
+  the asking is a command that has not run yet — so for that event the
+  focused pane is still the old one. `paneMouse` therefore takes the
+  machine and pane it is acting on and reads *that* pane's frame and
+  client (`internal/tui/mouse.go`). Deciding by the focused frame sent SGR
+  mouse reports to a pane that had never asked for the mouse, which
+  printed them into an agent's prompt as `<65;106;43M`, and would have
+  sent another machine's pane id down this computer's connection.
+  Scrolling conch's own history stays the focused pane's business, since
+  its offset and selection are what move.
 - **A conch inside a pane never shows that pane.** conch refuses to open a
   TUI in one and says how to do it anyway (`CONCH_PANE_ID= conch`), which
   leaves the case: the TUI resizes every pane it draws to the space it has,

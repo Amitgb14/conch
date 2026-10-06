@@ -129,3 +129,20 @@ func a2CheckBox(t *testing.T, b box, m Model) {
 		t.Fatalf("box at %d,%d (%d wide) leaves a %dx%d screen", b.x, b.y, w, m.width, m.height)
 	}
 }
+
+// a2Frame puts a frame where frames actually live — the map, keyed by
+// machine and pane — and makes it the focused one, which is what the model
+// derives from the map. Mouse handling reads the map for the pane under the
+// pointer, which is not always the focused one (mouse.go).
+func a2Frame(m *Model, pane string, f *proto.Frame) {
+	if m.frames == nil {
+		m.frames = map[string]*proto.Frame{}
+	}
+	if f.ID == "" {
+		f.ID = pane
+	}
+	m.frames[paneKey(localMachine, pane)] = f
+	if m.viewing == pane || m.viewing == "" {
+		m.frame = f
+	}
+}

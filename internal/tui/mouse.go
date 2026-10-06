@@ -328,7 +328,7 @@ func (m *Model) viewMouse(f *leaf, msg tea.MouseMsg, x, y int) tea.Cmd {
 	wheel := msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown
 	switch f.view.Kind {
 	case kindPane:
-		return m.paneMouse(f.view.PaneID, msg, x, y, press, wheel)
+		return m.paneMouse(f.view.Machine, f.view.PaneID, msg, x, y, press, wheel)
 	case kindReviewQueue:
 		if press && left {
 			m.focus = focusMain
@@ -454,15 +454,26 @@ func (m Model) leafAt(rects map[int]rect, x, y int) int {
 // paneMouse handles the mouse over a pane. Programs that asked for mouse
 // input get it; otherwise the wheel scrolls history (or sends arrow keys to
 // full-screen programs) and dragging selects text.
-func (m *Model) paneMouse(paneID string, msg tea.MouseMsg, x, y int, press, wheel bool) tea.Cmd {
-	c := m.viewClient()
+func (m *Model) paneMouse(machine, paneID string, msg tea.MouseMsg, x, y int, press, wheel bool) tea.Cmd {
+	// The pane under the pointer, which is not always the focused one: a
+	// click or a wheel over another split asks for that split's focus, and
+	// the asking is a command that has not run yet. Deciding by the
+	// focused pane's frame sent SGR mouse reports to a pane that had never
+	// asked for the mouse, which printed them as text into an agent's
+	// prompt (`<65;106;43M`), and would have sent them to another
+	// machine's client as well.
+	c := m.clientOf(machine)
 	if c == nil {
 		return nil
 	}
 	if press && !wheel {
 		m.focus = focusMain
 	}
-	f := m.frame
+	f := m.frames[paneKey(machine, paneID)]
+	// Scrolling conch's own history is the focused pane's business: its
+	// offset and selection are what move. A wheel over another split has
+	// just asked for that split's focus, so the next one scrolls it.
+	ours := machine == m.viewMachine && paneID == m.viewing
 	// A link an agent printed, before anything else looks at the click: in
 	// a pane whose program takes the mouse it needs alt or ctrl, since that
 	// program is owed its clicks; anywhere else a plain click opens it,
@@ -473,7 +484,7 @@ func (m *Model) paneMouse(paneID string, msg tea.MouseMsg, x, y int, press, whee
 	switch {
 	case f != nil && f.Mouse && !wheel && (m.selectsOverApp(paneID) || msg.Alt || msg.Ctrl):
 		return m.selectOrClick(c, paneID, msg, x, y)
-	case f != nil && f.Mouse && wheel && m.sel != nil && m.sel.paneID == paneID && f.History > 0:
+	case ours && f != nil && f.Mouse && wheel && m.sel != nil && m.sel.paneID == paneID && f.History > 0:
 		// Text selected in a program that takes the mouse, in a pane conch
 		// has history for: the wheel scrolls that history while the
 		// selection lasts, so it can be taken past the top of the screen.
@@ -497,6 +508,9 @@ func (m *Model) paneMouse(paneID string, msg tea.MouseMsg, x, y int, press, whee
 			key = "up"
 		}
 		c.Notify(proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: paneID, Keys: []string{key, key, key}})
+	case wheel && !ours:
+		// Not the pane on screen yet: this wheel asked for its focus, and
+		// scrolling would have moved the one that is. The next turns it.
 	case wheel:
 		delta := -3
 		if msg.Button == tea.MouseButtonWheelUp {

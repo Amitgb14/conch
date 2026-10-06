@@ -300,11 +300,11 @@ func TestA2WheelScrollsWhileSelecting(t *testing.T) {
 	m.viewing, m.viewMachine = "p1", localMachine
 	c, peer := a1FakeClient(t, "pane.scroll.v1")
 	m.machines[0].c = c
-	m.frame = &proto.Frame{Mouse: true, History: 100, Lines: make([]string, 10)}
+	a2Frame(m, "p1", &proto.Frame{Mouse: true, History: 100, Lines: make([]string, 10)})
 
 	// No selection: the wheel belongs to the program.
 	wheel := tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}
-	a2Run(m.paneMouse("p1", wheel, 1, 1, false, true))
+	a2Run(m.paneMouse(localMachine, "p1", wheel, 1, 1, false, true))
 	if m.offset != 0 {
 		t.Fatalf("scrolled without a selection: offset %d", m.offset)
 	}
@@ -312,7 +312,7 @@ func TestA2WheelScrollsWhileSelecting(t *testing.T) {
 
 	// Selecting, in a pane conch has history for: the wheel is ours.
 	m.sel = &selection{paneID: "p1", ay: 1, by: 1, dragging: true}
-	a2Run(m.paneMouse("p1", wheel, 1, 1, false, true))
+	a2Run(m.paneMouse(localMachine, "p1", wheel, 1, 1, false, true))
 	if m.offset == 0 {
 		t.Fatal("the wheel did not scroll while selecting")
 	}
@@ -329,11 +329,11 @@ func TestA2WheelReachesAnAgentAfterSelecting(t *testing.T) {
 	m.viewing, m.viewMachine = "p1", localMachine
 	c, peer := a1FakeClient(t, "pane.scroll.v1")
 	m.machines[0].c = c
-	m.frame = &proto.Frame{Mouse: true, AltScreen: true, History: 0, Lines: make([]string, 10)}
+	a2Frame(m, "p1", &proto.Frame{Mouse: true, AltScreen: true, History: 0, Lines: make([]string, 10)})
 	m.sel = &selection{paneID: "p1", ax: 1, ay: 1, bx: 5, by: 1, hasContent: true}
 
 	wheel := tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}
-	a2Run(m.paneMouse("p1", wheel, 1, 1, false, true))
+	a2Run(m.paneMouse(localMachine, "p1", wheel, 1, 1, false, true))
 	peer.waitMethod(t, proto.MethodPaneSendMouse, "")
 	if m.offset != 0 {
 		t.Fatalf("there is no history to scroll here: offset %d", m.offset)
@@ -802,7 +802,7 @@ func TestA2ScrollModeInAnAgentPane(t *testing.T) {
 	m.machines[0].c = c
 	// What the server now sends for an agent's pane: the alternate screen,
 	// with history conch recorded as it scrolled.
-	m.frame = &proto.Frame{Mouse: true, AltScreen: true, History: 120, Lines: []string{"newest line", "and another"}}
+	a2Frame(m, "p1", &proto.Frame{Mouse: true, AltScreen: true, History: 120, Lines: []string{"newest line", "and another"}})
 
 	m.enterScrollMode()
 	if !m.scrollMode {
@@ -818,14 +818,14 @@ func TestA2ScrollModeInAnAgentPane(t *testing.T) {
 	// because there is history to move through.
 	m.sel = &selection{paneID: "p1", ay: 1, by: 1, hasContent: true}
 	before := m.offset
-	a2Run(m.paneMouse("p1", tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}, 1, 1, false, true))
+	a2Run(m.paneMouse(localMachine, "p1", tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}, 1, 1, false, true))
 	if m.offset == before {
 		t.Fatal("the wheel should scroll the recorded history while selecting")
 	}
 	// With nothing selected it still belongs to the agent.
 	m.sel = nil
 	at := m.offset
-	a2Run(m.paneMouse("p1", tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}, 1, 1, false, true))
+	a2Run(m.paneMouse(localMachine, "p1", tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}, 1, 1, false, true))
 	if m.offset != at {
 		t.Fatal("without a selection the agent should get the wheel")
 	}
