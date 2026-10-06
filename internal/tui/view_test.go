@@ -541,8 +541,11 @@ func TestA1LayoutHelpers(t *testing.T) {
 	m, _ := a1Fixture(t, false)
 	m.machines[0].panes[0].Agent.State = proto.AgentBlocked
 	m.machines[0].panes[3].Agent.State = proto.AgentDone
-	if m.inboxCount() != 2 {
-		t.Errorf("inbox %d", m.inboxCount())
+	if w, d := m.inboxCount(); w != 1 || d != 1 {
+		t.Errorf("inbox %d waiting, %d done", w, d)
+	}
+	if got := ansi.Strip(m.attentionBadge(localMachine, "")); !strings.Contains(got, "⚑1 ✓1") {
+		t.Errorf("machine badge %q", got)
 	}
 	if got := ansi.Strip(m.attentionBadge("nope", "")); got != "" {
 		t.Errorf("badge of unknown machine %q", got)

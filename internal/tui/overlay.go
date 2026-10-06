@@ -987,6 +987,8 @@ var helpText = []string{
 	"    not the whole plan window. Agents that report no cost (Codex, Gemini) show tokens",
 	"  a task warns before it starts when that agent's plan window is nearly used; it never refuses",
 	"  status bar: Claude 5h 42% · 7d 18% = plan limit windows (click for the lot: resets, every agent, every machine)",
+	"  status bar: ⚑ 1 waiting · 1 done = agents asking you something · agents that finished unseen",
+	"    (done turns idle once you look); the tree's badges say ⚑1 ✓1 the same way; click goes to the next",
 	"  status bar: ⬆ version = updates; click, tick machines with space, u updates",
 	"  status bar: 🌐 = pair a phone (as P): its QR code, and conch web started from there if it isn't running;",
 	"     Settings → Web sets the address phones open and the port, starts or stops conch web,",
