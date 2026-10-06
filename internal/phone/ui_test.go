@@ -1,6 +1,8 @@
 package phone
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"io"
 	"io/fs"
@@ -9,6 +11,7 @@ import (
 	"os/exec"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -139,12 +142,11 @@ func TestUIFiles(t *testing.T) {
 	// no build. The PNG icons are fetched when the app is put on a Home
 	// Screen, not on each visit.
 	//
-	// The gateway serves these as they are, so this is what crosses the
-	// wire — measured at 32 KB gzipped, which nothing does for it yet.
-	// The limit was 96 KiB and the machine headings in the drawer went
-	// through it; it is 104 KiB now rather than whatever the app happens
-	// to weigh, so it stays a budget somebody has to argue with. Trim or
-	// compress before raising it again.
+	// This is the source, not what crosses the wire: the gateway deflates
+	// it, and TestUIIsServedDeflated holds what a phone really downloads
+	// to 48 KiB (34 KB today). This cap is still here because the source
+	// is what gets read and changed, and 104 KiB is a number somebody has
+	// to argue with rather than whatever the app happens to weigh.
 	if total > 104<<10 {
 		t.Errorf("the app is %d bytes; keep it under 104 KiB", total)
 	}
@@ -294,6 +296,186 @@ func TestKeyBarNamesAreKeys(t *testing.T) {
 	for _, m := range names {
 		if _, err := pane.ParseKey(string(m[1])); err != nil {
 			t.Errorf("the bar's %q: %v", m[1], err)
+		}
+	}
+}
+
+// fetchWith makes a request with headers of its own, and without the
+// transport quietly asking for gzip and undoing it: these tests are about
+// what really crosses the wire.
+func fetchWith(t *testing.T, method, url string, header http.Header) (*http.Response, []byte) {
+	t.Helper()
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header = header
+	c := &http.Client{Transport: &http.Transport{DisableCompression: true}}
+	res, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res, b
+}
+
+// The app is served deflated to a phone that takes it: 101 KB of page,
+// script and styles is 32 KB that way, over a tailnet that may be a phone
+// on mobile data, and it is compressed once rather than per request since
+// what is in ui/ cannot change while conch runs.
+func TestUIIsServedDeflated(t *testing.T) {
+	f := newFixture(t)
+	want, err := uiFiles.ReadFile("ui/app.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, body := fetchWith(t, "GET", f.web.URL+"/app.mjs", http.Header{"Accept-Encoding": {"gzip, deflate, br"}})
+	if res.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("Content-Encoding %q", res.Header.Get("Content-Encoding"))
+	}
+	// Anything between here and the phone has to know the bytes depend on
+	// what was asked for.
+	if res.Header.Get("Vary") != "Accept-Encoding" {
+		t.Errorf("Vary %q", res.Header.Get("Vary"))
+	}
+	if got := res.Header.Get("Content-Length"); got != strconv.Itoa(len(body)) {
+		t.Errorf("Content-Length %q for %d bytes", got, len(body))
+	}
+	if !strings.HasPrefix(res.Header.Get("Content-Type"), "text/javascript") {
+		t.Errorf("Content-Type %q", res.Header.Get("Content-Type"))
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("the body is not gzip: %v", err)
+	}
+	got, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("the deflated file is not the file")
+	}
+	if len(body) >= len(want)/2 {
+		t.Errorf("deflating %d bytes gave %d; it is meant to be worth doing", len(want), len(body))
+	}
+
+	// Asked for plainly: the file itself, and still Vary, or a cache in
+	// between would hand these bytes to somebody who asked for gzip.
+	res, plain := fetchWith(t, "GET", f.web.URL+"/app.mjs", http.Header{})
+	if res.Header.Get("Content-Encoding") != "" {
+		t.Errorf("it compressed what was not asked for: %q", res.Header.Get("Content-Encoding"))
+	}
+	if res.Header.Get("Vary") != "Accept-Encoding" {
+		t.Errorf("Vary %q on a plain answer", res.Header.Get("Vary"))
+	}
+	if !bytes.Equal(plain, want) {
+		t.Error("the plain answer is not the file")
+	}
+
+	// A q of nought is a refusal, not an acceptance with a number on it.
+	for _, refused := range []string{"gzip;q=0", "gzip; q=0", "br, gzip;q=0.0", "identity", ""} {
+		res, body := fetchWith(t, "GET", f.web.URL+"/app.mjs", http.Header{"Accept-Encoding": {refused}})
+		if res.Header.Get("Content-Encoding") != "" || !bytes.Equal(body, want) {
+			t.Errorf("Accept-Encoding %q was served %q", refused, res.Header.Get("Content-Encoding"))
+		}
+	}
+	for _, taken := range []string{"gzip", "gzip;q=0.5", "deflate, gzip", "GZIP"} {
+		res, _ := fetchWith(t, "GET", f.web.URL+"/app.mjs", http.Header{"Accept-Encoding": {taken}})
+		if res.Header.Get("Content-Encoding") != "gzip" {
+			t.Errorf("Accept-Encoding %q was not served gzip", taken)
+		}
+	}
+
+	// The rule measures rather than trusting a list of types, which is
+	// how the icons came to be served smaller too: a PNG is deflated
+	// already, but these ones still give a few per cent, and the work was
+	// done once at start-up. What matters is that nothing is served
+	// *larger* than it is, and that what comes back is the file.
+	for _, name := range []string{"icon-180.png", "icon-512.png", "manifest.webmanifest"} {
+		raw, err := uiFiles.ReadFile("ui/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, got := fetchWith(t, "GET", f.web.URL+"/"+name, http.Header{"Accept-Encoding": {"gzip"}})
+		if len(got) > len(raw) {
+			t.Errorf("%s: served %d bytes for a file of %d", name, len(got), len(raw))
+		}
+		if res.Header.Get("Content-Encoding") == "gzip" {
+			zr, err := gzip.NewReader(bytes.NewReader(got))
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if got, err = io.ReadAll(zr); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if !bytes.Equal(got, raw) {
+			t.Errorf("%s is not itself", name)
+		}
+	}
+
+	// HEAD says what a GET would send, and sends none of it.
+	res, body = fetchWith(t, "HEAD", f.web.URL+"/app.mjs", http.Header{"Accept-Encoding": {"gzip"}})
+	if len(body) != 0 {
+		t.Errorf("HEAD sent %d bytes", len(body))
+	}
+	if res.Header.Get("Content-Encoding") != "gzip" || res.Header.Get("Content-Length") == "" {
+		t.Errorf("HEAD headers: encoding %q length %q", res.Header.Get("Content-Encoding"), res.Header.Get("Content-Length"))
+	}
+
+	// What a phone really downloads to start the app: the page, its
+	// script, its styles and the rest of the shell — not the icons, which
+	// are fetched when it is put on a Home Screen. This is the number the
+	// size budget in TestUIFiles is a stand-in for.
+	shell, deflated, icons := 0, 0, 0
+	entries, err := uiFiles.ReadDir("ui")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		raw, _ := uiFiles.ReadFile("ui/" + e.Name())
+		served := len(raw)
+		if gz, ok := uiDeflated()[e.Name()]; ok {
+			served = len(gz)
+		}
+		if path.Ext(e.Name()) == ".png" {
+			icons += served
+			continue
+		}
+		shell, deflated = shell+len(raw), deflated+served
+	}
+	t.Logf("the app's shell is %d bytes, %d served (%.0f%%); its icons are %d served",
+		shell, deflated, 100*float64(deflated)/float64(shell), icons)
+	if deflated > 48<<10 {
+		t.Errorf("a phone downloads %d bytes to start the app; keep it under 48 KiB", deflated)
+	}
+}
+
+// A page of the app is answered with the app, including an agent on
+// another machine — the cold load of /agent/busybox:p1, which is what a
+// notification tapped into a new window asks for. A bare pane left that a
+// 404 for somebody who had just been told an agent was waiting.
+func TestUIServesAPageForAnAgentAnywhere(t *testing.T) {
+	f := newFixture(t)
+	page, err := uiFiles.ReadFile("ui/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"/agent/busybox:p1", "/agent/busybox:p1/", "/agent/gpu-1:p12/terminal", "/agent/local:p3", "/agent/p3"} {
+		res, body := fetch(t, "GET", f.web.URL+p)
+		if res.StatusCode != 200 || body != string(page) {
+			t.Errorf("%s: %d, %d bytes", p, res.StatusCode, len(body))
+		}
+	}
+	// And nothing else reaches the page through the path.
+	for _, p := range []string{"/agent/BUSYBOX:p1", "/agent/busy box:p1", "/agent/../p1", "/agent/a:b:p1", "/agent/busybox:", "/agent/busybox:x1", "/agent/:p1"} {
+		if res, _ := fetch(t, "GET", f.web.URL+p); res.StatusCode != 404 {
+			t.Errorf("%s was served %d", p, res.StatusCode)
 		}
 	}
 }
