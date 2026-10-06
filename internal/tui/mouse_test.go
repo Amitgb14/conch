@@ -255,7 +255,7 @@ func TestA1MouseStatusBar(t *testing.T) {
 		probe := *m
 		probe.overlay = nil
 		if cmd := h.act(&probe); cmd == nil {
-			if _, ok := probe.overlay.(help); ok {
+			if _, ok := probe.overlay.(*help); ok {
 				keysX = x
 				break
 			}
@@ -269,7 +269,7 @@ func TestA1MouseStatusBar(t *testing.T) {
 		t.Fatal("release on the status bar acted")
 	}
 	a1Mouse(t, m, keysX, m.height-1, a1Left, a1Press)
-	if _, ok := m.overlay.(help); !ok {
+	if _, ok := m.overlay.(*help); !ok {
 		t.Fatalf("status click: %T", m.overlay)
 	}
 	m.overlay = nil
