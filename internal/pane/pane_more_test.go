@@ -13,6 +13,8 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/Amitgb14/conch/internal/proto"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // a5Script starts a pane running script directly (not typed at a prompt), so
@@ -531,5 +533,66 @@ func TestReadableRejectsHighDescriptors(t *testing.T) {
 	defer unix.Close(high)
 	if _, err := readable(fdSetSize, time.Millisecond); !errors.Is(err, ErrFDTooHigh) {
 		t.Fatalf("fd exactly at the limit: %v", err)
+	}
+}
+
+// TestA5GivingBackTheMouseIsWorthAFrame: a program taking the mouse or
+// giving it back changes nothing on the screen — it is an escape sequence
+// and no cell moves — so nothing else would send a frame, and a client
+// would go on deciding by the flag in the last one it got.
+//
+// That is not academic: a conch TUI kept forwarding the wheel to an agent
+// that had stopped asking for the mouse, and the agent printed the
+// reports into its prompt as `<65;121;38M`. Reported twice from use.
+//
+// The modes are set here rather than printed by a shell on purpose: a
+// shell echoes what it is told and draws a new prompt, which changes the
+// screen and would send a frame anyway — the first version of this test
+// passed with the fix taken out for exactly that reason.
+func TestA5GivingBackTheMouseIsWorthAFrame(t *testing.T) {
+	p := startShell(t)
+	if p.Frame().Mouse {
+		t.Fatal("a fresh shell holds the mouse")
+	}
+
+	woke := func(t *testing.T, what string, ch <-chan struct{}) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s woke nobody, so a client would keep deciding by a stale frame", what)
+		}
+	}
+
+	// Taking it.
+	changed := p.Changed()
+	p.setMode(ansi.ModeMouseNormal, true)
+	woke(t, "taking the mouse", changed)
+	if !p.Frame().Mouse {
+		t.Fatal("the frame does not say the mouse was taken")
+	}
+
+	// One of two modes going is not giving the mouse back. (Whether a
+	// second mode sends a frame of its own is not asserted: a live shell
+	// may write at any moment, and a test that minds extra frames would
+	// mind the shell's.)
+	p.setMode(ansi.ModeMouseAnyEvent, true)
+	p.setMode(ansi.ModeMouseAnyEvent, false)
+	if !p.Frame().Mouse {
+		t.Fatal("it gave the mouse back while still holding a mode")
+	}
+
+	// The last one going is — and this is the half that was missing.
+	changed = p.Changed()
+	p.setMode(ansi.ModeMouseNormal, false)
+	woke(t, "giving the mouse back", changed)
+	if p.Frame().Mouse {
+		t.Fatal("the frame still says the program holds the mouse")
+	}
+
+	// A mode that has nothing to do with the mouse leaves the flag alone.
+	p.setMode(ansi.ModeBracketedPaste, true)
+	if p.Frame().Mouse {
+		t.Error("bracketed paste took the mouse")
 	}
 }

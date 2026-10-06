@@ -251,6 +251,17 @@ helpers in `cmd/conch` and `internal/remote`.
   value is an arrow, since that is what a terminal shows before conch
   asks. Every way out goes through `quitting` or `releasePointer`: a hand
   asked for by conch outlives conch, over whatever the shell draws next.
+- **A frame is also how a client learns who holds the mouse.** A program
+  asking for mouse reports, or giving them back, moves no cell, so nothing
+  in the output path sends a frame — and a client goes on deciding by the
+  `Mouse` flag in the last one it got. That is how a wheel kept being
+  forwarded to an agent that had stopped asking for the mouse, which
+  printed the reports into its prompt as `<65;121;38M`: twice from use,
+  the second time after the forwarding itself had been fixed. So
+  `setMode` notifies when the *overall* mouse state changes (not per mode:
+  a program holding two and releasing one still wants it). Anything else
+  put in a frame that the screen does not show has the same question to
+  answer: what sends the frame that says it changed?
 - **The mouse goes to the pane under the pointer, not the focused one.**
   A click or a wheel over another split asks for that split's focus, and
   the asking is a command that has not run yet — so for that event the

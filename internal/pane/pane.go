@@ -555,19 +555,33 @@ var mouseModes = map[ansi.Mode]bool{
 
 func (p *Pane) setMode(mode ansi.Mode, on bool) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if on {
 		p.modes[mode] = true
 	} else {
 		delete(p.modes, mode)
 	}
 	if !mouseModes[mode] {
+		p.mu.Unlock()
 		return
 	}
+	was := len(p.mouseModes) > 0
 	if on {
 		p.mouseModes[mode] = true
 	} else {
 		delete(p.mouseModes, mode)
+	}
+	now := len(p.mouseModes) > 0
+	p.mu.Unlock()
+
+	// Taking the mouse, or giving it back, changes nothing on the screen:
+	// it is an escape sequence and no cell moves. So nothing would have
+	// sent a frame, and a client would go on deciding by the flag in the
+	// last one — which is how a wheel kept being forwarded to an agent
+	// that had stopped asking for the mouse, and was printed into its
+	// prompt as `<65;121;38M`. The flag is in the frame, so a change to it
+	// is a change worth a frame.
+	if was != now {
+		p.notify()
 	}
 }
 
