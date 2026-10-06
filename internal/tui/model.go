@@ -128,7 +128,10 @@ type Model struct {
 	hoverTab   int    // the tab under it, as an index into m.tabs; -1 none
 	// hoverLink is the link in a pane under the pointer, drawn as the
 	// clickable thing it is (linkclick.go).
-	hoverLink   hoverLink
+	hoverLink hoverLink
+	// pointer is the shape the terminal was last asked for, so it is
+	// asked only when it changes (pointer.go).
+	pointer     string
 	scrollDrag  int // a leaf whose scrollbar is being dragged
 	scrollTop   int // the track's first screen row, and its height
 	scrollH     int

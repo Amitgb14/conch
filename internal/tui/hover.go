@@ -50,6 +50,7 @@ func (m *Model) hoverAt(msg tea.MouseMsg) bool {
 // when a dialog opens over everything, or when hover is turned off.
 func (m *Model) clearHover() {
 	m.hoverRow, m.hoverTab, m.hoverLink = "", -1, hoverLink{}
+	m.releasePointer()
 }
 
 // hovering reports whether a tree row is the one under the pointer.

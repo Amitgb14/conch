@@ -137,7 +137,8 @@ network. The person running the tests may be *inside* a live conch session.
 - **Clipboard, browser, notifications, sounds:** assert that a command is
   returned; don't run it. In `internal/tui` the reaching-out itself is
   behind variables — `putClipboard`, `openInBrowser`, `runOutward`,
-  `startOutward`, `ringBell` — and `TestMain` replaces all of them, because
+  `startOutward`, `ringBell`, `setPointerShape` — and `TestMain` replaces
+  all of them, because
   a test that ran a copy once put its own fixture on the developer's
   clipboard: the OSC 52 escape conch prints was honoured by the terminal
   running `go test`. Keep new outward effects behind a variable too, and
@@ -239,6 +240,17 @@ helpers in `cmd/conch` and `internal/remote`.
   compressing would cost ~26µs, which is why this is an ssh matter and
   not something in `internal/proto`. `[remote] no_compression` turns it
   off for a link as fast as the processor.
+- **The pointer's shape is the terminal's to draw.** Hovering a link
+  underlines it, which conch does by drawing; the arrow becoming a hand
+  is asked for with `OSC 22` (kitty's pointer shape, which Ghostty takes
+  too) and nothing else can do it — the mouse protocols carry no such
+  thing, and iTerm2 and Terminal.app have no escape for it, so there the
+  underline is the whole feature. `internal/tui/pointer.go` remembers the
+  shape it asked for, because hover reports every cell the pointer
+  crosses and a write per cell for a shape already set is waste; the zero
+  value is an arrow, since that is what a terminal shows before conch
+  asks. Every way out goes through `quitting` or `releasePointer`: a hand
+  asked for by conch outlives conch, over whatever the shell draws next.
 - **The mouse goes to the pane under the pointer, not the focused one.**
   A click or a wheel over another split asks for that split's focus, and
   the asking is a command that has not run yet — so for that event the

@@ -53,7 +53,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch k.String() {
 	case "q", "ctrl+c":
-		return m, tea.Sequence(m.saveState(), tea.Quit)
+		return m, m.quitting(m.saveState())
 	case "v", "s", "O":
 		if !ok {
 			break
@@ -449,7 +449,7 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 		m.openTabPicker()
 		return nil, true
 	case "d":
-		return tea.Sequence(m.saveState(), tea.Quit), true
+		return m.quitting(m.saveState()), true
 	case "?":
 		m.overlay = newHelp()
 		return nil, true

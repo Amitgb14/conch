@@ -19,6 +19,9 @@ func TestMain(m *testing.M) {
 	runOutward = func(*exec.Cmd) {}
 	startOutward = func(*exec.Cmd) error { return nil }
 	ringBell = func() { bells++ }
+	// The pointer shape is an escape to the real terminal: a test that
+	// sent it would leave the developer's own pointer as a hand.
+	setPointerShape = func(shape string) { pointerShapes = append(pointerShapes, shape) }
 	signalProcess = func(pid int, sig syscall.Signal) error { signalled = append(signalled, pid); return nil }
 	m.Run()
 }
@@ -29,4 +32,7 @@ var (
 	lastOpened    string
 	bells         int
 	signalled     []int
+	// pointerShapes is every shape asked for, in order: the point of the
+	// feature is that it is asked for once per crossing, not per motion.
+	pointerShapes []string
 )

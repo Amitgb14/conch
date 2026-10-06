@@ -305,7 +305,7 @@ func (m *Model) handleUpdate(msg tea.Msg) (tea.Cmd, bool) {
 		return tea.Batch(mach.connect(false), m.rebuild()), true
 	case restartTUIMsg:
 		m.restart = true
-		return tea.Quit, true
+		return m.quitting(), true
 	}
 	return nil, false
 }

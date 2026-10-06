@@ -158,6 +158,13 @@ func (m *Model) linkHoverAt(msg tea.MouseMsg) bool {
 			}
 		}
 	}
+	// The pointer says it too, where the terminal takes OSC 22: a hand
+	// over a link, an arrow everywhere else (pointer.go).
+	if found.pane != "" {
+		m.pointAt(pointerHand)
+	} else {
+		m.pointAt(pointerArrow)
+	}
 	if found == m.hoverLink {
 		return false
 	}
