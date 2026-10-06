@@ -40,6 +40,10 @@ type uiState struct {
 	// NoProjectOffer is the repositories you answered No to adding as a
 	// project when conch was started in them (launch.go).
 	NoProjectOffer []string `json:"no_project_offer,omitempty"`
+	// Spaces are the workspaces after the first (spaces.go); Tabs above
+	// stay the first one's, which is all an older build knows of.
+	Spaces      []savedSpace `json:"spaces,omitempty"`
+	ActiveSpace int          `json:"active_space,omitempty"`
 }
 
 // savedFolder is one folder of the tree and what is in it. A pane is held
@@ -104,8 +108,9 @@ func saveUIState(path string, st uiState) error {
 // saveState writes fold state and sidebar width in the background. The
 // maps are copied because the model keeps changing them.
 func (m Model) saveState() tea.Cmd {
+	tabs, active := m.firstSpaceTabs()
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
-		Tabs: m.savedTabs(), ActiveTab: m.activeTab, LimitAlerts: map[string]int{},
+		Tabs: saveTabs(tabs), ActiveTab: active, Spaces: m.savedSpaces(), ActiveSpace: m.activeSpace, LimitAlerts: map[string]int{},
 		QueueDismissed: map[string]string{}, SavedSSH: slices.Clone(m.savedSSH), NoProjectOffer: slices.Clone(m.noProjectOffer)}
 	if len(m.sshInfo) > 0 {
 		st.SSHHosts = make(map[string]sshHostInfo, len(m.sshInfo))

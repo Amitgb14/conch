@@ -483,6 +483,16 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 		}
 	case "c":
 		return m.newShellTab(), true
+	case "N":
+		return m.newSpace(), true
+	case "(":
+		return m.stepSpace(-1), true
+	case ")":
+		return m.stepSpace(1), true
+	case "$":
+		return m.renameSpaceAsk(), true
+	case "X":
+		return m.closeSpaceAsk(), true
 	case "C":
 		return m.changesTab(), true
 	case "n":
@@ -763,6 +773,12 @@ func (m *Model) openRemove() tea.Cmd {
 			return nil
 		}
 		id, mid := proj.ID, r.machine
+		if m.isolated() != nil {
+			m.overlay = newConfirm(fmt.Sprintf("Take %s out of this workspace? It stays in workspace 1.", proj.Name), func(m *Model) tea.Cmd {
+				return m.leaveSpace(mid, id)
+			})
+			return nil
+		}
 		m.overlay = newConfirm(fmt.Sprintf("Remove %s from the sidebar? Files are not touched.", proj.Name), func(m *Model) tea.Cmd {
 			return m.callOn(mid, proto.MethodProjectRemove, proto.ProjectRef{ID: id}, nil, nil)
 		})

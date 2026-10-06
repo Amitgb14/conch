@@ -1170,9 +1170,11 @@ func itoa(i int) string {
 
 // ---- persistence ----
 
-func (m Model) savedTabs() []savedTab {
+func (m Model) savedTabs() []savedTab { return saveTabs(m.tabs) }
+
+func saveTabs(tabs []*tab) []savedTab {
 	var out []savedTab
-	for _, t := range m.tabs {
+	for _, t := range tabs {
 		out = append(out, savedTab{Name: t.name, Root: saveNode(t.root, t.focus), Sync: t.sync})
 	}
 	return out

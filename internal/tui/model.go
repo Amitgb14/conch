@@ -111,21 +111,26 @@ type Model struct {
 	keepTab    bool            // the next syncView keeps the tab just chosen
 	pickedFor  string          // the cursor row the tab was last picked for
 	scopeTab   map[string]*tab // the tab last used per group
-	leafSeq    int
-	frames     map[string]*proto.Frame // latest frame per visible pane (paneKey)
-	subscribed map[string]bool
-	barDrag    *splitBar // a split boundary being dragged
-	tabDrag    bool      // a tab is being dragged along the bar
-	leafDrag   int       // a split being dragged by its title, to swap
-	leafDrop   int       // the split under the pointer while it is dragged
-	tabDrop    int       // the tab under it instead, to move the split there (-1: none)
-	treeSig    string    // the layout the tree was last grouped by, when grouped by tab
-	rowDrag    string    // a tree row being carried to a tab's section (its id)
-	rowDrop    string    // the tab section under it, while it is held
-	swapMark   [2]int    // the two splits that just swapped, marked briefly
-	swapUntil  time.Time
-	hoverRow   string // the tree row under the pointer, with [ui] hover
-	hoverTab   int    // the tab under it, as an index into m.tabs; -1 none
+	// spaces are the workspaces picked beside conch at the sidebar's top
+	// (spaces.go): nil until a second is made. activeSpace is the one on
+	// screen, whose tabs are m.tabs.
+	spaces      []*space
+	activeSpace int
+	leafSeq     int
+	frames      map[string]*proto.Frame // latest frame per visible pane (paneKey)
+	subscribed  map[string]bool
+	barDrag     *splitBar // a split boundary being dragged
+	tabDrag     bool      // a tab is being dragged along the bar
+	leafDrag    int       // a split being dragged by its title, to swap
+	leafDrop    int       // the split under the pointer while it is dragged
+	tabDrop     int       // the tab under it instead, to move the split there (-1: none)
+	treeSig     string    // the layout the tree was last grouped by, when grouped by tab
+	rowDrag     string    // a tree row being carried to a tab's section (its id)
+	rowDrop     string    // the tab section under it, while it is held
+	swapMark    [2]int    // the two splits that just swapped, marked briefly
+	swapUntil   time.Time
+	hoverRow    string // the tree row under the pointer, with [ui] hover
+	hoverTab    int    // the tab under it, as an index into m.tabs; -1 none
 	// hoverLink is the link in a pane under the pointer, drawn as the
 	// clickable thing it is (linkclick.go).
 	hoverLink hoverLink
@@ -232,6 +237,7 @@ func New(local *client.Client, cfg config.Config) Model {
 	m.sshInfo = cleanSSHInfo(m.savedSSH, st.SSHHosts)
 	m.folders = migrateSSHGroups(m.folders, st.SSHGroups, m.savedSSH, m.sshInfo)
 	m.restoreTabs(st.Tabs, st.ActiveTab)
+	m.restoreSpaces(st.Spaces, st.ActiveSpace)
 	if st.SidebarWidth > 0 {
 		m.sidebarW = st.SidebarWidth
 	}
@@ -453,6 +459,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.rebuild()
 
+	case spaceProjectMsg:
+		return m, m.receiveSpaceProject(msg)
+
 	case launchProjectMsg:
 		return m, m.receiveLaunchProject(msg.info)
 
@@ -460,6 +469,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if mach := m.machine(msg.machine); mach != nil && mach.paneIndex(msg.info.ID) < 0 {
 			mach.panes = append(mach.panes, msg.info)
 		}
+		m.joinSpace(msg.machine, msg.info.ProjectID, msg.info.ID)
 		m.revealPane(msg.machine, msg.info)
 		m.arrived()
 		m.focus = focusMain
@@ -941,9 +951,13 @@ func (m Model) notifyAttention(mach *machine, old, info proto.PaneInfo) tea.Cmd 
 func (m *Model) rebuild() tea.Cmd {
 	prevIndex := indexOfRow(m.rows, m.cursor)
 	in := treeInput{expanded: m.expanded, showAll: m.showAll, filter: m.filter, now: time.Now()}
+	iso := m.isolated()
 	for _, mach := range m.machines {
 		tm := treeMachine{id: mach.id, label: mach.label, panes: mach.panes, projects: mach.projects,
 			agents: mach.agents, sessions: m.hasSessions(mach.id)}
+		if iso != nil {
+			tm.projects, tm.panes = iso.filter(mach.id, mach.projects, mach.panes)
+		}
 		if provider, _, ok := remote.ParseSandboxTarget(mach.target); ok {
 			tm.sandbox = provider
 		}

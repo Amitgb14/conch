@@ -33,7 +33,8 @@ func (m Model) View() string {
 		if m.focus == focusMain {
 			sideColor = colorBorder
 		}
-		left := frameLines(styleSel.Render(" ◆ conch "), exactly(m.sidebarLines(sw, sh), sh), sw, sideColor)
+		header, _ := m.spaceHeader(max(sw-2, 0))
+		left := frameLines(header, exactly(m.sidebarLines(sw, sh), sh), sw, sideColor)
 		for i := range screen {
 			if i < len(left) {
 				screen[i] = left[i]
@@ -138,7 +139,7 @@ func (m Model) sidebarLines(w, h int) []string {
 	for i := m.scroll; i < len(m.rows) && len(lines) < h; i++ {
 		lines = append(lines, m.rowLine(m.rows[i], w))
 	}
-	if len(m.rows) <= 1 && len(m.allPanes()) == 0 && len(m.machines[0].projects) == 0 {
+	if len(m.rows) <= 1 && (m.isolated() != nil || len(m.allPanes()) == 0 && len(m.machines[0].projects) == 0) {
 		lines = append(lines, "", styleMuted.Render(" a  add a project"), styleMuted.Render(" c  start an agent"), styleMuted.Render(" n  open a terminal"))
 	}
 	return lines

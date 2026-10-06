@@ -573,7 +573,7 @@ func newAddProjectDialog(m Model, mid string) *dialog {
 	d.submit = func(m *Model, v []string) tea.Cmd {
 		var info proto.ProjectInfo
 		return m.callOn(mid, proto.MethodProjectAdd, proto.ProjectAddParams{Path: strings.TrimSpace(v[0])}, &info,
-			func() tea.Msg { return flashMsg("added " + info.Name) })
+			m.addedProject(mid, &info, "added "))
 	}
 	return d
 }
@@ -951,6 +951,8 @@ var helpText = []string{
 	"  a tab marked ! (amber) has an agent waiting for your answer",
 	"  & close tab   , rename tab   z zoom   ! next waiting agent   : ask   d detach   ? this help",
 	"  S type into every split of the tab at once (again to stop; synced borders turn amber)",
+	"  N new workspace (own tabs and tree; + beside conch)   ( ) previous / next workspace   $ rename   X close workspace",
+	"  a workspace after the first shows only the projects added to it (a) and what was started in it",
 	"  in the tree: v open in a split right · s below · O in a new tab (beside what the tab already shows)",
 	"  mouse: click a split to focus it · drag borders to resize · drag a split's title onto another to swap them, onto a tab to move it there, onto + for a tab of its own · drag the bar on a pane's right edge to scroll its history · click tabs and × · drag a tab to reorder · + new tab, terminal, agent or ssh",
 	"  mouse: click a link an agent printed to open it (alt+click inside an agent's own interface, which is owed its clicks)",
