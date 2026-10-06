@@ -129,13 +129,16 @@ func TestBugReportMenu(t *testing.T) {
 	}
 }
 
-// TestBugButtonEarnsItsPlace: the 🐞 on the status bar opens the report in
+// TestBugButtonEarnsItsPlace: the ⊙ on the status bar opens the report in
 // one click — but the bar keeps only its first four hints when it runs out
 // of room and lets the rest go quietly, so a button that merely fitted
 // would be taking "? keys" off bars that had it. It is there only when
 // every hint still fits beside it.
 func TestBugButtonEarnsItsPlace(t *testing.T) {
 	a2Isolate(t)
+	if w := ansi.StringWidth(issueIcon); w != 1 {
+		t.Fatalf("the issue button is %d cells wide", w)
+	}
 	m := a2Model()
 	m.machines[0].c = a2Client()
 
@@ -148,7 +151,7 @@ func TestBugButtonEarnsItsPlace(t *testing.T) {
 		if got := ansi.StringWidth(line); got != w {
 			t.Fatalf("width %d: the bar is %d wide", w, got)
 		}
-		bug := strings.Contains(plain, "🐞")
+		bug := strings.Contains(plain, issueIcon)
 		keys := strings.Contains(plain, "keys")
 		switch {
 		case bug && !keys:
@@ -159,7 +162,7 @@ func TestBugButtonEarnsItsPlace(t *testing.T) {
 		}
 		// Where it is shown, it is clickable, and the click opens the
 		// report rather than anything else.
-		col := ansi.StringWidth(plain[:strings.Index(plain, "🐞")])
+		col := ansi.StringWidth(plain[:strings.Index(plain, issueIcon)])
 		var act func(m *Model) tea.Cmd
 		for _, h := range hits {
 			if col >= h.x0 && col < h.x1 {
