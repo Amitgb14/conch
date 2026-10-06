@@ -213,6 +213,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 9.105 💳🌐 | A Devin Cloud session as a machine | With `DEVIN_API_KEY` (a service user's `cog_…`) set and the devin CLI signed in (`devin auth login`): `conch sandbox -provider devin create -label dv`; `conch -m dv status`; a terminal and an agent there from the TUI; `conch sandbox -provider devin ssh dv uname -a; echo $?` and `ssh -t dv htop`; leave it idle until Devin puts it to sleep, then `start dv`; `stop dv` then `start dv`; `rm dv`; then the same create with `devin auth logout`, with `-snapshot windows` (or an outpost pool), and with `-env` | `create` makes a session tagged `conch` that Devin answers and then waits in (check its ACUs in the web app), installs conch through `devin ssh` with the script as an ssh `RemoteCommand`, and saves `devin:devin-…`; the bridge holds; the shell is a real terminal and a command exits with its own status; a session Devin put to sleep shows stopped, and `start` wakes it with one message; `stop` archives it and `start` unarchives and wakes it; `rm` ends it and `ls` no longer lists it; signed out, the create says `not logged in — run devin auth login first` instead of hanging, and the session is dealt with as any sandbox whose setting up failed; the platform and the variables (as session secrets) reach the VM | ☐ not run: written 2026-10-05 against Devin's v3 API spec and the devin 3000.11.3 CLI's help, with no real session made. To confirm: whether `devin ssh` passes `-T`/`-o RemoteCommand=…` through to ssh as documented, whether its approval works with no terminal, and how long Devin lets an idle session run before it sleeps |
 | 9.106 📱🖥 | A phone reaches only the machines it was given | With busybox in the catalog, `conch web` and two phones paired (or a phone and a browser): give one of them busybox and not the other. On each: open the app, look at the machine list and the agents, try to open an agent's screen there (take the URL from the other phone — `/agent/busybox:p1`), and leave both on the list while an agent there starts waiting. Then `conch web permission ID full -machine local` on the one that had it, while its page is open | The one without busybox never names it: not in the machine list, not in the agents or panes, not in `hello`, and the pane URL taken from the other phone says it may not reach that machine and how to grant it — while this computer's agents are all still there. Only the phone with busybox is notified when the agent there starts waiting, and both are notified about an agent on this computer. Taking the machine away removes it from the open page within a couple of seconds and no further frame arrives from it; the phone keeps working on this computer's panes without pairing again. The Devices panel and `conch web devices` say which machines each device holds | ☐ |
 | 9.107 | The pointer over a link | With `[ui] hover` on, in Ghostty and kitty: move the pointer across a link an agent printed, along it, off it, and over a link in a pane running an agent's own interface with and without alt held; then quit conch with the pointer over a link, and look at the shell's pointer. Repeat in iTerm2, Terminal.app and inside tmux | The pointer becomes a hand over the link and an arrow again off it, in step with the underline; moving along one link does not flicker; in the pane that owns the mouse it is a hand only while alt is held; after quitting, the pointer is an arrow over the shell. In iTerm2, Terminal.app and tmux nothing is printed on screen and the underline still works. (Fakes cannot show this: the shape is the terminal's to draw, and what conch can check is only the bytes it wrote) | ☐ |
+| 9.108 📱 | A real phone browser deflates the socket | On iOS Safari and Android Chrome, with the app open on a busy agent: in the browser's network view look at the socket's response headers, and watch an agent print a few screens | `Sec-WebSocket-Extensions: permessage-deflate` is agreed and frames arrive correctly — colours, wrapping and scrolling as before — with no stalling on a slow link. (Fakes prove the bytes but not that these two browsers negotiate it, and a browser that refused would silently fall back) | ◐ R50 2026-10-06 measured end to end against a real pane on busybox, but through a hand-written client rather than Safari or Chrome |
 | 9.49 💳 | One setup, every agent | A real checkout with Claude Code set up in it (CLAUDE.md, `.claude/skills/*`, `.mcp.json` with a real server): `i` → `s`, read the question, answer yes; then start Codex, Gemini and OpenCode there and ask each what instructions, skills and MCP servers it has; `i` → `u`; the same over `-m` to a remote checkout 🖥; `conch agent sync -apply` on a repository whose AGENTS.md somebody wrote | The question lists each write with its path; after yes, Codex and OpenCode read the copied AGENTS.md, Gemini follows `@CLAUDE.md`, all three list the skill from `.agents/skills`, and each agent really lists the synced MCP server when asked (the formats are the part fakes cannot prove); a server whose env holds a token is left out and said so; `u` puts the checkout back exactly, `git status` clean; the hand-written AGENTS.md is reported skipped and unchanged | ◐ R28 2026-09-27: every MCP format against each agent's own CLI, Codex reading the copied AGENTS.md for real, Gemini reading the linked skill from `.agents/skills`, undo leaving the checkout as it was. Not run: Gemini's `@CLAUDE.md` import and OpenCode's AGENTS.md with a model (neither is logged in non-interactively here), a hand-written AGENTS.md, and the whole of it over `-m` |
 | 9.55 💳 | Your own setup, given to the others | With Claude Code set up in your home (CLAUDE.md, ~/.claude/skills, servers in ~/.claude.json): Settings → Agents → **Give the others Claude Code's setup…**, read the question, answer yes; then ask Codex, Gemini and OpenCode what they load, anywhere; then **Put the last one back…**; and again with one of the files symlinked into a dotfiles repository | The question names every path in full and warns there is no git status; afterwards each agent's own CLI lists the synced server and skill wherever you are, not only in one checkout; Claude's ~/.claude.json is untouched; putting it back leaves the home as it was, and the record is under ~/.config/conch/agent-sync; a symlinked file is skipped with "a dotfiles repository?" and the repository is unchanged | ◐ R33 2026-09-27: the plan, apply and undo in a scratch home, `codex mcp list` showing the server from ~/.codex/config.toml and `gemini skills list` the skill from ~/.agents/skills, and the symlink guard by test. Not run: a real home of somebody's own, and OpenCode's CLI (its login is expired here) |
 | 9.56 💳 | Each agent's own way of naming a variable | A real server needing a token (e.g. GitHub's, `GITHUB_TOKEN`) and an HTTP one with `Authorization: Bearer ${TOKEN}`, declared for Claude Code; `conch agent sync -apply` to Codex, Gemini, OpenCode and Devin (with Devin's `read_config_from.claude` off, so it gets its own file); then in each agent list the servers and use one | Codex's config.toml has `env_vars = ["GITHUB_TOKEN"]` and `bearer_token_env_var`, no `${…}`, and the server authenticates; OpenCode's has `{env:GITHUB_TOKEN}`; Devin's `.devin/mcp_config.json` has `${env:GITHUB_TOKEN}` and `transport: "http"`, and `devin mcp list` shows both working — the docs only promise `${env:…}` in its OAuth fields, so this is the check that it works in `env` and `headers`; Gemini lists the HTTP server from `httpUrl`. A server whose variable is renamed (`GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_TOKEN}`) is left out for Codex, with the reason | ☐ |
@@ -311,6 +312,43 @@ Read the screen back with `conch read ID`. Always with a scratch
 `CONCH_HOME` and socket, and `CONCH_PANE_ID` unset.
 
 ## Runs
+
+### R50 — 2026-10-06, the phone's socket deflated, macOS arm64 → busybox (Linux), build 0.1.7-dev
+
+What a phone really downloads while an agent works, measured on the live
+gateway against a pane on busybox rather than on a fixture: a client of
+its own making, counting every byte the server sent it and inflating
+permessage-deflate by hand, asked for twenty-five frames of a terminal
+printing styled lines.
+
+| | frames | JSON | on the wire |
+| --- | --- | --- | --- |
+| no extension offered | 25 | 90,416 B | **90,955 B** |
+| permessage-deflate | 25 | 96,164 B | **5,544 B** |
+
+Sixteen times fewer bytes — 3.6 KB a frame down to 222 B — with the
+gateway agreeing `permessage-deflate` in the handshake. The JSON differs
+between the runs because the screens are not identical; the wire figures
+are what was counted.
+
+Two things worth keeping. A single cold frame, with nothing before it to
+match against, went 6,241 B to 2,282 B — 2.7×, not sixteen: the saving is
+in the window across messages, which is what the mode was chosen for. And
+an idle agent sends one frame and then nothing, so measuring this needs a
+screen that moves; the first attempt looked like a 2.7× feature because
+the agent on busybox was sitting still.
+
+Also confirmed on the way: a pasted command is a paste. Text with a
+newline in it goes in bracketed, so the shell does not run it — the
+command sat on the command line until Enter was sent as a key, which is
+the behaviour a phone wants and briefly looked like a bug in the test.
+
+The scratch gateway ran on its own `CONCH_HOME` and socket, the terminal
+it made on busybox was closed afterwards, and the agent already running
+there was never touched.
+
+Not run: iOS Safari and Android Chrome negotiating it (9.108), and a
+genuinely slow link.
 
 ### R49 — 2026-10-05, compression on a real ssh connection, macOS arm64 → busybox (Linux), build 0.1.7-dev
 
