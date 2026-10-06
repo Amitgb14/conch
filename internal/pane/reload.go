@@ -103,7 +103,9 @@ func (p *Pane) Resume() {
 	old := p.readDone
 	p.stopRead, p.readDone = stop, done
 	p.handedOver = false // the handover failed: the terminal is ours again
+	ptmx := p.ptmx
 	p.mu.Unlock()
+	closeOnExec(ptmx) // KeepOnExec opened it to the exec that didn't happen
 	go func() {
 		<-old
 		p.readLoop(stop, done)
@@ -192,6 +194,10 @@ func Adopt(snap Snapshot, ptmx *os.File) (*Pane, error) {
 		proc:          proc,
 		ptmx:          ptmx,
 	}
+	// It came through an exec open, and would otherwise be inherited by
+	// every program started from now on, holding this terminal open after
+	// its pane has closed it: a program there then never hears it hang up.
+	closeOnExec(ptmx)
 	p.newEmulator(snap.Cols, snap.Rows)
 	// A piece at a time, so the history being replayed goes into text as
 	// it scrolls rather than all of it into the emulator's cells first.
@@ -233,4 +239,14 @@ func (p *Pane) redraw() {
 func KeepOnExec(f *os.File) error {
 	_, err := unix.FcntlInt(f.Fd(), unix.F_SETFD, 0)
 	return err
+}
+
+// closeOnExec undoes KeepOnExec.
+func closeOnExec(f *os.File) {
+	if f == nil {
+		return
+	}
+	if rc, err := f.SyscallConn(); err == nil {
+		_ = rc.Control(func(fd uintptr) { unix.CloseOnExec(int(fd)) })
+	}
 }

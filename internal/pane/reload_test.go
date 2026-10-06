@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"golang.org/x/sys/unix"
 
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -226,6 +227,69 @@ func TestResumeTakesTheTerminalBack(t *testing.T) {
 	if _, err := ptmx.Stat(); !errors.Is(err, os.ErrClosed) {
 		t.Fatalf("after Resume the pane owns the terminal again, so it must close it: %v", err)
 	}
+}
+
+// TestResumeClosesTheTerminalOnExecAgain: a failed reload had opened the
+// terminal to the exec; taken back, it must not leak into every program
+// started afterwards, which then hold it open after the pane closes it.
+func TestResumeClosesTheTerminalOnExecAgain(t *testing.T) {
+	p := startShell(t)
+	waitScreen(t, p, "$")
+	_, ptmx, err := p.Detach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := KeepOnExec(ptmx); err != nil {
+		t.Fatal(err)
+	}
+	if closesOnExec(t, ptmx) {
+		t.Fatal("KeepOnExec left the terminal close-on-exec")
+	}
+	p.Resume()
+	if !closesOnExec(t, ptmx) {
+		t.Fatal("a resumed pane's terminal is inherited by programs started later")
+	}
+}
+
+// TestAdoptClosesTheTerminalOnExec: an adopted terminal came through an
+// exec open and must be closed on the next, or every pane started after a
+// reload inherits every earlier pane's terminal — once leaving a test's
+// loop spinning, orphaned, on a terminal that never hung up.
+func TestAdoptClosesTheTerminalOnExec(t *testing.T) {
+	p := startShell(t)
+	waitScreen(t, p, "$")
+	snap, ptmx, err := p.Detach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := KeepOnExec(ptmx); err != nil {
+		t.Fatal(err)
+	}
+	q, err := Adopt(snap, ptmx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { q.Close() })
+	if !closesOnExec(t, ptmx) {
+		t.Fatal("an adopted terminal is inherited by programs started later")
+	}
+}
+
+func closesOnExec(t *testing.T, f *os.File) bool {
+	t.Helper()
+	rc, err := f.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flags int
+	var ferr error
+	if err := rc.Control(func(fd uintptr) { flags, ferr = unix.FcntlInt(fd, unix.F_GETFD, 0) }); err != nil {
+		t.Fatal(err)
+	}
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	return flags&unix.FD_CLOEXEC != 0
 }
 
 // waitExited waits for the pane's program to end and its wait goroutine to
