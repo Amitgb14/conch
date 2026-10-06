@@ -106,28 +106,31 @@ type Model struct {
 	lastTab   *tab // the tab active before it (ctrl+b l)
 	// preview shows the tree selection when its group has no tab to show
 	// (see scope.go); previewing means it is on screen instead of a tab.
-	preview     *tab
-	previewing  bool
-	keepTab     bool            // the next syncView keeps the tab just chosen
-	pickedFor   string          // the cursor row the tab was last picked for
-	scopeTab    map[string]*tab // the tab last used per group
-	leafSeq     int
-	frames      map[string]*proto.Frame // latest frame per visible pane (paneKey)
-	subscribed  map[string]bool
-	barDrag     *splitBar // a split boundary being dragged
-	tabDrag     bool      // a tab is being dragged along the bar
-	leafDrag    int       // a split being dragged by its title, to swap
-	leafDrop    int       // the split under the pointer while it is dragged
-	tabDrop     int       // the tab under it instead, to move the split there (-1: none)
-	treeSig     string    // the layout the tree was last grouped by, when grouped by tab
-	rowDrag     string    // a tree row being carried to a tab's section (its id)
-	rowDrop     string    // the tab section under it, while it is held
-	swapMark    [2]int    // the two splits that just swapped, marked briefly
-	swapUntil   time.Time
-	hoverRow    string // the tree row under the pointer, with [ui] hover
-	hoverTab    int    // the tab under it, as an index into m.tabs; -1 none
-	scrollDrag  int    // a leaf whose scrollbar is being dragged
-	scrollTop   int    // the track's first screen row, and its height
+	preview    *tab
+	previewing bool
+	keepTab    bool            // the next syncView keeps the tab just chosen
+	pickedFor  string          // the cursor row the tab was last picked for
+	scopeTab   map[string]*tab // the tab last used per group
+	leafSeq    int
+	frames     map[string]*proto.Frame // latest frame per visible pane (paneKey)
+	subscribed map[string]bool
+	barDrag    *splitBar // a split boundary being dragged
+	tabDrag    bool      // a tab is being dragged along the bar
+	leafDrag   int       // a split being dragged by its title, to swap
+	leafDrop   int       // the split under the pointer while it is dragged
+	tabDrop    int       // the tab under it instead, to move the split there (-1: none)
+	treeSig    string    // the layout the tree was last grouped by, when grouped by tab
+	rowDrag    string    // a tree row being carried to a tab's section (its id)
+	rowDrop    string    // the tab section under it, while it is held
+	swapMark   [2]int    // the two splits that just swapped, marked briefly
+	swapUntil  time.Time
+	hoverRow   string // the tree row under the pointer, with [ui] hover
+	hoverTab   int    // the tab under it, as an index into m.tabs; -1 none
+	// hoverLink is the link in a pane under the pointer, drawn as the
+	// clickable thing it is (linkclick.go).
+	hoverLink   hoverLink
+	scrollDrag  int // a leaf whose scrollbar is being dragged
+	scrollTop   int // the track's first screen row, and its height
 	scrollH     int
 	pendingShow string // row to put on screen once the tree has it
 

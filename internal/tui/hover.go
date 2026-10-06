@@ -36,8 +36,11 @@ func (m *Model) hoverAt(msg tea.MouseMsg) bool {
 			}
 		}
 	}
+	// A link in a pane lights too, so what a click would open says so
+	// before the click (linkclick.go).
+	link := m.linkHoverAt(msg)
 	if row == m.hoverRow && tab == m.hoverTab {
-		return false
+		return link
 	}
 	m.hoverRow, m.hoverTab = row, tab
 	return true
@@ -46,7 +49,7 @@ func (m *Model) hoverAt(msg tea.MouseMsg) bool {
 // clearHover forgets what was under the pointer — when the mouse leaves,
 // when a dialog opens over everything, or when hover is turned off.
 func (m *Model) clearHover() {
-	m.hoverRow, m.hoverTab = "", -1
+	m.hoverRow, m.hoverTab, m.hoverLink = "", -1, hoverLink{}
 }
 
 // hovering reports whether a tree row is the one under the pointer.

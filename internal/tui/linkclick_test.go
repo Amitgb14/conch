@@ -47,10 +47,12 @@ func TestLinkUnderThePointer(t *testing.T) {
 func TestClickingALink(t *testing.T) {
 	m, _ := a1Fixture(t, false)
 	m.viewMachine, m.viewing = localMachine, "p1"
-	m.frame = &proto.Frame{ID: "p1", Lines: []string{"go to https://example.com/x now"}}
+	plain := &proto.Frame{ID: "p1", Lines: []string{"go to https://example.com/x now"}}
+	takesMouse := &proto.Frame{ID: "p1", Mouse: true, Lines: plain.Lines}
+	a2Frame(m, "p1", plain)
 	press := func(x int, alt bool) (tea.Cmd, bool) {
-		return m.clickedLink(tea.MouseMsg{X: x, Y: 0, Button: tea.MouseButtonLeft,
-			Action: tea.MouseActionPress, Alt: alt}, x, 0, false)
+		return m.clickedLink(plain, tea.MouseMsg{X: x, Y: 0, Button: tea.MouseButtonLeft,
+			Action: tea.MouseActionPress, Alt: alt}, x, 0)
 	}
 
 	// A plain click on the link opens it and copies it, in a pane whose
@@ -72,12 +74,12 @@ func TestClickingALink(t *testing.T) {
 		t.Fatal("a click on the words took the click")
 	}
 	// A program that takes the mouse is owed plain clicks; alt opens it.
-	if _, took := m.clickedLink(tea.MouseMsg{X: 10, Y: 0, Button: tea.MouseButtonLeft,
-		Action: tea.MouseActionPress}, 10, 0, true); took {
+	if _, took := m.clickedLink(takesMouse, tea.MouseMsg{X: 10, Y: 0, Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress}, 10, 0); took {
 		t.Fatal("a plain click was taken from the program")
 	}
-	if _, took := m.clickedLink(tea.MouseMsg{X: 10, Y: 0, Button: tea.MouseButtonLeft,
-		Action: tea.MouseActionPress, Alt: true}, 10, 0, true); !took {
+	if _, took := m.clickedLink(takesMouse, tea.MouseMsg{X: 10, Y: 0, Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress, Alt: true}, 10, 0); !took {
 		t.Fatal("alt+click did not open the link")
 	}
 	// A release, a right button and a wheel are not clicks on a link.
@@ -86,13 +88,29 @@ func TestClickingALink(t *testing.T) {
 		{X: 10, Y: 0, Button: tea.MouseButtonRight, Action: tea.MouseActionPress},
 		{X: 10, Y: 0, Button: tea.MouseButtonWheelUp},
 	} {
-		if _, took := m.clickedLink(msg, 10, 0, false); took {
+		if _, took := m.clickedLink(plain, msg, 10, 0); took {
 			t.Fatalf("%v took the click", msg.Action)
 		}
 	}
 	// No frame at all.
-	m.frame = nil
-	if _, took := press(10, false); took {
+	if _, took := m.clickedLink(nil, tea.MouseMsg{X: 10, Y: 0, Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress}, 10, 0); took {
 		t.Fatal("a pane with no screen took the click")
+	}
+
+	// The frame is the pane under the pointer's, not the focused pane's.
+	// Clicking a link in another split read the focused screen's lines,
+	// which opened the wrong link or none at all.
+	other := &proto.Frame{ID: "p2", Lines: []string{"see https://example.com/other for this one"}}
+	a2Frame(m, "p2", other)
+	lastOpened = ""
+	cmd, took = m.clickedLink(other, tea.MouseMsg{X: 6, Y: 0, Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress}, 6, 0)
+	if !took {
+		t.Fatal("a click in another split's link did nothing")
+	}
+	a2Run(cmd)
+	if lastOpened != "https://example.com/other" {
+		t.Fatalf("it opened %q, which is the focused pane's link", lastOpened)
 	}
 }

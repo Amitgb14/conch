@@ -478,7 +478,7 @@ func (m *Model) paneMouse(machine, paneID string, msg tea.MouseMsg, x, y int, pr
 	// a pane whose program takes the mouse it needs alt or ctrl, since that
 	// program is owed its clicks; anywhere else a plain click opens it,
 	// because nothing else was using it.
-	if cmd, took := m.clickedLink(msg, x, y, f != nil && f.Mouse); took {
+	if cmd, took := m.clickedLink(f, msg, x, y); took {
 		return cmd
 	}
 	switch {

@@ -685,7 +685,7 @@ func (m Model) leafBody(l *leaf, w, h int, focused bool) []string {
 		if f == nil {
 			return centered(w, h, styleMuted.Render("connecting…"))
 		}
-		lines := f.Lines
+		lines := m.linkLines(v.Machine, v.PaneID, f.Lines, w)
 		if focused && m.sel != nil && m.sel.leaf == 0 && m.sel.paneID == m.viewing {
 			lines = m.sel.highlight(lines, w)
 		}
