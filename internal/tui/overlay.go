@@ -999,7 +999,7 @@ var helpText = []string{
 	"  this list: ↑↓ jk pgup pgdn g G or the wheel scroll it · ←→ hl (shift+wheel) pan long lines",
 	"",
 	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain, sandboxes",
-	"     Settings → Report a problem… (or 🐞 on the bar) is this conch's own facts, for an issue",
+	"     Settings → Report a problem… (or ⊙ on the bar) is this conch's own facts, for an issue",
 	"     Sandboxes lists the providers; enter opens one's own page, esc goes back to the list",
 	"  q  detach (agents keep running)",
 }

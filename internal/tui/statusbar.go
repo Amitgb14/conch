@@ -197,6 +197,11 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 	return chip, items
 }
 
+// issueIcon is the status bar's button for reporting a problem: a ring
+// with a dot, GitHub's sign for an issue, which is where the report goes.
+// One cell wide, where the 🐞 it replaced was two.
+const issueIcon = "⊙"
+
 // Right side levels: the bar gives up right-side detail, step by step, so
 // the mode's key hints stay visible on narrow terminals.
 const (
@@ -275,7 +280,7 @@ func (m Model) statusRightItems(level int, bug bool) []statusItem {
 	}
 	items = append(items, statusItem{text: styleAccent.Render(ask), act: func(m *Model) tea.Cmd { return m.openAsk() }})
 	if bug {
-		items = append(items, statusItem{text: "🐞", act: func(m *Model) tea.Cmd { return m.openBugReport() }})
+		items = append(items, statusItem{text: issueIcon, act: func(m *Model) tea.Cmd { return m.openBugReport() }})
 	}
 
 	items = append(items, statusItem{text: styleSel.Render(label), act: func(m *Model) tea.Cmd {

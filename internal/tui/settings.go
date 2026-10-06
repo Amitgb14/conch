@@ -196,7 +196,7 @@ func (s *settings) themeItems(m *Model) []settingItem {
 		}
 	}
 	// On the first tab, because somebody looking for it is not looking for
-	// agents or sandboxes. The 🐞 in the status bar opens the same thing
+	// agents or sandboxes. The ⊙ in the status bar opens the same thing
 	// without coming here at all.
 	items = append(items, settingItem{}, settingItem{header: true, label: "Something wrong?"},
 		settingItem{label: "Report a problem…", detail: styleMuted.Render("the facts about this conch, for an issue"),
