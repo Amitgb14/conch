@@ -480,6 +480,12 @@ func TestMachineComesUpWhileThePhoneWatches(t *testing.T) {
 		return false
 	})
 
+	// The gateway says busybox is up when it reaches it, which can be
+	// before this socket has joined it: a pane started in between would
+	// be told to nobody. So the agent is started once the socket holds
+	// its own connection there, whose events are kept from then on.
+	waitFor(t, "the socket to join busybox", func() bool { return f.socketJoined("busybox") })
+
 	// And its agents arrive from then on, which is what the phone wanted.
 	there := startPaneOn(t, other, "claude", "stty -echo; exec cat")
 	s.next("the agent on busybox", func(m ServerMessage) bool {

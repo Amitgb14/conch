@@ -2,10 +2,12 @@ package remote
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
@@ -83,6 +85,15 @@ func TransportFor(ctx context.Context, label, target string, interactive bool) (
 	case s.State != sandbox.StateStarted:
 		return nil, &SandboxStoppedError{Label: label, State: s.State}
 	}
+	// A provider with a program of its own for the way in is reached
+	// through it: it holds the login that approves the connection.
+	if ca, ok := p.(sandbox.CommandAccess); ok {
+		argv, err := ca.SSHCommand(id)
+		if err != nil {
+			return nil, err
+		}
+		return &commandSSHTransport{argv: argv, name: label}, nil
+	}
 	// A provider that takes a key of your own rather than handing out a
 	// secret is given conch's public key, so the way in is one this
 	// computer already holds the other half of.
@@ -108,8 +119,11 @@ func TransportFor(ctx context.Context, label, target string, interactive bool) (
 	return sandboxSSH(label, a, identity), nil
 }
 
-// DefaultSandboxLabel names a sandbox nobody named, after its ID.
+// DefaultSandboxLabel names a sandbox nobody named, after its ID. A Devin
+// session's ID starts with "devin-" for every one of them, so that part
+// tells nothing apart and is left out.
 func DefaultSandboxLabel(id string) string {
+	id = strings.TrimPrefix(id, "devin-")
 	if len(id) > 8 {
 		id = id[:8]
 	}
@@ -236,6 +250,9 @@ func SandboxShell(ctx context.Context, label, target, command string, tty bool) 
 	if err != nil {
 		return nil, err
 	}
+	if ct, ok := tr.(*commandSSHTransport); ok {
+		return ct.shell(command, tty), nil
+	}
 	st, ok := tr.(*sandboxTransport)
 	if !ok {
 		return nil, fmt.Errorf("%s is not a sandbox", label)
@@ -258,4 +275,79 @@ func SandboxShell(ctx context.Context, label, target, command string, tty bool) 
 		args = append(args, command)
 	}
 	return exec.Command(sshBinary(), args...), nil
+}
+
+// commandSSHTransport reaches a sandbox through its provider's own ssh
+// wrapper, such as `devin ssh ID`, which passes what follows it to ssh.
+// The script goes as a RemoteCommand option rather than after the
+// destination, so it reaches ssh whichever side of the destination the
+// wrapper puts what it was given — and encoded, so no newline, quote or
+// % in it can be read as anything but the script.
+type commandSSHTransport struct {
+	argv []string
+	name string
+}
+
+func (t *commandSSHTransport) Command(ctx context.Context, script string) (*exec.Cmd, error) {
+	if len(t.argv) == 0 {
+		return nil, errors.New("this sandbox has no command to reach it with")
+	}
+	args := append(append([]string{}, t.argv[1:]...), "-T", "-o", "ConnectTimeout=15", "-o", "RemoteCommand="+wrapRemote(script))
+	cmd := exec.CommandContext(ctx, t.argv[0], args...)
+	// The wrapper's ssh may leave a connection holding our pipes; don't
+	// wait on it once the command is done, as sshCmdWith doesn't.
+	cmd.WaitDelay = 2 * time.Second
+	return cmd, nil
+}
+
+func (t *commandSSHTransport) Describe() string { return t.name }
+
+func (t *commandSSHTransport) interactive() bool { return false }
+
+func (t *commandSSHTransport) forBridge() Transport { return t }
+
+// failed keeps the wrapper's own last words: ssh's advice is about hosts
+// and keys, which the wrapper looks after. The wrapper runs ssh with
+// debugging on to watch for the gateway's approval, so those lines are
+// dropped. ssh's 255 is still a connection that failed, worth trying again
+// on a session that has only just started.
+func (t *commandSSHTransport) failed(err error, stderr string) error {
+	var lines []string
+	for _, l := range strings.Split(strings.TrimSpace(stderr), "\n") {
+		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "debug1:") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) > 3 {
+		lines = lines[len(lines)-3:]
+	}
+	msg := strings.Join(lines, "\n")
+	if sshConnectionFailed(err) {
+		return &ConnectionError{Err: err, Stderr: msg}
+	}
+	if msg == "" {
+		return err
+	}
+	return fmt.Errorf("%s: %s", t.name, msg)
+}
+
+// shell is the wrapper for a person at a terminal: a login shell when
+// command is empty, otherwise command, with a terminal when tty asks.
+func (t *commandSSHTransport) shell(command string, tty bool) *exec.Cmd {
+	args := append([]string{}, t.argv[1:]...)
+	if tty {
+		args = append(args, "-t")
+	}
+	if command != "" {
+		args = append(args, "-o", "RemoteCommand="+wrapRemote(command))
+	}
+	return exec.Command(t.argv[0], args...)
+}
+
+// wrapRemote is script as one line ssh takes as it is: base64, decoded
+// and run by sh on the other side. Base64 has no %, which ssh would
+// otherwise expand in a RemoteCommand, and the script's stdin is left to
+// it rather than taken by a pipe.
+func wrapRemote(script string) string {
+	return `exec sh -c "$(echo ` + base64.StdEncoding.EncodeToString([]byte(script)) + ` | base64 -d)"`
 }

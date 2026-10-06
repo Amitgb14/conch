@@ -25,10 +25,10 @@ func a2Isolate(t *testing.T) {
 	t.Setenv("TMUX", "")
 	// A real provider key in the developer's environment must never show
 	// up in a settings row or make a dialog think it is configured.
-	for _, v := range []string{"DAYTONA_API_KEY", "BOAT_API_KEY"} {
+	for _, v := range []string{"DAYTONA_API_KEY", "BOAT_API_KEY", "DEVIN_API_KEY", "DEVIN_ORG_ID"} {
 		t.Setenv(v, "")
 	}
-	for _, v := range []string{"DAYTONA_API_URL", "BOAT_API_URL"} {
+	for _, v := range []string{"DAYTONA_API_URL", "BOAT_API_URL", "DEVIN_API_URL"} {
 		t.Setenv(v, "http://127.0.0.1:1/unused")
 	}
 }

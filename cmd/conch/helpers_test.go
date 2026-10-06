@@ -79,6 +79,10 @@ func a4Env(t *testing.T) string {
 	t.Setenv("DAYTONA_TARGET", "")
 	t.Setenv("BOAT_API_KEY", "")
 	t.Setenv("BOAT_API_URL", "http://127.0.0.1:1/unused")
+	t.Setenv("DEVIN_API_KEY", "")
+	t.Setenv("DEVIN_API_URL", "http://127.0.0.1:1/unused")
+	t.Setenv("DEVIN_ORG_ID", "")
+	t.Setenv("CONCH_DEVIN", filepath.Join(dir, "no-devin")) // never the real CLI
 	gh := filepath.Join(dir, "gh")
 	os.WriteFile(gh, []byte("#!/bin/sh\nexit 1\n"), 0o755)
 	t.Setenv("CONCH_GH", gh)

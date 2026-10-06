@@ -90,8 +90,9 @@ Usage:
   conch machine add [-label L] SSH_TARGET
                                 add a remote machine (installs conch there)
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
-  conch sandbox -provider daytona|boat create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
-                                make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY)
+  conch sandbox -provider daytona|boat|devin create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
+                                make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY,
+                                Devin Cloud: $DEVIN_API_KEY and a signed-in devin CLI)
                                 and add it as a machine; it runs until stopped, so agents keep
                                 going with the TUI closed. Every sandbox command but stats needs
                                 -provider: there is no default, and a sandbox named under another

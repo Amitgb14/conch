@@ -330,7 +330,7 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 	m.overlay = mu
 	mu.items[1].run(m)
 	sub, ok := m.overlay.(*menu)
-	if !ok || a2MenuLabels(sub) != "d Daytona… | b boat.dev…" || sub.title != "New sandbox" {
+	if !ok || a2MenuLabels(sub) != "d Daytona… | b boat.dev… | e Devin Cloud…" || sub.title != "New sandbox" {
 		t.Fatalf("sandbox menu: %#v", m.overlay)
 	}
 	if _, _ = sub.update(m, a2Key("esc")); m.overlay == nil {
@@ -346,9 +346,13 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | f Fly…" {
 		t.Fatalf("another provider: %q", got)
 	}
-	sandbox.Providers = []string{"daytona", "dune"} // a letter already taken
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… |  Dune…" {
+	sandbox.Providers = []string{"daytona", "dune"} // a letter already taken: the next of its own
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | u Dune…" {
 		t.Fatalf("a shared letter: %q", got)
+	}
+	sandbox.Providers = []string{"ad", "da", "a-d"} // every letter taken: enter still picks it
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "a Ad… | d Da… |  A-d…" {
+		t.Fatalf("no letter left: %q", got)
 	}
 	sandbox.Providers = nil
 	if got := a2MenuLabels(newSandboxMenu(nil)); got != " conch knows no sandbox providers" {
@@ -1518,4 +1522,81 @@ func TestReceiveUsage(t *testing.T) {
 	}
 	// A machine that has gone is not remembered at all.
 	m.receiveUsage(sandboxUsageMsg{machine: "nope", usage: u})
+}
+
+// Devin places a session rather than sizing it: the dialog asks for a
+// platform and no numbers, says what a session costs that a machine
+// wouldn't, and submits the platform where the snapshot goes.
+func TestSandboxDialogDevin(t *testing.T) {
+	m, _ := sandboxModel(t)
+	labels := func(d *dialog) string {
+		var out []string
+		for _, f := range d.fields {
+			out = append(out, strings.TrimSpace(f.label)+"|"+f.in.Placeholder)
+		}
+		return strings.Join(out, " · ")
+	}
+	d := newSandboxDialog(*m, "devin")
+	got := labels(d)
+	if strings.Contains(got, "vCPUs") || strings.Contains(got, "Memory") || strings.Contains(got, "Snapshot") ||
+		!strings.Contains(got, "Platform|a platform (e.g. windows) or an outpost pool; empty is the default") {
+		t.Fatalf("Devin's fields: %s", got)
+	}
+	text := strings.Join(d.text, " ")
+	for _, want := range []string{"Needs a Devin Cloud API key", "$DEVIN_API_KEY", "bills ACUs", "devin auth login"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("Devin's dialog lacks %q: %q", want, text)
+		}
+	}
+	// A platform in the settings is the placeholder.
+	pc := m.cfg.Sandbox.Of("devin")
+	pc.Snapshot = "windows"
+	m.cfg.Sandbox.Set("devin", pc)
+	if got := labels(newSandboxDialog(*m, "devin")); !strings.Contains(got, "Platform|windows") {
+		t.Fatalf("with a platform set: %s", got)
+	}
+	// What it submits goes to a fake: the platform as the snapshot, and no size.
+	p := &sbProvider{createErr: errors.New("far enough")}
+	useSandboxProvider(t, p)
+	a2Run(d.submit(m, []string{"web", "my-pool", ""}))
+	if p.spec.Snapshot != "my-pool" || p.spec.CPU != 0 || len(p.spec.Env) != 0 {
+		t.Fatalf("spec %+v", p.spec)
+	}
+}
+
+// Devin's settings page asks for a platform where the others ask for a
+// snapshot and a region: a session has no region to choose.
+func TestDevinSettingsPage(t *testing.T) {
+	m, _ := sandboxModel(t)
+	s := &settings{}
+	var rows []string
+	for _, it := range s.providerItems(m, "devin") {
+		rows = append(rows, it.label+"|"+ansi.Strip(it.detail))
+	}
+	out := strings.Join(rows, "\n")
+	if !strings.Contains(out, "Platform|the organization's default") || strings.Contains(out, "Region|") ||
+		strings.Contains(out, "Snapshot|") || !strings.Contains(out, "API key variable|DEVIN_API_KEY") {
+		t.Fatalf("Devin's page:\n%s", out)
+	}
+	for _, it := range s.providerItems(m, "devin") {
+		if it.label == "Platform" {
+			it.run(m)
+		}
+	}
+	d, ok := m.overlay.(*dialog)
+	if !ok || !strings.Contains(strings.Join(d.text, " "), "outpost pool") {
+		t.Fatalf("platform dialog: %#v", m.overlay)
+	}
+	d.submit(m, []string{" linux "})
+	if got := m.cfg.Sandbox.Of("devin").Snapshot; got != "linux" {
+		t.Fatalf("saved %q", got)
+	}
+	// Daytona's page still has both.
+	rows = nil
+	for _, it := range s.providerItems(m, "daytona") {
+		rows = append(rows, it.label)
+	}
+	if got := strings.Join(rows, ","); !strings.Contains(got, "Snapshot,Region") {
+		t.Fatalf("Daytona's page: %s", got)
+	}
 }

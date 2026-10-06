@@ -850,6 +850,21 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 				}))
 		}
 	}
+	// Where a sandbox is made from: a snapshot in a region, or for a
+	// provider that places its machines, the place, which has no region.
+	where := []settingItem{
+		field("Snapshot", firstNonEmpty(cfg.Snapshot, styleMuted.Render(label+"'s default")),
+			"What new sandboxes start from. Empty means "+label+"'s default.",
+			cfg.Snapshot, func(c *config.ProviderCfg, v string) error { c.Snapshot = v; return nil }),
+		field("Region", firstNonEmpty(cfg.Target, styleMuted.Render("the account's default")),
+			"Where sandboxes are made, e.g. us or eu. Empty means the account's default.",
+			cfg.Target, func(c *config.ProviderCfg, v string) error { c.Target = v; return nil }),
+	}
+	if hint := sandboxPlaceHint(provider); hint != "" {
+		where = []settingItem{field("Platform", firstNonEmpty(cfg.Snapshot, styleMuted.Render("the organization's default")),
+			"Where new sessions run: "+hint+". Empty means the organization's default.",
+			cfg.Snapshot, func(c *config.ProviderCfg, v string) error { c.Snapshot = v; return nil })}
+	}
 	items := []settingItem{
 		field("API key", keyDetail(cfg.APIKey, keyEnv),
 			"The key itself, kept in config.toml in your home — written 0600, but anything running as you can read it, and it travels with a backup or a synced dotfile. Empty leaves it to the variable below, which is what conch does otherwise.",
@@ -857,22 +872,18 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 		field("API key variable", keyEnv,
 			"Which variable of your environment "+label+"'s key is read from, when no key is kept above. Empty means "+defaultKeyEnv(provider)+".",
 			cfg.APIKeyEnv, func(c *config.ProviderCfg, v string) error { c.APIKeyEnv = v; return nil }),
-		field("Snapshot", firstNonEmpty(cfg.Snapshot, styleMuted.Render(label+"'s default")),
-			"What new sandboxes start from. Empty means "+label+"'s default.",
-			cfg.Snapshot, func(c *config.ProviderCfg, v string) error { c.Snapshot = v; return nil }),
-		field("Region", firstNonEmpty(cfg.Target, styleMuted.Render("the account's default")),
-			"Where sandboxes are made, e.g. us or eu. Empty means the account's default.",
-			cfg.Target, func(c *config.ProviderCfg, v string) error { c.Target = v; return nil }),
-		{label: "Bring back what was running", detail: restoreText(cfg.RestoresRunning()), on: boolOf(cfg.RestoresRunning()),
+	}
+	items = append(items, where...)
+	items = append(items,
+		settingItem{label: "Bring back what was running", detail: restoreText(cfg.RestoresRunning()), on: boolOf(cfg.RestoresRunning()),
 			run: set(func(c *config.ProviderCfg) {
 				v := !c.RestoresRunning()
 				c.Restore = &v
 			})},
-		{label: "Stop when idle", detail: idleStopText(cfg.IdleMinutes()), run: set(func(c *config.ProviderCfg) {
+		settingItem{label: "Stop when idle", detail: idleStopText(cfg.IdleMinutes()), run: set(func(c *config.ProviderCfg) {
 			n := nextIdleStop(c.IdleMinutes())
 			c.IdleStop = &n
-		})},
-	}
+		})})
 	items = append(items, life...)
 	items = append(items,
 		settingItem{label: "Price an hour", detail: priceText(cfg), run: func(m *Model) tea.Cmd {

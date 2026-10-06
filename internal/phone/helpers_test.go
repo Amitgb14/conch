@@ -497,3 +497,23 @@ func (s *fakeSocket) closed() []ServerMessage {
 // IDs are a server's own, so the gateway hands out machine:pane and takes
 // back what it gave (api_version 2).
 func phoneID(id string) string { return composePaneID(LocalMachine, id) }
+
+// socketJoined reports whether an open socket holds its own connection to
+// machine, so events there reach the phone.
+func (f *fixture) socketJoined(machine string) bool {
+	f.g.mu.Lock()
+	socks := make([]*socket, 0, len(f.g.sockets))
+	for s := range f.g.sockets {
+		socks = append(socks, s)
+	}
+	f.g.mu.Unlock()
+	for _, s := range socks {
+		s.mu.Lock()
+		joined := s.clients[machine] != nil
+		s.mu.Unlock()
+		if joined {
+			return true
+		}
+	}
+	return false
+}

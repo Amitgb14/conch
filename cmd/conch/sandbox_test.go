@@ -249,7 +249,7 @@ func TestA4SandboxCreateRefusesBeforeSpending(t *testing.T) {
 		{[]string{"-provider", "daytona", "create", "extra"}, "usage: conch sandbox -provider P create"},
 		{[]string{"-provider", "daytona", "create", "-bogus"}, "flag provided but not defined"},
 		// No provider: there is no default to bill.
-		{[]string{"create"}, "which provider? give -provider NAME (daytona, boat)"},
+		{[]string{"create"}, "which provider? give -provider NAME (daytona, boat, devin)"},
 		{[]string{"create", "-label", "x"}, "which provider?"},
 		{[]string{"ls"}, "which provider?"},
 		{nil, "which provider?"}, // plain conch sandbox lists, and so needs one too
@@ -732,7 +732,7 @@ func TestA4SandboxProviderFlag(t *testing.T) {
 	// The next command starts clean: without the flag there is no provider
 	// to make one with, and boat is asked nothing.
 	before := b.called()
-	if err := runSandbox([]string{"create"}); err == nil || !strings.Contains(err.Error(), "which provider? give -provider NAME (daytona, boat)") {
+	if err := runSandbox([]string{"create"}); err == nil || !strings.Contains(err.Error(), "which provider? give -provider NAME (daytona, boat, devin)") {
 		t.Fatalf("without the flag: %v", err)
 	}
 	if b.called() != before {
@@ -1008,7 +1008,7 @@ func TestA4SandboxStats(t *testing.T) {
 	// the machine as unknown, and the command fails.
 	remote.SaveMachine(remote.Machine{Label: "hull", Target: "boat:bx_1"})
 	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stats"}) })
-	if err == nil || !strings.Contains(err.Error(), "1 provider of 2 couldn't be asked") ||
+	if err == nil || !strings.Contains(err.Error(), "1 provider of 3 couldn't be asked") ||
 		!strings.Contains(flat(out), "boat.dev hull hull bx_1 ? -") || !strings.Contains(out, "boat.dev: couldn't ask it:") ||
 		!strings.Contains(out, "Daytona: 3 sandboxes") {
 		t.Fatalf("unknown: %q %v", out, err)
@@ -1016,7 +1016,7 @@ func TestA4SandboxStats(t *testing.T) {
 	// A provider that is down fails the command too, the other still shown.
 	t.Setenv("DAYTONA_API_URL", "http://127.0.0.1:1")
 	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stats"}) })
-	if err == nil || !strings.Contains(err.Error(), "2 providers of 2") || !strings.Contains(out, "Daytona: couldn't ask it:") {
+	if err == nil || !strings.Contains(err.Error(), "2 providers of 3") || !strings.Contains(out, "Daytona: couldn't ask it:") {
 		t.Fatalf("down: %q %v", out, err)
 	}
 }
@@ -1081,4 +1081,57 @@ func TestA4SandboxCreateSaysWhyItCouldNotConnect(t *testing.T) {
 	if !strings.Contains(errOut, "deleted sandbox sbx1-0123456789") || d.state("sbx1-0123456789") != "" {
 		t.Fatalf("it was not deleted: %q %s", d.state("sbx1-0123456789"), errOut)
 	}
+}
+
+// Devin Cloud is a provider like the others on the command line: it needs
+// its own key, refuses a size before asking Devin for anything, and lists
+// only the sessions conch made.
+func TestA4SandboxDevin(t *testing.T) {
+	a4Env(t)
+	var err error
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "devin", "ls"}) })
+	if err == nil || !strings.Contains(err.Error(), "$DEVIN_API_KEY") {
+		t.Fatalf("no key: %v", err)
+	}
+
+	var mu sync.Mutex
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		if r.Header.Get("Authorization") != "Bearer cog_test" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		fmt.Fprint(w, `{"items":[{"session_id":"devin-0123456789abcdef","title":"web","status":"running","tags":["conch"]},`+
+			`{"session_id":"devin-theirs","status":"running","tags":[]}],"has_next_page":false}`)
+	}))
+	defer srv.Close()
+	t.Setenv("DEVIN_API_KEY", "cog_test")
+	t.Setenv("DEVIN_API_URL", srv.URL)
+	t.Setenv("DEVIN_ORG_ID", "org-test")
+
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "devin", "create", "-cpu", "2"}) })
+	if err == nil || !strings.Contains(err.Error(), "Devin chooses") {
+		t.Fatalf("a size: %v", err)
+	}
+	mu.Lock()
+	if len(calls) != 0 {
+		t.Fatalf("Devin was asked: %v", calls)
+	}
+	mu.Unlock()
+	if ms, _ := remote.Machines(); len(ms) != 0 {
+		t.Fatalf("saved %+v", ms)
+	}
+
+	out, _ := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "devin", "ls"}) })
+	if err != nil || !strings.Contains(out, "devin-0123456789abcdef") || strings.Contains(out, "devin-theirs") {
+		t.Fatalf("ls: %q %v", out, err)
+	}
+	mu.Lock()
+	if len(calls) != 1 || calls[0] != "GET /v3/organizations/org-test/sessions" {
+		t.Fatalf("calls %v", calls)
+	}
+	mu.Unlock()
 }
