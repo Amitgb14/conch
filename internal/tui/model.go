@@ -133,6 +133,11 @@ type Model struct {
 	scrollTop   int // the track's first screen row, and its height
 	scrollH     int
 	pendingShow string // row to put on screen once the tree has it
+	// launchDir is where conch was started, until the first list of local
+	// projects places the tree by it (launch.go); noProjectOffer is the
+	// repositories you said not to offer as projects again.
+	launchDir      string
+	noProjectOffer []string
 
 	offset     int           // lines the viewed pane is scrolled back
 	scrollMode bool          // keys move a cursor over the pane's history
@@ -218,6 +223,8 @@ func New(local *client.Client, cfg config.Config) Model {
 		savedSSH:   cleanSavedSSH(st.SavedSSH),
 		sandboxRan: st.SandboxRan,
 		folders:    st.Folders,
+
+		noProjectOffer: st.NoProjectOffer,
 	}
 	m.sshInfo = cleanSSHInfo(m.savedSSH, st.SSHHosts)
 	m.folders = migrateSSHGroups(m.folders, st.SSHGroups, m.savedSSH, m.sshInfo)
@@ -437,8 +444,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case projectsMsg:
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
 			mach.projects = msg.projects
+			if msg.machine == localMachine {
+				m.placeLaunch(msg.projects)
+			}
 		}
 		return m, m.rebuild()
+
+	case launchProjectMsg:
+		return m, m.receiveLaunchProject(msg.info)
 
 	case createdMsg:
 		if mach := m.machine(msg.machine); mach != nil && mach.paneIndex(msg.info.ID) < 0 {

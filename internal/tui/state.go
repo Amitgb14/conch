@@ -37,6 +37,9 @@ type uiState struct {
 	// Folders are the groups of your own in the tree (folders.go), by the
 	// section they sit in. Absent for anybody who never made one.
 	Folders map[string][]savedFolder `json:"folders,omitempty"`
+	// NoProjectOffer is the repositories you answered No to adding as a
+	// project when conch was started in them (launch.go).
+	NoProjectOffer []string `json:"no_project_offer,omitempty"`
 }
 
 // savedFolder is one folder of the tree and what is in it. A pane is held
@@ -103,7 +106,7 @@ func saveUIState(path string, st uiState) error {
 func (m Model) saveState() tea.Cmd {
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
 		Tabs: m.savedTabs(), ActiveTab: m.activeTab, LimitAlerts: map[string]int{},
-		QueueDismissed: map[string]string{}, SavedSSH: slices.Clone(m.savedSSH)}
+		QueueDismissed: map[string]string{}, SavedSSH: slices.Clone(m.savedSSH), NoProjectOffer: slices.Clone(m.noProjectOffer)}
 	if len(m.sshInfo) > 0 {
 		st.SSHHosts = make(map[string]sshHostInfo, len(m.sshInfo))
 		for k, v := range m.sshInfo {

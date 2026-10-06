@@ -491,6 +491,9 @@ type dialog struct {
 	// the content line and each one's columns, for clicks.
 	buttons struct{ line, yes0, yes1, no0, no1 int }
 	submit  func(m *Model, values []string) tea.Cmd
+	// decline runs when a confirm is answered No — n or its button — as
+	// opposed to put aside with esc. Most confirms have none.
+	decline func(m *Model) tea.Cmd
 	// onChange runs after a field was edited, e.g. to update placeholders.
 	onChange func(d *dialog)
 	// back is what opened this dialog, if it should come back afterwards:
@@ -528,6 +531,14 @@ func (d *dialog) focusCmd() tea.Cmd { return textinput.Blink }
 // failed.
 func newNotice(title string, text []string) *dialog {
 	return &dialog{title: title, text: text, notice: true}
+}
+
+// declined is what answering No does: d.decline, when there is one.
+func (d *dialog) declined(m *Model) tea.Cmd {
+	if d.decline == nil {
+		return nil
+	}
+	return d.decline(m)
 }
 
 func newConfirm(question string, yes func(m *Model) tea.Cmd) *dialog {
@@ -690,7 +701,10 @@ func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			case "y", "Y":
 				m.overlay = d.back
 				return true, d.submit(m, nil)
-			case "n", "N", "esc", "q":
+			case "n", "N":
+				m.overlay = d.back
+				return true, d.declined(m)
+			case "esc", "q":
 				m.overlay = d.back
 				return true, nil
 			case "left", "right", "tab", "shift+tab", "h", "l":
@@ -699,7 +713,7 @@ func (d *dialog) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			case "enter", " ":
 				if d.onNo {
 					m.overlay = d.back
-					return true, nil
+					return true, d.declined(m)
 				}
 				// What can't be undone takes y or the button, never a
 				// stray enter — but space on the button is deliberate.
@@ -846,6 +860,7 @@ func (d *dialog) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 			return d.submit(m, nil)
 		case x >= d.buttons.no0 && x < d.buttons.no1:
 			m.overlay = d.back
+			return d.declined(m)
 		}
 		return nil
 	}
