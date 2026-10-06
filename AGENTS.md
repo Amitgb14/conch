@@ -225,7 +225,13 @@ helpers in `cmd/conch` and `internal/remote`.
   (`Compression yes`, `sshConfigs` in `internal/remote/ssh.go`), which
   means it is per machine and settled when that machine's first
   connection is, and `Compress()` is read while the config is written —
-  a setting changed now is for the next conch, not this one. Worth it
+  a setting changed now is for the next conch, not this one. And not even
+  reliably then: a master outlives a reload, because a bridge holds a
+  session on it for as long as the machine is up so `ControlPersist`
+  never retires it, and the restarted TUI's bridge simply joins the old
+  connection with the old setting. Seen on a real machine right after the
+  fix went in (R49). Only closing it (`ssh -O exit`) makes conch open a
+  new one; `R` Reconnect on its own usually rejoins the same master. Worth it
   because those connections carry frames: a screenful of styled text,
   12 KB deflating to under 1 KB, 4.3 MB of real traffic crossing a LAN
   as 54 KB and arriving sooner. The local socket never gets it — there
