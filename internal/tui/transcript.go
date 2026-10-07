@@ -234,10 +234,10 @@ func (v *transcriptView) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	row := msg.Y - top
 	switch {
 	case msg.Button == tea.MouseButtonWheelUp:
-		v.scroll(-3)
+		v.scroll(-m.wheelStep())
 		return nil
 	case msg.Button == tea.MouseButtonWheelDown:
-		v.scroll(3)
+		v.scroll(m.wheelStep())
 		return nil
 	case msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft:
 		if row < 0 || row >= v.rows {

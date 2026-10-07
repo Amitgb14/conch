@@ -380,10 +380,10 @@ func (b *browser) mouse(m *Model, msg tea.MouseMsg, bx box) tea.Cmd {
 	rows := b.rows()
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
-		b.sel = clamp(b.sel-3, 0, max(len(rows)-1, 0))
+		b.sel = clamp(b.sel-m.wheelStep(), 0, max(len(rows)-1, 0))
 		return nil
 	case tea.MouseButtonWheelDown:
-		b.sel = clamp(b.sel+3, 0, max(len(rows)-1, 0))
+		b.sel = clamp(b.sel+m.wheelStep(), 0, max(len(rows)-1, 0))
 		return nil
 	}
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft || b.mode != browseMode {

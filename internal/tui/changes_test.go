@@ -250,6 +250,10 @@ func TestA2ChangesMouse(t *testing.T) {
 	if cv.diffScroll != 3 {
 		t.Fatalf("diff wheel scroll %d", cv.diffScroll)
 	}
+	swipe(3, func() { cv.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown}, 0, 0) })
+	if cv.diffScroll != 3+3+1+1 {
+		t.Fatalf("diff swipe %d", cv.diffScroll)
+	}
 	if cv.mouse(m, tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, 3, 6) != nil {
 		t.Fatal("clicks in a diff do nothing")
 	}

@@ -926,10 +926,10 @@ func (fv *filesView) mouse(m *Model, msg tea.MouseMsg, x, y int) tea.Cmd {
 	inPreview := fv.reading && !fv.wide || fv.wide && x > fv.treeW
 	switch {
 	case msg.Button == tea.MouseButtonWheelUp && inPreview:
-		fv.prevScroll = max(fv.prevScroll-3, 0)
+		fv.prevScroll = max(fv.prevScroll-m.wheelStep(), 0)
 		return nil
 	case msg.Button == tea.MouseButtonWheelDown && inPreview:
-		fv.prevScroll += 3
+		fv.prevScroll += m.wheelStep()
 		return nil
 	case msg.Button == tea.MouseButtonWheelUp:
 		if i := nextEntry(list, fv.sel-1, -1); i >= 0 {

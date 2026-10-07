@@ -219,6 +219,12 @@ func TestA1MouseSidebarWheelAndResize(t *testing.T) {
 	if m.scroll != len(m.rows)-m.sidebarRowsVisible()-3 {
 		t.Fatalf("wheel up: %d", m.scroll)
 	}
+	// A swipe moves the tree a row an event after the first.
+	m.scroll = 0
+	swipe(3, func() { a1Mouse(t, m, 5, 4, a1WheelDown, a1Press) })
+	if m.scroll != 3+1+1 {
+		t.Fatalf("swipe down: %d", m.scroll)
+	}
 
 	// Dragging the sidebar's edge resizes it within limits.
 	m.height = 40

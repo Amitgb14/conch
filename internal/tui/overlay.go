@@ -1127,9 +1127,9 @@ func (h *help) mouse(m *Model, msg tea.MouseMsg, _ box) tea.Cmd {
 	case msg.Button == tea.MouseButtonWheelRight || msg.Shift && msg.Button == tea.MouseButtonWheelDown:
 		h.scroll(*m, 0, helpStep)
 	case msg.Button == tea.MouseButtonWheelUp:
-		h.scroll(*m, -3, 0)
+		h.scroll(*m, -m.wheelStep(), 0)
 	case msg.Button == tea.MouseButtonWheelDown:
-		h.scroll(*m, 3, 0)
+		h.scroll(*m, m.wheelStep(), 0)
 	case msg.Action == tea.MouseActionPress:
 		m.overlay = nil
 	}

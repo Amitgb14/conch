@@ -432,10 +432,10 @@ func (v *setupView) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	}
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
-		v.scroll -= 3
+		v.scroll -= m.wheelStep()
 		return nil
 	case tea.MouseButtonWheelDown:
-		v.scroll += 3
+		v.scroll += m.wheelStep()
 		return nil
 	}
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft || msg.Y-b.y-1 != 0 {

@@ -119,6 +119,12 @@ func TestTheWheelOnTheMainScreenIsConchs(t *testing.T) {
 	if m.offset == 0 {
 		t.Fatal("the wheel did not scroll conch's history")
 	}
+	// A trackpad's swipe over it moves a line an event after the first.
+	before := m.offset
+	swipe(3, func() { a2Run(m.paneMouse(localMachine, "p1", wheel, 1, 1, false, true)) })
+	if m.offset != before+3+1+1 {
+		t.Fatalf("swipe: offset %d from %d", m.offset, before)
+	}
 	// Held with alt, the program gets it: a program that really wants the
 	// wheel is not shut out, it is just not the default.
 	held := wheel
