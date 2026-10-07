@@ -2,6 +2,7 @@ package tui
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -181,22 +182,34 @@ func TestSpaceFilter(t *testing.T) {
 		}
 	}
 
-	// The first workspace still has everything.
+	// The first workspace has its own: api, which was already there and is
+	// shared now, and the panes no other workspace has — not those started
+	// in the second.
 	m.switchSpace(0)
-	for _, id := range []string{"p3", "p5", "p6", "p7"} {
-		if indexOfRow(m.rows, paneNodeID(localMachine, id)) < 0 {
-			t.Fatalf("first workspace lacks %s:\n%s", id, render(m.rows))
+	for id, want := range map[string]bool{"p1": true, "p3": true, "p7": true, "p5": false, "p6": false} {
+		if got := indexOfRow(m.rows, paneNodeID(localMachine, id)) >= 0; got != want {
+			t.Fatalf("first workspace: pane %s shown %v:\n%s", id, got, render(m.rows))
 		}
 	}
 
-	// A project added in the first workspace joins nothing.
+	// A project new to conch, added in the first, is the first's alone.
 	msg = m.addedProject(localMachine, &proto.ProjectInfo{ID: "r9", Name: "x"}, "added ")().(spaceProjectMsg)
-	if msg.space != nil {
-		t.Fatal("first workspace gave a space")
-	}
+	mach.projects = append(mach.projects, proto.ProjectInfo{ID: "r9", Name: "x", Path: "/src/x"})
 	m.receiveSpaceProject(msg)
-	if m.spaces[1].projects[scoped(localMachine, "r9")] {
-		t.Fatal("joined a workspace not on screen")
+	if m.spaces[1].projects[scoped(localMachine, "r9")] || !m.hasProject(0, scoped(localMachine, "r9")) {
+		t.Fatal("r9 in the wrong workspace")
+	}
+	// And one new to conch added in the second is the second's alone: the
+	// first does not keep it, as it keeps one that was already there.
+	m.switchSpace(1)
+	msg = m.addedProject(localMachine, &proto.ProjectInfo{ID: "r8", Name: "y"}, "added ")().(spaceProjectMsg)
+	mach.projects = append(mach.projects, proto.ProjectInfo{ID: "r8", Name: "y", Path: "/src/y"})
+	m.receiveSpaceProject(msg)
+	if m.hasProject(0, scoped(localMachine, "r8")) || !m.hasProject(1, scoped(localMachine, "r8")) {
+		t.Fatal("r8 in the wrong workspace")
+	}
+	if !m.hasProject(0, scoped(localMachine, "r1")) || !m.hasProject(1, scoped(localMachine, "r1")) {
+		t.Fatal("api is not shared")
 	}
 	// A reply for a workspace closed since is only a flash.
 	gone := newSpace()
@@ -206,10 +219,12 @@ func TestSpaceFilter(t *testing.T) {
 	}
 }
 
-func TestSpaceRemoveProjectOnlyLeaves(t *testing.T) {
+func TestSpaceRemoveProject(t *testing.T) {
 	m, peer := a1Fixture(t, true)
 	m.newSpace()
-	m.spaces[1].projects[scoped(localMachine, "r1")] = true
+	key := scoped(localMachine, "r1")
+	m.spaces[0].projects[key] = true // shared with the first
+	m.spaces[1].projects[key] = true
 	m.rebuild()
 	a1At(t, m, projectNodeID(localMachine, "r1"))
 	m.openRemove()
@@ -221,15 +236,35 @@ func TestSpaceRemoveProjectOnlyLeaves(t *testing.T) {
 	if cmd := d.submit(m, nil); cmd != nil {
 		cmd()
 	}
-	if indexOfRow(m.rows, projectNodeID(localMachine, "r1")) >= 0 || m.project(localMachine, "r1") == nil {
-		t.Fatalf("not taken out, or removed from the machine:\n%s", render(m.rows))
+	if indexOfRow(m.rows, projectNodeID(localMachine, "r1")) >= 0 || !m.hasProject(0, key) {
+		t.Fatalf("not taken out, or taken from the first too:\n%s", render(m.rows))
 	}
 	peer.mu.Lock()
-	defer peer.mu.Unlock()
 	for _, msg := range peer.msgs {
 		if msg.Method == proto.MethodProjectRemove {
-			t.Fatal("asked the server to remove the project")
+			t.Fatal("asked the server to remove a shared project")
 		}
+	}
+	peer.mu.Unlock()
+
+	// In no other workspace, x removes it from conch as it always did.
+	delete(m.spaces[0].projects, key)
+	m.spaces[1].projects[key] = true
+	m.rebuild()
+	a1At(t, m, projectNodeID(localMachine, "r1"))
+	m.openRemove()
+	d = m.overlay.(*dialog)
+	if !strings.Contains(strings.Join(d.text, " "), "from the sidebar") {
+		t.Fatalf("asks %q", d.text)
+	}
+	// And from the first, the same: it belongs there alone.
+	m.switchSpace(0)
+	m.spaces[1].projects = map[string]bool{}
+	m.rebuild()
+	a1At(t, m, projectNodeID(localMachine, "r1"))
+	m.openRemove()
+	if d = m.overlay.(*dialog); !strings.Contains(strings.Join(d.text, " "), "from the sidebar") {
+		t.Fatalf("first asks %q", d.text)
 	}
 }
 
@@ -253,7 +288,7 @@ func TestSpaceCloseAndRename(t *testing.T) {
 	// × beside the workspace on screen asks, then closes only it.
 	clickTop(t, m, spaceHitClose)
 	d, ok := m.overlay.(*dialog)
-	if !ok || !strings.Contains(strings.Join(d.text, " "), "keep running") {
+	if !ok || !strings.Contains(strings.Join(d.text, " "), "nothing ends") {
 		t.Fatalf("overlay %#v", m.overlay)
 	}
 	m.overlay = nil
@@ -333,7 +368,7 @@ func TestSpaceStateRoundTrip(t *testing.T) {
 	m2, _ := a1Fixture(t, false)
 	m2.preview, m2.previewing = nil, false // as New has it: tabs come before any tree
 	m2.restoreTabs(st.Tabs, st.ActiveTab)
-	m2.restoreSpaces(st.Spaces, st.ActiveSpace)
+	m2.restoreSpaces(st.FirstSpace, st.Spaces, st.ActiveSpace)
 	m2.rebuild()
 	if m2.activeSpace != 1 || len(m2.spaces) != 2 || m2.spaces[1].name != "review" {
 		t.Fatalf("restored on %d of %d", m2.activeSpace, len(m2.spaces))
@@ -356,11 +391,11 @@ func TestSpaceStateRoundTrip(t *testing.T) {
 		t.Fatalf("second save: %d tabs, %d spaces, active %d", len(st.Tabs), len(st.Spaces), st.ActiveSpace)
 	}
 	m3, _ := a1Fixture(t, false)
-	m3.restoreSpaces(nil, 3)
+	m3.restoreSpaces(nil, nil, 3)
 	if m3.spaces != nil || m3.activeSpace != 0 {
 		t.Fatal("no saved spaces made some")
 	}
-	m3.restoreSpaces([]savedSpace{{}}, 9) // an active one that isn't there
+	m3.restoreSpaces(nil, []savedSpace{{}}, 9) // an active one that isn't there
 	if len(m3.spaces) != 2 || m3.activeSpace != 0 {
 		t.Fatalf("out of range active: %d of %d", m3.activeSpace, len(m3.spaces))
 	}
@@ -412,11 +447,20 @@ func TestSpaceMachineCounts(t *testing.T) {
 	if got := page(); !strings.Contains(got, "showing 2 panes as last seen") {
 		t.Fatalf("offline:\n%s", got)
 	}
-	// Back in the first, everything counts again.
+	// The first counts its own: api is the second's alone now, so what is
+	// left is the two panes outside every project.
 	mach.state = stateOnline
 	m.switchSpace(0)
+	if got := page(); !strings.Contains(got, "0 projects · 2 panes · 1 working · 0 waiting") {
+		t.Fatalf("first workspace:\n%s", got)
+	}
+	if u := m.machineUsage(localMachine); u.empty() || u == all {
+		t.Fatalf("first workspace usage %+v, everything %+v", u, all)
+	}
+	// With one workspace again, everything is counted.
+	m.closeSpace(1)
 	if got := page(); !strings.Contains(got, "4 panes") || m.machineUsage(localMachine) != all {
-		t.Fatalf("first workspace again:\n%s", got)
+		t.Fatalf("one workspace:\n%s", got)
 	}
 }
 
@@ -452,13 +496,16 @@ func TestSpaceFolders(t *testing.T) {
 	if !shows(agents("team")) {
 		t.Fatalf("a folder holding a pane shown here is missing:\n%s", render(m.rows))
 	}
-	_, panes := m.shown(mach)
-	in := m.spaces[1].filterFolders(m.folders, map[string][]proto.PaneInfo{localMachine: panes})
-	if len(in[sshFolderKey()]) != 1 {
-		t.Fatalf("SSH folder with a saved host left out: %+v", in)
+	// An SSH folder holding a saved host shows where that host does.
+	if len(m.shownFolders()[sshFolderKey()]) != 0 {
+		t.Fatalf("SSH folder of a host not here: %+v", m.shownFolders())
+	}
+	m.spaces[1].hosts["box"] = true
+	if len(m.shownFolders()[sshFolderKey()]) != 1 {
+		t.Fatalf("SSH folder of a host here left out: %+v", m.shownFolders())
 	}
 
-	// A folder made here shows here, empty, and in the first workspace.
+	// A folder made here shows here, empty, and only here.
 	if !m.newFolder(localMachine, "r1", kindAgents, "mine") {
 		t.Fatal("new folder refused")
 	}
@@ -477,14 +524,18 @@ func TestSpaceFolders(t *testing.T) {
 	if !shows(agents("later")) || len(m.foldersIn(localMachine, "r1", kindAgents)) != 3 {
 		t.Fatalf("later not brought here, or made twice: %+v\n%s", m.foldersIn(localMachine, "r1", kindAgents), render(m.rows))
 	}
-	m.switchSpace(0)
-	if !shows(agents("mine")) {
-		t.Fatalf("first workspace lacks the folder made in the second:\n%s", render(m.rows))
+	key := folderKey(localMachine, "r1", kindAgents)
+	if m.hasFolder(0, key, savedFolder{Name: "mine"}) {
+		t.Fatal("the first shows a folder made in the second")
+	}
+	// later, brought here, stays in the first that had it.
+	if !m.hasFolder(0, key, savedFolder{Name: "later"}) || !m.hasFolder(0, key, savedFolder{Name: "ops"}) {
+		t.Fatal("the first lost a folder of its own")
 	}
 
 	// Saved and restored with the workspace; removing a folder forgets it.
 	saved := m.savedSpaces()
-	if got := saved[0].Folders; len(got) != 2 {
+	if got := saved[0].Folders; len(got) != 2 || m.savedFirstSpace().Folders[0] != spaceFolder(key, "later") {
 		t.Fatalf("saved folders %q", got)
 	}
 	m.removeFolder(localMachine, "r1", kindAgents, "mine")
@@ -492,7 +543,7 @@ func TestSpaceFolders(t *testing.T) {
 		t.Fatalf("removed folder still listed: %v", m.spaces[1].folders)
 	}
 	m2, _ := a1Fixture(t, false)
-	m2.restoreSpaces(saved, 0)
+	m2.restoreSpaces(nil, saved, 0)
 	if len(m2.spaces[1].folders) != 2 {
 		t.Fatalf("restored folders %v", m2.spaces[1].folders)
 	}
@@ -545,6 +596,8 @@ func TestSpaceWaitingCounter(t *testing.T) {
 }
 
 func TestSpaceMachines(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CONCH_HOME", t.TempDir()) // removing a machine writes machines.json
 	m, _ := a1Fixture(t, false)
 	vm := newMachine("vm", "vm", "aghadge@vm")
 	vm.state = stateOnline
@@ -635,12 +688,167 @@ func TestSpaceMachines(t *testing.T) {
 		t.Fatalf("saved machines %v", saved[0].Machines)
 	}
 	m2, _ := a1Fixture(t, false)
-	m2.restoreSpaces(m.savedSpaces(), 0)
+	m2.restoreSpaces(nil, m.savedSpaces(), 0)
 	if !m2.spaces[1].machines["box"] {
 		t.Fatal("machines not restored")
 	}
+	// The first lists vm, whose project went back to being nobody's, and
+	// not box, added in the second.
 	m.switchSpace(0)
-	if !shows("vm") || !shows("box") {
+	if !shows("vm") || shows("box") {
 		t.Fatalf("first workspace:\n%s", render(m.rows))
+	}
+	// Brought into the first, box is listed there too and kept in the second.
+	m.openBringMachine(nil)
+	bring = m.overlay.(*menu)
+	if len(bring.items) != 1 || bring.items[0].label != "box" {
+		t.Fatalf("bring offers %+v", bring.items)
+	}
+	m.overlay = nil
+	bring.items[0].run(m)
+	if !shows("box") || !m.spaces[1].machines["box"] {
+		t.Fatalf("box not shared:\n%s", render(m.rows))
+	}
+	// Removed from conch, it is forgotten by every workspace.
+	m.removeMachine("box")
+	if m.spaces[0].machines["box"] || m.spaces[1].machines["box"] {
+		t.Fatal("removed machine still listed")
+	}
+}
+
+func TestSpaceCloseMovesToFirst(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	m.savedSSH = []string{"old", "box"}
+	m.newSpace()
+	s := m.spaces[1]
+	s.projects[scoped(localMachine, "r1")] = true
+	s.panes[paneKey(localMachine, "p4")] = true
+	s.hosts["box"] = true
+	m.rebuild()
+	a1Open(t, m, paneNodeID(localMachine, "p4"))
+	m.switchSpace(0)
+	// The first lacks what the second has, and keeps what is nobody's.
+	if m.showsHost("box") || !m.showsHost("old") || indexOfRow(m.rows, paneNodeID(localMachine, "p4")) >= 0 {
+		t.Fatalf("first before close:\n%s", render(m.rows))
+	}
+	tabs := len(m.tabs)
+
+	m.switchSpace(1)
+	m.closeSpace(1)
+	if m.spaces != nil || m.activeSpace != 0 {
+		t.Fatalf("on %d of %v", m.activeSpace, m.spaces)
+	}
+	for _, id := range []string{"p1", "p2", "p3", "p4"} {
+		if indexOfRow(m.rows, paneNodeID(localMachine, id)) < 0 {
+			t.Fatalf("lacks %s after close:\n%s", id, render(m.rows))
+		}
+	}
+	if !m.showsHost("box") || len(m.tabs) != tabs+1 || mach.pane("p4") == nil {
+		t.Fatalf("host, tab or pane lost: tabs %d → %d", tabs, len(m.tabs))
+	}
+
+	// Closed with three, the rest stay apart and the first gets the lot.
+	m.newSpace()
+	m.spaces[1].hosts["box"] = true
+	m.newSpace()
+	m.spaces[2].hosts["old"] = true
+	m.closeSpace(1)
+	if !m.spaces[0].hosts["box"] || m.hasHost(0, "old") || !m.hasHost(1, "old") {
+		t.Fatalf("after closing one of three: first %v, other %v", m.spaces[0].hosts, m.spaces[1].hosts)
+	}
+}
+
+func TestSpaceSavedHosts(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	m.savedSSH = []string{"old"}
+	hosts := func() []string { return m.shownHosts() }
+	// With one workspace, every saved host is listed and no other is.
+	if !m.showsHost("old") || m.showsHost("unsaved") {
+		t.Fatal("one workspace: wrong hosts listed")
+	}
+
+	m.newSpace() // a host saved before any workspace is the first's
+	if len(hosts()) != 0 {
+		t.Fatalf("new workspace lists %v", hosts())
+	}
+	m.saveSSH("new", nil)
+	if got := hosts(); len(got) != 1 || got[0] != "new" {
+		t.Fatalf("second lists %v", got)
+	}
+	if m.hasHost(0, "new") {
+		t.Fatal("a host saved in the second shows in the first")
+	}
+	// Saving one the first has lists it here as well; the first keeps it.
+	m.saveSSH("old", nil)
+	if !m.hasHost(1, "old") || !m.hasHost(0, "old") {
+		t.Fatalf("old: first %v second %v", m.hasHost(0, "old"), m.hasHost(1, "old"))
+	}
+	// So does adding it through the dialog's way in, instead of "already saved".
+	m.switchSpace(0)
+	if err := m.putSSHHost("", "new", sshHostInfo{Name: "nu"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !m.hasHost(0, "new") || m.sshInfo["new"].Name != "nu" || len(m.savedSSH) != 2 {
+		t.Fatalf("bring through put: %v %+v", m.savedSSH, m.sshInfo)
+	}
+	if err := m.putSSHHost("", "new", sshHostInfo{}, ""); err == nil {
+		t.Fatal("saving one listed here again was not refused")
+	}
+	// Editing a host carries its place in every workspace.
+	if err := m.putSSHHost("new", "newer", sshHostInfo{}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !m.hasHost(0, "newer") || !m.hasHost(1, "newer") || m.spaces[1].hosts["new"] {
+		t.Fatalf("rename: %v %v", m.spaces[0].hosts, m.spaces[1].hosts)
+	}
+	// Connecting to one only another workspace has asks to save it here.
+	m.switchSpace(1)
+	delete(m.spaces[1].hosts, "old")
+	m.connectSSHWith("old", nil)
+	if mu, ok := m.overlay.(*menu); !ok || !strings.Contains(mu.title, "Save") {
+		t.Fatalf("overlay %#v", m.overlay)
+	}
+	m.overlay = nil
+
+	// x: out of this workspace while another has it, forgotten when none does.
+	m.rebuild()
+	a1At(t, m, savedSSHID("newer"))
+	m.openRemove()
+	d := m.overlay.(*dialog)
+	if !strings.Contains(strings.Join(d.text, " "), "out of this workspace") {
+		t.Fatalf("asks %q", d.text)
+	}
+	m.overlay = nil
+	d.submit(m, nil)
+	if m.hasHost(1, "newer") || !m.hasHost(0, "newer") {
+		t.Fatal("newer not taken out of the second only")
+	}
+	m.switchSpace(0)
+	a1At(t, m, savedSSHID("newer"))
+	m.openRemove()
+	d = m.overlay.(*dialog)
+	if !strings.Contains(strings.Join(d.text, " "), "Forget") {
+		t.Fatalf("asks %q", d.text)
+	}
+	m.overlay = nil
+	m.spaces[1].hosts["newer"] = true // a stale entry the forget must clear
+	d.submit(m, nil)
+	if slices.Contains(m.savedSSH, "newer") || m.spaces[1].hosts["newer"] {
+		t.Fatal("not forgotten everywhere")
+	}
+
+	// Saved and restored, the first's own list included.
+	m.statePath = filepath.Join(t.TempDir(), "ui.json")
+	m.saveState()()
+	st := loadUIState(m.statePath)
+	if st.FirstSpace == nil || !slices.Contains(st.FirstSpace.Hosts, "old") || len(st.FirstSpace.Tabs) != 0 {
+		t.Fatalf("first space saved %+v", st.FirstSpace)
+	}
+	m2, _ := a1Fixture(t, false)
+	m2.savedSSH = slices.Clone(m.savedSSH)
+	m2.restoreSpaces(st.FirstSpace, st.Spaces, st.ActiveSpace)
+	if !m2.spaces[0].hosts["old"] {
+		t.Fatalf("first space restored %v", m2.spaces[0].hosts)
 	}
 }

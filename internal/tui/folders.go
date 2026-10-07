@@ -175,13 +175,14 @@ func (m *Model) newFolder(machine, projectID string, section nodeKind, name stri
 		return false
 	}
 	key := folderKey(machine, projectID, section)
-	s := m.isolated()
+	s := m.cur()
 	for _, f := range m.folders[key] {
 		if f.Name == name {
 			// One made in another workspace and not shown in this one is
 			// shown here from now on, rather than refused as a name that
 			// is nowhere to be seen.
-			if s != nil && !s.showsFolder(key, f, m.shownPanes(machine)) {
+			if s != nil && !m.showsFolder(key, f) {
+				m.keepInFirst(m.activeSpace, foldersOf, spaceFolder(key, name), m.hasFolder(0, key, f))
 				s.folders[spaceFolder(key, name)] = true
 				return true
 			}

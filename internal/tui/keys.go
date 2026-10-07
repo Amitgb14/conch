@@ -724,8 +724,8 @@ func (m *Model) openRemove() tea.Cmd {
 			return nil
 		}
 		label := mach.label
-		if m.isolated() != nil {
-			m.overlay = newConfirm(fmt.Sprintf("Take %s out of this workspace, with its projects here? It stays in workspace 1.", label), func(m *Model) tea.Cmd {
+		if m.otherHasMachine(mach) {
+			m.overlay = newConfirm(fmt.Sprintf("Take %s out of this workspace, with its projects here? Other workspaces keep it.", label), func(m *Model) tea.Cmd {
 				return m.leaveMachine(mid)
 			})
 			return nil
@@ -735,6 +735,12 @@ func (m *Model) openRemove() tea.Cmd {
 		})
 	case kindSavedSSH:
 		target := savedSSHTarget(r.id)
+		if m.otherHasHost(target) {
+			m.overlay = newConfirm(fmt.Sprintf("Take ssh %s out of this workspace? Other workspaces keep it.", sshName(target)), func(m *Model) tea.Cmd {
+				return m.leaveHost(target)
+			})
+			return nil
+		}
 		m.overlay = newConfirm(fmt.Sprintf("Forget ssh %s? It is no longer listed when conch opens.", sshName(target)), func(m *Model) tea.Cmd {
 			return m.forgetSSH(target)
 		})
@@ -779,8 +785,8 @@ func (m *Model) openRemove() tea.Cmd {
 			return nil
 		}
 		id, mid := proj.ID, r.machine
-		if m.isolated() != nil {
-			m.overlay = newConfirm(fmt.Sprintf("Take %s out of this workspace? It stays in workspace 1.", proj.Name), func(m *Model) tea.Cmd {
+		if m.otherHasProject(mid, id) {
+			m.overlay = newConfirm(fmt.Sprintf("Take %s out of this workspace? Other workspaces keep it.", proj.Name), func(m *Model) tea.Cmd {
 				return m.leaveSpace(mid, id)
 			})
 			return nil
@@ -919,7 +925,10 @@ func (m *Model) removeMachine(mid string) tea.Cmd {
 	if err := remote.RemoveMachine(mid); err != nil {
 		m.setFlash(err.Error(), true)
 	}
-	return m.rebuild()
+	for _, s := range m.spaces { // added again later, it starts afresh
+		delete(s.machines, mid)
+	}
+	return tea.Batch(m.rebuild(), m.saveState())
 }
 
 func cwdOrHome() string {

@@ -68,7 +68,11 @@ func savedSSHTarget(rowID string) string {
 // connected with.
 func (m *Model) saveSSH(target string, args []string) tea.Cmd {
 	if slices.Contains(m.savedSSH, target) {
-		return nil
+		if m.showsHost(target) {
+			return nil
+		}
+		m.joinHost(target, true) // saved in another workspace: listed here too
+		return tea.Batch(m.rebuild(), m.saveState())
 	}
 	if err := m.putSSHHost("", target, sshHostInfo{Args: args}, ""); err != nil {
 		return func() tea.Msg { return errMsg{err} }
@@ -91,6 +95,9 @@ func (m *Model) forgetSSH(target string) tea.Cmd {
 	}
 	m.takeHostOutOfFolders(target)
 	m.removeRow(savedSSHID(target))
+	for _, s := range m.spaces { // saved again later, it starts afresh
+		delete(s.hosts, target)
+	}
 	m.setFlash("forgot "+sshName(target), false)
 	return tea.Batch(m.rebuild(), m.saveState())
 }
@@ -108,7 +115,7 @@ func (m *Model) connectSSHWith(target string, args []string) tea.Cmd {
 	if err := remote.CheckLoginTarget(target); err != nil {
 		return func() tea.Msg { return errMsg{err} }
 	}
-	if slices.Contains(m.savedSSH, target) {
+	if m.showsHost(target) {
 		return m.startSSH(target, args)
 	}
 	m.overlay = &menu{title: "Save " + sshName(target) + " in the tree?", x: max(m.width/2-20, 0), y: max(m.height/3, 0), items: []menuItem{

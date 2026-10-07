@@ -139,7 +139,7 @@ func (m Model) sidebarLines(w, h int) []string {
 	for i := m.scroll; i < len(m.rows) && len(lines) < h; i++ {
 		lines = append(lines, m.rowLine(m.rows[i], w))
 	}
-	if len(m.rows) <= 1 && (m.isolated() != nil || len(m.allPanes()) == 0 && len(m.machines[0].projects) == 0) {
+	if len(m.rows) <= 1 && (m.cur() != nil || len(m.allPanes()) == 0 && len(m.machines[0].projects) == 0) {
 		lines = append(lines, "", styleMuted.Render(" a  add a project"), styleMuted.Render(" c  start an agent"), styleMuted.Render(" n  open a terminal"))
 	}
 	return lines

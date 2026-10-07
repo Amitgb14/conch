@@ -43,6 +43,7 @@ type uiState struct {
 	// Spaces are the workspaces after the first (spaces.go); Tabs above
 	// stay the first one's, which is all an older build knows of.
 	Spaces      []savedSpace `json:"spaces,omitempty"`
+	FirstSpace  *savedSpace  `json:"first_space,omitempty"` // what workspace 1 holds; its tabs are Tabs
 	ActiveSpace int          `json:"active_space,omitempty"`
 }
 
@@ -110,7 +111,7 @@ func saveUIState(path string, st uiState) error {
 func (m Model) saveState() tea.Cmd {
 	tabs, active := m.firstSpaceTabs()
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
-		Tabs: saveTabs(tabs), ActiveTab: active, Spaces: m.savedSpaces(), ActiveSpace: m.activeSpace, LimitAlerts: map[string]int{},
+		Tabs: saveTabs(tabs), ActiveTab: active, Spaces: m.savedSpaces(), FirstSpace: m.savedFirstSpace(), ActiveSpace: m.activeSpace, LimitAlerts: map[string]int{},
 		QueueDismissed: map[string]string{}, SavedSSH: slices.Clone(m.savedSSH), NoProjectOffer: slices.Clone(m.noProjectOffer)}
 	if len(m.sshInfo) > 0 {
 		st.SSHHosts = make(map[string]sshHostInfo, len(m.sshInfo))
