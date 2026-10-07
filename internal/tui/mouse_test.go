@@ -336,6 +336,13 @@ func TestA1MousePane(t *testing.T) {
 	peer.waitMethod(t, proto.MethodPaneSendKeys, `["up","up","up"]`)
 	at(1, 1, a1WheelDown, a1Press)
 	peer.waitMethod(t, proto.MethodPaneSendKeys, `["down","down","down"]`)
+	// A trackpad's burst sends them one at a time after the first notch.
+	burst := m.lastWheel.Add(10 * time.Millisecond)
+	restore := wheelClock
+	wheelClock = func() time.Time { return burst }
+	at(1, 1, a1WheelUp, a1Press)
+	peer.waitMethod(t, proto.MethodPaneSendKeys, `["up"]`)
+	wheelClock = restore
 	m.frame.AltScreen = false
 
 	// Programs that asked for the mouse get its events.

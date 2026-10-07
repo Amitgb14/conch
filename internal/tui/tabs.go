@@ -167,12 +167,13 @@ func (m *Model) syncView() tea.Cmd {
 	}
 	if mid != m.viewMachine || id != m.viewing {
 		m.viewMachine, m.viewing = mid, id
-		m.scrollMode, m.sel = false, nil
+		m.scrollMode, m.sel, m.asked = false, nil, nil
 	}
 	m.frame = m.frames[paneKey(mid, id)]
-	m.offset = 0
 	if m.frame != nil {
-		m.offset = m.frame.Offset
+		m.settleOffset(m.frame)
+	} else {
+		m.offset, m.asked = 0, nil
 	}
 
 	var cmds []tea.Cmd

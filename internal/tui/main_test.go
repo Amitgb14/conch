@@ -2,8 +2,10 @@ package tui
 
 import (
 	"os/exec"
+	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // Nothing in this suite may reach out of the process. A test once put its
@@ -23,6 +25,10 @@ func TestMain(m *testing.M) {
 	// sent it would leave the developer's own pointer as a hand.
 	setPointerShape = func(shape string) { pointerShapes = append(pointerShapes, shape) }
 	signalProcess = func(pid int, sig syscall.Signal) error { signalled = append(signalled, pid); return nil }
+	// Each wheel event a second after the last, so a test's notches are
+	// notches: one sent straight after another is not a trackpad's burst.
+	var wheelTicks atomic.Int64
+	wheelClock = func() time.Time { return time.Unix(wheelTicks.Add(1), 0) }
 	m.Run()
 }
 
