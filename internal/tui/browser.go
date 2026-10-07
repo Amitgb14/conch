@@ -267,7 +267,7 @@ func (b *browser) add(m *Model, dir string) tea.Cmd {
 	m.overlay = nil
 	var info proto.ProjectInfo
 	return m.callOn(b.machine, proto.MethodProjectAdd, proto.ProjectAddParams{Path: dir}, &info,
-		func() tea.Msg { return flashMsg("added project " + info.Name) })
+		m.addedProject(b.machine, &info, "added project "))
 }
 
 func (b *browser) mkdir(m *Model, dir, name string) tea.Cmd {

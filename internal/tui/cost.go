@@ -134,10 +134,11 @@ func usageOf(panes []proto.PaneInfo) usage {
 	return u
 }
 
-// machineUsage sums every agent on a machine.
+// machineUsage sums every agent on a machine the workspace on screen shows.
 func (m Model) machineUsage(mid string) usage {
 	if mach := m.machine(mid); mach != nil {
-		return usageOf(mach.panes)
+		_, panes := m.shown(mach)
+		return usageOf(panes)
 	}
 	return usage{}
 }

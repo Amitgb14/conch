@@ -814,6 +814,12 @@ func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Mode
 	if !press {
 		return m, nil
 	}
+	if msg.Y == 0 { // the top border: conch, the workspaces and a +
+		if left {
+			return m, m.clickSpace(msg.X)
+		}
+		return m, nil
+	}
 	// Row 0 of the content is the header; the border takes one line.
 	i := m.scroll + msg.Y - 2
 	if msg.Y < 2 || i < 0 || i >= len(m.rows) {

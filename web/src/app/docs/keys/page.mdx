@@ -144,6 +144,7 @@ Click a line to select it and again to open it; the wheel moves the selection, o
 | `ctrl+b <` / `>`, `.` | move the tab left / right, or to a position you type (among the tabs listed) |
 | `ctrl+b w` | pick any tab or split, grouped by project and CLI, with each split's branch or folder and agent state |
 | `ctrl+b &`, `,` | close, rename tab |
+| `ctrl+b N`, `(` / `)`, `$`, `X` | new workspace, previous / next workspace, rename it, close it (its agents and terminals keep running) — also the `+`, numbers and `×` beside conch at the top of the sidebar |
 | `ctrl+b =`, `z` | equalize splits, zoom |
 | `ctrl+b r` | draw the selected pane's screen again, when a program left stale text behind (a partial redraw after the pane changed size). conch clears its copy of the screen — without keeping the stale one in the scrollback — and tells the program its size changed, so nothing is typed into it; a program that doesn't repaint (a plain shell) shows its prompt again on the next keypress. Also in the pane menu, and `conch redraw ID` from a shell. |
 | `ctrl+b S` | type into every agent and terminal in the tab at once, like tmux's `synchronize-panes`; their borders turn amber and the status bar shows `SYNC`. Press it again to stop. |
