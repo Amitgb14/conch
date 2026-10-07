@@ -500,6 +500,25 @@ func (m *Model) paneMouse(machine, paneID string, msg tea.MouseMsg, x, y int, pr
 		// it would be a lie, so it goes.
 		m.sel = nil
 		forwardMouse(c, paneID, msg, x, y)
+	case wheel && ours && f != nil && f.Mouse && !f.AltScreen && f.History > 0 && !msg.Alt && !msg.Ctrl:
+		// A program on the main screen that holds the mouse holds it for
+		// clicks: agents ask for mouse reporting and then do nothing with
+		// the wheel, so forwarding it printed the reports into an agent's
+		// prompt as `<65;121;38M` — twice reported, and the pane really
+		// did hold the mouse both times, which is why routing it to the
+		// right pane did not cure it.
+		//
+		// On the main screen the wheel's meaning is conch's: scroll back
+		// through the five thousand lines conch is keeping, which is what
+		// the person wanted and what tmux does. On the alternate screen it
+		// is the program's, since conch has no history there and the
+		// program's own scrollback is the only one. Alt or ctrl gives it
+		// to the program either way, as it does for a link.
+		delta := -3
+		if msg.Button == tea.MouseButtonWheelUp {
+			delta = 3
+		}
+		m.scrollPane(delta)
 	case f != nil && f.Mouse:
 		forwardMouse(c, paneID, msg, x, y)
 	case wheel && f != nil && f.AltScreen:

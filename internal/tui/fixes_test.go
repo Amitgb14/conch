@@ -292,23 +292,18 @@ func TestA2SelectionSurvivesScrolling(t *testing.T) {
 	}
 }
 
-// While text is being selected in a program that takes the mouse itself —
-// an agent's own TUI — the wheel scrolls conch's history instead of going
-// to the program, so a selection can be dragged past the screen.
+// On the main screen the wheel is conch's history, whether or not
+// anything is selected — see TestTheWheelOnTheMainScreenIsConchs. This
+// test keeps the part that is about the selection: scrolling under it
+// must not take it away, so it can be dragged past the top of the screen.
 func TestA2WheelScrollsWhileSelecting(t *testing.T) {
 	m := a2Model()
 	m.viewing, m.viewMachine = "p1", localMachine
-	c, peer := a1FakeClient(t, "pane.scroll.v1")
+	c, _ := a1FakeClient(t, "pane.scroll.v1")
 	m.machines[0].c = c
 	a2Frame(m, "p1", &proto.Frame{Mouse: true, History: 100, Lines: make([]string, 10)})
 
-	// No selection: the wheel belongs to the program.
 	wheel := tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}
-	a2Run(m.paneMouse(localMachine, "p1", wheel, 1, 1, false, true))
-	if m.offset != 0 {
-		t.Fatalf("scrolled without a selection: offset %d", m.offset)
-	}
-	peer.waitMethod(t, proto.MethodPaneSendMouse, "")
 
 	// Selecting, in a pane conch has history for: the wheel is ours.
 	m.sel = &selection{paneID: "p1", ay: 1, by: 1, dragging: true}

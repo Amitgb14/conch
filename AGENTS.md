@@ -262,6 +262,20 @@ helpers in `cmd/conch` and `internal/remote`.
   a program holding two and releasing one still wants it). Anything else
   put in a frame that the screen does not show has the same question to
   answer: what sends the frame that says it changed?
+- **On the main screen the wheel is conch's, not the program's.** A
+  program that asks for mouse reporting usually wants clicks: an agent
+  takes the mouse and does nothing with the wheel, so forwarding it there
+  printed the reports into the agent's prompt as `<65;121;38M` — twice
+  from use, and the pane really did hold the mouse both times
+  (`mouse=True altScreen=False history=5000`, read off the live server),
+  which is why routing the wheel to the right pane had not cured it. So
+  the wheel scrolls conch's history while the program is on the main
+  screen and conch has history to show, as tmux does; on the alternate
+  screen it goes to the program, which keeps its own scrollback and would
+  otherwise be unreachable. Alt or ctrl hands it over either way. This
+  overturned what `TestA2WheelScrollsWhileSelecting` used to say in so
+  many words — "no selection: the wheel belongs to the program" — so the
+  rule is worth knowing before changing it back.
 - **The mouse goes to the pane under the pointer, not the focused one.**
   A click or a wheel over another split asks for that split's focus, and
   the asking is a command that has not run yet — so for that event the
