@@ -88,8 +88,17 @@ func (s *Server) shareSession(p proto.SessionShareParams) (proto.SessionShareRes
 		if info.Agent == nil {
 			return res, proto.Errorf(proto.ErrBadRequest, "pane %s isn't running an agent; typing the prompt into a shell would run it", p.PaneID)
 		}
-	} else if _, ok := s.adapters.Get(p.To); !ok {
+	} else if ad, ok := s.adapters.Get(p.To); !ok {
 		return res, proto.Errorf(proto.ErrBadRequest, "conch can't launch %q", p.To)
+	} else if p, ok := ad.(interface{ CanPrompt() bool }); ok && !p.CanPrompt() {
+		// A handoff is a first message: the new agent is started with a
+		// prompt pointing at the conversation. An agent conch only runs
+		// may have no way to be given one — several agents' prompt flags
+		// answer and exit — so this is refused rather than started with
+		// the document silently dropped.
+		return res, proto.Errorf(proto.ErrBadRequest,
+			"%s cannot be given a first message, so a conversation cannot be handed to it; "+
+				"start it yourself and open the document", ad.Label())
 	}
 
 	var path string

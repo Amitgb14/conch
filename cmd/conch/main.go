@@ -58,6 +58,10 @@ Usage:
   conch agent skill [-agent NAMES] [-remove] [-apply]
                                 teach the agents to start, prompt and read other agents in
                                 conch: its skill, in each agent's own skills folder
+  conch agent add NAME -command BINARY [-label L] [-prompt 'FLAG {prompt}'] [-resume 'FLAG {id}']
+                                describe an agent conch has no adapter for, so it starts and is
+                                watched like the others; what you leave out it will not pretend
+                                to do (its sessions are not read either)
   conch agent status | install claude
                                 check or install Claude Code (use -m for a machine)
   conch agent setup [-agent NAME] [-copy] [DIR]

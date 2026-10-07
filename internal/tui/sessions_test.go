@@ -316,3 +316,49 @@ func TestA2ProjectSessionLines(t *testing.T) {
 		t.Fatal("joinNonEmpty")
 	}
 }
+
+// TestSessionsSaysWhatItDoesNotRead: an agent of the "runs here" tier
+// keeps its conversations in a format nobody has written down, so conch
+// does not read them. An empty list would otherwise read as "you have not
+// used it", which is the pretence the tiers exist to avoid.
+func TestSessionsSaysWhatItDoesNotRead(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	m.width, m.height = 120, 40
+	m.viewMachine = localMachine
+	mach := m.machine(localMachine)
+	mach.agentList = []proto.AgentAvailability{
+		{Name: "claude", Label: "Claude Code", Installed: true, Tier: proto.TierSupported},
+		{Name: "robo", Label: "Robo Coder", Installed: true, Tier: proto.TierRunsHere},
+	}
+	// An empty list that has been loaded: the state somebody sees when
+	// they open Sessions for a project where only a "runs here" agent
+	// has ever run.
+	m.sessions = map[string]*sessionsData{
+		sessionsKey(localMachine, "r-none"): {list: []proto.SessionInfo{}},
+	}
+	sv := &sessionsView{machine: localMachine, projectID: "r-none"}
+	out := a2Plain(sv.render(*m, 120, 30))
+	if !strings.Contains(out, "not read for Robo Coder") {
+		t.Fatalf("the view does not say what it cannot read:\n%s", out)
+	}
+	if !strings.Contains(out, "runs it but does not read its saved conversations") {
+		t.Errorf("the wording for one agent:\n%s", out)
+	}
+
+	// Two of them, and the sentence still reads.
+	mach.agentList = append(mach.agentList, proto.AgentAvailability{
+		Name: "kilo", Label: "Kilo Code", Installed: true, Tier: proto.TierRunsHere})
+	out = a2Plain(sv.render(*m, 120, 30))
+	if !strings.Contains(out, "Robo Coder and Kilo Code") || !strings.Contains(out, "runs them but does not read their") {
+		t.Errorf("the wording for two agents:\n%s", out)
+	}
+
+	// Supported agents alone: nothing is said, because there is nothing
+	// conch is failing to do.
+	mach.agentList = mach.agentList[:1]
+	out = a2Plain(sv.render(*m, 120, 30))
+	if strings.Contains(out, "not read for") {
+		t.Errorf("it apologised for nothing:\n%s", out)
+	}
+}

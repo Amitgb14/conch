@@ -1,0 +1,22 @@
+# Cursor's CLI — https://cursor.com/docs/cli. The "runs here" tier.
+#
+# Verified against cursor.com/docs/cli:
+#   - a first message is a positional argument, which is why this is the
+#     one shipped manifest with a prompt line.
+#   - --resume <chatId> reopens a chat and --continue the previous one.
+#
+# The binary: today's docs call it `agent` and install it in ~/.local/bin;
+# earlier releases installed `cursor-agent`. Both are listed below in the
+# order they are looked for — if conch says it is not installed and you
+# have it, run `conch agent add cursor -command <what you have> -force`.
+agent = "cursor"
+label = "Cursor CLI"
+process_names = ["cursor-agent", "agent"]
+
+[run]
+binary = "cursor-agent"
+dirs = ["~/.local/bin"]
+prompt = "{prompt}"
+resume = "--resume {id}"
+resume_last = "--continue"
+install = "curl https://cursor.com/install -fsS | bash"

@@ -26,7 +26,9 @@ func TestA6RegistryGetLabelsInstall(t *testing.T) {
 	if st, err := os.Stat(dir); err != nil || st.Mode().Perm() != 0o700 {
 		t.Fatalf("config dir: %v %v", st, err)
 	}
-	if _, ok := reg.Get("aider"); ok {
+	// A name nothing describes. ("aider" was this test's unknown agent
+	// until conch shipped a manifest for it.)
+	if _, ok := reg.Get("nothing-describes-this"); ok {
 		t.Fatal("unknown agent found")
 	}
 	labels := map[string]string{"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "devin": "Devin"}

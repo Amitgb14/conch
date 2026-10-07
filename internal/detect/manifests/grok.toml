@@ -1,0 +1,23 @@
+# Grok — xAI's own CLI (docs.x.ai). The "runs here" tier.
+#
+# Verified against docs.x.ai/build:
+#   - sessions are kept in ~/.grok/sessions, and -r/--resume <ID> and
+#     -c/--continue reopen them. The docs list those under headless mode;
+#     whether they also apply to the interactive TUI is not verified, so
+#     if a resume here opens a fresh session, that is why.
+#   - -p/--single sends one prompt and exits, which is not a first
+#     message, so there is no prompt line.
+#
+# Note: a community CLI (superagent-ai/grok-cli, npm "grok-dev") installs a
+# binary of the same name with different flags. If `grok --version` names
+# that one, copy this file to $CONCH_HOME/agents/grok.toml and change
+# resume to "-s {id}" and resume_last to "--session latest".
+agent = "grok"
+label = "Grok"
+process_names = ["grok"]
+
+[run]
+binary = "grok"
+resume = "--resume {id}"
+resume_last = "--continue"
+install = "curl -fsSL https://x.ai/cli/install.sh | bash"

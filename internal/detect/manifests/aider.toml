@@ -1,0 +1,19 @@
+# Aider — https://aider.chat. The "runs here" tier: conch starts it and
+# watches it, and does not read its saved conversations.
+#
+# Verified against aider.chat/docs/usage.html and /docs/config/options.html:
+#   - a first message cannot be given to an interactive session. --message
+#     and --message-file both "disable chat mode": they answer and exit, so
+#     using one for a first message would start something already over.
+#     That is why there is no prompt line below.
+#   - there is no resume by id. --restore-chat-history reopens the one
+#     history this folder keeps (.aider.chat.history.md), which is a
+#     "continue", not a choice among sessions.
+agent = "aider"
+label = "Aider"
+process_names = ["aider"]
+
+[run]
+binary = "aider"
+resume_last = "--restore-chat-history"
+install = "curl -LsSf https://aider.chat/install.sh | sh"

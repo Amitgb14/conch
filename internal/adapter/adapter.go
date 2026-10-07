@@ -38,6 +38,13 @@ type Adapter interface {
 	// InstallScript is a shell script that installs the agent for the
 	// current user, run visibly in a pane.
 	InstallScript() string
+	// Tier is how far conch's support for this agent goes: TierSupported
+	// for the ones with an adapter, detection taken from the real agent
+	// and sessions that list and resume; TierRunsHere for one described by
+	// a manifest, which conch starts and detects and no more. Said rather
+	// than implied, so nothing has to pretend it can read a session format
+	// nobody has written down.
+	Tier() string
 }
 
 // Availability is whether an agent is installed on this machine.
@@ -79,8 +86,32 @@ func New(exe, dir string) (Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Registry{claude, newCodex(), gemini, opencode, newDevin()}, nil
+	r := Registry{claude, newCodex(), gemini, opencode, newDevin()}
+	// Agents described by a manifest come after the supported ones, in the
+	// order their files sort. A manifest that cannot be read is reported
+	// and skipped: one bad file must not cost the agents around it.
+	taken := map[string]bool{}
+	for _, a := range r {
+		taken[a.Name()] = true
+	}
+	// The person's own manifests first, so one of theirs replaces a
+	// shipped manifest of the same name: these are other people's flags
+	// and they change.
+	mine, errs := manifestAgents(ManifestDir(dir), taken)
+	for _, a := range mine {
+		taken[a.Name()] = true
+	}
+	shipped, shipErrs := shippedAgents(taken)
+	for _, err := range append(errs, shipErrs...) {
+		ManifestProblem(err)
+	}
+	return append(append(r, mine...), shipped...), nil
 }
+
+// ManifestProblem is told about a manifest that could not be read, so the
+// server can log it where somebody will see it. A problem with one agent's
+// file is not a reason to fail the others, or the server.
+var ManifestProblem = func(err error) {}
 
 // cliAgent is an agent launched as a command in the user's login shell.
 type cliAgent struct {
@@ -93,8 +124,15 @@ type cliAgent struct {
 	promptFlag string
 	// resume and resumeLast reopen a session by id (%s) or the latest.
 	resume, resumeLast string
-	env                []string
-	install            string
+	// promptTmpl and resumeTmpl are a manifest's way of saying the same
+	// thing: the words to pass, with {prompt} or {id} where the quoted
+	// value goes. A manifest is written by hand, so it says what it means
+	// rather than carrying a format verb somebody's prompt could break.
+	promptTmpl, resumeTmpl string
+	env                    []string
+	install                string
+	// tier is TierSupported unless this agent came from a manifest.
+	tier string
 	// prepare writes the files this agent is launched with — Claude's
 	// --settings, Gemini's defaults, OpenCode's plugin. They are written
 	// when the server starts, and again before each launch: the folder they
@@ -121,7 +159,37 @@ func (a *cliAgent) ResumeArgs(id string) string {
 	if id == "" {
 		return a.resumeLast
 	}
+	if a.resumeTmpl != "" {
+		return fill(a.resumeTmpl, "{id}", id)
+	}
+	if a.resume == "" {
+		return "" // it cannot be resumed, and says so rather than guessing
+	}
 	return fmt.Sprintf(a.resume, ShellQuote(id))
+}
+
+// CanPrompt reports whether this agent can be given a first message when
+// it starts. An agent from a manifest can only if the manifest said how.
+func (a *cliAgent) CanPrompt() bool {
+	return a.tier != TierRunsHere || a.promptTmpl != "" || a.promptFlag != ""
+}
+
+// CanResume reports whether this agent can reopen a saved session at all.
+// An agent from a manifest may not be able to, and saying so is the point
+// of the tier: the alternative is starting it afresh and calling that a
+// resume.
+func (a *cliAgent) CanResume() bool {
+	return a.resume != "" || a.resumeTmpl != "" || a.resumeLast != ""
+}
+
+// fill puts a value into a manifest's template, quoted for the shell. A
+// template without its placeholder is taken as the words that come before
+// the value, which is the other way somebody will write it.
+func fill(tmpl, placeholder, value string) string {
+	if strings.Contains(tmpl, placeholder) {
+		return strings.ReplaceAll(tmpl, placeholder, ShellQuote(value))
+	}
+	return tmpl + " " + ShellQuote(value)
 }
 
 // PromptArgs implements Adapter.
@@ -129,12 +197,28 @@ func (a *cliAgent) PromptArgs(prompt string) string {
 	if strings.TrimSpace(prompt) == "" {
 		return ""
 	}
+	if a.promptTmpl != "" {
+		return fill(a.promptTmpl, "{prompt}", prompt)
+	}
 	if a.promptFlag != "" {
 		return a.promptFlag + " " + ShellQuote(prompt)
+	}
+	if a.tier == TierRunsHere {
+		// A manifest that did not say how to pass one cannot take one:
+		// guessing at an argument would start some agents in a mode that
+		// answers and exits. CanPrompt is how a caller asks first.
+		return ""
 	}
 	return ShellQuote(prompt)
 }
 func (a *cliAgent) InstallScript() string { return a.install }
+
+func (a *cliAgent) Tier() string {
+	if a.tier == "" {
+		return TierSupported
+	}
+	return a.tier
+}
 
 func (a *cliAgent) pathSetup() string {
 	if len(a.dirs) == 0 {

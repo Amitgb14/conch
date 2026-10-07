@@ -137,10 +137,14 @@ func TestShareSessionErrors(t *testing.T) {
 	code(proto.SessionShareParams{Agent: "claude", ID: "c1", Dir: work}, proto.ErrBadRequest)                            // no target
 	code(proto.SessionShareParams{Agent: "claude", ID: "c1", Dir: work, To: "codex", PaneID: "p1"}, proto.ErrBadRequest) // both
 	code(proto.SessionShareParams{Agent: "claude", ID: "c1", Dir: work + "-gone", To: "codex"}, proto.ErrBadRequest)     // removed worktree
-	code(proto.SessionShareParams{Agent: "claude", ID: "c1", Dir: work, To: "aider"}, proto.ErrBadRequest)               // unknown agent
-	code(proto.SessionShareParams{Agent: "claude", ID: "c1", Dir: work, PaneID: "p404"}, proto.ErrNotFound)              // unknown pane
-	code(proto.SessionShareParams{Agent: "claude", ID: "nope", Dir: work, To: "codex"}, proto.ErrNotFound)               // no such session
-	code(proto.SessionShareParams{Agent: "gemini", ID: "c1", Dir: work, To: "codex"}, proto.ErrNotFound)                 // wrong agent
+	code(proto.SessionShareParams{Agent: "claude", ID: "c1", Dir: work, To: "nobody"}, proto.ErrBadRequest)              // unknown agent
+	// An agent conch only runs, which cannot be given a first message: a
+	// handoff is a first message, so it is refused rather than started
+	// with the conversation dropped (aider's own prompt flags exit).
+	code(proto.SessionShareParams{Agent: "claude", ID: "c1", Dir: work, To: "aider"}, proto.ErrBadRequest)
+	code(proto.SessionShareParams{Agent: "claude", ID: "c1", Dir: work, PaneID: "p404"}, proto.ErrNotFound) // unknown pane
+	code(proto.SessionShareParams{Agent: "claude", ID: "nope", Dir: work, To: "codex"}, proto.ErrNotFound)  // no such session
+	code(proto.SessionShareParams{Agent: "gemini", ID: "c1", Dir: work, To: "codex"}, proto.ErrNotFound)    // wrong agent
 
 	shell := agentPane(t, s, "p1", "", work, "sleep 30")
 	code(proto.SessionShareParams{Agent: "claude", ID: "c1", Dir: work, PaneID: "p1"}, proto.ErrBadRequest) // not an agent

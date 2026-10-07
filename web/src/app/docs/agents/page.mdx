@@ -4,6 +4,32 @@ export const metadata = { title: "Agents", description: "Supported agents, their
 
 conch runs Claude Code, Codex, Gemini CLI, OpenCode and Devin in panes it owns, tracks what each is doing, and shows their token usage and plan limits. It wires in its state tracking without touching the agents' own configuration.
 
+## Two tiers, said plainly
+
+conch supports five agents and **runs** more. The difference is a promise, not a ranking:
+
+- **Supported** — an adapter written for it, detection rules taken from the real agent, and its saved conversations listed, resumed and deleted in the Sessions view. Claude Code, Codex, Gemini CLI, OpenCode and Devin.
+- **Runs here** — described by a manifest: conch starts it, recognises it in a pane, and gives it a first message or resumes it **only where that agent documents how**. Its saved conversations are *not* read, and conch says so — in the agent menu ("runs here · no sessions") and in the Sessions view — rather than showing an empty list that reads as "you have not used it".
+
+The second tier exists because the wider catalogs *detect* twenty agents while conch *supports* five, and writing fifteen more to the supported bar stalls on session formats nobody has written down. Running an agent is easy; pretending to read its sessions is a lie.
+
+conch ships manifests for **Aider**, **Amp**, **Cursor CLI**, **Grok** and **Kilo Code**, each saying in its own file what was verified from that agent's documentation and what was not — these are other people's flags, and they change. Add your own with:
+
+```sh
+conch agent add robo -command robo -label "Robo Coder" \
+  -prompt '--message {prompt}' -resume '--resume {id}' -resume-last --continue
+```
+
+That writes `~/.config/conch/agents/robo.toml`, which you can then edit by hand; reload the server to pick it up. Leave `-prompt` out and conch will not try to give it a first message; leave `-resume` out and it will not offer to resume one. A manifest cannot take a supported agent's name — that would replace a tested adapter with a guess.
+
+| Agent | Tier | First message | Resume |
+| --- | --- | --- | --- |
+| **Aider** | runs here | no — `--message` answers and exits | the folder's own history (`--restore-chat-history`) |
+| **Amp** | runs here | no — only piped stdin | by thread (`amp threads continue T-…`) |
+| **Cursor CLI** | runs here | yes, as an argument | `--resume ID`, `--continue` |
+| **Grok** | runs here | not verified for its TUI | `--resume ID`, `--continue` |
+| **Kilo Code** | runs here | no — `kilo run` answers and exits | the most recent here (`--continue`) |
+
 ## Supported agents
 
 | Agent | Launch | How conch knows its state | Install (no root) |

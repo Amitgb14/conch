@@ -134,6 +134,10 @@ func (s *Server) Run() error {
 	if err != nil {
 		return err
 	}
+	// A manifest that cannot be read is logged where somebody will see it
+	// and skipped; one bad file must not cost the agents around it, nor
+	// the server.
+	adapter.ManifestProblem = func(err error) { log.Printf("agent manifest ignored: %v", err) }
 	if s.adapters, err = adapter.New(exe, s.configDir); err != nil {
 		return err
 	}
@@ -758,7 +762,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		wg.Wait()
 		for i, ad := range s.adapters {
 			res.Agents = append(res.Agents, proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
-				Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version})
+				Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier()})
 		}
 		return res, nil
 

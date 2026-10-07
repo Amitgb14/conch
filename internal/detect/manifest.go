@@ -62,6 +62,13 @@ func (d *duration) UnmarshalText(b []byte) error {
 //go:embed manifests/*.toml
 var builtin embed.FS
 
+// Builtin is the manifests conch ships, for a reader that wants more out
+// of them than detection: a manifest is one file an agent, and the ones
+// that also say how to *run* their agent are read by internal/adapter
+// from here. Two readers, one file, because somebody adding an agent is
+// answering one question.
+func Builtin() fs.FS { return builtin }
+
 // ManifestDir is where user overrides live: <dir>/<agent>.toml replaces the
 // built-in manifest of the same agent.
 func ManifestDir(configDir string) string {

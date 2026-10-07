@@ -34,8 +34,23 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers,
 }
+
+// The tiers an agent can be in, as agent.list reports them. They are in
+// the protocol because a client says them to a person: "runs here" is a
+// promise conch is deliberately not making about sessions.
+const (
+	TierSupported = "supported"
+	TierRunsHere  = "runs here"
+)
+
+// CapAgentTiers is agent.list saying each agent's tier, and the server
+// offering agents described by a manifest as well as the five with
+// adapters. A client without it sees the supported five and nothing it
+// cannot explain; one with it can say which agents it only runs, and that
+// their sessions are not read.
+const CapAgentTiers = "agent.tiers.v1"
 
 // CapSessionHandoff is session.export and session.share taking a Doc: a
 // conversation handed to an agent on another machine.
@@ -1098,6 +1113,12 @@ type AgentAvailability struct {
 	Installed bool   `json:"installed"`
 	Path      string `json:"path,omitempty"`
 	Version   string `json:"version,omitempty"`
+	// Tier is how far conch's support goes: "supported" for an agent with
+	// an adapter, detection taken from the real thing and sessions that
+	// list and resume, or "runs here" for one described by a manifest,
+	// which conch starts and detects and no more. Empty from a server too
+	// old to have tiers, where every agent it offers is supported.
+	Tier string `json:"tier,omitempty"`
 }
 
 // SessionListParams asks for the agent sessions saved for a project (its

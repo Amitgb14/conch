@@ -1,0 +1,18 @@
+# Kilo Code's terminal CLI — https://kilo.ai/docs/cli. The "runs here"
+# tier. (It is a fork of OpenCode, which conch supports in full; this is
+# the CLI Kilo ships, not that adapter.)
+#
+# Verified against kilo.ai/docs/cli:
+#   - `kilo` starts the TUI; `kilo run MESSAGE` answers and exits, so it is
+#     not a first message and there is no prompt line here.
+#   - --continue resumes the most recent session in this folder. There is
+#     no documented flag to resume one by id; `kilo session` and the TUI's
+#     /sessions do that instead.
+agent = "kilo"
+label = "Kilo Code"
+process_names = ["kilo"]
+
+[run]
+binary = "kilo"
+resume_last = "--continue"
+install = "npm install -g @kilocode/cli"

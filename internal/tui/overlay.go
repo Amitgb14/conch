@@ -421,6 +421,13 @@ func newAgentMenu(m Model, mach *machine) *menu {
 			if a.Version != "" {
 				detail = "  " + styleMuted.Render(a.Version)
 			}
+			// An agent conch only runs says so where it is chosen: it
+			// starts and is watched like any other, and its saved
+			// conversations are not read, which is worth knowing before
+			// rather than when the Sessions view is empty.
+			if a.Tier == proto.TierRunsHere {
+				detail += styleMuted.Render("  runs here · no sessions")
+			}
 			if a.Name == m.defaultAgent() {
 				detail += styleMuted.Render("  default")
 				sel = len(items)

@@ -40,8 +40,22 @@ func TestRegistryAndIntegrationFiles(t *testing.T) {
 	for _, a := range reg {
 		names = append(names, a.Name())
 	}
-	if strings.Join(names, ",") != "claude,codex,gemini,opencode,devin" {
+	// The five with adapters come first, in this order, then the agents
+	// conch only ships a manifest for. The order matters: it is the order
+	// the agent menu offers them in, and a supported agent should not be
+	// below one conch merely runs.
+	if strings.Join(names[:5], ",") != "claude,codex,gemini,opencode,devin" {
 		t.Fatalf("registry order: %v", names)
+	}
+	for _, a := range reg[:5] {
+		if a.Tier() != TierSupported {
+			t.Errorf("%s is %q", a.Name(), a.Tier())
+		}
+	}
+	for _, a := range reg[5:] {
+		if a.Tier() != TierRunsHere {
+			t.Errorf("%s is %q", a.Name(), a.Tier())
+		}
 	}
 
 	claude, _ := reg.Get("claude")

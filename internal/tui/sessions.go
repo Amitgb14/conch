@@ -780,8 +780,16 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 		if sv.query != "" {
 			return append(lines, styleMuted.Render("  no sessions match · esc clears the search"))
 		}
-		return append(lines, styleMuted.Render("  no saved sessions for this project"), "",
+		lines = append(lines, styleMuted.Render("  no saved sessions for this project"), "",
 			styleMuted.Render("  sessions of Claude Code, Codex, Gemini CLI and OpenCode run here or in its worktrees appear here"))
+		// An agent conch only runs keeps its conversations in a format
+		// nobody has written down, so they are not read — said here,
+		// because an empty list otherwise reads as "you have not used it".
+		if names := m.runsHereAgents(); names != "" {
+			lines = append(lines, styleMuted.Render("  not read for "+names+": conch runs "+
+				itThem(names)+" but does not read "+itsTheir(names)+" saved conversations"))
+		}
+		return lines
 	}
 
 	listH := max(h-sessionsListTop, 1)
@@ -912,4 +920,50 @@ func joinNonEmpty(sep string, parts ...string) string {
 func (m Model) hasCapability(mid, cap string) bool {
 	c := m.clientOf(mid)
 	return c != nil && len(c.MissingCapabilities([]string{cap})) == 0
+}
+
+// runsHereAgents names the agents this machine offers that conch only
+// runs — the ones whose saved conversations it does not read. Empty when
+// every agent here is supported, which is the usual case and says nothing.
+func (m Model) runsHereAgents() string {
+	mach := m.machine(m.viewMachine)
+	if mach == nil {
+		mach = m.machine(localMachine)
+	}
+	if mach == nil {
+		return ""
+	}
+	var names []string
+	for _, a := range mach.agentList {
+		if a.Tier == proto.TierRunsHere {
+			label := a.Label
+			if label == "" {
+				label = a.Name
+			}
+			names = append(names, label)
+		}
+	}
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+// itThem and itsTheir keep the sentence above grammatical for one agent or
+// several, since the list is built from what the machine happens to offer.
+func itThem(names string) string {
+	if strings.Contains(names, " and ") {
+		return "them"
+	}
+	return "it"
+}
+
+func itsTheir(names string) string {
+	if strings.Contains(names, " and ") {
+		return "their"
+	}
+	return "its"
 }

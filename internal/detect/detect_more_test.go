@@ -323,9 +323,10 @@ func TestA6ProcessErrorUsesHint(t *testing.T) {
 	if tr2.Status().Agent != "" || tr2.Explain().Manifest != "" {
 		t.Fatalf("no hint: %+v", tr2.Explain())
 	}
-	// An unknown hint is ignored.
-	tr3 := NewTracker(manifests(t), "aider")
-	tr3.Observe(obs(t0, Process{Name: "python3", Args: []string{"python3", "-m", "aider"}}, true, "> "))
+	// An unknown hint is ignored. (The name has to be one conch ships no
+	// manifest for; "aider" was this hint until conch shipped one.)
+	tr3 := NewTracker(manifests(t), "nothing-ships-this")
+	tr3.Observe(obs(t0, Process{Name: "python3", Args: []string{"python3", "-m", "nothing-ships-this"}}, true, "> "))
 	if tr3.Status().Agent != "" {
 		t.Fatalf("unknown hint: %+v", tr3.Status())
 	}

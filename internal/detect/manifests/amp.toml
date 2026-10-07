@@ -1,0 +1,18 @@
+# Amp — https://ampcode.com. The "runs here" tier.
+#
+# Verified against ampcode.com/docs/cli and /docs/threads:
+#   - an interactive session takes a first message only through piped
+#     stdin, which is not something conch can pass as arguments; -x/--execute
+#     prints and exits. So no prompt line.
+#   - a thread is reopened with `amp threads continue T-…`; there is no
+#     documented flag for "the most recent one".
+#   - threads live on Amp's server, not in a file here, so there is nothing
+#     for conch to read even if it tried.
+agent = "amp"
+label = "Amp"
+process_names = ["amp"]
+
+[run]
+binary = "amp"
+resume = "threads continue {id}"
+install = "curl -fsSL https://ampcode.com/install.sh | bash"
