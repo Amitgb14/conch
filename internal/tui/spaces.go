@@ -25,6 +25,7 @@ type space struct {
 	name     string
 	projects map[string]bool // scoped(machine, project)
 	panes    map[string]bool // paneKey: started here, outside its projects
+	folders  map[string]bool // spaceFolder: folders made here, shown even empty
 
 	tabs       []*tab
 	activeTab  int
@@ -42,12 +43,13 @@ type savedSpace struct {
 	Name      string     `json:"name,omitempty"`
 	Projects  []string   `json:"projects,omitempty"`
 	Panes     []string   `json:"panes,omitempty"`
+	Folders   []string   `json:"folders,omitempty"`
 	Tabs      []savedTab `json:"tabs,omitempty"`
 	ActiveTab int        `json:"active_tab,omitempty"`
 }
 
 func newSpace() *space {
-	return &space{projects: map[string]bool{}, panes: map[string]bool{}}
+	return &space{projects: map[string]bool{}, panes: map[string]bool{}, folders: map[string]bool{}}
 }
 
 // isolated is the workspace on screen when it is not the first: the one
@@ -104,6 +106,45 @@ func (m Model) shown(mach *machine) ([]proto.ProjectInfo, []proto.PaneInfo) {
 		return s.filter(mach.id, mach.projects, mach.panes)
 	}
 	return mach.projects, mach.panes
+}
+
+// spaceFolder names a folder for a workspace's own list: its section's key
+// and its name, which is unique in the section.
+func spaceFolder(key, name string) string { return key + "\n" + name }
+
+// filterFolders is the folders a workspace shows: the ones made in it, the
+// ones holding a pane it shows, and the SSH section's that hold a saved
+// host, since saved hosts are listed in every workspace. An empty folder
+// made in another workspace is that workspace's own.
+func (s *space) filterFolders(folders map[string][]savedFolder, panes map[string][]proto.PaneInfo) map[string][]savedFolder {
+	out := map[string][]savedFolder{}
+	for key, fs := range folders {
+		for _, f := range fs {
+			if s.showsFolder(key, f, panes[folderKeyMachine(key)]) {
+				out[key] = append(out[key], f)
+			}
+		}
+	}
+	return out
+}
+
+// showsFolder is whether the workspace shows folder f of section key, given
+// the panes it shows on that section's machine.
+func (s *space) showsFolder(key string, f savedFolder, panes []proto.PaneInfo) bool {
+	if s.folders[spaceFolder(key, f.Name)] || len(f.claim(panes, map[string]bool{})) > 0 {
+		return true
+	}
+	return slices.ContainsFunc(f.Members, func(mem savedMember) bool { return mem.Host != "" })
+}
+
+// shownPanes is the panes the workspace on screen shows on machine mid.
+func (m Model) shownPanes(mid string) []proto.PaneInfo {
+	mach := m.machine(mid)
+	if mach == nil {
+		return nil
+	}
+	_, panes := m.shown(mach)
+	return panes
 }
 
 // park keeps what is on screen in workspace s; load puts s back.
@@ -401,7 +442,7 @@ func (m Model) savedSpaces() []savedSpace {
 		if i == m.activeSpace {
 			tabs, active = m.tabs, m.activeTab
 		}
-		out = append(out, savedSpace{Name: s.name, Projects: sortedKeys(s.projects), Panes: sortedKeys(s.panes),
+		out = append(out, savedSpace{Name: s.name, Projects: sortedKeys(s.projects), Panes: sortedKeys(s.panes), Folders: sortedKeys(s.folders),
 			Tabs: saveTabs(tabs), ActiveTab: active})
 	}
 	return out
@@ -431,6 +472,9 @@ func (m *Model) restoreSpaces(saved []savedSpace, active int) {
 		}
 		for _, k := range ss.Panes {
 			s.panes[k] = true
+		}
+		for _, k := range ss.Folders {
+			s.folders[k] = true
 		}
 		m.tabs, m.preview, m.previewing = nil, nil, false
 		m.restoreTabs(ss.Tabs, ss.ActiveTab)

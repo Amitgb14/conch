@@ -952,11 +952,13 @@ func (m *Model) rebuild() tea.Cmd {
 	prevIndex := indexOfRow(m.rows, m.cursor)
 	in := treeInput{expanded: m.expanded, showAll: m.showAll, filter: m.filter, now: time.Now()}
 	iso := m.isolated()
+	shownPanes := map[string][]proto.PaneInfo{}
 	for _, mach := range m.machines {
 		tm := treeMachine{id: mach.id, label: mach.label, panes: mach.panes, projects: mach.projects,
 			agents: mach.agents, sessions: m.hasSessions(mach.id)}
 		if iso != nil {
 			tm.projects, tm.panes = iso.filter(mach.id, mach.projects, mach.panes)
+			shownPanes[mach.id] = tm.panes
 		}
 		if provider, _, ok := remote.ParseSandboxTarget(mach.target); ok {
 			tm.sandbox = provider
@@ -970,6 +972,9 @@ func (m *Model) rebuild() tea.Cmd {
 		in.tabs = m.treeTabs()
 	}
 	in.folders = m.folders
+	if iso != nil {
+		in.folders = iso.filterFolders(m.folders, shownPanes)
+	}
 	m.treeSig = m.layoutSig()
 	m.rows = buildTree(in)
 	if indexOfRow(m.rows, m.cursor) < 0 && len(m.rows) > 0 {

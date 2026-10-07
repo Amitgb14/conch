@@ -175,8 +175,16 @@ func (m *Model) newFolder(machine, projectID string, section nodeKind, name stri
 		return false
 	}
 	key := folderKey(machine, projectID, section)
+	s := m.isolated()
 	for _, f := range m.folders[key] {
 		if f.Name == name {
+			// One made in another workspace and not shown in this one is
+			// shown here from now on, rather than refused as a name that
+			// is nowhere to be seen.
+			if s != nil && !s.showsFolder(key, f, m.shownPanes(machine)) {
+				s.folders[spaceFolder(key, name)] = true
+				return true
+			}
 			return false
 		}
 	}
@@ -184,6 +192,9 @@ func (m *Model) newFolder(machine, projectID string, section nodeKind, name stri
 		m.folders = map[string][]savedFolder{}
 	}
 	m.folders[key] = append(m.folders[key], savedFolder{Name: name})
+	if s != nil {
+		s.folders[spaceFolder(key, name)] = true
+	}
 	return true
 }
 
@@ -245,6 +256,9 @@ func (m *Model) removeFolder(machine, projectID string, section nodeKind, name s
 	m.folders[key] = slices.Delete(fs, at, at+1)
 	if len(m.folders[key]) == 0 {
 		delete(m.folders, key)
+	}
+	for _, s := range m.spaces {
+		delete(s.folders, spaceFolder(key, name))
 	}
 	return true
 }

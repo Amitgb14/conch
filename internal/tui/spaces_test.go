@@ -418,3 +418,81 @@ func TestSpaceMachineCounts(t *testing.T) {
 		t.Fatalf("first workspace again:\n%s", got)
 	}
 }
+
+func TestSpaceFolders(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	p1, p3 := mach.panes[0], mach.panes[2]
+	agents := func(name string) string { return folderRowID(localMachine, "r1", kindAgents, name) }
+	ops := folderRowID(localMachine, "", kindTerminals, "ops")
+	shows := func(id string) bool { return indexOfRow(m.rows, id) >= 0 }
+
+	// In the first workspace: an empty folder, one holding the project's
+	// agent, one holding a CLI terminal, and an SSH folder with a host.
+	m.newFolder(localMachine, "r1", kindAgents, "later")
+	m.newFolder(localMachine, "r1", kindAgents, "team")
+	m.putInFolder(localMachine, "r1", kindAgents, "team", p1)
+	m.newFolder(localMachine, "", kindTerminals, "ops")
+	m.putInFolder(localMachine, "", kindTerminals, "ops", p3)
+	m.folders[sshFolderKey()] = []savedFolder{{Name: "hosts", Members: []savedMember{{Host: "box"}}}}
+	m.rebuild()
+	for _, id := range []string{agents("later"), agents("team"), ops} {
+		if !shows(id) {
+			t.Fatalf("first workspace lacks %s:\n%s", id, render(m.rows))
+		}
+	}
+
+	m.newSpace()
+	m.spaces[1].projects[scoped(localMachine, "r1")] = true
+	m.rebuild()
+	if shows(agents("later")) || shows(ops) {
+		t.Fatalf("another workspace's folders show:\n%s", render(m.rows))
+	}
+	if !shows(agents("team")) {
+		t.Fatalf("a folder holding a pane shown here is missing:\n%s", render(m.rows))
+	}
+	_, panes := m.shown(mach)
+	in := m.spaces[1].filterFolders(m.folders, map[string][]proto.PaneInfo{localMachine: panes})
+	if len(in[sshFolderKey()]) != 1 {
+		t.Fatalf("SSH folder with a saved host left out: %+v", in)
+	}
+
+	// A folder made here shows here, empty, and in the first workspace.
+	if !m.newFolder(localMachine, "r1", kindAgents, "mine") {
+		t.Fatal("new folder refused")
+	}
+	m.rebuild()
+	if !shows(agents("mine")) {
+		t.Fatalf("own empty folder missing:\n%s", render(m.rows))
+	}
+	if m.newFolder(localMachine, "r1", kindAgents, "mine") || m.newFolder(localMachine, "r1", kindAgents, "team") {
+		t.Fatal("a folder shown here was made twice")
+	}
+	// Naming one that is only another workspace's brings it here.
+	if !m.newFolder(localMachine, "r1", kindAgents, "later") {
+		t.Fatal("hidden folder's name refused")
+	}
+	m.rebuild()
+	if !shows(agents("later")) || len(m.foldersIn(localMachine, "r1", kindAgents)) != 3 {
+		t.Fatalf("later not brought here, or made twice: %+v\n%s", m.foldersIn(localMachine, "r1", kindAgents), render(m.rows))
+	}
+	m.switchSpace(0)
+	if !shows(agents("mine")) {
+		t.Fatalf("first workspace lacks the folder made in the second:\n%s", render(m.rows))
+	}
+
+	// Saved and restored with the workspace; removing a folder forgets it.
+	saved := m.savedSpaces()
+	if got := saved[0].Folders; len(got) != 2 {
+		t.Fatalf("saved folders %q", got)
+	}
+	m.removeFolder(localMachine, "r1", kindAgents, "mine")
+	if len(m.spaces[1].folders) != 1 {
+		t.Fatalf("removed folder still listed: %v", m.spaces[1].folders)
+	}
+	m2, _ := a1Fixture(t, false)
+	m2.restoreSpaces(saved, 0)
+	if len(m2.spaces[1].folders) != 2 {
+		t.Fatalf("restored folders %v", m2.spaces[1].folders)
+	}
+}
