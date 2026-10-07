@@ -496,3 +496,49 @@ func TestSpaceFolders(t *testing.T) {
 		t.Fatalf("restored folders %v", m2.spaces[1].folders)
 	}
 }
+
+func TestSpaceWaitingCounter(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	mach.panes[0].Agent.State = proto.AgentBlocked // p1, in api
+	mach.panes[3].Agent.State = proto.AgentBlocked // p4, outside every project
+	bar := func() string { return ansi.Strip(m.statusBar()) }
+	if w, _ := m.inboxCount(); w != 2 || !strings.Contains(bar(), "2 waiting") {
+		t.Fatalf("first workspace: %d waiting, bar %q", w, bar())
+	}
+
+	m.newSpace()
+	if w, d := m.inboxCount(); w != 0 || d != 0 || strings.Contains(bar(), "⚑") {
+		t.Fatalf("empty workspace: %d waiting %d done, bar %q", w, d, bar())
+	}
+	cursor := m.cursor
+	m.jumpToAttention()
+	if m.cursor != cursor || m.pendingShow != "" || !strings.Contains(m.flash, "in another") {
+		t.Fatalf("! left the workspace: cursor %q, flash %q", m.cursor, m.flash)
+	}
+
+	m.spaces[1].projects[scoped(localMachine, "r1")] = true
+	m.rebuild()
+	if w, _ := m.inboxCount(); w != 1 || !strings.Contains(bar(), "1 waiting") {
+		t.Fatalf("with api: %d waiting, bar %q", w, bar())
+	}
+	for range 2 { // round and round, never to p4
+		m.jumpToAttention()
+		if m.cursor != paneNodeID(localMachine, "p1") {
+			t.Fatalf("! went to %q", m.cursor)
+		}
+		m.viewMachine, m.viewing = localMachine, "p1"
+	}
+
+	// Nothing waiting anywhere: the plain answer.
+	mach.panes[0].Agent.State, mach.panes[3].Agent.State = proto.AgentIdle, proto.AgentIdle
+	m.jumpToAttention()
+	if m.flash != "no agents need you" {
+		t.Fatalf("flash %q", m.flash)
+	}
+	m.switchSpace(0)
+	mach.panes[3].Agent.State = proto.AgentBlocked
+	if w, _ := m.inboxCount(); w != 1 {
+		t.Fatalf("first workspace counts %d", w)
+	}
+}

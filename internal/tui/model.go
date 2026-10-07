@@ -1095,9 +1095,30 @@ func (m Model) allPanes() []scopedPane {
 	return out
 }
 
+// shownPanesAll is every pane the workspace on screen shows, on every
+// machine: what its waiting counter counts and ! goes through, so neither
+// points at an agent its tree does not list.
+func (m Model) shownPanesAll() []scopedPane {
+	if m.isolated() == nil {
+		return m.allPanes()
+	}
+	var out []scopedPane
+	for _, mach := range m.machines {
+		_, panes := m.shown(mach)
+		for _, p := range panes {
+			out = append(out, scopedPane{machine: mach.id, PaneInfo: p})
+		}
+	}
+	return out
+}
+
 func (m *Model) jumpToAttention() tea.Cmd {
-	mid, id := nextAttention(m.allPanes(), scoped(m.viewMachine, m.viewing))
+	mid, id := nextAttention(m.shownPanesAll(), scoped(m.viewMachine, m.viewing))
 	if id == "" {
+		if _, elsewhere := nextAttention(m.allPanes(), ""); elsewhere != "" {
+			m.setFlash("no agents need you in this workspace; some do in another", false)
+			return nil
+		}
 		m.setFlash("no agents need you", false)
 		return nil
 	}

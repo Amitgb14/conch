@@ -537,7 +537,7 @@ func (m Model) paneGlyph(p proto.PaneInfo) (glyph, label string, style lipgloss.
 // stopped to ask something, done ones finished while nobody watched and
 // only want looking at.
 func (m Model) inboxCount() (waiting, done int) {
-	for _, p := range m.allPanes() {
+	for _, p := range m.shownPanesAll() {
 		switch {
 		case p.Agent == nil:
 		case p.Agent.State == proto.AgentBlocked:
