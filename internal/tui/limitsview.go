@@ -125,7 +125,9 @@ func (m Model) limitsWindowLines(mach *machine, now time.Time, w int, grown floa
 	}
 	// What conch has seen, which is a different thing from the plan window
 	// and is worth saying so plainly.
-	if u := m.machineUsage(mach.id); !u.empty() {
+	// Every agent on the machine, whatever the workspace: plan limits are
+	// the account's, and a part of what spends them would mislead.
+	if u := usageOf(mach.panes); !u.empty() {
 		// What this counts, exactly, because it will be read beside the
 		// agent's own panel and the two are easy to mistake for each other:
 		// every conversation in full, as each agent counts it, not the run

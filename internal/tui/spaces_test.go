@@ -364,3 +364,57 @@ func TestSpaceStateRoundTrip(t *testing.T) {
 		t.Fatalf("out of range active: %d of %d", m3.activeSpace, len(m3.spaces))
 	}
 }
+
+func TestSpaceMachineCounts(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	mach.panes[0].Agent.State = proto.AgentBlocked // p1, in api
+	mach.panes[0].Agent.Tokens = &proto.Tokens{Input: 1000}
+	mach.panes[3].Agent.Tokens = &proto.Tokens{Input: 5000} // p4, codex outside every project
+	page := func() string { return ansi.Strip(strings.Join(m.machineLines(mach, 120, 30), "\n")) }
+	if got := page(); !strings.Contains(got, "1 projects · 4 panes · 1 working · 1 waiting") {
+		t.Fatalf("first workspace:\n%s", got)
+	}
+	all := m.machineUsage(localMachine)
+
+	m.newSpace()
+	if got := page(); !strings.Contains(got, "0 projects · 0 panes · 0 working · 0 waiting") {
+		t.Fatalf("empty workspace:\n%s", got)
+	}
+	if b := m.attentionBadge(localMachine, ""); b != "" {
+		t.Fatalf("empty workspace badge %q", ansi.Strip(b))
+	}
+	if u := m.machineUsage(localMachine); !u.empty() {
+		t.Fatalf("empty workspace usage %+v", u)
+	}
+	if got := ansi.Strip(strings.Join(m.workspaceLines(mach, 90), "\n")); !strings.Contains(got, "0 projects on local") || !strings.Contains(got, "no projects yet") {
+		t.Fatalf("workspace page:\n%s", got)
+	}
+
+	m.spaces[1].projects[scoped(localMachine, "r1")] = true
+	m.rebuild()
+	if got := page(); !strings.Contains(got, "1 projects · 2 panes · 0 working · 1 waiting") {
+		t.Fatalf("with api:\n%s", got)
+	}
+	if b := ansi.Strip(m.attentionBadge(localMachine, "")); b != "⚑1" {
+		t.Fatalf("badge %q", b)
+	}
+	if u := m.machineUsage(localMachine); u.empty() || u == all {
+		t.Fatalf("usage %+v, everything %+v", u, all)
+	}
+	if got := ansi.Strip(strings.Join(m.workspaceLines(mach, 90), "\n")); !strings.Contains(got, "1 projects on local") || !strings.Contains(got, "1 agents · 1 terminals") {
+		t.Fatalf("workspace page:\n%s", got)
+	}
+
+	// Offline, the panes last seen are this workspace's too.
+	mach.state = stateOffline
+	if got := page(); !strings.Contains(got, "showing 2 panes as last seen") {
+		t.Fatalf("offline:\n%s", got)
+	}
+	// Back in the first, everything counts again.
+	mach.state = stateOnline
+	m.switchSpace(0)
+	if got := page(); !strings.Contains(got, "4 panes") || m.machineUsage(localMachine) != all {
+		t.Fatalf("first workspace again:\n%s", got)
+	}
+}

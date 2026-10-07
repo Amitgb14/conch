@@ -464,7 +464,8 @@ func (m Model) attentionBadge(mid, projectID string) string {
 	if mach == nil {
 		return ""
 	}
-	for _, p := range mach.panes {
+	_, panes := m.shown(mach)
+	for _, p := range panes {
 		if projectID != "" && p.ProjectID != projectID || p.Agent == nil {
 			continue
 		}
@@ -989,14 +990,15 @@ func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string 
 // workspaceLines is the page of a machine's Workspace row: its projects,
 // each with what runs in it.
 func (m Model) workspaceLines(mach *machine, w int) []string {
-	lines := []string{styleBold.Render("Workspace") + styleMuted.Render(fmt.Sprintf("  %d projects on %s", len(mach.projects), mach.label)), ""}
-	projects := append([]proto.ProjectInfo(nil), mach.projects...)
+	shownProjects, panes := m.shown(mach)
+	lines := []string{styleBold.Render("Workspace") + styleMuted.Render(fmt.Sprintf("  %d projects on %s", len(shownProjects), mach.label)), ""}
+	projects := append([]proto.ProjectInfo(nil), shownProjects...)
 	sort.SliceStable(projects, func(i, j int) bool {
 		return strings.ToLower(projects[i].Name) < strings.ToLower(projects[j].Name)
 	})
 	for _, proj := range projects {
 		agents, terms := 0, 0
-		for _, p := range mach.panes {
+		for _, p := range panes {
 			if p.ProjectID != proj.ID {
 				continue
 			}
@@ -1044,7 +1046,8 @@ func (m Model) sandboxesLines(provider string, w int) []string {
 	for _, mach := range boxes {
 		p, id, _ := remote.ParseSandboxTarget(mach.target)
 		agents, terms := 0, 0
-		for _, pane := range mach.panes {
+		_, panes := m.shown(mach)
+		for _, pane := range panes {
 			if pane.Agent != nil || mach.agents[pane.ID] {
 				agents++
 			} else {
@@ -1106,7 +1109,8 @@ func (m Model) sandboxesLines(provider string, w int) []string {
 
 func (m Model) machineLines(mach *machine, cols, rows int) []string {
 	working, waiting := 0, 0
-	for _, p := range mach.panes {
+	projects, panes := m.shown(mach)
+	for _, p := range panes {
 		switch {
 		case p.Agent.NeedsAttention():
 			waiting++
@@ -1130,8 +1134,8 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 	}
 	switch mach.state {
 	case stateOnline:
-		lines = append(lines, styleMuted.Render(fmt.Sprintf("%d projects · %d panes · %d working · %d waiting", len(mach.projects), len(mach.panes), working, waiting)))
-		if line := m.usageLine(usageOf(mach.panes), "usage"); line != "" {
+		lines = append(lines, styleMuted.Render(fmt.Sprintf("%d projects · %d panes · %d working · %d waiting", len(projects), len(panes), working, waiting)))
+		if line := m.usageLine(usageOf(panes), "usage"); line != "" {
 			lines = append(lines, styleMuted.Render(line))
 		}
 		lines = append(lines, m.limitsLines(mach, cols)...)
@@ -1167,8 +1171,8 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 		lines = append(lines, styleWarn.Render(mach.err), "", styleMuted.Render("m → Install / upgrade conch there   (or run: conch machine upgrade "+mach.id+")"))
 	default:
 		lines = append(lines, styleErr.Render("offline: "+mach.err))
-		if len(mach.panes) > 0 {
-			lines = append(lines, styleMuted.Render(fmt.Sprintf("showing %d panes as last seen; they keep running if the machine is up", len(mach.panes))))
+		if len(panes) > 0 {
+			lines = append(lines, styleMuted.Render(fmt.Sprintf("showing %d panes as last seen; they keep running if the machine is up", len(panes))))
 		}
 		hint := "R  reconnect now (retrying automatically)"
 		if mach.id == localMachine {

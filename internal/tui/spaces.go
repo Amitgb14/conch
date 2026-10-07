@@ -96,6 +96,16 @@ func (s *space) filter(mid string, projects []proto.ProjectInfo, panes []proto.P
 	return projs, out
 }
 
+// shown is a machine's projects and panes as the workspace on screen has
+// them: everything in the first, what was put in it in any other. Pages and
+// counts read this, so a workspace never counts what its tree leaves out.
+func (m Model) shown(mach *machine) ([]proto.ProjectInfo, []proto.PaneInfo) {
+	if s := m.isolated(); s != nil {
+		return s.filter(mach.id, mach.projects, mach.panes)
+	}
+	return mach.projects, mach.panes
+}
+
 // park keeps what is on screen in workspace s; load puts s back.
 func (m *Model) park(s *space) {
 	s.tabs, s.activeTab, s.preview, s.previewing = m.tabs, m.activeTab, m.preview, m.previewing
