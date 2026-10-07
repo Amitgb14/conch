@@ -621,6 +621,13 @@ func TestHelpScrolls(t *testing.T) {
 	if h.top != 0 {
 		t.Fatalf("wheel up: %d", h.top)
 	}
+	swipe(3, func() {
+		h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress}, box{})
+	})
+	if h.top != 3+1+1 {
+		t.Fatalf("swipe down: %d", h.top)
+	}
+	h.top = 0
 	h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelRight, Action: tea.MouseActionPress}, box{})
 	h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown, Shift: true, Action: tea.MouseActionPress}, box{})
 	if h.left != 2*helpStep || h.top != 0 {

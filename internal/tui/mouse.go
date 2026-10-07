@@ -510,11 +510,7 @@ func (m *Model) paneMouse(machine, paneID string, msg tea.MouseMsg, x, y int, pr
 		// is the program's, since conch has no history there and the
 		// program's own scrollback is the only one. Alt or ctrl gives it
 		// to the program either way, as it does for a link.
-		delta := -3
-		if msg.Button == tea.MouseButtonWheelUp {
-			delta = 3
-		}
-		m.scrollPane(delta)
+		m.scrollPane(m.wheelDelta(msg))
 	case f != nil && f.Mouse:
 		forwardMouse(c, paneID, msg, x, y)
 	case wheel && f != nil && f.AltScreen:
@@ -546,9 +542,9 @@ var wheelClock = time.Now
 // where a mouse wheel's notches come one by one.
 const wheelBurst = 40 * time.Millisecond
 
-// wheelStep is how many lines one wheel event over a pane moves it: three
-// for a notch on its own, as before, and one for each event after it in a
-// burst. A trackpad swipe moved three lines an event, so the history
+// wheelStep is how many lines one wheel event moves what is under it — a
+// pane's history, the tree, a diff, a list: three for a notch on its own,
+// as before, and one for each event after it in a burst. A trackpad swipe moved three lines an event, so the history
 // leapt in steps of three and ran away from the finger; a line at a time
 // follows it, and a fast swipe still goes as far as its events take it.
 func (m *Model) wheelStep() int {
@@ -562,7 +558,8 @@ func (m *Model) wheelStep() int {
 }
 
 // wheelDelta is the history offset a wheel event moves the pane by: up
-// goes back into history.
+// goes back into history. Anything that counts lines downwards, as a list
+// or a page does, scrolls by its negative.
 func (m *Model) wheelDelta(msg tea.MouseMsg) int {
 	step := m.wheelStep()
 	if msg.Button == tea.MouseButtonWheelUp {
@@ -804,11 +801,7 @@ func (m Model) pageLines(id int, in rect) []string {
 
 func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Model, tea.Cmd) {
 	if wheel {
-		delta := 3
-		if msg.Button == tea.MouseButtonWheelUp {
-			delta = -3
-		}
-		m.scroll = clamp(m.scroll+delta, 0, max(len(m.rows)-m.sidebarRowsVisible(), 0))
+		m.scroll = clamp(m.scroll-m.wheelDelta(msg), 0, max(len(m.rows)-m.sidebarRowsVisible(), 0))
 		return m, nil
 	}
 	if !press {

@@ -794,10 +794,10 @@ func (g *gitPanel) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	inside := b.contains(msg.X, msg.Y)
 	switch {
 	case msg.Button == tea.MouseButtonWheelUp && inside:
-		g.scroll = max(g.scroll-3, 0)
+		g.scroll = max(g.scroll-m.wheelStep(), 0)
 		return nil
 	case msg.Button == tea.MouseButtonWheelDown && inside:
-		g.scroll = min(g.scroll+3, max(len(g.output)-1, 0))
+		g.scroll = min(g.scroll+m.wheelStep(), max(len(g.output)-1, 0))
 		return nil
 	case msg.Action != tea.MouseActionPress:
 		return nil

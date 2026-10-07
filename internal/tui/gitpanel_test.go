@@ -775,6 +775,11 @@ func TestGitPanelMouse(t *testing.T) {
 	if g.scroll != 0 {
 		t.Fatalf("wheel up past the top: %d", g.scroll)
 	}
+	swipe(3, func() { a1Mouse(t, m, b.x+2, b.y+2, tea.MouseButtonWheelDown, tea.MouseActionPress) })
+	if g.scroll != 3+1+1 {
+		t.Fatalf("swipe down: %d", g.scroll)
+	}
+	g.scroll = 0
 	a1Key(t, m, a2Key("pgdown"))
 	if g.scroll != gitPanelOutputMax/2 {
 		t.Fatalf("pgdown: %d", g.scroll)

@@ -1256,10 +1256,10 @@ func (s *settings) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	items := s.items(m)
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
-		s.move(items, -3)
+		s.move(items, -m.wheelStep())
 		return nil
 	case tea.MouseButtonWheelDown:
-		s.move(items, 3)
+		s.move(items, m.wheelStep())
 		return nil
 	}
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {

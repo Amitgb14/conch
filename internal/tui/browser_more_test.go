@@ -267,6 +267,18 @@ func TestA2BrowserMouse(t *testing.T) {
 	if b.sel != 0 {
 		t.Fatalf("wheel up: %d", b.sel)
 	}
+	// A swipe, over a folder long enough to show it: a row an event after
+	// the first.
+	long := proto.FSList{Path: "/home/dev/src", Parent: "/home/dev", Home: "/home/dev"}
+	for i := range 20 {
+		long.Entries = append(long.Entries, proto.FSEntry{Name: fmt.Sprintf("d%02d", i)})
+	}
+	lb := a2Browser(m, localMachine, &long)
+	lbx := lb.render(*m)
+	swipe(3, func() { lb.mouse(m, tea.MouseMsg{X: lbx.x + 2, Y: lbx.y + 4, Button: tea.MouseButtonWheelDown}, lbx) })
+	if lb.sel != 3+1+1 {
+		t.Fatalf("swipe down: %d", lb.sel)
+	}
 	row := func(i int) int { return bx.y + 1 + browserRowsTop + i }
 	press := func(y int) tea.Cmd {
 		return b.mouse(m, tea.MouseMsg{X: bx.x + 3, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, bx)

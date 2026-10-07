@@ -447,6 +447,10 @@ func TestA2TranscriptSelectAndScroll(t *testing.T) {
 	if v.off != 3 {
 		t.Fatalf("wheel down: %d", v.off)
 	}
+	swipe(3, func() { v.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown}, box) })
+	if v.off != 3+3+1+1 {
+		t.Fatalf("swipe down: %d", v.off)
+	}
 	for i := 0; i < 500; i++ {
 		v.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown}, box)
 	}

@@ -239,6 +239,11 @@ func TestA2SetupMouse(t *testing.T) {
 	if v.scroll != 3 {
 		t.Fatalf("wheel scroll %d", v.scroll)
 	}
+	swipe(2, func() { v.mouse(m, tea.MouseMsg{X: b.x + 2, Y: b.y + 5, Button: tea.MouseButtonWheelDown}, b) })
+	if v.scroll != 3+3+1 {
+		t.Fatalf("swipe scroll %d", v.scroll)
+	}
+	v.scroll = 3
 	// Clicking the second tab label.
 	x := b.x + 1 + ansi.StringWidth(v.tabLabels()[0]) + 2
 	v.mouse(m, tea.MouseMsg{X: x, Y: b.y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)

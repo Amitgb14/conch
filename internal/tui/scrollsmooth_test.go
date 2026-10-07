@@ -114,6 +114,18 @@ func useWheelClock(t *testing.T, next func() time.Time) {
 	t.Cleanup(func() { wheelClock = restore })
 }
 
+// swipe sends event n times as a trackpad's swipe does: the first a notch
+// of its own, every one after it straight on its heels.
+func swipe(n int, event func()) {
+	restore := wheelClock
+	defer func() { wheelClock = restore }()
+	at := time.Unix(1<<40, 0) // after anything the suite's clock has said
+	wheelClock = func() time.Time { return at }
+	for range n {
+		event()
+	}
+}
+
 // A notch on its own moves three lines; each event after it in a burst —
 // a trackpad's swipe — moves one, so the history follows the finger.
 func TestWheelStep(t *testing.T) {

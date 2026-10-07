@@ -629,6 +629,10 @@ func TestFilesMouse(t *testing.T) {
 	if fv.prevScroll != 3 || fv.selPath != "main.go" {
 		t.Fatalf("wheel over the preview: scroll %d sel %q", fv.prevScroll, fv.selPath)
 	}
+	swipe(3, func() { fv.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown}, fv.treeW+10, 10) })
+	if fv.prevScroll != 3+3+1+1 {
+		t.Fatalf("swipe over the preview: %d", fv.prevScroll)
+	}
 	fv.mouse(m, press, fv.treeW+10, 10)
 	if !fv.reading {
 		t.Fatal("a click in the preview did not focus it")

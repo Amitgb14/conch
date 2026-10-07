@@ -308,6 +308,11 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 	if s.sel != 2 {
 		t.Fatalf("wheel up: %d", s.sel)
 	}
+	swipe(2, func() { s.mouse(m, tea.MouseMsg{X: b.x + 2, Y: b.y + 4, Button: tea.MouseButtonWheelDown}, b) })
+	if s.sel != 2+3+1 {
+		t.Fatalf("swipe down: %d", s.sel)
+	}
+	s.sel = 2
 	s.mouse(m, tea.MouseMsg{X: b.x + 2, Y: b.y + 4, Action: tea.MouseActionMotion}, b)
 	x := b.x + 1 + len(" 1 Theme ") + 1 + 1
 	s.mouse(m, tea.MouseMsg{X: x, Y: b.y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)

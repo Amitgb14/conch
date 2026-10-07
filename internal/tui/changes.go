@@ -751,14 +751,14 @@ func (cv *changesView) mouse(m *Model, msg tea.MouseMsg, x, y int) tea.Cmd {
 	_, h := m.paneArea()
 	switch msg.Button {
 	case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
-		delta := 3
-		if msg.Button == tea.MouseButtonWheelUp {
-			delta = -3
-		}
 		if cv.diffFile != "" {
-			cv.diffScroll, cv.noFollow = clamp(cv.diffScroll+delta, 0, max(len(cv.diff)-(h-2), 0)), true
+			cv.diffScroll, cv.noFollow = clamp(cv.diffScroll-m.wheelDelta(msg), 0, max(len(cv.diff)-(h-2), 0)), true
 		} else if cv.data != nil {
-			cv.sel = clamp(cv.sel+delta/3, 0, max(len(cv.data.Files)-1, 0))
+			delta := 1
+			if msg.Button == tea.MouseButtonWheelUp {
+				delta = -1
+			}
+			cv.sel = clamp(cv.sel+delta, 0, max(len(cv.data.Files)-1, 0))
 		}
 		return nil
 	}
