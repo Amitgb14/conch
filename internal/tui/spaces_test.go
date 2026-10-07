@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
 )
 
 // headerX is the screen column of the header button for space sp (or
@@ -540,5 +541,106 @@ func TestSpaceWaitingCounter(t *testing.T) {
 	mach.panes[3].Agent.State = proto.AgentBlocked
 	if w, _ := m.inboxCount(); w != 1 {
 		t.Fatalf("first workspace counts %d", w)
+	}
+}
+
+func TestSpaceMachines(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	vm := newMachine("vm", "vm", "aghadge@vm")
+	vm.state = stateOnline
+	vm.projects = []proto.ProjectInfo{{ID: "r2", Name: "web", Path: "/srv/web"}}
+	vm.panes = []proto.PaneInfo{{ID: "p1", Name: "zsh", State: proto.PaneRunning, ProjectID: "r2"}}
+	m.machines = append(m.machines, vm)
+	m.rebuild()
+	shows := func(mid string) bool { return indexOfRow(m.rows, machineID(mid)) >= 0 }
+	if !shows("vm") {
+		t.Fatalf("first workspace lacks vm:\n%s", render(m.rows))
+	}
+
+	// A new workspace lists this computer and nothing else.
+	m.newSpace()
+	if !shows(localMachine) || shows("vm") {
+		t.Fatalf("new workspace:\n%s", render(m.rows))
+	}
+	if got := ansi.Strip(strings.Join(m.sandboxesLines("", 90), "\n")); !strings.Contains(got, "none yet") {
+		t.Fatalf("sandboxes page counts machines not here:\n%s", got)
+	}
+
+	// M brings one conch already has.
+	a1At(t, m, machineID(localMachine))
+	a1Key(t, m, runes("M"))
+	mu := m.overlay.(*menu)
+	last := mu.items[len(mu.items)-1]
+	if last.key != "e" || !strings.Contains(last.label, "already in conch") {
+		t.Fatalf("M menu %+v", mu.items)
+	}
+	last.run(m)
+	bring := m.overlay.(*menu)
+	if len(bring.items) != 1 || bring.items[0].label != "vm" || bring.back == nil {
+		t.Fatalf("bring menu %+v", bring.items)
+	}
+	m.overlay = nil
+	bring.items[0].run(m)
+	if !shows("vm") || m.cursor != machineID("vm") {
+		t.Fatalf("vm not brought:\n%s", render(m.rows))
+	}
+	if indexOfRow(m.rows, projectNodeID("vm", "r2")) >= 0 {
+		t.Fatalf("vm's projects came with it:\n%s", render(m.rows))
+	}
+	a1Key(t, m, runes("M"))
+	if mu := m.overlay.(*menu); strings.Contains(mu.items[len(mu.items)-1].label, "already in conch") {
+		t.Fatal("bring offered with nothing to bring")
+	}
+	m.overlay = nil
+
+	// x takes it out of the workspace, with its projects here, and conch
+	// keeps it.
+	m.spaces[1].projects[scoped("vm", "r2")] = true
+	m.spaces[1].projects[scoped(localMachine, "r1")] = true
+	m.rebuild()
+	a1At(t, m, machineID("vm"))
+	m.openRemove()
+	d := m.overlay.(*dialog)
+	if !strings.Contains(strings.Join(d.text, " "), "out of this workspace") {
+		t.Fatalf("remove asks %q", d.text)
+	}
+	m.overlay = nil
+	d.submit(m, nil)
+	if shows("vm") || m.machine("vm") == nil || len(m.spaces[1].projects) != 1 {
+		t.Fatalf("after taking out: projects %v\n%s", m.spaces[1].projects, render(m.rows))
+	}
+
+	// Holding a project or a pane there lists it without being added.
+	m.spaces[1].panes[paneKey("vm", "p1")] = true
+	m.rebuild()
+	if !shows("vm") {
+		t.Fatalf("a pane there didn't list vm:\n%s", render(m.rows))
+	}
+	delete(m.spaces[1].panes, paneKey("vm", "p1"))
+
+	// A machine added from here joins it; this computer can't be taken out.
+	next, _ := m.Update(machineAddedMsg{m: remote.Machine{ID: "box", Label: "box", Target: "box"}})
+	*m = next.(Model)
+	if !m.spaces[1].machines["box"] || !shows("box") {
+		t.Fatalf("added machine not here:\n%s", render(m.rows))
+	}
+	a1At(t, m, machineID(localMachine))
+	m.openRemove()
+	if m.overlay != nil {
+		t.Fatal("offered to take this computer out")
+	}
+
+	// Saved with the workspace; the first still lists everything.
+	if saved := m.savedSpaces(); len(saved[0].Machines) != 1 || saved[0].Machines[0] != "box" {
+		t.Fatalf("saved machines %v", saved[0].Machines)
+	}
+	m2, _ := a1Fixture(t, false)
+	m2.restoreSpaces(m.savedSpaces(), 0)
+	if !m2.spaces[1].machines["box"] {
+		t.Fatal("machines not restored")
+	}
+	m.switchSpace(0)
+	if !shows("vm") || !shows("box") {
+		t.Fatalf("first workspace:\n%s", render(m.rows))
 	}
 }

@@ -158,7 +158,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.copySSHKey(t)
 		}
 	case "M":
-		m.overlay = newAddMenu()
+		m.overlay = m.addMachineMenu()
 		return m, nil
 	case "r":
 		if ok && r.kind == kindSavedSSH {
@@ -724,6 +724,12 @@ func (m *Model) openRemove() tea.Cmd {
 			return nil
 		}
 		label := mach.label
+		if m.isolated() != nil {
+			m.overlay = newConfirm(fmt.Sprintf("Take %s out of this workspace, with its projects here? It stays in workspace 1.", label), func(m *Model) tea.Cmd {
+				return m.leaveMachine(mid)
+			})
+			return nil
+		}
 		m.overlay = newConfirm(fmt.Sprintf("Remove %s from conch? Its server and panes keep running there.", label), func(m *Model) tea.Cmd {
 			return m.removeMachine(mid)
 		})

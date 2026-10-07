@@ -554,6 +554,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.machines = append(m.machines, mach)
+		m.joinMachine(mach.id)
 		m.expanded[machineID(mach.id)] = true
 		m.cursor = machineID(mach.id)
 		m.setFlash("added "+mach.label, false)
@@ -956,6 +957,9 @@ func (m *Model) rebuild() tea.Cmd {
 	iso := m.isolated()
 	shownPanes := map[string][]proto.PaneInfo{}
 	for _, mach := range m.machines {
+		if !m.showsMachine(mach) {
+			continue
+		}
 		tm := treeMachine{id: mach.id, label: mach.label, panes: mach.panes, projects: mach.projects,
 			agents: mach.agents, sessions: m.hasSessions(mach.id)}
 		if iso != nil {

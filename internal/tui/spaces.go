@@ -26,6 +26,7 @@ type space struct {
 	projects map[string]bool // scoped(machine, project)
 	panes    map[string]bool // paneKey: started here, outside its projects
 	folders  map[string]bool // spaceFolder: folders made here, shown even empty
+	machines map[string]bool // machine IDs added here, shown even with nothing on them
 
 	tabs       []*tab
 	activeTab  int
@@ -44,12 +45,13 @@ type savedSpace struct {
 	Projects  []string   `json:"projects,omitempty"`
 	Panes     []string   `json:"panes,omitempty"`
 	Folders   []string   `json:"folders,omitempty"`
+	Machines  []string   `json:"machines,omitempty"`
 	Tabs      []savedTab `json:"tabs,omitempty"`
 	ActiveTab int        `json:"active_tab,omitempty"`
 }
 
 func newSpace() *space {
-	return &space{projects: map[string]bool{}, panes: map[string]bool{}, folders: map[string]bool{}}
+	return &space{projects: map[string]bool{}, panes: map[string]bool{}, folders: map[string]bool{}, machines: map[string]bool{}}
 }
 
 // isolated is the workspace on screen when it is not the first: the one
@@ -135,6 +137,92 @@ func (s *space) showsFolder(key string, f savedFolder, panes []proto.PaneInfo) b
 		return true
 	}
 	return slices.ContainsFunc(f.Members, func(mem savedMember) bool { return mem.Host != "" })
+}
+
+// showsMachine is whether the workspace on screen lists machine mach. The
+// first lists every one. Another lists this computer — somewhere to add a
+// project or start an agent is needed from the start — the machines added
+// to it, and any it holds a project or a pane on.
+func (m Model) showsMachine(mach *machine) bool {
+	s := m.isolated()
+	if s == nil || mach.id == localMachine || s.machines[mach.id] {
+		return true
+	}
+	projects, panes := s.filter(mach.id, mach.projects, mach.panes)
+	return len(projects) > 0 || len(panes) > 0
+}
+
+// hiddenMachines is the machines conch has that the workspace on screen
+// does not list, for bringing one here.
+func (m Model) hiddenMachines() []*machine {
+	var out []*machine
+	for _, mach := range m.machines {
+		if !m.showsMachine(mach) {
+			out = append(out, mach)
+		}
+	}
+	return out
+}
+
+// joinMachine lists machine mid in the workspace on screen.
+func (m *Model) joinMachine(mid string) {
+	if s := m.isolated(); s != nil && mid != localMachine {
+		s.machines[mid] = true
+	}
+}
+
+// openBringMachine offers the machines this workspace does not list.
+func (m *Model) openBringMachine(back *menu) {
+	mu := &menu{title: "Machine already in conch", back: back}
+	for i, mach := range m.hiddenMachines() {
+		key := ""
+		if i < 9 {
+			key = itoa(i + 1)
+		}
+		mid := mach.id
+		mu.items = append(mu.items, menuItem{key, mach.label, func(m *Model) tea.Cmd {
+			m.joinMachine(mid)
+			m.expanded[machineID(mid)] = true
+			m.cursor = machineID(mid)
+			return tea.Batch(m.rebuild(), m.saveState())
+		}})
+	}
+	m.overlay = mu
+}
+
+// addMachineMenu is M's menu, with the machines conch already has that
+// this workspace does not list as a way to bring one here.
+func (m *Model) addMachineMenu() *menu {
+	mu := newAddMenu()
+	if m.isolated() != nil && len(m.hiddenMachines()) > 0 {
+		mu.items = append(mu.items, menuItem{"e", "Machine already in conch…", func(m *Model) tea.Cmd {
+			m.openBringMachine(m.addMachineMenu())
+			return nil
+		}})
+	}
+	return mu
+}
+
+// leaveMachine takes a machine out of the workspace on screen, with its
+// projects and the panes started there: what is on it is no longer this
+// workspace's. Nothing ends, and every other workspace keeps it.
+func (m *Model) leaveMachine(mid string) tea.Cmd {
+	s := m.isolated()
+	if s == nil {
+		return nil
+	}
+	delete(s.machines, mid)
+	for k := range s.projects {
+		if strings.HasPrefix(k, scoped(mid, "")) { // mid~project
+			delete(s.projects, k)
+		}
+	}
+	for k := range s.panes {
+		if strings.HasPrefix(k, mid+"|") {
+			delete(s.panes, k)
+		}
+	}
+	return tea.Batch(m.rebuild(), m.saveState())
 }
 
 // shownPanes is the panes the workspace on screen shows on machine mid.
@@ -442,8 +530,15 @@ func (m Model) savedSpaces() []savedSpace {
 		if i == m.activeSpace {
 			tabs, active = m.tabs, m.activeTab
 		}
-		out = append(out, savedSpace{Name: s.name, Projects: sortedKeys(s.projects), Panes: sortedKeys(s.panes), Folders: sortedKeys(s.folders),
-			Tabs: saveTabs(tabs), ActiveTab: active})
+		out = append(out, savedSpace{
+			Name:      s.name,
+			Projects:  sortedKeys(s.projects),
+			Panes:     sortedKeys(s.panes),
+			Folders:   sortedKeys(s.folders),
+			Machines:  sortedKeys(s.machines),
+			Tabs:      saveTabs(tabs),
+			ActiveTab: active,
+		})
 	}
 	return out
 }
@@ -475,6 +570,9 @@ func (m *Model) restoreSpaces(saved []savedSpace, active int) {
 		}
 		for _, k := range ss.Folders {
 			s.folders[k] = true
+		}
+		for _, k := range ss.Machines {
+			s.machines[k] = true
 		}
 		m.tabs, m.preview, m.previewing = nil, nil, false
 		m.restoreTabs(ss.Tabs, ss.ActiveTab)

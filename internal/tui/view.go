@@ -1034,7 +1034,7 @@ func (m Model) sandboxesLines(provider string, w int) []string {
 	var boxes []*machine
 	for _, mach := range m.machines {
 		p, _, ok := remote.ParseSandboxTarget(mach.target)
-		if ok && (provider == "" || p == provider) {
+		if ok && (provider == "" || p == provider) && m.showsMachine(mach) {
 			boxes = append(boxes, mach)
 		}
 	}
