@@ -1033,6 +1033,18 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 				return proto.PaneInfo{}, proto.Errorf(proto.ErrInternal, "%v", err)
 			}
 		}
+		// A first message for an agent whose manifest never said how to
+		// pass one would be dropped on the floor and the agent started
+		// as if nobody had asked for anything. Refused instead, with the
+		// one thing that would fix it: this is the tier's whole promise,
+		// which is about what conch will not pretend to have done.
+		if strings.TrimSpace(cp.Prompt) != "" {
+			if pr, ok := ad.(interface{ CanPrompt() bool }); ok && !pr.CanPrompt() {
+				return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest,
+					"%s cannot be given a first message: conch runs it from a manifest, which does not say how to pass one. "+
+						"Start it and type, or add a prompt line to %s.toml", ad.Label(), ad.Name())
+			}
+		}
 		args := cp.AgentArgs
 		if p := ad.PromptArgs(cp.Prompt); p != "" {
 			args = strings.TrimSpace(args + " " + p)

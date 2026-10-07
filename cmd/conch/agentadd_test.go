@@ -124,14 +124,28 @@ func TestAgentAddSaysWhatItWillNotDo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "not resumed") || !strings.Contains(out, "rather than pretending") {
-		t.Errorf("it does not say what it will not do: %q", out)
+	// Nothing was said about a first message or a resume, so it says it
+	// will do neither — and does not claim it will give it a first
+	// message, which this very line once did.
+	for _, want := range []string{"given a first message", "resumed", "read for saved conversations", "rather than pretending"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("it does not say %q: %q", want, out)
+		}
 	}
-	out, err = runAgentAdd(t, "resumable", "-command", "resumable", "-resume", "-r {id}")
+	if strings.Contains(out, "and gives it a first message") {
+		t.Errorf("it promised a first message it cannot pass: %q", out)
+	}
+
+	// Told how, it says neither of those — only the sessions, which are
+	// never read for this tier.
+	out, err = runAgentAdd(t, "fuller", "-command", "fuller", "-prompt", "-m {prompt}", "-resume", "-r {id}")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "not resumed") {
-		t.Errorf("it said an agent that resumes does not: %q", out)
+	if strings.Contains(out, "given a first message") || strings.Contains(out, "nor resumed") {
+		t.Errorf("it said an agent that can do both cannot: %q", out)
+	}
+	if !strings.Contains(out, "read for saved conversations") {
+		t.Errorf("it stopped saying the one thing that is always true: %q", out)
 	}
 }

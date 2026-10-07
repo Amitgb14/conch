@@ -100,10 +100,21 @@ func agentAdd(args []string) error {
 	}
 
 	fmt.Printf("wrote %s\n", path)
-	fmt.Printf("%s runs here: conch starts it, detects it in a pane and gives it a first message.\n", name)
-	if *resume == "" && *resumeLast == "" {
-		fmt.Println("It is not resumed and its saved conversations are not read — conch says so rather than pretending.")
+	// What it will do, and then what it will not. Said from the manifest
+	// rather than in general: this command is where somebody learns what
+	// the tier means, and a summary that claimed a first message when
+	// none was described would be the very thing the tier exists to
+	// avoid. (It claimed exactly that, once.)
+	fmt.Printf("%s runs here: conch starts it and detects it in a pane.\n", name)
+	var not []string
+	if *prompt == "" {
+		not = append(not, "given a first message (-prompt says how)")
 	}
+	if *resume == "" && *resumeLast == "" {
+		not = append(not, "resumed (-resume or -resume-last says how)")
+	}
+	not = append(not, "read for saved conversations")
+	fmt.Printf("It will not be %s — conch says so rather than pretending.\n", strings.Join(not, ", nor "))
 	fmt.Println("Reload the server to pick it up: `conch server reload` (or r in the version box).")
 	return nil
 }
