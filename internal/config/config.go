@@ -263,6 +263,12 @@ type UICfg struct {
 	// is a message per cell crossed — cheap on this computer, less so on a
 	// slow ssh link — so it is off until asked for.
 	Hover bool `toml:"hover,omitempty"`
+	// Diff is how a file's changes are read: "side" for two columns,
+	// "unified" for one, and "auto" (the default, and what an empty
+	// value means) for two where the terminal is wide enough and one
+	// where it is not. `s` in the changes view overrides it for the file
+	// being read, without writing anything down.
+	Diff string `toml:"diff,omitempty"`
 	// Icons is how the file explorer marks each kind of file: "text" (the
 	// default, a coloured two-letter tag that works in any font), "nerd"
 	// (Nerd Font glyphs) or "off". Empty means text.

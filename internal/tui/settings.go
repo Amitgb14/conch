@@ -139,6 +139,26 @@ func (s *settings) themeItems(m *Model) []settingItem {
 			return saveConfig(m.cfg)
 		}})
 
+	items = append(items, settingItem{}, settingItem{header: true, label: "Diffs · how a file's changes are read"})
+	for _, c := range []struct{ mode, label, detail string }{
+		{diffAuto, "Side by side where there is room", "two columns above " + fmt.Sprint(sideBySideMin) + " columns, one below"},
+		{diffSide, "Always side by side", "two columns however narrow; long lines wrap inside their column"},
+		{diffUnified, "Always one column", "the unified diff, as git prints it"},
+	} {
+		c := c
+		items = append(items, settingItem{label: c.label, detail: c.detail, mark: c.mode == diffMode(m.cfg.UI.Diff),
+			run: func(m *Model) tea.Cmd {
+				m.cfg.UI.Diff = c.mode
+				// s in the changes view says otherwise for one file; a
+				// setting changed here is the new starting point, so
+				// what s said is forgotten.
+				if cv := m.changes; cv != nil {
+					cv.unsplit = false
+				}
+				return saveConfig(m.cfg)
+			}})
+	}
+
 	items = append(items, settingItem{}, settingItem{header: true, label: "Tree grouping · how a project's panes are listed"})
 	for _, c := range []struct{ mode, label, detail string }{
 		{"sections", "Agents and Terminals", "every pane of the project, by what it is"},

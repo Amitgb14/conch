@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Side by side, where the terminal is wide enough for it. A unified diff
@@ -119,13 +120,34 @@ func (cv *changesView) renderSplit(m Model, w, h int, marks map[int]int, hunks [
 			lines = append(lines, cv.splitHeaderLine(r, w, gutter, marks, hunks))
 			continue
 		}
+		// A long line is wrapped inside its column rather than cut: a
+		// diff with the end of the line missing is the one thing a diff
+		// must not be, and the end is often where the change is.
 		left := cv.splitCell(r.left, r.leftAt, col, fresh, words, styleErr, styleDiffRemoved)
 		right := cv.splitCell(r.right, r.rightAt, col, fresh, words, styleOK, styleDiffAdded)
 		mark := " "
 		if (r.leftAt >= 0 && fresh[r.leftAt]) || (r.rightAt >= 0 && fresh[r.rightAt]) {
 			mark = styleWarn.Render("▌")
 		}
-		lines = append(lines, mark+"  "+left+styleMuted.Render(" │ ")+right)
+		for n := 0; n < len(left) || n < len(right); n++ {
+			if len(lines) >= h {
+				break
+			}
+			l, r2 := strings.Repeat(" ", col), strings.Repeat(" ", col)
+			if n < len(left) {
+				l = left[n]
+			}
+			if n < len(right) {
+				r2 = right[n]
+			}
+			// The gutter belongs to the line, not to each row of it: a
+			// second ▌ under the first would read as a second change.
+			g := mark
+			if n > 0 {
+				g = " "
+			}
+			lines = append(lines, g+"  "+l+styleMuted.Render(" │ ")+r2)
+		}
 	}
 	return lines
 }
@@ -156,9 +178,9 @@ func (cv *changesView) splitHeaderLine(r splitRow, w, gutter int, marks map[int]
 // the line opposite, cut to the column. An empty side is blank rather
 // than a dash or a tilde — the eye reads the gap, and a filler character
 // would be mistaken for content in a diff of all things.
-func (cv *changesView) splitCell(line string, at, col int, fresh map[int]bool, words map[int]wordChange, base, mark lipgloss.Style) string {
+func (cv *changesView) splitCell(line string, at, col int, fresh map[int]bool, words map[int]wordChange, base, mark lipgloss.Style) []string {
 	if line == "" && at < 0 {
-		return strings.Repeat(" ", col)
+		return nil
 	}
 	l := expandTabs(line)
 	var styled string
@@ -172,13 +194,55 @@ func (cv *changesView) splitCell(line string, at, col int, fresh map[int]bool, w
 	default:
 		styled = l // context, in the terminal's own colour
 	}
-	return fit(styled, col)
+	// Wrapped with the styling on it, so a marked word that straddles the
+	// wrap keeps its colour on both rows.
+	var out []string
+	for _, part := range strings.Split(ansi.Hardwrap(styled, col, false), "\n") {
+		out = append(out, fit(part, col))
+	}
+	return out
 }
 
 // expandTabs is the renderer's own tab handling, kept in one place so the
 // word marks and the drawing agree on what a line looks like.
 func expandTabs(s string) string { return strings.ReplaceAll(s, "\t", "    ") }
 
-// splitView is whether this diff is drawn in two columns: wide enough,
-// and not turned off with `s` for this view.
-func (cv *changesView) splitView(w int) bool { return w >= sideBySideMin && !cv.unsplit }
+// The ways of reading a diff, as [ui] diff names them.
+const (
+	diffAuto    = "auto"    // two columns where there is room
+	diffSide    = "side"    // two columns, and wrap hard if that is narrow
+	diffUnified = "unified" // one column, however wide the terminal
+)
+
+// splitView is whether this diff is drawn in two columns: what the
+// setting asks for, unless `s` has said otherwise for this view.
+//
+// The setting is a preference and the width is a fact, so "auto" lets the
+// width decide and the other two do not: somebody who asks for two
+// columns on a narrow terminal has said they would rather wrap than
+// scroll, and that is their call to make.
+func (cv *changesView) splitView(m Model, w int) bool {
+	want := false
+	switch m.cfg.UI.Diff {
+	case diffSide:
+		want = true
+	case diffUnified:
+		want = false
+	default: // auto, and anything unrecognised
+		want = w >= sideBySideMin
+	}
+	if cv.unsplit {
+		return !want
+	}
+	return want
+}
+
+// diffMode is the setting as one of the three it can be: anything else,
+// including empty, reads as auto.
+func diffMode(s string) string {
+	switch s {
+	case diffSide, diffUnified:
+		return s
+	}
+	return diffAuto
+}

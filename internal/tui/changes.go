@@ -626,7 +626,7 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 		// a worse trade than not offering it.
 		full := "space mark · n next hunk · e edit · s unified · c commit · " + right
 		short := "space mark · n next hunk · c commit · " + right
-		if !cv.splitView(w) {
+		if !cv.splitView(m, w) {
 			full = strings.Replace(full, "s unified", "s side by side", 1)
 		}
 		right = short
@@ -664,7 +664,7 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 	// otherwise. Below the threshold they would be two narrow columns of
 	// wrapped code, which is worse than the unified diff, not a lesser
 	// version of the same thing.
-	if cv.splitView(w) {
+	if cv.splitView(m, w) {
 		if split := cv.renderSplit(m, w, h-len(lines), marks, hunks, fresh, words); split != nil {
 			return append(lines, split...)
 		}
