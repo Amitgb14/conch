@@ -678,7 +678,7 @@ func TestA2MarkNeedsAWorktree(t *testing.T) {
 	with := &changesView{machine: localMachine, projectID: "r1", branch: "feat"}
 	wd := a2Changes("a.go")
 	with.data = &wd
-	if out := a2Plain(with.render(*m, 80, 24)); !strings.Contains(out, "space or click ✓ marks · c commit") {
+	if out := a2Plain(with.render(*m, 80, 24)); !strings.Contains(out, "space or click ✓ marks · e edit · c commit") {
 		t.Fatalf("hint when focused:\n%s", out)
 	}
 	m.focus = focusSidebar

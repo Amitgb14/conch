@@ -82,6 +82,7 @@ var (
 	styleTrack, styleBarOK, styleBarWarn, styleBarErr               lipgloss.Style
 	styleWarn, styleWork, styleAccent, styleChip, stylePRMerged     lipgloss.Style
 	styleLive                                                       lipgloss.Style
+	styleDiffAdded, styleDiffRemoved                                lipgloss.Style
 )
 
 func init() { applyTheme("conch", "") }
@@ -134,6 +135,11 @@ func applyTheme(name, accent string) {
 	styleErr = lipgloss.NewStyle().Foreground(t.err)
 	styleWarn = lipgloss.NewStyle().Foreground(t.warn).Bold(true)
 	styleSearchMatch = lipgloss.NewStyle().Background(t.warn).Foreground(textOn(t.warn))
+	// What changed *inside* a changed line: the line's own colour on a
+	// washed background, so the eye lands on it without the line ceasing
+	// to read as an addition or a removal.
+	styleDiffAdded = lipgloss.NewStyle().Foreground(textOn(t.ok)).Background(t.ok)
+	styleDiffRemoved = lipgloss.NewStyle().Foreground(textOn(t.err)).Background(t.err)
 	styleWork = lipgloss.NewStyle().Foreground(t.work)
 	styleAccent = lipgloss.NewStyle().Foreground(t.accent).Bold(true)
 	styleChip = lipgloss.NewStyle().Bold(true).Foreground(t.selFG).Padding(0, 1)

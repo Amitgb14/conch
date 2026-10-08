@@ -322,6 +322,8 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 			cv.toHunk(m, cv.hunkSel-1, h)
 		case "c":
 			return false, m.openCommit(cv.target(), cv.selection())
+		case "e":
+			return false, cv.editAtHunk(m)
 		}
 		cv.diffScroll = clamp(cv.diffScroll, 0, max(len(cv.diff)-(h-2), 0))
 		return false, nil
@@ -358,6 +360,10 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		}
 	case "c":
 		return false, m.openCommit(cv.target(), cv.selection())
+	case "e":
+		if files > 0 {
+			return false, cv.editFile(m, cv.data.Files[cv.sel].Path)
+		}
 	case "P":
 		return false, m.pushBranch(cv.target())
 	case "p":
@@ -607,7 +613,16 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 		title += styleWarn.Render(fmt.Sprintf("  %d line%s just changed", n, plural(n)))
 	}
 	if working && len(hunks) > 0 {
-		right = "space mark · n next hunk · c commit · " + right
+		// e is the newest of these and the most guessable, so it is the
+		// one that goes when the header will not fit: a narrow terminal
+		// losing the start of "space mark" to make room for it would be
+		// a worse trade than not offering it.
+		full := "space mark · n next hunk · e edit · c commit · " + right
+		short := "space mark · n next hunk · c commit · " + right
+		right = short
+		if ansi.StringWidth(cv.diffFile)+ansi.StringWidth(full)+2 <= w {
+			right = full
+		}
 		if fh := cv.hunks[cv.diffFile]; fh != nil {
 			title += styleOK.Render(fmt.Sprintf("  %d of %d hunks marked", len(fh.marked), len(hunks)))
 		}
@@ -630,6 +645,11 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 		}
 		cv.followTo = 0
 	}
+	// Which part of a replaced line actually changed, worked out once for
+	// the whole diff rather than per draw: the answer does not move while
+	// the reader scrolls, and a diff is read far more often than it
+	// arrives (diffwords.go).
+	words := cv.wordChanges()
 	for i := cv.diffScroll; i < len(cv.diff) && len(lines) < h; i++ {
 		l := strings.ReplaceAll(cv.diff[i], "\t", "    ")
 		l = ansi.Strip(l) // diffs are data; never let them drive the terminal
@@ -650,9 +670,17 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 			}
 			l = styleWork.Render(l)
 		case strings.HasPrefix(l, "+"):
-			l = styleOK.Render(l)
+			if wc, ok := words[i]; ok {
+				l = highlightWords(l, wc.from, wc.to, styleOK, styleDiffAdded)
+			} else {
+				l = styleOK.Render(l)
+			}
 		case strings.HasPrefix(l, "-"):
-			l = styleErr.Render(l)
+			if wc, ok := words[i]; ok {
+				l = highlightWords(l, wc.from, wc.to, styleErr, styleDiffRemoved)
+			} else {
+				l = styleErr.Render(l)
+			}
 		}
 		gutter := " "
 		if fresh[i] {
@@ -808,7 +836,7 @@ func (cv *changesView) listHint(m Model) string {
 	if cv.data == nil || cv.data.Worktree == "" {
 		return "enter diff · esc back"
 	}
-	return "space or click ✓ marks · c commit"
+	return "space or click ✓ marks · e edit · c commit"
 }
 
 func diffStat(added, deleted int) string {

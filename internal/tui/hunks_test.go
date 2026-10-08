@@ -249,6 +249,15 @@ func TestHunkRender(t *testing.T) {
 	if !strings.Contains(out, "space mark · n next hunk · c commit") {
 		t.Fatalf("hints:\n%s", out)
 	}
+	// At 80 columns there is no room for every hint, and the newest one
+	// gives way rather than crowding out the start of the line.
+	if strings.Contains(out, "e edit") {
+		t.Errorf("a hint that does not fit was kept:\n%s", out)
+	}
+	// Given room, it is offered.
+	if wide := a2Plain(cv.renderDiff(*m, 160, 20)); !strings.Contains(wide, "e edit") {
+		t.Errorf("a wide header does not offer e:\n%s", wide)
+	}
 	if !strings.Contains(out, "▸ @@ -1,3") || strings.Contains(out, "✓") {
 		t.Fatalf("cursor:\n%s", out)
 	}

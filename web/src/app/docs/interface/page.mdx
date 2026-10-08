@@ -181,12 +181,15 @@ Servers older than the window still open it, with push, commit and messages for 
 
 Selecting a branch shows its **changes**: its pull request (checks, review), uncommitted files (or files changed since the base when it isn't checked out), commits ahead, and diffs.
 
+**Inside a changed line, what changed is picked out.** Where one line replaces another, conch compares the two and marks only the part that differs — a renamed variable in a long line is two characters, and finding them by eye is the slow part. A block of removals followed by a block of additions is left plain: there is no "this became that" to show, and marking it would invent a pairing. So are two lines with nothing in common, where the `+` and `−` have said it already.
+
 | Key | In the changes view |
 | --- | --- |
 | `↑↓` | select a file |
 | `enter` | show its diff |
 | `space` | mark a file for the next commit (`✓` beside the cursor; clicking that column marks it too); inside a diff, the hunk the `▸` cursor is on |
 | `n` `N` | move to the next or previous hunk of an open diff (`[` and `]` too) |
+| `e` | open the file in the machine's own `$EDITOR`, at the hunk the `▸` cursor is on — in a pane of its own, so conch keeps running. From the file list it opens at the top. The editor runs on the machine the worktree is on, which is the machine whose `$EDITOR` and whose file they are. conch knows the line flag for vim, nano, emacs, VS Code, Cursor, Zed, Sublime, Helix and the JetBrains editors; anything else opens the file without a line rather than being handed a flag it would read as a file name |
 | `F` | inside a diff, follow what just changed (on until you scroll away) |
 | `R` | re-read the branch, or the open diff, now |
 | `c` | commit the marked files, or every change when none are marked |
