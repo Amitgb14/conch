@@ -978,6 +978,7 @@ var helpText = []string{
 	"    P push (the remote ahead? it offers to take its commits first) · p open a pull request",
 	"    in a diff: space marks the hunk under ▸ · n / N next, previous hunk · c commits the marked hunks",
 	"    e opens the file in $EDITOR at that hunk, in a pane of its own (on the worktree's machine)",
+	"    s side by side or unified · a wide terminal starts side by side",
 	"    the file list washes the row of a file being written and marks it ▌; an open diff re-reads as the",
 	"    agent writes: ▌ marks what just changed, F follows it, R re-reads now",
 	"    M merge into the base (undone if it conflicts) · D discard the branch and its worktree",

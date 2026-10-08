@@ -40,7 +40,10 @@ type changesView struct {
 	diff        []string
 	diffErr     string
 	diffScroll  int
-	hunkSel     int // the hunk the diff's cursor is on
+	// unsplit turns the two-column view off for this view, for a reader
+	// who would rather have the unified diff on a wide screen.
+	unsplit bool
+	hunkSel int // the hunk the diff's cursor is on
 	// An open diff re-reads itself while an agent writes: fresh are the
 	// lines the last read brought, marked until freshUntil, and followTo
 	// is the first of them (1-based) to bring into view on the next render.
@@ -324,6 +327,10 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 			return false, m.openCommit(cv.target(), cv.selection())
 		case "e":
 			return false, cv.editAtHunk(m)
+		case "s":
+			// Said for this view rather than saved: a reader who wants
+			// the other arrangement usually wants it for this file.
+			cv.unsplit = !cv.unsplit
 		}
 		cv.diffScroll = clamp(cv.diffScroll, 0, max(len(cv.diff)-(h-2), 0))
 		return false, nil
@@ -617,8 +624,11 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 		// one that goes when the header will not fit: a narrow terminal
 		// losing the start of "space mark" to make room for it would be
 		// a worse trade than not offering it.
-		full := "space mark · n next hunk · e edit · c commit · " + right
+		full := "space mark · n next hunk · e edit · s unified · c commit · " + right
 		short := "space mark · n next hunk · c commit · " + right
+		if !cv.splitView(w) {
+			full = strings.Replace(full, "s unified", "s side by side", 1)
+		}
 		right = short
 		if ansi.StringWidth(cv.diffFile)+ansi.StringWidth(full)+2 <= w {
 			right = full
@@ -650,6 +660,15 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 	// the reader scrolls, and a diff is read far more often than it
 	// arrives (diffwords.go).
 	words := cv.wordChanges()
+	// Two columns where there is room for them and nobody has said
+	// otherwise. Below the threshold they would be two narrow columns of
+	// wrapped code, which is worse than the unified diff, not a lesser
+	// version of the same thing.
+	if cv.splitView(w) {
+		if split := cv.renderSplit(m, w, h-len(lines), marks, hunks, fresh, words); split != nil {
+			return append(lines, split...)
+		}
+	}
 	for i := cv.diffScroll; i < len(cv.diff) && len(lines) < h; i++ {
 		l := strings.ReplaceAll(cv.diff[i], "\t", "    ")
 		l = ansi.Strip(l) // diffs are data; never let them drive the terminal
