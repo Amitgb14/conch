@@ -300,19 +300,22 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 
 	// Mouse: wheel, tab bar and items.
 	b = s.render(*m)
+	// The wheel scrolls the list; the selection, scrolled off the top,
+	// comes to the first choice still in sight.
+	s.scroll = 0
 	s.mouse(m, tea.MouseMsg{X: b.x + 2, Y: b.y + 4, Button: tea.MouseButtonWheelDown}, b)
-	if s.sel != 5 {
-		t.Fatalf("wheel down: %d", s.sel)
+	if s.scroll != 3 || s.sel != 3 {
+		t.Fatalf("wheel down: scroll %d sel %d", s.scroll, s.sel)
 	}
 	s.mouse(m, tea.MouseMsg{X: b.x + 2, Y: b.y + 4, Button: tea.MouseButtonWheelUp}, b)
-	if s.sel != 2 {
-		t.Fatalf("wheel up: %d", s.sel)
+	if s.scroll != 0 || s.sel != 3 {
+		t.Fatalf("wheel up: scroll %d sel %d", s.scroll, s.sel)
 	}
 	swipe(2, func() { s.mouse(m, tea.MouseMsg{X: b.x + 2, Y: b.y + 4, Button: tea.MouseButtonWheelDown}, b) })
-	if s.sel != 2+3+1 {
-		t.Fatalf("swipe down: %d", s.sel)
+	if s.scroll != 3+1 {
+		t.Fatalf("swipe down: scroll %d", s.scroll)
 	}
-	s.sel = 2
+	s.sel, s.scroll = 2, 0
 	s.mouse(m, tea.MouseMsg{X: b.x + 2, Y: b.y + 4, Action: tea.MouseActionMotion}, b)
 	x := b.x + 1 + len(" 1 Theme ") + 1 + 1
 	s.mouse(m, tea.MouseMsg{X: x, Y: b.y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)

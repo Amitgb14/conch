@@ -259,25 +259,49 @@ func TestA2BrowserMouse(t *testing.T) {
 	b := a2Browser(m, localMachine, &l)
 	m.overlay = b
 	bx := b.render(*m)
+	// A folder that fits has nothing to scroll: the wheel leaves it be.
+	b.sel = 1
 	b.mouse(m, tea.MouseMsg{X: bx.x + 2, Y: bx.y + 4, Button: tea.MouseButtonWheelDown}, bx)
-	if b.sel != 3 {
-		t.Fatalf("wheel down: %d", b.sel)
-	}
 	b.mouse(m, tea.MouseMsg{X: bx.x + 2, Y: bx.y + 4, Button: tea.MouseButtonWheelUp}, bx)
-	if b.sel != 0 {
-		t.Fatalf("wheel up: %d", b.sel)
+	if b.scroll != 0 || b.sel != 1 {
+		t.Fatalf("wheel over a short folder: scroll %d sel %d", b.scroll, b.sel)
 	}
-	// A swipe, over a folder long enough to show it: a row an event after
-	// the first.
+	b.sel = 0
+	// A long one scrolls a row an event after the first, and the
+	// selection, scrolled off the top, comes to the first folder in sight.
 	long := proto.FSList{Path: "/home/dev/src", Parent: "/home/dev", Home: "/home/dev"}
-	for i := range 20 {
+	for i := range 40 {
 		long.Entries = append(long.Entries, proto.FSEntry{Name: fmt.Sprintf("d%02d", i)})
 	}
 	lb := a2Browser(m, localMachine, &long)
 	lbx := lb.render(*m)
 	swipe(3, func() { lb.mouse(m, tea.MouseMsg{X: lbx.x + 2, Y: lbx.y + 4, Button: tea.MouseButtonWheelDown}, lbx) })
-	if lb.sel != 3+1+1 {
-		t.Fatalf("swipe down: %d", lb.sel)
+	if lb.scroll != 3+1+1 || lb.sel != 5 {
+		t.Fatalf("swipe down: scroll %d sel %d", lb.scroll, lb.sel)
+	}
+	lb.render(*m)
+	if lb.scroll != 5 {
+		t.Fatalf("render moved the list to %d", lb.scroll)
+	}
+	// Back up: the selection stays while it is in sight, then comes up
+	// to the last folder in sight; and the list stops at either end.
+	listH := m.browserListHeight()
+	lb.sel = 5 + listH - 1
+	lb.mouse(m, tea.MouseMsg{X: lbx.x + 2, Y: lbx.y + 4, Button: tea.MouseButtonWheelUp}, lbx)
+	if lb.scroll != 2 || lb.sel != 2+listH-1 {
+		t.Fatalf("wheel up: scroll %d sel %d", lb.scroll, lb.sel)
+	}
+	for range 30 {
+		lb.mouse(m, tea.MouseMsg{X: lbx.x + 2, Y: lbx.y + 4, Button: tea.MouseButtonWheelUp}, lbx)
+	}
+	if lb.scroll != 0 {
+		t.Fatalf("above the top: %d", lb.scroll)
+	}
+	for range 30 {
+		lb.mouse(m, tea.MouseMsg{X: lbx.x + 2, Y: lbx.y + 4, Button: tea.MouseButtonWheelDown}, lbx)
+	}
+	if rows := len(lb.rows()); lb.scroll != rows-listH || lb.sel < lb.scroll || lb.sel >= rows {
+		t.Fatalf("past the end: scroll %d sel %d of %d", lb.scroll, lb.sel, rows)
 	}
 	row := func(i int) int { return bx.y + 1 + browserRowsTop + i }
 	press := func(y int) tea.Cmd {
