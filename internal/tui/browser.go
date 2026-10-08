@@ -296,6 +296,14 @@ func (b *browser) create(m *Model, dir string) tea.Cmd {
 
 func (m Model) browserListHeight() int { return clamp(m.height-12, 5, 20) }
 
+// wheel scrolls a list of n folders delta rows, keeping the selection on
+// one in sight, as the settings do: moving the selection instead raced it
+// down the list under a swipe while the list stood still.
+func (b *browser) wheel(n, delta, listH int) {
+	b.scroll = clamp(b.scroll+delta, 0, max(n-listH, 0))
+	b.sel = clamp(b.sel, b.scroll, max(min(b.scroll+listH, n)-1, 0))
+}
+
 func (b *browser) render(m Model) box {
 	w := clamp(76, 36, max(m.width-4, 36))
 	listH := m.browserListHeight()
@@ -380,10 +388,10 @@ func (b *browser) mouse(m *Model, msg tea.MouseMsg, bx box) tea.Cmd {
 	rows := b.rows()
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
-		b.sel = clamp(b.sel-m.wheelStep(), 0, max(len(rows)-1, 0))
+		b.wheel(len(rows), -m.wheelStep(), m.browserListHeight())
 		return nil
 	case tea.MouseButtonWheelDown:
-		b.sel = clamp(b.sel+m.wheelStep(), 0, max(len(rows)-1, 0))
+		b.wheel(len(rows), m.wheelStep(), m.browserListHeight())
 		return nil
 	}
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft || b.mode != browseMode {

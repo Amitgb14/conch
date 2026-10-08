@@ -1163,6 +1163,42 @@ func (s *settings) move(items []settingItem, delta int) {
 	}
 }
 
+// settingsShown is how many of a list's listH rows show items when it is
+// scrolled to scroll: all of them, unless more follow, when the last says
+// how many instead.
+func settingsShown(scroll, listH, n int) int {
+	if scroll+listH < n {
+		return listH - 1
+	}
+	return listH
+}
+
+// wheel scrolls the list delta lines, as the wheel does everywhere else,
+// and keeps the selection on a row still in sight. Moving the selection
+// instead sent it racing through the sections under a swipe while the
+// list sat still, until it reached the edge and the whole list jumped.
+func (s *settings) wheel(items []settingItem, delta, listH int) {
+	s.scroll = clamp(s.scroll+delta, 0, max(len(items)-listH, 0))
+	shown := settingsShown(s.scroll, listH, len(items))
+	if s.sel >= s.scroll && s.sel < s.scroll+shown {
+		return
+	}
+	// The nearest choice in sight: the top one when the selection went
+	// off the top, the bottom one when it went off the bottom.
+	from, to, step := s.scroll, s.scroll+shown, 1
+	if s.sel >= s.scroll+shown {
+		from, to, step = s.scroll+shown-1, s.scroll-1, -1
+	}
+	for i := from; i != to && i >= 0 && i < len(items); i += step {
+		if items[i].run != nil {
+			s.sel = i
+			return
+		}
+	}
+	// Nothing to choose in sight: the selection stays, and the list is
+	// shown around it again.
+}
+
 // settingsListHeight is how many rows the list gets. The box costs eight
 // lines around it — the frame, the tabs, the hint, where it is saved — so
 // a short window gets a short list rather than a box taller than the
@@ -1179,11 +1215,15 @@ func (s *settings) render(m Model) box {
 		}
 	}
 	listH := m.settingsListHeight()
+	s.scroll = clamp(s.scroll, 0, max(len(items)-listH, 0))
 	if s.sel < s.scroll {
 		s.scroll = s.sel
 	}
-	if s.sel >= s.scroll+listH {
+	if s.sel >= s.scroll+settingsShown(s.scroll, listH, len(items)) {
 		s.scroll = s.sel - listH + 1
+		if s.scroll+listH < len(items) {
+			s.scroll++ // the last row is "… more", not the selection
+		}
 	}
 
 	var tabs strings.Builder
@@ -1256,10 +1296,10 @@ func (s *settings) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	items := s.items(m)
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
-		s.move(items, -m.wheelStep())
+		s.wheel(items, -m.wheelStep(), m.settingsListHeight())
 		return nil
 	case tea.MouseButtonWheelDown:
-		s.move(items, m.wheelStep())
+		s.wheel(items, m.wheelStep(), m.settingsListHeight())
 		return nil
 	}
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
