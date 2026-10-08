@@ -139,7 +139,7 @@ func (m Model) sidebarLines(w, h int) []string {
 	for i := m.scroll; i < len(m.rows) && len(lines) < h; i++ {
 		lines = append(lines, m.rowLine(m.rows[i], w))
 	}
-	if len(m.rows) <= 1 && (m.isolated() != nil || len(m.allPanes()) == 0 && len(m.machines[0].projects) == 0) {
+	if len(m.rows) <= 1 && (m.cur() != nil || len(m.allPanes()) == 0 && len(m.machines[0].projects) == 0) {
 		lines = append(lines, "", styleMuted.Render(" a  add a project"), styleMuted.Render(" c  start an agent"), styleMuted.Render(" n  open a terminal"))
 	}
 	return lines
@@ -537,7 +537,7 @@ func (m Model) paneGlyph(p proto.PaneInfo) (glyph, label string, style lipgloss.
 // stopped to ask something, done ones finished while nobody watched and
 // only want looking at.
 func (m Model) inboxCount() (waiting, done int) {
-	for _, p := range m.allPanes() {
+	for _, p := range m.shownPanesAll() {
 		switch {
 		case p.Agent == nil:
 		case p.Agent.State == proto.AgentBlocked:
@@ -1034,7 +1034,7 @@ func (m Model) sandboxesLines(provider string, w int) []string {
 	var boxes []*machine
 	for _, mach := range m.machines {
 		p, _, ok := remote.ParseSandboxTarget(mach.target)
-		if ok && (provider == "" || p == provider) {
+		if ok && (provider == "" || p == provider) && m.showsMachine(mach) {
 			boxes = append(boxes, mach)
 		}
 	}

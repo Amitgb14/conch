@@ -239,7 +239,7 @@ func New(local *client.Client, cfg config.Config) Model {
 	m.sshInfo = cleanSSHInfo(m.savedSSH, st.SSHHosts)
 	m.folders = migrateSSHGroups(m.folders, st.SSHGroups, m.savedSSH, m.sshInfo)
 	m.restoreTabs(st.Tabs, st.ActiveTab)
-	m.restoreSpaces(st.Spaces, st.ActiveSpace)
+	m.restoreSpaces(st.FirstSpace, st.Spaces, st.ActiveSpace)
 	if st.SidebarWidth > 0 {
 		m.sidebarW = st.SidebarWidth
 	}
@@ -546,14 +546,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case machineAddedMsg:
 		m.setWorking("")
 		mach := newMachine(msg.m.ID, msg.m.Label, msg.m.Target)
+		into := m.spaceFor(msg.space)
+		had := false
 		for i, existing := range m.machines {
 			if existing.id == mach.id {
+				had = into > 0 && m.hasMachine(0, existing)
 				existing.close()
 				m.machines = append(m.machines[:i], m.machines[i+1:]...)
 				break
 			}
 		}
 		m.machines = append(m.machines, mach)
+		m.joinMachineTo(into, mach.id, had)
 		m.expanded[machineID(mach.id)] = true
 		m.cursor = machineID(mach.id)
 		m.setFlash("added "+mach.label, false)
@@ -953,30 +957,25 @@ func (m Model) notifyAttention(mach *machine, old, info proto.PaneInfo) tea.Cmd 
 func (m *Model) rebuild() tea.Cmd {
 	prevIndex := indexOfRow(m.rows, m.cursor)
 	in := treeInput{expanded: m.expanded, showAll: m.showAll, filter: m.filter, now: time.Now()}
-	iso := m.isolated()
-	shownPanes := map[string][]proto.PaneInfo{}
 	for _, mach := range m.machines {
+		if !m.showsMachine(mach) {
+			continue
+		}
 		tm := treeMachine{id: mach.id, label: mach.label, panes: mach.panes, projects: mach.projects,
 			agents: mach.agents, sessions: m.hasSessions(mach.id)}
-		if iso != nil {
-			tm.projects, tm.panes = iso.filter(mach.id, mach.projects, mach.panes)
-			shownPanes[mach.id] = tm.panes
-		}
+		tm.projects, tm.panes = m.shown(mach)
 		if provider, _, ok := remote.ParseSandboxTarget(mach.target); ok {
 			tm.sandbox = provider
 		}
 		if mach.id == localMachine { // ssh sessions start on this computer
-			tm.savedSSH, tm.sshInfo = m.savedSSH, m.sshInfo
+			tm.savedSSH, tm.sshInfo = m.shownHosts(), m.sshInfo
 		}
 		in.machines = append(in.machines, tm)
 	}
 	if treeGroups(m.cfg.UI.TreeGroups) == "tabs" {
 		in.tabs = m.treeTabs()
 	}
-	in.folders = m.folders
-	if iso != nil {
-		in.folders = iso.filterFolders(m.folders, shownPanes)
-	}
+	in.folders = m.shownFolders()
 	m.treeSig = m.layoutSig()
 	m.rows = buildTree(in)
 	if indexOfRow(m.rows, m.cursor) < 0 && len(m.rows) > 0 {
@@ -1095,9 +1094,30 @@ func (m Model) allPanes() []scopedPane {
 	return out
 }
 
+// shownPanesAll is every pane the workspace on screen shows, on every
+// machine: what its waiting counter counts and ! goes through, so neither
+// points at an agent its tree does not list.
+func (m Model) shownPanesAll() []scopedPane {
+	if m.cur() == nil {
+		return m.allPanes()
+	}
+	var out []scopedPane
+	for _, mach := range m.machines {
+		_, panes := m.shown(mach)
+		for _, p := range panes {
+			out = append(out, scopedPane{machine: mach.id, PaneInfo: p})
+		}
+	}
+	return out
+}
+
 func (m *Model) jumpToAttention() tea.Cmd {
-	mid, id := nextAttention(m.allPanes(), scoped(m.viewMachine, m.viewing))
+	mid, id := nextAttention(m.shownPanesAll(), scoped(m.viewMachine, m.viewing))
 	if id == "" {
+		if _, elsewhere := nextAttention(m.allPanes(), ""); elsewhere != "" {
+			m.setFlash("no agents need you in this workspace; some do in another", false)
+			return nil
+		}
 		m.setFlash("no agents need you", false)
 		return nil
 	}

@@ -134,6 +134,9 @@ type (
 	machineAddedMsg struct {
 		m    remote.Machine
 		note string // about key login, when a password was used
+		// space is the workspace the add was asked for in, which it joins
+		// whichever is on screen when it arrives (spaces.go, fromHere).
+		space *space
 	}
 	// callerMsg says this conch is running inside one of that machine's
 	// panes, which it must not try to show.

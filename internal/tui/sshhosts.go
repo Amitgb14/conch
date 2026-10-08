@@ -270,6 +270,13 @@ func (m *Model) putSSHHost(old, target string, info sshHostInfo, folder string) 
 		return err
 	}
 	info.Args, info.Group = args, ""
+	added := old == ""
+	if added && slices.Contains(m.savedSSH, target) && !m.showsHost(target) {
+		// Saved in another workspace: listed here as well, with what was
+		// just given for it.
+		m.joinHost(target, true)
+		old, added = target, false
+	}
 	if target != old && slices.Contains(m.savedSSH, target) {
 		return fmt.Errorf("%s is already saved", sshName(target))
 	}
@@ -289,7 +296,11 @@ func (m *Model) putSSHHost(old, target string, info sshHostInfo, folder string) 
 		sshInfo[target] = info
 	}
 	m.savedSSH, m.sshInfo = saved, sshInfo
+	if added {
+		m.joinHost(target, false)
+	}
 	if old != "" && old != target {
+		m.renameHost(old, target)
 		m.renameHostInFolders(old, target)
 		m.removeRow(savedSSHID(old))
 	}
