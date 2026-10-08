@@ -77,6 +77,33 @@ func (w *a7Watch) waitFor(t *testing.T, what string, want func([]proto.WorktreeC
 	return nil
 }
 
+// waitForRequests waits for the project re-reads flush asks for after it
+// announces. They are two steps of one goroutine, so anything that has
+// seen the announcement must still wait for these.
+func (w *a7Watch) waitForRequests(t *testing.T, what string) []string {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		w.seenMu.Lock()
+		reqs := slices.Clone(w.requests)
+		w.seenMu.Unlock()
+		if len(reqs) > 0 {
+			return reqs
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+	return nil
+}
+
+// waitQuiet lets the watcher settle, so what a test does next is what it
+// sees next.
+func (w *a7Watch) waitQuiet(t *testing.T) {
+	t.Helper()
+	time.Sleep(300 * time.Millisecond)
+	w.forget()
+}
+
 // quiet fails if anything is announced in the next stretch. It is only used
 // where an event would be wrong, never to prove one arrives.
 func (w *a7Watch) quiet(t *testing.T, what string) {
@@ -149,11 +176,13 @@ func TestWatchAnnouncesAnEdit(t *testing.T) {
 	if !slices.Contains(c.Paths, "src/main.go") || c.More {
 		t.Fatalf("paths %v", c.Paths)
 	}
-	// The project's git state is re-read as well, once.
-	w.seenMu.Lock()
-	reqs := slices.Clone(w.requests)
-	w.seenMu.Unlock()
-	if len(reqs) == 0 || reqs[0] != "r1" {
+	// The project's git state is re-read as well, once. Waited for rather
+	// than read straight after the announcement: flush announces first and
+	// asks for the re-read a moment later, so reading here was a race the
+	// test lost on a loaded machine — once in six concurrent runs, with
+	// "requests []".
+	reqs := w.waitForRequests(t, "the git re-read")
+	if reqs[0] != "r1" {
 		t.Fatalf("requests %v", reqs)
 	}
 }
@@ -698,4 +727,48 @@ func TestWatchBackendClosesTwice(t *testing.T) {
 	w.stop()
 	var none *worktreeWatcher
 	none.stop() // a machine that gives no watches has none to close
+}
+
+// TestWatchAnnouncesWhatItHadToDrop: a backend that cannot keep up throws
+// paths away rather than blocking a pump that must keep draining. That is
+// the right trade, but the *fact* of a change must survive it: the last
+// event of a burst has no next batch to make up for it, and the diff on
+// screen would sit stale until the slow poll — which is the one thing
+// watching exists to prevent.
+//
+// So a dropped event becomes "these worktrees changed, paths unknown",
+// which is what More already means on the wire and what the client
+// already knows to answer with a git re-read.
+func TestWatchAnnouncesWhatItHadToDrop(t *testing.T) {
+	w := a7New(t)
+	repo := a7Repo(t)
+	w.syncProject("r1", []string{repo})
+	// Settle: syncProject's own walk must not be what is seen below.
+	w.waitQuiet(t)
+
+	// The backend owns up to having dropped something, as it does when a
+	// burst outruns the reader. Nothing is written: the point is that a
+	// change with no path still reaches the client.
+	w.be.(interface{ loseOne() }).loseOne()
+
+	got := w.waitFor(t, "the dropped change", func(cs []proto.WorktreeChanged) bool { return len(cs) > 0 })
+	c := got[0]
+	if c.ProjectID != "r1" || c.Worktree != repo {
+		t.Fatalf("event %+v", c)
+	}
+	if !c.More {
+		t.Fatalf("a change nobody can name was announced as if it were complete: %+v", c)
+	}
+	if len(c.Paths) != 0 {
+		t.Errorf("paths it cannot know: %v", c.Paths)
+	}
+	// And git is re-read, which is how the client finds out what moved.
+	if reqs := w.waitForRequests(t, "the git re-read"); reqs[0] != "r1" {
+		t.Fatalf("requests %v", reqs)
+	}
+
+	// Owned up to once: the flag is taken, not left set, or every tick
+	// from here would announce a change that never happened.
+	w.forget()
+	w.quiet(t, "a miss already announced")
 }

@@ -67,6 +67,14 @@ type watchBackend interface {
 	unwatch(root string)
 	// paths yields absolute paths that changed.
 	paths() <-chan string
+	// missed reports, and forgets, that events were thrown away because
+	// the reader was behind. Dropping is the right answer to a flood —
+	// the alternative is blocking a backend that must keep draining —
+	// but the *fact* of a change must not be lost with it: the last event
+	// of a burst has no next batch to make up for it, and the diff on
+	// screen would sit stale until the slow poll, which is the one thing
+	// watching is for.
+	missed() bool
 	errs() <-chan error
 	close()
 	// budgeted reports whether a watch costs descriptors, so the caller
@@ -154,6 +162,12 @@ func (w *worktreeWatcher) run(quit <-chan struct{}) {
 			}
 			log.Printf("worktree watch: %v", err)
 		case <-t.C:
+			if w.be.missed() {
+				// Which paths went is unknowable, and More is how the
+				// protocol already says exactly that: the client re-reads
+				// git rather than trusting a list.
+				w.noteAll()
+			}
 			w.flush()
 		case <-quit:
 			return
@@ -204,6 +218,22 @@ func (w *worktreeWatcher) note(path string) {
 		return
 	}
 	e.paths[rel] = true
+}
+
+// noteAll marks every watched worktree changed without naming a path,
+// for when events were dropped: something moved under each of them and
+// conch cannot say what, which is what More means.
+func (w *worktreeWatcher) noteAll() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for root := range w.roots {
+		e := w.dirty[root]
+		if e == nil {
+			e = &watchEdits{paths: map[string]bool{}}
+			w.dirty[root] = e
+		}
+		e.more = true
+	}
 }
 
 // rootOf is the watched worktree a path belongs to, longest first so a

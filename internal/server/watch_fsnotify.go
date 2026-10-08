@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -29,6 +30,9 @@ type fsnotifyBackend struct {
 	fsw  *fsnotify.Watcher
 	out  chan string
 	stop chan struct{}
+	// lost says events were thrown away because the reader was behind;
+	// the watcher turns it into "these worktrees changed, paths unknown".
+	lost atomic.Bool
 
 	closeOnce sync.Once
 
@@ -103,6 +107,12 @@ func (b *fsnotifyBackend) unwatch(root string) {
 		_ = b.fsw.Remove(d)
 	}
 }
+
+func (b *fsnotifyBackend) missed() bool { return b.lost.Swap(false) }
+
+// loseOne says an event was dropped, without needing a flood to make
+// one happen: a test cannot reliably outrun a channel of 256.
+func (b *fsnotifyBackend) loseOne() { b.lost.Store(true) }
 
 func (b *fsnotifyBackend) paths() <-chan string { return b.out }
 func (b *fsnotifyBackend) errs() <-chan error   { return b.fsw.Errors }
@@ -195,7 +205,11 @@ func (b *fsnotifyBackend) pump() {
 			case b.out <- ev.Name:
 			case <-b.stop:
 				return
-			default: // the reader is behind; the next event will do
+			default:
+				// The reader is behind. The path goes rather than the
+				// loop blocking; the fact that something changed does not
+				// (missed, and noteAll in watch.go).
+				b.lost.Store(true)
 				log.Printf("worktree watch: dropped an event for %s", ev.Name)
 			}
 		case <-b.stop:

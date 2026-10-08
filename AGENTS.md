@@ -358,6 +358,15 @@ helpers in `cmd/conch` and `internal/remote`.
   **FSEvents needs cgo**, which `scripts/release.sh` and the remote
   cross-builder cannot use across platforms: a macOS binary built without it
   still works, it just watches by kqueue and so mostly polls.
+  **A dropped event must not drop the change.** Both backends throw a
+  path away rather than block when the reader is behind — blocking a pump
+  that must keep draining is worse — but "the next event will do" is only
+  true until the last one of a burst, which has no next. So a backend that
+  drops sets `lost`, `missed()` hands that to the watcher once, and
+  `noteAll` marks every watched worktree changed with `More`: the client
+  re-reads git rather than trusting a list it was never given. Without it
+  an edit could leave the diff stale until the slow poll — the one thing
+  watching is for.
   **FSEvents hands its batches over from a CoreFoundation callback**, so
   whatever reads `EventStream.Events` must keep reading until the stream
   closes it. A callback whose send has no receiver blocks inside cgo on a

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsevents"
@@ -28,6 +29,10 @@ const fseventsLatency = 50 * time.Millisecond
 type fseventsBackend struct {
 	out  chan string
 	stop chan struct{}
+	// lost says events were thrown away because the reader was behind.
+	// The watcher clears it and announces that the worktrees changed
+	// without naming paths, which is the truth and is what More is for.
+	lost atomic.Bool
 
 	closeOnce sync.Once
 	pumps     sync.WaitGroup // one per started stream
@@ -48,7 +53,12 @@ func newBackend() (watchBackend, error) {
 func (b *fseventsBackend) budgeted() bool                                { return false }
 func (b *fseventsBackend) cost(root string, ignored []string) (int, int) { return 0, 0 }
 func (b *fseventsBackend) paths() <-chan string                          { return b.out }
-func (b *fseventsBackend) errs() <-chan error                            { return nil }
+func (b *fseventsBackend) missed() bool                                  { return b.lost.Swap(false) }
+
+// loseOne says an event was dropped, without needing a flood to make
+// one happen: a test cannot reliably outrun a channel of 256.
+func (b *fseventsBackend) loseOne()           { b.lost.Store(true) }
+func (b *fseventsBackend) errs() <-chan error { return nil }
 
 func (b *fseventsBackend) watch(root string, ignored []string) error {
 	b.mu.Lock()
@@ -140,7 +150,11 @@ func (b *fseventsBackend) pump(root string, es *fsevents.EventStream) {
 		for _, ev := range batch {
 			select {
 			case b.out <- fseventsPath(root, ev.Path):
-			default: // the reader is behind; the next batch will do
+			default:
+				// The reader is behind. Blocking here would stop the pump
+				// draining a stream that must keep being drained, so the
+				// path goes — but not the fact that something changed.
+				b.lost.Store(true)
 				log.Printf("worktree watch: dropped an event for %s", ev.Path)
 			}
 		}
