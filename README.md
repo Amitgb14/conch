@@ -19,9 +19,9 @@ your laptop slept. It earns its keep from the third agent, not the first.
 It is the wrong shape if you run one agent in one repo (use the agent's own
 CLI, with tmux if you want it to survive a dropped ssh session), if you branch
 and commit by hand (a plain multiplexer gives you panes without the opinions),
-or if reading diffs is the slow part of your day — conch picks files and hunks
-for a commit and stops there, with no side-by-side diff, so pair it with `gh`,
-your editor or a graphical tool. It is macOS and Linux; on Windows, WSL. And
+or if review means comments, threads and approvals — conch reads diffs side by
+side and stages hunks, but has no review threads and no approving a pull
+request, so pair it with `gh` or your forge for those. It is macOS and Linux; on Windows, WSL. And
 it waits for Enter on purpose: nothing the brain proposes runs until you
 confirm, so it is not the tool for unattended swarms.
 
