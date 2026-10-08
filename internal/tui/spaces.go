@@ -72,9 +72,6 @@ func (m Model) cur() *space {
 	return m.spaces[m.activeSpace]
 }
 
-// spaceCount is how many workspaces there are; with none made, the one.
-func (m Model) spaceCount() int { return max(len(m.spaces), 1) }
-
 // claimed is whether a workspace after the first has key in the set pick
 // gives: something no later one has is the first's.
 func (m Model) claimed(pick func(*space) map[string]bool, key string) bool {
@@ -242,16 +239,6 @@ func (m Model) shownFolders() map[string][]savedFolder {
 		}
 	}
 	return out
-}
-
-// shownPanes is the panes the workspace on screen shows on machine mid.
-func (m Model) shownPanes(mid string) []proto.PaneInfo {
-	mach := m.machine(mid)
-	if mach == nil {
-		return nil
-	}
-	_, panes := m.shown(mach)
-	return panes
 }
 
 // keepInFirst is called before something that already exists joins
