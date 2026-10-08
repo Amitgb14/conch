@@ -183,24 +183,66 @@ func (cv *changesView) splitCell(line string, at, col int, fresh map[int]bool, w
 		return nil
 	}
 	l := expandTabs(line)
-	var styled string
-	switch {
-	case at >= 0 && (isDiffMinus(l) || isDiffPlus(l)):
-		if wc, ok := words[at]; ok {
-			styled = highlightWords(l, wc.from, wc.to, base, mark)
-		} else {
-			styled = base.Render(l)
-		}
-	default:
-		styled = l // context, in the terminal's own colour
-	}
-	// Wrapped with the styling on it, so a marked word that straddles the
-	// wrap keeps its colour on both rows.
+	changed := at >= 0 && (isDiffMinus(l) || isDiffPlus(l))
+	wc, marked := words[at]
+	marked = marked && changed
+	// The line is cut first and coloured after, row by row. Colouring it
+	// whole and wrapping that leaves the second row of a long line
+	// uncoloured: the escape that opens the colour is at the start of the
+	// first row and every row is closed off where it ends.
 	var out []string
-	for _, part := range strings.Split(ansi.Hardwrap(styled, col, false), "\n") {
-		out = append(out, fit(part, col))
+	pos := 0 // runes of the line already drawn, so the marks find their row
+	for _, part := range chunkWidth(l, col) {
+		var styled string
+		switch {
+		case marked:
+			styled = styleSpan(part, wc.from-pos, wc.to-pos, base, mark)
+		case changed:
+			styled = base.Render(part)
+		default:
+			styled = part // context, in the terminal's own colour
+		}
+		out = append(out, fit(styled, col))
+		pos += len([]rune(part))
 	}
 	return out
+}
+
+// chunkWidth cuts a plain line into rows no wider than col cells, keeping
+// every rune: how many each row took is how the word marks are carried to
+// the next one, so nothing may be dropped on the way.
+func chunkWidth(s string, col int) []string {
+	if col <= 0 {
+		return []string{s}
+	}
+	var rows []string
+	var b strings.Builder
+	w := 0
+	for _, r := range s {
+		rw := ansi.StringWidth(string(r))
+		if w+rw > col && b.Len() > 0 {
+			rows = append(rows, b.String())
+			b.Reset()
+			w = 0
+		}
+		b.WriteRune(r)
+		w += rw
+	}
+	rows = append(rows, b.String())
+	return rows
+}
+
+// styleSpan renders one row with runes [from, to) of it marked and the
+// rest in the line's own colour. A span that starts before this row or
+// ends after it is clipped to what the row holds, which is how a marked
+// word that straddles a wrap keeps its colour on both rows.
+func styleSpan(row string, from, to int, base, mark lipgloss.Style) string {
+	r := []rune(row)
+	from, to = clamp(from, 0, len(r)), clamp(to, 0, len(r))
+	if from >= to {
+		return base.Render(row)
+	}
+	return base.Render(string(r[:from])) + mark.Render(string(r[from:to])) + base.Render(string(r[to:]))
 }
 
 // expandTabs is the renderer's own tab handling, kept in one place so the

@@ -312,3 +312,121 @@ func TestDiffSettingDecides(t *testing.T) {
 		t.Error("s did not turn columns off against the setting")
 	}
 }
+
+// TestSplitColoursEveryWrappedRow: a line coloured whole and then wrapped
+// is only coloured on its first row — the escape that opens the colour is
+// at the start, and each row is closed where it ends. Reported from use:
+// "in side by side diff same line text are not colored".
+func TestSplitColoursEveryWrappedRow(t *testing.T) {
+	was := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	applyTheme("conch", "")
+	t.Cleanup(func() { lipgloss.SetColorProfile(was); applyTheme("conch", "") })
+
+	m := a2Model()
+	long := strings.Repeat("abcdefghij", 12) // past any one column
+	// The change is at the start, so the rest of the line — what wraps —
+	// is the part that has to keep the line's own colour.
+	cv := &changesView{diffFile: "a.go", data: &proto.Changes{Worktree: "/w"}, diff: []string{
+		"@@ -1,2 +1,2 @@",
+		"-count " + long,
+		"+total " + long,
+	}}
+	out := cv.renderDiff(*m, 140, 20)
+	opens := func(s lipgloss.Style) string {
+		on, _, _ := strings.Cut(s.Render("x"), "x")
+		if on == "" {
+			t.Fatalf("no colour in this profile")
+		}
+		return on
+	}
+	red, green := opens(styleErr), opens(styleOK)
+	var redRows, greenRows int
+	for _, l := range out {
+		if strings.Contains(l, red) {
+			redRows++
+		}
+		if strings.Contains(l, green) {
+			greenRows++
+		}
+	}
+	if redRows < 2 {
+		t.Errorf("the removed line is coloured on %d rows, so what wrapped is plain:\n%s", redRows, strings.Join(out, "\n"))
+	}
+	if greenRows < 2 {
+		t.Errorf("the added line is coloured on %d rows:\n%s", greenRows, strings.Join(out, "\n"))
+	}
+	// And the mark is still only on the word that changed.
+	joined := strings.Join(out, "\n")
+	if !strings.Contains(joined, styleDiffRemoved.Render("count")) || !strings.Contains(joined, styleDiffAdded.Render("total")) {
+		t.Errorf("the changed word lost its mark:\n%s", joined)
+	}
+}
+
+// chunkWidth carries the word marks from row to row by how many runes
+// each took, so it may not drop one — not a trailing space at the cut,
+// not anything.
+func TestChunkWidthKeepsEveryRune(t *testing.T) {
+	for _, in := range []string{
+		"", "a", "abcdefghij", "a b c d e f g h i j k",
+		"one  two   three", strings.Repeat("x ", 30),
+		"héllo wörld with a 🐚 in it", strings.Repeat("ありがとう", 8),
+	} {
+		for _, col := range []int{1, 2, 3, 7, 10, 40} {
+			rows := chunkWidth(in, col)
+			if got := strings.Join(rows, ""); got != in {
+				t.Errorf("chunkWidth(%q, %d) lost runes: %q", in, col, got)
+			}
+			for i, r := range rows {
+				// A rune wider than the column has to go somewhere.
+				if w := ansi.StringWidth(r); w > col && len([]rune(r)) > 1 {
+					t.Errorf("chunkWidth(%q, %d) row %d is %d wide: %q", in, col, i, w, r)
+				}
+			}
+		}
+	}
+	if got := chunkWidth("abc", 0); len(got) != 1 || got[0] != "abc" {
+		t.Errorf("no column at all: %q", got)
+	}
+}
+
+// styleSpan is given the span of the whole line, so on the second row of
+// a wrapped line it is handed offsets that start before the row or end
+// after it.
+func TestStyleSpanClipsToTheRow(t *testing.T) {
+	was := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	applyTheme("conch", "")
+	t.Cleanup(func() { lipgloss.SetColorProfile(was); applyTheme("conch", "") })
+
+	plain := func(s string) string { return ansi.Strip(s) }
+	for _, c := range []struct {
+		name     string
+		from, to int
+		marked   string
+	}{
+		{"inside", 1, 3, "bc"},
+		{"before the row", -4, 2, "ab"},
+		{"past the row", 3, 90, "de"},
+		{"over the whole row", -2, 90, "abcde"},
+		{"nothing left", 4, 2, ""},
+		{"empty span", 2, 2, ""},
+	} {
+		got := styleSpan("abcde", c.from, c.to, styleErr, styleDiffRemoved)
+		if plain(got) != "abcde" {
+			t.Errorf("%s: the row itself changed: %q", c.name, plain(got))
+		}
+		if c.marked == "" {
+			if strings.Contains(got, styleDiffRemoved.Render("a")) {
+				t.Errorf("%s: marked something: %q", c.name, got)
+			}
+			continue
+		}
+		if !strings.Contains(got, styleDiffRemoved.Render(c.marked)) {
+			t.Errorf("%s: %q is not marked in %q", c.name, c.marked, got)
+		}
+	}
+	if got := styleSpan("", 0, 0, styleErr, styleDiffRemoved); ansi.Strip(got) != "" {
+		t.Errorf("an empty row came back as %q", got)
+	}
+}
