@@ -852,3 +852,97 @@ func TestSpaceSavedHosts(t *testing.T) {
 		t.Fatalf("first space restored %v", m2.spaces[0].hosts)
 	}
 }
+
+// runBatch runs cmd and every command of a batch it returns, the way
+// Bubble Tea does, and gives the messages that came back.
+func runBatch(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	switch msg := cmd().(type) {
+	case tea.BatchMsg:
+		var out []tea.Msg
+		for _, c := range msg {
+			out = append(out, runBatch(c)...)
+		}
+		return out
+	case nil:
+		return nil
+	default:
+		return []tea.Msg{msg}
+	}
+}
+
+func TestSpaceMachineAddJoinsWhereAsked(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	old := addMachineFn
+	addMachineFn = func(target, label, password string, key bool) tea.Cmd {
+		// The job and its progress, as the real add is.
+		return tea.Batch(func() tea.Msg { return machineAddedMsg{m: remote.Machine{ID: target, Label: target, Target: target}} },
+			func() tea.Msg { return flashMsg("installing…") })
+	}
+	t.Cleanup(func() { addMachineFn = old })
+
+	m.newSpace()
+	m.newSpace()
+	m.switchSpace(1)
+	d := newAddMachineDialog(*m)
+	cmd := d.submit(m, []string{"box", "", "", "off"})
+	// The add takes a while; by the time it lands the third is on screen.
+	m.switchSpace(2)
+	var added machineAddedMsg
+	for _, msg := range runBatch(cmd) {
+		if a, ok := msg.(machineAddedMsg); ok {
+			added = a
+		} else if f, ok := msg.(flashMsg); !ok || f != "installing…" {
+			t.Fatalf("progress changed: %#v", msg)
+		}
+	}
+	if added.space != m.spaces[1] {
+		t.Fatal("not marked with the workspace it was asked in")
+	}
+	next, _ := m.Update(added)
+	*m = next.(Model)
+	if !m.spaces[1].machines["box"] || m.spaces[2].machines["box"] || m.spaces[0].machines["box"] {
+		t.Fatalf("joined the wrong one: %v %v %v", m.spaces[0].machines, m.spaces[1].machines, m.spaces[2].machines)
+	}
+	if indexOfRow(m.rows, machineID("box")) >= 0 {
+		t.Fatalf("listed in the workspace on screen:\n%s", render(m.rows))
+	}
+
+	// Added again from the second while the first had it listed: the first
+	// keeps it.
+	m.switchSpace(1)
+	delete(m.spaces[1].machines, "box")
+	m.spaces[0].machines["box"] = true
+	next, _ = m.Update(machineAddedMsg{m: remote.Machine{ID: "box", Label: "box"}, space: m.spaces[1]})
+	*m = next.(Model)
+	if !m.spaces[0].machines["box"] || !m.spaces[1].machines["box"] {
+		t.Fatal("re-adding took it from the first")
+	}
+
+	// The workspace it was asked in closed meanwhile: the one on screen.
+	gone := m.spaces[2]
+	m.closeSpace(2)
+	next, _ = m.Update(machineAddedMsg{m: remote.Machine{ID: "vm2", Label: "vm2"}, space: gone})
+	*m = next.(Model)
+	if !m.spaces[m.activeSpace].machines["vm2"] {
+		t.Fatal("not in the workspace on screen")
+	}
+
+	// With one workspace nothing is marked, and the machine is simply there.
+	m.closeSpace(1)
+	if m.fromHere(nil) != nil {
+		t.Fatal("marked nothing into something")
+	}
+	for _, msg := range runBatch(m.fromHere(addMachineFn("one", "", "", false))) {
+		if a, ok := msg.(machineAddedMsg); ok && a.space != nil {
+			t.Fatal("marked with one workspace")
+		}
+	}
+	next, _ = m.Update(machineAddedMsg{m: remote.Machine{ID: "one", Label: "one"}})
+	*m = next.(Model)
+	if indexOfRow(m.rows, machineID("one")) < 0 {
+		t.Fatalf("not listed:\n%s", render(m.rows))
+	}
+}

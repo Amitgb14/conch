@@ -323,7 +323,7 @@ func newSandboxDialog(m Model, provider string) *dialog {
 		}
 		spec := sandbox.Spec{Snapshot: strings.TrimSpace(v[1]), CPU: sizes[0], Memory: sizes[1], Disk: sizes[2], Env: env, AutoStop: cfg.AutoStop}
 		m.setFlash("creating a "+label+" sandbox (a minute or two)…", false)
-		return createSandbox(provider, spec, strings.TrimSpace(v[0]))
+		return m.fromHere(createSandbox(provider, spec, strings.TrimSpace(v[0])))
 	}
 	return d
 }

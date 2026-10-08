@@ -371,14 +371,72 @@ func (m Model) hiddenMachines() []*machine {
 // joinMachine lists machine mid in the workspace on screen. had says it
 // was already in conch, so the first keeps it if it listed it.
 func (m *Model) joinMachine(mid string, had bool) {
-	s := m.cur()
-	if s == nil || mid == localMachine {
+	if m.cur() == nil {
 		return
 	}
 	if mach := m.machine(mid); had && mach != nil && m.activeSpace > 0 && m.hasMachine(0, mach) {
 		m.spaces[0].machines[mid] = true
 	}
-	s.machines[mid] = true
+	m.joinMachineTo(m.activeSpace, mid, false)
+}
+
+// joinMachineTo lists machine mid in workspace i, -1 meaning none: while
+// there is only one, everything is in it. had says the first listed it
+// before, so it keeps it.
+func (m *Model) joinMachineTo(i int, mid string, had bool) {
+	if i < 0 || i >= len(m.spaces) || mid == localMachine {
+		return
+	}
+	if had && i > 0 {
+		m.spaces[0].machines[mid] = true
+	}
+	m.spaces[i].machines[mid] = true
+}
+
+// spaceFor is the index of workspace s for something asked for in it, or
+// of the one on screen when s is gone or was never given: -1 while there
+// is only one.
+func (m Model) spaceFor(s *space) int {
+	if i := slices.Index(m.spaces, s); s != nil && i >= 0 && len(m.spaces) > 1 {
+		return i
+	}
+	if m.cur() == nil {
+		return -1
+	}
+	return m.activeSpace
+}
+
+// fromHere marks the machine a long add will report with the workspace on
+// screen now, so it joins this one even if another is shown by the time
+// it arrives: an ssh add or a new sandbox takes minutes. The add is a
+// batch of the job and its progress, so a batch is marked through.
+func (m Model) fromHere(cmd tea.Cmd) tea.Cmd {
+	s := m.cur()
+	if cmd == nil || s == nil {
+		return cmd
+	}
+	var mark func(tea.Cmd) tea.Cmd
+	mark = func(cmd tea.Cmd) tea.Cmd {
+		if cmd == nil {
+			return nil
+		}
+		return func() tea.Msg {
+			switch msg := cmd().(type) {
+			case machineAddedMsg:
+				msg.space = s
+				return msg
+			case tea.BatchMsg:
+				out := make(tea.BatchMsg, len(msg))
+				for i, c := range msg {
+					out[i] = mark(c)
+				}
+				return out
+			default:
+				return msg
+			}
+		}
+	}
+	return mark(cmd)
 }
 
 // openBringMachine offers the machines this workspace does not list.

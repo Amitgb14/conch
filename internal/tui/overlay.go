@@ -607,7 +607,7 @@ func newAddMachineDialog(m Model) *dialog {
 			return func() tea.Msg { return errMsg{errString("an ssh target is required")} }
 		}
 		m.setFlash("adding "+target+" (installing conch there if needed)…", false)
-		return addMachineFn(target, strings.TrimSpace(v[1]), v[2], v[3] == "on")
+		return m.fromHere(addMachineFn(target, strings.TrimSpace(v[1]), v[2], v[3] == "on"))
 	}
 	return d
 }

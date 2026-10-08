@@ -546,17 +546,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case machineAddedMsg:
 		m.setWorking("")
 		mach := newMachine(msg.m.ID, msg.m.Label, msg.m.Target)
+		into := m.spaceFor(msg.space)
 		had := false
 		for i, existing := range m.machines {
 			if existing.id == mach.id {
-				had = m.cur() != nil && m.activeSpace > 0 && m.hasMachine(0, existing)
+				had = into > 0 && m.hasMachine(0, existing)
 				existing.close()
 				m.machines = append(m.machines[:i], m.machines[i+1:]...)
 				break
 			}
 		}
 		m.machines = append(m.machines, mach)
-		m.joinMachine(mach.id, had)
+		m.joinMachineTo(into, mach.id, had)
 		m.expanded[machineID(mach.id)] = true
 		m.cursor = machineID(mach.id)
 		m.setFlash("added "+mach.label, false)
