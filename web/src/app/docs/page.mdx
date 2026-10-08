@@ -4,6 +4,22 @@ export const metadata = { title: "Introduction", description: "What conch is and
 
 conch is a terminal orchestrator for AI coding agents. A background server owns the terminals your agents run in, so they keep working when you close the UI.
 
+## Is conch for you?
+
+**conch is for running several coding agents at once and keeping track of them.** If you have three or four going — on different branches, worktrees or machines — and the hard part is knowing which one is waiting on you, what each has changed, and getting back to it after your laptop slept, that is what this is. It assumes you live in a terminal, that you want work to survive the UI closing, and that you want to answer an agent's question from wherever you are, including [a phone](/docs/phone).
+
+**It is the wrong shape for several things, and here is what to use instead.**
+
+- **One agent, one repo, no branches.** conch adds a server, a tree and a key map you do not need. Run the agent's own CLI; add tmux if you want it to survive a dropped ssh session. conch earns its keep from the third agent, not the first.
+- **You handle git by hand.** Tasks, worktrees per branch and the harvest flow are most of conch. If you would rather branch and commit yourself, a plain multiplexer — tmux, zellij, Zellij's floating panes — gives you the panes without the opinions.
+- **Review is your bottleneck.** conch's [changes view](/docs/interface#changes-view) picks files and single hunks for a commit, and that is where it stops: no side-by-side diff, no word-level highlighting inside a changed line (it is on the roadmap, not in the product). If reading diffs is the slow part of your day, pair conch with `gh`, your editor's diff, or a graphical tool — do not wait for conch to become one.
+- **You want a desktop app.** conch is a TUI. The phone app is a companion for answering agents away from the laptop, not a second home; there is no window with panels and menus, and there is not going to be.
+- **Windows.** conch does not build for Windows — it is macOS and Linux, and it uses unix sockets and pty internals that have no Windows equivalent here. WSL works, and is the supported answer.
+- **An agent conch does not support in full.** Five are [supported](/docs/agents#supported-agents) — adapter, detection, sessions that list and resume. Others **run here** from a manifest: conch starts and watches them and does not read their saved conversations. If what you need is deep support for a sixth agent, say so rather than assuming the manifest covers it.
+- **Unattended swarms.** conch waits for Enter on purpose: the [brain](/docs/brain) proposes actions and nothing runs until you confirm, and an agent's question stops the work until somebody answers it. If you want dozens of agents running without a person in the loop, conch is deliberately not that, and will not become it.
+
+The shortest version: **conch is a terminal multiplexer that understands agents and git branches.** Where it is the wrong tool, it is usually because you want fewer agents, a graphical diff, or no human in the loop.
+
 ## How it fits together
 
 conch has two parts:

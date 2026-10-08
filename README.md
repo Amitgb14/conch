@@ -10,6 +10,24 @@ Works with **Claude Code**, **Codex**, **Gemini CLI**, **OpenCode** and
 
 **[Website](https://amitgb14.github.io/conch/) · [Documentation](https://amitgb14.github.io/conch/docs/)**
 
+## Is it for you?
+
+It is for running **several** agents at once and keeping track of them — which
+one is waiting on you, what each has changed, and getting back to them after
+your laptop slept. It earns its keep from the third agent, not the first.
+
+It is the wrong shape if you run one agent in one repo (use the agent's own
+CLI, with tmux if you want it to survive a dropped ssh session), if you branch
+and commit by hand (a plain multiplexer gives you panes without the opinions),
+or if reading diffs is the slow part of your day — conch picks files and hunks
+for a commit and stops there, with no side-by-side diff, so pair it with `gh`,
+your editor or a graphical tool. It is macOS and Linux; on Windows, WSL. And
+it waits for Enter on purpose: nothing the brain proposes runs until you
+confirm, so it is not the tool for unattended swarms.
+
+[The longer version](https://amitgb14.github.io/conch/docs/#is-conch-for-you),
+losses included.
+
 ![Adding a project in conch: choosing a folder under ~/workspace, then the new project in the tree, expanded to its branch and its files](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/add_project.gif)
 
 Adding a project: pick a folder, and its branches, agents and terminals are
