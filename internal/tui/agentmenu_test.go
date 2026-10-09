@@ -380,11 +380,12 @@ func TestAgentMenuNumbersWhatCanBeStarted(t *testing.T) {
 	}
 }
 
-// A pane is there to type into, as its tab in the bar is: clicking one
-// in the tree hands it the keyboard. Reported from use: "if i press any
-// key it think its command". A branch or a project keeps the tree, since
-// its keys are the point of it.
-func TestClickingAPaneTypesIntoIt(t *testing.T) {
+// A click shows a pane but leaves the keys in the tree. It was the other
+// way round for one build, so that typing after a click reached the
+// agent; that cost the tree's own keys — c, n, t, m — which are how
+// conch is driven, and it came straight back. Double-click (or enter)
+// is how you take the keyboard to a pane.
+func TestAClickLeavesTheKeysInTheTree(t *testing.T) {
 	a2Isolate(t)
 	m, _ := a1Fixture(t, false)
 	m.width, m.height, m.sidebarW = 120, 30, 30
@@ -393,7 +394,7 @@ func TestClickingAPaneTypesIntoIt(t *testing.T) {
 		t.Helper()
 		m.focus = focusSidebar
 		// Each one a single click: two on the same row in a row would be
-		// a double click, which has always opened and focused the pane.
+		// a double click, which does open and focus the pane.
 		m.lastClickID, m.lastClickAt = "", time.Time{}
 		i := indexOfRow(m.rows, id)
 		if i < 0 {
@@ -403,23 +404,24 @@ func TestClickingAPaneTypesIntoIt(t *testing.T) {
 			Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, true, true, false)
 		*m = next.(Model)
 	}
-	click("pane:p1") // an agent
+	for _, id := range []string{"pane:p1", "b:r1:feat", "pane:p2"} {
+		click(id)
+		if m.focus != focusSidebar {
+			t.Errorf("clicking %s took the keyboard out of the tree", id)
+		}
+	}
+	// It does show what was clicked, which is the other half of a click.
+	if v := m.tab().focused().view; v.PaneID != "p2" {
+		t.Errorf("the click showed %+v", v)
+	}
+	// Double-click still opens it and types into it.
+	i := indexOfRow(m.rows, "pane:p2")
+	for range 2 {
+		next, _ := m.sidebarMouse(tea.MouseMsg{X: 5, Y: 2 + i - m.scroll,
+			Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, true, true, false)
+		*m = next.(Model)
+	}
 	if m.focus != focusMain {
-		t.Errorf("clicking an agent left the keyboard in the tree")
-	}
-	click("b:r1:feat") // a branch: b, c, n, t are what it is for
-	if m.focus != focusSidebar {
-		t.Errorf("clicking a branch took the keyboard away from the tree")
-	}
-	click("pane:p2") // a terminal
-	if m.focus != focusMain {
-		t.Errorf("clicking a terminal left the keyboard in the tree")
-	}
-	// A pane that has exited has nothing to type into.
-	m.machines[0].panes[1].State = proto.PaneExited
-	m.rebuild()
-	click("pane:p2")
-	if m.focus != focusSidebar {
-		t.Errorf("clicking an exited pane gave it the keyboard")
+		t.Error("a double click did not hand the pane the keyboard")
 	}
 }

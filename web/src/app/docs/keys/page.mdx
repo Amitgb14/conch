@@ -186,7 +186,6 @@ These follow tmux's default bindings; `ctrl+b 1` is the first tab and `0` the te
 ## Mouse
 
 - Click to select; click a selected folder (or its arrow) to fold. A click on a branch shows its changes; `b` or `$` opens the [git window](/docs/interface#git-panel) over them.
-- Clicking an agent or a terminal shows it **and gives it the keyboard**, as clicking its tab does, so what you type next reaches the agent instead of being read as a conch command. A branch, a project or a section keeps the keyboard in the tree, since its keys are the point of it; `ctrl+b` then any key that is not a prefix command goes back to the tree.
 - Double-click to open.
 - With `[ui] hover` on (Settings → Theme), the row or tab under the pointer is tinted before you click it, a link in a pane is underlined, and in Ghostty or kitty the pointer becomes a hand over one. It asks the terminal to report every pointer move rather than only drags — a message per cell crossed — so it is off until asked for, and a program in a pane still receives only the mouse it asked for.
 - Right-click for a context menu. On an agent's pane it holds **Prompt…**, which sends that agent its next message and tells you when the work it started ends (see [Agents working together](/docs/agents-together)).
