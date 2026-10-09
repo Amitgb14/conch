@@ -1261,8 +1261,9 @@ func centered(w, h int, content ...string) []string {
 // of that agent's own mark wherever a character comes close: Google's own
 // logo for Gemini, a starburst for Claude Code (Anthropic's is one), a
 // six-fold rosette for Codex (OpenAI's Blossom is three triangles woven
-// into six), a cube for Cursor, a slash for Grok (xAI's mark is a white
-// slash), pixels for Kilo Code (its wordmark is built from them), a
+// into six), a cube for Cursor, an ✕ for Grok (xAI's letter, and the
+// slash through its mark), pixels for Kilo Code (its wordmark is built
+// from them), a
 // terminal for OpenCode (terminal-native is the whole identity). Only
 // Aider, Amp and Devin have no shape to copy: those three are a plain
 // thing that suits the agent, and say so below rather than pretending.
@@ -1297,7 +1298,7 @@ var (
 		"aider":  "🟩",
 		"amp":    "🟧",
 		"cursor": "🧊", // a cube, which is Cursor's own mark
-		"grok":   "⬜", // xAI's mark is black and white
+		"grok":   "🟦", // xAI's accent blue: its own black and white vanish on one background or the other
 		"kilo":   "🟨", // Kilo Code's own yellow
 	}
 	// agentDotOther is for an agent conch has no mark for — somebody's own
@@ -1323,7 +1324,7 @@ var (
 		"aider":    "#4CAF50", // chosen, not theirs: aider publishes no brand colour
 		"amp":      "#FF6B35", // chosen, not theirs
 		"cursor":   "#C9D1D9", // its mark is a white cube, so near enough white
-		"grok":     "#E8E8E8", // xAI is black and white; white is the half a terminal can draw
+		"grok":     "#E8E8E8", // xAI is black and white; white is the half a dark terminal can draw
 		"kilo":     "#FEE685", // Kilo Code's own (Salomie)
 	}
 	agentGlyphs = map[string]string{
@@ -1335,7 +1336,7 @@ var (
 		"aider":    "\uf0c0", // two people: chosen, for pair programming
 		"amp":      "\uf0e7", // a bolt: chosen, for the name
 		"cursor":   "\uf1b2", // a cube, the shape of Cursor's own mark
-		"grok":     "╱",      // xAI's mark is a slash; no Nerd glyph is one, this is
+		"grok":     "\uf00d", // xAI's letter, and the shape of the slash through its mark
 		"kilo":     "\uf009", // pixels, which Kilo Code's wordmark is drawn from
 	}
 )
