@@ -35,6 +35,45 @@ type Observation struct {
 	Screen     []string // visible screen as plain text
 	Title      string   // terminal title
 	Watched    bool     // a client is looking at the pane
+	// Program is what the program in the pane last said about itself
+	// through the Program Status Protocol (OSC 7501), if it speaks it.
+	// Nil for the agents that do not, which is most of them today.
+	Program *ProgramReport
+}
+
+// ProgramReport is a program's own account of its state, taken off the
+// terminal rather than guessed from it. The states are the protocol's:
+// idle, working, done, blocked, error; Kind says why a blocked program is
+// blocked (permission, question, auth).
+type ProgramReport struct {
+	State string
+	Kind  string
+	App   string
+	Msg   string
+	At    time.Time
+}
+
+// The protocol's states, which are not quite conch's: `done` and `error`
+// both land on idle here and are handled by conch's own "nobody has
+// looked yet" rule, and `error` also marks the work failed.
+const (
+	programIdle    = "idle"
+	programWorking = "working"
+	programDone    = "done"
+	programBlocked = "blocked"
+	programError   = "error"
+)
+
+// usable reports whether a report says something conch can act on.
+func (r *ProgramReport) usable() bool {
+	if r == nil {
+		return false
+	}
+	switch r.State {
+	case programIdle, programWorking, programDone, programBlocked, programError:
+		return true
+	}
+	return false
 }
 
 // Explanation shows how the current status was reached.
@@ -50,6 +89,13 @@ type Explanation struct {
 	HookAge     string   `json:"hook_age,omitempty"`
 	Seen        bool     `json:"seen"`
 	ScreenLines []string `json:"screen_tail,omitempty"`
+	// ProgramState is what the program said about itself (OSC 7501), and
+	// ProgramApp what it called itself. Empty for a program that does not
+	// speak the protocol.
+	ProgramState string `json:"program_state,omitempty"`
+	ProgramKind  string `json:"program_kind,omitempty"`
+	ProgramApp   string `json:"program_app,omitempty"`
+	ProgramAge   string `json:"program_age,omitempty"`
 }
 
 // Tracker keeps the agent status of one pane. It is not safe for concurrent
@@ -57,6 +103,11 @@ type Explanation struct {
 type Tracker struct {
 	manifests map[string]*Manifest
 	hint      string // agent the pane was launched as, if any
+	// programAt is the newest program report (OSC 7501) already acted on.
+	// A program reports when something changes, so the same record is
+	// seen on every look afterwards: without this, a "done" that nobody
+	// had cleared would be raised again at every tick.
+	programAt time.Time
 
 	agent *Manifest
 	hook  struct {
@@ -194,6 +245,20 @@ func (t *Tracker) Observe(o Observation) bool {
 
 	next := Status{}
 	base := ""
+	// A program that reports its own state is not guessing, so it is
+	// taken over the screen rules — which are conch reading an agent's
+	// spinner and rewriting them each time that spinner changes. Hooks
+	// still come first where an agent has them: they are the same program
+	// speaking, with more to say (the message, whether it failed, which
+	// session), and this protocol carries none of that yet.
+	prog := o.Program
+	if !prog.usable() {
+		prog = nil
+	}
+	// fresh is a report conch has not acted on yet. A program speaks when
+	// something changes, so the same record comes back at every look.
+	fresh := prog != nil && prog.At.After(t.programAt)
+	finished := false // the program has just said it finished, or failed
 	if m != nil {
 		ex.Manifest = m.Agent
 		rule := m.Match(o.Screen, o.Title)
@@ -203,8 +268,25 @@ func (t *Tracker) Observe(o Observation) bool {
 				t.screenWorking = o.Now
 			}
 		}
+		if prog != nil {
+			ex.ProgramState, ex.ProgramKind, ex.ProgramApp = prog.State, prog.Kind, prog.App
+			if !prog.At.IsZero() {
+				ex.ProgramAge = o.Now.Sub(prog.At).Round(time.Second).String()
+			}
+			if prog.State == programWorking {
+				// Evidence the agent is at work, so a hook that said so
+				// is not retired for going quiet.
+				t.screenWorking = o.Now
+			}
+		}
 		next = Status{Agent: m.Agent, SessionID: t.sessionID}
 		switch {
+		case prog != nil && prog.State == programBlocked:
+			next.State, next.Source, next.Message = StateBlocked, "program", prog.Msg
+			next.Reason = "program"
+			if prog.Kind != "" {
+				next.Reason = "program:" + prog.Kind
+			}
 		case rule != nil && rule.State == StateBlocked:
 			next.State, next.Source, next.Reason = StateBlocked, "screen", "rule:"+rule.Name
 		case t.hook.state != "":
@@ -217,6 +299,21 @@ func (t *Tracker) Observe(o Observation) bool {
 			if next.State == StateWorking && stale > 0 && (rule == nil || rule.State != StateWorking) &&
 				o.Now.Sub(lastEvidence) > stale {
 				next.State, next.Source, next.Reason, next.Message, next.Failed = StateIdle, "screen", "hook_working_stale", "", false
+			}
+		case prog != nil:
+			next.Source, next.Reason, next.Message = "program", "program:"+prog.State, prog.Msg
+			switch prog.State {
+			case programWorking:
+				next.State = StateWorking
+			case programDone:
+				// conch has its own word for this: idle, and nobody has
+				// looked since. Saying it that way keeps "looking at the
+				// pane clears it" working as it does for every agent.
+				next.State, finished = StateIdle, fresh
+			case programError:
+				next.State, next.Failed, finished = StateIdle, true, fresh
+			default:
+				next.State = StateIdle
 			}
 		case rule != nil:
 			next.State, next.Source, next.Reason = rule.State, "screen", "rule:"+rule.Name
@@ -234,6 +331,11 @@ func (t *Tracker) Observe(o Observation) bool {
 	// Done: the agent finished working while nobody was watching. Leaving
 	// blocked for idle is not "done": someone answered or dismissed it.
 	switch {
+	case finished && !o.Watched:
+		// It said so itself, so there is no need to have caught it
+		// working first — which conch would otherwise require, and would
+		// miss for a program that finishes between two looks.
+		t.seen = false
 	case base == StateIdle && t.base == StateWorking && !o.Watched:
 		t.seen = false
 	case base != StateIdle:
@@ -253,6 +355,9 @@ func (t *Tracker) Observe(o Observation) bool {
 	}
 	// Source and reason alone don't warrant an event, but keep them fresh.
 	t.status = next
+	if prog != nil && prog.At.After(t.programAt) {
+		t.programAt = prog.At
+	}
 	ex.Status, ex.Seen = next, t.seen
 	t.last = ex
 	return changed
@@ -280,12 +385,17 @@ type TrackerState struct {
 	Base          string    `json:"base,omitempty"`
 	Seen          bool      `json:"seen"`
 	Status        Status    `json:"status"`
+	// ProgramAt is the last program report (OSC 7501) conch acted on, so
+	// a program that said "done" once and has not spoken since does not
+	// have that answered for it again after a reload.
+	ProgramAt time.Time `json:"program_at,omitempty"`
 }
 
 // Export returns the tracker's state.
 func (t *Tracker) Export() TrackerState {
 	return TrackerState{Hint: t.hint, HookState: t.hook.state, HookReason: t.hook.reason, HookMessage: t.hook.message,
-		HookAt: t.hook.at, HookFailed: t.hook.failed, SessionID: t.sessionID, ScreenWorking: t.screenWorking, Base: t.base, Seen: t.seen, Status: t.status}
+		HookAt: t.hook.at, HookFailed: t.hook.failed, SessionID: t.sessionID, ScreenWorking: t.screenWorking, Base: t.base, Seen: t.seen,
+		Status: t.status, ProgramAt: t.programAt}
 }
 
 // RestoreTracker rebuilds a tracker from exported state.
@@ -293,6 +403,7 @@ func RestoreTracker(manifests map[string]*Manifest, st TrackerState) *Tracker {
 	t := NewTracker(manifests, st.Hint)
 	t.hook.state, t.hook.reason, t.hook.message, t.hook.at, t.hook.failed = st.HookState, st.HookReason, st.HookMessage, st.HookAt, st.HookFailed
 	t.sessionID, t.screenWorking, t.base, t.seen, t.status = st.SessionID, st.ScreenWorking, st.Base, st.Seen, st.Status
+	t.programAt = st.ProgramAt
 	if st.Status.Agent != "" {
 		t.agent = manifests[st.Status.Agent]
 	}

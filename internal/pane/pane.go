@@ -77,10 +77,14 @@ type Pane struct {
 	// done is closed once the process has exited and output is drained.
 	done chan struct{}
 
-	mu            sync.Mutex
-	state         string
-	exitCode      int
-	title         string
+	mu       sync.Mutex
+	state    string
+	exitCode int
+	title    string
+	// status is what the program has said about itself through the
+	// Program Status Protocol (status.go). Empty for a program that does
+	// not speak it, which is most of them.
+	status        statusRecords
 	customName    string
 	mouseModes    map[ansi.Mode]bool
 	cursorVisible bool
@@ -232,7 +236,7 @@ func readable(fd int, timeout time.Duration) (bool, error) {
 func (p *Pane) readLoop(stop <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
 	buf := make([]byte, 32*1024)
-	var titles titleScanner
+	var osc oscScanner
 	var strs stringFilter
 	fd := int(p.ptmx.Fd())
 	for {
@@ -248,11 +252,7 @@ func (p *Pane) readLoop(stop <-chan struct{}, done chan<- struct{}) {
 		}
 		n, err := p.ptmx.Read(buf)
 		if n > 0 {
-			if t, ok := titles.scan(buf[:n]); ok {
-				p.mu.Lock()
-				p.title = t
-				p.mu.Unlock()
-			}
+			p.readOSC(osc.scan(buf[:n]))
 			p.emuMu.Lock()
 			p.writeToEmulator(strs.filter(buf[:n]))
 			p.emuMu.Unlock()
@@ -296,6 +296,10 @@ func (p *Pane) wait() {
 	p.mu.Lock()
 	p.state = proto.PaneExited
 	p.exitCode = code
+	// Work that was going on, and a question nobody can answer now, do not
+	// outlive the program that reported them; what it finished or failed
+	// at does, since that is what has not been seen yet (status.go).
+	p.status.settle()
 	// Close under mu so Foreground never issues an ioctl on a closed (and
 	// possibly reused) descriptor — and not at all once Detach has given
 	// the terminal away: it belongs to the pane that adopted it.

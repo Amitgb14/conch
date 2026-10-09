@@ -240,6 +240,30 @@ helpers in `cmd/conch` and `internal/remote`.
   compressing would cost ~26µs, which is why this is an ssh matter and
   not something in `internal/proto`. `[remote] no_compression` turns it
   off for a link as fast as the processor.
+- **A program that reports its own state has to be answered first.**
+  conch is the terminal, so it reads the Program Status Protocol (OSC
+  7501) off the pty — `state=working`, `state=blocked:kind=permission`,
+  and the rest — in `internal/pane/status.go`, and prefers it in
+  `internal/detect` over the screen rules, which are conch guessing from
+  an agent's spinner and were rewritten every time one changed. The part
+  that is easy to miss: a program **asks** whether the terminal speaks it
+  (`OSC 7501 ; ?`) and stays silent for the rest of the session if
+  nothing answers, so reading the stream is not enough — conch writes the
+  same body back through the emulator's input pipe, the way it sends keys,
+  because that is the one goroutine that owns the terminal. Claude Code
+  2.1.295 does this probe; a build without the answer sees no reports at
+  all, which is what the pty test checks by reading the reply back inside
+  the program. The records live on the pane (ids form a tree, `clear`
+  removes a subtree, the cap is the protocol's), are carried through a
+  reload in `Snapshot.Status` — a program reports on change, so one that
+  is still blocked will not say so again for the new server — and
+  `working`/`blocked` are dropped when the program exits or the next
+  shell prompt begins (OSC 133 A), while `done`/`error` stay, since those
+  are what nobody has seen yet. A report decides a pane's state, never
+  whether it is an agent: that is still the manifest and the foreground
+  process. And a program speaks only when something changes, so the same
+  record is seen at every tick — `done` is raised once (`programAt`), or
+  it nags for ever.
 - **The pointer's shape is the terminal's to draw.** Hovering a link
   underlines it, which conch does by drawing; the arrow becoming a hand
   is asked for with `OSC 22` (kitty's pointer shape, which Ghostty takes

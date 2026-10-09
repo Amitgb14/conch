@@ -207,6 +207,7 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 		Screen:     e.screen,
 		Title:      e.p.Title(),
 		Watched:    e.watchers > 0,
+		Program:    programReport(e.p),
 	})
 	// Going back to work after a question was answered is the same turn.
 	if now := e.tracker.Status().State; now == proto.AgentWorking && prevState != proto.AgentWorking && prevState != proto.AgentBlocked {
@@ -343,4 +344,15 @@ func (s *Server) panesIn(dir string) bool {
 func (s *Server) projectRegistered(p *project) bool {
 	_, perr := s.projects.get(p.id)
 	return perr == nil
+}
+
+// programReport is what the pane's program last said about itself through
+// the Program Status Protocol, for the tracker to prefer over its screen
+// rules. Nothing to say leaves it nil.
+func programReport(p *pane.Pane) *detect.ProgramReport {
+	rec, ok := p.ProgramStatus()
+	if !ok {
+		return nil
+	}
+	return &detect.ProgramReport{State: rec.State, Kind: rec.Kind, App: rec.App, Msg: rec.Msg, At: rec.At}
 }

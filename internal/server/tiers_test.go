@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -194,5 +195,62 @@ func TestNoInstallerIsSaidAndRefused(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(info.Command, " "), "echo pretending") {
 		t.Errorf("the installer that ran was %v", info.Command)
+	}
+}
+
+// An agent that reports its own state through the Program Status
+// Protocol, end to end on a real server and a real pty: conch answers
+// the query it opens with, and the state in the pane comes from what the
+// program said rather than from a screen rule nobody wrote for it.
+//
+// This is the second tier's weak spot closed: an agent conch only runs
+// has no screen rules at all, so its state was a guess until now.
+func TestAnAgentReportsItsOwnState(t *testing.T) {
+	c, _ := startServerWithAgents(t, map[string]string{
+		// No rules: whatever state this pane shows came from the program.
+		"talker": "agent = \"talker\"\nlabel = \"Talker\"\nprocess_names = [\"sh\"]\n\n[run]\nbinary = \"sh\"\n",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	script := `stty -icanon -echo min 0 time 30 2>/dev/null
+printf '\033]7501;?\033\\'
+dd bs=1 count=10 >/dev/null 2>&1
+printf '\033]7501;state=blocked:kind=permission:app=talker:msg=%s\033\\' "$(printf 'May I write the file?' | base64 | tr -d '\n')"
+sleep 30`
+	var info proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{
+		Agent: "talker", Command: []string{"/bin/sh", "-c", script},
+		Cols: 80, Rows: 24, NoProject: true}, &info); err != nil {
+		t.Fatalf("starting it: %v", err)
+	}
+
+	deadline := time.Now().Add(20 * time.Second)
+	var agent *proto.AgentStatus
+	for time.Now().Before(deadline) {
+		var list proto.PaneList
+		if err := c.Call(ctx, proto.MethodPaneList, nil, &list); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range list.Panes {
+			if p.ID == info.ID && p.Agent != nil && p.Agent.State == proto.AgentBlocked {
+				agent = p.Agent
+			}
+		}
+		if agent != nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if agent == nil {
+		var ex json.RawMessage
+		_ = c.Call(ctx, proto.MethodAgentExplain, proto.PaneRef{ID: info.ID}, &ex)
+		t.Fatalf("the agent never reported blocked; conch decided: %s", ex)
+	}
+	if agent.Message != "May I write the file?" {
+		t.Errorf("the program's own words did not reach the pane: %q", agent.Message)
+	}
+	if agent.Source != "program" {
+		t.Errorf("the state came from %q, not from the program", agent.Source)
 	}
 }

@@ -36,6 +36,13 @@ type Snapshot struct {
 	// (altscroll.go): text read off the screen, which no replay can rebuild.
 	// Empty on the main screen, and in a snapshot from an older server.
 	AltHistory []string `json:"alt_history,omitempty"`
+	// Status is what the program said about itself through the Program
+	// Status Protocol (status.go). It has to travel: a program reports
+	// when its state changes, so one that said "blocked" an hour ago and
+	// is still waiting will not say it again for the new server. Empty in
+	// a snapshot from an older server, and for the programs that do not
+	// speak it.
+	Status []ProgramStatus `json:"status,omitempty"`
 }
 
 // replayChunk is how many lines of a replay go into the emulator at once.
@@ -62,7 +69,7 @@ func (p *Pane) Detach() (Snapshot, *os.File, error) {
 	}
 	p.mu.Lock()
 	snap := Snapshot{ID: p.id, Name: p.name, CustomName: p.customName, Command: p.command, Cwd: p.cwd,
-		Created: p.created, PID: p.proc.Pid, Title: p.title}
+		Created: p.created, PID: p.proc.Pid, Title: p.title, Status: p.status.all()}
 	modes := make([]ansi.Mode, 0, len(p.modes))
 	for m := range p.modes {
 		modes = append(modes, m)
@@ -209,6 +216,7 @@ func Adopt(snap Snapshot, ptmx *os.File) (*Pane, error) {
 		p.alt.on = true
 		p.alt.lines = keepLast(slices.Clone(snap.AltHistory), altHistoryMax)
 	}
+	p.status.restore(snap.Status)
 	// Replies the replay provoked (none are expected) must not reach the
 	// program: start copying only now.
 	p.startIO()
