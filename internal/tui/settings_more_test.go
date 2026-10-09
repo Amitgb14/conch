@@ -253,7 +253,8 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 	for _, step := range []struct {
 		key string
 		tab int
-	}{{"tab", 1}, {"right", 2}, {"l", 3}, {"tab", 4}, {"tab", 5}, {"tab", 0}, {"shift+tab", 5}, {"left", 4}, {"h", 3}, {"4", 3}, {"5", 4}, {"6", 5}, {"1", 0}} {
+	}{{"tab", 1}, {"right", 2}, {"l", 3}, {"tab", 4}, {"tab", 5}, {"tab", 6}, {"tab", 0}, {"shift+tab", 6},
+		{"left", 5}, {"h", 4}, {"4", 3}, {"5", 4}, {"6", 5}, {"7", 6}, {"1", 0}} {
 		s.sel = 3
 		s.update(m, a2Key(step.key))
 		if s.tab != step.tab || s.sel != 0 {

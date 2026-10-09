@@ -196,6 +196,7 @@ type Model struct {
 	filesView    *filesView               // the focused leaf's, when it is a file explorer
 	queueSeen    map[string]string        // review queue rows dismissed, by what they said when dismissed
 	verifyRuns   map[string]verifyRun     // a branch's last run of its project's check, by machine|project|branch
+	actionPanes  map[string]string        // a custom action's terminal, kept when it exits: machine|pane -> action name
 	prevView     viewRef                  // where the focused split was before the last jump, for ctrl+b b
 }
 
@@ -466,6 +467,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case launchProjectMsg:
 		return m, m.receiveLaunchProject(msg.info)
+
+	case actionStartedMsg:
+		return m, m.receiveActionStarted(msg)
 
 	case createdMsg:
 		if mach := m.machine(msg.machine); mach != nil && mach.paneIndex(msg.info.ID) < 0 {
@@ -799,10 +803,13 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		var installed tea.Cmd
 		if msg.Event == proto.EventPaneExited {
 			wasCheck := m.verifyExited(mach.id, info)
+			wasAction := m.actionExited(mach.id, info)
 			installed = m.installerDone(mach, info)
 			// A check's terminal is its report: it stays until you close
-			// it, or nothing would be left of a check that passed.
-			if installed == nil && !launchFailed(info) && !wasCheck {
+			// it, or nothing would be left of a check that passed. An
+			// action's terminal is kept for the same reason, unless its
+			// action said not to.
+			if installed == nil && !launchFailed(info) && !wasCheck && !wasAction {
 				// Exited on its own (a shell's exit, an agent's /exit or
 				// ctrl+c): close it, as tmux does. Only a pane that failed
 				// right away stays, so its error can be read.
@@ -827,6 +834,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				delete(mach.agents, ref.ID)
 				delete(m.subscribed, paneKey(mach.id, ref.ID))
 				delete(m.frames, paneKey(mach.id, ref.ID))
+				delete(m.actionPanes, paneKey(mach.id, ref.ID))
 				if m.isViewing(mach.id, ref.ID) && m.focus == focusMain {
 					m.focus = focusSidebar
 				}
@@ -1339,6 +1347,12 @@ type place struct {
 
 func (m Model) contextPlace() place {
 	r, _ := m.selectedRow()
+	return m.placeOf(r)
+}
+
+// placeOf is where a command started from this row would run. A menu acts
+// on the row it was opened on, which is not always the selected one.
+func (m Model) placeOf(r row) place {
 	mid := r.machine
 	if mid == "" {
 		mid = localMachine

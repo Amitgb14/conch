@@ -317,7 +317,25 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			}
 		}
 	}
-	return &menu{title: title, items: items, x: x, y: y}
+	return &menu{title: title, items: withActions(m, r, x, y, items), x: x, y: y}
+}
+
+// withActions puts somebody's own commands on a row's menu, above the
+// item that closes or removes something: a menu's last line is where the
+// hand goes by habit, and that belongs to the destructive one.
+func withActions(m Model, r row, x, y int, items []menuItem) []menuItem {
+	add := m.actionsMenuItem(r, x, y)
+	if len(add) == 0 {
+		return items
+	}
+	at := len(items)
+	for i, it := range items {
+		if it.key == "x" {
+			at = i
+			break
+		}
+	}
+	return append(items[:at:at], append(add, items[at:]...)...)
 }
 
 func (mu *menu) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
@@ -939,6 +957,8 @@ var helpText = []string{
 	"     abort, or handing the conflict to the agent",
 	"  m  menu for the row: on an agent's pane it holds Prompt… — its next message, refused while it waits",
 	"     on an answer of its own, and it says when the work it started ends",
+	"     Actions… holds your own commands from config.toml ([[actions]]), run in that checkout",
+	"     with CONCH_MACHINE, CONCH_PROJECT, CONCH_BRANCH, CONCH_WORKTREE and CONCH_PANE set",
 	"  i  agent setup: instructions, skills, MCP servers, and what a worktree lacks",
 	"     in it: s gives the other agents this one's setup (it says what it would write first), u undoes that,",
 	"     S installs or removes conch's own skill for the agent whose tab is open (Settings → Agents does every agent)",

@@ -111,6 +111,12 @@ env = []               # variables of yours passed into every new sandbox
 price_cpu_hour = 0     # what an hour costs, to show what a sandbox has run up:
 price_gib_hour = 0     # per vCPU, per GiB of memory, per GiB of disk.
 price_disk_gib_hour = 0  # 0 shows running time without a cost
+
+[[actions]]            # your own commands on the row menus; none by default
+name = "Run tests"     # the label on the menu
+run = "go test ./..."  # the command, as a shell reads it
+on = ["branch", "project"]  # the rows it is offered on; omit for all four
+keep = true            # leave its terminal open when the command exits
 ```
 
 ### notify
@@ -161,3 +167,55 @@ The phone gateway, [`conch web`](/docs/phone). Set from **Settings → Web** in 
 | `port` | `8722` | where `conch web` listens |
 
 `-url` and `-port` given to `conch web` win over these.
+
+## `[[actions]]`
+
+Commands of your own on conch's menus. Most of what a plugin system gets asked for is this: run the project's tests on this branch, open a pull request, tail a log, open the worktree in something else. Each is already a shell command somebody runs by hand in that checkout — conch's part is knowing *which* checkout.
+
+```toml
+[[actions]]
+name = "Run tests"
+run  = "go test ./..."
+on   = ["branch", "project"]
+
+[[actions]]
+name = "Open a pull request"
+run  = "gh pr create --fill"
+on   = ["branch"]
+
+[[actions]]
+name = "Open the folder"
+run  = "open ."        # xdg-open on Linux
+keep = false
+```
+
+An action is then on the menu of a matching row — **m**, or right-click — under **Actions…**, numbered, and it runs in a terminal of its own on that row's machine, in that row's directory.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `name` | — | the label on the menu, and what its terminal is called |
+| `run` | — | the command, read by `sh -lc`: a pipeline, several commands, a script of yours |
+| `on` | all four | the rows it is offered on: `pane`, `branch`, `project`, `machine` |
+| `keep` | `true` | leave the terminal open when the command exits, so what it printed can still be read. `false` closes it like any other terminal |
+
+The command is given conch's own variables, so one action works from any row. What a row has nothing to say about is empty rather than missing, which a `set -u` script survives:
+
+| Variable | What it holds |
+| --- | --- |
+| `CONCH_MACHINE` | the machine the row belongs to, as `conch -m` names it |
+| `CONCH_PROJECT` | the project's name |
+| `CONCH_BRANCH` | the branch, where the row has one |
+| `CONCH_WORKTREE` | the directory it runs in, which is also its working directory |
+| `CONCH_PANE` | the pane the action was started from, on a pane's row |
+
+`CONCH_SOCKET` is in every pane's environment already, so an action can drive conch itself: `conch send`, `conch new`, `conch task`.
+
+**Where it runs.** On the machine the row belongs to — a remote machine's action runs over there, in that checkout, not on the computer the TUI is on. A branch nobody has checked out has no directory to run in, and conch says so rather than making a worktree behind your back: open a terminal on it first (**n**).
+
+**Settings → Actions** (`,` then `7`) lists what is configured, and names anything conch is *not* offering: an action with no name or no command, two with the same name, an `on` that is not one of the four.
+
+<Callout type="note">
+
+An action is arbitrary command execution, from your own file, and nothing runs until you choose it from a menu. conch fetches actions from nowhere and never adds one itself.
+
+</Callout>

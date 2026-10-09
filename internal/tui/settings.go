@@ -37,12 +37,13 @@ type settings struct {
 	shellErr string
 }
 
-var settingsTabs = []string{"Theme", "Notifications", "Agents", "Brain", "Sandboxes", "Web"}
+var settingsTabs = []string{"Theme", "Notifications", "Agents", "Brain", "Sandboxes", "Web", "Actions"}
 
 // The tabs that are found by number.
 const (
 	sandboxTab = 4
 	webTab     = 5
+	actionsTab = 6
 )
 
 type shellThemesMsg struct {
@@ -97,6 +98,8 @@ func (s *settings) items(m *Model) []settingItem {
 		return s.sandboxItems(m)
 	case webTab:
 		return s.phoneItems(m)
+	case actionsTab:
+		return s.actionItems(m)
 	}
 	return s.agentItems(m)
 }
@@ -685,6 +688,52 @@ func copyItem(what, command string) settingItem {
 	}}
 }
 
+// actionItems is the Actions tab: what config.toml puts on the row menus,
+// read only. Nothing here is conch's to edit — an action is somebody's own
+// command — but an action that never appears on a menu has to be able to
+// say why, which is what this page is for.
+func (s *settings) actionItems(m *Model) []settingItem {
+	acts, problems := m.cfg.Actions, m.cfg.ActionProblems()
+	if len(acts) == 0 {
+		return []settingItem{
+			{header: true, label: "Actions", detail: "your own commands on the row menus"},
+			{label: styleMuted.Render("  Nothing yet. Put this in config.toml, named at the bottom of this screen:")},
+			{},
+			{label: styleMuted.Render("    [[actions]]")},
+			{label: styleMuted.Render("    name = \"Run tests\"")},
+			{label: styleMuted.Render("    run  = \"go test ./...\"")},
+			{label: styleMuted.Render("    on   = [\"branch\", \"project\"]")},
+			{},
+			{label: styleMuted.Render("  It is then on the menu (m, or right-click) of a branch or project,")},
+			{label: styleMuted.Render("  and runs there with CONCH_MACHINE, CONCH_PROJECT, CONCH_BRANCH,")},
+			{label: styleMuted.Render("  CONCH_WORKTREE and CONCH_PANE set.")},
+		}
+	}
+	items := []settingItem{{header: true, label: "Actions", detail: "your own commands on the row menus"}}
+	for _, a := range acts {
+		on := "every row"
+		if len(a.On) > 0 {
+			on = strings.Join(a.On, ", ")
+		}
+		if !a.Keeps() {
+			on += " · closes when done"
+		}
+		label := "  " + a.Name
+		if !a.Named() {
+			label = "  " + styleErr.Render(firstNonEmpty(a.Name, "(no name)"))
+		}
+		items = append(items, settingItem{label: label, detail: on},
+			settingItem{label: styleMuted.Render("    " + a.Run)})
+	}
+	if len(problems) > 0 {
+		items = append(items, settingItem{}, settingItem{header: true, label: "Not offered"})
+		for _, p := range problems {
+			items = append(items, settingItem{label: "  " + styleErr.Render(p)})
+		}
+	}
+	return items
+}
+
 func (s *settings) brainItems(m *Model) []settingItem {
 	b := &m.cfg.Brain
 	items := []settingItem{{header: true, label: "Provider", detail: "the model behind ✦ Ask and summaries"}}
@@ -1134,7 +1183,7 @@ func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			s.setTab((s.tab + 1) % len(settingsTabs))
 		case "shift+tab", "left", "h":
 			s.setTab((s.tab + len(settingsTabs) - 1) % len(settingsTabs))
-		case "1", "2", "3", "4", "5", "6":
+		case "1", "2", "3", "4", "5", "6", "7":
 			s.setTab(min(int(msg.String()[0]-'1'), len(settingsTabs)-1))
 		case "up", "k":
 			s.move(items, -1)
@@ -1225,8 +1274,14 @@ func (s *settings) wheel(items []settingItem, delta, listH int) {
 // screen, which is how the settings ran off a 12-row terminal.
 func (m Model) settingsListHeight() int { return clamp(m.height-8, 3, 24) }
 
+// settingsWidth is the box's width where the terminal allows it: the tab
+// bar is the widest thing on the page, so it sets this.
+const settingsWidth = 86
+
 func (s *settings) render(m Model) box {
-	w := clamp(78, 40, max(m.width-4, 40))
+	// Wide enough for the tab bar to fit on one line, which is what the
+	// number keys are for: a tab truncated off the end cannot be found.
+	w := clamp(settingsWidth, 40, max(m.width-4, 40))
 	items := s.items(&m)
 	if s.sel >= len(items) || items[s.sel].run == nil {
 		s.move(items, 0)

@@ -28,6 +28,10 @@ type Config struct {
 	Verify  VerifyCfg  `toml:"verify"`
 	Sandbox SandboxCfg `toml:"sandbox"`
 	Web     WebCfg     `toml:"web"`
+	// Actions are commands of your own on conch's menus. Last, because
+	// TOML's array of tables has to come after the plain tables when the
+	// settings screen writes this file back out.
+	Actions []Action `toml:"actions,omitempty"`
 }
 
 // WebCfg is the phone gateway, conch web. URL is the address phones open —
@@ -400,6 +404,10 @@ func Dir() string {
 	return filepath.Join(home, ".config", "conch")
 }
 
+// File is where config.toml lives, for telling somebody which file to
+// edit. Load and Save already know; this is for saying so on screen.
+func File() string { return filepath.Join(Dir(), "config.toml") }
+
 // SocketPath returns the server socket path ($CONCH_SOCKET overrides).
 func SocketPath() string {
 	if p := os.Getenv("CONCH_SOCKET"); p != "" {
@@ -416,7 +424,7 @@ func ServerLogPath() string {
 // Load reads config.toml from Dir(), falling back to defaults when absent.
 func Load() (Config, error) {
 	cfg := Default()
-	_, err := toml.DecodeFile(filepath.Join(Dir(), "config.toml"), &cfg)
+	_, err := toml.DecodeFile(File(), &cfg)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return Default(), err
 	}
@@ -437,7 +445,7 @@ func Save(cfg Config) error {
 	if err := toml.NewEncoder(&b).Encode(cfg); err != nil {
 		return err
 	}
-	path := filepath.Join(Dir(), "config.toml")
+	path := File()
 	keepUnreadable(path)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(b.String()), 0o600); err != nil {

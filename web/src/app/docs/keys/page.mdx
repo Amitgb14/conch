@@ -189,6 +189,7 @@ These follow tmux's default bindings; `ctrl+b 1` is the first tab and `0` the te
 - Double-click to open.
 - With `[ui] hover` on (Settings → Theme), the row or tab under the pointer is tinted before you click it, a link in a pane is underlined, and in Ghostty or kitty the pointer becomes a hand over one. It asks the terminal to report every pointer move rather than only drags — a message per cell crossed — so it is off until asked for, and a program in a pane still receives only the mouse it asked for.
 - Right-click for a context menu. On an agent's pane it holds **Prompt…**, which sends that agent its next message and tells you when the work it started ends (see [Agents working together](/docs/agents-together)).
+- A row's menu also holds **Actions…** when you have configured any: your own commands from `config.toml`, run in that row's checkout on that row's machine. See [`[[actions]]`](/docs/configuration#actions).
 - Wheel to scroll; over a pane, the wheel scrolls back through its history.
 - Drag the sidebar's edge to resize, or a border between splits.
 - A pane with history keeps a bar on its right edge: how far back the screen is, and how much there is. Drag it to go there directly, rather than turning the wheel through a long conversation. Borders shared with another split still resize — the outer edge is the one that scrolls.
