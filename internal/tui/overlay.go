@@ -82,6 +82,10 @@ type menu struct {
 	// back is the menu this one was opened from, if any: esc goes there
 	// rather than closing everything, so a wrong turn costs one key.
 	back *menu
+	// agentsOf is the machine whose agents this menu lists, for the one
+	// that does: a fresh list arriving redraws it, since what it says is
+	// installed is the thing that goes stale.
+	agentsOf string
 }
 
 func newRowMenu(m Model, r row, x, y int) *menu {
@@ -423,16 +427,22 @@ func newAgentMenu(m Model, mach *machine) *menu {
 			list = append(list, proto.AgentAvailability{Name: name, Installed: true})
 		}
 	}
-	sel := -1
-	for i, a := range list {
+	sel, digits := -1, 0
+	// Digits are handed out as the rows that act are added, not by an
+	// agent's place in the list: a row that only explains itself would
+	// otherwise take a number and leave a hole in the count.
+	next := func() string {
+		if digits >= 9 {
+			return ""
+		}
+		digits++
+		return fmt.Sprint(digits)
+	}
+	for _, a := range list {
 		a := a
 		label := a.Label
 		if label == "" {
 			label = agentLabel(a.Name)
-		}
-		key := ""
-		if i < 9 {
-			key = fmt.Sprint(i + 1)
 		}
 		if a.Installed {
 			detail := ""
@@ -452,14 +462,23 @@ func newAgentMenu(m Model, mach *machine) *menu {
 			} else if sel < 0 {
 				sel = len(items)
 			}
-			items = append(items, menuItem{key, "Start " + label + detail, func(m *Model) tea.Cmd { return m.openAgent(a.Name) }})
+			items = append(items, menuItem{next(), "Start " + label + detail, func(m *Model) tea.Cmd { return m.openAgent(a.Name) }})
+		} else if a.NoInstaller {
+			// A manifest that named no install script. Offering to
+			// install it would run nothing and say it worked, which is
+			// what it used to do.
+			items = append(items, menuItem{"", label + styleMuted.Render("  not installed · conch has no installer for it"),
+				func(m *Model) tea.Cmd {
+					m.setFlash("install "+label+" yourself and conch will find it on your PATH", false)
+					return nil
+				}})
 		} else {
-			items = append(items, menuItem{key, "Install " + label + styleMuted.Render("  not installed"), func(m *Model) tea.Cmd { return m.installAgent(mach.id, a.Name) }})
+			items = append(items, menuItem{next(), "Install " + label + styleMuted.Render("  not installed"), func(m *Model) tea.Cmd { return m.installAgent(mach.id, a.Name) }})
 		}
 	}
 	items = append(items, menuItem{"n", "Open a terminal instead", func(m *Model) tea.Cmd { return m.openAgent("") }})
 	return &menu{title: "Start an agent · " + m.placeLabel(), items: items, sel: max(sel, 0),
-		x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
+		agentsOf: mach.id, x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
 }
 
 // placeLabel names where a new pane for the selected row would start.

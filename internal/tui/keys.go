@@ -122,6 +122,11 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.overlay = newAgentMenu(m, mach)
+		// Ask again which agents are there: the list is from when the
+		// machine connected, so one installed since — by conch or by
+		// hand — would still be offered as an install, and starting it
+		// would ask to install it again.
+		return m, mach.checkAgents()
 	case "t":
 		return m, m.openTaskDialog()
 	case "a":

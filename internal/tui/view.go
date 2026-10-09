@@ -1281,7 +1281,24 @@ var (
 		"gemini":   "🔵",
 		"opencode": "🟣",
 		"devin":    "🟡",
+		// The agents conch only runs, from a manifest: squares, since the
+		// circles are the supported five and five more hues would be five
+		// more things to tell apart. The shape says which tier it is.
+		"aider":  "🟩",
+		"amp":    "🟧",
+		"cursor": "🟦",
+		"grok":   "🟥",
+		"kilo":   "🟪",
 	}
+	// agentDotOther is for an agent conch has no mark for — somebody's own
+	// manifest. A blank where every other agent has a mark reads as
+	// "conch does not know this is an agent", which is exactly wrong, so
+	// the default says what it is: an agent, of a kind conch was not told
+	// about. The glyph is a microchip rather than a robot because Nerd
+	// Fonts' robot is Font Awesome 5, which a v2 font has not got, and a
+	// glyph a font lacks is worse than a plain one.
+	agentDotOther   = "🤖"
+	agentGlyphOther = "\uf2db" // a microchip: some agent, named by its row
 	// agentColors are the agents' own, for the glyph in nerd mode. A dot
 	// carries its colour in the emoji itself and ignores a foreground.
 	agentColors = map[string]lipgloss.Color{
@@ -1290,6 +1307,11 @@ var (
 		"gemini":   "#4285F4", // Google's blue
 		"opencode": "#C792EA",
 		"devin":    "#E3B341",
+		"aider":    "#4CAF50",
+		"amp":      "#FF6B35",
+		"cursor":   "#6E9FFF",
+		"grok":     "#E5534B",
+		"kilo":     "#A371F7",
 	}
 	agentGlyphs = map[string]string{
 		"claude":   "\uf069", // an asterisk, which is the shape of Anthropic's own
@@ -1297,6 +1319,11 @@ var (
 		"gemini":   "\uf1a0", // Google's own, the one real logo here
 		"opencode": "\uf120", // a terminal
 		"devin":    "\uf135", // a rocket
+		"aider":    "\uf0c0", // two people: pair programming
+		"amp":      "\uf0e7", // a bolt
+		"cursor":   "\uf245", // a pointer
+		"grok":     "\uf0eb", // a lightbulb
+		"kilo":     "\uf1b2", // a cube
 	}
 )
 
@@ -1317,7 +1344,13 @@ func (m Model) agentMark(p proto.PaneInfo) (string, lipgloss.Style) {
 	}
 	mark, ok := marks[p.Agent.Name]
 	if !ok {
-		return "", styleMuted
+		// An agent from somebody's own manifest: a plain mark rather than
+		// none, so the column stays straight and the row still says that
+		// this is an agent.
+		mark = agentDotOther
+		if iconMode(m.cfg.UI.Icons) == iconsNerd {
+			mark = agentGlyphOther
+		}
 	}
 	style := styleMuted
 	if c, ok := agentColors[p.Agent.Name]; ok {

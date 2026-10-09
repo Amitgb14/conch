@@ -390,6 +390,15 @@ and *exit*, so a guess would start something already over), which is why a
 handoff to one is refused; and one file an agent, read by `internal/detect`
 for the screen rules and `internal/adapter` for the `[run]` table.
 
+**Either tier, an agent conch ships gets a mark of its own** — see
+**Marks** below. An agent of the second tier also gets an `install` line
+in its manifest where that agent publishes an installer; without one the
+agent menu says conch has none rather than offering an install, because
+running an empty install script started a pane, exited 0, and told
+somebody their agent was installed. And remember the agent list a client
+holds is from when it connected: anything that depends on what is
+installed asks again (`checkAgents`) rather than trusting it.
+
 An agent is supported only when it works everywhere the others do. Adding one
 means all of these, each with tests (a fake binary on a scratch `PATH` or
 `HOME`, never the real agent):
@@ -416,8 +425,23 @@ means all of these, each with tests (a fake binary on a scratch `PATH` or
   don't give it a second copy.
 - **Labels**: `agentLabels` in `internal/tui/model.go` and the handoff labels
   in `internal/sessions/handoff.go`.
+- **Marks**: an agent with no mark is the one row in the tree with a blank
+  where every other says which agent it is, which reads as "conch does not
+  think this is an agent". So every agent conch ships gets all three of
+  `agentDots`, `agentGlyphs` and `agentColors` (`internal/tui/view.go`),
+  and no two agents share one: **circles** for the supported tier,
+  **squares** for an agent conch only runs, so the shape says which tier it
+  is. Pick something that suits the agent — a real logo only where Nerd
+  Fonts has one — and keep the glyph in the Font Awesome 4.7 range
+  (U+F000–U+F2FF), since a v2 font draws nothing above it. Where nothing
+  suits, the default stands for what it is: 🤖 and a microchip
+  (`agentDotOther`, `agentGlyphOther`), which is also what an agent
+  somebody describes in their own manifest gets. A mark must be the same
+  width as the others (two cells for an emoji, one for a glyph) or the
+  names stop lining up.
 - **Docs and plans**: the Supported agents table (`web/src/app/docs/agents`),
-  the Sessions page's resume table, the agent lists here and on the home page,
+  the Sessions page's resume table, the mark in the sidebar's list
+  (`web/src/app/docs/interface`), the agent lists here and on the home page,
   and a row in `docs/testing/end-to-end.md` for installing, starting, state and
   sessions with the real agent.
 

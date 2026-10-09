@@ -762,7 +762,8 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		wg.Wait()
 		for i, ad := range s.adapters {
 			res.Agents = append(res.Agents, proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
-				Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier()})
+				Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier(),
+				NoInstaller: strings.TrimSpace(ad.InstallScript()) == ""})
 		}
 		return res, nil
 
@@ -774,6 +775,17 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		ad, ok := s.adapters.Get(ip.Agent)
 		if !ok {
 			return nil, proto.Errorf(proto.ErrBadRequest, "conch can't install %q", ip.Agent)
+		}
+		// An agent described by a manifest that named no install script.
+		// Running the empty script would start a pane, exit 0 and look
+		// like a successful install of nothing.
+		if strings.TrimSpace(ad.InstallScript()) == "" {
+			name := ad.Label()
+			if name == "" {
+				name = ad.Name()
+			}
+			return nil, proto.Errorf(proto.ErrBadRequest,
+				"conch has no installer for %s — install it yourself and conch will find it on your PATH", name)
 		}
 		home, _ := os.UserHomeDir()
 		return s.made(c)(s.create(proto.PaneCreateParams{

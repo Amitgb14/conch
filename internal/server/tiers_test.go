@@ -137,3 +137,62 @@ func TestAnAgentFromAManifestIsRunButNotPretendedFor(t *testing.T) {
 		t.Errorf("the first message did not reach the command: %v", talky.Command)
 	}
 }
+
+// An agent whose manifest named no installer must not be "installed".
+// Running the empty script started a pane, exited 0, and conch said
+// "installed · press c to start it" — reported from use as the install
+// doing nothing.
+func TestNoInstallerIsSaidAndRefused(t *testing.T) {
+	c, _ := startServerWithAgents(t, map[string]string{
+		"noinst": "agent = \"noinst\"\nlabel = \"No Installer\"\nprocess_names = [\"sh\"]\n\n[run]\nbinary = \"definitely-not-a-program-here\"\n",
+		"hasinst": "agent = \"hasinst\"\nlabel = \"Has Installer\"\nprocess_names = [\"sh\"]\n\n[run]\nbinary = \"definitely-not-a-program-here\"\n" +
+			"install = \"echo pretending\"\n",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var status proto.AgentStatusResult
+	if err := c.Call(ctx, proto.MethodAgentStatus, nil, &status); err != nil {
+		t.Fatal(err)
+	}
+	no := map[string]bool{}
+	for _, a := range status.Agents {
+		no[a.Name] = a.NoInstaller
+	}
+	if !no["noinst"] {
+		t.Error("the agent with no install script does not say so")
+	}
+	if no["hasinst"] {
+		t.Error("the agent with an install script says it has none")
+	}
+	if no["claude"] {
+		t.Error("a supported agent says conch cannot install it")
+	}
+
+	// And the install is refused rather than running nothing.
+	err := c.Call(ctx, proto.MethodAgentInstall, proto.AgentInstallParams{Agent: "noinst", Cols: 80, Rows: 24}, &proto.PaneInfo{})
+	if err == nil {
+		t.Fatal("installing an agent with no installer was accepted")
+	}
+	for _, want := range []string{"No Installer", "no installer", "PATH"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q: %v", want, err)
+		}
+	}
+	// Nothing was started for it.
+	var list proto.PaneList
+	if err := c.Call(ctx, proto.MethodPaneList, nil, &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Panes) != 0 {
+		t.Errorf("it left %d panes behind", len(list.Panes))
+	}
+	// The one with a script still installs.
+	var info proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodAgentInstall, proto.AgentInstallParams{Agent: "hasinst", Cols: 80, Rows: 24}, &info); err != nil {
+		t.Fatalf("an agent with an installer: %v", err)
+	}
+	if !strings.Contains(strings.Join(info.Command, " "), "echo pretending") {
+		t.Errorf("the installer that ran was %v", info.Command)
+	}
+}

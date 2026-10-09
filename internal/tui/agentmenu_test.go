@@ -1,0 +1,222 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/proto"
+)
+
+// a5Agents is a1Fixture with an agent list: the five supported, the
+// manifests conch ships, and one of somebody's own — installed, and not,
+// and one conch has no installer for.
+func a5Agents(t *testing.T, withClient bool) (*Model, *a1Peer) {
+	t.Helper()
+	a2Isolate(t)
+	m, peer := a1Fixture(t, false)
+	if withClient {
+		// Its own client, because asking which agents are installed is
+		// behind a capability an older server does not have.
+		var c *client.Client
+		c, peer = a1FakeClient(t, "agent.install.v1")
+		m.machines[0].c, m.machines[0].server = c, c.Server
+	}
+	list := []proto.AgentAvailability{
+		{Name: "claude", Label: "Claude Code", Installed: true, Version: "2.1.293", Tier: proto.TierSupported},
+		{Name: "codex", Label: "Codex", Installed: false, Tier: proto.TierSupported},
+		{Name: "kilo", Label: "Kilo Code", Installed: true, Version: "7.8.8", Tier: proto.TierRunsHere},
+		{Name: "aider", Label: "Aider", Installed: false, Tier: proto.TierRunsHere},
+		{Name: "homegrown", Label: "Home Grown", Installed: false, Tier: proto.TierRunsHere, NoInstaller: true},
+	}
+	mach := m.machines[0]
+	mach.agentList = list
+	mach.available = map[string]proto.AgentAvailability{}
+	for _, a := range list {
+		mach.available[a.Name] = a
+	}
+	return m, peer
+}
+
+// Every agent gets a mark, including the ones conch only runs and the
+// ones it has never heard of. Reported from use: "there are icon missing
+// for newly added agents".
+func TestEveryAgentHasAMark(t *testing.T) {
+	m, _ := a5Agents(t, false)
+	pane := func(agent string) proto.PaneInfo {
+		return proto.PaneInfo{ID: "p9", Agent: &proto.AgentStatus{Name: agent}}
+	}
+	for _, agent := range []string{"claude", "codex", "gemini", "opencode", "devin",
+		"aider", "amp", "cursor", "grok", "kilo", "somebodys-own", "", "robo2"} {
+		for _, icons := range []string{"text", "nerd"} {
+			m.cfg.UI.Icons = icons
+			mark, _ := m.agentMark(pane(agent))
+			if strings.TrimSpace(mark) == "" {
+				t.Errorf("%s has no mark with icons = %s", agent, icons)
+			}
+		}
+	}
+	// Each of the ten conch knows is its own mark, so two agents never
+	// read alike.
+	for _, icons := range []string{"text", "nerd"} {
+		m.cfg.UI.Icons = icons
+		seen := map[string]string{}
+		for _, agent := range []string{"claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo"} {
+			mark, _ := m.agentMark(pane(agent))
+			if was, dup := seen[mark]; dup {
+				t.Errorf("%s and %s share a mark with icons = %s", was, agent, icons)
+			}
+			seen[mark] = agent
+		}
+	}
+	// Icons off leaves them all out, as before.
+	m.cfg.UI.Icons = "off"
+	for _, agent := range []string{"claude", "kilo", "somebodys-own"} {
+		if mark, _ := m.agentMark(pane(agent)); mark != "" {
+			t.Errorf("icons are off, yet %s has %q", agent, mark)
+		}
+	}
+	// A pane that is no agent still has none.
+	if mark, _ := m.agentMark(proto.PaneInfo{ID: "p9"}); mark != "" {
+		t.Errorf("a terminal has an agent mark: %q", mark)
+	}
+	// The default says what the thing is — an agent of a kind conch was
+	// not told about — rather than being a blank square (AGENTS.md,
+	// Adding an agent · Marks).
+	m.cfg.UI.Icons = "text"
+	if mark, _ := m.agentMark(pane("somebodys-own")); strings.TrimSpace(mark) != "🤖" {
+		t.Errorf("the default mark is %q, not a bot", strings.TrimSpace(mark))
+	}
+}
+
+// A mark is one or two cells and the tree measures every line, so a mark
+// nobody chose must not be wider than the ones that were.
+func TestTheFallbackMarkIsAsWideAsTheRest(t *testing.T) {
+	m, _ := a5Agents(t, false)
+	for _, icons := range []string{"text", "nerd"} {
+		m.cfg.UI.Icons = icons
+		known, _ := m.agentMark(proto.PaneInfo{Agent: &proto.AgentStatus{Name: "claude"}})
+		other, _ := m.agentMark(proto.PaneInfo{Agent: &proto.AgentStatus{Name: "nobody-knows"}})
+		if w1, w2 := ansi.StringWidth(known), ansi.StringWidth(other); w1 != w2 {
+			t.Errorf("icons = %s: a known mark is %d cells, an unknown one %d", icons, w1, w2)
+		}
+	}
+}
+
+// The menu says what it can do: an agent conch has no installer for is
+// not offered as an install, because running an empty script and saying
+// "installed" is what that used to do.
+func TestAgentMenuDoesNotOfferAnInstallItCannotDo(t *testing.T) {
+	m, _ := a5Agents(t, false)
+	mu := newAgentMenu(*m, m.machines[0])
+	plainLabels := a2Plain(labelsOf(mu.items))
+	for _, want := range []string{"Start Claude Code", "Install Codex", "Start Kilo Code", "Install Aider"} {
+		if !strings.Contains(plainLabels, want) {
+			t.Errorf("the menu does not offer %q:\n%s", want, plainLabels)
+		}
+	}
+	if strings.Contains(plainLabels, "Install Home Grown") {
+		t.Errorf("it offered an install it cannot do:\n%s", plainLabels)
+	}
+	if !strings.Contains(plainLabels, "Home Grown") || !strings.Contains(plainLabels, "no installer") {
+		t.Errorf("it does not say why Home Grown cannot be installed:\n%s", plainLabels)
+	}
+	// Choosing that row says what to do instead, and starts nothing.
+	var at int
+	for i, it := range mu.items {
+		if strings.Contains(a2Plain([]string{it.label}), "Home Grown") {
+			at = i
+		}
+	}
+	if cmd := mu.items[at].run(m); cmd != nil {
+		t.Errorf("it did something: %#v", a2Run(cmd))
+	}
+	if !strings.Contains(m.flash, "PATH") {
+		t.Errorf("the flash was %q", m.flash)
+	}
+	// It is not given a digit either: a digit is for something that acts,
+	// and a row that keeps one leaves a hole in the count.
+	if mu.items[at].key != "" {
+		t.Errorf("the row that cannot act has the key %q", mu.items[at].key)
+	}
+	var digits []string
+	for _, it := range mu.items {
+		if it.key != "" && it.key != "n" {
+			digits = append(digits, it.key)
+		}
+	}
+	if strings.Join(digits, "") != "1234" {
+		t.Errorf("the digits are %v, not 1 2 3 4 in order", digits)
+	}
+}
+
+// An agent installed while conch was running: the list is from when the
+// machine connected, so the menu said "Install" and starting it asked to
+// install it again. Reported from use: "agent is installed but it not
+// opened in first time".
+func TestAgentMenuAsksForAFreshList(t *testing.T) {
+	m, peer := a5Agents(t, true)
+	// Opening the menu asks the machine again.
+	cmd := a1Key(t, m, a2Key("c"))
+	if _, ok := m.overlay.(*menu); !ok {
+		t.Fatalf("c did not open the agent menu: %#v", m.overlay)
+	}
+	a2Run(cmd)
+	peer.waitMethod(t, proto.MethodAgentStatus, "")
+
+	// Aider was installed in the meantime; the answer arrives while the
+	// menu is open, and the menu is redrawn rather than left stale.
+	mu := m.overlay.(*menu)
+	if !strings.Contains(a2Plain(labelsOf(mu.items)), "Install Aider") {
+		t.Fatalf("the menu did not start out offering an install:\n%s", a2Plain(labelsOf(mu.items)))
+	}
+	fresh := append([]proto.AgentAvailability(nil), m.machines[0].agentList...)
+	for i := range fresh {
+		if fresh[i].Name == "aider" {
+			fresh[i].Installed, fresh[i].Version = true, "0.86.2"
+		}
+	}
+	next, _ := m.Update(agentStatusMsg{machine: localMachine, gen: m.machines[0].gen, agents: fresh})
+	*m = next.(Model)
+	after, ok := m.overlay.(*menu)
+	if !ok {
+		t.Fatalf("the menu was closed by a fresh list: %#v", m.overlay)
+	}
+	plain := a2Plain(labelsOf(after.items))
+	if !strings.Contains(plain, "Start Aider") || strings.Contains(plain, "Install Aider") {
+		t.Errorf("the menu was not redrawn for the fresh list:\n%s", plain)
+	}
+	// Another machine's list does not disturb it.
+	m.overlay = after
+	next, _ = m.Update(agentStatusMsg{machine: "elsewhere", agents: fresh})
+	*m = next.(Model)
+	if m.overlay != after {
+		t.Errorf("another machine's list rebuilt this machine's menu")
+	}
+}
+
+// Starting an agent conch cannot install says so instead of offering an
+// installer that would do nothing.
+func TestAskInstallSaysWhenThereIsNoInstaller(t *testing.T) {
+	m, _ := a5Agents(t, false)
+	next, _ := m.Update(askInstallMsg{machine: localMachine, agent: "homegrown"})
+	*m = next.(Model)
+	if m.overlay != nil {
+		t.Errorf("it offered something: %#v", m.overlay)
+	}
+	if !strings.Contains(m.flash, "Home Grown") || !strings.Contains(m.flash, "no installer") {
+		t.Errorf("the flash was %q", m.flash)
+	}
+	// One conch can install is still offered, by its own label.
+	next, _ = m.Update(askInstallMsg{machine: localMachine, agent: "aider"})
+	*m = next.(Model)
+	c, ok := m.overlay.(*dialog)
+	if !ok {
+		t.Fatalf("no question for an agent conch can install: %#v", m.overlay)
+	}
+	if !strings.Contains(a2Plain(c.render(*m).lines), "Aider") {
+		t.Errorf("the question does not name the agent:\n%s", a2Plain(c.render(*m).lines))
+	}
+}

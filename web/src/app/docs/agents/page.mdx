@@ -20,7 +20,9 @@ conch agent add robo -command robo -label "Robo Coder" \
   -prompt '--message {prompt}' -resume '--resume {id}' -resume-last --continue
 ```
 
-That writes `~/.config/conch/agents/robo.toml`, which you can then edit by hand; reload the server to pick it up. Leave `-prompt` out and conch will not try to give it a first message; leave `-resume` out and it will not offer to resume one. A manifest cannot take a supported agent's name — that would replace a tested adapter with a guess.
+That writes `~/.config/conch/agents/robo.toml`, which you can then edit by hand; reload the server to pick it up. Leave `-prompt` out and conch will not try to give it a first message; leave `-resume` out and it will not offer to resume one. Add an `install` line to its `[run]` table for an installer conch can offer; without one the agent menu says conch has none rather than running nothing and calling it installed. A manifest cannot take a supported agent's name — that would replace a tested adapter with a guess.
+
+An agent conch runs from a manifest is marked in the tree like any other — a square rather than a circle (see [the sidebar](/docs/interface#the-sidebar)), and 🤖 for one conch has no mark of its own for.
 
 | Agent | Tier | First message | Resume |
 | --- | --- | --- | --- |
@@ -47,6 +49,8 @@ conch reads **working** from its screen, so the tree shows the spinner while it 
 ## Starting agents
 
 `c` (or clicking **c agent** in the status bar, or **Start an agent…** in the right-click menu) asks which agent to start at the selected place — a machine, project, branch or pane. Every agent installed there is listed, the default (Settings → Agents) pre-selected, so `c` `enter` starts it. Missing agents can be installed from the same list; `A` starts or installs any agent.
+
+Opening the menu asks the machine again which agents are there, so one you installed since conch started — by hand, or with `brew`, `npm` or its own installer — is offered as a **start** rather than an install; if the answer arrives while the menu is open, the menu redraws. An agent whose manifest named no installer is listed as "not installed · conch has no installer for it" and cannot be chosen: install it yourself and conch will find it on your PATH.
 
 `t` [tasks](/docs/tasks) use the default agent unless the task dialog's Agent field (or `conch task -agent NAME`) names another. From a shell, `conch new -agent claude -cwd DIR` starts Claude Code with state tracking, and `conch agent status` / `conch agent install NAME` check or install agents (add `-m MACHINE` for a remote machine).
 

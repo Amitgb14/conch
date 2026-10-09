@@ -1119,6 +1119,11 @@ type AgentAvailability struct {
 	// which conch starts and detects and no more. Empty from a server too
 	// old to have tiers, where every agent it offers is supported.
 	Tier string `json:"tier,omitempty"`
+	// NoInstaller says conch cannot install this one: a manifest that
+	// named no install script. Written the negative way round so that a
+	// server too old to say it reads as "conch can install it", which is
+	// what every agent such a server offers.
+	NoInstaller bool `json:"no_installer,omitempty"`
 }
 
 // SessionListParams asks for the agent sessions saved for a project (its

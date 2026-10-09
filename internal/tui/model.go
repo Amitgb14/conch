@@ -450,6 +450,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, a := range msg.agents {
 				mach.available[a.Name] = a
 			}
+			// A menu of this machine's agents on screen is now out of
+			// date: it says what is installed, which is what changed.
+			if mu, ok := m.overlay.(*menu); ok && mu.agentsOf == mach.id {
+				fresh := newAgentMenu(m, mach)
+				fresh.x, fresh.y, fresh.back = mu.x, mu.y, mu.back
+				fresh.sel = min(mu.sel, max(len(fresh.items)-1, 0))
+				m.overlay = fresh
+			}
 		}
 		return m, nil
 
@@ -506,8 +514,19 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		mid, agent := msg.machine, msg.agent
+		label := agentLabel(agent)
+		if a, ok := mach.available[agent]; ok {
+			if a.Label != "" {
+				label = a.Label
+			}
+			// Nothing to offer: a manifest that named no install script.
+			if a.NoInstaller {
+				m.setFlash(fmt.Sprintf("%s isn't installed on %s, and conch has no installer for it — install it yourself and conch will find it", label, mach.label), true)
+				return m, nil
+			}
+		}
 		m.overlay = newConfirm(fmt.Sprintf("%s isn't installed on %s. Install it now with the official installer? It runs in a pane you can watch; afterwards start it with c and log in.",
-			agentLabel(agent), mach.label), func(m *Model) tea.Cmd { return m.installAgent(mid, agent) })
+			label, mach.label), func(m *Model) tea.Cmd { return m.installAgent(mid, agent) })
 		return m, nil
 
 	case installStartedMsg:
@@ -1467,7 +1486,13 @@ type (
 
 // agentLabels name agents for people; servers send labels too, these cover
 // messages about agents a machine hasn't described.
-var agentLabels = map[string]string{"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "devin": "Devin"}
+var agentLabels = map[string]string{
+	"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "devin": "Devin",
+	// The ones conch ships a manifest for. An agent somebody adds
+	// themselves is named by its manifest, which the server sends with
+	// the agent list; this map is for the places that have only a name.
+	"aider": "Aider", "amp": "Amp", "cursor": "Cursor CLI", "grok": "Grok", "kilo": "Kilo Code",
+}
 
 func agentLabel(agent string) string {
 	if l, ok := agentLabels[agent]; ok {

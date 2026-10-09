@@ -250,7 +250,7 @@ func newTabMenu(m Model, x, y int) *menu {
 				return nil
 			}
 			m.overlay = newAgentMenu(*m, mach)
-			return nil
+			return mach.checkAgents() // the list may be older than an install
 		}},
 		{"H", "SSH to a host…", func(m *Model) tea.Cmd { return m.openSSH() }},
 	}}
