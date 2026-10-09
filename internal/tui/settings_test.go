@@ -236,8 +236,10 @@ func TestAgentPicker(t *testing.T) {
 		labels = append(labels, it.key+" "+ansi.Strip(it.label))
 	}
 	got := strings.Join(labels, " | ")
-	want := "1 Start Claude Code | 2 Install Codex  not installed | 3 Start OpenCode  1.18  default | n Open a terminal instead"
-	if got != want || mu.sel != 2 {
+	// What can be started comes first, then what would have to be
+	// installed, so the numbers land on the agents being chosen between.
+	want := "1 Start Claude Code | 2 Start OpenCode  1.18  default | 3 Install Codex  not installed | n Open a terminal instead"
+	if got != want || mu.sel != 1 {
 		t.Fatalf("picker:\n got %q (sel %d)\nwant %q", got, mu.sel, want)
 	}
 	if !strings.Contains(mu.title, "devbox") {

@@ -427,15 +427,23 @@ func newAgentMenu(m Model, mach *machine) *menu {
 			list = append(list, proto.AgentAvailability{Name: name, Installed: true})
 		}
 	}
+	// What can be started comes first, and what would have to be
+	// installed after it: with a dozen agents the numbers are worth more
+	// on the ones somebody is actually choosing between.
+	list = append(append([]proto.AgentAvailability{}, installedFirst(list, true)...), installedFirst(list, false)...)
 	sel, digits := -1, 0
 	// Digits are handed out as the rows that act are added, not by an
 	// agent's place in the list: a row that only explains itself would
-	// otherwise take a number and leave a hole in the count.
+	// otherwise take a number and leave a hole in the count. Ten of them,
+	// with 0 for the tenth, as the tab keys do.
 	next := func() string {
-		if digits >= 9 {
+		if digits >= 10 {
 			return ""
 		}
 		digits++
+		if digits == 10 {
+			return "0"
+		}
 		return fmt.Sprint(digits)
 	}
 	for _, a := range list {
@@ -479,6 +487,18 @@ func newAgentMenu(m Model, mach *machine) *menu {
 	items = append(items, menuItem{"n", "Open a terminal instead", func(m *Model) tea.Cmd { return m.openAgent("") }})
 	return &menu{title: "Start an agent · " + m.placeLabel(), items: items, sel: max(sel, 0),
 		agentsOf: mach.id, x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
+}
+
+// installedFirst picks the agents that are installed, or the ones that
+// are not, keeping the order the machine gave them.
+func installedFirst(list []proto.AgentAvailability, installed bool) []proto.AgentAvailability {
+	var out []proto.AgentAvailability
+	for _, a := range list {
+		if a.Installed == installed {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // placeLabel names where a new pane for the selected row would start.

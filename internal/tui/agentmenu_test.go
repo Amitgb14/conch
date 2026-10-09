@@ -4,7 +4,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/client"
@@ -324,5 +326,100 @@ func TestPiRowShowsOneMark(t *testing.T) {
 	}
 	if n := strings.Count(row, "π"); n != 1 {
 		t.Errorf("the mark is drawn %d times: %q", n, row)
+	}
+}
+
+// With a dozen agents the numbers are worth more on the ones somebody
+// is choosing between, so what can be started comes first and the
+// installs follow. Reported from use: "when press c it shows only 1-9,
+// kilo and pi don't have number".
+func TestAgentMenuNumbersWhatCanBeStarted(t *testing.T) {
+	m, _ := a5Agents(t, false)
+	var list []proto.AgentAvailability
+	// Three that need installing, then eight that are ready: the order a
+	// machine might well give them.
+	for _, n := range []string{"amp", "cursor", "grok"} {
+		list = append(list, proto.AgentAvailability{Name: n, Label: n, Tier: proto.TierRunsHere})
+	}
+	for _, n := range []string{"claude", "codex", "gemini", "opencode", "devin", "aider", "kilo", "pi"} {
+		list = append(list, proto.AgentAvailability{Name: n, Label: n, Installed: true})
+	}
+	m.machines[0].agentList = list
+	mu := newAgentMenu(*m, m.machines[0])
+
+	var order, keys []string
+	for _, it := range mu.items {
+		plain := a2Plain([]string{it.label})
+		if strings.HasPrefix(plain, "Start ") || strings.HasPrefix(plain, "Install ") {
+			order = append(order, plain)
+			keys = append(keys, it.key)
+		}
+	}
+	// Everything startable first, in the machine's own order.
+	for i, want := range []string{"claude", "codex", "gemini", "opencode", "devin", "aider", "kilo", "pi"} {
+		if !strings.HasPrefix(order[i], "Start "+want) {
+			t.Fatalf("row %d is %q, wanted Start %s", i, order[i], want)
+		}
+	}
+	// Every one of the eight has a digit, and so do two of the installs:
+	// ten, with 0 for the tenth, as the tab keys do.
+	if strings.Join(keys[:10], "") != "1234567890" {
+		t.Errorf("the first ten keys are %v", keys[:10])
+	}
+	if keys[10] != "" {
+		t.Errorf("an eleventh row took the key %q", keys[10])
+	}
+	// The digit really starts the agent it is beside.
+	m.overlay = mu
+	for i, it := range mu.items {
+		if it.key == "0" {
+			if !strings.HasPrefix(a2Plain([]string{mu.items[i].label}), "Install ") {
+				t.Errorf("0 is on %q", a2Plain([]string{it.label}))
+			}
+		}
+	}
+}
+
+// A pane is there to type into, as its tab in the bar is: clicking one
+// in the tree hands it the keyboard. Reported from use: "if i press any
+// key it think its command". A branch or a project keeps the tree, since
+// its keys are the point of it.
+func TestClickingAPaneTypesIntoIt(t *testing.T) {
+	a2Isolate(t)
+	m, _ := a1Fixture(t, false)
+	m.width, m.height, m.sidebarW = 120, 30, 30
+	m.rebuild()
+	click := func(id string) {
+		t.Helper()
+		m.focus = focusSidebar
+		// Each one a single click: two on the same row in a row would be
+		// a double click, which has always opened and focused the pane.
+		m.lastClickID, m.lastClickAt = "", time.Time{}
+		i := indexOfRow(m.rows, id)
+		if i < 0 {
+			t.Fatalf("no row %q in\n%s", id, render(m.rows))
+		}
+		next, _ := m.sidebarMouse(tea.MouseMsg{X: 5, Y: 2 + i - m.scroll,
+			Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, true, true, false)
+		*m = next.(Model)
+	}
+	click("pane:p1") // an agent
+	if m.focus != focusMain {
+		t.Errorf("clicking an agent left the keyboard in the tree")
+	}
+	click("b:r1:feat") // a branch: b, c, n, t are what it is for
+	if m.focus != focusSidebar {
+		t.Errorf("clicking a branch took the keyboard away from the tree")
+	}
+	click("pane:p2") // a terminal
+	if m.focus != focusMain {
+		t.Errorf("clicking a terminal left the keyboard in the tree")
+	}
+	// A pane that has exited has nothing to type into.
+	m.machines[0].panes[1].State = proto.PaneExited
+	m.rebuild()
+	click("pane:p2")
+	if m.focus != focusSidebar {
+		t.Errorf("clicking an exited pane gave it the keyboard")
 	}
 }

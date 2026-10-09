@@ -147,13 +147,16 @@ func TestA1MouseSplitBorderDrag(t *testing.T) {
 
 func TestA1MouseSidebar(t *testing.T) {
 	m, _ := a1Fixture(t, false)
-	// Row click shows a pane in a tab; the tree keeps focus.
+	// Row click shows a pane in a tab and hands it the keyboard: an
+	// agent or a terminal is there to type into, as its tab in the bar
+	// is. A branch or a project keeps the keyboard in the tree — that
+	// half is in TestClickingAPaneTypesIntoIt.
 	p3 := paneNodeID(localMachine, "p3")
 	a1Mouse(t, m, 10, a1RowY(t, m, p3), a1Left, a1Press)
-	if m.cursor != p3 || len(m.tabs) != 1 || m.focus != focusSidebar {
-		t.Fatalf("row click: cursor %s tabs %d", m.cursor, len(m.tabs))
+	if m.cursor != p3 || len(m.tabs) != 1 || m.focus != focusMain {
+		t.Fatalf("row click: cursor %s tabs %d focus %v", m.cursor, len(m.tabs), m.focus)
 	}
-	// A second click soon after activates it.
+	// A second click soon after activates it, and it keeps the keyboard.
 	a1Mouse(t, m, 10, a1RowY(t, m, p3), a1Left, a1Press)
 	if m.focus != focusMain {
 		t.Fatal("double click did not focus the pane")

@@ -847,6 +847,17 @@ func (m Model) sidebarMouse(msg tea.MouseMsg, press, left, wheel bool) (tea.Mode
 		// asked for: it loads a branch's changes, and show() won't ask
 		// again — the view it would load into already exists.
 		cmd = tea.Batch(cmd, m.show(r))
+		// An agent or a terminal is there to type into, as its tab in the
+		// bar is, so showing one also hands it the keyboard: otherwise
+		// the next thing typed at the agent is read as a conch command,
+		// and `c` opens the agent menu instead of reaching the agent.
+		// Only a pane does this. A branch or a project is a page to act
+		// on, and its keys — b, c, n, t, x — are the point of it.
+		if r.kind == kindPane && !m.ownPaneRow(r) {
+			if p := m.pane(r.machine, r.paneID); p != nil && p.State == proto.PaneRunning {
+				m.focus = focusMain
+			}
+		}
 	}
 
 	switch msg.Button {

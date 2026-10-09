@@ -51,7 +51,7 @@ conch reads **working** from its screen, so the tree shows the spinner while it 
 
 ## Starting agents
 
-`c` (or clicking **c agent** in the status bar, or **Start an agent…** in the right-click menu) asks which agent to start at the selected place — a machine, project, branch or pane. Every agent installed there is listed, the default (Settings → Agents) pre-selected, so `c` `enter` starts it. Missing agents can be installed from the same list; `A` starts or installs any agent.
+`c` (or clicking **c agent** in the status bar, or **Start an agent…** in the right-click menu) asks which agent to start at the selected place — a machine, project, branch or pane. Every agent installed there is listed first, in the machine's own order, with what would have to be installed after it; the default (Settings → Agents) is pre-selected, so `c` `enter` starts it. The first ten rows that do something take a digit — `1`–`9` and then `0`, as the tab keys do — so the agents you are choosing between keep the numbers even when a dozen are listed. Missing agents can be installed from the same list; `A` starts or installs any agent.
 
 Opening the menu asks the machine again which agents are there, so one you installed since conch started — by hand, or with `brew`, `npm` or its own installer — is offered as a **start** rather than an install; if the answer arrives while the menu is open, the menu redraws. An agent whose manifest named no installer is listed as "not installed · conch has no installer for it" and cannot be chosen: install it yourself and conch will find it on your PATH.
 
