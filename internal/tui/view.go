@@ -1286,7 +1286,7 @@ var (
 		// more things to tell apart. The shape says which tier it is.
 		"aider":  "🟩",
 		"amp":    "🟧",
-		"cursor": "🟦",
+		"cursor": "🧊", // a cube, which is Cursor's own mark
 		"grok":   "🟥",
 		"kilo":   "🟪",
 	}
@@ -1309,7 +1309,7 @@ var (
 		"devin":    "#E3B341",
 		"aider":    "#4CAF50",
 		"amp":      "#FF6B35",
-		"cursor":   "#6E9FFF",
+		"cursor":   "#C9D1D9", // its mark is a white cube, so near enough white
 		"grok":     "#E5534B",
 		"kilo":     "#A371F7",
 	}
@@ -1321,9 +1321,9 @@ var (
 		"devin":    "\uf135", // a rocket
 		"aider":    "\uf0c0", // two people: pair programming
 		"amp":      "\uf0e7", // a bolt
-		"cursor":   "\uf245", // a pointer
+		"cursor":   "\uf1b2", // a cube, the shape of Cursor's own mark
 		"grok":     "\uf0eb", // a lightbulb
-		"kilo":     "\uf1b2", // a cube
+		"kilo":     "\uf1c9", // code in a file
 	}
 )
 
