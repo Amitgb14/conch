@@ -217,7 +217,7 @@ These need a published GitHub release; use a throwaway pre-release tag.
 | 9.108 📱 | A real phone browser deflates the socket | On iOS Safari and Android Chrome, with the app open on a busy agent: in the browser's network view look at the socket's response headers, and watch an agent print a few screens | `Sec-WebSocket-Extensions: permessage-deflate` is agreed and frames arrive correctly — colours, wrapping and scrolling as before — with no stalling on a slow link. (Fakes prove the bytes but not that these two browsers negotiate it, and a browser that refused would silently fall back) | ◐ R50 2026-10-06 measured end to end against a real pane on busybox, but through a hand-written client rather than Safari or Chrome |
 | 9.109 | Workspaces beside conch | Click `+` at the top of the sidebar; add a new project and an existing one with `a`; start an agent and a terminal; save an ssh host; bring a machine with `M`; switch with clicks and `ctrl+b ( )`; rename with `ctrl+b $`; close with `×`; quit and start again | Every workspace, workspace 1 included, shows only its own projects, panes, machines, hosts and folders; the existing project is shared, the new one is not; closing moves everything to workspace 1 with its panes running; the workspace on screen and its tabs come back after a restart | ☐ |
 | 9.110 🖥 | Your own actions on the menus | In `config.toml`: `[[actions]]` for `go test ./...` on a branch and project, one for `gh pr create --fill` on a branch, one with `keep = false` running `open .` (xdg-open on Linux), one with no `run`, and two with the same name. Then in the TUI: `m` on a branch → **Actions…** → `1`; the same from a project, a pane and a machine row; the test action on a branch of a remote machine 🖥; the `keep = false` one; an action on a branch with no worktree; and Settings → **Actions** | Each action is on the menus it named, numbered, above the item that removes something; it runs in a terminal of its own in that row's checkout with `CONCH_MACHINE/PROJECT/BRANCH/WORKTREE/PANE` set (read them with `env`), and `gh` really opens the pull request for *that* branch; the terminal stays after the command exits and says how it went, while the `keep = false` one closes itself; the remote action runs on that machine, in that machine's checkout, and nothing runs here; a branch with no worktree says so and starts nothing; the Settings tab lists them and names the half-written one and the duplicate under **Not offered** | ☐ |
-| 9.111 💳🖥 | An agent reporting its own state | With Claude Code 2.1.295 or later in a conch pane: start it, ask for something that needs permission, let it finish, and watch the tree; `conch agent explain ID` at each step; the same on a remote machine 🖥 and after `conch server reload` while it is waiting; then the same agent in a terminal that does not speak the protocol (plain iTerm2), and an agent of the second tier that emits it (pi, or oh-my-pi) | `explain` says `program_state` with `program_app=claude-code` and the state's source is `program`, not `screen`, through working, blocked (`kind=permission`, with the agent's own words as the message) and done; the tree follows without a screen rule firing; a reload keeps a waiting agent waiting rather than showing idle until its next report; over ssh it works the same, since the report travels down the pty; in a terminal that does not answer the query Claude Code emits nothing and conch falls back to its screen rules with no change in behaviour; the second-tier agent — which has no screen rules at all — shows real states for the first time | ☐ — fakes prove the whole loop (a program that asks, is answered, and reports), but only the real agent proves what it emits and when |
+| 9.111 💳🖥 | An agent reporting its own state | With Claude Code 2.1.295 or later in a conch pane, **in manual mode** (shift+tab until `⏸ manual mode on`; in auto-accept it never asks, so the row tests nothing): start it, ask for something that needs permission, let it finish, and watch the tree; `conch agent explain ID` at each step; the same on a remote machine 🖥 and after `conch server reload` while it is waiting; then the same agent in a terminal that does not speak the protocol (plain iTerm2), and an agent of the second tier that emits it (pi, or oh-my-pi) | `explain` says `program_state` with `program_app=claude-code` and the state's source is `program`, not `screen`, through working, blocked (`kind=permission`, with the agent's own words as the message) and done; the tree follows without a screen rule firing; a reload keeps a waiting agent waiting rather than showing idle until its next report; over ssh it works the same, since the report travels down the pty; in a terminal that does not answer the query Claude Code emits nothing and conch falls back to its screen rules with no change in behaviour; the second-tier agent — which has no screen rules at all — shows real states for the first time | ◐ R51 2026-10-09 with Claude Code 2.1.295 in the live conch: the whole state cycle came from the agent (idle → working → blocked `kind=permission`, source `program`, message "approve Write: /tmp/osc-check2.txt" → working → done), and a pane started before the reload reported nothing, as its probe had gone unanswered. Not run: a remote machine 🖥, a reload with a report in flight, and a second-tier agent that emits it |
 | 9.49 💳 | One setup, every agent | A real checkout with Claude Code set up in it (CLAUDE.md, `.claude/skills/*`, `.mcp.json` with a real server): `i` → `s`, read the question, answer yes; then start Codex, Gemini and OpenCode there and ask each what instructions, skills and MCP servers it has; `i` → `u`; the same over `-m` to a remote checkout 🖥; `conch agent sync -apply` on a repository whose AGENTS.md somebody wrote | The question lists each write with its path; after yes, Codex and OpenCode read the copied AGENTS.md, Gemini follows `@CLAUDE.md`, all three list the skill from `.agents/skills`, and each agent really lists the synced MCP server when asked (the formats are the part fakes cannot prove); a server whose env holds a token is left out and said so; `u` puts the checkout back exactly, `git status` clean; the hand-written AGENTS.md is reported skipped and unchanged | ◐ R28 2026-09-27: every MCP format against each agent's own CLI, Codex reading the copied AGENTS.md for real, Gemini reading the linked skill from `.agents/skills`, undo leaving the checkout as it was. Not run: Gemini's `@CLAUDE.md` import and OpenCode's AGENTS.md with a model (neither is logged in non-interactively here), a hand-written AGENTS.md, and the whole of it over `-m` |
 | 9.55 💳 | Your own setup, given to the others | With Claude Code set up in your home (CLAUDE.md, ~/.claude/skills, servers in ~/.claude.json): Settings → Agents → **Give the others Claude Code's setup…**, read the question, answer yes; then ask Codex, Gemini and OpenCode what they load, anywhere; then **Put the last one back…**; and again with one of the files symlinked into a dotfiles repository | The question names every path in full and warns there is no git status; afterwards each agent's own CLI lists the synced server and skill wherever you are, not only in one checkout; Claude's ~/.claude.json is untouched; putting it back leaves the home as it was, and the record is under ~/.config/conch/agent-sync; a symlinked file is skipped with "a dotfiles repository?" and the repository is unchanged | ◐ R33 2026-09-27: the plan, apply and undo in a scratch home, `codex mcp list` showing the server from ~/.codex/config.toml and `gemini skills list` the skill from ~/.agents/skills, and the symlink guard by test. Not run: a real home of somebody's own, and OpenCode's CLI (its login is expired here) |
 | 9.56 💳 | Each agent's own way of naming a variable | A real server needing a token (e.g. GitHub's, `GITHUB_TOKEN`) and an HTTP one with `Authorization: Bearer ${TOKEN}`, declared for Claude Code; `conch agent sync -apply` to Codex, Gemini, OpenCode and Devin (with Devin's `read_config_from.claude` off, so it gets its own file); then in each agent list the servers and use one | Codex's config.toml has `env_vars = ["GITHUB_TOKEN"]` and `bearer_token_env_var`, no `${…}`, and the server authenticates; OpenCode's has `{env:GITHUB_TOKEN}`; Devin's `.devin/mcp_config.json` has `${env:GITHUB_TOKEN}` and `transport: "http"`, and `devin mcp list` shows both working — the docs only promise `${env:…}` in its OAuth fields, so this is the check that it works in `env` and `headers`; Gemini lists the HTTP server from `httpUrl`. A server whose variable is renamed (`GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_TOKEN}`) is left out for Codex, with the reason | ☐ |
@@ -316,6 +316,49 @@ Read the screen back with `conch read ID`. Always with a scratch
 `CONCH_HOME` and socket, and `CONCH_PANE_ID` unset.
 
 ## Runs
+
+### R51 — 2026-10-09, an agent reporting its own state (OSC 7501), macOS arm64, build 392ec727bba1
+
+Claude Code 2.1.295 in the developer's own conch, reloaded onto the build
+that answers the Program Status Protocol. What it settles is the half no
+fake can: what a real agent emits, and when.
+
+- **The handshake happens, and the answer is what turns it on.** With a
+  log line on the scanner, a scratch server saw exactly two sequences at
+  session start: `?` and then `state=idle:app=claude-code`. A pane
+  started before the reload — probe unanswered — reported nothing for
+  the rest of its life, which is the failure mode to expect of every
+  terminal that has not implemented this.
+- **The whole cycle came from the agent.** Prompted to write a file,
+  with the pane in manual mode: `program_state` went working, then
+  `blocked` with `program_kind=permission`, and conch's own state
+  followed it — `source: program`, `reason: program:permission` — which
+  is the ordering this change is for, since a blocked report outranks
+  the hooks. The message was the agent's own words off the wire,
+  base64-decoded: "approve Write: /tmp/osc-check2.txt". Approving took
+  it back to working and then done.
+- **Claude's other states still come from its hooks**, as designed:
+  `idle` and `done` showed `source: hook` with the report sitting beside
+  them in `explain`. A hook carries the message, the failure and the
+  session; this protocol carries none of that, so it only wins where it
+  knows more — being blocked.
+- **The first attempt proved nothing, which is worth writing down.** The
+  pane was in auto-accept mode (`⏵⏵ auto mode on`), so the agent never
+  had to ask: it wrote the file and reported done in under two seconds
+  while the test watched for a state that could not occur. Shift+tab to
+  manual mode, and the permission arrived immediately. A run of this row
+  that forgets that tests nothing.
+- **Claude probes after startup, not before it.** In a folder it had not
+  been trusted with, it sat at "Is this a project you trust?" and never
+  probed at all; conch's screen rule caught that prompt, as before. Once
+  the folder was trusted the probe came at once. So the first seconds of
+  a new checkout stay screen-rule territory.
+
+Not run: a remote machine over ssh, a server reload with a report in
+flight (the carry is unit-tested only), and an agent of the second tier
+that emits it — pi and oh-my-pi have landed it, and neither is installed
+here. That tier is where this is worth the most: those agents have no
+screen rules at all.
 
 ### R50 — 2026-10-06, the phone's socket deflated, macOS arm64 → busybox (Linux), build 0.1.7-dev
 
