@@ -277,3 +277,52 @@ func TestAgentGlyphsAreDrawableByAnOlderNerdFont(t *testing.T) {
 	}
 	check("the default", agentGlyphOther)
 }
+
+// An agent that puts its own mark at the start of its window title gets
+// it drawn twice, since conch draws one of its own in front. Reported
+// the moment Pi was first started: "π π - conch".
+func TestATitleDoesNotRepeatTheMark(t *testing.T) {
+	for _, c := range []struct{ name, label, mark, want string }{
+		{"pi's own title", "π - conch", "π ", "conch"},
+		{"no separator", "π conch", "π ", "conch"},
+		{"a colon", "π: building", "π ", "building"},
+		{"an em dash", "π — conch", "π ", "conch"},
+		{"the title is only the mark", "π", "π ", "π"},
+		{"a different mark", "π - conch", " ", "π - conch"},
+		{"no mark at all (icons off)", "π - conch", "", "π - conch"},
+		{"a name that merely starts with a letter", "pi - conch", "π ", "pi - conch"},
+		{"an emoji mark in the title", "🟥 pi", "🟥 ", "pi"},
+		{"nothing to go on", "", "π ", ""},
+		{"a mark in the middle is left alone", "conch π", "π ", "conch π"},
+		{"a dash the title means", "π --no-tools", "π ", "-no-tools"},
+	} {
+		if got := undoubleMark(c.label, c.mark); got != c.want {
+			t.Errorf("%s: %q with mark %q → %q, wanted %q", c.name, c.label, c.mark, got, c.want)
+		}
+	}
+}
+
+// And the row really draws it once, through the renderer rather than the
+// helper alone.
+func TestPiRowShowsOneMark(t *testing.T) {
+	a2Isolate(t)
+	defer applyTheme("conch", "")
+	m, _ := a1Fixture(t, false)
+	m.cfg.UI.Icons = "nerd"
+	m.machines[0].panes[0] = proto.PaneInfo{ID: "p1", Name: "pi", Title: "π - conch", State: proto.PaneRunning,
+		ProjectID: "r1", Branch: "feat", Cwd: "/src/api-feat",
+		Agent: &proto.AgentStatus{Name: "pi", State: proto.AgentIdle}}
+	m.rebuild()
+	var row string
+	for _, l := range strings.Split(ansi.Strip(m.View()), "\n") {
+		if strings.Contains(l, "conch") && strings.Contains(l, "π") {
+			row = l
+		}
+	}
+	if row == "" {
+		t.Fatalf("no pi row on screen:\n%s", ansi.Strip(m.View()))
+	}
+	if n := strings.Count(row, "π"); n != 1 {
+		t.Errorf("the mark is drawn %d times: %q", n, row)
+	}
+}

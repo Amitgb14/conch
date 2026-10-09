@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -163,6 +164,7 @@ func (m Model) rowLine(r row, w int) string {
 	if r.kind == kindPane {
 		if p := m.pane(r.machine, r.paneID); p != nil {
 			mark, markStyle = m.agentMark(*p)
+			label = undoubleMark(label, mark)
 		}
 	}
 	selected := r.id == m.cursor
@@ -1377,6 +1379,29 @@ func (m Model) agentMark(p proto.PaneInfo) (string, lipgloss.Style) {
 		style = lipgloss.NewStyle().Foreground(c)
 	}
 	return mark + " ", style
+}
+
+// undoubleMark drops the agent's own mark from the start of its title,
+// since conch has just drawn one of its own in front of it. Pi titles
+// its window "π - conch", so the row read "π π - conch" — reported the
+// moment it was first started. Only the very same character is dropped,
+// never anything that merely looks like a symbol: a title that begins
+// with a warning sign means something, and guessing at that is how a
+// name loses a word somebody chose.
+func undoubleMark(label, mark string) string {
+	mark = strings.TrimSpace(mark)
+	if mark == "" || !strings.HasPrefix(label, mark) {
+		return label
+	}
+	rest := strings.TrimLeft(strings.TrimPrefix(label, mark), " \t")
+	// The separator the mark was holding up: "π - conch" is "conch".
+	if r, n := utf8.DecodeRuneInString(rest); n > 0 && strings.ContainsRune("-–—·|:", r) {
+		rest = strings.TrimLeft(rest[n:], " \t")
+	}
+	if rest == "" {
+		return label // the title was the mark and nothing else
+	}
+	return rest
 }
 
 // subagentParts draws a subagent under the agent running it: what it was

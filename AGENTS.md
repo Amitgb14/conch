@@ -470,7 +470,10 @@ means all of these, each with tests (a fake binary on a scratch `PATH` or
   (`agentDotOther`, `agentGlyphOther`), which is also what an agent
   somebody describes in their own manifest gets. A mark must be the same
   width as the others (two cells for an emoji, one for a glyph) or the
-  names stop lining up.
+  names stop lining up. And an agent may put its own mark at the start
+  of its window title, which conch's name column then draws a second
+  time — `π π - conch` — so `undoubleMark` drops that copy, matching the
+  very same character and nothing that merely looks like one.
 - **Docs and plans**: the Supported agents table (`web/src/app/docs/agents`),
   the Sessions page's resume table, the mark in the sidebar's list
   (`web/src/app/docs/interface`), the agent lists here and on the home page,
