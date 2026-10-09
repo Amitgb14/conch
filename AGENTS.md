@@ -431,10 +431,15 @@ means all of these, each with tests (a fake binary on a scratch `PATH` or
   `agentDots`, `agentGlyphs` and `agentColors` (`internal/tui/view.go`),
   and no two agents share one: **circles** for the supported tier,
   **squares** for an agent conch only runs, so the shape says which tier it
-  is. Pick something that suits the agent — a real logo only where Nerd
-  Fonts has one — and keep the glyph in the Font Awesome 4.7 range
-  (U+F000–U+F2FF), since a v2 font draws nothing above it. Where nothing
-  suits, the default stands for what it is: 🤖 and a microchip
+  is. Take the shape from the agent's own mark wherever a character comes
+  close (a cube for Cursor, a slash for Grok, six-fold for Codex), and its
+  colour from the brand where one is published; the comment beside each
+  line says which are the agent's own and which were chosen, because a
+  guess written as fact outlives the person who guessed it. Keep the glyph
+  in the Font Awesome 4.7 range (U+F000–U+F2FF), or use an ordinary
+  character every font has, since a v2 font draws nothing above that
+  range — two tests say so. Where nothing suits, the default stands for
+  what it is: 🤖 and a microchip
   (`agentDotOther`, `agentGlyphOther`), which is also what an agent
   somebody describes in their own manifest gets. A mark must be the same
   width as the others (two cells for an emoji, one for a glyph) or the

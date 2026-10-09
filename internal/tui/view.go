@@ -1257,13 +1257,23 @@ func centered(w, h int, content ...string) []string {
 // seeing first.
 //
 // Two sets, because a terminal draws text and a logo is a picture. With
-// `[ui] icons = "nerd"` these are Nerd Font glyphs, of which exactly one is
-// the agent's own logo — Google's, for Gemini. Nerd Fonts carries Font
-// Awesome, Devicons, Material, Octicons, Codicons, Powerline, Seti and
-// Weather, and none of them has an Anthropic or an OpenAI mark, so the
-// others are a plain thing that suits the agent rather than a pretend
-// logo. The real marks would need a terminal's image protocol, which not
-// every terminal has and ssh and tmux lose.
+// `[ui] icons = "nerd"` these are Nerd Font glyphs, and each is the shape
+// of that agent's own mark wherever a character comes close: Google's own
+// logo for Gemini, a starburst for Claude Code (Anthropic's is one), a
+// six-fold rosette for Codex (OpenAI's Blossom is three triangles woven
+// into six), a cube for Cursor, a slash for Grok (xAI's mark is a white
+// slash), pixels for Kilo Code (its wordmark is built from them), a
+// terminal for OpenCode (terminal-native is the whole identity). Only
+// Aider, Amp and Devin have no shape to copy: those three are a plain
+// thing that suits the agent, and say so below rather than pretending.
+// The real marks would need a terminal's image protocol, which not every
+// terminal has and ssh and tmux lose.
+//
+// The colours are the agents' own where they have one. Four of these
+// brands are black and white — Cursor, Grok, OpenCode, Devin — and four
+// marks all in white would be one mark, so there the shape carries the
+// agent and the colour is only chosen to be legible on a dark terminal
+// and on a light one.
 //
 // Each is in the Private Use Area of the BMP, for the reason the file icons
 // are (fileicons.go): a Nerd Fonts v2 font draws nothing in the Material
@@ -1277,8 +1287,8 @@ func centered(w, h int, content ...string) []string {
 var (
 	agentDots = map[string]string{
 		"claude":   "🟠", // terracotta, as Claude's own
-		"codex":    "🟢",
-		"gemini":   "🔵",
+		"codex":    "🟢", // OpenAI's familiar green
+		"gemini":   "🔵", // Google blue
 		"opencode": "🟣",
 		"devin":    "🟡",
 		// The agents conch only runs, from a manifest: squares, since the
@@ -1287,8 +1297,8 @@ var (
 		"aider":  "🟩",
 		"amp":    "🟧",
 		"cursor": "🧊", // a cube, which is Cursor's own mark
-		"grok":   "🟥",
-		"kilo":   "🟪",
+		"grok":   "⬜", // xAI's mark is black and white
+		"kilo":   "🟨", // Kilo Code's own yellow
 	}
 	// agentDotOther is for an agent conch has no mark for — somebody's own
 	// manifest. A blank where every other agent has a mark reads as
@@ -1299,31 +1309,34 @@ var (
 	// glyph a font lacks is worse than a plain one.
 	agentDotOther   = "🤖"
 	agentGlyphOther = "\uf2db" // a microchip: some agent, named by its row
-	// agentColors are the agents' own, for the glyph in nerd mode. A dot
-	// carries its colour in the emoji itself and ignores a foreground.
+	// agentColors are the agents' own where a brand publishes one, for the
+	// glyph in nerd mode; a dot carries its colour in the emoji itself and
+	// ignores a foreground. Where the brand is black and white, or has no
+	// colour to find, the line says so: a guess written as fact is how a
+	// wrong colour outlives the person who guessed it.
 	agentColors = map[string]lipgloss.Color{
 		"claude":   "#D97757", // Anthropic's terracotta
 		"codex":    "#10A37F", // OpenAI's green
 		"gemini":   "#4285F4", // Google's blue
 		"opencode": "#C792EA",
 		"devin":    "#E3B341",
-		"aider":    "#4CAF50",
-		"amp":      "#FF6B35",
+		"aider":    "#4CAF50", // chosen, not theirs: aider publishes no brand colour
+		"amp":      "#FF6B35", // chosen, not theirs
 		"cursor":   "#C9D1D9", // its mark is a white cube, so near enough white
-		"grok":     "#E5534B",
-		"kilo":     "#A371F7",
+		"grok":     "#E8E8E8", // xAI is black and white; white is the half a terminal can draw
+		"kilo":     "#FEE685", // Kilo Code's own (Salomie)
 	}
 	agentGlyphs = map[string]string{
 		"claude":   "\uf069", // an asterisk, which is the shape of Anthropic's own
-		"codex":    "\uf121", // </>
+		"codex":    "\uf2dc", // six-fold, as OpenAI's Blossom is
 		"gemini":   "\uf1a0", // Google's own, the one real logo here
-		"opencode": "\uf120", // a terminal
-		"devin":    "\uf135", // a rocket
-		"aider":    "\uf0c0", // two people: pair programming
-		"amp":      "\uf0e7", // a bolt
+		"opencode": "\uf120", // a terminal, which is its whole identity
+		"devin":    "\uf135", // a rocket: chosen, since Cognition's mark is a wordmark
+		"aider":    "\uf0c0", // two people: chosen, for pair programming
+		"amp":      "\uf0e7", // a bolt: chosen, for the name
 		"cursor":   "\uf1b2", // a cube, the shape of Cursor's own mark
-		"grok":     "\uf0eb", // a lightbulb
-		"kilo":     "\uf1c9", // code in a file
+		"grok":     "╱",      // xAI's mark is a slash; no Nerd glyph is one, this is
+		"kilo":     "\uf009", // pixels, which Kilo Code's wordmark is drawn from
 	}
 )
 

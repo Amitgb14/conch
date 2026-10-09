@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -857,6 +858,12 @@ func TestA1AgentMarksKeepTheSidebarInside(t *testing.T) {
 // range Nerd Fonts v3 moved to U+F0000, and a glyph a font has not got is
 // worse than none (fileicons.go). The agents' glyphs answer to the same
 // rule — one of them was a Material robot until this test was written.
+// A mark is one rune a font can draw: a Nerd Fonts glyph from the BMP
+// private use area, or an ordinary character, which every font has. What
+// it may not be is a glyph beyond the private use area — the Material
+// range at U+F0000, which a Nerd Fonts v2 font draws as nothing.
+// TestAgentGlyphsAreDrawableByAnOlderNerdFont narrows the private-use end
+// of this further, to the range a v2 font covers.
 func TestAgentGlyphsStayInTheBMP(t *testing.T) {
 	for name, g := range agentGlyphs {
 		rs := []rune(g)
@@ -864,8 +871,12 @@ func TestAgentGlyphsStayInTheBMP(t *testing.T) {
 			t.Errorf("%s: %q is %d runes, want one", name, g, len(rs))
 			continue
 		}
-		if r := rs[0]; r < 0xE000 || r > 0xF8FF {
-			t.Errorf("%s: U+%04X is outside the BMP private use area (U+E000-U+F8FF)", name, r)
+		r := rs[0]
+		switch {
+		case r >= 0xE000 && r <= 0xF8FF: // a Nerd Fonts glyph
+		case r < 0xE000 && unicode.IsGraphic(r) && !unicode.IsSpace(r): // an ordinary character
+		default:
+			t.Errorf("%s: U+%04X is neither a private-use glyph nor an ordinary character", name, r)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -219,4 +220,60 @@ func TestAskInstallSaysWhenThereIsNoInstaller(t *testing.T) {
 	if !strings.Contains(a2Plain(c.render(*m).lines), "Aider") {
 		t.Errorf("the question does not name the agent:\n%s", a2Plain(c.render(*m).lines))
 	}
+}
+
+// Every agent conch ships has all three of dot, glyph and colour, and no
+// two share a mark (AGENTS.md, Adding an agent · Marks). A mark missing
+// from one of the maps is a blank in the tree, or a glyph in nobody's
+// colour, for exactly one agent — which is the kind of thing nobody
+// notices until they use that agent.
+func TestEveryShippedAgentIsInEveryMarkMap(t *testing.T) {
+	shipped := []string{"claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo"}
+	for _, name := range shipped {
+		if agentDots[name] == "" {
+			t.Errorf("%s has no dot", name)
+		}
+		if agentGlyphs[name] == "" {
+			t.Errorf("%s has no glyph", name)
+		}
+		if agentColors[name] == "" {
+			t.Errorf("%s has no colour", name)
+		}
+		if agentLabels[name] == "" {
+			t.Errorf("%s has no label", name)
+		}
+	}
+	// Nothing in the maps for an agent that is not shipped: a leftover
+	// would be a mark nobody can see.
+	for _, m := range []map[string]string{agentDots, agentGlyphs, agentLabels} {
+		for name := range m {
+			if !slices.Contains(shipped, name) {
+				t.Errorf("a mark for %q, which conch does not ship", name)
+			}
+		}
+	}
+}
+
+// A glyph above the Font Awesome 4.7 range is not in a Nerd Fonts v2
+// font, which draws nothing for it — worse than a plain character
+// (AGENTS.md, and the same reason fileicons.go gives).
+func TestAgentGlyphsAreDrawableByAnOlderNerdFont(t *testing.T) {
+	check := func(name, glyph string) {
+		t.Helper()
+		r := []rune(glyph)
+		if len(r) != 1 {
+			t.Errorf("%s's glyph is %d runes, so it is not one cell", name, len(r))
+			return
+		}
+		switch c := r[0]; {
+		case c < 0xE000: // an ordinary character every font has
+		case c <= 0xF2FF: // Nerd Fonts' Font Awesome 4.7 range
+		default:
+			t.Errorf("%s's glyph is U+%04X, past the range a v2 font draws", name, c)
+		}
+	}
+	for name, glyph := range agentGlyphs {
+		check(name, glyph)
+	}
+	check("the default", agentGlyphOther)
 }
