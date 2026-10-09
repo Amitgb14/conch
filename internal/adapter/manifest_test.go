@@ -254,7 +254,7 @@ func TestWithNoManifestsOfYourOwn(t *testing.T) {
 	// What the shipped manifests promise, which is deliberately little:
 	// every one of them starts, and says for itself whether it can be
 	// given a first message or resumed, rather than being assumed to.
-	for _, name := range []string{"aider", "amp", "cursor", "grok", "kilo"} {
+	for _, name := range []string{"aider", "amp", "cursor", "grok", "kilo", "pi"} {
 		a, ok := r.Get(name)
 		if !ok {
 			t.Fatalf("no manifest for %s", name)
@@ -294,5 +294,32 @@ func TestWithNoManifestsOfYourOwn(t *testing.T) {
 	}
 	if got := kilo.ResumeArgs(""); got != "--continue" {
 		t.Errorf("kilo resume last %q", got)
+	}
+	// Pi takes a first message as an argument — its --print is the one
+	// that answers and exits, so that is not what conch passes — and
+	// reopens a session with --session, not with --resume, which opens a
+	// picker rather than taking an id.
+	pi, ok := r.Get("pi")
+	if !ok {
+		t.Fatal("pi is not in the registry")
+	}
+	if got := pi.PromptArgs("hello"); got != "hello" {
+		t.Errorf("pi prompt args %q", got)
+	}
+	// A message of several words reaches it as one argument.
+	if got := pi.PromptArgs("fix the tests"); got != "'fix the tests'" {
+		t.Errorf("pi prompt args for a sentence: %q", got)
+	}
+	if got := pi.ResumeArgs("8f3a"); got != "--session 8f3a" {
+		t.Errorf("pi resume %q", got)
+	}
+	if got := pi.ResumeArgs(""); got != "--continue" {
+		t.Errorf("pi resume last %q", got)
+	}
+	if pi.InstallScript() == "" {
+		t.Error("pi has no installer, so the menu cannot offer one")
+	}
+	if pi.Tier() != TierRunsHere {
+		t.Errorf("pi tier %q", pi.Tier())
 	}
 }

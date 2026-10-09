@@ -50,7 +50,7 @@ func TestEveryAgentHasAMark(t *testing.T) {
 		return proto.PaneInfo{ID: "p9", Agent: &proto.AgentStatus{Name: agent}}
 	}
 	for _, agent := range []string{"claude", "codex", "gemini", "opencode", "devin",
-		"aider", "amp", "cursor", "grok", "kilo", "somebodys-own", "", "robo2"} {
+		"aider", "amp", "cursor", "grok", "kilo", "pi", "somebodys-own", "", "robo2"} {
 		for _, icons := range []string{"text", "nerd"} {
 			m.cfg.UI.Icons = icons
 			mark, _ := m.agentMark(pane(agent))
@@ -64,7 +64,7 @@ func TestEveryAgentHasAMark(t *testing.T) {
 	for _, icons := range []string{"text", "nerd"} {
 		m.cfg.UI.Icons = icons
 		seen := map[string]string{}
-		for _, agent := range []string{"claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo"} {
+		for _, agent := range []string{"claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"} {
 			mark, _ := m.agentMark(pane(agent))
 			if was, dup := seen[mark]; dup {
 				t.Errorf("%s and %s share a mark with icons = %s", was, agent, icons)
@@ -228,7 +228,7 @@ func TestAskInstallSaysWhenThereIsNoInstaller(t *testing.T) {
 // colour, for exactly one agent — which is the kind of thing nobody
 // notices until they use that agent.
 func TestEveryShippedAgentIsInEveryMarkMap(t *testing.T) {
-	shipped := []string{"claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo"}
+	shipped := []string{"claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"}
 	for _, name := range shipped {
 		if agentDots[name] == "" {
 			t.Errorf("%s has no dot", name)

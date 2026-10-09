@@ -1491,7 +1491,7 @@ var agentLabels = map[string]string{
 	// The ones conch ships a manifest for. An agent somebody adds
 	// themselves is named by its manifest, which the server sends with
 	// the agent list; this map is for the places that have only a name.
-	"aider": "Aider", "amp": "Amp", "cursor": "Cursor CLI", "grok": "Grok", "kilo": "Kilo Code",
+	"aider": "Aider", "amp": "Amp", "cursor": "Cursor CLI", "grok": "Grok", "kilo": "Kilo Code", "pi": "Pi",
 }
 
 func agentLabel(agent string) string {

@@ -1300,6 +1300,7 @@ var (
 		"cursor": "🧊", // a cube, which is Cursor's own mark
 		"grok":   "🟦", // xAI's accent blue: its own black and white vanish on one background or the other
 		"kilo":   "🟨", // Kilo Code's own yellow
+		"pi":     "🟥", // the salmon of its mark; the blue square is Grok's
 	}
 	// agentDotOther is for an agent conch has no mark for — somebody's own
 	// manifest. A blank where every other agent has a mark reads as
@@ -1326,6 +1327,10 @@ var (
 		"cursor":   "#C9D1D9", // its mark is a white cube, so near enough white
 		"grok":     "#E8E8E8", // xAI is black and white; white is the half a dark terminal can draw
 		"kilo":     "#FEE685", // Kilo Code's own (Salomie)
+		// pi's mark is three blocks, #F09082 salmon, #4D9ABF blue and
+		// #F1BE58 yellow. The blue, because the salmon sits a shade from
+		// Claude Code's terracotta and most trees are full of Claude.
+		"pi": "#4D9ABF",
 	}
 	agentGlyphs = map[string]string{
 		"claude":   "\uf069", // an asterisk, which is the shape of Anthropic's own
@@ -1338,6 +1343,7 @@ var (
 		"cursor":   "\uf1b2", // a cube, the shape of Cursor's own mark
 		"grok":     "\uf00d", // xAI's letter, and the shape of the slash through its mark
 		"kilo":     "\uf009", // pixels, which Kilo Code's wordmark is drawn from
+		"pi":       "π",      // its own name, and a character every font has
 	}
 )
 

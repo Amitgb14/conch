@@ -1,0 +1,31 @@
+# Pi — https://pi.dev (earendil-works). The "runs here" tier: conch
+# starts it and watches it, and does not read its saved conversations.
+#
+# It needs no screen rules, and has none: pi reports its own state
+# through the Program Status Protocol (OSC 7501), which conch answers
+# and prefers (internal/pane/status.go). Verified in a pane on
+# 2026-10-09 with pi 1.1.0: it asked, conch answered, and it reported
+# `state=idle:app=pi`, so the state in the tree is pi's own rather than
+# conch's guess. Everything below was checked against `pi --help` of
+# that version:
+#   - a first message is a positional argument, and *without* --print
+#     the session stays interactive: `pi "summarise this repo"` left
+#     the TUI open with the message submitted. --print/-p is the one
+#     that answers and exits, so it is not what conch passes.
+#   - a session is reopened by id with --session (which takes a path, a
+#     full id or a partial UUID); --resume/-r opens a picker rather
+#     than taking an id, so it is not it, and --continue is the most
+#     recent session here.
+#   - pi does keep sessions on disk (--session-dir), so this one could
+#     reach the first tier one day; until something reads that format,
+#     conch says it does not rather than showing an empty list.
+agent = "pi"
+label = "Pi"
+process_names = ["pi"]
+
+[run]
+binary = "pi"
+prompt = "{prompt}"
+resume = "--session {id}"
+resume_last = "--continue"
+install = "curl -fsSL https://pi.dev/install.sh | sh"
