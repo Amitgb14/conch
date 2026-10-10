@@ -463,6 +463,47 @@ func TestMachinePageFitsItsAgents(t *testing.T) {
 	if strings.Contains(wide, " more") {
 		t.Errorf("a 300-column page hid something:\n%s", wide)
 	}
+
+	// The page is centred from its widest line, so a list packed to the
+	// whole width leaves nothing to centre — and one that overflows it
+	// took the centring away from every other line too, which is what
+	// eleven agents on one line did.
+	for _, cols := range []int{160, 120} {
+		lines := m.machineLines(mach, cols, 40)
+		indent := -1
+		for _, l := range lines {
+			plain := ansi.Strip(l)
+			if strings.TrimSpace(plain) == "" {
+				continue
+			}
+			n := len(plain) - len(strings.TrimLeft(plain, " "))
+			if indent < 0 {
+				indent = n
+			} else if n != indent {
+				t.Errorf("at %d columns the page is ragged: %d and %d", cols, indent, n)
+				break
+			}
+		}
+		if indent <= 0 {
+			t.Errorf("at %d columns the page is not centred (indent %d)", cols, indent)
+		}
+		// And the list is packed to the narrowest width that holds it,
+		// so its lines come out balanced rather than one stuffed to the
+		// edge and one half empty — which is what leaves a page with
+		// nothing to centre.
+		widest, narrowest := 0, 1<<30
+		for _, l := range lines {
+			if !strings.Contains(ansi.Strip(l), "✓ ") {
+				continue
+			}
+			w := ansi.StringWidth(strings.TrimSpace(ansi.Strip(l)))
+			widest, narrowest = max(widest, w), min(narrowest, w)
+		}
+		if one := ansi.StringWidth("✓ Claude Code 1.2.345") + 2; widest-narrowest > one {
+			t.Errorf("at %d columns the agent lines are %d and %d wide, which is not packed to fit",
+				cols, narrowest, widest)
+		}
+	}
 }
 
 // packParts is where the fitting happens: the marker that says what was

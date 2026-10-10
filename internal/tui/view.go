@@ -1159,7 +1159,12 @@ func (m Model) machinePage(mach *machine, cols, rows int) []string {
 					parts = append(parts, styleMuted.Render("○ "+label))
 				}
 			}
-			lines = append(lines, packParts(parts, cols, agentLinesMax)...)
+			// The page itself is centred (centered, at the end), from
+			// its widest line — so a list packed to the whole width
+			// leaves nothing to centre, and one that overflows it ruins
+			// the centring for every other line too, which is what
+			// eleven agents on one line did.
+			lines = append(lines, packParts(parts, packWidth(parts, cols, agentLinesMax), agentLinesMax)...)
 			lines = append(lines, styleMuted.Render("c  start or install an agent"))
 		}
 		if mach.warning != "" {
@@ -1259,6 +1264,25 @@ func centered(w, h int, content ...string) []string {
 		lines[top+i] = pad + c
 	}
 	return lines
+}
+
+// packWidth is the narrowest width that still holds every part in
+// maxLines, which is what makes centring mean anything: packed to the
+// whole page the list reaches both edges and the middle is wherever it
+// already was. Everything in one line at 200 columns, two balanced ones
+// at 120. If not even the full width holds them, that is the width —
+// packParts then says how many were left out.
+func packWidth(parts []string, cols, maxLines int) int {
+	w := 0
+	for _, p := range parts {
+		w = max(w, ansi.StringWidth(p)) // no line can be narrower than one part
+	}
+	for ; w < cols; w++ {
+		if len(packParts(parts, w, maxLines+1)) <= maxLines {
+			return w
+		}
+	}
+	return cols
 }
 
 // agentLinesMax is how many lines the machine page gives the agents it
