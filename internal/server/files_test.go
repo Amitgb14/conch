@@ -112,10 +112,15 @@ func TestListCheckoutFilesAndStatus(t *testing.T) {
 		t.Fatalf("parent %q", tui.Parent)
 	}
 
-	// Hidden and ignored on request, and marked.
+	// Hidden and ignored on request, and marked. .git is never listed,
+	// whether or not hidden files were asked for: it is git's own, and a
+	// thousand objects nobody browses.
 	all, _ := s.listCheckout(proto.FSListParams{Root: repo, Files: true, Hidden: true, Ignored: true})
-	if got := entryNames(all); got != ".git,cmd,internal,node_modules,.env,.gitignore,debug.log,README.md" {
+	if got := entryNames(all); got != "cmd,internal,node_modules,.env,.gitignore,debug.log,README.md" {
 		t.Fatalf("all: %s", got)
+	}
+	if findEntry(all, ".git").Name != "" {
+		t.Error("git's own folder was listed")
 	}
 	if !findEntry(all, "node_modules").Ignored || !findEntry(all, "debug.log").Ignored || findEntry(all, "cmd").Ignored {
 		t.Fatalf("ignored marks: %+v", all.Entries)

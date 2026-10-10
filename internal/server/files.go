@@ -181,8 +181,13 @@ func (s *Server) listCheckout(lp proto.FSListParams) (proto.FSList, *proto.Error
 	relDir := filepath.ToSlash(strings.TrimPrefix(strings.TrimPrefix(dir, root), string(filepath.Separator)))
 	for _, e := range entries {
 		name := e.Name()
-		if name == ".git" && !lp.Hidden {
-			continue // git's own, never a file anyone browses for
+		if name == ".git" {
+			// git's own, never a file anyone browses for — and a
+			// thousand objects nobody wants in a tree. It used to show
+			// when hidden files were asked for; now that they are shown
+			// by default, that would be the first thing in every
+			// checkout.
+			continue
 		}
 		if !lp.Hidden && strings.HasPrefix(name, ".") {
 			continue

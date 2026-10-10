@@ -197,7 +197,12 @@ type Model struct {
 	queueSeen    map[string]string        // review queue rows dismissed, by what they said when dismissed
 	verifyRuns   map[string]verifyRun     // a branch's last run of its project's check, by machine|project|branch
 	actionPanes  map[string]string        // a custom action's terminal, kept when it exits: machine|pane -> action name
-	prevView     viewRef                  // where the focused split was before the last jump, for ctrl+b b
+	// What the file explorer was last told to show, kept across restarts
+	// (files.go, state.go). Dotfiles are shown unless somebody pressed
+	// `.`, which is why this one is written the negative way round.
+	filesHideDot     bool
+	filesShowIgnored bool
+	prevView         viewRef // where the focused split was before the last jump, for ctrl+b b
 }
 
 type (
@@ -236,6 +241,9 @@ func New(local *client.Client, cfg config.Config) Model {
 		folders:    st.Folders,
 
 		noProjectOffer: st.NoProjectOffer,
+
+		filesHideDot:     st.FilesHideDot,
+		filesShowIgnored: st.FilesShowIgnored,
 	}
 	m.sshInfo = cleanSSHInfo(m.savedSSH, st.SSHHosts)
 	m.folders = migrateSSHGroups(m.folders, st.SSHGroups, m.savedSSH, m.sshInfo)

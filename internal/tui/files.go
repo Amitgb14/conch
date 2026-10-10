@@ -131,7 +131,11 @@ func (m Model) filesCheckout(mid, pid, branch string) (root, checkedOut, note st
 }
 
 func (m *Model) newFilesView(v viewRef) *filesView {
-	fv := &filesView{machine: v.Machine, projectID: v.ProjectID, want: v.Branch}
+	// Dotfiles are shown: in a checkout they are not clutter but the
+	// work — .github, .claude, .gitignore, .env — and hiding them is a
+	// convention from `ls`, where a home directory is full of them.
+	// `.` hides them again, and the choice is remembered (state.go).
+	fv := &filesView{machine: v.Machine, projectID: v.ProjectID, want: v.Branch, hidden: !m.filesHideDot, ignored: m.filesShowIgnored}
 	fv.root, fv.branch, fv.note = m.filesCheckout(v.Machine, v.ProjectID, v.Branch)
 	fv.reset()
 	return fv
@@ -787,10 +791,12 @@ func (fv *filesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		return false, m.filesNextCheckout(fv)
 	case ".":
 		fv.hidden = !fv.hidden
-		return false, fv.relist(m)
+		m.filesHideDot = !fv.hidden
+		return false, tea.Batch(fv.relist(m), m.saveState())
 	case "i":
 		fv.ignored = !fv.ignored
-		return false, fv.relist(m)
+		m.filesShowIgnored = fv.ignored
+		return false, tea.Batch(fv.relist(m), m.saveState())
 	}
 
 	if fv.reading {

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -106,7 +107,8 @@ func TestFilesListRequest(t *testing.T) {
 	msg := peer.waitMethod(t, proto.MethodFSList, `"path":"internal"`)
 	var lp proto.FSListParams
 	json.Unmarshal(msg.Params, &lp)
-	if lp.Root != "/src/api" || !lp.Files || lp.Hidden || lp.Ignored {
+	// Hidden: dotfiles are shown unless somebody has pressed `.`.
+	if lp.Root != "/src/api" || !lp.Files || !lp.Hidden || lp.Ignored {
 		t.Fatalf("params %+v", lp)
 	}
 	for _, msg := range msgs {
@@ -524,18 +526,82 @@ func TestFilesCopyEditDiff(t *testing.T) {
 	}
 }
 
-func TestFilesHiddenAndIgnoredRelist(t *testing.T) {
+// Dotfiles are the work in a checkout — .github, .claude, .gitignore,
+// .env — so the explorer shows them, and `.` is how somebody who
+// disagrees says so. Reported from use: "the Files are not showing
+// hidden file or folder".
+func TestFilesShowDotfilesUntilHidden(t *testing.T) {
 	m, peer, fv := filesFixture(t)
-	a2Run(a1Key(t, m, runes(".")))
+	if !fv.hidden {
+		t.Fatal("the explorer opened with dotfiles hidden")
+	}
+	// What it asks the machine for, which is the half that matters.
+	withoutDotfiles := func(msg proto.Message) bool {
+		if msg.Method != proto.MethodFSList {
+			return false
+		}
+		var lp proto.FSListParams
+		return json.Unmarshal(msg.Params, &lp) == nil && !lp.Hidden
+	}
+	a2Run(a1Key(t, m, runes("r")))
 	peer.waitMethod(t, proto.MethodFSList, `"hidden":true`)
+
+	// `.` hides them, and that is remembered: the next explorer opens
+	// the way this one was left, here and after a restart.
+	a2Run(a1Key(t, m, runes(".")))
+	if fv.hidden || !m.filesHideDot {
+		t.Fatalf("after . : view %v, remembered %v", fv.hidden, m.filesHideDot)
+	}
+	peer.waitFor(t, "a list that does not ask for dotfiles", withoutDotfiles)
+	next := m.newFilesView(viewRef{Kind: kindFiles, Machine: localMachine, ProjectID: "r1"})
+	if next.hidden {
+		t.Error("a new explorer went back to showing them")
+	}
+	a2Run(a1Key(t, m, runes(".")))
+	if !fv.hidden || m.filesHideDot {
+		t.Fatalf("pressing . again: view %v, remembered %v", fv.hidden, m.filesHideDot)
+	}
+
+	// What git ignores is the other way round: hidden until asked for,
+	// since node_modules is not somebody's work.
+	if fv.ignored {
+		t.Fatal("the explorer opened showing what git ignores")
+	}
 	a2Run(a1Key(t, m, runes("i")))
 	peer.waitMethod(t, proto.MethodFSList, `"ignored":true`)
-	if !fv.hidden || !fv.ignored {
-		t.Fatal("toggles")
+	if !fv.ignored || !m.filesShowIgnored {
+		t.Fatalf("after i: view %v, remembered %v", fv.ignored, m.filesShowIgnored)
 	}
+	if again := m.newFilesView(viewRef{Kind: kindFiles, Machine: localMachine, ProjectID: "r1"}); !again.ignored {
+		t.Error("a new explorer forgot that ignored files were wanted")
+	}
+
 	a1Key(t, m, runes("r"))
 	if !fv.dirs[""].loading {
 		t.Fatal("r did not read again")
+	}
+}
+
+// Both choices survive a restart, and a state file from a build that
+// had neither opens the explorer the new way round.
+func TestFilesTogglesSurviveARestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ui.json")
+	m, _ := a1Fixture(t, false)
+	m.statePath = path
+	m.filesHideDot, m.filesShowIgnored = true, true
+	a2Run(m.saveState())
+
+	st := loadUIState(path)
+	if !st.FilesHideDot || !st.FilesShowIgnored {
+		t.Fatalf("saved %+v", st)
+	}
+	// An older state file says nothing, which is dotfiles shown.
+	old := filepath.Join(t.TempDir(), "ui.json")
+	if err := os.WriteFile(old, []byte(`{"expanded":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if was := loadUIState(old); was.FilesHideDot || was.FilesShowIgnored {
+		t.Errorf("an older state file: %+v", was)
 	}
 }
 

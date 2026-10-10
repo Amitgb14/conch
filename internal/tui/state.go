@@ -42,6 +42,13 @@ type uiState struct {
 	NoProjectOffer []string `json:"no_project_offer,omitempty"`
 	// Spaces are the workspaces after the first (spaces.go); Tabs above
 	// stay the first one's, which is all an older build knows of.
+	// FilesHideDot and FilesShowIgnored are the file explorer's two
+	// toggles (`.` and `i`). Dotfiles are shown unless hidden, so the
+	// first is the negative: a state file from an older build, which had
+	// no such fields, opens the explorer the new way round.
+	FilesHideDot     bool `json:"files_hide_dot,omitempty"`
+	FilesShowIgnored bool `json:"files_show_ignored,omitempty"`
+
 	Spaces      []savedSpace `json:"spaces,omitempty"`
 	FirstSpace  *savedSpace  `json:"first_space,omitempty"` // what workspace 1 holds; its tabs are Tabs
 	ActiveSpace int          `json:"active_space,omitempty"`
@@ -112,7 +119,8 @@ func (m Model) saveState() tea.Cmd {
 	tabs, active := m.firstSpaceTabs()
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
 		Tabs: saveTabs(tabs), ActiveTab: active, Spaces: m.savedSpaces(), FirstSpace: m.savedFirstSpace(), ActiveSpace: m.activeSpace, LimitAlerts: map[string]int{},
-		QueueDismissed: map[string]string{}, SavedSSH: slices.Clone(m.savedSSH), NoProjectOffer: slices.Clone(m.noProjectOffer)}
+		QueueDismissed: map[string]string{}, SavedSSH: slices.Clone(m.savedSSH), NoProjectOffer: slices.Clone(m.noProjectOffer),
+		FilesHideDot: m.filesHideDot, FilesShowIgnored: m.filesShowIgnored}
 	if len(m.sshInfo) > 0 {
 		st.SSHHosts = make(map[string]sshHostInfo, len(m.sshInfo))
 		for k, v := range m.sshInfo {
