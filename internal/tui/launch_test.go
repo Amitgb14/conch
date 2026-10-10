@@ -363,14 +363,32 @@ func TestUIStateWithoutNoProjectOffer(t *testing.T) {
 	}
 }
 
+// A dialog has to fit the terminal it is drawn in. It did not: the
+// width had a floor of 30 whatever the screen was, so under 32 columns
+// every dialog spilled over what was behind it.
 func TestDialogFitsTinyTerminal(t *testing.T) {
-	t.Skip("bug: dialogWidth (overlay.go) never goes under 30 columns, so every dialog is wider than a terminal under 32")
 	m, _ := a1Fixture(t, false)
-	m.width = 20
-	d := newConfirm("sure?", func(*Model) tea.Cmd { return nil })
-	for _, l := range d.render(*m).lines {
-		if ansi.StringWidth(l) > m.width {
-			t.Fatalf("line %d wide", ansi.StringWidth(l))
+	for _, w := range []int{80, 40, 34, 32, 31, 20, 10, 5, 3} {
+		m.width, m.height = w, 24
+		for name, d := range map[string]overlay{
+			"a question": newConfirm("Delete the branch and its worktree? This cannot be undone.", func(*Model) tea.Cmd { return nil }),
+			"with fields": newDialog(*m, " Rename ", []string{"What it is called in the tree."},
+				[]string{"Name"}, []string{"something long enough to need the room"}),
+		} {
+			for i, l := range d.render(*m).lines {
+				if got := ansi.StringWidth(l); got > w {
+					t.Errorf("%s at %d columns: line %d is %d wide", name, w, i, got)
+				}
+			}
 		}
+	}
+	// And at a width where it fits, it is still the width it should be.
+	m.width, m.height = 100, 24
+	if got := m.dialogWidth(); got != 72 {
+		t.Errorf("a roomy terminal gives %d columns", got)
+	}
+	m.width = 40
+	if got := m.dialogWidth(); got != 36 {
+		t.Errorf("40 columns gives %d", got)
 	}
 }

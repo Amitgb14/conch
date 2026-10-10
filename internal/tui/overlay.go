@@ -566,7 +566,19 @@ type dialog struct {
 	back overlay
 }
 
-func (m Model) dialogWidth() int { return clamp(72, 30, max(m.width-4, 30)) }
+// dialogWidth is how wide a dialog's content is drawn. 72 where there
+// is room, with a margin either side, and never wider than the terminal:
+// the floor of 30 is a floor only while the frame still fits inside the
+// screen. It used to be unconditional, so every dialog was 32 columns
+// wide — frame included — in a terminal narrower than that, and spilled
+// over whatever was behind it.
+func (m Model) dialogWidth() int {
+	w := min(72, max(m.width-4, 1)) // the usual: a margin of 2 each side
+	if w < 30 {
+		w = min(30, max(m.width-2, 1)) // cramped: give up the margin, keep the frame
+	}
+	return w
+}
 
 func newDialog(m Model, title string, text []string, labels []string, values []string) *dialog {
 	d := &dialog{title: title, text: text}
@@ -577,7 +589,7 @@ func newDialog(m Model, title string, text []string, labels []string, values []s
 	for i, l := range labels {
 		in := textinput.New()
 		in.Prompt = ""
-		in.Width = m.dialogWidth() - labelW - 6
+		in.Width = max(m.dialogWidth()-labelW-6, 1)
 		if i < len(values) {
 			in.SetValue(values[i])
 		}
@@ -943,7 +955,7 @@ func (d *dialog) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 func (d *dialog) textLines(m Model) []string {
 	var out []string
 	for _, t := range d.text {
-		out = append(out, wrap(t, m.dialogWidth()-2)...)
+		out = append(out, wrap(t, max(m.dialogWidth()-2, 1))...)
 	}
 	return out
 }

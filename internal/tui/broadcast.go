@@ -217,7 +217,7 @@ func newBroadcastDialog(m Model, label string, targets []broadcastTarget) *broad
 	in.Prompt = ""
 	in.Placeholder = "a prompt for agents, or a command for terminals"
 	in.CharLimit = 4000
-	in.Width = m.dialogWidth() - 12
+	in.Width = max(m.dialogWidth()-12, 1)
 	in.Focus()
 	return &broadcastDialog{label: label, in: in, targets: targets}
 }

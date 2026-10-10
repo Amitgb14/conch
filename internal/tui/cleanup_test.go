@@ -246,7 +246,14 @@ func TestCleanupRenderAndMouse(t *testing.T) {
 				t.Fatalf("%v: line %q is %d wide, box %d", size, ansi.Strip(l), ansi.StringWidth(l), w)
 			}
 		}
-		if out := a2Plain(b.lines); !strings.Contains(out, "… 18 above") || !strings.Contains(out, "branch-with-a-long-name-29"[:10]) {
+		out := a2Plain(b.lines)
+		if !strings.Contains(out, "… 18 above") {
+			t.Fatalf("%v scrolled:\n%s", size, out)
+		}
+		// Where there is room for a name, the selected one is in sight.
+		// At 20 columns the dialog is 18 wide — the terminal, less its
+		// frame — and a 26-character branch name does not fit anything.
+		if size[0] >= 40 && !strings.Contains(out, "branch-with-a-long-name-29"[:10]) {
 			t.Fatalf("%v scrolled:\n%s", size, out)
 		}
 	}

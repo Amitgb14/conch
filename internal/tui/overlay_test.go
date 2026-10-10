@@ -280,12 +280,14 @@ func TestA2DialogEditing(t *testing.T) {
 		t.Fatal("a click outside should cancel")
 	}
 
-	// A narrow screen narrows the dialog but never below 30.
-	if w := (Model{width: 50}).dialogWidth(); w != 46 {
-		t.Fatalf("dialog width at 50 columns: %d", w)
-	}
-	if w := (Model{width: 10}).dialogWidth(); w != 30 {
-		t.Fatalf("dialog width at 10 columns: %d", w)
+	// A narrow screen narrows the dialog, down to 30 where the frame
+	// still fits inside it, and below that to whatever the terminal has
+	// — a dialog wider than the screen spills over what is behind it
+	// (TestDialogFitsTinyTerminal).
+	for _, c := range [][2]int{{100, 72}, {76, 72}, {50, 46}, {34, 30}, {32, 30}, {31, 29}, {10, 8}, {2, 1}} {
+		if w := (Model{width: c[0]}).dialogWidth(); w != c[1] {
+			t.Errorf("dialog width at %d columns: %d, wanted %d", c[0], w, c[1])
+		}
 	}
 	if (&dialog{}).setFocus(3) != nil {
 		t.Fatal("focusing in a dialog without fields")

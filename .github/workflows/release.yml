@@ -16,8 +16,26 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test ./...
+      # Every platform is built here, which means macOS is built without
+      # cgo: those binaries watch worktrees by kqueue rather than
+      # FSEvents, and so mostly poll. A mac build made on a mac (`make
+      # release`) has FSEvents, and its archives differ from these.
       - run: scripts/release.sh "${GITHUB_REF_NAME}"
+      # Publish, whether or not the release is already there. A tag can
+      # arrive twice — moved to re-cut a version, or pushed after the
+      # release was made by hand — and `gh release create` exits 1 on
+      # the second, which failed this workflow twice on v0.1.7 and
+      # published nothing. Notes somebody wrote are left alone: only the
+      # archives are replaced.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" dist/*.tar.gz dist/checksums.txt --generate-notes
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG exists: replacing its archives, keeping its notes"
+            gh release upload "$TAG" dist/*.tar.gz dist/checksums.txt --clobber
+          else
+            gh release create "$TAG" dist/*.tar.gz dist/checksums.txt --generate-notes
+          fi
