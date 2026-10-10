@@ -1109,7 +1109,15 @@ func (m Model) sandboxesLines(provider string, w int) []string {
 	return append(lines, "", styleMuted.Render("enter opens one · m menu: open a port, snapshot, stop, delete · M new · one that runs, costs"))
 }
 
+// machineLines is the machine's page. Every line it returns is kept
+// inside cols: the agents it knows have outgrown one line, and the
+// hints under them were already a little wider than a narrow page —
+// both drew over the panel's own border rather than stopping at it.
 func (m Model) machineLines(mach *machine, cols, rows int) []string {
+	return truncateAll(m.machinePage(mach, cols, rows), cols)
+}
+
+func (m Model) machinePage(mach *machine, cols, rows int) []string {
 	working, waiting := 0, 0
 	projects, panes := m.shown(mach)
 	for _, p := range panes {
@@ -1151,7 +1159,8 @@ func (m Model) machineLines(mach *machine, cols, rows int) []string {
 					parts = append(parts, styleMuted.Render("○ "+label))
 				}
 			}
-			lines = append(lines, strings.Join(parts, styleMuted.Render("  ")), styleMuted.Render("c  start or install an agent"))
+			lines = append(lines, packParts(parts, cols, agentLinesMax)...)
+			lines = append(lines, styleMuted.Render("c  start or install an agent"))
 		}
 		if mach.warning != "" {
 			lines = append(lines, styleWarn.Render(mach.warning))
@@ -1248,6 +1257,66 @@ func centered(w, h int, content ...string) []string {
 			break
 		}
 		lines[top+i] = pad + c
+	}
+	return lines
+}
+
+// agentLinesMax is how many lines the machine page gives the agents it
+// knows. conch knows eleven now and will know more, which on one line
+// ran off the side of the page; wrapped without a limit it would push
+// everything under it down the page instead. What is left over is
+// counted rather than drawn.
+const agentLinesMax = 2
+
+// packParts lays parts out across at most maxLines lines of width w,
+// two spaces apart, ending with "+N more" for whatever did not fit. The
+// parts are styled, so widths are measured rather than counted. On the
+// last line the room that marker needs is kept back before anything is
+// put there, or the marker is what does not fit and the agents it
+// stands for go missing with no sign of it.
+func packParts(parts []string, w, maxLines int) []string {
+	const sep = "  "
+	more := func(n int) string { return styleMuted.Render(fmt.Sprintf("+%d more", n)) }
+	var lines []string
+	cur, curW := "", 0
+	for i, p := range parts {
+		pw := ansi.StringWidth(p)
+		need := pw
+		if cur != "" {
+			need += len(sep)
+		}
+		room := w
+		last := len(lines)+1 >= maxLines
+		if last && i < len(parts)-1 {
+			room -= len(sep) + ansi.StringWidth(more(len(parts)-i))
+		}
+		switch {
+		case cur == "": // something has to go on the line, wide or not
+			cur, curW = p, pw
+		case curW+need <= room:
+			cur, curW = cur+styleMuted.Render(sep)+p, curW+need
+		case !last:
+			lines = append(lines, cur)
+			cur, curW = p, pw
+		default:
+			cur += styleMuted.Render(sep) + more(len(parts)-i)
+			lines = append(lines, cur)
+			return truncateAll(lines, w)
+		}
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	return truncateAll(lines, w)
+}
+
+// truncateAll is the last word on width: a part too wide for a line of
+// its own has to go somewhere, and it goes cut rather than over the edge.
+func truncateAll(lines []string, w int) []string {
+	for i, l := range lines {
+		if ansi.StringWidth(l) > w {
+			lines[i] = ansi.Truncate(l, w, "…")
+		}
 	}
 	return lines
 }

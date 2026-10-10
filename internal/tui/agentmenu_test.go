@@ -425,3 +425,82 @@ func TestAClickLeavesTheKeysInTheTree(t *testing.T) {
 		t.Error("a double click did not hand the pane the keyboard")
 	}
 }
+
+// The machine page lists the agents it knows, and conch knows eleven
+// now: on one line that ran off the side of the page. Reported from use
+// with a screenshot of it doing exactly that.
+func TestMachinePageFitsItsAgents(t *testing.T) {
+	a2Isolate(t)
+	defer applyTheme("conch", "")
+	m, _ := a5Agents(t, false)
+	var list []proto.AgentAvailability
+	for _, n := range []string{"claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"} {
+		list = append(list, proto.AgentAvailability{Name: n, Label: agentLabel(n), Installed: true, Version: "1.2.345"})
+	}
+	mach := m.machines[0]
+	mach.agentList = list
+
+	for _, cols := range []int{200, 130, 100, 80, 60, 40, 24} {
+		lines := m.machineLines(mach, cols, 40)
+		for i, l := range lines {
+			if got := ansi.StringWidth(l); got > cols {
+				t.Errorf("at %d columns, line %d is %d wide: %q", cols, i, got, ansi.Strip(l))
+			}
+		}
+		// Whatever is left out is counted, never silently dropped.
+		plain := ansi.Strip(strings.Join(lines, "\n"))
+		shown := strings.Count(plain, "✓ ")
+		if shown < len(list) && !strings.Contains(plain, " more") {
+			t.Errorf("at %d columns only %d of %d agents are listed, with nothing to say so:\n%s",
+				cols, shown, len(list), plain)
+		}
+		if shown > len(list) {
+			t.Errorf("at %d columns %d agents for a list of %d", cols, shown, len(list))
+		}
+	}
+	// A roomy page still says them all on one line, as it always did.
+	wide := ansi.Strip(strings.Join(m.machineLines(mach, 300, 40), "\n"))
+	if strings.Contains(wide, " more") {
+		t.Errorf("a 300-column page hid something:\n%s", wide)
+	}
+}
+
+// packParts is where the fitting happens: the marker that says what was
+// left out has to fit too, or the agents it stands for go missing with
+// nothing to show for it — which is what the first version did.
+func TestPackPartsKeepsRoomForWhatItLeavesOut(t *testing.T) {
+	a2Isolate(t)
+	defer applyTheme("conch", "")
+	var parts []string
+	for _, p := range []string{"alpha 1.0", "bravo 2.0", "charlie 3.0", "delta 4.0", "echo 5.0", "foxtrot 6.0"} {
+		parts = append(parts, styleOK.Render(p))
+	}
+	for _, w := range []int{120, 48, 30, 22, 11, 4} {
+		lines := packParts(parts, w, 2)
+		if len(lines) > 2 {
+			t.Errorf("width %d took %d lines", w, len(lines))
+		}
+		plain := ansi.Strip(strings.Join(lines, "\n"))
+		for i, l := range lines {
+			if got := ansi.StringWidth(l); got > w {
+				t.Errorf("width %d: line %d is %d wide: %q", w, i, got, ansi.Strip(l))
+			}
+		}
+		named := 0
+		for _, p := range []string{"alpha", "bravo", "charlie", "delta", "echo", "foxtrot"} {
+			if strings.Contains(plain, p) {
+				named++
+			}
+		}
+		if named < len(parts) && !strings.Contains(plain, "more") && !strings.Contains(plain, "…") {
+			t.Errorf("width %d listed %d of %d with no sign of the rest: %q", w, named, len(parts), plain)
+		}
+	}
+	// Nothing at all, and a single part.
+	if got := packParts(nil, 40, 2); got != nil {
+		t.Errorf("no parts gave %v", got)
+	}
+	if got := packParts([]string{"only"}, 40, 2); len(got) != 1 || ansi.Strip(got[0]) != "only" {
+		t.Errorf("one part gave %v", got)
+	}
+}
