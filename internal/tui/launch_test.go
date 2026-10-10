@@ -374,6 +374,12 @@ func TestDialogFitsTinyTerminal(t *testing.T) {
 			"a question": newConfirm("Delete the branch and its worktree? This cannot be undone.", func(*Model) tea.Cmd { return nil }),
 			"with fields": newDialog(*m, " Rename ", []string{"What it is called in the tree."},
 				[]string{"Name"}, []string{"something long enough to need the room"}),
+			// A menu is as wide as its longest label, which is wider than
+			// some terminals: the frame's right edge went off the side.
+			"a menu": &menu{title: "Close workspace 2", items: []menuItem{
+				{"enter", "Move 1 agent and 1 terminal to workspace 1 — nothing ends", func(*Model) tea.Cmd { return nil }},
+				{"e", "End 1 agent and 1 terminal, and close it", func(*Model) tea.Cmd { return nil }},
+			}},
 		} {
 			for i, l := range d.render(*m).lines {
 				if got := ansi.StringWidth(l); got > w {
@@ -390,5 +396,17 @@ func TestDialogFitsTinyTerminal(t *testing.T) {
 	m.width = 40
 	if got := m.dialogWidth(); got != 36 {
 		t.Errorf("40 columns gives %d", got)
+	}
+	// A menu says what it had to leave out, and leaves nothing out while
+	// there is room for it.
+	long := "Move 1 agent and 1 terminal to workspace 1 — nothing ends"
+	mu := &menu{title: "Close", items: []menuItem{{"enter", long, func(*Model) tea.Cmd { return nil }}}}
+	m.width = 46
+	if got := ansi.Strip(mu.render(*m).lines[1]); !strings.HasSuffix(strings.TrimRight(got, " │"), "…") {
+		t.Errorf("cut without saying so: %q", got)
+	}
+	m.width = 160
+	if got := ansi.Strip(mu.render(*m).lines[1]); !strings.Contains(got, long) {
+		t.Errorf("cut a label that fits: %q", got)
 	}
 }

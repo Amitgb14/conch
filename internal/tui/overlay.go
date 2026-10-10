@@ -385,15 +385,25 @@ func (mu *menu) render(m Model) box {
 	for _, it := range mu.items {
 		w = max(w, ansi.StringWidth(it.label)+10)
 	}
+	// Never wider than the terminal. A menu was as wide as its longest
+	// label, and the view's last truncation then took the right border and
+	// the end of that label off the side of the screen; an item that does
+	// not fit is cut with an ellipsis instead, so it reads as abbreviated
+	// rather than as broken.
+	w = min(w, max(m.width-2, 1))
 	var lines []string
 	for i, it := range mu.items {
 		key := it.key
 		if key == "enter" {
 			key = "⏎"
 		}
-		line := " " + padRight(styleMuted.Render(key), 3) + " " + it.label
+		label := it.label
+		if room := max(w-5, 1); ansi.StringWidth(label) > room {
+			label = ansi.Truncate(label, room, "…")
+		}
+		line := " " + padRight(styleMuted.Render(key), 3) + " " + label
 		if i == mu.sel {
-			line = styleSel.Render(padRight(" "+padRight(key, 3)+" "+ansi.Strip(it.label), w))
+			line = styleSel.Render(padRight(" "+padRight(key, 3)+" "+ansi.Strip(label), w))
 		}
 		lines = append(lines, line)
 	}
@@ -1031,7 +1041,7 @@ var helpText = []string{
 	"  S type into every split of the tab at once (again to stop; synced borders turn amber)",
 	"  N new workspace (own tabs and tree; + beside conch)   ( ) previous / next workspace   $ rename   X close workspace",
 	"  each shows only its own: projects added in it (a), panes started in it, its machines (M), saved ssh hosts and folders",
-	"  what belongs to no workspace is workspace 1's; closing one moves what it holds there   x takes out of this one if another has it",
+	"  what belongs to no workspace is workspace 1's; closing one asks whether its agents and terminals move there or end   x takes out of this one if another has it",
 	"  in the tree: v open in a split right · s below · O in a new tab (beside what the tab already shows)",
 	"  mouse: click a split to focus it · drag borders to resize · drag a split's title onto another to swap them, onto a tab to move it there, onto + for a tab of its own · drag the bar on a pane's right edge to scroll its history · click tabs and × · drag a tab to reorder · + new tab, terminal, agent or ssh",
 	"  mouse: click a link an agent printed to open it (alt+click inside an agent's own interface, which is owed its clicks)",

@@ -588,23 +588,101 @@ func (m *Model) stepSpace(d int) tea.Cmd {
 	return m.switchSpace(((m.activeSpace+d)%n + n) % n)
 }
 
-// closeSpaceAsk closes the workspace on screen, after asking. What it
-// holds moves to the first: its agents and terminals keep running, and its
-// projects, machines, hosts, folders and tabs are the first one's now.
+// spacePane is one pane a workspace holds, kept with the info it had when
+// the question was asked, so the menu can count agents and terminals.
+type spacePane struct {
+	machine string
+	info    proto.PaneInfo
+}
+
+// spaceOnlyPanes is every pane workspace i shows that no other workspace
+// does. Those are the ones closing it really decides about: a pane in a
+// project another workspace also has, or started by an agent that is in
+// one, keeps running there, so ending is never somebody else's loss.
+// Asked of the configuration as it stands — before the close — because
+// afterwards the first workspace shows everything no other claims, which
+// is exactly the set in question.
+func (m Model) spaceOnlyPanes(i int) []spacePane {
+	if i <= 0 || i >= len(m.spaces) {
+		return nil
+	}
+	var out []spacePane
+	for _, mach := range m.machines {
+		_, mine := m.spaceShown(i, mach)
+		if len(mine) == 0 {
+			continue
+		}
+		others := map[string]bool{}
+		for j := range m.spaces {
+			if j == i {
+				continue
+			}
+			_, theirs := m.spaceShown(j, mach)
+			for _, p := range theirs {
+				others[p.ID] = true
+			}
+		}
+		for _, p := range mine {
+			if !others[p.ID] {
+				out = append(out, spacePane{mach.id, p})
+			}
+		}
+	}
+	return out
+}
+
+// closeSpaceAsk closes the workspace on screen, after asking what to do
+// with what is running in it: move it to the first workspace, or end it.
+// Those are the only two answers because the rest of what a workspace
+// holds has no say — a project, host or folder no workspace claims is the
+// first one's, so projects, machines, hosts, folders and tabs land there
+// either way. Only an agent or a terminal can be ended instead.
 func (m *Model) closeSpaceAsk() tea.Cmd {
 	i := m.activeSpace
 	if i <= 0 || i >= len(m.spaces) {
 		m.setFlash("the first workspace stays", false)
 		return nil
 	}
-	m.overlay = newConfirm("Close workspace "+m.spaceLabel(i)+"? Its agents, terminals, projects, hosts and tabs move to workspace 1; nothing ends.",
-		func(m *Model) tea.Cmd { return m.closeSpace(i) })
+	label := m.spaceLabel(i)
+	agents, shells := 0, 0
+	for _, p := range m.spaceOnlyPanes(i) {
+		switch {
+		case p.info.State != proto.PaneRunning:
+		case p.info.Agent != nil:
+			agents++
+		default:
+			shells++
+		}
+	}
+	if agents+shells == 0 {
+		m.overlay = newConfirm("Close workspace "+label+"? Its projects, machines, hosts and tabs move to workspace 1; nothing is running in it.",
+			func(m *Model) tea.Cmd { return m.closeSpace(i, false) })
+		return nil
+	}
+	what := countText(agents, shells)
+	mu := &menu{title: "Close workspace " + label}
+	mu.items = []menuItem{
+		{"enter", "Move " + what + " to workspace 1 — nothing ends", func(m *Model) tea.Cmd { return m.closeSpace(i, false) }},
+		{"e", "End " + what + ", and close it", func(m *Model) tea.Cmd { return m.closeSpace(i, true) }},
+	}
+	m.overlay = mu
 	return nil
 }
 
-func (m *Model) closeSpace(i int) tea.Cmd {
+// closeSpace closes workspace i, ending what it alone holds when end is
+// set. Its projects, machines, hosts, folders and tabs go to the first
+// workspace either way; a pane that is ending leaves its tab when the
+// server says it closed, as any pane that exits does.
+func (m *Model) closeSpace(i int, end bool) tea.Cmd {
 	if i <= 0 || i >= len(m.spaces) {
 		return nil
+	}
+	var cmds []tea.Cmd
+	if end {
+		// While the workspace is still there to say which panes are its.
+		for _, p := range m.spaceOnlyPanes(i) {
+			cmds = append(cmds, m.callOn(p.machine, proto.MethodPaneClose, proto.PaneRef{ID: p.info.ID}, nil, nil))
+		}
 	}
 	if i == m.activeSpace {
 		m.enterSpace(0)
@@ -626,7 +704,7 @@ func (m *Model) closeSpace(i int) tea.Cmd {
 	if len(m.spaces) == 1 {
 		m.spaces, m.activeSpace = nil, 0 // just the one again: everything is in it
 	}
-	return tea.Batch(m.rebuild(), m.saveState())
+	return tea.Batch(append(cmds, m.rebuild(), m.saveState())...)
 }
 
 func (m *Model) renameSpaceAsk() tea.Cmd {

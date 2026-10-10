@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -288,7 +289,7 @@ func TestSpaceCloseAndRename(t *testing.T) {
 	// × beside the workspace on screen asks, then closes only it.
 	clickTop(t, m, spaceHitClose)
 	d, ok := m.overlay.(*dialog)
-	if !ok || !strings.Contains(strings.Join(d.text, " "), "nothing ends") {
+	if !ok || !strings.Contains(strings.Join(d.text, " "), "nothing is running in it") {
 		t.Fatalf("overlay %#v", m.overlay)
 	}
 	m.overlay = nil
@@ -298,7 +299,7 @@ func TestSpaceCloseAndRename(t *testing.T) {
 	}
 	// Closing the last extra one leaves just the one, as before any.
 	m.switchSpace(1)
-	m.closeSpace(1)
+	m.closeSpace(1, false)
 	if m.spaces != nil || m.activeSpace != 0 {
 		t.Fatalf("after last close: %v on %d", m.spaces, m.activeSpace)
 	}
@@ -308,11 +309,11 @@ func TestSpaceCloseAndRename(t *testing.T) {
 	// Closing one that isn't on screen keeps the one that is.
 	m.newSpace()
 	m.newSpace()
-	m.closeSpace(1)
+	m.closeSpace(1, false)
 	if m.activeSpace != 1 || len(m.spaces) != 2 {
 		t.Fatalf("on %d of %d", m.activeSpace, len(m.spaces))
 	}
-	if m.closeSpace(0) != nil || m.closeSpace(7) != nil {
+	if m.closeSpace(0, false) != nil || m.closeSpace(7, false) != nil {
 		t.Fatal("closed the first or one that isn't there")
 	}
 }
@@ -458,7 +459,7 @@ func TestSpaceMachineCounts(t *testing.T) {
 		t.Fatalf("first workspace usage %+v, everything %+v", u, all)
 	}
 	// With one workspace again, everything is counted.
-	m.closeSpace(1)
+	m.closeSpace(1, false)
 	if got := page(); !strings.Contains(got, "4 panes") || m.machineUsage(localMachine) != all {
 		t.Fatalf("one workspace:\n%s", got)
 	}
@@ -735,7 +736,7 @@ func TestSpaceCloseMovesToFirst(t *testing.T) {
 	tabs := len(m.tabs)
 
 	m.switchSpace(1)
-	m.closeSpace(1)
+	m.closeSpace(1, false)
 	if m.spaces != nil || m.activeSpace != 0 {
 		t.Fatalf("on %d of %v", m.activeSpace, m.spaces)
 	}
@@ -753,7 +754,7 @@ func TestSpaceCloseMovesToFirst(t *testing.T) {
 	m.spaces[1].hosts["box"] = true
 	m.newSpace()
 	m.spaces[2].hosts["old"] = true
-	m.closeSpace(1)
+	m.closeSpace(1, false)
 	if !m.spaces[0].hosts["box"] || m.hasHost(0, "old") || !m.hasHost(1, "old") {
 		t.Fatalf("after closing one of three: first %v, other %v", m.spaces[0].hosts, m.spaces[1].hosts)
 	}
@@ -923,7 +924,7 @@ func TestSpaceMachineAddJoinsWhereAsked(t *testing.T) {
 
 	// The workspace it was asked in closed meanwhile: the one on screen.
 	gone := m.spaces[2]
-	m.closeSpace(2)
+	m.closeSpace(2, false)
 	next, _ = m.Update(machineAddedMsg{m: remote.Machine{ID: "vm2", Label: "vm2"}, space: gone})
 	*m = next.(Model)
 	if !m.spaces[m.activeSpace].machines["vm2"] {
@@ -931,7 +932,7 @@ func TestSpaceMachineAddJoinsWhereAsked(t *testing.T) {
 	}
 
 	// With one workspace nothing is marked, and the machine is simply there.
-	m.closeSpace(1)
+	m.closeSpace(1, false)
 	if m.fromHere(nil) != nil {
 		t.Fatal("marked nothing into something")
 	}
@@ -944,5 +945,180 @@ func TestSpaceMachineAddJoinsWhereAsked(t *testing.T) {
 	*m = next.(Model)
 	if indexOfRow(m.rows, machineID("one")) < 0 {
 		t.Fatalf("not listed:\n%s", render(m.rows))
+	}
+}
+
+// closedPanes is the ids of every pane the server was asked to close, in
+// order, with the list emptied for the next step.
+func closedPanes(t *testing.T, peer *a1Peer) []string {
+	t.Helper()
+	peer.mu.Lock()
+	defer peer.mu.Unlock()
+	var out []string
+	kept := peer.msgs[:0]
+	for _, msg := range peer.msgs {
+		if msg.Method != proto.MethodPaneClose {
+			kept = append(kept, msg)
+			continue
+		}
+		var ref proto.PaneRef
+		if err := json.Unmarshal(msg.Params, &ref); err != nil {
+			t.Fatalf("pane.close params %q: %v", msg.Params, err)
+		}
+		out = append(out, ref.ID)
+	}
+	peer.msgs = kept
+	slices.Sort(out)
+	return out
+}
+
+// askClose opens the close-workspace menu for the workspace on screen and
+// gives it with its labels.
+func askClose(t *testing.T, m *Model) (*menu, string) {
+	t.Helper()
+	a1Prefixed(t, m, runes("X"))
+	mu, ok := m.overlay.(*menu)
+	if !ok {
+		t.Fatalf("overlay %#v, not the close menu", m.overlay)
+	}
+	var labels []string
+	for _, it := range mu.items {
+		labels = append(labels, it.key+" "+ansi.Strip(it.label))
+	}
+	return mu, strings.Join(labels, "\n")
+}
+
+// TestSpaceCloseEndsOrMoves: closing a workspace that has agents or
+// terminals of its own asks which, and ending reaches exactly those —
+// never a pane another workspace is also showing.
+func TestSpaceCloseEndsOrMoves(t *testing.T) {
+	m, peer := a1Fixture(t, true)
+	mach := m.machines[0]
+	// p5 was started by the codex agent in p4: what an agent starts is in
+	// its workspace, so it ends with it.
+	mach.panes = append(mach.panes, proto.PaneInfo{ID: "p5", Name: "zsh", State: proto.PaneRunning, CreatedBy: "p4"})
+
+	// A workspace holding two panes started in it: one agent, one terminal,
+	// and the terminal the agent started.
+	ownPanes := func() {
+		m.newSpace()
+		m.spaces[1].panes[paneKey(localMachine, "p3")] = true
+		m.spaces[1].panes[paneKey(localMachine, "p4")] = true
+		m.rebuild()
+	}
+	ownPanes()
+	mu, labels := askClose(t, m)
+	if mu.title != "Close workspace 2" {
+		t.Fatalf("title %q", mu.title)
+	}
+	// Two agents: p4 and the terminal p5 it started is a terminal.
+	for _, want := range []string{"enter Move 1 agent and 2 terminals to workspace 1 — nothing ends",
+		"e End 1 agent and 2 terminals, and close it"} {
+		if !strings.Contains(labels, want) {
+			t.Fatalf("no %q in the menu:\n%s", want, labels)
+		}
+	}
+	if mu.sel != 0 {
+		t.Fatalf("the menu starts on item %d, not on the one that ends nothing", mu.sel)
+	}
+
+	// Move: nothing is closed, and the panes are workspace 1's.
+	runBatch(mu.run(m, 0))
+	if got := closedPanes(t, peer); len(got) > 0 {
+		t.Fatalf("moving closed %v", got)
+	}
+	if m.spaces != nil {
+		t.Fatalf("workspace 2 stayed: %v", m.spaces)
+	}
+	for _, id := range []string{"p3", "p4", "p5"} {
+		if indexOfRow(m.rows, paneNodeID(localMachine, id)) < 0 {
+			t.Fatalf("%s is nowhere after the move:\n%s", id, render(m.rows))
+		}
+	}
+
+	// End: exactly the three it held, and not the project's p1 and p2.
+	ownPanes()
+	mu, _ = askClose(t, m)
+	// e, not m: the menu's own quit key would have swallowed an m.
+	handled, cmd := mu.update(m, runes("e"))
+	if !handled || m.overlay != nil {
+		t.Fatalf("e didn't take: handled %v, overlay %#v", handled, m.overlay)
+	}
+	runBatch(cmd)
+	if got := closedPanes(t, peer); !slices.Equal(got, []string{"p3", "p4", "p5"}) {
+		t.Fatalf("ended %v", got)
+	}
+	if m.spaces != nil {
+		t.Fatalf("workspace 2 stayed: %v", m.spaces)
+	}
+
+	// A pane that has already exited is nothing to warn about, so it is
+	// not counted — and it is still closed, or its marker would move to
+	// workspace 1 with nothing behind it.
+	mach.panes[4].State = proto.PaneExited
+	ownPanes()
+	mu, labels = askClose(t, m)
+	if !strings.Contains(labels, "1 agent and 1 terminal") {
+		t.Fatalf("an exited pane was counted:\n%s", labels)
+	}
+	runBatch(mu.run(m, 1))
+	if got := closedPanes(t, peer); !slices.Equal(got, []string{"p3", "p4", "p5"}) {
+		t.Fatalf("ended %v: an exited pane is closed too", got)
+	}
+}
+
+// TestSpaceCloseSparesWhatAnotherShows: a project shared with another
+// workspace keeps its agents — ending is never somebody else's loss — and
+// a project this workspace has alone loses them.
+func TestSpaceCloseSparesWhatAnotherShows(t *testing.T) {
+	m, peer := a1Fixture(t, true)
+	key := scoped(localMachine, "r1")
+	m.newSpace()
+	m.spaces[0].projects[key] = true // shared, as keepInFirst leaves it
+	m.spaces[1].projects[key] = true
+	m.rebuild()
+	// Nothing of its own is running, so there is nothing to decide.
+	a1Prefixed(t, m, runes("X"))
+	d, ok := m.overlay.(*dialog)
+	if !ok || !strings.Contains(strings.Join(d.text, " "), "nothing is running in it") {
+		t.Fatalf("overlay %#v", m.overlay)
+	}
+	m.overlay = nil
+	runBatch(d.submit(m, nil))
+	if got := closedPanes(t, peer); len(got) > 0 {
+		t.Fatalf("closed a shared project's panes: %v", got)
+	}
+	if m.pane(localMachine, "p1") == nil {
+		t.Fatal("p1 gone")
+	}
+
+	// The same project in this workspace alone: its agent and terminal are
+	// its own, and End reaches them.
+	m.newSpace()
+	m.spaces[1].projects[key] = true
+	delete(m.spaces[0].projects, key)
+	m.rebuild()
+	mu, labels := askClose(t, m)
+	if !strings.Contains(labels, "1 agent and 1 terminal") {
+		t.Fatalf("menu for a project of its own:\n%s", labels)
+	}
+	runBatch(mu.run(m, 1))
+	if got := closedPanes(t, peer); !slices.Equal(got, []string{"p1", "p2"}) {
+		t.Fatalf("ended %v, not the project's p1 and p2", got)
+	}
+}
+
+// TestSpaceOnlyPanesRange: there is nothing to end for the first
+// workspace or one that is not there.
+func TestSpaceOnlyPanesRange(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	m.newSpace()
+	for _, i := range []int{-1, 0, 2, 9} {
+		if got := m.spaceOnlyPanes(i); got != nil {
+			t.Fatalf("workspace %d holds %v", i, got)
+		}
+	}
+	if m.closeSpace(0, true) != nil || m.closeSpace(9, true) != nil {
+		t.Fatal("closed the first or one that isn't there")
 	}
 }
