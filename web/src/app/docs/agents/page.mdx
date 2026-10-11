@@ -88,6 +88,34 @@ A report decides a pane's *state*, never whether it holds an agent: that still c
 
 `conch agent explain p1` shows the evidence behind a state.
 
+### conch reports its own state too
+
+conch reads OSC 7501 because it is the terminal its agents run in. It is
+also a program on *your* terminal, with the same thing to say, so it emits
+one report of its own: `blocked` while any agent is waiting on you,
+`error` when one has failed, otherwise `working`, `done` or `idle`, with a
+line naming the agent when there is one of it (`claude on feat waiting`)
+and counting them when there are more. A terminal that understands the
+protocol can then put that on the tab or the window — **which is the one
+state you cannot see for yourself, because seeing it means looking at
+conch.** It counts every agent conch knows of, not only the
+[workspace](/docs/interface#workspaces) on screen, since the terminal's tab
+is outside workspaces and an agent waiting in one you switched away from is
+exactly the one that is out of sight. conch takes the report away when it
+quits, so no tab is left saying an agent waits after the conch that said so
+has gone.
+
+Unlike an agent, conch does not ask the terminal whether it speaks the
+protocol first. The answer would arrive on conch's own stdin, where the TUI
+reads keys and would take `ESC ] 7 5 0 1 ;` for an escape followed by the
+digits `7`, `5`, `0`, `1` — digits that switch tabs. Writing without
+listening is the safe half: never asking means nothing ever arrives to be
+misread. A terminal without support throws an unknown `OSC` away, and these
+are written only when something changes, so the cost of telling one that is
+not listening is a few bytes a minute. It is off inside tmux and screen,
+which own the window the report would reach, and `CONCH_STATUS=0` turns it
+off anywhere (`1` turns it on, tmux included).
+
 ## Agents working together
 
 An agent can start another — a reviewer for its change, a tester — prompt it and read its answer, kept to its own work while it does. See [Agents working together](/docs/agents-together).

@@ -136,11 +136,16 @@ type Model struct {
 	hoverLink hoverLink
 	// pointer is the shape the terminal was last asked for, so it is
 	// asked only when it changes (pointer.go).
-	pointer     string
-	scrollDrag  int // a leaf whose scrollbar is being dragged
-	scrollTop   int // the track's first screen row, and its height
-	scrollH     int
-	pendingShow string // row to put on screen once the tree has it
+	pointer string
+	// hostStatusOn is whether to tell the terminal conch is running on
+	// what its agents are doing, and hostSaid the last thing said, so it
+	// is said only when it changes (hoststatus.go).
+	hostStatusOn bool
+	hostSaid     string
+	scrollDrag   int // a leaf whose scrollbar is being dragged
+	scrollTop    int // the track's first screen row, and its height
+	scrollH      int
+	pendingShow  string // row to put on screen once the tree has it
 	// launchDir is where conch was started, until the first list of local
 	// projects places the tree by it (launch.go); noProjectOffer is the
 	// repositories you said not to offer as projects again.
@@ -244,6 +249,8 @@ func New(local *client.Client, cfg config.Config) Model {
 
 		filesHideDot:     st.FilesHideDot,
 		filesShowIgnored: st.FilesShowIgnored,
+
+		hostStatusOn: hostStatusWorks(),
 	}
 	m.sshInfo = cleanSSHInfo(m.savedSSH, st.SSHHosts)
 	m.folders = migrateSSHGroups(m.folders, st.SSHGroups, m.savedSSH, m.sshInfo)
@@ -1299,6 +1306,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nm.treeSig = sig
 		cmd = tea.Batch(cmd, nm.rebuild())
 	}
+	// And one place to tell the terminal what conch is doing, for the same
+	// reason: every path that changes an agent's state ends up here, and
+	// the report is written only when what it says has changed.
+	nm.reportToHost()
 	return nm, cmd
 }
 

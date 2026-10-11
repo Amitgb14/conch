@@ -131,6 +131,79 @@ func parseStatus(body string) (rec ProgramStatus, ok bool) {
 	return rec, true
 }
 
+// FormatStatus writes a record the way a program sends one: the body of
+// an OSC 7501, pairs separated by colons, free text base64. It is here
+// beside parseStatus so one file owns the wire format in both
+// directions — conch reads these off a pty as the terminal, and sends
+// them up its own stdout as a program (internal/tui/hoststatus.go), and
+// the two halves drifting apart is the failure nobody would see until a
+// terminal somewhere said nothing.
+//
+// Zero fields are left out rather than sent empty: a program says what
+// it knows. State is the one required key, so a record without one is
+// formatted as idle rather than as a body the other side must throw
+// away.
+func FormatStatus(rec ProgramStatus) string {
+	state := rec.State
+	if state == "" {
+		state = StatusIdle
+	}
+	parts := []string{"state=" + state}
+	if rec.ID != "" {
+		parts = append(parts, "id="+rec.ID)
+	}
+	if rec.Kind != "" {
+		parts = append(parts, "kind="+rec.Kind)
+	}
+	if rec.App != "" {
+		parts = append(parts, "app="+rec.App)
+	}
+	if rec.Progress >= 0 && rec.Progress <= 100 {
+		parts = append(parts, "progress="+strconv.Itoa(rec.Progress))
+	}
+	if rec.Title != "" {
+		parts = append(parts, "title="+encodeText(rec.Title))
+	}
+	if rec.Msg != "" {
+		parts = append(parts, "msg="+encodeText(rec.Msg))
+	}
+	return strings.Join(parts, ":")
+}
+
+// StatusSequence is FormatStatus wrapped as the escape itself, ready to
+// write to a terminal.
+func StatusSequence(rec ProgramStatus) string {
+	return "\x1b]7501;" + FormatStatus(rec) + "\x1b\\"
+}
+
+// StatusClear is the record that removes id and everything under it;
+// with "" it takes conch's own report away entirely, which is what
+// leaving the screen owes the terminal.
+func StatusClear(id string) ProgramStatus {
+	return ProgramStatus{ID: id, State: statusClear, Progress: statusNoValue}
+}
+
+// encodeText is the other end of decodeText. A control character would
+// be an escape sequence the far side went on to draw, and decodeText
+// throws away a whole report for one, so they are dropped here rather
+// than sent and discarded.
+func encodeText(s string) string {
+	clean := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	// The limit is on the encoded value, which is a third longer.
+	if 4*(len(clean)+2)/3 > maxFreeText {
+		clean = clean[:maxFreeText*3/4]
+		for len(clean) > 0 && !utf8.ValidString(clean) {
+			clean = clean[:len(clean)-1] // never cut a rune in half
+		}
+	}
+	return base64.StdEncoding.EncodeToString([]byte(clean))
+}
+
 // decodeText reads one of the base64 values. Padding is optional, and
 // what comes out has to be a line of text: a control character in it
 // would be an escape sequence conch went on to draw.

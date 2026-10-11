@@ -382,3 +382,88 @@ sleep 30`
 		t.Fatalf("the program is %q", got)
 	}
 }
+
+// TestFormatStatusRoundTrip: what conch sends as a program is what conch
+// reads as a terminal. The two halves live in one file for this reason —
+// a formatter that drifted from the parser would be read by nobody, and
+// the silence would look like a terminal without support.
+func TestFormatStatusRoundTrip(t *testing.T) {
+	for _, want := range []ProgramStatus{
+		{State: StatusIdle, Progress: statusNoValue},
+		{State: StatusWorking, App: "conch", Progress: statusNoValue},
+		{State: StatusBlocked, Kind: BlockedQuestion, App: "conch",
+			Msg: "claude waiting on feat", Progress: statusNoValue},
+		{State: StatusError, App: "conch", Msg: "codex failed", Progress: statusNoValue},
+		{State: StatusDone, ID: "local/p3", App: "conch", Progress: 42},
+		{State: StatusWorking, Progress: 0},   // zero is a progress, not a missing one
+		{State: StatusWorking, Progress: 100}, // and so is the end of one
+		// Text that has to survive base64 and the colon-separated pairs.
+		{State: StatusIdle, Msg: "a:b=c · “quoted” · 100%", Title: "api/feat", Progress: statusNoValue},
+	} {
+		body := FormatStatus(want)
+		got, ok := parseStatus(body)
+		if !ok {
+			t.Fatalf("conch cannot read what it wrote: %q", body)
+		}
+		if got != want {
+			t.Fatalf("body %q\n got %+v\nwant %+v", body, got, want)
+		}
+	}
+}
+
+// A record with no state at all is still readable: state is the one key
+// the protocol requires, so it is sent as idle rather than as a body the
+// far side must throw away.
+func TestFormatStatusWithoutAState(t *testing.T) {
+	body := FormatStatus(ProgramStatus{App: "conch", Progress: statusNoValue})
+	rec, ok := parseStatus(body)
+	if !ok || rec.State != StatusIdle {
+		t.Fatalf("%q parsed as %+v, ok %v", body, rec, ok)
+	}
+}
+
+// The escape is the body wrapped in OSC 7501 and ST, and clear is the
+// record that takes conch's own report away.
+func TestStatusSequenceAndClear(t *testing.T) {
+	seq := StatusSequence(ProgramStatus{State: StatusWorking, App: "conch", Progress: statusNoValue})
+	if seq != "\x1b]7501;state=working:app=conch\x1b\\" {
+		t.Fatalf("sequence %q", seq)
+	}
+	// It is what conch's own scanner finds, and nothing is left over.
+	sc := &oscScanner{}
+	got := sc.scan([]byte(seq))
+	if len(got) != 1 || got[0].num != "7501" || got[0].data != "state=working:app=conch" {
+		t.Fatalf("scanner read %+v", got)
+	}
+	cl := StatusClear("")
+	if body := FormatStatus(cl); body != "state=clear" {
+		t.Fatalf("clear body %q", body)
+	}
+	if rec, ok := parseStatus(FormatStatus(StatusClear("build/test"))); !ok || rec.ID != "build/test" || rec.State != statusClear {
+		t.Fatalf("clear of a subtree parsed as %+v, ok %v", rec, ok)
+	}
+}
+
+// Control characters never leave: decodeText throws away a whole report
+// for one, so the formatter drops them rather than sending a report the
+// far side will ignore. A long message is cut to the protocol's limit,
+// and never through the middle of a rune.
+func TestFormatStatusCleansText(t *testing.T) {
+	rec := ProgramStatus{State: StatusIdle, Msg: "one\x1b[31mtwo\nthree\x7f", Progress: statusNoValue}
+	got, ok := parseStatus(FormatStatus(rec))
+	if !ok {
+		t.Fatal("a message with control characters in it voided the report")
+	}
+	if got.Msg != "one[31mtwothree" {
+		t.Fatalf("msg %q", got.Msg)
+	}
+	long := ProgramStatus{State: StatusIdle, Msg: strings.Repeat("é", 2000), Progress: statusNoValue}
+	body := FormatStatus(long)
+	cut, ok := parseStatus(body)
+	if !ok {
+		t.Fatalf("a long message voided the report: %d bytes of body", len(body))
+	}
+	if cut.Msg == "" || len(cut.Msg) >= len(long.Msg) {
+		t.Fatalf("message not cut: %d runes of %d", len([]rune(cut.Msg)), len([]rune(long.Msg)))
+	}
+}

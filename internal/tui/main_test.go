@@ -24,6 +24,10 @@ func TestMain(m *testing.M) {
 	// The pointer shape is an escape to the real terminal: a test that
 	// sent it would leave the developer's own pointer as a hand.
 	setPointerShape = func(shape string) { pointerShapes = append(pointerShapes, shape) }
+	// And so is conch's own status report, which the terminal running
+	// `go test` may well read — conch is a terminal that reads these.
+	sendHostStatus = func(body string) { hostReports = append(hostReports, body) }
+	stdoutIsTerminal = func() bool { return false }
 	signalProcess = func(pid int, sig syscall.Signal) error { signalled = append(signalled, pid); return nil }
 	// Each wheel event a second after the last, so a test's notches are
 	// notches: one sent straight after another is not a trackpad's burst.
@@ -37,6 +41,7 @@ var (
 	lastClipboard string
 	lastOpened    string
 	bells         int
+	hostReports   []string
 	signalled     []int
 	// pointerShapes is every shape asked for, in order: the point of the
 	// feature is that it is asked for once per crossing, not per motion.

@@ -264,6 +264,19 @@ helpers in `cmd/conch` and `internal/remote`.
   process. And a program speaks only when something changes, so the same
   record is seen at every tick — `done` is raised once (`programAt`), or
   it nags for ever.
+  **conch emits one too, and does not ask first.** conch is also a
+  program on somebody's terminal, so `internal/tui/hoststatus.go` sends
+  a single aggregate record up stdout — `blocked` while any agent waits,
+  `error` for one that failed, else `working`/`done`/`idle` — for a
+  Ghostty or kitty tab to show while conch is not on screen. The
+  formatter lives beside the parser (`pane.FormatStatus`) so one file
+  owns the wire format both ways, and a round-trip test says they agree.
+  It counts *every* agent conch knows, not the workspace on screen, since
+  a tab is outside workspaces. What it must not do is probe: the reply
+  lands on conch's own stdin, and Bubble Tea v1 has no OSC parsing on
+  input, so `ESC ] 7 5 0 1 ;` would reach the TUI as an escape and then
+  as the keys `7`, `5`, `0`, `1` — digits that switch tabs. Never asking
+  is what keeps stdin clean, and it is why this half is write-only.
 - **The pointer's shape is the terminal's to draw.** Hovering a link
   underlines it, which conch does by drawing; the arrow becoming a hand
   is asked for with `OSC 22` (kitty's pointer shape, which Ghostty takes

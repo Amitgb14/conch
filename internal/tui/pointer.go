@@ -87,10 +87,12 @@ func (m *Model) releasePointer() {
 }
 
 // quitting is tea.Quit with the terminal left as conch found it: the
-// pointer back to an arrow, whatever it was over. Every path out of the
-// TUI goes through here or releasePointer, or a hand over a link would
-// outlive the process that asked for it.
+// pointer back to an arrow, whatever it was over, and conch's own status
+// report taken away (hoststatus.go). Every path out of the TUI goes
+// through here or releasePointer, or a hand over a link — or a tab still
+// saying an agent is waiting — would outlive the process that said so.
 func (m *Model) quitting(before ...tea.Cmd) tea.Cmd {
 	m.releasePointer()
+	m.clearHostStatus()
 	return tea.Sequence(append(before, tea.Quit)...)
 }
