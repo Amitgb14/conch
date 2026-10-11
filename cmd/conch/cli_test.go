@@ -1087,3 +1087,31 @@ func TestMachineAddNoInstall(t *testing.T) {
 		t.Fatalf("-yes -no-install: %v", err)
 	}
 }
+
+// TestMachineUpgradeUnknown: upgrading something conch has never heard
+// of says so and names what it has. FindMachine turns an unknown ref
+// into an ssh target, which is right for `conch -m user@host` and wrong
+// here: `conch machine upgrade dxb01` answered "Could not resolve
+// hostname dxb01" for a sandbox that was simply not in the catalog.
+func TestMachineUpgradeUnknown(t *testing.T) {
+	a4Env(t)
+	// No ssh to reach anything with, so every attempt fails and what is
+	// being read here is what the failure says.
+	t.Setenv("CONCH_SSH", filepath.Join(t.TempDir(), "no-such-ssh"))
+	err := runMachine([]string{"upgrade", "dxb01"})
+	if err == nil || !strings.Contains(err.Error(), `no machine "dxb01"`) || !strings.Contains(err.Error(), "none yet") {
+		t.Fatalf("with no machines: %v", err)
+	}
+	if _, err := remote.SaveMachine(remote.Machine{Label: "box", Target: "dev@box"}); err != nil {
+		t.Fatal(err)
+	}
+	err = runMachine([]string{"upgrade", "dxb01"})
+	if err == nil || !strings.Contains(err.Error(), `no machine "dxb01"`) || !strings.Contains(err.Error(), "conch has box") {
+		t.Fatalf("with one machine: %v", err)
+	}
+	// A machine conch does have fails on its own terms: nothing is said
+	// about names, because the ref was not the problem.
+	if err := runMachine([]string{"upgrade", "box"}); err == nil || strings.Contains(err.Error(), "no machine") {
+		t.Fatalf("a machine conch has: %v", err)
+	}
+}

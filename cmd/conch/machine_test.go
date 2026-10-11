@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -337,7 +338,10 @@ func TestA4MachineUpgradeFailures(t *testing.T) {
 	f.setProbe(t, a4CurrentProbe())
 	t.Setenv("CONCH_REMOTE_BINARY", filepath.Join(t.TempDir(), "missing"))
 	a4Capture(t, "", func() { err = runMachine([]string{"upgrade", "box"}) })
-	if err == nil || !os.IsNotExist(err) {
+	// errors.Is, not os.IsNotExist: upgrading a ref conch has no machine
+	// for wraps the failure with the names it does have, and the old
+	// check does not unwrap.
+	if err == nil || !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("install: %v", err)
 	}
 	t.Setenv("CONCH_REMOTE_BINARY", filepath.Join(t.TempDir(), "bin"))

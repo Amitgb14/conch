@@ -1645,3 +1645,67 @@ func TestSandboxCreatedWithoutConch(t *testing.T) {
 		t.Fatalf("provider calls %q", p.called())
 	}
 }
+
+// placedProvider and sizedProvider are the two shapes that change the
+// New sandbox dialog's fields: boat.dev names a platform where Daytona
+// takes a snapshot, and a provider with named sizes is not asked for
+// vCPUs, memory and disk at all.
+type placedProvider struct{ *sbProvider }
+
+func (placedProvider) PlaceHint() string { return "a platform, e.g. linux/amd64" }
+
+type sizedProvider struct{ *sbProvider }
+
+func (sizedProvider) SizeNames() []string { return []string{"small", "large"} }
+
+// TestSandboxInstallBoxForEveryShape: the Install box is the last field
+// whatever the provider asks for, and the submit reads *that* field. The
+// dialog's fields differ per provider — boat.dev loses the size
+// questions and renames the snapshot one — so an index that happened to
+// be right for Daytona could silently read the wrong value, or nothing,
+// for the others, and the sandbox would come out uninstalled with the
+// box ticked.
+func TestSandboxInstallBoxForEveryShape(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		p      sandbox.Provider
+		fields int // text fields, before the box
+	}{
+		{"plain", &sbProvider{created: sandbox.Sandbox{ID: "sb1"}}, 6},
+		{"placed", placedProvider{&sbProvider{created: sandbox.Sandbox{ID: "sb1"}}}, 3},
+		{"named sizes", sizedProvider{&sbProvider{created: sandbox.Sandbox{ID: "sb1"}}}, 3},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			a2Isolate(t)
+			useSandboxProvider(t, c.p)
+			m := a2Model()
+			d := newSandboxDialog(*m, "daytona")
+			if len(d.fields) != c.fields+1 {
+				t.Fatalf("%d fields, want %d and a box", len(d.fields), c.fields)
+			}
+			box := d.fields[len(d.fields)-1]
+			if box.check == nil || !*box.check || !strings.Contains(box.label, "Install conch") {
+				t.Fatalf("last field is %+v", box)
+			}
+
+			var wanted []bool
+			old := setUpSandboxFn
+			setUpSandboxFn = func(_ context.Context, _ remote.Machine, install bool, _ func(string)) (*client.Client, error) {
+				wanted = append(wanted, install)
+				return nil, nil
+			}
+			t.Cleanup(func() { setUpSandboxFn = old })
+
+			// The values the dialog itself would hand over: one per field,
+			// the box last.
+			vals := make([]string, len(d.fields))
+			vals[len(vals)-1] = "on"
+			a2Run(d.submit(m, vals))
+			vals[len(vals)-1] = ""
+			a2Run(d.submit(m, vals))
+			if len(wanted) != 2 || !wanted[0] || wanted[1] {
+				t.Fatalf("install asked for: %v", wanted)
+			}
+		})
+	}
+}

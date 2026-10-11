@@ -95,7 +95,21 @@ func runMachine(args []string) error {
 		if len(args) != 2 {
 			return errors.New("usage: conch machine upgrade ID")
 		}
-		return machineUpgrade(remote.FindMachine(args[1]))
+		// An ssh target conch has never been told about is upgraded too
+		// (`conch machine upgrade dev@host`), so the ref is not refused
+		// for matching no machine — but when that attempt then fails, it
+		// is usually because the ref was a machine's *name* that conch
+		// does not have, and "Could not resolve hostname dxb01" says
+		// nothing about that. So the failure carries it.
+		m, known := remote.LookupMachine(args[1])
+		if !known {
+			m = remote.FindMachine(args[1])
+		}
+		err := machineUpgrade(m)
+		if err != nil && !known {
+			return fmt.Errorf("%w (and no machine %q: %s)", err, args[1], machinesHere())
+		}
+		return err
 	case "hosts":
 		for _, h := range remote.SSHHosts() {
 			fmt.Println(h)
@@ -103,6 +117,15 @@ func runMachine(args []string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown machine subcommand %q", args[0])
+}
+
+// machinesHere names what conch has, for a ref that matched none of it.
+func machinesHere() string {
+	names := remote.MachineNames()
+	if len(names) == 0 {
+		return "conch has none yet — conch machine add SSH_TARGET"
+	}
+	return "conch has " + strings.Join(names, ", ")
 }
 
 func machineAdd(args []string) error {

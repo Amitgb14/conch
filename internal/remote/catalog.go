@@ -194,13 +194,36 @@ func RemoveMachine(ref string) error {
 // FindMachine resolves an ID, label or ssh target to a machine. Unknown
 // references are treated as ad-hoc ssh targets.
 func FindMachine(ref string) Machine {
+	if m, ok := LookupMachine(ref); ok {
+		return m
+	}
+	return Machine{ID: slug(labelFor(ref)), Label: labelFor(ref), Target: ref, Enabled: true}
+}
+
+// LookupMachine is FindMachine without the fallback: a machine conch has,
+// by ID, label or target, or ok false. A command that acts on a machine
+// already added wants this — FindMachine would turn the name of a
+// machine conch does not have into an ssh target and try to resolve it,
+// so `conch machine upgrade dxb01` answered "Could not resolve hostname
+// dxb01" for a sandbox that was simply not in the catalog.
+func LookupMachine(ref string) (Machine, bool) {
 	ms, _ := Machines()
 	for _, m := range ms {
 		if m.ID == ref || m.Label == ref || m.Target == ref {
-			return m
+			return m, true
 		}
 	}
-	return Machine{ID: slug(labelFor(ref)), Label: labelFor(ref), Target: ref, Enabled: true}
+	return Machine{}, false
+}
+
+// MachineNames is what conch has, for saying so when a ref matches none.
+func MachineNames() []string {
+	ms, _ := Machines()
+	out := make([]string, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, m.ID)
+	}
+	return out
 }
 
 // labelFor derives a short label from an ssh target: the host part.
