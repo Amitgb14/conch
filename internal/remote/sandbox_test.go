@@ -490,7 +490,7 @@ func TestSetUpSandboxWaitsForTheMachine(t *testing.T) {
 	t.Setenv("CONCH_SSH", ssh)
 
 	var said []string
-	_, err := SetUpSandbox(context.Background(), Machine{ID: "box", Label: "box", Target: "daytona:sb1"},
+	_, err := SetUpSandbox(context.Background(), Machine{ID: "box", Label: "box", Target: "daytona:sb1"}, true,
 		func(s string) { said = append(said, s) })
 	if err == nil || !strings.Contains(err.Error(), "probe said no") {
 		t.Fatalf("it should have got as far as the probe: %v", err)
@@ -506,9 +506,48 @@ func TestSetUpSandboxWaitsForTheMachine(t *testing.T) {
 	// as far as installing anything.
 	os.Remove(count)
 	os.WriteFile(ssh, []byte("#!/bin/sh\nexit 255\n"), 0o755)
-	_, err = SetUpSandbox(context.Background(), Machine{ID: "box", Label: "box", Target: "daytona:sb1"}, nil)
+	_, err = SetUpSandbox(context.Background(), Machine{ID: "box", Label: "box", Target: "daytona:sb1"}, true, nil)
 	if err == nil || !strings.Contains(err.Error(), "box never answered") ||
 		!strings.Contains(err.Error(), "the ssh connection failed (255)") {
 		t.Fatalf("never answering: %v", err)
+	}
+}
+
+// TestSetUpSandboxWithoutInstalling: asked not to install, it waits for
+// the sandbox to answer and then leaves it exactly as the provider made
+// it — nothing written, no server, and a nil client for the caller to
+// add the machine around.
+func TestSetUpSandboxWithoutInstalling(t *testing.T) {
+	a4Env(t)
+	oldTries, oldWait := ConnectionTriesForTest(4, time.Millisecond)
+	t.Cleanup(func() { ConnectionTriesForTest(oldTries, oldWait) })
+	useProvider(t, &fakeProvider{state: sandbox.StateStarted}, nil)
+
+	dir := t.TempDir()
+	log := filepath.Join(dir, "ssh.log")
+	ssh := filepath.Join(dir, "ssh")
+	os.WriteFile(ssh, []byte("#!/bin/sh\necho \"$@\" >> "+log+"\nexit 0\n"), 0o755)
+	t.Setenv("CONCH_SSH", ssh)
+
+	var said []string
+	c, err := SetUpSandbox(context.Background(), Machine{ID: "box", Label: "box", Target: "daytona:sb1"}, false,
+		func(s string) { said = append(said, s) })
+	if err != nil {
+		t.Fatalf("it should not have failed: %v", err)
+	}
+	if c != nil {
+		t.Fatal("it connected to a sandbox it was told to leave alone")
+	}
+	if !strings.Contains(strings.Join(said, "\n"), "conch not installed, as asked") {
+		t.Fatalf("steps %v", said)
+	}
+	// It got as far as asking whether the machine answers, and no further:
+	// no probe, and nothing copied.
+	b, _ := os.ReadFile(log)
+	if len(b) == 0 {
+		t.Fatal("it never reached the machine")
+	}
+	if strings.Contains(string(b), "conch.new") || strings.Contains(string(b), "uname") {
+		t.Fatalf("it did more than wait:\n%s", b)
 	}
 }

@@ -665,7 +665,7 @@ func newAddProjectDialog(m Model, mid string) *dialog {
 }
 
 func newAddMachineDialog(m Model) *dialog {
-	text := []string{"conch reaches the machine with your ssh setup and installs itself to ~/.local/bin/conch there if needed."}
+	text := []string{"conch reaches the machine with your ssh setup and installs itself to ~/.local/bin/conch there if needed — one static binary and a ~/.config/conch of its own, nothing else, no root."}
 	if hosts := remote.SSHHosts(); len(hosts) > 0 {
 		if len(hosts) > 12 {
 			hosts = append(hosts[:12], "…")
@@ -680,13 +680,22 @@ func newAddMachineDialog(m Model) *dialog {
 	d.fields[2].in.EchoMode = textinput.EchoPassword
 	d.fields[2].in.EchoCharacter = '•'
 	d.addCheck("Key login", "with a password, add my ssh key there so reconnects need no password", true)
+	d.addCheck("Install conch", "its server there is what keeps agents running when this window closes; without it the machine waits at Install", true)
 	d.submit = func(m *Model, v []string) tea.Cmd {
 		target := strings.TrimSpace(v[0])
 		if target == "" {
 			return func() tea.Msg { return errMsg{errString("an ssh target is required")} }
 		}
-		m.setFlash("adding "+target+" (installing conch there if needed)…", false)
-		return m.fromHere(addMachineFn(target, strings.TrimSpace(v[1]), v[2], v[3] == "on"))
+		// Ticked by default, and taken as ticked when the value is not
+		// there: a caller that knows nothing of the box asks for the
+		// machine conch has always added.
+		install := len(v) <= 4 || v[4] == "on"
+		doing := "adding " + target + " (installing conch there if needed)…"
+		if !install {
+			doing = "adding " + target + " without installing conch…"
+		}
+		m.setFlash(doing, false)
+		return m.fromHere(addMachineFn(target, strings.TrimSpace(v[1]), v[2], v[3] == "on", install))
 	}
 	return d
 }

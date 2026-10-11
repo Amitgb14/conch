@@ -429,20 +429,25 @@ func TestA2AddMachineDialog(t *testing.T) {
 	a2Isolate(t)
 	m := a2Model()
 	d := newAddMachineDialog(*m)
-	if len(d.fields) != 4 || !strings.Contains(strings.Join(d.text, " "), "never saved") || d.fields[3].check == nil || !*d.fields[3].check {
+	if len(d.fields) != 5 || !strings.Contains(strings.Join(d.text, " "), "never saved") || d.fields[3].check == nil || !*d.fields[3].check {
 		t.Fatalf("add machine dialog: %d fields %+v", len(d.fields), d.text)
+	}
+	// Installing conch is the last field, a box, ticked: it is what a
+	// machine is for, and unticking it is the way to say otherwise.
+	if d.fields[4].check == nil || !*d.fields[4].check || !strings.Contains(d.fields[4].label, "Install conch") {
+		t.Fatalf("install box %+v", d.fields[4])
 	}
 	if strings.Contains(strings.Join(d.text, " "), "Hosts in ~/.ssh/config") {
 		t.Fatal("no ssh config in an empty home")
 	}
 	type call struct {
 		target, label, password string
-		key                     bool
+		key, install            bool
 	}
 	var got []call
 	old := addMachineFn
-	addMachineFn = func(target, label, password string, key bool) tea.Cmd {
-		got = append(got, call{target, label, password, key})
+	addMachineFn = func(target, label, password string, key, install bool) tea.Cmd {
+		got = append(got, call{target, label, password, key, install})
 		return func() tea.Msg { return nil }
 	}
 	t.Cleanup(func() { addMachineFn = old })
@@ -473,14 +478,20 @@ func TestA2AddMachineDialog(t *testing.T) {
 	}
 	d.update(m, a2Key("q")) // no text goes into a checkbox
 	d.update(m, a2Key("enter"))
-	if len(got) != 1 || got[0] != (call{"dev@10.0.0.115", "", "s3cret pw", true}) || !strings.Contains(m.flash, "adding dev@10.0.0.115") {
+	// Typed through, both boxes ticked: conch is installed, as it always was.
+	if len(got) != 1 || got[0] != (call{"dev@10.0.0.115", "", "s3cret pw", true, true}) || !strings.Contains(m.flash, "adding dev@10.0.0.115") {
 		t.Fatalf("submit: %+v flash %q", got, m.flash)
 	}
 	// Unticked, the value says so; a click on the focused checkbox toggles it.
 	d2 := newAddMachineDialog(*m)
-	a2Run(d2.submit(m, []string{"host", "box", "", ""}))
-	if got[1] != (call{"host", "box", "", false}) {
+	a2Run(d2.submit(m, []string{"host", "box", "", "", "on"}))
+	if got[1] != (call{"host", "box", "", false, true}) {
 		t.Fatalf("no password: %+v", got[1])
+	}
+	// And unticking Install says so too, in the flash as well as the call.
+	a2Run(d2.submit(m, []string{"host", "box", "", "", ""}))
+	if got[2] != (call{"host", "box", "", false, false}) || !strings.Contains(m.flash, "without installing conch") {
+		t.Fatalf("no install: %+v flash %q", got[2], m.flash)
 	}
 	d2.focus = 3
 	b := d2.render(*m)

@@ -114,7 +114,7 @@ func TestA2MachineLifecycle(t *testing.T) {
 	if len(mach.limits) != 2 {
 		t.Fatalf("limits %v", mach.limits)
 	}
-	if addMachine("dev@box", "", "", false) == nil {
+	if addMachine("dev@box", "", "", false, true) == nil {
 		t.Fatal("addMachine returns a command")
 	}
 }

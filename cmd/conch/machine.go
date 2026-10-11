@@ -109,11 +109,15 @@ func machineAdd(args []string) error {
 	fs := flag.NewFlagSet("machine add", flag.ContinueOnError)
 	label := fs.String("label", "", "name shown in the sidebar (default: the host)")
 	yes := fs.Bool("yes", false, "install conch on the machine without asking")
+	noInstall := fs.Bool("no-install", false, "add it without installing conch: it waits at Install until you want one")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: conch machine add [-label NAME] [-yes] SSH_TARGET")
+		return errors.New("usage: conch machine add [-label NAME] [-yes | -no-install] SSH_TARGET")
+	}
+	if *yes && *noInstall {
+		return errors.New("-yes and -no-install ask for opposite things")
 	}
 	target := fs.Arg(0)
 	if provider, _, ok := remote.ParseSandboxTarget(target); ok {
@@ -133,7 +137,23 @@ func machineAdd(args []string) error {
 		if probe.Bin != "" {
 			what = "conch there is from an older build"
 		}
+		// -no-install adds the machine with nothing written to it: it
+		// waits at Install, which is what `m` → Install in the TUI and
+		// `conch machine upgrade` are for.
+		if *noInstall {
+			saved, err := remote.SaveMachine(remote.Machine{Label: *label, Target: target})
+			if err != nil {
+				return err
+			}
+			fmt.Printf("added %s (%s): %s, no conch installed — `conch machine upgrade %s` installs it\n",
+				saved.ID, saved.Label, target, saved.ID)
+			return nil
+		}
+		// Answering no to the prompt still stops: it is a question about
+		// this add, not about the machine, and somebody who wants the
+		// machine without conch has a flag that says so.
 		if !*yes && !confirm(fmt.Sprintf("  %s. Install it to ~/.local/bin/conch? [Y/n] ", what), true) {
+			fmt.Fprintf(os.Stderr, "  conch machine add -no-install %s adds it without installing\n", target)
 			return errors.New("not installed")
 		}
 		path, err := remote.Install(ctx, remote.SSH(target, true), probe.Platform, progress)

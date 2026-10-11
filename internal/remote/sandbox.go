@@ -130,9 +130,18 @@ func DefaultSandboxLabel(id string) string {
 	return "sandbox-" + id
 }
 
-// SetUpSandbox installs conch in a new sandbox and connects to its server.
-// Nothing asks first: the sandbox was made for this.
-func SetUpSandbox(ctx context.Context, m Machine, say func(string)) (*client.Client, error) {
+// SetUpSandbox waits for a new sandbox to answer and, with install,
+// puts conch in it and connects to its server. The add asks, and the
+// answer is yes by default: a sandbox was made for this, there is
+// nothing on it to preserve, and without a conch server there it holds
+// no panes — an agent in it would live only as long as one ssh
+// connection.
+//
+// **Without install it returns a nil client and no error.** Nothing is
+// written to the sandbox and no server is started; the caller adds the
+// machine anyway, and it waits at `! setup` until somebody installs
+// (`m` → Install, or `conch machine upgrade`).
+func SetUpSandbox(ctx context.Context, m Machine, install bool, say func(string)) (*client.Client, error) {
 	tr, err := TransportFor(ctx, m.Label, m.Target, false)
 	if err != nil {
 		return nil, err
@@ -145,6 +154,12 @@ func SetUpSandbox(ctx context.Context, m Machine, say func(string)) (*client.Cli
 	}
 	if err := WaitReachable(ctx, tr); err != nil {
 		return nil, fmt.Errorf("%s never answered: %w", m.Label, err)
+	}
+	if !install {
+		if say != nil {
+			say(m.Label + " is up · conch not installed, as asked")
+		}
+		return nil, nil
 	}
 	return Connect(ctx, tr, Options{Install: true, Progress: say})
 }

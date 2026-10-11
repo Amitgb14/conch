@@ -33,7 +33,7 @@ func TestAddMachineSSHFails(t *testing.T) {
 		// The job reports its steps as it goes, so what comes back is the
 		// batch of both: the reason is in there.
 		found := false
-		for _, msg := range a2Run(addMachine("dev@box", "box", c.password, c.key)) {
+		for _, msg := range a2Run(addMachine("dev@box", "box", c.password, c.key, true)) {
 			if e, ok := msg.(errMsg); ok && strings.Contains(e.err.Error(), "Permission denied") {
 				found = true
 			}
@@ -69,7 +69,7 @@ func TestAddMachineSaysWhatItIsDoing(t *testing.T) {
 	}
 	t.Cleanup(func() { connectFn = old })
 
-	a2Run(addMachineWith("dev@gpu", "gpu", "", false, ch))
+	a2Run(addMachineWith("dev@gpu", "gpu", "", false, true, ch))
 	var said []string
 	for cmd := nextStep(ch); cmd != nil; {
 		st, ok := cmd().(stepMsg)
@@ -85,5 +85,70 @@ func TestAddMachineSaysWhatItIsDoing(t *testing.T) {
 	want := []string{"connecting to gpu…", "copying conch to gpu (16 MB)…"}
 	if strings.Join(said, " | ") != strings.Join(want, " | ") {
 		t.Fatalf("steps %q, want %q", said, want)
+	}
+}
+
+// TestAddMachineWithoutInstalling: unticking Install adds the machine and
+// writes nothing to it. Declining the install used to throw the add away
+// with it, which made it a cancel rather than a choice.
+func TestAddMachineWithoutInstalling(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("CONCH_HOME", filepath.Join(dir, "conch"))
+	t.Setenv("CONCH_SOCKET", "")
+	t.Setenv("CONCH_PANE_ID", "")
+
+	var asked []remote.Options
+	old := connectFn
+	connectFn = func(_ context.Context, _ remote.Transport, o remote.Options) (*client.Client, error) {
+		asked = append(asked, o)
+		// What a machine with no conch on it answers when conch was told
+		// not to install one.
+		return nil, &remote.InstallError{Platform: "linux/amd64", Reason: "conch is not installed on box (linux/amd64)"}
+	}
+	t.Cleanup(func() { connectFn = old })
+
+	var added *machineAddedMsg
+	for _, msg := range a2Run(addMachine("dev@box", "box", "", false, false)) {
+		if m, ok := msg.(machineAddedMsg); ok {
+			added = &m
+		}
+		if e, ok := msg.(errMsg); ok {
+			t.Fatalf("not added: %v", e.err)
+		}
+	}
+	if added == nil {
+		t.Fatal("no machine added")
+	}
+	if !strings.Contains(added.note, "without conch on it") {
+		t.Fatalf("note %q", added.note)
+	}
+	if len(asked) != 1 || asked[0].Install {
+		t.Fatalf("connect options %+v", asked)
+	}
+	if ms, _ := remote.Machines(); len(ms) != 1 || ms[0].Target != "dev@box" {
+		t.Fatalf("catalog %+v", ms)
+	}
+
+	// With Install ticked, the same answer is a failure and nothing is
+	// saved: conch was asked to install and could not.
+	asked = nil
+	if ms, _ := remote.Machines(); len(ms) == 1 {
+		_ = remote.RemoveMachine(ms[0].ID)
+	}
+	failed := false
+	for _, msg := range a2Run(addMachine("dev@box2", "box2", "", false, true)) {
+		if _, ok := msg.(errMsg); ok {
+			failed = true
+		}
+	}
+	if !failed {
+		t.Fatal("an install that could not happen was not reported")
+	}
+	if len(asked) != 1 || !asked[0].Install {
+		t.Fatalf("connect options %+v", asked)
+	}
+	if ms, _ := remote.Machines(); len(ms) != 0 {
+		t.Fatalf("saved after a failed install: %+v", ms)
 	}
 }

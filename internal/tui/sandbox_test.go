@@ -392,7 +392,7 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 	// A good form creates it, sets conch up and adds the machine.
 	var setUp []string
 	old := setUpSandboxFn
-	setUpSandboxFn = func(_ context.Context, mm remote.Machine, _ func(string)) (*client.Client, error) {
+	setUpSandboxFn = func(_ context.Context, mm remote.Machine, _ bool, _ func(string)) (*client.Client, error) {
 		setUp = append(setUp, mm.Label+" "+mm.Target)
 		c, _ := a1FakeClient(t)
 		return c, nil
@@ -423,36 +423,36 @@ func TestSandboxCreateFailures(t *testing.T) {
 	// Setting conch up fails: the sandbox is deleted, not left costing.
 	p := &sbProvider{created: sandbox.Sandbox{ID: "sb9"}}
 	useSandboxProvider(t, p)
-	setUpSandboxFn = func(context.Context, remote.Machine, func(string)) (*client.Client, error) {
+	setUpSandboxFn = func(context.Context, remote.Machine, bool, func(string)) (*client.Client, error) {
 		return nil, errors.New("probe: exit 255")
 	}
-	got := a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, "")))
+	got := a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, "", true)))
 	if !strings.Contains(got, "setting up sandbox sb9 failed, so it was deleted: probe: exit 255") || p.called() != "create cpu=0 env=0,delete sb9" {
 		t.Fatalf("%q %s", got, p.called())
 	}
 	// And if deleting fails too, it says how to clean up.
 	p.opErr = errors.New("daytona: down (503)")
-	got = a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, "")))
+	got = a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, "", true)))
 	if !strings.Contains(got, "deleting it failed too (daytona: down (503)): conch sandbox -provider daytona rm sb9") {
 		t.Fatalf("%q", got)
 	}
 	// A build that fails still leaves an ID to delete.
 	p2 := &sbProvider{created: sandbox.Sandbox{ID: "sb10"}, createErr: errors.New("sandbox sb10 is build_failed")}
 	useSandboxProvider(t, p2)
-	if got := a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, ""))); !strings.Contains(got, "so it was deleted") || p2.called() != "create cpu=0 env=0,delete sb10" {
+	if got := a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, "", true))); !strings.Contains(got, "so it was deleted") || p2.called() != "create cpu=0 env=0,delete sb10" {
 		t.Fatalf("%q %s", got, p2.called())
 	}
 	// Refused outright: nothing to delete, and the provider's own words —
 	// its Create already says what failed, so conch does not repeat it.
 	p3 := &sbProvider{createErr: errors.New("create sandbox: daytona: quota (403)")}
 	useSandboxProvider(t, p3)
-	if got := a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, ""))); got != "create sandbox: daytona: quota (403)" || p3.called() != "create cpu=0 env=0" {
+	if got := a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, "", true))); got != "create sandbox: daytona: quota (403)" || p3.called() != "create cpu=0 env=0" {
 		t.Fatalf("%q %s", got, p3.called())
 	}
 	// No key: not even a create.
 	p4 := &sbProvider{checkErr: sandbox.ErrNotConfigured}
 	useSandboxProvider(t, p4)
-	if got := a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, ""))); !strings.Contains(got, "not configured") || p4.called() != "" {
+	if got := a2ErrText(a2Run(createSandbox("daytona", sandbox.Spec{}, "", true))); !strings.Contains(got, "not configured") || p4.called() != "" {
 		t.Fatalf("%q %s", got, p4.called())
 	}
 }
@@ -1316,7 +1316,7 @@ func TestWorkingLineWhileASandboxIsMade(t *testing.T) {
 	useSandboxProvider(t, p)
 	var saidTo []string
 	old := setUpSandboxFn
-	setUpSandboxFn = func(_ context.Context, mm remote.Machine, say func(string)) (*client.Client, error) {
+	setUpSandboxFn = func(_ context.Context, mm remote.Machine, _ bool, say func(string)) (*client.Client, error) {
 		say("probing " + mm.Label + "…")
 		say("copying conch to " + mm.Label + " (16 MB)…")
 		return nil, errors.New("far enough")
@@ -1326,7 +1326,7 @@ func TestWorkingLineWhileASandboxIsMade(t *testing.T) {
 	// The job, and then the steps it left behind — which is what the model
 	// does, one stepMsg at a time, each asking for the next.
 	ch := make(chan string, 16)
-	a2Run(createSandboxWith("boat", sandbox.Spec{}, "hull", ch))
+	a2Run(createSandboxWith("boat", sandbox.Spec{}, "hull", true, ch))
 	for cmd := nextStep(ch); cmd != nil; {
 		msg := cmd()
 		st, ok := msg.(stepMsg)
@@ -1389,7 +1389,7 @@ func TestCreateSandboxRefusalReadsOnce(t *testing.T) {
 	p := &sbProvider{createErr: errors.New("create sandbox: boat: Start the $20/month Boat plan to create sandboxes. (402); boat.dev wants a plan")}
 	useSandboxProvider(t, p)
 	var said string
-	for _, msg := range a2Run(createSandbox("boat", sandbox.Spec{}, "hull")) {
+	for _, msg := range a2Run(createSandbox("boat", sandbox.Spec{}, "hull", true)) {
 		if e, ok := msg.(errMsg); ok {
 			said = e.err.Error()
 		}
@@ -1598,5 +1598,50 @@ func TestDevinSettingsPage(t *testing.T) {
 	}
 	if got := strings.Join(rows, ","); !strings.Contains(got, "Snapshot,Region") {
 		t.Fatalf("Daytona's page: %s", got)
+	}
+}
+
+// TestSandboxCreatedWithoutConch: unticking Install makes a sandbox and
+// adds it, with nothing written to it. SetUpSandbox answers a nil client
+// there, which the create path has to take for the asked-for outcome
+// rather than dereference.
+func TestSandboxCreatedWithoutConch(t *testing.T) {
+	a2Isolate(t)
+	p := &sbProvider{created: sandbox.Sandbox{ID: "sb42"}}
+	useSandboxProvider(t, p)
+
+	var wanted []bool
+	oldSetUp := setUpSandboxFn
+	setUpSandboxFn = func(_ context.Context, _ remote.Machine, install bool, say func(string)) (*client.Client, error) {
+		wanted = append(wanted, install)
+		if !install {
+			return nil, nil // nothing installed, nothing to connect to
+		}
+		return nil, errors.New("this test only covers the skip")
+	}
+	t.Cleanup(func() { setUpSandboxFn = oldSetUp })
+
+	var added *machineAddedMsg
+	for _, msg := range a2Run(createSandbox("daytona", sandbox.Spec{}, "box", false)) {
+		if m, ok := msg.(machineAddedMsg); ok {
+			added = &m
+		}
+		if e, ok := msg.(errMsg); ok {
+			t.Fatalf("not added: %v", e.err)
+		}
+	}
+	if added == nil {
+		t.Fatal("no machine added")
+	}
+	if !strings.Contains(added.note, "no conch in it") {
+		t.Fatalf("note %q", added.note)
+	}
+	if len(wanted) != 1 || wanted[0] {
+		t.Fatalf("install asked for: %v", wanted)
+	}
+	// The sandbox is kept: it was made, and not installing in it is not a
+	// failure to abandon it for.
+	if strings.Contains(p.called(), "delete") {
+		t.Fatalf("provider calls %q", p.called())
 	}
 }
