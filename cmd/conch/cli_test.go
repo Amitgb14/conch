@@ -172,6 +172,11 @@ func TestA4Status(t *testing.T) {
 	if f := strings.Fields(lines[1]); strings.Join(f, " ") != "ID NAME STATE AGENT SIZE CWD COMMAND" {
 		t.Fatalf("header %q", lines[1])
 	}
+	// A server that has never reloaded says nothing about it: "up" is the
+	// whole truth there.
+	if strings.Contains(lines[0], "reloaded") {
+		t.Fatalf("a server that never reloaded: %q", lines[0])
+	}
 	if !strings.Contains(lines[2], "p1") || !strings.Contains(lines[2], "running") || !strings.Contains(lines[2], "80x24") ||
 		!strings.HasSuffix(lines[2], "/bin/sh -c echo a echo b") || !strings.Contains(lines[2], " - ") {
 		t.Fatalf("pane row %q", lines[2])
@@ -1000,5 +1005,45 @@ func TestA4RestartScreen(t *testing.T) {
 	// bare newline, which would leave a mark on the shell's screen.
 	if strings.Contains(restartScreen, "\n") && !strings.Contains(restartScreen, "\r\n") {
 		t.Fatalf("a bare newline would scroll the screen: %q", restartScreen)
+	}
+}
+
+// TestA4StatusSaysWhenItReloaded: "up" counts from the first server of a
+// chain of reloads, so it says nothing about which build is running. A
+// server upgraded a minute ago read as days old, and somebody took that
+// for proof their change had not reached the machine.
+func TestA4StatusSaysWhenItReloaded(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.Hello = func(n int) proto.HelloResult {
+		h := currentHello(n)
+		h.Started = time.Now().Add(-90 * time.Hour)
+		h.LoadedAt = time.Now().Add(-6 * time.Minute)
+		return h
+	}
+	srv.setHandle(func(proto.Message, *proto.Conn) (any, *proto.Error) { return proto.PaneList{}, nil })
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runStatus() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := strings.SplitN(out, "\n", 2)[0]
+	if !strings.Contains(first, "up 90h0m0s") || !strings.Contains(first, "(reloaded 6m0s ago)") {
+		t.Fatalf("status:\n%s", first)
+	}
+
+	// A server from before loaded_at, and one whose reload predates its
+	// start, are not described either way.
+	for _, at := range []time.Time{{}, time.Now().Add(-100 * time.Hour)} {
+		srv.Hello = func(n int) proto.HelloResult {
+			h := currentHello(n)
+			h.Started = time.Now().Add(-90 * time.Hour)
+			h.LoadedAt = at
+			return h
+		}
+		out, _ := a4Capture(t, "", func() { _ = runStatus() })
+		if strings.Contains(out, "reloaded") {
+			t.Fatalf("loaded_at %v: %q", at, strings.SplitN(out, "\n", 2)[0])
+		}
 	}
 }

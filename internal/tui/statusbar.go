@@ -456,7 +456,8 @@ func (v *versionInfo) render(m Model) box {
 					styleMuted.Render(" (stopping closes its panes; resume them from Sessions) — later updates reload"))
 			}
 		default:
-			lines = append(lines, row("Server", styleOK.Render("up to date")+styleMuted.Render(fmt.Sprintf(" · pid %d · running %s", mach.server.PID, uptime(mach.server.Started)))))
+			lines = append(lines, row("Server", styleOK.Render("up to date")+
+				styleMuted.Render(fmt.Sprintf(" · pid %d · running %s%s", mach.server.PID, uptime(mach.server.Started), reloaded(mach.server)))))
 		}
 	}
 	v.rows = map[int]string{}
@@ -620,6 +621,18 @@ func (m *Model) clickStatus(x int) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// reloaded says when a server last loaded a binary, after its uptime.
+// The uptime counts from the first server of a chain of reloads, since
+// its panes have been alive that whole time, so it says nothing about
+// which build is running — and a server reloaded a minute ago reads as
+// days old without this.
+func reloaded(s proto.HelloResult) string {
+	if s.LoadedAt.IsZero() || !s.LoadedAt.After(s.Started) {
+		return ""
+	}
+	return " · reloaded " + uptime(s.LoadedAt) + " ago"
 }
 
 func uptime(since time.Time) string {

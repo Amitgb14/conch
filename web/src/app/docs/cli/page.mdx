@@ -58,7 +58,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 
 | Command | Description |
 | --- | --- |
-| `conch status` (or `conch ls`) | show server and pane status: ID, name, state, agent, size, folder and command of each pane |
+| `conch status` (or `conch ls`) | show server and pane status: ID, name, state, agent, size, folder and command of each pane. Its first line gives the server's uptime, which counts from the *first* server of a chain of reloads — its panes have been alive that whole time — and then `(reloaded N ago)` for when the running binary was loaded, which is the one that says whether your last build got there |
 | `conch new [-cwd DIR] [-name N] -- CMD [ARGS...]` | start a pane (default command: your shell; default folder: the current one, or with `-m` that machine's home) and print its ID |
 | `conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]` | start Claude Code with state tracking |
 | `conch send [-keys] ID TEXT...` | type text into a pane; with `-keys`, the arguments are key names (e.g. `enter`, `ctrl+c`) |

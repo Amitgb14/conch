@@ -678,3 +678,34 @@ func TestA2AutoUpdateStartsOnceForARelease(t *testing.T) {
 		t.Fatalf("release %v running %v", m.upd.release, m.upd.running)
 	}
 }
+
+// TestVersionPanelSaysWhenTheServerReloaded: the panel's "running 3d 18h"
+// is the uptime of a chain of reloads, not of the binary in it, so a
+// server reloaded minutes ago reads as days old. It says both now.
+func TestVersionPanelSaysWhenTheServerReloaded(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	c, _ := a1FakeClient(t)
+	local := m.machines[0]
+	local.c = c
+	local.server = proto.HelloResult{PID: 4242,
+		Started:  time.Now().Add(-90 * time.Hour),
+		LoadedAt: time.Now().Add(-6 * time.Minute),
+		Build:    buildinfo.Build(), BuildID: buildinfo.Build()}
+	m.upd = newUpdateState()
+
+	panel := func() string {
+		return ansi.Strip(strings.Join(newVersionInfo().render(*m).lines, "\n"))
+	}
+	got := panel()
+	if !strings.Contains(got, "running 3d 18h") || !strings.Contains(got, "reloaded 6m ago") {
+		t.Fatalf("panel:\n%s", got)
+	}
+	// A server that has not reloaded, and one whose loaded_at is missing
+	// (an older server), are not described either way.
+	for _, at := range []time.Time{{}, local.server.Started.Add(-time.Hour)} {
+		local.server.LoadedAt = at
+		if got := panel(); strings.Contains(got, "reloaded") {
+			t.Fatalf("loaded_at %v:\n%s", at, got)
+		}
+	}
+}

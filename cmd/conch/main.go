@@ -420,8 +420,8 @@ func runStatus() error {
 		return nil
 	}
 	defer c.Close()
-	fmt.Printf("server: running  version %s  pid %d  up %s\n",
-		c.Server.Version, c.Server.PID, time.Since(c.Server.Started).Round(time.Second))
+	fmt.Printf("server: running  version %s  pid %d  up %s%s\n",
+		c.Server.Version, c.Server.PID, time.Since(c.Server.Started).Round(time.Second), reloadedNote(c.Server))
 	var list proto.PaneList
 	if err := call(c, proto.MethodPaneList, nil, &list); err != nil {
 		return err
@@ -683,6 +683,20 @@ func reloadServer(c *client.Client, bin string) (*client.Client, error) {
 		nc.Close()
 	}
 	return nil, errors.New("the server did not come back within 15s; its panes are lost — run `conch` to start a fresh one. See " + config.ServerLogPath())
+}
+
+// reloadedNote says when a server last loaded a binary, for printing
+// after its uptime. "up" counts from the *first* server of a chain of
+// reloads — by design, since its panes have been alive that whole time —
+// so a server upgraded a minute ago still reads as days old, and
+// somebody read exactly that as proof their change had not reached the
+// machine. Nothing for a server that has never reloaded, or one too old
+// to say.
+func reloadedNote(h proto.HelloResult) string {
+	if h.LoadedAt.IsZero() || !h.LoadedAt.After(h.Started) {
+		return ""
+	}
+	return fmt.Sprintf("  (reloaded %s ago)", time.Since(h.LoadedAt).Round(time.Second))
 }
 
 // loadedAt is when a server's program started. Servers from before
