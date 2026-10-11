@@ -1049,45 +1049,6 @@ func TestA4StatusSaysWhenItReloaded(t *testing.T) {
 	}
 }
 
-// TestMachineAddNoInstall: -no-install adds the machine and writes
-// nothing to it, which is a choice rather than a cancel — declining used
-// to throw the add away with the install. It never gets as far as
-// copying a binary, so the fake ssh only has to answer the probe.
-func TestMachineAddNoInstall(t *testing.T) {
-	a4Env(t)
-	dir := t.TempDir()
-	log := filepath.Join(dir, "ssh.log")
-	ssh := filepath.Join(dir, "ssh")
-	// A probe that says the machine is reachable and has no conch: the
-	// script answers the platform and nothing else.
-	os.WriteFile(ssh, []byte("#!/bin/sh\necho \"$@\" >> "+log+"\nprintf 'Linux\\nx86_64\\n'\n"), 0o755)
-	t.Setenv("CONCH_SSH", ssh)
-
-	out, _ := a4Capture(t, "", func() {
-		if err := runMachine([]string{"add", "-no-install", "-label", "box", "dev@box"}); err != nil {
-			t.Fatalf("add: %v", err)
-		}
-	})
-	if !strings.Contains(out, "no conch installed") || !strings.Contains(out, "conch machine upgrade") {
-		t.Fatalf("output:\n%s", out)
-	}
-	ms, _ := remote.Machines()
-	if len(ms) != 1 || ms[0].Target != "dev@box" || ms[0].Label != "box" {
-		t.Fatalf("catalog %+v", ms)
-	}
-	// Nothing was copied: the install writes a conch.new and renames it,
-	// which the log would show. (The probe mentions ~/.local/bin itself,
-	// so that is not the thing to look for.)
-	if b, _ := os.ReadFile(log); strings.Contains(string(b), "conch.new") {
-		t.Fatalf("it installed anyway:\n%s", b)
-	}
-	// And the two flags that ask for opposite things are refused.
-	if err := runMachine([]string{"add", "-yes", "-no-install", "dev@box"}); err == nil ||
-		!strings.Contains(err.Error(), "opposite things") {
-		t.Fatalf("-yes -no-install: %v", err)
-	}
-}
-
 // TestMachineUpgradeUnknown: upgrading something conch has never heard
 // of says so and names what it has. FindMachine turns an unknown ref
 // into an ssh target, which is right for `conch -m user@host` and wrong

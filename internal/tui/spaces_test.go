@@ -877,7 +877,7 @@ func runBatch(cmd tea.Cmd) []tea.Msg {
 func TestSpaceMachineAddJoinsWhereAsked(t *testing.T) {
 	m, _ := a1Fixture(t, false)
 	old := addMachineFn
-	addMachineFn = func(target, label, password string, key, install bool) tea.Cmd {
+	addMachineFn = func(target, label, password string, key bool) tea.Cmd {
 		// The job and its progress, as the real add is.
 		return tea.Batch(func() tea.Msg { return machineAddedMsg{m: remote.Machine{ID: target, Label: target, Target: target}} },
 			func() tea.Msg { return flashMsg("installing…") })
@@ -936,7 +936,7 @@ func TestSpaceMachineAddJoinsWhereAsked(t *testing.T) {
 	if m.fromHere(nil) != nil {
 		t.Fatal("marked nothing into something")
 	}
-	for _, msg := range runBatch(m.fromHere(addMachineFn("one", "", "", false, true))) {
+	for _, msg := range runBatch(m.fromHere(addMachineFn("one", "", "", false))) {
 		if a, ok := msg.(machineAddedMsg); ok && a.space != nil {
 			t.Fatal("marked with one workspace")
 		}

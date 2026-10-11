@@ -143,7 +143,6 @@ func sandboxCreate(args []string) error {
 	memory := fs.Int("memory", 0, "memory in GiB")
 	disk := fs.Int("disk", 0, "disk in GiB")
 	yes := fs.Bool("yes", false, "delete the sandbox without asking if setting it up fails")
-	noInstall := fs.Bool("no-install", false, "don't put conch in it: the machine is added and waits at Install")
 	var env names
 	fs.Var(&env, "env", "pass this environment variable in (repeat for more)")
 	if err := fs.Parse(args); err != nil {
@@ -185,24 +184,15 @@ func sandboxCreate(args []string) error {
 	if m.Label == "" {
 		m.Label = remote.DefaultSandboxLabel(s.ID)
 	}
-	c, err := remote.SetUpSandbox(ctx, m, !*noInstall, progress)
+	c, err := remote.SetUpSandbox(ctx, m, progress)
 	if err != nil {
 		abandonSandbox(p, s.ID, *yes)
 		return err
 	}
-	if c != nil {
-		defer c.Close()
-	}
+	defer c.Close()
 	saved, err := remote.SaveMachine(m)
 	if err != nil {
 		return err
-	}
-	if c == nil {
-		// Asked for without conch: the sandbox is up and the machine is
-		// listed, with nothing written to it.
-		fmt.Printf("added %s (%s): %s sandbox %s, no conch installed — `conch machine upgrade %s` installs it\n",
-			saved.ID, saved.Label, sandboxProvider, s.ID, saved.ID)
-		return nil
 	}
 	fmt.Printf("added %s (%s): %s sandbox %s, server pid %d on %s\n", saved.ID, saved.Label, sandboxProvider, s.ID, c.Server.PID, c.Server.Hostname)
 	return nil

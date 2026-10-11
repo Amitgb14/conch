@@ -437,39 +437,28 @@ var connectFn = remote.Connect
 // saves it. With a password, ssh gets it through an askpass helper, and
 // with keyLogin the password is then used once to authorize the user's ssh
 // key there, so reconnects need no password.
-func addMachine(target, label, password string, keyLogin, install bool) tea.Cmd {
+func addMachine(target, label, password string, keyLogin bool) tea.Cmd {
 	// Installing conch on a machine takes as long as copying it there, so
 	// it says what it is doing meanwhile, as making a sandbox does.
 	ch := make(chan string, 16)
-	return tea.Batch(addMachineWith(target, label, password, keyLogin, install, ch), nextStep(ch))
+	return tea.Batch(addMachineWith(target, label, password, keyLogin, ch), nextStep(ch))
 }
 
-func addMachineWith(target, label, password string, keyLogin, install bool, ch chan string) tea.Cmd {
+func addMachineWith(target, label, password string, keyLogin bool, ch chan string) tea.Cmd {
 	return func() tea.Msg {
 		defer close(ch)
 		say := steps(ch)
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		say("connecting to " + label + "…")
-		c, err := connectFn(ctx, remote.SSH(target, false), remote.Options{Install: install, Password: password, Progress: say})
-		// A machine conch was told not to install on answers with an
-		// InstallError, which is the asked-for outcome rather than a
-		// failure: the machine is added and waits at `! setup`. Without
-		// this the add was thrown away along with the install.
+		c, err := connectFn(ctx, remote.SSH(target, false), remote.Options{Install: true, Password: password, Progress: say})
 		var outdated *remote.OutdatedServerError
-		var needs *remote.InstallError
-		uninstalled := errors.As(err, &needs) && !install
-		if err != nil && !errors.As(err, &outdated) && !uninstalled {
+		if err != nil && !errors.As(err, &outdated) {
 			return errMsg{err}
 		}
-		if c != nil {
-			c.Close()
-		}
+		c.Close()
 		note := ""
-		if uninstalled {
-			note = "added without conch on it: m → Install when you want its agents to outlive this window"
-		}
-		if note == "" && password != "" && keyLogin {
+		if password != "" && keyLogin {
 			say("setting up key login on " + label + "…")
 			switch key, err := remote.SetUpKeyLogin(ctx, target, password); {
 			case err != nil:
@@ -477,7 +466,7 @@ func addMachineWith(target, label, password string, keyLogin, install bool, ch c
 			default:
 				note = "key login set up with " + key
 			}
-		} else if note == "" && password != "" {
+		} else if password != "" {
 			note = "added with a password only: reconnects need key login (ssh-copy-id) or conch machine add in a terminal"
 		}
 		m, err := remote.SaveMachine(remote.Machine{Label: label, Target: target})
