@@ -367,3 +367,42 @@ func RestartEnv(model tea.Model) []string {
 	}
 	return out
 }
+
+// machineBuild is the build of a machine's server as conch compares it,
+// which for a remote is not the hash of the binary running there. conch
+// cross-builds a machine's conch from this computer's source and stamps
+// the source build into it (buildinfo.SourceBuild), so a machine running
+// exactly this build reports its own file hash — a different binary, for
+// a different platform — and the source build they share. The page used
+// to print the file hash, so a machine that had just been upgraded read
+// as a stranger's build beside the TUI's own, which is how somebody came
+// to believe a server four days up had missed their change when it had
+// reloaded onto it six minutes earlier.
+func (m Model) machineBuild(mach *machine) string {
+	return firstNonEmpty(mach.server.BuildID, mach.server.Build)
+}
+
+// machineBuildState says whether that machine runs the build an update
+// would bring. Nothing when conch cannot tell — an older server that
+// sends no build id — rather than a guess either way.
+func (m Model) machineBuildState(mach *machine) string {
+	if mach.c == nil || len(m.machines) == 0 {
+		return ""
+	}
+	behind := false
+	if mach == m.machines[0] {
+		if mach.server.Build == "" || m.targetBuild() == "" {
+			return ""
+		}
+		behind = m.serverBehindDisk()
+	} else {
+		if mach.server.BuildID == "" && !proto.IsRelease() {
+			return "" // it cannot be compared; see SameBuild
+		}
+		behind = m.remoteBehind(mach)
+	}
+	if behind {
+		return styleWarn.Render("· older build")
+	}
+	return styleOK.Render("· up to date")
+}

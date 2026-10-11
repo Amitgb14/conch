@@ -1136,7 +1136,8 @@ func (m Model) machinePage(mach *machine, cols, rows int) []string {
 	}
 	lines := []string{styleBold.Render(mach.label) + styleMuted.Render("  "+where)}
 	if mach.server.Hostname != "" {
-		lines = append(lines, styleMuted.Render(fmt.Sprintf("%s · %s · conch build %s", mach.server.Hostname, mach.server.Platform, mach.server.Build)))
+		lines = append(lines, styleMuted.Render(fmt.Sprintf("%s · %s · conch build %s",
+			mach.server.Hostname, mach.server.Platform, m.machineBuild(mach)))+" "+m.machineBuildState(mach))
 	}
 	lines = append(lines, "")
 	if mach.busy != "" {

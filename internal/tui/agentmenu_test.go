@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -543,5 +544,69 @@ func TestPackPartsKeepsRoomForWhatItLeavesOut(t *testing.T) {
 	}
 	if got := packParts([]string{"only"}, 40, 2); len(got) != 1 || ansi.Strip(got[0]) != "only" {
 		t.Errorf("one part gave %v", got)
+	}
+}
+
+// TestMachinePageSaysWhichBuild: a machine page has to answer "is this
+// one running my build?", and for a remote the binary's own hash cannot
+// answer it — conch cross-builds that binary for another platform, so its
+// hash never matches this computer's. The build they share is the source
+// build stamped into it, which is what the page shows and what conch
+// compares. Printing the file hash made a machine upgraded six minutes
+// ago read as a stranger's build.
+func TestMachinePageSaysWhichBuild(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	local := m.machines[0]
+	local.server = proto.HelloResult{Hostname: "mac", Platform: "darwin/arm64",
+		Build: buildinfo.Build(), BuildID: buildinfo.Build()}
+	c, _ := a1FakeClient(t)
+	local.c = c
+
+	// A remote machine on exactly this build: a Linux binary of its own,
+	// carrying the source build it was made from.
+	far := newMachine("busybox", "busybox", "me@box")
+	far.state, far.c = stateOnline, c
+	far.server = proto.HelloResult{Hostname: "box", Platform: "linux/amd64",
+		Build: "5e7f8b218d54", BuildID: buildinfo.Build()}
+	m.machines = append(m.machines, far)
+	m.rebuild()
+
+	page := func(mach *machine) string {
+		return ansi.Strip(strings.Join(m.machinePage(mach, 120, 40), "\n"))
+	}
+	got := page(far)
+	if !strings.Contains(got, "conch build "+buildinfo.Build()) {
+		t.Fatalf("the page shows a build nothing can be compared with:\n%s", got)
+	}
+	if strings.Contains(got, "5e7f8b218d54") {
+		t.Fatalf("the page still shows the remote binary's own hash:\n%s", got)
+	}
+	if !strings.Contains(got, "up to date") {
+		t.Fatalf("a machine on this build is not said to be:\n%s", got)
+	}
+
+	// One build behind says so.
+	far.server.BuildID = "0000deadbeef"
+	if got := page(far); !strings.Contains(got, "older build") || strings.Contains(got, "up to date") {
+		t.Fatalf("a machine behind reads as:\n%s", got)
+	}
+
+	// A server too old to say which build it runs is not guessed about.
+	far.server.BuildID = ""
+	far.server.Build = ""
+	if got := page(far); strings.Contains(got, "up to date") || strings.Contains(got, "older build") {
+		t.Fatalf("guessed about a server that says no build:\n%s", got)
+	}
+
+	// And a machine conch is not connected to says nothing either.
+	far.server.BuildID = buildinfo.Build()
+	far.c = nil
+	if got := page(far); strings.Contains(got, "up to date") {
+		t.Fatalf("said an unreachable machine is up to date:\n%s", got)
+	}
+
+	// The local machine gets the same answer from its own disk build.
+	if got := page(local); !strings.Contains(got, "up to date") {
+		t.Fatalf("local:\n%s", got)
 	}
 }
