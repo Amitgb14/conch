@@ -8,4 +8,7 @@
 # Planning notes kept out of the repository (confidential)
 docs/plans/roadmap.md
 docs/plans/closing-the-gaps.md
+docs/plans/phone.md
+docs/plans/phone-api.md
+docs/plans/plugins.md
 .aider*
