@@ -598,6 +598,48 @@ func TestMachinePageSaysWhichBuild(t *testing.T) {
 		t.Fatalf("guessed about a server that says no build:\n%s", got)
 	}
 
+	// Both halves of SameBuild: a release compares versions, a
+	// development build compares build ids. A server that gives neither
+	// is unknown in both, which is what the release of 0.1.8 found the
+	// hard way — its own CI failed on this line, because every run until
+	// then had been a development build.
+	for _, version := range []string{"0.1.8", "0.1.8-dev"} {
+		old := proto.Version
+		proto.Version = version
+		far.server.BuildID, far.server.Build, far.server.Version = "", "", ""
+		if got := page(far); strings.Contains(got, "up to date") || strings.Contains(got, "older build") {
+			t.Fatalf("%s: guessed about a server that says nothing:\n%s", version, got)
+		}
+		// And one that answers in the terms that version compares by is
+		// said to be up to date.
+		far.server.BuildID, far.server.Version = buildinfo.Build(), version
+		if got := page(far); !strings.Contains(got, "up to date") {
+			t.Fatalf("%s: a machine on this build:\n%s", version, got)
+		}
+		proto.Version = old
+	}
+	far.server.Version = ""
+
+	// The other comparison: with a new build on disk, a development
+	// conch compares against that instead — a release never does, since
+	// it updates from a published version rather than from source — and
+	// a server that names no build is just as unknown there.
+	devVersion := proto.Version
+	proto.Version = "0.1.8-dev"
+	defer func() { proto.Version = devVersion }()
+	m.upd = newUpdateState()
+	m.upd.diskBuild = "0000deadbeef"
+	far.server.BuildID = ""
+	if got := page(far); strings.Contains(got, "up to date") || strings.Contains(got, "older build") {
+		t.Fatalf("against a build on disk, a server that says nothing:\n%s", got)
+	}
+	far.server.BuildID = "0000deadbeef"
+	if got := page(far); !strings.Contains(got, "up to date") {
+		t.Fatalf("against a build on disk, a server that matches it:\n%s", got)
+	}
+	m.upd = nil
+	proto.Version = devVersion
+
 	// And a machine conch is not connected to says nothing either.
 	far.server.BuildID = buildinfo.Build()
 	far.c = nil

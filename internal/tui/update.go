@@ -155,11 +155,26 @@ func (m Model) pendingUpdates() []updateItem {
 // they matched the old TUI — so there was nothing to tick before the
 // restarted TUI updated them all.
 func (m Model) remoteBehind(mach *machine) bool {
+	behind, _ := m.remoteState(mach)
+	return behind
+}
+
+// remoteState is remoteBehind with whether the comparison could be made
+// at all. A server that reports neither a build id nor a version to be
+// compared by is not behind and not up to date: it is unknown. Folding
+// that into one bool said "up to date" for it — invisible in a
+// development build, where SameBuild compares build ids and a missing
+// one is caught on the way, and not in a release, where it compares
+// versions first. The release that found this failed its own CI.
+func (m Model) remoteState(mach *machine) (behind, known bool) {
 	if m.upd != nil && m.upd.diskBuild != "" && !proto.IsRelease() {
-		return mach.server.BuildID != "" && mach.server.BuildID != m.upd.diskBuild
+		if mach.server.BuildID == "" {
+			return false, false
+		}
+		return mach.server.BuildID != m.upd.diskBuild, true
 	}
 	same, ok := update.SameBuild(mach.server)
-	return ok && !same
+	return ok && !same, ok
 }
 
 // targetBuild is the build the local server should run: the one on disk
@@ -396,10 +411,10 @@ func (m Model) machineBuildState(mach *machine) string {
 		}
 		behind = m.serverBehindDisk()
 	} else {
-		if mach.server.BuildID == "" && !proto.IsRelease() {
+		known := false
+		if behind, known = m.remoteState(mach); !known {
 			return "" // it cannot be compared; see SameBuild
 		}
-		behind = m.remoteBehind(mach)
 	}
 	if behind {
 		return styleWarn.Render("· older build")
