@@ -1,4 +1,4 @@
-VERSION ?= 0.1.8
+VERSION ?= 0.1.9-dev
 MODULE  := github.com/Amitgb14/conch
 LDFLAGS := -X $(MODULE)/internal/proto.Version=$(VERSION)
 
