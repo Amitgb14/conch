@@ -313,6 +313,16 @@ helpers in `cmd/conch` and `internal/remote`.
   overturned what `TestA2WheelScrollsWhileSelecting` used to say in so
   many words — "no selection: the wheel belongs to the program" — so the
   rule is worth knowing before changing it back.
+- **A mouse report cut in two becomes keys.** Bubble Tea v1 reads the
+  terminal 256 bytes at a time and parses each read alone, so a fast
+  wheel or a moving pointer that fills the buffer can cut an SGR report
+  at its edge; the halves come out as alt+[ and the runes `<65;130;43M`,
+  which conch forwards to the focused pane like any key — a shell then
+  printed `65;130;43M` at its prompt while somebody scrolled. The pane
+  had never asked for the mouse, which is how it was told apart from the
+  wheel-routing bugs below. `tui.WholeSequences` wraps stdin and holds an
+  unfinished escape back for the next read; `TestWholeSequencesThroughBubbleTea`
+  says whether a newer Bubble Tea still needs it.
 - **The mouse goes to the pane under the pointer, not the focused one.**
   A click or a wheel over another split asks for that split's focus, and
   the asking is a command that has not run yet — so for that event the

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/term"
 
 	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/buildinfo"
@@ -288,6 +289,10 @@ func runTUI() error {
 		} else {
 			opts = append(opts, tea.WithMouseCellMotion())
 		}
+	}
+	if term.IsTerminal(os.Stdin.Fd()) {
+		// Otherwise Bubble Tea opens /dev/tty itself, as it should.
+		opts = append(opts, tea.WithInput(tui.WholeSequences(os.Stdin)))
 	}
 	wd, _ := os.Getwd()
 	p := tea.NewProgram(tui.New(c, cfg).Warn(cfgWarning).LaunchedIn(wd), opts...)
