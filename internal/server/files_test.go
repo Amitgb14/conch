@@ -191,9 +191,15 @@ func TestListCheckoutConfined(t *testing.T) {
 	if _, perr := s.readFile(proto.FSReadParams{Root: repo, Path: "secret"}); perr == nil || !strings.Contains(perr.Message, "outside") {
 		t.Fatalf("read through a link out: %v", perr)
 	}
-	// fs.list without a root still refuses files.
-	if _, perr := s.dispatch(nil, proto.Message{Method: proto.MethodFSList, Params: proto.Marshal(proto.FSListParams{Path: repo, Files: true})}); perr == nil {
-		t.Fatal("files without a root")
+	// fs.list without a root lists the machine's own files
+	// (fs.transfer.v1): links are followed there, since nothing is
+	// confined, and no git status is read.
+	res, perr := s.dispatch(nil, proto.Message{Method: proto.MethodFSList, Params: proto.Marshal(proto.FSListParams{Path: repo, Files: true})})
+	if perr != nil {
+		t.Fatalf("files without a root: %v", perr)
+	}
+	if e := findEntry(res.(proto.FSList), "escape"); !e.Symlink || !e.Dir || e.Status != "" {
+		t.Fatalf("machine listing: %+v", e)
 	}
 }
 

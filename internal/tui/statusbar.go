@@ -128,11 +128,19 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		chip = styleChip.Background(colorInput).Render("FILE")
 		items = []statusItem{hint("↑", "up"), hint("↓", "down"), hint("pgdn", "page"), hint("a", "→ agent"), hint("e", "edit"),
 			hint("d", "diff"), hint("y", "copy"), hint("esc", "tree")}
+	case m.focus == focusMain && r.kind == kindFiles && r.projectID == "":
+		chip = styleChip.Background(colorInput).Render("FILES")
+		items = []statusItem{hint("↑", "up"), hint("↓", "down"), hint("enter", "open"), hint("U", "upload"), hint("D", "download"),
+			hint("-", "up a folder"), hint("~", "home"), hint("y", "copy"), hint("e", "edit"), hint("/", "find"), hint(".", "hidden"),
+			hint("r", "reload"), hint("esc", "tree")}
 	case m.focus == focusMain && r.kind == kindFiles:
 		chip = styleChip.Background(colorInput).Render("FILES")
 		items = []statusItem{hint("↑", "up"), hint("↓", "down"), hint("enter", "open"), hint("a", "→ agent"), hint("y", "copy"),
 			hint("d", "diff"), hint("e", "edit"), hint("/", "find"), hint(".", "hidden"), hint("i", "ignored"), hint("w", "checkout"),
 			hint("r", "reload"), hint("esc", "tree")}
+		if r.machine != localMachine {
+			items = append(items[:5], append([]statusItem{hint("U", "upload"), hint("D", "download")}, items[5:]...)...)
+		}
 	case m.focus == focusMain && r.kind == kindSessions && m.sessionsView != nil && m.sessionsView.typing:
 		chip = styleChip.Background(colorAccent).Render("SEARCH")
 		items = []statusItem{hint("enter", "keep"), hint("esc", "clear"), hint("↑", "results"), hint("↓", "results")}
@@ -162,6 +170,9 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			}
 		case kindFiles:
 			items = []statusItem{hint("enter", "browse files"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
+			if r.projectID == "" {
+				items = []statusItem{hint("enter", "browse and copy files"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
+			}
 		case kindSessions:
 			items = []statusItem{hint("enter", "open sessions"), hint("c", "agent"), hint("n", "shell"), hint("m", "menu")}
 		case kindBranch:

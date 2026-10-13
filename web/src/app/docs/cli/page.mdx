@@ -67,7 +67,8 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch rename ID [NAME]` | name a pane; without `NAME` it gets its own back. Refused when a running pane already has the name |
 | `conch redraw ID` | draw a pane's screen again, for stale text a program left behind |
 | `conch wait ID [-state done] [-timeout 30m]` | block until the pane's agent is `done` (or `waiting`, `working`, `idle` — several, comma separated, stop on the first to happen). Prints `ID AGENT STATE`. Exits 124 if the time runs out, so a script can tell that from a failure; without `-timeout` it waits as long as it takes |
-| `conch [-m MACHINE] upload FILE...` | copy files to the machine's uploads folder (`~/.config/conch/uploads`) and print each one's path there, as dropping them on its pane does |
+| `conch [-m MACHINE] upload [-to DIR] [-f] PATH...` | copy files or folders to the machine and print where each landed there: into `DIR` there (`~` is its home), else its uploads folder (`~/.config/conch/uploads`), as dropping them on its pane does. A name already taken is numbered (`ca 2.pem`) unless `-f` |
+| `conch [-m MACHINE] download [-to DIR] [-f] PATH...` | copy files or folders from the machine into `DIR` here (default: the current folder) and print where each landed; `-f` as for `upload` |
 
 ### Pane names
 

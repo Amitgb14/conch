@@ -904,6 +904,8 @@ func (m Model) viewLabel(v viewRef) string {
 	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions, kindFiles:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			label = proj.Name
+		} else if mach := m.machine(v.Machine); v.Kind == kindFiles && v.ProjectID == "" && mach != nil {
+			label = mach.label // a machine's own files
 		}
 	case kindMachine:
 		if mach := m.machine(v.Machine); mach != nil {

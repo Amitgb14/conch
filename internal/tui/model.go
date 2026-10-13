@@ -701,6 +701,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dropStepMsg:
 		return m, m.dropStep(msg)
 
+	case copyStepMsg:
+		return m, m.copyStep(msg)
+
 	case moveDescribedMsg:
 		return m, m.receiveMoveDescribed(msg)
 

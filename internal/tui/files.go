@@ -21,6 +21,11 @@ import (
 //
 // Paths inside the view are slash-separated and relative to the checkout,
 // as the server lists them; "" is the checkout itself.
+//
+// Under a machine elsewhere the same view browses the machine itself rather
+// than a checkout (a view with no project): it starts in the home folder,
+// moves up and back home, has no git to show, and is where files are copied
+// to and from this computer (U and D, or a file dropped on it; transfer.go).
 
 const (
 	filesTop = 3 // title, path, rule
@@ -34,6 +39,10 @@ const (
 // filesTooOld is said when a machine's server cannot list files: an older
 // one answers with folders only, which would look like an empty repository.
 const filesTooOld = "this machine's conch is too old to browse files — update it"
+
+// browseTooOld is said when a machine's server cannot list anything but a
+// checkout's files, or copy them.
+const browseTooOld = "this machine's conch is too old to browse or copy its files — update it with `conch machine upgrade`"
 
 type filesListMsg struct {
 	machine, root, rel string
@@ -136,9 +145,29 @@ func (m *Model) newFilesView(v viewRef) *filesView {
 	// convention from `ls`, where a home directory is full of them.
 	// `.` hides them again, and the choice is remembered (state.go).
 	fv := &filesView{machine: v.Machine, projectID: v.ProjectID, want: v.Branch, hidden: !m.filesHideDot, ignored: m.filesShowIgnored}
-	fv.root, fv.branch, fv.note = m.filesCheckout(v.Machine, v.ProjectID, v.Branch)
+	if !fv.browsing() {
+		fv.root, fv.branch, fv.note = m.filesCheckout(v.Machine, v.ProjectID, v.Branch)
+	}
 	fv.reset()
 	return fv
+}
+
+// browsing reports whether this is a machine's own files rather than a
+// checkout's. Its root is "" until the home folder is listed and the
+// server says where that is.
+func (fv *filesView) browsing() bool { return fv.projectID == "" }
+
+// abs is a path in the view as the machine knows it: under the root, or
+// under ~ while the home folder is still being found.
+func (fv *filesView) abs(rel string) string {
+	root := fv.root
+	if root == "" {
+		root = "~"
+	}
+	if rel == "" {
+		return root
+	}
+	return path.Join(root, rel)
 }
 
 func (fv *filesView) reset() {
@@ -152,11 +181,14 @@ func (fv *filesView) load(m *Model) tea.Cmd {
 	fv.err = ""
 	c := m.clientOf(fv.machine)
 	switch {
-	case fv.root == "":
+	case fv.root == "" && !fv.browsing():
 		fv.err = "this project is gone"
 		return nil
 	case c == nil:
 		fv.err = m.offlineText(fv.machine)
+		return nil
+	case fv.browsing() && len(c.MissingCapabilities([]string{proto.CapFSTransfer})) > 0:
+		fv.err = browseTooOld
 		return nil
 	case len(c.MissingCapabilities([]string{proto.CapFSFiles})) > 0:
 		fv.err = filesTooOld
@@ -180,6 +212,9 @@ func (fv *filesView) list(m *Model, rel string) tea.Cmd {
 	d.loading = true
 	mid, root := fv.machine, fv.root
 	params := proto.FSListParams{Root: root, Path: rel, Files: true, Hidden: fv.hidden, Ignored: fv.ignored}
+	if fv.browsing() {
+		params = proto.FSListParams{Path: fv.abs(rel), Files: true, Hidden: fv.hidden}
+	}
 	return func() tea.Msg {
 		var out proto.FSList
 		err := callCtx(c, proto.MethodFSList, params, &out)
@@ -228,6 +263,9 @@ func (fv *filesView) receiveList(msg filesListMsg) {
 		return
 	}
 	d.err, d.entries, d.truncated = "", msg.list.Entries, msg.list.Truncated
+	if fv.browsing() && msg.rel == "" && fv.root == "" {
+		fv.root = msg.list.Path // where ~ is, now the server has said
+	}
 }
 
 // read fetches a file for the preview. The same file read again keeps its
@@ -247,9 +285,13 @@ func (fv *filesView) read(m *Model, rel string) tea.Cmd {
 	}
 	fv.prev.loading = true
 	mid, root := fv.machine, fv.root
+	params := proto.FSReadParams{Root: root, Path: rel}
+	if fv.browsing() {
+		params = proto.FSReadParams{Path: fv.abs(rel)}
+	}
 	return func() tea.Msg {
 		var out proto.FSReadResult
-		err := callCtx(c, proto.MethodFSRead, proto.FSReadParams{Root: root, Path: rel}, &out)
+		err := callCtx(c, proto.MethodFSRead, params, &out)
 		return filesReadMsg{machine: mid, root: root, rel: rel, res: out, err: err}
 	}
 }
@@ -432,6 +474,12 @@ func (fv *filesView) render(m Model, w, h int) []string {
 	}
 	title := styleBold.Render("Files") + "  " + m.filesTitle(fv)
 	hint := "enter open · a → agent · y path · d diff · e edit · w checkout · / find · esc tree"
+	switch {
+	case fv.browsing():
+		hint = "enter open · U upload · D download · - up · ~ home · y path · e edit · / find · esc tree"
+	case fv.machine != localMachine:
+		hint = "enter open · U upload · D download · a → agent · y path · d diff · e edit · / find · esc tree"
+	}
 	if fv.typing || fv.filter != "" {
 		cursor := ""
 		if fv.typing {
@@ -493,6 +541,12 @@ func (fv *filesView) render(m Model, w, h int) []string {
 // filesTitle is the project and the checkout, and why it is not the one
 // asked for.
 func (m Model) filesTitle(fv *filesView) string {
+	if fv.browsing() {
+		if mach := m.machine(fv.machine); mach != nil {
+			return mach.label
+		}
+		return "?"
+	}
 	name := "?"
 	if proj := m.project(fv.machine, fv.projectID); proj != nil {
 		name = proj.Name
@@ -516,6 +570,9 @@ func (m Model) filesTitle(fv *filesView) string {
 func (fv *filesView) crumbLine(m Model, w int) string {
 	fv.crumbs = fv.crumbs[:0]
 	root := m.tildify(fv.machine, fv.root)
+	if root == "" {
+		root = "~" // browsing, before the server has said where that is
+	}
 	s := " " + root
 	fv.crumbs = append(fv.crumbs, filesCrumb{x0: 1, x1: 1 + ansi.StringWidth(root), rel: ""})
 	if dir := path.Dir(fv.selPath); fv.selPath != "" && dir != "." {
@@ -757,16 +814,44 @@ func (fv *filesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		}
 		return false, nil
 	}
+	if k.Paste {
+		// Files dragged onto the terminal arrive as their paths: copied
+		// to the folder selected, as U would.
+		if paths, _ := parseLocalPaths(string(k.Runes), true); paths != nil {
+			return false, m.uploadPaths(fv, paths, false)
+		}
+		return false, nil
+	}
 	list := fv.lines()
 	fv.place(list)
 	l, ok := fv.selected(list)
 
+	// What only a checkout has, said rather than done when browsing.
+	if fv.browsing() {
+		switch k.String() {
+		case "d", "w", "i":
+			m.setFlash("these are "+m.filesTitle(fv)+"'s own files, not a checkout: no diff, checkouts or ignored files", false)
+			return false, nil
+		case "-", "backspace":
+			return false, fv.moveRoot(m, path.Dir(fv.abs("")))
+		case "~":
+			return false, fv.moveRoot(m, "")
+		}
+	}
+
 	// What the selected file is for, whether the tree or the preview has
 	// the keys.
 	switch k.String() {
+	case "U":
+		return false, m.openUploadDialog(fv)
+	case "D":
+		if ok {
+			return false, m.downloadEntry(fv, l)
+		}
+		return false, nil
 	case "y":
 		if ok {
-			return false, copyText(path.Join(fv.root, l.rel))
+			return false, copyText(fv.abs(l.rel))
 		}
 		return false, nil
 	case "a":
@@ -886,6 +971,49 @@ func (fv *filesView) relist(m *Model) tea.Cmd {
 	what := map[bool]string{true: "shown", false: "hidden"}
 	m.setFlash(fmt.Sprintf("dotfiles %s · ignored files %s", what[fv.hidden], what[fv.ignored]), false)
 	return fv.refresh(m)
+}
+
+// moveRoot browses another folder: up a level, or "" for home.
+func (fv *filesView) moveRoot(m *Model, root string) tea.Cmd {
+	if root == fv.root && root != "" {
+		return nil // at / already
+	}
+	fv.root = root
+	fv.reset()
+	if root == "" {
+		m.setFlash("home", false)
+	}
+	return fv.list(m, "")
+}
+
+// uploadDir is where a copy from this computer goes: the folder selected,
+// the one the selected file is in, or the top.
+func (fv *filesView) uploadDir() (dir, rel string) {
+	l, ok := fv.selected(fv.lines())
+	if !ok {
+		return fv.abs(""), ""
+	}
+	rel = l.rel
+	if !l.e.Dir {
+		rel = path.Dir(rel)
+		if rel == "." {
+			rel = ""
+		}
+	}
+	return fv.abs(rel), rel
+}
+
+// reveal opens a folder, listing it if it never was, so a copy that
+// arrives there is seen.
+func (fv *filesView) reveal(m *Model, rel string) tea.Cmd {
+	if rel == "" || fv.open[rel] {
+		return nil
+	}
+	fv.open[rel] = true
+	if d := fv.dirs[rel]; d == nil || (!d.loading && d.entries == nil) {
+		return fv.list(m, rel)
+	}
+	return nil
 }
 
 // activate opens a folder, or a file's preview.

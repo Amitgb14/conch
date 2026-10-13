@@ -271,6 +271,18 @@ The preview is plain text with line numbers, the first 256 KB of a file; a binar
 
 Each kind of file gets an icon, by its whole name first (`Dockerfile`, `go.mod`, `pom.xml`, `Jenkinsfile`, `.prettierrc`, `CHANGELOG.md`) and then its extension, coloured from the theme. The table covers about 220 extensions and 95 names — the languages, templates, manifests, lock files, tables, documents, media, bundles, keys and certificates a repository actually holds — with the glyphs taken from the Nerd Fonts glyph list and nvim-web-devicons, so a file looks here the way it looks in the editors you also have open. Anything unknown keeps the plain file icon. Settings → Theme chooses letters (`go`, `ts`, `tx` for `.tsx`, the default, since they read in any font), [Nerd Font](https://www.nerdfonts.com) glyphs — which need a Nerd Font in your terminal, and show as boxes without one — or none.
 
+### A machine's own files
+
+A machine elsewhere — an ssh host, a sandbox — has a **Files** row of its own, under its Workspace and CLI. It is the same explorer on the machine as a whole rather than a checkout: it starts in the home folder there, `-` (or `backspace`) goes up a folder and `~` comes back home, and there is no git to show. This computer has no such row: its files are a Finder away.
+
+On any machine elsewhere, this view and a project's alike, the explorer is also how files cross between it and this computer:
+
+- `U` asks for a file or folder here and copies it into the selected folder there — or the folder the selected file is in. Dragging files or folders from Finder onto the view does the same without asking.
+- `D` copies the selected file or folder to `~/Downloads` here (your home folder, on a computer without one).
+- A folder is copied whole, symlinks as links. A name already taken is never written over: the copy is numbered — `ca 2.pem`, `site 2` — and the status bar says where it landed. `U`'s dialog has a **Replace** box for writing over instead; for a folder that merges, keeping files only the other side has.
+
+Copies go over the machine's own conch connection — the one its panes use — so an ssh host and a sandbox are the same: no address to look up, no key or password to give, nothing to install. [`conch upload -to` and `conch download`](/docs/cli) do the same from a shell. A machine running a conch from before this says it needs updating (`conch machine upgrade`).
+
 The explorer browses; it does not manage. There is no creating or deleting here: `n` opens a terminal in the folder you are looking at, which does the whole job rather than the two verbs a file manager would reimplement. `y` copies a file's path, `e` opens it in `$EDITOR`, `a` hands it to the agent working in that checkout, `d` shows its diff.
 
 Dragging to select keeps to the column it started in — the list or the preview — so copying a file's text does not bring the file names sitting on the same rows with it.

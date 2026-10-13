@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -123,6 +123,14 @@ const CapFSFiles = "fs.files.v1"
 // CapFSRead is fs.read: the start of a file in a checkout, for a preview.
 const CapFSRead = "fs.read.v1"
 
+// CapFSTransfer is copying files and folders to and from the machine, and
+// browsing all of it: fs.list with Files and fs.read without a Root reach
+// anywhere, fs.upload takes Dir, Archive and Replace, and fs.download and
+// fs.download_read bring a file or folder back. An older server ignores
+// Dir and would put the file in its uploads folder instead, so a client
+// asks first.
+const CapFSTransfer = "fs.transfer.v1"
+
 // Methods.
 const (
 	MethodHello           = "hello"
@@ -165,6 +173,9 @@ const (
 	MethodFSMkdir        = "fs.mkdir"
 	MethodFSUpload       = "fs.upload"
 	MethodFSRead         = "fs.read"
+	// Copying a file or folder off the machine (CapFSTransfer).
+	MethodFSDownload     = "fs.download"
+	MethodFSDownloadRead = "fs.download_read"
 	MethodShellThemes    = "shell.themes"
 	MethodAgentSetup     = "agent.setup"
 	MethodAgentSync      = "agent.setup.sync"
@@ -628,12 +639,58 @@ type FSUploadParams struct {
 	Size   int64  `json:"size,omitempty"` // the whole file's size, first chunk only
 	Data   []byte `json:"data,omitempty"` // base64 in JSON
 	Final  bool   `json:"final,omitempty"`
+
+	// The rest are CapFSTransfer, first chunk only. Dir is the folder to
+	// put it in (absolute, or from ~) instead of the uploads folder.
+	// Archive says the data is a folder packed by internal/transfer, to be
+	// unpacked as Name. Without Replace a name already taken is not
+	// written over: the copy is numbered ("ca 2.pem") and Path says so.
+	Dir     string `json:"dir,omitempty"`
+	Archive bool   `json:"archive,omitempty"`
+	Replace bool   `json:"replace,omitempty"`
+	// Mode is a file's permission bits, so a script stays runnable; 0
+	// means 0644. A packed folder carries its own.
+	Mode uint32 `json:"mode,omitempty"`
+	// Parallel (first chunk, CapFSTransfer) says the client keeps several
+	// chunks in flight, so they may arrive in any order and each says
+	// where it goes: Offset, a multiple of UploadChunkSize, with a whole
+	// chunk at each but the last. The Final chunk is sent alone once
+	// every other one has been answered.
+	Parallel bool  `json:"parallel,omitempty"`
+	Offset   int64 `json:"offset,omitempty"`
 }
 
 // FSUploadResult answers each chunk.
 type FSUploadResult struct {
 	Upload string `json:"upload"`
 	Path   string `json:"path,omitempty"` // the stored file's absolute path, once Final
+}
+
+// FSDownloadParams asks for a file or folder (absolute, or from ~) to be
+// read back with fs.download_read.
+type FSDownloadParams struct {
+	Path string `json:"path"`
+}
+
+// FSDownload is a download ready to read. A folder comes packed by
+// internal/transfer, and Size is the pack's.
+type FSDownload struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+	Dir  bool   `json:"dir,omitempty"`
+}
+
+// FSDownloadReadParams reads the chunk at Offset (at most UploadChunkSize).
+type FSDownloadReadParams struct {
+	ID     string `json:"id"`
+	Offset int64  `json:"offset"`
+}
+
+// FSDownloadChunk is one piece of a download; EOF marks the last.
+type FSDownloadChunk struct {
+	Data []byte `json:"data,omitempty"`
+	EOF  bool   `json:"eof,omitempty"`
 }
 
 // ProjectList is the result of project.list.

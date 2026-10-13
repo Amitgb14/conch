@@ -614,6 +614,9 @@ func (m Model) leafTitle(l *leaf) string {
 			}
 			return t
 		}
+		if mach != nil && v.ProjectID == "" {
+			return " files · " + mach.label + " "
+		}
 	case kindBranches:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return " branches · " + proj.Name + " "

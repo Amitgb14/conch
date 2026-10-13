@@ -40,6 +40,12 @@ func dropRoots() []string {
 // dropRoots. quote is how the paste quoted its first path: a single or
 // double quote, or 0 for backslashes.
 func parseDroppedPaths(text string) (paths []string, quote byte) {
+	return parseLocalPaths(text, false)
+}
+
+// parseLocalPaths is parseDroppedPaths, taking folders too when folders is
+// set: the Files view copies a folder whole, a pane takes files only.
+func parseLocalPaths(text string, folders bool) (paths []string, quote byte) {
 	words, quote, ok := shellWords(text)
 	if !ok || len(words) == 0 {
 		return nil, 0
@@ -56,7 +62,7 @@ func parseDroppedPaths(text string) (paths []string, quote byte) {
 		if !filepath.IsAbs(w) || !underAny(filepath.Clean(w), roots) {
 			return nil, 0
 		}
-		if st, err := os.Stat(w); err != nil || !st.Mode().IsRegular() {
+		if st, err := os.Stat(w); err != nil || !(st.Mode().IsRegular() || folders && st.IsDir()) {
 			return nil, 0
 		}
 		paths = append(paths, w)

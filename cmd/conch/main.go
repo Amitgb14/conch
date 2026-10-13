@@ -115,8 +115,13 @@ Usage:
   conch sandbox -provider P snapshot [-name N] ID | snapshots [-rm NAME]
                                 keep a sandbox to make others from, or list what is kept
   conch -m MACHINE COMMAND      run a command against a remote machine
-  conch -m MACHINE upload FILE...
-                                copy files to a machine's uploads folder and print their paths there
+  conch -m MACHINE upload [-to DIR] [-f] PATH...
+                                copy files or folders to a machine — into DIR there (~ is its
+                                home), else its uploads folder — and print where each landed;
+                                a name already taken is numbered ("ca 2.pem") unless -f
+  conch -m MACHINE download [-to DIR] [-f] PATH...
+                                copy files or folders from a machine into DIR here (default: the
+                                current folder) and print where each landed; -f as for upload
   conch web [-listen ADDR] [-port N] [-url URL] [-cert FILE -key FILE]
                                 serve your phone: see the agents, reply to one and answer what
                                 it asks. Listens only on this machine's Tailscale address
@@ -206,6 +211,8 @@ func main() {
 		err = runUpdate(args)
 	case "upload":
 		err = runUpload(args)
+	case "download":
+		err = runDownload(args)
 	case "ask":
 		err = runAsk(args)
 	case "web":

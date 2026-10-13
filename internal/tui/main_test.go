@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"os/exec"
 	"sync/atomic"
 	"syscall"
@@ -33,7 +34,16 @@ func TestMain(m *testing.M) {
 	// notches: one sent straight after another is not a trackpad's burst.
 	var wheelTicks atomic.Int64
 	wheelClock = func() time.Time { return time.Unix(wheelTicks.Add(1), 0) }
-	m.Run()
+	// D in the Files view writes into the Downloads folder: the
+	// developer's own, unless it is somewhere of the suite's.
+	downloads, err := os.MkdirTemp("", "conch-downloads")
+	if err != nil {
+		panic(err)
+	}
+	downloadsDir = func() string { return downloads }
+	code := m.Run()
+	os.RemoveAll(downloads)
+	os.Exit(code)
 }
 
 // What the suite's stubs saw last, for tests that care.

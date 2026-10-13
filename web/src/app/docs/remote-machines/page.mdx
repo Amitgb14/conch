@@ -95,6 +95,18 @@ Drag a screenshot or any file from Finder, the desktop or the floating screensho
 
 `conch -m gpu-box upload FILE...` does the same from a shell and prints each file's path there.
 
+## Copying files to and from a machine
+
+To put a file somewhere of your choosing, or to bring one back, use the machine's **Files** row (`U` uploads, `D` downloads; see [A machine's own files](/docs/interface#a-machines-own-files)) or the commands:
+
+```sh
+conch -m gpu-box upload -to ~/certs ~/doc/ca.pem    # prints /home/you/certs/ca.pem
+conch -m gpu-box upload -to ~ ./site                # a folder, copied whole
+conch -m gpu-box download -to ~/Downloads ~/logs/run.log ~/results
+```
+
+They travel over the connection conch already has to the machine, so they work the same for an ssh host and a sandbox — whose address can change at every start, and which you may hold no key for. Paths there may start with `~`. A name already taken on the receiving side is numbered (`ca 2.pem`) unless `-f` is given, and each path is printed as it lands. Up to 4 GB a file or packed folder; a file dropped on a pane stays limited as above.
+
 ## Moving a worktree to another machine
 
 When this computer is slow, or you're about to close the lid, move a task to a machine that stays up: `T` on a branch in the tree (or in its changes view, or `m` → **Move to another machine…**), pick the machine, then the project there.

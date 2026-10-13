@@ -182,6 +182,7 @@ m:box
       p:box~r1/terminals
         pane:box~p1
       p:box~r1/files
+  m:box/files
 `
 	if got != want {
 		t.Fatalf("tree:\n%s\nwant:\n%s", got, want)
@@ -189,6 +190,19 @@ m:box
 	rows := buildTree(in)
 	if r := rows[indexOfRow(rows, "pane:box~p1")]; r.machine != "box" || r.paneID != "p1" {
 		t.Fatalf("remote pane row: %+v", r)
+	}
+	// The machine's own files: a Files row with no project, which this
+	// computer doesn't have, and which a filter leaves out.
+	if r := rows[indexOfRow(rows, "m:box/files")]; r.kind != kindFiles || r.machine != "box" || r.projectID != "" || r.depth != 1 {
+		t.Fatalf("machine files row: %+v", r)
+	}
+	in.expanded["m:local"] = true
+	if i := indexOfRow(buildTree(in), "m:local/files"); i >= 0 {
+		t.Fatal("this computer has a Files row")
+	}
+	in.filter = "bash"
+	if i := indexOfRow(buildTree(in), "m:box/files"); i >= 0 {
+		t.Fatal("a filter kept the Files row")
 	}
 }
 

@@ -196,24 +196,7 @@ func (s *Server) listCheckout(lp proto.FSListParams) (proto.FSList, *proto.Error
 		if relDir != "" {
 			rel = relDir + "/" + name
 		}
-		fe := proto.FSEntry{Name: name, Dir: e.IsDir()}
-		if info, err := e.Info(); err == nil {
-			fe.ModTime = info.ModTime()
-			fe.Size = info.Size()
-		}
-		if e.Type()&os.ModeSymlink != 0 {
-			fe.Symlink = true
-			if target, err := os.Stat(filepath.Join(dir, name)); err != nil {
-				fe.Broken = true
-			} else {
-				fe.Dir = target.IsDir()
-				fe.Size = target.Size()
-				fe.ModTime = target.ModTime()
-			}
-		}
-		if fe.Dir {
-			fe.Size = 0
-		}
+		fe := fileEntry(dir, e)
 		if !lp.Files && !fe.Dir {
 			continue
 		}
@@ -232,29 +215,97 @@ func (s *Server) listCheckout(lp proto.FSListParams) (proto.FSList, *proto.Error
 		}
 		out.Entries = append(out.Entries, fe)
 	}
-	// Folders first, as every file tree has them.
-	sort.Slice(out.Entries, func(i, j int) bool {
-		a, b := out.Entries[i], out.Entries[j]
+	sortEntries(out.Entries)
+	return out, nil
+}
+
+// fileEntry describes one entry of dir, saying for a symlink what it leads
+// to.
+func fileEntry(dir string, e os.DirEntry) proto.FSEntry {
+	fe := proto.FSEntry{Name: e.Name(), Dir: e.IsDir()}
+	if info, err := e.Info(); err == nil {
+		fe.ModTime = info.ModTime()
+		fe.Size = info.Size()
+	}
+	if e.Type()&os.ModeSymlink != 0 {
+		fe.Symlink = true
+		if target, err := os.Stat(filepath.Join(dir, e.Name())); err != nil {
+			fe.Broken = true
+		} else {
+			fe.Dir = target.IsDir()
+			fe.Size = target.Size()
+			fe.ModTime = target.ModTime()
+		}
+	}
+	if fe.Dir {
+		fe.Size = 0
+	}
+	return fe
+}
+
+// sortEntries puts folders first, as every file tree has them.
+func sortEntries(entries []proto.FSEntry) {
+	sort.Slice(entries, func(i, j int) bool {
+		a, b := entries[i], entries[j]
 		if a.Dir != b.Dir {
 			return a.Dir
 		}
 		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
 	})
+}
+
+// listFiles lists a folder anywhere on the machine with its files, for
+// browsing the machine itself rather than a checkout (fs.transfer.v1).
+// There is no git here to ask, and nothing to confine to: whoever is
+// connected already has a shell on this machine.
+func (s *Server) listFiles(lp proto.FSListParams) (proto.FSList, *proto.Error) {
+	dir, err := resolvePath(lp.Path)
+	if err != nil {
+		return proto.FSList{}, proto.Errorf(proto.ErrInternal, "%v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return proto.FSList{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	home, _ := os.UserHomeDir()
+	out := proto.FSList{Path: dir, Home: home, Entries: []proto.FSEntry{}}
+	if parent := filepath.Dir(dir); parent != dir {
+		out.Parent = parent
+	}
+	for _, e := range entries {
+		if !lp.Hidden && strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if len(out.Entries) == maxListEntries {
+			out.Truncated = true
+			break
+		}
+		out.Entries = append(out.Entries, fileEntry(dir, e))
+	}
+	sortEntries(out.Entries)
 	return out, nil
 }
 
-// readFile returns the start of a file in a checkout, or says it is binary.
+// readFile returns the start of a file in a checkout, or without a root
+// anywhere on the machine (fs.transfer.v1), or says it is binary.
 func (s *Server) readFile(rp proto.FSReadParams) (proto.FSReadResult, *proto.Error) {
-	root, perr := s.checkoutRoot(rp.Root)
-	if perr != nil {
-		return proto.FSReadResult{}, perr
-	}
 	if rp.Path == "" || rp.Path == "." {
 		return proto.FSReadResult{}, proto.Errorf(proto.ErrBadRequest, "fs.read needs a file")
 	}
-	path, perr := confine(root, rp.Path)
-	if perr != nil {
-		return proto.FSReadResult{}, perr
+	var path string
+	if rp.Root == "" {
+		var err error
+		if path, err = resolvePath(rp.Path); err != nil {
+			return proto.FSReadResult{}, proto.Errorf(proto.ErrInternal, "%v", err)
+		}
+	} else {
+		root, perr := s.checkoutRoot(rp.Root)
+		if perr != nil {
+			return proto.FSReadResult{}, perr
+		}
+		if path, perr = confine(root, rp.Path); perr != nil {
+			return proto.FSReadResult{}, perr
+		}
 	}
 	if rp.Offset < 0 {
 		return proto.FSReadResult{}, proto.Errorf(proto.ErrBadRequest, "negative offset")

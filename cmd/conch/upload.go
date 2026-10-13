@@ -3,31 +3,52 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
-// runUpload copies local files to a machine's uploads folder, as dropping
-// them on one of its panes does, and prints where each one landed.
+const (
+	uploadUsage   = "usage: conch [-m MACHINE] upload [-to DIR] [-f] PATH..."
+	downloadUsage = "usage: conch [-m MACHINE] download [-to DIR] [-f] PATH..."
+)
+
+// tooOldToCopy is said when the machine's conch takes dropped files but not
+// files sent to a folder, folders, or copies back.
+const tooOldToCopy = "the conch server there is older and can't copy files to a folder, copy folders, or copy anything back; update it with `conch machine upgrade`"
+
+// runUpload copies local files and folders to a machine: into a folder
+// there with -to, else its uploads folder as dropping them on one of its
+// panes does. It prints where each one landed.
 func runUpload(args []string) error {
-	if len(args) == 0 {
-		return errors.New("usage: conch [-m MACHINE] upload FILE...")
+	fs := flag.NewFlagSet("upload", flag.ContinueOnError)
+	to := fs.String("to", "", "the folder to copy into there (~ is its home); default: conch's uploads folder")
+	force := fs.Bool("f", false, "write over a file or into a folder of the same name, rather than numbering the copy")
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
-	files := make([][]byte, len(args))
-	for i, path := range args {
+	paths := fs.Args()
+	if len(paths) == 0 {
+		return errors.New(uploadUsage)
+	}
+	// Every path is looked at before anything is sent, so a typo in the
+	// last one doesn't leave the first ones copied.
+	folders := false
+	for _, path := range paths {
 		st, err := os.Stat(path)
 		switch {
 		case err != nil:
 			return err
+		case st.IsDir():
+			folders = true
 		case !st.Mode().IsRegular():
-			return fmt.Errorf("%s is not a file", path)
-		}
-		if files[i], err = os.ReadFile(path); err != nil {
-			return err
+			return fmt.Errorf("%s is not a file or folder", path)
 		}
 	}
 	c, err := connect(false)
@@ -38,14 +59,88 @@ func runUpload(args []string) error {
 	if len(c.MissingCapabilities([]string{"fs.upload.v1"})) > 0 {
 		return errors.New("the conch server there is older and can't take uploads; update it with `conch machine upgrade`")
 	}
-	for i, path := range args {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		stored, err := client.NewUpload(c, filepath.Base(path), files[i]).Run(ctx)
-		cancel()
+	if (*to != "" || folders) && len(c.MissingCapabilities([]string{proto.CapFSTransfer})) > 0 {
+		return errors.New(tooOldToCopy)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	for _, path := range paths {
+		up, err := client.OpenUpload(c, path)
+		if err != nil {
+			return err
+		}
+		if *to != "" {
+			up.Into(*to, *force)
+		}
+		err = runSteps(ctx, up.Step, up.Timeout)
+		up.Close()
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		fmt.Println(stored)
+		fmt.Println(up.Path())
 	}
 	return nil
+}
+
+// runDownload copies files and folders from a machine into a folder here,
+// and prints where each one landed.
+func runDownload(args []string) error {
+	fs := flag.NewFlagSet("download", flag.ContinueOnError)
+	to := fs.String("to", ".", "the folder here to copy into")
+	force := fs.Bool("f", false, "write over a file or into a folder of the same name, rather than numbering the copy")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	paths := fs.Args()
+	if len(paths) == 0 {
+		return errors.New(downloadUsage)
+	}
+	dest, err := filepath.Abs(*to)
+	if err != nil {
+		return err
+	}
+	if st, err := os.Stat(dest); err != nil {
+		return err
+	} else if !st.IsDir() {
+		return fmt.Errorf("%s is not a folder", *to)
+	}
+	c, err := connect(false)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if len(c.MissingCapabilities([]string{proto.CapFSTransfer})) > 0 {
+		return errors.New(tooOldToCopy)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	for _, path := range paths {
+		d := client.NewDownload(c, path, dest, *force)
+		err := runSteps(ctx, d.Step, d.Timeout)
+		d.Close() // what an interrupted one wrote
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		fmt.Println(d.Path())
+	}
+	return nil
+}
+
+// runSteps runs a transfer to the end, each step with its own time limit:
+// a whole copy has none, since it is as long as the file is big.
+func runSteps(ctx context.Context, step func(context.Context) (bool, error), timeout func() time.Duration) error {
+	for {
+		sctx, cancel := context.WithTimeout(ctx, timeout())
+		done, err := step(sctx)
+		cancel()
+		if err != nil {
+			if ctx.Err() != nil {
+				return errors.New("interrupted")
+			}
+			return err
+		}
+		if done {
+			return nil
+		}
+	}
 }

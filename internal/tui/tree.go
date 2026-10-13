@@ -191,6 +191,13 @@ func looseSSHID(mid string) string           { return machineID(mid) + "/ssh" }
 func savedSSHID(target string) string        { return "sshsaved:" + target }
 func cliID(mid string) string                { return machineID(mid) + "/cli" }
 func workspaceID(mid string) string          { return machineID(mid) + "/workspace" }
+func machineFilesID(mid string) string       { return machineID(mid) + "/files" }
+
+// machineFilesRow is a machine's own Files row: a files view with no
+// project browses the machine itself.
+func machineFilesRow(mid string) row {
+	return row{id: machineFilesID(mid), kind: kindFiles, depth: 1, machine: mid}
+}
 
 // buildTree flattens the visible tree into rows.
 func buildTree(in treeInput) []row {
@@ -569,6 +576,12 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 		if open(cliID(mid), true) {
 			body = append(body, cli...)
 		}
+	}
+	// A machine elsewhere has its files as a whole: to look through and to
+	// copy to and from this computer (files.go, transfer.go). This
+	// computer's are a Finder away.
+	if mid != localMachine && filter == "" {
+		body = append(body, machineFilesRow(mid))
 	}
 
 	if filter != "" && len(body) == 0 {

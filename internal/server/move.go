@@ -147,6 +147,9 @@ type packFile struct {
 	path string
 	size int64
 	last time.Time
+	// keep is a file that is not conch's to delete: a download read
+	// straight from where it is (download.go).
+	keep bool
 }
 
 func newPacks(configDir string) *packs {
@@ -322,8 +325,16 @@ func (pk *packs) read(p proto.WorktreePackReadParams) (proto.WorktreePackChunk, 
 	}
 	defer f.Close()
 	buf := make([]byte, min(int64(proto.UploadChunkSize), pf.size-p.Offset))
-	if _, err := f.ReadAt(buf, p.Offset); err != nil && !errors.Is(err, io.EOF) {
+	n, err := f.ReadAt(buf, p.Offset)
+	if err != nil && !errors.Is(err, io.EOF) {
 		return proto.WorktreePackChunk{}, proto.Errorf(proto.ErrInternal, "%v", err)
+	}
+	if n < len(buf) {
+		// Only a file read where it is can shrink: the rest would be
+		// zeros passed off as its contents. It is not dropped here, so a
+		// client reading several chunks at once hears this from each read
+		// past the end rather than "no pack"; nobody reads it after.
+		return proto.WorktreePackChunk{}, proto.Errorf(proto.ErrBadRequest, "the file got shorter while it was read; copy it again")
 	}
 	out := proto.WorktreePackChunk{Data: buf, EOF: p.Offset+int64(len(buf)) == pf.size}
 	if out.EOF {
@@ -337,7 +348,7 @@ func (pk *packs) drop(id string) {
 	pf := pk.active[id]
 	delete(pk.active, id)
 	pk.mu.Unlock()
-	if pf != nil {
+	if pf != nil && !pf.keep {
 		os.Remove(pf.path)
 	}
 }

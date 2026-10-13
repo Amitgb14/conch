@@ -333,6 +333,7 @@ var slowMethods = map[string]bool{
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true,
+	proto.MethodFSDownload: true, proto.MethodFSDownloadRead: true,
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -621,7 +622,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return s.listCheckout(lp)
 		}
 		if lp.Files {
-			return nil, proto.Errorf(proto.ErrBadRequest, "files are only listed inside a checkout: set root")
+			return s.listFiles(lp)
 		}
 		return s.listDir(lp)
 
@@ -645,6 +646,21 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.uploads.chunk(c, up)
+
+	case proto.MethodFSDownload:
+		dp, perr := decode[proto.FSDownloadParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.download(dp)
+
+	case proto.MethodFSDownloadRead:
+		rp, perr := decode[proto.FSDownloadReadParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		chunk, perr := s.packs.read(proto.WorktreePackReadParams{ID: rp.ID, Offset: rp.Offset})
+		return proto.FSDownloadChunk{Data: chunk.Data, EOF: chunk.EOF}, perr
 
 	case proto.MethodProjectRemove:
 		ref, perr := decode[proto.ProjectRef](msg)
