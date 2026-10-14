@@ -203,6 +203,9 @@ type Model struct {
 	queueSeen    map[string]string        // review queue rows dismissed, by what they said when dismissed
 	verifyRuns   map[string]verifyRun     // a branch's last run of its project's check, by machine|project|branch
 	actionPanes  map[string]string        // a custom action's terminal, kept when it exits: machine|pane -> action name
+	// pendingMoves is moves waiting, by machine, for the sandbox made for
+	// them to connect (move.go).
+	pendingMoves map[string]*worktreeMove
 	// What the file explorer was last told to show, kept across restarts
 	// (files.go, state.go). Dotfiles are shown unless somebody pressed
 	// `.`, which is why this one is written the negative way round.
@@ -499,6 +502,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.machine == localMachine {
 				m.placeLaunch(msg.projects)
 			}
+			if cmd := m.resumeMove(msg.machine); cmd != nil {
+				return m, tea.Batch(cmd, m.rebuild())
+			}
 		}
 		return m, m.rebuild()
 
@@ -619,6 +625,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.note != "" {
 			m.setFlash("added "+mach.label+" · "+msg.note, strings.HasPrefix(msg.note, "key login not set up"))
 		}
+		if msg.move != nil {
+			m.awaitMove(mach, msg.move)
+		}
 		return m, tea.Batch(mach.connect(false), m.rebuild(), m.saveState())
 
 	case previewDoneMsg:
@@ -725,7 +734,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.receiveMoveDescribed(msg)
 
 	case moveClonedMsg:
-		m.receiveMoveCloned(msg)
+		return m, m.receiveMoveCloned(msg)
+
+	case projectDescribedMsg:
+		return m, m.receiveProjectDescribed(msg)
+
+	case projectMainDoneMsg:
+		return m, m.receiveProjectMainDone(msg)
+
+	case moveSandboxFailedMsg:
+		m.receiveMoveSandboxFailed(msg)
 		return m, nil
 
 	case moveStepMsg:

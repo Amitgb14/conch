@@ -161,6 +161,9 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		case kindPane:
 			items = []statusItem{hint("enter", "open"), hint("c", "agent"), hint("n", "shell"), hint("v", "split"),
 				hint("O", "new tab"), hint("r", "rename"), hint("x", "close"), hint("m", "menu")}
+			if m.canMoveAgent(r.machine, r.paneID) {
+				items = append(items[:len(items)-1], hint("T", "move"), items[len(items)-1])
+			}
 		case kindSavedSSH:
 			items = []statusItem{hint("enter", "connect"), hint("e", "edit"), hint("K", "copy key"), hint("x", "forget"), hint("H", "ssh"), hint("m", "menu")}
 		case kindFolder:
@@ -178,9 +181,15 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		case kindBranch:
 			items = []statusItem{hint("enter", "changes"), hint("b", "git"), hint("v", "split"), hint("o", "PR"), hint("c", "agent"), hint("n", "shell"),
 				hint("x", "rm worktree"), hint("y", "copy"), hint("m", "menu")}
+			if m.canMoveBranch(r.machine, r.projectID, r.branch) {
+				items = append(items[:len(items)-1], hint("T", "move"), items[len(items)-1])
+			}
 		case kindProject:
 			items = []statusItem{hint("t", "task"), hint("c", "agent"), hint("n", "shell"), hint("B", "broadcast"), hint("space", "fold"),
 				hint("x", "remove"), hint("m", "menu")}
+			if m.canMoveProject(r.machine, r.projectID) {
+				items = append(items[:len(items)-1], hint("T", "move"), items[len(items)-1])
+			}
 		case kindWorkspace:
 			items = []statusItem{hint("a", "project"), hint("t", "task"), hint("B", "broadcast"), hint("space", "fold"), hint("m", "menu")}
 		case kindMachine:
