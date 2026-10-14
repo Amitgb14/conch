@@ -25,7 +25,7 @@ func withPermissionConfig(t *testing.T, mode string, rules ...config.PermissionR
 
 func TestDecidePermission(t *testing.T) {
 	s, _, work := shareFixture(t)
-	e := agentPane(t, s, "p1", "claude", work, "sleep 30")
+	e := agentPane(t, s, "p1", "claude", work, "exec sleep 30")
 	t.Cleanup(func() { e.p.Close() })
 	ask := func(tool, subject string) proto.PermissionAnswer {
 		t.Helper()
