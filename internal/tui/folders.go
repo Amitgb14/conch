@@ -325,3 +325,29 @@ func sectionWord(kind nodeKind) string {
 		return "Terminals"
 	}
 }
+
+// followRename keeps a renamed pane in its folders. A member holds its pane
+// by id and the name beside it, so that an id a new server handed out again
+// is not taken for the old pane; a rename changes the name under the same
+// id, which is the same pane, and the member is told the new name rather
+// than letting the pane fall out of its folder.
+func (m *Model) followRename(machine string, old, now proto.PaneInfo) bool {
+	if old.ID != now.ID || old.Name == now.Name {
+		return false
+	}
+	changed := false
+	for key, folders := range m.folders {
+		if folderKeyMachine(key) != machine {
+			continue
+		}
+		for fi := range folders {
+			for mi, mem := range folders[fi].Members {
+				if mem.ID == now.ID && (mem.Name == "" || mem.Name == old.Name) {
+					folders[fi].Members[mi] = folderMember(now)
+					changed = true
+				}
+			}
+		}
+	}
+	return changed
+}

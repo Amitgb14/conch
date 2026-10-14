@@ -122,7 +122,7 @@ Terminals
 
 Folders come first, and a folder **starts folded**. Both follow from the same thing: a row one step out from an open folder's contents is not in that folder, but at a glance it can read as though it were. Folded, nothing is under a folder but its own; opened, you are the one who opened it. The panes in no folder are listed after the folders, as `vm3` is.
 
-A folder holds each pane **by name and by id**. The id says which pane, always — two terminals may share a name, and the id is the only thing that tells `vm1` in `eng` from `vm1` in `prod`. The name is for one moment: when conch connects to a machine and finds the ids it wrote down belong to a server that has since restarted, each folder looks for its panes by name **once** (`r` in the tree, or `conch rename`, gives a pane its name). What it finds then it keeps by id; what it cannot find it lets go. Two consequences worth knowing: a pane you never named is held by id alone and leaves its folder when the server goes, and if **two** panes answer to one name at that moment the folder keeps neither, there being nothing to choose by — and it does not come back for them later, so a terminal that merely outlives its namesake stays where you left it. A pane is in one folder at a time, and folders live in `ui.json` per machine, project and section, so they cost nothing to anyone who never makes one.
+A folder holds each pane **by name and by id**. The id says which pane, always — two terminals may share a name, and the id is the only thing that tells `vm1` in `eng` from `vm1` in `prod`. The name is for one moment: when conch connects to a machine and finds the ids it wrote down belong to a server that has since restarted, each folder looks for its panes by name **once** (`r` in the tree, or `conch rename`, gives a pane its name). What it finds then it keeps by id; what it cannot find it lets go. Two consequences worth knowing: a pane you never named is held by id alone and leaves its folder when the server goes, and if **two** panes answer to one name at that moment the folder keeps neither, there being nothing to choose by — and it does not come back for them later, so a terminal that merely outlives its namesake stays where you left it. Renaming a pane while it runs keeps it in its folder: the id still says which pane, and the folder takes the new name with it. A pane is in one folder at a time, and folders live in `ui.json` per machine, project and section, so they cost nothing to anyone who never makes one.
 
 ### Grouped by tab
 
@@ -144,7 +144,7 @@ A tab's row is named as the bar names it, a renamed tab (`ctrl+b ,`) and the `�
 
 ### Fold state
 
-Fold state and sidebar width are remembered in `~/.config/conch/ui.json`.
+Fold state and sidebar width are remembered in `~/.config/conch/ui.json`. With two conch windows open at once, each keeps its own tabs, workspaces and folds, while folders, saved ssh hosts and the repositories you said No to are shared: a change made in one shows in the other within a second, and neither writes over the other's. If both change the folders of one section in the same moment, the later change wins. A conch from before this was added still writes over the file, so restart an old window after upgrading.
 
 ### Git panel
 

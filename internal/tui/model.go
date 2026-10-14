@@ -163,8 +163,9 @@ type Model struct {
 	selEdge    int           // lines a held drag past the pane's edge scrolls per tick
 	selTicking bool          // a selScrollMsg is scheduled
 
-	changesPolling bool   // a changesPollMsg is scheduled
-	statePath      string // where fold state is saved; "" disables saving
+	changesPolling bool    // a changesPollMsg is scheduled
+	statePath      string  // where fold state is saved; "" disables saving
+	uiSync         *uiSync // what it and ui.json last agreed on, so another TUI's changes are merged (uisync.go)
 
 	branchSigs map[string]sigSeen // when each branch last changed (see verify.go)
 	warning    string             // shown once when the TUI starts (see Warn)
@@ -254,6 +255,7 @@ func New(local *client.Client, cfg config.Config) Model {
 	}
 	m.sshInfo = cleanSSHInfo(m.savedSSH, st.SSHHosts)
 	m.folders = migrateSSHGroups(m.folders, st.SSHGroups, m.savedSSH, m.sshInfo)
+	m.uiSync = newUISync(path, m.sharedNow())
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	m.restoreSpaces(st.FirstSpace, st.Spaces, st.ActiveSpace)
 	if st.SidebarWidth > 0 {
@@ -293,6 +295,9 @@ func (m Model) Init() tea.Cmd {
 		}
 	}
 	cmds = append(cmds, catalogTick())
+	if m.uiSync != nil && m.statePath != "" {
+		cmds = append(cmds, uiSyncTick(m.statePath, m.uiSync))
+	}
 	if m.warning != "" {
 		cmds = append(cmds, func() tea.Msg { return errMsg{errString(m.warning)} })
 	}
@@ -429,6 +434,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case panesMsg:
 		var settled tea.Cmd
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
+			// A rename missed as an event is caught here, before the old
+			// names are gone — on this connection only: the panes held
+			// from one before may be another server's, ids handed out again.
+			renamed := false
+			for _, p := range msg.panes {
+				if i := mach.paneIndex(p.ID); i >= 0 && mach.settled == msg.gen && m.followRename(mach.id, mach.panes[i], p) {
+					renamed = true
+				}
+			}
+			if renamed {
+				settled = m.saveState()
+			}
 			mach.setPanes(msg.panes)
 			// The one moment a folder may look for its panes by name: the
 			// ids it wrote down are from whatever server was there before
@@ -758,6 +775,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.receiveCleanup(msg)
 		return m, nil
 
+	case uiPollMsg:
+		return m, tea.Batch(m.takeUIPoll(msg), uiSyncTick(m.statePath, m.uiSync))
+
+	case uiMergedMsg:
+		return m, m.takeUIMerged(msg)
+
 	case monitorSampleMsg, monitorTickMsg:
 		return m, m.receiveMonitor(msg)
 
@@ -825,6 +848,10 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		}
 		old := mach.panes[i]
 		mach.panes[i] = info
+		var renamed tea.Cmd
+		if mach.settled == mach.gen && m.followRename(mach.id, old, info) {
+			renamed = m.saveState()
+		}
 		if info.Agent != nil {
 			mach.agents[info.ID] = true
 		}
@@ -859,7 +886,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				}
 			}
 		}
-		return tea.Batch(m.rebuild(), m.notifyAttention(mach, old, info), m.notifyMonitor(mach, old, info), installed, checked,
+		return tea.Batch(m.rebuild(), renamed, m.notifyAttention(mach, old, info), m.notifyMonitor(mach, old, info), installed, checked,
 			m.observeAgent(mach, old, info), m.watchPrompt(mach, info, msg.Event == proto.EventPaneExited))
 
 	case proto.EventPaneClosed:

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -348,5 +349,105 @@ func TestSettleKeepsTwoPanesOfOneName(t *testing.T) {
 	got := m.folders["r1/4"][0].claim(panes, map[string]bool{})
 	if len(got) != 2 || got[0].ID != "p1" || got[1].ID != "p2" {
 		t.Fatalf("it holds %+v, and p3 is nobody's", got)
+	}
+}
+
+// TestA1RenamedPaneStaysInItsFolder: a member holds its pane by id and
+// name, and renaming a pane in a folder used to leave it held by neither —
+// the name no longer agreed — so it dropped back into the section.
+func TestA1RenamedPaneStaysInItsFolder(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	mach.settled = mach.gen
+	var paneRow row
+	for _, r := range m.rows {
+		if r.kind == kindPane {
+			paneRow = r
+			break
+		}
+	}
+	mid, pid, kind, ok := m.folderSection(paneRow)
+	if !ok || !m.newFolder(mid, pid, kind, "eng") {
+		t.Fatal("no folder")
+	}
+	if !m.putInFolder(mid, pid, kind, "eng", *m.pane(mid, paneRow.paneID)) {
+		t.Fatal("the pane did not go in")
+	}
+	inFolder := func() bool {
+		got := m.foldersIn(mid, pid, kind)[0].claim(m.sectionPanes(mid, pid, kind), map[string]bool{})
+		return len(got) == 1 && got[0].ID == paneRow.paneID
+	}
+
+	renamed := *m.pane(mid, paneRow.paneID)
+	renamed.Name, renamed.CustomName = "busybox ssh", true
+	cmd := m.handleEvent(mach, eventMsg(t, proto.EventPaneUpdated, renamed))
+	if !inFolder() {
+		t.Fatalf("renamed out of its folder: %+v", m.foldersIn(mid, pid, kind))
+	}
+	if cmd == nil {
+		t.Fatal("the rename was not saved")
+	}
+	if mem := m.foldersIn(mid, pid, kind)[0].Members[0]; mem.Name != "busybox ssh" {
+		t.Fatalf("member %+v", mem)
+	}
+
+	// Renamed again, and missed as an event: the pane list catches it.
+	again := renamed
+	again.Name = "bb"
+	panes := slices.Clone(mach.panes)
+	panes[mach.paneIndex(again.ID)] = again
+	updateModel(m, panesMsg{machine: mid, gen: mach.gen, panes: panes})
+	if !inFolder() || m.foldersIn(mid, pid, kind)[0].Members[0].Name != "bb" {
+		t.Fatalf("a listed rename: %+v", m.foldersIn(mid, pid, kind))
+	}
+}
+
+// TestFollowRenameOnlyTheSamePane: a rename is followed for the member of
+// that id and name and nothing else — not another machine's pane of the
+// same id, not a member whose name says it was some other pane.
+func TestFollowRenameOnlyTheSamePane(t *testing.T) {
+	m := &Model{folders: map[string][]savedFolder{
+		"r1/4":         {{Name: "eng", Members: []savedMember{{Name: "zsh", ID: "p1"}, {ID: "p2"}, {Name: "old", ID: "p3"}}}},
+		"busybox~r1/4": {{Name: "eng", Members: []savedMember{{Name: "zsh", ID: "p1"}}}},
+	}}
+	if m.followRename(localMachine, proto.PaneInfo{ID: "p1", Name: "zsh"}, proto.PaneInfo{ID: "p1", Name: "zsh"}) {
+		t.Fatal("an unchanged name changed something")
+	}
+	if m.followRename(localMachine, proto.PaneInfo{ID: "p1", Name: "zsh"}, proto.PaneInfo{ID: "p9", Name: "web"}) {
+		t.Fatal("followed two different panes")
+	}
+	if !m.followRename(localMachine, proto.PaneInfo{ID: "p1", Name: "zsh"}, proto.PaneInfo{ID: "p1", Name: "web"}) {
+		t.Fatal("did not follow")
+	}
+	// A member of no name takes the name it now has; one whose name was
+	// another pane's is left.
+	m.followRename(localMachine, proto.PaneInfo{ID: "p2"}, proto.PaneInfo{ID: "p2", Name: "api"})
+	m.followRename(localMachine, proto.PaneInfo{ID: "p3", Name: "new"}, proto.PaneInfo{ID: "p3", Name: "newer"})
+	want := []savedMember{{Name: "web", ID: "p1"}, {Name: "api", ID: "p2"}, {Name: "old", ID: "p3"}}
+	if got := m.folders["r1/4"][0].Members; !slices.Equal(got, want) {
+		t.Fatalf("members %+v", got)
+	}
+	if got := m.folders["busybox~r1/4"][0].Members[0]; got.Name != "zsh" {
+		t.Fatalf("another machine's member followed: %+v", got)
+	}
+}
+
+// TestRenameNotFollowedAcrossConnections: panes kept from the connection
+// before may be another server's, whose ids were handed out again; a pane
+// list from a new connection is settled by name, not taken as renames.
+func TestRenameNotFollowedAcrossConnections(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	p := mach.panes[0]
+	key := folderKey(localMachine, p.ProjectID, m.paneSection(localMachine, p.ID))
+	m.folders = map[string][]savedFolder{key: {{Name: "eng", Members: []savedMember{folderMember(p)}}}}
+	mach.gen++ // a new connection, not yet settled
+	other := p
+	other.Name = "someone-else"
+	panes := slices.Clone(mach.panes)
+	panes[0] = other
+	updateModel(m, panesMsg{machine: localMachine, gen: mach.gen, panes: panes})
+	if mem := m.folders[key][0].Members; len(mem) != 0 {
+		t.Fatalf("a reused id was taken as a rename: %+v", mem)
 	}
 }

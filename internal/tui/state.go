@@ -114,7 +114,8 @@ func saveUIState(path string, st uiState) error {
 }
 
 // saveState writes fold state and sidebar width in the background. The
-// maps are copied because the model keeps changing them.
+// maps are copied because the model keeps changing them, and what TUIs
+// share is merged with the file rather than written over it (uisync.go).
 func (m Model) saveState() tea.Cmd {
 	tabs, active := m.firstSpaceTabs()
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
@@ -152,12 +153,23 @@ func (m Model) saveState() tea.Cmd {
 	for k, v := range m.showAll {
 		st.ShowAll[k] = v
 	}
-	path := m.statePath
-	return func() tea.Msg {
-		if path == "" {
+	path, us := m.statePath, m.uiSync
+	if path == "" {
+		return func() tea.Msg { return nil }
+	}
+	if us == nil {
+		return func() tea.Msg {
+			_ = saveUIState(path, st) // losing fold state is not worth interrupting the user
 			return nil
 		}
-		_ = saveUIState(path, st) // losing fold state is not worth interrupting the user
-		return nil
 	}
+	// What this save changed is measured against what was last in step
+	// with the file; from here on, that is this save (uisync.go).
+	us.mu.Lock()
+	base := us.base
+	us.base = sharedOf(st)
+	us.seq++
+	seq := us.seq
+	us.mu.Unlock()
+	return func() tea.Msg { return writeUIState(path, us, seq, base, st) }
 }
