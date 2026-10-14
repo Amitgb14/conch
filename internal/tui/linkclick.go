@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"strings"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
@@ -14,11 +12,11 @@ import (
 // over a dozen rows; this is the other way people reach for — put the
 // pointer on it and click.
 //
-// Who gets the click matters. A pane running a program that asked for the
-// mouse (an agent's own interface, vim) is owed every click, so there a
-// link needs alt or ctrl held — the modifiers a terminal passes through.
-// A pane whose program takes no mouse was doing nothing with the click
-// anyway, so a plain one opens the link.
+// A link opens only with alt or ctrl held — the modifiers a terminal
+// passes through — in every pane. A plain click is owed elsewhere: to the
+// program when it asked for the mouse (an agent's own interface, vim), and
+// otherwise to placing a selection, which a plain click opening a browser
+// got in the way of.
 //
 // Not cmd+click, which is the one people ask for on a Mac: the mouse
 // protocols carry three modifier bits — shift, alt and ctrl (X10 and SGR
@@ -95,16 +93,6 @@ func (m *Model) clickedLink(f *proto.Frame, msg tea.MouseMsg, x, y int) (tea.Cmd
 	}
 	m.setFlash("opening "+ansi.Truncate(link, 60, "…")+" · also copied", false)
 	return tea.Batch(copyText(link), openURL(link)), true
-}
-
-// linkHint is the help line's wording, kept here beside the rule it
-// describes so the two cannot drift apart.
-func linkHint(prefix string) string {
-	return strings.Join([]string{
-		"alt+click (option+click) or ctrl+click a link an agent printed to open it;",
-		prefix + " u lists every link on the screen.",
-		"With [ui] hover on, a link under the pointer is underlined while alt or ctrl is held",
-	}, " ")
 }
 
 // linkSpanUnder is the columns a link under x,y covers on its own row, so

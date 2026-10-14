@@ -371,3 +371,48 @@ func TestSelectOverAppAsksThePanesOwnMachine(t *testing.T) {
 		t.Fatal("a machine or pane that is not there selects over nothing")
 	}
 }
+
+// TestSelectingInAnotherSplit: a drag that starts in a split other than the
+// focused one selects that split's text. The press focuses it before the
+// selection starts (focusLeaf → syncView sets the pane and its frame at
+// once), so the selection, the frame it reads and the copy are all the
+// pane under the pointer's — for a shell, and for an agent that took the
+// mouse, whose drag goes through selectOrClick.
+func TestSelectingInAnotherSplit(t *testing.T) {
+	for _, c := range []struct {
+		what  string
+		right string // the pane in the right split
+		mouse bool
+	}{
+		{"a shell", "p2", false},
+		{"an agent that took the mouse", "p4", true},
+	} {
+		a2Isolate(t)
+		m, _ := a1Fixture(t, true)
+		a1Open(t, m, paneNodeID(localMachine, "p3"))
+		i := indexOfRow(m.rows, paneNodeID(localMachine, c.right))
+		m.split(splitRight, viewOf(m.rows[i]))
+		m.frames[paneKey(localMachine, "p3")] = &proto.Frame{ID: "p3", Lines: []string{"left side text", ""}}
+		m.frames[paneKey(localMachine, c.right)] = &proto.Frame{ID: c.right, Mouse: c.mouse, Lines: []string{"right words here", ""}}
+		leaves := m.tab().root.leaves()
+		left, right := leaves[0].id, leaves[1].id
+		a2Run(m.focusLeaf(left))
+		if m.viewing != "p3" {
+			t.Fatalf("%s: the left split is not focused: %q", c.what, m.viewing)
+		}
+
+		rects, _ := m.leafRects()
+		in := m.inner(rects[right])
+		a1Mouse(t, m, in.x, in.y, a1Left, a1Press)
+		a1Mouse(t, m, in.x+5, in.y, tea.MouseButtonNone, a1Motion)
+		lastClipboard = ""
+		a2Run(a1Mouse(t, m, in.x+5, in.y, a1Left, a1Release))
+
+		if m.viewing != c.right || m.tab().focus != right {
+			t.Fatalf("%s: the drag did not focus the split it was in: viewing %q", c.what, m.viewing)
+		}
+		if lastClipboard != "right" {
+			t.Fatalf("%s: copied %q, want the right split's own text", c.what, lastClipboard)
+		}
+	}
+}
