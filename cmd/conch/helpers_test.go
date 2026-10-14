@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/sshtest"
 )
 
 // TestMain lets this test binary stand in for other programs:
@@ -25,6 +26,7 @@ import (
 //     no server answers. Tests must never start a detached server, so it
 //     fails at once.
 func TestMain(m *testing.M) {
+	sshtest.Main() // run as ssh: the host a terminal is logged in to
 	switch os.Getenv("A4_HELPER_MODE") {
 	case "main":
 		os.Args = append([]string{"conch"}, os.Args[1:]...)

@@ -283,7 +283,7 @@ On any machine elsewhere, or a terminal's ssh host, this view and a project's al
 - `D` copies the selected file or folder to `~/Downloads` here (your home folder, on a computer without one).
 - A folder is copied whole, symlinks as links. A name already taken is never written over: the copy is numbered — `ca 2.pem`, `site 2` — and the status bar says where it landed. `U`'s dialog has a **Replace** box for writing over instead; for a folder that merges, keeping files only the other side has.
 
-Copies go over the machine's own conch connection — the one its panes use — so an ssh host and a sandbox are the same: no address to look up, no key or password to give, nothing to install. [`conch upload -to` and `conch download`](/docs/cli) do the same from a shell. A machine running a conch from before this says it needs updating (`conch machine upgrade`).
+Copies go over the machine's own conch connection — the one its panes use — so an ssh host and a sandbox are the same: no address to look up, no key or password to give, nothing to install. [`conch upload -to` and `conch download`](/docs/cli) do the same from a shell, and with `-ssh PANE` for a terminal's ssh host. A machine running a conch from before this says it needs updating (`conch machine upgrade`).
 
 The explorer browses; it does not manage. There is no creating or deleting here: `n` opens a terminal in the folder you are looking at, which does the whole job rather than the two verbs a file manager would reimplement. `y` copies a file's path, `e` opens it in `$EDITOR`, `a` hands it to the agent working in that checkout, `d` shows its diff.
 

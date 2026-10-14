@@ -15,9 +15,26 @@ import (
 )
 
 const (
-	uploadUsage   = "usage: conch [-m MACHINE] upload [-to DIR] [-f] PATH..."
-	downloadUsage = "usage: conch [-m MACHINE] download [-to DIR] [-f] PATH..."
+	uploadUsage   = "usage: conch [-m MACHINE] upload [-ssh PANE] [-to DIR] [-f] PATH..."
+	downloadUsage = "usage: conch [-m MACHINE] download [-ssh PANE] [-to DIR] [-f] PATH..."
 )
+
+// tooOldForSSH is said when the machine's conch can't reach the host a
+// terminal there is logged in to.
+const tooOldForSSH = "the conch server there is older and can't copy to or from an ssh terminal's host; update it (`conch machine upgrade`, or reload the server here)"
+
+// sshPane turns -ssh's pane, an ID or a name, into the ID, once the server
+// is known to reach that pane's host (fs.ssh.v1). Empty is the machine
+// itself.
+func sshPane(c *client.Client, ref string) (string, error) {
+	if ref == "" {
+		return "", nil
+	}
+	if len(c.MissingCapabilities([]string{proto.CapFSSSH})) > 0 {
+		return "", errors.New(tooOldForSSH)
+	}
+	return resolvePane(c, ref)
+}
 
 // tooOldToCopy is said when the machine's conch takes dropped files but not
 // files sent to a folder, folders, or copies back.
@@ -28,14 +45,19 @@ const tooOldToCopy = "the conch server there is older and can't copy files to a 
 // panes does. It prints where each one landed.
 func runUpload(args []string) error {
 	fs := flag.NewFlagSet("upload", flag.ContinueOnError)
-	to := fs.String("to", "", "the folder to copy into there (~ is its home); default: conch's uploads folder")
+	to := fs.String("to", "", "the folder to copy into there (~ is its home); default: conch's uploads folder, or with -ssh the home folder")
 	force := fs.Bool("f", false, "write over a file or into a folder of the same name, rather than numbering the copy")
+	ssh := fs.String("ssh", "", "the pane (ID or name) of a terminal logged in with ssh: copy to that host instead")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	paths := fs.Args()
 	if len(paths) == 0 {
 		return errors.New(uploadUsage)
+	}
+	// An ssh host has no uploads folder of conch's: its home it is.
+	if *ssh != "" && *to == "" {
+		*to = "~"
 	}
 	// Every path is looked at before anything is sent, so a typo in the
 	// last one doesn't leave the first ones copied.
@@ -62,6 +84,10 @@ func runUpload(args []string) error {
 	if (*to != "" || folders) && len(c.MissingCapabilities([]string{proto.CapFSTransfer})) > 0 {
 		return errors.New(tooOldToCopy)
 	}
+	pane, err := sshPane(c, *ssh)
+	if err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	for _, path := range paths {
@@ -72,6 +98,7 @@ func runUpload(args []string) error {
 		if *to != "" {
 			up.Into(*to, *force)
 		}
+		up.On(pane)
 		err = runSteps(ctx, up.Step, up.Timeout)
 		up.Close()
 		if err != nil {
@@ -88,6 +115,7 @@ func runDownload(args []string) error {
 	fs := flag.NewFlagSet("download", flag.ContinueOnError)
 	to := fs.String("to", ".", "the folder here to copy into")
 	force := fs.Bool("f", false, "write over a file or into a folder of the same name, rather than numbering the copy")
+	ssh := fs.String("ssh", "", "the pane (ID or name) of a terminal logged in with ssh: copy from that host instead")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -112,10 +140,14 @@ func runDownload(args []string) error {
 	if len(c.MissingCapabilities([]string{proto.CapFSTransfer})) > 0 {
 		return errors.New(tooOldToCopy)
 	}
+	pane, err := sshPane(c, *ssh)
+	if err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	for _, path := range paths {
-		d := client.NewDownload(c, path, dest, *force)
+		d := client.NewDownload(c, path, dest, *force).On(pane)
 		err := runSteps(ctx, d.Step, d.Timeout)
 		d.Close() // what an interrupted one wrote
 		if err != nil {
