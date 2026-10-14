@@ -463,13 +463,13 @@ func (m Model) leafAt(rects map[int]rect, x, y int) int {
 // input get it; otherwise the wheel scrolls history (or sends arrow keys to
 // full-screen programs) and dragging selects text.
 func (m *Model) paneMouse(machine, paneID string, msg tea.MouseMsg, x, y int, press, wheel bool) tea.Cmd {
-	// The pane under the pointer, which is not always the focused one: a
-	// click or a wheel over another split asks for that split's focus, and
-	// the asking is a command that has not run yet. Deciding by the
-	// focused pane's frame sent SGR mouse reports to a pane that had never
-	// asked for the mouse, which printed them as text into an agent's
-	// prompt (`<65;106;43M`), and would have sent them to another
-	// machine's client as well.
+	// Everything is decided by the pane this event is for — its own
+	// machine, client and frame — never by what happens to be focused.
+	// handleMouse focuses a split pressed or wheeled over before calling
+	// here, but deciding by the focused pane once sent SGR mouse reports to
+	// a pane that had never asked for the mouse, which printed them as text
+	// into an agent's prompt (`<65;106;43M`), and would have sent them to
+	// another machine's client as well.
 	c := m.clientOf(machine)
 	if c == nil {
 		return nil
@@ -478,14 +478,15 @@ func (m *Model) paneMouse(machine, paneID string, msg tea.MouseMsg, x, y int, pr
 		m.focus = focusMain
 	}
 	f := m.frames[paneKey(machine, paneID)]
-	// Scrolling conch's own history is the focused pane's business: its
-	// offset and selection are what move. A wheel over another split has
-	// just asked for that split's focus, so the next one scrolls it.
+	// Scrolling conch's own history is the viewed pane's business: its
+	// offset and selection are what move. A split pressed or wheeled over
+	// is focused before this runs (focusLeaf → syncView), so this is false
+	// only for a pane conch does not view — its own, say — whose history
+	// is not there to scroll.
 	ours := machine == m.viewMachine && paneID == m.viewing
-	// A link an agent printed, before anything else looks at the click: in
-	// a pane whose program takes the mouse it needs alt or ctrl, since that
-	// program is owed its clicks; anywhere else a plain click opens it,
-	// because nothing else was using it.
+	// A link an agent printed, before anything else looks at the click: an
+	// alt or ctrl click opens it in any pane (linkclick.go); a plain one
+	// goes on to select, or to the program that took the mouse.
 	if cmd, took := m.clickedLink(f, msg, x, y); took {
 		return cmd
 	}
@@ -532,8 +533,8 @@ func (m *Model) paneMouse(machine, paneID string, msg tea.MouseMsg, x, y int, pr
 		}
 		c.Notify(proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: paneID, Keys: keys})
 	case wheel && !ours:
-		// Not the pane on screen yet: this wheel asked for its focus, and
-		// scrolling would have moved the one that is. The next turns it.
+		// Not the pane conch is viewing: scrolling would move the one that
+		// is, so the wheel does nothing here.
 	case wheel:
 		m.scrollPane(m.wheelDelta(msg))
 	default:
