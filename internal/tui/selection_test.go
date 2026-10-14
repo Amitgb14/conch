@@ -169,7 +169,7 @@ func TestSelectOverMouseApp(t *testing.T) {
 	m := &Model{width: 100, height: 30, viewMachine: localMachine, viewing: "p1",
 		frame:    &proto.Frame{Mouse: true, Lines: []string{"copy this text", "second"}},
 		machines: []*machine{{id: localMachine, panes: []proto.PaneInfo{{ID: "p1", Agent: &proto.AgentStatus{Name: "claude"}}}}}}
-	if !m.selectsOverApp("p1") {
+	if !m.selectsOverApp(localMachine, "p1") {
 		t.Fatal("agent panes select over the app")
 	}
 	n := &notes{}
@@ -346,5 +346,28 @@ func TestTripleClickTakesTheWholeLine(t *testing.T) {
 	s := selection{ax: 0, ay: 1, bx: w - 1, by: 2}
 	if got := s.text(lines, w); got != "git log --oneline -n20 --stat | head" {
 		t.Fatalf("the line copied as %q", got)
+	}
+}
+
+// TestSelectOverAppAsksThePanesOwnMachine: pane ids are each server's own
+// and start at p1 on every one, so "p1" on another machine is not this
+// computer's p1. Deciding by the machine on screen made a drag over an
+// agent in another machine's split go to it as clicks — or a shell's
+// clicks get taken for a selection — whenever the two p1s differed.
+func TestSelectOverAppAsksThePanesOwnMachine(t *testing.T) {
+	const remote = "busybox"
+	m := &Model{width: 100, height: 30, viewMachine: localMachine, viewing: "p1",
+		machines: []*machine{
+			{id: localMachine, panes: []proto.PaneInfo{{ID: "p1"}}},
+			{id: remote, panes: []proto.PaneInfo{{ID: "p1", Agent: &proto.AgentStatus{Name: "claude"}}}},
+		}}
+	if !m.selectsOverApp(remote, "p1") {
+		t.Fatal("an agent on another machine did not select over its app")
+	}
+	if m.selectsOverApp(localMachine, "p1") {
+		t.Fatal("this computer's shell took the other machine's agent for its own")
+	}
+	if m.selectsOverApp("gone", "p1") || m.selectsOverApp(remote, "p9") {
+		t.Fatal("a machine or pane that is not there selects over nothing")
 	}
 }

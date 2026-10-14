@@ -482,7 +482,7 @@ func (m *Model) paneMouse(machine, paneID string, msg tea.MouseMsg, x, y int, pr
 		return cmd
 	}
 	switch {
-	case f != nil && f.Mouse && !wheel && (m.selectsOverApp(paneID) || msg.Alt || msg.Ctrl):
+	case f != nil && f.Mouse && !wheel && (m.selectsOverApp(machine, paneID) || msg.Alt || msg.Ctrl):
 		return m.selectOrClick(c, paneID, msg, x, y)
 	case ours && f != nil && f.Mouse && wheel && m.sel != nil && m.sel.paneID == paneID && f.History > 0:
 		// Text selected in a program that takes the mouse, in a pane conch
@@ -570,9 +570,11 @@ func (m *Model) wheelDelta(msg tea.MouseMsg) int {
 
 // selectsOverApp reports whether dragging selects text even though the
 // program asked for mouse events: agents use the mouse for clicks and the
-// wheel, and their output is what people want to copy.
-func (m Model) selectsOverApp(paneID string) bool {
-	p := m.pane(m.viewMachine, paneID)
+// wheel, and their output is what people want to copy. The pane is looked
+// up on its own machine, not the one on screen: ids start at p1 on every
+// server, so another machine's split has a p1 that is not this one's.
+func (m Model) selectsOverApp(machine, paneID string) bool {
+	p := m.pane(machine, paneID)
 	return p != nil && p.Agent != nil
 }
 

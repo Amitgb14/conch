@@ -382,7 +382,7 @@ func TestA1MouseAgentPaneSelectsOverApp(t *testing.T) {
 	a1Open(t, m, paneNodeID(localMachine, "p1")) // an agent
 	m.frames[paneKey(localMachine, "p1")] = &proto.Frame{ID: "p1", Lines: []string{"hello there"}, Mouse: true}
 	m.syncView()
-	if !m.selectsOverApp("p1") || m.selectsOverApp("p3") {
+	if !m.selectsOverApp(localMachine, "p1") || m.selectsOverApp(localMachine, "p3") {
 		t.Fatal("selectsOverApp")
 	}
 	in := m.focusedRect()
