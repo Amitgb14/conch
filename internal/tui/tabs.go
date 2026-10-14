@@ -240,7 +240,7 @@ func (m *Model) syncView() tea.Cmd {
 			l.files = nil
 			continue
 		}
-		if fv := l.files; fv == nil || fv.machine != v.Machine || fv.projectID != v.ProjectID || fv.want != v.Branch {
+		if fv := l.files; fv == nil || fv.machine != v.Machine || fv.projectID != v.ProjectID || fv.want != v.Branch || fv.ssh != v.PaneID {
 			l.files = m.newFilesView(v)
 			cmds = append(cmds, l.files.load(m))
 		} else if fv.err != "" && m.clientOf(fv.machine) != nil {
@@ -904,6 +904,8 @@ func (m Model) viewLabel(v viewRef) string {
 	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions, kindFiles:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			label = proj.Name
+		} else if v.Kind == kindFiles && v.PaneID != "" {
+			label = m.sshHostOf(v.Machine, v.PaneID) // a terminal's ssh host
 		} else if mach := m.machine(v.Machine); v.Kind == kindFiles && v.ProjectID == "" && mach != nil {
 			label = mach.label // a machine's own files
 		}

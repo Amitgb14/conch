@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/Amitgb14/conch/internal/sshtest"
 )
 
 // Nothing in this suite may reach out of the process. A test once put its
@@ -19,6 +21,7 @@ import (
 // can turn it off for all of them at once; a test that wants to check one
 // replaces it again for itself.
 func TestMain(m *testing.M) {
+	sshtest.Main() // this binary run as ssh, by a test of a terminal's ssh host
 	putClipboard = func(text string) { lastClipboard = text }
 	openInBrowser = func(url string) error { lastOpened = url; return nil }
 	runOutward = func(*exec.Cmd) {}

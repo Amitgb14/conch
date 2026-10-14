@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -159,6 +159,17 @@ const CapIssues = "project.issues.v1"
 // CapPermissionRules is agent.permission: the server answering an agent's
 // permission request by the person's rules, before it is asked on screen.
 const CapPermissionRules = "agent.permission.v1"
+
+// CapFSSSH is the files of a host a terminal is logged in to with ssh:
+// PaneInfo.SSH names the host, and fs.list, fs.read, fs.mkdir, fs.upload
+// and fs.download take SSH, the pane, to reach that host's files instead of
+// this machine's — through sftp, so nothing of conch's is needed there.
+const CapFSSSH = "fs.ssh.v1"
+
+// CapPaneSSH is pane.create taking SSH, a pane logged in to a host: the
+// command then runs on that host, through ssh with the pane's options and
+// a terminal — how the Files view of a terminal's ssh host edits a file.
+const CapPaneSSH = "pane.ssh.v1"
 
 // Methods.
 const (
@@ -418,6 +429,9 @@ type PaneInfo struct {
 	// CreatedBy is the pane this one was started from, if any: an agent
 	// there may change it, and what it starts in turn (see pane.scope.v1).
 	CreatedBy string `json:"created_by,omitempty"`
+	// SSH is the host the program in front is logged in to when it is ssh
+	// — `ssh me@box` typed at the shell — as it was typed (fs.ssh.v1).
+	SSH string `json:"ssh,omitempty"`
 }
 
 // PaneMonitor asks to be told about a pane's output, as tmux's
@@ -638,6 +652,9 @@ type FSListParams struct {
 	// Ignored keeps what git ignores in a checkout listing; it is left out
 	// otherwise, which is what keeps node_modules out of the way.
 	Ignored bool `json:"ignored,omitempty"`
+	// SSH is a pane logged in to a host with ssh: Path is then on that
+	// host (fs.ssh.v1), and Root is not taken.
+	SSH string `json:"ssh,omitempty"`
 }
 
 // FSList is the result of fs.list.
@@ -678,6 +695,7 @@ type FSReadParams struct {
 	Path   string `json:"path"`
 	Offset int64  `json:"offset,omitempty"`
 	Max    int    `json:"max,omitempty"`
+	SSH    string `json:"ssh,omitempty"` // as in FSListParams
 }
 
 // FSReadResult is the result of fs.read. A binary file has no Data: it is
@@ -695,6 +713,7 @@ type FSReadResult struct {
 // FSMkdirParams creates one folder.
 type FSMkdirParams struct {
 	Path string `json:"path"`
+	SSH  string `json:"ssh,omitempty"` // as in FSListParams
 }
 
 // UploadChunkSize is how much of a file one fs.upload request carries. Small
@@ -729,6 +748,9 @@ type FSUploadParams struct {
 	// every other one has been answered.
 	Parallel bool  `json:"parallel,omitempty"`
 	Offset   int64 `json:"offset,omitempty"`
+	// SSH (first chunk) puts it on the host a pane is logged in to, as in
+	// FSListParams; Dir is then a folder there.
+	SSH string `json:"ssh,omitempty"`
 }
 
 // FSUploadResult answers each chunk.
@@ -741,6 +763,7 @@ type FSUploadResult struct {
 // read back with fs.download_read.
 type FSDownloadParams struct {
 	Path string `json:"path"`
+	SSH  string `json:"ssh,omitempty"` // as in FSListParams
 }
 
 // FSDownload is a download ready to read. A folder comes packed by
@@ -1816,6 +1839,10 @@ type PaneCreateParams struct {
 	// NoProject starts a machine-level pane: it belongs to no project even
 	// when Cwd lies in one.
 	NoProject bool `json:"no_project,omitempty"`
+	// SSH runs Command on the host the pane SSH is logged in to, through
+	// ssh with that pane's options and a terminal (pane.ssh.v1). Cwd is
+	// where ssh runs here; "" is that pane's folder.
+	SSH string `json:"ssh,omitempty"`
 }
 
 // ShellThemes describes the prompt themes available on a machine.

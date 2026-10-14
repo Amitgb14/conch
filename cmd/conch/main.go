@@ -132,6 +132,9 @@ Usage:
   conch -m MACHINE download [-to DIR] [-f] PATH...
                                 copy files or folders from a machine into DIR here (default: the
                                 current folder) and print where each landed; -f as for upload
+  conch upload|download -ssh PANE ...
+                                the same with the host the terminal PANE (ID or name) is logged
+                                in to with ssh; upload's DIR defaults to that host's home
   conch web [-listen ADDR] [-port N] [-url URL] [-cert FILE -key FILE]
                                 serve your phone: see the agents, reply to one and answer what
                                 it asks. Listens only on this machine's Tailscale address

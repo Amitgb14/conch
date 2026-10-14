@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -29,6 +30,7 @@ type Upload struct {
 	archive bool
 	replace bool
 	mode    uint32
+	ssh     string // a pane whose ssh host it goes to (fs.ssh.v1)
 	// done releases what OpenUpload opened.
 	done func()
 
@@ -89,6 +91,17 @@ func (u *Upload) Into(dir string, replace bool) *Upload {
 	return u
 }
 
+// On sends it to the host the pane ssh is logged in to rather than the
+// machine itself; dir, from Into, is then a folder on that host. It needs
+// fs.ssh.v1: a server without it would put the file on its own machine.
+func (u *Upload) On(ssh string) *Upload {
+	u.ssh = ssh
+	return u
+}
+
+// errNoSSHFiles is a server too old to reach a pane's ssh host.
+var errNoSSHFiles = errors.New("the conch there is too old to copy to or from an ssh terminal's host; update it")
+
 // Close releases the file OpenUpload opened, and a folder's pack, and
 // gives up on chunks still on their way.
 func (u *Upload) Close() {
@@ -108,6 +121,9 @@ func (u *Upload) Step(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 	if u.id == "" {
+		if u.ssh != "" && len(u.c.MissingCapabilities([]string{proto.CapFSSSH})) > 0 {
+			return false, errNoSSHFiles
+		}
 		// The first chunk names the upload, so it goes alone.
 		u.parallel = u.size > proto.UploadChunkSize && len(u.c.MissingCapabilities([]string{proto.CapFSTransfer})) == 0
 		return u.send(ctx, 0)
@@ -173,7 +189,7 @@ func (u *Upload) send(ctx context.Context, off int64) (bool, error) {
 	if u.id == "" {
 		p.Name, p.Size = u.name, u.size
 		p.Dir, p.Archive, p.Replace, p.Mode = u.dir, u.archive, u.replace, u.mode
-		p.Parallel = u.parallel
+		p.Parallel, p.SSH = u.parallel, u.ssh
 	}
 	var res proto.FSUploadResult
 	if err := u.c.Call(ctx, proto.MethodFSUpload, p, &res); err != nil {

@@ -306,13 +306,15 @@ Each kind of file gets an icon, by its whole name first (`Dockerfile`, `go.mod`,
 
 A machine elsewhere — an ssh host, a sandbox — has a **Files** row of its own, under its Workspace and CLI. It is the same explorer on the machine as a whole rather than a checkout: it starts in the home folder there, `-` (or `backspace`) goes up a folder and `~` comes back home, and there is no git to show. This computer has no such row: its files are a Finder away.
 
-On any machine elsewhere, this view and a project's alike, the explorer is also how files cross between it and this computer:
+A terminal where you typed `ssh host` — on this computer or any other — gets a **Files** row under it, naming the host, for as long as ssh is what is running in it; `f` on the terminal opens it. It is the same explorer on that host, with nothing of conch's needed there: conch makes a session of its own with what you typed (the host, user, port, key, jump host and `-F` config, leaving out forwards), and reaches the files through the host's sftp server, which OpenSSH has by default. That session never asks for anything, so it needs a key or an ssh agent; a host that only takes a password says so instead. With `ControlMaster` in your `~/.ssh/config` it shares the terminal's own connection and does not log in again at all. It is closed after five minutes unused, and when the terminal leaves the host. `e` on a file there opens the host's own `$EDITOR` in a new terminal beside it, which runs `ssh -t` to the host with the same options — so this one may ask for a password — and closes when you quit the editor; an `$EDITOR` set in the host's `.zshrc` or `.bashrc` is the one used.
+
+On any machine elsewhere, or a terminal's ssh host, this view and a project's alike, the explorer is also how files cross between it and this computer:
 
 - `U` asks for a file or folder here and copies it into the selected folder there — or the folder the selected file is in. Dragging files or folders from Finder onto the view does the same without asking.
 - `D` copies the selected file or folder to `~/Downloads` here (your home folder, on a computer without one).
 - A folder is copied whole, symlinks as links. A name already taken is never written over: the copy is numbered — `ca 2.pem`, `site 2` — and the status bar says where it landed. `U`'s dialog has a **Replace** box for writing over instead; for a folder that merges, keeping files only the other side has.
 
-Copies go over the machine's own conch connection — the one its panes use — so an ssh host and a sandbox are the same: no address to look up, no key or password to give, nothing to install. [`conch upload -to` and `conch download`](/docs/cli) do the same from a shell. A machine running a conch from before this says it needs updating (`conch machine upgrade`).
+Copies go over the machine's own conch connection — the one its panes use — so an ssh host and a sandbox are the same: no address to look up, no key or password to give, nothing to install. [`conch upload -to` and `conch download`](/docs/cli) do the same from a shell, and with `-ssh PANE` for a terminal's ssh host. A machine running a conch from before this says it needs updating (`conch machine upgrade`).
 
 The explorer browses; it does not manage. There is no creating or deleting here: `n` opens a terminal in the folder you are looking at, which does the whole job rather than the two verbs a file manager would reimplement. `y` copies a file's path, `e` opens it in `$EDITOR`, `a` hands it to the agent working in that checkout, `d` shows its diff.
 

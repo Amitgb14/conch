@@ -41,6 +41,8 @@ type fileCopy struct {
 	machine string
 	label   string
 	c       *client.Client
+	ssh     string // a terminal whose ssh host it goes to or comes from
+	home    string // that host's home, to say where it went
 
 	// One of these: a copy there, or one back.
 	local   string // an upload's path here
@@ -74,7 +76,7 @@ func (fc *fileCopy) start() tea.Cmd {
 			if err != nil {
 				return copyStepMsg{fc: fc, err: err}
 			}
-			fc.up = up.Into(fc.dir, fc.replace)
+			fc.up = up.Into(fc.dir, fc.replace).On(fc.ssh)
 		}
 		return fc.stepNow()
 	}
@@ -150,17 +152,21 @@ func (m *Model) copyStep(msg copyStepMsg) tea.Cmd {
 		m.setFlash("downloaded "+fc.name()+" to "+m.tildify(localMachine, fc.down.Path()), false)
 		return nil
 	}
-	m.setFlash("uploaded "+fc.name()+" to "+fc.label+" · "+m.tildify(fc.machine, fc.up.Path()), false)
-	return m.filesRefreshMachine(fc.machine)
+	where := m.tildify(fc.machine, fc.up.Path())
+	if fc.ssh != "" {
+		where = tildeUnder(fc.home, fc.up.Path())
+	}
+	m.setFlash("uploaded "+fc.name()+" to "+fc.label+" · "+where, false)
+	return m.filesRefreshMachine(fc.machine, fc.ssh)
 }
 
 // filesRefreshMachine lists again what every explorer on a machine shows,
 // after something was copied there.
-func (m *Model) filesRefreshMachine(mid string) tea.Cmd {
+func (m *Model) filesRefreshMachine(mid, ssh string) tea.Cmd {
 	var cmds []tea.Cmd
 	for _, t := range m.openTabs() {
 		for _, l := range t.root.leaves() {
-			if fv := l.files; fv != nil && fv.machine == mid && fv.err == "" {
+			if fv := l.files; fv != nil && fv.machine == mid && fv.ssh == ssh && fv.err == "" {
 				cmds = append(cmds, fv.refresh(m))
 			}
 		}
@@ -171,6 +177,9 @@ func (m *Model) filesRefreshMachine(mid string) tea.Cmd {
 // copyClient is the machine's connection for a copy, or why there is none:
 // this computer needs no copying, and an older conch can't.
 func (m *Model) copyClient(fv *filesView) (*client.Client, string, bool) {
+	if fv.ssh != "" {
+		return m.sshCopyClient(fv)
+	}
 	if fv.machine == localMachine {
 		m.setFlash("these files are on this computer already · y copies a path", false)
 		return nil, "", false
@@ -187,14 +196,30 @@ func (m *Model) copyClient(fv *filesView) (*client.Client, string, bool) {
 	return mach.c, mach.label, true
 }
 
+// sshCopyClient is copyClient for a terminal's ssh host, which is never
+// this computer's own files, whichever machine the terminal runs on. It is
+// labelled by the host.
+func (m *Model) sshCopyClient(fv *filesView) (*client.Client, string, bool) {
+	mach := m.machine(fv.machine)
+	if mach == nil || mach.c == nil {
+		m.setFlash(m.offlineText(fv.machine), true)
+		return nil, "", false
+	}
+	if len(mach.c.MissingCapabilities([]string{proto.CapFSTransfer, proto.CapFSSSH})) > 0 {
+		m.setFlash(sshFilesTooOld, true)
+		return nil, "", false
+	}
+	return mach.c, fv.host, true
+}
+
 // downloadEntry brings the selected file or folder back to this computer.
 func (m *Model) downloadEntry(fv *filesView, l filesLine) tea.Cmd {
 	c, label, ok := m.copyClient(fv)
 	if !ok {
 		return nil
 	}
-	fc := &fileCopy{machine: fv.machine, label: label, c: c, remote: fv.abs(l.rel)}
-	fc.down = client.NewDownload(c, fc.remote, downloadsDir(), false)
+	fc := &fileCopy{machine: fv.machine, label: label, c: c, remote: fv.abs(l.rel), ssh: fv.ssh}
+	fc.down = client.NewDownload(c, fc.remote, downloadsDir(), false).On(fv.ssh)
 	m.setFlash("downloading from "+label+" · "+l.e.Name, false)
 	return fc.start()
 }
@@ -208,10 +233,10 @@ func (m *Model) uploadPaths(fv *filesView, paths []string, replace bool) tea.Cmd
 	dir, rel := fv.uploadDir()
 	cmds := []tea.Cmd{fv.reveal(m, rel)}
 	for _, p := range paths {
-		fc := &fileCopy{machine: fv.machine, label: label, c: c, local: p, dir: dir, replace: replace}
+		fc := &fileCopy{machine: fv.machine, label: label, c: c, local: p, dir: dir, replace: replace, ssh: fv.ssh, home: fv.home}
 		cmds = append(cmds, fc.start())
 	}
-	m.setFlash("uploading to "+label+" · "+m.tildify(fv.machine, dir), false)
+	m.setFlash("uploading to "+label+" · "+fv.tildify(*m, dir), false)
 	return tea.Batch(cmds...)
 }
 
@@ -223,7 +248,7 @@ func (m *Model) openUploadDialog(fv *filesView) tea.Cmd {
 	}
 	dir, _ := fv.uploadDir()
 	text := []string{
-		"A file or folder on this computer, copied into " + m.tildify(fv.machine, dir) + " there. A folder is copied whole.",
+		"A file or folder on this computer, copied into " + fv.tildify(*m, dir) + " there. A folder is copied whole.",
 		"Dragging files onto this view does the same.",
 	}
 	d := newDialog(*m, " Upload to "+m.filesTitle(fv)+" ", text, []string{"Path here"}, []string{"~/"})

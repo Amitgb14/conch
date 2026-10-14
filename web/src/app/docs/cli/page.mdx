@@ -69,6 +69,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch wait ID [-state done] [-timeout 30m]` | block until the pane's agent is `done` (or `waiting`, `working`, `idle` — several, comma separated, stop on the first to happen). Prints `ID AGENT STATE`. Exits 124 if the time runs out, so a script can tell that from a failure; without `-timeout` it waits as long as it takes |
 | `conch [-m MACHINE] upload [-to DIR] [-f] PATH...` | copy files or folders to the machine and print where each landed there: into `DIR` there (`~` is its home), else its uploads folder (`~/.config/conch/uploads`), as dropping them on its pane does. A name already taken is numbered (`ca 2.pem`) unless `-f` |
 | `conch [-m MACHINE] download [-to DIR] [-f] PATH...` | copy files or folders from the machine into `DIR` here (default: the current folder) and print where each landed; `-f` as for `upload` |
+| `conch [-m MACHINE] upload\|download -ssh PANE ...` | the same with the host the terminal `PANE` (its ID or name) is logged in to with plain `ssh` — nothing of conch's needed there, as in its [Files view](/docs/interface#a-machines-own-files). `upload` goes to that host's home unless `-to` says otherwise. It needs a key or an ssh agent for the host, since nobody is there to type a password |
 
 ### Pane names
 

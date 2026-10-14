@@ -287,3 +287,28 @@ func TestPipeCallTimeout(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// TestSSHCopyRefusedByAnOlderServer: a server without fs.ssh.v1 ignores
+// SSH and would copy on its own machine instead, so nothing is sent.
+func TestSSHCopyRefusedByAnOlderServer(t *testing.T) {
+	var calls atomic.Int32
+	s := a3NewServer(t, func(conn *proto.Conn, msg proto.Message) {
+		calls.Add(1)
+		a3Reply(conn, msg, proto.FSUploadResult{Upload: "u1", Path: "/here/f"}, nil)
+	})
+	s.caps = append(s.caps, proto.CapFSTransfer)
+	c := s.dial(t)
+	up := NewUpload(c, "f", []byte("x")).Into("~", false).On("p1")
+	defer up.Close()
+	if _, err := up.Run(transferCtx(t)); err == nil || !strings.Contains(err.Error(), "too old") {
+		t.Fatalf("upload: %v", err)
+	}
+	d := NewDownload(c, "~/f", t.TempDir(), false).On("p1")
+	defer d.Close()
+	if _, err := d.Run(transferCtx(t)); err == nil || !strings.Contains(err.Error(), "too old") {
+		t.Fatalf("download: %v", err)
+	}
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("%d calls reached the server", n)
+	}
+}

@@ -492,3 +492,39 @@ func TestScopeProjectFiles(t *testing.T) {
 		t.Fatal("the agent's patterns were set")
 	}
 }
+
+// TestScopeSSHFiles: an agent's fs methods reach its own machine, and the
+// host of a pane of its own, never the ssh login of another's.
+func TestScopeSSHFiles(t *testing.T) {
+	s, _, work := shareFixture(t)
+	other := filepath.Join(t.TempDir(), "other")
+	a5GitRepo(t, other)
+	mine, _ := s.projects.add(work, false)
+	theirs, _ := s.projects.add(other, false)
+	me := agentPane(t, s, "p1", "claude", work, "stty -echo; exec cat")
+	stranger := agentPane(t, s, "p2", "claude", other, "stty -echo; exec cat")
+	for e, p := range map[*entry]*project{me: mine, stranger: theirs} {
+		e.mu.Lock()
+		e.project = p
+		e.mu.Unlock()
+	}
+	caller := &client{pane: "p1"}
+	for m := range fsMethods {
+		check := func(ssh string) *proto.Error {
+			return s.inScope(caller, proto.Message{Method: m, Params: proto.Marshal(map[string]any{"path": "~", "ssh": ssh})})
+		}
+		if perr := check("p2"); perr == nil || perr.Code != proto.ErrOutOfScope || !strings.Contains(perr.Message, "ssh login of p2") {
+			t.Errorf("%s over another's ssh: %v", m, perr)
+		}
+		if perr := check("p1"); perr != nil {
+			t.Errorf("%s over its own: %v", m, perr)
+		}
+		if perr := check(""); perr != nil {
+			t.Errorf("%s here: %v", m, perr)
+		}
+	}
+	// A person's own connection is never held.
+	if perr := s.inScope(&client{}, proto.Message{Method: proto.MethodFSList, Params: proto.Marshal(map[string]any{"ssh": "p2"})}); perr != nil {
+		t.Errorf("from outside the panes: %v", perr)
+	}
+}

@@ -8,7 +8,7 @@ marked **S**trong, **M**edium or **W**eak.
 ## Status (2026-10-14)
 
 Built on the branch `conch/how-make-better-ai-agents`, each with tests, docs
-and an end-to-end row (9.116–9.126). What was built differs from the plan
+and an end-to-end row (9.117–9.127). What was built differs from the plan
 below in places, and those places are noted.
 
 | # | Item | State | Notes |

@@ -5,18 +5,19 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode/utf8"
 
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/transfer"
 )
 
 // Browsing a checkout's files, for the file explorer.
@@ -258,16 +259,22 @@ func sortEntries(entries []proto.FSEntry) {
 // browsing the machine itself rather than a checkout (fs.transfer.v1).
 // There is no git here to ask, and nothing to confine to: whoever is
 // connected already has a shell on this machine.
+//
+// With SSH it lists the host that pane is logged in to instead.
 func (s *Server) listFiles(lp proto.FSListParams) (proto.FSList, *proto.Error) {
-	dir, err := resolvePath(lp.Path)
+	fsys, perr := s.filesOn(lp.SSH)
+	if perr != nil {
+		return proto.FSList{}, perr
+	}
+	dir, err := resolveOn(fsys, lp.Path)
 	if err != nil {
 		return proto.FSList{}, proto.Errorf(proto.ErrInternal, "%v", err)
 	}
-	entries, err := os.ReadDir(dir)
+	entries, err := fsys.ReadDir(dir)
 	if err != nil {
 		return proto.FSList{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
-	home, _ := os.UserHomeDir()
+	home, _ := fsys.Home()
 	out := proto.FSList{Path: dir, Home: home, Entries: []proto.FSEntry{}}
 	if parent := filepath.Dir(dir); parent != dir {
 		out.Parent = parent
@@ -280,10 +287,27 @@ func (s *Server) listFiles(lp proto.FSListParams) (proto.FSList, *proto.Error) {
 			out.Truncated = true
 			break
 		}
-		out.Entries = append(out.Entries, fileEntry(dir, e))
+		out.Entries = append(out.Entries, infoEntry(fsys, dir, e))
 	}
 	sortEntries(out.Entries)
 	return out, nil
+}
+
+// infoEntry is fileEntry for what an FS lists.
+func infoEntry(fsys transfer.FS, dir string, info fs.FileInfo) proto.FSEntry {
+	fe := proto.FSEntry{Name: info.Name(), Dir: info.IsDir(), Size: info.Size(), ModTime: info.ModTime()}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		fe.Symlink = true
+		if target, err := fsys.Stat(filepath.Join(dir, info.Name())); err != nil {
+			fe.Broken = true
+		} else {
+			fe.Dir, fe.Size, fe.ModTime = target.IsDir(), target.Size(), target.ModTime()
+		}
+	}
+	if fe.Dir {
+		fe.Size = 0
+	}
+	return fe
 }
 
 // readFile returns the start of a file in a checkout, or without a root
@@ -292,10 +316,14 @@ func (s *Server) readFile(rp proto.FSReadParams) (proto.FSReadResult, *proto.Err
 	if rp.Path == "" || rp.Path == "." {
 		return proto.FSReadResult{}, proto.Errorf(proto.ErrBadRequest, "fs.read needs a file")
 	}
+	fsys, perr := s.filesOn(rp.SSH)
+	if perr != nil {
+		return proto.FSReadResult{}, perr
+	}
 	var path string
-	if rp.Root == "" {
+	if rp.Root == "" || rp.SSH != "" {
 		var err error
-		if path, err = resolvePath(rp.Path); err != nil {
+		if path, err = resolveOn(fsys, rp.Path); err != nil {
 			return proto.FSReadResult{}, proto.Errorf(proto.ErrInternal, "%v", err)
 		}
 	} else {
@@ -317,12 +345,12 @@ func (s *Server) readFile(rp proto.FSReadParams) (proto.FSReadResult, *proto.Err
 	// A folder has nothing to read, and a fifo or device would block — even
 	// opening a fifo does — so the file is looked at before it is opened,
 	// and opened without blocking in case it changed in between.
-	if info, err := os.Stat(path); err != nil {
+	if info, err := fsys.Stat(path); err != nil {
 		return proto.FSReadResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	} else if !info.Mode().IsRegular() {
 		return proto.FSReadResult{}, proto.Errorf(proto.ErrBadRequest, "%s is not a regular file", rp.Path)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	f, err := fsys.Open(path)
 	if err != nil {
 		return proto.FSReadResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
@@ -335,11 +363,8 @@ func (s *Server) readFile(rp proto.FSReadParams) (proto.FSReadResult, *proto.Err
 		return proto.FSReadResult{}, proto.Errorf(proto.ErrBadRequest, "%s is not a regular file", rp.Path)
 	}
 	res := proto.FSReadResult{Path: path, Size: info.Size(), ModTime: info.ModTime()}
-	if _, err := f.Seek(rp.Offset, io.SeekStart); err != nil {
-		return proto.FSReadResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
-	}
 	buf := make([]byte, max)
-	n, err := io.ReadFull(f, buf)
+	n, err := io.ReadFull(io.NewSectionReader(f, rp.Offset, int64(max)), buf)
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return proto.FSReadResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}

@@ -22,6 +22,7 @@ type Download struct {
 	remote  string
 	dest    string
 	replace bool
+	ssh     string // a pane whose ssh host it comes from (fs.ssh.v1)
 
 	started bool
 	info    proto.FSDownload
@@ -39,6 +40,13 @@ type Download struct {
 // into the folder dest here. It needs fs.transfer.v1.
 func NewDownload(c *Client, remote, dest string, replace bool) *Download {
 	return &Download{c: c, remote: remote, dest: dest, replace: replace}
+}
+
+// On brings it from the host the pane ssh is logged in to rather than the
+// machine itself; remote is then a path on that host. It needs fs.ssh.v1.
+func (d *Download) On(ssh string) *Download {
+	d.ssh = ssh
+	return d
 }
 
 // Timeout is how long the next step may take: a folder is packed before
@@ -62,7 +70,10 @@ func (d *Download) Step(ctx context.Context) (bool, error) {
 		} else if !st.IsDir() {
 			return false, fmt.Errorf("%s is not a folder", d.dest)
 		}
-		if err := d.c.Call(ctx, proto.MethodFSDownload, proto.FSDownloadParams{Path: d.remote}, &d.info); err != nil {
+		if d.ssh != "" && len(d.c.MissingCapabilities([]string{proto.CapFSSSH})) > 0 {
+			return false, errNoSSHFiles
+		}
+		if err := d.c.Call(ctx, proto.MethodFSDownload, proto.FSDownloadParams{Path: d.remote, SSH: d.ssh}, &d.info); err != nil {
 			return false, err
 		}
 		d.started = true

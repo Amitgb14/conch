@@ -9,6 +9,7 @@ import (
 	"github.com/Amitgb14/conch/internal/detect"
 	"github.com/Amitgb14/conch/internal/pane"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/usage"
 )
 
@@ -49,6 +50,11 @@ type entry struct {
 
 	monitor paneMonitor // guarded by mu; see monitor.go
 
+	// login is the host the program in front is logged in to when it is
+	// ssh, guarded by mu (sshfiles.go).
+	login   remote.Login
+	loginOK bool
+
 	// turns counts the agent starting work, guarded by mu: what tells a
 	// prompt's end from a state left over from before it (see prompt.go).
 	turns int
@@ -87,6 +93,9 @@ func (e *entry) info() proto.PaneInfo {
 	info.LastActive = e.lastActive
 	turns := e.turns
 	subs := append([]proto.Subagent(nil), e.subagents.list...)
+	if e.loginOK && info.State == proto.PaneRunning {
+		info.SSH = e.login.Host
+	}
 	if len(e.lineage) > 0 {
 		info.CreatedBy = e.lineage[0]
 	}
@@ -168,10 +177,11 @@ type shown struct {
 	monitor                        proto.PaneMonitor
 	alert                          string
 	subagents                      string
+	ssh                            string
 }
 
 func shownOf(info proto.PaneInfo) shown {
-	sh := shown{title: info.Title, name: info.Name, branch: info.Branch, alert: info.Alert}
+	sh := shown{title: info.Title, name: info.Name, branch: info.Branch, alert: info.Alert, ssh: info.SSH}
 	if info.Monitor != nil {
 		sh.monitor = *info.Monitor
 	}
@@ -204,6 +214,9 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 		e.screen, e.screenVersion = e.p.PlainLines(), v
 	}
 	e.mu.Lock()
+	if perr == nil { // a look that failed says nothing about what is in front
+		e.login, e.loginOK = remote.ParseLogin(proc.Args)
+	}
 	prevState := e.tracker.Status().State
 	fn(e.tracker)
 	at := time.Now()

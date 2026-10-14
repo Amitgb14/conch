@@ -48,6 +48,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/buildinfo` | Build identity (executable hash) used to detect stale servers and TUIs |
 | `internal/report` | What `conch bug` and the TUI's *Report a problem…* hand over: versions, counts, sizes, a server's missing capabilities and conch's own last error, rendered for a GitHub issue. **Facts, never contents** — no path, project, branch, pane title or screen — which is what makes one keystroke safe; it sends nothing itself |
 | `internal/tools` | Programs for driving conch under test: `clicker` clicks and drags a pane through the protocol, `standin` is a pane conch detects as an agent (by the name it is built under) that starts panes as an agent does |
+| `internal/sshtest` | A stand-in for ssh in tests: the test binary run under the name `ssh` logs in by waiting as a shell would, and asked for sftp serves a folder as the host's home (hosts `denied`, `nosftp`, `hang` fail as ssh does). A test package calls `sshtest.Main()` from `TestMain` and `sshtest.Install(t)` to put it on `CONCH_SSH`. It is how the files of a terminal's ssh host (`fs.ssh.v1`, `internal/server/sshfiles.go`) are tested without a network |
 | `web/` | The documentation website (Next.js, MDX under `web/src/app/docs`) |
 | `docs/plans` | Design plans for deferred work. The roadmap and the gap plan are kept out of the repository (see `.gitignore`); ask for them rather than looking for them here |
 | `docs/testing` | The [end-to-end plan](docs/testing/end-to-end.md): paths the automated tests only cover with fakes |

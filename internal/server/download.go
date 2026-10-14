@@ -27,11 +27,15 @@ func (s *Server) download(p proto.FSDownloadParams) (proto.FSDownload, *proto.Er
 	if p.Path == "" {
 		return proto.FSDownload{}, proto.Errorf(proto.ErrBadRequest, "fs.download needs a path")
 	}
-	path, err := resolvePath(p.Path)
+	fsys, perr := s.filesOn(p.SSH)
+	if perr != nil {
+		return proto.FSDownload{}, perr
+	}
+	path, err := resolveOn(fsys, p.Path)
 	if err != nil {
 		return proto.FSDownload{}, proto.Errorf(proto.ErrInternal, "%v", err)
 	}
-	st, err := os.Stat(path)
+	st, err := fsys.Stat(path)
 	if err != nil {
 		return proto.FSDownload{}, statError(path, err)
 	}
@@ -40,14 +44,14 @@ func (s *Server) download(p proto.FSDownloadParams) (proto.FSDownload, *proto.Er
 		name = "root"
 	}
 	id := randomHex(8)
-	pf := &packFile{path: path, size: st.Size(), last: s.packs.now(), keep: true}
+	pf := &packFile{path: path, size: st.Size(), last: s.packs.now(), keep: true, fs: fsys}
 	switch {
 	case st.IsDir():
 		if err := os.MkdirAll(s.packs.dir, 0o700); err != nil {
 			return proto.FSDownload{}, proto.Errorf(proto.ErrInternal, "%v", err)
 		}
-		pf.path, pf.keep = filepath.Join(s.packs.dir, id+".tar.gz"), false
-		if pf.size, err = packFolder(pf.path, path); err != nil {
+		pf.path, pf.keep, pf.fs = filepath.Join(s.packs.dir, id+".tar.gz"), false, nil
+		if pf.size, err = packFolder(pf.path, fsys, path); err != nil {
 			os.Remove(pf.path)
 			return proto.FSDownload{}, proto.Errorf(proto.ErrBadRequest, "pack %s: %v", path, err)
 		}
@@ -63,14 +67,14 @@ func (s *Server) download(p proto.FSDownloadParams) (proto.FSDownload, *proto.Er
 }
 
 // packFolder packs src into a new file at dst and returns its size.
-func packFolder(dst, src string) (int64, error) {
+func packFolder(dst string, fsys transfer.FS, src string) (int64, error) {
 	f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return 0, err
 	}
 	defer f.Close()
 	w := &limitWriter{w: f, left: transferLimit}
-	if err := transfer.Pack(w, src); err != nil {
+	if err := transfer.PackFS(w, fsys, src); err != nil {
 		if errors.Is(err, errTooBig) {
 			return 0, fmt.Errorf("it packs to more than %s", sizeText(transferLimit))
 		}
