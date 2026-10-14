@@ -22,6 +22,14 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.hoverAt(msg)
 		return m, nil
 	}
+	// Anything else — a click, a wheel, a pointer moving with a button
+	// held — ends the link the pointer was showing as a hand. Only a plain
+	// move ever put it back, and after an alt+click the browser takes the
+	// focus before the button is let go: the terminal never sends conch the
+	// release and goes on reporting moves as a drag, so the hand stayed
+	// over whatever the pointer crossed next.
+	m.hoverLink = hoverLink{}
+	m.pointAt(pointerArrow)
 	press := msg.Action == tea.MouseActionPress
 	left := msg.Button == tea.MouseButtonLeft
 	wheel := msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown

@@ -208,3 +208,56 @@ func TestThePointerEscapeIsTheOneTerminalsRead(t *testing.T) {
 		t.Errorf("writes: %q", got)
 	}
 }
+
+// TestTheHandGoesWithTheClick: alt+click opens a link on the press, and
+// the browser takes the focus before the button is let go — so the
+// terminal never reports the release, and every move after it comes as a
+// drag with the button held, which hovering does not look at. The hand
+// stayed over whatever the pointer crossed next. Anything that is not a
+// plain move now puts the arrow back.
+func TestTheHandGoesWithTheClick(t *testing.T) {
+	a2Isolate(t)
+	t.Setenv("CONCH_POINTER", "1")
+	for name, then := range map[string]tea.MouseMsg{
+		"a drag whose release never came": {Button: tea.MouseButtonLeft, Action: tea.MouseActionMotion},
+		"the release":                     {Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, Alt: true},
+		"a wheel":                         {Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress},
+	} {
+		pointerSeen()
+		m, _ := a1Fixture(t, true)
+		m.cfg.UI.Hover = true
+		a1Open(t, m, paneNodeID(localMachine, "p3"))
+		m.frames[paneKey(localMachine, "p3")] = &proto.Frame{ID: "p3", Lines: []string{"see https://example.com/x for this", ""}}
+		m.syncView()
+		rects, _ := m.leafRects()
+		in := m.inner(rects[m.tab().focus])
+		send := func(msg tea.MouseMsg, x int) tea.Cmd {
+			msg.X, msg.Y = in.x+x, in.y
+			next, cmd := m.handleMouse(msg)
+			*m = next.(Model)
+			return cmd
+		}
+
+		send(tea.MouseMsg{Button: tea.MouseButtonNone, Action: tea.MouseActionMotion, Alt: true}, 8)
+		if m.pointer != pointerHand {
+			t.Fatalf("%s: alt over the link is not a hand", name)
+		}
+		lastOpened = ""
+		a2Run(send(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Alt: true}, 8))
+		if lastOpened != "https://example.com/x" {
+			t.Fatalf("%s: the alt+click opened %q", name, lastOpened)
+		}
+		// The press itself hands over to the browser: the arrow is back
+		// already, and the underline with it.
+		if m.pointer != pointerArrow || m.hoverLink.pane != "" {
+			t.Fatalf("%s: after the click the pointer is %q, link %+v", name, m.pointer, m.hoverLink)
+		}
+		send(then, 1)
+		if m.pointer != pointerArrow {
+			t.Fatalf("%s: then the pointer is %q", name, m.pointer)
+		}
+		if got := pointerSeen(); len(got) != 2 || got[0] != pointerHand || got[1] != pointerArrow {
+			t.Fatalf("%s: asked the terminal for %v, want a hand then the arrow once", name, got)
+		}
+	}
+}
