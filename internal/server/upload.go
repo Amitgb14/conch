@@ -33,18 +33,25 @@ const (
 type uploads struct {
 	dir string
 	now func() time.Time
+	// filesOn reaches the host a pane is logged in to, for an upload
+	// that names one (sshfiles.go); nil reaches nowhere but here.
+	filesOn func(ssh string) (transfer.FS, *proto.Error)
 
 	mu     sync.Mutex
 	active map[string]*upload
 }
 
 type upload struct {
-	owner   *client
-	f       *os.File
-	part    string
-	size    int64
-	written int64
-	last    time.Time
+	owner *client
+	f     transfer.File
+	part  string
+	// pfs is where the part file is and dfs where the copy goes: this
+	// machine for both, or for an upload to an ssh host that host — but
+	// a folder's pack stays here, to be unpacked there.
+	pfs, dfs transfer.FS
+	size     int64
+	written  int64
+	last     time.Time
 
 	// Where it goes (fs.transfer.v1). dir is a folder the person chose,
 	// or "" for the uploads folder; own is the uploads folder's random
@@ -72,12 +79,24 @@ func newUploads(configDir string) *uploads {
 
 // chunk stores one fs.upload request from c.
 func (u *uploads) chunk(c *client, p proto.FSUploadParams) (proto.FSUploadResult, *proto.Error) {
+	// The host comes first, outside the lock: logging in to it can take
+	// a while, and other uploads go on meanwhile.
+	dfs := transfer.Local
+	if p.Upload == "" && p.SSH != "" {
+		if u.filesOn == nil {
+			return proto.FSUploadResult{}, proto.Errorf(proto.ErrBadRequest, "no ssh hosts here")
+		}
+		var perr *proto.Error
+		if dfs, perr = u.filesOn(p.SSH); perr != nil {
+			return proto.FSUploadResult{}, perr
+		}
+	}
 	u.mu.Lock()
 	id := p.Upload
 	up := u.active[id]
 	if id == "" {
 		var perr *proto.Error
-		if id, up, perr = u.start(c, p); perr != nil {
+		if id, up, perr = u.start(c, p, dfs); perr != nil {
 			u.mu.Unlock()
 			return proto.FSUploadResult{}, perr
 		}
@@ -120,7 +139,7 @@ func (u *uploads) chunk(c *client, p proto.FSUploadParams) (proto.FSUploadResult
 	// upload's alone, so the others go on meanwhile.
 	path, err := up.finish()
 	if err != nil {
-		os.Remove(up.part)
+		up.pfs.Remove(up.part)
 		if up.own != "" {
 			os.Remove(up.own) // the random folder, now empty
 		}
@@ -162,31 +181,32 @@ func (up *upload) finish() (string, error) {
 		path := strings.TrimSuffix(up.part, ".part")
 		return path, os.Rename(up.part, path)
 	}
+	dfs := up.dfs
 	base := up.dir
 	if base == "" {
 		base = up.own
 	}
 	name := up.name
 	if !up.replace {
-		name = transfer.FreeName(base, name)
+		name = transfer.FreeNameFS(dfs, base, name)
 	}
 	target := filepath.Join(base, name)
-	st, err := os.Lstat(target)
+	st, err := dfs.Lstat(target)
 	exists := err == nil
 	if !up.archive {
 		if exists && st.IsDir() {
 			return "", fmt.Errorf("%s is a folder", target)
 		}
-		if err := os.Chmod(up.part, up.mode); err != nil {
+		if err := dfs.Chmod(up.part, up.mode); err != nil {
 			return "", err
 		}
-		return target, os.Rename(up.part, target)
+		return target, dfs.Rename(up.part, target)
 	}
 	switch {
 	case exists && !st.IsDir():
 		return "", fmt.Errorf("%s is in the way and is not a folder", target)
 	case !exists:
-		if err := os.Mkdir(target, 0o755); err != nil {
+		if err := dfs.Mkdir(target, 0o755); err != nil {
 			return "", err
 		}
 	}
@@ -194,11 +214,11 @@ func (up *upload) finish() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	err = transfer.Unpack(f, target, up.replace)
+	err = transfer.UnpackFS(f, dfs, target, up.replace)
 	f.Close()
 	if err != nil {
 		if !exists {
-			os.RemoveAll(target) // half a folder is worse than none
+			dfs.RemoveAll(target) // half a folder is worse than none
 		}
 		return "", err
 	}
@@ -210,7 +230,10 @@ func (up *upload) finish() (string, error) {
 }
 
 // start opens the file for a new upload. u.mu is held.
-func (u *uploads) start(c *client, p proto.FSUploadParams) (string, *upload, *proto.Error) {
+func (u *uploads) start(c *client, p proto.FSUploadParams, dfs transfer.FS) (string, *upload, *proto.Error) {
+	if p.SSH != "" && p.Dir == "" {
+		return "", nil, proto.Errorf(proto.ErrBadRequest, "an upload to an ssh host needs the folder there it goes to")
+	}
 	name := uploadName(p.Name)
 	limit := maxUploadSize
 	if p.Dir != "" || p.Archive {
@@ -219,7 +242,8 @@ func (u *uploads) start(c *client, p proto.FSUploadParams) (string, *upload, *pr
 	if p.Size < 0 || p.Size > limit {
 		return "", nil, proto.Errorf(proto.ErrBadRequest, "%s is %s; the limit is %s", name, sizeText(p.Size), sizeText(limit))
 	}
-	up := &upload{owner: c, size: p.Size, name: name, archive: p.Archive, replace: p.Replace, mode: 0o644}
+	up := &upload{owner: c, size: p.Size, name: name, archive: p.Archive, replace: p.Replace, mode: 0o644,
+		pfs: transfer.Local, dfs: dfs}
 	if p.Parallel {
 		up.parallel, up.got = true, map[int64]bool{}
 	}
@@ -227,11 +251,11 @@ func (u *uploads) start(c *client, p proto.FSUploadParams) (string, *upload, *pr
 		up.mode = os.FileMode(p.Mode).Perm()
 	}
 	if p.Dir != "" {
-		dir, err := resolvePath(p.Dir)
+		dir, err := resolveOn(dfs, p.Dir)
 		if err != nil {
 			return "", nil, proto.Errorf(proto.ErrInternal, "%v", err)
 		}
-		if st, err := os.Stat(dir); err != nil {
+		if st, err := dfs.Stat(dir); err != nil {
 			return "", nil, statError(dir, err)
 		} else if !st.IsDir() {
 			return "", nil, proto.Errorf(proto.ErrBadRequest, "%s is not a folder", dir)
@@ -241,11 +265,11 @@ func (u *uploads) start(c *client, p proto.FSUploadParams) (string, *upload, *pr
 	if up.dir != "" && !up.archive {
 		// Beside where it goes, so putting it there is a rename on the
 		// same filesystem and a half-sent file never has its name.
-		f, err := os.CreateTemp(up.dir, "."+name+".part-*")
+		f, part, err := transfer.CreateTemp(dfs, up.dir, "."+name+".part-*")
 		if err != nil {
 			return "", nil, proto.Errorf(proto.ErrBadRequest, "%v", err)
 		}
-		up.f, up.part = f, f.Name()
+		up.f, up.part, up.pfs = f, part, dfs
 	} else {
 		dir := filepath.Join(u.dir, u.now().Format("2006-01-02"), randomHex(4))
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -275,7 +299,7 @@ func (u *uploads) abort(id string) {
 	}
 	delete(u.active, id)
 	up.f.Close()
-	os.Remove(up.part)
+	up.pfs.Remove(up.part)
 	if up.own != "" {
 		os.Remove(up.own) // the random folder, now empty
 	}

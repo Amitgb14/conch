@@ -852,6 +852,9 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if mach.settled == mach.gen && m.followRename(mach.id, old, info) {
 			renamed = m.saveState()
 		}
+		if old.SSH != info.SSH || (old.State != info.State && old.SSH != "") {
+			renamed = tea.Batch(renamed, m.sshLoginChanged(mach.id, info))
+		}
 		if info.Agent != nil {
 			mach.agents[info.ID] = true
 		}
@@ -1051,7 +1054,13 @@ func (m *Model) rebuild() tea.Cmd {
 	m.treeSig = m.layoutSig()
 	m.rows = buildTree(in)
 	if indexOfRow(m.rows, m.cursor) < 0 && len(m.rows) > 0 {
-		m.cursor = m.rows[clamp(prevIndex, 0, len(m.rows)-1)].id
+		// A terminal's ssh Files row goes when ssh ends: the cursor goes to
+		// the terminal, where that just happened, not whatever is next.
+		if term, ok := strings.CutSuffix(m.cursor, "/files"); ok && strings.HasPrefix(term, "pane:") && indexOfRow(m.rows, term) >= 0 {
+			m.cursor = term
+		} else {
+			m.cursor = m.rows[clamp(prevIndex, 0, len(m.rows)-1)].id
+		}
 	}
 	m.keepCursorVisible()
 	// Session counts in the tree; each list reloads at most every sessionsTTL.

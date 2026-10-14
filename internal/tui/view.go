@@ -295,6 +295,9 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		}
 		return "", glyphStyle, "Sessions", styleMuted, right
 	case kindFiles:
+		if r.paneID != "" { // a host a terminal is logged in to
+			return "", glyphStyle, "Files", styleMuted, styleMuted.Render(r.label)
+		}
 		return "", glyphStyle, "Files", styleMuted, ""
 	case kindBranch:
 		return m.branchParts(r)
@@ -607,6 +610,9 @@ func (m Model) leafTitle(l *leaf) string {
 	case kindReviewQueue:
 		return " review queue "
 	case kindFiles:
+		if v.PaneID != "" {
+			return " files · " + m.sshHostOf(v.Machine, v.PaneID) + " "
+		}
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			t := " files · " + proj.Name + " "
 			if v.Branch != "" {

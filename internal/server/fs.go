@@ -10,6 +10,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/transfer"
 )
 
 // maxListEntries bounds a folder listing; huge folders are rarely where
@@ -17,8 +18,11 @@ import (
 const maxListEntries = 2000
 
 // resolvePath expands ~ and makes path absolute on this machine.
-func resolvePath(path string) (string, error) {
-	home, err := os.UserHomeDir()
+func resolvePath(path string) (string, error) { return resolveOn(transfer.Local, path) }
+
+// resolveOn expands ~ and makes path absolute in fsys.
+func resolveOn(fsys transfer.FS, path string) (string, error) {
+	home, err := fsys.Home()
 	if err != nil {
 		return "", err
 	}
@@ -84,15 +88,26 @@ func (s *Server) listDir(lp proto.FSListParams) (proto.FSList, *proto.Error) {
 }
 
 func (s *Server) mkdir(mp proto.FSMkdirParams) (proto.FSList, *proto.Error) {
-	path, err := resolvePath(mp.Path)
+	fsys, perr := s.filesOn(mp.SSH)
+	if perr != nil {
+		return proto.FSList{}, perr
+	}
+	path, err := resolveOn(fsys, mp.Path)
 	if err != nil {
 		return proto.FSList{}, proto.Errorf(proto.ErrInternal, "%v", err)
 	}
-	if err := os.Mkdir(path, 0o755); err != nil {
+	// Looked at first: sftp says only "failure" for a name that is taken.
+	if _, err := fsys.Lstat(path); err == nil {
+		return proto.FSList{}, proto.Errorf(proto.ErrBadRequest, "%s already exists", path)
+	}
+	if err := fsys.Mkdir(path, 0o755); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return proto.FSList{}, proto.Errorf(proto.ErrBadRequest, "%s already exists", path)
 		}
 		return proto.FSList{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	if mp.SSH != "" {
+		return s.listFiles(proto.FSListParams{Path: filepath.Dir(path), SSH: mp.SSH, Files: true, Hidden: true})
 	}
 	return s.listDir(proto.FSListParams{Path: filepath.Dir(path)})
 }

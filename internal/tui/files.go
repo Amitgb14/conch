@@ -44,6 +44,10 @@ const filesTooOld = "this machine's conch is too old to browse files — update 
 // checkout's files, or copy them.
 const browseTooOld = "this machine's conch is too old to browse or copy its files — update it with `conch machine upgrade`"
 
+// sshFilesTooOld is a conch from before a terminal's ssh host could be
+// browsed (fs.ssh.v1).
+const sshFilesTooOld = "this machine's conch is too old to browse the host this terminal is logged in to — update it"
+
 type filesListMsg struct {
 	machine, root, rel string
 	list               proto.FSList
@@ -88,11 +92,15 @@ type filesCrumb struct {
 
 type filesView struct {
 	machine, projectID string
-	want               string // the branch asked for; "" is the main checkout
-	branch             string // what is checked out at root
-	root               string
-	note               string // why root is not the checkout asked for
-	err                string // why nothing can be listed
+	// ssh is a terminal logged in to a host: the files are that host's,
+	// reached through the terminal's login (fs.ssh.v1), and host is what
+	// it was logged in to when the view opened.
+	ssh, host, home string // home: the host's, once listed
+	want            string // the branch asked for; "" is the main checkout
+	branch          string // what is checked out at root
+	root            string
+	note            string // why root is not the checkout asked for
+	err             string // why nothing can be listed
 
 	dirs    map[string]*filesDir
 	open    map[string]bool
@@ -145,6 +153,9 @@ func (m *Model) newFilesView(v viewRef) *filesView {
 	// convention from `ls`, where a home directory is full of them.
 	// `.` hides them again, and the choice is remembered (state.go).
 	fv := &filesView{machine: v.Machine, projectID: v.ProjectID, want: v.Branch, hidden: !m.filesHideDot, ignored: m.filesShowIgnored}
+	if v.PaneID != "" {
+		fv.ssh, fv.host = v.PaneID, m.sshHostOf(v.Machine, v.PaneID)
+	}
 	if !fv.browsing() {
 		fv.root, fv.branch, fv.note = m.filesCheckout(v.Machine, v.ProjectID, v.Branch)
 	}
@@ -190,6 +201,12 @@ func (fv *filesView) load(m *Model) tea.Cmd {
 	case fv.browsing() && len(c.MissingCapabilities([]string{proto.CapFSTransfer})) > 0:
 		fv.err = browseTooOld
 		return nil
+	case fv.ssh != "" && len(c.MissingCapabilities([]string{proto.CapFSSSH})) > 0:
+		fv.err = sshFilesTooOld
+		return nil
+	case fv.ssh != "" && !m.sshLoggedIn(fv.machine, fv.ssh):
+		fv.err = "no longer logged in to " + fv.host + " · ssh there again"
+		return nil
 	case len(c.MissingCapabilities([]string{proto.CapFSFiles})) > 0:
 		fv.err = filesTooOld
 		return nil
@@ -213,7 +230,7 @@ func (fv *filesView) list(m *Model, rel string) tea.Cmd {
 	mid, root := fv.machine, fv.root
 	params := proto.FSListParams{Root: root, Path: rel, Files: true, Hidden: fv.hidden, Ignored: fv.ignored}
 	if fv.browsing() {
-		params = proto.FSListParams{Path: fv.abs(rel), Files: true, Hidden: fv.hidden}
+		params = proto.FSListParams{Path: fv.abs(rel), Files: true, Hidden: fv.hidden, SSH: fv.ssh}
 	}
 	return func() tea.Msg {
 		var out proto.FSList
@@ -263,6 +280,9 @@ func (fv *filesView) receiveList(msg filesListMsg) {
 		return
 	}
 	d.err, d.entries, d.truncated = "", msg.list.Entries, msg.list.Truncated
+	if fv.ssh != "" && msg.list.Home != "" {
+		fv.home = msg.list.Home
+	}
 	if fv.browsing() && msg.rel == "" && fv.root == "" {
 		fv.root = msg.list.Path // where ~ is, now the server has said
 	}
@@ -287,7 +307,7 @@ func (fv *filesView) read(m *Model, rel string) tea.Cmd {
 	mid, root := fv.machine, fv.root
 	params := proto.FSReadParams{Root: root, Path: rel}
 	if fv.browsing() {
-		params = proto.FSReadParams{Path: fv.abs(rel)}
+		params = proto.FSReadParams{Path: fv.abs(rel), SSH: fv.ssh}
 	}
 	return func() tea.Msg {
 		var out proto.FSReadResult
@@ -541,6 +561,12 @@ func (fv *filesView) render(m Model, w, h int) []string {
 // filesTitle is the project and the checkout, and why it is not the one
 // asked for.
 func (m Model) filesTitle(fv *filesView) string {
+	if fv.ssh != "" {
+		if mach := m.machine(fv.machine); fv.machine != localMachine && mach != nil {
+			return fv.host + " (ssh from " + mach.label + ")"
+		}
+		return fv.host
+	}
 	if fv.browsing() {
 		if mach := m.machine(fv.machine); mach != nil {
 			return mach.label
@@ -569,7 +595,7 @@ func (m Model) filesTitle(fv *filesView) string {
 // place to click back to.
 func (fv *filesView) crumbLine(m Model, w int) string {
 	fv.crumbs = fv.crumbs[:0]
-	root := m.tildify(fv.machine, fv.root)
+	root := fv.tildify(m, fv.root)
 	if root == "" {
 		root = "~" // browsing, before the server has said where that is
 	}
@@ -1265,7 +1291,14 @@ func filesRow(mid, pid, branch string) row {
 
 // openFiles opens the explorer for what the tree has selected: a branch's
 // worktree from a branch or its panes, else the project's main checkout.
+//
+// On a terminal logged in to a host with ssh, it is that host's files.
 func (m *Model) openFiles() tea.Cmd {
+	if r, ok := m.selectedRow(); ok && r.kind == kindPane {
+		if p := m.pane(r.machine, r.paneID); p != nil && p.SSH != "" && p.State == proto.PaneRunning {
+			return m.openSSHFiles(r.machine, *p)
+		}
+	}
 	pl := m.contextPlace()
 	if pl.projectID == "" || m.project(pl.machine, pl.projectID) == nil {
 		m.setFlash("select a project or branch to browse its files", true)
@@ -1380,4 +1413,86 @@ func (fv *filesView) columns(x, w int) (from, to int) {
 		return text, w
 	}
 	return fv.treeW, w
+}
+
+// sshHostOf is the host a terminal is logged in to, or once it has left,
+// the host an explorer of it was opened on; the pane, when neither.
+func (m Model) sshHostOf(mid, paneID string) string {
+	if p := m.pane(mid, paneID); p != nil && p.SSH != "" {
+		return p.SSH
+	}
+	for _, t := range m.openTabs() {
+		for _, l := range t.root.leaves() {
+			if fv := l.files; fv != nil && fv.machine == mid && fv.ssh == paneID && fv.host != "" {
+				return fv.host
+			}
+		}
+	}
+	return paneID
+}
+
+// sshLoggedIn is whether a terminal is running ssh to somewhere now.
+func (m Model) sshLoggedIn(mid, paneID string) bool {
+	p := m.pane(mid, paneID)
+	return p != nil && p.SSH != "" && p.State == proto.PaneRunning
+}
+
+// sshLoginChanged tells the explorers of a terminal's ssh host that the
+// terminal left it, or logged in again — to that host or another, whose
+// files are then the ones shown.
+func (m *Model) sshLoginChanged(mid string, p proto.PaneInfo) tea.Cmd {
+	var cmds []tea.Cmd
+	for _, t := range m.openTabs() {
+		for _, l := range t.root.leaves() {
+			fv := l.files
+			if fv == nil || fv.machine != mid || fv.ssh != p.ID {
+				continue
+			}
+			if p.SSH != "" && p.SSH != fv.host {
+				fv.host, fv.home, fv.root = p.SSH, "", ""
+				fv.reset()
+			}
+			cmds = append(cmds, fv.load(m))
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+// tildify shortens a path of the view's with ~, by the home folder of
+// whatever it shows: the machine's, or a terminal's ssh host's.
+func (fv *filesView) tildify(m Model, p string) string {
+	if fv.ssh == "" {
+		return m.tildify(fv.machine, p)
+	}
+	return tildeUnder(fv.home, p)
+}
+
+func tildeUnder(home, p string) string {
+	switch {
+	case home == "" || home == "/":
+		return p
+	case p == home:
+		return "~"
+	case strings.HasPrefix(p, home+"/"):
+		return "~" + p[len(home):]
+	}
+	return p
+}
+
+// openSSHFiles shows the Files row under an ssh terminal, unfolding the
+// terminal so the cursor can be on it.
+func (m *Model) openSSHFiles(mid string, p proto.PaneInfo) tea.Cmd {
+	r := sshFilesRow(mid, p, 0)
+	var cmds []tea.Cmd
+	if indexOfRow(m.rows, r.id) < 0 {
+		m.expanded[paneNodeID(mid, p.ID)] = true
+		cmds = append(cmds, m.rebuild(), m.saveState())
+	}
+	if i := indexOfRow(m.rows, r.id); i >= 0 {
+		r = m.rows[i]
+		m.cursor = r.id
+		m.keepCursorVisible()
+	}
+	m.focus = focusMain
+	return tea.Batch(append(cmds, m.show(r))...)
 }

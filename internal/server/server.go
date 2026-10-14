@@ -46,6 +46,7 @@ type Server struct {
 	runs      *runLog // agents running in panes, for resuming after a restart
 	uploads   *uploads
 	packs     *packs     // worktrees packed for another machine
+	sshFiles  *sshFiles  // the hosts terminals are logged in to (sshfiles.go)
 	files     fileStates // git status of checkouts being browsed
 
 	limitsMu sync.Mutex
@@ -100,7 +101,9 @@ func New(sockPath, configDir string) *Server {
 		},
 		func(id string) { s.projects.requestID(id) })
 	s.uploads = newUploads(configDir)
+	s.uploads.filesOn = s.filesOn
 	s.packs = newPacks(configDir)
+	s.sshFiles = newSSHFiles()
 	// A reload keeps the panes, so their runs are not interrupted.
 	s.runs = loadRunLog(configDir, os.Getenv(reloadStateEnv) != "")
 	return s
@@ -154,6 +157,7 @@ func (s *Server) Run() error {
 	}()
 	go s.uploads.run(s.quit)
 	go s.packs.run(s.quit)
+	go s.sshFiles.run(s.quit)
 	go s.watcher.run(s.quit)
 
 	var ln net.Listener
@@ -618,10 +622,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
+		if lp.SSH != "" && lp.Root != "" {
+			return nil, proto.Errorf(proto.ErrBadRequest, "a checkout is on this machine, not on a pane's ssh host")
+		}
 		if lp.Root != "" {
 			return s.listCheckout(lp)
 		}
-		if lp.Files {
+		if lp.Files || lp.SSH != "" {
 			return s.listFiles(lp)
 		}
 		return s.listDir(lp)
@@ -1196,6 +1203,7 @@ func (s *Server) close(id string) *proto.Error {
 	e, ok := s.panes[id]
 	if ok {
 		delete(s.panes, id)
+		s.sshFiles.drop(id)
 		for i, oid := range s.order {
 			if oid == id {
 				s.order = append(s.order[:i], s.order[i+1:]...)

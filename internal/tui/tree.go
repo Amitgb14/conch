@@ -193,6 +193,13 @@ func cliID(mid string) string                { return machineID(mid) + "/cli" }
 func workspaceID(mid string) string          { return machineID(mid) + "/workspace" }
 func machineFilesID(mid string) string       { return machineID(mid) + "/files" }
 
+// sshFilesRow is the Files row of the host a terminal is logged in to
+// with ssh: a machine's files view, reached through the pane (fs.ssh.v1).
+func sshFilesRow(mid string, p proto.PaneInfo, depth int) row {
+	return row{id: paneNodeID(mid, p.ID) + "/files", kind: kindFiles, depth: depth, machine: mid,
+		paneID: p.ID, label: p.SSH, nested: true}
+}
+
 // machineFilesRow is a machine's own Files row: a files view with no
 // project browses the machine itself.
 func machineFilesRow(mid string) row {
@@ -714,12 +721,21 @@ func listedBranches(proj proto.ProjectInfo, panes []proto.PaneInfo, all bool, no
 	return list, hidden
 }
 
-// subagentRows lists the subagents a pane's agent runs, to go under it.
+// subagentRows lists what goes under a pane: the subagents its agent runs.
+//
+// A terminal logged in to a host with ssh has the host's files under it
+// first: a Files row like a machine's, reached through that login.
 func subagentRows(mid string, p proto.PaneInfo, depth int) []row {
-	if p.Agent == nil || p.State != proto.PaneRunning {
+	if p.State != proto.PaneRunning {
 		return nil
 	}
 	var out []row
+	if p.SSH != "" {
+		out = append(out, sshFilesRow(mid, p, depth))
+	}
+	if p.Agent == nil {
+		return out
+	}
 	for _, a := range p.Agent.Subagents {
 		out = append(out, row{id: subagentID(mid, p.ID, a.ID), kind: kindSubagent, depth: depth, machine: mid,
 			projectID: p.ProjectID, branch: p.Branch, paneID: p.ID, label: a.ID, nested: true})

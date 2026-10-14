@@ -17,6 +17,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/transfer"
 )
 
 // Moving a worktree to another machine. The client asks this machine what
@@ -150,6 +151,9 @@ type packFile struct {
 	// keep is a file that is not conch's to delete: a download read
 	// straight from where it is (download.go).
 	keep bool
+	// fs is where a kept file is read from: nil for this machine, or a
+	// host a terminal is logged in to (sshfiles.go).
+	fs transfer.FS
 }
 
 func newPacks(configDir string) *packs {
@@ -319,7 +323,11 @@ func (pk *packs) read(p proto.WorktreePackReadParams) (proto.WorktreePackChunk, 
 	if p.Offset < 0 || p.Offset > pf.size {
 		return proto.WorktreePackChunk{}, proto.Errorf(proto.ErrBadRequest, "offset %d is outside the pack's %d bytes", p.Offset, pf.size)
 	}
-	f, err := os.Open(pf.path)
+	fsys := pf.fs
+	if fsys == nil {
+		fsys = transfer.Local
+	}
+	f, err := fsys.Open(pf.path)
 	if err != nil {
 		return proto.WorktreePackChunk{}, proto.Errorf(proto.ErrInternal, "%v", err)
 	}
