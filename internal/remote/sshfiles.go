@@ -108,6 +108,20 @@ func settingName(v string) string {
 	return strings.ToLower(v)
 }
 
+// RunCommand is the ssh command that runs argv on the host the login
+// reached, in a terminal: the same options, and here a person is there to
+// answer a password. Each word is single-quoted for the host's login
+// shell, which reads it as one word in sh, bash, zsh and fish alike.
+func RunCommand(l Login, argv []string) []string {
+	cmd := []string{sshBinary()}
+	cmd = append(cmd, l.Opts...)
+	quoted := make([]string, len(argv))
+	for i, a := range argv {
+		quoted[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+	}
+	return append(cmd, "-t", "--", l.Host, strings.Join(quoted, " "))
+}
+
 // FilesCommand is the ssh command that opens an sftp session to the host
 // the login reached. It never asks anything — a host that wants a password
 // says so and fails, since nobody is there to type it — and asks for no

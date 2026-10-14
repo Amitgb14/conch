@@ -309,3 +309,41 @@ func TestSSHFilesFollowTheLogin(t *testing.T) {
 		t.Fatalf("%d sftp sessions, want one each", n)
 	}
 }
+
+// TestPaneOverSSH: a pane whose command runs on the host a terminal is
+// logged in to — ssh -t with the terminal's options, beside it — which is
+// how a file there is edited.
+func TestPaneOverSSH(t *testing.T) {
+	env := newSSHEnv(t)
+	if missing := env.c.MissingCapabilities([]string{proto.CapPaneSSH}); len(missing) > 0 {
+		t.Fatalf("not advertised: %v", missing)
+	}
+	term := env.login(t, "me@box", "-p", "2222", "-L", "8080:x:80", "me@box")
+	var info proto.PaneInfo
+	err := call(t, env.c, proto.MethodPaneCreate, proto.PaneCreateParams{SSH: term.ID, Name: "edit · a b",
+		Command: []string{"sh", "-c", `exec vi "$1"`, "sh", "/home/me/a b"}}, &info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{env.ssh, "-p", "2222", "-t", "--", "me@box", `'sh' '-c' 'exec vi "$1"' 'sh' '/home/me/a b'`}
+	termDir, _ := filepath.EvalSymlinks(term.Cwd)
+	if !slices.Equal(info.Command, want) || info.Cwd != termDir || info.Name != "edit · a b" {
+		t.Fatalf("pane %q in %q, want %q in %q", info.Command, info.Cwd, want, term.Cwd)
+	}
+	// It runs: the stand-in logs in and says so.
+	waitSSH(t, env.c, info.ID, "me@box")
+
+	// Refused: no command, an agent, a terminal not logged in, none at all.
+	cat := createCat(t, env.c, t.TempDir())
+	for _, c := range []struct {
+		p    proto.PaneCreateParams
+		want string
+	}{
+		{proto.PaneCreateParams{SSH: term.ID}, "needs a command"},
+		{proto.PaneCreateParams{SSH: term.ID, Agent: "claude"}, "needs a command"},
+		{proto.PaneCreateParams{SSH: cat.ID, Command: []string{"vi"}}, "not logged in anywhere"},
+		{proto.PaneCreateParams{SSH: "p999", Command: []string{"vi"}}, "no pane"},
+	} {
+		wantErr(t, call(t, env.c, proto.MethodPaneCreate, c.p, &info), c.want)
+	}
+}

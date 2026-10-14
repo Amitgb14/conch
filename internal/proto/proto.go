@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -136,6 +136,11 @@ const CapFSTransfer = "fs.transfer.v1"
 // and fs.download take SSH, the pane, to reach that host's files instead of
 // this machine's — through sftp, so nothing of conch's is needed there.
 const CapFSSSH = "fs.ssh.v1"
+
+// CapPaneSSH is pane.create taking SSH, a pane logged in to a host: the
+// command then runs on that host, through ssh with the pane's options and
+// a terminal — how the Files view of a terminal's ssh host edits a file.
+const CapPaneSSH = "pane.ssh.v1"
 
 // Methods.
 const (
@@ -1627,6 +1632,10 @@ type PaneCreateParams struct {
 	// NoProject starts a machine-level pane: it belongs to no project even
 	// when Cwd lies in one.
 	NoProject bool `json:"no_project,omitempty"`
+	// SSH runs Command on the host the pane SSH is logged in to, through
+	// ssh with that pane's options and a terminal (pane.ssh.v1). Cwd is
+	// where ssh runs here; "" is that pane's folder.
+	SSH string `json:"ssh,omitempty"`
 }
 
 // ShellThemes describes the prompt themes available on a machine.

@@ -1204,8 +1204,20 @@ func withinDir(dir, root string) bool {
 	return root != "" && (dir == root || strings.HasPrefix(dir, root+"/"))
 }
 
+// sshEditScript opens $1 in the host's editor. A command run over ssh gets
+// no login, so $EDITOR set in .zshrc or .bashrc would be missed: a shell
+// that speaks sh reads its own setup first, interactively. sh runs this,
+// not the login shell, which may be fish and read none of it.
+const sshEditScript = `case "${SHELL##*/}" in
+bash|zsh|ksh) exec "$SHELL" -lic 'exec ${VISUAL:-${EDITOR:-vi}} "$0"' "$1" ;;
+esac
+exec ${VISUAL:-${EDITOR:-vi}} "$1"`
+
 // filesEdit opens a file in the machine's own $EDITOR, in a terminal of its
 // own in the checkout.
+//
+// For a terminal's ssh host it is the host's $EDITOR, in a terminal that
+// runs ssh -t to it with the same options as that terminal.
 func (m *Model) filesEdit(fv *filesView, rel string) tea.Cmd {
 	c := m.clientOf(fv.machine)
 	if c == nil {
@@ -1216,6 +1228,14 @@ func (m *Model) filesEdit(fv *filesView, rel string) tea.Cmd {
 	mid := fv.machine
 	params := proto.PaneCreateParams{Name: "edit · " + path.Base(rel), Cwd: fv.root, Cols: cols, Rows: rows,
 		Command: []string{"/bin/sh", "-lc", `exec ${VISUAL:-${EDITOR:-vi}} "$1"`, "sh", path.Join(fv.root, rel)}}
+	if fv.ssh != "" {
+		if len(c.MissingCapabilities([]string{proto.CapPaneSSH})) > 0 {
+			m.setFlash("this machine's conch is too old to edit on a terminal's ssh host — update it", true)
+			return nil
+		}
+		params.Cwd, params.SSH = "", fv.ssh
+		params.Command = []string{"sh", "-c", sshEditScript, "sh", path.Join(fv.root, rel)}
+	}
 	return func() tea.Msg {
 		var info proto.PaneInfo
 		if err := callCtx(c, proto.MethodPaneCreate, params, &info); err != nil {

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -265,5 +266,50 @@ func TestSSHTerminalLogsOut(t *testing.T) {
 	pump(t, m, m.handleEvent(box, eventMsg(t, proto.EventPaneUpdated, other)))
 	if fv.host != "me@other" || fv.err != "" || fv.root != host.Home {
 		t.Fatalf("another host: %q err %q root %q", fv.host, fv.err, fv.root)
+	}
+}
+
+// TestSSHTerminalFilesEdit: e on a file of the host opens the host's editor
+// in a terminal of its own, through ssh with the terminal's options.
+func TestSSHTerminalFilesEdit(t *testing.T) {
+	m, _, pane := sshFilesFixture(t)
+	fv := openSSHFilesView(t, m, pane)
+	filesSelect(t, fv, "motd")
+	var created *proto.PaneInfo
+	for _, msg := range a2Run(a1Key(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})) {
+		switch msg := msg.(type) {
+		case createdMsg:
+			created = &msg.info
+		case errMsg:
+			t.Fatal(msg.err)
+		}
+	}
+	if created == nil {
+		t.Fatalf("no pane made: %q", m.flash)
+	}
+	cmd := strings.Join(created.Command, " ")
+	if created.Name != "edit · motd" || !strings.Contains(cmd, " -t -- me@host ") || !strings.Contains(cmd, filepath.Join(fv.root, "motd")) {
+		t.Fatalf("pane %q: %q", created.Name, created.Command)
+	}
+}
+
+// TestSSHEditScript: the host's editor, as its shell's own setup names it,
+// for any file name; and plain sh for a shell that does not speak it.
+func TestSSHEditScript(t *testing.T) {
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, ".bashrc"), []byte("export EDITOR=/bin/echo\n"), 0o644)
+	os.WriteFile(filepath.Join(home, ".bash_profile"), []byte(". ~/.bashrc\n"), 0o644)
+	file := "/tmp/it's a file"
+	for _, c := range []struct{ shell, editor, want string }{
+		{"/bin/bash", "", file}, // only .bashrc says which editor
+		{"/usr/bin/fish", "/bin/echo", file},
+		{"", "/bin/echo", file},
+	} {
+		cmd := exec.Command("/bin/sh", "-c", sshEditScript, "sh", file)
+		cmd.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin", "SHELL=" + c.shell, "EDITOR=" + c.editor, "TERM=dumb"}
+		out, err := cmd.Output()
+		if err != nil || strings.TrimSpace(string(out)) != c.want {
+			t.Errorf("SHELL=%q: %q %v", c.shell, out, err)
+		}
 	}
 }

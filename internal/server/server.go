@@ -1050,6 +1050,11 @@ func (s *Server) get(id string) (*entry, *proto.Error) {
 }
 
 func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error) {
+	if cp.SSH != "" {
+		if perr := s.overSSH(&cp); perr != nil {
+			return proto.PaneInfo{}, perr
+		}
+	}
 	if cp.Agent != "" {
 		if _, known := s.manifests[cp.Agent]; !known {
 			return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "unknown agent %q", cp.Agent)

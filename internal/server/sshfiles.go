@@ -68,6 +68,29 @@ func (s *Server) filesOn(ssh string) (transfer.FS, *proto.Error) {
 	return s.sshFiles.session(ssh, login)
 }
 
+// overSSH makes a new pane's command run on the host the pane cp.SSH is
+// logged in to (pane.ssh.v1), starting beside that pane.
+func (s *Server) overSSH(cp *proto.PaneCreateParams) *proto.Error {
+	if cp.Agent != "" || len(cp.Command) == 0 {
+		return proto.Errorf(proto.ErrBadRequest, "a pane on a terminal's ssh host needs a command to run there")
+	}
+	e, perr := s.get(cp.SSH)
+	if perr != nil {
+		return perr
+	}
+	e.mu.Lock()
+	login, ok := e.login, e.loginOK
+	e.mu.Unlock()
+	if !ok {
+		return proto.Errorf(proto.ErrBadRequest, "pane %s is not logged in anywhere with ssh now", cp.SSH)
+	}
+	cp.Command = remote.RunCommand(login, cp.Command)
+	if cp.Cwd == "" {
+		cp.Cwd = e.dir
+	}
+	return nil
+}
+
 func loginKey(l remote.Login) string {
 	return l.Host + "\x00" + strings.Join(l.Opts, "\x00")
 }

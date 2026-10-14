@@ -277,8 +277,8 @@ var verbs = map[string]string{
 	// Only with ssh: the host another pane is logged in to (sshInScope).
 	proto.MethodFSList: "list files over the ssh login of", proto.MethodFSRead: "read files over the ssh login of",
 	proto.MethodFSMkdir: "make folders over the ssh login of", proto.MethodFSUpload: "copy files over the ssh login of",
-	proto.MethodFSDownload: "copy files over the ssh login of",
-	proto.MethodPaneClose:  "close", proto.MethodPaneSendText: "type into", proto.MethodPaneSendKeys: "send keys to",
+	proto.MethodFSDownload: "copy files over the ssh login of", proto.MethodPaneCreate: "run a command over the ssh login of",
+	proto.MethodPaneClose: "close", proto.MethodPaneSendText: "type into", proto.MethodPaneSendKeys: "send keys to",
 	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename",
 	proto.MethodPaneMarkSeen: "mark as seen", proto.MethodPaneMonitor: "set monitoring on",
 	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt",
@@ -398,10 +398,11 @@ func (s *Server) actFor(c *client, p proto.ActForParams) *proto.Error {
 }
 
 // fsMethods reach the files of this machine, which an agent here can read
-// anyway, or with ssh set those of a host another pane is logged in to.
+// anyway, or with ssh set those of a host another pane is logged in to;
+// pane.create with ssh runs a command there.
 var fsMethods = map[string]bool{
 	proto.MethodFSList: true, proto.MethodFSRead: true, proto.MethodFSMkdir: true,
-	proto.MethodFSUpload: true, proto.MethodFSDownload: true,
+	proto.MethodFSUpload: true, proto.MethodFSDownload: true, proto.MethodPaneCreate: true,
 }
 
 // sshInScope holds an agent to the hosts its own panes are logged in to:

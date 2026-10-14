@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"os/exec"
 	"slices"
 	"testing"
 )
@@ -51,5 +52,19 @@ func TestFilesCommand(t *testing.T) {
 	want := []string{"/fake/ssh", "-p", "22", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes", "-o", "RequestTTY=no", "-s", "--", "me@box", "sftp"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestRunCommand(t *testing.T) {
+	t.Setenv("CONCH_SSH", "/fake/ssh")
+	got := RunCommand(Login{Host: "me@box", Opts: []string{"-p", "22"}}, []string{"sh", "-c", `exec vi "$1"`, "sh", "/home/me/it's a file"})
+	want := []string{"/fake/ssh", "-p", "22", "-t", "--", "me@box", `'sh' '-c' 'exec vi "$1"' 'sh' '/home/me/it'\''s a file'`}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %q", got)
+	}
+	// What the host's sh makes of it is the words given, quote and all.
+	out, err := exec.Command("/bin/sh", "-c", "printf '%s|' "+got[len(got)-1]).Output()
+	if err != nil || string(out) != `sh|-c|exec vi "$1"|sh|/home/me/it's a file|` {
+		t.Fatalf("%q %v", out, err)
 	}
 }
