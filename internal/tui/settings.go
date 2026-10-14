@@ -316,6 +316,20 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 		toggle("Terminal beep", "the bell character", &n.Bell, func(*Model) tea.Cmd {
 			return func() tea.Msg { ringBell(); return nil }
 		}),
+		{label: "Also run a command", detail: notifyCommandText(n.Command), run: func(m *Model) tea.Cmd {
+			d := newDialog(*m, " Notifications · command ", []string{
+				"Run in sh for every alert, with it as JSON on stdin and in $CONCH_NOTIFY_TITLE and",
+				"$CONCH_NOTIFY_BODY — to send alerts to ntfy, Slack or Telegram. Empty runs nothing.",
+				`e.g. curl -s -d "$CONCH_NOTIFY_TITLE: $CONCH_NOTIFY_BODY" ntfy.sh/my-topic`,
+			}, []string{"Command"}, []string{m.cfg.Notify.Command})
+			d.back = s
+			d.submit = func(m *Model, v []string) tea.Cmd {
+				m.cfg.Notify.Command = strings.TrimSpace(v[0])
+				return saveConfig(m.cfg)
+			}
+			m.overlay = d
+			return d.focusCmd()
+		}},
 		{},
 		{header: true, label: "When"},
 		toggle("An agent is waiting for you", "permissions, questions", &n.Waiting, nil),
@@ -367,6 +381,39 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 			return notify(cfg, "conch", "Notifications work")
 		}},
 	)
+}
+
+// nextReviewer is the reviewer after cur in the list enter steps through:
+// none, then each agent conch knows.
+func nextReviewer(cur string, agents []string) string {
+	choices := append([]string{""}, agents...)
+	for i, a := range choices {
+		if a == cur {
+			return choices[(i+1)%len(choices)]
+		}
+	}
+	return ""
+}
+
+func reviewerText(name string) string {
+	if name == "" {
+		return "off · enter picks an agent"
+	}
+	return agentLabel(name) + " reads it after the check passes · R hands its report over"
+}
+
+func autoFixText(n int) string {
+	if n <= 0 {
+		return "off · f in the review queue sends one"
+	}
+	return fmt.Sprintf("up to %s in a row, then it's yours", count(n, "time"))
+}
+
+func notifyCommandText(cmd string) string {
+	if strings.TrimSpace(cmd) == "" {
+		return "none · ntfy, Slack, Telegram…"
+	}
+	return ansi.Truncate(cmd, 40, "…")
 }
 
 // silencePresets are the quiet times enter steps through, in seconds.
@@ -511,6 +558,19 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				return saveConfig(m.cfg)
 			}})
 	}
+	// What happens when an agent finishes: a second agent reading the work,
+	// and a failed check sent back. Both spend plan usage, so both are off
+	// until chosen here or in [verify].
+	v := &m.cfg.Verify
+	items = append(items, settingItem{}, settingItem{header: true, label: "When an agent finishes", detail: "both spend plan usage"},
+		settingItem{label: "Another agent reviews the work", detail: reviewerText(v.Reviewer), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.Reviewer = nextReviewer(m.cfg.Verify.Reviewer, knownAgents(m))
+			return saveConfig(m.cfg)
+		}},
+		settingItem{label: "A failed check goes back to it", detail: autoFixText(v.AutoFix), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.AutoFix = (m.cfg.Verify.AutoFix + 1) % 4
+			return saveConfig(m.cfg)
+		}})
 	// What an agent loads in a checkout is that checkout's business, and
 	// `i` is where it lives; what it loads from your home is machine-wide,
 	// so that half belongs here — behind one row, not one per agent: this

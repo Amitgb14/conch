@@ -32,6 +32,10 @@ type Config struct {
 	// TOML's array of tables has to come after the plain tables when the
 	// settings screen writes this file back out.
 	Actions []Action `toml:"actions,omitempty"`
+	// Permissions answer an agent's permission requests by rule, the first
+	// that matches deciding (permissions.go). After Actions for the same
+	// reason.
+	Permissions []PermissionRule `toml:"permissions,omitempty"`
 }
 
 // WebCfg is the phone gateway, conch web. URL is the address phones open —
@@ -164,6 +168,16 @@ type ProviderCfg struct {
 type VerifyCfg struct {
 	// Commands maps a project ID to its command, e.g. "go test ./...".
 	Commands map[string]string `toml:"commands,omitempty"`
+	// AutoFix is how many times in a row a failed check is sent back to
+	// the branch's agent on its own, with the output, to fix. 0 (the
+	// default) never does: f in the review queue sends it when you choose.
+	AutoFix int `toml:"auto_fix,omitempty"`
+	// Reviewer is the agent asked to review a branch when its agent
+	// finishes — after the check passes, where there is one — reading the
+	// diff and reporting rather than editing: "codex" to have Codex read
+	// Claude's work, say. Empty (the default) asks nobody, since every
+	// review spends plan usage.
+	Reviewer string `toml:"reviewer,omitempty"`
 }
 
 // RemoteCfg holds settings for panes on remote machines.
@@ -235,6 +249,10 @@ type BrainCfg struct {
 type AgentsCfg struct {
 	// Default is the agent c starts: claude, codex, gemini or opencode.
 	Default string `toml:"default"`
+	// PermissionMode is how [[permissions]] rules are used: "on" (the
+	// default) answers by them, "dry-run" only records what they would
+	// have answered, "off" ignores them.
+	PermissionMode string `toml:"permission_mode,omitempty"`
 }
 
 // ShellCfg holds settings for terminal panes.
@@ -304,6 +322,11 @@ type NotifyCfg struct {
 	// Silence is how many seconds without output count as quiet, for a
 	// pane watched for it (ctrl+b M).
 	Silence int `toml:"silence"`
+	// Command is run, in sh, for every alert as well: the alert as JSON
+	// on its stdin ({"title", "body", "at"}) and in CONCH_NOTIFY_TITLE and
+	// CONCH_NOTIFY_BODY. One line sends it to ntfy, a Slack webhook or a
+	// Telegram bot, and conch holds none of their tokens. Empty: none.
+	Command string `toml:"command,omitempty"`
 }
 
 // DefaultSilence is how long a watched pane must be quiet, in seconds.

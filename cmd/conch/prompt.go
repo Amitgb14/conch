@@ -9,6 +9,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/when"
 )
 
 // agentBlocked is a prompt refused because the agent waits on a question,
@@ -17,7 +18,7 @@ type agentBlocked struct{ err error }
 
 func (e agentBlocked) Error() string { return e.err.Error() }
 
-const agentPromptUsage = "usage: conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] ID TEXT..."
+const agentPromptUsage = "usage: conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT..."
 
 // agentPrompt submits a message to one agent and, with -wait, waits for the
 // work it starts to end: what an agent uses to drive another, where
@@ -29,11 +30,15 @@ func agentPrompt(args []string) error {
 	wait := fs.Bool("wait", false, "wait until the agent has finished the work the message starts")
 	until := fs.String("until", "done,idle,waiting", "with -wait, the states that end it")
 	timeout := fs.Duration("timeout", 0, "with -wait, give up after this long (0: wait forever)")
+	at := fs.String("at", "", "send it later instead: 14:05, +30m, 2026-10-15 09:00 — kept by the server")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() < 2 {
 		return errors.New(agentPromptUsage)
+	}
+	if *at != "" && *wait {
+		return errors.New("-wait waits for work that starts now; with -at, check on it later with `conch schedule`")
 	}
 	want, err := wantedStates(*until)
 	if err != nil {
@@ -52,6 +57,21 @@ func agentPrompt(args []string) error {
 	id, err := resolvePane(c, fs.Arg(0))
 	if err != nil {
 		return err
+	}
+	if *at != "" {
+		start, err := when.Parse(*at, time.Now())
+		if err != nil {
+			return fmt.Errorf("-at %w", err)
+		}
+		if err := needSchedule(c); err != nil {
+			return err
+		}
+		var it proto.ScheduledItem
+		if err := call(c, proto.MethodScheduleAdd, proto.ScheduledItem{At: start, Pane: id, Text: text}, &it); err != nil {
+			return err
+		}
+		scheduleOut(it)
+		return nil
 	}
 	// Connected before the message goes in, so the updates that answer it
 	// can only be queued for the loop below, never missed.

@@ -60,6 +60,17 @@ type entry struct {
 	// subagents are the agents the pane's agent runs in its own process
 	// (subagents.go); guarded by mu.
 	subagents subagents
+
+	// permissions are what the permission rules answered here, newest
+	// last, and answered when the last of them was; guarded by mu
+	// (permissions.go).
+	permissions []proto.PermissionRecord
+	answered    time.Time
+
+	// launched is the agent the pane was started to run, if any: it counts
+	// as one before the agent's process is seen, which a queue starting
+	// work against a limit must not wait for.
+	launched string
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -207,7 +218,7 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 		Screen:     e.screen,
 		Title:      e.p.Title(),
 		Watched:    e.watchers > 0,
-		Program:    programReport(e.p),
+		Program:    s.heldBack(e, programReport(e.p), at),
 	})
 	// Going back to work after a question was answered is the same turn.
 	if now := e.tracker.Status().State; now == proto.AgentWorking && prevState != proto.AgentWorking && prevState != proto.AgentBlocked {

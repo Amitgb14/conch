@@ -25,6 +25,7 @@ const (
 	bandDone             // an agent finished and nobody has looked
 	bandUnshipped        // commits that are neither pushed nor merged
 	bandDirty            // uncommitted work with no agent running
+	bandLater            // something the server will do later
 )
 
 // queueItem is one thing waiting for a decision.
@@ -40,11 +41,24 @@ type queueItem struct {
 	cost                usage
 	check               verifyState // what the project's check came to
 	checkText           string
+	ciFailed            bool // its pull request's checks failed
+	// said is what a waiting agent is asking, in its own words, and work
+	// the size of what is uncommitted on the branch: what you would open
+	// the row to find out, said on it.
+	said, work string
+	// limited is when a finished agent's plan limit resets, when that is
+	// what stopped it; scheduled is the item a bandLater row stands for.
+	limited   time.Time
+	scheduled string
 }
 
 // key identifies a row across rebuilds, so the selection survives one.
 func (it queueItem) key() string {
-	return it.machine + "|" + it.projectID + "|" + it.branch + "|" + it.paneID
+	k := it.machine + "|" + it.projectID + "|" + it.branch + "|" + it.paneID
+	if it.scheduled != "" {
+		k += "|" + it.scheduled // only these: older dismissals keep their keys
+	}
+	return k
 }
 
 // state is what the row says right now. Dismissing remembers it, so the row
@@ -102,6 +116,25 @@ func (m Model) queueItemsAll() []queueItem {
 			if p.Agent.Failed {
 				detail = "stopped with an error"
 			}
+			if isReviewer(p) && band == bandDone && !p.Agent.Failed {
+				detail = "review ready · R hands it to the branch's agent"
+			}
+			var limited time.Time
+			if band == bandDone {
+				if resets, hit := mach.limitHit(p.Agent.Name, time.Now()); hit {
+					limited = resets
+					detail = "stopped at its plan limit, which resets at " + resets.Local().Format("15:04")
+					if it := mach.scheduledFor(p.ID); it != nil {
+						detail += " · continues at " + it.At.Local().Format("15:04")
+					} else {
+						detail += " · C continues it then"
+					}
+				}
+			}
+			said := ""
+			if band == bandWaiting {
+				said = oneLine(p.Agent.Message)
+			}
 			// A helper waiting is waiting on behalf of the agent that
 			// started it: say whose, or the queue is a list of strangers.
 			detail += m.forWhom(mach.id, p)
@@ -109,7 +142,8 @@ func (m Model) queueItemsAll() []queueItem {
 				band: band, machine: mach.id, machineLbl: m.machineLabel(mach.id),
 				projectID: p.ProjectID, project: m.projectName(mach.id, p.ProjectID),
 				branch: p.Branch, paneID: p.ID, agent: p.Agent.Name,
-				detail: detail, since: p.Agent.Since, cost: paneUsage(p),
+				detail: detail, since: p.Agent.Since, cost: paneUsage(p), said: said,
+				work: m.branchWork(mach.id, p.ProjectID, p.Branch), limited: limited,
 			}
 			if it.since.IsZero() {
 				it.since = p.Created
@@ -118,6 +152,7 @@ func (m Model) queueItemsAll() []queueItem {
 				seen[mach.id+"|"+p.ProjectID+"|"+p.Branch] = true
 				it.check, it.checkText = m.verifyOf(mach.id, p.ProjectID, p.Branch)
 				it.band = failedFirst(it.band, it.check)
+				m.noteCI(&it)
 			}
 			items = append(items, it)
 		}
@@ -143,9 +178,13 @@ func (m Model) queueItemsAll() []queueItem {
 				it := queueItem{
 					machine: mach.id, machineLbl: m.machineLabel(mach.id),
 					projectID: proj.ID, project: proj.Name, branch: b.Name, since: b.Committed,
+					work: m.branchWork(mach.id, proj.ID, b.Name),
 				}
 				w := worktrees[b.Name]
 				switch {
+				// CI failing on a pull request is yours again, pushed or not.
+				case b.PR != nil && b.PR.State == "OPEN" && b.PR.Checks == "fail":
+					it.band, it.detail = bandFailed, fmt.Sprintf("CI failed on #%d", b.PR.Number)
 				// A pushed branch with an open pull request is somebody
 				// else's move, not yours.
 				case b.PR != nil && b.PR.State == "OPEN" && b.Ahead == 0:
@@ -166,8 +205,20 @@ func (m Model) queueItemsAll() []queueItem {
 				}
 				it.check, it.checkText = m.verifyOf(mach.id, proj.ID, b.Name)
 				it.band = failedFirst(it.band, it.check)
+				m.noteCI(&it)
 				items = append(items, it)
 			}
+		}
+		// Last, what will happen later, so it is seen and can be taken away.
+		for _, sc := range mach.schedule {
+			it := queueItem{band: bandLater, machine: mach.id, machineLbl: m.machineLabel(mach.id),
+				detail: scheduledDetail(sc, time.Now()), since: sc.Created, scheduled: sc.ID, paneID: sc.Pane}
+			if sc.Task != nil {
+				it.projectID, it.project = sc.Task.ProjectID, m.projectName(mach.id, sc.Task.ProjectID)
+			} else if p := m.pane(mach.id, sc.Pane); p != nil {
+				it.projectID, it.project, it.branch = p.ProjectID, m.projectName(mach.id, p.ProjectID), p.Branch
+			}
+			items = append(items, it)
 		}
 	}
 	return items
@@ -214,7 +265,7 @@ func (it queueItem) matches(filter string) bool {
 		return true
 	}
 	hay := strings.ToLower(strings.Join([]string{
-		it.project, it.branch, it.agent, it.machineLbl, it.detail, it.checkText,
+		it.project, it.branch, it.agent, it.machineLbl, it.detail, it.checkText, it.said,
 	}, " "))
 	for _, w := range words {
 		if !strings.Contains(hay, w) {
@@ -344,6 +395,72 @@ func nextRow(lines []queueLine, i, d int) int {
 	return -1
 }
 
+// branchRisk says what is heading for a merge conflict on a branch: other
+// branches touching its files, and files merging it into the base would
+// conflict in — "" when nothing is.
+func (m Model) branchRisk(machine, projectID, branch string) string {
+	proj := m.project(machine, projectID)
+	if proj == nil || branch == "" {
+		return ""
+	}
+	for _, w := range proj.Worktrees {
+		if w.Branch != branch {
+			continue
+		}
+		var parts []string
+		if len(w.Conflicts) > 0 {
+			parts = append(parts, "conflicts with "+proj.Base+" in "+listSome(w.Conflicts, 2))
+		}
+		for _, o := range w.Overlaps {
+			parts = append(parts, "also changed on "+o.Branch+": "+listSome(o.Files, 2))
+		}
+		return strings.Join(parts, " · ")
+	}
+	return ""
+}
+
+// branchWork is the size of what is uncommitted on a branch's worktree —
+// "3 files +42 −7" — or "" when nothing is, or it has no worktree.
+func (m Model) branchWork(machine, projectID, branch string) string {
+	proj := m.project(machine, projectID)
+	if proj == nil || branch == "" {
+		return ""
+	}
+	for _, w := range proj.Worktrees {
+		if w.Branch != branch || w.Status.Clean() {
+			continue
+		}
+		s := count(w.Status.Files, "file")
+		if w.Status.Added > 0 || w.Status.Deleted > 0 {
+			s += fmt.Sprintf(" +%d −%d", w.Status.Added, w.Status.Deleted)
+		}
+		return s
+	}
+	return ""
+}
+
+// oneLine is s on one line, for a row: what an agent asks can run to
+// paragraphs, and the row is one line.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// noteCI marks a row whose branch's open pull request failed CI, and moves
+// it up as a failed check would.
+func (m Model) noteCI(it *queueItem) {
+	pr := m.branchPR(it.machine, it.projectID, it.branch)
+	if pr == nil || pr.State != "OPEN" || pr.Checks != "fail" {
+		return
+	}
+	it.ciFailed = true
+	if it.band > bandFailed {
+		it.band = bandFailed
+	}
+	if !strings.Contains(it.detail, "CI failed") {
+		it.detail += fmt.Sprintf(" · CI failed on #%d", pr.Number)
+	}
+}
+
 // failedFirst promotes a row whose check failed, whatever put it in the
 // queue: a command that comes back non-zero is the clearest call for
 // attention there is. An agent waiting on an answer still outranks it.
@@ -374,7 +491,7 @@ type queueView struct {
 const queueListTop = 3 // header, count, blank
 
 func (qv *queueView) render(m Model, w, h int) []string {
-	hint := "enter open · v check · o output · x dismiss · / filter · esc tree"
+	hint := "enter open · v check · o output · f fix · x dismiss · / filter · esc tree"
 	title := styleBold.Render("Review queue")
 	if qv.typing || qv.filter != "" {
 		cursor := ""
@@ -451,7 +568,10 @@ func (qv *queueView) render(m Model, w, h int) []string {
 		it := l.item
 		glyph, style := queueGlyph(it.band)
 		name := it.branch
-		if name == "" {
+		switch {
+		case name == "" && it.scheduled != "":
+			name = "later"
+		case name == "":
 			name = "(no branch)"
 		}
 		right := ""
@@ -465,13 +585,23 @@ func (qv *queueView) render(m Model, w, h int) []string {
 		if it.agent != "" {
 			detail = agentLabel(it.agent) + " " + detail
 		}
+		if it.said != "" {
+			detail += ": " + it.said
+		}
 		if it.checkText != "" {
 			detail += " · " + it.checkText
 		}
+		if it.work != "" && it.band != bandDirty {
+			detail += " · " + it.work
+		}
+		if risk := m.branchRisk(it.machine, it.projectID, it.branch); risk != "" && it.scheduled == "" {
+			detail += " · ⚠ " + risk
+		}
 		// The project is in the heading now, so the row is the branch and
 		// what it needs; the branch keeps the larger share when space runs out.
+		// A short name leaves the rest to the detail rather than to space.
 		room := max(w-ansi.StringWidth(right)-8, 10)
-		nameRoom := max(room*3/5, 10)
+		nameRoom := min(max(room*3/5, 10), ansi.StringWidth(name))
 		name = ansi.Truncate(name, nameRoom, "…")
 		detail = ansi.Truncate(detail, max(room-nameRoom, 6), "…")
 		if i == qv.sel {
@@ -501,6 +631,8 @@ func queueGlyph(band int) (string, lipgloss.Style) {
 		return "✓", styleOK
 	case bandUnshipped:
 		return "↑", styleMuted
+	case bandLater:
+		return "⏲", styleMuted
 	default:
 		return "·", styleMuted
 	}
@@ -566,6 +698,23 @@ func (qv *queueView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 				m.setFlash("that check's terminal has been closed — v runs it again", true)
 			}
 		}
+	case "f":
+		// The failure goes to the agent, with its output: the project's
+		// check when it failed, else the pull request's CI.
+		if it, ok := itemAt(list, qv.sel); ok {
+			switch {
+			case it.check == verifyFailed:
+				return false, m.fixCheck(it.machine, it.projectID, it.branch)
+			case it.ciFailed:
+				return false, m.fixCI(it.machine, it.projectID, it.branch)
+			}
+			m.setFlash("nothing has failed on "+queueName(it)+" to send its agent", true)
+		}
+	case "R":
+		// A reviewer's report goes to the agent that wrote the code.
+		if it, ok := itemAt(list, qv.sel); ok {
+			return false, m.sendReviewToWriter(it.machine, it.projectID, it.branch)
+		}
 	case "v":
 		if it, ok := itemAt(list, qv.sel); ok {
 			if m.verifyCommand(it.projectID) == "" {
@@ -577,7 +726,20 @@ func (qv *queueView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 			}
 			m.setFlash("nothing to check "+queueName(it)+" in: it has no worktree", true)
 		}
+	case "C":
+		// An agent stopped by its plan limit carries on when it resets.
+		if it, ok := itemAt(list, qv.sel); ok {
+			if it.paneID == "" || it.limited.IsZero() {
+				m.setFlash("C continues an agent that stopped at its plan limit; "+queueName(it)+" didn't", true)
+				return false, nil
+			}
+			return false, m.continueAfterLimit(it.machine, it.paneID)
+		}
 	case "x":
+		if it, ok := itemAt(list, qv.sel); ok && it.scheduled != "" {
+			// Something scheduled is taken off the schedule, not hidden.
+			return false, m.removeScheduled(it.machine, it.scheduled)
+		}
 		if it, ok := itemAt(list, qv.sel); ok {
 			if m.queueSeen == nil {
 				m.queueSeen = map[string]string{}

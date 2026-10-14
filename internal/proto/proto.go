@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -131,6 +131,35 @@ const CapFSRead = "fs.read.v1"
 // asks first.
 const CapFSTransfer = "fs.transfer.v1"
 
+// CapWorktreeSetup is a project's setup command (project.set_setup), run
+// in a terminal of its own in every new worktree, and the block of ports
+// each worktree is given (CONCH_PORT, WorktreeInfo.Port). An older server
+// runs no setup and gives no ports, so a client says so rather than wait
+// for a terminal that will never start.
+const CapWorktreeSetup = "worktree.setup.v1"
+
+// CapBranchCILog is branch.ci_log: what a branch's failed CI run printed,
+// read through gh on the machine the branch is on, for handing to its agent.
+const CapBranchCILog = "branch.ci_log.v1"
+
+// CapAgentReply is agent.reply: an agent's last answer, whole, from its
+// saved conversation rather than off its screen.
+const CapAgentReply = "agent.reply.v1"
+
+// CapSchedule is schedule.add, schedule.list and schedule.remove: a
+// message for a running agent, or a task, kept by the server for a time
+// to come — after a plan limit resets, overnight, every morning — so it
+// happens whether or not anything is connected then.
+const CapSchedule = "schedule.v1"
+
+// CapIssues is project.issues and task.create's Issue: work started from a
+// GitHub issue, read through gh on the machine the project is on.
+const CapIssues = "project.issues.v1"
+
+// CapPermissionRules is agent.permission: the server answering an agent's
+// permission request by the person's rules, before it is asked on screen.
+const CapPermissionRules = "agent.permission.v1"
+
 // Methods.
 const (
 	MethodHello           = "hello"
@@ -182,6 +211,7 @@ const (
 	MethodAgentLibrary   = "agent.library"
 	MethodLibraryApply   = "agent.library.apply"
 	MethodProjectFiles   = "project.set_files"
+	MethodProjectSetup   = "project.set_setup"
 	MethodWorktreeFiles  = "worktree.copy_files"
 	MethodSessionList    = "session.list"
 	MethodSessionResume  = "session.resume"
@@ -196,6 +226,17 @@ const (
 	// MethodAgentPrompt submits a message to one agent, unless it is
 	// waiting on a question.
 	MethodAgentPrompt = "agent.prompt"
+	// MethodAgentReply is the last thing a pane's agent said, read from
+	// its saved conversation (CapAgentReply).
+	MethodAgentReply = "agent.reply"
+
+	MethodProjectIssues = "project.issues"
+
+	MethodAgentPermission = "agent.permission"
+
+	MethodScheduleAdd    = "schedule.add"
+	MethodScheduleList   = "schedule.list"
+	MethodScheduleRemove = "schedule.remove"
 	// MethodPaneCaller says which pane the connection comes from and
 	// whether it is scoped; MethodActFor asks a connection from another
 	// machine to be scoped as that caller.
@@ -214,6 +255,9 @@ const (
 	// MethodBranchGit runs git commands in a branch's worktree
 	// (CapBranchGit).
 	MethodBranchGit = "branch.git"
+	// MethodBranchCILog is the log of the failed steps of a branch's
+	// newest failed GitHub Actions run (CapBranchCILog).
+	MethodBranchCILog = "branch.ci_log"
 	// Leftover worktrees: list what each would lose, and remove them.
 	MethodWorktreeStale   = "worktree.stale"
 	MethodWorktreeCleanup = "worktree.cleanup"
@@ -244,6 +288,9 @@ const (
 	// were written, moved or removed. It says nothing about what git makes
 	// of them — the reader re-reads what it is showing.
 	EventWorktreeChanged = "worktree.changed"
+	// EventScheduleChanged carries the whole ScheduleList whenever an item
+	// is added, fired, moved or removed.
+	EventScheduleChanged = "schedule.changed"
 )
 
 // Error codes.
@@ -469,6 +516,10 @@ type ProjectInfo struct {
 	// Remote is the URL of the repository's origin, so the same project can
 	// be recognised on another machine. Absent from older servers.
 	Remote string `json:"remote,omitempty"`
+	// Setup is the command run in every new worktree of the project, in a
+	// terminal of its own: installing dependencies, copying a database,
+	// whatever makes a fresh checkout runnable. "" runs nothing.
+	Setup string `json:"setup,omitempty"`
 }
 
 // PRInfo is the pull request for a branch.
@@ -493,7 +544,27 @@ type WorktreeInfo struct {
 	Detached bool       `json:"detached,omitempty"`
 	Main     bool       `json:"main,omitempty"`
 	Status   *GitStatus `json:"status,omitempty"`
+	// Port is the first of the PortBlock ports given to this checkout, as
+	// CONCH_PORT in every pane started in it; 0 until one has been.
+	Port int `json:"port,omitempty"`
+	// Overlaps are the other checkouts of the project that have touched
+	// files this one has too: two agents heading for the same merge
+	// conflict. Conflicts are the files merging this branch into the base
+	// would conflict in, tried without merging. Both are absent from older
+	// servers, and Conflicts where git is older than 2.38.
+	Overlaps  []Overlap `json:"overlaps,omitempty"`
+	Conflicts []string  `json:"conflicts,omitempty"`
 }
+
+// Overlap is another branch's checkout touching the same files.
+type Overlap struct {
+	Branch string   `json:"branch"`
+	Files  []string `json:"files"` // the first few
+}
+
+// PortBlock is how many ports a worktree is given, from CONCH_PORT on:
+// enough for a web server, an API and a database of its own.
+const PortBlock = 10
 
 // GitStatus summarises uncommitted changes in a worktree.
 type GitStatus struct {
@@ -850,6 +921,21 @@ type BranchDiscardParams struct {
 	Force     bool   `json:"force,omitempty"`
 }
 
+// BranchCILogParams names the branch whose failed CI run to read.
+type BranchCILogParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+}
+
+// BranchCILog is a branch's newest failed Actions run — at its pull
+// request's head commit, when it has one — and the end of what its failed
+// steps printed.
+type BranchCILog struct {
+	Workflow string `json:"workflow,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Log      string `json:"log"`
+}
+
 // BranchGitParams runs Commands, one after another, in the worktree where
 // Branch is checked out, stopping at the first that fails. Each is git's
 // arguments without "git", starting with the subcommand. With none it only
@@ -940,6 +1026,13 @@ type ProjectFilesParams struct {
 	ProjectID string   `json:"project_id"`
 	Patterns  []string `json:"patterns,omitempty"`
 	Reset     bool     `json:"reset,omitempty"`
+}
+
+// ProjectSetupParams sets the command run in a project's new worktrees;
+// an empty Command runs nothing.
+type ProjectSetupParams struct {
+	ProjectID string `json:"project_id"`
+	Command   string `json:"command,omitempty"`
 }
 
 // WorktreeFilesParams copies the project's local files from the main
@@ -1049,6 +1142,9 @@ type WorktreeRemoveParams struct {
 type WorktreeResult struct {
 	Path   string   `json:"path"`
 	Copied []string `json:"copied,omitempty"`
+	// Setup is the pane the project's setup command runs in; "" when the
+	// project has none.
+	Setup string `json:"setup,omitempty"`
 }
 
 // TaskCreateParams starts an agent on a new branch in its own worktree.
@@ -1064,6 +1160,110 @@ type TaskCreateParams struct {
 	Name string `json:"name,omitempty"`
 	Cols int    `json:"cols,omitempty"`
 	Rows int    `json:"rows,omitempty"`
+	// Issue is a GitHub issue of the project to work on (CapIssues): the
+	// server reads it through gh, and its title and body become the
+	// prompt — Prompt, when given too, is added as further instructions —
+	// and its number starts the branch's name.
+	Issue int `json:"issue,omitempty"`
+}
+
+// PermissionAsk is an agent asking to use a tool, as its hook saw it:
+// Subject is what the tool acts on — a command, a file, a URL.
+type PermissionAsk struct {
+	ID      string `json:"id"` // the pane
+	Agent   string `json:"agent"`
+	Tool    string `json:"tool"`
+	Subject string `json:"subject,omitempty"`
+}
+
+// Permission decisions.
+const (
+	PermissionAllow = "allow"
+	PermissionDeny  = "deny"
+)
+
+// PermissionAnswer is what the rules say: allow, deny, or "" to ask the
+// person as usual. DryRun says what a rule would have answered while
+// [agents] permission_mode is dry-run, when nothing is answered.
+type PermissionAnswer struct {
+	Decision string `json:"decision,omitempty"`
+	Rule     string `json:"rule,omitempty"` // the rule that decided, in words
+	DryRun   bool   `json:"dry_run,omitempty"`
+}
+
+// PermissionRecord is one answer the rules gave, kept on the pane and
+// shown by agent.explain.
+type PermissionRecord struct {
+	At       time.Time `json:"at"`
+	Tool     string    `json:"tool"`
+	Subject  string    `json:"subject,omitempty"`
+	Decision string    `json:"decision"`
+	Rule     string    `json:"rule"`
+	DryRun   bool      `json:"dry_run,omitempty"`
+}
+
+// IssuesParams lists a project's open GitHub issues (CapIssues).
+type IssuesParams struct {
+	ProjectID string `json:"project_id"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+// IssueInfo is one open issue.
+type IssueInfo struct {
+	Number int      `json:"number"`
+	Title  string   `json:"title"`
+	URL    string   `json:"url,omitempty"`
+	Labels []string `json:"labels,omitempty"`
+}
+
+// IssueList is a project's open issues, newest first.
+type IssueList struct {
+	Issues []IssueInfo `json:"issues"`
+}
+
+// ScheduledItem is something the server does at a time to come: a
+// message to the agent running in Pane (Text), or a task to start (Task).
+// EveryMinutes repeats it; 0 runs it once.
+type ScheduledItem struct {
+	ID string    `json:"id"`
+	At time.Time `json:"at"`
+	// EveryMinutes repeats the item that often, from At on.
+	EveryMinutes int `json:"every_minutes,omitempty"`
+	// A message: Pane and the Agent expected there, so a pane that has
+	// since run something else is not typed into.
+	Pane  string `json:"pane,omitempty"`
+	Agent string `json:"agent,omitempty"`
+	Text  string `json:"text,omitempty"`
+	// PaneCreated is when that pane started, set by the server: a server
+	// started afresh numbers its panes from p1 again, and a message must
+	// not reach a stranger that happens to share the ID.
+	PaneCreated time.Time `json:"pane_created,omitempty"`
+	// Or a task, as task.create takes it. A repeating one gets a branch of
+	// its own each time.
+	Task *TaskCreateParams `json:"task,omitempty"`
+	// Queue holds a task back, past At, until fewer than WIP agents are
+	// running in its project: a backlog that starts work as the person
+	// finishes looking at the last. WIP 0 means DefaultWIP.
+	Queue bool `json:"queue,omitempty"`
+	WIP   int  `json:"wip,omitempty"`
+	// Note says why, for lists: "after the 5-hour limit resets".
+	Note    string    `json:"note,omitempty"`
+	Created time.Time `json:"created"`
+	// LastRun and LastError are how its last run went.
+	LastRun   time.Time `json:"last_run,omitempty"`
+	LastError string    `json:"last_error,omitempty"`
+	// Waiting says why a due message has not gone yet: the agent is
+	// working, or waiting on a question of its own.
+	Waiting string `json:"waiting,omitempty"`
+}
+
+// DefaultWIP is how many agents a project runs before queued tasks wait:
+// about as many as one person can review at once.
+const DefaultWIP = 3
+
+// ScheduleList is every item the server is keeping, soonest first.
+type ScheduleList struct {
+	Items []ScheduledItem `json:"items"`
 }
 
 // Agent states.
@@ -1271,6 +1471,13 @@ type AgentBroadcastParams struct {
 type AgentPromptParams struct {
 	ID   string `json:"id"`
 	Text string `json:"text"`
+}
+
+// AgentReply is the last answer of a pane's agent and when it was given.
+type AgentReply struct {
+	Agent string    `json:"agent"`
+	Text  string    `json:"text"`
+	Time  time.Time `json:"time,omitempty"`
 }
 
 // AgentPromptResult says which work answers the message: the agent's Turn

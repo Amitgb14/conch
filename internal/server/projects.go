@@ -78,6 +78,8 @@ type catalogEntry struct {
 	Added time.Time `json:"added"`
 	// LocalFiles overrides the default local file patterns when set.
 	LocalFiles *[]string `json:"local_files,omitempty"`
+	// Setup is the command run in each new worktree.
+	Setup string `json:"setup,omitempty"`
 }
 
 func newProjectManager(s *Server, configDir string) *projectManager {
@@ -117,6 +119,7 @@ func (pm *projectManager) load() {
 		if e.LocalFiles != nil {
 			p.setLocalFiles(*e.LocalFiles, false)
 		}
+		p.setSetup(e.Setup)
 	}
 }
 
@@ -125,8 +128,9 @@ func (pm *projectManager) save() {
 	cat := catalog{Projects: []catalogEntry{}}
 	for _, id := range pm.order {
 		p := pm.projects[id]
-		e := catalogEntry{Path: p.root, Added: time.Now()}
-		if info := p.snapshot(); !info.LocalFilesDefault {
+		info := p.snapshot()
+		e := catalogEntry{Path: p.root, Added: time.Now(), Setup: info.Setup}
+		if !info.LocalFilesDefault {
 			files := append([]string{}, info.LocalFiles...)
 			e.LocalFiles = &files
 		}
@@ -403,6 +407,10 @@ func (pm *projectManager) refresh(p *project, stamp string) {
 	p.applyPRs(&info)
 	old := p.info
 	info.LocalFiles, info.LocalFilesDefault = old.LocalFiles, old.LocalFilesDefault
+	info.Setup = old.Setup
+	for i := range info.Worktrees {
+		info.Worktrees[i].Port = pm.s.ports.of(info.Worktrees[i].Path)
+	}
 	old.Refreshed, info.Refreshed = time.Time{}, time.Now()
 	changed := !reflect.DeepEqual(old, withoutTime(info))
 	p.info = info
@@ -539,6 +547,8 @@ func (p *project) load() proto.ProjectInfo {
 		}
 	}
 
+	noteOverlaps(ctx, p.root, &info)
+
 	branches, err := gitx.Branches(ctx, p.root, info.Base)
 	if err != nil {
 		info.Error = err.Error()
@@ -646,8 +656,11 @@ func (pm *projectManager) addWorktree(p *project, branch, base string) (path str
 		log.Printf("project %s: copied %s into %s", p.id, strings.Join(res.Copied, ", "), path)
 		copied = res.Copied
 	}
+	// Its ports are given now, not when a pane first opens there, so the
+	// checkout can be previewed and its setup told where to listen.
+	port := pm.s.ports.assign(path)
 	p.mu.Lock()
-	p.info.Worktrees = append(p.info.Worktrees, proto.WorktreeInfo{Path: path, Branch: branch})
+	p.info.Worktrees = append(p.info.Worktrees, proto.WorktreeInfo{Path: path, Branch: branch, Port: port})
 	p.mu.Unlock()
 	pm.request(p)
 	return path, copied, nil
@@ -679,6 +692,7 @@ func (pm *projectManager) removeWorktree(wp proto.WorktreeRemoveParams) *proto.E
 		return proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	log.Printf("project %s: removed worktree %s", p.id, wp.Path)
+	pm.s.ports.release(wp.Path)
 	pm.request(p)
 	return nil
 }

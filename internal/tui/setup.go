@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -460,27 +462,56 @@ func (v *setupView) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	return nil
 }
 
-// newLocalFilesDialog edits the untracked files copied into new worktrees.
+// newLocalFilesDialog edits what a new worktree is given: the command run
+// in it (where the server has setup) and the untracked files copied in.
 func newLocalFilesDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
 	value := strings.Join(proj.LocalFiles, " ")
 	if proj.LocalFilesDefault {
 		value = "default"
 	}
-	d := newDialog(m, " Local files · "+proj.Name+" ", []string{
-		"Files git ignores that are copied from the main checkout into each new worktree,",
-		"as git globs separated by spaces (e.g. .env config/*.local.json). \"default\"",
-		"restores the built-in list; empty copies nothing.",
-	}, []string{"Patterns"}, []string{value})
-	id := proj.ID
+	withSetup := m.hasCapability(mid, proto.CapWorktreeSetup)
+	text := []string{
+		"Local files: files git ignores, copied from the main checkout into each new",
+		"worktree, as git globs separated by spaces (e.g. .env config/*.local.json).",
+		"\"default\" restores the built-in list; empty copies nothing.",
+	}
+	labels, values := []string{"Local files"}, []string{value}
+	if withSetup {
+		text = append([]string{
+			"Setup: a command run in a terminal of its own in each new worktree, to make",
+			"it runnable (npm ci, uv sync, make deps). $CONCH_PORT is the first of the",
+			"10 ports the worktree is given; empty runs nothing.",
+			"",
+		}, text...)
+		labels, values = []string{"Setup", "Local files"}, []string{proj.Setup, value}
+	}
+	d := newDialog(m, " New worktrees · "+proj.Name+" ", text, labels, values)
+	id, name := proj.ID, proj.Name
+	c := m.clientOf(mid)
 	d.submit = func(m *Model, v []string) tea.Cmd {
+		files := v[len(v)-1]
 		params := proto.ProjectFilesParams{ProjectID: id}
-		if strings.TrimSpace(v[0]) == "default" {
+		if strings.TrimSpace(files) == "default" {
 			params.Reset = true
 		} else {
-			params.Patterns = strings.FieldsFunc(v[0], func(r rune) bool { return r == ' ' || r == ',' })
+			params.Patterns = strings.FieldsFunc(files, func(r rune) bool { return r == ' ' || r == ',' })
 		}
-		var info proto.ProjectInfo
-		return m.callOn(mid, proto.MethodProjectFiles, params, &info, func() tea.Msg { return flashMsg("local files updated for " + info.Name) })
+		if c == nil {
+			return func() tea.Msg { return errMsg{errString(m.offlineText(mid))} }
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if withSetup {
+				if err := c.Call(ctx, proto.MethodProjectSetup, proto.ProjectSetupParams{ProjectID: id, Command: v[0]}, nil); err != nil {
+					return errMsg{err}
+				}
+			}
+			if err := c.Call(ctx, proto.MethodProjectFiles, params, nil); err != nil {
+				return errMsg{err}
+			}
+			return flashMsg("new worktrees of " + name + " updated")
+		}
 	}
 	return d
 }

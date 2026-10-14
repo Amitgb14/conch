@@ -523,25 +523,29 @@ func (m *Model) openSandboxPort(mid string) tea.Cmd {
 			mach.lastPort = strconv.Itoa(port)
 		}
 		m.setFlash(fmt.Sprintf("asking %s for a link to port %d…", providerLabel(provider), port), false)
-		label := mach.label
-		return func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			link, err := p.(sandbox.Previewer).PreviewURL(ctx, id, port, previewFor)
-			if err != nil {
-				return previewDoneMsg{machine: mid, err: err}
-			}
-			// A link to a port nothing answers on opens a proxy error
-			// page, which says nothing useful. Ask first, and say what
-			// it usually means.
-			if why := previewTrouble(ctx, link, label, port); why != "" {
-				return previewDoneMsg{machine: mid, url: link, err: errString(why)}
-			}
-			return previewDoneMsg{machine: mid, url: link}
-		}
+		return sandboxPreview(mid, mach.label, p.(sandbox.Previewer), id, port)
 	}
 	m.overlay = d
 	return d.focusCmd()
+}
+
+// sandboxPreview asks the provider for a link to a port in a sandbox.
+func sandboxPreview(mid, label string, p sandbox.Previewer, id string, port int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		link, err := p.PreviewURL(ctx, id, port, previewFor)
+		if err != nil {
+			return previewDoneMsg{machine: mid, err: err}
+		}
+		// A link to a port nothing answers on opens a proxy error
+		// page, which says nothing useful. Ask first, and say what
+		// it usually means.
+		if why := previewTrouble(ctx, link, label, port); why != "" {
+			return previewDoneMsg{machine: mid, url: link, err: errString(why)}
+		}
+		return previewDoneMsg{machine: mid, url: link}
+	}
 }
 
 // checkPreview fetches a preview link to see whether anything answers on

@@ -207,6 +207,10 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.setFlash("no pull request for "+r.branch, true)
 		}
+	case "L":
+		if ok {
+			return m, m.openCheckoutPort(r)
+		}
 	case "z":
 		m.zoom = !m.zoom
 		return m, m.syncView()

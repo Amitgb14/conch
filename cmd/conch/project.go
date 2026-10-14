@@ -1,17 +1,21 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/Amitgb14/conch/internal/sandbox"
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/when"
 )
 
 func runProject(args []string) error {
@@ -93,6 +97,8 @@ func runProject(args []string) error {
 			fmt.Println("  " + pat)
 		}
 		return nil
+	case "setup":
+		return projectSetup(c, args[1:])
 	case "rm", "remove":
 		if len(args) != 2 {
 			return errors.New("usage: conch project rm ID")
@@ -125,6 +131,51 @@ func runProject(args []string) error {
 	return fmt.Errorf("unknown project subcommand %q", args[0])
 }
 
+// projectSetup shows or sets the command run in each new worktree of a
+// project. The command is the words after the ID, as typed — quote it to
+// keep the shell from running half of it here.
+func projectSetup(c *client.Client, args []string) error {
+	fs := flag.NewFlagSet("project setup", flag.ContinueOnError)
+	none := fs.Bool("none", false, "run nothing in new worktrees")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 || (*none && fs.NArg() > 1) {
+		return errors.New("usage: conch project setup ID [-none | COMMAND]")
+	}
+	if len(c.MissingCapabilities([]string{proto.CapWorktreeSetup})) > 0 {
+		return errors.New("the conch server there predates worktree setup; reload it with `conch server reload`")
+	}
+	id := fs.Arg(0)
+	var info proto.ProjectInfo
+	if *none || fs.NArg() > 1 {
+		cmd := strings.Join(fs.Args()[1:], " ")
+		if err := call(c, proto.MethodProjectSetup, proto.ProjectSetupParams{ProjectID: id, Command: cmd}, &info); err != nil {
+			return err
+		}
+	} else {
+		var list proto.ProjectList
+		if err := call(c, proto.MethodProjectList, nil, &list); err != nil {
+			return err
+		}
+		found := false
+		for _, p := range list.Projects {
+			if p.ID == id {
+				info, found = p, true
+			}
+		}
+		if !found {
+			return fmt.Errorf("no project %q", id)
+		}
+	}
+	if info.Setup == "" {
+		fmt.Printf("new worktrees of %s run no setup\n", info.Name)
+		return nil
+	}
+	fmt.Printf("new worktrees of %s run, in a terminal of their own:\n  %s\n", info.Name, info.Setup)
+	return nil
+}
+
 func runTask(args []string) error {
 	fs := flag.NewFlagSet("task", flag.ContinueOnError)
 	cwd := fs.String("cwd", "", "a directory in the project (default: current)")
@@ -133,12 +184,50 @@ func runTask(args []string) error {
 	agent := fs.String("agent", "", "claude, codex, gemini or opencode, or several separated by commas (default: [agents] default)")
 	n := fs.Int("n", 0, "how many attempts at the same prompt, each on its own branch (default: one per agent)")
 	name := fs.String("name", "", "name the pane, to address it by in place of its ID")
+	at := fs.String("at", "", "start it later: 14:05, +30m, 2026-10-15 09:00 — kept by the server")
+	every := fs.String("every", "", "start it again this often, each on a branch of its own: 1h, 1d, weekly")
+	inSandbox := fs.String("sandbox", "", "run it in a new sandbox from this provider (daytona, boat…), cloned from the project's origin")
+	issue := fs.Int("issue", 0, "work on this GitHub issue: its title and body are the prompt (any PROMPT is added to it)")
+	queue := fs.Bool("queue", false, "add it to the project's queue: it starts when fewer than -wip agents are running there")
+	wip := fs.Int("wip", 0, "with -queue, how many agents the project runs before it waits (default 3)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	prompt := strings.Join(fs.Args(), " ")
-	if prompt == "" {
-		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] [-name N] PROMPT")
+	if prompt == "" && *issue <= 0 {
+		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-issue N] [-sandbox PROVIDER] PROMPT")
+	}
+	if *issue < 0 {
+		return errors.New("-issue takes an issue's number")
+	}
+	if *inSandbox != "" && (*at != "" || *every != "" || *queue) {
+		return errors.New("-sandbox starts the task now, in a sandbox made for it; it doesn't go with -at, -every or -queue")
+	}
+	if *inSandbox != "" && onRemoteMachine() {
+		return errors.New("-sandbox makes a machine of its own; leave out -m")
+	}
+	if *wip != 0 && !*queue {
+		return errors.New("-wip goes with -queue")
+	}
+	if *queue && *every != "" {
+		return errors.New("-queue runs a task once; -every repeats it on a schedule — choose one")
+	}
+	later := *at != "" || *every != "" || *queue
+	var start time.Time
+	everyMin := 0
+	if later {
+		var err error
+		start = time.Now()
+		if *at != "" {
+			if start, err = when.Parse(*at, time.Now()); err != nil {
+				return fmt.Errorf("-at %w", err)
+			}
+		}
+		if *every != "" {
+			if everyMin, err = when.Every(*every); err != nil {
+				return fmt.Errorf("-every %w", err)
+			}
+		}
 	}
 	*name = strings.TrimSpace(*name)
 	if proto.IsPaneID(*name) {
@@ -180,11 +269,50 @@ func runTask(args []string) error {
 	if err := call(c, proto.MethodProjectAdd, proto.ProjectAddParams{Path: dir}, &proj); err != nil {
 		return err
 	}
+	if *issue > 0 && !proj.Git {
+		return errors.New("-issue needs a git repository with a GitHub remote")
+	}
+	if *issue > 0 && len(c.MissingCapabilities([]string{proto.CapIssues})) > 0 {
+		return errors.New("the conch server there predates tasks from issues; reload it with `conch server reload`")
+	}
 	if !proj.Git {
+		if later {
+			return errors.New("-at, -every and -queue start a task on a branch of its own, so they need a git repository")
+		}
 		// No repository to branch: the agent works in the folder itself.
 		return runPlainTask(c, dir, agents, *n, *branch, *base, *name, prompt)
 	}
-	attempts := attemptPlan(proj.Name, agents, *n, *branch, prompt, proj.Branches)
+	branchFrom := prompt
+	if *issue > 0 && *branch == "" {
+		// One attempt's branch is the server's, named from the issue's
+		// title; several need a name to number from here, which is this.
+		branchFrom = fmt.Sprintf("issue %d", *issue)
+	}
+	attempts := attemptPlan(proj.Name, agents, *n, *branch, branchFrom, proj.Branches)
+	if *inSandbox != "" {
+		if len(attempts) > 1 {
+			return errors.New("-sandbox takes one attempt; leave out -n and give one agent")
+		}
+		task := proto.TaskCreateParams{Prompt: prompt, Branch: *branch, Base: *base, Agent: attempts[0].agent,
+			Name: *name, Cols: 120, Rows: 40, Issue: *issue}
+		return runSandboxTask(*inSandbox, proj, task)
+	}
+	if later {
+		if len(attempts) > 1 {
+			return errors.New("-at, -every and -queue take one attempt; leave out -n and give one agent")
+		}
+		if err := needSchedule(c); err != nil {
+			return err
+		}
+		task := proto.TaskCreateParams{ProjectID: proj.ID, Prompt: prompt, Branch: *branch, Base: *base,
+			Agent: attempts[0].agent, Name: *name, Cols: 120, Rows: 40, Issue: *issue}
+		var it proto.ScheduledItem
+		if err := call(c, proto.MethodScheduleAdd, proto.ScheduledItem{At: start, EveryMinutes: everyMin, Task: &task, Queue: *queue, WIP: *wip}, &it); err != nil {
+			return err
+		}
+		scheduleOut(it)
+		return nil
+	}
 	if *name != "" && len(attempts) > 1 {
 		return fmt.Errorf("-name names one pane, and this starts %d; leave it out, or rename them after", len(attempts))
 	}
@@ -206,7 +334,7 @@ func runTask(args []string) error {
 	for _, at := range attempts {
 		var info proto.PaneInfo
 		params := proto.TaskCreateParams{ProjectID: proj.ID, Prompt: prompt, Branch: at.branch,
-			Base: *base, Agent: at.agent, Name: *name, Cols: 120, Rows: 40}
+			Base: *base, Agent: at.agent, Name: *name, Cols: 120, Rows: 40, Issue: *issue}
 		if renameAfter {
 			params.Name = ""
 		}
@@ -343,4 +471,42 @@ func splitAgents(s string) []string {
 		}
 	}
 	return out
+}
+
+// runSandboxTask starts a task in a sandbox made for it: created with the
+// provider named, the project cloned there from its origin, and the agent
+// started on its own branch — the agent works on a machine of its own, and
+// nothing it runs touches this one. The sandbox stays, as any other machine
+// in the sidebar does, until it is stopped or removed.
+func runSandboxTask(provider string, proj proto.ProjectInfo, task proto.TaskCreateParams) error {
+	if proj.Remote == "" {
+		return fmt.Errorf("-sandbox clones %s from its origin remote, and it has none; push it somewhere the sandbox can reach first", proj.Name)
+	}
+	if _, err := takeProvider([]string{"-provider", provider}); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sandboxWait+10*time.Minute)
+	defer cancel()
+	label := proj.Name + "-task"
+	saved, sb, c, err := makeSandbox(ctx, label, sandbox.Spec{}, nil, false)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	fmt.Fprintf(os.Stderr, "  cloning %s into it…\n", proj.Remote)
+	var there proto.ProjectInfo
+	if err := callFor(c, proto.MethodProjectClone, proto.ProjectCloneParams{URL: proj.Remote, Path: "~/" + proj.Name}, &there, 10*time.Minute); err != nil {
+		return fmt.Errorf("the sandbox (%s, %s %s) is up, but cloning failed: %w", saved.ID, provider, sb.ID, err)
+	}
+	if task.Issue > 0 && len(c.MissingCapabilities([]string{proto.CapIssues})) > 0 {
+		return fmt.Errorf("the conch in the sandbox predates tasks from issues; run conch machine upgrade %s", saved.ID)
+	}
+	task.ProjectID = there.ID
+	var info proto.PaneInfo
+	if err := callFor(c, proto.MethodTaskCreate, task, &info, harvestWait); err != nil {
+		return fmt.Errorf("the sandbox (%s) has the project, but the task didn't start: %w", saved.ID, err)
+	}
+	fmt.Printf("%s  %s  %s  on %s\n", info.ID, info.Cwd, info.Branch, saved.ID)
+	fmt.Fprintf(os.Stderr, "  it works from %s's %s; follow it in the sidebar, or: conch -m %s read %s\n", proj.Remote, there.Base, saved.ID, info.ID)
+	return nil
 }

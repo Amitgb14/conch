@@ -43,10 +43,16 @@ type Server struct {
 	adapters  adapter.Registry
 	manifests map[string]*detect.Manifest
 	projects  *projectManager
-	runs      *runLog // agents running in panes, for resuming after a restart
-	uploads   *uploads
-	packs     *packs     // worktrees packed for another machine
-	files     fileStates // git status of checkouts being browsed
+	ports     *portBook // the ports each worktree is given
+	schedules *scheduleBook
+
+	rulesMu sync.Mutex // whether permission rules are in use, read now and then
+	rulesAt time.Time
+	rulesOn bool
+	runs    *runLog // agents running in panes, for resuming after a restart
+	uploads *uploads
+	packs   *packs     // worktrees packed for another machine
+	files   fileStates // git status of checkouts being browsed
 
 	limitsMu sync.Mutex
 	limits   map[string]proto.PlanLimits // by agent
@@ -93,6 +99,8 @@ func New(sockPath, configDir string) *Server {
 		quit:      make(chan struct{}),
 	}
 	s.projects = newProjectManager(s, configDir)
+	s.ports = loadPortBook(configDir)
+	s.schedules = loadSchedule(configDir)
 	s.watcher = newWorktreeWatcher(
 		func(c proto.WorktreeChanged) {
 			s.files.drop(c.Worktree)
@@ -155,6 +163,7 @@ func (s *Server) Run() error {
 	go s.uploads.run(s.quit)
 	go s.packs.run(s.quit)
 	go s.watcher.run(s.quit)
+	go s.runSchedule(s.quit)
 
 	var ln net.Listener
 	if reloaded != nil {
@@ -326,10 +335,10 @@ var slowMethods = map[string]bool{
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true, proto.MethodFSRead: true,
 	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodAgentSync: true, proto.MethodAgentLibrary: true, proto.MethodLibraryApply: true, proto.MethodWorktreeFiles: true,
-	proto.MethodProjectFiles: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
+	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
-	proto.MethodBranchMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true,
+	proto.MethodBranchMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true,
@@ -706,7 +715,10 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		path, copied, perr := s.projects.addWorktree(p, wp.Branch, wp.Base)
-		return proto.WorktreeResult{Path: path, Copied: copied}, perr
+		if perr != nil {
+			return nil, perr
+		}
+		return proto.WorktreeResult{Path: path, Copied: copied, Setup: s.startSetup(p, path, wp.Branch)}, nil
 
 	case proto.MethodWorktreeDescribe:
 		rp, perr := decode[proto.WorktreeRef](msg)
@@ -818,7 +830,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		s.observe(e) // explain the current screen, not the last tick's
-		return e.explain(), nil
+		return e.explainAll(), nil
 
 	case proto.MethodAgentLimits:
 		return s.allLimits(), nil
@@ -941,6 +953,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.projects.setLocalFiles(fp)
 
+	case proto.MethodProjectSetup:
+		sp, perr := decode[proto.ProjectSetupParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.setSetup(sp)
+
 	case proto.MethodBranchCommit:
 		cp, perr := decode[proto.BranchCommitParams](msg)
 		if perr != nil {
@@ -979,6 +998,51 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.projects.discardBranch(dp)
+
+	case proto.MethodAgentPermission:
+		ask, perr := decode[proto.PermissionAsk](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.decidePermission(ask)
+
+	case proto.MethodProjectIssues:
+		ip, perr := decode[proto.IssuesParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.issues(ip)
+
+	case proto.MethodScheduleAdd:
+		it, perr := decode[proto.ScheduledItem](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.scheduleAdd(it)
+
+	case proto.MethodScheduleList:
+		return s.schedules.list(), nil
+
+	case proto.MethodScheduleRemove:
+		ref, perr := decode[proto.ScheduledItem](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.scheduleRemove(ref.ID)
+
+	case proto.MethodAgentReply:
+		rp, perr := decode[proto.PaneRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.agentReply(rp)
+
+	case proto.MethodBranchCILog:
+		lp, perr := decode[proto.BranchCILogParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.ciLog(lp)
 
 	case proto.MethodBranchGit:
 		gp, perr := decode[proto.BranchGitParams](msg)
@@ -1103,6 +1167,15 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 	if !cp.NoProject {
 		proj = s.projects.ensure(dir)
 	}
+	if proj != nil {
+		if wt, ok := proj.worktreeFor(dir); ok {
+			base := s.ports.assign(wt.Path)
+			cp.Env = append(cp.Env, portEnv(base)...)
+			if base != wt.Port {
+				s.projects.request(proj) // so the checkout's row can say which ports it has
+			}
+		}
+	}
 
 	s.mu.Lock()
 	s.nextID++
@@ -1119,6 +1192,7 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "start %q: %v", cp.Command[0], err)
 	}
 	e := newEntry(p, dir, detect.NewTracker(s.manifests, cp.Agent), proj)
+	e.launched = cp.Agent
 
 	s.mu.Lock()
 	s.panes[id] = e
@@ -1134,12 +1208,17 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 
 // createTask starts an agent on its own branch and worktree.
 func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.Error) {
-	if strings.TrimSpace(tp.Prompt) == "" {
+	if strings.TrimSpace(tp.Prompt) == "" && tp.Issue <= 0 {
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "a task needs a prompt")
 	}
 	p, perr := s.projects.get(tp.ProjectID)
 	if perr != nil {
 		return proto.PaneInfo{}, perr
+	}
+	if tp.Issue > 0 {
+		if perr := s.issueTask(p, &tp); perr != nil {
+			return proto.PaneInfo{}, perr
+		}
 	}
 	if tp.Agent == "" {
 		tp.Agent = s.adapters[0].Name()
@@ -1156,6 +1235,7 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 	if perr != nil {
 		return proto.PaneInfo{}, perr
 	}
+	s.startSetup(p, path, tp.Branch)
 	info, perr := s.create(proto.PaneCreateParams{
 		Agent:  tp.Agent,
 		Prompt: tp.Prompt,

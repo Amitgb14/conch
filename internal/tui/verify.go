@@ -289,10 +289,27 @@ func (m *Model) verifyClosed(machine, paneID string) {
 // verifyOnDone runs the check when an agent finishes on a branch. Only when
 // the project has a command: without one this does nothing at all.
 func (m *Model) verifyOnDone(machine string, p proto.PaneInfo) tea.Cmd {
-	if p.Agent == nil || p.Agent.State != proto.AgentDone || p.Branch == "" || p.ProjectID == "" {
+	if p.Agent == nil || p.Agent.State != proto.AgentDone || p.Branch == "" || p.ProjectID == "" || isReviewer(p) {
 		return nil
 	}
+	if m.verifyCommand(p.ProjectID) == "" {
+		return m.startReview(machine, p.ProjectID, p.Branch) // nothing to pass first
+	}
 	return m.startVerify(machine, p.ProjectID, p.Branch)
+}
+
+// reviewAfterCheck starts the reviewer on a branch whose check just passed.
+func (m *Model) reviewAfterCheck(machine string, info proto.PaneInfo) tea.Cmd {
+	for key, run := range m.verifyRuns {
+		if run.pane != info.ID || !run.done || run.exit != 0 || !strings.HasPrefix(key, machine+"|") {
+			continue
+		}
+		parts := strings.SplitN(key, "|", 3)
+		if len(parts) == 3 {
+			return m.startReview(machine, parts[1], parts[2])
+		}
+	}
+	return nil
 }
 
 // askVerifyCommand asks for the project's command, and runs it when given.

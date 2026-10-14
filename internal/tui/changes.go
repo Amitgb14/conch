@@ -30,6 +30,9 @@ type changesView struct {
 	// hunks the single hunks picked inside a file's diff.
 	marked map[string]bool
 	hunks  map[string]*fileHunks
+	// comments are what the reader said about hunks of the diff, waiting
+	// to be sent to the branch's agent (review.go).
+	comments []reviewComment
 	// touched is when each file was last written, so the list can say which
 	// ones an agent is working in rather than only what the totals came to.
 	touched map[string]time.Time
@@ -325,6 +328,10 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 			cv.toHunk(m, cv.hunkSel-1, h)
 		case "c":
 			return false, m.openCommit(cv.target(), cv.selection())
+		case "a":
+			return false, cv.commentHunk(m)
+		case "S":
+			return false, cv.sendReview(m)
 		case "e":
 			return false, cv.editAtHunk(m)
 		case "s":
@@ -367,6 +374,8 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		}
 	case "c":
 		return false, m.openCommit(cv.target(), cv.selection())
+	case "S":
+		return false, cv.sendReview(m)
 	case "e":
 		if files > 0 {
 			return false, cv.editFile(m, cv.data.Files[cv.sel].Path)
@@ -438,12 +447,17 @@ func (cv *changesView) markedPaths() []string {
 }
 
 // filesTop is the view row of the first file: title, meta, an optional pull
-// request line, a blank line and the section header come first.
+// request line, an optional line of merge trouble, a blank line and the
+// section header come first.
 func (cv *changesView) filesTop(m Model) int {
+	top := 4
 	if m.branchPR(cv.machine, cv.projectID, cv.branch) != nil {
-		return 5
+		top++
 	}
-	return 4
+	if m.branchRisk(cv.machine, cv.projectID, cv.branch) != "" {
+		top++ // the line saying what it would collide with
+	}
+	return top
 }
 
 func (cv *changesView) render(m Model, w, h int) []string {
@@ -467,10 +481,13 @@ func (cv *changesView) render(m Model, w, h int) []string {
 	case cv.data != nil:
 		meta += " · not checked out"
 	}
-	lines = append(lines, styleMuted.Render(meta))
+	lines = append(lines, styleMuted.Render(ansi.Truncate(meta, max(w, 1), "…")))
 	if pr := m.branchPR(cv.machine, cv.projectID, cv.branch); pr != nil {
 		lines[0] = spread(lines[0], styleMuted.Render("o open PR"), w)
 		lines = append(lines, prBadge(pr)+" "+ansi.Truncate(pr.Title, max(w/2, 10), "…")+styleMuted.Render(" · ")+prSummary(pr))
+	}
+	if risk := m.branchRisk(cv.machine, cv.projectID, cv.branch); risk != "" {
+		lines = append(lines, styleWarn.Render(ansi.Truncate("⚠ "+risk, max(w, 1), "…")))
 	}
 	lines = append(lines, "")
 
@@ -534,6 +551,9 @@ func (cv *changesView) render(m Model, w, h int) []string {
 		stat := diffStat(f.Added, f.Deleted)
 		if f.Binary {
 			stat = styleMuted.Render("binary")
+		}
+		if n := cv.fileComments(f.Path); n > 0 {
+			stat = styleWarn.Render(fmt.Sprintf("✎%d", n)) + "  " + stat
 		}
 		name := f.Path
 		if f.OrigPath != "" {
@@ -624,7 +644,7 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 		// one that goes when the header will not fit: a narrow terminal
 		// losing the start of "space mark" to make room for it would be
 		// a worse trade than not offering it.
-		full := "space mark · n next hunk · e edit · s unified · c commit · " + right
+		full := "space mark · n next hunk · a comment · e edit · s unified · c commit · " + right
 		short := "space mark · n next hunk · c commit · " + right
 		if !cv.splitView(m, w) {
 			full = strings.Replace(full, "s unified", "s side by side", 1)
@@ -635,6 +655,9 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 		}
 		if fh := cv.hunks[cv.diffFile]; fh != nil {
 			title += styleOK.Render(fmt.Sprintf("  %d of %d hunks marked", len(fh.marked), len(hunks)))
+		}
+		if n := len(cv.comments); n > 0 {
+			title += styleWarn.Render(fmt.Sprintf("  ✎ %s · S send", count(n, "comment")))
 		}
 	}
 	lines := []string{spread(styleBold.Render(title), styleMuted.Render(right), w)}
@@ -678,14 +701,11 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 			l = styleMuted.Render(l)
 		case strings.HasPrefix(l, "@@"):
 			if hunk, ok := marks[i]; ok && len(hunks) > 0 && cv.data != nil && cv.data.Worktree != "" {
-				cursor, mark := " ", " "
+				cursor := " "
 				if hunk == cv.hunkSel {
 					cursor = "▸"
 				}
-				if cv.markedHunk(hunk) {
-					mark = styleOK.Render("✓")
-				}
-				prefix = cursor + mark
+				prefix = cursor + cv.hunkMark(hunk)
 			}
 			l = styleWork.Render(l)
 		case strings.HasPrefix(l, "+"):
@@ -854,6 +874,9 @@ func (cv *changesView) listHint(m Model) string {
 	}
 	if cv.data == nil || cv.data.Worktree == "" {
 		return "enter diff · esc back"
+	}
+	if n := len(cv.comments); n > 0 {
+		return fmt.Sprintf("S send %s · space marks · c commit", count(n, "comment"))
 	}
 	return "space or click ✓ marks · e edit · c commit"
 }
