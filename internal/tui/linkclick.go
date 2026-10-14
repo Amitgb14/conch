@@ -78,8 +78,13 @@ func (m *Model) clickedLink(f *proto.Frame, msg tea.MouseMsg, x, y int) (tea.Cmd
 	if f == nil || msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
 		return nil, false
 	}
-	if f.Mouse && !msg.Alt && !msg.Ctrl {
-		return nil, false // the program is owed this click
+	// Only with alt (option) or ctrl held, in every pane: a plain click
+	// is for placing a selection, or the program's when it took the
+	// mouse, and opening a browser on a click aimed at a word beside a
+	// link surprised people. cmd would be the Mac's choice, but no mouse
+	// protocol can carry it.
+	if !msg.Alt && !msg.Ctrl {
+		return nil, false
 	}
 	// The frame is the pane under the pointer's, not the focused pane's:
 	// a click in another split was reading the wrong screen's lines, which
@@ -96,9 +101,9 @@ func (m *Model) clickedLink(f *proto.Frame, msg tea.MouseMsg, x, y int) (tea.Cmd
 // describes so the two cannot drift apart.
 func linkHint(prefix string) string {
 	return strings.Join([]string{
-		"click a link an agent printed to open it (alt+click or ctrl+click in an agent's own",
-		"interface, which is owed its clicks); " + prefix + " u lists every link on the screen.",
-		"With [ui] hover on, the link under the pointer is underlined",
+		"alt+click (option+click) or ctrl+click a link an agent printed to open it;",
+		prefix + " u lists every link on the screen.",
+		"With [ui] hover on, a link under the pointer is underlined while alt or ctrl is held",
 	}, " ")
 }
 
@@ -152,7 +157,8 @@ type hoverLink struct {
 func (m *Model) linkHoverAt(msg tea.MouseMsg) bool {
 	found := hoverLink{}
 	if l, x, y, ok := m.paneCellAt(msg.X, msg.Y); ok {
-		if f := m.frames[paneKey(l.view.Machine, l.view.PaneID)]; f != nil && (!f.Mouse || msg.Alt || msg.Ctrl) {
+		// Lit only when a click would open it: with alt or ctrl held.
+		if f := m.frames[paneKey(l.view.Machine, l.view.PaneID)]; f != nil && (msg.Alt || msg.Ctrl) {
 			if from, to, got := linkSpanUnder(f.Lines, x, y); got {
 				found = hoverLink{machine: l.view.Machine, pane: l.view.PaneID, y: y, from: from, to: to}
 			}

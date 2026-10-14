@@ -1044,7 +1044,7 @@ var helpText = []string{
 	"  what belongs to no workspace is workspace 1's; closing one asks whether its agents and terminals move there or end   x takes out of this one if another has it",
 	"  in the tree: v open in a split right · s below · O in a new tab (beside what the tab already shows)",
 	"  mouse: click a split to focus it · drag borders to resize · drag a split's title onto another to swap them, onto a tab to move it there, onto + for a tab of its own · drag the bar on a pane's right edge to scroll its history · click tabs and × · drag a tab to reorder · + new tab, terminal, agent or ssh",
-	"  mouse: click a link an agent printed to open it (alt+click inside an agent's own interface, which is owed its clicks)",
+	"  mouse: alt+click (option+click) or ctrl+click a link an agent printed to open it; a plain click selects, or is the program's",
 	"",
 	"Pane and changes",
 	"  ctrl+b then any other key → back to the tree    ctrl+b z  zoom",

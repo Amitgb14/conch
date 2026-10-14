@@ -55,12 +55,22 @@ func TestClickingALink(t *testing.T) {
 			Action: tea.MouseActionPress, Alt: alt}, x, 0)
 	}
 
-	// A plain click on the link opens it and copies it, in a pane whose
-	// program takes no mouse.
+	// A plain click never opens a link, in a pane whose program takes no
+	// mouse or one whose does: it is for selecting, or the program's.
+	// Opening a browser on a click aimed at the words beside a link was
+	// what people did not want.
+	for _, f := range []*proto.Frame{plain, takesMouse} {
+		if _, took := m.clickedLink(f, tea.MouseMsg{X: 10, Y: 0, Button: tea.MouseButtonLeft,
+			Action: tea.MouseActionPress}, 10, 0); took {
+			t.Fatalf("a plain click opened the link (mouse=%v)", f.Mouse)
+		}
+	}
+
+	// alt+click (option on a Mac) opens it and copies it, in either.
 	lastOpened, lastClipboard = "", ""
-	cmd, took := press(10, false)
+	cmd, took := press(10, true)
 	if !took || cmd == nil {
-		t.Fatal("a click on a link did nothing")
+		t.Fatal("alt+click on a link did nothing")
 	}
 	a2Run(cmd)
 	if lastOpened != "https://example.com/x" || lastClipboard != "https://example.com/x" {
@@ -69,24 +79,25 @@ func TestClickingALink(t *testing.T) {
 	if !strings.Contains(m.flash, "opening https://example.com/x") {
 		t.Fatalf("it said %q", m.flash)
 	}
-	// A click beside it is not a click on it.
-	if _, took := press(2, false); took {
-		t.Fatal("a click on the words took the click")
-	}
-	// A program that takes the mouse is owed plain clicks; alt opens it.
-	if _, took := m.clickedLink(takesMouse, tea.MouseMsg{X: 10, Y: 0, Button: tea.MouseButtonLeft,
-		Action: tea.MouseActionPress}, 10, 0); took {
-		t.Fatal("a plain click was taken from the program")
-	}
 	if _, took := m.clickedLink(takesMouse, tea.MouseMsg{X: 10, Y: 0, Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress, Alt: true}, 10, 0); !took {
-		t.Fatal("alt+click did not open the link")
+		t.Fatal("alt+click did not open the link in a program that takes the mouse")
 	}
-	// A release, a right button and a wheel are not clicks on a link.
+	// ctrl does too: some terminals keep alt+click for themselves.
+	if _, took := m.clickedLink(plain, tea.MouseMsg{X: 10, Y: 0, Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress, Ctrl: true}, 10, 0); !took {
+		t.Fatal("ctrl+click did not open the link")
+	}
+	// An alt+click beside it is not a click on it.
+	if _, took := press(2, true); took {
+		t.Fatal("an alt+click on the words took the click")
+	}
+	// A release, a right button and a wheel are not clicks on a link,
+	// alt or not.
 	for _, msg := range []tea.MouseMsg{
-		{X: 10, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease},
-		{X: 10, Y: 0, Button: tea.MouseButtonRight, Action: tea.MouseActionPress},
-		{X: 10, Y: 0, Button: tea.MouseButtonWheelUp},
+		{X: 10, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionRelease, Alt: true},
+		{X: 10, Y: 0, Button: tea.MouseButtonRight, Action: tea.MouseActionPress, Alt: true},
+		{X: 10, Y: 0, Button: tea.MouseButtonWheelUp, Alt: true},
 	} {
 		if _, took := m.clickedLink(plain, msg, 10, 0); took {
 			t.Fatalf("%v took the click", msg.Action)
@@ -94,7 +105,7 @@ func TestClickingALink(t *testing.T) {
 	}
 	// No frame at all.
 	if _, took := m.clickedLink(nil, tea.MouseMsg{X: 10, Y: 0, Button: tea.MouseButtonLeft,
-		Action: tea.MouseActionPress}, 10, 0); took {
+		Action: tea.MouseActionPress, Alt: true}, 10, 0); took {
 		t.Fatal("a pane with no screen took the click")
 	}
 
@@ -105,7 +116,7 @@ func TestClickingALink(t *testing.T) {
 	a2Frame(m, "p2", other)
 	lastOpened = ""
 	cmd, took = m.clickedLink(other, tea.MouseMsg{X: 6, Y: 0, Button: tea.MouseButtonLeft,
-		Action: tea.MouseActionPress}, 6, 0)
+		Action: tea.MouseActionPress, Alt: true}, 6, 0)
 	if !took {
 		t.Fatal("a click in another split's link did nothing")
 	}

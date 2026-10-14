@@ -14,8 +14,8 @@ import (
 
 // TestLinkUnderThePointerLightsUp: a link is clickable, and nothing on a
 // terminal says so until you have clicked. With [ui] hover on, the one the
-// pointer is over is underlined in the accent, so it is visibly the thing
-// a click would act on.
+// pointer is over is underlined in the accent while alt is held — when an
+// alt+click would open it — so it is visibly the thing a click acts on.
 func TestLinkUnderThePointerLightsUp(t *testing.T) {
 	a2Isolate(t)
 	was := lipgloss.ColorProfile()
@@ -37,7 +37,7 @@ func TestLinkUnderThePointerLightsUp(t *testing.T) {
 	id := m.tab().focus
 	in := m.inner(rects[id])
 	at := func(col int) tea.MouseMsg {
-		return tea.MouseMsg{X: in.x + col, Y: in.y, Action: tea.MouseActionMotion, Button: tea.MouseButtonNone}
+		return tea.MouseMsg{X: in.x + col, Y: in.y, Action: tea.MouseActionMotion, Button: tea.MouseButtonNone, Alt: true}
 	}
 
 	// On the words: nothing lights.
@@ -78,32 +78,42 @@ func TestLinkUnderThePointerLightsUp(t *testing.T) {
 	}
 }
 
-// TestLinkHoverRespectsWhoOwnsTheClick: in a program that asked for the
-// mouse, a plain click belongs to the program — so the link is not lit
-// either, or conch would be promising something a click will not do. With
-// alt held, the click *would* open it, so it lights.
-func TestLinkHoverRespectsWhoOwnsTheClick(t *testing.T) {
-	a2Isolate(t)
-	m := a2Model()
-	m.cfg.UI.Hover = true
-	m.width, m.height = 120, 40
-	a2Frame(m, "p1", &proto.Frame{ID: "p1", Mouse: true, Lines: []string{"see https://example.com/x for this"}})
-	m.rebuild()
-	a1Open(t, m, paneNodeID(localMachine, "p1"))
-	m.syncView()
-	rects, _ := m.leafRects()
-	in := m.inner(rects[m.tab().focus])
+// TestLinkHoverOnlyWithAlt: a plain click opens no link, in a pane whose
+// program took the mouse or one whose did not — so a link is not lit
+// without alt or ctrl either, or conch would be promising something a
+// click will not do. With either held the click *would* open it, so it
+// lights, and letting go puts it out at the next move.
+func TestLinkHoverOnlyWithAlt(t *testing.T) {
+	for _, takesMouse := range []bool{false, true} {
+		a2Isolate(t)
+		m := a2Model()
+		m.cfg.UI.Hover = true
+		m.width, m.height = 120, 40
+		a2Frame(m, "p1", &proto.Frame{ID: "p1", Mouse: takesMouse, Lines: []string{"see https://example.com/x for this"}})
+		m.rebuild()
+		a1Open(t, m, paneNodeID(localMachine, "p1"))
+		m.syncView()
+		rects, _ := m.leafRects()
+		in := m.inner(rects[m.tab().focus])
 
-	plain := tea.MouseMsg{X: in.x + 8, Y: in.y, Action: tea.MouseActionMotion, Button: tea.MouseButtonNone}
-	m.hoverAt(plain)
-	if m.hoverLink.pane != "" {
-		t.Fatal("it lit a link a plain click would not open")
-	}
-	held := plain
-	held.Alt = true
-	m.hoverAt(held)
-	if m.hoverLink.pane != "p1" {
-		t.Fatal("with alt held the click opens it, so it should light")
+		plain := tea.MouseMsg{X: in.x + 8, Y: in.y, Action: tea.MouseActionMotion, Button: tea.MouseButtonNone}
+		m.hoverAt(plain)
+		if m.hoverLink.pane != "" || m.pointer != pointerArrow {
+			t.Fatalf("mouse=%v: it lit a link a plain click would not open (pointer %v)", takesMouse, m.pointer)
+		}
+		for _, held := range []tea.MouseMsg{{Alt: true}, {Ctrl: true}} {
+			msg := plain
+			msg.Alt, msg.Ctrl = held.Alt, held.Ctrl
+			m.hoverAt(msg)
+			if m.hoverLink.pane != "p1" || m.pointer != pointerHand {
+				t.Fatalf("mouse=%v alt=%v ctrl=%v: a click opens it, so it should light (pointer %v)",
+					takesMouse, held.Alt, held.Ctrl, m.pointer)
+			}
+			m.hoverAt(plain)
+			if m.hoverLink.pane != "" || m.pointer != pointerArrow {
+				t.Fatalf("mouse=%v: let go of the key, it stayed lit", takesMouse)
+			}
+		}
 	}
 }
 

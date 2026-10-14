@@ -24,7 +24,9 @@ func pointerSeen() []string {
 }
 
 // TestThePointerBecomesAHandOverALink: the thing people expect from a
-// link, and the shape going back the moment the pointer leaves it.
+// link, and the shape going back the moment the pointer leaves it. Alt is
+// held throughout, since only an alt+click opens one; without it the
+// pointer stays an arrow (TestLinkHoverOnlyWithAlt).
 func TestThePointerBecomesAHandOverALink(t *testing.T) {
 	a2Isolate(t)
 	t.Setenv("CONCH_POINTER", "1") // a terminal that takes it
@@ -39,7 +41,16 @@ func TestThePointerBecomesAHandOverALink(t *testing.T) {
 	rects, _ := m.leafRects()
 	in := m.inner(rects[m.tab().focus])
 	at := func(col, row int) tea.MouseMsg {
-		return tea.MouseMsg{X: in.x + col, Y: in.y + row, Action: tea.MouseActionMotion, Button: tea.MouseButtonNone}
+		return tea.MouseMsg{X: in.x + col, Y: in.y + row, Action: tea.MouseActionMotion, Button: tea.MouseButtonNone, Alt: true}
+	}
+
+	// Over the link without alt: a plain click would not open it, so
+	// nothing is asked for.
+	plain := at(8, 0)
+	plain.Alt = false
+	m.hoverAt(plain)
+	if got := pointerSeen(); len(got) != 0 {
+		t.Fatalf("without alt, over a link it asked for %v", got)
 	}
 
 	// On the words beside it: nothing has been asked for yet, since an
@@ -92,7 +103,7 @@ func TestThePointerIsPutBack(t *testing.T) {
 	m.syncView()
 	rects, _ := m.leafRects()
 	in := m.inner(rects[m.tab().focus])
-	onLink := tea.MouseMsg{X: in.x + 8, Y: in.y, Action: tea.MouseActionMotion, Button: tea.MouseButtonNone}
+	onLink := tea.MouseMsg{X: in.x + 8, Y: in.y, Action: tea.MouseActionMotion, Button: tea.MouseButtonNone, Alt: true}
 
 	for name, leave := range map[string]func(m *Model){
 		"clearing the hover": func(m *Model) { m.clearHover() },
