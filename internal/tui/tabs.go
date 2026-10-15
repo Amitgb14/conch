@@ -242,7 +242,11 @@ func (m *Model) syncView() tea.Cmd {
 	if f.view.Kind == kindReviewQueue {
 		m.queueView = f.queue
 	}
+	// was is the explorer the keys were on before this sync, so coming
+	// back to one reads the checkout again (below).
+	was := m.filesView
 	m.filesView = nil
+	fresh := map[*filesView]bool{}
 	for _, l := range leaves {
 		v := l.view
 		if v.Kind != kindFiles {
@@ -251,6 +255,7 @@ func (m *Model) syncView() tea.Cmd {
 		}
 		if fv := l.files; fv == nil || fv.machine != v.Machine || fv.projectID != v.ProjectID || fv.want != v.Branch || fv.ssh != v.PaneID {
 			l.files = m.newFilesView(v)
+			fresh[l.files] = true
 			cmds = append(cmds, l.files.load(m))
 		} else if fv.err != "" && m.clientOf(fv.machine) != nil {
 			cmds = append(cmds, fv.load(m)) // the machine came back
@@ -258,6 +263,16 @@ func (m *Model) syncView() tea.Cmd {
 	}
 	if f.view.Kind == kindFiles {
 		m.filesView = f.files
+	}
+	// An explorer being looked at again reads its folders again. Edits
+	// reach it by themselves while it is open (filesEvent), but only
+	// from a worktree conch is watching: a machine that gives no watches
+	// polls, an unwatched worktree is left to the slow poll, and nothing
+	// at all is heard about a checkout changed by something conch is not
+	// watching. Opening it is when somebody wants to know, so that is
+	// when it asks — once, on the way in, not on every sync.
+	if fv := m.filesView; fv != nil && fv != was && !fresh[fv] {
+		cmds = append(cmds, fv.refresh(m))
 	}
 	return tea.Batch(cmds...)
 }

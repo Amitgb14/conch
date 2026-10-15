@@ -882,3 +882,47 @@ func TestFilesPreviewTooOld(t *testing.T) {
 		t.Fatalf("render:\n%s", out)
 	}
 }
+
+// TestFilesReadAgainWhenLookedAtAgain: edits reach an open explorer by
+// themselves, but only from a worktree conch is watching — a machine
+// that gives no watches polls, an unwatched worktree waits for the slow
+// poll, and a checkout changed by something conch never saw is heard
+// about not at all. Coming back to the explorer is when somebody wants
+// to know, so that is when it asks again.
+func TestFilesReadAgainWhenLookedAtAgain(t *testing.T) {
+	m, peer, fv := filesFixture(t)
+	c := m.machines[0].c
+	before := peer.count(t, c, proto.MethodFSList, "")
+
+	// Staying on it asks for nothing, however often the view is synced.
+	for range 3 {
+		runBatch(m.syncView())
+	}
+	if n := peer.count(t, c, proto.MethodFSList, ""); n != before {
+		t.Fatalf("listed %d times while sitting on it, was %d", n-before, 0)
+	}
+
+	// Away to another tab, and back to the one the explorer is in: one
+	// read of the folders on screen, of that same explorer.
+	m.newTab(viewRef{})
+	runBatch(m.syncView())
+	if m.filesView != nil {
+		t.Fatalf("still on the explorer: %+v", m.filesView.root)
+	}
+	away := peer.count(t, c, proto.MethodFSList, "")
+	m.activeTab = 0
+	runBatch(m.syncView())
+	if m.filesView != fv {
+		t.Fatalf("a new explorer rather than the one that was open: %p vs %p", m.filesView, fv)
+	}
+	if n := peer.count(t, c, proto.MethodFSList, ""); n <= away {
+		t.Fatalf("coming back read nothing: %d", n-away)
+	}
+	back := peer.count(t, c, proto.MethodFSList, "")
+	for range 3 {
+		runBatch(m.syncView())
+	}
+	if n := peer.count(t, c, proto.MethodFSList, ""); n != back {
+		t.Fatalf("it kept reading after coming back: %d more", n-back)
+	}
+}
