@@ -181,7 +181,7 @@ func TestSettingsTabs(t *testing.T) {
 func TestStatusBarClicks(t *testing.T) {
 	t.Setenv("CONCH_HOME", t.TempDir())
 	m := Model{cfg: config.Default(), width: 140, height: 40, expanded: map[string]bool{}, showAll: map[string]bool{}}
-	m.machines = []*machine{{id: localMachine, label: "local", state: stateOnline, agents: map[string]bool{}, sizes: map[string][2]int{}}}
+	m.machines = []*machine{{id: localMachine, label: "local", state: stateOnline, agents: map[string]bool{}, sizes: map[string]paneSize{}}}
 	m.rebuild()
 
 	line, hits := m.layoutStatus()

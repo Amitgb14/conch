@@ -1055,3 +1055,54 @@ func TestTabBarMarksWaitingAgent(t *testing.T) {
 		t.Fatal("an empty tab is not waiting")
 	}
 }
+
+// TestA1ResizeFollowsThePaneNotTheCache: another client resizes the same
+// panes — answer an agent from the phone and its pane becomes the
+// phone's size — so what this TUI last asked for says nothing about what
+// the pane is. Coming back to a wide terminal left an agent drawing 76
+// columns into 247, because the cache said that size had been asked for
+// already.
+func TestA1ResizeFollowsThePaneNotTheCache(t *testing.T) {
+	m, peer := a1Fixture(t, true)
+	mach := m.machines[0]
+	c := mach.c
+	a1Open(t, m, paneNodeID(localMachine, "p1"))
+	peer.waitMethod(t, proto.MethodPaneResize, `"id":"p1"`)
+	asked := mach.sizes["p1"]
+	if asked.want == [2]int{} {
+		t.Fatal("nothing was asked for")
+	}
+
+	// The server says the pane is that size now: nothing more is sent,
+	// however often the view is synced.
+	mach.pane("p1").Cols, mach.pane("p1").Rows = asked.want[0], asked.want[1]
+	for range 3 {
+		m.syncView()
+	}
+	if n := peer.count(t, c, proto.MethodPaneResize, `"id":"p1"`); n != 1 {
+		t.Fatalf("resizes while already the right size: %d", n)
+	}
+
+	// Somebody else resizes it — the phone, with a screen of its own.
+	mach.pane("p1").Cols, mach.pane("p1").Rows = 76, 58
+	m.syncView()
+	// count flushes the outbox with a synchronous call, so a notification
+	// sent before it has arrived by the time it returns.
+	if n := peer.count(t, c, proto.MethodPaneResize, `"id":"p1"`); n != 2 {
+		t.Fatalf("after another client resized it: %d", n)
+	}
+	// And that request is not sent again every frame while it is in
+	// flight: until the server confirms, the pane is still 76x58.
+	for range 3 {
+		m.syncView()
+	}
+	if n := peer.count(t, c, proto.MethodPaneResize, `"id":"p1"`); n != 2 {
+		t.Fatalf("a request in flight was repeated: %d", n)
+	}
+	// The server confirms, and it settles.
+	mach.pane("p1").Cols, mach.pane("p1").Rows = asked.want[0], asked.want[1]
+	m.syncView()
+	if n := peer.count(t, c, proto.MethodPaneResize, `"id":"p1"`); n != 2 {
+		t.Fatalf("after the server confirmed: %d", n)
+	}
+}
