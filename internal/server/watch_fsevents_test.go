@@ -129,3 +129,26 @@ func TestFSEventsPumpDropsWhenTheReaderIsBehind(t *testing.T) {
 		}
 	}
 }
+
+// TestFSEventsCloseEndsItsPumps: closing the watches should end every pump
+// at once. fsevents v0.2.0's Stop does not close Events, so each pump waits
+// on it for good and close always sits out its two-second grace — a pause
+// at every reload and shutdown of a server watching worktrees, and a
+// goroutine left behind per stream. Found while writing the -after tests.
+func TestFSEventsCloseEndsItsPumps(t *testing.T) {
+	t.Skip("bug: fsevents EventStream.Stop leaves Events open, so pump never returns and fseventsBackend.close always waits its 2s (watch_fsevents.go)")
+	be, err := newBackend()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := be.(*fseventsBackend)
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	if err := b.watch(dir, nil); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	b.close()
+	if took := time.Since(start); took > time.Second {
+		t.Fatalf("close took %v", took)
+	}
+}

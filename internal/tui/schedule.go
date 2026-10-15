@@ -107,7 +107,8 @@ func (m *Model) continueAfterLimit(machine, pane string) tea.Cmd {
 }
 
 // scheduleTask hands a task to the machine's server for later: "queue"
-// holds it until the project has room, anything else is a time (when.Parse).
+// holds it until the project has room, "after REF" until that branch,
+// pane or scheduled task has finished, anything else is a time (when.Parse).
 func (m *Model) scheduleTask(machine string, task proto.TaskCreateParams, later string) tea.Cmd {
 	if !m.hasCapability(machine, proto.CapSchedule) {
 		return func() tea.Msg {
@@ -118,9 +119,31 @@ func (m *Model) scheduleTask(machine string, task proto.TaskCreateParams, later 
 	done := func() tea.Msg {
 		return flashMsg(fmt.Sprintf("queued: it starts when fewer than %d agents are running in the project", proto.DefaultWIP))
 	}
-	if later == "queue" {
+	ref, isAfter := strings.CutPrefix(later, "after ")
+	switch {
+	case later == "queue":
 		it.Queue = true
-	} else {
+	case isAfter || later == "after":
+		ref = strings.TrimSpace(ref)
+		if ref == "" || later == "after" {
+			return func() tea.Msg {
+				return errMsg{errString("When: after what? Give a branch, a pane or a scheduled task: after api/model")}
+			}
+		}
+		if !m.hasCapability(machine, proto.CapTaskAfter) {
+			return func() tea.Msg {
+				return errMsg{errString("the server there predates waiting for other work; reload it (conch server reload)")}
+			}
+		}
+		it.After = ref
+		from := "its branch"
+		if task.Base != "" {
+			from = task.Base
+		}
+		done = func() tea.Msg {
+			return flashMsg("waits for " + ref + " to finish, then starts from " + from + " — with conch closed too")
+		}
+	default:
 		at, err := when.Parse(later, time.Now())
 		if err != nil {
 			return func() tea.Msg { return errMsg{fmt.Errorf("When: %w", err)} }
@@ -149,6 +172,12 @@ func scheduledDetail(it proto.ScheduledItem, now time.Time) string {
 	}
 	var s string
 	switch {
+	case it.After != "" && it.Task != nil:
+		after := it.AfterBranch
+		if after == "" {
+			after = it.After
+		}
+		s = "task after " + after + ": " + oneLine(it.Task.Prompt)
 	case it.Queue:
 		s = fmt.Sprintf("queued, %d at a time: %s", it.WIP, oneLine(it.Task.Prompt))
 	case it.Task != nil:

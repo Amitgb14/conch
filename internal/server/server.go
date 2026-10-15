@@ -1220,16 +1220,23 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 
 // createTask starts an agent on its own branch and worktree.
 func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.Error) {
+	info, _, perr := s.startTask(tp)
+	return info, perr
+}
+
+// startTask is createTask saying the branch the task is on, which it may
+// have named itself: a task waiting for this one starts from it.
+func (s *Server) startTask(tp proto.TaskCreateParams) (proto.PaneInfo, string, *proto.Error) {
 	if strings.TrimSpace(tp.Prompt) == "" && tp.Issue <= 0 {
-		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "a task needs a prompt")
+		return proto.PaneInfo{}, "", proto.Errorf(proto.ErrBadRequest, "a task needs a prompt")
 	}
 	p, perr := s.projects.get(tp.ProjectID)
 	if perr != nil {
-		return proto.PaneInfo{}, perr
+		return proto.PaneInfo{}, "", perr
 	}
 	if tp.Issue > 0 {
 		if perr := s.issueTask(p, &tp); perr != nil {
-			return proto.PaneInfo{}, perr
+			return proto.PaneInfo{}, "", perr
 		}
 	}
 	if tp.Agent == "" {
@@ -1241,11 +1248,11 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 	// Checked before the worktree is made, so a refused name leaves nothing.
 	tp.Name = strings.TrimSpace(tp.Name)
 	if perr := s.nameFree(tp.Name); perr != nil {
-		return proto.PaneInfo{}, perr
+		return proto.PaneInfo{}, "", perr
 	}
 	path, _, perr := s.projects.addWorktree(p, tp.Branch, tp.Base)
 	if perr != nil {
-		return proto.PaneInfo{}, perr
+		return proto.PaneInfo{}, "", perr
 	}
 	s.startSetup(p, path, tp.Branch)
 	info, perr := s.create(proto.PaneCreateParams{
@@ -1256,14 +1263,14 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 		Rows:   tp.Rows,
 	})
 	if perr != nil || tp.Name == "" {
-		return info, perr
+		return info, tp.Branch, perr
 	}
 	e, perr := s.get(info.ID)
 	if perr != nil { // it ended already
-		return info, nil
+		return info, tp.Branch, nil
 	}
 	s.rename(e, tp.Name)
-	return e.info(), nil
+	return e.info(), tp.Branch, nil
 }
 
 // nameFree checks that a task's pane can take name: not the shape of a

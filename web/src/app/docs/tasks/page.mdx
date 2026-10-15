@@ -138,7 +138,23 @@ conch task -queue "Add rate limiting to the login endpoint"
 conch task -queue -wip 2 "Move the settings page to the new form library"
 ```
 
-In the TUI, the task dialog's **When** field does the same: leave it empty to start now, type `queue` to queue it, or a time — `02:00`, `+2h` — to schedule it.
+**After other work.** Some changes need another first: the endpoint needs the model it serves. `-after` holds a task until that work has finished, then starts it from that work's branch, so the second agent builds on what the first committed:
+
+```sh
+conch task -branch api/model "Add the Invoice model and its migration"
+conch task -after api/model "Add a REST endpoint for invoices"
+conch task -after p4 "Write the client for the new endpoint"   # the branch the agent in pane p4 is on
+```
+
+`-after` takes a branch of the project, a pane working on one, or a task still on the schedule — by the ID `conch task -queue` printed, or the `-branch` it was given — so a whole stack can be queued at once, each waiting for the one before. "Finished" is the agent on that branch having worked and stopped: not still at work, not waiting on a question. With `-queue` too it also waits for room; with `-base` it waits but starts from that base instead.
+
+When it can't be sure, it waits and says why in `conch schedule` and the queue, rather than starting on the wrong code:
+
+- the branch has **uncommitted changes**, which a branch made from it would not have — commit them and it starts;
+- the branch is **gone without being merged** — discarded, so there is nothing to build on. A branch that was merged into the base and then deleted is fine: the task starts from the base, which now has that work;
+- the task it waits for was **taken off the schedule or failed to start**.
+
+In the TUI, the task dialog's **When** field does the same: leave it empty to start now, type `queue` to queue it, `after api/model` to wait for other work, or a time — `02:00`, `+2h` — to schedule it.
 
 A scheduled message waits for its agent: it is never typed into one that is working, or waiting on a question of its own — the schedule says so beside it — and is sent once the agent is free. A message for a pane that has since closed, or now runs another agent, is dropped rather than typed into something that never asked for it.
 
