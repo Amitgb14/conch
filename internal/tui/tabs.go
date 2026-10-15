@@ -124,8 +124,17 @@ func (m *Model) syncView() tea.Cmd {
 		want[key] = true
 		if p := mach.pane(v.PaneID); p != nil && p.State == proto.PaneRunning && m.width > 0 {
 			in := m.inner(r)
-			if mach.sizes[v.PaneID] != [2]int{in.w, in.h} {
-				mach.sizes[v.PaneID] = [2]int{in.w, in.h}
+			want, at := [2]int{in.w, in.h}, [2]int{p.Cols, p.Rows}
+			// Resize when the pane is not the size this layout wants —
+			// not when it differs from what this TUI last asked for.
+			// Another client resizes the same panes: answer an agent on
+			// the phone and its pane is the phone's size, and coming back
+			// to a wide terminal left it drawing 76 columns into 247,
+			// because the cache said this size had already been asked
+			// for. Asking once per size it is seen at keeps a request in
+			// flight from being re-sent every frame.
+			if was := mach.sizes[v.PaneID]; at != want && (was.want != want || was.at != at) {
+				mach.sizes[v.PaneID] = paneSize{want: want, at: at}
 				mach.c.Notify(proto.MethodPaneResize, proto.PaneResizeParams{ID: v.PaneID, Cols: in.w, Rows: in.h})
 			}
 		}

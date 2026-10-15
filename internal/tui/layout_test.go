@@ -92,7 +92,7 @@ func splitModel() *Model {
 	panes := []proto.PaneInfo{{ID: "p1", State: proto.PaneRunning}, {ID: "p2", State: proto.PaneRunning}, {ID: "p3", State: proto.PaneRunning}}
 	m := &Model{width: 160, height: 40, expanded: map[string]bool{}, showAll: map[string]bool{},
 		frames: map[string]*proto.Frame{}, subscribed: map[string]bool{},
-		machines: []*machine{{id: localMachine, label: "local", panes: panes, sizes: map[string][2]int{}}}}
+		machines: []*machine{{id: localMachine, label: "local", panes: panes, sizes: map[string]paneSize{}}}}
 	for _, p := range panes {
 		m.rows = append(m.rows, row{id: paneNodeID(localMachine, p.ID), kind: kindPane, machine: localMachine, paneID: p.ID})
 	}
