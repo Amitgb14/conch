@@ -163,7 +163,7 @@ func TestPlainTaskRefusals(t *testing.T) {
 	m.cursor = projectNodeID(localMachine, "r1")
 	m.overlay = nil
 	a1Key(t, m, runes("t"))
-	if d, ok := m.overlay.(*dialog); !ok || len(d.fields) != 5 {
+	if d, ok := m.overlay.(*dialog); !ok || len(d.fields) != 6 {
 		t.Fatalf("git project: %T", m.overlay)
 	}
 }

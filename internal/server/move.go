@@ -509,6 +509,9 @@ func (s *Server) unpackWorktree(p proto.WorktreeUnpackParams) (proto.WorktreeUnp
 	}
 	s.projects.request(proj)
 	log.Printf("project %s: moved worktree %s in at %s", proj.id, man.Branch, path)
+	// The worktree arrived without what made it run where it was: this
+	// machine installs its own.
+	s.startSetup(proj, path, man.Branch)
 	return proto.WorktreeUnpackResult{Path: path, Branch: man.Branch, Files: files}, nil
 }
 

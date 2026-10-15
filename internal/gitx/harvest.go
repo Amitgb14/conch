@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -484,4 +485,76 @@ func configValue(ctx context.Context, dir, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// TouchedFiles lists what a checkout has changed since it left base: what
+// it committed and what it has not, untracked files included — the files
+// another branch's agent could collide with. Paths are relative to the
+// checkout and sorted.
+func TouchedFiles(ctx context.Context, dir, base string) ([]string, error) {
+	from := "HEAD"
+	if base != "" && resolves(ctx, dir, base) {
+		mb, err := run(ctx, dir, "merge-base", base, "HEAD")
+		if err == nil {
+			from = strings.TrimSpace(string(mb))
+		}
+	}
+	changed, err := run(ctx, dir, "diff", "--name-only", "-z", "--no-renames", from, "--")
+	if err != nil {
+		return nil, err
+	}
+	untracked, err := run(ctx, dir, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range append(splitNUL(changed), splitNUL(untracked)...) {
+		if f != "" && !seen[f] {
+			seen[f] = true
+			out = append(out, f)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// ErrNoMergeTree says git is too old to try a merge without making it
+// (merge-tree --write-tree arrived in git 2.38).
+var ErrNoMergeTree = errors.New("this git cannot try a merge without making it (git 2.38 or later can)")
+
+// MergeConflicts tries merging branch into into without touching any
+// checkout, and lists the files that would conflict; none means it would
+// merge cleanly.
+func MergeConflicts(ctx context.Context, root, into, branch string) ([]string, error) {
+	for _, rev := range []string{into, branch} {
+		if !resolves(ctx, root, rev) {
+			return nil, fmt.Errorf("no branch %s", rev)
+		}
+	}
+	out, code, err := runCodes(ctx, root, []int{1}, "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", into, branch)
+	switch {
+	case code == 129:
+		return nil, ErrNoMergeTree // an option this git doesn't know
+	case err != nil:
+		return nil, err
+	case code == 0:
+		return nil, nil
+	}
+	// The tree, then the files that conflict. No tree is git refusing,
+	// which it also says with 1.
+	parts := splitNUL(out)
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("git could not try merging %s into %s", branch, into)
+	}
+	parts = parts[1:]
+	seen := map[string]bool{}
+	var files []string
+	for _, f := range parts {
+		if f != "" && !seen[f] {
+			seen[f] = true
+			files = append(files, f)
+		}
+	}
+	return files, nil
 }

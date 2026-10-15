@@ -53,9 +53,10 @@ Usage:
   conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]
                                 start Claude Code with state tracking
   conch agent explain ID        show how a pane's agent state was decided
-  conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] ID TEXT
+  conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT
                                 send an agent its next message, refused (exit 3) while it
-                                waits on a question; -wait blocks until that work ends
+                                waits on a question; -wait blocks until that work ends;
+                                -at sends it later (14:05, +30m), once the agent is free
   conch agent skill [-agent NAMES] [-remove] [-apply]
                                 teach the agents to start, prompt and read other agents in
                                 conch: its skill, in each agent's own skills folder
@@ -77,13 +78,21 @@ Usage:
                                 -to NAMES, -env K=${VAR}; mcp adds conch's own tools
                                 (conch mcp); plan says what apply writes
   conch project add PATH | create [-no-git] PATH | ls | rm ID | files ID [-reset | -none | PATTERN...]
-                                manage projects shown in the sidebar
-  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] PROMPT
+                | setup ID [-none | COMMAND]
+                                manage projects shown in the sidebar; setup is run in a
+                                terminal of its own in each new worktree (npm install…),
+                                and every pane there gets its own ports from $CONCH_PORT
+  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-issue N] [-sandbox PROVIDER] PROMPT
                                 new branch + worktree + Claude with PROMPT; in a folder that isn't a
                                 git repository the agent works there instead (with -m and no -cwd:
                                 that machine's home);
                                 -n / several agents try it once each, one branch per attempt;
-                                -name names the pane
+                                -name names the pane; -at starts it later (14:05, +2h), -every
+                                again and again (1d, weekly), each run on a branch of its own;
+                                -queue holds it until fewer than -wip (3) agents run in the project;
+                                -issue N works on that GitHub issue (PROMPT is then optional);
+                                -sandbox P runs it in a new sandbox, the project cloned from origin
+  conch schedule [ls | rm ID]   what the server will do later (prompt -at, task -at/-every)
   conch branch commit [-file PATH]... -m MESSAGE
                                 commit a task branch's changes (-cwd, -branch pick it;
                                 -cwd needed with -m)
@@ -199,6 +208,8 @@ func main() {
 		err = runProject(args)
 	case "task":
 		err = runTask(args)
+	case "schedule":
+		err = runScheduleCmd(args)
 	case "branch":
 		err = runBranch(args)
 	case "worktree", "worktrees":

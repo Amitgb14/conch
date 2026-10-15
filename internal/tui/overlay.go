@@ -168,6 +168,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"n", "Open terminal on this branch", act("n")},
 			{"t", "New task in project", act("t")},
 			{"y", "Copy branch name", act("y")},
+			{"L", "Open its preview ($CONCH_PORT) in the browser", act("L")},
 			{"i", "Agent setup of this checkout", act("i")},
 			{"R", "Refresh git status and PRs", act("R")},
 		}
@@ -207,7 +208,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"n", "Open terminal in project", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
 			{"B", "Broadcast to its agents and terminals…", act("B")},
-			{"F", "Local files for new worktrees…", act("F")},
+			{"F", "New worktrees: setup command and local files…", act("F")},
 			{"W", "Clean up worktrees…", act("W")},
 			{"R", "Refresh git status", act("R")},
 			{"", "Show all branches", func(m *Model) tea.Cmd {
@@ -217,6 +218,10 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 				return tea.Batch(m.rebuild(), m.saveState())
 			}},
 			{"x", "Remove from sidebar", act("x")},
+		}
+		if proj := m.project(r.machine, r.projectID); proj != nil && proj.Git {
+			issue := menuItem{"", "New task from a GitHub issue…", func(m *Model) tea.Cmd { return m.openIssues(r.machine, r.projectID) }}
+			items = append(items[:1], append([]menuItem{issue}, items[1:]...)...)
 		}
 	case kindMachine:
 		mach := m.machine(r.machine)
@@ -694,11 +699,12 @@ func newAddMachineDialog(m Model) *dialog {
 func newTaskDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
 	intro := "Creates a branch and worktree, then starts the agent with the prompt."
 	d := newDialog(m, " New task · "+proj.Name+" ", []string{intro},
-		[]string{"Prompt", "Branch", "Base", "Agent", "Attempts"}, nil)
+		[]string{"Prompt", "Branch", "Base", "Agent", "Attempts", "When"}, nil)
 	d.fields[1].in.Placeholder = "derived from the prompt"
 	d.fields[2].in.Placeholder = proj.Base
 	d.fields[3].in.Placeholder = m.defaultAgent() + " (default · " + strings.Join(knownAgents(&m), ", ") + ", or several: claude,codex)"
 	d.fields[4].in.Placeholder = "1 (each attempt gets its own branch)"
+	d.fields[5].in.Placeholder = "now · queue (when fewer than 3 agents run here) · 02:00 · +2h"
 	defaultAgent := m.defaultAgent()
 	// The warnings follow the Agent and Attempts fields: each agent has its
 	// own plan, and every attempt spends one.
@@ -755,6 +761,20 @@ func newTaskDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
 		}
 		cols, rows := m.paneArea()
 		plan := attemptPlan(name, agents, n, strings.TrimSpace(v[1]), strings.TrimSpace(v[0]), branches)
+		later := ""
+		if len(v) > 5 {
+			later = strings.TrimSpace(v[5])
+		}
+		if later != "" && later != "now" {
+			if len(plan) != 1 {
+				return func() tea.Msg {
+					return errMsg{errString("a task for later is one attempt: leave Attempts empty and give one agent")}
+				}
+			}
+			task := proto.TaskCreateParams{ProjectID: id, Prompt: v[0], Branch: plan[0].branch,
+				Base: strings.TrimSpace(v[2]), Agent: plan[0].agent, Cols: cols, Rows: rows}
+			return m.scheduleTask(mid, task, later)
+		}
 		if len(plan) == 1 {
 			params := proto.TaskCreateParams{ProjectID: id, Prompt: v[0], Branch: plan[0].branch,
 				Base: strings.TrimSpace(v[2]), Agent: plan[0].agent, Cols: cols, Rows: rows}
@@ -988,7 +1008,9 @@ var helpText = []string{
 	"  esc    clear filter    m  menu (or right-click)",
 	"  !      next agent waiting for you",
 	"  Q      review queue: what needs a decision, across every machine",
-	"         / filters it · v checks a row · o its output · x dismisses it (and it stays dismissed)",
+	"         / filters it · v checks a row · o its output · f sends a failed check or CI run to its agent",
+	"         · R hands a reviewer's report to the branch's agent · C continues an agent stopped at its plan",
+	"         limit once it resets · x dismisses it (and it stays dismissed), or takes a ⏲ one off the schedule",
 	"  B      broadcast: one message to the agents and terminals of the selection (terminals run it as a command)",
 	"  f      files: browse the checkout of the selected project, or of a branch's worktree;",
 	"         on a terminal running ssh, the files of the host it is logged in to",
@@ -1024,7 +1046,9 @@ var helpText = []string{
 	"  i  agent setup: instructions, skills, MCP servers, and what a worktree lacks",
 	"     in it: s gives the other agents this one's setup (it says what it would write first), u undoes that,",
 	"     S installs or removes conch's own skill for the agent whose tab is open (Settings → Agents does every agent)",
-	"  F  local files (.env, local agent settings) copied into new worktrees",
+	"  F  new worktrees: a setup command run in each (npm install…) and the local files (.env, local",
+	"     agent settings) copied in",
+	"  L  open a checkout's preview: each checkout has its own ports ($CONCH_PORT), forwarded from ssh machines",
 	"  W  clean up a project's worktrees: the finished ones (merged, folder gone) come ticked",
 	"",
 	"Splits and tabs (ctrl+b, then)",
@@ -1059,6 +1083,7 @@ var helpText = []string{
 	"    space or a click in the ✓ column marks a file · c commit (the marked files, else all)",
 	"    P push (the remote ahead? it offers to take its commits first) · p open a pull request",
 	"    in a diff: space marks the hunk under ▸ · n / N next, previous hunk · c commits the marked hunks",
+	"    a comments the hunk under ▸ (✎) · S sends the branch's comments to its agent, hunks quoted",
 	"    e opens the file in $EDITOR at that hunk, in a pane of its own (on the worktree's machine)",
 	"    s side by side or unified · a wide terminal starts side by side",
 	"    the file list washes the row of a file being written and marks it ▌; an open diff re-reads as the",

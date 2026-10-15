@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"runtime"
@@ -17,10 +20,16 @@ import (
 // notify alerts the user as configured: a desktop notification, a sound
 // and/or the terminal bell. It does nothing when notifications are off.
 func notify(cfg config.NotifyCfg, title, body string) tea.Cmd {
-	if !cfg.Enabled || (!cfg.Desktop && !cfg.Sound && !cfg.Bell) {
+	command := strings.TrimSpace(cfg.Command)
+	if !cfg.Enabled || (!cfg.Desktop && !cfg.Sound && !cfg.Bell && command == "") {
 		return nil
 	}
 	return func() tea.Msg {
+		if command != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), notifyTimeout)
+			runOutward(notifyCommand(ctx, command, title, body, time.Now()))
+			cancel()
+		}
 		if cfg.Bell {
 			ringBell()
 		}
@@ -47,6 +56,25 @@ func notify(cfg config.NotifyCfg, title, body string) tea.Cmd {
 		}
 		return nil
 	}
+}
+
+// notifyTimeout stops a webhook that never answers from holding an alert's
+// goroutine for ever.
+const notifyTimeout = 30 * time.Second
+
+// notifyCommand is [notify] command, ready to run with the alert on its
+// stdin and in its environment.
+func notifyCommand(ctx context.Context, command, title, body string, at time.Time) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	payload, _ := json.Marshal(struct {
+		Title string    `json:"title"`
+		Body  string    `json:"body"`
+		At    time.Time `json:"at"`
+	}{title, body, at})
+	cmd.Stdin = bytes.NewReader(append(payload, '\n'))
+	cmd.Env = append(os.Environ(), "CONCH_NOTIFY_TITLE="+title, "CONCH_NOTIFY_BODY="+body)
+	cmd.WaitDelay = time.Second // a child that keeps the pipes open
+	return cmd
 }
 
 // runOutward and startOutward run something outside conch — a desktop

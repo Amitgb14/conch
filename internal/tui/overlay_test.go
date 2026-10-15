@@ -495,7 +495,7 @@ func TestA2TaskDialog(t *testing.T) {
 	m := a2Model()
 	proj := m.machines[0].projects[0]
 	d := newTaskDialog(*m, localMachine, proj)
-	if len(d.fields) != 5 || d.fields[2].in.Placeholder != "main" || !strings.HasPrefix(d.fields[3].in.Placeholder, "claude (default · ") {
+	if len(d.fields) != 6 || d.fields[2].in.Placeholder != "main" || !strings.HasPrefix(d.fields[3].in.Placeholder, "claude (default · ") {
 		t.Fatalf("task dialog placeholders: %q %q", d.fields[2].in.Placeholder, d.fields[3].in.Placeholder)
 	}
 	m.overlay = d

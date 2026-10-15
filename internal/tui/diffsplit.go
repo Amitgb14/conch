@@ -161,14 +161,11 @@ func (cv *changesView) splitHeaderLine(r splitRow, w, gutter int, marks map[int]
 	if strings.HasPrefix(r.header, "@@") {
 		style = styleWork
 		if hunk, ok := marks[r.at]; ok && len(hunks) > 0 && cv.data != nil && cv.data.Worktree != "" {
-			cursor, mark := " ", " "
+			cursor := " "
 			if hunk == cv.hunkSel {
 				cursor = "▸"
 			}
-			if cv.markedHunk(hunk) {
-				mark = styleOK.Render("✓")
-			}
-			prefix = " " + cursor + mark
+			prefix = " " + cursor + cv.hunkMark(hunk)
 		}
 	}
 	return prefix + fit(style.Render(expandTabs(r.header)), max(w-gutter, 1))

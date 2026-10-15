@@ -69,8 +69,10 @@ var scoped = map[string]scopeKind{
 	proto.MethodPaneClose: scopePane, proto.MethodPaneSendText: scopePane, proto.MethodPaneSendKeys: scopePane,
 	proto.MethodPaneSendMouse: scopePane, proto.MethodPaneResize: scopePane, proto.MethodPaneRename: scopePane,
 	proto.MethodPaneMarkSeen: scopePane, proto.MethodPaneMonitor: scopePane, proto.MethodAgentReport: scopePane,
-	proto.MethodAgentPrompt:    scopePane,
-	proto.MethodAgentBroadcast: scopePanes,
+	proto.MethodAgentPrompt: scopePane,
+	// An agent's hook asks for its own pane, and only its own.
+	proto.MethodAgentPermission: scopePane,
+	proto.MethodAgentBroadcast:  scopePanes,
 
 	proto.MethodProjectRemove:  scopeProjID,
 	proto.MethodWorktreeRemove: scopeProject, proto.MethodWorktreeCleanup: scopeProject,
@@ -83,6 +85,11 @@ var scoped = map[string]scopeKind{
 	// Which ignored files — secrets among them — are copied into every new
 	// worktree: the person's call, even in the agent's own project.
 	proto.MethodProjectFiles: scopeHome,
+	// A command run in every new worktree: an agent that could set it
+	// could have anything run outside its own pane.
+	proto.MethodProjectSetup: scopeHome,
+	// What runs later runs with nobody watching: the person's to arrange.
+	proto.MethodScheduleAdd: scopeHome, proto.MethodScheduleRemove: scopeHome,
 }
 
 // writesHome lists methods that only sometimes change the person's setup:
@@ -283,7 +290,8 @@ var verbs = map[string]string{
 	proto.MethodPaneMarkSeen: "mark as seen", proto.MethodPaneMonitor: "set monitoring on",
 	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt",
 	proto.MethodAgentBroadcast: "send a message to", proto.MethodSessionShare: "hand a session to",
-	proto.MethodServerStop: "stop", proto.MethodServerReload: "reload",
+	proto.MethodAgentPermission: "answer a permission request for",
+	proto.MethodServerStop:      "stop", proto.MethodServerReload: "reload",
 	proto.MethodProjectRemove: "remove a project", proto.MethodWorktreeRemove: "remove a worktree",
 	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchCommit: "commit",
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
@@ -291,6 +299,8 @@ var verbs = map[string]string{
 	proto.MethodBranchGit:    "run git",
 	proto.MethodAgentSkill:   "install or remove the agents' conch skill",
 	proto.MethodProjectFiles: "change which local files a project copies into its worktrees",
+	proto.MethodProjectSetup: "change the command a project runs in its new worktrees",
+	proto.MethodScheduleAdd:  "schedule a message or a task", proto.MethodScheduleRemove: "remove something scheduled",
 	proto.MethodAgentLibrary: "change the library of MCP servers and skills", proto.MethodLibraryApply: "apply the library to the agents",
 	proto.MethodAgentSync: "sync one agent's setup to the others",
 }

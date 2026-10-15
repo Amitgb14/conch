@@ -192,6 +192,8 @@ Selecting a branch shows its **changes**: its pull request (checks, review), unc
 | `space` | mark a file for the next commit (`✓` beside the cursor; clicking that column marks it too); inside a diff, the hunk the `▸` cursor is on |
 | `n` `N` | move to the next or previous hunk of an open diff (`[` and `]` too) |
 | `s` | side by side or unified, for this file (wide terminals start side by side) |
+| `a` | inside a diff, comment on the hunk the `▸` cursor is on (`✎` marks it; `a` again edits it, and an empty comment removes it). Only on a checked-out branch, since the comments are for the agent working in it |
+| `S` | send every comment on the branch to its agent as one message: each numbered, with the file, the hunk header and the hunk itself quoted (the first 40 lines), so a comment still makes sense after the agent rewrites the lines. With no agent on the branch, your default agent starts in its worktree with them. The comments are cleared once sent |
 | `e` | open the file in the machine's own `$EDITOR`, at the hunk the `▸` cursor is on — in a pane of its own, so conch keeps running. From the file list it opens at the top. The editor runs on the machine the worktree is on, which is the machine whose `$EDITOR` and whose file they are. conch knows the line flag for vim, nano, emacs, VS Code, Cursor, Zed, Sublime, Helix and the JetBrains editors; anything else opens the file without a line rather than being handed a flag it would read as a file name |
 | `F` | inside a diff, follow what just changed (on until you scroll away) |
 | `R` | re-read the branch, or the open diff, now |
@@ -225,18 +227,47 @@ The file list says where the work is happening: a file written in the last few s
 | Order | Row | Why |
 | --- | --- | --- |
 | `!` | an agent is waiting | it is blocked on an answer and nothing proceeds until you give one |
-| `✗` | its check failed | the project's command came back non-zero on that branch |
+| `✗` | its check failed | the project's command came back non-zero on that branch, or its pull request's CI failed |
 | `✓` | an agent finished | it is done and nobody has looked at what it did |
 | `↑` | commits not pushed or merged | work that is finished but hasn't shipped |
 | `·` | uncommitted changes | a worktree left dirty, with no agent running in it |
+| `⏲` | scheduled | a message or task the server will send or start later ([Later, and on a schedule](/docs/tasks#later-and-on-a-schedule)); `x` takes it off the schedule |
 
-Within each group the thing that has been waiting longest comes first, so nothing quietly rots at the bottom. Rows are gathered under the project they belong to — a repository is named once, however many of its branches need you — and the projects themselves are ordered by their most urgent row. Each row names the branch, what it is waiting on, what the agent has spent, and how long it has been there.
+Within each group the thing that has been waiting longest comes first, so nothing quietly rots at the bottom. Rows are gathered under the project they belong to — a repository is named once, however many of its branches need you — and the projects themselves are ordered by their most urgent row. Each row names the branch, what it is waiting on, what the agent has spent, and how long it has been there. It also says what you would open it to find out: a waiting agent's question in its own words (`waiting for an answer: Claude needs your permission to use Bash`), and how much is uncommitted on the branch (`3 files +42 −7`) — so coming back to a handful of agents is reading a list, not opening each one. `/` filters by any of it, the question included.
+
+**Merge trouble, before the merge.** Agents in parallel branches collide when their work is merged, and finding out then means untangling a conflict after the work is done. So a branch's row — and the top of its changes — says when another branch's checkout has touched the same files (`⚠ also changed on api/fix-login: auth.go`), and when merging it into the base would conflict, tried without merging anything (`⚠ conflicts with main in auth.go`, with git 2.38 or later). That is the moment to decide which agent goes first, or to have one rebase onto the other — `b` opens the git panel, which can hand the rebase to the branch's agent.
 
 `enter` goes where the answer is: a waiting agent opens its pane so you can reply, and anything else opens the branch's [changes](#changes-view), where committing, pushing and opening a PR already live. ### Checks
 
 A project can have a **check** — its own command, `go test ./...`, `npm test`, `make check` — which conch runs in a branch's worktree when the agent working there finishes. The queue then says what happened (`check passed`, `check failed (exit 1)`, `checking…`) instead of only that an agent stopped, and a branch whose check failed sorts to the top: that is the clearest call for your attention there is. A verdict is about the branch as it stood when the check ran, so a commit or an edit afterwards makes it read **check out of date** — it stops counting as a failure, and conch runs the check again once the branch has been quiet for half a minute and no agent is still writing in it. `v` runs one whenever you like.
 
 `v` on a row runs the check, or asks for the command when the project has none; `o` opens that check's terminal, which is where a failure's output is, and `ctrl+b b` comes back to the queue (pressing it again returns to the terminal). There is no default and nothing runs until you name one, since a project's own command can take minutes, touch a database or cost money. A project without a check is not scolded — its rows simply say nothing about checks. Each run happens in its own terminal, which is kept after it finishes — unlike a shell that exits — so the output is there to read; close it with `x` when you are done. conch also says what happened as it finishes, and a failure says where to look.
+
+### Sending a failure back
+
+`f` on a row that failed hands the failure to the agent on that branch, as its next message: which command, how it ended, the end of its output (the last 80 lines, at most 6 KB, colours stripped) and a request to fix the cause and run it again to show it passes. When nobody is working on the branch any more, `f` starts your default agent in its worktree with the same message. An agent waiting on a question of its own is left alone — answer that first.
+
+The same goes for **CI**. A branch whose open pull request failed its checks is in the queue as `CI failed on #12`, even when everything is pushed, since fixing it is your move again; `f` on it reads the failed steps of the newest failed GitHub Actions run at the pull request's head commit, through `gh` on the machine the branch is on, and sends that. A check run by another service has no log conch can read, and conch says so.
+
+To have conch do this without asking, set how many times in a row it may in `config.toml`:
+
+```toml
+[verify]
+auto_fix = 2   # send a failed check back to the branch's agent up to twice
+```
+
+It only sends to an agent that has finished — never one still working or waiting on you, and never by starting an agent nobody asked for — and a check that passes resets the count. When the count runs out, conch says the failure is yours. The default, `0`, never sends on its own: a cap is the difference between an agent fixing a test and an agent spending a night of your plan on one it cannot fix.
+
+### A second opinion
+
+Name an agent to review finished work and conch asks it, on every branch whose agent finishes — once the check passes, where the project has one:
+
+```toml
+[verify]
+reviewer = "codex"   # Codex reads what Claude wrote; any agent conch runs will do
+```
+
+The reviewer starts in the branch's worktree, in a pane named `review · <branch>`, told to read the diff against the base, report what is wrong with a file and line for each finding, and not to edit anything. When it finishes, its row in the queue says `review ready`, and `R` there hands its report — its whole last message, read from its saved conversation rather than off its screen — to the agent that wrote the code, asking it to address each finding that holds up and say why where it disagrees. A branch is reviewed once per state: the reviewer finishing, or the writer finishing again with nothing changed, starts nothing; a branch already being reviewed is left to that reviewer. Another vendor's model, with a fresh context, is the point — it catches what the writer's own context hides from it — but nothing stops you naming the same agent. Every review spends plan usage, so nothing is reviewed until you name a reviewer.
 
 A passing check means the tests passed. It does not mean the change is right, so it sorts the obvious failures out of your way rather than deciding anything for you.
 

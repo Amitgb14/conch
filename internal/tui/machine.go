@@ -101,6 +101,8 @@ type machine struct {
 	installers map[string]string
 	// limits are the plan limits agents there last reported, by agent.
 	limits map[string]proto.PlanLimits
+	// schedule is what its server will do later (schedule.go).
+	schedule []proto.ScheduledItem
 
 	// gen increases with every connection attempt; messages from older
 	// attempts are ignored.
@@ -202,6 +204,7 @@ func (mach *machine) listen() []tea.Cmd {
 	return []tea.Cmd{
 		mach.waitEvent(),
 		mach.checkAgents(),
+		mach.loadSchedule(),
 		func() tea.Msg {
 			if len(c.MissingCapabilities([]string{"agent.limits.v1"})) > 0 {
 				return nil
