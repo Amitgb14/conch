@@ -91,6 +91,10 @@ func checkItem(it *proto.ScheduledItem) *proto.Error {
 		return proto.Errorf(proto.ErrBadRequest, "only a task can be queued")
 	case it.Queue && it.EveryMinutes > 0:
 		return proto.Errorf(proto.ErrBadRequest, "a queued task runs once; repeat it with a schedule instead")
+	case strings.TrimSpace(it.After) != "" && it.Task == nil:
+		return proto.Errorf(proto.ErrBadRequest, "only a task can wait for another")
+	case strings.TrimSpace(it.After) != "" && it.EveryMinutes > 0:
+		return proto.Errorf(proto.ErrBadRequest, "a task that waits for another runs once")
 	case it.WIP < 0 || it.WIP > maxWIP:
 		return proto.Errorf(proto.ErrBadRequest, "a project can run 1 to %d agents before its queue waits", maxWIP)
 	}
@@ -152,6 +156,9 @@ func (s *Server) scheduleAdd(it proto.ScheduledItem) (proto.ScheduledItem, *prot
 		if _, perr := s.projects.get(it.Task.ProjectID); perr != nil {
 			return it, perr
 		}
+		if perr := s.resolveAfter(&it); perr != nil {
+			return it, perr
+		}
 	}
 	it.ID, it.Created = newScheduleID(), time.Now()
 	it.LastRun, it.LastError, it.Waiting = time.Time{}, "", ""
@@ -201,22 +208,37 @@ func (s *Server) runSchedule(quit <-chan struct{}) {
 }
 
 // fireDue does what is due at now. The book is not held while an item
-// runs: starting a task runs git and can take seconds.
+// runs: starting a task runs git and can take seconds. Each item is read
+// again just before it runs, since one that ran before it may have changed
+// it — given it the branch it was waiting for.
 func (s *Server) fireDue(now time.Time) {
 	b := s.schedules
 	b.mu.Lock()
-	var due []proto.ScheduledItem
+	var due []string
 	for _, it := range b.items {
 		if !it.At.After(now) {
-			due = append(due, it)
+			due = append(due, it.ID)
 		}
 	}
 	b.mu.Unlock()
 	if len(due) == 0 {
 		return
 	}
-	for _, it := range due {
-		next, keep := s.fire(it, now)
+	for _, id := range due {
+		b.mu.Lock()
+		var it proto.ScheduledItem
+		found := false
+		for _, o := range b.items {
+			if o.ID == id {
+				it, found = o, true
+				break
+			}
+		}
+		b.mu.Unlock()
+		if !found {
+			continue
+		}
+		next, keep, out := s.fire(it, now)
 		b.mu.Lock()
 		for i := range b.items {
 			if b.items[i].ID != it.ID {
@@ -229,6 +251,21 @@ func (s *Server) fireDue(now time.Time) {
 			}
 			break
 		}
+		if it.Task != nil && it.EveryMinutes == 0 && (out.branch != "" || out.failed != "") {
+			// Tasks waiting for this one: they now wait for its branch, or
+			// hear that it never started.
+			for i := range b.items {
+				w := &b.items[i]
+				if w.After != it.ID || w.AfterBranch != "" {
+					continue
+				}
+				if out.branch != "" {
+					w.AfterBranch = out.branch
+				} else {
+					w.LastError = "the task it waits for did not start: " + out.failed
+				}
+			}
+		}
 		b.mu.Unlock()
 	}
 	b.mu.Lock()
@@ -238,17 +275,32 @@ func (s *Server) fireDue(now time.Time) {
 	s.broadcast(proto.EventScheduleChanged, list)
 }
 
+// fired is what running an item started: a task's branch, or why it failed.
+type fired struct{ branch, failed string }
+
 // fire runs one item and says what becomes of it: kept (moved on, to try
 // again or to repeat) or dropped.
-func (s *Server) fire(it proto.ScheduledItem, now time.Time) (proto.ScheduledItem, bool) {
+func (s *Server) fire(it proto.ScheduledItem, now time.Time) (proto.ScheduledItem, bool, fired) {
+	var stackOn string
+	if it.After != "" {
+		base, waiting := s.afterReady(&it)
+		if waiting != "" {
+			it.Waiting = waiting
+			return it, true, fired{}
+		}
+		stackOn = base
+	}
 	if it.Queue {
 		if running := s.runningAgents(it.Task.ProjectID); running >= it.WIP {
 			it.Waiting = fmt.Sprintf("%d agents are running in the project; it starts when fewer than %d are", running, it.WIP)
-			return it, true
+			return it, true, fired{}
 		}
 	}
 	if it.Task != nil {
 		tp := *it.Task
+		if tp.Base == "" {
+			tp.Base = stackOn
+		}
 		if it.EveryMinutes > 0 {
 			// Each run is new work on a branch of its own.
 			name := tp.Branch
@@ -260,39 +312,42 @@ func (s *Server) fire(it proto.ScheduledItem, now time.Time) (proto.ScheduledIte
 			tp.Branch = name + "-" + now.Format("20060102-1504")
 			tp.Name = "" // a name names one pane
 		}
-		info, perr := s.createTask(tp)
+		info, branch, perr := s.startTask(tp)
 		it.LastRun, it.LastError, it.Waiting = now, "", ""
+		var out fired
 		if perr != nil {
-			it.LastError = perr.Message
+			it.LastError, out.failed = perr.Message, perr.Message
 			log.Printf("schedule %s: task: %s", it.ID, perr.Message)
 		} else {
-			log.Printf("schedule %s: started task in %s", it.ID, info.ID)
+			out.branch = branch
+			log.Printf("schedule %s: started task in %s on %s", it.ID, info.ID, branch)
 		}
-		return repeat(it, now)
+		next, keep := repeat(it, now)
+		return next, keep, out
 	}
 
 	e, perr := s.get(it.Pane)
 	if perr != nil {
 		log.Printf("schedule %s: pane %s is gone; message dropped", it.ID, it.Pane)
-		return it, false
+		return it, false, fired{}
 	}
 	info := e.info()
 	switch {
 	case info.State != proto.PaneRunning || info.Agent == nil || (it.Agent != "" && info.Agent.Name != it.Agent) ||
 		(!it.PaneCreated.IsZero() && !info.Created.Equal(it.PaneCreated)):
 		log.Printf("schedule %s: pane %s no longer runs %s; message dropped", it.ID, it.Pane, it.Agent)
-		return it, false
+		return it, false, fired{}
 	case info.Agent.State == proto.AgentWorking:
 		it.Waiting, it.At = "the agent is working", now.Add(scheduleRetry)
-		return it, true
+		return it, true, fired{}
 	case info.Agent.State == proto.AgentBlocked:
 		it.Waiting, it.At = "the agent is waiting on a question of its own", now.Add(scheduleRetry)
-		return it, true
+		return it, true, fired{}
 	}
 	_, perr = s.promptAgent(proto.AgentPromptParams{ID: it.Pane, Text: it.Text})
 	if perr != nil && perr.Code == proto.ErrAgentBlocked {
 		it.Waiting, it.At = "the agent is waiting on a question of its own", now.Add(scheduleRetry)
-		return it, true
+		return it, true, fired{}
 	}
 	it.LastRun, it.Waiting, it.LastError = now, "", ""
 	if perr != nil {
@@ -301,7 +356,8 @@ func (s *Server) fire(it proto.ScheduledItem, now time.Time) (proto.ScheduledIte
 	} else {
 		log.Printf("schedule %s: sent the message to %s", it.ID, it.Pane)
 	}
-	return repeat(it, now)
+	next, keep := repeat(it, now)
+	return next, keep, fired{}
 }
 
 // runningAgents counts the agents running in a project — reviewers left

@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -159,6 +159,12 @@ const CapIssues = "project.issues.v1"
 // CapPermissionRules is agent.permission: the server answering an agent's
 // permission request by the person's rules, before it is asked on screen.
 const CapPermissionRules = "agent.permission.v1"
+
+// CapTaskAfter is ScheduledItem.After: a task held back until another —
+// a branch, or a task still on the schedule — has finished, then started
+// on top of that branch's commits. An older server would start it at once,
+// so a client refuses -after without it.
+const CapTaskAfter = "schedule.after.v1"
 
 // CapFSSSH is the files of a host a terminal is logged in to with ssh:
 // PaneInfo.SSH names the host, and fs.list, fs.read, fs.mkdir, fs.upload
@@ -1269,6 +1275,21 @@ type ScheduledItem struct {
 	// finishes looking at the last. WIP 0 means DefaultWIP.
 	Queue bool `json:"queue,omitempty"`
 	WIP   int  `json:"wip,omitempty"`
+	// After holds a task back until other work has finished (CapTaskAfter):
+	// a branch of the project, or the ID of a task still on the schedule.
+	// The task then starts from that branch, stacked on it, unless it
+	// names a Base of its own — or from the project's base, when the branch
+	// has been merged and deleted meanwhile.
+	After string `json:"after,omitempty"`
+	// AfterBranch is the branch waited for, set by the server: After itself,
+	// or the branch the task it names started on. AfterHead is that
+	// branch's last commit seen, which tells a merged branch from a
+	// discarded one once it is gone, and AfterSeen that its agent has been
+	// seen at work — so an agent idle because it has not begun is not
+	// taken for one that has finished.
+	AfterBranch string `json:"after_branch,omitempty"`
+	AfterHead   string `json:"after_head,omitempty"`
+	AfterSeen   bool   `json:"after_seen,omitempty"`
 	// Note says why, for lists: "after the 5-hour limit resets".
 	Note    string    `json:"note,omitempty"`
 	Created time.Time `json:"created"`

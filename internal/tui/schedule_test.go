@@ -7,6 +7,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -236,6 +238,61 @@ func TestMergeRiskIsShown(t *testing.T) {
 	for _, l := range cv.render(*m, 30, 20) {
 		if w := ansi.StringWidth(l); w > 30 {
 			t.Fatalf("a line of %d in 30 columns: %q", w, l)
+		}
+	}
+}
+
+// When "after REF" holds the task until that work has finished; a server
+// without it would start the task at once, so it is refused here.
+func TestTaskDialogWhenAfter(t *testing.T) {
+	m, mach, _ := limitModel(t)
+	proj := mach.projects[0]
+	d := newTaskDialog(*m, localMachine, proj)
+	if !strings.Contains(d.fields[5].in.Placeholder, "after BRANCH") {
+		t.Fatalf("When: %q", d.fields[5].in.Placeholder)
+	}
+	if msg := a2ErrText(a2Run(d.submit(m, []string{"x", "", "", "", "", "after api/model"}))); !strings.Contains(msg, "predates waiting") {
+		t.Fatalf("old server: %q", msg)
+	}
+	c, peer := a1FakeClient(t, proto.CapSchedule, proto.CapTaskAfter)
+	mach.c = c
+	msgs := a2Run(d.submit(m, []string{"Add the endpoint", "", "", "", "", "after  api/model "}))
+	if len(msgs) != 1 || string(msgs[0].(flashMsg)) != "waits for api/model to finish, then starts from its branch — with conch closed too" {
+		t.Fatalf("after: %#v", msgs)
+	}
+	var it proto.ScheduledItem
+	sentParams(t, peer, proto.MethodScheduleAdd, &it)
+	if it.After != "api/model" || it.Queue || it.Task == nil || it.Task.Prompt != "Add the endpoint" || it.At.IsZero() {
+		t.Fatalf("scheduled %+v", it)
+	}
+	msgs = a2Run(d.submit(m, []string{"Docs", "", "main", "", "", "after s1a2b3c4"}))
+	if len(msgs) != 1 || !strings.Contains(string(msgs[0].(flashMsg)), "then starts from main") {
+		t.Fatalf("after with a base: %#v", msgs)
+	}
+	for _, v := range []string{"after", "after   "} {
+		if msg := a2ErrText(a2Run(d.submit(m, []string{"x", "", "", "", "", v}))); !strings.Contains(msg, "after what?") {
+			t.Errorf("%q: %q", v, msg)
+		}
+	}
+
+	// Its row says what it waits for: the branch, once known.
+	now := time.Now()
+	mach.schedule = []proto.ScheduledItem{
+		{ID: "s1", At: now, After: "s0", Task: &proto.TaskCreateParams{Prompt: "add a client"}, Waiting: "waiting for s0 to start, then finish", Created: now},
+		{ID: "s2", At: now, After: "s0", AfterBranch: "api/model", Task: &proto.TaskCreateParams{Prompt: "add docs"}, Created: now},
+	}
+	out := a2Plain((&queueView{}).render(*m, 200, 40))
+	for _, want := range []string{"task after s0: add a client · waiting: waiting for s0 to start", "task after api/model: add docs"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("queue lacks %q:\n%s", want, out)
+		}
+	}
+	// Narrow, the rows still fit.
+	for _, w := range []int{20, 39} {
+		for _, l := range (&queueView{}).render(*m, w, 20) {
+			if lw := lipgloss.Width(l); lw > w {
+				t.Fatalf("width %d: a line of %d: %q", w, lw, l)
+			}
 		}
 	}
 }

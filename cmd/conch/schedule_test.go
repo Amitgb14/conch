@@ -146,3 +146,83 @@ func TestScheduleCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskAfter(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	var items []proto.ScheduledItem
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodScheduleList:
+			return proto.ScheduleList{Items: items}, nil
+		case proto.MethodScheduleAdd:
+			var it proto.ScheduledItem
+			json.Unmarshal(msg.Params, &it)
+			if it.After == "nope" {
+				return nil, proto.Errorf(proto.ErrNotFound, "nope is neither a branch of api nor a task on its schedule")
+			}
+			it.ID = "s9"
+			if it.After == "api/model" {
+				it.AfterBranch = it.After
+			}
+			return it, nil
+		case proto.MethodProjectAdd:
+			return proto.ProjectInfo{ID: "proj1", Name: "api", Git: true}, nil
+		}
+		return nil, proto.Errorf(proto.ErrUnknown, "?")
+	})
+	run := func(args ...string) (string, error) {
+		var err error
+		out, _ := a4Capture(t, "", func() { err = runTask(args) })
+		return out, err
+	}
+	t.Chdir(t.TempDir())
+
+	out, err := run("-after", " api/model ", "add", "the", "endpoint")
+	if err != nil || !strings.Contains(out, "s9 waits for api/model to finish, then starts from its branch") {
+		t.Fatalf("-after: %q %v", out, err)
+	}
+	var it proto.ScheduledItem
+	srv.params(t, proto.MethodScheduleAdd, &it)
+	if it.After != "api/model" || it.Task == nil || it.Task.Prompt != "add the endpoint" || it.Queue || it.At.IsZero() {
+		t.Fatalf("scheduled %+v", it)
+	}
+	// With -queue it waits for both; with -base it starts there.
+	out, err = run("-after", "s1a2b3c4", "-queue", "-base", "main", "x")
+	if err != nil || !strings.Contains(out, "waits for s1a2b3c4 to finish, and fewer than 3 agents") || !strings.Contains(out, "starts from main") {
+		t.Fatalf("-after -queue -base: %q %v", out, err)
+	}
+	if _, err := run("-after", "nope", "x"); err == nil || !strings.Contains(err.Error(), "neither a branch") {
+		t.Fatalf("unknown: %v", err)
+	}
+	for _, args := range [][]string{
+		{"-after", "main", "-every", "1d", "x"},
+		{"-after", "main", "-n", "2", "x"},
+		{"-after", "main", "-sandbox", "daytona", "x"},
+	} {
+		if _, err := run(args...); err == nil {
+			t.Errorf("task %v was scheduled", args)
+		}
+	}
+
+	// The list says what each waits for.
+	items = []proto.ScheduledItem{
+		{ID: "s1", At: time.Now(), After: "s0", Task: &proto.TaskCreateParams{Prompt: "add a client"}, Waiting: "waiting for s0 to start, then finish"},
+		{ID: "s2", At: time.Now(), After: "s0", AfterBranch: "api/model", Task: &proto.TaskCreateParams{Prompt: "add docs"}},
+	}
+	var lsOut string
+	lsOut, _ = a4Capture(t, "", func() { err = runScheduleCmd(nil) })
+	if err != nil || !strings.Contains(lsOut, "task after s0: add a client [waiting: waiting for s0") || !strings.Contains(lsOut, "task after api/model: add docs") {
+		t.Fatalf("ls:\n%s %v", lsOut, err)
+	}
+
+	// A server from before -after would start the task at once: refused.
+	srv.setHello(func(int) proto.HelloResult {
+		h := currentHello(0)
+		h.Capabilities = slices.DeleteFunc(slices.Clone(h.Capabilities), func(c string) bool { return c == proto.CapTaskAfter })
+		return h
+	})
+	if _, err := run("-after", "main", "x"); err == nil || !strings.Contains(err.Error(), "predates -after") {
+		t.Fatalf("old server: %v", err)
+	}
+}

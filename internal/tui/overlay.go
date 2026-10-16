@@ -704,7 +704,7 @@ func newTaskDialog(m Model, mid string, proj proto.ProjectInfo) *dialog {
 	d.fields[2].in.Placeholder = proj.Base
 	d.fields[3].in.Placeholder = m.defaultAgent() + " (default · " + strings.Join(knownAgents(&m), ", ") + ", or several: claude,codex)"
 	d.fields[4].in.Placeholder = "1 (each attempt gets its own branch)"
-	d.fields[5].in.Placeholder = "now · queue (when fewer than 3 agents run here) · 02:00 · +2h"
+	d.fields[5].in.Placeholder = "now · queue (when fewer than 3 agents run here) · after BRANCH · 02:00 · +2h"
 	defaultAgent := m.defaultAgent()
 	// The warnings follow the Agent and Attempts fields: each agent has its
 	// own plan, and every attempt spends one.

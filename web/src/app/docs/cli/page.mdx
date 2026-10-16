@@ -131,7 +131,7 @@ conch tells who is asking from the operating system — the process at the other
 
 ### task
 
-`conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] [-n N] [-name N] [-at TIME] [-every SPAN] PROMPT` creates a branch and worktree and starts an agent with the prompt (`-at` later, `-every` again and again: see [Later, and on a schedule](/docs/tasks#later-and-on-a-schedule); `conch schedule` lists and removes what is scheduled); in a folder that isn't a git repository — or, with `-m` and no `-cwd`, the machine's home — the agent works there with no branch. See [Tasks](/docs/tasks).
+`conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] PROMPT` creates a branch and worktree and starts an agent with the prompt (`-at` later, `-every` again and again, `-queue` when the project has room, `-after` once other work has finished, on top of it: see [Later, and on a schedule](/docs/tasks#later-and-on-a-schedule); `conch schedule` lists and removes what is scheduled); in a folder that isn't a git repository — or, with `-m` and no `-cwd`, the machine's home — the agent works there with no branch. See [Tasks](/docs/tasks).
 
 | Flag | Default |
 | --- | --- |

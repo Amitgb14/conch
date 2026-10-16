@@ -82,7 +82,7 @@ Usage:
                                 manage projects shown in the sidebar; setup is run in a
                                 terminal of its own in each new worktree (npm install…),
                                 and every pane there gets its own ports from $CONCH_PORT
-  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-issue N] [-sandbox PROVIDER] PROMPT
+  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N] [-sandbox PROVIDER] PROMPT
                                 new branch + worktree + Claude with PROMPT; in a folder that isn't a
                                 git repository the agent works there instead (with -m and no -cwd:
                                 that machine's home);
@@ -90,6 +90,8 @@ Usage:
                                 -name names the pane; -at starts it later (14:05, +2h), -every
                                 again and again (1d, weekly), each run on a branch of its own;
                                 -queue holds it until fewer than -wip (3) agents run in the project;
+                                -after REF waits for that branch, pane or scheduled task to finish
+                                and starts from its branch (stacked work; -base to start elsewhere);
                                 -issue N works on that GitHub issue (PROMPT is then optional);
                                 -sandbox P runs it in a new sandbox, the project cloned from origin
   conch schedule [ls | rm ID]   what the server will do later (prompt -at, task -at/-every)

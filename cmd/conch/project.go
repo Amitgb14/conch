@@ -190,18 +190,23 @@ func runTask(args []string) error {
 	issue := fs.Int("issue", 0, "work on this GitHub issue: its title and body are the prompt (any PROMPT is added to it)")
 	queue := fs.Bool("queue", false, "add it to the project's queue: it starts when fewer than -wip agents are running there")
 	wip := fs.Int("wip", 0, "with -queue, how many agents the project runs before it waits (default 3)")
+	after := fs.String("after", "", "start it once this has finished, on top of its branch: a branch, a pane, or a task on the schedule (its ID or -branch)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	prompt := strings.Join(fs.Args(), " ")
 	if prompt == "" && *issue <= 0 {
-		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-issue N] [-sandbox PROVIDER] PROMPT")
+		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N] [-sandbox PROVIDER] PROMPT")
 	}
 	if *issue < 0 {
 		return errors.New("-issue takes an issue's number")
 	}
-	if *inSandbox != "" && (*at != "" || *every != "" || *queue) {
-		return errors.New("-sandbox starts the task now, in a sandbox made for it; it doesn't go with -at, -every or -queue")
+	*after = strings.TrimSpace(*after)
+	if *inSandbox != "" && (*at != "" || *every != "" || *queue || *after != "") {
+		return errors.New("-sandbox starts the task now, in a sandbox made for it; it doesn't go with -at, -every, -queue or -after")
+	}
+	if *after != "" && *every != "" {
+		return errors.New("-after waits for one piece of work, so the task runs once; it doesn't go with -every")
 	}
 	if *inSandbox != "" && onRemoteMachine() {
 		return errors.New("-sandbox makes a machine of its own; leave out -m")
@@ -212,7 +217,7 @@ func runTask(args []string) error {
 	if *queue && *every != "" {
 		return errors.New("-queue runs a task once; -every repeats it on a schedule — choose one")
 	}
-	later := *at != "" || *every != "" || *queue
+	later := *at != "" || *every != "" || *queue || *after != ""
 	var start time.Time
 	everyMin := 0
 	if later {
@@ -277,7 +282,7 @@ func runTask(args []string) error {
 	}
 	if !proj.Git {
 		if later {
-			return errors.New("-at, -every and -queue start a task on a branch of its own, so they need a git repository")
+			return errors.New("-at, -every, -queue and -after start a task on a branch of its own, so they need a git repository")
 		}
 		// No repository to branch: the agent works in the folder itself.
 		return runPlainTask(c, dir, agents, *n, *branch, *base, *name, prompt)
@@ -299,15 +304,18 @@ func runTask(args []string) error {
 	}
 	if later {
 		if len(attempts) > 1 {
-			return errors.New("-at, -every and -queue take one attempt; leave out -n and give one agent")
+			return errors.New("-at, -every, -queue and -after take one attempt; leave out -n and give one agent")
 		}
 		if err := needSchedule(c); err != nil {
 			return err
 		}
+		if *after != "" && len(c.MissingCapabilities([]string{proto.CapTaskAfter})) > 0 {
+			return errors.New("the conch server there predates -after, and would start the task at once; reload it with `conch server reload`")
+		}
 		task := proto.TaskCreateParams{ProjectID: proj.ID, Prompt: prompt, Branch: *branch, Base: *base,
 			Agent: attempts[0].agent, Name: *name, Cols: 120, Rows: 40, Issue: *issue}
 		var it proto.ScheduledItem
-		if err := call(c, proto.MethodScheduleAdd, proto.ScheduledItem{At: start, EveryMinutes: everyMin, Task: &task, Queue: *queue, WIP: *wip}, &it); err != nil {
+		if err := call(c, proto.MethodScheduleAdd, proto.ScheduledItem{At: start, EveryMinutes: everyMin, Task: &task, Queue: *queue, WIP: *wip, After: *after}, &it); err != nil {
 			return err
 		}
 		scheduleOut(it)

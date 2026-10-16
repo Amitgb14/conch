@@ -68,6 +68,8 @@ func needSchedule(c *client.Client) error {
 func scheduledWhat(it proto.ScheduledItem) string {
 	var s string
 	switch {
+	case it.After != "":
+		s = fmt.Sprintf("task after %s: %s", afterText(it), oneLineText(it.Task.Prompt, 60))
 	case it.Queue:
 		s = fmt.Sprintf("queued task (%d at a time): %s", it.WIP, oneLineText(it.Task.Prompt, 60))
 	case it.Task != nil:
@@ -85,6 +87,15 @@ func scheduledWhat(it proto.ScheduledItem) string {
 		s += " [last run failed: " + it.LastError + "]"
 	}
 	return s
+}
+
+// afterText is what a task waits for: the branch, once known, else the
+// task on the schedule that will start it.
+func afterText(it proto.ScheduledItem) string {
+	if it.AfterBranch != "" {
+		return it.AfterBranch
+	}
+	return it.After
 }
 
 func oneLineText(s string, max int) string {
@@ -111,6 +122,21 @@ func everyText(min int) string {
 
 // scheduleOut says what was scheduled.
 func scheduleOut(it proto.ScheduledItem) {
+	if it.WIP == 0 {
+		it.WIP = proto.DefaultWIP
+	}
+	if it.After != "" {
+		also := ""
+		if it.Queue {
+			also = fmt.Sprintf(", and fewer than %d agents are running in the project", it.WIP)
+		}
+		from := "its branch"
+		if it.Task.Base != "" {
+			from = it.Task.Base
+		}
+		fmt.Printf("%s waits for %s to finish%s, then starts from %s (conch schedule rm %s takes it away)\n", it.ID, afterText(it), also, from, it.ID)
+		return
+	}
 	if it.Queue {
 		fmt.Printf("%s queued: it starts when fewer than %d agents are running in the project (conch schedule rm %s takes it away)\n", it.ID, it.WIP, it.ID)
 		return

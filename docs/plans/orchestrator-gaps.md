@@ -21,7 +21,7 @@ below in places, and those places are noted.
 | 1.3 | Verified done | done | `f` sends a failed check or CI run (`branch.ci_log`); `[verify] auto_fix` |
 | 1.4 | Reviewer agent | done | `[verify] reviewer`; `agent.reply` reads its report; `R` hands it over |
 | 1.5 | While you were away | done | The question and the work size on each queue row |
-| 2.1 | Backlog, WIP limit | done | `conch task -queue [-wip N]`, task dialog *When*. **No `-after` dependencies** |
+| 2.1 | Backlog, WIP limit | done | `conch task -queue [-wip N]`, task dialog *When*. `-after REF` (2026-10-15, `schedule.after.v1`): waits for a branch, pane or scheduled task to finish, then stacks on its branch; a discarded branch, uncommitted work or a loop leave it waiting and saying why. E2E row 9.129 |
 | 2.2 | Issues as tasks | done | GitHub through gh: `task -issue N`, project menu |
 | 2.3 | Resume after a limit | done | Server-side schedule (`schedule.*`); `C` in the queue |
 | 2.4 | Overlap warning | done | Overlaps and merge-tree conflicts on each worktree, shown in the queue and changes |
