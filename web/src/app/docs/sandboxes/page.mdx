@@ -159,6 +159,8 @@ conch never starts a stopped sandbox by itself: use **Start sandbox** in its men
 
 ## Getting the work out
 
+Work goes *in* the same way: `T` on a branch or an agent, then **New Daytona sandbox** (or another provider's), makes a sandbox for it and moves the worktree and its agents there in one go (see [Moving a worktree to another machine](/docs/remote-machines#moving-a-worktree-to-another-machine)).
+
 The code comes back the way it would from any machine: push the branch from the sandbox, or move the worktree back with **T** (see [Remote machines](/docs/remote-machines)). The sandbox needs its own access to a private repository — a token scoped to that repository, passed with `-env`.
 
 ## How conch reaches it

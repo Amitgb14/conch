@@ -144,6 +144,9 @@ type (
 		// space is the workspace the add was asked for in, which it joins
 		// whichever is on screen when it arrives (spaces.go, fromHere).
 		space *space
+		// move is the move this sandbox was made for, which goes on
+		// once it is connected.
+		move *worktreeMove
 	}
 	// callerMsg says this conch is running inside one of that machine's
 	// panes, which it must not try to show.

@@ -152,6 +152,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		items = append(items, menuItem{"x", "Close", act("x")})
 		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
 			items = append(items, menuItem{"Y", "Read and copy the conversation", act("Y")})
+			if m.canMoveAgent(r.machine, r.paneID) {
+				items = append(items, menuItem{"T", "Move to another machine or a sandbox, with its worktree…", act("T")})
+			}
 		}
 	case kindSubagent: // no pane of its own: what there is to do is with its agent
 		title = "subagent"
@@ -184,8 +187,8 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 					worktree = true
 				}
 			}
-			if checkedOut(proj, r.branch) && r.branch != proj.Base && m.hasCapability(r.machine, proto.CapWorktreeMove) {
-				items = append(items, menuItem{"T", "Move to another machine…", act("T")})
+			if m.canMoveBranch(r.machine, r.projectID, r.branch) {
+				items = append(items, menuItem{"T", "Move to another machine or a sandbox…", act("T")})
 			}
 			switch {
 			case worktree:
@@ -218,6 +221,11 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 				return tea.Batch(m.rebuild(), m.saveState())
 			}},
 			{"x", "Remove from sidebar", act("x")},
+		}
+		if m.canMoveProject(r.machine, r.projectID) {
+			// Beside the clean-up, before the last two: refresh and remove.
+			at := len(items) - 3
+			items = append(items[:at], append([]menuItem{{"T", "Move the whole project to another machine or a sandbox…", act("T")}}, items[at:]...)...)
 		}
 		if proj := m.project(r.machine, r.projectID); proj != nil && proj.Git {
 			issue := menuItem{"", "New task from a GitHub issue…", func(m *Model) tea.Cmd { return m.openIssues(r.machine, r.projectID) }}
@@ -1090,7 +1098,9 @@ var helpText = []string{
 	"    agent writes: ▌ marks what just changed, F follows it, R re-reads now",
 	"    M merge into the base (undone if it conflicts) · D discard the branch and its worktree",
 	"    A compare the attempts at this task (t runs a command in each, o shows its terminal)",
-	"    T move the branch's worktree to another machine; its agents continue there (also T in the tree)",
+	"    T move the branch's worktree to another machine or a new sandbox; its agents continue there",
+	"      (also T in the tree, on the branch or on an agent working in it)",
+	"    T on a project moves all of it: every task worktree and every agent, those in the main checkout too",
 	"  y in the tree copies a branch name or directory",
 	"  Sessions (under a project): enter resume · / search titles and conversations · s share with another agent, here or on another machine",
 	"    d delete · a agent filter · I resume all interrupted · x dismiss",

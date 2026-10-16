@@ -121,14 +121,23 @@ That needs a key or an ssh agent for the host, since nobody is there to type a p
 
 ## Moving a worktree to another machine
 
-When this computer is slow, or you're about to close the lid, move a task to a machine that stays up: `T` on a branch in the tree (or in its changes view, or `m` → **Move to another machine…**), pick the machine, then the project there.
+When this computer is slow, or you're about to close the lid, move a task to a machine that stays up: `T` on a branch in the tree, or on an agent working in it (or in the branch's changes view, or `m` → **Move to another machine or a sandbox…**), pick the machine, and confirm. That is all: conch settles the rest.
 
-- **Which project:** projects cloned from the same origin come first, however the URL is written (`git@github.com:acme/api.git` and `https://github.com/acme/api` match). If the machine doesn't have it, **Clone … there** clones the origin into the folder you confirm — by default the same place under the home folder as here. The machine needs access to the repository itself; conch never copies keys or credentials.
+- **Which project:** the one there cloned from the same origin, however the URL is written (`git@github.com:acme/api.git` and `https://github.com/acme/api` match) — the one in the same place under the home folder, if there are several. If the machine doesn't have it, conch clones the origin there first, into the same place under the home folder as here; the confirmation says so. Only when that folder already holds another project, or the project here has no origin to match, does conch ask which project gets it (or where to clone). The machine needs access to the repository itself; conch never copies keys or credentials.
+- **A new sandbox:** each [sandbox provider](/docs/sandboxes) with a key is listed too, as **New Daytona sandbox** and so on. Picked, conch creates one with that provider's settings in `config.toml` (`snapshot`, `auto_stop`, and `env` — the names of the variables passed in, such as `CLAUDE_CODE_OAUTH_TOKEN`; the confirmation says when none are, since an agent there then logs in afresh), installs itself there, adds it as a machine, clones the origin and moves the worktree, saying each step in the status bar. A project with no origin can't go to one: there is nothing to clone. If the sandbox can't be made or set up it is deleted; if the clone in it fails, conch says the sandbox is still running, and costing, until you stop or delete it.
 - **What moves:** the branch's commits, and only those the machine lacks (it compares the branch's history first, so a pushed branch sends none); staged changes arrive staged and unstaged ones unstaged; untracked files, and the project's [local files](/docs/tasks#local-files-in-worktrees) such as `.env`, go along. Files git ignores otherwise — `node_modules`, build output — stay behind. The worktree is recreated there like any conch worktree, under `<repo>.worktrees/`.
 - **Agents:** each agent working in the worktree continues there. Its conversation is [handed over](/docs/sessions#on-another-machine) to the same agent in the new worktree (an agent that saved none starts afresh), then its pane here is closed. Terminals stay. An agent in the middle of a task is stopped; changes it makes during the move stay here.
 - **This computer:** the worktree and branch are kept, so nothing is lost if something goes wrong; remove them with `x` when you're done.
 
 The status bar follows it: `moving feat to gpu-box · sending 40%`, then `moved feat to gpu-box · 2 agents continue there`. If a step fails, conch shows why in full, nothing changes on this computer, and the other machine undoes what it started. conch refuses when the branch is already checked out there, or has commits there that the moved one doesn't. A worktree with unresolved conflicts, and one whose pack is over 256 MB (large untracked files), can't be moved. Both machines need a conch with this; an older one says to reload it.
+
+### Moving a whole project
+
+`T` on a project's row (or `m` → **Move the whole project to another machine or a sandbox…**) moves all of it at once: pick the machine or a new sandbox, confirm, and conch does the rest — the project there is settled as above, then every task worktree moves into it one after another, each with its agents and their conversations, and the agents in the main checkout continue in the project's own checkout there.
+
+- **What the confirmation lists:** the worktrees that move, every agent that continues there, and any worktree that can't move (unresolved conflicts, say), which stays here with its agents.
+- **What stays:** uncommitted changes in the main checkout (commit or stash them, or start a task for them, first), terminals, and saved conversations no agent has open — share one later from **Sessions** → `s` → **On another machine**. Detached checkouts aren't moved.
+- **When one worktree fails:** the others still go. The status bar says `moved api to gpu-box · 2 worktrees · 3 agents continue there`, and anything that stayed here is listed with why.
 
 ## Claude Code on a machine
 
