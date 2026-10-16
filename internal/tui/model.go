@@ -469,6 +469,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case issuesMsg:
 		return m, m.receiveIssues(msg)
 
+	case reviewsMsg:
+		m.receiveReviews(msg)
+		return m, nil
+
 	case scheduleMsg:
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
 			mach.schedule = msg.list.Items
@@ -979,6 +983,13 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		}
 		cmds = append(cmds, m.filesEvent(mach.id, wc))
 		return tea.Batch(cmds...)
+
+	case proto.EventReviewChanged:
+		var list proto.ReviewList
+		if decodeInto(msg, &list) {
+			mach.setReviews(list)
+		}
+		return nil
 
 	case proto.EventScheduleChanged:
 		var list proto.ScheduleList

@@ -37,6 +37,7 @@ func TestRoutesAreTheContract(t *testing.T) {
 		"POST /api/push/subscribe view",
 		"POST /api/rename full",
 		"POST /api/reply reply",
+		"POST /api/review/send reply",
 		"POST /api/task full",
 	}
 	var got []string

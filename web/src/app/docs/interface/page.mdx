@@ -193,7 +193,7 @@ Selecting a branch shows its **changes**: its pull request (checks, review), unc
 | `n` `N` | move to the next or previous hunk of an open diff (`[` and `]` too) |
 | `s` | side by side or unified, for this file (wide terminals start side by side) |
 | `a` | inside a diff, comment on the hunk the `▸` cursor is on (`✎` marks it; `a` again edits it, and an empty comment removes it). Only on a checked-out branch, since the comments are for the agent working in it |
-| `S` | send every comment on the branch to its agent as one message: each numbered, with the file, the hunk header and the hunk itself quoted (the first 40 lines), so a comment still makes sense after the agent rewrites the lines. With no agent on the branch, your default agent starts in its worktree with them. The comments are cleared once sent |
+| `S` | send every comment on the branch to its agent as one message: each numbered, with the file, the hunk header and the hunk itself quoted (the first 40 lines), so a comment still makes sense after the agent rewrites the lines. With no agent on the branch, your default agent starts in its worktree with them. Refused while the agent waits on a question of its own, and the comments stay. They are cleared once sent |
 | `e` | open the file in the machine's own `$EDITOR`, at the hunk the `▸` cursor is on — in a pane of its own, so conch keeps running. From the file list it opens at the top. The editor runs on the machine the worktree is on, which is the machine whose `$EDITOR` and whose file they are. conch knows the line flag for vim, nano, emacs, VS Code, Cursor, Zed, Sublime, Helix and the JetBrains editors; anything else opens the file without a line rather than being handed a flag it would read as a file name |
 | `F` | inside a diff, follow what just changed (on until you scroll away) |
 | `R` | re-read the branch, or the open diff, now |
@@ -209,6 +209,10 @@ Selecting a branch shows its **changes**: its pull request (checks, review), unc
 | `esc` | back |
 
 These also sit in a branch's menu (`m`). See [Finishing a task](/docs/tasks#finishing-a-task) for what each one checks first.
+
+**Review comments are the server's, not this window's.** The machine's conch keeps them, so they are still there after you leave the changes view, quit conch or reload the server, and everything else that talks to that server sees the same ones: another conch window, [`conch review`](/docs/cli#review) in a shell — which is also how a reviewing agent leaves comments for you to read and send — and the [phone](/docs/phone#review-comments), which shows them on the agent's card and sends them with a tap. A branch that is merged or discarded takes its comments with it. A server from before this says so when you press `a`; `conch server reload` brings it up to date.
+
+**What reviewers said on the pull request is here too.** For a branch with an open pull request, conch reads its unresolved comments through `gh`, with your own login, about a minute after the pull request changes: each comment thread is marked `✎` on the hunk its line is in. A review's own summary is listed too, when it asked for changes or left a comment. The title counts them (`✎ 5 comments (3 from GitHub)`), and the lines under it say who wrote each one, where, and how many replies it has: `✎ alice on GitHub · line 42 · 1 reply: this swallows the timeout`. A comment whose lines have changed since it was written is marked *outdated* and listed under the hunk's comments, as are comments about the whole pull request. `S` sends them with conch's own, each with its replies and who wrote it. They are GitHub's: `a` doesn't edit them, and sending one doesn't resolve it on GitHub. A sent comment isn't sent again, and comes back only when somebody replies to its thread. A thread resolved on GitHub disappears here, and so does every GitHub comment once the pull request is merged or closed.
 
 #### Diffs as the agent writes them
 

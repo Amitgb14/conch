@@ -295,7 +295,7 @@ var machineConnectWait = 45 * time.Second
 // else keeps — so this is asked of each machine and not of this computer
 // once. Only what the phone actually uses belongs here: everything else
 // the app does is older than the protocol's capability list.
-var phoneNeeds = []string{proto.CapAgentPrompt, proto.CapTaskName}
+var phoneNeeds = []string{proto.CapAgentPrompt, proto.CapTaskName, proto.CapReviewComments}
 
 // behindWords says what an older conch there costs the person, in the
 // order it will bite them. A capability nobody has a word for is named as
@@ -308,6 +308,8 @@ func behindWords(missing []string) string {
 			parts = append(parts, "replies")
 		case proto.CapTaskName:
 			parts = append(parts, "naming a task")
+		case proto.CapReviewComments:
+			parts = append(parts, "review comments")
 		default:
 			parts = append(parts, m)
 		}

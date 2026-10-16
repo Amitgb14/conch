@@ -115,6 +115,16 @@ h2 { display: flex; align-items: center; gap: 8px; font: 600 0.72rem var(--sans)
 .kicker { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--waiting); }
 .ask { font: 1.02rem/1.5 var(--serif); margin: 6px 0 12px; overflow-wrap: anywhere; color: var(--body); }
 .choices { display: grid; gap: 8px; }
+
+/* Review comments waiting for an agent, and the tag on its row. */
+.review { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-l); padding: 14px; margin: 12px 0; }
+.review .kicker { color: var(--accent); }
+.review-list { margin: 8px 0 12px; padding-left: 1.3em; display: grid; gap: 10px; }
+.review-list .where { font: 0.8rem var(--mono); color: var(--quiet); overflow-wrap: anywhere; }
+.review-list p { margin: 2px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.review-list .reply { margin-left: .8em; padding-left: 8px; border-left: 2px solid var(--line); font-size: .9rem; }
+.review-list .open { font-size: .8rem; color: var(--accent); }
+.review-tag { margin-left: 6px; font-size: 0.75rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
 .choice { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 10px 12px; text-align: left; font: 500 0.95rem var(--sans);
   color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-m); }
 .choice:active { border-color: var(--accent); }

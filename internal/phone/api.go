@@ -158,6 +158,31 @@ type Agent struct {
 	Failed    bool        `json:"failed"`
 	// Question is there only while State is waiting.
 	Question *Question `json:"question,omitempty"`
+	// Review is what was said about its branch's diff and not yet handed
+	// to it, oldest first: POST /api/review/send hands it over.
+	Review []ReviewNote `json:"review,omitempty"`
+}
+
+// ReviewNote is one comment on an agent's branch, written in the TUI's
+// changes view, from the command line or by a reviewing agent, or on the
+// branch's pull request (GitHub: By is the reviewer, URL the comment,
+// Replies the rest of its thread, Outdated that its lines have changed).
+// Where is the file and the line or hunk it is about, for people.
+type ReviewNote struct {
+	ID       string        `json:"id"`
+	Where    string        `json:"where"`
+	Note     string        `json:"note"`
+	By       string        `json:"by,omitempty"`
+	GitHub   bool          `json:"github,omitempty"`
+	URL      string        `json:"url,omitempty"`
+	Outdated bool          `json:"outdated,omitempty"`
+	Replies  []ReviewReply `json:"replies,omitempty"`
+}
+
+// ReviewReply is a later comment in a pull request's thread.
+type ReviewReply struct {
+	By   string `json:"by,omitempty"`
+	Note string `json:"note"`
 }
 
 // Question is what a waiting agent asks. Choices is empty when they
@@ -297,6 +322,20 @@ type ReplyRequest struct {
 type ReplyResponse struct {
 	Pane  string `json:"pane"`
 	Agent string `json:"agent"`
+	Turn  int    `json:"turn"`
+}
+
+// ReviewSendRequest is POST /api/review/send: hand the comments on the
+// pane's branch to the agent in it.
+type ReviewSendRequest struct {
+	Pane string `json:"pane"`
+}
+
+// ReviewSendResponse says how many went, and which turn answers them.
+type ReviewSendResponse struct {
+	Pane  string `json:"pane"`
+	Agent string `json:"agent"`
+	Sent  int    `json:"sent"`
 	Turn  int    `json:"turn"`
 }
 

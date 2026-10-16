@@ -7,7 +7,7 @@
 // title, its question and its screen are text, never markup.
 import {
   parseLine, frameRows, sortPanes, upsertPane, removeAgent, groupAgents, groupByMachine, agentLabel,
-  ago, route, can, backoff, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, READABLE, chunks, keyBytes, appPath,
+  ago, route, can, backoff, reviewCount, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, READABLE, chunks, keyBytes, appPath,
   keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps, ttyInput,
 } from "/lib.mjs"
 
@@ -257,7 +257,8 @@ function row(p, extra) {
   return h("a", { href: `/agent/${p.pane}`, "data-nav": true, class: `row ${p.state}` },
     dot(p),
     h("span", { class: "body" },
-      h("span", { class: "name" }, agentLabel(p), elsewhere(p)),
+      h("span", { class: "name" }, agentLabel(p), elsewhere(p),
+        p.review?.length ? h("span", { class: "review-tag", title: reviewCount(p) }, `✎ ${p.review.length}`) : null),
       h("span", { class: "sub" }, subtitle(p) || p.cwd || "")),
     h("span", { class: "when" }, ago(p.since)),
     extra)
@@ -308,6 +309,40 @@ function questionCard(p, onError) {
   else if (mayType()) card.append(h("a", { href: `/agent/${p.pane}/terminal`, "data-nav": true, class: "button" }, "Answer in the terminal"))
   else card.append(h("p", { class: "hint" }, mayReply() ? "Its choices couldn't be read; answer it at your laptop." : "This device can look but not answer."))
   return card
+}
+
+// reviewCard is what was said about an agent's branch, here or on its pull
+// request, and a button that hands it all to the agent as one message.
+function reviewCard(p, onError) {
+  const blocked = reviewBlocked(p, state.online)
+  const label = "Send to the agent"
+  const send = h("button", { class: "primary", disabled: !!blocked }, label)
+  send.addEventListener("click", async (ev) => {
+    ev.preventDefault()
+    send.disabled = true
+    send.textContent = "Sending…"
+    try {
+      await api("POST", "/api/review/send", { pane: p.pane })
+      send.textContent = "Sent" // the card goes when the list says they have
+    } catch (err) {
+      onError(err.code === "agent_blocked" ? "Nothing was sent: answer its question first." : err.message)
+      send.disabled = false
+      send.textContent = label
+    }
+  })
+  return h("div", { class: "review" },
+    h("div", { class: "kicker" }, reviewCount(p)),
+    h("ol", { class: "review-list" }, p.review.map((r) => {
+      const by = reviewByline(r)
+      const link = commentLink(r.url)
+      return h("li", {},
+        h("span", { class: "where" }, r.where), by ? h("span", { class: "quiet" }, ` · ${by}`) : null,
+        h("p", { class: "note" }, r.note),
+        ...(r.replies || []).map((x) => h("p", { class: "reply" }, `${x.by || "someone"}: ${x.note}`)),
+        link ? h("a", { class: "open", href: link, target: "_blank", rel: "noopener noreferrer" }, "Open on GitHub") : null)
+    })),
+    mayReply() ? send : h("p", { class: "hint" }, "This device can look but not send them."),
+    mayReply() && blocked ? h("p", { class: "hint" }, blocked) : null)
 }
 
 // ---- the sheet: a panel from the bottom for choices and forms ----
@@ -533,6 +568,7 @@ function inboxView() {
 function chatView(pane) {
   const status = h("div", { class: "status" })
   const ask = h("div", {})
+  const rev = h("div", {})
   const scr = paneScreen(pane, "tail", "What the agent said: scroll up for earlier output")
   const tail = scr.el
   // The conversation draws the pane's own rows, so it is as wide as the
@@ -581,17 +617,20 @@ function chatView(pane) {
   }, hint, h("div", { class: "field" },
     mayType() ? h("a", { href: `/agent/${pane}/terminal`, "data-nav": true, class: "icon", "aria-label": "Terminal" }, "⌨") : null,
     text, action))
-  const el = h("section", { class: "chat" }, status, ask, note,
+  const el = h("section", { class: "chat" }, status, ask, rev, note,
     h("div", { class: "section-head" }, h("h2", {}, "Output"),
       h("a", { href: `/agent/${pane}/terminal`, "data-nav": true, class: "link" }, "Terminal ›")),
     tail, composer)
 
   let shown = null
+  let reviewShown = ""
   const update = () => {
     const p = paneOf(pane)
     if (!p) {
       put(status, h("p", { class: "quiet" }, state.listed ? "This agent has gone: its pane closed, or the agent left it." : "Loading…"))
       ask.replaceChildren()
+      rev.replaceChildren()
+      reviewShown = ""
       composer.hidden = true
       return
     }
@@ -605,6 +644,13 @@ function chatView(pane) {
     if (qid !== shown) { // the same question keeps its buttons as they are
       shown = qid
       ask.replaceChildren(qid ? questionCard(p, (m) => { note.textContent = m }) : "")
+    }
+    // Drawn again only when what it says changes, so a send in flight
+    // keeps its button as it is.
+    const rkey = p.review?.length ? JSON.stringify([p.review, reviewBlocked(p, state.online), mayReply()]) : ""
+    if (rkey !== reviewShown) {
+      reviewShown = rkey
+      rev.replaceChildren(rkey ? reviewCard(p, (m) => { note.textContent = m }) : "")
     }
     composer.hidden = !mayReply()
     const waiting = p.state === "waiting"

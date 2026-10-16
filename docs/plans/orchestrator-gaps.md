@@ -17,7 +17,7 @@ below in places, and those places are noted.
 | 0.2 | Brain against a real model | done | R56 with the `claude` provider: plan, answer, run. Found and fixed: no action for a terminal, so it started an agent instead. Anthropic and OpenAI providers (1.3, 1.4) and summaries (1.5) not run |
 | 0.3 | State soak | done | `TestStateSoak`: OSC 7501 cycles under -race; 2000 cycles, no wrong state, slowest 19 ms (`CONCH_SOAK_CYCLES`) |
 | 1.1 | Worktrees that run | done | `project.set_setup`, `CONCH_PORT` blocks (ports.json), `L` preview (local, ssh forward, sandbox link) |
-| 1.2 | Review comments | done | `a` on a hunk, `S` sends. **Kept in the TUI, not the server**, so the phone does not see them yet |
+| 1.2 | Review comments | done | `a` on a hunk, `S` sends. Kept by the server since 2026-10-15 (`review.comments.v1`, `review.json`): another TUI, `conch review` (list, add FILE[:LINE], rm, send) and the phone (an agent card lists them, **Send to the agent**) see the same ones; an agent's comments are signed, and a merged or discarded branch drops its own. The open pull request's unresolved GitHub comments (threads by line, reviews asking for changes) are read through `gh` and listed with them, marked on hunks, sent once per new reply, never changed. Writing them on the phone is not done: it has no diff view. E2E rows 9.130, 9.131 |
 | 1.3 | Verified done | done | `f` sends a failed check or CI run (`branch.ci_log`); `[verify] auto_fix` |
 | 1.4 | Reviewer agent | done | `[verify] reviewer`; `agent.reply` reads its report; `R` hands it over |
 | 1.5 | While you were away | done | The question and the work size on each queue row |

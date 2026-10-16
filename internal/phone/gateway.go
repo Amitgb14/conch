@@ -309,6 +309,7 @@ var routes = []route{
 	{"GET", "/api/projects", PermView, (*Gateway).listProjects},
 	{"POST", "/api/reply", PermReply, (*Gateway).reply},
 	{"POST", "/api/answer", PermReply, (*Gateway).answer},
+	{"POST", "/api/review/send", PermReply, (*Gateway).reviewSend},
 	{"POST", "/api/task", PermFull, (*Gateway).task},
 	{"GET", "/api/push/key", PermView, (*Gateway).pushKey},
 	{"POST", "/api/push/subscribe", PermView, (*Gateway).pushSubscribe},
@@ -691,6 +692,44 @@ func (g *Gateway) reply(rq *request) (any, *APIError) {
 	// The pane comes back as the phone addressed it, not as that server
 	// calls it: the app sends this back.
 	return ReplyResponse{Pane: id, Agent: res.Agent, Turn: res.Turn}, nil
+}
+
+// reviewSend hands the comments on a pane's branch to the agent in it: a
+// reply written by whoever reviewed the diff, so it needs what a reply
+// needs. It never starts an agent — the phone sent it from one.
+func (g *Gateway) reviewSend(rq *request) (any, *APIError) {
+	var req ReviewSendRequest
+	if aerr := rq.decode(&req); aerr != nil {
+		return nil, aerr
+	}
+	c, pane, id, aerr := g.paneOn(rq.dev, req.Pane)
+	if aerr != nil {
+		return nil, aerr
+	}
+	if aerr := g.lacks(machineOf(id), c, proto.CapReviewComments); aerr != nil {
+		return nil, aerr
+	}
+	var list proto.PaneList
+	if aerr := g.callOn(rq, c, callTimeout, proto.MethodPaneList, nil, &list); aerr != nil {
+		return nil, aerr
+	}
+	i := slices.IndexFunc(list.Panes, func(p proto.PaneInfo) bool { return p.ID == pane })
+	if i < 0 || !isAgent(list.Panes[i]) {
+		return nil, apiErr(CodeNotFound, "no agent in "+req.Pane)
+	}
+	info := list.Panes[i]
+	if info.ProjectID == "" || info.Branch == "" {
+		return nil, apiErr(CodeBadRequest, "the agent in "+req.Pane+" is not on a branch of a project, so nothing was said about its work")
+	}
+	var res proto.ReviewSendResult
+	if aerr := g.callOn(rq, c, callTimeout, proto.MethodReviewSend, proto.ReviewSendParams{ProjectID: info.ProjectID, Branch: info.Branch}, &res); aerr != nil {
+		return nil, aerr
+	}
+	agent := ""
+	if res.Pane.Agent != nil {
+		agent = res.Pane.Agent.Name
+	}
+	return ReviewSendResponse{Pane: composePaneID(machineOf(id), res.Pane.ID), Agent: agent, Sent: res.Sent, Turn: res.Turn}, nil
 }
 
 // answer picks one of a waiting agent's choices. It is refused before

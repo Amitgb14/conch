@@ -45,6 +45,7 @@ type Server struct {
 	projects  *projectManager
 	ports     *portBook // the ports each worktree is given
 	schedules *scheduleBook
+	reviews   *reviewBook
 
 	rulesMu  sync.Mutex // whether permission rules are in use, read now and then
 	rulesAt  time.Time
@@ -102,6 +103,7 @@ func New(sockPath, configDir string) *Server {
 	s.projects = newProjectManager(s, configDir)
 	s.ports = loadPortBook(configDir)
 	s.schedules = loadSchedule(configDir)
+	s.reviews = loadReviews(configDir)
 	s.watcher = newWorktreeWatcher(
 		func(c proto.WorktreeChanged) {
 			s.files.drop(c.Worktree)
@@ -342,7 +344,7 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
-	proto.MethodBranchMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true,
+	proto.MethodBranchMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true,
@@ -683,7 +685,11 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		return nil, s.projects.remove(ref.ID)
+		if perr := s.projects.remove(ref.ID); perr != nil {
+			return nil, perr
+		}
+		s.reviewDropped(ref.ID, "")
+		return nil, nil
 
 	case proto.MethodProjectRefresh:
 		ref, perr := decode[proto.ProjectRef](msg)
@@ -997,14 +1003,22 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		return s.projects.mergeBranch(mp)
+		res, perr := s.projects.mergeBranch(mp)
+		if perr == nil {
+			s.reviewDropped(mp.ProjectID, mp.Branch)
+		}
+		return res, perr
 
 	case proto.MethodBranchDiscard:
 		dp, perr := decode[proto.BranchDiscardParams](msg)
 		if perr != nil {
 			return nil, perr
 		}
-		return s.projects.discardBranch(dp)
+		res, perr := s.projects.discardBranch(dp)
+		if perr == nil && !dp.DryRun {
+			s.reviewDropped(dp.ProjectID, dp.Branch)
+		}
+		return res, perr
 
 	case proto.MethodAgentPermission:
 		ask, perr := decode[proto.PermissionAsk](msg)
@@ -1036,6 +1050,27 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return nil, s.scheduleRemove(ref.ID)
+
+	case proto.MethodReviewList:
+		ref, perr := decode[proto.ReviewRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.reviews.list(ref), nil
+
+	case proto.MethodReviewSet:
+		rc, perr := decode[proto.ReviewComment](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.reviewSet(c, rc)
+
+	case proto.MethodReviewSend:
+		sp, perr := decode[proto.ReviewSendParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.reviewSend(c, sp)
 
 	case proto.MethodAgentReply:
 		rp, perr := decode[proto.PaneRef](msg)

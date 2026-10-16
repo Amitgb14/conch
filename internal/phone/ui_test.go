@@ -145,10 +145,12 @@ func TestUIFiles(t *testing.T) {
 	// This is the source, not what crosses the wire: the gateway deflates
 	// it, and TestUIIsServedDeflated holds what a phone really downloads
 	// to 48 KiB (34 KB today). This cap is still here because the source
-	// is what gets read and changed, and 104 KiB is a number somebody has
-	// to argue with rather than whatever the app happens to weigh.
-	if total > 104<<10 {
-		t.Errorf("the app is %d bytes; keep it under 104 KiB", total)
+	// is what gets read and changed, and 106 KiB is a number somebody has
+	// to argue with rather than whatever the app happens to weigh. It was
+	// 104 until review comments — the agent's card listing them, with a
+	// pull request's reviewers, replies and links — took it past by 0.4.
+	if total > 106<<10 {
+		t.Errorf("the app is %d bytes; keep it under 106 KiB", total)
 	}
 	if images > 64<<10 {
 		t.Errorf("the icons are %d bytes; keep them under 64 KiB", images)

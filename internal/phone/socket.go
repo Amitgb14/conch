@@ -526,6 +526,18 @@ func (s *socket) event(machine string, msg proto.Message) {
 		s.mu.Unlock()
 		s.send(ServerMessage{Type: MsgAgent, Agent: &a})
 
+	case proto.EventReviewChanged:
+		var list proto.ReviewList
+		if json.Unmarshal(msg.Data, &list) != nil || list.Branch == "" {
+			return
+		}
+		s.mu.Lock()
+		watching, watchingPanes := s.watching, s.watchingPanes
+		s.mu.Unlock()
+		if watching || watchingPanes {
+			s.reviewChanged(machine, list, watching, watchingPanes)
+		}
+
 	case proto.EventPaneExited, proto.EventPaneClosed:
 		var ref proto.PaneRef
 		if json.Unmarshal(msg.Data, &ref) != nil {
@@ -541,6 +553,38 @@ func (s *socket) event(machine string, msg proto.Message) {
 		if wasPane {
 			s.send(ServerMessage{Type: MsgPaneGone, Pane: id})
 		}
+	}
+}
+
+// reviewChanged tells the phone again about the agents on a branch whose
+// comments were written, changed, sent or dropped, so a card shows what
+// is waiting for it — and stops offering to send what has gone.
+func (s *socket) reviewChanged(machine string, list proto.ReviewList, agents, panes bool) {
+	c := s.clientOn(machine)
+	if c == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, callTimeout)
+	defer cancel()
+	var all proto.PaneList
+	if c.Call(ctx, proto.MethodPaneList, nil, &all) != nil {
+		return
+	}
+	for _, p := range all.Panes {
+		if !isAgent(p) || p.ProjectID != list.ProjectID || p.Branch != list.Branch {
+			continue
+		}
+		if panes {
+			s.paneChanged(machine, p)
+		}
+		if !agents {
+			continue
+		}
+		a := agentWith(ctx, machine, c, p, s.projectNames(ctx, machine, c, p.ProjectID), list.Comments)
+		s.mu.Lock()
+		s.known[a.Pane] = true
+		s.mu.Unlock()
+		s.send(ServerMessage{Type: MsgAgent, Agent: &a})
 	}
 }
 

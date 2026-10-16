@@ -130,6 +130,10 @@ These are two different things, on purpose.
 
 When conch can't read choices — no menu, or no cursor to steer by — the question comes without any. A device with `full` answers it in the terminal, with the key bar; the others at the laptop.
 
+## Review comments
+
+Comments written on a branch's diff — in the [changes view](/docs/interface#changes-view) at the laptop, with [`conch review add`](/docs/cli#review), or by a reviewing agent — show on the card of the agent working on that branch, with `✎ 2` on its row in the list. **Send to the agent** hands them all over as one message, as `S` does at the laptop, and needs what a reply needs: `reply` or `full`. Like a reply, it is refused while the agent is waiting on a question, and the comments stay until it can take them. The phone shows and sends comments; writing them needs the diff, which is at the laptop. The unresolved comments on the branch's pull request are on the card too, with the reviewer's name, the thread's replies and **Open on GitHub** to answer them there.
+
 ## Without Tailscale
 
 Phones need HTTPS, so something has to provide it. Three ways, in the order they are worth trying:

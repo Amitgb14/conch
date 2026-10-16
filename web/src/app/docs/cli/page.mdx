@@ -159,6 +159,24 @@ conch branch commit -m "Add the health check" && conch branch pr -title "Health 
 conch branch merge && conch branch discard      # land it and clean up
 ```
 
+### review
+
+The [changes view's comments](/docs/interface#changes-view) from a shell: the same ones, kept by the server, so a comment written here shows on `a`'s hunk marks and the phone's agent card, and the other way round. Like `branch`, every command takes `-cwd DIR` and `-branch B`, and without `-branch` uses the branch checked out in that directory.
+
+| Command | Description |
+| --- | --- |
+| `conch review` | list the comments waiting for the branch's agent, oldest first, each with its ID, where it is and who wrote it when an agent did. The unresolved comments on the branch's pull request follow, with the reviewer (`alice on GitHub`), their replies and their link |
+| `conch review add FILE[:LINE] NOTE` | comment on a file, or one line of it (`a.go:12`). Every word after the file is the note. Run from an agent's pane, the comment says which agent wrote it |
+| `conch review rm ID` | take a comment away. A pull request's comment is refused: answer or resolve it on GitHub |
+| `conch review send [-agent A]` | hand every comment to the agent working on the branch as one message, numbered, and clear them. The pull request's comments stay on GitHub but aren't sent again until somebody replies to them. Refused while that agent waits on a question. With no agent on the branch it is refused too, unless `-agent` names one to start in the branch's worktree with them |
+
+```sh
+conch review add api/login.py:42 "This swallows the timeout; let it raise."
+conch review send
+```
+
+An agent [kept to its own work](#when-an-agent-runs-these-commands) may comment on and send for its own project's branches, and no others — which is what lets a reviewer you started leave its findings as comments instead of a file.
+
 ### worktree
 
 | Command | Description |

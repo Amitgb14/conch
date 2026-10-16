@@ -30,9 +30,10 @@ type changesView struct {
 	// hunks the single hunks picked inside a file's diff.
 	marked map[string]bool
 	hunks  map[string]*fileHunks
-	// comments are what the reader said about hunks of the diff, waiting
-	// to be sent to the branch's agent (review.go).
-	comments []reviewComment
+	// comments are what was said about hunks of the diff, waiting to be
+	// sent to the branch's agent: the server's, as of the last draw
+	// (review.go).
+	comments []proto.ReviewComment
 	// touched is when each file was last written, so the list can say which
 	// ones an agent is working in rather than only what the totals came to.
 	touched map[string]time.Time
@@ -461,6 +462,7 @@ func (cv *changesView) filesTop(m Model) int {
 }
 
 func (cv *changesView) render(m Model, w, h int) []string {
+	cv.syncComments(m)
 	if cv.diffFile != "" {
 		return cv.renderDiff(m, w, h)
 	}
@@ -657,10 +659,19 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 			title += styleOK.Render(fmt.Sprintf("  %d of %d hunks marked", len(fh.marked), len(hunks)))
 		}
 		if n := len(cv.comments); n > 0 {
-			title += styleWarn.Render(fmt.Sprintf("  ✎ %s · S send", count(n, "comment")))
+			from := ""
+			if gh := cv.githubComments(); gh > 0 {
+				from = fmt.Sprintf(" (%d from GitHub)", gh)
+			}
+			title += styleWarn.Render(fmt.Sprintf("  ✎ %s%s · S send", count(n, "comment"), from))
 		}
 	}
 	lines := []string{spread(styleBold.Render(title), styleMuted.Render(right), w)}
+	// What was said about the hunk under the cursor, so a comment from the
+	// pull request is read here rather than in a browser beside it.
+	if cv.diff != nil && h >= 8 {
+		lines = append(lines, cv.commentLines(w, min(3, h/4))...)
+	}
 	switch {
 	case cv.diffErr != "":
 		return append(lines, styleErr.Render(cv.diffErr))

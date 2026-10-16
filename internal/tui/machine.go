@@ -108,6 +108,8 @@ type machine struct {
 	limits map[string]proto.PlanLimits
 	// schedule is what its server will do later (schedule.go).
 	schedule []proto.ScheduledItem
+	// reviews are the comments on its branches' diffs (review.go).
+	reviews []proto.ReviewComment
 
 	// gen increases with every connection attempt; messages from older
 	// attempts are ignored.
@@ -218,6 +220,7 @@ func (mach *machine) listen() []tea.Cmd {
 		mach.waitEvent(),
 		mach.checkAgents(),
 		mach.loadSchedule(),
+		mach.loadReviews(),
 		func() tea.Msg {
 			if len(c.MissingCapabilities([]string{"agent.limits.v1"})) > 0 {
 				return nil
