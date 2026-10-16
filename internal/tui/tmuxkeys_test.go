@@ -147,7 +147,7 @@ func TestTabsFollowTreeGroup(t *testing.T) {
 	}
 	m := Model{cfg: config.Default(), width: 160, height: 40, sidebarW: 30, expanded: map[string]bool{}, showAll: map[string]bool{},
 		frames: map[string]*proto.Frame{}, subscribed: map[string]bool{},
-		machines: []*machine{{id: localMachine, label: "local", panes: panes, sizes: map[string][2]int{}, agents: map[string]bool{},
+		machines: []*machine{{id: localMachine, label: "local", panes: panes, sizes: map[string]paneSize{}, agents: map[string]bool{},
 			projects: []proto.ProjectInfo{{ID: "r1", Name: "api"}}}}}
 	m.rows = []row{
 		{id: machineID(localMachine), kind: kindMachine, machine: localMachine},

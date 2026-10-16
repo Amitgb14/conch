@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 )
@@ -1134,4 +1135,81 @@ func TestA4SandboxDevin(t *testing.T) {
 		t.Fatalf("calls %v", calls)
 	}
 	mu.Unlock()
+}
+
+// A task in a sandbox of its own: made, the project cloned from origin,
+// the agent started there — and refusals before anything costs money.
+func TestA4TaskInASandbox(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	_, box := a4SandboxMachine(t)
+	local := startA4Server(t, config.SocketPath())
+	remoteURL := "https://github.com/o/api.git"
+	local.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodProjectAdd {
+			return proto.ProjectInfo{ID: "r1", Name: "api", Git: true, Remote: remoteURL}, nil
+		}
+		return nil, nil
+	})
+	box.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodProjectClone:
+			return proto.ProjectInfo{ID: "s1", Name: "api", Base: "main", Git: true}, nil
+		case proto.MethodTaskCreate:
+			return proto.PaneInfo{ID: "p1", Cwd: "/home/daytona/api.worktrees/fix", Branch: "api/fix"}, nil
+		}
+		return nil, nil
+	})
+	t.Chdir(t.TempDir())
+	var err error
+	out, errOut := a4Capture(t, "", func() { err = runTask([]string{"-sandbox", "daytona", "-agent", "codex", "fix", "it"}) })
+	if err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	if !strings.HasPrefix(out, "p1  /home/daytona/api.worktrees/fix  api/fix  on api-task") {
+		t.Fatalf("out %q", out)
+	}
+	if len(d.created) != 1 || !strings.Contains(errOut, "cloning "+remoteURL) {
+		t.Fatalf("created %d, stderr:\n%s", len(d.created), errOut)
+	}
+	var clone proto.ProjectCloneParams
+	box.params(t, proto.MethodProjectClone, &clone)
+	var tp proto.TaskCreateParams
+	box.params(t, proto.MethodTaskCreate, &tp)
+	if clone.URL != remoteURL || clone.Path != "~/api" || tp.ProjectID != "s1" || tp.Agent != "codex" || tp.Prompt != "fix it" {
+		t.Fatalf("clone %+v task %+v", clone, tp)
+	}
+
+	// Refused before a sandbox is made.
+	before := len(d.created)
+	for _, args := range [][]string{
+		{"-sandbox", "daytona", "-queue", "x"},
+		{"-sandbox", "daytona", "-at", "+1h", "x"},
+		{"-sandbox", "daytona", "-n", "2", "x"},
+		{"-sandbox", "nosuch", "x"},
+	} {
+		if a4Capture(t, "", func() { err = runTask(args) }); err == nil {
+			t.Errorf("%v was taken", args)
+		}
+	}
+	remoteURL = ""
+	if a4Capture(t, "", func() { err = runTask([]string{"-sandbox", "daytona", "x"}) }); err == nil || !strings.Contains(err.Error(), "origin remote") {
+		t.Fatalf("no remote: %v", err)
+	}
+	if len(d.created) != before {
+		t.Fatalf("a refused task made %d sandboxes", len(d.created)-before)
+	}
+
+	// A clone that fails says the sandbox is there, so it isn't forgotten.
+	remoteURL = "https://github.com/o/api.git"
+	box.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodProjectClone {
+			return nil, proto.Errorf(proto.ErrBadRequest, "authentication required")
+		}
+		return nil, nil
+	})
+	if a4Capture(t, "", func() { err = runTask([]string{"-sandbox", "daytona", "x"}) }); err == nil ||
+		!strings.Contains(err.Error(), "is up, but cloning failed") || !strings.Contains(err.Error(), "authentication required") {
+		t.Fatalf("clone failure: %v", err)
+	}
 }

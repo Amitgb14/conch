@@ -261,3 +261,53 @@ func TestSafeName(t *testing.T) {
 		}
 	}
 }
+
+// TestPackALinkedFolder: a folder named through a symlink is packed for
+// what it holds, as copying it in a shell would; links inside stay links.
+func TestPackALinkedFolder(t *testing.T) {
+	src := t.TempDir()
+	write(t, filepath.Join(src, "real", "a.txt"), "a", 0o644)
+	os.Symlink("a.txt", filepath.Join(src, "real", "b.txt"))
+	os.Symlink("real", filepath.Join(src, "link"))
+	var buf bytes.Buffer
+	if err := Pack(&buf, filepath.Join(src, "link")); err != nil {
+		t.Fatal(err)
+	}
+	dest := t.TempDir()
+	if err := Unpack(&buf, dest, false); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(dest, "a.txt")) != "a" {
+		t.Fatal("not packed through the link")
+	}
+	if target, err := os.Readlink(filepath.Join(dest, "b.txt")); err != nil || target != "a.txt" {
+		t.Fatalf("the link inside: %q %v", target, err)
+	}
+}
+
+func TestCreateTemp(t *testing.T) {
+	dir := t.TempDir()
+	seen := map[string]bool{}
+	for range 20 {
+		f, path, err := CreateTemp(Local, dir, ".x.part-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+		base := filepath.Base(path)
+		if seen[path] || !strings.HasPrefix(base, ".x.part-") || len(base) <= len(".x.part-") {
+			t.Fatalf("name %q", base)
+		}
+		seen[path] = true
+		if st, err := os.Stat(path); err != nil || st.Mode().Perm() != 0o600 {
+			t.Fatalf("%v %v", st, err)
+		}
+	}
+	// No star: the random part goes at the end.
+	if _, path, err := CreateTemp(Local, dir, "tmp"); err != nil || !strings.HasPrefix(filepath.Base(path), "tmp") || filepath.Base(path) == "tmp" {
+		t.Fatalf("%q %v", path, err)
+	}
+	if _, _, err := CreateTemp(Local, filepath.Join(dir, "nope"), "x*"); err == nil {
+		t.Fatal("made in a folder that is not there")
+	}
+}

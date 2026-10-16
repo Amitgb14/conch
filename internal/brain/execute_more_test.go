@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -341,5 +342,38 @@ func TestA6ValidateMore(t *testing.T) {
 	}
 	if err := w.Validate(&Action{Type: ActSend, Machine: "local", Pane: "p1", Text: " \t"}); err == nil {
 		t.Fatal("blank text accepted")
+	}
+}
+
+// Asked for a terminal, the brain opens one: a shell, never an agent, even
+// when the model fills in an agent and a prompt anyway.
+func TestStartTerminal(t *testing.T) {
+	s := &a6FakeServer{results: map[string]any{
+		proto.MethodProjectList: a6Projects(),
+		proto.MethodPaneCreate:  proto.PaneInfo{ID: "p3"},
+	}}
+	c := a6Dial(t, s)
+	a := Action{Type: ActStartTerminal, Machine: "local", Project: "r1", Branch: "feat", Agent: "claude", Prompt: "hi"}
+	w := world()
+	if err := w.Validate(&a); err != nil || a.Agent != "" {
+		t.Fatalf("validate: %v, agent %q", err, a.Agent)
+	}
+	if got := w.Describe(a); !strings.HasPrefix(got, "Open a terminal in ") || !strings.HasSuffix(got, " on feat") {
+		t.Fatalf("describe %q", got)
+	}
+	if _, err := Execute(a6ctx(t), c, Action{Type: ActStartTerminal, Project: "r1", Branch: "feat", Agent: "claude", Prompt: "hi"}, 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	var p proto.PaneCreateParams
+	s.params(proto.MethodPaneCreate, &p)
+	if p.Cwd != "/src/api-wt/feat" || p.Agent != "" || p.Prompt != "" {
+		t.Fatalf("pane params: %+v", p)
+	}
+	bad := Action{Type: ActStartTerminal, Machine: "local", Project: "r9"}
+	if err := w.Validate(&bad); err == nil || !strings.Contains(err.Error(), "unknown project") {
+		t.Fatalf("unknown project: %v", err)
+	}
+	if !strings.Contains(planSystem, "start_terminal") || !slices.Contains(planSchema["properties"].(map[string]any)["actions"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)["type"].(map[string]any)["enum"].([]string), ActStartTerminal) {
+		t.Fatal("the model is not told about start_terminal")
 	}
 }

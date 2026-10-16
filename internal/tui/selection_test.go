@@ -135,7 +135,7 @@ func TestThemesAreComplete(t *testing.T) {
 
 func TestKeyboardSelection(t *testing.T) {
 	m := &Model{width: 100, height: 20, frames: map[string]*proto.Frame{}, subscribed: map[string]bool{}}
-	m.machines = []*machine{{id: localMachine, label: "local", state: stateOnline, agents: map[string]bool{}, sizes: map[string][2]int{}}}
+	m.machines = []*machine{{id: localMachine, label: "local", state: stateOnline, agents: map[string]bool{}, sizes: map[string]paneSize{}}}
 	m.frame = &proto.Frame{Lines: []string{"alpha beta", "gamma delta", "epsilon"}, History: 50}
 	m.viewing = "p1"
 	m.enterScrollMode()

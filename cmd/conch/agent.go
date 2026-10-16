@@ -133,17 +133,27 @@ func runReport(args []string) {
 		params.Agent, params.Event = "opencode", args[1]
 	case args[0] == "claude-hook" || args[0] == "gemini-hook":
 		var in struct {
-			Event            string `json:"hook_event_name"`
-			SessionID        string `json:"session_id"`
-			NotificationType string `json:"notification_type"`
-			Message          string `json:"message"`
-			TranscriptPath   string `json:"transcript_path"`
-			AgentID          string `json:"agent_id"`
-			AgentType        string `json:"agent_type"`
-			TaskDescription  string `json:"task_description"`
+			Event            string          `json:"hook_event_name"`
+			SessionID        string          `json:"session_id"`
+			NotificationType string          `json:"notification_type"`
+			Message          string          `json:"message"`
+			TranscriptPath   string          `json:"transcript_path"`
+			AgentID          string          `json:"agent_id"`
+			AgentType        string          `json:"agent_type"`
+			TaskDescription  string          `json:"task_description"`
+			ToolName         string          `json:"tool_name"`
+			ToolInput        json.RawMessage `json:"tool_input"`
+			Cwd              string          `json:"cwd"`
 		}
 		data, _ := io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
 		if json.Unmarshal(data, &in) != nil || in.Event == "" {
+			return
+		}
+		// A permission request the person's rules answer is answered here,
+		// through the hook, and never reaches the screen — so it is not
+		// reported as the agent waiting, either.
+		if args[0] == "claude-hook" && in.Event == "PermissionRequest" &&
+			answerPermission(sock, paneID, in.ToolName, permissionSubject(in.ToolName, in.ToolInput, in.Cwd), os.Stdout) {
 			return
 		}
 		params = proto.AgentReportParams{
@@ -427,4 +437,68 @@ func agentSkill(args []string) error {
 		fmt.Println("run again with -apply to write it")
 	}
 	return nil
+}
+
+// answerPermission asks the server whether a rule answers a permission
+// request and, when one does, writes Claude Code's decision for its hook
+// to out. It reports whether it answered; anything going wrong — no
+// server, an old one, a slow one — answers nothing, and the agent asks the
+// person as it always has.
+func answerPermission(sock, paneID, tool, subject string, out io.Writer) bool {
+	c, err := client.Dial(sock, "conch-hook")
+	if err != nil {
+		return false
+	}
+	defer c.Close()
+	if len(c.MissingCapabilities([]string{proto.CapPermissionRules})) > 0 {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var ans proto.PermissionAnswer
+	ask := proto.PermissionAsk{ID: paneID, Agent: "claude", Tool: tool, Subject: subject}
+	if err := c.Call(ctx, proto.MethodAgentPermission, ask, &ans); err != nil || ans.DryRun || ans.Decision == "" {
+		return false
+	}
+	decision := map[string]any{"behavior": ans.Decision}
+	if ans.Decision == proto.PermissionDeny {
+		decision["message"] = "conch refused this by the rule " + ans.Rule + " (in config.toml); ask the person if it is needed"
+	}
+	_ = json.NewEncoder(out).Encode(map[string]any{
+		"hookSpecificOutput": map[string]any{"hookEventName": "PermissionRequest", "decision": decision},
+	})
+	return true
+}
+
+// permissionSubject is what a tool acts on, as a rule matches it: the
+// command, the file (relative to the agent's folder when it is inside),
+// the URL — or the input itself, cut short, for a tool conch doesn't know.
+func permissionSubject(tool string, input json.RawMessage, cwd string) string {
+	var in map[string]any
+	_ = json.Unmarshal(input, &in)
+	str := func(k string) string { v, _ := in[k].(string); return v }
+	switch tool {
+	case "Bash":
+		return str("command")
+	case "Edit", "MultiEdit", "Write", "Read", "NotebookEdit":
+		path := str("file_path")
+		if path == "" {
+			path = str("notebook_path")
+		}
+		if cwd != "" {
+			if rel, err := filepath.Rel(cwd, path); err == nil && !strings.HasPrefix(rel, "..") {
+				return rel
+			}
+		}
+		return path
+	case "WebFetch":
+		return str("url")
+	case "WebSearch":
+		return str("query")
+	}
+	s := strings.TrimSpace(string(input))
+	if len(s) > 300 {
+		s = s[:300]
+	}
+	return s
 }

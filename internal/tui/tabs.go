@@ -124,8 +124,17 @@ func (m *Model) syncView() tea.Cmd {
 		want[key] = true
 		if p := mach.pane(v.PaneID); p != nil && p.State == proto.PaneRunning && m.width > 0 {
 			in := m.inner(r)
-			if mach.sizes[v.PaneID] != [2]int{in.w, in.h} {
-				mach.sizes[v.PaneID] = [2]int{in.w, in.h}
+			want, at := [2]int{in.w, in.h}, [2]int{p.Cols, p.Rows}
+			// Resize when the pane is not the size this layout wants —
+			// not when it differs from what this TUI last asked for.
+			// Another client resizes the same panes: answer an agent on
+			// the phone and its pane is the phone's size, and coming back
+			// to a wide terminal left it drawing 76 columns into 247,
+			// because the cache said this size had already been asked
+			// for. Asking once per size it is seen at keeps a request in
+			// flight from being re-sent every frame.
+			if was := mach.sizes[v.PaneID]; at != want && (was.want != want || was.at != at) {
+				mach.sizes[v.PaneID] = paneSize{want: want, at: at}
 				mach.c.Notify(proto.MethodPaneResize, proto.PaneResizeParams{ID: v.PaneID, Cols: in.w, Rows: in.h})
 			}
 		}
@@ -233,15 +242,20 @@ func (m *Model) syncView() tea.Cmd {
 	if f.view.Kind == kindReviewQueue {
 		m.queueView = f.queue
 	}
+	// was is the explorer the keys were on before this sync, so coming
+	// back to one reads the checkout again (below).
+	was := m.filesView
 	m.filesView = nil
+	fresh := map[*filesView]bool{}
 	for _, l := range leaves {
 		v := l.view
 		if v.Kind != kindFiles {
 			l.files = nil
 			continue
 		}
-		if fv := l.files; fv == nil || fv.machine != v.Machine || fv.projectID != v.ProjectID || fv.want != v.Branch {
+		if fv := l.files; fv == nil || fv.machine != v.Machine || fv.projectID != v.ProjectID || fv.want != v.Branch || fv.ssh != v.PaneID {
 			l.files = m.newFilesView(v)
+			fresh[l.files] = true
 			cmds = append(cmds, l.files.load(m))
 		} else if fv.err != "" && m.clientOf(fv.machine) != nil {
 			cmds = append(cmds, fv.load(m)) // the machine came back
@@ -249,6 +263,16 @@ func (m *Model) syncView() tea.Cmd {
 	}
 	if f.view.Kind == kindFiles {
 		m.filesView = f.files
+	}
+	// An explorer being looked at again reads its folders again. Edits
+	// reach it by themselves while it is open (filesEvent), but only
+	// from a worktree conch is watching: a machine that gives no watches
+	// polls, an unwatched worktree is left to the slow poll, and nothing
+	// at all is heard about a checkout changed by something conch is not
+	// watching. Opening it is when somebody wants to know, so that is
+	// when it asks — once, on the way in, not on every sync.
+	if fv := m.filesView; fv != nil && fv != was && !fresh[fv] {
+		cmds = append(cmds, fv.refresh(m))
 	}
 	return tea.Batch(cmds...)
 }
@@ -904,6 +928,8 @@ func (m Model) viewLabel(v viewRef) string {
 	case kindProject, kindBranches, kindAgents, kindTerminals, kindSSH, kindMore, kindSessions, kindFiles:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			label = proj.Name
+		} else if v.Kind == kindFiles && v.PaneID != "" {
+			label = m.sshHostOf(v.Machine, v.PaneID) // a terminal's ssh host
 		} else if mach := m.machine(v.Machine); v.Kind == kindFiles && v.ProjectID == "" && mach != nil {
 			label = mach.label // a machine's own files
 		}

@@ -90,8 +90,13 @@ type machine struct {
 	// box is what the provider last said about this sandbox: when it
 	// started and how big it is, which is what running time and cost are
 	// worked out from. Nil until the first look.
-	box   *sandbox.Sandbox
-	sizes map[string][2]int // last size sent per pane
+	box *sandbox.Sandbox
+	// sizes is what this TUI last asked a pane to be, and the size the
+	// pane was when it asked. The second half matters because another
+	// client resizes the same panes — the phone gateway is one — so a
+	// cache of our own requests says nothing about what the pane is now
+	// (tabs.go, syncView).
+	sizes map[string]paneSize
 
 	// Which agents are installed there; nil until known (or when the server
 	// can't tell).
@@ -101,6 +106,8 @@ type machine struct {
 	installers map[string]string
 	// limits are the plan limits agents there last reported, by agent.
 	limits map[string]proto.PlanLimits
+	// schedule is what its server will do later (schedule.go).
+	schedule []proto.ScheduledItem
 
 	// gen increases with every connection attempt; messages from older
 	// attempts are ignored.
@@ -171,8 +178,16 @@ type (
 	}
 )
 
+// paneSize is one pane's sizing as this TUI knows it: want is the size
+// it last asked for, at the size the pane was reported to be when it
+// asked. Asking again is driven by what the pane *is*, and asking only
+// once per size it is seen at keeps a request in flight from being sent
+// again every frame: until the server confirms, the reported size does
+// not change.
+type paneSize struct{ want, at [2]int }
+
 func newMachine(id, label, target string) *machine {
-	return &machine{id: id, label: label, target: target, agents: map[string]bool{}, sizes: map[string][2]int{},
+	return &machine{id: id, label: label, target: target, agents: map[string]bool{}, sizes: map[string]paneSize{},
 		installers: map[string]string{}}
 }
 
@@ -192,7 +207,7 @@ func (mach *machine) attach(c *client.Client) (fresh bool) {
 	mach.state, mach.err, mach.warning, mach.failures = stateOnline, "", "", 0
 	mach.since = time.Now()
 	mach.sandboxState = ""
-	mach.sizes = map[string][2]int{} // a new connection may see new sizes
+	mach.sizes = map[string]paneSize{} // a new connection may see new sizes
 	if fresh {
 		mach.agents = map[string]bool{}
 	}
@@ -205,6 +220,7 @@ func (mach *machine) listen() []tea.Cmd {
 	return []tea.Cmd{
 		mach.waitEvent(),
 		mach.checkAgents(),
+		mach.loadSchedule(),
 		func() tea.Msg {
 			if len(c.MissingCapabilities([]string{"agent.limits.v1"})) > 0 {
 				return nil
@@ -485,7 +501,7 @@ func addMachineWith(target, label, password string, keyLogin bool, ch chan strin
 // screen under a new pane's row would be somebody else's entirely.
 func (m *Model) forgetPanesOf(mach *machine) {
 	mach.agents = map[string]bool{}
-	mach.sizes = map[string][2]int{}
+	mach.sizes = map[string]paneSize{}
 	prefix := mach.id + "|"
 	for key := range m.frames {
 		if strings.HasPrefix(key, prefix) {

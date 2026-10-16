@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -51,6 +52,10 @@ func TestA4ProjectCommands(t *testing.T) {
 			return proto.ProjectInfo{ID: "made", Name: "made", Path: p.Path, Git: p.Git}, nil
 		case proto.MethodProjectFiles:
 			return proto.ProjectInfo{ID: "notes", Name: "notes", LocalFiles: nil}, nil
+		case proto.MethodProjectSetup:
+			var p proto.ProjectSetupParams
+			json.Unmarshal(msg.Params, &p)
+			return proto.ProjectInfo{ID: p.ProjectID, Name: p.ProjectID, Setup: p.Command}, nil
 		case proto.MethodProjectRemove:
 			return nil, nil
 		}
@@ -126,6 +131,31 @@ func TestA4ProjectCommands(t *testing.T) {
 		t.Fatalf("files patterns %+v", fp)
 	}
 
+	out, err = run("setup", "api")
+	if err != nil || out != "new worktrees of api run no setup\n" {
+		t.Fatalf("setup show: %q %v", out, err)
+	}
+	if _, err := run("setup", "ghost"); err == nil || !strings.Contains(err.Error(), `no project "ghost"`) {
+		t.Fatalf("setup unknown: %v", err)
+	}
+	out, err = run("setup", "api", "npm", "ci", "&&", "cp", ".env.example", ".env")
+	if err != nil || out != "new worktrees of api run, in a terminal of their own:\n  npm ci && cp .env.example .env\n" {
+		t.Fatalf("setup set: %q %v", out, err)
+	}
+	var sp proto.ProjectSetupParams
+	srv.params(t, proto.MethodProjectSetup, &sp)
+	if sp.ProjectID != "api" || sp.Command != "npm ci && cp .env.example .env" {
+		t.Fatalf("setup params %+v", sp)
+	}
+	sp = proto.ProjectSetupParams{}
+	if out, err := run("setup", "-none", "api"); err != nil || out != "new worktrees of api run no setup\n" {
+		t.Fatalf("setup -none: %q %v", out, err)
+	}
+	srv.params(t, proto.MethodProjectSetup, &sp)
+	if sp.Command != "" {
+		t.Fatalf("setup -none sent %+v", sp)
+	}
+
 	if _, err := run("rm", "api"); err != nil {
 		t.Fatal(err)
 	}
@@ -141,6 +171,9 @@ func TestA4ProjectCommands(t *testing.T) {
 		"create -bad x":   "flag provided but not defined",
 		"files":           "usage: conch project files",
 		"files -what":     "flag provided but not defined",
+		"setup":           "usage: conch project setup",
+		"setup -none a b": "usage: conch project setup",
+		"setup -what":     "flag provided but not defined",
 		"rm":              "usage: conch project rm ID",
 		"frobnicate":      `unknown project subcommand "frobnicate"`,
 		"remove too many": "usage: conch project rm ID",
@@ -150,6 +183,17 @@ func TestA4ProjectCommands(t *testing.T) {
 		}
 	}
 
+	// A server from before setup existed is named, with what to do.
+	srv.setHello(func(int) proto.HelloResult {
+		h := currentHello(0)
+		h.Capabilities = slices.DeleteFunc(slices.Clone(h.Capabilities), func(c string) bool { return c == proto.CapWorktreeSetup })
+		return h
+	})
+	if _, err := run("setup", "api", "make"); err == nil || !strings.Contains(err.Error(), "predates worktree setup") {
+		t.Fatalf("old server: %v", err)
+	}
+	srv.setHello(currentHello)
+
 	projects.Set(nil)
 	if out, err := run("list"); err != nil || out != "no projects\n" {
 		t.Fatalf("empty ls: %q %v", out, err)
@@ -157,7 +201,7 @@ func TestA4ProjectCommands(t *testing.T) {
 
 	// Server errors surface.
 	srv.setHandle(func(proto.Message, *proto.Conn) (any, *proto.Error) { return nil, proto.Errorf("boom", "broken") })
-	for _, args := range [][]string{{"ls"}, {"create", "x"}, {"files", "x"}, {"files", "-reset", "x"}, {"rm", "x"}} {
+	for _, args := range [][]string{{"ls"}, {"create", "x"}, {"files", "x"}, {"files", "-reset", "x"}, {"setup", "x"}, {"setup", "x", "make"}, {"rm", "x"}} {
 		if _, err := run(args...); err == nil || !strings.Contains(err.Error(), "broken") {
 			t.Errorf("project %v with a failing server: %v", args, err)
 		}
@@ -220,6 +264,54 @@ func TestA4Task(t *testing.T) {
 
 // A task in a folder that isn't a git repository starts its agents there
 // with the prompt: no branch, no worktree, and nothing asked of git.
+func TestA4TaskFromAnIssue(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	git := true
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodProjectAdd:
+			return proto.ProjectInfo{ID: "proj1", Name: "api", Git: git}, nil
+		case proto.MethodTaskCreate:
+			return proto.PaneInfo{ID: "p5", Cwd: "/src/wt", Branch: "api/issue-12-login"}, nil
+		}
+		return nil, nil
+	})
+	t.Chdir(t.TempDir())
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runTask([]string{"-issue", "12"}) })
+	if err != nil || out != "p5  /src/wt  api/issue-12-login\n" {
+		t.Fatalf("task -issue: %q %v", out, err)
+	}
+	var tp proto.TaskCreateParams
+	srv.params(t, proto.MethodTaskCreate, &tp)
+	if tp.Issue != 12 || tp.Prompt != "" || tp.Branch != "" {
+		t.Fatalf("params %+v", tp)
+	}
+	// Words after it are added to the issue; several attempts number from it.
+	a4Capture(t, "", func() { err = runTask([]string{"-issue", "12", "-n", "2", "keep", "it", "small"}) })
+	srv.params(t, proto.MethodTaskCreate, &tp)
+	if err != nil || tp.Prompt != "keep it small" || !strings.Contains(tp.Branch, "issue-12") {
+		t.Fatalf("with words: %+v %v", tp, err)
+	}
+	if _, _ = a4Capture(t, "", func() { err = runTask([]string{"-issue", "-3"}) }); err == nil {
+		t.Fatal("a negative issue was taken")
+	}
+	git = false
+	if a4Capture(t, "", func() { err = runTask([]string{"-issue", "12"}) }); err == nil || !strings.Contains(err.Error(), "git repository") {
+		t.Fatalf("no git: %v", err)
+	}
+	git = true
+	srv.setHello(func(int) proto.HelloResult {
+		h := currentHello(0)
+		h.Capabilities = slices.DeleteFunc(slices.Clone(h.Capabilities), func(c string) bool { return c == proto.CapIssues })
+		return h
+	})
+	if a4Capture(t, "", func() { err = runTask([]string{"-issue", "12"}) }); err == nil || !strings.Contains(err.Error(), "predates tasks from issues") {
+		t.Fatalf("old server: %v", err)
+	}
+}
+
 func TestA4TaskWithoutGit(t *testing.T) {
 	a4Env(t)
 	srv := startA4Server(t, config.SocketPath())

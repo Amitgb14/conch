@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -118,7 +120,7 @@ func TestA2SetupUpdateAndKeys(t *testing.T) {
 	m.machines[0].c = nil
 	closed, cmd := v.update(m, a2Key("f"))
 	d, ok := m.overlay.(*dialog)
-	if !closed || cmd == nil || !ok || d.title != " Local files · api " {
+	if !closed || cmd == nil || !ok || d.title != " New worktrees · api " {
 		t.Fatalf("f opens the local files dialog: %#v", m.overlay)
 	}
 	m.overlay = v
@@ -283,10 +285,55 @@ func TestA2LocalFilesDialog(t *testing.T) {
 	if d.fields[0].in.Value() != ".env config/*.json" {
 		t.Fatalf("patterns: %q", d.fields[0].in.Value())
 	}
+	if len(d.fields) != 1 || d.title != " New worktrees · api " {
+		t.Fatalf("a server without setup gets only the files: %d fields, %q", len(d.fields), d.title)
+	}
 	for _, v := range []string{" default ", ".env, x"} {
 		if msg := a2ErrText(a2Run(d.submit(m, []string{v}))); msg != "local is online" {
 			t.Fatalf("submit %q offline: %q", v, msg)
 		}
+	}
+}
+
+// Where the server runs setup, the dialog asks for it first and sends both.
+func TestNewWorktreesDialogSetsSetup(t *testing.T) {
+	m := a2Model()
+	c, peer := a1FakeClient(t, proto.CapWorktreeSetup, "worktree.files.v1")
+	m.machines[0].c = c
+	proj := m.machines[0].projects[0]
+	proj.Setup = "npm ci"
+	proj.LocalFiles = []string{".env"}
+	d := newLocalFilesDialog(*m, localMachine, proj)
+	if len(d.fields) != 2 || d.fields[0].in.Value() != "npm ci" || d.fields[1].in.Value() != ".env" {
+		t.Fatalf("fields %d: %q %q", len(d.fields), d.fields[0].in.Value(), d.fields[len(d.fields)-1].in.Value())
+	}
+	if !strings.Contains(strings.Join(d.text, " "), "$CONCH_PORT") {
+		t.Fatalf("the dialog doesn't say where the ports are: %q", d.text)
+	}
+	msgs := a2Run(d.submit(m, []string{"uv sync", "default"}))
+	if len(msgs) != 1 || msgs[0] != flashMsg("new worktrees of api updated") {
+		t.Fatalf("submit: %#v", msgs)
+	}
+	if got := peer.methods(); !slices.Equal(got, []string{proto.MethodProjectSetup, proto.MethodProjectFiles}) {
+		t.Fatalf("sent %v", got)
+	}
+	var sp proto.ProjectSetupParams
+	var fp proto.ProjectFilesParams
+	peer.mu.Lock()
+	json.Unmarshal(peer.msgs[0].Params, &sp)
+	json.Unmarshal(peer.msgs[1].Params, &fp)
+	peer.mu.Unlock()
+	if sp.ProjectID != "r1" || sp.Command != "uv sync" || !fp.Reset {
+		t.Fatalf("setup %+v files %+v", sp, fp)
+	}
+
+	// A refused setup stops there, said, and the files are left alone.
+	peer.setError(proto.MethodProjectSetup, "not a git repository")
+	if msg := a2ErrText(a2Run(d.submit(m, []string{"make", ".env"}))); !strings.Contains(msg, "not a git repository") {
+		t.Fatalf("refused: %q", msg)
+	}
+	if got := peer.methods(); len(got) != 3 {
+		t.Fatalf("files were sent after a refused setup: %v", got)
 	}
 }
 

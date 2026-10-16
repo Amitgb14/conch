@@ -25,8 +25,11 @@ import (
 // Pack writes the folder src to w as a gzipped tar: folders, files and
 // symlinks (as links, never followed). Sockets, devices and the like are
 // left out.
-func Pack(w io.Writer, src string) error {
-	st, err := os.Stat(src)
+func Pack(w io.Writer, src string) error { return PackFS(w, Local, src) }
+
+// PackFS is Pack of a folder in fsys.
+func PackFS(w io.Writer, fsys FS, src string) error {
+	st, err := fsys.Stat(src)
 	if err != nil {
 		return err
 	}
@@ -35,10 +38,17 @@ func Pack(w io.Writer, src string) error {
 	}
 	zw, _ := gzip.NewWriterLevel(w, gzip.BestSpeed) // the ssh link compresses too
 	tw := tar.NewWriter(zw)
-	err = filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	// A symlink given as the folder is followed, as Stat did; what is
+	// inside it never is.
+	if real, err := fsys.Lstat(src); err == nil && real.Mode()&fs.ModeSymlink != 0 {
+		if target, err := fsys.Readlink(src); err == nil {
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(src), target)
+			}
+			src = target
 		}
+	}
+	err = walk(fsys, src, func(path string, info fs.FileInfo) error {
 		if path == src {
 			return nil
 		}
@@ -46,26 +56,22 @@ func Pack(w io.Writer, src string) error {
 		if err != nil {
 			return err
 		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
 		hdr := &tar.Header{Name: filepath.ToSlash(rel), Mode: int64(info.Mode().Perm()), ModTime: info.ModTime()}
 		switch {
-		case d.Type()&fs.ModeSymlink != 0:
-			target, err := os.Readlink(path)
+		case info.Mode()&fs.ModeSymlink != 0:
+			target, err := fsys.Readlink(path)
 			if err != nil {
 				return err
 			}
 			hdr.Typeflag, hdr.Linkname = tar.TypeSymlink, target
 			return tw.WriteHeader(hdr)
-		case d.IsDir():
+		case info.IsDir():
 			hdr.Typeflag, hdr.Name = tar.TypeDir, hdr.Name+"/"
 			return tw.WriteHeader(hdr)
 		case !info.Mode().IsRegular():
 			return nil
 		}
-		f, err := os.Open(path)
+		f, err := fsys.Open(path)
 		if err != nil {
 			return err
 		}
@@ -95,8 +101,11 @@ func Pack(w io.Writer, src string) error {
 // without it, a name that is taken is an error. Nothing is written outside
 // dest: a path that leaves it is refused, and so is going through a
 // symlink, since one could lead anywhere.
-func Unpack(r io.Reader, dest string, replace bool) error {
-	st, err := os.Lstat(dest)
+func Unpack(r io.Reader, dest string, replace bool) error { return UnpackFS(r, Local, dest, replace) }
+
+// UnpackFS is Unpack into a folder in fsys.
+func UnpackFS(r io.Reader, fsys FS, dest string, replace bool) error {
+	st, err := fsys.Lstat(dest)
 	if err != nil {
 		return err
 	}
@@ -120,18 +129,18 @@ func Unpack(r io.Reader, dest string, replace bool) error {
 		if !ok {
 			return fmt.Errorf("unsafe name in the archive: %q", hdr.Name)
 		}
-		if err := parents(dest, rel); err != nil {
+		if err := parents(fsys, dest, rel); err != nil {
 			return err
 		}
 		dst := filepath.Join(dest, rel)
 		mode := os.FileMode(hdr.Mode).Perm()
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			err = folder(dst, mode)
+			err = folder(fsys, dst, mode)
 		case tar.TypeReg:
-			err = file(dst, tr, mode, replace)
+			err = file(fsys, dst, tr, mode, replace)
 		case tar.TypeSymlink:
-			err = link(dst, hdr.Linkname, replace)
+			err = link(fsys, dst, hdr.Linkname, replace)
 		default:
 			continue // hard links, devices: Pack never writes them
 		}
@@ -157,17 +166,17 @@ func localPath(name string) (string, bool) {
 
 // parents creates the folders above rel under root, refusing anything in
 // the way that isn't a real folder.
-func parents(root, rel string) error {
+func parents(fsys FS, root, rel string) error {
 	dir := root
 	for _, part := range strings.Split(filepath.Dir(rel), string(filepath.Separator)) {
 		if part == "." {
 			continue
 		}
 		dir = filepath.Join(dir, part)
-		st, err := os.Lstat(dir)
+		st, err := fsys.Lstat(dir)
 		switch {
 		case errors.Is(err, os.ErrNotExist):
-			if err := os.Mkdir(dir, 0o755); err != nil {
+			if err := fsys.Mkdir(dir, 0o755); err != nil {
 				return err
 			}
 		case err != nil:
@@ -179,11 +188,11 @@ func parents(root, rel string) error {
 	return nil
 }
 
-func folder(dst string, mode os.FileMode) error {
-	st, err := os.Lstat(dst)
+func folder(fsys FS, dst string, mode os.FileMode) error {
+	st, err := fsys.Lstat(dst)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return os.Mkdir(dst, mode|0o700)
+		return fsys.Mkdir(dst, mode|0o700)
 	case err != nil:
 		return err
 	case !st.IsDir():
@@ -194,8 +203,8 @@ func folder(dst string, mode os.FileMode) error {
 
 // file writes beside dst and renames it into place, so a replaced file is
 // never half written and a symlink at dst is replaced, not followed.
-func file(dst string, r io.Reader, mode os.FileMode, replace bool) error {
-	st, err := os.Lstat(dst)
+func file(fsys FS, dst string, r io.Reader, mode os.FileMode, replace bool) error {
+	st, err := fsys.Lstat(dst)
 	switch {
 	case err == nil && st.IsDir():
 		return errors.New("a folder is in the way")
@@ -204,7 +213,7 @@ func file(dst string, r io.Reader, mode os.FileMode, replace bool) error {
 	case err != nil && !errors.Is(err, os.ErrNotExist):
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".part-*")
+	tmp, name, err := CreateTemp(fsys, filepath.Dir(dst), "."+filepath.Base(dst)+".part-*")
 	if err != nil {
 		return err
 	}
@@ -213,32 +222,32 @@ func file(dst string, r io.Reader, mode os.FileMode, replace bool) error {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Chmod(tmp.Name(), mode)
+		err = fsys.Chmod(name, mode)
 	}
 	if err == nil {
-		err = os.Rename(tmp.Name(), dst)
+		err = fsys.Rename(name, dst)
 	}
 	if err != nil {
-		os.Remove(tmp.Name())
+		fsys.Remove(name)
 	}
 	return err
 }
 
-func link(dst, target string, replace bool) error {
-	st, err := os.Lstat(dst)
+func link(fsys FS, dst, target string, replace bool) error {
+	st, err := fsys.Lstat(dst)
 	switch {
 	case err == nil && st.IsDir():
 		return errors.New("a folder is in the way")
 	case err == nil && !replace:
 		return os.ErrExist
 	case err == nil:
-		if err := os.Remove(dst); err != nil {
+		if err := fsys.Remove(dst); err != nil {
 			return err
 		}
 	case !errors.Is(err, os.ErrNotExist):
 		return err
 	}
-	return os.Symlink(target, dst)
+	return fsys.Symlink(target, dst)
 }
 
 // SafeName makes a name from the other end safe to create here: its last
@@ -260,10 +269,13 @@ func SafeName(name string) string {
 // FreeName is name in dir, or when that is taken the first of "name 2",
 // "name 3", … that is not, keeping the extension: a copy never lands on
 // something already there unless asked to.
-func FreeName(dir, name string) string {
+func FreeName(dir, name string) string { return FreeNameFS(Local, dir, name) }
+
+// FreeNameFS is FreeName for a folder in fsys.
+func FreeNameFS(fsys FS, dir, name string) string {
 	// Anything Lstat can't see is free as far as a name goes; the write
 	// itself says why if it is not.
-	if _, err := os.Lstat(filepath.Join(dir, name)); err != nil {
+	if _, err := fsys.Lstat(filepath.Join(dir, name)); err != nil {
 		return name
 	}
 	ext := filepath.Ext(name)
@@ -273,7 +285,7 @@ func FreeName(dir, name string) string {
 	stem := strings.TrimSuffix(name, ext)
 	for i := 2; ; i++ {
 		cand := fmt.Sprintf("%s %d%s", stem, i, ext)
-		if _, err := os.Lstat(filepath.Join(dir, cand)); err != nil {
+		if _, err := fsys.Lstat(filepath.Join(dir, cand)); err != nil {
 			return cand
 		}
 	}

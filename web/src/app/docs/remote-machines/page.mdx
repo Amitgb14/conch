@@ -107,6 +107,18 @@ conch -m gpu-box download -to ~/Downloads ~/logs/run.log ~/results
 
 They travel over the connection conch already has to the machine, so they work the same for an ssh host and a sandbox — whose address can change at every start, and which you may hold no key for. Paths there may start with `~`. A name already taken on the receiving side is numbered (`ca 2.pem`) unless `-f` is given, and each path is printed as it lands. Up to 4 GB a file or packed folder; a file dropped on a pane stays limited as above.
 
+### A host you reached with plain ssh
+
+A terminal where you typed `ssh host` needs no conch on that host: `-ssh` names the terminal — its ID or name, as `conch status` shows it — and the copy goes to or from the host it is logged in to, through the host's own sftp server, with the options you typed.
+
+```sh
+conch upload -ssh bb ./site ~/doc/ca.pem            # into that host's home
+conch upload -ssh p4 -to ~/certs ~/doc/ca.pem       # into a folder there
+conch download -ssh bb -to ~/Downloads ~/logs/app.log
+```
+
+That needs a key or an ssh agent for the host, since nobody is there to type a password; with `-m`, it is a terminal on that machine. The same host's files are in the terminal's [Files row](/docs/interface#a-machines-own-files).
+
 ## Moving a worktree to another machine
 
 When this computer is slow, or you're about to close the lid, move a task to a machine that stays up: `T` on a branch in the tree, or on an agent working in it (or in the branch's changes view, or `m` → **Move to another machine or a sandbox…**), pick the machine, and confirm. That is all: conch settles the rest.

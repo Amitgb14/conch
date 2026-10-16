@@ -9,6 +9,7 @@ import (
 	"github.com/Amitgb14/conch/internal/detect"
 	"github.com/Amitgb14/conch/internal/pane"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/usage"
 )
 
@@ -49,6 +50,11 @@ type entry struct {
 
 	monitor paneMonitor // guarded by mu; see monitor.go
 
+	// login is the host the program in front is logged in to when it is
+	// ssh, guarded by mu (sshfiles.go).
+	login   remote.Login
+	loginOK bool
+
 	// turns counts the agent starting work, guarded by mu: what tells a
 	// prompt's end from a state left over from before it (see prompt.go).
 	turns int
@@ -60,6 +66,17 @@ type entry struct {
 	// subagents are the agents the pane's agent runs in its own process
 	// (subagents.go); guarded by mu.
 	subagents subagents
+
+	// permissions are what the permission rules answered here, newest
+	// last, and answered when the last of them was; guarded by mu
+	// (permissions.go).
+	permissions []proto.PermissionRecord
+	answered    time.Time
+
+	// launched is the agent the pane was started to run, if any: it counts
+	// as one before the agent's process is seen, which a queue starting
+	// work against a limit must not wait for.
+	launched string
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -76,6 +93,9 @@ func (e *entry) info() proto.PaneInfo {
 	info.LastActive = e.lastActive
 	turns := e.turns
 	subs := append([]proto.Subagent(nil), e.subagents.list...)
+	if e.loginOK && info.State == proto.PaneRunning {
+		info.SSH = e.login.Host
+	}
 	if len(e.lineage) > 0 {
 		info.CreatedBy = e.lineage[0]
 	}
@@ -157,10 +177,11 @@ type shown struct {
 	monitor                        proto.PaneMonitor
 	alert                          string
 	subagents                      string
+	ssh                            string
 }
 
 func shownOf(info proto.PaneInfo) shown {
-	sh := shown{title: info.Title, name: info.Name, branch: info.Branch, alert: info.Alert}
+	sh := shown{title: info.Title, name: info.Name, branch: info.Branch, alert: info.Alert, ssh: info.SSH}
 	if info.Monitor != nil {
 		sh.monitor = *info.Monitor
 	}
@@ -193,6 +214,9 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 		e.screen, e.screenVersion = e.p.PlainLines(), v
 	}
 	e.mu.Lock()
+	if perr == nil { // a look that failed says nothing about what is in front
+		e.login, e.loginOK = remote.ParseLogin(proc.Args)
+	}
 	prevState := e.tracker.Status().State
 	fn(e.tracker)
 	at := time.Now()
@@ -207,7 +231,7 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 		Screen:     e.screen,
 		Title:      e.p.Title(),
 		Watched:    e.watchers > 0,
-		Program:    programReport(e.p),
+		Program:    s.heldBack(e, programReport(e.p), at),
 	})
 	// Going back to work after a question was answered is the same turn.
 	if now := e.tracker.Status().State; now == proto.AgentWorking && prevState != proto.AgentWorking && prevState != proto.AgentBlocked {

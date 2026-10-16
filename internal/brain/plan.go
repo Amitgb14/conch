@@ -56,9 +56,12 @@ type Pane struct {
 const (
 	ActStartTask  = "start_task"  // new branch + worktree + agent with a prompt
 	ActStartAgent = "start_agent" // agent in an existing project/branch
-	ActSend       = "send"        // type a message into a pane and press enter
-	ActFocus      = "focus"       // show a pane
-	ActClose      = "close"       // close a pane
+	// ActStartTerminal is a shell in a project's checkout: asked for a
+	// terminal, the brain once started an agent, having no other way.
+	ActStartTerminal = "start_terminal"
+	ActSend          = "send"  // type a message into a pane and press enter
+	ActFocus         = "focus" // show a pane
+	ActClose         = "close" // close a pane
 	// ActShare hands one agent's conversation to another agent, new or
 	// running; ActBroadcast sends one message to several agents at once.
 	ActShare     = "share"
@@ -99,7 +102,7 @@ var planSchema = map[string]any{
 			"items": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"type":    map[string]any{"type": "string", "enum": []string{ActStartTask, ActStartAgent, ActSend, ActFocus, ActClose, ActShare, ActBroadcast}},
+					"type":    map[string]any{"type": "string", "enum": []string{ActStartTask, ActStartAgent, ActStartTerminal, ActSend, ActFocus, ActClose, ActShare, ActBroadcast}},
 					"machine": map[string]any{"type": "string", "description": "machine id"},
 					"project": map[string]any{"type": "string", "description": "project id"},
 					"branch":  map[string]any{"type": "string"},
@@ -124,6 +127,7 @@ const planSystem = `You are the brain of conch, a terminal orchestrator that run
 Actions:
 - start_task: create a new branch and git worktree in a git project and start an agent there with a prompt. Fields: machine, project, prompt, agent (optional), branch (optional short kebab-case name; derived from the prompt when omitted), base (optional).
 - start_agent: start an agent in an existing project checkout; with branch, in that branch's worktree (created if needed). Fields: machine, project, agent, branch (optional), prompt (optional first message).
+- start_terminal: open a plain terminal (a shell, no agent) in a project checkout; with branch, in that branch's worktree (created if needed). Fields: machine, project, branch (optional). Use it whenever the user asks for a terminal or a shell — never start an agent for that.
 - send: type a message to an agent already running in a pane and press enter. Fields: machine, pane, text.
 - focus: show a pane. Fields: machine, pane.
 - close: close a pane (stops its process). Fields: machine, pane. Only when the user clearly asks.
@@ -164,6 +168,11 @@ func (w World) Validate(a *Action) error {
 		return fmt.Errorf("%s is offline", m.Label)
 	}
 	switch a.Type {
+	case ActStartTerminal:
+		if m.project(a.Project) == nil {
+			return fmt.Errorf("unknown project %q on %s", a.Project, m.Label)
+		}
+		a.Agent = "" // a shell, whatever the model put there
 	case ActStartTask, ActStartAgent:
 		if a.Agent == "" {
 			a.Agent = w.DefaultAgent
@@ -269,6 +278,12 @@ func (w World) Describe(a Action) string {
 		}
 		if a.Prompt != "" {
 			s += ": " + a.Prompt
+		}
+		return s
+	case ActStartTerminal:
+		s := "Open a terminal in " + where
+		if a.Branch != "" {
+			s += " on " + a.Branch
 		}
 		return s
 	case ActSend:

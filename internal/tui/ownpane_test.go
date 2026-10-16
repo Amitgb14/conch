@@ -73,7 +73,7 @@ func TestOwnPaneIsNeverResized(t *testing.T) {
 	// Told that it is our own, it is taken off the screen and nothing more
 	// is sent for it — the resize is the half that shrinks the terminal.
 	seen := len(peer.snapshot())
-	mach.sizes = map[string][2]int{}
+	mach.sizes = map[string]paneSize{}
 	mach.ownPane = "p1"
 	m.dropOwnPane(mach.id, "p1")
 	m.syncView()
@@ -88,7 +88,7 @@ func TestOwnPaneIsNeverResized(t *testing.T) {
 	// go through show — the resize is still not sent. That is the half
 	// that shrinks the terminal, so it is guarded on its own.
 	seen = len(peer.snapshot())
-	mach.sizes = map[string][2]int{}
+	mach.sizes = map[string]paneSize{}
 	i := indexOfRow(m.rows, own)
 	if i < 0 {
 		t.Fatalf("no row %q", own)

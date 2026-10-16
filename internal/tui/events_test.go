@@ -113,7 +113,7 @@ func TestHandleEventPaneLifecycle(t *testing.T) {
 	a1Open(t, m, paneNodeID(localMachine, "p9"))
 	key := paneKey(localMachine, "p9")
 	m.subscribed[key], m.frames[key] = true, &proto.Frame{}
-	mach.sizes["p9"] = [2]int{80, 24}
+	mach.sizes["p9"] = paneSize{want: [2]int{80, 24}}
 	m.focus = focusMain
 	if m.handleEvent(mach, eventMsg(t, proto.EventPaneClosed, proto.PaneRef{ID: "p9"})) == nil {
 		t.Fatal("close returned nothing")

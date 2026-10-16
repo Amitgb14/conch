@@ -14,7 +14,7 @@ Every key binding in the TUI, grouped by where it applies. Press `?` in conch to
 | `enter` | open pane / view changes |
 | `/` | filter (`/ !` keeps only the agents waiting for you) |
 | `!` | next agent waiting for you |
-| `Q` | [review queue](/docs/interface#review-queue): what needs a decision, across every machine (`v` checks a row, `o` opens the check's output, `x` dismisses it) |
+| `Q` | [review queue](/docs/interface#review-queue): what needs a decision, across every machine (`v` checks a row, `o` opens the check's output, `f` sends a failed check or CI run to the branch's agent, `R` hands a [reviewer's](/docs/interface#a-second-opinion) report to it, `C` continues an agent stopped at its plan limit once it resets, `x` dismisses a row or takes a scheduled one off the schedule) |
 | `B` | [broadcast](/docs/agents#broadcast) a message to the agents and terminals of the selection |
 | `f` | [files](/docs/interface#files): browse the selected project's checkout, or a branch's worktree |
 | `o` | open PR |
@@ -49,7 +49,8 @@ Other keys on tree items:
 | Key | Action |
 | --- | --- |
 | `i` | [agent setup](/docs/tasks#agent-setup) for a project, branch or pane. In it: `s` gives the other agents this one's setup ([one setup, every agent](/docs/tasks#one-setup-every-agent)), `u` undoes that, `S` installs or removes conch's own skill for the agent whose tab is open, `c` copies missing local files, `f` edits the patterns |
-| `F` | [local file patterns](/docs/tasks#local-files-in-worktrees) for a project |
+| `F` | new worktrees of a project: its [setup command and local file patterns](/docs/tasks#setup-and-ports-in-worktrees) |
+| `L` | open a checkout's [preview](/docs/tasks#ports) (`$CONCH_PORT`) in the browser |
 | `W` | [clean up a project's worktrees](/docs/tasks#cleaning-up-worktrees) |
 | `S` | [summarise](/docs/brain#summaries) an agent |
 | `C` | [install Claude Code](/docs/remote-machines#claude-code-on-a-machine) on a machine |
@@ -83,6 +84,8 @@ Other keys on tree items:
 | `space` | mark a file for the next commit — a click in the `✓` column does the same (in a diff, the hunk under `▸`) |
 | `n` `N` | next, previous hunk in a diff |
 | `s` | in a diff, side by side or unified (wide terminals start side by side) |
+| `a` | in a diff, comment on the hunk under `▸` (`✎`) |
+| `S` | send the branch's comments to its agent |
 | `e` | open the file in `$EDITOR` at the hunk under `▸`, in a pane of its own |
 | `F` | in a diff, follow what just changed |
 | `R` | re-read the branch, or the open diff |

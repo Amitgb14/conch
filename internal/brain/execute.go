@@ -29,7 +29,7 @@ func Execute(ctx context.Context, c *client.Client, a Action, cols, rows int) (R
 			return res, err
 		}
 		res.Pane = &info
-	case ActStartAgent:
+	case ActStartAgent, ActStartTerminal:
 		var list proto.ProjectList
 		if err := c.Call(ctx, proto.MethodProjectList, nil, &list); err != nil {
 			return res, err
@@ -61,6 +61,9 @@ func Execute(ctx context.Context, c *client.Client, a Action, cols, rows int) (R
 		}
 		params := proto.PaneCreateParams{Agent: a.Agent, Cwd: dir, Cols: cols, Rows: rows}
 		params.Prompt = a.Prompt
+		if a.Type == ActStartTerminal {
+			params.Agent, params.Prompt = "", "" // the machine's own login shell
+		}
 		var info proto.PaneInfo
 		if err := c.Call(ctx, proto.MethodPaneCreate, params, &info); err != nil {
 			return res, err

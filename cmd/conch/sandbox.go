@@ -14,6 +14,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
@@ -154,48 +155,60 @@ func sandboxCreate(args []string) error {
 	if *cpu < 0 || *memory < 0 || *disk < 0 {
 		return errors.New("-cpu, -memory and -disk can't be negative")
 	}
-	cfg, err := config.Load()
+	ctx, cancel := context.WithTimeout(context.Background(), sandboxWait)
+	defer cancel()
+	saved, sb, c, err := makeSandbox(ctx, *label, sandbox.Spec{Snapshot: *snapshot, CPU: *cpu, Memory: *memory, Disk: *disk}, env, *yes)
 	if err != nil {
 		return err
+	}
+	defer c.Close()
+	fmt.Printf("added %s (%s): %s sandbox %s, server pid %d on %s\n", saved.ID, saved.Label, sandboxProvider, sb.ID, c.Server.PID, c.Server.Hostname)
+	return nil
+}
+
+// makeSandbox creates a sandbox with the provider sandboxProvider names,
+// installs conch there and saves it as a machine, returning a connection to
+// its server that lives as long as ctx. A sandbox whose setting up fails is
+// offered for deletion (or deleted, with yes): it costs while it runs.
+func makeSandbox(ctx context.Context, label string, spec sandbox.Spec, env []string, yes bool) (remote.Machine, sandbox.Sandbox, *client.Client, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return remote.Machine{}, sandbox.Sandbox{}, nil, err
 	}
 	pc := cfg.Sandbox.Of(sandboxProvider)
 	vars, err := sandbox.EnvFrom(append(append([]string{}, pc.Env...), env...))
 	if err != nil {
-		return err
+		return remote.Machine{}, sandbox.Sandbox{}, nil, err
 	}
 	p, err := openSandboxes()
 	if err != nil {
-		return err
+		return remote.Machine{}, sandbox.Sandbox{}, nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), sandboxWait)
-	defer cancel()
-
 	fmt.Fprintln(os.Stderr, "Creating a "+sandbox.ProviderLabel(sandboxProvider)+" sandbox…")
-	s, err := p.Create(ctx, sandbox.Spec{Snapshot: *snapshot, CPU: *cpu, Memory: *memory, Disk: *disk,
-		Env: vars, AutoStop: pc.AutoStop})
+	spec.Env, spec.AutoStop = vars, pc.AutoStop
+	sb, err := p.Create(ctx, spec)
 	if err != nil {
-		if s.ID != "" {
-			abandonSandbox(p, s.ID, *yes)
+		if sb.ID != "" {
+			abandonSandbox(p, sb.ID, yes)
 		}
-		return err
+		return remote.Machine{}, sb, nil, err
 	}
-	fmt.Fprintf(os.Stderr, "  sandbox %s started\n", s.ID)
-	m := remote.Machine{Label: strings.TrimSpace(*label), Target: remote.SandboxTarget(sandboxProvider, s.ID)}
+	fmt.Fprintf(os.Stderr, "  sandbox %s started\n", sb.ID)
+	m := remote.Machine{Label: strings.TrimSpace(label), Target: remote.SandboxTarget(sandboxProvider, sb.ID)}
 	if m.Label == "" {
-		m.Label = remote.DefaultSandboxLabel(s.ID)
+		m.Label = remote.DefaultSandboxLabel(sb.ID)
 	}
 	c, err := remote.SetUpSandbox(ctx, m, progress)
 	if err != nil {
-		abandonSandbox(p, s.ID, *yes)
-		return err
+		abandonSandbox(p, sb.ID, yes)
+		return remote.Machine{}, sb, nil, err
 	}
-	defer c.Close()
 	saved, err := remote.SaveMachine(m)
 	if err != nil {
-		return err
+		c.Close()
+		return remote.Machine{}, sb, nil, err
 	}
-	fmt.Printf("added %s (%s): %s sandbox %s, server pid %d on %s\n", saved.ID, saved.Label, sandboxProvider, s.ID, c.Server.PID, c.Server.Hostname)
-	return nil
+	return saved, sb, c, nil
 }
 
 // abandonSandbox offers to delete a sandbox whose setting up failed, since

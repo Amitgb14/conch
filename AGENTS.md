@@ -48,6 +48,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/buildinfo` | Build identity (executable hash) used to detect stale servers and TUIs |
 | `internal/report` | What `conch bug` and the TUI's *Report a problem…* hand over: versions, counts, sizes, a server's missing capabilities and conch's own last error, rendered for a GitHub issue. **Facts, never contents** — no path, project, branch, pane title or screen — which is what makes one keystroke safe; it sends nothing itself |
 | `internal/tools` | Programs for driving conch under test: `clicker` clicks and drags a pane through the protocol, `standin` is a pane conch detects as an agent (by the name it is built under) that starts panes as an agent does |
+| `internal/sshtest` | A stand-in for ssh in tests: the test binary run under the name `ssh` logs in by waiting as a shell would, and asked for sftp serves a folder as the host's home (hosts `denied`, `nosftp`, `hang` fail as ssh does). A test package calls `sshtest.Main()` from `TestMain` and `sshtest.Install(t)` to put it on `CONCH_SSH`. It is how the files of a terminal's ssh host (`fs.ssh.v1`, `internal/server/sshfiles.go`) are tested without a network |
 | `web/` | The documentation website (Next.js, MDX under `web/src/app/docs`) |
 | `docs/plans` | Design plans for deferred work. The roadmap and the gap plan are kept out of the repository (see `.gitignore`); ask for them rather than looking for them here |
 | `docs/testing` | The [end-to-end plan](docs/testing/end-to-end.md): paths the automated tests only cover with fakes |
@@ -288,6 +289,18 @@ helpers in `cmd/conch` and `internal/remote`.
   value is an arrow, since that is what a terminal shows before conch
   asks. Every way out goes through `quitting` or `releasePointer`: a hand
   asked for by conch outlives conch, over whatever the shell draws next.
+- **A pane has more than one client, and its size is the server's to
+  say.** The TUI resizes every pane it draws to the space it has, and it
+  used to decide by what it had last asked for. The phone gateway is a
+  client of the same server and resizes the same panes to a phone's
+  screen, so answering an agent on the phone and then coming back to the
+  terminal left it drawing 76 columns into 247: the cache said that size
+  had been asked for already. `syncView` now compares the layout's width
+  with `PaneInfo.Cols/Rows` — what the pane *is* — and keeps the cache
+  only to avoid re-sending a request while it is in flight, which it can
+  do because the reported size does not change until the server
+  confirms. Anything else conch remembers having asked a server for has
+  the same question to answer: who else is asking?
 - **A frame is also how a client learns who holds the mouse.** A program
   asking for mouse reports, or giving them back, moves no cell, so nothing
   in the output path sends a frame — and a client goes on deciding by the

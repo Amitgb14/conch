@@ -49,7 +49,7 @@ func TestA2MachineLifecycle(t *testing.T) {
 
 	// Success attaches the client and starts listening.
 	c := &client.Client{Server: proto.HelloResult{Build: "b1", Capabilities: []string{"agent.install.v1"}}, Events: make(chan proto.Message, 1)}
-	mach.sizes["p1"] = [2]int{80, 24}
+	mach.sizes["p1"] = paneSize{want: [2]int{80, 24}}
 	gen := mach.gen
 	if cmd := mach.connected(machineConnectedMsg{c: c}); cmd == nil {
 		t.Fatal("a connection loads the machine's state")
@@ -57,10 +57,10 @@ func TestA2MachineLifecycle(t *testing.T) {
 	if mach.c != c || mach.state != stateOnline || mach.err != "" || mach.failures != 0 || mach.gen != gen+1 || len(mach.sizes) != 0 || mach.server.Build != "b1" {
 		t.Fatalf("attached: %+v", mach)
 	}
-	// Events, agents, limits, panes, projects, and which pane this conch
-	// is in (ownPane, tabs.go).
-	if len(mach.listen()) != 6 || mach.checkAgents() == nil {
-		t.Fatal("listen starts six loaders")
+	// Events, agents, the schedule, limits, panes, projects, and which
+	// pane this conch is in (ownPane, tabs.go).
+	if len(mach.listen()) != 7 || mach.checkAgents() == nil {
+		t.Fatal("listen starts seven loaders")
 	}
 	// An outdated server that still answered is used, with a warning.
 	mach.connected(machineConnectedMsg{c: c, err: &remote.OutdatedServerError{Missing: []string{"x"}}})
@@ -184,7 +184,7 @@ func TestPanesOfARestartedServerAreNotTheOldOnes(t *testing.T) {
 	if !mach.agents["p1"] || !mach.agents["p4"] {
 		t.Fatalf("the fixture's agents: %v", mach.agents)
 	}
-	mach.sizes["p1"] = [2]int{80, 24}
+	mach.sizes["p1"] = paneSize{want: [2]int{80, 24}}
 	m.frames[paneKey(localMachine, "p1")] = &proto.Frame{ID: "p1", Lines: []string{"the agent's screen"}}
 	m.subscribed[paneKey(localMachine, "p1")] = true
 

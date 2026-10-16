@@ -813,3 +813,57 @@ func TestSettingsSandboxRestore(t *testing.T) {
 		t.Fatalf("one provider's answer is not another's: %+v", m.cfg.Sandbox)
 	}
 }
+
+// What happens when an agent finishes, and alerts sent elsewhere, can be
+// chosen in Settings rather than only in config.toml.
+func TestSettingsFinishAndNotifyCommand(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	s := &settings{tab: 2}
+	rev := a2Item(t, s.items(m), "Another agent reviews the work")
+	if !strings.HasPrefix(rev.detail, "off") {
+		t.Fatalf("reviewer starts off: %q", rev.detail)
+	}
+	rev.run(m)
+	if m.cfg.Verify.Reviewer == "" {
+		t.Fatal("enter chose no reviewer")
+	}
+	// Stepping through every agent comes back round to off.
+	for range len(knownAgents(m)) {
+		a2Item(t, s.items(m), "Another agent reviews the work").run(m)
+	}
+	if m.cfg.Verify.Reviewer != "" {
+		t.Fatalf("after a full turn: %q", m.cfg.Verify.Reviewer)
+	}
+	if nextReviewer("gone-agent", []string{"claude"}) != "" {
+		t.Fatal("an unknown reviewer doesn't reset to off")
+	}
+	fix := a2Item(t, s.items(m), "A failed check goes back to it")
+	for want := 1; want <= 4; want++ {
+		fix.run(m)
+		if m.cfg.Verify.AutoFix != want%4 {
+			t.Fatalf("step %d: %d", want, m.cfg.Verify.AutoFix)
+		}
+	}
+	if !strings.Contains(autoFixText(2), "up to 2 times") || !strings.HasPrefix(autoFixText(0), "off") {
+		t.Fatal("auto-fix text")
+	}
+
+	s.tab = 1
+	cmdItem := a2Item(t, s.items(m), "Also run a command")
+	if !strings.HasPrefix(cmdItem.detail, "none") {
+		t.Fatalf("command detail %q", cmdItem.detail)
+	}
+	cmdItem.run(m)
+	d, ok := m.overlay.(*dialog)
+	if !ok || d.back != s {
+		t.Fatalf("no dialog coming back to settings: %T", m.overlay)
+	}
+	d.submit(m, []string{"  curl -d @- ntfy.sh/x  "})
+	if m.cfg.Notify.Command != "curl -d @- ntfy.sh/x" {
+		t.Fatalf("saved %q", m.cfg.Notify.Command)
+	}
+	if got := notifyCommandText(strings.Repeat("x", 80)); ansi.StringWidth(got) > 40 {
+		t.Fatalf("long command shown as %q", got)
+	}
+}

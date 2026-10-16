@@ -20,6 +20,10 @@ conch task -cwd ~/src/api "Add a health check endpoint"   # pane, worktree, bran
 
 `conch task` also takes `-branch B` to name the branch and `-base B` to start from another branch than the project's base.
 
+**In a sandbox of its own.** `conch task -sandbox daytona "…"` (or `boat`, or any provider you have [set up](/docs/sandboxes)) makes a sandbox for the task, clones the project there from its origin remote, and starts the agent on its own branch inside it — so nothing the agent runs touches your computer. It works from what origin has: push what it needs first. The sandbox then sits in the sidebar like any other machine, with its usual idle stop, until you stop or remove it.
+
+**From a GitHub issue.** **New task from a GitHub issue…** in a project's menu (`m`) lists its open issues, read through `gh` on the machine the project is on, and choosing one starts the default agent on a branch named after it — `api/issue-12-login-fails-safari` — with the issue's title and body as the prompt and a reminder that its pull request should say `Fixes #12`. From a shell, `conch task -issue 12`; words after it are added to the issue as further instructions, and `-n`, `-agent`, `-queue` and `-at` work as for any task. Only GitHub, through your own `gh` login: conch holds no token of its own.
+
 No git repository is needed. `t` on a machine row — a sandbox's included — asks for a prompt, an agent and a number of attempts, and starts the agent in that machine's home directory, outside every project; `t` on a project that isn't a repository does the same in its folder. From a shell, in a folder that isn't one, `conch task` starts the agent there with the prompt — no branch, no worktree — which is what you want for a planning agent or a scratch folder. `-branch` and `-base` are refused there, and several attempts (`-n`, or several agents) share the folder, which conch says as it starts them. With `-m MACHINE` and no `-cwd`, the agent starts in that machine's home directory, outside every project:
 
 ```sh
@@ -113,6 +117,49 @@ Each row is what that attempt changed, what its agent is doing and what it has s
 
 The terminals stay open: `o` shows the selected attempt's one so you can read the output, and they close like any other terminal (`x` in the tree). `t` again reruns the same command, in fresh terminals.
 
+## Later, and on a schedule
+
+The server keeps a list of things to do later, so they happen with conch closed — which is usually the point:
+
+```sh
+conch task -at 02:00 "Upgrade the test framework and fix what breaks"   # tonight
+conch task -every daily -at 07:00 "Bump the dependencies and run the tests"
+conch agent prompt -at +30m reviewer "Check the CI result and report"
+conch schedule            # what is scheduled, when, and how its last run went
+conch schedule rm s1a2b3  # take one away
+```
+
+`-at` takes `14:05` (today, or tomorrow once it has passed), `+30m` / `+2h` / `+1d`, or `2026-10-15 09:00`. `-every` takes `hourly`, `daily`, `weekly` or a span such as `6h` or `2d`, five minutes at the least; with no `-at`, the first run is now. A repeating task starts on a branch of its own each time — the prompt's branch name with the date and time after it — so one morning's work never lands on the last's. Missed runs, a laptop asleep overnight, are skipped rather than run in a burst.
+
+**A queue.** Starting ten agents at once makes ten diffs to read at once, and reading is the slow part. `-queue` adds a task to the project's queue instead: it starts as soon as fewer than three agents are running in the project (`-wip N` for another number), in the order queued. Closing an agent you have finished with is what makes room. Reviewers are not counted — they read work rather than make more of it.
+
+```sh
+conch task -queue "Add rate limiting to the login endpoint"
+conch task -queue -wip 2 "Move the settings page to the new form library"
+```
+
+**After other work.** Some changes need another first: the endpoint needs the model it serves. `-after` holds a task until that work has finished, then starts it from that work's branch, so the second agent builds on what the first committed:
+
+```sh
+conch task -branch api/model "Add the Invoice model and its migration"
+conch task -after api/model "Add a REST endpoint for invoices"
+conch task -after p4 "Write the client for the new endpoint"   # the branch the agent in pane p4 is on
+```
+
+`-after` takes a branch of the project, a pane working on one, or a task still on the schedule — by the ID `conch task -queue` printed, or the `-branch` it was given — so a whole stack can be queued at once, each waiting for the one before. "Finished" is the agent on that branch having worked and stopped: not still at work, not waiting on a question. With `-queue` too it also waits for room; with `-base` it waits but starts from that base instead.
+
+When it can't be sure, it waits and says why in `conch schedule` and the queue, rather than starting on the wrong code:
+
+- the branch has **uncommitted changes**, which a branch made from it would not have — commit them and it starts;
+- the branch is **gone without being merged** — discarded, so there is nothing to build on. A branch that was merged into the base and then deleted is fine: the task starts from the base, which now has that work;
+- the task it waits for was **taken off the schedule or failed to start**.
+
+In the TUI, the task dialog's **When** field does the same: leave it empty to start now, type `queue` to queue it, `after api/model` to wait for other work, or a time — `02:00`, `+2h` — to schedule it.
+
+A scheduled message waits for its agent: it is never typed into one that is working, or waiting on a question of its own — the schedule says so beside it — and is sent once the agent is free. A message for a pane that has since closed, or now runs another agent, is dropped rather than typed into something that never asked for it.
+
+**After a plan limit.** An agent that stopped because its plan ran out is in the [review queue](/docs/interface#review-queue) as `stopped at its plan limit, which resets at 14:00`. `C` there has the server tell it to carry on a minute after the limit resets — whether or not conch is open then. Everything scheduled shows at the bottom of the queue too (`⏲`), and `x` on one takes it off the schedule.
+
 ## Local files in worktrees
 
 A fresh worktree has only what git tracks, so an agent there would miss your `.env` or personal agent settings. When conch creates a worktree it copies the main checkout's **gitignored** files that match the project's patterns — by default:
@@ -132,6 +179,32 @@ conch project files ID PATTERN...   # set the patterns
 conch project files ID -reset       # restore the defaults
 conch project files ID -none        # copy no local files
 ```
+
+## Setup and ports in worktrees
+
+Copied files make a worktree *configured*; they don't make it *run*. It still has no `node_modules`, no virtualenv, no database. Give the project a **setup command** and conch runs it in every new worktree — tasks, attempts, `c` on a branch, a worktree moved from another machine — in a terminal of its own named `setup`, beside the agent rather than before it:
+
+```sh
+conch project setup ID 'npm ci && cp .env.example .env'   # set it
+conch project setup ID                                    # show it
+conch project setup -none ID                              # run nothing
+```
+
+`F` on a project sets it too. The command runs in your login shell, so the `PATH` your version managers set up (nvm, pyenv, asdf) is the one it sees. A setup that works closes its terminal by itself; one that fails stays open at a shell in the worktree, with `setup failed (exit N)` under its output, which is where you fix it from. The command is kept with the project on that machine, never read from the repository: a branch somebody else pushed can't bring a command that runs on checkout.
+
+The command can read where it is: `CONCH_WORKTREE`, `CONCH_BRANCH`, `CONCH_ROOT` (the main checkout, to copy a database from) and `CONCH_PROJECT`.
+
+### Ports
+
+Every checkout is given **ten ports of its own**, from `$CONCH_PORT` (and `$CONCH_PORT_COUNT`, which is 10), set in every terminal and agent started there and in its setup. Two agents each running `npm run dev` in their own worktree then don't fight over port 3000 — start servers on the port conch gave:
+
+```sh
+npm run dev -- --port $CONCH_PORT
+PORT=$CONCH_PORT rails s
+uvicorn app:app --port $CONCH_PORT
+```
+
+A checkout keeps its ports for as long as it is on disk, through restarts and reloads, so a link to it still works tomorrow; ports already in use on the machine are skipped. `L` on a branch, or on a pane in a checkout, opens `http://localhost:$CONCH_PORT` in your browser — on another machine through a port forward on conch's own ssh connection, in a sandbox through the provider's link. When nothing answers there yet, conch says how to start a server on it and keeps the link on your clipboard.
 
 ## Agent setup
 

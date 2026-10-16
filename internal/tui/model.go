@@ -202,6 +202,8 @@ type Model struct {
 	filesView    *filesView               // the focused leaf's, when it is a file explorer
 	queueSeen    map[string]string        // review queue rows dismissed, by what they said when dismissed
 	verifyRuns   map[string]verifyRun     // a branch's last run of its project's check, by machine|project|branch
+	verifyFixes  map[string]int           // failed checks sent back on their own since the last pass, by the same key
+	reviewSigs   map[string]string        // what each branch looked like when its reviewer was last started (reviewer.go)
 	actionPanes  map[string]string        // a custom action's terminal, kept when it exits: machine|pane -> action name
 	// pendingMoves is moves waiting, by machine, for the sandbox made for
 	// them to connect (move.go).
@@ -466,6 +468,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, tea.Batch(settled, m.rebuild(), m.startTicking())
+
+	case issuesMsg:
+		return m, m.receiveIssues(msg)
+
+	case scheduleMsg:
+		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
+			mach.schedule = msg.list.Items
+		}
+		return m, nil
 
 	case limitsMsg:
 		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
@@ -870,6 +881,9 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if mach.settled == mach.gen && m.followRename(mach.id, old, info) {
 			renamed = m.saveState()
 		}
+		if old.SSH != info.SSH || (old.State != info.State && old.SSH != "") {
+			renamed = tea.Batch(renamed, m.sshLoginChanged(mach.id, info))
+		}
 		if info.Agent != nil {
 			mach.agents[info.ID] = true
 		}
@@ -885,6 +899,9 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		var installed tea.Cmd
 		if msg.Event == proto.EventPaneExited {
 			wasCheck := m.verifyExited(mach.id, info)
+			if wasCheck {
+				checked = tea.Batch(checked, m.autoFix(mach.id, info), m.reviewAfterCheck(mach.id, info))
+			}
 			wasAction := m.actionExited(mach.id, info)
 			installed = m.installerDone(mach, info)
 			// A check's terminal is its report: it stays until you close
@@ -981,6 +998,13 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		cmds = append(cmds, m.filesEvent(mach.id, wc))
 		return tea.Batch(cmds...)
 
+	case proto.EventScheduleChanged:
+		var list proto.ScheduleList
+		if decodeInto(msg, &list) {
+			mach.schedule = list.Items
+		}
+		return nil
+
 	case proto.EventAgentLimits:
 		var l proto.PlanLimits
 		if decodeInto(msg, &l) {
@@ -1069,7 +1093,13 @@ func (m *Model) rebuild() tea.Cmd {
 	m.treeSig = m.layoutSig()
 	m.rows = buildTree(in)
 	if indexOfRow(m.rows, m.cursor) < 0 && len(m.rows) > 0 {
-		m.cursor = m.rows[clamp(prevIndex, 0, len(m.rows)-1)].id
+		// A terminal's ssh Files row goes when ssh ends: the cursor goes to
+		// the terminal, where that just happened, not whatever is next.
+		if term, ok := strings.CutSuffix(m.cursor, "/files"); ok && strings.HasPrefix(term, "pane:") && indexOfRow(m.rows, term) >= 0 {
+			m.cursor = term
+		} else {
+			m.cursor = m.rows[clamp(prevIndex, 0, len(m.rows)-1)].id
+		}
 	}
 	m.keepCursorVisible()
 	// Session counts in the tree; each list reloads at most every sessionsTTL.

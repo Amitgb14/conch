@@ -42,6 +42,9 @@ conch task -name reviewer -agent codex "Review the changes on this branch agains
   project's patterns yourself. Otherwise give the helper the file's
   absolute path to read. Never commit a private file, or copy it into the
   helper's worktree, to hand it over.
+- Each checkout has ports of its own: start servers on `$CONCH_PORT` (it
+  and the nine after it are yours), never a fixed port another worktree's
+  agent may be using.
 - `-name` lets you address it as `reviewer` from then on. Pick a name no
   other running pane has.
 - `-agent` is `claude`, `codex`, `gemini`, `opencode` or `devin`; leave it

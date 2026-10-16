@@ -69,8 +69,10 @@ var scoped = map[string]scopeKind{
 	proto.MethodPaneClose: scopePane, proto.MethodPaneSendText: scopePane, proto.MethodPaneSendKeys: scopePane,
 	proto.MethodPaneSendMouse: scopePane, proto.MethodPaneResize: scopePane, proto.MethodPaneRename: scopePane,
 	proto.MethodPaneMarkSeen: scopePane, proto.MethodPaneMonitor: scopePane, proto.MethodAgentReport: scopePane,
-	proto.MethodAgentPrompt:    scopePane,
-	proto.MethodAgentBroadcast: scopePanes,
+	proto.MethodAgentPrompt: scopePane,
+	// An agent's hook asks for its own pane, and only its own.
+	proto.MethodAgentPermission: scopePane,
+	proto.MethodAgentBroadcast:  scopePanes,
 
 	proto.MethodProjectRemove:  scopeProjID,
 	proto.MethodWorktreeRemove: scopeProject, proto.MethodWorktreeCleanup: scopeProject,
@@ -83,6 +85,11 @@ var scoped = map[string]scopeKind{
 	// Which ignored files — secrets among them — are copied into every new
 	// worktree: the person's call, even in the agent's own project.
 	proto.MethodProjectFiles: scopeHome,
+	// A command run in every new worktree: an agent that could set it
+	// could have anything run outside its own pane.
+	proto.MethodProjectSetup: scopeHome,
+	// What runs later runs with nobody watching: the person's to arrange.
+	proto.MethodScheduleAdd: scopeHome, proto.MethodScheduleRemove: scopeHome,
 }
 
 // writesHome lists methods that only sometimes change the person's setup:
@@ -100,6 +107,8 @@ type scopeRef struct {
 	IDs       []string `json:"ids"`
 	PaneID    string   `json:"pane_id"`
 	ProjectID string   `json:"project_id"`
+	// SSH is the pane whose ssh host an fs method reaches (fs.ssh.v1).
+	SSH string `json:"ssh"`
 	// What says whether a writesHome method writes.
 	Set    json.RawMessage `json:"set"`
 	Import string          `json:"import"`
@@ -111,6 +120,9 @@ type scopeRef struct {
 // not the agent's to change. A target that doesn't exist is let through,
 // for the method's own not-found.
 func (s *Server) inScope(c *client, msg proto.Message) *proto.Error {
+	if fsMethods[msg.Method] {
+		return s.sshInScope(c, msg)
+	}
 	kind := scoped[msg.Method]
 	if msg.Method == proto.MethodSessionShare {
 		kind = scopePane // only when handing to a running pane; see below
@@ -269,12 +281,17 @@ func verb(method string) string {
 }
 
 var verbs = map[string]string{
+	// Only with ssh: the host another pane is logged in to (sshInScope).
+	proto.MethodFSList: "list files over the ssh login of", proto.MethodFSRead: "read files over the ssh login of",
+	proto.MethodFSMkdir: "make folders over the ssh login of", proto.MethodFSUpload: "copy files over the ssh login of",
+	proto.MethodFSDownload: "copy files over the ssh login of", proto.MethodPaneCreate: "run a command over the ssh login of",
 	proto.MethodPaneClose: "close", proto.MethodPaneSendText: "type into", proto.MethodPaneSendKeys: "send keys to",
 	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename",
 	proto.MethodPaneMarkSeen: "mark as seen", proto.MethodPaneMonitor: "set monitoring on",
 	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt",
 	proto.MethodAgentBroadcast: "send a message to", proto.MethodSessionShare: "hand a session to",
-	proto.MethodServerStop: "stop", proto.MethodServerReload: "reload",
+	proto.MethodAgentPermission: "answer a permission request for",
+	proto.MethodServerStop:      "stop", proto.MethodServerReload: "reload",
 	proto.MethodProjectRemove: "remove a project", proto.MethodWorktreeRemove: "remove a worktree",
 	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchCommit: "commit",
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
@@ -282,6 +299,8 @@ var verbs = map[string]string{
 	proto.MethodBranchGit:    "run git",
 	proto.MethodAgentSkill:   "install or remove the agents' conch skill",
 	proto.MethodProjectFiles: "change which local files a project copies into its worktrees",
+	proto.MethodProjectSetup: "change the command a project runs in its new worktrees",
+	proto.MethodScheduleAdd:  "schedule a message or a task", proto.MethodScheduleRemove: "remove something scheduled",
 	proto.MethodAgentLibrary: "change the library of MCP servers and skills", proto.MethodLibraryApply: "apply the library to the agents",
 	proto.MethodAgentSync: "sync one agent's setup to the others",
 }
@@ -386,4 +405,27 @@ func (s *Server) actFor(c *client, p proto.ActForParams) *proto.Error {
 	}
 	c.actFor = p
 	return nil
+}
+
+// fsMethods reach the files of this machine, which an agent here can read
+// anyway, or with ssh set those of a host another pane is logged in to;
+// pane.create with ssh runs a command there.
+var fsMethods = map[string]bool{
+	proto.MethodFSList: true, proto.MethodFSRead: true, proto.MethodFSMkdir: true,
+	proto.MethodFSUpload: true, proto.MethodFSDownload: true, proto.MethodPaneCreate: true,
+}
+
+// sshInScope holds an agent to the hosts its own panes are logged in to:
+// another pane's ssh login is that person's way onto that host, not the
+// agent's.
+func (s *Server) sshInScope(c *client, msg proto.Message) *proto.Error {
+	var ref scopeRef
+	if len(msg.Params) == 0 || json.Unmarshal(msg.Params, &ref) != nil || ref.SSH == "" {
+		return nil
+	}
+	caller, ok := s.scopedCaller(c)
+	if !ok {
+		return nil
+	}
+	return s.paneInScope(caller, msg.Method, ref.SSH)
 }
