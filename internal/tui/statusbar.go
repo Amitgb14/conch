@@ -162,7 +162,7 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			items = []statusItem{hint("enter", "open"), hint("c", "agent"), hint("n", "shell"), hint("v", "split"),
 				hint("O", "new tab"), hint("r", "rename"), hint("x", "close"), hint("m", "menu")}
 			if m.canMoveAgent(r.machine, r.paneID) {
-				items = append(items[:len(items)-1], hint("T", "move"), items[len(items)-1])
+				items = moveHint(items)
 			}
 		case kindSavedSSH:
 			items = []statusItem{hint("enter", "connect"), hint("e", "edit"), hint("K", "copy key"), hint("x", "forget"), hint("H", "ssh"), hint("m", "menu")}
@@ -182,13 +182,13 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			items = []statusItem{hint("enter", "changes"), hint("b", "git"), hint("v", "split"), hint("o", "PR"), hint("c", "agent"), hint("n", "shell"),
 				hint("x", "rm worktree"), hint("y", "copy"), hint("m", "menu")}
 			if m.canMoveBranch(r.machine, r.projectID, r.branch) {
-				items = append(items[:len(items)-1], hint("T", "move"), items[len(items)-1])
+				items = moveHint(items)
 			}
 		case kindProject:
 			items = []statusItem{hint("t", "task"), hint("c", "agent"), hint("n", "shell"), hint("B", "broadcast"), hint("space", "fold"),
 				hint("x", "remove"), hint("m", "menu")}
 			if m.canMoveProject(r.machine, r.projectID) {
-				items = append(items[:len(items)-1], hint("T", "move"), items[len(items)-1])
+				items = moveHint(items)
 			}
 		case kindWorkspace:
 			items = []statusItem{hint("a", "project"), hint("t", "task"), hint("B", "broadcast"), hint("space", "fold"), hint("m", "menu")}
@@ -625,6 +625,17 @@ func (m Model) layoutStatus() (string, []statusHit) {
 		x += w
 	}
 	return fit(b.String(), m.width), hits
+}
+
+// moveHint puts T move second, after the row's own first key: a bar too
+// narrow for every hint keeps the first few, and at 120 columns a branch
+// row kept six, so T placed beside the menu was cut — on the rows that
+// are the whole point of it.
+func moveHint(items []statusItem) []statusItem {
+	if len(items) == 0 {
+		return []statusItem{hint("T", "move")}
+	}
+	return append([]statusItem{items[0], hint("T", "move")}, items[1:]...)
 }
 
 func (m Model) statusBar() string {

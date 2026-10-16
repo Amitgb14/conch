@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -240,8 +241,28 @@ func TestMoveStatusHints(t *testing.T) {
 		if strings.Contains(got, "T move") != c.want {
 			t.Errorf("%s: %s", name, got)
 		}
-		if c.want && !strings.Contains(got, "|T move|m menu") {
-			t.Errorf("%s: T move isn't just before the menu: %s", name, got)
+		// Second of the row's own, after "! waiting" when an agent waits.
+		if c.want && !slices.Contains(strings.Split(got, "|")[:3], "T move") {
+			t.Errorf("%s: T move isn't among the first: %s", name, got)
+		}
+	}
+	// A bar of 120 columns keeps the first few hints only; T is among them
+	// on every row it is for. Found on a real run, where it was last but
+	// the menu and so was cut on branch and agent rows.
+	m.width, m.height = 120, 40
+	for name, r := range map[string]row{
+		"task branch":   {kind: kindBranch, machine: localMachine, projectID: "r1", branch: "feat"},
+		"agent in feat": {kind: kindPane, machine: localMachine, paneID: "p5"},
+		"project":       {kind: kindProject, machine: localMachine, projectID: "r1"},
+	} {
+		r.id = "x"
+		m.rows, m.cursor = []row{r}, "x"
+		bar := ansi.Strip(m.statusBar())
+		if !strings.Contains(bar, "T move") {
+			t.Errorf("%s at 120 columns: %s", name, bar)
+		}
+		if w := ansi.StringWidth(bar); w > 120 {
+			t.Errorf("%s: bar is %d wide", name, w)
 		}
 	}
 	// An old server: no hint anywhere.
