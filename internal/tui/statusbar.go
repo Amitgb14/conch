@@ -512,6 +512,8 @@ func (v *versionInfo) render(m Model) box {
 		switch {
 		case running:
 			lines = append(lines, " "+styleMuted.Render("updating…"))
+		case m.brewOnly(pending):
+			lines = append(lines, " "+styleMuted.Render(brewHint))
 		case len(ids) == 0:
 			lines = append(lines, " "+styleAccent.Render("u")+" update everything "+styleMuted.Render("(agents and shells keep running)"))
 		case chosen == len(ids):
@@ -522,7 +524,10 @@ func (v *versionInfo) render(m Model) box {
 				styleMuted.Render(" space tick · a all · ↑↓ move"))
 		}
 	}
-	if proto.IsRelease() {
+	switch {
+	case m.upd != nil && m.upd.brew:
+		lines = append(lines, "", styleMuted.Render(" installed with Homebrew: brew upgrade conch updates it"))
+	case proto.IsRelease():
 		lines = append(lines, "", styleMuted.Render(" conch update list shows every release · conch update rollback goes back one"))
 	}
 	if len(ids) > 0 && !running {

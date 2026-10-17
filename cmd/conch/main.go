@@ -689,7 +689,7 @@ func offerUpgrade(c *client.Client) (*client.Client, error) {
 		if a := strings.ToLower(strings.TrimSpace(answer)); a == "n" || a == "no" {
 			return c, nil
 		}
-		exe, _ := os.Executable()
+		exe, _ := buildinfo.Executable()
 		return reloadServer(c, exe)
 	}
 	if running > 0 {

@@ -371,6 +371,45 @@ func TestA3InstallReleaseFailures(t *testing.T) {
 	}
 }
 
+// Homebrew owns the conch it installed: neither an update nor a rollback
+// writes over its keg, and nothing is downloaded or kept trying.
+func TestInstallReleaseHomebrew(t *testing.T) {
+	a3Isolate(t)
+	rs := a3NewReleaseServer(t)
+	rs.publish(t, "1.0.0", a3Archive(t, map[string][]byte{"conch": []byte("new")}), "")
+	prefix := t.TempDir()
+	exe := filepath.Join(prefix, "Cellar", "conch", "0.9.0", "bin", "conch")
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Through brew's own link, as the program is usually run.
+	link := filepath.Join(prefix, "bin", "conch")
+	os.MkdirAll(filepath.Dir(link), 0o755)
+	if err := os.Symlink(exe, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{exe, link} {
+		if err := Managed(p); !errors.Is(err, ErrHomebrew) {
+			t.Fatalf("Managed(%s) = %v", p, err)
+		}
+		if err := InstallRelease(context.Background(), "1.0.0", p); !errors.Is(err, ErrHomebrew) || !strings.Contains(err.Error(), "brew upgrade conch") {
+			t.Fatalf("InstallRelease(%s) = %v", p, err)
+		}
+	}
+	if b, _ := os.ReadFile(exe); string(b) != "old" {
+		t.Fatalf("the keg was written: %q", b)
+	}
+	if v, ok := Kept("0.9.0"); ok {
+		t.Fatalf("a refused update kept a copy: %s", v)
+	}
+	if err := Managed(filepath.Join(t.TempDir(), "conch")); err != nil {
+		t.Fatalf("not Homebrew's: %v", err)
+	}
+}
+
 // a3FakeConn starts a client over an in-memory pipe whose server advertises
 // caps and records the requests it receives.
 type a3FakeConn struct {

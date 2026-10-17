@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/phone"
 )
@@ -78,7 +79,7 @@ func (d *pairDialog) checkGateway(store *phone.Store) {
 // web.log beside the server's. It is a pane-less program, like the server
 // EnsureServer starts. `conch web stop` ends it.
 func startGateway(args []string) error {
-	exe, err := os.Executable()
+	exe, err := buildinfo.Executable()
 	if err != nil {
 		return err
 	}

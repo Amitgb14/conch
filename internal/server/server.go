@@ -145,7 +145,7 @@ func (s *Server) Run() error {
 		}
 	}
 
-	exe, err := os.Executable()
+	exe, err := buildinfo.Executable()
 	if err != nil {
 		return err
 	}

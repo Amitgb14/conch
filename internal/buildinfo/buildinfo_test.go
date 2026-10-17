@@ -143,3 +143,77 @@ func TestVersionFromModule(t *testing.T) {
 		t.Fatalf("test binary version changed to %q", proto.Version)
 	}
 }
+
+// A Homebrew install is laid out as brew lays it: the binary in a keg per
+// version, the formula's opt link to the current keg, and bin linking in.
+func TestStableHomebrew(t *testing.T) {
+	prefix := t.TempDir()
+	put := func(version string) string {
+		bin := filepath.Join(prefix, "Cellar", "conch", version, "bin", "conch")
+		if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return bin
+	}
+	link := func(to, at string) {
+		os.Remove(at)
+		if err := os.MkdirAll(filepath.Dir(at), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(to, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := put("0.1.9")
+	link("../Cellar/conch/0.1.9", filepath.Join(prefix, "opt", "conch"))
+	link("../Cellar/conch/0.1.9/bin/conch", filepath.Join(prefix, "bin", "conch"))
+	real, _ := filepath.EvalSymlinks(prefix) // macOS: /var is /private/var
+	opt := filepath.Join(real, "opt", "conch", "bin", "conch")
+
+	// From the keg, through bin, or the opt link itself: the opt link.
+	for _, from := range []string{old, filepath.Join(prefix, "bin", "conch"), filepath.Join(prefix, "opt", "conch", "bin", "conch")} {
+		if got := Stable(from); got != opt {
+			t.Errorf("Stable(%s) = %s, want %s", from, got, opt)
+		}
+		if !Homebrew(from) {
+			t.Errorf("Homebrew(%s) = false", from)
+		}
+	}
+	// Upgraded under a running conch: the opt link moved on, so the old
+	// keg is not what it leads to and the path is left as it is.
+	put("0.2.0")
+	link("../Cellar/conch/0.2.0", filepath.Join(prefix, "opt", "conch"))
+	if got := Stable(old); got != old {
+		t.Errorf("after an upgrade Stable = %s", got)
+	}
+	// No opt link at all.
+	os.Remove(filepath.Join(prefix, "opt", "conch"))
+	if got := Stable(old); got != old || !Homebrew(old) {
+		t.Errorf("without opt: %s %v", got, Homebrew(old))
+	}
+
+	// Not Homebrew's: left exactly as given, symlinks and all.
+	plain := filepath.Join(t.TempDir(), "conch")
+	os.WriteFile(plain, nil, 0o755)
+	alias := filepath.Join(t.TempDir(), "conch")
+	link(plain, alias)
+	other := filepath.Join(prefix, "Cellar", "conch-dev", "1", "bin", "conch")
+	os.MkdirAll(filepath.Dir(other), 0o755)
+	os.WriteFile(other, nil, 0o755)
+	for _, p := range []string{plain, alias, other, filepath.Join(prefix, "missing", "conch"), ""} {
+		if got := Stable(p); got != p {
+			t.Errorf("Stable(%q) = %q", p, got)
+		}
+		if Homebrew(p) {
+			t.Errorf("Homebrew(%q) = true", p)
+		}
+	}
+	// The test binary is nobody's keg.
+	exe, _ := os.Executable()
+	if got, err := Executable(); err != nil || got != exe {
+		t.Errorf("Executable = %q %v, want %q", got, err, exe)
+	}
+}
