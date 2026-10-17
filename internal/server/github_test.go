@@ -283,3 +283,36 @@ func TestGitHubHunkAndNote(t *testing.T) {
 		t.Errorf("clipNote of a long one: %d bytes", len(got))
 	}
 }
+
+// Pull requests are not read before git has said which branches there
+// are: a read racing the project's first refresh matched them to none and
+// read no review comments until the next one, minutes later.
+func TestPullRequestsWaitForTheBranches(t *testing.T) {
+	s, p := afterFixture(t)
+	quietPRs(t, p)
+	_, calls := fakePRGH(t, "main")
+	// As just added: never refreshed, and held there so the ticker can't.
+	p.mu.Lock()
+	p.lastStatus, p.refreshing = time.Time{}, true
+	p.prNext, p.prPending, p.prAt = time.Time{}, true, time.Time{}
+	p.mu.Unlock()
+	s.projects.maybeRefresh(p)
+	p.mu.Lock()
+	started := p.prFetching
+	p.mu.Unlock()
+	if started {
+		t.Fatal("pull requests read before the branches were")
+	}
+
+	// Refreshed: the next tick reads them, review comments and all.
+	p.mu.Lock()
+	p.lastStatus = time.Now()
+	p.mu.Unlock()
+	s.projects.maybeRefresh(p)
+	a5WaitFor(t, "the pull request's review comments", func() bool {
+		return callCount(calls) > 0 && len(s.reviews.list(proto.ReviewRef{ProjectID: p.id, Branch: "main"}).Comments) == 3
+	})
+	p.mu.Lock()
+	p.refreshing = false
+	p.mu.Unlock()
+}
