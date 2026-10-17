@@ -396,6 +396,19 @@ helpers in `cmd/conch` and `internal/remote`.
   for an agent elsewhere reaches only what that agent started. Declaring
   only narrows, so it is taken at its word; a remote without
   `scope.remote.v1` isn't driven from an agent's pane.
+  **It fails open, and silently.** A connection whose ancestors include
+  no pane is the person — their shell, the TUI, a script — and acts as
+  them. So an agent whose process tree is reparented (a detached helper,
+  a harness that re-spawns under launchd) stops being scoped and gains
+  every pane and project, with nothing said. The server cannot tell that
+  from the person's own shell: both are a pid with no pane above it.
+  Seen live, in this repo: the same `conch server reload` refused at
+  13:19 went through hours later from the same session, because the
+  walk reached pid 1 in five hops without passing the pane's program.
+  There is no fix in `CONCH_PANE_ID` — an agent can set it, which is why
+  the walk exists — so what conch does instead is write it down: every
+  refusal is logged, and `CONCH_LOG_CALLER=1` logs where each connection
+  was placed with the ancestry it climbed.
 - **Saved ssh hosts** live in `ui.json`, not `machines.json`
   (`internal/tui/ssh.go`, `sshhosts.go`). `saved_ssh` stays the plain list
   of hosts older builds read; a host's name and extra ssh options sit

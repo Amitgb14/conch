@@ -1,6 +1,9 @@
 package server
 
 import (
+	"bytes"
+	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -274,5 +277,64 @@ func TestVerbs(t *testing.T) {
 	}
 	if verb("x.y") != "use x.y on" {
 		t.Fatal(verb("x.y"))
+	}
+}
+
+// A refusal is written down: it is the only record that the boundary did
+// anything, and its absence from a log answers "why did that agent reach
+// this?" as surely as its presence.
+func TestOutOfScopeIsLogged(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	err := outOfScope(scopeCaller{id: "p1", label: "p1", agent: "claude"}, "close %s: it is in another project", "p20")
+	if err == nil || err.Code != proto.ErrOutOfScope {
+		t.Fatalf("refusal: %+v", err)
+	}
+	line := buf.String()
+	for _, want := range []string{"scope: refused", "claude agent in p1", "close p20", "another project"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("the log says %q, want %q in it", line, want)
+		}
+	}
+}
+
+// Where a connection was placed is written down only when asked for:
+// the person's own shell and the TUI are in no pane and would say so on
+// every call, which is most of a log.
+func TestCallerIsLoggedOnlyWhenAskedFor(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+	s := &Server{panes: map[string]*entry{}}
+
+	wasOn := logCaller
+	defer func() { logCaller = wasOn }()
+
+	logCaller = false
+	s.noteCaller(os.Getpid())
+	if buf.Len() != 0 {
+		t.Fatalf("logged with the switch off: %q", buf.String())
+	}
+	logCaller = true
+	s.noteCaller(os.Getpid())
+	line := buf.String()
+	if !strings.Contains(line, "caller: pid") || !strings.Contains(line, "no pane") {
+		t.Fatalf("logged %q", line)
+	}
+	// The ancestry it climbed is in there, which is what makes it worth
+	// reading: it says how far it got before giving up.
+	if !strings.Contains(line, fmt.Sprint(os.Getpid())) || !strings.Contains(line, "walked [") {
+		t.Fatalf("no walk in %q", line)
+	}
+	// A pid that cannot be walked says nothing of a pane and does not
+	// pretend to have climbed.
+	buf.Reset()
+	s.noteCaller(0)
+	if !strings.Contains(buf.String(), "no pane") || strings.Contains(buf.String(), "walked [1") {
+		t.Fatalf("pid 0: %q", buf.String())
 	}
 }

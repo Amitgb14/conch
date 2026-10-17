@@ -299,7 +299,9 @@ func (s *Server) shutdown() {
 }
 
 func (s *Server) serve(nc net.Conn) {
-	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}, pane: s.callerPane(peerPID(nc))}
+	pid := peerPID(nc)
+	s.noteCaller(pid) // CONCH_LOG_CALLER=1; see scope.go
+	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}, pane: s.callerPane(pid)}
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()

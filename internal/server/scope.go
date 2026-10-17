@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/Amitgb14/conch/internal/detect"
@@ -26,8 +27,27 @@ const maxAncestors = 64
 // callerPane finds the pane a process runs in: the pane whose program is
 // the process or one of its ancestors. "" for a process in no pane.
 func (s *Server) callerPane(pid int) string {
+	id, _ := s.callerPaneWalk(pid)
+	return id
+}
+
+// logCaller says whether to write down what every connection was placed
+// in. Off by default: the person's own shell and the TUI are in no pane
+// and say so on every call, and an agent's hooks connect once an event,
+// so this would be most of the log. It is on for one reason — finding
+// out why an agent that should be scoped is not.
+//
+// It cannot be done the other way round, by logging only the surprising
+// case: the server has no way to tell a person's shell from an agent
+// whose process tree was reparented. Both are a pid whose ancestors
+// include no pane, and both then act as the person. That is the shape
+// of this boundary, and the walk below is all there is to it.
+var logCaller = os.Getenv("CONCH_LOG_CALLER") == "1"
+
+// callerPaneWalk is callerPane with the ancestry it climbed, for the log.
+func (s *Server) callerPaneWalk(pid int) (string, []int) {
 	if pid <= 0 {
-		return ""
+		return "", nil
 	}
 	byPID := map[int]string{}
 	for _, info := range s.list() {
@@ -35,17 +55,33 @@ func (s *Server) callerPane(pid int) string {
 			byPID[info.PID] = info.ID
 		}
 	}
+	var walked []int
 	for i := 0; i < maxAncestors && pid > 1; i++ {
+		walked = append(walked, pid)
 		if id, ok := byPID[pid]; ok {
-			return id
+			return id, walked
 		}
 		parent, err := detect.ParentPID(pid)
 		if err != nil || parent == pid {
-			return ""
+			return "", walked
 		}
 		pid = parent
 	}
-	return ""
+	return "", walked
+}
+
+// noteCaller writes down where a connection was placed, with
+// CONCH_LOG_CALLER=1.
+func (s *Server) noteCaller(pid int) {
+	if !logCaller {
+		return
+	}
+	id, walked := s.callerPaneWalk(pid)
+	where := "no pane"
+	if id != "" {
+		where = "pane " + id
+	}
+	log.Printf("caller: pid %d is in %s (walked %v)", pid, where, walked)
 }
 
 // scopeKind says what a method acts on, for the check.
@@ -279,8 +315,14 @@ func outOfScope(caller scopeCaller, format string, args ...any) *proto.Error {
 	if caller.agent != "" {
 		who = "the " + caller.agent + " agent"
 	}
+	what := fmt.Sprintf(format, args...)
+	// Logged because it is the only record that the boundary did
+	// anything: a refusal is rare, and its absence from a log is worth
+	// as much as its presence when somebody asks why an agent reached
+	// something (see callerPane's note on attribution).
+	log.Printf("scope: refused %s in %s: %s", who, caller.label, what)
 	return proto.Errorf(proto.ErrOutOfScope, "%s in %s may not %s; do it from the TUI or a terminal pane",
-		who, caller.label, fmt.Sprintf(format, args...))
+		who, caller.label, what)
 }
 
 // verb says what a method does, for a refusal.
