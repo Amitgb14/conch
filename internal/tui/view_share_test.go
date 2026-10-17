@@ -30,11 +30,41 @@ func TestViewStateIsPerMachine(t *testing.T) {
 			}
 		}
 	}
-	// The other machine has nothing on screen, and is told that rather
-	// than being told about panes it does not own.
-	if away := m.viewStateFor("busybox"); len(away.Tabs) != 0 || away.Focus != "" {
-		t.Fatalf("busybox: %+v", away)
+	// The other machine is told about none of its panes — it has none on
+	// screen — and about the tab being looked at, with an empty list:
+	// "the person is somewhere else" is the answer to the question, and
+	// the keyboard is not its pane's.
+	away := m.viewStateFor("busybox")
+	if away.Focus != "" {
+		t.Fatalf("busybox was given this computer's focus: %+v", away)
 	}
+	if len(away.Tabs) != 1 || !away.Tabs[0].Active || len(away.Tabs[0].Panes) != 0 {
+		t.Fatalf("busybox: %+v", away.Tabs)
+	}
+	// The tab being looked at is there whatever is in it: a diff or a
+	// project's page is still the answer to "what are you looking at".
+	a1Open(t, m, projectNodeID(localMachine, "r1"))
+	with := m.viewStateFor(localMachine)
+	active := -1
+	for i, tab := range with.Tabs {
+		if tab.Active {
+			active = i
+		}
+	}
+	if active < 0 {
+		t.Fatalf("nothing is marked active: %+v", with.Tabs)
+	}
+	if len(with.Tabs[active].Panes) != 0 {
+		t.Fatalf("this case needs an active tab with no panes: %+v", with.Tabs[active])
+	}
+	// And a machine with nothing of its own still hears about it, since
+	// the person is looking at something.
+	if on := m.viewStateFor("busybox"); len(on.Tabs) != 1 || !on.Tabs[0].Active {
+		t.Fatalf("busybox while the person is on a page: %+v", on)
+	}
+	a1Open(t, m, paneNodeID(localMachine, "p1"))
+	here = m.viewStateFor(localMachine)
+
 	// The signature changes with the layout, which is what stops it
 	// being published once a redraw.
 	before := viewSig(here)

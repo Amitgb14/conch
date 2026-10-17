@@ -44,7 +44,12 @@ func (m Model) viewStateFor(mid string) proto.ViewState {
 				tab.Panes = append(tab.Panes, l.view.PaneID)
 			}
 		}
-		if len(tab.Panes) > 0 {
+		// The tab being looked at is published whatever is in it — a
+		// diff, a project's page, somebody else's machine — because
+		// "what is the person looking at?" is the question this answers,
+		// and a list with nothing marked active answers it with silence.
+		// The rest are published only where they hold panes to address.
+		if len(tab.Panes) > 0 || tab.Active {
 			v.Tabs = append(v.Tabs, tab)
 		}
 	}
