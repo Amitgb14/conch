@@ -190,6 +190,37 @@ export function agentLabel(a) {
   return a.title || a.name || a.pane
 }
 
+// reviewCount is how many review comments wait for an agent; "" for none.
+export function reviewCount(a) {
+  const n = Array.isArray(a?.review) ? a.review.length : 0
+  return n === 0 ? "" : n === 1 ? "1 review comment" : `${n} review comments`
+}
+
+// reviewByline is who wrote a comment and what else to know about it:
+// "alice on GitHub · outdated · 2 replies", or "" for the laptop's own.
+export function reviewByline(r) {
+  const parts = []
+  if (r?.github) parts.push(r.by ? `${r.by} on GitHub` : "GitHub")
+  else if (r?.by) parts.push(r.by)
+  if (r?.outdated) parts.push("outdated")
+  const n = Array.isArray(r?.replies) ? r.replies.length : 0
+  if (n) parts.push(n === 1 ? "1 reply" : `${n} replies`)
+  return parts.join(" · ")
+}
+
+// commentLink is a comment's link if it is https, which can run nothing.
+export function commentLink(url) {
+  return typeof url === "string" && /^https:\/\/[^\s]+$/.test(url) ? url : ""
+}
+
+// reviewBlocked says why the comments can't be sent now, or "": one
+// waiting on a question would have them typed onto it.
+export function reviewBlocked(a, online = true) {
+  if (!online) return "Offline: they go when the phone reconnects and you send them."
+  if (a?.state === "waiting") return "Answer its question first — the comments would be typed onto it."
+  return ""
+}
+
 // ago says how long since a time, briefly: "now", "5m", "2h", "3d".
 export function ago(since, now = Date.now()) {
   const t = Date.parse(since)

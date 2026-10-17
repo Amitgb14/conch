@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapView,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -166,6 +166,14 @@ const CapPermissionRules = "agent.permission.v1"
 // so a client refuses -after without it.
 const CapTaskAfter = "schedule.after.v1"
 
+// CapReviewComments is review.*: comments on a branch's diff kept by the
+// server, so every client of it — another TUI, the command line, the
+// phone — sees the same ones, and review.send hands them to the branch's
+// agent. An older server has none; a client says so rather than keep
+// comments of its own nobody else can see. The list also carries the
+// unresolved comments on the branch's pull request, read through gh.
+const CapReviewComments = "review.comments.v1"
+
 // CapView is view.state, view.get and view.show: what a TUI is showing —
 // its tabs, their splits and which pane has the keyboard — published by
 // the TUI and read back by anything else, and a request to show a set of
@@ -273,6 +281,10 @@ const (
 	MethodScheduleAdd    = "schedule.add"
 	MethodScheduleList   = "schedule.list"
 	MethodScheduleRemove = "schedule.remove"
+
+	MethodReviewList = "review.list"
+	MethodReviewSet  = "review.set"
+	MethodReviewSend = "review.send"
 	// MethodPaneCaller says which pane the connection comes from and
 	// whether it is scoped; MethodActFor asks a connection from another
 	// machine to be scoped as that caller.
@@ -327,6 +339,9 @@ const (
 	// EventScheduleChanged carries the whole ScheduleList whenever an item
 	// is added, fired, moved or removed.
 	EventScheduleChanged = "schedule.changed"
+	// EventReviewChanged carries the ReviewList of the branch whose
+	// comments were added, changed, sent or dropped.
+	EventReviewChanged = "review.changed"
 
 	// EventViewShow carries a view.show request to every client.
 	EventViewShow = "view.show"
@@ -1330,6 +1345,81 @@ const DefaultWIP = 3
 // ScheduleList is every item the server is keeping, soonest first.
 type ScheduleList struct {
 	Items []ScheduledItem `json:"items"`
+}
+
+// ReviewComment is one comment on a branch's diff, for its agent. Hunk is
+// the hunk's text as it was when the comment was written, so the comment
+// still says what it was about once the agent has rewritten those lines;
+// without one, Line (1-based, in the new file) says where, and without
+// either it is about the whole file.
+//
+// review.set takes one: with an ID it changes that comment, without one it
+// changes the comment already on the same place or adds it, and an empty
+// note removes it.
+type ReviewComment struct {
+	ID        string    `json:"id,omitempty"`
+	ProjectID string    `json:"project_id"`
+	Branch    string    `json:"branch"`
+	File      string    `json:"file"`
+	Hunk      string    `json:"hunk,omitempty"`
+	Line      int       `json:"line,omitempty"`
+	Note      string    `json:"note"`
+	By        string    `json:"by,omitempty"` // an agent's pane that wrote it; "" for a person
+	At        time.Time `json:"at,omitempty"`
+
+	// A comment from the branch's pull request (Source ReviewGitHub) is
+	// read from GitHub and can't be changed here: By is the reviewer's
+	// login, URL the comment, Outdated says the lines have changed since
+	// it was written, and Replies are the rest of its thread. One with no
+	// File is a review's own words about the pull request as a whole.
+	Source   string        `json:"source,omitempty"`
+	URL      string        `json:"url,omitempty"`
+	Outdated bool          `json:"outdated,omitempty"`
+	Replies  []ReviewReply `json:"replies,omitempty"`
+}
+
+// ReviewGitHub is the Source of a pull request's comment.
+const ReviewGitHub = "github"
+
+// ReviewReply is a later comment in a pull request's thread.
+type ReviewReply struct {
+	By   string    `json:"by,omitempty"`
+	Note string    `json:"note"`
+	At   time.Time `json:"at,omitempty"`
+}
+
+// ReviewRef names a branch whose comments to list.
+type ReviewRef struct {
+	ProjectID string `json:"project_id,omitempty"` // "" lists every project's
+	Branch    string `json:"branch,omitempty"`
+}
+
+// ReviewList is a branch's comments in the order they were written, or
+// with no branch named every branch's.
+type ReviewList struct {
+	ProjectID string          `json:"project_id,omitempty"`
+	Branch    string          `json:"branch,omitempty"`
+	Comments  []ReviewComment `json:"comments"`
+}
+
+// ReviewSendParams hands a branch's comments to the agent working on it.
+// With none there, Agent names one to start in its worktree; without it
+// the send is refused.
+type ReviewSendParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Agent     string `json:"agent,omitempty"`
+	Cols      int    `json:"cols,omitempty"`
+	Rows      int    `json:"rows,omitempty"`
+}
+
+// ReviewSendResult says where the comments went: an agent that was there,
+// or one started with them (Started).
+type ReviewSendResult struct {
+	Pane    PaneInfo `json:"pane"`
+	Started bool     `json:"started,omitempty"`
+	Sent    int      `json:"sent"`
+	Turn    int      `json:"turn,omitempty"`
 }
 
 // Agent states.

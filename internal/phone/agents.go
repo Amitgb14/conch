@@ -3,6 +3,7 @@ package phone
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -57,15 +58,69 @@ func projectNames(ctx context.Context, c caller) (map[string]string, error) {
 	return names, nil
 }
 
-// agentOf builds one pane's agent, reading its screen when it waits. A
-// screen that can't be read — the pane went as we asked — leaves the
-// question without choices rather than failing the list.
+// agentOf builds one pane's agent, reading its screen when it waits and
+// the comments waiting for its branch.
 func agentOf(ctx context.Context, machine string, c caller, p proto.PaneInfo, projects map[string]string) Agent {
+	return agentWith(ctx, machine, c, p, projects, branchReviews(ctx, c, p))
+}
+
+// agentWith is agentOf with the comments already read. A screen that can't
+// be read — the pane went as we asked — leaves the question without
+// choices rather than failing the list.
+func agentWith(ctx context.Context, machine string, c caller, p proto.PaneInfo, projects map[string]string, reviews []proto.ReviewComment) Agent {
 	var screen proto.PaneReadResult
 	if p.Agent.State == proto.AgentBlocked {
 		_ = c.Call(ctx, proto.MethodPaneRead, proto.PaneRef{ID: p.ID}, &screen)
 	}
-	return buildAgent(machine, p, projects, screen.Lines)
+	a := buildAgent(machine, p, projects, screen.Lines)
+	a.Review = reviewNotes(reviews, p)
+	return a
+}
+
+// branchReviews is the comments waiting for the agent in p: none for a
+// pane on no branch, or a reviewer.
+func branchReviews(ctx context.Context, c caller, p proto.PaneInfo) []proto.ReviewComment {
+	if p.Agent == nil || p.ProjectID == "" || p.Branch == "" || isReviewer(p) {
+		return nil
+	}
+	return reviewsOf(ctx, c, proto.ReviewRef{ProjectID: p.ProjectID, Branch: p.Branch})
+}
+
+// isReviewer is a reviewing agent (TUI reviewer.go): the comments are
+// for the agent that wrote the work, not for the one reading it.
+func isReviewer(p proto.PaneInfo) bool { return strings.HasPrefix(p.Name, "review · ") }
+
+// reviewsOf is the comments a server keeps, none from one without them.
+func reviewsOf(ctx context.Context, c caller, ref proto.ReviewRef) []proto.ReviewComment {
+	if len(c.MissingCapabilities([]string{proto.CapReviewComments})) > 0 {
+		return nil
+	}
+	var list proto.ReviewList
+	if c.Call(ctx, proto.MethodReviewList, ref, &list) != nil {
+		return nil
+	}
+	return list.Comments
+}
+
+// reviewNotes is the comments on p's branch, as the phone shows them; a
+// reviewer's own pane carries none, since they are not for it.
+func reviewNotes(comments []proto.ReviewComment, p proto.PaneInfo) []ReviewNote {
+	if p.Agent == nil || p.Branch == "" || isReviewer(p) {
+		return nil
+	}
+	var out []ReviewNote
+	for _, rc := range comments {
+		if rc.ProjectID != p.ProjectID || rc.Branch != p.Branch {
+			continue
+		}
+		n := ReviewNote{ID: rc.ID, Where: proto.ReviewWhere(rc), Note: rc.Note, By: rc.By,
+			GitHub: rc.Source == proto.ReviewGitHub, URL: rc.URL, Outdated: rc.Outdated}
+		for _, r := range rc.Replies {
+			n.Replies = append(n.Replies, ReviewReply{By: r.By, Note: r.Note})
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 // agentList is every agent, waiting first and longest wait first, as the
@@ -79,10 +134,12 @@ func agentList(ctx context.Context, machine string, c caller) ([]Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+	// One read of every branch's comments for the list, not one a pane.
+	reviews := reviewsOf(ctx, c, proto.ReviewRef{})
 	agents := []Agent{}
 	for _, p := range list.Panes {
 		if isAgent(p) {
-			agents = append(agents, agentOf(ctx, machine, c, p, projects))
+			agents = append(agents, agentWith(ctx, machine, c, p, projects, reviews))
 		}
 	}
 	sortAgents(agents)
@@ -118,13 +175,21 @@ func buildPane(machine string, p proto.PaneInfo, projects map[string]string, scr
 	return Pane{Agent: a, Kind: KindTerminal, Cwd: p.Cwd}
 }
 
-// paneOf builds one pane, reading its screen when its agent waits.
+// paneOf builds one pane, reading its screen when its agent waits and
+// the comments waiting for its branch.
 func paneOf(ctx context.Context, machine string, c caller, p proto.PaneInfo, projects map[string]string) Pane {
+	return paneWith(ctx, machine, c, p, projects, branchReviews(ctx, c, p))
+}
+
+// paneWith is paneOf with the comments already read.
+func paneWith(ctx context.Context, machine string, c caller, p proto.PaneInfo, projects map[string]string, reviews []proto.ReviewComment) Pane {
 	var screen proto.PaneReadResult
 	if p.Agent != nil && p.Agent.State == proto.AgentBlocked {
 		_ = c.Call(ctx, proto.MethodPaneRead, proto.PaneRef{ID: p.ID}, &screen)
 	}
-	return buildPane(machine, p, projects, screen.Lines)
+	pn := buildPane(machine, p, projects, screen.Lines)
+	pn.Review = reviewNotes(reviews, p)
+	return pn
 }
 
 // paneList is every running pane: the agents in the list's order, then
@@ -138,6 +203,7 @@ func paneList(ctx context.Context, machine string, c caller) ([]Pane, error) {
 	if err != nil {
 		return nil, err
 	}
+	reviews := reviewsOf(ctx, c, proto.ReviewRef{})
 	var agents []Agent
 	byPane := map[string]Pane{}
 	var terminals []Pane
@@ -145,7 +211,7 @@ func paneList(ctx context.Context, machine string, c caller) ([]Pane, error) {
 		if !isRunning(p) {
 			continue
 		}
-		pn := paneOf(ctx, machine, c, p, projects)
+		pn := paneWith(ctx, machine, c, p, projects, reviews)
 		if pn.Kind == KindAgent {
 			agents = append(agents, pn.Agent)
 			byPane[pn.Pane] = pn // keyed as the phone sees it, which is how it is looked up

@@ -105,6 +105,10 @@ Usage:
   conch branch push [-rebase] | pr [-title T] [-draft] | merge [-no-squash] | discard [-force]
                                 finish a branch: push, open a pull request, merge into
                                 the base, or delete it and its worktree
+  conch review [ls | add | rm | send] [-cwd DIR] [-branch B] ...
+                                comments on a branch's diff for its agent: list them, add
+                                FILE[:LINE] NOTE, rm ID, or send [-agent A] them to it
+                                (the same ones as a and S in the changes view)
   conch worktree ls | clean [-y] [-force] [PATH...]
                                 list leftover worktrees, or remove the finished ones
   conch machine add [-label L] SSH_TARGET
@@ -218,6 +222,8 @@ func main() {
 		err = runScheduleCmd(args)
 	case "branch":
 		err = runBranch(args)
+	case "review":
+		err = runReview(args)
 	case "worktree", "worktrees":
 		err = runWorktree(args)
 	case "report":
