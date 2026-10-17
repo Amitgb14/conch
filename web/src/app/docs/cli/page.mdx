@@ -58,6 +58,8 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 
 | Command | Description |
 | --- | --- |
+| `conch view` | what the terminal is showing: its tabs, what each holds, and which pane has the keyboard. The server keeps no layout of its own — a TUI publishes this and conch carries it |
+| `conch show [-name NAME] ID...` | ask the terminal to put those panes in front of the person: one is brought up, several are gathered side by side in one tab. A request, not an order |
 | `conch status` (or `conch ls`) | show server and pane status: ID, name, state, agent, size, folder and command of each pane. Its first line gives the server's uptime, which counts from the *first* server of a chain of reloads — its panes have been alive that whole time — and then `(reloaded N ago)` for when the running binary was loaded, which is the one that says whether your last build got there |
 | `conch new [-cwd DIR] [-name N] -- CMD [ARGS...]` | start a pane (default command: your shell; default folder: the current one, or with `-m` that machine's home) and print its ID |
 | `conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]` | start Claude Code with state tracking |
@@ -233,6 +235,10 @@ An agent that would rather call a tool than a command talks to conch through `co
 | `wait` | block until a pane's agent is `done`, `idle`, `waiting` or `working` |
 | `task` | a branch, a worktree and an agent on a prompt |
 | `rename` | name a pane, to address it by that instead of its id |
+| `view` | what the person is looking at: the tabs, what is in each, and which pane has the keyboard |
+| `show` | ask the terminal to put panes in front of them — one is revealed, several open side by side in a tab of their own |
+
+`view` and `show` are the two that reach past the server to the screen. The server owns panes and the terminal owns the arrangement of them, so conch carries both ways: a TUI publishes what it is showing, and a `show` is passed back to it as a request. A request, not an order — the panes asked for are **gathered side by side in one tab** and nothing else is touched. They move rather than being copied, since a pane is shown in exactly one place, which is the same rule that governs `ctrl+b !` and dragging a pane between tabs. An agent may only show panes it could already type into, by the same scope that governs `prompt`.
 
 The tools are the same work as [`conch agent prompt`](#agent), `conch wait`, `conch task` and the rest — the same server methods with the same payloads — so the two doors cannot drift. Scope comes for free: conch finds the caller from the socket's peer pid walked up to a pane's program, so an MCP server an agent starts inside its own pane reaches only [what that pane may reach](/docs/agents-together#what-an-agent-may-do), and nothing in a tool call can widen it.
 

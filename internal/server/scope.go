@@ -73,6 +73,11 @@ var scoped = map[string]scopeKind{
 	// An agent's hook asks for its own pane, and only its own.
 	proto.MethodAgentPermission: scopePane,
 	proto.MethodAgentBroadcast:  scopePanes,
+	// Asking for a pane to be put in front of the person is asking about
+	// that pane: an agent may arrange what it could already type into,
+	// and nothing else. Reading the layout (view.get) is left open, as
+	// reading always is.
+	proto.MethodViewShow: scopePanes,
 
 	proto.MethodProjectRemove:  scopeProjID,
 	proto.MethodWorktreeRemove: scopeProject, proto.MethodWorktreeCleanup: scopeProject,
@@ -103,8 +108,11 @@ var writesHome = map[string]func(ref scopeRef) bool{
 
 // scopeRef is every field scoped methods name their target by.
 type scopeRef struct {
-	ID        string   `json:"id"`
-	IDs       []string `json:"ids"`
+	ID  string   `json:"id"`
+	IDs []string `json:"ids"`
+	// Panes is view.show's list, named panes rather than ids because it
+	// is a request about what to put on screen.
+	Panes     []string `json:"panes"`
 	PaneID    string   `json:"pane_id"`
 	ProjectID string   `json:"project_id"`
 	// SSH is the pane whose ssh host an fs method reaches (fs.ssh.v1).
@@ -154,7 +162,7 @@ func (s *Server) inScope(c *client, msg proto.Message) *proto.Error {
 	case scopeProject:
 		return s.projectInScope(caller, msg.Method, ref.ProjectID)
 	case scopePanes:
-		for _, id := range ref.IDs {
+		for _, id := range append(append([]string{}, ref.IDs...), ref.Panes...) {
 			if perr := s.paneInScope(caller, msg.Method, id); perr != nil {
 				return perr
 			}
@@ -289,7 +297,7 @@ var verbs = map[string]string{
 	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename",
 	proto.MethodPaneMarkSeen: "mark as seen", proto.MethodPaneMonitor: "set monitoring on",
 	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt",
-	proto.MethodAgentBroadcast: "send a message to", proto.MethodSessionShare: "hand a session to",
+	proto.MethodAgentBroadcast: "send a message to", proto.MethodViewShow: "put on screen", proto.MethodSessionShare: "hand a session to",
 	proto.MethodAgentPermission: "answer a permission request for",
 	proto.MethodServerStop:      "stop", proto.MethodServerReload: "reload",
 	proto.MethodProjectRemove: "remove a project", proto.MethodWorktreeRemove: "remove a worktree",

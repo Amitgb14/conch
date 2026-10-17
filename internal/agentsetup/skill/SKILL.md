@@ -98,6 +98,24 @@ are the way, and the person can add the tools with
 `conch agent library mcp` and `conch agent library apply`. Mixing them is
 fine; don't ask the person to set them up mid-task.
 
+## Showing the person what you found
+
+`conch view` is what is on their screen: the tabs, what each holds, and
+which pane has the keyboard. `conch show p3 p4` asks for panes to be put
+in front of them — one is brought up, several go side by side in one tab.
+
+```sh
+conch view                       # what am I looking at?
+conch show reviewer tester       # put those two side by side
+```
+
+Use it when you have found what somebody asked about: "the two agents on
+the parser" is a list you can name, and showing them is better than
+describing them. It is a request about panes you could already type into,
+so it is refused for anybody else's — and it moves them, since a pane is
+shown in exactly one place.
+
+
 ## Rules
 
 - Use `conch agent prompt` to message an agent, never `conch send`:

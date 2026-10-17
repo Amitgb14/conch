@@ -148,7 +148,89 @@ func mcpTools() []mcpTool {
 			}),
 			run: mcpRename,
 		},
+		{
+			Name:        "view",
+			Title:       "What is on screen",
+			Description: "The tabs the person is looking at and which pane has the keyboard, as the terminal shows them. Use it before show, to tell a pane that is already in front of them from one that is not, and to answer \"what am I looking at?\". A phone or a second terminal is one screen among several: this is the one most recently drawn.",
+			Schema:      schema(nil, map[string]any{}),
+			run:         mcpView,
+		},
+		{
+			Name:        "show",
+			Title:       "Put panes in front of the person",
+			Description: "Ask the terminal to show these panes. One is brought up where it already is; several are opened side by side in a tab of their own, so nothing the person has arranged is taken apart — they close the tab to undo it. It is a request: a screen that cannot show them does what it can. Only panes you could already type into.",
+			Schema: schema([]string{"panes"}, map[string]any{
+				"panes": listProp("the panes to show, by id (p3) or name (reviewer); one reveals it, several go side by side"),
+				"name":  strProp("what to call the tab, when one is opened"),
+			}),
+			run: mcpShow,
+		},
 	}
+}
+
+// mcpView answers with the screen the person is looking at.
+func mcpView(c *client.Client, raw json.RawMessage) (any, error) {
+	if err := mcpArgs(raw, &struct{}{}); err != nil {
+		return nil, err
+	}
+	var v proto.ViewState
+	if err := call(c, proto.MethodViewGet, nil, &v); err != nil {
+		return nil, err
+	}
+	if len(v.Tabs) == 0 {
+		return toolResult("no terminal is showing this machine just now", v), nil
+	}
+	var b strings.Builder
+	for _, t := range v.Tabs {
+		mark := "  "
+		if t.Active {
+			mark = "* "
+		}
+		fmt.Fprintf(&b, "%s%s: %s\n", mark, t.Name, strings.Join(t.Panes, " "))
+	}
+	if v.Focus != "" {
+		fmt.Fprintf(&b, "the keyboard is in %s", v.Focus)
+	} else {
+		b.WriteString("the keyboard is in the tree, not a pane")
+	}
+	return toolResult(strings.TrimRight(b.String(), "\n"), v), nil
+}
+
+// mcpShow asks the terminal to put panes in front of the person.
+func mcpShow(c *client.Client, raw json.RawMessage) (any, error) {
+	var args struct {
+		Panes []string `json:"panes"`
+		Name  string   `json:"name"`
+	}
+	if err := mcpArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(args.Panes))
+	for _, ref := range args.Panes {
+		id, err := mcpPane(c, ref)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	var res proto.ViewShowResult
+	if err := call(c, proto.MethodViewShow, proto.ViewShowParams{Panes: ids, Name: args.Name, Why: mcpWho()}, &res); err != nil {
+		return nil, err
+	}
+	what := "asked the terminal to bring up " + strings.Join(res.Panes, " ")
+	if len(res.Panes) > 1 {
+		what = "asked the terminal to show " + strings.Join(res.Panes, " ") + " side by side"
+	}
+	return toolResult(what+". It is a request: say so rather than assuming the person is looking at them.", res), nil
+}
+
+// mcpWho names the agent asking, for the line conch shows the person. Its
+// own pane is the best conch can do: an agent does not say what it is.
+func mcpWho() string {
+	if id := os.Getenv("CONCH_PANE_ID"); id != "" {
+		return "the agent in " + id
+	}
+	return ""
 }
 
 // mcpArgs decodes a tool's arguments, refusing a field it does not know:

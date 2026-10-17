@@ -289,6 +289,21 @@ helpers in `cmd/conch` and `internal/remote`.
   value is an arrow, since that is what a terminal shows before conch
   asks. Every way out goes through `quitting` or `releasePointer`: a hand
   asked for by conch outlives conch, over whatever the shell draws next.
+- **The layout is the TUI's, and the server only carries it.** An agent
+  in a pane can reach the server and nothing else, so for it to see the
+  screen — or ask for panes to be put in front of the person — the
+  server is the go-between: a TUI publishes what it is showing
+  (`view.state`), anything may read the newest (`view.get`), and a
+  `view.show` is broadcast for the TUIs to act on
+  (`internal/server/view.go`, `internal/tui/view_share.go`). The server
+  holds no opinion about tabs; it keeps the last state each client sent
+  and forgets it when that client goes, because a layout nobody is
+  looking at is not an answer. Each machine is told only about its own
+  panes: a tab can hold one from here beside one from busybox, but an
+  agent asking its own server wants panes it could address. And a show
+  is a *request* — it gathers the panes asked for into one tab and
+  touches nothing else, which still moves them, since a pane is shown in
+  exactly one place.
 - **A pane has more than one client, and its size is the server's to
   say.** The TUI resizes every pane it draws to the space it has, and it
   used to decide by what it had last asked for. The phone gateway is a

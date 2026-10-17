@@ -58,6 +58,8 @@ Usage:
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends;
                                 -at sends it later (14:05, +30m), once the agent is free
+  conch view                    what the terminal is showing: its tabs, and which pane has the keyboard
+  conch show [-name N] ID...    ask the terminal to put those panes in front of the person
   conch skill                   print that skill instead, for an agent conch cannot install it for
   conch agent skill [-agent NAMES] [-remove] [-apply]
                                 teach the agents to start, prompt and read other agents in
@@ -240,6 +242,10 @@ func main() {
 		err = runMCP(args)
 	case "bug":
 		err = runBug(args)
+	case "view":
+		err = runView(args)
+	case "show":
+		err = runShow(args)
 	case "skill", "--skill":
 		// The text itself, for an agent conch cannot install it for: one
 		// whose skills folder conch does not manage, a system prompt

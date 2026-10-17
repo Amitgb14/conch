@@ -203,8 +203,12 @@ type Model struct {
 	queueSeen    map[string]string        // review queue rows dismissed, by what they said when dismissed
 	verifyRuns   map[string]verifyRun     // a branch's last run of its project's check, by machine|project|branch
 	verifyFixes  map[string]int           // failed checks sent back on their own since the last pass, by the same key
-	reviewSigs   map[string]string        // what each branch looked like when its reviewer was last started (reviewer.go)
-	actionPanes  map[string]string        // a custom action's terminal, kept when it exits: machine|pane -> action name
+	// viewSigs is the layout last published to each machine, so what is
+	// on screen is sent when it changes and not once a redraw
+	// (view_share.go).
+	viewSigs    map[string]string
+	reviewSigs  map[string]string // what each branch looked like when its reviewer was last started (reviewer.go)
+	actionPanes map[string]string // a custom action's terminal, kept when it exits: machine|pane -> action name
 	// pendingMoves is moves waiting, by machine, for the sandbox made for
 	// them to connect (move.go).
 	pendingMoves map[string]*worktreeMove
@@ -943,6 +947,13 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 			}
 		}
 
+	case proto.EventViewShow:
+		var p proto.ViewShowParams
+		if !decodeInto(msg, &p) {
+			return nil
+		}
+		return m.showPanes(mach.id, p)
+
 	case proto.EventProjectUpdated:
 		var info proto.ProjectInfo
 		if !decodeInto(msg, &info) {
@@ -1396,6 +1407,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// reason: every path that changes an agent's state ends up here, and
 	// the report is written only when what it says has changed.
 	nm.reportToHost()
+	// Each machine is told what of the layout is its own, on the same
+	// terms: only when it has changed (view_share.go).
+	nm.publishView()
 	return nm, cmd
 }
 

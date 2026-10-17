@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapView,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -166,6 +166,14 @@ const CapPermissionRules = "agent.permission.v1"
 // so a client refuses -after without it.
 const CapTaskAfter = "schedule.after.v1"
 
+// CapView is view.state, view.get and view.show: what a TUI is showing —
+// its tabs, their splits and which pane has the keyboard — published by
+// the TUI and read back by anything else, and a request to show a set of
+// panes together. The server keeps no opinion of its own about layout; it
+// carries the TUI's and passes requests back, because panes are the
+// server's and the arrangement of them is the TUI's.
+const CapView = "view.v1"
+
 // CapFSSSH is the files of a host a terminal is logged in to with ssh:
 // PaneInfo.SSH names the host, and fs.list, fs.read, fs.mkdir, fs.upload
 // and fs.download take SSH, the pane, to reach that host's files instead of
@@ -243,6 +251,17 @@ const (
 	// MethodAgentPrompt submits a message to one agent, unless it is
 	// waiting on a question.
 	MethodAgentPrompt = "agent.prompt"
+
+	// MethodViewState is a TUI telling the server what it is showing, so
+	// anything else can read it (view.get). A notification: nothing waits
+	// on it, and a server that predates it ignores it.
+	MethodViewState = "view.state"
+	// MethodViewGet answers with the last view a TUI published.
+	MethodViewGet = "view.get"
+	// MethodViewShow asks the TUIs to show a set of panes together. It is
+	// a request, not an order: a client that is not showing that machine,
+	// or has no room, does what it can.
+	MethodViewShow = "view.show"
 	// MethodAgentReply is the last thing a pane's agent said, read from
 	// its saved conversation (CapAgentReply).
 	MethodAgentReply = "agent.reply"
@@ -308,6 +327,9 @@ const (
 	// EventScheduleChanged carries the whole ScheduleList whenever an item
 	// is added, fired, moved or removed.
 	EventScheduleChanged = "schedule.changed"
+
+	// EventViewShow carries a view.show request to every client.
+	EventViewShow = "view.show"
 )
 
 // Error codes.
@@ -1515,6 +1537,49 @@ type AgentBroadcastParams struct {
 type AgentPromptParams struct {
 	ID   string `json:"id"`
 	Text string `json:"text"`
+}
+
+// ViewState is what a TUI is showing: its tabs in the order the bar
+// lists them, and the pane the keyboard is on. A client publishes it
+// when it changes; the server keeps the last one and answers view.get
+// with it. Nothing of the layout is the server's own — it is carrying a
+// TUI's answer to anything that asks.
+type ViewState struct {
+	// Client names the TUI, for telling two apart when somebody is
+	// looking at the same machine from a phone and a terminal.
+	Client string `json:"client,omitempty"`
+	// Focus is the pane with the keyboard, "" when the tree has it.
+	Focus string    `json:"focus,omitempty"`
+	Tabs  []ViewTab `json:"tabs,omitempty"`
+	// At is when the TUI published it.
+	At time.Time `json:"at,omitempty"`
+}
+
+// ViewTab is one tab: what it is called and the panes it shows, left to
+// right then top to bottom. A split showing a diff or a page rather than
+// a pane contributes no id, since there is nothing an agent could
+// address.
+type ViewTab struct {
+	Name   string   `json:"name,omitempty"`
+	Panes  []string `json:"panes,omitempty"`
+	Active bool     `json:"active,omitempty"`
+}
+
+// ViewShowParams asks the TUIs to show these panes together. One pane is
+// a request to reveal it; several are a request to put them side by side.
+type ViewShowParams struct {
+	Panes []string `json:"panes"`
+	// Name is what to call the tab, when one is opened.
+	Name string `json:"name,omitempty"`
+	// Why names the agent asking, for the line conch shows the person:
+	// a screen that rearranges itself has to say who asked.
+	Why string `json:"why,omitempty"`
+}
+
+// ViewShowResult is the panes the request was passed on for, in order
+// and without the ones named twice.
+type ViewShowResult struct {
+	Panes []string `json:"panes,omitempty"`
 }
 
 // AgentReply is the last answer of a pane's agent and when it was given.

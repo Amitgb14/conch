@@ -66,6 +66,7 @@ type Server struct {
 	clients map[*client]struct{}
 
 	watcher *worktreeWatcher // nil when the machine gives no watches
+	views   *viewBook        // what each TUI says it is showing (view.go)
 
 	quit     chan struct{}
 	quitOnce sync.Once
@@ -101,6 +102,7 @@ func New(sockPath, configDir string) *Server {
 	}
 	s.projects = newProjectManager(s, configDir)
 	s.ports = loadPortBook(configDir)
+	s.views = newViewBook()
 	s.schedules = loadSchedule(configDir)
 	s.watcher = newWorktreeWatcher(
 		func(c proto.WorktreeChanged) {
@@ -304,6 +306,7 @@ func (s *Server) serve(nc net.Conn) {
 		s.mu.Lock()
 		delete(s.clients, c)
 		s.mu.Unlock()
+		s.views.forget(c) // a layout nobody is looking at is not an answer
 		s.unsubscribeAll(c)
 		s.uploads.dropClient(c)
 		c.conn.Close()
@@ -641,6 +644,24 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return s.listFiles(lp)
 		}
 		return s.listDir(lp)
+
+	case proto.MethodViewState:
+		vp, perr := decode[proto.ViewState](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		s.viewState(c, vp)
+		return nil, nil
+
+	case proto.MethodViewGet:
+		return s.viewGet(), nil
+
+	case proto.MethodViewShow:
+		sp, perr := decode[proto.ViewShowParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.viewShow(sp)
 
 	case proto.MethodFSRead:
 		rp, perr := decode[proto.FSReadParams](msg)

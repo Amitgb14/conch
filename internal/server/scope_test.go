@@ -95,6 +95,8 @@ func TestScopeHelper(t *testing.T) {
 			params = proto.PaneSendTextParams{ID: arg, Text: "from-helper\r"}
 		case proto.MethodAgentBroadcast:
 			params = proto.AgentBroadcastParams{IDs: strings.Split(arg, ","), Text: "from-helper"}
+		case proto.MethodViewShow:
+			params = proto.ViewShowParams{Panes: strings.Split(arg, ",")}
 		case proto.MethodPaneCreate:
 			params = proto.PaneCreateParams{Command: []string{"/bin/sleep", "60"}, Cwd: arg, Cols: 40, Rows: 5}
 		case proto.MethodProjectRemove:
@@ -243,7 +245,12 @@ func TestScopeAgentInAPane(t *testing.T) {
 		{proto.MethodPaneMarkSeen, inB, proto.ErrOutOfScope},               // hiding another's work
 		{proto.MethodPaneRename, inB, proto.ErrOutOfScope},                 //
 		{proto.MethodAgentBroadcast, inA + "," + inB, proto.ErrOutOfScope}, // one out is all out
-		{proto.MethodPaneClose, "p999", proto.ErrNotFound},                 // nothing there: its own error
+		// Asking for a pane to be put on screen is asking about that
+		// pane: its own project's is fine, another's is not.
+		{proto.MethodViewShow, inA, "ok"},
+		{proto.MethodViewShow, inB, proto.ErrOutOfScope},
+		{proto.MethodViewShow, inA + "," + inB, proto.ErrOutOfScope},
+		{proto.MethodPaneClose, "p999", proto.ErrNotFound}, // nothing there: its own error
 		{proto.MethodServerStop, "", proto.ErrOutOfScope},
 		{proto.MethodServerReload, "", proto.ErrOutOfScope},
 		{proto.MethodProjectRemove, projB.ID, proto.ErrOutOfScope},
