@@ -22,6 +22,7 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"github.com/Amitgb14/conch/internal/adapter"
+	"github.com/Amitgb14/conch/internal/agentsetup"
 	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
@@ -57,6 +58,7 @@ Usage:
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends;
                                 -at sends it later (14:05, +30m), once the agent is free
+  conch skill                   print that skill instead, for an agent conch cannot install it for
   conch agent skill [-agent NAMES] [-remove] [-apply]
                                 teach the agents to start, prompt and read other agents in
                                 conch: its skill, in each agent's own skills folder
@@ -238,6 +240,12 @@ func main() {
 		err = runMCP(args)
 	case "bug":
 		err = runBug(args)
+	case "skill", "--skill":
+		// The text itself, for an agent conch cannot install it for: one
+		// whose skills folder conch does not manage, a system prompt
+		// somebody assembles by hand, a sandbox where it goes inline.
+		// `conch agent skill -apply` is the way to install it.
+		os.Stdout.Write(agentsetup.Skill)
 	case "version", "--version", "-v":
 		runVersion(args)
 	case "help", "--help", "-h":
