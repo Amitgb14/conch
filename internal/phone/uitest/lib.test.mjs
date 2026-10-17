@@ -2,7 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import {
   parseLine, frameRows, color256, sortAgents, upsertAgent, removeAgent, groupAgents, groupByMachine, agentLabel,
-  ago, route, can, backoff, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, chunks, keyBytes, appPath,
+  ago, route, can, backoff, reviewCount, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, chunks, keyBytes, appPath,
 } from "../ui/lib.mjs"
 
 const text = (runs) => runs.map((r) => r.text).join("")
@@ -506,4 +506,32 @@ test("the drawer groups by machine", () => {
   // other part of the app reads it.
   const bare = groupByMachine([{ pane: "p1", state: "idle", kind: "agent" }], machines)
   assert.deepEqual(bare.machines[0].groups.map((g) => g.agents.map((p) => p.pane)), [["p1"]])
+})
+
+test("review comments waiting for an agent", () => {
+  assert.equal(reviewCount({}), "")
+  assert.equal(reviewCount(null), "")
+  assert.equal(reviewCount({ review: [] }), "")
+  assert.equal(reviewCount({ review: "x" }), "")
+  assert.equal(reviewCount({ review: [{ id: "c1" }] }), "1 review comment")
+  assert.equal(reviewCount({ review: [{}, {}, {}] }), "3 review comments")
+  assert.equal(reviewBlocked({ state: "done" }), "")
+  assert.equal(reviewBlocked({ state: "working" }), "")
+  assert.match(reviewBlocked({ state: "waiting" }), /Answer its question first/)
+  assert.match(reviewBlocked({ state: "done" }, false), /Offline/)
+})
+
+test("who wrote a review comment, and its link", () => {
+  assert.equal(reviewByline({}), "")
+  assert.equal(reviewByline(null), "")
+  assert.equal(reviewByline({ by: "codex · review" }), "codex · review")
+  assert.equal(reviewByline({ github: true, by: "alice" }), "alice on GitHub")
+  assert.equal(reviewByline({ github: true }), "GitHub")
+  assert.equal(reviewByline({ github: true, by: "bob", outdated: true, replies: [{}] }), "bob on GitHub · outdated · 1 reply")
+  assert.equal(reviewByline({ github: true, by: "bob", replies: [{}, {}] }), "bob on GitHub · 2 replies")
+  assert.equal(reviewByline({ replies: "x" }), "")
+  assert.equal(commentLink("https://github.com/o/r/pull/5#discussion_r1"), "https://github.com/o/r/pull/5#discussion_r1")
+  for (const bad of ["javascript:alert(1)", "http://github.com/x", "", null, undefined, 5, "https://a b", " https://x"]) {
+    assert.equal(commentLink(bad), "", String(bad))
+  }
 })

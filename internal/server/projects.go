@@ -381,7 +381,16 @@ func (pm *projectManager) maybeRefresh(p *project) {
 	if p.common == "" {
 		return
 	}
-	pm.maybeFetchPRs(p)
+	// Pull requests are matched to the branches git reported, so not
+	// before git has reported any: a fetch racing the first refresh found
+	// no branches, read no review comments, and left them for the next
+	// fetch, minutes away.
+	p.mu.Lock()
+	loaded := !p.lastStatus.IsZero()
+	p.mu.Unlock()
+	if loaded {
+		pm.maybeFetchPRs(p)
+	}
 	stamp := gitx.MetaStamp(p.common)
 	interval := statusIntervalIdle
 	if pm.s.projectHasPanes(p.id) {
@@ -498,6 +507,13 @@ func (pm *projectManager) fetchPRs(p *project) {
 	}
 	if changed && pm.s.projectRegistered(p) {
 		pm.s.broadcast(proto.EventProjectUpdated, info)
+	}
+	if err == nil && pm.s.projectRegistered(p) && pm.s.reviews != nil {
+		branches := make([]string, 0, len(info.Branches))
+		for _, br := range info.Branches {
+			branches = append(branches, br.Name)
+		}
+		pm.s.fetchPRReviews(p, branches, ghx.ByBranch(list))
 	}
 }
 

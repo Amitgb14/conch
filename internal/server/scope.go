@@ -95,6 +95,9 @@ var scoped = map[string]scopeKind{
 	proto.MethodProjectSetup: scopeHome,
 	// What runs later runs with nobody watching: the person's to arrange.
 	proto.MethodScheduleAdd: scopeHome, proto.MethodScheduleRemove: scopeHome,
+	// A reviewing agent comments on its project's branches and hands them
+	// over, as the person would.
+	proto.MethodReviewSet: scopeProject, proto.MethodReviewSend: scopeProject,
 }
 
 // writesHome lists methods that only sometimes change the person's setup:
@@ -311,6 +314,7 @@ var verbs = map[string]string{
 	proto.MethodScheduleAdd:  "schedule a message or a task", proto.MethodScheduleRemove: "remove something scheduled",
 	proto.MethodAgentLibrary: "change the library of MCP servers and skills", proto.MethodLibraryApply: "apply the library to the agents",
 	proto.MethodAgentSync: "sync one agent's setup to the others",
+	proto.MethodReviewSet: "comment on a branch", proto.MethodReviewSend: "send review comments",
 }
 
 // madeBy records that the connection's pane started pane id: it and the

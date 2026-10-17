@@ -82,7 +82,24 @@ To wait without prompting: `conch wait -state done,waiting -timeout 30m reviewer
   answer or to see what it is asking.
 - `conch status` lists every pane with its agent and state.
 
-## Finish
+## Leave review comments
+
+When you are the reviewer, comments on the branch can say what a findings
+file says, where the person reviews anyway:
+
+```sh
+conch review add -branch feature/login api/login.py:42 "This swallows the timeout; let it raise."
+conch review -branch feature/login        # what is waiting, with IDs
+conch review send -branch feature/login   # hand them to the agent on that branch
+```
+
+They show in the person's changes view and on their phone, marked as
+yours. Leave the sending to the person unless you were asked to send them.
+
+`conch review -branch …` also lists what reviewers said on the branch's
+pull request, marked `on GitHub`, with their replies: read those before
+reviewing, so you don't repeat them.
+
 
 Close the helpers you started once you have what you need:
 `conch close reviewer`. Their branches and worktrees stay for the person
