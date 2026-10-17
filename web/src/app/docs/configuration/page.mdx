@@ -68,7 +68,7 @@ command = ""     # also run for every alert, with it as JSON on stdin: ntfy, Sla
 
 [verify]
 commands = {}    # a project's check, by project ID: { r1a2b3c = "go test ./..." }
-auto_fix = 0     # send a failed check back to the branch's agent up to this many times in a row
+auto_fix = 0     # send a failed check — the project's own, or a pull request's CI — back to the branch's agent up to this many times in a row
 reviewer = ""    # an agent asked to review a branch when its agent finishes, e.g. "codex"
 
 [ui]

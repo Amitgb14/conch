@@ -949,15 +949,23 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 			return nil
 		}
 		found := false
+		var was proto.ProjectInfo
 		for i := range mach.projects {
 			if mach.projects[i].ID == info.ID {
-				mach.projects[i], found = info, true
+				was, mach.projects[i], found = mach.projects[i], info, true
 			}
 		}
 		if !found {
 			mach.projects = append(mach.projects, info)
 		}
 		cmds := []tea.Cmd{m.rebuild(), m.recheckSettled(time.Now()), m.filesProjectUpdated(mach.id, info.ID)}
+		// A pull request whose checks have just turned red can go back to
+		// its agent by itself (verifyfix.go). Only for a project conch
+		// already had: one arriving for the first time brings whatever
+		// state it is in, which conch did not watch happen.
+		if found {
+			cmds = append(cmds, m.autoFixCI(mach.id, was, info))
+		}
 		for _, l := range m.tab().root.leaves() {
 			cv := l.changes
 			if cv == nil || cv.machine != mach.id || cv.projectID != info.ID {

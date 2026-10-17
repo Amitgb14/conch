@@ -353,3 +353,102 @@ func TestQueueRowsSayWhatHappened(t *testing.T) {
 		t.Fatal("work for nothing")
 	}
 }
+
+// proj is a project with one branch whose open pull request's checks are
+// in the state given; "" is a branch with no pull request at all.
+func ciProject(checks string) proto.ProjectInfo {
+	p := proto.ProjectInfo{ID: "r1", Name: "api", Branches: []proto.BranchInfo{{Name: "wip"}}}
+	if checks != "" {
+		p.Branches[0].PR = &proto.PRInfo{Number: 7, State: "OPEN", Checks: checks}
+	}
+	return p
+}
+
+// TestAutoFixCIOnTheTurnToRed: a pull request whose checks have just
+// failed goes back to its branch's agent on the same terms as a check of
+// conch's own — and only on the turn, so a poll that says "still red"
+// does not ask again.
+func TestAutoFixCIOnTheTurnToRed(t *testing.T) {
+	m, mach, _ := fixModel(t, proto.CapAgentPrompt, proto.CapBranchCILog)
+
+	// Off unless asked for.
+	if cmd := m.autoFixCI(mach.id, ciProject("pending"), ciProject("fail")); cmd != nil {
+		t.Fatal("auto_fix 0 sent something")
+	}
+	m.cfg.Verify.AutoFix = 2
+
+	// Pending to failed is the turn: it is sent, once.
+	if cmd := m.autoFixCI(mach.id, ciProject("pending"), ciProject("fail")); cmd == nil {
+		t.Fatalf("the turn to red sent nothing (%q)", m.flash)
+	}
+	if cmd := m.autoFixCI(mach.id, ciProject("fail"), ciProject("fail")); cmd != nil {
+		t.Fatal("still red asked again")
+	}
+	// A branch with no pull request, and one whose checks pass, say
+	// nothing.
+	for _, c := range []string{"", "pass", "pending"} {
+		if cmd := m.autoFixCI(mach.id, ciProject("pending"), ciProject(c)); cmd != nil {
+			t.Fatalf("checks %q sent something", c)
+		}
+	}
+
+	// The cap is shared with conch's own check, and counts down.
+	key := mach.id + "|r1|wip"
+	m.verifyFixes[key] = 1
+	if cmd := m.autoFixCI(mach.id, ciProject("pending"), ciProject("fail")); cmd == nil {
+		t.Fatalf("the second try sent nothing (%q)", m.flash)
+	}
+	if cmd := m.autoFixCI(mach.id, ciProject("pending"), ciProject("fail")); cmd != nil ||
+		!strings.Contains(m.flash, "tried 2 times") {
+		t.Fatalf("past the cap: %q", m.flash)
+	}
+	// Green clears it, so a branch that goes red again gets the whole
+	// allowance rather than none.
+	m.autoFixCI(mach.id, ciProject("fail"), ciProject("pass"))
+	if n := m.verifyFixes[key]; n != 0 {
+		t.Fatalf("a pass left the count at %d", n)
+	}
+
+	// Never to an agent that is busy or waiting, and never by starting
+	// one where there is none.
+	for _, state := range []string{proto.AgentWorking, proto.AgentBlocked} {
+		mach.panes[0].Agent.State = state
+		if cmd := m.autoFixCI(mach.id, ciProject("pending"), ciProject("fail")); cmd != nil {
+			t.Fatalf("sent to an agent that is %s", state)
+		}
+	}
+	mach.panes[0].Agent.State = proto.AgentDone
+	panes := mach.panes
+	mach.panes = nil
+	if cmd := m.autoFixCI(mach.id, ciProject("pending"), ciProject("fail")); cmd != nil {
+		t.Fatal("started an agent nobody asked for")
+	}
+	mach.panes = panes
+}
+
+// A project conch is seeing for the first time brings whatever state it
+// is in, which conch did not watch happen: four red pull requests on a
+// machine conch has just reached are the review queue's business, not
+// four prompts.
+func TestAutoFixCINotOnTheFirstSight(t *testing.T) {
+	m, mach, _ := fixModel(t, proto.CapAgentPrompt, proto.CapBranchCILog)
+	m.cfg.Verify.AutoFix = 2
+	if cmd := m.autoFixCI(mach.id, proto.ProjectInfo{ID: "r1"}, ciProject("fail")); cmd == nil {
+		t.Fatal("this test needs the turn to fire when the branch was known")
+	}
+	m.verifyFixes = map[string]int{}
+
+	// What the event does with a project it has never seen: nothing.
+	mach.projects = nil
+	before := len(m.verifyFixes)
+	m.handleEvent(mach, eventMsg(t, proto.EventProjectUpdated, ciProject("fail")))
+	if len(m.verifyFixes) != before {
+		t.Fatalf("a project arriving red was acted on: %v", m.verifyFixes)
+	}
+	// And once it is known, a turn to red is.
+	mach.projects = []proto.ProjectInfo{ciProject("pending")}
+	m.handleEvent(mach, eventMsg(t, proto.EventProjectUpdated, ciProject("fail")))
+	if m.verifyFixes[mach.id+"|r1|wip"] != 1 {
+		t.Fatalf("the turn was missed: %v", m.verifyFixes)
+	}
+}

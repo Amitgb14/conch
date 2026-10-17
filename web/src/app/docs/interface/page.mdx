@@ -258,6 +258,8 @@ auto_fix = 2   # send a failed check back to the branch's agent up to twice
 
 It only sends to an agent that has finished — never one still working or waiting on you, and never by starting an agent nobody asked for — and a check that passes resets the count. When the count runs out, conch says the failure is yours. The default, `0`, never sends on its own: a cap is the difference between an agent fixing a test and an agent spending a night of your plan on one it cannot fix.
 
+**This covers CI as well as the project's own check.** conch reads a pull request's checks every minute while you are working, and when a branch's checks turn red it hands the end of the failed run's log to that branch's agent, exactly as `f` would — same cap, same count, same guards. Both kinds share one count, since "a check failed, give it to the agent" is one idea, and green clears it, so a branch that goes red again gets the whole allowance rather than none. Only a change conch *watched* counts: reaching a machine that already has four red pull requests on it prompts nobody, because conch did not see those turn red and the work may be days old. They wait in the review queue, where `f` sends them when you say so.
+
 ### A second opinion
 
 Name an agent to review finished work and conch asks it, on every branch whose agent finishes — once the check passes, where the project has one:
