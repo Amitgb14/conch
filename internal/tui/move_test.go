@@ -1,12 +1,18 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
 var moveCaps = []string{"session.v1", "session.share.v1", proto.CapSessionHandoff, proto.CapWorktreeMove, harvestCapability}
@@ -17,6 +23,8 @@ var moveCaps = []string{"session.v1", "session.share.v1", proto.CapSessionHandof
 // busybox holding a clone of api and an unrelated project.
 func moveModel(t *testing.T) (m *Model, src, dst *a1Peer, remote *machine) {
 	t.Helper()
+	a2Isolate(t)
+	moveSandboxes(t, nil) // a provider key in the developer's environment adds no menu item
 	m = a2Model()
 	m.subscribed = map[string]bool{} // revealing a new pane subscribes to it
 	local := m.machines[0]
@@ -58,6 +66,20 @@ func moveModel(t *testing.T) (m *Model, src, dst *a1Peer, remote *machine) {
 	return m, src, dst, remote
 }
 
+// moveSandboxes makes p the Daytona provider and leaves every other one
+// unconfigured; nil leaves them all so.
+func moveSandboxes(t *testing.T, p sandbox.Provider) {
+	t.Helper()
+	old := openSandboxProvider
+	openSandboxProvider = func(name string) (sandbox.Provider, error) {
+		if name == "daytona" && p != nil {
+			return p, nil
+		}
+		return nil, errors.New("not here")
+	}
+	t.Cleanup(func() { openSandboxProvider = old })
+}
+
 var featTarget = harvestTarget{machine: localMachine, projectID: "r1", branch: "feat"}
 
 // deliver runs cmd and hands each message to its move handler, following
@@ -74,24 +96,32 @@ func deliver(t *testing.T, m *Model, cmd tea.Cmd) tea.Msg {
 			case moveDescribedMsg:
 				cmd = m.receiveMoveDescribed(v)
 			case moveClonedMsg:
-				m.receiveMoveCloned(v)
+				cmd = m.receiveMoveCloned(v)
+			case moveSandboxFailedMsg:
+				m.receiveMoveSandboxFailed(v)
+			case projectDescribedMsg:
+				cmd = m.receiveProjectDescribed(v)
+			case projectMainDoneMsg:
+				m.receiveProjectMainDone(v)
 			case moveStepMsg:
 				cmd = m.receiveMoveStep(v)
 			case moveDoneMsg:
-				m.receiveMoveDone(v)
+				if v.mv.job != nil { // the next worktree of a project
+					cmd = m.receiveMoveDone(v)
+				} else {
+					m.receiveMoveDone(v)
+				}
 			}
 		}
 	}
 	return last
 }
 
-// toConfirm walks the menus to the confirmation for moving feat into api on
-// busybox.
+// toConfirm picks busybox for feat, which goes to api there by itself.
 func toConfirm(t *testing.T, m *Model) *dialog {
 	t.Helper()
 	m.openMoveWorktree(featTarget)
 	deliver(t, m, runItem(t, m, 0)) // busybox
-	runItem(t, m, 0)                // api, the same origin
 	d, ok := m.overlay.(*dialog)
 	if !ok {
 		t.Fatalf("no confirmation; flash %q", m.flash)
@@ -106,18 +136,10 @@ func TestMoveWorktreeMenus(t *testing.T) {
 	if got := menuLabels(mu); got != "1 busybox" || mu.title != "Move feat to which machine?" {
 		t.Fatalf("machines: %s (%q)", got, mu.title)
 	}
+	// One choice: the project there is the clone of the same repository,
+	// however its URL is written, with no menu of projects.
 	deliver(t, m, runItem(t, m, 0))
 	src.waitMethod(t, proto.MethodWorktreeDescribe, `"path":"/src/api-feat"`)
-	mu = m.overlay.(*menu)
-	// The clone of the same repository first however its URL is written,
-	// then other git projects, then a new clone.
-	if got := menuLabels(mu); got != "1 api  /srv/api · same origin | 2 web  /srv/web | c Clone acme/api there…" {
-		t.Fatalf("projects: %s", got)
-	}
-	if !strings.Contains(mu.title, "into which project on busybox") {
-		t.Fatalf("title %q", mu.title)
-	}
-	runItem(t, m, 0)
 	d := m.overlay.(*dialog)
 	text := strings.Join(d.text, "\n")
 	for _, want := range []string{
@@ -324,53 +346,83 @@ func TestMoveWorktreeGuards(t *testing.T) {
 }
 
 func TestMoveWorktreeClone(t *testing.T) {
+	// No clone there: one goes where it is here, under the home folder,
+	// said in the one confirmation, and the move follows it.
 	m, _, dst, remote := moveModel(t)
 	remote.projects = nil
 	m.openMoveWorktree(featTarget)
 	deliver(t, m, runItem(t, m, 0))
-	if got := menuLabels(m.overlay.(*menu)); got != "c Clone acme/api there…" {
-		t.Fatalf("items: %s", got)
+	d, ok := m.overlay.(*dialog)
+	if !ok {
+		t.Fatalf("no confirmation: %v %q", m.overlay, m.flash)
 	}
-	runItem(t, m, 0)
-	d := m.overlay.(*dialog)
+	text := strings.Join(d.text, "\n")
 	// /src/api isn't under this home, so it goes under the home there.
-	if v := d.fields[0].in.Value(); v != "~/api" {
-		t.Fatalf("default folder %q", v)
+	if !strings.Contains(text, "busybox has no clone of acme/api, so it is cloned into ~/api there first") {
+		t.Fatalf("text:\n%s", text)
 	}
-	if !strings.Contains(strings.Join(d.text, " "), "git@github.com:acme/api.git") {
-		t.Fatalf("text %q", d.text)
+	for _, msg := range dst.snapshot() {
+		if msg.Method == proto.MethodProjectClone {
+			t.Fatal("cloned before the move was confirmed")
+		}
 	}
-	d.fields[0].in.SetValue("  ")
-	if cmd := d.submit(m, []string{"  "}); cmd != nil || m.flash != "a folder is needed" {
-		t.Fatalf("empty folder: %q", m.flash)
+	dst.setResult(proto.MethodProjectClone, proto.ProjectInfo{ID: "r7", Name: "api", Path: "/home/b/api", Git: true})
+	if _, ok := deliver(t, m, d.submit(m, nil)).(moveDoneMsg); !ok {
+		t.Fatalf("didn't finish; flash %q", m.flash)
 	}
-
-	dst.setResult(proto.MethodProjectClone, proto.ProjectInfo{ID: "r7", Name: "api", Path: "/home/b/code/api", Git: true})
-	deliver(t, m, d.submit(m, []string{"~/code/api"}))
-	dst.waitMethod(t, proto.MethodProjectClone, `"path":"~/code/api"`)
+	dst.waitMethod(t, proto.MethodProjectClone, `"path":"~/api"`)
 	dst.waitMethod(t, proto.MethodProjectClone, `"url":"git@github.com:acme/api.git"`)
+	dst.waitMethod(t, proto.MethodWorktreeUnpack, `"project_id":"r7"`)
 	if m.project("m2", "r7") == nil {
 		t.Fatal("the clone isn't listed")
 	}
-	cd, ok := m.overlay.(*dialog)
-	if !ok || !strings.Contains(strings.Join(cd.text, "\n"), "Move feat to busybox · api") {
-		t.Fatalf("no confirmation after cloning: %v %q", m.overlay, m.flash)
+
+	// That folder already holds another project: conch asks rather than
+	// clone over it, and the folder can be changed.
+	m, _, dst, remote = moveModel(t)
+	remote.server.Home = "/home/b"
+	remote.projects = []proto.ProjectInfo{{ID: "r6", Name: "api", Path: "/home/b/api", Git: true, Remote: "https://example.com/other/api"}}
+	m.openMoveWorktree(featTarget)
+	deliver(t, m, runItem(t, m, 0))
+	mu, ok := m.overlay.(*menu)
+	if !ok || menuLabels(mu) != "1 api  ~/api | c Clone acme/api there…" || !strings.Contains(mu.title, "into which project on busybox") {
+		t.Fatalf("menu: %v %q", m.overlay, m.flash)
 	}
-	deliver(t, m, cd.submit(m, nil))
+	runItem(t, m, 1)
+	cd := m.overlay.(*dialog)
+	if v := cd.fields[0].in.Value(); v != "~/api" {
+		t.Fatalf("default folder %q", v)
+	}
+	if cmd := cd.submit(m, []string{"  "}); cmd != nil || m.flash != "a folder is needed" {
+		t.Fatalf("empty folder: %q", m.flash)
+	}
+	cd.submit(m, []string{" ~/code/api "})
+	if c, ok := m.overlay.(*dialog); !ok || !strings.Contains(strings.Join(c.text, "\n"), "cloned into ~/code/api there first") {
+		t.Fatalf("no confirmation for the folder: %v", m.overlay)
+	}
+	dst.setResult(proto.MethodProjectClone, proto.ProjectInfo{ID: "r7", Name: "api", Path: "/home/b/code/api", Git: true})
+	deliver(t, m, m.overlay.(*dialog).submit(m, nil))
+	dst.waitMethod(t, proto.MethodProjectClone, `"path":"~/code/api"`)
 	dst.waitMethod(t, proto.MethodWorktreeUnpack, `"project_id":"r7"`)
+
+	// No origin: nothing to match or clone, so the git projects there.
+	m, src, _, _ := moveModel(t)
+	src.setResult(proto.MethodWorktreeDescribe, proto.WorktreeMoveInfo{Branch: "feat", History: []string{"h"}})
+	m.openMoveWorktree(featTarget)
+	deliver(t, m, runItem(t, m, 0))
+	if mu, ok := m.overlay.(*menu); !ok || menuLabels(mu) != "1 web  /srv/web | 2 api  /srv/api" {
+		t.Fatalf("no origin: %v", m.overlay)
+	}
 
 	// A clone that fails.
 	m, _, dst, remote = moveModel(t)
 	remote.projects = nil
 	dst.setError(proto.MethodProjectClone, "Permission denied (publickey)")
-	m.openMoveWorktree(featTarget)
-	deliver(t, m, runItem(t, m, 0))
-	runItem(t, m, 0)
-	deliver(t, m, m.overlay.(*dialog).submit(m, []string{"~/api"}))
+	deliver(t, m, toConfirm(t, m).submit(m, nil))
 	if m.flash != "clone on busybox failed: Permission denied (publickey)" || !m.flashIsErr {
 		t.Fatalf("flash %q", m.flash)
 	}
-	if n, ok := m.overlay.(*dialog); !ok || !n.notice || n.text[1] != "Permission denied (publickey)" {
+	if n, ok := m.overlay.(*dialog); !ok || !n.notice || n.text[1] != "Permission denied (publickey)" || strings.Contains(strings.Join(n.text, " "), "costs") {
 		t.Fatalf("notice: %#v", m.overlay)
 	}
 	// A notice fits a small screen, and a click does nothing to it.
@@ -389,6 +441,200 @@ func TestMoveWorktreeClone(t *testing.T) {
 	}
 }
 
+// moveSandboxModel is moveModel with Daytona set up and no other machine,
+// and a sandbox that sets up without a network.
+func moveSandboxModel(t *testing.T) (*Model, *sbProvider, *a1Peer) {
+	t.Helper()
+	m, src, _, _ := moveModel(t)
+	m.machines = m.machines[:1]
+	p := &sbProvider{created: sandbox.Sandbox{ID: "sb42"}}
+	moveSandboxes(t, p)
+	stubSetUp(t)
+	return m, p, src
+}
+
+// stubSetUp sets a new sandbox up without a network.
+func stubSetUp(t *testing.T) {
+	t.Helper()
+	old := setUpSandboxFn
+	setUpSandboxFn = func(context.Context, remote.Machine, func(string)) (*client.Client, error) {
+		c, _ := a1FakeClient(t)
+		return c, nil
+	}
+	t.Cleanup(func() { setUpSandboxFn = old })
+}
+
+func TestMoveWorktreeToNewSandbox(t *testing.T) {
+	m, p, _ := moveSandboxModel(t)
+	t.Setenv("SB_TOKEN", "tok")
+	m.cfg.Sandbox = config.SandboxCfg{"daytona": {Snapshot: "big", Env: []string{"SB_TOKEN"}, AutoStop: 15}}
+	m.openMoveWorktree(featTarget)
+	mu := m.overlay.(*menu)
+	if got := menuLabels(mu); got != " New Daytona sandbox" {
+		t.Fatalf("items: %s", got)
+	}
+	deliver(t, m, runItem(t, m, 0))
+	d, ok := m.overlay.(*dialog)
+	if !ok {
+		t.Fatalf("no confirmation: %v %q", m.overlay, m.flash)
+	}
+	text := strings.Join(d.text, "\n")
+	for _, want := range []string{"Move feat to a new Daytona sandbox", "clones acme/api into ~/api first", "costs, until you stop it",
+		"then closed here: claude (working), codex."} {
+		if !strings.Contains(text, want) {
+			t.Errorf("confirmation lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "Nothing is passed in") {
+		t.Errorf("says nothing is passed in, with env set:\n%s", text)
+	}
+	if p.called() != "" {
+		t.Fatalf("made a sandbox before it was confirmed: %s", p.called())
+	}
+
+	// Confirmed: the sandbox is made from config.toml and added.
+	var added machineAddedMsg
+	for _, msg := range a2Run(d.submit(m, nil)) {
+		if a, ok := msg.(machineAddedMsg); ok {
+			added = a
+		}
+	}
+	if added.move == nil || added.m.Target != "daytona:sb42" {
+		t.Fatalf("added %+v", added)
+	}
+	if p.spec.Snapshot != "big" || p.spec.Env["SB_TOKEN"] != "tok" || p.spec.AutoStop != 15 {
+		t.Fatalf("spec %+v", p.spec)
+	}
+	next, _ := m.Update(added) // its connect is left unrun: the test connects it
+	*m = next.(Model)
+	mach := m.machine(added.m.ID)
+	if mach == nil || m.pendingMoves[mach.id] == nil || !strings.Contains(m.flash, "connecting to move feat there") {
+		t.Fatalf("not held for the sandbox: %q", m.flash)
+	}
+
+	// Connected, it clones and the move goes on to the end.
+	rc, dst := a1FakeClient(t, moveCaps...)
+	mach.c, mach.state = rc, stateOnline
+	dst.setResult(proto.MethodProjectClone, proto.ProjectInfo{ID: "r7", Name: "api", Path: "/home/daytona/api", Git: true})
+	dst.setResult(proto.MethodWorktreeHave, proto.WorktreeHaveResult{})
+	dst.setResult(proto.MethodFSUpload, proto.FSUploadResult{Upload: "u1", Path: "/up/feat.tar.gz"})
+	dst.setResult(proto.MethodWorktreeUnpack, proto.WorktreeUnpackResult{Path: "/home/daytona/api.worktrees/feat", Branch: "feat"})
+	dst.setResult(proto.MethodSessionShare, proto.SessionShareResult{Pane: proto.PaneInfo{ID: "q1", Name: "claude", State: proto.PaneRunning}})
+	dst.setResult(proto.MethodPaneCreate, proto.PaneInfo{ID: "q2", Name: "codex", State: proto.PaneRunning})
+	next, cmd := m.Update(projectsMsg{machine: mach.id, gen: mach.gen})
+	*m = next.(Model)
+	if m.pendingMoves[mach.id] != nil {
+		t.Fatal("still held once connected")
+	}
+	if _, ok := deliver(t, m, cmd).(moveDoneMsg); !ok {
+		t.Fatalf("didn't finish; flash %q", m.flash)
+	}
+	dst.waitMethod(t, proto.MethodProjectClone, `"path":"~/api"`)
+	dst.waitMethod(t, proto.MethodWorktreeUnpack, `"project_id":"r7"`)
+	if !strings.HasPrefix(m.flash, "moved feat to "+mach.label+" · 2 agents continue there") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	// Projects again later carry on nothing.
+	if _, cmd := m.Update(projectsMsg{machine: mach.id, gen: mach.gen}); len(a2Run(cmd)) > 1 {
+		t.Fatal("a second projects list moved again")
+	}
+}
+
+func TestMoveWorktreeToNewSandboxFailures(t *testing.T) {
+	// A provider without a key isn't offered.
+	m, _, _ := moveSandboxModel(t)
+	moveSandboxes(t, &sbProvider{checkErr: sandbox.ErrNotConfigured})
+	if m.openMoveWorktree(featTarget); m.overlay != nil || !strings.Contains(m.flash, "add one, or a sandbox, with M") {
+		t.Fatalf("unconfigured: %v %q", m.overlay, m.flash)
+	}
+
+	// Nothing to clone in a new sandbox: refused before anything is made.
+	m, p, src := moveSandboxModel(t)
+	src.setResult(proto.MethodWorktreeDescribe, proto.WorktreeMoveInfo{Branch: "feat", History: []string{"h"}})
+	m.openMoveWorktree(featTarget)
+	deliver(t, m, runItem(t, m, 0))
+	if n, ok := m.overlay.(*dialog); !ok || !n.notice || !strings.Contains(strings.Join(n.text, " "), "no origin") || p.called() != "" {
+		t.Fatalf("no origin: %#v %s", m.overlay, p.called())
+	}
+
+	// No env named: the confirmation says agents there log in afresh.
+	m, _, _ = moveSandboxModel(t)
+	m.openMoveWorktree(featTarget)
+	deliver(t, m, runItem(t, m, 0))
+	if !strings.Contains(strings.Join(m.overlay.(*dialog).text, " "), "Nothing is passed in") {
+		t.Fatalf("text %q", m.overlay.(*dialog).text)
+	}
+
+	// An env named in config.toml that isn't set here: nothing is made.
+	m, p, _ = moveSandboxModel(t)
+	t.Setenv("SB_UNSET", "")
+	m.cfg.Sandbox = config.SandboxCfg{"daytona": {Env: []string{"SB_UNSET"}}}
+	m.openMoveWorktree(featTarget)
+	deliver(t, m, runItem(t, m, 0))
+	if cmd := m.overlay.(*dialog).submit(m, nil); cmd != nil || !strings.Contains(m.flash, "SB_UNSET") || p.called() != "" {
+		t.Fatalf("unset env: %q %s", m.flash, p.called())
+	}
+
+	// Making it fails: said in full, nothing here changes.
+	m, p, src = moveSandboxModel(t)
+	p.created, p.createErr = sandbox.Sandbox{}, errors.New("create sandbox: quota exceeded")
+	m.openMoveWorktree(featTarget)
+	deliver(t, m, runItem(t, m, 0))
+	deliver(t, m, m.overlay.(*dialog).submit(m, nil))
+	if !strings.Contains(m.flash, "making a new Daytona sandbox for feat failed: create sandbox: quota exceeded") || !m.flashIsErr {
+		t.Fatalf("flash %q", m.flash)
+	}
+	for _, method := range src.methods() {
+		if method == proto.MethodPaneClose || method == proto.MethodWorktreePack {
+			t.Fatalf("%s after the sandbox failed", method)
+		}
+	}
+
+	// The clone in it fails: the notice says the sandbox is still running.
+	m, _, _ = moveSandboxModel(t)
+	m.openMoveWorktree(featTarget)
+	deliver(t, m, runItem(t, m, 0))
+	var added machineAddedMsg
+	for _, msg := range a2Run(m.overlay.(*dialog).submit(m, nil)) {
+		if a, ok := msg.(machineAddedMsg); ok {
+			added = a
+		}
+	}
+	next, _ := m.Update(added)
+	*m = next.(Model)
+	mach := m.machine(added.m.ID)
+	rc, dst := a1FakeClient(t, moveCaps...)
+	mach.c, mach.state = rc, stateOnline
+	dst.setError(proto.MethodProjectClone, "Repository not found")
+	next, cmd := m.Update(projectsMsg{machine: mach.id, gen: mach.gen})
+	*m = next.(Model)
+	deliver(t, m, cmd)
+	if n, ok := m.overlay.(*dialog); !ok || !strings.Contains(strings.Join(n.text, " "), "is still running, and costs until stopped") {
+		t.Fatalf("notice: %#v %q", m.overlay, m.flash)
+	}
+
+	// The conch there is too old: refused when it connects.
+	m, _, _ = moveSandboxModel(t)
+	m.openMoveWorktree(featTarget)
+	deliver(t, m, runItem(t, m, 0))
+	for _, msg := range a2Run(m.overlay.(*dialog).submit(m, nil)) {
+		if a, ok := msg.(machineAddedMsg); ok {
+			added = a
+		}
+	}
+	next, _ = m.Update(added)
+	*m = next.(Model)
+	mach = m.machine(added.m.ID)
+	mach.c, mach.state = a2Client("session.v1"), stateOnline
+	if cmd := m.resumeMove(mach.id); cmd != nil || !strings.Contains(m.flash, "predates moving worktrees") {
+		t.Fatalf("old sandbox: %q", m.flash)
+	}
+	// Nothing held, or offline: nothing happens.
+	if m.resumeMove(mach.id) != nil || m.resumeMove("nope") != nil {
+		t.Fatal("resumed a move nobody held")
+	}
+}
+
 func TestMoveWorktreeEntryPoints(t *testing.T) {
 	m, _, _, _ := moveModel(t)
 	labels := func(r row) string {
@@ -399,7 +645,7 @@ func TestMoveWorktreeEntryPoints(t *testing.T) {
 		return strings.Join(out, "|")
 	}
 	feat := row{kind: kindBranch, machine: localMachine, projectID: "r1", branch: "feat"}
-	if !strings.Contains(labels(feat), "T Move to another machine…") {
+	if !strings.Contains(labels(feat), "T Move to another machine or a sandbox…") {
 		t.Fatalf("feat menu: %s", labels(feat))
 	}
 	// Not for the base branch, a branch without a worktree, or an old server.
@@ -421,15 +667,57 @@ func TestMoveWorktreeEntryPoints(t *testing.T) {
 	m.focus = focusSidebar
 	m.rows = []row{{id: "b:feat", kind: kindBranch, machine: localMachine, projectID: "r1", branch: "feat"},
 		{id: "p:r1", kind: kindProject, machine: localMachine, projectID: "r1"}}
-	m.cursor = "p:r1"
+	m.rows = append(m.rows, row{id: "w:x", kind: kindWorkspace})
+	m.cursor = "w:x"
 	a1Key(t, m, runes("T"))
 	if m.overlay != nil {
-		t.Fatal("T on a project row opened something")
+		t.Fatal("T on a workspace row opened something")
 	}
+	m.cursor = "p:r1"
+	a1Key(t, m, runes("T"))
+	if mu, ok := m.overlay.(*menu); !ok || mu.title != "Move api to which machine?" {
+		t.Fatalf("project T: %v %q", m.overlay, m.flash)
+	}
+	m.overlay = nil
 	m.cursor = "b:feat"
 	a1Key(t, m, runes("T"))
 	if mu, ok := m.overlay.(*menu); !ok || mu.title != "Move feat to which machine?" {
 		t.Fatalf("tree T: %v %q", m.overlay, m.flash)
+	}
+
+	// An agent's row moves the worktree it works in; not a terminal, and
+	// not an agent on the base branch.
+	m, _, _, _ = moveModel(t)
+	m.machines[0].panes = append(m.machines[0].panes, proto.PaneInfo{ID: "p8", Name: "claude", State: proto.PaneRunning,
+		ProjectID: "r1", Cwd: "/src/api", Agent: &proto.AgentStatus{Name: "claude"}})
+	agent := row{kind: kindPane, machine: localMachine, paneID: "p6"} // codex in /src/api-feat/sub, no branch said
+	if !strings.Contains(labels(agent), "T Move to another machine or a sandbox, with its worktree…") {
+		t.Fatalf("agent menu: %s", labels(agent))
+	}
+	for _, id := range []string{"p7", "p8"} {
+		if strings.Contains(labels(row{kind: kindPane, machine: localMachine, paneID: id}), "Move to another") {
+			t.Errorf("%s offers a move", id)
+		}
+	}
+	m.focus = focusSidebar
+	m.rows = []row{{id: "a:p6", kind: kindPane, machine: localMachine, paneID: "p6"},
+		{id: "a:p7", kind: kindPane, machine: localMachine, paneID: "p7"}}
+	m.cursor = "a:p7"
+	a1Key(t, m, runes("T"))
+	if m.overlay != nil {
+		t.Fatal("T on a terminal opened something")
+	}
+	m.cursor = "a:p6"
+	a1Key(t, m, runes("T"))
+	if mu, ok := m.overlay.(*menu); !ok || mu.title != "Move feat to which machine?" {
+		t.Fatalf("agent T: %v %q", m.overlay, m.flash)
+	}
+	m.overlay = nil
+	if m.openMoveAgent(localMachine, "p8"); m.overlay != nil || !strings.Contains(m.flash, "main is the base branch") {
+		t.Fatalf("base branch agent: %q", m.flash)
+	}
+	if m.openMoveAgent(localMachine, "nope"); m.overlay != nil || !strings.Contains(m.flash, "isn't in a worktree") {
+		t.Fatalf("no pane: %q", m.flash)
 	}
 
 	// T in the changes view opens the move.
@@ -487,5 +775,21 @@ func TestMenuShowsItsWholeTitle(t *testing.T) {
 		if a2Width(line) > 20 {
 			t.Fatalf("wider than the screen: %q", line)
 		}
+	}
+}
+
+// Several clones of the same repository there: the one in the same place
+// under the home folder as here, else the first.
+func TestMoveWorktreePicksTheSamePlace(t *testing.T) {
+	clones := []proto.ProjectInfo{
+		{ID: "r5", Name: "api", Path: "/srv/api", Git: true, Remote: "https://github.com/acme/api"},
+		{ID: "r6", Name: "api", Path: "/home/b/api", Git: true, Remote: "git@github.com:acme/api"},
+	}
+	for want, projects := range map[string][]proto.ProjectInfo{"r6": clones, "r5": clones[:1]} {
+		m, _, dst, remote := moveModel(t)
+		remote.server.Home = "/home/b"
+		remote.projects = projects
+		deliver(t, m, toConfirm(t, m).submit(m, nil))
+		dst.waitMethod(t, proto.MethodWorktreeUnpack, `"project_id":"`+want+`"`)
 	}
 }

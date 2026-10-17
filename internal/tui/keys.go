@@ -236,6 +236,14 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if ok && r.kind == kindBranch {
 			return m, m.openMoveWorktree(harvestTarget{machine: r.machine, projectID: r.projectID, branch: r.branch})
 		}
+		if ok && r.kind == kindPane {
+			if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
+				return m, m.openMoveAgent(r.machine, r.paneID)
+			}
+		}
+		if ok && r.kind == kindProject {
+			return m, m.openMoveProject(r.machine, r.projectID)
+		}
 	case "F":
 		pl := m.contextPlace()
 		proj := m.project(pl.machine, pl.projectID)

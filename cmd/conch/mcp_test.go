@@ -184,7 +184,7 @@ func TestA4MCPToolList(t *testing.T) {
 			t.Errorf("read does not warn what tail means for an agent: %q", tool.Description)
 		}
 	}
-	want := []string{"list", "read", "start", "prompt", "wait", "task", "rename"}
+	want := []string{"list", "read", "start", "prompt", "wait", "task", "rename", "view", "show"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("tools %v, want %v", names, want)
 	}
@@ -217,6 +217,15 @@ func TestA4MCPToolsReachTheSameMethods(t *testing.T) {
 			return proto.ProjectInfo{ID: "pr1", Name: "conch", Git: true}, nil
 		case proto.MethodAgentPrompt:
 			return proto.AgentPromptResult{ID: "p4", Agent: "codex", Turn: 7}, nil
+		case proto.MethodViewGet:
+			return proto.ViewState{Focus: "p4", Tabs: []proto.ViewTab{
+				{Name: "api", Panes: []string{"p4"}, Active: true},
+				{Name: "logs", Panes: []string{"p5"}},
+			}}, nil
+		case proto.MethodViewShow:
+			var vp proto.ViewShowParams
+			_ = json.Unmarshal(msg.Params, &vp)
+			return proto.ViewShowResult{Panes: vp.Panes}, nil
 		}
 		return nil, nil
 	})
@@ -1010,5 +1019,64 @@ func TestA4MCPPromptNeedsSomethingToSend(t *testing.T) {
 	var sent proto.AgentPromptParams
 	if srv.params(t, proto.MethodAgentPrompt, &sent); sent.Text != "👍 ship it" {
 		t.Errorf("what reached the agent: %q", sent.Text)
+	}
+}
+
+// TestA4MCPViewAndShow: the two tools that reach past the server to the
+// screen. view reads what a TUI published — the server keeps no layout
+// of its own — and show asks for panes to be put in front of the person,
+// by name as well as by id, saying it is a request rather than a fact.
+func TestA4MCPViewAndShow(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	pane := proto.PaneInfo{ID: "p4", Name: "reviewer", State: "running", Cwd: "/w"}
+	var shown proto.ViewShowParams
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodPaneList:
+			return proto.PaneList{Panes: []proto.PaneInfo{pane, {ID: "p5", Name: "zsh", State: "running"}}}, nil
+		case proto.MethodViewGet:
+			return proto.ViewState{Focus: "p4", Tabs: []proto.ViewTab{
+				{Name: "api", Panes: []string{"p4", "p5"}, Active: true},
+				{Name: "logs", Panes: []string{"p9"}},
+			}}, nil
+		case proto.MethodViewShow:
+			_ = json.Unmarshal(msg.Params, &shown)
+			return proto.ViewShowResult{Panes: shown.Panes}, nil
+		}
+		return nil, nil
+	})
+
+	r := a4MCPOne(t, "view", nil)
+	if r.Result.IsError {
+		t.Fatalf("view: %q", r.text())
+	}
+	for _, want := range []string{"* api: p4 p5", "  logs: p9", "the keyboard is in p4"} {
+		if !strings.Contains(r.text(), want) {
+			t.Errorf("view says nothing of %q:\n%s", want, r.text())
+		}
+	}
+
+	// show takes a name as every pane argument does, and answers that it
+	// asked rather than that it happened.
+	r = a4MCPOne(t, "show", map[string]any{"panes": []string{"reviewer", "p5"}, "name": "those two"})
+	if r.Result.IsError {
+		t.Fatalf("show: %q", r.text())
+	}
+	if strings.Join(shown.Panes, ",") != "p4,p5" || shown.Name != "those two" {
+		t.Errorf("show sent %+v", shown)
+	}
+	if !strings.Contains(r.text(), "side by side") || !strings.Contains(r.text(), "It is a request") {
+		t.Errorf("show claims too much: %q", r.text())
+	}
+	// One pane reads as bringing it up, not as arranging anything.
+	if r = a4MCPOne(t, "show", map[string]any{"panes": []string{"p4"}}); strings.Contains(r.text(), "side by side") {
+		t.Errorf("one pane: %q", r.text())
+	}
+	// A pane that is not there is the pane lookup's refusal, before
+	// anything is asked of the screen.
+	shown = proto.ViewShowParams{}
+	if r = a4MCPOne(t, "show", map[string]any{"panes": []string{"nope"}}); !r.Result.IsError || len(shown.Panes) > 0 {
+		t.Errorf("an unknown pane: %q %+v", r.text(), shown)
 	}
 }

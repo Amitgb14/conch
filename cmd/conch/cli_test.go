@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/agentsetup"
 	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
@@ -39,6 +40,20 @@ func TestA4MainHelpAndVersion(t *testing.T) {
 			t.Fatalf("%s printed %q", arg, out)
 		}
 	}
+	// The skill itself, for an agent conch cannot install it for. It is
+	// the same bytes the installer writes, frontmatter and all, so what
+	// is pasted somewhere else is what an agent would have read.
+	for _, arg := range []string{"skill", "--skill"} {
+		os.Args = []string{"conch", arg}
+		out, _ := a4Capture(t, "", main)
+		if out != string(agentsetup.Skill) {
+			t.Fatalf("%s printed %d bytes, want the skill's %d", arg, len(out), len(agentsetup.Skill))
+		}
+		if !strings.HasPrefix(out, "---\nname: conch\n") || !strings.Contains(out, "CONCH_PANE_ID") {
+			t.Fatalf("%s printed something else:\n%s", arg, out[:min(len(out), 120)])
+		}
+	}
+
 	os.Args = []string{"conch", "version", "--json"}
 	out, _ := a4Capture(t, "", main)
 	var info buildinfo.Info

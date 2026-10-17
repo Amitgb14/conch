@@ -203,8 +203,15 @@ type Model struct {
 	queueSeen    map[string]string        // review queue rows dismissed, by what they said when dismissed
 	verifyRuns   map[string]verifyRun     // a branch's last run of its project's check, by machine|project|branch
 	verifyFixes  map[string]int           // failed checks sent back on their own since the last pass, by the same key
-	reviewSigs   map[string]string        // what each branch looked like when its reviewer was last started (reviewer.go)
-	actionPanes  map[string]string        // a custom action's terminal, kept when it exits: machine|pane -> action name
+	// viewSigs is the layout last published to each machine, so what is
+	// on screen is sent when it changes and not once a redraw
+	// (view_share.go).
+	viewSigs    map[string]string
+	reviewSigs  map[string]string // what each branch looked like when its reviewer was last started (reviewer.go)
+	actionPanes map[string]string // a custom action's terminal, kept when it exits: machine|pane -> action name
+	// pendingMoves is moves waiting, by machine, for the sandbox made for
+	// them to connect (move.go).
+	pendingMoves map[string]*worktreeMove
 	// What the file explorer was last told to show, kept across restarts
 	// (files.go, state.go). Dotfiles are shown unless somebody pressed
 	// `.`, which is why this one is written the negative way round.
@@ -514,6 +521,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.machine == localMachine {
 				m.placeLaunch(msg.projects)
 			}
+			if cmd := m.resumeMove(msg.machine); cmd != nil {
+				return m, tea.Batch(cmd, m.rebuild())
+			}
 		}
 		return m, m.rebuild()
 
@@ -634,6 +644,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.note != "" {
 			m.setFlash("added "+mach.label+" · "+msg.note, strings.HasPrefix(msg.note, "key login not set up"))
 		}
+		if msg.move != nil {
+			m.awaitMove(mach, msg.move)
+		}
 		return m, tea.Batch(mach.connect(false), m.rebuild(), m.saveState())
 
 	case previewDoneMsg:
@@ -740,7 +753,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.receiveMoveDescribed(msg)
 
 	case moveClonedMsg:
-		m.receiveMoveCloned(msg)
+		return m, m.receiveMoveCloned(msg)
+
+	case projectDescribedMsg:
+		return m, m.receiveProjectDescribed(msg)
+
+	case projectMainDoneMsg:
+		return m, m.receiveProjectMainDone(msg)
+
+	case moveSandboxFailedMsg:
+		m.receiveMoveSandboxFailed(msg)
 		return m, nil
 
 	case moveStepMsg:
@@ -929,21 +951,36 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 			}
 		}
 
+	case proto.EventViewShow:
+		var p proto.ViewShowParams
+		if !decodeInto(msg, &p) {
+			return nil
+		}
+		return m.showPanes(mach.id, p)
+
 	case proto.EventProjectUpdated:
 		var info proto.ProjectInfo
 		if !decodeInto(msg, &info) {
 			return nil
 		}
 		found := false
+		var was proto.ProjectInfo
 		for i := range mach.projects {
 			if mach.projects[i].ID == info.ID {
-				mach.projects[i], found = info, true
+				was, mach.projects[i], found = mach.projects[i], info, true
 			}
 		}
 		if !found {
 			mach.projects = append(mach.projects, info)
 		}
 		cmds := []tea.Cmd{m.rebuild(), m.recheckSettled(time.Now()), m.filesProjectUpdated(mach.id, info.ID)}
+		// A pull request whose checks have just turned red can go back to
+		// its agent by itself (verifyfix.go). Only for a project conch
+		// already had: one arriving for the first time brings whatever
+		// state it is in, which conch did not watch happen.
+		if found {
+			cmds = append(cmds, m.autoFixCI(mach.id, was, info))
+		}
 		for _, l := range m.tab().root.leaves() {
 			cv := l.changes
 			if cv == nil || cv.machine != mach.id || cv.projectID != info.ID {
@@ -1381,6 +1418,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// reason: every path that changes an agent's state ends up here, and
 	// the report is written only when what it says has changed.
 	nm.reportToHost()
+	// Each machine is told what of the layout is its own, on the same
+	// terms: only when it has changed (view_share.go).
+	nm.publishView()
 	return nm, cmd
 }
 

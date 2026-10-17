@@ -236,3 +236,67 @@ func (m *Model) autoFix(machine string, info proto.PaneInfo) tea.Cmd {
 	}
 	return nil
 }
+
+// prChecks is a branch's CI as conch compares it: the checks of an open
+// pull request, and "" for a branch with none. A closed or merged pull
+// request is not somebody's move any more, so its checks are not either.
+func prChecks(b proto.BranchInfo) string {
+	if b.PR == nil || b.PR.State != "OPEN" {
+		return ""
+	}
+	return b.PR.Checks
+}
+
+// autoFixCI sends a pull request's failed CI to its branch's agent when
+// the checks have just turned red, on the same terms as a check of
+// conch's own (autoFix): [verify] auto_fix allows another try on that
+// branch, the agent is free to take it — never one waiting on you, never
+// one still working — and no agent is started for it. A pass clears the
+// count, so a branch that goes green and red again gets the whole
+// allowance rather than none, and the two kinds of failure share one
+// count because "a check failed, give it to the agent" is one idea.
+//
+// Only a change conch *watched* counts. Connecting to a machine with
+// four red pull requests on it would otherwise prompt four agents about
+// work they may have finished with days ago; those sit in the review
+// queue, where f sends them when you say so.
+func (m *Model) autoFixCI(machine string, was, now proto.ProjectInfo) tea.Cmd {
+	before := make(map[string]string, len(was.Branches))
+	for _, b := range was.Branches {
+		before[b.Name] = prChecks(b)
+	}
+	var cmds []tea.Cmd
+	for _, b := range now.Branches {
+		key := machine + "|" + now.ID + "|" + b.Name
+		switch checks := prChecks(b); {
+		case checks == "pass":
+			delete(m.verifyFixes, key)
+		case checks != "fail" || before[b.Name] == "fail":
+		default:
+			cmds = append(cmds, m.autoFixCIBranch(machine, now.ID, b, key))
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+// autoFixCIBranch is autoFixCI's decision for one branch whose checks
+// have just failed.
+func (m *Model) autoFixCIBranch(machine, projectID string, b proto.BranchInfo, key string) tea.Cmd {
+	limit := m.cfg.Verify.AutoFix
+	if limit <= 0 {
+		return nil
+	}
+	if m.verifyFixes[key] >= limit {
+		m.setFlash(fmt.Sprintf("CI failed on %s again; auto_fix tried %d times, so it's yours now", b.Name, limit), true)
+		return nil
+	}
+	agent := m.branchAgent(machine, projectID, b.Name)
+	if agent == nil || agent.Agent.State == proto.AgentBlocked || agent.Agent.State == proto.AgentWorking {
+		return nil
+	}
+	if m.verifyFixes == nil {
+		m.verifyFixes = map[string]int{}
+	}
+	m.verifyFixes[key]++
+	return m.fixCI(machine, projectID, b.Name)
+}
