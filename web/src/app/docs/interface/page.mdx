@@ -264,6 +264,17 @@ It only sends to an agent that has finished — never one still working or waiti
 
 **This covers CI as well as the project's own check.** conch reads a pull request's checks every minute while you are working, and when a branch's checks turn red it hands the end of the failed run's log to that branch's agent, exactly as `f` would — same cap, same count, same guards. Both kinds share one count, since "a check failed, give it to the agent" is one idea, and green clears it, so a branch that goes red again gets the whole allowance rather than none. Only a change conch *watched* counts: reaching a machine that already has four red pull requests on it prompts nobody, because conch did not see those turn red and the work may be days old. They wait in the review queue, where `f` sends them when you say so.
 
+**And it can merge when they pass.** The other half of the same loop:
+
+```toml
+[verify]
+auto_merge = true   # a green pull request merges itself
+```
+
+On the turn to green — once, not on every poll — conch merges the branch into its base, squashed, as the merge dialog does. What it refuses, and says out loud each time rather than holding back quietly: a **draft** is not finished whatever CI says; **changes requested** is a person asking for something, and green checks are not an answer to it; an **unresolved thread** on the pull request is somebody still waiting, which catches the commoner case of a reviewer who left notes and no verdict (conch's own comments on the diff are not counted — those are your working notes, and a stale one would hold a branch for ever); this **project's own check failing** while CI passes is a disagreement rather than a go-ahead; and a branch whose **agent is still working or waiting** may be mid-push. It is off by default, because it writes to your base branch.
+
+Together with `auto_fix` that is the whole loop people write skills for — push, open a pull request, CI goes red, the agent gets the log and fixes it, CI goes green, it merges — except that nothing sits in a polling loop: conch reads pull requests every minute anyway, so no agent is kept awake and no tokens are spent waiting.
+
 ### A second opinion
 
 Name an agent to review finished work and conch asks it, on every branch whose agent finishes — once the check passes, where the project has one:

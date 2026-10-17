@@ -300,3 +300,94 @@ func (m *Model) autoFixCIBranch(machine, projectID string, b proto.BranchInfo, k
 	m.verifyFixes[key]++
 	return m.fixCI(machine, projectID, b.Name)
 }
+
+// autoMergeCI merges a branch when its pull request's checks turn green,
+// with [verify] auto_merge. It is the other half of autoFixCI: the same
+// poll, the same transition, the opposite colour. Everything it needs is
+// in the pull request conch already reads every minute.
+//
+// What it will not do, and why each one:
+//
+//   - A draft is not finished, whatever CI says.
+//   - CHANGES_REQUESTED is a person asking for something, and green
+//     checks are not an answer to it.
+//   - A project's own check failing while CI passes is a disagreement,
+//     not a go-ahead (verifyFailed).
+//   - A branch whose agent is working or waiting may be mid-push.
+//   - Only on the turn to green, so a poll that says "still passing"
+//     merges nothing, and a branch merged by hand is not merged twice.
+func (m *Model) autoMergeCI(machine string, was, now proto.ProjectInfo) tea.Cmd {
+	if !m.cfg.Verify.AutoMerge {
+		return nil
+	}
+	before := make(map[string]string, len(was.Branches))
+	for _, b := range was.Branches {
+		before[b.Name] = prChecks(b)
+	}
+	var cmds []tea.Cmd
+	for _, b := range now.Branches {
+		if prChecks(b) != "pass" || before[b.Name] == "pass" {
+			continue
+		}
+		cmds = append(cmds, m.autoMergeBranch(machine, now, b))
+	}
+	return tea.Batch(cmds...)
+}
+
+// autoMergeBranch is autoMergeCI's decision for one branch that has just
+// gone green. It says why it is holding back rather than doing it
+// quietly: a merge that does not happen is as surprising as one that
+// does.
+func (m *Model) autoMergeBranch(machine string, proj proto.ProjectInfo, b proto.BranchInfo) tea.Cmd {
+	hold := func(why string) tea.Cmd {
+		m.setFlash(fmt.Sprintf("%s is green but not merged: %s", b.Name, why), false)
+		return nil
+	}
+	switch {
+	case b.PR.Draft:
+		return hold("its pull request is a draft")
+	case b.PR.Review == "CHANGES_REQUESTED":
+		return hold(fmt.Sprintf("somebody asked for changes on #%d", b.PR.Number))
+	case b.Name == proj.Base:
+		return nil // the base does not merge into itself
+	}
+	if state, _ := m.verifyOf(machine, proj.ID, b.Name); state == verifyFailed {
+		return hold("this project's own check failed, which CI passing does not answer")
+	}
+	// An unresolved thread on the pull request is somebody waiting for an
+	// answer. A review that formally asked for changes is caught above;
+	// this catches the commoner case of a reviewer who left notes and no
+	// verdict. conch's own comments on the diff are not counted: those
+	// are the person's working notes, and a stale one would hold a branch
+	// for ever.
+	if n := openThreads(m.machine(machine), proj.ID, b.Name); n > 0 {
+		return hold(fmt.Sprintf("%s unresolved on #%d", count(n, "review thread"), b.PR.Number))
+	}
+	if agent := m.branchAgent(machine, proj.ID, b.Name); agent != nil &&
+		(agent.Agent.State == proto.AgentWorking || agent.Agent.State == proto.AgentBlocked) {
+		return hold(agent.DisplayName() + " is still at it")
+	}
+	t := harvestTarget{machine: machine, projectID: proj.ID, branch: b.Name}
+	var res proto.CommitResult
+	params := proto.BranchMergeParams{ProjectID: proj.ID, Branch: b.Name, Squash: true}
+	m.setFlash(fmt.Sprintf("#%d is green: merging %s…", b.PR.Number, b.Name), false)
+	return m.harvestCall(t, proto.MethodBranchMerge, params, &res, func() harvestDoneMsg {
+		return harvestDoneMsg{text: fmt.Sprintf("merged %s into %s (%s), green on #%d", b.Name, res.Into, shortHash(res.Hash), b.PR.Number)}
+	})
+}
+
+// openThreads is how many of a branch's pull request comments are still
+// unresolved. conch reads GitHub's unresolved threads only (review.go),
+// so every comment it holds from there is one.
+func openThreads(mach *machine, projectID, branch string) int {
+	if mach == nil {
+		return 0
+	}
+	n := 0
+	for _, c := range mach.reviewsOn(projectID, branch) {
+		if c.Source == proto.ReviewGitHub {
+			n++
+		}
+	}
+	return n
+}

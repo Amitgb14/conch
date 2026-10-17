@@ -452,3 +452,95 @@ func TestAutoFixCINotOnTheFirstSight(t *testing.T) {
 		t.Fatalf("the turn was missed: %v", m.verifyFixes)
 	}
 }
+
+// greenProject is ciProject with the pull request's other fields set, so
+// a test can make it a draft or have changes requested on it.
+func greenProject(checks string, set func(*proto.PRInfo)) proto.ProjectInfo {
+	p := ciProject(checks)
+	if p.Branches[0].PR != nil && set != nil {
+		set(p.Branches[0].PR)
+	}
+	return p
+}
+
+// TestAutoMergeOnTheTurnToGreen: the other half of auto_fix. Everything
+// it refuses, it refuses out loud — a merge that does not happen is as
+// surprising as one that does.
+func TestAutoMergeOnTheTurnToGreen(t *testing.T) {
+	m, mach, _ := fixModel(t, proto.CapAgentPrompt, proto.CapBranchCILog)
+	mach.panes[0].Agent.State = proto.AgentDone
+	// The project's own check passed, so it does not hold anything back.
+	r := m.verifyRuns[verifyKey(mach.id, "r1", "wip")]
+	r.exit = 0
+	m.verifyRuns[verifyKey(mach.id, "r1", "wip")] = r
+
+	// Off unless asked for.
+	if cmd := m.autoMergeCI(mach.id, ciProject("pending"), ciProject("pass")); cmd != nil {
+		t.Fatal("auto_merge off merged something")
+	}
+	m.cfg.Verify.AutoMerge = true
+
+	// Pending to green is the turn, and it merges.
+	if cmd := m.autoMergeCI(mach.id, ciProject("pending"), ciProject("pass")); cmd == nil {
+		t.Fatalf("the turn to green merged nothing (%q)", m.flash)
+	}
+	if !strings.Contains(m.flash, "is green: merging wip") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	// Still green is not a turn: a poll does not merge twice.
+	if cmd := m.autoMergeCI(mach.id, ciProject("pass"), ciProject("pass")); cmd != nil {
+		t.Fatal("still green merged again")
+	}
+	for _, c := range []string{"", "fail", "pending"} {
+		if cmd := m.autoMergeCI(mach.id, ciProject("pending"), ciProject(c)); cmd != nil {
+			t.Fatalf("checks %q merged", c)
+		}
+	}
+
+	// What it holds back for, each said out loud.
+	for _, c := range []struct {
+		name, want string
+		now        proto.ProjectInfo
+		setup      func()
+	}{
+		{"draft", "is a draft", greenProject("pass", func(pr *proto.PRInfo) { pr.Draft = true }), nil},
+		{"changes requested", "asked for changes",
+			greenProject("pass", func(pr *proto.PRInfo) { pr.Review = "CHANGES_REQUESTED" }), nil},
+		{"the project's own check failed", "this project's own check failed", ciProject("pass"), func() {
+			r := m.verifyRuns[verifyKey(mach.id, "r1", "wip")]
+			r.exit = 2
+			m.verifyRuns[verifyKey(mach.id, "r1", "wip")] = r
+		}},
+		{"an unresolved review thread", "1 review thread unresolved on #7", ciProject("pass"), func() {
+			r := m.verifyRuns[verifyKey(mach.id, "r1", "wip")]
+			r.exit = 0
+			m.verifyRuns[verifyKey(mach.id, "r1", "wip")] = r
+			mach.reviews = []proto.ReviewComment{
+				// conch's own note on the diff does not hold a branch:
+				// it is the person's working note, not somebody waiting.
+				{ProjectID: "r1", Branch: "wip", File: "a.go", Note: "mine"},
+				{ProjectID: "r1", Branch: "wip", File: "b.go", Note: "theirs", Source: proto.ReviewGitHub},
+			}
+		}},
+		{"its agent is still working", "still at it", ciProject("pass"), func() {
+			mach.reviews = nil
+			// The check passes again: each case has to be refused for its
+			// own reason, not for the one before it.
+			r := m.verifyRuns[verifyKey(mach.id, "r1", "wip")]
+			r.exit = 0
+			m.verifyRuns[verifyKey(mach.id, "r1", "wip")] = r
+			mach.panes[0].Agent.State = proto.AgentWorking
+		}},
+	} {
+		m.flash = ""
+		if c.setup != nil {
+			c.setup()
+		}
+		if cmd := m.autoMergeCI(mach.id, ciProject("pending"), c.now); cmd != nil {
+			t.Errorf("%s: merged anyway", c.name)
+		}
+		if !strings.Contains(m.flash, c.want) {
+			t.Errorf("%s: said %q, want %q in it", c.name, m.flash, c.want)
+		}
+	}
+}

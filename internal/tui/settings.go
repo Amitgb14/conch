@@ -409,6 +409,15 @@ func autoFixText(n int) string {
 	return fmt.Sprintf("up to %s in a row, then it's yours", count(n, "time"))
 }
 
+// autoMergeText says what auto_merge does, and what it still will not
+// do: the refusals are the reason it is safe to leave on.
+func autoMergeText(on bool) string {
+	if !on {
+		return "off · merge it yourself when the checks pass"
+	}
+	return "on · not a draft, not over a review, not past a failed check"
+}
+
 func notifyCommandText(cmd string) string {
 	if strings.TrimSpace(cmd) == "" {
 		return "none · ntfy, Slack, Telegram…"
@@ -569,6 +578,10 @@ func (s *settings) agentItems(m *Model) []settingItem {
 		}},
 		settingItem{label: "A failed check goes back to it", detail: autoFixText(v.AutoFix), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.AutoFix = (m.cfg.Verify.AutoFix + 1) % 4
+			return saveConfig(m.cfg)
+		}},
+		settingItem{label: "A green pull request merges itself", detail: autoMergeText(v.AutoMerge), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.AutoMerge = !m.cfg.Verify.AutoMerge
 			return saveConfig(m.cfg)
 		}})
 	// What an agent loads in a checkout is that checkout's business, and

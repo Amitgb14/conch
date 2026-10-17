@@ -979,7 +979,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		// already had: one arriving for the first time brings whatever
 		// state it is in, which conch did not watch happen.
 		if found {
-			cmds = append(cmds, m.autoFixCI(mach.id, was, info))
+			cmds = append(cmds, m.autoFixCI(mach.id, was, info), m.autoMergeCI(mach.id, was, info))
 		}
 		for _, l := range m.tab().root.leaves() {
 			cv := l.changes
