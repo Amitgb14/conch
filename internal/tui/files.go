@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -279,13 +280,30 @@ func (fv *filesView) receiveList(msg filesListMsg) {
 		d.err = msg.err.Error()
 		return
 	}
-	d.err, d.entries, d.truncated = "", msg.list.Entries, msg.list.Truncated
+	d.err, d.entries, d.truncated = "", withoutCopying(msg.list.Entries), msg.list.Truncated
 	if fv.ssh != "" && msg.list.Home != "" {
 		fv.home = msg.list.Home
 	}
 	if fv.browsing() && msg.rel == "" && fv.root == "" {
 		fv.root = msg.list.Path // where ~ is, now the server has said
 	}
+}
+
+// copyingName is the temporary file a copy writes before it takes its
+// name: ".ca.pem.part-" and a random part, hex from the server or digits
+// from os.CreateTemp here.
+var copyingName = regexp.MustCompile(`^\..+\.part-[0-9a-f]+$`)
+
+// withoutCopying leaves out the files of copies still under way, which
+// come and go on their own and are nothing to open.
+func withoutCopying(entries []proto.FSEntry) []proto.FSEntry {
+	out := entries[:0:0]
+	for _, e := range entries {
+		if e.Dir || !copyingName.MatchString(e.Name) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // read fetches a file for the preview. The same file read again keeps its
@@ -510,7 +528,7 @@ func (fv *filesView) render(m Model, w, h int) []string {
 	} else if fv.reading {
 		hint = "↑↓ scroll · e edit · a → agent · y path · esc back"
 	}
-	lines := []string{spread(title, styleMuted.Render(hint), w), fv.crumbLine(m, w)}
+	lines := []string{spreadHint(title, hint, w), fv.crumbLine(m, w)}
 	if fv.wide {
 		lines = append(lines, styleMuted.Render(strings.Repeat("─", fv.treeW)+"┬"+strings.Repeat("─", max(w-fv.treeW-1, 0))))
 	} else {

@@ -178,6 +178,7 @@ func TestA4Status(t *testing.T) {
 	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
 		return proto.PaneList{Panes: []proto.PaneInfo{
 			{ID: "p1", Name: "shell", State: proto.PaneRunning, Cols: 80, Rows: 24, Cwd: "/src", Command: []string{"/bin/sh", "-c", "echo a\n  echo   b"}},
+			{ID: "p3", Name: "box", State: proto.PaneRunning, Cols: 80, Rows: 24, Cwd: "/src", Command: []string{"ssh", "-p", "22", "me@box"}, SSH: "me@box"},
 			{ID: "p2", Name: "agent", State: proto.PaneExited, ExitCode: 7, Cols: 120, Rows: 40, Cwd: "/w", Command: []string{long},
 				Agent: &proto.AgentStatus{Name: "claude", State: "idle"}},
 		}}, nil
@@ -188,10 +189,10 @@ func TestA4Status(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 4 || !strings.HasPrefix(lines[0], "server: running  version "+proto.Version+"  pid 1000  up ") {
+	if len(lines) != 5 || !strings.HasPrefix(lines[0], "server: running  version "+proto.Version+"  pid 1000  up ") {
 		t.Fatalf("status:\n%s", out)
 	}
-	if f := strings.Fields(lines[1]); strings.Join(f, " ") != "ID NAME STATE AGENT SIZE CWD COMMAND" {
+	if f := strings.Fields(lines[1]); strings.Join(f, " ") != "ID NAME STATE AGENT SSH SIZE CWD COMMAND" {
 		t.Fatalf("header %q", lines[1])
 	}
 	// A server that has never reloaded says nothing about it: "up" is the
@@ -203,9 +204,16 @@ func TestA4Status(t *testing.T) {
 		!strings.HasSuffix(lines[2], "/bin/sh -c echo a echo b") || !strings.Contains(lines[2], " - ") {
 		t.Fatalf("pane row %q", lines[2])
 	}
-	if !strings.Contains(lines[3], "exited(7)") || !strings.Contains(lines[3], "claude:idle") ||
-		!strings.HasSuffix(lines[3], strings.Repeat("x", 59)+"…") {
-		t.Fatalf("exited row %q", lines[3])
+	// A terminal on ssh names the host, in its own column.
+	if f := strings.Fields(lines[3]); len(f) < 5 || f[0] != "p3" || f[3] != "-" || f[4] != "me@box" {
+		t.Fatalf("ssh row %q", lines[3])
+	}
+	if f := strings.Fields(lines[2]); len(f) < 5 || f[4] != "-" {
+		t.Fatalf("not on ssh: %q", lines[2])
+	}
+	if !strings.Contains(lines[4], "exited(7)") || !strings.Contains(lines[4], "claude:idle") ||
+		!strings.HasSuffix(lines[4], strings.Repeat("x", 59)+"…") {
+		t.Fatalf("exited row %q", lines[4])
 	}
 
 	srv.setHandle(func(proto.Message, *proto.Conn) (any, *proto.Error) { return proto.PaneList{}, nil })
