@@ -150,9 +150,10 @@ Usage:
                                 -provider: there is no default, and a sandbox named under another
                                 provider is refused
   conch sandbox -provider P add [-label L] ID
-                                make a sandbox you already have one of conch's machines: one made
-                                in the provider's own interface, or whose machine was removed.
-                                Started if stopped and conch installed; never deleted if that fails
+                                make a sandbox ls shows with no machine one of conch's machines:
+                                one whose machine was removed, or on boat.dev one made in its own
+                                interface. Started if stopped and conch installed; never deleted
+                                if that fails
   conch sandbox stats           every provider's sandboxes, their state and size, and a line
                                 per provider (-provider P narrows it to one)
   conch sandbox -provider P ls | start ID | stop [-y] ID | rm [-y] ID
