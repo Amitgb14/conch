@@ -30,6 +30,9 @@ type a4Daytona struct {
 	calls   []string
 	// createState is the state a new sandbox reports ("" is started).
 	createState string
+	// foreign are sandboxes made in Daytona's own interface: without
+	// conch's label, so a list asking for it leaves them out.
+	foreign map[string]bool
 }
 
 func newA4Daytona(t *testing.T) *a4Daytona {
@@ -129,6 +132,9 @@ func (d *a4Daytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/sandbox":
 		items := []any{}
 		for id := range d.boxes {
+			if d.foreign[id] && r.URL.Query().Get("labels") != "" {
+				continue
+			}
 			items = append(items, box(id))
 		}
 		reply(map[string]any{"items": items, "nextCursor": nil})
@@ -1214,17 +1220,22 @@ func TestA4TaskInASandbox(t *testing.T) {
 	}
 }
 
-// conch sandbox add takes over a sandbox conch has no machine for: it is
-// started if stopped, conch installed and the machine saved — and never
-// deleted when that fails, since it is somebody's own.
+// conch sandbox add takes over a sandbox conch lists but has no machine
+// for: it is started if stopped, conch installed and the machine saved —
+// and never deleted when that fails, since it is somebody's own. One the
+// provider does not list for conch is refused: Daytona lists by conch's
+// label, and one of its own added anyway would be listed as gone.
 func TestA4SandboxAdd(t *testing.T) {
 	a4Env(t)
 	d := newA4Daytona(t)
 	f, _ := a4SandboxMachine(t)
 	d.set("sb-mine", "stopped")
-	d.set("sb-going", "destroying")
-	os.WriteFile(filepath.Join(os.Getenv("CONCH_HOME"), "config.toml"),
-		[]byte("[sandbox.daytona]\nenv = [\"MY_TOKEN\"]\n"), 0o600)
+	d.set("sb-handmade", "started")
+	d.foreign = map[string]bool{"sb-handmade": true}
+	if err := os.WriteFile(filepath.Join(os.Getenv("CONCH_HOME"), "config.toml"),
+		[]byte("[sandbox.daytona]\nenv = [\"MY_TOKEN\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	var err error
 	out, errOut := a4Capture(t, "", func() {
@@ -1239,7 +1250,7 @@ func TestA4SandboxAdd(t *testing.T) {
 	if d.state("sb-mine") != "started" || !strings.Contains(errOut, "Starting sb-mine…") {
 		t.Fatalf("not started (%s):\n%s", d.state("sb-mine"), errOut)
 	}
-	if !strings.Contains(errOut, "[sandbox.daytona] env was not passed in") {
+	if !strings.Contains(errOut, "if conch did not make this sandbox, [sandbox.daytona] env and auto_stop never reached it") {
 		t.Errorf("nothing said about env:\n%s", errOut)
 	}
 	if strings.Contains(out+errOut, "tok-secret") {
@@ -1252,6 +1263,12 @@ func TestA4SandboxAdd(t *testing.T) {
 	if len(ms) != 1 || ms[0].ID != "mine" || ms[0].Target != "daytona:sb-mine" {
 		t.Fatalf("saved %+v", ms)
 	}
+	// ls now lists it as the machine, started — not gone, not stray.
+	out, errOut = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "ls"}) })
+	if err != nil || !strings.Contains(strings.Join(strings.Fields(out), " "), "mine mine sb-mine started") ||
+		strings.Contains(errOut, "gone") || strings.Contains(errOut, "no machine here") {
+		t.Fatalf("ls after add: %v\n%s%s", err, out, errOut)
+	}
 
 	for _, c := range []struct {
 		args []string
@@ -1260,8 +1277,8 @@ func TestA4SandboxAdd(t *testing.T) {
 		{[]string{"add", "sb-mine"}, "sb-mine is already machine mine (mine)"},
 		{[]string{"add", "mine"}, "already machine mine"},
 		{[]string{"add", "daytona:sb-mine"}, "already machine mine"},
-		{[]string{"add", "sb-nowhere"}, "no Daytona sandbox sb-nowhere; conch sandbox -provider daytona ls lists them"},
-		{[]string{"add", "sb-going"}, "no Daytona sandbox sb-going"}, // on its way out
+		{[]string{"add", "sb-handmade"}, "sb-handmade is no Daytona sandbox conch lists; conch sandbox -provider daytona ls shows the ones it can add"},
+		{[]string{"add", "sb-nowhere"}, "sb-nowhere is no Daytona sandbox conch lists"},
 		{[]string{"add", "boat:bx1"}, "is a boat.dev sandbox, not Daytona"},
 		{[]string{"add", "dev@host"}, `no sandbox "dev@host"`},
 		{[]string{"add"}, "usage: conch sandbox -provider P add"},
@@ -1274,6 +1291,9 @@ func TestA4SandboxAdd(t *testing.T) {
 	}
 	if ms, _ := remote.Machines(); len(ms) != 1 {
 		t.Fatalf("a refused add saved a machine: %+v", ms)
+	}
+	if d.state("sb-handmade") != "started" || strings.Contains(d.called(), "sb-handmade") {
+		t.Fatalf("a refused add touched Daytona's own sandbox:\n%s", d.called())
 	}
 
 	// A sandbox already running is not started again; one whose setting up
@@ -1292,5 +1312,28 @@ func TestA4SandboxAdd(t *testing.T) {
 	}
 	if ms, _ := remote.Machines(); len(ms) != 1 {
 		t.Fatalf("a failed add saved a machine: %+v", ms)
+	}
+}
+
+// The provider's own ID names a sandbox's machine too: rm given it removes
+// the machine as well as the sandbox, rather than leaving one pointing at
+// nothing.
+func TestA4SandboxRemoveByProviderID(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	d.set("sb-123", "stopped")
+	if _, err := remote.SaveMachine(remote.Machine{Label: "dt", Target: "daytona:sb-123"}); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "rm", "-y", "sb-123"}) })
+	if err != nil || !strings.Contains(out, "deleted dt") {
+		t.Fatalf("rm: %v\n%s%s", err, out, errOut)
+	}
+	if d.state("sb-123") != "" {
+		t.Fatal("the sandbox is still there")
+	}
+	if ms, _ := remote.Machines(); len(ms) != 0 {
+		t.Fatalf("the machine is still in the catalog: %+v", ms)
 	}
 }
