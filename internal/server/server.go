@@ -108,6 +108,9 @@ func New(sockPath, configDir string) *Server {
 	s.schedules = loadSchedule(configDir)
 	s.reviews = loadReviews(configDir)
 	s.autopilot = loadAutopilot(configDir)
+	if os.Getenv(reloadStateEnv) == "" {
+		s.autopilot.freshStart()
+	}
 	s.watcher = newWorktreeWatcher(
 		func(c proto.WorktreeChanged) {
 			s.files.drop(c.Worktree)

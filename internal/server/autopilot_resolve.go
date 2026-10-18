@@ -51,10 +51,18 @@ func (s *Server) autopilotResolves() {
 		return
 	}
 	a.mu.Lock()
-	if a.saved.Policy.AutoResolve <= 0 {
+	// One pass at a time: a fetch can take a while, and the next tick's
+	// pass would only fetch the same repositories again beside it.
+	if a.saved.Policy.AutoResolve <= 0 || a.resolvesBusy {
 		a.mu.Unlock()
 		return
 	}
+	a.resolvesBusy = true
+	defer func() {
+		a.mu.Lock()
+		a.resolvesBusy = false
+		a.mu.Unlock()
+	}()
 	keys := make([]string, 0, len(a.saved.Conflicted))
 	for key, at := range a.saved.Conflicted {
 		if at != conflictUnwatched && !a.resolving[key] {
@@ -104,25 +112,26 @@ func (s *Server) autopilotResolve(key string) {
 		delete(a.resolving, key)
 		a.mu.Unlock()
 	}()
-	note := func(text string, isErr bool) {
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Text: text, Error: isErr})
-	}
+	note := func(text string, isErr bool) { s.resolveNote(key, text, isErr) }
 
 	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
 	defer cancel()
 	base := gitx.FreshBase(ctx, wt.Path, branch, p.snapshot().Base)
 	if base == "" {
-		note(branch+" conflicts with its base, which could not be fetched", true)
+		note(branch+" conflicts with its base, which could not be fetched; trying again", true)
+		s.resolveLater(key)
 		return
 	}
 	if gitx.InProgress(ctx, wt.Path) != "" {
 		note(branch+" conflicts with "+base+", and a rebase or merge is already under way there; finish it and it goes out", false)
+		s.resolveLater(key)
 		return
 	}
 	lease := gitx.PushedHead(ctx, wt.Path, branch)
 	before, err := gitx.Deleted(ctx, wt.Path, base)
 	if err != nil {
 		note(fmt.Sprintf("%s conflicts with %s, and what it changed could not be read: %v", branch, base, err), true)
+		s.resolveLater(key)
 		return
 	}
 	rw := rewrite{Base: base, Lease: lease, Deleted: before}
@@ -143,7 +152,37 @@ func (s *Server) autopilotResolve(key string) {
 		s.askToResolve(p, branch, rw, conflict.Files)
 	default:
 		note(fmt.Sprintf("%s conflicts with %s, and rebasing it failed: %v", branch, base, err), true)
+		s.resolveLater(key)
 	}
+}
+
+// resolveLater undoes the mark that says a conflict was dealt with at
+// this commit, after something that may pass — a fetch, an agent busy or
+// away — so the next tick tries again rather than never.
+func (s *Server) resolveLater(key string) {
+	a := s.autopilot
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if at, ok := a.saved.Conflicted[key]; ok && at != conflictUnwatched {
+		a.saved.Conflicted[key] = ""
+		a.saveLocked()
+	}
+}
+
+// resolveNote says something about a conflict, unless it was the last
+// thing said about it: a retry every few seconds must not say it again
+// every few seconds.
+func (s *Server) resolveNote(key, text string, isErr bool) {
+	a := s.autopilot
+	a.mu.Lock()
+	same := a.resolveSaid[key] == text
+	a.resolveSaid[key] = text
+	a.mu.Unlock()
+	if same {
+		return
+	}
+	projectID, branch, _ := strings.Cut(key, "\x00")
+	s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Text: text, Error: isErr})
 }
 
 // autopilotRewritten is a branch just rebased: it is checked, where the
@@ -161,12 +200,11 @@ func (s *Server) autopilotRewritten(projectID, branch string) {
 func (s *Server) askToResolve(p *project, branch string, rw rewrite, files []string) {
 	a := s.autopilot
 	key := branchKey(p.id, branch)
-	note := func(text string, isErr bool) {
-		s.autopilotNote(proto.AutopilotNote{ProjectID: p.id, Branch: branch, Text: text, Error: isErr})
-	}
+	note := func(text string, isErr bool) { s.resolveNote(key, text, isErr) }
 	agent := s.freeAgent(p.id, branch)
 	if agent == nil {
 		note(fmt.Sprintf("%s conflicts with %s in %s, and there is no agent free to resolve it", branch, rw.Base, strings.Join(files, ", ")), true)
+		s.resolveLater(key)
 		return
 	}
 	a.mu.Lock()
@@ -192,9 +230,9 @@ func (s *Server) askToResolve(p *project, branch string, rw rewrite, files []str
 		if a.saved.Resolves[key] > 0 {
 			a.saved.Resolves[key]--
 		}
-		a.saved.Conflicted[key] = "" // try again
 		a.saveLocked()
 		a.mu.Unlock()
+		s.resolveLater(key)
 		note(fmt.Sprintf("%s conflicts with %s, and asking %s to resolve it failed: %s", branch, rw.Base, agent.DisplayName(), perr.Message), true)
 		return
 	}
@@ -249,7 +287,15 @@ func (s *Server) shipRewrite(p *project, branch, dir string, rw rewrite, prNumbe
 	if err := gitx.PushOver(ctx, dir, branch, rw.Lease); err != nil {
 		var rej *gitx.PushRejectedError
 		if errors.As(err, &rej) {
-			return "somebody pushed to it since the rebase began, so nothing was overwritten"
+			// Their push stands; this rebase is of a branch that is not
+			// there any more. Dropped, so later pushes go the plain way
+			// rather than meet the same refusal every time.
+			a := s.autopilot
+			a.mu.Lock()
+			delete(a.saved.Rewrites, branchKey(p.id, branch))
+			a.saveLocked()
+			a.mu.Unlock()
+			return "somebody pushed to it since the rebase began, so nothing was overwritten and the rebase is dropped"
 		}
 		return "pushing it failed: " + err.Error()
 	}

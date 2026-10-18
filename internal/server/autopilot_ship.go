@@ -67,8 +67,11 @@ func (s *Server) autopilotStartCheck(projectID, branch, cmd string) {
 	a := s.autopilot
 	a.mu.Lock()
 	if a.starting[key] || s.checkRunningLocked(key) {
+		// It runs on the commit it started at; this finish may be on a
+		// newer one, which is checked once that ends (autopilotCheckDone).
+		a.recheck[key] = true
 		a.mu.Unlock()
-		return // one is already going
+		return
 	}
 	var old []string
 	for pane, k := range a.saved.CheckPanes {
@@ -204,6 +207,15 @@ func (s *Server) autopilotCheckDone(key, head, cmd string, info proto.PaneInfo, 
 			Text: fmt.Sprintf("check failed on %s (exit %d) — its terminal has the output", branch, info.ExitCode)})
 	}
 	s.autopilotCheckEnded(p, proto.AutopilotCheck{ProjectID: projectID, Branch: branch, Pane: info.ID, Command: cmd, Exit: info.ExitCode}, output, head)
+	a := s.autopilot
+	a.mu.Lock()
+	again := a.recheck[key]
+	delete(a.recheck, key)
+	cmd = a.saved.Policy.Checks[projectID]
+	a.mu.Unlock()
+	if again && cmd != "" && branchHead(p, branch) != head {
+		s.autopilotStartCheck(projectID, branch, cmd)
+	}
 }
 
 // autopilotShip pushes a finished branch and opens its pull request,
@@ -369,6 +381,7 @@ func (s *Server) markReady(p *project, projectID, branch, dir, base, head string
 	}
 	a.mu.Lock()
 	delete(a.saved.Drafted, key)
+	delete(a.saved.TestAsked, key)
 	a.saveLocked()
 	a.mu.Unlock()
 	s.projects.requestPRs(p)
@@ -377,39 +390,81 @@ func (s *Server) markReady(p *project, projectID, branch, dir, base, head string
 	return ""
 }
 
-// gates says which of require_tests and max_diff a branch does not meet,
-// and asks its agent for a test, once a commit, when it lacks one.
+// gates says which of require_tests and max_diff a branch does not meet
+// at head, and asks its agent for a test when it lacks one.
 func (s *Server) gates(projectID, branch, dir, base, head string) []string {
-	pol := s.autopilot.policy()
-	if !pol.RequireTests && pol.MaxDiff <= 0 {
+	p, perr := s.projects.get(projectID)
+	if perr != nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
-	var unmet []string
-	if pol.RequireTests {
-		files, err := gitx.Changed(ctx, dir, base)
-		if err == nil && needsTest(files) {
-			unmet = append(unmet, "it changes code and no test")
-			s.askForTest(projectID, branch, head)
-		}
-	}
-	if pol.MaxDiff > 0 {
-		if n, err := gitx.DiffSize(ctx, dir, base); err == nil && n > pol.MaxDiff {
-			unmet = append(unmet, fmt.Sprintf("it changes %d lines, over max_diff's %d — split it if it can be", n, pol.MaxDiff))
-		}
+	unmet, noTest := s.gatesFor(p, branchKey(projectID, branch), base, head)
+	if noTest {
+		s.askForTest(projectID, branch)
 	}
 	return unmet
 }
 
-// testPrompt is what an agent whose branch changes code and no test is
-// told.
-const testPrompt = "This branch changes code but no test. Add a test that fails without your change and passes with it, " +
-	"run it, and commit it. If the change truly cannot be tested, say why in a commit message instead. " +
-	"Do not push: conch pushes it, and marks the pull request ready once it has a test."
+// gatesAt is gates without asking anybody, for the merge hold.
+func (s *Server) gatesAt(p *project, key, base, rev string) []string {
+	unmet, _ := s.gatesFor(p, key, base, rev)
+	return unmet
+}
 
-// askForTest asks the branch's agent for a test, once for each commit.
-func (s *Server) askForTest(projectID, branch, head string) {
+// gateResult is what the gates said about a branch at a commit, kept so a
+// pull request waiting to merge is not diffed again at every tick.
+type gateResult struct {
+	rev    string
+	unmet  []string
+	noTest bool
+}
+
+// gatesFor reads the gates for rev, in the project's own repository so a
+// branch need not be checked out.
+func (s *Server) gatesFor(p *project, key, base, rev string) ([]string, bool) {
+	pol := s.autopilot.policy()
+	if !pol.RequireTests && pol.MaxDiff <= 0 || rev == "" || base == "" {
+		return nil, false
+	}
+	a := s.autopilot
+	memo := fmt.Sprintf("%s|%v|%d", rev, pol.RequireTests, pol.MaxDiff)
+	a.mu.Lock()
+	if g, ok := a.gateMemo[key]; ok && g.rev == memo {
+		a.mu.Unlock()
+		return g.unmet, g.noTest
+	}
+	a.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	var unmet []string
+	noTest := false
+	if pol.RequireTests {
+		files, err := gitx.ChangedAt(ctx, p.root, base, rev)
+		if err == nil && needsTest(files) {
+			unmet = append(unmet, "it changes code and no test")
+			noTest = true
+		}
+	}
+	if pol.MaxDiff > 0 {
+		if n, err := gitx.DiffSizeAt(ctx, p.root, base, rev); err == nil && n > pol.MaxDiff {
+			unmet = append(unmet, fmt.Sprintf("it changes %d lines, over max_diff's %d — split it if it can be", n, pol.MaxDiff))
+		}
+	}
+	a.mu.Lock()
+	a.gateMemo[key] = gateResult{rev: memo, unmet: unmet, noTest: noTest}
+	a.mu.Unlock()
+	return unmet, noTest
+}
+
+// testPrompt is what an agent whose branch changes code and no test is
+// told. It is told once a branch: one that answers that the change
+// cannot be tested is not asked again, and the pull request stays a draft
+// for the person to decide.
+const testPrompt = "This branch changes code but no test. Add a test that fails without your change and passes with it, " +
+	"run it, and commit it. If the change truly cannot be tested, say why in your reply instead: the pull request then stays " +
+	"a draft for the person to decide. Do not push: conch pushes it, and marks the pull request ready once it has a test."
+
+// askForTest asks the branch's agent for a test, once for the branch.
+func (s *Server) askForTest(projectID, branch string) {
 	key := branchKey(projectID, branch)
 	a := s.autopilot
 	agent := s.freeAgent(projectID, branch)
@@ -417,9 +472,9 @@ func (s *Server) askForTest(projectID, branch, head string) {
 		return
 	}
 	a.mu.Lock()
-	asked := a.saved.TestAsked[key] == head
+	asked := a.saved.TestAsked[key] != ""
 	if !asked {
-		a.saved.TestAsked[key] = head
+		a.saved.TestAsked[key] = agent.ID
 		a.saveLocked()
 	}
 	a.mu.Unlock()
@@ -427,6 +482,10 @@ func (s *Server) askForTest(projectID, branch, head string) {
 		return
 	}
 	if _, perr := s.promptAgent(proto.AgentPromptParams{ID: agent.ID, Text: testPrompt}); perr != nil {
+		a.mu.Lock()
+		delete(a.saved.TestAsked, key)
+		a.saveLocked()
+		a.mu.Unlock()
 		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
 			Text: "asking " + agent.DisplayName() + " for a test on " + branch + " failed: " + perr.Message})
 	}

@@ -146,7 +146,12 @@ func PushOver(ctx context.Context, dir, branch, expect string) error {
 // DiffSize is how many lines the checkout's HEAD adds and removes since
 // it left base, together: the size of the pull request it would make.
 func DiffSize(ctx context.Context, dir, base string) (int, error) {
-	out, err := run(ctx, dir, "diff", "--numstat", "--no-renames", base+"...HEAD", "--")
+	return DiffSizeAt(ctx, dir, base, "HEAD")
+}
+
+// DiffSizeAt is DiffSize for rev rather than the checkout's HEAD.
+func DiffSizeAt(ctx context.Context, dir, base, rev string) (int, error) {
+	out, err := run(ctx, dir, "diff", "--numstat", "--no-renames", base+"..."+rev, "--")
 	if err != nil {
 		return 0, err
 	}
@@ -168,7 +173,12 @@ func DiffSize(ctx context.Context, dir, base string) (int, error) {
 // Changed lists the files the checkout's HEAD has changed since it left
 // base, sorted.
 func Changed(ctx context.Context, dir, base string) ([]string, error) {
-	out, err := run(ctx, dir, "diff", "--name-only", "-z", "--no-renames", base+"...HEAD", "--")
+	return ChangedAt(ctx, dir, base, "HEAD")
+}
+
+// ChangedAt is Changed for rev rather than the checkout's HEAD.
+func ChangedAt(ctx context.Context, dir, base, rev string) ([]string, error) {
+	out, err := run(ctx, dir, "diff", "--name-only", "-z", "--no-renames", base+"..."+rev, "--")
 	if err != nil {
 		return nil, err
 	}

@@ -131,23 +131,23 @@ func TestAutopilotLoadBadFile(t *testing.T) {
 // never arrived, and a pass of the project's check renews it.
 func TestAutopilotFixAllowance(t *testing.T) {
 	a := loadAutopilot(t.TempDir())
-	if ok, capped, _ := a.takeFix("k"); ok || capped {
+	if ok, capped, _ := a.takeFix("k", false); ok || capped {
 		t.Fatal("auto_fix 0 sent one")
 	}
 	a.set(proto.AutopilotPolicy{AutoFix: 2})
 	for i := range 2 {
-		if ok, _, _ := a.takeFix("k"); !ok {
+		if ok, _, _ := a.takeFix("k", false); !ok {
 			t.Fatalf("try %d refused", i+1)
 		}
 	}
-	if ok, capped, limit := a.takeFix("k"); ok || !capped || limit != 2 {
+	if ok, capped, limit := a.takeFix("k", false); ok || !capped || limit != 2 {
 		t.Fatalf("past the cap: %v %v %d", ok, capped, limit)
 	}
-	if ok, capped, _ := a.takeFix("k"); ok || capped {
+	if ok, capped, _ := a.takeFix("k", false); ok || capped {
 		t.Fatal("the cap was said twice")
 	}
-	a.giveBack("k")
-	if ok, _, _ := a.takeFix("k"); !ok {
+	a.giveBack("k", false)
+	if ok, _, _ := a.takeFix("k", false); !ok {
 		t.Fatal("given back and still refused")
 	}
 	a.checked("k", "abc", false)
@@ -158,7 +158,7 @@ func TestAutopilotFixAllowance(t *testing.T) {
 	if _, ok := a.saved.Failed["k"]; ok || a.saved.Fixes["k"] != 0 {
 		t.Fatalf("a pass: %+v", a.saved)
 	}
-	a.giveBack("nothing") // nothing to give back is no harm
+	a.giveBack("nothing", false) // nothing to give back is no harm
 }
 
 // fakeMergeGH is a gh that merges any pull request but #9, and logs
@@ -187,7 +187,7 @@ esac
 func apFixes(s *Server, key string) int {
 	s.autopilot.mu.Lock()
 	defer s.autopilot.mu.Unlock()
-	return s.autopilot.saved.Fixes[key]
+	return s.autopilot.saved.Fixes[key] + s.autopilot.saved.CIFixes[key]
 }
 
 func readCalls(path string) string { b, _ := os.ReadFile(path); return string(b) }
@@ -763,9 +763,21 @@ func TestAutopilotRewriteGuards(t *testing.T) {
 		t.Fatalf("deleted: %q", why)
 	}
 	apGit(t, wt, "reset", "-q", "--hard", "HEAD~1")
-	// Somebody pushed to the branch meanwhile.
-	if why := s.shipRewrite(p, "api/model", wt, rewrite{Base: base, Lease: "0000000000000000000000000000000000000001"}, 8); !strings.Contains(why, "nothing was overwritten") {
+	// Somebody pushed to the branch meanwhile: theirs stands, and the
+	// rewrite is dropped so later pushes go the plain way.
+	key := branchKey(p.id, "api/model")
+	stale := rewrite{Base: base, Lease: "0000000000000000000000000000000000000001"}
+	s.autopilot.mu.Lock()
+	s.autopilot.saved.Rewrites[key] = stale
+	s.autopilot.mu.Unlock()
+	if why := s.shipRewrite(p, "api/model", wt, stale, 8); !strings.Contains(why, "nothing was overwritten") {
 		t.Fatalf("stale lease: %q", why)
+	}
+	s.autopilot.mu.Lock()
+	_, kept := s.autopilot.saved.Rewrites[key]
+	s.autopilot.mu.Unlock()
+	if kept {
+		t.Fatal("a refused rewrite is kept, to be refused again at every push")
 	}
 	if apGit(t, origin, "rev-parse", "api/model") != pushed {
 		t.Fatal("a refused rewrite was pushed")
@@ -933,15 +945,15 @@ func TestAutopilotSteadyGreenKeepsTheCount(t *testing.T) {
 	a.set(proto.AutopilotPolicy{AutoFix: 2})
 	key := branchKey("p", "x")
 	a.observe(apInfo("p", map[string]string{"x": "pass"}))
-	a.takeFix(key)
-	a.takeFix(key)
+	a.takeFix(key, true)
+	a.takeFix(key, true)
 	a.observe(apInfo("p", map[string]string{"x": "pass"}))
-	if ok, capped, _ := a.takeFix(key); ok || !capped {
+	if ok, capped, _ := a.takeFix(key, true); ok || !capped {
 		t.Fatal("a green read renewed the allowance")
 	}
 	a.observe(apInfo("p", map[string]string{"x": "fail"}))
 	a.observe(apInfo("p", map[string]string{"x": "pass"}))
-	if ok, _, _ := a.takeFix(key); !ok {
+	if ok, _, _ := a.takeFix(key, true); !ok {
 		t.Fatal("the turn to green did not renew it")
 	}
 }
@@ -1076,4 +1088,193 @@ func TestAutopilotCheckOutputBeforeClose(t *testing.T) {
 	s.autopilotExited(ent.info())
 	s.close(info.ID) // as a client would, on pane.exited
 	a5WaitFor(t, "the failure on the agent's screen", func() bool { return strings.Contains(screenText(e), "EARLY-OUTPUT-MARK") })
+}
+
+// A server that starts afresh forgets the checks that were running: their
+// panes died with the old server, and its pane IDs are handed out again.
+// A reload keeps them, since it keeps the panes.
+func TestAutopilotFreshStartForgetsChecks(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	a := loadAutopilot(dir)
+	a.mu.Lock()
+	a.saved.CheckPanes["p3"] = branchKey("r", "x")
+	a.saved.CheckHeads["p3"] = "abc"
+	a.saveLocked()
+	a.mu.Unlock()
+
+	t.Setenv(reloadStateEnv, "/nonexistent/reload-state")
+	if s := New(filepath.Join(dir, "s.sock"), dir); !s.autopilot.ownCheck("p3") {
+		t.Fatal("a reload forgot a running check")
+	}
+	t.Setenv(reloadStateEnv, "")
+	s := New(filepath.Join(dir, "s.sock"), dir)
+	if s.autopilot.ownCheck("p3") || len(s.autopilot.saved.CheckHeads) != 0 {
+		t.Fatal("a fresh server took a new p3 for the old check")
+	}
+	if loadAutopilot(dir).ownCheck("p3") {
+		t.Fatal("not saved")
+	}
+}
+
+// The project's check passing does not renew CI's allowance: they are
+// two counts.
+func TestAutopilotTwoAllowances(t *testing.T) {
+	a := loadAutopilot(t.TempDir())
+	a.set(proto.AutopilotPolicy{AutoFix: 1})
+	key := branchKey("p", "x")
+	if ok, _, _ := a.takeFix(key, true); !ok {
+		t.Fatal("CI's first")
+	}
+	a.checked(key, "abc", true)
+	if ok, _, _ := a.takeFix(key, true); ok {
+		t.Fatal("a local pass renewed CI's allowance")
+	}
+	if ok, _, _ := a.takeFix(key, false); !ok {
+		t.Fatal("the check's own allowance is spent by CI's")
+	}
+	if st := a.state(func(string) string { return "" }); len(st.Branches) != 1 || st.Branches[0].Fixes != 2 {
+		t.Fatalf("state %+v", st.Branches)
+	}
+}
+
+// What holds a merge is about the commit being merged: its check failed
+// there, is running, or has not run there; and require_tests holds a pull
+// request conch did not open.
+func TestAutopilotMergeGatesTheMergedCommit(t *testing.T) {
+	s, p, _, wt, _, _ := shipFixture(t)
+	head := apGit(t, wt, "rev-parse", "HEAD")
+	info := p.snapshot()
+	key := branchKey(p.id, "api/model")
+
+	// Failed on the pushed commit; the branch has moved on locally.
+	s.autopilot.set(proto.AutopilotPolicy{AutoMerge: true})
+	s.autopilot.checked(key, "pushedcommit", false)
+	s.autopilot.mu.Lock()
+	s.autopilot.saved.Waiting[key] = ""
+	s.autopilot.mu.Unlock()
+	p.mu.Lock()
+	p.prs = map[string]proto.PRInfo{"api/model": {Number: 8, State: "OPEN", Checks: "pass", Head: "pushedcommit"}}
+	p.mu.Unlock()
+	s.autopilotMerge(key)
+	s.autopilot.mu.Lock()
+	held := s.autopilot.saved.Waiting[key]
+	s.autopilot.mu.Unlock()
+	if !strings.Contains(held, "own check failed") {
+		t.Fatalf("merged a commit whose check failed: %q", held)
+	}
+
+	// A check that has not run on the commit is run, and holds it.
+	flag := filepath.Join(t.TempDir(), "go")
+	cmd := "while [ ! -f " + flag + " ]; do sleep 0.05; done"
+	s.autopilot.set(proto.AutopilotPolicy{AutoMerge: true, Checks: map[string]string{p.id: cmd}})
+	if why := s.mergeGates(p, info, "api/model", proto.PRInfo{Number: 8, Head: head}, head); !strings.Contains(why, "not run on it yet") {
+		t.Fatalf("unchecked: %q", why)
+	}
+	a5WaitFor(t, "the check started", func() bool { return s.checkBusy(key) })
+	if why := s.mergeGates(p, info, "api/model", proto.PRInfo{Number: 8, Head: head}, head); !strings.Contains(why, "still running") {
+		t.Fatalf("running: %q", why)
+	}
+	os.WriteFile(flag, nil, 0o644)
+	a5WaitFor(t, "the check done", func() bool { return !s.checkBusy(key) })
+	if why := s.mergeGates(p, info, "api/model", proto.PRInfo{Number: 8, Head: head}, head); why != "" {
+		t.Fatalf("passed: %q", why)
+	}
+
+	// require_tests holds a pull request whoever opened it.
+	s.autopilot.set(proto.AutopilotPolicy{AutoMerge: true, RequireTests: true})
+	if why := s.mergeGates(p, info, "api/model", proto.PRInfo{Number: 8, Head: head}, head); !strings.Contains(why, "no test") {
+		t.Fatalf("untested: %q", why)
+	}
+	// And through the merge itself, for a green one waiting.
+	s.autopilot.mu.Lock()
+	s.autopilot.saved.Waiting[key] = ""
+	s.autopilot.mu.Unlock()
+	p.mu.Lock()
+	p.prs = map[string]proto.PRInfo{"api/model": {Number: 8, State: "OPEN", Checks: "pass", Head: head}}
+	p.mu.Unlock()
+	s.autopilotMerge(key)
+	s.autopilot.mu.Lock()
+	held = s.autopilot.saved.Waiting[key]
+	s.autopilot.mu.Unlock()
+	if !strings.Contains(held, "no test") {
+		t.Fatalf("a green, untested pull request was not held: %q", held)
+	}
+	s.autopilot.set(proto.AutopilotPolicy{AutoMerge: true, MaxDiff: 1000})
+	if why := s.mergeGates(p, info, "api/model", proto.PRInfo{Number: 8, Head: head}, head); why != "" {
+		t.Fatalf("small enough: %q", why)
+	}
+}
+
+// An agent is asked for a test once for the branch: one that answers it
+// cannot be tested, with a commit that still has none, is not asked again.
+func TestAutopilotTestAskedOnce(t *testing.T) {
+	s, p, e, wt, _, _ := shipFixture(t)
+	s.autopilot.set(proto.AutopilotPolicy{AutoPR: true, RequireTests: true})
+	s.askForTest(p.id, "api/model")
+	a5WaitFor(t, "the request", func() bool { return strings.Contains(screenText(e), "changes code but no test") })
+	a5WaitFor(t, "the request submitted", func() bool { st, _ := agentState(e); return st == proto.AgentIdle })
+	os.WriteFile(filepath.Join(wt, "why.txt"), []byte("cannot be tested\n"), 0o644)
+	apGit(t, wt, "add", ".")
+	apGit(t, wt, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "Explain why it is untested")
+	hook(s, e, "Stop")
+	s.gates(p.id, "api/model", wt, "main", apGit(t, wt, "rev-parse", "HEAD"))
+	time.Sleep(100 * time.Millisecond)
+	if n := strings.Count(screenText(e), "changes code but no test"); n != 1 {
+		t.Fatalf("asked %d times", n)
+	}
+}
+
+// A finish while a check runs gets its own check once that one ends, on
+// the commit it finished at.
+func TestAutopilotRecheckAfterAFinishMidCheck(t *testing.T) {
+	s, p, _, wt, _, _ := shipFixture(t)
+	flag := filepath.Join(t.TempDir(), "go")
+	cmd := "while [ ! -f " + flag + " ]; do sleep 0.05; done"
+	s.autopilot.set(proto.AutopilotPolicy{Checks: map[string]string{p.id: cmd}})
+	key := branchKey(p.id, "api/model")
+	s.autopilotStartCheck(p.id, "api/model", cmd)
+	os.WriteFile(filepath.Join(wt, "later.go"), []byte("package api\n"), 0o644)
+	apGit(t, wt, "add", ".")
+	apGit(t, wt, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "later")
+	later := apGit(t, wt, "rev-parse", "HEAD")
+	s.autopilotStartCheck(p.id, "api/model", cmd) // the finish on the later commit
+	os.WriteFile(flag, nil, 0o644)
+	a5WaitFor(t, "the later commit checked", func() bool {
+		s.autopilot.mu.Lock()
+		defer s.autopilot.mu.Unlock()
+		return s.autopilot.saved.Passed[key] == later
+	})
+}
+
+// A conflict that could not be dealt with now — no agent to hand it to —
+// is tried again at the next look, and said once.
+func TestAutopilotResolveTriesAgain(t *testing.T) {
+	s, p, e, _, _ := resolveFixture(t, "model.go", "package api // theirs\n")
+	key := branchKey(p.id, "api/model")
+	s.close(e.info().ID)
+	a5WaitFor(t, "the agent gone", func() bool { return s.branchAgent(p.id, "api/model") == nil })
+	s.autopilotResolve(key)
+	if at, _ := apConflicted(s, key); at != "" {
+		t.Fatalf("given up at %q with no agent to ask", at)
+	}
+	s.autopilot.mu.Lock()
+	said := s.autopilot.resolveSaid[key]
+	s.autopilot.mu.Unlock()
+	if !strings.Contains(said, "no agent free") {
+		t.Fatalf("said %q", said)
+	}
+
+	// One pass over the conflicts at a time.
+	s.autopilot.mu.Lock()
+	s.autopilot.resolvesBusy = true
+	s.autopilot.saved.Conflicted[key] = "not this commit"
+	s.autopilot.mu.Unlock()
+	s.autopilotResolves()
+	if at, _ := apConflicted(s, key); at != "not this commit" {
+		t.Fatal("a second pass ran beside the first")
+	}
 }

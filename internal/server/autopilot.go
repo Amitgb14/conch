@@ -52,6 +52,14 @@ type autopilot struct {
 	// capSaid is branches told their auto_fix allowance is spent, so it
 	// is said once rather than at every failure after.
 	capSaid map[string]bool
+	// recheck is branches whose agent finished again while a check ran,
+	// gateMemo the gates last read for each branch, resolveSaid the last
+	// thing said about each conflict, and resolvesBusy whether a pass over
+	// the conflicts is under way.
+	recheck      map[string]bool
+	gateMemo     map[string]gateResult
+	resolveSaid  map[string]string
+	resolvesBusy bool
 	// lastCheck is the terminal of each branch's last check, closed when
 	// the next one starts.
 	lastCheck map[string]string
@@ -64,7 +72,11 @@ type autopilotFile struct {
 	// Checks what each of their branches' open pull request's CI was then.
 	Seen   map[string]bool   `json:"seen,omitempty"`
 	Checks map[string]string `json:"checks,omitempty"`
-	Fixes  map[string]int    `json:"fixes,omitempty"`
+	// Fixes counts the project's own check's failures sent back, and
+	// CIFixes CI's: two allowances, since a local check passing says
+	// nothing about CI, and one count reset by it let CI's go on for ever.
+	Fixes   map[string]int `json:"fixes,omitempty"`
+	CIFixes map[string]int `json:"ci_fixes,omitempty"`
 	// Waiting maps a green pull request waiting to merge to what last
 	// held it back, so a reason is said once rather than at every look.
 	Waiting map[string]string `json:"waiting,omitempty"`
@@ -106,7 +118,8 @@ type autopilotFile struct {
 func loadAutopilot(configDir string) *autopilot {
 	a := &autopilot{file: filepath.Join(configDir, "autopilot.json"), merging: map[string]bool{},
 		shipping: map[string]bool{}, unshipped: map[string]string{}, lastCheck: map[string]string{}, resolving: map[string]bool{},
-		starting: map[string]bool{}, capSaid: map[string]bool{}}
+		starting: map[string]bool{}, capSaid: map[string]bool{}, recheck: map[string]bool{},
+		gateMemo: map[string]gateResult{}, resolveSaid: map[string]string{}}
 	raw, err := os.ReadFile(a.file)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("autopilot: %v", err)
@@ -126,6 +139,9 @@ func loadAutopilot(configDir string) *autopilot {
 	}
 	if a.saved.Fixes == nil {
 		a.saved.Fixes = map[string]int{}
+	}
+	if a.saved.CIFixes == nil {
+		a.saved.CIFixes = map[string]int{}
 	}
 	if a.saved.Waiting == nil {
 		a.saved.Waiting = map[string]string{}
@@ -187,6 +203,20 @@ func cleanPolicy(p proto.AutopilotPolicy) proto.AutopilotPolicy {
 	return p
 }
 
+// freshStart forgets the checks that were running: a server that starts
+// afresh, not by a reload, has none of the panes they ran in, and numbers
+// its own from p1 again — a saved pane ID would name somebody's shell.
+func (a *autopilot) freshStart() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.saved.CheckPanes) == 0 && len(a.saved.CheckHeads) == 0 {
+		return
+	}
+	a.saved.CheckPanes = map[string]string{}
+	a.saved.CheckHeads = map[string]string{}
+	a.saveLocked()
+}
+
 func (a *autopilot) saveLocked() {
 	raw, _ := json.MarshalIndent(a.saved, "", "  ")
 	tmp := a.file + ".tmp"
@@ -245,7 +275,10 @@ func (a *autopilot) state(headOf func(key string) string) proto.AutopilotState {
 		return b
 	}
 	for key, n := range a.saved.Fixes {
-		at(key).Fixes = n
+		at(key).Fixes += n
+	}
+	for key, n := range a.saved.CIFixes {
+		at(key).Fixes += n
 	}
 	for key, held := range a.saved.Waiting {
 		b := at(key)
@@ -314,8 +347,8 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 			// on a pushed commit says nothing about the project's check
 			// failing again and again on the agent's newer one.
 			if was != "pass" {
-				delete(a.saved.Fixes, key)
-				delete(a.capSaid, key)
+				delete(a.saved.CIFixes, key)
+				delete(a.capSaid, ciCount(key))
 			}
 			delete(a.saved.PendingCI, key)
 			if !first && was != "pass" && a.saved.Policy.AutoMerge && b.Name != info.Base {
@@ -384,9 +417,11 @@ func (a *autopilot) forget(projectID string) {
 			}
 		}
 	}
-	for key := range a.saved.Fixes {
-		if strings.HasPrefix(key, prefix) {
-			delete(a.saved.Fixes, key)
+	for _, m := range []map[string]int{a.saved.Fixes, a.saved.CIFixes, a.saved.Resolves} {
+		for key := range m {
+			if strings.HasPrefix(key, prefix) {
+				delete(m, key)
+			}
 		}
 	}
 	for pane, key := range a.saved.CheckPanes {
@@ -426,31 +461,42 @@ func (a *autopilot) forget(projectID string) {
 // takeFix counts one more failure going back to a branch's agent, and
 // says whether the allowance had room for it. At the cap it answers
 // false, with capped set the first time only, so the person is told once.
-func (a *autopilot) takeFix(key string) (ok, capped bool, limit int) {
+func (a *autopilot) takeFix(key string, ci bool) (ok, capped bool, limit int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	limit = a.saved.Policy.AutoFix
 	if limit <= 0 {
 		return false, false, 0
 	}
-	if a.saved.Fixes[key] >= limit {
-		capped = !a.capSaid[key]
-		a.capSaid[key] = true
+	counts, said := a.saved.Fixes, key
+	if ci {
+		counts, said = a.saved.CIFixes, ciCount(key)
+	}
+	if counts[key] >= limit {
+		capped = !a.capSaid[said]
+		a.capSaid[said] = true
 		return false, capped, limit
 	}
-	a.saved.Fixes[key]++
+	counts[key]++
 	a.saveLocked()
 	return true, false, limit
 }
 
+// ciCount is the key capSaid knows CI's allowance by.
+func ciCount(key string) string { return key + "\x00ci" }
+
 // giveBack undoes a takeFix whose message never reached the agent.
-func (a *autopilot) giveBack(key string) {
+func (a *autopilot) giveBack(key string, ci bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.saved.Fixes[key] > 0 {
-		a.saved.Fixes[key]--
-		if a.saved.Fixes[key] == 0 {
-			delete(a.saved.Fixes, key)
+	counts := a.saved.Fixes
+	if ci {
+		counts = a.saved.CIFixes
+	}
+	if counts[key] > 0 {
+		counts[key]--
+		if counts[key] == 0 {
+			delete(counts, key)
 		}
 		a.saveLocked()
 	}
@@ -603,7 +649,8 @@ func (s *Server) autopilotFix(projectID, branch, what string, text func() (strin
 		}
 		return
 	}
-	ok, capped, limit := s.autopilot.takeFix(key)
+	ci := what == "CI"
+	ok, capped, limit := s.autopilot.takeFix(key, ci)
 	if capped {
 		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
 			Text: fmt.Sprintf("%s failed on %s again; auto_fix tried %d times, so it's yours now", what, branch, limit)})
@@ -620,7 +667,7 @@ func (s *Server) autopilotFix(projectID, branch, what string, text func() (strin
 			}
 		}
 		if err != nil {
-			s.autopilot.giveBack(key)
+			s.autopilot.giveBack(key, ci)
 			s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
 				Text: fmt.Sprintf("%s failed on %s, and could not go to %s: %v", what, branch, agent.DisplayName(), err)})
 			return
@@ -751,7 +798,16 @@ func (s *Server) autopilotMerge(key string) {
 		a.mu.Unlock()
 		return
 	}
-	why := s.mergeHold(info, branch, pr, failedAt != "" && failedAt == branchHead(p, branch))
+	// The verdict that matters is the one on the commit being merged;
+	// without its head from GitHub, the branch's is the best there is.
+	at := pr.Head
+	if at == "" {
+		at = branchHead(p, branch)
+	}
+	why := s.mergeHold(info, branch, pr, failedAt != "" && failedAt == at)
+	if why == "" {
+		why = s.mergeGates(p, info, branch, pr, at)
+	}
 	if why != "" {
 		if why != held {
 			a.mu.Lock()
@@ -790,6 +846,32 @@ func (s *Server) autopilotMerge(key string) {
 		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Merged: true,
 			Text: fmt.Sprintf("merged #%d on GitHub (%s), green", pr.Number, res.Method)})
 	}()
+}
+
+// mergeGates holds a green pull request for its project's check — running
+// on the commit being merged, or not yet run there though that commit is
+// checked out — and for require_tests and max_diff, which hold every
+// pull request, not only the ones conch opened as drafts.
+func (s *Server) mergeGates(p *project, info proto.ProjectInfo, branch string, pr proto.PRInfo, at string) string {
+	key := branchKey(info.ID, branch)
+	a := s.autopilot
+	pol := a.policy()
+	if cmd := pol.Checks[info.ID]; cmd != "" && at != "" {
+		a.mu.Lock()
+		verdict := a.saved.Passed[key] == at || a.saved.Failed[key] == at
+		a.mu.Unlock()
+		switch {
+		case s.checkBusy(key):
+			return "this project's check is still running"
+		case !verdict && branchHead(p, branch) == at:
+			go s.autopilotStartCheck(info.ID, branch, cmd)
+			return "this project's check has not run on it yet; running it"
+		}
+	}
+	if unmet := s.gatesAt(p, key, info.Base, at); len(unmet) > 0 {
+		return strings.Join(unmet, " and ")
+	}
+	return ""
 }
 
 // mergeHold says what keeps a green pull request from merging, or ""

@@ -159,6 +159,15 @@ func TestDiffSizeAndChanged(t *testing.T) {
 	if got, _ := Changed(ctx, wt, "main"); !reflect.DeepEqual(got, []string{"README.md", "a.go", "bin.dat"}) {
 		t.Fatalf("changed %v", got)
 	}
+	// At a commit rather than HEAD: the first of the three.
+	first := git(t, wt, "rev-list", "--reverse", "HEAD", "^main")
+	first = strings.Fields(first)[0]
+	if n, _ := DiffSizeAt(ctx, wt, "main", first); n != 3 {
+		t.Fatalf("size at the first commit %d", n)
+	}
+	if got, _ := ChangedAt(ctx, wt, "main", first); !reflect.DeepEqual(got, []string{"a.go"}) {
+		t.Fatalf("changed at the first commit %v", got)
+	}
 	if _, err := DiffSize(ctx, wt, "nothing"); err == nil {
 		t.Fatal("no base")
 	}
