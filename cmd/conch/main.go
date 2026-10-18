@@ -32,6 +32,34 @@ import (
 	"github.com/Amitgb14/conch/internal/update"
 )
 
+// shortUsage is what `conch help` prints: the commands somebody starting
+// out needs, not all of them. The whole list was over a hundred lines,
+// which answered "what can it do?" and not "what do I type?".
+const shortUsage = `conch — run AI coding agents side by side, on your own machines
+
+Start:
+  conch                       open conch; agents keep running when you close it
+  conch project add PATH      add a git repository you work in
+  conch task PROMPT           give an agent a task, on a branch of its own
+                              -agent codex picks the agent; -n 3 makes 3 tries
+  conch new -agent claude     start an agent in this folder
+
+Keep an eye on them:
+  conch status                every pane and agent, and what it is doing
+  conch read ID               what an agent's screen shows
+  conch send ID TEXT          type into it
+  conch wait ID               wait until it is done
+
+More:
+  conch machine add HOST      run agents on another machine, over ssh
+  conch web                   answer your agents from a phone
+  conch update                the newest release, without stopping agents
+  conch bug                   report a problem
+
+conch help all lists every command; in conch, ? lists every key.
+Docs: https://amitgb14.github.io/conch/docs/
+`
+
 const usage = `conch — terminal orchestrator for AI coding agents
 
 Usage:
@@ -261,9 +289,13 @@ func main() {
 	case "version", "--version", "-v":
 		runVersion(args)
 	case "help", "--help", "-h":
-		fmt.Print(usage)
+		if len(args) > 0 && args[0] == "all" {
+			fmt.Print(usage)
+		} else {
+			fmt.Print(shortUsage)
+		}
 	default:
-		fmt.Fprintf(os.Stderr, "conch: unknown command %q\n\n%s", cmd, usage)
+		fmt.Fprintf(os.Stderr, "conch: unknown command %q\n\n%s", cmd, shortUsage)
 		os.Exit(2)
 	}
 	var late waitTimeout

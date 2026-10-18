@@ -398,6 +398,12 @@ func TestA1RenameAndRemove(t *testing.T) {
 		t.Fatalf("x on main worktree: %q", m.flash)
 	}
 	m.cursor = machineID(localMachine)
+	// x there hides the getting started guide while it is up, and only
+	// then says the machine stays.
+	a1Key(t, m, runes("x"))
+	if m.overlay != nil || !m.guide[guideHidden] || !strings.Contains(m.flash, "getting started hidden") {
+		t.Fatalf("x on local machine with the guide: %q", m.flash)
+	}
 	a1Key(t, m, runes("x"))
 	if m.overlay != nil || m.flash != "this computer can't be removed" {
 		t.Fatalf("x on local machine: %q", m.flash)

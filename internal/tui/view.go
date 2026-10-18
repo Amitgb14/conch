@@ -1154,7 +1154,7 @@ func (m Model) machinePage(mach *machine, cols, rows int) []string {
 	}
 	switch mach.state {
 	case stateOnline:
-		lines = append(lines, styleMuted.Render(fmt.Sprintf("%d projects · %d panes · %d working · %d waiting", len(projects), len(panes), working, waiting)))
+		lines = append(lines, styleMuted.Render(fmt.Sprintf("%s · %s · %d working · %d waiting", count(len(projects), "project"), count(len(panes), "pane"), working, waiting)))
 		if line := m.usageLine(usageOf(panes), "usage"); line != "" {
 			lines = append(lines, styleMuted.Render(line))
 		}
@@ -1180,10 +1180,26 @@ func (m Model) machinePage(mach *machine, cols, rows int) []string {
 		if mach.warning != "" {
 			lines = append(lines, styleWarn.Render(mach.warning))
 		}
-		lines = append(lines, "",
-			styleMuted.Render("a  add a project      t  new task in its home"),
-			styleMuted.Render("c  start an agent     n  open a terminal"),
-			styleMuted.Render("M  add a machine      m  machine menu   ?  all keys"),
+		// c is said once: under the agents, where it also installs one,
+		// or here when there is no list to put it under.
+		start := "c  start an agent     "
+		if len(mach.agentList) > 0 {
+			start = ""
+		}
+		// The guide, while it is up, comes first and says what a and t are
+		// for, so the hints under it leave them out rather than repeat them.
+		var guide []string
+		if mach.id == localMachine {
+			guide = m.guideLines()
+		}
+		lines = append(lines, guide...)
+		lines = append(lines, "")
+		if len(guide) == 0 {
+			lines = append(lines, styleMuted.Render("a  add a project      t  new task in its home"))
+		}
+		lines = append(lines,
+			styleMuted.Render(start+"n  open a terminal    M  add a machine"),
+			styleMuted.Render("m  machine menu       ?  all keys"),
 		)
 	case stateConnecting:
 		lines = append(lines, styleWork.Render("connecting…"))

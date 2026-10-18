@@ -440,6 +440,7 @@ func TestMachinePageFitsItsAgents(t *testing.T) {
 	}
 	mach := m.machines[0]
 	mach.agentList = list
+	m.guide = map[string]bool{guideHidden: true} // its ticks are not agents (guide_test.go)
 
 	for _, cols := range []int{200, 130, 100, 80, 60, 40, 24} {
 		lines := m.machineLines(mach, cols, 40)
