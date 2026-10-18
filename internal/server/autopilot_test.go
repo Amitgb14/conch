@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -615,5 +617,178 @@ func TestAutopilotFinishRunsTheCheckThenShips(t *testing.T) {
 	// A client reporting the server's own check is not counted twice.
 	if !s.autopilot.ownCheck("") && s.autopilot.ownCheck("p999") {
 		t.Fatal("a pane it never started is its own")
+	}
+}
+
+// resolveFixture is shipFixture with the branch pushed, its pull request
+// #8 open, and main moved on the remote by somebody else: in file, to
+// content, which conflicts when file is model.go.
+func resolveFixture(t *testing.T, file, content string) (s *Server, p *project, e *entry, wt, origin string) {
+	t.Helper()
+	s, p, e, wt, origin, _ = shipFixture(t)
+	apGit(t, p.root, "push", "-q", "origin", "main")
+	apGit(t, wt, "push", "-q", "-u", "origin", "api/model")
+	other := filepath.Join(t.TempDir(), "other")
+	apGit(t, filepath.Dir(other), "clone", "-q", "-b", "main", origin, other)
+	os.WriteFile(filepath.Join(other, file), []byte(content), 0o644)
+	apGit(t, other, "add", ".")
+	apGit(t, other, "-c", "user.name=o", "-c", "user.email=o@example.com", "commit", "-q", "-m", "main changes "+file)
+	apGit(t, other, "push", "-q", "origin", "main")
+	s.autopilot.set(proto.AutopilotPolicy{AutoResolve: 1})
+	apPR(s, p, "api/model", proto.PRInfo{Number: 8, Checks: "pass"})
+	apPR(s, p, "api/model", proto.PRInfo{Number: 8, Checks: "pass", Conflicting: true})
+	return s, p, e, wt, origin
+}
+
+func apConflicted(s *Server, key string) (string, bool) {
+	s.autopilot.mu.Lock()
+	defer s.autopilot.mu.Unlock()
+	at, ok := s.autopilot.saved.Conflicted[key]
+	return at, ok
+}
+
+// Most conflicts are a base that moved: the server rebases the branch
+// itself, and pushes it over the old one.
+func TestAutopilotResolveRebasesCleanly(t *testing.T) {
+	s, p, e, wt, origin := resolveFixture(t, "other.txt", "theirs\n")
+	key := branchKey(p.id, "api/model")
+	if at, ok := apConflicted(s, key); !ok || at != "" {
+		t.Fatalf("not minded: %q %v", at, ok)
+	}
+	s.autopilotResolve(key)
+	if !gitx.IsAncestor(context.Background(), wt, "origin/main", "HEAD") {
+		t.Fatal("not rebased")
+	}
+	a5WaitFor(t, "the rebased branch pushed", func() bool {
+		return apGit(t, origin, "rev-parse", "api/model") == apGit(t, wt, "rev-parse", "HEAD")
+	})
+	if _, err := os.Stat(filepath.Join(wt, "other.txt")); err != nil {
+		t.Fatal("the base's change is missing")
+	}
+	if strings.Contains(screenText(e), "conflicts with") {
+		t.Fatal("asked the agent about a conflict it did not have")
+	}
+	// Again at the same commit: nothing.
+	s.autopilotResolve(key)
+}
+
+// A real conflict goes to the agent, told what the base did; its
+// resolution, once it finishes, is pushed over the old branch.
+func TestAutopilotResolveAsksTheAgent(t *testing.T) {
+	s, p, e, wt, origin := resolveFixture(t, "model.go", "package api // theirs\n")
+	key := branchKey(p.id, "api/model")
+	pushed := apGit(t, origin, "rev-parse", "api/model")
+	s.autopilotResolve(key)
+	a5WaitFor(t, "the conflict on the agent's screen", func() bool {
+		text := screenText(e)
+		return strings.Contains(text, "conflicts with origin/main") && strings.Contains(text, "main changes model.go")
+	})
+	if gitx.InProgress(context.Background(), wt) != "" {
+		t.Fatal("the server's rebase was left half done")
+	}
+	if apGit(t, origin, "rev-parse", "api/model") != pushed {
+		t.Fatal("pushed before the agent resolved it")
+	}
+	a5WaitFor(t, "the request submitted", func() bool { st, _ := agentState(e); return st == proto.AgentIdle })
+
+	// The agent resolves it, keeping both sides, and finishes.
+	cmd := exec.Command("git", "-C", wt, "rebase", "origin/main")
+	cmd.Run() // stops on the conflict
+	os.WriteFile(filepath.Join(wt, "model.go"), []byte("package api // theirs, and ours\n"), 0o644)
+	apGit(t, wt, "add", "model.go")
+	cont := exec.Command("git", "-C", wt, "-c", "core.editor=true", "rebase", "--continue")
+	if out, err := cont.CombinedOutput(); err != nil {
+		t.Fatalf("continue: %v\n%s", err, out)
+	}
+	hook(s, e, "UserPromptSubmit")
+	hook(s, e, "Stop")
+	a5WaitFor(t, "the resolution pushed", func() bool {
+		return apGit(t, origin, "rev-parse", "api/model") == apGit(t, wt, "rev-parse", "HEAD")
+	})
+
+	// Conflicting again at the new commit: the allowance is spent.
+	apPR(s, p, "api/model", proto.PRInfo{Number: 8, Checks: "pass"})
+	apPR(s, p, "api/model", proto.PRInfo{Number: 8, Checks: "pass", Conflicting: true})
+	s.autopilot.mu.Lock()
+	s.autopilot.saved.Resolves[key] = 1
+	s.autopilot.mu.Unlock()
+	other := filepath.Join(t.TempDir(), "other")
+	apGit(t, filepath.Dir(other), "clone", "-q", "-b", "main", origin, other)
+	os.WriteFile(filepath.Join(other, "model.go"), []byte("package api // theirs again\n"), 0o644)
+	apGit(t, other, "-c", "user.name=o", "-c", "user.email=o@example.com", "commit", "-qam", "main again")
+	apGit(t, other, "push", "-q", "origin", "main")
+	hook(s, e, "Stop")
+	before := strings.Count(screenText(e), "conflicts with origin/main")
+	s.autopilotResolve(key)
+	if n := strings.Count(screenText(e), "conflicts with origin/main"); n != before {
+		t.Fatal("asked past the allowance")
+	}
+}
+
+// A resolution that deletes what the branch never deleted, or a push to
+// the branch by somebody else meanwhile, keeps the old branch.
+func TestAutopilotRewriteGuards(t *testing.T) {
+	s, p, _, wt, origin := resolveFixture(t, "other.txt", "theirs\n")
+	ctx := context.Background()
+	base := gitx.FreshBase(ctx, wt, "api/model", "main")
+	lease := gitx.PushedHead(ctx, wt, "api/model")
+	if _, err := gitx.RebaseOnto(ctx, wt, "api/model", base); err != nil {
+		t.Fatal(err)
+	}
+	pushed := apGit(t, origin, "rev-parse", "api/model")
+
+	// Not on top of the base it was rebased for.
+	if why := s.shipRewrite(p, "api/model", wt, rewrite{Base: "origin/nothing", Lease: lease}, 8); why == "" {
+		t.Fatal("pushed without its base")
+	}
+	// The resolution dropped a file the base has.
+	apGit(t, wt, "rm", "-q", "other.txt")
+	apGit(t, wt, "commit", "-qm", "drop theirs")
+	if why := s.shipRewrite(p, "api/model", wt, rewrite{Base: base, Lease: lease}, 8); !strings.Contains(why, "deleted other.txt") {
+		t.Fatalf("deleted: %q", why)
+	}
+	apGit(t, wt, "reset", "-q", "--hard", "HEAD~1")
+	// Somebody pushed to the branch meanwhile.
+	if why := s.shipRewrite(p, "api/model", wt, rewrite{Base: base, Lease: "0000000000000000000000000000000000000001"}, 8); !strings.Contains(why, "nothing was overwritten") {
+		t.Fatalf("stale lease: %q", why)
+	}
+	if apGit(t, origin, "rev-parse", "api/model") != pushed {
+		t.Fatal("a refused rewrite was pushed")
+	}
+	if why := s.shipRewrite(p, "api/model", wt, rewrite{Base: base, Lease: lease}, 8); why != "" {
+		t.Fatalf("a good one: %q", why)
+	}
+	if apGit(t, origin, "rev-parse", "api/model") != apGit(t, wt, "rev-parse", "HEAD") {
+		t.Fatal("not pushed")
+	}
+}
+
+// A pull request already conflicting when the server first sees it is
+// left to the person, and auto_resolve 0 leaves every one.
+func TestAutopilotResolveOnlyWhatItWatched(t *testing.T) {
+	a := loadAutopilot(t.TempDir())
+	a.set(proto.AutopilotPolicy{AutoResolve: 2})
+	info := apInfo("p", map[string]string{"x": "pass"})
+	info.Branches[0].PR.Conflicting = true
+	a.observe(info)
+	if at := a.saved.Conflicted[branchKey("p", "x")]; at != conflictUnwatched {
+		t.Fatalf("first sight: %q", at)
+	}
+	a.observe(info)
+	if at := a.saved.Conflicted[branchKey("p", "x")]; at != conflictUnwatched {
+		t.Fatalf("still conflicting: %q", at)
+	}
+	info.Branches[0].PR.Conflicting = false
+	a.observe(info)
+	if _, ok := a.saved.Conflicted[branchKey("p", "x")]; ok {
+		t.Fatal("resolved and still minded")
+	}
+	info.Branches[0].PR.Conflicting = true
+	a.observe(info)
+	if at, ok := a.saved.Conflicted[branchKey("p", "x")]; !ok || at != "" {
+		t.Fatalf("a turn to conflicting: %q %v", at, ok)
+	}
+	if !strings.Contains(resolvePrompt("origin/main", []string{"a.go"}, "abc main did it", "go test ./..."), "run `go test ./...`") {
+		t.Fatal("the prompt does not ask for the check")
 	}
 }

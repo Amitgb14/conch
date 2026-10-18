@@ -129,6 +129,11 @@ func (s *settings) gitItems(m *Model) []settingItem {
 			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
 		}},
 		settingItem{label: styleMuted.Render("  it waits for the checks to turn green, and for the branch's own check where the project has one")},
+		settingItem{label: "A conflict with the base is resolved", detail: autoResolveText(m.cfg.Verify.AutoResolve), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.AutoResolve = (m.cfg.Verify.AutoResolve + 1) % 4
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+		}},
+		settingItem{label: styleMuted.Render("  rebased onto the base; a real conflict goes to the agent, and nothing is pushed that loses either side")},
 		settingItem{label: styleMuted.Render("  that one merges the pull request on GitHub, the way the repository allows — How a merge lands is conch's own")},
 		settingItem{label: styleMuted.Render("  " + autopilotWhere(m))},
 	)
@@ -473,6 +478,14 @@ func autoPRText(on bool) string {
 		return "off · p in a branch's menu opens one"
 	}
 	return "on · pushed and opened once it's committed and checked"
+}
+
+// autoResolveText says what auto_resolve does.
+func autoResolveText(n int) string {
+	if n <= 0 {
+		return "off · rebase it yourself"
+	}
+	return fmt.Sprintf("the agent asked up to %s, then it's yours", count(n, "time"))
 }
 
 // autoMergeText says what auto_merge does, and what it still will not

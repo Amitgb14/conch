@@ -47,6 +47,7 @@ type autopilot struct {
 	// unshipped what last kept one from it, said once.
 	shipping  map[string]bool
 	unshipped map[string]string
+	resolving map[string]bool // conflicts being worked on now
 	// lastCheck is the terminal of each branch's last check, closed when
 	// the next one starts.
 	lastCheck map[string]string
@@ -76,11 +77,20 @@ type autopilotFile struct {
 	// to commit what it left uncommitted, so it is asked once, not at
 	// every finish.
 	Asked map[string]string `json:"asked,omitempty"`
+	// Conflicted is the open pull requests that conflict with their base,
+	// each with the commit the server last acted at ("" for not yet), and
+	// Resolves how many times its agent has been asked to resolve one.
+	Conflicted map[string]string `json:"conflicted,omitempty"`
+	Resolves   map[string]int    `json:"resolves,omitempty"`
+	// Rewrites is branches rebased onto their base, by the server or by
+	// the agent it asked, that must replace what was pushed — checked
+	// first (autopilot_resolve.go).
+	Rewrites map[string]rewrite `json:"rewrites,omitempty"`
 }
 
 func loadAutopilot(configDir string) *autopilot {
 	a := &autopilot{file: filepath.Join(configDir, "autopilot.json"), merging: map[string]bool{},
-		shipping: map[string]bool{}, unshipped: map[string]string{}, lastCheck: map[string]string{}}
+		shipping: map[string]bool{}, unshipped: map[string]string{}, lastCheck: map[string]string{}, resolving: map[string]bool{}}
 	raw, err := os.ReadFile(a.file)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("autopilot: %v", err)
@@ -116,6 +126,15 @@ func loadAutopilot(configDir string) *autopilot {
 	if a.saved.Asked == nil {
 		a.saved.Asked = map[string]string{}
 	}
+	if a.saved.Conflicted == nil {
+		a.saved.Conflicted = map[string]string{}
+	}
+	if a.saved.Resolves == nil {
+		a.saved.Resolves = map[string]int{}
+	}
+	if a.saved.Rewrites == nil {
+		a.saved.Rewrites = map[string]rewrite{}
+	}
 	return a
 }
 
@@ -125,6 +144,7 @@ const autoFixMax = 10
 
 func cleanPolicy(p proto.AutopilotPolicy) proto.AutopilotPolicy {
 	p.AutoFix = max(0, min(p.AutoFix, autoFixMax))
+	p.AutoResolve = max(0, min(p.AutoResolve, autoFixMax))
 	checks := map[string]string{}
 	for id, cmd := range p.Checks {
 		if cmd = strings.TrimSpace(cmd); id != "" && cmd != "" {
@@ -203,6 +223,12 @@ func (a *autopilot) state(headOf func(key string) string) proto.AutopilotState {
 			at(key).Unshipped = why
 		}
 	}
+	for key := range a.saved.Conflicted {
+		at(key).Conflicting = true
+	}
+	for key, n := range a.saved.Resolves {
+		at(key).Resolves = n
+	}
 	out := proto.AutopilotState{Policy: a.saved.Policy}
 	for _, b := range byKey {
 		out.Branches = append(out.Branches, *b)
@@ -252,11 +278,30 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 		case checks == "fail" && !first && was != "fail":
 			red = append(red, b.Name)
 		}
+		// A conflict is minded from the turn it was seen, like the rest.
+		_, known := a.saved.Conflicted[key]
+		switch conflicting := b.PR != nil && b.PR.State == "OPEN" && b.PR.Conflicting; {
+		case conflicting && !known && !first:
+			a.saved.Conflicted[key] = ""
+		case conflicting && first:
+			a.saved.Conflicted[key] = conflictUnwatched
+		case !conflicting:
+			delete(a.saved.Conflicted, key)
+			delete(a.saved.Resolves, key)
+		}
 	}
 	for key := range a.saved.Checks {
 		if strings.HasPrefix(key, prefix) {
 			if _, ok := now[key]; !ok {
 				delete(a.saved.Checks, key)
+			}
+		}
+	}
+	for key := range a.saved.Conflicted {
+		if strings.HasPrefix(key, prefix) {
+			if _, ok := now[key]; !ok {
+				delete(a.saved.Conflicted, key)
+				delete(a.saved.Resolves, key)
 			}
 		}
 	}
@@ -284,7 +329,7 @@ func (a *autopilot) forget(projectID string) {
 	defer a.mu.Unlock()
 	delete(a.saved.Seen, projectID)
 	prefix := projectID + "\x00"
-	for _, m := range []map[string]string{a.saved.Checks, a.saved.Waiting, a.saved.Failed, a.saved.Passed, a.saved.Asked} {
+	for _, m := range []map[string]string{a.saved.Checks, a.saved.Waiting, a.saved.Failed, a.saved.Passed, a.saved.Asked, a.saved.Conflicted} {
 		for key := range m {
 			if strings.HasPrefix(key, prefix) {
 				delete(m, key)
@@ -299,6 +344,16 @@ func (a *autopilot) forget(projectID string) {
 	for pane, key := range a.saved.CheckPanes {
 		if strings.HasPrefix(key, prefix) {
 			delete(a.saved.CheckPanes, pane)
+		}
+	}
+	for key := range a.saved.Resolves {
+		if strings.HasPrefix(key, prefix) {
+			delete(a.saved.Resolves, key)
+		}
+	}
+	for key := range a.saved.Rewrites {
+		if strings.HasPrefix(key, prefix) {
+			delete(a.saved.Rewrites, key)
 		}
 	}
 	for key := range a.unshipped {
@@ -373,6 +428,7 @@ func (s *Server) runAutopilot(quit <-chan struct{}) {
 			return
 		case <-t.C:
 			s.autopilotMerges()
+			go s.autopilotResolves() // a fetch can take a while; merges must not wait for it
 		}
 	}
 }
@@ -623,6 +679,9 @@ func (s *Server) mergeHold(info proto.ProjectInfo, branch string, pr proto.PRInf
 		base := info.Base
 		if base == "" {
 			base = "its base"
+		}
+		if s.autopilot.policy().AutoResolve > 0 {
+			return fmt.Sprintf("#%d conflicts with %s; conch is bringing it up to date (auto_resolve), and it merges once it is green again", pr.Number, base)
 		}
 		return fmt.Sprintf("#%d conflicts with %s; rebase it and it merges once it is green again", pr.Number, base)
 	case checkFailed:

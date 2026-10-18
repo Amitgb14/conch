@@ -196,6 +196,11 @@ type VerifyCfg struct {
 	// pushes to the one already open, which is how an agent's fix for red
 	// CI reaches CI. Off by default: it publishes the agent's work.
 	AutoPR bool `toml:"auto_pr,omitempty"`
+	// AutoResolve is how many times in a row a pull request that conflicts
+	// with its base is rebased onto it and, when that stops on a conflict,
+	// handed to the branch's agent to resolve. 0 (the default) leaves
+	// conflicts to you.
+	AutoResolve int `toml:"auto_resolve,omitempty"`
 	// Reviewer is the agent asked to review a branch when its agent
 	// finishes — after the check passes, where there is one — reading the
 	// diff and reporting rather than editing: "codex" to have Codex read

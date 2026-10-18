@@ -21,6 +21,11 @@ type AutopilotPolicy struct {
 	// passes, where the project has one — and opens a pull request for
 	// it, or pushes the new commits to the one already open.
 	AutoPR bool `json:"auto_pr,omitempty"`
+	// AutoResolve is how many times in a row a pull request that
+	// conflicts with its base goes back to the branch's agent to resolve,
+	// once the server's own rebase onto the base has stopped on the
+	// conflict. 0 leaves conflicts alone.
+	AutoResolve int `json:"auto_resolve,omitempty"`
 	// Checks is each project's own check, by project ID: what the server
 	// runs in a branch's worktree when its agent finishes.
 	Checks map[string]string `json:"checks,omitempty"`
@@ -45,6 +50,10 @@ type AutopilotBranch struct {
 	// Unshipped is what keeps a finished branch from being pushed or
 	// given a pull request (auto_pr).
 	Unshipped string `json:"unshipped,omitempty"`
+	// Conflicting is a pull request that conflicts with its base, and
+	// Resolves how many times its agent has been asked to resolve it.
+	Conflicting bool `json:"conflicting,omitempty"`
+	Resolves    int  `json:"resolves,omitempty"`
 }
 
 // AutopilotState answers autopilot.get and autopilot.set.

@@ -36,12 +36,12 @@ func TestAutopilotServerTakesOver(t *testing.T) {
 // Settings changes it; an older server is left to the TUI.
 func TestAutopilotPolicyIsHandedOver(t *testing.T) {
 	m, mach, peer := fixModel(t, proto.CapAutopilot)
-	m.cfg.Verify.AutoFix, m.cfg.Verify.AutoMerge, m.cfg.Verify.AutoPR = 2, true, true
+	m.cfg.Verify.AutoFix, m.cfg.Verify.AutoMerge, m.cfg.Verify.AutoPR, m.cfg.Verify.AutoResolve = 2, true, true, 1
 	m.cfg.Verify.Commands["r2"] = "  " // no command is no check
 	runBatch(m.pushAutopilot(mach.id))
 	var pol proto.AutopilotPolicy
 	sentParams(t, peer, proto.MethodAutopilotSet, &pol)
-	if !reflect.DeepEqual(pol, proto.AutopilotPolicy{AutoFix: 2, AutoMerge: true, AutoPR: true, Checks: map[string]string{"r1": "go test ./..."}}) {
+	if !reflect.DeepEqual(pol, proto.AutopilotPolicy{AutoFix: 2, AutoMerge: true, AutoPR: true, AutoResolve: 1, Checks: map[string]string{"r1": "go test ./..."}}) {
 		t.Fatalf("policy %+v", pol)
 	}
 
@@ -210,5 +210,26 @@ func TestAutopilotPRSetting(t *testing.T) {
 	sentParams(t, peer, proto.MethodAutopilotSet, &pol)
 	if !pol.AutoPR || !m.cfg.Verify.AutoPR {
 		t.Fatalf("toggled: %+v", pol)
+	}
+}
+
+func TestAutopilotResolveSetting(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	m, _, peer := fixModel(t, proto.CapAutopilot)
+	s := &settings{tab: gitTab}
+	for i := 1; i <= 4; i++ {
+		for _, it := range s.items(m) {
+			if it.label == "A conflict with the base is resolved" {
+				runBatch(it.run(m))
+			}
+		}
+		pol := proto.AutopilotPolicy{}
+		sentParams(t, peer, proto.MethodAutopilotSet, &pol)
+		if want := i % 4; pol.AutoResolve != want || m.cfg.Verify.AutoResolve != want {
+			t.Fatalf("press %d: %d", i, pol.AutoResolve)
+		}
+	}
+	if !strings.HasPrefix(autoResolveText(0), "off") || !strings.Contains(autoResolveText(2), "2 times") {
+		t.Fatalf("%q %q", autoResolveText(0), autoResolveText(2))
 	}
 }

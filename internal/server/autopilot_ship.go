@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -143,11 +145,16 @@ func (s *Server) autopilotExited(info proto.PaneInfo) {
 // with auto_pr, or says once what keeps it back.
 func (s *Server) autopilotShip(projectID, branch string) {
 	a := s.autopilot
-	if a == nil || !a.policy().AutoPR {
+	if a == nil {
 		return
 	}
 	key := branchKey(projectID, branch)
 	a.mu.Lock()
+	_, rewritten := a.saved.Rewrites[key]
+	if !a.saved.Policy.AutoPR && !rewritten {
+		a.mu.Unlock()
+		return
+	}
 	if a.shipping[key] {
 		a.mu.Unlock()
 		return
@@ -201,6 +208,9 @@ func (s *Server) ship(projectID, branch string) string {
 	key := branchKey(projectID, branch)
 	a := s.autopilot
 	pol := a.policy()
+	if s.midway(wt.Path) {
+		return "a rebase or merge is under way there; once it is finished it goes out"
+	}
 	if st := wt.Status; st != nil && st.Staged+st.Unstaged+st.Untracked > 0 {
 		return s.askToCommit(projectID, branch, wt.Head)
 	}
@@ -211,6 +221,22 @@ func (s *Server) ship(projectID, branch string) string {
 		if passed == "" || passed != wt.Head {
 			return "" // its check runs when its agent finishes, and this is called again once it passes
 		}
+	}
+	a.mu.Lock()
+	rw, rewritten := a.saved.Rewrites[key]
+	a.mu.Unlock()
+	if rewritten {
+		if b.PR == nil || b.PR.State != "OPEN" {
+			a.mu.Lock()
+			delete(a.saved.Rewrites, key) // nothing open to replace it under
+			a.saveLocked()
+			a.mu.Unlock()
+			return ""
+		}
+		return s.shipRewrite(p, branch, wt.Path, rw, b.PR.Number)
+	}
+	if !pol.AutoPR {
+		return ""
 	}
 	if b.BaseAhead == 0 {
 		return "" // nothing of its own to send
@@ -270,4 +296,12 @@ func (s *Server) askToCommit(projectID, branch, head string) string {
 		return "it has uncommitted changes, and asking " + agent.DisplayName() + " to commit them failed: " + perr.Message
 	}
 	return "it has uncommitted changes; asked " + agent.DisplayName() + " to commit them"
+}
+
+// midway says whether a rebase, merge or the like is under way in dir —
+// whose conflicted files are not work left uncommitted.
+func (s *Server) midway(dir string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	return gitx.InProgress(ctx, dir) != ""
 }

@@ -23,7 +23,7 @@ func (m Model) autopilotOn(machine string) bool {
 
 // autopilotPolicy is the [verify] settings the servers act on.
 func (m Model) autopilotPolicy() proto.AutopilotPolicy {
-	pol := proto.AutopilotPolicy{AutoFix: m.cfg.Verify.AutoFix, AutoMerge: m.cfg.Verify.AutoMerge, AutoPR: m.cfg.Verify.AutoPR}
+	pol := proto.AutopilotPolicy{AutoFix: m.cfg.Verify.AutoFix, AutoMerge: m.cfg.Verify.AutoMerge, AutoPR: m.cfg.Verify.AutoPR, AutoResolve: m.cfg.Verify.AutoResolve}
 	for id, cmd := range m.cfg.Verify.Commands {
 		if cmd = strings.TrimSpace(cmd); cmd != "" {
 			if pol.Checks == nil {
