@@ -794,7 +794,10 @@ func TestSettingsSandboxRestore(t *testing.T) {
 	s.open("daytona")
 	item := func() settingItem {
 		t.Helper()
-		for _, it := range s.items(m) {
+		// Before the box wraps it: this is about what the setting says,
+		// and its detail is too long to sit beside its label (see
+		// TestSettingsWrapsWhatDoesNotFit for where the rest goes).
+		for _, it := range s.tabItems(m) {
 			if ansi.Strip(it.label) == "Bring back what was running" {
 				return it
 			}
@@ -885,5 +888,94 @@ func TestSettingsFinishAndNotifyCommand(t *testing.T) {
 	}
 	if got := notifyCommandText(strings.Repeat("x", 80)); ansi.StringWidth(got) > 40 {
 		t.Fatalf("long command shown as %q", got)
+	}
+}
+
+// A setting is explained in prose, and prose does not stop at 86
+// columns: what does not fit beside a label goes on to lines of its
+// own, rather than being cut off mid-sentence.
+func TestSettingsWrapsWhatDoesNotFit(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	m.cfg.Verify.AutoMerge = true // its detail is the longest one here
+	s := &settings{}
+	s.setTab(gitTab)
+	s.render(*m)
+	var text []string
+	for _, line := range s.render(*m).lines {
+		text = append(text, ansi.Strip(line))
+	}
+	page := strings.Join(text, "\n")
+	for _, want := range []string{
+		"it waits for the checks to turn green, and for the branch's own check where the",
+		"project has one",
+		"on · on GitHub; not a draft, a conflict, a review or a failed check",
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("%q is not on the page:\n%s", want, page)
+		}
+	}
+	// Nothing was given up on: no line ends in an ellipsis, and none is
+	// wider than the box.
+	w := settingsBoxWidth(m.width)
+	for i, line := range text {
+		if strings.HasSuffix(strings.TrimRight(line, " "), "…") {
+			t.Fatalf("line %d is cut off: %q", i, line)
+		}
+		if ansi.StringWidth(line) > w+2 {
+			t.Fatalf("line %d is %d wide in a %d box: %q", i, ansi.StringWidth(line), w+2, line)
+		}
+	}
+}
+
+// Wrapping keeps the list usable: a continuation is not a setting, so
+// the arrows and a click pass over it.
+func TestSettingsWrapContinuationsAreNotChoices(t *testing.T) {
+	long := strings.Repeat("a sentence that will not fit ", 5)
+	items := settingsWrap([]settingItem{
+		{label: "Short", detail: "fine", run: func(*Model) tea.Cmd { return nil }},
+		{label: styleMuted.Render("  " + long)},
+		{label: "A setting", detail: long, run: func(*Model) tea.Cmd { return nil }},
+	}, 40)
+	if len(items) < 8 {
+		t.Fatalf("nothing wrapped: %d items", len(items))
+	}
+	runs := 0
+	for i, it := range items {
+		if it.run != nil {
+			runs++
+		}
+		if w := ansi.StringWidth(ansi.Strip(it.label)) + 3; w > 40 {
+			t.Fatalf("item %d is %d wide: %q", i, w, it.label)
+		}
+	}
+	if runs != 2 {
+		t.Fatalf("a continuation can be chosen: %d of %d items run", runs, len(items))
+	}
+	if ansi.Strip(items[0].label) != "Short" || items[0].detail != "fine" {
+		t.Fatalf("a line that fits was changed: %+v", items[0])
+	}
+	// The one that did not fit keeps its label and loses only the
+	// detail's place beside it.
+	for _, it := range items {
+		if ansi.Strip(it.label) == "A setting" && it.detail != "" {
+			t.Fatalf("the detail stayed beside the label: %q", it.detail)
+		}
+	}
+}
+
+// Wrapping holds at a width nothing fits in.
+func TestSettingsWrapTinyWidth(t *testing.T) {
+	for _, w := range []int{1, 2, 3, 4, 10} {
+		items := settingsWrap([]settingItem{
+			{},
+			{header: true, label: "Merging", detail: "m → Merge on a branch"},
+			{label: "How a merge lands", detail: "squash · one commit on the base"},
+		}, w)
+		for i, it := range items {
+			if strings.Contains(ansi.Strip(it.label), "\n") {
+				t.Fatalf("w=%d item %d has a newline in it: %q", w, i, it.label)
+			}
+		}
 	}
 }

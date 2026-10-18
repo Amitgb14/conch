@@ -88,7 +88,13 @@ func saveConfig(cfg config.Config) tea.Cmd {
 	}
 }
 
+// items is what the open tab shows, wrapped to the box: see
+// settingsWrap for what a line too long for it does.
 func (s *settings) items(m *Model) []settingItem {
+	return settingsWrap(s.tabItems(m), settingsBoxWidth(m.width))
+}
+
+func (s *settings) tabItems(m *Model) []settingItem {
 	switch s.tab {
 	case 0:
 		return s.themeItems(m)
@@ -1385,10 +1391,76 @@ func (m Model) settingsListHeight() int { return clamp(m.height-8, 3, 24) }
 // bar is the widest thing on the page, so it sets this.
 const settingsWidth = 86
 
+// settingsBoxWidth is how wide the list's lines are. Wide enough for the
+// tab bar to fit on one line, which is what the number keys are for: a
+// tab truncated off the end cannot be found.
+func settingsBoxWidth(width int) int { return clamp(settingsWidth, 40, max(width-4, 40)) }
+
+// settingsWrap gives every item a line it fits on. A label too long for
+// the box, or a detail that will not sit beside its label, used to lose
+// its end (or its start) to spread's ellipsis, which is how a setting
+// came to be explained by half a sentence; now the rest goes on to
+// continuation lines of its own. A continuation has no run, so the
+// selection and the mouse step over it exactly as they already step
+// over headings and blank lines.
+func settingsWrap(items []settingItem, w int) []settingItem {
+	out := make([]settingItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, wrapSetting(it, w)...)
+	}
+	return out
+}
+
+// wrapSetting is settingsWrap for one item: the item itself first, with
+// as much as fits on its line, then what did not.
+func wrapSetting(it settingItem, w int) []settingItem {
+	indent := 3 // the width of itemLine's prefix
+	if it.header {
+		indent = 1
+	}
+	label, styled := ansi.Strip(it.label), false
+	if label != it.label {
+		// Prose conch wrote muted, as the notes under a setting are:
+		// measure and re-render the text rather than wrap the escapes.
+		styled = true
+	}
+	detail := ansi.Strip(it.detail)
+	room := max(w-indent, 1)
+	wide := ansi.StringWidth(label)
+	if detail != "" {
+		wide += 1 + ansi.StringWidth(detail)
+	}
+	if wide <= room {
+		return []settingItem{it}
+	}
+	dress := func(text string) string {
+		if styled {
+			return styleMuted.Render(text)
+		}
+		return text
+	}
+	// Continuation lines keep the label's own indentation, and a detail
+	// moved off its label is indented past it so it still reads as its.
+	body := strings.TrimLeft(label, " ")
+	hang := label[:len(label)-len(body)]
+	parts := wrap(body, max(room-len(hang), 1))
+	first := it
+	first.label, first.detail = dress(hang+parts[0]), ""
+	out := []settingItem{first}
+	for _, p := range parts[1:] {
+		out = append(out, settingItem{label: dress(hang + p)})
+	}
+	for _, p := range wrap(detail, max(room-len(hang)-2, 1)) {
+		if p == "" {
+			continue
+		}
+		out = append(out, settingItem{label: styleMuted.Render(hang + "  " + p)})
+	}
+	return out
+}
+
 func (s *settings) render(m Model) box {
-	// Wide enough for the tab bar to fit on one line, which is what the
-	// number keys are for: a tab truncated off the end cannot be found.
-	w := clamp(settingsWidth, 40, max(m.width-4, 40))
+	w := settingsBoxWidth(m.width)
 	items := s.items(&m)
 	if s.sel >= len(items) || items[s.sel].run == nil {
 		s.move(items, 0)
