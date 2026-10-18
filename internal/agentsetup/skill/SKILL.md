@@ -80,7 +80,7 @@ To wait without prompting: `conch wait -state done,waiting -timeout 30m reviewer
   worktree (the path `conch task` printed), then read that file.
 - `conch read reviewer` prints its visible screen — enough for a short
   answer or to see what it is asking.
-- `conch status` lists every pane with its agent and state.
+- `conch status` lists every pane with its agent and state, and the host of a terminal on ssh.
 
 ## Leave review comments
 

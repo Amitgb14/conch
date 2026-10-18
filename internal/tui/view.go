@@ -1274,6 +1274,27 @@ func spread(left, right string, w int) string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
+// spreadHint puts a view's key hints to the right of its title, as spread
+// does, but one that doesn't fit leaves out whole hints rather than
+// cutting one in half — "…load · D download" told nobody what U does.
+// The first hints stay, being what the view is for, and so does the last,
+// which is usually how to leave; the ones between go from the end.
+func spreadHint(title, hint string, w int) string {
+	room := max(w-min(ansi.StringWidth(title), w*2/3)-1, 0)
+	parts := strings.Split(hint, " · ")
+	fits := func() bool { return ansi.StringWidth(strings.Join(parts, " · ")) <= room }
+	for len(parts) > 2 && !fits() {
+		parts = append(parts[:len(parts)-2:len(parts)-2], parts[len(parts)-1])
+	}
+	if !fits() {
+		parts = parts[:1]
+	}
+	if !fits() {
+		return spread(title, "", w)
+	}
+	return spread(title, styleMuted.Render(strings.Join(parts, " · ")), w)
+}
+
 // centered places content as a left-aligned block in the middle of a w×h area.
 func centered(w, h int, content ...string) []string {
 	lines := make([]string, h)
