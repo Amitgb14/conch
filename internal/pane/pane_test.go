@@ -204,19 +204,20 @@ func startDrawer(t *testing.T) *Pane {
 	p, err := Start(Options{
 		ID:   "t2",
 		Cols: 60, Rows: 10,
-		Command: []string{"/usr/bin/python3", "-c", `
-import sys, signal, time, shutil
-# Draw from the loop, not the handler: writing inside a signal handler can
-# re-enter a write already in progress.
-pending = [True]
-signal.signal(signal.SIGWINCH, lambda *a: pending.__setitem__(0, True))
-while True:
-    if pending[0]:
-        pending[0] = False
-        w = shutil.get_terminal_size().columns
-        sys.stdout.write("\033[H\033[2Jdrawn at %d\n" % w)
-        sys.stdout.flush()
-    time.sleep(0.02)
+		// /bin/sh rather than python3, which on macOS is a stub that can
+		// take longer than waitScreen allows to start on a fresh CI
+		// runner: the screen stayed blank there once. The trap only sets a
+		// flag, and the loop draws, as a handler must not write itself.
+		Command: []string{"/bin/sh", "-c", `
+pending=1
+trap 'pending=1' WINCH
+while :; do
+  if [ "$pending" = 1 ]; then
+    pending=0
+    printf '\033[H\033[2Jdrawn at %s\n' "$(stty size | cut -d' ' -f2)"
+  fi
+  sleep 0.02
+done
 `},
 	})
 	if err != nil {
