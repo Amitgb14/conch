@@ -5,6 +5,7 @@ package update
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,16 +18,33 @@ import (
 	"github.com/Amitgb14/conch/internal/remote"
 )
 
-// Executable is the running conch's path, symlinks resolved.
+// Executable is the running conch's path, symlinks resolved — except a
+// Homebrew install's, which is its opt link (buildinfo.Stable): the file
+// to watch for a new build, and to restart onto, is wherever brew puts the
+// next version.
 func Executable() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
 	}
+	if stable := buildinfo.Stable(exe); stable != exe {
+		return stable, nil
+	}
 	if real, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = real
 	}
 	return exe, nil
+}
+
+// ErrHomebrew is an update refused because Homebrew installed conch.
+var ErrHomebrew = errors.New("conch was installed with Homebrew: update it with brew upgrade conch")
+
+// Managed is ErrHomebrew for a conch that Homebrew owns, else nil.
+func Managed(exe string) error {
+	if buildinfo.Homebrew(exe) {
+		return ErrHomebrew
+	}
+	return nil
 }
 
 // Compare orders versions like "0.2.0" and "0.10.1-rc.1": -1, 0 or 1, as
@@ -139,6 +157,9 @@ func NewerRelease(ctx context.Context) (*Release, error) {
 // to it later needs no download. version may be older than the running
 // one — going backwards is the same swap.
 func InstallRelease(ctx context.Context, version, exe string) error {
+	if err := Managed(exe); err != nil {
+		return err
+	}
 	version = strings.TrimPrefix(version, "v")
 	bin, err := binary(ctx, version)
 	if err != nil {

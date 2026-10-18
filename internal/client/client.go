@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -376,7 +377,7 @@ func EnsureServer(sockPath, logPath string) error {
 		}
 		_ = os.Remove(sockPath)
 	}
-	exe, err := os.Executable()
+	exe, err := buildinfo.Executable()
 	if err != nil {
 		return err
 	}
