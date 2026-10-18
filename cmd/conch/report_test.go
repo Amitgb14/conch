@@ -26,7 +26,7 @@ func TestA4Bug(t *testing.T) {
 		}
 	})
 	for _, want := range []string{"conch " + proto.Version, "server: not running, or not reached",
-		"terminal: iTerm.app, xterm-256color", "conch bug -open"} {
+		"terminal: iTerm.app, xterm-256color", "conch bug -open", "conch doctor checks"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the report does not say %q:\n%s", want, out)
 		}

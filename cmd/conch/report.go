@@ -44,6 +44,7 @@ func runBug(args []string) error {
 	if !*open {
 		if !*showLog {
 			fmt.Println("\nconch bug -open files an issue with this in it; -log says where the server's log is.")
+			fmt.Println("conch doctor checks what conch needs, and often has the fix.")
 		}
 		return nil
 	}
