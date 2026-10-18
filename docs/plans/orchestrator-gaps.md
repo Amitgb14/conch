@@ -29,6 +29,7 @@ below in places, and those places are noted.
 | 3.2 | Sandboxed tasks | done | `conch task -sandbox PROVIDER`. MicroVM plan still deferred |
 | 3.3 | Scheduled tasks | done | `conch task -at / -every`, on the same server schedule |
 | 3.4 | Notify command | done | `[notify] command`, also in Settings |
+| L | Launch | partly | 2026-10-16: Homebrew — `scripts/brew-formula.sh` and a release-workflow step that commits the formula to the tap `Amitgb14/homebrew-conch` (needs the repository and a `HOMEBREW_TAP_TOKEN` secret); a Homebrew install updates with `brew upgrade` and conch follows it through the opt link (hooks, reloads, the TUI restart). install.sh prints the PATH line for the person's shell. Show HN and the demo are still to do. E2E row 9.137 |
 
 ## The short version
 

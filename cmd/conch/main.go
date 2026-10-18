@@ -68,7 +68,7 @@ Usage:
   conch server                  run the server in the foreground
   conch server stop             stop the server and every pane it owns
   conch server reload           run a new conch build without stopping panes
-  conch status                  show server and pane status
+  conch status                  show server and pane status, with the host a terminal is on with ssh
   conch new [-cwd DIR] [-name N] -- CMD [ARGS...]
                                 start a pane (with -m, default: that machine's home)
   conch send ID TEXT            type TEXT into a pane (-keys to send key names)
@@ -164,10 +164,10 @@ Usage:
   conch sandbox -provider P snapshot [-name N] ID | snapshots [-rm NAME]
                                 keep a sandbox to make others from, or list what is kept
   conch -m MACHINE COMMAND      run a command against a remote machine
-  conch -m MACHINE upload [-to DIR] [-f] PATH...
+  conch -m MACHINE upload [-to DIR [-p]] [-f] PATH...
                                 copy files or folders to a machine — into DIR there (~ is its
-                                home), else its uploads folder — and print where each landed;
-                                a name already taken is numbered ("ca 2.pem") unless -f
+                                home; -p makes it if missing), else its uploads folder — and
+                                print where each landed; a name taken is numbered unless -f
   conch -m MACHINE download [-to DIR] [-f] PATH...
                                 copy files or folders from a machine into DIR here (default: the
                                 current folder) and print where each landed; -f as for upload
@@ -516,7 +516,7 @@ func runStatus() error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tNAME\tSTATE\tAGENT\tSIZE\tCWD\tCOMMAND")
+	fmt.Fprintln(tw, "ID\tNAME\tSTATE\tAGENT\tSSH\tSIZE\tCWD\tCOMMAND")
 	for _, p := range list.Panes {
 		state := p.State
 		if p.State == proto.PaneExited {
@@ -526,12 +526,18 @@ func runStatus() error {
 		if p.Agent != nil {
 			agent = p.Agent.Name + ":" + p.Agent.State
 		}
+		// Where a terminal is logged in with ssh now — what -ssh on upload
+		// and download reaches — rather than what it was started with.
+		ssh := "-"
+		if p.SSH != "" {
+			ssh = p.SSH
+		}
 		command := strings.Join(strings.Fields(strings.Join(p.Command, " ")), " ") // scripts span lines
 		if r := []rune(command); len(r) > 60 {
 			command = string(r[:59]) + "…"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%dx%d\t%s\t%s\n",
-			p.ID, p.Name, state, agent, p.Cols, p.Rows, p.Cwd, command)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%dx%d\t%s\t%s\n",
+			p.ID, p.Name, state, agent, ssh, p.Cols, p.Rows, p.Cwd, command)
 	}
 	return tw.Flush()
 }
@@ -726,7 +732,7 @@ func offerUpgrade(c *client.Client) (*client.Client, error) {
 		if a := strings.ToLower(strings.TrimSpace(answer)); a == "n" || a == "no" {
 			return c, nil
 		}
-		exe, _ := os.Executable()
+		exe, _ := buildinfo.Executable()
 		return reloadServer(c, exe)
 	}
 	if running > 0 {

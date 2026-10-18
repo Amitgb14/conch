@@ -64,7 +64,7 @@ type reloadPane struct {
 // here and know how to take the panes over.
 func reloadBinary(path string) (string, *proto.Error) {
 	if path == "" {
-		exe, err := os.Executable()
+		exe, err := buildinfo.Executable()
 		if err != nil {
 			return "", proto.Errorf(proto.ErrInternal, "%v", err)
 		}
