@@ -33,6 +33,14 @@ type settings struct {
 	// every agent's every action.
 	page string
 
+	// wrapW is the width the list was last drawn at, and selLabel the
+	// setting the highlight was on there. The list is wrapped to the
+	// box, so a narrower window puts more lines before a setting and
+	// every index after it moves: without these, resizing left the
+	// highlight on whatever had taken the old index.
+	wrapW    int
+	selLabel string
+
 	shell    *proto.ShellThemes // this computer's prompt themes
 	shellErr string
 }
@@ -1418,50 +1426,101 @@ func wrapSetting(it settingItem, w int) []settingItem {
 	if it.header {
 		indent = 1
 	}
-	label, styled := ansi.Strip(it.label), false
-	if label != it.label {
-		// Prose conch wrote muted, as the notes under a setting are:
-		// measure and re-render the text rather than wrap the escapes.
-		styled = true
+	wide := ansi.StringWidth(it.label)
+	if it.detail != "" {
+		wide += 1 + ansi.StringWidth(it.detail)
 	}
-	detail := ansi.Strip(it.detail)
-	room := max(w-indent, 1)
-	wide := ansi.StringWidth(label)
-	if detail != "" {
-		wide += 1 + ansi.StringWidth(detail)
-	}
-	if wide <= room {
+	if indent+wide <= w {
 		return []settingItem{it}
 	}
-	dress := func(text string) string {
-		if styled {
-			return styleMuted.Render(text)
-		}
-		return text
-	}
-	// Continuation lines keep the label's own indentation, and a detail
-	// moved off its label is indented past it so it still reads as its.
-	body := strings.TrimLeft(label, " ")
-	hang := label[:len(label)-len(body)]
-	parts := wrap(body, max(room-len(hang), 1))
+	// A continuation is an ordinary item however this one is drawn, so
+	// it gets itemLine's three-column prefix: measure against that, or a
+	// heading wraps two columns wider than there is room for and the
+	// ellipsis this is here to prevent comes back on its second line.
+	plain := ansi.Strip(it.label)
+	hang := plain[:len(plain)-len(strings.TrimLeft(plain, " "))]
+	room := max(w-3-len(hang), 1)
+	parts := wrapStyled(it.label, room)
 	first := it
-	first.label, first.detail = dress(hang+parts[0]), ""
+	first.label, first.detail = parts[0], ""
 	out := []settingItem{first}
 	for _, p := range parts[1:] {
-		out = append(out, settingItem{label: dress(hang + p)})
+		out = append(out, settingItem{label: hang + p})
 	}
-	for _, p := range wrap(detail, max(room-len(hang)-2, 1)) {
-		if p == "" {
+	// A detail that will not sit beside its label goes under it,
+	// indented past it so it still reads as its. One written in colours
+	// of its own keeps them — a prompt sample on the Theme tab is
+	// mostly colour, and all one grey would tell the themes apart no
+	// better than cutting it off did — and a plain one is muted, as it
+	// is beside a label.
+	for _, p := range wrapStyled(it.detail, max(room-2, 1)) {
+		if strings.TrimSpace(ansi.Strip(p)) == "" {
 			continue
 		}
-		out = append(out, settingItem{label: styleMuted.Render(hang + "  " + p)})
+		if ansi.Strip(p) == p {
+			p = styleMuted.Render(p)
+		}
+		out = append(out, settingItem{label: hang + "  " + p})
 	}
 	return out
+}
+
+// wrapStyled breaks text into lines of at most w cells, keeping the
+// colours it is written in. ansi.Wrap opens the sequence on the first
+// line and closes it on the last, which is right for one string and
+// wrong for lines about to become items of their own: the ones between
+// would draw plain, so an error in red turned grey from its second line
+// on. It also breaks a word nothing can fit — a URL, a path — rather
+// than hand back a line too long for the box.
+func wrapStyled(text string, w int) []string {
+	lines := strings.Split(ansi.Wrap(text, w, " -/"), "\n")
+	lead := styleLead(text)
+	if lead == "" {
+		return lines
+	}
+	for i, l := range lines {
+		if i > 0 {
+			l = lead + l
+		}
+		if !strings.HasSuffix(l, "\x1b[0m") {
+			l += "\x1b[0m"
+		}
+		lines[i] = l
+	}
+	return lines
+}
+
+// styleLead is the escape sequence a string opens with, which for
+// anything conch rendered in one style is that style. Indentation
+// comes first as often as not — a note is written "  "+Render(text)
+// as well as Render("  "+text) — so spaces are stepped over.
+func styleLead(s string) string {
+	i := len(s) - len(strings.TrimLeft(s, " "))
+	start := i
+	for strings.HasPrefix(s[i:], "\x1b[") {
+		end := strings.IndexByte(s[i:], 'm')
+		if end < 0 {
+			break
+		}
+		i += end + 1
+	}
+	return s[start:i]
 }
 
 func (s *settings) render(m Model) box {
 	w := settingsBoxWidth(m.width)
 	items := s.items(&m)
+	if w != s.wrapW {
+		if s.wrapW != 0 && s.selLabel != "" {
+			for i, it := range items {
+				if it.run != nil && ansi.Strip(it.label) == s.selLabel {
+					s.sel = i
+					break
+				}
+			}
+		}
+		s.wrapW = w
+	}
 	if s.sel >= len(items) || items[s.sel].run == nil {
 		s.move(items, 0)
 		if s.sel < len(items) && items[s.sel].run == nil {
@@ -1511,6 +1570,9 @@ func (s *settings) render(m Model) box {
 		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back to the providers"
 	case s.page != "":
 		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back"
+	}
+	if s.sel < len(items) {
+		s.selLabel = ansi.Strip(items[s.sel].label)
 	}
 	lines = append(lines, "", styleMuted.Render(hint),
 		styleMuted.Render(" saved to "+ansi.Truncate(config.Dir()+"/config.toml", w-10, "…")))
