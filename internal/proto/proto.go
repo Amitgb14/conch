@@ -174,6 +174,12 @@ const CapTaskAfter = "schedule.after.v1"
 // unresolved comments on the branch's pull request, read through gh.
 const CapReviewComments = "review.comments.v1"
 
+// CapSessionStar is session.star: a session kept as one to come back to,
+// marked in the Sessions view and listed before the rest. The mark is
+// conch's, kept beside the server's own state — an agent's saved
+// conversations are the agent's files, and conch does not write in them.
+const CapSessionStar = "session.star.v1"
+
 // CapView is view.state, view.get and view.show: what a TUI is showing —
 // its tabs, their splits and which pane has the keyboard — published by
 // the TUI and read back by anything else, and a request to show a set of
@@ -258,7 +264,9 @@ const (
 	MethodSessionShare   = "session.share"
 	MethodSessionExport  = "session.export"
 	MethodSessionDelete  = "session.delete"
-	MethodAgentLimits    = "agent.limits"
+	// MethodSessionStar keeps a session as one to come back to, or stops.
+	MethodSessionStar = "session.star"
+	MethodAgentLimits = "agent.limits"
 	// MethodAgentBroadcast types one message into several agents.
 	MethodAgentBroadcast = "agent.broadcast"
 	// MethodAgentPrompt submits a message to one agent, unless it is
@@ -1595,6 +1603,18 @@ type SessionInfo struct {
 	// OpenCode report a cost, Codex tokens only).
 	CostUSD float64 `json:"cost_usd,omitempty"`
 	Output  int     `json:"output,omitempty"`
+	// Starred is a session somebody kept, to find again among the
+	// hundreds a project collects. conch's own mark, not the agent's:
+	// their files are theirs (session.star.v1).
+	Starred bool `json:"starred,omitempty"`
+}
+
+// SessionStarParams marks a session as one to come back to, or stops.
+// Agent and ID name it, as every session reference does.
+type SessionStarParams struct {
+	Agent string `json:"agent"`
+	ID    string `json:"id"`
+	On    bool   `json:"on"`
 }
 
 // SessionSearchParams asks for the sessions of a project (or directory)

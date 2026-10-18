@@ -18,9 +18,10 @@ var chunkTimeout = time.Minute
 // order they were asked for, so progress counts only what has arrived
 // whole from the start.
 type pipe[T any] struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	queue  []chan piped[T]
+	ctx     context.Context
+	cancel  context.CancelFunc
+	queue   []chan piped[T]
+	timeout time.Duration
 }
 
 type piped[T any] struct {
@@ -30,7 +31,10 @@ type piped[T any] struct {
 
 func newPipe[T any]() *pipe[T] {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &pipe[T]{ctx: ctx, cancel: cancel}
+	// The timeout is read once, here: a call's goroutine reading the
+	// variable whenever it was scheduled raced a test that set it, while
+	// an earlier test's calls were still starting.
+	return &pipe[T]{ctx: ctx, cancel: cancel, timeout: chunkTimeout}
 }
 
 // busy is how many calls are in flight.
@@ -42,7 +46,7 @@ func (p *pipe[T]) send(call func(context.Context) (T, error)) {
 	ch := make(chan piped[T], 1)
 	p.queue = append(p.queue, ch)
 	go func() {
-		ctx, cancel := context.WithTimeout(p.ctx, chunkTimeout)
+		ctx, cancel := context.WithTimeout(p.ctx, p.timeout)
 		defer cancel()
 		v, err := call(ctx)
 		ch <- piped[T]{v, err}

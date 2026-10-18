@@ -23,6 +23,10 @@ type updateState struct {
 	exe       string
 	exeMod    time.Time
 	diskBuild string // build of the executable on disk, when it changed
+	// brew: Homebrew installed conch, so a release is brew's to install.
+	// exe is then its opt link, which `brew upgrade` moves to the new
+	// version: that shows up as a new build on disk, and u reloads onto it.
+	brew bool
 
 	release        *update.Release
 	releaseChecked time.Time
@@ -41,6 +45,9 @@ type updateState struct {
 	// the TUI it restarts into, leave them on their build.
 	skip map[string]bool
 }
+
+// brewHint says how a release reaches a conch Homebrew installed.
+const brewHint = "brew upgrade conch, then u reloads onto it (panes keep running)"
 
 const (
 	updateCheckEvery = 5 * time.Second
@@ -64,6 +71,7 @@ type (
 func newUpdateState() *updateState {
 	u := &updateState{}
 	u.exe, _ = update.Executable()
+	u.brew = update.Managed(u.exe) != nil
 	if st, err := os.Stat(u.exe); err == nil {
 		u.exeMod = st.ModTime()
 		// Rebuilt between this process starting and now: already newer.
@@ -130,7 +138,11 @@ func (m Model) pendingUpdates() []updateItem {
 	}
 	var items []updateItem
 	if u.release != nil {
-		items = append(items, updateItem{"Release", fmt.Sprintf("%s available (running %s)", u.release.Version, versionLabel()), ""})
+		detail := fmt.Sprintf("%s available (running %s)", u.release.Version, versionLabel())
+		if u.brew {
+			detail += " · brew upgrade conch"
+		}
+		items = append(items, updateItem{"Release", detail, ""})
 	}
 	if u.diskBuild != "" {
 		items = append(items, updateItem{"This TUI", "new build on disk " + u.diskBuild + " · restarts onto it", ""})
@@ -147,6 +159,12 @@ func (m Model) pendingUpdates() []updateItem {
 		}
 	}
 	return items
+}
+
+// brewOnly says whether the one thing to update is a release that only
+// Homebrew can install, so u has nothing to do yet.
+func (m Model) brewOnly(pending []updateItem) bool {
+	return m.upd != nil && m.upd.brew && m.upd.release != nil && len(pending) == 1
 }
 
 // remoteBehind reports whether a machine runs another build than the one
@@ -205,6 +223,10 @@ func (m *Model) startUpdate(skip map[string]bool) tea.Cmd {
 		m.setFlash("conch is up to date", false)
 		return nil
 	}
+	if m.brewOnly(pending) {
+		m.setFlash(brewHint, false)
+		return nil
+	}
 	if !slices.ContainsFunc(pending, func(it updateItem) bool { return it.machine == "" || !skip[it.machine] }) {
 		m.setFlash("nothing ticked to update", true)
 		return nil
@@ -219,6 +241,9 @@ func (m *Model) startUpdate(skip map[string]bool) tea.Cmd {
 		}
 	}
 	rel, exe := u.release, u.exe
+	if u.brew {
+		rel = nil // brew's to install; the rest goes ahead
+	}
 	var local = m.machines[0]
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -290,6 +315,12 @@ func (m *Model) handleUpdate(msg tea.Msg) (tea.Cmd, bool) {
 		m.upd.release = msg.rel
 		// [update] auto = true keeps this computer in step with upstream on
 		// its own: install the release the check found, as u would.
+		if msg.rel != nil && m.upd.brew {
+			if m.cfg.Update.Auto {
+				m.setFlash("conch "+msg.rel.Version+" released · "+brewHint, false)
+			}
+			return nil, true
+		}
 		if msg.rel != nil && m.cfg.Update.Auto && !m.upd.running {
 			m.setFlash("conch "+msg.rel.Version+" released: updating…", false)
 			return m.startUpdate(nil), true

@@ -794,7 +794,10 @@ func TestSettingsSandboxRestore(t *testing.T) {
 	s.open("daytona")
 	item := func() settingItem {
 		t.Helper()
-		for _, it := range s.items(m) {
+		// Before the box wraps it: this is about what the setting says,
+		// and its detail is too long to sit beside its label (see
+		// TestSettingsWrapsWhatDoesNotFit for where the rest goes).
+		for _, it := range s.tabItems(m) {
 			if ansi.Strip(it.label) == "Bring back what was running" {
 				return it
 			}
@@ -885,5 +888,235 @@ func TestSettingsFinishAndNotifyCommand(t *testing.T) {
 	}
 	if got := notifyCommandText(strings.Repeat("x", 80)); ansi.StringWidth(got) > 40 {
 		t.Fatalf("long command shown as %q", got)
+	}
+}
+
+// A setting is explained in prose, and prose does not stop at 86
+// columns: what does not fit beside a label goes on to lines of its
+// own, rather than being cut off mid-sentence.
+func TestSettingsWrapsWhatDoesNotFit(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	m.cfg.Verify.AutoMerge = true // its detail is the longest one here
+	s := &settings{}
+	s.setTab(gitTab)
+	// Inside the frame: frameLines ends every line with its border, so
+	// a guard against a trailing ellipsis has to look past it — reading
+	// the bordered line, "no line ends in …" was true of a box that cut
+	// every one of them off.
+	var text []string
+	for _, line := range s.render(*m).lines {
+		l := ansi.Strip(line)
+		if !strings.HasPrefix(l, "│") || !strings.HasSuffix(l, "│") {
+			continue // the frame's own top and bottom
+		}
+		text = append(text, strings.TrimSuffix(strings.TrimPrefix(l, "│"), "│"))
+	}
+	page := strings.Join(text, "\n")
+	for _, want := range []string{
+		"it waits for the checks to turn green, and for the branch's own check where the",
+		"project has one",
+		"on · on GitHub; not a draft, a conflict, a review or a failed check",
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("%q is not on the page:\n%s", want, page)
+		}
+	}
+	// Nothing was given up on: no line ends in an ellipsis, and none is
+	// wider than the box.
+	w := settingsBoxWidth(m.width)
+	for i, line := range text {
+		if strings.HasPrefix(line, " tab switch") {
+			break // the hint and where it is saved, not the list
+		}
+		if strings.HasSuffix(strings.TrimRight(line, " "), "…") {
+			t.Fatalf("line %d is cut off: %q", i, line)
+		}
+		if ansi.StringWidth(line) > w {
+			t.Fatalf("line %d is %d wide in a %d box: %q", i, ansi.StringWidth(line), w, line)
+		}
+	}
+}
+
+// Wrapping keeps the list usable: a continuation is not a setting, so
+// the arrows and a click pass over it.
+func TestSettingsWrapContinuationsAreNotChoices(t *testing.T) {
+	long := strings.Repeat("a sentence that will not fit ", 5)
+	items := settingsWrap([]settingItem{
+		{label: "Short", detail: "fine", run: func(*Model) tea.Cmd { return nil }},
+		{label: styleMuted.Render("  " + long)},
+		{label: "A setting", detail: long, run: func(*Model) tea.Cmd { return nil }},
+	}, 40)
+	if len(items) < 8 {
+		t.Fatalf("nothing wrapped: %d items", len(items))
+	}
+	runs := 0
+	for i, it := range items {
+		if it.run != nil {
+			runs++
+		}
+		if w := ansi.StringWidth(ansi.Strip(it.label)) + 3; w > 40 {
+			t.Fatalf("item %d is %d wide: %q", i, w, it.label)
+		}
+	}
+	if runs != 2 {
+		t.Fatalf("a continuation can be chosen: %d of %d items run", runs, len(items))
+	}
+	if ansi.Strip(items[0].label) != "Short" || items[0].detail != "fine" {
+		t.Fatalf("a line that fits was changed: %+v", items[0])
+	}
+	// The one that did not fit keeps its label and loses only the
+	// detail's place beside it.
+	for _, it := range items {
+		if ansi.Strip(it.label) == "A setting" && it.detail != "" {
+			t.Fatalf("the detail stayed beside the label: %q", it.detail)
+		}
+	}
+}
+
+// Wrapping holds at a width nothing fits in.
+func TestSettingsWrapTinyWidth(t *testing.T) {
+	for _, w := range []int{1, 2, 3, 4, 10} {
+		items := settingsWrap([]settingItem{
+			{},
+			{header: true, label: "Merging", detail: "m → Merge on a branch"},
+			{label: "How a merge lands", detail: "squash · one commit on the base"},
+		}, w)
+		for i, it := range items {
+			if strings.Contains(ansi.Strip(it.label), "\n") {
+				t.Fatalf("w=%d item %d has a newline in it: %q", w, i, it.label)
+			}
+		}
+	}
+}
+
+// Wrapping holds whatever a label is made of. Each of these crashed or
+// came out wrong once: a label of whitespace that is not spaces left
+// wrap() with no lines at all and took the TUI down with it.
+func TestSettingsWrapOddLabels(t *testing.T) {
+	long := strings.Repeat("word ", 40)
+	for _, label := range []string{"\t", " \t ", "", "   ", " ", strings.Repeat("x", 200)} {
+		got := settingsWrap([]settingItem{{label: label, detail: long}}, 40)
+		if len(got) == 0 {
+			t.Fatalf("%q gave nothing", label)
+		}
+		for i, it := range got {
+			if strings.Contains(it.label, "\n") {
+				t.Fatalf("%q item %d has a newline: %q", label, i, it.label)
+			}
+		}
+	}
+}
+
+// A line wrapped in an error's or a theme's colours keeps them. The
+// first version re-rendered every styled label muted, which would have
+// turned the Actions tab's red problems into ordinary grey notes and
+// drawn the Theme tab's prompt samples — which are mostly colour — all
+// alike. The escapes are written out here because lipgloss renders no
+// colour under test, so styleErr.Render would prove nothing.
+func TestSettingsWrapKeepsColours(t *testing.T) {
+	const red, off = "\x1b[31m", "\x1b[0m"
+	label := "  " + red + "a problem long enough that it has to be wrapped over two lines or more" + off
+	got := settingsWrap([]settingItem{{label: label}}, 40)
+	if len(got) < 3 {
+		t.Fatalf("it did not wrap: %d lines", len(got))
+	}
+	for i, it := range got {
+		if !strings.Contains(it.label, red) {
+			t.Fatalf("line %d lost its colour: %q", i, it.label)
+		}
+	}
+	// A detail of several colours keeps each of them, not the first.
+	sample := "\x1b[32m~/src" + off + " \x1b[34mmain" + off + " \x1b[33m❯ a prompt sample long enough to wrap" + off
+	lines := settingsWrap([]settingItem{{label: "A theme", detail: sample}}, 40)[1:]
+	seen := ""
+	for _, it := range lines {
+		seen += it.label
+	}
+	for _, colour := range []string{"\x1b[32m", "\x1b[34m", "\x1b[33m"} {
+		if !strings.Contains(seen, colour) {
+			t.Fatalf("%q is gone from the sample: %q", colour, seen)
+		}
+	}
+	// styleLead reads the opening sequence, and nothing from a line
+	// that starts in plain text.
+	if got := styleLead(red + "x" + off); got != red {
+		t.Fatalf("styleLead(%q) = %q", red+"x"+off, got)
+	}
+	if got := styleLead("x" + red); got != "" {
+		t.Fatalf("styleLead of plain text = %q", got)
+	}
+	if got := styleLead("  " + red + "x"); got != red {
+		t.Fatalf("styleLead past an indent = %q", got)
+	}
+	if got := styleLead("\x1b[1m\x1b[38;5;244mx"); got != "\x1b[1m\x1b[38;5;244m" {
+		t.Fatalf("two sequences: %q", got)
+	}
+}
+
+// A heading's own line is drawn one column in, but its continuations
+// are ordinary items drawn three in: measured against the heading's
+// indent they came out two columns too wide for the box, and spread
+// cut them off — the very thing wrapping is for.
+func TestSettingsWrapHeaderContinuations(t *testing.T) {
+	for _, w := range []int{20, 40, 86} {
+		for i, it := range wrapSetting(settingItem{header: true, label: "Merging",
+			detail: strings.Repeat("abc ", 9) + "x y"}, w) {
+			indent := 3
+			if it.header {
+				indent = 1
+			}
+			if got := indent + ansi.StringWidth(ansi.Strip(it.label)); got > w {
+				t.Fatalf("w=%d item %d is %d wide: %q", w, i, got, ansi.Strip(it.label))
+			}
+		}
+	}
+}
+
+// A word nothing can break at — a URL, a path — is broken anyway,
+// rather than handed to spread to cut off with an ellipsis.
+func TestSettingsWrapBreaksAnUnbreakableWord(t *testing.T) {
+	items := settingsWrap([]settingItem{{label: "Address phones open",
+		detail: "https://my-laptop.tail1234abcd.ts.net:4455/pair"}}, 40)
+	whole := ""
+	for i, it := range items {
+		if got := 3 + ansi.StringWidth(ansi.Strip(it.label)); got > 40 {
+			t.Fatalf("item %d is %d wide: %q", i, got, ansi.Strip(it.label))
+		}
+		whole += strings.TrimSpace(ansi.Strip(it.label))
+	}
+	if !strings.Contains(whole, "tail1234abcd.ts.net:4455/pair") {
+		t.Fatalf("the address did not survive being broken: %q", whole)
+	}
+}
+
+// The list is wrapped to the box, so a narrower window puts more lines
+// before a setting: the highlight follows the setting it was on, not
+// the index it had.
+func TestSettingsWrapKeepsSelectionAcrossResize(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	s := &settings{}
+	s.setTab(0) // the Theme tab, where a choice sits below wrapped prose
+	s.render(*m)
+	const want = "Always side by side"
+	items := s.items(m)
+	for i, it := range items {
+		if ansi.Strip(it.label) == want {
+			s.sel = i
+		}
+	}
+	if ansi.Strip(items[s.sel].label) != want {
+		t.Fatalf("no %q to select", want)
+	}
+	s.render(*m) // drawn once with it highlighted, as it would be
+	was := s.sel
+	m.width = 60
+	s.render(*m)
+	if s.sel == was {
+		t.Fatal("this width does not move it: pick another setting")
+	}
+	if got := ansi.Strip(s.items(m)[s.sel].label); got != want {
+		t.Fatalf("the highlight moved from %q to %q", want, got)
 	}
 }

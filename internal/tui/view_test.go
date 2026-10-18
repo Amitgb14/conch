@@ -880,3 +880,51 @@ func TestAgentGlyphsStayInTheBMP(t *testing.T) {
 		}
 	}
 }
+
+func TestSpreadHintDropsWholeHints(t *testing.T) {
+	hint := "enter open · U upload · D download · - up · ~ home · y path · e edit · / find · esc tree"
+	title := "Files  bb"
+	for w := 0; w <= 120; w++ {
+		got := ansi.Strip(spreadHint(title, hint, w))
+		if ansi.StringWidth(got) > w {
+			t.Fatalf("w=%d: %d wide: %q", w, ansi.StringWidth(got), got)
+		}
+		right := strings.TrimSpace(strings.TrimPrefix(got, title))
+		if right == "" || !strings.HasPrefix(got, title) {
+			continue
+		}
+		// Never half a hint: every piece shown is one of the hints.
+		for _, part := range strings.Split(right, " · ") {
+			if !strings.Contains(" · "+hint+" · ", " · "+part+" · ") {
+				t.Fatalf("w=%d: %q is not a whole hint in %q", w, part, got)
+			}
+		}
+		if !strings.HasPrefix(right, "enter open") {
+			t.Fatalf("w=%d: the first hint went: %q", w, got)
+		}
+	}
+	// Wide enough: all of it.
+	if got := ansi.Strip(spreadHint(title, hint, 120)); !strings.HasSuffix(got, hint) {
+		t.Fatalf("wide: %q", got)
+	}
+	// Narrower: the middle goes, the first and the last stay.
+	got := ansi.Strip(spreadHint(title, hint, 60))
+	if !strings.Contains(got, "enter open · U upload") || !strings.HasSuffix(got, " · esc tree") || strings.Contains(got, "/ find") {
+		t.Fatalf("60: %q", got)
+	}
+	// Room for one only: the first.
+	if got := ansi.Strip(spreadHint(title, hint, 23)); !strings.HasSuffix(got, " enter open") {
+		t.Fatalf("23: %q", got)
+	}
+	// No room: just the title, cut to fit.
+	if got := ansi.Strip(spreadHint(title, hint, 12)); strings.Contains(got, "enter") || ansi.StringWidth(got) > 12 {
+		t.Fatalf("12: %q", got)
+	}
+	// One hint, and none.
+	if got := ansi.Strip(spreadHint(title, "esc back", 30)); !strings.HasSuffix(got, "esc back") {
+		t.Fatalf("one: %q", got)
+	}
+	if got := ansi.Strip(spreadHint(title, "", 30)); strings.TrimSpace(got) != title {
+		t.Fatalf("none: %q", got)
+	}
+}

@@ -270,6 +270,12 @@ func TestCopyCommandsSSH(t *testing.T) {
 	realServer(t, a4Env(t))
 	home := os.Getenv("HOME")
 	id := sshTerminal(t, h, "boxterm")
+	// status names the host, so a script can find the terminal to give -ssh.
+	var serr error
+	status, _ := a4Capture(t, "", func() { serr = runStatus() })
+	if serr != nil || !strings.Contains(status, id+"  boxterm") || !strings.Contains(status, " me@box ") {
+		t.Fatalf("status: %v\n%s", serr, status)
+	}
 	src := t.TempDir()
 	pem := filepath.Join(src, "ca.pem")
 	os.WriteFile(pem, []byte("cert"), 0o600)
@@ -372,5 +378,65 @@ func TestCopyCommandsSSHOldServer(t *testing.T) {
 		if _, err := a4CaptureErr(t, run); err == nil || !strings.Contains(err.Error(), "can't copy to or from an ssh terminal's host") {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+func TestUploadMakesTheFolder(t *testing.T) {
+	h := sshtest.Install(t)
+	realServer(t, a4Env(t))
+	home := os.Getenv("HOME")
+	pem := filepath.Join(t.TempDir(), "ca.pem")
+	os.WriteFile(pem, []byte("cert"), 0o600)
+
+	// Missing: refused, and told how.
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runUpload([]string{"-to", "~/a/b", pem}) })
+	if err == nil || out != "" || !strings.Contains(err.Error(), "doesn't exist (-p makes it)") {
+		t.Fatalf("missing: %q %v", out, err)
+	}
+	// -p makes it, the folders above it too, and then copies.
+	out, _ = a4Capture(t, "", func() { err = runUpload([]string{"-p", "-to", "~/a/b", pem}) })
+	if err != nil || strings.TrimSpace(out) != filepath.Join(home, "a", "b", "ca.pem") {
+		t.Fatalf("-p: %q %v", out, err)
+	}
+	// Already there: nothing to make, the copy is numbered as ever.
+	out, _ = a4Capture(t, "", func() { err = runUpload([]string{"-p", "-to", "~/a/b/", pem}) })
+	if err != nil || filepath.Base(strings.TrimSpace(out)) != "ca 2.pem" {
+		t.Fatalf("-p again: %q %v", out, err)
+	}
+	// An absolute path, and the home itself.
+	abs := filepath.Join(home, "x", "y")
+	out, _ = a4Capture(t, "", func() { err = runUpload([]string{"-p", "-to", abs, pem}) })
+	if err != nil || strings.TrimSpace(out) != filepath.Join(abs, "ca.pem") {
+		t.Fatalf("-p absolute: %q %v", out, err)
+	}
+	if _, err := a4CaptureErr(t, func() error { return runUpload([]string{"-p", "-to", "~", pem}) }); err != nil {
+		t.Fatalf("-p home: %v", err)
+	}
+	// A file in the way: refused, nothing made past it.
+	os.WriteFile(filepath.Join(home, "file"), []byte("x"), 0o600)
+	if _, err := a4CaptureErr(t, func() error { return runUpload([]string{"-p", "-to", "~/file/sub", pem}) }); err == nil {
+		t.Fatal("made a folder under a file")
+	}
+	// -p with no folder to make.
+	if err := runUpload([]string{"-p", pem}); err == nil || !strings.Contains(err.Error(), "give one") {
+		t.Fatalf("-p alone: %v", err)
+	}
+
+	// The same on a terminal's ssh host.
+	sshTerminal(t, h, "boxterm")
+	out, _ = a4Capture(t, "", func() { err = runUpload([]string{"-ssh", "boxterm", "-to", "~/c/d", pem}) })
+	if err == nil || !strings.Contains(err.Error(), "(-p makes it)") {
+		t.Fatalf("ssh missing: %q %v", out, err)
+	}
+	out, _ = a4Capture(t, "", func() { err = runUpload([]string{"-ssh", "boxterm", "-p", "-to", "~/c/d", pem}) })
+	if err != nil {
+		t.Fatalf("ssh -p: %q %v", out, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(h.Home, "c", "d", "ca.pem")); string(b) != "cert" {
+		t.Fatal("not on the host")
+	}
+	if _, err := os.Stat(filepath.Join(home, "c")); err == nil {
+		t.Fatal("made the folder on the machine, not the host")
 	}
 }

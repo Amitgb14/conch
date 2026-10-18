@@ -299,7 +299,7 @@ func (v *setupView) body(m Model, w int) []string {
 		if missing > 0 {
 			hint = "c copy missing · " + hint
 		}
-		lines = append(lines, spread(" "+styleBold.Render("Local files from the main checkout"), styleMuted.Render(hint), w))
+		lines = append(lines, spreadHint(" "+styleBold.Render("Local files from the main checkout"), hint, w))
 		if len(res.LocalFiles) == 0 {
 			lines = append(lines, styleMuted.Render("   no ignored files match the project's patterns"))
 		}

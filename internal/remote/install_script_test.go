@@ -177,8 +177,36 @@ func TestInstallScript(t *testing.T) {
 	// With its folder on PATH there is no hint.
 	cmd := exec.Command("sh", repoFile(t, "install.sh"))
 	cmd.Env = []string{"PATH=" + dir + ":/usr/bin:/bin", "HOME=" + t.TempDir(), "CONCH_RELEASE_URL=" + srv.URL, "CONCH_INSTALL_DIR=" + dir, "CONCH_VERSION=" + version}
-	if out, err := cmd.CombinedOutput(); err != nil || strings.Contains(string(out), "to your PATH") {
+	if out, err := cmd.CombinedOutput(); err != nil || strings.Contains(string(out), "to your PATH") || !strings.HasSuffix(string(out), "start it with: conch\n") {
 		t.Fatalf("on PATH: %v\n%s", err, out)
+	}
+
+	// Off PATH, the line to add is for the shell the person logs in with:
+	// zsh, macOS's default, never reads ~/.profile.
+	bashrc := "~/.bashrc"
+	if runtime.GOOS == "darwin" {
+		bashrc = "~/.bash_profile"
+	}
+	export := `echo 'export PATH="` + dir + `:$PATH"' >> `
+	for _, c := range []struct{ env, want string }{
+		{"SHELL=/bin/zsh", export + "~/.zshrc"},
+		{"SHELL=/usr/local/bin/zsh ZDOTDIR=/cfg/zsh", export + "/cfg/zsh/.zshrc"},
+		{"SHELL=/bin/bash", export + bashrc},
+		{"SHELL=/usr/bin/fish", "fish_add_path " + dir},
+		{"SHELL=/bin/dash", export + "~/.profile"},
+		{"SHELL=", export + "~/.profile"},
+		// No SHELL at all: set -u must not trip on it. Some sh (bash, as
+		// macOS's) fill it in from the login account, so any hint will do.
+		{"", ""},
+	} {
+		cmd := exec.Command("sh", repoFile(t, "install.sh"))
+		cmd.Env = append([]string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "CONCH_RELEASE_URL=" + srv.URL, "CONCH_INSTALL_DIR=" + dir, "CONCH_VERSION=" + version},
+			strings.Fields(c.env)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(out), "add "+dir+" to your PATH, then open a new terminal:\n  "+c.want) ||
+			!strings.HasSuffix(string(out), "and start it with: conch\n") {
+			t.Errorf("%q: %v\n%s", c.env, err, out)
+		}
 	}
 }
 
@@ -211,6 +239,108 @@ func TestReleaseScriptsAgreeOnNames(t *testing.T) {
 	wf := read(".github/workflows/release.yml")
 	for _, want := range []string{`tags: ["v*"]`, `scripts/release.sh "${GITHUB_REF_NAME}"`, "dist/*.tar.gz dist/checksums.txt"} {
 		if !strings.Contains(wf, want) {
+			t.Errorf("release.yml lacks %q", want)
+		}
+	}
+}
+
+// brew-formula.sh writes the tap's formula from release.sh's checksums:
+// every platform's archive, by the names install.sh downloads.
+func TestBrewFormula(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("needs sh")
+	}
+	platforms := []string{"darwin/arm64", "darwin/amd64", "linux/arm64", "linux/amd64"}
+	sums := func(skip string, line func(i int, asset string) string) string {
+		path := filepath.Join(t.TempDir(), "checksums.txt")
+		var b strings.Builder
+		for i, p := range platforms {
+			if p != skip {
+				b.WriteString(line(i, ReleaseAsset("1.2.3", p)))
+			}
+		}
+		if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	hexOf := func(i int) string { return strings.Repeat(string("abcd"[i]), 64) }
+	good := func(i int, asset string) string { return hexOf(i) + "  " + asset + "\n" }
+	run := func(args ...string) (string, error) {
+		cmd := exec.Command("sh", append([]string{repoFile(t, "scripts/brew-formula.sh")}, args...)...)
+		var out, errOut strings.Builder
+		cmd.Stdout, cmd.Stderr = &out, &errOut
+		err := cmd.Run()
+		if err != nil {
+			return errOut.String(), err
+		}
+		return out.String(), nil
+	}
+
+	formula, err := run("v1.2.3", sums("", good))
+	if err != nil {
+		t.Fatalf("formula: %v\n%s", err, formula)
+	}
+	if !strings.Contains(formula, `version "1.2.3"`) || !strings.Contains(formula, `bin.install "conch"`) {
+		t.Fatalf("formula:\n%s", formula)
+	}
+	for i, p := range platforms {
+		url := "https://github.com/Amitgb14/conch/releases/download/v1.2.3/" + ReleaseAsset("1.2.3", p)
+		want := "url \"" + url + "\"\n      sha256 \"" + hexOf(i) + "\""
+		if !strings.Contains(formula, want) {
+			t.Errorf("%s: formula lacks %q", p, want)
+		}
+	}
+	// Each archive under its own platform's block.
+	for _, block := range []struct{ os, cpu, platform string }{
+		{"on_macos", "on_arm", "darwin_arm64"}, {"on_macos", "on_intel", "darwin_amd64"},
+		{"on_linux", "on_arm", "linux_arm64"}, {"on_linux", "on_intel", "linux_amd64"},
+	} {
+		at := strings.Index(formula, block.os+" do")
+		cpu := strings.Index(formula[at:], block.cpu+" do")
+		if at < 0 || cpu < 0 || !strings.HasPrefix(formula[at+cpu:], block.cpu+" do\n      url \"https://github.com/Amitgb14/conch/releases/download/v1.2.3/conch_1.2.3_"+block.platform+".tar.gz\"") {
+			t.Errorf("%s %s does not hold %s", block.os, block.cpu, block.platform)
+		}
+	}
+	if _, err := exec.LookPath("ruby"); err == nil {
+		path := filepath.Join(t.TempDir(), "conch.rb")
+		os.WriteFile(path, []byte(formula), 0o644)
+		if out, err := exec.Command("ruby", "-c", path).CombinedOutput(); err != nil {
+			t.Fatalf("ruby -c: %v\n%s", err, out)
+		}
+	}
+	// sha256sum's binary mark (*name) is the same file.
+	if _, err := run("1.2.3", sums("", func(i int, asset string) string { return hexOf(i) + " *" + asset + "\n" })); err != nil {
+		t.Fatalf("binary-mode checksums: %v", err)
+	}
+
+	// Anything missing or wrong fails, naming it, and prints no formula.
+	for _, c := range []struct {
+		what string
+		args []string
+		want string
+	}{
+		{"an archive missing", []string{"1.2.3", sums("linux/arm64", good)}, "conch_1.2.3_linux_arm64.tar.gz is not in"},
+		{"a short checksum", []string{"1.2.3", sums("", func(i int, a string) string { return "abc  " + a + "\n" })}, "bad checksum"},
+		{"not hex", []string{"1.2.3", sums("", func(i int, a string) string { return strings.Repeat("z", 64) + "  " + a + "\n" })}, "bad checksum"},
+		{"an archive twice", []string{"1.2.3", sums("", func(i int, a string) string { return good(i, a) + good(i, a) })}, "bad checksum"},
+		{"another version's", []string{"1.2.4", sums("", good)}, "conch_1.2.4_darwin_arm64.tar.gz is not in"},
+		{"no checksums file", []string{"1.2.3", filepath.Join(t.TempDir(), "none")}, "cannot read"},
+		{"no arguments", nil, "usage"},
+		{"no checksums argument", []string{"1.2.3"}, "usage"},
+	} {
+		if out, err := run(c.args...); err == nil || !strings.Contains(out, c.want) {
+			t.Errorf("%s: %v %q, want %q", c.what, err, out, c.want)
+		}
+	}
+
+	// The release workflow publishes it, and leaves pre-releases out.
+	wf, err := os.ReadFile(repoFile(t, ".github/workflows/release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`scripts/brew-formula.sh "$TAG" dist/checksums.txt`, "HOMEBREW_TAP_TOKEN", "Amitgb14/homebrew-conch", `*-*)`} {
+		if !strings.Contains(string(wf), want) {
 			t.Errorf("release.yml lacks %q", want)
 		}
 	}

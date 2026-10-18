@@ -80,6 +80,31 @@ mv -f "$dir/conch.new" "$dir/conch"
 echo "installed $dir/conch"
 
 case ":$PATH:" in
-*":$dir:"*) ;;
-*) echo "add $dir to your PATH, e.g.: echo 'export PATH=\"$dir:\$PATH\"' >> ~/.profile" ;;
+*":$dir:"*)
+	echo "start it with: conch"
+	exit 0
+	;;
 esac
+# The line goes where the person's shell reads it: zsh (macOS's default)
+# never reads ~/.profile, and an interactive bash reads ~/.bashrc on Linux
+# but ~/.bash_profile on macOS.
+login=${SHELL:-}
+zshrc='~/.zshrc'
+if [ -n "${ZDOTDIR:-}" ]; then
+	zshrc="$ZDOTDIR/.zshrc"
+fi
+case ${login##*/} in
+zsh) add="echo 'export PATH=\"$dir:\$PATH\"' >> $zshrc" ;;
+bash)
+	if [ "$os" = darwin ]; then
+		add="echo 'export PATH=\"$dir:\$PATH\"' >> ~/.bash_profile"
+	else
+		add="echo 'export PATH=\"$dir:\$PATH\"' >> ~/.bashrc"
+	fi
+	;;
+fish) add="fish_add_path $dir" ;;
+*) add="echo 'export PATH=\"$dir:\$PATH\"' >> ~/.profile" ;;
+esac
+echo "add $dir to your PATH, then open a new terminal:"
+echo "  $add"
+echo "and start it with: conch"

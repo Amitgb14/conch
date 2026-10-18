@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"runtime/debug"
@@ -59,6 +60,53 @@ func ID() string {
 		return SourceBuild
 	}
 	return Build()
+}
+
+// Executable is the path conch should be found at again later: what
+// os.Executable says, except for a Homebrew install, which is the formula's
+// opt link rather than the versioned keg the program runs from. Agent hooks
+// written with this path, a server reloaded from it, a TUI restarted onto
+// it: each outlives `brew upgrade`, which puts the new version in a new
+// keg and deletes the old one — os.Executable resolves to that keg on
+// Linux, and so would the hooks.
+func Executable() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return Stable(exe), nil
+}
+
+// keg is a binary inside a Homebrew formula's versioned folder.
+var keg = regexp.MustCompile(`^(.+)/Cellar/conch/[^/]+/bin/conch$`)
+
+// Stable is path, or for a binary in a Homebrew keg its formula's opt link
+// (PREFIX/opt/conch/bin/conch), while that link leads to the same file.
+func Stable(path string) string {
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+	m := keg.FindStringSubmatch(real)
+	if m == nil {
+		return path
+	}
+	opt := filepath.Join(m[1], "opt", "conch", "bin", "conch")
+	if to, err := filepath.EvalSymlinks(opt); err != nil || to != real {
+		return path
+	}
+	return opt
+}
+
+// Homebrew says whether the conch at path was installed by Homebrew, which
+// is then the one to update it: replacing the file under it leaves brew
+// believing in a version that is no longer there.
+func Homebrew(path string) bool {
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		real = path
+	}
+	return keg.MatchString(real)
 }
 
 // Platform is GOOS/GOARCH of this binary, e.g. "darwin/arm64".
