@@ -1028,6 +1028,13 @@ func TestAutopilotCheckRuns(t *testing.T) {
 		t.Fatal("acted on a conflict under a running check")
 	}
 
+	// The second start above asked for a check once this one ends; that is
+	// TestAutopilotRecheckAfterAFinishMidCheck's, and would replace the
+	// verdict this part is about.
+	s.autopilot.mu.Lock()
+	delete(s.autopilot.recheck, key)
+	s.autopilot.mu.Unlock()
+
 	// The agent commits while it runs; the pass is for the commit it ran on.
 	os.WriteFile(filepath.Join(wt, "later.go"), []byte("package api\n"), 0o644)
 	apGit(t, wt, "add", ".")
@@ -1179,7 +1186,12 @@ func TestAutopilotMergeGatesTheMergedCommit(t *testing.T) {
 		t.Fatalf("running: %q", why)
 	}
 	os.WriteFile(flag, nil, 0o644)
-	a5WaitFor(t, "the check done", func() bool { return !s.checkBusy(key) })
+	// The pass is recorded just after the terminal ends, not with it.
+	a5WaitFor(t, "the check's pass", func() bool {
+		s.autopilot.mu.Lock()
+		defer s.autopilot.mu.Unlock()
+		return s.autopilot.saved.Passed[key] == head
+	})
 	if why := s.mergeGates(p, info, "api/model", proto.PRInfo{Number: 8, Head: head}, head); why != "" {
 		t.Fatalf("passed: %q", why)
 	}
