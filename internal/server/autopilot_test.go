@@ -143,6 +143,9 @@ func TestAutopilotFixAllowance(t *testing.T) {
 	if ok, capped, limit := a.takeFix("k"); ok || !capped || limit != 2 {
 		t.Fatalf("past the cap: %v %v %d", ok, capped, limit)
 	}
+	if ok, capped, _ := a.takeFix("k"); ok || capped {
+		t.Fatal("the cap was said twice")
+	}
 	a.giveBack("k")
 	if ok, _, _ := a.takeFix("k"); !ok {
 		t.Fatal("given back and still refused")
@@ -332,7 +335,8 @@ func TestAutopilotSendsRedCIToTheAgent(t *testing.T) {
 	e := branchPane(t, s, p, "api/model")
 	key := branchKey(p.id, "api/model")
 
-	// Working: nothing is typed, and nothing is counted.
+	// Working: nothing is typed and nothing counted — but it is kept for
+	// when the agent is free, since red is only reported on the turn.
 	hook(s, e, "UserPromptSubmit")
 	apPR(s, p, "api/model", proto.PRInfo{Number: 5, Checks: "pending", Head: "abc"})
 	apPR(s, p, "api/model", proto.PRInfo{Number: 5, Checks: "fail", Head: "abc"})
@@ -340,11 +344,21 @@ func TestAutopilotSendsRedCIToTheAgent(t *testing.T) {
 	if strings.Contains(screenText(e), "AUTOPILOT-CI-MARK") || apFixes(s, key) != 0 {
 		t.Fatal("sent to a working agent")
 	}
+	s.autopilot.mu.Lock()
+	pending := s.autopilot.saved.PendingCI[key]
+	s.autopilot.mu.Unlock()
+	if !pending {
+		t.Fatal("red CI for a busy agent was dropped")
+	}
+	s.autopilotPendingCI() // still working: still kept
+	if strings.Contains(screenText(e), "AUTOPILOT-CI-MARK") {
+		t.Fatal("sent while still working")
+	}
 
 	hook(s, e, "Stop")
-	apPR(s, p, "api/model", proto.PRInfo{Number: 5, Checks: "pending", Head: "abc"})
-	apPR(s, p, "api/model", proto.PRInfo{Number: 5, Checks: "fail", Head: "abc"})
+	s.autopilotPendingCI()
 	a5WaitFor(t, "the CI log on the agent's screen", func() bool { return strings.Contains(screenText(e), "AUTOPILOT-CI-MARK") })
+	a5WaitFor(t, "the log submitted", func() bool { st, _ := agentState(e); return st == proto.AgentIdle })
 
 	// The allowance is spent: red again is the person's.
 	hook(s, e, "Stop")
@@ -910,4 +924,156 @@ func TestAutopilotShipNote(t *testing.T) {
 	if cmd := strings.Join(info.Command, " "); !strings.Contains(cmd, "How this branch is shipped") || !strings.Contains(cmd, "add the model") {
 		t.Fatalf("first message: %s", cmd)
 	}
+}
+
+// CI still green on a pushed commit is no turn: it does not renew an
+// allowance the project's own check is using up on a newer one.
+func TestAutopilotSteadyGreenKeepsTheCount(t *testing.T) {
+	a := loadAutopilot(t.TempDir())
+	a.set(proto.AutopilotPolicy{AutoFix: 2})
+	key := branchKey("p", "x")
+	a.observe(apInfo("p", map[string]string{"x": "pass"}))
+	a.takeFix(key)
+	a.takeFix(key)
+	a.observe(apInfo("p", map[string]string{"x": "pass"}))
+	if ok, capped, _ := a.takeFix(key); ok || !capped {
+		t.Fatal("a green read renewed the allowance")
+	}
+	a.observe(apInfo("p", map[string]string{"x": "fail"}))
+	a.observe(apInfo("p", map[string]string{"x": "pass"}))
+	if ok, _, _ := a.takeFix(key); !ok {
+		t.Fatal("the turn to green did not renew it")
+	}
+}
+
+// Reading the state runs git for each failed check; the autopilot's lock
+// is not held meanwhile.
+func TestAutopilotStateReadsGitUnlocked(t *testing.T) {
+	a := loadAutopilot(t.TempDir())
+	a.checked(branchKey("p", "x"), "abc", false)
+	locked := false
+	st := a.state(func(string) string {
+		if a.mu.TryLock() {
+			a.mu.Unlock()
+		} else {
+			locked = true
+		}
+		return "abc"
+	})
+	if locked {
+		t.Fatal("git was read under the autopilot's lock")
+	}
+	if len(st.Branches) != 1 || !st.Branches[0].CheckFailed {
+		t.Fatalf("state %+v", st)
+	}
+}
+
+// After a pull request merges, more work on the branch is not given a
+// second one carrying the merged commits again.
+func TestAutopilotShipAfterAMerge(t *testing.T) {
+	s, p, _, _, _, ghLog := shipFixture(t)
+	p.mu.Lock()
+	p.prs = map[string]proto.PRInfo{"api/model": {Number: 8, State: "MERGED"}}
+	p.mu.Unlock()
+	if why := s.ship(p.id, "api/model"); !strings.Contains(why, "#8 is merged") || readCalls(ghLog) != "" {
+		t.Fatalf("after a merge: %q %q", why, readCalls(ghLog))
+	}
+}
+
+// A check's verdict is about the commit it started on; the worktree is
+// not rebased under a running check; two finishes start one check; and a
+// check closed mid-run is not left marked as running.
+func TestAutopilotCheckRuns(t *testing.T) {
+	s, p, e, wt, _, _ := shipFixture(t)
+	flag := filepath.Join(t.TempDir(), "go")
+	cmd := "while [ ! -f " + flag + " ]; do sleep 0.05; done; echo RAN"
+	s.autopilot.set(proto.AutopilotPolicy{AutoResolve: 1, Checks: map[string]string{p.id: cmd}})
+	key := branchKey(p.id, "api/model")
+	started := apGit(t, wt, "rev-parse", "HEAD")
+
+	done := make(chan struct{})
+	for range 2 {
+		go func() { s.autopilotStartCheck(p.id, "api/model", cmd); done <- struct{}{} }()
+	}
+	<-done
+	<-done
+	checks := 0
+	for _, info := range s.list() {
+		if strings.HasPrefix(info.Name, checkPrefix) {
+			checks++
+		}
+	}
+	if checks != 1 || !s.checkBusy(key) {
+		t.Fatalf("%d checks, busy %v", checks, s.checkBusy(key))
+	}
+
+	// Conflicting meanwhile: not rebased under the check.
+	s.autopilot.mu.Lock()
+	s.autopilot.saved.Conflicted[key] = ""
+	s.autopilot.mu.Unlock()
+	s.autopilotResolve(key)
+	if at, _ := apConflicted(s, key); at != "" {
+		t.Fatal("acted on a conflict under a running check")
+	}
+
+	// The agent commits while it runs; the pass is for the commit it ran on.
+	os.WriteFile(filepath.Join(wt, "later.go"), []byte("package api\n"), 0o644)
+	apGit(t, wt, "add", ".")
+	apGit(t, wt, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "later")
+	os.WriteFile(flag, nil, 0o644)
+	a5WaitFor(t, "the check's pass", func() bool {
+		s.autopilot.mu.Lock()
+		defer s.autopilot.mu.Unlock()
+		return s.autopilot.saved.Passed[key] != ""
+	})
+	s.autopilot.mu.Lock()
+	passed := s.autopilot.saved.Passed[key]
+	s.autopilot.mu.Unlock()
+	if passed != started {
+		t.Fatalf("pass recorded for %s, the check ran on %s", passed, started)
+	}
+
+	// Closed mid-run: not running any more, and not said to be.
+	os.Remove(flag)
+	hook(s, e, "UserPromptSubmit")
+	s.autopilotStartCheck(p.id, "api/model", cmd)
+	var pane string
+	for _, info := range s.list() {
+		if strings.HasPrefix(info.Name, checkPrefix) && info.State == proto.PaneRunning {
+			pane = info.ID
+		}
+	}
+	if pane == "" {
+		t.Fatal("no second check")
+	}
+	s.close(pane)
+	if s.checkBusy(key) || s.autopilot.ownCheck(pane) {
+		t.Fatal("a closed check is still running")
+	}
+	for _, b := range s.autopilotState().Branches {
+		if b.Checking != "" {
+			t.Fatalf("still checking %s", b.Checking)
+		}
+	}
+}
+
+// The output of a server's check that failed reaches the agent even when
+// a client closes its terminal the moment it ends.
+func TestAutopilotCheckOutputBeforeClose(t *testing.T) {
+	s, p, e, wt, _, _ := shipFixture(t)
+	s.autopilot.set(proto.AutopilotPolicy{AutoFix: 1, Checks: map[string]string{p.id: "x"}})
+	info, perr := s.create(proto.PaneCreateParams{Name: checkPrefix + "api/model",
+		Command: []string{"/bin/sh", "-c", "echo EARLY-OUTPUT-MARK; exit 2"}, Cwd: wt})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	ent := a5Entry(t, s, info.ID)
+	<-ent.p.Done()
+	a5WaitFor(t, "the output read", func() bool { return strings.Contains(screenText(ent), "EARLY-OUTPUT-MARK") })
+	s.autopilot.mu.Lock()
+	s.autopilot.saved.CheckPanes[info.ID] = branchKey(p.id, "api/model")
+	s.autopilot.mu.Unlock()
+	s.autopilotExited(ent.info())
+	s.close(info.ID) // as a client would, on pane.exited
+	a5WaitFor(t, "the failure on the agent's screen", func() bool { return strings.Contains(screenText(e), "EARLY-OUTPUT-MARK") })
 }

@@ -83,9 +83,11 @@ func (s *Server) autopilotResolve(key string) {
 	if !ok || wt.Path == "" {
 		return // not checked out here: nowhere to rebase it
 	}
-	if agent := s.branchAgent(projectID, branch); agent != nil &&
-		(agent.Agent.State == proto.AgentWorking || agent.Agent.State == proto.AgentBlocked) {
+	if s.busyAgent(projectID, branch) != nil {
 		return // it may be resolving it now; look again when it is free
+	}
+	if s.checkBusy(key) {
+		return // not under a check that is running there; look again once it ends
 	}
 	head := branchHead(p, branch)
 	a.mu.Lock()

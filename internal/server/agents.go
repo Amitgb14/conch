@@ -151,8 +151,10 @@ func (s *Server) watch(e *entry) {
 					s.runs.forget(info.ID)
 				}
 				log.Printf("pane %s exited with code %d", info.ID, info.ExitCode)
-				s.broadcast(proto.EventPaneExited, info)
+				// A check's output is read before the end is announced: a
+				// client that sees it may close the terminal at once.
 				s.autopilotExited(info)
+				s.broadcast(proto.EventPaneExited, info)
 			}
 			return
 		case <-s.quit:

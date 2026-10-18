@@ -51,8 +51,9 @@ func (s *Server) autopilotFinished(info proto.PaneInfo) {
 }
 
 // autopilotStartCheck runs the project's check in the branch's worktree,
-// unless one is running there already. The last one's terminal is
-// closed: with nobody watching they would pile up, one a finish.
+// unless one is running or starting there already. The last one's
+// terminal is closed: with nobody watching they would pile up, one a
+// finish.
 func (s *Server) autopilotStartCheck(projectID, branch, cmd string) {
 	p, perr := s.projects.get(projectID)
 	if perr != nil {
@@ -65,25 +66,34 @@ func (s *Server) autopilotStartCheck(projectID, branch, cmd string) {
 	key := branchKey(projectID, branch)
 	a := s.autopilot
 	a.mu.Lock()
+	if a.starting[key] || s.checkRunningLocked(key) {
+		a.mu.Unlock()
+		return // one is already going
+	}
 	var old []string
 	for pane, k := range a.saved.CheckPanes {
-		if k != key {
-			continue
+		if k == key {
+			old = append(old, pane)
+			delete(a.saved.CheckPanes, pane)
+			delete(a.saved.CheckHeads, pane)
 		}
-		if e, perr := s.get(pane); perr == nil && s.alive(e) && e.info().State == proto.PaneRunning {
-			a.mu.Unlock()
-			return // one is already going
-		}
-		old = append(old, pane)
-		delete(a.saved.CheckPanes, pane)
 	}
 	if prev := a.lastCheck[key]; prev != "" {
 		old = append(old, prev)
 	}
+	// Held from here until the terminal is written down, so a second
+	// finish meanwhile does not start a second check in the same worktree.
+	a.starting[key] = true
 	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		delete(a.starting, key)
+		a.mu.Unlock()
+	}()
 	for _, pane := range old {
 		s.close(pane)
 	}
+	head := branchHead(p, branch)
 	info, perr := s.create(proto.PaneCreateParams{Name: checkPrefix + branch, Command: []string{"/bin/sh", "-lc", cmd},
 		Cwd: wt.Path, Cols: 120, Rows: 40})
 	if perr != nil {
@@ -93,6 +103,7 @@ func (s *Server) autopilotStartCheck(projectID, branch, cmd string) {
 	}
 	a.mu.Lock()
 	a.saved.CheckPanes[info.ID] = key
+	a.saved.CheckHeads[info.ID] = head
 	a.lastCheck[key] = info.ID
 	a.saveLocked()
 	a.mu.Unlock()
@@ -106,9 +117,54 @@ func (s *Server) autopilotStartCheck(projectID, branch, cmd string) {
 	}
 }
 
+// checkRunningLocked says whether a check the server started on key is
+// still running. The caller holds a.mu.
+func (s *Server) checkRunningLocked(key string) bool {
+	for pane, k := range s.autopilot.saved.CheckPanes {
+		if k != key {
+			continue
+		}
+		if e, perr := s.get(pane); perr == nil && s.alive(e) && e.info().State == proto.PaneRunning {
+			return true
+		}
+	}
+	return false
+}
+
+// checkBusy says whether a check is running, or starting, on key: while
+// it is, its worktree is not to be rewritten under it.
+func (s *Server) checkBusy(key string) bool {
+	a := s.autopilot
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.starting[key] || s.checkRunningLocked(key)
+}
+
+// autopilotClosed is a pane closed: a check of the server's that somebody
+// closed mid-run is not running any more, and nothing will say it ended.
+func (s *Server) autopilotClosed(id string) {
+	a := s.autopilot
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	_, ok := a.saved.CheckPanes[id]
+	delete(a.saved.CheckPanes, id)
+	delete(a.saved.CheckHeads, id)
+	for key, pane := range a.lastCheck {
+		if pane == id {
+			delete(a.lastCheck, key)
+		}
+	}
+	if ok {
+		a.saveLocked()
+	}
+}
+
 // autopilotExited is a pane that ended: if it was a check the server
-// started, its result is read — the output first, before a client that
-// sees the pane end can close it.
+// started, its output is read at once — before the end is announced and a
+// client that sees it closes the terminal — and acted on after.
 func (s *Server) autopilotExited(info proto.PaneInfo) {
 	if s.autopilot == nil {
 		return
@@ -116,8 +172,10 @@ func (s *Server) autopilotExited(info proto.PaneInfo) {
 	a := s.autopilot
 	a.mu.Lock()
 	key, ok := a.saved.CheckPanes[info.ID]
+	head := a.saved.CheckHeads[info.ID]
 	if ok {
 		delete(a.saved.CheckPanes, info.ID)
+		delete(a.saved.CheckHeads, info.ID)
 		a.saveLocked()
 	}
 	cmd := a.saved.Policy.Checks[strings.SplitN(key, "\x00", 2)[0]]
@@ -129,6 +187,11 @@ func (s *Server) autopilotExited(info proto.PaneInfo) {
 	if e, perr := s.get(info.ID); perr == nil {
 		output = e.p.PlainLines()
 	}
+	go s.autopilotCheckDone(key, head, cmd, info, output)
+}
+
+// autopilotCheckDone acts on a check of the server's that ended.
+func (s *Server) autopilotCheckDone(key, head, cmd string, info proto.PaneInfo, output []string) {
 	projectID, branch, _ := strings.Cut(key, "\x00")
 	p, perr := s.projects.get(projectID)
 	if perr != nil {
@@ -140,7 +203,7 @@ func (s *Server) autopilotExited(info proto.PaneInfo) {
 		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
 			Text: fmt.Sprintf("check failed on %s (exit %d) — its terminal has the output", branch, info.ExitCode)})
 	}
-	s.autopilotCheckEnded(p, proto.AutopilotCheck{ProjectID: projectID, Branch: branch, Pane: info.ID, Command: cmd, Exit: info.ExitCode}, output)
+	s.autopilotCheckEnded(p, proto.AutopilotCheck{ProjectID: projectID, Branch: branch, Pane: info.ID, Command: cmd, Exit: info.ExitCode}, output, head)
 }
 
 // autopilotShip pushes a finished branch and opens its pull request,
@@ -194,17 +257,12 @@ func (s *Server) ship(projectID, branch string) string {
 			b = &info.Branches[i]
 		}
 	}
-	var wt *proto.WorktreeInfo
-	for i := range info.Worktrees {
-		if info.Worktrees[i].Branch == branch {
-			wt = &info.Worktrees[i]
-		}
-	}
-	if b == nil || wt == nil || branch == info.Base || info.Base == "" {
+	w, checkedOut := p.branchWorktree(branch)
+	wt := &w
+	if b == nil || !checkedOut || branch == info.Base || info.Base == "" {
 		return ""
 	}
-	if agent := s.branchAgent(projectID, branch); agent != nil &&
-		(agent.Agent.State == proto.AgentWorking || agent.Agent.State == proto.AgentBlocked) {
+	if s.busyAgent(projectID, branch) != nil {
 		return "" // not finished after all; it ships when it is
 	}
 	key := branchKey(projectID, branch)
@@ -256,6 +314,11 @@ func (s *Server) ship(projectID, branch string) string {
 				Text: fmt.Sprintf("pushed %s to #%d", branch, pr.Number)})
 		}
 		return s.markReady(p, projectID, branch, wt.Path, info.Base, wt.Head, *pr)
+	case pr != nil && pr.State == "MERGED":
+		// After a squash or a rebase merge the branch still looks ahead of
+		// the base, with commits already in it; a second pull request would
+		// carry them again.
+		return fmt.Sprintf("its pull request #%d is merged; more work goes on a new branch", pr.Number)
 	case pr != nil && pr.State == "CLOSED":
 		return fmt.Sprintf("its pull request #%d was closed, so conch opens no other; open one yourself if it should be", pr.Number)
 	default:

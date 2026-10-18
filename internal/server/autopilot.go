@@ -48,6 +48,10 @@ type autopilot struct {
 	shipping  map[string]bool
 	unshipped map[string]string
 	resolving map[string]bool // conflicts being worked on now
+	starting  map[string]bool // checks being started, by branch
+	// capSaid is branches told their auto_fix allowance is spent, so it
+	// is said once rather than at every failure after.
+	capSaid map[string]bool
 	// lastCheck is the terminal of each branch's last check, closed when
 	// the next one starts.
 	lastCheck map[string]string
@@ -73,6 +77,12 @@ type autopilotFile struct {
 	// CheckPanes maps a terminal the server is running a check in to its
 	// branch, so a check that ends after a reload is still read.
 	CheckPanes map[string]string `json:"check_panes,omitempty"`
+	// CheckHeads is the commit each of those started on: what its verdict
+	// is about, whatever the branch is at by the time it ends.
+	CheckHeads map[string]string `json:"check_heads,omitempty"`
+	// PendingCI is branches whose CI turned red while their agent was
+	// busy: sent once it is free, unless CI is green again by then.
+	PendingCI map[string]bool `json:"pending_ci,omitempty"`
 	// Asked maps a branch to the commit it was at when its agent was asked
 	// to commit what it left uncommitted, so it is asked once, not at
 	// every finish.
@@ -95,7 +105,8 @@ type autopilotFile struct {
 
 func loadAutopilot(configDir string) *autopilot {
 	a := &autopilot{file: filepath.Join(configDir, "autopilot.json"), merging: map[string]bool{},
-		shipping: map[string]bool{}, unshipped: map[string]string{}, lastCheck: map[string]string{}, resolving: map[string]bool{}}
+		shipping: map[string]bool{}, unshipped: map[string]string{}, lastCheck: map[string]string{}, resolving: map[string]bool{},
+		starting: map[string]bool{}, capSaid: map[string]bool{}}
 	raw, err := os.ReadFile(a.file)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("autopilot: %v", err)
@@ -127,6 +138,12 @@ func loadAutopilot(configDir string) *autopilot {
 	}
 	if a.saved.CheckPanes == nil {
 		a.saved.CheckPanes = map[string]string{}
+	}
+	if a.saved.CheckHeads == nil {
+		a.saved.CheckHeads = map[string]string{}
+	}
+	if a.saved.PendingCI == nil {
+		a.saved.PendingCI = map[string]bool{}
 	}
 	if a.saved.Asked == nil {
 		a.saved.Asked = map[string]string{}
@@ -203,6 +220,18 @@ func (a *autopilot) set(p proto.AutopilotPolicy) {
 
 // state is what autopilot.get answers.
 func (a *autopilot) state(headOf func(key string) string) proto.AutopilotState {
+	// The heads are read from git, which can be slow: not while holding
+	// the lock everything else in the autopilot waits on.
+	a.mu.Lock()
+	failed := make(map[string]string, len(a.saved.Failed))
+	for key, head := range a.saved.Failed {
+		failed[key] = head
+	}
+	a.mu.Unlock()
+	failedNow := map[string]bool{}
+	for key, head := range failed {
+		failedNow[key] = head != "" && head == headOf(key)
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	byKey := map[string]*proto.AutopilotBranch{}
@@ -222,8 +251,8 @@ func (a *autopilot) state(headOf func(key string) string) proto.AutopilotState {
 		b := at(key)
 		b.Waiting, b.Held = true, held
 	}
-	for key, head := range a.saved.Failed {
-		if head != "" && head == headOf(key) {
+	for key, now := range failedNow {
+		if now && a.saved.Failed[key] == failed[key] {
 			at(key).CheckFailed = true
 		}
 	}
@@ -281,7 +310,14 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 		was := a.saved.Checks[key]
 		switch {
 		case checks == "pass":
-			delete(a.saved.Fixes, key)
+			// Only the turn to green renews the allowance: CI still green
+			// on a pushed commit says nothing about the project's check
+			// failing again and again on the agent's newer one.
+			if was != "pass" {
+				delete(a.saved.Fixes, key)
+				delete(a.capSaid, key)
+			}
+			delete(a.saved.PendingCI, key)
 			if !first && was != "pass" && a.saved.Policy.AutoMerge && b.Name != info.Base {
 				if _, waiting := a.saved.Waiting[key]; !waiting {
 					a.saved.Waiting[key] = ""
@@ -356,6 +392,7 @@ func (a *autopilot) forget(projectID string) {
 	for pane, key := range a.saved.CheckPanes {
 		if strings.HasPrefix(key, prefix) {
 			delete(a.saved.CheckPanes, pane)
+			delete(a.saved.CheckHeads, pane)
 		}
 	}
 	for key := range a.saved.Resolves {
@@ -373,6 +410,11 @@ func (a *autopilot) forget(projectID string) {
 			delete(a.saved.Drafted, key)
 		}
 	}
+	for key := range a.saved.PendingCI {
+		if strings.HasPrefix(key, prefix) {
+			delete(a.saved.PendingCI, key)
+		}
+	}
 	for key := range a.unshipped {
 		if strings.HasPrefix(key, prefix) {
 			delete(a.unshipped, key)
@@ -383,7 +425,7 @@ func (a *autopilot) forget(projectID string) {
 
 // takeFix counts one more failure going back to a branch's agent, and
 // says whether the allowance had room for it. At the cap it answers
-// false once with capped set, so the person is told once.
+// false, with capped set the first time only, so the person is told once.
 func (a *autopilot) takeFix(key string) (ok, capped bool, limit int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -392,7 +434,9 @@ func (a *autopilot) takeFix(key string) (ok, capped bool, limit int) {
 		return false, false, 0
 	}
 	if a.saved.Fixes[key] >= limit {
-		return false, true, limit
+		capped = !a.capSaid[key]
+		a.capSaid[key] = true
+		return false, capped, limit
 	}
 	a.saved.Fixes[key]++
 	a.saveLocked()
@@ -419,6 +463,7 @@ func (a *autopilot) checked(key, head string, passed bool) {
 	if passed {
 		delete(a.saved.Failed, key)
 		delete(a.saved.Fixes, key)
+		delete(a.capSaid, key)
 		a.saved.Passed[key] = head
 	} else {
 		a.saved.Failed[key] = head
@@ -445,6 +490,7 @@ func (s *Server) runAutopilot(quit <-chan struct{}) {
 			return
 		case <-t.C:
 			s.autopilotMerges()
+			s.autopilotPendingCI()
 			go s.autopilotResolves() // a fetch can take a while; merges must not wait for it
 		}
 	}
@@ -467,10 +513,57 @@ func (s *Server) autopilotPRs(info proto.ProjectInfo) {
 // started for the purpose — nobody asked for an agent.
 func (s *Server) freeAgent(projectID, branch string) *proto.PaneInfo {
 	agent := s.branchAgent(projectID, branch)
-	if agent == nil || agent.Agent.State == proto.AgentBlocked || agent.Agent.State == proto.AgentWorking {
+	if agent == nil || busy(*agent) {
 		return nil
 	}
 	return agent
+}
+
+// busyAgent is the branch's agent while it is working or waiting on the
+// person, and nil when it is free or there is none.
+func (s *Server) busyAgent(projectID, branch string) *proto.PaneInfo {
+	agent := s.branchAgent(projectID, branch)
+	if agent == nil || !busy(*agent) {
+		return nil
+	}
+	return agent
+}
+
+func busy(agent proto.PaneInfo) bool {
+	return agent.Agent.State == proto.AgentWorking || agent.Agent.State == proto.AgentBlocked
+}
+
+// autopilotPendingCI sends the red CI put off while an agent was busy,
+// now that it is free — unless the pull request is not red any more.
+func (s *Server) autopilotPendingCI() {
+	a := s.autopilot
+	a.mu.Lock()
+	keys := make([]string, 0, len(a.saved.PendingCI))
+	for key := range a.saved.PendingCI {
+		keys = append(keys, key)
+	}
+	a.mu.Unlock()
+	for _, key := range keys {
+		projectID, branch, _ := strings.Cut(key, "\x00")
+		p, perr := s.projects.get(projectID)
+		red := false
+		if perr == nil {
+			p.mu.Lock()
+			pr, ok := p.prs[branch]
+			p.mu.Unlock()
+			red = ok && pr.State == "OPEN" && pr.Checks == "fail"
+		}
+		if red && s.freeAgent(projectID, branch) == nil && s.busyAgent(projectID, branch) != nil {
+			continue // still busy
+		}
+		a.mu.Lock()
+		delete(a.saved.PendingCI, key)
+		a.saveLocked()
+		a.mu.Unlock()
+		if red {
+			s.autopilotFixCI(projectID, branch)
+		}
+	}
 }
 
 // autopilotFixCI sends a branch's failed CI to its agent, read through gh
@@ -495,6 +588,19 @@ func (s *Server) autopilotFix(projectID, branch, what string, text func() (strin
 	}
 	agent := s.freeAgent(projectID, branch)
 	if agent == nil {
+		if waiting := s.busyAgent(projectID, branch); waiting != nil && what == "CI" {
+			// Red is only reported on the turn, so a failure put off now
+			// is remembered, or it would never be sent.
+			s.autopilot.mu.Lock()
+			already := s.autopilot.saved.PendingCI[key]
+			s.autopilot.saved.PendingCI[key] = true
+			s.autopilot.saveLocked()
+			s.autopilot.mu.Unlock()
+			if !already {
+				s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
+					Text: fmt.Sprintf("CI failed on %s; it goes to %s once it is free", branch, waiting.DisplayName())})
+			}
+		}
 		return
 	}
 	ok, capped, limit := s.autopilot.takeFix(key)
@@ -539,17 +645,20 @@ func (s *Server) autopilotCheck(ck proto.AutopilotCheck) (proto.AutopilotState, 
 	if s.autopilot.ownCheck(ck.Pane) {
 		return s.autopilotState(), nil // the server reads its own when it ends
 	}
-	s.autopilotCheckEnded(p, ck, nil)
+	s.autopilotCheckEnded(p, ck, nil, "")
 	return s.autopilotState(), nil
 }
 
 // autopilotCheckEnded records how a check on a branch ended — one the
-// server ran, with the output it printed, or one a client reports, whose
-// terminal is read — and acts on it: a failure goes to
+// server ran, with the output it printed and the commit it started on, or
+// one a client reports, whose terminal is read — and acts on it: a failure goes to
 // the agent, a pass ships the branch and may be what a green pull
 // request waited for.
-func (s *Server) autopilotCheckEnded(p *project, ck proto.AutopilotCheck, output []string) {
-	s.autopilot.checked(branchKey(ck.ProjectID, ck.Branch), branchHead(p, ck.Branch), ck.Exit == 0)
+func (s *Server) autopilotCheckEnded(p *project, ck proto.AutopilotCheck, output []string, head string) {
+	if head == "" {
+		head = branchHead(p, ck.Branch)
+	}
+	s.autopilot.checked(branchKey(ck.ProjectID, ck.Branch), head, ck.Exit == 0)
 	if ck.Exit == 0 {
 		go s.autopilotShip(ck.ProjectID, ck.Branch)
 	} else {
@@ -721,8 +830,7 @@ func (s *Server) mergeHold(info proto.ProjectInfo, branch string, pr proto.PRInf
 			return fmt.Sprintf("%d review threads unresolved on #%d", n, pr.Number)
 		}
 	}
-	if agent := s.branchAgent(info.ID, branch); agent != nil &&
-		(agent.Agent.State == proto.AgentWorking || agent.Agent.State == proto.AgentBlocked) {
+	if agent := s.busyAgent(info.ID, branch); agent != nil {
 		return agent.DisplayName() + " is still at it"
 	}
 	return ""

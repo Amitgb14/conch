@@ -1403,6 +1403,7 @@ func (s *Server) close(id string) *proto.Error {
 	}
 	s.runs.forget(id)
 	e.p.Close()
+	s.autopilotClosed(id)
 	log.Printf("pane %s closed", id)
 	s.broadcast(proto.EventPaneClosed, proto.PaneRef{ID: id})
 	return nil
