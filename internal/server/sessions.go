@@ -279,11 +279,13 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 			}
 		}
 	}
+	s.stars.mark(out)
 	sortSessions(out)
 	return proto.SessionList{Sessions: out, Partial: !complete}, nil
 }
 
-// sortSessions puts interrupted sessions first, then newest first.
+// sortSessions puts interrupted sessions first, then starred, then
+// newest first.
 func sortSessions(out []proto.SessionInfo) {
 	for i := 1; i < len(out); i++ {
 		for j := i; j > 0 && lessSession(out[j], out[j-1]); j-- {
@@ -293,8 +295,15 @@ func sortSessions(out []proto.SessionInfo) {
 }
 
 func lessSession(a, b proto.SessionInfo) bool {
+	// Interrupted first: that is work waiting to be picked up, where a
+	// star is a bookmark somebody left. Then starred, which is what
+	// starring is for — finding it among a project's hundreds without
+	// remembering its first line. Recency decides within each.
 	if a.Interrupted != b.Interrupted {
 		return a.Interrupted
+	}
+	if a.Starred != b.Starred {
+		return a.Starred
 	}
 	return a.Updated.After(b.Updated)
 }

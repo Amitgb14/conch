@@ -671,6 +671,30 @@ func (sv *sessionsView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 			next = agents[0]
 		}
 		sv.agent, sv.sel, sv.scroll = next, 0, 0
+	case "*", "f":
+		// Starred sessions are listed before the rest, so the one worth
+		// coming back to is at hand among a project's hundreds.
+		if sv.sel < 0 || sv.sel >= len(list) {
+			return false, nil
+		}
+		star := list[sv.sel]
+		if star.ID == "" {
+			m.setFlash("that run has no saved conversation to star", true)
+			return false, nil
+		}
+		if !m.hasCapability(sv.machine, proto.CapSessionStar) {
+			m.setFlash("the server there predates starring a session; reload it (conch server reload)", true)
+			return false, nil
+		}
+		key := sessionsKey(sv.machine, sv.projectID)
+		what := "starred"
+		if star.Starred {
+			what = "unstarred"
+		}
+		m.setFlash(what+" "+firstNonEmpty(star.Title, star.ID), false)
+		return false, m.callOn(sv.machine, proto.MethodSessionStar,
+			proto.SessionStarParams{Agent: star.Agent, ID: star.ID, On: !star.Starred}, nil,
+			func() tea.Msg { return sessionsStaleMsg{key: key} })
 	case "x":
 		if sv.sel >= 0 && sv.sel < len(list) && list[sv.sel].Interrupted {
 			s := list[sv.sel]
@@ -742,7 +766,7 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 	if proj != nil {
 		name = proj.Name
 	}
-	lines := []string{spread(styleBold.Render("Sessions · "+name), styleMuted.Render("enter resume · / search · s share · d delete · a agent"), w)}
+	lines := []string{spread(styleBold.Render("Sessions · "+name), styleMuted.Render("enter resume · * star · / search · s share · d delete · a agent"), w)}
 	d := sv.data(m)
 	switch {
 	case d == nil || (d.list == nil && d.loading):
@@ -813,6 +837,13 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 		case s.Interrupted:
 			mark, markStyle = "⚠", styleWarn
 		}
+		// A column of its own: the mark beside it says what the session
+		// is doing, and a star is not that. A space where there is none,
+		// so the names stay in line.
+		star := " "
+		if s.Starred {
+			star = "★"
+		}
 		var right []string
 		if s.Branch != "" {
 			right = append(right, s.Branch)
@@ -841,10 +872,10 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 			if m.focus == focusMain {
 				style = styleSel
 			}
-			lines = append(lines, style.Render(spread(fmt.Sprintf("▸ %s %s  %s%s", mark, padRight(agentLabel(s.Agent), agentW), title, snip), rightText, w)))
+			lines = append(lines, style.Render(spread(fmt.Sprintf("▸%s%s %s  %s%s", star, mark, padRight(agentLabel(s.Agent), agentW), title, snip), rightText, w)))
 			continue
 		}
-		left := fmt.Sprintf("  %s %s  %s%s", markStyle.Render(mark), styleAccent.Render(padRight(agentLabel(s.Agent), agentW)), title, styleMuted.Render(snip))
+		left := fmt.Sprintf(" %s%s %s  %s%s", styleWarn.Render(star), markStyle.Render(mark), styleAccent.Render(padRight(agentLabel(s.Agent), agentW)), title, styleMuted.Render(snip))
 		rs := styleMuted.Render(rightText)
 		if s.Interrupted && s.PaneID == "" {
 			rs = styleWarn.Render(rightText)
