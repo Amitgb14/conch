@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -182,6 +182,11 @@ const CapReviewComments = "review.comments.v1"
 // server's and the arrangement of them is the TUI's.
 const CapView = "view.v1"
 
+// CapPRMerge is branch.pr_merge: merging a branch's pull request on
+// GitHub, through gh. An older server only merges into a local checkout,
+// which leaves the pull request open; auto_merge needs this one.
+const CapPRMerge = "branch.pr_merge.v1"
+
 // CapFSSSH is the files of a host a terminal is logged in to with ssh:
 // PaneInfo.SSH names the host, and fs.list, fs.read, fs.mkdir, fs.upload
 // and fs.download take SSH, the pane, to reach that host's files instead of
@@ -295,10 +300,13 @@ const (
 
 	// Finishing a branch's work: commit, push, open a pull request, merge
 	// into the base, or throw the branch away.
-	MethodBranchCommit  = "branch.commit"
-	MethodBranchPush    = "branch.push"
-	MethodBranchPR      = "branch.pr"
-	MethodBranchMerge   = "branch.merge"
+	MethodBranchCommit = "branch.commit"
+	MethodBranchPush   = "branch.push"
+	MethodBranchPR     = "branch.pr"
+	MethodBranchMerge  = "branch.merge"
+	// MethodBranchPRMerge merges a branch's pull request on GitHub
+	// (CapPRMerge).
+	MethodBranchPRMerge = "branch.pr_merge"
 	MethodBranchDiscard = "branch.discard"
 	// MethodBranchGit runs git commands in a branch's worktree
 	// (CapBranchGit).
@@ -591,6 +599,8 @@ type PRInfo struct {
 	Passed int    `json:"passed,omitempty"`
 	Total  int    `json:"total,omitempty"`
 	Head   string `json:"head,omitempty"` // head commit
+	// Conflicting: GitHub says it cannot merge into its base as it stands.
+	Conflicting bool `json:"conflicting,omitempty"`
 }
 
 // WorktreeInfo is a checkout of the project.
@@ -975,6 +985,22 @@ type BranchMergeParams struct {
 	Branch    string `json:"branch"`
 	Squash    bool   `json:"squash,omitempty"`
 	Message   string `json:"message,omitempty"`
+}
+
+// BranchPRMergeParams merges Branch's pull request Number on GitHub, the
+// way the repository allows. A non-empty Head is the commit it must still
+// be at, so a push after its checks passed is not merged unchecked.
+type BranchPRMergeParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Number    int    `json:"number"`
+	Head      string `json:"head,omitempty"`
+}
+
+// BranchPRMergeResult says how the pull request was merged: merge,
+// squash or rebase.
+type BranchPRMergeResult struct {
+	Method string `json:"method"`
 }
 
 // BranchDiscardParams removes Branch's linked worktree and deletes the

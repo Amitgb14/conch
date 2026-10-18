@@ -316,3 +316,60 @@ func TestPullRequestsWaitForTheBranches(t *testing.T) {
 	p.refreshing = false
 	p.mu.Unlock()
 }
+
+// A green pull request is merged on GitHub, by the number conch read for
+// its branch and at the commit its checks passed for — never into a local
+// checkout, which left the pull request open and the base diverged from
+// GitHub's once somebody merged it there.
+func TestMergePR(t *testing.T) {
+	s, p := afterFixture(t)
+	quietPRs(t, p)
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	gh := filepath.Join(dir, "gh")
+	os.WriteFile(gh, []byte(`#!/bin/sh
+echo "$*" >> `+calls+`
+case "$1 $2" in
+"repo view") echo '{"mergeCommitAllowed":false,"squashMergeAllowed":true}' ;;
+"pr merge") if [ "$3" = 9 ]; then echo 'X Pull request o/r#9 is not mergeable: the merge commit cannot be cleanly created.' >&2; exit 1; fi ;;
+"pr list") echo '[]' ;;
+esac
+`), 0o755)
+	t.Setenv("CONCH_GH", gh)
+	p.mu.Lock()
+	p.prs = map[string]proto.PRInfo{
+		"api/model": {Number: 5, State: "OPEN", Head: "abc"},
+		"api/done":  {Number: 6, State: "MERGED"},
+		"api/clash": {Number: 9, State: "OPEN"},
+	}
+	p.mu.Unlock()
+
+	res, perr := s.projects.mergePR(proto.BranchPRMergeParams{ProjectID: p.id, Branch: "api/model", Number: 5, Head: "abc"})
+	if perr != nil || res.Method != "squash" {
+		t.Fatalf("merge: %+v %v", res, perr)
+	}
+	if b, _ := os.ReadFile(calls); !strings.Contains(string(b), "pr merge 5 --squash --match-head-commit abc\n") {
+		t.Fatalf("calls:\n%s", b)
+	}
+
+	for _, c := range []struct {
+		name string
+		mp   proto.BranchPRMergeParams
+		want string
+	}{
+		{"merged already", proto.BranchPRMergeParams{ProjectID: p.id, Branch: "api/done", Number: 6}, "no open pull request #6"},
+		{"another number", proto.BranchPRMergeParams{ProjectID: p.id, Branch: "api/model", Number: 4}, "no open pull request #4"},
+		{"no pull request", proto.BranchPRMergeParams{ProjectID: p.id, Branch: "nothing", Number: 1}, "no open pull request"},
+		{"GitHub refuses", proto.BranchPRMergeParams{ProjectID: p.id, Branch: "api/clash", Number: 9}, "is not mergeable"},
+		{"no project", proto.BranchPRMergeParams{ProjectID: "nope", Branch: "api/model", Number: 5}, ""},
+	} {
+		os.Remove(calls)
+		_, perr := s.projects.mergePR(c.mp)
+		if perr == nil || !strings.Contains(perr.Message, c.want) {
+			t.Errorf("%s: %v, want %q", c.name, perr, c.want)
+		}
+		if b, _ := os.ReadFile(calls); c.name != "GitHub refuses" && strings.Contains(string(b), "pr merge") {
+			t.Errorf("%s: merged anyway:\n%s", c.name, b)
+		}
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,24 +24,28 @@ const (
 
 // PR is a pull request.
 type PR struct {
-	Number  int
-	Title   string
-	State   string // OPEN, MERGED, CLOSED
-	Draft   bool
-	URL     string
-	Branch  string // head branch
-	Head    string // head commit
-	Review  string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED or ""
-	Checks  string // ChecksPass, ChecksFail, ChecksPending or "" when none
-	Passed  int    // checks that passed
-	Total   int    // checks reported
-	Updated time.Time
+	Number int
+	Title  string
+	State  string // OPEN, MERGED, CLOSED
+	Draft  bool
+	URL    string
+	Branch string // head branch
+	Head   string // head commit
+	Review string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED or ""
+	// Conflicting is GitHub saying the branch cannot merge into its base
+	// as it stands. GitHub works it out after a push, so until then it is
+	// false: unknown is not a conflict.
+	Conflicting bool
+	Checks      string // ChecksPass, ChecksFail, ChecksPending or "" when none
+	Passed      int    // checks that passed
+	Total       int    // checks reported
+	Updated     time.Time
 }
 
 // ErrNoGH means the gh binary is not installed.
 var ErrNoGH = errors.New("gh (GitHub CLI) is not installed")
 
-const fields = "number,title,state,isDraft,url,headRefName,headRefOid,reviewDecision,statusCheckRollup,updatedAt"
+const fields = "number,title,state,isDraft,url,headRefName,headRefOid,reviewDecision,statusCheckRollup,updatedAt,mergeable"
 
 // List returns recent pull requests of the repository in dir. The gh binary
 // is $CONCH_GH when set.
@@ -77,6 +82,52 @@ func Create(ctx context.Context, dir, base, head, title, body string, draft bool
 		}
 	}
 	return "", fmt.Errorf("gh pr create: no pull request URL in its output %q", strings.TrimSpace(string(out)))
+}
+
+// Merge merges pull request number on GitHub, the way the repository
+// allows — a merge commit, else a squash, else a rebase, which is the
+// order GitHub's own button offers them — and returns the way it used.
+// head, when given, is the commit the pull request must still be at: a
+// push after its checks passed is not what they passed for, and gh then
+// refuses. The branch itself is left alone, since a worktree may be on it.
+func Merge(ctx context.Context, dir string, number int, head string) (string, error) {
+	out, err := run(ctx, dir, "repo", "view", "--json", "mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed")
+	if err != nil {
+		return "", err
+	}
+	method, err := mergeMethod(out)
+	if err != nil {
+		return "", err
+	}
+	args := []string{"pr", "merge", strconv.Itoa(number), "--" + method}
+	if head != "" {
+		args = append(args, "--match-head-commit", head)
+	}
+	if _, err := run(ctx, dir, args...); err != nil {
+		return "", err
+	}
+	return method, nil
+}
+
+// mergeMethod picks how to merge from `gh repo view` output.
+func mergeMethod(data []byte) (string, error) {
+	var allowed struct {
+		Merge  bool `json:"mergeCommitAllowed"`
+		Squash bool `json:"squashMergeAllowed"`
+		Rebase bool `json:"rebaseMergeAllowed"`
+	}
+	if err := json.Unmarshal(data, &allowed); err != nil {
+		return "", fmt.Errorf("parse gh output: %w", err)
+	}
+	switch {
+	case allowed.Merge:
+		return "merge", nil
+	case allowed.Squash:
+		return "squash", nil
+	case allowed.Rebase:
+		return "rebase", nil
+	}
+	return "", errors.New("the repository allows no way of merging a pull request")
 }
 
 // run runs gh in dir and returns its stdout. A failure carries the first
@@ -117,6 +168,7 @@ type rawPR struct {
 	HeadRefName    string    `json:"headRefName"`
 	HeadRefOid     string    `json:"headRefOid"`
 	ReviewDecision string    `json:"reviewDecision"`
+	Mergeable      string    `json:"mergeable"` // MERGEABLE, CONFLICTING or UNKNOWN
 	UpdatedAt      time.Time `json:"updatedAt"`
 	Rollup         []struct {
 		Typename   string `json:"__typename"`
@@ -137,6 +189,7 @@ func Parse(data []byte) ([]PR, error) {
 		pr := PR{
 			Number: r.Number, Title: r.Title, State: r.State, Draft: r.IsDraft, URL: r.URL,
 			Branch: r.HeadRefName, Head: r.HeadRefOid, Review: r.ReviewDecision, Updated: r.UpdatedAt,
+			Conflicting: r.Mergeable == "CONFLICTING",
 		}
 		failed, pending := 0, 0
 		for _, c := range r.Rollup {

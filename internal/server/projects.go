@@ -487,7 +487,7 @@ func (pm *projectManager) fetchPRs(p *project) {
 		for branch, pr := range ghx.ByBranch(list) {
 			p.prs[branch] = proto.PRInfo{
 				Number: pr.Number, Title: pr.Title, State: pr.State, Draft: pr.Draft, URL: pr.URL,
-				Review: pr.Review, Checks: pr.Checks, Passed: pr.Passed, Total: pr.Total, Head: pr.Head,
+				Review: pr.Review, Checks: pr.Checks, Passed: pr.Passed, Total: pr.Total, Head: pr.Head, Conflicting: pr.Conflicting,
 			}
 		}
 	}

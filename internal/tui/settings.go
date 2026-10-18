@@ -415,7 +415,7 @@ func autoMergeText(on bool) string {
 	if !on {
 		return "off · merge it yourself when the checks pass"
 	}
-	return "on · not a draft, not over a review, not past a failed check"
+	return "on · on GitHub; not a draft, a conflict, a review or a failed check"
 }
 
 func notifyCommandText(cmd string) string {

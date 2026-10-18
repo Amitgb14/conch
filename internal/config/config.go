@@ -172,11 +172,12 @@ type VerifyCfg struct {
 	// the branch's agent on its own, with the output, to fix. 0 (the
 	// default) never does: f in the review queue sends it when you choose.
 	AutoFix int `toml:"auto_fix,omitempty"`
-	// AutoMerge merges a branch when its pull request's checks turn
-	// green: the other half of AutoFix, which hands a red one back to
-	// the agent. Off by default, because it writes to the base branch —
-	// and refused for a draft, for one somebody asked for changes on,
-	// and while conch's own check disagrees with CI.
+	// AutoMerge merges a branch's pull request on GitHub when its checks
+	// turn green: the other half of AutoFix, which hands a red one back
+	// to the agent. Off by default, because it writes to the base branch
+	// — and held back for a draft, a conflict, one somebody asked for
+	// changes on, and while conch's own check disagrees with CI, until
+	// whatever held it is gone.
 	AutoMerge bool `toml:"auto_merge,omitempty"`
 	// Reviewer is the agent asked to review a branch when its agent
 	// finishes — after the check passes, where there is one — reading the

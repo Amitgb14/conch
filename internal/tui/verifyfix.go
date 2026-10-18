@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -301,21 +302,33 @@ func (m *Model) autoFixCIBranch(machine, projectID string, b proto.BranchInfo, k
 	return m.fixCI(machine, projectID, b.Name)
 }
 
-// autoMergeCI merges a branch when its pull request's checks turn green,
-// with [verify] auto_merge. It is the other half of autoFixCI: the same
-// poll, the same transition, the opposite colour. Everything it needs is
-// in the pull request conch already reads every minute.
+// autoMergeCI merges a branch's pull request on GitHub when its checks
+// turn green, with [verify] auto_merge. It is the other half of
+// autoFixCI: the same poll, the same transition, the opposite colour.
+// Everything it needs is in the pull request conch already reads every
+// minute.
+//
+// The merge is GitHub's, not a local one: merging into a checkout left
+// the pull request open, and once somebody merged it on GitHub the base
+// there and the base here had diverged.
 //
 // What it will not do, and why each one:
 //
 //   - A draft is not finished, whatever CI says.
 //   - CHANGES_REQUESTED is a person asking for something, and green
 //     checks are not an answer to it.
+//   - A pull request that conflicts with its base cannot be merged as it
+//     stands; somebody has to rebase it.
 //   - A project's own check failing while CI passes is a disagreement,
 //     not a go-ahead (verifyFailed).
 //   - A branch whose agent is working or waiting may be mid-push.
-//   - Only on the turn to green, so a poll that says "still passing"
-//     merges nothing, and a branch merged by hand is not merged twice.
+//   - Only a turn to green conch watched, so connecting to a machine
+//     with old green pull requests merges none of them.
+//
+// A branch held back for one of those still wants merging: it waits in
+// m.autoMerges, and goes as soon as nothing holds it — its agent
+// finishing, a thread resolved, the conflict rebased away — rather than
+// never, which is what holding back used to mean.
 func (m *Model) autoMergeCI(machine string, was, now proto.ProjectInfo) tea.Cmd {
 	if !m.cfg.Verify.AutoMerge {
 		return nil
@@ -324,35 +337,113 @@ func (m *Model) autoMergeCI(machine string, was, now proto.ProjectInfo) tea.Cmd 
 	for _, b := range was.Branches {
 		before[b.Name] = prChecks(b)
 	}
-	var cmds []tea.Cmd
+	if m.autoMerges == nil {
+		m.autoMerges = map[string]*autoMergeWait{}
+	}
+	green := map[string]bool{}
 	for _, b := range now.Branches {
-		if prChecks(b) != "pass" || before[b.Name] == "pass" {
+		key := machine + "|" + now.ID + "|" + b.Name
+		if prChecks(b) != "pass" {
 			continue
 		}
-		cmds = append(cmds, m.autoMergeBranch(machine, now, b))
+		green[key] = true
+		if _, waiting := m.autoMerges[key]; !waiting && before[b.Name] != "pass" {
+			m.autoMerges[key] = &autoMergeWait{}
+		}
+	}
+	// Red again, pending again, merged, closed or gone: nothing to wait
+	// for. A merge in flight stays until it answers.
+	prefix := machine + "|" + now.ID + "|"
+	for key, w := range m.autoMerges {
+		if strings.HasPrefix(key, prefix) && !green[key] && !w.merging {
+			delete(m.autoMerges, key)
+		}
+	}
+	return m.autoMergeProject(machine, now)
+}
+
+// autoMergeWait is a green pull request waiting to merge: what last held
+// it back, so the reason is said once rather than at every poll, and
+// whether its merge is under way.
+type autoMergeWait struct {
+	held    string
+	merging bool
+}
+
+// autoMergeDoneMsg is a pull request merge that answered.
+type autoMergeDoneMsg struct {
+	key    string
+	target harvestTarget
+	number int
+	method string
+	err    error
+}
+
+// autoMergeRetry looks again at every pull request waiting to merge on
+// machine, after something that can lift a hold: an agent's state, a
+// check's result, a review thread.
+func (m *Model) autoMergeRetry(machine string) tea.Cmd {
+	if len(m.autoMerges) == 0 || !m.cfg.Verify.AutoMerge {
+		return nil
+	}
+	mach := m.machine(machine)
+	if mach == nil {
+		return nil
+	}
+	var cmds []tea.Cmd
+	for _, proj := range mach.projects {
+		cmds = append(cmds, m.autoMergeProject(machine, proj))
 	}
 	return tea.Batch(cmds...)
 }
 
-// autoMergeBranch is autoMergeCI's decision for one branch that has just
-// gone green. It says why it is holding back rather than doing it
-// quietly: a merge that does not happen is as surprising as one that
-// does.
-func (m *Model) autoMergeBranch(machine string, proj proto.ProjectInfo, b proto.BranchInfo) tea.Cmd {
-	hold := func(why string) tea.Cmd {
-		m.setFlash(fmt.Sprintf("%s is green but not merged: %s", b.Name, why), false)
-		return nil
+// autoMergeProject merges every pull request of proj that is waiting and
+// no longer held back.
+func (m *Model) autoMergeProject(machine string, proj proto.ProjectInfo) tea.Cmd {
+	var cmds []tea.Cmd
+	for _, b := range proj.Branches {
+		key := machine + "|" + proj.ID + "|" + b.Name
+		w, waiting := m.autoMerges[key]
+		if !waiting || w.merging || prChecks(b) != "pass" {
+			continue
+		}
+		if why := m.autoMergeHold(machine, proj, b); why != "" {
+			if why != w.held {
+				w.held = why
+				m.setFlash(fmt.Sprintf("%s is green but not merged: %s", b.Name, why), false)
+			}
+			continue
+		}
+		if b.Name == proj.Base {
+			delete(m.autoMerges, key) // the base does not merge into itself
+			continue
+		}
+		w.merging = true
+		cmds = append(cmds, m.autoMergePR(key, machine, proj.ID, b))
 	}
+	return tea.Batch(cmds...)
+}
+
+// autoMergeHold says what keeps a green pull request from merging, or ""
+// when nothing does. It says why rather than holding back quietly: a
+// merge that does not happen is as surprising as one that does.
+func (m *Model) autoMergeHold(machine string, proj proto.ProjectInfo, b proto.BranchInfo) string {
 	switch {
 	case b.PR.Draft:
-		return hold("its pull request is a draft")
+		return "its pull request is a draft"
 	case b.PR.Review == "CHANGES_REQUESTED":
-		return hold(fmt.Sprintf("somebody asked for changes on #%d", b.PR.Number))
-	case b.Name == proj.Base:
-		return nil // the base does not merge into itself
+		return fmt.Sprintf("somebody asked for changes on #%d", b.PR.Number)
+	case b.PR.Conflicting:
+		base := proj.Base
+		if base == "" {
+			base = "its base"
+		}
+		return fmt.Sprintf("#%d conflicts with %s; rebase it and it merges once it is green again", b.PR.Number, base)
+	case !m.hasCapability(machine, proto.CapPRMerge):
+		return "conch there predates merging pull requests; update it (u in the version box) and it merges"
 	}
 	if state, _ := m.verifyOf(machine, proj.ID, b.Name); state == verifyFailed {
-		return hold("this project's own check failed, which CI passing does not answer")
+		return "this project's own check failed, which CI passing does not answer"
 	}
 	// An unresolved thread on the pull request is somebody waiting for an
 	// answer. A review that formally asked for changes is caught above;
@@ -361,19 +452,50 @@ func (m *Model) autoMergeBranch(machine string, proj proto.ProjectInfo, b proto.
 	// are the person's working notes, and a stale one would hold a branch
 	// for ever.
 	if n := openThreads(m.machine(machine), proj.ID, b.Name); n > 0 {
-		return hold(fmt.Sprintf("%s unresolved on #%d", count(n, "review thread"), b.PR.Number))
+		return fmt.Sprintf("%s unresolved on #%d", count(n, "review thread"), b.PR.Number)
 	}
 	if agent := m.branchAgent(machine, proj.ID, b.Name); agent != nil &&
 		(agent.Agent.State == proto.AgentWorking || agent.Agent.State == proto.AgentBlocked) {
-		return hold(agent.DisplayName() + " is still at it")
+		return agent.DisplayName() + " is still at it"
 	}
-	t := harvestTarget{machine: machine, projectID: proj.ID, branch: b.Name}
-	var res proto.CommitResult
-	params := proto.BranchMergeParams{ProjectID: proj.ID, Branch: b.Name, Squash: true}
-	m.setFlash(fmt.Sprintf("#%d is green: merging %s…", b.PR.Number, b.Name), false)
-	return m.harvestCall(t, proto.MethodBranchMerge, params, &res, func() harvestDoneMsg {
-		return harvestDoneMsg{text: fmt.Sprintf("merged %s into %s (%s), green on #%d", b.Name, res.Into, shortHash(res.Hash), b.PR.Number)}
-	})
+	return ""
+}
+
+// autoMergePR merges b's pull request on GitHub, at the commit whose
+// checks passed.
+func (m *Model) autoMergePR(key, machine, projectID string, b proto.BranchInfo) tea.Cmd {
+	t := harvestTarget{machine: machine, projectID: projectID, branch: b.Name}
+	number := b.PR.Number
+	params := proto.BranchPRMergeParams{ProjectID: projectID, Branch: b.Name, Number: number, Head: b.PR.Head}
+	m.setFlash(fmt.Sprintf("#%d is green: merging it on GitHub…", number), false)
+	c := m.clientOf(machine)
+	return func() tea.Msg {
+		msg := autoMergeDoneMsg{key: key, target: t, number: number}
+		if c == nil {
+			msg.err = errString(m.offlineText(machine))
+			return msg
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), harvestTimeout)
+		defer cancel()
+		var res proto.BranchPRMergeResult
+		msg.err = c.Call(ctx, proto.MethodBranchPRMerge, params, &res)
+		msg.method = res.Method
+		return msg
+	}
+}
+
+// autoMergeDone reports a merge. One GitHub refused is not tried again
+// until the pull request turns green again — after a push, which is what
+// it takes to change GitHub's mind — so a refusal is said once, not every
+// minute.
+func (m *Model) autoMergeDone(msg autoMergeDoneMsg) tea.Cmd {
+	delete(m.autoMerges, msg.key)
+	if msg.err != nil {
+		m.setFlash(fmt.Sprintf("#%d is green but GitHub would not merge it: %v", msg.number, msg.err), true)
+		return nil
+	}
+	return m.receiveHarvest(harvestDoneMsg{target: msg.target,
+		text: fmt.Sprintf("merged #%d on GitHub (%s), green", msg.number, msg.method)})
 }
 
 // openThreads is how many of a branch's pull request comments are still
