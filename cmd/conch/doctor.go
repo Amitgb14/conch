@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,12 +11,18 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/ghx"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/update"
 )
 
@@ -29,7 +36,7 @@ const doctorUsage = "usage: conch doctor [-json]"
 
 var doctorVersion = regexp.MustCompile(`\d+\.\d+(\.\d+)?`)
 
-// Check outcomes, worst last so the worst of a list is its maximum.
+// Check outcomes.
 const (
 	doctorOK   = "ok"
 	doctorWarn = "warn" // works, but something is missing or out of date
@@ -74,23 +81,35 @@ func runDoctor(args []string) error {
 	return nil
 }
 
+// doctorChecks runs the checks side by side and lists them in a fixed
+// order. Nothing but the agents depends on anything else, and one slow
+// thing — a wedged server, a credential helper waiting on a keychain —
+// should cost its own wait, not everybody's after it.
 func doctorChecks() []doctorCheck {
 	cfg, cfgCheck := doctorConfig()
-	server, c := doctorServer()
-	if c != nil {
-		defer c.Close()
-	}
-	return []doctorCheck{
+	checks := []doctorCheck{
 		{Name: "conch", Status: doctorOK, Detail: proto.Version + " · " + runtime.GOOS + "/" + runtime.GOARCH},
 		cfgCheck,
 		doctorSocket(),
-		server,
-		doctorAgents(c),
-		doctorGit(),
-		doctorGH(),
+		{}, {}, // server, agents
+		{}, {}, // git, gh
 		doctorTerminal(cfg),
 		doctorMachines(),
 	}
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		server, c := doctorServer()
+		checks[3], checks[4] = server, doctorAgents(c)
+		if c != nil {
+			c.Close()
+		}
+	}()
+	go func() { defer wg.Done(); checks[5] = doctorGit() }()
+	go func() { defer wg.Done(); checks[6] = doctorGH() }()
+	wg.Wait()
+	return checks
 }
 
 // doctorText lays the checks out one to a line, the fix indented beneath,
@@ -176,25 +195,57 @@ func doctorSocket() doctorCheck {
 func doctorServer() (doctorCheck, *client.Client) {
 	c, err := client.Dial(config.SocketPath(), "conch-doctor")
 	if err != nil {
-		return doctorCheck{Name: "server", Status: doctorWarn, Detail: "not running",
-			Fix: "run conch, which starts it; agents keep running when conch closes"}, nil
+		if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) {
+			return doctorCheck{Name: "server", Status: doctorWarn, Detail: "not running",
+				Fix: "run conch, which starts it; agents keep running when conch closes"}, nil
+		}
+		// Something holds the socket and does not answer: a server stuck
+		// mid-reload, or one that is not this person's. Starting conch would
+		// clear the socket and every pane with it, so that is not the advice.
+		return doctorCheck{Name: "server", Status: doctorFail,
+			Detail: "the socket is there but the server does not answer: " + err.Error(),
+			Fix:    "see " + config.ServerLogPath() + "; conch server stop ends it, and its panes"}, nil
 	}
 	s := c.Server
 	detail := fmt.Sprintf("pid %d", s.PID)
 	if !s.Started.IsZero() {
 		detail += ", up " + doctorSince(time.Since(s.Started))
 	}
-	if same, ok := update.SameBuild(s); ok && !same {
+	same, ok := update.SameBuild(s)
+	missing := c.MissingCapabilities(proto.Capabilities)
+	switch {
+	case ok && !same && update.Compare(s.Version, proto.Version) > 0:
+		// Reloading the server onto this binary would take it backwards.
 		return doctorCheck{Name: "server", Status: doctorWarn,
-			Detail: fmt.Sprintf("%s, on another build (%s) than this conch (%s)", detail, s.Version, proto.Version),
-			Fix:    "conch server reload  (panes and agents keep running)"}, c
-	}
-	if missing := c.MissingCapabilities(proto.Capabilities); len(missing) > 0 {
+			Detail: fmt.Sprintf("%s, on a newer conch (%s) than this one (%s)", detail, s.Version, proto.Version),
+			Fix:    "run the newer conch, or conch update"}, c
+	case ok && !same:
+		what := fmt.Sprintf("another build (%s) than this conch (%s)", s.Version, proto.Version)
+		if s.Version == proto.Version {
+			what = "another build of " + s.Version + " than this conch"
+		}
+		return doctorCheck{Name: "server", Status: doctorWarn, Detail: detail + ", on " + what, Fix: doctorReloadFix(c)}, c
+	case len(missing) > 0:
 		return doctorCheck{Name: "server", Status: doctorWarn,
 			Detail: fmt.Sprintf("%s, older than this conch: %s missing", detail, counted(len(missing), "feature")),
-			Fix:    "conch server reload  (panes and agents keep running)"}, c
+			Fix:    doctorReloadFix(c)}, c
 	}
 	return doctorCheck{Name: "server", Status: doctorOK, Detail: detail}, c
+}
+
+// doctorReloadFix moves the server onto this binary. A plain reload execs
+// the server's own file again, which is no help when the new build is
+// somewhere else (bin/conch beside ~/.local/bin/conch); a server too old to
+// reload at all can only be restarted.
+func doctorReloadFix(c *client.Client) string {
+	if len(c.MissingCapabilities([]string{"server.reload.v1"})) > 0 {
+		return "conch server stop, then conch  (this server cannot reload; its panes stop)"
+	}
+	fix := "conch server reload"
+	if exe, err := os.Executable(); err == nil {
+		fix += " -binary " + adapter.ShellQuote(exe)
+	}
+	return fix + "  (panes and agents keep running)"
 }
 
 // doctorSince is a duration as somebody would say it.
@@ -219,7 +270,13 @@ func doctorAgents(c *client.Client) doctorCheck {
 			Fix: "run conch, then conch doctor again"}
 	}
 	var res proto.AgentStatusResult
-	if err := callFor(c, proto.MethodAgentStatus, nil, &res, 45*time.Second); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	if err := c.Call(ctx, proto.MethodAgentStatus, nil, &res); err != nil {
+		var perr *proto.Error
+		if errors.As(err, &perr) && perr.Code == proto.ErrUnknown {
+			return doctorCheck{Name: "agents", Status: doctorWarn, Detail: "not checked: the server is too old to say (see server above)"}
+		}
 		return doctorCheck{Name: "agents", Status: doctorWarn, Detail: "the server could not say: " + err.Error()}
 	}
 	var have, missing []string
@@ -234,24 +291,17 @@ func doctorAgents(c *client.Client) doctorCheck {
 		}
 	}
 	if len(have) == 0 {
-		return doctorCheck{Name: "agents", Status: doctorFail, Detail: "none installed; conch runs agents, so it needs one",
-			Fix: "conch agent install claude  (or " + strings.Join(without(missing, "claude"), ", ") + ")"}
+		fix := "conch agent install claude"
+		if others := slices.DeleteFunc(slices.Clone(missing), func(n string) bool { return n == "claude" }); len(others) > 0 {
+			fix += "  (or " + strings.Join(others, ", ") + ")"
+		}
+		return doctorCheck{Name: "agents", Status: doctorFail, Detail: "none installed; conch runs agents, so it needs one", Fix: fix}
 	}
 	detail := strings.Join(have, " · ")
 	if len(missing) > 0 {
 		detail += "  (not installed: " + strings.Join(missing, ", ") + ")"
 	}
 	return doctorCheck{Name: "agents", Status: doctorOK, Detail: detail}
-}
-
-func without(list []string, drop string) []string {
-	var out []string
-	for _, s := range list {
-		if s != drop {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 // doctorGit needs git itself, a version new enough for the overlap check,
@@ -272,30 +322,40 @@ func doctorGit() doctorCheck {
 	if version == "" {
 		version = "unknown version"
 	}
-	name, _ := doctorOutput(path, "config", "--get", "user.name")
-	email, _ := doctorOutput(path, "config", "--get", "user.email")
+	// git takes its identity from the environment before its config.
+	name := cmp.Or(os.Getenv("GIT_AUTHOR_NAME"), os.Getenv("GIT_COMMITTER_NAME"))
+	if name == "" {
+		name, _ = doctorOutput(path, "config", "--get", "user.name")
+	}
+	email := cmp.Or(os.Getenv("GIT_AUTHOR_EMAIL"), os.Getenv("GIT_COMMITTER_EMAIL"), os.Getenv("EMAIL"))
+	if email == "" {
+		email, _ = doctorOutput(path, "config", "--get", "user.email")
+	}
+	// Both problems at once, so fixing one does not uncover the other.
+	var problems, fixes []string
 	if name == "" || email == "" {
-		return doctorCheck{Name: "git", Status: doctorWarn,
-			Detail: version + ", with no name or email to commit as",
-			Fix:    `git config --global user.name "Your Name" && git config --global user.email you@example.com`}
+		problems = append(problems, "no name or email to commit as")
+		fixes = append(fixes, `git config --global user.name "Your Name" && git config --global user.email you@example.com`)
 	}
 	if version != "unknown version" && update.Compare(version, "2.38") < 0 {
+		problems = append(problems, "telling which branches would conflict needs 2.38")
+		fixes = append(fixes, "upgrade git")
+	}
+	if len(problems) > 0 {
 		return doctorCheck{Name: "git", Status: doctorWarn,
-			Detail: version + "; telling which branches would conflict needs 2.38", Fix: "upgrade git"}
+			Detail: version + "; " + strings.Join(problems, "; "), Fix: strings.Join(fixes, "; ")}
 	}
 	return doctorCheck{Name: "git", Status: doctorOK, Detail: version + ", committing as " + name}
 }
 
 // doctorGH is optional — conch runs without it — but pull requests, CI
 // results, issues and review threads all come through it. `gh auth token`
-// is asked rather than `auth status`, which reaches GitHub and would call
-// an offline laptop signed out; the token itself is thrown away.
+// is asked first rather than `auth status`, which reaches GitHub and would
+// call an offline laptop signed out; the token itself is thrown away. A gh
+// from before `auth token` (Ubuntu 22.04 packages 2.4) fails it whoever is
+// signed in, so a failure is asked again the old way.
 func doctorGH() doctorCheck {
-	bin := os.Getenv("CONCH_GH")
-	if bin == "" {
-		bin = "gh"
-	}
-	path, err := exec.LookPath(bin)
+	path, err := exec.LookPath(ghx.Binary())
 	if err != nil {
 		return doctorCheck{Name: "gh", Status: doctorWarn,
 			Detail: "not found; pull requests, CI results and issues come through it",
@@ -303,11 +363,17 @@ func doctorGH() doctorCheck {
 	}
 	out, _ := doctorOutput(path, "--version")
 	version := doctorVersion.FindString(out)
-	if _, err := doctorOutput(path, "auth", "token"); err != nil {
+	if _, err := doctorOutput(path, "auth", "token"); err != nil && !doctorRuns(path, "auth", "status") {
 		return doctorCheck{Name: "gh", Status: doctorWarn, Detail: strings.TrimSpace(version + " not signed in"),
 			Fix: "gh auth login"}
 	}
 	return doctorCheck{Name: "gh", Status: doctorOK, Detail: strings.TrimSpace(version + " signed in")}
+}
+
+// doctorRuns reports whether a program succeeds, saying nothing.
+func doctorRuns(path string, args ...string) bool {
+	_, err := doctorOutput(path, args...)
+	return err == nil
 }
 
 // doctorOutput runs a program briefly and returns its first line.
@@ -322,8 +388,8 @@ func doctorOutput(path string, args ...string) (string, error) {
 }
 
 // doctorTerminal is about the terminal this is run in, which is where the
-// TUI will draw. Two things bite: no terminal at all, and tmux, whose usual
-// prefix is conch's too, so the first press goes to whichever is outside.
+// TUI will draw. Two things bite: no terminal at all, and a tmux prefix that
+// is conch's too, so the first press goes to whichever is outside.
 func doctorTerminal(cfg config.Config) doctorCheck {
 	term := os.Getenv("TERM")
 	if term == "" || term == "dumb" {
@@ -341,30 +407,71 @@ func doctorTerminal(cfg config.Config) doctorCheck {
 	default:
 		detail += ", 256 colours"
 	}
-	if os.Getenv("TMUX") != "" {
-		detail += ", inside tmux"
-		if strings.EqualFold(cfg.Keys.Prefix, "ctrl+b") {
-			return doctorCheck{Name: "terminal", Status: doctorWarn,
-				Detail: detail + ", whose usual prefix ctrl+b is conch's too",
-				Fix:    `set prefix = "ctrl+a" under [keys] in ` + config.File()}
+	if os.Getenv("TMUX") == "" {
+		return doctorCheck{Name: "terminal", Status: doctorOK, Detail: detail}
+	}
+	detail += ", inside tmux"
+	prefixes := tmuxPrefixes()
+	whose := "whose prefix"
+	if prefixes == nil {
+		prefixes, whose = []string{"ctrl+b"}, "whose usual prefix" // tmux would not say
+	}
+	mine := strings.ToLower(cfg.Keys.Prefix)
+	if !slices.Contains(prefixes, mine) {
+		return doctorCheck{Name: "terminal", Status: doctorOK, Detail: detail}
+	}
+	free := "ctrl+a"
+	for _, k := range []string{"ctrl+a", "ctrl+g", "ctrl+x"} {
+		if !slices.Contains(prefixes, k) {
+			free = k
+			break
 		}
 	}
-	return doctorCheck{Name: "terminal", Status: doctorOK, Detail: detail}
+	return doctorCheck{Name: "terminal", Status: doctorWarn,
+		Detail: fmt.Sprintf("%s, %s %s is conch's too", detail, whose, mine),
+		Fix:    fmt.Sprintf(`set prefix = %q under [keys] in %s`, free, config.File())}
+}
+
+// tmuxPrefixes asks the tmux conch runs inside for its prefix keys, in
+// conch's spelling (C-a is ctrl+a, M-a alt+a); nil when tmux cannot say.
+func tmuxPrefixes() []string {
+	path, err := exec.LookPath("tmux")
+	if err != nil {
+		return nil
+	}
+	var keys []string
+	for _, opt := range []string{"prefix", "prefix2"} {
+		out, err := doctorOutput(path, "show-options", "-gv", opt)
+		if err != nil || out == "" || out == "None" {
+			continue
+		}
+		key := strings.NewReplacer("C-", "ctrl+", "M-", "alt+", "S-", "shift+").Replace(out)
+		keys = append(keys, strings.ToLower(key))
+	}
+	return keys
 }
 
 // doctorMachines counts the saved machines, never naming them, and checks
 // for the ssh they are reached with. It does not dial them: one machine
 // that is asleep would make the doctor hang, and conch machine ls exists.
 func doctorMachines() doctorCheck {
-	n := savedMachineCount()
+	ms, err := remote.Machines()
+	if err != nil {
+		// The TUI would show none of them, with nothing said.
+		return doctorCheck{Name: "machines", Status: doctorFail,
+			Detail: remote.CatalogPath() + " cannot be read: " + err.Error(),
+			Fix:    "fix or move that file aside; conch machine add puts machines back"}
+	}
+	n := 0
+	for _, m := range ms {
+		if m.Enabled {
+			n++
+		}
+	}
 	if n == 0 {
 		return doctorCheck{Name: "machines", Status: doctorOK, Detail: "this computer only (conch machine add HOST adds one)"}
 	}
-	bin := os.Getenv("CONCH_SSH")
-	if bin == "" {
-		bin = "ssh"
-	}
-	if _, err := exec.LookPath(bin); err != nil {
+	if _, err := exec.LookPath(remote.SSHBinary()); err != nil {
 		return doctorCheck{Name: "machines", Status: doctorFail,
 			Detail: fmt.Sprintf("%s saved, but no ssh to reach them", counted(n, "machine")),
 			Fix:    "install OpenSSH's client"}

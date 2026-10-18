@@ -287,7 +287,7 @@ The first thing to run when something does not work. Each line is one thing conc
 ✓ config    /Users/you/.config/conch/config.toml
 ✓ socket    /Users/you/.config/conch/conch.sock
 ! server    pid 28356, up 6d, on another build (0.1.8) than this conch (0.1.9)
-            → conch server reload  (panes and agents keep running)
+            → conch server reload -binary /Users/you/.local/bin/conch  (panes and agents keep running)
 ✓ agents    claude 2.1.3 · codex 0.46.0  (not installed: gemini, opencode, devin)
 ✓ git       2.49.0, committing as You
 ! gh        2.62.0 not signed in
@@ -302,14 +302,14 @@ conch works; 2 things worth a look.
 | --- | --- | --- |
 | config | `config.toml` does not parse, so none of it is in force | an `[[actions]]` entry with no name, no command or an unknown place |
 | socket | the socket path is longer than the system allows (103 bytes on macOS, 107 on Linux), so no server can listen | |
-| server | | not running; on another build than this `conch`; missing features this `conch` uses |
+| server | the socket is there but nothing answers — stuck, or somebody else's (starting `conch` would clear it, and every pane) | not running; on another build than this `conch` (the fix reloads it onto *this* binary, or says to run the newer one when the server is ahead); missing features this `conch` uses |
 | agents | the server finds none installed | not checked, because no server is running |
-| git | not found | no `user.name` or `user.email` to commit as; older than 2.38, which telling which branches would conflict needs |
+| git | not found | no name or email to commit as, in git's config or its environment variables; older than 2.38, which telling which branches would conflict needs |
 | gh | | not found, or not signed in — pull requests, CI results and issues come through it |
-| terminal | `TERM` is empty or `dumb` | inside tmux with conch's prefix left at `ctrl+b`, tmux's own |
-| machines | machines are saved but there is no `ssh` | |
+| terminal | `TERM` is empty or `dumb` | inside tmux with the same prefix as tmux (asked of tmux itself), and a key free in both to use instead |
+| machines | `machines.json` cannot be read; machines are saved but there is no `ssh` | |
 
-It exits 1 when anything is marked ✗, and 0 otherwise. It changes nothing and starts nothing — not even the server — and it does not dial your machines, so a machine that is asleep cannot make it hang. Whether `gh` is signed in is asked without reaching GitHub, so an offline laptop is not called signed out, and the token `gh` hands back is thrown away. It checks this computer: on another machine, run it there.
+It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by side, so one slow thing costs only its own wait. It changes nothing and starts nothing — not even the server — and it does not dial your machines, so a machine that is asleep cannot make it hang. Whether `gh` is signed in is asked without reaching GitHub, so an offline laptop is not called signed out (a `gh` too old for that is asked the usual way), and the token `gh` hands back is thrown away. It checks this computer: on another machine, run it there.
 
 ### bug
 

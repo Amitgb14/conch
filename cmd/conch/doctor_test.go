@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +30,13 @@ func doctorEnv(t *testing.T) string {
 	os.WriteFile(gitconfig, []byte("[user]\n\tname = Test Person\n\temail = t@example.com\n"), 0o600)
 	t.Setenv("GIT_CONFIG_GLOBAL", gitconfig)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	for _, v := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL", "EMAIL"} {
+		t.Setenv(v, "")
+	}
+	// Never the developer's own tmux, whose server would be asked.
+	bin := t.TempDir()
+	doctorScript(t, bin, "tmux", "exit 1")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return dir
 }
 
@@ -174,8 +183,69 @@ func TestDoctorServer(t *testing.T) {
 		return h
 	})
 	c = doctorFind(t, "server")
-	if c.Status != doctorWarn || !strings.Contains(c.Detail, "on another build (0.0.1-dev)") || !strings.HasPrefix(c.Fix, "conch server reload") {
-		t.Errorf("another build: %+v", c)
+	exe, _ := os.Executable()
+	if c.Status != doctorWarn || !strings.Contains(c.Detail, "on another build (0.0.1-dev) than this conch") ||
+		!strings.HasPrefix(c.Fix, "conch server reload -binary ") || !strings.Contains(c.Fix, exe) {
+		t.Errorf("another build: %+v (a plain reload would exec the server's own file again)", c)
+	}
+
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		h.BuildID = "someone-elses"
+		return h
+	})
+	if c = doctorFind(t, "server"); !strings.Contains(c.Detail, "on another build of "+proto.Version+" than this conch") {
+		t.Errorf("another build of the same version is said once: %+v", c)
+	}
+
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		h.Version, h.BuildID = "99.0.0", "someone-elses"
+		return h
+	})
+	c = doctorFind(t, "server")
+	if c.Status != doctorWarn || !strings.Contains(c.Detail, "on a newer conch (99.0.0)") || strings.Contains(c.Fix, "reload") {
+		t.Errorf("a newer server is not reloaded backwards: %+v", c)
+	}
+
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		h.Capabilities = slices.DeleteFunc(slices.Clone(h.Capabilities), func(c string) bool { return c == "server.reload.v1" })
+		return h
+	})
+	if c = doctorFind(t, "server"); !strings.HasPrefix(c.Fix, "conch server stop, then conch") {
+		t.Errorf("a server that cannot reload: %+v", c)
+	}
+}
+
+// TestDoctorServerNotAnswering: no server is "not running", but a socket
+// something holds without answering is not — starting conch then would
+// clear the socket and every pane with it.
+func TestDoctorServerNotAnswering(t *testing.T) {
+	doctorEnv(t)
+	ln, err := net.Listen("unix", config.SocketPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	ln.Close() // the file stays, and nothing listens: refused
+	if c := doctorFind(t, "server"); c.Status != doctorWarn || c.Detail != "not running" {
+		t.Errorf("a socket left behind: %+v", c)
+	}
+	os.Remove(config.SocketPath())
+
+	if os.Getuid() == 0 {
+		t.Skip("root connects whatever the socket's mode")
+	}
+	ln, err = net.Listen("unix", config.SocketPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	os.Chmod(config.SocketPath(), 0) // somebody else's
+	c := doctorFind(t, "server")
+	if c.Status != doctorFail || !strings.Contains(c.Detail, "does not answer") || strings.Contains(c.Fix, "run conch") {
+		t.Errorf("a socket that refuses: %+v", c)
 	}
 }
 
@@ -208,11 +278,25 @@ func TestDoctorAgents(t *testing.T) {
 	if c.Status != doctorFail || c.Fix != "conch agent install claude  (or codex, gemini)" {
 		t.Errorf("none installed: %+v", c)
 	}
+	agents.Set(nil)
+	if c = doctorFind(t, "agents"); c.Status != doctorFail || c.Fix != "conch agent install claude" {
+		t.Errorf("an empty list, with no others to offer: %+v", c)
+	}
 
 	fail.Set(true)
 	c = doctorFind(t, "agents")
 	if c.Status != doctorWarn || !strings.Contains(c.Detail, "no shell") {
 		t.Errorf("the server failing: %+v", c)
+	}
+
+	// A server from before agent.status: no advice of its own to stop the
+	// server, beside the server line's to reload it.
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		return nil, &proto.Error{Code: proto.ErrUnknown, Message: "unknown method"}
+	})
+	c = doctorFind(t, "agents")
+	if c.Status != doctorWarn || !strings.Contains(c.Detail, "too old to say") || strings.Contains(c.Detail, "stop") {
+		t.Errorf("an old server: %+v", c)
 	}
 }
 
@@ -274,6 +358,23 @@ esac`)
 		t.Errorf("no identity: %+v", c)
 	}
 
+	// The environment names somebody as well as config does.
+	t.Setenv("GIT_AUTHOR_NAME", "Env Person")
+	t.Setenv("EMAIL", "env@example.com")
+	if c = doctorGit(); c.Status != doctorOK || c.Detail != "2.45.0, committing as Env Person" {
+		t.Errorf("an identity from the environment: %+v", c)
+	}
+	t.Setenv("GIT_AUTHOR_NAME", "")
+	t.Setenv("EMAIL", "")
+
+	// Old and nameless: both said at once.
+	os.WriteFile(old, []byte("#!/bin/sh\n[ \"$1\" = --version ] && echo 'git version 2.30.1'\nexit 1\n"), 0o755)
+	c = doctorGit()
+	if !strings.Contains(c.Detail, "no name or email") || !strings.Contains(c.Detail, "needs 2.38") ||
+		!strings.Contains(c.Fix, "user.email") || !strings.Contains(c.Fix, "upgrade git") {
+		t.Errorf("two problems: %+v", c)
+	}
+
 	os.WriteFile(old, []byte("#!/bin/sh\n[ \"$1\" = config ] && echo someone\nexit 0\n"), 0o755)
 	if c = doctorGit(); c.Status != doctorOK || c.Detail != "unknown version, committing as someone" {
 		t.Errorf("a version it cannot read: %+v", c)
@@ -302,6 +403,18 @@ esac`)
 	if strings.Contains(out, "SECRET") {
 		t.Errorf("the token was shown:\n%s", out)
 	}
+
+	// A gh from before `auth token` is asked the old way.
+	os.WriteFile(gh, []byte(`#!/bin/sh
+case "$1 $2" in
+"--version ") echo "gh version 2.4.0 (2021-11-21)" ;;
+"auth status") exit 0 ;;
+*) echo "unknown command" >&2; exit 1 ;;
+esac
+`), 0o755)
+	if c := doctorGH(); c.Status != doctorOK || c.Detail != "2.4.0 signed in" {
+		t.Errorf("an old gh, signed in: %+v", c)
+	}
 }
 
 func TestDoctorTerminal(t *testing.T) {
@@ -312,15 +425,30 @@ func TestDoctorTerminal(t *testing.T) {
 		t.Errorf("256 colours: %+v", c)
 	}
 
+	// A tmux that will not say is taken to be on its default.
 	t.Setenv("TMUX", "/tmp/tmux-501/default,1,0")
 	c := doctorTerminal(config.Default())
 	if c.Status != doctorWarn || !strings.Contains(c.Detail, "inside tmux, whose usual prefix ctrl+b is conch's too") || !strings.Contains(c.Fix, `prefix = "ctrl+a"`) {
 		t.Errorf("tmux with conch's prefix: %+v", c)
 	}
+
+	// One that says C-a: conch on ctrl+b is fine, conch on ctrl+a clashes,
+	// and the key offered instead is free in both.
+	bin := t.TempDir()
+	doctorScript(t, bin, "tmux", `[ "$3" = prefix ] && echo C-a || echo None`)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if c = doctorTerminal(config.Default()); c.Status != doctorOK || !strings.HasSuffix(c.Detail, "inside tmux") {
+		t.Errorf("tmux on C-a, conch on ctrl+b: %+v", c)
+	}
 	cfg := config.Default()
 	cfg.Keys.Prefix = "ctrl+a"
-	if c = doctorTerminal(cfg); c.Status != doctorOK || !strings.HasSuffix(c.Detail, "inside tmux") {
-		t.Errorf("tmux with another prefix: %+v", c)
+	c = doctorTerminal(cfg)
+	if c.Status != doctorWarn || !strings.Contains(c.Detail, "whose prefix ctrl+a is conch's too") || !strings.Contains(c.Fix, `prefix = "ctrl+g"`) {
+		t.Errorf("tmux on C-a, conch on ctrl+a: %+v", c)
+	}
+	doctorScript(t, bin, "tmux", `[ "$3" = prefix2 ] && echo C-g || echo C-a`)
+	if c = doctorTerminal(cfg); !strings.Contains(c.Fix, `prefix = "ctrl+x"`) {
+		t.Errorf("both of tmux's prefixes avoided: %+v", c)
 	}
 
 	t.Setenv("TERM", "")
@@ -343,6 +471,12 @@ func TestDoctorMachines(t *testing.T) {
 	t.Setenv("CONCH_SSH", filepath.Join(t.TempDir(), "no-ssh"))
 	if c = doctorMachines(); c.Status != doctorFail || !strings.Contains(c.Detail, "no ssh to reach them") {
 		t.Errorf("no ssh: %+v", c)
+	}
+
+	// Cut short by a crash: not "this computer only".
+	os.WriteFile(remote.CatalogPath(), []byte(`{"machines": [{"id":`), 0o600)
+	if c = doctorMachines(); c.Status != doctorFail || !strings.Contains(c.Detail, "cannot be read") {
+		t.Errorf("an unreadable machines.json: %+v", c)
 	}
 }
 
