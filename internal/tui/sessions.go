@@ -766,7 +766,7 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 	if proj != nil {
 		name = proj.Name
 	}
-	lines := []string{spread(styleBold.Render("Sessions · "+name), styleMuted.Render("enter resume · * star · / search · s share · d delete · a agent"), w)}
+	lines := []string{spreadHint(styleBold.Render("Sessions · "+name), "enter resume · * star · / search · s share · d delete · a agent", w)}
 	d := sv.data(m)
 	switch {
 	case d == nil || (d.list == nil && d.loading):
