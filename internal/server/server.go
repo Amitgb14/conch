@@ -68,6 +68,7 @@ type Server struct {
 
 	watcher *worktreeWatcher // nil when the machine gives no watches
 	views   *viewBook        // what each TUI says it is showing (view.go)
+	stars   *starBook        // the sessions somebody means to come back to (star.go)
 
 	quit     chan struct{}
 	quitOnce sync.Once
@@ -104,6 +105,7 @@ func New(sockPath, configDir string) *Server {
 	s.projects = newProjectManager(s, configDir)
 	s.ports = loadPortBook(configDir)
 	s.views = newViewBook()
+	s.stars = loadStars(configDir)
 	s.schedules = loadSchedule(configDir)
 	s.reviews = loadReviews(configDir)
 	s.watcher = newWorktreeWatcher(
@@ -878,6 +880,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		lp.Dir = realDir(lp.Dir)
 		return s.listSessions(lp)
+
+	case proto.MethodSessionStar:
+		sp, perr := decode[proto.SessionStarParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.starSession(sp)
 
 	case proto.MethodSessionResume:
 		rp, perr := decode[proto.SessionRef](msg)

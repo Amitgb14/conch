@@ -9,16 +9,20 @@ Agents save their conversations; conch lists them per project so you can resume 
 Every project has a **Sessions** section in the tree. Select it to list, on the right, the conversations agents saved for the project and its worktrees — Claude Code, Codex, Gemini CLI, OpenCode and Devin — newest first, with the agent, title, branch, what it used and its age:
 
 ```text
-Sessions · api        enter resume · / search · s share · d delete · a agent
+Sessions · api   enter resume · * star · / search · s share · d delete · a agent
 4 saved · all agents · ⚠ 1 interrupted (I resumes all, x dismisses)
 
 ▸ ⚠ Claude Code  Fix the flaky login test  fix-login · interrupted · $1.40 · 2h
+ ★· OpenCode     Refactor config                             main · $0.12 · 1d
   ● Codex        Add rate limiting             rate-limit · open · 3.0k out · 5m
-  · OpenCode     Refactor config                             main · $0.12 · 1d
   · Gemini CLI   Explain the auth flow                                main · 3d
 ```
 
 What a session used comes from the agent's own store, so it differs by agent: Claude Code and OpenCode record a cost, Codex the tokens it generated, and Gemini CLI neither — that row simply says nothing rather than showing `$0.00`. Costs are read from the end of the store, so listing stays fast on long conversations.
+
+**`*` stars a session**, and starred ones are listed first — after anything interrupted, which is work waiting rather than a bookmark. A project collects hundreds of conversations and the useful one is remembered by its first line, which is no way to find it next week; the star is how you say "this one". It has a column of its own, so the mark beside it still says what the session is doing: `★·` is a starred conversation sitting there, `★●` one that is open in a pane.
+
+The star is **conch's**, not the agent's. It is kept by the server that owns those sessions (`stars.json`), so a second terminal, the phone and the command line see the same ones and it survives a restart — and the agents' own files are left exactly as they are. `*` again takes it off; a run that saved no conversation has nothing to star and says so.
 
 conch reads the agents' own session stores and never changes them (except `d`, which deletes one after asking); on remote machines the server there lists its sessions.
 
