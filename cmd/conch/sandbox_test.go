@@ -338,7 +338,7 @@ func TestA4SandboxListStartStopRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Both kinds of row nobody could otherwise account for say what to do.
-	for _, want := range []string{"1 with no machine here", "conch sandbox -provider daytona rm ID deletes one",
+	for _, want := range []string{"1 with no machine here", "conch sandbox -provider daytona rm ID deletes one", "conch sandbox -provider daytona add ID makes one a machine",
 		"1 gone: deleted outside conch"} {
 		if !strings.Contains(errOut, want) {
 			t.Fatalf("stderr lacks %q:\n%s", want, errOut)
@@ -1211,5 +1211,86 @@ func TestA4TaskInASandbox(t *testing.T) {
 	if a4Capture(t, "", func() { err = runTask([]string{"-sandbox", "daytona", "x"}) }); err == nil ||
 		!strings.Contains(err.Error(), "is up, but cloning failed") || !strings.Contains(err.Error(), "authentication required") {
 		t.Fatalf("clone failure: %v", err)
+	}
+}
+
+// conch sandbox add takes over a sandbox conch has no machine for: it is
+// started if stopped, conch installed and the machine saved — and never
+// deleted when that fails, since it is somebody's own.
+func TestA4SandboxAdd(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	f, _ := a4SandboxMachine(t)
+	d.set("sb-mine", "stopped")
+	d.set("sb-going", "destroying")
+	os.WriteFile(filepath.Join(os.Getenv("CONCH_HOME"), "config.toml"),
+		[]byte("[sandbox.daytona]\nenv = [\"MY_TOKEN\"]\n"), 0o600)
+
+	var err error
+	out, errOut := a4Capture(t, "", func() {
+		err = runSandbox([]string{"-provider", "daytona", "add", "-label", "mine", "sb-mine"})
+	})
+	if err != nil {
+		t.Fatalf("add: %v\n%s", err, errOut)
+	}
+	if out != "added mine (mine): daytona sandbox sb-mine, server pid 777 on sandbox-host\n" {
+		t.Fatalf("out %q", out)
+	}
+	if d.state("sb-mine") != "started" || !strings.Contains(errOut, "Starting sb-mine…") {
+		t.Fatalf("not started (%s):\n%s", d.state("sb-mine"), errOut)
+	}
+	if !strings.Contains(errOut, "[sandbox.daytona] env was not passed in") {
+		t.Errorf("nothing said about env:\n%s", errOut)
+	}
+	if strings.Contains(out+errOut, "tok-secret") {
+		t.Fatalf("the ssh token was printed:\n%s%s", out, errOut)
+	}
+	if b, _ := os.ReadFile(filepath.Join(f.dir, "installed.bin")); string(b) != "remote build" {
+		t.Fatalf("installed %q", b)
+	}
+	ms, _ := remote.Machines()
+	if len(ms) != 1 || ms[0].ID != "mine" || ms[0].Target != "daytona:sb-mine" {
+		t.Fatalf("saved %+v", ms)
+	}
+
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"add", "sb-mine"}, "sb-mine is already machine mine (mine)"},
+		{[]string{"add", "mine"}, "already machine mine"},
+		{[]string{"add", "daytona:sb-mine"}, "already machine mine"},
+		{[]string{"add", "sb-nowhere"}, "no Daytona sandbox sb-nowhere; conch sandbox -provider daytona ls lists them"},
+		{[]string{"add", "sb-going"}, "no Daytona sandbox sb-going"}, // on its way out
+		{[]string{"add", "boat:bx1"}, "is a boat.dev sandbox, not Daytona"},
+		{[]string{"add", "dev@host"}, `no sandbox "dev@host"`},
+		{[]string{"add"}, "usage: conch sandbox -provider P add"},
+		{[]string{"add", "a", "b"}, "usage: conch sandbox -provider P add"},
+	} {
+		a4Capture(t, "", func() { err = runSandbox(append([]string{"-provider", "daytona"}, c.args...)) })
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v, want %q", c.args, err, c.want)
+		}
+	}
+	if ms, _ := remote.Machines(); len(ms) != 1 {
+		t.Fatalf("a refused add saved a machine: %+v", ms)
+	}
+
+	// A sandbox already running is not started again; one whose setting up
+	// fails is left alone, with nothing saved.
+	d.set("sb-running", "started")
+	t.Setenv("A4_PROBE_FAIL", "tok-secret@gw.test: Permission denied (publickey).")
+	_, errOut = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "add", "sb-running"}) })
+	if err == nil || !strings.Contains(err.Error(), "Permission denied") || !strings.Contains(err.Error(), "sandbox sb-running is left as it was") {
+		t.Fatalf("failed setup: %v", err)
+	}
+	if strings.Contains(errOut, "Delete it?") || d.state("sb-running") != "started" {
+		t.Fatalf("a failed add touched the sandbox (%s):\n%s", d.state("sb-running"), errOut)
+	}
+	if strings.Contains(d.called(), "/sandbox/sb-running/start") {
+		t.Fatalf("a running sandbox was started again:\n%s", d.called())
+	}
+	if ms, _ := remote.Machines(); len(ms) != 1 {
+		t.Fatalf("a failed add saved a machine: %+v", ms)
 	}
 }

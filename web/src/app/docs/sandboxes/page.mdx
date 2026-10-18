@@ -145,7 +145,9 @@ conch sandbox -provider daytona rm fix-login   # deletes it and everything in it
 
 `start`, `stop` and `rm` take the machine's ID or label, or the provider's own sandbox ID. `stop` and `rm` ask first; `-y` doesn't. Before deleting a running sandbox, `rm` lists branches there with commits no remote has and uncommitted changes.
 
-`conch sandbox -provider P ls` also lists sandboxes with no machine here — one whose setting up failed, one removed with `conch machine rm`, or, with a provider that lists the whole account rather than only conch's own (boat.dev has no labels to tell them apart), one you made yourself. They show with `-` for the ID and label, and a line underneath says so: they cost until `conch sandbox -provider P rm ID` deletes them. The size column names only what the provider reports, so a boat.dev sandbox shows `4 vCPU, 8 GiB` rather than inventing a disk it said nothing about.
+`conch sandbox -provider P ls` also lists sandboxes with no machine here — one whose setting up failed, one removed with `conch machine rm`, or, with a provider that lists the whole account rather than only conch's own (boat.dev has no labels to tell them apart), one you made yourself. They show with `-` for the ID and label, and a line underneath says so: they cost until `conch sandbox -provider P rm ID` deletes them.
+
+`conch sandbox -provider P add [-label L] ID` makes one of them a machine: it starts the sandbox if it is stopped, installs conch there and adds it to the sidebar, as `create` would have. A sandbox conch already has a machine for is refused with that machine's name. If setting it up fails, the sandbox is left as it was — it is yours, so nothing offers to delete it. Variables from `[sandbox.P] env` are given to a sandbox when it is made, so one added this way has none of them; `add` says so, and an agent there may start logged out until you sign it in. The size column names only what the provider reports, so a boat.dev sandbox shows `4 vCPU, 8 GiB` rather than inventing a disk it said nothing about.
 
 ## Running until you stop it
 
