@@ -288,6 +288,25 @@ func TestPipeCallTimeout(t *testing.T) {
 	}
 }
 
+// TestPipeKeepsItsTimeout: a pipe takes the chunk timeout when it is
+// made. Its calls used to read the variable whenever their goroutine got
+// to run, which raced TestPipeCallTimeout setting it while TestPipe's last
+// calls were still starting (seen once on CI's macOS runner).
+func TestPipeKeepsItsTimeout(t *testing.T) {
+	old := chunkTimeout
+	defer func() { chunkTimeout = old }()
+	chunkTimeout = 20 * time.Millisecond
+	p := newPipe[int]()
+	defer p.stop()
+	chunkTimeout = time.Hour // set after the pipe was made: not its business
+	p.send(func(ctx context.Context) (int, error) { <-ctx.Done(); return 0, ctx.Err() })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := p.next(ctx); !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+		t.Fatalf("the call did not time out on the pipe's own timeout: %v (step %v)", err, ctx.Err())
+	}
+}
+
 // TestSSHCopyRefusedByAnOlderServer: a server without fs.ssh.v1 ignores
 // SSH and would copy on its own machine instead, so nothing is sent.
 func TestSSHCopyRefusedByAnOlderServer(t *testing.T) {
