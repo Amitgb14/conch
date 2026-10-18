@@ -54,6 +54,7 @@ More:
   conch machine add HOST      run agents on another machine, over ssh
   conch web                   answer your agents from a phone
   conch update                the newest release, without stopping agents
+  conch doctor                check what conch needs, and say how to fix it
   conch bug                   report a problem
 
 conch help all lists every command; in conch, ? lists every key.
@@ -193,6 +194,8 @@ Usage:
   conch mcp                     an MCP server on stdin and stdout, for an agent that would rather
                                 call a tool than a command: start, prompt, wait, read, task, list
                                 and rename, with the scope of the pane it is started in
+  conch doctor [-json]          check config, server, agents, git, gh, terminal and machines,
+                                each with the command that fixes it; exits 1 if any must be fixed
   conch bug [-open] [-log] [WHAT HAPPENED...]
                                 the facts about this conch for a bug report — versions, counts
                                 and the last error, never a path or a screen; -open fills in a
@@ -276,6 +279,8 @@ func main() {
 		err = runMCP(args)
 	case "bug":
 		err = runBug(args)
+	case "doctor":
+		err = runDoctor(args)
 	case "view":
 		err = runView(args)
 	case "show":
