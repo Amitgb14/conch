@@ -221,6 +221,33 @@ func (pm *projectManager) mergeBranch(mp proto.BranchMergeParams) (proto.CommitR
 	return proto.CommitResult{Hash: hash, Into: base}, nil
 }
 
+// mergePR merges a branch's pull request on GitHub. It is the number
+// conch last read for the branch that is merged, and only while it is
+// still open: a pull request merged or closed meanwhile is not merged
+// again, and a branch whose pull request changed is not merged by an old
+// number.
+func (pm *projectManager) mergePR(mp proto.BranchPRMergeParams) (proto.BranchPRMergeResult, *proto.Error) {
+	p, perr := pm.gitProject(mp.ProjectID)
+	if perr != nil {
+		return proto.BranchPRMergeResult{}, perr
+	}
+	p.mu.Lock()
+	pr, known := p.prs[mp.Branch]
+	p.mu.Unlock()
+	if !known || pr.State != "OPEN" || pr.Number != mp.Number {
+		return proto.BranchPRMergeResult{}, proto.Errorf(proto.ErrBadRequest, "%s has no open pull request #%d", mp.Branch, mp.Number)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), networkTimeout)
+	defer cancel()
+	method, err := ghx.Merge(ctx, p.root, mp.Number, mp.Head)
+	pm.requestPRs(p)
+	if err != nil {
+		return proto.BranchPRMergeResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	log.Printf("project %s: merged pull request #%d (%s, %s)", p.id, mp.Number, mp.Branch, method)
+	return proto.BranchPRMergeResult{Method: method}, nil
+}
+
 // discardBranch removes a branch's linked worktree and deletes the branch.
 // Unless forced it refuses to lose uncommitted files or commits that are in
 // neither the base nor an upstream.
