@@ -12,10 +12,12 @@ require (
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/charmbracelet/x/vt v0.0.0-20260906004030-3986e9119cf9
 	github.com/coder/websocket v1.8.15
-	github.com/creack/pty v1.1.24
+	// Unreleased: v1.1.20–v1.1.24 can open another pty's terminal (creack/pty#215); see TestPtyOpenNamesItsOwnTerminal.
+	github.com/creack/pty v1.1.25-0.20260601142114-9246436fffe8
 	github.com/fsnotify/fsevents v0.2.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/muesli/termenv v0.16.0
+	github.com/pkg/sftp v1.13.11
 	golang.org/x/sys v0.47.0
 	rsc.io/qr v0.2.0
 )
@@ -38,7 +40,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/pkg/sftp v1.13.11 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/crypto v0.54.0 // indirect
