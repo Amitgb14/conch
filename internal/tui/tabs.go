@@ -315,6 +315,14 @@ func (m *Model) assign(l *leaf, r row) {
 // split or browsing tab takes one in, else it opens its own tab. Other rows
 // (projects, branches, sessions) share a browsing tab.
 func (m *Model) show(r row) tea.Cmd {
+	cmd := m.showRow(r)
+	if r.kind == kindReviewQueue {
+		return tea.Batch(cmd, m.guideNote(guideQueue)) // a step of the guide (guide.go)
+	}
+	return cmd
+}
+
+func (m *Model) showRow(r row) tea.Cmd {
 	// Not our own pane: it would resize us, and we would resize it, until
 	// there was nothing left of either (ownPane, below).
 	if m.ownPaneRow(r) {

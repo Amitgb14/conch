@@ -409,7 +409,7 @@ func TestSpaceMachineCounts(t *testing.T) {
 	mach.panes[0].Agent.Tokens = &proto.Tokens{Input: 1000}
 	mach.panes[3].Agent.Tokens = &proto.Tokens{Input: 5000} // p4, codex outside every project
 	page := func() string { return ansi.Strip(strings.Join(m.machineLines(mach, 120, 30), "\n")) }
-	if got := page(); !strings.Contains(got, "1 projects · 4 panes · 1 working · 1 waiting") {
+	if got := page(); !strings.Contains(got, "1 project · 4 panes · 1 working · 1 waiting") {
 		t.Fatalf("first workspace:\n%s", got)
 	}
 	all := m.machineUsage(localMachine)
@@ -430,7 +430,7 @@ func TestSpaceMachineCounts(t *testing.T) {
 
 	m.spaces[1].projects[scoped(localMachine, "r1")] = true
 	m.rebuild()
-	if got := page(); !strings.Contains(got, "1 projects · 2 panes · 0 working · 1 waiting") {
+	if got := page(); !strings.Contains(got, "1 project · 2 panes · 0 working · 1 waiting") {
 		t.Fatalf("with api:\n%s", got)
 	}
 	if b := ansi.Strip(m.attentionBadge(localMachine, "")); b != "⚑1" {

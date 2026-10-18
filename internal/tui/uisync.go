@@ -73,12 +73,17 @@ func sharedOf(st uiState) sharedUI {
 	if len(st.NoProjectOffer) > 0 {
 		put("no_project_offer", st.NoProjectOffer)
 	}
+	for step, done := range st.Guide {
+		if done {
+			put("guide/"+step, true)
+		}
+	}
 	return out
 }
 
 // into puts the shared parts in st, replacing what was there.
 func (s sharedUI) into(st *uiState) {
-	st.Folders, st.SSHHosts, st.SavedSSH, st.NoProjectOffer = nil, nil, nil, nil
+	st.Folders, st.SSHHosts, st.SavedSSH, st.NoProjectOffer, st.Guide = nil, nil, nil, nil, nil
 	for k, v := range s {
 		switch {
 		case strings.HasPrefix(k, "folders/"):
@@ -101,6 +106,11 @@ func (s sharedUI) into(st *uiState) {
 			_ = json.Unmarshal(v, &st.SavedSSH)
 		case k == "no_project_offer":
 			_ = json.Unmarshal(v, &st.NoProjectOffer)
+		case strings.HasPrefix(k, "guide/"):
+			if st.Guide == nil {
+				st.Guide = map[string]bool{}
+			}
+			st.Guide[strings.TrimPrefix(k, "guide/")] = true
 		}
 	}
 }
@@ -157,7 +167,7 @@ func readShared(path string) (sharedUI, bool) {
 
 // sharedNow is the shared parts as this TUI has them.
 func (m Model) sharedNow() sharedUI {
-	return sharedOf(uiState{Folders: m.folders, SSHHosts: m.sshInfo, SavedSSH: m.savedSSH, NoProjectOffer: m.noProjectOffer})
+	return sharedOf(uiState{Folders: m.folders, SSHHosts: m.sshInfo, SavedSSH: m.savedSSH, NoProjectOffer: m.noProjectOffer, Guide: m.guide})
 }
 
 // takeShared puts shared parts in the model, cleaned as at start.
@@ -168,6 +178,7 @@ func (m *Model) takeShared(s sharedUI) {
 	m.sshInfo = cleanSSHInfo(m.savedSSH, st.SSHHosts)
 	m.folders = st.Folders
 	m.noProjectOffer = st.NoProjectOffer
+	m.guide = st.Guide
 }
 
 // writeUIState is a save in the background: the shared parts merged with

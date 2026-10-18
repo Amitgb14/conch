@@ -732,6 +732,10 @@ func (m *Model) openRemove() tea.Cmd {
 			})
 	case kindMachine:
 		if r.machine == localMachine {
+			if m.guideShown() {
+				m.setFlash("getting started hidden · ? lists every key", false)
+				return m.guideNote(guideHidden)
+			}
 			m.setFlash("this computer can't be removed", true)
 			return nil
 		}

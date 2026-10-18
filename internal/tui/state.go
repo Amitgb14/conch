@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -52,6 +53,9 @@ type uiState struct {
 	Spaces      []savedSpace `json:"spaces,omitempty"`
 	FirstSpace  *savedSpace  `json:"first_space,omitempty"` // what workspace 1 holds; its tabs are Tabs
 	ActiveSpace int          `json:"active_space,omitempty"`
+	// Guide is the getting-started steps done, and whether it was hidden
+	// (guide.go). Absent until the first one is.
+	Guide map[string]bool `json:"guide,omitempty"`
 }
 
 // savedFolder is one folder of the tree and what is in it. A pane is held
@@ -121,7 +125,7 @@ func (m Model) saveState() tea.Cmd {
 	st := uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}, SidebarWidth: m.sidebarW,
 		Tabs: saveTabs(tabs), ActiveTab: active, Spaces: m.savedSpaces(), FirstSpace: m.savedFirstSpace(), ActiveSpace: m.activeSpace, LimitAlerts: map[string]int{},
 		QueueDismissed: map[string]string{}, SavedSSH: slices.Clone(m.savedSSH), NoProjectOffer: slices.Clone(m.noProjectOffer),
-		FilesHideDot: m.filesHideDot, FilesShowIgnored: m.filesShowIgnored}
+		FilesHideDot: m.filesHideDot, FilesShowIgnored: m.filesShowIgnored, Guide: maps.Clone(m.guide)}
 	if len(m.sshInfo) > 0 {
 		st.SSHHosts = make(map[string]sshHostInfo, len(m.sshInfo))
 		for k, v := range m.sshInfo {

@@ -151,6 +151,11 @@ type Model struct {
 	// repositories you said not to offer as projects again.
 	launchDir      string
 	noProjectOffer []string
+	// guide is the getting-started steps done (guide.go); guideSawLocal
+	// whether this TUI has had the local machine's panes yet, since an
+	// agent in the first list is one that outlived the TUI before it.
+	guide         map[string]bool
+	guideSawLocal bool
 
 	offset     int           // lines the viewed pane is scrolled back
 	asked      *scrollAsk    // the scroll last asked of the server, until a frame shows it
@@ -257,6 +262,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		folders:    st.Folders,
 
 		noProjectOffer: st.NoProjectOffer,
+		guide:          st.Guide,
 
 		filesHideDot:     st.FilesHideDot,
 		filesShowIgnored: st.FilesShowIgnored,
@@ -468,6 +474,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.forgetGonePanes(mach)
 			m.flushHeld(mach)
+			first := mach.id == localMachine && !m.guideSawLocal
+			if mach.id == localMachine {
+				m.guideSawLocal = true
+			}
+			settled = tea.Batch(settled, m.guideAgents(mach, first))
 			if cmd := m.offerRestore(mach.id); cmd != nil {
 				return m, tea.Batch(cmd, settled, m.rebuild())
 			}
@@ -898,6 +909,9 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		}
 		if info.Agent != nil {
 			mach.agents[info.ID] = true
+			if info.ProjectID != "" {
+				renamed = tea.Batch(renamed, m.guideNote(guideTask))
+			}
 		}
 		if info.State != proto.PaneRunning && m.isViewing(mach.id, info.ID) && m.focus == focusMain {
 			m.focus = focusSidebar
