@@ -67,10 +67,13 @@ limit_at = [80, 95] # percent used that alerts
 silence = 30     # seconds without output before a watched pane (ctrl+b M) alerts
 command = ""     # also run for every alert, with it as JSON on stdin: ntfy, Slack, Telegram…
 
+[git]
+squash = true      # m → Merge puts one commit on the base rather than a merge commit (auto_merge is GitHub's, and follows the repository)
+
 [verify]
 commands = {}    # a project's check, by project ID: { r1a2b3c = "go test ./..." }
 auto_fix = 0     # send a failed check — the project's own, or a pull request's CI — back to the branch's agent up to this many times in a row
-auto_merge = false # merge a branch when its pull request's checks turn green (never a draft, over a review or an unresolved thread, or past a failed check)
+auto_merge = false # merge a pull request on GitHub when its checks turn green (held while a draft, conflicting, under review or an unresolved thread, or past a failed check)
 reviewer = ""    # an agent asked to review a branch when its agent finishes, e.g. "codex"
 
 [ui]

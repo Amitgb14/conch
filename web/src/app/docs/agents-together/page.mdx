@@ -123,7 +123,7 @@ Without an agent in between, start the builder from a terminal pane and wait for
 ```sh
 conch task -name builder "Build the entire package with make all … (the instructions above)"
 conch wait -state done,waiting -timeout 2h builder
-cat "$(conch status | awk '$2 == "builder" { print $6 }')/BUILD.md"
+cat "$(conch status | awk '$2 == "builder" { print $7 }')/BUILD.md"
 ```
 
 ## Giving helpers files that aren't committed

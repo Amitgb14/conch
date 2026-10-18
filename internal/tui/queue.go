@@ -504,7 +504,7 @@ func (qv *queueView) render(m Model, w, h int) []string {
 			hint = "enter open · / edit the filter · esc clear it"
 		}
 	}
-	lines := []string{spread(title, styleMuted.Render(hint), w)}
+	lines := []string{spreadHint(title, hint, w)}
 	list := m.queueLinesFor(qv.filter)
 	if len(list) == 0 {
 		empty := "  Nothing is waiting for you."

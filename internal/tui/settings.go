@@ -37,13 +37,15 @@ type settings struct {
 	shellErr string
 }
 
-var settingsTabs = []string{"Theme", "Notifications", "Agents", "Brain", "Sandboxes", "Web", "Actions"}
+var settingsTabs = []string{"Theme", "Notifications", "Agents", "Git", "Brain", "Sandboxes", "Web", "Actions"}
 
 // The tabs that are found by number.
 const (
-	sandboxTab = 4
-	webTab     = 5
-	actionsTab = 6
+	gitTab     = 3
+	brainTab   = 4
+	sandboxTab = 5
+	webTab     = 6
+	actionsTab = 7
 )
 
 type shellThemesMsg struct {
@@ -92,7 +94,9 @@ func (s *settings) items(m *Model) []settingItem {
 		return s.themeItems(m)
 	case 1:
 		return s.notifyItems(m)
-	case 3:
+	case gitTab:
+		return s.gitItems(m)
+	case brainTab:
 		return s.brainItems(m)
 	case sandboxTab:
 		return s.sandboxItems(m)
@@ -102,6 +106,37 @@ func (s *settings) items(m *Model) []settingItem {
 		return s.actionItems(m)
 	}
 	return s.agentItems(m)
+}
+
+// gitItems is what conch's own git actions do: how a merge lands, and
+// whether a green pull request merges itself. Both are about the same
+// act, which is why they are together and not beside the check that
+// precedes one (that is the Agents tab, where what an agent does lives).
+func (s *settings) gitItems(m *Model) []settingItem {
+	items := []settingItem{{header: true, label: "Merging", detail: "m → Merge on a branch, here on this machine"}}
+	items = append(items,
+		settingItem{label: "How a merge lands", detail: squashText(m.cfg.Git.Squash), run: func(m *Model) tea.Cmd {
+			m.cfg.Git.Squash = !m.cfg.Git.Squash
+			return saveConfig(m.cfg)
+		}},
+		settingItem{label: "A green pull request merges itself", detail: autoMergeText(m.cfg.Verify.AutoMerge), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.AutoMerge = !m.cfg.Verify.AutoMerge
+			return saveConfig(m.cfg)
+		}},
+		settingItem{label: styleMuted.Render("  it waits for the checks to turn green, and for the branch's own check where the project has one")},
+		settingItem{label: styleMuted.Render("  that one merges the pull request on GitHub, the way the repository allows — How a merge lands is conch's own")},
+	)
+	items = append(items, settingItem{}, settingItem{header: true, label: "What comes before a merge", detail: "on the Agents tab"},
+		settingItem{label: styleMuted.Render("  a failed check goes back to the branch's agent — auto_fix, beside the agent settings it belongs with")})
+	return items
+}
+
+// squashText says how a merge lands.
+func squashText(squash bool) string {
+	if squash {
+		return "squash · one commit on the base"
+	}
+	return "merge commit · the branch's commits, and one joining them"
 }
 
 func (s *settings) themeItems(m *Model) []settingItem {
@@ -415,7 +450,7 @@ func autoMergeText(on bool) string {
 	if !on {
 		return "off · merge it yourself when the checks pass"
 	}
-	return "on · not a draft, not over a review, not past a failed check"
+	return "on · on GitHub; not a draft, a conflict, a review or a failed check"
 }
 
 func notifyCommandText(cmd string) string {
@@ -580,10 +615,7 @@ func (s *settings) agentItems(m *Model) []settingItem {
 			m.cfg.Verify.AutoFix = (m.cfg.Verify.AutoFix + 1) % 4
 			return saveConfig(m.cfg)
 		}},
-		settingItem{label: "A green pull request merges itself", detail: autoMergeText(v.AutoMerge), run: func(m *Model) tea.Cmd {
-			m.cfg.Verify.AutoMerge = !m.cfg.Verify.AutoMerge
-			return saveConfig(m.cfg)
-		}})
+		settingItem{label: styleMuted.Render("  a green pull request merging itself is on the Git tab, with how a merge lands")})
 	// What an agent loads in a checkout is that checkout's business, and
 	// `i` is where it lives; what it loads from your home is machine-wide,
 	// so that half belongs here — behind one row, not one per agent: this
@@ -1256,7 +1288,9 @@ func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			s.setTab((s.tab + 1) % len(settingsTabs))
 		case "shift+tab", "left", "h":
 			s.setTab((s.tab + len(settingsTabs) - 1) % len(settingsTabs))
-		case "1", "2", "3", "4", "5", "6", "7":
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			// A digit past the last tab settles on the last, so the keys
+			// do not go quiet when a tab is added or taken away.
 			s.setTab(min(int(msg.String()[0]-'1'), len(settingsTabs)-1))
 		case "up", "k":
 			s.move(items, -1)
@@ -1374,6 +1408,11 @@ func (s *settings) render(m Model) box {
 		}
 	}
 
+	// Each label carries a space either side, so the tabs are two apart
+	// with nothing between them. They were three apart until there were
+	// eight of them and the bar outgrew the box: a tab truncated off the
+	// end cannot be found, and the numbers are what the box's width is
+	// for (settingsWidth).
 	var tabs strings.Builder
 	for i, name := range settingsTabs {
 		label := fmt.Sprintf(" %d %s ", i+1, name)
@@ -1382,7 +1421,6 @@ func (s *settings) render(m Model) box {
 		} else {
 			tabs.WriteString(styleMuted.Render(label))
 		}
-		tabs.WriteString(" ")
 	}
 	lines := []string{tabs.String(), ""}
 	for i := s.scroll; i < s.scroll+listH; i++ {
@@ -1457,7 +1495,11 @@ func (s *settings) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	if row == 0 { // the tab bar
 		x := msg.X - b.x - 1
 		for i, name := range settingsTabs {
-			width := len(fmt.Sprintf(" %d %s ", i+1, name)) + 1
+			// The label's own width, with nothing between tabs: this
+			// has to match what render draws, or a click drifts further
+			// right with every tab — which is how it was found, when an
+			// eighth tab made the drift seven columns.
+			width := len(fmt.Sprintf(" %d %s ", i+1, name))
 			if x < width {
 				s.setTab(i)
 				return nil

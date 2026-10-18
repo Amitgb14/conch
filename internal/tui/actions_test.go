@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -400,7 +401,7 @@ func TestSettingsActionsTab(t *testing.T) {
 		m.width, m.height = size[0], size[1]
 		b := s.render(*m)
 		a2CheckBox(t, b, *m)
-		if size[0] >= 90 && !strings.Contains(a2Plain(b.lines), "7 Actions") {
+		if size[0] >= 90 && !strings.Contains(a2Plain(b.lines), fmt.Sprintf("%d Actions", actionsTab+1)) {
 			t.Errorf("at %d columns the tab bar cut off the last tab:\n%s", size[0], a2Plain(b.lines[:2]))
 		}
 	}

@@ -68,6 +68,7 @@ type Server struct {
 
 	watcher *worktreeWatcher // nil when the machine gives no watches
 	views   *viewBook        // what each TUI says it is showing (view.go)
+	stars   *starBook        // the sessions somebody means to come back to (star.go)
 
 	quit     chan struct{}
 	quitOnce sync.Once
@@ -104,6 +105,7 @@ func New(sockPath, configDir string) *Server {
 	s.projects = newProjectManager(s, configDir)
 	s.ports = loadPortBook(configDir)
 	s.views = newViewBook()
+	s.stars = loadStars(configDir)
 	s.schedules = loadSchedule(configDir)
 	s.reviews = loadReviews(configDir)
 	s.watcher = newWorktreeWatcher(
@@ -349,7 +351,7 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
-	proto.MethodBranchMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true,
+	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true,
@@ -879,6 +881,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		lp.Dir = realDir(lp.Dir)
 		return s.listSessions(lp)
 
+	case proto.MethodSessionStar:
+		sp, perr := decode[proto.SessionStarParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.starSession(sp)
+
 	case proto.MethodSessionResume:
 		rp, perr := decode[proto.SessionRef](msg)
 		if perr != nil {
@@ -1020,6 +1029,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.projects.openPR(pp)
+
+	case proto.MethodBranchPRMerge:
+		mp, perr := decode[proto.BranchPRMergeParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.mergePR(mp)
 
 	case proto.MethodBranchMerge:
 		mp, perr := decode[proto.BranchMergeParams](msg)

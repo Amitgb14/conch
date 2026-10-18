@@ -463,32 +463,73 @@ func greenProject(checks string, set func(*proto.PRInfo)) proto.ProjectInfo {
 	return p
 }
 
-// TestAutoMergeOnTheTurnToGreen: the other half of auto_fix. Everything
-// it refuses, it refuses out loud — a merge that does not happen is as
-// surprising as one that does.
-func TestAutoMergeOnTheTurnToGreen(t *testing.T) {
-	m, mach, _ := fixModel(t, proto.CapAgentPrompt, proto.CapBranchCILog)
+// autoMergeModel is fixModel with auto_merge on, a server that merges
+// pull requests, the agent finished and the project's own check passed —
+// nothing holding a green pull request back.
+func autoMergeModel(t *testing.T, caps ...string) (*Model, *machine, *a1Peer) {
+	t.Helper()
+	m, mach, peer := fixModel(t, append([]string{proto.CapAgentPrompt, proto.CapBranchCILog}, caps...)...)
 	mach.panes[0].Agent.State = proto.AgentDone
-	// The project's own check passed, so it does not hold anything back.
 	r := m.verifyRuns[verifyKey(mach.id, "r1", "wip")]
 	r.exit = 0
 	m.verifyRuns[verifyKey(mach.id, "r1", "wip")] = r
+	m.cfg.Verify.AutoMerge = true
+	peer.setResult(proto.MethodBranchPRMerge, proto.BranchPRMergeResult{Method: "merge"})
+	return m, mach, peer
+}
+
+// mergedPR is what the server was asked to merge, or nil when nothing was.
+func mergedPR(peer *a1Peer) *proto.BranchPRMergeParams {
+	for _, msg := range peer.snapshot() {
+		if msg.Method == proto.MethodBranchMerge {
+			panic("merged into a local checkout")
+		}
+		if msg.Method == proto.MethodBranchPRMerge {
+			var mp proto.BranchPRMergeParams
+			json.Unmarshal(msg.Params, &mp)
+			return &mp
+		}
+	}
+	return nil
+}
+
+// TestAutoMergeOnTheTurnToGreen: the other half of auto_fix, and the
+// merge is GitHub's — a local one left the pull request open, and the
+// base diverged from GitHub's once somebody merged it there.
+func TestAutoMergeOnTheTurnToGreen(t *testing.T) {
+	m, mach, peer := autoMergeModel(t, proto.CapPRMerge)
 
 	// Off unless asked for.
+	m.cfg.Verify.AutoMerge = false
 	if cmd := m.autoMergeCI(mach.id, ciProject("pending"), ciProject("pass")); cmd != nil {
 		t.Fatal("auto_merge off merged something")
 	}
 	m.cfg.Verify.AutoMerge = true
 
-	// Pending to green is the turn, and it merges.
-	if cmd := m.autoMergeCI(mach.id, ciProject("pending"), ciProject("pass")); cmd == nil {
-		t.Fatalf("the turn to green merged nothing (%q)", m.flash)
-	}
-	if !strings.Contains(m.flash, "is green: merging wip") {
+	// Pending to green is the turn, and it merges the pull request at the
+	// commit whose checks passed.
+	now := greenProject("pass", func(pr *proto.PRInfo) { pr.Head = "abc123" })
+	msgs := runBatch(m.autoMergeCI(mach.id, ciProject("pending"), now))
+	if !strings.Contains(m.flash, "#7 is green: merging it on GitHub") {
 		t.Fatalf("flash %q", m.flash)
 	}
-	// Still green is not a turn: a poll does not merge twice.
-	if cmd := m.autoMergeCI(mach.id, ciProject("pass"), ciProject("pass")); cmd != nil {
+	mp := mergedPR(peer)
+	if mp == nil || mp.ProjectID != "r1" || mp.Branch != "wip" || mp.Number != 7 || mp.Head != "abc123" {
+		t.Fatalf("merged %+v", mp)
+	}
+	// Still green while it merges, and after: not merged twice.
+	if cmd := m.autoMergeCI(mach.id, now, now); cmd != nil {
+		t.Fatal("still green merged again while merging")
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("messages %v", msgs)
+	}
+	next, _ := m.Update(msgs[0])
+	*m = next.(Model)
+	if !strings.Contains(m.flash, "merged #7 on GitHub (merge)") || len(m.autoMerges) != 0 {
+		t.Fatalf("done: flash %q, waiting %v", m.flash, m.autoMerges)
+	}
+	if cmd := m.autoMergeCI(mach.id, now, now); cmd != nil {
 		t.Fatal("still green merged again")
 	}
 	for _, c := range []string{"", "fail", "pending"} {
@@ -496,8 +537,22 @@ func TestAutoMergeOnTheTurnToGreen(t *testing.T) {
 			t.Fatalf("checks %q merged", c)
 		}
 	}
+	// Green when conch first saw it is not a turn conch watched.
+	if cmd := m.autoMergeCI(mach.id, ciProject("pass"), ciProject("pass")); cmd != nil || len(m.autoMerges) != 0 {
+		t.Fatal("merged a pull request that was green before conch looked")
+	}
+	// The base does not merge into itself.
+	base := ciProject("pass")
+	base.Base, base.Branches[0].Name = "wip", "wip"
+	if cmd := m.autoMergeCI(mach.id, ciProject("pending"), base); cmd != nil {
+		t.Fatal("merged the base")
+	}
+}
 
-	// What it holds back for, each said out loud.
+// TestAutoMergeHolds: everything it holds back for, it says out loud — a
+// merge that does not happen is as surprising as one that does.
+func TestAutoMergeHolds(t *testing.T) {
+	m, mach, peer := autoMergeModel(t, proto.CapPRMerge)
 	for _, c := range []struct {
 		name, want string
 		now        proto.ProjectInfo
@@ -506,6 +561,13 @@ func TestAutoMergeOnTheTurnToGreen(t *testing.T) {
 		{"draft", "is a draft", greenProject("pass", func(pr *proto.PRInfo) { pr.Draft = true }), nil},
 		{"changes requested", "asked for changes",
 			greenProject("pass", func(pr *proto.PRInfo) { pr.Review = "CHANGES_REQUESTED" }), nil},
+		{"conflicts", "#7 conflicts with its base; rebase it",
+			greenProject("pass", func(pr *proto.PRInfo) { pr.Conflicting = true }), nil},
+		{"conflicts with a named base", "#7 conflicts with main; rebase it", func() proto.ProjectInfo {
+			p := greenProject("pass", func(pr *proto.PRInfo) { pr.Conflicting = true })
+			p.Base = "main"
+			return p
+		}(), nil},
 		{"the project's own check failed", "this project's own check failed", ciProject("pass"), func() {
 			r := m.verifyRuns[verifyKey(mach.id, "r1", "wip")]
 			r.exit = 2
@@ -524,15 +586,10 @@ func TestAutoMergeOnTheTurnToGreen(t *testing.T) {
 		}},
 		{"its agent is still working", "still at it", ciProject("pass"), func() {
 			mach.reviews = nil
-			// The check passes again: each case has to be refused for its
-			// own reason, not for the one before it.
-			r := m.verifyRuns[verifyKey(mach.id, "r1", "wip")]
-			r.exit = 0
-			m.verifyRuns[verifyKey(mach.id, "r1", "wip")] = r
 			mach.panes[0].Agent.State = proto.AgentWorking
 		}},
 	} {
-		m.flash = ""
+		m.flash, m.autoMerges = "", nil
 		if c.setup != nil {
 			c.setup()
 		}
@@ -542,5 +599,123 @@ func TestAutoMergeOnTheTurnToGreen(t *testing.T) {
 		if !strings.Contains(m.flash, c.want) {
 			t.Errorf("%s: said %q, want %q in it", c.name, m.flash, c.want)
 		}
+		// Said once: the next poll, still held, says nothing more.
+		m.flash = ""
+		if m.autoMergeCI(mach.id, c.now, c.now); m.flash != "" {
+			t.Errorf("%s: said it again: %q", c.name, m.flash)
+		}
+	}
+	if mp := mergedPR(peer); mp != nil {
+		t.Fatalf("merged %+v", mp)
+	}
+}
+
+// TestAutoMergeAfterAHold: held back is not given up. A green pull
+// request whose agent was still working merges once the agent stops —
+// which is the commonest case, since the agent that pushed is often still
+// writing its summary when CI turns green — without waiting for the pull
+// request to change, which may never happen.
+func TestAutoMergeAfterAHold(t *testing.T) {
+	m, mach, peer := autoMergeModel(t, proto.CapPRMerge)
+	green := ciProject("pass")
+	mach.projects = []proto.ProjectInfo{green}
+	mach.panes[0].Agent.State = proto.AgentWorking
+	if cmd := m.autoMergeCI(mach.id, ciProject("pending"), green); cmd != nil || !strings.Contains(m.flash, "still at it") {
+		t.Fatalf("not held: %q", m.flash)
+	}
+
+	// The agent finishes: the pane event is enough.
+	done := mach.panes[0]
+	done.Agent = &proto.AgentStatus{Name: "claude", State: proto.AgentDone}
+	runBatch(m.handleEvent(mach, eventMsg(t, proto.EventPaneUpdated, done)))
+	if mp := mergedPR(peer); mp == nil || mp.Number != 7 {
+		t.Fatalf("not merged once the agent finished: %+v (%q)", mp, m.flash)
+	}
+}
+
+// TestAutoMergeAfterAThreadResolved: the same for a review thread
+// resolved on GitHub, which arrives as the review list changing.
+func TestAutoMergeAfterAThreadResolved(t *testing.T) {
+	m, mach, peer := autoMergeModel(t, proto.CapPRMerge, proto.CapReviewComments)
+	green := ciProject("pass")
+	mach.projects = []proto.ProjectInfo{green}
+	mach.reviews = []proto.ReviewComment{{ProjectID: "r1", Branch: "wip", File: "b.go", Note: "theirs", Source: proto.ReviewGitHub}}
+	if cmd := m.autoMergeCI(mach.id, ciProject("pending"), green); cmd != nil {
+		t.Fatal("merged over an unresolved thread")
+	}
+	runBatch(m.handleEvent(mach, eventMsg(t, proto.EventReviewChanged, proto.ReviewList{})))
+	if mp := mergedPR(peer); mp == nil {
+		t.Fatalf("not merged once the thread was resolved (%q)", m.flash)
+	}
+}
+
+// TestAutoMergeWaitEnds: a pull request that goes red, pending, or is
+// merged by somebody else stops waiting; one that is green again after a
+// push starts again.
+func TestAutoMergeWaitEnds(t *testing.T) {
+	m, mach, _ := autoMergeModel(t, proto.CapPRMerge)
+	mach.panes[0].Agent.State = proto.AgentWorking
+	m.autoMergeCI(mach.id, ciProject("pending"), ciProject("pass"))
+	if len(m.autoMerges) != 1 {
+		t.Fatalf("not waiting: %v", m.autoMerges)
+	}
+	for _, now := range []proto.ProjectInfo{
+		ciProject("pending"), ciProject("fail"), ciProject(""),
+		greenProject("pass", func(pr *proto.PRInfo) { pr.State = "MERGED" }),
+		{ID: "r1", Name: "api"}, // the branch is gone
+	} {
+		m.autoMerges = map[string]*autoMergeWait{mach.id + "|r1|wip": {held: "x"}}
+		m.autoMergeCI(mach.id, ciProject("pass"), now)
+		if len(m.autoMerges) != 0 {
+			t.Errorf("%+v: still waiting", now.Branches)
+		}
+	}
+	// Another project's wait is its own.
+	m.autoMerges = map[string]*autoMergeWait{mach.id + "|r2|wip": {held: "x"}}
+	m.autoMergeCI(mach.id, ciProject("pass"), ciProject("pending"))
+	if len(m.autoMerges) != 1 {
+		t.Fatal("dropped another project's wait")
+	}
+	// Retrying with auto_merge turned off since does nothing.
+	m.cfg.Verify.AutoMerge = false
+	if cmd := m.autoMergeRetry(mach.id); cmd != nil {
+		t.Fatal("retried with auto_merge off")
+	}
+}
+
+// TestAutoMergeRefused: an older server, which can only merge into a
+// checkout, is not asked; GitHub refusing is said once, and not tried
+// again until the pull request is green again.
+func TestAutoMergeRefused(t *testing.T) {
+	m, mach, peer := autoMergeModel(t) // no CapPRMerge
+	green := ciProject("pass")
+	mach.projects = []proto.ProjectInfo{green}
+	if cmd := m.autoMergeCI(mach.id, ciProject("pending"), green); cmd != nil || !strings.Contains(m.flash, "predates merging pull requests") {
+		t.Fatalf("an old server: %q", m.flash)
+	}
+	if len(m.autoMerges) != 1 {
+		t.Fatal("an old server gave up rather than waiting for an update")
+	}
+	if mp := mergedPR(peer); mp != nil {
+		t.Fatalf("asked an old server: %+v", mp)
+	}
+
+	m, mach, peer = autoMergeModel(t, proto.CapPRMerge)
+	peer.setError(proto.MethodBranchPRMerge, "gh pr merge: Pull request o/r#7 is not mergeable")
+	msgs := runBatch(m.autoMergeCI(mach.id, ciProject("pending"), green))
+	if len(msgs) != 1 {
+		t.Fatalf("messages %v", msgs)
+	}
+	next, _ := m.Update(msgs[0])
+	*m = next.(Model)
+	if !strings.Contains(m.flash, "#7 is green but GitHub would not merge it") || !strings.Contains(m.flash, "not mergeable") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	if len(m.autoMerges) != 0 || m.autoMergeCI(mach.id, green, green) != nil {
+		t.Fatal("tried again without the pull request changing")
+	}
+	// Green again after a push: tried again.
+	if cmd := m.autoMergeCI(mach.id, ciProject("pending"), green); cmd == nil {
+		t.Fatal("green again was not tried")
 	}
 }

@@ -253,6 +253,14 @@ func agentDone(p proto.PaneInfo) bool {
 	return p.Agent != nil && p.Agent.State == proto.AgentDone
 }
 
+// agentState is a pane's agent's state, or "" for a pane with none.
+func agentState(p proto.PaneInfo) string {
+	if p.Agent == nil {
+		return ""
+	}
+	return p.Agent.State
+}
+
 // verifyExited records what a check came to, as its pane exits, and says
 // so. It reports whether the pane was a check, since a check's terminal is
 // kept rather than closed: it is the only place its output lives.

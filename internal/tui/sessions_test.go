@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -360,5 +361,88 @@ func TestSessionsSaysWhatItDoesNotRead(t *testing.T) {
 	out = a2Plain(sv.render(*m, 120, 30))
 	if strings.Contains(out, "not read for") {
 		t.Errorf("it apologised for nothing:\n%s", out)
+	}
+}
+
+// TestSessionsStar: * marks a session to come back to. The star asks the
+// server, which keeps it — the agent's own files are not conch's to
+// write in — and the row shows it in a column of its own, so the mark
+// beside it still says what the session is doing.
+func TestSessionsStar(t *testing.T) {
+	m, sv := a2SessionsModel()
+	c, peer := a1FakeClient(t, proto.CapSessionStar)
+	m.machines[0].c, m.machines[0].server = c, c.Server
+
+	// The order comes from the server, so the first row is the first of
+	// the list as it arrived.
+	sv.sel = 0
+	list := sv.visible(*m)
+	if list[0].ID != "s1" {
+		t.Fatalf("this test expects s1 first: %+v", list[0])
+	}
+	_, cmd := sv.key(m, a2Key("*"))
+	if cmd == nil {
+		t.Fatalf("nothing was sent (%q)", m.flash)
+	}
+	runBatch(cmd)
+	msg := peer.waitMethod(t, proto.MethodSessionStar, `"id":"s1"`)
+	var sp proto.SessionStarParams
+	json.Unmarshal(msg.Params, &sp)
+	if sp.Agent != "claude" || !sp.On {
+		t.Fatalf("sent %+v", sp)
+	}
+	if !strings.Contains(m.flash, "starred") || strings.Contains(m.flash, "unstarred") {
+		t.Fatalf("flash %q", m.flash)
+	}
+
+	// Starred already: the same key takes it away.
+	m.sessions[sessionsKey(localMachine, "r1")].list[0].Starred = true
+	_, cmd = sv.key(m, a2Key("*"))
+	runBatch(cmd)
+	if !strings.Contains(m.flash, "unstarred") {
+		t.Fatalf("flash %q", m.flash)
+	}
+
+	// A run with no saved conversation has nothing to star, and says so
+	// rather than sending something the server cannot act on.
+	sv.agent = "opencode"
+	sv.sel = 0
+	before := len(peer.snapshot())
+	if _, cmd := sv.key(m, a2Key("*")); cmd != nil {
+		t.Fatal("a run with no id was starred")
+	}
+	if !strings.Contains(m.flash, "no saved conversation") || len(peer.snapshot()) != before {
+		t.Fatalf("flash %q", m.flash)
+	}
+
+	// The star has a column of its own, so the mark beside it still says
+	// what the session is doing: a quiet one keeps its dot, an open one
+	// keeps its ●.
+	sv.agent, sv.sel = "", 3
+	m.sessions[sessionsKey(localMachine, "r1")].list[2].Starred = true // s3, open
+	m.focus = focusMain
+	row := ansi.Strip(strings.Join(sv.render(*m, 100, 12), "\n"))
+	if !strings.Contains(row, "★·") {
+		t.Fatalf("a starred quiet session lost its dot:\n%s", row)
+	}
+	if !strings.Contains(row, "★●") {
+		t.Fatalf("a starred open session lost its ●:\n%s", row)
+	}
+	if !strings.Contains(row, "* star") {
+		t.Fatalf("the header does not mention it:\n%s", row)
+	}
+}
+
+// A server too old to keep stars says so rather than failing quietly.
+func TestSessionsStarNeedsTheServer(t *testing.T) {
+	m, sv := a2SessionsModel()
+	c, _ := a1FakeClient(t) // no capabilities
+	m.machines[0].c, m.machines[0].server = c, c.Server
+	sv.sel = 0
+	if _, cmd := sv.key(m, a2Key("*")); cmd != nil {
+		t.Fatal("it asked an older server anyway")
+	}
+	if !strings.Contains(m.flash, "predates starring") {
+		t.Fatalf("flash %q", m.flash)
 	}
 }

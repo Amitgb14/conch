@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Amitgb14/conch/internal/agentsetup"
 	"github.com/Amitgb14/conch/internal/buildinfo"
@@ -29,8 +30,13 @@ func TestA4MainHelpAndVersion(t *testing.T) {
 	for _, arg := range []string{"help", "--help", "-h"} {
 		os.Args = []string{"conch", arg}
 		out, _ := a4Capture(t, "", main)
-		if out != usage {
+		if out != shortUsage {
 			t.Fatalf("%s printed %q", arg, out)
+		}
+		// Every command, with all.
+		os.Args = []string{"conch", arg, "all"}
+		if out, _ := a4Capture(t, "", main); out != usage {
+			t.Fatalf("%s all printed %q", arg, out)
 		}
 	}
 	for _, arg := range []string{"version", "--version", "-v"} {
@@ -79,7 +85,7 @@ func TestA4MainHelpAndVersion(t *testing.T) {
 func TestA4MainExitCodes(t *testing.T) {
 	a4Env(t)
 	code, out, errOut := a4RunMain(t, "", "frobnicate")
-	if code != 2 || out != "" || !strings.Contains(errOut, `conch: unknown command "frobnicate"`) || !strings.Contains(errOut, "Usage:") {
+	if code != 2 || out != "" || !strings.Contains(errOut, `conch: unknown command "frobnicate"`) || !strings.Contains(errOut, "conch help all") {
 		t.Fatalf("unknown command: %d %q %q", code, out, errOut)
 	}
 	code, _, errOut = a4RunMain(t, "", "send", "only-id")
@@ -172,6 +178,7 @@ func TestA4Status(t *testing.T) {
 	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
 		return proto.PaneList{Panes: []proto.PaneInfo{
 			{ID: "p1", Name: "shell", State: proto.PaneRunning, Cols: 80, Rows: 24, Cwd: "/src", Command: []string{"/bin/sh", "-c", "echo a\n  echo   b"}},
+			{ID: "p3", Name: "box", State: proto.PaneRunning, Cols: 80, Rows: 24, Cwd: "/src", Command: []string{"ssh", "-p", "22", "me@box"}, SSH: "me@box"},
 			{ID: "p2", Name: "agent", State: proto.PaneExited, ExitCode: 7, Cols: 120, Rows: 40, Cwd: "/w", Command: []string{long},
 				Agent: &proto.AgentStatus{Name: "claude", State: "idle"}},
 		}}, nil
@@ -182,10 +189,10 @@ func TestA4Status(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 4 || !strings.HasPrefix(lines[0], "server: running  version "+proto.Version+"  pid 1000  up ") {
+	if len(lines) != 5 || !strings.HasPrefix(lines[0], "server: running  version "+proto.Version+"  pid 1000  up ") {
 		t.Fatalf("status:\n%s", out)
 	}
-	if f := strings.Fields(lines[1]); strings.Join(f, " ") != "ID NAME STATE AGENT SIZE CWD COMMAND" {
+	if f := strings.Fields(lines[1]); strings.Join(f, " ") != "ID NAME STATE AGENT SSH SIZE CWD COMMAND" {
 		t.Fatalf("header %q", lines[1])
 	}
 	// A server that has never reloaded says nothing about it: "up" is the
@@ -197,9 +204,16 @@ func TestA4Status(t *testing.T) {
 		!strings.HasSuffix(lines[2], "/bin/sh -c echo a echo b") || !strings.Contains(lines[2], " - ") {
 		t.Fatalf("pane row %q", lines[2])
 	}
-	if !strings.Contains(lines[3], "exited(7)") || !strings.Contains(lines[3], "claude:idle") ||
-		!strings.HasSuffix(lines[3], strings.Repeat("x", 59)+"…") {
-		t.Fatalf("exited row %q", lines[3])
+	// A terminal on ssh names the host, in its own column.
+	if f := strings.Fields(lines[3]); len(f) < 5 || f[0] != "p3" || f[3] != "-" || f[4] != "me@box" {
+		t.Fatalf("ssh row %q", lines[3])
+	}
+	if f := strings.Fields(lines[2]); len(f) < 5 || f[4] != "-" {
+		t.Fatalf("not on ssh: %q", lines[2])
+	}
+	if !strings.Contains(lines[4], "exited(7)") || !strings.Contains(lines[4], "claude:idle") ||
+		!strings.HasSuffix(lines[4], strings.Repeat("x", 59)+"…") {
+		t.Fatalf("exited row %q", lines[4])
 	}
 
 	srv.setHandle(func(proto.Message, *proto.Conn) (any, *proto.Error) { return proto.PaneList{}, nil })
@@ -1089,5 +1103,43 @@ func TestMachineUpgradeUnknown(t *testing.T) {
 	// about names, because the ref was not the problem.
 	if err := runMachine([]string{"upgrade", "box"}); err == nil || strings.Contains(err.Error(), "no machine") {
 		t.Fatalf("a machine conch has: %v", err)
+	}
+}
+
+// The short help is for somebody starting out, so it has to stay short and
+// stay true: every command it names is one the full list has, and no line
+// is wider than a terminal of 80 columns.
+func TestShortUsage(t *testing.T) {
+	lines := strings.Split(strings.TrimSuffix(shortUsage, "\n"), "\n")
+	if len(lines) > 30 {
+		t.Fatalf("%d lines: that is not short", len(lines))
+	}
+	for _, l := range lines {
+		if n := utf8.RuneCountInString(l); n > 80 {
+			t.Errorf("%d columns: %q", n, l)
+		}
+		// The command is the first column, up to where its description
+		// starts.
+		if !strings.HasPrefix(l, "  conch") || len(l) < 30 {
+			continue
+		}
+		f := strings.Fields(l[:30])
+		if len(f) < 2 {
+			continue // conch on its own
+		}
+		// The command and its first word after it, as the full list has
+		// them: "conch project add", "conch new -agent".
+		cmd := "  conch " + f[1]
+		if len(f) > 2 && (f[1] == "project" || f[1] == "machine" || f[1] == "new") {
+			cmd += " " + f[2]
+		}
+		if !strings.Contains(usage, cmd) {
+			t.Errorf("%q is not in the full usage", strings.TrimSpace(cmd))
+		}
+	}
+	for _, want := range []string{"conch help all", "? lists every key", "https://"} {
+		if !strings.Contains(shortUsage, want) {
+			t.Errorf("does not say %q", want)
+		}
 	}
 }

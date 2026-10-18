@@ -188,7 +188,9 @@ func TestPlainTaskMenus(t *testing.T) {
 	if !has(newRowMenu(*m, row{kind: kindProject, machine: localMachine, projectID: "r1"}, 0, 0), "New task (branch + worktree + agent)") {
 		t.Fatal("git project's menu")
 	}
-	// And the machine's page says where t starts one.
+	// And the machine's page says where t starts one, once the getting
+	// started guide, which says what t is for on a project, is out of the way.
+	m.guide = map[string]bool{guideHidden: true}
 	if page := ansi.Strip(strings.Join(m.machineLines(m.machines[0], 100, 30), "\n")); !strings.Contains(page, "t  new task in its home") {
 		t.Fatalf("machine page:\n%s", page)
 	}

@@ -151,6 +151,11 @@ type Model struct {
 	// repositories you said not to offer as projects again.
 	launchDir      string
 	noProjectOffer []string
+	// guide is the getting-started steps done (guide.go); guideSawLocal
+	// whether this TUI has had the local machine's panes yet, since an
+	// agent in the first list is one that outlived the TUI before it.
+	guide         map[string]bool
+	guideSawLocal bool
 
 	offset     int           // lines the viewed pane is scrolled back
 	asked      *scrollAsk    // the scroll last asked of the server, until a frame shows it
@@ -196,13 +201,14 @@ type Model struct {
 	upd     *updateState // newer builds and the update in progress
 	restart bool         // quit to exec the new build
 
-	sessions     map[string]*sessionsData // saved agent sessions per project (sessionsKey)
-	sessionsView *sessionsView            // the focused leaf's, when it lists sessions
-	queueView    *queueView               // the focused leaf's, when it is the review queue
-	filesView    *filesView               // the focused leaf's, when it is a file explorer
-	queueSeen    map[string]string        // review queue rows dismissed, by what they said when dismissed
-	verifyRuns   map[string]verifyRun     // a branch's last run of its project's check, by machine|project|branch
-	verifyFixes  map[string]int           // failed checks sent back on their own since the last pass, by the same key
+	sessions     map[string]*sessionsData  // saved agent sessions per project (sessionsKey)
+	sessionsView *sessionsView             // the focused leaf's, when it lists sessions
+	queueView    *queueView                // the focused leaf's, when it is the review queue
+	filesView    *filesView                // the focused leaf's, when it is a file explorer
+	queueSeen    map[string]string         // review queue rows dismissed, by what they said when dismissed
+	verifyRuns   map[string]verifyRun      // a branch's last run of its project's check, by machine|project|branch
+	verifyFixes  map[string]int            // failed checks sent back on their own since the last pass, by the same key
+	autoMerges   map[string]*autoMergeWait // green pull requests waiting to merge (auto_merge), by the same key
 	// viewSigs is the layout last published to each machine, so what is
 	// on screen is sent when it changes and not once a redraw
 	// (view_share.go).
@@ -256,6 +262,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		folders:    st.Folders,
 
 		noProjectOffer: st.NoProjectOffer,
+		guide:          st.Guide,
 
 		filesHideDot:     st.FilesHideDot,
 		filesShowIgnored: st.FilesShowIgnored,
@@ -467,6 +474,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.forgetGonePanes(mach)
 			m.flushHeld(mach)
+			first := mach.id == localMachine && !m.guideSawLocal
+			if mach.id == localMachine {
+				m.guideSawLocal = true
+			}
+			settled = tea.Batch(settled, m.guideAgents(mach, first))
 			if cmd := m.offerRestore(mach.id); cmd != nil {
 				return m, tea.Batch(cmd, settled, m.rebuild())
 			}
@@ -793,6 +805,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case harvestDoneMsg:
 		return m, m.receiveHarvest(msg)
 
+	case autoMergeDoneMsg:
+		return m, m.autoMergeDone(msg)
+
 	case gitPanelMsg:
 		return m, m.receiveGitPanel(msg)
 
@@ -894,6 +909,9 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		}
 		if info.Agent != nil {
 			mach.agents[info.ID] = true
+			if info.ProjectID != "" {
+				renamed = tea.Batch(renamed, m.guideNote(guideTask))
+			}
 		}
 		if info.State != proto.PaneRunning && m.isViewing(mach.id, info.ID) && m.focus == focusMain {
 			m.focus = focusSidebar
@@ -929,8 +947,14 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				}
 			}
 		}
+		// An agent finishing, or a check passing, may be all a green pull
+		// request waited for.
+		var merged tea.Cmd
+		if agentState(old) != agentState(info) || msg.Event == proto.EventPaneExited {
+			merged = m.autoMergeRetry(mach.id)
+		}
 		return tea.Batch(m.rebuild(), renamed, m.notifyAttention(mach, old, info), m.notifyMonitor(mach, old, info), installed, checked,
-			m.observeAgent(mach, old, info), m.watchPrompt(mach, info, msg.Event == proto.EventPaneExited))
+			m.observeAgent(mach, old, info), m.watchPrompt(mach, info, msg.Event == proto.EventPaneExited), merged)
 
 	case proto.EventPaneClosed:
 		var ref proto.PaneRef
@@ -1026,7 +1050,8 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if decodeInto(msg, &list) {
 			mach.setReviews(list)
 		}
-		return nil
+		// A thread resolved may be all a green pull request waited for.
+		return m.autoMergeRetry(mach.id)
 
 	case proto.EventScheduleChanged:
 		var list proto.ScheduleList

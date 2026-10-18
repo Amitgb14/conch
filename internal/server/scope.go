@@ -118,7 +118,7 @@ var scoped = map[string]scopeKind{
 	proto.MethodProjectRemove:  scopeProjID,
 	proto.MethodWorktreeRemove: scopeProject, proto.MethodWorktreeCleanup: scopeProject,
 	proto.MethodBranchCommit: scopeProject, proto.MethodBranchPush: scopeProject, proto.MethodBranchPR: scopeProject,
-	proto.MethodBranchMerge: scopeProject, proto.MethodBranchDiscard: scopeProject, proto.MethodBranchGit: scopeProject,
+	proto.MethodBranchMerge: scopeProject, proto.MethodBranchPRMerge: scopeProject, proto.MethodBranchDiscard: scopeProject, proto.MethodBranchGit: scopeProject,
 
 	proto.MethodServerStop: scopeServer, proto.MethodServerReload: scopeServer,
 
@@ -348,7 +348,7 @@ var verbs = map[string]string{
 	proto.MethodProjectRemove: "remove a project", proto.MethodWorktreeRemove: "remove a worktree",
 	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchCommit: "commit",
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
-	proto.MethodBranchMerge: "merge", proto.MethodBranchDiscard: "discard a branch",
+	proto.MethodBranchMerge: "merge", proto.MethodBranchPRMerge: "merge a pull request", proto.MethodBranchDiscard: "discard a branch",
 	proto.MethodBranchGit:    "run git",
 	proto.MethodAgentSkill:   "install or remove the agents' conch skill",
 	proto.MethodProjectFiles: "change which local files a project copies into its worktrees",

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
@@ -15,7 +17,7 @@ import (
 )
 
 const (
-	uploadUsage   = "usage: conch [-m MACHINE] upload [-ssh PANE] [-to DIR] [-f] PATH..."
+	uploadUsage   = "usage: conch [-m MACHINE] upload [-ssh PANE] [-to DIR [-p]] [-f] PATH..."
 	downloadUsage = "usage: conch [-m MACHINE] download [-ssh PANE] [-to DIR] [-f] PATH..."
 )
 
@@ -48,12 +50,16 @@ func runUpload(args []string) error {
 	to := fs.String("to", "", "the folder to copy into there (~ is its home); default: conch's uploads folder, or with -ssh the home folder")
 	force := fs.Bool("f", false, "write over a file or into a folder of the same name, rather than numbering the copy")
 	ssh := fs.String("ssh", "", "the pane (ID or name) of a terminal logged in with ssh: copy to that host instead")
+	parents := fs.Bool("p", false, "make the -to folder there first, and the folders above it, if missing")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	paths := fs.Args()
 	if len(paths) == 0 {
 		return errors.New(uploadUsage)
+	}
+	if *parents && *to == "" {
+		return errors.New("-p makes the -to folder; give one")
 	}
 	// An ssh host has no uploads folder of conch's: its home it is.
 	if *ssh != "" && *to == "" {
@@ -88,6 +94,11 @@ func runUpload(args []string) error {
 	if err != nil {
 		return err
 	}
+	if *parents {
+		if err := makeFolder(c, *to, pane); err != nil {
+			return fmt.Errorf("make %s: %w", *to, err)
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	for _, path := range paths {
@@ -101,10 +112,32 @@ func runUpload(args []string) error {
 		up.On(pane)
 		err = runSteps(ctx, up.Step, up.Timeout)
 		up.Close()
+		if err != nil && *to != "" && !*parents && strings.HasSuffix(err.Error(), " doesn't exist") {
+			return fmt.Errorf("%s: %w (-p makes it)", path, err)
+		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
 		fmt.Println(up.Path())
+	}
+	return nil
+}
+
+// makeFolder makes dir there and the folders above it, as mkdir -p does.
+// fs.mkdir makes one at a time and says so of one already there, which is
+// what most of the way down is. A file in the way says the same and is
+// left for the copy to refuse, with a better word for it.
+func makeFolder(c *client.Client, dir, ssh string) error {
+	var steps []string
+	for d := path.Clean(dir); d != "/" && d != "." && d != "~"; d = path.Dir(d) {
+		steps = append(steps, d)
+	}
+	for i := len(steps) - 1; i >= 0; i-- {
+		// The first over ssh logs in, which takes as long as it takes.
+		err := callFor(c, proto.MethodFSMkdir, proto.FSMkdirParams{Path: steps[i], SSH: ssh}, nil, time.Minute)
+		if err != nil && !strings.HasSuffix(err.Error(), " already exists") {
+			return err
+		}
 	}
 	return nil
 }

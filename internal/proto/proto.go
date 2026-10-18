@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -174,6 +174,12 @@ const CapTaskAfter = "schedule.after.v1"
 // unresolved comments on the branch's pull request, read through gh.
 const CapReviewComments = "review.comments.v1"
 
+// CapSessionStar is session.star: a session kept as one to come back to,
+// marked in the Sessions view and listed before the rest. The mark is
+// conch's, kept beside the server's own state — an agent's saved
+// conversations are the agent's files, and conch does not write in them.
+const CapSessionStar = "session.star.v1"
+
 // CapView is view.state, view.get and view.show: what a TUI is showing —
 // its tabs, their splits and which pane has the keyboard — published by
 // the TUI and read back by anything else, and a request to show a set of
@@ -181,6 +187,11 @@ const CapReviewComments = "review.comments.v1"
 // carries the TUI's and passes requests back, because panes are the
 // server's and the arrangement of them is the TUI's.
 const CapView = "view.v1"
+
+// CapPRMerge is branch.pr_merge: merging a branch's pull request on
+// GitHub, through gh. An older server only merges into a local checkout,
+// which leaves the pull request open; auto_merge needs this one.
+const CapPRMerge = "branch.pr_merge.v1"
 
 // CapFSSSH is the files of a host a terminal is logged in to with ssh:
 // PaneInfo.SSH names the host, and fs.list, fs.read, fs.mkdir, fs.upload
@@ -253,7 +264,9 @@ const (
 	MethodSessionShare   = "session.share"
 	MethodSessionExport  = "session.export"
 	MethodSessionDelete  = "session.delete"
-	MethodAgentLimits    = "agent.limits"
+	// MethodSessionStar keeps a session as one to come back to, or stops.
+	MethodSessionStar = "session.star"
+	MethodAgentLimits = "agent.limits"
 	// MethodAgentBroadcast types one message into several agents.
 	MethodAgentBroadcast = "agent.broadcast"
 	// MethodAgentPrompt submits a message to one agent, unless it is
@@ -295,10 +308,13 @@ const (
 
 	// Finishing a branch's work: commit, push, open a pull request, merge
 	// into the base, or throw the branch away.
-	MethodBranchCommit  = "branch.commit"
-	MethodBranchPush    = "branch.push"
-	MethodBranchPR      = "branch.pr"
-	MethodBranchMerge   = "branch.merge"
+	MethodBranchCommit = "branch.commit"
+	MethodBranchPush   = "branch.push"
+	MethodBranchPR     = "branch.pr"
+	MethodBranchMerge  = "branch.merge"
+	// MethodBranchPRMerge merges a branch's pull request on GitHub
+	// (CapPRMerge).
+	MethodBranchPRMerge = "branch.pr_merge"
 	MethodBranchDiscard = "branch.discard"
 	// MethodBranchGit runs git commands in a branch's worktree
 	// (CapBranchGit).
@@ -591,6 +607,8 @@ type PRInfo struct {
 	Passed int    `json:"passed,omitempty"`
 	Total  int    `json:"total,omitempty"`
 	Head   string `json:"head,omitempty"` // head commit
+	// Conflicting: GitHub says it cannot merge into its base as it stands.
+	Conflicting bool `json:"conflicting,omitempty"`
 }
 
 // WorktreeInfo is a checkout of the project.
@@ -975,6 +993,22 @@ type BranchMergeParams struct {
 	Branch    string `json:"branch"`
 	Squash    bool   `json:"squash,omitempty"`
 	Message   string `json:"message,omitempty"`
+}
+
+// BranchPRMergeParams merges Branch's pull request Number on GitHub, the
+// way the repository allows. A non-empty Head is the commit it must still
+// be at, so a push after its checks passed is not merged unchecked.
+type BranchPRMergeParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Number    int    `json:"number"`
+	Head      string `json:"head,omitempty"`
+}
+
+// BranchPRMergeResult says how the pull request was merged: merge,
+// squash or rebase.
+type BranchPRMergeResult struct {
+	Method string `json:"method"`
 }
 
 // BranchDiscardParams removes Branch's linked worktree and deletes the
@@ -1569,6 +1603,18 @@ type SessionInfo struct {
 	// OpenCode report a cost, Codex tokens only).
 	CostUSD float64 `json:"cost_usd,omitempty"`
 	Output  int     `json:"output,omitempty"`
+	// Starred is a session somebody kept, to find again among the
+	// hundreds a project collects. conch's own mark, not the agent's:
+	// their files are theirs (session.star.v1).
+	Starred bool `json:"starred,omitempty"`
+}
+
+// SessionStarParams marks a session as one to come back to, or stops.
+// Agent and ID name it, as every session reference does.
+type SessionStarParams struct {
+	Agent string `json:"agent"`
+	ID    string `json:"id"`
+	On    bool   `json:"on"`
 }
 
 // SessionSearchParams asks for the sessions of a project (or directory)

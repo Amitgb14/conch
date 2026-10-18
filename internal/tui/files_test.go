@@ -926,3 +926,32 @@ func TestFilesReadAgainWhenLookedAtAgain(t *testing.T) {
 		t.Fatalf("it kept reading after coming back: %d more", n-back)
 	}
 }
+
+func TestFilesLeaveOutCopiesUnderWay(t *testing.T) {
+	_, _, fv := filesFixture(t)
+	filesGive(fv, "",
+		proto.FSEntry{Name: ".ca.pem.part-0a1b2c3d4e5f"}, // the server's
+		proto.FSEntry{Name: ".big.bin.part-123456789"},   // os.CreateTemp's, here
+		proto.FSEntry{Name: "ca.pem"},
+		// Not a copy's: kept.
+		proto.FSEntry{Name: "song.part"},
+		proto.FSEntry{Name: ".part-1"},
+		proto.FSEntry{Name: ".x.part-"},
+		proto.FSEntry{Name: ".x.part-zz"},
+		proto.FSEntry{Name: "x.part-12"},
+		proto.FSEntry{Name: ".site.part-0a1b", Dir: true},
+	)
+	var names []string
+	for _, e := range fv.dirs[""].entries {
+		names = append(names, e.Name)
+	}
+	if got := strings.Join(names, " "); got != "ca.pem song.part .part-1 .x.part- .x.part-zz x.part-12 .site.part-0a1b" {
+		t.Fatalf("got %q", got)
+	}
+	if out := withoutCopying(nil); len(out) != 0 {
+		t.Fatal("nil")
+	}
+	if out := withoutCopying([]proto.FSEntry{{Name: ".a.part-1"}}); out == nil || len(out) != 0 {
+		t.Fatalf("all of them: %v", out)
+	}
+}

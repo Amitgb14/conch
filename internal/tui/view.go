@@ -1154,7 +1154,7 @@ func (m Model) machinePage(mach *machine, cols, rows int) []string {
 	}
 	switch mach.state {
 	case stateOnline:
-		lines = append(lines, styleMuted.Render(fmt.Sprintf("%d projects · %d panes · %d working · %d waiting", len(projects), len(panes), working, waiting)))
+		lines = append(lines, styleMuted.Render(fmt.Sprintf("%s · %s · %d working · %d waiting", count(len(projects), "project"), count(len(panes), "pane"), working, waiting)))
 		if line := m.usageLine(usageOf(panes), "usage"); line != "" {
 			lines = append(lines, styleMuted.Render(line))
 		}
@@ -1180,10 +1180,26 @@ func (m Model) machinePage(mach *machine, cols, rows int) []string {
 		if mach.warning != "" {
 			lines = append(lines, styleWarn.Render(mach.warning))
 		}
-		lines = append(lines, "",
-			styleMuted.Render("a  add a project      t  new task in its home"),
-			styleMuted.Render("c  start an agent     n  open a terminal"),
-			styleMuted.Render("M  add a machine      m  machine menu   ?  all keys"),
+		// c is said once: under the agents, where it also installs one,
+		// or here when there is no list to put it under.
+		start := "c  start an agent     "
+		if len(mach.agentList) > 0 {
+			start = ""
+		}
+		// The guide, while it is up, comes first and says what a and t are
+		// for, so the hints under it leave them out rather than repeat them.
+		var guide []string
+		if mach.id == localMachine {
+			guide = m.guideLines()
+		}
+		lines = append(lines, guide...)
+		lines = append(lines, "")
+		if len(guide) == 0 {
+			lines = append(lines, styleMuted.Render("a  add a project      t  new task in its home"))
+		}
+		lines = append(lines,
+			styleMuted.Render(start+"n  open a terminal    M  add a machine"),
+			styleMuted.Render("m  machine menu       ?  all keys"),
 		)
 	case stateConnecting:
 		lines = append(lines, styleWork.Render("connecting…"))
@@ -1256,6 +1272,27 @@ func spread(left, right string, w int) string {
 	left = ansi.Truncate(left, max(w-rw, 0), "…")
 	gap := max(w-ansi.StringWidth(left)-ansi.StringWidth(right), 0)
 	return left + strings.Repeat(" ", gap) + right
+}
+
+// spreadHint puts a view's key hints to the right of its title, as spread
+// does, but one that doesn't fit leaves out whole hints rather than
+// cutting one in half — "…load · D download" told nobody what U does.
+// The first hints stay, being what the view is for, and so does the last,
+// which is usually how to leave; the ones between go from the end.
+func spreadHint(title, hint string, w int) string {
+	room := max(w-min(ansi.StringWidth(title), w*2/3)-1, 0)
+	parts := strings.Split(hint, " · ")
+	fits := func() bool { return ansi.StringWidth(strings.Join(parts, " · ")) <= room }
+	for len(parts) > 2 && !fits() {
+		parts = append(parts[:len(parts)-2:len(parts)-2], parts[len(parts)-1])
+	}
+	if !fits() {
+		parts = parts[:1]
+	}
+	if !fits() {
+		return spread(title, "", w)
+	}
+	return spread(title, styleMuted.Render(strings.Join(parts, " · ")), w)
 }
 
 // centered places content as a left-aligned block in the middle of a w×h area.
