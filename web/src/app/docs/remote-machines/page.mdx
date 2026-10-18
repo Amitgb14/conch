@@ -105,15 +105,15 @@ conch -m gpu-box upload -to ~ ./site                # a folder, copied whole
 conch -m gpu-box download -to ~/Downloads ~/logs/run.log ~/results
 ```
 
-They travel over the connection conch already has to the machine, so they work the same for an ssh host and a sandbox — whose address can change at every start, and which you may hold no key for. Paths there may start with `~`. A name already taken on the receiving side is numbered (`ca 2.pem`) unless `-f` is given, and each path is printed as it lands. Up to 4 GB a file or packed folder; a file dropped on a pane stays limited as above.
+They travel over the connection conch already has to the machine, so they work the same for an ssh host and a sandbox — whose address can change at every start, and which you may hold no key for. Paths there may start with `~`, and `upload -p` makes a `-to` folder that is missing. A name already taken on the receiving side is numbered (`ca 2.pem`) unless `-f` is given, and each path is printed as it lands. Up to 4 GB a file or packed folder; a file dropped on a pane stays limited as above.
 
 ### A host you reached with plain ssh
 
-A terminal where you typed `ssh host` needs no conch on that host: `-ssh` names the terminal — its ID or name, as `conch status` shows it — and the copy goes to or from the host it is logged in to, through the host's own sftp server, with the options you typed.
+A terminal where you typed `ssh host` needs no conch on that host: `-ssh` names the terminal — its ID or name, as `conch status` shows it, beside the host it is on — and the copy goes to or from the host it is logged in to, through the host's own sftp server, with the options you typed.
 
 ```sh
 conch upload -ssh bb ./site ~/doc/ca.pem            # into that host's home
-conch upload -ssh p4 -to ~/certs ~/doc/ca.pem       # into a folder there
+conch upload -ssh p4 -p -to ~/certs ~/doc/ca.pem    # into a folder there, made if missing
 conch download -ssh bb -to ~/Downloads ~/logs/app.log
 ```
 
