@@ -233,3 +233,39 @@ func TestAutopilotResolveSetting(t *testing.T) {
 		t.Fatalf("%q %q", autoResolveText(0), autoResolveText(2))
 	}
 }
+
+func TestAutopilotGateSettings(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	m, _, peer := fixModel(t, proto.CapAutopilot)
+	press := func(label string) proto.AutopilotPolicy {
+		t.Helper()
+		s := &settings{tab: gitTab}
+		found := false
+		for _, it := range s.items(m) {
+			if it.label == label {
+				found = true
+				runBatch(it.run(m))
+			}
+		}
+		if !found {
+			t.Fatalf("no row %q", label)
+		}
+		pol := proto.AutopilotPolicy{}
+		sentParams(t, peer, proto.MethodAutopilotSet, &pol)
+		return pol
+	}
+	if pol := press("It needs a test to merge itself"); !pol.RequireTests {
+		t.Fatalf("%+v", pol)
+	}
+	for _, want := range []int{200, 400, 800, 1600, 0} {
+		if pol := press("Largest that merges itself"); pol.MaxDiff != want {
+			t.Fatalf("max_diff %d, want %d", pol.MaxDiff, want)
+		}
+	}
+	if nextMaxDiff(333) != 0 || maxDiffText(0) != "no limit" || !strings.Contains(maxDiffText(400), "400") {
+		t.Fatal("max_diff text")
+	}
+	if !strings.HasPrefix(requireTestsText(false), "off") {
+		t.Fatal(requireTestsText(false))
+	}
+}

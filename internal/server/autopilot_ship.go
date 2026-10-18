@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
+	"github.com/Amitgb14/conch/internal/ghx"
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -246,25 +248,170 @@ func (s *Server) ship(projectID, branch string) string {
 	}
 	switch pr := b.PR; {
 	case pr != nil && pr.State == "OPEN":
-		if b.Upstream != "" && b.Ahead == 0 {
-			return "" // pushed already
+		if b.Upstream == "" || b.Ahead > 0 {
+			if _, perr := s.projects.pushBranch(proto.BranchPushParams{ProjectID: projectID, Branch: branch}); perr != nil {
+				return "pushing it failed: " + perr.Message
+			}
+			s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
+				Text: fmt.Sprintf("pushed %s to #%d", branch, pr.Number)})
 		}
-		if _, perr := s.projects.pushBranch(proto.BranchPushParams{ProjectID: projectID, Branch: branch}); perr != nil {
-			return "pushing it failed: " + perr.Message
-		}
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
-			Text: fmt.Sprintf("pushed %s to #%d", branch, pr.Number)})
+		return s.markReady(p, projectID, branch, wt.Path, info.Base, wt.Head, *pr)
 	case pr != nil && pr.State == "CLOSED":
 		return fmt.Sprintf("its pull request #%d was closed, so conch opens no other; open one yourself if it should be", pr.Number)
 	default:
-		res, perr := s.projects.openPR(proto.BranchPRParams{ProjectID: projectID, Branch: branch})
+		unmet := s.gates(projectID, branch, wt.Path, info.Base, wt.Head)
+		res, perr := s.projects.openPR(proto.BranchPRParams{ProjectID: projectID, Branch: branch, Draft: len(unmet) > 0})
 		if perr != nil {
 			return "opening its pull request failed: " + perr.Message
 		}
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
-			Text: "opened " + res.URL + " for " + branch})
+		text := "opened " + res.URL + " for " + branch
+		if len(unmet) > 0 {
+			a.mu.Lock()
+			a.saved.Drafted[key] = true
+			a.saveLocked()
+			a.mu.Unlock()
+			text += " as a draft, since " + strings.Join(unmet, " and ") + "; it is marked ready once that changes"
+		}
+		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Text: text})
 	}
 	return ""
+}
+
+// markReady takes a pull request conch opened as a draft out of draft
+// once the gates that held it are met. One somebody made a draft is
+// theirs, and left alone.
+func (s *Server) markReady(p *project, projectID, branch, dir, base, head string, pr proto.PRInfo) string {
+	key := branchKey(projectID, branch)
+	a := s.autopilot
+	a.mu.Lock()
+	drafted := a.saved.Drafted[key]
+	a.mu.Unlock()
+	if !drafted {
+		return ""
+	}
+	if !pr.Draft {
+		a.mu.Lock()
+		delete(a.saved.Drafted, key) // somebody marked it ready
+		a.saveLocked()
+		a.mu.Unlock()
+		return ""
+	}
+	if unmet := s.gates(projectID, branch, dir, base, head); len(unmet) > 0 {
+		return fmt.Sprintf("#%d stays a draft, since %s", pr.Number, strings.Join(unmet, " and "))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), networkTimeout)
+	defer cancel()
+	if err := ghx.Ready(ctx, p.root, pr.Number); err != nil {
+		return fmt.Sprintf("#%d could not be marked ready: %v", pr.Number, err)
+	}
+	a.mu.Lock()
+	delete(a.saved.Drafted, key)
+	a.saveLocked()
+	a.mu.Unlock()
+	s.projects.requestPRs(p)
+	s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
+		Text: fmt.Sprintf("marked #%d ready: what held it as a draft is met", pr.Number)})
+	return ""
+}
+
+// gates says which of require_tests and max_diff a branch does not meet,
+// and asks its agent for a test, once a commit, when it lacks one.
+func (s *Server) gates(projectID, branch, dir, base, head string) []string {
+	pol := s.autopilot.policy()
+	if !pol.RequireTests && pol.MaxDiff <= 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	var unmet []string
+	if pol.RequireTests {
+		files, err := gitx.Changed(ctx, dir, base)
+		if err == nil && needsTest(files) {
+			unmet = append(unmet, "it changes code and no test")
+			s.askForTest(projectID, branch, head)
+		}
+	}
+	if pol.MaxDiff > 0 {
+		if n, err := gitx.DiffSize(ctx, dir, base); err == nil && n > pol.MaxDiff {
+			unmet = append(unmet, fmt.Sprintf("it changes %d lines, over max_diff's %d — split it if it can be", n, pol.MaxDiff))
+		}
+	}
+	return unmet
+}
+
+// testPrompt is what an agent whose branch changes code and no test is
+// told.
+const testPrompt = "This branch changes code but no test. Add a test that fails without your change and passes with it, " +
+	"run it, and commit it. If the change truly cannot be tested, say why in a commit message instead. " +
+	"Do not push: conch pushes it, and marks the pull request ready once it has a test."
+
+// askForTest asks the branch's agent for a test, once for each commit.
+func (s *Server) askForTest(projectID, branch, head string) {
+	key := branchKey(projectID, branch)
+	a := s.autopilot
+	agent := s.freeAgent(projectID, branch)
+	if agent == nil {
+		return
+	}
+	a.mu.Lock()
+	asked := a.saved.TestAsked[key] == head
+	if !asked {
+		a.saved.TestAsked[key] = head
+		a.saveLocked()
+	}
+	a.mu.Unlock()
+	if asked {
+		return
+	}
+	if _, perr := s.promptAgent(proto.AgentPromptParams{ID: agent.ID, Text: testPrompt}); perr != nil {
+		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
+			Text: "asking " + agent.DisplayName() + " for a test on " + branch + " failed: " + perr.Message})
+	}
+}
+
+// needsTest says whether a set of changed files is code with no test
+// beside it. Documentation, configuration and data need none.
+func needsTest(files []string) bool {
+	code := false
+	for _, f := range files {
+		if isTestFile(f) {
+			return false
+		}
+		if sourceExts[strings.ToLower(filepath.Ext(f))] {
+			code = true
+		}
+	}
+	return code
+}
+
+// sourceExts are the files that are code.
+var sourceExts = map[string]bool{
+	".go": true, ".py": true, ".js": true, ".jsx": true, ".ts": true, ".tsx": true, ".mjs": true, ".cjs": true,
+	".rs": true, ".java": true, ".kt": true, ".rb": true, ".c": true, ".cc": true, ".cpp": true, ".h": true, ".hpp": true,
+	".swift": true, ".cs": true, ".php": true, ".scala": true, ".m": true, ".mm": true, ".ex": true, ".exs": true,
+	".dart": true, ".lua": true, ".sh": true, ".vue": true, ".svelte": true,
+}
+
+// isTestFile says whether path is a test by the conventions of the
+// common languages: a test directory, or a test's own name.
+func isTestFile(path string) bool {
+	for _, dir := range strings.Split(filepath.ToSlash(filepath.Dir(path)), "/") {
+		switch dir {
+		case "test", "tests", "__tests__", "spec", "specs", "testdata", "e2e":
+			return true
+		}
+	}
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	switch {
+	case strings.HasSuffix(name, "_test"), strings.HasSuffix(name, "_spec"),
+		strings.HasPrefix(name, "test_") && ext == ".py",
+		strings.Contains(base, ".test."), strings.Contains(base, ".spec."),
+		strings.HasSuffix(name, "Test") || strings.HasSuffix(name, "Tests"):
+		return true
+	}
+	return false
 }
 
 // commitPrompt is what an agent that left work uncommitted is told.
@@ -304,4 +451,29 @@ func (s *Server) midway(dir string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	return gitx.InProgress(ctx, dir) != ""
+}
+
+// shipNote is added to a task's first message while the server ships
+// branches itself (auto_pr), so the agent works the way that needs from
+// the start rather than learn it from a refusal: tested, committed with
+// messages that say why, and never pushed by hand — a push of its own
+// would race conch's, and a force push could drop what the base or
+// somebody else added.
+func (s *Server) shipNote(projectID string) string {
+	if s.autopilot == nil {
+		return ""
+	}
+	pol := s.autopilot.policy()
+	if !pol.AutoPR {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\n(How this branch is shipped: when you finish, conch ")
+	if pol.Checks[projectID] != "" {
+		fmt.Fprintf(&b, "runs `%s` here and, once it passes, ", pol.Checks[projectID])
+	}
+	b.WriteString("pushes the branch and opens its pull request. So: write a test that fails without the change first, then the change; ")
+	b.WriteString("commit your work in small commits whose messages say what changed and why; leave nothing that belongs to it uncommitted; ")
+	b.WriteString("and do not push, force-push, rebase onto the base or merge — conch does those, and tells you if CI fails or the base conflicts.)")
+	return b.String()
 }

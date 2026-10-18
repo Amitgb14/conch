@@ -26,6 +26,13 @@ type AutopilotPolicy struct {
 	// once the server's own rebase onto the base has stopped on the
 	// conflict. 0 leaves conflicts alone.
 	AutoResolve int `json:"auto_resolve,omitempty"`
+	// RequireTests opens a pull request whose branch changes code and no
+	// test as a draft — which auto_merge does not merge — and asks the
+	// agent to add one; MaxDiff does the same for one that changes more
+	// lines than it says (0 is no limit). Once they are met, a later push
+	// marks it ready.
+	RequireTests bool `json:"require_tests,omitempty"`
+	MaxDiff      int  `json:"max_diff,omitempty"`
 	// Checks is each project's own check, by project ID: what the server
 	// runs in a branch's worktree when its agent finishes.
 	Checks map[string]string `json:"checks,omitempty"`

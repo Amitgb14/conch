@@ -76,6 +76,8 @@ auto_fix = 0     # send a failed check — the project's own, or a pull request'
 auto_merge = false # merge a pull request on GitHub when its checks turn green (held while a draft, conflicting, under review or an unresolved thread, or past a failed check)
 auto_pr = false  # push a branch whose agent finished and whose check passed, and open its pull request (or push to the open one)
 auto_resolve = 0 # rebase a pull request that conflicts with its base, asking the branch's agent up to this many times when that stops on a conflict
+require_tests = false # open a pull request whose branch changes code and no test as a draft (auto_merge leaves drafts), and ask the agent for a test
+max_diff = 0     # open one bigger than this many changed lines as a draft too; 0 is no limit
                  # both are handed to each machine's server, which acts on them with conch closed
 reviewer = ""    # an agent asked to review a branch when its agent finishes, e.g. "codex"
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -140,4 +141,38 @@ func PushOver(ctx context.Context, dir, branch, expect string) error {
 		return err
 	}
 	return nil
+}
+
+// DiffSize is how many lines the checkout's HEAD adds and removes since
+// it left base, together: the size of the pull request it would make.
+func DiffSize(ctx context.Context, dir, base string) (int, error) {
+	out, err := run(ctx, dir, "diff", "--numstat", "--no-renames", base+"...HEAD", "--")
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 {
+			continue
+		}
+		for _, c := range f[:2] {
+			if v, err := strconv.Atoi(c); err == nil { // "-" for a binary file
+				n += v
+			}
+		}
+	}
+	return n, nil
+}
+
+// Changed lists the files the checkout's HEAD has changed since it left
+// base, sorted.
+func Changed(ctx context.Context, dir, base string) ([]string, error) {
+	out, err := run(ctx, dir, "diff", "--name-only", "-z", "--no-renames", base+"...HEAD", "--")
+	if err != nil {
+		return nil, err
+	}
+	files := splitNUL(out)
+	sort.Strings(files)
+	return files, nil
 }

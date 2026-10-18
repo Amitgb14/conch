@@ -434,6 +434,7 @@ func shipFixture(t *testing.T) (s *Server, p *project, e *entry, wt, origin, ghL
 	os.WriteFile(gh, []byte(`#!/bin/sh
 case "$1 $2" in
 "pr create") echo "$*" >> `+ghLog+`; echo https://github.com/o/r/pull/8 ;;
+"pr ready") echo "$*" >> `+ghLog+` ;;
 "pr list") echo '[]' ;;
 "api graphql") echo '{}' ;;
 *) exit 7 ;;
@@ -790,5 +791,123 @@ func TestAutopilotResolveOnlyWhatItWatched(t *testing.T) {
 	}
 	if !strings.Contains(resolvePrompt("origin/main", []string{"a.go"}, "abc main did it", "go test ./..."), "run `go test ./...`") {
 		t.Fatal("the prompt does not ask for the check")
+	}
+}
+
+func TestIsTestFile(t *testing.T) {
+	for path, want := range map[string]bool{
+		"internal/x/a_test.go": true, "a.go": false, "test_a.py": true, "a_test.py": true, "a.py": false,
+		"src/a.test.ts": true, "src/a.spec.tsx": true, "src/a.ts": false, "spec/a_spec.rb": true,
+		"src/test/java/FooTest.java": true, "Foo.java": false, "tests/helpers.js": true, "__tests__/x.js": true,
+		"internal/x/testdata/in.json": true, "README.md": false, "test_a.go": false,
+	} {
+		if got := isTestFile(path); got != want {
+			t.Errorf("%s: %v", path, got)
+		}
+	}
+	for _, c := range []struct {
+		files []string
+		want  bool
+	}{
+		{nil, false},
+		{[]string{"README.md", "docs/x.mdx", "go.mod"}, false},
+		{[]string{"a.go"}, true},
+		{[]string{"a.go", "a_test.go"}, false},
+		{[]string{"web/App.TSX"}, true},
+	} {
+		if got := needsTest(c.files); got != c.want {
+			t.Errorf("%v: %v", c.files, got)
+		}
+	}
+}
+
+// A branch that changes code and no test opens as a draft, which
+// auto_merge leaves alone; its agent is asked for a test, once; the push
+// that brings one marks it ready. A draft somebody else made is theirs.
+func TestAutopilotRequireTests(t *testing.T) {
+	s, p, e, wt, _, ghLog := shipFixture(t)
+	s.autopilot.set(proto.AutopilotPolicy{AutoPR: true, RequireTests: true})
+	if why := s.ship(p.id, "api/model"); why != "" {
+		t.Fatalf("held: %s", why)
+	}
+	if got := readCalls(ghLog); got != "pr create --base main --head api/model --fill --draft\n" {
+		t.Fatalf("gh: %q", got)
+	}
+	a5WaitFor(t, "the request for a test", func() bool { return strings.Contains(screenText(e), "changes code but no test") })
+	a5WaitFor(t, "the request submitted", func() bool { st, _ := agentState(e); return st == proto.AgentIdle })
+
+	// Pushed again with still no test: it stays a draft, and is not asked twice.
+	p.mu.Lock()
+	p.prs = map[string]proto.PRInfo{"api/model": {Number: 8, State: "OPEN", Draft: true}}
+	p.mu.Unlock()
+	if why := s.ship(p.id, "api/model"); !strings.Contains(why, "stays a draft") {
+		t.Fatalf("no test yet: %q", why)
+	}
+	if n := strings.Count(screenText(e), "changes code but no test"); n != 1 {
+		t.Fatalf("asked %d times", n)
+	}
+
+	os.WriteFile(filepath.Join(wt, "model_test.go"), []byte("package api\n"), 0o644)
+	apGit(t, wt, "add", ".")
+	apGit(t, wt, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "Test the model")
+	if why := s.ship(p.id, "api/model"); why != "" {
+		t.Fatalf("with a test: %q", why)
+	}
+	if !strings.Contains(readCalls(ghLog), "pr ready 8") {
+		t.Fatalf("not marked ready: %q", readCalls(ghLog))
+	}
+
+	// Somebody's own draft is left a draft.
+	s.autopilot.mu.Lock()
+	delete(s.autopilot.saved.Drafted, branchKey(p.id, "api/model"))
+	s.autopilot.mu.Unlock()
+	os.Remove(ghLog)
+	if why := s.ship(p.id, "api/model"); why != "" || strings.Contains(readCalls(ghLog), "pr ready") {
+		t.Fatalf("someone's draft: %q %q", why, readCalls(ghLog))
+	}
+}
+
+// Past max_diff a pull request opens as a draft too, saying how big it is.
+func TestAutopilotMaxDiff(t *testing.T) {
+	s, p, _, wt, _, ghLog := shipFixture(t)
+	os.WriteFile(filepath.Join(wt, "model.go"), []byte("package api\n\ntype Model struct{}\n"), 0o644)
+	apGit(t, wt, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qam", "A model") // 3 lines in all
+	s.autopilot.set(proto.AutopilotPolicy{AutoPR: true, MaxDiff: 2})
+	s.autopilotShip(p.id, "api/model")
+	if !strings.Contains(readCalls(ghLog), "--draft") {
+		t.Fatalf("not a draft: %q", readCalls(ghLog))
+	}
+	if got := s.gates(p.id, "api/model", p.root, "main", ""); len(got) != 0 {
+		t.Fatalf("the base itself: %v", got)
+	}
+	s.autopilot.set(proto.AutopilotPolicy{AutoPR: true, MaxDiff: -3})
+	if s.autopilot.policy().MaxDiff != 0 {
+		t.Fatal("a negative limit")
+	}
+}
+
+// A task started while conch ships branches is told how, from the start;
+// otherwise its prompt is the person's alone.
+func TestAutopilotShipNote(t *testing.T) {
+	s, p := afterFixture(t)
+	if note := s.shipNote(p.id); note != "" {
+		t.Fatalf("auto_pr off: %q", note)
+	}
+	s.autopilot.set(proto.AutopilotPolicy{AutoPR: true, Checks: map[string]string{p.id: "make check"}})
+	note := s.shipNote(p.id)
+	for _, want := range []string{"runs `make check`", "do not push", "fails without the change"} {
+		if !strings.Contains(note, want) {
+			t.Fatalf("note lacks %q: %s", want, note)
+		}
+	}
+	if strings.Contains(s.shipNote("another"), "make check") {
+		t.Fatal("another project's check")
+	}
+	info, _, perr := s.startTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the model", Branch: "api/model"})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if cmd := strings.Join(info.Command, " "); !strings.Contains(cmd, "How this branch is shipped") || !strings.Contains(cmd, "add the model") {
+		t.Fatalf("first message: %s", cmd)
 	}
 }

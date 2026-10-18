@@ -1344,7 +1344,7 @@ func (s *Server) startTask(tp proto.TaskCreateParams) (proto.PaneInfo, string, *
 	s.startSetup(p, path, tp.Branch)
 	info, perr := s.create(proto.PaneCreateParams{
 		Agent:  tp.Agent,
-		Prompt: tp.Prompt,
+		Prompt: tp.Prompt + s.shipNote(p.id),
 		Cwd:    path,
 		Cols:   tp.Cols,
 		Rows:   tp.Rows,

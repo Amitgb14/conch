@@ -124,6 +124,14 @@ func (s *settings) gitItems(m *Model) []settingItem {
 			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
 		}},
 		settingItem{label: styleMuted.Render("  once its agent finishes and its check passes; new commits go to the one already open")},
+		settingItem{label: "It needs a test to merge itself", detail: requireTestsText(m.cfg.Verify.RequireTests), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.RequireTests = !m.cfg.Verify.RequireTests
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+		}},
+		settingItem{label: "Largest that merges itself", detail: maxDiffText(m.cfg.Verify.MaxDiff), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.MaxDiff = nextMaxDiff(m.cfg.Verify.MaxDiff)
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+		}},
 		settingItem{label: "A green pull request merges itself", detail: autoMergeText(m.cfg.Verify.AutoMerge), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.AutoMerge = !m.cfg.Verify.AutoMerge
 			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
@@ -478,6 +486,34 @@ func autoPRText(on bool) string {
 		return "off · p in a branch's menu opens one"
 	}
 	return "on · pushed and opened once it's committed and checked"
+}
+
+// requireTestsText says what require_tests does.
+func requireTestsText(on bool) string {
+	if !on {
+		return "off · any pull request may merge"
+	}
+	return "on · code with no test opens as a draft, and the agent is asked for one"
+}
+
+// maxDiffSteps is what enter steps max_diff through; 0 is no limit.
+var maxDiffSteps = []int{0, 200, 400, 800, 1600}
+
+func nextMaxDiff(cur int) int {
+	for i, n := range maxDiffSteps {
+		if n == cur {
+			return maxDiffSteps[(i+1)%len(maxDiffSteps)]
+		}
+	}
+	return maxDiffSteps[0] // a number set by hand goes back to no limit
+}
+
+// maxDiffText says what max_diff does.
+func maxDiffText(n int) string {
+	if n <= 0 {
+		return "no limit"
+	}
+	return fmt.Sprintf("%d changed lines; a bigger one opens as a draft", n)
 }
 
 // autoResolveText says what auto_resolve does.

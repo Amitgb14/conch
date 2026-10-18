@@ -141,3 +141,28 @@ func TestPushOver(t *testing.T) {
 		t.Fatalf("never pushed: %q", got)
 	}
 }
+
+func TestDiffSizeAndChanged(t *testing.T) {
+	_, wt := taskRepo(t)
+	if n, err := DiffSize(ctx, wt, "main"); err != nil || n != 0 {
+		t.Fatalf("nothing: %d %v", n, err)
+	}
+	commit(t, wt, "a.go", "one\ntwo\nthree\n", "three lines")
+	write(t, wt, "README.md", "changed\n")
+	git(t, wt, "commit", "-qam", "one changed")
+	write(t, wt, "bin.dat", "\x00\x01\x02")
+	git(t, wt, "add", "bin.dat")
+	git(t, wt, "commit", "-qm", "binary")
+	if n, err := DiffSize(ctx, wt, "main"); err != nil || n != 5 { // 3 added, 1 added and 1 removed, binary not counted
+		t.Fatalf("size %d %v", n, err)
+	}
+	if got, _ := Changed(ctx, wt, "main"); !reflect.DeepEqual(got, []string{"README.md", "a.go", "bin.dat"}) {
+		t.Fatalf("changed %v", got)
+	}
+	if _, err := DiffSize(ctx, wt, "nothing"); err == nil {
+		t.Fatal("no base")
+	}
+	if _, err := Changed(ctx, wt, "nothing"); err == nil {
+		t.Fatal("no base")
+	}
+}

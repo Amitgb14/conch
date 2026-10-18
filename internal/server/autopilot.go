@@ -86,6 +86,11 @@ type autopilotFile struct {
 	// the agent it asked, that must replace what was pushed — checked
 	// first (autopilot_resolve.go).
 	Rewrites map[string]rewrite `json:"rewrites,omitempty"`
+	// Drafted is branches whose pull request conch opened as a draft for
+	// a gate (require_tests, max_diff), to mark ready once they are met;
+	// TestAsked the commit each agent was asked for a test at.
+	Drafted   map[string]bool   `json:"drafted,omitempty"`
+	TestAsked map[string]string `json:"test_asked,omitempty"`
 }
 
 func loadAutopilot(configDir string) *autopilot {
@@ -135,6 +140,12 @@ func loadAutopilot(configDir string) *autopilot {
 	if a.saved.Rewrites == nil {
 		a.saved.Rewrites = map[string]rewrite{}
 	}
+	if a.saved.Drafted == nil {
+		a.saved.Drafted = map[string]bool{}
+	}
+	if a.saved.TestAsked == nil {
+		a.saved.TestAsked = map[string]string{}
+	}
 	return a
 }
 
@@ -145,6 +156,7 @@ const autoFixMax = 10
 func cleanPolicy(p proto.AutopilotPolicy) proto.AutopilotPolicy {
 	p.AutoFix = max(0, min(p.AutoFix, autoFixMax))
 	p.AutoResolve = max(0, min(p.AutoResolve, autoFixMax))
+	p.MaxDiff = max(0, p.MaxDiff)
 	checks := map[string]string{}
 	for id, cmd := range p.Checks {
 		if cmd = strings.TrimSpace(cmd); id != "" && cmd != "" {
@@ -329,7 +341,7 @@ func (a *autopilot) forget(projectID string) {
 	defer a.mu.Unlock()
 	delete(a.saved.Seen, projectID)
 	prefix := projectID + "\x00"
-	for _, m := range []map[string]string{a.saved.Checks, a.saved.Waiting, a.saved.Failed, a.saved.Passed, a.saved.Asked, a.saved.Conflicted} {
+	for _, m := range []map[string]string{a.saved.Checks, a.saved.Waiting, a.saved.Failed, a.saved.Passed, a.saved.Asked, a.saved.Conflicted, a.saved.TestAsked} {
 		for key := range m {
 			if strings.HasPrefix(key, prefix) {
 				delete(m, key)
@@ -354,6 +366,11 @@ func (a *autopilot) forget(projectID string) {
 	for key := range a.saved.Rewrites {
 		if strings.HasPrefix(key, prefix) {
 			delete(a.saved.Rewrites, key)
+		}
+	}
+	for key := range a.saved.Drafted {
+		if strings.HasPrefix(key, prefix) {
+			delete(a.saved.Drafted, key)
 		}
 	}
 	for key := range a.unshipped {
