@@ -199,8 +199,20 @@ func TestA2SettingsAgentsAndBrain(t *testing.T) {
 		t.Fatal("firstNonEmpty")
 	}
 
+	// Git: how a merge lands, and whether a green pull request merges.
+	s.setTab(gitTab)
+	items = s.items(m)
+	a2Item(t, items, "How a merge lands").run(m)
+	if m.cfg.Git.Squash {
+		t.Fatal("the merge style did not change")
+	}
+	a2Item(t, items, "A green pull request merges itself").run(m)
+	if !m.cfg.Verify.AutoMerge {
+		t.Fatal("auto_merge did not change")
+	}
+
 	// Brain: providers, models per provider, summaries.
-	s.setTab(3)
+	s.setTab(brainTab)
 	items = s.items(m)
 	anthropic := a2Item(t, items, "Anthropic API (ANTHROPIC_API_KEY)")
 	if !strings.Contains(ansi.Strip(anthropic.detail), "set $ANTHROPIC_API_KEY") {
@@ -253,8 +265,8 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 	for _, step := range []struct {
 		key string
 		tab int
-	}{{"tab", 1}, {"right", 2}, {"l", 3}, {"tab", 4}, {"tab", 5}, {"tab", 6}, {"tab", 0}, {"shift+tab", 6},
-		{"left", 5}, {"h", 4}, {"4", 3}, {"5", 4}, {"6", 5}, {"7", 6}, {"1", 0}} {
+	}{{"tab", 1}, {"right", 2}, {"l", 3}, {"tab", 4}, {"tab", 5}, {"tab", 6}, {"tab", 7}, {"tab", 0},
+		{"shift+tab", 7}, {"left", 6}, {"h", 5}, {"4", 3}, {"5", 4}, {"6", 5}, {"7", 6}, {"8", 7}, {"1", 0}} {
 		s.sel = 3
 		s.update(m, a2Key(step.key))
 		if s.tab != step.tab || s.sel != 0 {
@@ -318,14 +330,22 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 	}
 	s.sel, s.scroll = 2, 0
 	s.mouse(m, tea.MouseMsg{X: b.x + 2, Y: b.y + 4, Action: tea.MouseActionMotion}, b)
-	x := b.x + 1 + len(" 1 Theme ") + 1 + 1
+	// One column into the second tab: the labels sit flush, with no
+	// separator between them.
+	x := b.x + 1 + len(" 1 Theme ") + 1
 	s.mouse(m, tea.MouseMsg{X: x, Y: b.y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
 	if s.tab != 1 {
 		t.Fatalf("tab click: %d", s.tab)
 	}
-	s.mouse(m, tea.MouseMsg{X: b.x + b.width() - 2, Y: b.y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
+	// Past the last tab's label — the bar does not fill the box — is no
+	// tab at all.
+	bar := 0
+	for i, name := range settingsTabs {
+		bar += len(fmt.Sprintf(" %d %s ", i+1, name))
+	}
+	s.mouse(m, tea.MouseMsg{X: b.x + 1 + bar + 1, Y: b.y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
 	if s.tab != 1 {
-		t.Fatal("a click past the tabs")
+		t.Fatalf("a click past the tabs: %d", s.tab)
 	}
 	s.setTab(0)
 	b = s.render(*m)

@@ -33,6 +33,8 @@ func TestA3Defaults(t *testing.T) {
 		Brain:  BrainCfg{Provider: "claude"},
 		Update: UpdateCfg{CheckReleases: true},
 		Remote: RemoteCfg{UploadDrops: true, UploadMaxMB: 25},
+		// Squash is on, which is what the merge dialog has always ticked.
+		Git: GitCfg{Squash: true},
 	}
 	if !reflect.DeepEqual(d, want) {
 		t.Fatalf("Default = %+v", d)

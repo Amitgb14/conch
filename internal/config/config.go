@@ -25,6 +25,7 @@ type Config struct {
 	Brain   BrainCfg   `toml:"brain"`
 	Update  UpdateCfg  `toml:"update"`
 	Remote  RemoteCfg  `toml:"remote"`
+	Git     GitCfg     `toml:"git"`
 	Verify  VerifyCfg  `toml:"verify"`
 	Sandbox SandboxCfg `toml:"sandbox"`
 	Web     WebCfg     `toml:"web"`
@@ -159,6 +160,17 @@ type ProviderCfg struct {
 	// e.g. CLAUDE_CODE_OAUTH_TOKEN. The provider keeps their values with
 	// the sandbox.
 	Env []string `toml:"env,omitempty"`
+}
+
+// GitCfg is how conch's own git actions behave. It is small on purpose:
+// everything else about a repository is the repository's, read from it
+// rather than set here.
+type GitCfg struct {
+	// Squash is whether merging a branch puts one commit on the base
+	// instead of a merge commit. True by default, which is what the
+	// merge dialog has always ticked; it is the default there and what
+	// auto_merge does, so the two cannot disagree.
+	Squash bool `toml:"squash"`
 }
 
 // VerifyCfg holds the command conch runs in a branch's worktree when its
@@ -415,6 +427,7 @@ func Default() Config {
 		Brain:  BrainCfg{Provider: "claude"},
 		Update: UpdateCfg{CheckReleases: true},
 		Remote: RemoteCfg{UploadDrops: true, UploadMaxMB: DefaultUploadMaxMB},
+		Git:    GitCfg{Squash: true},
 	}
 }
 

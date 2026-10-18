@@ -335,7 +335,7 @@ func (m *Model) openMerge(t harvestTarget) tea.Cmd {
 		[]string{"Merges " + what + " into " + proj.Base + " in " + into + ". If it conflicts, nothing is changed. " + t.branch + " needs its changes committed first."},
 		[]string{"Message"}, nil)
 	d.fields[0].in.Placeholder = "git's default"
-	d.addCheck("Squash", "one new commit on "+proj.Base+" instead of a merge commit", true)
+	d.addCheck("Squash", "one new commit on "+proj.Base+" instead of a merge commit", m.cfg.Git.Squash)
 	d.submit = func(m *Model, v []string) tea.Cmd {
 		var res proto.CommitResult
 		params := proto.BranchMergeParams{ProjectID: t.projectID, Branch: t.branch,
