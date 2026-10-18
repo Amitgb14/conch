@@ -121,14 +121,32 @@ func (s *settings) gitItems(m *Model) []settingItem {
 		}},
 		settingItem{label: "A green pull request merges itself", detail: autoMergeText(m.cfg.Verify.AutoMerge), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.AutoMerge = !m.cfg.Verify.AutoMerge
-			return saveConfig(m.cfg)
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
 		}},
 		settingItem{label: styleMuted.Render("  it waits for the checks to turn green, and for the branch's own check where the project has one")},
 		settingItem{label: styleMuted.Render("  that one merges the pull request on GitHub, the way the repository allows — How a merge lands is conch's own")},
+		settingItem{label: styleMuted.Render("  " + autopilotWhere(m))},
 	)
 	items = append(items, settingItem{}, settingItem{header: true, label: "What comes before a merge", detail: "on the Agents tab"},
 		settingItem{label: styleMuted.Render("  a failed check goes back to the branch's agent — auto_fix, beside the agent settings it belongs with")})
 	return items
+}
+
+// autopilotWhere says who merges and sends failures back: each machine's
+// server, so it carries on with conch closed — except on one whose server
+// predates that, where it is this TUI, and only while it runs.
+func autopilotWhere(m *Model) string {
+	var old []string
+	for _, mach := range m.machines {
+		if mach.c != nil && !m.autopilotOn(mach.id) {
+			old = append(old, m.machineLabel(mach.id))
+		}
+	}
+	text := "each machine's server does both, so they carry on with conch closed"
+	if len(old) > 0 {
+		text += "; " + strings.Join(old, ", ") + " predates that, and does them only while conch is open (u to update)"
+	}
+	return text
 }
 
 // squashText says how a merge lands.
@@ -613,7 +631,7 @@ func (s *settings) agentItems(m *Model) []settingItem {
 		}},
 		settingItem{label: "A failed check goes back to it", detail: autoFixText(v.AutoFix), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.AutoFix = (m.cfg.Verify.AutoFix + 1) % 4
-			return saveConfig(m.cfg)
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
 		}},
 		settingItem{label: styleMuted.Render("  a green pull request merging itself is on the Git tab, with how a merge lands")})
 	// What an agent loads in a checkout is that checkout's business, and

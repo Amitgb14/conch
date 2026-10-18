@@ -46,6 +46,7 @@ type Server struct {
 	ports     *portBook // the ports each worktree is given
 	schedules *scheduleBook
 	reviews   *reviewBook
+	autopilot *autopilot
 
 	rulesMu  sync.Mutex // whether permission rules are in use, read now and then
 	rulesAt  time.Time
@@ -106,6 +107,7 @@ func New(sockPath, configDir string) *Server {
 	s.views = newViewBook()
 	s.schedules = loadSchedule(configDir)
 	s.reviews = loadReviews(configDir)
+	s.autopilot = loadAutopilot(configDir)
 	s.watcher = newWorktreeWatcher(
 		func(c proto.WorktreeChanged) {
 			s.files.drop(c.Worktree)
@@ -172,6 +174,7 @@ func (s *Server) Run() error {
 	go s.sshFiles.run(s.quit)
 	go s.watcher.run(s.quit)
 	go s.runSchedule(s.quit)
+	go s.runAutopilot(s.quit)
 
 	var ln net.Listener
 	if reloaded != nil {
@@ -1094,6 +1097,25 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.reviewSet(c, rc)
+
+	case proto.MethodAutopilotGet:
+		return s.autopilotState(), nil
+
+	case proto.MethodAutopilotSet:
+		pol, perr := decode[proto.AutopilotPolicy](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		s.autopilot.set(pol)
+		s.autopilotMerges()
+		return s.autopilotState(), nil
+
+	case proto.MethodAutopilotCheck:
+		ck, perr := decode[proto.AutopilotCheck](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.autopilotCheck(ck)
 
 	case proto.MethodReviewSend:
 		sp, perr := decode[proto.ReviewSendParams](msg)
