@@ -17,6 +17,13 @@ type AutopilotPolicy struct {
 	// AutoMerge merges a pull request on GitHub when its checks turn
 	// green and nothing holds it back.
 	AutoMerge bool `json:"auto_merge,omitempty"`
+	// AutoPR pushes a branch whose agent has finished — once its check
+	// passes, where the project has one — and opens a pull request for
+	// it, or pushes the new commits to the one already open.
+	AutoPR bool `json:"auto_pr,omitempty"`
+	// Checks is each project's own check, by project ID: what the server
+	// runs in a branch's worktree when its agent finishes.
+	Checks map[string]string `json:"checks,omitempty"`
 }
 
 // AutopilotBranch is one branch the server is minding.
@@ -33,6 +40,11 @@ type AutopilotBranch struct {
 	// CheckFailed is the project's own check failing at the branch's
 	// current commit.
 	CheckFailed bool `json:"check_failed,omitempty"`
+	// Checking is the terminal the server is running the check in.
+	Checking string `json:"checking,omitempty"`
+	// Unshipped is what keeps a finished branch from being pushed or
+	// given a pull request (auto_pr).
+	Unshipped string `json:"unshipped,omitempty"`
 }
 
 // AutopilotState answers autopilot.get and autopilot.set.

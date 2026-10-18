@@ -463,6 +463,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				settled = m.saveState()
 			}
 			mach.setPanes(msg.panes)
+			for _, p := range msg.panes {
+				m.adoptCheck(mach.id, p)
+			}
 			// The one moment a folder may look for its panes by name: the
 			// ids it wrote down are from whatever server was there before
 			// this connection (folders.go).
@@ -886,6 +889,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		var info proto.PaneInfo
 		if decodeInto(msg, &info) && mach.paneIndex(info.ID) < 0 {
 			mach.panes = append(mach.panes, info)
+			m.adoptCheck(mach.id, info)
 			return m.rebuild()
 		}
 

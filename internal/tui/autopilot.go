@@ -23,7 +23,16 @@ func (m Model) autopilotOn(machine string) bool {
 
 // autopilotPolicy is the [verify] settings the servers act on.
 func (m Model) autopilotPolicy() proto.AutopilotPolicy {
-	return proto.AutopilotPolicy{AutoFix: m.cfg.Verify.AutoFix, AutoMerge: m.cfg.Verify.AutoMerge}
+	pol := proto.AutopilotPolicy{AutoFix: m.cfg.Verify.AutoFix, AutoMerge: m.cfg.Verify.AutoMerge, AutoPR: m.cfg.Verify.AutoPR}
+	for id, cmd := range m.cfg.Verify.Commands {
+		if cmd = strings.TrimSpace(cmd); cmd != "" {
+			if pol.Checks == nil {
+				pol.Checks = map[string]string{}
+			}
+			pol.Checks[id] = cmd
+		}
+	}
+	return pol
 }
 
 // pushAutopilot hands machine's server the policy.
@@ -76,4 +85,26 @@ func (m *Model) autopilotNote(machine string, n proto.AutopilotNote) tea.Cmd {
 		return nil
 	}
 	return m.receiveHarvest(harvestDoneMsg{target: harvestTarget{machine: machine, projectID: n.ProjectID, branch: n.Branch}, text: n.Text})
+}
+
+// adoptCheck takes a check the server started on a branch for the
+// review queue's own, so it shows as checking, passed or failed the way
+// one started here does — but is not reported back to the server, which
+// read it itself.
+func (m *Model) adoptCheck(machine string, p proto.PaneInfo) {
+	if !strings.HasPrefix(p.Name, "check · ") || p.ProjectID == "" || p.Branch == "" || !m.autopilotOn(machine) {
+		return
+	}
+	key := verifyKey(machine, p.ProjectID, p.Branch)
+	if run, ok := m.verifyRuns[key]; ok && (run.pane == p.ID || run.pane == "" && !run.done && run.err == "") {
+		return // ours, or ours on its way
+	}
+	if m.verifyRuns == nil {
+		m.verifyRuns = map[string]verifyRun{}
+	}
+	run := verifyRun{pane: p.ID, server: true, sig: m.branchSig(machine, p.ProjectID, p.Branch)}
+	if p.State == proto.PaneExited {
+		run.done, run.exit = true, p.ExitCode
+	}
+	m.verifyRuns[key] = run
 }

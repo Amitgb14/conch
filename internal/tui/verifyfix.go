@@ -144,6 +144,9 @@ func (m *Model) autoFix(machine string, info proto.PaneInfo) tea.Cmd {
 		if run.pane != info.ID || !strings.HasPrefix(key, machine+"|") || !run.done {
 			continue
 		}
+		if run.server {
+			return nil // the server read it, and acted
+		}
 		if m.autopilotOn(machine) {
 			return m.reportCheck(machine, key, run)
 		}

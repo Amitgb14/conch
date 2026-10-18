@@ -2,7 +2,9 @@ package server
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -71,7 +73,7 @@ func TestAutopilotObserveTurns(t *testing.T) {
 
 	// It survives a reload: the same file, read by a new server.
 	b := loadAutopilot(dir)
-	if b.policy() != (proto.AutopilotPolicy{AutoFix: 2, AutoMerge: true}) || len(b.saved.Waiting) != 1 || b.saved.Checks[branchKey("p", "new")] != "fail" {
+	if !reflect.DeepEqual(b.policy(), proto.AutopilotPolicy{AutoFix: 2, AutoMerge: true}) || len(b.saved.Waiting) != 1 || b.saved.Checks[branchKey("p", "new")] != "fail" {
 		t.Fatalf("after a reload: %+v", b.saved)
 	}
 	// A run that went red while the server was down is a turn the new one
@@ -109,7 +111,7 @@ func TestAutopilotLoadBadFile(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "autopilot.json"), []byte(`{"policy": {"auto_fix": 3`), 0o600)
 	a := loadAutopilot(dir)
-	if a.policy() != (proto.AutopilotPolicy{}) {
+	if !reflect.DeepEqual(a.policy(), proto.AutopilotPolicy{}) {
 		t.Fatalf("truncated file: %+v", a.policy())
 	}
 	a.observe(apInfo("p", map[string]string{"x": "fail"})) // no nil map
@@ -409,5 +411,209 @@ func TestAutopilotForgetsARemovedProject(t *testing.T) {
 	}
 	if st := s.autopilotState(); len(st.Branches) != 0 || s.autopilot.saved.Seen[p.id] {
 		t.Fatalf("after removing: %+v", s.autopilot.saved)
+	}
+}
+
+// shipFixture is afterFixture with a bare origin, auto_pr on, and an agent
+// that has finished on api/model with a commit of its own. The gh it puts
+// on CONCH_GH logs what it was asked to create to the returned file.
+func shipFixture(t *testing.T) (s *Server, p *project, e *entry, wt, origin, ghLog string) {
+	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	s, p = afterFixture(t)
+	quietPRs(t, p)
+	dir := t.TempDir()
+	origin = filepath.Join(dir, "origin.git")
+	apGit(t, p.root, "init", "-q", "--bare", origin)
+	apGit(t, p.root, "remote", "add", "origin", origin)
+	ghLog = filepath.Join(dir, "gh.log")
+	gh := filepath.Join(dir, "gh")
+	os.WriteFile(gh, []byte(`#!/bin/sh
+case "$1 $2" in
+"pr create") echo "$*" >> `+ghLog+`; echo https://github.com/o/r/pull/8 ;;
+"pr list") echo '[]' ;;
+"api graphql") echo '{}' ;;
+*) exit 7 ;;
+esac
+`), 0o755)
+	t.Setenv("CONCH_GH", gh)
+	if _, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the model", Branch: "api/model"}); perr != nil {
+		t.Fatal(perr)
+	}
+	e = branchPane(t, s, p, "api/model")
+	w, _ := p.branchWorktree("api/model")
+	wt = w.Path
+	os.WriteFile(filepath.Join(wt, "model.go"), []byte("package api\n"), 0o644)
+	apGit(t, wt, "add", ".")
+	apGit(t, wt, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "Add the model")
+	hook(s, e, "Stop")
+	s.autopilot.set(proto.AutopilotPolicy{AutoPR: true})
+	return s, p, e, wt, origin, ghLog
+}
+
+func apGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// A finished branch with commits of its own is pushed and given a pull
+// request, titled from its commits; once is enough.
+func TestAutopilotShipOpensAPullRequest(t *testing.T) {
+	s, p, _, wt, origin, ghLog := shipFixture(t)
+	if why := s.ship(p.id, "api/model"); why != "" {
+		t.Fatalf("held: %s", why)
+	}
+	if got := readCalls(ghLog); got != "pr create --base main --head api/model --fill\n" {
+		t.Fatalf("gh: %q", got)
+	}
+	if apGit(t, origin, "rev-parse", "api/model") != apGit(t, wt, "rev-parse", "HEAD") {
+		t.Fatal("not pushed")
+	}
+	// The base is never shipped, and neither is a branch with nothing of
+	// its own.
+	if why := s.ship(p.id, "main"); why != "" || strings.Count(readCalls(ghLog), "pr create") != 1 {
+		t.Fatalf("the base: %q", why)
+	}
+	// Off: nothing at all.
+	s.autopilot.set(proto.AutopilotPolicy{})
+	s.autopilotShip(p.id, "api/model")
+	if n := strings.Count(readCalls(ghLog), "pr create"); n != 1 {
+		t.Fatalf("auto_pr off opened %d", n)
+	}
+}
+
+// New commits on a branch whose pull request is open are pushed to it;
+// one closed by somebody is not opened again.
+func TestAutopilotShipPushesToTheOpenOne(t *testing.T) {
+	s, p, _, wt, origin, ghLog := shipFixture(t)
+	p.mu.Lock()
+	p.prs = map[string]proto.PRInfo{"api/model": {Number: 8, State: "OPEN"}}
+	p.mu.Unlock()
+	if why := s.ship(p.id, "api/model"); why != "" {
+		t.Fatalf("held: %s", why)
+	}
+	if apGit(t, origin, "rev-parse", "api/model") != apGit(t, wt, "rev-parse", "HEAD") || readCalls(ghLog) != "" {
+		t.Fatalf("not pushed to #8, or another opened: %q", readCalls(ghLog))
+	}
+	if why := s.ship(p.id, "api/model"); why != "" { // up to date: nothing to do
+		t.Fatalf("up to date: %s", why)
+	}
+
+	p.mu.Lock()
+	p.prs = map[string]proto.PRInfo{"api/model": {Number: 8, State: "CLOSED"}}
+	p.mu.Unlock()
+	if why := s.ship(p.id, "api/model"); !strings.Contains(why, "#8 was closed") || readCalls(ghLog) != "" {
+		t.Fatalf("closed: %q", why)
+	}
+	// Pull requests that can't be read hold it, saying why.
+	p.mu.Lock()
+	p.prs, p.prStatus = nil, "install gh (GitHub CLI) to see pull requests"
+	p.mu.Unlock()
+	if why := s.ship(p.id, "api/model"); !strings.Contains(why, "install gh") {
+		t.Fatalf("no gh: %q", why)
+	}
+}
+
+// Work left uncommitted goes to the agent to commit, once for each
+// commit it is at; nothing is pushed meanwhile.
+func TestAutopilotShipAsksToCommit(t *testing.T) {
+	s, p, e, wt, _, ghLog := shipFixture(t)
+	os.WriteFile(filepath.Join(wt, "loose.go"), []byte("package api\n"), 0o644)
+	if why := s.ship(p.id, "api/model"); !strings.Contains(why, "asked") {
+		t.Fatalf("first: %q", why)
+	}
+	a5WaitFor(t, "the request on the agent's screen", func() bool { return strings.Contains(screenText(e), "uncommitted changes") })
+	hook(s, e, "Stop")
+	if why := s.ship(p.id, "api/model"); !strings.Contains(why, "commit them and it goes out") {
+		t.Fatalf("second: %q", why)
+	}
+	if n := strings.Count(screenText(e), "You finished with uncommitted"); n != 1 {
+		t.Fatalf("asked %d times", n)
+	}
+	if readCalls(ghLog) != "" {
+		t.Fatal("opened a pull request over uncommitted work")
+	}
+	// With no agent there, it says so.
+	s.close(e.info().ID)
+	a5WaitFor(t, "the agent gone", func() bool { return s.branchAgent(p.id, "api/model") == nil })
+	if why := s.ship(p.id, "api/model"); !strings.Contains(why, "no agent") {
+		t.Fatalf("no agent: %q", why)
+	}
+}
+
+// A project with a check ships only a commit the check passed for.
+func TestAutopilotShipWaitsForTheCheck(t *testing.T) {
+	s, p, _, wt, _, ghLog := shipFixture(t)
+	s.autopilot.set(proto.AutopilotPolicy{AutoPR: true, Checks: map[string]string{p.id: "true"}})
+	if why := s.ship(p.id, "api/model"); why != "" || readCalls(ghLog) != "" {
+		t.Fatalf("unchecked: %q %q", why, readCalls(ghLog))
+	}
+	key := branchKey(p.id, "api/model")
+	s.autopilot.checked(key, "an older commit", true)
+	if s.ship(p.id, "api/model"); readCalls(ghLog) != "" {
+		t.Fatal("shipped on a pass of another commit")
+	}
+	s.autopilot.checked(key, apGit(t, wt, "rev-parse", "HEAD"), true)
+	if why := s.ship(p.id, "api/model"); why != "" || !strings.Contains(readCalls(ghLog), "pr create") {
+		t.Fatalf("checked: %q %q", why, readCalls(ghLog))
+	}
+}
+
+// The whole round with nobody watching: the agent finishes, the server
+// runs the check in a terminal of its own, it fails and goes back to the
+// agent with its output; the next finish passes and the branch ships.
+func TestAutopilotFinishRunsTheCheckThenShips(t *testing.T) {
+	s, p, e, wt, _, ghLog := shipFixture(t)
+	flag := filepath.Join(t.TempDir(), "pass")
+	s.autopilot.set(proto.AutopilotPolicy{AutoPR: true, AutoFix: 1,
+		Checks: map[string]string{p.id: "if [ -f " + flag + " ]; then echo CHECK-OK; else echo CHECK-BROKE-MARK; exit 3; fi"}})
+	_ = wt
+
+	hook(s, e, "UserPromptSubmit")
+	hook(s, e, "Stop")
+	a5WaitFor(t, "the failure on the agent's screen", func() bool { return strings.Contains(screenText(e), "CHECK-BROKE-MARK") })
+	if !strings.Contains(screenText(e), "exit 3") || readCalls(ghLog) != "" {
+		t.Fatalf("screen:\n%s\ngh: %q", screenText(e), readCalls(ghLog))
+	}
+	var checks int
+	for _, info := range s.list() {
+		if strings.HasPrefix(info.Name, checkPrefix) {
+			checks++
+		}
+	}
+	if checks != 1 {
+		t.Fatalf("%d check terminals", checks)
+	}
+
+	// The message is in once it is submitted, which leaves the agent idle.
+	a5WaitFor(t, "the failure submitted", func() bool { st, _ := agentState(e); return st == proto.AgentIdle })
+	os.WriteFile(flag, nil, 0o644)
+	hook(s, e, "UserPromptSubmit")
+	hook(s, e, "Stop")
+	a5WaitFor(t, "the pull request", func() bool { return strings.Contains(readCalls(ghLog), "pr create") })
+	// The first check's terminal went when the second started.
+	checks = 0
+	for _, info := range s.list() {
+		if strings.HasPrefix(info.Name, checkPrefix) {
+			checks++
+		}
+	}
+	if checks != 1 {
+		t.Fatalf("%d check terminals after the second", checks)
+	}
+	// A reviewer finishing is not the branch's agent finishing.
+	s.autopilotFinished(proto.PaneInfo{Name: "review · api/model", ProjectID: p.id, Branch: "api/model"})
+	if st := s.autopilotState(); len(st.Branches) > 0 && st.Branches[0].Checking != "" {
+		t.Fatal("a reviewer started a check")
+	}
+	// A client reporting the server's own check is not counted twice.
+	if !s.autopilot.ownCheck("") && s.autopilot.ownCheck("p999") {
+		t.Fatal("a pane it never started is its own")
 	}
 }

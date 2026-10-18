@@ -74,6 +74,7 @@ squash = true      # m → Merge puts one commit on the base rather than a merge
 commands = {}    # a project's check, by project ID: { r1a2b3c = "go test ./..." }
 auto_fix = 0     # send a failed check — the project's own, or a pull request's CI — back to the branch's agent up to this many times in a row
 auto_merge = false # merge a pull request on GitHub when its checks turn green (held while a draft, conflicting, under review or an unresolved thread, or past a failed check)
+auto_pr = false  # push a branch whose agent finished and whose check passed, and open its pull request (or push to the open one)
                  # both are handed to each machine's server, which acts on them with conch closed
 reviewer = ""    # an agent asked to review a branch when its agent finishes, e.g. "codex"
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -41,6 +43,13 @@ type autopilot struct {
 	mu      sync.Mutex
 	saved   autopilotFile
 	merging map[string]bool // merges under way, by branch key
+	// shipping is branches being pushed or given a pull request, and
+	// unshipped what last kept one from it, said once.
+	shipping  map[string]bool
+	unshipped map[string]string
+	// lastCheck is the terminal of each branch's last check, closed when
+	// the next one starts.
+	lastCheck map[string]string
 }
 
 // autopilotFile is autopilot.json.
@@ -57,10 +66,21 @@ type autopilotFile struct {
 	// Failed maps a branch to the commit its worktree was at when the
 	// project's own check failed there.
 	Failed map[string]string `json:"failed,omitempty"`
+	// Passed is the same for a check that passed: a branch is shipped
+	// only at a commit its check passed for.
+	Passed map[string]string `json:"passed,omitempty"`
+	// CheckPanes maps a terminal the server is running a check in to its
+	// branch, so a check that ends after a reload is still read.
+	CheckPanes map[string]string `json:"check_panes,omitempty"`
+	// Asked maps a branch to the commit it was at when its agent was asked
+	// to commit what it left uncommitted, so it is asked once, not at
+	// every finish.
+	Asked map[string]string `json:"asked,omitempty"`
 }
 
 func loadAutopilot(configDir string) *autopilot {
-	a := &autopilot{file: filepath.Join(configDir, "autopilot.json"), merging: map[string]bool{}}
+	a := &autopilot{file: filepath.Join(configDir, "autopilot.json"), merging: map[string]bool{},
+		shipping: map[string]bool{}, unshipped: map[string]string{}, lastCheck: map[string]string{}}
 	raw, err := os.ReadFile(a.file)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("autopilot: %v", err)
@@ -87,6 +107,15 @@ func loadAutopilot(configDir string) *autopilot {
 	if a.saved.Failed == nil {
 		a.saved.Failed = map[string]string{}
 	}
+	if a.saved.Passed == nil {
+		a.saved.Passed = map[string]string{}
+	}
+	if a.saved.CheckPanes == nil {
+		a.saved.CheckPanes = map[string]string{}
+	}
+	if a.saved.Asked == nil {
+		a.saved.Asked = map[string]string{}
+	}
 	return a
 }
 
@@ -96,6 +125,16 @@ const autoFixMax = 10
 
 func cleanPolicy(p proto.AutopilotPolicy) proto.AutopilotPolicy {
 	p.AutoFix = max(0, min(p.AutoFix, autoFixMax))
+	checks := map[string]string{}
+	for id, cmd := range p.Checks {
+		if cmd = strings.TrimSpace(cmd); id != "" && cmd != "" {
+			checks[id] = cmd
+		}
+	}
+	p.Checks = nil
+	if len(checks) > 0 {
+		p.Checks = checks
+	}
 	return p
 }
 
@@ -154,6 +193,14 @@ func (a *autopilot) state(headOf func(key string) string) proto.AutopilotState {
 	for key, head := range a.saved.Failed {
 		if head != "" && head == headOf(key) {
 			at(key).CheckFailed = true
+		}
+	}
+	for pane, key := range a.saved.CheckPanes {
+		at(key).Checking = pane
+	}
+	for key, why := range a.unshipped {
+		if why != "" {
+			at(key).Unshipped = why
 		}
 	}
 	out := proto.AutopilotState{Policy: a.saved.Policy}
@@ -237,7 +284,7 @@ func (a *autopilot) forget(projectID string) {
 	defer a.mu.Unlock()
 	delete(a.saved.Seen, projectID)
 	prefix := projectID + "\x00"
-	for _, m := range []map[string]string{a.saved.Checks, a.saved.Waiting, a.saved.Failed} {
+	for _, m := range []map[string]string{a.saved.Checks, a.saved.Waiting, a.saved.Failed, a.saved.Passed, a.saved.Asked} {
 		for key := range m {
 			if strings.HasPrefix(key, prefix) {
 				delete(m, key)
@@ -247,6 +294,16 @@ func (a *autopilot) forget(projectID string) {
 	for key := range a.saved.Fixes {
 		if strings.HasPrefix(key, prefix) {
 			delete(a.saved.Fixes, key)
+		}
+	}
+	for pane, key := range a.saved.CheckPanes {
+		if strings.HasPrefix(key, prefix) {
+			delete(a.saved.CheckPanes, pane)
+		}
+	}
+	for key := range a.unshipped {
+		if strings.HasPrefix(key, prefix) {
+			delete(a.unshipped, key)
 		}
 	}
 	a.saveLocked()
@@ -290,8 +347,10 @@ func (a *autopilot) checked(key, head string, passed bool) {
 	if passed {
 		delete(a.saved.Failed, key)
 		delete(a.saved.Fixes, key)
+		a.saved.Passed[key] = head
 	} else {
 		a.saved.Failed[key] = head
+		delete(a.saved.Passed, key)
 	}
 	a.saveLocked()
 }
@@ -404,12 +463,26 @@ func (s *Server) autopilotCheck(ck proto.AutopilotCheck) (proto.AutopilotState, 
 	if ck.Branch == "" {
 		return proto.AutopilotState{}, proto.Errorf(proto.ErrBadRequest, "no branch given")
 	}
-	wt, _ := p.branchWorktree(ck.Branch)
-	s.autopilot.checked(branchKey(ck.ProjectID, ck.Branch), wt.Head, ck.Exit == 0)
-	if ck.Exit != 0 {
+	if s.autopilot.ownCheck(ck.Pane) {
+		return s.autopilotState(), nil // the server reads its own when it ends
+	}
+	s.autopilotCheckEnded(p, ck, nil)
+	return s.autopilotState(), nil
+}
+
+// autopilotCheckEnded records how a check on a branch ended — one the
+// server ran, with the output it printed, or one a client reports, whose
+// terminal is read — and acts on it: a failure goes to
+// the agent, a pass ships the branch and may be what a green pull
+// request waited for.
+func (s *Server) autopilotCheckEnded(p *project, ck proto.AutopilotCheck, output []string) {
+	s.autopilot.checked(branchKey(ck.ProjectID, ck.Branch), branchHead(p, ck.Branch), ck.Exit == 0)
+	if ck.Exit == 0 {
+		go s.autopilotShip(ck.ProjectID, ck.Branch)
+	} else {
 		s.autopilotFix(ck.ProjectID, ck.Branch, "The project's check", func() (string, error) {
-			var lines []string
-			if ck.Pane != "" {
+			lines := output
+			if lines == nil && ck.Pane != "" {
 				e, perr := s.get(ck.Pane)
 				if perr != nil {
 					return "", fmt.Errorf("the check's terminal is gone, and its output with it")
@@ -419,8 +492,7 @@ func (s *Server) autopilotCheck(ck proto.AutopilotCheck) (proto.AutopilotState, 
 			return proto.FailurePrompt("The project's check", ck.Command, ck.Exit, proto.FailureTail(lines)), nil
 		})
 	}
-	s.autopilotMerges() // a pass may be what a green pull request waited for
-	return s.autopilotState(), nil
+	s.autopilotMerges()
 }
 
 // autopilotState is autopilot.get's answer.
@@ -431,9 +503,21 @@ func (s *Server) autopilotState() proto.AutopilotState {
 		if perr != nil {
 			return ""
 		}
-		wt, _ := p.branchWorktree(branch)
-		return wt.Head
+		return branchHead(p, branch)
 	})
+}
+
+// branchHead is the commit branch is at, read from git: the last refresh
+// can be a commit behind an agent that has just committed, and a check's
+// verdict is about the commit it ran on.
+func branchHead(p *project, branch string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	head, err := gitx.BranchHead(ctx, p.root, branch)
+	if err != nil {
+		return ""
+	}
+	return head
 }
 
 // autopilotMerges merges every green pull request that waits and that
@@ -471,12 +555,6 @@ func (s *Server) autopilotMerge(key string) {
 	info := p.info
 	pr, havePR := p.prs[branch]
 	p.mu.Unlock()
-	var wt proto.WorktreeInfo
-	for _, w := range info.Worktrees {
-		if w.Branch == branch {
-			wt = w
-		}
-	}
 	a.mu.Lock()
 	held, waiting := a.saved.Waiting[key]
 	failedAt := a.saved.Failed[key]
@@ -491,7 +569,7 @@ func (s *Server) autopilotMerge(key string) {
 		a.mu.Unlock()
 		return
 	}
-	why := s.mergeHold(info, branch, pr, failedAt != "" && failedAt == wt.Head)
+	why := s.mergeHold(info, branch, pr, failedAt != "" && failedAt == branchHead(p, branch))
 	if why != "" {
 		if why != held {
 			a.mu.Lock()

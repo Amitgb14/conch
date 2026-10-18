@@ -119,6 +119,11 @@ func (s *settings) gitItems(m *Model) []settingItem {
 			m.cfg.Git.Squash = !m.cfg.Git.Squash
 			return saveConfig(m.cfg)
 		}},
+		settingItem{label: "A finished branch opens its own pull request", detail: autoPRText(m.cfg.Verify.AutoPR), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.AutoPR = !m.cfg.Verify.AutoPR
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+		}},
+		settingItem{label: styleMuted.Render("  once its agent finishes and its check passes; new commits go to the one already open")},
 		settingItem{label: "A green pull request merges itself", detail: autoMergeText(m.cfg.Verify.AutoMerge), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.AutoMerge = !m.cfg.Verify.AutoMerge
 			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
@@ -142,9 +147,9 @@ func autopilotWhere(m *Model) string {
 			old = append(old, m.machineLabel(mach.id))
 		}
 	}
-	text := "each machine's server does both, so they carry on with conch closed"
+	text := "each machine's server does these, so they carry on with conch closed"
 	if len(old) > 0 {
-		text += "; " + strings.Join(old, ", ") + " predates that, and does them only while conch is open (u to update)"
+		text += "; " + strings.Join(old, ", ") + " predates that, and merges only while conch is open, and opens no pull requests (u to update)"
 	}
 	return text
 }
@@ -460,6 +465,14 @@ func autoFixText(n int) string {
 		return "off · f in the review queue sends one"
 	}
 	return fmt.Sprintf("up to %s in a row, then it's yours", count(n, "time"))
+}
+
+// autoPRText says what auto_pr does.
+func autoPRText(on bool) string {
+	if !on {
+		return "off · p in a branch's menu opens one"
+	}
+	return "on · pushed and opened once it's committed and checked"
 }
 
 // autoMergeText says what auto_merge does, and what it still will not

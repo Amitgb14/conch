@@ -191,6 +191,11 @@ type VerifyCfg struct {
 	// changes on, and while conch's own check disagrees with CI, until
 	// whatever held it is gone.
 	AutoMerge bool `toml:"auto_merge,omitempty"`
+	// AutoPR pushes a branch when its agent finishes and its check passes
+	// (where the project has one), and opens a pull request for it — or
+	// pushes to the one already open, which is how an agent's fix for red
+	// CI reaches CI. Off by default: it publishes the agent's work.
+	AutoPR bool `toml:"auto_pr,omitempty"`
 	// Reviewer is the agent asked to review a branch when its agent
 	// finishes — after the check passes, where there is one — reading the
 	// diff and reporting rather than editing: "codex" to have Codex read

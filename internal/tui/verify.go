@@ -33,6 +33,9 @@ type verifyRun struct {
 	// commit, what it is ahead by, and what is uncommitted in its worktree.
 	// A verdict is about that state, so when it moves the verdict is stale.
 	sig string
+	// server marks a check the server ran (autopilot), which it reads
+	// itself and is not told about.
+	server bool
 }
 
 func verifyKey(machine, projectID, branch string) string {
@@ -303,6 +306,9 @@ func (m *Model) verifyOnDone(machine string, p proto.PaneInfo) tea.Cmd {
 	if m.verifyCommand(p.ProjectID) == "" {
 		return m.startReview(machine, p.ProjectID, p.Branch) // nothing to pass first
 	}
+	if m.autopilotOn(machine) {
+		return nil // the server runs it, and this TUI adopts its terminal (adoptCheck)
+	}
 	return m.startVerify(machine, p.ProjectID, p.Branch)
 }
 
@@ -337,10 +343,10 @@ func (m *Model) askVerifyCommand(machine, projectID, branch string) tea.Cmd {
 		if cmd == "" {
 			delete(m.cfg.Verify.Commands, projectID)
 			m.setFlash("no check for "+name+"; its branches show as unchecked", false)
-			return saveConfig(m.cfg)
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
 		}
 		m.cfg.Verify.Commands[projectID] = cmd
-		return tea.Batch(saveConfig(m.cfg), m.startVerify(machine, projectID, branch))
+		return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll(), m.startVerify(machine, projectID, branch))
 	}
 	m.overlay = d
 	return d.focusCmd()

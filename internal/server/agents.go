@@ -152,6 +152,7 @@ func (s *Server) watch(e *entry) {
 				}
 				log.Printf("pane %s exited with code %d", info.ID, info.ExitCode)
 				s.broadcast(proto.EventPaneExited, info)
+				s.autopilotExited(info)
 			}
 			return
 		case <-s.quit:
@@ -252,6 +253,11 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 	}
 	if a := info.Agent; a != nil && a.State != prevState {
 		log.Printf("pane %s agent %s: %s -> %s (%s)", info.ID, a.Name, prevState, a.State, a.Reason)
+		// Only a turn that was seen working: a pane adopted after a
+		// reload comes back done without having finished anything.
+		if a.State == proto.AgentDone && prevState == proto.AgentWorking {
+			s.autopilotFinished(info)
+		}
 	}
 	s.broadcast(proto.EventPaneUpdated, info)
 }

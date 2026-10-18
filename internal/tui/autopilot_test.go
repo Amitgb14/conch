@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -35,11 +36,12 @@ func TestAutopilotServerTakesOver(t *testing.T) {
 // Settings changes it; an older server is left to the TUI.
 func TestAutopilotPolicyIsHandedOver(t *testing.T) {
 	m, mach, peer := fixModel(t, proto.CapAutopilot)
-	m.cfg.Verify.AutoFix, m.cfg.Verify.AutoMerge = 2, true
+	m.cfg.Verify.AutoFix, m.cfg.Verify.AutoMerge, m.cfg.Verify.AutoPR = 2, true, true
+	m.cfg.Verify.Commands["r2"] = "  " // no command is no check
 	runBatch(m.pushAutopilot(mach.id))
 	var pol proto.AutopilotPolicy
 	sentParams(t, peer, proto.MethodAutopilotSet, &pol)
-	if pol != (proto.AutopilotPolicy{AutoFix: 2, AutoMerge: true}) {
+	if !reflect.DeepEqual(pol, proto.AutopilotPolicy{AutoFix: 2, AutoMerge: true, AutoPR: true, Checks: map[string]string{"r1": "go test ./..."}}) {
 		t.Fatalf("policy %+v", pol)
 	}
 
@@ -142,5 +144,71 @@ func TestAutopilotWhere(t *testing.T) {
 	old, _, _ := fixModel(t)
 	if got := autopilotWhere(old); !strings.Contains(got, "predates that") {
 		t.Fatalf("an old server: %q", got)
+	}
+}
+
+// With the autopilot the server runs the check when an agent finishes;
+// the TUI does not start a second one, and takes the server's terminal
+// for the queue — without reporting it back.
+func TestAutopilotServerRunsTheCheck(t *testing.T) {
+	m, mach, peer := fixModel(t, proto.CapAgentPrompt, proto.CapAutopilot)
+	delete(m.verifyRuns, verifyKey(mach.id, "r1", "wip"))
+	if cmd := m.verifyOnDone(mach.id, mach.panes[0]); cmd != nil {
+		t.Fatal("the TUI started a check beside the server's")
+	}
+	check := proto.PaneInfo{ID: "p7", Name: "check · wip", State: proto.PaneRunning, ProjectID: "r1", Branch: "wip"}
+	runBatch(m.handleEvent(mach, eventMsg(t, proto.EventPaneCreated, check)))
+	if state, _ := m.verifyOf(mach.id, "r1", "wip"); state != verifyRunning {
+		t.Fatalf("the server's check is %v", state)
+	}
+	check.State, check.ExitCode = proto.PaneExited, 1
+	runBatch(m.handleEvent(mach, eventMsg(t, proto.EventPaneExited, check)))
+	if state, _ := m.verifyOf(mach.id, "r1", "wip"); state != verifyFailed {
+		t.Fatalf("after it failed: %v", state)
+	}
+	if n := sentCount(peer, proto.MethodAutopilotCheck); n != 0 {
+		t.Fatalf("reported the server's own check back %d times", n)
+	}
+	if n := sentCount(peer, proto.MethodPaneClose); n != 0 {
+		t.Fatal("closed the check's terminal, which holds its output")
+	}
+
+	// Not a check, not on a branch, or an older server: nothing adopted.
+	m2, mach2, _ := fixModel(t)
+	delete(m2.verifyRuns, verifyKey(mach2.id, "r1", "wip"))
+	m2.adoptCheck(mach2.id, check)
+	if _, ok := m2.verifyRuns[verifyKey(mach2.id, "r1", "wip")]; ok {
+		t.Fatal("adopted from a server without the autopilot")
+	}
+	for _, p := range []proto.PaneInfo{{ID: "p8", Name: "zsh", ProjectID: "r1", Branch: "x"}, {ID: "p9", Name: "check · x"}} {
+		m.adoptCheck(mach.id, p)
+		if _, ok := m.verifyRuns[verifyKey(mach.id, "r1", "x")]; ok {
+			t.Fatalf("adopted %+v", p)
+		}
+	}
+	// A check of this TUI's own on its way is not taken over.
+	m.verifyRuns[verifyKey(mach.id, "r1", "mine")] = verifyRun{}
+	m.adoptCheck(mach.id, proto.PaneInfo{ID: "p10", Name: "check · mine", ProjectID: "r1", Branch: "mine"})
+	if m.verifyRuns[verifyKey(mach.id, "r1", "mine")].server {
+		t.Fatal("took over a check on its way")
+	}
+}
+
+func TestAutopilotPRSetting(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	m, _, peer := fixModel(t, proto.CapAutopilot)
+	s := &settings{tab: gitTab}
+	for _, it := range s.items(m) {
+		if it.label == "A finished branch opens its own pull request" {
+			if !strings.HasPrefix(it.detail, "off") {
+				t.Fatalf("detail %q", it.detail)
+			}
+			runBatch(it.run(m))
+		}
+	}
+	var pol proto.AutopilotPolicy
+	sentParams(t, peer, proto.MethodAutopilotSet, &pol)
+	if !pol.AutoPR || !m.cfg.Verify.AutoPR {
+		t.Fatalf("toggled: %+v", pol)
 	}
 }
