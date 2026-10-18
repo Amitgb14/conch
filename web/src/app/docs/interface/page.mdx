@@ -365,7 +365,7 @@ On any machine elsewhere, or a terminal's ssh host, this view and a project's al
 
 - `U` asks for a file or folder here and copies it into the selected folder there — or the folder the selected file is in. Dragging files or folders from Finder onto the view does the same without asking.
 - `D` copies the selected file or folder to `~/Downloads` here (your home folder, on a computer without one).
-- A folder is copied whole, symlinks as links. A name already taken is never written over: the copy is numbered — `ca 2.pem`, `site 2` — and the status bar says where it landed. `U`'s dialog has a **Replace** box for writing over instead; for a folder that merges, keeping files only the other side has.
+- A folder is copied whole, symlinks as links. A name already taken is never written over: the copy is numbered — `ca 2.pem`, `site 2` — and the status bar says where it landed. `U`'s dialog has a **Replace** box for writing over instead; for a folder that merges, keeping files only the other side has. A copy is written under a hidden `.name.part-…` and renamed when it is whole, so nothing half-copied ever has the real name; the view leaves those out while they last.
 
 Copies go over the machine's own conch connection — the one its panes use — so an ssh host and a sandbox are the same: no address to look up, no key or password to give, nothing to install. [`conch upload -to` and `conch download`](/docs/cli) do the same from a shell, and with `-ssh PANE` for a terminal's ssh host. A machine running a conch from before this says it needs updating (`conch machine upgrade`).
 

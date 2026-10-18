@@ -1105,7 +1105,7 @@ var helpText = []string{
 	"    T on a project moves all of it: every task worktree and every agent, those in the main checkout too",
 	"  y in the tree copies a branch name or directory",
 	"  Sessions (under a project): enter resume · / search titles and conversations · s share with another agent, here or on another machine",
-	"    d delete · a agent filter · I resume all interrupted · x dismiss",
+	"    * star one to come back to (listed first, after anything interrupted) · d delete · a agent filter · I resume all interrupted · x dismiss",
 	"  Files (under a project, or f): enter open a folder or preview a file · h fold / up · / find in what is loaded",
 	"    a type the path into the agent in this checkout · y copy path · d its diff · e open in $EDITOR",
 	"    . hide dotfiles (shown: in a checkout they are the work) · i ignored files · w next checkout",
