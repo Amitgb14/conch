@@ -207,6 +207,7 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 | `conch sandbox stats [-provider P]` | every provider's sandboxes in one table, and a line per provider: how many, in which states, what is running; no provider needed |
 | `conch sandbox -provider daytona\|boat\|devin …` | whose sandboxes the command means, in front of any subcommand below. Required for all of them — there is no default, and a sandbox named under another provider is refused |
 | `conch sandbox -provider P create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]` | make a sandbox (key in `$DAYTONA_API_KEY`, `$BOAT_API_KEY` or `$DEVIN_API_KEY`; Devin Cloud also needs the `devin` CLI signed in), install conch there and add it as a machine; it runs until stopped. `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails |
+| `conch sandbox -provider P add [-label L] ID` | make a sandbox you already have — made in the provider's own interface, or whose machine was removed — one of conch's machines: started if stopped, conch installed, and added. Never deleted if that fails |
 | `conch sandbox -provider P ls` | conch's sandboxes, their state and size, including ones no longer added as machines (also plain `conch sandbox -provider P`) |
 | `conch sandbox -provider P ssh [-t] ID [COMMAND...]` | a shell in a running sandbox, or `COMMAND` run there (`-t` gives it a terminal); exits with its status |
 | `conch sandbox -provider P start ID` | start a stopped sandbox |
@@ -273,6 +274,44 @@ Or in the TUI: `,` → **Agents** → **Shared MCP servers & skills…** → **A
 
 Stdin and stdout are the protocol: notes go to stderr, one request per line (this revision of MCP has no batches), answered one at a time in order, and a `wait` tool holds the session until it ends, as `conch wait` holds a shell. A tool that names a pane refuses a name shaped like a pane id or one another running pane holds, as `conch rename` does — ids win, so such a name would pick out nothing. `timeout_seconds` defaults to 1800, 0 waits with no limit, and anything over a day is capped.
 
+### doctor
+
+```sh
+conch doctor          # check what conch needs, and say how to fix what is wrong
+conch doctor -json    # the same checks, for a script
+```
+
+The first thing to run when something does not work. Each line is one thing conch relies on, and anything wrong comes with the command that puts it right:
+
+```
+✓ conch     0.1.9 · darwin/arm64
+✓ config    /Users/you/.config/conch/config.toml
+✓ socket    /Users/you/.config/conch/conch.sock
+! server    pid 28356, up 6d, on another build (0.1.8) than this conch (0.1.9)
+            → conch server reload -binary /Users/you/.local/bin/conch  (panes and agents keep running)
+✓ agents    claude 2.1.3 · codex 0.46.0  (not installed: gemini, opencode, devin)
+✓ git       2.49.0, committing as You
+! gh        2.62.0 not signed in
+            → gh auth login
+✓ terminal  ghostty, xterm-256color, 24-bit colour
+✓ machines  1 machine saved (not dialled; conch -m NAME status reaches one)
+
+conch works; 2 things worth a look.
+```
+
+| Check | ✗ (must be fixed) | ! (worth a look) |
+| --- | --- | --- |
+| config | `config.toml` does not parse, so none of it is in force | an `[[actions]]` entry with no name, no command or an unknown place |
+| socket | the socket path is longer than the system allows (103 bytes on macOS, 107 on Linux), so no server can listen | |
+| server | the socket is there but nothing answers — stuck, or somebody else's (starting `conch` would clear it, and every pane) | not running; on another build than this `conch` (the fix reloads it onto *this* binary, or says to run the newer one when the server is ahead); missing features this `conch` uses |
+| agents | the server finds none installed | not checked, because no server is running |
+| git | not found | no name or email to commit as, in git's config or its environment variables; older than 2.38, which telling which branches would conflict needs |
+| gh | | not found, or not signed in — pull requests, CI results and issues come through it |
+| terminal | `TERM` is empty or `dumb` | inside tmux with the same prefix as tmux (asked of tmux itself), and a key free in both to use instead |
+| machines | `machines.json` cannot be read; machines are saved but there is no `ssh` | |
+
+It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by side, so one slow thing costs only its own wait. It changes nothing and starts nothing — not even the server — and it does not dial your machines, so a machine that is asleep cannot make it hang. Whether `gh` is signed in is asked without reaching GitHub, so an offline laptop is not called signed out (a `gh` too old for that is asked the usual way), and the token `gh` hands back is thrown away. It checks this computer: on another machine, run it there.
+
 ### bug
 
 ```sh
@@ -296,6 +335,8 @@ last error: out_of_scope: the claude agent in p1 may not reload the server
 It is **facts, not contents**: versions, counts, sizes, the capabilities a server is missing, and conch's own last error. Never a path, a project, a branch, a pane's title or anything off a screen — which is what makes it safe to send without reading it through first. The two builds above being different is the sort of thing it is for.
 
 `-open` opens a GitHub issue with the block already in it; nothing is sent until you press submit there. Over ssh, or anywhere with no desktop, it prints the link instead. `-log` says where the server's log is and what is in it — paths, branch names and pane titles — and leaves attaching it to you.
+
+Run [`conch doctor`](#doctor) first: what it finds usually has a fix you can make yourself.
 
 In the TUI the same thing is `,` → **Report a problem…**, which shows the report and offers to open the issue, copy it, or copy the log's path.
 

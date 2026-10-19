@@ -79,6 +79,8 @@ func runSandbox(args []string) error {
 	switch args[0] {
 	case "create", "new":
 		return sandboxCreate(args[1:])
+	case "add", "adopt":
+		return sandboxAdd(args[1:])
 	case "ls", "list":
 		return sandboxList()
 	case "start":
@@ -211,6 +213,84 @@ func makeSandbox(ctx context.Context, label string, spec sandbox.Spec, env []str
 	return saved, sb, c, nil
 }
 
+// sandboxAdd makes a sandbox conch has no machine for — one made in the
+// provider's own interface, or whose machine was removed with conch machine
+// rm — one of conch's machines: started if it is stopped, conch installed,
+// and saved. Nothing is deleted if that fails, since the sandbox and what is
+// in it are somebody's own.
+func sandboxAdd(args []string) error {
+	fs := flag.NewFlagSet("sandbox add", flag.ContinueOnError)
+	label := fs.String("label", "", "name shown in the sidebar (default: sandbox-ID)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: conch sandbox -provider P add [-label L] ID")
+	}
+	m, id, err := resolveSandbox(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		// Named by the provider's ID, which resolveSandbox doesn't match
+		// against the machines.
+		ms, err := remote.Machines()
+		if err != nil {
+			return err
+		}
+		for i := range ms {
+			if ms[i].Target == remote.SandboxTarget(sandboxProvider, id) {
+				m = &ms[i]
+			}
+		}
+	}
+	if m != nil {
+		return fmt.Errorf("%s is already machine %s (%s)", id, m.ID, m.Label)
+	}
+	p, err := openSandboxes()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sandboxWait)
+	defer cancel()
+	sb, err := p.Get(ctx, id)
+	if errors.Is(err, sandbox.ErrNotFound) {
+		return fmt.Errorf("no %s sandbox %s; %s lists them", sandbox.ProviderLabel(sandboxProvider), id, sandboxCmd(sandboxProvider, "ls"))
+	}
+	if err != nil {
+		return err
+	}
+	if sb.State.Going() {
+		return fmt.Errorf("sandbox %s is %s", id, sb.State)
+	}
+	if sb.State != sandbox.StateStarted {
+		fmt.Fprintf(os.Stderr, "Starting %s…\n", id)
+		if _, err := p.Start(ctx, id); err != nil {
+			return err
+		}
+	}
+	nm := remote.Machine{Label: strings.TrimSpace(*label), Target: remote.SandboxTarget(sandboxProvider, id)}
+	if nm.Label == "" {
+		nm.Label = remote.DefaultSandboxLabel(id)
+	}
+	c, err := remote.SetUpSandbox(ctx, nm, progress)
+	if err != nil {
+		return fmt.Errorf("%w (sandbox %s is left as it was)", err, id)
+	}
+	defer c.Close()
+	saved, err := remote.SaveMachine(nm)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("added %s (%s): %s sandbox %s, server pid %d on %s\n", saved.ID, saved.Label, sandboxProvider, id, c.Server.PID, c.Server.Hostname)
+	// Variables are given when a sandbox is made, so [sandbox.P] env never
+	// reached this one: an agent there may start logged out.
+	if cfg, err := config.Load(); err == nil && len(cfg.Sandbox.Of(sandboxProvider).Env) > 0 {
+		fmt.Fprintf(os.Stderr, "  [sandbox.%s] env was not passed in: a sandbox is given its variables when it is made\n", sandboxProvider)
+	}
+	return nil
+}
+
 // abandonSandbox offers to delete a sandbox whose setting up failed, since
 // it costs for as long as it runs.
 func abandonSandbox(p sandbox.Provider, id string, yes bool) {
@@ -278,7 +358,8 @@ func sandboxList() error {
 		return err
 	}
 	if stray > 0 {
-		fmt.Fprintf(os.Stderr, "\n%d with no machine here: made outside conch, or its machine was removed · %s deletes one, and it costs until then\n", stray, sandboxCmd(sandboxProvider, "rm ID"))
+		fmt.Fprintf(os.Stderr, "\n%d with no machine here: made outside conch, or its machine was removed · %s makes one a machine, %s deletes one, and it costs until then\n",
+			stray, sandboxCmd(sandboxProvider, "add ID"), sandboxCmd(sandboxProvider, "rm ID"))
 	}
 	if gone > 0 {
 		// Deleted in Daytona's own interface, say: the machine is still

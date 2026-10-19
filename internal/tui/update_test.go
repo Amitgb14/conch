@@ -615,6 +615,73 @@ func TestVersionInfoShowsHowToGoBack(t *testing.T) {
 	}
 }
 
+// A conch Homebrew installed gets its releases from brew: the box says so,
+// u and auto download nothing, and the new build brew puts on disk is
+// what u then reloads onto.
+func TestUpdateHomebrewInstall(t *testing.T) {
+	old := proto.Version
+	proto.Version = "0.9.0"
+	defer func() { proto.Version = old }()
+	rel := &update.Release{Version: "9.9.9"}
+	brewed := func() *Model {
+		m := a2Model()
+		m.upd = &updateState{brew: true}
+		return m
+	}
+
+	// Found by the daily check, auto on or off: nothing starts.
+	for _, auto := range []bool{false, true} {
+		m := brewed()
+		m.cfg.Update.Auto = auto
+		cmd, handled := m.handleUpdate(releaseCheckMsg{rel: rel})
+		if !handled || cmd != nil || m.upd.running || m.upd.release != rel {
+			t.Fatalf("auto %v: cmd %v running %v release %v", auto, cmd != nil, m.upd.running, m.upd.release)
+		}
+		if auto != strings.Contains(m.flash, "brew upgrade conch") {
+			t.Fatalf("auto %v: flash %q", auto, m.flash)
+		}
+	}
+
+	// The box names brew, and u does nothing but say so.
+	m := brewed()
+	m.upd.release = rel
+	v := newVersionInfo()
+	out := ansi.Strip(strings.Join(v.render(*m).lines, "\n"))
+	for _, want := range []string{"9.9.9 available (running v0.9.0) · brew upgrade conch", brewHint, "installed with Homebrew"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("box lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "u update everything") || strings.Contains(out, "conch update rollback") {
+		t.Fatalf("box offers what brew does:\n%s", out)
+	}
+	for _, size := range [][2]int{{1, 1}, {20, 5}, {39, 12}, {300, 100}} {
+		m.width, m.height = size[0], size[1]
+		for _, l := range v.render(*m).lines {
+			if m.width > 2 && ansi.StringWidth(l) > m.width {
+				t.Fatalf("%v: line %d wide", size, ansi.StringWidth(l))
+			}
+		}
+	}
+	m.overlay = v
+	if _, cmd := v.update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")}); cmd != nil || m.upd.running || m.flash != brewHint {
+		t.Fatalf("u: cmd %v running %v flash %q", cmd != nil, m.upd.running, m.flash)
+	}
+
+	// brew upgraded it: a new build on disk, which u takes — without
+	// downloading the release, which a dead mirror would turn into an error.
+	t.Setenv("CONCH_RELEASE_URL", "http://127.0.0.1:1")
+	m = brewed()
+	m.upd.release, m.upd.diskBuild = rel, "abcdef123456"
+	cmd := m.startUpdate(nil)
+	if cmd == nil || !m.upd.running {
+		t.Fatalf("after brew upgrade: cmd %v running %v", cmd != nil, m.upd.running)
+	}
+	if msg := cmd(); msg != (updateStepMsg{step: "remotes"}) {
+		t.Fatalf("after brew upgrade: %#v", msg)
+	}
+}
+
 // TestA2AutoUpdateNeedsTheReleaseCheck: auto hangs off the daily check, so
 // with the check off nothing ever asks upstream and auto never fires.
 func TestA2AutoUpdateNeedsTheReleaseCheck(t *testing.T) {

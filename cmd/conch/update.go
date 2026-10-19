@@ -69,6 +69,9 @@ func install(ctx context.Context, version string) error {
 	if err != nil {
 		return err
 	}
+	if err := update.Managed(exe); err != nil {
+		return err
+	}
 	back := update.Compare(version, proto.Version) < 0
 	if kept, ok := update.Kept(version); ok {
 		fmt.Fprintf(os.Stderr, "installing the conch %s kept at %s\n", version, kept)

@@ -2,7 +2,7 @@ export const metadata = { title: "Installation", description: "Install, update a
 
 # Installation
 
-conch is a single binary for macOS and Linux. Install it with a script, with Go, or from source, and update it later without stopping your agents.
+conch is a single binary for macOS and Linux. Install it with a script, with Homebrew, with Go, or from source, and update it later without stopping your agents.
 
 ## Install script
 
@@ -29,6 +29,35 @@ curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | 
 
 Later, `conch update` replaces the binary with the newest release — the same
 download, without the script.
+
+If the folder isn't on your `PATH` yet, the script prints the line that puts
+it there for your shell — `~/.zshrc` for zsh, the default on macOS — and the
+first command to run.
+
+Then `conch doctor` checks everything conch leans on — git, gh, an agent to
+run, the terminal — and says how to fix whatever is missing. See
+[doctor](/docs/cli#doctor).
+
+## With Homebrew
+
+macOS and Linux:
+
+```sh
+brew install Amitgb14/conch/conch
+```
+
+This installs the same release archives from the `Amitgb14/conch` tap. Homebrew
+then owns the binary, so update it with Homebrew rather than `conch update`:
+
+```sh
+brew upgrade conch
+```
+
+conch notices the new build, as it does a rebuild: press **u** in the version
+box, or run `conch server reload`, and the server moves onto it with your
+agents still running. `conch update` and its `rollback` refuse a Homebrew
+install and say so, since replacing the file under Homebrew would leave it
+believing in a version that is no longer there.
 
 ## With Go
 
@@ -92,6 +121,10 @@ daily check installs the release it finds on its own — steps 1–4, without
 pressing **u** — and the status bar says so while it runs. It needs
 `check_releases`; it is off by default, so the default stays: conch tells you,
 you decide.
+
+On a Homebrew install the version box lists the release with
+`brew upgrade conch` beside it, and neither **u** nor `auto` downloads it:
+after `brew upgrade`, **u** reloads onto the new build.
 
 ## Going back to an older version
 

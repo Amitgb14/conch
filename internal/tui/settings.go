@@ -33,6 +33,14 @@ type settings struct {
 	// every agent's every action.
 	page string
 
+	// wrapW is the width the list was last drawn at, and selLabel the
+	// setting the highlight was on there. The list is wrapped to the
+	// box, so a narrower window puts more lines before a setting and
+	// every index after it moves: without these, resizing left the
+	// highlight on whatever had taken the old index.
+	wrapW    int
+	selLabel string
+
 	shell    *proto.ShellThemes // this computer's prompt themes
 	shellErr string
 }
@@ -88,7 +96,13 @@ func saveConfig(cfg config.Config) tea.Cmd {
 	}
 }
 
+// items is what the open tab shows, wrapped to the box: see
+// settingsWrap for what a line too long for it does.
 func (s *settings) items(m *Model) []settingItem {
+	return settingsWrap(s.tabItems(m), settingsBoxWidth(m.width))
+}
+
+func (s *settings) tabItems(m *Model) []settingItem {
 	switch s.tab {
 	case 0:
 		return s.themeItems(m)
@@ -1465,11 +1479,128 @@ func (m Model) settingsListHeight() int { return clamp(m.height-8, 3, 24) }
 // bar is the widest thing on the page, so it sets this.
 const settingsWidth = 86
 
+// settingsBoxWidth is how wide the list's lines are. Wide enough for the
+// tab bar to fit on one line, which is what the number keys are for: a
+// tab truncated off the end cannot be found.
+func settingsBoxWidth(width int) int { return clamp(settingsWidth, 40, max(width-4, 40)) }
+
+// settingsWrap gives every item a line it fits on. A label too long for
+// the box, or a detail that will not sit beside its label, used to lose
+// its end (or its start) to spread's ellipsis, which is how a setting
+// came to be explained by half a sentence; now the rest goes on to
+// continuation lines of its own. A continuation has no run, so the
+// selection and the mouse step over it exactly as they already step
+// over headings and blank lines.
+func settingsWrap(items []settingItem, w int) []settingItem {
+	out := make([]settingItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, wrapSetting(it, w)...)
+	}
+	return out
+}
+
+// wrapSetting is settingsWrap for one item: the item itself first, with
+// as much as fits on its line, then what did not.
+func wrapSetting(it settingItem, w int) []settingItem {
+	indent := 3 // the width of itemLine's prefix
+	if it.header {
+		indent = 1
+	}
+	wide := ansi.StringWidth(it.label)
+	if it.detail != "" {
+		wide += 1 + ansi.StringWidth(it.detail)
+	}
+	if indent+wide <= w {
+		return []settingItem{it}
+	}
+	// A continuation is an ordinary item however this one is drawn, so
+	// it gets itemLine's three-column prefix: measure against that, or a
+	// heading wraps two columns wider than there is room for and the
+	// ellipsis this is here to prevent comes back on its second line.
+	plain := ansi.Strip(it.label)
+	hang := plain[:len(plain)-len(strings.TrimLeft(plain, " "))]
+	room := max(w-3-len(hang), 1)
+	parts := wrapStyled(it.label, room)
+	first := it
+	first.label, first.detail = parts[0], ""
+	out := []settingItem{first}
+	for _, p := range parts[1:] {
+		out = append(out, settingItem{label: hang + p})
+	}
+	// A detail that will not sit beside its label goes under it,
+	// indented past it so it still reads as its. One written in colours
+	// of its own keeps them — a prompt sample on the Theme tab is
+	// mostly colour, and all one grey would tell the themes apart no
+	// better than cutting it off did — and a plain one is muted, as it
+	// is beside a label.
+	for _, p := range wrapStyled(it.detail, max(room-2, 1)) {
+		if strings.TrimSpace(ansi.Strip(p)) == "" {
+			continue
+		}
+		if ansi.Strip(p) == p {
+			p = styleMuted.Render(p)
+		}
+		out = append(out, settingItem{label: hang + "  " + p})
+	}
+	return out
+}
+
+// wrapStyled breaks text into lines of at most w cells, keeping the
+// colours it is written in. ansi.Wrap opens the sequence on the first
+// line and closes it on the last, which is right for one string and
+// wrong for lines about to become items of their own: the ones between
+// would draw plain, so an error in red turned grey from its second line
+// on. It also breaks a word nothing can fit — a URL, a path — rather
+// than hand back a line too long for the box.
+func wrapStyled(text string, w int) []string {
+	lines := strings.Split(ansi.Wrap(text, w, " -/"), "\n")
+	lead := styleLead(text)
+	if lead == "" {
+		return lines
+	}
+	for i, l := range lines {
+		if i > 0 {
+			l = lead + l
+		}
+		if !strings.HasSuffix(l, "\x1b[0m") {
+			l += "\x1b[0m"
+		}
+		lines[i] = l
+	}
+	return lines
+}
+
+// styleLead is the escape sequence a string opens with, which for
+// anything conch rendered in one style is that style. Indentation
+// comes first as often as not — a note is written "  "+Render(text)
+// as well as Render("  "+text) — so spaces are stepped over.
+func styleLead(s string) string {
+	i := len(s) - len(strings.TrimLeft(s, " "))
+	start := i
+	for strings.HasPrefix(s[i:], "\x1b[") {
+		end := strings.IndexByte(s[i:], 'm')
+		if end < 0 {
+			break
+		}
+		i += end + 1
+	}
+	return s[start:i]
+}
+
 func (s *settings) render(m Model) box {
-	// Wide enough for the tab bar to fit on one line, which is what the
-	// number keys are for: a tab truncated off the end cannot be found.
-	w := clamp(settingsWidth, 40, max(m.width-4, 40))
+	w := settingsBoxWidth(m.width)
 	items := s.items(&m)
+	if w != s.wrapW {
+		if s.wrapW != 0 && s.selLabel != "" {
+			for i, it := range items {
+				if it.run != nil && ansi.Strip(it.label) == s.selLabel {
+					s.sel = i
+					break
+				}
+			}
+		}
+		s.wrapW = w
+	}
 	if s.sel >= len(items) || items[s.sel].run == nil {
 		s.move(items, 0)
 		if s.sel < len(items) && items[s.sel].run == nil {
@@ -1519,6 +1650,9 @@ func (s *settings) render(m Model) box {
 		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back to the providers"
 	case s.page != "":
 		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back"
+	}
+	if s.sel < len(items) {
+		s.selLabel = ansi.Strip(items[s.sel].label)
 	}
 	lines = append(lines, "", styleMuted.Render(hint),
 		styleMuted.Render(" saved to "+ansi.Truncate(config.Dir()+"/config.toml", w-10, "…")))

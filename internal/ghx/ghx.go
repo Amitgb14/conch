@@ -136,14 +136,18 @@ func mergeMethod(data []byte) (string, error) {
 	return "", errors.New("the repository allows no way of merging a pull request")
 }
 
+// Binary is the gh conch runs: $CONCH_GH when set.
+func Binary() string {
+	if bin := os.Getenv("CONCH_GH"); bin != "" {
+		return bin
+	}
+	return "gh"
+}
+
 // run runs gh in dir and returns its stdout. A failure carries the first
 // line of gh's error output.
 func run(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	bin := os.Getenv("CONCH_GH")
-	if bin == "" {
-		bin = "gh"
-	}
-	path, err := exec.LookPath(bin)
+	path, err := exec.LookPath(Binary())
 	if err != nil {
 		return nil, ErrNoGH
 	}

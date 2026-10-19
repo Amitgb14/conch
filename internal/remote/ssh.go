@@ -17,6 +17,9 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 )
 
+// SSHBinary is the ssh client conch reaches machines with.
+func SSHBinary() string { return sshBinary() }
+
 // sshBinary is the ssh client; $CONCH_SSH overrides it.
 func sshBinary() string {
 	if b := os.Getenv("CONCH_SSH"); b != "" {

@@ -140,7 +140,7 @@ func machineAdd(args []string) error {
 	}
 	target := fs.Arg(0)
 	if provider, _, ok := remote.ParseSandboxTarget(target); ok {
-		return fmt.Errorf("%s is a sandbox: make one with conch sandbox -provider %s create", target, provider)
+		return fmt.Errorf("%s is a sandbox: make one with conch sandbox -provider %s create, or add one you have with conch sandbox -provider %[2]s add ID", target, provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

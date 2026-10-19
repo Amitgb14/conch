@@ -212,6 +212,42 @@ func TestA4UpdateMovesBack(t *testing.T) {
 	}
 }
 
+// A conch Homebrew installed is Homebrew's to update: conch update and
+// rollback say how, and leave its keg alone.
+func TestUpdateHomebrewInstall(t *testing.T) {
+	if testing.Short() {
+		t.Skip("copies the test binary")
+	}
+	a4Env(t)
+	a4Feed(t, "9.9.9", "9.9.9")
+	exe, _ := os.Executable()
+	data, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := t.TempDir()
+	keg := filepath.Join(prefix, "Cellar", "conch", "0.1.0", "bin", "conch")
+	if err := os.MkdirAll(filepath.Dir(keg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keg, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a4Kept(t, "0.0.9", "#!/bin/sh\necho conch 0.0.9\n")
+	for _, args := range [][]string{{"update"}, {"update", "9.9.9"}, {"update", "rollback"}} {
+		code, out, errOut := a4RunBinary(t, keg, "", args...)
+		if code == 0 || !strings.Contains(errOut, "installed with Homebrew: update it with brew upgrade conch") {
+			t.Fatalf("%v: exit %d %q %q", args, code, out, errOut)
+		}
+		if strings.Contains(errOut, "downloading") || strings.Contains(errOut, "installing") {
+			t.Fatalf("%v: started anyway: %q", args, errOut)
+		}
+	}
+	if st, err := os.Stat(keg); err != nil || st.Size() != int64(len(data)) {
+		t.Fatalf("the keg was written: %v %v", st, err)
+	}
+}
+
 // TestA4UpdateArgAliases: every spelling of the three sub-commands reaches
 // the same place.
 func TestA4UpdateArgAliases(t *testing.T) {
