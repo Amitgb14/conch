@@ -53,16 +53,19 @@ type autopilot struct {
 	// is said once rather than at every failure after.
 	capSaid map[string]bool
 	// recheck is branches whose agent finished again while a check ran,
-	// gateMemo the gates last read for each branch, resolveSaid the last
-	// thing said about each conflict, and resolvesBusy whether a pass over
-	// the conflicts is under way.
+	// gateMemo the gates last read for each branch, said the last thing
+	// said about each branch's conflict or check (noteOnce), and
+	// resolvesBusy whether a pass over the conflicts is under way.
 	recheck      map[string]bool
 	gateMemo     map[string]gateResult
-	resolveSaid  map[string]string
+	said         map[string]string
 	resolvesBusy bool
 	// lastCheck is the terminal of each branch's last check, closed when
 	// the next one starts.
 	lastCheck map[string]string
+	// prompt stands in for promptAgent in tests, where a message that
+	// fails to reach a running agent cannot be arranged any other way.
+	prompt func(proto.AgentPromptParams) (proto.AgentPromptResult, *proto.Error)
 }
 
 // autopilotFile is autopilot.json.
@@ -115,11 +118,37 @@ type autopilotFile struct {
 	TestAsked map[string]string `json:"test_asked,omitempty"`
 }
 
+// init makes every map a file left out, as one from an older build does.
+func (f *autopilotFile) init() {
+	orNew(&f.Seen)
+	orNew(&f.Checks)
+	orNew(&f.Fixes)
+	orNew(&f.CIFixes)
+	orNew(&f.Waiting)
+	orNew(&f.Failed)
+	orNew(&f.Passed)
+	orNew(&f.CheckPanes)
+	orNew(&f.CheckHeads)
+	orNew(&f.PendingCI)
+	orNew(&f.Asked)
+	orNew(&f.Conflicted)
+	orNew(&f.Resolves)
+	orNew(&f.Rewrites)
+	orNew(&f.Drafted)
+	orNew(&f.TestAsked)
+}
+
+func orNew[K comparable, V any](m *map[K]V) {
+	if *m == nil {
+		*m = map[K]V{}
+	}
+}
+
 func loadAutopilot(configDir string) *autopilot {
 	a := &autopilot{file: filepath.Join(configDir, "autopilot.json"), merging: map[string]bool{},
 		shipping: map[string]bool{}, unshipped: map[string]string{}, lastCheck: map[string]string{}, resolving: map[string]bool{},
 		starting: map[string]bool{}, capSaid: map[string]bool{}, recheck: map[string]bool{},
-		gateMemo: map[string]gateResult{}, resolveSaid: map[string]string{}}
+		gateMemo: map[string]gateResult{}, said: map[string]string{}}
 	raw, err := os.ReadFile(a.file)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("autopilot: %v", err)
@@ -131,54 +160,7 @@ func loadAutopilot(configDir string) *autopilot {
 		}
 	}
 	a.saved.Policy = cleanPolicy(a.saved.Policy)
-	if a.saved.Seen == nil {
-		a.saved.Seen = map[string]bool{}
-	}
-	if a.saved.Checks == nil {
-		a.saved.Checks = map[string]string{}
-	}
-	if a.saved.Fixes == nil {
-		a.saved.Fixes = map[string]int{}
-	}
-	if a.saved.CIFixes == nil {
-		a.saved.CIFixes = map[string]int{}
-	}
-	if a.saved.Waiting == nil {
-		a.saved.Waiting = map[string]string{}
-	}
-	if a.saved.Failed == nil {
-		a.saved.Failed = map[string]string{}
-	}
-	if a.saved.Passed == nil {
-		a.saved.Passed = map[string]string{}
-	}
-	if a.saved.CheckPanes == nil {
-		a.saved.CheckPanes = map[string]string{}
-	}
-	if a.saved.CheckHeads == nil {
-		a.saved.CheckHeads = map[string]string{}
-	}
-	if a.saved.PendingCI == nil {
-		a.saved.PendingCI = map[string]bool{}
-	}
-	if a.saved.Asked == nil {
-		a.saved.Asked = map[string]string{}
-	}
-	if a.saved.Conflicted == nil {
-		a.saved.Conflicted = map[string]string{}
-	}
-	if a.saved.Resolves == nil {
-		a.saved.Resolves = map[string]int{}
-	}
-	if a.saved.Rewrites == nil {
-		a.saved.Rewrites = map[string]rewrite{}
-	}
-	if a.saved.Drafted == nil {
-		a.saved.Drafted = map[string]bool{}
-	}
-	if a.saved.TestAsked == nil {
-		a.saved.TestAsked = map[string]string{}
-	}
+	a.saved.init()
 	return a
 }
 
@@ -314,16 +296,6 @@ func (a *autopilot) state(headOf func(key string) string) proto.AutopilotState {
 	return out
 }
 
-// prChecks is a branch's CI as the autopilot compares it: an open pull
-// request's checks, and "" for a branch with none. A closed or merged one
-// is nobody's move any more.
-func prChecks(b proto.BranchInfo) string {
-	if b.PR == nil || b.PR.State != "OPEN" {
-		return ""
-	}
-	return b.PR.Checks
-}
-
 // observe is a project's pull requests as just read from GitHub. It
 // returns the branches whose CI has just turned red, to go back to their
 // agents. It is only called with a read that worked: one that failed
@@ -338,7 +310,7 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 	now := map[string]string{}
 	for _, b := range info.Branches {
 		key := branchKey(info.ID, b.Name)
-		checks := prChecks(b)
+		checks := proto.PRChecks(b)
 		now[key] = checks
 		was := a.saved.Checks[key]
 		switch {
@@ -404,58 +376,38 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 	return red
 }
 
-// forget drops a project the server no longer has.
+// forget drops a project the server no longer has: everything kept about
+// its branches, saved or in memory, so one added again starts afresh.
 func (a *autopilot) forget(projectID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	delete(a.saved.Seen, projectID)
 	prefix := projectID + "\x00"
-	for _, m := range []map[string]string{a.saved.Checks, a.saved.Waiting, a.saved.Failed, a.saved.Passed, a.saved.Asked, a.saved.Conflicted, a.saved.TestAsked} {
-		for key := range m {
-			if strings.HasPrefix(key, prefix) {
-				delete(m, key)
-			}
-		}
-	}
-	for _, m := range []map[string]int{a.saved.Fixes, a.saved.CIFixes, a.saved.Resolves} {
-		for key := range m {
-			if strings.HasPrefix(key, prefix) {
-				delete(m, key)
-			}
-		}
-	}
-	for pane, key := range a.saved.CheckPanes {
-		if strings.HasPrefix(key, prefix) {
-			delete(a.saved.CheckPanes, pane)
-			delete(a.saved.CheckHeads, pane)
-		}
-	}
-	for key := range a.saved.Resolves {
-		if strings.HasPrefix(key, prefix) {
-			delete(a.saved.Resolves, key)
-		}
-	}
-	for key := range a.saved.Rewrites {
-		if strings.HasPrefix(key, prefix) {
-			delete(a.saved.Rewrites, key)
-		}
-	}
-	for key := range a.saved.Drafted {
-		if strings.HasPrefix(key, prefix) {
-			delete(a.saved.Drafted, key)
-		}
-	}
-	for key := range a.saved.PendingCI {
-		if strings.HasPrefix(key, prefix) {
-			delete(a.saved.PendingCI, key)
-		}
-	}
-	for key := range a.unshipped {
-		if strings.HasPrefix(key, prefix) {
-			delete(a.unshipped, key)
+	ours := func(key string) bool { return strings.HasPrefix(key, prefix) }
+	f := &a.saved
+	dropKeys(ours, f.Checks, f.Waiting, f.Failed, f.Passed, f.Asked, f.Conflicted, f.TestAsked, a.unshipped, a.lastCheck, a.said)
+	dropKeys(ours, f.Fixes, f.CIFixes, f.Resolves)
+	dropKeys(ours, f.PendingCI, f.Drafted, a.capSaid, a.recheck)
+	dropKeys(ours, f.Rewrites)
+	dropKeys(ours, a.gateMemo)
+	for pane, key := range f.CheckPanes {
+		if ours(key) {
+			delete(f.CheckPanes, pane)
+			delete(f.CheckHeads, pane)
 		}
 	}
 	a.saveLocked()
+}
+
+// dropKeys deletes from each map the keys drop says to.
+func dropKeys[V any](drop func(string) bool, maps ...map[string]V) {
+	for _, m := range maps {
+		for key := range m {
+			if drop(key) {
+				delete(m, key)
+			}
+		}
+	}
 }
 
 // takeFix counts one more failure going back to a branch's agent, and
@@ -524,6 +476,14 @@ func (a *autopilot) checked(key, head string, passed bool) {
 func (s *Server) autopilotNote(n proto.AutopilotNote) {
 	log.Printf("autopilot: %s %s: %s", n.ProjectID, n.Branch, n.Text)
 	s.broadcast(proto.EventAutopilotNote, n)
+}
+
+// autopilotPrompt is a message from the autopilot to an agent.
+func (s *Server) autopilotPrompt(p proto.AgentPromptParams) (proto.AgentPromptResult, *proto.Error) {
+	if f := s.autopilot.prompt; f != nil {
+		return f(p)
+	}
+	return s.promptAgent(p)
 }
 
 // runAutopilot looks at waiting merges until the server stops.
@@ -661,7 +621,7 @@ func (s *Server) autopilotFix(projectID, branch, what string, text func() (strin
 	go func() {
 		prompt, err := text()
 		if err == nil {
-			_, perr := s.promptAgent(proto.AgentPromptParams{ID: agent.ID, Text: prompt})
+			_, perr := s.autopilotPrompt(proto.AgentPromptParams{ID: agent.ID, Text: prompt})
 			if perr != nil {
 				err = perr
 			}
@@ -848,30 +808,50 @@ func (s *Server) autopilotMerge(key string) {
 	}()
 }
 
-// mergeGates holds a green pull request for its project's check — running
-// on the commit being merged, or not yet run there though that commit is
-// checked out — and for require_tests and max_diff, which hold every
-// pull request, not only the ones conch opened as drafts.
+// mergeGates holds a green pull request for its project's check until it
+// has passed on the commit being merged — running it there when that
+// commit is checked out, and otherwise saying where it has to be — and
+// for require_tests and max_diff, which hold every pull request, not only
+// the ones conch opened as drafts.
 func (s *Server) mergeGates(p *project, info proto.ProjectInfo, branch string, pr proto.PRInfo, at string) string {
 	key := branchKey(info.ID, branch)
 	a := s.autopilot
 	pol := a.policy()
-	if cmd := pol.Checks[info.ID]; cmd != "" && at != "" {
+	if cmd := pol.Checks[info.ID]; cmd != "" {
 		a.mu.Lock()
-		verdict := a.saved.Passed[key] == at || a.saved.Failed[key] == at
+		passed := at != "" && a.saved.Passed[key] == at
 		a.mu.Unlock()
+		wt, checkedOut := p.branchWorktree(branch)
 		switch {
 		case s.checkBusy(key):
 			return "this project's check is still running"
-		case !verdict && branchHead(p, branch) == at:
+		case passed:
+		case at == "":
+			return fmt.Sprintf("the commit #%d would merge could not be read, so this project's check cannot vouch for it", pr.Number)
+		case checkedOut && wt.Path != "" && branchHead(p, branch) == at:
+			// A failure there is mergeHold's to say; this is a commit
+			// with no verdict yet.
 			go s.autopilotStartCheck(info.ID, branch, cmd)
 			return "this project's check has not run on it yet; running it"
+		default:
+			// Merging would put a commit nobody checked on the base, and
+			// running the check every tick where it cannot run does
+			// nothing but say so every tick.
+			return fmt.Sprintf("this project's check has not passed on %s, the commit #%d is at; it runs once %s is checked out there", shortCommit(at), pr.Number, branch)
 		}
 	}
 	if unmet := s.gatesAt(p, key, info.Base, at); len(unmet) > 0 {
 		return strings.Join(unmet, " and ")
 	}
 	return ""
+}
+
+// shortCommit is a commit as a person reads one.
+func shortCommit(c string) string {
+	if len(c) > 7 {
+		return c[:7]
+	}
+	return c
 }
 
 // mergeHold says what keeps a green pull request from merging, or ""

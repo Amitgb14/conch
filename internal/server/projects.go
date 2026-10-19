@@ -410,6 +410,24 @@ func (pm *projectManager) maybeRefresh(p *project) {
 	go pm.refresh(p, stamp)
 }
 
+// refreshNow reads p's git state now, taking its turn with the ticker's
+// refreshes: one already under way is waited for rather than raced, since
+// two at once let the slower, older read be the one kept.
+func (pm *projectManager) refreshNow(p *project) {
+	deadline := time.Now().Add(gitTimeout)
+	for {
+		p.mu.Lock()
+		if !p.refreshing || time.Now().After(deadline) {
+			p.refreshing, p.pending = true, false
+			p.mu.Unlock()
+			break
+		}
+		p.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	pm.refresh(p, gitx.MetaStamp(p.common))
+}
+
 func (pm *projectManager) refresh(p *project, stamp string) {
 	pm.gitSem <- struct{}{}
 	info := p.load()

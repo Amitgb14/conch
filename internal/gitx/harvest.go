@@ -212,21 +212,8 @@ func (e *RebaseConflictError) Error() string {
 // was and nothing is pushed — and uncommitted changes to tracked files stop
 // it before it starts, so a rebase never moves work nobody committed.
 func PushRebase(ctx context.Context, dir, branch string) (took int, err error) {
-	head, err := revParse(ctx, dir, "--abbrev-ref", "HEAD")
-	if err != nil {
+	if err := readyToRebase(ctx, dir, branch); err != nil {
 		return 0, err
-	}
-	if head != branch {
-		return 0, fmt.Errorf("%s is not checked out at %s (%s is)", branch, dir, head)
-	}
-	files, err := statusFiles(ctx, dir)
-	if err != nil {
-		return 0, err
-	}
-	for _, f := range files {
-		if f.Code != "?" {
-			return 0, fmt.Errorf("%s has uncommitted changes (%s); commit or stash them first", branch, f.Path)
-		}
 	}
 	remote, err := branchRemote(ctx, dir, branch)
 	if err != nil {
@@ -237,18 +224,50 @@ func PushRebase(ctx context.Context, dir, branch string) (took int, err error) {
 	}
 	took = revCount(ctx, dir, "HEAD..FETCH_HEAD")
 	if took > 0 {
-		if _, err := run(ctx, dir, "rebase", "--quiet", "FETCH_HEAD"); err != nil {
-			conflicts := conflictFiles(ctx, dir)
-			// The abort runs whatever stopped it, and without the caller's
-			// context: a cancelled one would leave the rebase half done.
-			_, _ = run(context.Background(), dir, "rebase", "--abort")
-			if len(conflicts) > 0 {
-				return 0, &RebaseConflictError{Branch: branch, Remote: remote, Files: conflicts}
-			}
+		if conflicts, err := rebaseUndoing(ctx, dir, "FETCH_HEAD"); len(conflicts) > 0 {
+			return 0, &RebaseConflictError{Branch: branch, Remote: remote, Files: conflicts}
+		} else if err != nil {
 			return 0, err
 		}
 	}
 	return took, Push(ctx, dir, branch)
+}
+
+// readyToRebase refuses a rebase of branch in dir unless it is the
+// branch checked out there and nothing tracked is left uncommitted: a
+// rebase never moves work nobody committed.
+func readyToRebase(ctx context.Context, dir, branch string) error {
+	head, err := revParse(ctx, dir, "--abbrev-ref", "HEAD")
+	if err != nil {
+		return err
+	}
+	if head != branch {
+		return fmt.Errorf("%s is not checked out at %s (%s is)", branch, dir, head)
+	}
+	files, err := statusFiles(ctx, dir)
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		if f.Code != "?" {
+			return fmt.Errorf("%s has uncommitted changes (%s); commit or stash them first", branch, f.Path)
+		}
+	}
+	return nil
+}
+
+// rebaseUndoing rebases the checkout in dir onto onto. One that stops is
+// undone, whatever stopped it, and the files it conflicted in come back
+// (none when it was something else, which is err).
+func rebaseUndoing(ctx context.Context, dir, onto string) (conflicts []string, err error) {
+	if _, err := run(ctx, dir, "rebase", "--quiet", onto); err != nil {
+		conflicts := conflictFiles(ctx, dir)
+		// Without the caller's context: a cancelled one would leave the
+		// rebase half done.
+		_, _ = run(context.Background(), dir, "rebase", "--abort")
+		return conflicts, err
+	}
+	return nil, nil
 }
 
 // pushRemote picks where a branch without an upstream goes: origin, or the

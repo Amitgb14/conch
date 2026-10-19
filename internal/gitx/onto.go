@@ -51,36 +51,28 @@ func (e *OntoConflictError) Error() string {
 // tracked files stop it before it starts; one that conflicts is undone and
 // comes back as an *OntoConflictError naming the files.
 func RebaseOnto(ctx context.Context, dir, branch, onto string) (moved bool, err error) {
-	head, err := revParse(ctx, dir, "--abbrev-ref", "HEAD")
-	if err != nil {
+	if err := readyToRebase(ctx, dir, branch); err != nil {
 		return false, err
-	}
-	if head != branch {
-		return false, fmt.Errorf("%s is not checked out at %s (%s is)", branch, dir, head)
-	}
-	files, err := statusFiles(ctx, dir)
-	if err != nil {
-		return false, err
-	}
-	for _, f := range files {
-		if f.Code != "?" {
-			return false, fmt.Errorf("%s has uncommitted changes (%s)", branch, f.Path)
-		}
 	}
 	if IsAncestor(ctx, dir, onto, "HEAD") {
 		return false, nil // on top of it already
 	}
-	if _, err := run(ctx, dir, "rebase", "--quiet", onto); err != nil {
-		conflicts := conflictFiles(ctx, dir)
-		// Without the caller's context: a cancelled one would leave the
-		// rebase half done.
-		_, _ = run(context.Background(), dir, "rebase", "--abort")
-		if len(conflicts) > 0 {
-			return false, &OntoConflictError{Branch: branch, Onto: onto, Files: conflicts}
-		}
+	if conflicts, err := rebaseUndoing(ctx, dir, onto); len(conflicts) > 0 {
+		return false, &OntoConflictError{Branch: branch, Onto: onto, Files: conflicts}
+	} else if err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// CommitOf is the commit rev names in dir now, or "" when it names none: a
+// ref read once, so what it meant then is kept when the ref moves on.
+func CommitOf(ctx context.Context, dir, rev string) string {
+	c, err := revParse(ctx, dir, "--verify", "--quiet", rev+"^{commit}")
+	if err != nil {
+		return ""
+	}
+	return c
 }
 
 // Deleted lists the files the checkout's HEAD has deleted since it left

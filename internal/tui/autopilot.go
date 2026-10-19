@@ -93,7 +93,7 @@ func (m *Model) autopilotNote(machine string, n proto.AutopilotNote) tea.Cmd {
 // one started here does — but is not reported back to the server, which
 // read it itself.
 func (m *Model) adoptCheck(machine string, p proto.PaneInfo) {
-	if !strings.HasPrefix(p.Name, "check · ") || p.ProjectID == "" || p.Branch == "" || !m.autopilotOn(machine) {
+	if !strings.HasPrefix(p.Name, proto.CheckPrefix) || p.ProjectID == "" || p.Branch == "" || !m.autopilotOn(machine) {
 		return
 	}
 	key := verifyKey(machine, p.ProjectID, p.Branch)

@@ -36,11 +36,24 @@ const conflictUnwatched = "-"
 const resolveTimeout = 2 * time.Minute
 
 // rewrite is a branch rebased onto Base that must replace what was pushed
-// (Lease, "" when it never was), and the files it had deleted before.
+// (Lease, "" when it never was), and the files it had deleted before. At
+// is the commit Base named then: the ref moves on with every fetch — a
+// merge of another branch is enough — and the branch rebased onto what it
+// was is no less on top of its base for that.
 type rewrite struct {
 	Base    string   `json:"base"`
+	At      string   `json:"at,omitempty"`
 	Lease   string   `json:"lease,omitempty"`
 	Deleted []string `json:"deleted,omitempty"`
+}
+
+// onto is what the branch must be on top of: the commit, or for a rewrite
+// saved by an older build, the ref.
+func (rw rewrite) onto() string {
+	if rw.At != "" {
+		return rw.At
+	}
+	return rw.Base
 }
 
 // autopilotResolves looks at every conflicting pull request the server
@@ -99,7 +112,10 @@ func (s *Server) autopilotResolve(key string) {
 	}
 	head := branchHead(p, branch)
 	a.mu.Lock()
-	if a.resolving[key] || a.saved.Conflicted[key] == head || head == "" {
+	// Still minded: the pull request may have stopped conflicting since
+	// the pass began, and a mark written back now would rebase it anyway.
+	at, minded := a.saved.Conflicted[key]
+	if a.resolving[key] || !minded || at == conflictUnwatched || at == head || head == "" {
 		a.mu.Unlock()
 		return
 	}
@@ -134,8 +150,8 @@ func (s *Server) autopilotResolve(key string) {
 		s.resolveLater(key)
 		return
 	}
-	rw := rewrite{Base: base, Lease: lease, Deleted: before}
-	moved, err := gitx.RebaseOnto(ctx, wt.Path, branch, base)
+	rw := rewrite{Base: base, At: gitx.CommitOf(ctx, wt.Path, base), Lease: lease, Deleted: before}
+	moved, err := gitx.RebaseOnto(ctx, wt.Path, branch, rw.onto())
 	var conflict *gitx.OntoConflictError
 	switch {
 	case err == nil && !moved:
@@ -169,20 +185,35 @@ func (s *Server) resolveLater(key string) {
 	}
 }
 
-// resolveNote says something about a conflict, unless it was the last
+// resolveNote says something about a conflict, once (noteOnce).
+func (s *Server) resolveNote(key, text string, isErr bool) {
+	s.noteOnce(key, "resolve", text, isErr)
+}
+
+// noteOnce says something about a branch's what, unless it was the last
 // thing said about it: a retry every few seconds must not say it again
 // every few seconds.
-func (s *Server) resolveNote(key, text string, isErr bool) {
+func (s *Server) noteOnce(key, what, text string, isErr bool) {
 	a := s.autopilot
+	slot := key + "\x00" + what
 	a.mu.Lock()
-	same := a.resolveSaid[key] == text
-	a.resolveSaid[key] = text
+	same := a.said[slot] == text
+	a.said[slot] = text
 	a.mu.Unlock()
 	if same {
 		return
 	}
 	projectID, branch, _ := strings.Cut(key, "\x00")
 	s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Text: text, Error: isErr})
+}
+
+// unsay forgets the last thing said about a branch's what, so it is said
+// again if it happens again after something else did.
+func (s *Server) unsay(key, what string) {
+	a := s.autopilot
+	a.mu.Lock()
+	delete(a.said, key+"\x00"+what)
+	a.mu.Unlock()
 }
 
 // autopilotRewritten is a branch just rebased: it is checked, where the
@@ -223,9 +254,9 @@ func (s *Server) askToResolve(p *project, branch string, rw rewrite, files []str
 	wt, _ := p.branchWorktree(branch)
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
-	changes := gitx.BaseChanges(ctx, wt.Path, branch, rw.Base, files, 20)
+	changes := gitx.BaseChanges(ctx, wt.Path, branch, rw.onto(), files, 20)
 	prompt := resolvePrompt(rw.Base, files, changes, a.policy().Checks[p.id])
-	if _, perr := s.promptAgent(proto.AgentPromptParams{ID: agent.ID, Text: prompt}); perr != nil {
+	if _, perr := s.autopilotPrompt(proto.AgentPromptParams{ID: agent.ID, Text: prompt}); perr != nil {
 		a.mu.Lock()
 		if a.saved.Resolves[key] > 0 {
 			a.saved.Resolves[key]--
@@ -268,10 +299,10 @@ func (s *Server) shipRewrite(p *project, branch, dir string, rw rewrite, prNumbe
 	switch {
 	case gitx.InProgress(ctx, dir) != "":
 		return "its rebase is not finished"
-	case !gitx.IsAncestor(ctx, dir, rw.Base, "HEAD"):
+	case !gitx.IsAncestor(ctx, dir, rw.onto(), "HEAD"):
 		return "it is not on top of " + rw.Base + " yet"
 	}
-	after, err := gitx.Deleted(ctx, dir, rw.Base)
+	after, err := gitx.Deleted(ctx, dir, rw.onto())
 	if err != nil {
 		return "what the rebase changed could not be read: " + err.Error()
 	}

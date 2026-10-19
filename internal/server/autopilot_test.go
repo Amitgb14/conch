@@ -600,7 +600,7 @@ func TestAutopilotFinishRunsTheCheckThenShips(t *testing.T) {
 	}
 	var checks int
 	for _, info := range s.list() {
-		if strings.HasPrefix(info.Name, checkPrefix) {
+		if strings.HasPrefix(info.Name, proto.CheckPrefix) {
 			checks++
 		}
 	}
@@ -617,7 +617,7 @@ func TestAutopilotFinishRunsTheCheckThenShips(t *testing.T) {
 	// The first check's terminal went when the second started.
 	checks = 0
 	for _, info := range s.list() {
-		if strings.HasPrefix(info.Name, checkPrefix) {
+		if strings.HasPrefix(info.Name, proto.CheckPrefix) {
 			checks++
 		}
 	}
@@ -1011,7 +1011,7 @@ func TestAutopilotCheckRuns(t *testing.T) {
 	<-done
 	checks := 0
 	for _, info := range s.list() {
-		if strings.HasPrefix(info.Name, checkPrefix) {
+		if strings.HasPrefix(info.Name, proto.CheckPrefix) {
 			checks++
 		}
 	}
@@ -1058,7 +1058,7 @@ func TestAutopilotCheckRuns(t *testing.T) {
 	s.autopilotStartCheck(p.id, "api/model", cmd)
 	var pane string
 	for _, info := range s.list() {
-		if strings.HasPrefix(info.Name, checkPrefix) && info.State == proto.PaneRunning {
+		if strings.HasPrefix(info.Name, proto.CheckPrefix) && info.State == proto.PaneRunning {
 			pane = info.ID
 		}
 	}
@@ -1081,7 +1081,7 @@ func TestAutopilotCheckRuns(t *testing.T) {
 func TestAutopilotCheckOutputBeforeClose(t *testing.T) {
 	s, p, e, wt, _, _ := shipFixture(t)
 	s.autopilot.set(proto.AutopilotPolicy{AutoFix: 1, Checks: map[string]string{p.id: "x"}})
-	info, perr := s.create(proto.PaneCreateParams{Name: checkPrefix + "api/model",
+	info, perr := s.create(proto.PaneCreateParams{Name: proto.CheckPrefix + "api/model",
 		Command: []string{"/bin/sh", "-c", "echo EARLY-OUTPUT-MARK; exit 2"}, Cwd: wt})
 	if perr != nil {
 		t.Fatal(perr)
@@ -1274,7 +1274,7 @@ func TestAutopilotResolveTriesAgain(t *testing.T) {
 		t.Fatalf("given up at %q with no agent to ask", at)
 	}
 	s.autopilot.mu.Lock()
-	said := s.autopilot.resolveSaid[key]
+	said := s.autopilot.said[key+"\x00resolve"]
 	s.autopilot.mu.Unlock()
 	if !strings.Contains(said, "no agent free") {
 		t.Fatalf("said %q", said)

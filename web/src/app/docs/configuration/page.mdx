@@ -73,7 +73,7 @@ squash = true      # m → Merge puts one commit on the base rather than a merge
 [verify]
 commands = {}    # a project's check, by project ID: { r1a2b3c = "go test ./..." }
 auto_fix = 0     # send a failed check — the project's own, or a pull request's CI — back to the branch's agent up to this many times in a row
-auto_merge = false # merge a pull request on GitHub when its checks turn green (held while a draft, conflicting, under review or an unresolved thread, or past a failed check)
+auto_merge = false # merge a pull request on GitHub when its checks turn green (held while a draft, conflicting, under review or an unresolved thread, or until the project's check has passed on the commit being merged)
 auto_pr = false  # push a branch whose agent finished and whose check passed, and open its pull request (or push to the open one)
 auto_resolve = 0 # rebase a pull request that conflicts with its base, asking the branch's agent up to this many times when that stops on a conflict
 require_tests = false # open a pull request whose branch changes code and no test as a draft (auto_merge leaves drafts), and ask the agent for a test

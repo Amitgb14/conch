@@ -219,7 +219,7 @@ func (m *Model) startVerify(machine, projectID, branch string) tea.Cmd {
 		}
 	}
 	m.verifyRuns[key] = verifyRun{sig: m.branchSig(machine, projectID, branch)}
-	params := proto.PaneCreateParams{Name: "check · " + branch, Command: []string{"/bin/sh", "-lc", cmd},
+	params := proto.PaneCreateParams{Name: proto.CheckPrefix + branch, Command: []string{"/bin/sh", "-lc", cmd},
 		Cwd: dir, Cols: 120, Rows: 40}
 	return func() tea.Msg {
 		var info proto.PaneInfo
