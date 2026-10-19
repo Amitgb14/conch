@@ -196,28 +196,44 @@ func makeSandbox(ctx context.Context, label string, spec sandbox.Spec, env []str
 		return remote.Machine{}, sb, nil, err
 	}
 	fmt.Fprintf(os.Stderr, "  sandbox %s started\n", sb.ID)
-	m := remote.Machine{Label: strings.TrimSpace(label), Target: remote.SandboxTarget(sandboxProvider, sb.ID)}
-	if m.Label == "" {
-		m.Label = remote.DefaultSandboxLabel(sb.ID)
-	}
-	c, err := remote.SetUpSandbox(ctx, m, progress)
+	saved, c, err := setUpSandboxMachine(ctx, label, sb.ID)
 	if err != nil {
-		abandonSandbox(p, sb.ID, yes)
-		return remote.Machine{}, sb, nil, err
-	}
-	saved, err := remote.SaveMachine(m)
-	if err != nil {
-		c.Close()
+		if c == nil { // setting up failed, not saving
+			abandonSandbox(p, sb.ID, yes)
+		}
 		return remote.Machine{}, sb, nil, err
 	}
 	return saved, sb, c, nil
 }
 
-// sandboxAdd makes a sandbox conch has no machine for — one made in the
-// provider's own interface, or whose machine was removed with conch machine
-// rm — one of conch's machines: started if it is stopped, conch installed,
-// and saved. Nothing is deleted if that fails, since the sandbox and what is
-// in it are somebody's own.
+// setUpSandboxMachine installs conch in a running sandbox and saves it as a
+// machine, for create and add alike. A failure to save still returns the
+// (closed) client, so the caller can tell it from a failure to set up.
+func setUpSandboxMachine(ctx context.Context, label, id string) (remote.Machine, *client.Client, error) {
+	m := remote.Machine{Label: strings.TrimSpace(label), Target: remote.SandboxTarget(sandboxProvider, id)}
+	if m.Label == "" {
+		m.Label = remote.DefaultSandboxLabel(id)
+	}
+	c, err := remote.SetUpSandbox(ctx, m, progress)
+	if err != nil {
+		return remote.Machine{}, nil, err
+	}
+	saved, err := remote.SaveMachine(m)
+	if err != nil {
+		c.Close()
+		return remote.Machine{}, c, err
+	}
+	return saved, c, nil
+}
+
+// sandboxAdd makes a sandbox conch has no machine for one of conch's
+// machines: started if it is stopped, conch installed, and saved. Only a
+// sandbox the provider lists will do — what sandbox ls shows "with no
+// machine here". Daytona and Devin list only what conch made (by its label
+// or tag), and one of theirs added anyway would be listed as gone, with
+// advice to rm it; a Devin session made by hand is somebody's work, which
+// conch's wake message would interrupt. Nothing is deleted if setting up
+// fails, since the sandbox and what is in it are somebody's own.
 func sandboxAdd(args []string) error {
 	fs := flag.NewFlagSet("sandbox add", flag.ContinueOnError)
 	label := fs.String("label", "", "name shown in the sidebar (default: sandbox-ID)")
@@ -231,19 +247,6 @@ func sandboxAdd(args []string) error {
 	if err != nil {
 		return err
 	}
-	if m == nil {
-		// Named by the provider's ID, which resolveSandbox doesn't match
-		// against the machines.
-		ms, err := remote.Machines()
-		if err != nil {
-			return err
-		}
-		for i := range ms {
-			if ms[i].Target == remote.SandboxTarget(sandboxProvider, id) {
-				m = &ms[i]
-			}
-		}
-	}
 	if m != nil {
 		return fmt.Errorf("%s is already machine %s (%s)", id, m.ID, m.Label)
 	}
@@ -253,40 +256,39 @@ func sandboxAdd(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sandboxWait)
 	defer cancel()
-	sb, err := p.Get(ctx, id)
-	if errors.Is(err, sandbox.ErrNotFound) {
-		return fmt.Errorf("no %s sandbox %s; %s lists them", sandbox.ProviderLabel(sandboxProvider), id, sandboxCmd(sandboxProvider, "ls"))
-	}
+	boxes, err := p.List(ctx)
 	if err != nil {
 		return err
 	}
-	if sb.State.Going() {
-		return fmt.Errorf("sandbox %s is %s", id, sb.State)
+	listed := false
+	for _, b := range boxes {
+		listed = listed || b.ID == id
 	}
-	if sb.State != sandbox.StateStarted {
-		fmt.Fprintf(os.Stderr, "Starting %s…\n", id)
-		if _, err := p.Start(ctx, id); err != nil {
-			return err
-		}
+	if !listed {
+		return fmt.Errorf("%s is no %s sandbox conch lists; %s shows the ones it can add",
+			id, sandbox.ProviderLabel(sandboxProvider), sandboxCmd(sandboxProvider, "ls"))
 	}
-	nm := remote.Machine{Label: strings.TrimSpace(*label), Target: remote.SandboxTarget(sandboxProvider, id)}
-	if nm.Label == "" {
-		nm.Label = remote.DefaultSandboxLabel(id)
+	// Start returns at once for one already running, and knows what else
+	// a provider needs — an archived Devin session reports running.
+	fmt.Fprintf(os.Stderr, "Starting %s…\n", id)
+	if _, err := p.Start(ctx, id); err != nil {
+		return err
 	}
-	c, err := remote.SetUpSandbox(ctx, nm, progress)
+	saved, c, err := setUpSandboxMachine(ctx, *label, id)
 	if err != nil {
-		return fmt.Errorf("%w (sandbox %s is left as it was)", err, id)
+		if c == nil {
+			return fmt.Errorf("%w (sandbox %s is left as it was)", err, id)
+		}
+		return err
 	}
 	defer c.Close()
-	saved, err := remote.SaveMachine(nm)
-	if err != nil {
-		return err
-	}
 	fmt.Printf("added %s (%s): %s sandbox %s, server pid %d on %s\n", saved.ID, saved.Label, sandboxProvider, id, c.Server.PID, c.Server.Hostname)
-	// Variables are given when a sandbox is made, so [sandbox.P] env never
-	// reached this one: an agent there may start logged out.
-	if cfg, err := config.Load(); err == nil && len(cfg.Sandbox.Of(sandboxProvider).Env) > 0 {
-		fmt.Fprintf(os.Stderr, "  [sandbox.%s] env was not passed in: a sandbox is given its variables when it is made\n", sandboxProvider)
+	// A sandbox is given its variables and idle timer when it is made, so
+	// one conch did not make has neither — and conch cannot tell which.
+	if cfg, err := config.Load(); err == nil {
+		if pc := cfg.Sandbox.Of(sandboxProvider); len(pc.Env) > 0 || pc.AutoStop > 0 {
+			fmt.Fprintf(os.Stderr, "  if conch did not make this sandbox, [sandbox.%s] env and auto_stop never reached it: they are given when one is made\n", sandboxProvider)
+		}
 	}
 	return nil
 }
@@ -399,7 +401,9 @@ func resolveSandbox(ref string) (m *remote.Machine, id string, err error) {
 		return nil, "", err
 	}
 	for i := range ms {
-		if ms[i].ID != ref && ms[i].Label != ref && ms[i].Target != ref {
+		// The provider's own ID names its machine too, so rm and stop
+		// given one still find what conch keeps for it.
+		if ms[i].ID != ref && ms[i].Label != ref && ms[i].Target != ref && ms[i].Target != remote.SandboxTarget(sandboxProvider, ref) {
 			continue
 		}
 		provider, id, ok := remote.ParseSandboxTarget(ms[i].Target)
