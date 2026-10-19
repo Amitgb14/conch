@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -19,65 +18,6 @@ import (
 // the same without asking, a set number of times per branch: a cap is the
 // difference between an agent fixing a test and an agent spending the
 // night, and the person's plan, on one it cannot fix.
-
-// failureTail bounds what is sent: enough of the end of the output to show
-// the error, never a megabyte of a log.
-const (
-	failureTailLines = 80
-	failureTailBytes = 6000
-)
-
-// failureTail is the end of a check's output: blank lines at the bottom
-// dropped, escape codes stripped, at most failureTailLines lines and
-// failureTailBytes bytes, cut at a line.
-func failureTail(lines []string) string {
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-	if len(lines) > failureTailLines {
-		lines = lines[len(lines)-failureTailLines:]
-	}
-	var kept []string
-	size := 0
-	for i := len(lines) - 1; i >= 0; i-- {
-		l := strings.TrimRight(ansi.Strip(lines[i]), " ")
-		if size+len(l)+1 > failureTailBytes {
-			if len(kept) == 0 { // one enormous line: keep its end
-				l = strings.ToValidUTF8(l[len(l)-failureTailBytes+1:], "")
-				kept = append(kept, l)
-			}
-			break
-		}
-		size += len(l) + 1
-		kept = append(kept, l)
-	}
-	for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
-		kept[i], kept[j] = kept[j], kept[i]
-	}
-	return strings.Join(kept, "\n")
-}
-
-// failurePrompt is what the agent is told: which command, how it ended,
-// its output, and what is wanted — a fix proved by running it again.
-func failurePrompt(what, command string, exit int, output string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s failed on this branch", what)
-	if command != "" {
-		fmt.Fprintf(&b, " (`%s`", command)
-		if exit != 0 {
-			fmt.Fprintf(&b, ", exit %d", exit)
-		}
-		b.WriteString(")")
-	}
-	b.WriteString(".")
-	if output != "" {
-		b.WriteString(" The end of its output:\n\n```\n" + output + "\n```\n\n")
-	} else {
-		b.WriteString(" It printed nothing.\n\n")
-	}
-	b.WriteString("Find the cause and fix it, then run it again to confirm it passes. If the failure is not in this branch's work, say so instead of changing unrelated code.")
-	return b.String()
-}
 
 // branchAgent is the agent working on a branch: the one not waiting on
 // you if there are several, the first otherwise.
@@ -118,7 +58,7 @@ func (m *Model) fixCheck(machine, projectID, branch string) tea.Cmd {
 		if err := callCtx(c, proto.MethodPaneRead, proto.PaneRef{ID: checkPane}, &out); err != nil {
 			return "", fmt.Errorf("reading the check's output: %w", err)
 		}
-		return failurePrompt("The project's check", command, exit, failureTail(out.Lines)), nil
+		return proto.FailurePrompt("The project's check", command, exit, proto.FailureTail(out.Lines)), nil
 	})
 }
 
@@ -134,15 +74,7 @@ func (m *Model) fixCI(machine, projectID, branch string) tea.Cmd {
 		if err := callCtx(c, proto.MethodBranchCILog, proto.BranchCILogParams{ProjectID: projectID, Branch: branch}, &log); err != nil {
 			return "", err
 		}
-		what := "CI"
-		if log.Workflow != "" {
-			what = "CI (" + log.Workflow + ")"
-		}
-		text := failurePrompt(what, "", 0, failureTail(strings.Split(log.Log, "\n")))
-		if log.URL != "" {
-			text += "\n\nThe run: " + log.URL
-		}
-		return text, nil
+		return proto.CIFailurePrompt(log), nil
 	})
 }
 
@@ -212,6 +144,12 @@ func (m *Model) autoFix(machine string, info proto.PaneInfo) tea.Cmd {
 		if run.pane != info.ID || !strings.HasPrefix(key, machine+"|") || !run.done {
 			continue
 		}
+		if run.server {
+			return nil // the server read it, and acted
+		}
+		if m.autopilotOn(machine) {
+			return m.reportCheck(machine, key, run)
+		}
 		if m.verifyFixes == nil {
 			m.verifyFixes = map[string]int{}
 		}
@@ -262,6 +200,9 @@ func prChecks(b proto.BranchInfo) string {
 // work they may have finished with days ago; those sit in the review
 // queue, where f sends them when you say so.
 func (m *Model) autoFixCI(machine string, was, now proto.ProjectInfo) tea.Cmd {
+	if m.autopilotOn(machine) {
+		return nil // the server sends it (autopilot.go)
+	}
 	before := make(map[string]string, len(was.Branches))
 	for _, b := range was.Branches {
 		before[b.Name] = prChecks(b)
@@ -330,7 +271,7 @@ func (m *Model) autoFixCIBranch(machine, projectID string, b proto.BranchInfo, k
 // finishing, a thread resolved, the conflict rebased away — rather than
 // never, which is what holding back used to mean.
 func (m *Model) autoMergeCI(machine string, was, now proto.ProjectInfo) tea.Cmd {
-	if !m.cfg.Verify.AutoMerge {
+	if !m.cfg.Verify.AutoMerge || m.autopilotOn(machine) {
 		return nil
 	}
 	before := make(map[string]string, len(was.Branches))
@@ -383,7 +324,7 @@ type autoMergeDoneMsg struct {
 // machine, after something that can lift a hold: an agent's state, a
 // check's result, a review thread.
 func (m *Model) autoMergeRetry(machine string) tea.Cmd {
-	if len(m.autoMerges) == 0 || !m.cfg.Verify.AutoMerge {
+	if len(m.autoMerges) == 0 || !m.cfg.Verify.AutoMerge || m.autopilotOn(machine) {
 		return nil
 	}
 	mach := m.machine(machine)

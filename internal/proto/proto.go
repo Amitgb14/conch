@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -193,6 +193,14 @@ const CapView = "view.v1"
 // which leaves the pull request open; auto_merge needs this one.
 const CapPRMerge = "branch.pr_merge.v1"
 
+// CapAutopilot is autopilot.*: the server, not a TUI, sends a branch's
+// failed CI and failed check back to its agent ([verify] auto_fix) and
+// merges a pull request that turns green (auto_merge), so both carry on
+// with no TUI open and through a reload. A TUI hands it the policy from
+// its settings; against an older server the TUI does both itself, and
+// only while it runs.
+const CapAutopilot = "autopilot.v1"
+
 // CapFSSSH is the files of a host a terminal is logged in to with ssh:
 // PaneInfo.SSH names the host, and fs.list, fs.read, fs.mkdir, fs.upload
 // and fs.download take SSH, the pane, to reach that host's files instead of
@@ -316,6 +324,13 @@ const (
 	// (CapPRMerge).
 	MethodBranchPRMerge = "branch.pr_merge"
 	MethodBranchDiscard = "branch.discard"
+	// MethodAutopilotSet hands the server what to do on its own
+	// (AutopilotPolicy); MethodAutopilotGet says what it is doing; and
+	// MethodAutopilotCheck tells it how a project's own check on a branch
+	// ended (CapAutopilot).
+	MethodAutopilotSet   = "autopilot.set"
+	MethodAutopilotGet   = "autopilot.get"
+	MethodAutopilotCheck = "autopilot.check"
 	// MethodBranchGit runs git commands in a branch's worktree
 	// (CapBranchGit).
 	MethodBranchGit = "branch.git"
@@ -358,6 +373,10 @@ const (
 	// EventReviewChanged carries the ReviewList of the branch whose
 	// comments were added, changed, sent or dropped.
 	EventReviewChanged = "review.changed"
+
+	// EventAutopilotNote carries an AutopilotNote: something the server
+	// did, or would not do, on its own.
+	EventAutopilotNote = "autopilot.note"
 
 	// EventViewShow carries a view.show request to every client.
 	EventViewShow = "view.show"

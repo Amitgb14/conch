@@ -133,16 +133,52 @@ func (s *settings) gitItems(m *Model) []settingItem {
 			m.cfg.Git.Squash = !m.cfg.Git.Squash
 			return saveConfig(m.cfg)
 		}},
+		settingItem{label: "A finished branch opens its own pull request", detail: autoPRText(m.cfg.Verify.AutoPR), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.AutoPR = !m.cfg.Verify.AutoPR
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+		}},
+		settingItem{label: styleMuted.Render("  once its agent finishes and its check passes; new commits go to the one already open")},
+		settingItem{label: "It needs a test to merge itself", detail: requireTestsText(m.cfg.Verify.RequireTests), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.RequireTests = !m.cfg.Verify.RequireTests
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+		}},
+		settingItem{label: "Largest that merges itself", detail: maxDiffText(m.cfg.Verify.MaxDiff), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.MaxDiff = nextMaxDiff(m.cfg.Verify.MaxDiff)
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+		}},
 		settingItem{label: "A green pull request merges itself", detail: autoMergeText(m.cfg.Verify.AutoMerge), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.AutoMerge = !m.cfg.Verify.AutoMerge
-			return saveConfig(m.cfg)
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
 		}},
 		settingItem{label: styleMuted.Render("  it waits for the checks to turn green, and for the branch's own check where the project has one")},
+		settingItem{label: "A conflict with the base is resolved", detail: autoResolveText(m.cfg.Verify.AutoResolve), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.AutoResolve = (m.cfg.Verify.AutoResolve + 1) % 4
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+		}},
+		settingItem{label: styleMuted.Render("  rebased onto the base; a real conflict goes to the agent, and nothing is pushed that loses either side")},
 		settingItem{label: styleMuted.Render("  that one merges the pull request on GitHub, the way the repository allows — How a merge lands is conch's own")},
+		settingItem{label: styleMuted.Render("  " + autopilotWhere(m))},
 	)
 	items = append(items, settingItem{}, settingItem{header: true, label: "What comes before a merge", detail: "on the Agents tab"},
 		settingItem{label: styleMuted.Render("  a failed check goes back to the branch's agent — auto_fix, beside the agent settings it belongs with")})
 	return items
+}
+
+// autopilotWhere says who merges and sends failures back: each machine's
+// server, so it carries on with conch closed — except on one whose server
+// predates that, where it is this TUI, and only while it runs.
+func autopilotWhere(m *Model) string {
+	var old []string
+	for _, mach := range m.machines {
+		if mach.c != nil && !m.autopilotOn(mach.id) {
+			old = append(old, m.machineLabel(mach.id))
+		}
+	}
+	text := "each machine's server does these, so they carry on with conch closed"
+	if len(old) > 0 {
+		text += "; " + strings.Join(old, ", ") + " predates that, and merges only while conch is open, and opens no pull requests (u to update)"
+	}
+	return text
 }
 
 // squashText says how a merge lands.
@@ -458,6 +494,50 @@ func autoFixText(n int) string {
 	return fmt.Sprintf("up to %s in a row, then it's yours", count(n, "time"))
 }
 
+// autoPRText says what auto_pr does.
+func autoPRText(on bool) string {
+	if !on {
+		return "off · p in a branch's menu opens one"
+	}
+	return "on · pushed and opened once it's committed and checked"
+}
+
+// requireTestsText says what require_tests does.
+func requireTestsText(on bool) string {
+	if !on {
+		return "off · any pull request may merge"
+	}
+	return "on · code with no test opens as a draft, and the agent is asked for one"
+}
+
+// maxDiffSteps is what enter steps max_diff through; 0 is no limit.
+var maxDiffSteps = []int{0, 200, 400, 800, 1600}
+
+func nextMaxDiff(cur int) int {
+	for i, n := range maxDiffSteps {
+		if n == cur {
+			return maxDiffSteps[(i+1)%len(maxDiffSteps)]
+		}
+	}
+	return maxDiffSteps[0] // a number set by hand goes back to no limit
+}
+
+// maxDiffText says what max_diff does.
+func maxDiffText(n int) string {
+	if n <= 0 {
+		return "no limit"
+	}
+	return fmt.Sprintf("%d changed lines; a bigger one opens as a draft", n)
+}
+
+// autoResolveText says what auto_resolve does.
+func autoResolveText(n int) string {
+	if n <= 0 {
+		return "off · rebase it yourself"
+	}
+	return fmt.Sprintf("the agent asked up to %s, then it's yours", count(n, "time"))
+}
+
 // autoMergeText says what auto_merge does, and what it still will not
 // do: the refusals are the reason it is safe to leave on.
 func autoMergeText(on bool) string {
@@ -627,7 +707,7 @@ func (s *settings) agentItems(m *Model) []settingItem {
 		}},
 		settingItem{label: "A failed check goes back to it", detail: autoFixText(v.AutoFix), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.AutoFix = (m.cfg.Verify.AutoFix + 1) % 4
-			return saveConfig(m.cfg)
+			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
 		}},
 		settingItem{label: styleMuted.Render("  a green pull request merging itself is on the Git tab, with how a merge lands")})
 	// What an agent loads in a checkout is that checkout's business, and

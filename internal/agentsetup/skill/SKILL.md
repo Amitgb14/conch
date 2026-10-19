@@ -133,6 +133,21 @@ so it is refused for anybody else's — and it moves them, since a pane is
 shown in exactly one place.
 
 
+## When conch ships your branch
+
+If your first message ended with "How this branch is shipped", conch
+pushes the branch and opens its pull request when you finish, and comes
+back to you when the project's check or CI fails, when the base moves under
+it, or when it wants a test. Work the way that needs:
+
+- Write a test that fails without the change, then the change.
+- Commit in small commits whose messages say what changed and why, and
+  leave nothing that belongs to the work uncommitted.
+- Don't push, force-push or merge: conch does, after checking the work.
+- Asked to resolve a conflict, keep both sides — every change the base
+  made and every change the branch made. Where they really contradict,
+  stop and say so; never delete a file or a test to get past one.
+
 ## Rules
 
 - Use `conch agent prompt` to message an agent, never `conch send`:

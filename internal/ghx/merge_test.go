@@ -95,3 +95,17 @@ func TestParseConflicting(t *testing.T) {
 		}
 	}
 }
+
+func TestReady(t *testing.T) {
+	log := mergeGH(t, `{}`, "exit 0\n")
+	if err := Ready(context.Background(), t.TempDir(), 12); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(log); string(b) != "pr ready 12\n" {
+		t.Fatalf("calls:\n%s", b)
+	}
+	fakeGH(t, "echo 'X not allowed' >&2; exit 1\n")
+	if err := Ready(context.Background(), t.TempDir(), 12); err == nil || !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("refused: %v", err)
+	}
+}

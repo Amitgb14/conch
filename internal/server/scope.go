@@ -134,6 +134,10 @@ var scoped = map[string]scopeKind{
 	// A reviewing agent comments on its project's branches and hands them
 	// over, as the person would.
 	proto.MethodReviewSet: scopeProject, proto.MethodReviewSend: scopeProject,
+	// What merges and what goes back to an agent with nobody watching is
+	// the person's to decide — and a check's verdict lifts or sets a hold
+	// on a merge, so an agent does not get to report its own.
+	proto.MethodAutopilotSet: scopeHome, proto.MethodAutopilotCheck: scopeHome,
 }
 
 // writesHome lists methods that only sometimes change the person's setup:
@@ -357,6 +361,7 @@ var verbs = map[string]string{
 	proto.MethodAgentLibrary: "change the library of MCP servers and skills", proto.MethodLibraryApply: "apply the library to the agents",
 	proto.MethodAgentSync: "sync one agent's setup to the others",
 	proto.MethodReviewSet: "comment on a branch", proto.MethodReviewSend: "send review comments",
+	proto.MethodAutopilotSet: "change what merges and what is sent back on its own", proto.MethodAutopilotCheck: "report a check's result",
 }
 
 // madeBy records that the connection's pane started pane id: it and the

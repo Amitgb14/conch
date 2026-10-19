@@ -191,6 +191,22 @@ type VerifyCfg struct {
 	// changes on, and while conch's own check disagrees with CI, until
 	// whatever held it is gone.
 	AutoMerge bool `toml:"auto_merge,omitempty"`
+	// AutoPR pushes a branch when its agent finishes and its check passes
+	// (where the project has one), and opens a pull request for it — or
+	// pushes to the one already open, which is how an agent's fix for red
+	// CI reaches CI. Off by default: it publishes the agent's work.
+	AutoPR bool `toml:"auto_pr,omitempty"`
+	// AutoResolve is how many times in a row a pull request that conflicts
+	// with its base is rebased onto it and, when that stops on a conflict,
+	// handed to the branch's agent to resolve. 0 (the default) leaves
+	// conflicts to you.
+	AutoResolve int `toml:"auto_resolve,omitempty"`
+	// RequireTests opens a pull request (auto_pr) whose branch changes code
+	// and no test as a draft, which auto_merge leaves alone, and asks the
+	// agent for a test; MaxDiff does the same past that many changed lines
+	// (0: no limit). A later push that meets them marks it ready.
+	RequireTests bool `toml:"require_tests,omitempty"`
+	MaxDiff      int  `toml:"max_diff,omitempty"`
 	// Reviewer is the agent asked to review a branch when its agent
 	// finishes — after the check passes, where there is one — reading the
 	// diff and reporting rather than editing: "codex" to have Codex read

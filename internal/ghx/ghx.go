@@ -84,6 +84,12 @@ func Create(ctx context.Context, dir, base, head, title, body string, draft bool
 	return "", fmt.Errorf("gh pr create: no pull request URL in its output %q", strings.TrimSpace(string(out)))
 }
 
+// Ready takes pull request number out of draft.
+func Ready(ctx context.Context, dir string, number int) error {
+	_, err := run(ctx, dir, "pr", "ready", strconv.Itoa(number))
+	return err
+}
+
 // Merge merges pull request number on GitHub, the way the repository
 // allows — a merge commit, else a squash, else a rebase, which is the
 // order GitHub's own button offers them — and returns the way it used.

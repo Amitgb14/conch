@@ -264,6 +264,9 @@ func (pm *projectManager) remove(id string) *proto.Error {
 	pm.mu.Unlock()
 	pm.save()
 	pm.s.watcher.dropProject(id)
+	if pm.s.autopilot != nil {
+		pm.s.autopilot.forget(id)
+	}
 	pm.s.broadcast(proto.EventProjectRemoved, proto.ProjectRef{ID: id})
 	return nil
 }
@@ -507,6 +510,9 @@ func (pm *projectManager) fetchPRs(p *project) {
 	}
 	if changed && pm.s.projectRegistered(p) {
 		pm.s.broadcast(proto.EventProjectUpdated, info)
+	}
+	if err == nil && pm.s.projectRegistered(p) {
+		pm.s.autopilotPRs(info)
 	}
 	if err == nil && pm.s.projectRegistered(p) && pm.s.reviews != nil {
 		branches := make([]string, 0, len(info.Branches))

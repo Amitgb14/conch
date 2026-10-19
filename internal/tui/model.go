@@ -428,7 +428,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			mach.fresh = false
 			m.forgetPanesOf(mach) // its panes are gone, whatever their IDs now say
 		}
-		cmd = tea.Batch(cmd, m.autoUpdateMachine(msg.machine))
+		cmd = tea.Batch(cmd, m.autoUpdateMachine(msg.machine), m.pushAutopilot(msg.machine))
 		for key, d := range m.sessions {
 			if strings.HasPrefix(key, mach.id+"|") {
 				d.at = time.Time{} // a new server may have found interrupted runs
@@ -463,6 +463,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				settled = m.saveState()
 			}
 			mach.setPanes(msg.panes)
+			for _, p := range msg.panes {
+				m.adoptCheck(mach.id, p)
+			}
 			// The one moment a folder may look for its panes by name: the
 			// ids it wrote down are from whatever server was there before
 			// this connection (folders.go).
@@ -886,6 +889,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		var info proto.PaneInfo
 		if decodeInto(msg, &info) && mach.paneIndex(info.ID) < 0 {
 			mach.panes = append(mach.panes, info)
+			m.adoptCheck(mach.id, info)
 			return m.rebuild()
 		}
 
@@ -974,6 +978,13 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 				return tea.Batch(m.rebuild(), m.saveState())
 			}
 		}
+
+	case proto.EventAutopilotNote:
+		var n proto.AutopilotNote
+		if !decodeInto(msg, &n) {
+			return nil
+		}
+		return m.autopilotNote(mach.id, n)
 
 	case proto.EventViewShow:
 		var p proto.ViewShowParams

@@ -28,7 +28,7 @@ Apache-2.0 · Default branch: `master`.
 | Path | What lives there |
 | --- | --- |
 | `cmd/conch` | The `conch` CLI: TUI launch, `server`, `new/send/read/close`, `project`, `task`, `branch`, `worktree`, `machine`, `ask`, `web`, `mcp` (an MCP server over stdio in front of the same socket — `mcp.go` is the transport, `mcptools.go` the tools, and `await.go` the wait both it and the commands share), `update`, hook reports, status line |
-| `internal/server` | The daemon: panes, projects/worktrees, sessions, agent hooks and usage, hot reload, local files, agent setup, worktree watching |
+| `internal/server` | The daemon: panes, projects/worktrees, sessions, agent hooks and usage, hot reload, local files, agent setup, worktree watching, and the autopilot (`autopilot.go`: a failed CI run or check sent back to the branch's agent, a green pull request merged — the server's, so it runs with no TUI open; the TUI only hands it the policy from Settings and does both itself against a server without `autopilot.v1`) |
 | `internal/pane` | A program on a PTY with an emulated screen (charmbracelet/x/vt), key/mouse encoding, detach/adopt for reload |
 | `internal/proto` | Wire protocol: messages, methods, events, payload types, capability list, `Version` |
 | `internal/client` | Protocol client (calls, notifications, events, handshake) and starting a local server |
