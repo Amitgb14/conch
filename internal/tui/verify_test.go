@@ -405,3 +405,17 @@ func TestA2VerifyStartFails(t *testing.T) {
 		t.Fatalf("a check that couldn't start says %v %q", state, text)
 	}
 }
+
+// A check runs where nobody may be looking, so git in it must not page:
+// a check that ran `git grep` sat at less's (END) until somebody pressed q.
+func TestVerifyCheckDoesNotPage(t *testing.T) {
+	m, peer := a1Fixture(t, true)
+	m.cfg.Verify.Commands = map[string]string{"r1": "git grep -l TODO"}
+	peer.setResult(proto.MethodPaneCreate, proto.PaneInfo{ID: "check9", Name: "check · feat", State: proto.PaneRunning})
+	a2Run(m.startVerify(localMachine, "r1", "feat"))
+	got := lastParams[proto.PaneCreateParams](t, peer, proto.MethodPaneCreate, "check · feat")
+	env := strings.Join(got.Env, " ")
+	if !strings.Contains(env, "GIT_PAGER=cat") || !strings.Contains(env, "PAGER=cat") {
+		t.Fatalf("check env: %q", got.Env)
+	}
+}

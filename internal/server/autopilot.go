@@ -43,9 +43,12 @@ type autopilot struct {
 	mu      sync.Mutex
 	saved   autopilotFile
 	merging map[string]bool // merges under way, by branch key
-	// shipping is branches being pushed or given a pull request, and
-	// unshipped what last kept one from it, said once.
+	// shipping is branches being pushed or given a pull request,
+	// reship those whose agent finished again meanwhile, shipped again
+	// at the next read of their pull requests, and unshipped what last
+	// kept one from it, said once.
 	shipping  map[string]bool
+	reship    map[string]bool
 	unshipped map[string]string
 	resolving map[string]bool // conflicts being worked on now
 	starting  map[string]bool // checks being started, by branch
@@ -147,7 +150,7 @@ func orNew[K comparable, V any](m *map[K]V) {
 func loadAutopilot(configDir string) *autopilot {
 	a := &autopilot{file: filepath.Join(configDir, "autopilot.json"), merging: map[string]bool{},
 		shipping: map[string]bool{}, unshipped: map[string]string{}, lastCheck: map[string]string{}, resolving: map[string]bool{},
-		starting: map[string]bool{}, capSaid: map[string]bool{}, recheck: map[string]bool{},
+		starting: map[string]bool{}, capSaid: map[string]bool{}, recheck: map[string]bool{}, reship: map[string]bool{},
 		gateMemo: map[string]gateResult{}, said: map[string]string{}}
 	raw, err := os.ReadFile(a.file)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -341,6 +344,8 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 		case !conflicting:
 			delete(a.saved.Conflicted, key)
 			delete(a.saved.Resolves, key)
+			// The next conflict is news, even said in the same words.
+			delete(a.said, key+"\x00resolve")
 		}
 	}
 	for key := range a.saved.Checks {
@@ -355,6 +360,7 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 			if _, ok := now[key]; !ok {
 				delete(a.saved.Conflicted, key)
 				delete(a.saved.Resolves, key)
+				delete(a.said, key+"\x00resolve")
 			}
 		}
 	}
@@ -387,7 +393,7 @@ func (a *autopilot) forget(projectID string) {
 	f := &a.saved
 	dropKeys(ours, f.Checks, f.Waiting, f.Failed, f.Passed, f.Asked, f.Conflicted, f.TestAsked, a.unshipped, a.lastCheck, a.said)
 	dropKeys(ours, f.Fixes, f.CIFixes, f.Resolves)
-	dropKeys(ours, f.PendingCI, f.Drafted, a.capSaid, a.recheck)
+	dropKeys(ours, f.PendingCI, f.Drafted, a.capSaid, a.recheck, a.reship)
 	dropKeys(ours, f.Rewrites)
 	dropKeys(ours, a.gateMemo)
 	for pane, key := range f.CheckPanes {
@@ -511,6 +517,7 @@ func (s *Server) autopilotPRs(info proto.ProjectInfo) {
 	for _, branch := range s.autopilot.observe(info) {
 		s.autopilotFixCI(info.ID, branch)
 	}
+	s.autopilotReship(info.ID)
 	s.autopilotMerges()
 }
 

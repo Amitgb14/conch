@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/Amitgb14/conch/internal/ghx"
@@ -37,7 +38,24 @@ func (a *autopilot) ownCheck(pane string) bool {
 // autopilotFinished is an agent that has just finished a turn on a
 // branch: its check runs, where the project has one, or the branch ships.
 func (s *Server) autopilotFinished(info proto.PaneInfo) {
-	if s.autopilot == nil || info.ProjectID == "" || info.Branch == "" || strings.HasPrefix(info.Name, "review · ") {
+	if s.autopilot == nil || info.ProjectID == "" || strings.HasPrefix(info.Name, "review · ") {
+		return
+	}
+	if info.Branch == "" {
+		// A worktree read mid-rebase is on no branch, and an agent that
+		// finishes straight after its rebase would be lost on it: the
+		// branch is read again, now.
+		go func() {
+			p, perr := s.projects.get(info.ProjectID)
+			if perr != nil {
+				return
+			}
+			s.projects.refreshNow(p)
+			if wt, ok := p.worktreeFor(info.Cwd); ok && wt.Branch != "" {
+				info.Branch = wt.Branch
+				s.autopilotFinished(info)
+			}
+		}()
 		return
 	}
 	if cmd := s.autopilot.policy().Checks[info.ProjectID]; cmd != "" {
@@ -95,7 +113,7 @@ func (s *Server) autopilotStartCheck(projectID, branch, cmd string) {
 	}
 	head := branchHead(p, branch)
 	info, perr := s.create(proto.PaneCreateParams{Name: proto.CheckPrefix + branch, Command: []string{"/bin/sh", "-lc", cmd},
-		Cwd: wt.Path, Cols: 120, Rows: 40})
+		Cwd: wt.Path, Cols: 120, Rows: 40, Env: slices.Clone(proto.CheckEnv)})
 	if perr != nil {
 		// Said once: a merge waiting on it asks again every tick.
 		s.noteOnce(key, "check", fmt.Sprintf("could not run the check on %s: %s", branch, perr.Message), true)
@@ -231,6 +249,11 @@ func (s *Server) autopilotShip(projectID, branch string) {
 		return
 	}
 	if a.shipping[key] {
+		// What this finish brought may have come after the ship under
+		// way read the branch: a test it was asked for while its pull
+		// request was opening left that one a draft for good. It ships
+		// again once the pull requests are read (autopilotReship).
+		a.reship[key] = true
 		a.mu.Unlock()
 		return
 	}
@@ -248,6 +271,27 @@ func (s *Server) autopilotShip(projectID, branch string) {
 	a.mu.Unlock()
 	if why != "" && why != was {
 		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Text: branch + " is finished but not pushed: " + why})
+	}
+}
+
+// autopilotReship ships again the branches of a project whose agent
+// finished while they were shipping, now that its pull requests have been
+// read: straight after a ship the one it opened is not known yet, and a
+// second would be opened beside it.
+func (s *Server) autopilotReship(projectID string) {
+	a := s.autopilot
+	prefix := projectID + "\x00"
+	var branches []string
+	a.mu.Lock()
+	for key := range a.reship {
+		if strings.HasPrefix(key, prefix) && !a.shipping[key] {
+			delete(a.reship, key)
+			branches = append(branches, strings.TrimPrefix(key, prefix))
+		}
+	}
+	a.mu.Unlock()
+	for _, branch := range branches {
+		go s.autopilotShip(projectID, branch)
 	}
 }
 
@@ -369,19 +413,24 @@ func (s *Server) markReady(p *project, projectID, branch, dir, base, head string
 		a.mu.Unlock()
 		return ""
 	}
+	// Said here rather than returned: the branch is pushed by now, and
+	// what ship returns is said as what kept it from being pushed.
 	if unmet := s.gates(projectID, branch, dir, base, head); len(unmet) > 0 {
-		return fmt.Sprintf("#%d stays a draft, since %s", pr.Number, strings.Join(unmet, " and "))
+		s.noteOnce(key, "ready", fmt.Sprintf("%s is pushed, and #%d stays a draft, since %s", branch, pr.Number, strings.Join(unmet, " and ")), false)
+		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), networkTimeout)
 	defer cancel()
 	if err := ghx.Ready(ctx, p.root, pr.Number); err != nil {
-		return fmt.Sprintf("#%d could not be marked ready: %v", pr.Number, err)
+		s.noteOnce(key, "ready", fmt.Sprintf("%s is pushed, but #%d could not be marked ready: %v", branch, pr.Number, err), true)
+		return ""
 	}
 	a.mu.Lock()
 	delete(a.saved.Drafted, key)
 	delete(a.saved.TestAsked, key)
 	a.saveLocked()
 	a.mu.Unlock()
+	s.unsay(key, "ready")
 	s.projects.requestPRs(p)
 	s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
 		Text: fmt.Sprintf("marked #%d ready: what held it as a draft is met", pr.Number)})

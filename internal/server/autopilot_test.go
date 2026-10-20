@@ -851,6 +851,7 @@ func TestIsTestFile(t *testing.T) {
 // auto_merge leaves alone; its agent is asked for a test, once; the push
 // that brings one marks it ready. A draft somebody else made is theirs.
 func TestAutopilotRequireTests(t *testing.T) {
+	notes := apNotes(t)
 	s, p, e, wt, _, ghLog := shipFixture(t)
 	s.autopilot.set(proto.AutopilotPolicy{AutoPR: true, RequireTests: true})
 	if why := s.ship(p.id, "api/model"); why != "" {
@@ -866,8 +867,11 @@ func TestAutopilotRequireTests(t *testing.T) {
 	p.mu.Lock()
 	p.prs = map[string]proto.PRInfo{"api/model": {Number: 8, State: "OPEN", Draft: true}}
 	p.mu.Unlock()
-	if why := s.ship(p.id, "api/model"); !strings.Contains(why, "stays a draft") {
-		t.Fatalf("no test yet: %q", why)
+	// Said as what it is, a draft held, not as a branch not pushed: it was.
+	s.autopilotShip(p.id, "api/model")
+	s.autopilotShip(p.id, "api/model")
+	if notes.count("api/model is pushed, and #8 stays a draft, since it changes code and no test") != 1 || notes.count("not pushed") != 0 {
+		t.Fatalf("no test yet:\n%s", notes.b.String())
 	}
 	if n := strings.Count(screenText(e), "changes code but no test"); n != 1 {
 		t.Fatalf("asked %d times", n)

@@ -71,7 +71,7 @@ command = ""     # also run for every alert, with it as JSON on stdin: ntfy, Sla
 squash = true      # m → Merge puts one commit on the base rather than a merge commit (auto_merge is GitHub's, and follows the repository)
 
 [verify]
-commands = {}    # a project's check, by project ID: { r1a2b3c = "go test ./..." }
+commands = {}    # a project's check, by project ID: { r1a2b3c = "go test ./..." } — run with git's pager off
 auto_fix = 0     # send a failed check — the project's own, or a pull request's CI — back to the branch's agent up to this many times in a row
 auto_merge = false # merge a pull request on GitHub when its checks turn green (held while a draft, conflicting, under review or an unresolved thread, or until the project's check has passed on the commit being merged)
 auto_pr = false  # push a branch whose agent finished and whose check passed, and open its pull request (or push to the open one)
