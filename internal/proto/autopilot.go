@@ -98,6 +98,21 @@ const (
 	failureTailBytes = 6000
 )
 
+// CheckPrefix names the terminal a project's check runs in, whether the
+// server or a TUI started it: a TUI knows the server's by the name.
+const CheckPrefix = "check · "
+
+// PRChecks is a branch's CI as conch compares it, the server and the TUI
+// alike: the checks of an open pull request, and "" for a branch with
+// none. A closed or merged pull request is not somebody's move any more,
+// so its checks are not either.
+func PRChecks(b BranchInfo) string {
+	if b.PR == nil || b.PR.State != "OPEN" {
+		return ""
+	}
+	return b.PR.Checks
+}
+
 // FailureTail is the end of a check's output: blank lines at the bottom
 // dropped, escape codes stripped, at most failureTailLines lines and
 // failureTailBytes bytes, cut at a line.

@@ -255,13 +255,22 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 	}
 	if a := info.Agent; a != nil && a.State != prevState {
 		log.Printf("pane %s agent %s: %s -> %s (%s)", info.ID, a.Name, prevState, a.State, a.Reason)
-		// Only a turn that was seen working: a pane adopted after a
-		// reload comes back done without having finished anything.
-		if a.State == proto.AgentDone && prevState == proto.AgentWorking {
+		if finishedTurn(prevState, a.State) {
 			s.autopilotFinished(info)
 		}
 	}
 	s.broadcast(proto.EventPaneUpdated, info)
+}
+
+// finishedTurn says whether a change of an agent's state is a turn it
+// finished: any change into done. Not only from working — a program that
+// reports its own state is done when it says so, which can be straight
+// from waiting on the person or from idle, between two looks — and the
+// TUI, which runs no check against a server that does, took any change
+// into done for a finish. Not from no state at all: a pane adopted after
+// a reload comes back done without having finished anything.
+func finishedTurn(prev, now string) bool {
+	return now == proto.AgentDone && prev != proto.AgentDone && prev != ""
 }
 
 // refreshEvents are agent events after which the project's git state has

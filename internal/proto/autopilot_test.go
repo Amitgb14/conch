@@ -63,3 +63,25 @@ func TestCIFailurePrompt(t *testing.T) {
 		t.Fatalf("bare: %s", p)
 	}
 }
+
+// The server and the TUI compare CI by this one function: an open pull
+// request's checks, and nothing for any other.
+func TestPRChecks(t *testing.T) {
+	for _, tc := range []struct {
+		pr   *PRInfo
+		want string
+	}{
+		{nil, ""},
+		{&PRInfo{State: "OPEN", Checks: "fail"}, "fail"},
+		{&PRInfo{State: "OPEN"}, ""},
+		{&PRInfo{State: "MERGED", Checks: "pass"}, ""},
+		{&PRInfo{State: "CLOSED", Checks: "fail"}, ""},
+	} {
+		if got := PRChecks(BranchInfo{Name: "x", PR: tc.pr}); got != tc.want {
+			t.Fatalf("%+v: %q, want %q", tc.pr, got, tc.want)
+		}
+	}
+	if !strings.HasPrefix(CheckPrefix+"feat", "check · ") {
+		t.Fatal("the check terminal's name changed: older TUIs adopt the server's checks by it")
+	}
+}

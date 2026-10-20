@@ -176,16 +176,6 @@ func (m *Model) autoFix(machine string, info proto.PaneInfo) tea.Cmd {
 	return nil
 }
 
-// prChecks is a branch's CI as conch compares it: the checks of an open
-// pull request, and "" for a branch with none. A closed or merged pull
-// request is not somebody's move any more, so its checks are not either.
-func prChecks(b proto.BranchInfo) string {
-	if b.PR == nil || b.PR.State != "OPEN" {
-		return ""
-	}
-	return b.PR.Checks
-}
-
 // autoFixCI sends a pull request's failed CI to its branch's agent when
 // the checks have just turned red, on the same terms as a check of
 // conch's own (autoFix): [verify] auto_fix allows another try on that
@@ -205,12 +195,12 @@ func (m *Model) autoFixCI(machine string, was, now proto.ProjectInfo) tea.Cmd {
 	}
 	before := make(map[string]string, len(was.Branches))
 	for _, b := range was.Branches {
-		before[b.Name] = prChecks(b)
+		before[b.Name] = proto.PRChecks(b)
 	}
 	var cmds []tea.Cmd
 	for _, b := range now.Branches {
 		key := machine + "|" + now.ID + "|" + b.Name
-		switch checks := prChecks(b); {
+		switch checks := proto.PRChecks(b); {
 		case checks == "pass":
 			delete(m.verifyFixes, key)
 		case checks != "fail" || before[b.Name] == "fail":
@@ -276,7 +266,7 @@ func (m *Model) autoMergeCI(machine string, was, now proto.ProjectInfo) tea.Cmd 
 	}
 	before := make(map[string]string, len(was.Branches))
 	for _, b := range was.Branches {
-		before[b.Name] = prChecks(b)
+		before[b.Name] = proto.PRChecks(b)
 	}
 	if m.autoMerges == nil {
 		m.autoMerges = map[string]*autoMergeWait{}
@@ -284,7 +274,7 @@ func (m *Model) autoMergeCI(machine string, was, now proto.ProjectInfo) tea.Cmd 
 	green := map[string]bool{}
 	for _, b := range now.Branches {
 		key := machine + "|" + now.ID + "|" + b.Name
-		if prChecks(b) != "pass" {
+		if proto.PRChecks(b) != "pass" {
 			continue
 		}
 		green[key] = true
@@ -345,7 +335,7 @@ func (m *Model) autoMergeProject(machine string, proj proto.ProjectInfo) tea.Cmd
 	for _, b := range proj.Branches {
 		key := machine + "|" + proj.ID + "|" + b.Name
 		w, waiting := m.autoMerges[key]
-		if !waiting || w.merging || prChecks(b) != "pass" {
+		if !waiting || w.merging || proto.PRChecks(b) != "pass" {
 			continue
 		}
 		if why := m.autoMergeHold(machine, proj, b); why != "" {

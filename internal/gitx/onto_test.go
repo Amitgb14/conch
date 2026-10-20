@@ -175,3 +175,21 @@ func TestDiffSizeAndChanged(t *testing.T) {
 		t.Fatal("no base")
 	}
 }
+
+// A ref read once keeps what it named then, whatever it names later.
+func TestCommitOf(t *testing.T) {
+	_, wt, origin := ontoRepo(t)
+	base := FreshBase(ctx, wt, "feat", "main")
+	was := CommitOf(ctx, wt, base)
+	if was == "" || was != git(t, wt, "rev-parse", base) {
+		t.Fatalf("commit of %s: %q", base, was)
+	}
+	pushMain(t, origin, "later.txt", "later\n")
+	FreshBase(ctx, wt, "feat", "main")
+	if now := CommitOf(ctx, wt, base); now == was || now == "" {
+		t.Fatalf("%s did not move: %q", base, now)
+	}
+	if got := CommitOf(ctx, wt, "no-such-ref"); got != "" {
+		t.Fatalf("no such ref: %q", got)
+	}
+}

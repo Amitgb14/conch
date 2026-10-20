@@ -23,9 +23,6 @@ import (
 // starts — same name, same command — so a TUI open at the time shows it
 // in the review queue as its own.
 
-// checkPrefix names a check's terminal; the TUI's are named the same.
-const checkPrefix = "check · "
-
 // ownCheck says whether pane is a check the server started.
 func (a *autopilot) ownCheck(pane string) bool {
 	if pane == "" {
@@ -97,13 +94,14 @@ func (s *Server) autopilotStartCheck(projectID, branch, cmd string) {
 		s.close(pane)
 	}
 	head := branchHead(p, branch)
-	info, perr := s.create(proto.PaneCreateParams{Name: checkPrefix + branch, Command: []string{"/bin/sh", "-lc", cmd},
+	info, perr := s.create(proto.PaneCreateParams{Name: proto.CheckPrefix + branch, Command: []string{"/bin/sh", "-lc", cmd},
 		Cwd: wt.Path, Cols: 120, Rows: 40})
 	if perr != nil {
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
-			Text: fmt.Sprintf("could not run the check on %s: %s", branch, perr.Message)})
+		// Said once: a merge waiting on it asks again every tick.
+		s.noteOnce(key, "check", fmt.Sprintf("could not run the check on %s: %s", branch, perr.Message), true)
 		return
 	}
+	s.unsay(key, "check")
 	a.mu.Lock()
 	a.saved.CheckPanes[info.ID] = key
 	a.saved.CheckHeads[info.ID] = head
@@ -261,7 +259,7 @@ func (s *Server) ship(projectID, branch string) string {
 		return ""
 	}
 	// What the agent just did, not what the last tick saw.
-	s.projects.refresh(p, "")
+	s.projects.refreshNow(p)
 	info := p.snapshot()
 	var b *proto.BranchInfo
 	for i := range info.Branches {
@@ -481,7 +479,7 @@ func (s *Server) askForTest(projectID, branch string) {
 	if asked {
 		return
 	}
-	if _, perr := s.promptAgent(proto.AgentPromptParams{ID: agent.ID, Text: testPrompt}); perr != nil {
+	if _, perr := s.autopilotPrompt(proto.AgentPromptParams{ID: agent.ID, Text: testPrompt}); perr != nil {
 		a.mu.Lock()
 		delete(a.saved.TestAsked, key)
 		a.saveLocked()
@@ -561,7 +559,14 @@ func (s *Server) askToCommit(projectID, branch, head string) string {
 	case asked:
 		return "it has uncommitted changes; commit them and it goes out"
 	}
-	if _, perr := s.promptAgent(proto.AgentPromptParams{ID: agent.ID, Text: commitPrompt}); perr != nil {
+	if _, perr := s.autopilotPrompt(proto.AgentPromptParams{ID: agent.ID, Text: commitPrompt}); perr != nil {
+		// Never told, so not asked: the next finish asks again.
+		a.mu.Lock()
+		if a.saved.Asked[key] == head {
+			delete(a.saved.Asked, key)
+			a.saveLocked()
+		}
+		a.mu.Unlock()
 		return "it has uncommitted changes, and asking " + agent.DisplayName() + " to commit them failed: " + perr.Message
 	}
 	return "it has uncommitted changes; asked " + agent.DisplayName() + " to commit them"
