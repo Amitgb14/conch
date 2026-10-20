@@ -59,6 +59,7 @@ class Conch < Formula
 
   def install
     bin.install "conch"
+    generate_completions_from_executable(bin/"conch", "completion")
   end
 
   def caveats

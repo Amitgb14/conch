@@ -274,6 +274,18 @@ Or in the TUI: `,` → **Agents** → **Shared MCP servers & skills…** → **A
 
 Stdin and stdout are the protocol: notes go to stderr, one request per line (this revision of MCP has no batches), answered one at a time in order, and a `wait` tool holds the session until it ends, as `conch wait` holds a shell. A tool that names a pane refuses a name shaped like a pane id or one another running pane holds, as `conch rename` does — ids win, so such a name would pick out nothing. `timeout_seconds` defaults to 1800, 0 waits with no limit, and anything over a day is capped.
 
+### completion
+
+```sh
+eval "$(conch completion zsh)"     # in ~/.zshrc, after compinit
+eval "$(conch completion bash)"    # in ~/.bashrc
+conch completion fish > ~/.config/fish/completions/conch.fish
+```
+
+Tab then completes commands and their subcommands, and what is running now: pane ids and names for `read`, `send`, `wait`, `close`, `rename`, `redraw`, `show` and `agent prompt`/`explain`; machines after `-m` and for `machine rm`; hosts from your ssh config for `machine add`; projects for `project rm`; agents for `agent install` and `-agent` (also a comma list, `-agent claude,co<tab>`); providers for `sandbox -provider`. zsh and fish show what each one is beside it — the commands with what they do, a pane with its agent, folder and state — so `conch <tab>` is also a way to find out what conch can do.
+
+The scripts are a few lines that ask `conch` itself on every tab, so a pane started a second ago completes, and an update brings new commands with it. Panes and projects come from the local server: it is never started for a tab, and one that does not answer within a second and a half gives nothing rather than a hung prompt. Another machine's panes (`-m NAME read <tab>`) are not asked for, since that is an ssh connection away. Where conch has nothing to offer, the shell completes file names. `conch completion` with no shell says how to turn it on for the one you use. [Homebrew](/docs/installation#with-homebrew) installs it for all three.
+
 ### doctor
 
 ```sh
