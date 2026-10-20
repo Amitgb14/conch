@@ -46,8 +46,8 @@ macOS and Linux:
 brew install Amitgb14/conch/conch
 ```
 
-This installs the same release archives from the `Amitgb14/conch` tap. Homebrew
-then owns the binary, so update it with Homebrew rather than `conch update`:
+This installs the same release archives from the `Amitgb14/conch` tap, with
+tab completion for bash, zsh and fish. Homebrew then owns the binary, so update it with Homebrew rather than `conch update`:
 
 ```sh
 brew upgrade conch
@@ -76,6 +76,19 @@ make release VERSION=0.2.0   # dist/: archives for every platform + checksums.tx
 ```
 
 Pushing a `v*` tag runs the release workflow, which builds the same archives and publishes them as a GitHub release.
+
+## Shell completion
+
+Installed any way but Homebrew, turn on tab completion for your shell:
+
+```sh
+echo 'eval "$(conch completion zsh)"' >> ~/.zshrc     # zsh, after compinit
+echo 'eval "$(conch completion bash)"' >> ~/.bashrc   # bash
+conch completion fish > ~/.config/fish/completions/conch.fish
+```
+
+In a new terminal, `conch <tab>` lists the commands with what each does, and
+`conch read <tab>` the panes running now. See [completion](/docs/cli#completion).
 
 ## Updating without stopping agents
 

@@ -281,7 +281,8 @@ func TestBrewFormula(t *testing.T) {
 	if err != nil {
 		t.Fatalf("formula: %v\n%s", err, formula)
 	}
-	if !strings.Contains(formula, `version "1.2.3"`) || !strings.Contains(formula, `bin.install "conch"`) {
+	if !strings.Contains(formula, `version "1.2.3"`) || !strings.Contains(formula, `bin.install "conch"`) ||
+		!strings.Contains(formula, `generate_completions_from_executable(bin/"conch", "completion")`) {
 		t.Fatalf("formula:\n%s", formula)
 	}
 	for i, p := range platforms {

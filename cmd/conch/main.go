@@ -55,6 +55,7 @@ More:
   conch web                   answer your agents from a phone
   conch update                the newest release, without stopping agents
   conch doctor                check what conch needs, and say how to fix it
+  conch completion zsh        tab completion, for zsh, bash or fish
   conch bug                   report a problem
 
 conch help all lists every command; in conch, ? lists every key.
@@ -105,7 +106,7 @@ Usage:
                                 give the other agents one agent's setup — a checkout's, or
                                 with -user your own (~/.claude and the rest); without
                                 -apply it only says what it would do
-  conch agent library [add | mcp | skill | on | off | rm | import AGENT | plan | apply | undo]
+  conch agent library [list | add | mcp | skill | on | off | rm | import AGENT | plan | apply | undo]
                                 MCP servers and skills kept in conch, each given to the
                                 agents you choose: add NAME (URL | -- COMMAND ARGS),
                                 -to NAMES, -env K=${VAR}; mcp adds conch's own tools
@@ -199,6 +200,9 @@ Usage:
   conch mcp                     an MCP server on stdin and stdout, for an agent that would rather
                                 call a tool than a command: start, prompt, wait, read, task, list
                                 and rename, with the scope of the pane it is started in
+  conch completion bash|zsh|fish
+                                print a script that completes commands, panes, machines and agents
+                                on tab; without a shell, says how to turn it on
   conch doctor [-json]          check config, server, agents, git, gh, terminal and machines,
                                 each with the command that fixes it; exits 1 if any must be fixed
   conch bug [-open] [-log] [WHAT HAPPENED...]
@@ -214,6 +218,10 @@ Usage:
 `
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "__complete" {
+		runComplete(os.Args[2:]) // every tab: before hashing the executable, which costs more than the answer
+		return
+	}
 	buildinfo.Build() // hash the executable now, before a rebuild can replace it
 	buildinfo.ResolveVersion()
 	log.SetFlags(log.LstdFlags)
@@ -286,6 +294,8 @@ func main() {
 		err = runBug(args)
 	case "doctor":
 		err = runDoctor(args)
+	case "completion":
+		err = runCompletion(args)
 	case "view":
 		err = runView(args)
 	case "show":
