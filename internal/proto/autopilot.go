@@ -102,6 +102,11 @@ const (
 // server or a TUI started it: a TUI knows the server's by the name.
 const CheckPrefix = "check · "
 
+// CheckEnv is added to a check's environment. A check runs in a terminal
+// nobody may be looking at, so a git command in it that pages — grep,
+// diff, log — would sit in less until somebody pressed q.
+var CheckEnv = []string{"GIT_PAGER=cat", "PAGER=cat"}
+
 // PRChecks is a branch's CI as conch compares it, the server and the TUI
 // alike: the checks of an open pull request, and "" for a branch with
 // none. A closed or merged pull request is not somebody's move any more,

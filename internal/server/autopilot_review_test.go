@@ -280,6 +280,7 @@ func TestAutopilotForgetsWhatItKeepsInMemory(t *testing.T) {
 		a.said[k+"\x00resolve"] = "said"
 		a.gateMemo[k] = gateResult{rev: "r"}
 		a.recheck[k] = true
+		a.reship[k] = true
 		a.lastCheck[k] = "p3"
 		a.unshipped[k] = "why"
 		a.saved.Resolves[k] = 1
@@ -287,14 +288,14 @@ func TestAutopilotForgetsWhatItKeepsInMemory(t *testing.T) {
 	a.forget("p")
 	for name, has := range map[string]bool{
 		"capSaid": a.capSaid[key] || a.capSaid[ciCount(key)], "said": a.said[key+"\x00resolve"] != "",
-		"gateMemo": a.gateMemo[key].rev != "", "recheck": a.recheck[key], "lastCheck": a.lastCheck[key] != "",
+		"gateMemo": a.gateMemo[key].rev != "", "recheck": a.recheck[key], "reship": a.reship[key], "lastCheck": a.lastCheck[key] != "",
 		"unshipped": a.unshipped[key] != "", "resolves": a.saved.Resolves[key] != 0,
 	} {
 		if has {
 			t.Errorf("%s kept for a removed project", name)
 		}
 	}
-	if !a.capSaid[other] || a.said[other+"\x00resolve"] == "" || a.saved.Resolves[other] != 1 {
+	if !a.capSaid[other] || !a.reship[other] || a.said[other+"\x00resolve"] == "" || a.saved.Resolves[other] != 1 {
 		t.Fatal("forgot another project's")
 	}
 }
