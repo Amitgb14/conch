@@ -6,10 +6,45 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 )
+
+// A machine that needs setting up says why, and the reason is wrapped:
+// what to do about it is at the end of the sentence — "build conch there
+// again", the capabilities it lacks — and the page clips every line it
+// draws, so a long reason lost exactly that.
+func TestMachineNeedingSetupSaysWhatToDo(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	mach.connected(machineConnectedMsg{err: &remote.InstallError{Reason: "conch on dev@box is still from an older build after installing " +
+		"(lacks autopilot.v1): conch built it from the source at /home/me/src/conch, which is older " +
+		"than this conch — build conch there again, or point CONCH_SOURCE at the tree this one was built from"}})
+	if mach.state != stateAttention {
+		t.Fatalf("state %v", mach.state)
+	}
+	for _, cols := range []int{200, 120, 80, 60, 40, 20} {
+		lines := m.machineLines(mach, cols, 40)
+		for i, l := range lines {
+			if got := ansi.StringWidth(l); got > cols {
+				t.Errorf("at %d columns, line %d is %d wide: %q", cols, i, got, ansi.Strip(l))
+			}
+		}
+		page := strings.Join(strings.Fields(ansi.Strip(strings.Join(lines, " "))), " ")
+		want := []string{"lacks autopilot.v1", "build conch there again", "CONCH_SOURCE"}
+		if cols >= 60 {
+			want = append(want, "m → Install / upgrade conch there") // the hint is one line, clipped on a narrow page
+		}
+		for _, w := range want {
+			if !strings.Contains(page, w) {
+				t.Errorf("at %d columns the page lacks %q:\n%s", cols, w, page)
+			}
+		}
+	}
+}
 
 func TestA2MachineStateStrings(t *testing.T) {
 	for s, want := range map[machineState]string{stateConnecting: "connecting", stateOnline: "online", stateOffline: "offline", stateAttention: "needs attention"} {

@@ -112,7 +112,14 @@ case "$last" in
   /bin/cat "$A4_PROBE" ;;
 *conch.new*)
   if [ -n "$A4_INSTALL_FAIL" ]; then echo "$A4_INSTALL_FAIL" >&2; exit 1; fi
-  /bin/cat > "$A4_INSTALLED"; echo "/home/dev/.local/bin/conch" ;;
+  /bin/cat > "$A4_INSTALLED"
+  # A machine conch installed on answers the next probe with the binary it
+  # now has: its platform, and the version info in $A4_PROBE_INFO.
+  if [ -n "$A4_PROBE_INFO" ] && [ -s "$A4_PROBE" ]; then
+    { /usr/bin/head -n 2 "$A4_PROBE"; printf 'bin=%s\n' "/home/dev/.local/bin/conch"; /bin/cat "$A4_PROBE_INFO"; } > "$A4_PROBE.new"
+    /bin/mv "$A4_PROBE.new" "$A4_PROBE"
+  fi
+  echo "/home/dev/.local/bin/conch" ;;
 *" bridge")
   A4_HELPER_MODE="${A4_BRIDGE_MODE:-bridge}" exec "$A4_HELPER" ;;
 *)
@@ -144,6 +151,8 @@ func newFakeSSH(t *testing.T) *fakeSSH {
 	for _, k := range []string{"A4_PROBE_FAIL", "A4_INSTALL_FAIL", "A4_STDIN_TO", "A4_STDOUT", "A4_STDERR", "A4_EXIT", "A4_BRIDGE_SOCK"} {
 		t.Setenv(k, "")
 	}
+	// Installing leaves this build there, as installing really would.
+	f.setInstalls(t, buildinfo.Current())
 	return f
 }
 
@@ -153,6 +162,22 @@ func (f *fakeSSH) setProbe(t *testing.T, s string) {
 	if err := os.WriteFile(filepath.Join(f.dir, "probe.txt"), []byte(s), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// setInstalls says what the machine reports about its conch once an
+// install has run there: this build, or an older one for a client whose
+// cross-build or CONCH_REMOTE_BINARY is itself behind.
+func (f *fakeSSH) setInstalls(t *testing.T, info buildinfo.Info) {
+	t.Helper()
+	b, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(f.dir, "probe-info.json")
+	if err := os.WriteFile(path, append(b, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("A4_PROBE_INFO", path)
 }
 
 // calls returns each logged invocation's argv.

@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -427,6 +429,109 @@ func TestA4ConnectInstallsAndBridges(t *testing.T) {
 	last := calls[len(calls)-1]
 	if got := last[len(last)-1]; got != "'/home/dev/.local/bin/conch' bridge" {
 		t.Fatalf("bridge command %q", got)
+	}
+}
+
+// An install that leaves the machine behind is said so, there and then.
+// Before this, conch installed a cross-build that was itself from an older
+// build, bridged to the server it started, found capabilities missing and
+// blamed the running server: "server is from an older build · m → reload
+// server", for ever, with no reload that could help.
+func TestA4ConnectSaysWhenAnInstallChangesNothing(t *testing.T) {
+	a4Env(t)
+	f := newFakeSSH(t)
+	srv := startFakeServer(t, proto.HelloResult{Version: proto.Version, Protocol: proto.ProtocolVersion, Capabilities: proto.Capabilities, PID: 11})
+	t.Setenv("A4_BRIDGE_SOCK", srv.sock)
+	bin := filepath.Join(t.TempDir(), "conch-other")
+	os.WriteFile(bin, []byte("binary"), 0o755)
+	t.Setenv("CONCH_REMOTE_BINARY", bin)
+	f.setProbe(t, "Linux\nx86_64\n")
+	if otherPlatform() != "linux/amd64" {
+		f.setProbe(t, "Darwin\narm64\n")
+	}
+	behind := buildinfo.Current()
+	behind.Capabilities = behind.Capabilities[:len(behind.Capabilities)-2]
+	missing := strings.Join(proto.Capabilities[len(proto.Capabilities)-2:], ", ")
+	f.setInstalls(t, behind)
+
+	c, err := Connect(context.Background(), SSH("dev@box", false), Options{Install: true})
+	var ie *InstallError
+	if !errors.As(err, &ie) || c != nil {
+		t.Fatalf("stale install: %v %v", c, err)
+	}
+	for _, want := range []string{"still from an older build after installing", missing, "CONCH_REMOTE_BINARY=" + bin} {
+		if !strings.Contains(ie.Reason, want) {
+			t.Fatalf("reason %q lacks %q", ie.Reason, want)
+		}
+	}
+	if ie.Platform != otherPlatform() {
+		t.Fatalf("platform %q", ie.Platform)
+	}
+	// Nothing was bridged: there is no point starting a server from it.
+	for _, argv := range f.calls(t) {
+		if strings.HasSuffix(argv[len(argv)-1], " bridge") {
+			t.Fatal("bridged to a machine that is still behind")
+		}
+	}
+
+	// The install that does bring the build connects as usual.
+	f.setProbe(t, "Linux\nx86_64\n")
+	if otherPlatform() != "linux/amd64" {
+		f.setProbe(t, "Darwin\narm64\n")
+	}
+	f.setInstalls(t, buildinfo.Current())
+	c, err = Connect(context.Background(), SSH("dev@box", false), Options{Install: true})
+	if err != nil || c == nil {
+		t.Fatalf("install that works: %v %v", c, err)
+	}
+	c.Close()
+}
+
+// VerifyInstalled says nothing when it cannot tell, and names where the
+// binary came from when it can.
+func TestA4VerifyInstalledQuietWhenItCannotTell(t *testing.T) {
+	a4Env(t)
+	f := newFakeSSH(t)
+	tr := SSH("dev@box", false)
+
+	t.Setenv("A4_PROBE_FAIL", "ssh: connect to host box port 22: Operation timed out")
+	if err := VerifyInstalled(context.Background(), tr, "linux/amd64"); err != nil {
+		t.Fatalf("probe failed: %v", err)
+	}
+	t.Setenv("A4_PROBE_FAIL", "")
+
+	// A binary too old to print its version at all lacks everything, and
+	// a list of every capability says nothing, so they are counted.
+	f.setProbe(t, "Linux\nx86_64\nbin=/usr/local/bin/conch\n")
+	err := VerifyInstalled(context.Background(), tr, "linux/amd64")
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("lacks %d of this conch's %d", len(proto.Capabilities), len(proto.Capabilities))) {
+		t.Fatalf("a binary that prints no version: %v", err)
+	}
+
+	f.setProbe(t, currentProbe("linux/amd64"))
+	if err := VerifyInstalled(context.Background(), tr, "linux/amd64"); err != nil {
+		t.Fatalf("current binary: %v", err)
+	}
+}
+
+func TestA4InstalledFrom(t *testing.T) {
+	a4Env(t)
+	a4NoSource(t)
+	if got := installedFrom(buildinfo.Platform()); !strings.Contains(got, "this conch's own binary") {
+		t.Fatalf("same platform: %q", got)
+	}
+	if got := installedFrom(otherPlatform()); !strings.Contains(got, "release download") || !strings.Contains(got, proto.Version) {
+		t.Fatalf("no source, no binary: %q", got)
+	}
+	src := a4FakeSource(t)
+	t.Setenv("CONCH_SOURCE", src)
+	got := installedFrom(otherPlatform())
+	if !strings.Contains(got, "built it from the source at "+src) || !strings.Contains(got, "CONCH_SOURCE") {
+		t.Fatalf("from source: %q", got)
+	}
+	t.Setenv("CONCH_REMOTE_BINARY", "/tmp/conch-linux")
+	if got := installedFrom(otherPlatform()); !strings.Contains(got, "CONCH_REMOTE_BINARY=/tmp/conch-linux") {
+		t.Fatalf("from a given binary: %q", got)
 	}
 }
 

@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -49,7 +48,8 @@ func downloadRelease(ctx context.Context, platform string, say func(string)) (st
 	if err := writeExecutable(out, bin); err != nil {
 		return "", err
 	}
-	_ = os.WriteFile(out+".client-build", []byte(buildinfo.Build()+"\n"), 0o600)
+	// The caller stamps it: what the cache was made against is its
+	// business, and only it knows the source tree in play.
 	return out, nil
 }
 

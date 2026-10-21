@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -324,11 +325,142 @@ func TestA4CrossBuildCacheHit(t *testing.T) {
 	}
 	os.MkdirAll(filepath.Dir(out), 0o700)
 	os.WriteFile(out, []byte("cached"), 0o755)
-	os.WriteFile(out+".client-build", []byte(buildinfo.Build()+"\n"), 0o600)
+	stampCache(out, SourceDir())
 	var steps []string
 	got, err := crossBuild(context.Background(), "linux/arm64", func(s string) { steps = append(steps, s) })
 	if err != nil || got != out || len(steps) != 0 {
 		t.Fatalf("cache hit: %q %v %q", got, err, steps)
+	}
+
+	// A stamp from an older conch holds only the client build, so the
+	// binary beside it was made against a source tree nobody recorded: not
+	// a hit. Here there is nothing to build or download with, so it is
+	// installed anyway — and said.
+	os.WriteFile(out+".client-build", []byte(buildinfo.Build()+"\n"), 0o600)
+	steps = nil
+	got, err = crossBuild(context.Background(), "linux/arm64", func(s string) { steps = append(steps, s) })
+	if err != nil || got != out {
+		t.Fatalf("stamp without a source: %q %v", got, err)
+	}
+	if len(steps) != 1 || !strings.Contains(steps[0], "may be from another build") {
+		t.Fatalf("steps for an old stamp: %q", steps)
+	}
+}
+
+// A cached cross-build is only good for the source tree it was made from.
+// Keyed on the client build alone, a checkout that moved on — or a conch
+// built in one worktree and run from another — kept installing a binary
+// from a build nobody runs, and every machine then said its server was
+// from an older build, with no reload that could help.
+func TestA4CrossBuildFollowsTheSourceTree(t *testing.T) {
+	a4Env(t)
+	src := a4FakeSource(t)
+	a4NoSource(t)
+	t.Setenv("CONCH_SOURCE", src)
+	gofile := filepath.Join(src, "internal", "deep", "x.go")
+	if err := os.WriteFile(gofile, []byte("package deep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out := cachedBinary("linux/arm64")
+	os.MkdirAll(filepath.Dir(out), 0o700)
+	os.WriteFile(out, []byte("cached"), 0o755)
+	stampCache(out, src)
+	var steps []string
+	say := func(s string) { steps = append(steps, s) }
+	if got, err := crossBuild(context.Background(), "linux/arm64", say); err != nil || got != out || len(steps) != 0 {
+		t.Fatalf("same tree: %q %v %q", got, err, steps)
+	}
+
+	// The tree moves on while this conch stays as it is: the cache is no
+	// longer a hit. With no Go toolchain there is nothing better to
+	// install, so it is used — and said, rather than passed off as this
+	// build.
+	if err := os.WriteFile(gofile, []byte("package deep\n\nconst V = 2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir()) // no go here
+	got, err := crossBuild(context.Background(), "linux/arm64", say)
+	if err != nil || got != out {
+		t.Fatalf("after an edit: %q %v", got, err)
+	}
+	if len(steps) != 1 || !strings.Contains(steps[0], "may be from another build") {
+		t.Fatalf("steps after an edit: %q", steps)
+	}
+
+	// Nothing cached either: the attempt says what it needs.
+	os.Remove(out)
+	if _, err := crossBuild(context.Background(), "linux/arm64", say); err == nil || !strings.Contains(err.Error(), "needs the Go toolchain") {
+		t.Fatalf("no cache, no toolchain: %v", err)
+	}
+	os.WriteFile(out, []byte("cached"), 0o755)
+
+	// Stamped again for the tree as it now is, it is a hit once more and
+	// says nothing.
+	stampCache(out, src)
+	steps = nil
+	if got, err := crossBuild(context.Background(), "linux/arm64", say); err != nil || got != out || len(steps) != 0 {
+		t.Fatalf("restamped: %q %v %q", got, err, steps)
+	}
+}
+
+func TestA4SourceStamp(t *testing.T) {
+	if got := sourceStamp(""); got != "nosource" {
+		t.Fatalf("no source: %q", got)
+	}
+	src := t.TempDir()
+	os.WriteFile(filepath.Join(src, "go.mod"), []byte("module github.com/Amitgb14/conch\n"), 0o600)
+	os.MkdirAll(filepath.Join(src, "internal"), 0o700)
+	a := filepath.Join(src, "internal", "a.go")
+	os.WriteFile(a, []byte("package internal\n"), 0o600)
+	first := sourceStamp(src)
+	if first == "" || first == "nosource" || sourceStamp(src) != first {
+		t.Fatalf("stamp %q, unstable or empty", first)
+	}
+
+	// What the compiler reads moves it; anything else does not.
+	os.WriteFile(filepath.Join(src, "README.md"), []byte("hello\n"), 0o600)
+	os.MkdirAll(filepath.Join(src, ".git"), 0o700)
+	os.WriteFile(filepath.Join(src, ".git", "HEAD.go"), []byte("package git\n"), 0o600)
+	os.MkdirAll(filepath.Join(src, "node_modules"), 0o700)
+	os.WriteFile(filepath.Join(src, "node_modules", "dep.go"), []byte("package dep\n"), 0o600)
+	os.MkdirAll(filepath.Join(src, "bin"), 0o700)
+	os.WriteFile(filepath.Join(src, "bin", "built.go"), []byte("package bin\n"), 0o600)
+	if got := sourceStamp(src); got != first {
+		t.Fatalf("stamp moved on files the build never reads: %q != %q", got, first)
+	}
+
+	// An edit, a file added, a file removed: each a different tree.
+	os.WriteFile(a, []byte("package internal\n\nconst V = 1\n"), 0o600)
+	edited := sourceStamp(src)
+	if edited == first {
+		t.Fatal("an edited file left the stamp alone")
+	}
+	b := filepath.Join(src, "internal", "b.go")
+	os.WriteFile(b, []byte("package internal\n"), 0o600)
+	added := sourceStamp(src)
+	if added == edited || added == first {
+		t.Fatalf("a new file left the stamp alone: %q", added)
+	}
+	os.Remove(b)
+	if got := sourceStamp(src); got != edited {
+		t.Fatalf("removing the file again: %q, want %q", got, edited)
+	}
+
+	// A tree that was checked out backwards in time is not the same tree
+	// either, though every file in it is older.
+	old := time.Now().Add(-48 * time.Hour)
+	os.Chtimes(a, old, old)
+	if got := sourceStamp(src); got == edited {
+		t.Fatal("an older mtime left the stamp alone")
+	}
+
+	// An empty directory, and one that is not there at all.
+	if got := sourceStamp(t.TempDir()); got == "" || got == "nosource" {
+		t.Fatalf("empty tree: %q", got)
+	}
+	if got := sourceStamp(filepath.Join(src, "missing")); got == "" {
+		t.Fatal("missing tree: empty stamp")
 	}
 }
 

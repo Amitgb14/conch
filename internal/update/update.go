@@ -193,6 +193,12 @@ func Machine(ctx context.Context, c *client.Client, tr remote.Transport, say fun
 	if err != nil {
 		return err
 	}
+	// A reload onto a binary that is itself behind changes nothing and
+	// says it worked, which is how a machine stays "outdated" however
+	// often it is upgraded.
+	if err := remote.VerifyInstalled(ctx, tr, platform); err != nil {
+		return err
+	}
 	say("reloading the server")
 	return Reload(ctx, c, path)
 }

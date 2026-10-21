@@ -34,7 +34,9 @@ conch probes the machine over ssh (OS, CPU, an installed conch).
 
 conch installs itself to `~/.local/bin/conch` there if it is missing or older than your client — `machine add` asks first.
 
-For another platform (say a Linux server from a Mac) conch cross-compiles itself from its source tree (found next to the binary, or `CONCH_SOURCE`) with your Go toolchain, and caches the result in `~/.config/conch/binaries/<os>-<arch>/` until you rebuild conch. A released conch without source or Go downloads the matching release binary instead (checksum-verified). Otherwise put a binary there or point `CONCH_REMOTE_BINARY` at one.
+For another platform (say a Linux server from a Mac) conch cross-compiles itself from its source tree (found next to the binary, or `CONCH_SOURCE`) with your Go toolchain, and caches the result in `~/.config/conch/binaries/<os>-<arch>/`. The cache is keyed on your conch build *and* on that source tree, so rebuilding conch or moving the checkout on makes the next install build again. A released conch without source or Go downloads the matching release binary instead (checksum-verified). Otherwise put a binary there or point `CONCH_REMOTE_BINARY` at one.
+
+conch checks what the machine has after installing. If the binary it had to install is itself from an older build — a checkout older than your conch, or a `CONCH_REMOTE_BINARY` left behind — it says so and names where that binary came from, rather than starting a server from it and reporting the machine as merely needing a reload.
 
 </Step>
 
