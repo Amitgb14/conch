@@ -959,7 +959,7 @@ func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string 
 			}
 			state := styleMuted.Render("clean")
 			if wt.Status != nil && !wt.Status.Clean() {
-				state = fmt.Sprintf("%s %s", diffStat(wt.Status.Added, wt.Status.Deleted), styleMuted.Render(fmt.Sprintf("%d files", wt.Status.Files)))
+				state = fmt.Sprintf("%s %s", diffStat(wt.Status.Added, wt.Status.Deleted), styleMuted.Render(count(wt.Status.Files, "file")))
 			}
 			glyph := styleAccent.Render("◇")
 			if wt.Main {
