@@ -325,6 +325,41 @@ func TestA4MachineUpgradeOutdatedNoReload(t *testing.T) {
 	}
 }
 
+// An upgrade that installs a binary which is itself from an older build
+// used to reload the server onto it and print a build that had not
+// changed, so the machine stayed "outdated" however often it was
+// upgraded. Now it says where the binary came from instead.
+func TestA4MachineUpgradeStaleBinary(t *testing.T) {
+	a4Env(t)
+	f := newA4SSH(t)
+	f.setProbe(t, a4CurrentProbe())
+	bin := filepath.Join(t.TempDir(), "bin")
+	t.Setenv("CONCH_REMOTE_BINARY", bin)
+	os.WriteFile(bin, []byte("b"), 0o755)
+	behind := buildinfo.Current()
+	behind.Capabilities = behind.Capabilities[:len(behind.Capabilities)-1]
+	f.setInstalls(t, behind)
+	remoteSrv := startA4Server(t, "")
+	t.Setenv("A4_BRIDGE_SOCK", remoteSrv.sock)
+	remote.SaveMachine(remote.Machine{Target: "dev@box", Label: "box"})
+
+	var err error
+	want := proto.Capabilities[len(proto.Capabilities)-1]
+	out, errOut := a4Capture(t, "", func() { err = runMachine([]string{"upgrade", "box"}) })
+	if err == nil || !strings.Contains(err.Error(), "still from an older build after installing") || !strings.Contains(err.Error(), want) {
+		t.Fatalf("stale binary: %v (%q %q)", err, out, errOut)
+	}
+	if !strings.Contains(err.Error(), "CONCH_REMOTE_BINARY="+bin) {
+		t.Fatalf("where it came from: %v", err)
+	}
+	if out != "" || strings.Contains(errOut, "installed ") {
+		t.Fatalf("said it installed: %q %q", out, errOut)
+	}
+	if ms := strings.Join(remoteSrv.methods(), ","); strings.Contains(ms, proto.MethodServerReload) {
+		t.Fatalf("reloaded onto a binary still behind: %s", ms)
+	}
+}
+
 func TestA4MachineUpgradeFailures(t *testing.T) {
 	a4Env(t)
 	f := newA4SSH(t)

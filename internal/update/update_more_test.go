@@ -530,13 +530,77 @@ func a3FakeSSH(t *testing.T, exit int) (stdinFile string) {
 	dir := t.TempDir()
 	stdinFile = filepath.Join(dir, "stdin")
 	script := filepath.Join(dir, "ssh")
-	body := fmt.Sprintf("#!/bin/sh\ncat > %q\nif [ %d -ne 0 ]; then echo 'Permission denied (publickey).' >&2; exit %d; fi\necho /home/u/.local/bin/conch\n", stdinFile, exit, exit)
+	// The probe answers from $A3_PROBE (a file, empty by default: a
+	// machine that says nothing conch can parse) and never from stdin, so
+	// checking the install is not mistaken for the install itself.
+	body := fmt.Sprintf(`#!/bin/sh
+for a in "$@"; do last=$a; done
+case "$last" in
+*"uname -s"*)
+  if [ -s "$A3_PROBE" ]; then /bin/cat "$A3_PROBE"; fi
+  exit 0 ;;
+esac
+cat > %q
+if [ %d -ne 0 ]; then echo 'Permission denied (publickey).' >&2; exit %d; fi
+echo /home/u/.local/bin/conch
+`, stdinFile, exit, exit)
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CONCH_SSH", script)
 	t.Setenv("CONCH_SSH_CONFIG", "")
+	t.Setenv("A3_PROBE", filepath.Join(dir, "probe.txt"))
 	return stdinFile
+}
+
+// a3SetProbe writes what the fake machine reports about its conch.
+func a3SetProbe(t *testing.T, info buildinfo.Info) {
+	t.Helper()
+	b, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	osName, arch, _ := strings.Cut(buildinfo.Platform(), "/")
+	out := fmt.Sprintf("%s\n%s\nbin=/home/u/.local/bin/conch\n%s\n", osName, arch, b)
+	if err := os.WriteFile(os.Getenv("A3_PROBE"), []byte(out), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An upgrade that installed a binary which was itself from an older build
+// reloaded the server onto it and said it had worked, so the machine kept
+// saying its server was outdated however often it was upgraded.
+func TestA3MachineStaleInstallIsNotReloadedOnto(t *testing.T) {
+	a3Isolate(t)
+	a3FakeSSH(t, 0)
+	behind := buildinfo.Current()
+	behind.Capabilities = behind.Capabilities[:len(behind.Capabilities)-1]
+	a3SetProbe(t, behind)
+	c, f := a3Client(t, proto.HelloResult{Platform: buildinfo.Platform(), Capabilities: []string{"server.reload.v1"}}, a3ReloadReply)
+
+	var said []string
+	err := Machine(context.Background(), c, remote.SSH("box", false), func(s string) { said = append(said, s) })
+	want := proto.Capabilities[len(proto.Capabilities)-1]
+	if err == nil || !strings.Contains(err.Error(), "still from an older build after installing") || !strings.Contains(err.Error(), want) {
+		t.Fatalf("stale install: %v", err)
+	}
+	if len(f.requests()) != 0 {
+		t.Fatalf("reloaded onto a binary that is still behind: %+v", f.requests())
+	}
+	for _, s := range said {
+		if s == "reloading the server" {
+			t.Fatal("said it was reloading")
+		}
+	}
+
+	// The build it was meant to install: the reload goes ahead.
+	a3SetProbe(t, buildinfo.Current())
+	if err := Machine(context.Background(), c, remote.SSH("box", false), func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.requests()) != 1 {
+		t.Fatalf("requests %+v", f.requests())
+	}
 }
 
 func TestA3Machine(t *testing.T) {

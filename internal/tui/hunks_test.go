@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -239,6 +241,46 @@ func TestHunkCommit(t *testing.T) {
 	cvOld.key(old, a2Key("c"))
 	if old.overlay != nil || !strings.Contains(old.flash, "predates committing single hunks") {
 		t.Fatalf("old server: %T %q", old.overlay, old.flash)
+	}
+}
+
+// One of anything is one, not "1 files". Counts are read at a glance, and
+// a plural that does not agree reads as a bug in the number itself.
+func TestOneOfSomethingIsSingular(t *testing.T) {
+	m, _ := harvestModel(t, harvestCapability, hunksCapability)
+
+	// The changes page's own count, and the tree's worktree line.
+	cv := &changesView{machine: localMachine, projectID: "r1", branch: "feat"}
+	data := proto.Changes{ProjectID: "r1", Branch: "feat", Base: "main", Worktree: "/src/api-feat",
+		Files: []proto.FileChange{{Path: "a.go", Code: "M", Added: 1}}}
+	cv.receive(changesMsg{projectID: "r1", branch: "feat", data: data})
+	out := a2Plain(cv.render(*m, 100, 20))
+	if !strings.Contains(out, "1 file ") || strings.Contains(out, "1 files") {
+		t.Errorf("one file changed:\n%s", out)
+	}
+	data.Files = append(data.Files, proto.FileChange{Path: "b.go", Code: "M"})
+	cv.receive(changesMsg{projectID: "r1", branch: "feat", data: data})
+	if out := a2Plain(cv.render(*m, 100, 20)); !strings.Contains(out, "2 files") {
+		t.Errorf("two files changed:\n%s", out)
+	}
+
+	proj := m.machines[0].projects[0]
+	proj.Worktrees = []proto.WorktreeInfo{{Path: "/src/api-feat", Branch: "feat", Status: &proto.GitStatus{Files: 1, Added: 3, Deleted: 1}}}
+	page := ansi.Strip(strings.Join(m.projectLines(localMachine, proj, 80), "\n"))
+	if !strings.Contains(page, "+3 −1 1 file") || strings.Contains(page, "1 files") {
+		t.Errorf("one file uncommitted:\n%s", page)
+	}
+
+	// And the hunks of a diff that has only one.
+	one := &changesView{machine: localMachine, projectID: "r1", branch: "feat"}
+	one.receive(changesMsg{projectID: "r1", branch: "feat", data: data})
+	one.key(m, a2Key("enter"))
+	oneHunk := "diff --git a/a.go b/a.go\nindex 1111111..2222222 100644\n--- a/a.go\n+++ b/a.go\n" +
+		"@@ -1,3 +1,3 @@\n context\n-old\n+new\n context\n"
+	one.receive(diffMsg{projectID: "r1", branch: "feat", file: "a.go", diff: oneHunk})
+	one.key(m, a2Key(" "))
+	if out := a2Plain(one.renderDiff(*m, 100, 20)); !strings.Contains(out, "1 of 1 hunk marked") {
+		t.Errorf("one hunk:\n%s", out)
 	}
 }
 

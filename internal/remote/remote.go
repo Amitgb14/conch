@@ -117,6 +117,51 @@ func (e *OutdatedServerError) Error() string {
 	return "the server there is from an older build (lacks " + strings.Join(e.Missing, ", ") + "); restart it"
 }
 
+// VerifyInstalled asks a machine what it has after conch was installed
+// there, and says what the new binary still lacks. Nothing else notices
+// such an install: the binary conch had to install can itself be from an
+// older build — a source tree that moved on, a binary somebody put in
+// CONCH_REMOTE_BINARY — and then the server started from it lacks
+// capabilities, which reads exactly like a server left on an old build.
+// The advice for that is to reload the server, and no reload can help,
+// so the install is checked rather than assumed. A probe that fails says
+// nothing: the bridge is about to speak for itself.
+func VerifyInstalled(ctx context.Context, tr Transport, platform string) error {
+	probe, err := ProbeMachine(ctx, tr)
+	if err != nil {
+		return nil
+	}
+	missing := probe.Missing()
+	if len(missing) == 0 {
+		return nil
+	}
+	// Named while they can be read; counted when a binary that old lacks
+	// most of them, since a message nobody can take in says nothing.
+	what := "lacks " + strings.Join(missing, ", ")
+	if len(missing) > 4 {
+		what = fmt.Sprintf("lacks %d of this conch's %d capabilities", len(missing), len(proto.Capabilities))
+	}
+	return &InstallError{Platform: platform, Reason: fmt.Sprintf(
+		"conch on %s is still from an older build after installing (%s): %s",
+		tr.Describe(), what, installedFrom(platform))}
+}
+
+// installedFrom says where the binary conch installs for platform came
+// from, which is where an install that changed nothing has to be mended.
+func installedFrom(platform string) string {
+	switch {
+	case platform == buildinfo.Platform():
+		return "it is this conch's own binary"
+	case os.Getenv("CONCH_REMOTE_BINARY") != "":
+		return "it came from CONCH_REMOTE_BINARY=" + os.Getenv("CONCH_REMOTE_BINARY")
+	case SourceDir() != "":
+		return "conch built it from the source at " + SourceDir() +
+			", which is older than this conch — build conch there again, or point CONCH_SOURCE at the tree this one was built from"
+	default:
+		return "it came from the conch " + proto.Version + " release download"
+	}
+}
+
 // Install copies a conch binary for the machine's platform to
 // ~/.local/bin/conch there, replacing any older one atomically. A server
 // already running keeps its old binary until it restarts. For a platform
@@ -253,6 +298,9 @@ func Connect(ctx context.Context, tr Transport, opts Options) (*client.Client, e
 		}
 		say(reason + "; installing")
 		if bin, err = Install(ctx, tr, probe.Platform, say); err != nil {
+			return nil, err
+		}
+		if err := VerifyInstalled(ctx, tr, probe.Platform); err != nil {
 			return nil, err
 		}
 	}

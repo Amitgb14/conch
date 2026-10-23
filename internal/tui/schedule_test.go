@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -238,6 +240,133 @@ func TestMergeRiskIsShown(t *testing.T) {
 	for _, l := range cv.render(*m, 30, 20) {
 		if w := ansi.StringWidth(l); w > 30 {
 			t.Fatalf("a line of %d in 30 columns: %q", w, l)
+		}
+	}
+}
+
+// The changes page names every file that would collide, a line each,
+// under the branch it collides with. One line said two of them and left
+// the page to cut the rest off — on a real branch, "conflicts with main
+// in fleet/web_dist/index.html, web/src/lib/nav.ts · also changed on
+// add-credits: README.md, fleet/dashboard.py and 3 more · …", which is
+// the question the warning is there to answer.
+func TestMergeRiskListsEveryFile(t *testing.T) {
+	m, _ := a2QueueModel()
+	mach := m.machines[0]
+	conflicts := []string{"fleet/web_dist/index.html", "web/src/lib/nav.ts"}
+	credits := []string{"README.md", "fleet/dashboard.py", "fleet/web_dist/index.html", "web/src/lib/nav.ts", "web/src/app/page.tsx"}
+	for i, w := range mach.projects[0].Worktrees {
+		if w.Branch == "feat" {
+			mach.projects[0].Worktrees[i].Conflicts = conflicts
+			mach.projects[0].Worktrees[i].Overlaps = []proto.Overlap{
+				{Branch: "add-credits", Files: credits},
+				{Branch: "mailbox", Files: []string{"fleet/dashboard.py", "fleet/web_dist/index.html"}},
+			}
+		}
+	}
+	cv := &changesView{machine: mach.id, projectID: "r1", branch: "feat"}
+	cv.receive(changesMsg{projectID: "r1", branch: "feat", data: proto.Changes{ProjectID: "r1", Branch: "feat", Worktree: "/src/api-feat",
+		Files: []proto.FileChange{{Path: "auth.go", Code: "M", Added: 3, Deleted: 1}}}})
+
+	lines := cv.render(*m, 100, 30)
+	want := []string{
+		"⚠ conflicts with main in 2 files",
+		"    fleet/web_dist/index.html",
+		"    web/src/lib/nav.ts",
+		"  also changed on add-credits · 5 files",
+		"    README.md",
+		"    fleet/dashboard.py",
+		"    fleet/web_dist/index.html",
+		"    web/src/lib/nav.ts",
+		"    web/src/app/page.tsx",
+		"  also changed on mailbox · 2 files",
+		"    fleet/dashboard.py",
+		"    fleet/web_dist/index.html",
+	}
+	for i, w := range want {
+		if got := a2Plain(lines[2+i : 3+i]); got != w {
+			t.Fatalf("line %d: %q, want %q\n%s", 2+i, got, w, a2Plain(lines))
+		}
+	}
+	// The files start right under the block, so a click still lands on one.
+	if top := cv.filesTop(*m); top != 2+len(want)+2 || !strings.Contains(a2Plain(lines[top:top+1]), "auth.go") {
+		t.Fatalf("files start at %d:\n%s", cv.filesTop(*m), a2Plain(lines))
+	}
+
+	// Narrow pages: nothing draws past the edge, and a path too long for
+	// the page keeps its end rather than its folders.
+	for _, cols := range []int{120, 60, 40, 30, 20, 10, 4, 1} {
+		for i, l := range cv.render(*m, cols, 30) {
+			if got := ansi.StringWidth(l); got > cols {
+				t.Errorf("at %d columns, line %d is %d wide: %q", cols, i, got, ansi.Strip(l))
+			}
+		}
+	}
+	page := a2Plain(cv.render(*m, 20, 30))
+	if !strings.Contains(page, "…dist/index.html") {
+		t.Errorf("a long path lost its end at 20 columns:\n%s", page)
+	}
+}
+
+// Whatever has no room in that block is counted, never silently dropped.
+func TestMergeRiskBlockCounts(t *testing.T) {
+	head := func(s string) riskLine { return riskLine{text: s} }
+	plain := func(ls []riskLine) []string {
+		var out []string
+		for _, l := range ls {
+			if l.file {
+				out = append(out, "  "+l.text)
+				continue
+			}
+			out = append(out, l.text)
+		}
+		return out
+	}
+
+	// Nothing at all.
+	if got := riskBlock(nil, nil, riskLinesMax); got != nil {
+		t.Fatalf("no groups: %v", got)
+	}
+	// One heading, every file under it.
+	got := riskBlock([]riskLine{head("conflicts")}, [][]string{{"a", "b"}}, riskLinesMax)
+	if want := []string{"conflicts", "  a", "  b"}; !slices.Equal(plain(got), want) {
+		t.Fatalf("one group: %q", plain(got))
+	}
+	// More files than room: the rest are counted, and the block keeps to
+	// its budget.
+	got = riskBlock([]riskLine{head("conflicts")}, [][]string{{"a", "b", "c", "d", "e"}}, 4)
+	if want := []string{"conflicts", "  a", "  b", "  … 3 more"}; !slices.Equal(plain(got), want) {
+		t.Fatalf("too many files: %q", plain(got))
+	}
+	// A heading with no room for a file of its own is counted instead,
+	// and one left over is said in the singular.
+	heads := []riskLine{head("conflicts"), head("on x"), head("on y"), head("on z")}
+	files := [][]string{{"a"}, {"b"}, {"c"}, {"d"}}
+	got = riskBlock(heads, files, 6)
+	if want := []string{"conflicts", "  a", "on x", "  b", "… 2 more branches"}; !slices.Equal(plain(got), want) {
+		t.Fatalf("too many branches: %q", plain(got))
+	}
+	got = riskBlock(heads[:2], files[:2], 3)
+	if want := []string{"conflicts", "  a", "… 1 more branch"}; !slices.Equal(plain(got), want) {
+		t.Fatalf("one branch left over: %q", plain(got))
+	}
+	// A budget too small for even a heading and a file says what is there.
+	got = riskBlock(heads[:1], files[:1], 1)
+	if want := []string{"… 1 more branch"}; !slices.Equal(plain(got), want) {
+		t.Fatalf("no room at all: %q", plain(got))
+	}
+	// Whatever the shape, the budget holds.
+	for _, budget := range []int{1, 2, 3, 5, 8, riskLinesMax} {
+		for _, n := range []int{1, 2, 5, 20} {
+			var hs []riskLine
+			var fs [][]string
+			for i := 0; i < n; i++ {
+				hs = append(hs, head(fmt.Sprintf("on %d", i)))
+				fs = append(fs, []string{"a", "b", "c", "d", "e", "f"})
+			}
+			if got := riskBlock(hs, fs, budget); len(got) > budget {
+				t.Fatalf("budget %d, %d groups: %d lines %q", budget, n, len(got), plain(got))
+			}
 		}
 	}
 }

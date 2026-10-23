@@ -163,6 +163,9 @@ func machineAdd(args []string) error {
 		if err != nil {
 			return err
 		}
+		if err := remote.VerifyInstalled(ctx, remote.SSH(target, true), probe.Platform); err != nil {
+			return err
+		}
 		fmt.Fprintf(os.Stderr, "  installed %s\n", path)
 	} else {
 		fmt.Fprintf(os.Stderr, "  found %s (build %s)\n", probe.Bin, probe.Info.Build)
@@ -243,6 +246,9 @@ func machineUpgrade(m remote.Machine) error {
 	}
 	path, err := remote.Install(ctx, watched, probe.Platform, progress)
 	if err != nil {
+		return err
+	}
+	if err := remote.VerifyInstalled(ctx, watched, probe.Platform); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "installed %s\n", path)

@@ -455,9 +455,7 @@ func (cv *changesView) filesTop(m Model) int {
 	if m.branchPR(cv.machine, cv.projectID, cv.branch) != nil {
 		top++
 	}
-	if m.branchRisk(cv.machine, cv.projectID, cv.branch) != "" {
-		top++ // the line saying what it would collide with
-	}
+	top += len(m.branchRiskLines(cv.machine, cv.projectID, cv.branch)) // what it would collide with, a file to a line
 	return top
 }
 
@@ -467,7 +465,9 @@ func (cv *changesView) render(m Model, w, h int) []string {
 		return cv.renderDiff(m, w, h)
 	}
 	proj := m.project(cv.machine, cv.projectID)
-	lines := []string{styleBold.Render(cv.branch)}
+	// A branch name longer than the pane is cut too: with no pull request
+	// to spread against, nothing else held this line to the width.
+	lines := []string{ansi.Truncate(styleBold.Render(cv.branch), max(w, 1), "…")}
 	meta := ""
 	if proj != nil {
 		meta = proj.Name
@@ -488,8 +488,26 @@ func (cv *changesView) render(m Model, w, h int) []string {
 		lines[0] = spread(lines[0], styleMuted.Render("o open PR"), w)
 		lines = append(lines, prBadge(pr)+" "+ansi.Truncate(pr.Title, max(w/2, 10), "…")+styleMuted.Render(" · ")+prSummary(pr))
 	}
-	if risk := m.branchRisk(cv.machine, cv.projectID, cv.branch); risk != "" {
-		lines = append(lines, styleWarn.Render(ansi.Truncate("⚠ "+risk, max(w, 1), "…")))
+	// The files are what the warning is for, so they are listed under it
+	// rather than packed into one line the page then cuts off.
+	for i, r := range m.branchRiskLines(cv.machine, cv.projectID, cv.branch) {
+		switch {
+		case r.file:
+			// A path too long for the pane keeps its end: which file it is
+			// lives there, and the folders above it can go. The indent is
+			// kept out of that cut — it is what puts the file under its
+			// branch — and the truncate after it holds the line to the
+			// width whatever happened.
+			path := r.text
+			if cut := ansi.StringWidth(path) - max(w-5, 1); cut > 0 {
+				path = ansi.TruncateLeft(path, cut, "…")
+			}
+			lines = append(lines, styleMuted.Render(ansi.Truncate("    "+path, max(w, 1), "…")))
+		case i == 0:
+			lines = append(lines, styleWarn.Render(ansi.Truncate("⚠ "+r.text, max(w, 1), "…")))
+		default:
+			lines = append(lines, styleWarn.Render(ansi.Truncate("  "+r.text, max(w, 1), "…")))
+		}
 	}
 	lines = append(lines, "")
 
@@ -516,7 +534,7 @@ func (cv *changesView) render(m Model, w, h int) []string {
 		added += f.Added
 		deleted += f.Deleted
 	}
-	header := fmt.Sprintf("%s  %s", styleBold.Render(title), styleMuted.Render(fmt.Sprintf("%d files", len(cv.data.Files))))
+	header := fmt.Sprintf("%s  %s", styleBold.Render(title), styleMuted.Render(count(len(cv.data.Files), "file")))
 	if len(cv.data.Files) > untracked {
 		header += "  " + diffStat(added, deleted)
 	}
@@ -530,11 +548,13 @@ func (cv *changesView) render(m Model, w, h int) []string {
 		header += styleWarn.Render(fmt.Sprintf("  · %d changing", n))
 	}
 	// The counts are state and the hint only a reminder, so a narrow pane
-	// keeps the counts and drops the hint rather than cutting both.
+	// keeps the counts and drops the hint rather than cutting both. The
+	// counts themselves can outgrow a narrow pane, and then they are cut
+	// too: a line over the width draws across the panel's own border.
 	if hint := cv.listHint(m); ansi.StringWidth(header)+len(hint)+2 <= w {
 		header = spread(header, styleMuted.Render(hint), w)
 	}
-	lines = append(lines, header)
+	lines = append(lines, ansi.Truncate(header, max(w, 1), "…"))
 
 	// Room for the files' "… more" line and the commits below: a blank line,
 	// their heading and up to seven lines (six commits and their own "… more").
@@ -656,7 +676,7 @@ func (cv *changesView) renderDiff(m Model, w, h int) []string {
 			right = full
 		}
 		if fh := cv.hunks[cv.diffFile]; fh != nil {
-			title += styleOK.Render(fmt.Sprintf("  %d of %d hunks marked", len(fh.marked), len(hunks)))
+			title += styleOK.Render(fmt.Sprintf("  %d of %d hunk%s marked", len(fh.marked), len(hunks), plural(len(hunks))))
 		}
 		if n := len(cv.comments); n > 0 {
 			from := ""
