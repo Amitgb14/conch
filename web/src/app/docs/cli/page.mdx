@@ -4,6 +4,18 @@ export const metadata = { title: "Command line", description: "Scripting conch f
 
 Everything the TUI does to panes, projects and machines is also a `conch` subcommand, so you can script agents from a shell. `conch help` prints the commands to start with, and `conch help all` every one.
 
+## Help
+
+```sh
+conch help               # the commands to start with
+conch help all           # every command
+conch help branch        # one command: what it does, how it goes, examples
+conch branch -h          # the same (--help too)
+conch branch pr -h       # a subcommand's own flags
+```
+
+`-h` right after a command is answered before the command runs, so `conch status -h` explains `status` rather than starting a server to report on. A mistyped command gets the one it probably was — `conch brnach` says *did you mean conch branch?* — and exits 2, as any unknown command does.
+
 ## Scripting
 
 ```sh

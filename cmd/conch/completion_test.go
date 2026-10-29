@@ -16,14 +16,6 @@ import (
 	"github.com/Amitgb14/conch/internal/remote"
 )
 
-func compWords(items []compItem) []string {
-	out := make([]string, 0, len(items))
-	for _, it := range items {
-		out = append(out, it.word)
-	}
-	return out
-}
-
 // TestCompletionKnowsEveryCommand: the list completion offers is the
 // usage's list, both ways, so a new command cannot be left out of it and a
 // renamed one cannot linger.

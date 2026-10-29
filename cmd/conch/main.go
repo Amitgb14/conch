@@ -58,7 +58,8 @@ More:
   conch completion zsh        tab completion, for zsh, bash or fish
   conch bug                   report a problem
 
-conch help all lists every command; in conch, ? lists every key.
+conch help COMMAND (or conch COMMAND -h) says how one goes; conch help all lists
+every command; in conch, ? lists every key.
 Docs: https://amitgb14.github.io/conch/docs/
 `
 
@@ -233,6 +234,12 @@ func main() {
 	if len(args) > 0 {
 		cmd, args = args[0], args[1:]
 	}
+	// conch CMD -h is answered here, before CMD can take -h for something
+	// else or start a server first (help.go).
+	if len(args) > 0 && isHelpFlag(args[0]) && helpCommand(cmd) != "" {
+		fmt.Print(commandHelp(helpCommand(cmd)))
+		return
+	}
 
 	var err error
 	switch cmd {
@@ -309,14 +316,23 @@ func main() {
 	case "version", "--version", "-v":
 		runVersion(args)
 	case "help", "--help", "-h":
-		if len(args) > 0 && args[0] == "all" {
+		switch {
+		case len(args) > 0 && args[0] == "all":
 			fmt.Print(usage)
-		} else {
+		case len(args) > 0 && helpCommand(args[0]) != "":
+			fmt.Print(commandHelp(helpCommand(args[0])))
+		case len(args) > 0:
+			fmt.Fprint(os.Stderr, unknownCommand(args[0]))
+			os.Exit(2)
+		default:
 			fmt.Print(shortUsage)
 		}
 	default:
-		fmt.Fprintf(os.Stderr, "conch: unknown command %q\n\n%s", cmd, shortUsage)
+		fmt.Fprint(os.Stderr, unknownCommand(cmd))
 		os.Exit(2)
+	}
+	if errors.Is(err, flag.ErrHelp) {
+		return // a subcommand's own -h: the flag package has printed its flags
 	}
 	var late waitTimeout
 	if errors.As(err, &late) {
