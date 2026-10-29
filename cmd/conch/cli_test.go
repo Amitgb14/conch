@@ -184,7 +184,7 @@ func TestA4Status(t *testing.T) {
 		}}, nil
 	})
 	var err error
-	out, _ := a4Capture(t, "", func() { err = runStatus() })
+	out, _ := a4Capture(t, "", func() { err = runStatus(nil) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestA4Status(t *testing.T) {
 	}
 
 	srv.setHandle(func(proto.Message, *proto.Conn) (any, *proto.Error) { return proto.PaneList{}, nil })
-	out, _ = a4Capture(t, "", func() { err = runStatus() })
+	out, _ = a4Capture(t, "", func() { err = runStatus(nil) })
 	if err != nil || !strings.HasSuffix(out, "no panes\n") {
 		t.Fatalf("empty: %q %v", out, err)
 	}
@@ -225,7 +225,7 @@ func TestA4Status(t *testing.T) {
 	srv.setHandle(func(proto.Message, *proto.Conn) (any, *proto.Error) {
 		return nil, proto.Errorf(proto.ErrUnknown, "unknown method")
 	})
-	a4Capture(t, "", func() { err = runStatus() })
+	a4Capture(t, "", func() { err = runStatus(nil) })
 	if err == nil || !strings.Contains(err.Error(), "older build without pane.list") || !strings.Contains(err.Error(), "pid 1000") {
 		t.Fatalf("old server: %v", err)
 	}
@@ -775,7 +775,7 @@ func TestA4RealServerPanes(t *testing.T) {
 	}
 	waitScreen("got-abc")
 
-	out, _ = a4Capture(t, "", func() { err = runStatus() })
+	out, _ = a4Capture(t, "", func() { err = runStatus(nil) })
 	if err != nil || !strings.Contains(out, id) || !strings.Contains(out, "a4pane") || !strings.Contains(out, "running") {
 		t.Fatalf("status: %q %v", out, err)
 	}
@@ -1053,7 +1053,7 @@ func TestA4StatusSaysWhenItReloaded(t *testing.T) {
 	}
 	srv.setHandle(func(proto.Message, *proto.Conn) (any, *proto.Error) { return proto.PaneList{}, nil })
 	var err error
-	out, _ := a4Capture(t, "", func() { err = runStatus() })
+	out, _ := a4Capture(t, "", func() { err = runStatus(nil) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1071,7 +1071,7 @@ func TestA4StatusSaysWhenItReloaded(t *testing.T) {
 			h.LoadedAt = at
 			return h
 		}
-		out, _ := a4Capture(t, "", func() { _ = runStatus() })
+		out, _ := a4Capture(t, "", func() { _ = runStatus(nil) })
 		if strings.Contains(out, "reloaded") {
 			t.Fatalf("loaded_at %v: %q", at, strings.SplitN(out, "\n", 2)[0])
 		}

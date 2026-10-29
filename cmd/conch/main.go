@@ -15,7 +15,6 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
-	"text/tabwriter"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -70,7 +69,8 @@ Usage:
   conch server                  run the server in the foreground
   conch server stop             stop the server and every pane it owns
   conch server reload           run a new conch build without stopping panes
-  conch status                  show server and pane status, with the host a terminal is on with ssh
+  conch status [-wide] [-json] show server and pane status, with the host a terminal is on with ssh;
+                                fitted to the terminal (-wide: every column, as piped)
   conch new [-cwd DIR] [-name N] -- CMD [ARGS...]
                                 start a pane (with -m, default: that machine's home)
   conch send ID TEXT            type TEXT into a pane (-keys to send key names)
@@ -248,7 +248,7 @@ func main() {
 	case "server":
 		err = runServer(args)
 	case "status", "ls":
-		err = runStatus()
+		err = runStatus(args)
 	case "new":
 		err = runNew(args)
 	case "send":
@@ -517,60 +517,6 @@ func asyncPreemptOff(goos, godebug string) (string, bool) {
 		return off, true
 	}
 	return godebug + "," + off, true
-}
-
-func runStatus() error {
-	c, err := connect(false)
-	if err != nil {
-		if machineFlag != "" && machineFlag != "local" {
-			return err // why the machine can't be reached, not "not running"
-		}
-		// A socket still in place after the server stopped serving — one
-		// wedged partway through a reload — is not the same as no server.
-		if _, serr := os.Stat(config.SocketPath()); serr == nil {
-			fmt.Println("server: not answering; its socket is still there but nothing serves it")
-			fmt.Println("run `conch` to start a fresh server (the old panes are lost)")
-			return nil
-		}
-		fmt.Println("server: not running")
-		return nil
-	}
-	defer c.Close()
-	fmt.Printf("server: running  version %s  pid %d  up %s%s\n",
-		c.Server.Version, c.Server.PID, time.Since(c.Server.Started).Round(time.Second), reloadedNote(c.Server))
-	var list proto.PaneList
-	if err := call(c, proto.MethodPaneList, nil, &list); err != nil {
-		return err
-	}
-	if len(list.Panes) == 0 {
-		fmt.Println("no panes")
-		return nil
-	}
-	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tNAME\tSTATE\tAGENT\tSSH\tSIZE\tCWD\tCOMMAND")
-	for _, p := range list.Panes {
-		state := p.State
-		if p.State == proto.PaneExited {
-			state = fmt.Sprintf("exited(%d)", p.ExitCode)
-		}
-		agent := "-"
-		if p.Agent != nil {
-			agent = p.Agent.Name + ":" + p.Agent.State
-		}
-		// Where a terminal is logged in with ssh now — what -ssh on upload
-		// and download reaches — rather than what it was started with.
-		ssh := "-"
-		if p.SSH != "" {
-			ssh = p.SSH
-		}
-		command := strings.Join(strings.Fields(strings.Join(p.Command, " ")), " ") // scripts span lines
-		if r := []rune(command); len(r) > 60 {
-			command = string(r[:59]) + "…"
-		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%dx%d\t%s\t%s\n",
-			p.ID, p.Name, state, agent, ssh, p.Cols, p.Rows, p.Cwd, command)
-	}
-	return tw.Flush()
 }
 
 func runNew(args []string) error {

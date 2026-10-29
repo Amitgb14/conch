@@ -272,7 +272,7 @@ func TestCopyCommandsSSH(t *testing.T) {
 	id := sshTerminal(t, h, "boxterm")
 	// status names the host, so a script can find the terminal to give -ssh.
 	var serr error
-	status, _ := a4Capture(t, "", func() { serr = runStatus() })
+	status, _ := a4Capture(t, "", func() { serr = runStatus(nil) })
 	if serr != nil || !strings.Contains(status, id+"  boxterm") || !strings.Contains(status, " me@box ") {
 		t.Fatalf("status: %v\n%s", serr, status)
 	}

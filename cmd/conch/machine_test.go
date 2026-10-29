@@ -441,7 +441,7 @@ func TestA4DashMMachine(t *testing.T) {
 
 	// Installed and current: commands go to the remote server.
 	f.setProbe(t, a4CurrentProbe())
-	out, _ := a4Capture(t, "", func() { err = runStatus() })
+	out, _ := a4Capture(t, "", func() { err = runStatus(nil) })
 	if err != nil || !strings.Contains(out, "remote-pane") {
 		t.Fatalf("remote status: %q %v", out, err)
 	}
@@ -455,7 +455,7 @@ func TestA4DashMMachine(t *testing.T) {
 		h.Capabilities = []string{"pane.v1"}
 		return h
 	})
-	out, errOut := a4Capture(t, "", func() { err = runStatus() })
+	out, errOut := a4Capture(t, "", func() { err = runStatus(nil) })
 	if err != nil || !strings.Contains(out, "remote-pane") || !strings.Contains(errOut, "conch: warning: gpu: the server there is from an older build") {
 		t.Fatalf("outdated: %q %q %v", out, errOut, err)
 	}
