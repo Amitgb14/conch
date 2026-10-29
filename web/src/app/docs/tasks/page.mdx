@@ -10,7 +10,7 @@ A task is an agent on its own branch, in its own git worktree, so agents working
 
 The branch goes under the project's own name — a task in **OneNutri** becomes `onenutri/fix-flaky-login-test` — so the branches conch makes are grouped and obvious in a repository other people push to as well. `-branch B`, or the task dialog's Branch field, names it yourself.
 
-Tasks use the default agent (Settings → Agents) unless the task dialog's Agent field, or `conch task -agent NAME`, names another.
+Tasks use the default agent (Settings → Agents; until you choose one, Claude Code, or an agent the machine has when it has no Claude Code) unless the task dialog's Agent field, or `conch task -agent NAME`, names another.
 
 When that agent's plan window is already past an alert threshold (80% and 95% by default — see [notifications](/docs/configuration)), the task dialog says so before you start another one, and follows the Agent field as you change it. It is a warning, never a refusal: limits can be missing, stale, or unreported by an older server, and conch would rather let you work than block on a number it isn't sure of.
 

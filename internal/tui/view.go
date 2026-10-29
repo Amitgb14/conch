@@ -1175,7 +1175,10 @@ func (m Model) machinePage(mach *machine, cols, rows int) []string {
 			// the centring for every other line too, which is what
 			// eleven agents on one line did.
 			lines = append(lines, packParts(parts, packWidth(parts, cols, agentLinesMax), agentLinesMax)...)
-			lines = append(lines, styleMuted.Render("c  start or install an agent"))
+			// With none installed the guide's first step says it, below.
+			if mach.id != localMachine || !m.guideShown() || m.agentInstalled() {
+				lines = append(lines, styleMuted.Render("c  start or install an agent"))
+			}
 		}
 		if mach.warning != "" {
 			lines = append(lines, styleWarn.Render(mach.warning))
