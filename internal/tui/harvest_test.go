@@ -125,7 +125,7 @@ func TestHarvestCommit(t *testing.T) {
 	peer.setResult(proto.MethodBranchCommit, proto.CommitResult{Hash: "0123456789abcdef"})
 	msgs := submitDialog(t, m)
 	done, ok := msgs[0].(harvestDoneMsg)
-	if !ok || done.text != "committed 0123456 on feat" || !done.committed || done.target != feat {
+	if !ok || done.text != "committed 0123456 on feat · P pushes it to its pull request" || !done.committed || done.target != feat {
 		t.Fatalf("commit result: %#v", msgs)
 	}
 	p := lastParams[proto.BranchCommitParams](t, peer, proto.MethodBranchCommit)
@@ -148,7 +148,7 @@ func TestHarvestPushAndPullRequest(t *testing.T) {
 	if m.flash != "pushing feat…" {
 		t.Fatalf("flash %q", m.flash)
 	}
-	if msgs := a2Run(cmd); msgs[0].(harvestDoneMsg).text != "pushed feat" {
+	if msgs := a2Run(cmd); msgs[0].(harvestDoneMsg).text != "pushed feat · its pull request has it now" {
 		t.Fatalf("push: %v", msgs)
 	}
 	if p := lastParams[proto.BranchRef](t, peer, proto.MethodBranchPush); p.Branch != "feat" {
@@ -196,7 +196,7 @@ func TestHarvestMerge(t *testing.T) {
 		t.Fatal("squash is not the default")
 	}
 	peer.setResult(proto.MethodBranchMerge, proto.CommitResult{Hash: "abcdef0123", Into: "main"})
-	if msgs := submitDialog(t, m); msgs[0].(harvestDoneMsg).text != "merged feat into main (abcdef0)" {
+	if msgs := submitDialog(t, m); msgs[0].(harvestDoneMsg).text != "merged feat into main (abcdef0) · D removes the branch and its worktree" {
 		t.Fatalf("merge: %v", msgs)
 	}
 	if p := lastParams[proto.BranchMergeParams](t, peer, proto.MethodBranchMerge); !p.Squash || p.Message != "" || p.Branch != "feat" {
@@ -461,7 +461,7 @@ func TestHarvestPushRebase(t *testing.T) {
 		t.Fatalf("flash %q", m.flash)
 	}
 	done, ok := msgs[0].(harvestDoneMsg)
-	if !ok || done.text != "pushed feat after taking 2 commits from the remote" {
+	if !ok || done.text != "pushed feat after taking 2 commits from the remote · its pull request has it now" {
 		t.Fatalf("rebase result: %#v", msgs)
 	}
 	if p := lastParams[proto.BranchPushParams](t, peer, proto.MethodBranchPush, "rebase"); !p.Rebase || p.Branch != "feat" {
@@ -469,7 +469,7 @@ func TestHarvestPushRebase(t *testing.T) {
 	}
 	// One commit reads as one.
 	peer.setResult(proto.MethodBranchPush, proto.BranchPushResult{Took: 1})
-	if msgs := a2Run(m.push(feat, true)); msgs[0].(harvestDoneMsg).text != "pushed feat after taking 1 commit from the remote" {
+	if msgs := a2Run(m.push(feat, true)); msgs[0].(harvestDoneMsg).text != "pushed feat after taking 1 commit from the remote · its pull request has it now" {
 		t.Fatalf("one commit: %#v", msgs)
 	}
 

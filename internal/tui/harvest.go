@@ -149,6 +149,15 @@ func (m *Model) openCommit(t harvestTarget, sel commitSelection) tea.Cmd {
 		text = fmt.Sprintf("Commits the %s marked%s: %s. Other changes stay as they are.",
 			counted(len(sel.files), "file"), where, listSome(sel.files, 4))
 	}
+	// What comes after a commit, said with it: a branch is finished by
+	// pushing it, and a newcomer has no reason to know P is the key.
+	after := " · P pushes it, p opens a pull request"
+	switch pr := m.branchPR(t.machine, t.projectID, t.branch); {
+	case t.branch == proj.Base:
+		after = " · P pushes it"
+	case pr != nil && pr.State == "OPEN":
+		after = " · P pushes it to its pull request"
+	}
 	d := newDialog(*m, " Commit · "+t.branch+" ", []string{text}, []string{"Message"}, nil)
 	d.fields[0].in.Placeholder = "what the change does"
 	d.submit = func(m *Model, v []string) tea.Cmd {
@@ -161,7 +170,7 @@ func (m *Model) openCommit(t harvestTarget, sel commitSelection) tea.Cmd {
 			Files: sel.files, Patch: sel.patch}
 		m.setFlash("committing…", false)
 		return m.harvestCall(t, proto.MethodBranchCommit, params, &res, func() harvestDoneMsg {
-			return harvestDoneMsg{text: "committed " + shortHash(res.Hash) + " on " + t.branch, committed: true}
+			return harvestDoneMsg{text: "committed " + shortHash(res.Hash) + " on " + t.branch + after, committed: true}
 		})
 	}
 	m.overlay = d
@@ -191,6 +200,16 @@ func (m *Model) push(t harvestTarget, rebase bool) tea.Cmd {
 		return func() tea.Msg { return errMsg{errString(m.offlineText(t.machine))} }
 	}
 	params := proto.BranchPushParams{ProjectID: t.projectID, Branch: t.branch, Rebase: rebase}
+	// What comes after a push: a pull request, unless one is open already
+	// (the push has just updated it) or this is the base branch.
+	next := ""
+	if proj := m.project(t.machine, t.projectID); proj != nil && t.branch != proj.Base {
+		if pr := m.branchPR(t.machine, t.projectID, t.branch); pr == nil || pr.State != "OPEN" {
+			next = "p opens a pull request"
+		} else {
+			next = "its pull request has it now"
+		}
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), harvestTimeout)
 		defer cancel()
@@ -210,6 +229,9 @@ func (m *Model) push(t harvestTarget, rebase bool) tea.Cmd {
 		text := "pushed " + t.branch
 		if res.Took > 0 {
 			text = fmt.Sprintf("pushed %s after taking %s from the remote", t.branch, counted(res.Took, "commit"))
+		}
+		if next != "" {
+			text += " · " + next
 		}
 		return harvestDoneMsg{target: t, text: text}
 	}
@@ -342,7 +364,7 @@ func (m *Model) openMerge(t harvestTarget) tea.Cmd {
 			Message: strings.TrimSpace(v[0]), Squash: v[1] == "on"}
 		m.setFlash("merging "+t.branch+"…", false)
 		return m.harvestCall(t, proto.MethodBranchMerge, params, &res, func() harvestDoneMsg {
-			return harvestDoneMsg{text: "merged " + t.branch + " into " + res.Into + " (" + shortHash(res.Hash) + ")"}
+			return harvestDoneMsg{text: "merged " + t.branch + " into " + res.Into + " (" + shortHash(res.Hash) + ") · D removes the branch and its worktree"}
 		})
 	}
 	m.overlay = d

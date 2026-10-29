@@ -903,13 +903,48 @@ func (cv *changesView) listHint(m Model) string {
 	if m.focus != focusMain {
 		return "enter to work in these changes"
 	}
-	if cv.data == nil || cv.data.Worktree == "" {
+	if cv.data == nil {
+		return "enter diff · esc back"
+	}
+	if cv.data.Worktree == "" || len(cv.data.Files) == 0 {
+		// Nothing uncommitted: the work is on the branch — often because
+		// the agent committed it — and "c commit" would only be told there
+		// is nothing to commit. Say the step that comes next instead.
+		if next := m.nextStep(cv.machine, cv.projectID, cv.branch); next != "" {
+			return next
+		}
 		return "enter diff · esc back"
 	}
 	if n := len(cv.comments); n > 0 {
 		return fmt.Sprintf("S send %s · space marks · c commit", count(n, "comment"))
 	}
 	return "space or click ✓ marks · e edit · c commit"
+}
+
+// nextStep is what finishing a branch whose work is committed comes to
+// next, as keys: push it, open a pull request, merge it, or — once the
+// base has everything — remove it. "" for the base branch, or a branch
+// conch knows nothing about.
+func (m Model) nextStep(mid, projectID, branch string) string {
+	proj := m.project(mid, projectID)
+	if proj == nil || !proj.Git || branch == proj.Base {
+		return ""
+	}
+	for _, b := range proj.Branches {
+		if b.Name != branch {
+			continue
+		}
+		switch {
+		case b.PR != nil && b.PR.State == "OPEN":
+			return "o its pull request · M merge"
+		case b.BaseAhead == 0:
+			return proj.Base + " has it all · D removes the branch and worktree"
+		case b.Upstream == "" || b.Ahead > 0:
+			return "P push · p pull request · M merge"
+		}
+		return "p pull request · M merge"
+	}
+	return ""
 }
 
 func diffStat(added, deleted int) string {
