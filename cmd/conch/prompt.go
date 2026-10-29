@@ -48,7 +48,7 @@ func agentPrompt(args []string) error {
 
 	c, err := connect(false)
 	if err != nil {
-		return errors.New("server is not running")
+		return err
 	}
 	defer c.Close()
 	if miss := c.MissingCapabilities([]string{proto.CapAgentPrompt}); len(miss) > 0 {

@@ -116,7 +116,7 @@ func runMachine(args []string) error {
 		}
 		return nil
 	}
-	return fmt.Errorf("unknown machine subcommand %q", args[0])
+	return unknownSubcommand("machine", args[0])
 }
 
 // machinesHere names what conch has, for a ref that matched none of it.
@@ -323,6 +323,12 @@ func connectMachine(ref string) (*client.Client, error) {
 	case errors.As(err, &outdated):
 		fmt.Fprintf(os.Stderr, "conch: warning: %s: %v\n", m.Label, err)
 		return c, nil
+	case err != nil:
+		if _, saved := remote.LookupMachine(ref); !saved {
+			// Not one of conch's machines, so it was tried as an ssh host:
+			// ssh's "Could not resolve hostname" alone does not say that.
+			return nil, fmt.Errorf("%w; %s is not a machine conch has (conch machine ls lists them), so it was tried as an ssh host", err, ref)
+		}
 	}
 	return c, err
 }

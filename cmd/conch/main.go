@@ -349,7 +349,7 @@ func main() {
 		os.Exit(3) // the question is someone's to answer; retrying won't
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "conch:", err)
+		fmt.Fprintln(os.Stderr, "conch:", errorText(cmd, err))
 		os.Exit(1)
 	}
 }
@@ -445,7 +445,7 @@ func runServer(args []string) error {
 		case "stop":
 			c, err := connect(false)
 			if err != nil {
-				return errors.New("server is not running")
+				return downTo("stop", err)
 			}
 			return stopServer(c, machineFlag == "" || machineFlag == "local")
 		case "reload":
@@ -456,7 +456,7 @@ func runServer(args []string) error {
 			}
 			c, err := connect(false)
 			if err != nil {
-				return errors.New("server is not running")
+				return downTo("reload; run conch to start one on this build", err)
 			}
 			nc, err := reloadServer(c, *bin)
 			if err != nil {
@@ -466,7 +466,7 @@ func runServer(args []string) error {
 			fmt.Printf("server reloaded: build %s, pid %d (panes kept)\n", nc.Server.Build, nc.Server.PID)
 			return nil
 		default:
-			return fmt.Errorf("unknown server subcommand %q", args[0])
+			return unknownSubcommand("server", args[0])
 		}
 	}
 	if err := withoutAsyncPreemption(); err != nil {
@@ -858,7 +858,11 @@ func connect(start bool) (*client.Client, error) {
 			return nil, err
 		}
 	}
-	return client.Dial(sock, "conch-cli")
+	c, err := client.Dial(sock, "conch-cli")
+	if err != nil {
+		return nil, serverDial(err)
+	}
+	return c, nil
 }
 
 func call(c *client.Client, method string, params, out any) error {

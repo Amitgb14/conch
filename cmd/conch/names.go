@@ -52,7 +52,7 @@ func paneNamed(panes []proto.PaneInfo, name string) (string, error) {
 		}
 		return "", fmt.Errorf("%d panes are named %q (%s); give an ID", len(ids), name, strings.Join(ids, ", "))
 	}
-	return "", fmt.Errorf("no pane %q", name)
+	return "", notFound(fmt.Errorf("no pane %q", name), "conch status")
 }
 
 // runRename names a pane, or with no name gives it back its own.

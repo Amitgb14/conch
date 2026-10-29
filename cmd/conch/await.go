@@ -28,7 +28,7 @@ func awaitState(c *client.Client, id string, want map[string]bool, label string,
 	}
 	info, ok := paneByID(list.Panes, id)
 	if !ok {
-		return proto.PaneInfo{}, "", fmt.Errorf("no pane %q", id)
+		return proto.PaneInfo{}, "", notFound(fmt.Errorf("no pane %q", id), "conch status")
 	}
 	if s := agentState(info); want[s] {
 		return info, s, nil

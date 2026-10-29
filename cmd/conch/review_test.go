@@ -108,9 +108,9 @@ func TestReviewCommand(t *testing.T) {
 		{[]string{"rm"}, "conch review rm ID"},
 		{[]string{"rm", "c99"}, "no review comment c99"},
 		{[]string{"send", "extra"}, "takes no arguments"},
-		{[]string{"frob"}, `unknown review command "frob"`},
+		{[]string{"frob"}, `unknown review subcommand "frob"; conch review -h lists them`},
 		{[]string{"-branch", "feat", "add", "a.go", "x"}, "the command goes before the flags: conch review add -branch B"},
-		{[]string{"-branch", "feat", "frob"}, `unknown review command "frob"`},
+		{[]string{"-branch", "feat", "frob"}, `unknown review subcommand "frob"; conch review -h lists them`},
 		{[]string{"send"}, "no agent is working on feat; name one to start with the comments: conch review send -agent claude"},
 	} {
 		if _, err := run(c.args...); err == nil || !strings.Contains(err.Error(), c.want) {

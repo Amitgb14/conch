@@ -151,7 +151,7 @@ func runBranch(args []string) error {
 		fmt.Print(branchUsage + "\n")
 		return nil
 	}
-	return fmt.Errorf("unknown branch command %q\n\n%s", sub, branchUsage)
+	return unknownSubcommand("branch", sub)
 }
 
 func branchCommit(args []string) error {
@@ -319,7 +319,7 @@ func runWorktree(args []string) error {
 		fmt.Print(worktreeUsage + "\n")
 		return nil
 	}
-	return fmt.Errorf("unknown worktree command %q\n\n%s", sub, worktreeUsage)
+	return unknownSubcommand("worktree", sub)
 }
 
 // openWorktrees connects and lists the project's worktrees.

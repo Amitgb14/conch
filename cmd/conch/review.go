@@ -49,7 +49,7 @@ func runReview(args []string) error {
 		fmt.Print(reviewUsage + "\n")
 		return nil
 	}
-	return fmt.Errorf("unknown review command %q\n\n%s", sub, reviewUsage)
+	return unknownSubcommand("review", sub)
 }
 
 // openReview is branchFlags.open for a server that keeps review comments.
@@ -78,7 +78,7 @@ func reviewList(args []string) error {
 		// The flags were put first: they belong after the command.
 		return fmt.Errorf("the command goes before the flags: conch review %s -branch B …", sub)
 	default:
-		return fmt.Errorf("unknown review command %q\n\n%s", sub, reviewUsage)
+		return unknownSubcommand("review", sub)
 	}
 	var list proto.ReviewList
 	if err := call(c, proto.MethodReviewList, proto.ReviewRef{ProjectID: id, Branch: branch}, &list); err != nil {
