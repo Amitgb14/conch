@@ -263,6 +263,9 @@ func (m Model) statusRightItems(level int, bug bool) []statusItem {
 		items = append(items, statusItem{text: label,
 			act: func(m *Model) tea.Cmd { return m.jumpToAttention() }})
 	}
+	if it, ok := m.healthStatusItem(); ok && level < rightMinimal {
+		items = append(items, it)
+	}
 	if n := len(m.queueItems()); n > 0 && level < rightNoExtras {
 		items = append(items, statusItem{text: styleMuted.Render(fmt.Sprintf("%d to review", n)),
 			act: func(m *Model) tea.Cmd {

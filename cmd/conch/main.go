@@ -383,7 +383,7 @@ func runTUI() error {
 		opts = append(opts, tea.WithInput(tui.WholeSequences(os.Stdin)))
 	}
 	wd, _ := os.Getwd()
-	p := tea.NewProgram(tui.New(c, cfg).Warn(cfgWarning).LaunchedIn(wd), opts...)
+	p := tea.NewProgram(tui.New(c, cfg).Warn(cfgWarning).LaunchedIn(wd).Doctor(doctorChecks), opts...)
 	final, err := p.Run()
 	if err == nil && tui.RestartRequested(final) {
 		// An update replaced this binary: run the new one in its place.

@@ -99,6 +99,12 @@ A click shows a pane and leaves the keyboard in the tree, where the row keys are
 
 `conch` refuses to open a TUI inside one of its own panes, and tells you how to do it anyway (`CONCH_PANE_ID= conch`) — useful when you want a second view without leaving the pane you are in. The one thing that view will not do is show **its own pane**: conch asks the server which pane it is running in and refuses, saying so, because a TUI resizes every pane it draws to the space it has for it — showing itself would shrink its own terminal, and then the space, and then the pane, down to nothing.
 
+### Checking conch
+
+A moment after conch starts it runs the same checks as [`conch doctor`](/docs/cli#doctor) in the background — config, socket, agents, git, gh, the terminal and the ssh your machines need. Anything they find is listed on **this computer's** page with its fix, and anything conch cannot work without (no agent installed, no git, a `config.toml` that does not parse) also puts **✗ N things to fix** on the status bar, which opens the list in a click. A warning alone stays off the bar: `gh` not installed can be a settled choice, and a bar that nags for ever is one nobody reads.
+
+`,` → **Check conch…** opens the list at any time and checks again, so it says how things stand after you have fixed one. Each fix can be copied from there, ready to paste into a terminal (`n` opens one).
+
 ### Reporting a problem
 
 **⊙** (GitHub's issue sign) on the status bar opens it in one click, when the window is wide enough to show it without pushing a key hint off; `,` → **Report a problem…** is the same thing from Settings. It shows what conch knows about itself — its build, the build of the server it is talking to (not always the same one), what is missing between them, how many panes and agents are running, how big the terminal is, and the last error it showed you — and offers to open a GitHub issue with it, copy it, or copy the path of the server's log. `conch bug` is the same thing from a terminal.
