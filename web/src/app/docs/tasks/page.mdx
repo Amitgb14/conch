@@ -37,6 +37,8 @@ conch -m fix-login task -agent claude "Plan a CLI for tracking expenses"   # in 
 
 When an agent is done, finish its branch from the changes view (select the branch, `tab` into it) or the branch's menu (`m`). Every step runs on the machine the project is on, so it works the same for remote machines.
 
+You don't need to remember the keys. The changes view's header says the next one for where the branch stands: `c commit` while there is uncommitted work; once it is committed (agents often commit their own), `P push · p pull request · M merge`; once pushed, `p pull request · M merge`; with a pull request open, `o its pull request · M merge`; and once the base has every commit, `D removes the branch and worktree`. Each step's message says the next one too — *committed 0123456 on feat · P pushes it, p opens a pull request*, *pushed feat · p opens a pull request*, *merged feat into main · D removes the branch and its worktree*.
+
 | Key | What it does |
 | --- | --- |
 | `space`, `c` | Commit. `space` marks files; `c` commits the marked ones, or every change (untracked files included) when none are marked. Other changes stay as they were. |
