@@ -322,7 +322,7 @@ conch works; 2 things worth a look.
 | terminal | `TERM` is empty or `dumb` | inside tmux with the same prefix as tmux (asked of tmux itself), and a key free in both to use instead |
 | machines | `machines.json` cannot be read; machines are saved but there is no `ssh` | |
 
-It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by side, so one slow thing costs only its own wait. It changes nothing and starts nothing — not even the server — and it does not dial your machines, so a machine that is asleep cannot make it hang. Whether `gh` is signed in is asked without reaching GitHub, so an offline laptop is not called signed out (a `gh` too old for that is asked the usual way), and the token `gh` hands back is thrown away. It checks this computer: on another machine, run it there.
+It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by side, so one slow thing costs only its own wait. It changes nothing and starts nothing — not even the server — and it does not dial your machines, so a machine that is asleep cannot make it hang. Whether `gh` is signed in is asked without reaching GitHub, so an offline laptop is not called signed out (a `gh` too old for that is asked the usual way), and the token `gh` hands back is thrown away. It checks this computer: on another machine, run it there. The TUI runs the same checks a moment after it starts and shows what they find on this computer's page; `,` → **Check conch…** lists them there and checks again.
 
 ### bug
 

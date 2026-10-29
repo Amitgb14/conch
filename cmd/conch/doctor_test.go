@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/doctor"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 )
@@ -41,7 +42,7 @@ func doctorEnv(t *testing.T) string {
 }
 
 // doctorFind runs every check and returns the one named.
-func doctorFind(t *testing.T, name string) doctorCheck {
+func doctorFind(t *testing.T, name string) doctor.Check {
 	t.Helper()
 	for _, c := range doctorChecks() {
 		if c.Name == name {
@@ -49,7 +50,7 @@ func doctorFind(t *testing.T, name string) doctorCheck {
 		}
 	}
 	t.Fatalf("no %s check", name)
-	return doctorCheck{}
+	return doctor.Check{}
 }
 
 func doctorScript(t *testing.T, dir, name, body string) string {
@@ -121,18 +122,18 @@ func TestDoctorJSON(t *testing.T) {
 			t.Errorf("-json still exits 1 on a failure, got %v", err)
 		}
 	})
-	var checks []doctorCheck
+	var checks []doctor.Check
 	if err := json.Unmarshal([]byte(out), &checks); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, out)
 	}
-	byName := map[string]doctorCheck{}
+	byName := map[string]doctor.Check{}
 	for _, c := range checks {
 		byName[c.Name] = c
 	}
-	if c := byName["terminal"]; c.Status != doctorFail || c.Fix == "" {
+	if c := byName["terminal"]; c.Status != doctor.Fail || c.Fix == "" {
 		t.Errorf("terminal: %+v", c)
 	}
-	if c := byName["conch"]; c.Status != doctorOK || c.Fix != "" {
+	if c := byName["conch"]; c.Status != doctor.OK || c.Fix != "" {
 		t.Errorf("conch: %+v", c)
 	}
 }
@@ -163,7 +164,7 @@ func TestDoctorServer(t *testing.T) {
 		h.Started = time.Now().Add(-3 * time.Hour)
 		return h
 	})
-	if c := doctorFind(t, "server"); c.Status != doctorOK || c.Detail != "pid 1000, up 3h" {
+	if c := doctorFind(t, "server"); c.Status != doctor.OK || c.Detail != "pid 1000, up 3h" {
 		t.Errorf("a current server: %+v", c)
 	}
 
@@ -173,7 +174,7 @@ func TestDoctorServer(t *testing.T) {
 		return h
 	})
 	c := doctorFind(t, "server")
-	if c.Status != doctorWarn || !strings.Contains(c.Detail, "2 features missing") || !strings.HasPrefix(c.Fix, "conch server reload") {
+	if c.Status != doctor.Warn || !strings.Contains(c.Detail, "2 features missing") || !strings.HasPrefix(c.Fix, "conch server reload") {
 		t.Errorf("an older server: %+v", c)
 	}
 
@@ -184,7 +185,7 @@ func TestDoctorServer(t *testing.T) {
 	})
 	c = doctorFind(t, "server")
 	exe, _ := os.Executable()
-	if c.Status != doctorWarn || !strings.Contains(c.Detail, "on another build (0.0.1-dev) than this conch") ||
+	if c.Status != doctor.Warn || !strings.Contains(c.Detail, "on another build (0.0.1-dev) than this conch") ||
 		!strings.HasPrefix(c.Fix, "conch server reload -binary ") || !strings.Contains(c.Fix, exe) {
 		t.Errorf("another build: %+v (a plain reload would exec the server's own file again)", c)
 	}
@@ -204,7 +205,7 @@ func TestDoctorServer(t *testing.T) {
 		return h
 	})
 	c = doctorFind(t, "server")
-	if c.Status != doctorWarn || !strings.Contains(c.Detail, "on a newer conch (99.0.0)") || strings.Contains(c.Fix, "reload") {
+	if c.Status != doctor.Warn || !strings.Contains(c.Detail, "on a newer conch (99.0.0)") || strings.Contains(c.Fix, "reload") {
 		t.Errorf("a newer server is not reloaded backwards: %+v", c)
 	}
 
@@ -229,7 +230,7 @@ func TestDoctorServerNotAnswering(t *testing.T) {
 	}
 	ln.(*net.UnixListener).SetUnlinkOnClose(false)
 	ln.Close() // the file stays, and nothing listens: refused
-	if c := doctorFind(t, "server"); c.Status != doctorWarn || c.Detail != "not running" {
+	if c := doctorFind(t, "server"); c.Status != doctor.Warn || c.Detail != "not running" {
 		t.Errorf("a socket left behind: %+v", c)
 	}
 	os.Remove(config.SocketPath())
@@ -244,7 +245,7 @@ func TestDoctorServerNotAnswering(t *testing.T) {
 	defer ln.Close()
 	os.Chmod(config.SocketPath(), 0) // somebody else's
 	c := doctorFind(t, "server")
-	if c.Status != doctorFail || !strings.Contains(c.Detail, "does not answer") || strings.Contains(c.Fix, "run conch") {
+	if c.Status != doctor.Fail || !strings.Contains(c.Detail, "does not answer") || strings.Contains(c.Fix, "run conch") {
 		t.Errorf("a socket that refuses: %+v", c)
 	}
 }
@@ -269,23 +270,23 @@ func TestDoctorAgents(t *testing.T) {
 		return proto.AgentStatusResult{Agents: agents.Get()}, nil
 	})
 	c := doctorFind(t, "agents")
-	if c.Status != doctorOK || c.Detail != "claude 2.1.3 · codex  (not installed: gemini)" {
+	if c.Status != doctor.OK || c.Detail != "claude 2.1.3 · codex  (not installed: gemini)" {
 		t.Errorf("some installed: %+v", c)
 	}
 
 	agents.Set([]proto.AgentAvailability{{Name: "claude"}, {Name: "codex"}, {Name: "gemini"}})
 	c = doctorFind(t, "agents")
-	if c.Status != doctorFail || c.Fix != "conch agent install claude  (or codex, gemini)" {
+	if c.Status != doctor.Fail || c.Fix != "conch agent install claude  (or codex, gemini)" {
 		t.Errorf("none installed: %+v", c)
 	}
 	agents.Set(nil)
-	if c = doctorFind(t, "agents"); c.Status != doctorFail || c.Fix != "conch agent install claude" {
+	if c = doctorFind(t, "agents"); c.Status != doctor.Fail || c.Fix != "conch agent install claude" {
 		t.Errorf("an empty list, with no others to offer: %+v", c)
 	}
 
 	fail.Set(true)
 	c = doctorFind(t, "agents")
-	if c.Status != doctorWarn || !strings.Contains(c.Detail, "no shell") {
+	if c.Status != doctor.Warn || !strings.Contains(c.Detail, "no shell") {
 		t.Errorf("the server failing: %+v", c)
 	}
 
@@ -295,7 +296,7 @@ func TestDoctorAgents(t *testing.T) {
 		return nil, &proto.Error{Code: proto.ErrUnknown, Message: "unknown method"}
 	})
 	c = doctorFind(t, "agents")
-	if c.Status != doctorWarn || !strings.Contains(c.Detail, "too old to say") || strings.Contains(c.Detail, "stop") {
+	if c.Status != doctor.Warn || !strings.Contains(c.Detail, "too old to say") || strings.Contains(c.Detail, "stop") {
 		t.Errorf("an old server: %+v", c)
 	}
 }
@@ -304,18 +305,18 @@ func TestDoctorConfig(t *testing.T) {
 	doctorEnv(t)
 	os.WriteFile(config.File(), []byte("[keys]\nprefix = \n"), 0o600)
 	c := doctorFind(t, "config")
-	if c.Status != doctorFail || !strings.Contains(c.Detail, "does not parse, so none of it is in force") {
+	if c.Status != doctor.Fail || !strings.Contains(c.Detail, "does not parse, so none of it is in force") {
 		t.Errorf("a broken file: %+v", c)
 	}
 
 	os.WriteFile(config.File(), []byte("[[actions]]\nname = \"Deploy\"\n"), 0o600)
 	c = doctorFind(t, "config")
-	if c.Status != doctorWarn || !strings.Contains(c.Detail, "Deploy has no command to run") {
+	if c.Status != doctor.Warn || !strings.Contains(c.Detail, "Deploy has no command to run") {
 		t.Errorf("an action with no command: %+v", c)
 	}
 
 	os.WriteFile(config.File(), []byte("[keys]\nprefix = \"ctrl+a\"\n"), 0o600)
-	if c = doctorFind(t, "config"); c.Status != doctorOK || c.Detail != config.File() {
+	if c = doctorFind(t, "config"); c.Status != doctor.OK || c.Detail != config.File() {
 		t.Errorf("a good file: %+v", c)
 	}
 }
@@ -325,12 +326,12 @@ func TestDoctorSocket(t *testing.T) {
 	doctorEnv(t)
 	at := "/tmp/" + strings.Repeat("d", socketLimit()-len("/tmp/")-len("/s"))
 	t.Setenv("CONCH_SOCKET", at+"/s") // exactly the limit
-	if c := doctorSocket(); c.Status != doctorOK {
+	if c := doctorSocket(); c.Status != doctor.OK {
 		t.Errorf("at the limit: %+v", c)
 	}
 	t.Setenv("CONCH_SOCKET", at+"/ss")
 	c := doctorSocket()
-	if c.Status != doctorFail || !strings.Contains(c.Detail, "allows") || !strings.Contains(c.Fix, "CONCH_HOME") {
+	if c.Status != doctor.Fail || !strings.Contains(c.Detail, "allows") || !strings.Contains(c.Fix, "CONCH_HOME") {
 		t.Errorf("one byte over: %+v", c)
 	}
 }
@@ -340,7 +341,7 @@ func TestDoctorGit(t *testing.T) {
 	bin := t.TempDir()
 	t.Setenv("PATH", bin)
 	c := doctorGit()
-	if c.Status != doctorFail || !strings.Contains(c.Detail, "not found") || c.Fix == "" {
+	if c.Status != doctor.Fail || !strings.Contains(c.Detail, "not found") || c.Fix == "" {
 		t.Errorf("no git: %+v", c)
 	}
 
@@ -348,20 +349,20 @@ func TestDoctorGit(t *testing.T) {
 --version) echo "git version 2.30.1 (Apple Git-130)" ;;
 config) [ "$3" = user.name ] && echo "Old Hand" || echo old@example.com ;;
 esac`)
-	if c = doctorGit(); c.Status != doctorWarn || !strings.Contains(c.Detail, "2.30.1; telling which branches would conflict needs 2.38") {
+	if c = doctorGit(); c.Status != doctor.Warn || !strings.Contains(c.Detail, "2.30.1; telling which branches would conflict needs 2.38") {
 		t.Errorf("an old git: %+v", c)
 	}
 
 	os.WriteFile(old, []byte("#!/bin/sh\n[ \"$1\" = --version ] && echo 'git version 2.45.0'\nexit 1\n"), 0o755)
 	c = doctorGit()
-	if c.Status != doctorWarn || !strings.Contains(c.Detail, "no name or email") || !strings.Contains(c.Fix, "user.email") {
+	if c.Status != doctor.Warn || !strings.Contains(c.Detail, "no name or email") || !strings.Contains(c.Fix, "user.email") {
 		t.Errorf("no identity: %+v", c)
 	}
 
 	// The environment names somebody as well as config does.
 	t.Setenv("GIT_AUTHOR_NAME", "Env Person")
 	t.Setenv("EMAIL", "env@example.com")
-	if c = doctorGit(); c.Status != doctorOK || c.Detail != "2.45.0, committing as Env Person" {
+	if c = doctorGit(); c.Status != doctor.OK || c.Detail != "2.45.0, committing as Env Person" {
 		t.Errorf("an identity from the environment: %+v", c)
 	}
 	t.Setenv("GIT_AUTHOR_NAME", "")
@@ -376,7 +377,7 @@ esac`)
 	}
 
 	os.WriteFile(old, []byte("#!/bin/sh\n[ \"$1\" = config ] && echo someone\nexit 0\n"), 0o755)
-	if c = doctorGit(); c.Status != doctorOK || c.Detail != "unknown version, committing as someone" {
+	if c = doctorGit(); c.Status != doctor.OK || c.Detail != "unknown version, committing as someone" {
 		t.Errorf("a version it cannot read: %+v", c)
 	}
 }
@@ -386,7 +387,7 @@ esac`)
 func TestDoctorGH(t *testing.T) {
 	doctorEnv(t)
 	t.Setenv("CONCH_GH", filepath.Join(t.TempDir(), "absent"))
-	if c := doctorGH(); c.Status != doctorWarn || !strings.Contains(c.Fix, "cli.github.com") {
+	if c := doctorGH(); c.Status != doctor.Warn || !strings.Contains(c.Fix, "cli.github.com") {
 		t.Errorf("no gh: %+v", c)
 	}
 
@@ -412,7 +413,7 @@ case "$1 $2" in
 *) echo "unknown command" >&2; exit 1 ;;
 esac
 `), 0o755)
-	if c := doctorGH(); c.Status != doctorOK || c.Detail != "2.4.0 signed in" {
+	if c := doctorGH(); c.Status != doctor.OK || c.Detail != "2.4.0 signed in" {
 		t.Errorf("an old gh, signed in: %+v", c)
 	}
 }
@@ -421,14 +422,14 @@ func TestDoctorTerminal(t *testing.T) {
 	doctorEnv(t)
 	t.Setenv("TERM_PROGRAM", "Apple_Terminal")
 	t.Setenv("COLORTERM", "")
-	if c := doctorTerminal(config.Default()); c.Status != doctorOK || c.Detail != "Apple_Terminal, xterm-256color, 256 colours" {
+	if c := doctorTerminal(config.Default()); c.Status != doctor.OK || c.Detail != "Apple_Terminal, xterm-256color, 256 colours" {
 		t.Errorf("256 colours: %+v", c)
 	}
 
 	// A tmux that will not say is taken to be on its default.
 	t.Setenv("TMUX", "/tmp/tmux-501/default,1,0")
 	c := doctorTerminal(config.Default())
-	if c.Status != doctorWarn || !strings.Contains(c.Detail, "inside tmux, whose usual prefix ctrl+b is conch's too") || !strings.Contains(c.Fix, `prefix = "ctrl+a"`) {
+	if c.Status != doctor.Warn || !strings.Contains(c.Detail, "inside tmux, whose usual prefix ctrl+b is conch's too") || !strings.Contains(c.Fix, `prefix = "ctrl+a"`) {
 		t.Errorf("tmux with conch's prefix: %+v", c)
 	}
 
@@ -437,13 +438,13 @@ func TestDoctorTerminal(t *testing.T) {
 	bin := t.TempDir()
 	doctorScript(t, bin, "tmux", `[ "$3" = prefix ] && echo C-a || echo None`)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if c = doctorTerminal(config.Default()); c.Status != doctorOK || !strings.HasSuffix(c.Detail, "inside tmux") {
+	if c = doctorTerminal(config.Default()); c.Status != doctor.OK || !strings.HasSuffix(c.Detail, "inside tmux") {
 		t.Errorf("tmux on C-a, conch on ctrl+b: %+v", c)
 	}
 	cfg := config.Default()
 	cfg.Keys.Prefix = "ctrl+a"
 	c = doctorTerminal(cfg)
-	if c.Status != doctorWarn || !strings.Contains(c.Detail, "whose prefix ctrl+a is conch's too") || !strings.Contains(c.Fix, `prefix = "ctrl+g"`) {
+	if c.Status != doctor.Warn || !strings.Contains(c.Detail, "whose prefix ctrl+a is conch's too") || !strings.Contains(c.Fix, `prefix = "ctrl+g"`) {
 		t.Errorf("tmux on C-a, conch on ctrl+a: %+v", c)
 	}
 	doctorScript(t, bin, "tmux", `[ "$3" = prefix2 ] && echo C-g || echo C-a`)
@@ -452,7 +453,7 @@ func TestDoctorTerminal(t *testing.T) {
 	}
 
 	t.Setenv("TERM", "")
-	if c = doctorTerminal(cfg); c.Status != doctorFail {
+	if c = doctorTerminal(cfg); c.Status != doctor.Fail {
 		t.Errorf("no TERM: %+v", c)
 	}
 }
@@ -465,38 +466,18 @@ func TestDoctorMachines(t *testing.T) {
 {"id":"off","label":"off","target":"me@off","enabled":false}]}`), 0o600)
 	t.Setenv("CONCH_SSH", "/bin/sh") // there; never run
 	c := doctorMachines()
-	if c.Status != doctorOK || !strings.HasPrefix(c.Detail, "1 machine saved") || strings.Contains(c.Detail, "secret") {
+	if c.Status != doctor.OK || !strings.HasPrefix(c.Detail, "1 machine saved") || strings.Contains(c.Detail, "secret") {
 		t.Errorf("one enabled machine: %+v", c)
 	}
 	t.Setenv("CONCH_SSH", filepath.Join(t.TempDir(), "no-ssh"))
-	if c = doctorMachines(); c.Status != doctorFail || !strings.Contains(c.Detail, "no ssh to reach them") {
+	if c = doctorMachines(); c.Status != doctor.Fail || !strings.Contains(c.Detail, "no ssh to reach them") {
 		t.Errorf("no ssh: %+v", c)
 	}
 
 	// Cut short by a crash: not "this computer only".
 	os.WriteFile(remote.CatalogPath(), []byte(`{"machines": [{"id":`), 0o600)
-	if c = doctorMachines(); c.Status != doctorFail || !strings.Contains(c.Detail, "cannot be read") {
+	if c = doctorMachines(); c.Status != doctor.Fail || !strings.Contains(c.Detail, "cannot be read") {
 		t.Errorf("an unreadable machines.json: %+v", c)
-	}
-}
-
-func TestDoctorText(t *testing.T) {
-	ok := doctorCheck{Name: "a", Status: doctorOK, Detail: "fine"}
-	warn := doctorCheck{Name: "b", Status: doctorWarn, Detail: "meh", Fix: "do b"}
-	fail := doctorCheck{Name: "c", Status: doctorFail, Detail: "broken", Fix: "do c"}
-	for _, tc := range []struct {
-		checks []doctorCheck
-		end    string
-	}{
-		{nil, "\nAll good.\n"},
-		{[]doctorCheck{ok}, "✓ a         fine\n\nAll good.\n"},
-		{[]doctorCheck{ok, warn}, "! b         meh\n            → do b\n\nconch works; 1 thing worth a look.\n"},
-		{[]doctorCheck{fail, fail}, "\n2 things to fix.\n"},
-		{[]doctorCheck{fail, warn, warn}, "\n1 thing to fix, 2 more worth a look.\n"},
-	} {
-		if got := doctorText(tc.checks); !strings.HasSuffix(got, tc.end) {
-			t.Errorf("%v:\n%q\nwant it to end %q", tc.checks, got, tc.end)
-		}
 	}
 }
 

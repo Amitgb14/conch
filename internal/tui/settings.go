@@ -307,6 +307,8 @@ func (s *settings) themeItems(m *Model) []settingItem {
 	// agents or sandboxes. The ⊙ in the status bar opens the same thing
 	// without coming here at all.
 	items = append(items, settingItem{}, settingItem{header: true, label: "Something wrong?"},
+		settingItem{label: "Check conch…", detail: styleMuted.Render("git, gh, agents, the terminal: what is missing, and the fix"),
+			run: func(m *Model) tea.Cmd { return m.openHealth() }},
 		settingItem{label: "Report a problem…", detail: styleMuted.Render("the facts about this conch, for an issue"),
 			run: func(m *Model) tea.Cmd { return m.openBugReport() }})
 	return items

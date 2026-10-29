@@ -15,6 +15,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/doctor"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 )
@@ -174,6 +175,11 @@ type Model struct {
 
 	branchSigs map[string]sigSeen // when each branch last changed (see verify.go)
 	warning    string             // shown once when the TUI starts (see Warn)
+
+	doctor        func() []doctor.Check // conch doctor's checks, handed in by Doctor (health.go)
+	health        []doctor.Check        // what they last found
+	healthRunning bool
+
 	flash      string
 	flashIsErr bool
 	flashUntil time.Time
@@ -316,6 +322,9 @@ func (m Model) Init() tea.Cmd {
 	}
 	if m.warning != "" {
 		cmds = append(cmds, func() tea.Msg { return errMsg{errString(m.warning)} })
+	}
+	if cmd := m.healthAfter(healthDelay); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	if m.upd != nil {
 		cmds = append(cmds, updateTick())
@@ -510,6 +519,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(cmds...)
 		}
+		return m, nil
+
+	case healthStartMsg:
+		return m, m.checkHealth()
+
+	case healthMsg:
+		m.gotHealth(msg)
 		return m, nil
 
 	case agentStatusMsg:

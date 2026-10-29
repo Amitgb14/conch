@@ -86,6 +86,8 @@ type menu struct {
 	// that does: a fresh list arriving redraws it, since what it says is
 	// installed is the thing that goes stale.
 	agentsOf string
+	// health is the Check conch menu, which a finished run redraws.
+	health bool
 }
 
 func newRowMenu(m Model, r row, x, y int) *menu {
@@ -389,6 +391,9 @@ func (mu *menu) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 }
 
 func (mu *menu) run(m *Model, i int) tea.Cmd {
+	if mu.items[i].run == nil {
+		return nil // a line that only says something: the menu stays
+	}
 	m.overlay = nil
 	return mu.items[i].run(m)
 }
@@ -1151,6 +1156,8 @@ var helpText = []string{
 	"  this list: ↑↓ jk pgup pgdn g G or the wheel scroll it · ←→ hl (shift+wheel) pan long lines",
 	"",
 	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain, sandboxes",
+	"     Settings → Check conch… runs conch doctor's checks: git, gh, agents, the terminal, each with its fix",
+	"       (they also run a moment after conch starts: problems are on this computer's page, failures on the bar)",
 	"     Settings → Report a problem… (or ⊙ on the bar) is this conch's own facts, for an issue",
 	"     Sandboxes lists the providers; enter opens one's own page, esc goes back to the list",
 	"  q  detach (agents keep running)",

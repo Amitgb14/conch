@@ -1180,6 +1180,9 @@ func (m Model) machinePage(mach *machine, cols, rows int) []string {
 		if mach.warning != "" {
 			lines = append(lines, styleWarn.Render(mach.warning))
 		}
+		if mach.id == localMachine {
+			lines = append(lines, m.healthLines(cols)...)
+		}
 		// c is said once: under the agents, where it also installs one,
 		// or here when there is no list to put it under.
 		start := "c  start an agent     "
