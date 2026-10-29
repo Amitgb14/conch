@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,33 +77,96 @@ func cachedBinary(platform string) string {
 	return filepath.Join(config.Dir(), "binaries", strings.ReplaceAll(platform, "/", "-"), "conch")
 }
 
+// cacheKey is what a cached binary must have been made against to be
+// installed again: this client's build, and the state of the source tree a
+// cross-build would read. The client alone is not enough — a checkout that
+// moves on without conch being rebuilt, or a conch built in one worktree
+// and run from another, leaves the two out of step, and then the binary
+// conch installs on every machine is from a build nobody is running. That
+// is not visible as a build mismatch either: it shows up as a remote whose
+// server always lacks capabilities, with "reload the server" as the advice
+// and no reload that can help.
+func cacheKey(src string) string {
+	return buildinfo.Build() + " " + sourceStamp(src)
+}
+
+// sourceStamp fingerprints the source tree: the name, size and
+// modification time of every file `go build` would read. "" has none.
+func sourceStamp(src string) string {
+	if src == "" {
+		return "nosource"
+	}
+	h := sha256.New()
+	_ = filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		name := d.Name()
+		if d.IsDir() {
+			// Dot directories (.git above all), what a package manager
+			// unpacked, and conch's own build output hold nothing the
+			// compiler reads and plenty of files to stat.
+			if path != src && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "bin") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(name, ".go") && name != "go.mod" && name != "go.sum" {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			rel = path
+		}
+		fmt.Fprintf(h, "%s %d %d\n", rel, info.Size(), info.ModTime().UnixNano())
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}
+
+// stampCache records what the cached binary for a platform was made
+// against, so that the next install knows whether to make it again.
+func stampCache(out, src string) {
+	_ = os.WriteFile(out+".client-build", []byte(cacheKey(src)+"\n"), 0o600)
+}
+
 // crossBuild builds conch for platform from the source tree, unless the
-// cached binary was already built alongside this very client build. The
-// cache is keyed on the local build so client and remote stay in step:
-// rebuilding conch locally makes the next install rebuild for remotes too.
+// cached binary was already made against this client build and this source
+// tree. The cache is keyed on both so client and remote stay in step:
+// rebuilding conch locally, or a checkout that moves on, makes the next
+// install build again for remotes too.
 func crossBuild(ctx context.Context, platform string, say func(string)) (string, error) {
 	buildMu.Lock()
 	defer buildMu.Unlock()
 
+	src := SourceDir()
 	out := cachedBinary(platform)
 	stamp := out + ".client-build"
-	if b, err := os.ReadFile(stamp); err == nil && strings.TrimSpace(string(b)) == buildinfo.Build() && exists(out) {
+	if b, err := os.ReadFile(stamp); err == nil && strings.TrimSpace(string(b)) == cacheKey(src) && exists(out) {
 		return out, nil
 	}
 
-	src := SourceDir()
 	goBin, goErr := exec.LookPath("go")
 	if src == "" || goErr != nil {
 		// No way to build: a release binary of this version, else one put
 		// there by hand.
 		if proto.IsRelease() {
 			if bin, err := downloadRelease(ctx, platform, say); err == nil {
+				stampCache(bin, src)
 				return bin, nil
 			} else if !exists(out) {
 				return "", err
 			}
 		}
 		if exists(out) {
+			// All there is. It may well be from another build than this
+			// conch — nothing here can make a fresh one — so it is said
+			// rather than passed off as this build.
+			say(fmt.Sprintf("no way to build conch for %s here: installing the cached binary, which may be from another build", platform))
 			return out, nil
 		}
 	}
@@ -133,7 +199,7 @@ func crossBuild(ctx context.Context, platform string, say func(string)) (string,
 	if err := os.Rename(tmp, out); err != nil {
 		return "", err
 	}
-	_ = os.WriteFile(stamp, []byte(buildinfo.Build()+"\n"), 0o600)
+	stampCache(out, src)
 	return out, nil
 }
 

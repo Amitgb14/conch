@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sshtest"
 )
@@ -332,7 +333,14 @@ for a in "$@"; do last=$a; done
 case "$last" in
 *"uname -s"*)
   if [ -n "$A4_PROBE_FAIL" ]; then echo "$A4_PROBE_FAIL" >&2; exit 255; fi
-  if [ -s "$A4_INSTALLED" ] && [ -f "$A4_PROBE_AFTER" ]; then /bin/cat "$A4_PROBE_AFTER"; else /bin/cat "$A4_PROBE"; fi ;;
+  if [ -s "$A4_INSTALLED" ] && [ -f "$A4_PROBE_AFTER" ]; then /bin/cat "$A4_PROBE_AFTER"
+  elif [ -s "$A4_INSTALLED" ] && [ -s "$A4_PROBE_INFO" ] && [ -s "$A4_PROBE" ]; then
+    # Installed, and the test said nothing else: the machine has the
+    # binary conch put there, on the platform it reported before.
+    /usr/bin/head -n 2 "$A4_PROBE"
+    printf 'bin=%s\n' "/home/dev/.local/bin/conch"
+    /bin/cat "$A4_PROBE_INFO"
+  else /bin/cat "$A4_PROBE"; fi ;;
 *conch.new*)
   # A gateway that drops the first few copies, as one does to a machine
   # that has only just started; A4_SSH_DROPS says how many.
@@ -372,8 +380,10 @@ func newA4SSH(t *testing.T) *a4SSH {
 	t.Setenv("A4_PROBE", filepath.Join(dir, "probe.txt"))
 	t.Setenv("A4_INSTALLED", filepath.Join(dir, "installed.bin"))
 	// Once something is installed, the machine reports what the test put
-	// in probe-after.txt (if anything) instead.
+	// in probe-after.txt (if anything) instead, and otherwise the build
+	// conch installs — this one.
 	t.Setenv("A4_PROBE_AFTER", filepath.Join(dir, "probe-after.txt"))
+	f.setInstalls(t, buildinfo.Current())
 	t.Setenv("A4_PROBE_FAIL", "")
 	t.Setenv("A4_BRIDGE_SOCK", "")
 	t.Setenv("A4_SSH_DROPS", "")
@@ -394,6 +404,22 @@ func (f *a4SSH) dropCopies(t *testing.T, n int) {
 func (f *a4SSH) setProbe(t *testing.T, s string) {
 	t.Helper()
 	os.WriteFile(filepath.Join(f.dir, "probe.txt"), []byte(s), 0o600)
+}
+
+// setInstalls says which build the machine has once conch installed one
+// there: this one by default, or an older one for a client whose
+// cross-build or CONCH_REMOTE_BINARY is itself behind.
+func (f *a4SSH) setInstalls(t *testing.T, info buildinfo.Info) {
+	t.Helper()
+	b, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(f.dir, "probe-info.json")
+	if err := os.WriteFile(path, append(b, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("A4_PROBE_INFO", path)
 }
 
 func (f *a4SSH) setProbeAfterInstall(t *testing.T, s string) {

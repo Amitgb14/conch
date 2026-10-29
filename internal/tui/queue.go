@@ -419,6 +419,87 @@ func (m Model) branchRisk(machine, projectID, branch string) string {
 	return ""
 }
 
+// riskLine is one line of the merge-trouble block: a heading — the base
+// it conflicts with, or another branch that touched the same files — or a
+// file under it.
+type riskLine struct {
+	text string
+	file bool
+}
+
+// riskLinesMax is how many lines that block may take. Enough for the files
+// that would collide, not so many that the branch's own changes are pushed
+// off the page: the file list keeps a floor of its own either way.
+const riskLinesMax = 12
+
+// branchRiskLines is what branchRisk says, a file to a line. One line fits
+// a queue row, but on the changes page it was the answer to "which
+// files?", and it named two of them and left the page to cut off the rest.
+func (m Model) branchRiskLines(machine, projectID, branch string) []riskLine {
+	proj := m.project(machine, projectID)
+	if proj == nil || branch == "" {
+		return nil
+	}
+	for _, w := range proj.Worktrees {
+		if w.Branch != branch {
+			continue
+		}
+		var groups []riskLine
+		var files [][]string
+		if len(w.Conflicts) > 0 {
+			groups = append(groups, riskLine{text: "conflicts with " + proj.Base + " in " + count(len(w.Conflicts), "file")})
+			files = append(files, w.Conflicts)
+		}
+		for _, o := range w.Overlaps {
+			groups = append(groups, riskLine{text: "also changed on " + o.Branch + " · " + count(len(o.Files), "file")})
+			files = append(files, o.Files)
+		}
+		return riskBlock(groups, files, riskLinesMax)
+	}
+	return nil
+}
+
+// riskBlock lays the headings out with their files under them in at most
+// budget lines. Whatever has no room is counted — a branch as well as a
+// file — since a block that stops silently is the one-liner again.
+func riskBlock(heads []riskLine, files [][]string, budget int) []riskLine {
+	var lines []riskLine
+	for i, head := range heads {
+		rest := len(heads) - i // this heading and the ones after it
+		left := budget - len(lines)
+		// A heading with no file under it says nothing its count does not,
+		// so the headings that cannot have one are counted instead.
+		if left < 2 || (rest > 1 && left < 3) {
+			lines = append(lines, riskLine{text: fmt.Sprintf("… %d more %s", rest, plural2(rest, "branch", "branches"))})
+			break
+		}
+		lines = append(lines, head)
+		room := budget - len(lines)
+		if rest > 1 {
+			room-- // a line for the branches after this one
+		}
+		shown := files[i]
+		if len(shown) > room {
+			shown = shown[:room-1] // a line to count the rest
+		}
+		for _, f := range shown {
+			lines = append(lines, riskLine{text: f, file: true})
+		}
+		if n := len(files[i]) - len(shown); n > 0 {
+			lines = append(lines, riskLine{text: fmt.Sprintf("… %d more", n), file: true})
+		}
+	}
+	return lines
+}
+
+// plural2 picks between two forms, for words "s" does not fit.
+func plural2(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
 // branchWork is the size of what is uncommitted on a branch's worktree —
 // "3 files +42 −7" — or "" when nothing is, or it has no worktree.
 func (m Model) branchWork(machine, projectID, branch string) string {

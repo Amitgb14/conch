@@ -218,6 +218,29 @@ helpers in `cmd/conch` and `internal/remote`.
   `wait`'s `Close` against `Adopt`'s `Fd`. Anything new that writes to
   `p.ptmx` outside the read loop has to answer the same question: whose is
   it now?
+- **What a machine is given has to be this build, and only a probe
+  knows.** conch installs itself on a machine from a cross-build cached in
+  `~/.config/conch/binaries/<os>-<arch>/`, and that cache was keyed on the
+  client's own build hash alone — "rebuilding conch locally makes the next
+  install rebuild for remotes too". It does not, because the source tree
+  can move under a conch that is not rebuilt (a `git reset` to origin,
+  a conch built in one worktree and run from the main checkout), and then
+  every install copies a binary from a build nobody runs. Nothing noticed:
+  the install said it installed, the server started from it lacked
+  capabilities, and the TUI said *server is from an older build · m →
+  reload server* — for ever, since the reload re-execs the same binary,
+  and `conch machine upgrade` re-copied the same cache. Seen on a real
+  machine (R49-era busybox, 2026-10-20): the remote was two capabilities
+  behind for two days. So `cacheKey` is the client build **and** a
+  fingerprint of the source tree (`sourceStamp` in
+  `internal/remote/build.go`), and a cache that cannot be remade is
+  *said* rather than passed off as this build. And because a cache key
+  cannot see a binary somebody put in `CONCH_REMOTE_BINARY`,
+  `remote.VerifyInstalled` re-probes after every install and names what
+  is still missing, and where that binary came from: an install that
+  changed nothing is not the running server's fault, and advice to reload
+  it cannot work. Anything else conch installs and then trusts has the
+  same question to answer: who said it worked?
 - **Compression belongs to a connection, not to a session on it.** Asking
   for it per command does nothing here: conch shares connections
   (`ControlMaster auto`), so a bridge run with `ssh -C` multiplexes onto

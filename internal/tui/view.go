@@ -959,7 +959,7 @@ func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string 
 			}
 			state := styleMuted.Render("clean")
 			if wt.Status != nil && !wt.Status.Clean() {
-				state = fmt.Sprintf("%s %s", diffStat(wt.Status.Added, wt.Status.Deleted), styleMuted.Render(fmt.Sprintf("%d files", wt.Status.Files)))
+				state = fmt.Sprintf("%s %s", diffStat(wt.Status.Added, wt.Status.Deleted), styleMuted.Render(count(wt.Status.Files, "file")))
 			}
 			glyph := styleAccent.Render("◇")
 			if wt.Main {
@@ -1213,7 +1213,14 @@ func (m Model) machinePage(mach *machine, cols, rows int) []string {
 				styleMuted.Render("m → Start sandbox   (or run: conch sandbox -provider "+provider+" start "+mach.id+")"))
 			break
 		}
-		lines = append(lines, styleWarn.Render(mach.err), "", styleMuted.Render("m → Install / upgrade conch there   (or run: conch machine upgrade "+mach.id+")"))
+		// Wrapped, not clipped: what to do about a machine that needs
+		// setting up is at the end of the sentence — "build conch there
+		// again", the capabilities it lacks — and truncateAll would cut
+		// exactly that off.
+		for _, l := range wrap(mach.err, cols) {
+			lines = append(lines, styleWarn.Render(l))
+		}
+		lines = append(lines, "", styleMuted.Render("m → Install / upgrade conch there   (or run: conch machine upgrade "+mach.id+")"))
 	default:
 		lines = append(lines, styleErr.Render("offline: "+mach.err))
 		if len(panes) > 0 {
