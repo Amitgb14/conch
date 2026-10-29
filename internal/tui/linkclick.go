@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
@@ -70,29 +72,87 @@ func linkUnder(lines []string, x, y int) string {
 	return ""
 }
 
-// clickedLink opens the link under a click, and says which it opened. It
-// reports whether it took the click.
-func (m *Model) clickedLink(f *proto.Frame, msg tea.MouseMsg, x, y int) (tea.Cmd, bool) {
-	if f == nil || msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+// linkClick is a press on a link that may yet open it.
+type linkClick struct {
+	machine, pane string
+	link          string
+	x, y          int
+	seq           int
+}
+
+// linkOpenMsg opens the link a click was on, once the double-click window
+// has gone by without a second press.
+type linkOpenMsg struct{ seq int }
+
+// linkMouse decides whether a press and its release over a link are a
+// click on it, and reports whether it took the event.
+//
+// alt and ctrl are also how text is selected over a program that took the
+// mouse (paneMouse), so opening on the press opened a browser at the start
+// of every drag meant to copy a link — what people reach for most. So the
+// press only notes the link and goes on to start a selection as before;
+// the link opens on a release where it was pressed, with nothing dragged,
+// and only after the double-click window, since a double click there
+// selects the link to copy it.
+func (m *Model) linkMouse(machine, pane string, f *proto.Frame, msg tea.MouseMsg, x, y int) (tea.Cmd, bool) {
+	if msg.Button != tea.MouseButtonLeft {
 		return nil, false
 	}
-	// Only with alt (option) or ctrl held, in every pane: a plain click
-	// is for placing a selection, or the program's when it took the
-	// mouse, and opening a browser on a click aimed at a word beside a
-	// link surprised people. cmd would be the Mac's choice, but no mouse
-	// protocol can carry it.
-	if !msg.Alt && !msg.Ctrl {
+	switch msg.Action {
+	case tea.MouseActionPress:
+		now := time.Now()
+		if now.Before(m.linkQuiet) || (m.linkClick != nil && m.linkClick.seq < 0) {
+			// The second or third press of a multiple click: the word or
+			// line is being selected, and nothing opens.
+			m.linkClick, m.linkQuiet = nil, now.Add(doubleClickWindow)
+			return nil, false
+		}
+		m.linkClick = nil
+		// Only with alt (option) or ctrl held, in every pane: a plain
+		// click is for placing a selection, or the program's when it took
+		// the mouse. cmd would be the Mac's choice, but no mouse protocol
+		// can carry it.
+		if f == nil || (!msg.Alt && !msg.Ctrl) {
+			return nil, false
+		}
+		// The frame is the pane under the pointer's, not the focused
+		// pane's: a click in another split was reading the wrong screen's
+		// lines, which opened the wrong link or none at all.
+		if link := linkUnder(f.Lines, x, y); link != "" {
+			m.linkSeq++
+			m.linkClick = &linkClick{machine: machine, pane: pane, link: link, x: x, y: y, seq: m.linkSeq}
+		}
 		return nil, false
+	case tea.MouseActionRelease:
+		lc := m.linkClick
+		if lc == nil || lc.seq < 0 {
+			return nil, false
+		}
+		dragged := m.sel != nil && m.sel.hasContent
+		if dragged || lc.machine != machine || lc.pane != pane || lc.x != x || lc.y != y {
+			m.linkClick = nil // a selection: it is copied, and nothing opens
+			return nil, false
+		}
+		// A click. The empty selection its press began goes, and so does
+		// the click a program would have been sent: it was the link's.
+		m.sel, m.click = nil, nil
+		seq := lc.seq
+		lc.seq = -seq // released: a press from here on is a double click
+		m.linkQuiet = time.Now().Add(doubleClickWindow)
+		return tea.Tick(doubleClickWindow, func(time.Time) tea.Msg { return linkOpenMsg{seq} }), true
 	}
-	// The frame is the pane under the pointer's, not the focused pane's:
-	// a click in another split was reading the wrong screen's lines, which
-	// opened the wrong link or none at all.
-	link := linkUnder(f.Lines, x, y)
-	if link == "" {
-		return nil, false
+	return nil, false
+}
+
+// openClickedLink opens the link of a click no second press followed.
+func (m *Model) openClickedLink(msg linkOpenMsg) tea.Cmd {
+	lc := m.linkClick
+	if lc == nil || lc.seq != -msg.seq {
+		return nil // a double click, or another click since
 	}
-	m.setFlash("opening "+ansi.Truncate(link, 60, "…")+" · also copied", false)
-	return tea.Batch(copyText(link), openURL(link)), true
+	m.linkClick = nil
+	m.setFlash("opening "+ansi.Truncate(lc.link, 60, "…")+" · also copied", false)
+	return tea.Batch(copyText(lc.link), openURL(lc.link))
 }
 
 // linkSpanUnder is the columns a link under x,y covers on its own row, so

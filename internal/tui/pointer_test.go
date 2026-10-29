@@ -244,11 +244,12 @@ func TestTheHandGoesWithTheClick(t *testing.T) {
 		}
 		lastOpened = ""
 		a2Run(send(tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress, Alt: true}, 8))
-		if lastOpened != "https://example.com/x" {
-			t.Fatalf("%s: the alt+click opened %q", name, lastOpened)
+		if lastOpened != "" {
+			t.Fatalf("%s: the alt+press opened %q before it was a click", name, lastOpened)
 		}
-		// The press itself hands over to the browser: the arrow is back
-		// already, and the underline with it.
+		// The press itself puts the arrow back, and the underline with it:
+		// it is a click on the link or the start of a drag, and either way
+		// the pointer is no longer only hovering.
 		if m.pointer != pointerArrow || m.hoverLink.pane != "" {
 			t.Fatalf("%s: after the click the pointer is %q, link %+v", name, m.pointer, m.hoverLink)
 		}
