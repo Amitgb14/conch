@@ -58,10 +58,10 @@ Apache-2.0 · Default branch: `master`.
 
 ```sh
 make build                     # bin/conch
-make test                      # go test -race ./...
+make test                      # go test -race -timeout 20m ./...
 make vet                       # go vet ./...
 gofmt -l cmd internal          # must print nothing
-go test -race -count=1 ./...   # what to run before every commit
+go test -race -count=1 -timeout 20m ./...   # what to run before every commit
 go test -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out | tail -1
 ```
 
@@ -86,7 +86,7 @@ and macOS**. Code and tests must work on both.
    - platform differences between macOS and Linux (paths, tools, pty
      behaviour)
    - state that persists: saved files from older versions must still load
-3. **Keep the full suite green.** Run `go test -race -count=1 ./...` (not just
+3. **Keep the full suite green.** Run `go test -race -count=1 -timeout 20m ./...` (not just
    the package you touched), `go vet ./...` and `gofmt`. A flaky test is a bug:
    fix it, don't retry it.
 4. **Found a bug you're not fixing now?** Write the test for the correct
@@ -102,7 +102,7 @@ and macOS**. Code and tests must work on both.
 8. **Nothing is pushed red.** Every new change — a feature, a fix, a doc
    tweak that touches code — carries its own tests, and before any push the
    whole regression suite must be green on the final state of the branch:
-   `go test -race -count=1 ./...`, `go vet ./...`, and `gofmt -l cmd internal`
+   `go test -race -count=1 -timeout 20m ./...`, `go vet ./...`, and `gofmt -l cmd internal`
    printing nothing. Re-run it after the *last* edit, not just after the
    big one: a one-line follow-up fix checked only in its own package is not
    verified. If something fails, fix it before pushing; never push with a
@@ -575,7 +575,7 @@ user's own configuration.
 
 - [ ] Tests added or updated for the change, covering edge cases
 - [ ] `gofmt -l cmd internal` prints nothing; `go vet ./...` is clean
-- [ ] `go test -race -count=1 ./...` passes — run again after the last edit, before any push
+- [ ] `go test -race -count=1 -timeout 20m ./...` passes — run again after the last edit, before any push
 - [ ] Help text, CLI usage and web docs updated for user-visible changes
 - [ ] Summary says what was tested, what wasn't, and any skipped bug tests
 - [ ] A new agent's sessions show, resume and delete in the Sessions view
