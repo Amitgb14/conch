@@ -342,6 +342,7 @@ What it carries, and what is left over in each row:
 | 6.1 reload with live agents | screens, scrollback and titles surviving | panes that are *working* across the reload |
 | 9.98 a server's memory | the output and the panes | the alternate screen — `vim` or `less` would do instead |
 | 9.112 closing a workspace | the counts, and End and Move on panes that really die (R52) | nothing — an agent is a pane here; the gap is a machine over ssh |
+| 9.151 🖥 | Copying a link an agent printed | In Ghostty, iTerm2 and Terminal.app, in a pane running a real agent (which takes the mouse) and in a plain shell: alt-drag (option-drag) across a link an agent printed, then ctrl-drag; double-click one with alt held; then alt+click one and ctrl+click one | The drags and the double click copy the link and never open a browser; a click opens it (and copies it) about half a second after the release; the agent is not sent the click that opened a link | ☐ |
 
 Everything else marked 💳 wants a model: the brain's providers (1.x), an
 agent's own state hooks and usage (2.1-2.5, 9.1, 9.21, 9.22, 9.70), saved

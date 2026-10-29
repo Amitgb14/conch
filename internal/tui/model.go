@@ -135,6 +135,11 @@ type Model struct {
 	// hoverLink is the link in a pane under the pointer, drawn as the
 	// clickable thing it is (linkclick.go).
 	hoverLink hoverLink
+	// linkClick is an alt or ctrl press on a link, which opens it only if
+	// it turns out to be a click: not a drag, not a double click.
+	linkClick *linkClick
+	linkQuiet time.Time // until when presses belong to a double click
+	linkSeq   int
 	// pointer is the shape the terminal was last asked for, so it is
 	// asked only when it changes (pointer.go).
 	pointer string
@@ -523,6 +528,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case healthStartMsg:
 		return m, m.checkHealth()
+
+	case linkOpenMsg:
+		return m, m.openClickedLink(msg)
 
 	case healthMsg:
 		m.gotHealth(msg)

@@ -485,9 +485,10 @@ func (m *Model) paneMouse(machine, paneID string, msg tea.MouseMsg, x, y int, pr
 	// is not there to scroll.
 	ours := machine == m.viewMachine && paneID == m.viewing
 	// A link an agent printed, before anything else looks at the click: an
-	// alt or ctrl click opens it in any pane (linkclick.go); a plain one
-	// goes on to select, or to the program that took the mouse.
-	if cmd, took := m.clickedLink(f, msg, x, y); took {
+	// alt or ctrl click opens it in any pane once it is clear it was a
+	// click and not a drag to copy it (linkclick.go); a plain one goes on
+	// to select, or to the program that took the mouse.
+	if cmd, took := m.linkMouse(machine, paneID, f, msg, x, y); took {
 		return cmd
 	}
 	switch {
