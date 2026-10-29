@@ -1613,12 +1613,27 @@ func (m Model) openHere(withAgent bool) tea.Cmd {
 	return m.openAgent(agent)
 }
 
-// defaultAgent is the agent c starts.
+// defaultAgent is the agent c and t start: the one Settings names, else
+// Claude Code — unless the machine is known not to have it and has
+// another, which is what somebody who installed only Codex expects rather
+// than being asked to install Claude Code first.
 func (m Model) defaultAgent() string {
 	if a := m.cfg.Agents.Default; a != "" {
 		return a
 	}
-	return "claude"
+	mach := m.machine(m.contextPlace().machine)
+	if mach == nil || !mach.missingAgent("claude") {
+		return "claude"
+	}
+	// One conch supports before one it only runs.
+	for _, tier := range []bool{true, false} {
+		for _, a := range mach.agentList {
+			if a.Installed && (a.Tier != proto.TierRunsHere) == tier {
+				return a.Name
+			}
+		}
+	}
+	return "claude" // none at all: asking to install it is the answer
 }
 
 // openAgent starts agent (or a shell when "") at the selected place.

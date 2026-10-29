@@ -43,11 +43,28 @@ func (m Model) guideSteps() []guideStep {
 		}
 	}
 	return []guideStep{
+		{"c", "install an agent: Claude Code, Codex, Gemini CLI, OpenCode or Devin", m.agentInstalled()},
 		{"a", "add a project: a git repository you work in", projects},
 		{"t", "on a project, give an agent a task: a branch and worktree of its own", m.guide[guideTask]},
 		{"Q", "the review queue: who is waiting for you, and work ready to land", m.guide[guideQueue]},
 		{"q", "detach whenever you like: agents keep running, and conch finds them again", m.guide[guideReturned]},
 	}
+}
+
+// agentInstalled is whether this computer has an agent to run — read off
+// its agent list, like projects are. A list not yet in (or a server too
+// old to give one) counts as yes: the guide says nothing it cannot see.
+func (m Model) agentInstalled() bool {
+	mach := m.machine(localMachine)
+	if mach == nil || len(mach.agentList) == 0 {
+		return true
+	}
+	for _, a := range mach.agentList {
+		if a.Installed {
+			return true
+		}
+	}
+	return false
 }
 
 // guideShown is whether the guide is on the local machine's page.

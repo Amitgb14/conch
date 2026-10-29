@@ -25,7 +25,7 @@ func TestGuideSteps(t *testing.T) {
 	mach.projects, mach.panes = nil, nil
 
 	page := guidePage(m, 120)
-	for _, want := range []string{"Getting started  0 of 4 · x hides this", "a  add a project", "t  on a project, give an agent a task",
+	for _, want := range []string{"Getting started  1 of 5 · x hides this", "✓ c  install an agent", "a  add a project", "t  on a project, give an agent a task",
 		"Q  the review queue", "q  detach whenever you like"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("missing %q:\n%s", want, page)
@@ -39,17 +39,17 @@ func TestGuideSteps(t *testing.T) {
 
 	// A project anywhere is the first step, read off the machines.
 	mach.projects = []proto.ProjectInfo{{ID: "r1", Name: "api"}}
-	if page := guidePage(m, 120); !strings.Contains(page, "1 of 4") || !strings.Contains(page, "✓ a  add a project") {
+	if page := guidePage(m, 120); !strings.Contains(page, "2 of 5") || !strings.Contains(page, "✓ a  add a project") {
 		t.Fatalf("a project:\n%s", page)
 	}
 
 	// The others are noted as they happen.
 	m.guideNote(guideTask)
 	m.guideNote(guideQueue)
-	if page := guidePage(m, 120); !strings.Contains(page, "3 of 4") {
+	if page := guidePage(m, 120); !strings.Contains(page, "4 of 5") {
 		t.Fatalf("three done:\n%s", page)
 	}
-	// All four: gone, and the hints are whole again.
+	// All five: gone, and the hints are whole again.
 	m.guideNote(guideReturned)
 	page = guidePage(m, 120)
 	if strings.Contains(page, "Getting started") || !strings.Contains(page, "a  add a project      t  new task in its home") {
@@ -205,5 +205,78 @@ func TestGuideSaved(t *testing.T) {
 	b, _ := json.Marshal(uiState{})
 	if strings.Contains(string(b), "guide") {
 		t.Fatalf("an empty guide is written: %s", b)
+	}
+}
+
+// With no agent installed the guide starts there, and c says it once:
+// in the guide, not again under the agent list.
+func TestGuideInstallAnAgent(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	mach.agentList = []proto.AgentAvailability{{Name: "claude"}, {Name: "codex"}}
+	page := guidePage(m, 120)
+	if !strings.Contains(page, "1 of 5") || !strings.Contains(page, "  c  install an agent: Claude Code, Codex") {
+		t.Fatalf("none installed:\n%s", page)
+	}
+	if strings.Contains(page, "c  start or install an agent") {
+		t.Fatalf("c said twice:\n%s", page)
+	}
+
+	// One installed: ticked, and the hint under the list is back.
+	mach.agentList[1].Installed = true
+	page = guidePage(m, 120)
+	if !strings.Contains(page, "✓ c  install an agent") || !strings.Contains(page, "c  start or install an agent") {
+		t.Fatalf("one installed:\n%s", page)
+	}
+
+	// Hidden guide, nothing installed: the hint is the only place c is
+	// said, so it stays.
+	mach.agentList[1].Installed = false
+	m.guideNote(guideHidden)
+	if page := guidePage(m, 120); !strings.Contains(page, "c  start or install an agent") {
+		t.Fatalf("hidden guide:\n%s", page)
+	}
+
+	// Only this computer's list counts: a remote's agents are not this one's.
+	m.guide = nil
+	remote := newMachine("box", "box", "me@box")
+	remote.agentList = []proto.AgentAvailability{{Name: "claude", Installed: true}}
+	m.machines = append(m.machines, remote)
+	if m.agentInstalled() {
+		t.Fatal("a remote machine's agent counted as installed here")
+	}
+}
+
+// The agent c and t start: Settings' choice, else Claude Code, else one
+// that is installed — not an install prompt for Claude Code when Codex
+// is right there.
+func TestDefaultAgentIsOneInstalled(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	for _, tc := range []struct {
+		name    string
+		setting string
+		list    []proto.AgentAvailability
+		want    string
+	}{
+		{"no list yet", "", nil, "claude"},
+		{"claude installed", "", []proto.AgentAvailability{{Name: "claude", Installed: true}, {Name: "codex", Installed: true}}, "claude"},
+		{"only codex", "", []proto.AgentAvailability{{Name: "claude"}, {Name: "codex", Installed: true}}, "codex"},
+		{"supported before runs-here", "", []proto.AgentAvailability{{Name: "claude"}, {Name: "aider", Installed: true, Tier: proto.TierRunsHere}, {Name: "gemini", Installed: true, Tier: proto.TierSupported}}, "gemini"},
+		{"only one of somebody's own", "", []proto.AgentAvailability{{Name: "claude"}, {Name: "aider", Installed: true, Tier: proto.TierRunsHere}}, "aider"},
+		{"none installed", "", []proto.AgentAvailability{{Name: "claude"}, {Name: "codex"}}, "claude"},
+		{"Settings wins", "gemini", []proto.AgentAvailability{{Name: "claude"}, {Name: "codex", Installed: true}}, "gemini"},
+	} {
+		m.cfg.Agents.Default = tc.setting
+		mach.agentList, mach.available = tc.list, nil
+		if tc.list != nil {
+			mach.available = map[string]proto.AgentAvailability{}
+			for _, a := range tc.list {
+				mach.available[a.Name] = a
+			}
+		}
+		if got := m.defaultAgent(); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
