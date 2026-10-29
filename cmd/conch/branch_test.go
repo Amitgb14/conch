@@ -168,7 +168,7 @@ func TestA4BranchCommands(t *testing.T) {
 	if br.Branch != "other" {
 		t.Fatalf("-branch: %+v", br)
 	}
-	if _, _, err := a4Out(t, func() error { return runBranch([]string{"nope"}) }); err == nil || !strings.Contains(err.Error(), "unknown branch command") {
+	if _, _, err := a4Out(t, func() error { return runBranch([]string{"nope"}) }); err == nil || !strings.Contains(err.Error(), `unknown branch subcommand "nope"; conch branch -h lists them`) {
 		t.Fatalf("unknown: %v", err)
 	}
 	if out, _, err := a4Out(t, func() error { return runBranch(nil) }); err == nil || out != "" {
@@ -285,7 +285,7 @@ func TestA4WorktreeCommands(t *testing.T) {
 		t.Fatalf("cleanup params %+v", cp)
 	}
 
-	if _, _, err := a4Out(t, func() error { return runWorktree([]string{"nope"}) }); err == nil || !strings.Contains(err.Error(), "unknown worktree command") {
+	if _, _, err := a4Out(t, func() error { return runWorktree([]string{"nope"}) }); err == nil || !strings.Contains(err.Error(), `unknown worktree subcommand "nope"; conch worktree -h lists them`) {
 		t.Fatalf("unknown: %v", err)
 	}
 	if out, _, err := a4Out(t, func() error { return runWorktree([]string{"help"}) }); err != nil || !strings.Contains(out, "conch worktree clean") {

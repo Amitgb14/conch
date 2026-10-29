@@ -156,10 +156,11 @@ func TestA4NoServer(t *testing.T) {
 			t.Errorf("%s without a server succeeded", name)
 		}
 	}
-	if err := runServer([]string{"stop"}); err == nil || err.Error() != "server is not running" {
+	// Not "run conch to start it": starting a server to stop it is no answer.
+	if err := runServer([]string{"stop"}); err == nil || err.Error() != "the conch server is not running, so there is nothing to stop" {
 		t.Fatalf("stop: %v", err)
 	}
-	if err := runServer([]string{"reload"}); err == nil || err.Error() != "server is not running" {
+	if err := runServer([]string{"reload"}); err == nil || !strings.HasPrefix(err.Error(), "the conch server is not running, so there is nothing to reload") {
 		t.Fatalf("reload: %v", err)
 	}
 	// Commands that start one run this binary as `conch server`, which the

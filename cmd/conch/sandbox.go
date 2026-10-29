@@ -100,7 +100,7 @@ func runSandbox(args []string) error {
 	case "ssh", "shell", "exec":
 		return sandboxShell(args[1:])
 	}
-	return fmt.Errorf("unknown sandbox subcommand %q", args[0])
+	return unknownSubcommand("sandbox", args[0])
 }
 
 // names collects a repeated flag.

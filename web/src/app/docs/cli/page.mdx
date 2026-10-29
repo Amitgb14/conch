@@ -16,6 +16,8 @@ conch branch pr -h       # a subcommand's own flags
 
 `-h` right after a command is answered before the command runs, so `conch status -h` explains `status` rather than starting a server to report on. A mistyped command gets the one it probably was — `conch brnach` says *did you mean conch branch?* — and exits 2, as any unknown command does.
 
+An error says what to do next, as `conch doctor` does: with no server running, a command says so and that `conch` starts it (`conch server stop` says there is nothing to stop); a pane or project that is not there names the command that lists them (`conch status`, `conch project ls`); a word that is not a subcommand gets the one it was likely meant to be and `conch CMD -h`; a usage line ends with `conch CMD -h explains it`; and `-m` with a name conch has no machine by says it was tried as an ssh host. The server's generic `bad_request:` and `internal:` codes are left off what is printed; the ones a script or an agent reads — `out_of_scope:`, `not_found:` and the rest — stay.
+
 ## Scripting
 
 ```sh

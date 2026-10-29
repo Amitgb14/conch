@@ -48,7 +48,7 @@ func runWait(args []string) error {
 	}
 	c, err := connect(false)
 	if err != nil {
-		return errors.New("server is not running")
+		return err
 	}
 	defer c.Close()
 	id, err := resolvePane(c, fs.Arg(0))

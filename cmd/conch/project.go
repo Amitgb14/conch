@@ -22,6 +22,13 @@ func runProject(args []string) error {
 	if len(args) == 0 {
 		args = []string{"ls"}
 	}
+	// A word that is no subcommand is said before the server is reached:
+	// a typo started a server only to be told it was one.
+	switch args[0] {
+	case "add", "create", "new", "files", "setup", "rm", "remove", "ls", "list":
+	default:
+		return unknownSubcommand("project", args[0])
+	}
 	c, err := connect(true)
 	if err != nil {
 		return err
@@ -82,7 +89,7 @@ func runProject(args []string) error {
 				}
 			}
 			if !found {
-				return fmt.Errorf("no project %q", id)
+				return notFound(fmt.Errorf("no project %q", id), "conch project ls")
 			}
 		}
 		which := "custom"
@@ -128,7 +135,7 @@ func runProject(args []string) error {
 		}
 		return tw.Flush()
 	}
-	return fmt.Errorf("unknown project subcommand %q", args[0])
+	return unknownSubcommand("project", args[0])
 }
 
 // projectSetup shows or sets the command run in each new worktree of a
@@ -165,7 +172,7 @@ func projectSetup(c *client.Client, args []string) error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("no project %q", id)
+			return notFound(fmt.Errorf("no project %q", id), "conch project ls")
 		}
 	}
 	if info.Setup == "" {

@@ -148,19 +148,24 @@ func unknownCommand(word string) string {
 	return fmt.Sprintf("conch: unknown command %q\n\n%s", word, shortUsage)
 }
 
-// nearestCommand is the command a mistyped word most likely meant: one a
+// nearestCommand is the command a mistyped word most likely meant, or "".
+func nearestCommand(word string) string {
+	names := append(compWords(compCommands), "ls", "worktrees", "machines", "sandboxes")
+	return helpCommand(nearestWord(word, names))
+}
+
+// nearestWord is the one of names a mistyped word most likely meant: one a
 // couple of edits away, or one it is the start of. "" when none is close
 // enough to be worth saying.
-func nearestCommand(word string) string {
+func nearestWord(word string, names []string) string {
 	word = strings.ToLower(word)
 	if len(word) < 2 {
 		return ""
 	}
 	best, bestD := "", 3
-	names := append(compWords(compCommands), "ls", "worktrees", "machines", "sandboxes")
 	for _, name := range names {
 		if strings.HasPrefix(name, word) && len(word) >= 3 {
-			return helpCommand(name)
+			return name
 		}
 		// Short words are close to everything: "go" is two edits from
 		// "bug", which is no suggestion at all.
@@ -169,7 +174,7 @@ func nearestCommand(word string) string {
 			limit = 1
 		}
 		if d := editDistance(word, name); d <= limit && d < bestD {
-			best, bestD = helpCommand(name), d
+			best, bestD = name, d
 		}
 	}
 	return best
