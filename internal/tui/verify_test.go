@@ -338,8 +338,8 @@ func TestA2VerifyOnDoneGuards(t *testing.T) {
 }
 
 // The whole path as it happens in use: an agent's update arrives, the check
-// starts, its terminal exits, and conch keeps that terminal instead of
-// closing it as it does every other pane that exits.
+// starts, and its terminal exits having passed — which leaves nothing to
+// read, so the terminal goes the way every other pane's does.
 func TestA1VerifyThroughTheEventPath(t *testing.T) {
 	m, peer := a1Fixture(t, true)
 	m.cfg.Verify.Commands = map[string]string{"r1": "true"}
@@ -364,8 +364,9 @@ func TestA1VerifyThroughTheEventPath(t *testing.T) {
 		t.Fatalf("after starting: %v", state)
 	}
 
-	// Its terminal exits. Every other pane would be closed; a check's is
-	// kept, because its output is the only record of what happened.
+	// Its terminal exits, having passed. The verdict is kept and said and
+	// the row carries it, so nothing is left in the terminal that anybody
+	// would open: it closes, rather than sitting in the tree for ever.
 	exit := proto.PaneInfo{ID: "check9", Name: "check · feat", State: proto.PaneExited, ExitCode: 0}
 	m.machines[0].panes = append(m.machines[0].panes, exit)
 	cmd = m.handleEvent(m.machines[0], eventMsg(t, proto.EventPaneExited, exit))
@@ -374,9 +375,7 @@ func TestA1VerifyThroughTheEventPath(t *testing.T) {
 			t.Fatalf("closing: %#v", msg)
 		}
 	}
-	if n := peer.count(t, m.machines[0].c, proto.MethodPaneClose, "check9"); n != 0 {
-		t.Fatalf("a check's terminal was closed %d times", n)
-	}
+	peer.waitMethod(t, proto.MethodPaneClose, "check9")
 	if state, text := m.verifyOf(localMachine, "r1", "feat"); state != verifyPassed || text != "check passed" {
 		t.Fatalf("after it exited: %v %q", state, text)
 	}
@@ -417,5 +416,62 @@ func TestVerifyCheckDoesNotPage(t *testing.T) {
 	env := strings.Join(got.Env, " ")
 	if !strings.Contains(env, "GIT_PAGER=cat") || !strings.Contains(env, "PAGER=cat") {
 		t.Fatalf("check env: %q", got.Env)
+	}
+}
+
+// A check that failed keeps its terminal, because its output is what you
+// go and read — and the next check on that branch takes its place, so a
+// branch checked over and over leaves one terminal and not one a run.
+func TestA1VerifyKeepsAFailureAndReplacesIt(t *testing.T) {
+	m, peer := a1Fixture(t, true)
+	m.cfg.Verify.Commands = map[string]string{"r1": "false"}
+	peer.setResult(proto.MethodPaneCreate, proto.PaneInfo{ID: "check1", Name: "check · feat", State: proto.PaneRunning})
+
+	for _, msg := range a2Run(m.startVerify(localMachine, "r1", "feat")) {
+		if v, ok := msg.(verifyStartedMsg); ok {
+			m.receiveVerifyStarted(v)
+		}
+	}
+	exit := proto.PaneInfo{ID: "check1", Name: "check · feat", State: proto.PaneExited, ExitCode: 2}
+	m.machines[0].panes = append(m.machines[0].panes, exit)
+	a2Run(m.handleEvent(m.machines[0], eventMsg(t, proto.EventPaneExited, exit)))
+	if n := peer.count(t, m.machines[0].c, proto.MethodPaneClose, "check1"); n != 0 {
+		t.Fatalf("a failed check's terminal was closed %d times", n)
+	}
+	if state, text := m.verifyOf(localMachine, "r1", "feat"); state != verifyFailed || !strings.Contains(text, "exit 2") {
+		t.Fatalf("after it failed: %v %q", state, text)
+	}
+
+	// Checking the branch again: this run is the report now, so the one it
+	// replaces goes, verdict and all.
+	peer.setResult(proto.MethodPaneCreate, proto.PaneInfo{ID: "check2", Name: "check · feat", State: proto.PaneRunning})
+	for _, msg := range a2Run(m.startVerify(localMachine, "r1", "feat")) {
+		if v, ok := msg.(verifyStartedMsg); ok {
+			m.receiveVerifyStarted(v)
+		}
+	}
+	peer.waitMethod(t, proto.MethodPaneClose, "check1")
+
+	// While that one is going, nothing is started or closed on top of it.
+	m.machines[0].panes = append(m.machines[0].panes, proto.PaneInfo{ID: "check2", Name: "check · feat", State: proto.PaneRunning})
+	if cmd := m.startVerify(localMachine, "r1", "feat"); cmd != nil {
+		t.Fatal("a second check started while one was going")
+	}
+	if n := peer.count(t, m.machines[0].c, proto.MethodPaneClose, "check2"); n != 0 {
+		t.Fatalf("the running check's terminal was closed %d times", n)
+	}
+
+	// A terminal somebody already closed is not closed a second time, and
+	// a machine that has gone takes no request at all.
+	m.verifyRuns[verifyKey(localMachine, "r1", "feat")] = verifyRun{pane: "gone", done: true}
+	if cmd := m.startVerify(localMachine, "r1", "feat"); cmd == nil {
+		t.Fatal("no check started")
+	}
+	a2Run(m.closeCheck(localMachine, "gone"))
+	if n := peer.count(t, m.machines[0].c, proto.MethodPaneClose, "gone"); n != 1 {
+		t.Fatalf("closed a pane conch no longer has %d times", n)
+	}
+	if m.closeCheck(localMachine, "") != nil || m.closeCheck("nowhere", "check2") != nil {
+		t.Fatal("closeCheck asked something of nothing")
 	}
 }

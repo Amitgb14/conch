@@ -213,20 +213,45 @@ func (m *Model) startVerify(machine, projectID, branch string) tea.Cmd {
 		m.verifyRuns = map[string]verifyRun{}
 	}
 	key := verifyKey(machine, projectID, branch)
+	var superseded tea.Cmd
 	if run, ok := m.verifyRuns[key]; ok && run.pane != "" {
-		if p := m.pane(machine, run.pane); p != nil && p.State != proto.PaneExited {
+		p := m.pane(machine, run.pane)
+		if p != nil && p.State != proto.PaneExited {
 			return nil // one is already going
+		}
+		// The last run's terminal was kept because it was the report on
+		// this branch; this run is the report now. Without this a branch
+		// checked again and again — which recheckSettled does by itself,
+		// every time an agent settles — leaves one dead terminal per run.
+		if p != nil {
+			superseded = m.closeCheck(machine, run.pane)
 		}
 	}
 	m.verifyRuns[key] = verifyRun{sig: m.branchSig(machine, projectID, branch)}
 	params := proto.PaneCreateParams{Name: proto.CheckPrefix + branch, Command: []string{"/bin/sh", "-lc", cmd},
 		Cwd: dir, Cols: 120, Rows: 40, Env: proto.CheckEnv}
-	return func() tea.Msg {
+	return tea.Batch(superseded, func() tea.Msg {
 		var info proto.PaneInfo
 		if err := callCtx(c, proto.MethodPaneCreate, params, &info); err != nil {
 			return verifyStartedMsg{machine: machine, projectID: projectID, branch: branch, err: err.Error()}
 		}
 		return verifyStartedMsg{machine: machine, projectID: projectID, branch: branch, info: info}
+	})
+}
+
+// closeCheck closes a check's terminal without a word. It is conch tidying
+// after itself rather than something asked for, so a terminal that has
+// gone already — closed by hand, or with its machine — is no error to
+// report; the verdict lives in the run, not in the pane.
+func (m Model) closeCheck(machine, paneID string) tea.Cmd {
+	mach := m.machine(machine)
+	if paneID == "" || mach == nil || mach.c == nil {
+		return nil
+	}
+	c := mach.c
+	return func() tea.Msg {
+		_ = callCtx(c, proto.MethodPaneClose, proto.PaneRef{ID: paneID}, nil)
+		return nil
 	}
 }
 
@@ -331,7 +356,7 @@ func (m *Model) askVerifyCommand(machine, projectID, branch string) tea.Cmd {
 	name := m.projectName(machine, projectID)
 	d := newDialog(*m, " Check command for "+name+" ",
 		[]string{"Run in a branch's worktree when its agent finishes, so the review queue can say whether the work stands up. " +
-			"It runs in its own terminal, which stays open for the output. Nothing runs until you name a command."},
+			"It runs in its own terminal; one that fails keeps it, so the output is there to read. Nothing runs until you name a command."},
 		[]string{"Command"}, []string{m.verifyCommand(projectID)})
 	d.fields[0].in.Placeholder = "go test ./... · npm test · make check"
 	d.submit = func(m *Model, values []string) tea.Cmd {

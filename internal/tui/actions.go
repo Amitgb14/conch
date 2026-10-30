@@ -136,8 +136,11 @@ func (m *Model) receiveActionStarted(msg actionStartedMsg) tea.Cmd {
 }
 
 // actionExited reports whether a pane that has just exited was an action
-// whose terminal is kept, and says how it went. Like a check's terminal,
-// it is the only place the output lives: closing it is a person's to do.
+// whose terminal is kept, and says how it went. It is the only place the
+// output lives, so closing it is a person's to do — and unlike a check,
+// which conch runs by itself and whose passing terminal it tidies away,
+// an action is something somebody asked for, so even one that worked
+// stays until they have looked.
 func (m *Model) actionExited(machine string, info proto.PaneInfo) bool {
 	name, ok := m.actionPanes[paneKey(machine, info.ID)]
 	if !ok {

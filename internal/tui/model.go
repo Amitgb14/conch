@@ -958,11 +958,16 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 			}
 			wasAction := m.actionExited(mach.id, info)
 			installed = m.installerDone(mach, info)
-			// A check's terminal is its report: it stays until you close
-			// it, or nothing would be left of a check that passed. An
-			// action's terminal is kept for the same reason, unless its
-			// action said not to.
-			if installed == nil && !launchFailed(info) && !wasCheck && !wasAction {
+			// A check's terminal is its report, and a check that failed
+			// keeps one: its output is what you go and read, which is
+			// what the flash has just said. A check that passed has
+			// nothing to read — the verdict is kept and said, and the
+			// row carries it — so it closes like any other pane, or
+			// every branch ever checked leaves a dead terminal behind
+			// for as long as conch is up. An action's terminal is kept
+			// whatever it came to, unless its action said not to.
+			keptCheck := wasCheck && info.ExitCode != 0
+			if installed == nil && !launchFailed(info) && !keptCheck && !wasAction {
 				// Exited on its own (a shell's exit, an agent's /exit or
 				// ctrl+c): close it, as tmux does. Only a pane that failed
 				// right away stays, so its error can be read.
