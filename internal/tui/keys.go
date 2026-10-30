@@ -163,6 +163,12 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.copySSHKey(t)
 		}
 	case "M":
+		// On a host conch already ssh's to, M is that host as a machine:
+		// the generic menu is one key away everywhere else, and this is
+		// the row where adding a machine means a particular one.
+		if t := m.sshTargetOfRow(r); ok && t != "" {
+			return m, m.promoteSSH(t)
+		}
 		m.overlay = m.addMachineMenu()
 		return m, nil
 	case "r":

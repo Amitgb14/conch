@@ -292,12 +292,12 @@ func (m *Model) updateMachine(mid string) tea.Cmd {
 	if mach == nil || mach.c == nil {
 		return nil
 	}
-	c, target, label := mach.c, mach.target, mach.label
+	c, target, label, opts := mach.c, mach.target, mach.label, mach.opts
 	m.setFlash("updating "+label+"…", false)
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		tr, err := remote.TransportFor(ctx, label, target, false)
+		tr, err := remote.TransportFor(ctx, label, target, false, opts...)
 		if err == nil {
 			err = update.Machine(ctx, c, tr, func(string) {})
 		}

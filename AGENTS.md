@@ -265,6 +265,24 @@ helpers in `cmd/conch` and `internal/remote`.
   compressing would cost ~26µs, which is why this is an ssh matter and
   not something in `internal/proto`. `[remote] no_compression` turns it
   off for a link as fast as the processor.
+- **How a machine is reached belongs to the machine.** A host that
+  needs more than its name — a jump host, an old key exchange, a key of
+  its own — keeps those options in the catalog (`Machine.Opts`), because
+  conch reaches a machine again and again: a probe, an install, every
+  reconnect, and the bridge that carries the protocol. So they go on the
+  transport (`SSH`, `TransportFor`), not on one command, and *every*
+  reader of `machines.json` has to pass them — the TUI, the updater, the
+  phone gateway, the commands — or a machine added in one place is
+  unreachable from another. They are given to ssh **after** conch's own
+  settings, since ssh keeps the first value it is told for each: a host
+  cannot turn off the `BatchMode` that stops an unwatched connection
+  waiting on a password prompt. And they are filtered to what a second
+  way in can use (`MachineOpts`, the same set `ParseLogin` keeps for a
+  terminal's host): a forward, a tty or agent forwarding belongs to one
+  session, and a second `-L` on a port already taken fails the
+  connection outright. A saved ssh host carries the same options, which
+  is what makes `M` on one — that host as a machine — a filling-in
+  rather than a retyping.
 - **A program that reports its own state has to be answered first.**
   conch is the terminal, so it reads the Program Status Protocol (OSC
   7501) off the pty — `state=working`, `state=blocked:kind=permission`,

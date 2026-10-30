@@ -33,7 +33,7 @@ func TestAddMachineSSHFails(t *testing.T) {
 		// The job reports its steps as it goes, so what comes back is the
 		// batch of both: the reason is in there.
 		found := false
-		for _, msg := range a2Run(addMachine("dev@box", "box", c.password, c.key)) {
+		for _, msg := range a2Run(addMachine("dev@box", "box", c.password, c.key, nil)) {
 			if e, ok := msg.(errMsg); ok && strings.Contains(e.err.Error(), "Permission denied") {
 				found = true
 			}
@@ -69,7 +69,7 @@ func TestAddMachineSaysWhatItIsDoing(t *testing.T) {
 	}
 	t.Cleanup(func() { connectFn = old })
 
-	a2Run(addMachineWith("dev@gpu", "gpu", "", false, ch))
+	a2Run(addMachineWith("dev@gpu", "gpu", "", false, nil, ch))
 	var said []string
 	for cmd := nextStep(ch); cmd != nil; {
 		st, ok := cmd().(stepMsg)

@@ -257,7 +257,9 @@ func newTabMenu(m Model, x, y int) *menu {
 }
 
 // savedSSHLines is the page of a saved host with no session open to it.
-func savedSSHLines(target string, info sshHostInfo, folder string, w int) []string {
+// machine names the machine added for the host, when there is one: the
+// same host two ways round is worth saying before somebody adds it twice.
+func savedSSHLines(target string, info sshHostInfo, folder, machine string, w int) []string {
 	lines := []string{fit(styleBold.Render(sshDisplay(target, info))+styleMuted.Render("  saved · not connected"), w), ""}
 	if info.Name != "" {
 		lines = append(lines, fit(styleMuted.Render("host     ")+sshName(target), w))
@@ -268,8 +270,114 @@ func savedSSHLines(target string, info sshHostInfo, folder string, w int) []stri
 	if len(info.Args) > 0 {
 		lines = append(lines, fit(styleMuted.Render("options  ")+sshArgsText(info.Args), w))
 	}
+	if machine != "" {
+		lines = append(lines, fit(styleMuted.Render("machine  ")+machine+styleMuted.Render("  conch runs there too"), w))
+	}
 	if len(lines) > 2 {
 		lines = append(lines, "")
 	}
-	return append(lines, styleMuted.Render(ansi.Truncate("enter or click connect · e edit · K copy key (no password) · drag into a folder · x forget", w, "…")))
+	// Two lines, because one of them no longer fits a page this narrow
+	// and a key nobody can read is a key nobody has.
+	hints := []string{"enter or click connect · e edit · K copy key (no password)",
+		"M add as a machine · drag into a folder · x forget"}
+	if machine != "" {
+		hints[1] = "drag into a folder · x forget"
+	}
+	for _, h := range hints {
+		lines = append(lines, styleMuted.Render(ansi.Truncate(h, w, "…")))
+	}
+	return lines
+}
+
+// A host conch ssh's to can also be a machine: conch installed there, with
+// a server of its own owning the ptys. That is what makes work on it last
+// — a session is a terminal here, and what runs in it ends when the link
+// does — so the one thing a saved host was missing is the way across.
+// Nothing is taken away by it: the host stays saved, its session stays
+// open, and the machine is another row.
+
+// machineWithTarget is the machine added for an ssh target, or nil. The
+// target is matched as it is written, which is what the catalog dedups on:
+// whether `box` and `me@box` are one host is ssh's business and conch
+// would have to ask it.
+func (m Model) machineWithTarget(target string) *machine {
+	for _, mach := range m.machines {
+		if mach.id != localMachine && mach.target == target {
+			return mach
+		}
+	}
+	return nil
+}
+
+// promoteSSH opens the Add machine dialog for a host conch already reaches
+// by ssh, with the options that host is saved with. A session logged in to
+// it keeps running: it is a terminal of this computer's and knows nothing
+// about the machine now being added.
+func (m *Model) promoteSSH(target string) tea.Cmd {
+	if err := remote.CheckLoginTarget(target); err != nil {
+		return func() tea.Msg { return errMsg{err} }
+	}
+	if mach := m.machineWithTarget(target); mach != nil {
+		m.setFlash(sshName(target)+" is already the machine "+mach.label, false)
+		return nil
+	}
+	// A sandbox is reached through its provider with a fresh token, so
+	// there is no host here to install anything on.
+	if provider, _, ok := remote.ParseSandboxTarget(target); ok {
+		m.setFlash(sshName(target)+" is a "+provider+" sandbox, not a host to install on", true)
+		return nil
+	}
+	opts, err := remote.MachineOpts(m.sshInfo[target].Args)
+	if err != nil {
+		return func() tea.Msg { return errMsg{err} }
+	}
+	d := newMachineDialogFor(*m, target, opts)
+	m.overlay = d
+	return d.focusCmd()
+}
+
+// machineItem is the row that offers an ssh host as a machine, on the host
+// and on a session logged in to it. Once it is one the row says so and
+// does nothing, rather than going missing: what somebody wants to know
+// looking for it is that it has already happened.
+func (m Model) machineItem(target string) menuItem {
+	if mach := m.machineWithTarget(target); mach != nil {
+		return menuItem{"", "Already the machine " + mach.label, func(m *Model) tea.Cmd {
+			m.expanded[machineID(mach.id)] = true
+			m.cursor = machineID(mach.id)
+			return m.rebuild()
+		}}
+	}
+	return menuItem{"M", "Add as a machine (installs conch, so its agents keep running)…", func(m *Model) tea.Cmd {
+		return m.promoteSSH(target)
+	}}
+}
+
+// promotableHosts are the saved hosts this workspace shows that are not
+// machines yet, for offering them where somebody is adding one: pressing M
+// with a host already saved should not mean typing it again.
+func (m Model) promotableHosts() []string {
+	var out []string
+	for _, target := range m.shownHosts() {
+		if _, _, sandbox := remote.ParseSandboxTarget(target); !sandbox && m.machineWithTarget(target) == nil {
+			out = append(out, target)
+		}
+	}
+	return out
+}
+
+// openPromoteHost lists those hosts, so one becomes a machine from the add
+// menu as well as from its own row.
+func (m *Model) openPromoteHost(back *menu) {
+	mu := &menu{title: "A host you already ssh to", back: back}
+	for i, target := range m.promotableHosts() {
+		key := ""
+		if i < 9 {
+			key = itoa(i + 1)
+		}
+		mu.items = append(mu.items, menuItem{key, sshDisplay(target, m.sshInfo[target]), func(m *Model) tea.Cmd {
+			return m.promoteSSH(target)
+		}})
+	}
+	m.overlay = mu
 }

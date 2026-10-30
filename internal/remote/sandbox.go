@@ -66,11 +66,13 @@ func (e *SandboxStoppedError) Error() string {
 
 // TransportFor reaches the machine saved with target: over ssh, or for a
 // sandbox, over ssh with fresh credentials from its provider. label names
-// it in messages, since a sandbox's ssh destination is a secret.
-func TransportFor(ctx context.Context, label, target string, interactive bool) (Transport, error) {
+// it in messages, since a sandbox's ssh destination is a secret. opts are
+// the machine's extra ssh options, which a sandbox has none of: its way in
+// is the provider's to describe, not a host somebody typed.
+func TransportFor(ctx context.Context, label, target string, interactive bool, opts ...string) (Transport, error) {
 	provider, id, ok := ParseSandboxTarget(target)
 	if !ok {
-		return SSH(target, interactive), nil
+		return SSH(target, interactive, opts...), nil
 	}
 	p, err := openProvider(provider)
 	if err != nil {

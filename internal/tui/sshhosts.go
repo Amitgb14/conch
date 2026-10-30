@@ -171,6 +171,19 @@ func parseSSHArgs(text string) ([]string, error) {
 	return remote.NormalizeLoginArgs(words)
 }
 
+// machineSSHArgs reads the ssh options of a machine as typed, keeping the
+// ones it is reached with. An option that belongs to a terminal's own
+// session — a forward, an escape character — is dropped rather than
+// refused: it is a legal ssh option, just not one that means anything to a
+// probe, an install or a bridge.
+func machineSSHArgs(text string) ([]string, error) {
+	args, err := parseSSHArgs(text)
+	if err != nil {
+		return nil, err
+	}
+	return remote.MachineOpts(args)
+}
+
 // sshTargetOfRow is the host a saved host's or an ssh session's row is for,
 // on this computer.
 func (m Model) sshTargetOfRow(r row) string {

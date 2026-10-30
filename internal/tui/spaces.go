@@ -445,10 +445,20 @@ func (m *Model) openBringMachine(back *menu) {
 	m.overlay = mu
 }
 
-// addMachineMenu is M's menu, with the machines conch already has that
-// this workspace does not list as a way to bring one here.
+// addMachineMenu is M's menu, with a host already saved under SSH and the
+// machines conch already has that this workspace does not list as ways to
+// add one without typing it out again.
 func (m *Model) addMachineMenu() *menu {
 	mu := newAddMenu()
+	// A host already saved under SSH is a machine waiting to be made, and
+	// it goes beside **Over ssh…** rather than under it: it is the same
+	// add, with the host and its options already known.
+	if len(m.promotableHosts()) > 0 {
+		mu.items = slices.Insert(mu.items, 1, menuItem{"h", "A host you already ssh to…", func(m *Model) tea.Cmd {
+			m.openPromoteHost(m.addMachineMenu())
+			return nil
+		}})
+	}
 	if m.cur() != nil && len(m.hiddenMachines()) > 0 {
 		mu.items = append(mu.items, menuItem{"e", "Machine already in conch…", func(m *Model) tea.Cmd {
 			m.openBringMachine(m.addMachineMenu())

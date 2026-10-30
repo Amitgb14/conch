@@ -740,14 +740,14 @@ func TestSSHFolderHintsAndMenu(t *testing.T) {
 		t.Fatalf("Terminals folder menu %+v", mu.items)
 	}
 	// The saved host's page names its folder; every size stays in width.
-	out := a2Plain(savedSSHLines("db", m.sshInfo["db"], m.hostFolder("db"), 100))
+	out := a2Plain(savedSSHLines("db", m.sshInfo["db"], m.hostFolder("db"), "", 100))
 	for _, want := range []string{"prod db", "host     db", "folder   prod", "options  -p 2200", "drag into a folder"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("page lacks %q:\n%s", want, out)
 		}
 	}
 	for _, w := range []int{1, 5, 20, 39, 100} {
-		for _, l := range savedSSHLines("db", m.sshInfo["db"], "prod", w) {
+		for _, l := range savedSSHLines("db", m.sshInfo["db"], "prod", "", w) {
 			if ansi.StringWidth(l) > w {
 				t.Fatalf("width %d: %q", w, ansi.Strip(l))
 			}

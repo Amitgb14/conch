@@ -429,7 +429,7 @@ func TestA2AddMachineDialog(t *testing.T) {
 	a2Isolate(t)
 	m := a2Model()
 	d := newAddMachineDialog(*m)
-	if len(d.fields) != 4 || !strings.Contains(strings.Join(d.text, " "), "never saved") || d.fields[3].check == nil || !*d.fields[3].check {
+	if len(d.fields) != 5 || !strings.Contains(strings.Join(d.text, " "), "never saved") || d.fields[4].check == nil || !*d.fields[4].check {
 		t.Fatalf("add machine dialog: %d fields %+v", len(d.fields), d.text)
 	}
 	if strings.Contains(strings.Join(d.text, " "), "Hosts in ~/.ssh/config") {
@@ -438,22 +438,24 @@ func TestA2AddMachineDialog(t *testing.T) {
 	type call struct {
 		target, label, password string
 		key                     bool
+		opts                    string // joined, so one comparison says it all
 	}
 	var got []call
 	old := addMachineFn
-	addMachineFn = func(target, label, password string, key bool) tea.Cmd {
-		got = append(got, call{target, label, password, key})
+	addMachineFn = func(target, label, password string, key bool, opts []string) tea.Cmd {
+		got = append(got, call{target, label, password, key, strings.Join(opts, " ")})
 		return func() tea.Msg { return nil }
 	}
 	t.Cleanup(func() { addMachineFn = old })
 
-	if msg := a2ErrText(a2Run(d.submit(m, []string{"   ", "x", "", "on"}))); msg != "an ssh target is required" || len(got) != 0 {
+	if msg := a2ErrText(a2Run(d.submit(m, []string{"   ", "x", "", "", "on"}))); msg != "an ssh target is required" || len(got) != 0 {
 		t.Fatalf("empty target: %q %v", msg, got)
 	}
 
 	// Typed through the dialog: the password is masked when drawn.
 	m.overlay = d
 	a2Type(m, d, "dev@10.0.0.115")
+	d.update(m, a2Key("tab"))
 	d.update(m, a2Key("tab"))
 	d.update(m, a2Key("tab"))
 	a2Type(m, d, "s3cret pw")
@@ -464,29 +466,45 @@ func TestA2AddMachineDialog(t *testing.T) {
 	// Space on the checkbox toggles it and types nothing.
 	d.update(m, a2Key("tab"))
 	d.update(m, a2Key(" "))
-	if *d.fields[3].check || !strings.Contains(ansi.Strip(strings.Join(d.render(*m).lines, "\n")), "[ ] with a password") {
+	if *d.fields[4].check || !strings.Contains(ansi.Strip(strings.Join(d.render(*m).lines, "\n")), "[ ] with a password") {
 		t.Fatal("space didn't untick")
 	}
 	d.update(m, a2Key("x"))
-	if !*d.fields[3].check {
+	if !*d.fields[4].check {
 		t.Fatal("x didn't tick")
 	}
 	d.update(m, a2Key("q")) // no text goes into a checkbox
 	d.update(m, a2Key("enter"))
-	if len(got) != 1 || got[0] != (call{"dev@10.0.0.115", "", "s3cret pw", true}) || !strings.Contains(m.flash, "adding dev@10.0.0.115") {
+	if len(got) != 1 || got[0] != (call{"dev@10.0.0.115", "", "s3cret pw", true, ""}) || !strings.Contains(m.flash, "adding dev@10.0.0.115") {
 		t.Fatalf("submit: %+v flash %q", got, m.flash)
 	}
 	// Unticked, the value says so; a click on the focused checkbox toggles it.
 	d2 := newAddMachineDialog(*m)
-	a2Run(d2.submit(m, []string{"host", "box", "", ""}))
-	if got[1] != (call{"host", "box", "", false}) {
+	a2Run(d2.submit(m, []string{"host", "box", "", "", ""}))
+	if got[1] != (call{"host", "box", "", false, ""}) {
 		t.Fatalf("no password: %+v", got[1])
 	}
-	d2.focus = 3
+
+	// The options field: read as typed, kept down to what a machine is
+	// reached with, and refused when it is not ssh options at all.
+	a2Run(d2.submit(m, []string{"host2", "", "-J jump -L 80:localhost:80 Port=2222", "", ""}))
+	if got[2] != (call{"host2", "", "", false, "-J jump -o Port=2222"}) {
+		t.Fatalf("options: %+v", got[2])
+	}
+	m.overlay = nil
+	if cmd := d2.submit(m, []string{"host3", "", "box2", "", ""}); cmd != nil || m.overlay != d2 ||
+		!strings.Contains(m.flash, "not an ssh option") {
+		t.Fatalf("bad options: cmd %v overlay %T flash %q", cmd, m.overlay, m.flash)
+	}
+	if len(got) != 3 {
+		t.Fatalf("a refused add still called through: %+v", got)
+	}
+
+	d2.focus = 4
 	b := d2.render(*m)
 	first := b.y + 1 + 1 + len(d2.textLines(*m)) + 1
-	d2.mouse(m, tea.MouseMsg{X: b.x + 5, Y: first + 3, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, b)
-	if *d2.fields[3].check {
+	d2.mouse(m, tea.MouseMsg{X: b.x + 5, Y: first + 4, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, b)
+	if *d2.fields[4].check {
 		t.Fatal("click on the checkbox didn't toggle")
 	}
 }

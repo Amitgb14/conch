@@ -18,7 +18,7 @@ With `-m`, `-cwd` is a directory on that machine and must be an absolute path: y
 
 No machine of your own? `conch sandbox -provider daytona create` (or `-provider boat`, or `-provider devin` for a Devin Cloud session's VM) makes one in the cloud and adds it here, and `conch sandbox -provider P add ID` adds one `ls` shows with no machine; see [Sandboxes](/docs/sandboxes).
 
-Or press `M` in the TUI. `conch machine rm ID` removes a machine, `conch machine rename ID LABEL` renames it, `conch machine upgrade ID` installs your build there and reloads its server, and `conch machine hosts` lists the hosts in your ssh config. See [Command line](/docs/cli#machine) for flags.
+Or press `M` in the TUI — and on a [saved ssh host or an ssh session](/docs/interface#ssh-sessions), `M` offers that host as a machine with its ssh options already filled in. `conch machine rm ID` removes a machine, `conch machine rename ID LABEL` renames it, `conch machine upgrade ID` installs your build there and reloads its server, and `conch machine hosts` lists the hosts in your ssh config. See [Command line](/docs/cli#machine) for flags.
 
 ## Adding a machine
 
@@ -27,6 +27,8 @@ Or press `M` in the TUI. `conch machine rm ID` removes a machine, `conch machine
 <Step title="Probe">
 
 conch probes the machine over ssh (OS, CPU, an installed conch).
+
+A host that needs more than a name — a jump host, a port, an old key exchange — takes **SSH options** in the `M` dialog, or `-o Setting=value` (repeatable) on `conch machine add`; they are kept with the machine and used for every connection it makes, including the bridge that carries the protocol. conch's own settings are given to `ssh` first, so a machine cannot turn off the batch mode that keeps an unwatched connection from waiting on a prompt. Options that belong to one terminal's session — a forward, a tty, agent forwarding — are dropped, since a machine's connections are not that. A changed set reconnects the machine rather than keeping a connection made the old way.
 
 </Step>
 

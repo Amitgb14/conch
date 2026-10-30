@@ -114,7 +114,7 @@ func TestCheckoutPortForwardsFromSSH(t *testing.T) {
 	t.Cleanup(func() { forwardPort, checkPreview = oldF, oldC })
 	var gotTarget string
 	var gotPort int
-	forwardPort = func(_ context.Context, target string, port int) (int, error) {
+	forwardPort = func(_ context.Context, target string, port int, _ ...string) (int, error) {
 		gotTarget, gotPort = target, port
 		return 52000, nil
 	}
@@ -130,7 +130,7 @@ func TestCheckoutPortForwardsFromSSH(t *testing.T) {
 		t.Fatalf("forward %s:%d, preview %+v", gotTarget, gotPort, p)
 	}
 
-	forwardPort = func(context.Context, string, int) (int, error) {
+	forwardPort = func(context.Context, string, int, ...string) (int, error) {
 		return 0, errors.New("conch is not connected to dev@box right now")
 	}
 	cmd = m.openCheckoutPort(r)

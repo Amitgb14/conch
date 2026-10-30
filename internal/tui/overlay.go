@@ -149,6 +149,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 				menuItem{"e", "Edit ssh host (save it with a name, folder, options)…", act("e")},
 				menuItem{"g", "Move to folder…", func(m *Model) tea.Cmd { m.overlay = newMoveSSHMenu(*m, r, x, y); return nil }},
 				menuItem{"K", "Set up login without a password (copy ssh key)", act("K")},
+				m.machineItem(target),
 			)
 		}
 		items = append(items, menuItem{"x", "Close", act("x")})
@@ -302,6 +303,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"e", "Edit host, name, folder, ssh options…", act("e")},
 			{"g", "Move to folder…", func(m *Model) tea.Cmd { m.overlay = newMoveSSHMenu(*m, r, x, y); return nil }},
 			{"K", "Set up login without a password (copy ssh key)", act("K")},
+			m.machineItem(target),
 			{"N", "New folder…", act("N")},
 			{"x", "Forget (remove from the tree)", act("x")},
 		}
@@ -682,29 +684,51 @@ func newAddProjectDialog(m Model, mid string) *dialog {
 	return d
 }
 
-func newAddMachineDialog(m Model) *dialog {
+func newAddMachineDialog(m Model) *dialog { return newMachineDialogFor(m, "", nil) }
+
+// newMachineDialogFor is the Add machine dialog, with the host and its ssh
+// options filled in when it was opened for one conch already knows — a
+// saved host or a session logged in to it (ssh.go, promoteSSH).
+func newMachineDialogFor(m Model, target string, opts []string) *dialog {
+	title := " Add machine "
 	text := []string{"conch reaches the machine with your ssh setup and installs itself to ~/.local/bin/conch there if needed — one static binary and a ~/.config/conch of its own, nothing else, no root."}
-	if hosts := remote.SSHHosts(); len(hosts) > 0 {
+	if target != "" {
+		title = " " + sshName(target) + " as a machine "
+		// What a machine is for, said where somebody is deciding: an ssh
+		// session is a terminal here logged in there, and what runs in
+		// it ends with the link. A machine's server owns its own ptys.
+		text = []string{"A machine runs conch itself, so its agents and terminals are its own: they keep running when the link drops, the laptop sleeps or conch closes, and its projects, branches, sessions and usage are read there.",
+			"Nothing else changes: the host stays under SSH and any session open to it keeps running."}
+	}
+	if hosts := remote.SSHHosts(); target == "" && len(hosts) > 0 {
 		if len(hosts) > 12 {
 			hosts = append(hosts[:12], "…")
 		}
 		text = append(text, "Hosts in ~/.ssh/config: "+strings.Join(hosts, ", "))
 	}
 	text = append(text, "Password: only if ssh asks for one. It is used for this add and never saved; a new host's key is accepted.")
-	d := newDialog(m, " Add machine ", text, []string{"SSH target", "Label", "Password"}, nil)
+	d := newDialog(m, title, text, []string{"SSH target", "Label", "SSH options", "Password"},
+		[]string{target, "", sshArgsText(opts), ""})
 	d.fields[0].in.Placeholder = "user@host, host alias or ssh://user@host:port"
 	d.fields[1].in.Placeholder = "defaults to the host name"
-	d.fields[2].in.Placeholder = "leave empty for key login"
-	d.fields[2].in.EchoMode = textinput.EchoPassword
-	d.fields[2].in.EchoCharacter = '•'
+	d.fields[2].in.Placeholder = "optional, e.g. -J jump -o KexAlgorithms=+diffie-hellman-group14-sha1"
+	d.fields[3].in.Placeholder = "leave empty for key login"
+	d.fields[3].in.EchoMode = textinput.EchoPassword
+	d.fields[3].in.EchoCharacter = '•'
 	d.addCheck("Key login", "with a password, add my ssh key there so reconnects need no password", true)
 	d.submit = func(m *Model, v []string) tea.Cmd {
 		target := strings.TrimSpace(v[0])
 		if target == "" {
 			return func() tea.Msg { return errMsg{errString("an ssh target is required")} }
 		}
+		opts, err := machineSSHArgs(v[2])
+		if err != nil {
+			m.overlay = d // keep what was typed
+			m.setFlash(err.Error(), true)
+			return nil
+		}
 		m.setFlash("adding "+target+" (installing conch there if needed)…", false)
-		return m.fromHere(addMachineFn(target, strings.TrimSpace(v[1]), v[2], v[3] == "on"))
+		return m.fromHere(addMachineFn(target, strings.TrimSpace(v[1]), v[3], v[4] == "on", opts))
 	}
 	return d
 }
@@ -1034,13 +1058,16 @@ var helpText = []string{
 	"  c  start an agent here: pick Claude, Codex, Gemini or OpenCode (click or 1-9)",
 	"  n  terminal here       a  add or create a project",
 	"  N  new folder in Agents, Terminals or SSH: a group of your own · drag rows in, x removes it",
-	"  M  add machine: over ssh, or a new sandbox · sandboxes group under Sandboxes → provider",
+	"  M  add machine: over ssh, a host already saved under SSH, or a new sandbox · sandboxes group under Sandboxes → provider",
+	"     on a saved host or an ssh session, M is that host as a machine: conch installs there, so its",
+	"     agents and terminals keep running when the link drops · the host and its session stay as they are",
 	"  R  reconnect a machine    A  start or install any agent",
 	"     m on a sandbox: start, stop or delete it (a sandbox runs, and costs, until stopped)",
 	"  H  ssh from this computer to a host (listed under CLI → SSH; nothing installed there)",
 	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
 	"     extra ssh options (-o KexAlgorithms=… -p 2222) go in its SSH options field, and stay with a saved host",
 	"     on a saved host or ssh session: e edit host, name, folder, options · K login without a password (copies your key)",
+	"     a session is a terminal here, so what runs in it ends with the link: M makes that host a machine instead",
 	"     a saved host goes in an SSH folder (N) as a host: its sessions follow it · a on an SSH folder adds a host to it",
 	"  P  pair a phone with this computer: a QR code for conch web, to type into terminals too (v / r / f: less);",
 	"     a click on its code copies the code, anywhere else in it the link (c, y)",

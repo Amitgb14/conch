@@ -18,7 +18,13 @@ import (
 // the machine is online, so the forward lasts as long as the machine does,
 // and asking twice for the same port is answered by the forward already
 // there.
-func ForwardPort(ctx context.Context, target string, port int) (int, error) {
+//
+// opts are the machine's ssh options, and they are needed to find that
+// master at all: the control path is `%C`, a hash of the host, the port
+// and the user, so asking without the `-p` or `-l` the master was opened
+// with computes another path and finds no socket — which would have read
+// as "conch is not connected", about a machine conch is connected to.
+func ForwardPort(ctx context.Context, target string, port int, opts ...string) (int, error) {
 	if port < 1 || port > 65535 {
 		return 0, fmt.Errorf("port %d is out of range", port)
 	}
@@ -33,7 +39,9 @@ func ForwardPort(ctx context.Context, target string, port int) (int, error) {
 		}
 	}
 	spec := fmt.Sprintf("%d:127.0.0.1:%d", local, port)
-	out, err := exec.CommandContext(ctx, sshBinary(), "-F", cfg, "-O", "forward", "-L", spec, "--", target).CombinedOutput()
+	argv := append([]string{"-F", cfg, "-O", "forward", "-L", spec}, opts...)
+	argv = append(argv, "--", target)
+	out, err := exec.CommandContext(ctx, sshBinary(), argv...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if strings.Contains(msg, "No such file") || strings.Contains(msg, "Control socket connect") {

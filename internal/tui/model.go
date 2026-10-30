@@ -298,7 +298,7 @@ func New(local *client.Client, cfg config.Config) Model {
 	saved, _ := remote.Machines()
 	for _, sm := range saved {
 		if sm.Enabled {
-			m.machines = append(m.machines, newMachine(sm.ID, sm.Label, sm.Target))
+			m.machines = append(m.machines, machineFrom(sm))
 		}
 	}
 	return m
@@ -664,7 +664,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case machineAddedMsg:
 		m.setWorking("")
-		mach := newMachine(msg.m.ID, msg.m.Label, msg.m.Target)
+		mach := machineFrom(msg.m)
 		into := m.spaceFor(msg.space)
 		had := false
 		for i, existing := range m.machines {

@@ -51,6 +51,10 @@ type machine struct {
 	id     string
 	label  string
 	target string // ssh target; "" for this computer
+	// opts are the extra ssh options this machine is reached with
+	// (remote.Machine.Opts): the host needs them for every connection,
+	// so they belong to the machine and not to one command.
+	opts []string
 
 	c       *client.Client
 	server  proto.HelloResult
@@ -193,6 +197,16 @@ func newMachine(id, label, target string) *machine {
 		installers: map[string]string{}}
 }
 
+// machineFrom is the machine a saved one is shown as. Everything that
+// reaches a machine goes through what the catalog said, so it is built in
+// one place: a field added to remote.Machine that the TUI needs is carried
+// here or nowhere.
+func machineFrom(sm remote.Machine) *machine {
+	mach := newMachine(sm.ID, sm.Label, sm.Target)
+	mach.opts = sm.Opts
+	return mach
+}
+
 // attach adopts a connected client.
 // attach takes a connection. It reports whether the server on the other end
 // is a different one from the last: a reload keeps Started (and its panes),
@@ -327,7 +341,7 @@ const maxEventBurst = 64
 func (mach *machine) connect(install bool) tea.Cmd {
 	mach.gen++
 	mach.state = stateConnecting
-	id, gen, target, label := mach.id, mach.gen, mach.target, mach.label
+	id, gen, target, label, opts := mach.id, mach.gen, mach.target, mach.label, mach.opts
 	return func() tea.Msg {
 		if target == "" {
 			sock := config.SocketPath()
@@ -341,7 +355,7 @@ func (mach *machine) connect(install bool) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		tr, err := remote.TransportFor(ctx, label, target, false)
+		tr, err := remote.TransportFor(ctx, label, target, false, opts...)
 		if err != nil {
 			return machineConnectedMsg{machine: id, gen: gen, err: err}
 		}
@@ -459,21 +473,21 @@ var connectFn = remote.Connect
 // saves it. With a password, ssh gets it through an askpass helper, and
 // with keyLogin the password is then used once to authorize the user's ssh
 // key there, so reconnects need no password.
-func addMachine(target, label, password string, keyLogin bool) tea.Cmd {
+func addMachine(target, label, password string, keyLogin bool, opts []string) tea.Cmd {
 	// Installing conch on a machine takes as long as copying it there, so
 	// it says what it is doing meanwhile, as making a sandbox does.
 	ch := make(chan string, 16)
-	return tea.Batch(addMachineWith(target, label, password, keyLogin, ch), nextStep(ch))
+	return tea.Batch(addMachineWith(target, label, password, keyLogin, opts, ch), nextStep(ch))
 }
 
-func addMachineWith(target, label, password string, keyLogin bool, ch chan string) tea.Cmd {
+func addMachineWith(target, label, password string, keyLogin bool, opts []string, ch chan string) tea.Cmd {
 	return func() tea.Msg {
 		defer close(ch)
 		say := steps(ch)
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		say("connecting to " + label + "…")
-		c, err := connectFn(ctx, remote.SSH(target, false), remote.Options{Install: true, Password: password, Progress: say})
+		c, err := connectFn(ctx, remote.SSH(target, false, opts...), remote.Options{Install: true, Password: password, Progress: say})
 		var outdated *remote.OutdatedServerError
 		if err != nil && !errors.As(err, &outdated) {
 			return errMsg{err}
@@ -482,7 +496,7 @@ func addMachineWith(target, label, password string, keyLogin bool, ch chan strin
 		note := ""
 		if password != "" && keyLogin {
 			say("setting up key login on " + label + "…")
-			switch key, err := remote.SetUpKeyLogin(ctx, target, password); {
+			switch key, err := remote.SetUpKeyLogin(ctx, target, password, opts...); {
 			case err != nil:
 				note = "key login not set up: " + err.Error() + " · reconnects will fail without it"
 			default:
@@ -491,7 +505,7 @@ func addMachineWith(target, label, password string, keyLogin bool, ch chan strin
 		} else if password != "" {
 			note = "added with a password only: reconnects need key login (ssh-copy-id) or conch machine add in a terminal"
 		}
-		m, err := remote.SaveMachine(remote.Machine{Label: label, Target: target})
+		m, err := remote.SaveMachine(remote.Machine{Label: label, Target: target, Opts: opts})
 		if err != nil {
 			return errMsg{err}
 		}

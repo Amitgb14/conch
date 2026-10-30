@@ -21,6 +21,12 @@ type Machine struct {
 	Target  string    `json:"target"` // ssh destination: alias, user@host or ssh://user@host:port
 	Enabled bool      `json:"enabled"`
 	Added   time.Time `json:"added"`
+	// Opts are extra ssh options this machine is reached with, as ssh
+	// takes them ("-o", "KexAlgorithms=+…"): a port is in the target, but
+	// a jump host, an old key exchange or a key of its own is not. A
+	// machine saved by an older build has none, and an older build
+	// ignores these — it reaches the host the way it always did.
+	Opts []string `json:"opts,omitempty"`
 }
 
 // LocalID is the machine ID of this computer.
@@ -45,6 +51,21 @@ func Machines() ([]Machine, error) {
 	}
 	if err := json.Unmarshal(b, &file); err != nil {
 		return nil, fmt.Errorf("%s: %w", catalogPath(), err)
+	}
+	// A hand-edited file could hold options that belong to a terminal's
+	// own session, or none that ssh would take; every reader gets the set
+	// a machine is actually reached with, as ui.json's hosts are cleaned.
+	// A list ssh would not take at all costs that machine its options and
+	// nothing more: it is still listed and still reached, and whoever
+	// typed it reads ssh's own complaint — where refusing the file would
+	// have emptied the sidebar over one typo, and said nothing, since
+	// the TUI keeps what it has when the catalog won't load.
+	for i := range file.Machines {
+		opts, err := MachineOpts(file.Machines[i].Opts)
+		if err != nil {
+			opts = nil
+		}
+		file.Machines[i].Opts = opts
 	}
 	return file.Machines, nil
 }
@@ -127,6 +148,11 @@ func SaveMachine(m Machine) (Machine, error) {
 		if ms[i].Target == m.Target {
 			if m.Label != "" {
 				ms[i].Label = m.Label
+			}
+			// Options given again replace the saved ones, as a label
+			// does; none given leaves the machine reached as it was.
+			if len(m.Opts) > 0 {
+				ms[i].Opts = m.Opts
 			}
 			ms[i].Enabled = true
 			return ms[i], saveMachines(ms)

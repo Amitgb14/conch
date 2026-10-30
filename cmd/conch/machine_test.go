@@ -600,3 +600,46 @@ func TestA4DashMCwd(t *testing.T) {
 		t.Fatalf("local new: %+v %v", create, err)
 	}
 }
+
+// A machine added with -o keeps those settings, reaches the host with them
+// from the first probe, and is reached with them again by every later
+// command: the catalog is the one place that remembers how to get there.
+func TestA4MachineAddKeepsSSHSettings(t *testing.T) {
+	a4Env(t)
+	f := newA4SSH(t)
+	srv := startA4Server(t, "")
+	t.Setenv("A4_BRIDGE_SOCK", srv.sock)
+	f.setProbe(t, a4CurrentProbe())
+
+	var err error
+	a4Capture(t, "", func() {
+		err = runMachine([]string{"add", "-label", "old box", "-o", "Port=2222", "-o", "ProxyJump=bastion", "me@old"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := remote.Machines()
+	if len(ms) != 1 || strings.Join(ms[0].Opts, " ") != "-o Port=2222 -o ProxyJump=bastion" {
+		t.Fatalf("saved %+v", ms)
+	}
+	// The probe itself went with them: a host that needs them is not
+	// reachable without, so asking it anything comes after this.
+	// The fake logs one argument a line.
+	want := strings.Join([]string{"-o", "Port=2222", "-o", "ProxyJump=bastion", "--", "me@old"}, "\n")
+	if argv := f.argv(t); !strings.Contains(argv, want) {
+		t.Fatalf("ssh ran without them:\n%s", argv)
+	}
+
+	// And a later command reaches the same way, from the catalog alone.
+	os.WriteFile(f.log, nil, 0o600)
+	machineFlag = "old box"
+	t.Cleanup(func() { machineFlag = "" })
+	c, err := connect(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	if argv := f.argv(t); !strings.Contains(argv, want) {
+		t.Fatalf("-m reached it another way:\n%s", argv)
+	}
+}

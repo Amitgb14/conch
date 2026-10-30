@@ -165,7 +165,7 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 				items = moveHint(items)
 			}
 		case kindSavedSSH:
-			items = []statusItem{hint("enter", "connect"), hint("e", "edit"), hint("K", "copy key"), hint("x", "forget"), hint("H", "ssh"), hint("m", "menu")}
+			items = []statusItem{hint("enter", "connect"), hint("e", "edit"), hint("K", "copy key"), hint("M", "as a machine"), hint("x", "forget"), hint("H", "ssh"), hint("m", "menu")}
 		case kindFolder:
 			items = []statusItem{hint("N", "new folder"), hint("x", "remove"), hint("space", "fold"), hint("m", "menu")}
 			if r.section == kindSSH && r.machine == localMachine && r.projectID == "" {

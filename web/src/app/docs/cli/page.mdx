@@ -207,7 +207,7 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 
 | Command | Description |
 | --- | --- |
-| `conch machine add [-label NAME] [-yes] SSH_TARGET` | add a remote machine, installing conch there; `-label` sets the name shown in the sidebar (default: the host), `-yes` installs without asking |
+| `conch machine add [-label NAME] [-yes] [-o Setting=value] SSH_TARGET` | add a remote machine, installing conch there; `-label` sets the name shown in the sidebar (default: the host), `-yes` installs without asking, `-o` is an ssh setting this machine is reached with and can be repeated (`-o ProxyJump=bastion -o Port=2222`) |
 | `conch machine ls` | list machines (also plain `conch machine`) |
 | `conch machine rm ID` | remove a machine |
 | `conch machine rename ID LABEL` | change the name a machine is shown by; its ID and ssh target stay |

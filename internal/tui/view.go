@@ -757,7 +757,11 @@ func (m Model) leafBody(l *leaf, w, h int, focused bool) []string {
 		return m.sectionLines(v.Machine, v.ProjectID, v.Kind, w)
 	case kindSavedSSH:
 		target := savedSSHTarget(v.Row)
-		return savedSSHLines(target, m.sshInfo[target], m.hostFolder(target), w)
+		label := ""
+		if mach := m.machineWithTarget(target); mach != nil {
+			label = mach.label
+		}
+		return savedSSHLines(target, m.sshInfo[target], m.hostFolder(target), label, w)
 	case kindProject, kindMore:
 		if proj := m.project(v.Machine, v.ProjectID); proj != nil {
 			return m.projectLines(v.Machine, *proj, w)

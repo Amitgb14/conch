@@ -181,6 +181,12 @@ type sshOpts struct {
 	// generated config names conch's own and so stops ssh trying the
 	// defaults, and the agent may hold nothing.
 	identity string
+	// args are the machine's own extra ssh options (Machine.Opts). They
+	// go last, as a login's do: ssh keeps the first value it is given for
+	// each setting, so conch's own — BatchMode for a run nobody is
+	// watching, the config it generated — stand, and the rest of what the
+	// host needs applies.
+	args []string
 }
 
 func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cmd, error) {
@@ -205,6 +211,7 @@ func sshCmdWith(ctx context.Context, target, script string, o sshOpts) (*exec.Cm
 	if o.identity != "" {
 		args = append(args, "-i", o.identity, "-o", "IdentitiesOnly=yes")
 	}
+	args = append(args, o.args...)
 	args = append(args, "--", target, script)
 	cmd := exec.CommandContext(ctx, sshBinary(), args...)
 	if o.askpass != nil {

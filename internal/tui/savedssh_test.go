@@ -171,7 +171,7 @@ func TestSavedSSHRowAndPage(t *testing.T) {
 		}
 	}
 	for _, w := range []int{1, 5, 20, 39, 100} {
-		for _, l := range savedSSHLines("a-very-long-host-name.example.internal", sshHostInfo{}, "", w) {
+		for _, l := range savedSSHLines("a-very-long-host-name.example.internal", sshHostInfo{}, "", "", w) {
 			if ansi.StringWidth(l) > w {
 				t.Fatalf("width %d: %q is %d wide", w, ansi.Strip(l), ansi.StringWidth(l))
 			}
@@ -192,7 +192,7 @@ func TestSavedSSHRowAndPage(t *testing.T) {
 	for _, it := range items {
 		hints = append(hints, ansi.Strip(it.text))
 	}
-	if got := strings.Join(hints, "|"); !strings.HasPrefix(got, "enter connect|e edit|K copy key|x forget|H ssh|m menu") {
+	if got := strings.Join(hints, "|"); !strings.HasPrefix(got, "enter connect|e edit|K copy key|M as a machine|x forget|H ssh|m menu") {
 		t.Fatalf("hints %q", got)
 	}
 	mu := newRowMenu(*m, m.rows[indexOfRow(m.rows, id)], 0, 0)
@@ -200,7 +200,7 @@ func TestSavedSSHRowAndPage(t *testing.T) {
 	for _, it := range mu.items {
 		keys = append(keys, it.key)
 	}
-	if mu.title != "ssh me@db:2222" || strings.Join(keys, ",") != "enter,e,g,K,N,x" {
+	if mu.title != "ssh me@db:2222" || strings.Join(keys, ",") != "enter,e,g,K,M,N,x" {
 		t.Fatalf("menu %q %q", mu.title, keys)
 	}
 }

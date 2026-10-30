@@ -142,8 +142,9 @@ Usage:
                                 (the same ones as a and S in the changes view)
   conch worktree ls | clean [-y] [-force] [PATH...]
                                 list leftover worktrees, or remove the finished ones
-  conch machine add [-label L] SSH_TARGET
-                                add a remote machine (installs conch there)
+  conch machine add [-label L] [-o Setting=value]... SSH_TARGET
+                                add a remote machine (installs conch there); -o is an ssh
+                                setting it is reached with (-o ProxyJump=bastion)
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
   conch sandbox -provider daytona|boat|devin create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
                                 make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY,

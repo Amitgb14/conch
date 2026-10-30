@@ -83,12 +83,12 @@ func (m *Model) openCheckoutPort(r row) tea.Cmd {
 		m.setFlash(fmt.Sprintf("asking %s for a link to port %d…", providerLabel(provider), port), false)
 		return sandboxPreview(mid, label, pv, id, port)
 	}
-	target := mach.target
+	target, opts := mach.target, mach.opts
 	m.setFlash(fmt.Sprintf("forwarding port %d from %s…", port, label), false)
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		local, err := forwardPort(ctx, target, port)
+		local, err := forwardPort(ctx, target, port, opts...)
 		if err != nil {
 			return previewDoneMsg{machine: mid, err: err}
 		}

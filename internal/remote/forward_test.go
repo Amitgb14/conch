@@ -42,6 +42,20 @@ func TestForwardPortAsksTheMaster(t *testing.T) {
 	}
 }
 
+// The master to ask is found by a control path hashed from the host, the
+// port and the user, so a machine reached with options is asked with them
+// or the socket is not there to find.
+func TestForwardPortAsksWithTheMachinesOptions(t *testing.T) {
+	f := forwardEnv(t, nil)
+	if _, err := ForwardPort(context.Background(), "box", 41000, "-p", "2222", "-l", "ops"); err != nil {
+		t.Fatal(err)
+	}
+	argv := f.calls(t)[0]
+	if !strings.Contains(strings.Join(argv, "|"), "-p|2222|-l|ops|--|box") {
+		t.Fatalf("argv %q", argv)
+	}
+}
+
 func TestForwardPortTakesAnotherWhenItsOwnIsBusy(t *testing.T) {
 	f := forwardEnv(t, map[int]bool{3000: true})
 	local, err := ForwardPort(context.Background(), "dev@box", 3000)

@@ -69,9 +69,11 @@ func (m *Model) applyCatalog(saved []remote.Machine) tea.Cmd {
 			if m.viewMachine == mach.id {
 				m.viewMachine, m.viewing, m.frame = "", "", nil
 			}
-		case sm.Target != mach.target:
+		case sm.Target != mach.target || !slices.Equal(sm.Opts, mach.opts):
+			// Reached differently now: the connection it has was made the
+			// old way, so it is made again rather than kept.
 			mach.close()
-			fresh := newMachine(sm.ID, sm.Label, sm.Target)
+			fresh := machineFrom(sm)
 			kept = append(kept, fresh)
 			cmds = append(cmds, fresh.connect(false))
 		default:
@@ -84,7 +86,7 @@ func (m *Model) applyCatalog(saved []remote.Machine) tea.Cmd {
 		if _, ok := want[sm.ID]; !ok {
 			continue
 		}
-		mach := newMachine(sm.ID, sm.Label, sm.Target)
+		mach := machineFrom(sm)
 		kept = append(kept, mach)
 		m.expanded[machineID(mach.id)] = true
 		added = append(added, mach.label)

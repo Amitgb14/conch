@@ -48,7 +48,7 @@ func TestMain(m *testing.M) {
 	downloadsDir = func() string { return downloads }
 	// L forwards a port over ssh and looks for a server on it: neither
 	// may reach out of the suite.
-	forwardPort = func(context.Context, string, int) (int, error) { return 0, errors.New("no ssh in tests") }
+	forwardPort = func(context.Context, string, int, ...string) (int, error) { return 0, errors.New("no ssh in tests") }
 	checkPreview = func(context.Context, string) (int, string) { return 0, "no network in tests" }
 	code := m.Run()
 	os.RemoveAll(downloads)

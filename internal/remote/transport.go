@@ -48,15 +48,16 @@ func Compress() bool {
 
 // SSH reaches a machine over ssh. An interactive transport lets ssh prompt
 // on the terminal; otherwise a run that needs a password fails instead of
-// hanging.
-func SSH(target string, interactive bool) Transport {
-	return &sshTransport{target: target, opts: sshOpts{interactive: interactive}}
+// hanging. opts are the machine's extra ssh options (Machine.Opts): a jump
+// host, an old key exchange, a key of its own.
+func SSH(target string, interactive bool, opts ...string) Transport {
+	return &sshTransport{target: target, opts: sshOpts{interactive: interactive, args: opts}}
 }
 
 // sshKeyOnly logs in by key alone: no password, and no shared connection
 // another command has already authenticated.
-func sshKeyOnly(target string) Transport {
-	return &sshTransport{target: target, opts: sshOpts{keyOnly: true}}
+func sshKeyOnly(target string, opts ...string) Transport {
+	return &sshTransport{target: target, opts: sshOpts{keyOnly: true, args: opts}}
 }
 
 type sshTransport struct {

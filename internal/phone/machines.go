@@ -39,7 +39,7 @@ var machineRetry = 30 * time.Second
 var (
 	hooksMu        sync.RWMutex
 	machineConnect = func(ctx context.Context, m remote.Machine) (*client.Client, error) {
-		tr, err := remote.TransportFor(ctx, m.Label, m.Target, false)
+		tr, err := remote.TransportFor(ctx, m.Label, m.Target, false, m.Opts...)
 		if err != nil {
 			return nil, err
 		}

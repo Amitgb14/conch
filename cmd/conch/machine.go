@@ -128,15 +128,39 @@ func machinesHere() string {
 	return "conch has " + strings.Join(names, ", ")
 }
 
+// sshOptFlag collects -o settings, each as ssh_config writes one. An ssh
+// flag with no setting of its own has no place here: ProxyJump says what
+// -J does, and conch reaches a machine again and again, so what it needs
+// is what a config file would hold.
+type sshOptFlag []string
+
+func (f *sshOptFlag) String() string { return strings.Join(*f, " ") }
+
+func (f *sshOptFlag) Set(v string) error {
+	if _, _, ok := strings.Cut(v, "="); !ok {
+		return fmt.Errorf("an ssh option is Setting=value, like ProxyJump=jump (got %q)", v)
+	}
+	*f = append(*f, v)
+	return nil
+}
+
 func machineAdd(args []string) error {
 	fs := flag.NewFlagSet("machine add", flag.ContinueOnError)
 	label := fs.String("label", "", "name shown in the sidebar (default: the host)")
 	yes := fs.Bool("yes", false, "install conch on the machine without asking")
+	var opt sshOptFlag
+	fs.Var(&opt, "o", "ssh setting this machine is reached with, repeatable (-o ProxyJump=jump -o Port=2222)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: conch machine add [-label NAME] [-yes] SSH_TARGET")
+		return errors.New("usage: conch machine add [-label NAME] [-yes] [-o Setting=value] SSH_TARGET")
+	}
+	// Each setting goes in as the bare Setting=value word ssh_config
+	// writes, which is a form MachineOpts takes and checks the name of.
+	opts, err := remote.MachineOpts(opt)
+	if err != nil {
+		return err
 	}
 	target := fs.Arg(0)
 	if provider, _, ok := remote.ParseSandboxTarget(target); ok {
@@ -146,7 +170,7 @@ func machineAdd(args []string) error {
 	defer cancel()
 
 	fmt.Fprintf(os.Stderr, "Checking %s…\n", target)
-	probe, err := remote.ProbeMachine(ctx, remote.SSH(target, true)) // ssh may ask about host keys or passwords
+	probe, err := remote.ProbeMachine(ctx, remote.SSH(target, true, opts...)) // ssh may ask about host keys or passwords
 	if err != nil {
 		return err
 	}
@@ -159,7 +183,7 @@ func machineAdd(args []string) error {
 		if !*yes && !confirm(fmt.Sprintf("  %s. Install it to ~/.local/bin/conch? [Y/n] ", what), true) {
 			return errors.New("not installed")
 		}
-		path, err := remote.Install(ctx, remote.SSH(target, true), probe.Platform, progress)
+		path, err := remote.Install(ctx, remote.SSH(target, true, opts...), probe.Platform, progress)
 		if err != nil {
 			return err
 		}
@@ -171,7 +195,7 @@ func machineAdd(args []string) error {
 		fmt.Fprintf(os.Stderr, "  found %s (build %s)\n", probe.Bin, probe.Info.Build)
 	}
 
-	c, err := remote.Connect(ctx, remote.SSH(target, false), remote.Options{})
+	c, err := remote.Connect(ctx, remote.SSH(target, false, opts...), remote.Options{})
 	var outdated *remote.OutdatedServerError
 	if errors.As(err, &outdated) {
 		fmt.Fprintf(os.Stderr, "  %v\n", err)
@@ -179,7 +203,7 @@ func machineAdd(args []string) error {
 			if err := stopServer(c, false); err != nil {
 				return err
 			}
-			c, err = remote.Connect(ctx, remote.SSH(target, false), remote.Options{})
+			c, err = remote.Connect(ctx, remote.SSH(target, false, opts...), remote.Options{})
 		} else {
 			err = nil
 		}
@@ -188,7 +212,7 @@ func machineAdd(args []string) error {
 		return err
 	}
 	defer c.Close()
-	m, err := remote.SaveMachine(remote.Machine{Label: *label, Target: target})
+	m, err := remote.SaveMachine(remote.Machine{Label: *label, Target: target, Opts: opts})
 	if err != nil {
 		return err
 	}
@@ -215,7 +239,7 @@ func machineList() error {
 // asks, and one set of credentials serves both.
 func transports(ctx context.Context, m remote.Machine) (watched, background remote.Transport, err error) {
 	if !m.IsSandbox() {
-		return remote.SSH(m.Target, true), remote.SSH(m.Target, false), nil
+		return remote.SSH(m.Target, true, m.Opts...), remote.SSH(m.Target, false, m.Opts...), nil
 	}
 	tr, err := remote.TransportFor(ctx, m.Label, m.Target, false)
 	if err != nil {

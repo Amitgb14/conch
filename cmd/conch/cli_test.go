@@ -133,6 +133,13 @@ func TestA4UsageErrors(t *testing.T) {
 		{"machine add none", func() error { return runMachine([]string{"add"}) }, "usage: conch machine add"},
 		{"machine add two", func() error { return runMachine([]string{"add", "a", "b"}) }, "usage: conch machine add"},
 		{"machine add bad flag", func() error { return runMachine([]string{"add", "-x", "a"}) }, "flag provided but not defined"},
+		// -o is an ssh_config setting, not an ssh flag: a machine is
+		// reached again and again, so what it needs is what a config
+		// file holds, and a bare word would reach ssh as the host.
+		{"machine add bare -o", func() error { return runMachine([]string{"add", "-o", "-J", "a"}) }, "Setting=value"},
+		{"machine add -o nothing ssh takes", func() error {
+			return runMachine([]string{"add", "-o", "Local Forward=x", "a"})
+		}, "not an ssh option"},
 	}
 	for _, c := range cases {
 		var err error

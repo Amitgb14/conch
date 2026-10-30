@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -133,3 +134,34 @@ func FilesCommand(l Login) []string {
 	return append(cmd, "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes", "-o", "RequestTTY=no",
 		"-s", "--", l.Host, "sftp")
 }
+
+// MachineOpts is the extra ssh options a machine may be reached with. The
+// list is first checked as any login's is (NormalizeLoginArgs), so a word
+// that is not an option, or an option with its value missing, is refused
+// where it can still be said. What is left is then read by ParseLogin
+// itself, against a host of its own, and so keeps exactly the set a second
+// session to a host keeps: where and how to log in. A machine's
+// connections are not a terminal's session — conch runs a probe, an
+// install and a bridge on them — so a forward, a tty, an escape character
+// and agent forwarding are dropped rather than refused: each is a legal
+// ssh option that means nothing here, and a second -L on a port in use
+// would make the connection fail outright.
+func MachineOpts(args []string) ([]string, error) {
+	if len(args) == 0 {
+		return nil, nil
+	}
+	args, err := NormalizeLoginArgs(args)
+	if err != nil {
+		return nil, err
+	}
+	argv := append([]string{"ssh"}, args...)
+	l, ok := ParseLogin(append(argv, "--", optsHost))
+	if !ok {
+		return nil, fmt.Errorf("%s are not ssh options a machine can be reached with", strings.Join(args, " "))
+	}
+	return l.Opts, nil
+}
+
+// optsHost stands in for the host while MachineOpts reads options, so
+// ParseLogin has the login it insists on. It is never connected to.
+const optsHost = "host"

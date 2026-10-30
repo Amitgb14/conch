@@ -153,7 +153,9 @@ var ErrKeyLoginUnverified = errors.New("the key was added, but logging in with i
 
 // SetUpKeyLogin uses password once to authorize a public key on target,
 // then checks that key login works without it. It returns the key's path.
-func SetUpKeyLogin(ctx context.Context, target, password string) (string, error) {
+// opts are the machine's extra ssh options: the key has to go to the host
+// as conch will reach it, not to whatever a bare target resolves to.
+func SetUpKeyLogin(ctx context.Context, target, password string, opts ...string) (string, error) {
 	line, path, err := publicKey(ctx)
 	if err != nil {
 		return "", err
@@ -163,11 +165,11 @@ func SetUpKeyLogin(ctx context.Context, target, password string) (string, error)
 		return "", err
 	}
 	defer ap.close()
-	tr := &sshTransport{target: target, opts: sshOpts{askpass: ap}}
+	tr := &sshTransport{target: target, opts: sshOpts{askpass: ap, args: opts}}
 	if _, err := runScript(ctx, tr, authorizeScript, []byte(line+"\n")); err != nil {
 		return path, fmt.Errorf("add the key: %w", err)
 	}
-	if _, err := runScript(ctx, sshKeyOnly(target), "true", nil); err != nil {
+	if _, err := runScript(ctx, sshKeyOnly(target, opts...), "true", nil); err != nil {
 		return path, fmt.Errorf("%w: %v", ErrKeyLoginUnverified, err)
 	}
 	return path, nil
