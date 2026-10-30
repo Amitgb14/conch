@@ -126,6 +126,32 @@ func TestPromoteSaysWhenItIsAlreadyAMachine(t *testing.T) {
 		t.Fatalf("added anyway: %q", *got)
 	}
 
+	// And the bar drops the key as the page does: the two disagreeing —
+	// "M as a machine" on the bar under "machine db box" on the page —
+	// is what this is for.
+	hints := func() string {
+		_, items := m.statusHints()
+		var out []string
+		for _, it := range items {
+			out = append(out, ansi.Strip(it.text))
+		}
+		return strings.Join(out, "|")
+	}
+	if got := hints(); strings.Contains(got, "as a machine") {
+		t.Fatalf("the bar still offered it: %q", got)
+	}
+	if got := hints(); !strings.HasPrefix(got, "enter connect|e edit|K copy key|x forget") {
+		t.Fatalf("it took away more than the one key: %q", got)
+	}
+	// A host that is not a machine still has it.
+	a1At(t, m, savedSSHID("web"))
+	m.focus = focusSidebar
+	if got := hints(); !strings.Contains(got, "M as a machine") {
+		t.Fatalf("a host that is no machine lost the key: %q", got)
+	}
+	a1At(t, m, savedSSHID("db"))
+	m.focus = focusSidebar
+
 	// Its page says it too, so nobody goes looking for the key.
 	page := a2Plain(savedSSHLines("db", m.sshInfo["db"], m.hostFolder("db"), "db box", 100))
 	if !strings.Contains(page, "machine  db box") || strings.Contains(page, "M add as a machine") {

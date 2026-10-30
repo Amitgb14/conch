@@ -273,7 +273,13 @@ helpers in `cmd/conch` and `internal/remote`.
   transport (`SSH`, `TransportFor`), not on one command, and *every*
   reader of `machines.json` has to pass them — the TUI, the updater, the
   phone gateway, the commands — or a machine added in one place is
-  unreachable from another. They are given to ssh **after** conch's own
+  unreachable from another. One missed call is not loud: the check after
+  an install went without them (R60), so ssh tried the local username,
+  asked a real machine for a password in the middle of an install and
+  failed — and `VerifyInstalled` says nothing when it fails, so the add
+  carried on and nothing was ever verified. A test that asks whether
+  *some* ssh carried them passes with that bug in; the one that caught it
+  asks whether every one did. They are given to ssh **after** conch's own
   settings, since ssh keeps the first value it is told for each: a host
   cannot turn off the `BatchMode` that stops an unwatched connection
   waiting on a password prompt. And they are filtered to what a second

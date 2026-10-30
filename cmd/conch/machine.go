@@ -187,7 +187,7 @@ func machineAdd(args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := remote.VerifyInstalled(ctx, remote.SSH(target, true), probe.Platform); err != nil {
+		if err := remote.VerifyInstalled(ctx, remote.SSH(target, true, opts...), probe.Platform); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "  installed %s\n", path)

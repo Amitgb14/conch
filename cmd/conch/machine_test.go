@@ -629,6 +629,7 @@ func TestA4MachineAddKeepsSSHSettings(t *testing.T) {
 	if argv := f.argv(t); !strings.Contains(argv, want) {
 		t.Fatalf("ssh ran without them:\n%s", argv)
 	}
+	a4EveryRunCarries(t, f, want)
 
 	// And a later command reaches the same way, from the catalog alone.
 	os.WriteFile(f.log, nil, 0o600)
@@ -641,5 +642,55 @@ func TestA4MachineAddKeepsSSHSettings(t *testing.T) {
 	c.Close()
 	if argv := f.argv(t); !strings.Contains(argv, want) {
 		t.Fatalf("-m reached it another way:\n%s", argv)
+	}
+	a4EveryRunCarries(t, f, want)
+}
+
+// An add that has to install conch reaches the machine four more times —
+// the copy, the check that the install took, and the bridge — and a host
+// that needs its options needs them every one of those times. The check
+// after the install went without them and asked a real machine for a
+// password in the middle of an install, saying "Permission denied" twice;
+// it says nothing when it fails, so nothing else would have noticed.
+func TestA4MachineAddInstallKeepsSSHSettings(t *testing.T) {
+	a4Env(t)
+	f := newA4SSH(t)
+	_, s, m := a4OtherPlatform()
+	f.setProbe(t, s+"\n"+m+"\n") // no conch there yet: it installs
+	f.setProbeAfterInstall(t, a4CurrentProbe())
+	srv := startA4Server(t, "")
+	t.Setenv("A4_BRIDGE_SOCK", srv.sock)
+	bin := filepath.Join(t.TempDir(), "conch-remote")
+	os.WriteFile(bin, []byte("remote build"), 0o755)
+	t.Setenv("CONCH_REMOTE_BINARY", bin)
+
+	var err error
+	a4Capture(t, "", func() {
+		err = runMachine([]string{"add", "-yes", "-o", "User=dev", "jump"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a4EveryRunCarries(t, f, "-o\nUser=dev\n--\njump")
+}
+
+// a4EveryRunCarries fails unless every ssh the fake logged carried want.
+// The fake ends each run with a line of its own, so they can be told
+// apart: "at least one of them did" is what let a missing one through.
+func a4EveryRunCarries(t *testing.T, f *a4SSH, want string) {
+	t.Helper()
+	runs := strings.Split(f.argv(t), "===\n")
+	n := 0
+	for _, run := range runs {
+		if strings.TrimSpace(run) == "" {
+			continue
+		}
+		n++
+		if !strings.Contains(run, want) {
+			t.Fatalf("ssh run %d went without them:\n%s", n, run)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no ssh ran at all")
 	}
 }

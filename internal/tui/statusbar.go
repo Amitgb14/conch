@@ -166,6 +166,14 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			}
 		case kindSavedSSH:
 			items = []statusItem{hint("enter", "connect"), hint("e", "edit"), hint("K", "copy key"), hint("M", "as a machine"), hint("x", "forget"), hint("H", "ssh"), hint("m", "menu")}
+			// A host that is already a machine is not offered the key
+			// that would make it one, the same way its page is not: the
+			// bar said M while the page said "machine NAME", and a key
+			// offered for something already done reads as a key that
+			// does nothing.
+			if m.machineWithTarget(savedSSHTarget(r.id)) != nil {
+				items = slices.Delete(items, 3, 4)
+			}
 		case kindFolder:
 			items = []statusItem{hint("N", "new folder"), hint("x", "remove"), hint("space", "fold"), hint("m", "menu")}
 			if r.section == kindSSH && r.machine == localMachine && r.projectID == "" {
