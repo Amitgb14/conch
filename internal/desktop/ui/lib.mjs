@@ -227,11 +227,9 @@ export function taskTitle(p) {
   return p.name || p.title || (p.agent && p.agent.name) || p.id
 }
 
-const stateRank = { waiting: 0, working: 1, done: 2, idle: 3, exited: 4, "": 5 }
-
 // groupTasks is the sidebar's projects, each with its agents as tasks
 // (waiting first), and the panes that are no agent's as terminals.
-export function groupTasks(machines, panesByMachine, projectsByMachine) {
+export function groupTasks(machines, panesByMachine, projectsByMachine, sortBy = "attention") {
   const groups = new Map()
   const terminals = []
   for (const m of machines || []) {
@@ -253,7 +251,7 @@ export function groupTasks(machines, panesByMachine, projectsByMachine) {
     }
   }
   const out = [...groups.values()]
-  for (const g of out) g.tasks.sort((a, b) => stateRank[a.state] - stateRank[b.state] || a.title.localeCompare(b.title))
+  for (const g of out) g.tasks = sortTasks(g.tasks, sortBy)
   // Projects by name, then the agents that belong to none.
   out.sort((a, b) => (a.loose - b.loose) || a.name.localeCompare(b.name))
   return { projects: out, terminals }
@@ -461,4 +459,21 @@ export function branchChecks(project, branch, pilot) {
     if (ap.waiting) rows.push({ name: "Merge", state: "waiting", detail: ap.held ? `held: ${ap.held}` : "waiting to merge", url: "" })
   }
   return rows
+}
+
+// matchesSearch says whether a setting's words contain every word of a
+// search, in any order and case: "dock badge" finds "Badge the Dock icon".
+export function matchesSearch(text, query) {
+  const words = String(query || "").toLowerCase().split(/\s+/).filter(Boolean)
+  const hay = String(text || "").toLowerCase()
+  return words.every((w) => hay.includes(w))
+}
+
+// sortTasks orders a project's tasks for the sidebar: "attention" puts the
+// ones waiting on you first, then working, finished, idle; "name" is by
+// name alone.
+export function sortTasks(tasks, by = "attention") {
+  const rank = { waiting: 0, working: 1, done: 2, idle: 3, exited: 4, "": 5 }
+  return [...tasks].sort((a, b) =>
+    (by === "name" ? 0 : rank[a.state] - rank[b.state]) || a.title.localeCompare(b.title))
 }

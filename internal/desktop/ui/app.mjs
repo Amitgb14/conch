@@ -9,6 +9,7 @@ import {
   keyFromEvent, splitRef, applyEvent, Calls, cellAt, wheelGoesTo, clicksGoTo, mouseButton, wheelSteps,
   scrollOffset, ordered, selectionText, groupTasks, waitingCount, tabsFor, readMenu, choiceKeys, plainRows,
   changeSummary, fitSize, askReason, questionAbove, parseDiff, lineOf, commentsAt, plural, branchChecks,
+  matchesSearch,
 } from "./lib.mjs"
 
 const $ = (id) => document.getElementById(id)
@@ -36,7 +37,12 @@ let pilotState = {} // machine → autopilot.get, for the Checks tab
 let agentsAvailable = []
 let conchPath = "" // the conch the host runs in a pane (hello)
 let autopilot = null
-const prefs = { theme: "system", accent: "violet", density: "comfortable", icons: true, rail: false, inspector: true, notify: true, sound: "Glass" }
+const prefs = {
+  theme: "system", accent: "violet", density: "comfortable", textSize: "default", icons: true, rail: false, inspector: true,
+  notify: true, notifyDone: false, sound: "Glass",
+  termSize: 13, copyOnSelect: false,
+  openOn: "waiting", last: "", defaultAgent: "", defaultMachine: "", sortBy: "attention", showBranches: true,
+}
 // override is what the address asked for (#theme=light, rail=1): shown,
 // never saved, and dropped for a setting the person then changes.
 const override = { ...startOverride }
@@ -137,7 +143,18 @@ function applyPrefs() {
   root.dataset.theme = p.theme
   root.dataset.accent = p.accent
   root.dataset.density = p.density
+  root.dataset.text = p.textSize
   app.classList.toggle("rail", !!p.rail)
+  // The terminal's font size: its cells are measured again, and the pane
+  // fitted to the panel at the new size.
+  const size = Number(p.termSize) || 13
+  if (term.size !== size) {
+    term.size = size
+    term.fonts.clear()
+    term.measure()
+    const f = term.prev
+    if (f) { term.prev = null; paint(f) }
+  }
   $("inspector").hidden = !p.inspector
   // The terminal takes its colours from the theme, the sixteen included.
   const css = getComputedStyle(root)
@@ -170,6 +187,8 @@ function item(ref) {
 let opened = false
 function first() {
   const all = groups.projects.flatMap((g) => g.tasks)
+  const p = shown()
+  if (p.openOn === "last" && all.some((t) => t.ref === p.last)) return p.last
   return (all.find((t) => t.state === "waiting") || all[0] || {}).ref || null
 }
 
@@ -186,7 +205,8 @@ function reportAttention() {
     ref: t.ref, title: t.title, agent: t.agent,
     question: (t.pane.agent && t.pane.agent.message) || "",
   }))
-  const at = { waiting, focused: document.hasFocus(), notify: !!p.notify, sound: p.sound || "" }
+  const done = groups.projects.flatMap((g) => g.tasks).filter((t) => t.state === "done").map((t) => ({ ref: t.ref, title: t.title, agent: t.agent, question: "" }))
+  const at = { waiting, done, notify_done: !!p.notifyDone, focused: document.hasFocus(), notify: !!p.notify, sound: p.sound || "" }
   const key = JSON.stringify(at)
   if (key === lastAttention) return
   lastAttention = key
@@ -209,9 +229,10 @@ function onNative() {
 }
 
 function draw() {
-  groups = groupTasks(machines, panes, projects)
+  groups = groupTasks(machines, panes, projects, shown().sortBy)
   reportAttention()
   if (!opened && !current && view === "session") {
+    if (shown().openOn === "new" && machines.length) { opened = true; show("home"); return }
     const ref = first()
     if (ref) { opened = true; select(ref); return }
   }
@@ -234,7 +255,7 @@ function drawSide() {
 
   const row = (t) => `<button class="task" type="button" data-ref="${esc(t.ref)}" aria-current="${t.ref === current}" title="${esc(t.title)}">
       <span class="mark">${prefs.icons ? agentIcon(t.agent, 22) : ""}<span class="dot ${t.state || "blank"}"></span></span>
-      <span class="label"><span>${esc(t.title)}</span>${t.branch ? `<span class="sub">${esc(t.branch)}</span>` : ""}</span>
+      <span class="label"><span>${esc(t.title)}</span>${t.branch && prefs.showBranches ? `<span class="sub">${esc(t.branch)}</span>` : ""}</span>
     </button>`
   let html = ""
   for (const g of groups.projects) html += `<div class="group"><h3>${esc(g.name)}</h3>${g.tasks.map(row).join("")}</div>`
@@ -394,6 +415,7 @@ function select(ref) {
   if (ref) {
     ws.send(JSON.stringify({ t: "subscribe", pane: ref }))
     loadChanges()
+    if (prefs.last !== ref) { prefs.last = ref; savePrefs() }
   }
   show("session")
   if (ref) ime.focus()
@@ -565,6 +587,9 @@ window.addEventListener("mouseup", (e) => {
   if (!term.prev) return
   if (d.to === "program") mouseEvent(e, cellOf(e), d.button, "release")
   else if (!d.moved) setSelection(null)
+  else if (shown().copyOnSelect && selection && navigator.clipboard) {
+    navigator.clipboard.writeText(selectionText(term.prev.lines, term.prev.cols, selection)).catch(() => {})
+  }
 })
 let wheelAcc = 0
 canvas.addEventListener("wheel", (e) => {
@@ -589,7 +614,9 @@ async function drawHome() {
   const machineOpts = online.map((m) => `<option value="${esc(m.id)}">${esc(m.id === "local" ? "This Mac" : m.label)}</option>`).join("")
   const form = $("home").querySelector("form")
   const keep = form ? { prompt: form.prompt.value, machine: form.machine.value, project: form.project.value, agent: form.agent.value } : null
-  const mach = (keep && online.some((m) => m.id === keep.machine) && keep.machine) || (online[0] && online[0].id) || "local"
+  const pref = shown()
+  const mach = (keep && online.some((m) => m.id === keep.machine) && keep.machine) ||
+    (online.some((m) => m.id === pref.defaultMachine) && pref.defaultMachine) || (online[0] && online[0].id) || "local"
   const projOpts = (projects[mach] || []).map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")
   const agents = (agentsAvailable.length ? agentsAvailable.filter((a) => a.installed) : [{ name: "claude" }]).map((a) => `<option value="${esc(a.name)}">${esc(a.name)}</option>`).join("")
   const waiting = waitingCount(groups)
@@ -619,6 +646,8 @@ async function drawHome() {
   // offered (a machine that went away, or none known yet) falls back to
   // the first that is.
   const restore = (sel, v) => { if (v && [...sel.options].some((o) => o.value === v)) sel.value = v }
+  restore(f.machine, mach)
+  restore(f.agent, pref.defaultAgent)
   if (keep) { f.prompt.value = keep.prompt; restore(f.machine, keep.machine); restore(f.project, keep.project); restore(f.agent, keep.agent) }
   f.machine.onchange = () => drawHome()
   f.prompt.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); f.requestSubmit() } }
@@ -840,66 +869,172 @@ document.addEventListener("click", (e) => {
 })
 
 // ---- Settings ----
-async function drawSettings() {
+// Every option here does something real in conch: the window's own are
+// kept in desktop.json, the autopilot's on the server, and what only the
+// CLI does — installing an agent, adding a machine, a diagnosis — runs in
+// a terminal the window opens.
+let settingsQuery = ""
+let removing = "" // a project asked to be removed, waiting for the second click
+let projectMsg = ""
+
+function drawSettings() {
   const prefs = shown()
   const local = machines.find((m) => m.id === "local")
-  const canPilot = local && (local.capabilities || []).includes("autopilot.v1")
+  const caps = (local && local.capabilities) || []
+  const canPilot = caps.includes("autopilot.v1")
   if (canPilot && !autopilot) {
-    call("local", "autopilot.get").then((s) => { autopilot = (s && s.policy) || {}; if (view === "settings") drawSettings() }).catch(() => {})
+    call("local", "autopilot.get").then((st) => { autopilot = (st && st.policy) || {}; if (view === "settings") drawSettings() }).catch(() => {})
+  }
+  if (!agentsAvailable.length && local && local.state === "online") {
+    call("local", "agent.status").then((r) => { agentsAvailable = (r && r.agents) || []; if (view === "settings") drawSettings() }).catch(() => {})
   }
   const seg = (name, opts) => `<div class="seg" role="radiogroup">${opts.map(([v, l]) =>
-    `<button type="button" role="radio" data-pref="${name}" data-val="${v}" aria-checked="${prefs[name] === v}">${l}</button>`).join("")}</div>`
+    `<button type="button" role="radio" data-pref="${name}" data-val="${v}" aria-checked="${String(prefs[name]) === v}">${l}</button>`).join("")}</div>`
   const sw = (name, label, on) => `<button class="switch" type="button" role="switch" aria-label="${esc(label)}" data-toggle="${name}" aria-checked="${!!on}"></button>`
-  const themes = [["dark", "Dark", "#0A0A0B", "#141416", "#2A2A30"], ["light", "Light", "#FFFFFF", "#F1F1F3", "#E1E1E5"], ["system", "Follow system", "#5A5A63", "#3A3A40", "#7A7A84"]]
+  const sel = (name, label, options) => `<select class="select" data-select="${name}" aria-label="${esc(label)}">${options.map(([v, l]) =>
+    `<option value="${esc(v)}" ${String(prefs[name]) === String(v) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`
+  // row is one setting: its words are what the search looks through.
+  const row = (title, hint, control = "", extra = "") =>
+    `<div class="setrow" data-search="${esc(title + " " + hint + " " + extra)}"><div class="what"><div>${title}</div>${hint ? `<div>${hint}</div>` : ""}</div>${control}</div>`
+  const themes = [["dark", "Dark", "#0A0A0B", "#141416", "#2A2A30"], ["light", "Light", "#ECECF0", "#FAFAFB", "#D9D9E0"], ["system", "Follow system", "#5A5A63", "#3A3A40", "#7A7A84"]]
   const accents = [["violet", "#8B7CF6"], ["blue", "#6EA8FE"], ["green", "#5CC48D"], ["amber", "#F5B544"], ["rose", "#F27FA5"]]
   const fix = autopilot ? autopilot.auto_fix || 0 : 0
   const resolve = autopilot ? autopilot.auto_resolve || 0 : 0
   const pick = (field, value, options) => `<select class="select" data-pilot="${field}" aria-label="${field}">${options.map(([v, l]) =>
     `<option value="${v}" ${Number(v) === value ? "selected" : ""}>${l}</option>`).join("")}</select>`
-  $("settings").innerHTML = `
-    <nav aria-label="Settings"><h1>Settings</h1>
-      <a class="nav" href="#appearance">Appearance</a>${native() ? `<a class="nav" href="#notifications">Notifications</a>` : ""}<a class="nav" href="#autopilot">Autopilot</a><a class="nav" href="#machines">Machines</a></nav>
-    <div class="page"><div>
-      <section id="appearance"><h2>Appearance</h2><div class="panel">
-        <div class="setrow"><div class="what"><div>Theme</div><div>Follow the system, or choose one.</div></div>
-          <div class="themes" role="radiogroup">${themes.map(([v, l, bg, side, line]) => `<button class="theme" type="button" role="radio" data-pref="theme" data-val="${v}" aria-checked="${prefs.theme === v}">
-            <span class="pv" style="background:${bg}"><i style="background:${side}"></i><b><s style="width:60%;background:${line}"></s><s style="width:85%;background:${line}"></s><u></u></b></span>${l}</button>`).join("")}</div></div>
-        <div class="setrow"><div class="what"><div>Accent</div><div>The colour of the main action on every screen.</div></div>
-          <div class="swatches" role="radiogroup">${accents.map(([v, c]) => `<button class="swatch" type="button" role="radio" aria-label="${v}" data-pref="accent" data-val="${v}" aria-checked="${prefs.accent === v}" style="background:${c};color:${c}"></button>`).join("")}</div></div>
-        <div class="setrow"><div class="what"><div>Density</div><div>How much fits in the sidebar and lists.</div></div>${seg("density", [["comfortable", "Comfortable"], ["compact", "Compact"]])}</div>
-        <div class="setrow"><div class="what"><div>Agent icons</div><div>Each agent's mark beside its tasks and tabs.</div></div>
-          <span style="display:flex;gap:4px">${["claude", "codex", "gemini", "opencode", "devin"].map((a) => agentIcon(a, 22)).join("")}</span>${sw("icons", "Agent icons", prefs.icons)}</div>
-        <div class="setrow"><div class="what"><div>Fold the sidebar</div><div>Icons only, for more room. ⌘B</div></div>${sw("rail", "Fold the sidebar", prefs.rail)}</div>
-      </div></section>
-      ${native() ? `<section id="notifications"><h2>When an agent waits on you</h2><div class="panel">
-        <div class="setrow"><div class="what"><div>Notify me</div><div>A notification names the agent and what it asks; clicking it opens the task. Not while conch is in front.</div></div>${sw("notify", "Notify me", prefs.notify)}</div>
-        <div class="setrow"><div class="what"><div>Sound</div><div>Played once, not repeated while it waits.</div></div>
-          <select class="select" data-sound aria-label="Sound">${["Glass", "Ping", "Pop", "Tink", ""].map((n) => `<option value="${n}" ${prefs.sound === n ? "selected" : ""}>${n || "None"}</option>`).join("")}</select></div>
-        <div class="setrow"><div class="what"><div>Badge the Dock icon</div><div>With how many agents are waiting. Always on.</div></div></div>
-      </div></section>` : ""}
-      <section id="autopilot"><h2>Autopilot</h2><div class="panel">${canPilot ? `
-        <div class="setrow"><div class="what"><div>Send failures back to the agent</div><div>A failed CI run or project check goes to the branch's agent with its log, this many times in a row.</div></div>
-          ${pick("auto_fix", fix, [["0", "Never"], ["1", "1 time"], ["3", "3 times"], ["5", "5 times"]])}</div>
-        <div class="setrow"><div class="what"><div>Open a pull request when an agent finishes</div><div>Pushed once its check passes; new commits go to the open one.</div></div>${sw("auto_pr", "Open a pull request", autopilot && autopilot.auto_pr)}</div>
-        <div class="setrow"><div class="what"><div>Send merge conflicts back to resolve</div><div>After conch's own rebase stops on a conflict.</div></div>
-          ${pick("auto_resolve", resolve, [["0", "Never"], ["1", "1 time"], ["2", "2 times"]])}</div>
-        <div class="setrow"><div class="what"><div>Merge pull requests that turn green</div><div>When checks pass and nothing holds the pull request back.</div></div>${sw("auto_merge", "Merge green pull requests", autopilot && autopilot.auto_merge)}</div>`
-        : `<div class="setrow"><div class="what"><div>Not available</div><div>This computer's conch server is older than the window: reload it with conch server reload.</div></div></div>`}
-      </div><p class="note">A TUI that is open hands the server its own autopilot settings when it starts.</p></section>
-      <section id="machines"><h2>Machines</h2><div class="panel">${machines.map((m) => `<div class="setrow"><span class="dot ${m.state}"></span><div class="what"><div>${esc(m.id === "local" ? "This Mac" : m.label)}</div><div>${esc(m.state === "online" ? "conch " + (m.version || "") : m.detail || m.state)}</div></div>
-          ${m.id !== "local" && conchPath ? `<button class="btn" type="button" data-upgrade="${esc(m.id)}">Upgrade conch there</button>` : ""}</div>`).join("")}
-        ${conchPath ? `<div class="setrow"><div class="what"><div>Update conch</div><div>The newest release, installed and the server reloaded onto it; agents keep running. It runs in a terminal, so you can watch it.</div></div>
-          <button class="btn" type="button" data-update>Check for updates</button></div>` : ""}
-        ${conchPath ? `<form class="setrow" data-addmachine><div class="what"><div>Add a machine</div><div>Over ssh: conch installs itself there if it needs to. It runs in a terminal, so ssh can ask what it needs to.</div></div>
+  const online = machines.filter((m) => m.state === "online")
+  const installed = agentsAvailable.filter((a) => a.installed)
+  const machineName = (m) => (m.id === "local" ? "This Mac" : m.label)
+
+  const sections = [
+    ["general", "General", [
+      row("Open on", "What the window shows when it starts.",
+        sel("openOn", "Open on", [["waiting", "The task waiting on you"], ["last", "The last task you had open"], ["new", "New task"]])),
+      row("Default agent", "The agent a new task starts with.",
+        sel("defaultAgent", "Default agent", [["", "The first installed"], ...installed.map((a) => [a.name, a.label || a.name])])),
+      row("Default machine", "Where a new task runs.",
+        sel("defaultMachine", "Default machine", [["", "This Mac"], ...online.filter((m) => m.id !== "local").map((m) => [m.id, m.label])])),
+      row("Sort tasks", "In the sidebar, within each project.", seg("sortBy", [["attention", "Waiting first"], ["name", "By name"]])),
+      row("Show branches", "Each task's branch under its name.", sw("showBranches", "Show branches", prefs.showBranches)),
+    ]],
+    ["appearance", "Appearance", [
+      `<div class="setrow" data-search="theme dark light system follow"><div class="what"><div>Theme</div><div>Follow the system, or choose one.</div></div>
+        <div class="themes" role="radiogroup">${themes.map(([v, l, bg, side, line]) => `<button class="theme" type="button" role="radio" data-pref="theme" data-val="${v}" aria-checked="${prefs.theme === v}">
+          <span class="pv" style="background:${bg}"><i style="background:${side}"></i><b><s style="width:60%;background:${line}"></s><s style="width:85%;background:${line}"></s><u></u></b></span>${l}</button>`).join("")}</div></div>`,
+      row("Accent", "The colour of the main action on every screen.",
+        `<div class="swatches" role="radiogroup">${accents.map(([v, c]) => `<button class="swatch" type="button" role="radio" aria-label="${v}" data-pref="accent" data-val="${v}" aria-checked="${prefs.accent === v}" style="background:${c};color:${c}"></button>`).join("")}</div>`, "colour color"),
+      row("Text size", "Of everything but the terminals.", seg("textSize", [["small", "Small"], ["default", "Default"], ["large", "Large"]]), "font"),
+      row("Density", "How much fits in the sidebar and lists.", seg("density", [["comfortable", "Comfortable"], ["compact", "Compact"]])),
+      row("Agent icons", "Each agent's mark beside its tasks and tabs.",
+        `<span style="display:flex;gap:4px">${["claude", "codex", "gemini", "opencode", "devin"].map((a) => agentIcon(a, 22)).join("")}</span>${sw("icons", "Agent icons", prefs.icons)}`),
+      row("Fold the sidebar", "Icons only, for more room. ⌘B", sw("rail", "Fold the sidebar", prefs.rail), "rail"),
+    ]],
+    ["terminal", "Terminal", [
+      row("Font size", "Geist Mono, in every terminal.",
+        sel("termSize", "Terminal font size", [11, 12, 13, 14, 15, 16].map((n) => [String(n), `${n} px`])), "text"),
+      row("Copy on select", "Selecting text in a terminal copies it, as many terminals do.", sw("copyOnSelect", "Copy on select", prefs.copyOnSelect), "clipboard"),
+      row("Shift selects", "Where a program takes the mouse, hold shift to select text anyway.", "", "mouse"),
+      row("The wheel", "Scrolls conch's history on a normal screen and goes to a full-screen program; alt or ctrl hands it over.", "", "scroll mouse"),
+    ]],
+    ...(native() ? [["notifications", "Notifications", [
+      row("When an agent waits on you", "A notification names the agent and what it asks; clicking it opens the task. Not while conch is in front.", sw("notify", "Notify when an agent waits", prefs.notify)),
+      row("When an agent finishes", "Once, so a finished task does not wait unseen.", sw("notifyDone", "Notify when an agent finishes", prefs.notifyDone), "done"),
+      row("Sound", "Played once, not repeated while it waits.",
+        `<select class="select" data-sound aria-label="Sound">${["Glass", "Ping", "Pop", "Tink", "Hero", "Submarine", ""].map((n) => `<option value="${n}" ${prefs.sound === n ? "selected" : ""}>${n || "None"}</option>`).join("")}</select>`),
+      row("Badge the Dock icon", "With how many agents are waiting. Always on.", "", "dock"),
+    ]]] : []),
+    ["agents", "Agents", agentsAvailable.length ? agentsAvailable.map((a) => row(
+      `${agentIcon(a.name, 22)}<span style="margin-left:8px">${esc(a.label || a.name)}</span>`,
+      a.installed ? `${esc(a.version || "installed")}${a.tier && a.tier !== "supported" ? " · conch runs it" : ""}<span class="path" title="${esc(a.path || "")}">${esc(a.path || "")}</span>` : "Not installed",
+      a.installed ? "" : (conchPath ? `<button class="btn" type="button" data-install="${esc(a.name)}">Install</button>` : ""),
+      a.name)) : [row("Agents", "Asking this computer's conch which agents it has…")]],
+    ["projects", "Projects", [
+      ...online.flatMap((m) => (projects[m.id] || []).map((pr) => row(
+        `${esc(pr.name)}${m.id === "local" ? "" : ` <span class="note">· ${esc(m.label)}</span>`}`,
+        `<span style="font-family:var(--mono);font-size:12px">${esc(pr.path)}</span>`,
+        `<button class="btn ${removing === pr.id ? "danger" : "quiet"}" type="button" data-removeproject="${esc(m.id)}:${esc(pr.id)}">${removing === pr.id ? "Remove from conch?" : "Remove"}</button>`,
+        pr.path))),
+      `<form class="setrow" data-addproject data-search="add project folder repository path"><div class="what"><div>Add a project</div><div>A git repository or a folder, by its path on the machine. Its files stay where they are.</div></div>
+        <label class="sr" for="pPath">Path</label><input class="select" id="pPath" name="path" placeholder="~/code/my-app" required>
+        <label class="sr" for="pMachine">Machine</label><select class="select" id="pMachine" name="machine">${online.map((m) => `<option value="${esc(m.id)}">${esc(machineName(m))}</option>`).join("")}</select>
+        <button class="btn primary" type="submit">Add</button></form>`,
+      ...(projectMsg ? [`<div class="setrow"><p class="msg">${esc(projectMsg)}</p></div>`] : []),
+    ]],
+    ["machines", "Machines", [
+      ...machines.map((m) => row(`<span class="dot ${m.state}" style="display:inline-block;margin-right:8px"></span>${esc(machineName(m))}`,
+        esc(m.state === "online" ? "conch " + (m.version || "") : m.detail || m.state),
+        m.id !== "local" && conchPath ? `<button class="btn" type="button" data-upgrade="${esc(m.id)}">Upgrade conch there</button>` : "", m.id)),
+      ...(conchPath ? [
+        row("Update conch", "The newest release, installed and the server reloaded onto it; agents keep running. It runs in a terminal, so you can watch it.",
+          `<button class="btn" type="button" data-update>Check for updates</button>`, "upgrade release version"),
+        `<form class="setrow" data-addmachine data-search="add machine ssh host remote"><div class="what"><div>Add a machine</div><div>Over ssh: conch installs itself there if it needs to. It runs in a terminal, so ssh can ask what it needs to.</div></div>
           <label class="sr" for="mTarget">ssh target</label><input class="select" id="mTarget" name="target" placeholder="me@host" required>
           <label class="sr" for="mLabel">Name</label><input class="select" id="mLabel" name="label" placeholder="Name (optional)">
-          <button class="btn primary" type="submit">Add</button></form>` : ""}
-      </div></section>
-    </div></div>`
+          <button class="btn primary" type="submit">Add</button></form>`] : []),
+    ]],
+    ["autopilot", "Autopilot", canPilot ? [
+      row("Send failures back to the agent", "A failed CI run or project check goes to the branch's agent with its log, this many times in a row.",
+        pick("auto_fix", fix, [["0", "Never"], ["1", "1 time"], ["3", "3 times"], ["5", "5 times"]]), "ci check"),
+      row("Open a pull request when an agent finishes", "Pushed once its check passes; new commits go to the open one.", sw("auto_pr", "Open a pull request", autopilot && autopilot.auto_pr), "pr"),
+      row("Send merge conflicts back to resolve", "After conch's own rebase stops on a conflict.", pick("auto_resolve", resolve, [["0", "Never"], ["1", "1 time"], ["2", "2 times"]])),
+      row("Merge pull requests that turn green", "When checks pass and nothing holds the pull request back.", sw("auto_merge", "Merge green pull requests", autopilot && autopilot.auto_merge), "pr"),
+      row("", "A TUI that is open hands the server its own autopilot settings when it starts."),
+    ] : [row("Not available", "This computer's conch server is older than the window: reload it with conch server reload.")]],
+    ["keyboard", "Keyboard", [
+      ["⌘N", "New task"], ["⌘J", "The next agent waiting on you"], ["⇧⌘R", "Review the task's changes"], ["⌘B", "Fold the sidebar"],
+      ["⌥⌘I", "Show or hide the changes"], ["⌘,", "Settings"], ["⌘C / ⌘V", "Copy a selection, paste into the terminal"],
+      ["⌘↵", "Start the task you are writing"], ["Enter / ⇧Enter", "Send a reply, or a new line in it"],
+    ].map(([k, w]) => row(w, "", `<kbd>${k}</kbd>`, "shortcut key"))],
+    ["diagnostics", "Diagnostics", conchPath ? [
+      row("Check conch", "What conch needs — the server, agents, git, gh, the terminal, machines — and how to fix what is missing.", `<button class="btn" type="button" data-run="doctor">Run conch doctor</button>`, "doctor"),
+      row("Report a problem", "Versions, counts and conch's last error, ready for a GitHub issue. Facts only — no paths, projects or screens.", `<button class="btn" type="button" data-run="bug">Prepare a report</button>`, "bug issue"),
+    ] : [row("Diagnostics", "Run conch doctor in a terminal.")]],
+    ["about", "About", [
+      row("conch", local ? `${esc(local.version || "")} on this Mac · ${caps.length} capabilities` : "", "", "version"),
+      row("This window", `${machines.length} machine${machines.length === 1 ? "" : "s"} · ${groups.projects.reduce((n, g) => n + g.tasks.length, 0)} agents · ${groups.terminals.length} terminals`, "", "version"),
+      row("Layout", "Kept in desktop.json in conch's folder. The autopilot's settings are the server's.", "", "storage file"),
+      row("Fonts", "Geist and Geist Mono, under the SIL Open Font License.", "", "license"),
+    ]],
+  ]
+  const q = settingsQuery
+  const nav = sections.map(([id, title]) => `<a class="nav" href="#${id}">${title}</a>`).join("")
+  const body = sections.map(([id, title, rows]) => {
+    const shownRows = rows.filter((r) => !q || matchesSearch((/data-search="([^"]*)"/.exec(r) || [])[1] + " " + title, q))
+    return shownRows.length ? `<section id="${id}"><h2>${title}</h2><div class="panel">${shownRows.join("")}</div></section>` : ""
+  }).join("")
+  const had = document.activeElement && document.activeElement.id === "settingsSearch"
+  $("settings").innerHTML = `
+    <nav aria-label="Settings"><h1>Settings</h1>
+      <label class="search"><span class="sr">Search settings</span>${icon("search", 14)}<input id="settingsSearch" placeholder="Search settings" value="${esc(q)}"></label>
+      ${nav}</nav>
+    <div class="page"><div>${body || `<p class="note">Nothing matches “${esc(q)}”.</p>`}</div></div>`
+  if (had) {
+    const i = $("settingsSearch")
+    i.focus()
+    i.setSelectionRange(i.value.length, i.value.length)
+  }
 }
+document.addEventListener("input", (e) => {
+  if (e.target.id !== "settingsSearch") return
+  settingsQuery = e.target.value
+  drawSettings()
+})
 document.addEventListener("click", (e) => {
   const p = e.target.closest("[data-pref]")
-  if (p) { setPref(p.dataset.pref, p.dataset.val); drawSettings(); return }
+  if (p) { setPref(p.dataset.pref, p.dataset.val); draw(); drawSettings(); return }
+  const ins = e.target.closest("[data-install]")
+  if (ins) { runConch(`install ${ins.dataset.install}`, ["agent", "install", ins.dataset.install]); agentsAvailable = []; return }
+  const run = e.target.closest("[data-run]")
+  if (run) { runConch(`conch ${run.dataset.run}`, [run.dataset.run]); return }
+  const rm = e.target.closest("[data-removeproject]")
+  if (rm) {
+    const [machine, id] = rm.dataset.removeproject.split(":")
+    if (removing !== id) { removing = id; drawSettings(); return }
+    removing = ""
+    call(machine, "project.remove", { id }).then(() => refreshMachine(machine)).then(() => { projectMsg = ""; drawSettings() })
+      .catch((err) => { projectMsg = err.message; drawSettings() })
+    return
+  }
   const t = e.target.closest("[data-toggle]")
   if (!t) return
   const name = t.dataset.toggle
@@ -914,10 +1049,32 @@ document.addEventListener("click", (e) => {
 })
 document.addEventListener("change", (e) => {
   if (e.target.matches("[data-sound]")) { setPref("sound", e.target.value); return }
+  const sl = e.target.closest("[data-select]")
+  if (sl) {
+    const name = sl.dataset.select
+    setPref(name, name === "termSize" ? Number(sl.value) : sl.value)
+    draw()
+    return
+  }
   const s = e.target.closest("[data-pilot]")
   if (!s) return
   autopilot = { ...(autopilot || {}), [s.dataset.pilot]: Number(s.value) }
   call("local", "autopilot.set", autopilot).catch(() => {})
+})
+document.addEventListener("submit", async (e) => {
+  if (!e.target.matches("[data-addproject]")) return
+  e.preventDefault()
+  const f = e.target
+  const path = f.path.value.trim()
+  if (!path) { f.path.focus(); return }
+  try {
+    await call(f.machine.value, "project.add", { path })
+    projectMsg = ""
+    await refreshMachine(f.machine.value)
+  } catch (err) {
+    projectMsg = err.message
+  }
+  drawSettings()
 })
 
 // The terminal's cells are measured in its font, which loads after the

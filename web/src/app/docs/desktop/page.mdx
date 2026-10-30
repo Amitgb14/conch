@@ -32,9 +32,19 @@ When an agent starts waiting while the window is not in front, the app shows a n
 
 ## Settings
 
-**⌘,** opens them: theme (dark, light or follow the system), accent colour, density, agent icons, the folded sidebar, notifications and their sound, and the [autopilot](/docs/tasks) — sending failed checks back to the agent, opening and merging pull requests. The window's own choices are kept in `desktop.json` in conch's folder; the autopilot's belong to the server.
+**⌘,** opens them, with a search box over all of it:
 
-**Settings → Machines** lists every machine with the conch it runs, and adds one or upgrades the conch there; **Check for updates** installs the newest release here. Each runs the same command as the CLI (`conch machine add`, `conch machine upgrade`, `conch update`) in a terminal the window opens, so ssh can ask what it needs to and you can watch it work.
+- **General** — what the window opens on (the task waiting on you, the last one you had open, or New task), the agent and machine a new task starts with, how tasks are sorted, and whether branches show.
+- **Appearance** — theme (dark, light or follow the system), accent colour, text size, density, agent icons, the folded sidebar.
+- **Terminal** — font size and copy on select.
+- **Notifications** — when an agent waits on you and, if you like, when one finishes; the sound; the Dock badge.
+- **Agents** — every agent conch knows, installed or not, with **Install** for one that is missing.
+- **Projects** — each machine's projects; add one by its path, remove one (its files stay).
+- **Machines** — see below.
+- **Autopilot** — sending failed checks back to the agent, resolving conflicts, opening and merging pull requests. These are the server's, so they apply with the window closed.
+- **Keyboard**, **Diagnostics** (`conch doctor`, and a report for a bug) and **About**.
+
+The window's own choices are kept in `desktop.json` in conch's folder.
 
 ## One pane, two windows
 

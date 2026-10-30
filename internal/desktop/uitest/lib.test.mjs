@@ -392,3 +392,23 @@ test("branchChecks", () => {
     ["Merge", "waiting", "held: behind its base"],
   ])
 })
+
+import { matchesSearch, sortTasks } from "../ui/lib.mjs"
+
+test("matchesSearch", () => {
+  assert.equal(matchesSearch("Badge the Dock icon", "dock badge"), true)
+  assert.equal(matchesSearch("Badge the Dock icon", "DOCK"), true)
+  assert.equal(matchesSearch("Badge the Dock icon", "dock sound"), false)
+  assert.equal(matchesSearch("anything", ""), true) // no search: everything
+  assert.equal(matchesSearch("anything", "   "), true)
+  assert.equal(matchesSearch("", "x"), false)
+  assert.equal(matchesSearch(null, undefined), true)
+})
+
+test("sortTasks", () => {
+  const ts = [{ title: "b", state: "idle" }, { title: "a", state: "working" }, { title: "c", state: "waiting" }, { title: "a2", state: "waiting" }]
+  assert.deepEqual(sortTasks(ts).map((t) => t.title), ["a2", "c", "a", "b"])
+  assert.deepEqual(sortTasks(ts, "name").map((t) => t.title), ["a", "a2", "b", "c"])
+  assert.deepEqual(ts.map((t) => t.title), ["b", "a", "c", "a2"]) // not sorted in place
+  assert.deepEqual(sortTasks([]), [])
+})

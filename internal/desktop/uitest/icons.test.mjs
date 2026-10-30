@@ -24,3 +24,12 @@ test("icon and escapeAttr", () => {
   assert.equal(escapeAttr(null), "")
   assert.equal(escapeAttr(3), "3")
 })
+
+test("agents conch only runs get a square in their colour", () => {
+  for (const a of ["aider", "amp", "cursor", "grok", "kilo", "pi"]) {
+    const s = agentIcon(a, 22)
+    assert.match(s, /<rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor"/, a)
+    assert.match(s, new RegExp(`color:${agentColors[a]}`), a)
+  }
+  assert.doesNotMatch(agentIcon("claude"), /fill="currentColor" stroke="none"\/><\/svg>/) // a supported agent keeps its glyph
+})

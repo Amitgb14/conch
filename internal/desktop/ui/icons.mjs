@@ -5,7 +5,13 @@
 // The agents' own colours; a shell is the interface's grey.
 export const agentColors = {
   claude: "#D97757", codex: "#10A37F", gemini: "#4285F4", opencode: "#C792EA", devin: "#E3B341",
+  // The agents conch runs but does not fully support: a square each, in
+  // the colour the TUI gives it, so the shape says which tier it is.
+  aider: "#4CAF50", amp: "#FF6B35", cursor: "#C9D1D9", grok: "#E8E8E8", kilo: "#FEE685", pi: "#4D9ABF",
 }
+
+// runsHere are those second-tier agents.
+const runsHere = new Set(["aider", "amp", "cursor", "grok", "kilo", "pi"])
 
 const glyphs = {
   // An asterisk, the shape of Anthropic's own mark.
@@ -22,11 +28,12 @@ const glyphs = {
   // Any other agent: a chip, as the TUI's default glyph.
   other: `<rect x="6" y="6" width="12" height="12" rx="2" stroke-width="1.8"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" stroke-width="1.8" stroke-linecap="round"/>`,
   shell: `<rect x="3.5" y="5" width="17" height="14" rx="2.5" stroke-width="2"/><path d="m7.5 10 2.5 2-2.5 2M12 14.5h4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
+  square: `<rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" stroke="none"/>`,
 }
 
 // agentIcon is an agent's mark on a tinted tile, size px square.
 export function agentIcon(agent, size = 22) {
-  const known = agent in glyphs ? agent : "other"
+  const known = agent in glyphs ? agent : runsHere.has(agent) ? "square" : "other"
   const color = agentColors[agent]
   const style = color
     ? `color:${color};background:color-mix(in srgb, ${color} 16%, transparent)`

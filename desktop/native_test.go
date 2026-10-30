@@ -99,3 +99,41 @@ func TestNotifyBeforeStart(t *testing.T) {
 		t.Fatal("a context before start")
 	}
 }
+
+// A finished agent is announced once, only when asked for, and not while
+// the window is in front; it does not count towards the badge.
+func TestAttentionDone(t *testing.T) {
+	a, notes, badges, _ := fakeApp()
+	d := Waiting{Ref: "local:p2", Agent: "gemini", Title: "release notes"}
+	a.Attention(Attention{Done: []Waiting{d}, Notify: true})
+	if len(*notes) != 0 {
+		t.Fatal("a finish announced without being asked for")
+	}
+	b, notes2, badges2, _ := fakeApp()
+	b.Attention(Attention{Done: []Waiting{d}, Notify: true, NotifyDone: true})
+	b.Attention(Attention{Done: []Waiting{d}, Notify: true, NotifyDone: true})
+	if len(*notes2) != 1 {
+		t.Fatalf("finish announced %d times", len(*notes2))
+	}
+	if (*badges2)[0] != "" || (*badges)[0] != "" {
+		t.Fatal("a finished agent counted on the badge")
+	}
+	// Looked at (gone from the list), then finished again: news again.
+	b.Attention(Attention{Notify: true, NotifyDone: true})
+	b.Attention(Attention{Done: []Waiting{d}, Notify: true, NotifyDone: true})
+	if len(*notes2) != 2 {
+		t.Fatalf("a second finish not announced: %d", len(*notes2))
+	}
+	c, notes3, _, _ := fakeApp()
+	c.Attention(Attention{Done: []Waiting{d}, Notify: true, NotifyDone: true, Focused: true})
+	if len(*notes3) != 0 {
+		t.Fatal("announced to a person looking at the window")
+	}
+}
+
+func TestFinishedText(t *testing.T) {
+	title, body := notificationText(Waiting{Agent: "gemini", Title: "release notes", finished: true})
+	if title != "gemini finished — release notes" || body != "Ready to review." {
+		t.Fatalf("%q %q", title, body)
+	}
+}

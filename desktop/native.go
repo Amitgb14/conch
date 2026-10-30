@@ -15,6 +15,8 @@ type Waiting struct {
 	Title    string `json:"title"`
 	Agent    string `json:"agent"`
 	Question string `json:"question"`
+
+	finished bool // a finished agent, not a waiting one: said differently
 }
 
 // Attention is what the page tells the app each time who is waiting
@@ -23,9 +25,13 @@ type Waiting struct {
 // off in Settings.
 type Attention struct {
 	Waiting []Waiting `json:"waiting"`
-	Focused bool      `json:"focused"`
-	Notify  bool      `json:"notify"`
-	Sound   string    `json:"sound"` // a system sound's name; "" for none
+	// Done are agents that have finished and nobody has looked at, told
+	// only when the person asked to hear about those too (NotifyDone).
+	Done       []Waiting `json:"done,omitempty"`
+	NotifyDone bool      `json:"notify_done,omitempty"`
+	Focused    bool      `json:"focused"`
+	Notify     bool      `json:"notify"`
+	Sound      string    `json:"sound"` // a system sound's name; "" for none
 }
 
 // App is what the page reaches through the webview's bindings: the few
@@ -33,8 +39,9 @@ type Attention struct {
 type App struct {
 	ctx context.Context
 
-	mu   sync.Mutex
-	seen map[string]bool // waiting refs already announced
+	mu       sync.Mutex
+	seen     map[string]bool // waiting refs already announced
+	seenDone map[string]bool // finished refs already announced
 
 	// The outward effects, behind variables so a test never shows a
 	// notification, plays a sound or touches the Dock.
@@ -51,7 +58,7 @@ func (a *App) context() context.Context {
 }
 
 func newApp() *App {
-	return &App{seen: map[string]bool{}, notify: sendNotification, badge: setBadge, sound: playSound}
+	return &App{seen: map[string]bool{}, seenDone: map[string]bool{}, notify: sendNotification, badge: setBadge, sound: playSound}
 }
 
 // Attention is called by the page. Each agent that has just started
@@ -70,6 +77,17 @@ func (a *App) Attention(at Attention) {
 		}
 	}
 	a.seen = now
+	// A finished agent is told once too; it leaves the list when it is
+	// looked at, and finishing again later is news again.
+	nowDone := map[string]bool{}
+	for _, w := range at.Done {
+		nowDone[w.Ref] = true
+		if at.NotifyDone && !a.seenDone[w.Ref] {
+			w.finished = true
+			fresh = append(fresh, w)
+		}
+	}
+	a.seenDone = nowDone
 	ctx := a.ctx
 	a.mu.Unlock()
 
@@ -99,6 +117,13 @@ func badgeLabel(n int) string {
 
 // notificationText is a waiting agent as a notification says it.
 func notificationText(w Waiting) (title, body string) {
+	if w.finished {
+		title = w.Agent + " finished"
+		if w.Title != "" && w.Title != w.Agent {
+			title += " — " + w.Title
+		}
+		return title, "Ready to review."
+	}
 	title = w.Agent + " needs you"
 	if w.Title != "" && w.Title != w.Agent {
 		title += " — " + w.Title
