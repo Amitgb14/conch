@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 	"unicode"
+
+	"github.com/Amitgb14/conch/internal/fleet"
 )
 
 // StoreFile is the file in conch's directory that holds the paired devices.
@@ -376,7 +378,7 @@ func cleanMachines(machines []string) ([]string, error) {
 		switch {
 		case m == "" || m == LocalMachine:
 			continue
-		case !machineIDOK(m):
+		case !fleet.IDOK(m):
 			return nil, fmt.Errorf("%q does not name a machine: lower-case letters, digits and dashes", m)
 		case slices.Contains(clean, m):
 			continue

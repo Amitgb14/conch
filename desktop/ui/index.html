@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>conch</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1e1e1e; color: #d4d4d4; font: 13px -apple-system, system-ui, sans-serif; overflow: hidden; }
+  #bar { height: 28px; display: flex; align-items: center; gap: 12px; padding: 0 12px; background: #252526; border-bottom: 1px solid #333; }
+  #status { color: #9a9a9a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #box { position: absolute; top: 29px; left: 0; right: 0; bottom: 0; padding: 6px; }
+  canvas { display: block; outline: none; }
+  #ime { position: absolute; opacity: 0; width: 1px; height: 1px; left: -10px; }
+</style>
+</head>
+<body>
+<div id="bar"><strong>conch</strong><span id="status">starting…</span></div>
+<div id="box"><canvas id="term" tabindex="0"></canvas><textarea id="ime" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea></div>
+<script type="module" src="app.mjs"></script>
+</body>
+</html>

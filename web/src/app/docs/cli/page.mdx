@@ -237,6 +237,14 @@ conch web stop                                              # end one running in
 
 `conch web` serves your [phone](/docs/phone) on this machine's Tailscale address and nowhere else, unless `-listen` names another address. `-url` is the address phones open — the `https://…ts.net` one `tailscale serve` gives — which the QR code points at. `pair` draws the QR code only when it prints to a terminal. It takes no `-m`: it shows the agents of the machine it runs on. `pair` and `revoke` are refused from an agent's pane.
 
+### desktop
+
+```sh
+conch desktop -browser [-listen ADDR] [-no-open]            # the desktop window's page, in a browser
+```
+
+The [desktop app](/docs/desktop)'s window, in a browser: every machine and its panes on the left, the one you choose painted on the right to watch and type into. It is served on this computer only — `-listen` takes a loopback address and nothing else — and opened with a token that is new each time, carried in the address's `#` part, which a browser never sends anywhere. `-no-open` prints the address instead of opening it. The window's layout is kept in `desktop.json` in conch's folder.
+
 ### mcp
 
 ```sh

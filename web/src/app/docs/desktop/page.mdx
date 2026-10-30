@@ -1,0 +1,54 @@
+export const metadata = { title: "Desktop app", description: "conch in a window of its own: your agents, their questions and their changes." }
+
+# Desktop app
+
+The desktop app is conch in a window of its own. It shows the same agents, terminals and machines as the TUI — it is another client of the same server — so agents keep running when you close it, and the TUI and the window can be open on the same panes at once.
+
+<Callout type="note">
+
+The app is new. It builds for macOS and Linux; a signed, notarized macOS build is still to come, so macOS asks before opening it the first time.
+
+</Callout>
+
+## The window
+
+- **The sidebar** lists your tasks, project by project, each with its agent's mark and a dot for what it is doing: amber when it waits on you, blue while it works, green when it has finished and you have not looked. **Needs you** says how many wait and opens the first. Terminals that are no agent's sit under **Terminals**, and every machine is at the bottom. **⌘B** folds the sidebar to a rail of icons.
+- **The session** is the task's terminal, sized to the window. Type into it directly, select and copy text, scroll back with the wheel. Other panes on the same branch — a reviewer, a shell — are tabs above it.
+- **When an agent waits on you**, a card above the reply box says what it asks and offers its choices as buttons. A button answers exactly as you would with the arrow keys and Enter.
+- **The reply box** sends a message to the agent, or a command to a shell.
+- **Changes** beside the session lists what the branch has changed and its commits, and follows the agent's edits as they happen.
+
+## Review
+
+**Review changes** (⇧⌘R) opens the branch file by file. Click a line number to leave a comment; **Send to the agent** hands every comment to the agent working on that branch, with the file and line, as one message. Commit, push and open a pull request from the same screen.
+
+## New task
+
+**New task** (⌘N): describe the task, pick the project, machine and agent, and conch starts it on a branch of its own, as `conch task` does.
+
+## Notifications
+
+When an agent starts waiting while the window is not in front, the app shows a notification naming the agent and what it asks — click it to open that task — and plays a sound once. The Dock icon carries how many agents wait. Turn either off in **Settings → When an agent waits on you**.
+
+## Settings
+
+**⌘,** opens them: theme (dark, light or follow the system), accent colour, density, agent icons, the folded sidebar, notifications and their sound, and the [autopilot](/docs/tasks) — sending failed checks back to the agent, opening and merging pull requests. The window's own choices are kept in `desktop.json` in conch's folder; the autopilot's belong to the server.
+
+**Settings → Machines** lists every machine with the conch it runs, and adds one or upgrades the conch there; **Check for updates** installs the newest release here. Each runs the same command as the CLI (`conch machine add`, `conch machine upgrade`, `conch update`) in a terminal the window opens, so ssh can ask what it needs to and you can watch it work.
+
+## One pane, two windows
+
+A pane shown in both the TUI and the app takes the size of the one you last typed into, as tmux does. The other keeps its size waiting and takes the pane back the moment you type there.
+
+## Running it
+
+The app carries its own `conch`, and starts the server with it if none is running; if a server is already running it uses that one. To try the same window without installing the app, `conch desktop -browser` opens it in a browser.
+
+| Key | What it does |
+| --- | --- |
+| ⌘N | New task |
+| ⌘J | The next agent waiting on you |
+| ⇧⌘R | Review the task's changes |
+| ⌘B | Fold the sidebar |
+| ⌥⌘I | Show or hide the changes |
+| ⌘, | Settings |

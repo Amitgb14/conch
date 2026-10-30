@@ -613,6 +613,7 @@ func (p *Pane) FrameAt(offset int) proto.Frame {
 	offset = max(0, min(offset, history))
 	cur := p.emu.CursorPosition()
 
+	var cursor *proto.FrameCursor
 	lines := make([]string, rows)
 	line := make(uv.Line, cols)
 	start := history - offset // index into history followed by the screen
@@ -641,12 +642,13 @@ func (p *Pane) FrameAt(offset int) proto.Frame {
 				*c = uv.EmptyCell
 			}
 			c.Style.Attrs |= uv.AttrReverse
+			cursor = &proto.FrameCursor{Row: y, Col: cur.X}
 		}
 		lines[y] = line.Render()
 	}
 	return proto.Frame{
 		ID: p.id, Cols: cols, Rows: rows, Lines: lines, Title: title,
-		Offset: offset, History: history, Mouse: mouse, AltScreen: alt,
+		Offset: offset, History: history, Mouse: mouse, AltScreen: alt, Cursor: cursor,
 	}
 }
 

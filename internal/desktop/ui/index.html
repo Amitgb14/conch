@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en" data-theme="system" data-accent="violet" data-density="comfortable">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>conch</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app" id="app">
+  <nav class="side" id="side" aria-label="conch">
+    <div class="drag"><span class="brand" id="brand"></span></div>
+    <div class="top">
+      <button class="new" id="newTask" type="button"></button>
+      <button class="nav" id="navWaiting" type="button"></button>
+      <button class="nav" id="navSettings" type="button"></button>
+    </div>
+    <div class="list" id="tasks"></div>
+    <div class="foot" id="machines"></div>
+  </nav>
+
+  <main class="main" id="viewSession">
+    <header class="head">
+      <h1 id="title">conch</h1>
+      <span class="who" id="who"></span>
+      <span class="branch" id="branch"></span>
+      <span class="grow"></span>
+      <button class="iconbtn" id="railToggle" type="button" aria-label="Fold the sidebar"></button>
+      <button class="iconbtn" id="inspectorToggle" type="button" aria-label="Show changes"></button>
+    </header>
+    <div class="body">
+      <section class="session" aria-label="Session">
+        <div class="tabs" id="tabs" role="tablist" aria-label="Tabs"></div>
+        <div class="termpanel">
+          <div class="termhead" id="termhead"></div>
+          <div class="box" id="box">
+            <canvas id="term" tabindex="0" aria-label="Terminal"></canvas>
+            <textarea id="ime" autocapitalize="off" autocomplete="off" spellcheck="false" aria-label="Type into the terminal"></textarea>
+            <p class="empty" id="empty">Choose a task on the left, or start a new one.</p>
+          </div>
+        </div>
+        <div class="ask" id="ask" hidden></div>
+        <form class="composer" id="composer">
+          <label class="sr" for="reply">Reply</label>
+          <textarea id="reply" rows="1" placeholder="Reply"></textarea>
+          <button class="send" id="send" type="submit" aria-label="Send"></button>
+        </form>
+      </section>
+      <aside class="inspector" id="inspector" aria-label="Changes"></aside>
+    </div>
+  </main>
+
+  <main class="main" id="viewHome" hidden>
+    <header class="head"><span class="grow"></span></header>
+    <div class="home"><div class="wrap" id="home"></div></div>
+  </main>
+
+  <main class="main" id="viewReview" hidden>
+    <header class="head" id="reviewHead"></header>
+    <div class="review" id="review"></div>
+  </main>
+
+  <main class="main" id="viewSettings" hidden>
+    <div class="settings" id="settings"></div>
+  </main>
+</div>
+<script type="module" src="app.mjs"></script>
+</body>
+</html>

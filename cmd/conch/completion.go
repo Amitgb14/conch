@@ -53,6 +53,7 @@ var compCommands = []compItem{
 	{"upload", "copy files to a machine"},
 	{"download", "copy files from a machine"},
 	{"web", "answer your agents from a phone"},
+	{"desktop", "the desktop window's page, in a browser"},
 	{"ask", "ask the brain to plan actions"},
 	{"server", "run, stop or reload the server"},
 	{"update", "the newest release, without stopping agents"},

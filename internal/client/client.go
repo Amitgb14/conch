@@ -364,6 +364,16 @@ func mustJSON(v any) json.RawMessage {
 // behind by a server that stopped serving is removed first, so a new server
 // can bind it instead of the user being stuck with a conch that won't start.
 func EnsureServer(sockPath, logPath string) error {
+	return EnsureServerWith(sockPath, logPath, "")
+}
+
+// EnsureServerWith is EnsureServer starting the server from exe rather than
+// this program ("" is this program). The desktop app is not conch: started
+// from its own executable, a server would carry the app's build hash, and
+// every TUI would call it stale and reload it. So the app names the conch
+// it bundles. A parameter, not a variable in the environment, so nothing
+// started from the app inherits it.
+func EnsureServerWith(sockPath, logPath, exe string) error {
 	if answers(sockPath, probeWait) {
 		return nil
 	}
@@ -377,9 +387,11 @@ func EnsureServer(sockPath, logPath string) error {
 		}
 		_ = os.Remove(sockPath)
 	}
-	exe, err := buildinfo.Executable()
-	if err != nil {
-		return err
+	if exe == "" {
+		var err error
+		if exe, err = buildinfo.Executable(); err != nil {
+			return err
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 		return err
