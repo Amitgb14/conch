@@ -3,8 +3,8 @@ package server
 import "sync"
 
 // paneSizes decides a pane's size when more than one client shows it. The
-// TUI sizes every pane it draws to the space it has, a phone to its
-// screen; with two of them showing one pane
+// TUI sizes every pane it draws to the space it has, the desktop window
+// to its panel, a phone to its screen; with two of them showing one pane
 // at once they would trade sizes on every redraw. So each client's size
 // is kept, and the one used is that of the client the person last typed
 // into — tmux's window-size latest. Until anyone has, the last resize

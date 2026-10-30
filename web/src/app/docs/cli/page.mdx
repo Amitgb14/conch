@@ -260,6 +260,14 @@ conch config path                       # where config.toml is
 
 `conch config web` serves the [settings page](/docs/interface#edit-in-browser) on `127.0.0.1` — a free port unless `-port` names one — and opens it; `-no-open` prints the address instead. The address carries a key of its own, made fresh each time, which the page needs to read or write anything. A conch TUI that is open reads `config.toml` when it next starts, and may write its own copy over the page's when a setting changes there, so while one is open use its Settings (`,`, then `e`), which hands every save straight to it.
 
+### desktop
+
+```sh
+conch desktop -browser [-listen ADDR] [-no-open]            # the desktop window's page, in a browser
+```
+
+The [desktop app](/docs/desktop)'s window, in a browser: every machine and its panes on the left, the one you choose painted on the right to watch and type into. It is served on this computer only — `-listen` takes a loopback address and nothing else — and opened with a token that is new each time, carried in the address's `#` part, which a browser never sends anywhere. `-no-open` prints the address instead of opening it. The window's layout is kept in `desktop.json` in conch's folder.
+
 ### mcp
 
 ```sh

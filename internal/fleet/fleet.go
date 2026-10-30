@@ -1,6 +1,6 @@
 // Package fleet keeps a client per machine — this computer and every
 // enabled machine in the catalog — for a program that shows them all at
-// once: the phone gateway.
+// once: the phone gateway and the desktop app.
 //
 // Three things make it different from simply dialling each one:
 //

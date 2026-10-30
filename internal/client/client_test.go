@@ -61,6 +61,9 @@ func a3FakeServerMain() int {
 		return 4
 	}
 	fmt.Println("fake server listening on", sock)
+	if exe, err := os.Executable(); err == nil {
+		fmt.Println("fake server executable", exe)
+	}
 	go func() {
 		for {
 			nc, err := ln.Accept()
@@ -796,6 +799,67 @@ func TestA3EnsureServerStarts(t *testing.T) {
 			t.Fatalf("log = %q", b)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// The desktop app starts the server from the conch it bundles, never
+// from itself.
+func TestEnsureServerWithStartsTheNamedExecutable(t *testing.T) {
+	a3Isolate(t)
+	t.Setenv("A3_FAKE_SERVER", "1")
+	dir := a3ShortDir(t)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundled := filepath.Join(dir, "conch")
+	if err := os.WriteFile(bundled, b, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(dir, "s.sock")
+	logPath := filepath.Join(dir, "server.log")
+	if err := EnsureServerWith(sock, logPath, bundled); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := filepath.EvalSymlinks(bundled)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		log, _ := os.ReadFile(logPath)
+		for _, line := range strings.Split(string(log), "\n") {
+			if got, ok := strings.CutPrefix(line, "fake server executable "); ok {
+				if got, _ = filepath.EvalSymlinks(got); got != want {
+					t.Fatalf("server started from %s, want %s", got, want)
+				}
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("log = %q", log)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestEnsureServerWithMissingExecutable(t *testing.T) {
+	a3Isolate(t)
+	dir := a3ShortDir(t)
+	err := EnsureServerWith(filepath.Join(dir, "s.sock"), filepath.Join(dir, "server.log"), filepath.Join(dir, "no-such-conch"))
+	if err == nil || !strings.Contains(err.Error(), "start server") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// A server already answering is used whatever executable is named: the
+// app attaches to the conch that is running rather than fighting it.
+func TestEnsureServerWithRunningServer(t *testing.T) {
+	s := a3NewServer(t, nil)
+	dir := a3ShortDir(t)
+	if err := EnsureServerWith(s.sock, filepath.Join(dir, "server.log"), filepath.Join(dir, "no-such-conch")); err != nil {
+		t.Fatal(err)
 	}
 }
 

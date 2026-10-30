@@ -53,6 +53,7 @@ More:
   conch machine add HOST      run agents on another machine, over ssh
   conch web                   answer your agents from a phone
   conch config web            every setting, as a form in the browser
+  conch desktop -browser      the desktop window's page, in a browser (preview)
   conch update                the newest release, without stopping agents
   conch doctor                check what conch needs, and say how to fix it
   conch completion zsh        tab completion, for zsh, bash or fish
@@ -205,6 +206,11 @@ Usage:
                                 127.0.0.1 until ctrl+c; a TUI that is open edits them live
                                 instead (Settings, then e)
   conch config path             print where config.toml is
+  conch desktop -browser [-listen ADDR] [-no-open]
+                                the desktop window's page in a browser: every machine's panes,
+                                to watch and type into (a preview; the window is the conch
+                                desktop app). Served on this computer only, with a new token
+                                each time; -no-open prints the address instead
   conch mcp                     an MCP server on stdin and stdout, for an agent that would rather
                                 call a tool than a command: start, prompt, wait, read, task, list
                                 and rename, with the scope of the pane it is started in
@@ -304,6 +310,8 @@ func main() {
 		err = runWeb(args)
 	case "config":
 		err = runConfig(args)
+	case "desktop":
+		err = runDesktop(args)
 	case "mcp":
 		err = runMCP(args)
 	case "bug":

@@ -202,8 +202,9 @@ const CapPRMerge = "branch.pr_merge.v1"
 const CapAutopilot = "autopilot.v1"
 
 // CapFrameCursor is Frame.Cursor: where the cursor is, as well as drawn
-// in, for a client that places something at it — an input method's
-// candidates. A frame from an older server has none.
+// in. The desktop window places an input method's candidates there; a
+// frame from an older server has none, and the window falls back to the
+// bottom of the pane.
 const CapFrameCursor = "pane.frame.cursor.v1"
 
 // CapPaneSizeLatest is a pane shown by several clients taking the size of
