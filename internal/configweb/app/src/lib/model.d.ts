@@ -11,3 +11,5 @@ export function freshName(existing: Record<string, unknown> | undefined, base: s
 export function renameKey<T extends Record<string, unknown>>(obj: T, from: string, to: string): T
 export function move<T>(list: T[], i: number, delta: number): T[]
 export function searchSections(schema: any[] | undefined, query: string): string[]
+export function resolveTheme(pref: string | null | undefined, systemDark: boolean): "light" | "dark"
+export function themePref(stored: string | null | undefined): "light" | "dark" | "system"
