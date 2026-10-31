@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -112,5 +113,90 @@ func TestHandlerServesThePageUncached(t *testing.T) {
 	defer bare.Close()
 	if resp, err := http.Get(bare.URL + "/"); err != nil || resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("a bare handler served a page: %v %v", resp, err)
+	}
+}
+
+// surfaceVars are the page's five surfaces, from the window up to what
+// sits on a panel. app.css explains the ladder.
+var surfaceVars = []string{"--bg", "--side", "--panel", "--raised", "--chrome"}
+
+// themeBlock reads one `{ … }` of app.css, the one whose selector line
+// contains sel, and returns the surface colours it sets.
+func themeBlock(t *testing.T, css, sel string) map[string]string {
+	t.Helper()
+	i := strings.Index(css, sel)
+	if i < 0 {
+		t.Fatalf("app.css has no %q", sel)
+	}
+	open := strings.Index(css[i:], "{")
+	end := strings.Index(css[i:], "}")
+	if open < 0 || end < 0 {
+		t.Fatalf("%q is not a block", sel)
+	}
+	body := css[i+open+1 : i+end]
+	out := map[string]string{}
+	for _, name := range surfaceVars {
+		m := regexp.MustCompile(regexp.QuoteMeta(name) + `:\s*(#[0-9A-Fa-f]{6})`).FindStringSubmatch(body)
+		if m != nil {
+			out[name] = strings.ToUpper(m[1])
+		}
+	}
+	return out
+}
+
+// lightness is a colour's grey value, which is all these greys differ by.
+func lightness(t *testing.T, hex string) int {
+	t.Helper()
+	var r, g, b int
+	if _, err := fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b); err != nil {
+		t.Fatalf("colour %q: %v", hex, err)
+	}
+	return (r*299 + g*587 + b*114) / 1000
+}
+
+// Each surface is a colour of its own, in both themes, and rising a rung
+// means lighter. The light theme once set --bg to the same #FFFFFF as
+// --raised and --side to the same #F6F6F7 as --panel, so the thread was
+// the window's own white and the sidebar the cards' own grey: the window
+// read as one flat white sheet, which is what somebody said it looked
+// like. Nothing but this notices — the page renders, every rule applies,
+// and the colours are simply the same.
+func TestThemeSurfacesAreDistinct(t *testing.T) {
+	b, err := fs.ReadFile(Assets(), "app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(b)
+	for _, sel := range []string{":root {", `:root[data-theme="light"]`, `:root[data-theme="system"]`} {
+		got := themeBlock(t, css, sel)
+		for _, name := range surfaceVars {
+			if got[name] == "" {
+				t.Fatalf("%s sets no %s", sel, name)
+			}
+		}
+		seen := map[string]string{}
+		for _, name := range surfaceVars {
+			if was, dup := seen[got[name]]; dup {
+				t.Errorf("%s: %s and %s are both %s; nothing separates them on screen", sel, was, name, got[name])
+			}
+			seen[got[name]] = name
+		}
+		// The ladder, chrome aside: a rung is lighter than the one below.
+		for i := 1; i < len(surfaceVars)-1; i++ {
+			lo, hi := surfaceVars[i-1], surfaceVars[i]
+			if lightness(t, got[lo]) >= lightness(t, got[hi]) {
+				t.Errorf("%s: %s (%s) is not darker than %s (%s), so what is raised does not look it",
+					sel, lo, got[lo], hi, got[hi])
+			}
+		}
+	}
+	// The two light blocks are the same palette written twice — one for
+	// the theme chosen, one for the system's. A fix to one only is half a
+	// fix, and the half nobody chose is the one that ships.
+	chosen, system := themeBlock(t, css, `:root[data-theme="light"]`), themeBlock(t, css, `:root[data-theme="system"]`)
+	for _, name := range surfaceVars {
+		if chosen[name] != system[name] {
+			t.Errorf("light %s is %s when chosen and %s when the system asks for it", name, chosen[name], system[name])
+		}
 	}
 }

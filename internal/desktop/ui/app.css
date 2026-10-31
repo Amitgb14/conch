@@ -5,7 +5,22 @@
 
 /* conch's window. Colours are variables so the theme, the accent and the
    density are one attribute each on <html> (data-theme, data-accent,
-   data-density), set from Settings. */
+   data-density), set from Settings.
+
+   The five surfaces are a ladder, and rising a rung means lighter in both
+   themes: --bg is the window, --side the sidebar on it, --panel the cards
+   and the terminals, --raised what sits on a panel (the thread, the
+   composer, the selected tab). --chrome is a bar rather than a rung — the
+   terminal's header — so in light it is the one that goes the other way.
+   Every rung has to be a colour of its own. In light they had collapsed
+   onto three: --bg was #FFFFFF like --raised, and --side #F6F6F7 like
+   --panel, so the thread was the same white as the window behind it and
+   the sidebar the same grey as the cards. Nothing was raised above
+   anything, which on screen is one flat white sheet with hairlines drawn
+   on it. TestThemeSurfacesAreDistinct keeps the rungs apart.
+   The light rungs are the wider ones — about seven points of grey where
+   dark gets away with two or three — because the eye reads a step near
+   white as smaller than the same step near black. */
 :root {
   --font: "Geist", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
   --mono: "Geist Mono", "SF Mono", ui-monospace, Menlo, "JetBrains Mono", "DejaVu Sans Mono", monospace;
@@ -21,24 +36,24 @@
   color-scheme: dark;
 }
 :root[data-theme="light"] {
-  --bg: #FFFFFF; --side: #F6F6F7; --panel: #F6F6F7; --raised: #FFFFFF; --chrome: #EFEFF2;
-  --line: #E7E7EA; --line2: #DEDEE3; --hover: #E9E9EC; --tile: rgba(24,24,27,0.06);
+  --bg: #ECECF0; --side: #F3F3F6; --panel: #FAFAFB; --raised: #FFFFFF; --chrome: #E4E4EA;
+  --line: #D9D9E0; --line2: #C9C9D2; --hover: #E2E2E8; --tile: rgba(24,24,27,0.06);
   --text: #18181B; --muted: #55555F; --faint: #6B6B75;
   --wait: #D9910A; --work: #2F6FEB; --done: #1E8E57; --fail: #C2410C;
   --wait-tint: #FFF8EB; --wait-line: #F3D9A4; --add: #1E8E57; --del: #C2410C;
   --accent: #6D5EF0; --on-accent: #FFFFFF;
-  --shadow: 0 1px 2px rgba(16,16,24,0.04), 0 8px 24px rgba(16,16,24,0.06);
+  --shadow: 0 1px 2px rgba(16,16,24,0.06), 0 8px 24px rgba(16,16,24,0.09);
   color-scheme: light;
 }
 @media (prefers-color-scheme: light) {
   :root[data-theme="system"] {
-    --bg: #FFFFFF; --side: #F6F6F7; --panel: #F6F6F7; --raised: #FFFFFF; --chrome: #EFEFF2;
-    --line: #E7E7EA; --line2: #DEDEE3; --hover: #E9E9EC; --tile: rgba(24,24,27,0.06);
+    --bg: #ECECF0; --side: #F3F3F6; --panel: #FAFAFB; --raised: #FFFFFF; --chrome: #E4E4EA;
+    --line: #D9D9E0; --line2: #C9C9D2; --hover: #E2E2E8; --tile: rgba(24,24,27,0.06);
     --text: #18181B; --muted: #55555F; --faint: #6B6B75;
     --wait: #D9910A; --work: #2F6FEB; --done: #1E8E57; --fail: #C2410C;
     --wait-tint: #FFF8EB; --wait-line: #F3D9A4; --add: #1E8E57; --del: #C2410C;
     --accent: #6D5EF0; --on-accent: #FFFFFF;
-    --shadow: 0 1px 2px rgba(16,16,24,0.04), 0 8px 24px rgba(16,16,24,0.06);
+    --shadow: 0 1px 2px rgba(16,16,24,0.06), 0 8px 24px rgba(16,16,24,0.09);
     color-scheme: light;
   }
 }
