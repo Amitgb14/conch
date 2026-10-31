@@ -359,6 +359,15 @@ Read the screen back with `conch read ID`. Always with a scratch
 
 ## Runs
 
+### R61 — 2026-10-31, only Codex installed, and a pull request, macOS arm64, build 0.1.9-dev (on #73)
+
+The R60 setup again — scratch `CONCH_HOME`, socket, `HOME` and `PATH`, the TUI in a pane of a scratch server — with `internal/tools/standin` built as **`codex`** and no `claude` anywhere, git given an identity, and `CONCH_GH` a stand-in that answers `pr create` with a URL and `pr list` with what it was asked to create, so a pull request opened without GitHub.
+
+- **Found and fixed — the "only Codex" fallback of #65 never ran.** `c` listed *Start Codex* first but not as the default, and the task dialog would have used Claude Code: `config.Default()` named `claude`, so every config — every person who never chose — had a default and the fallback was skipped. Its unit test cleared the setting by hand, which is how it passed. The built-in default is now empty (Claude Code, or an agent the machine has without it); a `default = "claude"` in a `config.toml`, which older builds saved for everybody, still counts as chosen. After the fix: `c` said *Start Codex  default*, and `t` on the project showed `Agent  codex (default · …)` and started Codex on its own branch and worktree. 9.152 is covered on macOS but for busybox.
+- **The pull request:** the stand-in committed; the changes view's header said `P push · p pull request · M merge`, the status bar `P push  p PR` without `c commit` (R60's fix); `p` pushed to the bare remote and opened #1 through the stand-in `gh`; once conch's refresh saw it, the header said `o its pull request · M merge`, with `#1 from api/add-greeting · open` above it and `#1` on the branch in the tree.
+- **`conch doctor`** with git named and a signed-in `gh`: agents ✓ codex, git ✓ committing as E2E Tester, gh ✓ signed in.
+- **Not covered:** busybox, still unreachable; a real `gh` and GitHub.
+
 ### R60 — 2026-10-29, a newcomer's first hour, macOS arm64, build 0.1.9-dev (98a2596)
 
 A scratch everything: `CONCH_HOME`, `CONCH_SOCKET` and `HOME` in `/tmp/e2e.*`, `CONCH_PANE_ID` unset, `PATH` of `/usr/bin:/bin` and the scratch `bin` only (the folders `/etc/paths` adds were checked for any agent or `gh` first), `CONCH_GH` pointing at nothing, git with no identity until part 4. Every call went through one wrapper that set all of it, because the session running the test was itself in a pane of the real conch. The TUI ran in a pane of that scratch server (`CONCH_PANE_ID` cleared) and was driven with `conch send -keys` and read with `conch read`. The agent was `internal/tools/standin` built as `claude`; the remote was a local bare repository, so nothing reached the network. No clipboard item was pressed: the TUI under test could have reached the real clipboard.
