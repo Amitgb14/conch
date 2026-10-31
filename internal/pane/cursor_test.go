@@ -9,6 +9,9 @@ import (
 // A frame says where the cursor is while it is drawn, and not otherwise.
 func TestFrameCursor(t *testing.T) {
 	p := startShell(t)
+	// Typed before the prompt, the text is echoed first and the prompt
+	// drawn after it, leaving the cursor behind the prompt (seen on Linux).
+	waitScreen(t, p, "$")
 	p.SendText("printf 'abc'", false)
 	waitScreen(t, p, "printf 'abc'")
 	// The cursor is just after the text on its row, wherever the prompt
