@@ -234,7 +234,8 @@ type Model struct {
 	// `.`, which is why this one is written the negative way round.
 	filesHideDot     bool
 	filesShowIgnored bool
-	prevView         viewRef // where the focused split was before the last jump, for ctrl+b b
+	prevView         viewRef         // where the focused split was before the last jump, for ctrl+b b
+	configWeb        *configWebState // the settings page in the browser, once opened (configweb.go)
 }
 
 type (
@@ -856,6 +857,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case uiPollMsg:
 		return m, tea.Batch(m.takeUIPoll(msg), uiSyncTick(m.statePath, m.uiSync))
+
+	case configWebStarted:
+		return m, m.takeConfigWeb(msg)
+
+	case configSavedMsg:
+		return m, m.takeSavedConfig(msg.cfg)
 
 	case uiMergedMsg:
 		return m, m.takeUIMerged(msg)

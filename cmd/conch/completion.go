@@ -53,6 +53,7 @@ var compCommands = []compItem{
 	{"upload", "copy files to a machine"},
 	{"download", "copy files from a machine"},
 	{"web", "answer your agents from a phone"},
+	{"config", "edit every setting in the browser"},
 	{"ask", "ask the brain to plan actions"},
 	{"server", "run, stop or reload the server"},
 	{"update", "the newest release, without stopping agents"},
@@ -67,6 +68,7 @@ var compCommands = []compItem{
 
 // compSubcommands are what follows a command that has its own.
 var compSubcommands = map[string][]compItem{
+	"config": {{"web", "every setting, as a form in the browser"}, {"path", "where config.toml is"}},
 	"server": {{"stop", "stop the server and every pane it owns"}, {"reload", "run a new build, keeping panes"}},
 	"agent": {
 		{"status", "which agents are installed"}, {"install", "install an agent"},

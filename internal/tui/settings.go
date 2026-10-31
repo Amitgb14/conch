@@ -1400,6 +1400,8 @@ func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			if s.sel < len(items) && items[s.sel].run != nil {
 				return false, items[s.sel].run(m)
 			}
+		case "e":
+			return false, m.editInBrowser()
 		}
 	}
 	return false, nil
@@ -1656,13 +1658,21 @@ func (s *settings) render(m Model) box {
 	if s.sel < len(items) {
 		s.selLabel = ansi.Strip(items[s.sel].label)
 	}
-	lines = append(lines, "", styleMuted.Render(hint),
+	lines = append(lines, "", " "+styleAccent.Render(settingsWebLabel)+styleMuted.Render(" · e · every setting, as a form"),
+		styleMuted.Render(hint),
 		styleMuted.Render(" saved to "+ansi.Truncate(config.Dir()+"/config.toml", w-10, "…")))
 	b := box{lines: frameLines(" ⚙ Settings ", lines, w, colorAccent)}
 	b.x = max((m.width-b.width())/2, 0)
 	b.y = max((m.height-len(b.lines))/4, 0)
 	return b
 }
+
+// settingsWebLabel is the link to the settings page, under the list.
+const settingsWebLabel = "↗ Edit in browser"
+
+// settingsWebRow is the link's row in the box, below the tab bar, a blank,
+// the list and another blank.
+func settingsWebRow(listH int) int { return 2 + listH + 1 }
 
 func (s *settings) itemLine(it settingItem, selected bool, w int) string {
 	if it.header {
@@ -1724,8 +1734,12 @@ func (s *settings) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 		}
 		return nil
 	}
+	if row == settingsWebRow(m.settingsListHeight()) &&
+		msg.X-b.x-1 < 1+ansi.StringWidth(settingsWebLabel) {
+		return m.editInBrowser()
+	}
 	i := s.scroll + row - 2
-	if row >= 2 && i < len(items) && items[i].run != nil {
+	if row >= 2 && row < 2+m.settingsListHeight() && i < len(items) && items[i].run != nil {
 		s.sel = i
 		return items[i].run(m)
 	}

@@ -251,6 +251,15 @@ conch web stop                                              # end one running in
 
 `conch web` serves your [phone](/docs/phone) on this machine's Tailscale address and nowhere else, unless `-listen` names another address. `-url` is the address phones open — the `https://…ts.net` one `tailscale serve` gives — which the QR code points at. `pair` draws the QR code only when it prints to a terminal. It takes no `-m`: it shows the agents of the machine it runs on. `pair` and `revoke` are refused from an agent's pane.
 
+### config
+
+```sh
+conch config web [-port N] [-no-open]   # every setting as a form in the browser, until ctrl+c
+conch config path                       # where config.toml is
+```
+
+`conch config web` serves the [settings page](/docs/interface#edit-in-browser) on `127.0.0.1` — a free port unless `-port` names one — and opens it; `-no-open` prints the address instead. The address carries a key of its own, made fresh each time, which the page needs to read or write anything. A conch TUI that is open reads `config.toml` when it next starts, and may write its own copy over the page's when a setting changes there, so while one is open use its Settings (`,`, then `e`), which hands every save straight to it.
+
 ### mcp
 
 ```sh
