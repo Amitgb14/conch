@@ -171,6 +171,12 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.overlay = m.addMachineMenu()
 		return m, nil
+	case "d":
+		// Only a saved host: an ssh session's host may not be saved at
+		// all, and there is nothing yet to make a second of.
+		if ok && r.kind == kindSavedSSH {
+			return m, m.openDuplicateSSH(savedSSHTarget(r.id))
+		}
 	case "r":
 		if ok && r.kind == kindSavedSSH {
 			return m, m.openEditSSH(savedSSHTarget(r.id))

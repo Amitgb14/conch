@@ -200,7 +200,7 @@ func TestSavedSSHRowAndPage(t *testing.T) {
 	for _, it := range mu.items {
 		keys = append(keys, it.key)
 	}
-	if mu.title != "ssh me@db:2222" || strings.Join(keys, ",") != "enter,e,g,K,M,N,x" {
+	if mu.title != "ssh me@db:2222" || strings.Join(keys, ",") != "enter,e,d,g,K,M,N,x" {
 		t.Fatalf("menu %q %q", mu.title, keys)
 	}
 }

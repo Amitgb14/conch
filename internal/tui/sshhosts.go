@@ -385,6 +385,35 @@ func (m *Model) openEditSSH(target string) tea.Cmd {
 	return d.focusCmd()
 }
 
+// openDuplicateSSH offers a saved host's name, folder and ssh options
+// again, to be saved under a host of its own. What it saves is the
+// typing: a host reached an awkward way carries a line of options, and a
+// second way in to the same machine — another user, another port, in
+// through a jump host — differs from the first by a word or two.
+//
+// A copy cannot keep the host it was copied from. A saved host *is* its
+// target: `saved_ssh` is a list of them and `ssh_hosts` is keyed by one
+// (see AGENTS.md), so two rows with one target are one row. putSSHHost
+// says so on save; the dialog says so first, since by then the options
+// are retyped.
+func (m *Model) openDuplicateSSH(target string) tea.Cmd {
+	if !slices.Contains(m.savedSSH, target) {
+		m.setFlash("only a saved host can be duplicated", true)
+		return nil
+	}
+	folder := m.hostFolder(target)
+	d := newSSHHostDialog(*m, "", folder) // "": what it saves is a new host
+	info := m.sshInfo[target]
+	d.title = " Duplicate " + sshDisplay(target, info) + " "
+	d.text = append([]string{"A copy keeps the name, folder and options and needs a host of its own: conch tells saved hosts apart by the host, so change it — another user, another port, another alias — or there is nothing to save."}, d.text...)
+	for i, v := range []string{target, info.Name, folder, sshArgsText(info.Args)} {
+		d.fields[i].in.SetValue(v)
+	}
+	d.fields[0].in.CursorEnd()
+	m.overlay = d
+	return d.focusCmd()
+}
+
 // newSSHHostDialog edits a host — or, with target "", adds one to folder
 // without connecting. Saving an unsaved session's host saves it.
 func newSSHHostDialog(m Model, target, folder string) *dialog {

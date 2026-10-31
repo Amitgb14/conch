@@ -301,6 +301,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		items = []menuItem{
 			{"enter", "Connect", enter},
 			{"e", "Edit host, name, folder, ssh options…", act("e")},
+			{"d", "Duplicate (same options, another host)…", act("d")},
 			{"g", "Move to folder…", func(m *Model) tea.Cmd { m.overlay = newMoveSSHMenu(*m, r, x, y); return nil }},
 			{"K", "Set up login without a password (copy ssh key)", act("K")},
 			m.machineItem(target),
@@ -1067,6 +1068,7 @@ var helpText = []string{
 	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
 	"     extra ssh options (-o KexAlgorithms=… -p 2222) go in its SSH options field, and stay with a saved host",
 	"     on a saved host or ssh session: e edit host, name, folder, options · K login without a password (copies your key)",
+	"     d on a saved host duplicates it: the same name, folder and options under a host of its own (another user or port)",
 	"     a session is a terminal here, so what runs in it ends with the link: M makes that host a machine instead",
 	"     a saved host goes in an SSH folder (N) as a host: its sessions follow it · a on an SSH folder adds a host to it",
 	"  P  pair a phone with this computer: a QR code for conch web, to type into terminals too (v / r / f: less);",

@@ -878,3 +878,104 @@ func TestSSHArgsText(t *testing.T) {
 		}
 	}
 }
+
+// d on a saved host offers it again under a host of its own, keeping the
+// name, the folder and — the point of it — the ssh options, which are the
+// part nobody wants to type twice.
+func TestDuplicateSavedSSHHost(t *testing.T) {
+	m, _ := foldersFixture(t, false)
+
+	a1At(t, m, savedSSHID("db"))
+	m.focus = focusSidebar
+	a1Key(t, m, a2Key("d"))
+	d, ok := m.overlay.(*dialog)
+	if !ok {
+		t.Fatalf("d opened %T", m.overlay)
+	}
+	if d.title != " Duplicate prod db " {
+		t.Fatalf("title %q", d.title)
+	}
+	values := []string{d.fields[0].in.Value(), d.fields[1].in.Value(), d.fields[2].in.Value(), d.fields[3].in.Value()}
+	if strings.Join(values, "|") != "db|prod db|prod|-p 2200" {
+		t.Fatalf("fields %q", values)
+	}
+	// It says the host has to change before the options are retyped, not
+	// after: the refusal on save would come too late to be kind.
+	if text := strings.Join(d.text, " "); !strings.Contains(text, "needs a host of its own") {
+		t.Fatalf("dialog text: %s", text)
+	}
+
+	// Saving it under another host adds a second row beside the first,
+	// in the same folder, with the same options. Enter puts the overlay
+	// back before submitting, which is how a refusal can keep the dialog;
+	// the tests go the same way round.
+	m.overlay = nil
+	a2Run(d.submit(m, []string{"me@db", "prod db 2", "prod", "-p 2200"}))
+	if m.overlay != nil {
+		t.Fatalf("the dialog stayed: %T", m.overlay)
+	}
+	if !slices.Contains(m.savedSSH, "db") || !slices.Contains(m.savedSSH, "me@db") {
+		t.Fatalf("saved %q", m.savedSSH)
+	}
+	if got := m.sshInfo["me@db"]; got.Name != "prod db 2" || strings.Join(got.Args, " ") != "-p 2200" {
+		t.Fatalf("the copy: %+v", got)
+	}
+	if got := m.sshInfo["db"]; got.Name != "prod db" || strings.Join(got.Args, " ") != "-p 2200" {
+		t.Fatalf("the original moved: %+v", got)
+	}
+	if got := hostsIn(m, "prod"); strings.Join(got, ",") != "box,db,me@db" {
+		t.Fatalf("the folder holds %q", got)
+	}
+}
+
+// A copy that keeps the host is not a copy: conch tells saved hosts apart
+// by the host, so it is refused and what was typed is kept.
+func TestDuplicateNeedsAHostOfItsOwn(t *testing.T) {
+	m, _ := foldersFixture(t, false)
+	before := slices.Clone(m.savedSSH)
+
+	a2Run(m.openDuplicateSSH("db"))
+	d := m.overlay.(*dialog)
+	m.overlay = nil
+	a2Run(d.submit(m, []string{"db", "prod db copy", "prod", "-p 2200"}))
+	if _, still := m.overlay.(*dialog); !still {
+		t.Fatalf("what was typed was thrown away: %T", m.overlay)
+	}
+	if !strings.Contains(m.flash, "already saved") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	if !slices.Equal(m.savedSSH, before) {
+		t.Fatalf("saved %q, was %q", m.savedSSH, before)
+	}
+	if got := m.sshInfo["db"]; got.Name != "prod db" {
+		t.Fatalf("the original was overwritten: %+v", got)
+	}
+}
+
+// Only a saved host has something to make a second of: an ssh session's
+// host may not be saved at all, and the menu row and the key agree on it.
+func TestDuplicateOnlyASavedHost(t *testing.T) {
+	m, _ := sshFixture(t, false)
+	a2Run(m.openDuplicateSSH("box")) // nothing saved in this fixture
+	if m.overlay != nil || !strings.Contains(m.flash, "only a saved host") {
+		t.Fatalf("overlay %T flash %q", m.overlay, m.flash)
+	}
+	// d on an ssh session's row opens nothing rather than the wrong thing.
+	a1At(t, m, paneNodeID(localMachine, "p5"))
+	m.focus, m.flash = focusSidebar, ""
+	a1Key(t, m, a2Key("d"))
+	if m.overlay != nil {
+		t.Fatalf("d on a session opened %T", m.overlay)
+	}
+
+	// On a saved host the menu offers it, under the editor.
+	f, _ := foldersFixture(t, false)
+	mu := newRowMenu(*f, f.rows[indexOfRow(f.rows, savedSSHID("db"))], 0, 0)
+	var keys []string
+	for _, it := range mu.items {
+		keys = append(keys, it.key)
+	}
+	if strings.Join(keys, ",") != "enter,e,d,g,K,M,N,x" {
+		t.Fatalf("menu keys %q", keys)
+	}
+}
