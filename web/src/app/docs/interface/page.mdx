@@ -502,6 +502,12 @@ It goes by shape, since the agent did the wrapping and left no mark to read: a r
 
 Press `,` or click `⚙` at the right end of the status bar. Changes are saved to `~/.config/conch/config.toml` (see [Configuration](/docs/configuration)).
 
+### Edit in browser
+
+`e` on any tab of Settings, or a click on **↗ Edit in browser** under the list, opens every setting in `config.toml` as a form in your browser — including the ones the screen only names: [custom actions](/docs/configuration#actions), [permission rules](/docs/configuration#permissions), each project's check command and every sandbox provider's table. Each section has its switches, menus and fields with what they do beside them; a search box narrows them; a dot marks what you have changed; and **Save** (or `⌘S`) writes the file. The **config.toml** tab is the file itself, saved as you type it, comments and all, once conch can read it.
+
+The page is served by the TUI on `127.0.0.1` for as long as it runs, behind a key made fresh for each TUI and carried in the address, so nothing else on the network reaches it. A save is handed straight to the TUI, which applies it — the theme at once — as a change on the Settings screen would. If something else wrote `config.toml` after the page read it, the save is refused and the page offers the newer version, so neither overwrites the other. `conch config web` serves the same page without a TUI.
+
 ### Theme
 
 Colour schemes: Conch, Dracula, Catppuccin Mocha, Nord, Gruvbox Dark, Tokyo Night, One Dark, Solarized Dark, Rosé Pine, Kanagawa, Everforest Dark, Monokai, GitHub Dark, Ayu Dark and Night Owl (applied instantly).

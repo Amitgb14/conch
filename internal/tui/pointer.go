@@ -94,5 +94,6 @@ func (m *Model) releasePointer() {
 func (m *Model) quitting(before ...tea.Cmd) tea.Cmd {
 	m.releasePointer()
 	m.clearHostStatus()
+	m.closeConfigWeb()
 	return tea.Sequence(append(before, tea.Quit)...)
 }

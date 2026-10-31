@@ -52,6 +52,7 @@ Keep an eye on them:
 More:
   conch machine add HOST      run agents on another machine, over ssh
   conch web                   answer your agents from a phone
+  conch config web            every setting, as a form in the browser
   conch update                the newest release, without stopping agents
   conch doctor                check what conch needs, and say how to fix it
   conch completion zsh        tab completion, for zsh, bash or fish
@@ -199,6 +200,11 @@ Usage:
                                 only until you name one, 'local' to take them away);
                                 stop ends a conch web running in the background (as P
                                 in the TUI starts it)
+  conch config web [-port N] [-no-open]
+                                every setting in config.toml as a form in the browser, on
+                                127.0.0.1 until ctrl+c; a TUI that is open edits them live
+                                instead (Settings, then e)
+  conch config path             print where config.toml is
   conch mcp                     an MCP server on stdin and stdout, for an agent that would rather
                                 call a tool than a command: start, prompt, wait, read, task, list
                                 and rename, with the scope of the pane it is started in
@@ -296,6 +302,8 @@ func main() {
 		err = runAsk(args)
 	case "web":
 		err = runWeb(args)
+	case "config":
+		err = runConfig(args)
 	case "mcp":
 		err = runMCP(args)
 	case "bug":

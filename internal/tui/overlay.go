@@ -1183,6 +1183,7 @@ var helpText = []string{
 	"  this list: ↑↓ jk pgup pgdn g G or the wheel scroll it · ←→ hl (shift+wheel) pan long lines",
 	"",
 	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain, sandboxes",
+	"     e in Settings (or ↗ Edit in browser) opens every setting as a form in the browser",
 	"     Settings → Check conch… runs conch doctor's checks: git, gh, agents, the terminal, each with its fix",
 	"       (they also run a moment after conch starts: problems are on this computer's page, failures on the bar)",
 	"     Settings → Report a problem… (or ⊙ on the bar) is this conch's own facts, for an issue",

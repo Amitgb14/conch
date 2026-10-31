@@ -62,6 +62,7 @@ var helpExamples = map[string][]string{
 	"agent":    {"conch agent status", "conch agent install codex", `conch agent prompt -wait p3 "now add tests"`},
 	"machine":  {"conch machine add me@devbox", "conch -m devbox task \"profile the importer\""},
 	"web":      {"conch web", "conch web pair -permission reply"},
+	"config":   {"conch config web", "conch config web -no-open -port 8723"},
 	"update":   {"conch update", "conch update rollback"},
 }
 
