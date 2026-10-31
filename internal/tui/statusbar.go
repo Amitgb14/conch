@@ -150,8 +150,14 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 			hint("I", "resume interrupted"), hint("x", "dismiss"), hint("R", "reload"), hint("esc", "tree")}
 	case m.focus == focusMain:
 		chip = styleChip.Background(colorInput).Render("CHANGES")
-		items = []statusItem{hint("$", "git"), hint("↑", "file"), hint("↓", "file"), hint("enter", "diff"), hint("space", "mark"), hint("c", "commit"),
-			hint("P", "push"), hint("p", "PR"), hint("M", "merge"), hint("D", "discard"), hint("A", "attempts"), hint("T", "move"), hint("o", "open PR"), hint("R", "reload"), hint("esc", "tree")}
+		items = []statusItem{hint("$", "git"), hint("↑", "file"), hint("↓", "file"), hint("enter", "diff")}
+		// Nothing uncommitted: marking and committing have nothing to act
+		// on, and saying them first pushed P, p and M off a bar of ordinary
+		// width — the header already says which of those comes next.
+		if cv := m.tab().focused().changes; cv == nil || cv.uncommitted() {
+			items = append(items, hint("space", "mark"), hint("c", "commit"))
+		}
+		items = append(items, hint("P", "push"), hint("p", "PR"), hint("M", "merge"), hint("D", "discard"), hint("A", "attempts"), hint("T", "move"), hint("o", "open PR"), hint("R", "reload"), hint("esc", "tree"))
 	case m.filtering:
 		chip = styleChip.Background(colorAccent).Render("FILTER")
 		items = []statusItem{hint("enter", "keep"), hint("esc", "clear")}

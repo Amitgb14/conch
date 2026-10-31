@@ -155,7 +155,7 @@ conch tells who is asking from the operating system — the process at the other
 | `-cwd DIR` | a directory in the project; default: the current one. With `-m` it is required, as an absolute path on that machine |
 | `-branch B` | branch name; default: derived from the prompt |
 | `-base B` | branch to start from; default: the project's base |
-| `-agent NAME` | `claude`, `codex`, `gemini` or `opencode`, or several separated by commas; default: `[agents] default` |
+| `-agent NAME` | `claude`, `codex`, `gemini` or `opencode`, or several separated by commas; default: `[agents] default`, and with none chosen Claude Code — or, on a machine last found without it, an agent it has (the server knows once anything has asked: opening conch, `conch doctor` or `conch agent status`) |
 | `-n N` | attempts at the same prompt, each on its own branch (default: one per agent, at most 10) |
 | `-name N` | name the task's pane, to address it by in place of its ID (see [Pane names](#pane-names)). Refused while a running pane has that name, and with more than one attempt |
 

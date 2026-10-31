@@ -58,7 +58,18 @@ func (m *Model) checkHealth() tea.Cmd {
 	}
 	m.healthRunning = true
 	run := m.doctor
-	return func() tea.Msg { return healthMsg{run()} }
+	check := func() tea.Msg { return healthMsg{run()} }
+	// This computer's agent list is asked again with it. The list is from
+	// when the TUI connected, so an agent installed since in a shell was
+	// found by the checks while the page, the guide and c still said it
+	// was missing — the checks are where somebody goes to see that a fix
+	// took, so the rest of the screen has to agree with them.
+	if mach := m.machine(localMachine); mach != nil {
+		if agents := mach.checkAgents(); agents != nil {
+			return tea.Batch(check, agents)
+		}
+	}
+	return check
 }
 
 // gotHealth keeps what a run found, and refreshes the menu if it is open.
@@ -162,10 +173,12 @@ func newHealthMenu(m Model) *menu {
 	}
 	first := len(items)
 	for _, c := range m.health {
-		if c.Status == doctor.OK || c.Fix == "" {
+		// Only a fix that runs as pasted is offered to copy: advice copied
+		// is no use, and a command with its note still on is an error.
+		fix := c.Command()
+		if c.Status == doctor.OK || fix == "" {
 			continue
 		}
-		fix := c.Fix
 		items = append(items, menuItem{label: "Copy the " + c.Name + " fix: " + fix, run: func(m *Model) tea.Cmd {
 			putClipboard(fix)
 			m.setFlash("copied — paste it in a terminal (n opens one)", false)

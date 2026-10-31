@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/doctor"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 var (
@@ -283,4 +284,54 @@ func TestHealthFromSettings(t *testing.T) {
 		}
 	}
 	t.Fatal("no Check conch… in Settings")
+}
+
+// TestHealthCopiesWhatRuns: the menu offers to copy a fix only when it
+// runs as pasted, and without its note — the first end-to-end run copied
+// "conch agent install claude  (or codex, …)", which a shell rejects.
+func TestHealthCopiesWhatRuns(t *testing.T) {
+	m, _ := healthModel(t)
+	m.health = []doctor.Check{
+		{Name: "agents", Status: doctor.Fail, Detail: "none installed", Fix: "conch agent install claude  (or codex, gemini)"},
+		{Name: "gh", Status: doctor.Warn, Detail: "not found", Fix: "install the GitHub CLI: https://cli.github.com"},
+	}
+	m.openHealth()
+	mu := m.overlay.(*menu)
+	text := menuText(mu)
+	if !strings.Contains(text, "Copy the agents fix: conch agent install claude\n") || strings.Contains(text, "Copy the gh fix") {
+		t.Fatalf("menu:\n%s", text)
+	}
+	// The advice is still on screen, note and all: only copying leaves it.
+	if !strings.Contains(text, "→ conch agent install claude  (or codex, gemini)") || !strings.Contains(text, "→ install the GitHub CLI") {
+		t.Fatalf("the fixes are not shown whole:\n%s", text)
+	}
+	mu.items[mu.sel].run(m)
+	if lastClipboard != "conch agent install claude" {
+		t.Fatalf("copied %q", lastClipboard)
+	}
+}
+
+// TestHealthRefreshesTheAgents: checking again asks this computer's agent
+// list again, so an agent installed in a shell since conch connected is
+// on the page and in the guide as soon as the checks say it is there.
+func TestHealthRefreshesTheAgents(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	c, peer := a1FakeClient(t, "agent.install.v1")
+	mach := m.machines[0]
+	mach.c, mach.server = c, c.Server
+	mach.agentList = []proto.AgentAvailability{{Name: "claude"}}
+	m.rebuild()
+	*m = m.Doctor(func() []doctor.Check { return []doctor.Check{healthFine} })
+	peer.setResult(proto.MethodAgentStatus, proto.AgentStatusResult{Agents: []proto.AgentAvailability{{Name: "claude", Installed: true}}})
+	if m.agentInstalled() {
+		t.Fatal("installed before the check")
+	}
+	for _, msg := range a2Run(m.checkHealth()) {
+		next, _ := m.Update(msg)
+		*m = next.(Model)
+	}
+	if !m.agentInstalled() || len(m.health) != 1 {
+		t.Fatalf("after the check: installed %v, health %v", m.agentInstalled(), m.health)
+	}
 }

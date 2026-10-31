@@ -725,8 +725,9 @@ func (pm *projectManager) removeWorktree(wp proto.WorktreeRemoveParams) *proto.E
 		return proto.Errorf(proto.ErrNotFound, "no worktree %s in %s", wp.Path, p.root)
 	case target.Main:
 		return proto.Errorf(proto.ErrBadRequest, "refusing to remove the main worktree")
-	case pm.s.panesIn(wp.Path):
-		return proto.Errorf(proto.ErrBadRequest, "panes are still running in %s; close them first", wp.Path)
+	}
+	if perr := pm.s.stillRunning(wp.Path); perr != nil {
+		return perr
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()

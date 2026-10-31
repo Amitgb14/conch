@@ -439,7 +439,7 @@ func Default() Config {
 		Keys:   Keys{Prefix: "ctrl+b"},
 		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true, Limits: true, LimitAt: append([]int(nil), DefaultLimitAt...), Silence: DefaultSilence},
 		UI:     UICfg{Mouse: true, Theme: "conch", Cost: true},
-		Agents: AgentsCfg{Default: "claude"},
+		Agents: AgentsCfg{}, // no default chosen: Claude Code, or an agent the machine has (tui defaultAgent)
 		Brain:  BrainCfg{Provider: "claude"},
 		Update: UpdateCfg{CheckReleases: true},
 		Remote: RemoteCfg{UploadDrops: true, UploadMaxMB: DefaultUploadMaxMB},
