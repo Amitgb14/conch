@@ -81,3 +81,12 @@ exit 1`)
 		t.Fatalf("missing gh: %v", err)
 	}
 }
+
+// TestNoGHSaysWhereToGetIt: the first end-to-end run met this from p in
+// the changes view, and it named the missing program without saying
+// where to get it.
+func TestNoGHSaysWhereToGetIt(t *testing.T) {
+	if !strings.Contains(ErrNoGH.Error(), "https://cli.github.com") {
+		t.Errorf("%q", ErrNoGH)
+	}
+}

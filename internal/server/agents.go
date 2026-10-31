@@ -2,6 +2,8 @@ package server
 
 import (
 	"log"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -380,6 +382,41 @@ func (s *Server) panesIn(dir string) bool {
 		}
 	}
 	return false
+}
+
+// stillRunning refuses to remove dir while panes run in it, naming them
+// and how to close them: "panes are still running" alone left somebody to
+// work out that the agent they had finished with was one of them.
+func (s *Server) stillRunning(dir string) *proto.Error {
+	s.mu.Lock()
+	var in []*entry
+	for _, e := range s.panes {
+		if within(e.dir, dir) {
+			in = append(in, e)
+		}
+	}
+	s.mu.Unlock()
+	if len(in) == 0 {
+		return nil
+	}
+	var names, ids []string
+	for _, e := range in {
+		info := e.p.Info()
+		ids = append(ids, info.ID)
+		if info.Name != "" && info.Name != info.ID {
+			names = append(names, info.ID+" ("+info.Name+")")
+		} else {
+			names = append(names, info.ID)
+		}
+	}
+	slices.Sort(ids)
+	slices.Sort(names)
+	verb, them := "is", "it"
+	if len(in) > 1 {
+		verb, them = "are", "them"
+	}
+	return proto.Errorf(proto.ErrBadRequest, "%s %s still running in %s; close %s first: x on its row, or conch close %s",
+		strings.Join(names, ", "), verb, dir, them, strings.Join(ids, " "))
 }
 
 func (s *Server) projectRegistered(p *project) bool {

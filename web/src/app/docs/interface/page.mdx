@@ -107,7 +107,7 @@ A click shows a pane and leaves the keyboard in the tree, where the row keys are
 
 A moment after conch starts it runs the same checks as [`conch doctor`](/docs/cli#doctor) in the background — config, socket, agents, git, gh, the terminal and the ssh your machines need. Anything they find is listed on **this computer's** page with its fix, and anything conch cannot work without (no agent installed, no git, a `config.toml` that does not parse) also puts **✗ N things to fix** on the status bar, which opens the list in a click. A warning alone stays off the bar: `gh` not installed can be a settled choice, and a bar that nags for ever is one nobody reads.
 
-`,` → **Check conch…** opens the list at any time and checks again, so it says how things stand after you have fixed one. Each fix can be copied from there, ready to paste into a terminal (`n` opens one).
+`,` → **Check conch…** opens the list at any time and checks again, so it says how things stand after you have fixed one. A fix that is a command can be copied from there, ready to paste into a terminal (`n` opens one) — without the note beside it, which a shell would reject. Checking again also asks this computer's agent list again, so an agent you have just installed in a shell shows on the page and in the guide at once.
 
 ### Reporting a problem
 

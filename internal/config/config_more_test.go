@@ -29,7 +29,9 @@ func TestA3Defaults(t *testing.T) {
 		Keys:   Keys{Prefix: "ctrl+b"},
 		Notify: NotifyCfg{Enabled: true, Desktop: true, Waiting: true, Done: true, Limits: true, LimitAt: []int{80, 95}, Silence: 30},
 		UI:     UICfg{Mouse: true, Theme: "conch", Cost: true},
-		Agents: AgentsCfg{Default: "claude"},
+		// No agent chosen: Claude Code, or one the machine has when it has
+		// no Claude Code. "claude" here made that fallback dead code.
+		Agents: AgentsCfg{},
 		Brain:  BrainCfg{Provider: "claude"},
 		Update: UpdateCfg{CheckReleases: true},
 		Remote: RemoteCfg{UploadDrops: true, UploadMaxMB: 25},
@@ -516,5 +518,24 @@ func TestProviderCfgDefaultsAndPrices(t *testing.T) {
 		if !only.Priced() {
 			t.Fatalf("%+v should be priced", only)
 		}
+	}
+}
+
+// TestDefaultAgentChosenOrNot: a config.toml that names no default agent
+// loads as no choice, and one that names claude — every config.toml an
+// older build saved does — keeps it as one.
+func TestDefaultAgentChosenOrNot(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	if err := os.WriteFile(File(), []byte("[ui]\ntheme = \"nord\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err := Load(); err != nil || cfg.Agents.Default != "" {
+		t.Fatalf("no [agents]: %q, %v", cfg.Agents.Default, err)
+	}
+	if err := os.WriteFile(File(), []byte("[agents]\ndefault = \"claude\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err := Load(); err != nil || cfg.Agents.Default != "claude" {
+		t.Fatalf("chosen: %q, %v", cfg.Agents.Default, err)
 	}
 }
