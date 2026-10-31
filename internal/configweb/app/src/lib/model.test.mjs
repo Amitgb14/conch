@@ -123,3 +123,18 @@ test("searchSections matches titles, labels, keys, help and nested fields", () =
   assert.deepEqual(m.searchSections(schema, "zzz"), [])
   assert.deepEqual(m.searchSections(undefined, "x"), [])
 })
+
+test("resolveTheme: a choice wins, system follows the system", () => {
+  assert.equal(m.resolveTheme("light", true), "light")
+  assert.equal(m.resolveTheme("dark", false), "dark")
+  assert.equal(m.resolveTheme("system", true), "dark")
+  assert.equal(m.resolveTheme("system", false), "light")
+  assert.equal(m.resolveTheme(undefined, true), "dark")
+  assert.equal(m.resolveTheme("purple", false), "light")
+})
+
+test("themePref reads back only the three choices", () => {
+  assert.equal(m.themePref("dark"), "dark")
+  assert.equal(m.themePref("light"), "light")
+  for (const v of [null, undefined, "", "system", "DARK", "x"]) assert.equal(m.themePref(v), "system")
+})

@@ -17,7 +17,9 @@ import { FieldRow } from "@/components/fields"
 import { KeyedEditor, TablesEditor } from "@/components/tables"
 import { ApiError, load, saveConfig, saveRaw } from "@/api"
 import { changedSections, getValue, same, searchSections, setValue } from "@/lib/model.js"
+import { useTheme } from "@/lib/theme"
 import { cn } from "@/lib/utils"
+import { ThemeSwitch } from "@/components/theme-switch"
 import type { Cfg, Payload, Section } from "@/types"
 
 const icons: Record<string, LucideIcon> = {
@@ -27,6 +29,7 @@ const icons: Record<string, LucideIcon> = {
 }
 
 export default function App() {
+  const theme = useTheme()
   const [data, setData] = useState<Payload>()
   const [draft, setDraft] = useState<Cfg>()
   const [raw, setRaw] = useState("")
@@ -146,18 +149,22 @@ export default function App() {
 
   return (
     <div className="min-h-svh">
-      <Toaster position="bottom-right" richColors closeButton />
+      <Toaster position="bottom-right" richColors closeButton theme={theme.resolved} />
       <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
-          <img src="./icon.svg" alt="" className="size-7 rounded-md" />
-          <div className="min-w-0">
-            <div className="text-sm leading-tight font-semibold">conch settings</div>
-            <div className="truncate font-mono text-[11px] text-muted-foreground" title={data.path}>
+          <img src="./icon.svg" alt="" className="size-7 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-1.5 text-[0.95rem] leading-tight">
+              <span className="font-mono font-semibold tracking-tight">conch</span>
+              <span className="hidden text-muted-foreground sm:inline">settings</span>
+            </div>
+            <div className="hidden truncate font-mono text-[11px] text-muted-foreground sm:block" title={data.path}>
               {data.path}
               {!data.exists && " · not written yet: the defaults"}
             </div>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <ThemeSwitch pref={theme.pref} onChange={theme.choose} />
             {dirty && (
               <Badge variant="outline" className="hidden border-brand/50 text-brand sm:inline-flex">
                 {tab === "raw" ? "Unsaved edits" : `${changed.length} section${changed.length === 1 ? "" : "s"} changed`}

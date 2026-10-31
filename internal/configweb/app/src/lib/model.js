@@ -128,3 +128,14 @@ export function searchSections(schema, query) {
     [f.label, f.key, f.help].some((t) => t && t.toLowerCase().includes(q)) || (f.fields ?? []).some(hit)
   return (schema ?? []).filter((s) => [s.title, s.description, s.key].some((t) => t && t.toLowerCase().includes(q)) || s.fields.some(hit)).map((s) => s.id)
 }
+
+/** The theme chosen — "light", "dark" or "system" — as one of the first two. Anything else is system. */
+export function resolveTheme(pref, systemDark) {
+  if (pref === "light" || pref === "dark") return pref
+  return systemDark ? "dark" : "light"
+}
+
+/** A stored theme choice read back: what isn't one of the three is system. */
+export function themePref(stored) {
+  return stored === "light" || stored === "dark" ? stored : "system"
+}
