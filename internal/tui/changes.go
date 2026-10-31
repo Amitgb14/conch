@@ -906,7 +906,7 @@ func (cv *changesView) listHint(m Model) string {
 	if cv.data == nil {
 		return "enter diff · esc back"
 	}
-	if cv.data.Worktree == "" || len(cv.data.Files) == 0 {
+	if !cv.uncommitted() {
 		// Nothing uncommitted: the work is on the branch — often because
 		// the agent committed it — and "c commit" would only be told there
 		// is nothing to commit. Say the step that comes next instead.
@@ -919,6 +919,12 @@ func (cv *changesView) listHint(m Model) string {
 		return fmt.Sprintf("S send %s · space marks · c commit", count(n, "comment"))
 	}
 	return "space or click ✓ marks · e edit · c commit"
+}
+
+// uncommitted is whether the view shows uncommitted work, which is what
+// marking and c act on. Unknown yet counts as yes: the keys stay said.
+func (cv *changesView) uncommitted() bool {
+	return cv.data == nil || cv.data.Worktree != "" && len(cv.data.Files) > 0
 }
 
 // nextStep is what finishing a branch whose work is committed comes to
@@ -934,7 +940,10 @@ func (m Model) nextStep(mid, projectID, branch string) string {
 		if b.Name != branch {
 			continue
 		}
+		merged, wasMerged := m.merged[mergedKey(harvestTarget{machine: mid, projectID: projectID, branch: branch})]
 		switch {
+		case wasMerged && b.BaseAhead <= merged:
+			return "merged into " + proj.Base + " · D removes the branch and worktree"
 		case b.PR != nil && b.PR.State == "OPEN":
 			return "o its pull request · M merge"
 		case b.BaseAhead == 0:

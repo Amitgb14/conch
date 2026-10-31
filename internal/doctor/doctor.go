@@ -35,6 +35,29 @@ func (c Check) Mark() string {
 	return "✓"
 }
 
+// Command is the fix as something to paste into a shell, or "" when the
+// fix is advice rather than a command. A note after two spaces — "(or
+// codex, gemini…)", "(panes and agents keep running)" — is for reading,
+// and pasted it is a syntax error, so it is left off; so is a fix that
+// is more than one step said in words ("conch server stop, then conch").
+func (c Check) Command() string {
+	cmd := c.Fix
+	if i := strings.Index(cmd, "  ("); i >= 0 {
+		cmd = cmd[:i]
+	}
+	cmd = strings.TrimSpace(cmd)
+	first, _, _ := strings.Cut(cmd, " ")
+	switch first {
+	case "conch", "git", "gh", "xcode-select":
+	default:
+		return ""
+	}
+	if strings.Contains(cmd, ", ") || strings.Contains(cmd, "; ") {
+		return ""
+	}
+	return cmd
+}
+
 // Count is how many checks warned and how many failed.
 func Count(checks []Check) (warns, fails int) {
 	for _, c := range checks {

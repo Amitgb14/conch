@@ -39,3 +39,26 @@ func TestCount(t *testing.T) {
 		t.Errorf("an unknown status is marked %q", got)
 	}
 }
+
+// TestCommand: what the Check conch menu copies has to run as pasted.
+// The first end-to-end run copied "conch agent install claude  (or codex,
+// gemini, opencode, devin)", which a shell rejects.
+func TestCommand(t *testing.T) {
+	for fix, want := range map[string]string{
+		"conch agent install claude  (or codex, gemini, opencode, devin)":                             "conch agent install claude",
+		"conch server reload -binary '/x y/conch'  (panes and agents keep running)":                   "conch server reload -binary '/x y/conch'",
+		`git config --global user.name "Your Name" && git config --global user.email you@example.com`: `git config --global user.name "Your Name" && git config --global user.email you@example.com`,
+		"gh auth login":          "gh auth login",
+		"xcode-select --install": "xcode-select --install",
+		// Advice, not a command: nothing to copy.
+		"conch server stop, then conch  (this server cannot reload; its panes stop)": "",
+		"run conch, which starts it; agents keep running when conch closes":          "",
+		"install the GitHub CLI: https://cli.github.com":                             "",
+		"set CONCH_HOME (or CONCH_SOCKET) to a shorter path":                         "",
+		"": "",
+	} {
+		if got := (Check{Fix: fix}).Command(); got != want {
+			t.Errorf("%q: %q, want %q", fix, got, want)
+		}
+	}
+}

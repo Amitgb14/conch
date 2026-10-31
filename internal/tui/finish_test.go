@@ -178,3 +178,60 @@ func TestAfterACommit(t *testing.T) {
 		}
 	}
 }
+
+// TestAfterASquashMerge: a squash merge — the default — leaves the
+// branch's commit off the base, so git still counts it ahead and the
+// hint went back to "M merge". The first end-to-end run found it.
+func TestAfterASquashMerge(t *testing.T) {
+	m, _ := harvestModel(t, harvestCapability)
+	m.focus = focusMain
+	b := featBranch(t, m)
+	b.PR, b.Upstream, b.Ahead, b.BaseAhead = nil, "origin/feat", 0, 1
+	cv := committedChanges()
+
+	m.receiveHarvest(harvestDoneMsg{target: feat, text: "merged", merged: true})
+	if got := cv.listHint(*m); got != "merged into main · D removes the branch and worktree" {
+		t.Fatalf("after the merge: %q", got)
+	}
+	// The branch grows again: the merge no longer covers it.
+	b.BaseAhead = 2
+	if got := cv.listHint(*m); got != "p pull request · M merge" {
+		t.Fatalf("new commits: %q", got)
+	}
+	// Discarded and made again under the same name: a new branch.
+	m.receiveHarvest(harvestDoneMsg{target: feat, text: "discarded", discarded: true})
+	b.BaseAhead = 1
+	if got := cv.listHint(*m); got != "p pull request · M merge" {
+		t.Fatalf("a new branch of the same name: %q", got)
+	}
+}
+
+// TestChangesBarFollowsTheStage: with nothing uncommitted the status bar
+// leaves out marking and committing, so P, p and M are not pushed off it.
+func TestChangesBarFollowsTheStage(t *testing.T) {
+	m, _ := harvestModel(t, harvestCapability)
+	m.focus = focusMain
+	m.tab().focused().view = viewRef{Row: branchNodeID(localMachine, "r1", "feat"), Kind: kindBranch, Machine: localMachine, ProjectID: "r1", Branch: "feat"}
+	hints := func() string {
+		_, items := m.statusHints()
+		var words []string
+		for _, it := range items {
+			words = append(words, a2Plain([]string{it.text}))
+		}
+		return strings.Join(words, " | ")
+	}
+	cv := committedChanges()
+	m.tab().focused().changes = cv
+	if h := hints(); strings.Contains(h, "commit") || strings.Contains(h, "mark") || !strings.Contains(h, "push") {
+		t.Errorf("committed: %s", h)
+	}
+	d := a2Changes("a.go")
+	cv.data = &d
+	if h := hints(); !strings.Contains(h, "commit") || !strings.Contains(h, "mark") {
+		t.Errorf("uncommitted: %s", h)
+	}
+	cv.data = nil // not loaded yet: the keys stay said
+	if h := hints(); !strings.Contains(h, "commit") {
+		t.Errorf("loading: %s", h)
+	}
+}
