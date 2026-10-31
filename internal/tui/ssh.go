@@ -127,6 +127,26 @@ func (m *Model) connectSSHWith(target string, args []string) tea.Cmd {
 	return nil
 }
 
+// duplicateSSHSession opens a second session to the host this one is
+// logged in to, with the same options. A session has nothing to fill in
+// first — it is not an entry keyed by its host, as a saved host is, so
+// two to one host are two terminals and not one row — and nothing to ask:
+// whether to save the host was answered when the first session was made,
+// and asking again on a copy would be asking somebody to decline twice.
+//
+// The options come from the command it is running rather than from the
+// host's saved ones, because what is being copied is this session: a host
+// typed once with -p 2222 was reached that way whether or not it was saved,
+// and a saved host's session carries its saved options already.
+func (m *Model) duplicateSSHSession(r row) tea.Cmd {
+	target := m.sshTargetOfRow(r)
+	p := m.pane(r.machine, r.paneID)
+	if target == "" || p == nil {
+		return nil
+	}
+	return m.startSSH(target, remote.LoginArgs(p.Command))
+}
+
 // sshHosts are the hosts to offer: saved hosts, aliases from ~/.ssh/config,
 // then the targets of machines already added, each once.
 func (m Model) sshHosts() []string {

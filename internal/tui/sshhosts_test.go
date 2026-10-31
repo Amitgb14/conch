@@ -952,6 +952,90 @@ func TestDuplicateNeedsAHostOfItsOwn(t *testing.T) {
 	}
 }
 
+// d on an open session opens another to the same host: a second terminal,
+// not a second entry. It carries the options that session is running with,
+// including for a host nothing is saved about, and asks nothing — the
+// question about saving was answered when the first session was made.
+func TestDuplicateSSHSession(t *testing.T) {
+	sshEnv(t, "")
+	m, peer := sshFixture(t, true)
+	session := &m.machines[0].panes[4] // p5, the loose ssh session
+	session.Command = []string{"/usr/bin/ssh", "-F", "/cfg", "-o", "ControlPath=none", "-p", "2200", "--", "box"}
+	before := slices.Clone(session.Command)
+	m.rebuild()
+
+	a1At(t, m, paneNodeID(localMachine, "p5"))
+	m.focus = focusSidebar
+	a2Run(a1Key(t, m, a2Key("d")))
+	if m.overlay != nil {
+		t.Fatalf("d on a session asked %T", m.overlay)
+	}
+	create := peer.waitFor(t, "pane.create", func(msg proto.Message) bool { return msg.Method == proto.MethodPaneCreate })
+	var params proto.PaneCreateParams
+	json.Unmarshal(create.Params, &params)
+	if params.Name != "ssh box" || !params.NoProject {
+		t.Fatalf("params %+v", params)
+	}
+	cmd := params.Command
+	if n := len(cmd); n < 2 || cmd[n-1] != "box" || cmd[n-2] != "--" {
+		t.Fatalf("command %q", cmd)
+	}
+	if !slices.Contains(cmd, "2200") || !slices.Contains(cmd, "-p") {
+		t.Fatalf("the options were dropped: %q", cmd)
+	}
+	// Conch's own setting is asked for once, not once per copy: a
+	// session duplicated again and again would otherwise grow a word
+	// each time.
+	if n := strings.Count(strings.Join(cmd, " "), "ControlPath=none"); n != 1 {
+		t.Fatalf("ControlPath=none %d times: %q", n, cmd)
+	}
+	// Nothing was saved and the session it was copied from is as it was.
+	if len(m.savedSSH) != 0 {
+		t.Fatalf("saved %q", m.savedSSH)
+	}
+	if !slices.Equal(m.machines[0].panes[4].Command, before) {
+		t.Fatalf("the session changed: %q", m.machines[0].panes[4].Command)
+	}
+
+	// A session with no options of its own gets none, rather than a
+	// guess from the host's saved ones.
+	session.Command = []string{"/usr/bin/ssh", "-F", "/cfg", "-o", "ControlPath=none", "--", "box"}
+	m.sshInfo = map[string]sshHostInfo{"box": {Args: []string{"-p", "9999"}}}
+	m.rebuild()
+	a2Run(a1Key(t, m, a2Key("d")))
+	create = peer.waitFor(t, "second pane.create", func(msg proto.Message) bool {
+		return msg.Method == proto.MethodPaneCreate && !strings.Contains(string(msg.Params), "2200")
+	})
+	json.Unmarshal(create.Params, &params)
+	if slices.Contains(params.Command, "9999") {
+		t.Fatalf("the host's saved options were used: %q", params.Command)
+	}
+
+	// The session's own menu offers it, named after the host it is
+	// logged in to, so the key is not the only way to find it.
+	mu := newRowMenu(*m, m.rows[indexOfRow(m.rows, paneNodeID(localMachine, "p5"))], 0, 0)
+	label := ""
+	for _, it := range mu.items {
+		if it.key == "d" {
+			label = it.label
+		}
+	}
+	if !strings.Contains(label, "box") {
+		t.Fatalf("the session menu says %q", label)
+	}
+
+	// A pane that is not an ssh session has no host to copy: p7 is an
+	// agent whose command happens to be ssh, which is the one that would
+	// slip through a looser rule.
+	agent := row{kind: kindPane, machine: localMachine, paneID: "p7"}
+	if m.sshTargetOfRow(agent) != "" || m.duplicateSSHSession(agent) != nil {
+		t.Fatal("an agent running ssh was taken for a session")
+	}
+	if mu := newRowMenu(*m, agent, 0, 0); slices.ContainsFunc(mu.items, func(it menuItem) bool { return it.key == "d" }) {
+		t.Fatal("an agent's menu offers another session")
+	}
+}
+
 // Only a saved host has something to make a second of: an ssh session's
 // host may not be saved at all, and the menu row and the key agree on it.
 func TestDuplicateOnlyASavedHost(t *testing.T) {
@@ -960,7 +1044,9 @@ func TestDuplicateOnlyASavedHost(t *testing.T) {
 	if m.overlay != nil || !strings.Contains(m.flash, "only a saved host") {
 		t.Fatalf("overlay %T flash %q", m.overlay, m.flash)
 	}
-	// d on an ssh session's row opens nothing rather than the wrong thing.
+	// d on an ssh session's row opens no dialog: a session is not an
+	// entry to fill in, and is copied by opening another login to the
+	// same host instead (TestDuplicateSSHSession).
 	a1At(t, m, paneNodeID(localMachine, "p5"))
 	m.focus, m.flash = focusSidebar, ""
 	a1Key(t, m, a2Key("d"))

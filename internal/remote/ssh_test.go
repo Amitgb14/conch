@@ -651,6 +651,70 @@ func TestLoginCommand(t *testing.T) {
 	}
 }
 
+// LoginArgs is the inverse of LoginCommand: whatever options a session was
+// started with come back, so a second session to the same host is the same
+// session. Conch's own settings do not, since LoginCommand adds them again.
+func TestLoginArgs(t *testing.T) {
+	a4Env(t)
+	t.Setenv("CONCH_SSH", "/fake/ssh")
+	for _, args := range [][]string{
+		nil,
+		{"-p", "2200"},
+		{"KexAlgorithms=+diffie-hellman-group14-sha1", "-p", "2200"},
+		{"-J", "bastion", "-i", "/keys/id_ed25519", "-C", "-vvv"},
+		{"-o", "ControlPath=none"}, // typed by hand: dropped, and asked for again
+	} {
+		command, err := LoginCommand("box", args...)
+		if err != nil {
+			t.Fatalf("%q: %v", args, err)
+		}
+		want, err := NormalizeLoginArgs(args)
+		if err != nil {
+			t.Fatalf("%q: %v", args, err)
+		}
+		if len(args) == 2 && args[0] == "-o" {
+			want = nil // conch's own setting, whoever wrote it
+		}
+		got := LoginArgs(command)
+		if strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("LoginArgs(%q) = %q, want %q", command, got, want)
+		}
+		// And what comes back builds the command again: the same one,
+		// or — where a hand-typed setting of conch's own was dropped —
+		// the one without the repeat, which is the connection ssh made
+		// of it anyway, since it keeps the first value it is told.
+		again, err := LoginCommand("box", got...)
+		if err != nil {
+			t.Fatalf("%q: %v", got, err)
+		}
+		wantCommand, err := LoginCommand("box", want...)
+		if err != nil {
+			t.Fatalf("%q: %v", want, err)
+		}
+		if strings.Join(again, "|") != strings.Join(wantCommand, "|") {
+			t.Errorf("round trip of %q:\n got %q\nwant %q", args, again, wantCommand)
+		}
+	}
+
+	// Anything that is not a login command conch built, including the
+	// config given the attached way, leaves nothing to pass to ssh.
+	for _, c := range []struct {
+		cmd  []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{"ssh"}, ""},
+		{[]string{"ssh", "box"}, ""},             // no --, so no host either
+		{[]string{"zsh", "-l", "--", "box"}, ""}, // not ssh
+		{[]string{"ssh", "-Fcfg", "-p", "2200", "--", "box"}, "-p|2200"}, // -F with its value attached
+		{[]string{"ssh", "-F", "cfg", "--", "box"}, ""},                  // an older build's shape
+	} {
+		if got := LoginArgs(c.cmd); strings.Join(got, "|") != c.want {
+			t.Errorf("LoginArgs(%q) = %q, want %q", c.cmd, got, c.want)
+		}
+	}
+}
+
 func TestLoginCommandUnwritableConfig(t *testing.T) {
 	a4Env(t)
 	if os.Getuid() == 0 {

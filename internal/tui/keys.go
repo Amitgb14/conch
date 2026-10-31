@@ -172,10 +172,15 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.overlay = m.addMachineMenu()
 		return m, nil
 	case "d":
-		// Only a saved host: an ssh session's host may not be saved at
-		// all, and there is nothing yet to make a second of.
+		// A saved host and a session are duplicated differently, because
+		// they are different things: the host is an entry, copied under a
+		// host of its own, and the session is a login, copied by making
+		// another one to the same host.
 		if ok && r.kind == kindSavedSSH {
 			return m, m.openDuplicateSSH(savedSSHTarget(r.id))
+		}
+		if ok && r.kind == kindPane && m.sshTargetOfRow(r) != "" {
+			return m, m.duplicateSSHSession(r)
 		}
 	case "r":
 		if ok && r.kind == kindSavedSSH {

@@ -248,6 +248,36 @@ func LoginCommand(target string, args ...string) ([]string, error) {
 	return append(command, "--", target), nil
 }
 
+// LoginArgs reads a login command back: the extra ssh options it was built
+// with, for a second session to the same host. It is the inverse of
+// LoginCommand, so it drops what LoginCommand puts there itself — conch's
+// config and a connection of this session's own — and keeps the rest. A
+// login's own options can never hold -F (NormalizeLoginArgs refuses it)
+// and ControlPath=none is asked for again anyway, so what is left is what
+// somebody typed for this host. nil for anything that is not a login
+// command built this way.
+func LoginArgs(command []string) []string {
+	n := len(command)
+	if !IsLoginCommand(command) || n < 2 || command[n-2] != "--" {
+		return nil
+	}
+	var out []string
+	args := command[1 : n-2]
+	for i := 0; i < len(args); i++ {
+		switch {
+		case strings.HasPrefix(args[i], "-F"):
+			if args[i] == "-F" {
+				i++ // its value is the next word
+			}
+		case args[i] == "-o" && i+1 < len(args) && strings.EqualFold(args[i+1], "ControlPath=none"):
+			i++
+		default:
+			out = append(out, args[i])
+		}
+	}
+	return out
+}
+
 // CheckLoginTarget rejects what ssh would not read as a single host: empty
 // text, spaces, control characters, and a leading "-" that ssh could take
 // for an option.
