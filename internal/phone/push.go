@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/fleet"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -57,19 +58,19 @@ func (g *Gateway) pushesElsewhere() {
 	var mu sync.Mutex
 	for {
 		for _, mc := range g.machines() {
-			if mc.id == LocalMachine || mc.client() == nil {
+			if mc.ID == LocalMachine || mc.Client() == nil {
 				continue
 			}
 			mu.Lock()
-			already := watching[mc.id]
+			already := watching[mc.ID]
 			if !already {
-				watching[mc.id] = true
+				watching[mc.ID] = true
 			}
 			mu.Unlock()
 			if already {
 				continue
 			}
-			id := mc.id
+			id := mc.ID
 			go func() {
 				defer func() {
 					mu.Lock()
@@ -109,7 +110,7 @@ func (g *Gateway) watchForPushes(machine string, c *client.Client) {
 		}
 	}
 	// What the phone is told, and what a tap on the notification opens.
-	paneRef := func(id string) string { return composePaneID(machine, id) }
+	paneRef := func(id string) string { return fleet.ComposePaneID(machine, id) }
 	if g.pushWatching != nil {
 		g.pushWatching()
 	}
@@ -186,7 +187,7 @@ func (g *Gateway) sendPushes() {
 			// A notification names a pane on a machine, and taps through
 			// to it: a device that may not see that machine is not told
 			// its agents are waiting either.
-			if !d.Reaches(machineOf(job.msg.Pane)) {
+			if !d.Reaches(fleet.MachineOf(job.msg.Pane)) {
 				continue
 			}
 			for _, s := range d.Push {

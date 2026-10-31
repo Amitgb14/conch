@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/fleet"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -480,7 +481,7 @@ func (s *socket) event(machine string, msg proto.Message) {
 		if json.Unmarshal(msg.Data, &f) != nil {
 			return
 		}
-		ref := composePaneID(machine, f.ID)
+		ref := fleet.ComposePaneID(machine, f.ID)
 		s.mu.Lock()
 		open := s.open[ref]
 		if open {
@@ -511,7 +512,7 @@ func (s *socket) event(machine string, msg proto.Message) {
 			return
 		}
 		if !isAgent(p) {
-			s.gone(composePaneID(machine, p.ID))
+			s.gone(fleet.ComposePaneID(machine, p.ID))
 			return
 		}
 		c := s.clientOn(machine)
@@ -543,7 +544,7 @@ func (s *socket) event(machine string, msg proto.Message) {
 		if json.Unmarshal(msg.Data, &ref) != nil {
 			return
 		}
-		id := composePaneID(machine, ref.ID)
+		id := fleet.ComposePaneID(machine, ref.ID)
 		s.mu.Lock()
 		delete(s.open, id)
 		wasPane := s.knownPanes[id]
@@ -591,7 +592,7 @@ func (s *socket) reviewChanged(machine string, list proto.ReviewList, agents, pa
 // paneChanged tells a phone watching every pane about one that appeared
 // or changed, or that it has gone when it no longer runs.
 func (s *socket) paneChanged(machine string, p proto.PaneInfo) {
-	id := composePaneID(machine, p.ID)
+	id := fleet.ComposePaneID(machine, p.ID)
 	if !isRunning(p) {
 		s.mu.Lock()
 		was := s.knownPanes[id]
@@ -674,8 +675,8 @@ func (s *socket) follow() {
 		// rather than at the end of a session that may last days.
 		s.dropUnreached(dev)
 		for _, mc := range s.g.machines() {
-			if dev.Reaches(mc.id) {
-				s.joinMachine(mc.id)
+			if dev.Reaches(mc.ID) {
+				s.joinMachine(mc.ID)
 			}
 		}
 		select {
@@ -817,5 +818,5 @@ func (s *socket) paneOn(ref string) (c *client.Client, pane, id string, aerr *AP
 	if c == nil {
 		return nil, "", "", apiErr(CodeServerUnavailable, s.g.machineWhy(machine))
 	}
-	return c, pane, composePaneID(machine, pane), nil
+	return c, pane, fleet.ComposePaneID(machine, pane), nil
 }

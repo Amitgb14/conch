@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/fleet"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -36,12 +37,10 @@ type Gateway struct {
 	logf func(format string, args ...any)
 	now  func() time.Time
 
-	// machMu guards conns, the client per machine (machines.go). It is its
-	// own lock because reaching a machine takes seconds: holding mu for
-	// that would stop every request the gateway is serving.
-	machMu sync.Mutex
-	conns  map[string]*machineConn
-	machWG sync.WaitGroup
+	// pool is the client per machine (machines.go). It has its own lock
+	// because reaching a machine takes seconds: holding mu for that would
+	// stop every request the gateway is serving.
+	pool *fleet.Pool
 
 	mu       sync.Mutex
 	c        *client.Client // the local server; a socket has its own
@@ -107,6 +106,7 @@ func newGateway(store *Store, dial func() (*client.Client, error), logf func(for
 		attempts:  map[string][]time.Time{},
 		quit:      make(chan struct{}), done: make(chan struct{}),
 	}
+	g.pool = g.newPool()
 	go g.watch()
 	go g.pushes()
 	go g.sendPushes()
@@ -682,7 +682,7 @@ func (g *Gateway) reply(rq *request) (any, *APIError) {
 	// machine the pane is on: a phone reaches machines, and each has its
 	// own conch — "reload the server" was the wrong thing to tell
 	// somebody about a machine they are not sitting at.
-	if aerr := g.lacks(machineOf(id), c, proto.CapAgentPrompt); aerr != nil {
+	if aerr := g.lacks(fleet.MachineOf(id), c, proto.CapAgentPrompt); aerr != nil {
 		return nil, aerr
 	}
 	var res proto.AgentPromptResult
@@ -706,7 +706,7 @@ func (g *Gateway) reviewSend(rq *request) (any, *APIError) {
 	if aerr != nil {
 		return nil, aerr
 	}
-	if aerr := g.lacks(machineOf(id), c, proto.CapReviewComments); aerr != nil {
+	if aerr := g.lacks(fleet.MachineOf(id), c, proto.CapReviewComments); aerr != nil {
 		return nil, aerr
 	}
 	var list proto.PaneList
@@ -729,7 +729,7 @@ func (g *Gateway) reviewSend(rq *request) (any, *APIError) {
 	if res.Pane.Agent != nil {
 		agent = res.Pane.Agent.Name
 	}
-	return ReviewSendResponse{Pane: composePaneID(machineOf(id), res.Pane.ID), Agent: agent, Sent: res.Sent, Turn: res.Turn}, nil
+	return ReviewSendResponse{Pane: fleet.ComposePaneID(fleet.MachineOf(id), res.Pane.ID), Agent: agent, Sent: res.Sent, Turn: res.Turn}, nil
 }
 
 // answer picks one of a waiting agent's choices. It is refused before
@@ -808,7 +808,7 @@ func (g *Gateway) task(rq *request) (any, *APIError) {
 		// is behind (Machine.Behind), which is where the person reads it.
 		_ = g.callOn(rq, c, callTimeout, proto.MethodPaneRename, proto.PaneRenameParams{ID: info.ID, Name: req.Name}, nil)
 	}
-	return TaskResponse{Pane: composePaneID(machine, info.ID), Worktree: info.Cwd, Branch: info.Branch}, nil
+	return TaskResponse{Pane: fleet.ComposePaneID(machine, info.ID), Worktree: info.Cwd, Branch: info.Branch}, nil
 }
 
 func (g *Gateway) pushKey(rq *request) (any, *APIError) {
@@ -926,7 +926,7 @@ func (g *Gateway) newPane(rq *request) (any, *APIError) {
 	if aerr := g.callOn(rq, c, callTimeout, proto.MethodPaneCreate, params, &info); aerr != nil {
 		return nil, aerr
 	}
-	return NewPaneResponse{Pane: composePaneID(machine, info.ID)}, nil
+	return NewPaneResponse{Pane: fleet.ComposePaneID(machine, info.ID)}, nil
 }
 
 func (g *Gateway) closePane(rq *request) (any, *APIError) {

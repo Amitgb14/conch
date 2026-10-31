@@ -21,6 +21,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/fleet"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/server"
 )
@@ -511,7 +512,7 @@ func (s *fakeSocket) closed() []ServerMessage {
 // phoneID is the ID the phone is given for a pane of this computer: pane
 // IDs are a server's own, so the gateway hands out machine:pane and takes
 // back what it gave (api_version 2).
-func phoneID(id string) string { return composePaneID(LocalMachine, id) }
+func phoneID(id string) string { return fleet.ComposePaneID(LocalMachine, id) }
 
 // socketJoined reports whether an open socket holds its own connection to
 // machine, so events there reach the phone.

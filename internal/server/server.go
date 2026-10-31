@@ -34,6 +34,9 @@ const frameInterval = 33 * time.Millisecond
 
 // Server owns all panes on this machine.
 type Server struct {
+	// sizes says whose size a pane shown by several clients takes (size.go).
+	sizes paneSizes
+
 	sockPath  string
 	sockID    os.FileInfo // the socket file this server bound; see noteSocket
 	configDir string
@@ -319,6 +322,7 @@ func (s *Server) serve(nc net.Conn) {
 		delete(s.clients, c)
 		s.mu.Unlock()
 		s.views.forget(c) // a layout nobody is looking at is not an answer
+		s.sizes.forget(c)
 		s.unsubscribeAll(c)
 		s.uploads.dropClient(c)
 		c.conn.Close()
@@ -497,8 +501,15 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		if err := e.p.Resize(rp.Cols, rp.Rows); err != nil {
-			return nil, proto.Errorf(proto.ErrBadRequest, "%v", err)
+		if rp.Cols <= 0 || rp.Rows <= 0 {
+			return nil, proto.Errorf(proto.ErrBadRequest, "pane: size must be positive")
+		}
+		// Kept either way; applied unless another client has the pane's
+		// attention (size.go). Not an error: the client's size is waiting.
+		if s.sizes.ask(c, e.p.ID(), rp.Cols, rp.Rows) {
+			if err := e.p.Resize(rp.Cols, rp.Rows); err != nil {
+				return nil, proto.Errorf(proto.ErrBadRequest, "%v", err)
+			}
 		}
 		return nil, nil
 
@@ -510,6 +521,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if err := e.p.SendText(tp.Text, tp.Paste); err != nil {
 			return nil, proto.Errorf(proto.ErrBadRequest, "%v", err)
 		}
+		s.typedBy(c, e)
 		s.userInput(e)
 		return nil, nil
 
@@ -521,6 +533,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if err := e.p.SendKeys(kp.Keys); err != nil {
 			return nil, proto.Errorf(proto.ErrBadRequest, "%v", err)
 		}
+		s.typedBy(c, e)
 		s.userInput(e)
 		return nil, nil
 
@@ -614,6 +627,9 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		if err := e.p.SendMouse(mp); err != nil {
 			return nil, proto.Errorf(proto.ErrBadRequest, "%v", err)
+		}
+		if mp.Action != proto.MouseMotion {
+			s.typedBy(c, e)
 		}
 		return nil, nil
 
@@ -1417,8 +1433,17 @@ func (s *Server) close(id string) *proto.Error {
 	e.p.Close()
 	s.autopilotClosed(id)
 	log.Printf("pane %s closed", id)
+	s.sizes.drop(id)
 	s.broadcast(proto.EventPaneClosed, proto.PaneRef{ID: id})
 	return nil
+}
+
+// typedBy gives a pane to the client the person just typed into it
+// through, at that client's size if it asked for one (size.go).
+func (s *Server) typedBy(c *client, e *entry) {
+	if size, ok := s.sizes.input(c, e.p.ID()); ok {
+		_ = e.p.Resize(size[0], size[1])
+	}
 }
 
 // alive reports whether the pane is still registered (not closed).
@@ -1455,7 +1480,9 @@ func (s *Server) broadcast(event string, data any) {
 
 // subscribe streams frames of the pane to the client until unsubscribed. It
 // sends one frame immediately, then at most one per frameInterval while the
-// screen keeps changing.
+// screen keeps changing. The interval is counted from the last frame sent,
+// not from the change: a keystroke after a quiet spell goes out at once
+// instead of waiting a whole interval, which every echo used to.
 func (s *Server) subscribe(c *client, e *entry) {
 	p := e.p
 	c.mu.Lock()
@@ -1476,6 +1503,7 @@ func (s *Server) subscribe(c *client, e *entry) {
 			if err := c.conn.Write(proto.Message{Event: proto.EventPaneFrame, Data: proto.Marshal(frame)}); err != nil {
 				return
 			}
+			sent := time.Now()
 			select {
 			case <-changed:
 			case <-sub.kick:
@@ -1483,10 +1511,12 @@ func (s *Server) subscribe(c *client, e *entry) {
 			case <-sub.stop:
 				return
 			}
-			select {
-			case <-time.After(frameInterval):
-			case <-sub.stop:
-				return
+			if wait := frameInterval - time.Since(sent); wait > 0 {
+				select {
+				case <-time.After(wait):
+				case <-sub.stop:
+					return
+				}
 			}
 		}
 	}()
