@@ -359,6 +359,24 @@ Read the screen back with `conch read ID`. Always with a scratch
 
 ## Runs
 
+### R60 — 2026-10-29, a newcomer's first hour, macOS arm64, build 0.1.9-dev (98a2596)
+
+A scratch everything: `CONCH_HOME`, `CONCH_SOCKET` and `HOME` in `/tmp/e2e.*`, `CONCH_PANE_ID` unset, `PATH` of `/usr/bin:/bin` and the scratch `bin` only (the folders `/etc/paths` adds were checked for any agent or `gh` first), `CONCH_GH` pointing at nothing, git with no identity until part 4. Every call went through one wrapper that set all of it, because the session running the test was itself in a pane of the real conch. The TUI ran in a pane of that scratch server (`CONCH_PANE_ID` cleared) and was driven with `conch send -keys` and read with `conch read`. The agent was `internal/tools/standin` built as `claude`; the remote was a local bare repository, so nothing reached the network. No clipboard item was pressed: the TUI under test could have reached the real clipboard.
+
+- **CLI, no server (rows from #63, #64, #66):** `branch -h` printed branch's own help; `brnach` said *did you mean conch branch?* and exited 2; `read p1` said the server is not running and that `conch` starts it, exit 1; `server stop` said there was nothing to stop; `project frob` named the subcommands' help and started no server; `send p1` ended with `conch send -h explains it`; `status -json` printed `{"panes":[],"server":null}`.
+- **9.150 (macOS half):** with no agent and no git identity, a few seconds after the TUI drew, this computer's page listed ✗ agents, ! git and ! gh, each with its fix, and the bar said `✗ 1 thing to fix` — the failure only. `,` → **Check conch…** listed every check, the summary and the copy items. With the stand-in put on `PATH` as `claude`, `r` re-checked: agents ✓, the bar's ✗ gone.
+- **9.152 (no agent, then one):** Getting started read 0 of 5 with `c  install an agent` first, and `c` was said once. Once an agent was there, the step ticked itself and `c` offered *Start Claude Code*. Not covered: the "only Codex" half.
+- **The finish loop (#68):** a task on `feat`, the stand-in committing its own work. The changes view's header said `P push · p pull request · M merge`; `P` pushed to the bare remote and said `pushed feat · p opens a pull …`, the header moving on to `p pull request · M merge`; `p` with no `gh` said so; `M` squash-merged into main; `D` showed *Nothing is lost* and removed the branch and worktree once `y` was pressed.
+- **`conch status` in a terminal (#66):** fitted to the pane's 120 columns, folders from `~`, no SIZE column.
+- **Found and fixed — a copied fix that does not run.** *Copy the agents fix* copied `conch agent install claude  (or codex, gemini, opencode, devin)`, which a shell rejects. `doctor.Check.Command` now gives the fix without its note, and only a fix that is a command is offered to copy.
+- **Found and fixed — Check again said one thing and the page another.** It found the newly installed agent, but the page, the guide and `c` still had the agent list from when the TUI connected, until the agent menu happened to ask again. Each check now asks this computer's agent list again too.
+- **Found and fixed — after a squash merge the hint went back to `M merge`.** A squash merge (the default) leaves the branch's commit off main, so git still counts it ahead and the *D removes the branch* stage never came. The TUI now keeps what it counted when it merged, until the branch grows.
+- **Found and fixed — the bar contradicted the header.** With nothing to commit, the status bar still began `space mark  c commit`, which pushed `P` and `p` off it. Those two now leave the bar when there is nothing uncommitted.
+- **Found and fixed — "panes are still running in …; close them first"** did not say which, or how. It now names them and says *x on its row, or conch close p3*.
+- **Found and fixed — "gh (GitHub CLI) is not installed"** now says what needs it and where to get it.
+- **Driving note:** `esc` from the changes view's error went back to the tree, where `M` is *add a machine*: the Add machine dialog opened, and Enter with an empty target did nothing. Nothing was added.
+- **Not covered:** busybox (unreachable all day), link clicks (9.151, a real mouse), fish (9.149), the clipboard, and `p` with a real `gh`.
+
 ### R59 — 2026-10-19, the autopilot against GitHub with nobody watching, macOS arm64, build 0.1.9-dev
 
 A scratch server (its own `HOME`, `CONCH_HOME` and socket, `GH_TOKEN` from
