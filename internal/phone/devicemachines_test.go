@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/fleet"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -43,7 +44,7 @@ func TestADeviceReachesThisComputerUntilGivenAMachine(t *testing.T) {
 	var panes PaneList
 	p.get("/api/panes", &panes)
 	for _, pane := range panes.Panes {
-		if machineOf(pane.Pane) != LocalMachine {
+		if fleet.MachineOf(pane.Pane) != LocalMachine {
 			t.Fatalf("a pane from elsewhere: %+v", pane)
 		}
 	}
@@ -59,7 +60,7 @@ func TestADeviceReachesThisComputerUntilGivenAMachine(t *testing.T) {
 	// And it may not act on one, by any route. The refusal says what to
 	// run, since nothing else would tell the person why their phone can
 	// see the laptop and not the machine beside it.
-	ref := composePaneID("busybox", there)
+	ref := fleet.ComposePaneID("busybox", there)
 	_, e := p.post("/api/close", CloseRequest{Pane: ref}, nil)
 	if e == nil || e.Code != CodeForbidden {
 		t.Fatalf("closing a pane there: %+v", e)
@@ -111,7 +112,7 @@ func TestADeviceReachesThisComputerUntilGivenAMachine(t *testing.T) {
 
 	// And taken away again, at once: no reconnecting, no new pairing.
 	f.grant(p)
-	if _, e := p.post("/api/close", CloseRequest{Pane: composePaneID("busybox", "p9")}, nil); e == nil || e.Code != CodeForbidden {
+	if _, e := p.post("/api/close", CloseRequest{Pane: fleet.ComposePaneID("busybox", "p9")}, nil); e == nil || e.Code != CodeForbidden {
 		t.Fatalf("after the machine was taken away: %+v", e)
 	}
 	waitFor(t, "this computer alone again", func() bool {
@@ -183,7 +184,7 @@ func TestASocketIsToldOnlyAboutItsMachines(t *testing.T) {
 	other := addMachine(t, f, "busybox", true)
 	p := f.pair(PermFull)
 	there := startPaneOn(t, other, "claude", "stty -echo; exec cat")
-	ref := composePaneID("busybox", there)
+	ref := fleet.ComposePaneID("busybox", there)
 
 	s := p.socket()
 	s.send(ClientMessage{Type: MsgAgentsWatch, ID: "1"})
@@ -227,7 +228,7 @@ func TestASocketIsToldOnlyAboutItsMachines(t *testing.T) {
 	callOn(t, other, proto.MethodPaneSendText, proto.PaneSendTextParams{ID: there, Text: "after it was taken away\r"})
 	time.Sleep(200 * time.Millisecond) // long enough for a frame to have come
 	for _, msg := range s.until("ping-2") {
-		if msg.Type == MsgFrame && msg.Frame != nil && machineOf(msg.Frame.Pane) == "busybox" {
+		if msg.Type == MsgFrame && msg.Frame != nil && fleet.MachineOf(msg.Frame.Pane) == "busybox" {
 			t.Fatalf("a frame after the machine was taken away: %+v", msg.Frame)
 		}
 	}
@@ -337,7 +338,7 @@ func TestPushesOnlyGoWhereTheDeviceReaches(t *testing.T) {
 	// anything there is news.
 	waitMachine(t, f, granted, "busybox", MachineOnline)
 	there := startPaneOn(t, other, "claude", "stty -echo; exec cat")
-	ref := composePaneID("busybox", there)
+	ref := fleet.ComposePaneID("busybox", there)
 
 	waiting := func() []pushed {
 		var out []pushed

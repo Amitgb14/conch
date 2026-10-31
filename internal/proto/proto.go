@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -200,6 +200,16 @@ const CapPRMerge = "branch.pr_merge.v1"
 // its settings; against an older server the TUI does both itself, and
 // only while it runs.
 const CapAutopilot = "autopilot.v1"
+
+// CapFrameCursor is Frame.Cursor: where the cursor is, as well as drawn
+// in, for a client that places something at it — an input method's
+// candidates. A frame from an older server has none.
+const CapFrameCursor = "pane.frame.cursor.v1"
+
+// CapPaneSizeLatest is a pane shown by several clients taking the size of
+// the one the person last typed into, not of whichever resized last. A
+// resize from another client is kept and applied when it is typed into.
+const CapPaneSizeLatest = "pane.size.latest.v1"
 
 // CapFSSSH is the files of a host a terminal is logged in to with ssh:
 // PaneInfo.SSH names the host, and fs.list, fs.read, fs.mkdir, fs.upload
@@ -2173,6 +2183,15 @@ type Frame struct {
 	// it is a full-screen program.
 	Mouse     bool `json:"mouse,omitempty"`
 	AltScreen bool `json:"alt_screen,omitempty"`
+	// Cursor is where the cursor is drawn, when it is: the program is
+	// running, has not hidden it, and the view is not scrolled back.
+	Cursor *FrameCursor `json:"cursor,omitempty"`
+}
+
+// FrameCursor is a cell of a frame, counted from 0 at the top left.
+type FrameCursor struct {
+	Row int `json:"row"`
+	Col int `json:"col"`
 }
 
 // PaneScrollParams scrolls the requesting client's view of a pane Offset

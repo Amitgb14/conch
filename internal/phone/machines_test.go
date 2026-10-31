@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/fleet"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/server"
@@ -145,7 +146,7 @@ func waitMachine(t *testing.T, f *fixture, p *fakePhone, id, state string) Machi
 // either that or a bare id, which means this computer — an app built
 // before machines keeps working.
 func TestPaneIDsCarryTheirMachine(t *testing.T) {
-	if got := composePaneID(LocalMachine, "p3"); got != "local:p3" {
+	if got := fleet.ComposePaneID(LocalMachine, "p3"); got != "local:p3" {
 		t.Fatalf("composed %q", got)
 	}
 	for _, c := range []struct{ in, machine, pane string }{
@@ -170,10 +171,10 @@ func TestPaneIDsCarryTheirMachine(t *testing.T) {
 	}
 	// A machine's id never holds a colon (remote.slug), so the split is on
 	// the first one and nothing is ambiguous.
-	if machineIDOK("has:colon") || machineIDOK("Upper") || machineIDOK("") || machineIDOK("sp ace") {
+	if fleet.IDOK("has:colon") || fleet.IDOK("Upper") || fleet.IDOK("") || fleet.IDOK("sp ace") {
 		t.Error("machineIDOK accepts an id the catalog could not make")
 	}
-	if !machineIDOK("busybox") || !machineIDOK("vm-1") || !machineIDOK("local") {
+	if !fleet.IDOK("busybox") || !fleet.IDOK("vm-1") || !fleet.IDOK("local") {
 		t.Error("machineIDOK refuses an id the catalog does make")
 	}
 }
@@ -234,7 +235,7 @@ func TestMachinesListAndMerge(t *testing.T) {
 		agents = p.agents()
 		return len(agents) == 2 && agents[0].State == StateWaiting
 	})
-	if agents[0].Pane != composePaneID("busybox", there) || agents[0].Machine != "busybox" {
+	if agents[0].Pane != fleet.ComposePaneID("busybox", there) || agents[0].Machine != "busybox" {
 		t.Fatalf("the waiting one is %+v", agents[0])
 	}
 	if agents[1].Pane != phoneID(here) || agents[1].Machine != LocalMachine {
@@ -251,15 +252,15 @@ func TestMachinesListAndMerge(t *testing.T) {
 
 	// A pane there is acted on by its composite id, and answered with it.
 	var rep ReplyResponse
-	status, e := p.post("/api/reply", ReplyRequest{Pane: composePaneID("busybox", there), Text: "carry on"}, &rep)
+	status, e := p.post("/api/reply", ReplyRequest{Pane: fleet.ComposePaneID("busybox", there), Text: "carry on"}, &rep)
 	if status != 409 || e == nil || e.Code != CodeAgentBlocked {
 		t.Fatalf("a reply to a waiting agent there: %d %+v", status, e)
 	}
 	var cl CloseResponse
-	if status, e := p.post("/api/close", CloseRequest{Pane: composePaneID("busybox", there)}, &cl); status != 200 {
+	if status, e := p.post("/api/close", CloseRequest{Pane: fleet.ComposePaneID("busybox", there)}, &cl); status != 200 {
 		t.Fatalf("closing a pane there: %d %+v", status, e)
 	}
-	if cl.Pane != composePaneID("busybox", there) {
+	if cl.Pane != fleet.ComposePaneID("busybox", there) {
 		t.Errorf("close answered %+v", cl)
 	}
 	// And a machine this device was not given is refused, whether or not
@@ -349,7 +350,7 @@ func TestMachineArrivesOnTheSocket(t *testing.T) {
 	// machine, which is the whole point of following every machine.
 	there := startPaneOn(t, other, "claude", "stty -echo; exec cat")
 	s.next("the agent on busybox", func(m ServerMessage) bool {
-		return m.Type == MsgAgent && m.Agent != nil && m.Agent.Pane == composePaneID("busybox", there) &&
+		return m.Type == MsgAgent && m.Agent != nil && m.Agent.Pane == fleet.ComposePaneID("busybox", there) &&
 			m.Agent.Machine == "busybox"
 	})
 }
@@ -564,7 +565,7 @@ func TestMachineComesUpWhileThePhoneWatches(t *testing.T) {
 	// And its agents arrive from then on, which is what the phone wanted.
 	there := startPaneOn(t, other, "claude", "stty -echo; exec cat")
 	s.next("the agent on busybox", func(m ServerMessage) bool {
-		return m.Type == MsgAgent && m.Agent != nil && m.Agent.Pane == composePaneID("busybox", there)
+		return m.Type == MsgAgent && m.Agent != nil && m.Agent.Pane == fleet.ComposePaneID("busybox", there)
 	})
 }
 
@@ -590,7 +591,7 @@ func TestAPaneOnAnotherMachineOpensOnTheFirstTap(t *testing.T) {
 	p := f.pair(PermFull)
 	f.grant(p, "busybox")
 	there := startPaneOn(t, other, "claude", "stty raw -echo; printf 'from-busybox\\r\\n'; exec cat")
-	ref := composePaneID("busybox", there)
+	ref := fleet.ComposePaneID("busybox", there)
 	// The gateway reaches it; the socket has not, since it does not exist
 	// yet. That is the state a phone opens in.
 	waitMachine(t, f, p, "busybox", MachineOnline)
@@ -658,7 +659,7 @@ func TestAMachineRunningAnOlderConchSaysSo(t *testing.T) {
 	p := f.pair(PermFull)
 	f.grant(p, "busybox")
 	there := startPaneOn(t, other, "claude", "stty -echo; exec cat")
-	ref := composePaneID("busybox", there)
+	ref := fleet.ComposePaneID("busybox", there)
 	waitMachine(t, f, p, "busybox", MachineOnline)
 
 	// Said in the list, in words, before the phone tries anything.

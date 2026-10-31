@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Amitgb14/conch/internal/fleet"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -31,7 +32,7 @@ func isAgent(p proto.PaneInfo) bool {
 // by ID; screen is the pane's plain screen, needed only while it waits.
 func buildAgent(machine string, p proto.PaneInfo, projects map[string]string, screen []string) Agent {
 	a := Agent{
-		Machine: machine, Pane: composePaneID(machine, p.ID), Name: p.Name, Branch: p.Branch,
+		Machine: machine, Pane: fleet.ComposePaneID(machine, p.ID), Name: p.Name, Branch: p.Branch,
 		Agent: p.Agent.Name, State: phoneState(p.Agent.State), Since: p.Agent.Since.UTC(),
 		Title: p.Title, CreatedBy: p.CreatedBy, Failed: p.Agent.Failed,
 		Question: readQuestion(p, screen),
@@ -167,7 +168,7 @@ func buildPane(machine string, p proto.PaneInfo, projects map[string]string, scr
 	if p.Agent != nil {
 		return Pane{Agent: buildAgent(machine, p, projects, screen), Kind: KindAgent, Cwd: p.Cwd}
 	}
-	a := Agent{Machine: machine, Pane: composePaneID(machine, p.ID), Name: p.Name, Branch: p.Branch, State: StateIdle,
+	a := Agent{Machine: machine, Pane: fleet.ComposePaneID(machine, p.ID), Name: p.Name, Branch: p.Branch, State: StateIdle,
 		Since: p.Created.UTC(), Title: p.Title, CreatedBy: p.CreatedBy}
 	if p.ProjectID != "" {
 		a.Project = &ProjectRef{ID: p.ProjectID, Name: projects[p.ProjectID]}
