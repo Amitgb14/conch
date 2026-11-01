@@ -84,6 +84,13 @@ var appTerminals = []appTerminal{{
 		// A running ghostty would otherwise make the window itself, from
 		// the config it was started with rather than this one.
 		b.WriteString("gtk-single-instance = false\n")
+		// macOS needs `open -na`, which starts a *separate* instance of
+		// ghostty — and a macOS application does not stop when its last
+		// window closes, so that instance would sit in the Dock with
+		// nothing in it after the conch window was closed, one more for
+		// every launch. This is an instance conch made for one window,
+		// so it goes when the window does.
+		b.WriteString("quit-after-last-window-closed = true\n")
 		if fallback {
 			b.WriteString("term = xterm-256color\n")
 		}
@@ -148,14 +155,39 @@ var appTerminals = []appTerminal{{
 	},
 }}
 
-// runOutward is the launch, behind a variable so a test can take it: this
+// startApp is the launch, behind a variable so a test can take it: this
 // one opens a window on somebody's desktop.
 var startApp = func(argv []string) error {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	// Nothing of the shell's: a terminal of its own, which outlives the
 	// command that started it.
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	cmd.Env = appEnviron(os.Environ())
 	return cmd.Start()
+}
+
+// appEnviron is the environment the terminal is started with: this one,
+// without the pane conch is running in.
+//
+// Most people will run this from inside conch, since that is where they
+// are. CONCH_PANE_ID says "this process is in that pane", a pane passes it
+// to everything it starts, and a conch that sees it beside a socket
+// refuses to draw a TUI (nestedPane) — rightly, for a program *in* the
+// pane. The window conch opens here is not in it: it is another terminal,
+// on its own pty, and the only thing the inherited id would do is put an
+// error on the screen of the window somebody just asked for.
+//
+// CONCH_SOCKET stays. That is which server to talk to, and the new window
+// wanting the same one — the same panes, the same agents — is the point.
+func appEnviron(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "CONCH_PANE_ID=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 func runApp(args []string) error {

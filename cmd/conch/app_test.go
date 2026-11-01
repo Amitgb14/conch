@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -101,9 +102,13 @@ func TestAppHoldsTERMBackWhenTheTerminfoIsMissing(t *testing.T) {
 		t.Fatalf("TERM held back although the entry is there:\n%s", body)
 	}
 	// ghostty's own window has to be this one, not one an already
-	// running ghostty makes from its own config.
-	if !strings.Contains(string(body), "gtk-single-instance = false") {
-		t.Fatalf("config:\n%s", body)
+	// running ghostty makes from its own config — and on macOS the
+	// instance `open -na` starts has to go when that window does, or
+	// each launch leaves one behind with nothing in it.
+	for _, want := range []string{"gtk-single-instance = false", "quit-after-last-window-closed = true"} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("config has no %q:\n%s", want, body)
+		}
 	}
 
 	// One that has never heard of xterm-ghostty: held back, and the file
@@ -144,6 +149,39 @@ func TestAppIncludesYourOwnFile(t *testing.T) {
 	// the other one: this is the file that says so.
 	if !strings.Contains(string(body), "Edits here are lost") {
 		t.Fatalf("config:\n%s", body)
+	}
+}
+
+// The terminal conch opens is not the pane conch was asked from. Nearly
+// everybody runs this from inside conch, and a conch that inherits
+// CONCH_PANE_ID beside a socket refuses to draw a TUI — so the window
+// somebody just asked for would have held an error instead of conch.
+func TestAppDoesNotPassOnItsPane(t *testing.T) {
+	env := appEnviron([]string{
+		"PATH=/usr/bin",
+		"CONCH_PANE_ID=p7",
+		"CONCH_SOCKET=/tmp/conch.sock",
+		"CONCH_HOME=/home/me/.config/conch",
+		"TERM=xterm-ghostty",
+	})
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "CONCH_PANE_ID=") {
+			t.Fatalf("the pane was passed on: %q", env)
+		}
+	}
+	// Everything else is kept, the socket above all: the new window wants
+	// the same server, with the same panes in it.
+	for _, want := range []string{"PATH=/usr/bin", "CONCH_SOCKET=/tmp/conch.sock", "CONCH_HOME=/home/me/.config/conch", "TERM=xterm-ghostty"} {
+		if !slices.Contains(env, want) {
+			t.Errorf("%q was dropped: %q", want, env)
+		}
+	}
+	// A variable that merely starts the same way is not the pane.
+	if env = appEnviron([]string{"CONCH_PANE_IDS=x", "CONCH_PANE=1"}); len(env) != 2 {
+		t.Errorf("dropped more than the pane: %q", env)
+	}
+	if env = appEnviron(nil); len(env) != 0 {
+		t.Errorf("an empty environment became %q", env)
 	}
 }
 
