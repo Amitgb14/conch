@@ -36,6 +36,9 @@ const frameInterval = 33 * time.Millisecond
 type Server struct {
 	// sizes says whose size a pane shown by several clients takes (size.go).
 	sizes paneSizes
+	// agentsSeen is which agents this machine was last found to have,
+	// for a task that names none (agents.go, defaultAgent).
+	agentsSeen agentsSeen
 
 	sockPath  string
 	sockID    os.FileInfo // the socket file this server bound; see noteSocket
@@ -853,6 +856,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 				Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier(),
 				NoInstaller: strings.TrimSpace(ad.InstallScript()) == ""})
 		}
+		s.agentsSeen.note(res.Agents)
 		return res, nil
 
 	case proto.MethodAgentInstall:
@@ -1355,7 +1359,7 @@ func (s *Server) startTask(tp proto.TaskCreateParams) (proto.PaneInfo, string, *
 		}
 	}
 	if tp.Agent == "" {
-		tp.Agent = s.adapters[0].Name()
+		tp.Agent = s.defaultAgent()
 	}
 	if tp.Branch == "" {
 		tp.Branch = gitx.BranchFromPrompt(p.snapshot().Name, tp.Prompt)

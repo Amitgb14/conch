@@ -419,6 +419,56 @@ func (s *Server) stillRunning(dir string) *proto.Error {
 		strings.Join(names, ", "), verb, dir, them, strings.Join(ids, " "))
 }
 
+// agentsSeen is the last agent.status answer: which agents this machine
+// has. Finding out runs a login shell and each agent's --version, which is
+// too slow to do for every task, so a task that names no agent uses what a
+// client last asked — the TUI does when it connects, and again whenever
+// its agent menu or Check conch is opened.
+type agentsSeen struct {
+	mu        sync.Mutex
+	at        time.Time
+	installed map[string]bool
+}
+
+// agentsSeenFor is how long an answer is trusted for choosing a default:
+// an agent installed since is found the next time anyone asks.
+const agentsSeenFor = time.Hour
+
+func (a *agentsSeen) note(agents []proto.AgentAvailability) {
+	installed := make(map[string]bool, len(agents))
+	for _, av := range agents {
+		installed[av.Name] = av.Installed
+	}
+	a.mu.Lock()
+	a.at, a.installed = time.Now(), installed
+	a.mu.Unlock()
+}
+
+// defaultAgent is the agent a task names none for: the first conch knows
+// (Claude Code), unless this machine was last seen without it and with
+// another — one conch supports before one somebody described in a
+// manifest. A task from a shell, the MCP tools or one agent for another
+// gets the answer the TUI's c and t give, rather than Claude Code started
+// where only Codex is installed. Knowing nothing, it is Claude Code, as
+// it always was.
+func (s *Server) defaultAgent() string {
+	first := s.adapters[0].Name()
+	s.agentsSeen.mu.Lock()
+	installed, at := s.agentsSeen.installed, s.agentsSeen.at
+	s.agentsSeen.mu.Unlock()
+	if installed == nil || time.Since(at) > agentsSeenFor || installed[first] {
+		return first
+	}
+	for _, supported := range []bool{true, false} {
+		for _, ad := range s.adapters[1:] {
+			if installed[ad.Name()] && (ad.Tier() != proto.TierRunsHere) == supported {
+				return ad.Name()
+			}
+		}
+	}
+	return first // none at all: starting it says it is missing
+}
+
 func (s *Server) projectRegistered(p *project) bool {
 	_, perr := s.projects.get(p.id)
 	return perr == nil
