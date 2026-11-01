@@ -99,11 +99,15 @@ func New(sockPath, configDir string) *Server {
 	if abs, err := filepath.Abs(sockPath); err == nil {
 		sockPath = abs // panes and hooks may run in other directories
 	}
+	// One clock reading for both: two made the second a few nanoseconds
+	// later, and every server that had never reloaded said "reloaded …
+	// ago" from the moment it started (R63).
+	now := time.Now()
 	s := &Server{
 		sockPath:  sockPath,
 		configDir: configDir,
-		started:   time.Now(),
-		loaded:    time.Now(),
+		started:   now,
+		loaded:    now,
 		panes:     map[string]*entry{},
 		clients:   map[*client]struct{}{},
 		quit:      make(chan struct{}),

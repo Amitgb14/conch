@@ -928,3 +928,48 @@ func TestSpreadHintDropsWholeHints(t *testing.T) {
 		t.Fatalf("none: %q", got)
 	}
 }
+
+// TestBranchLabelKeepsItsEnd: two attempts at one task differ only at the
+// end of their names, which a cut from the end took away — both read
+// "api/greet-by-nam…" in the tree (R63).
+func TestBranchLabelKeepsItsEnd(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		room int
+		want string
+	}{
+		{"api/greet-by-name/claude", 40, "api/greet-by-name/claude"},
+		{"api/greet-by-name/claude", 14, "…y-name/claude"},
+		{"api/greet-by-name/codex", 14, "…by-name/codex"},
+		{"main", 2, "main"}, // no room to speak of: left to spread
+		{"api/x", 0, "api/x"},
+	} {
+		got := branchLabel(tc.name, tc.room)
+		if got != tc.want {
+			t.Errorf("%q in %d: %q, want %q", tc.name, tc.room, got, tc.want)
+		}
+		if got != tc.name && ansi.StringWidth(got) != tc.room {
+			t.Errorf("%q in %d: %d wide", tc.name, tc.room, ansi.StringWidth(got))
+		}
+	}
+	// The rows themselves, in a narrow tree: the two are told apart.
+	m, _ := a1Fixture(t, false)
+	proj := &m.machines[0].projects[0]
+	proj.Branches = append(proj.Branches,
+		proto.BranchInfo{Name: "api/greet-by-name/claude", BaseAhead: 1, Committed: time.Now()},
+		proto.BranchInfo{Name: "api/greet-by-name/codex", BaseAhead: 1, Committed: time.Now()})
+	m.rebuild()
+	lines := map[string]string{}
+	for _, r := range m.rows {
+		if r.kind == kindBranch && strings.HasPrefix(r.branch, "api/greet") {
+			l := ansi.Strip(m.rowLine(r, 30))
+			if ansi.StringWidth(l) > 30 {
+				t.Errorf("%q is %d wide", l, ansi.StringWidth(l))
+			}
+			lines[r.branch] = l
+		}
+	}
+	if len(lines) != 2 || !strings.Contains(lines["api/greet-by-name/claude"], "claude") || !strings.Contains(lines["api/greet-by-name/codex"], "codex") {
+		t.Fatalf("rows: %q", lines)
+	}
+}

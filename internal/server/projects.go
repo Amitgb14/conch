@@ -641,7 +641,25 @@ func (pm *projectManager) changes(cp proto.ChangesParams) (proto.Changes, *proto
 	for _, c := range ch.Commits {
 		out.Commits = append(out.Commits, proto.CommitInfo{Hash: c.Hash, Subject: c.Subject, Author: c.Author, Time: c.Time})
 	}
+	if cp.Committed && out.Worktree != "" {
+		bc, err := gitx.BranchChanges(ctx, p.root, cp.Branch, base)
+		if err != nil {
+			return out, proto.Errorf(proto.ErrBadRequest, "%v", err)
+		}
+		out.CommittedFiles = fileChanges(bc.Files)
+	}
 	return out, nil
+}
+
+func fileChanges(files []gitx.FileChange) []proto.FileChange {
+	out := make([]proto.FileChange, 0, len(files))
+	for _, f := range files {
+		out = append(out, proto.FileChange{
+			Path: f.Path, OrigPath: f.OrigPath, Code: f.Code, Staged: f.Staged, Unstaged: f.Unstaged,
+			Added: f.Added, Deleted: f.Deleted, Binary: f.Binary,
+		})
+	}
+	return out
 }
 
 func (pm *projectManager) diff(dp proto.DiffParams) (proto.DiffResult, *proto.Error) {
