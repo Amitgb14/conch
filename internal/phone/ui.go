@@ -19,6 +19,27 @@ import (
 //go:embed ui
 var uiFiles embed.FS
 
+// Icon is conch's own mark as an SVG, and IconPNG the same at 512
+// pixels: the app's icon here, the one the settings page draws, and the
+// one `conch app install` puts in the desktop's icon theme. They are
+// read from the files above rather than copied, so conch has one mark
+// and not three that drift apart. A build without them is a build that
+// could not have embedded the app at all, so the error is a panic at
+// first use rather than something every caller has to carry.
+func Icon() []byte { return mustUI("ui/icon.svg") }
+
+// IconPNG is the icon as a 512-pixel PNG, for the places that cannot
+// draw an SVG (a macOS .icns, built by rescaling it).
+func IconPNG() []byte { return mustUI("ui/icon-512.png") }
+
+func mustUI(name string) []byte {
+	b, err := uiFiles.ReadFile(name)
+	if err != nil {
+		panic("conch: the app's " + name + " is not embedded: " + err.Error())
+	}
+	return b
+}
+
 // uiTypes is every kind of file the app has. A file of another kind is not
 // served: nothing gets out of the binary by being dropped into ui/.
 var uiTypes = map[string]string{

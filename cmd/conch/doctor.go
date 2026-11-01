@@ -451,15 +451,24 @@ func doctorTerminal(cfg config.Config, said termAnswers) doctor.Check {
 // terminfo is how that happens, and ssh carries TERM to machines that have
 // never heard of it.
 func terminfoMissing(term string) (why, fix string) {
-	path, err := exec.LookPath("infocmp")
-	if err != nil {
-		return "", "" // nothing here can say; better than a guess
-	}
-	if _, err := doctorOutput(path, "-1", term); err == nil {
+	if has, known := terminfoHas(term); !known || has {
 		return "", ""
 	}
 	return fmt.Sprintf("no terminfo entry for %s here, so curses programs (vim, less, an agent's own screen) fall back", term),
 		"install the terminal's terminfo (its own docs say how; `tic` takes the file), or set TERM=xterm-256color for now"
+}
+
+// terminfoHas reports whether this computer describes a terminal, and
+// whether anything here could say: without infocmp nothing can, and a
+// guess either way would be worse than the question going unanswered —
+// "no entry" is advice to go and install one.
+func terminfoHas(term string) (has, known bool) {
+	path, err := exec.LookPath("infocmp")
+	if err != nil {
+		return false, false
+	}
+	_, err = doctorOutput(path, "-1", term)
+	return err == nil, true
 }
 
 // tmuxPrefixes asks the tmux conch runs inside for its prefix keys, in

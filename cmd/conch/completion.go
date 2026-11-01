@@ -58,6 +58,7 @@ var compCommands = []compItem{
 	{"server", "run, stop or reload the server"},
 	{"update", "the newest release, without stopping agents"},
 	{"doctor", "check what conch needs, and how to fix it"},
+	{"app", "open conch in a terminal of its own"},
 	{"bug", "the facts for a bug report"},
 	{"mcp", "an MCP server for an agent"},
 	{"skill", "print conch's skill for agents"},
@@ -69,6 +70,10 @@ var compCommands = []compItem{
 // compSubcommands are what follows a command that has its own.
 var compSubcommands = map[string][]compItem{
 	"config": {{"web", "every setting, as a form in the browser"}, {"path", "where config.toml is"}},
+	"app": {
+		{"ls", "which terminals conch can open"}, {"install", "put conch in the desktop's applications"},
+		{"remove", "take it out again"},
+	},
 	"server": {{"stop", "stop the server and every pane it owns"}, {"reload", "run a new build, keeping panes"}},
 	"agent": {
 		{"status", "which agents are installed"}, {"install", "install an agent"},

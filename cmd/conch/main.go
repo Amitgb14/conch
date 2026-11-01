@@ -214,6 +214,12 @@ Usage:
                                 on tab; without a shell, says how to turn it on
   conch doctor [-json]          check config, server, agents, git, gh, terminal and machines,
                                 each with the command that fixes it; exits 1 if any must be fixed
+  conch app [-terminal NAME] [-n]
+                                open conch in a terminal of its own, configured by conch and not by
+                                whoever set that terminal up (-n writes that configuration and
+                                prints the command without starting it); ls says which terminals are
+                                here, install adds it to the desktop's applications with its icon,
+                                remove takes it out
   conch bug [-open] [-log] [WHAT HAPPENED...]
                                 the facts about this conch for a bug report — versions, counts
                                 and the last error, never a path or a screen; -open fills in a
@@ -309,6 +315,8 @@ func main() {
 		err = runMCP(args)
 	case "bug":
 		err = runBug(args)
+	case "app":
+		err = runApp(args)
 	case "doctor":
 		err = runDoctor(args)
 	case "completion":

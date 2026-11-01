@@ -309,6 +309,24 @@ Tab then completes commands and their subcommands, and what is running now: pane
 
 The scripts are a few lines that ask `conch` itself on every tab, so a pane started a second ago completes, and an update brings new commands with it. Panes and projects come from the local server: it is never started for a tab, and one that does not answer within a second and a half gives nothing rather than a hung prompt. Another machine's panes (`-m NAME read <tab>`) are not asked for, since that is an ssh connection away. Where conch has nothing to offer, the shell completes file names. `conch completion` with no shell says how to turn it on for the one you use. [Homebrew](/docs/installation#with-homebrew) installs it for all three.
 
+### app
+
+```sh
+conch app                      # open conch in a terminal of its own
+conch app -terminal kitty      # in that one
+conch app ls                   # which terminals conch can open here
+conch app install              # put conch in the desktop's applications, with its icon
+conch app remove               # take it out again
+```
+
+conch is a terminal program, so it is usually started by typing into a terminal somebody set up first. `conch app` starts the terminal as well: it writes a configuration of its own and opens a known terminal with **only** that one, so a terminal that was never configured — or configured years ago for something else — stops being conch's problem. The terminals it knows, in the order it picks one: **ghostty**, **kitty**, **foot**, **alacritty**. Each is started in the way that leaves your own config unread (`--config-default-files=false`, `--config`, `-c`, `--config-file`), which is the whole of the trick.
+
+The file conch writes is nearly empty on purpose. Terminal defaults are good; what conch needs is that nothing broken is read on top of them. The only settings in it are the two that would otherwise bite: `TERM` held at `xterm-256color` when the terminal's own terminfo entry is not installed on this computer (the thing [`conch doctor`](#doctor) warns about), and, for ghostty on Linux, single-instance turned off — a ghostty already running would otherwise make the window itself, from its own configuration rather than conch's. Anything you want to add goes in `<name>.local.<ext>` beside it (`~/.config/conch/app/ghostty.local.conf`), which is included when it exists; the generated file itself is rewritten every time, so edits there are lost.
+
+`conch app install` puts conch in the launcher: a `conch.desktop` entry and conch's own icon under `~/.local/share` on Linux (`$XDG_DATA_HOME` when set), or a `conch.app` bundle in `~/Applications` on macOS, where the icon is built from conch's with `sips` and `iconutil` and left out if they are missing. Both are files of your own, nothing is installed system-wide, each path is printed as it is written, and `conch app remove` takes exactly those away. It refuses to install when none of the terminals is there, since the entry would be a launcher that does nothing when clicked.
+
+It is not a window of conch's own, and will not become one: conch's interface is conch's, drawn in a terminal, and a second interface around it would compete both with that and with the terminal it is standing in for.
+
 ### doctor
 
 ```sh
