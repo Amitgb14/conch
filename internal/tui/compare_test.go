@@ -295,3 +295,29 @@ func TestCompareRunsACommand(t *testing.T) {
 		t.Fatalf("offline: %q", ov.err)
 	}
 }
+
+// TestCompareSummarySaysWhatEachChanged: two attempts that had both
+// committed read "0 files · 1 commit" alike, since a worktree's files are
+// only its uncommitted work (R63). With what the commits change against
+// the base, they differ as they should; anything uncommitted is said too.
+func TestCompareSummarySaysWhatEachChanged(t *testing.T) {
+	commit := []proto.CommitInfo{{Hash: "a1"}}
+	one := proto.Changes{Worktree: "/w", Commits: commit, Files: []proto.FileChange{},
+		CommittedFiles: []proto.FileChange{{Path: "app.py", Added: 2, Deleted: 2}}}
+	two := proto.Changes{Worktree: "/w", Commits: commit, Files: []proto.FileChange{{Path: "notes.md", Added: 1}},
+		CommittedFiles: []proto.FileChange{{Path: "app.py", Added: 2, Deleted: 2}, {Path: "test_app.py", Added: 2}}}
+	if got := ansi.Strip(compareSummary(one)); got != "1 file · +2 −2 · 1 commit" {
+		t.Errorf("one: %q", got)
+	}
+	if got := ansi.Strip(compareSummary(two)); got != "2 files · +4 −2 · 1 commit · 1 uncommitted" {
+		t.Errorf("two: %q", got)
+	}
+	// An older server sends no CommittedFiles: the line is what it was.
+	old := proto.Changes{Worktree: "/w", Commits: commit, Files: []proto.FileChange{{Path: "a.go", Added: 1}}}
+	if got := ansi.Strip(compareSummary(old)); got != "1 file · +1 · 1 commit" {
+		t.Errorf("an older server: %q", got)
+	}
+	if got := ansi.Strip(compareSummary(proto.Changes{})); got != "nothing yet" {
+		t.Errorf("empty: %q", got)
+	}
+}

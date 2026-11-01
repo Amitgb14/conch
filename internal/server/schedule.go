@@ -386,8 +386,19 @@ func repeat(it proto.ScheduledItem, now time.Time) (proto.ScheduledItem, bool) {
 		return it, false
 	}
 	every := time.Duration(it.EveryMinutes) * time.Minute
+	const day = 24 * 60
 	for !it.At.After(now) {
-		it.At = it.At.Add(every)
+		if it.EveryMinutes%day == 0 {
+			// Days are on the clock, not the stopwatch: a daily task set
+			// for 21:24 runs at 21:24, including on the night the clocks
+			// go back, when 24 hours later is 20:24 (R63 saw just that).
+			// In now's zone — local, for the server — since a time read
+			// back from the schedule file keeps only its offset, which
+			// has no daylight saving.
+			it.At = it.At.In(now.Location()).AddDate(0, 0, it.EveryMinutes/day)
+		} else {
+			it.At = it.At.Add(every)
+		}
 	}
 	return it, true
 }

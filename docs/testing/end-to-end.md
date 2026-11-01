@@ -360,6 +360,20 @@ Read the screen back with `conch read ID`. Always with a scratch
 
 ## Runs
 
+### R63 — 2026-10-31, several agents on one task, and the schedule, macOS arm64, build 0.1.9-dev (master)
+
+The R60 setup with the stand-in built as both `claude` and `codex`. `conch task -agent claude,codex "greet by name"` made `api/greet-by-name/claude` and `…/codex`, each with its own worktree; each committed a different change — Codex's with a test.
+
+- **Comparing:** the changes view warned *also changed on api/greet-by-name/codex · 1 file*; `A` opened *Compare attempts*; `x` on Codex asked to discard the other — *This loses 1 commit not merged or pushed, for good* — and `y` left Codex's branch alone.
+- **The schedule:** `-at +30m` scheduled, listed and `schedule rm` took it away, each saying what it did; `-every 1d` with no `-at` ran at once, as documented.
+- **Found and fixed — every new server said it had reloaded.** `conch status` on a server up 8 seconds said *(reloaded 8s ago)*: `server.New` read the clock twice, so the load time was always a few nanoseconds after the start, and `status`, the TUI and bug reports all took that for a reload. One reading now.
+- **Found and fixed — two attempts read the same in the tree.** Both were `api/greet-by-nam…`, the name cut from its end, which is the part that differs. A branch name too long for its row now loses its start: `…eet-by-name/claude`, `…reet-by-name/codex`.
+- **Found and fixed — the comparison said both attempts changed nothing.** Each read *0 files · 1 commit*: a worktree's files are its uncommitted work, nothing once the agents had committed. The comparison asks the server for what the commits change against the base too (an optional `committed` on `project.changes`, ignored by an older server), and now reads *1 file · +2 −2 · 1 commit* against *2 files · +4 −2 · 1 commit*, with *N uncommitted* beside it when there is any.
+- **Found and fixed — a daily task moved an hour on the night the clocks went back.** Set at 21:24 on 31 October, its next run was listed for 20:24 on 1 November: a day was added as 24 hours. Spans of whole days now step by calendar day in local time.
+- **Seen once, not reproduced:** after the scratch server was restarted, a TUI whose old layout held a tab for a pane named `tui` — the name the new TUI's own pane had — showed itself, and `ctrl+b` did not get back to the tree. Pressing enter on a TUI's own row is refused as it should be (*that pane is this conch*). Worth a look with a fresh `ui.json`.
+- **Small, not fixed:** *discarded api/greet-by-name/c…* — the status bar cuts the message where the attempts differ.
+- **Not covered:** `conch ask` (it needs a model), and sessions with real transcripts.
+
 ### R62 — 2026-10-31, the review queue, detaching and a phone, macOS arm64, build 0.1.9-dev (master cc04305)
 
 The R60 setup — scratch `CONCH_HOME`, socket, `HOME` and `PATH`, the TUI in a pane of a scratch server — with the stand-in built as `claude`, a stand-in `gh` with no pull requests, and a project whose task's agent committed its own work.

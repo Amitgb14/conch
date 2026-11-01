@@ -264,3 +264,14 @@ func TestAFailedLaunchLooksForTheOthers(t *testing.T) {
 		t.Fatalf("none installed: %q", got)
 	}
 }
+
+// TestANewServerHasNotReloaded: a server that has never reloaded was
+// loaded when it started — to the nanosecond, or clients that compare
+// the two say it reloaded.
+func TestANewServerHasNotReloaded(t *testing.T) {
+	a5IsolateEnv(t)
+	s, _ := a5Server(t)
+	if !s.loaded.Equal(s.started) {
+		t.Fatalf("started %v, loaded %v", s.started, s.loaded)
+	}
+}

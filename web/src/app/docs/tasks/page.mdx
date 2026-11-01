@@ -131,7 +131,7 @@ conch schedule            # what is scheduled, when, and how its last run went
 conch schedule rm s1a2b3  # take one away
 ```
 
-`-at` takes `14:05` (today, or tomorrow once it has passed), `+30m` / `+2h` / `+1d`, or `2026-10-15 09:00`. `-every` takes `hourly`, `daily`, `weekly` or a span such as `6h` or `2d`, five minutes at the least; with no `-at`, the first run is now. A repeating task starts on a branch of its own each time — the prompt's branch name with the date and time after it — so one morning's work never lands on the last's. Missed runs, a laptop asleep overnight, are skipped rather than run in a burst.
+`-at` takes `14:05` (today, or tomorrow once it has passed), `+30m` / `+2h` / `+1d`, or `2026-10-15 09:00`. `-every` takes `hourly`, `daily`, `weekly` or a span such as `6h` or `2d`, five minutes at the least; with no `-at`, the first run is now. A span of whole days (`daily`, `weekly`, `2d`) keeps its time on the clock — a task set for 21:24 runs at 21:24 on the night the clocks change, too — while shorter ones (`hourly`, `6h`) count hours as they pass. A repeating task starts on a branch of its own each time — the prompt's branch name with the date and time after it — so one morning's work never lands on the last's. Missed runs, a laptop asleep overnight, are skipped rather than run in a burst.
 
 **A queue.** Starting ten agents at once makes ten diffs to read at once, and reading is the slow part. `-queue` adds a task to the project's queue instead: it starts as soon as fewer than three agents are running in the project (`-wip N` for another number), in the order queued. Closing an agent you have finished with is what makes room. Reviewers are not counted — they read work rather than make more of it.
 
