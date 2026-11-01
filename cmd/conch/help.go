@@ -27,7 +27,7 @@ var helpAliases = map[string]string{
 // helpDocs is where on the CLI page a command is written up, for the ones
 // whose section is not named after them.
 var helpDocs = map[string]string{
-	"new": "panes", "status": "panes", "read": "panes", "send": "panes", "wait": "panes", "close": "panes",
+	"new": "panes", "status": "panes", "read": "panes", "attach": "panes", "send": "panes", "wait": "panes", "close": "panes",
 	"rename": "panes", "redraw": "panes", "view": "panes", "show": "panes",
 	"schedule": "task", "skill": "agent", "upload": "machine", "download": "machine",
 }
@@ -46,6 +46,7 @@ var helpExamples = map[string][]string{
 	},
 	"send":   {`conch send p3 "run the tests again"`, "conch send -keys p3 ctrl+c"},
 	"read":   {"conch read p3"},
+	"attach": {"conch attach p3", "conch -m busybox attach p3"},
 	"wait":   {"conch wait p3 && conch read p3", "conch wait -state waiting -timeout 10m p3"},
 	"status": {"conch status", "conch -m busybox status"},
 	"project": {

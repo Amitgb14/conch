@@ -161,3 +161,11 @@ func choiceKeys(screen []string, choice string) ([]string, bool) {
 	}
 	return append(keys, "enter"), true
 }
+
+// ReadQuestion is readQuestion for conch's own commands: the Mac app
+// answers a waiting agent from its card through `conch agent question`
+// and `conch agent answer`, and reads a menu exactly as the phone does.
+func ReadQuestion(p proto.PaneInfo, screen []string) *Question { return readQuestion(p, screen) }
+
+// ChoiceKeys is choiceKeys for conch's own commands (see ReadQuestion).
+func ChoiceKeys(screen []string, choice string) ([]string, bool) { return choiceKeys(screen, choice) }

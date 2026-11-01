@@ -1,0 +1,54 @@
+export const metadata = { title: "Mac app", description: "conch in a window of its own: native toolbar, sidebar, tabs and splits, and answers on a waiting agent." }
+
+# Mac app
+
+Conch.app is conch in a native macOS window. It is another client of the same server the TUI talks to, so it shows the same agents and terminals, and closing it stops nothing: the agents keep running, as they do when you close the TUI.
+
+<Callout type="note">
+
+The Mac app is new and is built from source for now (below). It shows this computer's agents and terminals; settings, sessions, the git panel and other machines are still the TUI's — **conch → Open conch in a terminal** opens it beside the window.
+
+</Callout>
+
+## The window
+
+- **The toolbar** holds the workspaces you made in the TUI (click one to switch), a search field in the middle (⌘K), and how many agents are waiting for you or finished — a click on the waiting count goes to the next one (⌘.).
+- **The sidebar** is the TUI's tree for this computer: each project with its agents, task branches and terminals, and **CLI** for what belongs to no project. A click opens a pane; a click on a branch opens its agent, or a terminal in its worktree.
+- **Tabs** along the top, the one on screen underlined. A pane is shown in one place: opening it again goes to where it is.
+- **Splits** sit side by side as cards with a gap between them, each with a header saying which agent it is, its branch and its state. The focused one has the accent border.
+- **The status bar** says whether the window is connected to conch's server, and which version.
+
+Each pane is a real terminal running [`conch attach`](/docs/cli#attach), so an agent looks exactly as it does in the TUI or any terminal.
+
+## Answering an agent without opening it
+
+An agent waiting for you shows its question under its row in the sidebar, with its choices as buttons — *Yes*, *Yes, and don't ask again*, *No* — and the same buttons along the top of its pane. The one the agent's own cursor is on is highlighted. A click picks it: conch moves the agent's cursor there and presses Enter, exactly as the [phone](/docs/phone) does, and refuses an answer to a question that has changed since it was shown. An agent whose choices conch cannot read off its screen offers **Open to answer** instead.
+
+## Keys
+
+| Keys | |
+| --- | --- |
+| `⌘K` | search: agents, terminals, projects, task branches and commands, waiting agents first |
+| `⌘T` | a new terminal tab, in the focused pane's folder |
+| `⌘D` / `⇧⌘D` | a new terminal split right / down |
+| `⌘W` | close the split — the pane keeps running, and is in the sidebar to open again |
+| `⌘1`–`⌘9`, `⇧⌘]` / `⇧⌘[` | go to a tab, next / previous tab |
+| `⌘.` | the next agent waiting for you, then the ones that finished |
+| `⌃⌘S` | show or hide the sidebar |
+
+Everything else you type goes to the focused pane.
+
+## Building it
+
+It needs the Xcode Command Line Tools (Swift 6) and Go:
+
+```sh
+macos/bundle.sh                  # → macos/build/Conch.app
+macos/bundle.sh /Applications    # or straight into Applications
+```
+
+The app carries its own `conch` inside it, so each pane's `conch attach` is the same build as the window. It looks for conch's server where `conch` does (`$CONCH_SOCKET`, else `conch.sock` in `$CONCH_HOME` or `~/.config/conch`), and when none is running it offers to start one. `CONCH_BIN` points it at another `conch`.
+
+## What it is built on
+
+The window is AppKit and SwiftUI; the terminal in each pane is [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm), behind a single seam so that Ghostty's terminal can take its place. The code is in `macos/` in the repository: `ConchKit` (the protocol client, the tree, search and layout, with tests run by `swift test`) and `ConchApp` (the window).

@@ -35,6 +35,7 @@ var compCommands = []compItem{
 	{"new", "start a program or an agent in a pane"},
 	{"status", "every pane and agent, and what it is doing"},
 	{"read", "what a pane's screen shows"},
+	{"attach", "show a pane here and type into it"},
 	{"send", "type into a pane"},
 	{"wait", "wait until an agent is done"},
 	{"close", "close a pane"},
@@ -122,7 +123,7 @@ var compSubcommands = map[string][]compItem{
 
 // compPaneCommands take a pane as their first argument (show takes several).
 var compPaneCommands = map[string]bool{
-	"read": true, "send": true, "close": true, "rename": true, "redraw": true, "wait": true, "show": true,
+	"read": true, "attach": true, "send": true, "close": true, "rename": true, "redraw": true, "wait": true, "show": true,
 	"agent explain": true, "agent prompt": true,
 }
 

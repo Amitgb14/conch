@@ -77,6 +77,7 @@ Usage:
                                 start a pane (with -m, default: that machine's home)
   conch send ID TEXT            type TEXT into a pane (-keys to send key names)
   conch read ID                 print a pane's visible screen
+  conch attach ID               show a pane in this terminal and type into it (the Mac app's panes)
   conch close ID                close a pane
   conch rename ID [NAME]        name a pane; without NAME it gets its own back. Every
                                 command taking a pane ID takes its name too
@@ -87,6 +88,9 @@ Usage:
   conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]
                                 start Claude Code with state tracking
   conch agent explain ID        show how a pane's agent state was decided
+  conch agent question ID       what a waiting agent asks, and its choices, as JSON (null when not waiting)
+  conch agent answer [-question QID] ID CHOICE
+                                pick a choice of a waiting agent's menu without opening its pane
   conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends;
@@ -269,6 +273,8 @@ func main() {
 		err = runSend(args)
 	case "read":
 		err = runRead(args)
+	case "attach":
+		err = runAttach(args)
 	case "rename":
 		err = runRename(args)
 	case "close":
