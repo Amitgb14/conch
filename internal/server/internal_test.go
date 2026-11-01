@@ -1254,8 +1254,24 @@ func TestA5WorktreeErrors(t *testing.T) {
 	if perr != nil {
 		t.Fatal(perr)
 	}
-	if perr := pm.removeWorktree(proto.WorktreeRemoveParams{ProjectID: p.id, Path: path}); perr == nil || !strings.Contains(perr.Message, "panes are still running") {
+	if perr := pm.removeWorktree(proto.WorktreeRemoveParams{ProjectID: p.id, Path: path}); perr == nil ||
+		!strings.Contains(perr.Message, info.ID+" (sh) is still running in") || !strings.HasSuffix(perr.Message, "conch close "+info.ID) {
 		t.Fatalf("worktree with panes: %v", perr)
+	}
+	// Two: both named, and both to close.
+	second, perr := s.create(proto.PaneCreateParams{Name: "helper", Command: []string{"/bin/sh", "-c", "sleep 30"}, Cwd: path})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if perr := s.stillRunning(path); perr == nil || !strings.Contains(perr.Message, second.ID+" (helper)") ||
+		!strings.Contains(perr.Message, " are still running in ") || !strings.Contains(perr.Message, "close them first") {
+		t.Fatalf("two panes: %v", perr)
+	}
+	if perr := s.stillRunning(filepath.Join(path, "..", "elsewhere")); perr != nil {
+		t.Fatalf("a folder with no panes: %v", perr)
+	}
+	if perr := s.close(second.ID); perr != nil {
+		t.Fatal(perr)
 	}
 	if perr := s.close(info.ID); perr != nil {
 		t.Fatal(perr)

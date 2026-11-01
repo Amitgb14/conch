@@ -35,6 +35,8 @@ type harvestDoneMsg struct {
 	target    harvestTarget
 	text      string
 	committed bool // clears the files marked for the commit
+	merged    bool // the branch was just merged into its base
+	discarded bool
 }
 
 // pushRejectedMsg is a push the remote is ahead of, with the server's own
@@ -97,6 +99,20 @@ func (m Model) harvestCall(t harvestTarget, method string, params, out any, done
 
 func (m *Model) receiveHarvest(msg harvestDoneMsg) tea.Cmd {
 	m.setFlash(msg.text, false)
+	// A squash merge — the default — leaves the branch's own commits off
+	// the base, so git goes on counting them as ahead and nothing on the
+	// branch says it has landed. What it counted when this merge was made
+	// is kept, so the next step reads as done until the branch grows.
+	key := mergedKey(msg.target)
+	switch {
+	case msg.merged:
+		if m.merged == nil {
+			m.merged = map[string]int{}
+		}
+		m.merged[key] = m.baseAhead(msg.target)
+	case msg.discarded:
+		delete(m.merged, key)
+	}
 	if g, open := m.gitPanelFor(msg.target); open {
 		g.add(msg.text)
 	}
@@ -364,7 +380,7 @@ func (m *Model) openMerge(t harvestTarget) tea.Cmd {
 			Message: strings.TrimSpace(v[0]), Squash: v[1] == "on"}
 		m.setFlash("merging "+t.branch+"…", false)
 		return m.harvestCall(t, proto.MethodBranchMerge, params, &res, func() harvestDoneMsg {
-			return harvestDoneMsg{text: "merged " + t.branch + " into " + res.Into + " (" + shortHash(res.Hash) + ") · D removes the branch and its worktree"}
+			return harvestDoneMsg{text: "merged " + t.branch + " into " + res.Into + " (" + shortHash(res.Hash) + ") · D removes the branch and its worktree", merged: true}
 		})
 	}
 	m.overlay = d
@@ -413,7 +429,7 @@ func (m *Model) confirmDiscard(msg discardPlanMsg) {
 		params := proto.BranchDiscardParams{ProjectID: t.projectID, Branch: t.branch, Force: force}
 		m.setFlash("discarding "+t.branch+"…", false)
 		return m.harvestCall(t, proto.MethodBranchDiscard, params, &res, func() harvestDoneMsg {
-			return harvestDoneMsg{text: "discarded " + t.branch}
+			return harvestDoneMsg{text: "discarded " + t.branch, discarded: true}
 		})
 	})
 	d.title = " Discard " + t.branch + " "
@@ -446,6 +462,21 @@ func harvestMenuItems(m Model, r row) []menuItem {
 		menuItem{"M", "Merge into " + proj.Base + "…", func(m *Model) tea.Cmd { return m.openMerge(t) }},
 		menuItem{"D", "Discard branch and worktree…", func(m *Model) tea.Cmd { return m.discardBranch(t) }},
 	)
+}
+
+func mergedKey(t harvestTarget) string { return t.machine + "/" + t.projectID + "/" + t.branch }
+
+// baseAhead is how many commits a branch has that its base lacks, as
+// last heard.
+func (m Model) baseAhead(t harvestTarget) int {
+	if proj := m.project(t.machine, t.projectID); proj != nil {
+		for _, b := range proj.Branches {
+			if b.Name == t.branch {
+				return b.BaseAhead
+			}
+		}
+	}
+	return 0
 }
 
 // counted is n what, pluralised: "1 file", "3 files".

@@ -192,7 +192,10 @@ func TestHarvestDiscardRefusals(t *testing.T) {
 	if err := call(t, c, proto.MethodPaneCreate, proto.PaneCreateParams{Command: []string{"/bin/sh", "-c", "sleep 30"}, Cwd: wt}, &pane); err != nil {
 		t.Fatal(err)
 	}
-	wantErr(t, call(t, c, proto.MethodBranchDiscard, proto.BranchDiscardParams{ProjectID: id, Branch: "feat", Force: true}, nil), "panes are still running")
+	// Named, with how to close it: "panes are still running" alone left
+	// somebody to work out that the agent they had finished with was one.
+	wantErr(t, call(t, c, proto.MethodBranchDiscard, proto.BranchDiscardParams{ProjectID: id, Branch: "feat", Force: true}, nil),
+		pane.ID+" (sh) is still running in "+wt+"; close it first: x on its row, or conch close "+pane.ID)
 	if err := call(t, c, proto.MethodPaneClose, proto.PaneRef{ID: pane.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +207,7 @@ func TestHarvestDiscardRefusals(t *testing.T) {
 		if err == nil {
 			break
 		}
-		if i > 50 || !strings.Contains(err.Error(), "panes are still running") {
+		if i > 50 || !strings.Contains(err.Error(), "still running in") {
 			t.Fatal(err)
 		}
 		time.Sleep(100 * time.Millisecond)

@@ -271,8 +271,9 @@ func (pm *projectManager) discardBranch(dp proto.BranchDiscardParams) (proto.Bra
 		switch {
 		case wt.Main:
 			return res, proto.Errorf(proto.ErrBadRequest, "%s is checked out in the main checkout; switch it to another branch first", dp.Branch)
-		case pm.s.panesIn(wt.Path):
-			return res, proto.Errorf(proto.ErrBadRequest, "panes are still running in %s; close them first", wt.Path)
+		}
+		if perr := pm.s.stillRunning(wt.Path); perr != nil {
+			return res, perr
 		}
 		res.Worktree = wt.Path
 	}

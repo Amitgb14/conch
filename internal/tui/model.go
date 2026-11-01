@@ -135,6 +135,9 @@ type Model struct {
 	// hoverLink is the link in a pane under the pointer, drawn as the
 	// clickable thing it is (linkclick.go).
 	hoverLink hoverLink
+	// merged is the branches merged from here, with how many commits each
+	// had then that the base lacked (harvest.go, receiveHarvest).
+	merged map[string]int
 	// linkClick is an alt or ctrl press on a link, which opens it only if
 	// it turns out to be a click: not a drag, not a double click.
 	linkClick *linkClick

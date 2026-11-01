@@ -43,7 +43,7 @@ type PR struct {
 }
 
 // ErrNoGH means the gh binary is not installed.
-var ErrNoGH = errors.New("gh (GitHub CLI) is not installed")
+var ErrNoGH = errors.New("gh (GitHub CLI) is not installed; pull requests, CI and issues need it: https://cli.github.com")
 
 const fields = "number,title,state,isDraft,url,headRefName,headRefOid,reviewDecision,statusCheckRollup,updatedAt,mergeable"
 
