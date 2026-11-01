@@ -607,3 +607,38 @@ func TestWebPairSaysWhereAndPairsForAMachine(t *testing.T) {
 		t.Error("a code was made for a machine that cannot exist")
 	}
 }
+
+// TestWebPairOverPlainHTTP: a gateway on plain http is one no phone can
+// pair through, and conch web says so when it starts — so pairing must
+// not then send somebody to that address, or put it in a QR code. R62
+// found it saying both, a line apart.
+func TestWebPairOverPlainHTTP(t *testing.T) {
+	dir := a4Env(t)
+	store := phone.OpenStore(dir)
+	old := stdoutIsTerminal
+	stdoutIsTerminal = func() bool { return true } // a terminal: the QR code would be drawn
+	t.Cleanup(func() { stdoutIsTerminal = old })
+
+	for _, tc := range []struct {
+		url, want, not string
+		qr             bool
+	}{
+		{"http://127.0.0.1:18765", "which a phone can't pair over: put Tailscale's HTTPS in front", "open http://127.0.0.1:18765 on it", false},
+		{"https://box.tail1234.ts.net", "scan the code with the phone's camera, or open https://box.tail1234.ts.net on it", "can't pair", true},
+		{"", "start the gateway with `conch web`", "scan", false},
+	} {
+		if err := store.SetURL(tc.url); err != nil {
+			t.Fatal(err)
+		}
+		out, err := runWebCaptured(t, "pair")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, tc.want) || strings.Contains(out, tc.not) {
+			t.Errorf("%q:\n%s", tc.url, out)
+		}
+		if qr := strings.ContainsAny(out, "█▀▄"); qr != tc.qr {
+			t.Errorf("%q: QR code drawn %v, want %v", tc.url, qr, tc.qr)
+		}
+	}
+}

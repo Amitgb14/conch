@@ -335,3 +335,24 @@ func TestHealthRefreshesTheAgents(t *testing.T) {
 		t.Fatalf("after the check: installed %v, health %v", m.agentInstalled(), m.health)
 	}
 }
+
+// TestCheckConchFromAnySettingsTab: ! opens Check conch from whichever
+// tab Settings is on, and every tab's hint says so — the item itself sits
+// at the foot of the first tab, past every theme, which R60 took sixty
+// presses to reach.
+func TestCheckConchFromAnySettingsTab(t *testing.T) {
+	m, _ := healthModel(t)
+	m.width, m.height = 120, 40
+	for _, tab := range []int{0, 2, len(settingsTabs) - 1} {
+		s, _ := newSettings(m)
+		s.setTab(tab)
+		m.overlay = s
+		if text := a2Plain(s.render(*m).lines); !strings.Contains(text, "! check conch") {
+			t.Errorf("tab %d: the hint does not say ! :\n%s", tab, text)
+		}
+		s.update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("!")})
+		if mu, ok := m.overlay.(*menu); !ok || !mu.health {
+			t.Fatalf("tab %d: ! opened %T", tab, m.overlay)
+		}
+	}
+}
