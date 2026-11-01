@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -120,4 +122,59 @@ func sentResize(peer *a1Peer, pane string, from int) bool {
 		}
 	}
 	return false
+}
+
+// TestOwnPaneIsNeverPreviewed: moving the cursor onto this conch's own row
+// previewed it — pickTab's showPreview had no check — and enter then put
+// the keyboard there. R63's TUI locked up just so.
+func TestOwnPaneIsNeverPreviewed(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	mach := m.machines[0]
+	mach.ownPane = "p3" // the last row of the tree
+	m.rebuild()
+	m.focus = focusSidebar
+	a1Key(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
+	if m.cursor != paneNodeID(localMachine, "p3") {
+		t.Fatalf("cursor on %q", m.cursor)
+	}
+	if got := m.tab().focused().view.Row; got == m.cursor {
+		t.Fatal("the cursor on its own row previewed it")
+	}
+	a1Key(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if got := m.tab().focused().view.Row; got == m.cursor {
+		t.Fatal("enter showed it")
+	}
+	if !strings.Contains(m.flash, "this conch") {
+		t.Errorf("it said %q", m.flash)
+	}
+	if m.focus != focusSidebar {
+		t.Error("the refusal put the keyboard in the pane area")
+	}
+	// Moving on previews the next row as ever.
+	a1Key(t, m, tea.KeyMsg{Type: tea.KeyUp})
+	if m.tab().focused().view.Row != m.cursor {
+		t.Fatalf("the row above was not previewed: %q", m.tab().focused().view.Row)
+	}
+}
+
+// TestNothingIsTypedIntoOwnPane: however its own pane came to be focused,
+// a key or a click sent there would come straight back as input and be
+// sent again, for ever. None is sent.
+func TestNothingIsTypedIntoOwnPane(t *testing.T) {
+	m, peer := a1Fixture(t, true)
+	mach := m.machines[0]
+	mach.ownPane = "p1"
+	m.rebuild()
+	seen := len(peer.snapshot())
+	m.sendKey(localMachine, "p1", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	m.sendKey(localMachine, "p1", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("pasted"), Paste: true})
+	a2Run(m.paneMouse(localMachine, "p1", tea.MouseMsg{Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}, 1, 1, true, false))
+	// Another pane still gets its key — and that is the one the peer sees.
+	m.sendKey(localMachine, "p2", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	peer.waitFor(t, "a key for p2", func(msg proto.Message) bool { return strings.Contains(string(msg.Params), `"id":"p2"`) })
+	for _, msg := range peer.snapshot()[seen:] {
+		if strings.Contains(string(msg.Params), `"id":"p1"`) {
+			t.Fatalf("sent to its own pane: %s %s", msg.Method, msg.Params)
+		}
+	}
 }

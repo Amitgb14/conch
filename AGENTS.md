@@ -425,8 +425,13 @@ helpers in `cmd/conch` and `internal/remote`.
   shrinks the space, which shrinks the pane — 1×1, with each redraw
   producing the next. Which pane that is comes from the server
   (`pane.caller`, as scoping does), never from `CONCH_PANE_ID`: clearing
-  that variable is how somebody got here. `show` refuses it and `syncView`
-  skips it (`internal/tui/tabs.go`, `ownPane`).
+  that variable is how somebody got here. `assign` never puts it in a
+  leaf — `show` refusing it was not enough, since moving the cursor onto
+  its row previewed it (`pickTab` → `showPreview`) and enter then put the
+  keyboard there — `syncView` never resizes it, and no key, paste or click
+  is ever sent to it (`sendKey`, `paneMouse`): typed into its own pane, a
+  key comes straight back as input and is typed in again, for ever, which
+  is how a TUI locked up in R63 (`internal/tui/tabs.go`, `ownPane`).
 - **Panes on macOS.** `poll` doesn't work on ttys and read deadlines aren't
   supported on ptys; the read loop uses `select`. Shared pane fields are
   guarded by `p.mu`/`p.emuMu` — check with `-race`.
