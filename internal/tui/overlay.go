@@ -1188,7 +1188,7 @@ var helpText = []string{
 	"",
 	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain, sandboxes",
 	"     e in Settings (or ↗ Edit in browser) opens every setting as a form in the browser",
-	"     Settings → Check conch… runs conch doctor's checks: git, gh, agents, the terminal, each with its fix",
+	"     Settings → Check conch… (or ! on any Settings tab) runs conch doctor's checks: git, gh, agents, the terminal, each with its fix",
 	"       (they also run a moment after conch starts: problems are on this computer's page, failures on the bar)",
 	"     Settings → Report a problem… (or ⊙ on the bar) is this conch's own facts, for an issue",
 	"     Sandboxes lists the providers; enter opens one's own page, esc goes back to the list",

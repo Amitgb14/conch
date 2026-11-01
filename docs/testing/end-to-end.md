@@ -360,6 +360,17 @@ Read the screen back with `conch read ID`. Always with a scratch
 
 ## Runs
 
+### R62 — 2026-10-31, the review queue, detaching and a phone, macOS arm64, build 0.1.9-dev (master cc04305)
+
+The R60 setup — scratch `CONCH_HOME`, socket, `HOME` and `PATH`, the TUI in a pane of a scratch server — with the stand-in built as `claude`, a stand-in `gh` with no pull requests, and a project whose task's agent committed its own work.
+
+- **The review queue:** the status bar said `1 to review`; `Q` listed `feat · 1 commit not pushed`; `enter` opened its changes view at `P push · p pull request · M merge`; back in the queue, `x` put it aside — *Nothing is waiting for you*, and the bar said so.
+- **Detaching and coming back:** `q` left at once (exit 0) with the agent still running; a new TUI found it under its project, Getting started was gone with all five steps done, and selecting the project brought its `feat` tab back.
+- **A phone:** `conch web -listen 127.0.0.1` warned about the address and said phones can't pair over plain http, with the `tailscale serve` commands. The page loaded (200, `<title>conch</title>`), and a pairing code was redeemed over loopback by a client with no page — by design, the refusal is for a browser page on http. No real phone; the device lived only in the scratch home.
+- **Found and fixed — pairing contradicted the gateway.** A line after `conch web` said phones can't pair over plain http, `conch web pair` said *open http://127.0.0.1:18765 on it and enter the code* — an address no phone can reach, over the http just ruled out — and would have drawn a QR code for it in a terminal. It now says the gateway is on an address a phone can't pair over and what to put in front, and draws no code for it.
+- **Found and fixed — Check conch was hard to find.** It sits at the foot of Settings' first tab, past every theme (sixty presses in R60). `!` now opens it from any Settings tab, and every tab's hint line says so.
+- **Not covered:** a real phone, Tailscale, and adding a machine (busybox still unreachable).
+
 ### R61 — 2026-10-31, only Codex installed, and a pull request, macOS arm64, build 0.1.9-dev (on #73)
 
 The R60 setup again — scratch `CONCH_HOME`, socket, `HOME` and `PATH`, the TUI in a pane of a scratch server — with `internal/tools/standin` built as **`codex`** and no `claude` anywhere, git given an identity, and `CONCH_GH` a stand-in that answers `pr create` with a URL and `pr list` with what it was asked to create, so a pull request opened without GitHub.

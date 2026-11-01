@@ -1402,6 +1402,12 @@ func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			}
 		case "e":
 			return false, m.editInBrowser()
+		case "!":
+			// Check conch… is at the foot of the first tab, past every
+			// theme, which is not where somebody whose conch is not
+			// working looks: R60 took sixty presses to reach it. ! is
+			// said on every tab's hint line and works from all of them.
+			return true, m.openHealth()
 		}
 	}
 	return false, nil
@@ -1648,12 +1654,12 @@ func (s *settings) render(m Model) box {
 	if more := len(items) - (s.scroll + listH); more > 0 {
 		lines[len(lines)-1] = styleMuted.Render(fmt.Sprintf("  … %d more", more))
 	}
-	hint := " tab switch · ↑↓ move · enter choose/toggle · esc close"
+	hint := " tab switch · ↑↓ move · enter choose/toggle · esc close · ! check conch"
 	switch {
 	case s.provider != "":
-		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back to the providers"
+		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back to the providers · ! check conch"
 	case s.page != "":
-		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back"
+		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back · ! check conch"
 	}
 	if s.sel < len(items) {
 		s.selLabel = ansi.Strip(items[s.sel].label)

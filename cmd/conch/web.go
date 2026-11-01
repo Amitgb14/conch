@@ -128,7 +128,8 @@ func webPair(args []string) error {
 		return err
 	}
 	url := store.URL()
-	if url != "" && stdoutIsTerminal() {
+	secure := strings.HasPrefix(url, "https://")
+	if url != "" && secure && stdoutIsTerminal() {
 		// The code opens the page with the pairing code filled in.
 		if lines, err := phone.QRLines(phone.PairLink(url, code)); err == nil {
 			fmt.Println(strings.Join(lines, "\n"))
@@ -140,12 +141,25 @@ func webPair(args []string) error {
 	// the thing people are surprised by, so it is said rather than left
 	// to be discovered when a machine is missing from the app.
 	fmt.Println(reachWords(machines.names))
-	if url != "" {
-		fmt.Printf("scan the code with the phone's camera, or open %s on it and enter the code\n", url)
-	} else {
-		fmt.Println("start the gateway with `conch web`, open its address on the phone and enter it")
-	}
+	fmt.Println(pairWhere(url))
 	return nil
+}
+
+// pairWhere says where a phone enters the code. A gateway on plain http
+// is one no phone can pair through — the browser keeps a device's key only
+// over https, which conch web says when it starts — so pointing at its
+// address, or putting it in a QR code, sent somebody to a page that would
+// refuse them. Seen in R62: conch web on 127.0.0.1 said phones can't pair
+// over plain http, and conch web pair then said to open that very address.
+func pairWhere(url string) string {
+	switch {
+	case url == "":
+		return "start the gateway with `conch web`, open its address on the phone and enter it"
+	case strings.HasPrefix(url, "https://"):
+		return "scan the code with the phone's camera, or open " + url + " on it and enter the code"
+	}
+	return "conch web is on " + url + ", which a phone can't pair over: put Tailscale's HTTPS in front " +
+		"(tailscale serve, then conch web -url https://…), open that address on the phone and enter the code"
 }
 
 func webDevices() error {
