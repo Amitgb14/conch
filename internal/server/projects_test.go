@@ -139,6 +139,25 @@ func TestProjectsAndWorktrees(t *testing.T) {
 		t.Fatalf("diff: %s", d.Diff)
 	}
 
+	// Committed, a worktree's files are only what is left uncommitted —
+	// nothing, once an agent has committed — so a reader comparing
+	// attempts asks for what the commits change against the base too.
+	git(t, wt.Path, "add", "a.txt")
+	git(t, wt.Path, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "two lines")
+	os.WriteFile(filepath.Join(wt.Path, "b.txt"), []byte("left out\n"), 0o644)
+	ch = proto.Changes{}
+	if err := c.Call(ctx, proto.MethodProjectChanges, proto.ChangesParams{ProjectID: proj.ID, Branch: "feat/x", Committed: true}, &ch); err != nil {
+		t.Fatal(err)
+	}
+	if len(ch.CommittedFiles) != 1 || ch.CommittedFiles[0].Path != "a.txt" || ch.CommittedFiles[0].Added != 1 ||
+		len(ch.Files) != 1 || ch.Files[0].Path != "b.txt" {
+		t.Fatalf("committed: %+v", ch)
+	}
+	ch = proto.Changes{}
+	if err := c.Call(ctx, proto.MethodProjectChanges, proto.ChangesParams{ProjectID: proj.ID, Branch: "feat/x"}, &ch); err != nil || ch.CommittedFiles != nil {
+		t.Fatalf("not asked for: %+v %v", ch.CommittedFiles, err)
+	}
+
 	// A dirty worktree is not removed, and the main worktree never is.
 	err = c.Call(ctx, proto.MethodWorktreeRemove, proto.WorktreeRemoveParams{ProjectID: proj.ID, Path: wt.Path}, nil)
 	if err == nil {

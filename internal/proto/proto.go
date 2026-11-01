@@ -887,6 +887,11 @@ type ProjectList struct {
 type ChangesParams struct {
 	ProjectID string `json:"project_id"`
 	Branch    string `json:"branch"`
+	// Committed asks, for a branch with a worktree, for what its commits
+	// change against the base as well (Changes.CommittedFiles): the files
+	// are otherwise that worktree's uncommitted work, which is nothing
+	// once an agent has committed. An older server ignores it.
+	Committed bool `json:"committed,omitempty"`
 }
 
 // Changes is the result of project.changes.
@@ -902,6 +907,9 @@ type Changes struct {
 	Watched bool         `json:"watched,omitempty"`
 	Files   []FileChange `json:"files"`
 	Commits []CommitInfo `json:"commits"`
+	// CommittedFiles is what the branch's commits change against the
+	// base, when Committed asked for it and Files are uncommitted work.
+	CommittedFiles []FileChange `json:"committed_files,omitempty"`
 }
 
 // WorktreeChanged says a worktree's files changed on disk. Paths are

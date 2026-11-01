@@ -471,8 +471,8 @@ func (m *Model) paneMouse(machine, paneID string, msg tea.MouseMsg, x, y int, pr
 	// into an agent's prompt (`<65;106;43M`), and would have sent them to
 	// another machine's client as well.
 	c := m.clientOf(machine)
-	if c == nil {
-		return nil
+	if c == nil || m.isOwnPane(machine, paneID) {
+		return nil // nothing goes to our own pane: it would come back as input (sendKey)
 	}
 	if press && !wheel {
 		m.focus = focusMain

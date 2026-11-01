@@ -97,7 +97,7 @@ func (v *compareView) reload(m *Model) tea.Cmd {
 				return msg
 			}
 			var out proto.Changes
-			msg.err = callCtx(c, proto.MethodProjectChanges, proto.ChangesParams{ProjectID: pid, Branch: branch}, &out)
+			msg.err = callCtx(c, proto.MethodProjectChanges, proto.ChangesParams{ProjectID: pid, Branch: branch, Committed: true}, &out)
 			msg.data = out
 			return msg
 		})
@@ -254,21 +254,34 @@ func (v *compareView) render(m Model) box {
 	return b
 }
 
-// compareSummary is what one attempt changed, in a line.
+// compareSummary is what one attempt changed, in a line: against the
+// base, which is what tells attempts apart, and anything not yet
+// committed beside it. A worktree's files are only its uncommitted work,
+// so once agents had committed every attempt read "0 files · 1 commit"
+// whatever it held (R63); a server that can say what the commits change
+// (CommittedFiles) is asked to.
 func compareSummary(ch proto.Changes) string {
+	files := ch.Files
+	uncommitted := 0
+	if ch.CommittedFiles != nil {
+		files, uncommitted = ch.CommittedFiles, len(ch.Files)
+	}
 	added, deleted := 0, 0
-	for _, f := range ch.Files {
+	for _, f := range files {
 		added += f.Added
 		deleted += f.Deleted
 	}
-	parts := []string{styleMuted.Render(counted(len(ch.Files), "file"))}
+	parts := []string{styleMuted.Render(counted(len(files), "file"))}
 	if stat := diffStat(added, deleted); stat != "" {
 		parts = append(parts, stat)
 	}
 	if n := len(ch.Commits); n > 0 {
 		parts = append(parts, styleMuted.Render(counted(n, "commit")))
 	}
-	if len(ch.Files) == 0 && len(ch.Commits) == 0 {
+	if uncommitted > 0 {
+		parts = append(parts, styleWarn.Render(fmt.Sprintf("%d uncommitted", uncommitted)))
+	}
+	if len(files) == 0 && len(ch.Commits) == 0 && uncommitted == 0 {
 		return styleWarn.Render("nothing yet")
 	}
 	return strings.Join(parts, styleMuted.Render(" · "))

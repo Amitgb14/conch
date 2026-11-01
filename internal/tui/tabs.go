@@ -301,9 +301,16 @@ func (m *Model) shownElsewhere(rowID string, except *leaf) bool {
 	return false
 }
 
-// assign shows a tree row in a leaf.
+// assign shows a tree row in a leaf — any row but this conch's own pane,
+// which leaves the leaf empty. show refused it, but moving the cursor onto
+// its row previewed it (pickTab → showPreview), a path with no such check:
+// it was on screen, and enter put the keyboard in it (R63).
 func (m *Model) assign(l *leaf, r row) {
 	l.pick = false
+	if m.ownPaneRow(r) {
+		l.view, l.changes = viewRef{}, nil
+		return
+	}
 	if l.view.Row != r.id {
 		l.view = viewOf(r)
 		l.changes = nil
@@ -327,6 +334,7 @@ func (m *Model) showRow(r row) tea.Cmd {
 	// there was nothing left of either (ownPane, below).
 	if m.ownPaneRow(r) {
 		m.setFlash("that pane is this conch — open it from another terminal, or detach first", false)
+		m.focus = focusSidebar // the keyboard stays where it was, not in a pane that is not shown
 		return nil
 	}
 	// Where we were, so ctrl+b b can go back to it: opening a check's

@@ -54,6 +54,35 @@ func TestRepeat(t *testing.T) {
 	}
 }
 
+// TestRepeatKeepsTheClockTime: a daily task runs at the same time on the
+// clock across a daylight-saving change, where adding 24 hours moved it
+// an hour (R63: set at 21:24 on 31 October in California, next listed
+// for 20:24). Spans under a day stay a stopwatch's.
+func TestRepeatKeepsTheClockTime(t *testing.T) {
+	la, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Skip("no zone data:", err)
+	}
+	set := time.Date(2026, 10, 31, 21, 24, 0, 0, la)
+	// As read back from schedule.json: the offset alone, no zone.
+	stored := set.In(time.FixedZone("", -7*3600))
+	now := set.Add(time.Minute) // just after the first run
+	for _, tc := range []struct {
+		every int
+		want  time.Time
+	}{
+		{24 * 60, time.Date(2026, 11, 1, 21, 24, 0, 0, la)},
+		{7 * 24 * 60, time.Date(2026, 11, 7, 21, 24, 0, 0, la)},
+		{60, set.Add(time.Hour)},
+		{6 * 60, set.Add(6 * time.Hour)}, // across the change: six hours, not six on the clock
+	} {
+		it, keep := repeat(proto.ScheduledItem{At: stored, EveryMinutes: tc.every}, now.In(la))
+		if !keep || !it.At.Equal(tc.want) {
+			t.Errorf("every %dm: %v, want %v", tc.every, it.At.In(la), tc.want)
+		}
+	}
+}
+
 func TestScheduleBookLoad(t *testing.T) {
 	dir := t.TempDir()
 	at := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)

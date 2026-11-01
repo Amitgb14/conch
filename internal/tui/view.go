@@ -167,6 +167,10 @@ func (m Model) rowLine(r row, w int) string {
 			label = undoubleMark(label, mark)
 		}
 	}
+	if r.kind == kindBranch {
+		lead := ansi.StringWidth(indent + expander + glyph + " ")
+		label = branchLabel(label, roomForLeft(lead+ansi.StringWidth(label), ansi.StringWidth(ansi.Strip(right)), w)-lead)
+	}
 	selected := r.id == m.cursor
 	// While a row is carried to a tab's section, the section it would land
 	// in is marked, as a split's drop target is on the bar.
@@ -1265,6 +1269,38 @@ func padRight(s string, w int) string {
 		return s + strings.Repeat(" ", n)
 	}
 	return s
+}
+
+// branchLabel fits a branch's name in room cells by losing its start
+// rather than its end. Branches are named from the outside in — a
+// project, a task, then the attempt — so two attempts at one task were
+// both "api/greet-by-nam…" in the tree, and the agent's name that tells
+// them apart was the part cut off (R63). The agent rows below already
+// read "…name/claude".
+func branchLabel(name string, room int) string {
+	w := ansi.StringWidth(name)
+	if w <= room || room < 3 {
+		return name // fits, or spread cuts it as it always did
+	}
+	return ansi.TruncateLeft(name, w-room+1, "…")
+}
+
+// roomForLeft is how wide spread lets the left side of a row be, given
+// how wide each side wants to be.
+func roomForLeft(lw, rw, w int) int {
+	if lw+1+rw > w && rw > 0 {
+		room := max(w-min(lw, w*2/3)-1, 0)
+		switch {
+		case room < 3:
+			rw = 0
+		case rw > room:
+			rw = room
+		}
+	}
+	if rw > 0 {
+		rw++ // the space before the detail
+	}
+	return max(w-rw, 0)
 }
 
 // spread lays out left and right text across exactly w cells, truncating
