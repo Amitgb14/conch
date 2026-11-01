@@ -430,7 +430,13 @@ func (s *Server) stillRunning(dir string) *proto.Error {
 type agentsSeen struct {
 	mu        sync.Mutex
 	at        time.Time
-	installed map[string]bool
+	installed map[string]bool // what a look found
+	// failed are agents whose pane ended at once with "command not
+	// found" since the last look. A hint, not a look: it steers a task
+	// that names no agent, and never refuses one that names it — a test,
+	// or anything else starting the same agent twice, would otherwise be
+	// refused by a race with the first one's exit.
+	failed map[string]bool
 }
 
 // agentsSeenFor is how long an answer is trusted for choosing a default:
@@ -443,7 +449,7 @@ func (a *agentsSeen) note(agents []proto.AgentAvailability) {
 		installed[av.Name] = av.Installed
 	}
 	a.mu.Lock()
-	a.at, a.installed = time.Now(), installed
+	a.at, a.installed, a.failed = time.Now(), installed, nil
 	a.mu.Unlock()
 }
 
@@ -464,7 +470,18 @@ func (a *agentsSeen) noteOne(name string, installed bool) {
 		a.installed = map[string]bool{}
 	}
 	a.installed[name] = installed
+	delete(a.failed, name)
 	a.at = time.Now()
+}
+
+// noteFailed records an agent whose launch failed (launchFailed).
+func (a *agentsSeen) noteFailed(name string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.failed == nil {
+		a.failed = map[string]bool{}
+	}
+	a.failed[name] = true
 }
 
 // notInstalled refuses to start an agent this machine does not have,
@@ -495,14 +512,14 @@ func (s *Server) notInstalled(ad adapter.Adapter) *proto.Error {
 }
 
 // launchFailed notes an agent whose pane ended at once with the shell's
-// "command not found" (127): it is not installed, whatever was last
-// found, so the next task naming none picks another and one naming it is
-// told how to install it.
+// "command not found" (127): most likely not installed, so the next task
+// naming no agent looks for the others (defaultAgent), and that look is
+// what then refuses this one by name.
 func (s *Server) launchFailed(e *entry, info proto.PaneInfo) {
 	if e.launched == "" || info.ExitCode != 127 || time.Since(info.Created) > launchFailWithin {
 		return
 	}
-	s.agentsSeen.noteOne(e.launched, false)
+	s.agentsSeen.noteFailed(e.launched)
 }
 
 // launchFailWithin is how soon an exit counts as the launch failing: an
@@ -543,9 +560,15 @@ func (s *Server) defaultAgent() string {
 	first := s.adapters[0].Name()
 	for looked := false; ; looked = true {
 		s.agentsSeen.mu.Lock()
-		installed, at := s.agentsSeen.installed, s.agentsSeen.at
+		installed, at, failed := s.agentsSeen.installed, s.agentsSeen.at, s.agentsSeen.failed[first]
 		s.agentsSeen.mu.Unlock()
-		if installed == nil || time.Since(at) > agentsSeenFor || installed[first] {
+		fresh := installed != nil && time.Since(at) <= agentsSeenFor
+		switch {
+		case failed && !looked:
+			// It just failed to start: look before choosing again.
+			s.findAgents()
+			continue
+		case !fresh || installed[first]:
 			return first
 		}
 		for _, supported := range []bool{true, false} {

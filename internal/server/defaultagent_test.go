@@ -172,7 +172,8 @@ func TestAnAgentInstalledSinceIsNotRefused(t *testing.T) {
 }
 
 // TestALaunchThatFailsIsLearnt: an agent's pane that ends at once with
-// "command not found" marks that agent missing; other ends do not.
+// "command not found" is noted as a failed launch; other ends are not. It
+// is a hint, not a look, so it refuses nothing by itself.
 func TestALaunchThatFailsIsLearnt(t *testing.T) {
 	s, _ := afterFixture(t)
 	now := time.Now()
@@ -180,7 +181,7 @@ func TestALaunchThatFailsIsLearnt(t *testing.T) {
 		name     string
 		launched string
 		info     proto.PaneInfo
-		missing  bool
+		failed   bool
 	}{
 		{"127 at once", "codex", proto.PaneInfo{ExitCode: 127, Created: now}, true},
 		{"127 after a while", "gemini", proto.PaneInfo{ExitCode: 127, Created: now.Add(-time.Minute)}, false},
@@ -188,31 +189,46 @@ func TestALaunchThatFailsIsLearnt(t *testing.T) {
 		{"a terminal, not an agent", "", proto.PaneInfo{ExitCode: 127, Created: now}, false},
 	} {
 		s.launchFailed(&entry{launched: tc.launched}, tc.info)
-		if tc.launched != "" && s.agentsSeen.missing(tc.launched) != tc.missing {
-			t.Errorf("%s: missing %v, want %v", tc.name, !tc.missing, tc.missing)
+		s.agentsSeen.mu.Lock()
+		got := s.agentsSeen.failed[tc.launched]
+		s.agentsSeen.mu.Unlock()
+		if tc.launched != "" && got != tc.failed {
+			t.Errorf("%s: failed %v, want %v", tc.name, got, tc.failed)
 		}
-	}
-	// Learnt, the next task naming none does not pick it.
-	s.agentsSeen.note(seen(s, "claude"))
-	s.launchFailed(&entry{launched: "claude"}, proto.PaneInfo{ExitCode: 127, Created: now})
-	if !s.agentsSeen.missing("claude") {
-		t.Fatal("claude not marked missing")
+		if s.agentsSeen.missing(tc.launched) {
+			t.Errorf("%s: a failed launch alone made it missing", tc.name)
+		}
 	}
 }
 
 // TestAPaneThatCannotStartItsAgent: end to end — a task whose agent's
-// command is not found ends with 127, and the next one is refused.
+// command is not found ends with 127. Naming it again is not refused on
+// that alone (two quick launches of the same agent raced the first one's
+// exit, which is how CI found it); a task naming no agent then looks, and
+// that look is what refuses it by name.
 func TestAPaneThatCannotStartItsAgent(t *testing.T) {
 	s, p := afterFixture(t)
 	agentsShell(t, "exit 127") // finds nothing, and every agent's command is "not found"
-	info, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the model", Branch: "api/model", Agent: "codex"})
-	if perr != nil {
+	if _, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the model", Branch: "api/model", Agent: "codex"}); perr != nil {
 		t.Fatal(perr) // nothing known yet: tried
 	}
-	a5WaitFor(t, "the launch failure noted", func() bool { return s.agentsSeen.missing("codex") })
-	_, perr = s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the view", Branch: "api/view", Agent: "codex"})
-	if perr == nil || !strings.Contains(perr.Message, "Codex is not installed here: conch agent install codex") {
-		t.Fatalf("after %s failed: %v", info.ID, perr)
+	a5WaitFor(t, "the launch failure noted", func() bool {
+		s.agentsSeen.mu.Lock()
+		defer s.agentsSeen.mu.Unlock()
+		return s.agentsSeen.failed["codex"]
+	})
+	if _, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the view", Branch: "api/view", Agent: "codex"}); perr != nil {
+		t.Fatalf("refused on a failed launch alone: %v", perr)
+	}
+	// claude fails too, then a task naming none looks: nothing anywhere.
+	s.launchFailed(&entry{launched: "claude"}, proto.PaneInfo{ExitCode: 127, Created: time.Now()})
+	_, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the client", Branch: "api/client"})
+	if perr == nil || !strings.Contains(perr.Message, "Claude Code is not installed here: conch agent install claude") {
+		t.Fatalf("after the look: %v", perr)
+	}
+	if _, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the docs", Branch: "api/docs", Agent: "codex"}); perr == nil ||
+		!strings.Contains(perr.Message, "Codex is not installed here") {
+		t.Fatalf("named after the look: %v", perr)
 	}
 }
 
