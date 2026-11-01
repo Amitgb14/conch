@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -278,5 +279,20 @@ func TestDefaultAgentIsOneInstalled(t *testing.T) {
 		if got := m.defaultAgent(); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestDefaultAgentWithTheDefaultConfig: the same as the config a person
+// has never touched. The fallback above was dead in use because the
+// built-in config named claude, which the test hid by clearing it; the
+// end-to-end run (R61) is what found it.
+func TestDefaultAgentWithTheDefaultConfig(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	m.cfg = config.Default()
+	mach := m.machines[0]
+	mach.agentList = []proto.AgentAvailability{{Name: "claude"}, {Name: "codex", Installed: true}}
+	mach.available = map[string]proto.AgentAvailability{"claude": {Name: "claude"}, "codex": {Name: "codex", Installed: true}}
+	if got := m.defaultAgent(); got != "codex" {
+		t.Fatalf("only Codex installed, nothing chosen: %q", got)
 	}
 }
