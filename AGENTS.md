@@ -49,7 +49,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/configweb` | The settings page: every key of `config.toml` as a form in the browser (`,` then `e` in the TUI, or `conch config web`). The schema the page draws is Go (`schema.go`, a test says it covers `config.Config`); the API answers on 127.0.0.1 only, to a token carried in the URL's fragment and sent back in a header, and refuses a save made from a version of the file that has since changed. The page (`app/`: React, Tailwind, shadcn) is built by `make settings-ui` into `dist/`, which is committed and embedded, so conch still builds with go alone; its logic is in `app/src/lib/model.js`, tested with node through `TestUILogic`. The TUI serves it itself and takes each save (`internal/tui/configweb.go`), because it holds the configuration in memory and would otherwise write its older copy back |
 | `internal/buildinfo` | Build identity (executable hash) used to detect stale servers and TUIs |
 | `internal/report` | What `conch bug` and the TUI's *Report a problem…* hand over: versions, counts, sizes, a server's missing capabilities and conch's own last error, rendered for a GitHub issue. **Facts, never contents** — no path, project, branch, pane title or screen — which is what makes one keystroke safe; it sends nothing itself |
-| `internal/doctor` | What `conch doctor` finds and how it is said (a check, its outcome, its fix); the checks run in `cmd/conch/doctor.go`, and the TUI is handed them (`Doctor`, `internal/tui/health.go`) to run a moment after it starts |
+| `internal/doctor` | What `conch doctor` finds and how it is said (a check, its outcome, its fix); the checks run in `cmd/conch/doctor.go`, and the TUI is handed them (`Doctor`, `internal/tui/health.go`) to run a moment after it starts — with `ask` false, since asking the terminal what it can do (`cmd/conch/doctorterm.go`) is the command's alone |
 | `internal/tools` | Programs for driving conch under test: `clicker` clicks and drags a pane through the protocol, `standin` is a pane conch detects as an agent (by the name it is built under) that starts panes as an agent does |
 | `internal/sshtest` | A stand-in for ssh in tests: the test binary run under the name `ssh` logs in by waiting as a shell would, and asked for sftp serves a folder as the host's home (hosts `denied`, `nosftp`, `hang` fail as ssh does). A test package calls `sshtest.Main()` from `TestMain` and `sshtest.Install(t)` to put it on `CONCH_SSH`. It is how the files of a terminal's ssh host (`fs.ssh.v1`, `internal/server/sshfiles.go`) are tested without a network |
 | `web/` | The documentation website (Next.js, MDX under `web/src/app/docs`) |
@@ -315,6 +315,25 @@ helpers in `cmd/conch` and `internal/remote`.
   process. And a program speaks only when something changes, so the same
   record is seen at every tick — `done` is raised once (`programAt`), or
   it nags for ever.
+  **Asking the terminal is the command's, never the TUI's.** The same
+  rule cuts the other way in `conch doctor`: `TERM` is set by whatever
+  started the shell, so the terminal is asked what it is and which modes
+  it has (`DECRQM`, `XTVERSION`, device attributes last as the sentinel,
+  `cmd/conch/doctorterm.go`) rather than guessed at from the environment
+  — a Ghostty whose terminfo was never installed still names itself while
+  `TERM` says plain xterm. The reply lands on stdin, which is why only the
+  command may ask: `doctorChecks(ask bool)` is called with false from
+  `main.go`'s TUI launch, and a reply arriving under Bubble Tea would be
+  read as an escape and then as the digits of the mode number. The asking
+  takes raw mode and is skipped unless both ends are the terminal, or the
+  queries would be written into whatever somebody redirected conch's
+  output to; a tty takes no read deadline on macOS, so the read is a
+  goroutine left blocked when nothing answers, which the command's exit
+  moments later ends. And silence is not an answer: a terminal that
+  replies to no mode query does not implement `DECRQM`, which says
+  nothing about whether it has the modes, so `termAnswers.lacks` is false
+  for everything it did not speak about. Reporting silence as a fault is
+  how a working terminal gets told it is broken.
   **conch emits one too, and does not ask first.** conch is also a
   program on somebody's terminal, so `internal/tui/hoststatus.go` sends
   a single aggregate record up stdout — `blocked` while any agent waits,

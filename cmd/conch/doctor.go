@@ -50,7 +50,7 @@ func runDoctor(args []string) error {
 		// git, gh and the terminal here say nothing about that machine.
 		return fmt.Errorf("conch doctor checks this computer, not %s: git, gh and the terminal here say nothing about it", machineFlag)
 	}
-	checks := doctorChecks()
+	checks := doctorChecks(true)
 	if *asJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -72,7 +72,11 @@ func runDoctor(args []string) error {
 // order. Nothing but the agents depends on anything else, and one slow
 // thing — a wedged server, a credential helper waiting on a keychain —
 // should cost its own wait, not everybody's after it.
-func doctorChecks() []doctor.Check {
+//
+// ask is whether the terminal may be asked what it can do, which only the
+// command may do: the TUI owns stdin while it runs, and a reply would
+// arrive there as keystrokes (see doctorterm.go).
+func doctorChecks(ask bool) []doctor.Check {
 	cfg, cfgCheck := doctorConfig()
 	checks := []doctor.Check{
 		{Name: "conch", Status: doctor.OK, Detail: proto.Version + " · " + runtime.GOOS + "/" + runtime.GOARCH},
@@ -80,11 +84,19 @@ func doctorChecks() []doctor.Check {
 		doctorSocket(),
 		{}, {}, // server, agents
 		{}, {}, // git, gh
-		doctorTerminal(cfg),
+		{}, // terminal
 		doctorMachines(),
 	}
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		var said termAnswers
+		if ask {
+			said = askTerminal(termAskTime)
+		}
+		checks[7] = doctorTerminal(cfg, said)
+	}()
 	go func() {
 		defer wg.Done()
 		server, c := doctorServer()
@@ -340,9 +352,17 @@ func doctorOutput(path string, args ...string) (string, error) {
 }
 
 // doctorTerminal is about the terminal this is run in, which is where the
-// TUI will draw. Two things bite: no terminal at all, and a tmux prefix that
-// is conch's too, so the first press goes to whichever is outside.
-func doctorTerminal(cfg config.Config) doctor.Check {
+// TUI will draw. What bites: no terminal at all; a terminal whose terminfo
+// is not installed, so everything curses draws is a guess; a terminal run
+// as plain xterm although it has an entry of its own; a mouse conch cannot
+// read; and a tmux prefix that is conch's too, so the first press goes to
+// whichever is outside.
+//
+// said is what the terminal answered when asked (termAnswers{} when nobody
+// asked — the TUI never does). A finding is only made from what it said,
+// never from its silence: a terminal that does not answer mode queries is
+// not a terminal without the modes.
+func doctorTerminal(cfg config.Config, said termAnswers) doctor.Check {
 	term := os.Getenv("TERM")
 	if term == "" || term == "dumb" {
 		return doctor.Check{Name: "terminal", Status: doctor.Fail,
@@ -359,29 +379,87 @@ func doctorTerminal(cfg config.Config) doctor.Check {
 	default:
 		detail += ", 256 colours"
 	}
-	if os.Getenv("TMUX") == "" {
-		return doctor.Check{Name: "terminal", Status: doctor.OK, Detail: detail}
+	if said.name != "" {
+		detail += ", says it is " + said.name
 	}
-	detail += ", inside tmux"
-	prefixes := tmuxPrefixes()
-	whose := "whose prefix"
-	if prefixes == nil {
-		prefixes, whose = []string{"ctrl+b"}, "whose usual prefix" // tmux would not say
+	if os.Getenv("CONCH_PANE_ID") != "" {
+		// Then the terminal answering is conch's own emulator, not the
+		// window somebody is looking at: worth saying, or a finding here
+		// reads as being about their terminal.
+		detail += ", in a conch pane"
 	}
-	mine := strings.ToLower(cfg.Keys.Prefix)
-	if !slices.Contains(prefixes, mine) {
-		return doctor.Check{Name: "terminal", Status: doctor.OK, Detail: detail}
+	if said.has(modeSyncUpdate) {
+		detail += ", synchronized updates"
 	}
-	free := "ctrl+a"
-	for _, k := range []string{"ctrl+a", "ctrl+g", "ctrl+x"} {
-		if !slices.Contains(prefixes, k) {
-			free = k
-			break
+
+	// Findings, worst first; the first one's fix is the one offered, and
+	// every one of them is said in the detail, so nothing is hidden by
+	// there being only one Fix.
+	var notes, fixes []string
+	note := func(what, fix string) {
+		notes, fixes = append(notes, what), append(fixes, fix)
+	}
+	if missing, fix := terminfoMissing(term); missing != "" {
+		note(missing, fix)
+	}
+	if want := terminfoName(said.name); want != "" && !strings.Contains(term, want) && os.Getenv("TMUX") == "" {
+		word, _, _ := strings.Cut(said.name, " ")
+		note(fmt.Sprintf("TERM does not name %s, so its own keys and colours are off", word),
+			fmt.Sprintf("set TERM to its own entry (%s's is usually %s) in the terminal's settings, and install that terminfo where you ssh to", word, "xterm-"+want))
+	}
+	if said.lacks(modeSGRMouse) {
+		note("no SGR mouse reports, so clicks and drags do not reach conch",
+			"turn the mouse on in the terminal's settings, or use a terminal that reports it (conch is clicked as much as typed)")
+	}
+	if said.lacks(modeBracketedPaste) {
+		note("no bracketed paste, so a pasted prompt is typed line by line into an agent",
+			"turn bracketed paste on in the terminal's settings")
+	}
+	if os.Getenv("TMUX") != "" {
+		detail += ", inside tmux"
+		prefixes := tmuxPrefixes()
+		whose := "whose prefix"
+		if prefixes == nil {
+			prefixes, whose = []string{"ctrl+b"}, "whose usual prefix" // tmux would not say
+		}
+		mine := strings.ToLower(cfg.Keys.Prefix)
+		if slices.Contains(prefixes, mine) {
+			free := "ctrl+a"
+			for _, k := range []string{"ctrl+a", "ctrl+g", "ctrl+x"} {
+				if !slices.Contains(prefixes, k) {
+					free = k
+					break
+				}
+			}
+			note(fmt.Sprintf("%s %s is conch's too", whose, mine),
+				fmt.Sprintf(`set prefix = %q under [keys] in %s`, free, config.File()))
 		}
 	}
+	if len(notes) == 0 {
+		return doctor.Check{Name: "terminal", Status: doctor.OK, Detail: detail}
+	}
 	return doctor.Check{Name: "terminal", Status: doctor.Warn,
-		Detail: fmt.Sprintf("%s, %s %s is conch's too", detail, whose, mine),
-		Fix:    fmt.Sprintf(`set prefix = %q under [keys] in %s`, free, config.File())}
+		Detail: detail + ", " + strings.Join(notes, ", "), Fix: fixes[0]}
+}
+
+// terminfoMissing says why TERM is no good here, and how to fix it, or ""
+// when it is fine or cannot be told. A terminal that sets TERM to an entry
+// this computer does not have is the quiet failure worth catching: conch
+// itself draws anyway, since it writes the escapes it needs, but ncurses
+// programs — vim, less, an agent's own full-screen interface — read
+// terminfo and fall back or refuse. Installing a terminal and not its
+// terminfo is how that happens, and ssh carries TERM to machines that have
+// never heard of it.
+func terminfoMissing(term string) (why, fix string) {
+	path, err := exec.LookPath("infocmp")
+	if err != nil {
+		return "", "" // nothing here can say; better than a guess
+	}
+	if _, err := doctorOutput(path, "-1", term); err == nil {
+		return "", ""
+	}
+	return fmt.Sprintf("no terminfo entry for %s here, so curses programs (vim, less, an agent's own screen) fall back", term),
+		"install the terminal's terminfo (its own docs say how; `tic` takes the file), or set TERM=xterm-256color for now"
 }
 
 // tmuxPrefixes asks the tmux conch runs inside for its prefix keys, in

@@ -41,10 +41,12 @@ func doctorEnv(t *testing.T) string {
 	return dir
 }
 
-// doctorFind runs every check and returns the one named.
+// doctorFind runs every check and returns the one named. Nothing here
+// asks the terminal anything: `go test` is often run in one, and taking
+// raw mode would eat the keys somebody typed while it ran.
 func doctorFind(t *testing.T, name string) doctor.Check {
 	t.Helper()
-	for _, c := range doctorChecks() {
+	for _, c := range doctorChecks(false) {
 		if c.Name == name {
 			return c
 		}
@@ -422,13 +424,13 @@ func TestDoctorTerminal(t *testing.T) {
 	doctorEnv(t)
 	t.Setenv("TERM_PROGRAM", "Apple_Terminal")
 	t.Setenv("COLORTERM", "")
-	if c := doctorTerminal(config.Default()); c.Status != doctor.OK || c.Detail != "Apple_Terminal, xterm-256color, 256 colours" {
+	if c := doctorTerminal(config.Default(), termAnswers{}); c.Status != doctor.OK || c.Detail != "Apple_Terminal, xterm-256color, 256 colours" {
 		t.Errorf("256 colours: %+v", c)
 	}
 
 	// A tmux that will not say is taken to be on its default.
 	t.Setenv("TMUX", "/tmp/tmux-501/default,1,0")
-	c := doctorTerminal(config.Default())
+	c := doctorTerminal(config.Default(), termAnswers{})
 	if c.Status != doctor.Warn || !strings.Contains(c.Detail, "inside tmux, whose usual prefix ctrl+b is conch's too") || !strings.Contains(c.Fix, `prefix = "ctrl+a"`) {
 		t.Errorf("tmux with conch's prefix: %+v", c)
 	}
@@ -438,22 +440,22 @@ func TestDoctorTerminal(t *testing.T) {
 	bin := t.TempDir()
 	doctorScript(t, bin, "tmux", `[ "$3" = prefix ] && echo C-a || echo None`)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if c = doctorTerminal(config.Default()); c.Status != doctor.OK || !strings.HasSuffix(c.Detail, "inside tmux") {
+	if c = doctorTerminal(config.Default(), termAnswers{}); c.Status != doctor.OK || !strings.HasSuffix(c.Detail, "inside tmux") {
 		t.Errorf("tmux on C-a, conch on ctrl+b: %+v", c)
 	}
 	cfg := config.Default()
 	cfg.Keys.Prefix = "ctrl+a"
-	c = doctorTerminal(cfg)
+	c = doctorTerminal(cfg, termAnswers{})
 	if c.Status != doctor.Warn || !strings.Contains(c.Detail, "whose prefix ctrl+a is conch's too") || !strings.Contains(c.Fix, `prefix = "ctrl+g"`) {
 		t.Errorf("tmux on C-a, conch on ctrl+a: %+v", c)
 	}
 	doctorScript(t, bin, "tmux", `[ "$3" = prefix2 ] && echo C-g || echo C-a`)
-	if c = doctorTerminal(cfg); !strings.Contains(c.Fix, `prefix = "ctrl+x"`) {
+	if c = doctorTerminal(cfg, termAnswers{}); !strings.Contains(c.Fix, `prefix = "ctrl+x"`) {
 		t.Errorf("both of tmux's prefixes avoided: %+v", c)
 	}
 
 	t.Setenv("TERM", "")
-	if c = doctorTerminal(cfg); c.Status != doctor.Fail {
+	if c = doctorTerminal(cfg, termAnswers{}); c.Status != doctor.Fail {
 		t.Errorf("no TERM: %+v", c)
 	}
 }

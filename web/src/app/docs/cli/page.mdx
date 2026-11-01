@@ -328,7 +328,7 @@ The first thing to run when something does not work. Each line is one thing conc
 ✓ git       2.49.0, committing as You
 ! gh        2.62.0 not signed in
             → gh auth login
-✓ terminal  ghostty, xterm-256color, 24-bit colour
+✓ terminal  ghostty, xterm-ghostty, 24-bit colour, says it is ghostty 1.2.0, synchronized updates
 ✓ machines  1 machine saved (not dialled; conch -m NAME status reaches one)
 
 conch works; 2 things worth a look.
@@ -342,8 +342,10 @@ conch works; 2 things worth a look.
 | agents | the server finds none installed | not checked, because no server is running |
 | git | not found | no name or email to commit as, in git's config or its environment variables; older than 2.38, which telling which branches would conflict needs |
 | gh | | not found, or not signed in — pull requests, CI results and issues come through it |
-| terminal | `TERM` is empty or `dumb` | inside tmux with the same prefix as tmux (asked of tmux itself), and a key free in both to use instead |
+| terminal | `TERM` is empty or `dumb` | no terminfo entry for `TERM` on this computer, so curses programs fall back; a terminal that names itself (Ghostty, kitty, WezTerm, foot, alacritty) while `TERM` says plain xterm, so its own keys and colours are off; no SGR mouse reports, so clicks and drags never arrive; no bracketed paste, so a pasted prompt is typed line by line into an agent; inside tmux with the same prefix as tmux (asked of tmux itself), and a key free in both to use instead |
 | machines | `machines.json` cannot be read; machines are saved but there is no `ssh` | |
+
+**It asks the terminal what it can do.** `TERM` is set by whatever started your shell and is wrong often enough to be worth checking against the terminal itself — a Ghostty whose terminfo was never installed still says it is Ghostty while `TERM` says plain xterm, and then nothing describes its keys and colours. So the command sends the terminal a few questions (`DECRQM` for the modes conch turns on, `XTVERSION` for its name, device attributes last) and reads the replies, which is the one thing it writes anywhere. It does that only when run in a terminal, never when output is redirected, and it waits 300ms at most for a terminal that will not answer. Anything the terminal says nothing about is left unsaid rather than reported as missing: a terminal that does not answer mode queries is not a terminal without the modes. Run in a conch pane it says so, because the terminal answering there is conch's own emulator and not the window you are looking at. **The TUI never asks** — a reply would land on its own input as keystrokes — so the page under `,` → **Check conch…** shows everything except what only a question can find.
 
 It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by side, so one slow thing costs only its own wait. It changes nothing and starts nothing — not even the server — and it does not dial your machines, so a machine that is asleep cannot make it hang. Whether `gh` is signed in is asked without reaching GitHub, so an offline laptop is not called signed out (a `gh` too old for that is asked the usual way), and the token `gh` hands back is thrown away. It checks this computer: on another machine, run it there. The TUI runs the same checks a moment after it starts and shows what they find on this computer's page; `,` → **Check conch…** lists them there and checks again.
 
