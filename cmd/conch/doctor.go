@@ -463,12 +463,27 @@ func terminfoMissing(term string) (why, fix string) {
 // guess either way would be worse than the question going unanswered —
 // "no entry" is advice to go and install one.
 func terminfoHas(term string) (has, known bool) {
+	return terminfoHasIn("", term)
+}
+
+// terminfoHasIn is the same question asked of one terminfo directory: a
+// terminal may carry its own and point TERMINFO at it for what it starts
+// (macOS Ghostty keeps one in its bundle), so "this computer has no entry"
+// and "nothing in the window will find one" are different questions, and
+// only the second is a reason to hold TERM back.
+func terminfoHasIn(dir, term string) (has, known bool) {
 	path, err := exec.LookPath("infocmp")
 	if err != nil {
 		return false, false
 	}
-	_, err = doctorOutput(path, "-1", term)
-	return err == nil, true
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "-1", term)
+	cmd.WaitDelay = time.Second
+	if dir != "" {
+		cmd.Env = append(os.Environ(), "TERMINFO="+dir)
+	}
+	return cmd.Run() == nil, true
 }
 
 // tmuxPrefixes asks the tmux conch runs inside for its prefix keys, in

@@ -26,6 +26,10 @@ func appEnv(t *testing.T) (bin string, launched *[]string) {
 	apps := appSystemApps
 	appSystemApps = t.TempDir()
 	t.Cleanup(func() { appSystemApps = apps })
+	// And no TERMINFO of the developer's: ghostty sets it for the shells
+	// it starts, so `go test` run in one would answer the terminfo
+	// question differently from the same test run anywhere else.
+	t.Setenv("TERMINFO", "")
 	var argv []string
 	old := startApp
 	startApp = func(a []string) error { argv = append([]string(nil), a...); return nil }
@@ -95,7 +99,7 @@ func TestAppHoldsTERMBackWhenTheTerminfoIsMissing(t *testing.T) {
 
 	// An infocmp that knows every entry: nothing to hold back.
 	doctorScript(t, bin, "infocmp", `exit 0`)
-	cfg, err := appConfig(ghostty)
+	cfg, err := appConfig(ghostty, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +123,7 @@ func TestAppHoldsTERMBackWhenTheTerminfoIsMissing(t *testing.T) {
 	// One that has never heard of xterm-ghostty: held back, and the file
 	// says why, since somebody reading it will wonder.
 	doctorScript(t, bin, "infocmp", `exit 1`)
-	if _, err = appConfig(ghostty); err != nil {
+	if _, err = appConfig(ghostty, ""); err != nil {
 		t.Fatal(err)
 	}
 	body, _ = os.ReadFile(cfg)
@@ -228,6 +232,80 @@ func TestAppNamesATerminalOrSaysWhatItKnows(t *testing.T) {
 	}
 	if err = runApp([]string{"-terminal", "kitty", "extra"}); err == nil {
 		t.Fatal("a stray argument was taken")
+	}
+}
+
+// A terminal that brings its own terminfo and points TERMINFO at it for
+// what it starts needs nothing held back: the window resolves the entry
+// even where conch, asked without that variable, cannot. macOS Ghostty
+// keeps one in its bundle and sets TERMINFO for the program it runs, so
+// reading the environment conch happened to be in cost the window
+// xterm-ghostty and wrote a comment saying the entry was not installed.
+func TestAppAsksTheTerminalsOwnTerminfo(t *testing.T) {
+	bin, _ := appEnv(t)
+	ghostty := appTerm(t, "ghostty")
+	// An infocmp like the real one: the entry is there only when
+	// TERMINFO points at the terminal's own directory.
+	doctorScript(t, bin, "infocmp", `[ -n "$TERMINFO" ] && exit 0 || exit 1`)
+
+	// A bundle that carries the entry: TERM is left alone.
+	bundle := filepath.Join(t.TempDir(), "Ghostty.app")
+	exe := filepath.Join(bundle, "Contents", "MacOS", "ghostty")
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exe, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(bundle, "Contents", "Resources", "terminfo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := appConfig(ghostty, exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(cfg)
+	if runtime.GOOS == "darwin" {
+		if strings.Contains(string(body), "term =") {
+			t.Fatalf("TERM held back although the terminal carries the entry:\n%s", body)
+		}
+		if strings.Contains(string(body), "no terminfo entry") {
+			t.Fatalf("the config says something untrue about this computer:\n%s", body)
+		}
+		// The bundle is found through EvalSymlinks, and /var is a
+		// symlink on macOS.
+		real, err := filepath.EvalSymlinks(bundle)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := appTerminfoDir(ghostty, exe); got != filepath.Join(real, "Contents", "Resources", "terminfo") {
+			t.Errorf("appTerminfoDir = %q, want under %q", got, real)
+		}
+	}
+
+	// A bundle with no terminfo of its own: nothing anywhere resolves it,
+	// so TERM is held back and the config says why.
+	plain := filepath.Join(t.TempDir(), "Ghostty.app")
+	bare := filepath.Join(plain, "Contents", "MacOS", "ghostty")
+	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bare, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = appConfig(ghostty, bare); err != nil {
+		t.Fatal(err)
+	}
+	body, _ = os.ReadFile(cfg)
+	if !strings.Contains(string(body), "term = xterm-256color") {
+		t.Fatalf("TERM not held back for a bundle that carries nothing:\n%s", body)
+	}
+	if got := appTerminfoDir(ghostty, bare); got != "" {
+		t.Errorf("appTerminfoDir = %q for a bundle with no terminfo", got)
+	}
+	// A terminal with no bundle at all carries nothing to ask.
+	if got := appTerminfoDir(appTerm(t, "foot"), "/usr/bin/foot"); got != "" {
+		t.Errorf("foot carries %q", got)
 	}
 }
 

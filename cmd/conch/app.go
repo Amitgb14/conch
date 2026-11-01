@@ -231,7 +231,7 @@ func runApp(args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg, err := appConfig(term)
+	cfg, err := appConfig(term, bin)
 	if err != nil {
 		return err
 	}
@@ -323,7 +323,7 @@ func appNames() string {
 // and a stale one would quietly hold a setting conch no longer means. What
 // somebody wants to keep goes in the <name>.local file beside it, which is
 // included when it exists.
-func appConfig(t appTerminal) (string, error) {
+func appConfig(t appTerminal, bin string) (string, error) {
 	dir := filepath.Join(config.Dir(), "app")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
@@ -334,9 +334,22 @@ func appConfig(t appTerminal) (string, error) {
 	}
 	fallback := false
 	if t.terminfo != "" {
-		if has, known := terminfoHas(t.terminfo); known && !has {
-			fallback = true
+		has, known := terminfoHas(t.terminfo)
+		// A terminal that brings its own terminfo and points TERMINFO at
+		// it — macOS Ghostty does, in its bundle — needs nothing held
+		// back: what it starts resolves the entry even though this
+		// computer, asked without that variable, cannot. Reading the
+		// environment conch happens to be in said the opposite, and the
+		// window lost xterm-ghostty for xterm-256color with a comment
+		// claiming the entry was not installed.
+		if known && !has {
+			if dir := appTerminfoDir(t, bin); dir != "" {
+				if inOwn, asked := terminfoHasIn(dir, t.terminfo); asked && inOwn {
+					has = true
+				}
+			}
 		}
+		fallback = known && !has
 	}
 	head := fmt.Sprintf("# Written by conch (conch app). Edits here are lost.\n# Yours go in %s, which is included when it exists.\n",
 		filepath.Join(dir, strings.TrimSuffix(t.file, filepath.Ext(t.file))+".local"+filepath.Ext(t.file)))
@@ -353,18 +366,44 @@ func appConfig(t appTerminal) (string, error) {
 // the binary — /Applications/Ghostty.app/Contents/MacOS/ghostty — with
 // symlinks resolved first, since the name on PATH is usually one.
 func appOpenBundle(bin string, argv []string) ([]string, error) {
+	bundle := appBundleOf(bin)
+	if bundle == "" {
+		return nil, fmt.Errorf("%s is not in an application bundle, and macOS cannot start it from the command line", bin)
+	}
+	return append([]string{"open", "-na", bundle, "--args"}, argv[1:]...), nil
+}
+
+// appBundleOf is the application bundle a program is in, or "": symlinks
+// resolved first, since the name on PATH is usually one.
+func appBundleOf(bin string) string {
 	real, err := filepath.EvalSymlinks(bin)
 	if err != nil {
 		real = bin
 	}
-	dir := real
-	for dir != "/" && dir != "." {
+	for dir := real; dir != "/" && dir != "."; dir = filepath.Dir(dir) {
 		if strings.HasSuffix(dir, ".app") {
-			return append([]string{"open", "-na", dir, "--args"}, argv[1:]...), nil
+			return dir
 		}
-		dir = filepath.Dir(dir)
 	}
-	return nil, fmt.Errorf("%s is not in an application bundle, and macOS cannot start it from the command line", bin)
+	return ""
+}
+
+// appTerminfoDir is the terminfo a terminal carries with it, or "". Only
+// macOS has it: a bundle keeps its own under Contents/Resources, and
+// points TERMINFO there for what it starts.
+func appTerminfoDir(t appTerminal, bin string) string {
+	if runtime.GOOS != "darwin" || t.app == "" {
+		return ""
+	}
+	bundle := appBundleOf(bin)
+	if bundle == "" {
+		return ""
+	}
+	dir := filepath.Join(bundle, "Contents", "Resources", "terminfo")
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return ""
+	}
+	return dir
 }
 
 // appList says which terminals are here, so "none of them is installed"
