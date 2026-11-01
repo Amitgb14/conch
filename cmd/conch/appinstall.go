@@ -113,7 +113,10 @@ func appInstallXDG(conch string, term appTerminal) error {
 		// conch is a terminal program, but this entry starts a terminal
 		// of its own: the desktop must not open another one around it.
 		"Terminal=false",
-		"Categories=Development;Utility;",
+		// One main category, or the entry can appear twice in the menu —
+		// which is what desktop-file-validate warns about, and both
+		// Development and Utility are main ones.
+		"Categories=Development;",
 		"Keywords=agent;claude;codex;terminal;",
 		"StartupNotify=true",
 		"",

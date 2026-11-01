@@ -285,7 +285,9 @@ func TestAppInstallAndRemove(t *testing.T) {
 			t.Fatal(err)
 		}
 		self, _ := os.Executable()
-		for _, want := range []string{"[Desktop Entry]", "Exec=" + self + " app", "Icon=conch", "Terminal=false"} {
+		// Categories carries exactly one main category: with two, the
+		// entry can be listed twice, which desktop-file-validate says.
+		for _, want := range []string{"[Desktop Entry]", "Exec=" + self + " app", "Icon=conch", "Terminal=false", "Categories=Development;\n"} {
 			if !strings.Contains(string(entry), want) {
 				t.Errorf("the entry has no %q:\n%s", want, entry)
 			}
