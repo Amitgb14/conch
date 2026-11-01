@@ -11,12 +11,15 @@ import (
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
-func seen(installed ...string) []proto.AgentAvailability {
+// seen is a whole agent.status answer — every agent conch knows, the ones
+// named installed — as a client asking would leave behind. A partial one
+// is what a failed launch leaves, and makes the server look for the rest.
+func seen(s *Server, installed ...string) []proto.AgentAvailability {
 	var out []proto.AgentAvailability
-	for _, name := range []string{"claude", "codex", "gemini", "aider"} {
-		av := proto.AgentAvailability{Name: name}
+	for _, ad := range s.adapters {
+		av := proto.AgentAvailability{Name: ad.Name()}
 		for _, i := range installed {
-			av.Installed = av.Installed || i == name
+			av.Installed = av.Installed || i == ad.Name()
 		}
 		out = append(out, av)
 	}
@@ -49,13 +52,13 @@ func TestDefaultAgentForATask(t *testing.T) {
 		{"only one conch runs", []string{"aider"}, "aider"},
 		{"none", nil, "claude"},
 	} {
-		s.agentsSeen.note(seen(tc.installed...))
+		s.agentsSeen.note(seen(s, tc.installed...))
 		if got := s.defaultAgent(); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
 	}
 	// An old answer is not trusted: somebody may have installed it since.
-	s.agentsSeen.note(seen("codex"))
+	s.agentsSeen.note(seen(s, "codex"))
 	s.agentsSeen.mu.Lock()
 	s.agentsSeen.at = time.Now().Add(-2 * agentsSeenFor)
 	s.agentsSeen.mu.Unlock()
@@ -93,12 +96,155 @@ func TestATaskNamingNoAgentStartsOneInstalled(t *testing.T) {
 	if !strings.Contains(strings.Join(info.Command, " "), "codex") || strings.Contains(strings.Join(info.Command, " "), "claude") {
 		t.Fatalf("the task started %q", info.Command)
 	}
-	// Named, it is what was named, whatever is installed.
-	info, perr = s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the view", Branch: "api/view", Agent: "claude"})
+	// Named, an agent this machine was found without is refused, with
+	// how to install it, rather than started to die at once.
+	if _, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the view", Branch: "api/view", Agent: "claude"}); perr == nil ||
+		!strings.Contains(perr.Message, "Claude Code is not installed here") {
+		t.Fatalf("named claude: %v", perr)
+	}
+}
+
+// agentsShell is a login shell that finds the agents named and no
+// other, and runs everything else with run (a shell snippet).
+func agentsShell(t *testing.T, run string, found ...string) {
+	t.Helper()
+	var cases strings.Builder
+	for _, name := range found {
+		cases.WriteString("*'command -v " + name + "'*) echo /opt/fake/" + name + "; echo '" + name + " 1.0.0';;\n")
+	}
+	script := "#!/bin/sh\ncase \"$2\" in\n" + cases.String() + "*'command -v '*) exit 1;;\n*) " + run + ";;\nesac\n"
+	sh := filepath.Join(t.TempDir(), "login-shell")
+	if err := os.WriteFile(sh, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", sh)
+}
+
+// TestAMissingAgentIsRefused: a task for an agent this machine was found
+// without is refused with how to install it — before a branch or worktree
+// is made — where it used to start a pane that died at once with 127.
+func TestAMissingAgentIsRefused(t *testing.T) {
+	s, p := afterFixture(t)
+	agentsShell(t, "exec sleep 30", "codex")
+	s.agentsSeen.note(seen(s, "codex"))
+
+	_, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the model", Branch: "api/model", Agent: "claude"})
+	if perr == nil || perr.Message != "Claude Code is not installed here: conch agent install claude, or c in conch" {
+		t.Fatalf("refusal: %v", perr)
+	}
+	for _, b := range p.snapshot().Branches {
+		if b.Name == "api/model" {
+			t.Fatal("a refused task left its branch behind")
+		}
+	}
+	// conch new -agent too.
+	if _, perr := s.create(proto.PaneCreateParams{Agent: "claude", Cwd: p.root}); perr == nil || !strings.Contains(perr.Message, "not installed here") {
+		t.Fatalf("new -agent claude: %v", perr)
+	}
+	// An agent with no installer says so rather than offering one.
+	if ad, ok := s.adapters.Get("aider"); ok && strings.TrimSpace(ad.InstallScript()) == "" {
+		s.agentsSeen.noteOne("aider", false)
+		if perr := s.notInstalled(ad); perr == nil || !strings.Contains(perr.Message, "install it yourself") {
+			t.Fatalf("no installer: %v", perr)
+		}
+	}
+	// Nothing known: tried, as before.
+	s.agentsSeen.mu.Lock()
+	s.agentsSeen.installed = nil
+	s.agentsSeen.mu.Unlock()
+	if perr := s.notInstalled(mustAdapter(t, s, "opencode")); perr != nil {
+		t.Fatalf("unknown is not missing: %v", perr)
+	}
+}
+
+// TestAnAgentInstalledSinceIsNotRefused: the last look said missing, but
+// it has been installed since, from a shell — looked at again, it starts.
+func TestAnAgentInstalledSinceIsNotRefused(t *testing.T) {
+	s, p := afterFixture(t)
+	s.agentsSeen.note(seen(s, "codex")) // claude missing, as last found
+	agentsShell(t, "exec sleep 30", "codex", "claude")
+	if _, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the model", Branch: "api/model", Agent: "claude"}); perr != nil {
+		t.Fatalf("installed since: %v", perr)
+	}
+	if s.agentsSeen.missing("claude") {
+		t.Fatal("the new look was not kept")
+	}
+}
+
+// TestALaunchThatFailsIsLearnt: an agent's pane that ends at once with
+// "command not found" marks that agent missing; other ends do not.
+func TestALaunchThatFailsIsLearnt(t *testing.T) {
+	s, _ := afterFixture(t)
+	now := time.Now()
+	for _, tc := range []struct {
+		name     string
+		launched string
+		info     proto.PaneInfo
+		missing  bool
+	}{
+		{"127 at once", "codex", proto.PaneInfo{ExitCode: 127, Created: now}, true},
+		{"127 after a while", "gemini", proto.PaneInfo{ExitCode: 127, Created: now.Add(-time.Minute)}, false},
+		{"another failure", "opencode", proto.PaneInfo{ExitCode: 1, Created: now}, false},
+		{"a terminal, not an agent", "", proto.PaneInfo{ExitCode: 127, Created: now}, false},
+	} {
+		s.launchFailed(&entry{launched: tc.launched}, tc.info)
+		if tc.launched != "" && s.agentsSeen.missing(tc.launched) != tc.missing {
+			t.Errorf("%s: missing %v, want %v", tc.name, !tc.missing, tc.missing)
+		}
+	}
+	// Learnt, the next task naming none does not pick it.
+	s.agentsSeen.note(seen(s, "claude"))
+	s.launchFailed(&entry{launched: "claude"}, proto.PaneInfo{ExitCode: 127, Created: now})
+	if !s.agentsSeen.missing("claude") {
+		t.Fatal("claude not marked missing")
+	}
+}
+
+// TestAPaneThatCannotStartItsAgent: end to end — a task whose agent's
+// command is not found ends with 127, and the next one is refused.
+func TestAPaneThatCannotStartItsAgent(t *testing.T) {
+	s, p := afterFixture(t)
+	agentsShell(t, "exit 127") // finds nothing, and every agent's command is "not found"
+	info, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the model", Branch: "api/model", Agent: "codex"})
+	if perr != nil {
+		t.Fatal(perr) // nothing known yet: tried
+	}
+	a5WaitFor(t, "the launch failure noted", func() bool { return s.agentsSeen.missing("codex") })
+	_, perr = s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the view", Branch: "api/view", Agent: "codex"})
+	if perr == nil || !strings.Contains(perr.Message, "Codex is not installed here: conch agent install codex") {
+		t.Fatalf("after %s failed: %v", info.ID, perr)
+	}
+}
+
+func mustAdapter(t *testing.T, s *Server, name string) adapter.Adapter {
+	t.Helper()
+	ad, ok := s.adapters.Get(name)
+	if !ok {
+		t.Fatalf("no adapter %q", name)
+	}
+	return ad
+}
+
+// TestAFailedLaunchLooksForTheOthers: all anybody learnt is that Claude
+// Code is missing, from a launch that failed — so a task naming no agent
+// looks once for the rest and starts the one that is there, rather than
+// being refused while Codex sits on the PATH.
+func TestAFailedLaunchLooksForTheOthers(t *testing.T) {
+	s, p := afterFixture(t)
+	agentsShell(t, "exec sleep 30", "codex")
+	s.launchFailed(&entry{launched: "claude"}, proto.PaneInfo{ExitCode: 127, Created: time.Now()})
+	info, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the model", Branch: "api/model"})
 	if perr != nil {
 		t.Fatal(perr)
 	}
-	if !strings.Contains(strings.Join(info.Command, " "), "claude") {
-		t.Fatalf("named claude, started %q", info.Command)
+	if !strings.Contains(strings.Join(info.Command, " "), "codex") {
+		t.Fatalf("started %q", info.Command)
+	}
+	// And with nothing there at all, the look is not repeated for every
+	// task: a whole answer that found none is the answer.
+	agentsShell(t, "exec sleep 30")
+	s.agentsSeen.note(seen(s))
+	if got := s.defaultAgent(); got != "claude" {
+		t.Fatalf("none installed: %q", got)
 	}
 }

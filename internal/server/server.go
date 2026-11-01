@@ -3,7 +3,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -840,24 +839,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		return s.made(c)(s.createTask(tp))
 
 	case proto.MethodAgentStatus:
-		var res proto.AgentStatusResult
-		avs := make([]adapter.Availability, len(s.adapters))
-		var wg sync.WaitGroup
-		for i, ad := range s.adapters {
-			wg.Add(1)
-			go func() { // each check starts a login shell; run them together
-				defer wg.Done()
-				avs[i] = ad.Detect(context.Background(), config.DefaultShell())
-			}()
-		}
-		wg.Wait()
-		for i, ad := range s.adapters {
-			res.Agents = append(res.Agents, proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
-				Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier(),
-				NoInstaller: strings.TrimSpace(ad.InstallScript()) == ""})
-		}
-		s.agentsSeen.note(res.Agents)
-		return res, nil
+		return proto.AgentStatusResult{Agents: s.findAgents()}, nil
 
 	case proto.MethodAgentInstall:
 		ip, perr := decode[proto.AgentInstallParams](msg)
@@ -1248,6 +1230,9 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 		if !ok {
 			return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "agent %q cannot be launched by conch", cp.Agent)
 		}
+		if perr := s.notInstalled(ad); perr != nil {
+			return proto.PaneInfo{}, perr
+		}
 		// Write what the agent is launched with, every time: the folder can
 		// go between one launch and the next, and Claude started with a
 		// --settings file that is no longer there fails outright.
@@ -1364,10 +1349,16 @@ func (s *Server) startTask(tp proto.TaskCreateParams) (proto.PaneInfo, string, *
 	if tp.Branch == "" {
 		tp.Branch = gitx.BranchFromPrompt(p.snapshot().Name, tp.Prompt)
 	}
-	// Checked before the worktree is made, so a refused name leaves nothing.
+	// Checked before the worktree is made, so a refused name — or an agent
+	// this machine does not have — leaves nothing.
 	tp.Name = strings.TrimSpace(tp.Name)
 	if perr := s.nameFree(tp.Name); perr != nil {
 		return proto.PaneInfo{}, "", perr
+	}
+	if ad, ok := s.adapters.Get(tp.Agent); ok {
+		if perr := s.notInstalled(ad); perr != nil {
+			return proto.PaneInfo{}, "", perr
+		}
 	}
 	path, _, perr := s.projects.addWorktree(p, tp.Branch, tp.Base)
 	if perr != nil {

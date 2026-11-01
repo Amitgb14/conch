@@ -428,8 +428,21 @@ func TestA5AgentsThroughFakeShell(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A task: its own branch and worktree, the default agent in it.
+	// The status above found no agent, so a task is refused with how to
+	// install one, rather than started to die at once.
 	var task proto.PaneInfo
+	perr := c.Call(ctx, proto.MethodTaskCreate, proto.TaskCreateParams{ProjectID: proj.ID, Prompt: "Fix the login bug", Cols: 60, Rows: 10}, &task)
+	if perr == nil || !strings.Contains(perr.Error(), "Claude Code is not installed here: conch agent install claude") {
+		t.Fatalf("a task with no agent installed: %v", perr)
+	}
+	// Installed since (the shell now finds Claude Code and Codex, and still
+	// runs nothing):
+	// looked at again, the task goes ahead.
+	if err := os.WriteFile(sh, []byte("#!/bin/sh\ncase \"$2\" in *'command -v claude'*|*'command -v codex'*) echo /opt/fake/agent; exit 0;; esac\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// A task: its own branch and worktree, the default agent in it.
 	if err := c.Call(ctx, proto.MethodTaskCreate, proto.TaskCreateParams{ProjectID: proj.ID, Prompt: "Fix the login bug", Cols: 60, Rows: 10}, &task); err != nil {
 		t.Fatal(err)
 	}

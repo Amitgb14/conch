@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log"
 	"slices"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/adapter"
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/detect"
 	"github.com/Amitgb14/conch/internal/pane"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -153,6 +155,7 @@ func (s *Server) watch(e *entry) {
 					s.runs.forget(info.ID)
 				}
 				log.Printf("pane %s exited with code %d", info.ID, info.ExitCode)
+				s.launchFailed(e, info)
 				// A check's output is read before the end is announced: a
 				// client that sees it may close the terminal at once.
 				s.autopilotExited(info)
@@ -444,6 +447,91 @@ func (a *agentsSeen) note(agents []proto.AgentAvailability) {
 	a.mu.Unlock()
 }
 
+// missing reports whether name was last found not installed, recently
+// enough to go by.
+func (a *agentsSeen) missing(name string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	installed, known := a.installed[name]
+	return known && !installed && time.Since(a.at) <= agentsSeenFor
+}
+
+// noteOne records what one look at one agent found, keeping the rest.
+func (a *agentsSeen) noteOne(name string, installed bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.installed == nil {
+		a.installed = map[string]bool{}
+	}
+	a.installed[name] = installed
+	a.at = time.Now()
+}
+
+// notInstalled refuses to start an agent this machine does not have,
+// saying how to get it — where starting it anyway made a pane that died
+// at once with "command not found", which said nothing to anybody who
+// had asked for a task from a shell. It goes by the last look, and when
+// that says missing it looks again, at that agent alone: an agent
+// installed from a shell a minute ago must not be refused for the rest
+// of the hour.
+func (s *Server) notInstalled(ad adapter.Adapter) *proto.Error {
+	if !s.agentsSeen.missing(ad.Name()) {
+		return nil
+	}
+	if ad.Detect(context.Background(), config.DefaultShell()).Installed {
+		s.agentsSeen.noteOne(ad.Name(), true)
+		return nil
+	}
+	s.agentsSeen.noteOne(ad.Name(), false)
+	label := ad.Label()
+	if label == "" {
+		label = ad.Name()
+	}
+	how := "conch agent install " + ad.Name() + ", or c in conch"
+	if strings.TrimSpace(ad.InstallScript()) == "" {
+		how = "install it yourself and conch will find it on your PATH"
+	}
+	return proto.Errorf(proto.ErrBadRequest, "%s is not installed here: %s", label, how)
+}
+
+// launchFailed notes an agent whose pane ended at once with the shell's
+// "command not found" (127): it is not installed, whatever was last
+// found, so the next task naming none picks another and one naming it is
+// told how to install it.
+func (s *Server) launchFailed(e *entry, info proto.PaneInfo) {
+	if e.launched == "" || info.ExitCode != 127 || time.Since(info.Created) > launchFailWithin {
+		return
+	}
+	s.agentsSeen.noteOne(e.launched, false)
+}
+
+// launchFailWithin is how soon an exit counts as the launch failing: an
+// agent that ran for a while and then ended is not a missing one.
+const launchFailWithin = 30 * time.Second
+
+// findAgents looks for every agent conch knows on this machine — a login
+// shell and a --version each, side by side — and keeps the answer.
+func (s *Server) findAgents() []proto.AgentAvailability {
+	avs := make([]adapter.Availability, len(s.adapters))
+	var wg sync.WaitGroup
+	for i, ad := range s.adapters {
+		wg.Add(1)
+		go func() { // each check starts a login shell; run them together
+			defer wg.Done()
+			avs[i] = ad.Detect(context.Background(), config.DefaultShell())
+		}()
+	}
+	wg.Wait()
+	var out []proto.AgentAvailability
+	for i, ad := range s.adapters {
+		out = append(out, proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
+			Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier(),
+			NoInstaller: strings.TrimSpace(ad.InstallScript()) == ""})
+	}
+	s.agentsSeen.note(out)
+	return out
+}
+
 // defaultAgent is the agent a task names none for: the first conch knows
 // (Claude Code), unless this machine was last seen without it and with
 // another — one conch supports before one somebody described in a
@@ -453,20 +541,30 @@ func (a *agentsSeen) note(agents []proto.AgentAvailability) {
 // it always was.
 func (s *Server) defaultAgent() string {
 	first := s.adapters[0].Name()
-	s.agentsSeen.mu.Lock()
-	installed, at := s.agentsSeen.installed, s.agentsSeen.at
-	s.agentsSeen.mu.Unlock()
-	if installed == nil || time.Since(at) > agentsSeenFor || installed[first] {
-		return first
-	}
-	for _, supported := range []bool{true, false} {
-		for _, ad := range s.adapters[1:] {
-			if installed[ad.Name()] && (ad.Tier() != proto.TierRunsHere) == supported {
-				return ad.Name()
+	for looked := false; ; looked = true {
+		s.agentsSeen.mu.Lock()
+		installed, at := s.agentsSeen.installed, s.agentsSeen.at
+		s.agentsSeen.mu.Unlock()
+		if installed == nil || time.Since(at) > agentsSeenFor || installed[first] {
+			return first
+		}
+		for _, supported := range []bool{true, false} {
+			for _, ad := range s.adapters[1:] {
+				if installed[ad.Name()] && (ad.Tier() != proto.TierRunsHere) == supported {
+					return ad.Name()
+				}
 			}
 		}
+		// Claude Code is known missing and no other is known installed.
+		// When that is all anybody learnt — from a launch that failed, with
+		// nobody having looked for the rest — looking once is worth it: the
+		// answer is otherwise a refusal while another agent may be right
+		// there. A full look that found none is the answer already.
+		if looked || len(installed) >= len(s.adapters) {
+			return first // none at all: the refusal says how to install it
+		}
+		s.findAgents()
 	}
-	return first // none at all: starting it says it is missing
 }
 
 func (s *Server) projectRegistered(p *project) bool {
