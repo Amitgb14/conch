@@ -360,6 +360,19 @@ Read the screen back with `conch read ID`. Always with a scratch
 
 ## Runs
 
+### R64 — 2026-10-31, sessions, a handoff and history search, macOS arm64, build 0.1.9-dev (master)
+
+The R60 setup with the stand-in built as `claude` and `codex`, and two Claude Code transcripts written by hand into the scratch home's `~/.claude/projects/<the project's folder>/` — a user message with its `cwd` and branch, a reply, and an `ai-title` — the shape conch reads.
+
+- **The Sessions view** listed both by their titles (*Remember the email on login*), with the agent, the branch and the keys on its header.
+- **Resuming:** `enter` started `claude --resume 11111112-…` in the project's folder and put the keyboard in it.
+- **Sharing:** `s` offered *Start Claude Code with it*, *Start Codex with it* and *Send to claude*; Codex was started, named after the session, told to read `.conch/handoff/claude-1111….md` first. That file held the conversation, said that tool calls and edits were left out, and `.conch/` was in the repository's `.git/info/exclude` — `git status` stayed clean.
+- **Deleting:** `d` asked *Delete the Claude Code session "…"?*; `y` removed the transcript; the other, resumed, read `● open`.
+- **Searching:** `ctrl+b [`, `/`, `line-37` in a terminal that had printed 200 lines went 145 lines back to it.
+- **Fixed from R63:** *discarded api/greet-by-name/c…* — a message about a branch now leads with its last part, *discarded claude (api/greet-by-name/claude)*, so a cut bar still says which.
+- **Nothing found broken.** (A `.conch/` seemed untracked in `git status` — misread: that line was the exclude file's, printed after it.)
+- **Not covered:** real transcripts of Codex, Gemini, OpenCode or Devin; `e` to edit a file from the changes view.
+
 ### R62 — 2026-10-31, the review queue, detaching and a phone, macOS arm64, build 0.1.9-dev (master cc04305)
 
 The R60 setup — scratch `CONCH_HOME`, socket, `HOME` and `PATH`, the TUI in a pane of a scratch server — with the stand-in built as `claude`, a stand-in `gh` with no pull requests, and a project whose task's agent committed its own work.
