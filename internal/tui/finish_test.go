@@ -235,3 +235,20 @@ func TestChangesBarFollowsTheStage(t *testing.T) {
 		t.Errorf("loading: %s", h)
 	}
 }
+
+// TestBranchLead: a message about a branch leads with what tells it from
+// its neighbours, since the status bar cuts the end of a long one.
+func TestBranchLead(t *testing.T) {
+	for in, want := range map[string]string{
+		"api/greet-by-name/claude": "claude (api/greet-by-name/claude)",
+		"feat":                     "feat",
+		"conch/x":                  "x (conch/x)",
+		"trailing/":                "trailing/",
+		"/lead":                    "/lead",
+		"":                         "",
+	} {
+		if got := branchLead(in); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+}

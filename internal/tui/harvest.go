@@ -429,7 +429,7 @@ func (m *Model) confirmDiscard(msg discardPlanMsg) {
 		params := proto.BranchDiscardParams{ProjectID: t.projectID, Branch: t.branch, Force: force}
 		m.setFlash("discarding "+t.branch+"…", false)
 		return m.harvestCall(t, proto.MethodBranchDiscard, params, &res, func() harvestDoneMsg {
-			return harvestDoneMsg{text: "discarded " + t.branch, discarded: true}
+			return harvestDoneMsg{text: "discarded " + branchLead(t.branch), discarded: true}
 		})
 	})
 	d.title = " Discard " + t.branch + " "
@@ -477,6 +477,16 @@ func (m Model) baseAhead(t harvestTarget) int {
 		}
 	}
 	return 0
+}
+
+// branchLead is a branch named for a message the status bar may cut: its
+// last part first, which is what tells it from its neighbours — two
+// attempts at one task were both "discarded api/greet-by-name/c…" (R63).
+func branchLead(branch string) string {
+	if i := strings.LastIndex(branch, "/"); i > 0 && i < len(branch)-1 {
+		return branch[i+1:] + " (" + branch + ")"
+	}
+	return branch
 }
 
 // counted is n what, pluralised: "1 file", "3 files".
