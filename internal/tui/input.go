@@ -71,6 +71,13 @@ func (m *Model) sendKey(mid, id string, k tea.KeyMsg) {
 	if mach == nil {
 		return
 	}
+	// Never into this conch's own pane: a key typed there comes straight
+	// back to us as input, which with that pane focused is typed into it
+	// again, and again — the TUI locked up in R63. However it came to be
+	// focused, the loop does not start.
+	if m.isOwnPane(mid, id) {
+		return
+	}
 	if mach.c != nil && len(mach.held) > 0 && time.Since(mach.held[0].at) > heldKeyAge {
 		m.flushHeld(mach) // the pane list that would have sent them never came
 	}
