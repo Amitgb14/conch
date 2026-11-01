@@ -10,6 +10,7 @@
 #   CONCH_VERSION      release to install (default: latest), e.g. 0.2.0
 #   CONCH_INSTALL_DIR  where to put the binary (default: ~/.local/bin)
 #   CONCH_RELEASE_URL  release download base (default: GitHub releases)
+#   CONCH_APP=no       don't add conch to the desktop's applications
 set -eu
 
 repo=Amitgb14/conch
@@ -78,6 +79,29 @@ cp "$tmp/conch_${version}_${os}_${arch}/conch" "$dir/conch.new"
 chmod 755 "$dir/conch.new"
 mv -f "$dir/conch.new" "$dir/conch"
 echo "installed $dir/conch"
+
+# And put conch in the desktop's applications, unless CONCH_APP says not
+# to. A conch that is only a command is one somebody has to remember, and
+# `conch app` opens it in a terminal of its own — configured by conch, so
+# a terminal nobody has set up is not conch's problem. It is the binary
+# just installed that does the work, which makes this the first time it is
+# run: a download for the wrong platform fails here rather than later.
+#
+# Never fatal. The binary is installed either way, and a machine with no
+# terminal emulator at all — a server somebody ssh'd into — is the normal
+# case for having nothing to add.
+case ${CONCH_APP:-yes} in
+no | 0 | false) ;;
+*)
+	if app=$("$dir/conch" app install 2>&1); then
+		printf '%s\n' "$app" | sed 's/^/  /'
+		echo "  (conch app remove takes it out again)"
+	else
+		printf '%s\n' "$app" | sed 's/^/  /'
+		echo "  so conch is a command for now; conch app install adds it once a terminal is there"
+	fi
+	;;
+esac
 
 case ":$PATH:" in
 *":$dir:"*)

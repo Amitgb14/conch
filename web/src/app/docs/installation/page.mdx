@@ -12,7 +12,7 @@ macOS and Linux (amd64 and arm64):
 curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh
 ```
 
-This downloads the latest release, checks it against the release checksums and installs `~/.local/bin/conch`.
+This downloads the latest release, checks it against the release checksums and installs `~/.local/bin/conch`. It then puts conch in your desktop's applications with its own icon, so it can be clicked as well as typed — a `conch.desktop` entry on Linux, a `conch.app` in `~/Applications` on macOS — and says which files it wrote. That step is [`conch app install`](/docs/cli#app), run with the binary it has just installed, so it is also the first time that binary runs; `CONCH_APP=no` skips it. A machine with none of the terminals conch can open — every server you only ssh into — says so and is installed just the same.
 
 A version as an argument installs that release instead — including an older
 one, to go back to it:
@@ -26,6 +26,7 @@ curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | 
 | `CONCH_VERSION=0.2.0` | install that release instead of the latest (the argument wins) |
 | `CONCH_INSTALL_DIR` | install into another directory |
 | `CONCH_RELEASE_URL` | download releases from a mirror instead of GitHub |
+| `CONCH_APP=no` | don't add conch to the desktop's applications |
 
 Later, `conch update` replaces the binary with the newest release — the same
 download, without the script.

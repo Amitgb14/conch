@@ -346,3 +346,110 @@ func TestBrewFormula(t *testing.T) {
 		}
 	}
 }
+
+// install.sh finishes by putting conch in the desktop's applications, with
+// the binary it has just installed — which makes that the first time the
+// binary is run, so a download for the wrong platform fails there and not
+// later. It is never fatal: a machine with no terminal emulator, which is
+// every server somebody ssh's into, has nothing to add and is still a
+// machine with conch on it.
+func TestInstallScriptAddsTheAppEntry(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" || runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
+		t.Skip("install.sh supports darwin and linux on amd64 and arm64")
+	}
+	for _, tool := range []string{"sh", "tar", "curl", "sed"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip("needs " + tool)
+		}
+	}
+	const version = "9.9.9"
+	// A conch that records how it was called, and answers `app install`
+	// as the real one does — or refuses, as it does where no terminal is
+	// installed.
+	conch := `#!/bin/sh
+echo "$@" >> "$HOME/calls"
+if [ "$1 $2" = "app install" ]; then
+	if [ -n "${REFUSE_APP:-}" ]; then
+		echo "conch: none of ghostty, kitty, foot, alacritty is installed" >&2
+		exit 1
+	fi
+	echo "wrote $HOME/.local/share/applications/conch.desktop"
+	echo "conch is in your applications, and opens in ghostty."
+	exit 0
+fi
+echo "conch 9.9.9"
+`
+	asset := ReleaseAsset(version, runtime.GOOS+"/"+runtime.GOARCH)
+	archive := tarball(t, strings.TrimSuffix(asset, ".tar.gz")+"/conch", []byte(conch))
+	sum := sha256.Sum256(archive)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v" + version + "/checksums.txt":
+			w.Write([]byte(hex.EncodeToString(sum[:]) + "  " + asset + "\n"))
+		case "/v" + version + "/" + asset:
+			w.Write(archive)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	run := func(t *testing.T, extra ...string) (out, calls string) {
+		t.Helper()
+		home := t.TempDir()
+		dir := filepath.Join(t.TempDir(), "bin")
+		cmd := exec.Command("sh", repoFile(t, "install.sh"))
+		cmd.Env = append([]string{
+			"PATH=/usr/bin:/bin", "HOME=" + home,
+			"CONCH_RELEASE_URL=" + srv.URL, "CONCH_INSTALL_DIR=" + dir,
+			"CONCH_VERSION=" + version,
+		}, extra...)
+		b, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("install: %v\n%s", err, b)
+		}
+		record, _ := os.ReadFile(filepath.Join(home, "calls"))
+		return string(b), string(record)
+	}
+
+	// By default the entry is added, with what conch said about it
+	// indented under the install, and the way to undo it.
+	out, calls := run(t)
+	if !strings.Contains(calls, "app install") {
+		t.Fatalf("conch app install was not run; calls:\n%s", calls)
+	}
+	for _, want := range []string{
+		"  wrote ", "  conch is in your applications, and opens in ghostty.",
+		"  (conch app remove takes it out again)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output has no %q:\n%s", want, out)
+		}
+	}
+	// The install's own lines are still there, and still last.
+	if !strings.Contains(out, "installed ") || !strings.HasSuffix(out, "and start it with: conch\n") {
+		t.Errorf("output:\n%s", out)
+	}
+
+	// A machine with no terminal: said plainly, the install still
+	// succeeds, and it says what would add the entry later.
+	out, calls = run(t, "REFUSE_APP=1")
+	if !strings.Contains(calls, "app install") {
+		t.Fatalf("calls:\n%s", calls)
+	}
+	if !strings.Contains(out, "  conch: none of ghostty") || !strings.Contains(out, "conch app install adds it once a terminal is there") {
+		t.Errorf("output:\n%s", out)
+	}
+
+	// CONCH_APP=no leaves the desktop alone, and the binary is installed
+	// just the same.
+	for _, no := range []string{"CONCH_APP=no", "CONCH_APP=0", "CONCH_APP=false"} {
+		out, calls = run(t, no)
+		if strings.Contains(calls, "app install") {
+			t.Errorf("%s still added the entry; calls:\n%s", no, calls)
+		}
+		if !strings.Contains(out, "installed ") {
+			t.Errorf("%s: output:\n%s", no, out)
+		}
+	}
+}
