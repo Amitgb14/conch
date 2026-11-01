@@ -150,11 +150,18 @@ type Model struct {
 	// what its agents are doing, and hostSaid the last thing said, so it
 	// is said only when it changes (hoststatus.go).
 	hostStatusOn bool
-	hostSaid     string
-	scrollDrag   int // a leaf whose scrollbar is being dragged
-	scrollTop    int // the track's first screen row, and its height
-	scrollH      int
-	pendingShow  string // row to put on screen once the tree has it
+	// appWindow is set in the window `conch app` opened (appwindow.go):
+	// conch then titles it, and titleSaid is the title it last wrote.
+	appWindow bool
+	titleSaid string
+	// headerRows is the rows conch's own window gives its header (0 or
+	// appHeaderRows), taken off height so nothing else has to know.
+	headerRows  int
+	hostSaid    string
+	scrollDrag  int // a leaf whose scrollbar is being dragged
+	scrollTop   int // the track's first screen row, and its height
+	scrollH     int
+	pendingShow string // row to put on screen once the tree has it
 	// launchDir is where conch was started, until the first list of local
 	// projects places the tree by it (launch.go); noProjectOffer is the
 	// repositories you said not to offer as projects again.
@@ -283,6 +290,7 @@ func New(local *client.Client, cfg config.Config) Model {
 		filesShowIgnored: st.FilesShowIgnored,
 
 		hostStatusOn: hostStatusWorks(),
+		appWindow:    inAppWindow(),
 	}
 	m.sshInfo = cleanSSHInfo(m.savedSSH, st.SSHHosts)
 	m.folders = migrateSSHGroups(m.folders, st.SSHGroups, m.savedSSH, m.sshInfo)
@@ -377,6 +385,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.headerRows = 0
+		if m.appWindow && m.height >= appHeaderMinHeight {
+			// conch's own window gives its top rows to the header — the
+			// band and a row of space under it — and everything else lays
+			// out in the rest (appwindow.go).
+			m.headerRows = appHeaderRows
+			m.height -= appHeaderRows
+		}
 		m.sidebarW = clamp(m.sidebarW, minSidebarWidth, min(maxSidebarWidth, max(m.width/2, minSidebarWidth)))
 		return m, m.rebuild()
 
@@ -885,6 +901,22 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.startTicking(), idle, m.pollSandboxes(now))
 
 	case tea.MouseMsg:
+		if m.headerRows > 0 {
+			// Everything below the header knows the screen as starting
+			// under it.
+			if msg.Y == 0 {
+				return m, m.headerMouse(msg)
+			}
+			if msg.Y < m.headerRows {
+				// The space under the band is nothing to click, but a
+				// press there still closes an open menu, as anywhere.
+				if msg.Action == tea.MouseActionPress {
+					m.overlay = nil
+				}
+				return m, nil
+			}
+			msg.Y -= m.headerRows
+		}
 		return m.handleMouse(msg)
 
 	case selScrollMsg:
@@ -1493,6 +1525,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// reason: every path that changes an agent's state ends up here, and
 	// the report is written only when what it says has changed.
 	nm.reportToHost()
+	nm.titleWindow()
 	// Each machine is told what of the layout is its own, on the same
 	// terms: only when it has changed (view_share.go).
 	nm.publishView()

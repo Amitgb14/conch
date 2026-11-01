@@ -821,9 +821,18 @@ func (m Model) spaceHeader(w int) (string, []spaceHit) {
 // spaceAt is what is at column x of the sidebar's top border: a workspace's
 // index, spaceHitPlus, spaceHitClose, or ok false for nothing.
 func (m Model) spaceAt(x int) (int, bool) {
+	if m.headerRows > 0 {
+		return 0, false // in conch's own window the workspaces are in its header
+	}
 	sw, _ := m.sidebarInner()
 	_, hits := m.spaceHeader(max(sw-2, 0))
 	x -= 2 // the corner and the line before the title
+	return spaceHitAt(hits, x)
+}
+
+// spaceHitAt is the workspace button at column x of a header spaceHeader
+// drew, x counted from the header's own start.
+func spaceHitAt(hits []spaceHit, x int) (int, bool) {
 	for _, h := range hits {
 		if x >= h.x0 && x < h.x1 {
 			return h.space, true
@@ -835,6 +844,12 @@ func (m Model) spaceAt(x int) (int, bool) {
 // clickSpace acts on a press on the sidebar's top border.
 func (m *Model) clickSpace(x int) tea.Cmd {
 	sp, ok := m.spaceAt(x)
+	return m.actOnSpace(sp, ok)
+}
+
+// actOnSpace is what a press on a workspace button does, wherever the
+// buttons are drawn.
+func (m *Model) actOnSpace(sp int, ok bool) tea.Cmd {
 	switch {
 	case !ok:
 		return nil

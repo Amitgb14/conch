@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -391,7 +392,10 @@ func EnsureServer(sockPath, logPath string) error {
 	defer logf.Close()
 
 	cmd := exec.Command(exe, "server")
-	cmd.Env = config.MergeEnv(os.Environ(), "CONCH_SOCKET="+sockPath)
+	// Not CONCH_APP_WINDOW: a server started from conch's own window
+	// would hand it to every pane it starts, and a conch run in one of
+	// those would take that pane for the window and retitle it.
+	cmd.Env = config.MergeEnv(withoutVar(os.Environ(), "CONCH_APP_WINDOW"), "CONCH_SOCKET="+sockPath)
 	cmd.Stdout = logf
 	cmd.Stderr = logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // detach from this terminal
@@ -414,4 +418,15 @@ func EnsureServer(sockPath, logPath string) error {
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
+}
+
+// withoutVar is env with name taken out.
+func withoutVar(env []string, name string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, name+"=") {
+			out = append(out, kv)
+		}
+	}
+	return out
 }

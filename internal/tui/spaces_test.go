@@ -42,8 +42,15 @@ func clickTop(t *testing.T, m *Model, sp int) tea.Cmd {
 
 func TestSpaceHeader(t *testing.T) {
 	m, _ := a1Fixture(t, false)
-	if got := topLine(m); !strings.HasPrefix(got, "╭─ ◆ conch  + ─") {
+	// No box: the title sits where it did after the box's corner, and
+	// the sidebar has no border of its own beside the splits'.
+	if got := topLine(m); !strings.HasPrefix(got, "   ◆ conch  + ") {
 		t.Fatalf("one workspace: %q", got)
+	}
+	for i, l := range strings.Split(ansi.Strip(m.View()), "\n") {
+		if side := ansi.Cut(l, 0, m.sidebarW); strings.ContainsAny(side, "╭╮╰╯│") {
+			t.Fatalf("sidebar line %d has a border: %q", i, side)
+		}
 	}
 	if x := headerX(m, 0); x >= 0 {
 		t.Fatalf("a lone workspace has no number to click: %d", x)
@@ -303,7 +310,7 @@ func TestSpaceCloseAndRename(t *testing.T) {
 	if m.spaces != nil || m.activeSpace != 0 {
 		t.Fatalf("after last close: %v on %d", m.spaces, m.activeSpace)
 	}
-	if got := topLine(m); !strings.HasPrefix(got, "╭─ ◆ conch  + ─") {
+	if got := topLine(m); !strings.HasPrefix(got, "   ◆ conch  + ") {
 		t.Fatalf("header %q", got)
 	}
 	// Closing one that isn't on screen keeps the one that is.

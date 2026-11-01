@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
+
 	"github.com/Amitgb14/conch/internal/phone"
 )
 
@@ -547,5 +549,170 @@ func TestAppIconIsEmbedded(t *testing.T) {
 	}
 	if png := phone.IconPNG(); len(png) < 1000 || string(png[1:4]) != "PNG" {
 		t.Errorf("icon png: %d bytes", len(png))
+	}
+}
+
+// appConfigBody writes conch's configuration for a terminal and reads it
+// back.
+func appConfigBody(t *testing.T, name string) string {
+	t.Helper()
+	cfg, err := appConfig(appTerm(t, name), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+// appSetConfig writes config.toml into the test's CONCH_HOME.
+func appSetConfig(t *testing.T, toml string) {
+	t.Helper()
+	if err := os.MkdirAll(os.Getenv("CONCH_HOME"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(os.Getenv("CONCH_HOME"), "config.toml"), []byte(toml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The window is conch's: it says so to the TUI in it, has ⌘ shortcuts
+// that are conch's prefix and a key, and is drawn in the theme.
+func TestAppWindowIsConchs(t *testing.T) {
+	appEnv(t)
+	body := appConfigBody(t, "ghostty")
+	for _, want := range []string{
+		"env = CONCH_APP_WINDOW=1",
+		"macos-option-as-alt = left",
+		"window-padding-x = 12",
+		"window-padding-y = 0,8",
+		"window-padding-color = extend",
+		"adjust-cell-height = 12%",
+		"font-size = 14",
+		"window-width = 160",
+		"window-save-state = never",
+		"macos-titlebar-style = native",
+		"background = #15191E",
+		"cursor-color = #0F7B8A",
+		`keybind = super+t=text:\x02c`,
+		`keybind = super+shift+d=text:\x02\x22`,
+		`keybind = super+k=text:\x02\x2f`,
+		`keybind = super+alt+arrow_up=text:\x02\x1b\x5bA`,
+		// ⌘1 is bound by ghostty both as a character and a key: both go.
+		`keybind = super+1=text:\x021`,
+		`keybind = super+digit_1=text:\x021`,
+		"keybind = super+,=unbind",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("ghostty config has no %q:\n%s", want, body)
+		}
+	}
+
+	body = appConfigBody(t, "kitty")
+	for _, want := range []string{
+		"env CONCH_APP_WINDOW=1",
+		"macos_option_as_alt left",
+		"window_padding_width 8 12",
+		"initial_window_width 160c",
+		"remember_window_size no",
+		"background #15191E",
+		`map cmd+t send_text all \x02c`,
+		`map cmd+shift+enter send_text all \x02z`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("kitty config has no %q:\n%s", want, body)
+		}
+	}
+
+	for _, name := range []string{"foot", "alacritty"} {
+		if body := appConfigBody(t, name); !strings.Contains(body, "CONCH_APP_WINDOW") || !strings.Contains(strings.ToUpper(body), "15191E") {
+			t.Errorf("%s config:\n%s", name, body)
+		}
+	}
+}
+
+// The theme and prefix are the ones in config.toml.
+func TestAppWindowFollowsTheSettings(t *testing.T) {
+	appEnv(t)
+	appSetConfig(t, "[ui]\ntheme = \"nord\"\naccent = \"#123456\"\n[keys]\nprefix = \"ctrl+a\"\n")
+	body := appConfigBody(t, "ghostty")
+	for _, want := range []string{"background = #2E3440", "cursor-color = #123456", `keybind = super+t=text:\x01c`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("ghostty config has no %q:\n%s", want, body)
+		}
+	}
+
+	// A prefix no character stands for gets no shortcuts, and says why.
+	appSetConfig(t, "[keys]\nprefix = \"f12\"\n")
+	body = appConfigBody(t, "ghostty")
+	if strings.Contains(body, "keybind") || !strings.Contains(body, "No ⌘ shortcuts: the prefix key f12") {
+		t.Errorf("f12 prefix:\n%s", body)
+	}
+
+	// A config.toml that will not load still gets a window, with the
+	// defaults the TUI would draw.
+	appSetConfig(t, "[ui\ntheme = ")
+	if body = appConfigBody(t, "ghostty"); !strings.Contains(body, "background = #15191E") || !strings.Contains(body, `\x02c`) {
+		t.Errorf("broken config.toml:\n%s", body)
+	}
+}
+
+// Somebody's own file comes after conch's settings where the terminal
+// lets it, so it can change them.
+func TestAppYourFileComesLast(t *testing.T) {
+	appEnv(t)
+	dir := filepath.Join(os.Getenv("CONCH_HOME"), "app")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, file := range map[string]string{"ghostty": "ghostty.local.conf", "kitty": "kitty.local.conf"} {
+		if err := os.WriteFile(filepath.Join(dir, file), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		body := strings.TrimSpace(appConfigBody(t, name))
+		last := body[strings.LastIndex(body, "\n")+1:]
+		if !strings.Contains(last, file) {
+			t.Errorf("%s: last line %q", name, last)
+		}
+	}
+}
+
+// alacritty's file is TOML, where a table named twice is an error: the
+// environment conch sets and the TERM it holds back share one [env].
+func TestAppAlacrittyConfigIsTOML(t *testing.T) {
+	bin, _ := appEnv(t)
+	dir := filepath.Join(os.Getenv("CONCH_HOME"), "app")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "alacritty.local.toml"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doctorScript(t, bin, "infocmp", `exit 1`) // TERM held back too
+	body := appConfigBody(t, "alacritty")
+	var v map[string]any
+	if _, err := toml.Decode(body, &v); err != nil {
+		t.Fatalf("%v:\n%s", err, body)
+	}
+	env, _ := v["env"].(map[string]any)
+	if env["CONCH_APP_WINDOW"] != "1" || env["TERM"] != "xterm-256color" {
+		t.Fatalf("env %v", env)
+	}
+}
+
+func TestAppPrefixBytes(t *testing.T) {
+	for in, want := range map[string]string{
+		"ctrl+b": "\x02", "ctrl+a": "\x01", "CTRL+Z": "\x1a", " ctrl+b ": "\x02",
+		"ctrl+space": "\x00", "ctrl+\\": "\x1c", "ctrl+]": "\x1d", "ctrl+_": "\x1f",
+		"f12": "", "alt+b": "", "": "", "ctrl+": "", "ctrl+bb": "",
+	} {
+		if got := appPrefixBytes(in); got != want {
+			t.Errorf("appPrefixBytes(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := appEscape("\x02\"a 1\x1b[A"); got != `\x02\x22a\x201\x1b\x5bA` {
+		t.Errorf("appEscape: %s", got)
 	}
 }

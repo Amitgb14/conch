@@ -154,8 +154,9 @@ Click a line to select it and again to open it; the wheel moves the selection, o
 | `ctrl+b c`, `n`, `p`, `0-9`, `l` | new tab with a terminal in it, next, previous, go to, last tab (among the tabs listed for the tree selection) |
 | `ctrl+b <` / `>`, `.` | move the tab left / right, or to a position you type (among the tabs listed) |
 | `ctrl+b w` | pick any tab or split, grouped by project and CLI, with each split's branch or folder and agent state |
+| `ctrl+b /` | the palette: every agent, terminal, project and task branch in the workspace, waiting agents first, and the commands — type to narrow it, `enter` (or a click) to go there or run it. A command is its key sent as if typed, so it does what the key does. `⌘K` in [conch's own window](/docs/cli#app) |
 | `ctrl+b &`, `,` | close, rename tab |
-| `ctrl+b N`, `(` / `)`, `$`, `X` | new workspace, previous / next workspace, rename it, close it (its projects, hosts and tabs move to workspace 1; it asks whether its agents and terminals move too or end) — also the `+`, numbers and `×` beside conch at the top of the sidebar |
+| `ctrl+b N`, `(` / `)`, `$`, `X` | new workspace, previous / next workspace, rename it, close it (its projects, hosts and tabs move to workspace 1; it asks whether its agents and terminals move too or end) — also the `+`, numbers and `×` beside conch at the top of the sidebar (in [conch's own window](/docs/cli#app), at the left of the strip along the top) |
 | `ctrl+b =`, `z` | equalize splits, zoom |
 | `ctrl+b r` | draw the selected pane's screen again, when a program left stale text behind (a partial redraw after the pane changed size). conch clears its copy of the screen — without keeping the stale one in the scrollback — and tells the program its size changed, so nothing is typed into it; a program that doesn't repaint (a plain shell) shows its prompt again on the next keypress. Also in the pane menu, and `conch redraw ID` from a shell. |
 | `ctrl+b S` | type into every agent and terminal in the tab at once, like tmux's `synchronize-panes`; their borders turn amber and the status bar shows `SYNC`. Press it again to stop. |
@@ -214,3 +215,21 @@ These follow tmux's default bindings; `ctrl+b 1` is the first tab and `0` the te
 - Click the plan chip (`Claude 5h 42% · 7d 18%`) for a window with all of it, at the bottom right beside the chip: every agent that has reported on every machine, and **every window it named** — the five-hour, the week, a weekly allowance for one model, a spend limit — each with a bar that fills as it opens, the percentage, when it resets (both how long and at what time), when the agent last said so, and what conch itself has seen that machine spend — which counts **whole conversations, as each agent counts them**, with the prompt, cache-read, cache-write and output tokens kept apart. That is not the same as the agent's own usage panel, which counts the run it is on: a conversation days old reads as hundreds of dollars here and a few in a panel opened a minute ago, and both are right. Click it again or press `esc` to close.
 
 Clicks inside a pane go to programs that use the mouse. Hold shift (option in iTerm2) to select text with your terminal, or set `[ui] mouse = false`.
+
+## conch's own window
+
+In the window [`conch app`](/docs/cli#app) opens (Ghostty or kitty), the shortcuts every macOS application has do the same thing in conch: each sends `ctrl+b` (your prefix) and a key, so it is exactly that key.
+
+| Keys | Same as |
+| --- | --- |
+| `⌘K` | `ctrl+b /` palette |
+| `⌘T` / `⌘W` / `⇧⌘W` | `ctrl+b c` new tab / `x` close split / `&` close tab |
+| `⌘D` / `⇧⌘D` | `ctrl+b %` split right / `"` split down |
+| `⌘1`–`⌘9` | `ctrl+b 1`–`9` go to tab |
+| `⇧⌘]` / `⇧⌘[` | `ctrl+b n` / `p` next, previous tab |
+| `⌘]` / `⌘[` | `ctrl+b o` / `;` next split, last split |
+| `⌥⌘←→↑↓` | `ctrl+b ←→↑↓` focus a split |
+| `⇧⌘⏎` | `ctrl+b z` zoom |
+| `⌘.` | `ctrl+b !` next agent waiting |
+| `⌘N` | `ctrl+b N` new workspace |
+| `⌘/` | `ctrl+b ?` all keys |

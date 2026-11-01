@@ -489,6 +489,8 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 		return nil, true
 	case ":":
 		return m.openAsk(), true
+	case "/":
+		return m.openPalette(), true
 	case ".":
 		return m.openMoveTab(), true
 	case "<":

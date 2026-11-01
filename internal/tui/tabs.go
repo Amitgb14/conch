@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -993,6 +994,7 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 	}
 	for n, i := range m.visibleTabs() {
 		t := m.tabs[i]
+		before := x
 		label := " " + itoa(n+1) + " " + m.tabLabel(t) + " "
 		waiting := m.tabWaiting(t)
 		if waiting {
@@ -1000,8 +1002,8 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 		}
 		if i == m.activeTab && !m.previewing {
 			if x+ansi.StringWidth(label)+2 <= w { // the close button only beside its tab
-				put(styleSel.Render(label), i)
-				put(styleSel.Render("× "), -2)
+				put(tabUnderline+styleTabOn.Render(label), i)
+				put(tabUnderline+styleTabOn.Render("× "), -2)
 			}
 		} else if m.leafDrag != 0 && m.tabDrop == i {
 			put(styleAccent.Render(label), i) // a split is being carried here
@@ -1012,7 +1014,16 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 		} else {
 			put(styleMuted.Render(label), i)
 		}
-		b.WriteString(" ")
+		// A rule between tabs, in the column the gap always took, so each
+		// tab is a cell of its own and nothing moves under the mouse — and
+		// none after a tab that did not fit, or the tabs past the edge
+		// leave a row of rules where they would have been.
+		if x == before {
+			continue
+		}
+		if x < w {
+			b.WriteString(lipgloss.NewStyle().Foreground(colorBorder).Render("│"))
+		}
 		x++
 	}
 	plus := styleAccent
@@ -1020,6 +1031,17 @@ func (m Model) tabBar(w int) (string, []tabHit) {
 		plus = styleSel // a split is being carried out to a tab of its own
 	}
 	put(plus.Render(" + "), tabHitPlus)
+	// Whose tabs these are, at the far end: the bar lists one group's
+	// tabs (scope.go), and nothing else on screen says which. Only where
+	// it fits whole; it is never a target.
+	if f, ok := m.tabFilter(); ok {
+		if name := m.scopeName(f); name != "" {
+			label := name + " "
+			if lw := ansi.StringWidth(label); x+2+lw <= w {
+				b.WriteString(strings.Repeat(" ", w-x-lw) + styleMuted.Render(label))
+			}
+		}
+	}
 	return fit(b.String(), w), hits
 }
 

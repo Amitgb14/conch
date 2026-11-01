@@ -76,7 +76,8 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		chip = styleChip.Background(colorWarn).Render("PREFIX")
 		// The way back first: the bar keeps only its first few hints when
 		// it is short of room, and the pane's bar promised "tree" here.
-		items = []statusItem{action("esc", "tree", toTree), hint("v", "split"), hint("-", "split down"), hint("x", "close split"),
+		palette := func(m *Model) tea.Cmd { m.prefixArmed = false; return m.openPalette() }
+		items = []statusItem{action("esc", "tree", toTree), action("/", "palette", palette), hint("v", "split"), hint("-", "split down"), hint("x", "close split"),
 			hint("←→↑↓", "focus"), hint("q", "numbers"), hint("space", "layout"), hint("c", "new tab"), hint("n", "next tab"),
 			hint("[", "scroll"), hint("z", "zoom")}
 	case m.focus == focusMain && r.kind == kindPane && m.scrollMode && m.search.typing:
