@@ -14,13 +14,18 @@ import (
 // appEnv isolates the home and config conch writes into, and takes the
 // launch: a test must never open a terminal window on somebody's desktop.
 // PATH holds nothing but the fakes, so no terminal of the developer's own
-// is found and no real `open` or `infocmp` is run.
+// is found and no real `open` or `infocmp` is run — and on macOS the
+// applications folder is a temporary one too, or a developer with Ghostty
+// installed would run a different suite from one without it.
 func appEnv(t *testing.T) (bin string, launched *[]string) {
 	t.Helper()
 	a4Env(t)
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(t.TempDir(), "share"))
+	apps := appSystemApps
+	appSystemApps = t.TempDir()
+	t.Cleanup(func() { appSystemApps = apps })
 	var argv []string
 	old := startApp
 	startApp = func(a []string) error { argv = append([]string(nil), a...); return nil }
@@ -223,6 +228,74 @@ func TestAppNamesATerminalOrSaysWhatItKnows(t *testing.T) {
 	}
 	if err = runApp([]string{"-terminal", "kitty", "extra"}); err == nil {
 		t.Fatal("a stray argument was taken")
+	}
+}
+
+// On macOS a terminal is an application, not a program on PATH. ghostty
+// puts its own directory on PATH only for the shells it starts itself, so
+// a shell started by anything else — a conch pane, launchd, another
+// terminal — cannot see it, and looking only on PATH told somebody with
+// Ghostty in /Applications that no terminal was installed. Found by the
+// first person to run it.
+func TestAppFindsAnApplicationNotOnPath(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("applications are macOS's")
+	}
+	bin, _ := appEnv(t) // a PATH with nothing on it
+	ghostty := appTerm(t, "ghostty")
+	if got := appWhere(ghostty); got != "" {
+		t.Fatalf("found %q with nothing installed", got)
+	}
+
+	// One installed for everybody.
+	apps := t.TempDir()
+	appSystem := filepath.Join(apps, "Ghostty.app", "Contents", "MacOS")
+	if err := os.MkdirAll(appSystem, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	system := filepath.Join(appSystem, "ghostty")
+	if err := os.WriteFile(system, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	appSystemApps = apps // appEnv restores it
+	if got := appWhere(ghostty); got != system {
+		t.Fatalf("appWhere = %q, want %q", got, system)
+	}
+
+	// One of somebody's own comes first: installing it for yourself when
+	// there is another means you meant yours.
+	mine := filepath.Join(os.Getenv("HOME"), "Applications", "Ghostty.app", "Contents", "MacOS", "ghostty")
+	if err := os.MkdirAll(filepath.Dir(mine), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mine, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := appWhere(ghostty); got != mine {
+		t.Fatalf("appWhere = %q, want %q", got, mine)
+	}
+
+	// A bundle with nothing runnable in it is not a terminal.
+	if err := os.Chmod(mine, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(system, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := appWhere(ghostty); got != "" {
+		t.Fatalf("a bundle with no executable answered %q", got)
+	}
+
+	// PATH still wins when it has one: that is the Linux way in, and a
+	// test binary put there on purpose.
+	onPath := doctorScript(t, bin, "ghostty", `exit 0`)
+	if got := appWhere(ghostty); got != onPath {
+		t.Fatalf("appWhere = %q, want the one on PATH %q", got, onPath)
+	}
+
+	// foot has no bundle, so nothing is looked for.
+	if got := appWhere(appTerm(t, "foot")); got != "" {
+		t.Fatalf("foot answered %q", got)
 	}
 }
 

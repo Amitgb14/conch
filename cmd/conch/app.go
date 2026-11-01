@@ -63,6 +63,14 @@ type appTerminal struct {
 	// command line on macOS and has to be opened as an application
 	// bundle instead.
 	bundle bool
+	// app is the application bundle's name on macOS, where a terminal is
+	// an application and not a program on PATH: ghostty puts its own
+	// directory on PATH only for the shells *it* starts, so a shell
+	// started by anything else — a conch pane, launchd, another
+	// terminal — cannot see it, and looking only on PATH said a terminal
+	// sitting in /Applications was not installed. Empty for a terminal
+	// with no bundle (foot is Wayland's).
+	app string
 }
 
 // appTerminals are the terminals conch will start, in the order it picks
@@ -76,6 +84,7 @@ type appTerminal struct {
 // it would carry the very configuration this is here to step around.
 var appTerminals = []appTerminal{{
 	name:     "ghostty",
+	app:      "Ghostty.app",
 	terminfo: "xterm-ghostty",
 	file:     "ghostty.conf",
 	bundle:   true, // "launching the terminal emulator from the CLI is not supported" on macOS
@@ -104,6 +113,7 @@ var appTerminals = []appTerminal{{
 	},
 }, {
 	name:     "kitty",
+	app:      "kitty.app",
 	terminfo: "xterm-kitty",
 	file:     "kitty.conf",
 	settings: func(fallback bool, local string) string {
@@ -138,6 +148,7 @@ var appTerminals = []appTerminal{{
 	},
 }, {
 	name:     "alacritty",
+	app:      "Alacritty.app",
 	terminfo: "alacritty",
 	file:     "alacritty.toml",
 	settings: func(fallback bool, local string) string {
@@ -253,8 +264,8 @@ func appFind(name string) (appTerminal, string, error) {
 	if name != "" {
 		for _, t := range appTerminals {
 			if t.name == name {
-				bin, err := exec.LookPath(t.name)
-				if err != nil {
+				bin := appWhere(t)
+				if bin == "" {
 					return appTerminal{}, "", fmt.Errorf("%s is not installed here", t.name)
 				}
 				return t, bin, nil
@@ -263,11 +274,40 @@ func appFind(name string) (appTerminal, string, error) {
 		return appTerminal{}, "", fmt.Errorf("conch cannot start %s; it knows %s", name, appNames())
 	}
 	for _, t := range appTerminals {
-		if bin, err := exec.LookPath(t.name); err == nil {
+		if bin := appWhere(t); bin != "" {
 			return t, bin, nil
 		}
 	}
 	return appTerminal{}, "", fmt.Errorf("none of %s is installed; conch needs one of them to open a terminal of its own (or run conch in the terminal you have)", appNames())
+}
+
+// appSystemApps is where applications are installed for everybody, a
+// variable so a test can look somewhere of its own.
+var appSystemApps = "/Applications"
+
+// appWhere is the program to run for a terminal, or "" when it is not
+// here: on PATH, or — on macOS — the application bundle, in the user's
+// own Applications before the one everybody shares, since somebody who
+// has installed it for themselves means that one.
+func appWhere(t appTerminal) string {
+	if bin, err := exec.LookPath(t.name); err == nil {
+		return bin
+	}
+	if runtime.GOOS != "darwin" || t.app == "" {
+		return ""
+	}
+	var dirs []string
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, "Applications"))
+	}
+	dirs = append(dirs, appSystemApps)
+	for _, dir := range dirs {
+		bin := filepath.Join(dir, t.app, "Contents", "MacOS", t.name)
+		if st, err := os.Stat(bin); err == nil && st.Mode().IsRegular() && st.Mode().Perm()&0o111 != 0 {
+			return bin
+		}
+	}
+	return ""
 }
 
 func appNames() string {
@@ -334,9 +374,8 @@ func appList(args []string) error {
 		return errors.New(appUsage)
 	}
 	for _, t := range appTerminals {
-		bin, err := exec.LookPath(t.name)
-		switch {
-		case err != nil:
+		switch bin := appWhere(t); bin {
+		case "":
 			fmt.Printf("  %-10s not installed\n", t.name)
 		default:
 			fmt.Printf("✓ %-10s %s\n", t.name, bin)
