@@ -101,6 +101,12 @@ struct WorkspacesControl: View {
                     .contentShape(Rectangle())
                     .onTapGesture { store.workspace = i }
             }
+            // Workspaces are made in the TUI (ctrl+b N); + opens it there.
+            Text("+").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                .padding(.horizontal, 9).padding(.vertical, 3)
+                .contentShape(Rectangle())
+                .onTapGesture { store.openTUI() }
+                .help("New workspace: made in conch's TUI with ctrl+b N, which this opens")
         }
         .padding(2)
         .background(RoundedRectangle(cornerRadius: 7).fill(Theme.window))
@@ -140,11 +146,6 @@ struct Counts: View {
                     .buttonStyle(.plain).help("Go to the next agent waiting for you (⌘.)")
             }
             if d > 0 { Pill(text: "✓ \(d) done", fg: Theme.ok, bg: Theme.ok.opacity(0.16)) }
-            // macOS draws a bubble round a toolbar item whatever is in it:
-            // say there is nothing, rather than leave it empty.
-            if w == 0 && d == 0 {
-                Text("Nothing waiting").font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.horizontal, 6)
-            }
         }
     }
 }

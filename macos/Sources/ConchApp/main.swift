@@ -79,6 +79,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         view.setFrameSize(view.fittingSize)
         item.view = view
         item.visibilityPriority = .high
+        // No glass bubble round it: the header is the mock's band, with the
+        // controls drawn on it as they are (macOS 26 wraps each toolbar
+        // item in one otherwise).
+        item.isBordered = false
         return item
     }
 
