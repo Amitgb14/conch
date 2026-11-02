@@ -1,0 +1,376 @@
+#if GHOSTTY
+import AppKit
+import ConchKit
+import GhosttyKit
+
+// Ghostty's terminal in a pane: a libghostty surface (upstream, pinned to
+// a release, no fork) running `conch attach PANE`. This is the smallest
+// host libghostty needs, after Ghostty's own macOS app
+// (macos/Sources/Ghostty in its repository): one app object, a view per
+// surface that hands it keys, the mouse, its size and focus, and the
+// clipboard. Ghostty's renderer puts its own Metal layer on the view.
+//
+// Left out on purpose, and the reason for each: Ghostty's splits, tabs
+// and windows (the window here is conch's), its config files (conch writes
+// the settings, as `conch app` does), and its inspector. Input methods
+// that compose (Japanese, Korean, dead keys) are not handled yet: keys go
+// straight through, which is right for everything else.
+
+/// The one libghostty app the window's surfaces belong to.
+@MainActor
+final class GhosttyRuntime {
+    static let shared = GhosttyRuntime()
+    private(set) var app: ghostty_app_t?
+    private(set) var failure: String?
+
+    private init() {
+        if ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) != GHOSTTY_SUCCESS {
+            failure = "Ghostty's library would not start"
+            return
+        }
+        guard let cfg = ghostty_config_new() else {
+            failure = "Ghostty's configuration could not be made"
+            return
+        }
+        // conch's settings, and nothing of the person's own Ghostty: the
+        // same rule `conch app` keeps for the terminal it opens.
+        let path = Self.writeConfig()
+        path.withCString { ghostty_config_load_file(cfg, $0) }
+        ghostty_config_finalize(cfg)
+
+        var rt = ghostty_runtime_config_s(
+            userdata: nil,
+            supports_selection_clipboard: false,
+            wakeup_cb: { _ in DispatchQueue.main.async { GhosttyRuntime.shared.tick() } },
+            action_cb: { _, _, _ in false },
+            read_clipboard_cb: { ud, loc, state, mimes, n, list in
+                GhosttyPaneView.readClipboard(ud, loc, state, mimes, n, list)
+            },
+            confirm_read_clipboard_cb: { ud, _, state, _ in
+                // Only a program asking to read the clipboard (OSC 52) gets
+                // here; conch's panes are not given it.
+                if let v = GhosttyPaneView.from(ud), let s = v.surface { ghostty_surface_deny_clipboard_request(s, state) }
+            },
+            write_clipboard_cb: { _, loc, content, len, _ in
+                GhosttyPaneView.writeClipboard(loc, content, len)
+            },
+            close_surface_cb: { ud, _ in
+                DispatchQueue.main.async { GhosttyPaneView.from(ud)?.onExit?() }
+            }
+        )
+        app = ghostty_app_new(&rt, cfg)
+        if app == nil { failure = "Ghostty could not make its app" }
+        ghostty_config_free(cfg)
+        if let app { ghostty_app_set_focus(app, NSApp.isActive) }
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { if let a = GhosttyRuntime.shared.app { ghostty_app_set_focus(a, true) } }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { if let a = GhosttyRuntime.shared.app { ghostty_app_set_focus(a, false) } }
+        }
+    }
+
+    func tick() {
+        if let app { ghostty_app_tick(app) }
+    }
+
+    /// The settings conch gives Ghostty, written where the app keeps its
+    /// own files; rewritten each launch, since they are conch's.
+    static func writeConfig() -> String {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Conch", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("ghostty.conf")
+        let text = """
+        # Written by Conch.app: the terminal in each pane. Rewritten at every launch.
+        font-size = 13
+        background = #15191E
+        foreground = #D5DBE2
+        cursor-color = #2AA5B5
+        selection-background = #2D333B
+        selection-foreground = #D5DBE2
+        window-padding-x = 8
+        window-padding-y = 6
+        window-padding-balance = true
+        adjust-cell-height = 10%
+        macos-option-as-alt = left
+        confirm-close-surface = false
+        shell-integration = none
+        term = xterm-256color
+        clipboard-read = deny
+        mouse-hide-while-typing = true
+
+        """
+        try? text.write(to: file, atomically: true, encoding: .utf8)
+        return file.path
+    }
+}
+
+final class GhosttyPaneView: NSView {
+    private(set) var surface: ghostty_surface_t?
+    var onExit: (() -> Void)?
+    private var tracking: NSTrackingArea?
+
+    static func from(_ ud: UnsafeMutableRawPointer?) -> GhosttyPaneView? {
+        guard let ud else { return nil }
+        return Unmanaged<GhosttyPaneView>.fromOpaque(ud).takeUnretainedValue()
+    }
+
+    @MainActor
+    init(command: String, environment: [String: String]) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        guard let app = GhosttyRuntime.shared.app else { return }
+        var cfg = ghostty_surface_config_new()
+        cfg.userdata = Unmanaged.passUnretained(self).toOpaque()
+        cfg.platform_tag = GHOSTTY_PLATFORM_MACOS
+        cfg.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(self).toOpaque()))
+        cfg.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 2)
+        cfg.font_size = 0
+        cfg.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
+        // Keys and values kept alive for the call: Ghostty copies them.
+        let keys = environment.keys.map { strdup($0) }
+        let values = environment.keys.map { strdup(environment[$0]!) }
+        defer { (keys + values).forEach { Darwin.free($0) } }
+        var env = zip(keys, values).map { ghostty_env_var_s(key: $0, value: $1) }
+        surface = command.withCString { cmd in
+            env.withUnsafeMutableBufferPointer { buf in
+                cfg.command = cmd
+                cfg.env_vars = buf.baseAddress
+                cfg.env_var_count = buf.count
+                return ghostty_surface_new(app, &cfg)
+            }
+        }
+        updateTrackingAreas()
+    }
+
+    required init?(coder: NSCoder) { fatalError("not from a nib") }
+
+    func free() {
+        if let s = surface { ghostty_surface_free(s) }
+        surface = nil
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        if let s = surface { ghostty_surface_set_focus(s, true) }
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        if let s = surface { ghostty_surface_set_focus(s, false) }
+        return true
+    }
+
+    // MARK: size
+
+    override func setFrameSize(_ size: NSSize) {
+        super.setFrameSize(size)
+        guard let s = surface else { return }
+        let px = convertToBacking(NSRect(origin: .zero, size: size)).size
+        ghostty_surface_set_size(s, UInt32(max(px.width, 1)), UInt32(max(px.height, 1)))
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if let w = window {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.contentsScale = w.backingScaleFactor
+            CATransaction.commit()
+        }
+        guard let s = surface, frame.width > 0 else { return }
+        let fb = convertToBacking(frame)
+        ghostty_surface_set_content_scale(s, fb.width / frame.width, fb.height / frame.height)
+        setFrameSize(frame.size)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        viewDidChangeBackingProperties()
+        if let s = surface { ghostty_surface_set_occlusion(s, window != nil) }
+    }
+
+    // MARK: keys
+
+    static func mods(_ f: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+        var m: UInt32 = GHOSTTY_MODS_NONE.rawValue
+        if f.contains(.shift) { m |= GHOSTTY_MODS_SHIFT.rawValue }
+        if f.contains(.control) { m |= GHOSTTY_MODS_CTRL.rawValue }
+        if f.contains(.option) { m |= GHOSTTY_MODS_ALT.rawValue }
+        if f.contains(.command) { m |= GHOSTTY_MODS_SUPER.rawValue }
+        if f.contains(.capsLock) { m |= GHOSTTY_MODS_CAPS.rawValue }
+        let raw = f.rawValue
+        if raw & UInt(NX_DEVICERSHIFTKEYMASK) != 0 { m |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
+        if raw & UInt(NX_DEVICERCTLKEYMASK) != 0 { m |= GHOSTTY_MODS_CTRL_RIGHT.rawValue }
+        if raw & UInt(NX_DEVICERALTKEYMASK) != 0 { m |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
+        if raw & UInt(NX_DEVICERCMDKEYMASK) != 0 { m |= GHOSTTY_MODS_SUPER_RIGHT.rawValue }
+        return ghostty_input_mods_e(m)
+    }
+
+    /// A key as Ghostty's own view builds it (NSEvent+Extension.swift):
+    /// control and command never make text, so they are the mods not
+    /// consumed; the text of a control key is sent without control, since
+    /// Ghostty encodes control itself; function keys send no text.
+    private func send(_ event: NSEvent, _ action: ghostty_input_action_e) {
+        guard let s = surface else { return }
+        var k = ghostty_input_key_s()
+        k.action = action
+        k.keycode = UInt32(event.keyCode)
+        k.mods = Self.mods(event.modifierFlags)
+        k.consumed_mods = Self.mods(event.modifierFlags.subtracting([.control, .command]))
+        k.composing = false
+        if event.type == .keyDown || event.type == .keyUp,
+           let c = event.characters(byApplyingModifiers: [])?.unicodeScalars.first {
+            k.unshifted_codepoint = c.value
+        }
+        var text: String?
+        if action != GHOSTTY_ACTION_RELEASE, let chars = event.characters {
+            text = chars
+            if chars.count == 1, let sc = chars.unicodeScalars.first {
+                if sc.value < 0x20 { text = event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control)) }
+                if sc.value >= 0xF700 && sc.value <= 0xF8FF { text = nil }
+            }
+        }
+        if let text, !text.isEmpty {
+            text.withCString { k.text = $0; _ = ghostty_surface_key(s, k) }
+        } else {
+            _ = ghostty_surface_key(s, k)
+        }
+    }
+
+    override func keyDown(with event: NSEvent) { send(event, event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS) }
+    override func keyUp(with event: NSEvent) { send(event, GHOSTTY_ACTION_RELEASE) }
+
+    override func flagsChanged(with event: NSEvent) {
+        let bit: UInt32
+        switch event.keyCode {
+        case 0x38, 0x3C: bit = GHOSTTY_MODS_SHIFT.rawValue
+        case 0x3B, 0x3E: bit = GHOSTTY_MODS_CTRL.rawValue
+        case 0x3A, 0x3D: bit = GHOSTTY_MODS_ALT.rawValue
+        case 0x37, 0x36: bit = GHOSTTY_MODS_SUPER.rawValue
+        default: return
+        }
+        send(event, Self.mods(event.modifierFlags).rawValue & bit != 0 ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE)
+    }
+
+    /// Control keys reach the terminal rather than the menus (ctrl+/,
+    /// ctrl+enter…); ⌘ keys stay the window's — its menu has them first.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown, window?.firstResponder === self,
+              event.modifierFlags.contains(.control), !event.modifierFlags.contains(.command) else { return false }
+        keyDown(with: event)
+        return true
+    }
+
+    @objc func copy(_ sender: Any?) {
+        if let s = surface { _ = "copy_to_clipboard".withCString { ghostty_surface_binding_action(s, $0, UInt(strlen($0))) } }
+    }
+
+    @objc func paste(_ sender: Any?) {
+        if let s = surface { _ = "paste_from_clipboard".withCString { ghostty_surface_binding_action(s, $0, UInt(strlen($0))) } }
+    }
+
+    @objc override func selectAll(_ sender: Any?) {
+        if let s = surface { _ = "select_all".withCString { ghostty_surface_binding_action(s, $0, UInt(strlen($0))) } }
+    }
+
+    // MARK: mouse
+
+    override func updateTrackingAreas() {
+        if let t = tracking { removeTrackingArea(t) }
+        let t = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways], owner: self)
+        addTrackingArea(t)
+        tracking = t
+        super.updateTrackingAreas()
+    }
+
+    private func pos(_ e: NSEvent) {
+        guard let s = surface else { return }
+        let p = convert(e.locationInWindow, from: nil)
+        ghostty_surface_mouse_pos(s, p.x, frame.height - p.y, Self.mods(e.modifierFlags))
+    }
+
+    private func button(_ e: NSEvent, _ state: ghostty_input_mouse_state_e, _ b: ghostty_input_mouse_button_e) {
+        guard let s = surface else { return }
+        pos(e)
+        _ = ghostty_surface_mouse_button(s, state, b, Self.mods(e.modifierFlags))
+    }
+
+    override func mouseDown(with e: NSEvent) {
+        window?.makeFirstResponder(self)
+        button(e, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT)
+    }
+    override func mouseUp(with e: NSEvent) { button(e, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT) }
+    override func rightMouseDown(with e: NSEvent) { button(e, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT) }
+    override func rightMouseUp(with e: NSEvent) { button(e, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT) }
+    override func otherMouseDown(with e: NSEvent) { button(e, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE) }
+    override func otherMouseUp(with e: NSEvent) { button(e, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE) }
+    override func mouseMoved(with e: NSEvent) { pos(e) }
+    override func mouseDragged(with e: NSEvent) { pos(e) }
+    override func rightMouseDragged(with e: NSEvent) { pos(e) }
+    override func mouseEntered(with e: NSEvent) { pos(e) }
+    override func mouseExited(with e: NSEvent) {
+        guard let s = surface, NSEvent.pressedMouseButtons == 0 else { return }
+        ghostty_surface_mouse_pos(s, -1, -1, Self.mods(e.modifierFlags))
+    }
+
+    override func scrollWheel(with e: NSEvent) {
+        guard let s = surface else { return }
+        var x = e.scrollingDeltaX, y = e.scrollingDeltaY
+        // Ghostty's packed scroll mods: bit 0 precise, bits 1–3 momentum.
+        var m: Int32 = 0
+        if e.hasPreciseScrollingDeltas {
+            x *= 2
+            y *= 2
+            m |= 1
+        }
+        let momentum: Int32
+        switch e.momentumPhase {
+        case .began: momentum = 1
+        case .stationary: momentum = 2
+        case .changed: momentum = 3
+        case .ended: momentum = 4
+        case .cancelled: momentum = 5
+        case .mayBegin: momentum = 6
+        default: momentum = 0
+        }
+        m |= momentum << 1
+        ghostty_surface_mouse_scroll(s, x, y, ghostty_input_scroll_mods_t(m))
+    }
+
+    // MARK: clipboard
+
+    static func readClipboard(_ ud: UnsafeMutableRawPointer?, _ loc: ghostty_clipboard_e, _ state: UnsafeMutableRawPointer?,
+                              _ mimes: UnsafePointer<UnsafePointer<CChar>?>?, _ n: Int, _ list: Bool) -> ghostty_clipboard_read_result_e {
+        guard loc == GHOSTTY_CLIPBOARD_STANDARD, let v = from(ud), let s = v.surface,
+              let text = NSPasteboard.general.string(forType: .string) else { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
+        let data = Array(text.utf8)
+        "text/plain".withCString { mime in
+            data.withUnsafeBufferPointer { buf in
+                buf.baseAddress!.withMemoryRebound(to: CChar.self, capacity: max(buf.count, 1)) { ptr in
+                    var content = ghostty_clipboard_content_s(mime: mime, data: ptr, len: buf.count)
+                    withUnsafePointer(to: &content) { cp in
+                        var done = ghostty_clipboard_complete_s(contents: cp, contents_len: 1, available: nil, available_len: 0,
+                                                                confirmed: false, remember: false)
+                        ghostty_surface_complete_clipboard_request(s, &done, state)
+                    }
+                }
+            }
+        }
+        return GHOSTTY_CLIPBOARD_READ_STARTED
+    }
+
+    static func writeClipboard(_ loc: ghostty_clipboard_e, _ content: UnsafePointer<ghostty_clipboard_content_s>?, _ len: Int) {
+        guard loc == GHOSTTY_CLIPBOARD_STANDARD, let content else { return }
+        for i in 0..<len where String(cString: content[i].mime) == "text/plain" {
+            let c = content[i]
+            let text = String(decoding: UnsafeRawBufferPointer(start: c.data, count: c.len), as: UTF8.self)
+            DispatchQueue.main.async {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }
+        }
+    }
+}
+#endif

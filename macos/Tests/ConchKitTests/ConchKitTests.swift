@@ -203,6 +203,23 @@ func fixture() -> Snapshot {
     #expect(l.active == 0)
 }
 
+// Opening a task branch reuses what is there: its agent, else a terminal
+// in its worktree; a second click must not start a second shell.
+@Test func paneForBranch() {
+    var s = fixture()
+    #expect(s.paneFor(branch: "feat", project: "r1") == "p1") // its agent
+    s.remove(pane: "p1")
+    #expect(s.paneFor(branch: "feat", project: "r1") == nil) // nothing: start one
+    s.upsert(PaneInfo(id: "p9", name: "zsh", projectID: "r1", cwd: "/src/api-feat/internal"))
+    #expect(s.paneFor(branch: "feat", project: "r1") == "p9") // a terminal inside it
+    s.upsert(PaneInfo(id: "p9", name: "zsh", state: "exited", projectID: "r1", cwd: "/src/api-feat"))
+    #expect(s.paneFor(branch: "feat", project: "r1") == nil) // an ended one is no use
+    s.upsert(PaneInfo(id: "p10", name: "zsh", projectID: "r1", cwd: "/src/api-feature"))
+    #expect(s.paneFor(branch: "feat", project: "r1") == nil) // a sibling folder is not inside it
+    #expect(s.paneFor(branch: "nope", project: "r1") == nil)
+    #expect(s.paneFor(branch: "feat", project: "r9") == nil)
+}
+
 @Test func questionDecodes() throws {
     let json = #"{"id":"q_1","text":"Allow command?","choices":[{"choice":"1","label":"Yes","default":true},{"choice":"2","label":"No"}]}"#
     let q = try JSONDecoder().decode(Question.self, from: Data(json.utf8))

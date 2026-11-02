@@ -1,6 +1,8 @@
 #!/bin/sh
 # Builds Conch.app: the Swift window (release), conch itself inside it so
-# each pane's `conch attach` is this same build, and conch's icon.
+# each pane's `conch attach` is this same build, and conch's icon. The
+# panes are Ghostty's when macos/ghostty.sh has built its library, and
+# SwiftTerm's otherwise.
 #
 #   macos/bundle.sh            # → macos/build/Conch.app
 #   macos/bundle.sh /Applications
@@ -11,6 +13,11 @@ root=$(dirname "$here")
 out=${1:-$here/build}
 app="$out/Conch.app"
 
+# With Ghostty's library built (ghostty.sh) the panes are Ghostty's, and
+# linking it takes Xcode's toolchain rather than the Command Line Tools.
+if [ -d "$here/vendor/GhosttyKit.xcframework" ] && [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode.app ]; then
+	export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+fi
 swift build -c release --package-path "$here"
 bin=$(swift build -c release --package-path "$here" --show-bin-path)
 

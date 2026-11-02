@@ -13,7 +13,7 @@ The Mac app is new and is built from source for now (below). It shows this compu
 ## The window
 
 - **The toolbar** holds the workspaces you made in the TUI (click one to switch), a search field in the middle (⌘K), and how many agents are waiting for you or finished — a click on the waiting count goes to the next one (⌘.).
-- **The sidebar** is the TUI's tree for this computer: each project with its agents, task branches and terminals, and **CLI** for what belongs to no project. A click opens a pane; a click on a branch opens its agent, or a terminal in its worktree.
+- **The sidebar** is the TUI's tree for this computer: each project with its agents, task branches and terminals, and **CLI** for what belongs to no project. A click opens a pane; a click on a branch opens its agent, or the terminal already in its worktree, and starts one there only if there is none. The window opens with nothing selected, so no key reaches an agent until you pick one.
 - **Tabs** along the top, the one on screen underlined. A pane is shown in one place: opening it again goes to where it is.
 - **Splits** sit side by side as cards with a gap between them, each with a header saying which agent it is, its branch and its state. The focused one has the accent border.
 - **The status bar** says whether the window is connected to conch's server, and which version.
@@ -40,15 +40,20 @@ Everything else you type goes to the focused pane.
 
 ## Building it
 
-It needs the Xcode Command Line Tools (Swift 6) and Go:
+It needs the Xcode Command Line Tools (Swift 6) and Go. For Ghostty's terminal in the panes it also needs Xcode 26 with its Metal toolchain, and Zig:
 
 ```sh
+xcodebuild -downloadComponent MetalToolchain   # once, after installing Xcode
+brew install zig
+macos/ghostty.sh                 # Ghostty's library, from a pinned release → macos/vendor
 macos/bundle.sh                  # → macos/build/Conch.app
 macos/bundle.sh /Applications    # or straight into Applications
 ```
+
+Without `macos/ghostty.sh` the app builds just the same, with SwiftTerm drawing the panes; the status bar says which.
 
 The app carries its own `conch` inside it, so each pane's `conch attach` is the same build as the window. It looks for conch's server where `conch` does (`$CONCH_SOCKET`, else `conch.sock` in `$CONCH_HOME` or `~/.config/conch`), and when none is running it offers to start one. `CONCH_BIN` points it at another `conch`.
 
 ## What it is built on
 
-The window is AppKit and SwiftUI; the terminal in each pane is [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm), behind a single seam so that Ghostty's terminal can take its place. The code is in `macos/` in the repository: `ConchKit` (the protocol client, the tree, search and layout, with tests run by `swift test`) and `ConchApp` (the window).
+The window is AppKit and SwiftUI; the terminal in each pane is [Ghostty](https://ghostty.org)'s — its library (libghostty) from an upstream release, unmodified, with conch's own settings rather than your Ghostty configuration — or [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) where Ghostty's library has not been built, behind a single seam. Typing that composes (Japanese, Korean, dead keys such as option-e e) is not handled in Ghostty's panes yet. The code is in `macos/` in the repository: `ConchKit` (the protocol client, the tree, search and layout, with tests run by `swift test`) and `ConchApp` (the window).

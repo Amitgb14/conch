@@ -84,9 +84,10 @@ final class Store: ObservableObject {
             error = nil
             status = ""
             for p in snapshot.panes where p.agent?.state == .blocked { ask(p.id) }
-            if layout.tabs.isEmpty, let first = snapshot.nextAttention(after: nil, in: ws) ?? snapshot.panes.first(where: { $0.running })?.id {
-                layout.open(first)
-            }
+            // Nothing is opened, and nothing given the keyboard, until a
+            // pane is picked: a window that opened on an agent with its
+            // terminal focused sent the first key anyone pressed — an Enter
+            // — to that agent, which took it as accepting its suggestion.
         } catch {
             connected = false
             status = "\(error)"
@@ -205,16 +206,23 @@ final class Store: ObservableObject {
         if let p = snapshot.nextAttention(after: layout.focused, in: ws) { open(p) }
     }
 
+    /// Worktrees a terminal is being started in, so a second click while
+    /// the first is on its way does not start another.
+    private var starting: Set<String> = []
+
     func openBranch(project: String, name: String) {
-        // The branch's agent if it has one, else a shell in its worktree.
-        if let p = snapshot.panes.first(where: { $0.projectID == project && $0.branch == name && $0.agent != nil }) {
-            open(p.id)
+        // Its agent, or a terminal already in its worktree; only failing
+        // both, a new terminal there.
+        if let p = snapshot.paneFor(branch: name, project: project) {
+            open(p)
             return
         }
         guard let c = conn, let pr = snapshot.project(project),
-              let wt = pr.worktrees?.first(where: { $0.branch == name }) else { return }
+              let wt = pr.worktrees?.first(where: { $0.branch == name }), !starting.contains(wt.path) else { return }
         struct Create: Encodable { var cwd: String }
+        starting.insert(wt.path)
         Task {
+            defer { starting.remove(wt.path) }
             if let p = try? await c.call("pane.create", Create(cwd: wt.path), as: PaneInfo.self) {
                 snapshot.upsert(p)
                 open(p.id)

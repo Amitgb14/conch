@@ -195,6 +195,20 @@ extension Snapshot {
         return TreeNode(id: "pane:\(p.id)", kind: kind, title: p.displayName, detail: p.branch ?? "", badge: badge)
     }
 
+    /// What opening a task branch shows: its agent, else a terminal already
+    /// running in its worktree, else nil — and only then is a new terminal
+    /// started there. Clicking the branch again must not start another.
+    public func paneFor(branch name: String, project: String) -> String? {
+        if let p = panes.first(where: { $0.projectID == project && $0.branch == name && $0.agent != nil && $0.running }) {
+            return p.id
+        }
+        guard let path = self.project(project)?.worktrees?.first(where: { $0.branch == name })?.path else { return nil }
+        return panes.first(where: { p in
+            guard p.running, let cwd = p.cwd else { return false }
+            return cwd == path || cwd.hasPrefix(path + "/")
+        })?.id
+    }
+
     /// Branches checked out in a worktree of their own: where an agent's
     /// work is. The main checkout is the project itself.
     public func taskBranches(_ pr: ProjectInfo) -> [BranchInfo] {

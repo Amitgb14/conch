@@ -129,6 +129,11 @@ struct Counts: View {
                     .buttonStyle(.plain).help("Go to the next agent waiting for you (⌘.)")
             }
             if d > 0 { Pill(text: "✓ \(d) done", fg: Theme.ok, bg: Theme.ok.opacity(0.16)) }
+            // macOS draws a bubble round a toolbar item whatever is in it:
+            // say there is nothing, rather than leave it empty.
+            if w == 0 && d == 0 {
+                Text("Nothing waiting").font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.horizontal, 6)
+            }
         }
     }
 }
@@ -509,6 +514,7 @@ struct StatusBar: View {
                     .onTapGesture { store.error = nil }
             }
             Spacer()
+            Text(PaneTerminal.engine).foregroundStyle(Theme.muted).help("The terminal each pane is drawn with")
             if !store.serverVersion.isEmpty { Text("conch \(store.serverVersion)").foregroundStyle(Theme.muted) }
         }
         .font(.system(size: 12))

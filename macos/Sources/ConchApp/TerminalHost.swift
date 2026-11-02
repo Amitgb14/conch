@@ -5,9 +5,9 @@ import SwiftUI
 
 // The one seam between the window and the terminal in a pane. Each pane
 // is a terminal running `conch attach PANE`: conch's server is the pane's
-// real terminal, and this one shows the screen it keeps. Today it is
-// SwiftTerm; Ghostty's (libghostty) takes its place here once it can be
-// built, and nothing else changes.
+// real terminal, and this one shows the screen it keeps. It is Ghostty's
+// (GhosttyHost.swift) when the package was built with its library, and
+// SwiftTerm's otherwise; nothing else in the app knows which.
 
 /// SwiftTerm's view. Which pane has the keyboard is followed by the
 /// window watching clicks (Store.watchClicks), since SwiftTerm does not
@@ -17,29 +17,57 @@ final class FocusingTerminalView: LocalProcessTerminalView {}
 @MainActor
 final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDelegate {
     let pane: String
-    let view: FocusingTerminalView
+    let view: NSView
     @Published var ended: String?
+
+    /// Which terminal the panes are drawn with, for the status bar.
+    static var engine: String {
+        #if GHOSTTY
+        return GhosttyRuntime.shared.app == nil ? "SwiftTerm" : "Ghostty"
+        #else
+        return "SwiftTerm"
+        #endif
+    }
 
     init(pane: String, binary: String?, store: Store) {
         self.pane = pane
-        view = FocusingTerminalView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
-        super.init()
-        view.processDelegate = self
-        view.font = NSFont(name: "JetBrains Mono", size: 12.5) ?? .monospacedSystemFont(ofSize: 12.5, weight: .regular)
-        view.nativeBackgroundColor = Theme.terminal
-        view.nativeForegroundColor = Theme.fg
-        view.optionAsMetaKey = true
-        guard let binary else {
-            view.feed(text: "conch is not installed where this app can find it.\r\nSet CONCH_BIN, or install conch.\r\n")
+        let env = conchEnvironment()
+        #if GHOSTTY
+        if let binary, GhosttyRuntime.shared.app != nil {
+            let g = GhosttyPaneView(command: "\(shellQuote(binary)) attach \(shellQuote(pane))", environment: env)
+            view = g
+            super.init()
+            g.onExit = { [weak self] in self?.ended = "detached" }
             return
         }
-        let env = conchEnvironment().map { "\($0.key)=\($0.value)" }
-        view.startProcess(executable: binary, args: ["attach", pane], environment: env)
+        #endif
+        let st = FocusingTerminalView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        view = st
+        super.init()
+        st.processDelegate = self
+        st.font = NSFont(name: "JetBrains Mono", size: 12.5) ?? .monospacedSystemFont(ofSize: 12.5, weight: .regular)
+        st.nativeBackgroundColor = Theme.terminal
+        st.nativeForegroundColor = Theme.fg
+        st.optionAsMetaKey = true
+        guard let binary else {
+            st.feed(text: "conch is not installed where this app can find it.\r\nSet CONCH_BIN, or install conch.\r\n")
+            return
+        }
+        st.startProcess(executable: binary, args: ["attach", pane], environment: env.map { "\($0.key)=\($0.value)" })
     }
 
     func stop() {
-        view.processDelegate = nil
-        view.terminate()
+        #if GHOSTTY
+        if let g = view as? GhosttyPaneView {
+            g.onExit = nil
+            g.free()
+            return
+        }
+        #endif
+        if let st = view as? FocusingTerminalView {
+            st.processDelegate = nil
+            st.terminate()
+        }
     }
 
     // MARK: LocalProcessTerminalViewDelegate
@@ -50,6 +78,11 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
     nonisolated func processTerminated(source: TerminalView, exitCode: Int32?) {
         MainActor.assumeIsolated { self.ended = "detached" }
     }
+}
+
+/// A word for a shell: Ghostty runs its command through one.
+func shellQuote(_ s: String) -> String {
+    "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
 /// A pane's terminal in SwiftUI. The view is the store's, so moving a

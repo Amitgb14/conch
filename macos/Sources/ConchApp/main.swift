@@ -62,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         switch id {
         case .workspaces: view = NSHostingView(rootView: WorkspacesControl(store: store))
         case .search: view = NSHostingView(rootView: SearchField(store: store))
-        case .counts: view = NSHostingView(rootView: Counts(store: store).frame(minWidth: 180, alignment: .trailing))
+        case .counts: view = NSHostingView(rootView: Counts(store: store).fixedSize())
         default: return nil
         }
         view.setFrameSize(view.fittingSize)
