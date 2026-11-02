@@ -237,94 +237,6 @@ struct Keycap: View {
     }
 }
 
-/// A project: Lucide's folder, the outline shadcn/ui draws — open while
-/// the project is unfolded — in a muted line of even width.
-struct FolderIcon: View {
-    var open = false
-
-    var body: some View {
-        LucideFolder(open: open)
-            .stroke(Theme.text2, style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
-            .frame(width: 13, height: 13).frame(width: 14)
-    }
-}
-
-/// Lucide's folder and folder-open (24×24), drawn to fit: the paths as
-/// lucide.dev has them, each corner of radius 2 as a quadratic curve.
-struct LucideFolder: Shape {
-    var open = false
-
-    func path(in r: CGRect) -> Path {
-        let k = min(r.width, r.height) / 24
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * k, y: r.minY + y * k) }
-        var path = Path()
-        if open {
-            path.move(to: p(6, 14))
-            path.addLine(to: p(7.5, 11.1))
-            path.addQuadCurve(to: p(9.24, 10), control: p(8, 10))
-            path.addLine(to: p(20, 10))
-            path.addQuadCurve(to: p(21.94, 12.5), control: p(22.4, 10))
-            path.addLine(to: p(20.4, 18.5))
-            path.addQuadCurve(to: p(18.45, 20), control: p(20, 20))
-            path.addLine(to: p(4, 20))
-            path.addQuadCurve(to: p(2, 18), control: p(2, 20))
-            path.addLine(to: p(2, 5))
-            path.addQuadCurve(to: p(4, 3), control: p(2, 3))
-            path.addLine(to: p(7.9, 3))
-            path.addQuadCurve(to: p(9.59, 3.9), control: p(9, 3))
-            path.addLine(to: p(10.4, 5.1))
-            path.addQuadCurve(to: p(12.07, 6), control: p(11, 6))
-            path.addLine(to: p(18, 6))
-            path.addQuadCurve(to: p(20, 8), control: p(20, 6))
-            path.addLine(to: p(20, 10))
-        } else {
-            path.move(to: p(4, 3))
-            path.addLine(to: p(7.93, 3))
-            path.addQuadCurve(to: p(9.6, 3.9), control: p(9, 3))
-            path.addLine(to: p(10.41, 5.1))
-            path.addQuadCurve(to: p(12.1, 6), control: p(11, 6))
-            path.addLine(to: p(20, 6))
-            path.addQuadCurve(to: p(22, 8), control: p(22, 6))
-            path.addLine(to: p(22, 18))
-            path.addQuadCurve(to: p(20, 20), control: p(22, 20))
-            path.addLine(to: p(4, 20))
-            path.addQuadCurve(to: p(2, 18), control: p(2, 20))
-            path.addLine(to: p(2, 5))
-            path.addQuadCurve(to: p(4, 3), control: p(2, 3))
-            path.closeSubpath()
-        }
-        return path
-    }
-}
-
-/// A branch: git's branch mark (Nerd Fonts' U+E725, the one conch's own
-/// terminal font draws), or SF Symbols' branch where there is no Nerd Font.
-struct BranchIcon: View {
-    let color: Color
-
-    var body: some View {
-        Group {
-            if let f = NerdFont.font(glyph: "\u{e725}", size: 13) {
-                Text("\u{e725}").font(Font(f))
-            } else {
-                Image(systemName: "arrow.triangle.branch").font(.system(size: 10.5, weight: .medium))
-            }
-        }
-        .foregroundStyle(color).frame(width: 14)
-    }
-}
-
-/// An SF Symbol at the size the sidebar's marks share, in one column.
-struct Symbol: View {
-    let name: String
-    let color: Color
-    var size: CGFloat = 11
-
-    var body: some View {
-        Image(systemName: name).font(.system(size: size, weight: .medium)).foregroundStyle(color).frame(width: 14)
-    }
-}
-
 struct Dot: View {
     let color: Color
     var body: some View { Circle().fill(color).frame(width: 8, height: 8) }
@@ -560,16 +472,17 @@ struct NodeView: View {
         switch node.kind {
         case .machine(let m):
             let link = store.machines.first { $0.id == m }
-            Dot(color: link?.online == true ? Theme.ok : link?.state == "connecting" ? Theme.warn : Theme.muted)
-        case .project: FolderIcon(open: open)
-        case .cli: Symbol(name: "terminal", color: Theme.text2)
+            MachineIcon(name: m == "local" ? .laptop : link?.sandbox == true ? .cloud : .server,
+                        state: link?.online == true ? Theme.ok : link?.state == "connecting" ? Theme.warn : Theme.muted)
+        case .project: LucideIcon(name: open ? .folderOpen : .folder)
+        case .cli: LucideIcon(name: .squareTerminal)
         case .agent(let id): Mark(agent: store.pane(id)?.agent?.name)
-        case .terminal: Symbol(name: "apple.terminal", color: Theme.muted, size: 10.5)
+        case .terminal(let id): LucideIcon(name: store.pane(id)?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12)
         case .branch(_, _, let checkedOut):
             // In a worktree of its own: the accent; only a branch: muted.
-            BranchIcon(color: checkedOut ? Theme.accent : Theme.muted)
+            LucideIcon(name: .gitBranch, color: checkedOut ? Theme.accent : Theme.muted, size: 12)
                 .help(checkedOut ? "checked out in a worktree of its own" : "a branch, not checked out")
-        case .sessions: Symbol(name: "clock.arrow.circlepath", color: Theme.text2, size: 10.5)
+        case .sessions: LucideIcon(name: .history, size: 12)
         case .section: EmptyView()
         }
     }
@@ -803,7 +716,7 @@ struct TabButton: View {
             if let a = p?.agent {
                 Mark(agent: a.name)
             } else {
-                if changes == nil { Text("›").foregroundStyle(Theme.muted) } else { BranchIcon(color: Theme.accent) }
+                if changes == nil { LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12) } else { LucideIcon(name: .gitBranch, color: Theme.accent, size: 12) }
             }
             // A branch's changes are named as the mock names them.
             Text(changes.map { "\($0.branch) changes" } ?? p?.displayName ?? tab.focused)
@@ -870,7 +783,7 @@ struct PaneCard: View {
         let focused = store.layout.focused == pane
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                if let a = p?.agent { Mark(agent: a.name) } else { Text("›").foregroundStyle(Theme.muted) }
+                if let a = p?.agent { Mark(agent: a.name) } else { LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12) }
                 Text(p?.agent?.name ?? p?.name ?? pane).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
                 if let b = p?.branch, !b.isEmpty {
                     Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)

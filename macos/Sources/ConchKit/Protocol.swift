@@ -84,11 +84,19 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var pid: Int?
     /// The pane this one was started from: an agent's helper.
     public var createdBy: String?
+    /// The program and its arguments.
+    public var command: [String]?
+
+    /// An ssh session, as the TUI tells one (sshPane): no agent, and the
+    /// program is ssh.
+    public var isSSH: Bool {
+        agent == nil && (command?.first.map { ($0 as NSString).lastPathComponent == "ssh" } ?? false)
+    }
     /// What happened since someone last looked: "activity" or "silence".
     public var alert: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid
+        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"

@@ -940,3 +940,10 @@ final class FakeServer: @unchecked Sendable {
     #expect(spinnerFrame(at: t0.addingTimeInterval(-0.05)) == "⠏") // before the reference, still a frame
     #expect(spinnerFrames.count == 10 && spinnerInterval == 0.12)
 }
+
+// An ssh session is told as the TUI tells one: no agent, and ssh the program.
+@Test func sshPanes() throws {
+    let json = #"{"panes":[{"id":"p1","name":"ssh","state":"running","command":["/usr/bin/ssh","-t","--","me@box"]},{"id":"p2","name":"zsh","state":"running","command":["/bin/zsh","-l"]},{"id":"p3","name":"claude","state":"running","command":["ssh"],"agent":{"name":"claude","state":"idle"}},{"id":"p4","name":"x","state":"running"}]}"#
+    let panes = try conchDecoder().decode(PaneList.self, from: Data(json.utf8)).panes
+    #expect(panes.map(\.isSSH) == [true, false, false, false])
+}

@@ -179,7 +179,7 @@ struct ChangesView: View {
 
     var header: some View {
         HStack(spacing: 10) {
-            BranchIcon(color: Theme.accent)
+            LucideIcon(name: .gitBranch, color: Theme.accent, size: 12)
             Text(model.branch).font(.system(size: 13, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.text)
             if let ch = model.changes {
                 Text("into \(ch.base)").font(.system(size: 12)).foregroundStyle(Theme.muted)
