@@ -7,25 +7,36 @@ import SwiftUI
 // tree in a sidebar; underlined tabs; splits as cards with gaps; a status
 // bar — and C's answer buttons on an agent waiting for you.
 
+/// The window's colours: the current conch theme's (ConchKit/Themes.swift),
+/// so changing it repaints everything that reads these.
+@MainActor
 enum Theme {
-    static let terminal = NSColor(hex: 0x15191E)
-    static let fg = NSColor(hex: 0xD5DBE2)
-    static let window = Color(nsColor: NSColor(hex: 0x15191E))
-    static let chrome = Color(nsColor: NSColor(hex: 0x1F242A))
-    static let side = Color(nsColor: NSColor(hex: 0x1A1E24))
-    static let raise = Color(nsColor: NSColor(hex: 0x232931))
-    static let paneHeader = Color(nsColor: NSColor(hex: 0x181C22))
-    static let line = Color(nsColor: NSColor(hex: 0x2D333B))
-    static let line2 = Color(nsColor: NSColor(hex: 0x3A414B))
-    static let text = Color(nsColor: fg)
-    static let text2 = Color(nsColor: NSColor(hex: 0x9AA4AF))
-    static let muted = Color(nsColor: NSColor(hex: 0x6E7781))
-    static let accent = Color(nsColor: NSColor(hex: 0x2AA5B5))
-    static let accentDeep = Color(nsColor: NSColor(hex: 0x0F7B8A))
-    static let ok = Color(nsColor: NSColor(hex: 0x3FB950))
-    static let warn = Color(nsColor: NSColor(hex: 0xD29922))
-    static let err = Color(nsColor: NSColor(hex: 0xF85149))
-    static let work = Color(nsColor: NSColor(hex: 0x58A6FF))
+    static var current = ConchTheme.conch
+
+    static func ns(_ c: RGB) -> NSColor { NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1) }
+    static func color(_ c: RGB) -> Color { Color(nsColor: ns(c)) }
+
+    static var terminal: NSColor { ns(current.bg) }
+    static var fg: NSColor { ns(current.fg) }
+    static var window: Color { color(current.bg) }
+    static var chrome: Color { color(current.chrome) }
+    static var side: Color { color(current.sidebar) }
+    static var raise: Color { color(current.raised) }
+    static var paneHeader: Color { color(current.paneHeader) }
+    static var well: Color { color(current.well) }
+    static var line: Color { color(current.border) }
+    static var line2: Color { color(current.border2) }
+    static var text: Color { color(current.fg) }
+    static var text2: Color { color(current.fg2) }
+    static var muted: Color { color(current.muted) }
+    static var accent: Color { color(current.line) }
+    static var accentDeep: Color { color(current.accent) }
+    static var selectedText: Color { color(current.selFG) }
+    static var ok: Color { color(current.ok) }
+    static var warn: Color { color(current.warn) }
+    static var onWarn: Color { color(current.onWarn) }
+    static var err: Color { color(current.err) }
+    static var work: Color { color(current.work) }
 
     /// An agent's own colour, as the TUI's agentColors.
     static func agent(_ name: String?) -> Color {
@@ -63,7 +74,7 @@ struct Pill: View {
     static func state(_ s: AgentState?) -> Pill? {
         switch s {
         case .working: return Pill(text: "working", fg: Theme.work, bg: Theme.work.opacity(0.16))
-        case .blocked: return Pill(text: "waiting", fg: .black, bg: Theme.warn)
+        case .blocked: return Pill(text: "waiting", fg: Theme.onWarn, bg: Theme.warn)
         case .done: return Pill(text: "done", fg: Theme.ok, bg: Theme.ok.opacity(0.16))
         default: return nil
         }
@@ -111,7 +122,7 @@ struct SearchField: View {
                     .padding(.horizontal, 5).overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.line2))
             }
             .padding(.horizontal, 10).frame(width: 420, height: 28)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: NSColor(hex: 0x0F1216))))
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.well))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
         }
         .buttonStyle(.plain)
@@ -125,7 +136,7 @@ struct Counts: View {
         let (w, d) = store.snapshot.inbox(in: store.ws)
         HStack(spacing: 8) {
             if w > 0 {
-                Button { store.nextWaiting() } label: { Pill(text: "⚑ \(w) waiting", fg: .black, bg: Theme.warn) }
+                Button { store.nextWaiting() } label: { Pill(text: "⚑ \(w) waiting", fg: Theme.onWarn, bg: Theme.warn) }
                     .buttonStyle(.plain).help("Go to the next agent waiting for you (⌘.)")
             }
             if d > 0 { Pill(text: "✓ \(d) done", fg: Theme.ok, bg: Theme.ok.opacity(0.16)) }
@@ -149,7 +160,7 @@ struct MainView: View {
                 HStack(spacing: 0) {
                     if store.sidebarVisible {
                         Sidebar(store: store).frame(width: 270)
-                        Rectangle().fill(Color.black.opacity(0.4)).frame(width: 1)
+                        Rectangle().fill(Theme.line.opacity(0.6)).frame(width: 1)
                     }
                     VStack(spacing: 0) {
                         TabBar(store: store)
@@ -168,7 +179,8 @@ struct MainView: View {
             }
         }
         .background(Theme.window)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(store.theme.light ? .light : .dark)
+        .id(store.theme.id) // a new theme repaints every view
     }
 }
 
@@ -287,7 +299,7 @@ struct NodeView: View {
         case .agent(let id):
             switch store.snapshot.pane(id)?.agent?.state {
             case .working: Text("⠋").font(.system(size: 12)).foregroundStyle(Theme.work).help("working")
-            case .blocked: Pill(text: "waiting", fg: .black, bg: Theme.warn)
+            case .blocked: Pill(text: "waiting", fg: Theme.onWarn, bg: Theme.warn)
             case .done: Text("✓").foregroundStyle(Theme.ok).help("done")
             default: EmptyView()
             }
@@ -330,7 +342,7 @@ struct AnswerCard: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Color(nsColor: NSColor(hex: 0x1D2228))))
+        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.raise))
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.warn.opacity(0.55)))
     }
 }
@@ -346,7 +358,7 @@ struct FlowButtons: View {
                 Button { store.answer(pane, question, c) } label: {
                     Text(c.label).font(.system(size: 12, weight: c.default == true ? .semibold : .regular))
                         .lineLimit(1).truncationMode(.tail)
-                        .foregroundStyle(c.default == true ? Color.black : Theme.text)
+                        .foregroundStyle(c.default == true ? Theme.onWarn : Theme.text)
                         .padding(.horizontal, 9).padding(.vertical, 4)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(RoundedRectangle(cornerRadius: 6).fill(c.default == true ? Theme.warn : Theme.raise))
@@ -393,7 +405,7 @@ struct TabButton: View {
             Text(p?.displayName ?? tab.focused).font(.system(size: 12.5)).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: 200, alignment: .leading).fixedSize(horizontal: true, vertical: false)
             if tab.root.panes.contains(where: { store.snapshot.pane($0)?.agent?.state == .blocked }) {
-                Pill(text: "!", fg: .black, bg: Theme.warn)
+                Pill(text: "!", fg: Theme.onWarn, bg: Theme.warn)
             }
             if on {
                 Button { store.closeSplit() } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)) }
@@ -402,7 +414,7 @@ struct TabButton: View {
         }
         .foregroundStyle(on ? Theme.text : Theme.text2)
         .padding(.horizontal, 12).frame(height: 30)
-        .background(UnevenRoundedRectangle(topLeadingRadius: 7, topTrailingRadius: 7).fill(on ? Color(nsColor: NSColor(hex: 0x1B2026)) : .clear))
+        .background(UnevenRoundedRectangle(topLeadingRadius: 7, topTrailingRadius: 7).fill(on ? Theme.raise.opacity(0.7) : .clear))
         .overlay(alignment: .bottom) {
             if on { RoundedRectangle(cornerRadius: 1).fill(Theme.accent).frame(height: 2).padding(.horizontal, 8).offset(y: 1) }
         }
@@ -489,7 +501,7 @@ struct AnswerStrip: View {
                 Button(c.label) { store.answer(pane, question, c) }
                     .buttonStyle(.plain).font(.system(size: 12, weight: c.default == true ? .semibold : .regular))
                     .lineLimit(1).frame(maxWidth: 200)
-                    .foregroundStyle(c.default == true ? Color.black : Theme.text)
+                    .foregroundStyle(c.default == true ? Theme.onWarn : Theme.text)
                     .padding(.horizontal, 9).padding(.vertical, 3)
                     .background(RoundedRectangle(cornerRadius: 6).fill(c.default == true ? Theme.warn : Theme.raise))
             }
@@ -519,7 +531,7 @@ struct StatusBar: View {
         }
         .font(.system(size: 12))
         .padding(.horizontal, 12).frame(height: 26)
-        .background(Color(nsColor: NSColor(hex: 0x13171C)))
+        .background(Theme.side)
         .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
     }
 }
@@ -571,7 +583,7 @@ struct Palette: View {
                 .font(.system(size: 11.5)).foregroundStyle(Theme.muted).padding(.horizontal, 16).padding(.vertical, 8)
             }
             .frame(width: 620)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: NSColor(hex: 0x1C2127))))
+            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.chrome))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line2))
             .shadow(color: .black.opacity(0.6), radius: 30, y: 20)
             .padding(.top, 60)

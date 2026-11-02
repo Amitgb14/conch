@@ -310,3 +310,61 @@ final class FakeServer: @unchecked Sendable {
         close(fd)
     }
 }
+
+// The themes are the TUI's: the same names and palettes, conch first.
+@Test func themesMatchTheTUI() throws {
+    let go = try String(contentsOfFile: #filePath.replacingOccurrences(of: "macos/Tests/ConchKitTests/ConchKitTests.swift", with: "internal/tui/theme.go"), encoding: .utf8)
+    let tui = go.split(separator: "\n").compactMap { line -> (String, String, String)? in
+        guard let n = line.range(of: "{name: \""), let a = line.range(of: "accent: \"") else { return nil }
+        let name = line[n.upperBound...].prefix { $0 != "\"" }
+        let accent = line[a.upperBound...].prefix { $0 != "\"" }
+        let bgLine = go[go.range(of: String(line))!.upperBound...].split(separator: "\n").first ?? ""
+        let bg = bgLine.range(of: "bg: \"").map { bgLine[$0.upperBound...].prefix { $0 != "\"" } } ?? ""
+        return (String(name), String(accent), String(bg))
+    }
+    #expect(tui.count == 15)
+    for (i, (name, accent, bg)) in tui.enumerated() {
+        let t = ConchTheme.all[i]
+        #expect(t.id == name && t.accent.hex == accent.uppercased() && t.bg.hex == bg.uppercased(), "theme \(name)")
+    }
+    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte"])
+    #expect(Set(ConchTheme.all.map(\.id)).count == ConchTheme.all.count)
+}
+
+@Test func themeNamedAndConfigured() {
+    #expect(ConchTheme.named("Nord").id == "nord")
+    #expect(ConchTheme.named(" tokyo-night ").id == "tokyo-night")
+    #expect(ConchTheme.named("no-such").id == "conch")
+    #expect(ConchTheme.named(nil).id == "conch")
+    let toml = """
+    [keys]
+    theme = "not this one"
+    [ui]
+      mouse = true
+      theme = "catppuccin"   # a comment
+      accent = ""
+    [notify]
+    theme = "nor this"
+    """
+    #expect(ConchTheme.configured(in: toml) == "catppuccin")
+    #expect(ConchTheme.configured(in: "[ui]\ntheme='nord'\n") == "nord")
+    #expect(ConchTheme.configured(in: "[ui]\ntheme = \"\"\n") == nil)
+    #expect(ConchTheme.configured(in: "[ui]\nthemes = \"x\"\n") == nil)
+    #expect(ConchTheme.configured(in: "[ui\ntheme =") == nil) // broken: no theme, not a crash
+    #expect(ConchTheme.configured(in: nil) == nil)
+}
+
+@Test func derivedColours() {
+    let c = ConchTheme.conch
+    // The toolbar is the measured title bar: #15191E lifted 5%.
+    #expect(c.chrome.hex == "#212529") // the TUI's lighten(bg, 0.05): the title bar measured #20242A
+    #expect(c.line.hex == "#2AA5B5")
+    let light = ConchTheme.named("github-light")
+    #expect(light.chrome.luminance < light.bg.luminance) // a light window is taken down, not up
+    #expect(light.well.hex == "#FFFFFF")
+    // Text on a warn pill reads: dark on a bright warn, light on a dark one.
+    #expect(ConchTheme.named("dracula").onWarn.luminance < 0.3)
+    #expect(light.onWarn.hex == "#FFFFFF")
+    #expect(RGB("#000000").mix(RGB("#FFFFFF"), 0.5).hex == "#808080")
+    #expect(c.ghosttyColors.contains("background = #15191E"))
+}

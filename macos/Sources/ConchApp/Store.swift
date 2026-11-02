@@ -18,6 +18,13 @@ final class Store: ObservableObject {
     @Published var sidebarVisible = true
     @Published var serverVersion = ""
     @Published var error: String?
+    /// The theme chosen in the app ("" follows conch's own [ui] theme),
+    /// and the one in effect.
+    @Published private(set) var themeChoice = UserDefaults.standard.string(forKey: "theme") ?? ""
+    @Published private(set) var theme = ConchTheme.conch
+    /// Told when the theme changes, for what SwiftUI does not draw: the
+    /// window's own background and appearance.
+    var onTheme: ((ConchTheme) -> Void)?
 
     let binary: String?
     private var conn: Connection?
@@ -27,7 +34,41 @@ final class Store: ObservableObject {
     init() {
         binary = conchBinary()
         loadWorkspaces()
+        loadTheme()
         watchClicks()
+    }
+
+    // MARK: theme
+
+    /// The theme in effect: the one chosen here, else conch's own setting
+    /// in config.toml, so the window matches the TUI until told otherwise.
+    func loadTheme() {
+        let configured = ConchTheme.configured(in: try? String(contentsOfFile: configFile, encoding: .utf8))
+        let next = ConchTheme.named(themeChoice.isEmpty ? configured : themeChoice)
+        guard next != theme || Theme.current != next else { return }
+        theme = next
+        Theme.current = next
+        for t in terminals.values { t.apply(next) }
+        #if GHOSTTY
+        GhosttyRuntime.shared.apply(next)
+        #endif
+        onTheme?(next)
+    }
+
+    func chooseTheme(_ id: String) {
+        themeChoice = id
+        UserDefaults.standard.set(id, forKey: "theme")
+        loadTheme()
+    }
+
+    var conchTheme: ConchTheme {
+        ConchTheme.named(ConchTheme.configured(in: try? String(contentsOfFile: configFile, encoding: .utf8)))
+    }
+
+    private var configFile: String {
+        let dir = ProcessInfo.processInfo.environment["CONCH_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? (NSHomeDirectory() as NSString).appendingPathComponent(".config/conch")
+        return (dir as NSString).appendingPathComponent("config.toml")
     }
 
     /// A click in a pane's terminal gives that pane the keyboard: the split
@@ -88,6 +129,9 @@ final class Store: ObservableObject {
             // pane is picked: a window that opened on an agent with its
             // terminal focused sent the first key anyone pressed — an Enter
             // — to that agent, which took it as accepting its suggestion.
+            // Asked for by name at launch (`-open p3`), a pane is shown —
+            // still without the keyboard.
+            if let p = UserDefaults.standard.string(forKey: "open"), snapshot.pane(p) != nil { layout.open(p) }
         } catch {
             connected = false
             status = "\(error)"

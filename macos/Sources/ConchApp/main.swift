@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
 
     func applicationDidFinishLaunching(_ note: Notification) {
         NSApp.setActivationPolicy(.regular)
-        NSApp.appearance = NSAppearance(named: .darkAqua)
+        NSApp.appearance = NSAppearance(named: store.theme.light ? .aqua : .darkAqua)
         buildMenu()
 
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
@@ -22,7 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         window.title = "conch"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = false
-        window.backgroundColor = NSColor(hex: 0x1F242A)
+        window.backgroundColor = Theme.ns(store.theme.chrome)
         window.minSize = NSSize(width: 760, height: 440)
         window.setFrameAutosaveName("conch.main")
         window.delegate = self
@@ -36,6 +36,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         window.toolbarStyle = .unified
 
         window.contentView = NSHostingView(rootView: MainView(store: store))
+        store.onTheme = { [weak self] t in
+            NSApp.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
+            self?.window.backgroundColor = Theme.ns(t.chrome)
+            self?.updateThemeMenu()
+        }
         if !window.setFrameUsingName("conch.main") { window.center() }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -44,7 +49,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
 
-    func windowDidBecomeKey(_ notification: Notification) { store.loadWorkspaces() }
+    /// The TUI may have changed workspaces or the theme while this window
+    /// was in the background.
+    func windowDidBecomeKey(_ notification: Notification) {
+        store.loadWorkspaces()
+        store.loadTheme()
+        updateThemeMenu()
+    }
 
     // MARK: toolbar
 
@@ -118,7 +129,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         ]
         for n in 1...9 { go.append(item("Tab \(n)", "\(n)", .command, "tab\(n)")) }
         menu("Go", go)
-        menu("View", [item("Show or Hide Sidebar", "s", [.command, .control], "toggleSidebar")])
+        let themes = NSMenu(title: "Theme")
+        let same = NSMenuItem(title: "Same as conch", action: #selector(chooseTheme(_:)), keyEquivalent: "")
+        same.representedObject = ""
+        same.target = self
+        themes.addItem(same)
+        themes.addItem(.separator())
+        for (i, t) in ConchTheme.all.enumerated() {
+            if t.light && !ConchTheme.all[i - 1].light { themes.addItem(.separator()) }
+            let m = NSMenuItem(title: t.label, action: #selector(chooseTheme(_:)), keyEquivalent: "")
+            m.representedObject = t.id
+            m.target = self
+            themes.addItem(m)
+        }
+        themeMenu = themes
+        let themeItem = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
+        themeItem.submenu = themes
+        menu("View", [item("Show or Hide Sidebar", "s", [.command, .control], "toggleSidebar"), .separator(), themeItem])
+        updateThemeMenu()
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
         let wtop = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
@@ -126,6 +154,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         main.addItem(wtop)
         NSApp.windowsMenu = windowMenu
         NSApp.mainMenu = main
+    }
+
+    var themeMenu: NSMenu?
+
+    @objc func chooseTheme(_ sender: NSMenuItem) {
+        store.chooseTheme(sender.representedObject as? String ?? "")
+        updateThemeMenu()
+    }
+
+    /// A tick on the theme chosen, and the one "Same as conch" stands for.
+    func updateThemeMenu() {
+        guard let themes = themeMenu else { return }
+        for m in themes.items {
+            guard let id = m.representedObject as? String else { continue }
+            m.state = id == store.themeChoice ? .on : .off
+            if id.isEmpty { m.title = "Same as conch (\(store.conchTheme.label))" }
+        }
     }
 
     @objc func runCommand(_ sender: NSMenuItem) {

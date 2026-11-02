@@ -32,9 +32,10 @@ final class GhosttyRuntime {
         }
         // conch's settings, and nothing of the person's own Ghostty: the
         // same rule `conch app` keeps for the terminal it opens.
-        let path = Self.writeConfig()
+        let path = Self.writeConfig(Theme.current)
         path.withCString { ghostty_config_load_file(cfg, $0) }
         ghostty_config_finalize(cfg)
+        theme = Theme.current
 
         var rt = ghostty_runtime_config_s(
             userdata: nil,
@@ -58,7 +59,7 @@ final class GhosttyRuntime {
         )
         app = ghostty_app_new(&rt, cfg)
         if app == nil { failure = "Ghostty could not make its app" }
-        ghostty_config_free(cfg)
+        config = cfg
         if let app { ghostty_app_set_focus(app, NSApp.isActive) }
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { if let a = GhosttyRuntime.shared.app { ghostty_app_set_focus(a, true) } }
@@ -72,9 +73,30 @@ final class GhosttyRuntime {
         if let app { ghostty_app_tick(app) }
     }
 
+    /// The configuration in effect, which a surface made after a change
+    /// is given (Ghostty hands a new surface the one the app began with),
+    /// and the one before it, kept until a newer one replaces it in case a
+    /// surface is still reading it.
+    private(set) var config: ghostty_config_t?
+    private var previous: ghostty_config_t?
+    private var theme: ConchTheme?
+
+    /// A new theme for every pane at once.
+    func apply(_ t: ConchTheme) {
+        guard let app, t != theme, let cfg = ghostty_config_new() else { return }
+        Self.writeConfig(t).withCString { ghostty_config_load_file(cfg, $0) }
+        ghostty_config_finalize(cfg)
+        ghostty_app_update_config(app, cfg)
+        if let p = previous { ghostty_config_free(p) }
+        previous = config
+        config = cfg
+        theme = t
+    }
+
     /// The settings conch gives Ghostty, written where the app keeps its
     /// own files; rewritten each launch, since they are conch's.
-    static func writeConfig() -> String {
+    @discardableResult
+    static func writeConfig(_ theme: ConchTheme) -> String {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Conch", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -82,11 +104,7 @@ final class GhosttyRuntime {
         let text = """
         # Written by Conch.app: the terminal in each pane. Rewritten at every launch.
         font-size = 13
-        background = #15191E
-        foreground = #D5DBE2
-        cursor-color = #2AA5B5
-        selection-background = #2D333B
-        selection-foreground = #D5DBE2
+        \(theme.ghosttyColors)
         window-padding-x = 8
         window-padding-y = 6
         window-padding-balance = true
@@ -138,6 +156,9 @@ final class GhosttyPaneView: NSView {
                 return ghostty_surface_new(app, &cfg)
             }
         }
+        // Ghostty gives a new surface the configuration the app began with;
+        // after a theme change that is the wrong one.
+        if let s = surface, let cfg = GhosttyRuntime.shared.config { ghostty_surface_update_config(s, cfg) }
         updateTrackingAreas()
     }
 

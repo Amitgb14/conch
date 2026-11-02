@@ -46,14 +46,23 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
         super.init()
         st.processDelegate = self
         st.font = NSFont(name: "JetBrains Mono", size: 12.5) ?? .monospacedSystemFont(ofSize: 12.5, weight: .regular)
-        st.nativeBackgroundColor = Theme.terminal
-        st.nativeForegroundColor = Theme.fg
+        apply(Theme.current)
         st.optionAsMetaKey = true
         guard let binary else {
             st.feed(text: "conch is not installed where this app can find it.\r\nSet CONCH_BIN, or install conch.\r\n")
             return
         }
         st.startProcess(executable: binary, args: ["attach", pane], environment: env.map { "\($0.key)=\($0.value)" })
+    }
+
+    /// A theme for this pane's terminal. Ghostty's panes take theirs from
+    /// the runtime's configuration (GhosttyRuntime.apply), all at once.
+    func apply(_ t: ConchTheme) {
+        if let st = view as? FocusingTerminalView {
+            st.nativeBackgroundColor = Theme.ns(t.bg)
+            st.nativeForegroundColor = Theme.ns(t.fg)
+            st.caretColor = Theme.ns(t.line)
+        }
     }
 
     func stop() {
