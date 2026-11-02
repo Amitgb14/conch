@@ -814,6 +814,7 @@ struct StatusBar: View {
     @ObservedObject var store: Store
     @State private var showLimits = false
     @State private var showMonitor = false
+    @State private var monitorHover = false
 
     static let treeKeys = [("⏎", "open"), ("t", "task"), ("c", "agent"), ("n", "terminal"), ("⌘D", "split")]
     static let paneKeys = [("⌘W", "close split"), ("⌘D", "split"), ("⇧⌘]", "next tab"), ("⌘K", "search"), ("⌘.", "next waiting")]
@@ -869,9 +870,13 @@ struct StatusBar: View {
             .buttonStyle(.plain).help("conch's settings, in the browser (conch config web); an open TUI takes in what you save")
             // What conch uses on this computer, in the corner as in the TUI.
             Button { showMonitor.toggle() } label: {
-                Text("▁▃▆").foregroundStyle(Theme.muted).contentShape(Rectangle())
+                MonitorIcon(color: showMonitor ? Theme.accent : Theme.muted)
+                    .frame(width: 22, height: 18)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(showMonitor || monitorHover ? Theme.raise : .clear))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain).help("Memory and CPU conch uses on this computer")
+            .onHover { monitorHover = $0 }
             .popover(isPresented: $showMonitor, arrowEdge: .top) { MonitorPopover(store: store) }
             .onChange(of: showMonitor) { if $0 { store.startMonitor() } else { store.stopMonitor() } }
         }
@@ -926,47 +931,65 @@ struct LimitsPopover: View {
     }
 }
 
-/// The memory and CPU conch uses on this computer — this window, the
-/// server, each pane with what runs in it — every two seconds while open:
-/// the TUI's ▁▃▆.
+/// The TUI's monitor icon, ▁▃▆, drawn as three bars rising from one
+/// baseline rather than as characters a font sets at uneven heights.
+struct MonitorIcon: View {
+    let color: Color
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 1.5) {
+            ForEach([3.0, 6.5, 10.5], id: \.self) { h in
+                RoundedRectangle(cornerRadius: 0.8).fill(color).frame(width: 3, height: h)
+            }
+        }
+    }
+}
+
+/// The memory and CPU conch uses on this computer, every two seconds
+/// while open: the TUI's monitor box, line for line — this window, the
+/// server, the panes with each one's tree under them, the total.
 struct MonitorPopover: View {
     @ObservedObject var store: Store
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("What conch uses on this computer").font(.system(size: 13, weight: .semibold))
+        VStack(alignment: .leading, spacing: 3) {
+            Text("monitor").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent).padding(.bottom, 4)
             if let r = store.resources {
-                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
-                    GridRow {
-                        Text("").gridColumnAlignment(.leading)
-                        Text("memory").gridColumnAlignment(.trailing)
-                        Text("CPU").gridColumnAlignment(.leading)
-                    }
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    ForEach(Array(r.rows.enumerated()), id: \.offset) { _, row in
-                        GridRow {
-                            Text(row.name).lineLimit(1).truncationMode(.tail).frame(maxWidth: 220, alignment: .leading)
-                            Text(formatMemory(row.rssKiB)).monospacedDigit()
-                            HStack(spacing: 6) {
-                                Meter(fraction: row.cpuPct / 100)
-                                Text(String(format: "%.0f%%", row.cpuPct)).monospacedDigit().frame(width: 40, alignment: .trailing)
-                            }
-                        }
-                    }
-                    Divider().gridCellColumns(3)
-                    GridRow {
-                        Text("total").fontWeight(.semibold)
-                        Text(formatMemory(r.total.rssKiB)).monospacedDigit().fontWeight(.semibold)
-                        Text(String(format: "%.0f%% of a core", r.total.cpuPct)).monospacedDigit()
-                    }
+                line(name: "", mem: "memory", cpu: Text("    cpu").foregroundStyle(Theme.muted), bold: false, header: true)
+                ForEach(Array(r.rows.enumerated()), id: \.offset) { _, row in
+                    line(name: (row.indent ? "  " : "") + row.name, mem: formatMemory(row.rssKiB), cpu: cpu(row.cpuPct), bold: false,
+                         muted: row.indent)
                 }
-                .font(.system(size: 12))
+                line(name: r.total.name, mem: formatMemory(r.total.rssKiB), cpu: cpu(r.total.cpuPct), bold: true)
             } else {
-                Text("Reading…").foregroundStyle(.secondary)
+                Text("reading processes…").foregroundStyle(Theme.muted)
             }
-            Text("A bar is one core. Panes on other machines are not counted here.").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("this computer · every 2s · cpu 100% = one core").foregroundStyle(Theme.muted).padding(.top, 8)
         }
-        .padding(14).frame(width: 420)
+        .font(.system(size: 12, design: .monospaced))
+        .fixedSize() // as wide as its lines: the CPU bars are never cut
+        .padding(12)
+        .background(Theme.chrome)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.accent.opacity(0.6)))
+    }
+
+    func line(name: String, mem: String, cpu: Text, bold: Bool, muted: Bool = false, header: Bool = false) -> some View {
+        HStack(spacing: 8) {
+            Text(name).lineLimit(1).truncationMode(.tail).frame(width: 220, alignment: .leading)
+                .foregroundStyle(header || muted ? Theme.muted : Theme.text).fontWeight(bold ? .bold : .regular)
+            Text(mem).frame(width: 72, alignment: .trailing).foregroundStyle(header ? Theme.muted : Theme.accent)
+            cpu.lineLimit(1).fixedSize()
+        }
+    }
+
+    /// "  3.2% ██░░░░░░░░" in the TUI's colours; "…" before a second sample.
+    func cpu(_ pct: Double?) -> Text {
+        guard let pct else { return Text("      …").foregroundStyle(Theme.muted) + Text(" " + String(repeating: "░", count: 10)).foregroundStyle(Theme.muted) }
+        let color: Color = cpuLevel(pct) == .hot ? Theme.err : cpuLevel(pct) == .busy ? Theme.warn : Theme.ok
+        let n = cpuCells(pct)
+        return Text(String(format: "%6.1f%%", pct)).foregroundStyle(color)
+            + Text(" " + String(repeating: "█", count: n)).foregroundStyle(color)
+            + Text(String(repeating: "░", count: 10 - n)).foregroundStyle(Theme.muted)
     }
 }
 

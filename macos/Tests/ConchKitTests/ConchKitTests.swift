@@ -765,8 +765,9 @@ final class FakeServer: @unchecked Sendable {
     #expect(parsePS("").isEmpty)
 }
 
-// The monitor's lines: a pane's tree is the pane's, not the server's; CPU
-// from two samples; the panes by memory, the rest folded; a gone root left out.
+// The monitor's lines, as the TUI's box: this window, the server alone (its
+// panes are theirs), "Panes (n)" adding them up, each pane indented and
+// largest first, and the total; CPU unknown until a second sample.
 @Test func resourceLines() {
     func proc(_ pid: Int, _ ppid: Int, _ rss: Int64, _ cpu: Double, _ comm: String = "x") -> Proc {
         Proc(pid: pid, ppid: ppid, rssKiB: rss, cpuSeconds: cpu, comm: comm)
@@ -778,24 +779,31 @@ final class FakeServer: @unchecked Sendable {
     now[22] = proc(22, 21, 1000, 11, "claude") // one CPU second in two: 50%
     now[20] = proc(20, 1, 200, 5.2)
     let cur = ProcSample(at: t0.addingTimeInterval(2), procs: now)
-    let r = resourceRows(prev: prev, cur: cur, app: ("Conch.app", 10), server: ("server", 20),
+    let r = resourceRows(prev: prev, cur: cur, app: ("This window", 10), server: 20,
                          panes: [("zsh", 23), ("claude", 21), ("gone", 99)])
-    #expect(r.rows.map(\.name) == ["Conch.app", "server", "claude", "zsh"])
-    #expect(r.rows[1].rssKiB == 200) // the server alone: its panes are theirs
-    #expect(r.rows[2].rssKiB == 1050 && abs(r.rows[2].cpuPct - 50) < 0.001)
-    #expect(abs(r.rows[1].cpuPct - 10) < 0.001)
-    let total: Int64 = 100 + 200 + 1050 + 10
-    #expect(r.total.rssKiB == total)
-    // One sample: memory, no CPU yet.
-    #expect(resourceRows(prev: nil, cur: cur, app: ("a", 10), server: nil, panes: []).rows.map(\.cpuPct) == [0])
-    // More panes than shown: the rest in one line.
+    #expect(r.rows.map(\.name) == ["This window", "Server · pid 20", "Panes (2)", "claude", "zsh"])
+    #expect(r.rows.map(\.indent) == [false, false, false, true, true])
+    #expect(r.rows[1].rssKiB == 200 && abs((r.rows[1].cpuPct ?? 0) - 10) < 0.001) // the server alone
+    #expect(r.rows[2].rssKiB == 1060 && abs((r.rows[2].cpuPct ?? 0) - 50) < 0.001)
+    #expect(r.rows[3].rssKiB == 1050)
+    let total: Int64 = 1360
+    #expect(r.total.name == "Total" && r.total.rssKiB == total)
+    // One sample: memory, CPU not yet known.
+    let first = resourceRows(prev: nil, cur: cur, app: ("w", 10), server: nil, panes: [("zsh", 23)])
+    #expect(first.rows.map(\.name) == ["w", "Panes (1)", "zsh"] && first.rows.allSatisfy { $0.cpuPct == nil } && first.total.cpuPct == nil)
+    // Past `most`, the rest in one line — but never a lone "1 more".
     var many: [Int: Proc] = [1: proc(1, 0, 1, 0)]
     for i in 0..<5 { many[100 + i] = proc(100 + i, 1, Int64(10 * (i + 1)), 0) }
     let m = resourceRows(prev: nil, cur: ProcSample(at: t0, procs: many), app: ("app", 999), server: nil,
                          panes: (0..<5).map { ("p\($0)", 100 + $0) }, most: 2)
-    let rest: Int64 = 10 + 20 + 30
-    #expect(m.rows.map(\.name) == ["p4", "p3", "3 more"] && m.rows[2].rssKiB == rest)
-    #expect(formatMemory(812) == "812 KB" && formatMemory(41 * 1024) == "41 MB" && formatMemory(Int64(1.5 * 1024 * 1024)) == "1.5 GB")
+    let rest: Int64 = 60
+    #expect(m.rows.map(\.name) == ["app", "Panes (5)", "p4", "p3", "3 more"] && m.rows[4].rssKiB == rest && m.rows[4].indent)
+    let four = resourceRows(prev: nil, cur: ProcSample(at: t0, procs: many), app: ("app", 999), server: nil,
+                            panes: (0..<3).map { ("p\($0)", 100 + $0) }, most: 2)
+    #expect(four.rows.map(\.name) == ["app", "Panes (3)", "p2", "p1", "p0"])
+    #expect(formatMemory(812) == "812 KB" && formatMemory(41 * 1024 + 600) == "42 MB" && formatMemory(Int64(1.5 * 1024 * 1024)) == "1.5 GB")
+    #expect(cpuLevel(10) == .fine && cpuLevel(80) == .busy && cpuLevel(250) == .hot)
+    #expect(cpuCells(0) == 0 && cpuCells(34) == 3 && cpuCells(100) == 10 && cpuCells(300) == 10 && cpuCells(-5) == 0)
 }
 
 @Test func settingsPageAddress() {

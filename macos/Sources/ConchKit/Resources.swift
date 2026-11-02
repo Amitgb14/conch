@@ -60,30 +60,36 @@ public func parseCPUTime(_ s: String) -> Double? {
     return (total * 1000).rounded() / 1000
 }
 
-/// One line of the monitor: a name, its memory and its share of a core.
+/// One line of the monitor: a name, its memory, its share of a core —
+/// nil until there is a second sample to measure it by — and whether it
+/// sits under the line above it (a pane under "Panes").
 public struct ResourceRow: Equatable, Sendable {
     public var name: String
     public var rssKiB: Int64
-    public var cpuPct: Double
+    public var cpuPct: Double?
+    public var indent: Bool
 
-    public init(name: String, rssKiB: Int64, cpuPct: Double) {
+    public init(name: String, rssKiB: Int64, cpuPct: Double?, indent: Bool = false) {
         self.name = name
         self.rssKiB = rssKiB
         self.cpuPct = cpuPct
+        self.indent = indent
     }
 }
 
-/// The monitor's lines from two samples: each root with everything under
-/// it — a pane's tree first, so the server's line is the server itself
-/// and not its panes — the panes by memory, the most after `most` folded
-/// into one line, and the total. A root whose process is gone is left out.
-public func resourceRows(prev: ProcSample?, cur: ProcSample, app: (String, Int), server: (String, Int)?,
+/// The monitor's lines from two samples, as the TUI's box has them: this
+/// window; the server, with what it runs that is no pane's; "Panes (n)"
+/// adding them up, and each pane with everything running in it, indented,
+/// the largest first, past `most` folded into "N more" (never a lone "1
+/// more"); and the total. A pane's tree is counted before the server's,
+/// whose children the panes are.
+public func resourceRows(prev: ProcSample?, cur: ProcSample, app: (String, Int), server: Int?,
                          panes: [(String, Int)], most: Int = 8) -> (rows: [ResourceRow], total: ResourceRow) {
     var children: [Int: [Int]] = [:]
     for p in cur.procs.values where p.pid != p.ppid { children[p.ppid, default: []].append(p.pid) }
     var claimed: Set<Int> = []
     func tree(_ root: Int) -> [Int] {
-        guard cur.procs[root] != nil, !claimed.contains(root) else { return [] }
+        guard root > 0, cur.procs[root] != nil, !claimed.contains(root) else { return [] }
         var out: [Int] = []
         var stack = [root]
         while let pid = stack.popLast() {
@@ -95,41 +101,69 @@ public func resourceRows(prev: ProcSample?, cur: ProcSample, app: (String, Int),
         return out
     }
     let dt = prev.map { cur.at.timeIntervalSince($0.at) } ?? 0
-    func row(_ name: String, _ pids: [Int]) -> ResourceRow {
+    var all: [Int] = []
+    func sum(_ pids: [Int]) -> (Int64, Double?) {
         var rss: Int64 = 0
         var cpu = 0.0
         for pid in pids {
             guard let p = cur.procs[pid] else { continue }
             rss += p.rssKiB
-            if dt > 0, let was = prev?.procs[pid], was.comm == p.comm {
-                cpu += max(p.cpuSeconds - was.cpuSeconds, 0)
-            }
+            if let was = prev?.procs[pid], was.comm == p.comm { cpu += max(p.cpuSeconds - was.cpuSeconds, 0) }
         }
-        return ResourceRow(name: name, rssKiB: rss, cpuPct: dt > 0 ? cpu / dt * 100 : 0)
+        return (rss, dt > 0 ? cpu / dt * 100 : nil)
     }
-    // Panes first: what runs in a pane is the pane's, not the server's.
+    func row(_ name: String, _ pids: [Int], indent: Bool = false) -> ResourceRow {
+        all += pids
+        let (rss, cpu) = sum(pids)
+        return ResourceRow(name: name, rssKiB: rss, cpuPct: cpu, indent: indent)
+    }
+    func adding(_ name: String, _ us: [ResourceRow], indent: Bool) -> ResourceRow {
+        var out = ResourceRow(name: name, rssKiB: 0, cpuPct: nil, indent: indent)
+        for u in us {
+            out.rssKiB += u.rssKiB
+            if let c = u.cpuPct { out.cpuPct = (out.cpuPct ?? 0) + c }
+        }
+        return out
+    }
+    // The server is held back until the panes are counted: they are its.
+    if let server { claimed.insert(server) }
+    var rows = [row(app.0, tree(app.1))]
     var paneRows = panes.compactMap { name, pid -> ResourceRow? in
         let pids = tree(pid)
-        return pids.isEmpty ? nil : row(name, pids)
+        return pids.isEmpty ? nil : row(name, pids, indent: true)
     }
-    paneRows.sort { $0.rssKiB != $1.rssKiB ? $0.rssKiB > $1.rssKiB : $0.name < $1.name }
-    var rows: [ResourceRow] = []
-    if let server, case let pids = tree(server.1), !pids.isEmpty { rows.append(row(server.0, pids)) }
-    if case let pids = tree(app.1), !pids.isEmpty { rows.insert(row(app.0, pids), at: 0) }
-    rows += paneRows.prefix(most)
-    if paneRows.count > most {
-        let rest = paneRows.dropFirst(most)
-        rows.append(ResourceRow(name: "\(rest.count) more", rssKiB: rest.reduce(0) { $0 + $1.rssKiB }, cpuPct: rest.reduce(0) { $0 + $1.cpuPct }))
+    if let server, cur.procs[server] != nil {
+        claimed.remove(server)
+        rows.append(row("Server · pid \(server)", tree(server)))
     }
-    let all = ResourceRow(name: "conch", rssKiB: rows.reduce(0) { $0 + $1.rssKiB }, cpuPct: rows.reduce(0) { $0 + $1.cpuPct })
-    return (rows, all)
+    paneRows.sort { $0.rssKiB > $1.rssKiB }
+    let head = adding("Panes (\(paneRows.count))", paneRows, indent: false)
+    if paneRows.count > most + 1 {
+        let rest = Array(paneRows[most...])
+        paneRows = Array(paneRows[..<most]) + [adding("\(rest.count) more", rest, indent: true)]
+    }
+    rows.append(head)
+    rows += paneRows
+    let (rss, cpu) = sum(all)
+    return (rows, ResourceRow(name: "Total", rssKiB: rss, cpuPct: cpu))
 }
 
-/// Memory as the monitor writes it: 812 KB, 41 MB, 1.2 GB.
+/// How hot a share of a core is: fine, busy from 80%, hot from two cores.
+public enum CPULevel: Equatable, Sendable { case fine, busy, hot }
+
+public func cpuLevel(_ pct: Double) -> CPULevel { pct >= 200 ? .hot : pct >= 80 ? .busy : .fine }
+
+/// A share of a core as the TUI's bar: cells filled out of `width`, a full
+/// bar one core.
+public func cpuCells(_ pct: Double, width: Int = 10) -> Int {
+    Int((min(max(pct, 0), 100) / 100 * Double(width)).rounded())
+}
+
+/// Memory as the TUI writes it: 812 KB, 41 MB, 1.2 GB.
 public func formatMemory(_ kib: Int64) -> String {
     switch kib {
-    case ..<1024: return "\(kib) KB"
-    case ..<(1024 * 1024): return "\(kib / 1024) MB"
-    default: return String(format: "%.1f GB", Double(kib) / 1024 / 1024)
+    case (1024 * 1024)...: return String(format: "%.1f GB", Double(kib) / (1024 * 1024))
+    case 1024...: return "\((kib + 512) / 1024) MB"
+    default: return "\(kib) KB"
     }
 }

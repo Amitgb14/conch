@@ -213,8 +213,8 @@ final class Store: ObservableObject {
                 let out = (try? await runProgram("/bin/ps", psArguments)) ?? ""
                 let cur = ProcSample(at: Date(), procs: parsePS(out))
                 guard let self else { return }
-                self.resources = resourceRows(prev: prev, cur: cur, app: ("Conch.app", Int(ProcessInfo.processInfo.processIdentifier)),
-                                              server: self.conns["local"]?.hello?.pid.map { ("server", $0) },
+                self.resources = resourceRows(prev: prev, cur: cur, app: ("This window (Conch.app)", Int(ProcessInfo.processInfo.processIdentifier)),
+                                              server: self.conns["local"]?.hello?.pid,
                                               panes: (self.snapshots["local"]?.panes ?? []).compactMap { p in p.pid.map { (p.displayName, $0) } })
                 prev = cur
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
