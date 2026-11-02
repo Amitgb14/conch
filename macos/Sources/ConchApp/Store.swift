@@ -2,21 +2,39 @@ import AppKit
 import ConchKit
 import Foundation
 
-/// The window's state: what the server says (Snapshot), how the tabs are
-/// laid out, and the terminal views — kept here so a view moved between
-/// splits keeps its terminal and the program in it.
+/// A machine the window shows: this computer, or one from machines.json
+/// reached through `conch machine bridge`.
+struct MachineLink: Identifiable, Equatable {
+    var id: String
+    var label: String
+    /// "" when online; otherwise what it is doing or why it is not.
+    var state = "connecting"
+    /// Why it is offline, in the bridge's or the socket's own words.
+    var why = ""
+    var version = ""
+
+    var online: Bool { state.isEmpty }
+}
+
+/// The window's state: what each machine's server says (a Snapshot each),
+/// how the tabs are laid out, and the terminal views — kept here so a view
+/// moved between splits keeps its terminal and the program in it.
+///
+/// Panes, projects and branches are named "machine|id" throughout
+/// (ConchKit.key): this computer's p3 is not busybox's p3.
 @MainActor
 final class Store: ObservableObject {
-    @Published var snapshot = Snapshot()
+    @Published var machines: [MachineLink] = [MachineLink(id: "local", label: "local")]
+    @Published var snapshots: [String: Snapshot] = [:]
     @Published var layout = Layout()
     @Published var workspaces: [Workspace] = [Workspace(name: "")]
     @Published var workspace = 0
     @Published var questions: [String: Question] = [:]
+    @Published var sessions: [String: Int] = [:]
+    @Published var limits: [PlanLimits] = []
     @Published var status: String = "Connecting to conch…"
-    @Published var connected = false
     @Published var paletteOpen = false
     @Published var sidebarVisible = true
-    @Published var serverVersion = ""
     @Published var error: String?
     /// The theme chosen in the app ("" follows conch's own [ui] theme),
     /// and the one in effect.
@@ -27,8 +45,9 @@ final class Store: ObservableObject {
     var onTheme: ((ConchTheme) -> Void)?
 
     let binary: String?
-    private var conn: Connection?
+    private var conns: [String: Connection] = [:]
     private(set) var terminals: [String: PaneTerminal] = [:]
+    private(set) var changeViews: [String: ChangesModel] = [:]
     private var asking: Set<String> = []
 
     init() {
@@ -36,6 +55,66 @@ final class Store: ObservableObject {
         loadWorkspaces()
         loadTheme()
         watchClicks()
+    }
+
+    // MARK: what the window shows
+
+    var ws: Workspace? { workspaces.indices.contains(workspace) ? workspaces[workspace] : nil }
+
+    /// This computer's server answers: the window has something to show.
+    var connected: Bool { machines.first?.online == true }
+    var serverVersion: String { machines.first?.version ?? "" }
+
+    func connection(_ machine: String) -> Connection? { conns[machine] }
+
+    /// "api · local": where a pane is, for the end of the tab bar.
+    func scope(of k: String) -> String {
+        if let c = parseChangesKey(k) {
+            return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
+        }
+        let (m, _) = unkey(k)
+        let project = pane(k)?.projectID.flatMap { snapshots[m]?.project($0)?.name }
+        return [project ?? "CLI", label(m)].joined(separator: " · ")
+    }
+
+    /// Whether a pane's terminal has the keyboard, for the status bar's
+    /// chip; set as the window's first responder changes.
+    @Published var terminalHasKeyboard = false
+
+    func pane(_ k: String) -> PaneInfo? {
+        let (m, id) = unkey(k)
+        return snapshots[m]?.pane(id)
+    }
+
+    func label(_ machine: String) -> String { machines.first { $0.id == machine }?.label ?? machine }
+
+    /// The sidebar: a tree per machine, this computer first.
+    var tree: [TreeNode] {
+        machines.map { m in
+            var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions)
+            if !m.online { node.badge = m.state }
+            return node
+        }
+    }
+
+    /// Waiting and done, across every machine.
+    var inbox: (waiting: Int, done: Int) {
+        machines.reduce((0, 0)) { acc, m in
+            let (w, d) = (snapshots[m.id] ?? Snapshot()).inbox(in: ws)
+            return (acc.0 + w, acc.1 + d)
+        }
+    }
+
+    var paletteItems: [PaletteItem] {
+        var w: [PaletteItem] = [], p: [PaletteItem] = [], pl: [PaletteItem] = []
+        let many = machines.count > 1
+        for m in machines {
+            let (a, b, c) = (snapshots[m.id] ?? Snapshot()).paletteItems(machine: m.id, label: many ? m.label : nil, in: ws)
+            w += a
+            p += b
+            pl += c
+        }
+        return w + p + pl + paletteCommandItems()
     }
 
     // MARK: theme
@@ -65,11 +144,12 @@ final class Store: ObservableObject {
         ConchTheme.named(ConchTheme.configured(in: try? String(contentsOfFile: configFile, encoding: .utf8)))
     }
 
-    private var configFile: String {
-        let dir = ProcessInfo.processInfo.environment["CONCH_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+    private var conchDir: String {
+        ProcessInfo.processInfo.environment["CONCH_HOME"].flatMap { $0.isEmpty ? nil : $0 }
             ?? (NSHomeDirectory() as NSString).appendingPathComponent(".config/conch")
-        return (dir as NSString).appendingPathComponent("config.toml")
     }
+
+    private var configFile: String { (conchDir as NSString).appendingPathComponent("config.toml") }
 
     /// A click in a pane's terminal gives that pane the keyboard: the split
     /// it is in becomes the focused one.
@@ -77,20 +157,26 @@ final class Store: ObservableObject {
         NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
             MainActor.assumeIsolated {
                 guard let self, let win = e.window, let hit = win.contentView?.hitTest(e.locationInWindow) else { return }
+                var inTerminal = false
                 for (pane, t) in self.terminals where hit === t.view || hit.isDescendant(of: t.view) {
                     self.focus(pane)
+                    inTerminal = true
                 }
+                self.terminalHasKeyboard = inTerminal
             }
             return e
         }
     }
 
-    var ws: Workspace? { workspaces.indices.contains(workspace) ? workspaces[workspace] : nil }
-
     // MARK: connecting
 
+    /// This computer, and every enabled machine in machines.json.
     func connect() {
-        Task { await connectNow(start: false) }
+        let entries = MachineEntry.load(machinesJSON: FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("machines.json")))
+        var next = [machines.first { $0.id == "local" } ?? MachineLink(id: "local", label: "local")]
+        for e in entries { next.append(machines.first { $0.id == e.id } ?? MachineLink(id: e.id, label: e.label)) }
+        machines = next
+        for m in machines where conns[m.id] == nil { Task { await connect(m.id) } }
     }
 
     /// Starts conch's server (the way `conch` does) and connects.
@@ -99,136 +185,241 @@ final class Store: ObservableObject {
         status = "Starting conch's server…"
         Task {
             do { _ = try await runConch(b, ["agent", "status"]) } catch { self.error = "\(error)" }
-            await connectNow(start: true)
+            await connect("local")
         }
     }
 
-    private func connectNow(start: Bool) async {
+    private func setState(_ machine: String, _ state: String, version: String? = nil) {
+        guard let i = machines.firstIndex(where: { $0.id == machine }) else { return }
+        machines[i].state = state
+        if let version { machines[i].version = version }
+    }
+
+    private func connect(_ machine: String) async {
+        setState(machine, "connecting")
         do {
-            let c = try Connection(path: conchSocketPath())
+            let c: Connection
+            if machine == "local" {
+                c = try Connection(path: conchSocketPath())
+            } else {
+                guard let b = binary else { throw ConchError(code: "conch", message: "no conch to reach it with") }
+                c = try Connection(command: b, args: ["machine", "bridge", machine], environment: conchEnvironment())
+            }
             c.onEvent = { [weak self] name, data in
-                MainActor.assumeIsolated { self?.event(name, data) }
+                MainActor.assumeIsolated { self?.event(machine, name, data) }
             }
-            c.onClose = { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.connected = false
-                    self?.status = "The connection to conch's server closed."
-                }
+            c.onClose = { [weak self, weak c] _ in
+                MainActor.assumeIsolated { self?.closed(machine, why: c?.bridgeError ?? "") }
             }
+            conns[machine] = c
             try await c.handshake()
-            conn = c
-            serverVersion = c.hello?.version ?? ""
             let panes = try await c.call("pane.list", as: PaneList.self)
             let projects = try await c.call("project.list", as: ProjectList.self)
-            snapshot = Snapshot(panes: panes.panes, projects: projects.projects)
-            connected = true
-            error = nil
-            status = ""
-            for p in snapshot.panes where p.agent?.state == .blocked { ask(p.id) }
+            snapshots[machine] = Snapshot(panes: panes.panes, projects: projects.projects)
+            setState(machine, "", version: c.hello?.version ?? "")
+            if machine == "local" {
+                error = nil
+                status = ""
+                if let l = try? await c.call("agent.limits", as: AgentLimitsResult.self) { limits = l.limits ?? [] }
+            }
+            for p in panes.panes where p.agent?.state == .blocked { ask(key(machine, p.id)) }
+            countSessions(machine)
             // Nothing is opened, and nothing given the keyboard, until a
             // pane is picked: a window that opened on an agent with its
             // terminal focused sent the first key anyone pressed — an Enter
             // — to that agent, which took it as accepting its suggestion.
-            // Asked for by name at launch (`-open p3`), a pane is shown —
-            // still without the keyboard.
-            if let p = UserDefaults.standard.string(forKey: "open"), snapshot.pane(p) != nil { layout.open(p) }
+            // Asked for by name at launch (`-open p3`, `-open busybox|p3`),
+            // a pane is shown — still without the keyboard.
+            if let o = UserDefaults.standard.string(forKey: "open") {
+                if let c = parseChangesKey(o) {
+                    if c.machine == machine { layout.open(o) } // a branch's changes
+                } else {
+                    let k = o.contains("|") ? o : key("local", o)
+                    if unkey(k).machine == machine, pane(k) != nil { layout.open(k) }
+                }
+            }
         } catch {
-            connected = false
-            status = "\(error)"
+            conns[machine]?.shutdown()
+            conns[machine] = nil
+            closed(machine, why: "\(error)")
         }
     }
 
-    private func event(_ name: String, _ data: Data) {
+    /// A machine's connection went: said on its row, and tried again in a
+    /// while for one elsewhere (this computer's has a button).
+    private func closed(_ machine: String, why: String) {
+        guard conns[machine] != nil || machines.first(where: { $0.id == machine })?.state == "connecting" else { return }
+        conns[machine] = nil
+        let reason = why.split(separator: "\n").last.map(String.init) ?? ""
+        setState(machine, "offline")
+        if let i = machines.firstIndex(where: { $0.id == machine }) { machines[i].why = reason }
+        if machine == "local" {
+            status = reason.isEmpty ? "The connection to conch's server closed." : reason
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                guard let self, self.conns[machine] == nil, self.machines.contains(where: { $0.id == machine }) else { return }
+                Task { await self.connect(machine) }
+            }
+        }
+    }
+
+    private func event(_ machine: String, _ name: String, _ data: Data) {
         let dec = conchDecoder()
+        var snap = snapshots[machine] ?? Snapshot()
         switch name {
         case "pane.created", "pane.updated", "pane.exited":
             guard let p = try? dec.decode(PaneInfo.self, from: data) else { return }
-            let was = snapshot.pane(p.id)?.agent?.state
-            snapshot.upsert(p)
+            let k = key(machine, p.id)
+            let was = snap.pane(p.id)?.agent?.state
+            snap.upsert(p)
             if p.agent?.state == .blocked {
-                if was != .blocked || questions[p.id] == nil { ask(p.id) }
+                if was != .blocked || questions[k] == nil { ask(k) }
             } else {
-                questions.removeValue(forKey: p.id)
+                questions.removeValue(forKey: k)
             }
         case "pane.closed":
             guard let p = try? dec.decode(PaneInfo.self, from: data) else { return }
-            snapshot.remove(pane: p.id)
-            layout.close(p.id)
-            terminals.removeValue(forKey: p.id)?.stop()
-            questions.removeValue(forKey: p.id)
+            let k = key(machine, p.id)
+            snap.remove(pane: p.id)
+            layout.close(k)
+            terminals.removeValue(forKey: k)?.stop()
+            questions.removeValue(forKey: k)
         case "project.updated":
-            if let p = try? dec.decode(ProjectInfo.self, from: data) { snapshot.upsert(p) }
+            if let p = try? dec.decode(ProjectInfo.self, from: data) {
+                snap.upsert(p)
+                // Git moved (a commit, a push): open changes read again.
+                for v in changeViews.values where v.machine == machine && v.project == p.id { Task { await v.load() } }
+            }
         case "project.removed":
             struct Ref: Decodable { var id: String }
-            if let r = try? dec.decode(Ref.self, from: data) { snapshot.remove(project: r.id) }
+            if let r = try? dec.decode(Ref.self, from: data) { snap.remove(project: r.id) }
+        case "worktree.changed":
+            struct Changed: Decodable {
+                var project_id: String
+                var worktree: String
+                var paths: [String]?
+            }
+            if let ch = try? dec.decode(Changed.self, from: data) {
+                for v in changeViews.values where v.machine == machine && v.project == ch.project_id {
+                    v.written(ch.paths ?? [], worktree: ch.worktree)
+                }
+            }
+            return
+        case "agent.limits":
+            if machine == "local", let l = try? dec.decode(PlanLimits.self, from: data) {
+                limits.removeAll { $0.agent == l.agent }
+                limits.append(l)
+            }
+            return
         default:
-            break
+            return
+        }
+        snapshots[machine] = snap
+    }
+
+    /// How many saved conversations each of a machine's projects has, for
+    /// the Sessions row.
+    private func countSessions(_ machine: String) {
+        guard let c = conns[machine] else { return }
+        struct List: Encodable {
+            var project_id: String
+            var limit: Int
+        }
+        for pr in snapshots[machine]?.projects ?? [] {
+            Task {
+                if let n = try? await c.call("session.list", List(project_id: pr.id, limit: 500), as: SessionCount.self) {
+                    sessions[key(machine, pr.id)] = n.count
+                }
+            }
         }
     }
 
     // MARK: answering
 
     /// Reads what a waiting agent asks, for its answer buttons.
-    func ask(_ pane: String) {
-        guard let b = binary, !asking.contains(pane) else { return }
-        asking.insert(pane)
+    func ask(_ k: String) {
+        guard let b = binary, !asking.contains(k) else { return }
+        asking.insert(k)
+        let (m, id) = unkey(k)
         Task {
-            defer { asking.remove(pane) }
-            if let q = try? await readQuestion(b, pane: pane) {
-                questions[pane] = q
+            defer { asking.remove(k) }
+            if let q = try? await readQuestion(b, pane: id, machine: m) {
+                questions[k] = q
             } else {
-                questions.removeValue(forKey: pane)
+                questions.removeValue(forKey: k)
             }
         }
     }
 
-    func answer(_ pane: String, _ q: Question, _ c: Choice) {
+    func answer(_ k: String, _ q: Question, _ c: Choice) {
         guard let b = binary else { return }
-        questions.removeValue(forKey: pane) // answered: the buttons go at once
+        questions.removeValue(forKey: k) // answered: the buttons go at once
+        let (m, id) = unkey(k)
         Task {
             do {
-                try await ConchKit.answer(b, pane: pane, question: q, choice: c)
+                try await ConchKit.answer(b, pane: id, machine: m, question: q, choice: c)
             } catch {
                 self.error = "\(error)"
-                ask(pane)
+                ask(k)
             }
         }
     }
 
     // MARK: panes and tabs
 
-    func terminal(for pane: String) -> PaneTerminal {
-        if let t = terminals[pane] { return t }
-        let t = PaneTerminal(pane: pane, binary: binary, store: self)
-        terminals[pane] = t
+    func terminal(for k: String) -> PaneTerminal {
+        if let t = terminals[k] { return t }
+        let t = PaneTerminal(key: k, binary: binary, store: self)
+        terminals[k] = t
         return t
     }
 
-    func open(_ pane: String) {
-        layout.open(pane)
+    func open(_ k: String) {
+        layout.open(k)
         focusTerminal()
     }
 
-    func focus(_ pane: String) {
-        if layout.focused != pane { layout.focus(pane) }
+    func changes(for k: String) -> ChangesModel {
+        if let m = changeViews[k] { return m }
+        let m = ChangesModel(key: k, store: self)
+        changeViews[k] = m
+        return m
+    }
+
+    /// A branch's changes, in a tab of their own — what a click on a branch
+    /// opens, as in the TUI.
+    func openChanges(project pk: String, branch: String) {
+        let (m, pid) = unkey(pk)
+        layout.open(changesKey(m, pid, branch))
+        terminalHasKeyboard = false
+    }
+
+    func focus(_ k: String) {
+        if layout.focused != k { layout.focus(k) }
     }
 
     func focusTerminal() {
         guard let p = layout.focused else { return }
-        DispatchQueue.main.async { self.terminals[p]?.view.window?.makeFirstResponder(self.terminals[p]?.view) }
+        DispatchQueue.main.async {
+            if let v = self.terminals[p]?.view, v.window?.makeFirstResponder(v) == true { self.terminalHasKeyboard = true }
+        }
     }
 
-    /// A new shell where the focused pane is (its folder, so its project),
-    /// in a split beside it or a tab of its own.
+    /// A new shell where the focused pane is — its machine and its folder,
+    /// so its project — in a split beside it or a tab of its own.
     func newTerminal(split axis: SplitNode.Axis?) {
-        guard let c = conn else { return }
+        let machine = layout.focused.map { parseChangesKey($0)?.machine ?? unkey($0).machine } ?? "local"
+        guard let c = conns[machine] else { return }
         struct Create: Encodable { var cwd: String? }
-        let cwd = layout.focused.flatMap { snapshot.pane($0)?.cwd }
+        let cwd = layout.focused.flatMap { k in
+            pane(k)?.cwd ?? parseChangesKey(k).flatMap { c in changeViews[k]?.changes?.worktree ?? snapshots[c.machine]?.project(c.project)?.path }
+        }
         Task {
             do {
                 let p = try await c.call("pane.create", Create(cwd: cwd), as: PaneInfo.self)
-                snapshot.upsert(p)
-                if let axis { layout.split(axis, with: p.id) } else { layout.open(p.id) }
+                snapshots[machine, default: Snapshot()].upsert(p)
+                let k = key(machine, p.id)
+                if let axis { layout.split(axis, with: k) } else { layout.open(k) }
                 focusTerminal()
             } catch {
                 self.error = "\(error)"
@@ -243,40 +434,59 @@ final class Store: ObservableObject {
         guard let p = layout.focused else { return }
         layout.close(p)
         terminals.removeValue(forKey: p)?.stop()
+        changeViews.removeValue(forKey: p)
         focusTerminal()
     }
 
+    /// The next agent waiting for you, on any machine: waiting ones first,
+    /// then the ones that finished, each machine in the sidebar's order.
     func nextWaiting() {
-        if let p = snapshot.nextAttention(after: layout.focused, in: ws) { open(p) }
+        var order: [String] = []
+        for m in machines {
+            var seen: Set<String> = []
+            var next = snapshots[m.id]?.nextAttention(after: nil, in: ws)
+            while let n = next, !seen.contains(n) {
+                seen.insert(n)
+                order.append(key(m.id, n))
+                next = snapshots[m.id]?.nextAttention(after: n, in: ws)
+            }
+        }
+        guard !order.isEmpty else { return }
+        let i = layout.focused.flatMap { order.firstIndex(of: $0) }.map { ($0 + 1) % order.count } ?? 0
+        open(order[i])
     }
 
     /// Worktrees a terminal is being started in, so a second click while
     /// the first is on its way does not start another.
     private var starting: Set<String> = []
 
-    func openBranch(project: String, name: String) {
+    func openBranch(project pk: String, name: String) {
+        let (m, pid) = unkey(pk)
+        guard let snap = snapshots[m] else { return }
         // Its agent, or a terminal already in its worktree; only failing
-        // both, a new terminal there.
-        if let p = snapshot.paneFor(branch: name, project: project) {
-            open(p)
+        // both, a new terminal there — for a branch that has a worktree.
+        if let p = snap.paneFor(branch: name, project: pid) {
+            open(key(m, p))
             return
         }
-        guard let c = conn, let pr = snapshot.project(project),
-              let wt = pr.worktrees?.first(where: { $0.branch == name }), !starting.contains(wt.path) else { return }
+        guard let c = conns[m], let pr = snap.project(pid),
+              let wt = pr.worktrees?.first(where: { $0.branch == name }), !starting.contains(key(m, wt.path)) else { return }
         struct Create: Encodable { var cwd: String }
-        starting.insert(wt.path)
+        starting.insert(key(m, wt.path))
         Task {
-            defer { starting.remove(wt.path) }
+            defer { starting.remove(key(m, wt.path)) }
             if let p = try? await c.call("pane.create", Create(cwd: wt.path), as: PaneInfo.self) {
-                snapshot.upsert(p)
-                open(p.id)
+                snapshots[m, default: Snapshot()].upsert(p)
+                open(key(m, p.id))
             }
         }
     }
 
-    func openProject(_ id: String) {
-        if let p = snapshot.panes.first(where: { $0.projectID == id && $0.agent != nil }) ?? snapshot.panes.first(where: { $0.projectID == id }) {
-            open(p.id)
+    func openProject(_ pk: String) {
+        let (m, pid) = unkey(pk)
+        guard let snap = snapshots[m] else { return }
+        if let p = snap.panes.first(where: { $0.projectID == pid && $0.agent != nil }) ?? snap.panes.first(where: { $0.projectID == pid }) {
+            open(key(m, p.id))
         }
     }
 
@@ -285,7 +495,7 @@ final class Store: ObservableObject {
         switch action {
         case .pane(let p): open(p)
         case .project(let id): openProject(id)
-        case .branch(let pr, let name): openBranch(project: pr, name: name)
+        case .branch(let pr, let name): openChanges(project: pr, branch: name)
         case .command(let id): command(id)
         }
     }
@@ -315,9 +525,7 @@ final class Store: ObservableObject {
     // MARK: workspaces
 
     func loadWorkspaces() {
-        let dir = ProcessInfo.processInfo.environment["CONCH_HOME"].flatMap { $0.isEmpty ? nil : $0 }
-            ?? (NSHomeDirectory() as NSString).appendingPathComponent(".config/conch")
-        let data = FileManager.default.contents(atPath: (dir as NSString).appendingPathComponent("ui.json"))
+        let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("ui.json"))
         workspaces = Workspace.load(uiJSON: data)
         workspace = min(workspace, workspaces.count - 1)
     }

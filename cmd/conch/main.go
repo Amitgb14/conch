@@ -152,6 +152,8 @@ Usage:
                                 add a remote machine (installs conch there); -o is an ssh
                                 setting it is reached with (-o ProxyJump=bastion)
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
+  conch machine bridge ID       conch's protocol to that machine's server, on stdin and stdout
+                                (how the Mac app reaches it); installs nothing
   conch sandbox -provider daytona|boat|devin create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
                                 make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY,
                                 Devin Cloud: $DEVIN_API_KEY and a signed-in devin CLI)

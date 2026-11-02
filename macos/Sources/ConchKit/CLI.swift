@@ -55,15 +55,20 @@ public func runConch(_ binary: String, _ args: [String]) async throws -> Data {
     }
 }
 
+/// conch's arguments for a machine: none for this computer, -m otherwise.
+public func onMachine(_ machine: String, _ args: [String]) -> [String] {
+    machine == "local" ? args : ["-m", machine] + args
+}
+
 /// What a waiting agent asks, or nil when it is not waiting.
-public func readQuestion(_ binary: String, pane: String) async throws -> Question? {
-    let data = try await runConch(binary, ["agent", "question", pane])
+public func readQuestion(_ binary: String, pane: String, machine: String = "local") async throws -> Question? {
+    let data = try await runConch(binary, onMachine(machine, ["agent", "question", pane]))
     if String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) == "null" { return nil }
     return try JSONDecoder().decode(Question.self, from: data)
 }
 
 /// Picks a choice of a waiting agent's menu — refused if the question has
 /// changed since it was read.
-public func answer(_ binary: String, pane: String, question: Question, choice: Choice) async throws {
-    _ = try await runConch(binary, ["agent", "answer", "-question", question.id, pane, choice.choice])
+public func answer(_ binary: String, pane: String, machine: String = "local", question: Question, choice: Choice) async throws {
+    _ = try await runConch(binary, onMachine(machine, ["agent", "answer", "-question", question.id, pane, choice.choice]))
 }

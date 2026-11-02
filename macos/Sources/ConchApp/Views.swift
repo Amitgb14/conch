@@ -133,7 +133,7 @@ struct Counts: View {
     @ObservedObject var store: Store
 
     var body: some View {
-        let (w, d) = store.snapshot.inbox(in: store.ws)
+        let (w, d) = store.inbox
         HStack(spacing: 8) {
             if w > 0 {
                 Button { store.nextWaiting() } label: { Pill(text: "⚑ \(w) waiting", fg: Theme.onWarn, bg: Theme.warn) }
@@ -159,7 +159,7 @@ struct MainView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     if store.sidebarVisible {
-                        Sidebar(store: store).frame(width: 270)
+                        Sidebar(store: store).frame(width: 300)
                         Rectangle().fill(Theme.line.opacity(0.6)).frame(width: 1)
                     }
                     VStack(spacing: 0) {
@@ -219,7 +219,7 @@ struct Sidebar: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("MACHINES").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 4)
-                ForEach(store.snapshot.tree(in: store.ws)) { node in
+                ForEach(store.tree) { node in
                     NodeView(store: store, node: node, depth: 0)
                 }
             }
@@ -267,8 +267,8 @@ struct NodeView: View {
             icon
             // The name first: the branch is on the pane's own card, and a
             // narrow sidebar gives it up before the name.
-            Text(node.title).font(.system(size: 13))
-                .foregroundStyle(isSection ? Theme.text2 : Theme.text).lineLimit(1).truncationMode(.tail)
+            Text(node.title).font(isBranch ? .system(size: 12, design: .monospaced) : .system(size: 13))
+                .foregroundStyle(isSection || isSessions ? Theme.text2 : Theme.text).lineLimit(1).truncationMode(.tail)
                 .layoutPriority(1)
             Spacer(minLength: 4)
             badge.fixedSize()
@@ -281,41 +281,76 @@ struct NodeView: View {
 
     var isGroup: Bool { if case .project = node.kind { return true }; return false }
     var isSection: Bool { if case .section = node.kind { return true }; return false }
+    var isSessions: Bool { if case .sessions = node.kind { return true }; return false }
+    var isBranch: Bool { if case .branch = node.kind { return true }; return false }
 
     @ViewBuilder var icon: some View {
         switch node.kind {
-        case .machine: Dot(color: Theme.ok)
+        case .machine(let m):
+            let link = store.machines.first { $0.id == m }
+            Dot(color: link?.online == true ? Theme.ok : link?.state == "connecting" ? Theme.warn : Theme.muted)
         case .project: Text("◆").font(.system(size: 10)).foregroundStyle(Theme.accent)
         case .cli: Text("❯").font(.system(size: 11)).foregroundStyle(Theme.accent)
-        case .agent(let id): Dot(color: Theme.agent(store.snapshot.pane(id)?.agent?.name))
+        case .agent(let id): Dot(color: Theme.agent(store.pane(id)?.agent?.name))
         case .terminal: Text("›").foregroundStyle(Theme.muted)
-        case .branch: Text("◇").font(.system(size: 11)).foregroundStyle(Theme.text2)
-        case .section: EmptyView()
+        case .branch(_, _, let checkedOut):
+            // ◇ checked out in a worktree of its own, · not checked out:
+            // the TUI's marks.
+            Text(checkedOut ? "◇" : "·").font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2).frame(width: 9)
+        case .section, .sessions: EmptyView()
+        }
+    }
+
+    /// A count pill: the machine and project rows' working and waiting.
+    func counts(_ badge: String) -> some View {
+        HStack(spacing: 4) {
+            ForEach(badge.split(separator: " ").map(String.init), id: \.self) { part in
+                if part.hasPrefix("⚑") {
+                    Pill(text: String(part.dropFirst()), fg: Theme.onWarn, bg: Theme.warn)
+                } else if part.hasPrefix("⠋") {
+                    Pill(text: String(part.dropFirst()), fg: Theme.work, bg: Theme.work.opacity(0.18))
+                } else if part.hasPrefix("✓") {
+                    Pill(text: String(part.dropFirst()), fg: Theme.ok, bg: Theme.ok.opacity(0.16))
+                } else {
+                    Text(part).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                }
+            }
         }
     }
 
     @ViewBuilder var badge: some View {
         switch node.kind {
         case .agent(let id):
-            switch store.snapshot.pane(id)?.agent?.state {
-            case .working: Text("⠋").font(.system(size: 12)).foregroundStyle(Theme.work).help("working")
-            case .blocked: Pill(text: "waiting", fg: Theme.onWarn, bg: Theme.warn)
-            case .done: Text("✓").foregroundStyle(Theme.ok).help("done")
-            default: EmptyView()
+            if let a = store.pane(id)?.agent {
+                switch a.state {
+                case .working: Pill(text: "working", fg: Theme.work, bg: Theme.work.opacity(0.18))
+                case .blocked: Pill(text: "waiting", fg: Theme.onWarn, bg: Theme.warn)
+                case .done: Pill(text: "done", fg: Theme.ok, bg: Theme.ok.opacity(0.16))
+                default: EmptyView()
+                }
             }
         case .terminal: if node.badge == "exited" { Text("exited").font(.system(size: 11)).foregroundStyle(Theme.muted) }
-        default:
-            if !node.badge.isEmpty {
-                Text(node.badge).font(.system(size: 12, design: isSection ? .default : .monospaced))
-                    .foregroundStyle(node.badge.hasPrefix("⚑") ? Theme.warn : Theme.muted)
+        case .machine(let m):
+            if let link = store.machines.first(where: { $0.id == m }), !link.online {
+                Text(link.state).font(.system(size: 11)).foregroundStyle(link.state == "offline" ? Theme.err : Theme.muted)
+                    .help(link.why.isEmpty ? link.state : link.why)
+            } else {
+                counts(node.badge)
             }
+        case .project: counts(node.badge)
+        case .branch:
+            Text(node.badge).font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(node.badge.contains("✓") ? Theme.ok : node.badge.contains("✗") ? Theme.err : Theme.muted)
+        default:
+            if !node.badge.isEmpty { Text(node.badge).font(.system(size: 12)).foregroundStyle(Theme.muted) }
         }
     }
 
     func activate() {
         switch node.kind {
         case .agent(let id), .terminal(let id): store.open(id)
-        case .branch(let pr, let name): store.openBranch(project: pr, name: name)
+        case .branch(let pr, let name, _): store.openChanges(project: pr, branch: name)
+        case .sessions: store.openTUI() // conch's Sessions view is the TUI's for now
         default: withAnimation(.easeOut(duration: 0.12)) { open.toggle() }
         }
     }
@@ -386,6 +421,12 @@ struct TabBar: View {
             }
             .buttonStyle(.plain).focusable(false).help("New terminal tab (⌘T)")
             Spacer()
+            // Where the tab on screen is: its project and machine, as the
+            // TUI's tab bar ends.
+            if let k = store.layout.focused {
+                Text(store.scope(of: k)).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    .lineLimit(1).padding(.bottom, 9)
+            }
         }
         .padding(.horizontal, 10).frame(height: 36)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
@@ -399,12 +440,19 @@ struct TabButton: View {
 
     var body: some View {
         let on = index == store.layout.active
-        let p = store.snapshot.pane(tab.focused)
+        let p = store.pane(tab.focused)
         HStack(spacing: 7) {
-            if let a = p?.agent { Dot(color: Theme.agent(a.name)) } else { Text("›").foregroundStyle(Theme.muted) }
-            Text(p?.displayName ?? tab.focused).font(.system(size: 12.5)).lineLimit(1).truncationMode(.tail)
+            let changes = parseChangesKey(tab.focused)
+            if let a = p?.agent {
+                Dot(color: Theme.agent(a.name))
+            } else {
+                Text(changes == nil ? "›" : "◇").foregroundStyle(Theme.muted)
+            }
+            // A branch's changes are named as the mock names them.
+            Text(changes.map { "\($0.branch) changes" } ?? p?.displayName ?? tab.focused)
+                .font(.system(size: 12.5)).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: 200, alignment: .leading).fixedSize(horizontal: true, vertical: false)
-            if tab.root.panes.contains(where: { store.snapshot.pane($0)?.agent?.state == .blocked }) {
+            if tab.root.panes.contains(where: { store.pane($0)?.agent?.state == .blocked }) {
                 Pill(text: "!", fg: Theme.onWarn, bg: Theme.warn)
             }
             if on {
@@ -435,7 +483,11 @@ struct SplitArea: View {
     var body: some View {
         switch node {
         case .leaf(let id):
-            PaneCard(store: store, pane: id, terminal: store.terminal(for: id))
+            if parseChangesKey(id) != nil {
+                ChangesView(store: store, model: store.changes(for: id))
+            } else {
+                PaneCard(store: store, pane: id, terminal: store.terminal(for: id))
+            }
         case .split(.horizontal, let kids):
             HStack(spacing: 8) { ForEach(Array(kids.enumerated()), id: \.offset) { SplitArea(store: store, node: $0.element) } }
         case .split(.vertical, let kids):
@@ -450,7 +502,7 @@ struct PaneCard: View {
     @ObservedObject var terminal: PaneTerminal
 
     var body: some View {
-        let p = store.snapshot.pane(pane)
+        let p = store.pane(pane)
         let focused = store.layout.focused == pane
         VStack(spacing: 0) {
             HStack(spacing: 8) {
@@ -467,7 +519,14 @@ struct PaneCard: View {
                 if p?.running == false {
                     Text("exited \(p?.exitCode ?? 0)").font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
-                Pill.state(p?.agent?.state)
+                if let a = p?.agent, a.state == .working, let since = a.since {
+                    // How long it has been at it, as the mock's "working · 41s".
+                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                        Pill(text: "working · \(elapsed(since, ctx.date))", fg: Theme.work, bg: Theme.work.opacity(0.18))
+                    }
+                } else {
+                    Pill.state(p?.agent?.state)
+                }
             }
             .padding(.horizontal, 10).frame(height: 30)
             .background(Theme.paneHeader)
@@ -519,6 +578,13 @@ struct StatusBar: View {
 
     var body: some View {
         HStack(spacing: 16) {
+            // Where the keyboard is, as the TUI's chip says: a pane, or the
+            // window around it.
+            let inPane = store.layout.focused != nil && store.terminalHasKeyboard
+            Text(inPane ? "PANE" : "TREE").font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Theme.selectedText)
+                .padding(.horizontal, 7).padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 4).fill(inPane ? Theme.ok : Theme.accentDeep))
             Text(store.connected ? "● local" : "○ not connected").foregroundStyle(store.connected ? Theme.ok : Theme.muted)
             Text("⌘K search · ⌘T tab · ⌘D split · ⌘. next waiting").foregroundStyle(Theme.muted)
             if let e = store.error {
@@ -526,6 +592,16 @@ struct StatusBar: View {
                     .onTapGesture { store.error = nil }
             }
             Spacer()
+            // The plan the agents run on, as the TUI's status bar shows it.
+            ForEach(store.limits.filter { $0.fiveHour != nil }, id: \.agent) { l in
+                HStack(spacing: 6) {
+                    Text("\(l.agent.prefix(1).uppercased() + l.agent.dropFirst()) 5h")
+                    Meter(fraction: (l.fiveHour?.usedPct ?? 0) / 100)
+                    Text("\(Int((l.fiveHour?.usedPct ?? 0).rounded()))%")
+                    if let w = l.week { Text("· 7d \(Int(w.usedPct.rounded()))%") }
+                }
+                .foregroundStyle(Theme.muted)
+            }
             Text(PaneTerminal.engine).foregroundStyle(Theme.muted).help("The terminal each pane is drawn with")
             if !store.serverVersion.isEmpty { Text("conch \(store.serverVersion)").foregroundStyle(Theme.muted) }
         }
@@ -536,6 +612,28 @@ struct StatusBar: View {
     }
 }
 
+/// A plan's use, as a bar: green, amber from 80%, red past it.
+struct Meter: View {
+    let fraction: Double
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Capsule().fill(Theme.raise)
+            Capsule().fill(fraction >= 1 ? Theme.err : fraction >= 0.8 ? Theme.warn : Theme.ok)
+                .frame(width: 60 * min(max(fraction, 0), 1))
+        }
+        .frame(width: 60, height: 6)
+    }
+}
+
+/// "41s", "6m", "2h 5m": how long ago a time was.
+func elapsed(_ since: Date, _ now: Date) -> String {
+    let s = max(Int(now.timeIntervalSince(since)), 0)
+    if s < 60 { return "\(s)s" }
+    if s < 3600 { return "\(s / 60)m" }
+    return "\(s / 3600)h \(s % 3600 / 60)m"
+}
+
 // MARK: - palette
 
 struct Palette: View {
@@ -544,7 +642,7 @@ struct Palette: View {
     @State private var sel = 0
     @FocusState private var focused: Bool
 
-    var items: [PaletteItem] { filterPalette(store.snapshot.paletteItems(in: store.ws), query: query) }
+    var items: [PaletteItem] { filterPalette(store.paletteItems, query: query) }
 
     var body: some View {
         ZStack(alignment: .top) {

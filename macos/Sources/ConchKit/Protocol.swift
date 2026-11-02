@@ -184,3 +184,33 @@ public func conchDecoder() -> JSONDecoder {
     }
     return d
 }
+
+/// How much of an agent account's plan is used (proto.PlanLimits).
+public struct PlanLimits: Decodable, Equatable, Sendable {
+    public struct Window: Decodable, Equatable, Sendable {
+        public var usedPct: Double
+        enum CodingKeys: String, CodingKey { case usedPct = "used_pct" }
+        public init(usedPct: Double) { self.usedPct = usedPct }
+    }
+    public var agent: String
+    public var fiveHour: Window?
+    public var week: Window?
+    enum CodingKeys: String, CodingKey {
+        case agent, week
+        case fiveHour = "five_hour"
+    }
+    public init(agent: String, fiveHour: Window? = nil, week: Window? = nil) {
+        self.agent = agent
+        self.fiveHour = fiveHour
+        self.week = week
+    }
+}
+
+public struct AgentLimitsResult: Decodable { public var limits: [PlanLimits]? }
+
+/// A session list, counted rather than read: the sidebar says how many.
+public struct SessionCount: Decodable {
+    struct Any_: Decodable {}
+    var sessions: [Any_]?
+    public var count: Int { sessions?.count ?? 0 }
+}

@@ -101,6 +101,10 @@ conch agent prompt -wait reviewer "Check finding 3 again" && conch read reviewer
 - Names are exact and case sensitive. A name two running panes share is refused rather than guessed — say which with its ID. A pane that has ended still answers to its name until another running pane takes it.
 - Names belong to one machine's server, so `-m` looks them up there.
 
+### machine
+
+`conch machine bridge ID` carries conch's protocol to that machine's server on its own stdin and stdout, reached the way conch reaches it — its ssh options, a sandbox's gateway — by running `conch bridge` there. It is how the [Mac app](/docs/mac-app) talks to a machine other than this one, and anything else that speaks the [protocol](/docs/protocol) can use it the same way. It installs nothing: a machine without conch, or with one too old for this build, is said, with `conch machine upgrade ID` to fix it.
+
 ### attach
 
 ```sh

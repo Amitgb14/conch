@@ -73,13 +73,51 @@ public struct Snapshot: Equatable, Sendable {
     }
 }
 
+// MARK: - Machines
+
+/// A pane, project or branch is named within its machine — this computer's
+/// p3 and busybox's p3 are different panes — so the window names them
+/// "machine|id". A name without a machine is this computer's.
+public func key(_ machine: String, _ id: String) -> String { "\(machine)|\(id)" }
+
+public func unkey(_ k: String) -> (machine: String, id: String) {
+    guard let bar = k.firstIndex(of: "|") else { return ("local", k) }
+    return (String(k[..<bar]), String(k[k.index(after: bar)...]))
+}
+
+/// A machine conch reaches besides this computer (machines.json), as the
+/// TUI lists it.
+public struct MachineEntry: Equatable, Sendable, Decodable {
+    public var id: String
+    public var label: String
+    public var target: String?
+    public var enabled: Bool?
+
+    public init(id: String, label: String, target: String? = nil, enabled: Bool? = true) {
+        self.id = id
+        self.label = label
+        self.target = target
+        self.enabled = enabled
+    }
+
+    /// The enabled machines in a machines.json; none for a file that is
+    /// missing or will not read.
+    public static func load(machinesJSON data: Data?) -> [MachineEntry] {
+        struct File: Decodable { var machines: [MachineEntry]? }
+        guard let data, let f = try? JSONDecoder().decode(File.self, from: data) else { return [] }
+        return (f.machines ?? []).filter { $0.enabled != false && $0.id != "local" && !$0.id.isEmpty }
+    }
+}
+
 /// A workspace as the TUI keeps it (ui.json): the first holds everything,
 /// another only what was added to it. The app reads them and switches
 /// between them; making and changing them stays the TUI's.
 public struct Workspace: Equatable, Sendable {
     public var name: String
-    /// nil is the first workspace, which shows everything.
+    /// nil is the first workspace, which shows everything. Projects are
+    /// the TUI's keys: an id on this computer, "machine~id" elsewhere.
     public var projects: Set<String>?
+    /// Panes added to it by hand, as "machine|id".
     public var panes: Set<String>
 
     public init(name: String, projects: Set<String>? = nil, panes: Set<String> = []) {
@@ -88,13 +126,19 @@ public struct Workspace: Equatable, Sendable {
         self.panes = panes
     }
 
-    public func shows(_ p: PaneInfo) -> Bool {
-        guard let projects else { return true }
-        if let pid = p.projectID, projects.contains(pid) { return true }
-        return panes.contains("local|" + p.id)
+    static func projectKey(_ machine: String, _ id: String) -> String {
+        machine == "local" ? id : "\(machine)~\(id)"
     }
 
-    public func shows(_ p: ProjectInfo) -> Bool { projects?.contains(p.id) ?? true }
+    public func shows(_ p: PaneInfo, machine: String = "local") -> Bool {
+        guard let projects else { return true }
+        if let pid = p.projectID, projects.contains(Self.projectKey(machine, pid)) { return true }
+        return panes.contains(key(machine, p.id))
+    }
+
+    public func shows(_ p: ProjectInfo, machine: String = "local") -> Bool {
+        projects?.contains(Self.projectKey(machine, p.id)) ?? true
+    }
 
     /// The workspaces in a ui.json: the first, then those saved after it.
     public static func load(uiJSON data: Data?) -> [Workspace] {
@@ -106,12 +150,8 @@ public struct Workspace: Equatable, Sendable {
         struct UI: Decodable { var spaces: [Saved]? }
         var out = [Workspace(name: "")]
         if let data, let ui = try? JSONDecoder().decode(UI.self, from: data) {
-            // Projects and panes elsewhere than this computer are written
-            // "machine~id"; this window is this computer's.
             for s in ui.spaces ?? [] {
-                out.append(Workspace(name: s.name ?? "",
-                                     projects: Set((s.projects ?? []).filter { !$0.contains("~") }),
-                                     panes: Set(s.panes ?? [])))
+                out.append(Workspace(name: s.name ?? "", projects: Set(s.projects ?? []), panes: Set(s.panes ?? [])))
             }
         }
         return out
@@ -127,13 +167,14 @@ public struct Workspace: Equatable, Sendable {
 // MARK: - The sidebar
 
 public enum NodeKind: Equatable, Sendable {
-    case machine
-    case project(String)
+    case machine(String)
+    case project(String) // key(machine, project)
     case section(String) // "Agents", "Branches", "Terminals"
-    case agent(String)
+    case agent(String) // key(machine, pane)
     case terminal(String)
-    case branch(project: String, name: String)
-    case cli
+    case branch(project: String, name: String, checkedOut: Bool)
+    case sessions(String) // key(machine, project)
+    case cli(String)
 }
 
 public struct TreeNode: Identifiable, Equatable, Sendable {
@@ -145,46 +186,63 @@ public struct TreeNode: Identifiable, Equatable, Sendable {
     public var children: [TreeNode]? = nil
 }
 
+/// How many branches a project lists before the rest are left to the TUI:
+/// the task branches always, then the most recent others up to this.
+public let branchesShown = 6
+
 extension Snapshot {
-    /// The sidebar: this computer, its projects with their agents, task
-    /// branches and terminals, and the CLI group for what belongs to no
-    /// project — the TUI's tree, for one machine.
-    public func tree(machine: String = "local", in ws: Workspace? = nil) -> [TreeNode] {
-        let shown = panes.filter { ws?.shows($0) ?? true }
+    /// One machine in the sidebar: its projects with their agents, branches,
+    /// terminals and saved sessions, and the CLI group for what belongs to
+    /// no project — the TUI's tree. sessions counts each project's saved
+    /// conversations, when they have been read.
+    public func tree(machine: String = "local", label: String? = nil, in ws: Workspace? = nil,
+                     sessions: [String: Int] = [:]) -> TreeNode {
+        let shown = panes.filter { ws?.shows($0, machine: machine) ?? true }
         var projectNodes: [TreeNode] = []
-        for pr in projects where ws?.shows(pr) ?? true {
+        for pr in projects where ws?.shows(pr, machine: machine) ?? true {
+            let pk = key(machine, pr.id)
             let mine = shown.filter { $0.projectID == pr.id }
-            let agents = mine.filter { $0.agent != nil }.map(paneNode)
-            let terminals = mine.filter { $0.agent == nil }.map(paneNode)
-            let branches = taskBranches(pr).map { b in
-                TreeNode(id: "b:\(pr.id):\(b.name)", kind: .branch(project: pr.id, name: b.name), title: b.name,
-                         badge: branchBadge(b))
+            let agents = mine.filter { $0.agent != nil }.map { paneNode($0, machine) }
+            let terminals = mine.filter { $0.agent == nil }.map { paneNode($0, machine) }
+            let branches = listedBranches(pr).map { b in
+                TreeNode(id: "b:\(pk):\(b.name)", kind: .branch(project: pk, name: b.name, checkedOut: b.worktree != nil),
+                         title: b.name, badge: branchBadge(b))
             }
             var sections: [TreeNode] = []
             if !agents.isEmpty {
-                sections.append(TreeNode(id: "s:\(pr.id):agents", kind: .section("Agents"), title: "Agents", badge: "\(agents.count)", children: agents))
+                sections.append(TreeNode(id: "s:\(pk):agents", kind: .section("Agents"), title: "Agents", badge: "\(agents.count)", children: agents))
             }
             if !branches.isEmpty {
-                sections.append(TreeNode(id: "s:\(pr.id):branches", kind: .section("Branches"), title: "Branches", badge: "\(branches.count)", children: branches))
+                let all = max(pr.branches?.count ?? 0, branches.count)
+                sections.append(TreeNode(id: "s:\(pk):branches", kind: .section("Branches"), title: "Branches", badge: "\(all)", children: branches))
             }
             if !terminals.isEmpty {
-                sections.append(TreeNode(id: "s:\(pr.id):terminals", kind: .section("Terminals"), title: "Terminals", badge: "\(terminals.count)", children: terminals))
+                sections.append(TreeNode(id: "s:\(pk):terminals", kind: .section("Terminals"), title: "Terminals", badge: "\(terminals.count)", children: terminals))
+            }
+            if let n = sessions[pk], n > 0 {
+                sections.append(TreeNode(id: "s:\(pk):sessions", kind: .sessions(pk), title: "Sessions", badge: "\(n)"))
             }
             let (w, d) = Snapshot(panes: mine).inbox()
-            projectNodes.append(TreeNode(id: "p:\(pr.id)", kind: .project(pr.id), title: pr.name,
+            projectNodes.append(TreeNode(id: "p:\(pk)", kind: .project(pk), title: pr.name,
                                          badge: [w > 0 ? "⚑\(w)" : "", d > 0 ? "✓\(d)" : ""].filter { !$0.isEmpty }.joined(separator: " "),
                                          children: sections))
         }
         let loose = shown.filter { $0.projectID == nil || project($0.projectID!) == nil }
         var top = projectNodes
         if !loose.isEmpty {
-            top.append(TreeNode(id: "cli", kind: .cli, title: "CLI", badge: "\(loose.count)", children: loose.map(paneNode)))
+            top.append(TreeNode(id: "cli:\(machine)", kind: .cli(machine), title: "CLI", badge: "\(loose.count)",
+                                children: loose.map { paneNode($0, machine) }))
         }
-        return [TreeNode(id: "m:\(machine)", kind: .machine, title: machine, children: top)]
+        let working = shown.filter { $0.agent?.state == .working }.count
+        let (w, _) = Snapshot(panes: shown).inbox()
+        return TreeNode(id: "m:\(machine)", kind: .machine(machine), title: label ?? machine,
+                        badge: [working > 0 ? "⠋\(working)" : "", w > 0 ? "⚑\(w)" : ""].filter { !$0.isEmpty }.joined(separator: " "),
+                        children: top)
     }
 
-    func paneNode(_ p: PaneInfo) -> TreeNode {
-        let kind: NodeKind = p.agent == nil ? .terminal(p.id) : .agent(p.id)
+    func paneNode(_ p: PaneInfo, _ machine: String) -> TreeNode {
+        let k = key(machine, p.id)
+        let kind: NodeKind = p.agent == nil ? .terminal(k) : .agent(k)
         var badge = ""
         switch p.agent?.state {
         case .working: badge = "working"
@@ -192,7 +250,7 @@ extension Snapshot {
         case .done: badge = "done"
         default: badge = p.running ? "" : "exited"
         }
-        return TreeNode(id: "pane:\(p.id)", kind: kind, title: p.displayName, detail: p.branch ?? "", badge: badge)
+        return TreeNode(id: "pane:\(k)", kind: kind, title: p.displayName, detail: p.branch ?? "", badge: badge)
     }
 
     /// What opening a task branch shows: its agent, else a terminal already
@@ -215,7 +273,26 @@ extension Snapshot {
         let main = Set((pr.worktrees ?? []).filter { $0.main == true }.compactMap(\.branch))
         let task = (pr.worktrees ?? []).filter { $0.main != true }.compactMap(\.branch)
         let byName = Dictionary((pr.branches ?? []).map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
-        return task.filter { !main.contains($0) }.map { byName[$0] ?? BranchInfo(name: $0) }
+        return task.filter { !main.contains($0) }.map {
+            var b = byName[$0] ?? BranchInfo(name: $0)
+            if b.worktree == nil { b.worktree = pr.worktrees?.first(where: { w in w.branch == b.name })?.path }
+            return b
+        }
+    }
+
+    /// The branches the sidebar lists: the task branches, then the most
+    /// recent of the rest (newest commit first, as the server sends them)
+    /// up to branchesShown, never the main checkout's own.
+    public func listedBranches(_ pr: ProjectInfo) -> [BranchInfo] {
+        var out = taskBranches(pr)
+        let main = Set((pr.worktrees ?? []).filter { $0.main == true }.compactMap(\.branch))
+        let have = Set(out.map(\.name))
+        for b in pr.branches ?? [] where out.count < branchesShown && !have.contains(b.name) && !main.contains(b.name) {
+            var other = b
+            other.worktree = nil
+            out.append(other)
+        }
+        return out
     }
 
     func branchBadge(_ b: BranchInfo) -> String {
@@ -231,8 +308,8 @@ extension Snapshot {
 // MARK: - The palette
 
 public enum PaletteAction: Equatable, Sendable {
-    case pane(String)
-    case project(String)
+    case pane(String) // key(machine, pane)
+    case project(String) // key(machine, project)
     case branch(project: String, name: String)
     case command(String) // a menu command's identifier
 }
@@ -258,16 +335,21 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("openTUI", "Open conch in a terminal", ""),
 ]
 
+public func paletteCommandItems() -> [PaletteItem] {
+    paletteCommands.map { PaletteItem(title: $0.title, detail: "", kind: $0.keys, action: .command($0.id)) }
+}
+
 extension Snapshot {
-    /// Everything the palette can go to or run, in the order an empty query
-    /// lists it: agents waiting for you, then the other panes, the projects
-    /// and their task branches, and the commands.
-    public func paletteItems(in ws: Workspace? = nil) -> [PaletteItem] {
+    /// What one machine gives the palette: agents waiting for you, the other
+    /// panes, then the projects and their task branches. label names the
+    /// machine in each item's detail, for a window showing more than one.
+    public func paletteItems(machine: String = "local", label: String? = nil, in ws: Workspace? = nil)
+        -> (waiting: [PaletteItem], panes: [PaletteItem], places: [PaletteItem]) {
         var waiting: [PaletteItem] = [], others: [PaletteItem] = [], places: [PaletteItem] = []
         let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
-        for p in panes where ws?.shows(p) ?? true {
-            let detail = [p.projectID.flatMap { names[$0] }, p.branch].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-            var item = PaletteItem(title: p.displayName, detail: detail, kind: p.agent?.name ?? "terminal", action: .pane(p.id))
+        for p in panes where ws?.shows(p, machine: machine) ?? true {
+            let detail = [p.projectID.flatMap { names[$0] }, p.branch, label].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+            var item = PaletteItem(title: p.displayName, detail: detail, kind: p.agent?.name ?? "terminal", action: .pane(key(machine, p.id)))
             if p.agent?.state == .blocked {
                 item.waiting = true
                 waiting.append(item)
@@ -275,14 +357,21 @@ extension Snapshot {
                 others.append(item)
             }
         }
-        for pr in projects where ws?.shows(pr) ?? true {
-            places.append(PaletteItem(title: pr.name, detail: "", kind: "project", action: .project(pr.id)))
+        for pr in projects where ws?.shows(pr, machine: machine) ?? true {
+            let pk = key(machine, pr.id)
+            places.append(PaletteItem(title: pr.name, detail: label ?? "", kind: "project", action: .project(pk)))
             for b in taskBranches(pr) {
-                places.append(PaletteItem(title: b.name, detail: pr.name, kind: "branch", action: .branch(project: pr.id, name: b.name)))
+                places.append(PaletteItem(title: b.name, detail: [pr.name, label].compactMap { $0 }.joined(separator: " · "),
+                                          kind: "branch", action: .branch(project: pk, name: b.name)))
             }
         }
-        let cmds = paletteCommands.map { PaletteItem(title: $0.title, detail: "", kind: $0.keys, action: .command($0.id)) }
-        return waiting + others + places + cmds
+        return (waiting, others, places)
+    }
+
+    /// Everything the palette lists for this one machine, then the commands.
+    public func paletteItems(in ws: Workspace? = nil) -> [PaletteItem] {
+        let (w, p, pl) = paletteItems(machine: "local", label: nil, in: ws)
+        return w + p + pl + paletteCommandItems()
     }
 }
 

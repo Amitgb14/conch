@@ -2,24 +2,40 @@ export const metadata = { title: "Mac app", description: "conch in a window of i
 
 # Mac app
 
-Conch.app is conch in a native macOS window. It is another client of the same server the TUI talks to, so it shows the same agents and terminals, and closing it stops nothing: the agents keep running, as they do when you close the TUI.
+Conch.app is conch in a native macOS window. It is another client of the same servers the TUI talks to — this computer's and every machine you added — so it shows the same agents and terminals, and closing it stops nothing: the agents keep running, as they do when you close the TUI.
 
 <Callout type="note">
 
-The Mac app is new and is built from source for now (below). It shows this computer's agents and terminals; settings, sessions, the git panel and other machines are still the TUI's — **conch → Open conch in a terminal** opens it beside the window.
+The Mac app is new and is built from source for now (below). Settings, the Sessions view and the git panel are still the TUI's — **conch → Open conch in a terminal** opens it beside the window, and a click on a project's **Sessions** row does too.
 
 </Callout>
 
 ## The window
 
 - **The toolbar** holds the workspaces you made in the TUI (click one to switch), a search field in the middle (⌘K), and how many agents are waiting for you or finished — a click on the waiting count goes to the next one (⌘.).
-- **The sidebar** is the TUI's tree for this computer: each project with its agents, task branches and terminals, and **CLI** for what belongs to no project. A click opens a pane; a click on a branch opens its agent, or the terminal already in its worktree, and starts one there only if there is none. The window opens with nothing selected, so no key reaches an agent until you pick one.
+- **The sidebar** is the TUI's tree: this computer, then each machine you added (`conch machine add`), each with its projects — agents, branches, terminals and how many saved sessions — and **CLI** for what belongs to no project. A machine or project row counts what is working (blue) and waiting for you (amber); branches are `◇` when checked out in a worktree of their own and `·` when not. Another machine is reached as the TUI reaches it, through [`conch machine bridge`](/docs/cli#machine); one that cannot be reached says **offline**, with why on hovering, and is tried again every half minute. A click opens a pane; a click on a branch opens its changes (below). The window opens with nothing selected, so no key reaches an agent until you pick one.
 - **Tabs** along the top, the one on screen underlined. A pane is shown in one place: opening it again goes to where it is.
-- **Splits** sit side by side as cards with a gap between them, each with a header saying which agent it is, its branch and its state. The focused one has the accent border.
-- **The status bar** says whether the window is connected to conch's server, and which version.
+- **Splits** sit side by side as cards with a gap between them, each with a header saying which agent it is, its branch and its state — with how long it has been working. The focused one has the accent border. The tab bar ends with where the tab on screen is (`api · local`).
+- **The status bar** says where the keyboard is (**PANE**, or **TREE** when no terminal has it), whether this computer's server is connected, each agent plan's use (`Claude 5h ▰▰▱ 41% · 7d 12%`), which terminal draws the panes, and conch's version.
 - **Themes.** **View → Theme** has conch's fifteen themes and three light ones (GitHub Light, Solarized Light, Catppuccin Latte). The first item, **Same as conch**, follows `[ui] theme` in conch's settings, so the window matches the TUI until you pick another; your choice is remembered. A theme colours everything, the terminals in the panes included. In a light theme the terminals keep their usual sixteen colours, so a program's yellow can be faint on white.
 
 Each pane is a real terminal running [`conch attach`](/docs/cli#attach), so an agent looks exactly as it does in the TUI or any terminal.
+
+## A branch's changes
+
+A click on a branch opens its changes in a tab of their own, as `enter` on a branch does in the TUI. The header says the branch, the base it goes into, how many lines it adds and removes, how far it is ahead, and its pull request with its checks. On the left:
+
+- **Uncommitted** — what is changed in the branch's worktree and not yet committed (`M` changed, `A` added, `D` deleted, `?` new and untracked, `U` a conflict), each with its `+`/`−`.
+- **Committed on the branch** — what its commits change against the base, for a branch with a worktree.
+- **Commits** — the branch's commits.
+
+A file shows its diff on the right, with line numbers on both sides. While an agent works in the worktree the list follows it: a file just written is marked for a few seconds and the open diff reads again. The buttons along the top:
+
+- **Agent or terminal** — the branch's agent, or the terminal already in its worktree (one is started there only if there is none).
+- **Commit…** — commits every uncommitted change, with the message you type.
+- **Push**, and **Open pull request** (or update it), which opens the pull request in your browser.
+
+Hunks, marking files for a commit, comments and merging are still the TUI's (`b` on the branch there).
 
 ## Answering an agent without opening it
 

@@ -69,24 +69,73 @@ func fixture() -> Snapshot {
 
 @Test func treeIsTheTUIsForOneMachine() {
     let tree = fixture().tree()
-    #expect(tree.count == 1 && tree[0].title == "local")
-    let top = tree[0].children ?? []
+    #expect(tree.title == "local" && tree.kind == .machine("local"))
+    #expect(tree.badge == "⠋1 ⚑1") // one working, one waiting
+    let top = tree.children ?? []
     #expect(top.map(\.title) == ["api", "CLI"])
     let api = top[0]
     #expect(api.badge == "⚑1")
     #expect(api.children?.map(\.title) == ["Agents", "Branches", "Terminals"])
+    #expect(agents0(api)?.kind == .agent("local|p1"))
     let agents = api.children?[0].children ?? []
     #expect(agents.map(\.title) == ["Add health check", "codex"])
     #expect(agents.map(\.badge) == ["working", "waiting"])
-    // Task branches only: main is the project's own checkout.
+    // The task branch; main is the project's own checkout.
     #expect(api.children?[1].children?.map(\.title) == ["feat"])
+    #expect(api.children?[1].children?.first?.kind == .branch(project: "local|r1", name: "feat", checkedOut: true))
     #expect(api.children?[1].children?.first?.badge == "↑2")
     #expect(top[1].children?.map(\.title) == ["bash"])
 }
 
+func agents0(_ project: TreeNode) -> TreeNode? { project.children?.first?.children?.first }
+
 @Test func treeOfNothing() {
     let tree = Snapshot().tree()
-    #expect(tree.count == 1 && (tree[0].children ?? []).isEmpty)
+    #expect((tree.children ?? []).isEmpty && tree.badge.isEmpty)
+}
+
+// Another machine's tree names everything with its machine, under the
+// label it is shown by: its p1 is not this computer's p1.
+@Test func treeOfAnotherMachine() {
+    let t = fixture().tree(machine: "box", label: "busybox", sessions: ["box|r1": 16])
+    #expect(t.title == "busybox" && t.id == "m:box")
+    let api = t.children?.first
+    #expect(api?.kind == .project("box|r1"))
+    #expect(agents0(api!)?.kind == .agent("box|p1"))
+    // The saved conversations, counted, as the TUI lists them.
+    #expect(api?.children?.last?.kind == .sessions("box|r1") && api?.children?.last?.badge == "16")
+    #expect(fixture().tree(sessions: ["local|r1": 0]).children?.first?.children?.contains { $0.title == "Sessions" } == false)
+}
+
+@Test func keys() {
+    #expect(key("box", "p3") == "box|p3")
+    #expect(unkey("box|p3") == ("box", "p3"))
+    #expect(unkey("p3") == ("local", "p3"))
+    #expect(unkey("local|p3").machine == "local")
+}
+
+@Test func machinesFile() {
+    let json = """
+    {"machines": [{"id": "10-0-0-115", "label": "10.0.0.115", "target": "aghadge@10.0.0.115", "enabled": true},
+                  {"id": "off", "label": "off", "enabled": false},
+                  {"id": "sbx", "label": "sandbox", "target": "x", "provider": "daytona"}]}
+    """
+    let ms = MachineEntry.load(machinesJSON: Data(json.utf8))
+    #expect(ms.map(\.id) == ["10-0-0-115", "sbx"]) // the disabled one is left out; an unknown field is fine
+    #expect(MachineEntry.load(machinesJSON: nil).isEmpty)
+    #expect(MachineEntry.load(machinesJSON: Data("{".utf8)).isEmpty)
+}
+
+// The branches listed: task branches first, then the most recent others
+// up to the limit, never the main checkout's.
+@Test func listedBranches() {
+    var pr = fixture().projects[0]
+    pr.branches = [BranchInfo(name: "main")] + (1...10).map { BranchInfo(name: "old-\($0)") } + [BranchInfo(name: "feat", baseAhead: 2)]
+    let names = Snapshot(projects: [pr]).listedBranches(pr).map(\.name)
+    #expect(names == ["feat", "old-1", "old-2", "old-3", "old-4", "old-5"])
+    #expect(Snapshot(projects: [pr]).listedBranches(pr)[1].worktree == nil)
+    let tree = Snapshot(projects: [pr]).tree()
+    #expect(tree.children?.first?.children?.first { $0.title == "Branches" }?.badge == "12")
 }
 
 @Test func inboxAndNextAttention() {
@@ -114,7 +163,7 @@ func fixture() -> Snapshot {
     s.remove(project: "r1")
     #expect(s.projects.isEmpty)
     // Its panes now belong to no project the window knows: under CLI.
-    #expect(s.tree()[0].children?.first?.title == "CLI")
+    #expect(s.tree().children?.first?.title == "CLI")
 }
 
 @Test func workspaces() throws {
@@ -126,11 +175,14 @@ func fixture() -> Snapshot {
     #expect(Workspace.label(0, ws[0]) == "1" && Workspace.label(1, ws[1]) == "2 review" && Workspace.label(2, ws[2]) == "3")
     let s = fixture()
     // The first shows everything; another only what was added to it.
-    #expect(s.tree(in: ws[0])[0].children?.count == 2)
-    let review = s.tree(in: ws[1])[0].children ?? []
+    #expect(s.tree(in: ws[0]).children?.count == 2)
+    let review = s.tree(in: ws[1]).children ?? []
     #expect(review.map(\.title) == ["api", "CLI"])
     #expect(review[1].children?.map(\.title) == ["bash"])
-    #expect((s.tree(in: ws[2])[0].children ?? []).isEmpty)
+    #expect((s.tree(in: ws[2]).children ?? []).isEmpty)
+    // A project of another machine is kept as the TUI writes it.
+    #expect(ws[1].shows(ProjectInfo(id: "r9", name: "x", path: "/"), machine: "busybox"))
+    #expect(!ws[1].shows(ProjectInfo(id: "r9", name: "x", path: "/")))
     #expect(s.inbox(in: ws[2]) == (0, 0))
     // No file, or one from before workspaces: just the first.
     #expect(Workspace.load(uiJSON: nil).count == 1)
@@ -140,10 +192,13 @@ func fixture() -> Snapshot {
 @Test func paletteListsWaitingFirstThenPanesPlacesCommands() {
     let items = fixture().paletteItems()
     #expect(items.first?.title == "codex" && items.first?.waiting == true)
-    #expect(items.contains { $0.action == .branch(project: "r1", name: "feat") })
-    #expect(!items.contains { $0.action == .branch(project: "r1", name: "main") })
+    #expect(items.contains { $0.action == .branch(project: "local|r1", name: "feat") })
+    #expect(!items.contains { $0.action == .branch(project: "local|r1", name: "main") })
     #expect(items.last?.action == .command("openTUI"))
-    #expect(items.first { $0.action == .pane("p1") }?.detail == "api · feat")
+    #expect(items.first { $0.action == .pane("local|p1") }?.detail == "api · feat")
+    // Another machine's items say which machine.
+    let (_, panes, _) = fixture().paletteItems(machine: "box", label: "busybox")
+    #expect(panes.first { $0.action == .pane("box|p1") }?.detail == "api · feat · busybox")
 }
 
 @Test func paletteFilter() {
@@ -367,4 +422,59 @@ final class FakeServer: @unchecked Sendable {
     #expect(light.onWarn.hex == "#FFFFFF")
     #expect(RGB("#000000").mix(RGB("#FFFFFF"), 0.5).hex == "#808080")
     #expect(c.ghosttyColors.contains("background = #15191E"))
+}
+
+@Test func changesDecode() throws {
+    let json = """
+    {"project_id":"r1","branch":"feat/login","base":"main","worktree":"/src/api-login","watched":true,
+     "files":[{"path":"internal/auth/login.go","code":"M","added":48,"deleted":6},
+              {"path":"web/new.tsx","code":"?","added":9,"deleted":0,"unstaged":true},
+              {"path":"logo.png","code":"A","added":0,"deleted":0,"binary":true}],
+     "commits":[{"hash":"9f3c1a2","subject":"rate limit login","author":"a","time":"2026-11-01T12:00:00Z"}],
+     "committed_files":[{"path":"internal/auth/session.go","code":"M","added":12,"deleted":2}]}
+    """
+    let c = try conchDecoder().decode(Changes.self, from: Data(json.utf8))
+    #expect(c.files.count == 3 && c.files[2].binary == true && c.worktree == "/src/api-login")
+    #expect(c.totals == (57, 6))
+    #expect(c.commits?.first?.subject == "rate limit login")
+    #expect(c.committedFiles?.first?.path == "internal/auth/session.go")
+    // An older server's answer, with no commits or worktree, still reads.
+    let old = try conchDecoder().decode(Changes.self, from: Data(#"{"project_id":"r1","branch":"x","base":"main","files":[]}"#.utf8))
+    #expect(old.commits == nil && old.files.isEmpty)
+}
+
+@Test func diffParses() {
+    let diff = """
+    diff --git a/a.go b/a.go
+    index 1..2 100644
+    --- a/a.go
+    +++ b/a.go
+    @@ -10,4 +10,5 @@ func Login() {
+     	var req loginRequest
+    -	old()
+    +	new()
+    +	more()
+     	return
+    \\ No newline at end of file
+    """
+    let lines = parseDiff(diff)
+    #expect(lines.prefix(4).allSatisfy { $0.kind == .meta })
+    #expect(lines[4].kind == .hunk)
+    #expect(lines[5] == DiffLine(id: 5, kind: .context, text: "\tvar req loginRequest", old: 10, new: 10))
+    #expect(lines[6].kind == .removed && lines[6].old == 11 && lines[6].text == "\told()")
+    #expect(lines[7].kind == .added && lines[7].new == 11)
+    #expect(lines[8].kind == .added && lines[8].new == 12)
+    #expect(lines[9].kind == .context && lines[9].old == 12 && lines[9].new == 13)
+    #expect(lines[10].kind == .meta)
+    #expect(parseDiff("").isEmpty)
+    // Two files: the second's header is not a line of the first's hunk.
+    let two = parseDiff("@@ -1 +1 @@\n-a\n+b\ndiff --git a/c b/c\n--- a/c\n+++ b/c\n@@ -1 +1 @@\n-x\n+y\n")
+    #expect(two.map(\.kind) == [.hunk, .removed, .added, .meta, .meta, .meta, .hunk, .removed, .added])
+}
+
+@Test func changesKeys() {
+    let k = changesKey("box", "r1", "feat/login|x")
+    #expect(parseChangesKey(k)! == ("box", "r1", "feat/login|x"))
+    #expect(parseChangesKey("box|p3") == nil)
+    #expect(parseChangesKey("changes|box|r1|") == nil)
 }

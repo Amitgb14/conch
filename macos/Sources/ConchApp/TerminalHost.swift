@@ -16,6 +16,7 @@ final class FocusingTerminalView: LocalProcessTerminalView {}
 
 @MainActor
 final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDelegate {
+    /// key(machine, pane)
     let pane: String
     let view: NSView
     @Published var ended: String?
@@ -29,12 +30,15 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
         #endif
     }
 
-    init(pane: String, binary: String?, store: Store) {
-        self.pane = pane
+    init(key k: String, binary: String?, store: Store) {
+        self.pane = k
         let env = conchEnvironment()
+        // `conch attach`, with -m for a pane on another machine.
+        let (machine, id) = unkey(k)
+        let args = onMachine(machine, ["attach", id])
         #if GHOSTTY
         if let binary, GhosttyRuntime.shared.app != nil {
-            let g = GhosttyPaneView(command: "\(shellQuote(binary)) attach \(shellQuote(pane))", environment: env)
+            let g = GhosttyPaneView(command: ([binary] + args).map(shellQuote).joined(separator: " "), environment: env)
             view = g
             super.init()
             g.onExit = { [weak self] in self?.ended = "detached" }
@@ -52,7 +56,7 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
             st.feed(text: "conch is not installed where this app can find it.\r\nSet CONCH_BIN, or install conch.\r\n")
             return
         }
-        st.startProcess(executable: binary, args: ["attach", pane], environment: env.map { "\($0.key)=\($0.value)" })
+        st.startProcess(executable: binary, args: args, environment: env.map { "\($0.key)=\($0.value)" })
     }
 
     /// A theme for this pane's terminal. Ghostty's panes take theirs from

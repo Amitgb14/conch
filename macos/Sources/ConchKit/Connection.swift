@@ -23,7 +23,11 @@ public struct ConchError: Error, CustomStringConvertible, Equatable {
 /// socket, as internal/client speaks it. Calls are answered by id; pushes
 /// (events) go to onEvent on the queue given, in the order they came.
 public final class Connection: @unchecked Sendable {
+    /// Where messages are read from and written to: one socket, or a
+    /// bridge process's stdout and stdin.
     private let fd: Int32
+    private let wfd: Int32
+    private let process: Process?
     private let lock = NSLock()
     private var nextID = 1
     private var pending: [String: (Result<Data, Error>) -> Void] = [:]
@@ -40,7 +44,9 @@ public final class Connection: @unchecked Sendable {
     /// Connects and says hello. It does not start a server.
     public init(path: String, client: String = "conch-mac", queue: DispatchQueue = .main) throws {
         self.queue = queue
+        process = nil
         fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        wfd = fd
         if fd < 0 { throw ConchError(code: "socket", message: "no socket: \(String(cString: strerror(errno)))") }
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -66,6 +72,40 @@ public final class Connection: @unchecked Sendable {
         let reader = Thread { [weak self] in self?.readLoop() }
         reader.name = "conch-socket"
         reader.start()
+    }
+
+    /// Speaks the protocol through a program's stdin and stdout — `conch
+    /// machine bridge ID`, for a machine other than this one. What it says
+    /// on stderr is kept, to say why when it ends before answering.
+    public init(command: String, args: [String], environment: [String: String], queue: DispatchQueue = .main) throws {
+        self.queue = queue
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: command)
+        p.arguments = args
+        p.environment = environment
+        let input = Pipe(), output = Pipe(), errors = Pipe()
+        p.standardInput = input
+        p.standardOutput = output
+        p.standardError = errors
+        try p.run()
+        process = p
+        stderr = errors
+        fd = output.fileHandleForReading.fileDescriptor
+        wfd = input.fileHandleForWriting.fileDescriptor
+        pipes = [input, output, errors]
+        let reader = Thread { [weak self] in self?.readLoop() }
+        reader.name = "conch-bridge"
+        reader.start()
+    }
+
+    private var pipes: [Pipe] = []
+    private var stderr: Pipe?
+
+    /// What the bridge said on stderr, once it has ended.
+    public var bridgeError: String {
+        guard let e = stderr, process?.isRunning == false else { return "" }
+        let data = e.fileHandleForReading.availableData
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     deinit { shutdown() }
@@ -142,7 +182,7 @@ public final class Connection: @unchecked Sendable {
         return line.withUnsafeBytes { buf in
             var off = 0
             while off < buf.count {
-                let n = Darwin.write(fd, buf.baseAddress! + off, buf.count - off)
+                let n = Darwin.write(wfd, buf.baseAddress! + off, buf.count - off)
                 if n <= 0 { return false }
                 off += n
             }
@@ -193,8 +233,13 @@ public final class Connection: @unchecked Sendable {
         let waiting = pending
         pending = [:]
         lock.unlock()
-        Darwin.shutdown(fd, SHUT_RDWR)
-        close(fd)
+        if let p = process {
+            if p.isRunning { p.terminate() }
+            try? pipes[0].fileHandleForWriting.close()
+        } else {
+            Darwin.shutdown(fd, SHUT_RDWR)
+            close(fd)
+        }
         for (_, f) in waiting { f(.failure(ConchError(code: "closed", message: "the connection to conch's server closed"))) }
         queue.async { [weak self] in self?.onClose?(nil) }
     }
