@@ -72,8 +72,11 @@ func fixture() -> Snapshot {
     #expect(tree.title == "local" && tree.kind == .machine("local"))
     #expect(tree.badge == "⠋1 ⚑1") // one working, one waiting
     let top = tree.children ?? []
-    #expect(top.map(\.title) == ["api", "CLI"])
-    let api = top[0]
+    // The projects under Workspace, the CLI group beside it: the TUI's tree.
+    #expect(top.map(\.title) == ["Workspace", "CLI"])
+    #expect(top[0].kind == .workspace("local") && top[0].id == "ws:local" && top[0].badge == "1")
+    #expect(top[0].children?.map(\.title) == ["api"])
+    let api = top[0].children![0]
     #expect(api.badge == "⚑1")
     #expect(api.children?.map(\.title) == ["Agents", "Branches", "Terminals"])
     #expect(agents0(api)?.kind == .agent("local|p1"))
@@ -89,6 +92,11 @@ func fixture() -> Snapshot {
 
 func agents0(_ project: TreeNode) -> TreeNode? { project.children?.first?.children?.first }
 
+/// A machine's projects: the children of its Workspace row.
+func projects(_ machine: TreeNode) -> [TreeNode] {
+    machine.children?.first { if case .workspace = $0.kind { return true }; return false }?.children ?? []
+}
+
 @Test func treeOfNothing() {
     let tree = Snapshot().tree()
     #expect((tree.children ?? []).isEmpty && tree.badge.isEmpty)
@@ -99,12 +107,13 @@ func agents0(_ project: TreeNode) -> TreeNode? { project.children?.first?.childr
 @Test func treeOfAnotherMachine() {
     let t = fixture().tree(machine: "box", label: "busybox", sessions: ["box|r1": 16])
     #expect(t.title == "busybox" && t.id == "m:box")
-    let api = t.children?.first
+    let api = projects(t).first
+    #expect(t.children?.first?.kind == .workspace("box"))
     #expect(api?.kind == .project("box|r1"))
     #expect(agents0(api!)?.kind == .agent("box|p1"))
     // The saved conversations, counted, as the TUI lists them.
     #expect(api?.children?.last?.kind == .sessions("box|r1") && api?.children?.last?.badge == "16")
-    #expect(fixture().tree(sessions: ["local|r1": 0]).children?.first?.children?.contains { $0.title == "Sessions" } == false)
+    #expect(projects(fixture().tree(sessions: ["local|r1": 0])).first?.children?.contains { $0.title == "Sessions" } == false)
 }
 
 @Test func keys() {
@@ -135,7 +144,7 @@ func agents0(_ project: TreeNode) -> TreeNode? { project.children?.first?.childr
     #expect(names == ["feat", "old-1", "old-2", "old-3", "old-4", "old-5"])
     #expect(Snapshot(projects: [pr]).listedBranches(pr)[1].worktree == nil)
     let tree = Snapshot(projects: [pr]).tree()
-    #expect(tree.children?.first?.children?.first { $0.title == "Branches" }?.badge == "12")
+    #expect(projects(tree).first?.children?.first { $0.title == "Branches" }?.badge == "12")
 }
 
 @Test func inboxAndNextAttention() {
@@ -163,7 +172,8 @@ func agents0(_ project: TreeNode) -> TreeNode? { project.children?.first?.childr
     s.remove(project: "r1")
     #expect(s.projects.isEmpty)
     // Its panes now belong to no project the window knows: under CLI.
-    #expect(s.tree().children?.first?.title == "CLI")
+    // No projects, so no Workspace row either.
+    #expect(s.tree().children?.map(\.title) == ["CLI"])
 }
 
 @Test func workspaces() throws {
@@ -177,7 +187,8 @@ func agents0(_ project: TreeNode) -> TreeNode? { project.children?.first?.childr
     // The first shows everything; another only what was added to it.
     #expect(s.tree(in: ws[0]).children?.count == 2)
     let review = s.tree(in: ws[1]).children ?? []
-    #expect(review.map(\.title) == ["api", "CLI"])
+    #expect(review.map(\.title) == ["Workspace", "CLI"])
+    #expect(projects(s.tree(in: ws[1])).map(\.title) == ["api"])
     #expect(review[1].children?.map(\.title) == ["bash"])
     #expect((s.tree(in: ws[2]).children ?? []).isEmpty)
     // A project of another machine is kept as the TUI writes it.
@@ -485,12 +496,13 @@ final class FakeServer: @unchecked Sendable {
     let s = fixture()
     let t = s.tree()
     #expect(t.fold == "m:local")
-    let api = t.children![0]
+    #expect(t.children![0].fold == "m:local/workspace" && t.children![0].foldDefault)
+    let api = projects(t)[0]
     #expect(api.fold == "p:r1" && api.foldDefault) // a project with panes starts open
     #expect(api.children!.map(\.fold) == ["p:r1/agents", "p:r1/branches", "p:r1/terminals"])
     #expect(t.children![1].fold == "m:local/cli")
-    #expect(Snapshot(projects: s.projects).tree().children![0].foldDefault == false) // none: folded
-    #expect(s.tree(machine: "box").children![0].fold == "p:box~r1")
+    #expect(projects(Snapshot(projects: s.projects).tree())[0].foldDefault == false) // none: folded
+    #expect(projects(s.tree(machine: "box"))[0].fold == "p:box~r1")
 
     let tui = loadFolds(uiJSON: Data(#"{"expanded":{"p:r1/terminals":false,"m:local":true},"tabs":[]}"#.utf8))
     let terminals = api.children![2]
@@ -508,4 +520,17 @@ final class FakeServer: @unchecked Sendable {
     #expect(MachineEntry(id: "b", label: "box", target: "daytona:").sandboxProvider == nil)
     #expect(MachineEntry(id: "b", label: "box", target: "boat:a/b").sandboxProvider == nil)
     #expect(MachineEntry(id: "b", label: "box").displayLabel == "box")
+}
+
+
+// Each agent gets the TUI's mark: its shape and its own colour, and an
+// agent conch has no mark for still gets one, so the row reads as an agent.
+@Test func agentMarks() {
+    #expect(AgentMark.of("claude") == AgentMark(symbol: "asterisk", color: RGB("#D97757")))
+    #expect(AgentMark.of("pi").text == "π" && AgentMark.of("pi").symbol == nil)
+    let names = ["claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"]
+    let marks = names.map { AgentMark.of($0) }
+    #expect(Set(marks.map { ($0.symbol ?? "") + ($0.text ?? "") }).count == names.count) // no two alike
+    #expect(marks.allSatisfy { $0.color != nil })
+    #expect(AgentMark.of("mine") == AgentMark(symbol: "cpu") && AgentMark.of(nil).color == nil)
 }

@@ -37,18 +37,6 @@ enum Theme {
     static var onWarn: Color { color(current.onWarn) }
     static var err: Color { color(current.err) }
     static var work: Color { color(current.work) }
-
-    /// An agent's own colour, as the TUI's agentColors.
-    static func agent(_ name: String?) -> Color {
-        switch name {
-        case "claude": return Color(nsColor: NSColor(hex: 0xD97757))
-        case "codex": return Color(nsColor: NSColor(hex: 0x10A37F))
-        case "gemini": return Color(nsColor: NSColor(hex: 0x4285F4))
-        case "opencode": return Color(nsColor: NSColor(hex: 0xC792EA))
-        case "devin": return Color(nsColor: NSColor(hex: 0xE3B341))
-        default: return muted
-        }
-    }
 }
 
 extension NSColor {
@@ -78,6 +66,26 @@ struct Pill: View {
         case .done: return Pill(text: "done", fg: Theme.ok, bg: Theme.ok.opacity(0.16))
         default: return nil
         }
+    }
+}
+
+/// An agent's mark in its own colour, as the TUI draws it beside the
+/// name; on the selected row it takes the selection's text colour, as the
+/// TUI's whole selected line does.
+struct Mark: View {
+    let mark: AgentMark
+    var selected = false
+
+    var body: some View {
+        Group {
+            if let sym = mark.symbol {
+                Image(systemName: sym).font(.system(size: 11, weight: .bold))
+            } else {
+                Text(mark.text ?? "").font(.system(size: 13, weight: .bold))
+            }
+        }
+        .foregroundStyle(selected ? Theme.selectedText : mark.color.map(Theme.color) ?? Theme.muted)
+        .frame(width: 14)
     }
 }
 
@@ -273,20 +281,28 @@ struct NodeView: View {
             icon
             // The name first: the branch is on the pane's own card, and a
             // narrow sidebar gives it up before the name.
-            Text(node.title).font(isBranch ? .system(size: 12, design: .monospaced) : .system(size: 13))
-                .foregroundStyle(isSection || isSessions ? Theme.text2 : Theme.text).lineLimit(1).truncationMode(.tail)
+            Text(node.title).font(isBranch ? .system(size: 12, design: .monospaced) : .system(size: 13, weight: isHeading ? .semibold : .regular))
+                .foregroundStyle(selected ? Theme.selectedText : isSection || isSessions ? Theme.text2 : Theme.text)
+                .lineLimit(1).truncationMode(.tail)
                 .layoutPriority(1)
             Spacer(minLength: 4)
             badge.fixedSize()
         }
         .padding(.leading, CGFloat(depth) * 14 + 6).padding(.trailing, 8).frame(height: 26)
-        .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Theme.accentDeep.opacity(0.55) : .clear))
+        .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Theme.accentDeep : .clear))
         .contentShape(Rectangle())
         .onTapGesture { activate() }
     }
 
     var isGroup: Bool { if case .project = node.kind { return true }; return false }
     var isSection: Bool { if case .section = node.kind { return true }; return false }
+    /// The TUI's bold group rows: Workspace and CLI.
+    var isHeading: Bool {
+        switch node.kind {
+        case .workspace, .cli: return true
+        default: return false
+        }
+    }
     var isSessions: Bool { if case .sessions = node.kind { return true }; return false }
     var isBranch: Bool { if case .branch = node.kind { return true }; return false }
 
@@ -297,8 +313,9 @@ struct NodeView: View {
             Dot(color: link?.online == true ? Theme.ok : link?.state == "connecting" ? Theme.warn : Theme.muted)
         case .project: Text("◆").font(.system(size: 10)).foregroundStyle(Theme.accent)
         case .cli: Text("❯").font(.system(size: 11)).foregroundStyle(Theme.accent)
-        case .agent(let id): Dot(color: Theme.agent(store.pane(id)?.agent?.name))
-        case .terminal: Text("›").foregroundStyle(Theme.muted)
+        case .workspace: Text("▤").font(.system(size: 12)).foregroundStyle(Theme.accent)
+        case .agent(let id): Mark(mark: AgentMark.of(store.pane(id)?.agent?.name), selected: selected)
+        case .terminal: Text("›").foregroundStyle(selected ? Theme.selectedText : Theme.muted)
         case .branch(_, _, let checkedOut):
             // ◇ checked out in a worktree of its own, · not checked out:
             // the TUI's marks.
@@ -451,7 +468,7 @@ struct TabButton: View {
         HStack(spacing: 7) {
             let changes = parseChangesKey(tab.focused)
             if let a = p?.agent {
-                Dot(color: Theme.agent(a.name))
+                Mark(mark: AgentMark.of(a.name))
             } else {
                 Text(changes == nil ? "›" : "◇").foregroundStyle(Theme.muted)
             }
@@ -513,7 +530,7 @@ struct PaneCard: View {
         let focused = store.layout.focused == pane
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                if let a = p?.agent { Dot(color: Theme.agent(a.name)) } else { Text("›").foregroundStyle(Theme.muted) }
+                if let a = p?.agent { Mark(mark: AgentMark.of(a.name)) } else { Text("›").foregroundStyle(Theme.muted) }
                 Text(p?.agent?.name ?? p?.name ?? pane).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
                 if let b = p?.branch, !b.isEmpty {
                     Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)

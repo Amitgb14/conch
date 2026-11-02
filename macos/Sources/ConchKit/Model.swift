@@ -190,6 +190,7 @@ public enum NodeKind: Equatable, Sendable {
     case branch(project: String, name: String, checkedOut: Bool)
     case sessions(String) // key(machine, project)
     case cli(String)
+    case workspace(String) // a machine's projects, as the TUI groups them
 }
 
 public struct TreeNode: Identifiable, Equatable, Sendable {
@@ -263,7 +264,13 @@ extension Snapshot {
                                          children: sections, fold: tui, foldDefault: !mine.isEmpty))
         }
         let loose = shown.filter { $0.projectID == nil || project($0.projectID!) == nil }
-        var top = projectNodes
+        // The projects sit under a Workspace row, the CLI group beside it:
+        // the TUI's tree (kindWorkspace, open unless folded).
+        var top: [TreeNode] = []
+        if !projectNodes.isEmpty {
+            top.append(TreeNode(id: "ws:\(machine)", kind: .workspace(machine), title: "Workspace", badge: "\(projectNodes.count)",
+                                children: projectNodes, fold: "m:\(machine)/workspace"))
+        }
         if !loose.isEmpty {
             top.append(TreeNode(id: "cli:\(machine)", kind: .cli(machine), title: "CLI", badge: "\(loose.count)",
                                 children: loose.map { paneNode($0, machine) }, fold: "m:\(machine)/cli"))
