@@ -1,7 +1,6 @@
 import AppKit
 import ConchKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 // Direction A of the design (the Conch Desktop Directions artifact): one
 // toolbar with the workspaces, a search field and what is waiting; the
@@ -238,16 +237,63 @@ struct Keycap: View {
     }
 }
 
-/// A project: the folder Finder draws, at the size of the sidebar's marks.
+/// A project: Lucide's folder, the outline shadcn/ui draws — open while
+/// the project is unfolded — in a muted line of even width.
 struct FolderIcon: View {
-    static let image: NSImage = {
-        let i = NSWorkspace.shared.icon(for: .folder)
-        i.size = NSSize(width: 32, height: 32)
-        return i
-    }()
+    var open = false
 
     var body: some View {
-        Image(nsImage: Self.image).resizable().interpolation(.high).frame(width: 15, height: 15).frame(width: 14)
+        LucideFolder(open: open)
+            .stroke(Theme.text2, style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
+            .frame(width: 13, height: 13).frame(width: 14)
+    }
+}
+
+/// Lucide's folder and folder-open (24×24), drawn to fit: the paths as
+/// lucide.dev has them, each corner of radius 2 as a quadratic curve.
+struct LucideFolder: Shape {
+    var open = false
+
+    func path(in r: CGRect) -> Path {
+        let k = min(r.width, r.height) / 24
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + x * k, y: r.minY + y * k) }
+        var path = Path()
+        if open {
+            path.move(to: p(6, 14))
+            path.addLine(to: p(7.5, 11.1))
+            path.addQuadCurve(to: p(9.24, 10), control: p(8, 10))
+            path.addLine(to: p(20, 10))
+            path.addQuadCurve(to: p(21.94, 12.5), control: p(22.4, 10))
+            path.addLine(to: p(20.4, 18.5))
+            path.addQuadCurve(to: p(18.45, 20), control: p(20, 20))
+            path.addLine(to: p(4, 20))
+            path.addQuadCurve(to: p(2, 18), control: p(2, 20))
+            path.addLine(to: p(2, 5))
+            path.addQuadCurve(to: p(4, 3), control: p(2, 3))
+            path.addLine(to: p(7.9, 3))
+            path.addQuadCurve(to: p(9.59, 3.9), control: p(9, 3))
+            path.addLine(to: p(10.4, 5.1))
+            path.addQuadCurve(to: p(12.07, 6), control: p(11, 6))
+            path.addLine(to: p(18, 6))
+            path.addQuadCurve(to: p(20, 8), control: p(20, 6))
+            path.addLine(to: p(20, 10))
+        } else {
+            path.move(to: p(4, 3))
+            path.addLine(to: p(7.93, 3))
+            path.addQuadCurve(to: p(9.6, 3.9), control: p(9, 3))
+            path.addLine(to: p(10.41, 5.1))
+            path.addQuadCurve(to: p(12.1, 6), control: p(11, 6))
+            path.addLine(to: p(20, 6))
+            path.addQuadCurve(to: p(22, 8), control: p(22, 6))
+            path.addLine(to: p(22, 18))
+            path.addQuadCurve(to: p(20, 20), control: p(22, 20))
+            path.addLine(to: p(4, 20))
+            path.addQuadCurve(to: p(2, 18), control: p(2, 20))
+            path.addLine(to: p(2, 5))
+            path.addQuadCurve(to: p(4, 3), control: p(2, 3))
+            path.closeSubpath()
+        }
+        return path
     }
 }
 
@@ -515,7 +561,7 @@ struct NodeView: View {
         case .machine(let m):
             let link = store.machines.first { $0.id == m }
             Dot(color: link?.online == true ? Theme.ok : link?.state == "connecting" ? Theme.warn : Theme.muted)
-        case .project: FolderIcon()
+        case .project: FolderIcon(open: open)
         case .cli: Symbol(name: "terminal", color: Theme.text2)
         case .agent(let id): Mark(agent: store.pane(id)?.agent?.name)
         case .terminal: Symbol(name: "apple.terminal", color: Theme.muted, size: 10.5)
