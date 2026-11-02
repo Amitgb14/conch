@@ -262,6 +262,11 @@ struct NodeView: View {
             if node.children != nil {
                 Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(Theme.muted).frame(width: 10)
+            } else if isSessions {
+                // The mock folds it like the sections beside it; it opens
+                // the TUI's Sessions view.
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.muted).frame(width: 10)
             } else {
                 Spacer().frame(width: 10)
             }
@@ -583,21 +588,14 @@ struct StatusBar: View {
             // Where the keyboard is, as the TUI's chip says: a pane, or the
             // window around it.
             let inPane = store.layout.focused != nil && store.terminalHasKeyboard
-            Text(inPane ? "PANE" : "TREE").font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Theme.selectedText)
-                .padding(.horizontal, 7).padding(.vertical, 1)
-                .background(RoundedRectangle(cornerRadius: 4).fill(inPane ? Theme.ok : Theme.accentDeep))
+            // The mock's mode: the word in the accent, no chip behind it.
+            Text(inPane ? "PANE" : "TREE").font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(inPane ? Theme.ok : Theme.accent)
             if !store.connected { Text("○ not connected").foregroundStyle(Theme.err) }
             // The keys for where the keyboard is, as the mock's bar lists
             // them: the key bright, what it does muted.
-            HStack(spacing: 10) {
-                ForEach(inPane ? Self.paneKeys : Self.treeKeys, id: \.0) { k, what in
-                    HStack(spacing: 4) {
-                        Text(k).foregroundStyle(Theme.text2)
-                        Text(what).foregroundStyle(Theme.muted)
-                    }
-                }
-            }
+            Text((inPane ? Self.paneKeys : Self.treeKeys).map { "\($0.0) \($0.1)" }.joined(separator: " · "))
+                .foregroundStyle(Theme.muted).lineLimit(1)
             if let e = store.error {
                 Text(e).foregroundStyle(Theme.err).lineLimit(1)
                     .onTapGesture { store.error = nil }
