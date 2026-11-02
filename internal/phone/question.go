@@ -7,19 +7,21 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // choiceLine is one row of a numbered menu: "❯ 1. Yes", "  2. No", with or
 // without the box an agent draws round it. The first group is the cursor.
-var choiceLine = regexp.MustCompile(`^[\s│┃|]*([❯›>])?\s*(\d{1,2})\.\s+(\S.*?)[\s│┃|]*$`)
+// Gemini CLI marks its cursor with ● where Claude Code has ❯ and Codex ›.
+var choiceLine = regexp.MustCompile(`^[\s│┃|]*([❯›>●])?\s*(\d{1,2})\.\s+(\S.*?)[\s│┃|]*$`)
 
 // cursorLine and plainLine are the rows of a menu without numbers, as
 // Claude Code draws its folder-trust question: the cursor's row
 // "❯ No, exit" and the others indented to where its label starts.
 var (
-	cursorLine = regexp.MustCompile(`^([\s│┃|]*[❯›]\s+)(\S.*?)[\s│┃|]*$`)
+	cursorLine = regexp.MustCompile(`^([\s│┃|]*[❯›●]\s+)(\S.*?)[\s│┃|]*$`)
 	plainLine  = regexp.MustCompile(`^([\s│┃|]*\s)(\S.*?)[\s│┃|]*$`)
 	// numberedLabel is a label that is a numbered menu's row.
 	numberedLabel = regexp.MustCompile(`^\d{1,2}\.\s`)
@@ -48,12 +50,22 @@ func readMenu(screen []string) (menu, bool) {
 		}
 		cur, cursors = menu{}, 0
 	}
+	numberAt := -1 // the column the current menu's numbers start in
 	for i, line := range screen {
 		m := choiceLine.FindStringSubmatch(line)
 		if m == nil {
+			// A line indented past the numbers, under a choice, is that
+			// choice's description (Claude Code's question tool writes
+			// one under each): the menu carries on below it.
+			if len(cur.labels) > 0 && numberAt >= 0 && descriptionLine(line, numberAt) {
+				continue
+			}
 			flush()
+			numberAt = -1
 			continue
 		}
+		// In characters, not bytes: the cursor ❯ is one column and three bytes.
+		numberAt = utf8.RuneCountInString(line[:strings.IndexFunc(line, func(r rune) bool { return r >= '0' && r <= '9' })])
 		n, _ := strconv.Atoi(m[2])
 		if n != len(cur.labels)+1 {
 			flush()
@@ -75,6 +87,16 @@ func readMenu(screen []string) (menu, bool) {
 		return best, true
 	}
 	return readPlainMenu(screen)
+}
+
+// descriptionLine is whether line is written under a choice whose number
+// starts in column numberAt: text, beginning further right than that.
+func descriptionLine(line string, numberAt int) bool {
+	text := strings.TrimLeft(line, " \t│┃|")
+	if strings.TrimSpace(text) == "" {
+		return false
+	}
+	return utf8.RuneCountInString(line)-utf8.RuneCountInString(text) > numberAt
 }
 
 // readPlainMenu finds a menu without numbers nearest the bottom of the

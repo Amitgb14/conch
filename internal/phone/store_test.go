@@ -326,6 +326,32 @@ func TestReadMenu(t *testing.T) {
 		{"no numbers, out of line", menuScreen(" ❯ Yes", "     No"), "", 0},
 		{"no numbers, one row", menuScreen(" ❯ Yes", "", "   No"), "", 0},
 		{"a shell prompt alone", menuScreen("❯ ls", "file.go"), "", 0},
+		// Claude Code 2.1.316's question tool, as a live run read it: a
+		// description under each choice, indented past the numbers.
+		{"claude question tool", menuScreen(
+			" ☐ File text",
+			"Should hello.txt say \"hi\" or \"hello\"?",
+			"❯ 1. hello",
+			"     Leave hello.txt as it is, containing \"hello\".",
+			"  2. hi",
+			"     Change hello.txt back to \"hi\".",
+			"  3. Type something.",
+			"──────────────",
+			"  4. Chat about this",
+			"Enter to select · ↑/↓ to navigate · Esc to cancel"), "hello|hi|Type something.", 0},
+		{"a description's indent is not deeper", menuScreen("❯ 1. a", "x", "  2. b"), "", 0},
+		{"a description three in, after the cursor's row", menuScreen("❯ 1. a", "   about a", "  2. b"), "a|b", 0},
+		{"boxed, with descriptions", menuScreen("│ ❯ 1. a     │", "│      more  │", "│   2. b     │"), "a|b", 0},
+		// Gemini CLI 0.63's sign-in menu, as a live run read it: ● for
+		// the cursor, in a box.
+		{"gemini, ● for a cursor", menuScreen(
+			"│ ? Get started                              │",
+			"│   How would you like to authenticate?      │",
+			"│   ● 1. Sign in with Google                 │",
+			"│     2. Use Gemini API Key                  │",
+			"│     3. Vertex AI                           │",
+			"│   (Use Enter to select)                    │"), "Sign in with Google|Use Gemini API Key|Vertex AI", 0},
+		{"gemini, cursor lower", menuScreen("    1. Trust folder", "  ● 2. Trust parent folder", "    3. Don't trust"), "Trust folder|Trust parent folder|Don't trust", 1},
 		{"nothing", nil, "", 0},
 		{"blank", menuScreen("", "   "), "", 0},
 	} {
