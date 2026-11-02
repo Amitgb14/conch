@@ -305,6 +305,29 @@ public struct Workspace: Equatable, Sendable {
         return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
     }
 
+    /// ui.json with a project (as the TUI keys one: its id here,
+    /// "machine~id" elsewhere) put in the workspace with that id — one
+    /// added from that workspace, as the TUI's receiveSpaceProject records
+    /// it — and nothing else changed. Unknown workspace: that throws.
+    public static func addingProject(_ project: String, to id: String, in data: Data?) throws -> Data {
+        guard let data, !data.isEmpty, var ui = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var spaces = ui["spaces"] as? [[String: Any]] else {
+            throw ConchError(code: "ui.json", message: "ui.json has no workspaces to put the project in")
+        }
+        for i in spaces.indices where (spaces[i]["id"] as? String ?? "").isEmpty { spaces[i]["id"] = "w\(i + 1)" }
+        guard let i = spaces.firstIndex(where: { $0["id"] as? String == id }) else {
+            throw ConchError(code: "ui.json", message: "no workspace \(id) in ui.json")
+        }
+        var projects = spaces[i]["projects"] as? [String] ?? []
+        if !projects.contains(project) { projects.append(project) }
+        spaces[i]["projects"] = projects.sorted()
+        ui["spaces"] = spaces
+        return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    /// A project's key in ui.json, as the TUI writes it.
+    public static func key(project id: String, machine: String) -> String { projectKey(machine, id) }
+
     /// A fresh id, as the TUI's newSpaceID makes them: "s" and twelve hex.
     public static func newID() -> String {
         "s" + (0..<6).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
@@ -515,6 +538,9 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("newTask", "New task (branch, worktree and agent)…", "⌘N"),
     ("startAgent", "Start an agent here", "⇧⌘N"),
     ("newTab", "New terminal tab", "⌘T"),
+    ("addProject", "Add project…", "⌘O"),
+    ("sshToHost", "SSH to a host…", "⇧⌘H"),
+    ("addMachine", "Add machine…", "⇧⌘M"),
     ("splitRight", "Split right", "⌘D"),
     ("splitDown", "Split down", "⇧⌘D"),
     ("closeSplit", "Close split", "⌘W"),
@@ -641,4 +667,48 @@ public func clampSidebar(_ w: Double) -> Double {
 public func activeWorkspace(uiJSON data: Data?) -> Int {
     struct UI: Decodable { var active_space: Int? }
     return data.flatMap { try? JSONDecoder().decode(UI.self, from: $0) }?.active_space ?? 0
+}
+
+extension Snapshot {
+    /// The agents waiting for you here — direction C's "Needs you" — those
+    /// the workspace shows, the longest waiting first.
+    public func needsYou(in ws: Workspace? = nil, machine: String = "local") -> [PaneInfo] {
+        shown(in: ws, machine: machine).filter { $0.agent?.state == .blocked && $0.running }
+            .sorted { ($0.agent?.since ?? .distantPast) < ($1.agent?.since ?? .distantPast) }
+    }
+
+    /// Where a waiting agent is, for its card: its project and branch.
+    public func place(of p: PaneInfo) -> String {
+        [p.projectID.flatMap { project($0)?.name } ?? "", p.branch ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+}
+
+/// What a waiting agent's card calls its question, from what the agent
+/// said it wants: a permission, an answer, or just waiting.
+public func questionKind(_ message: String?) -> String {
+    let m = (message ?? "").lowercased()
+    if m.contains("permission") || m.contains("allow") || m.contains("approve") { return "permission" }
+    if m.contains("input") || m.contains("question") || m.contains("answer") { return "question" }
+    return "waiting"
+}
+
+/// A waiting agent's question as its card says it: without the "answer:"
+/// an agent's notification starts with, and without the choices listed at
+/// its end — "(hello · hi)" — which the card's buttons already are.
+public func cardText(_ text: String, choices: [Choice]) -> String {
+    var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    // "answer:" is how an agent's notification starts; "? " how Gemini CLI
+    // heads a question.
+    for lead in ["answer:", "Answer:", "? "] where t.hasPrefix(lead) {
+        t = String(t.dropFirst(lead.count)).trimmingCharacters(in: .whitespaces)
+    }
+    if t.hasSuffix(")"), let open = t.range(of: " (", options: .backwards) {
+        let inside = t[open.upperBound..<t.index(before: t.endIndex)]
+        let parts = inside.components(separatedBy: " · ").map { $0.trimmingCharacters(in: .whitespaces) }
+        let labels = Set(choices.map(\.label))
+        if parts.count >= 2, !labels.isEmpty, parts.allSatisfy({ labels.contains($0) }) {
+            t = String(t[..<open.lowerBound])
+        }
+    }
+    return t
 }

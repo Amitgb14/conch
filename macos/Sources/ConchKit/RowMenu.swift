@@ -34,6 +34,12 @@ public enum RowAction: Equatable, Sendable {
     case changes(project: String, branch: String)
     case newTask(project: String)
     case copy(String)
+    /// Adds a project on that machine (the TUI's a).
+    case addProject(machine: String)
+    /// A terminal here logged in to a host with ssh (the TUI's H).
+    case sshToHost
+    /// Another machine, conch installed there (the TUI's M).
+    case addMachine
     case divider
 }
 
@@ -91,12 +97,19 @@ extension Snapshot {
                    RowMenuItem("Open terminal in project", .newTerminal(machine: machine, cwd: pr.path, inProject: true)),
                    .divider, RowMenuItem("Copy path", .copy(pr.path))]
         case .machine, .cli:
-            guard machineOnline else { return [] }
-            out = [RowMenuItem("Start an agent", .startAgent(machine: machine, cwd: nil, inProject: false)),
-                   RowMenuItem("New terminal", .newTerminal(machine: machine, cwd: nil, inProject: false))]
+            let isMachine: Bool = { if case .machine = node.kind { return true }; return false }()
+            if machineOnline {
+                out = [RowMenuItem("Start an agent", .startAgent(machine: machine, cwd: nil, inProject: false)),
+                       RowMenuItem("New terminal", .newTerminal(machine: machine, cwd: nil, inProject: false))]
+                if machine == "local" { out.append(RowMenuItem("SSH to a host…", .sshToHost)) }
+                if isMachine { out += [.divider, RowMenuItem("Add project…", .addProject(machine: machine))] }
+            }
+            if isMachine { out.append(RowMenuItem("Add machine…", .addMachine)) }
         case .workspace:
             guard machineOnline else { return [] }
-            out = projects.map { RowMenuItem("New task in \($0.name)…", .newTask(project: key(machine, $0.id))) }
+            out = [RowMenuItem("Add project…", .addProject(machine: machine))]
+            if !projects.isEmpty { out.append(.divider) }
+            out += projects.map { RowMenuItem("New task in \($0.name)…", .newTask(project: key(machine, $0.id))) }
         case .section, .sessions:
             return []
         }

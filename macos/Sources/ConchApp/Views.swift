@@ -381,6 +381,20 @@ struct Sidebar: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {
+                    // Direction C's "Needs you": every waiting agent as a
+                    // card, answered from here, above the tree.
+                    let needs = store.needsYou
+                    if !needs.isEmpty {
+                        HStack {
+                            Text("NEEDS YOU").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                            Spacer()
+                            Text("\(needs.count)").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                        }
+                        .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 2)
+                        ForEach(needs, id: \.key) { n in
+                            NeedsYouCard(store: store, key: n.key, pane: n.pane, machine: n.machine)
+                        }
+                    }
                     Text("MACHINES").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                         .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 4)
                     ForEach(store.tree) { node in
@@ -416,9 +430,6 @@ struct NodeView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             row
-            if let id = paneID, let q = store.questions[id] {
-                AnswerCard(store: store, pane: id, question: q).padding(.leading, CGFloat(depth) * 14 + 22).padding(.vertical, 3)
-            }
             if open, let kids = node.children {
                 ForEach(kids) { NodeView(store: store, node: $0, depth: depth + 1) }
             }
@@ -547,7 +558,7 @@ struct NodeView: View {
         switch node.kind {
         case .agent(let id), .terminal(let id): store.open(id)
         case .branch(let pr, let name, _): store.openChanges(project: pr, branch: name)
-        case .sessions: store.openTUI() // conch's Sessions view is the TUI's for now
+        case .sessions(let pk): store.openSessions(project: pk)
         default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }
         }
     }
@@ -627,48 +638,73 @@ struct TaskSheet: View {
     }
 }
 
-/// What a waiting agent asks, with its choices as buttons: answered from
-/// here without opening it — direction C's card. The first is the one the
-/// agent's own cursor is on.
-struct AnswerCard: View {
+/// A waiting agent as direction C's card: its mark and name with what it
+/// wants as a pill, the question in a line or two, where it is, and its
+/// choices as buttons — the agent's own cursor's in amber. A click on the
+/// card, not a button, opens the agent.
+struct NeedsYouCard: View {
     @ObservedObject var store: Store
-    let pane: String
-    let question: Question
+    let key: String
+    let pane: PaneInfo
+    let machine: String
+    @State private var hovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            if !question.text.isEmpty {
-                Text(question.text).font(.system(size: 12)).foregroundStyle(Theme.text).lineLimit(3)
+        let q = store.questions[key]
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Mark(agent: pane.agent?.name)
+                Text(pane.displayName).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                Spacer(minLength: 4)
+                Pill(text: questionKind(pane.agent?.message), fg: Theme.onWarn, bg: Theme.warn)
             }
-            if question.choices.isEmpty {
-                Button("Open to answer") { store.open(pane) }.buttonStyle(.plain)
-                    .font(.system(size: 12)).foregroundStyle(Theme.accent)
+            let text = cardText(q?.text.isEmpty == false ? q!.text : (pane.agent?.message ?? ""), choices: q?.choices ?? [])
+            if !text.isEmpty {
+                Text(text).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2).lineLimit(2)
+            }
+            let place = [store.snapshots[machine]?.place(of: pane) ?? "", machine == "local" ? "" : store.label(machine)]
+                .filter { !$0.isEmpty }.joined(separator: " · ")
+            if !place.isEmpty {
+                Text(place).font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+            }
+            if let q, !q.choices.isEmpty {
+                ChoiceButtons(store: store, pane: key, question: q)
             } else {
-                FlowButtons(store: store, pane: pane, question: question)
+                Button("Open to answer") { store.open(key) }.buttonStyle(.plain)
+                    .font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.accent)
             }
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.raise))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.warn.opacity(0.55)))
+        .padding(.horizontal, 11).padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(hovering ? Theme.raise : Theme.raise.opacity(0.7)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.warn.opacity(0.55)))
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .onHover { hovering = $0 }
+        .onTapGesture { store.open(key) }
+        .padding(.bottom, 6)
     }
 }
 
-struct FlowButtons: View {
+/// A question's choices as C's buttons: side by side when they are short
+/// (Allow · Always · Deny), one under another when they are not; the one
+/// the agent's cursor is on in amber.
+struct ChoiceButtons: View {
     @ObservedObject var store: Store
     let pane: String
     let question: Question
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        let short = question.choices.count <= 3 && question.choices.map(\.label.count).reduce(0, +) <= 30
+        let layout = short ? AnyLayout(HStackLayout(spacing: 6)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 5))
+        layout {
             ForEach(question.choices, id: \.choice) { c in
+                let on = c.default == true
                 Button { store.answer(pane, question, c) } label: {
-                    Text(c.label).font(.system(size: 12, weight: c.default == true ? .semibold : .regular))
-                        .lineLimit(1).truncationMode(.tail)
-                        .foregroundStyle(c.default == true ? Theme.onWarn : Theme.text)
-                        .padding(.horizontal, 9).padding(.vertical, 4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(c.default == true ? Theme.warn : Theme.raise))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(c.default == true ? Theme.warn : Theme.line2))
+                    Text(c.label).font(.system(size: 11.5, weight: on ? .semibold : .regular)).lineLimit(1).truncationMode(.tail)
+                        .foregroundStyle(on ? Theme.onWarn : Theme.text)
+                        .padding(.horizontal, 9).padding(.vertical, 3)
+                        .frame(maxWidth: short ? nil : .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? Theme.warn : Theme.raise))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? Theme.warn : Theme.line2))
                 }
                 .buttonStyle(.plain)
                 .help("Answer “\(c.label)” without opening the agent")
@@ -682,21 +718,56 @@ struct FlowButtons: View {
 struct TabBar: View {
     @ObservedObject var store: Store
 
-    var body: some View {
+    var tabs: some View {
         HStack(alignment: .bottom, spacing: 2) {
             ForEach(Array(store.layout.tabs.enumerated()), id: \.element.id) { i, tab in
-                TabButton(store: store, index: i, tab: tab)
+                TabButton(store: store, index: i, tab: tab).id(tab.id)
             }
-            Button { store.newTerminal(split: nil) } label: {
-                Text("+").font(.system(size: 15)).foregroundStyle(Theme.muted).frame(width: 26, height: 30)
+        }
+    }
+
+    var plus: some View {
+        Button { store.newTerminal(split: nil) } label: {
+            Text("+").font(.system(size: 15)).foregroundStyle(Theme.muted).frame(width: 26, height: 30)
+        }
+        .buttonStyle(.plain).focusable(false).help("New terminal tab (⌘T)")
+    }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 2) {
+            // The tabs as a row while they fit, + just after them; when
+            // there are more than fit, a strip that scrolls sideways with the
+            // one on screen kept in sight. Where it is stays put at the
+            // right, so nothing is pushed out of the window.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .bottom, spacing: 2) { tabs; plus }
+                HStack(alignment: .bottom, spacing: 2) {
+                    ScrollViewReader { proxy in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            tabs.padding(.bottom, 1)
+                        }
+                        .onChange(of: store.layout.active) { i in
+                            if store.layout.tabs.indices.contains(i) {
+                                withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(store.layout.tabs[i].id) }
+                            }
+                        }
+                        .onAppear {
+                            if store.layout.tabs.indices.contains(store.layout.active) { proxy.scrollTo(store.layout.tabs[store.layout.active].id) }
+                        }
+                    }
+                    plus
+                }
             }
-            .buttonStyle(.plain).focusable(false).help("New terminal tab (⌘T)")
-            Spacer()
+            .layoutPriority(1)
+            Spacer(minLength: 8)
             // Where the tab on screen is: its project and machine, as the
-            // TUI's tab bar ends.
+            // TUI's tab bar ends — cut, never pushed out.
             if let k = store.layout.focused {
                 Text(store.scope(of: k)).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                    .lineLimit(1).padding(.bottom, 9)
+                    .lineLimit(1).truncationMode(.head)
+                    .frame(maxWidth: 220, alignment: .trailing).fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2) // its room before the tabs': they scroll, it cannot
+                    .padding(.bottom, 9)
             }
         }
         .padding(.horizontal, 10).frame(height: 36)
@@ -717,14 +788,26 @@ struct TabButton: View {
             if let a = p?.agent {
                 Mark(agent: a.name)
             } else {
-                if changes == nil { LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12) } else { LucideIcon(name: .gitBranch, color: Theme.accent, size: 12) }
+                if parseSessionsKey(tab.focused) != nil {
+                    LucideIcon("history", color: Theme.accent, size: 12)
+                } else if changes == nil {
+                    LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12)
+                } else {
+                    LucideIcon(name: .gitBranch, color: Theme.accent, size: 12)
+                }
             }
-            // A branch's changes are named as the mock names them.
-            Text(changes.map { "\($0.branch) changes" } ?? p?.displayName ?? tab.focused)
+            // A branch's changes are named as the mock names them; a
+            // project's sessions by the project.
+            Text(changes.map { "\($0.branch) changes" }
+                 ?? parseSessionsKey(tab.focused).map { "Sessions · " + (store.snapshots[$0.machine]?.project($0.project)?.name ?? $0.project) }
+                 ?? p?.displayName ?? tab.focused)
                 .font(.system(size: 12.5)).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: 200, alignment: .leading).fixedSize(horizontal: true, vertical: false)
             if tab.root.panes.contains(where: { store.pane($0)?.agent?.state == .blocked }) {
-                Pill(text: "!", fg: Theme.onWarn, bg: Theme.warn)
+                // The mock's waiting badge: a round amber one with a bold !.
+                Text("!").font(.system(size: 10.5, weight: .heavy)).foregroundStyle(Theme.onWarn)
+                    .frame(width: 15, height: 15).background(Circle().fill(Theme.warn))
+                    .help("waiting for you")
             } else if tab.root.panes.contains(where: { store.pane($0)?.agent?.state == .working }) {
                 // An agent at work in it: the TUI's spinner, turning.
                 TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
@@ -761,6 +844,8 @@ struct SplitArea: View {
         case .leaf(let id):
             if parseChangesKey(id) != nil {
                 ChangesView(store: store, model: store.changes(for: id)).id(id)
+            } else if parseSessionsKey(id) != nil {
+                SessionsView(model: store.sessions(for: id), store: store).id(id)
             } else {
                 // Its own card for each pane, so moving to another tab
                 // never shows one pane's terminal under another's header.

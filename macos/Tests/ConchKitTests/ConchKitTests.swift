@@ -603,9 +603,15 @@ final class FakeServer: @unchecked Sendable {
     let pm = s.menu(for: api, machine: "box")
     #expect(pm[0].action == .newTask(project: "box|r1") && pm[1].action == .startAgent(machine: "box", cwd: "/src/api", inProject: true))
     #expect(pm.last?.action == .copy("/src/api"))
-    #expect(s.menu(for: t, machine: "box").map(\.action) == [.startAgent(machine: "box", cwd: nil, inProject: false), .newTerminal(machine: "box", cwd: nil, inProject: false)])
+    #expect(s.menu(for: t, machine: "box").map(\.action) == [.startAgent(machine: "box", cwd: nil, inProject: false), .newTerminal(machine: "box", cwd: nil, inProject: false),
+                                                             .divider, .addProject(machine: "box"), .addMachine])
+    // This computer also offers ssh to a host, as the TUI's H; its CLI group too.
+    let local = s.tree()
+    #expect(s.menu(for: local, machine: "local").map(\.action).contains(.sshToHost))
+    #expect(s.menu(for: local.children!.first { $0.kind == .cli("local") }!, machine: "local").map(\.action).contains(.sshToHost))
+    #expect(!s.menu(for: t.children!.first { $0.kind == .cli("box") }!, machine: "box").map(\.action).contains(.sshToHost))
     // Offline: nothing that starts anything; a pane can still be opened or closed.
-    #expect(s.menu(for: t, machine: "box", machineOnline: false).isEmpty)
+    #expect(s.menu(for: t, machine: "box", machineOnline: false).map(\.action) == [.addMachine]) // adding another needs no connection here
     #expect(s.menu(for: api, machine: "box", machineOnline: false).isEmpty)
     #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View changes on feat", "", "Close agent…"])
     // A section has none, and a pane gone from the snapshot none either.
@@ -955,7 +961,7 @@ final class FakeServer: @unchecked Sendable {
     let s = fixture()
     let w = s.tree(machine: "box").children![0]
     #expect(w.kind == .workspace("box") && w.machine == "box")
-    #expect(s.menu(for: w, machine: "box").map(\.action) == [.newTask(project: "box|r1")])
+    #expect(s.menu(for: w, machine: "box").map(\.action) == [.addProject(machine: "box"), .divider, .newTask(project: "box|r1")])
     #expect(s.menu(for: w, machine: "box", machineOnline: false).isEmpty)
     #expect(Snapshot(panes: s.panes).tree().children?.map(\.title) == ["CLI"]) // no projects, no Workspace row
 }
@@ -1046,4 +1052,64 @@ final class FakeServer: @unchecked Sendable {
     #expect(listValue("a\nb,c") == .array([.string("a"), .string("b"), .string("c")]) && listText(nil) == "")
     let half = try JSONEncoder().encode(JSONValue.number(1.5))
     #expect(JSONValue.number(1.5) != .number(1) && half == Data("1.5".utf8))
+}
+
+// "Needs you": the waiting agents the workspace shows, the longest waiting
+// first, each with where it is and what kind of question it has.
+@Test func needsYou() {
+    var s = fixture()
+    s.upsert(PaneInfo(id: "p6", name: "claude", agent: AgentStatus(name: "claude", state: .blocked, message: "Claude needs your permission to use Bash",
+                                                                  since: Date(timeIntervalSince1970: 5)), projectID: "r1", branch: "feat"))
+    var gone = PaneInfo(id: "p7", name: "x", state: "exited", agent: AgentStatus(name: "codex", state: .blocked, since: Date(timeIntervalSince1970: 1)))
+    gone.projectID = "r1"
+    s.upsert(gone)
+    #expect(s.needsYou().map(\.id) == ["p6", "p4"]) // p6 has waited longer; an exited one is no question
+    #expect(s.place(of: s.pane("p6")!) == "api · feat" && s.place(of: s.pane("p3")!) == "")
+    let review = Workspace(name: "r", projects: [], panes: ["local|p4"])
+    #expect(s.needsYou(in: review).map(\.id) == ["p4"])
+    #expect(questionKind("Claude needs your permission to use Bash") == "permission")
+    #expect(questionKind("Claude is waiting for your input") == "question")
+    #expect(questionKind(nil) == "waiting" && questionKind("") == "waiting")
+}
+
+// A card's question, without the lead-in and the choices the buttons show.
+@Test func cardTexts() {
+    let c = [Choice(choice: "1", label: "hello", default: true), Choice(choice: "2", label: "hi", default: nil)]
+    #expect(cardText(#"answer: Should it say "hi" or "hello"? (hello · hi)"#, choices: c) == #"Should it say "hi" or "hello"?"#)
+    #expect(cardText("Do it? (It is fine.)", choices: c) == "Do it? (It is fine.)") // not the choices: kept
+    #expect(cardText("  plain  ", choices: []) == "plain")
+    #expect(cardText("? Get started How would you like to authenticate?", choices: []) == "Get started How would you like to authenticate?")
+    #expect(cardText("?", choices: []) == "?") // a lone mark is the question
+    #expect(cardText("pick (hello · other)", choices: c) == "pick (hello · other)")
+}
+
+// A project added from a workspace is put in it, as the TUI keys it.
+@Test func addingAProjectToAWorkspace() throws {
+    let ui = #"{"spaces":[{"id":"sA","projects":["r1"]}],"tabs":[]}"#
+    let out = try Workspace.addingProject(Workspace.key(project: "r9", machine: "box"), to: "sA", in: Data(ui.utf8))
+    #expect(Workspace.load(uiJSON: out)[1].projects == ["r1", "box~r9"])
+    let again = try Workspace.addingProject("r1", to: "sA", in: out)
+    #expect(Workspace.load(uiJSON: again)[1].projects.count == 2)
+    #expect(Workspace.key(project: "r1", machine: "local") == "r1")
+    #expect(throws: ConchError.self) { try Workspace.addingProject("r1", to: "nope", in: out) }
+    #expect(throws: ConchError.self) { try Workspace.addingProject("r1", to: "sA", in: nil) }
+}
+
+// A project's sessions: read off the wire, keyed in the layout, searched
+// by every word, interrupted ones first, then the newest; and how long ago.
+@Test func sessionsList() throws {
+    let json = #"{"sessions":[{"agent":"claude","id":"a1","dir":"/src/api","branch":"feat","title":"Add health check","updated":"2026-11-01T10:00:00Z","cost_usd":0.4},{"agent":"codex","id":"b2","dir":"/src/api","title":"","updated":"2026-11-01T12:00:00Z","pane_id":"p4"},{"agent":"claude","dir":"/src/api","title":"Fix login","updated":"2026-10-30T10:00:00Z","interrupted":true}],"partial":true}"#
+    let r = try conchDecoder().decode(SessionListResult.self, from: Data(json.utf8))
+    let list = r.sessions ?? []
+    #expect(list.count == 3 && r.partial == true && list[1].paneID == "p4" && list[0].sessionID == "a1" && list[0].costUSD == 0.4)
+    #expect(list[1].name == "codex" && list[0].name == "Add health check")
+    #expect(filterSessions(list, "").map(\.name) == ["Fix login", "codex", "Add health check"])
+    #expect(filterSessions(list, "CLAUDE feat").map(\.name) == ["Add health check"])
+    #expect(filterSessions(list, "nothing").isEmpty)
+    #expect(Set(list.map(\.id)).count == 3)
+    #expect(parseSessionsKey(sessionsKey("box", "r1"))! == ("box", "r1") && parseSessionsKey("changes|box|r1|b") == nil && parseSessionsKey("sessions|box|") == nil)
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    #expect(agoText(now.addingTimeInterval(-30), now: now) == "now" && agoText(now.addingTimeInterval(-300), now: now) == "5m ago")
+    #expect(agoText(now.addingTimeInterval(-7200), now: now) == "2h ago" && agoText(now.addingTimeInterval(-3 * 86400), now: now) == "3d ago")
+    #expect(agoText(nil) == "" && !agoText(now.addingTimeInterval(-40 * 86400), now: now).isEmpty)
 }

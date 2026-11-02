@@ -124,6 +124,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             item("New Task…", "n", .command, "newTask"),
             item("Start Agent", "n", [.command, .shift], "startAgent"),
             item("New Terminal Tab", "t", .command, "newTab"),
+            .separator(),
+            item("Add Project…", "o", .command, "addProject"),
+            item("SSH to a Host…", "h", [.command, .shift], "sshToHost"),
+            item("Add Machine…", "m", [.command, .shift], "addMachine"),
+            .separator(),
             item("Split Right", "d", .command, "splitRight"),
             item("Split Down", "d", [.command, .shift], "splitDown"),
             .separator(),
@@ -208,6 +213,13 @@ extension NSToolbarItem.Identifier {
     static let search = NSToolbarItem.Identifier("conch.search")
     static let counts = NSToolbarItem.Identifier("conch.counts")
 }
+
+// The thin scrollers macOS shows while scrolling, whatever "Show scroll
+// bars" says system-wide: with a mouse connected it is the old always-there
+// bars, which sit in the sidebar like a seam. Set in the app's own domain,
+// so it is conch's alone and the system's setting is left as it is; before
+// the application starts, which is when AppKit reads it.
+UserDefaults.standard.set("WhenScrolling", forKey: "AppleShowScrollBars")
 
 let app = NSApplication.shared
 let delegate = MainActor.assumeIsolated { AppDelegate() }

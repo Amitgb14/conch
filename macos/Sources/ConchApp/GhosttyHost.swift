@@ -103,12 +103,14 @@ final class GhosttyRuntime {
         let file = dir.appendingPathComponent("ghostty.conf")
         let text = """
         # Written by Conch.app: the terminal in each pane. Rewritten at every launch.
-        font-size = 13
+        # The font as conch app's window has it (cmd/conch/app.go), so a pane
+        # reads the same here as in the TUI: Ghostty's own JetBrains Mono, 14pt.
+        font-size = 14
         \(theme.ghosttyColors)
         window-padding-x = 8
         window-padding-y = 6
         window-padding-balance = true
-        adjust-cell-height = 10%
+        adjust-cell-height = 12%
         macos-option-as-alt = left
         confirm-close-surface = false
         shell-integration = none

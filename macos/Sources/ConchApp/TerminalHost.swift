@@ -49,7 +49,7 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
         view = st
         super.init()
         st.processDelegate = self
-        st.font = NSFont(name: "JetBrains Mono", size: 12.5) ?? .monospacedSystemFont(ofSize: 12.5, weight: .regular)
+        st.font = NSFont(name: "JetBrains Mono", size: 14) ?? .monospacedSystemFont(ofSize: 14, weight: .regular) // as conch app's
         apply(Theme.current)
         st.optionAsMetaKey = true
         guard let binary else {

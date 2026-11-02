@@ -76,6 +76,7 @@ final class Store: ObservableObject {
     private var conns: [String: Connection] = [:]
     private(set) var terminals: [String: PaneTerminal] = [:]
     private(set) var changeViews: [String: ChangesModel] = [:]
+    private(set) var sessionViews: [String: SessionsModel] = [:]
     private var asking: Set<String> = []
 
     init() {
@@ -89,6 +90,8 @@ final class Store: ObservableObject {
 
     /// config.toml as last read, by its modification time and size.
     private var configStamp = ""
+    private var machinesStamp = ""
+    private var machinesFile: String { (conchDir as NSString).appendingPathComponent("machines.json") }
     private var configTimer: Timer?
 
     /// Reads conch's settings again within a second of their changing — a
@@ -96,9 +99,17 @@ final class Store: ObservableObject {
     /// once, not only when the window next comes forward.
     private func watchConfig() {
         configStamp = fileStamp(configFile)
+        machinesStamp = fileStamp(machinesFile)
         configTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                // A machine added (conch machine add, the TUI's M) is
+                // reached as soon as machines.json has it.
+                let mnow = fileStamp(self.machinesFile)
+                if mnow != self.machinesStamp {
+                    self.machinesStamp = mnow
+                    self.connect()
+                }
                 let now = fileStamp(self.configFile)
                 guard now != self.configStamp else { return }
                 self.configStamp = now
@@ -124,6 +135,9 @@ final class Store: ObservableObject {
     /// "api · local": where a pane is, for the end of the tab bar.
     func scope(of k: String) -> String {
         if let c = parseChangesKey(k) {
+            return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
+        }
+        if let c = parseSessionsKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
         let (m, _) = unkey(k)
@@ -166,6 +180,15 @@ final class Store: ObservableObject {
             if !m.online { node.badge = m.state }
             return node
         }
+    }
+
+    /// Every agent waiting for you, across the machines, longest first:
+    /// the sidebar's Needs you.
+    var needsYou: [(key: String, pane: PaneInfo, machine: String)] {
+        machines.flatMap { m in
+            (snapshots[m.id] ?? Snapshot()).needsYou(in: ws, machine: m.id).map { (key(m.id, $0.id), $0, m.id) }
+        }
+        .sorted { ($0.pane.agent?.since ?? .distantPast) < ($1.pane.agent?.since ?? .distantPast) }
     }
 
     /// Waiting and done, across every machine.
@@ -467,7 +490,7 @@ final class Store: ObservableObject {
                 open(id)
                 focusTerminal()
             case .branch(let pr, let name, _): openChanges(project: pr, branch: name)
-            case .sessions: openTUI()
+            case .sessions(let pk): openSessions(project: pk)
             default: toggle(cur)
             }
         case .task:
@@ -738,6 +761,23 @@ final class Store: ObservableObject {
         return m
     }
 
+    func sessions(for k: String) -> SessionsModel {
+        if let m = sessionViews[k] { return m }
+        let m = SessionsModel(key: k, store: self)
+        sessionViews[k] = m
+        return m
+    }
+
+    /// A project's saved conversations, in a tab of their own — what the
+    /// Sessions row opens, rather than the TUI.
+    func openSessions(project pk: String) {
+        let (m, pid) = unkey(pk)
+        let k = sessionsKey(m, pid)
+        if layout.tab(showing: k) != nil { sessionViews[k]?.load() }
+        layout.open(k)
+        terminalHasKeyboard = false
+    }
+
     /// A branch's changes, in a tab of their own — what a click on a branch
     /// opens, as in the TUI.
     func openChanges(project pk: String, branch: String) {
@@ -858,6 +898,9 @@ final class Store: ObservableObject {
         switch id {
         case "focusSidebar": focusSidebar()
         case "settings": openSettings()
+        case "addProject": addProject()
+        case "sshToHost": sshToHost()
+        case "addMachine": addMachine()
         case "newTask": newTaskHere()
         case "startAgent": startAgentHere()
         case "newTab": newTerminal(split: nil)
@@ -911,7 +954,144 @@ final class Store: ObservableObject {
         case .copy(let text):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+        case .addProject(let m): addProject(on: m)
+        case .sshToHost: sshToHost()
+        case .addMachine: addMachine()
         }
+    }
+
+    // MARK: projects, ssh hosts and machines
+
+    /// Adds a project, as the TUI's a: on this computer a folder picked in
+    /// the Finder's panel; on another machine a path typed in, since a Mac
+    /// panel cannot browse it. Added from a workspace after the first, the
+    /// project is put in it, as the TUI does.
+    func addProject(on machine: String = "local") {
+        guard let c = conns[machine] else {
+            error = "\(label(machine)) is not connected"
+            return
+        }
+        var path: String?
+        if machine == "local" {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.canCreateDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Add project"
+            panel.message = "A folder to work in — a git repository gets branches, worktrees and tasks of its own."
+            guard panel.runModal() == .OK, let u = panel.url else { return }
+            path = u.path
+        } else {
+            path = ask("Add a project on \(label(machine))", info: "The folder's path on that machine, e.g. ~/src/api.", value: "", button: "Add")
+        }
+        guard let p = path?.trimmingCharacters(in: .whitespaces), !p.isEmpty else { return }
+        struct Params: Encodable { var path: String }
+        Task {
+            do {
+                let info = try await c.call("project.add", Params(path: p), as: ProjectInfo.self)
+                joinWorkspace(machine: machine, project: info.id)
+                status = "Added \(info.name)"
+            } catch {
+                self.error = "Could not add \(p): \(error)"
+            }
+        }
+    }
+
+    /// A project added from a workspace after the first joins it (ui.json).
+    private func joinWorkspace(machine: String, project id: String) {
+        guard let w = ws, !w.first else { return }
+        let path = (conchDir as NSString).appendingPathComponent("ui.json")
+        do {
+            let data = try Workspace.addingProject(Workspace.key(project: id, machine: machine), to: w.id, in: FileManager.default.contents(atPath: path))
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+            loadWorkspaces()
+        } catch {
+            self.error = "Could not put the project in this workspace: \(error)"
+        }
+    }
+
+    /// A terminal here logged in to a host, as the TUI's H: `conch ssh`,
+    /// which builds the session the TUI does.
+    func sshToHost() {
+        guard let b = binary,
+              let (host, options) = askTwo("SSH from this computer", info: "Opens a terminal here logged in to the host, with your ssh config and keys. Nothing is installed there.",
+                                           first: ("Host", "user@host, a host alias or ssh://user@host:port"),
+                                           second: ("SSH options", "optional, e.g. -p 2222 -o KexAlgorithms=+diffie-hellman-group14-sha1"),
+                                           button: "Connect") else { return }
+        let target = host.trimmingCharacters(in: .whitespaces)
+        guard !target.isEmpty else { return }
+        let args = ["ssh", target] + options.split(separator: " ").map(String.init)
+        Task {
+            do {
+                let out = try await runConch(b, args)
+                let id = String(decoding: out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !id.isEmpty else { return }
+                layout.open(key("local", id))
+                if let p = pane(key("local", id)) { joinWorkspace(machine: "local", pane: p) }
+                focusTerminal()
+            } catch {
+                self.error = "\(error)"
+            }
+        }
+    }
+
+    /// Another machine, as the TUI's M: `conch machine add` in a terminal of
+    /// its own, so the install is watched; the machine shows in the sidebar
+    /// when machines.json has it.
+    func addMachine() {
+        guard let b = binary, let c = conns["local"],
+              let (host, label) = askTwo("Add a machine", info: "conch is installed there over ssh, and runs agents there that keep running when you close this.",
+                                         first: ("SSH target", "user@host or a host alias"), second: ("Label", "optional, how the sidebar names it"),
+                                         button: "Add") else { return }
+        let target = host.trimmingCharacters(in: .whitespaces)
+        guard !target.isEmpty else { return }
+        var command = [b, "machine", "add"]
+        let l = label.trimmingCharacters(in: .whitespaces)
+        if !l.isEmpty { command += ["-label", l] }
+        command.append(target)
+        struct Create: Encodable {
+            var name: String
+            var command: [String]
+            var cwd: String
+            var no_project: Bool
+        }
+        Task {
+            do {
+                let p = try await c.call("pane.create", Create(name: "machine add · " + target, command: command, cwd: NSHomeDirectory(), no_project: true), as: PaneInfo.self)
+                snapshots["local", default: Snapshot()].upsert(p)
+                layout.open(key("local", p.id))
+                focusTerminal()
+            } catch {
+                self.error = "\(error)"
+            }
+        }
+    }
+
+    /// Two lines from a small dialog, or nil when cancelled.
+    private func askTwo(_ title: String, info: String, first: (String, String), second: (String, String), button: String) -> (String, String)? {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = info
+        let box = NSStackView(frame: NSRect(x: 0, y: 0, width: 360, height: 110))
+        box.orientation = .vertical
+        box.alignment = .leading
+        box.spacing = 6
+        func field(_ label: String, _ hint: String) -> NSTextField {
+            box.addArrangedSubview(NSTextField(labelWithString: label))
+            let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+            f.placeholderString = hint
+            f.translatesAutoresizingMaskIntoConstraints = false
+            f.widthAnchor.constraint(equalToConstant: 360).isActive = true
+            box.addArrangedSubview(f)
+            return f
+        }
+        let one = field(first.0, first.1), two = field(second.0, second.1)
+        a.accessoryView = box
+        a.addButton(withTitle: button)
+        a.addButton(withTitle: "Cancel")
+        a.window.initialFirstResponder = one
+        return a.runModal() == .alertFirstButtonReturn ? (one.stringValue, two.stringValue) : nil
     }
 
     /// What a click on the row does, for the menu's Open.
