@@ -314,7 +314,7 @@ func TestHarvestMenu(t *testing.T) {
 	}
 	// main is clean and the base: push only.
 	got = labels("main")
-	if !strings.Contains(got, "P Push") || strings.Contains(got, "Commit") || strings.Contains(got, "Merge") || strings.Contains(got, "Discard") {
+	if !strings.Contains(got, "P Push") || strings.Contains(got, "Commit all") || strings.Contains(got, "Merge") || strings.Contains(got, "Discard") {
 		t.Fatalf("main menu:\n%s", got)
 	}
 	// Menu keys are unique, so each runs what it says.

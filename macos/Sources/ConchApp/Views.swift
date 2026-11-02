@@ -790,6 +790,16 @@ struct TabButton: View {
     let index: Int
     let tab: ConchKit.Tab
 
+    /// What the tab is called: a branch's changes as the mock names them,
+    /// a project's sessions or commits by the project, else the pane.
+    func title(changes: (machine: String, project: String, branch: String)?, pane p: PaneInfo?) -> String {
+        if let c = changes { return "\(c.branch) changes" }
+        func project(_ m: String, _ id: String) -> String { store.snapshots[m]?.project(id)?.name ?? id }
+        if let s = parseSessionsKey(tab.focused) { return "Sessions · " + project(s.machine, s.project) }
+        if let c = parseCommitsKey(tab.focused) { return "Commits · " + project(c.machine, c.project) }
+        return p?.displayName ?? tab.focused
+    }
+
     var body: some View {
         let on = index == store.layout.active
         let p = store.pane(tab.focused)
@@ -800,6 +810,8 @@ struct TabButton: View {
             } else {
                 if parseSessionsKey(tab.focused) != nil {
                     LucideIcon("history", color: Theme.accent, size: 12)
+                } else if parseCommitsKey(tab.focused) != nil {
+                    LucideIcon("git-commit-horizontal", color: Theme.accent, size: 12)
                 } else if changes == nil {
                     LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12)
                 } else {
@@ -808,9 +820,7 @@ struct TabButton: View {
             }
             // A branch's changes are named as the mock names them; a
             // project's sessions by the project.
-            Text(changes.map { "\($0.branch) changes" }
-                 ?? parseSessionsKey(tab.focused).map { "Sessions · " + (store.snapshots[$0.machine]?.project($0.project)?.name ?? $0.project) }
-                 ?? p?.displayName ?? tab.focused)
+            Text(title(changes: changes, pane: p))
                 .font(.system(size: 12.5)).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: 200, alignment: .leading).fixedSize(horizontal: true, vertical: false)
             if tab.root.panes.contains(where: { store.pane($0)?.agent?.state == .blocked }) {
@@ -856,6 +866,8 @@ struct SplitArea: View {
                 ChangesView(store: store, model: store.changes(for: id)).id(id)
             } else if parseSessionsKey(id) != nil {
                 SessionsView(model: store.sessions(for: id), store: store).id(id)
+            } else if parseCommitsKey(id) != nil {
+                CommitsView(model: store.commits(for: id), store: store).id(id)
             } else {
                 // Its own card for each pane, so moving to another tab
                 // never shows one pane's terminal under another's header.

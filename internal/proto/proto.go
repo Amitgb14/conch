@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -83,6 +83,10 @@ const CapAgentPrompt = "agent.prompt.v1"
 // CapBranchGit is branch.git: git commands run in a branch's worktree for
 // the TUI's git panel, and what they left unfinished.
 const CapBranchGit = "branch.git.v1"
+
+// CapProjectLog is project.log: a project's commits across its branches
+// and tags, with parents and refs, for a commit graph.
+const CapProjectLog = "project.log.v1"
 
 // CapTaskName is task.create taking Name: the task's pane named as it
 // starts. A server without it drops the field, so clients rename instead.
@@ -260,6 +264,9 @@ const (
 	MethodProjectRefresh = "project.refresh"
 	MethodProjectChanges = "project.changes"
 	MethodProjectDiff    = "project.diff"
+	// MethodProjectLog is a project's history for a commit graph
+	// (CapProjectLog).
+	MethodProjectLog     = "project.log"
 	MethodWorktreeAdd    = "worktree.add"
 	MethodWorktreeRemove = "worktree.remove"
 	MethodTaskCreate     = "task.create"
@@ -970,6 +977,38 @@ type CommitInfo struct {
 	Subject string    `json:"subject"`
 	Author  string    `json:"author"`
 	Time    time.Time `json:"time"`
+}
+
+// LogParams asks for a project's history: every commit reachable from its
+// branches, tags and HEAD, newest first. Limit is how many (LogLimit when
+// 0, at most LogLimitMax).
+type LogParams struct {
+	ProjectID string `json:"project_id"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+// LogLimit and LogLimitMax bound project.log.
+const (
+	LogLimit    = 300
+	LogLimitMax = 2000
+)
+
+// LogCommit is one commit for a graph: children always come before their
+// parents in a LogResult, and Refs are as git decorates them ("HEAD ->
+// main", "origin/main", "tag: v1").
+type LogCommit struct {
+	Hash    string    `json:"hash"`
+	Parents []string  `json:"parents,omitempty"`
+	Subject string    `json:"subject"`
+	Author  string    `json:"author"`
+	Time    time.Time `json:"time"`
+	Refs    []string  `json:"refs,omitempty"`
+}
+
+// LogResult is a project's history. More says older commits were left out.
+type LogResult struct {
+	Commits []LogCommit `json:"commits"`
+	More    bool        `json:"more,omitempty"`
 }
 
 // DiffParams asks for the diff of one file within project.changes' scope.

@@ -594,15 +594,23 @@ final class FakeServer: @unchecked Sendable {
     // A branch checked out: start there; one that is not: a task's to make.
     let feat = api.children![1].children![0]
     let fm = s.menu(for: feat, machine: "box")
-    #expect(titles(fm) == ["View changes", "Start an agent on this branch", "Open terminal on this branch", "New task in project…", "", "Copy branch name"])
+    #expect(titles(fm) == ["View changes", "Start an agent on this branch", "Open terminal on this branch", "New task in project…", "Show in commit graph", "", "Copy branch name"])
+    #expect(fm[4].action == .commits(project: "box|r1", branch: "feat"))
     #expect(fm[1].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true))
     let old = TreeNode(id: "b:box|r1:old", kind: .branch(project: "box|r1", name: "old", checkedOut: false), title: "old")
-    #expect(titles(s.menu(for: old, machine: "box")) == ["View changes", "New task in project…", "", "Copy branch name"])
+    #expect(titles(s.menu(for: old, machine: "box")) == ["View changes", "New task in project…", "Show in commit graph", "", "Copy branch name"])
 
     // A project, a machine, the Workspace row.
     let pm = s.menu(for: api, machine: "box")
     #expect(pm[0].action == .newTask(project: "box|r1") && pm[1].action == .startAgent(machine: "box", cwd: "/src/api", inProject: true))
     #expect(pm.last?.action == .copy("/src/api"))
+    #expect(pm.contains { $0.action == .commits(project: "box|r1", branch: nil) })
+    // A folder that is not a repository has no commits to graph.
+    var plain = s
+    var np = s.project("r1")!
+    np.git = false
+    plain.upsert(np)
+    #expect(!plain.menu(for: api, machine: "box").contains { if case .commits = $0.action { return true }; return false })
     #expect(s.menu(for: t, machine: "box").map(\.action) == [.startAgent(machine: "box", cwd: nil, inProject: false), .newTerminal(machine: "box", cwd: nil, inProject: false),
                                                              .divider, .addProject(machine: "box"), .addMachine])
     // This computer also offers ssh to a host, as the TUI's H; its CLI group too.
@@ -1204,4 +1212,80 @@ final class FakeServer: @unchecked Sendable {
         #expect(t.ghosttyColors.contains(want), "\(t.id)")
         #expect(t.ghosttyColors.contains("background = \(t.bg.hex)"))
     }
+}
+
+// MARK: commit graph
+
+private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash: h, parents: parents, subject: h) }
+
+@Test func graphOfAStraightLine() {
+    let rows = commitGraph([c("c", "b"), c("b", "a"), c("a")])
+    #expect(rows.map(\.lane) == [0, 0, 0])
+    #expect(rows[0].into.isEmpty && rows[0].outOf == [0])
+    #expect(rows[1].into == [0] && rows[1].outOf == [0] && rows[1].through.isEmpty)
+    #expect(rows[2].into == [0] && rows[2].outOf.isEmpty) // a root ends its lane
+    #expect(rows.allSatisfy { $0.width == 1 })
+}
+
+@Test func graphOfABranchMergedBack() {
+    // m merges f2 into main; f2 <- f1 <- a; main: m <- b <- a.
+    let rows = commitGraph([c("m", "b", "f2"), c("f2", "f1"), c("b", "a"), c("f1", "a"), c("a")])
+    let m = rows[0], f2 = rows[1], b = rows[2], f1 = rows[3], a = rows[4]
+    #expect(m.merge && m.lane == 0 && m.outOf == [0, 1])
+    #expect(f2.lane == 1 && f2.into == [1] && f2.through == [0])
+    #expect(b.lane == 0 && b.through == [1])
+    #expect(f1.lane == 1 && f1.outOf == [1])
+    // Both lanes wait for a: it takes the first, the other joins it.
+    #expect(a.lane == 0 && a.into == [0, 1] && a.outOf.isEmpty)
+    // The branch keeps one colour down its lane, unlike main's.
+    #expect(f2.colors[1] == f1.colors[1] && f2.colors[1] != m.colors[0])
+    #expect(rows.map(\.width).max() == 2)
+}
+
+@Test func graphReusesAFreedLane() {
+    // Two branch tips off a, one after the other: x's lane closes at a's
+    // join, and nothing needs a third lane.
+    let rows = commitGraph([c("x", "a"), c("y", "a"), c("a")])
+    #expect(rows[0].lane == 0 && rows[1].lane == 1 && rows[2].into == [0, 1])
+    #expect(rows.map(\.width) == [1, 2, 2])
+}
+
+@Test func graphOfACutShortLog() {
+    // A parent beyond the limit runs off the bottom; unrelated roots each
+    // get a lane of their own.
+    let rows = commitGraph([c("b", "a"), c("z")])
+    #expect(rows[0].outOf == [0])
+    #expect(rows[1].lane == 1 && rows[1].through == [0])
+    #expect(commitGraph([]).isEmpty)
+}
+
+@Test func graphMergeIntoAWaitingLane() {
+    // A merge whose second parent another lane already waits for points
+    // at that lane rather than opening a third.
+    let rows = commitGraph([c("t", "p"), c("m", "q", "p"), c("q", "p"), c("p")])
+    #expect(rows[1].lane == 1 && rows[1].outOf == [1, 0])
+    #expect(rows.map(\.width).max() == 2)
+}
+
+@Test func refsParse() {
+    let r = CommitRef.parse(["tag: v1", "origin/main", "HEAD -> main", "feat", "origin/HEAD"])
+    #expect(r.map(\.name) == ["main", "feat", "origin/main", "v1"])
+    #expect(r.map(\.kind) == [.head, .branch, .remote, .tag])
+    #expect(CommitRef.parse(["HEAD"]) == [CommitRef(name: "HEAD", kind: .head)])
+    #expect(CommitRef.parse(nil).isEmpty)
+    // A branch with a slash in its name is a branch, not a remote.
+    #expect(CommitRef.parse(["conch/feat"]).first?.kind == .branch)
+}
+
+@Test func commitsKeys() {
+    #expect(parseCommitsKey(commitsKey("busybox", "p1"))! == ("busybox", "p1"))
+    #expect(parseCommitsKey("commits|local|") == nil && parseCommitsKey("sessions|local|p") == nil)
+}
+
+@Test func logDecodes() throws {
+    let json = #"{"commits":[{"hash":"abc1234567","parents":["def"],"subject":"s","author":"a","time":"2026-11-02T09:00:00Z","refs":["HEAD -> main"]},{"hash":"def","subject":"root","author":"a","time":"2026-11-01T09:00:00Z"}],"more":true}"#
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    let r = try d.decode(LogResult.self, from: Data(json.utf8))
+    #expect(r.commits?.count == 2 && r.more == true && r.commits?[1].parents == nil && r.commits?[0].short == "abc1234")
 }

@@ -32,6 +32,9 @@ public enum RowAction: Equatable, Sendable {
     case startAgent(machine: String, cwd: String?, inProject: Bool)
     case newTerminal(machine: String, cwd: String?, inProject: Bool)
     case changes(project: String, branch: String)
+    /// The project's commit graph, at a branch's newest commit when one
+    /// is named.
+    case commits(project: String, branch: String?)
     case newTask(project: String)
     case copy(String)
     /// Adds a project on that machine (the TUI's a).
@@ -89,13 +92,15 @@ extension Snapshot {
                         RowMenuItem("Open terminal on this branch", .newTerminal(machine: machine, cwd: path, inProject: true))]
             }
             if machineOnline { out.append(RowMenuItem("New task in project…", .newTask(project: pk))) }
-            out += [.divider, RowMenuItem("Copy branch name", .copy(name))]
+            out += [RowMenuItem("Show in commit graph", .commits(project: pk, branch: name)),
+                    .divider, RowMenuItem("Copy branch name", .copy(name))]
         case .project(let pk):
             guard machineOnline, let pr = project(unkey(pk).id) else { return [] }
             out = [RowMenuItem(pr.git == false ? "New task (an agent with a prompt, here)…" : "New task (branch + worktree + agent)…", .newTask(project: pk)),
                    RowMenuItem("Start an agent in project", .startAgent(machine: machine, cwd: pr.path, inProject: true)),
-                   RowMenuItem("Open terminal in project", .newTerminal(machine: machine, cwd: pr.path, inProject: true)),
-                   .divider, RowMenuItem("Copy path", .copy(pr.path))]
+                   RowMenuItem("Open terminal in project", .newTerminal(machine: machine, cwd: pr.path, inProject: true))]
+            if pr.git != false { out.append(RowMenuItem("Commit graph", .commits(project: pk, branch: nil))) }
+            out += [.divider, RowMenuItem("Copy path", .copy(pr.path))]
         case .machine, .cli:
             let isMachine: Bool = { if case .machine = node.kind { return true }; return false }()
             if machineOnline {

@@ -358,7 +358,7 @@ func (s *Server) serve(nc net.Conn) {
 }
 
 var slowMethods = map[string]bool{
-	proto.MethodProjectAdd: true, proto.MethodProjectChanges: true, proto.MethodProjectDiff: true,
+	proto.MethodProjectAdd: true, proto.MethodProjectChanges: true, proto.MethodProjectDiff: true, proto.MethodProjectLog: true,
 	proto.MethodWorktreeAdd: true, proto.MethodWorktreeRemove: true, proto.MethodTaskCreate: true,
 	proto.MethodPaneCreate: true, proto.MethodPaneClose: true,
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
@@ -770,6 +770,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.projects.changes(cp)
+
+	case proto.MethodProjectLog:
+		lp, perr := decode[proto.LogParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.log(lp)
 
 	case proto.MethodProjectDiff:
 		dp, perr := decode[proto.DiffParams](msg)

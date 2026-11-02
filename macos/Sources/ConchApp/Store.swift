@@ -82,6 +82,7 @@ final class Store: ObservableObject {
     private(set) var terminals: [String: PaneTerminal] = [:]
     private(set) var changeViews: [String: ChangesModel] = [:]
     private(set) var sessionViews: [String: SessionsModel] = [:]
+    private(set) var commitViews: [String: CommitsModel] = [:]
     private var asking: Set<String> = []
 
     init() {
@@ -161,7 +162,7 @@ final class Store: ObservableObject {
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
-        if let c = parseSessionsKey(k) {
+        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
         let (m, _) = unkey(k)
@@ -631,6 +632,8 @@ final class Store: ObservableObject {
             if let o = UserDefaults.standard.string(forKey: "open") {
                 if let c = parseChangesKey(o) {
                     if c.machine == machine { layout.open(o) } // a branch's changes
+                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) {
+                    if c.machine == machine { layout.open(o) } // a project's commits or sessions
                 } else {
                     let k = o.contains("|") ? o : key("local", o)
                     if unkey(k).machine == machine, pane(k) != nil { layout.open(k) }
@@ -708,6 +711,8 @@ final class Store: ObservableObject {
                 snap.upsert(p)
                 // Git moved (a commit, a push): open changes read again.
                 for v in changeViews.values where v.machine == machine && v.project == p.id { Task { await v.load() } }
+                // And an open commit graph, unless it is already reading.
+                for v in commitViews.values where v.machine == machine && v.project == p.id && !v.loading && layout.tab(showing: v.key) != nil { v.load() }
             }
         case "project.removed":
             struct Ref: Decodable { var id: String }
@@ -810,6 +815,25 @@ final class Store: ObservableObject {
         let m = SessionsModel(key: k, store: self)
         sessionViews[k] = m
         return m
+    }
+
+    func commits(for k: String) -> CommitsModel {
+        if let m = commitViews[k] { return m }
+        let m = CommitsModel(key: k, store: self)
+        commitViews[k] = m
+        return m
+    }
+
+    /// A project's commit graph, in a tab of its own; from a branch's menu,
+    /// at that branch's newest commit.
+    func openCommits(project pk: String, branch: String? = nil) {
+        let (m, pid) = unkey(pk)
+        let k = commitsKey(m, pid)
+        let model = commits(for: k)
+        model.focusBranch = branch
+        if layout.tab(showing: k) != nil || branch != nil { model.load() }
+        layout.open(k)
+        terminalHasKeyboard = false
     }
 
     /// A project's saved conversations, in a tab of their own — what the
@@ -994,6 +1018,7 @@ final class Store: ObservableObject {
             newPane(machine: m, cwd: cwd, inProject: inProject, agent: agent ?? startable(on: m).first?.name)
         case .newTerminal(let m, let cwd, let inProject): newPane(machine: m, cwd: cwd, inProject: inProject, agent: nil)
         case .changes(let pr, let b): openChanges(project: pr, branch: b)
+        case .commits(let pr, let b): openCommits(project: pr, branch: b)
         case .newTask(let pr): newTask(project: pr)
         case .copy(let text):
             NSPasteboard.general.clearContents()

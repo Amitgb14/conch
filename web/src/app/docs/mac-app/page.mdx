@@ -47,6 +47,10 @@ Every agent waiting for you is a card under **Needs you**, at the top of the sid
 
 The **Sessions** row of a project opens its saved conversations in a tab of their own: every agent's, the newest first and any interrupted by a restart above them, each with its agent, title, branch and how long ago. Search narrows them by title, branch or agent. **Resume** (or a double-click) starts the agent on that conversation again in a pane; one already running says **open**, and **Open** goes to its pane. The bin on a row deletes the conversation where its agent keeps it, after asking.
 
+## Commits
+
+**Commit graph** on a project's menu opens its history in a tab of its own: every branch and tag of the repository, newest first, as `git log --graph` draws it — each commit a dot on its branch's lane, a lane coloured for its branch from the theme, merges where lanes join — with its short hash, its branches, remote branches and tags as chips (the checked-out one as **HEAD → name**), its subject, author and how long ago. **Show in commit graph** on a branch's menu opens it at that branch's newest commit. The newest 300 are read first; **Show older commits** reads 300 more, up to 2000. It reads again when git moves (a commit, a push), and ↻ reads it again at any time. Right-click a commit to copy its hash or subject, or to view the changes on a branch that points at it. A machine's server needs `project.log.v1` for it: an older one says so, and reloading that server brings it.
+
 ## Starting agents and tasks
 
 **File → New Task…** (`⌘N`), or **New task…** on a project's or branch's menu, opens a sheet for a prompt, the agent to give it to and, if you like, the branch's name — [`conch task`](/docs/cli#task) from a window: the server makes a branch and a worktree of its own and starts the agent there with your prompt, in a tab of its own. In a folder that isn't a git repository the agent works in the folder itself. **File → Start Agent** (`⇧⌘N`) starts an agent where the focused pane is.
@@ -56,8 +60,8 @@ Right-clicking a row in the sidebar gives its menu, as `m` does in the TUI:
 | Row | Menu |
 | --- | --- |
 | Agent, terminal | Open · Rename… · Prompt… (an agent: a message typed in and submitted for you) · Start an agent here ▸ · New terminal here · View changes on its branch · Close (an agent asks first; its conversation stays in Sessions) |
-| Branch | View changes · Start an agent on this branch ▸ and Open terminal on this branch (when it is checked out) · New task in project… · Copy branch name |
-| Project | New task… · Start an agent in project ▸ · Open terminal in project · Copy path |
+| Branch | View changes · Start an agent on this branch ▸ and Open terminal on this branch (when it is checked out) · New task in project… · Show in commit graph · Copy branch name |
+| Project | New task… · Start an agent in project ▸ · Open terminal in project · Commit graph (a git repository) · Copy path |
 | Machine | Start an agent ▸ (in the home directory, in no project) · New terminal · SSH to a host… (this computer) · Add project… · Add machine… |
 | CLI | Start an agent ▸ · New terminal · SSH to a host… (this computer's) |
 | Workspace | Add project… · New task in each project… |
