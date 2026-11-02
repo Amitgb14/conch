@@ -21,21 +21,6 @@ func (m Model) sidebarInner() (w, h int) {
 	return max(m.sidebarW-2, 1), max(m.height-statusHeight-2, 1)
 }
 
-// openFrame is the sidebar's frame: the cells a box would take, left
-// blank. The tree reads as a column of its own beside the boxed splits
-// without a second border beside theirs, and every position — the
-// workspace buttons in the top row, the edge that is dragged to resize —
-// stays where the box put it, so nothing that finds things by column has
-// to change. The title starts where it did after the box's "╭─".
-func openFrame(title string, content []string, w int) []string {
-	title = ansi.Truncate(title, max(w, 0), "…")
-	out := []string{"  " + title}
-	for _, l := range content {
-		out = append(out, " "+fit(l, w)+" ")
-	}
-	return append(out, "")
-}
-
 // View renders the whole screen.
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
@@ -58,7 +43,14 @@ func (m Model) viewBody() string {
 		if m.headerRows == 0 { // conch's own window has them in its header
 			header, _ = m.spaceHeader(max(sw-2, 0))
 		}
-		left := openFrame(header, exactly(m.sidebarLines(sw, sh), sh), sw)
+		// The tree keeps its box, in the accent while it has the keys, so
+		// it reads as a panel beside the splits — the TUI's own look, which
+		// an unboxed column lost.
+		sideColor := colorAccent
+		if m.focus == focusMain {
+			sideColor = colorBorder
+		}
+		left := frameLines(header, exactly(m.sidebarLines(sw, sh), sh), sw, sideColor)
 		for i := range screen {
 			if i < len(left) {
 				screen[i] = left[i]

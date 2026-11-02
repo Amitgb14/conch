@@ -47,6 +47,7 @@ final class Store: ObservableObject {
     @Published private(set) var themeChoice = UserDefaults.standard.string(forKey: "theme") ?? ""
     @Published private(set) var theme = ConchTheme.conch
     @Published private(set) var icons = IconMode.text
+    @Published private(set) var cost = true
     /// Told when the theme changes, for what SwiftUI does not draw: the
     /// window's own background and appearance.
     var onTheme: ((ConchTheme) -> Void)?
@@ -140,9 +141,13 @@ final class Store: ObservableObject {
         let toml = try? String(contentsOfFile: configFile, encoding: .utf8)
         // How agents are marked follows the TUI's setting, read with the theme.
         let icons = IconMode(setting: uiSetting("icons", in: toml))
-        if icons != self.icons {
+        // And whether rows show usage: on unless [ui] cost = false, the TUI's default.
+        let cost = uiSetting("cost", in: toml)?.lowercased() != "false"
+        if icons != self.icons || cost != self.cost {
             self.icons = icons
+            self.cost = cost
             Theme.icons = icons
+            Theme.cost = cost
         }
         let configured = ConchTheme.configured(in: toml)
         let next = ConchTheme.named(themeChoice.isEmpty ? configured : themeChoice)

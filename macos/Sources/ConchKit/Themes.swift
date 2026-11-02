@@ -63,6 +63,10 @@ public struct ConchTheme: Equatable, Sendable, Identifiable {
     public var well: RGB { light ? .white : bg.mix(.black, 0.25) }
     public var fg2: RGB { fg.mix(bg, 0.3) }
     public var border2: RGB { border.mix(fg, 0.15) }
+    /// Under the row the pointer is on: the TUI's styleHover, the dim
+    /// selection darkened by half — on a light theme, the dim selection
+    /// itself, which darkening would turn grey.
+    public var hover: RGB { light ? selDim : selDim.mix(.black, 0.5) }
 
     /// Text on a warn-coloured pill or button: whichever of the theme's
     /// background or white reads on it.

@@ -170,7 +170,9 @@ func TestAppHeaderTakesTheTopRow(t *testing.T) {
 	if strings.TrimSpace(ansi.Strip(lines[1])) != "" {
 		t.Fatalf("row under the band %q", ansi.Strip(lines[1]))
 	}
-	if side := ansi.Cut(ansi.Strip(lines[2]), 0, m.sidebarW); strings.TrimSpace(side) != "" {
+	// The sidebar keeps its box, with no title of its own: the
+	// workspaces are in the band.
+	if side := ansi.Cut(ansi.Strip(lines[2]), 0, m.sidebarW); strings.Trim(side, "╭─╮") != "" || !strings.HasPrefix(side, "╭") {
 		t.Fatalf("sidebar's top row %q", side)
 	}
 

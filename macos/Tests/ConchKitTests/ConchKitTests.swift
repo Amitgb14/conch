@@ -77,7 +77,7 @@ func fixture() -> Snapshot {
     #expect(top[0].kind == .workspace("local") && top[0].id == "ws:local" && top[0].badge == "1")
     #expect(top[0].children?.map(\.title) == ["api"])
     let api = top[0].children![0]
-    #expect(api.badge == "⚑1")
+    #expect(api.badge == "⠋1 ⚑1") // working and waiting, as the TUI counts them
     #expect(api.children?.map(\.title) == ["Agents", "Branches", "Terminals"])
     #expect(agents0(api)?.kind == .agent("local|p1"))
     let agents = api.children?[0].children ?? []
@@ -582,4 +582,65 @@ final class FakeServer: @unchecked Sendable {
     // The alert comes off the wire.
     let p = try? conchDecoder().decode(PaneInfo.self, from: Data(#"{"id":"p3","name":"zsh","state":"running","alert":"silence"}"#.utf8))
     #expect(p?.alert == "silence")
+}
+
+// A pane's right side, as the TUI's tree: how it exited, else its branch,
+// else an agent's state; a plain terminal on no branch says nothing.
+@Test func paneDetail() {
+    var p = PaneInfo(id: "p1", name: "claude", agent: AgentStatus(name: "claude", state: .working), branch: "feat/x")
+    #expect(StateGlyph.detail(p)! == ("feat/x", .muted))
+    p.branch = ""
+    #expect(StateGlyph.detail(p)! == ("working", .work))
+    p.agent?.state = .blocked
+    #expect(StateGlyph.detail(p)! == ("waiting", .warn))
+    p.agent = AgentStatus(name: "claude", state: .done, failed: true)
+    #expect(StateGlyph.detail(p)! == ("failed", .err))
+    p.agent = AgentStatus(name: "claude", state: .unknown)
+    #expect(StateGlyph.detail(p)!.text == "idle")
+    p.state = "exited"
+    p.branch = "feat/x"
+    #expect(StateGlyph.detail(p)! == ("exited", .muted)) // before the branch
+    p.exitCode = 1
+    #expect(StateGlyph.detail(p)! == ("exit 1", .err))
+    #expect(StateGlyph.detail(PaneInfo(id: "p2", name: "zsh")) == nil)
+}
+
+// What agents used, summed and written as the TUI's chips are.
+@Test func usageChips() {
+    func agent(_ t: Tokens?) -> PaneInfo { PaneInfo(id: "p", name: "a", agent: AgentStatus(name: "codex", state: .idle, tokens: t)) }
+    #expect(Usage([]).chip == "" && Usage([PaneInfo(id: "p", name: "zsh"), agent(nil)]).chip == "")
+    #expect(Usage([agent(Tokens())]).chip == "") // reported nothing yet
+    #expect(Usage([agent(Tokens(output: 9_200))]).chip == "9.2k out")
+    #expect(Usage([agent(Tokens(input: 100, cacheRead: 573_000))]).chip == "573k in")
+    #expect(Usage([agent(Tokens(output: 30_000, costUSD: 33.7)), agent(Tokens(costUSD: 2175.36))]).chip == "$2209.06")
+    #expect(Usage([agent(Tokens(output: 5, costUSD: 0.004))]).chip == "<$0.01")
+    #expect(Usage.count(999) == "999" && Usage.count(1000) == "1.0k" && Usage.count(10_000) == "10k" && Usage.count(1_250_000) == "1.2M")
+    // From the wire, missing fields as zero.
+    let a = try? conchDecoder().decode(AgentStatus.self, from: Data(#"{"name":"claude","state":"idle","tokens":{"output":12,"cost_usd":1.5}}"#.utf8))
+    #expect(a?.tokens == Tokens(output: 12, costUSD: 1.5))
+}
+
+// The machine and project rows count working, waiting and done, and carry
+// the usage of what they hold, as the TUI's do.
+@Test func treeCountsAndUsage() {
+    var s = fixture()
+    var p = s.pane("p1")!
+    p.agent?.tokens = Tokens(costUSD: 2.5)
+    s.upsert(p)
+    s.upsert(PaneInfo(id: "p9", name: "gemini", agent: AgentStatus(name: "gemini", state: .done), projectID: "r1"))
+    let t = s.tree()
+    #expect(t.badge == "⠋1 ⚑1 ✓1" && t.usage == "$2.50")
+    let api = projects(t)[0]
+    #expect(api.badge == "⠋1 ⚑1 ✓1")
+    #expect(api.usage == "$2.50" && api.children?[0].usage == "$2.50")
+}
+
+// A row's name and its right side share the width as the TUI's do: a long
+// name cannot squeeze a branch away, nor a long branch the name.
+@Test func rowWidthsShare() {
+    #expect(rowWidths(name: 50, right: 40, room: 200) == (160, 40)) // both fit
+    #expect(rowWidths(name: 300, right: 120, room: 200) == (120, 80)) // both cut: the right keeps 40%
+    #expect(rowWidths(name: 300, right: 30, room: 200) == (170, 30)) // a short right side stays whole
+    #expect(rowWidths(name: 100, right: 150, room: 200) == (100, 100)) // the name whole, the right what is left
+    #expect(rowWidths(name: 10, right: 10, room: -5) == (0, 0)) // no room
 }

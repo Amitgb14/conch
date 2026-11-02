@@ -14,6 +14,8 @@ enum Theme {
     static var current = ConchTheme.conch
     /// conch's `[ui] icons`, which decides how agents are marked.
     static var icons = IconMode.text
+    /// conch's `[ui] cost`: whether rows show what agents have used.
+    static var cost = true
 
     static func ns(_ c: RGB) -> NSColor { NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1) }
     static func color(_ c: RGB) -> Color { Color(nsColor: ns(c)) }
@@ -34,6 +36,7 @@ enum Theme {
     static var accent: Color { color(current.line) }
     static var accentDeep: Color { color(current.accent) }
     static var selectedText: Color { color(current.selFG) }
+    static var hover: Color { color(current.hover) }
     static var ok: Color { color(current.ok) }
     static var warn: Color { color(current.warn) }
     static var onWarn: Color { color(current.onWarn) }
@@ -156,6 +159,32 @@ struct Status: View {
         case .ok: return Theme.ok
         case .err: return Theme.err
         }
+    }
+}
+
+/// A row's name and its right side in the width there is, as the TUI
+/// shares a tree line: both whole when they fit; otherwise the right side
+/// keeps what the name leaves, but never less than its share (up to 40%),
+/// so a long name and a long branch are both cut — the name at its end,
+/// the branch at its start — rather than one squeezing the other away.
+struct RowSplit: SwiftUI.Layout {
+    var gap: CGFloat = 6
+    var share: CGFloat = 0.4
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: LayoutSubviews, cache: inout ()) -> CGSize {
+        let h = subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+        let ideal = subviews.reduce(0) { $0 + $1.sizeThatFits(.unspecified).width } + gap
+        return CGSize(width: proposal.width ?? ideal, height: h)
+    }
+
+    func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: LayoutSubviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let name = subviews[0].sizeThatFits(.unspecified).width
+        let right = subviews[1].sizeThatFits(.unspecified).width
+        let room = max(b.width - gap, 0)
+        let (nw, rw) = rowWidths(name: name, right: right, room: room, share: share)
+        subviews[0].place(at: CGPoint(x: b.minX, y: b.midY), anchor: .leading, proposal: ProposedViewSize(width: nw, height: b.height))
+        subviews[1].place(at: CGPoint(x: b.maxX, y: b.midY), anchor: .trailing, proposal: ProposedViewSize(width: rw, height: b.height))
     }
 }
 
@@ -313,6 +342,8 @@ struct NodeView: View {
     let node: TreeNode
     let depth: Int
     var open: Bool { store.isOpen(node) }
+    /// The pointer is over the row: a tint under it, as the TUI's hover.
+    @State private var hovering = false
 
     var paneID: String? {
         switch node.kind {
@@ -349,18 +380,19 @@ struct NodeView: View {
                 Spacer().frame(width: 10)
             }
             icon
-            // The name first: the branch is on the pane's own card, and a
-            // narrow sidebar gives it up before the name.
-            Text(node.title).font(isBranch ? .system(size: 12, design: .monospaced) : .system(size: 13, weight: isHeading ? .semibold : .regular))
-                .foregroundStyle(selected ? Theme.selectedText : isSection || isSessions ? Theme.text2 : Theme.text)
-                .lineLimit(1).truncationMode(.tail)
-                .layoutPriority(1)
-            Spacer(minLength: 4)
-            badge.fixedSize()
+            // The name, then what the TUI says at the right, sharing the
+            // width as the TUI's rows do (RowSplit).
+            RowSplit {
+                Text(node.title).font(isBranch ? .system(size: 12, design: .monospaced) : .system(size: 13, weight: isHeading ? .semibold : .regular))
+                    .foregroundStyle(selected ? Theme.selectedText : isSection || isSessions ? Theme.text2 : Theme.text)
+                    .lineLimit(1).truncationMode(.tail)
+                badge
+            }
         }
         .padding(.leading, CGFloat(depth) * 14 + 6).padding(.trailing, 8).frame(height: 26)
-        .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Theme.accentDeep : .clear))
+        .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Theme.accentDeep : hovering ? Theme.hover : .clear))
         .contentShape(Rectangle())
+        .onHover { hovering = $0 }
         .onTapGesture { activate() }
     }
 
@@ -399,49 +431,79 @@ struct NodeView: View {
         }
     }
 
-    /// A count pill: the machine and project rows' working and waiting.
+    /// A machine or project row's counts, written as the TUI's
+    /// attentionBadge writes them: ⠋ working (turning), ⚑ waiting, ✓ done.
     func counts(_ badge: String) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             ForEach(badge.split(separator: " ").map(String.init), id: \.self) { part in
-                if part.hasPrefix("⚑") {
-                    Pill(text: String(part.dropFirst()), fg: Theme.onWarn, bg: Theme.warn)
-                } else if part.hasPrefix("⠋") {
-                    Pill(text: String(part.dropFirst()), fg: Theme.work, bg: Theme.work.opacity(0.18))
-                } else if part.hasPrefix("✓") {
-                    Pill(text: String(part.dropFirst()), fg: Theme.ok, bg: Theme.ok.opacity(0.16))
+                if part.hasPrefix("⠋") {
+                    TimelineView(.periodic(from: .now, by: StateGlyph.spinInterval)) { tl in
+                        let i = Int(tl.date.timeIntervalSinceReferenceDate / StateGlyph.spinInterval) % StateGlyph.spinner.count
+                        detail(StateGlyph.spinner[i] + part.dropFirst(), selected ? Theme.selectedText : Theme.work)
+                    }
                 } else {
-                    Text(part).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    detail(part, selected ? Theme.selectedText : part.hasPrefix("⚑") ? Theme.warn : part.hasPrefix("✓") ? Theme.ok : Theme.muted)
                 }
             }
         }
     }
 
+    func detail(_ text: String, _ color: Color) -> some View {
+        Text(text).font(.system(size: 12, design: .monospaced)).foregroundStyle(color).lineLimit(1)
+    }
+
+    /// The usage chip, muted, unless [ui] cost turns it off.
+    @ViewBuilder func usage(_ chip: String) -> some View {
+        if Theme.cost && !chip.isEmpty { detail(chip, selected ? Theme.selectedText : Theme.muted) }
+    }
+
+    func tone(_ t: StateGlyph.Tone) -> Color {
+        if selected { return Theme.selectedText }
+        switch t {
+        case .muted: return Theme.muted
+        case .work: return Theme.work
+        case .warn: return Theme.warn
+        case .ok: return Theme.ok
+        case .err: return Theme.err
+        }
+    }
+
+    /// The row's right side, as the TUI's tree has it.
     @ViewBuilder var badge: some View {
         switch node.kind {
-        case .agent(let id):
-            if let a = store.pane(id)?.agent {
-                switch a.state {
-                case .working: Pill(text: "working", fg: Theme.work, bg: Theme.work.opacity(0.18))
-                case .blocked: Pill(text: "waiting", fg: Theme.onWarn, bg: Theme.warn)
-                case .done: Pill(text: "done", fg: Theme.ok, bg: Theme.ok.opacity(0.16))
-                default: EmptyView()
+        case .agent(let id), .terminal(let id):
+            // How it exited, else its branch, else the agent's state; then
+            // what it has used. A long branch gives way from its start,
+            // as the TUI cuts it.
+            if let p = store.pane(id) {
+                // It has its share before the name, up to about fifteen
+                // characters, so a long name cannot squeeze it to nothing.
+                HStack(spacing: 6) {
+                    if let d = StateGlyph.detail(p) {
+                        Text(d.text).font(.system(size: 12, design: .monospaced)).foregroundStyle(tone(d.tone))
+                            .lineLimit(1).truncationMode(.head)
+                    }
+                    usage(Usage([p]).chip).fixedSize()
                 }
             }
-        case .terminal: if node.badge == "exited" { Text("exited").font(.system(size: 11)).foregroundStyle(Theme.muted) }
         case .machine(let m):
             if let link = store.machines.first(where: { $0.id == m }), !link.online {
-                Text(link.state).font(.system(size: 11)).foregroundStyle(link.state == "offline" ? Theme.err : Theme.muted)
+                detail(link.state, link.state == "offline" ? Theme.err : Theme.muted)
                     .padding(.trailing, 2)
                     .help(link.why.isEmpty ? link.state : link.why)
+                    .fixedSize()
             } else {
-                counts(node.badge)
+                HStack(spacing: 6) { usage(node.usage); counts(node.badge) }.fixedSize()
             }
-        case .project: counts(node.badge)
+        case .project: HStack(spacing: 6) { usage(node.usage); counts(node.badge) }.fixedSize()
+        case .section:
+            HStack(spacing: 6) { usage(node.usage); detail(node.badge, Theme.muted) }.fixedSize()
         case .branch:
             Text(node.badge).font(.system(size: 11.5, design: .monospaced))
                 .foregroundStyle(node.badge.contains("✓") ? Theme.ok : node.badge.contains("✗") ? Theme.err : Theme.muted)
+                .fixedSize()
         default:
-            if !node.badge.isEmpty { Text(node.badge).font(.system(size: 12)).foregroundStyle(Theme.muted) }
+            if !node.badge.isEmpty { detail(node.badge, Theme.muted).fixedSize() }
         }
     }
 

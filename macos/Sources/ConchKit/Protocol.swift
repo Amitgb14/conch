@@ -14,23 +14,56 @@ public enum AgentState: String, Decodable, Sendable {
     }
 }
 
+/// What an agent has used, as the server reports it (proto.Tokens).
+public struct Tokens: Decodable, Equatable, Sendable {
+    public var input = 0, cacheWrite = 0, cacheRead = 0, output = 0
+    public var costUSD: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case input, output
+        case cacheWrite = "cache_write"
+        case cacheRead = "cache_read"
+        case costUSD = "cost_usd"
+    }
+
+    public init(input: Int = 0, cacheWrite: Int = 0, cacheRead: Int = 0, output: Int = 0, costUSD: Double? = nil) {
+        self.input = input
+        self.cacheWrite = cacheWrite
+        self.cacheRead = cacheRead
+        self.output = output
+        self.costUSD = costUSD
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        input = try c.decodeIfPresent(Int.self, forKey: .input) ?? 0
+        cacheWrite = try c.decodeIfPresent(Int.self, forKey: .cacheWrite) ?? 0
+        cacheRead = try c.decodeIfPresent(Int.self, forKey: .cacheRead) ?? 0
+        output = try c.decodeIfPresent(Int.self, forKey: .output) ?? 0
+        costUSD = try c.decodeIfPresent(Double.self, forKey: .costUSD)
+    }
+}
+
 public struct AgentStatus: Decodable, Equatable, Sendable {
     public var name: String
     public var state: AgentState
     public var message: String?
     public var failed: Bool?
     public var since: Date?
+    public var tokens: Tokens?
 
-    public init(name: String, state: AgentState, message: String? = nil, failed: Bool? = nil, since: Date? = nil) {
+    public init(name: String, state: AgentState, message: String? = nil, failed: Bool? = nil, since: Date? = nil,
+                tokens: Tokens? = nil) {
         self.name = name
         self.state = state
         self.message = message
         self.failed = failed
         self.since = since
+        self.tokens = tokens
     }
 
     public static func == (a: AgentStatus, b: AgentStatus) -> Bool {
-        a.name == b.name && a.state == b.state && a.message == b.message && a.failed == b.failed
+        a.name == b.name && a.state == b.state && a.message == b.message && a.failed == b.failed && a.tokens == b.tokens
     }
 }
 

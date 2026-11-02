@@ -199,6 +199,9 @@ public struct TreeNode: Identifiable, Equatable, Sendable {
     public var title: String
     public var detail: String = ""
     public var badge: String = ""
+    /// What the agents under the row have used (Usage.chip), shown at its
+    /// right as the TUI does unless [ui] cost is off.
+    public var usage: String = ""
     public var children: [TreeNode]? = nil
     /// The TUI's id for the row's fold (ui.json "expanded"), and whether it
     /// is open when nothing is saved — the TUI's own defaults, so the two
@@ -246,7 +249,8 @@ extension Snapshot {
             }
             var sections: [TreeNode] = []
             if !agents.isEmpty {
-                sections.append(TreeNode(id: "s:\(pk):agents", kind: .section("Agents"), title: "Agents", badge: "\(agents.count)", children: agents, fold: tui + "/agents"))
+                sections.append(TreeNode(id: "s:\(pk):agents", kind: .section("Agents"), title: "Agents", badge: "\(agents.count)",
+                                         usage: Usage(mine).chip, children: agents, fold: tui + "/agents"))
             }
             if !branches.isEmpty {
                 let all = max(pr.branches?.count ?? 0, branches.count)
@@ -258,10 +262,9 @@ extension Snapshot {
             if let n = sessions[pk], n > 0 {
                 sections.append(TreeNode(id: "s:\(pk):sessions", kind: .sessions(pk), title: "Sessions", badge: "\(n)"))
             }
-            let (w, d) = Snapshot(panes: mine).inbox()
             projectNodes.append(TreeNode(id: "p:\(pk)", kind: .project(pk), title: pr.name,
-                                         badge: [w > 0 ? "⚑\(w)" : "", d > 0 ? "✓\(d)" : ""].filter { !$0.isEmpty }.joined(separator: " "),
-                                         children: sections, fold: tui, foldDefault: !mine.isEmpty))
+                                         badge: attention(mine),
+                                         usage: Usage(mine).chip, children: sections, fold: tui, foldDefault: !mine.isEmpty))
         }
         let loose = shown.filter { $0.projectID == nil || project($0.projectID!) == nil }
         // The projects sit under a Workspace row, the CLI group beside it:
@@ -275,11 +278,17 @@ extension Snapshot {
             top.append(TreeNode(id: "cli:\(machine)", kind: .cli(machine), title: "CLI", badge: "\(loose.count)",
                                 children: loose.map { paneNode($0, machine) }, fold: "m:\(machine)/cli"))
         }
-        let working = shown.filter { $0.agent?.state == .working }.count
-        let (w, _) = Snapshot(panes: shown).inbox()
         return TreeNode(id: "m:\(machine)", kind: .machine(machine), title: label ?? machine,
-                        badge: [working > 0 ? "⠋\(working)" : "", w > 0 ? "⚑\(w)" : ""].filter { !$0.isEmpty }.joined(separator: " "),
-                        children: top, fold: "m:\(machine)")
+                        badge: attention(shown),
+                        usage: Usage(shown).chip, children: top, fold: "m:\(machine)")
+    }
+
+    /// A machine or project row's counts, as the TUI's attentionBadge:
+    /// working, waiting for you, done.
+    func attention(_ panes: [PaneInfo]) -> String {
+        let working = panes.filter { $0.agent?.state == .working }.count
+        let (w, d) = Snapshot(panes: panes).inbox()
+        return [working > 0 ? "⠋\(working)" : "", w > 0 ? "⚑\(w)" : "", d > 0 ? "✓\(d)" : ""].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     func paneNode(_ p: PaneInfo, _ machine: String) -> TreeNode {
