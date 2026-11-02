@@ -717,6 +717,8 @@ struct ChoiceButtons: View {
 
 struct TabBar: View {
     @ObservedObject var store: Store
+    /// How far the scrolling strip fades out at each end.
+    static let fade: CGFloat = 24
 
     var tabs: some View {
         HStack(alignment: .bottom, spacing: 2) {
@@ -744,8 +746,16 @@ struct TabBar: View {
                 HStack(alignment: .bottom, spacing: 2) {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal, showsIndicators: false) {
-                            tabs.padding(.bottom, 1)
+                            // Padded by the fade, so a tab scrolled to the
+                            // very end is whole and clear; only one the
+                            // edge cuts fades out.
+                            tabs.padding(.bottom, 1).padding(.horizontal, TabBar.fade)
                         }
+                        .mask(HStack(spacing: 0) {
+                            LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: TabBar.fade)
+                            Rectangle()
+                            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: TabBar.fade)
+                        })
                         .onChange(of: store.layout.active) { i in
                             if store.layout.tabs.indices.contains(i) {
                                 withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(store.layout.tabs[i].id) }
