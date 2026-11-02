@@ -644,3 +644,25 @@ final class FakeServer: @unchecked Sendable {
     #expect(rowWidths(name: 100, right: 150, room: 200) == (100, 100)) // the name whole, the right what is left
     #expect(rowWidths(name: 10, right: 10, room: -5) == (0, 0)) // no room
 }
+
+// The app's + adds a workspace to ui.json as the TUI's does, leaving the
+// rest of the file alone, so a running TUI merges it in by its id.
+@Test func addingAWorkspace() throws {
+    let ui = #"{"spaces":[{"name":"review","projects":["r1"]},{"id":"sabc","name":"x"}],"expanded":{"m:local":true},"tabs":[{"name":"t"}]}"#
+    let out = try Workspace.adding(id: "snew", to: Data(ui.utf8))
+    let obj = try #require(try JSONSerialization.jsonObject(with: out) as? [String: Any])
+    let spaces = try #require(obj["spaces"] as? [[String: Any]])
+    #expect(spaces.map { $0["id"] as? String } == ["w1", "sabc", "snew"]) // older ones named by place, as the TUI does
+    #expect(spaces[0]["projects"] as? [String] == ["r1"] && spaces[2]["name"] == nil)
+    #expect((obj["expanded"] as? [String: Bool]) == ["m:local": true] && (obj["tabs"] as? [Any])?.count == 1)
+    let ws = Workspace.load(uiJSON: out)
+    #expect(ws.count == 4 && ws[3].name == "" && ws[3].projects == [])
+    // No file yet: just the one.
+    #expect(Workspace.load(uiJSON: try Workspace.adding(name: "mine", to: nil)).map(\.name) == ["", "mine"])
+    #expect(Workspace.load(uiJSON: try Workspace.adding(to: Data())).count == 2)
+    // Not conch's: left alone.
+    #expect(throws: ConchError.self) { try Workspace.adding(to: Data("[1,2]".utf8)) }
+    #expect(throws: (any Error).self) { try Workspace.adding(to: Data("{half".utf8)) }
+    let id = Workspace.newID()
+    #expect(id.count == 13 && id.hasPrefix("s") && id != Workspace.newID())
+}

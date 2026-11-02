@@ -294,9 +294,11 @@ func New(local *client.Client, cfg config.Config) Model {
 	}
 	m.sshInfo = cleanSSHInfo(m.savedSSH, st.SSHHosts)
 	m.folders = migrateSSHGroups(m.folders, st.SSHGroups, m.savedSSH, m.sshInfo)
-	m.uiSync = newUISync(path, m.sharedNow())
 	m.restoreTabs(st.Tabs, st.ActiveTab)
 	m.restoreSpaces(st.FirstSpace, st.Spaces, st.ActiveSpace)
+	// After the workspaces, which are shared too: a base without them
+	// would bring back one another TUI closed in the meantime.
+	m.uiSync = newUISync(path, m.sharedNow())
 	if st.SidebarWidth > 0 {
 		m.sidebarW = st.SidebarWidth
 	}

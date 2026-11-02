@@ -72,6 +72,7 @@ func twoTUIs(t *testing.T, st uiState) (a, b *Model, path string) {
 		st := loadUIState(path)
 		m := &Model{statePath: path, expanded: st.Expanded, showAll: st.ShowAll, folders: st.Folders,
 			savedSSH: st.SavedSSH, sshInfo: st.SSHHosts, noProjectOffer: st.NoProjectOffer}
+		m.restoreSpaces(st.FirstSpace, st.Spaces, st.ActiveSpace)
 		m.uiSync = newUISync(path, m.sharedNow())
 		return m
 	}
@@ -261,4 +262,196 @@ func waitNewStamp(t *testing.T, path string) {
 func updateModel(m *Model, msg tea.Msg) {
 	next, _ := m.Update(msg)
 	*m = next.(Model)
+}
+
+// spaceNames is a model's workspaces after the first, by name.
+func spaceNames(m *Model) []string {
+	var out []string
+	for i, sp := range m.spaces {
+		if i > 0 {
+			out = append(out, sp.name)
+		}
+	}
+	return out
+}
+
+// poll has b look at the file as its tick would, and take in what changed.
+func poll(t *testing.T, m *Model, path string) {
+	t.Helper()
+	msg := pollUIState(path, m.uiSync)
+	if !msg.changed {
+		t.Fatal("the change was not seen")
+	}
+	updateModel(m, msg)
+}
+
+// Workspaces are shared by id: what each holds and the order, never the
+// tabs, which are each TUI's own, nor which one is on screen.
+func TestSharedSpacesRoundTrip(t *testing.T) {
+	st := uiState{
+		Spaces: []savedSpace{
+			{ID: "sa", Name: "review", Projects: []string{"r1"}, Tabs: []savedTab{{}}, ActiveTab: 0},
+			{Name: "old"}, // from before ids: named by its place
+		},
+		FirstSpace:  &savedSpace{Projects: []string{"r2"}},
+		ActiveSpace: 2,
+	}
+	s := sharedOf(st)
+	for _, k := range []string{"spaces/sa", "spaces/w2", "space_order", "first_space"} {
+		if _, ok := s[k]; !ok {
+			t.Fatalf("no %s in %v", k, s)
+		}
+	}
+	if string(s["space_order"]) != `["sa","w2"]` {
+		t.Fatalf("order %s", s["space_order"])
+	}
+	var shared savedSpace
+	_ = json.Unmarshal(s["spaces/sa"], &shared)
+	if shared.Tabs != nil || shared.Name != "review" || !slices.Equal(shared.Projects, []string{"r1"}) {
+		t.Fatalf("shared %+v", shared)
+	}
+
+	// Taken back into a state that had them: tabs kept, on screen kept,
+	// and the old one now carries its id.
+	back := st
+	back.Spaces = slices.Clone(st.Spaces)
+	s.into(&back)
+	if len(back.Spaces) != 2 || len(back.Spaces[0].Tabs) != 1 || back.Spaces[1].ID != "w2" || back.ActiveSpace != 2 {
+		t.Fatalf("back %+v", back)
+	}
+	if back.FirstSpace == nil || !slices.Equal(back.FirstSpace.Projects, []string{"r2"}) {
+		t.Fatalf("first %+v", back.FirstSpace)
+	}
+	// Into a state without them: no tabs, nothing on screen.
+	var fresh uiState
+	s.into(&fresh)
+	if len(fresh.Spaces) != 2 || fresh.Spaces[0].Tabs != nil || fresh.ActiveSpace != 0 {
+		t.Fatalf("fresh %+v", fresh)
+	}
+	// Into one that was on a workspace no longer there: the first.
+	gone := uiState{Spaces: []savedSpace{{ID: "sx"}}, ActiveSpace: 1}
+	s.into(&gone)
+	if gone.ActiveSpace != 0 {
+		t.Fatalf("active %d", gone.ActiveSpace)
+	}
+	// None at all: nothing shared, and nothing comes back.
+	if s := sharedOf(uiState{}); len(s) != 0 {
+		t.Fatalf("pieces %v", s)
+	}
+}
+
+// The order is the list's, then any it does not name, by id; ids it names
+// that have no workspace are dropped.
+func TestSpaceOrder(t *testing.T) {
+	sp := map[string]savedSpace{"a": {}, "b": {}, "c": {}, "d": {}}
+	if got := spaceOrder([]string{"c", "gone", "a", "c"}, sp); !slices.Equal(got, []string{"c", "a", "b", "d"}) {
+		t.Fatalf("order %v", got)
+	}
+	if got := spaceOrder(nil, nil); got != nil {
+		t.Fatalf("empty %v", got)
+	}
+}
+
+// A workspace made in one TUI shows in the other, renamed there it is
+// renamed here, and closed there it goes here too.
+func TestTwoTUIsShareWorkspaces(t *testing.T) {
+	a, b, path := twoTUIs(t, uiState{})
+	a.spaces = []*space{newSpace(), newSpace()}
+	a.spaces[1].name = "review"
+	a.spaces[1].projects["r1"] = true
+	waitNewStamp(t, path)
+	save(t, a)
+	poll(t, b, path)
+	if got := spaceNames(b); !slices.Equal(got, []string{"review"}) || !b.spaces[1].projects["r1"] || b.spaces[1].id != a.spaces[1].id {
+		t.Fatalf("b's workspaces %v", got)
+	}
+
+	b.spaces[1].name = "reviews"
+	waitNewStamp(t, path)
+	save(t, b)
+	poll(t, a, path)
+	if got := spaceNames(a); !slices.Equal(got, []string{"reviews"}) {
+		t.Fatalf("a's workspaces %v", got)
+	}
+
+	// Both make one at once: both are kept, in both.
+	a.spaces = append(a.spaces, newSpace())
+	a.spaces[2].name = "a-made"
+	b.spaces = append(b.spaces, newSpace())
+	b.spaces[2].name = "b-made"
+	save(t, a)
+	save(t, b)
+	if got := spaceNames(b); len(got) != 3 || !slices.Contains(got, "a-made") || !slices.Contains(got, "b-made") {
+		t.Fatalf("b's workspaces %v", got)
+	}
+	if got := onDisk(t, path).Spaces; len(got) != 3 {
+		t.Fatalf("on disk %+v", got)
+	}
+
+	// Closed in a while b is on it: b goes to the first, and the closed
+	// one's tabs come with it.
+	// One a has not seen yet is not a's to close: it stays.
+	a.spaces = a.spaces[:1]
+	waitNewStamp(t, path)
+	save(t, a)
+	if got := spaceNames(a); !slices.Equal(got, []string{"b-made"}) {
+		t.Fatalf("a closed one it had not seen: %v", got)
+	}
+
+	b.enterSpace(1)
+	l := b.newLeaf(viewRef{})
+	b.tabs = []*tab{{name: "kept", root: &layoutNode{leaf: l}, focus: l.id}}
+	a.spaces = a.spaces[:1]
+	waitNewStamp(t, path)
+	save(t, a)
+	poll(t, b, path)
+	if len(b.spaces) != 0 || b.activeSpace != 0 {
+		t.Fatalf("b still has %v on %d", spaceNames(b), b.activeSpace)
+	}
+	if len(b.tabs) != 1 || b.tabs[0].name != "kept" {
+		t.Fatalf("tabs %+v", b.tabs)
+	}
+}
+
+// Conch.app adds a workspace by appending it to the file, with nothing
+// else: a TUI open on that file takes it in, keeping its own.
+func TestWorkspaceWrittenByTheApp(t *testing.T) {
+	a, _, path := twoTUIs(t, uiState{Spaces: []savedSpace{{Name: "old"}}})
+	if got := spaceNames(a); !slices.Equal(got, []string{"old"}) || a.spaces[1].id != "w1" {
+		t.Fatalf("restored %v", got)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		t.Fatal(err)
+	}
+	raw["spaces"] = append(raw["spaces"].([]any), map[string]any{"id": "sapp", "name": "from the app"})
+	b, _ = json.Marshal(raw)
+	waitNewStamp(t, path)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	poll(t, a, path)
+	if got := spaceNames(a); !slices.Equal(got, []string{"old", "from the app"}) || a.spaces[2].id != "sapp" {
+		t.Fatalf("workspaces %v", got)
+	}
+	// Its next save writes the ids down, the old one's included.
+	save(t, a)
+	got := onDisk(t, path).Spaces
+	if len(got) != 2 || got[0].ID != "w1" || got[1].ID != "sapp" {
+		t.Fatalf("on disk %+v", got)
+	}
+}
+
+func TestNewSpaceIDs(t *testing.T) {
+	a, b := newSpace().id, newSpace().id
+	if a == b || len(a) != 13 || a[0] != 's' {
+		t.Fatalf("ids %q %q", a, b)
+	}
+	if spaceID(savedSpace{ID: "sx"}, 4) != "sx" || spaceID(savedSpace{}, 0) != "w1" {
+		t.Fatal("spaceID")
+	}
 }

@@ -208,17 +208,17 @@ struct WorkspacesControl: View {
                     .contentShape(Rectangle())
                     .onTapGesture { store.workspace = i }
             }
-            // Workspaces are made in the TUI (ctrl+b N); + opens it there.
+            // A new workspace, shared with the TUI through ui.json.
             Text("+").font(.system(size: 12)).foregroundStyle(Theme.muted)
                 .padding(.horizontal, 9).padding(.vertical, 3)
                 .contentShape(Rectangle())
-                .onTapGesture { store.openTUI() }
-                .help("New workspace: made in conch's TUI with ctrl+b N, which this opens")
+                .onTapGesture { store.newWorkspace() }
+                .help("New workspace — conch's TUI has it too")
         }
         .padding(2)
         .background(RoundedRectangle(cornerRadius: 7).fill(Theme.window))
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.line))
-        .help("Workspaces, as conch's TUI keeps them")
+        .help("Workspaces, shared with conch's TUI")
     }
 }
 

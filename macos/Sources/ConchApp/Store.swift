@@ -565,6 +565,21 @@ final class Store: ObservableObject {
 
     // MARK: workspaces
 
+    /// Makes a workspace, as the TUI's + does, and shows it. It goes into
+    /// ui.json, where a running TUI takes it in within a second.
+    func newWorkspace() {
+        let path = (conchDir as NSString).appendingPathComponent("ui.json")
+        do {
+            let data = try Workspace.adding(to: FileManager.default.contents(atPath: path))
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        } catch {
+            self.error = "Could not add a workspace: \(error)"
+            return
+        }
+        loadWorkspaces()
+        workspace = workspaces.count - 1
+    }
+
     func loadWorkspaces() {
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("ui.json"))
         workspaces = Workspace.load(uiJSON: data)

@@ -125,8 +125,9 @@ public struct MachineEntry: Equatable, Sendable, Decodable {
 }
 
 /// A workspace as the TUI keeps it (ui.json): the first holds everything,
-/// another only what was added to it. The app reads them and switches
-/// between them; making and changing them stays the TUI's.
+/// another only what was added to it. The app reads them, switches between
+/// them, and makes one by adding it to the file (adding), which every TUI
+/// running merges in by its id (internal/tui/uisync.go).
 public struct Workspace: Equatable, Sendable {
     public var name: String
     /// nil is the first workspace, which shows everything. Projects are
@@ -170,6 +171,35 @@ public struct Workspace: Equatable, Sendable {
             }
         }
         return out
+    }
+
+    /// ui.json with an empty workspace added after the rest, as the TUI's
+    /// + makes one, and nothing else changed. Workspaces saved before they
+    /// had ids are given the ids the TUI gives them by place ("w1"…), so
+    /// both name them alike. A file that does not parse is not written
+    /// over: that throws.
+    public static func adding(name: String = "", id: String = newID(), to data: Data?) throws -> Data {
+        var ui: [String: Any] = [:]
+        if let data, !data.isEmpty {
+            guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw ConchError(code: "ui.json", message: "ui.json is not what conch writes; not changing it")
+            }
+            ui = obj
+        }
+        var spaces = (ui["spaces"] as? [[String: Any]]) ?? []
+        for i in spaces.indices where (spaces[i]["id"] as? String ?? "").isEmpty {
+            spaces[i]["id"] = "w\(i + 1)"
+        }
+        var new: [String: Any] = ["id": id]
+        if !name.isEmpty { new["name"] = name }
+        spaces.append(new)
+        ui["spaces"] = spaces
+        return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    /// A fresh id, as the TUI's newSpaceID makes them: "s" and twelve hex.
+    public static func newID() -> String {
+        "s" + (0..<6).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
     }
 
     /// What a workspace's button says: its number, and its name when it

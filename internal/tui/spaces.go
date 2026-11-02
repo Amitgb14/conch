@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"maps"
 	"slices"
 	"sort"
@@ -28,6 +30,10 @@ import (
 // space is one workspace. The one on screen keeps its tabs in the model;
 // the rest keep theirs here until they are shown again.
 type space struct {
+	// id names it in ui.json for as long as it lives, so TUIs sharing the
+	// file (and Conch.app, which adds one there) can tell which workspace
+	// another changed when the list is no longer in the same order.
+	id       string
 	name     string
 	projects map[string]bool // scoped(machine, project)
 	panes    map[string]bool // paneKey: started here, outside its projects
@@ -48,6 +54,7 @@ type space struct {
 // savedSpace is a workspace in ui.json. The first one's tabs stay in the
 // top-level tabs, which is what older builds read.
 type savedSpace struct {
+	ID        string     `json:"id,omitempty"` // absent from older files: spaceID
 	Name      string     `json:"name,omitempty"`
 	Projects  []string   `json:"projects,omitempty"`
 	Panes     []string   `json:"panes,omitempty"`
@@ -59,8 +66,26 @@ type savedSpace struct {
 }
 
 func newSpace() *space {
-	return &space{projects: map[string]bool{}, panes: map[string]bool{}, folders: map[string]bool{},
+	return &space{id: newSpaceID(), projects: map[string]bool{}, panes: map[string]bool{}, folders: map[string]bool{},
 		machines: map[string]bool{}, hosts: map[string]bool{}}
+}
+
+// newSpaceID is a fresh workspace id: random, so two TUIs making one at
+// the same moment do not make the same one.
+func newSpaceID() string {
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	return "s" + hex.EncodeToString(b[:])
+}
+
+// spaceID is a saved workspace's id. One saved before workspaces had ids
+// is named by its place, the same in every TUI reading the same file, so
+// they agree on it until one of them writes the ids down.
+func spaceID(ss savedSpace, i int) string {
+	if ss.ID != "" {
+		return ss.ID
+	}
+	return "w" + itoa(i+1)
 }
 
 // cur is the workspace on screen, or nil while there is only the one and
@@ -863,6 +888,7 @@ func (m *Model) actOnSpace(sp int, ok bool) tea.Cmd {
 
 func saveSpace(s *space, tabs []*tab, active int) savedSpace {
 	return savedSpace{
+		ID:        s.id,
 		Name:      s.name,
 		Projects:  sortedKeys(s.projects),
 		Panes:     sortedKeys(s.panes),
@@ -876,14 +902,86 @@ func saveSpace(s *space, tabs []*tab, active int) savedSpace {
 
 func loadSpace(ss savedSpace) *space {
 	s := newSpace()
+	if ss.ID != "" {
+		s.id = ss.ID
+	}
+	setMembers(s, ss)
+	return s
+}
+
+// setMembers makes s hold what ss says, and be called what it says.
+func setMembers(s *space, ss savedSpace) {
 	s.name = ss.Name
+	s.projects, s.panes, s.folders, s.machines, s.hosts = map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for set, keys := range map[*map[string]bool][]string{&s.projects: ss.Projects, &s.panes: ss.Panes,
 		&s.folders: ss.Folders, &s.machines: ss.Machines, &s.hosts: ss.Hosts} {
 		for _, k := range keys {
 			(*set)[k] = true
 		}
 	}
-	return s
+}
+
+// takeSpaces brings in the workspaces as another TUI (or Conch.app) left
+// them in ui.json: first is what workspace 1 holds, saved the rest in
+// order. A workspace this TUI has keeps its tabs; a new one starts with
+// none; one closed elsewhere is left first if it is on screen, and its
+// tabs go to workspace 1, as closing it here does — what it held needs no
+// moving, since what no workspace claims is workspace 1's.
+func (m *Model) takeSpaces(first *savedSpace, saved []savedSpace) {
+	if len(saved) == 0 && len(m.spaces) < 2 {
+		return
+	}
+	if len(m.spaces) == 0 || m.activeSpace < 0 || m.activeSpace >= len(m.spaces) {
+		if len(m.spaces) == 0 {
+			m.spaces = []*space{newSpace()}
+		}
+		m.activeSpace = 0
+	}
+	keep := map[string]bool{}
+	for _, ss := range saved {
+		keep[ss.ID] = true
+	}
+	if a := m.activeSpace; a > 0 && a < len(m.spaces) && !keep[m.spaces[a].id] {
+		m.enterSpace(0)
+	}
+	activeID := m.spaces[m.activeSpace].id
+	head := m.spaces[0]
+	have := map[string]*space{}
+	for _, s := range m.spaces[1:] {
+		have[s.id] = s
+		if keep[s.id] {
+			continue
+		}
+		if m.activeSpace == 0 {
+			m.tabs = append(m.tabs, s.tabs...)
+		} else {
+			head.tabs = append(head.tabs, s.tabs...)
+		}
+	}
+	if first != nil {
+		setMembers(head, *first)
+	} else {
+		setMembers(head, savedSpace{Name: head.name})
+	}
+	next := []*space{head}
+	for _, ss := range saved {
+		s := have[ss.ID]
+		if s == nil {
+			s = newSpace()
+			s.id = ss.ID
+		}
+		setMembers(s, ss)
+		next = append(next, s)
+	}
+	m.spaces, m.activeSpace = next, 0
+	for i, s := range next {
+		if s.id == activeID {
+			m.activeSpace = i
+		}
+	}
+	if len(m.spaces) == 1 {
+		m.spaces, m.activeSpace = nil, 0 // just the one again: everything is in it
+	}
 }
 
 // savedSpaces is every workspace after the first, for ui.json, wherever
@@ -935,7 +1033,8 @@ func (m *Model) restoreSpaces(first *savedSpace, saved []savedSpace, active int)
 		m.spaces[0] = loadSpace(*first)
 	}
 	tabs, at, preview, previewing := m.tabs, m.activeTab, m.preview, m.previewing
-	for _, ss := range saved {
+	for i, ss := range saved {
+		ss.ID = spaceID(ss, i)
 		s := loadSpace(ss)
 		m.tabs, m.preview, m.previewing = nil, nil, false
 		m.restoreTabs(ss.Tabs, ss.ActiveTab)
