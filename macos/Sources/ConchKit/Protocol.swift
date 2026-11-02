@@ -123,11 +123,14 @@ public struct WorktreeInfo: Decodable, Equatable, Sendable {
     public var branch: String?
     public var main: Bool?
     public var status: GitStatus?
+    /// The first port the checkout is given, as CONCH_PORT in its panes.
+    public var port: Int?
 
-    public init(path: String, branch: String?, main: Bool? = nil) {
+    public init(path: String, branch: String?, main: Bool? = nil, port: Int? = nil) {
         self.path = path
         self.branch = branch
         self.main = main
+        self.port = port
     }
 }
 
@@ -248,4 +251,11 @@ public struct SessionCount: Decodable {
     struct Any_: Decodable {}
     var sessions: [Any_]?
     public var count: Int { sessions?.count ?? 0 }
+}
+
+/// What fs.find found in a checkout: paths relative to it.
+public struct FindResult: Decodable, Sendable {
+    public var root: String
+    public var paths: [String]?
+    public var truncated: Bool?
 }

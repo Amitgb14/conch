@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -122,6 +122,11 @@ const CapFSFiles = "fs.files.v1"
 
 // CapFSRead is fs.read: the start of a file in a checkout, for a preview.
 const CapFSRead = "fs.read.v1"
+
+// CapFSFind is fs.find: the files of a checkout whose path matches a few
+// letters, for a search box — git's list of them, so what it ignores stays
+// out, as the files view leaves it out.
+const CapFSFind = "fs.find.v1"
 
 // CapFSTransfer is copying files and folders to and from the machine, and
 // browsing all of it: fs.list with Files and fs.read without a Root reach
@@ -264,6 +269,7 @@ const (
 	MethodFSMkdir        = "fs.mkdir"
 	MethodFSUpload       = "fs.upload"
 	MethodFSRead         = "fs.read"
+	MethodFSFind         = "fs.find"
 	// Copying a file or folder off the machine (CapFSTransfer).
 	MethodFSDownload     = "fs.download"
 	MethodFSDownloadRead = "fs.download_read"
@@ -746,6 +752,29 @@ type FSListParams struct {
 	// host (fs.ssh.v1), and Root is not taken.
 	SSH string `json:"ssh,omitempty"`
 }
+
+// FSFindParams asks for the files of a checkout (a project or one of its
+// worktrees, as fs.list's Root) whose path holds Query's letters in order,
+// best first: the name containing it, then the path, then the letters
+// scattered. Limit is at most FSFindMax; 0 means FSFindDefault.
+type FSFindParams struct {
+	Root  string `json:"root"`
+	Query string `json:"query"`
+	Limit int    `json:"limit,omitempty"`
+}
+
+// FSFindResult is what fs.find found: paths relative to Root, with slashes.
+// Truncated says more matched than were returned.
+type FSFindResult struct {
+	Root      string   `json:"root"`
+	Paths     []string `json:"paths"`
+	Truncated bool     `json:"truncated,omitempty"`
+}
+
+const (
+	FSFindDefault = 20
+	FSFindMax     = 200
+)
 
 // FSList is the result of fs.list.
 type FSList struct {

@@ -145,3 +145,73 @@ public struct Layout: Equatable, Sendable {
         if tabs.indices.contains(i) { active = i }
     }
 }
+
+/// What a TUI is showing, as the server keeps it (view.get): its tabs, each
+/// with its panes left to right then top to bottom.
+public struct ViewState: Decodable, Sendable {
+    public var focus: String?
+    public var tabs: [ViewTab]?
+
+    public init(focus: String? = nil, tabs: [ViewTab]? = nil) {
+        self.focus = focus
+        self.tabs = tabs
+    }
+}
+
+public struct ViewTab: Decodable, Sendable {
+    public var name: String?
+    public var panes: [String]?
+    public var active: Bool?
+
+    public init(name: String? = nil, panes: [String]? = nil, active: Bool? = nil) {
+        self.name = name
+        self.panes = panes
+        self.active = active
+    }
+}
+
+extension SplitNode {
+    /// Panes put in a tab as the mock lays them out, since the TUI says
+    /// which panes a tab has but not how its splits are drawn: one fills
+    /// it, two sit side by side, three are a tall one beside two stacked,
+    /// and more are two stacked columns. nil for none.
+    public static func arranged(_ panes: [String]) -> SplitNode? {
+        switch panes.count {
+        case 0: return nil
+        case 1: return .leaf(panes[0])
+        case 2: return .split(.horizontal, panes.map { .leaf($0) })
+        case 3: return .split(.horizontal, [.leaf(panes[0]), .split(.vertical, [.leaf(panes[1]), .leaf(panes[2])])])
+        default:
+            let half = (panes.count + 1) / 2
+            return .split(.horizontal, [.split(.vertical, panes[..<half].map { .leaf($0) }),
+                                        .split(.vertical, panes[half...].map { .leaf($0) })])
+        }
+    }
+}
+
+extension Layout {
+    /// Takes in the tabs a TUI shows on a machine, after any already here:
+    /// panes named by key(machine, id), only those alive, and none shown
+    /// already, since a pane is in one place. The TUI's active tab is shown
+    /// when the window had none of its own; the pane the TUI's keyboard is
+    /// on is each tab's focused one. It gives nothing the keyboard: that
+    /// is the window's to do when somebody picks a pane.
+    public mutating func adopt(_ view: ViewState, machine: String, alive: Set<String>) {
+        let hadTabs = !tabs.isEmpty
+        let focus = view.focus.map { key(machine, $0) }
+        var shown = Set(tabs.flatMap(\.root.panes))
+        for t in view.tabs ?? [] {
+            var keys: [String] = []
+            for id in t.panes ?? [] {
+                let k = key(machine, id)
+                if alive.contains(k), shown.insert(k).inserted { keys.append(k) }
+            }
+            guard let root = SplitNode.arranged(keys) else { continue }
+            var tab = Tab(pane: keys[0])
+            tab.root = root
+            if let focus, keys.contains(focus) { tab.focused = focus }
+            tabs.append(tab)
+            if t.active == true && !hadTabs { active = tabs.count - 1 }
+        }
+    }
+}

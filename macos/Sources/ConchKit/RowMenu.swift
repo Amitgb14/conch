@@ -94,9 +94,6 @@ extension Snapshot {
             guard machineOnline else { return [] }
             out = [RowMenuItem("Start an agent", .startAgent(machine: machine, cwd: nil, inProject: false)),
                    RowMenuItem("New terminal", .newTerminal(machine: machine, cwd: nil, inProject: false))]
-        case .workspace:
-            guard machineOnline else { return [] }
-            out = projects.map { RowMenuItem("New task in \($0.name)…", .newTask(project: key(machine, $0.id))) }
         case .section, .sessions:
             return []
         }
@@ -108,7 +105,7 @@ extension TreeNode {
     /// The machine a row is on.
     public var machine: String? {
         switch kind {
-        case .machine(let m), .cli(let m), .workspace(let m): return m
+        case .machine(let m), .cli(let m): return m
         case .agent(let k), .terminal(let k), .project(let k), .sessions(let k): return unkey(k).machine
         case .branch(let pk, _, _): return unkey(pk).machine
         case .section: return unkey(String(id.dropFirst(2).split(separator: ":").first ?? "")).machine

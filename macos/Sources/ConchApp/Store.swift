@@ -32,6 +32,12 @@ final class Store: ObservableObject {
     @Published var agents: [String: [AgentAvailability]] = [:]
     /// The task being written, while its sheet is up.
     @Published var taskDraft: TaskDraft?
+    /// The machines whose TUI tabs this launch has taken in.
+    private var viewAdopted: Set<String> = []
+    /// Files the palette's search found, for the query they were found for.
+    @Published private(set) var fileHits: [PaletteItem] = []
+    private var fileQuery = ""
+    private var fileSearch: Task<Void, Never>?
     @Published var layout = Layout()
     @Published var workspaces: [Workspace] = [Workspace(name: "")]
     @Published var workspace = 0
@@ -50,8 +56,6 @@ final class Store: ObservableObject {
     /// and the one in effect.
     @Published private(set) var themeChoice = UserDefaults.standard.string(forKey: "theme") ?? ""
     @Published private(set) var theme = ConchTheme.conch
-    @Published private(set) var icons = IconMode.text
-    @Published private(set) var cost = true
     /// Told when the theme changes, for what SwiftUI does not draw: the
     /// window's own background and appearance.
     var onTheme: ((ConchTheme) -> Void)?
@@ -92,6 +96,13 @@ final class Store: ObservableObject {
     /// Whether a pane's terminal has the keyboard, for the status bar's
     /// chip; set as the window's first responder changes.
     @Published var terminalHasKeyboard = false
+
+    /// The port of the checkout a pane is in (CONCH_PORT), if it has one.
+    func port(of k: String) -> Int? {
+        let (m, _) = unkey(k)
+        guard let p = pane(k) else { return nil }
+        return snapshots[m]?.port(of: p)
+    }
 
     func pane(_ k: String) -> PaneInfo? {
         let (m, id) = unkey(k)
@@ -137,22 +148,79 @@ final class Store: ObservableObject {
         return w + p + pl + paletteCommandItems()
     }
 
+    // MARK: files
+
+    /// Whether no machine here can search files: their servers predate
+    /// fs.find, and the palette says so rather than finding none.
+    var filesUnsearchable: Bool {
+        let online = machines.filter(\.online)
+        return !online.isEmpty && !online.contains { conns[$0.id]?.hello?.capabilities?.contains("fs.find.v1") == true }
+    }
+
+    /// Looks for files matching the palette's query in every project the
+    /// workspace shows, on each machine whose server can (fs.find.v1): a
+    /// few from each, a moment after the typing stops. A newer query
+    /// replaces an older one's answers rather than mixing with them.
+    func searchFiles(_ query: String) {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        fileQuery = q
+        fileSearch?.cancel()
+        guard q.count >= 2 else {
+            fileHits = []
+            return
+        }
+        let many = machines.count > 1
+        var asks: [(String, String?, ProjectInfo, Connection)] = []
+        for m in machines where m.online {
+            guard let c = conns[m.id], c.hello?.capabilities?.contains("fs.find.v1") == true else { continue }
+            for pr in snapshots[m.id]?.projects ?? [] where ws?.shows(pr, machine: m.id) ?? true {
+                asks.append((m.id, many ? m.label : nil, pr, c))
+            }
+        }
+        fileSearch = Task {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            if Task.isCancelled { return }
+            struct Params: Encodable { var root: String; var query: String; var limit: Int }
+            var hits: [PaletteItem] = []
+            for (m, label, pr, c) in asks {
+                guard let found = try? await c.call("fs.find", Params(root: pr.path, query: q, limit: 8), as: FindResult.self) else { continue }
+                if Task.isCancelled { return }
+                hits += fileItems(found, machine: m, project: pr.name, label: label)
+            }
+            if !Task.isCancelled && fileQuery == q { fileHits = Array(hits.prefix(40)) }
+        }
+    }
+
+    /// Opens a file in its machine's own $EDITOR, in a terminal tab in the
+    /// checkout, as the TUI's files view does with e.
+    func edit(machine: String, root: String, path: String) {
+        guard let c = conns[machine] else { return }
+        struct Create: Encodable {
+            var name: String
+            var cwd: String
+            var command: [String]
+        }
+        let full = (root as NSString).appendingPathComponent(path)
+        let params = Create(name: "edit · " + (path as NSString).lastPathComponent, cwd: root,
+                            command: ["/bin/sh", "-lc", #"exec ${VISUAL:-${EDITOR:-vi}} "$1""#, "sh", full])
+        Task {
+            do {
+                let p = try await c.call("pane.create", params, as: PaneInfo.self)
+                snapshots[machine, default: Snapshot()].upsert(p)
+                layout.open(key(machine, p.id))
+                focusTerminal()
+            } catch {
+                self.error = "Could not open \(path): \(error)"
+            }
+        }
+    }
+
     // MARK: theme
 
     /// The theme in effect: the one chosen here, else conch's own setting
     /// in config.toml, so the window matches the TUI until told otherwise.
     func loadTheme() {
         let toml = try? String(contentsOfFile: configFile, encoding: .utf8)
-        // How agents are marked follows the TUI's setting, read with the theme.
-        let icons = IconMode(setting: uiSetting("icons", in: toml))
-        // And whether rows show usage: on unless [ui] cost = false, the TUI's default.
-        let cost = uiSetting("cost", in: toml)?.lowercased() != "false"
-        if icons != self.icons || cost != self.cost {
-            self.icons = icons
-            self.cost = cost
-            Theme.icons = icons
-            Theme.cost = cost
-        }
         let configured = ConchTheme.configured(in: toml)
         let next = ConchTheme.named(themeChoice.isEmpty ? configured : themeChoice)
         guard next != theme || Theme.current != next else { return }
@@ -261,6 +329,14 @@ final class Store: ObservableObject {
             countSessions(machine)
             if let a = try? await c.call("agent.status", as: AgentStatusList.self) {
                 agents[machine] = (a.agents ?? []).filter(\.installed)
+            }
+            // The tabs the TUI is showing here, once a launch: the window
+            // opens on the same work, with nothing given the keyboard.
+            if !viewAdopted.contains(machine), c.hello?.capabilities?.contains("view.v1") == true,
+               let v = try? await c.call("view.get", as: ViewState.self) {
+                viewAdopted.insert(machine)
+                let alive = Set((snapshots[machine]?.panes ?? []).filter(\.running).map { key(machine, $0.id) })
+                layout.adopt(v, machine: machine, alive: alive)
             }
             // Nothing is opened, and nothing given the keyboard, until a
             // pane is picked: a window that opened on an agent with its
@@ -541,6 +617,7 @@ final class Store: ObservableObject {
     func run(_ action: PaletteAction) {
         paletteOpen = false
         switch action {
+        case .file(let m, let root, let path): edit(machine: m, root: root, path: path)
         case .pane(let p): open(p)
         case .project(let id): openProject(id)
         case .branch(let pr, let name): openChanges(project: pr, branch: name)

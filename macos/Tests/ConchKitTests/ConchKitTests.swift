@@ -72,11 +72,9 @@ func fixture() -> Snapshot {
     #expect(tree.title == "local" && tree.kind == .machine("local"))
     #expect(tree.badge == "⠋1 ⚑1") // one working, one waiting
     let top = tree.children ?? []
-    // The projects under Workspace, the CLI group beside it: the TUI's tree.
-    #expect(top.map(\.title) == ["Workspace", "CLI"])
-    #expect(top[0].kind == .workspace("local") && top[0].id == "ws:local" && top[0].badge == "1")
-    #expect(top[0].children?.map(\.title) == ["api"])
-    let api = top[0].children![0]
+    // The projects under the machine, then the CLI group: the mock's tree.
+    #expect(top.map(\.title) == ["api", "CLI"])
+    let api = top[0]
     #expect(api.badge == "⠋1 ⚑1") // working and waiting, as the TUI counts them
     #expect(api.children?.map(\.title) == ["Agents", "Branches", "Terminals"])
     #expect(agents0(api)?.kind == .agent("local|p1"))
@@ -92,9 +90,9 @@ func fixture() -> Snapshot {
 
 func agents0(_ project: TreeNode) -> TreeNode? { project.children?.first?.children?.first }
 
-/// A machine's projects: the children of its Workspace row.
+/// A machine's projects.
 func projects(_ machine: TreeNode) -> [TreeNode] {
-    machine.children?.first { if case .workspace = $0.kind { return true }; return false }?.children ?? []
+    machine.children?.filter { if case .project = $0.kind { return true }; return false } ?? []
 }
 
 @Test func treeOfNothing() {
@@ -108,7 +106,6 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     let t = fixture().tree(machine: "box", label: "busybox", sessions: ["box|r1": 16])
     #expect(t.title == "busybox" && t.id == "m:box")
     let api = projects(t).first
-    #expect(t.children?.first?.kind == .workspace("box"))
     #expect(api?.kind == .project("box|r1"))
     #expect(agents0(api!)?.kind == .agent("box|p1"))
     // The saved conversations, counted, as the TUI lists them.
@@ -187,7 +184,7 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     // The first shows everything; another only what was added to it.
     #expect(s.tree(in: ws[0]).children?.count == 2)
     let review = s.tree(in: ws[1]).children ?? []
-    #expect(review.map(\.title) == ["Workspace", "CLI"])
+    #expect(review.map(\.title) == ["api", "CLI"])
     #expect(projects(s.tree(in: ws[1])).map(\.title) == ["api"])
     #expect(review[1].children?.map(\.title) == ["bash"])
     #expect((s.tree(in: ws[2]).children ?? []).isEmpty)
@@ -496,7 +493,6 @@ final class FakeServer: @unchecked Sendable {
     let s = fixture()
     let t = s.tree()
     #expect(t.fold == "m:local")
-    #expect(t.children![0].fold == "m:local/workspace" && t.children![0].foldDefault)
     let api = projects(t)[0]
     #expect(api.fold == "p:r1" && api.foldDefault) // a project with panes starts open
     #expect(api.children!.map(\.fold) == ["p:r1/agents", "p:r1/branches", "p:r1/terminals"])
@@ -523,117 +519,11 @@ final class FakeServer: @unchecked Sendable {
 }
 
 
-// Each agent gets the TUI's marks: its Nerd Font glyph and dot, its own
-// colour, and an SF Symbol of the same shape for a Mac with no Nerd Font;
-// an agent conch has no mark for still gets one, so the row reads as one.
-@Test func agentMarks() {
-    #expect(AgentMark.of("claude") == AgentMark(glyph: "\u{f069}", dot: "🟠", symbol: "asterisk", color: RGB("#D97757")))
-    #expect(AgentMark.of("claude").glyphNeedsNerdFont)
-    #expect(AgentMark.of("pi").glyph == "π" && !AgentMark.of("pi").glyphNeedsNerdFont)
-    let names = ["claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"]
-    let marks = names.map { AgentMark.of($0) }
-    #expect(Set(marks.map(\.glyph)).count == names.count && Set(marks.map(\.dot)).count == names.count) // no two alike
-    #expect(marks.allSatisfy { $0.color != nil })
-    // Font Awesome 4.7's range, which a v2 Nerd Font still has.
-    #expect(marks.filter(\.glyphNeedsNerdFont).allSatisfy { $0.glyph.unicodeScalars.allSatisfy { (0xF000...0xF2FF).contains($0.value) } })
-    let other = AgentMark.of("mine")
-    #expect(other.glyph == "\u{f2db}" && other.dot == "🤖" && other.symbol == "cpu" && other.color == nil)
-    #expect(AgentMark.of(nil) == other)
-}
 
-// [ui] icons as the TUI reads it: nerd, off, else text.
-@Test func iconModeFromConfig() {
-    #expect(IconMode(setting: uiSetting("icons", in: "[ui]\ntheme = \"nord\"\n  icons = \"nerd\"\n")) == .nerd)
-    #expect(IconMode(setting: " OFF ") == .off)
-    #expect(IconMode(setting: nil) == .text && IconMode(setting: "emoji") == .text)
-    // Only [ui]'s key: another table's, or a longer key, is not it.
-    #expect(uiSetting("icons", in: "[files]\nicons = \"nerd\"\n") == nil)
-    #expect(uiSetting("icons", in: "[ui]\nicons_size = \"x\"\n") == nil)
-    #expect(uiSetting("icons", in: nil) == nil)
-}
 
-// The state glyph before a row's mark: the TUI's paneGlyph, case by case.
-@Test func stateGlyphs() {
-    func agent(_ st: AgentState, failed: Bool? = nil) -> PaneInfo {
-        PaneInfo(id: "p1", name: "claude", agent: AgentStatus(name: "claude", state: st, failed: failed))
-    }
-    #expect(StateGlyph.of(agent(.working)) == StateGlyph(glyph: "⠋", tone: .work, spins: true))
-    #expect(StateGlyph.of(agent(.working), frame: 3).glyph == "⠸")
-    #expect(StateGlyph.of(agent(.working), frame: 10).glyph == "⠋" && StateGlyph.of(agent(.working), frame: -1).glyph == "⠏")
-    #expect(StateGlyph.of(agent(.blocked)) == StateGlyph(glyph: "!", tone: .warn))
-    #expect(StateGlyph.of(agent(.done)) == StateGlyph(glyph: "✓", tone: .ok))
-    #expect(StateGlyph.of(agent(.idle)) == StateGlyph(glyph: "○", tone: .muted))
-    #expect(StateGlyph.of(agent(.unknown)).glyph == "○")
-    // Failed shows only once it has stopped; a failed agent working again spins.
-    #expect(StateGlyph.of(agent(.done, failed: true)) == StateGlyph(glyph: "✗", tone: .err))
-    #expect(StateGlyph.of(agent(.working, failed: true)).spins)
-    var term = PaneInfo(id: "p2", name: "zsh")
-    #expect(StateGlyph.of(term) == StateGlyph(glyph: "›", tone: .muted))
-    term.alert = "activity"
-    #expect(StateGlyph.of(term).glyph == "#")
-    term.alert = "silence"
-    #expect(StateGlyph.of(term) == StateGlyph(glyph: "~", tone: .warn))
-    // Exited, before anything else: cleanly, or with a failure.
-    var gone = agent(.working)
-    gone.state = "exited"
-    #expect(StateGlyph.of(gone) == StateGlyph(glyph: "○", tone: .muted))
-    gone.exitCode = 2
-    #expect(StateGlyph.of(gone) == StateGlyph(glyph: "✗", tone: .err))
-    // The alert comes off the wire.
-    let p = try? conchDecoder().decode(PaneInfo.self, from: Data(#"{"id":"p3","name":"zsh","state":"running","alert":"silence"}"#.utf8))
-    #expect(p?.alert == "silence")
-}
 
-// A pane's right side, as the TUI's tree: how it exited, else its branch,
-// else an agent's state; a plain terminal on no branch says nothing.
-@Test func paneDetail() {
-    var p = PaneInfo(id: "p1", name: "claude", agent: AgentStatus(name: "claude", state: .working), branch: "feat/x")
-    #expect(StateGlyph.detail(p)! == ("feat/x", .muted))
-    p.branch = ""
-    #expect(StateGlyph.detail(p)! == ("working", .work))
-    p.agent?.state = .blocked
-    #expect(StateGlyph.detail(p)! == ("waiting", .warn))
-    p.agent = AgentStatus(name: "claude", state: .done, failed: true)
-    #expect(StateGlyph.detail(p)! == ("failed", .err))
-    p.agent = AgentStatus(name: "claude", state: .unknown)
-    #expect(StateGlyph.detail(p)!.text == "idle")
-    p.state = "exited"
-    p.branch = "feat/x"
-    #expect(StateGlyph.detail(p)! == ("exited", .muted)) // before the branch
-    p.exitCode = 1
-    #expect(StateGlyph.detail(p)! == ("exit 1", .err))
-    #expect(StateGlyph.detail(PaneInfo(id: "p2", name: "zsh")) == nil)
-}
 
-// What agents used, summed and written as the TUI's chips are.
-@Test func usageChips() {
-    func agent(_ t: Tokens?) -> PaneInfo { PaneInfo(id: "p", name: "a", agent: AgentStatus(name: "codex", state: .idle, tokens: t)) }
-    #expect(Usage([]).chip == "" && Usage([PaneInfo(id: "p", name: "zsh"), agent(nil)]).chip == "")
-    #expect(Usage([agent(Tokens())]).chip == "") // reported nothing yet
-    #expect(Usage([agent(Tokens(output: 9_200))]).chip == "9.2k out")
-    #expect(Usage([agent(Tokens(input: 100, cacheRead: 573_000))]).chip == "573k in")
-    #expect(Usage([agent(Tokens(output: 30_000, costUSD: 33.7)), agent(Tokens(costUSD: 2175.36))]).chip == "$2209.06")
-    #expect(Usage([agent(Tokens(output: 5, costUSD: 0.004))]).chip == "<$0.01")
-    #expect(Usage.count(999) == "999" && Usage.count(1000) == "1.0k" && Usage.count(10_000) == "10k" && Usage.count(1_250_000) == "1.2M")
-    // From the wire, missing fields as zero.
-    let a = try? conchDecoder().decode(AgentStatus.self, from: Data(#"{"name":"claude","state":"idle","tokens":{"output":12,"cost_usd":1.5}}"#.utf8))
-    #expect(a?.tokens == Tokens(output: 12, costUSD: 1.5))
-}
 
-// The machine and project rows count working, waiting and done, and carry
-// the usage of what they hold, as the TUI's do.
-@Test func treeCountsAndUsage() {
-    var s = fixture()
-    var p = s.pane("p1")!
-    p.agent?.tokens = Tokens(costUSD: 2.5)
-    s.upsert(p)
-    s.upsert(PaneInfo(id: "p9", name: "gemini", agent: AgentStatus(name: "gemini", state: .done), projectID: "r1"))
-    let t = s.tree()
-    #expect(t.badge == "⠋1 ⚑1 ✓1" && t.usage == "$2.50")
-    let api = projects(t)[0]
-    #expect(api.badge == "⠋1 ⚑1 ✓1")
-    #expect(api.usage == "$2.50" && api.children?[0].usage == "$2.50")
-}
 
 // A row's name and its right side share the width as the TUI's do: a long
 // name cannot squeeze a branch away, nor a long branch the name.
@@ -710,7 +600,6 @@ final class FakeServer: @unchecked Sendable {
     #expect(pm[0].action == .newTask(project: "box|r1") && pm[1].action == .startAgent(machine: "box", cwd: "/src/api", inProject: true))
     #expect(pm.last?.action == .copy("/src/api"))
     #expect(s.menu(for: t, machine: "box").map(\.action) == [.startAgent(machine: "box", cwd: nil, inProject: false), .newTerminal(machine: "box", cwd: nil, inProject: false)])
-    #expect(titles(s.menu(for: t.children![0], machine: "box")) == ["New task in api…"])
     // Offline: nothing that starts anything; a pane can still be opened or closed.
     #expect(s.menu(for: t, machine: "box", machineOnline: false).isEmpty)
     #expect(s.menu(for: api, machine: "box", machineOnline: false).isEmpty)
@@ -730,4 +619,115 @@ final class FakeServer: @unchecked Sendable {
     #expect(AgentAvailability(name: "claude", label: "Claude Code").title == "Claude Code" && AgentAvailability(name: "pi").title == "pi")
     let st = try? conchDecoder().decode(AgentStatusList.self, from: Data(#"{"agents":[{"name":"claude","label":"Claude Code","installed":true,"tier":"supported"},{"name":"amp","installed":false}]}"#.utf8))
     #expect(st?.agents?.filter(\.installed).map(\.name) == ["claude"])
+}
+
+// A terminal's header shows its checkout's port: the worktree its folder
+// is in, the deepest; none for a checkout given no port.
+@Test func portOfAPane() {
+    var s = fixture()
+    s.projects[0].worktrees = [WorktreeInfo(path: "/src/api", branch: "main", main: true, port: 4310),
+                               WorktreeInfo(path: "/src/api/nested", branch: "feat", port: 4320),
+                               WorktreeInfo(path: "/src/other", branch: "x")]
+    var p = PaneInfo(id: "p9", name: "dev-server", projectID: "r1", cwd: "/src/api/cmd")
+    #expect(s.port(of: p) == 4310)
+    p.cwd = "/src/api/nested/web"
+    #expect(s.port(of: p) == 4320)
+    p.cwd = "/src/api-other" // a prefix of the name is not inside it
+    #expect(s.port(of: p) == nil)
+    p.cwd = "/src/other"
+    #expect(s.port(of: p) == nil) // no port given yet
+    p.cwd = nil
+    #expect(s.port(of: p) == nil)
+    let wt = try? conchDecoder().decode(WorktreeInfo.self, from: Data(#"{"path":"/x","branch":"b","port":4317}"#.utf8))
+    #expect(wt?.port == 4317)
+}
+
+// A folded machine lists its agents once each, in order, running ones only.
+@Test func foldedMachineAgents() {
+    var s = fixture()
+    #expect(s.agentNames() == ["claude", "codex"])
+    s.upsert(PaneInfo(id: "p7", name: "claude", agent: AgentStatus(name: "claude", state: .idle)))
+    s.upsert(PaneInfo(id: "p8", name: "gemini", state: "exited", agent: AgentStatus(name: "gemini", state: .done)))
+    #expect(s.agentNames() == ["claude", "codex"])
+    let review = Workspace(name: "r", projects: [], panes: ["local|p4"])
+    #expect(s.agentNames(in: review) == ["codex"] && Snapshot().agentNames().isEmpty)
+}
+
+// Files found become palette items that say where they are, and open on
+// their own machine.
+@Test func filesInThePalette() throws {
+    let found = try conchDecoder().decode(FindResult.self, from: Data(#"{"root":"/src/api","paths":["internal/http/health.go","README.md"],"truncated":true}"#.utf8))
+    let items = fileItems(found, machine: "box", project: "api", label: "busybox")
+    #expect(items.map(\.title) == ["health.go", "README.md"])
+    #expect(items.map(\.detail) == ["api · internal/http · busybox", "api · busybox"])
+    #expect(items[0].action == .file(machine: "box", root: "/src/api", path: "internal/http/health.go") && items[0].kind == "file")
+    #expect(fileItems(FindResult(root: "/x", paths: nil), machine: "local", project: "x").isEmpty)
+}
+
+@Test func sidebarWidths() {
+    #expect(clampSidebar(300) == 300 && clampSidebar(10) == 200 && clampSidebar(5000) == 560 && clampSidebar(.nan) == 300)
+}
+
+// conch's [ui] settings as the app reads them: a key of [ui] and no other.
+@Test func uiSettings() {
+    #expect(uiSetting("icons", in: "[ui]\ntheme = \"nord\"\n  icons = \"nerd\"\n") == "nerd")
+    #expect(uiSetting("icons", in: "[files]\nicons = \"nerd\"\n") == nil)
+    #expect(uiSetting("icons", in: "[ui]\nicons_size = \"x\"\n") == nil)
+    #expect(uiSetting("icons", in: nil) == nil)
+}
+
+// An agent's tokens come off the wire, missing fields as zero.
+@Test func tokensDecode() {
+    let a = try? conchDecoder().decode(AgentStatus.self, from: Data(#"{"name":"claude","state":"idle","tokens":{"output":12,"cost_usd":1.5}}"#.utf8))
+    #expect(a?.tokens == Tokens(output: 12, costUSD: 1.5))
+}
+
+// Each agent's dot is its own colour; one conch has none for is muted.
+@Test func agentColors() {
+    #expect(agentColor("claude") == RGB("#D97757") && agentColor("mine") == nil && agentColor(nil) == nil)
+    let names = ["claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"]
+    #expect(Set(names.compactMap { agentColor($0)?.hex }).count == names.count)
+}
+
+// The machine and project rows count working, waiting and done.
+@Test func treeCounts() {
+    var s = fixture()
+    s.upsert(PaneInfo(id: "p9", name: "gemini", agent: AgentStatus(name: "gemini", state: .done), projectID: "r1"))
+    let t = s.tree()
+    #expect(t.badge == "⠋1 ⚑1 ✓1" && projects(t)[0].badge == "⠋1 ⚑1 ✓1")
+}
+
+// A tab's panes are laid out as the mock lays them out.
+@Test func arrangedSplits() {
+    #expect(SplitNode.arranged([]) == nil)
+    #expect(SplitNode.arranged(["a"]) == .leaf("a"))
+    #expect(SplitNode.arranged(["a", "b"]) == .split(.horizontal, [.leaf("a"), .leaf("b")]))
+    #expect(SplitNode.arranged(["a", "b", "c"]) == .split(.horizontal, [.leaf("a"), .split(.vertical, [.leaf("b"), .leaf("c")])]))
+    #expect(SplitNode.arranged(["a", "b", "c", "d", "e"]) == .split(.horizontal, [.split(.vertical, [.leaf("a"), .leaf("b"), .leaf("c")]),
+                                                                                     .split(.vertical, [.leaf("d"), .leaf("e")])]))
+    #expect(SplitNode.arranged(["a", "b", "c", "d", "e"])?.panes == ["a", "b", "c", "d", "e"])
+}
+
+// The window opens on the TUI's tabs: only live panes, none twice, the
+// TUI's active tab shown and its keyboard's pane focused in its tab.
+@Test func adoptTheTUIsTabs() throws {
+    let json = #"{"client":"tui","focus":"p3","tabs":[{"name":"one","panes":["p1"]},{"panes":["p2","p3","p9"],"active":true},{"panes":["p9"]},{"panes":["p1","p4"]}],"at":"2026-11-01T12:00:00Z"}"#
+    let v = try conchDecoder().decode(ViewState.self, from: Data(json.utf8))
+    var l = Layout()
+    l.adopt(v, machine: "local", alive: ["local|p1", "local|p2", "local|p3", "local|p4"])
+    #expect(l.tabs.map(\.root.panes) == [["local|p1"], ["local|p2", "local|p3"], ["local|p4"]]) // p9 gone, p1 shown once
+    #expect(l.active == 1 && l.tabs[1].focused == "local|p3" && l.tabs[0].focused == "local|p1")
+
+    // Another machine's tabs come after, and do not move the window.
+    l.adopt(ViewState(tabs: [ViewTab(panes: ["p1"], active: true)]), machine: "box", alive: ["box|p1"])
+    #expect(l.tabs.count == 4 && l.tabs[3].root == .leaf("box|p1") && l.active == 1)
+    // Nothing alive, or nothing at all: nothing added.
+    l.adopt(ViewState(tabs: [ViewTab(panes: ["p7"])]), machine: "local", alive: [])
+    l.adopt(ViewState(), machine: "local", alive: ["local|p1"])
+    #expect(l.tabs.count == 4)
+    // A pane the window already shows stays where it is.
+    var mine = Layout()
+    mine.open("local|p2")
+    mine.adopt(v, machine: "local", alive: ["local|p1", "local|p2", "local|p3"])
+    #expect(mine.tabs.map(\.root.panes) == [["local|p2"], ["local|p1"], ["local|p3"]] && mine.active == 0)
 }

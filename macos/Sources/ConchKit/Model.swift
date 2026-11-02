@@ -220,7 +220,6 @@ public enum NodeKind: Equatable, Sendable {
     case branch(project: String, name: String, checkedOut: Bool)
     case sessions(String) // key(machine, project)
     case cli(String)
-    case workspace(String) // a machine's projects, as the TUI groups them
 }
 
 public struct TreeNode: Identifiable, Equatable, Sendable {
@@ -229,9 +228,6 @@ public struct TreeNode: Identifiable, Equatable, Sendable {
     public var title: String
     public var detail: String = ""
     public var badge: String = ""
-    /// What the agents under the row have used (Usage.chip), shown at its
-    /// right as the TUI does unless [ui] cost is off.
-    public var usage: String = ""
     public var children: [TreeNode]? = nil
     /// The TUI's id for the row's fold (ui.json "expanded"), and whether it
     /// is open when nothing is saved — the TUI's own defaults, so the two
@@ -280,7 +276,7 @@ extension Snapshot {
             var sections: [TreeNode] = []
             if !agents.isEmpty {
                 sections.append(TreeNode(id: "s:\(pk):agents", kind: .section("Agents"), title: "Agents", badge: "\(agents.count)",
-                                         usage: Usage(mine).chip, children: agents, fold: tui + "/agents"))
+                                         children: agents, fold: tui + "/agents"))
             }
             if !branches.isEmpty {
                 let all = max(pr.branches?.count ?? 0, branches.count)
@@ -294,23 +290,19 @@ extension Snapshot {
             }
             projectNodes.append(TreeNode(id: "p:\(pk)", kind: .project(pk), title: pr.name,
                                          badge: attention(mine),
-                                         usage: Usage(mine).chip, children: sections, fold: tui, foldDefault: !mine.isEmpty))
+                                         children: sections, fold: tui, foldDefault: !mine.isEmpty))
         }
         let loose = shown.filter { $0.projectID == nil || project($0.projectID!) == nil }
-        // The projects sit under a Workspace row, the CLI group beside it:
-        // the TUI's tree (kindWorkspace, open unless folded).
-        var top: [TreeNode] = []
-        if !projectNodes.isEmpty {
-            top.append(TreeNode(id: "ws:\(machine)", kind: .workspace(machine), title: "Workspace", badge: "\(projectNodes.count)",
-                                children: projectNodes, fold: "m:\(machine)/workspace"))
-        }
+        // The projects, then the CLI group for what is in none: the mock's
+        // tree, without the TUI's Workspace row between machine and project.
+        var top = projectNodes
         if !loose.isEmpty {
             top.append(TreeNode(id: "cli:\(machine)", kind: .cli(machine), title: "CLI", badge: "\(loose.count)",
                                 children: loose.map { paneNode($0, machine) }, fold: "m:\(machine)/cli"))
         }
         return TreeNode(id: "m:\(machine)", kind: .machine(machine), title: label ?? machine,
                         badge: attention(shown),
-                        usage: Usage(shown).chip, children: top, fold: "m:\(machine)")
+                        children: top, fold: "m:\(machine)")
     }
 
     /// A machine or project row's counts, as the TUI's attentionBadge:
@@ -389,6 +381,8 @@ extension Snapshot {
 // MARK: - The palette
 
 public enum PaletteAction: Equatable, Sendable {
+    /// A file of a checkout, opened in that machine's $EDITOR.
+    case file(machine: String, root: String, path: String)
     case pane(String) // key(machine, pane)
     case project(String) // key(machine, project)
     case branch(project: String, name: String)
@@ -475,4 +469,52 @@ public func filterPalette(_ items: [PaletteItem], query: String) -> [PaletteItem
         hits.append((rank, i))
     }
     return hits.sorted { $0.rank != $1.rank ? $0.rank < $1.rank : $0.i < $1.i }.map { items[$0.i] }
+}
+
+extension Snapshot {
+    /// The port a pane's checkout is given (CONCH_PORT), for its header:
+    /// the worktree the pane's folder is in, the deepest if several hold
+    /// it; nil for none, or one not given a port yet.
+    public func port(of p: PaneInfo) -> Int? {
+        guard let cwd = p.cwd, !cwd.isEmpty else { return nil }
+        var best: WorktreeInfo?
+        for pr in projects {
+            for wt in pr.worktrees ?? [] where (wt.port ?? 0) > 0 && (cwd == wt.path || cwd.hasPrefix(wt.path + "/")) {
+                if wt.path.count > (best?.path.count ?? -1) { best = wt }
+            }
+        }
+        return best?.port
+    }
+
+    /// The agents running on a machine, each once, in the order the tree
+    /// lists them: what a folded machine's row shows of what it holds.
+    public func agentNames(in ws: Workspace? = nil, machine: String = "local") -> [String] {
+        var seen: Set<String> = []
+        var out: [String] = []
+        for p in panes where p.running && (ws?.shows(p, machine: machine) ?? true) {
+            if let a = p.agent?.name, seen.insert(a).inserted { out.append(a) }
+        }
+        return out
+    }
+}
+
+/// Palette items for files fs.find found in a project's checkout: the name
+/// first, then where it is. label names the machine, for a window showing
+/// more than one.
+public func fileItems(_ found: FindResult, machine: String, project: String, label: String? = nil) -> [PaletteItem] {
+    (found.paths ?? []).map { path in
+        let name = (path as NSString).lastPathComponent
+        let dir = (path as NSString).deletingLastPathComponent
+        let where_ = [project + (dir.isEmpty ? "" : " · " + dir), label ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")
+        return PaletteItem(title: name, detail: where_, kind: "file", action: .file(machine: machine, root: found.root, path: path))
+    }
+}
+
+/// How wide the sidebar may be dragged: wide enough for a name and its
+/// branch, never so wide the panes have nothing.
+public let sidebarRange: ClosedRange<Double> = 200...560
+
+public func clampSidebar(_ w: Double) -> Double {
+    guard w.isFinite else { return 300 }
+    return min(max(w, sidebarRange.lowerBound), sidebarRange.upperBound)
 }

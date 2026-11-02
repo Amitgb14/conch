@@ -177,3 +177,24 @@ func splitNUL(b []byte) []string {
 	}
 	return strings.Split(s, "\x00")
 }
+
+// Files is every file of the checkout at dir that git knows or would add:
+// tracked ones and untracked ones it does not ignore, relative to dir, with
+// slashes. A file deleted but not yet committed is left out.
+func Files(ctx context.Context, dir string) ([]string, error) {
+	out, err := run(ctx, dir, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, f := range strings.Split(string(out), "\x00") {
+		if f == "" {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(f))); err != nil {
+			continue // deleted in the worktree
+		}
+		files = append(files, f)
+	}
+	return files, nil
+}

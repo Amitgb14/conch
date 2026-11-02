@@ -12,10 +12,6 @@ import SwiftUI
 @MainActor
 enum Theme {
     static var current = ConchTheme.conch
-    /// conch's `[ui] icons`, which decides how agents are marked.
-    static var icons = IconMode.text
-    /// conch's `[ui] cost`: whether rows show what agents have used.
-    static var cost = true
 
     static func ns(_ c: RGB) -> NSColor { NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1) }
     static func color(_ c: RGB) -> Color { Color(nsColor: ns(c)) }
@@ -36,12 +32,14 @@ enum Theme {
     static var accent: Color { color(current.line) }
     static var accentDeep: Color { color(current.accent) }
     static var selectedText: Color { color(current.selFG) }
-    static var hover: Color { color(current.hover) }
     static var ok: Color { color(current.ok) }
     static var warn: Color { color(current.warn) }
     static var onWarn: Color { color(current.onWarn) }
     static var err: Color { color(current.err) }
     static var work: Color { color(current.work) }
+
+    /// An agent's own colour (agentColor), or muted for one it has none for.
+    static func agent(_ name: String?) -> Color { agentColor(name).map(color) ?? muted }
 }
 
 extension NSColor {
@@ -74,94 +72,6 @@ struct Pill: View {
     }
 }
 
-/// An agent's mark, drawn as the TUI draws it under conch's `[ui] icons`:
-/// the Nerd Font glyph in the agent's own colour, the coloured dot, or
-/// nothing. On the selected row the glyph takes the selection's text
-/// colour, as the TUI's whole selected line does.
-struct Mark: View {
-    let mark: AgentMark
-    var selected = false
-
-    var body: some View {
-        switch Theme.icons {
-        case .off:
-            EmptyView()
-        case .text:
-            Text(mark.dot).font(.system(size: 10)).frame(width: 16)
-        case .nerd:
-            Group {
-                if let font = NerdFont.font(for: mark, size: 13) {
-                    Text(mark.glyph).font(Font(font))
-                } else if let sym = mark.symbol {
-                    // No Nerd Font here: the same shape from SF Symbols.
-                    Image(systemName: sym).font(.system(size: 11, weight: .bold))
-                } else {
-                    Text(mark.glyph).font(.system(size: 13, weight: .bold))
-                }
-            }
-            .foregroundStyle(selected ? Theme.selectedText : mark.color.map(Theme.color) ?? Theme.muted)
-            .frame(width: 16)
-        }
-    }
-}
-
-/// A Nerd Font installed on this Mac, found once: the symbols-only one if
-/// there is one, else any patched font, the monospaced cut first.
-@MainActor
-enum NerdFont {
-    static let family: String? = {
-        let all = NSFontManager.shared.availableFontFamilies
-        for want in ["Symbols Nerd Font Mono", "Symbols Nerd Font"] where all.contains(want) { return want }
-        return all.first { $0.hasSuffix("Nerd Font Mono") } ?? all.first { $0.contains("Nerd Font") }
-    }()
-
-    /// The font to draw text in, or nil when there is none or it lacks a
-    /// character of it — a plain character (π) is left to the system.
-    static func font(for mark: AgentMark, size: CGFloat) -> NSFont? {
-        guard mark.glyphNeedsNerdFont, let family, let f = NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size)
-        else { return nil }
-        let have = f.coveredCharacterSet
-        return mark.glyph.unicodeScalars.allSatisfy { have.contains($0) } ? f : nil
-    }
-}
-
-/// A pane's state glyph, as the TUI's paneGlyph draws it in front of the
-/// row: the spinner turns at the TUI's pace while an agent works.
-struct Status: View {
-    let pane: PaneInfo?
-    var selected = false
-
-    var body: some View {
-        if let p = pane {
-            if StateGlyph.of(p).spins {
-                TimelineView(.periodic(from: .now, by: StateGlyph.spinInterval)) { tl in
-                    glyph(StateGlyph.of(p, frame: Int(tl.date.timeIntervalSinceReferenceDate / StateGlyph.spinInterval)))
-                }
-            } else {
-                glyph(StateGlyph.of(p))
-            }
-        } else {
-            glyph(StateGlyph(glyph: "?", tone: .muted))
-        }
-    }
-
-    func glyph(_ g: StateGlyph) -> some View {
-        Text(g.glyph).font(.system(size: 12, weight: .semibold, design: .monospaced))
-            .foregroundStyle(selected ? Theme.selectedText : color(g.tone))
-            .frame(width: 10)
-    }
-
-    func color(_ t: StateGlyph.Tone) -> Color {
-        switch t {
-        case .muted: return Theme.muted
-        case .work: return Theme.work
-        case .warn: return Theme.warn
-        case .ok: return Theme.ok
-        case .err: return Theme.err
-        }
-    }
-}
-
 /// A row's name and its right side in the width there is, as the TUI
 /// shares a tree line: both whole when they fit; otherwise the right side
 /// keeps what the name leaves, but never less than its share (up to 40%),
@@ -178,13 +88,69 @@ struct RowSplit: SwiftUI.Layout {
     }
 
     func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: LayoutSubviews, cache: inout ()) {
-        guard subviews.count == 2 else { return }
+        // A row with nothing at its right has only its name: all the room.
+        guard subviews.count == 2 else {
+            subviews.first?.place(at: CGPoint(x: b.minX, y: b.midY), anchor: .leading, proposal: ProposedViewSize(width: b.width, height: b.height))
+            return
+        }
         let name = subviews[0].sizeThatFits(.unspecified).width
         let right = subviews[1].sizeThatFits(.unspecified).width
         let room = max(b.width - gap, 0)
         let (nw, rw) = rowWidths(name: name, right: right, room: room, share: share)
         subviews[0].place(at: CGPoint(x: b.minX, y: b.midY), anchor: .leading, proposal: ProposedViewSize(width: nw, height: b.height))
         subviews[1].place(at: CGPoint(x: b.maxX, y: b.midY), anchor: .trailing, proposal: ProposedViewSize(width: rw, height: b.height))
+    }
+}
+
+/// A checkout's port (CONCH_PORT) in a terminal's header, as the mock's
+/// dev server shows ":4317". On this computer a click opens it in the
+/// browser; elsewhere it is where the machine serves it.
+struct PortLink: View {
+    let port: Int
+    let local: Bool
+
+    var body: some View {
+        Text(":\(port)").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
+            .help(local ? "CONCH_PORT of this checkout — click to open http://localhost:\(port)" : "CONCH_PORT of this checkout, on that machine")
+            .onTapGesture {
+                if local, let u = URL(string: "http://localhost:\(port)") { NSWorkspace.shared.open(u) }
+            }
+    }
+}
+
+/// The colours of the agents a folded machine holds: four, then how many
+/// more.
+struct FoldedAgents: View {
+    let names: [String]
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(names.prefix(4), id: \.self) { Dot(color: Theme.agent($0)) }
+            if names.count > 4 { Text("+\(names.count - 4)").font(.system(size: 11)).foregroundStyle(Theme.muted) }
+        }
+    }
+}
+
+/// The sidebar's edge: a line, and a few points either side of it to drag
+/// the sidebar wider or narrower, within sidebarRange.
+struct SidebarEdge: View {
+    @Binding var width: Double
+    @State private var start: Double?
+
+    var body: some View {
+        Rectangle().fill(Theme.line.opacity(0.6)).frame(width: 1)
+            .overlay(
+                Color.clear.frame(width: 8).contentShape(Rectangle())
+                    .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { g in
+                            let from = start ?? width
+                            start = from
+                            width = clampSidebar(from + g.translation.width)
+                        }
+                        .onEnded { _ in start = nil })
+            )
+            .onAppear { width = clampSidebar(width) }
     }
 }
 
@@ -229,7 +195,7 @@ struct SearchField: View {
         Button { store.paletteOpen = true } label: {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Theme.muted)
-                Text("Search agents, branches, actions").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                Text("Search agents, branches, files, actions").font(.system(size: 13)).foregroundStyle(Theme.muted)
                 Spacer(minLength: 8)
                 Text("⌘K").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 5).overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.line2))
@@ -261,14 +227,16 @@ struct Counts: View {
 
 struct MainView: View {
     @ObservedObject var store: Store
+    /// The sidebar's width, dragged at its edge and remembered.
+    @AppStorage("sidebarWidth") private var sidebarWidth: Double = 300
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     if store.sidebarVisible {
-                        Sidebar(store: store).frame(width: 300)
-                        Rectangle().fill(Theme.line.opacity(0.6)).frame(width: 1)
+                        Sidebar(store: store).frame(width: sidebarWidth)
+                        SidebarEdge(width: $sidebarWidth)
                     }
                     VStack(spacing: 0) {
                         TabBar(store: store)
@@ -367,46 +335,35 @@ struct NodeView: View {
 
     var selected: Bool { paneID != nil && paneID == store.layout.focused }
 
+    /// A row as the mock draws it: a fold arrow, what it is (a machine's
+    /// state, an agent's colour), its name, and at the right its state or
+    /// counts as pills.
     var row: some View {
         HStack(spacing: 7) {
-            if node.children != nil {
-                Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Theme.muted).frame(width: 10)
-            } else if isSessions {
-                // The mock folds it like the sections beside it; it opens
-                // the TUI's Sessions view.
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Theme.muted).frame(width: 10)
+            if node.children != nil || isSessions {
+                // Sessions folds like the sections beside it; it opens the
+                // TUI's Sessions view.
+                Text(open && !isSessions ? "▾" : "▸").font(.system(size: 10)).foregroundStyle(Theme.muted).frame(width: 10)
             } else {
                 Spacer().frame(width: 10)
             }
             icon
-            // The name, then what the TUI says at the right, sharing the
-            // width as the TUI's rows do (RowSplit).
             RowSplit {
-                Text(node.title).font(isBranch ? .system(size: 12, design: .monospaced) : .system(size: 13, weight: isHeading ? .semibold : .regular))
-                    .foregroundStyle(selected ? Theme.selectedText : isSection || isSessions ? Theme.text2 : Theme.text)
+                Text(node.title).font(isBranch ? .system(size: 12, design: .monospaced) : .system(size: 13))
+                    .foregroundStyle(isSection || isSessions ? Theme.text2 : Theme.text)
                     .lineLimit(1).truncationMode(.tail)
                 badge
             }
         }
-        .padding(.leading, CGFloat(depth) * 14 + 6).padding(.trailing, 8).frame(height: 26)
-        .background(RoundedRectangle(cornerRadius: 5).fill(selected ? Theme.accentDeep : hovering ? Theme.hover : .clear))
+        .padding(.leading, CGFloat(depth) * 14 + 8).padding(.trailing, 8).frame(height: 26)
+        .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Theme.accentDeep.opacity(0.55) : hovering ? Theme.raise : .clear))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { activate() }
         .contextMenu { RowMenu(store: store, node: node) }
     }
 
-    var isGroup: Bool { if case .project = node.kind { return true }; return false }
     var isSection: Bool { if case .section = node.kind { return true }; return false }
-    /// The TUI's bold group rows: Workspace and CLI.
-    var isHeading: Bool {
-        switch node.kind {
-        case .workspace, .cli: return true
-        default: return false
-        }
-    }
     var isSessions: Bool { if case .sessions = node.kind { return true }; return false }
     var isBranch: Bool { if case .branch = node.kind { return true }; return false }
 
@@ -415,97 +372,69 @@ struct NodeView: View {
         case .machine(let m):
             let link = store.machines.first { $0.id == m }
             Dot(color: link?.online == true ? Theme.ok : link?.state == "connecting" ? Theme.warn : Theme.muted)
-        case .project: Text("◆").font(.system(size: 10)).foregroundStyle(Theme.accent)
-        case .cli: Text("❯").font(.system(size: 11)).foregroundStyle(Theme.accent)
-        case .workspace: Text("▤").font(.system(size: 12)).foregroundStyle(Theme.accent)
-        case .agent(let id):
-            // The TUI's row: what it is doing, then which agent it is.
-            HStack(spacing: 5) {
-                Status(pane: store.pane(id), selected: selected)
-                Mark(mark: AgentMark.of(store.pane(id)?.agent?.name), selected: selected)
-            }
-        case .terminal(let id): Status(pane: store.pane(id), selected: selected)
+        case .project: Text("◆").font(.system(size: 11)).foregroundStyle(Theme.text)
+        case .cli: Text("❯").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
+        case .agent(let id): Dot(color: Theme.agent(store.pane(id)?.agent?.name))
+        case .terminal: Text("›").foregroundStyle(Theme.muted)
         case .branch(_, _, let checkedOut):
-            // ◇ checked out in a worktree of its own, · not checked out:
-            // the TUI's marks.
+            // ◇ checked out in a worktree of its own, · not checked out.
             Text(checkedOut ? "◇" : "·").font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2).frame(width: 9)
         case .section, .sessions: EmptyView()
         }
     }
 
-    /// A machine or project row's counts, written as the TUI's
-    /// attentionBadge writes them: ⠋ working (turning), ⚑ waiting, ✓ done.
+    /// A machine or project row's counts as the mock's pills: working in
+    /// blue, waiting in amber, done in green.
     func counts(_ badge: String) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             ForEach(badge.split(separator: " ").map(String.init), id: \.self) { part in
-                if part.hasPrefix("⠋") {
-                    TimelineView(.periodic(from: .now, by: StateGlyph.spinInterval)) { tl in
-                        let i = Int(tl.date.timeIntervalSinceReferenceDate / StateGlyph.spinInterval) % StateGlyph.spinner.count
-                        detail(StateGlyph.spinner[i] + part.dropFirst(), selected ? Theme.selectedText : Theme.work)
-                    }
-                } else {
-                    detail(part, selected ? Theme.selectedText : part.hasPrefix("⚑") ? Theme.warn : part.hasPrefix("✓") ? Theme.ok : Theme.muted)
+                if part.hasPrefix("⚑") {
+                    Pill(text: String(part.dropFirst()), fg: Theme.onWarn, bg: Theme.warn)
+                } else if part.hasPrefix("⠋") {
+                    Pill(text: String(part.dropFirst()), fg: Theme.work, bg: Theme.work.opacity(0.18))
+                } else if part.hasPrefix("✓") {
+                    Pill(text: String(part.dropFirst()), fg: Theme.ok, bg: Theme.ok.opacity(0.16))
                 }
             }
         }
     }
 
-    func detail(_ text: String, _ color: Color) -> some View {
-        Text(text).font(.system(size: 12, design: .monospaced)).foregroundStyle(color).lineLimit(1)
+    func muted(_ text: String) -> some View {
+        Text(text).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
     }
 
-    /// The usage chip, muted, unless [ui] cost turns it off.
-    @ViewBuilder func usage(_ chip: String) -> some View {
-        if Theme.cost && !chip.isEmpty { detail(chip, selected ? Theme.selectedText : Theme.muted) }
-    }
-
-    func tone(_ t: StateGlyph.Tone) -> Color {
-        if selected { return Theme.selectedText }
-        switch t {
-        case .muted: return Theme.muted
-        case .work: return Theme.work
-        case .warn: return Theme.warn
-        case .ok: return Theme.ok
-        case .err: return Theme.err
-        }
-    }
-
-    /// The row's right side, as the TUI's tree has it.
+    /// The row's right side, as the mock has it.
     @ViewBuilder var badge: some View {
         switch node.kind {
         case .agent(let id), .terminal(let id):
-            // How it exited, else its branch, else the agent's state; then
-            // what it has used. A long branch gives way from its start,
-            // as the TUI cuts it.
             if let p = store.pane(id) {
-                // It has its share before the name, up to about fifteen
-                // characters, so a long name cannot squeeze it to nothing.
-                HStack(spacing: 6) {
-                    if let d = StateGlyph.detail(p) {
-                        Text(d.text).font(.system(size: 12, design: .monospaced)).foregroundStyle(tone(d.tone))
-                            .lineLimit(1).truncationMode(.head)
-                    }
-                    usage(Usage([p]).chip).fixedSize()
+                if !p.running {
+                    muted("exited").fixedSize()
+                } else if let pill = Pill.state(p.agent?.state) {
+                    pill.fixedSize()
                 }
             }
         case .machine(let m):
             if let link = store.machines.first(where: { $0.id == m }), !link.online {
-                detail(link.state, link.state == "offline" ? Theme.err : Theme.muted)
+                Text(link.state).font(.system(size: 12)).foregroundStyle(link.state == "offline" ? Theme.err : Theme.muted)
                     .padding(.trailing, 2)
                     .help(link.why.isEmpty ? link.state : link.why)
                     .fixedSize()
             } else {
-                HStack(spacing: 6) { usage(node.usage); counts(node.badge) }.fixedSize()
+                HStack(spacing: 4) {
+                    counts(node.badge)
+                    // Folded, it says which agents it holds, as the mock's
+                    // busybox row does.
+                    if !open { FoldedAgents(names: store.snapshots[m]?.agentNames(in: store.ws, machine: m) ?? []) }
+                }.fixedSize()
             }
-        case .project: HStack(spacing: 6) { usage(node.usage); counts(node.badge) }.fixedSize()
-        case .section:
-            HStack(spacing: 6) { usage(node.usage); detail(node.badge, Theme.muted) }.fixedSize()
+        case .project: counts(node.badge).fixedSize()
         case .branch:
             Text(node.badge).font(.system(size: 11.5, design: .monospaced))
                 .foregroundStyle(node.badge.contains("✓") ? Theme.ok : node.badge.contains("✗") ? Theme.err : Theme.muted)
-                .fixedSize()
+                .lineLimit(1).truncationMode(.head)
         default:
-            if !node.badge.isEmpty { detail(node.badge, Theme.muted).fixedSize() }
+            if !node.badge.isEmpty { muted(node.badge).fixedSize() }
         }
     }
 
@@ -681,7 +610,7 @@ struct TabButton: View {
         HStack(spacing: 7) {
             let changes = parseChangesKey(tab.focused)
             if let a = p?.agent {
-                Mark(mark: AgentMark.of(a.name))
+                Dot(color: Theme.agent(a.name))
             } else {
                 Text(changes == nil ? "›" : "◇").foregroundStyle(Theme.muted)
             }
@@ -699,7 +628,7 @@ struct TabButton: View {
         }
         .foregroundStyle(on ? Theme.text : Theme.text2)
         .padding(.horizontal, 12).frame(height: 30)
-        .background(UnevenRoundedRectangle(topLeadingRadius: 7, topTrailingRadius: 7).fill(on ? Theme.raise.opacity(0.7) : .clear))
+        .background(UnevenRoundedRectangle(topLeadingRadius: 7, topTrailingRadius: 7).fill(on ? Theme.raise : .clear))
         .overlay(alignment: .bottom) {
             if on { RoundedRectangle(cornerRadius: 1).fill(Theme.accent).frame(height: 2).padding(.horizontal, 8).offset(y: 1) }
         }
@@ -743,13 +672,16 @@ struct PaneCard: View {
         let focused = store.layout.focused == pane
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                if let a = p?.agent { Mark(mark: AgentMark.of(a.name)) } else { Text("›").foregroundStyle(Theme.muted) }
+                if let a = p?.agent { Dot(color: Theme.agent(a.name)) } else { Text("›").foregroundStyle(Theme.muted) }
                 Text(p?.agent?.name ?? p?.name ?? pane).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
                 if let b = p?.branch, !b.isEmpty {
                     Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
                         .padding(.horizontal, 6).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
                 }
                 Spacer()
+                if let p, p.agent == nil, let port = store.port(of: pane) {
+                    PortLink(port: port, local: unkey(pane).machine == "local")
+                }
                 if p?.running == false {
                     Text("exited \(p?.exitCode ?? 0)").font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
@@ -810,7 +742,7 @@ struct AnswerStrip: View {
 struct StatusBar: View {
     @ObservedObject var store: Store
 
-    static let treeKeys = [("click", "open"), ("⌘K", "search"), ("⌘T", "terminal"), ("⌘D", "split"), ("⌘.", "next waiting")]
+    static let treeKeys = [("click", "open"), ("⌘N", "task"), ("⇧⌘N", "agent"), ("⌘T", "terminal"), ("⌘D", "split")]
     static let paneKeys = [("⌘W", "close split"), ("⌘D", "split"), ("⇧⌘]", "next tab"), ("⌘K", "search"), ("⌘.", "next waiting")]
 
     var body: some View {
@@ -883,7 +815,13 @@ struct Palette: View {
     @State private var sel = 0
     @FocusState private var focused: Bool
 
-    var items: [PaletteItem] { filterPalette(store.paletteItems, query: query) }
+    /// Agents, panes and places, then the files found, then the commands —
+    /// the mock's order.
+    var items: [PaletteItem] {
+        let found = filterPalette(store.paletteItems, query: query)
+        let isCommand = { (it: PaletteItem) -> Bool in if case .command = it.action { return true }; return false }
+        return found.filter { !isCommand($0) } + (query.isEmpty ? [] : store.fileHits) + found.filter(isCommand)
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -891,10 +829,13 @@ struct Palette: View {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass").foregroundStyle(Theme.accent)
-                    TextField("Agents, branches, projects, commands", text: $query)
+                    TextField("Agents, branches, files, projects, commands", text: $query)
                         .textFieldStyle(.plain).font(.system(size: 16)).focused($focused)
                         .onSubmit(run)
-                        .onChange(of: query) { _ in sel = 0 }
+                        .onChange(of: query) { q in
+                            sel = 0
+                            store.searchFiles(q)
+                        }
                     Text(query.isEmpty ? "" : "\(items.count) results").font(.system(size: 12)).foregroundStyle(Theme.muted)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 14)
@@ -918,6 +859,9 @@ struct Palette: View {
                 HStack(spacing: 14) {
                     Text("↑↓ move"); Text("⏎ open"); Text("esc close")
                     Spacer()
+                    if store.filesUnsearchable {
+                        Text("files: conch's server predates searching them — reload it").help("In the TUI: m on the machine → Reload server")
+                    }
                 }
                 .font(.system(size: 11.5)).foregroundStyle(Theme.muted).padding(.horizontal, 16).padding(.vertical, 8)
             }
@@ -927,7 +871,10 @@ struct Palette: View {
             .shadow(color: .black.opacity(0.6), radius: 30, y: 20)
             .padding(.top, 60)
         }
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            store.searchFiles("")
+        }
         .onExitCommand { store.paletteOpen = false }
         .background(KeyCatcher(up: { sel = max(sel - 1, 0) }, down: { sel = min(sel + 1, max(items.count - 1, 0)) }))
     }
