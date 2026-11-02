@@ -234,7 +234,7 @@ struct NodeView: View {
     @ObservedObject var store: Store
     let node: TreeNode
     let depth: Int
-    @State private var open = true
+    var open: Bool { store.isOpen(node) }
 
     var paneID: String? {
         switch node.kind {
@@ -334,6 +334,7 @@ struct NodeView: View {
         case .machine(let m):
             if let link = store.machines.first(where: { $0.id == m }), !link.online {
                 Text(link.state).font(.system(size: 11)).foregroundStyle(link.state == "offline" ? Theme.err : Theme.muted)
+                    .padding(.trailing, 2)
                     .help(link.why.isEmpty ? link.state : link.why)
             } else {
                 counts(node.badge)
@@ -352,7 +353,7 @@ struct NodeView: View {
         case .agent(let id), .terminal(let id): store.open(id)
         case .branch(let pr, let name, _): store.openChanges(project: pr, branch: name)
         case .sessions: store.openTUI() // conch's Sessions view is the TUI's for now
-        default: withAnimation(.easeOut(duration: 0.12)) { open.toggle() }
+        default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }
         }
     }
 }
@@ -513,9 +514,6 @@ struct PaneCard: View {
                     Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
                         .padding(.horizontal, 6).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
                 }
-                if let title = p?.displayName, p?.agent != nil, title != p?.agent?.name {
-                    Text(title).font(.system(size: 12)).foregroundStyle(Theme.text2).lineLimit(1)
-                }
                 Spacer()
                 if p?.running == false {
                     Text("exited \(p?.exitCode ?? 0)").font(.system(size: 11)).foregroundStyle(Theme.muted)
@@ -577,6 +575,9 @@ struct AnswerStrip: View {
 struct StatusBar: View {
     @ObservedObject var store: Store
 
+    static let treeKeys = [("click", "open"), ("⌘K", "search"), ("⌘T", "terminal"), ("⌘D", "split"), ("⌘.", "next waiting")]
+    static let paneKeys = [("⌘W", "close split"), ("⌘D", "split"), ("⇧⌘]", "next tab"), ("⌘K", "search"), ("⌘.", "next waiting")]
+
     var body: some View {
         HStack(spacing: 16) {
             // Where the keyboard is, as the TUI's chip says: a pane, or the
@@ -586,8 +587,17 @@ struct StatusBar: View {
                 .foregroundStyle(Theme.selectedText)
                 .padding(.horizontal, 7).padding(.vertical, 1)
                 .background(RoundedRectangle(cornerRadius: 4).fill(inPane ? Theme.ok : Theme.accentDeep))
-            Text(store.connected ? "● local" : "○ not connected").foregroundStyle(store.connected ? Theme.ok : Theme.muted)
-            Text("⌘K search · ⌘T tab · ⌘D split · ⌘. next waiting").foregroundStyle(Theme.muted)
+            if !store.connected { Text("○ not connected").foregroundStyle(Theme.err) }
+            // The keys for where the keyboard is, as the mock's bar lists
+            // them: the key bright, what it does muted.
+            HStack(spacing: 10) {
+                ForEach(inPane ? Self.paneKeys : Self.treeKeys, id: \.0) { k, what in
+                    HStack(spacing: 4) {
+                        Text(k).foregroundStyle(Theme.text2)
+                        Text(what).foregroundStyle(Theme.muted)
+                    }
+                }
+            }
             if let e = store.error {
                 Text(e).foregroundStyle(Theme.err).lineLimit(1)
                     .onTapGesture { store.error = nil }
@@ -603,8 +613,10 @@ struct StatusBar: View {
                 }
                 .foregroundStyle(Theme.muted)
             }
-            Text(PaneTerminal.engine).foregroundStyle(Theme.muted).help("The terminal each pane is drawn with")
-            if !store.serverVersion.isEmpty { Text("conch \(store.serverVersion)").foregroundStyle(Theme.muted) }
+            if !store.serverVersion.isEmpty {
+                Text("v\(store.serverVersion)").foregroundStyle(Theme.muted)
+                    .help("conch \(store.serverVersion) · panes drawn with \(PaneTerminal.engine)")
+            }
         }
         .font(.system(size: 12))
         .padding(.horizontal, 12).frame(height: 26)

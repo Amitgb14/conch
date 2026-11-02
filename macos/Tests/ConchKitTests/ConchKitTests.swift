@@ -478,3 +478,34 @@ final class FakeServer: @unchecked Sendable {
     #expect(parseChangesKey("box|p3") == nil)
     #expect(parseChangesKey("changes|box|r1|") == nil)
 }
+
+// Rows fold as the TUI folds them: its saved state by its ids, its
+// defaults where nothing is saved, and a choice made here over both.
+@Test func foldsFollowTheTUI() {
+    let s = fixture()
+    let t = s.tree()
+    #expect(t.fold == "m:local")
+    let api = t.children![0]
+    #expect(api.fold == "p:r1" && api.foldDefault) // a project with panes starts open
+    #expect(api.children!.map(\.fold) == ["p:r1/agents", "p:r1/branches", "p:r1/terminals"])
+    #expect(t.children![1].fold == "m:local/cli")
+    #expect(Snapshot(projects: s.projects).tree().children![0].foldDefault == false) // none: folded
+    #expect(s.tree(machine: "box").children![0].fold == "p:box~r1")
+
+    let tui = loadFolds(uiJSON: Data(#"{"expanded":{"p:r1/terminals":false,"m:local":true},"tabs":[]}"#.utf8))
+    let terminals = api.children![2]
+    #expect(!isOpen(terminals, app: [:], tui: tui))
+    #expect(isOpen(terminals, app: ["p:r1/terminals": true], tui: tui))
+    #expect(isOpen(api.children![0], app: [:], tui: tui)) // nothing saved: the default
+    #expect(loadFolds(uiJSON: nil).isEmpty && loadFolds(uiJSON: Data("x".utf8)).isEmpty)
+}
+
+@Test func sandboxes() {
+    #expect(MachineEntry(id: "s1", label: "sandbox", target: "daytona:abc123").sandboxProvider == "daytona")
+    #expect(MachineEntry(id: "s1", label: "sandbox", target: "daytona:abc123").displayLabel == "sandbox · daytona")
+    #expect(MachineEntry(id: "b", label: "busybox", target: "aghadge@10.0.0.115").sandboxProvider == nil)
+    #expect(MachineEntry(id: "b", label: "box", target: "unknown:x").sandboxProvider == nil)
+    #expect(MachineEntry(id: "b", label: "box", target: "daytona:").sandboxProvider == nil)
+    #expect(MachineEntry(id: "b", label: "box", target: "boat:a/b").sandboxProvider == nil)
+    #expect(MachineEntry(id: "b", label: "box").displayLabel == "box")
+}

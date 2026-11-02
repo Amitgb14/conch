@@ -100,6 +100,21 @@ public struct MachineEntry: Equatable, Sendable, Decodable {
         self.enabled = enabled
     }
 
+    /// The provider when this machine is a hosted sandbox (its target is
+    /// "provider:id", as remote.ParseSandboxTarget reads it), else nil.
+    public var sandboxProvider: String? {
+        guard let t = target, let colon = t.firstIndex(of: ":") else { return nil }
+        let p = String(t[..<colon]), id = t[t.index(after: colon)...]
+        guard ["daytona", "boat", "devin"].contains(p), !id.isEmpty, !id.contains(where: { "@/: ".contains($0) }) else { return nil }
+        return p
+    }
+
+    /// What the sidebar calls it: a sandbox says which provider's it is,
+    /// as the mock's "sandbox · daytona".
+    public var displayLabel: String {
+        sandboxProvider.map { "\(label) · \($0)" } ?? label
+    }
+
     /// The enabled machines in a machines.json; none for a file that is
     /// missing or will not read.
     public static func load(machinesJSON data: Data?) -> [MachineEntry] {
@@ -184,6 +199,25 @@ public struct TreeNode: Identifiable, Equatable, Sendable {
     public var detail: String = ""
     public var badge: String = ""
     public var children: [TreeNode]? = nil
+    /// The TUI's id for the row's fold (ui.json "expanded"), and whether it
+    /// is open when nothing is saved — the TUI's own defaults, so the two
+    /// fold alike.
+    public var fold: String? = nil
+    public var foldDefault = true
+}
+
+/// The rows the TUI keeps open or folded (ui.json "expanded"), by its ids.
+public func loadFolds(uiJSON data: Data?) -> [String: Bool] {
+    struct UI: Decodable { var expanded: [String: Bool]? }
+    guard let data, let ui = try? JSONDecoder().decode(UI.self, from: data) else { return [:] }
+    return ui.expanded ?? [:]
+}
+
+/// Whether a row is open: what was chosen here, else what the TUI keeps,
+/// else the TUI's default for it.
+public func isOpen(_ node: TreeNode, app: [String: Bool], tui: [String: Bool]) -> Bool {
+    guard let f = node.fold else { return true }
+    return app[f] ?? tui[f] ?? node.foldDefault
 }
 
 /// How many branches a project lists before the rest are left to the TUI:
@@ -201,6 +235,7 @@ extension Snapshot {
         var projectNodes: [TreeNode] = []
         for pr in projects where ws?.shows(pr, machine: machine) ?? true {
             let pk = key(machine, pr.id)
+            let tui = "p:" + (machine == "local" ? pr.id : "\(machine)~\(pr.id)") // the TUI's projectNodeID
             let mine = shown.filter { $0.projectID == pr.id }
             let agents = mine.filter { $0.agent != nil }.map { paneNode($0, machine) }
             let terminals = mine.filter { $0.agent == nil }.map { paneNode($0, machine) }
@@ -210,14 +245,14 @@ extension Snapshot {
             }
             var sections: [TreeNode] = []
             if !agents.isEmpty {
-                sections.append(TreeNode(id: "s:\(pk):agents", kind: .section("Agents"), title: "Agents", badge: "\(agents.count)", children: agents))
+                sections.append(TreeNode(id: "s:\(pk):agents", kind: .section("Agents"), title: "Agents", badge: "\(agents.count)", children: agents, fold: tui + "/agents"))
             }
             if !branches.isEmpty {
                 let all = max(pr.branches?.count ?? 0, branches.count)
-                sections.append(TreeNode(id: "s:\(pk):branches", kind: .section("Branches"), title: "Branches", badge: "\(all)", children: branches))
+                sections.append(TreeNode(id: "s:\(pk):branches", kind: .section("Branches"), title: "Branches", badge: "\(all)", children: branches, fold: tui + "/branches"))
             }
             if !terminals.isEmpty {
-                sections.append(TreeNode(id: "s:\(pk):terminals", kind: .section("Terminals"), title: "Terminals", badge: "\(terminals.count)", children: terminals))
+                sections.append(TreeNode(id: "s:\(pk):terminals", kind: .section("Terminals"), title: "Terminals", badge: "\(terminals.count)", children: terminals, fold: tui + "/terminals"))
             }
             if let n = sessions[pk], n > 0 {
                 sections.append(TreeNode(id: "s:\(pk):sessions", kind: .sessions(pk), title: "Sessions", badge: "\(n)"))
@@ -225,19 +260,19 @@ extension Snapshot {
             let (w, d) = Snapshot(panes: mine).inbox()
             projectNodes.append(TreeNode(id: "p:\(pk)", kind: .project(pk), title: pr.name,
                                          badge: [w > 0 ? "⚑\(w)" : "", d > 0 ? "✓\(d)" : ""].filter { !$0.isEmpty }.joined(separator: " "),
-                                         children: sections))
+                                         children: sections, fold: tui, foldDefault: !mine.isEmpty))
         }
         let loose = shown.filter { $0.projectID == nil || project($0.projectID!) == nil }
         var top = projectNodes
         if !loose.isEmpty {
             top.append(TreeNode(id: "cli:\(machine)", kind: .cli(machine), title: "CLI", badge: "\(loose.count)",
-                                children: loose.map { paneNode($0, machine) }))
+                                children: loose.map { paneNode($0, machine) }, fold: "m:\(machine)/cli"))
         }
         let working = shown.filter { $0.agent?.state == .working }.count
         let (w, _) = Snapshot(panes: shown).inbox()
         return TreeNode(id: "m:\(machine)", kind: .machine(machine), title: label ?? machine,
                         badge: [working > 0 ? "⠋\(working)" : "", w > 0 ? "⚑\(w)" : ""].filter { !$0.isEmpty }.joined(separator: " "),
-                        children: top)
+                        children: top, fold: "m:\(machine)")
     }
 
     func paneNode(_ p: PaneInfo, _ machine: String) -> TreeNode {

@@ -11,6 +11,8 @@ struct MachineLink: Identifiable, Equatable {
     var state = "connecting"
     /// Why it is offline, in the bridge's or the socket's own words.
     var why = ""
+    /// A hosted sandbox: stopped is a state of its own, not a fault.
+    var sandbox = false
     var version = ""
 
     var online: Bool { state.isEmpty }
@@ -31,6 +33,10 @@ final class Store: ObservableObject {
     @Published var workspace = 0
     @Published var questions: [String: Question] = [:]
     @Published var sessions: [String: Int] = [:]
+    /// The TUI's folds (ui.json), and the ones chosen here, which are kept
+    /// apart: ui.json is the running TUI's to write.
+    @Published var tuiFolds: [String: Bool] = [:]
+    @Published var folds: [String: Bool] = (UserDefaults.standard.dictionary(forKey: "folds") as? [String: Bool]) ?? [:]
     @Published var limits: [PlanLimits] = []
     @Published var status: String = "Connecting to conch…"
     @Published var paletteOpen = false
@@ -87,6 +93,14 @@ final class Store: ObservableObject {
     }
 
     func label(_ machine: String) -> String { machines.first { $0.id == machine }?.label ?? machine }
+
+    func isOpen(_ node: TreeNode) -> Bool { ConchKit.isOpen(node, app: folds, tui: tuiFolds) }
+
+    func toggle(_ node: TreeNode) {
+        guard let f = node.fold else { return }
+        folds[f] = !isOpen(node)
+        UserDefaults.standard.set(folds, forKey: "folds")
+    }
 
     /// The sidebar: a tree per machine, this computer first.
     var tree: [TreeNode] {
@@ -174,7 +188,11 @@ final class Store: ObservableObject {
     func connect() {
         let entries = MachineEntry.load(machinesJSON: FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("machines.json")))
         var next = [machines.first { $0.id == "local" } ?? MachineLink(id: "local", label: "local")]
-        for e in entries { next.append(machines.first { $0.id == e.id } ?? MachineLink(id: e.id, label: e.label)) }
+        for e in entries {
+            var link = machines.first { $0.id == e.id } ?? MachineLink(id: e.id, label: e.displayLabel)
+            link.sandbox = e.sandboxProvider != nil
+            next.append(link)
+        }
         machines = next
         for m in machines where conns[m.id] == nil { Task { await connect(m.id) } }
     }
@@ -251,12 +269,22 @@ final class Store: ObservableObject {
         guard conns[machine] != nil || machines.first(where: { $0.id == machine })?.state == "connecting" else { return }
         conns[machine] = nil
         let reason = why.split(separator: "\n").last.map(String.init) ?? ""
-        setState(machine, "offline")
+        // A sandbox that is not running says so ("sandbox x is stopped"):
+        // its state, said as the mock says it, rather than offline. The app
+        // never starts one; `conch sandbox start` does.
+        let link = machines.first { $0.id == machine }
+        var state = "offline"
+        if link?.sandbox == true, let r = reason.range(of: #"sandbox .* is (\w+)"#, options: .regularExpression) {
+            state = String(reason[r].split(separator: " ").last ?? "stopped")
+        }
+        setState(machine, state)
         if let i = machines.firstIndex(where: { $0.id == machine }) { machines[i].why = reason }
         if machine == "local" {
             status = reason.isEmpty ? "The connection to conch's server closed." : reason
         } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+            // A stopped sandbox is looked at less often: asking costs a call
+            // to its provider, and it will not start by itself.
+            DispatchQueue.main.asyncAfter(deadline: .now() + (state == "offline" ? 30 : 300)) { [weak self] in
                 guard let self, self.conns[machine] == nil, self.machines.contains(where: { $0.id == machine }) else { return }
                 Task { await self.connect(machine) }
             }
@@ -527,6 +555,7 @@ final class Store: ObservableObject {
     func loadWorkspaces() {
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("ui.json"))
         workspaces = Workspace.load(uiJSON: data)
+        tuiFolds = loadFolds(uiJSON: data)
         workspace = min(workspace, workspaces.count - 1)
     }
 }
