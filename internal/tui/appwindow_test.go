@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -360,5 +361,55 @@ func TestLighten(t *testing.T) {
 		if got := lighten(bad, 0.05); got != bad {
 			t.Errorf("%q came back %q", bad, got)
 		}
+	}
+}
+
+// A light theme's window band is a step darker than its background: lifting
+// white toward white changed nothing, and the band vanished into the page.
+func TestChromeOnLightAndDark(t *testing.T) {
+	for _, th := range themes {
+		c := chromeOn(th.bg)
+		if c == th.bg {
+			t.Errorf("%s: band %s is the background itself", th.name, c)
+		}
+		light := luminance(th.bg) > 0.5
+		if light != (luminance(c) < luminance(th.bg)) {
+			t.Errorf("%s: band %s goes the wrong way from %s", th.name, c, th.bg)
+		}
+	}
+	if got := chromeOn("#FFFFFF"); got != "#F4F4F4" {
+		t.Errorf("chromeOn(white) = %s", got)
+	}
+	if got := chromeOn("nope"); got != "nope" {
+		t.Errorf("an unparseable colour should come back as it was, got %s", got)
+	}
+	// Text that sets only a background stays readable on a light theme's
+	// dim selection.
+	for _, name := range []string{"github-light", "solarized-light", "catppuccin-latte"} {
+		th := themeByName(name)
+		if th.name != name || luminance(textOn(th.selDim)) > 0.5 {
+			t.Errorf("%s: missing, or light text on its light selection", name)
+		}
+	}
+}
+
+// Conch.app keeps its own copy of the palettes (ConchKit/Themes.swift), and
+// its Settings offers the TUI's list: a theme in one and not the other is
+// one the app draws as conch's, or one Settings never offers.
+func TestAppThemesMatchTheTUI(t *testing.T) {
+	src, err := os.ReadFile("../../macos/Sources/ConchKit/Themes.swift")
+	if err != nil {
+		t.Skip("no macos sources here:", err)
+	}
+	var app []string
+	for _, m := range regexp.MustCompile(`\.init\("([a-z-]+)", "([^"]+)"`).FindAllStringSubmatch(string(src), -1) {
+		app = append(app, m[1]+" "+m[2])
+	}
+	var tui []string
+	for _, th := range themes {
+		tui = append(tui, th.name+" "+th.label)
+	}
+	if strings.Join(app, ",") != strings.Join(tui, ",") {
+		t.Errorf("app themes\n %v\nTUI themes\n %v", app, tui)
 	}
 }

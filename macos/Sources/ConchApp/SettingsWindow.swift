@@ -1,3 +1,4 @@
+import Combine
 import AppKit
 import ConchKit
 import SwiftUI
@@ -96,7 +97,8 @@ final class SettingsModel: ObservableObject {
 
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
-    @ObservedObject var store: Store
+    /// The theme on screen, a preview included.
+    @ObservedObject var look: ShownTheme
 
     var body: some View {
         HStack(spacing: 0) {
@@ -116,8 +118,11 @@ struct SettingsView: View {
         }
         .frame(minWidth: 820, minHeight: 540)
         .background(Theme.window)
-        .preferredColorScheme(Theme.current.light ? .light : .dark)
-        .id(store.theme.id) // a new theme repaints it, as the main window
+        .preferredColorScheme(look.theme.light ? .light : .dark)
+        // A new theme repaints every view that reads this, in place: not
+        // .id, as the main window does, which would make the window anew —
+        // scrolled to the top, under a pointer previewing a theme.
+        .environment(\.conchTheme, look.theme.id)
         .onAppear { if model.form == nil { model.load() } }
     }
 
@@ -192,8 +197,10 @@ struct SettingsView: View {
 struct SectionForm: View {
     @ObservedObject var model: SettingsModel
     let section: SettingsSection
+    @Environment(\.conchTheme) private var theme
 
     var body: some View {
+        let _ = theme
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
                 LucideIcon(section.icon, color: Theme.accent, size: 20)
@@ -225,12 +232,15 @@ struct FieldRow: View {
     let section: SettingsSection
     let field: SettingsField
 
+    @Environment(\.conchTheme) private var theme
+
     var value: JSONValue? { model.form?.value(section, field) }
 
     func set(_ v: JSONValue?) { model.form?.set(section, field, v) }
 
     var body: some View {
-        let wide = ["text", "list", "ints"].contains(field.kind)
+        let _ = theme
+        let wide = ["text", "list", "ints"].contains(field.kind) || isTheme
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -246,7 +256,19 @@ struct FieldRow: View {
         }
     }
 
+    /// [ui] theme is chosen from pictures of the window rather than names.
+    var isTheme: Bool { section.key == "ui" && field.key == "theme" && field.kind == "select" }
+
     @ViewBuilder var control: some View {
+        if isTheme {
+            ThemeGrid(options: field.options ?? [], chosen: value?.string ?? "",
+                      choose: { set(.string($0)) }, preview: { model.store.previewTheme($0) })
+        } else {
+            plainControl
+        }
+    }
+
+    @ViewBuilder var plainControl: some View {
         switch field.kind {
         case "bool":
             Toggle("", isOn: Binding(get: { value?.bool ?? false }, set: { set(.bool($0)) })).toggleStyle(.switch).labelsHidden()
@@ -284,11 +306,124 @@ struct FieldRow: View {
     }
 }
 
+/// The themes Settings offers, each as a small picture of the window in
+/// it: the toolbar, the sidebar with a row selected, a tab and a pane of
+/// output in the theme's colours. The pointer on one shows the app in it,
+/// this window included; a click chooses it, saved with the rest.
+struct ThemeGrid: View {
+    let options: [SettingsOption]
+    let chosen: String
+    let choose: (String) -> Void
+    let preview: (String?) -> Void
+    @Environment(\.conchTheme) private var theme
+
+    var body: some View {
+        let _ = theme
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 14)], alignment: .leading, spacing: 14) {
+            ForEach(options, id: \.value) { o in
+                let on = themeChosen(o.value, chosen)
+                Button { choose(o.value) } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ThemePreview(theme: ConchTheme.named(o.value))
+                            .frame(height: 96)
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Theme.accent : Theme.line, lineWidth: on ? 2 : 1))
+                        HStack(spacing: 6) {
+                            Text(o.label).font(.system(size: 12, weight: on ? .semibold : .regular))
+                                .foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
+                            Spacer(minLength: 0)
+                            if ConchTheme.named(o.value).light { Text("light").font(.system(size: 10.5)).foregroundStyle(Theme.muted) }
+                            if on { LucideIcon("check", color: Theme.accent, size: 12) }
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(o.label)
+                .onHover { if $0 { preview(o.value) } }
+            }
+        }
+        .contentShape(Rectangle())
+        // Between cards the last one stays shown; off the grid, none.
+        .onHover { if !$0 { preview(nil) } }
+        .onDisappear { preview(nil) }
+    }
+}
+
+/// The window in miniature, drawn from a theme's colours as the window
+/// derives them.
+struct ThemePreview: View {
+    let theme: ConchTheme
+
+    func c(_ x: RGB) -> Color { Theme.color(x) }
+
+    func bar(_ color: RGB, _ w: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 1).fill(c(color)).frame(width: w, height: 3)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 3) {
+                ForEach(["#FF5F57", "#FEBC2E", "#28C840"], id: \.self) { Circle().fill(c(RGB($0))).frame(width: 5, height: 5) }
+                Spacer()
+                RoundedRectangle(cornerRadius: 3).fill(c(theme.well)).frame(width: 52, height: 8)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(c(theme.border), lineWidth: 0.5))
+                Spacer()
+                Capsule().fill(c(theme.warn)).frame(width: 14, height: 6)
+            }
+            .padding(.horizontal, 6).frame(height: 16).background(c(theme.chrome))
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 5) {
+                    bar(theme.muted, 18)
+                    HStack(spacing: 3) { Circle().fill(c(theme.ok)).frame(width: 4, height: 4); bar(theme.fg2, 20) }
+                    HStack(spacing: 3) { Circle().fill(c(RGB("#D97757"))).frame(width: 4, height: 4); bar(theme.selFG, 18) }
+                        .padding(.horizontal, 3).padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 2).fill(c(theme.accent)))
+                        .padding(.horizontal, -3)
+                    HStack(spacing: 3) { Circle().fill(c(RGB("#10A37F"))).frame(width: 4, height: 4); bar(theme.fg2, 16) }
+                    HStack(spacing: 3) { Circle().fill(c(theme.work)).frame(width: 4, height: 4); bar(theme.fg2, 22) }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 6).padding(.top, 6)
+                .frame(width: 44, alignment: .leading).frame(maxHeight: .infinity, alignment: .top)
+                .background(c(theme.sidebar))
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 6) {
+                        VStack(spacing: 2) { bar(theme.fg, 22); Rectangle().fill(c(theme.line)).frame(width: 22, height: 1.5) }
+                        bar(theme.fg2, 18).padding(.bottom, 3.5)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 6).padding(.top, 5)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 3) { bar(theme.muted, 6); bar(theme.fg, 34) }
+                        HStack(spacing: 3) { bar(RGB("#D97757"), 4); bar(theme.fg, 26) }
+                        bar(theme.ok, 30)
+                        bar(theme.err, 22)
+                        HStack(spacing: 3) { bar(theme.work, 4); bar(theme.warn, 18) }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .background(c(theme.bg))
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(c(theme.line), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .padding(4)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(c(theme.bg))
+            }
+        }
+        .accessibilityLabel("\(theme.label) theme")
+    }
+}
+
 /// The Settings window, made once and brought forward again.
 @MainActor
 final class SettingsWindow {
     private var window: NSWindow?
     private let model: SettingsModel
+    private var watch: [Any] = []
+    private var look: AnyCancellable?
 
     init(store: Store) { model = SettingsModel(store: store) }
 
@@ -298,8 +433,19 @@ final class SettingsWindow {
                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
             w.title = "conch Settings"
             w.isReleasedWhenClosed = false
-            w.contentView = NSHostingView(rootView: SettingsView(model: model, store: model.store))
-            w.backgroundColor = Theme.ns(Theme.current.chrome)
+            w.contentView = NSHostingView(rootView: SettingsView(model: model, look: model.store.look))
+            look = model.store.look.$theme.sink { [weak w] t in
+                w?.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
+                w?.backgroundColor = Theme.ns(t.chrome)
+            }
+            // A preview never outlives the window, or its being left for
+            // another app while the pointer was on a card.
+            let store = model.store
+            for n in [NSWindow.willCloseNotification, NSWindow.didResignKeyNotification] {
+                watch.append(NotificationCenter.default.addObserver(forName: n, object: w, queue: .main) { _ in
+                    MainActor.assumeIsolated { store.previewTheme(nil) }
+                })
+            }
             w.center()
             w.setFrameAutosaveName("conch.settings")
             window = w
@@ -308,5 +454,18 @@ final class SettingsWindow {
             if !(model.form?.dirty ?? false) { Task { await model.read() } }
         }
         window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// The id of the theme on screen, for the Settings window's views to
+/// depend on: reading it is what repaints them when it changes.
+private struct ConchThemeKey: EnvironmentKey {
+    static let defaultValue = ""
+}
+
+extension EnvironmentValues {
+    var conchTheme: String {
+        get { self[ConchThemeKey.self] }
+        set { self[ConchThemeKey.self] = newValue }
     }
 }

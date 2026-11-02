@@ -77,8 +77,8 @@ extension ConchTheme {
                   uiAccent: ui.map(RGB.init), light: light)
     }
 
-    /// conch's fifteen (the TUI's, in its order) and three light ones it
-    /// does not have yet, for macOS light appearance.
+    /// conch's themes: the TUI's, in its order, the light ones last. Tests on
+    /// both sides (themesMatchTheTUI, TestAppThemesMatchTheTUI) say they agree.
     public static let all: [ConchTheme] = [
         .init("conch", "Conch", accent: "#0F7B8A", selFG: "#FFFFFF", border: "#444C56", muted: "#8B949E", ok: "#3FB950", warn: "#D29922", err: "#F85149", work: "#58A6FF", selDim: "#2D333B", bg: "#15191E", fg: "#C9D1D9", ui: "#2AA5B5"),
         .init("dracula", "Dracula", accent: "#BD93F9", selFG: "#282A36", border: "#6272A4", muted: "#6272A4", ok: "#50FA7B", warn: "#F1FA8C", err: "#FF5555", work: "#8BE9FD", selDim: "#44475A", bg: "#282A36", fg: "#F8F8F2"),
@@ -106,6 +106,14 @@ extension ConchTheme {
     public static func named(_ id: String?) -> ConchTheme {
         let key = (id ?? "").trimmingCharacters(in: .whitespaces).lowercased()
         return all.first { $0.id == key } ?? conch
+    }
+
+    /// The theme the window settles on — the one chosen in the app ("" is
+    /// none), else config.toml's — and the one it shows, which is a theme
+    /// being previewed while the pointer is on its card in Settings.
+    public static func resolve(choice: String, configured: String?, preview: String?) -> (settled: ConchTheme, shown: ConchTheme) {
+        let settled = named(choice.isEmpty ? configured : choice)
+        return (settled, preview.map { named($0) } ?? settled)
     }
 
     /// The theme a config.toml sets in [ui] (theme = "…"), or nil when it
@@ -145,4 +153,11 @@ public func uiSetting(_ key: String, in toml: String?) -> String? {
         return value.isEmpty ? nil : value
     }
     return nil
+}
+
+/// Whether a theme option is the one config.toml sets: an empty or unknown
+/// theme is conch's, as the TUI reads it, so conch's card shows chosen.
+public func themeChosen(_ option: String, _ value: String) -> Bool {
+    ConchTheme.named(option).id == ConchTheme.named(value).id && ConchTheme.all.contains { $0.id == option }
+        || option == value
 }

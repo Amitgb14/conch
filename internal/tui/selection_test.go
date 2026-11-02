@@ -126,7 +126,7 @@ func TestThemesAreComplete(t *testing.T) {
 			t.Errorf("themeByName(%q) = %q", th.name, got.name)
 		}
 	}
-	for _, name := range []string{"one-dark", "solarized", "rose-pine", "kanagawa", "everforest", "monokai", "github-dark", "ayu", "night-owl"} {
+	for _, name := range []string{"one-dark", "solarized", "rose-pine", "kanagawa", "everforest", "monokai", "github-dark", "ayu", "night-owl", "github-light", "solarized-light", "catppuccin-latte"} {
 		if !seen[name] {
 			t.Errorf("missing theme %q", name)
 		}

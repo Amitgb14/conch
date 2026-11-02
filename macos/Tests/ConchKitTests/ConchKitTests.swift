@@ -389,7 +389,7 @@ final class FakeServer: @unchecked Sendable {
         let bg = bgLine.range(of: "bg: \"").map { bgLine[$0.upperBound...].prefix { $0 != "\"" } } ?? ""
         return (String(name), String(accent), String(bg))
     }
-    #expect(tui.count == 15)
+    #expect(tui.count == ConchTheme.all.count)
     for (i, (name, accent, bg)) in tui.enumerated() {
         let t = ConchTheme.all[i]
         #expect(t.id == name && t.accent.hex == accent.uppercased() && t.bg.hex == bg.uppercased(), "theme \(name)")
@@ -1137,4 +1137,34 @@ final class FakeServer: @unchecked Sendable {
     #expect(closesOnExit(none, now: now)) // no start time: not one to keep
     let p = try conchDecoder().decode(PaneInfo.self, from: Data(#"{"id":"p3","name":"zsh","state":"exited","exit_code":0,"created":"2026-11-02T08:00:00Z"}"#.utf8))
     #expect(p.created != nil && p.exitCode == 0)
+}
+
+@Test func themeChosenReadsAsTheTUIDoes() {
+    #expect(themeChosen("night-owl", "night-owl"))
+    #expect(!themeChosen("conch", "night-owl"))
+    // No theme set, or one this build has never heard of, is conch's.
+    #expect(themeChosen("conch", ""))
+    #expect(themeChosen("conch", "  Conch "))
+    #expect(themeChosen("conch", "no-such-theme"))
+    #expect(!themeChosen("dracula", ""))
+    // An option the app has no palette for is chosen only by its own name.
+    #expect(themeChosen("from-a-newer-tui", "from-a-newer-tui"))
+    #expect(!themeChosen("from-a-newer-tui", ""))
+}
+
+@Test func themePreviewShowsWithoutSettling() {
+    // Following config.toml, a preview is shown and the config's settled.
+    var r = ConchTheme.resolve(choice: "", configured: "nord", preview: "github-light")
+    #expect(r.settled.id == "nord" && r.shown.id == "github-light" && r.shown.light)
+    // No preview: shown is settled.
+    r = ConchTheme.resolve(choice: "", configured: "nord", preview: nil)
+    #expect(r.settled.id == "nord" && r.shown.id == "nord")
+    // A theme picked in the app wins over the config, and a preview over both.
+    r = ConchTheme.resolve(choice: "dracula", configured: "nord", preview: nil)
+    #expect(r.settled.id == "dracula" && r.shown.id == "dracula")
+    r = ConchTheme.resolve(choice: "dracula", configured: "nord", preview: "ayu")
+    #expect(r.settled.id == "dracula" && r.shown.id == "ayu")
+    // Nothing set anywhere, or an unknown preview, is conch's.
+    r = ConchTheme.resolve(choice: "", configured: nil, preview: "no-such-theme")
+    #expect(r.settled.id == "conch" && r.shown.id == "conch")
 }

@@ -68,6 +68,11 @@ final class Store: ObservableObject {
     @Published private(set) var themeChoice = UserDefaults.standard.string(forKey: "theme") ?? ""
     @Published private(set) var theme = ConchTheme.conch
     @Published private(set) var icons = IconMode.text
+    /// A theme shown while the pointer is on its card in Settings, and the
+    /// theme on screen, apart from everything else the store publishes, for
+    /// the Settings window to repaint by.
+    private(set) var previewing: String?
+    let look = ShownTheme()
     /// Told when the theme changes, for what SwiftUI does not draw: the
     /// window's own background and appearance.
     var onTheme: ((ConchTheme) -> Void)?
@@ -391,16 +396,24 @@ final class Store: ObservableObject {
             self.icons = icons
             Theme.icons = icons
         }
-        let configured = ConchTheme.configured(in: toml)
-        let next = ConchTheme.named(themeChoice.isEmpty ? configured : themeChoice)
+        let next = ConchTheme.resolve(choice: themeChoice, configured: ConchTheme.configured(in: toml), preview: previewing).shown
         guard next != theme || Theme.current != next else { return }
         theme = next
         Theme.current = next
+        look.theme = next
         for t in terminals.values { t.apply(next) }
         #if GHOSTTY
         GhosttyRuntime.shared.apply(next)
         #endif
         onTheme?(next)
+    }
+
+    /// Shows a theme without choosing it, or (nil) goes back to the one
+    /// settled on.
+    func previewTheme(_ id: String?) {
+        guard id != previewing else { return }
+        previewing = id
+        loadTheme()
     }
 
     func chooseTheme(_ id: String) {
@@ -1339,3 +1352,10 @@ struct TaskDraft: Identifiable {
 }
 
 private struct PaneRefParams: Encodable { var id: String }
+
+/// The theme on screen, apart from the store, so that what observes it is
+/// not redrawn by everything else the store publishes.
+@MainActor
+final class ShownTheme: ObservableObject {
+    @Published var theme = ConchTheme.conch
+}

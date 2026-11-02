@@ -64,6 +64,14 @@ var themes = []palette{
 		ok: "#AAD94C", warn: "#FFB454", err: "#F07178", work: "#59C2FF", selDim: "#1E232B", merged: "#D2A6FF", bg: "#0B0E14", fg: "#BFBDB6"},
 	{name: "night-owl", label: "Night Owl", accent: "#82AAFF", selFG: "#011627", border: "#1D3B53", muted: "#637777",
 		ok: "#22DA6E", warn: "#ADDB67", err: "#EF5350", work: "#7FDBCA", selDim: "#1D3B53", merged: "#C792EA", bg: "#011627", fg: "#D6DEEB"},
+	// Light ones, last: for a light terminal, and for Conch.app under the
+	// light appearance, which takes the same [ui] theme.
+	{name: "github-light", label: "GitHub Light", accent: "#0969DA", selFG: "#FFFFFF", border: "#D0D7DE", muted: "#656D76",
+		ok: "#1A7F37", warn: "#9A6700", err: "#CF222E", work: "#0969DA", selDim: "#DDF4FF", merged: "#8250DF", bg: "#FFFFFF", fg: "#1F2328"},
+	{name: "solarized-light", label: "Solarized Light", accent: "#268BD2", selFG: "#FDF6E3", border: "#D3CBB7", muted: "#93A1A1",
+		ok: "#859900", warn: "#B58900", err: "#DC322F", work: "#2AA198", selDim: "#EEE8D5", merged: "#6C71C4", bg: "#FDF6E3", fg: "#586E75"},
+	{name: "catppuccin-latte", label: "Catppuccin Latte", accent: "#1E66F5", selFG: "#EFF1F5", border: "#BCC0CC", muted: "#8C8FA1",
+		ok: "#40A02B", warn: "#DF8E1D", err: "#D20F39", work: "#04A5E5", selDim: "#CCD0DA", merged: "#8839EF", bg: "#EFF1F5", fg: "#4C4F69"},
 }
 
 // accentColors are the named choices for [ui] accent. Each is dark enough
@@ -146,7 +154,7 @@ func applyTheme(name, accent string) {
 	// selected row, which is what the full accent bar used to make it.
 	styleTabOn = lipgloss.NewStyle().Bold(true).Underline(true).Background(t.selDim).Foreground(textOn(t.selDim))
 	tabUnderline = underlineColor(t.accent)
-	colorChrome, colorWell = lighten(t.bg, 0.05), t.bg
+	colorChrome, colorWell = chromeOn(t.bg), t.bg
 	styleBold = lipgloss.NewStyle().Bold(true)
 	styleSel = lipgloss.NewStyle().Bold(true).Foreground(t.selFG).Background(t.accent)
 	styleSelDim = lipgloss.NewStyle().Background(t.selDim).Foreground(textOn(t.selDim))
@@ -228,6 +236,16 @@ func lighten(c lipgloss.Color, f float64) lipgloss.Color {
 	}
 	up := func(x uint64) int { return int(float64(x) + (255-float64(x))*f + 0.5) }
 	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", up(v>>16&0xFF), up(v>>8&0xFF), up(v&0xFF)))
+}
+
+// chromeOn is the band along the top of conch's own window over a
+// background: lifted 5% on a dark one, as a native title bar is, and
+// taken 4% down on a light one, where lifting white changes nothing.
+func chromeOn(bg lipgloss.Color) lipgloss.Color {
+	if luminance(bg) > 0.5 {
+		return darken(bg, 0.96)
+	}
+	return lighten(bg, 0.05)
 }
 
 // darken scales a #rrggbb colour toward black by f, for a background tint

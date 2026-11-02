@@ -305,7 +305,8 @@ type UICfg struct {
 	Mouse bool `toml:"mouse"`
 	// Theme is the colour scheme: conch, dracula, catppuccin, nord, gruvbox,
 	// tokyo-night, one-dark, solarized, rose-pine, kanagawa, everforest,
-	// monokai, github-dark, ayu or night-owl.
+	// monokai, github-dark, ayu, night-owl, or a light one: github-light,
+	// solarized-light or catppuccin-latte.
 	Theme string `toml:"theme"`
 	// Accent overrides the theme's accent (selections, focused borders,
 	// dialogs): teal, blue, green, orange, pink, red, gray, purple, or a
