@@ -665,7 +665,7 @@ final class FakeServer: @unchecked Sendable {
 }
 
 @Test func sidebarWidths() {
-    #expect(clampSidebar(300) == 300 && clampSidebar(10) == 200 && clampSidebar(5000) == 560 && clampSidebar(.nan) == 300)
+    #expect(clampSidebar(300) == 300 && clampSidebar(10) == 200 && clampSidebar(5000) == 560 && clampSidebar(.nan) == sidebarDefault && sidebarDefault == 260 && sidebarRange.contains(sidebarDefault))
 }
 
 // conch's [ui] settings as the app reads them: a key of [ui] and no other.

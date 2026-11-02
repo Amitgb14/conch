@@ -514,7 +514,10 @@ public func fileItems(_ found: FindResult, machine: String, project: String, lab
 /// branch, never so wide the panes have nothing.
 public let sidebarRange: ClosedRange<Double> = 200...560
 
+/// The sidebar's width until it is dragged: the mock's.
+public let sidebarDefault: Double = 260
+
 public func clampSidebar(_ w: Double) -> Double {
-    guard w.isFinite else { return 300 }
+    guard w.isFinite else { return sidebarDefault }
     return min(max(w, sidebarRange.lowerBound), sidebarRange.upperBound)
 }

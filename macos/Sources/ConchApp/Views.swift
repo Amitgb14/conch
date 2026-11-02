@@ -150,7 +150,9 @@ struct SidebarEdge: View {
                         }
                         .onEnded { _ in start = nil })
             )
-            .onAppear { width = clampSidebar(width) }
+            // Only a width out of range is corrected: writing it back
+            // unchanged would store the default as if it had been chosen.
+            .onAppear { if clampSidebar(width) != width { width = clampSidebar(width) } }
     }
 }
 
@@ -228,7 +230,7 @@ struct Counts: View {
 struct MainView: View {
     @ObservedObject var store: Store
     /// The sidebar's width, dragged at its edge and remembered.
-    @AppStorage("sidebarWidth") private var sidebarWidth: Double = 300
+    @AppStorage("sidebarWidth") private var sidebarWidth: Double = sidebarDefault
 
     var body: some View {
         ZStack {
