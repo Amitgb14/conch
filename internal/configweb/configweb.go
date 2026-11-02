@@ -274,11 +274,7 @@ func writeRaw(text string) error {
 	if err := os.MkdirAll(config.Dir(), 0o700); err != nil {
 		return err
 	}
-	tmp := config.File() + ".tmp"
-	if err := os.WriteFile(tmp, []byte(text), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, config.File())
+	return config.WriteFileAtomic(config.File(), []byte(text), 0o600)
 }
 
 // fromRaw reads config.toml's text as Load would.

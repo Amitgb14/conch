@@ -506,11 +506,7 @@ func Save(cfg Config) error {
 	}
 	path := File()
 	keepUnreadable(path)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return WriteFileAtomic(path, []byte(b.String()), 0o600)
 }
 
 // keepUnreadable moves aside a config.toml conch could not parse, so that

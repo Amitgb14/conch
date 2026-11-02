@@ -238,7 +238,7 @@ func readShared(path string) (sharedUI, bool) {
 		return nil, false
 	}
 	var st uiState
-	if json.Unmarshal(b, &st) != nil {
+	if decodeUIState(b, &st) != nil {
 		return nil, false
 	}
 	return sharedOf(st), true

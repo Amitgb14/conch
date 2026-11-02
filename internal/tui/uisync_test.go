@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -453,5 +454,73 @@ func TestNewSpaceIDs(t *testing.T) {
 	}
 	if spaceID(savedSpace{ID: "sx"}, 4) != "sx" || spaceID(savedSpace{}, 0) != "w1" {
 		t.Fatal("spaceID")
+	}
+}
+
+// A ui.json an older conch left corrupt — a complete save with the tail of
+// a longer one after it, as two saves at once through one temporary file
+// made it — gives back its first, newest document rather than nothing:
+// read as nothing, the next save wrote the loss over every workspace.
+func TestUIStateWithATailStillLoads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ui.json")
+	newer := uiState{Spaces: []savedSpace{{ID: "sa", Name: "review"}}, FirstSpace: &savedSpace{Name: "home"}, SidebarWidth: 40}
+	b, _ := json.MarshalIndent(newer, "", "  ")
+	hosts := make([]string, 50)
+	for i := range hosts {
+		hosts[i] = "host-" + itoa(i) + ".example.com"
+	}
+	older, _ := json.MarshalIndent(uiState{Spaces: []savedSpace{{ID: "sa"}, {ID: "sb"}}, SavedSSH: hosts}, "", "  ")
+	corrupt := append(append([]byte{}, b...), '\n')
+	if len(older) > len(corrupt) {
+		corrupt = append(corrupt, older[len(corrupt):]...) // the longer one's tail
+	}
+	if err := os.WriteFile(path, corrupt, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if json.Unmarshal(corrupt, &uiState{}) == nil {
+		t.Fatal("the fixture is not corrupt")
+	}
+	st := loadUIState(path)
+	if len(st.Spaces) != 1 || st.Spaces[0].Name != "review" || st.FirstSpace == nil || st.FirstSpace.Name != "home" || st.SidebarWidth != 40 {
+		t.Fatalf("loaded %+v", st)
+	}
+	if shared, ok := readShared(path); !ok || shared["spaces/sa"] == nil {
+		t.Fatalf("shared %v %v", shared, ok)
+	}
+	// A file cut short is still nothing to go on.
+	os.WriteFile(path, b[:len(b)/2], 0o600)
+	if st := loadUIState(path); len(st.Spaces) != 0 {
+		t.Fatalf("a half file loaded: %+v", st)
+	}
+}
+
+// TUIs saving ui.json at once leave a file that parses, whichever wins.
+func TestSaveUIStateRacing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ui.json")
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			st := uiState{SidebarWidth: i}
+			for j := 0; j < i*40; j++ {
+				st.SavedSSH = append(st.SavedSSH, "host-with-a-long-name.example.com")
+			}
+			if err := saveUIState(path, st); err != nil {
+				t.Error(err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st uiState
+	if err := json.Unmarshal(b, &st); err != nil {
+		t.Fatalf("racing saves left a file that does not parse: %v", err)
+	}
+	if len(st.SavedSSH) != st.SidebarWidth*40 {
+		t.Fatalf("a mixture of two saves: width %d, %d hosts", st.SidebarWidth, len(st.SavedSSH))
 	}
 }

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"encoding/json"
 	"maps"
 	"os"
@@ -83,7 +84,7 @@ func loadUIState(path string) uiState {
 	if err != nil {
 		return st
 	}
-	if json.Unmarshal(b, &st) != nil {
+	if decodeUIState(b, &st) != nil {
 		return uiState{Expanded: map[string]bool{}, ShowAll: map[string]bool{}}
 	}
 	if st.Expanded == nil {
@@ -102,6 +103,16 @@ func loadUIState(path string) uiState {
 	return st
 }
 
+// decodeUIState reads ui.json's first JSON document and ignores what
+// follows it. An older conch could leave a complete file with the tail of
+// a longer one after it (two saves at once through one temporary file,
+// before WriteFileAtomic); refusing that file outright read as an empty
+// one, and the next save wrote the emptiness over every workspace, tab
+// and fold. The first document is the newest whole save.
+func decodeUIState(b []byte, st *uiState) error {
+	return json.NewDecoder(bytes.NewReader(b)).Decode(st)
+}
+
 func saveUIState(path string, st uiState) error {
 	b, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
@@ -110,11 +121,7 @@ func saveUIState(path string, st uiState) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return config.WriteFileAtomic(path, append(b, '\n'), 0o600)
 }
 
 // saveState writes fold state and sidebar width in the background. The
