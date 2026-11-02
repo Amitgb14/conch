@@ -36,11 +36,49 @@ public struct Snapshot: Equatable, Sendable {
 
     public mutating func remove(project id: String) { projects.removeAll { $0.id == id } }
 
+    /// The panes a workspace shows on this machine, as the TUI's
+    /// spaceShown: those in its projects, those started in it, and what
+    /// they started in turn — a helper is in its agent's workspace — and,
+    /// in the first, every pane no later workspace shows. nil is every pane.
+    public func shown(in ws: Workspace?, machine: String = "local") -> [PaneInfo] {
+        guard let ws else { return panes }
+        let known = Set(projects.map(\.id))
+        func members(_ projs: Set<String>, _ own: Set<String>) -> Set<String> {
+            var in_: Set<String> = []
+            for p in panes {
+                if let pr = p.projectID, known.contains(pr), projs.contains(Workspace.projectKey(machine, pr)) { in_.insert(p.id) }
+                if own.contains(key(machine, p.id)) { in_.insert(p.id) }
+            }
+            // What a pane in it started is in it too.
+            var grew = true
+            while grew {
+                grew = false
+                for p in panes where !in_.contains(p.id) {
+                    if let by = p.createdBy, in_.contains(by) {
+                        in_.insert(p.id)
+                        grew = true
+                    }
+                }
+            }
+            return in_
+        }
+        var in_ = members(ws.projects, ws.panes)
+        if ws.first {
+            // Everything the later workspaces do not show is the first's:
+            // a project of theirs it was given too is in its own set above.
+            let elsewhere = members(ws.claimedProjects, ws.claimedPanes)
+            let unclaimedProjects = Set(projects.map { Workspace.projectKey(machine, $0.id) }).subtracting(ws.claimedProjects)
+            in_.formUnion(members(unclaimedProjects, []))
+            for p in panes where !elsewhere.contains(p.id) { in_.insert(p.id) }
+        }
+        return panes.filter { in_.contains($0.id) }
+    }
+
     /// Waiting for you, and finished while nobody looked — the counts in
     /// the toolbar, as the TUI's status bar counts them (inboxCount).
-    public func inbox(in ws: Workspace? = nil) -> (waiting: Int, done: Int) {
+    public func inbox(in ws: Workspace? = nil, machine: String = "local") -> (waiting: Int, done: Int) {
         var waiting = 0, done = 0
-        for p in panes where ws?.shows(p) ?? true {
+        for p in shown(in: ws, machine: machine) {
             switch p.agent?.state {
             case .blocked: waiting += 1
             case .done: done += 1
@@ -52,7 +90,7 @@ public struct Snapshot: Equatable, Sendable {
 
     /// The agent to go to next: waiting ones first, then finished ones, each
     /// oldest first (attentionOrder), after the one given.
-    public func nextAttention(after current: String?, in ws: Workspace? = nil) -> String? {
+    public func nextAttention(after current: String?, in ws: Workspace? = nil, machine: String = "local") -> String? {
         func rank(_ p: PaneInfo) -> Int? {
             switch p.agent?.state {
             case .blocked: return 0
@@ -60,7 +98,7 @@ public struct Snapshot: Equatable, Sendable {
             default: return nil
             }
         }
-        let order = panes.filter { (ws?.shows($0) ?? true) && rank($0) != nil }.sorted {
+        let order = shown(in: ws, machine: machine).filter { rank($0) != nil }.sorted {
             let (a, b) = (rank($0)!, rank($1)!)
             if a != b { return a < b }
             return ($0.agent?.since ?? .distantPast) < ($1.agent?.since ?? .distantPast)
@@ -124,53 +162,75 @@ public struct MachineEntry: Equatable, Sendable, Decodable {
     }
 }
 
-/// A workspace as the TUI keeps it (ui.json): the first holds everything,
-/// another only what was added to it. The app reads them, switches between
-/// them, and makes one by adding it to the file (adding), which every TUI
-/// running merges in by its id (internal/tui/uisync.go).
+/// A workspace as the TUI keeps it (ui.json): what was added to it — its
+/// projects and the panes started in it — and, for the first, everything
+/// no later workspace has claimed (the TUI's spaceShown). The app reads
+/// them, switches between them, and makes one by adding it to the file
+/// (adding), which every TUI running merges in by its id
+/// (internal/tui/uisync.go).
 public struct Workspace: Equatable, Sendable {
+    /// Its id in ui.json; "first" for the first, which has none there.
+    public var id: String
     public var name: String
-    /// nil is the first workspace, which shows everything. Projects are
-    /// the TUI's keys: an id on this computer, "machine~id" elsewhere.
-    public var projects: Set<String>?
-    /// Panes added to it by hand, as "machine|id".
+    /// Projects added to it, as the TUI keys them: an id on this computer,
+    /// "machine~id" elsewhere.
+    public var projects: Set<String>
+    /// Panes started in it outside its projects, as "machine|id".
     public var panes: Set<String>
+    /// The first: it also shows whatever no later workspace has.
+    public var first: Bool
+    /// For the first, what the later ones have between them.
+    public var claimedProjects: Set<String> = []
+    public var claimedPanes: Set<String> = []
 
-    public init(name: String, projects: Set<String>? = nil, panes: Set<String> = []) {
+    public init(id: String = "first", name: String, projects: Set<String> = [], panes: Set<String> = [], first: Bool = false) {
+        self.id = id
         self.name = name
         self.projects = projects
         self.panes = panes
+        self.first = first
     }
+
+    /// The first workspace while it is the only one: everything.
+    public static let everything = Workspace(name: "", first: true)
 
     static func projectKey(_ machine: String, _ id: String) -> String {
         machine == "local" ? id : "\(machine)~\(id)"
     }
 
-    public func shows(_ p: PaneInfo, machine: String = "local") -> Bool {
-        guard let projects else { return true }
-        if let pid = p.projectID, projects.contains(Self.projectKey(machine, pid)) { return true }
-        return panes.contains(key(machine, p.id))
-    }
-
     public func shows(_ p: ProjectInfo, machine: String = "local") -> Bool {
-        projects?.contains(Self.projectKey(machine, p.id)) ?? true
+        let k = Self.projectKey(machine, p.id)
+        return projects.contains(k) || first && !claimedProjects.contains(k)
     }
 
-    /// The workspaces in a ui.json: the first, then those saved after it.
+    /// The workspaces in a ui.json: the first, then those saved after it,
+    /// each with its id as the TUI names it ("w1"… for one saved before
+    /// ids). The first knows what the others claim.
     public static func load(uiJSON data: Data?) -> [Workspace] {
         struct Saved: Decodable {
+            var id: String?
             var name: String?
             var projects: [String]?
             var panes: [String]?
         }
-        struct UI: Decodable { var spaces: [Saved]? }
-        var out = [Workspace(name: "")]
-        if let data, let ui = try? JSONDecoder().decode(UI.self, from: data) {
-            for s in ui.spaces ?? [] {
-                out.append(Workspace(name: s.name ?? "", projects: Set(s.projects ?? []), panes: Set(s.panes ?? [])))
-            }
+        struct UI: Decodable {
+            var spaces: [Saved]?
+            var first_space: Saved?
         }
-        return out
+        let ui = data.flatMap { try? JSONDecoder().decode(UI.self, from: $0) }
+        let later = (ui?.spaces ?? []).enumerated().map { i, s in
+            Workspace(id: (s.id ?? "").isEmpty ? "w\(i + 1)" : s.id!, name: s.name ?? "",
+                      projects: Set(s.projects ?? []), panes: Set(s.panes ?? []))
+        }
+        var first = Workspace(name: "", first: true)
+        if !later.isEmpty, let f = ui?.first_space {
+            first.name = f.name ?? ""
+            first.projects = Set(f.projects ?? [])
+            first.panes = Set(f.panes ?? [])
+        }
+        first.claimedProjects = later.reduce(into: []) { $0.formUnion($1.projects) }
+        first.claimedPanes = later.reduce(into: []) { $0.formUnion($1.panes) }
+        return [first] + later
     }
 
     /// ui.json with an empty workspace added after the rest, as the TUI's
@@ -193,6 +253,26 @@ public struct Workspace: Equatable, Sendable {
         var new: [String: Any] = ["id": id]
         if !name.isEmpty { new["name"] = name }
         spaces.append(new)
+        ui["spaces"] = spaces
+        return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    /// ui.json with a pane (key(machine, id)) put in the workspace with
+    /// that id, and nothing else changed — a pane started in it, as the
+    /// TUI's joinSpace records one. Unknown workspace or unreadable file:
+    /// that throws.
+    public static func addingPane(_ pane: String, to id: String, in data: Data?) throws -> Data {
+        guard let data, !data.isEmpty, var ui = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var spaces = ui["spaces"] as? [[String: Any]] else {
+            throw ConchError(code: "ui.json", message: "ui.json has no workspaces to put the pane in")
+        }
+        for i in spaces.indices where (spaces[i]["id"] as? String ?? "").isEmpty { spaces[i]["id"] = "w\(i + 1)" }
+        guard let i = spaces.firstIndex(where: { $0["id"] as? String == id }) else {
+            throw ConchError(code: "ui.json", message: "no workspace \(id) in ui.json")
+        }
+        var panes = spaces[i]["panes"] as? [String] ?? []
+        if !panes.contains(pane) { panes.append(pane) }
+        spaces[i]["panes"] = panes.sorted()
         ui["spaces"] = spaces
         return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
     }
@@ -261,7 +341,7 @@ extension Snapshot {
     /// conversations, when they have been read.
     public func tree(machine: String = "local", label: String? = nil, in ws: Workspace? = nil,
                      sessions: [String: Int] = [:]) -> TreeNode {
-        let shown = panes.filter { ws?.shows($0, machine: machine) ?? true }
+        let shown = self.shown(in: ws, machine: machine)
         var projectNodes: [TreeNode] = []
         for pr in projects where ws?.shows(pr, machine: machine) ?? true {
             let pk = key(machine, pr.id)
@@ -424,7 +504,7 @@ extension Snapshot {
         -> (waiting: [PaletteItem], panes: [PaletteItem], places: [PaletteItem]) {
         var waiting: [PaletteItem] = [], others: [PaletteItem] = [], places: [PaletteItem] = []
         let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
-        for p in panes where ws?.shows(p, machine: machine) ?? true {
+        for p in shown(in: ws, machine: machine) {
             let detail = [p.projectID.flatMap { names[$0] }, p.branch, label].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
             var item = PaletteItem(title: p.displayName, detail: detail, kind: p.agent?.name ?? "terminal", action: .pane(key(machine, p.id)))
             if p.agent?.state == .blocked {
@@ -491,7 +571,7 @@ extension Snapshot {
     public func agentNames(in ws: Workspace? = nil, machine: String = "local") -> [String] {
         var seen: Set<String> = []
         var out: [String] = []
-        for p in panes where p.running && (ws?.shows(p, machine: machine) ?? true) {
+        for p in shown(in: ws, machine: machine) where p.running {
             if let a = p.agent?.name, seen.insert(a).inserted { out.append(a) }
         }
         return out
@@ -520,4 +600,11 @@ public let sidebarDefault: Double = 260
 public func clampSidebar(_ w: Double) -> Double {
     guard w.isFinite else { return sidebarDefault }
     return min(max(w, sidebarRange.lowerBound), sidebarRange.upperBound)
+}
+
+/// The workspace a ui.json's TUI was last on (active_space): 0, the first,
+/// when it says none.
+public func activeWorkspace(uiJSON data: Data?) -> Int {
+    struct UI: Decodable { var active_space: Int? }
+    return data.flatMap { try? JSONDecoder().decode(UI.self, from: $0) }?.active_space ?? 0
 }

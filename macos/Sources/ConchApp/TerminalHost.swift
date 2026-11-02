@@ -115,8 +115,14 @@ struct TerminalHost: NSViewRepresentable {
         if terminal.view.superview !== box { mount(in: box) }
     }
 
+    /// Puts this pane's terminal in the box, and takes out whichever was
+    /// there: SwiftUI reuses the box when the same place shows another
+    /// pane (switching between single-pane tabs), and a terminal left
+    /// behind — a Ghostty surface drawing through Metal — went on showing
+    /// over the new one.
     private func mount(in box: NSView) {
         let v = terminal.view
+        for old in box.subviews where old !== v { old.removeFromSuperview() }
         v.removeFromSuperview()
         v.translatesAutoresizingMaskIntoConstraints = false
         box.addSubview(v)

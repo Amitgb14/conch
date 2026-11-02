@@ -40,7 +40,18 @@ final class Store: ObservableObject {
     private var fileSearch: Task<Void, Never>?
     @Published var layout = Layout()
     @Published var workspaces: [Workspace] = [Workspace(name: "")]
-    @Published var workspace = 0
+    /// The workspace on screen. Each has tabs of its own, as in the TUI:
+    /// switching puts this one's away and brings that one's back.
+    @Published var workspace = 0 {
+        didSet { swapTabs() }
+    }
+    /// Each workspace's tabs while another is on screen, by its id.
+    private var parkedTabs: [String: Layout] = [:]
+    /// The workspace whose tabs `layout` holds.
+    private var tabsOwner = "first"
+    /// The workspace the TUI was last on (ui.json's active_space): where
+    /// the tabs it shows are put.
+    private var tuiWorkspace = "first"
     @Published var questions: [String: Question] = [:]
     @Published var sessions: [String: Int] = [:]
     /// The TUI's folds (ui.json), and the ones chosen here, which are kept
@@ -56,6 +67,7 @@ final class Store: ObservableObject {
     /// and the one in effect.
     @Published private(set) var themeChoice = UserDefaults.standard.string(forKey: "theme") ?? ""
     @Published private(set) var theme = ConchTheme.conch
+    @Published private(set) var icons = IconMode.text
     /// Told when the theme changes, for what SwiftUI does not draw: the
     /// window's own background and appearance.
     var onTheme: ((ConchTheme) -> Void)?
@@ -71,7 +83,32 @@ final class Store: ObservableObject {
         loadWorkspaces()
         loadTheme()
         watchClicks()
+        watchConfig()
     }
+
+    /// config.toml as last read, by its modification time and size.
+    private var configStamp = ""
+    private var configTimer: Timer?
+
+    /// Reads conch's settings again within a second of their changing — a
+    /// theme chosen on the settings page, or in the TUI, shows here at
+    /// once, not only when the window next comes forward.
+    private func watchConfig() {
+        configStamp = fileStamp(configFile)
+        configTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let now = fileStamp(self.configFile)
+                guard now != self.configStamp else { return }
+                self.configStamp = now
+                self.loadTheme()
+                self.onConfigChange?()
+            }
+        }
+    }
+
+    /// Told when conch's settings change, for the theme menu's check mark.
+    var onConfigChange: (() -> Void)?
 
     // MARK: what the window shows
 
@@ -131,7 +168,7 @@ final class Store: ObservableObject {
     /// Waiting and done, across every machine.
     var inbox: (waiting: Int, done: Int) {
         machines.reduce((0, 0)) { acc, m in
-            let (w, d) = (snapshots[m.id] ?? Snapshot()).inbox(in: ws)
+            let (w, d) = (snapshots[m.id] ?? Snapshot()).inbox(in: ws, machine: m.id)
             return (acc.0 + w, acc.1 + d)
         }
     }
@@ -146,6 +183,97 @@ final class Store: ObservableObject {
             pl += c
         }
         return w + p + pl + paletteCommandItems()
+    }
+
+    // MARK: the status bar's own: limits, settings, what conch uses
+
+    /// Asks again what each agent's plan has used, as the limits popover
+    /// opens: a report from minutes ago is not what anyone opened it for.
+    func refreshLimits() {
+        guard let c = conns["local"] else { return }
+        Task {
+            if let l = try? await c.call("agent.limits", as: AgentLimitsResult.self) { limits = l.limits ?? [] }
+        }
+    }
+
+    /// What the resource monitor shows, while it is open.
+    @Published private(set) var resources: (rows: [ResourceRow], total: ResourceRow)?
+    private var monitor: Task<Void, Never>?
+
+    /// Samples ps every two seconds for as long as the monitor is open,
+    /// as the TUI's does, and not otherwise.
+    func startMonitor() {
+        monitor?.cancel()
+        monitor = Task { [weak self] in
+            var prev: ProcSample?
+            while !Task.isCancelled {
+                let out = (try? await runProgram("/bin/ps", psArguments)) ?? ""
+                let cur = ProcSample(at: Date(), procs: parsePS(out))
+                guard let self else { return }
+                self.resources = resourceRows(prev: prev, cur: cur, app: ("Conch.app", Int(ProcessInfo.processInfo.processIdentifier)),
+                                              server: self.conns["local"]?.hello?.pid.map { ("server", $0) },
+                                              panes: (self.snapshots["local"]?.panes ?? []).compactMap { p in p.pid.map { (p.displayName, $0) } })
+                prev = cur
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+    }
+
+    func stopMonitor() {
+        monitor?.cancel()
+        monitor = nil
+        resources = nil
+    }
+
+    /// conch's settings page (`conch config web`), started once and opened
+    /// again on each press. A TUI that is open takes in what it saves.
+    private var settingsPage: Process?
+    private var settingsURL: URL?
+
+    func openSettings() {
+        if let p = settingsPage, p.isRunning, let u = settingsURL {
+            NSWorkspace.shared.open(u)
+            return
+        }
+        guard let b = binary else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: b)
+        p.arguments = ["config", "web", "-no-open"]
+        p.environment = conchEnvironment()
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        p.standardInput = FileHandle.nullDevice
+        do { try p.run() } catch {
+            self.error = "Could not open settings: \(error)"
+            return
+        }
+        settingsPage = p
+        // Its first line names the page: "conch settings: http://127.0.0.1:…#token".
+        let h = out.fileHandleForReading
+        Task {
+            let line = await Task.detached { () -> String in
+                var buf = Data()
+                while !buf.contains(0x0a) {
+                    let d = h.availableData
+                    if d.isEmpty { break }
+                    buf.append(d)
+                }
+                return String(data: buf, encoding: .utf8)?.split(separator: "\n").first.map(String.init) ?? ""
+            }.value
+            guard let u = settingsPageURL(line) else {
+                error = "conch's settings page did not start"
+                return
+            }
+            settingsURL = u
+            NSWorkspace.shared.open(u)
+        }
+    }
+
+    /// Ends what the window started that would outlive it.
+    func shutdown() {
+        settingsPage?.terminate()
+        monitor?.cancel()
     }
 
     // MARK: files
@@ -207,6 +335,7 @@ final class Store: ObservableObject {
             do {
                 let p = try await c.call("pane.create", params, as: PaneInfo.self)
                 snapshots[machine, default: Snapshot()].upsert(p)
+                joinWorkspace(machine: machine, pane: p)
                 layout.open(key(machine, p.id))
                 focusTerminal()
             } catch {
@@ -221,6 +350,12 @@ final class Store: ObservableObject {
     /// in config.toml, so the window matches the TUI until told otherwise.
     func loadTheme() {
         let toml = try? String(contentsOfFile: configFile, encoding: .utf8)
+        // How agents are marked follows the TUI's setting, read with the theme.
+        let icons = IconMode(setting: uiSetting("icons", in: toml))
+        if icons != self.icons {
+            self.icons = icons
+            Theme.icons = icons
+        }
         let configured = ConchTheme.configured(in: toml)
         let next = ConchTheme.named(themeChoice.isEmpty ? configured : themeChoice)
         guard next != theme || Theme.current != next else { return }
@@ -336,7 +471,12 @@ final class Store: ObservableObject {
                let v = try? await c.call("view.get", as: ViewState.self) {
                 viewAdopted.insert(machine)
                 let alive = Set((snapshots[machine]?.panes ?? []).filter(\.running).map { key(machine, $0.id) })
-                layout.adopt(v, machine: machine, alive: alive)
+                // Into the workspace the TUI is on, which may not be this one.
+                if tuiWorkspace == tabsOwner {
+                    layout.adopt(v, machine: machine, alive: alive)
+                } else {
+                    parkedTabs[tuiWorkspace, default: Layout()].adopt(v, machine: machine, alive: alive)
+                }
             }
             // Nothing is opened, and nothing given the keyboard, until a
             // pane is picked: a window that opened on an agent with its
@@ -542,6 +682,7 @@ final class Store: ObservableObject {
             do {
                 let p = try await c.call("pane.create", Create(cwd: cwd), as: PaneInfo.self)
                 snapshots[machine, default: Snapshot()].upsert(p)
+                joinWorkspace(machine: machine, pane: p)
                 let k = key(machine, p.id)
                 if let axis { layout.split(axis, with: k) } else { layout.open(k) }
                 focusTerminal()
@@ -568,11 +709,11 @@ final class Store: ObservableObject {
         var order: [String] = []
         for m in machines {
             var seen: Set<String> = []
-            var next = snapshots[m.id]?.nextAttention(after: nil, in: ws)
+            var next = snapshots[m.id]?.nextAttention(after: nil, in: ws, machine: m.id)
             while let n = next, !seen.contains(n) {
                 seen.insert(n)
                 order.append(key(m.id, n))
-                next = snapshots[m.id]?.nextAttention(after: n, in: ws)
+                next = snapshots[m.id]?.nextAttention(after: n, in: ws, machine: m.id)
             }
         }
         guard !order.isEmpty else { return }
@@ -704,6 +845,7 @@ final class Store: ObservableObject {
             do {
                 let p = try await c.call("pane.create", Create(agent: agent, cwd: cwd, no_project: inProject ? nil : true), as: PaneInfo.self)
                 snapshots[machine, default: Snapshot()].upsert(p)
+                joinWorkspace(machine: machine, pane: p)
                 layout.open(key(machine, p.id))
                 focusTerminal()
             } catch {
@@ -759,6 +901,7 @@ final class Store: ObservableObject {
                 let p = try await c.call("task.create", Params(project_id: pr, prompt: d.prompt, agent: d.agent,
                                                                branch: branch.isEmpty ? nil : branch), as: PaneInfo.self)
                 snapshots[m, default: Snapshot()].upsert(p)
+                joinWorkspace(machine: m, pane: p)
                 layout.open(key(m, p.id))
                 focusTerminal()
             } catch {
@@ -847,7 +990,43 @@ final class Store: ObservableObject {
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("ui.json"))
         workspaces = Workspace.load(uiJSON: data)
         tuiFolds = loadFolds(uiJSON: data)
-        workspace = min(workspace, workspaces.count - 1)
+        let active = activeWorkspace(uiJSON: data)
+        tuiWorkspace = workspaces.indices.contains(active) ? workspaces[active].id : "first"
+        // The one on screen, found again by its id: the list may have
+        // changed under it in the TUI.
+        if let i = workspaces.firstIndex(where: { $0.id == tabsOwner }) {
+            if workspace != i { workspace = i }
+        } else {
+            workspace = 0
+        }
+        swapTabs()
+    }
+
+    /// Shows the tabs of the workspace on screen, putting away the ones of
+    /// the workspace that was. Nothing is given the keyboard.
+    private func swapTabs() {
+        let id = ws?.id ?? "first"
+        guard id != tabsOwner else { return }
+        parkedTabs[tabsOwner] = layout
+        layout = parkedTabs.removeValue(forKey: id) ?? Layout()
+        tabsOwner = id
+    }
+
+    /// A pane started here in a workspace after the first joins it, as one
+    /// started there in the TUI does — unless its project is in it already,
+    /// which shows it anyway. Written into ui.json, which the TUI merges.
+    func joinWorkspace(machine: String, pane: PaneInfo) {
+        guard let w = ws, !w.first else { return }
+        if let pr = pane.projectID, snapshots[machine]?.project(pr).map({ w.shows($0, machine: machine) }) == true { return }
+        let path = (conchDir as NSString).appendingPathComponent("ui.json")
+        do {
+            let data = try Workspace.addingPane(key(machine, pane.id), to: w.id, in: FileManager.default.contents(atPath: path))
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        } catch {
+            self.error = "Could not put the pane in this workspace: \(error)"
+            return
+        }
+        loadWorkspaces()
     }
 }
 

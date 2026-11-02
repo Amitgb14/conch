@@ -181,8 +181,10 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     #expect(ws.count == 3)
     #expect(Workspace.label(0, ws[0]) == "1" && Workspace.label(1, ws[1]) == "2 review" && Workspace.label(2, ws[2]) == "3")
     let s = fixture()
-    // The first shows everything; another only what was added to it.
-    #expect(s.tree(in: ws[0]).children?.count == 2)
+    // Each shows only what it has: review claims api and bash, so the first
+    // — which has whatever no later one claims — has none of it now.
+    #expect(ws[0].first && ws[0].id == "first" && ws[1].id == "w1" && ws[2].id == "w2")
+    #expect((s.tree(in: ws[0]).children ?? []).isEmpty)
     let review = s.tree(in: ws[1]).children ?? []
     #expect(review.map(\.title) == ["api", "CLI"])
     #expect(projects(s.tree(in: ws[1])).map(\.title) == ["api"])
@@ -730,4 +732,138 @@ final class FakeServer: @unchecked Sendable {
     mine.open("local|p2")
     mine.adopt(v, machine: "local", alive: ["local|p1", "local|p2", "local|p3"])
     #expect(mine.tabs.map(\.root.panes) == [["local|p2"], ["local|p1"], ["local|p3"]] && mine.active == 0)
+}
+
+// Every window a plan reported, under its own name, or the three every
+// server sends; and what each is called.
+@Test func planWindows() throws {
+    let json = #"{"limits":[{"agent":"claude","five_hour":{"used_pct":41,"resets_at":"2026-11-01T23:00:00Z"},"week":{"used_pct":17},"windows":[{"key":"five_hour","used_pct":41},{"key":"seven_day","used_pct":17},{"key":"seven_day_opus","used_pct":3,"resets_at":"2026-11-05T00:00:00Z"}],"at":"2026-11-01T21:00:00Z"},{"agent":"codex","five_hour":{"used_pct":5},"spend":{"used_pct":60}}]}"#
+    let l = try conchDecoder().decode(AgentLimitsResult.self, from: Data(json.utf8)).limits ?? []
+    #expect(l[0].allWindows.map(\.key) == ["five_hour", "seven_day", "seven_day_opus"] && l[0].allWindows[2].resetsAt != nil)
+    #expect(l[0].fiveHour?.resetsAt != nil && l[0].at != nil)
+    #expect(l[1].allWindows.map(\.key) == ["five_hour", "spend_limit"]) // an older server's three
+    #expect(PlanLimits(agent: "x").allWindows.isEmpty)
+    #expect(["five_hour", "seven_day", "seven_day_opus", "spend_limit", "monthly_tokens"].map(PlanLimits.label)
+            == ["5 hours", "7 days", "7 days · opus", "Spend", "monthly tokens"])
+}
+
+// ps read as the TUI reads it: each field, comm with spaces, bad lines skipped.
+@Test func readingPS() {
+    let out = """
+      1     0  12345 1-02:03:04.50 /sbin/launchd
+    200     1   2048     0:01.25 conch server
+    201   200    512    01:00 /bin/zsh -l
+    bad line
+    202   200   x      0:00.00 nope
+    """
+    let p = parsePS(out)
+    #expect(p.count == 3 && p[200]?.comm == "conch server" && p[200]?.cpuSeconds == 1.25 && p[201]?.ppid == 200)
+    let day = 93784.5 // a day, two hours, three minutes, 4.5 seconds
+    #expect(p[1]?.cpuSeconds == day)
+    #expect(parseCPUTime("12:34") == 754 && parseCPUTime("1:00:00") == 3600 && parseCPUTime("x") == nil)
+    #expect(parseCPUTime("1:2:3:4") == nil && parseCPUTime("-1:00") == nil && parseCPUTime("1-") == nil)
+    #expect(parsePS("").isEmpty)
+}
+
+// The monitor's lines: a pane's tree is the pane's, not the server's; CPU
+// from two samples; the panes by memory, the rest folded; a gone root left out.
+@Test func resourceLines() {
+    func proc(_ pid: Int, _ ppid: Int, _ rss: Int64, _ cpu: Double, _ comm: String = "x") -> Proc {
+        Proc(pid: pid, ppid: ppid, rssKiB: rss, cpuSeconds: cpu, comm: comm)
+    }
+    let t0 = Date(timeIntervalSince1970: 1000)
+    let prev = ProcSample(at: t0, procs: [10: proc(10, 1, 100, 1), 20: proc(20, 1, 200, 5), 21: proc(21, 20, 50, 0, "zsh"),
+                                           22: proc(22, 21, 1000, 10, "claude"), 23: proc(23, 20, 10, 0, "zsh")])
+    var now = prev.procs
+    now[22] = proc(22, 21, 1000, 11, "claude") // one CPU second in two: 50%
+    now[20] = proc(20, 1, 200, 5.2)
+    let cur = ProcSample(at: t0.addingTimeInterval(2), procs: now)
+    let r = resourceRows(prev: prev, cur: cur, app: ("Conch.app", 10), server: ("server", 20),
+                         panes: [("zsh", 23), ("claude", 21), ("gone", 99)])
+    #expect(r.rows.map(\.name) == ["Conch.app", "server", "claude", "zsh"])
+    #expect(r.rows[1].rssKiB == 200) // the server alone: its panes are theirs
+    #expect(r.rows[2].rssKiB == 1050 && abs(r.rows[2].cpuPct - 50) < 0.001)
+    #expect(abs(r.rows[1].cpuPct - 10) < 0.001)
+    let total: Int64 = 100 + 200 + 1050 + 10
+    #expect(r.total.rssKiB == total)
+    // One sample: memory, no CPU yet.
+    #expect(resourceRows(prev: nil, cur: cur, app: ("a", 10), server: nil, panes: []).rows.map(\.cpuPct) == [0])
+    // More panes than shown: the rest in one line.
+    var many: [Int: Proc] = [1: proc(1, 0, 1, 0)]
+    for i in 0..<5 { many[100 + i] = proc(100 + i, 1, Int64(10 * (i + 1)), 0) }
+    let m = resourceRows(prev: nil, cur: ProcSample(at: t0, procs: many), app: ("app", 999), server: nil,
+                         panes: (0..<5).map { ("p\($0)", 100 + $0) }, most: 2)
+    let rest: Int64 = 10 + 20 + 30
+    #expect(m.rows.map(\.name) == ["p4", "p3", "3 more"] && m.rows[2].rssKiB == rest)
+    #expect(formatMemory(812) == "812 KB" && formatMemory(41 * 1024) == "41 MB" && formatMemory(Int64(1.5 * 1024 * 1024)) == "1.5 GB")
+}
+
+@Test func settingsPageAddress() {
+    #expect(settingsPageURL("conch settings: http://127.0.0.1:5123/#t=abc")?.absoluteString == "http://127.0.0.1:5123/#t=abc")
+    #expect(settingsPageURL("Editing /x/config.toml.") == nil && settingsPageURL("") == nil)
+}
+
+// Agents are marked as [ui] icons says; the TUI's glyphs under "nerd".
+@Test func agentMarksFollowIcons() {
+    #expect(IconMode(setting: "nerd") == .nerd && IconMode(setting: " OFF ") == .off && IconMode(setting: nil) == .text && IconMode(setting: "x") == .text)
+    #expect(AgentMark.of("claude") == AgentMark(glyph: "\u{f069}", symbol: "asterisk") && AgentMark.of("claude").glyphNeedsNerdFont)
+    #expect(AgentMark.of("pi").glyph == "π" && !AgentMark.of("pi").glyphNeedsNerdFont)
+    #expect(AgentMark.of("mine").glyph == "\u{f2db}" && AgentMark.of(nil) == AgentMark.of("mine"))
+    let names = ["claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"]
+    #expect(Set(names.map { AgentMark.of($0).glyph }).count == names.count)
+}
+
+// A file's stamp changes when it is written, and is empty for none.
+@Test func fileStamps() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let f = dir.appendingPathComponent("config.toml").path
+    #expect(fileStamp(f) == "")
+    try "[ui]\ntheme = \"conch\"\n".write(toFile: f, atomically: true, encoding: .utf8)
+    let first = fileStamp(f)
+    try "[ui]\ntheme = \"night-owl\"\n".write(toFile: f, atomically: true, encoding: .utf8)
+    #expect(!first.isEmpty && fileStamp(f) != first) // a different size, at the least
+}
+
+// Workspaces isolated as the TUI's are: the first has what it was given
+// and whatever no later one claims; a later one only its own; a helper
+// follows the agent that started it.
+@Test func workspaceIsolation() throws {
+    var s = fixture() // api (r1): p1, p2, p4; loose: p3
+    s.upsert(PaneInfo(id: "p5", name: "zsh")) // loose, claimed by nobody
+    var helper = PaneInfo(id: "p6", name: "helper", agent: AgentStatus(name: "codex", state: .working))
+    helper.createdBy = "p3"
+    s.upsert(helper)
+    let ui = #"{"spaces":[{"id":"sA","panes":["local|p3"]}],"first_space":{"projects":[]}}"#
+    let ws = Workspace.load(uiJSON: Data(ui.utf8))
+    // The first: api (no one claims it) and p5; not p3, nor the helper p3 started.
+    #expect(Set(s.shown(in: ws[0]).map(\.id)) == ["p1", "p2", "p4", "p5"])
+    // The later one: p3 and its helper, nothing else.
+    #expect(Set(s.shown(in: ws[1]).map(\.id)) == ["p3", "p6"])
+    #expect(s.shown(in: nil).count == 6 && s.shown(in: .everything).count == 6)
+    // A project both have shows in both.
+    let both = #"{"spaces":[{"id":"sA","projects":["r1"]}],"first_space":{"projects":["r1"]}}"#
+    let wb = Workspace.load(uiJSON: Data(both.utf8))
+    #expect(s.shown(in: wb[0]).contains { $0.id == "p1" } && s.shown(in: wb[1]).contains { $0.id == "p1" })
+    // Another machine's panes are named with its machine.
+    let remote = Workspace.load(uiJSON: Data(#"{"spaces":[{"id":"sB","panes":["box|p3"]}]}"#.utf8))
+    #expect(s.shown(in: remote[1], machine: "box").map(\.id) == ["p3", "p6"] && s.shown(in: remote[1]).isEmpty)
+    #expect(s.inbox(in: remote[1], machine: "box") == (0, 0))
+    #expect(activeWorkspace(uiJSON: Data(#"{"active_space":2}"#.utf8)) == 2 && activeWorkspace(uiJSON: nil) == 0)
+}
+
+// A pane started in a workspace is put in it in ui.json, and nothing else
+// changes; an unknown workspace or a file without any is said.
+@Test func addingAPaneToAWorkspace() throws {
+    let ui = #"{"spaces":[{"name":"old"},{"id":"sA","panes":["local|p1"]}],"tabs":[{"name":"t"}]}"#
+    let out = try Workspace.addingPane("box|p7", to: "sA", in: Data(ui.utf8))
+    let ws = Workspace.load(uiJSON: out)
+    #expect(ws[2].panes == ["local|p1", "box|p7"] && ws[1].id == "w1")
+    let again = try Workspace.addingPane("box|p7", to: "sA", in: out)
+    #expect(Workspace.load(uiJSON: again)[2].panes.count == 2) // once
+    #expect(try Workspace.addingPane("local|p2", to: "w1", in: out).count > 0) // an old one by its place
+    #expect(throws: ConchError.self) { try Workspace.addingPane("local|p2", to: "nope", in: out) }
+    #expect(throws: ConchError.self) { try Workspace.addingPane("local|p2", to: "sA", in: nil) }
+    #expect(throws: ConchError.self) { try Workspace.addingPane("local|p2", to: "sA", in: Data("{}".utf8)) }
 }

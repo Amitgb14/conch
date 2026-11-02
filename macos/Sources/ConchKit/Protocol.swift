@@ -80,14 +80,19 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var customName: Bool?
     public var projectID: String?
     public var branch: String?
+    /// The program's process on its machine.
+    public var pid: Int?
+    /// The pane this one was started from: an agent's helper.
+    public var createdBy: String?
     /// What happened since someone last looked: "activity" or "silence".
     public var alert: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, cwd, cols, rows, state, agent, title, branch, alert
+        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"
+        case createdBy = "created_by"
     }
 
     public init(id: String, name: String, state: String = "running", agent: AgentStatus? = nil,
@@ -183,6 +188,8 @@ public struct ProjectList: Decodable { public var projects: [ProjectInfo] }
 
 public struct HelloResult: Decodable, Sendable {
     public var version: String?
+    /// The server's process, for what conch uses on this computer.
+    public var pid: Int?
     public var build: String?
     public var capabilities: [String]?
     public var home: String?
@@ -227,20 +234,74 @@ public func conchDecoder() -> JSONDecoder {
 public struct PlanLimits: Decodable, Equatable, Sendable {
     public struct Window: Decodable, Equatable, Sendable {
         public var usedPct: Double
-        enum CodingKeys: String, CodingKey { case usedPct = "used_pct" }
-        public init(usedPct: Double) { self.usedPct = usedPct }
+        public var resetsAt: Date?
+        enum CodingKeys: String, CodingKey {
+            case usedPct = "used_pct"
+            case resetsAt = "resets_at"
+        }
+        public init(usedPct: Double, resetsAt: Date? = nil) {
+            self.usedPct = usedPct
+            self.resetsAt = resetsAt
+        }
+    }
+    /// One window under the name its agent gave it (five_hour, seven_day,
+    /// seven_day_opus, spend_limit…).
+    public struct Named: Decodable, Equatable, Sendable {
+        public var key: String
+        public var usedPct: Double
+        public var resetsAt: Date?
+        enum CodingKeys: String, CodingKey {
+            case key
+            case usedPct = "used_pct"
+            case resetsAt = "resets_at"
+        }
+        public init(key: String, usedPct: Double, resetsAt: Date? = nil) {
+            self.key = key
+            self.usedPct = usedPct
+            self.resetsAt = resetsAt
+        }
     }
     public var agent: String
     public var fiveHour: Window?
     public var week: Window?
+    public var spend: Window?
+    public var windows: [Named]?
+    /// When the agent reported it.
+    public var at: Date?
     enum CodingKeys: String, CodingKey {
-        case agent, week
+        case agent, week, spend, windows, at
         case fiveHour = "five_hour"
     }
-    public init(agent: String, fiveHour: Window? = nil, week: Window? = nil) {
+    public init(agent: String, fiveHour: Window? = nil, week: Window? = nil, spend: Window? = nil, windows: [Named]? = nil, at: Date? = nil) {
         self.agent = agent
         self.fiveHour = fiveHour
         self.week = week
+        self.spend = spend
+        self.windows = windows
+        self.at = at
+    }
+
+    /// Every window, as the limits view lists them: the agent's own list
+    /// when it gave one, else the three every server sends.
+    public var allWindows: [Named] {
+        if let w = windows, !w.isEmpty { return w }
+        var out: [Named] = []
+        if let w = fiveHour { out.append(Named(key: "five_hour", usedPct: w.usedPct, resetsAt: w.resetsAt)) }
+        if let w = week { out.append(Named(key: "seven_day", usedPct: w.usedPct, resetsAt: w.resetsAt)) }
+        if let w = spend { out.append(Named(key: "spend_limit", usedPct: w.usedPct, resetsAt: w.resetsAt)) }
+        return out
+    }
+
+    /// What a window is called: "5 hours", "7 days", "7 days · opus", "Spend".
+    public static func label(_ key: String) -> String {
+        switch key {
+        case "five_hour": return "5 hours"
+        case "seven_day": return "7 days"
+        case "spend_limit", "spend": return "Spend"
+        default:
+            if key.hasPrefix("seven_day_") { return "7 days · " + key.dropFirst("seven_day_".count).replacingOccurrences(of: "_", with: " ") }
+            return key.replacingOccurrences(of: "_", with: " ")
+        }
     }
 }
 

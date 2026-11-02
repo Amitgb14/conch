@@ -1,5 +1,51 @@
 import Foundation
 
+/// How agents are marked, as conch's `[ui] icons` says for the TUI
+/// (iconMode in internal/tui/fileicons.go): Nerd Font glyphs, coloured
+/// dots (the default, and the mock's), or nothing.
+public enum IconMode: String, Equatable, Sendable {
+    case nerd, text, off
+
+    /// The mode a setting names; anything else is text, as the TUI reads it.
+    public init(setting: String?) {
+        self = IconMode(rawValue: (setting ?? "").trimmingCharacters(in: .whitespaces).lowercased()) ?? .text
+    }
+}
+
+/// An agent's mark under icons = "nerd": the TUI's own glyph (agentGlyphs
+/// in internal/tui/view.go), so Claude is its asterisk in both. symbol is
+/// an SF Symbol of the same shape, for a Mac with no Nerd Font to draw the
+/// glyph — a glyph a font has not got is worse than none.
+public struct AgentMark: Equatable, Sendable {
+    /// The Nerd Font glyph (Font Awesome 4.7's range, or a plain character).
+    public var glyph: String
+    public var symbol: String?
+
+    public static func of(_ name: String?) -> AgentMark {
+        switch name {
+        case "claude": return .init(glyph: "\u{f069}", symbol: "asterisk")
+        case "codex": return .init(glyph: "\u{f2dc}", symbol: "snowflake")
+        case "gemini": return .init(glyph: "\u{f1a0}", symbol: "sparkle")
+        case "opencode": return .init(glyph: "\u{f120}", symbol: "terminal.fill")
+        case "devin": return .init(glyph: "\u{f135}", symbol: "paperplane.fill")
+        case "aider": return .init(glyph: "\u{f0c0}", symbol: "person.2.fill")
+        case "amp": return .init(glyph: "\u{f0e7}", symbol: "bolt.fill")
+        case "cursor": return .init(glyph: "\u{f1b2}", symbol: "cube.fill")
+        case "grok": return .init(glyph: "\u{f00d}", symbol: "xmark")
+        case "kilo": return .init(glyph: "\u{f009}", symbol: "square.grid.2x2.fill")
+        case "pi": return .init(glyph: "π", symbol: nil)
+        // An agent from somebody's own manifest: the TUI's default, a
+        // microchip, so the row still says it is an agent.
+        default: return .init(glyph: "\u{f2db}", symbol: "cpu")
+        }
+    }
+
+    /// Whether the glyph needs a Nerd Font, or is a character any font has.
+    public var glyphNeedsNerdFont: Bool {
+        glyph.unicodeScalars.allSatisfy { (0xE000...0xF8FF).contains($0.value) }
+    }
+}
+
 /// An agent's own colour, for its dot in the sidebar, tabs and pane
 /// headers: the TUI's agentColors (internal/tui/view.go), the brand's where
 /// one is published. nil for an agent conch has none for.

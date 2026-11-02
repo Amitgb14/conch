@@ -12,6 +12,8 @@ import SwiftUI
 @MainActor
 enum Theme {
     static var current = ConchTheme.conch
+    /// conch's `[ui] icons`, which decides how agents are marked.
+    static var icons = IconMode.text
 
     static func ns(_ c: RGB) -> NSColor { NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1) }
     static func color(_ c: RGB) -> Color { Color(nsColor: ns(c)) }
@@ -125,7 +127,7 @@ struct FoldedAgents: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            ForEach(names.prefix(4), id: \.self) { Dot(color: Theme.agent($0)) }
+            ForEach(names.prefix(4), id: \.self) { Mark(agent: $0) }
             if names.count > 4 { Text("+\(names.count - 4)").font(.system(size: 11)).foregroundStyle(Theme.muted) }
         }
     }
@@ -153,6 +155,56 @@ struct SidebarEdge: View {
             // Only a width out of range is corrected: writing it back
             // unchanged would store the default as if it had been chosen.
             .onAppear { if clampSidebar(width) != width { width = clampSidebar(width) } }
+    }
+}
+
+/// An agent's mark, as conch's `[ui] icons` says: with "nerd" the TUI's
+/// glyph in the agent's colour (Claude's asterisk), from a Nerd Font on
+/// this Mac or else an SF Symbol of the same shape; otherwise the mock's
+/// coloured dot, or nothing for "off".
+struct Mark: View {
+    let agent: String?
+
+    var body: some View {
+        switch Theme.icons {
+        case .off:
+            EmptyView()
+        case .text:
+            Dot(color: Theme.agent(agent))
+        case .nerd:
+            let mark = AgentMark.of(agent)
+            Group {
+                if let font = NerdFont.font(for: mark, size: 13) {
+                    Text(mark.glyph).font(Font(font))
+                } else if let sym = mark.symbol {
+                    Image(systemName: sym).font(.system(size: 11, weight: .bold))
+                } else {
+                    Text(mark.glyph).font(.system(size: 13, weight: .bold))
+                }
+            }
+            .foregroundStyle(Theme.agent(agent))
+            .frame(width: 14)
+        }
+    }
+}
+
+/// A Nerd Font installed on this Mac, found once: the symbols-only one if
+/// there is one, else any patched font, the monospaced cut first.
+@MainActor
+enum NerdFont {
+    static let family: String? = {
+        let all = NSFontManager.shared.availableFontFamilies
+        for want in ["Symbols Nerd Font Mono", "Symbols Nerd Font"] where all.contains(want) { return want }
+        return all.first { $0.hasSuffix("Nerd Font Mono") } ?? all.first { $0.contains("Nerd Font") }
+    }()
+
+    /// The font to draw a mark in, or nil when there is none or it lacks
+    /// the glyph — a plain character (π) is left to the system.
+    static func font(for mark: AgentMark, size: CGFloat) -> NSFont? {
+        guard mark.glyphNeedsNerdFont, let family, let f = NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size)
+        else { return nil }
+        let have = f.coveredCharacterSet
+        return mark.glyph.unicodeScalars.allSatisfy { have.contains($0) } ? f : nil
     }
 }
 
@@ -376,7 +428,7 @@ struct NodeView: View {
             Dot(color: link?.online == true ? Theme.ok : link?.state == "connecting" ? Theme.warn : Theme.muted)
         case .project: Text("◆").font(.system(size: 11)).foregroundStyle(Theme.text)
         case .cli: Text("❯").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
-        case .agent(let id): Dot(color: Theme.agent(store.pane(id)?.agent?.name))
+        case .agent(let id): Mark(agent: store.pane(id)?.agent?.name)
         case .terminal: Text("›").foregroundStyle(Theme.muted)
         case .branch(_, _, let checkedOut):
             // ◇ checked out in a worktree of its own, · not checked out.
@@ -612,7 +664,7 @@ struct TabButton: View {
         HStack(spacing: 7) {
             let changes = parseChangesKey(tab.focused)
             if let a = p?.agent {
-                Dot(color: Theme.agent(a.name))
+                Mark(agent: a.name)
             } else {
                 Text(changes == nil ? "›" : "◇").foregroundStyle(Theme.muted)
             }
@@ -652,9 +704,11 @@ struct SplitArea: View {
         switch node {
         case .leaf(let id):
             if parseChangesKey(id) != nil {
-                ChangesView(store: store, model: store.changes(for: id))
+                ChangesView(store: store, model: store.changes(for: id)).id(id)
             } else {
-                PaneCard(store: store, pane: id, terminal: store.terminal(for: id))
+                // Its own card for each pane, so moving to another tab
+                // never shows one pane's terminal under another's header.
+                PaneCard(store: store, pane: id, terminal: store.terminal(for: id)).id(id)
             }
         case .split(.horizontal, let kids):
             HStack(spacing: 8) { ForEach(Array(kids.enumerated()), id: \.offset) { SplitArea(store: store, node: $0.element) } }
@@ -674,7 +728,7 @@ struct PaneCard: View {
         let focused = store.layout.focused == pane
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                if let a = p?.agent { Dot(color: Theme.agent(a.name)) } else { Text("›").foregroundStyle(Theme.muted) }
+                if let a = p?.agent { Mark(agent: a.name) } else { Text("›").foregroundStyle(Theme.muted) }
                 Text(p?.agent?.name ?? p?.name ?? pane).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
                 if let b = p?.branch, !b.isEmpty {
                     Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
@@ -743,6 +797,8 @@ struct AnswerStrip: View {
 
 struct StatusBar: View {
     @ObservedObject var store: Store
+    @State private var showLimits = false
+    @State private var showMonitor = false
 
     static let treeKeys = [("click", "open"), ("⌘N", "task"), ("⇧⌘N", "agent"), ("⌘T", "terminal"), ("⌘D", "split")]
     static let paneKeys = [("⌘W", "close split"), ("⌘D", "split"), ("⇧⌘]", "next tab"), ("⌘K", "search"), ("⌘.", "next waiting")]
@@ -765,25 +821,137 @@ struct StatusBar: View {
                     .onTapGesture { store.error = nil }
             }
             Spacer()
-            // The plan the agents run on, as the TUI's status bar shows it.
-            ForEach(store.limits.filter { $0.fiveHour != nil }, id: \.agent) { l in
-                HStack(spacing: 6) {
-                    Text("\(l.agent.prefix(1).uppercased() + l.agent.dropFirst()) 5h")
-                    Meter(fraction: (l.fiveHour?.usedPct ?? 0) / 100)
-                    Text("\(Int((l.fiveHour?.usedPct ?? 0).rounded()))%")
-                    if let w = l.week { Text("· 7d \(Int(w.usedPct.rounded()))%") }
+            // The plan the agents run on, as the TUI's status bar shows it;
+            // a click lists every window, as the TUI's limits view does.
+            if store.limits.contains(where: { $0.fiveHour != nil }) {
+                Button { showLimits.toggle() } label: {
+                    HStack(spacing: 14) {
+                        ForEach(store.limits.filter { $0.fiveHour != nil }, id: \.agent) { l in
+                            HStack(spacing: 6) {
+                                Text("\(l.agent.prefix(1).uppercased() + l.agent.dropFirst()) 5h")
+                                Meter(fraction: (l.fiveHour?.usedPct ?? 0) / 100)
+                                Text("\(Int((l.fiveHour?.usedPct ?? 0).rounded()))%")
+                                if let w = l.week { Text("· 7d \(Int(w.usedPct.rounded()))%") }
+                            }
+                        }
+                    }
+                    .foregroundStyle(Theme.muted).contentShape(Rectangle())
                 }
-                .foregroundStyle(Theme.muted)
+                .buttonStyle(.plain).help("Plan limits: every window, and when each resets")
+                .popover(isPresented: $showLimits, arrowEdge: .top) { LimitsPopover(store: store) }
+                .onChange(of: showLimits) { if $0 { store.refreshLimits() } }
             }
             if !store.serverVersion.isEmpty {
                 Text("v\(store.serverVersion)").foregroundStyle(Theme.muted)
                     .help("conch \(store.serverVersion) · panes drawn with \(PaneTerminal.engine)")
             }
+            // Settings, as the TUI's bar ends: conch's settings page.
+            Button { store.openSettings() } label: {
+                Text("⚙ Settings").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.selectedText)
+                    .padding(.horizontal, 7).padding(.vertical, 1)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Theme.accentDeep))
+            }
+            .buttonStyle(.plain).help("conch's settings, in the browser (conch config web); an open TUI takes in what you save")
+            // What conch uses on this computer, in the corner as in the TUI.
+            Button { showMonitor.toggle() } label: {
+                Text("▁▃▆").foregroundStyle(Theme.muted).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help("Memory and CPU conch uses on this computer")
+            .popover(isPresented: $showMonitor, arrowEdge: .top) { MonitorPopover(store: store) }
+            .onChange(of: showMonitor) { if $0 { store.startMonitor() } else { store.stopMonitor() } }
         }
         .font(.system(size: 12))
         .padding(.horizontal, 12).frame(height: 26)
         .background(Theme.side)
         .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+    }
+}
+
+/// Every window of every agent's plan, with when it resets: the TUI's
+/// limits view.
+struct LimitsPopover: View {
+    @ObservedObject var store: Store
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Plan limits").font(.system(size: 13, weight: .semibold))
+            if store.limits.isEmpty {
+                Text("No agent has reported its plan yet.").foregroundStyle(.secondary)
+            }
+            ForEach(store.limits, id: \.agent) { l in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Mark(agent: l.agent)
+                        Text(l.agent.prefix(1).uppercased() + l.agent.dropFirst()).font(.system(size: 12.5, weight: .semibold))
+                        Spacer()
+                        if let at = l.at, at.timeIntervalSince1970 > 0 {
+                            TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                                Text("reported \(elapsed(at, ctx.date)) ago").font(.system(size: 11)).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    ForEach(l.allWindows, id: \.key) { w in
+                        HStack(spacing: 8) {
+                            Text(PlanLimits.label(w.key)).frame(width: 110, alignment: .leading)
+                            Meter(fraction: w.usedPct / 100)
+                            Text("\(Int(w.usedPct.rounded()))%").frame(width: 38, alignment: .trailing).monospacedDigit()
+                            if let r = w.resetsAt, r.timeIntervalSince1970 > 0 {
+                                TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                                    Text(r > ctx.date ? "resets in \(elapsed(ctx.date, r))" : "reset").foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .font(.system(size: 12))
+                    }
+                }
+            }
+            Text("What the agents last reported; conch counts only what it has seen.").font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        .padding(14).frame(width: 400)
+    }
+}
+
+/// The memory and CPU conch uses on this computer — this window, the
+/// server, each pane with what runs in it — every two seconds while open:
+/// the TUI's ▁▃▆.
+struct MonitorPopover: View {
+    @ObservedObject var store: Store
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("What conch uses on this computer").font(.system(size: 13, weight: .semibold))
+            if let r = store.resources {
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
+                    GridRow {
+                        Text("").gridColumnAlignment(.leading)
+                        Text("memory").gridColumnAlignment(.trailing)
+                        Text("CPU").gridColumnAlignment(.leading)
+                    }
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    ForEach(Array(r.rows.enumerated()), id: \.offset) { _, row in
+                        GridRow {
+                            Text(row.name).lineLimit(1).truncationMode(.tail).frame(maxWidth: 220, alignment: .leading)
+                            Text(formatMemory(row.rssKiB)).monospacedDigit()
+                            HStack(spacing: 6) {
+                                Meter(fraction: row.cpuPct / 100)
+                                Text(String(format: "%.0f%%", row.cpuPct)).monospacedDigit().frame(width: 40, alignment: .trailing)
+                            }
+                        }
+                    }
+                    Divider().gridCellColumns(3)
+                    GridRow {
+                        Text("total").fontWeight(.semibold)
+                        Text(formatMemory(r.total.rssKiB)).monospacedDigit().fontWeight(.semibold)
+                        Text(String(format: "%.0f%% of a core", r.total.cpuPct)).monospacedDigit()
+                    }
+                }
+                .font(.system(size: 12))
+            } else {
+                Text("Reading…").foregroundStyle(.secondary)
+            }
+            Text("A bar is one core. Panes on other machines are not counted here.").font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        .padding(14).frame(width: 420)
     }
 }
 
@@ -806,7 +974,8 @@ func elapsed(_ since: Date, _ now: Date) -> String {
     let s = max(Int(now.timeIntervalSince(since)), 0)
     if s < 60 { return "\(s)s" }
     if s < 3600 { return "\(s / 60)m" }
-    return "\(s / 3600)h \(s % 3600 / 60)m"
+    if s < 86400 { return "\(s / 3600)h \(s % 3600 / 60)m" }
+    return "\(s / 86400)d \(s % 86400 / 3600)h"
 }
 
 // MARK: - palette

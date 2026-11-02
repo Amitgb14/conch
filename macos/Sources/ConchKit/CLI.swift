@@ -72,3 +72,40 @@ public func readQuestion(_ binary: String, pane: String, machine: String = "loca
 public func answer(_ binary: String, pane: String, machine: String = "local", question: Question, choice: Choice) async throws {
     _ = try await runConch(binary, onMachine(machine, ["agent", "answer", "-question", question.id, pane, choice.choice]))
 }
+
+/// Runs a program and returns what it printed, whatever its exit: ps
+/// prints its list even when it could not read every process.
+public func runProgram(_ path: String, _ args: [String]) async throws -> String {
+    try await withCheckedThrowingContinuation { cont in
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.arguments = args
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        p.standardInput = FileHandle.nullDevice
+        do { try p.run() } catch {
+            cont.resume(throwing: error)
+            return
+        }
+        DispatchQueue.global().async {
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            cont.resume(returning: String(data: data, encoding: .utf8) ?? "")
+        }
+    }
+}
+
+/// The address in `conch config web`'s first line, "conch settings: URL".
+public func settingsPageURL(_ line: String) -> URL? {
+    guard let r = line.range(of: "http") else { return nil }
+    return URL(string: String(line[r.lowerBound...]).trimmingCharacters(in: .whitespaces))
+}
+
+/// A file's modification time and size, to tell that it changed; "" for
+/// one that is not there.
+public func fileStamp(_ path: String) -> String {
+    guard let a = try? FileManager.default.attributesOfItem(atPath: path),
+          let t = a[.modificationDate] as? Date, let n = a[.size] as? NSNumber else { return "" }
+    return "\(t.timeIntervalSince1970):\(n.int64Value)"
+}

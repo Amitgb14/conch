@@ -41,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             self?.window.backgroundColor = Theme.ns(t.chrome)
             self?.updateThemeMenu()
         }
+        // "Same as conch (Night Owl)" names conch's theme as it changes.
+        store.onConfigChange = { [weak self] in self?.updateThemeMenu() }
         if !window.setFrameUsingName("conch.main") { window.center() }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -48,6 +50,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
+
+    func applicationWillTerminate(_ notification: Notification) { store.shutdown() }
 
     /// The TUI may have changed workspaces or the theme while this window
     /// was in the background.
