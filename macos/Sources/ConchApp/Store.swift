@@ -84,6 +84,7 @@ final class Store: ObservableObject {
         loadTheme()
         watchClicks()
         watchConfig()
+        watchTreeKeys()
     }
 
     /// config.toml as last read, by its modification time and size.
@@ -133,6 +134,8 @@ final class Store: ObservableObject {
     /// Whether a pane's terminal has the keyboard, for the status bar's
     /// chip; set as the window's first responder changes.
     @Published var terminalHasKeyboard = false
+    /// The sidebar row the keyboard is on while no terminal has it.
+    @Published var treeCursor: String?
 
     /// The port of the checkout a pane is in (CONCH_PORT), if it has one.
     func port(of k: String) -> Int? {
@@ -399,6 +402,82 @@ final class Store: ObservableObject {
                 self.terminalHasKeyboard = inTerminal
             }
             return e
+        }
+    }
+
+    // MARK: the sidebar from the keyboard
+
+    /// Keys go to the sidebar while nothing else takes them: no terminal
+    /// has the keyboard, no palette, sheet or text field is up — the TUI's
+    /// tree keys (TreeKey). Everything else passes through.
+    private func watchTreeKeys() {
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            let modified = !e.modifierFlags.intersection([.command, .control, .option]).isEmpty
+            guard let k = TreeKey(keyCode: e.keyCode, characters: e.charactersIgnoringModifiers, modified: modified) else { return e }
+            let taken = MainActor.assumeIsolated { () -> Bool in
+                guard let self, !self.terminalHasKeyboard, !self.paletteOpen, self.taskDraft == nil,
+                      let win = NSApp.keyWindow, win.attachedSheet == nil,
+                      !(win.firstResponder is NSText), !(win.firstResponder is NSTextField) else { return false }
+                self.treeKey(k)
+                return true
+            }
+            return taken ? nil : e
+        }
+    }
+
+    var treeNav: TreeNav { TreeNav(tree, isOpen: { self.isOpen($0) }) }
+
+    /// Takes the keyboard from the terminal for the sidebar, its cursor on
+    /// the focused pane's row: Go → Sidebar, as clicking the tree does.
+    func focusSidebar() {
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        terminalHasKeyboard = false
+        if treeCursor == nil || treeNav.row(treeCursor) == nil {
+            treeCursor = layout.focused.map { "pane:" + $0 } ?? treeNav.step(from: nil, by: 0)
+        }
+    }
+
+    func treeKey(_ k: TreeKey) {
+        let nav = treeNav
+        guard let cur = nav.row(treeCursor) else {
+            treeCursor = layout.focused.flatMap { nav.row("pane:" + $0)?.id } ?? nav.step(from: nil, by: 0)
+            return
+        }
+        switch k {
+        case .up: treeCursor = nav.step(from: cur.id, by: -1)
+        case .down: treeCursor = nav.step(from: cur.id, by: 1)
+        case .left:
+            if cur.children != nil && isOpen(cur) { toggle(cur) } else if let p = nav.parent(of: cur.id) { treeCursor = p }
+        case .right:
+            if cur.children != nil && !isOpen(cur) { toggle(cur) } else if let c = nav.firstChild(of: cur.id) { treeCursor = c }
+        case .fold: if cur.children != nil { toggle(cur) }
+        case .open:
+            switch cur.kind {
+            case .agent(let id), .terminal(let id):
+                // ⏎ on a pane is going into it, as in the TUI.
+                open(id)
+                focusTerminal()
+            case .branch(let pr, let name, _): openChanges(project: pr, branch: name)
+            case .sessions: openTUI()
+            default: toggle(cur)
+            }
+        case .task:
+            if let a = menu(for: cur).first(where: { if case .newTask = $0.action { return true }; return false }) {
+                perform(a.action, on: cur)
+            } else {
+                newTaskHere()
+            }
+        case .agent, .terminal:
+            let want = { (a: RowAction) -> Bool in
+                switch a {
+                case .startAgent: return k == .agent
+                case .newTerminal: return k == .terminal
+                default: return false
+                }
+            }
+            if let a = menu(for: cur).first(where: { want($0.action) }) { perform(a.action, on: cur) }
+        case .close:
+            if case .agent(let id) = cur.kind { closePane(id) } else if case .terminal(let id) = cur.kind { closePane(id) }
         }
     }
 
@@ -768,6 +847,7 @@ final class Store: ObservableObject {
 
     func command(_ id: String) {
         switch id {
+        case "focusSidebar": focusSidebar()
         case "newTask": newTaskHere()
         case "startAgent": startAgentHere()
         case "newTab": newTerminal(split: nil)

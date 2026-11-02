@@ -132,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         ])
         var go = [
             item("Search…", "k", .command, "palette"),
+            item("Sidebar", "0", .command, "focusSidebar"),
             item("Next Agent Waiting", ".", .command, "nextWaiting"),
             .separator(),
             item("Next Tab", "]", [.command, .shift], "nextTab"),

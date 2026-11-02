@@ -346,15 +346,21 @@ struct Sidebar: View {
     @ObservedObject var store: Store
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("MACHINES").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
-                    .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 4)
-                ForEach(store.tree) { node in
-                    NodeView(store: store, node: node, depth: 0)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("MACHINES").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 4)
+                    ForEach(store.tree) { node in
+                        NodeView(store: store, node: node, depth: 0)
+                    }
                 }
+                .padding(8)
             }
-            .padding(8)
+            // The keyboard's row stays in sight as it moves.
+            .onChange(of: store.treeCursor) { id in
+                if let id { withAnimation(.easeOut(duration: 0.1)) { proxy.scrollTo(id) } }
+            }
         }
         .background(Theme.side)
     }
@@ -388,6 +394,8 @@ struct NodeView: View {
     }
 
     var selected: Bool { paneID != nil && paneID == store.layout.focused }
+    /// The keyboard's row, while the sidebar has the keyboard.
+    var cursor: Bool { !store.terminalHasKeyboard && store.treeCursor == node.id }
 
     /// A row as the mock draws it: a fold arrow, what it is (a machine's
     /// state, an agent's colour), its name, and at the right its state or
@@ -410,10 +418,17 @@ struct NodeView: View {
             }
         }
         .padding(.leading, CGFloat(depth) * 14 + 8).padding(.trailing, 8).frame(height: 26)
-        .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Theme.accentDeep.opacity(0.55) : hovering ? Theme.raise : .clear))
+        .background(RoundedRectangle(cornerRadius: 6).fill(cursor ? Theme.accentDeep.opacity(0.75) : selected ? Theme.accentDeep.opacity(0.4) : hovering ? Theme.raise : .clear))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(cursor ? Theme.accent : .clear, lineWidth: 1))
         .contentShape(Rectangle())
+        .id(node.id)
         .onHover { hovering = $0 }
-        .onTapGesture { activate() }
+        .onTapGesture {
+            // A click in the tree gives the tree the keyboard, as in the TUI.
+            store.focusSidebar()
+            store.treeCursor = node.id
+            activate()
+        }
         .contextMenu { RowMenu(store: store, node: node) }
     }
 
@@ -800,7 +815,7 @@ struct StatusBar: View {
     @State private var showLimits = false
     @State private var showMonitor = false
 
-    static let treeKeys = [("click", "open"), ("⌘N", "task"), ("⇧⌘N", "agent"), ("⌘T", "terminal"), ("⌘D", "split")]
+    static let treeKeys = [("⏎", "open"), ("t", "task"), ("c", "agent"), ("n", "terminal"), ("⌘D", "split")]
     static let paneKeys = [("⌘W", "close split"), ("⌘D", "split"), ("⇧⌘]", "next tab"), ("⌘K", "search"), ("⌘.", "next waiting")]
 
     var body: some View {

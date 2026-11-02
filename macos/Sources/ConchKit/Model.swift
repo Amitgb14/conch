@@ -489,6 +489,7 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("nextTab", "Next tab", "⇧⌘]"),
     ("previousTab", "Previous tab", "⇧⌘["),
     ("toggleSidebar", "Show or hide the sidebar", "⌃⌘S"),
+    ("focusSidebar", "Go to the sidebar (its keys: ↑↓ ⏎ t c n)", "⌘0"),
     ("openTUI", "Open conch in a terminal", ""),
 ]
 

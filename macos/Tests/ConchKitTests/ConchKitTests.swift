@@ -867,3 +867,37 @@ final class FakeServer: @unchecked Sendable {
     #expect(throws: ConchError.self) { try Workspace.addingPane("local|p2", to: "sA", in: nil) }
     #expect(throws: ConchError.self) { try Workspace.addingPane("local|p2", to: "sA", in: Data("{}".utf8)) }
 }
+
+// The sidebar's rows walked as the keyboard walks them: only what is on
+// screen, stepping and stopping at the ends, climbing to a parent.
+@Test func treeNavigation() {
+    let t = fixture().tree()
+    let api = projects(t)[0]
+    var open: Set<String> = [t.id, api.id, api.children![0].id] // machine, project, Agents
+    let nav = TreeNav([t], isOpen: { open.contains($0.id) })
+    #expect(nav.rows.map(\.title) == ["local", "api", "Agents", "Add health check", "codex", "Branches", "Terminals", "CLI"])
+    #expect(nav.step(from: nil, by: 1) == t.id)
+    #expect(nav.step(from: t.id, by: -1) == t.id) // kept at the top
+    #expect(nav.step(from: "pane:local|p1", by: 1) == "pane:local|p4")
+    #expect(nav.step(from: nav.rows.last!.id, by: 5) == nav.rows.last!.id)
+    #expect(nav.step(from: "gone", by: 1) == t.id) // folded away: the first
+    #expect(nav.parent(of: "pane:local|p1") == api.children![0].id && nav.parent(of: t.id) == nil)
+    #expect(nav.firstChild(of: api.id) == api.children![0].id)
+    #expect(nav.firstChild(of: api.children![1].id) == nil) // Branches is folded
+    #expect(nav.row("pane:local|p4")?.title == "codex" && nav.row(nil) == nil)
+    open.remove(api.id)
+    #expect(TreeNav([t], isOpen: { open.contains($0.id) }).rows.map(\.title) == ["local", "api", "CLI"])
+    #expect(TreeNav([], isOpen: { _ in true }).step(from: nil, by: 1) == nil)
+}
+
+// Keys as the TUI's tree reads them; anything with ⌘, ⌃ or ⌥ is the menus'.
+@Test func treeKeys() {
+    #expect(TreeKey(keyCode: 126, characters: nil, modified: false) == .up)
+    #expect(TreeKey(keyCode: 36, characters: "\r", modified: false) == .open)
+    #expect(TreeKey(keyCode: 49, characters: " ", modified: false) == .fold)
+    #expect(TreeKey(keyCode: 0, characters: "t", modified: false) == .task)
+    #expect(TreeKey(keyCode: 0, characters: "j", modified: false) == .down)
+    #expect(TreeKey(keyCode: 0, characters: "x", modified: false) == .close)
+    #expect(TreeKey(keyCode: 0, characters: "t", modified: true) == nil)
+    #expect(TreeKey(keyCode: 0, characters: "q", modified: false) == nil)
+}
