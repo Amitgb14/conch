@@ -49,3 +49,45 @@ public struct AgentMark: Equatable, Sendable {
         glyph.unicodeScalars.allSatisfy { (0xE000...0xF8FF).contains($0.value) }
     }
 }
+
+/// What a pane's row says it is doing, before the agent's mark: the TUI's
+/// paneGlyph (internal/tui/view.go) — a spinner while an agent works, !
+/// waiting for you, ✓ done, ○ idle or exited, ✗ failed, and tmux's # and ~
+/// for a terminal's activity and silence.
+public struct StateGlyph: Equatable, Sendable {
+    public enum Tone: Equatable, Sendable { case muted, work, warn, ok, err }
+    public var glyph: String
+    public var tone: Tone
+    /// Whether the glyph is the spinner, which the view turns.
+    public var spins = false
+
+    /// The TUI's spinner, a frame every spinInterval (120ms).
+    public static let spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    public static let spinInterval = 0.12
+
+    public init(glyph: String, tone: Tone, spins: Bool = false) {
+        self.glyph = glyph
+        self.tone = tone
+        self.spins = spins
+    }
+
+    public static func of(_ p: PaneInfo, frame: Int = 0) -> StateGlyph {
+        if p.state == "exited" {
+            return (p.exitCode ?? 0) == 0 ? .init(glyph: "○", tone: .muted) : .init(glyph: "✗", tone: .err)
+        }
+        guard let a = p.agent else {
+            switch p.alert {
+            case "activity": return .init(glyph: "#", tone: .warn)
+            case "silence": return .init(glyph: "~", tone: .warn)
+            default: return .init(glyph: "›", tone: .muted)
+            }
+        }
+        if a.failed == true && (a.state == .done || a.state == .idle) { return .init(glyph: "✗", tone: .err) }
+        switch a.state {
+        case .working: return .init(glyph: spinner[((frame % spinner.count) + spinner.count) % spinner.count], tone: .work, spins: true)
+        case .blocked: return .init(glyph: "!", tone: .warn)
+        case .done: return .init(glyph: "✓", tone: .ok)
+        default: return .init(glyph: "○", tone: .muted)
+        }
+    }
+}

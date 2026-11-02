@@ -122,6 +122,43 @@ enum NerdFont {
     }
 }
 
+/// A pane's state glyph, as the TUI's paneGlyph draws it in front of the
+/// row: the spinner turns at the TUI's pace while an agent works.
+struct Status: View {
+    let pane: PaneInfo?
+    var selected = false
+
+    var body: some View {
+        if let p = pane {
+            if StateGlyph.of(p).spins {
+                TimelineView(.periodic(from: .now, by: StateGlyph.spinInterval)) { tl in
+                    glyph(StateGlyph.of(p, frame: Int(tl.date.timeIntervalSinceReferenceDate / StateGlyph.spinInterval)))
+                }
+            } else {
+                glyph(StateGlyph.of(p))
+            }
+        } else {
+            glyph(StateGlyph(glyph: "?", tone: .muted))
+        }
+    }
+
+    func glyph(_ g: StateGlyph) -> some View {
+        Text(g.glyph).font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .foregroundStyle(selected ? Theme.selectedText : color(g.tone))
+            .frame(width: 10)
+    }
+
+    func color(_ t: StateGlyph.Tone) -> Color {
+        switch t {
+        case .muted: return Theme.muted
+        case .work: return Theme.work
+        case .warn: return Theme.warn
+        case .ok: return Theme.ok
+        case .err: return Theme.err
+        }
+    }
+}
+
 struct Dot: View {
     let color: Color
     var body: some View { Circle().fill(color).frame(width: 8, height: 8) }
@@ -347,8 +384,13 @@ struct NodeView: View {
         case .project: Text("◆").font(.system(size: 10)).foregroundStyle(Theme.accent)
         case .cli: Text("❯").font(.system(size: 11)).foregroundStyle(Theme.accent)
         case .workspace: Text("▤").font(.system(size: 12)).foregroundStyle(Theme.accent)
-        case .agent(let id): Mark(mark: AgentMark.of(store.pane(id)?.agent?.name), selected: selected)
-        case .terminal: Text("›").foregroundStyle(selected ? Theme.selectedText : Theme.muted)
+        case .agent(let id):
+            // The TUI's row: what it is doing, then which agent it is.
+            HStack(spacing: 5) {
+                Status(pane: store.pane(id), selected: selected)
+                Mark(mark: AgentMark.of(store.pane(id)?.agent?.name), selected: selected)
+            }
+        case .terminal(let id): Status(pane: store.pane(id), selected: selected)
         case .branch(_, _, let checkedOut):
             // ◇ checked out in a worktree of its own, · not checked out:
             // the TUI's marks.

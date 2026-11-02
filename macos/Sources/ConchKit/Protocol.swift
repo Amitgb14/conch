@@ -47,9 +47,11 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var customName: Bool?
     public var projectID: String?
     public var branch: String?
+    /// What happened since someone last looked: "activity" or "silence".
+    public var alert: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, cwd, cols, rows, state, agent, title, branch
+        case id, name, cwd, cols, rows, state, agent, title, branch, alert
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"

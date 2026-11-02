@@ -551,3 +551,35 @@ final class FakeServer: @unchecked Sendable {
     #expect(uiSetting("icons", in: "[ui]\nicons_size = \"x\"\n") == nil)
     #expect(uiSetting("icons", in: nil) == nil)
 }
+
+// The state glyph before a row's mark: the TUI's paneGlyph, case by case.
+@Test func stateGlyphs() {
+    func agent(_ st: AgentState, failed: Bool? = nil) -> PaneInfo {
+        PaneInfo(id: "p1", name: "claude", agent: AgentStatus(name: "claude", state: st, failed: failed))
+    }
+    #expect(StateGlyph.of(agent(.working)) == StateGlyph(glyph: "⠋", tone: .work, spins: true))
+    #expect(StateGlyph.of(agent(.working), frame: 3).glyph == "⠸")
+    #expect(StateGlyph.of(agent(.working), frame: 10).glyph == "⠋" && StateGlyph.of(agent(.working), frame: -1).glyph == "⠏")
+    #expect(StateGlyph.of(agent(.blocked)) == StateGlyph(glyph: "!", tone: .warn))
+    #expect(StateGlyph.of(agent(.done)) == StateGlyph(glyph: "✓", tone: .ok))
+    #expect(StateGlyph.of(agent(.idle)) == StateGlyph(glyph: "○", tone: .muted))
+    #expect(StateGlyph.of(agent(.unknown)).glyph == "○")
+    // Failed shows only once it has stopped; a failed agent working again spins.
+    #expect(StateGlyph.of(agent(.done, failed: true)) == StateGlyph(glyph: "✗", tone: .err))
+    #expect(StateGlyph.of(agent(.working, failed: true)).spins)
+    var term = PaneInfo(id: "p2", name: "zsh")
+    #expect(StateGlyph.of(term) == StateGlyph(glyph: "›", tone: .muted))
+    term.alert = "activity"
+    #expect(StateGlyph.of(term).glyph == "#")
+    term.alert = "silence"
+    #expect(StateGlyph.of(term) == StateGlyph(glyph: "~", tone: .warn))
+    // Exited, before anything else: cleanly, or with a failure.
+    var gone = agent(.working)
+    gone.state = "exited"
+    #expect(StateGlyph.of(gone) == StateGlyph(glyph: "○", tone: .muted))
+    gone.exitCode = 2
+    #expect(StateGlyph.of(gone) == StateGlyph(glyph: "✗", tone: .err))
+    // The alert comes off the wire.
+    let p = try? conchDecoder().decode(PaneInfo.self, from: Data(#"{"id":"p3","name":"zsh","state":"running","alert":"silence"}"#.utf8))
+    #expect(p?.alert == "silence")
+}
