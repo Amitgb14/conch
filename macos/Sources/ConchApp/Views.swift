@@ -476,6 +476,7 @@ struct NodeView: View {
                         state: link?.online == true ? Theme.ok : link?.state == "connecting" ? Theme.warn : Theme.muted)
         case .project: LucideIcon(name: open ? .folderOpen : .folder)
         case .cli: LucideIcon(name: .squareTerminal)
+        case .workspace: LucideIcon(name: .layers)
         case .agent(let id): Mark(agent: store.pane(id)?.agent?.name)
         case .terminal(let id): LucideIcon(name: store.pane(id)?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12)
         case .branch(_, _, let checkedOut):

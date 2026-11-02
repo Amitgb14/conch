@@ -7,7 +7,7 @@ import SwiftUI
 // points, stroked at an even width.
 
 enum LucideName {
-    case folder, folderOpen, gitBranch, terminal, squareTerminal, history, laptop, server, cloud, globe
+    case folder, folderOpen, gitBranch, terminal, squareTerminal, history, laptop, server, cloud, globe, layers
 }
 
 struct Lucide: Shape {
@@ -109,6 +109,12 @@ struct Lucide: Shape {
             path.addLine(to: p(17.5, 10))
             arc(17.5, 14.5, 4.5, -90, 90)
             path.closeSubpath()
+        case .layers:
+            // Lucide's layers: a diamond, and two more edges under it.
+            line((12, 2.5), (22, 7.5), (12, 12.5), (2, 7.5))
+            path.closeSubpath()
+            line((2, 12.5), (12, 17.5), (22, 12.5))
+            line((2, 17), (12, 22), (22, 17))
         case .globe:
             circle(12, 12, 10)
             path.addEllipse(in: CGRect(x: ox + 7.5 * k, y: oy + 2 * k, width: 9 * k, height: 20 * k))

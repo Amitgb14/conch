@@ -72,9 +72,11 @@ func fixture() -> Snapshot {
     #expect(tree.title == "local" && tree.kind == .machine("local"))
     #expect(tree.badge == "⠋1 ⚑1") // one working, one waiting
     let top = tree.children ?? []
-    // The projects under the machine, then the CLI group: the mock's tree.
-    #expect(top.map(\.title) == ["api", "CLI"])
-    let api = top[0]
+    // The projects under Workspace, the CLI group beside it: the TUI's tree.
+    #expect(top.map(\.title) == ["Workspace", "CLI"])
+    #expect(top[0].kind == .workspace("local") && top[0].id == "ws:local" && top[0].badge == "1" && top[0].fold == "m:local/workspace")
+    #expect(top[0].children?.map(\.title) == ["api"])
+    let api = top[0].children![0]
     #expect(api.badge == "⠋1 ⚑1") // working and waiting, as the TUI counts them
     #expect(api.children?.map(\.title) == ["Agents", "Branches", "Terminals"])
     #expect(agents0(api)?.kind == .agent("local|p1"))
@@ -92,7 +94,7 @@ func agents0(_ project: TreeNode) -> TreeNode? { project.children?.first?.childr
 
 /// A machine's projects.
 func projects(_ machine: TreeNode) -> [TreeNode] {
-    machine.children?.filter { if case .project = $0.kind { return true }; return false } ?? []
+    (machine.children?.first { if case .workspace = $0.kind { return true }; return false }?.children ?? [])
 }
 
 @Test func treeOfNothing() {
@@ -186,7 +188,7 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     #expect(ws[0].first && ws[0].id == "first" && ws[1].id == "w1" && ws[2].id == "w2")
     #expect((s.tree(in: ws[0]).children ?? []).isEmpty)
     let review = s.tree(in: ws[1]).children ?? []
-    #expect(review.map(\.title) == ["api", "CLI"])
+    #expect(review.map(\.title) == ["Workspace", "CLI"])
     #expect(projects(s.tree(in: ws[1])).map(\.title) == ["api"])
     #expect(review[1].children?.map(\.title) == ["bash"])
     #expect((s.tree(in: ws[2]).children ?? []).isEmpty)
@@ -881,9 +883,9 @@ final class FakeServer: @unchecked Sendable {
 @Test func treeNavigation() {
     let t = fixture().tree()
     let api = projects(t)[0]
-    var open: Set<String> = [t.id, api.id, api.children![0].id] // machine, project, Agents
+    var open: Set<String> = [t.id, "ws:local", api.id, api.children![0].id] // machine, Workspace, project, Agents
     let nav = TreeNav([t], isOpen: { open.contains($0.id) })
-    #expect(nav.rows.map(\.title) == ["local", "api", "Agents", "Add health check", "codex", "Branches", "Terminals", "CLI"])
+    #expect(nav.rows.map(\.title) == ["local", "Workspace", "api", "Agents", "Add health check", "codex", "Branches", "Terminals", "CLI"])
     #expect(nav.step(from: nil, by: 1) == t.id)
     #expect(nav.step(from: t.id, by: -1) == t.id) // kept at the top
     #expect(nav.step(from: "pane:local|p1", by: 1) == "pane:local|p4")
@@ -894,7 +896,7 @@ final class FakeServer: @unchecked Sendable {
     #expect(nav.firstChild(of: api.children![1].id) == nil) // Branches is folded
     #expect(nav.row("pane:local|p4")?.title == "codex" && nav.row(nil) == nil)
     open.remove(api.id)
-    #expect(TreeNav([t], isOpen: { open.contains($0.id) }).rows.map(\.title) == ["local", "api", "CLI"])
+    #expect(TreeNav([t], isOpen: { open.contains($0.id) }).rows.map(\.title) == ["local", "Workspace", "api", "CLI"])
     #expect(TreeNav([], isOpen: { _ in true }).step(from: nil, by: 1) == nil)
 }
 
@@ -946,4 +948,14 @@ final class FakeServer: @unchecked Sendable {
     let json = #"{"panes":[{"id":"p1","name":"ssh","state":"running","command":["/usr/bin/ssh","-t","--","me@box"]},{"id":"p2","name":"zsh","state":"running","command":["/bin/zsh","-l"]},{"id":"p3","name":"claude","state":"running","command":["ssh"],"agent":{"name":"claude","state":"idle"}},{"id":"p4","name":"x","state":"running"}]}"#
     let panes = try conchDecoder().decode(PaneList.self, from: Data(json.utf8)).panes
     #expect(panes.map(\.isSSH) == [true, false, false, false])
+}
+
+// The Workspace row: its machine, and a new task in each of its projects.
+@Test func workspaceRow() {
+    let s = fixture()
+    let w = s.tree(machine: "box").children![0]
+    #expect(w.kind == .workspace("box") && w.machine == "box")
+    #expect(s.menu(for: w, machine: "box").map(\.action) == [.newTask(project: "box|r1")])
+    #expect(s.menu(for: w, machine: "box", machineOnline: false).isEmpty)
+    #expect(Snapshot(panes: s.panes).tree().children?.map(\.title) == ["CLI"]) // no projects, no Workspace row
 }
