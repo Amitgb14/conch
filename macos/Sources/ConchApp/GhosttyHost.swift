@@ -12,9 +12,7 @@ import GhosttyKit
 //
 // Left out on purpose, and the reason for each: Ghostty's splits, tabs
 // and windows (the window here is conch's), its config files (conch writes
-// the settings, as `conch app` does), and its inspector. Input methods
-// that compose (Japanese, Korean, dead keys) are not handled yet: keys go
-// straight through, which is right for everything else.
+// the settings, as `conch app` does), and its inspector.
 
 /// The one libghostty app the window's surfaces belong to.
 @MainActor
@@ -212,35 +210,156 @@ final class GhosttyPaneView: NSView {
     /// control and command never make text, so they are the mods not
     /// consumed; the text of a control key is sent without control, since
     /// Ghostty encodes control itself; function keys send no text.
-    private func send(_ event: NSEvent, _ action: ghostty_input_action_e) {
+    private func key(_ event: NSEvent, _ action: ghostty_input_action_e, translation: NSEvent.ModifierFlags? = nil,
+                     text: String? = nil, composing: Bool = false) {
         guard let s = surface else { return }
         var k = ghostty_input_key_s()
         k.action = action
         k.keycode = UInt32(event.keyCode)
         k.mods = Self.mods(event.modifierFlags)
-        k.consumed_mods = Self.mods(event.modifierFlags.subtracting([.control, .command]))
-        k.composing = false
+        k.consumed_mods = Self.mods((translation ?? event.modifierFlags).subtracting([.control, .command]))
+        k.composing = composing
         if event.type == .keyDown || event.type == .keyUp,
            let c = event.characters(byApplyingModifiers: [])?.unicodeScalars.first {
             k.unshifted_codepoint = c.value
         }
-        var text: String?
-        if action != GHOSTTY_ACTION_RELEASE, let chars = event.characters {
-            text = chars
-            if chars.count == 1, let sc = chars.unicodeScalars.first {
-                if sc.value < 0x20 { text = event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control)) }
-                if sc.value >= 0xF700 && sc.value <= 0xF8FF { text = nil }
-            }
-        }
-        if let text, !text.isEmpty {
+        // A control character as text is left to Ghostty to encode, as a
+        // key, and so is a lone ASCII control the input method passed on.
+        if let text, !text.isEmpty, !(text.count == 1 && (text.unicodeScalars.first?.value ?? 0x20) < 0x20) {
             text.withCString { k.text = $0; _ = ghostty_surface_key(s, k) }
         } else {
             _ = ghostty_surface_key(s, k)
         }
     }
 
-    override func keyDown(with event: NSEvent) { send(event, event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS) }
-    override func keyUp(with event: NSEvent) { send(event, GHOSTTY_ACTION_RELEASE) }
+    /// Text the input method committed, typed as it is: no key behind it.
+    private func committed(_ text: String) {
+        guard let s = surface, !text.isEmpty else { return }
+        var k = ghostty_input_key_s()
+        k.action = GHOSTTY_ACTION_PRESS
+        k.mods = GHOSTTY_MODS_NONE
+        k.consumed_mods = GHOSTTY_MODS_NONE
+        text.withCString { k.text = $0; _ = ghostty_surface_key(s, k) }
+    }
+
+    /// An event's own text, Ghostty's way: a control character without
+    /// control (Ghostty encodes control), and none for a function key.
+    private static func characters(_ e: NSEvent) -> String? {
+        guard let chars = e.characters else { return nil }
+        if chars.count == 1, let sc = chars.unicodeScalars.first {
+            if sc.value < 0x20 { return e.characters(byApplyingModifiers: e.modifierFlags.subtracting(.control)) }
+            if sc.value >= 0xF700 && sc.value <= 0xF8FF { return nil }
+        }
+        return chars
+    }
+
+    // MARK: input methods
+    //
+    // Keys go through the system's input methods first (interpretKeyEvents),
+    // as in any Mac text view: a Japanese or Korean IME composes, a dead key
+    // (option-e) waits for the next. What is being composed is Ghostty's
+    // preedit, drawn at the cursor; what the input method commits arrives
+    // in insertText and is sent as typed text. This follows Ghostty's own
+    // view (SurfaceView_AppKit.swift, keyDown and NSTextInputClient).
+
+    /// Text the input method is composing, not yet the program's.
+    private var marked = NSMutableAttributedString()
+    /// Set while a key is being handled: what the input method committed
+    /// during it, sent once it is known whether the key itself is wanted.
+    private var accumulated: [String]?
+
+    override func keyDown(with event: NSEvent) {
+        guard let s = surface else {
+            interpretKeyEvents([event])
+            return
+        }
+        // Left option is alt (macos-option-as-alt = left): Ghostty says which
+        // modifiers make text for this key, and the input method is given
+        // the key with only those.
+        let wanted = Self.flags(ghostty_surface_key_translation_mods(s, Self.mods(event.modifierFlags)))
+        var mods = event.modifierFlags
+        for f in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
+            if wanted.contains(f) { mods.insert(f) } else { mods.remove(f) }
+        }
+        let translated = mods == event.modifierFlags ? event : NSEvent.keyEvent(
+            with: event.type, location: event.locationInWindow, modifierFlags: mods, timestamp: event.timestamp,
+            windowNumber: event.windowNumber, context: nil,
+            characters: event.characters(byApplyingModifiers: mods) ?? "",
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+            isARepeat: event.isARepeat, keyCode: event.keyCode) ?? event
+        let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+
+        let wasComposing = marked.length > 0
+        accumulated = []
+        defer { accumulated = nil }
+        interpretKeyEvents([translated])
+        syncPreedit(clear: wasComposing)
+        let composing = marked.length > 0 || wasComposing
+        let texts = accumulated ?? []
+
+        if wasComposing && !texts.isEmpty {
+            // The key finished a composition: the committed text goes as
+            // typed, and the key itself only when it still means something
+            // after it — an arrow moves on from the committed word.
+            for t in texts where !Self.controlWhileComposing(t, composing) { committed(t) }
+            if [123, 124, 125, 126].contains(Int(event.keyCode)) {
+                key(event, action, translation: translated.modifierFlags)
+            }
+            return
+        }
+        if !texts.isEmpty {
+            for t in texts where !Self.controlWhileComposing(t, composing) {
+                key(event, action, translation: translated.modifierFlags, text: t)
+            }
+            return
+        }
+        if Self.controlWhileComposing(event.characters, composing) { return }
+        key(event, action, translation: translated.modifierFlags, text: Self.characters(translated), composing: composing)
+    }
+
+    override func keyUp(with event: NSEvent) { key(event, GHOSTTY_ACTION_RELEASE) }
+
+    /// A lone control character while composing belongs to the input
+    /// method (backspace over a half-made syllable), not the program.
+    private static func controlWhileComposing(_ text: String?, _ composing: Bool) -> Bool {
+        guard composing, let text, text.unicodeScalars.count == 1, let sc = text.unicodeScalars.first else { return false }
+        return sc.value < 0x20
+    }
+
+    static func flags(_ m: ghostty_input_mods_e) -> NSEvent.ModifierFlags {
+        var f = NSEvent.ModifierFlags()
+        if m.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0 { f.insert(.shift) }
+        if m.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0 { f.insert(.control) }
+        if m.rawValue & GHOSTTY_MODS_ALT.rawValue != 0 { f.insert(.option) }
+        if m.rawValue & GHOSTTY_MODS_SUPER.rawValue != 0 { f.insert(.command) }
+        return f
+    }
+
+    fileprivate var markedLength: Int { marked.length }
+
+    fileprivate func setMarked(_ text: NSMutableAttributedString) {
+        let had = marked.length > 0
+        marked = text
+        // Outside a key (a layout switched mid-composition) it shows at once.
+        if accumulated == nil && (had || text.length > 0) { syncPreedit() }
+    }
+
+    /// Inside a key, committed text waits for the key's handling to finish.
+    fileprivate func accumulatedText(_ text: String) -> Bool {
+        guard accumulated != nil else { return false }
+        accumulated?.append(text)
+        return true
+    }
+
+    private func syncPreedit(clear: Bool = true) {
+        guard let s = surface else { return }
+        if marked.length > 0 {
+            let str = marked.string
+            str.withCString { ghostty_surface_preedit(s, $0, UInt(str.utf8.count)) }
+        } else if clear {
+            ghostty_surface_preedit(s, nil, 0)
+        }
+    }
 
     override func flagsChanged(with event: NSEvent) {
         let bit: UInt32
@@ -251,7 +370,8 @@ final class GhosttyPaneView: NSView {
         case 0x37, 0x36: bit = GHOSTTY_MODS_SUPER.rawValue
         default: return
         }
-        send(event, Self.mods(event.modifierFlags).rawValue & bit != 0 ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE)
+        if marked.length > 0 { return } // a modifier while composing is the input method's
+        key(event, Self.mods(event.modifierFlags).rawValue & bit != 0 ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE)
     }
 
     /// Control keys reach the terminal rather than the menus (ctrl+/,
@@ -372,5 +492,49 @@ final class GhosttyPaneView: NSView {
             }
         }
     }
+}
+
+extension GhosttyPaneView: NSTextInputClient {
+    func insertText(_ string: Any, replacementRange: NSRange) {
+        let text: String
+        switch string {
+        case let v as NSAttributedString: text = v.string
+        case let v as String: text = v
+        default: return
+        }
+        unmarkText()
+        if accumulatedText(text) { return }
+        committed(text) // not inside a key: dictation, the character viewer
+    }
+
+    func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        switch string {
+        case let v as NSAttributedString: setMarked(NSMutableAttributedString(attributedString: v))
+        case let v as String: setMarked(NSMutableAttributedString(string: v))
+        default: return
+        }
+    }
+
+    func unmarkText() { setMarked(NSMutableAttributedString()) }
+    func hasMarkedText() -> Bool { markedLength > 0 }
+    func markedRange() -> NSRange { markedLength > 0 ? NSRange(location: 0, length: markedLength) : NSRange(location: NSNotFound, length: 0) }
+    func selectedRange() -> NSRange { NSRange(location: NSNotFound, length: 0) }
+    func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
+    func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? { nil }
+    func characterIndex(for point: NSPoint) -> Int { 0 }
+
+    /// Where the input method's candidate window goes: the cursor, as
+    /// Ghostty reports it, in screen coordinates.
+    func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+        var x = 0.0, y = 0.0, w = 0.0, h = 0.0
+        if let s = surface { ghostty_surface_ime_point(s, &x, &y, &w, &h) }
+        let r = convert(NSRect(x: x, y: frame.height - y, width: range.length == 0 ? 0 : w, height: max(h, 16)), to: nil)
+        return window?.convertToScreen(r) ?? r
+    }
+
+    /// Keys the input method does not turn into text (moveLeft:,
+    /// insertNewline:…) are sent as keys by keyDown; this only keeps
+    /// AppKit from beeping at them.
+    override func doCommand(by selector: Selector) {}
 }
 #endif
