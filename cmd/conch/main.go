@@ -87,6 +87,9 @@ Usage:
                                 exits 124 if the time runs out
   conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]
                                 start Claude Code with state tracking
+  conch ssh TARGET [SSH OPTION...]
+                                a terminal here logged in to a host with ssh, outside every
+                                project, as the TUI's H opens one; prints its pane ID
   conch agent explain ID        show how a pane's agent state was decided
   conch agent question ID       what a waiting agent asks, and its choices, as JSON (null when not waiting)
   conch agent answer [-question QID] ID CHOICE
@@ -271,6 +274,8 @@ func main() {
 		err = runStatus(args)
 	case "new":
 		err = runNew(args)
+	case "ssh":
+		err = runSSHLogin(args)
 	case "send":
 		err = runSend(args)
 	case "read":

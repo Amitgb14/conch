@@ -36,6 +36,7 @@ var compCommands = []compItem{
 	{"status", "every pane and agent, and what it is doing"},
 	{"read", "what a pane's screen shows"},
 	{"attach", "show a pane here and type into it"},
+	{"ssh", "a terminal here logged in to a host with ssh"},
 	{"send", "type into a pane"},
 	{"wait", "wait until an agent is done"},
 	{"close", "close a pane"},

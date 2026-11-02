@@ -27,7 +27,7 @@ var helpAliases = map[string]string{
 // helpDocs is where on the CLI page a command is written up, for the ones
 // whose section is not named after them.
 var helpDocs = map[string]string{
-	"new": "panes", "status": "panes", "read": "panes", "attach": "panes", "send": "panes", "wait": "panes", "close": "panes",
+	"new": "panes", "ssh": "panes", "status": "panes", "read": "panes", "attach": "panes", "send": "panes", "wait": "panes", "close": "panes",
 	"rename": "panes", "redraw": "panes", "view": "panes", "show": "panes",
 	"schedule": "task", "skill": "agent", "upload": "machine", "download": "machine",
 }
@@ -44,6 +44,7 @@ var helpExamples = map[string][]string{
 		"conch new -agent claude                  # Claude Code in this folder",
 		"conch new -name api -- npm run dev       # any program, in a pane named api",
 	},
+	"ssh":    {"conch ssh me@build-box", "conch ssh me@old-box -p 2222 -o KexAlgorithms=+diffie-hellman-group14-sha1"},
 	"send":   {`conch send p3 "run the tests again"`, "conch send -keys p3 ctrl+c"},
 	"read":   {"conch read p3"},
 	"attach": {"conch attach p3", "conch -m busybox attach p3"},
