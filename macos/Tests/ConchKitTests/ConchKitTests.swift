@@ -929,3 +929,14 @@ final class FakeServer: @unchecked Sendable {
     #expect(throws: ConchError.self) { try Workspace.renaming("nope", to: "x", in: Data(ui.utf8)) }
     #expect(throws: ConchError.self) { try Workspace.renaming("first", to: "x", in: Data("[1]".utf8)) }
 }
+
+// The spinner turns through the TUI's frames at its pace, the same frame
+// for every view at one moment.
+@Test func spinnerFrames() {
+    let t0 = Date(timeIntervalSinceReferenceDate: 0)
+    #expect(spinnerFrame(at: t0) == "⠋")
+    #expect(spinnerFrame(at: t0.addingTimeInterval(0.13)) == "⠙")
+    #expect(spinnerFrame(at: t0.addingTimeInterval(0.12 * 10 + 0.01)) == "⠋") // round again
+    #expect(spinnerFrame(at: t0.addingTimeInterval(-0.05)) == "⠏") // before the reference, still a frame
+    #expect(spinnerFrames.count == 10 && spinnerInterval == 0.12)
+}

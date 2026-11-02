@@ -58,16 +58,27 @@ struct Pill: View {
     let text: String
     let fg: Color
     let bg: Color
+    /// A working agent's: the TUI's spinner turns in front of the text.
+    var spins = false
 
     var body: some View {
-        Text(text).font(.system(size: 11, weight: .semibold)).foregroundStyle(fg)
-            .padding(.horizontal, 7).padding(.vertical, 2)
-            .background(Capsule().fill(bg))
+        Group {
+            if spins {
+                TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                    Text(spinnerFrame(at: ctx.date) + (text.isEmpty ? "" : " " + text))
+                }
+            } else {
+                Text(text)
+            }
+        }
+        .font(.system(size: 11, weight: .semibold)).foregroundStyle(fg)
+        .padding(.horizontal, 7).padding(.vertical, 2)
+        .background(Capsule().fill(bg))
     }
 
     static func state(_ s: AgentState?) -> Pill? {
         switch s {
-        case .working: return Pill(text: "working", fg: Theme.work, bg: Theme.work.opacity(0.16))
+        case .working: return Pill(text: "working", fg: Theme.work, bg: Theme.work.opacity(0.16), spins: true)
         case .blocked: return Pill(text: "waiting", fg: Theme.onWarn, bg: Theme.warn)
         case .done: return Pill(text: "done", fg: Theme.ok, bg: Theme.ok.opacity(0.16))
         default: return nil
@@ -754,6 +765,11 @@ struct TabButton: View {
                 .frame(maxWidth: 200, alignment: .leading).fixedSize(horizontal: true, vertical: false)
             if tab.root.panes.contains(where: { store.pane($0)?.agent?.state == .blocked }) {
                 Pill(text: "!", fg: Theme.onWarn, bg: Theme.warn)
+            } else if tab.root.panes.contains(where: { store.pane($0)?.agent?.state == .working }) {
+                // An agent at work in it: the TUI's spinner, turning.
+                TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                    Text(spinnerFrame(at: ctx.date)).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
+                }
             }
             if on {
                 Button { store.closeSplit() } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)) }
@@ -823,8 +839,8 @@ struct PaneCard: View {
                 }
                 if let a = p?.agent, a.state == .working, let since = a.since {
                     // How long it has been at it, as the mock's "working · 41s".
-                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                        Pill(text: "working · \(elapsed(since, ctx.date))", fg: Theme.work, bg: Theme.work.opacity(0.18))
+                    TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                        Pill(text: "\(spinnerFrame(at: ctx.date)) working · \(elapsed(since, ctx.date))", fg: Theme.work, bg: Theme.work.opacity(0.18))
                     }
                 } else {
                     Pill.state(p?.agent?.state)

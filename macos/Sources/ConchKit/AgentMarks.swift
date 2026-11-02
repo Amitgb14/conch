@@ -76,3 +76,14 @@ public func rowWidths(name: Double, right: Double, room: Double, share: Double =
     if name + right > room { r = min(right, max(room * share, room - name)) }
     return (max(room - r, 0), r)
 }
+
+/// The TUI's spinner (internal/tui/view.go): a frame every 120ms while an
+/// agent works.
+public let spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+public let spinnerInterval = 0.12
+
+/// The spinner's frame at a moment, the same in every view drawing it.
+public func spinnerFrame(at date: Date) -> String {
+    let n = Int((date.timeIntervalSinceReferenceDate / spinnerInterval).rounded(.down))
+    return spinnerFrames[((n % spinnerFrames.count) + spinnerFrames.count) % spinnerFrames.count]
+}
