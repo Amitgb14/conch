@@ -1113,3 +1113,28 @@ final class FakeServer: @unchecked Sendable {
     #expect(agoText(now.addingTimeInterval(-7200), now: now) == "2h ago" && agoText(now.addingTimeInterval(-3 * 86400), now: now) == "3d ago")
     #expect(agoText(nil) == "" && !agoText(now.addingTimeInterval(-40 * 86400), now: now).isEmpty)
 }
+
+// A pane whose program exited closes, as the TUI closes it — but not one
+// that failed in its first seconds, nor a check that failed: their output
+// is what there is to read.
+@Test func panesCloseOnExit() throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    func pane(_ name: String = "zsh", code: Int, age: TimeInterval, state: String = "exited") -> PaneInfo {
+        var p = PaneInfo(id: "p1", name: name, state: state)
+        p.exitCode = code
+        p.created = now.addingTimeInterval(-age)
+        return p
+    }
+    #expect(closesOnExit(pane(code: 0, age: 2), now: now)) // exit at once, cleanly: closes
+    #expect(closesOnExit(pane(code: 1, age: 600), now: now)) // an ssh logout after a while, whatever its code
+    #expect(!closesOnExit(pane(code: 127, age: 2), now: now)) // failed to start: kept to read
+    #expect(closesOnExit(pane(code: 127, age: 11), now: now)) // past the window
+    #expect(!closesOnExit(pane("check · feat", code: 1, age: 600), now: now))
+    #expect(closesOnExit(pane("check · feat", code: 0, age: 600), now: now))
+    #expect(!closesOnExit(pane(code: 0, age: 600, state: "running"), now: now))
+    var none = PaneInfo(id: "p2", name: "x", state: "exited")
+    none.exitCode = 2
+    #expect(closesOnExit(none, now: now)) // no start time: not one to keep
+    let p = try conchDecoder().decode(PaneInfo.self, from: Data(#"{"id":"p3","name":"zsh","state":"exited","exit_code":0,"created":"2026-11-02T08:00:00Z"}"#.utf8))
+    #expect(p.created != nil && p.exitCode == 0)
+}

@@ -712,3 +712,20 @@ public func cardText(_ text: String, choices: [Choice]) -> String {
     }
     return t
 }
+
+/// How long after it starts a pane that fails is kept, so its error can be
+/// read: the TUI's launchWindow.
+public let launchWindow: TimeInterval = 10
+
+/// Whether a pane whose program has just exited should be closed, as the
+/// TUI closes one (model.go, EventPaneExited): a shell's exit, an ssh
+/// logout, an agent's /exit — anything but a failure in its first seconds,
+/// which stays so its error can be read, and a check that failed, whose
+/// output is its report.
+public func closesOnExit(_ p: PaneInfo, now: Date = Date()) -> Bool {
+    guard p.state == "exited" else { return false }
+    let code = p.exitCode ?? 0
+    if code != 0, let c = p.created, now.timeIntervalSince(c) < launchWindow { return false }
+    if code != 0, p.name.hasPrefix("check · ") { return false }
+    return true
+}

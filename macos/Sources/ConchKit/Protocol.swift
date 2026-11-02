@@ -86,6 +86,8 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var createdBy: String?
     /// The program and its arguments.
     public var command: [String]?
+    /// When it was started.
+    public var created: Date?
 
     /// An ssh session, as the TUI tells one (sshPane): no agent, and the
     /// program is ssh.
@@ -96,7 +98,7 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var alert: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command
+        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"

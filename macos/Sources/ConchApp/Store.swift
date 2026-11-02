@@ -647,13 +647,24 @@ final class Store: ObservableObject {
             let k = key(machine, p.id)
             let was = snap.pane(p.id)?.agent?.state
             snap.upsert(p)
+            // Exited on its own — a shell's exit, an ssh logout, an agent's
+            // /exit: closed, as the TUI closes it, so it goes from the
+            // sidebar and its tab. A TUI open may close it first; the
+            // second close finds it gone, which is fine.
+            if name == "pane.exited", closesOnExit(p), let c = conns[machine] {
+                Task { try? await c.call("pane.close", PaneRefParams(id: p.id)) }
+            }
             if p.agent?.state == .blocked {
                 if was != .blocked || questions[k] == nil { ask(k) }
             } else {
                 questions.removeValue(forKey: k)
             }
         case "pane.closed":
-            guard let p = try? dec.decode(PaneInfo.self, from: data) else { return }
+            // The server says only which pane ({"id": …}); read as a whole
+            // pane it never decoded, and every closed pane stayed — its row,
+            // its tab, a dead terminal — until the app started again.
+            struct Ref: Decodable { var id: String }
+            guard let p = try? dec.decode(Ref.self, from: data) else { return }
             let k = key(machine, p.id)
             snap.remove(pane: p.id)
             layout.close(k)
