@@ -12,6 +12,8 @@ import SwiftUI
 @MainActor
 enum Theme {
     static var current = ConchTheme.conch
+    /// conch's `[ui] icons`, which decides how agents are marked.
+    static var icons = IconMode.text
 
     static func ns(_ c: RGB) -> NSColor { NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1) }
     static func color(_ c: RGB) -> Color { Color(nsColor: ns(c)) }
@@ -69,23 +71,54 @@ struct Pill: View {
     }
 }
 
-/// An agent's mark in its own colour, as the TUI draws it beside the
-/// name; on the selected row it takes the selection's text colour, as the
-/// TUI's whole selected line does.
+/// An agent's mark, drawn as the TUI draws it under conch's `[ui] icons`:
+/// the Nerd Font glyph in the agent's own colour, the coloured dot, or
+/// nothing. On the selected row the glyph takes the selection's text
+/// colour, as the TUI's whole selected line does.
 struct Mark: View {
     let mark: AgentMark
     var selected = false
 
     var body: some View {
-        Group {
-            if let sym = mark.symbol {
-                Image(systemName: sym).font(.system(size: 11, weight: .bold))
-            } else {
-                Text(mark.text ?? "").font(.system(size: 13, weight: .bold))
+        switch Theme.icons {
+        case .off:
+            EmptyView()
+        case .text:
+            Text(mark.dot).font(.system(size: 10)).frame(width: 16)
+        case .nerd:
+            Group {
+                if let font = NerdFont.font(for: mark, size: 13) {
+                    Text(mark.glyph).font(Font(font))
+                } else if let sym = mark.symbol {
+                    // No Nerd Font here: the same shape from SF Symbols.
+                    Image(systemName: sym).font(.system(size: 11, weight: .bold))
+                } else {
+                    Text(mark.glyph).font(.system(size: 13, weight: .bold))
+                }
             }
+            .foregroundStyle(selected ? Theme.selectedText : mark.color.map(Theme.color) ?? Theme.muted)
+            .frame(width: 16)
         }
-        .foregroundStyle(selected ? Theme.selectedText : mark.color.map(Theme.color) ?? Theme.muted)
-        .frame(width: 14)
+    }
+}
+
+/// A Nerd Font installed on this Mac, found once: the symbols-only one if
+/// there is one, else any patched font, the monospaced cut first.
+@MainActor
+enum NerdFont {
+    static let family: String? = {
+        let all = NSFontManager.shared.availableFontFamilies
+        for want in ["Symbols Nerd Font Mono", "Symbols Nerd Font"] where all.contains(want) { return want }
+        return all.first { $0.hasSuffix("Nerd Font Mono") } ?? all.first { $0.contains("Nerd Font") }
+    }()
+
+    /// The font to draw text in, or nil when there is none or it lacks a
+    /// character of it — a plain character (π) is left to the system.
+    static func font(for mark: AgentMark, size: CGFloat) -> NSFont? {
+        guard mark.glyphNeedsNerdFont, let family, let f = NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size)
+        else { return nil }
+        let have = f.coveredCharacterSet
+        return mark.glyph.unicodeScalars.allSatisfy { have.contains($0) } ? f : nil
     }
 }
 

@@ -523,14 +523,31 @@ final class FakeServer: @unchecked Sendable {
 }
 
 
-// Each agent gets the TUI's mark: its shape and its own colour, and an
-// agent conch has no mark for still gets one, so the row reads as an agent.
+// Each agent gets the TUI's marks: its Nerd Font glyph and dot, its own
+// colour, and an SF Symbol of the same shape for a Mac with no Nerd Font;
+// an agent conch has no mark for still gets one, so the row reads as one.
 @Test func agentMarks() {
-    #expect(AgentMark.of("claude") == AgentMark(symbol: "asterisk", color: RGB("#D97757")))
-    #expect(AgentMark.of("pi").text == "π" && AgentMark.of("pi").symbol == nil)
+    #expect(AgentMark.of("claude") == AgentMark(glyph: "\u{f069}", dot: "🟠", symbol: "asterisk", color: RGB("#D97757")))
+    #expect(AgentMark.of("claude").glyphNeedsNerdFont)
+    #expect(AgentMark.of("pi").glyph == "π" && !AgentMark.of("pi").glyphNeedsNerdFont)
     let names = ["claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"]
     let marks = names.map { AgentMark.of($0) }
-    #expect(Set(marks.map { ($0.symbol ?? "") + ($0.text ?? "") }).count == names.count) // no two alike
+    #expect(Set(marks.map(\.glyph)).count == names.count && Set(marks.map(\.dot)).count == names.count) // no two alike
     #expect(marks.allSatisfy { $0.color != nil })
-    #expect(AgentMark.of("mine") == AgentMark(symbol: "cpu") && AgentMark.of(nil).color == nil)
+    // Font Awesome 4.7's range, which a v2 Nerd Font still has.
+    #expect(marks.filter(\.glyphNeedsNerdFont).allSatisfy { $0.glyph.unicodeScalars.allSatisfy { (0xF000...0xF2FF).contains($0.value) } })
+    let other = AgentMark.of("mine")
+    #expect(other.glyph == "\u{f2db}" && other.dot == "🤖" && other.symbol == "cpu" && other.color == nil)
+    #expect(AgentMark.of(nil) == other)
+}
+
+// [ui] icons as the TUI reads it: nerd, off, else text.
+@Test func iconModeFromConfig() {
+    #expect(IconMode(setting: uiSetting("icons", in: "[ui]\ntheme = \"nord\"\n  icons = \"nerd\"\n")) == .nerd)
+    #expect(IconMode(setting: " OFF ") == .off)
+    #expect(IconMode(setting: nil) == .text && IconMode(setting: "emoji") == .text)
+    // Only [ui]'s key: another table's, or a longer key, is not it.
+    #expect(uiSetting("icons", in: "[files]\nicons = \"nerd\"\n") == nil)
+    #expect(uiSetting("icons", in: "[ui]\nicons_size = \"x\"\n") == nil)
+    #expect(uiSetting("icons", in: nil) == nil)
 }

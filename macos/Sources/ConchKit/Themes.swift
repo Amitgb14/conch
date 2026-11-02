@@ -109,27 +109,8 @@ extension ConchTheme {
     }
 
     /// The theme a config.toml sets in [ui] (theme = "…"), or nil when it
-    /// sets none. Read by line, not by a TOML library: the app needs one
-    /// key, and a file it cannot parse must still leave it a theme.
-    public static func configured(in toml: String?) -> String? {
-        guard let toml else { return nil }
-        var inUI = false
-        for raw in toml.split(whereSeparator: \.isNewline) {
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("[") {
-                inUI = line.hasPrefix("[ui]")
-                continue
-            }
-            guard inUI, line.hasPrefix("theme"), let eq = line.firstIndex(of: "=") else { continue }
-            guard line[line.startIndex..<eq].trimmingCharacters(in: .whitespaces) == "theme" else { continue }
-            var value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
-            if let hash = value.firstIndex(of: "#"), !value.hasPrefix("\"") { value = String(value[..<hash]).trimmingCharacters(in: .whitespaces) }
-            value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-            if let close = value.firstIndex(of: "\"") { value = String(value[..<close]) }
-            return value.isEmpty ? nil : value
-        }
-        return nil
-    }
+    /// sets none.
+    public static func configured(in toml: String?) -> String? { uiSetting("theme", in: toml) }
 
     /// Ghostty's settings for a pane in this theme.
     public var ghosttyColors: String {
@@ -141,4 +122,27 @@ extension ConchTheme {
         selection-foreground = \(fg.hex)
         """
     }
+}
+
+/// A string a config.toml sets in [ui] (key = "…"), or nil when it sets
+/// none. Read by line, not by a TOML library: the app needs a key or two,
+/// and a file it cannot parse must still leave it working.
+public func uiSetting(_ key: String, in toml: String?) -> String? {
+    guard let toml else { return nil }
+    var inUI = false
+    for raw in toml.split(whereSeparator: \.isNewline) {
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        if line.hasPrefix("[") {
+            inUI = line.hasPrefix("[ui]")
+            continue
+        }
+        guard inUI, line.hasPrefix(key), let eq = line.firstIndex(of: "=") else { continue }
+        guard line[line.startIndex..<eq].trimmingCharacters(in: .whitespaces) == key else { continue }
+        var value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+        if let hash = value.firstIndex(of: "#"), !value.hasPrefix("\"") { value = String(value[..<hash]).trimmingCharacters(in: .whitespaces) }
+        value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        if let close = value.firstIndex(of: "\"") { value = String(value[..<close]) }
+        return value.isEmpty ? nil : value
+    }
+    return nil
 }
