@@ -1,6 +1,7 @@
 import AppKit
 import ConchKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // Direction A of the design (the Conch Desktop Directions artifact): one
 // toolbar with the workspaces, a search field and what is waiting; the
@@ -201,10 +202,69 @@ enum NerdFont {
     /// The font to draw a mark in, or nil when there is none or it lacks
     /// the glyph — a plain character (π) is left to the system.
     static func font(for mark: AgentMark, size: CGFloat) -> NSFont? {
-        guard mark.glyphNeedsNerdFont, let family, let f = NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size)
-        else { return nil }
+        mark.glyphNeedsNerdFont ? font(glyph: mark.glyph, size: size) : nil
+    }
+
+    /// The Nerd Font, if it has every character of glyph.
+    static func font(glyph: String, size: CGFloat) -> NSFont? {
+        guard let family, let f = NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size) else { return nil }
         let have = f.coveredCharacterSet
-        return mark.glyph.unicodeScalars.allSatisfy { have.contains($0) } ? f : nil
+        return glyph.unicodeScalars.allSatisfy { have.contains($0) } ? f : nil
+    }
+}
+
+/// A key as a keycap: the key in a small outlined box, as macOS menus and
+/// the mock's ⌘K draw them.
+struct Keycap: View {
+    let key: String
+    init(_ key: String) { self.key = key }
+
+    var body: some View {
+        Text(key).font(.system(size: 10.5, weight: .medium)).foregroundStyle(Theme.text2)
+            .padding(.horizontal, 4.5).frame(minWidth: 17, minHeight: 15)
+            .background(RoundedRectangle(cornerRadius: 3.5).fill(Theme.raise))
+            .overlay(RoundedRectangle(cornerRadius: 3.5).stroke(Theme.line2, lineWidth: 0.5))
+    }
+}
+
+/// A project: the folder Finder draws, at the size of the sidebar's marks.
+struct FolderIcon: View {
+    static let image: NSImage = {
+        let i = NSWorkspace.shared.icon(for: .folder)
+        i.size = NSSize(width: 32, height: 32)
+        return i
+    }()
+
+    var body: some View {
+        Image(nsImage: Self.image).resizable().interpolation(.high).frame(width: 15, height: 15).frame(width: 14)
+    }
+}
+
+/// A branch: git's branch mark (Nerd Fonts' U+E725, the one conch's own
+/// terminal font draws), or SF Symbols' branch where there is no Nerd Font.
+struct BranchIcon: View {
+    let color: Color
+
+    var body: some View {
+        Group {
+            if let f = NerdFont.font(glyph: "\u{e725}", size: 13) {
+                Text("\u{e725}").font(Font(f))
+            } else {
+                Image(systemName: "arrow.triangle.branch").font(.system(size: 10.5, weight: .medium))
+            }
+        }
+        .foregroundStyle(color).frame(width: 14)
+    }
+}
+
+/// An SF Symbol at the size the sidebar's marks share, in one column.
+struct Symbol: View {
+    let name: String
+    let color: Color
+    var size: CGFloat = 11
+
+    var body: some View {
+        Image(systemName: name).font(.system(size: size, weight: .medium)).foregroundStyle(color).frame(width: 14)
     }
 }
 
@@ -226,7 +286,10 @@ struct WorkspacesControl: View {
                     .padding(.horizontal, 10).padding(.vertical, 3)
                     .background(RoundedRectangle(cornerRadius: 5).fill(i == store.workspace ? Theme.raise : .clear))
                     .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { store.renameWorkspace(i) }
                     .onTapGesture { store.workspace = i }
+                    .contextMenu { Button("Rename…") { store.renameWorkspace(i) } }
+                    .help("Workspace \(i + 1) — double-click or right-click to name it")
             }
             // A new workspace, shared with the TUI through ui.json.
             Text("+").font(.system(size: 12)).foregroundStyle(Theme.muted)
@@ -441,14 +504,16 @@ struct NodeView: View {
         case .machine(let m):
             let link = store.machines.first { $0.id == m }
             Dot(color: link?.online == true ? Theme.ok : link?.state == "connecting" ? Theme.warn : Theme.muted)
-        case .project: Text("◆").font(.system(size: 11)).foregroundStyle(Theme.text)
-        case .cli: Text("❯").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
+        case .project: FolderIcon()
+        case .cli: Symbol(name: "terminal", color: Theme.text2)
         case .agent(let id): Mark(agent: store.pane(id)?.agent?.name)
-        case .terminal: Text("›").foregroundStyle(Theme.muted)
+        case .terminal: Symbol(name: "apple.terminal", color: Theme.muted, size: 10.5)
         case .branch(_, _, let checkedOut):
-            // ◇ checked out in a worktree of its own, · not checked out.
-            Text(checkedOut ? "◇" : "·").font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2).frame(width: 9)
-        case .section, .sessions: EmptyView()
+            // In a worktree of its own: the accent; only a branch: muted.
+            BranchIcon(color: checkedOut ? Theme.accent : Theme.muted)
+                .help(checkedOut ? "checked out in a worktree of its own" : "a branch, not checked out")
+        case .sessions: Symbol(name: "clock.arrow.circlepath", color: Theme.text2, size: 10.5)
+        case .section: EmptyView()
         }
     }
 
@@ -681,7 +746,7 @@ struct TabButton: View {
             if let a = p?.agent {
                 Mark(agent: a.name)
             } else {
-                Text(changes == nil ? "›" : "◇").foregroundStyle(Theme.muted)
+                if changes == nil { Text("›").foregroundStyle(Theme.muted) } else { BranchIcon(color: Theme.accent) }
             }
             // A branch's changes are named as the mock names them.
             Text(changes.map { "\($0.branch) changes" } ?? p?.displayName ?? tab.focused)
@@ -824,14 +889,26 @@ struct StatusBar: View {
             // Where the keyboard is, as the TUI's chip says: a pane, or the
             // window around it.
             let inPane = store.layout.focused != nil && store.terminalHasKeyboard
-            // The mock's mode: the word in the accent, no chip behind it.
-            Text(inPane ? "PANE" : "TREE").font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(inPane ? Theme.ok : Theme.accent)
+            // The mode as a small chip, as the TUI's: the accent's for the
+            // tree, green for a pane.
+            let mode = inPane ? Theme.ok : Theme.accent
+            Text(inPane ? "PANE" : "TREE").font(.system(size: 10.5, weight: .bold)).tracking(0.6)
+                .foregroundStyle(mode)
+                .padding(.horizontal, 6).padding(.vertical, 1.5)
+                .background(RoundedRectangle(cornerRadius: 4).fill(mode.opacity(0.16)))
             if !store.connected { Text("○ not connected").foregroundStyle(Theme.err) }
-            // The keys for where the keyboard is, as the mock's bar lists
-            // them: the key bright, what it does muted.
-            Text((inPane ? Self.paneKeys : Self.treeKeys).map { "\($0.0) \($0.1)" }.joined(separator: " · "))
-                .foregroundStyle(Theme.muted).lineLimit(1)
+            // The keys for where the keyboard is: each a keycap, then what
+            // it does, muted.
+            HStack(spacing: 12) {
+                ForEach(inPane ? Self.paneKeys : Self.treeKeys, id: \.0) { key, what in
+                    HStack(spacing: 5) {
+                        Keycap(key)
+                        Text(what).foregroundStyle(Theme.muted)
+                    }
+                    .fixedSize()
+                }
+            }
+            .lineLimit(1)
             if let e = store.error {
                 Text(e).foregroundStyle(Theme.err).lineLimit(1)
                     .onTapGesture { store.error = nil }
@@ -841,19 +918,15 @@ struct StatusBar: View {
             // a click lists every window, as the TUI's limits view does.
             if store.limits.contains(where: { $0.fiveHour != nil }) {
                 Button { showLimits.toggle() } label: {
-                    HStack(spacing: 14) {
+                    HStack(spacing: 8) {
                         ForEach(store.limits.filter { $0.fiveHour != nil }, id: \.agent) { l in
-                            HStack(spacing: 6) {
-                                Text("\(l.agent.prefix(1).uppercased() + l.agent.dropFirst()) 5h")
-                                Meter(fraction: (l.fiveHour?.usedPct ?? 0) / 100)
-                                Text("\(Int((l.fiveHour?.usedPct ?? 0).rounded()))%")
-                                if let w = l.week { Text("· 7d \(Int(w.usedPct.rounded()))%") }
-                            }
+                            UsageChip(limits: l)
                         }
                     }
-                    .foregroundStyle(Theme.muted).contentShape(Rectangle())
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain).help("Plan limits: every window, and when each resets")
+                .buttonStyle(.plain)
+                .help(store.limits.map(usageHelp).joined(separator: "\n") + "\nClick for every window")
                 .popover(isPresented: $showLimits, arrowEdge: .top) { LimitsPopover(store: store) }
                 .onChange(of: showLimits) { if $0 { store.refreshLimits() } }
             }
@@ -993,17 +1066,65 @@ struct MonitorPopover: View {
     }
 }
 
+/// One agent's plan in the status bar: its mark, then each window — 5h,
+/// 7d — as a label, a short bar and the share used, the bar and figure
+/// coloured by how near the limit it is. A capsule, so it reads as one
+/// thing to click.
+struct UsageChip: View {
+    let limits: PlanLimits
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Mark(agent: limits.agent)
+            window("5h", limits.fiveHour?.usedPct)
+            if let w = limits.week {
+                Rectangle().fill(Theme.line).frame(width: 1, height: 10)
+                window("7d", w.usedPct)
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 2)
+        .background(Capsule().fill(Theme.raise.opacity(0.7)))
+    }
+
+    @ViewBuilder func window(_ name: String, _ pct: Double?) -> some View {
+        let p = pct ?? 0
+        HStack(spacing: 5) {
+            Text(name).foregroundStyle(Theme.muted)
+            Meter(fraction: p / 100, width: 36, track: Theme.line2)
+            Text("\(Int(p.rounded()))%").monospacedDigit().foregroundStyle(usageColor(p))
+        }
+    }
+}
+
+/// How near its limit a window is: fine, getting there from 80%, at it.
+@MainActor func usageColor(_ pct: Double) -> Color { pct >= 100 ? Theme.err : pct >= 80 ? Theme.warn : Theme.text2 }
+
+/// An agent's windows and when each resets, for the chip's tooltip.
+@MainActor func usageHelp(_ l: PlanLimits) -> String {
+    let name = l.agent.prefix(1).uppercased() + l.agent.dropFirst()
+    let parts = l.allWindows.map { w -> String in
+        var s = "\(PlanLimits.label(w.key)) \(Int(w.usedPct.rounded()))%"
+        if let r = w.resetsAt, r > Date() { s += ", resets in \(elapsed(Date(), r))" }
+        return s
+    }
+    return "\(name): " + parts.joined(separator: " · ")
+}
+
 /// A plan's use, as a bar: green, amber from 80%, red past it.
 struct Meter: View {
     let fraction: Double
+    var width: CGFloat = 60
+    /// The empty part's colour: the raised one, or a line's on a raised
+    /// background, where the raised one would vanish.
+    var track: Color = Theme.raise
 
     var body: some View {
         ZStack(alignment: .leading) {
-            Capsule().fill(Theme.raise)
+            Capsule().fill(track)
             Capsule().fill(fraction >= 1 ? Theme.err : fraction >= 0.8 ? Theme.warn : Theme.ok)
-                .frame(width: 60 * min(max(fraction, 0), 1))
+                .frame(width: width * min(max(fraction, 0), 1))
         }
-        .frame(width: 60, height: 6)
+        .frame(width: width, height: 6)
     }
 }
 

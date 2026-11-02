@@ -909,3 +909,23 @@ final class FakeServer: @unchecked Sendable {
     #expect(TreeKey(keyCode: 0, characters: "t", modified: true) == nil)
     #expect(TreeKey(keyCode: 0, characters: "q", modified: false) == nil)
 }
+
+// A workspace is named in ui.json as the TUI keeps names: the first's in
+// first_space, the others' in their entry; empty numbers it again; the
+// rest of the file is left as it was.
+@Test func namingWorkspaces() throws {
+    let ui = #"{"spaces":[{"projects":["r1"]},{"id":"sB","name":"old"}],"first_space":{"projects":["r2"]},"tabs":[{"name":"t"}]}"#
+    var out = try Workspace.renaming("first", to: " main ", in: Data(ui.utf8))
+    out = try Workspace.renaming("w1", to: "review", in: out)
+    out = try Workspace.renaming("sB", to: "", in: out)
+    let ws = Workspace.load(uiJSON: out)
+    #expect(ws.map(\.name) == ["main", "review", ""])
+    #expect(ws.enumerated().map { Workspace.label($0.offset, $0.element) } == ["1 main", "2 review", "3"])
+    #expect(ws[0].projects == ["r2"] && ws[1].projects == ["r1"] && ws[1].id == "w1") // what each holds kept
+    let obj = try #require(try JSONSerialization.jsonObject(with: out) as? [String: Any])
+    #expect((obj["tabs"] as? [Any])?.count == 1)
+    // The first named with no others yet, and from no file at all.
+    #expect(Workspace.load(uiJSON: try Workspace.renaming("first", to: "solo", in: nil)).map(\.name) == ["solo"])
+    #expect(throws: ConchError.self) { try Workspace.renaming("nope", to: "x", in: Data(ui.utf8)) }
+    #expect(throws: ConchError.self) { try Workspace.renaming("first", to: "x", in: Data("[1]".utf8)) }
+}

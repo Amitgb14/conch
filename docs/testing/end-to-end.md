@@ -371,6 +371,15 @@ Read the screen back with `conch read ID`. Always with a scratch
 
 ## Runs
 
+### R68 — 2026-11-01, Conch.app against real agents, part of 4.21–4.26, macOS arm64, build 0.1.9-dev (#81)
+
+Driven through the accessibility API from a shell (clicks found by each control's text, keys sent only once the app was frontmost and, for typing, only into the task sheet), on a scratch repository added as a project (`conch-e2e-r68`) so no task touched a real one. busybox was off the network, so 4.24 was not run; kitty is not installed.
+
+- **4.26, a task from the project's menu:** right-click → *New task (branch + worktree + agent)…* opened the sheet (project and where it runs, prompt, Claude Code, branch left to conch); typing and ⌘↩ started Claude in `conch-e2e-r68.worktrees/conch-e2e-r68-create-file-named-hello-txt`, in a tab of its own, the branch under Branches, the toolbar's *1 waiting*, amber counts on the machine and the project, `!` on the tab. Claude did what it was asked (created `hello.txt`, ran `ls`).
+- **Found and fixed — the sidebar card could not read Claude's folder-trust question.** Claude Code 2.1.316 asks it with an unnumbered menu (`❯ No, exit` / `Yes, I trust this folder`), and the menu reader knew only numbered ones, so the card showed Claude's footer line (*Enter to confirm · Esc to cancel*) as the question and offered *Open to answer* — on the phone as well, which reads menus the same way. `readPlainMenu` (`internal/phone/question.go`) now reads a menu without numbers: rows together, exactly one under the cursor, every label in the cursor's column, never rows that carry numbers. Not yet answered from the card live: the question was answered by hand meanwhile.
+- **Most likely not the app:** the first click on the project menu's first item was followed by a `conch/cli-errors changes` tab instead of the sheet; the same click a moment later opened the sheet. Amit was using the window at the same time (he named a workspace and opened rows meanwhile), so the tab was probably his click. Not reproduced.
+- **Not run:** permission questions (Claude ran in auto mode, so it asked none), 4.20 in kitty, 4.22 in iTerm2 and Terminal.app, 4.23's IME, dictation and a second display, 4.24, 4.25's push and pull request (the scratch repository has no remote), the rest of 4.26's menus.
+
 ### R67 — 2026-11-01, the install script all the way to an icon, macOS arm64, build 0.1.9-dev (f8303d2 + the install step)
 
 Row **4.19**, and the macOS half of **4.18**, against a release served from this computer: the current build packed as `conch_9.9.9_darwin_arm64.tar.gz` with its own `checksums.txt`, served over HTTP on the loopback, and `install.sh` run with `env -i`, a scratch `HOME` and a scratch install directory, so nothing of the real conch or its config was touched.

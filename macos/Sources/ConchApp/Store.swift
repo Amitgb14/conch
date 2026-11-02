@@ -1066,6 +1066,24 @@ final class Store: ObservableObject {
         workspace = workspaces.count - 1
     }
 
+    /// Names a workspace, as the TUI's ctrl+b $ does: in ui.json, which
+    /// the TUI merges, so both show it. Empty numbers it again.
+    func renameWorkspace(_ i: Int) {
+        guard workspaces.indices.contains(i) else { return }
+        let w = workspaces[i]
+        guard let name = ask("Name workspace \(i + 1)", info: "As the mock's \u{201C}1 main  2 review\u{201D}. Leave empty to number it; conch's TUI shows the name too.",
+                             value: w.name, button: "Name") else { return }
+        let path = (conchDir as NSString).appendingPathComponent("ui.json")
+        do {
+            let data = try Workspace.renaming(w.id, to: name, in: FileManager.default.contents(atPath: path))
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        } catch {
+            self.error = "Could not name the workspace: \(error)"
+            return
+        }
+        loadWorkspaces()
+    }
+
     func loadWorkspaces() {
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("ui.json"))
         workspaces = Workspace.load(uiJSON: data)

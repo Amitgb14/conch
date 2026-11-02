@@ -222,9 +222,8 @@ public struct Workspace: Equatable, Sendable {
             Workspace(id: (s.id ?? "").isEmpty ? "w\(i + 1)" : s.id!, name: s.name ?? "",
                       projects: Set(s.projects ?? []), panes: Set(s.panes ?? []))
         }
-        var first = Workspace(name: "", first: true)
+        var first = Workspace(name: ui?.first_space?.name ?? "", first: true)
         if !later.isEmpty, let f = ui?.first_space {
-            first.name = f.name ?? ""
             first.projects = Set(f.projects ?? [])
             first.panes = Set(f.panes ?? [])
         }
@@ -274,6 +273,35 @@ public struct Workspace: Equatable, Sendable {
         if !panes.contains(pane) { panes.append(pane) }
         spaces[i]["panes"] = panes.sorted()
         ui["spaces"] = spaces
+        return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    /// ui.json with the workspace of that id named name — "" numbers it
+    /// again — and nothing else changed. The first's name is kept in
+    /// first_space, where the TUI keeps what the first holds; the others'
+    /// in their entry. An unknown workspace or an unreadable file throws.
+    public static func renaming(_ id: String, to name: String, in data: Data?) throws -> Data {
+        var ui: [String: Any] = [:]
+        if let data, !data.isEmpty {
+            guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw ConchError(code: "ui.json", message: "ui.json is not what conch writes; not changing it")
+            }
+            ui = obj
+        }
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if id == "first" {
+            var first = ui["first_space"] as? [String: Any] ?? [:]
+            if name.isEmpty { first.removeValue(forKey: "name") } else { first["name"] = name }
+            ui["first_space"] = first
+        } else {
+            var spaces = ui["spaces"] as? [[String: Any]] ?? []
+            for i in spaces.indices where (spaces[i]["id"] as? String ?? "").isEmpty { spaces[i]["id"] = "w\(i + 1)" }
+            guard let i = spaces.firstIndex(where: { $0["id"] as? String == id }) else {
+                throw ConchError(code: "ui.json", message: "no workspace \(id) in ui.json")
+            }
+            if name.isEmpty { spaces[i].removeValue(forKey: "name") } else { spaces[i]["name"] = name }
+            ui["spaces"] = spaces
+        }
         return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
     }
 
