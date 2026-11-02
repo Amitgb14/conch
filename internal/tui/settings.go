@@ -88,7 +88,9 @@ func newSettings(m *Model) (*settings, tea.Cmd) {
 
 // save writes the configuration in the background.
 func saveConfig(cfg config.Config) tea.Cmd {
+	configSaving.Add(1) // the file is ours until it lands (configwatch.go)
 	return func() tea.Msg {
+		defer configSaving.Add(-1)
 		if err := config.Save(cfg); err != nil {
 			return errMsg{fmt.Errorf("saving settings: %w", err)}
 		}

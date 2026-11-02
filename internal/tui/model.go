@@ -184,9 +184,10 @@ type Model struct {
 	selEdge    int           // lines a held drag past the pane's edge scrolls per tick
 	selTicking bool          // a selScrollMsg is scheduled
 
-	changesPolling bool    // a changesPollMsg is scheduled
-	statePath      string  // where fold state is saved; "" disables saving
-	uiSync         *uiSync // what it and ui.json last agreed on, so another TUI's changes are merged (uisync.go)
+	changesPolling bool         // a changesPollMsg is scheduled
+	statePath      string       // where fold state is saved; "" disables saving
+	uiSync         *uiSync      // what it and ui.json last agreed on, so another TUI's changes are merged (uisync.go)
+	cfgWatch       *configWatch // config.toml as last seen, so a change made elsewhere is taken in (configwatch.go)
 
 	branchSigs map[string]sigSeen // when each branch last changed (see verify.go)
 	warning    string             // shown once when the TUI starts (see Warn)
@@ -299,6 +300,9 @@ func New(local *client.Client, cfg config.Config) Model {
 	// After the workspaces, which are shared too: a base without them
 	// would bring back one another TUI closed in the meantime.
 	m.uiSync = newUISync(path, m.sharedNow())
+	if path != "" {
+		m.cfgWatch = newConfigWatch() // a TUI that saves its state watches its settings too
+	}
 	if st.SidebarWidth > 0 {
 		m.sidebarW = st.SidebarWidth
 	}
@@ -338,6 +342,9 @@ func (m Model) Init() tea.Cmd {
 	cmds = append(cmds, catalogTick())
 	if m.uiSync != nil && m.statePath != "" {
 		cmds = append(cmds, uiSyncTick(m.statePath, m.uiSync))
+	}
+	if m.cfgWatch != nil && m.statePath != "" { // tests clear statePath: no watching there
+		cmds = append(cmds, configWatchTick(m.cfgWatch))
 	}
 	if m.warning != "" {
 		cmds = append(cmds, func() tea.Msg { return errMsg{errString(m.warning)} })
@@ -878,6 +885,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case uiPollMsg:
 		return m, tea.Batch(m.takeUIPoll(msg), uiSyncTick(m.statePath, m.uiSync))
+
+	case configPollMsg:
+		return m, tea.Batch(m.takeConfigPoll(msg), configWatchTick(m.cfgWatch))
 
 	case configWebStarted:
 		return m, m.takeConfigWeb(msg)
