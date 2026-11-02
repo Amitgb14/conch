@@ -286,6 +286,7 @@ struct MainView: View {
                 Palette(store: store)
             }
         }
+        .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
         .background(Theme.window)
         .preferredColorScheme(store.theme.light ? .light : .dark)
         .id(store.theme.id) // a new theme repaints every view
@@ -394,6 +395,7 @@ struct NodeView: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { activate() }
+        .contextMenu { RowMenu(store: store, node: node) }
     }
 
     var isGroup: Bool { if case .project = node.kind { return true }; return false }
@@ -514,6 +516,80 @@ struct NodeView: View {
         case .sessions: store.openTUI() // conch's Sessions view is the TUI's for now
         default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }
         }
+    }
+}
+
+/// A row's right-click menu: the TUI's row menu (m), for what the app does
+/// itself. Starting an agent is a submenu of the agents installed there.
+struct RowMenu: View {
+    @ObservedObject var store: Store
+    let node: TreeNode
+
+    var body: some View {
+        let items = store.menu(for: node)
+        ForEach(Array(items.enumerated()), id: \.offset) { _, it in
+            if it.action == .divider {
+                Divider()
+            } else if it.picksAgent, let m = node.machine {
+                Menu(it.title) {
+                    ForEach(store.startable(on: m), id: \.name) { a in
+                        Button(a.title) { store.perform(it.action, on: node, agent: a.name) }
+                    }
+                }
+            } else {
+                Button(it.title) { store.perform(it.action, on: node) }
+            }
+        }
+    }
+}
+
+/// A new task: a prompt, the agent to give it to, and, if wanted, the
+/// branch's name — `conch task`, from a sheet. The server makes the branch
+/// and its worktree and starts the agent there.
+struct TaskSheet: View {
+    @ObservedObject var store: Store
+    @State var draft: TaskDraft
+    @FocusState private var promptFocused: Bool
+
+    var project: ProjectInfo? {
+        let (m, id) = unkey(draft.project)
+        return store.snapshots[m]?.project(id)
+    }
+
+    var body: some View {
+        let (m, _) = unkey(draft.project)
+        VStack(alignment: .leading, spacing: 12) {
+            Text("New task").font(.system(size: 15, weight: .semibold))
+            Text([project?.name ?? "", m == "local" ? "" : store.label(m)].filter { !$0.isEmpty }.joined(separator: " · ")
+                 + (project?.git == false ? " — the agent works in the folder itself" : " — on a branch and worktree of its own"))
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+            TextEditor(text: $draft.prompt)
+                .font(.system(size: 13)).frame(minHeight: 120)
+                .scrollContentBackground(.hidden).padding(6)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
+                .focused($promptFocused)
+            HStack(spacing: 12) {
+                Picker("Agent", selection: $draft.agent) {
+                    ForEach(store.startable(on: m), id: \.name) { Text($0.title).tag($0.name) }
+                }
+                .frame(maxWidth: 240)
+                if project?.git != false {
+                    TextField("Branch (conch names one)", text: $draft.branch).frame(maxWidth: 260)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { store.taskDraft = nil }.keyboardShortcut(.cancelAction)
+                Button("Start") { store.startTask(draft) }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            Text("⌘↩ starts it").font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        .padding(18)
+        .frame(width: 520)
+        .onAppear { promptFocused = true }
     }
 }
 

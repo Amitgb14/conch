@@ -405,6 +405,8 @@ public struct PaletteItem: Equatable, Sendable {
 
 /// The commands the palette lists, by identifier, with their shortcut.
 public let paletteCommands: [(id: String, title: String, keys: String)] = [
+    ("newTask", "New task (branch, worktree and agent)…", "⌘N"),
+    ("startAgent", "Start an agent here", "⇧⌘N"),
     ("newTab", "New terminal tab", "⌘T"),
     ("splitRight", "Split right", "⌘D"),
     ("splitDown", "Split down", "⇧⌘D"),

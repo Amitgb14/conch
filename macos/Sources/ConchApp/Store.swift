@@ -28,6 +28,10 @@ struct MachineLink: Identifiable, Equatable {
 final class Store: ObservableObject {
     @Published var machines: [MachineLink] = [MachineLink(id: "local", label: "local")]
     @Published var snapshots: [String: Snapshot] = [:]
+    /// The agents each machine has installed, for starting one.
+    @Published var agents: [String: [AgentAvailability]] = [:]
+    /// The task being written, while its sheet is up.
+    @Published var taskDraft: TaskDraft?
     @Published var layout = Layout()
     @Published var workspaces: [Workspace] = [Workspace(name: "")]
     @Published var workspace = 0
@@ -255,6 +259,9 @@ final class Store: ObservableObject {
             }
             for p in panes.panes where p.agent?.state == .blocked { ask(key(machine, p.id)) }
             countSessions(machine)
+            if let a = try? await c.call("agent.status", as: AgentStatusList.self) {
+                agents[machine] = (a.agents ?? []).filter(\.installed)
+            }
             // Nothing is opened, and nothing given the keyboard, until a
             // pane is picked: a window that opened on an agent with its
             // terminal focused sent the first key anyone pressed — an Enter
@@ -543,6 +550,8 @@ final class Store: ObservableObject {
 
     func command(_ id: String) {
         switch id {
+        case "newTask": newTaskHere()
+        case "startAgent": startAgentHere()
         case "newTab": newTerminal(split: nil)
         case "splitRight": newTerminal(split: .horizontal)
         case "splitDown": newTerminal(split: .vertical)
@@ -561,6 +570,183 @@ final class Store: ObservableObject {
     func openTUI() {
         guard let b = binary else { return }
         Task { _ = try? await runConch(b, ["app"]) }
+    }
+
+    // MARK: starting agents and tasks, and a row's menu
+
+    /// A row's right-click menu (ConchKit's Snapshot.menu).
+    func menu(for node: TreeNode) -> [RowMenuItem] {
+        guard let m = node.machine else { return [] }
+        let online = machines.first { $0.id == m }?.online ?? false
+        return (snapshots[m] ?? Snapshot()).menu(for: node, machine: m, machineOnline: online)
+    }
+
+    /// The agents to offer on a machine: those installed there, else the
+    /// supported ones by name, so the menu is never empty while the list
+    /// is still being asked for.
+    func startable(on machine: String) -> [AgentAvailability] {
+        let have = agents[machine] ?? []
+        return have.isEmpty ? ["claude", "codex", "gemini", "opencode", "devin"].map { AgentAvailability(name: $0) } : have
+    }
+
+    func perform(_ a: RowAction, on node: TreeNode, agent: String? = nil) {
+        switch a {
+        case .open, .divider: activate(node)
+        case .rename(let k): renamePane(k)
+        case .prompt(let k): promptAgent(k)
+        case .close(let k): closePane(k)
+        case .startAgent(let m, let cwd, let inProject):
+            newPane(machine: m, cwd: cwd, inProject: inProject, agent: agent ?? startable(on: m).first?.name)
+        case .newTerminal(let m, let cwd, let inProject): newPane(machine: m, cwd: cwd, inProject: inProject, agent: nil)
+        case .changes(let pr, let b): openChanges(project: pr, branch: b)
+        case .newTask(let pr): newTask(project: pr)
+        case .copy(let text):
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+    }
+
+    /// What a click on the row does, for the menu's Open.
+    func activate(_ node: TreeNode) {
+        switch node.kind {
+        case .agent(let id), .terminal(let id): open(id)
+        default: break
+        }
+    }
+
+    /// Starts an agent (or, without one, a terminal) and shows it in a tab
+    /// of its own, as the TUI's c and n do.
+    func newPane(machine: String, cwd: String?, inProject: Bool, agent: String?) {
+        guard let c = conns[machine] else { return }
+        struct Create: Encodable {
+            var agent: String?
+            var cwd: String?
+            var no_project: Bool?
+        }
+        Task {
+            do {
+                let p = try await c.call("pane.create", Create(agent: agent, cwd: cwd, no_project: inProject ? nil : true), as: PaneInfo.self)
+                snapshots[machine, default: Snapshot()].upsert(p)
+                layout.open(key(machine, p.id))
+                focusTerminal()
+            } catch {
+                self.error = "Could not start \(agent ?? "a terminal"): \(error)"
+            }
+        }
+    }
+
+    /// Opens the task sheet for a project (key(machine, project)), with
+    /// the machine's first agent chosen.
+    func newTask(project: String) {
+        let (m, _) = unkey(project)
+        taskDraft = TaskDraft(project: project, agent: startable(on: m).first?.name ?? "claude")
+    }
+
+    /// The task sheet's project when none was picked: the focused pane's,
+    /// else the first project on this computer.
+    func newTaskHere() {
+        if let f = layout.focused, let p = pane(f), let pr = p.projectID {
+            newTask(project: key(unkey(f).machine, pr))
+        } else if let pr = snapshots["local"]?.projects.first {
+            newTask(project: key("local", pr.id))
+        } else {
+            error = "Add a project first (conch project add PATH): a task needs one"
+        }
+    }
+
+    /// Starts the machine's first agent where the focused pane is (its
+    /// folder, in its project), else in this computer's home.
+    func startAgentHere() {
+        if let f = layout.focused, let p = pane(f) {
+            let m = unkey(f).machine
+            newPane(machine: m, cwd: p.cwd, inProject: p.projectID != nil, agent: startable(on: m).first?.name)
+        } else {
+            newPane(machine: "local", cwd: nil, inProject: false, agent: startable(on: "local").first?.name)
+        }
+    }
+
+    /// Starts the task: a branch, a worktree and an agent given the prompt.
+    func startTask(_ d: TaskDraft) {
+        let (m, pr) = unkey(d.project)
+        guard let c = conns[m] else { return }
+        struct Params: Encodable {
+            var project_id: String
+            var prompt: String
+            var agent: String?
+            var branch: String?
+        }
+        let branch = d.branch.trimmingCharacters(in: .whitespaces)
+        taskDraft = nil
+        Task {
+            do {
+                let p = try await c.call("task.create", Params(project_id: pr, prompt: d.prompt, agent: d.agent,
+                                                               branch: branch.isEmpty ? nil : branch), as: PaneInfo.self)
+                snapshots[m, default: Snapshot()].upsert(p)
+                layout.open(key(m, p.id))
+                focusTerminal()
+            } catch {
+                self.error = "Could not start the task: \(error)"
+            }
+        }
+    }
+
+    func renamePane(_ k: String) {
+        let (m, id) = unkey(k)
+        guard let c = conns[m], let p = pane(k) else { return }
+        guard let name = ask("Rename \(p.displayName)", info: "Leave empty to give it its own name back.", value: p.customName == true ? p.name : "", button: "Rename") else { return }
+        struct Params: Encodable { var id: String; var name: String }
+        Task {
+            do { try await c.call("pane.rename", Params(id: id, name: name.trimmingCharacters(in: .whitespaces))) } catch { self.error = "\(error)" }
+        }
+    }
+
+    /// Sends an agent a message, as the TUI's Prompt… does: the server
+    /// types it in and submits it.
+    func promptAgent(_ k: String) {
+        let (m, id) = unkey(k)
+        guard let c = conns[m], let p = pane(k) else { return }
+        guard c.hello?.capabilities?.contains("agent.prompt.v1") == true else {
+            error = "The server on \(label(m)) predates prompting an agent; reload it"
+            return
+        }
+        let waiting = p.agent?.state == .blocked ? " It is waiting for an answer; this goes in as a new message." : ""
+        guard let text = ask("Prompt \(p.displayName)", info: "Sent to the agent as if typed and submitted." + waiting, value: "", button: "Send"),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        struct Params: Encodable { var id: String; var text: String }
+        Task {
+            do { try await c.call("agent.prompt", Params(id: id, text: text)) } catch { self.error = "\(error)" }
+        }
+    }
+
+    /// Ends a pane, after asking when an agent is running in it.
+    func closePane(_ k: String) {
+        let (m, id) = unkey(k)
+        guard let c = conns[m], let p = pane(k) else { return }
+        if p.agent != nil && p.running {
+            let a = NSAlert()
+            a.messageText = "Close \(p.displayName)?"
+            a.informativeText = "The agent stops. Its conversation is saved and can be resumed from Sessions."
+            a.addButton(withTitle: "Close")
+            a.addButton(withTitle: "Cancel")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        Task {
+            do { try await c.call("pane.close", PaneRefParams(id: id)) } catch { self.error = "\(error)" }
+        }
+    }
+
+    /// A line of text from a small dialog, or nil when cancelled.
+    private func ask(_ title: String, info: String, value: String, button: String) -> String? {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = info
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.stringValue = value
+        a.accessoryView = field
+        a.addButton(withTitle: button)
+        a.addButton(withTitle: "Cancel")
+        a.window.initialFirstResponder = field
+        return a.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
     }
 
     // MARK: workspaces
@@ -587,3 +773,14 @@ final class Store: ObservableObject {
         workspace = min(workspace, workspaces.count - 1)
     }
 }
+
+/// A task being written in its sheet.
+struct TaskDraft: Identifiable {
+    let id = UUID()
+    var project: String // key(machine, project)
+    var prompt = ""
+    var agent: String
+    var branch = ""
+}
+
+private struct PaneRefParams: Encodable { var id: String }

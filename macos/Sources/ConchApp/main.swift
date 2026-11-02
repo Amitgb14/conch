@@ -113,6 +113,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             NSMenuItem(title: "Quit conch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
         ])
         menu("File", [
+            item("New Task…", "n", .command, "newTask"),
+            item("Start Agent", "n", [.command, .shift], "startAgent"),
             item("New Terminal Tab", "t", .command, "newTab"),
             item("Split Right", "d", .command, "splitRight"),
             item("Split Down", "d", [.command, .shift], "splitDown"),

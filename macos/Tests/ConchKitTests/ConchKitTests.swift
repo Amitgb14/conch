@@ -666,3 +666,68 @@ final class FakeServer: @unchecked Sendable {
     let id = Workspace.newID()
     #expect(id.count == 13 && id.hasPrefix("s") && id != Workspace.newID())
 }
+
+// A row's right-click menu offers what the TUI's row menu does, for what
+// the app can do itself, named by machine.
+@Test func rowMenus() {
+    var s = fixture()
+    var p1 = s.pane("p1")!
+    p1.cwd = "/src/api-feat"
+    s.upsert(p1)
+    let t = s.tree(machine: "box")
+    let api = projects(t)[0]
+    let titles = { (items: [RowMenuItem]) in items.map(\.title) }
+
+    // An agent: open, rename, prompt, start beside it, its branch, close.
+    let agent = api.children![0].children![0]
+    let am = s.menu(for: agent, machine: "box")
+    #expect(titles(am) == ["Open", "Rename…", "Prompt…", "", "Start an agent here", "New terminal here", "View changes on feat", "", "Close agent…"])
+    #expect(am[4].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true) && am[4].picksAgent)
+    #expect(am[6].action == .changes(project: "box|r1", branch: "feat"))
+    #expect(am.last?.action == .close(pane: "box|p1"))
+    // A terminal: no prompt, a plain Close; one in no project starts things outside any.
+    let cli = t.children!.first { $0.kind == .cli("box") }!
+    let bm = s.menu(for: cli.children![0], machine: "box")
+    #expect(!titles(bm).contains("Prompt…") && bm.last?.title == "Close")
+    #expect(bm.first { $0.picksAgent }?.action == .startAgent(machine: "box", cwd: nil, inProject: false))
+    // An exited agent is not prompted, and closes without asking.
+    var gone = s.pane("p4")!
+    gone.state = "exited"
+    s.upsert(gone)
+    let gm = s.menu(for: TreeNode(id: "pane:box|p4", kind: .agent("box|p4"), title: "codex"), machine: "box")
+    #expect(!titles(gm).contains("Prompt…") && gm.last?.title == "Close")
+
+    // A branch checked out: start there; one that is not: a task's to make.
+    let feat = api.children![1].children![0]
+    let fm = s.menu(for: feat, machine: "box")
+    #expect(titles(fm) == ["View changes", "Start an agent on this branch", "Open terminal on this branch", "New task in project…", "", "Copy branch name"])
+    #expect(fm[1].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true))
+    let old = TreeNode(id: "b:box|r1:old", kind: .branch(project: "box|r1", name: "old", checkedOut: false), title: "old")
+    #expect(titles(s.menu(for: old, machine: "box")) == ["View changes", "New task in project…", "", "Copy branch name"])
+
+    // A project, a machine, the Workspace row.
+    let pm = s.menu(for: api, machine: "box")
+    #expect(pm[0].action == .newTask(project: "box|r1") && pm[1].action == .startAgent(machine: "box", cwd: "/src/api", inProject: true))
+    #expect(pm.last?.action == .copy("/src/api"))
+    #expect(s.menu(for: t, machine: "box").map(\.action) == [.startAgent(machine: "box", cwd: nil, inProject: false), .newTerminal(machine: "box", cwd: nil, inProject: false)])
+    #expect(titles(s.menu(for: t.children![0], machine: "box")) == ["New task in api…"])
+    // Offline: nothing that starts anything; a pane can still be opened or closed.
+    #expect(s.menu(for: t, machine: "box", machineOnline: false).isEmpty)
+    #expect(s.menu(for: api, machine: "box", machineOnline: false).isEmpty)
+    #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View changes on feat", "", "Close agent…"])
+    // A section has none, and a pane gone from the snapshot none either.
+    #expect(s.menu(for: api.children![0], machine: "box").isEmpty)
+    #expect(s.menu(for: TreeNode(id: "x", kind: .agent("box|p99"), title: "x"), machine: "box").isEmpty)
+}
+
+// Every row knows its machine, which is where its menu acts.
+@Test func rowMachines() {
+    let t = fixture().tree(machine: "box")
+    var all: [TreeNode] = []
+    func walk(_ n: TreeNode) { all.append(n); n.children?.forEach(walk) }
+    walk(t)
+    #expect(all.count > 8 && all.allSatisfy { $0.machine == "box" })
+    #expect(AgentAvailability(name: "claude", label: "Claude Code").title == "Claude Code" && AgentAvailability(name: "pi").title == "pi")
+    let st = try? conchDecoder().decode(AgentStatusList.self, from: Data(#"{"agents":[{"name":"claude","label":"Claude Code","installed":true,"tier":"supported"},{"name":"amp","installed":false}]}"#.utf8))
+    #expect(st?.agents?.filter(\.installed).map(\.name) == ["claude"])
+}

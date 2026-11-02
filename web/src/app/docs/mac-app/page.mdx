@@ -41,11 +41,29 @@ Hunks, marking files for a commit, comments and merging are still the TUI's (`b`
 
 An agent waiting for you shows its question under its row in the sidebar, with its choices as buttons — *Yes*, *Yes, and don't ask again*, *No* — and the same buttons along the top of its pane. The one the agent's own cursor is on is highlighted. A click picks it: conch moves the agent's cursor there and presses Enter, exactly as the [phone](/docs/phone) does, and refuses an answer to a question that has changed since it was shown. An agent whose choices conch cannot read off its screen offers **Open to answer** instead.
 
+## Starting agents and tasks
+
+**File → New Task…** (`⌘N`), or **New task…** on a project's or branch's menu, opens a sheet for a prompt, the agent to give it to and, if you like, the branch's name — [`conch task`](/docs/cli#task) from a window: the server makes a branch and a worktree of its own and starts the agent there with your prompt, in a tab of its own. In a folder that isn't a git repository the agent works in the folder itself. **File → Start Agent** (`⇧⌘N`) starts an agent where the focused pane is.
+
+Right-clicking a row in the sidebar gives its menu, as `m` does in the TUI:
+
+| Row | Menu |
+| --- | --- |
+| Agent, terminal | Open · Rename… · Prompt… (an agent: a message typed in and submitted for you) · Start an agent here ▸ · New terminal here · View changes on its branch · Close (an agent asks first; its conversation stays in Sessions) |
+| Branch | View changes · Start an agent on this branch ▸ and Open terminal on this branch (when it is checked out) · New task in project… · Copy branch name |
+| Project | New task… · Start an agent in project ▸ · Open terminal in project · Copy path |
+| Machine, CLI | Start an agent ▸ (in the home directory, in no project) · New terminal |
+| Workspace | New task in each project… |
+
+**Start an agent ▸** lists the agents installed on that machine. A machine that is offline offers nothing that would start something there.
+
 ## Keys
 
 | Keys | |
 | --- | --- |
 | `⌘K` | search: agents, terminals, projects, task branches and commands, waiting agents first |
+| `⌘N` | a new task: a prompt, an agent, a branch and worktree of its own |
+| `⇧⌘N` | start an agent where the focused pane is |
 | `⌘T` | a new terminal tab, in the focused pane's folder |
 | `⌘D` / `⇧⌘D` | a new terminal split right / down |
 | `⌘W` | close the split — the pane keeps running, and is in the sidebar to open again |
