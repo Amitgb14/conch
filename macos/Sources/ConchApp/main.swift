@@ -41,6 +41,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             self?.window.backgroundColor = Theme.ns(t.chrome)
             self?.updateThemeMenu()
         }
+        let settings = SettingsWindow(store: store)
+        settingsWindow = settings
+        store.onOpenSettings = { settings.show() }
         // "Same as conch (Night Owl)" names conch's theme as it changes.
         store.onConfigChange = { [weak self] in self?.updateThemeMenu() }
         if !window.setFrameUsingName("conch.main") { window.center() }
@@ -111,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         menu("conch", [
             NSMenuItem(title: "About conch", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
             .separator(),
+            item("Settings…", ",", .command, "settings"),
             item("Open conch in a terminal", "", [], "openTUI"),
             .separator(),
             NSMenuItem(title: "Hide conch", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
@@ -168,6 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
     }
 
     var themeMenu: NSMenu?
+    var settingsWindow: SettingsWindow?
 
     @objc func chooseTheme(_ sender: NSMenuItem) {
         store.chooseTheme(sender.representedObject as? String ?? "")

@@ -959,3 +959,91 @@ final class FakeServer: @unchecked Sendable {
     #expect(s.menu(for: w, machine: "box", machineOnline: false).isEmpty)
     #expect(Snapshot(panes: s.panes).tree().children?.map(\.title) == ["CLI"]) // no projects, no Workspace row
 }
+
+// SVG paths as Lucide writes them: absolute and relative, implicit lines
+// after a move, numbers run together, arcs ending exactly where they say.
+@Test func svgPaths() {
+    func end(_ ops: [PathOp]) -> CGPoint? {
+        switch ops.last {
+        case .move(let p)?, .line(let p)?: return p
+        case .cubic(_, _, let p)?, .quad(_, let p)?: return p
+        default: return nil
+        }
+    }
+    #expect(parseSVGPath("M4 17 10 11 4 5") == [.move(CGPoint(x: 4, y: 17)), .line(CGPoint(x: 10, y: 11)), .line(CGPoint(x: 4, y: 5))])
+    #expect(parseSVGPath("m7 11 2-2-2-2") == [.move(CGPoint(x: 7, y: 11)), .line(CGPoint(x: 9, y: 9)), .line(CGPoint(x: 7, y: 7))])
+    #expect(parseSVGPath("M3 3v5h5") == [.move(CGPoint(x: 3, y: 3)), .line(CGPoint(x: 3, y: 8)), .line(CGPoint(x: 8, y: 8))])
+    #expect(parseSVGPath("M1.5.5L-.5 1e1") == [.move(CGPoint(x: 1.5, y: 0.5)), .line(CGPoint(x: -0.5, y: 10))])
+    #expect(parseSVGPath("M0 0h2Z").last == .close)
+    // A quarter arc ends where it says, and stays on its circle.
+    let arc = parseSVGPath("M18 9a9 9 0 0 1-9 9")
+    let e = end(arc)!
+    #expect(abs(e.x - 9) < 1e-6 && abs(e.y - 18) < 1e-6)
+    if case .cubic(_, _, let p) = arc[1] { #expect(abs(hypot(p.x - 9, p.y - 9) - 9) < 0.01) }
+    // Flags written together ("0 01"), and a full circle made of two arcs.
+    #expect(end(parseSVGPath("M0 0a1 1 0 01 2 0")) == CGPoint(x: 2, y: 0))
+    let circle = parseSVGPath(svgCircle(12, 12, 3))
+    #expect(end(circle) == CGPoint(x: 9, y: 12) && circle.count > 2)
+    // Smooth curves mirror the last control point.
+    let s = parseSVGPath("M0 0C1 1 2 1 3 0S5 -1 6 0")
+    if case .cubic(let c1, _, _) = s[2] { #expect(c1 == CGPoint(x: 4, y: -1)) }
+    // Junk ends the path where it is, rather than failing it.
+    #expect(parseSVGPath("M1 1L2 2X3 3").count == 2 && parseSVGPath("").isEmpty)
+    #expect(parseSVGPath(svgRect(3, 3, 18, 18, 2)).count > 8 && parseSVGPath(svgRect(0, 0, 4, 4)).last == .close)
+}
+
+// Every icon the tree and the settings sections use is there and reads
+// to something to draw; an unknown one draws as the cog.
+@Test func lucideIconsRead() {
+    let names = ["folder", "folder-open", "git-branch", "terminal", "square-terminal", "history", "laptop", "server", "cloud", "globe", "layers",
+                 "palette", "keyboard", "bell", "bot", "shield-check", "git-merge", "sparkles", "refresh-cw", "smartphone", "box", "zap", "lock", "settings"]
+    for n in names {
+        #expect(LucideIcons.all[n] != nil, "\(n)")
+        let ops = LucideIcons.ops(n)
+        #expect(ops.count >= 2, "\(n)")
+        // Everything inside the 24×24 box, give or take a stroke.
+        for op in ops {
+            if case .line(let p) = op { #expect(p.x >= -1 && p.x <= 25 && p.y >= -1 && p.y <= 25, "\(n) \(p)") }
+        }
+    }
+    #expect(LucideIcons.ops("no-such-icon") == LucideIcons.ops("settings"))
+}
+
+// The settings page's payload, read and edited as the panel does: values
+// by section, defaults for absent keys, the top level for "" sections,
+// lists one a line, and a save body that keeps whole numbers whole.
+@Test func settingsForm() throws {
+    let json = #"""
+    {"config":{"ui":{"theme":"night-owl","mouse":true,"cost":false},"notify":{"limit_alerts":[50,80]},"remote":{"timeout":30}},
+     "raw":"[ui]\ntheme = \"night-owl\"\n","version":"abc123","path":"/x/config.toml","exists":true,
+     "schema":[{"id":"ui","key":"ui","title":"Appearance","description":"d","icon":"palette","fields":[
+        {"key":"theme","label":"Theme","kind":"select","options":[{"value":"conch","label":"Conch"},{"value":"night-owl","label":"Night Owl"}]},
+        {"key":"mouse","label":"Mouse","kind":"bool"},
+        {"key":"hover","label":"Hover","kind":"bool","default":true}]},
+      {"id":"notify","key":"notify","title":"Notifications","description":"d","icon":"bell","fields":[{"key":"limit_alerts","label":"At","kind":"ints"}]},
+      {"id":"remote","key":"remote","title":"Remote","description":"d","icon":"server","fields":[{"key":"timeout","label":"Timeout","kind":"int"}]},
+      {"id":"actions","key":"","title":"Actions","description":"d","icon":"zap","fields":[{"key":"actions","label":"Actions","kind":"tables","fields":[]}]}],
+     "problems":["one"]}
+    """#
+    let p = try JSONDecoder().decode(SettingsPayload.self, from: Data(json.utf8))
+    var f = SettingsForm(p)
+    let ui = p.schema[0], notify = p.schema[1], remote = p.schema[2], actions = p.schema[3]
+    #expect(f.value(ui, ui.fields[0]) == .string("night-owl") && f.value(ui, ui.fields[1]) == .bool(true))
+    #expect(f.value(ui, ui.fields[2]) == .bool(true)) // absent: its default
+    #expect(listText(f.value(notify, notify.fields[0])) == "50\n80")
+    #expect(ui.simple && !actions.simple && !f.dirty)
+    f.set(ui, ui.fields[0], .string("conch"))
+    f.set(remote, remote.fields[0], .number(45))
+    f.set(notify, notify.fields[0], listValue("50\n 90, ", ints: true))
+    f.set(actions, actions.fields[0], .array([]))
+    #expect(f.dirty && f.config["actions"] == .array([]) && f.value(notify, notify.fields[0]) == .array([.number(50), .number(90)]))
+    let body = String(decoding: try f.saveBody(), as: UTF8.self)
+    #expect(body.contains(#""version":"abc123""#) && body.contains(#""timeout":45"#) && !body.contains("45.0"))
+    #expect(body.contains(#""theme":"conch""#))
+    f.revert()
+    #expect(!f.dirty)
+    #expect(settingsToken(URL(string: "http://127.0.0.1:5/#t=b7af")!) == "b7af" && settingsToken(URL(string: "http://127.0.0.1:5/")!) == nil)
+    #expect(listValue("a\nb,c") == .array([.string("a"), .string("b"), .string("c")]) && listText(nil) == "")
+    let half = try JSONEncoder().encode(JSONValue.number(1.5))
+    #expect(JSONValue.number(1.5) != .number(1) && half == Data("1.5".utf8))
+}

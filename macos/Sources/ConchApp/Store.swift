@@ -233,12 +233,23 @@ final class Store: ObservableObject {
     private var settingsPage: Process?
     private var settingsURL: URL?
 
-    func openSettings() {
-        if let p = settingsPage, p.isRunning, let u = settingsURL {
-            NSWorkspace.shared.open(u)
-            return
-        }
-        guard let b = binary else { return }
+    /// Opens conch's Settings panel (SettingsWindow.swift).
+    var onOpenSettings: (() -> Void)?
+
+    func openSettings() { onOpenSettings?() }
+
+    /// The settings page in the browser — what edits the tables the panel
+    /// leaves to it.
+    func openSettingsInBrowser() {
+        Task { if let u = await settingsPage() { NSWorkspace.shared.open(u) } }
+    }
+
+    /// The address of conch's settings page (`conch config web`), started
+    /// once and kept while the app runs; nil when it would not start. The
+    /// panel talks to its API; the browser opens it.
+    func settingsPage() async -> URL? {
+        if let p = settingsPage, p.isRunning, let u = settingsURL { return u }
+        guard let b = binary else { return nil }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: b)
         p.arguments = ["config", "web", "-no-open"]
@@ -248,29 +259,27 @@ final class Store: ObservableObject {
         p.standardError = FileHandle.nullDevice
         p.standardInput = FileHandle.nullDevice
         do { try p.run() } catch {
-            self.error = "Could not open settings: \(error)"
-            return
+            self.error = "Could not start conch's settings: \(error)"
+            return nil
         }
         settingsPage = p
-        // Its first line names the page: "conch settings: http://127.0.0.1:…#token".
+        // Its first line names the page: "conch settings: http://127.0.0.1:…#t=token".
         let h = out.fileHandleForReading
-        Task {
-            let line = await Task.detached { () -> String in
-                var buf = Data()
-                while !buf.contains(0x0a) {
-                    let d = h.availableData
-                    if d.isEmpty { break }
-                    buf.append(d)
-                }
-                return String(data: buf, encoding: .utf8)?.split(separator: "\n").first.map(String.init) ?? ""
-            }.value
-            guard let u = settingsPageURL(line) else {
-                error = "conch's settings page did not start"
-                return
+        let line = await Task.detached { () -> String in
+            var buf = Data()
+            while !buf.contains(0x0a) {
+                let d = h.availableData
+                if d.isEmpty { break }
+                buf.append(d)
             }
-            settingsURL = u
-            NSWorkspace.shared.open(u)
+            return String(data: buf, encoding: .utf8)?.split(separator: "\n").first.map(String.init) ?? ""
+        }.value
+        guard let u = settingsPageURL(line) else {
+            error = "conch's settings page did not start"
+            return nil
         }
+        settingsURL = u
+        return u
     }
 
     /// Ends what the window started that would outlive it.
@@ -848,6 +857,7 @@ final class Store: ObservableObject {
     func command(_ id: String) {
         switch id {
         case "focusSidebar": focusSidebar()
+        case "settings": openSettings()
         case "newTask": newTaskHere()
         case "startAgent": startAgentHere()
         case "newTab": newTerminal(split: nil)
