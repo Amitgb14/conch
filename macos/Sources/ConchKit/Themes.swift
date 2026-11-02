@@ -120,7 +120,22 @@ extension ConchTheme {
     /// sets none.
     public static func configured(in toml: String?) -> String? { uiSetting("theme", in: toml) }
 
+    /// The theme a config.toml sets for the app under an appearance: its
+    /// light_theme while macOS is light, when it sets one, else its theme.
+    public static func configured(in toml: String?, dark: Bool) -> String? {
+        if !dark, let light = uiSetting("light_theme", in: toml) { return light }
+        return configured(in: toml)
+    }
+
     /// Ghostty's settings for a pane in this theme.
+    ///
+    /// Agents draw with colours chosen for a dark terminal — Claude Code's
+    /// and Cursor's own themes put white text in true colour, which no
+    /// palette reaches — so on a light theme whole lines vanished. Ghostty's
+    /// minimum-contrast moves any text too close to the colour behind it
+    /// until it reads: 3, the WCAG floor for large text, on a light theme,
+    /// and just above 1 on a dark one, to rescue text drawn in its own
+    /// background colour without touching anything else.
     public var ghosttyColors: String {
         """
         background = \(bg.hex)
@@ -128,6 +143,7 @@ extension ConchTheme {
         cursor-color = \(line.hex)
         selection-background = \(selDim.hex)
         selection-foreground = \(fg.hex)
+        minimum-contrast = \(light ? "3" : "1.1")
         """
     }
 }
@@ -157,6 +173,15 @@ public func uiSetting(_ key: String, in toml: String?) -> String? {
 
 /// Whether a theme option is the one config.toml sets: an empty or unknown
 /// theme is conch's, as the TUI reads it, so conch's card shows chosen.
+///
+/// A menu that can be off (light_theme) has "" for Off, which is chosen
+/// when nothing is set; a theme in it is chosen as in theme's.
+public func themeChosen(_ option: String, _ value: String, off: Bool) -> Bool {
+    guard off else { return themeChosen(option, value) }
+    if value.trimmingCharacters(in: .whitespaces).isEmpty { return option.isEmpty }
+    return !option.isEmpty && themeChosen(option, value)
+}
+
 public func themeChosen(_ option: String, _ value: String) -> Bool {
     ConchTheme.named(option).id == ConchTheme.named(value).id && ConchTheme.all.contains { $0.id == option }
         || option == value

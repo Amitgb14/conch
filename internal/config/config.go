@@ -308,6 +308,11 @@ type UICfg struct {
 	// monokai, github-dark, ayu, night-owl, or a light one: github-light,
 	// solarized-light or catppuccin-latte.
 	Theme string `toml:"theme"`
+	// LightTheme, when set, is the theme Conch.app takes while macOS is in
+	// light appearance, Theme being the one for dark: the app follows the
+	// system as it switches. The TUI keeps to Theme, since a terminal's
+	// appearance is not macOS's to say. Empty leaves the app on Theme.
+	LightTheme string `toml:"light_theme,omitempty"`
 	// Accent overrides the theme's accent (selections, focused borders,
 	// dialogs): teal, blue, green, orange, pink, red, gray, purple, or a
 	// "#rrggbb" value. Empty uses the theme's.

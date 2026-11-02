@@ -185,16 +185,16 @@ struct Mark: View {
         case .nerd:
             let mark = AgentMark.of(agent)
             Group {
-                if let font = NerdFont.font(for: mark, size: 13) {
+                if let font = NerdFont.font(for: mark, size: 15) {
                     Text(mark.glyph).font(Font(font))
                 } else if let sym = mark.symbol {
-                    Image(systemName: sym).font(.system(size: 11, weight: .bold))
+                    Image(systemName: sym).font(.system(size: 13, weight: .bold))
                 } else {
-                    Text(mark.glyph).font(.system(size: 13, weight: .bold))
+                    Text(mark.glyph).font(.system(size: 15, weight: .bold))
                 }
             }
             .foregroundStyle(Theme.agent(agent))
-            .frame(width: 14)
+            .frame(width: 16)
         }
     }
 }

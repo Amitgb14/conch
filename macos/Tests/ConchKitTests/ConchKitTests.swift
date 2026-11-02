@@ -1168,3 +1168,40 @@ final class FakeServer: @unchecked Sendable {
     r = ConchTheme.resolve(choice: "", configured: nil, preview: "no-such-theme")
     #expect(r.settled.id == "conch" && r.shown.id == "conch")
 }
+
+@Test func lightThemeFollowsTheAppearance() {
+    let both = "[ui]\ntheme = \"nord\"\nlight_theme = \"github-light\"\n"
+    #expect(ConchTheme.configured(in: both, dark: true) == "nord")
+    #expect(ConchTheme.configured(in: both, dark: false) == "github-light")
+    // No light theme, or an empty one: the theme, light or dark.
+    for toml in ["[ui]\ntheme = \"nord\"\n", "[ui]\ntheme = \"nord\"\nlight_theme = \"\"\n"] {
+        #expect(ConchTheme.configured(in: toml, dark: false) == "nord")
+        #expect(ConchTheme.configured(in: toml, dark: true) == "nord")
+    }
+    // A light theme alone, with no theme: conch's in dark.
+    #expect(ConchTheme.named(ConchTheme.configured(in: "[ui]\nlight_theme = \"github-light\"\n", dark: true)).id == "conch")
+    // Outside [ui] it is not the setting.
+    #expect(ConchTheme.configured(in: "[other]\nlight_theme = \"github-light\"\n", dark: false) == nil)
+    #expect(ConchTheme.configured(in: nil, dark: false) == nil)
+}
+
+@Test func offIsChosenOnlyWhenNothingIsSet() {
+    #expect(themeChosen("", "", off: true))
+    #expect(themeChosen("", "  ", off: true))
+    #expect(!themeChosen("conch", "", off: true)) // unlike theme's menu, where empty is conch's
+    #expect(themeChosen("github-light", "github-light", off: true))
+    #expect(!themeChosen("", "github-light", off: true))
+    #expect(themeChosen("conch", "no-such-theme", off: true)) // the app draws an unknown one as conch's
+    #expect(themeChosen("conch", "", off: false))
+}
+
+// Text an agent draws for a dark terminal must still read on a light
+// theme: every pane's Ghostty settings carry a contrast floor, higher on
+// a light theme.
+@Test func panesKeepTextReadable() {
+    for t in ConchTheme.all {
+        let want = t.light ? "minimum-contrast = 3" : "minimum-contrast = 1.1"
+        #expect(t.ghosttyColors.contains(want), "\(t.id)")
+        #expect(t.ghosttyColors.contains("background = \(t.bg.hex)"))
+    }
+}

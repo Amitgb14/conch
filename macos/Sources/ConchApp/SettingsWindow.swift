@@ -257,7 +257,7 @@ struct FieldRow: View {
     }
 
     /// [ui] theme is chosen from pictures of the window rather than names.
-    var isTheme: Bool { section.key == "ui" && field.key == "theme" && field.kind == "select" }
+    var isTheme: Bool { section.key == "ui" && ["theme", "light_theme"].contains(field.key) && field.kind == "select" }
 
     @ViewBuilder var control: some View {
         if isTheme {
@@ -317,14 +317,19 @@ struct ThemeGrid: View {
     let preview: (String?) -> Void
     @Environment(\.conchTheme) private var theme
 
+    /// Whether one of the choices is Off ("": light_theme's).
+    var offable: Bool { options.contains { $0.value.isEmpty } }
+
     var body: some View {
         let _ = theme
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 14)], alignment: .leading, spacing: 14) {
             ForEach(options, id: \.value) { o in
-                let on = themeChosen(o.value, chosen)
+                let on = themeChosen(o.value, chosen, off: offable)
                 Button { choose(o.value) } label: {
                     VStack(alignment: .leading, spacing: 6) {
-                        ThemePreview(theme: ConchTheme.named(o.value))
+                        Group {
+                            if o.value.isEmpty { OffCard() } else { ThemePreview(theme: ConchTheme.named(o.value)) }
+                        }
                             .frame(height: 96)
                             .clipShape(RoundedRectangle(cornerRadius: 7))
                             .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Theme.accent : Theme.line, lineWidth: on ? 2 : 1))
@@ -332,7 +337,7 @@ struct ThemeGrid: View {
                             Text(o.label).font(.system(size: 12, weight: on ? .semibold : .regular))
                                 .foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
                             Spacer(minLength: 0)
-                            if ConchTheme.named(o.value).light { Text("light").font(.system(size: 10.5)).foregroundStyle(Theme.muted) }
+                            if !o.value.isEmpty, ConchTheme.named(o.value).light { Text("light").font(.system(size: 10.5)).foregroundStyle(Theme.muted) }
                             if on { LucideIcon("check", color: Theme.accent, size: 12) }
                         }
                     }
@@ -340,13 +345,30 @@ struct ThemeGrid: View {
                 }
                 .buttonStyle(.plain)
                 .help(o.label)
-                .onHover { if $0 { preview(o.value) } }
+                .onHover { if $0 { preview(o.value.isEmpty ? nil : o.value) } }
             }
         }
         .contentShape(Rectangle())
         // Between cards the last one stays shown; off the grid, none.
         .onHover { if !$0 { preview(nil) } }
         .onDisappear { preview(nil) }
+    }
+}
+
+/// light_theme's Off: no picture of its own, since it is whichever theme
+/// is chosen above, in light appearance as in dark.
+struct OffCard: View {
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                LucideIcon("moon", color: Theme.text2, size: 14)
+                Text("=").foregroundStyle(Theme.muted)
+                LucideIcon("sun", color: Theme.text2, size: 14)
+            }
+            Text("The theme above, light or dark").font(.system(size: 11)).foregroundStyle(Theme.muted)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.well)
     }
 }
 

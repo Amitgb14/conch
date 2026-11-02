@@ -91,6 +91,25 @@ final class Store: ObservableObject {
         watchClicks()
         watchConfig()
         watchTreeKeys()
+        watchAppearance()
+    }
+
+    /// Whether macOS is in dark appearance. Read from the system's own
+    /// setting, not NSApp's appearance, which the app sets to its theme.
+    var systemDark: Bool {
+        (CFPreferencesCopyAppValue("AppleInterfaceStyle" as CFString, kCFPreferencesAnyApplication) as? String) == "Dark"
+    }
+
+    /// macOS switching between light and dark (by hand, or by the time of
+    /// day) switches the theme when config.toml sets a light one.
+    private func watchAppearance() {
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.loadTheme()
+                self?.onConfigChange?() // "Same as conch (…)" names the theme now in effect
+            }
+        }
     }
 
     /// config.toml as last read, by its modification time and size.
@@ -396,7 +415,8 @@ final class Store: ObservableObject {
             self.icons = icons
             Theme.icons = icons
         }
-        let next = ConchTheme.resolve(choice: themeChoice, configured: ConchTheme.configured(in: toml), preview: previewing).shown
+        let configured = ConchTheme.configured(in: toml, dark: systemDark)
+        let next = ConchTheme.resolve(choice: themeChoice, configured: configured, preview: previewing).shown
         guard next != theme || Theme.current != next else { return }
         theme = next
         Theme.current = next
@@ -423,7 +443,7 @@ final class Store: ObservableObject {
     }
 
     var conchTheme: ConchTheme {
-        ConchTheme.named(ConchTheme.configured(in: try? String(contentsOfFile: configFile, encoding: .utf8)))
+        ConchTheme.named(ConchTheme.configured(in: try? String(contentsOfFile: configFile, encoding: .utf8), dark: systemDark))
     }
 
     private var conchDir: String {

@@ -543,3 +543,25 @@ func TestDefaultAgentChosenOrNot(t *testing.T) {
 		t.Fatalf("chosen: %q, %v", cfg.Agents.Default, err)
 	}
 }
+
+// light_theme is saved when set and left out when not, so a file from
+// before it existed, or one that never sets it, stays as it was.
+func TestLightThemeRoundTrips(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	cfg := Default()
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(File())
+	if strings.Contains(string(raw), "light_theme") {
+		t.Errorf("an unset light_theme was written:\n%s", raw)
+	}
+	cfg.UI.Theme, cfg.UI.LightTheme = "nord", "github-light"
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load()
+	if err != nil || got.UI.Theme != "nord" || got.UI.LightTheme != "github-light" {
+		t.Errorf("loaded %q/%q, %v", got.UI.Theme, got.UI.LightTheme, err)
+	}
+}
