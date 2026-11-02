@@ -311,6 +311,21 @@ func TestReadMenu(t *testing.T) {
 		// Codex's update menu, as the detection tests record it from
 		// codex rust-v0.144.1.
 		{"codex update", menuScreen("  ✨ Update available! 0.144.1 -> 0.145.0", "› 1. Update now", "  2. Skip", "  Press enter to continue"), "Update now|Skip", 0},
+		// Claude Code 2.1.316's folder-trust question, as a live run read
+		// it: no numbers, the cursor's row and the other indented to it.
+		{"claude trust, no numbers", menuScreen(
+			" Quick safety check: Is this a project you created or one you trust?",
+			" Security guide",
+			"",
+			" ❯ No, exit",
+			"   Yes, I trust this folder",
+			"",
+			" Enter to confirm · Esc to cancel"), "No, exit|Yes, I trust this folder", 0},
+		{"no numbers, cursor below", menuScreen("   a", "   b", " › c", "   d"), "a|b|c|d", 2},
+		{"no numbers, boxed", menuScreen("│ ❯ Allow │", "│   Deny  │"), "Allow|Deny", 0},
+		{"no numbers, out of line", menuScreen(" ❯ Yes", "     No"), "", 0},
+		{"no numbers, one row", menuScreen(" ❯ Yes", "", "   No"), "", 0},
+		{"a shell prompt alone", menuScreen("❯ ls", "file.go"), "", 0},
 		{"nothing", nil, "", 0},
 		{"blank", menuScreen("", "   "), "", 0},
 	} {
@@ -446,5 +461,29 @@ func TestGatewayRecord(t *testing.T) {
 	}
 	if !processAlive(os.Getpid()) || processAlive(1<<30) {
 		t.Fatal("processAlive")
+	}
+}
+
+// A menu without numbers is answered as a numbered one is: its rows are
+// choices 1, 2…, and the cursor is moved to the one picked, then Enter.
+func TestPlainMenuQuestionAndKeys(t *testing.T) {
+	screen := menuScreen(" Claude Code'll be able to read, edit, and execute files here.", "",
+		" ❯ No, exit", "   Yes, I trust this folder", "", " Enter to confirm · Esc to cancel")
+	p := proto.PaneInfo{ID: "p79", Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked}}
+	q := readQuestion(p, screen)
+	if q == nil || len(q.Choices) != 2 || q.Choices[1].Label != "Yes, I trust this folder" || !q.Choices[0].Default || q.Choices[1].Choice != "2" {
+		t.Fatalf("question %+v", q)
+	}
+	if q.Text != "Claude Code'll be able to read, edit, and execute files here." {
+		t.Fatalf("text %q", q.Text)
+	}
+	if keys, ok := choiceKeys(screen, "2"); !ok || strings.Join(keys, ",") != "down,enter" {
+		t.Fatalf("keys %v %v", keys, ok)
+	}
+	if keys, ok := choiceKeys(screen, "1"); !ok || strings.Join(keys, ",") != "enter" {
+		t.Fatalf("keys %v %v", keys, ok)
+	}
+	if _, ok := choiceKeys(screen, "3"); ok {
+		t.Fatal("a choice that is not there")
 	}
 }

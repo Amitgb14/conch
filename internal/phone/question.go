@@ -15,6 +15,16 @@ import (
 // without the box an agent draws round it. The first group is the cursor.
 var choiceLine = regexp.MustCompile(`^[\s│┃|]*([❯›>])?\s*(\d{1,2})\.\s+(\S.*?)[\s│┃|]*$`)
 
+// cursorLine and plainLine are the rows of a menu without numbers, as
+// Claude Code draws its folder-trust question: the cursor's row
+// "❯ No, exit" and the others indented to where its label starts.
+var (
+	cursorLine = regexp.MustCompile(`^([\s│┃|]*[❯›]\s+)(\S.*?)[\s│┃|]*$`)
+	plainLine  = regexp.MustCompile(`^([\s│┃|]*\s)(\S.*?)[\s│┃|]*$`)
+	// numberedLabel is a label that is a numbered menu's row.
+	numberedLabel = regexp.MustCompile(`^\d{1,2}\.\s`)
+)
+
 // menu is the choices read off a screen: their labels in order (number 1
 // first), the row of the first, and which one the cursor is on.
 type menu struct {
@@ -61,6 +71,64 @@ func readMenu(screen []string) (menu, bool) {
 		cur.labels = append(cur.labels, m[3])
 	}
 	flush()
+	if found {
+		return best, true
+	}
+	return readPlainMenu(screen)
+}
+
+// readPlainMenu finds a menu without numbers nearest the bottom of the
+// screen: two or more rows together, exactly one under the cursor, every
+// label starting in the same column — what Claude Code asks whether to
+// trust a folder with. Being strict about the column is what keeps an
+// agent's answer, or a shell prompt, from reading as a menu.
+func readPlainMenu(screen []string) (menu, bool) {
+	var best menu
+	found := false
+	for i := 0; i < len(screen); i++ {
+		c := cursorLine.FindStringSubmatch(screen[i])
+		if c == nil {
+			continue
+		}
+		col := len([]rune(c[1]))
+		label := func(line string) (string, bool) {
+			m := plainLine.FindStringSubmatch(line)
+			if m == nil || len([]rune(m[1])) != col || cursorLine.MatchString(line) {
+				return "", false
+			}
+			return m[2], true
+		}
+		top := i
+		for top > 0 {
+			if _, ok := label(screen[top-1]); !ok {
+				break
+			}
+			top--
+		}
+		var labels []string
+		for j := top; j < i; j++ {
+			l, _ := label(screen[j])
+			labels = append(labels, l)
+		}
+		cursor := len(labels)
+		labels = append(labels, c[2])
+		for j := i + 1; j < len(screen); j++ {
+			l, ok := label(screen[j])
+			if !ok {
+				break
+			}
+			labels = append(labels, l)
+		}
+		numbered := false
+		for _, l := range labels {
+			numbered = numbered || numberedLabel.MatchString(l)
+		}
+		// Rows with numbers are a numbered menu's, read above or refused
+		// there (one not starting at 1, one with a gap): never this.
+		if len(labels) >= 2 && !numbered {
+			best, found = menu{labels: labels, top: top, cursor: cursor}, true
+		}
+	}
 	return best, found
 }
 
