@@ -195,6 +195,16 @@ struct Mark: View {
 
     var body: some View {
         let _ = look
+        if Theme.icons != .off, let logo = AgentLogos.ops(agent) {
+            // The agent's own logo, filled in its colour, wherever one is
+            // known — the same in either way of marking agents.
+            Lucide(ops: logo).fill(Theme.agent(agent)).frame(width: 13, height: 13).frame(width: 16)
+        } else {
+            mark
+        }
+    }
+
+    @ViewBuilder var mark: some View {
         switch Theme.icons {
         case .off:
             EmptyView()
@@ -716,7 +726,9 @@ struct NodeView: View {
                 Text(spinnerFrame(at: ctx.date)).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
             }
             .frame(width: 16)
-        case .section: EmptyView()
+        case .section(let name):
+            // Each group with an icon of its own, as Files and Sessions have.
+            LucideIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", color: Theme.muted, size: 12)
         }
     }
 

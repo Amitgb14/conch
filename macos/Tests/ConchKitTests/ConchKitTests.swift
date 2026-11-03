@@ -1710,3 +1710,27 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(uploadedPaths("/home/x/uploads/shot.png\n/home/x/uploads/a b.txt\n") == ["/home/x/uploads/shot.png", "/home/x/uploads/a b.txt"])
     #expect(uploadedPaths("uploading…\n~/uploads/x\n\n").count == 1 && uploadedPaths("").isEmpty)
 }
+
+// The agents with a logo draw it: each reads to a shape whose every
+// point is inside its 24×24 box; any other agent keeps its mark.
+@Test func agentLogos() {
+    for agent in ["claude", "codex", "gemini", "Claude"] {
+        guard let ops = AgentLogos.ops(agent) else { Issue.record("no logo for \(agent)"); continue }
+        // A fill closes what is left open (Gemini's path ends without z).
+        #expect(ops.count > 4 && ops.contains { if case .move = $0 { return true }; return false }, "\(agent)")
+        var pts: [CGPoint] = []
+        for op in ops {
+            switch op {
+            case .move(let p), .line(let p): pts.append(p)
+            case .cubic(let a, let b, let c): pts += [a, b, c]
+            case .quad(let a, let b): pts += [a, b]
+            case .close: break
+            }
+        }
+        #expect(pts.allSatisfy { $0.x >= -0.5 && $0.x <= 24.5 && $0.y >= -0.5 && $0.y <= 24.5 }, "\(agent) leaves its box")
+        let xs = pts.map(\.x), ys = pts.map(\.y)
+        #expect((xs.max()! - xs.min()!) > 16 && (ys.max()! - ys.min()!) > 16, "\(agent) fills most of its box")
+    }
+    for agent in ["opencode", "devin", "aider", "", "no-such"] { #expect(AgentLogos.ops(agent) == nil, "\(agent)") }
+    #expect(AgentLogos.ops(nil) == nil)
+}

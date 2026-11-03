@@ -15,17 +15,19 @@ enum LucideName: String {
 /// A Lucide icon drawn from its own path data (ConchKit's LucideIcons,
 /// read by parseSVGPath), scaled from its 24×24 box to fit.
 struct Lucide: Shape {
-    let icon: String
+    let ops: [PathOp]
 
-    init(name: LucideName) { icon = name.rawValue }
-    init(_ icon: String) { self.icon = icon }
+    init(name: LucideName) { ops = LucideIcons.ops(name.rawValue) }
+    init(_ icon: String) { ops = LucideIcons.ops(icon) }
+    /// Any 24×24 path already read: an agent's logo (AgentLogos).
+    init(ops: [PathOp]) { self.ops = ops }
 
     func path(in r: CGRect) -> Path {
         let k = min(r.width, r.height) / 24
         let ox = r.minX + (r.width - 24 * k) / 2, oy = r.minY + (r.height - 24 * k) / 2
         func p(_ q: CGPoint) -> CGPoint { CGPoint(x: ox + q.x * k, y: oy + q.y * k) }
         var path = Path()
-        for op in LucideIcons.ops(icon) {
+        for op in ops {
             switch op {
             case .move(let q): path.move(to: p(q))
             case .line(let q): path.addLine(to: p(q))
