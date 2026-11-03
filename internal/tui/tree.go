@@ -474,6 +474,26 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 			}
 			agents, terms = keep(agents), keep(terms)
 		}
+		// A project's groups in the order the desktop app shows them:
+		// agents first, since they are what a project is mostly looked at
+		// for, then its branches, then its terminals.
+		section := func(name string, kind nodeKind, panes []proto.PaneInfo) {
+			frows, loose := foldered(in, mid, proj.ID, kind, panes, 4, projMatched, paneRows, open)
+			prows := paneRows(loose, 4, projMatched)
+			if len(prows) == 0 && len(frows) == 0 {
+				return
+			}
+			sid := sectionID(mid, proj.ID, name)
+			children = append(children, row{id: sid, kind: kind, depth: 3, machine: mid, projectID: proj.ID, count: len(panes)})
+			if open(sid, true) {
+				// Folders first, then what is in none of them: a folder is
+				// something you put there, and it should not be below the
+				// list it was made to tidy.
+				children = append(children, frows...)
+				children = append(children, prows...)
+			}
+		}
+		section("agents", kindAgents, agents)
 		if proj.Git {
 			all := in.showAll[scoped(mid, proj.ID)] || filter != ""
 			branches, hidden := listedBranches(proj, panes, all, in.now)
@@ -495,26 +515,7 @@ func machineRows(in treeInput, mach treeMachine, filter string, waiting bool, ma
 				}
 			}
 		}
-		for _, sec := range []struct {
-			name  string
-			kind  nodeKind
-			panes []proto.PaneInfo
-		}{{"agents", kindAgents, agents}, {"terminals", kindTerminals, terms}} {
-			frows, loose := foldered(in, mid, proj.ID, sec.kind, sec.panes, 4, projMatched, paneRows, open)
-			prows := paneRows(loose, 4, projMatched)
-			if len(prows) == 0 && len(frows) == 0 {
-				continue
-			}
-			sid := sectionID(mid, proj.ID, sec.name)
-			children = append(children, row{id: sid, kind: sec.kind, depth: 3, machine: mid, projectID: proj.ID, count: len(sec.panes)})
-			if open(sid, true) {
-				// Folders first, then what is in none of them: a folder is
-				// something you put there, and it should not be below the
-				// list it was made to tidy.
-				children = append(children, frows...)
-				children = append(children, prows...)
-			}
-		}
+		section("terminals", kindTerminals, terms)
 
 		if filter == "" {
 			children = append(children, row{id: sectionID(mid, proj.ID, "files"), kind: kindFiles, depth: 3, machine: mid, projectID: proj.ID})
