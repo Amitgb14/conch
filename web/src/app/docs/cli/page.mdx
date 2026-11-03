@@ -262,6 +262,10 @@ conch web revoke ID                                         # cut one off at onc
 conch web permission ID view|reply|full [-machine NAME]...  # change what one may do, and which
                                                             # machines it reaches (this computer only
                                                             # until you name one; 'local' clears them)
+conch web pair -json                                        # the same as JSON: the code, its link, and
+                                                            # whether the gateway runs (for Conch.app)
+conch web start                                             # run it in the background, as last started
+                                                            # or at the settings' address
 conch web stop                                              # end one running in the background
 ```
 

@@ -198,18 +198,19 @@ Usage:
                                 it asks. Listens only on this machine's Tailscale address
                                 unless -listen names another; -url is the https address
                                 phones open (the one tailscale serve gives)
-  conch web pair [-permission view|reply|full] [-machine NAME]...
+  conch web pair [-permission view|reply|full] [-machine NAME]... [-json]
                                 a one-time code (5 minutes) that pairs a phone, with a QR code
                                 that opens it; full by default (-permission reply or
                                 view for a phone that may only answer, or only look). It
-                                reaches this computer only unless -machine names a machine
-  conch web devices | revoke ID | permission ID view|reply|full [-machine NAME] | stop
+                                reaches this computer only unless -machine names a machine;
+                                -json says it all as JSON, for a window to draw (Conch.app)
+  conch web devices | revoke ID | permission ID view|reply|full [-machine NAME] | start | stop
                                 list the paired phones, cut one off at once, or change
                                 what one may do (full types into terminals) and which
                                 machines it reaches (-machine, repeatable; this computer
                                 only until you name one, 'local' to take them away);
-                                stop ends a conch web running in the background (as P
-                                in the TUI starts it)
+                                start runs conch web in the background as it was last
+                                started (or at the settings' address), stop ends it
   conch config web [-port N] [-no-open]
                                 every setting in config.toml as a form in the browser, on
                                 127.0.0.1 until ctrl+c; a TUI that is open edits them live
