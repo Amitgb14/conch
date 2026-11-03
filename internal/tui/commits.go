@@ -127,9 +127,27 @@ func commitGraph(commits []proto.LogCommit) []graphRow {
 // laneStyle is the colour a lane takes, in turn from the theme's accent
 // and its other signal colours, so neighbouring branches differ.
 func laneStyle(i int) lipgloss.Style {
-	styles := []lipgloss.Style{lipgloss.NewStyle().Foreground(colorAccent), styleWork, styleOK,
-		lipgloss.NewStyle().Foreground(colorWarn), stylePRMerged, styleErr}
-	return styles[((i%len(styles))+len(styles))%len(styles)]
+	cols := laneColors()
+	return lipgloss.NewStyle().Foreground(cols[((i%len(cols))+len(cols))%len(cols)])
+}
+
+// laneColors are the colours lanes take in turn: the accent, working, ok,
+// warning, merged and error, each once. A theme may give two of them the
+// same colour — GitHub Light's accent is its working blue, Monokai's and
+// Everforest's their ok green — and taking both in turn drew two lanes
+// side by side in one colour.
+func laneColors() []lipgloss.TerminalColor {
+	var out []lipgloss.TerminalColor
+	seen := map[string]bool{}
+	for _, c := range []lipgloss.TerminalColor{colorAccent, styleWork.GetForeground(), styleOK.GetForeground(),
+		colorWarn, stylePRMerged.GetForeground(), styleErr.GetForeground()} {
+		k := strings.ToUpper(fmt.Sprint(c))
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // graphCells draws a row's share of the graph in lanes*2 cells: a lane's

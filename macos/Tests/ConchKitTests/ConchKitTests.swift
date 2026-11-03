@@ -1377,3 +1377,18 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(railLetters("api") == "ap" && railLetters("my-app") == "ma" && railLetters("Web UI") == "wu")
     #expect(railLetters("x") == "x" && railLetters("") == "?" && railLetters("--") == "?")
 }
+
+// A commit graph's lanes never repeat a colour in turn: themes that give
+// two signals one colour (GitHub Light's accent is its working blue,
+// Monokai's and Everforest's accent their ok green) lose the repeat, and
+// every theme keeps at least four lane colours.
+@Test func lanePalettes() {
+    for t in ConchTheme.all {
+        let p = lanePalette(t)
+        #expect(Set(p.map(\.hex)).count == p.count, "theme \(t.id) repeats a lane colour")
+        #expect(p.count >= 4 && p.first?.hex == t.line.hex, "theme \(t.id)")
+    }
+    let gh = lanePalette(ConchTheme.named("github-light"))
+    #expect(gh[0].hex != gh[1].hex && gh.count == 5)
+    #expect(lanePalette(ConchTheme.named("monokai")).count == 5 && lanePalette(ConchTheme.named("everforest")).count == 5)
+}

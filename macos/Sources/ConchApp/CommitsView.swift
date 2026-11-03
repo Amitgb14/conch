@@ -136,8 +136,8 @@ struct CommitsView: View {
 /// signal colours, so neighbouring branches differ.
 @MainActor
 func laneColor(_ i: Int) -> Color {
-    let palette: [Color] = [Theme.accent, Theme.work, Theme.ok, Theme.warn, Color(nsColor: NSColor(srgbRed: 0.64, green: 0.44, blue: 0.97, alpha: 1)), Theme.err]
-    return palette[i % palette.count]
+    let palette = lanePalette(Theme.current)
+    return Theme.color(palette[((i % palette.count) + palette.count) % palette.count])
 }
 
 struct CommitRow: View {

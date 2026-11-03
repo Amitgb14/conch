@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -344,5 +345,39 @@ func TestOpenCommits(t *testing.T) {
 			t.Errorf("%v: menu item %v, opened %T", id, found, m.overlay)
 		}
 		m.overlay = nil
+	}
+}
+
+// Lanes never take one colour twice in turn: a theme that gives two of its
+// signals the same colour (GitHub Light's accent and working blue,
+// Monokai's and Everforest's accent and ok green) drew two lanes side by
+// side alike. In every theme the colours lanes cycle through are distinct,
+// and there are at least four.
+func TestLaneColoursDistinct(t *testing.T) {
+	t.Cleanup(func() { applyTheme("conch", "") })
+	for _, th := range themes {
+		applyTheme(th.name, "")
+		cols := laneColors()
+		if len(cols) < 4 {
+			t.Errorf("%s: only %d lane colours", th.name, len(cols))
+		}
+		for i := range cols {
+			if fmt.Sprint(laneStyle(i).GetForeground()) != fmt.Sprint(cols[i]) {
+				t.Errorf("%s: lane %d is not colour %d", th.name, i, i)
+			}
+			for j := i + 1; j < len(cols); j++ {
+				if strings.EqualFold(fmt.Sprint(cols[i]), fmt.Sprint(cols[j])) {
+					t.Errorf("%s: lanes %d and %d share %v", th.name, i, j, cols[i])
+				}
+			}
+		}
+		// The cycle wraps, and a negative lane is still a colour.
+		if fmt.Sprint(laneStyle(len(cols)).GetForeground()) != fmt.Sprint(cols[0]) || laneStyle(-1).GetForeground() == nil {
+			t.Errorf("%s: the lane cycle does not wrap", th.name)
+		}
+	}
+	applyTheme("github-light", "")
+	if fmt.Sprint(laneStyle(0).GetForeground()) == fmt.Sprint(laneStyle(1).GetForeground()) {
+		t.Error("github-light: the first two lanes are still one blue")
 	}
 }

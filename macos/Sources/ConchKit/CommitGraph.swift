@@ -150,3 +150,17 @@ public func commitGraph(_ commits: [LogCommit]) -> [GraphRow] {
     }
     return rows
 }
+
+/// The colours a commit graph's lanes take in turn: the theme's accent
+/// (the lighter one lines are drawn in), working, ok, warning, a purple for
+/// merged, and error, each once. A theme may give two of them the same
+/// colour — GitHub Light's accent is its working blue, Monokai's and
+/// Everforest's their ok green — and taking both in turn drew two lanes
+/// side by side in one colour. Never empty.
+public func lanePalette(_ t: ConchTheme) -> [RGB] {
+    var out: [RGB] = []
+    for c in [t.line, t.work, t.ok, t.warn, RGB("#A371F7"), t.err] where !out.contains(where: { $0.hex == c.hex }) {
+        out.append(c)
+    }
+    return out
+}
