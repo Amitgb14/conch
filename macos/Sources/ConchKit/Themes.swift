@@ -155,13 +155,17 @@ extension ConchTheme {
 /// A string a config.toml sets in [ui] (key = "…"), or nil when it sets
 /// none. Read by line, not by a TOML library: the app needs a key or two,
 /// and a file it cannot parse must still leave it working.
-public func uiSetting(_ key: String, in toml: String?) -> String? {
+public func uiSetting(_ key: String, in toml: String?) -> String? { tomlSetting("ui", key, in: toml) }
+
+/// A simple value of config.toml's [section]: a string, number or bool as
+/// text, or nil when it is not set there.
+public func tomlSetting(_ section: String, _ key: String, in toml: String?) -> String? {
     guard let toml else { return nil }
     var inUI = false
     for raw in toml.split(whereSeparator: \.isNewline) {
         let line = raw.trimmingCharacters(in: .whitespaces)
         if line.hasPrefix("[") {
-            inUI = line.hasPrefix("[ui]")
+            inUI = line.hasPrefix("[\(section)]")
             continue
         }
         guard inUI, line.hasPrefix(key), let eq = line.firstIndex(of: "=") else { continue }

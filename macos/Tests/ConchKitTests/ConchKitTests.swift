@@ -1751,3 +1751,40 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     }
     #expect(markColor(nil, on: white, text: ink) == nil && markColor("no-such", on: white, text: ink) == nil)
 }
+
+// An agent needing you is told once, as the TUI tells it: on coming to
+// wait or finish, not while you look at it, within [notify] and outside
+// quiet hours; [notify] read with the TUI's defaults.
+@Test func attentionAlerts() {
+    func pane(_ s: AgentState, msg: String? = nil, failed: Bool = false) -> PaneInfo {
+        var p = PaneInfo(id: "p1", name: "Fix flaky tests", agent: AgentStatus(name: "codex", state: s, message: msg))
+        p.agent?.failed = failed
+        return p
+    }
+    let on = NotifySettings()
+    let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: Date())!
+    #expect(attentionAlert(old: pane(.working), new: pane(.blocked, msg: "Allow command?"), machine: nil, viewing: false, settings: on, now: noon)
+        == Alert(title: "conch · codex", body: "Allow command?"))
+    #expect(attentionAlert(old: pane(.working), new: pane(.blocked), machine: "busybox", viewing: false, settings: on, now: noon)
+        == Alert(title: "conch · codex on busybox", body: "Fix flaky tests is waiting for you"))
+    #expect(attentionAlert(old: pane(.working), new: pane(.done), machine: nil, viewing: false, settings: on, now: noon)?.body == "Fix flaky tests finished")
+    #expect(attentionAlert(old: pane(.working), new: pane(.done, msg: "429", failed: true), machine: nil, viewing: false, settings: on, now: noon)?.body == "Fix flaky tests stopped: 429")
+    #expect(attentionAlert(old: pane(.blocked), new: pane(.blocked), machine: nil, viewing: false, settings: on, now: noon) == nil) // said already
+    #expect(attentionAlert(old: pane(.working), new: pane(.blocked), machine: nil, viewing: true, settings: on, now: noon) == nil)  // looking at it
+    #expect(attentionAlert(old: pane(.blocked), new: pane(.working), machine: nil, viewing: false, settings: on, now: noon) == nil)
+    #expect(attentionAlert(old: nil, new: PaneInfo(id: "t", name: "zsh"), machine: nil, viewing: false, settings: on, now: noon) == nil)
+    var s = NotifySettings(toml: "[notify]\nwaiting = false\nsound = true\nquiet_start = \"22:00\"\nquiet_end = \"08:00\"\n[ui]\nwaiting = true\n")
+    #expect(!s.waiting && s.done && s.sound && s.enabled && s.desktop)
+    #expect(attentionAlert(old: pane(.working), new: pane(.blocked), machine: nil, viewing: false, settings: s, now: noon) == nil)
+    #expect(attentionAlert(old: pane(.working), new: pane(.done), machine: nil, viewing: false, settings: s, now: noon) != nil)
+    let late = Calendar.current.date(bySettingHour: 23, minute: 30, second: 0, of: Date())!
+    let early = Calendar.current.date(bySettingHour: 7, minute: 59, second: 0, of: Date())!
+    #expect(s.quiet(late) && s.quiet(early) && !s.quiet(noon))
+    #expect(attentionAlert(old: pane(.working), new: pane(.done), machine: nil, viewing: false, settings: s, now: late) == nil)
+    s.enabled = false
+    #expect(attentionAlert(old: pane(.working), new: pane(.done), machine: nil, viewing: false, settings: s, now: noon) == nil)
+    let day = NotifySettings(toml: "[notify]\nquiet_start = \"09:00\"\nquiet_end = \"17:00\"\n")
+    #expect(day.quiet(noon) && !day.quiet(late) && !NotifySettings(toml: "[notify]\nquiet_start = \"9\"\n").quiet(noon))
+    #expect(NotifySettings(toml: nil) == NotifySettings() && dockBadge(0) == "" && dockBadge(3) == "3")
+    #expect(tomlSetting("notify", "sound", in: "[ui]\nsound = true\n") == nil && uiSetting("sound", in: "[ui]\nsound = true\n") == "true")
+}

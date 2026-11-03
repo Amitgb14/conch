@@ -511,6 +511,7 @@ final class Store: ObservableObject {
             self.icons = icons
             Theme.icons = icons
         }
+        notifySettings = NotifySettings(toml: toml)
         let configured = ConchTheme.configured(in: toml, dark: systemDark)
         let next = ConchTheme.resolve(choice: themeChoice, configured: configured, preview: previewing).shown
         guard next != theme || Theme.current != next else { return }
@@ -754,6 +755,7 @@ final class Store: ObservableObject {
             localRetries = 0
             settle(machine, alive: Set(panes.panes.filter(\.running).map { key(machine, $0.id) }))
             pushAutopilot(machine)
+            updateBadge()
             if machine == "local" {
                 error = nil
                 status = ""
@@ -866,8 +868,10 @@ final class Store: ObservableObject {
         case "pane.created", "pane.updated", "pane.exited":
             guard let p = try? dec.decode(PaneInfo.self, from: data) else { return }
             let k = key(machine, p.id)
-            let was = snap.pane(p.id)?.agent?.state
+            let before = snap.pane(p.id)
+            let was = before?.agent?.state
             snap.upsert(p)
+            attention(machine, old: before, new: p)
             // Exited on its own — a shell's exit, an ssh logout, an agent's
             // /exit: closed, as the TUI closes it, so it goes from the
             // sidebar and its tab. A TUI open may close it first; the
@@ -899,6 +903,7 @@ final class Store: ObservableObject {
             for w in parkedTabs.keys { parkedTabs[w]?.close(k) } // other workspaces' tabs too
             restartOnConnect.remove(k)
             terminals.removeValue(forKey: k)?.stop()
+            defer { updateBadge() }
             questions.removeValue(forKey: k)
         case "project.updated":
             if let p = try? dec.decode(ProjectInfo.self, from: data) {
@@ -1045,6 +1050,35 @@ final class Store: ObservableObject {
     /// The policy to every server reached, after Settings saved a change.
     func pushAutopilotAll() {
         for m in machines where m.state.isEmpty { pushAutopilot(m.id) }
+    }
+
+    /// [notify] as config.toml has it, read again with the theme.
+    private(set) var notifySettings = NotifySettings()
+
+    /// Tells you an agent needs you, when it has just come to wait or
+    /// finished and you are not looking at it (attentionAlert), and keeps
+    /// the Dock's badge. A TUI open on that machine notifies itself, so the
+    /// app leaves the notification to it rather than saying it twice.
+    func attention(_ machine: String, old: PaneInfo?, new p: PaneInfo) {
+        let k = key(machine, p.id)
+        let looking = NSApp.isActive && (mainWindow?.isKeyWindow ?? false) && layout.focused == k
+        let newly = p.agent?.state == .blocked && old?.agent?.state != .blocked
+        defer { updateBadge(newlyWaiting: newly) }
+        guard let alert = attentionAlert(old: old, new: p, machine: machine == "local" ? nil : label(machine),
+                                         viewing: looking, settings: notifySettings),
+              let c = conns[machine] else { return }
+        let s = notifySettings
+        Task {
+            if c.hello?.capabilities?.contains("view.v1") == true,
+               let v = try? await c.call("view.get", as: ViewState.self), !(v.tabs ?? []).isEmpty { return }
+            Notifier.shared.post(alert, pane: k, sound: s.sound, desktop: s.desktop)
+        }
+    }
+
+    /// The Dock's badge: agents waiting, on every machine and workspace.
+    func updateBadge(newlyWaiting: Bool = false) {
+        let n = machines.reduce(0) { acc, m in acc + (snapshots[m.id]?.panes.filter { $0.agent?.state == .blocked && $0.running }.count ?? 0) }
+        Notifier.shared.badge(waiting: n, newlyWaiting: newlyWaiting)
     }
 
     /// Whether a tab or split shows k, in this workspace or another's.

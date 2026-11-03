@@ -37,6 +37,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         window.toolbarStyle = .unified
 
         store.mainWindow = window
+        // Notifications, and the pane a clicked one opens.
+        Notifier.shared.onOpen = { [weak self] k in
+            self?.store.open(k)
+            self?.store.focusTerminal()
+        }
+        Notifier.shared.start()
         store.onThemeChoice = { [weak self] in self?.updateThemeMenu() }
         window.contentView = NSHostingView(rootView: MainView(store: store))
         store.onTheme = { [weak self] t in
