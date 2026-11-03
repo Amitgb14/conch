@@ -314,7 +314,11 @@ func (w World) Describe(a Action) string {
 			}
 			names = append(names, name)
 		}
-		return fmt.Sprintf("Send to %d agents on %s (%s): %s", len(a.Panes), machineLabel(m, a.Machine), strings.Join(names, ", "), a.Text)
+		agents := "agents"
+		if len(a.Panes) == 1 {
+			agents = "agent"
+		}
+		return fmt.Sprintf("Send to %d %s on %s (%s): %s", len(a.Panes), agents, machineLabel(m, a.Machine), strings.Join(names, ", "), a.Text)
 	}
 	return a.Type
 }

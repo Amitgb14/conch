@@ -1248,7 +1248,7 @@ func TestA4AskFastPath(t *testing.T) {
 		t.Fatalf("fast: %v %q %q asked %d", err, out, errOut, asked.Get())
 	}
 	out, _ = a4Capture(t, "", func() { err = runAsk([]string{"what's", "waiting?"}) })
-	if err != nil || out != "1 agent is waiting for you: codex (codex on this computer).\n" || asked.Get() != 0 {
+	if err != nil || out != "1 agent is waiting for you: codex on this computer.\n" || asked.Get() != 0 {
 		t.Fatalf("question: %v %q asked %d", err, out, asked.Get())
 	}
 	// Run without asking: the send goes to the server.

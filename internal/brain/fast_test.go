@@ -144,7 +144,7 @@ func TestFastPlanQuestions(t *testing.T) {
 	}
 
 	plan, ok = FastPlan(w, "what is working")
-	if !ok || plan.Reply != "1 agent is working: codex (codex on this computer)." {
+	if !ok || plan.Reply != "1 agent is working: codex on this computer." {
 		t.Errorf("got %q %v", plan.Reply, ok)
 	}
 

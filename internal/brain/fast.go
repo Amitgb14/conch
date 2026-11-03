@@ -73,6 +73,9 @@ func fastQuestion(w World, req string) (Plan, bool) {
 				continue
 			}
 			s := fmt.Sprintf("%s (%s on %s)", p.Name, p.Agent, m.Label)
+			if strings.EqualFold(p.Name, p.Agent) { // "codex (codex on …)" says it twice
+				s = p.Name + " on " + m.Label
+			}
 			if p.Summary != "" {
 				s += ": " + p.Summary
 			}
