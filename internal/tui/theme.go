@@ -64,6 +64,13 @@ var themes = []palette{
 		ok: "#AAD94C", warn: "#FFB454", err: "#F07178", work: "#59C2FF", selDim: "#1E232B", merged: "#D2A6FF", bg: "#0B0E14", fg: "#BFBDB6"},
 	{name: "night-owl", label: "Night Owl", accent: "#82AAFF", selFG: "#011627", border: "#1D3B53", muted: "#637777",
 		ok: "#22DA6E", warn: "#ADDB67", err: "#EF5350", work: "#7FDBCA", selDim: "#1D3B53", merged: "#C792EA", bg: "#011627", fg: "#D6DEEB"},
+	// conch's own, drawn for the desktop styles: Firefly is a meadow at
+	// night, Cel flat cel-shaded colour. Accent, working, ok and warning
+	// differ in each, since a commit graph's first lanes take them in turn.
+	{name: "firefly", label: "Firefly", accent: "#9CC77A", selFG: "#1D2333", border: "#3A4560", muted: "#8189A0",
+		ok: "#7FD1AE", warn: "#F2D46B", err: "#EF8A73", work: "#8EC5E6", selDim: "#2C3650", merged: "#C3A6E8", bg: "#1D2333", fg: "#E6E1CF"},
+	{name: "cel", label: "Cel", accent: "#FF5C8A", selFG: "#1A1C2C", border: "#4A4D78", muted: "#9A9CC4",
+		ok: "#7AE582", warn: "#FFD166", err: "#FF6B6B", work: "#4CC9F0", selDim: "#2E3152", merged: "#B892FF", bg: "#1A1C2C", fg: "#F1F0FF"},
 	// Light ones, last: for a light terminal, and for Conch.app under the
 	// light appearance, which takes the same [ui] theme.
 	{name: "github-light", label: "GitHub Light", accent: "#0969DA", selFG: "#FFFFFF", border: "#D0D7DE", muted: "#656D76",
@@ -72,6 +79,12 @@ var themes = []palette{
 		ok: "#859900", warn: "#B58900", err: "#DC322F", work: "#2AA198", selDim: "#EEE8D5", merged: "#6C71C4", bg: "#FDF6E3", fg: "#586E75"},
 	{name: "catppuccin-latte", label: "Catppuccin Latte", accent: "#1E66F5", selFG: "#EFF1F5", border: "#BCC0CC", muted: "#8C8FA1",
 		ok: "#40A02B", warn: "#DF8E1D", err: "#D20F39", work: "#04A5E5", selDim: "#CCD0DA", merged: "#8839EF", bg: "#EFF1F5", fg: "#4C4F69"},
+	// Ink is black ink on paper with one spot red; Meadow is sky, grass
+	// and sun on warm paper, Firefly's daytime.
+	{name: "ink", label: "Ink", accent: "#E0353D", selFG: "#FFFFFF", border: "#111111", muted: "#6B6860",
+		ok: "#2F7D32", warn: "#B26A00", err: "#9B1C1C", work: "#1F5FA8", selDim: "#E4E1D8", merged: "#6A3FA0", bg: "#FBFAF6", fg: "#111111"},
+	{name: "meadow", label: "Meadow", accent: "#4F8A3C", selFG: "#FFFFFF", border: "#D9CFB4", muted: "#7E8B80",
+		ok: "#2E8B6E", warn: "#C9822A", err: "#C15A3F", work: "#3F84AD", selDim: "#E6EDD8", merged: "#8A6BB0", bg: "#F7F1DF", fg: "#34453A"},
 }
 
 // accentColors are the named choices for [ui] accent. Each is dark enough

@@ -95,9 +95,13 @@ extension ConchTheme {
         .init("github-dark", "GitHub Dark", accent: "#1F6FEB", selFG: "#FFFFFF", border: "#30363D", muted: "#8B949E", ok: "#3FB950", warn: "#D29922", err: "#F85149", work: "#79C0FF", selDim: "#21262D", bg: "#0D1117", fg: "#C9D1D9", ui: "#4493F8"),
         .init("ayu", "Ayu Dark", accent: "#E6B450", selFG: "#0B0E14", border: "#3D424D", muted: "#565B66", ok: "#AAD94C", warn: "#FFB454", err: "#F07178", work: "#59C2FF", selDim: "#1E232B", bg: "#0B0E14", fg: "#BFBDB6"),
         .init("night-owl", "Night Owl", accent: "#82AAFF", selFG: "#011627", border: "#1D3B53", muted: "#637777", ok: "#22DA6E", warn: "#ADDB67", err: "#EF5350", work: "#7FDBCA", selDim: "#1D3B53", bg: "#011627", fg: "#D6DEEB"),
+        .init("firefly", "Firefly", accent: "#9CC77A", selFG: "#1D2333", border: "#3A4560", muted: "#8189A0", ok: "#7FD1AE", warn: "#F2D46B", err: "#EF8A73", work: "#8EC5E6", selDim: "#2C3650", bg: "#1D2333", fg: "#E6E1CF"),
+        .init("cel", "Cel", accent: "#FF5C8A", selFG: "#1A1C2C", border: "#4A4D78", muted: "#9A9CC4", ok: "#7AE582", warn: "#FFD166", err: "#FF6B6B", work: "#4CC9F0", selDim: "#2E3152", bg: "#1A1C2C", fg: "#F1F0FF"),
         .init("github-light", "GitHub Light", accent: "#0969DA", selFG: "#FFFFFF", border: "#D0D7DE", muted: "#656D76", ok: "#1A7F37", warn: "#9A6700", err: "#CF222E", work: "#0969DA", selDim: "#DDF4FF", bg: "#FFFFFF", fg: "#1F2328", light: true),
         .init("solarized-light", "Solarized Light", accent: "#268BD2", selFG: "#FDF6E3", border: "#D3CBB7", muted: "#93A1A1", ok: "#859900", warn: "#B58900", err: "#DC322F", work: "#2AA198", selDim: "#EEE8D5", bg: "#FDF6E3", fg: "#586E75", light: true),
         .init("catppuccin-latte", "Catppuccin Latte", accent: "#1E66F5", selFG: "#EFF1F5", border: "#BCC0CC", muted: "#8C8FA1", ok: "#40A02B", warn: "#DF8E1D", err: "#D20F39", work: "#04A5E5", selDim: "#CCD0DA", bg: "#EFF1F5", fg: "#4C4F69", light: true),
+        .init("ink", "Ink", accent: "#E0353D", selFG: "#FFFFFF", border: "#111111", muted: "#6B6860", ok: "#2F7D32", warn: "#B26A00", err: "#9B1C1C", work: "#1F5FA8", selDim: "#E4E1D8", bg: "#FBFAF6", fg: "#111111", light: true),
+        .init("meadow", "Meadow", accent: "#4F8A3C", selFG: "#FFFFFF", border: "#D9CFB4", muted: "#7E8B80", ok: "#2E8B6E", warn: "#C9822A", err: "#C15A3F", work: "#3F84AD", selDim: "#E6EDD8", bg: "#F7F1DF", fg: "#34453A", light: true),
     ]
 
     public static var conch: ConchTheme { all[0] }

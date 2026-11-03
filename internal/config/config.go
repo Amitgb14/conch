@@ -305,8 +305,8 @@ type UICfg struct {
 	Mouse bool `toml:"mouse"`
 	// Theme is the colour scheme: conch, dracula, catppuccin, nord, gruvbox,
 	// tokyo-night, one-dark, solarized, rose-pine, kanagawa, everforest,
-	// monokai, github-dark, ayu, night-owl, or a light one: github-light,
-	// solarized-light or catppuccin-latte.
+	// monokai, github-dark, ayu, night-owl, firefly, cel, or a light one:
+	// github-light, solarized-light, catppuccin-latte, ink or meadow.
 	Theme string `toml:"theme"`
 	// LightTheme, when set, is the theme Conch.app takes while macOS is in
 	// light appearance, Theme being the one for dark: the app follows the

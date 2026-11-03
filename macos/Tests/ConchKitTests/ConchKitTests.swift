@@ -394,7 +394,13 @@ final class FakeServer: @unchecked Sendable {
         let t = ConchTheme.all[i]
         #expect(t.id == name && t.accent.hex == accent.uppercased() && t.bg.hex == bg.uppercased(), "theme \(name)")
     }
-    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte"])
+    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte", "ink", "meadow"])
+    // conch's own four: a commit graph's first lanes take accent, working,
+    // ok and warning in turn, so none of them may repeat another.
+    for id in ["ink", "meadow", "firefly", "cel"] {
+        let t = ConchTheme.named(id)
+        #expect(t.id == id && Set([t.accent.hex, t.work.hex, t.ok.hex, t.warn.hex]).count == 4, "theme \(id)")
+    }
     #expect(Set(ConchTheme.all.map(\.id)).count == ConchTheme.all.count)
 }
 

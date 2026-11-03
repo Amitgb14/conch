@@ -385,12 +385,40 @@ func TestChromeOnLightAndDark(t *testing.T) {
 	}
 	// Text that sets only a background stays readable on a light theme's
 	// dim selection.
-	for _, name := range []string{"github-light", "solarized-light", "catppuccin-latte"} {
+	for _, name := range []string{"github-light", "solarized-light", "catppuccin-latte", "ink", "meadow"} {
 		th := themeByName(name)
 		if th.name != name || luminance(textOn(th.selDim)) > 0.5 {
 			t.Errorf("%s: missing, or light text on its light selection", name)
 		}
 	}
+}
+
+// conch's own themes (Firefly, Cel, Ink, Meadow) are there by name, and a
+// commit graph's first four lanes — accent, working, ok, warning in turn
+// (laneStyle) — come out four different colours in each.
+func TestConchOwnThemes(t *testing.T) {
+	for _, name := range []string{"firefly", "cel", "ink", "meadow"} {
+		th := themeByName(name)
+		if th.name != name {
+			t.Fatalf("no theme %q", name)
+		}
+		seen := map[lipgloss.Color]bool{}
+		for _, c := range []lipgloss.Color{th.accent, th.work, th.ok, th.warn} {
+			if seen[c] {
+				t.Errorf("%s: lane colour %s repeats", name, c)
+			}
+			seen[c] = true
+		}
+		applyTheme(name, "")
+		for i := 0; i < 4; i++ {
+			for j := i + 1; j < 4; j++ {
+				if laneStyle(i).GetForeground() == laneStyle(j).GetForeground() {
+					t.Errorf("%s: lanes %d and %d share a colour", name, i, j)
+				}
+			}
+		}
+	}
+	applyTheme("conch", "")
 }
 
 // Conch.app keeps its own copy of the palettes (ConchKit/Themes.swift), and
