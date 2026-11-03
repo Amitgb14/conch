@@ -1572,3 +1572,23 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let bare = try conchDecoder().decode(PairInfo.self, from: Data(#"{"code":"1","permission":"full","expires":"2026-11-03T09:05:00Z","reach":"","where":"x","running":true,"can_start":false}"#.utf8))
     #expect(bare.link == nil && bare.url == nil && bare.running == true)
 }
+
+// A theme saved that is right not to show now says where it will:
+// light_theme chosen while macOS is dark, or theme while it is light with
+// a light_theme set. One that shows now says nothing more.
+@Test func themeSaveNotes() {
+    func ui(_ theme: String, _ light: String? = nil) -> [String: JSONValue] {
+        var o: [String: JSONValue] = ["theme": .string(theme)]
+        if let light { o["light_theme"] = .string(light) }
+        return ["ui": .object(o)]
+    }
+    let dark = themeSaveNote(ui("nord"), ui("nord", "github-light"), dark: true)
+    #expect(dark?.contains("GitHub Light") == true && dark?.contains("dark now") == true)
+    #expect(themeSaveNote(ui("nord"), ui("nord", "github-light"), dark: false) == nil) // shows at once
+    let light = themeSaveNote(ui("nord", "meadow"), ui("firefly", "meadow"), dark: false)
+    #expect(light?.contains("Firefly") == true && light?.contains("Meadow shows") == true)
+    #expect(themeSaveNote(ui("nord"), ui("firefly"), dark: false) == nil)         // no light_theme: theme shows
+    #expect(themeSaveNote(ui("nord"), ui("firefly"), dark: true) == nil)
+    #expect(themeSaveNote(ui("nord", "meadow"), ui("nord", ""), dark: true) == nil) // Off: theme shows
+    #expect(themeSaveNote([:], [:], dark: true) == nil)
+}

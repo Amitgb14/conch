@@ -166,3 +166,20 @@ public func savedThemeChanged(_ before: [String: JSONValue], _ after: [String: J
     let b = before["ui"]?.object ?? [:], a = after["ui"]?.object ?? [:]
     return ["theme", "light_theme"].contains { b[$0] != a[$0] }
 }
+
+/// What saving says when the theme chosen is not the one on screen now:
+/// a light_theme chosen while macOS is dark (or theme while it is light,
+/// with a light_theme set) is right not to show, which looks like nothing
+/// happened. nil when what changed is what the window now shows.
+public func themeSaveNote(_ before: [String: JSONValue], _ after: [String: JSONValue], dark: Bool) -> String? {
+    let b = before["ui"]?.object ?? [:], a = after["ui"]?.object ?? [:]
+    let light = a["light_theme"]?.string ?? ""
+    if dark, b["light_theme"] != a["light_theme"], !light.isEmpty {
+        return "Saved — \(ConchTheme.named(light).label) is the window's while macOS is in light appearance; it is dark now"
+    }
+    if !dark, b["theme"] != a["theme"], !light.isEmpty {
+        let t = ConchTheme.named(a["theme"]?.string).label
+        return "Saved — \(t) is the window's while macOS is in dark appearance; it is light now, so \(ConchTheme.named(light).label) shows"
+    }
+    return nil
+}

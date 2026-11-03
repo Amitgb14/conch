@@ -83,7 +83,8 @@ final class SettingsModel: ObservableObject {
                     // would otherwise keep the window as it was.
                     if savedThemeChanged(f.payload.config, saved.config) { store.chooseTheme("") }
                     form?.reset(saved)
-                    status = "Saved to config.toml — an open TUI takes it in, and this window too"
+                    status = themeSaveNote(f.payload.config, saved.config, dark: store.systemDark)
+                        ?? "Saved to config.toml — an open TUI takes it in, and this window too"
                     failure = ""
                 case 409:
                     let rf = try? JSONDecoder().decode(Refusal.self, from: data)

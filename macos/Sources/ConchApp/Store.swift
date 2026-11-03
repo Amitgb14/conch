@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import ConchKit
 import Foundation
 import UniformTypeIdentifiers
@@ -97,6 +98,7 @@ final class Store: ObservableObject {
         loadWorkspaces()
         Theme.style = style
         if style.roster { sidebarVisible = false }
+        watchChanges()
         loadTheme()
         watchClicks()
         watchConfig()
@@ -231,6 +233,24 @@ final class Store: ObservableObject {
     /// The Cel roster: every agent and terminal the workspace shows, on
     /// every machine, narrowed to rosterProject when one is picked.
     var rosterCards: [RosterCard] {
+        // Once per change of the store, however many views read it: the
+        // roster and the log both do, and every card redraws on any change.
+        if let c = rosterMemo { return c }
+        let cards = buildRoster()
+        rosterMemo = cards
+        return cards
+    }
+
+    /// The roster as last built; let go whenever the store is about to
+    /// change (watchChanges), so the next read builds it afresh.
+    private var rosterMemo: [RosterCard]?
+    private var memoWatch: AnyCancellable?
+
+    private func watchChanges() {
+        memoWatch = objectWillChange.sink { [weak self] _ in self?.rosterMemo = nil }
+    }
+
+    private func buildRoster() -> [RosterCard] {
         let only = rosterFilter
         return roster(machines.flatMap { m -> [RosterCard] in
             let snap = snapshots[m.id] ?? Snapshot()
