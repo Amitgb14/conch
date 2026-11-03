@@ -19,6 +19,8 @@ final class SessionsModel: ObservableObject {
     @Published var loading = false
     @Published var partial = false
     @Published var error = ""
+    /// How many times running a partial list has been asked again.
+    private var asked = 0
 
     init(key: String, store: Store) {
         self.key = key
@@ -43,8 +45,17 @@ final class SessionsModel: ObservableObject {
                 sessions = r.sessions ?? []
                 partial = r.partial ?? false
                 error = ""
-                // An agent that had not answered yet is asked again.
-                if partial { try? await Task.sleep(nanoseconds: 2_000_000_000); load() }
+                // An agent that had not answered yet is asked again — a few
+                // times, and only while the list is on screen: one whose
+                // store always hangs was asked every two seconds for ever,
+                // its tab closed or not.
+                if partial, asked < 5, store.isShown(key) {
+                    asked += 1
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    load()
+                } else if !partial {
+                    asked = 0
+                }
             } catch {
                 self.error = "Could not read the sessions: \(error)"
             }

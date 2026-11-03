@@ -1411,3 +1411,33 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(AppStyle.celRosterWhole(height: 820) && AppStyle.celRosterWhole(height: 620) && !AppStyle.celRosterWhole(height: 619) && !AppStyle.celRosterWhole(height: 440))
     #expect(!AppStyle.celSideFits(width: 0) && !AppStyle.celRosterWhole(height: 0))
 }
+
+// A peer gone mid-conversation is an error to the caller, not SIGPIPE: a
+// bridge that has exited, and a server socket closed under the client.
+// The app does not ignore the signal the way this test runner does, so
+// each descriptor must say it never raises it.
+@Test func writeToAGonePeer() async throws {
+    let bridge = try Connection(command: "/bin/sh", args: ["-c", "exec 0<&-; sleep 0.05"], environment: [:], queue: DispatchQueue(label: "t1"))
+    #expect(bridge.writesWithoutSigPipe)
+    try await Task.sleep(nanoseconds: 300_000_000)
+    await #expect(throws: (any Error).self) { try await bridge.call("pane.list", as: PaneList.self) }
+
+    let path = "/tmp/conch-test-\(UUID().uuidString.prefix(8)).sock"
+    defer { unlink(path) }
+    let server = try FakeServer(path: path) { _ in ["result": ["version": "x"]] }
+    let c = try Connection(path: path, queue: DispatchQueue(label: "t2"))
+    #expect(c.writesWithoutSigPipe)
+    try await c.handshake()
+    server.stop()
+    try await Task.sleep(nanoseconds: 100_000_000)
+    for _ in 0..<3 { await #expect(throws: (any Error).self) { try await c.call("pane.list", as: PaneList.self) } }
+}
+
+// After a reload the app tries this computer's server again soon, then
+// less often; and only a pane's key is one a reconnect may close.
+@Test func reconnecting() {
+    #expect((1...7).map(reconnectDelay) == [1, 2, 4, 8, 15, 15, 15])
+    #expect(reconnectDelay(0) == 1 && reconnectDelay(-3) == 1)
+    #expect(isPaneKey("local|p3") && isPaneKey("p3") && isPaneKey("busybox|p1"))
+    #expect(!isPaneKey(commitsKey("local", "r1")) && !isPaneKey("sessions|local|r1"))
+}

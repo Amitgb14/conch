@@ -215,3 +215,16 @@ extension Layout {
         }
     }
 }
+
+/// Whether a layout key is a pane's ("machine|id"), rather than a view of
+/// a branch's changes, a project's commits or its sessions.
+public func isPaneKey(_ k: String) -> Bool {
+    parseChangesKey(k) == nil && parseCommitsKey(k) == nil && parseSessionsKey(k) == nil
+}
+
+/// How long to wait before trying this computer's server again, the nth
+/// time in a row (from 1): soon, since a reload is back within a second or
+/// two, and less often after, never more than 15s.
+public func reconnectDelay(_ attempt: Int) -> Double {
+    min(pow(2, Double(min(max(attempt, 1), 5) - 1)), 15)
+}

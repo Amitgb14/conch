@@ -251,6 +251,11 @@ extension NSToolbarItem.Identifier {
 // the application starts, which is when AppKit reads it.
 UserDefaults.standard.set("WhenScrolling", forKey: "AppleShowScrollBars")
 
+// And for every other pipe the app writes to (a conch it runs, a pane's
+// terminal): a reader gone is an error where it is written, never the end
+// of the app.
+signal(SIGPIPE, SIG_IGN)
+
 let app = NSApplication.shared
 let delegate = MainActor.assumeIsolated { AppDelegate() }
 app.delegate = delegate

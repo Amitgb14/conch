@@ -69,6 +69,7 @@ public final class Connection: @unchecked Sendable {
             close(fd)
             throw ConchError(code: "connect", message: "conch's server is not answering at \(path) (\(why))")
         }
+        noSigPipe(fd)
         let reader = Thread { [weak self] in self?.readLoop() }
         reader.name = "conch-socket"
         reader.start()
@@ -93,10 +94,16 @@ public final class Connection: @unchecked Sendable {
         fd = output.fileHandleForReading.fileDescriptor
         wfd = input.fileHandleForWriting.fileDescriptor
         pipes = [input, output, errors]
+        noSigPipe(wfd)
         let reader = Thread { [weak self] in self?.readLoop() }
         reader.name = "conch-bridge"
         reader.start()
     }
+
+    /// Whether a write to a gone peer is an error here rather than SIGPIPE
+    /// (noSigPipe): the test runner ignores the signal itself, so only the
+    /// descriptor can say.
+    public var writesWithoutSigPipe: Bool { fcntl(wfd, F_GETNOSIGPIPE) == 1 }
 
     private var pipes: [Pipe] = []
     private var stderr: Pipe?
@@ -183,6 +190,7 @@ public final class Connection: @unchecked Sendable {
             var off = 0
             while off < buf.count {
                 let n = Darwin.write(wfd, buf.baseAddress! + off, buf.count - off)
+                if n < 0 && errno == EINTR { continue }
                 if n <= 0 { return false }
                 off += n
             }
@@ -243,4 +251,11 @@ public final class Connection: @unchecked Sendable {
         for (_, f) in waiting { f(.failure(ConchError(code: "closed", message: "the connection to conch's server closed"))) }
         queue.async { [weak self] in self?.onClose?(nil) }
     }
+}
+
+/// A write to a peer that has gone — a server reloading or stopped, a
+/// bridge's ssh that died — is an error to return, not SIGPIPE, which ends
+/// the whole app. Darwin's per-descriptor switch, for a socket or a pipe.
+func noSigPipe(_ fd: Int32) {
+    _ = fcntl(fd, F_SETNOSIGPIPE, 1)
 }

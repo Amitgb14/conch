@@ -19,7 +19,11 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
     /// key(machine, pane)
     let pane: String
     let view: NSView
-    @Published var ended: String?
+    @Published var ended: String? {
+        didSet { if ended != nil, oldValue == nil { store?.terminalEnded(pane, lived: Date().timeIntervalSince(started)) } }
+    }
+    private weak var store: Store?
+    private let started = Date()
 
     /// Which terminal the panes are drawn with, for the status bar.
     static var engine: String {
@@ -32,6 +36,7 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
 
     init(key k: String, binary: String?, store: Store) {
         self.pane = k
+        self.store = store
         let env = conchEnvironment()
         // `conch attach`, with -m for a pane on another machine.
         let (machine, id) = unkey(k)

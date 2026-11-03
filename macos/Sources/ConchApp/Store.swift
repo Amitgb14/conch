@@ -657,6 +657,13 @@ final class Store: ObservableObject {
             link.sandbox = e.sandboxProvider != nil
             next.append(link)
         }
+        // A machine taken out of machines.json is let go: its connection,
+        // and the bridge process behind it.
+        let kept = Set(next.map(\.id))
+        for (id, c) in conns where !kept.contains(id) {
+            conns[id] = nil
+            c.shutdown()
+        }
         machines = next
         for m in machines where conns[m.id] == nil { Task { await connect(m.id) } }
     }
@@ -699,6 +706,8 @@ final class Store: ObservableObject {
             let projects = try await c.call("project.list", as: ProjectList.self)
             snapshots[machine] = Snapshot(panes: panes.panes, projects: projects.projects)
             setState(machine, "", version: c.hello?.version ?? "")
+            localRetries = 0
+            settle(machine, alive: Set(panes.panes.filter(\.running).map { key(machine, $0.id) }))
             if machine == "local" {
                 error = nil
                 status = ""
@@ -745,8 +754,33 @@ final class Store: ObservableObject {
         }
     }
 
-    /// A machine's connection went: said on its row, and tried again in a
-    /// while for one elsewhere (this computer's has a button).
+    /// Back in touch with a machine: tabs on its panes that went while it
+    /// was away are closed, in every workspace, and the panes whose attach
+    /// ended meanwhile are started again.
+    private func settle(_ machine: String, alive: Set<String>) {
+        func gone(_ id: String) -> Bool {
+            isPaneKey(id) && unkey(id).machine == machine && !alive.contains(id)
+        }
+        for id in layout.tabs.flatMap(\.root.panes) where gone(id) { layout.close(id) }
+        for w in parkedTabs.keys {
+            for id in parkedTabs[w]?.tabs.flatMap(\.root.panes) ?? [] where gone(id) { parkedTabs[w]?.close(id) }
+        }
+        for k in restartOnConnect where unkey(k).machine == machine {
+            restartOnConnect.remove(k)
+            if alive.contains(k) { restartTerminal(k) } else { terminals.removeValue(forKey: k)?.stop() }
+        }
+        // Any other attach of this machine's that ended with the old
+        // connection is live again too.
+        for (k, t) in terminals where unkey(k).machine == machine && t.ended != nil && alive.contains(k) { restartTerminal(k) }
+    }
+
+    /// Tries to reach this computer's server again after it went: a
+    /// reload comes back within a second or two, a stop does not.
+    private var localRetries = 0
+
+    /// A machine's connection went: said on its row, and tried again —
+    /// this computer's soon and then less often (a reload is back in a
+    /// moment), one elsewhere in a while.
     private func closed(_ machine: String, why: String) {
         guard conns[machine] != nil || machines.first(where: { $0.id == machine })?.state == "connecting" else { return }
         conns[machine] = nil
@@ -763,6 +797,12 @@ final class Store: ObservableObject {
         if let i = machines.firstIndex(where: { $0.id == machine }) { machines[i].why = reason }
         if machine == "local" {
             status = reason.isEmpty ? "The connection to conch's server closed." : reason
+            localRetries += 1
+            let wait = reconnectDelay(localRetries)
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                guard let self, self.conns["local"] == nil else { return }
+                Task { await self.connect("local") }
+            }
         } else {
             // A stopped sandbox is looked at less often: asking costs a call
             // to its provider, and it will not start by itself.
@@ -787,7 +827,14 @@ final class Store: ObservableObject {
             // sidebar and its tab. A TUI open may close it first; the
             // second close finds it gone, which is fine.
             if name == "pane.exited", closesOnExit(p), let c = conns[machine] {
-                Task { try? await c.call("pane.close", PaneRefParams(id: p.id)) }
+                // A TUI open on the machine closes it itself, and knows the
+                // panes it keeps that this app cannot tell apart — a custom
+                // action's terminal, an installer's — so it is left to it.
+                Task {
+                    if c.hello?.capabilities?.contains("view.v1") == true,
+                       let v = try? await c.call("view.get", as: ViewState.self), !(v.tabs ?? []).isEmpty { return }
+                    try? await c.call("pane.close", PaneRefParams(id: p.id))
+                }
             }
             if p.agent?.state == .blocked {
                 if was != .blocked || questions[k] == nil { ask(k) }
@@ -803,6 +850,8 @@ final class Store: ObservableObject {
             let k = key(machine, p.id)
             snap.remove(pane: p.id)
             layout.close(k)
+            for w in parkedTabs.keys { parkedTabs[w]?.close(k) } // other workspaces' tabs too
+            restartOnConnect.remove(k)
             terminals.removeValue(forKey: k)?.stop()
             questions.removeValue(forKey: k)
         case "project.updated":
@@ -823,7 +872,7 @@ final class Store: ObservableObject {
                 var paths: [String]?
             }
             if let ch = try? dec.decode(Changed.self, from: data) {
-                for v in changeViews.values where v.machine == machine && v.project == ch.project_id {
+                for (k, v) in changeViews where v.machine == machine && v.project == ch.project_id && isShown(k) {
                     v.written(ch.paths ?? [], worktree: ch.worktree)
                 }
             }
@@ -895,6 +944,41 @@ final class Store: ObservableObject {
         let t = PaneTerminal(key: k, binary: binary, store: self)
         terminals[k] = t
         return t
+    }
+
+    /// Whether a tab or split shows k, in this workspace or another's.
+    func isShown(_ k: String) -> Bool {
+        layout.tab(showing: k) != nil || parkedTabs.values.contains { $0.tab(showing: k) != nil }
+    }
+
+    /// Panes whose `conch attach` ended while their machine was away —
+    /// a server reloading closes every connection, attach's with it — to
+    /// be started again once it is back.
+    private var restartOnConnect: Set<String> = []
+
+    /// A pane's `conch attach` ended. If the pane is still there (its
+    /// machine reloaded, a bridge dropped) a new one is started, so the
+    /// view is live again rather than the last screen for ever. One that
+    /// ended within seconds of starting is left ended: restarting it would
+    /// only end again, as fast as it can.
+    func terminalEnded(_ k: String, lived: TimeInterval) {
+        guard lived >= 2, isShown(k) else { return }
+        let machine = unkey(k).machine
+        guard conns[machine] != nil else {
+            restartOnConnect.insert(k)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.terminals[k]?.ended != nil else { return }
+            if self.pane(k)?.running == true { self.restartTerminal(k) } else { self.restartOnConnect.insert(k) }
+        }
+    }
+
+    private func restartTerminal(_ k: String) {
+        let hadKeyboard = terminalHasKeyboard && layout.focused == k
+        terminals.removeValue(forKey: k)?.stop()
+        objectWillChange.send() // its card asks for a new one
+        if hadKeyboard { focusTerminal() }
     }
 
     func open(_ k: String) {
