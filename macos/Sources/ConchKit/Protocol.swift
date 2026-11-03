@@ -44,6 +44,29 @@ public struct Tokens: Decodable, Equatable, Sendable {
     }
 }
 
+/// An agent running inside another agent's process, known from the hooks
+/// that say it started and stopped.
+public struct Subagent: Decodable, Equatable, Sendable {
+    public var id: String
+    public var type: String?
+    /// The task it was given, when known.
+    public var description: String?
+    public var since: Date?
+
+    public init(id: String, type: String? = nil, description: String? = nil) {
+        self.id = id
+        self.type = type
+        self.description = description
+    }
+
+    /// What its row says: the task, else its kind, else its id.
+    public var title: String {
+        if let d = description, !d.isEmpty { return d }
+        if let t = type, !t.isEmpty { return t }
+        return id
+    }
+}
+
 public struct AgentStatus: Decodable, Equatable, Sendable {
     public var name: String
     public var state: AgentState
@@ -51,6 +74,10 @@ public struct AgentStatus: Decodable, Equatable, Sendable {
     public var failed: Bool?
     public var since: Date?
     public var tokens: Tokens?
+    /// The agents this one runs inside its own process (Claude Code's
+    /// Agent tool), which have no pane of their own; none from an older
+    /// server.
+    public var subagents: [Subagent]?
 
     public init(name: String, state: AgentState, message: String? = nil, failed: Bool? = nil, since: Date? = nil,
                 tokens: Tokens? = nil) {

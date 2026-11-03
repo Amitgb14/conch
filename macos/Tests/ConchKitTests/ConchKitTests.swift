@@ -1592,3 +1592,53 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(themeSaveNote(ui("nord", "meadow"), ui("nord", ""), dark: true) == nil) // Off: theme shows
     #expect(themeSaveNote([:], [:], dark: true) == nil)
 }
+
+// Panes an agent started are listed under it, and the subagents it runs
+// in its own process under it too, as the TUI lists them: a helper whose
+// creator is in another list stays where it was, a loop of creators still
+// lists everyone, and an agent that has exited shows no subagents.
+@Test func helpersAndSubagents() throws {
+    var lead = PaneInfo(id: "p1", name: "claude", agent: AgentStatus(name: "claude", state: .working))
+    lead.agent?.subagents = [Subagent(id: "a1", type: "Explore", description: "Find the flaky test"), Subagent(id: "a2", type: "general-purpose")]
+    var helper = PaneInfo(id: "p2", name: "codex", agent: AgentStatus(name: "codex", state: .working))
+    helper.createdBy = "p1"
+    var grand = PaneInfo(id: "p3", name: "reviewer", agent: AgentStatus(name: "claude", state: .idle))
+    grand.createdBy = "p2"
+    var stray = PaneInfo(id: "p4", name: "other", agent: AgentStatus(name: "codex", state: .idle))
+    stray.createdBy = "p9" // its creator is not in this list
+    let s = Snapshot(panes: [lead, helper, grand, stray])
+    let forest = s.paneForest([lead, helper, grand, stray], "local")
+    #expect(forest.map(\.title) == ["claude", "other"])
+    let top = forest[0]
+    #expect(top.children?.map(\.title) == ["codex", "Find the flaky test", "general-purpose"])
+    #expect(top.fold == "pane:p1" && top.children?[0].children?.map(\.title) == ["reviewer"])
+    #expect(top.children?[1].kind == .subagent(pane: "local|p1", id: "a1") && top.children?[1].detail == "Explore")
+    #expect(forest[1].children == nil && forest[1].fold == nil)
+    // On another machine, the TUI's fold id carries the machine.
+    #expect(s.paneForest([lead], "busybox").first?.fold == "pane:busybox~p1")
+    // Exited: no subagents under it, so no fold.
+    var gone = lead
+    gone.state = "exited"
+    #expect(s.paneForest([gone], "local").first?.children == nil)
+    // A loop of creators: both listed, neither twice.
+    var x = PaneInfo(id: "x", name: "x"), y = PaneInfo(id: "y", name: "y")
+    x.createdBy = "y"; y.createdBy = "x"
+    let loop = s.paneForest([x, y], "local")
+    let all = loop.flatMap { [$0.title] + ($0.children ?? []).map(\.title) }
+    #expect(Set(all) == ["x", "y"] && all.count == 2)
+    #expect(Subagent(id: "z").title == "z" && Subagent(id: "z", type: "Plan").title == "Plan")
+    let a = try conchDecoder().decode(AgentStatus.self, from: Data(#"{"name":"claude","state":"working","subagents":[{"id":"a1","type":"Explore","description":"d","since":"2026-11-03T09:00:00Z"}]}"#.utf8))
+    #expect(a.subagents?.first?.title == "d")
+    #expect(try conchDecoder().decode(AgentStatus.self, from: Data(#"{"name":"claude","state":"idle"}"#.utf8)).subagents == nil)
+}
+
+// A section's count is every pane in it, helpers nested under their agent
+// included, as the TUI counts it.
+@Test func sectionCountsHelpers() {
+    let proj = ProjectInfo(id: "r1", name: "api", path: "/src/api")
+    var a = PaneInfo(id: "p1", name: "claude", agent: AgentStatus(name: "claude", state: .working)); a.projectID = "r1"
+    var h = PaneInfo(id: "p2", name: "codex", agent: AgentStatus(name: "codex", state: .idle)); h.projectID = "r1"; h.createdBy = "p1"
+    let t = Snapshot(panes: [a, h], projects: [proj]).tree()
+    let agents = t.children?.first?.children?.first?.children?.first { $0.title == "Agents" }
+    #expect(agents?.badge == "2" && agents?.children?.count == 1 && agents?.children?.first?.children?.first?.title == "codex")
+}

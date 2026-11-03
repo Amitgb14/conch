@@ -558,6 +558,10 @@ struct NodeView: View {
                 // Sessions folds like the sections beside it; it opens the
                 // TUI's Sessions view.
                 Text(open && !isSessions ? "▾" : "▸").font(.system(size: 10)).foregroundStyle(inverted ? Theme.window : Theme.muted).frame(width: 10)
+                    .contentShape(Rectangle().inset(by: -4))
+                    // An agent's helpers and subagents fold at the arrow: a
+                    // click on the row itself opens the agent.
+                    .onTapGesture { if isPane { withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) } } else { activateRow() } }
             } else {
                 Spacer().frame(width: 10)
             }
@@ -575,13 +579,22 @@ struct NodeView: View {
         .contentShape(Rectangle())
         .id(node.id)
         .onHover { hovering = $0 }
-        .onTapGesture {
-            // A click in the tree gives the tree the keyboard, as in the TUI.
-            store.focusSidebar()
-            store.treeCursor = node.id
-            activate()
-        }
+        .onTapGesture { activateRow() }
         .contextMenu { RowMenu(store: store, node: node) }
+    }
+
+    func activateRow() {
+        // A click in the tree gives the tree the keyboard, as in the TUI.
+        store.focusSidebar()
+        store.treeCursor = node.id
+        activate()
+    }
+
+    var isPane: Bool {
+        switch node.kind {
+        case .agent, .terminal: return true
+        default: return false
+        }
     }
 
     var isSection: Bool { if case .section = node.kind { return true }; return false }
@@ -611,6 +624,12 @@ struct NodeView: View {
                 .help(checkedOut ? "checked out in a worktree of its own" : "a branch, not checked out")
         case .sessions: LucideIcon(name: .history, size: 12)
         case .files: LucideIcon("folder-open", color: Theme.muted, size: 12)
+        case .subagent:
+            // At work inside its agent, as the TUI draws it: the spinner.
+            TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                Text(spinnerFrame(at: ctx.date)).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
+            }
+            .frame(width: 16)
         case .section: EmptyView()
         }
     }
@@ -676,6 +695,8 @@ struct NodeView: View {
         case .branch(let pr, let name, _): store.openChanges(project: pr, branch: name)
         case .sessions(let pk): store.openSessions(project: pk)
         case .files(let pk): store.openFiles(project: pk)
+        // A subagent has no screen of its own: its agent's is shown.
+        case .subagent(let pane, _): store.open(pane)
         default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }
         }
     }

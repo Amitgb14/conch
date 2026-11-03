@@ -115,7 +115,7 @@ extension Snapshot {
             out = [RowMenuItem("Add project…", .addProject(machine: machine))]
             if !projects.isEmpty { out.append(.divider) }
             out += projects.map { RowMenuItem("New task in \($0.name)…", .newTask(project: key(machine, $0.id))) }
-        case .section, .sessions, .files:
+        case .section, .sessions, .files, .subagent:
             return []
         }
         return out
@@ -127,7 +127,7 @@ extension TreeNode {
     public var machine: String? {
         switch kind {
         case .machine(let m), .cli(let m), .workspace(let m): return m
-        case .agent(let k), .terminal(let k), .project(let k), .sessions(let k), .files(let k): return unkey(k).machine
+        case .agent(let k), .terminal(let k), .project(let k), .sessions(let k), .files(let k), .subagent(let k, _): return unkey(k).machine
         case .branch(let pk, _, _): return unkey(pk).machine
         case .section: return unkey(String(id.dropFirst(2).split(separator: ":").first ?? "")).machine
         }

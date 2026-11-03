@@ -351,6 +351,8 @@ public enum NodeKind: Equatable, Sendable {
     case branch(project: String, name: String, checkedOut: Bool)
     case sessions(String) // key(machine, project)
     case files(String) // key(machine, project)
+    /// An agent's subagent: the key of the pane it runs in, and its id.
+    case subagent(pane: String, id: String)
     case cli(String)
     case workspace(String) // a machine's projects, grouped as the TUI groups them
 }
@@ -400,15 +402,17 @@ extension Snapshot {
             let pk = key(machine, pr.id)
             let tui = "p:" + (machine == "local" ? pr.id : "\(machine)~\(pr.id)") // the TUI's projectNodeID
             let mine = shown.filter { $0.projectID == pr.id }
-            let agents = mine.filter { $0.agent != nil }.map { paneNode($0, machine) }
-            let terminals = mine.filter { $0.agent == nil }.map { paneNode($0, machine) }
+            let agentPanes = mine.filter { $0.agent != nil }, terminalPanes = mine.filter { $0.agent == nil }
+            let agents = paneForest(agentPanes, machine)
+            let terminals = paneForest(terminalPanes, machine)
             let branches = listedBranches(pr).map { b in
                 TreeNode(id: "b:\(pk):\(b.name)", kind: .branch(project: pk, name: b.name, checkedOut: b.worktree != nil),
                          title: b.name, badge: branchBadge(b))
             }
             var sections: [TreeNode] = []
             if !agents.isEmpty {
-                sections.append(TreeNode(id: "s:\(pk):agents", kind: .section("Agents"), title: "Agents", badge: "\(agents.count)",
+                // Every agent, helpers nested under theirs included, as the TUI counts.
+                sections.append(TreeNode(id: "s:\(pk):agents", kind: .section("Agents"), title: "Agents", badge: "\(agentPanes.count)",
                                          children: agents, fold: tui + "/agents"))
             }
             if !branches.isEmpty {
@@ -416,7 +420,7 @@ extension Snapshot {
                 sections.append(TreeNode(id: "s:\(pk):branches", kind: .section("Branches"), title: "Branches", badge: "\(all)", children: branches, fold: tui + "/branches"))
             }
             if !terminals.isEmpty {
-                sections.append(TreeNode(id: "s:\(pk):terminals", kind: .section("Terminals"), title: "Terminals", badge: "\(terminals.count)", children: terminals, fold: tui + "/terminals"))
+                sections.append(TreeNode(id: "s:\(pk):terminals", kind: .section("Terminals"), title: "Terminals", badge: "\(terminalPanes.count)", children: terminals, fold: tui + "/terminals"))
             }
             // Its files, as the TUI lists them, before its sessions.
             sections.append(TreeNode(id: "s:\(pk):files", kind: .files(pk), title: "Files"))
@@ -437,7 +441,7 @@ extension Snapshot {
         }
         if !loose.isEmpty {
             top.append(TreeNode(id: "cli:\(machine)", kind: .cli(machine), title: "CLI", badge: "\(loose.count)",
-                                children: loose.map { paneNode($0, machine) }, fold: "m:\(machine)/cli"))
+                                children: paneForest(loose, machine), fold: "m:\(machine)/cli"))
         }
         return TreeNode(id: "m:\(machine)", kind: .machine(machine), title: label ?? machine,
                         badge: attention(shown),
@@ -450,6 +454,41 @@ extension Snapshot {
         let working = panes.filter { $0.agent?.state == .working }.count
         let (w, d) = Snapshot(panes: panes).inbox()
         return [working > 0 ? "⠋\(working)" : "", w > 0 ? "⚑\(w)" : "", d > 0 ? "✓\(d)" : ""].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// Panes as the TUI lists them (tree.go paneRows): each one an agent
+    /// started under that agent, when both are in the same list, and an
+    /// agent's subagents under it. A pane whose creator is listed elsewhere
+    /// stays where it would have been; one descending from itself stops.
+    public func paneForest(_ panes: [PaneInfo], _ machine: String) -> [TreeNode] {
+        let here = Set(panes.map(\.id))
+        var kids: [String: [PaneInfo]] = [:]
+        for p in panes {
+            if let by = p.createdBy, by != p.id, here.contains(by) { kids[by, default: []].append(p) }
+        }
+        var seen: Set<String> = []
+        func node(_ p: PaneInfo) -> TreeNode? {
+            guard seen.insert(p.id).inserted else { return nil }
+            var n = paneNode(p, machine)
+            let k = key(machine, p.id)
+            var under = (kids[p.id] ?? []).compactMap(node)
+            if p.running {
+                under += (p.agent?.subagents ?? []).map { a in
+                    TreeNode(id: "sub:\(k):\(a.id)", kind: .subagent(pane: k, id: a.id), title: a.title,
+                             detail: a.description?.isEmpty == false ? (a.type ?? "") : "")
+                }
+            }
+            if !under.isEmpty {
+                n.children = under
+                n.fold = "pane:" + (machine == "local" ? p.id : "\(machine)~\(p.id)") // the TUI's paneNodeID
+            }
+            return n
+        }
+        let roots = panes.filter { p in p.createdBy == nil || p.createdBy == p.id || !here.contains(p.createdBy!) }
+        var out = roots.compactMap(node)
+        // A pane caught in a loop of creators belongs to no root: still listed.
+        out += panes.filter { !seen.contains($0.id) }.compactMap(node)
+        return out
     }
 
     func paneNode(_ p: PaneInfo, _ machine: String) -> TreeNode {

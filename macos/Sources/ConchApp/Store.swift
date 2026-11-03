@@ -649,6 +649,9 @@ final class Store: ObservableObject {
             case .branch(let pr, let name, _): openChanges(project: pr, branch: name)
             case .sessions(let pk): openSessions(project: pk)
             case .files(let pk): openFiles(project: pk)
+            case .subagent(let pane, _):
+                open(pane)
+                focusTerminal()
             default: toggle(cur)
             }
         case .task:
