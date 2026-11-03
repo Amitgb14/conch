@@ -1215,3 +1215,53 @@ func TestA4AgentLibrary(t *testing.T) {
 		t.Fatalf("an older server: %v", err)
 	}
 }
+
+// A request conch can plan alone never reaches the model; -m and
+// no_fast_path send it there anyway.
+func TestA4AskFastPath(t *testing.T) {
+	dir := a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodPaneList:
+			return proto.PaneList{Panes: []proto.PaneInfo{
+				{ID: "p1", Name: "shell", State: proto.PaneRunning},
+				{ID: "p2", Name: "codex", State: proto.PaneRunning, Agent: &proto.AgentStatus{Name: "codex", State: "blocked"}},
+			}}, nil
+		}
+		return nil, nil
+	})
+	asked := newA4Var(0)
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked.Set(asked.Get() + 1)
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": `{"reply":"from the model","actions":[]}`}}}})
+	}))
+	defer llm.Close()
+	cfg := filepath.Join(dir, "config.toml")
+	base := fmt.Sprintf("[brain]\nprovider = \"openai\"\nmodel = \"test\"\nbase_url = %q\n", llm.URL+"/v1")
+	os.WriteFile(cfg, []byte(base), 0o600)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	var err error
+	out, errOut := a4Capture(t, "", func() { err = runAsk([]string{"-n", "tell", "codex", "to", "run", "the", "tests"}) })
+	if err != nil || out != "  1. Send to codex on this computer: Run the tests\n" || !strings.Contains(errOut, "planned without the model") || asked.Get() != 0 {
+		t.Fatalf("fast: %v %q %q asked %d", err, out, errOut, asked.Get())
+	}
+	out, _ = a4Capture(t, "", func() { err = runAsk([]string{"what's", "waiting?"}) })
+	if err != nil || out != "1 agent is waiting for you: codex (codex on this computer).\n" || asked.Get() != 0 {
+		t.Fatalf("question: %v %q asked %d", err, out, asked.Get())
+	}
+	// Run without asking: the send goes to the server.
+	if _, _ = a4Capture(t, "", func() { err = runAsk([]string{"-y", "show", "codex"}) }); err != nil || asked.Get() != 0 {
+		t.Fatalf("run: %v", err)
+	}
+
+	out, errOut = a4Capture(t, "", func() { err = runAsk([]string{"-n", "-m", "show", "codex"}) })
+	if err != nil || asked.Get() != 1 || out != "from the model\n" || !strings.Contains(errOut, "thinking (openai)") {
+		t.Fatalf("-m: %v %q %q asked %d", err, out, errOut, asked.Get())
+	}
+	os.WriteFile(cfg, []byte(base+"no_fast_path = true\n"), 0o600)
+	if _, _ = a4Capture(t, "", func() { err = runAsk([]string{"-n", "show", "codex"}) }); err != nil || asked.Get() != 2 {
+		t.Fatalf("no_fast_path: %v asked %d", err, asked.Get())
+	}
+}

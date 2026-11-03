@@ -1162,6 +1162,7 @@ var helpText = []string{
 	"  :  ask conch (ctrl+b : in a pane, or click ✦ Ask): \"start 2 agents on api to fix the flaky tests\",",
 	"     \"what is waiting for me?\", \"hand the auth thread to Codex\", \"tell every agent in api to run the tests\"",
 	"     — it proposes actions; nothing runs until you confirm",
+	"     show/close a pane, tell one agent or everyone, what is waiting: planned at once, no model (m asks it)",
 	"  S  summarise the selected agent now (automatic summaries: Settings → Brain)",
 	"",
 	"Usage",
