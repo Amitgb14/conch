@@ -1392,3 +1392,14 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(gh[0].hex != gh[1].hex && gh.count == 5)
     #expect(lanePalette(ConchTheme.named("monokai")).count == 5 && lanePalette(ConchTheme.named("everforest")).count == 5)
 }
+
+// A save that changes the theme (or the light one) is the theme to show;
+// one that changes anything else leaves the window as it is.
+@Test func savedThemeChanges() {
+    let before: [String: JSONValue] = ["ui": .object(["theme": .string("meadow"), "mouse": .bool(true)])]
+    #expect(savedThemeChanged(before, ["ui": .object(["theme": .string("conch"), "mouse": .bool(true)])]))
+    #expect(!savedThemeChanged(before, ["ui": .object(["theme": .string("meadow"), "mouse": .bool(false)])]))
+    #expect(savedThemeChanged(before, ["ui": .object(["theme": .string("meadow"), "mouse": .bool(true), "light_theme": .string("ink")])]))
+    #expect(savedThemeChanged(before, [:]) && !savedThemeChanged([:], [:]))
+    #expect(!savedThemeChanged(before, before.merging(["remote": .object([:])]) { a, _ in a }))
+}

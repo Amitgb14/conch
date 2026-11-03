@@ -159,3 +159,10 @@ public func listValue(_ text: String, ints: Bool = false) -> JSONValue {
     let lines = text.split(whereSeparator: { $0 == "\n" || $0 == "," }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     return .array(lines.compactMap { ints ? Double($0).map(JSONValue.number) : .string($0) })
 }
+
+/// Whether a save changed conch's theme for the app: [ui] theme, or the
+/// light_theme the app takes under the light appearance.
+public func savedThemeChanged(_ before: [String: JSONValue], _ after: [String: JSONValue]) -> Bool {
+    let b = before["ui"]?.object ?? [:], a = after["ui"]?.object ?? [:]
+    return ["theme", "light_theme"].contains { b[$0] != a[$0] }
+}

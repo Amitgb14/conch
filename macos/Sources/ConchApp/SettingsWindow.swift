@@ -77,7 +77,12 @@ final class SettingsModel: ObservableObject {
                 struct Refusal: Decodable { var error: String; var current: SettingsPayload? }
                 switch code {
                 case 200:
-                    form?.reset(try JSONDecoder().decode(SettingsPayload.self, from: data))
+                    let saved = try JSONDecoder().decode(SettingsPayload.self, from: data)
+                    // A theme chosen here is the one to show: it unpins a
+                    // theme picked under View → Theme or by a style, which
+                    // would otherwise keep the window as it was.
+                    if savedThemeChanged(f.payload.config, saved.config) { store.chooseTheme("") }
+                    form?.reset(saved)
                     status = "Saved to config.toml — an open TUI takes it in, and this window too"
                     failure = ""
                 case 409:
@@ -260,7 +265,12 @@ struct FieldRow: View {
     @ViewBuilder var control: some View {
         if isTheme {
             ThemeGrid(options: field.options ?? [], chosen: value?.string ?? "",
-                      choose: { set(.string($0)) }, preview: { model.store.previewTheme($0) })
+                      choose: { id in
+                          set(.string(id))
+                          // The theme saved already: nothing to save, so
+                          // showing it is unpinning what the window holds.
+                          if model.form?.payload.config["ui"]?.object?[field.key] == .string(id) { model.store.chooseTheme("") }
+                      }, preview: { model.store.previewTheme($0) })
         } else {
             plainControl
         }
