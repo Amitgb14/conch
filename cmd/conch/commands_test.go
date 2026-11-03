@@ -1216,7 +1216,7 @@ func TestA4AgentLibrary(t *testing.T) {
 	}
 }
 
-// A request conch can plan alone never reaches the model; -m and
+// A request conch can plan alone never reaches the model; -model and
 // no_fast_path send it there anyway.
 func TestA4AskFastPath(t *testing.T) {
 	dir := a4Env(t)
@@ -1256,9 +1256,9 @@ func TestA4AskFastPath(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	out, errOut = a4Capture(t, "", func() { err = runAsk([]string{"-n", "-m", "show", "codex"}) })
+	out, errOut = a4Capture(t, "", func() { err = runAsk([]string{"-n", "-model", "show", "codex"}) })
 	if err != nil || asked.Get() != 1 || out != "from the model\n" || !strings.Contains(errOut, "thinking (openai)") {
-		t.Fatalf("-m: %v %q %q asked %d", err, out, errOut, asked.Get())
+		t.Fatalf("-model: %v %q %q asked %d", err, out, errOut, asked.Get())
 	}
 	os.WriteFile(cfg, []byte(base+"no_fast_path = true\n"), 0o600)
 	if _, _ = a4Capture(t, "", func() { err = runAsk([]string{"-n", "show", "codex"}) }); err != nil || asked.Get() != 2 {
