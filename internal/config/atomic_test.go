@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,5 +61,35 @@ func TestWriteFileAtomicUnderRacingWriters(t *testing.T) {
 func TestWriteFileAtomicMissingFolder(t *testing.T) {
 	if err := WriteFileAtomic(filepath.Join(t.TempDir(), "nope", "x"), []byte("x"), 0o600); err == nil {
 		t.Fatal("wrote into a folder that is not there")
+	}
+}
+
+// The contents are synced before the rename, and a sync that fails leaves
+// the old file as it was and no temporary file behind.
+func TestWriteFileAtomicSyncs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ui.json")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := syncFile
+	t.Cleanup(func() { syncFile = old })
+	synced := 0
+	syncFile = func(f *os.File) error {
+		synced++
+		return old(f)
+	}
+	if err := WriteFileAtomic(path, []byte("new"), 0o600); err != nil || synced != 1 {
+		t.Fatalf("write: %v, synced %d times", err, synced)
+	}
+	syncFile = func(*os.File) error { return errors.New("disk full") }
+	if err := WriteFileAtomic(path, []byte("newer"), 0o600); err == nil {
+		t.Fatal("a failed sync was not an error")
+	}
+	if b, _ := os.ReadFile(path); string(b) != "new" {
+		t.Fatalf("a failed sync replaced the file: %q", b)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, ".ui.json.*.tmp")); len(left) != 0 {
+		t.Fatalf("temporary files left: %v", left)
 	}
 }

@@ -228,3 +228,17 @@ public func isPaneKey(_ k: String) -> Bool {
 public func reconnectDelay(_ attempt: Int) -> Double {
     min(pow(2, Double(min(max(attempt, 1), 5) - 1)), 15)
 }
+
+/// Requests of one kind, numbered, so a reply that arrives after a newer
+/// request was made is dropped rather than shown over the newer one's.
+public struct Latest: Sendable {
+    public private(set) var n = 0
+    public init() {}
+    /// A new request's number.
+    public mutating func next() -> Int {
+        n += 1
+        return n
+    }
+    /// Whether the request numbered so is still the newest.
+    public func isLatest(_ m: Int) -> Bool { m == n }
+}

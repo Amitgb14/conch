@@ -44,13 +44,20 @@ final class ChangesModel: ObservableObject {
         var file: String?
     }
 
+    /// Reads and diffs in flight: each one started — a click, a file
+    /// written — only shows if no newer one was started meanwhile, or a
+    /// slow reply put an older list, or another file's diff, on screen.
+    private var reads = Latest(), diffs = Latest()
+
     func load() async {
         guard let c = store?.connection(machine) else {
             error = "\(store?.label(machine) ?? machine) is not connected"
             return
         }
+        let n = reads.next()
         do {
             let ch = try await c.call("project.changes", Ref(project_id: project, branch: branch, committed: true), as: Changes.self)
+            guard reads.isLatest(n) else { return }
             changes = ch
             error = nil
             let all = ch.files.map(\.path) + (ch.committedFiles ?? []).map(\.path)
@@ -67,7 +74,7 @@ final class ChangesModel: ObservableObject {
                 await loadDiff()
             }
         } catch {
-            self.error = "\(error)"
+            if reads.isLatest(n) { self.error = "\(error)" }
         }
     }
 
@@ -79,6 +86,7 @@ final class ChangesModel: ObservableObject {
 
     func loadDiff() async {
         guard let c = store?.connection(machine), let path = selected else { return }
+        let n = diffs.next()
         do {
             if selectedCommitted, let base = changes?.base {
                 // What the branch's commits did to it: git in the branch's
@@ -91,13 +99,15 @@ final class ChangesModel: ObservableObject {
                 struct Out: Decodable { var output: String? }
                 let out = try await c.call("branch.git", Git(project_id: project, branch: branch,
                                                               commands: [["diff", "\(base)...HEAD", "--", path]]), as: Out.self)
+                guard diffs.isLatest(n) else { return }
                 diff = parseDiff(out.output ?? "")
             } else {
                 let d = try await c.call("project.diff", Ref(project_id: project, branch: branch, file: path), as: DiffResult.self)
+                guard diffs.isLatest(n) else { return }
                 diff = parseDiff(d.diff)
             }
         } catch {
-            diff = [DiffLine(id: 0, kind: .meta, text: "\(error)")]
+            if diffs.isLatest(n) { diff = [DiffLine(id: 0, kind: .meta, text: "\(error)")] }
         }
     }
 

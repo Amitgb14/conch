@@ -1441,3 +1441,12 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(isPaneKey("local|p3") && isPaneKey("p3") && isPaneKey("busybox|p1"))
     #expect(!isPaneKey(commitsKey("local", "r1")) && !isPaneKey("sessions|local|r1"))
 }
+
+// Only the newest request's reply is shown: file A then B clicked, A's
+// diff arriving last is dropped.
+@Test func latestRequest() {
+    var l = Latest()
+    let a = l.next(), b = l.next()
+    #expect(!l.isLatest(a) && l.isLatest(b) && a != b)
+    #expect(!Latest().isLatest(1) && Latest().isLatest(0) == true)
+}
