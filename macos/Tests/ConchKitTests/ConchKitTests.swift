@@ -1693,3 +1693,15 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let b = try conchDecoder().decode(BranchInfo.self, from: Data(#"{"name":"x","upstream":"origin/x","ahead":2,"base_ahead":3,"committed":"2026-11-01T10:00:00Z"}"#.utf8))
     #expect(b.upstream == "origin/x" && b.ahead == 2 && b.committed != nil)
 }
+
+// A dropped file is pasted as a terminal pastes it: escaped so a shell or
+// an agent reads one path, spaces between several and one after; a
+// machine's upload is read back as where each landed.
+@Test func droppedPaths() {
+    #expect(shellEscapedPath("/Users/a/Desktop/shot.png") == "/Users/a/Desktop/shot.png")
+    #expect(shellEscapedPath("/Users/a/Screen Shot 2026-11-03 at 9.41.12 AM.png") == "/Users/a/Screen\\ Shot\\ 2026-11-03\\ at\\ 9.41.12\\ AM.png")
+    #expect(shellEscapedPath("/tmp/it's (1)&$x.txt") == "/tmp/it\\'s\\ \\(1\\)\\&\\$x.txt")
+    #expect(dropText(["/a b", "/c"]) == "/a\\ b /c " && dropText([]) == "")
+    #expect(uploadedPaths("/home/x/uploads/shot.png\n/home/x/uploads/a b.txt\n") == ["/home/x/uploads/shot.png", "/home/x/uploads/a b.txt"])
+    #expect(uploadedPaths("uploading…\n~/uploads/x\n\n").count == 1 && uploadedPaths("").isEmpty)
+}

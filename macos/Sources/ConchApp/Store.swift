@@ -994,6 +994,44 @@ final class Store: ObservableObject {
         return t
     }
 
+    /// Files dropped on a pane, as the TUI takes a drop (drop.go): their
+    /// paths pasted in, as a terminal pastes them — on another machine the
+    /// files are uploaded there first (conch -m MACHINE upload) and the
+    /// paths they landed at pasted instead, so the agent there can open
+    /// them. The pane is checked to be there still once the copy is done.
+    func drop(_ paths: [String], on k: String) {
+        let (machine, id) = unkey(k)
+        guard !paths.isEmpty, let c = conns[machine] else { return }
+        struct Paste: Encodable { var id: String; var text: String; var paste: Bool }
+        func paste(_ p: [String]) {
+            Task { try? await c.call("pane.send_text", Paste(id: id, text: dropText(p), paste: true)) }
+            focus(k)
+            focusTerminal()
+        }
+        if machine == "local" {
+            paste(paths)
+            return
+        }
+        guard let b = binary else { return }
+        let label = self.label(machine)
+        status = "Copying \(paths.count == 1 ? (paths[0] as NSString).lastPathComponent : "\(paths.count) files") to \(label)…"
+        Task {
+            do {
+                let out = try await runConch(b, onMachine(machine, ["upload"] + paths))
+                let there = uploadedPaths(String(decoding: out, as: UTF8.self))
+                status = ""
+                guard there.count == paths.count, pane(k)?.running == true else {
+                    error = there.isEmpty ? "The files did not reach \(label)" : "Copied to \(label), but the pane has closed · nothing pasted"
+                    return
+                }
+                paste(there)
+            } catch {
+                status = ""
+                self.error = "Could not copy to \(label): \(error)"
+            }
+        }
+    }
+
     /// Whether a tab or split shows k, in this workspace or another's.
     func isShown(_ k: String) -> Bool {
         layout.tab(showing: k) != nil || parkedTabs.values.contains { $0.tab(showing: k) != nil }

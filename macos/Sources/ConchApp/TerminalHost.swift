@@ -34,6 +34,14 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
         #endif
     }
 
+    /// Files dropped on this pane: their paths pasted into it, the files
+    /// copied first when the pane is on another machine (Store.drop).
+    func dropped(_ urls: [URL]) -> Bool {
+        guard let store else { return false }
+        store.drop(urls.map(\.path), on: pane)
+        return true
+    }
+
     init(key k: String, binary: String?, store: Store) {
         self.pane = k
         self.store = store
@@ -112,7 +120,11 @@ struct TerminalHost: NSViewRepresentable {
     @Environment(\.conchTheme) private var look
 
     func makeNSView(context: Context) -> NSView {
-        let box = NSView()
+        let box = DropBox()
+        box.onDrop = { [weak terminal] urls in
+            guard let t = terminal else { return false }
+            return t.dropped(urls)
+        }
         box.wantsLayer = true
         box.layer?.backgroundColor = Theme.terminal.cgColor
         mount(in: box)
@@ -142,5 +154,46 @@ struct TerminalHost: NSViewRepresentable {
             v.topAnchor.constraint(equalTo: box.topAnchor, constant: 6),
             v.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -4),
         ])
+    }
+}
+
+/// The box a pane's terminal sits in, which takes files dropped on it:
+/// neither terminal view does, so a file dragged onto a pane did nothing.
+/// The terminal views do not register for drags, so a drop over them is
+/// this box's. An image dragged as data with no file behind it — from a
+/// browser, or a screenshot's thumbnail — is saved to a file first.
+final class DropBox: NSView {
+    var onDrop: (([URL]) -> Bool)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        registerForDraggedTypes([.fileURL, .png, .tiff])
+    }
+
+    required init?(coder: NSCoder) { fatalError("not from a nib") }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        urls(sender.draggingPasteboard, saving: false).isEmpty ? [] : .copy
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let u = urls(sender.draggingPasteboard, saving: true)
+        return !u.isEmpty && (onDrop?(u) ?? false)
+    }
+
+    /// The files on the pasteboard, or the image on it saved as one.
+    private func urls(_ pb: NSPasteboard, saving: Bool) -> [URL] {
+        if let files = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !files.isEmpty {
+            return files
+        }
+        guard let image = NSImage(pasteboard: pb) else { return [] }
+        guard saving else { return [URL(fileURLWithPath: "/")] } // there is something to drop
+        guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else { return [] }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("conch-drops", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let f = dir.appendingPathComponent("dropped-\(Int(Date().timeIntervalSince1970 * 1000)).png")
+        do { try png.write(to: f) } catch { return [] }
+        return [f]
     }
 }

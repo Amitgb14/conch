@@ -109,3 +109,28 @@ public func fileStamp(_ path: String) -> String {
           let t = a[.modificationDate] as? Date, let n = a[.size] as? NSNumber else { return "" }
     return "\(t.timeIntervalSince1970):\(n.int64Value)"
 }
+
+/// A path as a terminal pastes a dropped file's: every character a shell
+/// would take apart escaped with a backslash, as Terminal and Ghostty do,
+/// so an agent's prompt or a shell reads it as one path.
+public func shellEscapedPath(_ path: String) -> String {
+    let special = Set(" \t\\'\"`$&|;<>()[]{}*?!#~=%^,")
+    var out = ""
+    for ch in path {
+        if special.contains(ch) { out.append("\\") }
+        out.append(ch)
+    }
+    return out
+}
+
+/// What a drop of these paths pastes: each escaped, a space between, and
+/// one after, so typing goes on after the last.
+public func dropText(_ paths: [String]) -> String {
+    paths.isEmpty ? "" : paths.map(shellEscapedPath).joined(separator: " ") + " "
+}
+
+/// The paths `conch -m MACHINE upload` printed, one a line, where each
+/// file landed there.
+public func uploadedPaths(_ output: String) -> [String] {
+    output.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.hasPrefix("/") || $0.hasPrefix("~") }
+}
