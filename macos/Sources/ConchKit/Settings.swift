@@ -60,7 +60,7 @@ public struct SettingsField: Codable, Equatable, Sendable {
     public var suggest: [String]?
 
     /// The kinds a form of fields draws; tables, keyed tables and maps are
-    /// left to the browser page, which edits them.
+    /// left to config.toml, edited as text.
     public var simple: Bool { ["bool", "string", "secret", "text", "int", "float", "select", "list", "ints"].contains(kind) }
 }
 
@@ -74,6 +74,15 @@ public struct SettingsSection: Codable, Equatable, Identifiable, Sendable {
 
     /// Whether everything in it is drawn here, or some of it is the page's.
     public var simple: Bool { fields.allSatisfy(\.simple) }
+
+    /// What the panel says above a section it draws only part of: the
+    /// tables in it are edited in config.toml itself. nil when it draws all
+    /// of it.
+    public var tableNote: String? {
+        if simple { return nil }
+        return fields.allSatisfy { !$0.simple } ? "These are tables of their own, edited in config.toml."
+            : "Some of these are tables, edited in config.toml."
+    }
 }
 
 public struct SettingsPayload: Codable, Equatable, Sendable {

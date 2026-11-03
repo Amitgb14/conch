@@ -1023,7 +1023,7 @@ struct StatusBar: View {
                     .padding(.horizontal, 7).padding(.vertical, 1)
                     .background(RoundedRectangle(cornerRadius: 4).fill(Theme.accentDeep))
             }
-            .buttonStyle(.plain).help("conch's settings, in the browser (conch config web); an open TUI takes in what you save")
+            .buttonStyle(.plain).help("conch's settings (⌘,); an open TUI takes in what you save")
             // What conch uses on this computer, in the corner as in the TUI.
             Button { showMonitor.toggle() } label: {
                 MonitorIcon(color: showMonitor ? Theme.accent : Theme.muted)

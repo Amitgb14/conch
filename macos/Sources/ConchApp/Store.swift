@@ -1,6 +1,7 @@
 import AppKit
 import ConchKit
 import Foundation
+import UniformTypeIdentifiers
 
 /// A machine the window shows: this computer, or one from machines.json
 /// reached through `conch machine bridge`.
@@ -286,15 +287,26 @@ final class Store: ObservableObject {
 
     func openSettings() { onOpenSettings?() }
 
-    /// The settings page in the browser — what edits the tables the panel
-    /// leaves to it.
-    func openSettingsInBrowser() {
-        Task { if let u = await settingsPage() { NSWorkspace.shared.open(u) } }
+    /// config.toml in the text editor, for the tables the panel leaves to
+    /// it. The file is made first if it is not there yet, since an editor
+    /// asked to open a missing file opens nothing.
+    func editConfigFile() {
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: configFile) {
+            try? fm.createDirectory(atPath: conchDir, withIntermediateDirectories: true)
+            fm.createFile(atPath: configFile, contents: Data())
+        }
+        let file = URL(fileURLWithPath: configFile)
+        if let editor = NSWorkspace.shared.urlForApplication(toOpen: .plainText) {
+            NSWorkspace.shared.open([file], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+        } else {
+            NSWorkspace.shared.open(file)
+        }
     }
 
-    /// The address of conch's settings page (`conch config web`), started
-    /// once and kept while the app runs; nil when it would not start. The
-    /// panel talks to its API; the browser opens it.
+    /// The address of conch's settings API (`conch config web -no-open`),
+    /// started once and kept while the app runs; nil when it would not
+    /// start. The panel reads and saves through it; nothing opens a browser.
     func settingsPage() async -> URL? {
         if let p = settingsPage, p.isRunning, let u = settingsURL { return u }
         guard let b = binary else { return nil }

@@ -173,10 +173,10 @@ struct SettingsView: View {
                 Text(model.status).foregroundStyle(Theme.muted).lineLimit(1)
             }
             Spacer()
-            Button { model.store.openSettingsInBrowser() } label: {
-                HStack(spacing: 5) { LucideIcon("external-link", size: 12); Text("Open in browser") }
+            Button { model.store.editConfigFile() } label: {
+                HStack(spacing: 5) { LucideIcon("file-text", size: 12); Text("Edit config.toml") }
             }
-            .buttonStyle(.plain).foregroundStyle(Theme.text2)
+            .buttonStyle(.plain).foregroundStyle(Theme.text2).help("conch's settings as text, in your text editor")
             Button("Revert") { model.form?.revert() }.disabled(!(model.form?.dirty ?? false))
             Button("Save") { model.save() }.keyboardShortcut("s", modifiers: .command)
                 .disabled(!(model.form?.dirty ?? false) || model.saving)
@@ -207,12 +207,10 @@ struct SectionForm: View {
                 Text(section.title).font(.system(size: 20, weight: .semibold))
             }
             Text(section.description).foregroundStyle(Theme.text2)
-            if !section.simple {
+            if let note = section.tableNote {
                 HStack(spacing: 8) {
-                    Text(section.fields.allSatisfy { !$0.simple } ? "These are tables of their own, edited on the settings page."
-                         : "Some of these are tables, edited on the settings page.")
-                        .foregroundStyle(Theme.muted)
-                    Button("Open in browser") { model.store.openSettingsInBrowser() }.buttonStyle(.link)
+                    Text(note).foregroundStyle(Theme.muted)
+                    Button("Edit config.toml") { model.store.editConfigFile() }.buttonStyle(.link)
                 }
                 .font(.system(size: 12))
             }
