@@ -159,11 +159,15 @@ struct FilesView: View {
 }
 
 struct FileRowView: View {
+    /// Read so this is drawn again when the theme changes: its model does
+    /// not change with it.
+    @Environment(\.conchTheme) private var look
     @ObservedObject var model: FilesModel
     let row: FileRow
     @State private var hovering = false
 
     var body: some View {
+        let _ = look
         let on = model.selected == row.path
         HStack(spacing: 6) {
             Text(row.dir ? (row.open ? "▾" : "▸") : " ").font(.system(size: 10)).foregroundStyle(Theme.muted).frame(width: 10)
@@ -194,9 +198,13 @@ struct FileRowView: View {
 
 /// The start of the file picked: its text, or what it is when it has none.
 struct FilePreview: View {
+    /// Read so this is drawn again when the theme changes: its model does
+    /// not change with it.
+    @Environment(\.conchTheme) private var look
     @ObservedObject var model: FilesModel
 
     var body: some View {
+        let _ = look
         Group {
             if let p = model.preview, let path = model.selected {
                 VStack(alignment: .leading, spacing: 0) {
@@ -211,7 +219,10 @@ struct FilePreview: View {
                         note("A binary file\(p.mime.map { " (\($0))" } ?? ""): nothing to show as text.")
                     } else {
                         // At least the size it is shown in, from the top left: a
-                        // scroll view both ways centres what is smaller.
+                        // scroll view both ways centres what is smaller. A geometry
+                        // reader is not drawn again when only the theme changes,
+                        // which left the text in the last theme's colour, so the
+                        // theme is its identity: a new one draws it afresh.
                         GeometryReader { g in
                             ScrollView([.vertical, .horizontal]) {
                                 VStack(alignment: .leading, spacing: 0) {
@@ -225,6 +236,7 @@ struct FilePreview: View {
                                 .frame(minWidth: g.size.width, minHeight: g.size.height, alignment: .topLeading)
                             }
                         }
+                        .id(look)
                     }
                 }
             } else if !model.previewError.isEmpty {

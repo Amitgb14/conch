@@ -1466,8 +1466,9 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
 
 // The window is repainted in place when the theme changes, not rebuilt:
 // a view or modifier redraws only when something it depends on changes,
-// so every one that reads Theme must also watch the store (or a model) or
-// read the theme from the environment (\.conchTheme). One that did
+// so every one that reads Theme must also watch the store or the theme
+// itself (\.conchTheme, or Settings' ShownTheme) — its own model alone
+// does not change with the theme. One that did
 // neither kept the last theme's colours — the answer buttons and the
 // focused pane's border did, the first time this was tried.
 @Test func everyThemedViewRepaints() throws {
@@ -1483,7 +1484,11 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
         for m in src.matches(of: decl) {
             let name = String(m.output[1].substring ?? ""), body = String(m.output[3].substring ?? "")
             guard body.contains("Theme."), !drawsItsOwn.contains(name) else { continue }
-            if !(body.contains("@ObservedObject") || body.contains("@EnvironmentObject") || body.contains("@Environment(\\.conchTheme)")) {
+            // The store, or the theme itself (the environment, or Settings'
+            // ShownTheme): a view watching only its own model — a Files tab,
+            // a Sessions row — was not drawn again, and kept the old colours.
+            let watches = ["@ObservedObject var store", "@EnvironmentObject", "@Environment(\\.conchTheme)", "@ObservedObject var look"]
+            if !watches.contains(where: body.contains) {
                 stale.append("\(f): \(name)")
             }
         }

@@ -166,11 +166,15 @@ struct SessionsView: View {
 }
 
 struct SessionRow: View {
+    /// Read so this is drawn again when the theme changes: its model does
+    /// not change with it.
+    @Environment(\.conchTheme) private var look
     @ObservedObject var model: SessionsModel
     let session: SessionInfo
     @State private var hovering = false
 
     var body: some View {
+        let _ = look
         let open = !(session.paneID ?? "").isEmpty
         HStack(spacing: 10) {
             Mark(agent: session.agent)
