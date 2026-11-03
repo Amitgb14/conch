@@ -197,8 +197,17 @@ struct Mark: View {
                 }
             }
             .foregroundStyle(Theme.agent(agent))
+            .fontDesign(nil) // its own font, whatever design the window asks for
             .frame(width: 16)
         }
+    }
+}
+
+/// The rounded system face for the window's own text, when asked for.
+struct RoundedChrome: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on { content.fontDesign(.rounded) } else { content }
     }
 }
 
@@ -366,7 +375,10 @@ struct MainView: View {
                     .allowsHitTesting(false)
             }
         }
-        .fontDesign(Theme.meadow ? .rounded : .default)
+        // Meadow's rounded face, and only Meadow's: a font design set over
+        // the window, even .default, overrode the Nerd Font agents' marks
+        // are drawn in, and every mark became a missing-glyph box.
+        .modifier(RoundedChrome(on: Theme.meadow))
         .preferredColorScheme(store.theme.light ? .light : .dark)
         .id(store.theme.id + "|" + store.style.rawValue) // a new theme or style repaints every view
     }
