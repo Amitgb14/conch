@@ -188,9 +188,13 @@ public struct BranchInfo: Decodable, Equatable, Sendable {
     public var baseBehind: Int?
     public var worktree: String?
     public var pr: PRInfo?
+    /// Its upstream, and how far ahead of it; when it was last committed to.
+    public var upstream: String?
+    public var ahead: Int?
+    public var committed: Date?
 
     enum CodingKeys: String, CodingKey {
-        case name, worktree, pr
+        case name, worktree, pr, upstream, ahead, committed
         case baseAhead = "base_ahead"
         case baseBehind = "base_behind"
     }

@@ -1642,3 +1642,54 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let agents = t.children?.first?.children?.first?.children?.first { $0.title == "Agents" }
     #expect(agents?.badge == "2" && agents?.children?.count == 1 && agents?.children?.first?.children?.first?.title == "codex")
 }
+
+// "N to review" counts what the TUI's review queue lists: agents waiting
+// or finished, branches whose pull request's CI failed, with commits not
+// pushed or merged, or uncommitted work — not the base, not a branch long
+// untouched, not one whose open pull request is somebody else's move —
+// most urgent first, and a row dismissed in the TUI until it changes.
+@Test func reviewQueueRules() throws {
+    let now = Date(timeIntervalSince1970: 10_000_000)
+    func branch(_ name: String, baseAhead: Int = 0, ahead: Int = 0, upstream: String? = nil, pr: PRInfo? = nil,
+                worktree: String? = nil, days: Double = 1) -> BranchInfo {
+        var b = BranchInfo(name: name, baseAhead: baseAhead, worktree: worktree)
+        b.ahead = ahead; b.upstream = upstream; b.pr = pr; b.committed = now.addingTimeInterval(-days * 86400)
+        return b
+    }
+    var proj = ProjectInfo(id: "r1", name: "api", path: "/src/api", branches: [
+        branch("main", baseAhead: 3),                                                  // the base: never
+        branch("ci", pr: PRInfo(number: 7, state: "OPEN", checks: "fail")),             // CI failed
+        branch("waits", pr: PRInfo(number: 8, state: "OPEN", checks: "pass")),          // open PR, pushed: not yours
+        branch("local", baseAhead: 2),                                                  // 2 commits not pushed
+        branch("ahead", baseAhead: 4, ahead: 1, upstream: "origin/ahead"),              // ahead of its upstream
+        branch("pushed", baseAhead: 4, upstream: "origin/pushed"),                      // not merged
+        branch("edits", worktree: "/src/api-edits"),                                    // uncommitted
+        branch("old", baseAhead: 5, days: 30),                                          // untouched a month, nowhere
+        branch("agent", baseAhead: 9),                                                  // its agent's row stands for it
+    ])
+    proj.base = "main"
+    var w = WorktreeInfo(path: "/src/api-edits", branch: "edits"); w.status = GitStatus(files: 3)
+    proj.worktrees = [w]
+    var waiting = PaneInfo(id: "p1", name: "codex", agent: AgentStatus(name: "codex", state: .blocked, since: now.addingTimeInterval(-60)))
+    waiting.projectID = "r1"; waiting.branch = "agent"
+    var done = PaneInfo(id: "p2", name: "claude", agent: AgentStatus(name: "claude", state: .done, since: now.addingTimeInterval(-30)))
+    done.projectID = "r1"
+    let idle = PaneInfo(id: "p3", name: "claude", agent: AgentStatus(name: "claude", state: .idle))
+    let snap = Snapshot(panes: [waiting, done, idle], projects: [proj])
+    let q = reviewQueue([(id: "local", snapshot: snap)], now: now)
+    #expect(q.map { $0.branch.isEmpty ? $0.pane : $0.branch } == ["agent", "ci", "p2", "local", "ahead", "pushed", "edits"])
+    #expect(q.map(\.band) == [.waiting, .failed, .done, .unshipped, .unshipped, .unshipped, .dirty])
+    #expect(q[0].detail == "waiting for an answer" && q[1].detail == "CI failed on #7" && q[3].detail == "2 commits not pushed")
+    #expect(q[4].detail == "1 commit ahead of origin/ahead" && q[5].detail == "4 commits not merged into main" && q[6].detail == "3 files uncommitted")
+    // A dismissal hides a row until its band or its time changes.
+    let key = q[3].key, at = Int(q[3].since!.timeIntervalSince1970)
+    #expect(!reviewQueue([(id: "local", snapshot: snap)], dismissed: [key: "3|2 commits not pushed|\(at)"], now: now).contains { $0.key == key })
+    #expect(reviewQueue([(id: "local", snapshot: snap)], dismissed: [key: "3|x|\(at - 5)"], now: now).contains { $0.key == key })
+    #expect(reviewQueue([(id: "local", snapshot: snap)], dismissed: [key: "garbled"], now: now).count == q.count)
+    #expect(reviewQueue([], now: now).isEmpty)
+    let ui = #"{"queue_dismissed":{"local|r1|local|":"3|2 commits not pushed|9913600"},"expanded":{}}"#
+    #expect(loadQueueDismissed(uiJSON: Data(ui.utf8)) == ["local|r1|local|": "3|2 commits not pushed|9913600"])
+    #expect(loadQueueDismissed(uiJSON: nil).isEmpty && loadQueueDismissed(uiJSON: Data("{".utf8)).isEmpty)
+    let b = try conchDecoder().decode(BranchInfo.self, from: Data(#"{"name":"x","upstream":"origin/x","ahead":2,"base_ahead":3,"committed":"2026-11-01T10:00:00Z"}"#.utf8))
+    #expect(b.upstream == "origin/x" && b.ahead == 2 && b.committed != nil)
+}

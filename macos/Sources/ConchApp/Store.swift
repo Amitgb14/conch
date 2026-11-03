@@ -241,13 +241,30 @@ final class Store: ObservableObject {
         return cards
     }
 
+    /// The review queue rows dismissed in the TUI (ui.json).
+    @Published private(set) var queueDismissed: [String: String] = [:]
+
+    /// What needs a decision, across every machine reached: the TUI's
+    /// review queue, as its "N to review" counts it. Built once per change.
+    var reviewItems: [ReviewItem] {
+        if let r = reviewMemo { return r }
+        let online = machines.filter { $0.state.isEmpty }.map { (id: $0.id, snapshot: snapshots[$0.id] ?? Snapshot()) }
+        let r = reviewQueue(online, dismissed: queueDismissed)
+        reviewMemo = r
+        return r
+    }
+    private var reviewMemo: [ReviewItem]?
+
     /// The roster as last built; let go whenever the store is about to
     /// change (watchChanges), so the next read builds it afresh.
     private var rosterMemo: [RosterCard]?
     private var memoWatch: AnyCancellable?
 
     private func watchChanges() {
-        memoWatch = objectWillChange.sink { [weak self] _ in self?.rosterMemo = nil }
+        memoWatch = objectWillChange.sink { [weak self] _ in
+            self?.rosterMemo = nil
+            self?.reviewMemo = nil
+        }
     }
 
     private func buildRoster() -> [RosterCard] {
@@ -1584,6 +1601,8 @@ final class Store: ObservableObject {
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("ui.json"))
         workspaces = Workspace.load(uiJSON: data)
         tuiFolds = loadFolds(uiJSON: data)
+        let dismissed = loadQueueDismissed(uiJSON: data)
+        if dismissed != queueDismissed { queueDismissed = dismissed }
         let active = activeWorkspace(uiJSON: data)
         tuiWorkspace = workspaces.indices.contains(active) ? workspaces[active].id : "first"
         // The one on screen, found again by its id: the list may have

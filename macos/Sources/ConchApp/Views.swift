@@ -335,23 +335,109 @@ struct SearchField: View {
 
 struct Counts: View {
     @ObservedObject var store: Store
+    @State private var reviewing = false
 
     /// Its own hosting view in the toolbar, outside the window's
     /// environment: given the theme here, for the views it holds.
     var body: some View { content.environment(\.conchTheme, store.themeLook) }
 
+    /// Waiting, done and to review, always there — dimmed at nothing, so the
+    /// corner says "nothing needs you" rather than looking unfinished.
     @ViewBuilder var content: some View {
         let (w, d) = store.inbox
+        let r = store.reviewItems.count
         HStack(spacing: 8) {
-            if w > 0 {
-                Button { store.nextWaiting() } label: {
-                    if Theme.ink { BurstCount(text: "\(w) waiting!", loud: true) } else { Pill(text: "\(Theme.meadow ? "☀" : "⚑") \(w) waiting", fg: Theme.onWarn, bg: Theme.warn) }
+            Button { store.nextWaiting() } label: {
+                if Theme.ink {
+                    BurstCount(text: "\(w) waiting\(w > 0 ? "!" : "")", loud: w > 0, ink: w > 0 ? Theme.inkLine : Theme.muted)
+                } else {
+                    Pill(text: "\(Theme.meadow ? "☀" : "⚑") \(w) waiting", fg: w > 0 ? Theme.onWarn : Theme.muted, bg: w > 0 ? Theme.warn : Theme.raise)
                 }
-                .buttonStyle(.plain).help("Go to the next agent waiting for you (⌘.)")
             }
-            if d > 0 {
-                if Theme.ink { BurstCount(text: "\(d) done", loud: false) } else { Pill(text: "\(Theme.meadow ? "✿" : "✓") \(d) done", fg: Theme.ok, bg: Theme.ok.opacity(Theme.meadow ? 0.22 : 0.16)) }
+            .buttonStyle(.plain).disabled(w == 0)
+            .help(w > 0 ? "Go to the next agent waiting for you (⌘.)" : "No agent is waiting for you")
+            if Theme.ink {
+                BurstCount(text: "\(d) done", loud: false, ink: d > 0 ? Theme.inkLine : Theme.muted)
+            } else {
+                Pill(text: "\(Theme.meadow ? "✿" : "✓") \(d) done", fg: d > 0 ? Theme.ok : Theme.muted,
+                     bg: d > 0 ? Theme.ok.opacity(Theme.meadow ? 0.22 : 0.16) : Theme.raise)
             }
+            Button { reviewing.toggle() } label: {
+                Text("\(r) to review").font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(r > 0 ? Theme.text2 : Theme.muted)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .overlay(RoundedRectangle(cornerRadius: Theme.corner(20, meadow: 20, cel: 7)).strokeBorder(r > 0 ? Theme.line2 : Theme.line))
+            }
+            .buttonStyle(.plain)
+            .help("What needs a decision, on every machine: agents waiting or finished, branches with work nobody has shipped")
+            .popover(isPresented: $reviewing, arrowEdge: .bottom) { ReviewPopover(store: store) { reviewing = false } }
+        }
+    }
+}
+
+/// The review queue: each row what needs a decision and why, the most
+/// urgent first; a click opens the agent, or the branch's changes.
+struct ReviewPopover: View {
+    @ObservedObject var store: Store
+    let close: () -> Void
+
+    var body: some View {
+        let items = store.reviewItems
+        VStack(alignment: .leading, spacing: 0) {
+            Text("To review").font(.system(size: 13, weight: .semibold)).padding(.bottom, 8)
+            if items.isEmpty {
+                Text("Nothing needs a decision.").foregroundStyle(.secondary).padding(.vertical, 6)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(items, id: \.key) { it in
+                        Button { open(it) } label: {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(glyph(it.band)).foregroundStyle(color(it.band)).frame(width: 14)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text([it.projectName, it.branch].filter { !$0.isEmpty }.joined(separator: " · "))
+                                        .font(.system(size: 12.5, weight: .medium)).lineLimit(1)
+                                    Text(it.detail + (store.machines.count > 1 ? " · " + store.label(it.machine) : ""))
+                                        .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.vertical, 4).padding(.horizontal, 4).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(minHeight: items.isEmpty ? 0 : min(CGFloat(items.count) * 40, 360), maxHeight: 360)
+        }
+        .padding(14).frame(width: 380)
+    }
+
+    func open(_ it: ReviewItem) {
+        if !it.pane.isEmpty {
+            store.open(key(it.machine, it.pane))
+        } else {
+            store.openChanges(project: key(it.machine, it.project), branch: it.branch)
+        }
+        close()
+    }
+
+    func glyph(_ b: ReviewItem.Band) -> String {
+        switch b {
+        case .waiting: return "⚑"
+        case .failed: return "✗"
+        case .done: return "✓"
+        case .unshipped: return "↑"
+        case .dirty: return "±"
+        }
+    }
+
+    @MainActor func color(_ b: ReviewItem.Band) -> Color {
+        switch b {
+        case .waiting: return Theme.warn
+        case .failed: return Theme.err
+        case .done: return Theme.ok
+        default: return Theme.muted
         }
     }
 }
