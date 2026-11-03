@@ -329,10 +329,14 @@ struct MainView: View {
             VStack(spacing: 0) {
                 // Ink: the toolbar ends on a rule, as a page's top panel.
                 if Theme.ink { Rectangle().fill(Theme.inkLine).frame(height: AppStyle.ink.border) }
+                // Cel: every agent as a card across the top.
+                if Theme.style.roster { RosterBar(store: store) }
                 HStack(spacing: 0) {
                     if store.sidebarVisible {
                         Sidebar(store: store).frame(width: sidebarWidth)
                         SidebarEdge(width: $sidebarWidth)
+                    } else if Theme.style.roster {
+                        ProjectRail(store: store)
                     }
                     VStack(spacing: 0) {
                         TabBar(store: store)
@@ -343,6 +347,7 @@ struct MainView: View {
                         }
                     }
                     .background(Theme.window)
+                    if Theme.style.roster { CelSide(store: store).background(Theme.window) }
                 }
                 StatusBar(store: store)
             }
@@ -1460,6 +1465,12 @@ struct CardFrame: ViewModifier {
             content.inkPanel(focused: focused)
         } else if Theme.meadow {
             content.meadowCard(focused: focused)
+        } else if Theme.cel {
+            // A cel: outlined, its hard shadow in the accent when focused.
+            let shape = RoundedRectangle(cornerRadius: AppStyle.cel.corner)
+            content
+                .overlay(shape.strokeBorder(Theme.celLine, lineWidth: AppStyle.cel.border))
+                .background(shape.fill(focused ? Theme.accentDeep : Theme.celLine).offset(x: 5, y: 5))
         } else {
             content
                 .overlay(RoundedRectangle(cornerRadius: 9).stroke(focused ? Theme.accent : Theme.line, lineWidth: 1))
@@ -1479,6 +1490,8 @@ struct AnswerLook: ViewModifier {
             content.inkBox(fill: on ? Theme.inkLine : Theme.window)
         } else if Theme.meadow {
             content.background(Capsule().fill(on ? Theme.warn : Theme.raise))
+        } else if Theme.cel {
+            content.celBox(7, fill: on ? Theme.warn : Theme.window, shadow: on ? 2 : 0)
         } else {
             content
                 .background(RoundedRectangle(cornerRadius: 6).fill(on ? Theme.warn : Theme.raise))

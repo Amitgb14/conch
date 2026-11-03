@@ -5,13 +5,17 @@ import Foundation
 /// borders, screentone, square panels with white gutters, a waiting
 /// agent's question as a speech bubble (the Conch Desktop Styles mock, E);
 /// or Meadow, hand-painted after the anime films — a painted sky behind
-/// the toolbar, rounded cards on warm paper, a strip of grass (F).
+/// the toolbar, rounded cards on warm paper, a strip of grass (F); or
+/// Cel, cel-shaded, flat colour and hard shadows, with every agent on a
+/// card in a roster across the top and a column of projects for the tree
+/// (G).
 /// The app's alone, kept in its defaults: the TUI draws cells and has no
 /// borders to thicken.
 public enum AppStyle: String, CaseIterable, Equatable, Sendable {
     case standard
     case ink
     case meadow
+    case cel
 
     /// A saved choice; anything else, an older build's or none, is standard.
     public init(setting: String?) {
@@ -23,6 +27,7 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
         case .standard: return "Standard"
         case .ink: return "Ink"
         case .meadow: return "Meadow"
+        case .cel: return "Cel"
         }
     }
 
@@ -35,12 +40,19 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
         case .standard: return nil
         case .ink: return "ink"
         case .meadow: return "meadow"
+        case .cel: return "cel"
         }
     }
 
     /// The gutter between panels, and how thick a panel's ink is.
     public var gutter: Double { self == .standard ? 8 : 12 }
-    public var border: Double { self == .ink ? 3 : 1 }
+    public var border: Double {
+        switch self {
+        case .ink: return 3
+        case .cel: return 2.5
+        default: return 1
+        }
+    }
 
     /// How round a card's corners are: square on a page, soft in a meadow.
     public var corner: Double {
@@ -48,8 +60,13 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
         case .standard: return 9
         case .ink: return 0
         case .meadow: return 16
+        case .cel: return 12
         }
     }
+
+    /// Whether the window shows its agents as a roster of cards, with a
+    /// column of projects in place of the tree until the tree is asked for.
+    public var roster: Bool { self == .cel }
 
     /// Whether the window paints its own title bar (Meadow's sky), so the
     /// title bar is made transparent over it.

@@ -10,7 +10,9 @@ extension Theme {
     static var meadow: Bool { style == .meadow }
     /// A corner's radius in the style: the standard one, square in Ink,
     /// rounder in Meadow.
-    static func corner(_ standard: CGFloat, meadow: CGFloat) -> CGFloat { ink ? 0 : self.meadow ? meadow : standard }
+    static func corner(_ standard: CGFloat, meadow: CGFloat, cel: CGFloat = 9) -> CGFloat {
+        ink ? 0 : self.meadow ? meadow : self.cel ? cel : standard
+    }
     /// Night, for the sky and the grass: a dark theme.
     static var night: Bool { !current.light }
 

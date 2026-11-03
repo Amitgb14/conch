@@ -92,6 +92,7 @@ final class Store: ObservableObject {
         binary = conchBinary()
         loadWorkspaces()
         Theme.style = style
+        if style.roster { sidebarVisible = false }
         loadTheme()
         watchClicks()
         watchConfig()
@@ -218,6 +219,33 @@ final class Store: ObservableObject {
             (snapshots[m.id] ?? Snapshot()).needsYou(in: ws, machine: m.id).map { (key(m.id, $0.id), $0, m.id) }
         }
         .sorted { ($0.pane.agent?.since ?? .distantPast) < ($1.pane.agent?.since ?? .distantPast) }
+    }
+
+    /// The project the Cel roster is narrowed to ("machine|id"), or every one.
+    @Published var rosterProject: String?
+
+    /// The Cel roster: every agent and terminal the workspace shows, on
+    /// every machine, narrowed to rosterProject when one is picked.
+    var rosterCards: [RosterCard] {
+        roster(machines.flatMap { m -> [RosterCard] in
+            let snap = snapshots[m.id] ?? Snapshot()
+            return snap.shown(in: ws, machine: m.id)
+                .filter { p in rosterProject == nil || p.projectID.map { key(m.id, $0) } == rosterProject }
+                .map { p in
+                    let place = [snap.place(of: p), m.id == "local" ? "" : label(m.id)].filter { !$0.isEmpty }.joined(separator: " · ")
+                    return RosterCard(key: key(m.id, p.id), pane: p, place: place)
+                }
+        })
+    }
+
+    /// The projects the Cel rail offers: those with a pane the workspace
+    /// shows, on every machine.
+    var railProjects: [(key: String, name: String)] {
+        machines.flatMap { m -> [(key: String, name: String)] in
+            let snap = snapshots[m.id] ?? Snapshot()
+            let used = Set(snap.shown(in: ws, machine: m.id).compactMap(\.projectID))
+            return snap.projects.filter { used.contains($0.id) }.map { (key(m.id, $0.id), $0.name) }
+        }
     }
 
     /// Waiting and done, across every machine.
@@ -458,6 +486,10 @@ final class Store: ObservableObject {
         style = st
         Theme.style = st
         UserDefaults.standard.set(st.rawValue, forKey: "style")
+        // Cel's column of projects stands in for the tree, which is a click
+        // away; leaving it brings the tree back.
+        sidebarVisible = !st.roster
+        rosterProject = nil
         if let t = st.theme { chooseTheme(t) }
         onStyle?(st)
     }

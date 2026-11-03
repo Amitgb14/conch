@@ -1307,7 +1307,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
 @Test func appStyles() {
     #expect(AppStyle(setting: "ink") == .ink && AppStyle(setting: " INK ") == .ink)
     #expect(AppStyle(setting: nil) == .standard && AppStyle(setting: "") == .standard && AppStyle(setting: "manga") == .standard)
-    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink", "Meadow"])
+    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink", "Meadow", "Cel"])
     #expect(AppStyle.standard.theme == nil && AppStyle.ink.theme == "ink" && ConchTheme.named(AppStyle.ink.theme).id == "ink")
     #expect(AppStyle.ink.gutter > AppStyle.standard.gutter && AppStyle.ink.border > AppStyle.standard.border)
 }
@@ -1334,7 +1334,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(AppStyle(setting: "meadow") == .meadow && AppStyle.meadow.label == "Meadow")
     #expect(AppStyle.meadow.theme == "meadow" && ConchTheme.named("meadow").light && !ConchTheme.named("firefly").light)
     #expect(AppStyle.meadow.corner > AppStyle.standard.corner && AppStyle.ink.corner == 0)
-    #expect(AppStyle.allCases.filter(\.paintsTitleBar) == [.meadow])
+    #expect(AppStyle.allCases.filter(\.paintsTitleBar) == [.meadow] && AppStyle.allCases.filter(\.roster) == [.cel])
     #expect(AppStyle.meadow.gutter == AppStyle.ink.gutter && AppStyle.meadow.border == AppStyle.standard.border)
     for w in [0.0, 100, 1320, 2560] {
         let c = cloudLayout(width: w)
@@ -1342,4 +1342,38 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
         #expect(c.allSatisfy { $0.x > 0 && $0.x < 1 && $0.y > 0 && $0.y < 1 && $0.h > 0 && $0.w > 0 })
     }
     #expect(cloudLayout(width: 1320).map(\.y) == cloudLayout(width: 1330).map(\.y))
+}
+
+// Cel: drawn for the Cel theme; its roster puts what needs you first, then
+// what is working, what is done, agents at rest, terminals and what has
+// exited, by name within each; each card's bar and word follow its state.
+@Test func celRoster() {
+    #expect(AppStyle(setting: "cel") == .cel && AppStyle.cel.theme == "cel" && !ConchTheme.named("cel").light)
+    #expect(AppStyle.cel.border > AppStyle.standard.border && AppStyle.cel.corner > 0)
+    let t0 = Date(timeIntervalSince1970: 1000)
+    let cards = [
+        RosterCard(key: "local|t1", title: "zsh"),
+        RosterCard(key: "local|a1", title: "b idle", agent: "claude", state: .idle, since: t0),
+        RosterCard(key: "local|a2", title: "Zed", agent: "codex", state: .working, since: t0.addingTimeInterval(60)),
+        RosterCard(key: "local|a3", title: "alpha", agent: "codex", state: .working, since: t0.addingTimeInterval(30)),
+        RosterCard(key: "bb|a4", title: "waits", agent: "gemini", state: .blocked, since: t0.addingTimeInterval(120)),
+        RosterCard(key: "local|a5", title: "ok", agent: "claude", state: .done, since: t0.addingTimeInterval(90)),
+        RosterCard(key: "local|x", title: "gone", agent: "claude", state: .working, since: t0.addingTimeInterval(200), running: false),
+    ]
+    #expect(roster(cards).map(\.title) == ["waits", "alpha", "Zed", "ok", "b idle", "zsh", "gone"])
+    #expect(roster([]).isEmpty)
+    #expect(cards[4].bar.word == "waiting on you" && cards[4].bar.fill == 1)
+    #expect(cards[2].bar.word == "working" && cards[2].bar.fill > 0 && cards[2].bar.fill < 1)
+    #expect(cards[0].bar.word == "terminal" && cards[6].bar == (0, "exited") && cards[1].bar.word == "idle")
+    // The log: newest first, terminals left out, the limit kept.
+    let log = activity(cards)
+    #expect(log.map(\.key) == ["local|x", "bb|a4", "local|a5", "local|a2", "local|a3", "local|a1"])
+    #expect(log[0].text == "gone exited" && log[1].text == "waits is waiting on you" && log[2].text == "ok is done")
+    #expect(log[3].text == "Zed started working" && log[5].text == "b idle went idle")
+    #expect(activity(cards, limit: 2).count == 2 && activity(cards, limit: -1).isEmpty && activity([cards[0]]).isEmpty)
+    #expect(shortAgo(t0, t0) == "now" && shortAgo(t0, t0.addingTimeInterval(59)) == "now")
+    #expect(shortAgo(t0, t0.addingTimeInterval(240)) == "4m" && shortAgo(t0, t0.addingTimeInterval(3 * 3600)) == "3h")
+    #expect(shortAgo(t0, t0.addingTimeInterval(2 * 86400)) == "2d" && shortAgo(t0, t0.addingTimeInterval(-50)) == "now")
+    #expect(railLetters("api") == "ap" && railLetters("my-app") == "ma" && railLetters("Web UI") == "wu")
+    #expect(railLetters("x") == "x" && railLetters("") == "?" && railLetters("--") == "?")
 }
