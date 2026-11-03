@@ -585,7 +585,13 @@ struct NodeView: View {
     }
 
     var isSection: Bool { if case .section = node.kind { return true }; return false }
-    var isSessions: Bool { if case .sessions = node.kind { return true }; return false }
+    /// A row that opens a tab rather than folding: Sessions, Files.
+    var isSessions: Bool {
+        switch node.kind {
+        case .sessions, .files: return true
+        default: return false
+        }
+    }
     var isBranch: Bool { if case .branch = node.kind { return true }; return false }
 
     @ViewBuilder var icon: some View {
@@ -604,6 +610,7 @@ struct NodeView: View {
             LucideIcon(name: .gitBranch, color: checkedOut ? Theme.accent : Theme.muted, size: 12)
                 .help(checkedOut ? "checked out in a worktree of its own" : "a branch, not checked out")
         case .sessions: LucideIcon(name: .history, size: 12)
+        case .files: LucideIcon("folder-open", color: Theme.muted, size: 12)
         case .section: EmptyView()
         }
     }
@@ -668,6 +675,7 @@ struct NodeView: View {
         case .agent(let id), .terminal(let id): store.open(id)
         case .branch(let pr, let name, _): store.openChanges(project: pr, branch: name)
         case .sessions(let pk): store.openSessions(project: pk)
+        case .files(let pk): store.openFiles(project: pk)
         default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }
         }
     }
@@ -914,6 +922,7 @@ struct TabButton: View {
         func project(_ m: String, _ id: String) -> String { store.snapshots[m]?.project(id)?.name ?? id }
         if let s = parseSessionsKey(tab.focused) { return "Sessions · " + project(s.machine, s.project) }
         if let c = parseCommitsKey(tab.focused) { return "Commits · " + project(c.machine, c.project) }
+        if let f = parseFilesKey(tab.focused) { return "Files · " + project(f.machine, f.project) }
         return p?.displayName ?? tab.focused
     }
 
@@ -929,6 +938,8 @@ struct TabButton: View {
                     LucideIcon("history", color: Theme.accent, size: 12)
                 } else if parseCommitsKey(tab.focused) != nil {
                     LucideIcon("git-commit-horizontal", color: Theme.accent, size: 12)
+                } else if parseFilesKey(tab.focused) != nil {
+                    LucideIcon("folder-open", color: Theme.accent, size: 12)
                 } else if changes == nil {
                     LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12)
                 } else {
@@ -998,6 +1009,8 @@ struct SplitArea: View {
                 SessionsView(model: store.sessions(for: id), store: store).id(id)
             } else if parseCommitsKey(id) != nil {
                 CommitsView(model: store.commits(for: id), store: store).id(id)
+            } else if parseFilesKey(id) != nil {
+                FilesView(model: store.files(for: id), store: store).id(id)
             } else {
                 // Its own card for each pane, so moving to another tab
                 // never shows one pane's terminal under another's header.

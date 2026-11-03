@@ -78,7 +78,7 @@ func fixture() -> Snapshot {
     #expect(top[0].children?.map(\.title) == ["api"])
     let api = top[0].children![0]
     #expect(api.badge == "⠋1 ⚑1") // working and waiting, as the TUI counts them
-    #expect(api.children?.map(\.title) == ["Agents", "Branches", "Terminals"])
+    #expect(api.children?.map(\.title) == ["Agents", "Branches", "Terminals", "Files"]) // the TUI's order, Files after
     #expect(agents0(api)?.kind == .agent("local|p1"))
     let agents = api.children?[0].children ?? []
     #expect(agents.map(\.title) == ["Add health check", "codex"])
@@ -505,7 +505,7 @@ final class FakeServer: @unchecked Sendable {
     #expect(t.fold == "m:local")
     let api = projects(t)[0]
     #expect(api.fold == "p:r1" && api.foldDefault) // a project with panes starts open
-    #expect(api.children!.map(\.fold) == ["p:r1/agents", "p:r1/branches", "p:r1/terminals"])
+    #expect(api.children!.map(\.fold) == ["p:r1/agents", "p:r1/branches", "p:r1/terminals", nil]) // Files folds nothing
     #expect(t.children![1].fold == "m:local/cli")
     #expect(projects(Snapshot(projects: s.projects).tree())[0].foldDefault == false) // none: folded
     #expect(projects(s.tree(machine: "box"))[0].fold == "p:box~r1")
@@ -905,7 +905,7 @@ final class FakeServer: @unchecked Sendable {
     let api = projects(t)[0]
     var open: Set<String> = [t.id, "ws:local", api.id, api.children![0].id] // machine, Workspace, project, Agents
     let nav = TreeNav([t], isOpen: { open.contains($0.id) })
-    #expect(nav.rows.map(\.title) == ["local", "Workspace", "api", "Agents", "Add health check", "codex", "Branches", "Terminals", "CLI"])
+    #expect(nav.rows.map(\.title) == ["local", "Workspace", "api", "Agents", "Add health check", "codex", "Branches", "Terminals", "Files", "CLI"])
     #expect(nav.step(from: nil, by: 1) == t.id)
     #expect(nav.step(from: t.id, by: -1) == t.id) // kept at the top
     #expect(nav.step(from: "pane:local|p1", by: 1) == "pane:local|p4")
@@ -1489,4 +1489,29 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
         }
     }
     #expect(stale.isEmpty, "read Theme without repainting with it: \(stale.joined(separator: ", "))")
+}
+
+// A project's files as rows: folders before files and each by name as a
+// person sorts them (file2 before file10), an open folder's entries under
+// it one deeper, a closed one's not, and one open but not read yet empty.
+@Test func filesTree() throws {
+    let dirs: [String: [FSEntry]] = [
+        "": [FSEntry(name: "main.go", status: "M"), FSEntry(name: "src", dir: true, status: "A"), FSEntry(name: "docs", dir: true),
+             FSEntry(name: "file10.txt"), FSEntry(name: "file2.txt")],
+        "src": [FSEntry(name: "app.go"), FSEntry(name: "lib", dir: true)],
+    ]
+    let closed = fileRows(dirs, open: [])
+    #expect(closed.map(\.path) == ["docs", "src", "file2.txt", "file10.txt", "main.go"])
+    #expect(closed.allSatisfy { $0.depth == 0 && !$0.open } && closed[1].status == "A" && closed[4].status == "M")
+    let opened = fileRows(dirs, open: ["src", "src/lib", "docs"])
+    #expect(opened.map(\.path) == ["docs", "src", "src/lib", "src/app.go", "file2.txt", "file10.txt", "main.go"])
+    #expect(opened[2].depth == 1 && opened[2].dir && opened[2].open && opened[3].depth == 1)
+    #expect(fileRows([:], open: ["x"]).isEmpty)
+    #expect(filesKey("local", "r1") == "files|local|r1" && parseFilesKey("files|bb|r2")! == ("bb", "r2"))
+    #expect(parseFilesKey("files|local|") == nil && parseFilesKey("sessions|local|r1") == nil && !isPaneKey(filesKey("local", "r1")))
+    #expect(fileSize(0) == "0 B" && fileSize(812) == "812 B" && fileSize(4200) == "4.1 KB" && fileSize(2_400_000) == "2.3 MB" && fileSize(50_000_000) == "48 MB")
+    let l = try JSONDecoder().decode(FSList.self, from: Data(#"{"path":"/r","home":"/h","entries":[{"name":"a","dir":true,"status":"?"},{"name":"b","size":3,"ignored":true}]}"#.utf8))
+    #expect(l.entries?.map(\.name) == ["a", "b"] && l.entries?[0].isDir == true && l.entries?[1].ignored == true)
+    let r = try JSONDecoder().decode(FSRead.self, from: Data(#"{"path":"/r/a","size":9,"binary":true,"mime":"image/png"}"#.utf8))
+    #expect(r.binary == true && r.data == nil && r.mime == "image/png")
 }

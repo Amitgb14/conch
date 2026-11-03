@@ -350,6 +350,7 @@ public enum NodeKind: Equatable, Sendable {
     case terminal(String)
     case branch(project: String, name: String, checkedOut: Bool)
     case sessions(String) // key(machine, project)
+    case files(String) // key(machine, project)
     case cli(String)
     case workspace(String) // a machine's projects, grouped as the TUI groups them
 }
@@ -417,6 +418,8 @@ extension Snapshot {
             if !terminals.isEmpty {
                 sections.append(TreeNode(id: "s:\(pk):terminals", kind: .section("Terminals"), title: "Terminals", badge: "\(terminals.count)", children: terminals, fold: tui + "/terminals"))
             }
+            // Its files, as the TUI lists them, before its sessions.
+            sections.append(TreeNode(id: "s:\(pk):files", kind: .files(pk), title: "Files"))
             if let n = sessions[pk], n > 0 {
                 sections.append(TreeNode(id: "s:\(pk):sessions", kind: .sessions(pk), title: "Sessions", badge: "\(n)"))
             }

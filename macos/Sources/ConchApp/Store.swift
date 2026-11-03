@@ -171,7 +171,7 @@ final class Store: ObservableObject {
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
-        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) {
+        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) ?? parseFilesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
         let (m, _) = unkey(k)
@@ -628,6 +628,7 @@ final class Store: ObservableObject {
                 focusTerminal()
             case .branch(let pr, let name, _): openChanges(project: pr, branch: name)
             case .sessions(let pk): openSessions(project: pk)
+            case .files(let pk): openFiles(project: pk)
             default: toggle(cur)
             }
         case .task:
@@ -744,7 +745,7 @@ final class Store: ObservableObject {
             if let o = UserDefaults.standard.string(forKey: "open") {
                 if let c = parseChangesKey(o) {
                     if c.machine == machine { layout.open(o) } // a branch's changes
-                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) {
+                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) {
                     if c.machine == machine { layout.open(o) } // a project's commits or sessions
                 } else {
                     let k = o.contains("|") ? o : key("local", o)
@@ -879,6 +880,9 @@ final class Store: ObservableObject {
                 for (k, v) in changeViews where v.machine == machine && v.project == ch.project_id && isShown(k) {
                     v.written(ch.paths ?? [], worktree: ch.worktree)
                 }
+                for (k, v) in fileViews where v.machine == machine && v.project == ch.project_id && isShown(k) {
+                    v.written(worktree: ch.worktree)
+                }
             }
             return
         case "agent.limits":
@@ -995,6 +999,25 @@ final class Store: ObservableObject {
         let m = ChangesModel(key: k, store: self)
         changeViews[k] = m
         return m
+    }
+
+    private(set) var fileViews: [String: FilesModel] = [:]
+
+    func files(for k: String) -> FilesModel {
+        if let m = fileViews[k] { return m }
+        let m = FilesModel(key: k, store: self)
+        fileViews[k] = m
+        return m
+    }
+
+    /// A project's files, in a tab of their own — what the Files row opens.
+    /// A tab opened again reads again.
+    func openFiles(project pk: String) {
+        let (m, pid) = unkey(pk)
+        let k = filesKey(m, pid)
+        if let v = fileViews[k] { v.load() }
+        layout.open(k)
+        terminalHasKeyboard = false
     }
 
     func sessions(for k: String) -> SessionsModel {
