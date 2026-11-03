@@ -54,7 +54,10 @@ struct RosterBar: View {
 
 /// The roster's backing: faint diagonal stripes.
 struct Stripes: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     var body: some View {
+        let _ = look
         let a = Theme.side, b = Theme.raise.opacity(0.55)
         return Canvas { ctx, size in
             ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(a))

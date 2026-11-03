@@ -76,6 +76,10 @@ final class Store: ObservableObject {
     /// the Settings window to repaint by.
     private(set) var previewing: String?
     let look = ShownTheme()
+    /// What the window is drawn in, as one value its views can depend on:
+    /// the theme, the style and how agents are marked.
+    var themeLook: String { theme.id + "|" + style.rawValue + "|" + icons.rawValue }
+
     /// Told when the theme changes, for what SwiftUI does not draw: the
     /// window's own background and appearance.
     var onTheme: ((ConchTheme) -> Void)?

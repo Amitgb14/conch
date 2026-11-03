@@ -215,9 +215,12 @@ struct CommitRow: View {
 /// A ref as a chip: HEAD's branch in the accent, a branch in the working
 /// colour, a remote quieter, a tag outlined.
 struct RefChip: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let ref: CommitRef
 
     var body: some View {
+        let _ = look
         let color: Color = switch ref.kind {
         case .head: Theme.accent
         case .branch: Theme.work
@@ -238,9 +241,12 @@ struct RefChip: View {
 
 /// One row's share of the graph: the lines through it and the commit's dot.
 struct GraphCell: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let row: GraphRow
 
     var body: some View {
+        let _ = look
         // Colours are read here, on the main actor; the canvas only draws.
         let lanes = Set(row.colors.keys).union([row.lane])
         let color = Dictionary(uniqueKeysWithValues: lanes.map { ($0, laneColor(row.colors[$0] ?? $0)) })

@@ -40,6 +40,8 @@ struct Lucide: Shape {
 
 /// A Lucide icon in the sidebar's column, stroked as shadcn/ui draws them.
 struct LucideIcon: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let icon: String
     var color: Color
     var size: CGFloat
@@ -57,6 +59,7 @@ struct LucideIcon: View {
     }
 
     var body: some View {
+        let _ = look
         Lucide(icon)
             .stroke(color, style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
             .frame(width: size, height: size).frame(width: 14)
@@ -67,10 +70,13 @@ struct LucideIcon: View {
 /// for a sandbox — and its state as a dot on the corner: green online,
 /// amber on the way, grey not there.
 struct MachineIcon: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let name: LucideName
     let state: Color
 
     var body: some View {
+        let _ = look
         LucideIcon(name: name, color: Theme.text2, size: 14)
             .overlay(alignment: .bottomTrailing) {
                 Circle().fill(state).frame(width: 6, height: 6)

@@ -107,6 +107,9 @@ func shellQuote(_ s: String) -> String {
 /// pane to another split moves its terminal rather than starting another.
 struct TerminalHost: NSViewRepresentable {
     let terminal: PaneTerminal
+    /// Read so the box round the terminal takes a new theme's background:
+    /// the window is repainted in place, and the box is kept.
+    @Environment(\.conchTheme) private var look
 
     func makeNSView(context: Context) -> NSView {
         let box = NSView()
@@ -117,6 +120,8 @@ struct TerminalHost: NSViewRepresentable {
     }
 
     func updateNSView(_ box: NSView, context: Context) {
+        let _ = look
+        box.layer?.backgroundColor = Theme.terminal.cgColor
         if terminal.view.superview !== box { mount(in: box) }
     }
 

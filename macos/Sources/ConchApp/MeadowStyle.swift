@@ -29,7 +29,10 @@ extension Theme {
 /// The sky behind the toolbar: a gradient with soft clouds and the sun by
 /// day; by night a moon, a few stars and fireflies. All drawn, no artwork.
 struct Sky: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     var body: some View {
+        let _ = look
         // Colours are read here, on the main actor; the canvas only draws.
         let top = Theme.skyTop, bottom = Theme.skyBottom, sun = Theme.sun, night = Theme.night
         return Canvas { ctx, size in

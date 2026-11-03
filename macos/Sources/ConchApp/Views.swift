@@ -56,6 +56,8 @@ extension NSColor {
 // MARK: - pieces
 
 struct Pill: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let text: String
     let fg: Color
     let bg: Color
@@ -63,6 +65,7 @@ struct Pill: View {
     var spins = false
 
     var body: some View {
+        let _ = look
         Group {
             if spins {
                 TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
@@ -122,10 +125,13 @@ struct RowSplit: SwiftUI.Layout {
 /// dev server shows ":4317". On this computer a click opens it in the
 /// browser; elsewhere it is where the machine serves it.
 struct PortLink: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let port: Int
     let local: Bool
 
     var body: some View {
+        let _ = look
         Text(":\(port)").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
             .help(local ? "CONCH_PORT of this checkout — click to open http://localhost:\(port)" : "CONCH_PORT of this checkout, on that machine")
             .onTapGesture {
@@ -137,9 +143,12 @@ struct PortLink: View {
 /// The colours of the agents a folded machine holds: four, then how many
 /// more.
 struct FoldedAgents: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let names: [String]
 
     var body: some View {
+        let _ = look
         HStack(spacing: 3) {
             ForEach(names.prefix(4), id: \.self) { Mark(agent: $0) }
             if names.count > 4 { Text("+\(names.count - 4)").font(.system(size: 11)).foregroundStyle(Theme.muted) }
@@ -150,10 +159,13 @@ struct FoldedAgents: View {
 /// The sidebar's edge: a line, and a few points either side of it to drag
 /// the sidebar wider or narrower, within sidebarRange.
 struct SidebarEdge: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     @Binding var width: Double
     @State private var start: Double?
 
     var body: some View {
+        let _ = look
         Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line.opacity(0.6)).frame(width: Theme.ink ? 3 : 1)
             .overlay(
                 Color.clear.frame(width: 8).contentShape(Rectangle())
@@ -177,9 +189,12 @@ struct SidebarEdge: View {
 /// this Mac or else an SF Symbol of the same shape; otherwise the mock's
 /// coloured dot, or nothing for "off".
 struct Mark: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let agent: String?
 
     var body: some View {
+        let _ = look
         switch Theme.icons {
         case .off:
             EmptyView()
@@ -238,10 +253,13 @@ enum NerdFont {
 /// A key as a keycap: the key in a small outlined box, as macOS menus and
 /// the mock's ⌘K draw them.
 struct Keycap: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let key: String
     init(_ key: String) { self.key = key }
 
     var body: some View {
+        let _ = look
         Text(key).font(.system(size: 10.5, weight: .medium)).foregroundStyle(Theme.text2)
             .padding(.horizontal, 4.5).frame(minWidth: 17, minHeight: 15)
             .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 3.5).fill(Theme.ink ? Theme.window : Theme.raise))
@@ -259,7 +277,11 @@ struct Dot: View {
 struct WorkspacesControl: View {
     @ObservedObject var store: Store
 
-    var body: some View {
+    /// Its own hosting view in the toolbar, outside the window's
+    /// environment: given the theme here, for the views it holds.
+    var body: some View { content.environment(\.conchTheme, store.themeLook) }
+
+    @ViewBuilder var content: some View {
         HStack(spacing: 2) {
             ForEach(Array(store.workspaces.enumerated()), id: \.offset) { i, ws in
                 let on = i == store.workspace
@@ -290,7 +312,11 @@ struct WorkspacesControl: View {
 struct SearchField: View {
     @ObservedObject var store: Store
 
-    var body: some View {
+    /// Its own hosting view in the toolbar, outside the window's
+    /// environment: given the theme here, for the views it holds.
+    var body: some View { content.environment(\.conchTheme, store.themeLook) }
+
+    @ViewBuilder var content: some View {
         Button { store.paletteOpen = true } label: {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Theme.muted)
@@ -310,7 +336,11 @@ struct SearchField: View {
 struct Counts: View {
     @ObservedObject var store: Store
 
-    var body: some View {
+    /// Its own hosting view in the toolbar, outside the window's
+    /// environment: given the theme here, for the views it holds.
+    var body: some View { content.environment(\.conchTheme, store.themeLook) }
+
+    @ViewBuilder var content: some View {
         let (w, d) = store.inbox
         HStack(spacing: 8) {
             if w > 0 {
@@ -383,8 +413,13 @@ struct MainView: View {
         // are drawn in, and every mark became a missing-glyph box.
         .modifier(RoundedChrome(on: Theme.meadow))
         .preferredColorScheme(store.theme.light ? .light : .dark)
-        // A new theme, style or way of marking agents repaints every view.
-        .id(store.theme.id + "|" + store.style.rawValue + "|" + store.icons.rawValue)
+        // A new theme, style or way of marking agents repaints every view
+        // in place: views that watch the store are drawn again as it
+        // publishes, and the others read this. It once rebuilt the window
+        // instead (.id), which a theme previewed in Settings did at every
+        // card the pointer crossed — taking the terminals' keyboard and
+        // whatever was typed in the palette or a new task with it.
+        .environment(\.conchTheme, store.themeLook)
     }
 }
 
@@ -465,8 +500,11 @@ struct Sidebar: View {
 
 /// A heading in the sidebar: small capitals, or lettering on an Ink page.
 struct SectionHeading: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let text: String
     var body: some View {
+        let _ = look
         if Theme.ink {
             Lettering(text: text, size: 13, color: Theme.inkLine)
         } else {
@@ -1278,9 +1316,12 @@ struct MonitorPopover: View {
 /// coloured by how near the limit it is. A capsule, so it reads as one
 /// thing to click.
 struct UsageChip: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let limits: PlanLimits
 
     var body: some View {
+        let _ = look
         HStack(spacing: 8) {
             Mark(agent: limits.agent)
             window("5h", limits.fiveHour?.usedPct)
@@ -1319,6 +1360,8 @@ struct UsageChip: View {
 
 /// A plan's use, as a bar: green, amber from 80%, red past it.
 struct Meter: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let fraction: Double
     var width: CGFloat = 60
     /// The empty part's colour: the raised one, or a line's on a raised
@@ -1326,6 +1369,7 @@ struct Meter: View {
     var track: Color = Theme.raise
 
     var body: some View {
+        let _ = look
         ZStack(alignment: .leading) {
             Capsule().fill(track)
             Capsule().fill(fraction >= 1 ? Theme.err : fraction >= 0.8 ? Theme.warn : Theme.ok)
@@ -1424,10 +1468,13 @@ struct Palette: View {
 }
 
 struct PaletteRow: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let item: PaletteItem
     let selected: Bool
 
     var body: some View {
+        let _ = look
         HStack(spacing: 10) {
             if item.waiting { Text("⚑").foregroundStyle(Theme.warn) }
             Text(item.title).font(.system(size: 13.5)).foregroundStyle(Theme.text).lineLimit(1)
@@ -1475,8 +1522,12 @@ struct KeyCatcher: NSViewRepresentable {
 /// A pane's frame: the accent's hairline round a card, or on an Ink page a
 /// square inked panel, the focused one with its spot-colour shadow.
 struct CardFrame: ViewModifier {
+    /// Read so this is drawn again when the theme changes: a modifier
+    /// whose own properties are unchanged is otherwise not.
+    @Environment(\.conchTheme) private var look
     let focused: Bool
     func body(content: Content) -> some View {
+        let _ = look
         if Theme.ink {
             content.inkPanel(focused: focused)
         } else if Theme.meadow {
@@ -1498,10 +1549,14 @@ struct CardFrame: ViewModifier {
 /// An answer button: amber for the one the agent's cursor is on, or on an
 /// Ink page a square inked box, that one solid ink.
 struct AnswerLook: ViewModifier {
+    /// Read so this is drawn again when the theme changes: a modifier
+    /// whose own properties are unchanged is otherwise not.
+    @Environment(\.conchTheme) private var look
     let on: Bool
     /// The tree's buttons have an edge; the strip's, on its amber wash, none.
     var edged = true
     func body(content: Content) -> some View {
+        let _ = look
         if Theme.ink {
             content.inkBox(fill: on ? Theme.inkLine : Theme.window)
         } else if Theme.meadow {

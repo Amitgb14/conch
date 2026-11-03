@@ -1463,3 +1463,30 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(r.remotes == ["fork", "origin"])
     #expect(try JSONDecoder().decode(LogResult.self, from: Data(#"{"commits":[]}"#.utf8)).remotes == nil)
 }
+
+// The window is repainted in place when the theme changes, not rebuilt:
+// a view or modifier redraws only when something it depends on changes,
+// so every one that reads Theme must also watch the store (or a model) or
+// read the theme from the environment (\.conchTheme). One that did
+// neither kept the last theme's colours — the answer buttons and the
+// focused pane's border did, the first time this was tried.
+@Test func everyThemedViewRepaints() throws {
+    let dir = (#filePath as NSString).deletingLastPathComponent + "/../../Sources/ConchApp"
+    let files = try FileManager.default.contentsOfDirectory(atPath: dir).filter { $0.hasSuffix(".swift") }
+    #expect(files.count > 5)
+    // ThemePreview draws the theme it is given, not the one on screen.
+    let drawsItsOwn: Set<String> = ["ThemePreview"]
+    var stale: [String] = []
+    for f in files {
+        let src = try String(contentsOfFile: dir + "/" + f, encoding: .utf8)
+        let decl = try Regex(#"\nstruct (\w+): (View|ViewModifier|NSViewRepresentable) \{(.*?)\n\}"#).dotMatchesNewlines()
+        for m in src.matches(of: decl) {
+            let name = String(m.output[1].substring ?? ""), body = String(m.output[3].substring ?? "")
+            guard body.contains("Theme."), !drawsItsOwn.contains(name) else { continue }
+            if !(body.contains("@ObservedObject") || body.contains("@EnvironmentObject") || body.contains("@Environment(\\.conchTheme)")) {
+                stale.append("\(f): \(name)")
+            }
+        }
+    }
+    #expect(stale.isEmpty, "read Theme without repainting with it: \(stale.joined(separator: ", "))")
+}

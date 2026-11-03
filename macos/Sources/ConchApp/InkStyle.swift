@@ -15,8 +15,11 @@ extension Theme {
 
 /// Screentone: a grid of small dots, the only shading a manga page has.
 struct Screentone: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     var spacing: CGFloat = 7
     var body: some View {
+        let _ = look
         // Colours are read here, on the main actor; the canvas only draws.
         // Light enough that the tree's muted text still reads over it.
         let dot = Theme.line.opacity(0.32)
@@ -51,11 +54,14 @@ struct BurstShape: Shape {
 
 /// Lettering: a heavy, slanted face, as a manga's sound effects and counts.
 struct Lettering: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let text: String
     var size: CGFloat = 13
     var color: Color = Theme.spot
 
     var body: some View {
+        let _ = look
         Text(text.uppercased()).font(.system(size: size, weight: .black).italic()).tracking(0.4)
             .foregroundStyle(color)
             .lineLimit(1).fixedSize()
@@ -65,6 +71,8 @@ struct Lettering: View {
 /// A count in a burst: the spot colour for what is waiting, paper for
 /// what is done.
 struct BurstCount: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     let text: String
     let loud: Bool
     /// The theme's colours, as values: the toolbar is outside the window's
@@ -73,6 +81,7 @@ struct BurstCount: View {
     var ink = Theme.inkLine, spot = Theme.spot, paper = Theme.window, onSpot = Theme.selectedText
 
     var body: some View {
+        let _ = look
         Lettering(text: text, size: 12, color: loud ? onSpot : ink)
             .padding(.horizontal, 16).padding(.vertical, 7)
             .background(BurstShape().fill(loud ? spot : paper))
@@ -84,9 +93,12 @@ struct BurstCount: View {
 /// pointing down into whoever said it, filled with paper and inked, the
 /// tail open where it meets the balloon.
 struct InkBubble: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
     var tail: CGFloat = 12
 
     var body: some View {
+        let _ = look
         let paper = GraphicsContext.Shading.color(Theme.window)
         let ink = GraphicsContext.Shading.color(Theme.inkLine)
         let tail = self.tail
