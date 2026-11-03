@@ -230,6 +230,10 @@ Usage:
                                 prints the command without starting it); ls says which terminals are
                                 here, install adds it to the desktop's applications with its icon,
                                 remove takes it out
+  conch [-m MACHINE] autopilot push
+                                hand the server the autopilot policy config.toml's [verify]
+                                sets, as the TUI does when it connects; for a window that is
+                                not the TUI (Conch.app runs it)
   conch bug [-open] [-log] [WHAT HAPPENED...]
                                 the facts about this conch for a bug report — versions, counts
                                 and the last error, never a path or a screen; -open fills in a
@@ -329,6 +333,8 @@ func main() {
 		err = runMCP(args)
 	case "bug":
 		err = runBug(args)
+	case "autopilot":
+		err = runAutopilot(args)
 	case "app":
 		err = runApp(args)
 	case "doctor":

@@ -82,6 +82,8 @@ final class SettingsModel: ObservableObject {
                     // theme picked under View → Theme or by a style, which
                     // would otherwise keep the window as it was.
                     if savedThemeChanged(f.payload.config, saved.config) { store.chooseTheme("") }
+                    // The autopilot reads [verify]; the servers are told now.
+                    if f.payload.config["verify"] != saved.config["verify"] { store.pushAutopilotAll() }
                     form?.reset(saved)
                     status = themeSaveNote(f.payload.config, saved.config, dark: store.systemDark)
                         ?? "Saved to config.toml — an open TUI takes it in, and this window too"

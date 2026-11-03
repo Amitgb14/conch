@@ -401,6 +401,8 @@ It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by 
 ### bug
 
 ```sh
+conch autopilot push                                        # hand the server [verify]'s autopilot policy,
+                                                            # as the TUI does (Conch.app runs it)
 conch bug                                                   # the facts about this conch
 conch bug -open "the tree lost a terminal"                  # …in a GitHub issue, already filled in
 conch bug -log                                              # where the server's log is

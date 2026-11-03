@@ -753,6 +753,7 @@ final class Store: ObservableObject {
             setState(machine, "", version: c.hello?.version ?? "")
             localRetries = 0
             settle(machine, alive: Set(panes.panes.filter(\.running).map { key(machine, $0.id) }))
+            pushAutopilot(machine)
             if machine == "local" {
                 error = nil
                 status = ""
@@ -1030,6 +1031,20 @@ final class Store: ObservableObject {
                 self.error = "Could not copy to \(label): \(error)"
             }
         }
+    }
+
+    /// Hands a machine's server the autopilot policy from config.toml's
+    /// [verify] (conch autopilot push), as the TUI does when it connects:
+    /// with only this app open, a server acted on whatever a TUI last gave
+    /// it, and on nothing where no TUI had run.
+    func pushAutopilot(_ machine: String) {
+        guard let b = binary, conns[machine]?.hello?.capabilities?.contains("autopilot.v1") == true else { return }
+        Task { _ = try? await runConch(b, onMachine(machine, ["autopilot", "push"])) }
+    }
+
+    /// The policy to every server reached, after Settings saved a change.
+    func pushAutopilotAll() {
+        for m in machines where m.state.isEmpty { pushAutopilot(m.id) }
     }
 
     /// Whether a tab or split shows k, in this workspace or another's.
