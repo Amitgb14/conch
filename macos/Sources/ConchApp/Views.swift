@@ -257,7 +257,7 @@ struct WorkspacesControl: View {
                 Text(Workspace.label(i, ws)).font(.system(size: 12, weight: Theme.ink ? .bold : .regular))
                     .foregroundStyle(Theme.ink && on ? Theme.window : on ? Theme.text : Theme.text2)
                     .padding(.horizontal, 10).padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 5).fill(on ? (Theme.ink ? Theme.inkLine : Theme.raise) : .clear))
+                    .background(RoundedRectangle(cornerRadius: Theme.corner(5, meadow: 20)).fill(on ? (Theme.ink ? Theme.inkLine : Theme.meadow ? Theme.window : Theme.raise) : .clear))
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) { store.renameWorkspace(i) }
                     .onTapGesture { store.workspace = i }
@@ -272,8 +272,8 @@ struct WorkspacesControl: View {
                 .help("New workspace — conch's TUI has it too")
         }
         .padding(Theme.ink ? 0 : 2)
-        .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 7).fill(Theme.window))
-        .overlay(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 7).strokeBorder(Theme.ink ? Theme.inkLine : Theme.line, lineWidth: Theme.ink ? 2 : 1))
+        .background(RoundedRectangle(cornerRadius: Theme.corner(7, meadow: 22)).fill(Theme.meadow ? Theme.frost : Theme.window))
+        .overlay(RoundedRectangle(cornerRadius: Theme.corner(7, meadow: 22)).strokeBorder(Theme.ink ? Theme.inkLine : Theme.meadow ? .clear : Theme.line, lineWidth: Theme.ink ? 2 : 1))
         .help("Workspaces, shared with conch's TUI")
     }
 }
@@ -290,9 +290,9 @@ struct SearchField: View {
                 Text("⌘K").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 5).overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.line2))
             }
-            .padding(.horizontal, 10).frame(width: 420, height: 28)
-            .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 8).fill(Theme.ink ? Theme.window : Theme.well))
-            .overlay(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 8).strokeBorder(Theme.ink ? Theme.inkLine : Theme.line, lineWidth: Theme.ink ? 2 : 1))
+            .padding(.horizontal, Theme.meadow ? 14 : 10).frame(width: 420, height: Theme.meadow ? 30 : 28)
+            .background(RoundedRectangle(cornerRadius: Theme.corner(8, meadow: 15)).fill(Theme.ink ? Theme.window : Theme.meadow ? Theme.window.opacity(0.92) : Theme.well))
+            .overlay(RoundedRectangle(cornerRadius: Theme.corner(8, meadow: 15)).strokeBorder(Theme.ink ? Theme.inkLine : Theme.meadow ? .clear : Theme.line, lineWidth: Theme.ink ? 2 : 1))
         }
         .buttonStyle(.plain)
     }
@@ -306,12 +306,12 @@ struct Counts: View {
         HStack(spacing: 8) {
             if w > 0 {
                 Button { store.nextWaiting() } label: {
-                    if Theme.ink { BurstCount(text: "\(w) waiting!", loud: true) } else { Pill(text: "⚑ \(w) waiting", fg: Theme.onWarn, bg: Theme.warn) }
+                    if Theme.ink { BurstCount(text: "\(w) waiting!", loud: true) } else { Pill(text: "\(Theme.meadow ? "☀" : "⚑") \(w) waiting", fg: Theme.onWarn, bg: Theme.warn) }
                 }
                 .buttonStyle(.plain).help("Go to the next agent waiting for you (⌘.)")
             }
             if d > 0 {
-                if Theme.ink { BurstCount(text: "\(d) done", loud: false) } else { Pill(text: "✓ \(d) done", fg: Theme.ok, bg: Theme.ok.opacity(0.16)) }
+                if Theme.ink { BurstCount(text: "\(d) done", loud: false) } else { Pill(text: "\(Theme.meadow ? "✿" : "✓") \(d) done", fg: Theme.ok, bg: Theme.ok.opacity(Theme.meadow ? 0.22 : 0.16)) }
             }
         }
     }
@@ -352,6 +352,16 @@ struct MainView: View {
         }
         .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
         .background(Theme.window)
+        // Meadow paints the title bar itself: a sky behind the toolbar's
+        // controls (AppKit's, so drawn over it), lifted into the title bar
+        // by its height — over the backgrounds that reach up there too.
+        .overlay(alignment: .top) {
+            if Theme.meadow {
+                GeometryReader { g in Sky().frame(height: g.safeAreaInsets.top).offset(y: -g.safeAreaInsets.top) }
+                    .allowsHitTesting(false)
+            }
+        }
+        .fontDesign(Theme.meadow ? .rounded : .default)
         .preferredColorScheme(store.theme.light ? .light : .dark)
         .id(store.theme.id + "|" + store.style.rawValue) // a new theme or style repaints every view
     }
@@ -418,7 +428,17 @@ struct Sidebar: View {
                 if let id { withAnimation(.easeOut(duration: 0.1)) { proxy.scrollTo(id) } }
             }
         }
-        .background { ZStack { Theme.side; if Theme.ink { Screentone() } } }
+        .background {
+            ZStack {
+                if Theme.meadow {
+                    // Warm paper, a shade deeper at the top.
+                    LinearGradient(colors: [Theme.raise, Theme.side], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.4))
+                } else {
+                    Theme.side
+                }
+                if Theme.ink { Screentone() }
+            }
+        }
     }
 }
 
@@ -429,7 +449,7 @@ struct SectionHeading: View {
         if Theme.ink {
             Lettering(text: text, size: 13, color: Theme.inkLine)
         } else {
-            Text(text).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+            Text(text).font(.system(size: 11, weight: .semibold)).tracking(Theme.meadow ? 1.2 : 0).foregroundStyle(Theme.muted)
         }
     }
 }
@@ -463,6 +483,8 @@ struct NodeView: View {
     var inverted: Bool { Theme.ink && selected }
     var rowFill: Color {
         if Theme.ink { return selected ? Theme.inkLine : hovering || cursor ? Theme.raise : .clear }
+        // Meadow: a soft wash of the accent, like a leaf's shadow.
+        if Theme.meadow { return cursor ? Theme.accentDeep.opacity(0.32) : selected ? Theme.accentDeep.opacity(0.2) : hovering ? Theme.raise : .clear }
         return cursor ? Theme.accentDeep.opacity(0.75) : selected ? Theme.accentDeep.opacity(0.4) : hovering ? Theme.raise : .clear
     }
     /// The keyboard's row, while the sidebar has the keyboard.
@@ -488,9 +510,9 @@ struct NodeView: View {
                 badge
             }
         }
-        .padding(.leading, CGFloat(depth) * 14 + 8).padding(.trailing, 8).frame(height: 26)
-        .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 6).fill(rowFill))
-        .overlay(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 6).strokeBorder(cursor ? (Theme.ink ? Theme.spot : Theme.accent) : .clear, lineWidth: Theme.ink ? 2 : 1))
+        .padding(.leading, CGFloat(depth) * 14 + 8).padding(.trailing, 8).frame(height: Theme.meadow ? 28 : 26)
+        .background(RoundedRectangle(cornerRadius: Theme.corner(6, meadow: 10)).fill(rowFill))
+        .overlay(RoundedRectangle(cornerRadius: Theme.corner(6, meadow: 10)).strokeBorder(cursor ? (Theme.ink ? Theme.spot : Theme.accent) : .clear, lineWidth: Theme.ink ? 2 : 1))
         .contentShape(Rectangle())
         .id(node.id)
         .onHover { hovering = $0 }
@@ -706,11 +728,14 @@ struct NeedsYouCard: View {
         .background {
             if Theme.ink {
                 InkBubble()
+            } else if Theme.meadow {
+                // A note pinned in the tree.
+                Color.clear.meadowNote()
             } else {
                 RoundedRectangle(cornerRadius: 10).fill(hovering ? Theme.raise : Theme.raise.opacity(0.7))
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.ink ? .clear : Theme.warn.opacity(0.55)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.ink || Theme.meadow ? .clear : Theme.warn.opacity(0.55)))
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .onHover { hovering = $0 }
         .onTapGesture { store.open(key) }
@@ -881,11 +906,15 @@ struct TabButton: View {
                 Rectangle().fill(on ? Theme.inkLine : Theme.window)
                     .overlay(Rectangle().strokeBorder(Theme.inkLine, lineWidth: 2))
             } else {
-                UnevenRoundedRectangle(topLeadingRadius: 7, topTrailingRadius: 7).fill(on ? Theme.raise : .clear)
+                UnevenRoundedRectangle(topLeadingRadius: Theme.meadow ? 12 : 7, topTrailingRadius: Theme.meadow ? 12 : 7).fill(on ? Theme.raise : .clear)
             }
         }
+        .overlay(alignment: .topTrailing) {
+            // Meadow: a leaf on the tab on screen, where the others have none.
+            if on && Theme.meadow { Text("❧").font(.system(size: 11)).foregroundStyle(Theme.accentDeep).rotationEffect(.degrees(-20)).offset(x: 1, y: -1) }
+        }
         .overlay(alignment: .bottom) {
-            if on && !Theme.ink { RoundedRectangle(cornerRadius: 1).fill(Theme.accent).frame(height: 2).padding(.horizontal, 8).offset(y: 1) }
+            if on && !Theme.ink && !Theme.meadow { RoundedRectangle(cornerRadius: 1).fill(Theme.accent).frame(height: 2).padding(.horizontal, 8).offset(y: 1) }
         }
         .contentShape(Rectangle())
         .onTapGesture {
@@ -977,7 +1006,7 @@ struct PaneCard: View {
             TerminalHost(terminal: terminal)
         }
         .background(Theme.window)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 9))
+        .clipShape(RoundedRectangle(cornerRadius: CGFloat(Theme.style.corner)))
         .modifier(CardFrame(focused: focused))
         .onTapGesture { store.focus(pane) }
     }
@@ -991,7 +1020,7 @@ struct AnswerStrip: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(Theme.ink ? "!?" : "⚑").font(.system(size: 12, weight: Theme.ink ? .black : .regular)).foregroundStyle(Theme.ink ? Theme.spot : Theme.warn)
+            Text(Theme.ink ? "!?" : Theme.meadow ? "☀" : "⚑").font(.system(size: 12, weight: Theme.ink ? .black : .regular)).foregroundStyle(Theme.ink ? Theme.spot : Theme.warn)
             Text(question.text.isEmpty ? "Waiting for your answer" : question.text).font(.system(size: 12))
                 .foregroundStyle(Theme.text).lineLimit(1)
             Spacer(minLength: 8)
@@ -1004,17 +1033,20 @@ struct AnswerStrip: View {
                     .modifier(AnswerLook(on: c.default == true, edged: false))
             }
         }
-        .padding(.horizontal, Theme.ink ? 18 : 10).padding(.top, Theme.ink ? 8 : 6).padding(.bottom, Theme.ink ? 20 : 6)
+        .padding(.horizontal, Theme.ink ? 18 : Theme.meadow ? 16 : 10).padding(.top, Theme.ink ? 8 : Theme.meadow ? 10 : 6).padding(.bottom, Theme.ink ? 20 : Theme.meadow ? 10 : 6)
         .background {
             if Theme.ink {
                 // Ink: the question in a speech bubble, its tail down into
                 // the agent that asked.
                 InkBubble().padding(.horizontal, 6).padding(.top, 4)
+            } else if Theme.meadow {
+                // Meadow: a note pinned along the top of the card.
+                Color.clear.meadowNote().padding(.horizontal, 6).padding(.vertical, 4)
             } else {
                 Theme.warn.opacity(0.10)
             }
         }
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.ink ? .clear : Theme.warn.opacity(0.4)).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.ink || Theme.meadow ? .clear : Theme.warn.opacity(0.4)).frame(height: 1) }
     }
 }
 
@@ -1083,7 +1115,7 @@ struct StatusBar: View {
             Button { store.openSettings() } label: {
                 Text("⚙ Settings").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.selectedText)
                     .padding(.horizontal, 7).padding(.vertical, 1)
-                    .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 4).fill(Theme.accentDeep))
+                    .background(RoundedRectangle(cornerRadius: Theme.corner(4, meadow: 9)).fill(Theme.accentDeep))
                     .overlay(Rectangle().strokeBorder(Theme.ink ? Theme.inkLine : .clear, lineWidth: 1.5))
             }
             .buttonStyle(.plain).help("conch's settings (⌘,); an open TUI takes in what you save")
@@ -1102,7 +1134,15 @@ struct StatusBar: View {
         .font(.system(size: 12, weight: Theme.ink ? .semibold : .regular))
         .padding(.horizontal, 12).frame(height: Theme.ink ? 28 : 26)
         .background { ZStack { Theme.side; if Theme.ink { Screentone() } } }
-        .overlay(alignment: .top) { Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line).frame(height: Theme.ink ? AppStyle.ink.border : 1) }
+        .overlay(alignment: .top) {
+            if Theme.meadow {
+                // A strip of grass the bar sits under.
+                GrassEdge().fill(LinearGradient(colors: [Theme.grass, Theme.grassDeep], startPoint: .top, endPoint: .bottom))
+                    .frame(height: 7).offset(y: -4)
+            } else {
+                Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line).frame(height: Theme.ink ? AppStyle.ink.border : 1)
+            }
+        }
     }
 }
 
@@ -1418,6 +1458,8 @@ struct CardFrame: ViewModifier {
     func body(content: Content) -> some View {
         if Theme.ink {
             content.inkPanel(focused: focused)
+        } else if Theme.meadow {
+            content.meadowCard(focused: focused)
         } else {
             content
                 .overlay(RoundedRectangle(cornerRadius: 9).stroke(focused ? Theme.accent : Theme.line, lineWidth: 1))
@@ -1435,6 +1477,8 @@ struct AnswerLook: ViewModifier {
     func body(content: Content) -> some View {
         if Theme.ink {
             content.inkBox(fill: on ? Theme.inkLine : Theme.window)
+        } else if Theme.meadow {
+            content.background(Capsule().fill(on ? Theme.warn : Theme.raise))
         } else {
             content
                 .background(RoundedRectangle(cornerRadius: 6).fill(on ? Theme.warn : Theme.raise))

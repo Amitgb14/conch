@@ -1307,7 +1307,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
 @Test func appStyles() {
     #expect(AppStyle(setting: "ink") == .ink && AppStyle(setting: " INK ") == .ink)
     #expect(AppStyle(setting: nil) == .standard && AppStyle(setting: "") == .standard && AppStyle(setting: "manga") == .standard)
-    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink"])
+    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink", "Meadow"])
     #expect(AppStyle.standard.theme == nil && AppStyle.ink.theme == "ink" && ConchTheme.named(AppStyle.ink.theme).id == "ink")
     #expect(AppStyle.ink.gutter > AppStyle.standard.gutter && AppStyle.ink.border > AppStyle.standard.border)
 }
@@ -1325,4 +1325,21 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(burstPoints(width: 10, height: 10, spikes: 1).count == 6) // at least three spikes
     #expect(burstPoints(width: 0, height: 0).allSatisfy { $0.x == 0 && $0.y == 0 })
     #expect(burstPoints(width: 10, height: 10, depth: 5).allSatisfy { $0.x >= 0 && $0.y >= 0 })
+}
+
+// Meadow: drawn for the Meadow theme, rounder than standard, the one style
+// that paints its own title bar; its clouds stay in their band and keep
+// their places as the band changes width a little.
+@Test func meadowStyle() {
+    #expect(AppStyle(setting: "meadow") == .meadow && AppStyle.meadow.label == "Meadow")
+    #expect(AppStyle.meadow.theme == "meadow" && ConchTheme.named("meadow").light && !ConchTheme.named("firefly").light)
+    #expect(AppStyle.meadow.corner > AppStyle.standard.corner && AppStyle.ink.corner == 0)
+    #expect(AppStyle.allCases.filter(\.paintsTitleBar) == [.meadow])
+    #expect(AppStyle.meadow.gutter == AppStyle.ink.gutter && AppStyle.meadow.border == AppStyle.standard.border)
+    for w in [0.0, 100, 1320, 2560] {
+        let c = cloudLayout(width: w)
+        #expect(c.count == max(Int(w / 260), 1))
+        #expect(c.allSatisfy { $0.x > 0 && $0.x < 1 && $0.y > 0 && $0.y < 1 && $0.h > 0 && $0.w > 0 })
+    }
+    #expect(cloudLayout(width: 1320).map(\.y) == cloudLayout(width: 1330).map(\.y))
 }

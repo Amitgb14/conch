@@ -21,7 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
                           backing: .buffered, defer: false)
         window.title = "conch"
         window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = false
+        // Meadow paints its own sky behind the toolbar.
+        window.titlebarAppearsTransparent = store.style.paintsTitleBar
         window.backgroundColor = Theme.ns(store.theme.chrome)
         window.minSize = NSSize(width: 760, height: 440)
         window.setFrameAutosaveName("conch.main")
@@ -41,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             self?.window.backgroundColor = Theme.ns(t.chrome)
             self?.updateThemeMenu()
         }
+        store.onStyle = { [weak self] st in self?.window.titlebarAppearsTransparent = st.paintsTitleBar }
         let settings = SettingsWindow(store: store)
         settingsWindow = settings
         store.onOpenSettings = { settings.show() }
