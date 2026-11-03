@@ -36,10 +36,13 @@ func Log(ctx context.Context, dir string, limit int) (commits []LogCommit, more 
 	if !head && !hasRefs(ctx, dir) {
 		return nil, false, nil
 	}
-	// Fields are split by US and commits by RS, which a subject cannot
-	// hold: git stops %s at the first line.
-	args := []string{"log", "--topo-order", "--no-color", "--decorate=short",
-		"--format=%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s%x1e", "-n", strconv.Itoa(limit + 1), "--branches", "--tags"}
+	// Commits are split by NUL (-z), which nothing in a commit can hold,
+	// and fields by US, with the subject last so a US inside one (git
+	// keeps control characters) stays in it: split by RS as well, a
+	// subject holding either once lost its commit, and its parent's lane
+	// ran off the bottom of the graph.
+	args := []string{"log", "-z", "--topo-order", "--no-color", "--decorate=short",
+		"--format=%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s", "-n", strconv.Itoa(limit + 1), "--branches", "--tags"}
 	// HEAD only when it names a commit: on an unborn branch it names
 	// nothing, and git refuses the whole log over it.
 	if head {
@@ -49,9 +52,9 @@ func Log(ctx context.Context, dir string, limit int) (commits []LogCommit, more 
 	if err != nil {
 		return nil, false, err
 	}
-	for _, rec := range strings.Split(string(out), "\x1e") {
+	for _, rec := range strings.Split(string(out), "\x00") {
 		rec = strings.TrimLeft(rec, "\n")
-		f := strings.Split(rec, "\x1f")
+		f := strings.SplitN(rec, "\x1f", 6)
 		if len(f) != 6 || f[0] == "" {
 			continue
 		}
@@ -63,7 +66,8 @@ func Log(ctx context.Context, dir string, limit int) (commits []LogCommit, more 
 			c.Time = time.Unix(s, 0)
 		}
 		for _, r := range strings.Split(f[4], ", ") {
-			if r = strings.TrimSpace(r); r != "" {
+			// "grafted" marks a shallow clone's boundary, not a ref.
+			if r = strings.TrimSpace(r); r != "" && r != "grafted" {
 				c.Refs = append(c.Refs, r)
 			}
 		}
@@ -80,4 +84,15 @@ func Log(ctx context.Context, dir string, limit int) (commits []LogCommit, more 
 func hasRefs(ctx context.Context, dir string) bool {
 	out, err := run(ctx, dir, "for-each-ref", "--count=1", "--format=%(refname)", "refs/heads", "refs/tags")
 	return err == nil && strings.TrimSpace(string(out)) != ""
+}
+
+// Remotes are the names of a repository's remotes (origin, upstream, a
+// fork's), by which a decoration such as fork/main is told to be a
+// remote's branch rather than a local one with a slash in its name.
+func Remotes(ctx context.Context, dir string) []string {
+	out, err := run(ctx, dir, "remote")
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(out))
 }

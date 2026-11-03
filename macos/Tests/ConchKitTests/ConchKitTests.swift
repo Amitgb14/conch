@@ -1450,3 +1450,16 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(!l.isLatest(a) && l.isLatest(b) && a != b)
     #expect(!Latest().isLatest(1) && Latest().isLatest(0) == true)
 }
+
+// A shallow clone's "grafted" is no ref; a remote of another name is a
+// remote when the server names it, and a local branch with a slash stays
+// local; the server's remotes decode, and an older server sends none.
+@Test func refsWithRemotes() throws {
+    let refs = ["HEAD -> main", "fork/main", "fork/HEAD", "conch/feat", "grafted"]
+    #expect(CommitRef.parse(refs, remotes: ["fork"]) == [CommitRef(name: "main", kind: .head), CommitRef(name: "conch/feat", kind: .branch), CommitRef(name: "fork/main", kind: .remote)])
+    #expect(CommitRef.parse(["origin/x"], remotes: ["fork"]) == [CommitRef(name: "origin/x", kind: .branch)])
+    #expect(CommitRef.parse(["grafted"]).isEmpty)
+    let r = try JSONDecoder().decode(LogResult.self, from: Data(#"{"commits":[],"remotes":["fork","origin"]}"#.utf8))
+    #expect(r.remotes == ["fork", "origin"])
+    #expect(try JSONDecoder().decode(LogResult.self, from: Data(#"{"commits":[]}"#.utf8)).remotes == nil)
+}

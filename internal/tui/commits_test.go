@@ -114,13 +114,13 @@ func TestGraphCells(t *testing.T) {
 
 func TestRefs(t *testing.T) {
 	refs := []string{"HEAD -> main", "origin/main", "origin/HEAD", "tag: v1", "conch/feat"}
-	if got := ansi.Strip(refsText(refs)); got != "(HEAD → main, origin/main, tag: v1, conch/feat) " {
+	if got := ansi.Strip(refsText(refs, nil)); got != "(HEAD → main, origin/main, tag: v1, conch/feat) " {
 		t.Errorf("refs %q", got)
 	}
-	if got := localBranches(refs); !eqStrings(got, "main", "conch/feat") {
+	if got := localBranches(refs, nil); !eqStrings(got, "main", "conch/feat") {
 		t.Errorf("local branches %q", got)
 	}
-	if refsText(nil) != "" || len(localBranches([]string{"HEAD", "origin/x", "tag: t"})) != 0 {
+	if refsText(nil, nil) != "" || len(localBranches([]string{"HEAD", "origin/x", "tag: t"}, nil)) != 0 {
 		t.Error("no refs: nothing")
 	}
 	if headOf([]string{"HEAD"}) != "HEAD" || headOf(nil) != "" {
@@ -157,7 +157,7 @@ func commitsFixture() []proto.LogCommit {
 func TestCommitsRenderFits(t *testing.T) {
 	m := a2Model()
 	v := &commitsView{mid: localMachine, pid: "r1", limit: commitsPage}
-	v.receive(commitsMsg{v: v, res: proto.LogResult{Commits: commitsFixture(), More: true}})
+	v.receive(commitsMsg{v: v, seq: v.seq, res: proto.LogResult{Commits: commitsFixture(), More: true}})
 	for _, sz := range [][2]int{{1, 1}, {20, 5}, {30, 10}, {39, 12}, {80, 24}, {120, 40}, {250, 70}} {
 		m.width, m.height = sz[0], sz[1]
 		for _, sel := range []int{0, 3} {
@@ -190,7 +190,7 @@ func TestCommitsKeys(t *testing.T) {
 	if _, cmd := v.update(m, commitsMsg{v: &commitsView{}}); cmd != nil || len(v.rows) != 0 {
 		t.Fatal("a stale history was taken in")
 	}
-	v.update(m, commitsMsg{v: v, res: proto.LogResult{Commits: commitsFixture()}})
+	v.update(m, commitsMsg{v: v, seq: v.seq, res: proto.LogResult{Commits: commitsFixture()}})
 	if v.sel != 1 || v.focus != "" {
 		t.Fatalf("opened at a branch: sel %d focus %q", v.sel, v.focus)
 	}
@@ -256,7 +256,7 @@ func TestCommitsReadMoreAtTheEnd(t *testing.T) {
 	m := a2Model()
 	m.machines[0].c = a2Client(proto.CapProjectLog)
 	v := &commitsView{mid: localMachine, pid: "r1", limit: commitsPage}
-	v.receive(commitsMsg{v: v, res: proto.LogResult{Commits: commitsFixture(), More: true}})
+	v.receive(commitsMsg{v: v, seq: v.seq, res: proto.LogResult{Commits: commitsFixture(), More: true}})
 	if cmd := v.move(m, 1); cmd != nil || v.limit != commitsPage {
 		t.Fatal("asked for more before the end")
 	}
@@ -272,12 +272,12 @@ func TestCommitsReadMoreAtTheEnd(t *testing.T) {
 	}
 	// The pick survives a read that brings more.
 	v.sel = 2
-	v.receive(commitsMsg{v: v, res: proto.LogResult{Commits: commitsFixture()}})
+	v.receive(commitsMsg{v: v, seq: v.seq, res: proto.LogResult{Commits: commitsFixture()}})
 	if v.sel != 2 || v.more {
 		t.Errorf("after reading again: sel %d more %v", v.sel, v.more)
 	}
 	// A failed read says why and keeps what was shown.
-	v.receive(commitsMsg{v: v, err: errTest("boom")})
+	v.receive(commitsMsg{v: v, seq: v.seq, err: errTest("boom")})
 	if v.err != "boom" || len(v.rows) != 4 || !strings.Contains(ansi.Strip(strings.Join(v.render(*m).lines, "")), "error: boom") {
 		t.Errorf("failed read: %q rows %d", v.err, len(v.rows))
 	}
@@ -290,7 +290,7 @@ func (e errTest) Error() string { return string(e) }
 func TestCommitsMouse(t *testing.T) {
 	m := a2Model()
 	v := &commitsView{mid: localMachine, pid: "r1", limit: commitsPage}
-	v.receive(commitsMsg{v: v, res: proto.LogResult{Commits: commitsFixture()}})
+	v.receive(commitsMsg{v: v, seq: v.seq, res: proto.LogResult{Commits: commitsFixture()}})
 	m.overlay = v
 	b := v.render(*m)
 	v.mouse(m, tea.MouseMsg{X: b.x + 5, Y: b.y + 3, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
@@ -379,5 +379,66 @@ func TestLaneColoursDistinct(t *testing.T) {
 	applyTheme("github-light", "")
 	if fmt.Sprint(laneStyle(0).GetForeground()) == fmt.Sprint(laneStyle(1).GetForeground()) {
 		t.Error("github-light: the first two lanes are still one blue")
+	}
+}
+
+// A remote of any name is a remote when the server names it — fork/main
+// is not a local branch to open — and a local branch with a slash stays
+// local; an older server names none, and origin and upstream are taken.
+// A shallow clone's "grafted" is not a ref at all.
+func TestRefsWithRemotes(t *testing.T) {
+	refs := []string{"HEAD -> main", "fork/main", "fork/HEAD", "conch/feat", "grafted"}
+	if got := localBranches(refs, []string{"fork"}); !eqStrings(got, "main", "conch/feat") {
+		t.Errorf("local branches %q", got)
+	}
+	if got := ansi.Strip(refsText(refs, []string{"fork"})); got != "(HEAD → main, fork/main, conch/feat) " {
+		t.Errorf("refs %q", got)
+	}
+	if got := localBranches([]string{"origin/x"}, []string{"fork"}); !eqStrings(got, "origin/x") {
+		t.Errorf("a local branch named origin/x, with origin not a remote: %q", got)
+	}
+	if got := localBranches([]string{"fork/main", "origin/main"}, nil); !eqStrings(got, "fork/main") {
+		t.Errorf("an older server: %q", got)
+	}
+}
+
+// Only the newest read is taken: r pressed while more was being read
+// gives two replies, and the older arriving last is dropped.
+func TestCommitsNewestReadWins(t *testing.T) {
+	m := a2Model()
+	m.width, m.height = 120, 40
+	v := &commitsView{mid: localMachine, pid: "r1", limit: commitsPage}
+	v.seq = 2
+	v.receive(commitsMsg{v: v, seq: 2, res: proto.LogResult{Commits: commitsFixture()}})
+	v.receive(commitsMsg{v: v, seq: 1, res: proto.LogResult{Commits: commitsFixture()[:1]}})
+	if len(v.rows) != 4 {
+		t.Fatalf("an older reply replaced the newer: %d rows", len(v.rows))
+	}
+}
+
+// At the most that is read, the footer no longer promises more.
+func TestCommitsFooterAtTheCap(t *testing.T) {
+	m := a2Model()
+	m.width, m.height = 120, 40
+	v := &commitsView{mid: localMachine, pid: "r1", limit: commitsMaxRead}
+	v.receive(commitsMsg{v: v, seq: v.seq, res: proto.LogResult{Commits: commitsFixture(), More: true}})
+	text := ansi.Strip(strings.Join(v.render(*m).lines, "\n"))
+	if strings.Contains(text, "more as you scroll") || !strings.Contains(text, "as many as are read") {
+		t.Fatalf("footer at the cap:\n%s", text)
+	}
+}
+
+// Clicking the last row read reads older commits, as the keys do.
+func TestCommitsClickLastLoadsMore(t *testing.T) {
+	m := a2Model()
+	m.width, m.height = 120, 40
+	v := &commitsView{mid: localMachine, pid: "r1", limit: commitsPage}
+	v.receive(commitsMsg{v: v, seq: v.seq, res: proto.LogResult{Commits: commitsFixture(), More: true}})
+	b := v.render(*m)
+	before := v.limit
+	// The fourth row is the last one read.
+	v.mouse(m, tea.MouseMsg{X: b.x + 3, Y: b.y + 1 + 3, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
+	if v.sel != 3 || v.limit <= before {
+		t.Fatalf("sel %d, limit %d → %d: clicking the last row read nothing more", v.sel, before, v.limit)
 	}
 }

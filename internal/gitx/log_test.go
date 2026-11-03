@@ -112,3 +112,51 @@ func TestLogEmptyAndNotARepo(t *testing.T) {
 		t.Error("not a repository: no error")
 	}
 }
+
+// A subject holding the field or record separators keeps its commit, and
+// the commit's child keeps its parent: they once split the record, the
+// commit was lost and the graph's lane ran off the bottom.
+func TestLogSubjectWithSeparators(t *testing.T) {
+	root := newRepo(t) // "initial"
+	commit(t, root, "a", "a\n", "two \x1f with US")
+	commit(t, root, "b", "b\n", "three \x1e with RS")
+	commit(t, root, "c", "c\n", "four")
+	commits, _, err := Log(ctx, root, 10)
+	if err != nil || len(commits) != 4 {
+		t.Fatalf("%v: %d commits %+v", err, len(commits), commits)
+	}
+	if commits[1].Subject != "three \x1e with RS" || commits[2].Subject != "two \x1f with US" {
+		t.Errorf("subjects %q / %q", commits[1].Subject, commits[2].Subject)
+	}
+	for i := 0; i < 3; i++ {
+		if len(commits[i].Parents) != 1 || commits[i].Parents[0] != commits[i+1].Hash {
+			t.Errorf("commit %d's parent is not commit %d", i, i+1)
+		}
+	}
+}
+
+// A shallow clone's boundary is decorated "grafted", which is no ref; and
+// a repository's remotes are named, whatever they are called.
+func TestLogShallowAndRemotes(t *testing.T) {
+	src := newRepo(t)
+	commit(t, src, "a", "a\n", "two")
+	commit(t, src, "b", "b\n", "three")
+	dst := filepath.Join(t.TempDir(), "shallow")
+	git(t, filepath.Dir(dst), "clone", "-q", "--depth", "2", "file://"+src, dst)
+	git(t, dst, "remote", "rename", "origin", "fork")
+	commits, _, err := Log(ctx, dst, 10)
+	if err != nil || len(commits) != 2 {
+		t.Fatalf("%v %+v", err, commits)
+	}
+	for _, c := range commits {
+		if slices.Contains(c.Refs, "grafted") {
+			t.Errorf("%s: refs %q", c.Subject, c.Refs)
+		}
+	}
+	if r := Remotes(ctx, dst); !slices.Equal(r, []string{"fork"}) {
+		t.Errorf("remotes %q", r)
+	}
+	if r := Remotes(ctx, src); len(r) != 0 {
+		t.Errorf("no remotes: %q", r)
+	}
+}

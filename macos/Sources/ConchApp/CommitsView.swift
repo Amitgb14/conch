@@ -21,7 +21,17 @@ final class CommitsModel: ObservableObject {
     /// The commit picked, and a branch to bring into view once read.
     @Published var selected: String?
     @Published var focusBranch: String?
+    /// Counts the times the picked commit is to be brought into view: a
+    /// branch's tip already picked is shown again, which a change of the
+    /// pick alone never said.
+    @Published var reveal = 0
+    /// The repository's remotes, as the server names them (nil: an older
+    /// server, and origin and upstream are taken).
+    @Published var remotes: Set<String>?
     private var limit = proto_LogLimit
+    /// Reads in flight: only the newest one's reply is taken, or a read for
+    /// 300 landing after one for 600 put the shorter history back.
+    private var reads = Latest()
 
     init(key: String, store: Store) {
         self.key = key
@@ -48,24 +58,40 @@ final class CommitsModel: ObservableObject {
         }
         struct Params: Encodable { var project_id: String; var limit: Int }
         loading = true
+        let n = reads.next()
         Task {
-            defer { loading = false }
             do {
                 let r = try await c.call("project.log", Params(project_id: project, limit: limit), as: LogResult.self)
+                guard reads.isLatest(n) else { return }
+                loading = false
                 rows = commitGraph(r.commits ?? [])
                 more = r.more ?? false
+                remotes = r.remotes.map(Set.init)
                 error = ""
-                if let b = focusBranch, let hit = rows.first(where: { CommitRef.parse($0.commit.refs).contains { $0.name == b } }) {
-                    selected = hit.commit.hash
+                // The branch asked for, picked and brought into view if it is
+                // among those read; either way, asked once.
+                if let b = focusBranch {
+                    focusBranch = nil
+                    if let hit = rows.first(where: { CommitRef.parse($0.commit.refs, remotes: remotes ?? ["origin", "upstream"]).contains { $0.name == b } }) {
+                        selected = hit.commit.hash
+                        reveal += 1
+                    }
                 }
             } catch {
+                guard reads.isLatest(n) else { return }
+                loading = false
                 self.error = "Could not read the history: \(error)"
             }
         }
     }
 
+    /// Whether older commits can still be read: there are more, and fewer
+    /// than the server's 2000 have been asked for.
+    var canReadMore: Bool { more && limit < 2000 }
+
     /// Older commits, 300 at a time, up to the server's 2000.
     func loadMore() {
+        guard canReadMore, !loading else { return }
         limit = min(limit + proto_LogLimit, 2000)
         load()
     }
@@ -94,18 +120,18 @@ struct CommitsView: View {
                             ForEach(model.rows, id: \.commit.hash) { r in
                                 CommitRow(model: model, store: store, row: r).id(r.commit.hash)
                             }
-                            if model.more {
+                            if model.canReadMore {
                                 Button("Show older commits") { model.loadMore() }
-                                    .buttonStyle(.link).padding(12)
+                                    .buttonStyle(.link).padding(12).disabled(model.loading)
+                            } else if model.more {
+                                Text("The newest \(model.count), as many as are read").font(.system(size: 12))
+                                    .foregroundStyle(Theme.muted).padding(12)
                             }
                         }
                         .padding(.vertical, 6)
                     }
-                    .onChange(of: model.selected) { _, h in
-                        if let h, model.focusBranch != nil {
-                            withAnimation { reader.scrollTo(h, anchor: .center) }
-                            model.focusBranch = nil
-                        }
+                    .onChange(of: model.reveal) { _, _ in
+                        if let h = model.selected { withAnimation { reader.scrollTo(h, anchor: .center) } }
                     }
                 }
             }
@@ -151,7 +177,7 @@ struct CommitRow: View {
 
     var body: some View {
         let c = row.commit
-        let refs = CommitRef.parse(c.refs)
+        let refs = CommitRef.parse(c.refs, remotes: model.remotes ?? ["origin", "upstream"])
         let on = model.selected == c.hash
         HStack(spacing: 8) {
             GraphCell(row: row).frame(width: CGFloat(model.lanes) * Self.laneWidth + 6, height: Self.height).clipped()

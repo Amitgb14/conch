@@ -1012,9 +1012,13 @@ final class Store: ObservableObject {
     func openCommits(project pk: String, branch: String? = nil) {
         let (m, pid) = unkey(pk)
         let k = commitsKey(m, pid)
+        // A new one reads as it is made, and takes the branch when its
+        // reply comes; one kept from before (its tab closed, or open) reads
+        // again, or a graph reopened after a commit showed the old history.
+        let fresh = commitViews[k] == nil
         let model = commits(for: k)
         model.focusBranch = branch
-        if layout.tab(showing: k) != nil || branch != nil { model.load() }
+        if !fresh { model.load() }
         layout.open(k)
         terminalHasKeyboard = false
     }

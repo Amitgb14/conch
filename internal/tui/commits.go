@@ -291,13 +291,14 @@ func headOf(refs []string) string {
 
 // localBranches are the branches among a commit's refs that are this
 // repository's own, HEAD's first: what a commit can open the changes of.
-func localBranches(refs []string) []string {
+// remotes are the repository's remotes (nil: origin and upstream).
+func localBranches(refs, remotes []string) []string {
 	var out []string
 	if h := headOf(refs); h != "" && h != "HEAD" {
 		out = append(out, h)
 	}
 	for _, r := range refs {
-		if strings.HasPrefix(r, "HEAD") || strings.HasPrefix(r, "tag: ") || isRemoteRef(r) {
+		if strings.HasPrefix(r, "HEAD") || strings.HasPrefix(r, "tag: ") || r == "grafted" || isRemoteRef(r, remotes) {
 			continue
 		}
 		out = append(out, r)
@@ -305,18 +306,26 @@ func localBranches(refs []string) []string {
 	return out
 }
 
-// isRemoteRef says whether a decoration is a remote's branch: origin/x or
-// upstream/x. A local branch may have a slash of its own (conch/x).
-func isRemoteRef(r string) bool {
+// isRemoteRef says whether a decoration is a remote's branch: one of the
+// repository's remotes, then a slash (fork/x). A local branch may have a
+// slash of its own (conch/x). An older server names no remotes: origin
+// and upstream are taken then, which a remote of another name was not.
+func isRemoteRef(r string, remotes []string) bool {
 	remote, _, ok := strings.Cut(r, "/")
-	return ok && (remote == "origin" || remote == "upstream")
+	if !ok {
+		return false
+	}
+	if remotes == nil {
+		return remote == "origin" || remote == "upstream"
+	}
+	return slicesContains(remotes, remote)
 }
 
 // refsText is a commit's refs as git writes them, each in its colour:
 // HEAD's branch in the accent, branches in the working colour, remotes
 // muted, tags in the warning colour. origin/HEAD is left out: the row
 // already shows the branch it names.
-func refsText(refs []string) string {
+func refsText(refs, remotes []string) string {
 	var parts []string
 	if h := headOf(refs); h != "" {
 		label := "HEAD"
@@ -330,7 +339,8 @@ func refsText(refs []string) string {
 		case strings.HasPrefix(r, "HEAD"), strings.HasSuffix(r, "/HEAD"):
 		case strings.HasPrefix(r, "tag: "):
 			parts = append(parts, lipgloss.NewStyle().Foreground(colorWarn).Render(r))
-		case isRemoteRef(r):
+		case r == "grafted": // a shallow clone's boundary, from an older server
+		case isRemoteRef(r, remotes):
 			parts = append(parts, styleMuted.Render(r))
 		default:
 			parts = append(parts, styleWork.Render(r))
@@ -364,10 +374,17 @@ type commitsView struct {
 	focus string
 	// listH is how many rows the last render showed, for paging.
 	listH int
+	// remotes are the repository's, as the server named them.
+	remotes []string
+	// seq numbers the reads: only the newest one's reply is taken, or an
+	// r pressed during a read for more could put a shorter history over
+	// a longer one.
+	seq int
 }
 
 type commitsMsg struct {
 	v   *commitsView
+	seq int
 	res proto.LogResult
 	err error
 }
@@ -396,17 +413,21 @@ func (v *commitsView) load(m *Model) tea.Cmd {
 		return nil
 	}
 	v.loading = true
-	pid, limit := v.pid, v.limit
+	v.seq++
+	pid, limit, seq := v.pid, v.limit, v.seq
 	return func() tea.Msg {
 		var res proto.LogResult
 		err := callCtx(c, proto.MethodProjectLog, proto.LogParams{ProjectID: pid, Limit: limit}, &res)
-		return commitsMsg{v: v, res: res, err: err}
+		return commitsMsg{v: v, seq: seq, res: res, err: err}
 	}
 }
 
 // receive takes a read history in, keeping the commit picked if it is
 // still there.
 func (v *commitsView) receive(msg commitsMsg) {
+	if msg.seq != v.seq {
+		return // a newer read is on its way
+	}
 	v.loading = false
 	if msg.err != nil {
 		v.err = msg.err.Error()
@@ -417,7 +438,7 @@ func (v *commitsView) receive(msg commitsMsg) {
 	if v.sel < len(v.rows) {
 		picked = v.rows[v.sel].c.Hash
 	}
-	v.rows, v.more = commitGraph(msg.res.Commits), msg.res.More
+	v.rows, v.more, v.remotes = commitGraph(msg.res.Commits), msg.res.More, msg.res.Remotes
 	v.sel = 0
 	for i, r := range v.rows {
 		if picked != "" && r.c.Hash == picked {
@@ -426,7 +447,7 @@ func (v *commitsView) receive(msg commitsMsg) {
 	}
 	if v.focus != "" {
 		for i, r := range v.rows {
-			if slicesContains(localBranches(r.c.Refs), v.focus) {
+			if slicesContains(localBranches(r.c.Refs, v.remotes), v.focus) {
 				v.sel = i
 				// In the middle of the window, not at its edge.
 				v.top = max(i-v.listH/2, 0)
@@ -494,7 +515,7 @@ func (v *commitsView) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			}
 		case "enter":
 			if v.sel < len(v.rows) {
-				if b := localBranches(v.rows[v.sel].c.Refs); len(b) > 0 {
+				if b := localBranches(v.rows[v.sel].c.Refs, v.remotes); len(b) > 0 {
 					m.overlay = nil
 					return true, m.openBranch(v.mid, v.pid, b[0])
 				}
@@ -517,8 +538,10 @@ func (v *commitsView) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 			return nil
 		}
 		// The list starts below the frame's top border.
+		// Through move, so picking the last row reads older commits as
+		// the keys and the wheel do.
 		if i := v.top + msg.Y - b.y - 1; msg.Y > b.y && i >= v.top && i < v.top+v.listH && i < len(v.rows) {
-			v.sel = i
+			return v.move(m, i-v.sel)
 		}
 	}
 	return nil
@@ -568,6 +591,8 @@ func (v *commitsView) render(m Model) box {
 		foot = "reading older commits…  " + foot
 	case v.err != "":
 		foot = "error: " + v.err + "  " + foot
+	case v.more && v.limit >= commitsMaxRead:
+		foot = fmt.Sprintf("newest %d (as many as are read)  ", len(v.rows)) + foot
 	case v.more:
 		foot = fmt.Sprintf("newest %d (more as you scroll)  ", len(v.rows)) + foot
 	default:
@@ -602,7 +627,7 @@ func (v *commitsView) line(r graphRow, lanes, w int, picked bool) string {
 		short = short[:7]
 	}
 	if picked {
-		left := " " + short + " " + ansi.Strip(refsText(r.c.Refs)) + r.c.Subject
+		left := " " + short + " " + ansi.Strip(refsText(r.c.Refs, v.remotes)) + r.c.Subject
 		if ansi.StringWidth(left)+ansi.StringWidth(right) > textW {
 			right = ""
 		}
@@ -610,7 +635,7 @@ func (v *commitsView) line(r graphRow, lanes, w int, picked bool) string {
 		pad := strings.Repeat(" ", max(textW-ansi.StringWidth(left)-ansi.StringWidth(right), 0))
 		return ansi.Truncate(graph, w, "") + styleSel.Render(left+pad+right)
 	}
-	left := " " + styleMuted.Render(short) + " " + refsText(r.c.Refs) + r.c.Subject
+	left := " " + styleMuted.Render(short) + " " + refsText(r.c.Refs, v.remotes) + r.c.Subject
 	if ansi.StringWidth(left)+ansi.StringWidth(right) > textW {
 		right = ""
 	}

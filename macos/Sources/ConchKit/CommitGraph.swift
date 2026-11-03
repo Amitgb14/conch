@@ -25,6 +25,8 @@ public struct LogCommit: Decodable, Equatable, Identifiable, Sendable {
 public struct LogResult: Decodable, Sendable {
     public var commits: [LogCommit]?
     public var more: Bool?
+    /// The repository's remotes; nil from an older server.
+    public var remotes: [String]?
 }
 
 /// A project's commit graph tab's key in the layout:
@@ -49,6 +51,8 @@ public struct CommitRef: Equatable, Sendable {
     public static func parse(_ refs: [String]?, remotes: Set<String> = ["origin", "upstream"]) -> [CommitRef] {
         var out: [CommitRef] = []
         for r in refs ?? [] {
+            // A shallow clone's boundary, which an older server passes on.
+            if r == "grafted" { continue }
             if r.hasPrefix("HEAD -> ") {
                 out.append(CommitRef(name: String(r.dropFirst(8)), kind: .head))
             } else if r == "HEAD" {

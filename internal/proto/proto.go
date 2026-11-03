@@ -1009,6 +1009,10 @@ type LogCommit struct {
 type LogResult struct {
 	Commits []LogCommit `json:"commits"`
 	More    bool        `json:"more,omitempty"`
+	// Remotes are the repository's remotes, by which a client tells a
+	// remote's branch (fork/main) from a local one with a slash. Absent
+	// from an older server: clients then take origin and upstream.
+	Remotes []string `json:"remotes,omitempty"`
 }
 
 // DiffParams asks for the diff of one file within project.changes' scope.
