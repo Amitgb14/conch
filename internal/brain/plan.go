@@ -91,6 +91,8 @@ type Action struct {
 type Plan struct {
 	Reply   string   `json:"reply"`
 	Actions []Action `json:"actions"`
+	// Fast is a plan FastPlan made without the model.
+	Fast bool `json:"-"`
 }
 
 var planSchema = map[string]any{
