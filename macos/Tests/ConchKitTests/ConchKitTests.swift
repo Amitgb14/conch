@@ -1515,3 +1515,60 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let r = try JSONDecoder().decode(FSRead.self, from: Data(#"{"path":"/r/a","size":9,"binary":true,"mime":"image/png"}"#.utf8))
     #expect(r.binary == true && r.data == nil && r.mime == "image/png")
 }
+
+// ✦ Ask drives `conch ask` through its own confirmation: the plan shown
+// is the one confirmed. A fake conch stands in for it — the brain is never
+// asked — printing a plan, asking, and running only on y.
+@Test func askSession() async throws {
+    #expect(askConfirmCount("thinking…\nRun 2 action(s)? [y/N] ") == 2 && askConfirmCount("thinking (claude)…\n") == nil)
+    #expect(askConfirmCount("Run 12 action(s)? [y/N] ") == 12)
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ask-\(UUID().uuidString.prefix(8))")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    func fake(_ body: String) throws -> String {
+        let p = dir.appendingPathComponent("conch-\(UUID().uuidString.prefix(6))").path
+        try ("#!/bin/sh\n" + body).write(toFile: p, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: p)
+        return p
+    }
+    func wait(_ s: AskSession, until ok: (AskSession.State) -> Bool) async throws {
+        for _ in 0..<400 where !ok(s.state) { try await Task.sleep(nanoseconds: 10_000_000) }
+    }
+    let plan = """
+    echo "thinking (fake)…" >&2
+    echo "I'll open a terminal."
+    echo "  1. open a terminal in api"
+    printf "Run 1 action(s)? [y/N] " >&2
+    read a
+    [ "$a" = y ] && echo "  1. started p9 in /src/api"
+    exit 0
+    """
+    for yes in [true, false] {
+        let s = AskSession(binary: try fake(plan), request: "open a terminal in api", environment: [:])
+        s.start()
+        try await wait(s) { $0 == .plan(1) }
+        #expect(s.state == .plan(1) && s.output.contains("1. open a terminal in api"))
+        s.confirm(yes)
+        try await wait(s) { $0 == .done }
+        #expect(s.state == .done && s.output.contains("started p9") == yes, "confirmed \(yes): \(s.output)")
+    }
+    let broken = AskSession(binary: try fake("echo 'thinking…' >&2; echo 'conch: no model provider is set' >&2; exit 1"), request: "x", environment: [:])
+    broken.start()
+    try await wait(broken) { if case .failed = $0 { return true }; return false }
+    #expect(broken.state == .failed("conch: no model provider is set"))
+    let nothing = AskSession(binary: try fake("echo 'thinking…' >&2; echo 'Nothing needs you.'; exit 0"), request: "x", environment: [:])
+    nothing.start()
+    try await wait(nothing) { $0 == .done }
+    #expect(nothing.state == .done && nothing.output.contains("Nothing needs you"))
+    nothing.confirm(true) // no plan to confirm: nothing happens
+    #expect(nothing.state == .done)
+}
+
+// conch web pair -json, as the pair popover reads it.
+@Test func pairInfoDecodes() throws {
+    let j = #"{"code":"038-929","permission":"reply","expires":"2026-11-03T09:05:00.123456Z","reach":"it will reach this computer only","url":"https://m.ts.net","link":"https://m.ts.net/#pair=038929","where":"open it","running":false,"can_start":true}"#
+    let p = try conchDecoder().decode(PairInfo.self, from: Data(j.utf8))
+    #expect(p.code == "038-929" && p.permission == "reply" && p.link?.hasPrefix("https://") == true && p.running == false && p.canStart == true && p.expires != nil)
+    let bare = try conchDecoder().decode(PairInfo.self, from: Data(#"{"code":"1","permission":"full","expires":"2026-11-03T09:05:00Z","reach":"","where":"x","running":true,"can_start":false}"#.utf8))
+    #expect(bare.link == nil && bare.url == nil && bare.running == true)
+}

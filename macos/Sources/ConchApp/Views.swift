@@ -1179,6 +1179,8 @@ struct StatusBar: View {
                 .popover(isPresented: $showLimits, arrowEdge: .top) { LimitsPopover(store: store) }
                 .onChange(of: showLimits) { if $0 { store.refreshLimits() } }
             }
+            // ✦ Ask, report a problem and pair a phone, as the TUI's bar has.
+            StatusExtras(store: store)
             if !store.serverVersion.isEmpty {
                 Text("v\(store.serverVersion)").foregroundStyle(Theme.muted)
                     .help("conch \(store.serverVersion) · panes drawn with \(PaneTerminal.engine)")
