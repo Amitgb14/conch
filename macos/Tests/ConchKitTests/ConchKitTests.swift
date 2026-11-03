@@ -1714,7 +1714,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
 // The agents with a logo draw it: each reads to a shape whose every
 // point is inside its 24×24 box; any other agent keeps its mark.
 @Test func agentLogos() {
-    for agent in ["claude", "codex", "gemini", "Claude"] {
+    for agent in ["claude", "codex", "gemini", "Claude", "grok", "devin", "amp", "kilo", "opencode", "cursor"] {
         guard let ops = AgentLogos.ops(agent) else { Issue.record("no logo for \(agent)"); continue }
         // A fill closes what is left open (Gemini's path ends without z).
         #expect(ops.count > 4 && ops.contains { if case .move = $0 { return true }; return false }, "\(agent)")
@@ -1729,8 +1729,25 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
         }
         #expect(pts.allSatisfy { $0.x >= -0.5 && $0.x <= 24.5 && $0.y >= -0.5 && $0.y <= 24.5 }, "\(agent) leaves its box")
         let xs = pts.map(\.x), ys = pts.map(\.y)
-        #expect((xs.max()! - xs.min()!) > 16 && (ys.max()! - ys.min()!) > 16, "\(agent) fills most of its box")
+        // Most of its box one way, a good part the other (OpenCode's is a tall block).
+        let w = xs.max()! - xs.min()!, h = ys.max()! - ys.min()!
+        #expect(max(w, h) > 18 && min(w, h) > 12, "\(agent) fills its box: \(w)×\(h)")
     }
-    for agent in ["opencode", "devin", "aider", "", "no-such"] { #expect(AgentLogos.ops(agent) == nil, "\(agent)") }
+    for agent in ["aider", "pi", "", "no-such"] { #expect(AgentLogos.ops(agent) == nil, "\(agent)") }
+    // LobeHub's are drawn even-odd, as they are made; Simple Icons' are not.
+    #expect(AgentLogos.logo("grok")?.evenOdd == true && AgentLogos.logo("claude")?.evenOdd == false)
     #expect(AgentLogos.ops(nil) == nil)
+}
+
+// A mark too close to the background to see is drawn in the theme's text
+// colour; every other keeps the agent's own.
+@Test func markColours() {
+    let white = RGB("#FFFFFF"), dark = RGB("#15191E"), ink = RGB("#1F2328"), fg = RGB("#C9D1D9")
+    #expect(abs(contrast(white, RGB("#000000")) - 21) < 0.01 && abs(contrast(white, white) - 1) < 0.001)
+    #expect(markColor("claude", on: white, text: ink)?.hex == agentColor("claude")?.hex) // terracotta reads on white
+    #expect(markColor("claude", on: dark, text: fg)?.hex == agentColor("claude")?.hex)
+    for a in ["grok", "cursor"] where agentColor(a) != nil && contrast(agentColor(a)!, white) < 1.6 {
+        #expect(markColor(a, on: white, text: ink)?.hex == ink.hex, "\(a) on white")
+    }
+    #expect(markColor(nil, on: white, text: ink) == nil && markColor("no-such", on: white, text: ink) == nil)
 }

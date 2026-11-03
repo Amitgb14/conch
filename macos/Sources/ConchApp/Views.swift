@@ -43,7 +43,7 @@ enum Theme {
     static var work: Color { color(current.work) }
 
     /// An agent's own colour (agentColor), or muted for one it has none for.
-    static func agent(_ name: String?) -> Color { agentColor(name).map(color) ?? muted }
+    static func agent(_ name: String?) -> Color { markColor(name, on: current.bg, text: current.fg).map(color) ?? muted }
 }
 
 extension NSColor {
@@ -198,7 +198,8 @@ struct Mark: View {
         if Theme.icons != .off, let logo = AgentLogos.ops(agent) {
             // The agent's own logo, filled in its colour, wherever one is
             // known — the same in either way of marking agents.
-            Lucide(ops: logo).fill(Theme.agent(agent)).frame(width: 13, height: 13).frame(width: 16)
+            Lucide(ops: logo).fill(Theme.agent(agent), style: FillStyle(eoFill: AgentLogos.logo(agent)?.evenOdd ?? false))
+                .frame(width: 13, height: 13).frame(width: 16)
         } else {
             mark
         }

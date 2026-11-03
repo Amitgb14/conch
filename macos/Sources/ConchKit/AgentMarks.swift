@@ -87,3 +87,23 @@ public func spinnerFrame(at date: Date) -> String {
     let n = Int((date.timeIntervalSinceReferenceDate / spinnerInterval).rounded(.down))
     return spinnerFrames[((n % spinnerFrames.count) + spinnerFrames.count) % spinnerFrames.count]
 }
+
+/// WCAG's relative luminance of a colour (0 black … 1 white).
+public func luminance(_ c: RGB) -> Double {
+    func ch(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+    return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b)
+}
+
+/// WCAG's contrast ratio of two colours (1 … 21).
+public func contrast(_ a: RGB, _ b: RGB) -> Double {
+    let (x, y) = (luminance(a), luminance(b))
+    return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+}
+
+/// The colour an agent's mark is drawn in on a background: its own, unless
+/// that is too close to the background to see — Grok's white and Cursor's
+/// grey on a light theme — when it is the theme's text colour instead.
+public func markColor(_ agent: String?, on bg: RGB, text fg: RGB) -> RGB? {
+    guard let c = agentColor(agent) else { return nil }
+    return contrast(c, bg) < 1.6 ? fg : c
+}
