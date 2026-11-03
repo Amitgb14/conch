@@ -165,7 +165,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         themeMenu = themes
         let themeItem = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
         themeItem.submenu = themes
-        menu("View", [item("Show or Hide Sidebar", "s", [.command, .control], "toggleSidebar"), .separator(), themeItem])
+        // How the chrome is drawn, apart from its colours.
+        let styles = NSMenu(title: "Style")
+        for st in AppStyle.allCases {
+            let m = NSMenuItem(title: st.label, action: #selector(chooseStyle(_:)), keyEquivalent: "")
+            m.representedObject = st.rawValue
+            m.target = self
+            styles.addItem(m)
+        }
+        styleMenu = styles
+        let styleItem = NSMenuItem(title: "Style", action: nil, keyEquivalent: "")
+        styleItem.submenu = styles
+        menu("View", [item("Show or Hide Sidebar", "s", [.command, .control], "toggleSidebar"), .separator(), styleItem, themeItem])
+        updateStyleMenu()
         updateThemeMenu()
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
@@ -177,6 +189,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
     }
 
     var themeMenu: NSMenu?
+    var styleMenu: NSMenu?
+
+    @objc func chooseStyle(_ sender: NSMenuItem) {
+        store.chooseStyle(AppStyle(setting: sender.representedObject as? String))
+        updateStyleMenu()
+        updateThemeMenu()
+    }
+
+    /// A tick on the style in use.
+    func updateStyleMenu() {
+        for m in styleMenu?.items ?? [] {
+            m.state = (m.representedObject as? String) == store.style.rawValue ? .on : .off
+        }
+    }
     var settingsWindow: SettingsWindow?
 
     @objc func chooseTheme(_ sender: NSMenuItem) {

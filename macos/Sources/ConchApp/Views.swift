@@ -14,6 +14,8 @@ enum Theme {
     static var current = ConchTheme.conch
     /// conch's `[ui] icons`, which decides how agents are marked.
     static var icons = IconMode.text
+    /// How the chrome is drawn (View → Style): standard, or Ink.
+    static var style = AppStyle.standard
 
     static func ns(_ c: RGB) -> NSColor { NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1) }
     static func color(_ c: RGB) -> Color { Color(nsColor: ns(c)) }
@@ -72,7 +74,8 @@ struct Pill: View {
         }
         .font(.system(size: 11, weight: .semibold)).foregroundStyle(fg)
         .padding(.horizontal, 7).padding(.vertical, 2)
-        .background(Capsule().fill(bg))
+        .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 20).fill(bg))
+        .overlay(RoundedRectangle(cornerRadius: 0).strokeBorder(Theme.ink ? Theme.inkLine : .clear, lineWidth: 1.5))
     }
 
     static func state(_ s: AgentState?) -> Pill? {
@@ -151,7 +154,7 @@ struct SidebarEdge: View {
     @State private var start: Double?
 
     var body: some View {
-        Rectangle().fill(Theme.line.opacity(0.6)).frame(width: 1)
+        Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line.opacity(0.6)).frame(width: Theme.ink ? 3 : 1)
             .overlay(
                 Color.clear.frame(width: 8).contentShape(Rectangle())
                     .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
@@ -232,8 +235,8 @@ struct Keycap: View {
     var body: some View {
         Text(key).font(.system(size: 10.5, weight: .medium)).foregroundStyle(Theme.text2)
             .padding(.horizontal, 4.5).frame(minWidth: 17, minHeight: 15)
-            .background(RoundedRectangle(cornerRadius: 3.5).fill(Theme.raise))
-            .overlay(RoundedRectangle(cornerRadius: 3.5).stroke(Theme.line2, lineWidth: 0.5))
+            .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 3.5).fill(Theme.ink ? Theme.window : Theme.raise))
+            .overlay(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 3.5).strokeBorder(Theme.ink ? Theme.inkLine : Theme.line2, lineWidth: Theme.ink ? 1.5 : 0.5))
     }
 }
 
@@ -250,10 +253,11 @@ struct WorkspacesControl: View {
     var body: some View {
         HStack(spacing: 2) {
             ForEach(Array(store.workspaces.enumerated()), id: \.offset) { i, ws in
-                Text(Workspace.label(i, ws)).font(.system(size: 12))
-                    .foregroundStyle(i == store.workspace ? Theme.text : Theme.text2)
+                let on = i == store.workspace
+                Text(Workspace.label(i, ws)).font(.system(size: 12, weight: Theme.ink ? .bold : .regular))
+                    .foregroundStyle(Theme.ink && on ? Theme.window : on ? Theme.text : Theme.text2)
                     .padding(.horizontal, 10).padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(i == store.workspace ? Theme.raise : .clear))
+                    .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 5).fill(on ? (Theme.ink ? Theme.inkLine : Theme.raise) : .clear))
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) { store.renameWorkspace(i) }
                     .onTapGesture { store.workspace = i }
@@ -267,9 +271,9 @@ struct WorkspacesControl: View {
                 .onTapGesture { store.newWorkspace() }
                 .help("New workspace — conch's TUI has it too")
         }
-        .padding(2)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.window))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.line))
+        .padding(Theme.ink ? 0 : 2)
+        .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 7).fill(Theme.window))
+        .overlay(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 7).strokeBorder(Theme.ink ? Theme.inkLine : Theme.line, lineWidth: Theme.ink ? 2 : 1))
         .help("Workspaces, shared with conch's TUI")
     }
 }
@@ -287,8 +291,8 @@ struct SearchField: View {
                     .padding(.horizontal, 5).overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.line2))
             }
             .padding(.horizontal, 10).frame(width: 420, height: 28)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.well))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
+            .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 8).fill(Theme.ink ? Theme.window : Theme.well))
+            .overlay(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 8).strokeBorder(Theme.ink ? Theme.inkLine : Theme.line, lineWidth: Theme.ink ? 2 : 1))
         }
         .buttonStyle(.plain)
     }
@@ -301,10 +305,14 @@ struct Counts: View {
         let (w, d) = store.inbox
         HStack(spacing: 8) {
             if w > 0 {
-                Button { store.nextWaiting() } label: { Pill(text: "⚑ \(w) waiting", fg: Theme.onWarn, bg: Theme.warn) }
-                    .buttonStyle(.plain).help("Go to the next agent waiting for you (⌘.)")
+                Button { store.nextWaiting() } label: {
+                    if Theme.ink { BurstCount(text: "\(w) waiting!", loud: true) } else { Pill(text: "⚑ \(w) waiting", fg: Theme.onWarn, bg: Theme.warn) }
+                }
+                .buttonStyle(.plain).help("Go to the next agent waiting for you (⌘.)")
             }
-            if d > 0 { Pill(text: "✓ \(d) done", fg: Theme.ok, bg: Theme.ok.opacity(0.16)) }
+            if d > 0 {
+                if Theme.ink { BurstCount(text: "\(d) done", loud: false) } else { Pill(text: "✓ \(d) done", fg: Theme.ok, bg: Theme.ok.opacity(0.16)) }
+            }
         }
     }
 }
@@ -319,6 +327,8 @@ struct MainView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
+                // Ink: the toolbar ends on a rule, as a page's top panel.
+                if Theme.ink { Rectangle().fill(Theme.inkLine).frame(height: AppStyle.ink.border) }
                 HStack(spacing: 0) {
                     if store.sidebarVisible {
                         Sidebar(store: store).frame(width: sidebarWidth)
@@ -327,7 +337,7 @@ struct MainView: View {
                     VStack(spacing: 0) {
                         TabBar(store: store)
                         if store.connected, let tab = store.layout.current {
-                            SplitArea(store: store, node: tab.root).padding(8)
+                            SplitArea(store: store, node: tab.root).padding(Theme.style.gutter)
                         } else {
                             Empty(store: store)
                         }
@@ -343,7 +353,7 @@ struct MainView: View {
         .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
         .background(Theme.window)
         .preferredColorScheme(store.theme.light ? .light : .dark)
-        .id(store.theme.id) // a new theme repaints every view
+        .id(store.theme.id + "|" + store.style.rawValue) // a new theme or style repaints every view
     }
 }
 
@@ -386,7 +396,7 @@ struct Sidebar: View {
                     let needs = store.needsYou
                     if !needs.isEmpty {
                         HStack {
-                            Text("NEEDS YOU").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                            SectionHeading(text: "NEEDS YOU")
                             Spacer()
                             Text("\(needs.count)").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                         }
@@ -395,7 +405,7 @@ struct Sidebar: View {
                             NeedsYouCard(store: store, key: n.key, pane: n.pane, machine: n.machine)
                         }
                     }
-                    Text("MACHINES").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                    SectionHeading(text: "MACHINES")
                         .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 4)
                     ForEach(store.tree) { node in
                         NodeView(store: store, node: node, depth: 0)
@@ -408,7 +418,19 @@ struct Sidebar: View {
                 if let id { withAnimation(.easeOut(duration: 0.1)) { proxy.scrollTo(id) } }
             }
         }
-        .background(Theme.side)
+        .background { ZStack { Theme.side; if Theme.ink { Screentone() } } }
+    }
+}
+
+/// A heading in the sidebar: small capitals, or lettering on an Ink page.
+struct SectionHeading: View {
+    let text: String
+    var body: some View {
+        if Theme.ink {
+            Lettering(text: text, size: 13, color: Theme.inkLine)
+        } else {
+            Text(text).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+        }
     }
 }
 
@@ -437,6 +459,12 @@ struct NodeView: View {
     }
 
     var selected: Bool { paneID != nil && paneID == store.layout.focused }
+    /// On an Ink page the focused pane's row is solid ink, its name in paper.
+    var inverted: Bool { Theme.ink && selected }
+    var rowFill: Color {
+        if Theme.ink { return selected ? Theme.inkLine : hovering || cursor ? Theme.raise : .clear }
+        return cursor ? Theme.accentDeep.opacity(0.75) : selected ? Theme.accentDeep.opacity(0.4) : hovering ? Theme.raise : .clear
+    }
     /// The keyboard's row, while the sidebar has the keyboard.
     var cursor: Bool { !store.terminalHasKeyboard && store.treeCursor == node.id }
 
@@ -448,21 +476,21 @@ struct NodeView: View {
             if node.children != nil || isSessions {
                 // Sessions folds like the sections beside it; it opens the
                 // TUI's Sessions view.
-                Text(open && !isSessions ? "▾" : "▸").font(.system(size: 10)).foregroundStyle(Theme.muted).frame(width: 10)
+                Text(open && !isSessions ? "▾" : "▸").font(.system(size: 10)).foregroundStyle(inverted ? Theme.window : Theme.muted).frame(width: 10)
             } else {
                 Spacer().frame(width: 10)
             }
             icon
             RowSplit {
-                Text(node.title).font(isBranch ? .system(size: 12, design: .monospaced) : .system(size: 13))
-                    .foregroundStyle(isSection || isSessions ? Theme.text2 : Theme.text)
+                Text(node.title).font(isBranch ? .system(size: 12, design: .monospaced) : .system(size: 13, weight: inverted ? .semibold : .regular))
+                    .foregroundStyle(inverted ? Theme.window : isSection || isSessions ? Theme.text2 : Theme.text)
                     .lineLimit(1).truncationMode(.tail)
                 badge
             }
         }
         .padding(.leading, CGFloat(depth) * 14 + 8).padding(.trailing, 8).frame(height: 26)
-        .background(RoundedRectangle(cornerRadius: 6).fill(cursor ? Theme.accentDeep.opacity(0.75) : selected ? Theme.accentDeep.opacity(0.4) : hovering ? Theme.raise : .clear))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(cursor ? Theme.accent : .clear, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 6).fill(rowFill))
+        .overlay(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 6).strokeBorder(cursor ? (Theme.ink ? Theme.spot : Theme.accent) : .clear, lineWidth: Theme.ink ? 2 : 1))
         .contentShape(Rectangle())
         .id(node.id)
         .onHover { hovering = $0 }
@@ -674,9 +702,15 @@ struct NeedsYouCard: View {
                     .font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.accent)
             }
         }
-        .padding(.horizontal, 11).padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(hovering ? Theme.raise : Theme.raise.opacity(0.7)))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.warn.opacity(0.55)))
+        .padding(.horizontal, Theme.ink ? 16 : 11).padding(.top, Theme.ink ? 12 : 10).padding(.bottom, Theme.ink ? 24 : 10)
+        .background {
+            if Theme.ink {
+                InkBubble()
+            } else {
+                RoundedRectangle(cornerRadius: 10).fill(hovering ? Theme.raise : Theme.raise.opacity(0.7))
+            }
+        }
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.ink ? .clear : Theme.warn.opacity(0.55)))
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .onHover { hovering = $0 }
         .onTapGesture { store.open(key) }
@@ -700,11 +734,10 @@ struct ChoiceButtons: View {
                 let on = c.default == true
                 Button { store.answer(pane, question, c) } label: {
                     Text(c.label).font(.system(size: 11.5, weight: on ? .semibold : .regular)).lineLimit(1).truncationMode(.tail)
-                        .foregroundStyle(on ? Theme.onWarn : Theme.text)
+                        .foregroundStyle(Theme.ink ? (on ? Theme.window : Theme.inkLine) : on ? Theme.onWarn : Theme.text)
                         .padding(.horizontal, 9).padding(.vertical, 3)
                         .frame(maxWidth: short ? nil : .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? Theme.warn : Theme.raise))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? Theme.warn : Theme.line2))
+                        .modifier(AnswerLook(on: on))
                 }
                 .buttonStyle(.plain)
                 .help("Answer “\(c.label)” without opening the agent")
@@ -781,7 +814,7 @@ struct TabBar: View {
             }
         }
         .padding(.horizontal, 10).frame(height: 36)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line).frame(height: Theme.ink ? AppStyle.ink.border : 1) }
     }
 }
 
@@ -839,11 +872,20 @@ struct TabButton: View {
                     .buttonStyle(.plain).foregroundStyle(Theme.muted)
             }
         }
-        .foregroundStyle(on ? Theme.text : Theme.text2)
+        .foregroundStyle(Theme.ink && on ? Theme.window : on ? Theme.text : Theme.text2)
+        .font(.system(size: 12.5, weight: Theme.ink ? .semibold : .regular))
         .padding(.horizontal, 12).frame(height: 30)
-        .background(UnevenRoundedRectangle(topLeadingRadius: 7, topTrailingRadius: 7).fill(on ? Theme.raise : .clear))
+        .background {
+            if Theme.ink {
+                // A paper tab, inked; the one on screen solid ink.
+                Rectangle().fill(on ? Theme.inkLine : Theme.window)
+                    .overlay(Rectangle().strokeBorder(Theme.inkLine, lineWidth: 2))
+            } else {
+                UnevenRoundedRectangle(topLeadingRadius: 7, topTrailingRadius: 7).fill(on ? Theme.raise : .clear)
+            }
+        }
         .overlay(alignment: .bottom) {
-            if on { RoundedRectangle(cornerRadius: 1).fill(Theme.accent).frame(height: 2).padding(.horizontal, 8).offset(y: 1) }
+            if on && !Theme.ink { RoundedRectangle(cornerRadius: 1).fill(Theme.accent).frame(height: 2).padding(.horizontal, 8).offset(y: 1) }
         }
         .contentShape(Rectangle())
         .onTapGesture {
@@ -874,9 +916,9 @@ struct SplitArea: View {
                 PaneCard(store: store, pane: id, terminal: store.terminal(for: id)).id(id)
             }
         case .split(.horizontal, let kids):
-            HStack(spacing: 8) { ForEach(Array(kids.enumerated()), id: \.offset) { SplitArea(store: store, node: $0.element) } }
+            HStack(spacing: Theme.style.gutter) { ForEach(Array(kids.enumerated()), id: \.offset) { SplitArea(store: store, node: $0.element) } }
         case .split(.vertical, let kids):
-            VStack(spacing: 8) { ForEach(Array(kids.enumerated()), id: \.offset) { SplitArea(store: store, node: $0.element) } }
+            VStack(spacing: Theme.style.gutter) { ForEach(Array(kids.enumerated()), id: \.offset) { SplitArea(store: store, node: $0.element) } }
         }
     }
 }
@@ -904,7 +946,20 @@ struct PaneCard: View {
                 if p?.running == false {
                     Text("exited \(p?.exitCode ?? 0)").font(.system(size: 11)).foregroundStyle(Theme.muted)
                 }
-                if let a = p?.agent, a.state == .working, let since = a.since {
+                if Theme.ink, let a = p?.agent, let word = inkState(a) {
+                    // Ink: the state as lettering, and a working agent's
+                    // sound effect beside it.
+                    if a.state == .working {
+                        Lettering(text: "tap tap", size: 12, color: Theme.spot).rotationEffect(.degrees(-6))
+                    }
+                    if a.state == .working, let since = a.since {
+                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                            Lettering(text: "\(word) \(elapsed(since, ctx.date))", size: 12, color: Theme.work)
+                        }
+                    } else {
+                        Lettering(text: word, size: 12, color: a.state == .blocked ? Theme.spot : Theme.ok)
+                    }
+                } else if let a = p?.agent, a.state == .working, let since = a.since {
                     // How long it has been at it, as the mock's "working · 41s".
                     TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
                         Pill(text: "\(spinnerFrame(at: ctx.date)) working · \(elapsed(since, ctx.date))", fg: Theme.work, bg: Theme.work.opacity(0.18))
@@ -914,17 +969,16 @@ struct PaneCard: View {
                 }
             }
             .padding(.horizontal, 10).frame(height: 30)
-            .background(Theme.paneHeader)
-            .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+            .background(Theme.ink ? Theme.window : Theme.paneHeader)
+            .overlay(alignment: .bottom) { Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line).frame(height: Theme.ink ? 2 : 1) }
             if let q = store.questions[pane], !q.choices.isEmpty {
                 AnswerStrip(store: store, pane: pane, question: q)
             }
             TerminalHost(terminal: terminal)
         }
         .background(Theme.window)
-        .clipShape(RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(focused ? Theme.accent : Theme.line, lineWidth: 1))
-        .shadow(color: focused ? Theme.accent.opacity(0.25) : .clear, radius: 0.5)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 9))
+        .modifier(CardFrame(focused: focused))
         .onTapGesture { store.focus(pane) }
     }
 }
@@ -937,7 +991,7 @@ struct AnswerStrip: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text("⚑").foregroundStyle(Theme.warn)
+            Text(Theme.ink ? "!?" : "⚑").font(.system(size: 12, weight: Theme.ink ? .black : .regular)).foregroundStyle(Theme.ink ? Theme.spot : Theme.warn)
             Text(question.text.isEmpty ? "Waiting for your answer" : question.text).font(.system(size: 12))
                 .foregroundStyle(Theme.text).lineLimit(1)
             Spacer(minLength: 8)
@@ -945,14 +999,22 @@ struct AnswerStrip: View {
                 Button(c.label) { store.answer(pane, question, c) }
                     .buttonStyle(.plain).font(.system(size: 12, weight: c.default == true ? .semibold : .regular))
                     .lineLimit(1).frame(maxWidth: 200)
-                    .foregroundStyle(c.default == true ? Theme.onWarn : Theme.text)
+                    .foregroundStyle(Theme.ink ? (c.default == true ? Theme.window : Theme.inkLine) : c.default == true ? Theme.onWarn : Theme.text)
                     .padding(.horizontal, 9).padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(c.default == true ? Theme.warn : Theme.raise))
+                    .modifier(AnswerLook(on: c.default == true, edged: false))
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(Theme.warn.opacity(0.10))
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.warn.opacity(0.4)).frame(height: 1) }
+        .padding(.horizontal, Theme.ink ? 18 : 10).padding(.top, Theme.ink ? 8 : 6).padding(.bottom, Theme.ink ? 20 : 6)
+        .background {
+            if Theme.ink {
+                // Ink: the question in a speech bubble, its tail down into
+                // the agent that asked.
+                InkBubble().padding(.horizontal, 6).padding(.top, 4)
+            } else {
+                Theme.warn.opacity(0.10)
+            }
+        }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.ink ? .clear : Theme.warn.opacity(0.4)).frame(height: 1) }
     }
 }
 
@@ -1021,7 +1083,8 @@ struct StatusBar: View {
             Button { store.openSettings() } label: {
                 Text("⚙ Settings").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.selectedText)
                     .padding(.horizontal, 7).padding(.vertical, 1)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Theme.accentDeep))
+                    .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 4).fill(Theme.accentDeep))
+                    .overlay(Rectangle().strokeBorder(Theme.ink ? Theme.inkLine : .clear, lineWidth: 1.5))
             }
             .buttonStyle(.plain).help("conch's settings (⌘,); an open TUI takes in what you save")
             // What conch uses on this computer, in the corner as in the TUI.
@@ -1036,10 +1099,10 @@ struct StatusBar: View {
             .popover(isPresented: $showMonitor, arrowEdge: .top) { MonitorPopover(store: store) }
             .onChange(of: showMonitor) { if $0 { store.startMonitor() } else { store.stopMonitor() } }
         }
-        .font(.system(size: 12))
-        .padding(.horizontal, 12).frame(height: 26)
-        .background(Theme.side)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+        .font(.system(size: 12, weight: Theme.ink ? .semibold : .regular))
+        .padding(.horizontal, 12).frame(height: Theme.ink ? 28 : 26)
+        .background { ZStack { Theme.side; if Theme.ink { Screentone() } } }
+        .overlay(alignment: .top) { Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line).frame(height: Theme.ink ? AppStyle.ink.border : 1) }
     }
 }
 
@@ -1343,5 +1406,49 @@ struct KeyCatcher: NSViewRepresentable {
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         if let m = coordinator.monitor { NSEvent.removeMonitor(m) }
+    }
+}
+
+// MARK: - the Ink style's frames
+
+/// A pane's frame: the accent's hairline round a card, or on an Ink page a
+/// square inked panel, the focused one with its spot-colour shadow.
+struct CardFrame: ViewModifier {
+    let focused: Bool
+    func body(content: Content) -> some View {
+        if Theme.ink {
+            content.inkPanel(focused: focused)
+        } else {
+            content
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(focused ? Theme.accent : Theme.line, lineWidth: 1))
+                .shadow(color: focused ? Theme.accent.opacity(0.25) : .clear, radius: 0.5)
+        }
+    }
+}
+
+/// An answer button: amber for the one the agent's cursor is on, or on an
+/// Ink page a square inked box, that one solid ink.
+struct AnswerLook: ViewModifier {
+    let on: Bool
+    /// The tree's buttons have an edge; the strip's, on its amber wash, none.
+    var edged = true
+    func body(content: Content) -> some View {
+        if Theme.ink {
+            content.inkBox(fill: on ? Theme.inkLine : Theme.window)
+        } else {
+            content
+                .background(RoundedRectangle(cornerRadius: 6).fill(on ? Theme.warn : Theme.raise))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(edged ? (on ? Theme.warn : Theme.line2) : .clear))
+        }
+    }
+}
+
+/// An agent's state as Ink letters it; nil for one with nothing to say.
+@MainActor func inkState(_ a: AgentStatus) -> String? {
+    switch a.state {
+    case .working: return "working"
+    case .blocked: return "waiting!"
+    case .done: return "done"
+    default: return nil
     }
 }

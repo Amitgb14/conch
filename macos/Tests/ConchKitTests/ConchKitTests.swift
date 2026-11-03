@@ -1301,3 +1301,28 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let r = try d.decode(LogResult.self, from: Data(json.utf8))
     #expect(r.commits?.count == 2 && r.more == true && r.commits?[1].parents == nil && r.commits?[0].short == "abc1234")
 }
+
+// The app's style: a saved choice read back, anything unknown standard,
+// and Ink drawn for the Ink theme with wider gutters and heavier ink.
+@Test func appStyles() {
+    #expect(AppStyle(setting: "ink") == .ink && AppStyle(setting: " INK ") == .ink)
+    #expect(AppStyle(setting: nil) == .standard && AppStyle(setting: "") == .standard && AppStyle(setting: "manga") == .standard)
+    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink"])
+    #expect(AppStyle.standard.theme == nil && AppStyle.ink.theme == "ink" && ConchTheme.named(AppStyle.ink.theme).id == "ink")
+    #expect(AppStyle.ink.gutter > AppStyle.standard.gutter && AppStyle.ink.border > AppStyle.standard.border)
+}
+
+// A burst's points: twice as many as its spikes, starting at the top
+// middle, alternating out and in, never outside its rect — even for a
+// degenerate one.
+@Test func burst() {
+    let p = burstPoints(width: 120, height: 30, spikes: 9, depth: 0.2)
+    #expect(p.count == 18)
+    #expect(abs(p[0].x - 60) < 0.001 && abs(p[0].y) < 0.001)
+    #expect(p.allSatisfy { $0.x >= 0 && $0.x <= 120 && $0.y >= 0 && $0.y <= 30 })
+    let r = { (q: (x: Double, y: Double)) in hypot((q.x - 60) / 60, (q.y - 15) / 15) }
+    #expect(r(p[0]) > r(p[1]) && r(p[2]) > r(p[1]))
+    #expect(burstPoints(width: 10, height: 10, spikes: 1).count == 6) // at least three spikes
+    #expect(burstPoints(width: 0, height: 0).allSatisfy { $0.x == 0 && $0.y == 0 })
+    #expect(burstPoints(width: 10, height: 10, depth: 5).allSatisfy { $0.x >= 0 && $0.y >= 0 })
+}

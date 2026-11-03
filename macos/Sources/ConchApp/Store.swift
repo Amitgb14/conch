@@ -69,6 +69,8 @@ final class Store: ObservableObject {
     @Published private(set) var themeChoice = UserDefaults.standard.string(forKey: "theme") ?? ""
     @Published private(set) var theme = ConchTheme.conch
     @Published private(set) var icons = IconMode.text
+    /// How the chrome is drawn (View → Style), the app's own choice.
+    @Published private(set) var style = AppStyle(setting: UserDefaults.standard.string(forKey: "style"))
     /// A theme shown while the pointer is on its card in Settings, and the
     /// theme on screen, apart from everything else the store publishes, for
     /// the Settings window to repaint by.
@@ -89,6 +91,7 @@ final class Store: ObservableObject {
     init() {
         binary = conchBinary()
         loadWorkspaces()
+        Theme.style = style
         loadTheme()
         watchClicks()
         watchConfig()
@@ -448,6 +451,19 @@ final class Store: ObservableObject {
         previewing = id
         loadTheme()
     }
+
+    /// A style, and the theme it is drawn for (Ink's black on paper); the
+    /// theme can be changed after, and going back to standard keeps it.
+    func chooseStyle(_ st: AppStyle) {
+        style = st
+        Theme.style = st
+        UserDefaults.standard.set(st.rawValue, forKey: "style")
+        if let t = st.theme { chooseTheme(t) }
+        onStyle?(st)
+    }
+
+    /// Told when the style changes, for the menu's tick.
+    var onStyle: ((AppStyle) -> Void)?
 
     func chooseTheme(_ id: String) {
         themeChoice = id
