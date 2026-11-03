@@ -71,6 +71,9 @@ func runAttach(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := attachRefusal(c, id); err != nil {
+		return err
+	}
 	state, err := term.MakeRaw(os.Stdin.Fd())
 	if err != nil {
 		return err
@@ -79,15 +82,36 @@ func runAttach(args []string) error {
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
 	defer signal.Stop(winch)
+	// Killed, or its terminal hung up: the loop ends so the terminal is
+	// given back — raw mode, the alternate screen, the mouse and bracketed
+	// paste were all left on otherwise.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(quit)
 	size := func() (int, int, bool) {
 		w, h, err := term.GetSize(os.Stdout.Fd())
 		return w, h, err == nil && w > 0 && h > 0
 	}
-	msg, err := attachLoop(c, id, os.Stdin, os.Stdout, size, winch)
+	msg, err := attachLoop(c, id, os.Stdin, os.Stdout, size, winch, quit)
 	if msg != "" {
 		fmt.Fprintln(os.Stderr, msg)
 	}
 	return err
+}
+
+// attachRefusal says why a pane is not to be attached here: it is the
+// pane this command runs in. Its frames would be output to itself, making
+// a frame of their own, and every key typed would be sent to the pane,
+// arrive on this command's own input and be sent again — the lock-up a
+// conch inside its own pane once was (R63). Which pane that is comes from
+// the server (pane.caller), as for the TUI, never from CONCH_PANE_ID. A
+// server that cannot say is not a refusal.
+func attachRefusal(c *client.Client, id string) error {
+	var who proto.CallerInfo
+	if call(c, proto.MethodPaneCaller, nil, &who) != nil || who.Pane == "" || who.Pane != id {
+		return nil
+	}
+	return fmt.Errorf("conch attach %s: that is the pane this runs in, which cannot show itself; run it from another terminal", id)
 }
 
 // attachSession is one attached pane: what is on screen, and how far back
@@ -105,13 +129,19 @@ type attachSession struct {
 // attachLoop runs an attached pane until the pane ends, the input ends
 // (the window was closed), or the connection goes. What it returns as a
 // message is said after the terminal is given back.
-func attachLoop(c *client.Client, id string, in io.Reader, out io.Writer, size func() (int, int, bool), winch <-chan os.Signal) (string, error) {
+func attachLoop(c *client.Client, id string, in io.Reader, out io.Writer, size func() (int, int, bool), winch, quit <-chan os.Signal) (string, error) {
 	s := &attachSession{c: c, id: id, out: out}
 	io.WriteString(out, attachEnter) //nolint:errcheck
 	defer io.WriteString(out, attachLeave)
 	s.resize(size)
 	if err := call(c, proto.MethodPaneSubscribe, proto.PaneRef{ID: id}, nil); err != nil {
 		return "", err
+	}
+	// A pane that has already ended sends its last frame and no exit, so
+	// say so now rather than showing that screen for ever, typing into
+	// nothing — also one that ended between being named and subscribed.
+	if why := s.ended(); why != "" {
+		return why, nil
 	}
 
 	input := make(chan []byte)
@@ -154,8 +184,28 @@ func attachLoop(c *client.Client, id string, in io.Reader, out io.Writer, size f
 			held = s.input(held, true)
 		case <-winch:
 			s.resize(size)
+		case <-quit:
+			return "", nil // the terminal is given back on the way out
 		}
 	}
+}
+
+// ended says why the pane is over, if it is: exited, or no longer listed.
+// A list that cannot be read says nothing.
+func (s *attachSession) ended() string {
+	var list proto.PaneList
+	if call(s.c, proto.MethodPaneList, nil, &list) != nil {
+		return ""
+	}
+	for _, p := range list.Panes {
+		if p.ID == s.id {
+			if p.State != proto.PaneRunning {
+				return fmt.Sprintf("pane %s ended (exit %d)", s.id, p.ExitCode)
+			}
+			return ""
+		}
+	}
+	return fmt.Sprintf("pane %s was closed", s.id)
 }
 
 // event handles one push from the server, and says why to stop if the

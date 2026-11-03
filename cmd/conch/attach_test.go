@@ -22,17 +22,27 @@ type attachServer struct {
 	*a4Server
 	mu   sync.Mutex
 	conn *proto.Conn
+	// panes is what pane.list answers (p3 running unless a test says
+	// otherwise), and caller the pane pane.caller names.
+	panes  []proto.PaneInfo
+	caller string
 }
 
 func startAttachServer(t *testing.T) (*attachServer, *client.Client) {
 	t.Helper()
 	a4Env(t)
-	s := &attachServer{a4Server: startA4Server(t, config.SocketPath())}
+	s := &attachServer{a4Server: startA4Server(t, config.SocketPath()),
+		panes: []proto.PaneInfo{{ID: "p3", State: proto.PaneRunning}}}
 	s.setHandle(func(msg proto.Message, conn *proto.Conn) (any, *proto.Error) {
-		if msg.Method == proto.MethodPaneSubscribe {
-			s.mu.Lock()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		switch msg.Method {
+		case proto.MethodPaneSubscribe:
 			s.conn = conn
-			s.mu.Unlock()
+		case proto.MethodPaneList:
+			return proto.PaneList{Panes: s.panes}, nil
+		case proto.MethodPaneCaller:
+			return proto.CallerInfo{Pane: s.caller}, nil
 		}
 		return nil, nil
 	})
@@ -132,7 +142,7 @@ func TestAttachShowsAndTypesIntoAPane(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		msg, err := attachLoop(c, "p3", inR, out, size, winch)
+		msg, err := attachLoop(c, "p3", inR, out, size, winch, nil)
 		done <- result{msg, err}
 	}()
 
@@ -182,7 +192,7 @@ func TestAttachEndsWithItsInput(t *testing.T) {
 	srv, c := startAttachServer(t)
 	done := make(chan string, 1)
 	go func() {
-		msg, _ := attachLoop(c, "p3", strings.NewReader(""), io.Discard, func() (int, int, bool) { return 0, 0, false }, nil)
+		msg, _ := attachLoop(c, "p3", strings.NewReader(""), io.Discard, func() (int, int, bool) { return 0, 0, false }, nil, nil)
 		done <- msg
 	}()
 	select {
@@ -386,7 +396,7 @@ func TestAttachRealServer(t *testing.T) {
 	screen := &syncBuffer{}
 	done := make(chan string, 1)
 	go func() {
-		msg, err := attachLoop(c, id, inR, screen, func() (int, int, bool) { return 60, 10, true }, nil)
+		msg, err := attachLoop(c, id, inR, screen, func() (int, int, bool) { return 60, 10, true }, nil, nil)
 		if err != nil {
 			msg = err.Error()
 		}
@@ -403,5 +413,83 @@ func TestAttachRealServer(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("attach did not end with its pane")
+	}
+}
+
+// A pane already over when attached — exited (its last frame comes, no
+// exit event), or gone — is said at once rather than shown for ever.
+func TestAttachEndedPane(t *testing.T) {
+	for _, tc := range []struct {
+		panes []proto.PaneInfo
+		want  string
+	}{
+		{[]proto.PaneInfo{{ID: "p3", State: proto.PaneExited, ExitCode: 1}}, "pane p3 ended (exit 1)"},
+		{[]proto.PaneInfo{{ID: "p4", State: proto.PaneRunning}}, "pane p3 was closed"},
+		{nil, "pane p3 was closed"},
+	} {
+		srv, c := startAttachServer(t)
+		srv.mu.Lock()
+		srv.panes = tc.panes
+		srv.mu.Unlock()
+		inR, inW := io.Pipe()
+		out := &syncBuffer{}
+		done := make(chan string, 1)
+		go func() {
+			msg, _ := attachLoop(c, "p3", inR, out, func() (int, int, bool) { return 80, 24, true }, nil, nil)
+			done <- msg
+		}()
+		select {
+		case msg := <-done:
+			if msg != tc.want {
+				t.Errorf("%+v: %q, want %q", tc.panes, msg, tc.want)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%+v: attach kept showing an ended pane", tc.panes)
+		}
+		inW.Close()
+		if !strings.HasSuffix(out.String(), attachLeave) {
+			t.Errorf("%+v: terminal not given back", tc.panes)
+		}
+	}
+}
+
+// Killed or hung up, attach ends and gives the terminal back.
+func TestAttachQuitsOnSignal(t *testing.T) {
+	_, c := startAttachServer(t)
+	inR, inW := io.Pipe()
+	defer inW.Close()
+	out := &syncBuffer{}
+	quit := make(chan os.Signal, 1)
+	done := make(chan string, 1)
+	go func() {
+		msg, _ := attachLoop(c, "p3", inR, out, func() (int, int, bool) { return 80, 24, true }, nil, quit)
+		done <- msg
+	}()
+	quit <- os.Interrupt
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not end on the signal")
+	}
+	if !strings.HasSuffix(out.String(), attachLeave) {
+		t.Fatalf("terminal not given back: %q", out.String())
+	}
+}
+
+// Attaching the pane it runs in is refused, as the server says which pane
+// that is; another pane, or a server that names none, is not.
+func TestAttachRefusesItsOwnPane(t *testing.T) {
+	srv, c := startAttachServer(t)
+	if err := attachRefusal(c, "p3"); err != nil {
+		t.Fatalf("no caller: %v", err)
+	}
+	srv.mu.Lock()
+	srv.caller = "p3"
+	srv.mu.Unlock()
+	if err := attachRefusal(c, "p3"); err == nil || !strings.Contains(err.Error(), "runs in") {
+		t.Fatalf("own pane: %v", err)
+	}
+	if err := attachRefusal(c, "p4"); err != nil {
+		t.Fatalf("another pane: %v", err)
 	}
 }
