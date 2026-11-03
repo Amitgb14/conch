@@ -31,19 +31,21 @@ extension View {
 /// The roster: every agent and terminal the workspace shows, as cards.
 struct RosterBar: View {
     @ObservedObject var store: Store
+    /// Cards whole, or one line each in a short window.
+    var whole = true
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 14) {
-                ForEach(store.rosterCards, id: \.key) { c in RosterCardView(store: store, card: c) }
+                ForEach(store.rosterCards, id: \.key) { c in RosterCardView(store: store, card: c, whole: whole) }
                 Button { store.newTerminal(split: nil) } label: {
-                    Text("+").font(.system(size: 24, weight: .bold)).foregroundStyle(Theme.muted)
-                        .frame(width: 60, height: 104)
+                    Text("+").font(.system(size: whole ? 24 : 16, weight: .bold)).foregroundStyle(Theme.muted)
+                        .frame(width: whole ? 60 : 40, height: whole ? 104 : 34)
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.line, style: StrokeStyle(lineWidth: 2, dash: [6, 4])))
                 }
                 .buttonStyle(.plain).focusable(false).help("New terminal (⌘T)")
             }
-            .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 16)
+            .padding(.horizontal, 16).padding(.top, whole ? 12 : 8).padding(.bottom, whole ? 16 : 11)
         }
         .background(Stripes())
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.celLine).frame(height: 2) }
@@ -77,6 +79,7 @@ struct Stripes: View {
 struct RosterCardView: View {
     @ObservedObject var store: Store
     let card: RosterCard
+    var whole = true
 
     var color: Color {
         if !card.running { return Theme.muted }
@@ -91,8 +94,30 @@ struct RosterCardView: View {
 
     var body: some View {
         let on = store.layout.focused == card.key
+        if whole { full(on) } else { line(on) }
+    }
+
+    /// A short window's card: the mark, the name, the state's word.
+    func line(_ on: Bool) -> some View {
+        HStack(spacing: 8) {
+            Mark(agent: card.agent)
+            Text(card.title).font(.system(size: 12, weight: .heavy)).foregroundStyle(Theme.text).lineLimit(1)
+            Spacer(minLength: 4)
+            Text(card.bar.word.uppercased()).font(.system(size: 10, weight: .heavy)).foregroundStyle(color).lineLimit(1)
+        }
+        .padding(.horizontal, 10).frame(width: 214, height: 34)
+        .celBox(9, fill: on ? Theme.accentDeep.opacity(0.28) : Theme.raise, lift: on ? Theme.accentDeep : nil, shadow: 3)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            store.open(card.key)
+            store.focusTerminal()
+        }
+        .help(card.agent.map { "\($0) · \(card.title)" } ?? card.title)
+    }
+
+    func full(_ on: Bool) -> some View {
         let bar = card.bar
-        VStack(alignment: .leading, spacing: 7) {
+        return VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 9) {
                 face
                 VStack(alignment: .leading, spacing: 2) {
@@ -168,17 +193,22 @@ struct ProjectRail: View {
     }
 
     var body: some View {
-        VStack(spacing: 10) {
-            tile("☰", on: false, help: "Show the tree (⌃⌘S)", size: 16) { store.sidebarVisible = true }
-            tile("all", on: store.rosterProject == nil, help: "Every agent and terminal", size: 11) { store.rosterProject = nil }
-            ForEach(store.railProjects, id: \.key) { p in
-                tile(railLetters(p.name), on: store.rosterProject == p.key, help: p.name) {
-                    store.rosterProject = store.rosterProject == p.key ? nil : p.key
+        let only = store.rosterFilter
+        // Scrolls, so a long list of projects never pushes the window's
+        // status bar out of it.
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 10) {
+                tile("☰", on: false, help: "Show the tree (⌃⌘S)", size: 16) { store.sidebarVisible = true }
+                tile("all", on: only == nil, help: "Every agent and terminal", size: 11) { store.rosterProject = nil }
+                ForEach(store.railProjects, id: \.key) { p in
+                    tile(railLetters(p.name), on: only == p.key, help: p.machine.isEmpty ? p.name : "\(p.name) on \(p.machine)") {
+                        store.rosterProject = only == p.key ? nil : p.key
+                    }
                 }
             }
-            Spacer()
+            .padding(.vertical, 12).padding(.trailing, 4).padding(.leading, 2)
         }
-        .padding(.vertical, 12).frame(width: 58)
+        .frame(width: 58)
         .background(Theme.side)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.celLine).frame(width: 2) }
     }

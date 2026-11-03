@@ -1403,3 +1403,11 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(savedThemeChanged(before, [:]) && !savedThemeChanged([:], [:]))
     #expect(!savedThemeChanged(before, before.merging(["remote": .object([:])]) { a, _ in a }))
 }
+
+// A small Cel window folds its right column and draws its cards one line
+// each, at the thresholds and not before.
+@Test func celFolds() {
+    #expect(AppStyle.celSideFits(width: 1320) && AppStyle.celSideFits(width: 1080) && !AppStyle.celSideFits(width: 1079) && !AppStyle.celSideFits(width: 760))
+    #expect(AppStyle.celRosterWhole(height: 820) && AppStyle.celRosterWhole(height: 620) && !AppStyle.celRosterWhole(height: 619) && !AppStyle.celRosterWhole(height: 440))
+    #expect(!AppStyle.celSideFits(width: 0) && !AppStyle.celRosterWhole(height: 0))
+}

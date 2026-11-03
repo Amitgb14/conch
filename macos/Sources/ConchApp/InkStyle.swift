@@ -67,12 +67,16 @@ struct Lettering: View {
 struct BurstCount: View {
     let text: String
     let loud: Bool
+    /// The theme's colours, as values: the toolbar is outside the window's
+    /// repaint, and a burst whose properties are unchanged is not drawn
+    /// again, so colours read inside it stayed the old theme's.
+    var ink = Theme.inkLine, spot = Theme.spot, paper = Theme.window, onSpot = Theme.selectedText
 
     var body: some View {
-        Lettering(text: text, size: 12, color: loud ? Theme.selectedText : Theme.inkLine)
+        Lettering(text: text, size: 12, color: loud ? onSpot : ink)
             .padding(.horizontal, 16).padding(.vertical, 7)
-            .background(BurstShape().fill(loud ? Theme.spot : Theme.window))
-            .overlay(BurstShape().stroke(Theme.inkLine, lineWidth: 2))
+            .background(BurstShape().fill(loud ? spot : paper))
+            .overlay(BurstShape().stroke(ink, lineWidth: 2))
     }
 }
 

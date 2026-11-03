@@ -227,10 +227,11 @@ final class Store: ObservableObject {
     /// The Cel roster: every agent and terminal the workspace shows, on
     /// every machine, narrowed to rosterProject when one is picked.
     var rosterCards: [RosterCard] {
-        roster(machines.flatMap { m -> [RosterCard] in
+        let only = rosterFilter
+        return roster(machines.flatMap { m -> [RosterCard] in
             let snap = snapshots[m.id] ?? Snapshot()
             return snap.shown(in: ws, machine: m.id)
-                .filter { p in rosterProject == nil || p.projectID.map { key(m.id, $0) } == rosterProject }
+                .filter { p in only == nil || p.projectID.map { key(m.id, $0) } == only }
                 .map { p in
                     let place = [snap.place(of: p), m.id == "local" ? "" : label(m.id)].filter { !$0.isEmpty }.joined(separator: " · ")
                     return RosterCard(key: key(m.id, p.id), pane: p, place: place)
@@ -239,13 +240,23 @@ final class Store: ObservableObject {
     }
 
     /// The projects the Cel rail offers: those with a pane the workspace
-    /// shows, on every machine.
-    var railProjects: [(key: String, name: String)] {
-        machines.flatMap { m -> [(key: String, name: String)] in
+    /// shows, on every machine, each with its machine's name when there
+    /// are several.
+    var railProjects: [(key: String, name: String, machine: String)] {
+        let many = machines.count > 1
+        return machines.flatMap { m -> [(key: String, name: String, machine: String)] in
             let snap = snapshots[m.id] ?? Snapshot()
             let used = Set(snap.shown(in: ws, machine: m.id).compactMap(\.projectID))
-            return snap.projects.filter { used.contains($0.id) }.map { (key(m.id, $0.id), $0.name) }
+            return snap.projects.filter { used.contains($0.id) }.map { (key(m.id, $0.id), $0.name, many ? m.label : "") }
         }
+    }
+
+    /// The project the roster is narrowed to, while it is still on the
+    /// rail: one whose last pane closed, or one another workspace holds,
+    /// leaves the roster showing everything rather than nothing.
+    var rosterFilter: String? {
+        guard let p = rosterProject, railProjects.contains(where: { $0.key == p }) else { return nil }
+        return p
     }
 
     /// Waiting and done, across every machine.
@@ -470,6 +481,20 @@ final class Store: ObservableObject {
         GhosttyRuntime.shared.apply(next)
         #endif
         onTheme?(next)
+        keepKeyboard()
+    }
+
+    /// A new theme or style draws the window again, every terminal's view
+    /// put back in a new box, which loses it the keyboard: give it back to
+    /// the pane that had it, once the window has been drawn. Within the
+    /// main window only, so a Settings window being typed in keeps it.
+    private func keepKeyboard() {
+        guard terminalHasKeyboard, let p = layout.focused else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            guard self.terminalHasKeyboard, self.layout.focused == p, let v = self.terminals[p]?.view, let w = v.window,
+                  w === self.mainWindow, w.firstResponder !== v else { return }
+            w.makeFirstResponder(v)
+        }
     }
 
     /// Shows a theme without choosing it, or (nil) goes back to the one
@@ -492,6 +517,7 @@ final class Store: ObservableObject {
         rosterProject = nil
         if let t = st.theme { chooseTheme(t) }
         onStyle?(st)
+        keepKeyboard()
     }
 
     /// Told when the style changes, for the menu's tick.
@@ -501,7 +527,13 @@ final class Store: ObservableObject {
         themeChoice = id
         UserDefaults.standard.set(id, forKey: "theme")
         loadTheme()
+        // The menu's tick follows the choice even when what is shown stays
+        // the same (pinned to the theme conch already sets, then unpinned).
+        onThemeChoice?()
     }
+
+    /// Told when the theme chosen changes, for View → Theme's tick.
+    var onThemeChoice: (() -> Void)?
 
     var conchTheme: ConchTheme {
         ConchTheme.named(ConchTheme.configured(in: try? String(contentsOfFile: configFile, encoding: .utf8), dark: systemDark))
@@ -516,10 +548,15 @@ final class Store: ObservableObject {
 
     /// A click in a pane's terminal gives that pane the keyboard: the split
     /// it is in becomes the focused one.
+    /// The main window: clicks and tree keys are its, never the Settings
+    /// window's — a key there once reached the tree and closed a terminal.
+    weak var mainWindow: NSWindow?
+
     private func watchClicks() {
         NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
             MainActor.assumeIsolated {
-                guard let self, let win = e.window, let hit = win.contentView?.hitTest(e.locationInWindow) else { return }
+                guard let self, let win = e.window, win === self.mainWindow,
+                      let hit = win.contentView?.hitTest(e.locationInWindow) else { return }
                 var inTerminal = false
                 for (pane, t) in self.terminals where hit === t.view || hit.isDescendant(of: t.view) {
                     self.focus(pane)
@@ -541,8 +578,10 @@ final class Store: ObservableObject {
             let modified = !e.modifierFlags.intersection([.command, .control, .option]).isEmpty
             guard let k = TreeKey(keyCode: e.keyCode, characters: e.charactersIgnoringModifiers, modified: modified) else { return e }
             let taken = MainActor.assumeIsolated { () -> Bool in
-                guard let self, !self.terminalHasKeyboard, !self.paletteOpen, self.taskDraft == nil,
-                      let win = NSApp.keyWindow, win.attachedSheet == nil,
+                // The tree's keys need the tree: in the main window, and on
+                // screen (Cel hides it behind its column of projects).
+                guard let self, !self.terminalHasKeyboard, !self.paletteOpen, self.taskDraft == nil, self.sidebarVisible,
+                      let win = NSApp.keyWindow, win === self.mainWindow, win.attachedSheet == nil,
                       !(win.firstResponder is NSText), !(win.firstResponder is NSTextField) else { return false }
                 self.treeKey(k)
                 return true

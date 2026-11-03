@@ -36,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         window.toolbar = toolbar
         window.toolbarStyle = .unified
 
+        store.mainWindow = window
+        store.onThemeChoice = { [weak self] in self?.updateThemeMenu() }
         window.contentView = NSHostingView(rootView: MainView(store: store))
         store.onTheme = { [weak self] t in
             NSApp.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)

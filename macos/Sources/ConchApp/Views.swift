@@ -332,6 +332,8 @@ struct MainView: View {
     @ObservedObject var store: Store
     /// The sidebar's width, dragged at its edge and remembered.
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = sidebarDefault
+    /// The window's size, for what Cel folds in a small one.
+    @State private var size = CGSize(width: 1320, height: 820)
 
     var body: some View {
         ZStack {
@@ -339,7 +341,7 @@ struct MainView: View {
                 // Ink: the toolbar ends on a rule, as a page's top panel.
                 if Theme.ink { Rectangle().fill(Theme.inkLine).frame(height: AppStyle.ink.border) }
                 // Cel: every agent as a card across the top.
-                if Theme.style.roster { RosterBar(store: store) }
+                if Theme.style.roster { RosterBar(store: store, whole: AppStyle.celRosterWhole(height: size.height)) }
                 HStack(spacing: 0) {
                     if store.sidebarVisible {
                         Sidebar(store: store).frame(width: sidebarWidth)
@@ -356,7 +358,7 @@ struct MainView: View {
                         }
                     }
                     .background(Theme.window)
-                    if Theme.style.roster { CelSide(store: store).background(Theme.window) }
+                    if Theme.style.roster && AppStyle.celSideFits(width: size.width) { CelSide(store: store).background(Theme.window) }
                 }
                 StatusBar(store: store)
             }
@@ -364,6 +366,7 @@ struct MainView: View {
                 Palette(store: store)
             }
         }
+        .background { GeometryReader { g in Color.clear.onAppear { size = g.size }.onChange(of: g.size) { size = $0 } } }
         .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
         .background(Theme.window)
         // Meadow paints the title bar itself: a sky behind the toolbar's
@@ -380,7 +383,8 @@ struct MainView: View {
         // are drawn in, and every mark became a missing-glyph box.
         .modifier(RoundedChrome(on: Theme.meadow))
         .preferredColorScheme(store.theme.light ? .light : .dark)
-        .id(store.theme.id + "|" + store.style.rawValue) // a new theme or style repaints every view
+        // A new theme, style or way of marking agents repaints every view.
+        .id(store.theme.id + "|" + store.style.rawValue + "|" + store.icons.rawValue)
     }
 }
 

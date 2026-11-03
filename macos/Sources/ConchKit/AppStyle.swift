@@ -68,6 +68,17 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
     /// column of projects in place of the tree until the tree is asked for.
     public var roster: Bool { self == .cel }
 
+    /// Whether a Cel window this wide keeps its right column (the question
+    /// and the log): narrower, the column would leave the terminal less
+    /// than half the window, so it folds away and the question is still in
+    /// the pane's strip and its card.
+    public static func celSideFits(width: Double) -> Bool { width >= 1080 }
+
+    /// Whether a Cel window this tall draws its roster's cards whole:
+    /// shorter, each is one line — mark, name, state — so the terminal
+    /// keeps its room and the window can shrink to its smallest.
+    public static func celRosterWhole(height: Double) -> Bool { height >= 620 }
+
     /// Whether the window paints its own title bar (Meadow's sky), so the
     /// title bar is made transparent over it.
     public var paintsTitleBar: Bool { self == .meadow }

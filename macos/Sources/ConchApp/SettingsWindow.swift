@@ -269,7 +269,8 @@ struct FieldRow: View {
                           set(.string(id))
                           // The theme saved already: nothing to save, so
                           // showing it is unpinning what the window holds.
-                          if model.form?.payload.config["ui"]?.object?[field.key] == .string(id) { model.store.chooseTheme("") }
+                          // An unset key is its default: theme "conch", light_theme Off.
+                          if let f = model.form, SettingsForm(f.payload).value(section, field)?.string ?? "" == id { model.store.chooseTheme("") }
                       }, preview: { model.store.previewTheme($0) })
         } else {
             plainControl
@@ -366,8 +367,12 @@ struct ThemeGrid: View {
 /// light_theme's Off: no picture of its own, since it is whichever theme
 /// is chosen above, in light appearance as in dark.
 struct OffCard: View {
+    /// Read so the card is drawn again in a theme being previewed.
+    @Environment(\.conchTheme) private var theme
+
     var body: some View {
-        VStack(spacing: 6) {
+        let _ = theme
+        return VStack(spacing: 6) {
             HStack(spacing: 6) {
                 LucideIcon("moon", color: Theme.text2, size: 14)
                 Text("=").foregroundStyle(Theme.muted)
