@@ -58,6 +58,8 @@ public enum RowAction: Equatable, Sendable {
     case removeWorktree(project: String, path: String)
     /// A branch deleted, with its worktree — after saying what that loses.
     case deleteBranch(project: String, branch: String)
+    /// A pane's alert when it goes quiet (quiet) or prints, turned on or off.
+    case monitor(pane: String, quiet: Bool)
     case divider
 }
 
@@ -95,6 +97,14 @@ extension Snapshot {
             }
             if let b = p.branch, !b.isEmpty, let pr = p.projectID, project(pr) != nil {
                 out.append(RowMenuItem("View changes on \(b)", .changes(project: key(machine, pr), branch: b)))
+            }
+            // Watching a terminal, as the TUI's ctrl+b M and A: an agent
+            // says for itself when it needs you.
+            if !agent && p.running && machineOnline {
+                let quiet = (p.monitor?.silence ?? 0) > 0, output = p.monitor?.activity == true
+                out += [.divider,
+                        RowMenuItem((quiet ? "✓ " : "") + "Alert when it goes quiet", .monitor(pane: k, quiet: true)),
+                        RowMenuItem((output ? "✓ " : "") + "Alert on output", .monitor(pane: k, quiet: false))]
             }
             out += [.divider, RowMenuItem(agent && p.running ? "Close agent…" : "Close", .close(pane: k))]
         case .branch(let pk, let name, _):

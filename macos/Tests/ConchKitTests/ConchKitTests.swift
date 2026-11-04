@@ -2084,3 +2084,45 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     t.adopt(ViewState(tabs: [ViewTab(name: "build", panes: ["p1"]), ViewTab(name: "", panes: ["p2"])]), machine: "local", alive: ["local|p1", "local|p2"])
     #expect(t.tabs.map(\.name) == ["build", nil])
 }
+
+// A terminal is watched for going quiet or printing, as the TUI's ctrl+b M
+// and A: the menu says which is on, a toggle turns one kind alone, the
+// quiet time is [notify] silence, and an alert raised is a notification
+// worded as the TUI's.
+@Test func paneMonitoring() throws {
+    let m = PaneMonitor()
+    #expect(m.toggled(quiet: true, seconds: 45) == PaneMonitor(silence: 45))
+    #expect(PaneMonitor(activity: true, silence: 45).toggled(quiet: true, seconds: 45) == PaneMonitor(activity: true))
+    #expect(m.toggled(quiet: false, seconds: 45) == PaneMonitor(activity: true))
+    #expect(PaneMonitor(activity: true).toggled(quiet: false, seconds: 9) == PaneMonitor())
+    #expect(silenceAfter(toml: "") == 30)
+    #expect(silenceAfter(toml: "[notify]\nsilence = 90\n") == 90)
+    #expect(silenceAfter(toml: "[notify]\nsilence = 0\n") == 30)
+    #expect(silenceAfter(toml: "[notify]\nsilence = \"x\"\n") == 30)
+    let info = try JSONDecoder().decode(PaneInfo.self, from: Data(#"{"id":"p3","name":"make","state":"running","monitor":{"silence":30},"alert":"silence"}"#.utf8))
+    #expect(info.monitor == PaneMonitor(silence: 30) && info.alert == "silence")
+
+    // The menu: a running terminal has both, ticked when on; an agent has neither.
+    var s = fixture()
+    var t = s.panes.first { $0.agent == nil }!
+    t.monitor = PaneMonitor(silence: 30)
+    s.upsert(t)
+    let k = key("box", t.id)
+    let titles = s.menu(for: TreeNode(id: "pane:" + k, kind: .terminal(k), title: t.name), machine: "box").map(\.title)
+    #expect(titles.contains("✓ Alert when it goes quiet") && titles.contains("Alert on output"))
+    #expect(!s.menu(for: TreeNode(id: "x", kind: .terminal(k), title: ""), machine: "box", machineOnline: false).contains { $0.title.contains("Alert") })
+    let agent = s.panes.first { $0.agent != nil }!
+    #expect(!s.menu(for: TreeNode(id: "a", kind: .agent(key("box", agent.id)), title: ""), machine: "box").contains { $0.title.contains("Alert") })
+
+    // The notification: once, when raised, unseen, worded as the TUI's.
+    let on = NotifySettings(toml: "")
+    var quiet = info
+    quiet.alert = nil
+    #expect(attentionAlert(old: quiet, new: info, machine: nil, viewing: false, settings: on)?.body == "make has been quiet for 30s")
+    #expect(attentionAlert(old: quiet, new: info, machine: "box", viewing: false, settings: on)?.title == "conch · terminal on box")
+    #expect(attentionAlert(old: info, new: info, machine: nil, viewing: false, settings: on) == nil) // said already
+    #expect(attentionAlert(old: quiet, new: info, machine: nil, viewing: true, settings: on) == nil)
+    var printed = info
+    printed.alert = "activity"
+    #expect(attentionAlert(old: quiet, new: printed, machine: nil, viewing: false, settings: on)?.body == "make printed something")
+}

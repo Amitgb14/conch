@@ -962,6 +962,30 @@ final class Store: ObservableObject {
         }
     }
 
+    /// A terminal watched, or no longer, for going quiet or printing — the
+    /// TUI's ctrl+b M and A (pane.monitor).
+    func toggleMonitor(_ k: String, quiet: Bool) {
+        let (m, id) = unkey(k)
+        guard let c = conns[m], let p = pane(k) else { return }
+        guard c.hello?.capabilities?.contains("pane.monitor.v1") == true else {
+            say("conch on \(label(m)) is too old to watch a pane: reload its server", .err)
+            return
+        }
+        let toml = (try? String(contentsOfFile: configFile, encoding: .utf8)) ?? ""
+        let next = (p.monitor ?? PaneMonitor()).toggled(quiet: quiet, seconds: silenceAfter(toml: toml))
+        struct P: Encodable { var id: String; var activity: Bool?; var silence: Int? }
+        let what = quiet ? ((next.silence ?? 0) > 0 ? "alert when it is quiet for \(next.silence!)s after output" : "no alert when it goes quiet")
+                         : (next.activity == true ? "alert when it prints while you are elsewhere" : "no alert on output")
+        Task {
+            do {
+                try await c.call("pane.monitor", P(id: id, activity: next.activity, silence: next.silence))
+                self.say("\(p.displayName): \(what)")
+            } catch {
+                self.say("Could not watch \(p.displayName): \(error)", .err)
+            }
+        }
+    }
+
     /// Removes a branch's worktree, keeping the branch; the server refuses
     /// one with uncommitted work, and says so.
     func removeWorktree(project pk: String, path: String) {
@@ -1672,6 +1696,7 @@ final class Store: ObservableObject {
         case .openURL(let s): if let u = openableURL(s) { NSWorkspace.shared.open(u) }
         case .removeWorktree(let pk, let path): removeWorktree(project: pk, path: path)
         case .deleteBranch(let pk, let b): deleteBranch(project: pk, branch: b)
+        case .monitor(let k, let quiet): toggleMonitor(k, quiet: quiet)
         }
     }
 

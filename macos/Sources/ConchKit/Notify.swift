@@ -62,6 +62,20 @@ public struct Alert: Equatable, Sendable {
 /// machine's name when it is not this computer.
 public func attentionAlert(old: PaneInfo?, new p: PaneInfo, machine: String?, viewing: Bool,
                            settings s: NotifySettings, now: Date = Date()) -> Alert? {
+    // A watched pane's alert, as the TUI's notifyMonitor says it: raised
+    // just now, on a pane nobody is looking at.
+    if let alert = p.alert, !alert.isEmpty, alert != old?.alert {
+        guard s.enabled, s.desktop || s.sound, !viewing, !s.quiet(now) else { return nil }
+        let body: String
+        if alert == "silence", let n = p.monitor?.silence, n > 0 {
+            body = "\(p.displayName) has been quiet for \(n)s"
+        } else if alert == "silence" {
+            body = p.displayName + " has gone quiet"
+        } else {
+            body = p.displayName + " printed something"
+        }
+        return Alert(title: "conch · " + (p.agent?.name ?? "terminal") + (machine.map { " on " + $0 } ?? ""), body: body)
+    }
     guard s.enabled, s.desktop || s.sound, !viewing, let a = p.agent, a.state == .blocked || a.state == .done else { return nil }
     if old?.agent?.state == a.state { return nil } // it said so already
     if a.state == .blocked && !s.waiting { return nil }
