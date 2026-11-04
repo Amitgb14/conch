@@ -42,10 +42,30 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
         return true
     }
 
+    /// The token this app's control pastes start with, made at launch and
+    /// given only to the `conch attach` in each pane (attachControlEnv).
+    static let controlToken = UUID().uuidString
+
+    /// Tells this pane's `conch attach` something — a search to show — as a
+    /// paste only it takes for one (attachControlBody).
+    func control(_ c: AttachControl) {
+        let body = attachControlBody(token: Self.controlToken, c)
+        #if GHOSTTY
+        if let g = view as? GhosttyPaneView {
+            g.pasteText(body)
+            return
+        }
+        #endif
+        // SwiftTerm sends what it is given as typed, so the paste's
+        // brackets are put round it here (attach turned bracketed paste on).
+        (view as? FocusingTerminalView)?.send(txt: "\u{1b}[200~" + body + "\u{1b}[201~")
+    }
+
     init(key k: String, binary: String?, store: Store) {
         self.pane = k
         self.store = store
-        let env = conchEnvironment()
+        var env = conchEnvironment()
+        env[attachControlEnv] = Self.controlToken
         // `conch attach`, with -m for a pane on another machine.
         let (machine, id) = unkey(k)
         let args = onMachine(machine, ["attach", id])

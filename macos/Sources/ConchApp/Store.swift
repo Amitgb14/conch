@@ -63,6 +63,10 @@ final class Store: ObservableObject {
     @Published var limits: [PlanLimits] = []
     @Published var status: String = "Connecting to conch…"
     @Published var paletteOpen = false
+    /// The focused pane's find bar, while it is open.
+    @Published var find: PaneFind?
+    /// Bumped to put the keyboard in the find bar's field.
+    @Published var findFocus = 0
     @Published var sidebarVisible = true
     @Published var error: String?
     /// The theme chosen in the app ("" follows conch's own [ui] theme),
@@ -1082,6 +1086,51 @@ final class Store: ObservableObject {
     }
 
     /// A boundary between splits dragged (SplitStack).
+    // MARK: find in a pane
+
+    /// ⌘F on the focused pane: its find bar, the field taking the keyboard
+    /// (FindBar), or the same bar again with what was typed.
+    func openFind() {
+        guard let k = layout.focused, isTerminalKey(k) else { NSSound.beep(); return }
+        if find?.pane != k {
+            if let old = find { terminals[old.pane]?.control(AttachControl(clear: true)) }
+            find = PaneFind(pane: k)
+        }
+        findFocus &+= 1
+    }
+
+    /// The next match, older (back) or newer, from the last one: the
+    /// server searches, and the pane's view is told where to look.
+    func findNext(back: Bool) {
+        guard let f = find, !f.query.isEmpty else { openFind(); return }
+        let (machine, id) = unkey(f.pane)
+        guard let c = connection(machine) else { return }
+        guard c.hello?.capabilities?.contains("pane.search.v1") == true else {
+            find?.failed("conch on \(label(machine)) is too old to search a pane: reload its server")
+            return
+        }
+        let params = f.params(id: id, back: back)
+        Task {
+            do {
+                let r = try await c.call("pane.search", params, as: PaneSearchResult.self)
+                // Closed, or another query typed, while it looked.
+                guard var now = self.find, now.pane == f.pane, now.query == params.query else { return }
+                let show = now.took(r, back: back)
+                self.find = now
+                self.terminals[f.pane]?.control(show)
+            } catch {
+                self.find?.failed("\(error)")
+            }
+        }
+    }
+
+    /// The bar closed: nothing marked, and the keyboard back in the pane.
+    func closeFind() {
+        if let f = find { terminals[f.pane]?.control(AttachControl(clear: true)) }
+        find = nil
+        focusTerminal()
+    }
+
     func resizeSplit(_ path: String, n: Int, after i: Int, by delta: Double) {
         guard layout.tabs.indices.contains(layout.active) else { return }
         layout.tabs[layout.active].resize(path, n: n, after: i, by: delta)
@@ -1323,6 +1372,9 @@ final class Store: ObservableObject {
         case "splitDown": newTerminal(split: .vertical)
         case "closeSplit": closeSplit()
         case "nextWaiting": nextWaiting()
+        case "find": openFind()
+        case "findOlder": findNext(back: true)
+        case "findNewer": findNext(back: false)
         case "zoomSplit": layout.toggleZoom(); focusTerminal()
         case "splitLeft": if layout.move(.left) { focusTerminal() }
         case "splitRightward": if layout.move(.right) { focusTerminal() }

@@ -13,10 +13,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/tui"
 )
 
 // `conch attach PANE` shows one of the server's panes in the terminal it
@@ -54,6 +56,35 @@ const attachFlush = 25 * time.Millisecond
 
 // attachWheel is the lines one notch of the wheel scrolls the history.
 const attachWheel = 3
+
+// attachControlEnv carries a token from whatever runs this — the Mac app —
+// that it can put at the start of a paste to say something to this view
+// rather than to the pane: a search to show (attachControl). Only this
+// command can scroll its own view, since the server keeps a scroll per
+// connection, so the app's find bar asks here. The token is what tells
+// such a paste from somebody pasting text that happens to look like one;
+// without it every paste goes to the pane.
+const attachControlEnv = "CONCH_ATTACH_CONTROL"
+
+// attachControlMark starts a control paste, before the token: an invisible
+// separator, so it is nothing anybody types.
+const attachControlMark = "\u2063conch-attach:"
+
+// attachControl is what a control paste says, as JSON after the token.
+type attachControl struct {
+	// Find is the query whose matches are marked; the match the app's
+	// search found is at Line, of History lines of history then
+	// (pane.search's own counting), brought into view if it is not.
+	Find    string `json:"find,omitempty"`
+	Line    int    `json:"line,omitempty"`
+	History int    `json:"history,omitempty"`
+	// Clear ends the search: nothing marked, the view left where it is.
+	Clear bool `json:"clear,omitempty"`
+}
+
+// attachMatch is how a search's matches are drawn: dark on yellow, as the
+// TUI's warn colour marks them.
+const attachMatch = "\x1b[0;30;43m"
 
 func runAttach(args []string) error {
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
@@ -124,13 +155,17 @@ type attachSession struct {
 	// offset is the history scroll this view asked for, the frame's own
 	// Offset being what the server has caught up to.
 	offset int
+	// control is the token a control paste starts with (attachControlEnv),
+	// and query what the last one asked to have marked.
+	control string
+	query   string
 }
 
 // attachLoop runs an attached pane until the pane ends, the input ends
 // (the window was closed), or the connection goes. What it returns as a
 // message is said after the terminal is given back.
 func attachLoop(c *client.Client, id string, in io.Reader, out io.Writer, size func() (int, int, bool), winch, quit <-chan os.Signal) (string, error) {
-	s := &attachSession{c: c, id: id, out: out}
+	s := &attachSession{c: c, id: id, out: out, control: os.Getenv(attachControlEnv)}
 	io.WriteString(out, attachEnter) //nolint:errcheck
 	defer io.WriteString(out, attachLeave)
 	s.resize(size)
@@ -218,7 +253,7 @@ func (s *attachSession) event(msg proto.Message) string {
 			return ""
 		}
 		s.frame = &f
-		io.WriteString(s.out, renderAttachFrame(&f)) //nolint:errcheck
+		s.draw()
 	case proto.EventPaneExited, proto.EventPaneClosed:
 		var info proto.PaneInfo
 		if json.Unmarshal(msg.Data, &info) != nil || info.ID != s.id {
@@ -230,6 +265,114 @@ func (s *attachSession) event(msg proto.Message) string {
 		return fmt.Sprintf("pane %s was closed", s.id)
 	}
 	return ""
+}
+
+// draw paints the last frame, with the search's matches marked.
+func (s *attachSession) draw() {
+	if s.frame == nil {
+		return
+	}
+	f := *s.frame
+	if s.query != "" {
+		f.Lines = make([]string, len(s.frame.Lines))
+		for i, l := range s.frame.Lines {
+			f.Lines[i] = markMatches(l, tui.MatchSpans(ansi.Strip(l), s.query), f.Cols)
+		}
+	}
+	io.WriteString(s.out, renderAttachFrame(&f)) //nolint:errcheck
+}
+
+// markMatches draws the given cell ranges of a rendered line as matches,
+// over whatever styling the line has.
+func markMatches(line string, spans [][2]int, w int) string {
+	if len(spans) == 0 || w <= 0 {
+		return line
+	}
+	plain := ansi.Strip(line)
+	if n := ansi.StringWidth(plain); n < w {
+		plain += strings.Repeat(" ", w-n)
+	}
+	// Right to left, so the cells still to be marked keep their places.
+	for i := len(spans) - 1; i >= 0; i-- {
+		from, to := min(max(spans[i][0], 0), w), min(max(spans[i][1], 0), w)
+		if from >= to {
+			continue
+		}
+		line = ansi.Cut(line, 0, from) + attachMatch + ansi.Cut(plain, from, to) + "\x1b[0m" + ansi.Cut(line, to, w)
+	}
+	return line
+}
+
+// controlled handles a paste that is a control from the app, and says
+// whether it was one: anything else is the person's paste, for the pane.
+func (s *attachSession) controlled(body []byte) bool {
+	if s.control == "" {
+		return false
+	}
+	rest, ok := bytes.CutPrefix(body, []byte(attachControlMark+s.control+" "))
+	if !ok {
+		return false
+	}
+	var ctl attachControl
+	if json.Unmarshal(rest, &ctl) != nil {
+		return true // ours, and garbled: not for the pane either
+	}
+	switch {
+	case ctl.Clear:
+		s.query = ""
+	case ctl.Find != "":
+		s.query = ctl.Find
+		if f := s.frame; f != nil && !f.AltScreen && ctl.Line < ctl.History {
+			// In history: in view already, or brought to the middle, as
+			// the TUI's search does.
+			if top := ctl.History - s.offset; ctl.Line < top || ctl.Line >= top+f.Rows {
+				s.scrollTo(ctl.History - (ctl.Line - f.Rows/2))
+			}
+		} else if ctl.Line >= ctl.History {
+			s.scrollTo(0) // on the live screen
+		}
+	}
+	s.draw()
+	return true
+}
+
+// scrollTo moves this view next lines back into history, kept to what
+// there is.
+func (s *attachSession) scrollTo(next int) {
+	limit := 0
+	if s.frame != nil {
+		limit = s.frame.History
+	}
+	next = min(max(next, 0), limit)
+	if next != s.offset {
+		s.offset = next
+		call(s.c, proto.MethodPaneScroll, proto.PaneScrollParams{ID: s.id, Offset: next}, nil) //nolint:errcheck
+	}
+}
+
+// scrollKey scrolls the history for the keys terminals keep for it —
+// shift with page up and down, home and end — and says whether it did. A
+// full-screen program has no history here and gets them, as it would in
+// any terminal.
+func (s *attachSession) scrollKey(name string) bool {
+	f := s.frame
+	if f == nil || f.AltScreen {
+		return false
+	}
+	page := max(f.Rows-1, 1)
+	switch name {
+	case "shift+pgup":
+		s.scrollTo(s.offset + page)
+	case "shift+pgdown":
+		s.scrollTo(s.offset - page)
+	case "shift+home":
+		s.scrollTo(f.History)
+	case "shift+end":
+		s.scrollTo(0)
+	default:
+		return false
+	}
+	return true
 }
 
 func (s *attachSession) resize(size func() (int, int, bool)) {
@@ -328,12 +471,19 @@ func (s *attachSession) input(b []byte, final bool) []byte {
 		case attachPaste:
 			send()
 			body := seq[len("\x1b[200~") : len(seq)-len("\x1b[201~")]
+			if s.controlled(body) {
+				continue
+			}
 			s.typed()
 			call(s.c, proto.MethodPaneSendText, proto.PaneSendTextParams{ID: s.id, Text: string(body), Paste: true}, nil) //nolint:errcheck
 		case attachNamed:
 			send()
+			name := attachKeyName(seq)
+			if s.scrollKey(name) {
+				continue
+			}
 			s.typed()
-			call(s.c, proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: s.id, Keys: []string{attachKeyName(seq)}}, nil) //nolint:errcheck
+			call(s.c, proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: s.id, Keys: []string{name}}, nil) //nolint:errcheck
 		default:
 			text = append(text, seq...)
 		}
@@ -474,20 +624,10 @@ func (s *attachSession) mouse(seq []byte) {
 			}
 			keys := []string{key, key, key}
 			call(s.c, proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: s.id, Keys: keys}, nil) //nolint:errcheck
+		case up:
+			s.scrollTo(s.offset + attachWheel)
 		default:
-			limit := 0
-			if f != nil {
-				limit = f.History
-			}
-			next := s.offset - attachWheel
-			if up {
-				next = s.offset + attachWheel
-			}
-			next = min(max(next, 0), limit)
-			if next != s.offset {
-				s.offset = next
-				call(s.c, proto.MethodPaneScroll, proto.PaneScrollParams{ID: s.id, Offset: next}, nil) //nolint:errcheck
-			}
+			s.scrollTo(s.offset - attachWheel)
 		}
 		return
 	}

@@ -153,6 +153,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"),
             NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"),
             NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"),
+            .separator(),
+            item("Find in Pane…", "f", .command, "find"),
+            item("Find Older", "g", .command, "findOlder"),
+            item("Find Newer", "g", [.command, .shift], "findNewer"),
         ])
         var go = [
             item("Search…", "k", .command, "palette"),

@@ -113,12 +113,14 @@ public struct Tab: Identifiable, Equatable, Sendable {
 
     /// The pane beside the focused one in a direction: of those whose
     /// edge faces it and that overlap it across, the nearest, then the most
-    /// overlapping. nil at the tab's edge.
+    /// overlapping, then the top or left one — a tie is common (a beside b
+    /// over c), and the dictionary's order would make it a coin toss. nil
+    /// at the tab's edge.
     public func neighbor(_ d: Direction) -> String? {
         let f = frames()
         guard let me = f[focused] else { return nil }
         let eps = 1e-6
-        var best: (String, Double, Double)?
+        var best: (String, Double, Double, Double)?
         for (id, r) in f where id != focused {
             let gap: Double, overlap: Double
             switch d {
@@ -128,7 +130,13 @@ public struct Tab: Identifiable, Equatable, Sendable {
             case .down: gap = r.minY - me.maxY; overlap = min(me.maxX, r.maxX) - max(me.minX, r.minX)
             }
             guard gap > -eps, overlap > eps else { continue }
-            if best == nil || gap < best!.1 - eps || (abs(gap - best!.1) <= eps && overlap > best!.2) { best = (id, gap, overlap) }
+            let across = Double(d == .left || d == .right ? r.minY : r.minX)
+            if let b = best {
+                let nearer = gap < b.1 - eps, same = abs(gap - b.1) <= eps
+                let more = overlap > b.2 + eps, level = abs(overlap - b.2) <= eps
+                guard nearer || (same && (more || (level && across < b.3))) else { continue }
+            }
+            best = (id, gap, overlap, across)
         }
         return best?.0
     }

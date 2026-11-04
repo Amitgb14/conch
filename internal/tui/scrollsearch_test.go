@@ -306,7 +306,7 @@ func TestMatchSpans(t *testing.T) {
 		{"ab", "abc", nil},
 	}
 	for _, c := range cases {
-		got := matchSpans(c.plain, c.q)
+		got := MatchSpans(c.plain, c.q)
 		if len(got) != len(c.want) {
 			t.Fatalf("%q in %q: %v, want %v", c.q, c.plain, got, c.want)
 		}

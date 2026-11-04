@@ -1259,11 +1259,51 @@ struct PaneCard: View {
                 AnswerStrip(store: store, pane: pane, question: q)
             }
             TerminalHost(terminal: terminal)
+                .overlay(alignment: .topTrailing) {
+                    if store.find?.pane == pane { FindBar(store: store).padding(8) }
+                }
         }
         .background(Theme.window)
         .clipShape(RoundedRectangle(cornerRadius: CGFloat(Theme.style.corner)))
         .modifier(CardFrame(focused: focused))
         .onTapGesture { store.focus(pane) }
+    }
+}
+
+/// A pane's find bar, as a terminal's ⌘F: the query, which way to look,
+/// and what the last look said. Return looks older, as the TUI's / does —
+/// what was just printed is usually what is wanted — and the arrows both
+/// ways; esc closes it.
+struct FindBar: View {
+    @ObservedObject var store: Store
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        let f = store.find
+        HStack(spacing: 6) {
+            LucideIcon("search", color: Theme.muted, size: 12)
+            TextField("Find in pane", text: Binding(get: { store.find?.query ?? "" }, set: { store.find?.query = $0 }))
+                .textFieldStyle(.plain).font(.system(size: 12)).frame(width: 170)
+                .focused($typing)
+                .onSubmit { store.findNext(back: true); typing = true }
+                .onExitCommand { store.closeFind() }
+            if let note = f?.note, !note.isEmpty {
+                Text(note).font(.system(size: 11)).foregroundStyle(note == "Not found" || note.hasPrefix("conch") ? Theme.err : Theme.muted)
+                    .lineLimit(1).frame(maxWidth: 180)
+            }
+            Button { store.findNext(back: true) } label: { LucideIcon("chevron-up", size: 12) }
+                .buttonStyle(.plain).help("Older (⌘G)").disabled(f?.query.isEmpty ?? true)
+            Button { store.findNext(back: false) } label: { LucideIcon("chevron-down", size: 12) }
+                .buttonStyle(.plain).help("Newer (⇧⌘G)").disabled(f?.query.isEmpty ?? true)
+            Button { store.closeFind() } label: { LucideIcon("x", size: 12) }
+                .buttonStyle(.plain).help("Close (esc)")
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paneHeader))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
+        .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+        .onAppear { typing = true }
+        .onChange(of: store.findFocus) { _ in typing = true }
     }
 }
 

@@ -1877,3 +1877,45 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     l.tabs[0].resize("", n: 2, after: 0, by: 0.1); l.close("c")
     #expect(l.tabs[0].weights.isEmpty) // structure changed: even again
 }
+
+@Test func paneFindLooksFromTheEndAndFollowsMatches() throws {
+    var f = PaneFind(pane: "local|p3")
+    f.query = "error"
+    // First look: from past the end, backwards.
+    #expect(f.params(id: "p3", back: true) == PaneSearchParams(id: "p3", query: "error", line: PaneFind.end, col: 0, backward: true))
+    #expect(f.params(id: "p3", back: false).backward == nil)
+    let show = f.took(PaneSearchResult(found: true, line: 40, col: 7, history: 100), back: true)
+    #expect(show == AttachControl(find: "error", line: 40, history: 100))
+    #expect(f.note == "")
+    // The next look starts at the match.
+    #expect(f.params(id: "p3", back: true).line == 40)
+    #expect(f.params(id: "p3", back: true).col == 7)
+    _ = f.took(PaneSearchResult(found: true, line: 90, col: 0, history: 100, wrapped: true), back: true)
+    #expect(f.note == "Went round from the bottom")
+    _ = f.took(PaneSearchResult(found: true, line: 1, history: 100, wrapped: true), back: false)
+    #expect(f.note == "Went round from the top")
+    // Nothing found: told to mark nothing, and said so.
+    #expect(f.took(PaneSearchResult(history: 100), back: true) == AttachControl(clear: true))
+    #expect(f.note == "Not found")
+    // A match on the oldest line comes without a line: it is line 0.
+    #expect(f.took(PaneSearchResult(found: true, history: 122), back: true) == AttachControl(find: "error", line: 0, history: 122))
+    #expect(f.params(id: "p3", back: true).line == 0)
+    // A new query starts from the end again, with nothing said.
+    f.query = "warn"
+    #expect(f.params(id: "p3", back: true).line == PaneFind.end)
+    #expect(f.note == "")
+    // The same query set again keeps its place.
+    _ = f.took(PaneSearchResult(found: true, line: 5, history: 9), back: true)
+    f.query = "warn"
+    #expect(f.params(id: "p3", back: true).line == 5)
+}
+
+@Test func attachControlBodyIsOneLineWithTheToken() throws {
+    let b = attachControlBody(token: "tok", AttachControl(find: "a\nb\u{1b}\"/", line: 3, history: 9))
+    #expect(b.hasPrefix("\u{2063}conch-attach:tok {"))
+    #expect(!b.contains("\n") && !b.contains("\u{1b}"))
+    let json = try JSONSerialization.jsonObject(with: Data(b.dropFirst("\u{2063}conch-attach:tok ".count).utf8)) as? [String: Any]
+    #expect(json?["find"] as? String == "a\nb\u{1b}\"/")
+    #expect(json?["line"] as? Int == 3 && json?["history"] as? Int == 9 && json?["clear"] == nil)
+    #expect(attachControlBody(token: "t", AttachControl(clear: true)) == "\u{2063}conch-attach:t {\"clear\":true}")
+}

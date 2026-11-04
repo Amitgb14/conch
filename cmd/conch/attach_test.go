@@ -493,3 +493,127 @@ func TestAttachRefusesItsOwnPane(t *testing.T) {
 		t.Fatalf("another pane: %v", err)
 	}
 }
+
+// Shift with page up and down, home and end scroll the history on the main
+// screen, a page at a time, kept to what there is; a full-screen program,
+// or a view with no frame yet, gets them as keys.
+func TestAttachScrollKeys(t *testing.T) {
+	srv, c := startAttachServer(t)
+	s := &attachSession{c: c, id: "p3", out: io.Discard}
+	s.input([]byte("\x1b[5;2~"), false) // no frame yet: the pane's
+	s.frame = &proto.Frame{ID: "p3", Rows: 10, History: 25}
+	for _, k := range []string{
+		"\x1b[5;2~", "\x1b[5;2~", "\x1b[5;2~", // up 9, 18, then 25 (all there is)
+		"\x1b[6;2~", // down to 16
+		"\x1b[1;2F", // shift+end: live
+		"\x1b[1;2H", // shift+home: the top
+		"\x1b[6;2~", // 16
+		"\x1b[6;2~", // 7
+		"\x1b[6;2~", // 0, not below
+		"\x1b[6;2~", // nothing to send
+	} {
+		s.input([]byte(k), false)
+	}
+	var offsets []int
+	for _, p := range attachSent[proto.PaneScrollParams](srv, proto.MethodPaneScroll) {
+		offsets = append(offsets, p.Offset)
+	}
+	if got := fmt.Sprint(offsets); got != "[9 18 25 16 0 25 16 7 0]" {
+		t.Fatalf("scroll offsets %v", offsets)
+	}
+	s.frame = &proto.Frame{ID: "p3", Rows: 10, AltScreen: true}
+	s.input([]byte("\x1b[6;2~\x1b[5~"), false) // a full-screen program's, and a plain pgup always is
+	var keys []string
+	for _, p := range attachSent[proto.PaneSendKeysParams](srv, proto.MethodPaneSendKeys) {
+		keys = append(keys, p.Keys...)
+	}
+	if got := strings.Join(keys, " "); got != "shift+pgup shift+pgdown pgup" {
+		t.Fatalf("keys %q", got)
+	}
+}
+
+// A paste starting with the app's token is a search for this view: the
+// match brought to the middle when it is out of sight, every match on
+// screen marked, and the marks gone when the search ends. Without the
+// token — or with none given — it is the person's paste.
+func TestAttachControlPaste(t *testing.T) {
+	srv, c := startAttachServer(t)
+	out := &syncBuffer{}
+	s := &attachSession{c: c, id: "p3", out: out, control: "tok"}
+	s.frame = &proto.Frame{ID: "p3", Cols: 20, Rows: 4, History: 100,
+		Lines: []string{"one \x1b[1mError\x1b[0m two", "fine", "error again", ""}}
+	paste := func(body string) { s.input([]byte("\x1b[200~"+body+"\x1b[201~"), false) }
+	ctl := func(v attachControl) string {
+		b, _ := json.Marshal(v)
+		return attachControlMark + "tok " + string(b)
+	}
+
+	// Line 40 of 100 is out of sight from the live screen: brought to the
+	// second row of four (100 - (40 - 2)).
+	paste(ctl(attachControl{Find: "error", Line: 40, History: 100}))
+	sc := attachSent[proto.PaneScrollParams](srv, proto.MethodPaneScroll)
+	if len(sc) != 1 || sc[0].Offset != 62 || s.offset != 62 {
+		t.Fatalf("scrolls %+v, offset %d", sc, s.offset)
+	}
+	drawn := out.String()
+	if !strings.Contains(drawn, attachMatch+"Error\x1b[0m") || !strings.Contains(drawn, attachMatch+"error\x1b[0m") {
+		t.Fatalf("matches not marked (smart case): %q", drawn)
+	}
+	// Already in view (offset 62 shows lines 38–41): no scroll.
+	paste(ctl(attachControl{Find: "error", Line: 41, History: 100}))
+	if n := len(attachSent[proto.PaneScrollParams](srv, proto.MethodPaneScroll)); n != 1 {
+		t.Fatalf("scrolled for a match in view (%d scrolls)", n)
+	}
+	// A match on the live screen goes back to it.
+	paste(ctl(attachControl{Find: "error", Line: 101, History: 100}))
+	if s.offset != 0 {
+		t.Fatalf("offset %d for a match on the screen", s.offset)
+	}
+	// A frame drawn later is marked too, until the search ends.
+	s.event(proto.Message{Event: proto.EventPaneFrame, Data: proto.Marshal(proto.Frame{ID: "p3", Cols: 20, Rows: 4, History: 100, Lines: []string{"new error"}})})
+	if !strings.HasSuffix(out.String(), "new "+attachMatch+"error\x1b[0m"+strings.Repeat(" ", 0)+"\x1b[0m\x1b[K\x1b[0m\x1b[J\x1b[?2026l") {
+		t.Fatalf("a new frame is not marked: %q", out.String()[max(len(out.String())-80, 0):])
+	}
+	paste(ctl(attachControl{Clear: true}))
+	if s.query != "" || strings.Contains(out.String()[strings.LastIndex(out.String(), "\x1b[?2026h"):], attachMatch) {
+		t.Fatal("the marks outlived the search")
+	}
+	if s.offset != 0 {
+		t.Fatal("ending the search moved the view")
+	}
+
+	// Garbled after the token: dropped, not pasted. Another token, no
+	// token, or a view given none: the person's paste.
+	paste(attachControlMark + "tok {nope")
+	paste(attachControlMark + "other " + `{"find":"x"}`)
+	paste("plain")
+	s.control = ""
+	paste(ctl(attachControl{Find: "x"}))
+	var texts []string
+	for _, p := range attachSent[proto.PaneSendTextParams](srv, proto.MethodPaneSendText) {
+		texts = append(texts, p.Text)
+	}
+	if len(texts) != 3 || texts[1] != "plain" || !strings.Contains(texts[0], "other") || s.query != "" {
+		t.Fatalf("pasted %q, query %q", texts, s.query)
+	}
+}
+
+func TestMarkMatches(t *testing.T) {
+	for _, c := range []struct {
+		line  string
+		spans [][2]int
+		w     int
+		want  string
+	}{
+		{"abc", nil, 3, "abc"},
+		{"abc", [][2]int{{0, 1}}, 0, "abc"},                                 // no width: nothing
+		{"abcdef", [][2]int{{1, 3}}, 6, "a" + attachMatch + "bc\x1b[0mdef"}, // the middle
+		{"ab", [][2]int{{1, 9}}, 4, "a" + attachMatch + "b  \x1b[0m"},       // to the edge, padded
+		{"\x1b[31mred\x1b[0m", [][2]int{{0, 3}}, 3, attachMatch + "red\x1b[0m"},
+		{"x", [][2]int{{5, 7}}, 3, "x"}, // past the width
+	} {
+		if got := markMatches(c.line, c.spans, c.w); got != c.want {
+			t.Errorf("markMatches(%q, %v, %d) = %q, want %q", c.line, c.spans, c.w, got, c.want)
+		}
+	}
+}

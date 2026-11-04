@@ -127,6 +127,12 @@ final class GhosttyRuntime {
         term = xterm-256color
         clipboard-read = deny
         mouse-hide-while-typing = true
+        # shift with page up/down and home/end scroll conch's history, which
+        # `conch attach` keeps (a pane's own terminal has none to scroll).
+        keybind = shift+page_up=unbind
+        keybind = shift+page_down=unbind
+        keybind = shift+home=unbind
+        keybind = shift+end=unbind
 
         """
         try? text.write(to: file, atomically: true, encoding: .utf8)
@@ -418,6 +424,13 @@ final class GhosttyPaneView: NSView {
 
     @objc func copy(_ sender: Any?) {
         if let s = surface { _ = "copy_to_clipboard".withCString { ghostty_surface_binding_action(s, $0, UInt(strlen($0))) } }
+    }
+
+    /// Text given to the terminal as a paste — bracketed, since `conch
+    /// attach` asked for that — rather than typed key by key.
+    func pasteText(_ text: String) {
+        guard let s = surface else { return }
+        text.withCString { ghostty_surface_text(s, $0, UInt(strlen($0))) }
     }
 
     @objc func paste(_ sender: Any?) {
