@@ -83,10 +83,10 @@ func fixture() -> Snapshot {
     let agents = api.children?[0].children ?? []
     #expect(agents.map(\.title) == ["Add health check", "codex"])
     #expect(agents.map(\.badge) == ["working", "waiting"])
-    // The task branch; main is the project's own checkout.
-    #expect(api.children?[1].children?.map(\.title) == ["feat"])
-    #expect(api.children?[1].children?.first?.kind == .branch(project: "local|r1", name: "feat", checkedOut: true))
-    #expect(api.children?[1].children?.first?.badge == "↑2")
+    // The main checkout's branch first, as the TUI lists it, then the task branch.
+    #expect(api.children?[1].children?.map(\.title) == ["main", "feat"])
+    #expect(api.children?[1].children?.last?.kind == .branch(project: "local|r1", name: "feat", checkedOut: true))
+    #expect(api.children?[1].children?.last?.badge == "↑2")
     #expect(top[1].children?.map(\.title) == ["bash"])
 }
 
@@ -134,16 +134,50 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     #expect(MachineEntry.load(machinesJSON: Data("{".utf8)).isEmpty)
 }
 
-// The branches listed: task branches first, then the most recent others
-// up to the limit, never the main checkout's.
+// The branches listed, as the TUI lists them: the main checkout's, those
+// in a worktree, the base and those a pane works on, then the ones
+// committed to in the last two weeks up to the limit; the rest hidden and
+// counted, every one listed when asked.
 @Test func listedBranches() {
+    let now = Date()
     var pr = fixture().projects[0]
-    pr.branches = [BranchInfo(name: "main")] + (1...10).map { BranchInfo(name: "old-\($0)") } + [BranchInfo(name: "feat", baseAhead: 2)]
-    let names = Snapshot(projects: [pr]).listedBranches(pr).map(\.name)
-    #expect(names == ["feat", "old-1", "old-2", "old-3", "old-4", "old-5"])
-    #expect(Snapshot(projects: [pr]).listedBranches(pr)[1].worktree == nil)
-    let tree = Snapshot(projects: [pr]).tree()
-    #expect(projects(tree).first?.children?.first { $0.title == "Branches" }?.badge == "12")
+    pr.base = "main"
+    func recent(_ n: String, days: Double) -> BranchInfo {
+        var b = BranchInfo(name: n)
+        b.committed = now.addingTimeInterval(-days * 86400)
+        return b
+    }
+    pr.branches = [BranchInfo(name: "main"), recent("old", days: 30), recent("fresh", days: 1)]
+        + (1...13).map { recent("r\($0)", days: 2) } + [BranchInfo(name: "feat", baseAhead: 2), BranchInfo(name: "worked")]
+    let s = Snapshot(projects: [pr])
+    let worker = PaneInfo(id: "p9", name: "x", branch: "worked")
+    let (list, hidden) = s.listedBranches(pr, panes: [worker], now: now)
+    #expect(list.map(\.name) == ["main", "feat", "worked", "fresh"] + (1...11).map { "r\($0)" })
+    #expect(hidden == 3) // r12, r13 past the twelve recent; old past two weeks
+    #expect(list[0].worktree == "/src/api" && list[1].worktree == "/src/api-feat" && list[2].worktree == nil)
+    let every = s.listedBranches(pr, panes: [worker], all: true, now: now)
+    #expect(every.list.count == pr.branches!.count && every.hidden == 0)
+    // A worktree the server has not listed a branch for yet is listed.
+    var lone = pr
+    lone.branches = []
+    #expect(s.listedBranches(lone, now: now).list.map(\.name) == ["feat"])
+
+    // The tree says what is hidden, and puts it away again when shown.
+    let tree = s.tree(now: now)
+    let branches = projects(tree).first?.children?.first { $0.title == "Branches" }
+    #expect(branches?.badge == "\(pr.branches!.count)")
+    #expect(branches?.children?.last?.kind == .more(project: "local|r1", count: 4) && branches?.children?.last?.title == "… 4 more") // no pane: worked is hidden too
+    let open = projects(s.tree(allBranches: ["local|r1"], now: now)).first?.children?.first { $0.title == "Branches" }
+    #expect(open?.children?.last?.kind == .more(project: "local|r1", count: 0) && open?.children?.last?.title == "Show fewer")
+    #expect(open?.children?.count == pr.branches!.count + 1)
+    // Nothing hidden: no row either way.
+    var few = pr
+    few.branches = [BranchInfo(name: "main"), BranchInfo(name: "feat")]
+    let fs = Snapshot(projects: [few])
+    for all in [Set<String>(), ["local|r1"]] {
+        let rows = projects(fs.tree(allBranches: all, now: now)).first?.children?.first { $0.title == "Branches" }?.children ?? []
+        #expect(!rows.contains { if case .more = $0.kind { return true }; return false })
+    }
 }
 
 @Test func inboxAndNextAttention() {
@@ -598,13 +632,35 @@ final class FakeServer: @unchecked Sendable {
     #expect(!titles(gm).contains("Prompt…") && gm.last?.title == "Close")
 
     // A branch checked out: start there; one that is not: a task's to make.
-    let feat = api.children![1].children![0]
+    // In a worktree of its own: removed (the worktree) or deleted (the branch).
+    let feat = api.children![1].children![1]
     let fm = s.menu(for: feat, machine: "box")
-    #expect(titles(fm) == ["View changes", "Start an agent on this branch", "Open terminal on this branch", "New task in project…", "Show in commit graph", "", "Copy branch name"])
+    #expect(titles(fm) == ["View changes", "Start an agent on this branch", "Open terminal on this branch", "New task in project…", "Show in commit graph", "",
+                           "Copy branch name", "", "Remove worktree…", "Delete branch…"])
     #expect(fm[4].action == .commits(project: "box|r1", branch: "feat"))
     #expect(fm[1].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true))
+    #expect(fm[8].action == .removeWorktree(project: "box|r1", path: "/src/api-feat") && fm[9].action == .deleteBranch(project: "box|r1", branch: "feat"))
+    // Not checked out: deleted only.
     let old = TreeNode(id: "b:box|r1:old", kind: .branch(project: "box|r1", name: "old", checkedOut: false), title: "old")
-    #expect(titles(s.menu(for: old, machine: "box")) == ["View changes", "New task in project…", "Show in commit graph", "", "Copy branch name"])
+    #expect(titles(s.menu(for: old, machine: "box")) == ["View changes", "New task in project…", "Show in commit graph", "", "Copy branch name", "", "Delete branch…"])
+    // The main checkout's branch, and the base, are never taken away; offline, nothing is.
+    let mainRow = api.children![1].children![0]
+    #expect(!titles(s.menu(for: mainRow, machine: "box")).contains("Delete branch…"))
+    var based = s
+    var bp = s.project("r1")!
+    bp.base = "old"
+    based.upsert(bp)
+    #expect(!titles(based.menu(for: old, machine: "box")).contains("Delete branch…"))
+    #expect(!titles(s.menu(for: feat, machine: "box", machineOnline: false)).contains { $0.hasPrefix("Remove") || $0.hasPrefix("Delete") })
+    // A pull request with a web address opens; one with another scheme does not.
+    var withPR = s
+    var pp = s.project("r1")!
+    pp.branches = pp.branches?.map { b in var b = b; if b.name == "feat" { b.pr = PRInfo(number: 7, url: "https://github.com/o/r/pull/7") }; return b }
+    withPR.upsert(pp)
+    #expect(withPR.menu(for: feat, machine: "box").contains { $0.action == .openURL("https://github.com/o/r/pull/7") })
+    pp.branches = pp.branches?.map { b in var b = b; b.pr?.url = "file:///etc/passwd"; return b }
+    withPR.upsert(pp)
+    #expect(!withPR.menu(for: feat, machine: "box").contains { $0.title == "Open pull request" })
 
     // A project, a machine, the Workspace row.
     let pm = s.menu(for: api, machine: "box")
@@ -1950,4 +2006,16 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(jobSummary([]) == nil)
     #expect(jobSummary(["Pushing"]) == "Pushing…")
     #expect(jobSummary(["Pushing", "Merging", "Upgrading"]) == "Pushing… and 2 more")
+}
+
+// What deleting a branch loses, as the dry run says it.
+@Test func branchDiscardLoss() {
+    #expect(BranchDiscardResult().loss == nil)
+    #expect(BranchDiscardResult(uncommitted: [], unmerged: 0).loss == nil)
+    #expect(BranchDiscardResult(uncommitted: ["a.go"]).loss == "This loses 1 uncommitted file (a.go).")
+    #expect(BranchDiscardResult(unmerged: 1).loss == "This loses 1 commit in neither the base nor its upstream.")
+    let many = BranchDiscardResult(uncommitted: (1...7).map { "f\($0)" }, unmerged: 3).loss
+    #expect(many == "This loses 7 uncommitted files (f1, f2, f3, f4, f5, …) and 3 commits in neither the base nor its upstream.")
+    let d = try? JSONDecoder().decode(BranchDiscardResult.self, from: Data(#"{"worktree":"/w","uncommitted":["x"],"unmerged":2}"#.utf8))
+    #expect(d == BranchDiscardResult(worktree: "/w", uncommitted: ["x"], unmerged: 2))
 }

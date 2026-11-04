@@ -253,10 +253,17 @@ final class Store: ObservableObject {
         UserDefaults.standard.set(folds, forKey: "folds")
     }
 
+    /// Projects listing every branch, "… N more" clicked (by key).
+    @Published var allBranches: Set<String> = []
+
+    func toggleAllBranches(_ project: String) {
+        if allBranches.contains(project) { allBranches.remove(project) } else { allBranches.insert(project) }
+    }
+
     /// The sidebar: a tree per machine, this computer first.
     var tree: [TreeNode] {
         machines.map { m in
-            var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions)
+            var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions, allBranches: allBranches)
             if !m.online { node.badge = m.state }
             return node
         }
@@ -711,6 +718,7 @@ final class Store: ObservableObject {
             case .branch(let pr, let name, _): openChanges(project: pr, branch: name)
             case .sessions(let pk): openSessions(project: pk)
             case .files(let pk): openFiles(project: pk)
+            case .more(let pk, _): toggleAllBranches(pk)
             case .subagent(let pane, _):
                 open(pane)
                 focusTerminal()
@@ -926,6 +934,50 @@ final class Store: ObservableObject {
         job("Upgrading conch on \(label(machine))", done: "conch on \(label(machine)) upgraded") {
             _ = try await runConch(b, ["machine", "upgrade", machine])
             self.reconnect(machine)
+        }
+    }
+
+    /// Removes a branch's worktree, keeping the branch; the server refuses
+    /// one with uncommitted work, and says so.
+    func removeWorktree(project pk: String, path: String) {
+        let (m, pid) = unkey(pk)
+        guard let c = conns[m] else { return }
+        let a = NSAlert()
+        a.messageText = "Remove the worktree?"
+        a.informativeText = "\(path)\n\nThe branch stays, with its commits. A worktree with uncommitted changes is not removed."
+        a.addButton(withTitle: "Remove")
+        a.addButton(withTitle: "Cancel")
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        struct P: Encodable { var project_id: String; var path: String }
+        job("Removing the worktree", done: "Removed \((path as NSString).lastPathComponent)") {
+            try await c.call("worktree.remove", P(project_id: pid, path: path))
+        }
+    }
+
+    /// Deletes a branch and its worktree, after saying what that loses —
+    /// the server's own dry run, so nothing is guessed here.
+    func deleteBranch(project pk: String, branch: String) {
+        let (m, pid) = unkey(pk)
+        guard let c = conns[m] else { return }
+        struct P: Encodable { var project_id: String; var branch: String; var dry_run: Bool?; var force: Bool? }
+        Task {
+            let dry: BranchDiscardResult
+            do {
+                dry = try await c.call("branch.discard", P(project_id: pid, branch: branch, dry_run: true), as: BranchDiscardResult.self)
+            } catch {
+                self.say("Could not delete \(branch): \(error)", .err)
+                return
+            }
+            let a = NSAlert()
+            a.messageText = "Delete \(branch)?"
+            a.informativeText = (dry.worktree.map { "Its worktree goes too: \($0)\n\n" } ?? "") + (dry.loss ?? "Nothing is lost: its work is merged or pushed.")
+            a.alertStyle = dry.loss == nil ? .informational : .warning
+            a.addButton(withTitle: dry.loss == nil ? "Delete" : "Delete anyway")
+            a.addButton(withTitle: "Cancel")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            self.job("Deleting \(branch)", done: "Deleted \(branch)") {
+                try await c.call("branch.discard", P(project_id: pid, branch: branch, force: dry.loss == nil ? nil : true))
+            }
         }
     }
 
@@ -1583,6 +1635,9 @@ final class Store: ObservableObject {
         case .reloadServer(let m): reloadServer(m)
         case .upgrade(let m): upgrade(m)
         case .removeMachine(let m): removeMachine(m)
+        case .openURL(let s): if let u = openableURL(s) { NSWorkspace.shared.open(u) }
+        case .removeWorktree(let pk, let path): removeWorktree(project: pk, path: path)
+        case .deleteBranch(let pk, let b): deleteBranch(project: pk, branch: b)
         }
     }
 

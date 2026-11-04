@@ -666,7 +666,7 @@ struct NodeView: View {
             icon
             RowSplit {
                 Text(node.title).font(isBranch ? .system(size: 12, design: .monospaced) : .system(size: 13, weight: inverted ? .semibold : .regular))
-                    .foregroundStyle(inverted ? Theme.window : isSection || isSessions ? Theme.text2 : Theme.text)
+                    .foregroundStyle(inverted ? Theme.window : isMore ? Theme.muted : isSection || isSessions ? Theme.text2 : Theme.text)
                     .lineLimit(1).truncationMode(.tail)
                 badge
             }
@@ -708,6 +708,7 @@ struct NodeView: View {
     }
 
     var isSection: Bool { if case .section = node.kind { return true }; return false }
+    var isMore: Bool { if case .more = node.kind { return true }; return false }
     /// A row that opens a tab rather than folding: Sessions, Files.
     var isSessions: Bool {
         switch node.kind {
@@ -740,6 +741,7 @@ struct NodeView: View {
                 Text(spinnerFrame(at: ctx.date)).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
             }
             .frame(width: 16)
+        case .more: Color.clear.frame(width: 14, height: 12) // the names line up with the branches'
         case .section(let name):
             // Each group with an icon of its own, as Files and Sessions have.
             LucideIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", color: Theme.muted, size: 12)
@@ -817,6 +819,7 @@ struct NodeView: View {
         case .branch(let pr, let name, _): store.openChanges(project: pr, branch: name)
         case .sessions(let pk): store.openSessions(project: pk)
         case .files(let pk): store.openFiles(project: pk)
+        case .more(let pk, _): store.toggleAllBranches(pk)
         // A subagent has no screen of its own: its agent's is shown.
         case .subagent(let pane, _): store.open(pane)
         default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }

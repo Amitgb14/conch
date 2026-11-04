@@ -355,6 +355,9 @@ public enum NodeKind: Equatable, Sendable {
     case subagent(pane: String, id: String)
     case cli(String)
     case workspace(String) // a machine's projects, grouped as the TUI groups them
+    /// "… N more" under a project's branches (count hidden), or, with
+    /// every branch shown, the row that shows fewer again (count 0).
+    case more(project: String, count: Int)
 }
 
 public struct TreeNode: Identifiable, Equatable, Sendable {
@@ -390,7 +393,11 @@ public func isOpen(_ node: TreeNode, app: [String: Bool], tui: [String: Bool]) -
 
 /// How many branches a project lists before the rest are left to the TUI:
 /// the task branches always, then the most recent others up to this.
-public let branchesShown = 6
+/// How many branches committed to lately the tree lists besides those
+/// checked out, the base and those a pane works on; and how lately (the
+/// TUI's maxListedBranches and recentBranchAge).
+public let branchesRecent = 12
+public let branchRecentAge: TimeInterval = 14 * 24 * 3600
 
 extension Snapshot {
     /// One machine in the sidebar: its projects with their agents, branches,
@@ -398,7 +405,7 @@ extension Snapshot {
     /// no project — the TUI's tree. sessions counts each project's saved
     /// conversations, when they have been read.
     public func tree(machine: String = "local", label: String? = nil, in ws: Workspace? = nil,
-                     sessions: [String: Int] = [:]) -> TreeNode {
+                     sessions: [String: Int] = [:], allBranches: Set<String> = [], now: Date = Date()) -> TreeNode {
         let shown = self.shown(in: ws, machine: machine)
         var projectNodes: [TreeNode] = []
         for pr in projects where ws?.shows(pr, machine: machine) ?? true {
@@ -408,11 +415,20 @@ extension Snapshot {
             let agentPanes = mine.filter { $0.agent != nil }, terminalPanes = mine.filter { $0.agent == nil }
             let agents = paneForest(agentPanes, machine)
             let terminals = paneForest(terminalPanes, machine)
-            let branches = listedBranches(pr).map { b in
+            let all = allBranches.contains(pk)
+            let (listed, hidden) = listedBranches(pr, panes: mine, all: all, now: now)
+            var branches = listed.map { b in
                 TreeNode(id: "b:\(pk):\(b.name)", kind: .branch(project: pk, name: b.name, checkedOut: b.worktree != nil),
                          title: b.name, badge: branchBadge(b),
                          parts: branchBadgeParts(b, worktree: pr.worktrees?.first { $0.branch == b.name }, isBase: b.name == pr.base,
                                                  agents: mine.filter { $0.branch == b.name && $0.running }.compactMap { $0.agent?.state }))
+            }
+            // What is left out is said, as the TUI's "… N more", and a
+            // click lists it; listed, a click puts it away again.
+            if hidden > 0 {
+                branches.append(TreeNode(id: "more:\(pk)", kind: .more(project: pk, count: hidden), title: "… \(hidden) more"))
+            } else if all, listedBranches(pr, panes: mine, all: false, now: now).hidden > 0 {
+                branches.append(TreeNode(id: "more:\(pk)", kind: .more(project: pk, count: 0), title: "Show fewer"))
             }
             var sections: [TreeNode] = []
             if !agents.isEmpty {
@@ -421,8 +437,8 @@ extension Snapshot {
                                          children: agents, fold: tui + "/agents"))
             }
             if !branches.isEmpty {
-                let all = max(pr.branches?.count ?? 0, branches.count)
-                sections.append(TreeNode(id: "s:\(pk):branches", kind: .section("Branches"), title: "Branches", badge: "\(all)", children: branches, fold: tui + "/branches"))
+                let count = max(pr.branches?.count ?? 0, listed.count)
+                sections.append(TreeNode(id: "s:\(pk):branches", kind: .section("Branches"), title: "Branches", badge: "\(count)", children: branches, fold: tui + "/branches"))
             }
             if !terminals.isEmpty {
                 sections.append(TreeNode(id: "s:\(pk):terminals", kind: .section("Terminals"), title: "Terminals", badge: "\(terminalPanes.count)", children: terminals, fold: tui + "/terminals"))
@@ -536,19 +552,40 @@ extension Snapshot {
         }
     }
 
-    /// The branches the sidebar lists: the task branches, then the most
-    /// recent of the rest (newest commit first, as the server sends them)
-    /// up to branchesShown, never the main checkout's own.
-    public func listedBranches(_ pr: ProjectInfo) -> [BranchInfo] {
-        var out = taskBranches(pr)
-        let main = Set((pr.worktrees ?? []).filter { $0.main == true }.compactMap(\.branch))
-        let have = Set(out.map(\.name))
-        for b in pr.branches ?? [] where out.count < branchesShown && !have.contains(b.name) && !main.contains(b.name) {
-            var other = b
-            other.worktree = nil
-            out.append(other)
+    /// The branches the sidebar lists, as the TUI picks them (tree.go's
+    /// listedBranches): the main checkout's first, then those checked out
+    /// in a worktree, the base and those a pane works on, then the ones
+    /// committed to in the last two weeks, up to branchesRecent of them,
+    /// newest first as the server sends them. all lists every one; hidden
+    /// counts what was left out.
+    public func listedBranches(_ pr: ProjectInfo, panes: [PaneInfo] = [], all: Bool = false, now: Date = Date()) -> (list: [BranchInfo], hidden: Int) {
+        let main = (pr.worktrees ?? []).first { $0.main == true }?.branch
+        let worked = Set(panes.compactMap(\.branch))
+        let checkedOut = Set((pr.worktrees ?? []).compactMap(\.branch))
+        func rank(_ b: BranchInfo) -> Int {
+            if b.name == main { return 0 }
+            if b.worktree != nil || checkedOut.contains(b.name) { return 1 }
+            if b.name == pr.base || worked.contains(b.name) { return 2 }
+            return 3
         }
-        return out
+        // A worktree's branch the server has not listed yet is still one.
+        var branches = pr.branches ?? []
+        let named = Set(branches.map(\.name))
+        for w in pr.worktrees ?? [] where w.main != true {
+            if let n = w.branch, !named.contains(n) { branches.append(BranchInfo(name: n, worktree: w.path)) }
+        }
+        let ranked = branches.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
+        var list: [BranchInfo] = [], hidden = 0, recent = 0
+        for var b in ranked {
+            if b.worktree == nil { b.worktree = pr.worktrees?.first { $0.branch == b.name }?.path }
+            var keep = all || rank(b) < 3
+            if !keep, let c = b.committed, now.timeIntervalSince(c) < branchRecentAge, recent < branchesRecent {
+                keep = true
+                recent += 1
+            }
+            if keep { list.append(b) } else { hidden += 1 }
+        }
+        return (list, hidden)
     }
 
     func branchBadge(_ b: BranchInfo) -> String {

@@ -51,6 +51,13 @@ public enum RowAction: Equatable, Sendable {
     case upgrade(machine: String)
     /// A machine taken out of machines.json, after asking.
     case removeMachine(machine: String)
+    /// A web page opened in the browser: a branch's pull request.
+    case openURL(String)
+    /// A branch's linked worktree removed (it must be clean); the branch
+    /// stays.
+    case removeWorktree(project: String, path: String)
+    /// A branch deleted, with its worktree — after saying what that loses.
+    case deleteBranch(project: String, branch: String)
     case divider
 }
 
@@ -100,8 +107,20 @@ extension Snapshot {
                         RowMenuItem("Open terminal on this branch", .newTerminal(machine: machine, cwd: path, inProject: true))]
             }
             if machineOnline { out.append(RowMenuItem("New task in project…", .newTask(project: pk))) }
-            out += [RowMenuItem("Show in commit graph", .commits(project: pk, branch: name)),
-                    .divider, RowMenuItem("Copy branch name", .copy(name))]
+            out.append(RowMenuItem("Show in commit graph", .commits(project: pk, branch: name)))
+            if let url = pr?.branches?.first(where: { $0.name == name })?.pr?.url, openableURL(url) != nil {
+                out.append(RowMenuItem("Open pull request", .openURL(url)))
+            }
+            out += [.divider, RowMenuItem("Copy branch name", .copy(name))]
+            // Taking it away: never the main checkout's, nor the base.
+            let main = pr?.worktrees?.first { $0.main == true }
+            if machineOnline, name != main?.branch, name != pr?.base {
+                out.append(.divider)
+                if let w = pr?.worktrees?.first(where: { $0.branch == name && $0.main != true }) {
+                    out.append(RowMenuItem("Remove worktree…", .removeWorktree(project: pk, path: w.path)))
+                }
+                out.append(RowMenuItem("Delete branch…", .deleteBranch(project: pk, branch: name)))
+            }
         case .project(let pk):
             guard machineOnline, let pr = project(unkey(pk).id) else { return [] }
             out = [RowMenuItem(pr.git == false ? "New task (an agent with a prompt, here)…" : "New task (branch + worktree + agent)…", .newTask(project: pk)),
@@ -133,7 +152,7 @@ extension Snapshot {
             out = [RowMenuItem("Add project…", .addProject(machine: machine))]
             if !projects.isEmpty { out.append(.divider) }
             out += projects.map { RowMenuItem("New task in \($0.name)…", .newTask(project: key(machine, $0.id))) }
-        case .section, .sessions, .files, .subagent:
+        case .section, .sessions, .files, .subagent, .more:
             return []
         }
         return out
@@ -145,7 +164,7 @@ extension TreeNode {
     public var machine: String? {
         switch kind {
         case .machine(let m), .cli(let m), .workspace(let m): return m
-        case .agent(let k), .terminal(let k), .project(let k), .sessions(let k), .files(let k), .subagent(let k, _): return unkey(k).machine
+        case .agent(let k), .terminal(let k), .project(let k), .sessions(let k), .files(let k), .subagent(let k, _), .more(let k, _): return unkey(k).machine
         case .branch(let pk, _, _): return unkey(pk).machine
         case .section: return unkey(String(id.dropFirst(2).split(separator: ":").first ?? "")).machine
         }
@@ -164,4 +183,32 @@ public func capabilitiesBehind(server: [String]?, app: [String]) -> [String] {
 public struct BuildInfo: Decodable, Sendable {
     public var version: String?
     public var capabilities: [String]?
+}
+
+/// What deleting a branch would lose, as branch.discard's dry run says it.
+public struct BranchDiscardResult: Decodable, Equatable, Sendable {
+    public var worktree: String?
+    public var uncommitted: [String]?
+    public var unmerged: Int?
+    public var done: Bool?
+
+    public init(worktree: String? = nil, uncommitted: [String]? = nil, unmerged: Int? = nil) {
+        self.worktree = worktree
+        self.uncommitted = uncommitted
+        self.unmerged = unmerged
+    }
+
+    /// What is lost, said in a sentence; nil when nothing is.
+    public var loss: String? {
+        var parts: [String] = []
+        let files = uncommitted ?? []
+        if !files.isEmpty {
+            let shown = files.prefix(5).joined(separator: ", ")
+            parts.append("\(files.count) uncommitted file\(files.count == 1 ? "" : "s") (\(shown)\(files.count > 5 ? ", …" : ""))")
+        }
+        if let n = unmerged, n > 0 {
+            parts.append("\(n) commit\(n == 1 ? "" : "s") in neither the base nor its upstream")
+        }
+        return parts.isEmpty ? nil : "This loses " + parts.joined(separator: " and ") + "."
+    }
 }
