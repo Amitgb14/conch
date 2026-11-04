@@ -2362,3 +2362,15 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let sessionRow = TreeNode(id: "pane:local|p7", kind: .terminal("local|p7"), title: "ssh")
     #expect(s.menu(for: sessionRow, machine: "local").contains { $0.action == .saveHost(pane: "local|p7") })
 }
+
+// A sandbox's menu: start one not running, stop one that is, its cost and
+// delete either way; stop and delete pass -y, since the app asked first.
+@Test func sandboxMenus() {
+    #expect(sandboxMenu(machine: "sbx", running: true).map(\.action) == [.divider, .sandbox(machine: "sbx", verb: "stop"),
+                                                                        .sandbox(machine: "sbx", verb: "usage"), .sandbox(machine: "sbx", verb: "rm")])
+    #expect(sandboxMenu(machine: "sbx", running: false)[1].action == .sandbox(machine: "sbx", verb: "start"))
+    #expect(sandboxArgs(provider: "daytona", verb: "stop", machine: "sbx") == ["sandbox", "-provider", "daytona", "stop", "-y", "sbx"])
+    #expect(sandboxArgs(provider: "boat", verb: "rm", machine: "sbx") == ["sandbox", "-provider", "boat", "rm", "-y", "sbx"])
+    #expect(sandboxArgs(provider: "boat", verb: "start", machine: "sbx") == ["sandbox", "-provider", "boat", "start", "sbx"])
+    #expect(sandboxArgs(provider: "devin", verb: "usage", machine: "sbx") == ["sandbox", "-provider", "devin", "usage", "sbx"])
+}

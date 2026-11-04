@@ -69,6 +69,9 @@ public enum RowAction: Equatable, Sendable {
     case connectHost(String)
     case forgetHost(String)
     case saveHost(pane: String)
+    /// A hosted sandbox started, stopped, deleted or its cost asked for
+    /// (conch sandbox VERB), by its machine.
+    case sandbox(machine: String, verb: String)
     case divider
 }
 
@@ -248,4 +251,22 @@ public struct BranchDiscardResult: Decodable, Equatable, Sendable {
         }
         return parts.isEmpty ? nil : "This loses " + parts.joined(separator: " and ") + "."
     }
+}
+
+/// A sandbox machine's own menu items, as the TUI's sandbox rows offer:
+/// start one that is not running, stop or delete it, and what it has cost.
+public func sandboxMenu(machine: String, running: Bool) -> [RowMenuItem] {
+    var out: [RowMenuItem] = [.divider]
+    out.append(running ? RowMenuItem("Stop sandbox…", .sandbox(machine: machine, verb: "stop"))
+                       : RowMenuItem("Start sandbox", .sandbox(machine: machine, verb: "start")))
+    out += [RowMenuItem("What it has cost", .sandbox(machine: machine, verb: "usage")),
+            RowMenuItem("Delete sandbox…", .sandbox(machine: machine, verb: "rm"))]
+    return out
+}
+
+/// `conch sandbox`'s arguments for a verb on a machine: -y where the app
+/// has asked already, since conch would otherwise ask on a terminal nobody
+/// is at.
+public func sandboxArgs(provider: String, verb: String, machine: String) -> [String] {
+    ["sandbox", "-provider", provider, verb] + (verb == "stop" || verb == "rm" ? ["-y"] : []) + [machine]
 }

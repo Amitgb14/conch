@@ -15,6 +15,8 @@ struct MachineLink: Identifiable, Equatable {
     var why = ""
     /// A hosted sandbox: stopped is a state of its own, not a fault.
     var sandbox = false
+    /// Its provider (daytona, boat, devin), for conch sandbox.
+    var provider: String?
     var version = ""
     /// Capabilities this app's conch has that the server lacks: it is from
     /// an older build, and a reload (or an upgrade, elsewhere) brings them.
@@ -798,6 +800,7 @@ final class Store: ObservableObject {
         for e in entries {
             var link = machines.first { $0.id == e.id } ?? MachineLink(id: e.id, label: e.displayLabel)
             link.sandbox = e.sandboxProvider != nil
+            link.provider = e.sandboxProvider
             next.append(link)
         }
         // A machine taken out of machines.json is let go: its connection,
@@ -1731,6 +1734,10 @@ final class Store: ObservableObject {
         let online = machines.first { $0.id == m }?.online ?? false
         let s = snapshots[m] ?? Snapshot()
         var items = s.menu(for: node, machine: m, machineOnline: online)
+        // A sandbox's own: start, stop, delete, what it cost.
+        if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.sandbox {
+            items += sandboxMenu(machine: m, running: link.online)
+        }
         // The actions of your own that belong on this kind of row.
         if online, let (place, _) = s.actionPlace(node, machine: m, home: conns[m]?.hello?.home) {
             let mine = actions.filter { $0.offers(place) }
@@ -1815,6 +1822,7 @@ final class Store: ObservableObject {
         case .broadcast(let scope): startBroadcast(scope, title: node.title)
         case .runAction(let name): runCustomAction(name, on: node)
         case .connectHost(let h): connectSaved(h)
+        case .sandbox(let m, let verb): sandbox(m, verb)
         case .forgetHost(let h): saveHost(SavedHost(host: h), save: false)
         case .saveHost(let k):
             if let p = pane(k), let h = p.sshTarget { saveHost(SavedHost(host: h, args: p.sshArgs)) }
@@ -1876,6 +1884,39 @@ final class Store: ObservableObject {
     /// which builds the session the TUI does.
     /// ui.json's saved ssh hosts, as the TUI keeps them.
     @Published private(set) var savedHosts: [SavedHost] = []
+
+    /// A sandbox started, stopped or deleted (after asking), or what it has
+    /// cost shown — conch sandbox, which talks to its provider.
+    func sandbox(_ m: String, _ verb: String) {
+        guard let b = binary, let link = machines.first(where: { $0.id == m }), let p = link.provider else { return }
+        let name = link.label
+        if verb == "stop" || verb == "rm" {
+            let a = NSAlert()
+            a.messageText = verb == "rm" ? "Delete \(name) for good?" : "Stop \(name)?"
+            a.informativeText = verb == "rm" ? "The sandbox and everything on it are deleted at \(p); nothing brings it back." : "Its agents and terminals stop with it. Starting it again brings the sandbox back, not what was running."
+            a.addButton(withTitle: verb == "rm" ? "Delete" : "Stop")
+            a.addButton(withTitle: "Cancel")
+            if verb == "rm" { a.buttons.first?.hasDestructiveAction = true }
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        let args = sandboxArgs(provider: p, verb: verb, machine: m)
+        if verb == "usage" {
+            job("Asking \(p) what \(name) cost") {
+                let out = String(decoding: try await runConch(b, args), as: UTF8.self)
+                let a = NSAlert()
+                a.messageText = "What \(name) has cost"
+                a.informativeText = out.trimmingCharacters(in: .whitespacesAndNewlines)
+                a.runModal()
+            }
+            return
+        }
+        let doing = ["start": "Starting", "stop": "Stopping", "rm": "Deleting"][verb] ?? verb
+        let did = ["start": "Started", "stop": "Stopped", "rm": "Deleted"][verb] ?? verb
+        job("\(doing) \(name)", done: "\(did) \(name)") {
+            _ = try await runConch(b, args)
+            if verb == "start" { self.reconnect(m) } else { self.connect() }
+        }
+    }
 
     /// Logs in to a saved host again, with the options it was saved with.
     func connectSaved(_ host: String) {
