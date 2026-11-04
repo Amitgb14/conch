@@ -16,6 +16,9 @@ struct MachineLink: Identifiable, Equatable {
     /// A hosted sandbox: stopped is a state of its own, not a fault.
     var sandbox = false
     var version = ""
+    /// Capabilities this app's conch has that the server lacks: it is from
+    /// an older build, and a reload (or an upgrade, elsewhere) brings them.
+    var behind: [String] = []
 
     var online: Bool { state.isEmpty }
 }
@@ -68,7 +71,43 @@ final class Store: ObservableObject {
     /// Bumped to put the keyboard in the find bar's field.
     @Published var findFocus = 0
     @Published var sidebarVisible = true
-    @Published var error: String?
+    /// What the status bar says for a moment (say), and the long jobs
+    /// running (job), oldest first.
+    @Published private(set) var flash: Flash?
+    @Published private(set) var jobs: [(id: UUID, what: String)] = []
+    /// A failure, said in the status bar as an error.
+    var error: String? {
+        get { flash?.tone == .err ? flash?.text : nil }
+        set { if let e = newValue { say(e, .err) } else if flash?.tone == .err { flash = nil } }
+    }
+
+    /// Says something in the status bar until it has been there long
+    /// enough, or something newer is said.
+    func say(_ text: String, _ tone: Flash.Tone = .ok) {
+        let f = Flash(text, tone)
+        flash = f
+        DispatchQueue.main.asyncAfter(deadline: .now() + f.lasts) { [weak self] in
+            if self?.flash?.id == f.id { self?.flash = nil }
+        }
+    }
+
+    func dismissFlash() { flash = nil }
+
+    /// Runs a long job with the status bar saying so, then what came of
+    /// it: done (said with done's text) or the error.
+    func job(_ what: String, done: String? = nil, _ body: @escaping () async throws -> Void) {
+        let id = UUID()
+        jobs.append((id, what))
+        Task {
+            defer { jobs.removeAll { $0.id == id } }
+            do {
+                try await body()
+                if let done { say(done) }
+            } catch {
+                say("\(what) failed: \(error)", .err)
+            }
+        }
+    }
     /// The theme chosen in the app ("" follows conch's own [ui] theme),
     /// and the one in effect.
     @Published private(set) var themeChoice = UserDefaults.standard.string(forKey: "theme") ?? ""
@@ -756,6 +795,7 @@ final class Store: ObservableObject {
             let projects = try await c.call("project.list", as: ProjectList.self)
             snapshots[machine] = Snapshot(panes: panes.panes, projects: projects.projects)
             setState(machine, "", version: c.hello?.version ?? "")
+            await noteBehind(machine, c)
             localRetries = 0
             settle(machine, alive: Set(panes.panes.filter(\.running).map { key(machine, $0.id) }))
             pushAutopilot(machine)
@@ -830,6 +870,81 @@ final class Store: ObservableObject {
     /// reload comes back within a second or two, a stop does not.
     private var localRetries = 0
 
+    /// The capabilities of this app's own conch, asked once.
+    private var appCapabilities: [String]?
+
+    /// Whether a server is behind this app's conch, said on its row.
+    private func noteBehind(_ machine: String, _ c: Connection) async {
+        if appCapabilities == nil, let b = binary, let out = try? await runConch(b, ["version", "--json"]) {
+            appCapabilities = (try? JSONDecoder().decode(BuildInfo.self, from: out))?.capabilities ?? []
+        }
+        guard let i = machines.firstIndex(where: { $0.id == machine }) else { return }
+        machines[i].behind = capabilitiesBehind(server: c.hello?.capabilities, app: appCapabilities ?? [])
+    }
+
+    /// Machines reloading: their connection is tried again at once when it
+    /// goes, not after the usual wait.
+    private var reloading: Set<String> = []
+
+    /// Makes a machine's connection again: the old one let go first,
+    /// so its going is not taken for this one's.
+    func reconnect(_ machine: String) {
+        if let old = conns[machine] {
+            old.onClose = nil
+            old.shutdown()
+        }
+        conns[machine] = nil
+        Task { await connect(machine) }
+    }
+
+    /// A machine's server re-exec'd onto its binary, as the TUI's m: its
+    /// panes stay, the connection drops and is made again.
+    func reloadServer(_ machine: String) {
+        guard let c = conns[machine] else { return }
+        guard c.hello?.capabilities?.contains("server.reload.v1") == true else {
+            say("conch on \(label(machine)) is too old to reload from here: run conch server reload there", .err)
+            return
+        }
+        reloading.insert(machine)
+        job("Reloading \(label(machine))'s server", done: "\(label(machine))'s server reloaded") {
+            struct NoParams: Encodable {}
+            _ = try? await c.call("server.reload", NoParams())
+            // Back within a second or two; the row says when.
+            for _ in 0..<40 {
+                try await Task.sleep(nanoseconds: 250_000_000)
+                if self.machines.first(where: { $0.id == machine })?.online == true, self.conns[machine] !== c { break }
+            }
+            self.reloading.remove(machine)
+        }
+    }
+
+    /// conch installed on another machine again from this build, then the
+    /// machine reached anew — its server is the new one only after that.
+    func upgrade(_ machine: String) {
+        guard let b = binary else { return }
+        job("Upgrading conch on \(label(machine))", done: "conch on \(label(machine)) upgraded") {
+            _ = try await runConch(b, ["machine", "upgrade", machine])
+            self.reconnect(machine)
+        }
+    }
+
+    /// Takes a machine out of machines.json, after asking; its panes there
+    /// keep running, since conch on it is not stopped.
+    func removeMachine(_ machine: String) {
+        guard let b = binary else { return }
+        let a = NSAlert()
+        a.messageText = "Remove \(label(machine))?"
+        a.informativeText = "conch stops reaching it. Its agents and terminals there keep running, and adding the machine again finds them."
+        a.addButton(withTitle: "Remove")
+        a.addButton(withTitle: "Cancel")
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let name = label(machine)
+        job("Removing \(name)", done: "Removed \(name)") {
+            _ = try await runConch(b, ["machine", "rm", machine])
+            self.connect() // machines.json changed: let it go now
+        }
+    }
+
     /// A machine's connection went: said on its row, and tried again —
     /// this computer's soon and then less often (a reload is back in a
     /// moment), one elsewhere in a while.
@@ -847,6 +962,14 @@ final class Store: ObservableObject {
         }
         setState(machine, state)
         if let i = machines.firstIndex(where: { $0.id == machine }) { machines[i].why = reason }
+        if reloading.contains(machine) {
+            // Reloading: back in a moment, so asked again soon.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, self.conns[machine] == nil else { return }
+                Task { await self.connect(machine) }
+            }
+            return
+        }
         if machine == "local" {
             status = reason.isEmpty ? "The connection to conch's server closed." : reason
             localRetries += 1
@@ -1289,6 +1412,12 @@ final class Store: ObservableObject {
     /// stop an agent.
     func closeSplit() {
         guard let p = layout.focused else { return }
+        // Closing a split hides a pane, never ends it (closePane does,
+        // after asking) — said for an agent, which goes on working out of
+        // sight, as the TUI would have asked before ending it.
+        if let pi = pane(p), pi.agent != nil, pi.running {
+            say("\(pi.displayName) keeps running: open it again from the sidebar", .info)
+        }
         layout.close(p)
         terminals.removeValue(forKey: p)?.stop()
         changeViews.removeValue(forKey: p)
@@ -1427,9 +1556,14 @@ final class Store: ObservableObject {
         case .copy(let text):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+            say("Copied \(text.count > 60 ? String(text.prefix(57)) + "…" : text)")
         case .addProject(let m): addProject(on: m)
         case .sshToHost: sshToHost()
         case .addMachine: addMachine()
+        case .reconnect(let m): reconnect(m)
+        case .reloadServer(let m): reloadServer(m)
+        case .upgrade(let m): upgrade(m)
+        case .removeMachine(let m): removeMachine(m)
         }
     }
 

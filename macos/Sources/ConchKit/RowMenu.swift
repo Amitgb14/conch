@@ -43,6 +43,14 @@ public enum RowAction: Equatable, Sendable {
     case sshToHost
     /// Another machine, conch installed there (the TUI's M).
     case addMachine
+    /// A machine's connection made again (the TUI's R).
+    case reconnect(machine: String)
+    /// A machine's server re-exec'd onto its binary, panes kept (m).
+    case reloadServer(machine: String)
+    /// conch installed on a machine again, from this build (U).
+    case upgrade(machine: String)
+    /// A machine taken out of machines.json, after asking.
+    case removeMachine(machine: String)
     case divider
 }
 
@@ -110,6 +118,16 @@ extension Snapshot {
                 if isMachine { out += [.divider, RowMenuItem("Add project…", .addProject(machine: machine))] }
             }
             if isMachine { out.append(RowMenuItem("Add machine…", .addMachine)) }
+            if isMachine {
+                // What a machine's own connection and server need, online
+                // or not: a machine that went is reconnected or upgraded.
+                out += [.divider, RowMenuItem("Reconnect", .reconnect(machine: machine))]
+                if machineOnline { out.append(RowMenuItem("Reload server", .reloadServer(machine: machine))) }
+                if machine != "local" {
+                    out += [RowMenuItem("Upgrade conch there", .upgrade(machine: machine)),
+                            RowMenuItem("Remove machine…", .removeMachine(machine: machine))]
+                }
+            }
         case .workspace:
             guard machineOnline else { return [] }
             out = [RowMenuItem("Add project…", .addProject(machine: machine))]
@@ -132,4 +150,18 @@ extension TreeNode {
         case .section: return unkey(String(id.dropFirst(2).split(separator: ":").first ?? "")).machine
         }
     }
+}
+
+/// The capabilities a server lacks that this app's own conch has: what a
+/// reload or an upgrade would bring. A server newer than the app lacks
+/// none; one that said nothing (older than capabilities) lacks them all.
+public func capabilitiesBehind(server: [String]?, app: [String]) -> [String] {
+    let have = Set(server ?? [])
+    return app.filter { !have.contains($0) }
+}
+
+/// What `conch version --json` says of this app's conch.
+public struct BuildInfo: Decodable, Sendable {
+    public var version: String?
+    public var capabilities: [String]?
 }

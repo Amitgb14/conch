@@ -786,6 +786,12 @@ struct NodeView: View {
                     .fixedSize()
             } else {
                 HStack(spacing: 4) {
+                    if let link = store.machines.first(where: { $0.id == m }), !link.behind.isEmpty {
+                        // Its server is older than this app's conch: what
+                        // it lacks, and what brings it.
+                        Text("behind").font(.system(size: 11.5)).foregroundStyle(Theme.warn)
+                            .help("conch there is from an older build and lacks \(link.behind.joined(separator: ", ")). Right-click → \(m == "local" ? "Reload server" : "Upgrade conch there").")
+                    }
                     counts(node.badge)
                     // Folded, it says which agents it holds, as the mock's
                     // busybox row does.
@@ -1371,19 +1377,31 @@ struct StatusBar: View {
             if !store.connected { Text("○ not connected").foregroundStyle(Theme.err) }
             // The keys for where the keyboard is: each a keycap, then what
             // it does, muted.
-            HStack(spacing: 12) {
-                ForEach(inPane ? Self.paneKeys : Self.treeKeys, id: \.0) { key, what in
-                    HStack(spacing: 5) {
-                        Keycap(key)
-                        Text(what).foregroundStyle(Theme.muted)
+            // What was just done, or why not, in place of the keys while
+            // it is said; a click puts the keys back.
+            if let f = store.flash {
+                Text(f.text).foregroundStyle(f.tone == .err ? Theme.err : f.tone == .ok ? Theme.ok : Theme.text2)
+                    .lineLimit(1).truncationMode(.tail)
+                    .onTapGesture { store.dismissFlash() }
+                    .help(f.text)
+            } else {
+                HStack(spacing: 12) {
+                    ForEach(inPane ? Self.paneKeys : Self.treeKeys, id: \.0) { key, what in
+                        HStack(spacing: 5) {
+                            Keycap(key)
+                            Text(what).foregroundStyle(Theme.muted)
+                        }
+                        .fixedSize()
                     }
-                    .fixedSize()
                 }
+                .lineLimit(1)
             }
-            .lineLimit(1)
-            if let e = store.error {
-                Text(e).foregroundStyle(Theme.err).lineLimit(1)
-                    .onTapGesture { store.error = nil }
+            if let j = jobSummary(store.jobs.map(\.what)) {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text(j).foregroundStyle(Theme.text2).lineLimit(1)
+                }
+                .fixedSize()
             }
             Spacer()
             // The plan the agents run on, as the TUI's status bar shows it;

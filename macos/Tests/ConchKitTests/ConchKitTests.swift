@@ -618,14 +618,25 @@ final class FakeServer: @unchecked Sendable {
     plain.upsert(np)
     #expect(!plain.menu(for: api, machine: "box").contains { if case .commits = $0.action { return true }; return false })
     #expect(s.menu(for: t, machine: "box").map(\.action) == [.startAgent(machine: "box", cwd: nil, inProject: false), .newTerminal(machine: "box", cwd: nil, inProject: false),
-                                                             .divider, .addProject(machine: "box"), .addMachine])
+                                                             .divider, .addProject(machine: "box"), .addMachine,
+                                                             .divider, .reconnect(machine: "box"), .reloadServer(machine: "box"),
+                                                             .upgrade(machine: "box"), .removeMachine(machine: "box")])
+    // This computer is neither upgraded nor removed from here; its CLI
+    // group carries none of a machine's own.
+    let lm = s.menu(for: s.tree(), machine: "local").map(\.action)
+    #expect(lm.contains(.reloadServer(machine: "local")) && lm.contains(.reconnect(machine: "local")))
+    #expect(!lm.contains(.upgrade(machine: "local")) && !lm.contains(.removeMachine(machine: "local")))
+    #expect(!s.menu(for: t.children!.first { $0.kind == .cli("box") }!, machine: "box").map(\.action).contains(.reconnect(machine: "box")))
     // This computer also offers ssh to a host, as the TUI's H; its CLI group too.
     let local = s.tree()
     #expect(s.menu(for: local, machine: "local").map(\.action).contains(.sshToHost))
     #expect(s.menu(for: local.children!.first { $0.kind == .cli("local") }!, machine: "local").map(\.action).contains(.sshToHost))
     #expect(!s.menu(for: t.children!.first { $0.kind == .cli("box") }!, machine: "box").map(\.action).contains(.sshToHost))
     // Offline: nothing that starts anything; a pane can still be opened or closed.
-    #expect(s.menu(for: t, machine: "box", machineOnline: false).map(\.action) == [.addMachine]) // adding another needs no connection here
+    // Adding another needs no connection here; an offline machine is
+    // reconnected, upgraded or removed, never reloaded.
+    #expect(s.menu(for: t, machine: "box", machineOnline: false).map(\.action) == [.addMachine, .divider, .reconnect(machine: "box"),
+                                                                                   .upgrade(machine: "box"), .removeMachine(machine: "box")])
     #expect(s.menu(for: api, machine: "box", machineOnline: false).isEmpty)
     #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View changes on feat", "", "Close agent…"])
     // A section has none, and a pane gone from the snapshot none either.
@@ -1918,4 +1929,25 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(json?["find"] as? String == "a\nb\u{1b}\"/")
     #expect(json?["line"] as? Int == 3 && json?["history"] as? Int == 9 && json?["clear"] == nil)
     #expect(attachControlBody(token: "t", AttachControl(clear: true)) == "\u{2063}conch-attach:t {\"clear\":true}")
+}
+
+// A server lacks what this app's conch has when it is older; a newer one
+// lacks nothing, and one that said no capabilities lacks them all.
+@Test func serverBehindTheApp() {
+    #expect(capabilitiesBehind(server: ["a", "b", "c"], app: ["a", "b"]).isEmpty)
+    #expect(capabilitiesBehind(server: ["a"], app: ["a", "b", "c"]) == ["b", "c"])
+    #expect(capabilitiesBehind(server: nil, app: ["a"]) == ["a"])
+    #expect(capabilitiesBehind(server: [], app: []).isEmpty)
+    let info = try? JSONDecoder().decode(BuildInfo.self, from: Data(#"{"version":"0.1.9","build":"x","capabilities":["fs.v1"]}"#.utf8))
+    #expect(info?.capabilities == ["fs.v1"])
+}
+
+// The status bar says an error for longer than a note, and the jobs
+// running as the first and how many more.
+@Test func flashAndJobs() {
+    #expect(Flash("x", .err).lasts > Flash("x").lasts)
+    #expect(Flash("x").id != Flash("x").id)
+    #expect(jobSummary([]) == nil)
+    #expect(jobSummary(["Pushing"]) == "Pushing…")
+    #expect(jobSummary(["Pushing", "Merging", "Upgrading"]) == "Pushing… and 2 more")
 }
