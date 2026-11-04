@@ -158,6 +158,14 @@ public struct GitStatus: Decodable, Equatable, Sendable {
     public var files: Int?
     public var added: Int?
     public var deleted: Int?
+    public var conflicts: Int?
+
+    public init(files: Int? = nil, added: Int? = nil, deleted: Int? = nil, conflicts: Int? = nil) {
+        self.files = files
+        self.added = added
+        self.deleted = deleted
+        self.conflicts = conflicts
+    }
 }
 
 public struct WorktreeInfo: Decodable, Equatable, Sendable {
@@ -180,6 +188,16 @@ public struct PRInfo: Decodable, Equatable, Sendable {
     public var number: Int
     public var state: String?
     public var checks: String?
+    public var draft: Bool?
+    public var url: String?
+
+    public init(number: Int, state: String? = nil, checks: String? = nil, draft: Bool? = nil, url: String? = nil) {
+        self.number = number
+        self.state = state
+        self.checks = checks
+        self.draft = draft
+        self.url = url
+    }
 }
 
 public struct BranchInfo: Decodable, Equatable, Sendable {
@@ -191,10 +209,13 @@ public struct BranchInfo: Decodable, Equatable, Sendable {
     /// Its upstream, and how far ahead of it; when it was last committed to.
     public var upstream: String?
     public var ahead: Int?
+    public var behind: Int?
     public var committed: Date?
+    /// Its upstream is gone (deleted on the remote, say after a merge).
+    public var gone: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case name, worktree, pr, upstream, ahead, committed
+        case name, worktree, pr, upstream, ahead, behind, committed, gone
         case baseAhead = "base_ahead"
         case baseBehind = "base_behind"
     }

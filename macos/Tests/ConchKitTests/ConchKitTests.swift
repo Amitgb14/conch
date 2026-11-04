@@ -1799,3 +1799,44 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
         #expect(openableURL(bad) == nil, "\(bad)")
     }
 }
+
+// A branch row says what the TUI's does, part by part: its agents' state
+// worst first, conflicts or changes, its pull request, gone or how far it
+// is from the base — the base against its upstream.
+@Test func branchBadges() {
+    func b(_ name: String, pr: PRInfo? = nil, baseAhead: Int = 0, baseBehind: Int = 0, ahead: Int = 0, behind: Int = 0, gone: Bool = false) -> BranchInfo {
+        var x = BranchInfo(name: name, baseAhead: baseAhead)
+        x.baseBehind = baseBehind; x.pr = pr; x.ahead = ahead; x.behind = behind; x.gone = gone
+        return x
+    }
+    func w(_ st: GitStatus) -> WorktreeInfo { var x = WorktreeInfo(path: "/w", branch: "f"); x.status = st; return x }
+    let texts = { (p: [BadgePart]) in p.map(\.text) }
+    #expect(texts(branchBadgeParts(b("f", pr: PRInfo(number: 7, state: "OPEN", checks: "fail"), baseAhead: 2, baseBehind: 1),
+                                   worktree: w(GitStatus(files: 2, added: 3, deleted: 1)), isBase: false, agents: [.working, .blocked]))
+            == ["!", "+3", "−1", "#7✗", "↑2↓1"])
+    #expect(branchBadgeParts(b("f"), worktree: w(GitStatus(files: 3, conflicts: 2)), isBase: false, agents: []) == [BadgePart("⚠2", .err)])
+    #expect(texts(branchBadgeParts(b("f"), worktree: w(GitStatus(files: 4)), isBase: false, agents: [.done])) == ["✓", "~4"])
+    #expect(branchBadgeParts(b("f", pr: PRInfo(number: 3, state: "MERGED"), gone: true), worktree: nil, isBase: false, agents: [])
+            == [BadgePart("#3", .merged), BadgePart("gone", .err)])
+    #expect(texts(branchBadgeParts(b("f", pr: PRInfo(number: 4, state: "CLOSED")), worktree: nil, isBase: false, agents: [])) == ["#4×"])
+    #expect(branchBadgeParts(b("f", pr: PRInfo(number: 5, state: "OPEN", checks: "pass", draft: true)), worktree: nil, isBase: false, agents: []) == [BadgePart("#5", .muted)])
+    #expect(texts(branchBadgeParts(b("f", pr: PRInfo(number: 6, state: "OPEN", checks: "pending")), worktree: nil, isBase: false, agents: [.working])) == ["⠋", "#6●"])
+    #expect(texts(branchBadgeParts(b("main", baseAhead: 5, ahead: 1, behind: 2), worktree: nil, isBase: true, agents: [])) == ["⇡1⇣2"])
+    #expect(branchBadgeParts(b("f"), worktree: w(GitStatus(files: 0)), isBase: false, agents: [.idle]).isEmpty)
+}
+
+// A pane row says how it ended — exited, or exit N and failed in red — or
+// a terminal's activity or silence; an agent at work keeps its state pill.
+@Test func paneEndBadges() {
+    var p = PaneInfo(id: "p1", name: "zsh")
+    #expect(paneEndBadge(p) == nil)
+    p.alert = "activity"; #expect(paneEndBadge(p) == BadgePart("# output", .warn))
+    p.alert = "silence"; #expect(paneEndBadge(p) == BadgePart("~ quiet", .warn))
+    p.state = "exited"; p.exitCode = 0; #expect(paneEndBadge(p) == BadgePart("exited", .muted))
+    p.exitCode = 2; #expect(paneEndBadge(p) == BadgePart("exit 2", .err))
+    var a = PaneInfo(id: "p2", name: "claude", agent: AgentStatus(name: "claude", state: .done, failed: true))
+    #expect(paneEndBadge(a) == BadgePart("failed", .err))
+    a.agent?.failed = false; #expect(paneEndBadge(a) == nil)
+    a.agent?.state = .working; a.agent?.failed = true; #expect(paneEndBadge(a) == nil) // working: its pill
+    a.alert = "activity"; a.agent?.failed = false; #expect(paneEndBadge(a) == nil)    // alerts are a terminal's
+}

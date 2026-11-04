@@ -680,6 +680,18 @@ struct NodeView: View {
         .contextMenu { RowMenu(store: store, node: node) }
     }
 
+    /// A badge part's colour in the theme.
+    func tone(_ t: BadgePart.Tone) -> Color {
+        switch t {
+        case .muted: return Theme.muted
+        case .ok, .added: return Theme.ok
+        case .warn: return Theme.warn
+        case .err, .removed: return Theme.err
+        case .work: return Theme.work
+        case .merged: return Theme.color(RGB("#A371F7")) // as the commit graph draws a merge
+        }
+    }
+
     func activateRow() {
         // A click in the tree gives the tree the keyboard, as in the TUI.
         store.focusSidebar()
@@ -758,8 +770,9 @@ struct NodeView: View {
         switch node.kind {
         case .agent(let id), .terminal(let id):
             if let p = store.pane(id) {
-                if !p.running {
-                    muted("exited").fixedSize()
+                if let end = paneEndBadge(p) {
+                    // exited, exit N or failed in red, a terminal's # / ~ alert.
+                    Text(end.text).font(.system(size: 11.5, weight: end.tone == .err ? .semibold : .regular)).foregroundStyle(tone(end.tone)).fixedSize()
                 } else if let pill = Pill.state(p.agent?.state) {
                     pill.fixedSize()
                 }
@@ -780,9 +793,12 @@ struct NodeView: View {
             }
         case .project: counts(node.badge).fixedSize()
         case .branch:
-            Text(node.badge).font(.system(size: 11.5, design: .monospaced))
-                .foregroundStyle(node.badge.contains("✓") ? Theme.ok : node.badge.contains("✗") ? Theme.err : Theme.muted)
-                .lineLimit(1).truncationMode(.head)
+            // Each part in its own colour, as the TUI draws a branch row.
+            node.parts.enumerated().reduce(Text("")) { acc, e in
+                acc + Text((e.offset == 0 ? "" : " ") + e.element.text).foregroundColor(tone(e.element.tone))
+            }
+            .font(.system(size: 11.5, design: .monospaced))
+            .lineLimit(1).truncationMode(.head)
         default:
             if !node.badge.isEmpty { muted(node.badge).fixedSize() }
         }

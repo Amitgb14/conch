@@ -363,6 +363,9 @@ public struct TreeNode: Identifiable, Equatable, Sendable {
     public var title: String
     public var detail: String = ""
     public var badge: String = ""
+    /// The badge in coloured parts, where a row has more to say than one
+    /// colour (a branch's state, changes, pull request and distance).
+    public var parts: [BadgePart] = []
     public var children: [TreeNode]? = nil
     /// The TUI's id for the row's fold (ui.json "expanded"), and whether it
     /// is open when nothing is saved — the TUI's own defaults, so the two
@@ -407,7 +410,9 @@ extension Snapshot {
             let terminals = paneForest(terminalPanes, machine)
             let branches = listedBranches(pr).map { b in
                 TreeNode(id: "b:\(pk):\(b.name)", kind: .branch(project: pk, name: b.name, checkedOut: b.worktree != nil),
-                         title: b.name, badge: branchBadge(b))
+                         title: b.name, badge: branchBadge(b),
+                         parts: branchBadgeParts(b, worktree: pr.worktrees?.first { $0.branch == b.name }, isBase: b.name == pr.base,
+                                                 agents: mine.filter { $0.branch == b.name && $0.running }.compactMap { $0.agent?.state }))
             }
             var sections: [TreeNode] = []
             if !agents.isEmpty {
@@ -770,4 +775,76 @@ public func closesOnExit(_ p: PaneInfo, now: Date = Date()) -> Bool {
     if code != 0, let c = p.created, now.timeIntervalSince(c) < launchWindow { return false }
     if code != 0, p.name.hasPrefix("check · ") { return false }
     return true
+}
+
+/// One part of a row's badge, and what it says, which sets its colour.
+public struct BadgePart: Equatable, Sendable {
+    public enum Tone: Equatable, Sendable { case muted, ok, warn, err, work, merged, added, removed }
+    public var text: String
+    public var tone: Tone
+    public init(_ text: String, _ tone: Tone) {
+        self.text = text
+        self.tone = tone
+    }
+}
+
+/// A branch row's badge, as the TUI's (view.go branchParts): its agents'
+/// state, worst first; conflicts or uncommitted changes; its pull request
+/// (merged, closed, draft, its checks); gone, or how far it is ahead of
+/// and behind the base (the base itself against its upstream).
+public func branchBadgeParts(_ b: BranchInfo, worktree w: WorktreeInfo?, isBase: Bool, agents: [AgentState]) -> [BadgePart] {
+    var out: [BadgePart] = []
+    if agents.contains(.blocked) { out.append(BadgePart("!", .warn)) }
+    else if agents.contains(.working) { out.append(BadgePart("⠋", .work)) }
+    else if agents.contains(.done) { out.append(BadgePart("✓", .ok)) }
+    if let st = w?.status {
+        if let c = st.conflicts, c > 0 {
+            out.append(BadgePart("⚠\(c)", .err))
+        } else if let f = st.files, f > 0 {
+            let add = st.added ?? 0, del = st.deleted ?? 0
+            if add > 0 { out.append(BadgePart("+\(add)", .added)) }
+            if del > 0 { out.append(BadgePart("−\(del)", .removed)) }
+            if add == 0 && del == 0 { out.append(BadgePart("~\(f)", .warn)) }
+        }
+    }
+    if let pr = b.pr {
+        let n = "#\(pr.number)"
+        switch (pr.state ?? "", pr.draft ?? false, pr.checks ?? "") {
+        case ("MERGED", _, _): out.append(BadgePart(n, .merged))
+        case ("CLOSED", _, _): out.append(BadgePart(n + "×", .muted))
+        case (_, true, _): out.append(BadgePart(n, .muted))
+        case (_, _, "pass"): out.append(BadgePart(n + "✓", .ok))
+        case (_, _, "fail"): out.append(BadgePart(n + "✗", .err))
+        case (_, _, "pending"): out.append(BadgePart(n + "●", .warn))
+        default: out.append(BadgePart(n, .work))
+        }
+    }
+    if b.gone == true {
+        out.append(BadgePart("gone", .err))
+    } else if !isBase, (b.baseAhead ?? 0) > 0 || (b.baseBehind ?? 0) > 0 {
+        let a = b.baseAhead ?? 0, d = b.baseBehind ?? 0
+        out.append(BadgePart((a > 0 ? "↑\(a)" : "") + (d > 0 ? "↓\(d)" : ""), .muted))
+    } else if isBase, (b.ahead ?? 0) > 0 || (b.behind ?? 0) > 0 {
+        out.append(BadgePart("⇡\(b.ahead ?? 0)⇣\(b.behind ?? 0)", .muted))
+    }
+    return out
+}
+
+/// A pane row's badge when it is not an agent at work (the TUI's
+/// paneGlyph): how it ended — exited, or exit N and failed in red — or a
+/// terminal's activity or silence alert; nil leaves the state pill.
+public func paneEndBadge(_ p: PaneInfo) -> BadgePart? {
+    if !p.running {
+        let code = p.exitCode ?? 0
+        return code == 0 ? BadgePart("exited", .muted) : BadgePart("exit \(code)", .err)
+    }
+    if let a = p.agent {
+        if a.failed == true && (a.state == .done || a.state == .idle) { return BadgePart("failed", .err) }
+        return nil
+    }
+    switch p.alert {
+    case "activity": return BadgePart("# output", .warn)
+    case "silence": return BadgePart("~ quiet", .warn)
+    default: return nil
+    }
 }
