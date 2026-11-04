@@ -41,7 +41,17 @@ final class GhosttyRuntime {
             userdata: nil,
             supports_selection_clipboard: false,
             wakeup_cb: { _ in DispatchQueue.main.async { GhosttyRuntime.shared.tick() } },
-            action_cb: { _, _, _ in false },
+            // A link the pane printed, ⌘-clicked: opened in the browser when
+            // it is the web's or mail's (openableURL). Every other action is
+            // Ghostty's own app's business, not this one's.
+            action_cb: { _, _, action in
+                guard action.tag == GHOSTTY_ACTION_OPEN_URL, let p = action.action.open_url.url else { return false }
+                let bytes = UnsafeRawBufferPointer(start: p, count: Int(action.action.open_url.len))
+                let text = String(decoding: bytes, as: UTF8.self)
+                guard let url = openableURL(text) else { return true }
+                DispatchQueue.main.async { NSWorkspace.shared.open(url) }
+                return true
+            },
             read_clipboard_cb: { ud, loc, state, mimes, n, list in
                 GhosttyPaneView.readClipboard(ud, loc, state, mimes, n, list)
             },
@@ -428,16 +438,26 @@ final class GhosttyPaneView: NSView {
         super.updateTrackingAreas()
     }
 
+    /// A mouse event's modifiers as Ghostty takes them. Every pane runs
+    /// `conch attach`, which asks for mouse reports, so a click is the
+    /// program's — and a ⌘-click on a link it printed never reached
+    /// Ghostty's link handling. Shift is how Ghostty lets a click past a
+    /// program's capture, so ⌘ carries it: a ⌘-click opens the link, a
+    /// plain click still goes to the program.
+    static func mouseMods(_ f: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+        f.contains(.command) ? mods(f.union(.shift)) : mods(f)
+    }
+
     private func pos(_ e: NSEvent) {
         guard let s = surface else { return }
         let p = convert(e.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(s, p.x, frame.height - p.y, Self.mods(e.modifierFlags))
+        ghostty_surface_mouse_pos(s, p.x, frame.height - p.y, Self.mouseMods(e.modifierFlags))
     }
 
     private func button(_ e: NSEvent, _ state: ghostty_input_mouse_state_e, _ b: ghostty_input_mouse_button_e) {
         guard let s = surface else { return }
         pos(e)
-        _ = ghostty_surface_mouse_button(s, state, b, Self.mods(e.modifierFlags))
+        _ = ghostty_surface_mouse_button(s, state, b, Self.mouseMods(e.modifierFlags))
     }
 
     override func mouseDown(with e: NSEvent) {

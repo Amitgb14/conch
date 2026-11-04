@@ -1788,3 +1788,14 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(NotifySettings(toml: nil) == NotifySettings() && dockBadge(0) == "" && dockBadge(3) == "3")
     #expect(tomlSetting("notify", "sound", in: "[ui]\nsound = true\n") == nil && uiSetting("sound", in: "[ui]\nsound = true\n") == "true")
 }
+
+// A link a pane printed opens on a click when it is the web's or mail's;
+// a file: or custom scheme, or nothing like a link, does not.
+@Test func openableLinks() {
+    #expect(openableURL("https://claude.ai/oauth/authorize?code=1")?.host == "claude.ai")
+    #expect(openableURL(" http://localhost:4317/ ")?.port == 4317)
+    #expect(openableURL("mailto:a@b.c") != nil)
+    for bad in ["file:///etc/passwd", "vscode://x", "javascript:alert(1)", "https://", "not a link", "", "ssh://host"] {
+        #expect(openableURL(bad) == nil, "\(bad)")
+    }
+}

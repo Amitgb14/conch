@@ -134,3 +134,13 @@ public func dropText(_ paths: [String]) -> String {
 public func uploadedPaths(_ output: String) -> [String] {
     output.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.hasPrefix("/") || $0.hasPrefix("~") }
 }
+
+/// A link a pane printed that may be opened on a click: the web's and
+/// mail's, and nothing else — not file: or a custom scheme, which a
+/// program printing it could use to make a click run something.
+public func openableURL(_ s: String) -> URL? {
+    let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let u = URL(string: t), let scheme = u.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme) else { return nil }
+    if scheme != "mailto" && (u.host ?? "").isEmpty { return nil }
+    return u
+}
