@@ -765,6 +765,7 @@ struct NodeView: View {
             }
             .frame(width: 16)
         case .more: Color.clear.frame(width: 14, height: 12) // the names line up with the branches'
+        case .savedHost: LucideIcon(name: .globe, color: Theme.muted, size: 12)
         case .section(let name):
             // Each group with an icon of its own, as Files and Sessions have.
             LucideIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", color: Theme.muted, size: 12)
@@ -876,6 +877,7 @@ struct NodeView: View {
         case .sessions(let pk): store.openSessions(project: pk)
         case .files(let pk): store.openFiles(project: pk)
         case .more(let pk, _): store.toggleAllBranches(pk)
+        case .savedHost(let h): store.connectSaved(h)
         // A subagent has no screen of its own: its agent's is shown.
         case .subagent(let pane, _): store.open(pane)
         default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }

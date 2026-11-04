@@ -64,6 +64,11 @@ public enum RowAction: Equatable, Sendable {
     case broadcast(BroadcastScope)
     /// A custom action from config.toml, by its name.
     case runAction(String)
+    /// A saved ssh host logged in to again, or forgotten; a session's
+    /// host saved to log in to again.
+    case connectHost(String)
+    case forgetHost(String)
+    case saveHost(pane: String)
     case divider
 }
 
@@ -113,6 +118,7 @@ extension Snapshot {
                         RowMenuItem((quiet ? "✓ " : "") + "Alert when it goes quiet", .monitor(pane: k, quiet: true)),
                         RowMenuItem((output ? "✓ " : "") + "Alert on output", .monitor(pane: k, quiet: false))]
             }
+            if machine == "local", p.sshTarget != nil { out += [.divider, RowMenuItem("Save this host", .saveHost(pane: k))] }
             out += [.divider, RowMenuItem(agent && p.running ? "Close agent…" : "Close", .close(pane: k))]
         case .branch(let pk, let name, _):
             out = [RowMenuItem("View changes", .changes(project: pk, branch: name))]
@@ -180,6 +186,8 @@ extension Snapshot {
             guard let colon = rest.lastIndex(of: ":") else { return [] }
             let scope = BroadcastScope.section(project: String(rest[..<colon]), agents: name == "Agents")
             return hasRunning(scope) ? [RowMenuItem(name == "Agents" ? "Broadcast to these agents…" : "Broadcast to these terminals…", .broadcast(scope))] : []
+        case .savedHost(let h):
+            return [RowMenuItem("Connect", .connectHost(h)), .divider, RowMenuItem("Forget this host", .forgetHost(h))]
         case .sessions, .files, .subagent, .more:
             return []
         }
@@ -193,6 +201,7 @@ extension TreeNode {
         switch kind {
         case .machine(let m), .cli(let m), .workspace(let m): return m
         case .agent(let k), .terminal(let k), .project(let k), .sessions(let k), .files(let k), .subagent(let k, _), .more(let k, _): return unkey(k).machine
+        case .savedHost: return "local"
         case .branch(let pk, _, _): return unkey(pk).machine
         case .section: return unkey(String(id.dropFirst(2).split(separator: ":").first ?? "")).machine
         }

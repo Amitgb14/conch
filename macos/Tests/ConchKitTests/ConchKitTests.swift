@@ -2316,3 +2316,49 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let i = try JSONDecoder().decode([IssueInfo].self, from: Data(#"[{"number":7,"title":"Crash on start","url":"https://x","labels":["bug"]}]"#.utf8))
     #expect(i == [IssueInfo(number: 7, title: "Crash on start")] || i.first?.number == 7)
 }
+
+// Saved ssh hosts as the TUI keeps them in ui.json: read in order with
+// their names and options, saved and forgotten leaving the rest of the
+// file, listed under this computer's CLI while no session is open to them.
+@Test func savedSSHHosts() throws {
+    let ui = #"{"saved_ssh":["busybox","-bad","busybox","dev@10.0.0.9"],"ssh_hosts":{"busybox":{"name":"Busybox","args":["-p","2222"]}},"spaces":[{"id":"w2"}]}"#
+    let hosts = loadSavedHosts(uiJSON: Data(ui.utf8))
+    #expect(hosts == [SavedHost(host: "busybox", name: "Busybox", args: ["-p", "2222"]), SavedHost(host: "dev@10.0.0.9")])
+    #expect(hosts[0].title == "Busybox" && hosts[1].title == "dev@10.0.0.9")
+    #expect(loadSavedHosts(uiJSON: nil).isEmpty && loadSavedHosts(uiJSON: Data("[]".utf8)).isEmpty)
+
+    let saved = try savingHost(SavedHost(host: "new", args: ["-J", "bastion"]), in: Data(ui.utf8))
+    #expect(loadSavedHosts(uiJSON: saved).map(\.host) == ["busybox", "dev@10.0.0.9", "new"])
+    #expect(loadSavedHosts(uiJSON: saved).last?.args == ["-J", "bastion"])
+    let obj = try JSONSerialization.jsonObject(with: saved) as? [String: Any]
+    #expect((obj?["spaces"] as? [[String: Any]])?.first?["id"] as? String == "w2")
+    let forgot = try savingHost(SavedHost(host: "busybox"), save: false, in: saved)
+    #expect(loadSavedHosts(uiJSON: forgot).map(\.host) == ["dev@10.0.0.9", "new"])
+    let none = try savingHost(SavedHost(host: "x"), save: false, in: nil)
+    #expect(loadSavedHosts(uiJSON: none).isEmpty)
+    #expect(throws: ConchError.self) { try savingHost(SavedHost(host: "x"), in: Data("[1]".utf8)) }
+
+    var ssh = PaneInfo(id: "p7", name: "ssh")
+    ssh.command = ["ssh", "-p", "2222", "--", "busybox"]
+    #expect(ssh.sshTarget == "busybox" && ssh.sshArgs == ["-p", "2222"])
+    var plain = PaneInfo(id: "p8", name: "zsh")
+    plain.command = ["/bin/zsh"]
+    #expect(plain.sshTarget == nil && plain.sshArgs.isEmpty)
+    #expect(idleSavedHosts(hosts, panes: [ssh]).map(\.host) == ["dev@10.0.0.9"])
+    var gone = ssh
+    gone.state = "exited"
+    #expect(idleSavedHosts(hosts, panes: [gone]).count == 2) // a failed login lists the host to try again
+
+    let s = Snapshot(panes: [ssh])
+    let cli = s.tree(machine: "local", savedHosts: hosts).children?.first { $0.kind == .cli("local") }
+    #expect(cli?.children?.last?.kind == .savedHost("dev@10.0.0.9") && cli?.children?.last?.badge == "saved")
+    #expect(!(cli?.children ?? []).contains { $0.kind == .savedHost("busybox") }) // a session is open to it
+    // Only this computer lists them; with none and no terminals, no CLI.
+    #expect(Snapshot().tree(machine: "box", savedHosts: hosts).children?.contains { $0.kind == .cli("box") } != true)
+    #expect(Snapshot().tree(machine: "local", savedHosts: hosts).children?.first?.kind == .cli("local"))
+    let row = TreeNode(id: "host:dev@10.0.0.9", kind: .savedHost("dev@10.0.0.9"), title: "dev")
+    #expect(s.menu(for: row, machine: "local").map(\.action) == [.connectHost("dev@10.0.0.9"), .divider, .forgetHost("dev@10.0.0.9")])
+    #expect(row.machine == "local")
+    let sessionRow = TreeNode(id: "pane:local|p7", kind: .terminal("local|p7"), title: "ssh")
+    #expect(s.menu(for: sessionRow, machine: "local").contains { $0.action == .saveHost(pane: "local|p7") })
+}

@@ -358,6 +358,8 @@ public enum NodeKind: Equatable, Sendable {
     /// "… N more" under a project's branches (count hidden), or, with
     /// every branch shown, the row that shows fewer again (count 0).
     case more(project: String, count: Int)
+    /// A saved ssh host with no session open to it (this computer's CLI).
+    case savedHost(String)
 }
 
 public struct TreeNode: Identifiable, Equatable, Sendable {
@@ -405,7 +407,7 @@ extension Snapshot {
     /// no project — the TUI's tree. sessions counts each project's saved
     /// conversations, when they have been read.
     public func tree(machine: String = "local", label: String? = nil, in ws: Workspace? = nil,
-                     sessions: [String: Int] = [:], allBranches: Set<String> = [], now: Date = Date()) -> TreeNode {
+                     sessions: [String: Int] = [:], allBranches: Set<String> = [], savedHosts: [SavedHost] = [], now: Date = Date()) -> TreeNode {
         let shown = self.shown(in: ws, machine: machine)
         var projectNodes: [TreeNode] = []
         for pr in projects where ws?.shows(pr, machine: machine) ?? true {
@@ -460,9 +462,13 @@ extension Snapshot {
             top.append(TreeNode(id: "ws:\(machine)", kind: .workspace(machine), title: "Workspace", badge: "\(projectNodes.count)",
                                 children: projectNodes, fold: "m:\(machine)/workspace"))
         }
-        if !loose.isEmpty {
+        // This computer's saved ssh hosts with no session open, after its
+        // own terminals, as the TUI lists them under CLI → SSH.
+        let idle = machine == "local" ? idleSavedHosts(savedHosts, panes: panes) : []
+        if !loose.isEmpty || !idle.isEmpty {
+            let hosts = idle.map { TreeNode(id: "host:\($0.host)", kind: .savedHost($0.host), title: $0.title, detail: $0.host, badge: "saved") }
             top.append(TreeNode(id: "cli:\(machine)", kind: .cli(machine), title: "CLI", badge: "\(loose.count)",
-                                children: paneForest(loose, machine), fold: "m:\(machine)/cli"))
+                                children: paneForest(loose, machine) + hosts, fold: "m:\(machine)/cli"))
         }
         return TreeNode(id: "m:\(machine)", kind: .machine(machine), title: label ?? machine,
                         badge: attention(shown),

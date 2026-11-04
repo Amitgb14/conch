@@ -277,7 +277,8 @@ final class Store: ObservableObject {
     /// The sidebar: a tree per machine, this computer first.
     var tree: [TreeNode] {
         machines.map { m in
-            var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions, allBranches: allBranches)
+            var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions, allBranches: allBranches,
+                                                            savedHosts: savedHosts)
             if !m.online { node.badge = m.state }
             return node
         }
@@ -762,6 +763,7 @@ final class Store: ObservableObject {
             case .sessions(let pk): openSessions(project: pk)
             case .files(let pk): openFiles(project: pk)
             case .more(let pk, _): toggleAllBranches(pk)
+            case .savedHost(let h): connectSaved(h)
             case .subagent(let pane, _):
                 open(pane)
                 focusTerminal()
@@ -1812,6 +1814,10 @@ final class Store: ObservableObject {
         case .monitor(let k, let quiet): toggleMonitor(k, quiet: quiet)
         case .broadcast(let scope): startBroadcast(scope, title: node.title)
         case .runAction(let name): runCustomAction(name, on: node)
+        case .connectHost(let h): connectSaved(h)
+        case .forgetHost(let h): saveHost(SavedHost(host: h), save: false)
+        case .saveHost(let k):
+            if let p = pane(k), let h = p.sshTarget { saveHost(SavedHost(host: h, args: p.sshArgs)) }
         }
     }
 
@@ -1868,6 +1874,41 @@ final class Store: ObservableObject {
 
     /// A terminal here logged in to a host, as the TUI's H: `conch ssh`,
     /// which builds the session the TUI does.
+    /// ui.json's saved ssh hosts, as the TUI keeps them.
+    @Published private(set) var savedHosts: [SavedHost] = []
+
+    /// Logs in to a saved host again, with the options it was saved with.
+    func connectSaved(_ host: String) {
+        guard let b = binary, let h = savedHosts.first(where: { $0.host == host }) else { return }
+        Task {
+            do {
+                let out = try await runConch(b, ["ssh", h.host] + h.args)
+                let id = String(decoding: out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !id.isEmpty else { return }
+                layout.open(key("local", id))
+                if let p = pane(key("local", id)) { joinWorkspace(machine: "local", pane: p) }
+                focusTerminal()
+            } catch {
+                say("Could not connect to \(h.title): \(error)", .err)
+            }
+        }
+    }
+
+    /// Saves a host to log in to again (save) or forgets it, in ui.json,
+    /// where the TUI lists it too.
+    func saveHost(_ h: SavedHost, save: Bool = true) {
+        let path = (conchDir as NSString).appendingPathComponent("ui.json")
+        do {
+            let data = try savingHost(h, save: save, in: FileManager.default.contents(atPath: path))
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        } catch {
+            say("Could not \(save ? "save" : "forget") \(h.host): \(error)", .err)
+            return
+        }
+        loadWorkspaces()
+        say(save ? "Saved \(h.host): it stays under CLI to connect again" : "Forgot \(h.host)")
+    }
+
     func sshToHost() {
         guard let b = binary,
               let (host, options) = askTwo("SSH from this computer", info: "Opens a terminal here logged in to the host, with your ssh config and keys. Nothing is installed there.",
@@ -2156,6 +2197,8 @@ final class Store: ObservableObject {
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("ui.json"))
         workspaces = Workspace.load(uiJSON: data)
         tuiFolds = loadFolds(uiJSON: data)
+        let hosts = loadSavedHosts(uiJSON: data)
+        if hosts != savedHosts { savedHosts = hosts }
         let dismissed = loadQueueDismissed(uiJSON: data)
         if dismissed != queueDismissed { queueDismissed = dismissed }
         let active = activeWorkspace(uiJSON: data)
