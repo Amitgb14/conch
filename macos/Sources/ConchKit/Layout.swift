@@ -48,12 +48,89 @@ public indirect enum SplitNode: Equatable, Sendable {
 
 public struct Tab: Identifiable, Equatable, Sendable {
     public var id = UUID()
-    public var root: SplitNode
-    public var focused: String
+    public var root: SplitNode {
+        // A split added or gone: its sizes start even again, and zoom ends.
+        didSet { if root != oldValue { weights = [:]; zoomed = false } }
+    }
+    public var focused: String {
+        didSet { if focused != oldValue { zoomed = false } }
+    }
+    /// The share of each split's children, by the split's path from the
+    /// root ("" the root, "1" its second child, "1.0" that one's first):
+    /// dragged between splits, even until then.
+    public var weights: [String: [Double]] = [:]
+    /// The focused split alone, filling the tab (tmux's zoom).
+    public var zoomed = false
 
     public init(pane: String) {
         root = .leaf(pane)
         focused = pane
+    }
+
+    /// The shares of the split at path with n children: what was dragged,
+    /// else even.
+    public func shares(_ path: String, _ n: Int) -> [Double] {
+        if let w = weights[path], w.count == n, w.allSatisfy({ $0 > 0 }) { return w }
+        return Array(repeating: 1 / Double(max(n, 1)), count: max(n, 1))
+    }
+
+    /// Moves the boundary after child i of the split at path by delta (a
+    /// share of the split's length), each side kept to at least min.
+    public mutating func resize(_ path: String, n: Int, after i: Int, by delta: Double, min: Double = 0.12) {
+        guard n >= 2, i >= 0, i < n - 1 else { return }
+        var w = shares(path, n)
+        let total = w[i] + w[i + 1]
+        let a = Swift.min(Swift.max(w[i] + delta, min), total - min)
+        w[i] = a
+        w[i + 1] = total - a
+        weights[path] = w
+    }
+
+    /// Where each pane sits in the tab, in a unit square: what moving the
+    /// keyboard by direction goes by.
+    public func frames() -> [String: CGRect] {
+        var out: [String: CGRect] = [:]
+        func walk(_ n: SplitNode, _ r: CGRect, _ path: String) {
+            switch n {
+            case .leaf(let id): out[id] = r
+            case .split(let axis, let kids):
+                let w = shares(path, kids.count)
+                var at = axis == .horizontal ? r.minX : r.minY
+                for (i, k) in kids.enumerated() {
+                    let len = (axis == .horizontal ? r.width : r.height) * w[i]
+                    let kr = axis == .horizontal ? CGRect(x: at, y: r.minY, width: len, height: r.height)
+                                                 : CGRect(x: r.minX, y: at, width: r.width, height: len)
+                    walk(k, kr, path.isEmpty ? "\(i)" : "\(path).\(i)")
+                    at += len
+                }
+            }
+        }
+        walk(root, CGRect(x: 0, y: 0, width: 1, height: 1), "")
+        return out
+    }
+
+    public enum Direction: Sendable { case left, right, up, down }
+
+    /// The pane beside the focused one in a direction: of those whose
+    /// edge faces it and that overlap it across, the nearest, then the most
+    /// overlapping. nil at the tab's edge.
+    public func neighbor(_ d: Direction) -> String? {
+        let f = frames()
+        guard let me = f[focused] else { return nil }
+        let eps = 1e-6
+        var best: (String, Double, Double)?
+        for (id, r) in f where id != focused {
+            let gap: Double, overlap: Double
+            switch d {
+            case .left: gap = me.minX - r.maxX; overlap = min(me.maxY, r.maxY) - max(me.minY, r.minY)
+            case .right: gap = r.minX - me.maxX; overlap = min(me.maxY, r.maxY) - max(me.minY, r.minY)
+            case .up: gap = me.minY - r.maxY; overlap = min(me.maxX, r.maxX) - max(me.minX, r.minX)
+            case .down: gap = r.minY - me.maxY; overlap = min(me.maxX, r.maxX) - max(me.minX, r.minX)
+            }
+            guard gap > -eps, overlap > eps else { continue }
+            if best == nil || gap < best!.1 - eps || (abs(gap - best!.1) <= eps && overlap > best!.2) { best = (id, gap, overlap) }
+        }
+        return best?.0
     }
 }
 
@@ -143,6 +220,20 @@ public struct Layout: Equatable, Sendable {
 
     public mutating func select(_ i: Int) {
         if tabs.indices.contains(i) { active = i }
+    }
+
+    /// The focused split alone, or the tab's splits again.
+    public mutating func toggleZoom() {
+        guard tabs.indices.contains(active), tabs[active].root.panes.count > 1 || tabs[active].zoomed else { return }
+        tabs[active].zoomed.toggle()
+    }
+
+    /// The keyboard to the split beside the focused one; nothing at an edge.
+    @discardableResult
+    public mutating func move(_ d: Tab.Direction) -> Bool {
+        guard tabs.indices.contains(active), let n = tabs[active].neighbor(d) else { return false }
+        tabs[active].focused = n
+        return true
     }
 }
 

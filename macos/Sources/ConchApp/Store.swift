@@ -1081,6 +1081,12 @@ final class Store: ObservableObject {
         Notifier.shared.badge(waiting: n, newlyWaiting: newlyWaiting)
     }
 
+    /// A boundary between splits dragged (SplitStack).
+    func resizeSplit(_ path: String, n: Int, after i: Int, by delta: Double) {
+        guard layout.tabs.indices.contains(layout.active) else { return }
+        layout.tabs[layout.active].resize(path, n: n, after: i, by: delta)
+    }
+
     /// Whether a tab or split shows k, in this workspace or another's.
     func isShown(_ k: String) -> Bool {
         layout.tab(showing: k) != nil || parkedTabs.values.contains { $0.tab(showing: k) != nil }
@@ -1317,6 +1323,11 @@ final class Store: ObservableObject {
         case "splitDown": newTerminal(split: .vertical)
         case "closeSplit": closeSplit()
         case "nextWaiting": nextWaiting()
+        case "zoomSplit": layout.toggleZoom(); focusTerminal()
+        case "splitLeft": if layout.move(.left) { focusTerminal() }
+        case "splitRightward": if layout.move(.right) { focusTerminal() }
+        case "splitAbove": if layout.move(.up) { focusTerminal() }
+        case "splitBelow": if layout.move(.down) { focusTerminal() }
         case "nextTab": layout.step(1); focusTerminal()
         case "previousTab": layout.step(-1); focusTerminal()
         case "toggleSidebar": sidebarVisible.toggle()

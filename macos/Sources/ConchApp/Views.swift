@@ -479,7 +479,8 @@ struct MainView: View {
                     VStack(spacing: 0) {
                         TabBar(store: store)
                         if store.connected, let tab = store.layout.current {
-                            SplitArea(store: store, node: tab.root).padding(Theme.style.gutter)
+                            // Zoomed: the focused split alone, filling the tab.
+                            SplitArea(store: store, node: tab.zoomed ? .leaf(tab.focused) : tab.root).padding(Theme.style.gutter)
                         } else {
                             Empty(store: store)
                         }
@@ -1135,6 +1136,8 @@ struct TabButton: View {
 struct SplitArea: View {
     @ObservedObject var store: Store
     let node: SplitNode
+    /// The node's path from the tab's root, which its sizes are kept by.
+    var path = ""
 
     var body: some View {
         switch node {
@@ -1152,11 +1155,55 @@ struct SplitArea: View {
                 // never shows one pane's terminal under another's header.
                 PaneCard(store: store, pane: id, terminal: store.terminal(for: id)).id(id)
             }
-        case .split(.horizontal, let kids):
-            HStack(spacing: Theme.style.gutter) { ForEach(Array(kids.enumerated()), id: \.offset) { SplitArea(store: store, node: $0.element) } }
-        case .split(.vertical, let kids):
-            VStack(spacing: Theme.style.gutter) { ForEach(Array(kids.enumerated()), id: \.offset) { SplitArea(store: store, node: $0.element) } }
+        case .split(let axis, let kids):
+            SplitStack(store: store, axis: axis, kids: kids, path: path)
         }
+    }
+}
+
+/// A split's children side by side or stacked, each its share of the
+/// length (Tab.shares), and between each two a gap that drags to move the
+/// boundary — tmux's resize, by the mouse.
+struct SplitStack: View {
+    @ObservedObject var store: Store
+    let axis: SplitNode.Axis
+    let kids: [SplitNode]
+    let path: String
+    @State private var dragged: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { g in
+            let gap = CGFloat(Theme.style.gutter)
+            let total = (axis == .horizontal ? g.size.width : g.size.height) - gap * CGFloat(kids.count - 1)
+            let w = store.layout.current?.shares(path, kids.count) ?? Array(repeating: 1 / Double(kids.count), count: kids.count)
+            let layout = axis == .horizontal ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+            layout {
+                ForEach(Array(kids.enumerated()), id: \.offset) { i, k in
+                    let len = max(total * CGFloat(w[i]), 0)
+                    SplitArea(store: store, node: k, path: path.isEmpty ? "\(i)" : "\(path).\(i)")
+                        .frame(width: axis == .horizontal ? len : nil, height: axis == .vertical ? len : nil)
+                    if i < kids.count - 1 { handle(after: i, gap: gap, total: total) }
+                }
+            }
+        }
+    }
+
+    func handle(after i: Int, gap: CGFloat, total: CGFloat) -> some View {
+        Color.clear
+            .frame(width: axis == .horizontal ? gap : nil, height: axis == .vertical ? gap : nil)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { (axis == .horizontal ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push() } else { NSCursor.pop() }
+            }
+            .gesture(DragGesture(minimumDistance: 1)
+                .onChanged { v in
+                    let now = axis == .horizontal ? v.translation.width : v.translation.height
+                    guard total > 0 else { return }
+                    store.resizeSplit(path, n: kids.count, after: i, by: Double((now - dragged) / total))
+                    dragged = now
+                }
+                .onEnded { _ in dragged = 0 })
+            .help("Drag to resize the splits")
     }
 }
 

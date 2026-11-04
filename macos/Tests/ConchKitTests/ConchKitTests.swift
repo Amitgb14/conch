@@ -1840,3 +1840,40 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     a.agent?.state = .working; a.agent?.failed = true; #expect(paneEndBadge(a) == nil) // working: its pill
     a.alert = "activity"; a.agent?.failed = false; #expect(paneEndBadge(a) == nil)    // alerts are a terminal's
 }
+
+// Splits: even until dragged, a drag holding each side to a minimum; the
+// keyboard moving to the split beside, by where splits sit; zoom showing
+// the focused one alone, until a split is added or gone.
+@Test func splitSizesFocusAndZoom() {
+    // a | (b over c)
+    var t = Tab(pane: "a")
+    t.root = .split(.horizontal, [.leaf("a"), .split(.vertical, [.leaf("b"), .leaf("c")])])
+    #expect(t.shares("", 2) == [0.5, 0.5] && t.shares("1", 2) == [0.5, 0.5])
+    t.resize("", n: 2, after: 0, by: 0.2)
+    #expect(abs(t.shares("", 2)[0] - 0.7) < 1e-9 && abs(t.shares("", 2)[1] - 0.3) < 1e-9)
+    t.resize("", n: 2, after: 0, by: 0.5)
+    #expect(abs(t.shares("", 2)[1] - 0.12) < 1e-9) // held to the minimum
+    t.resize("", n: 2, after: 1, by: 0.1) // no boundary after the last: nothing
+    #expect(abs(t.shares("", 2)[1] - 0.12) < 1e-9)
+    t.weights = [:]
+    let f = t.frames()
+    #expect(f["a"] == CGRect(x: 0, y: 0, width: 0.5, height: 1) && f["c"] == CGRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5))
+    t.focused = "a"
+    #expect(t.neighbor(.right) == "b" && t.neighbor(.left) == nil && t.neighbor(.up) == nil)
+    t.focused = "c"
+    #expect(t.neighbor(.up) == "b" && t.neighbor(.left) == "a" && t.neighbor(.down) == nil && t.neighbor(.right) == nil)
+    // Zoom, and what ends it.
+    var l = Layout()
+    l.open("a"); l.split(.horizontal, with: "b")
+    #expect(l.current?.focused == "b")
+    l.toggleZoom(); #expect(l.current?.zoomed == true)
+    l.toggleZoom(); #expect(l.current?.zoomed == false)
+    l.toggleZoom(); l.split(.vertical, with: "c")
+    #expect(l.current?.zoomed == false && l.current?.root.panes == ["a", "b", "c"]) // a split added: unzoomed
+    #expect(l.move(.up) && l.current?.focused == "b" && !l.move(.up))
+    #expect(l.move(.left) && l.current?.focused == "a")
+    var one = Layout(); one.open("x"); one.toggleZoom()
+    #expect(one.current?.zoomed == false) // one split: nothing to zoom
+    l.tabs[0].resize("", n: 2, after: 0, by: 0.1); l.close("c")
+    #expect(l.tabs[0].weights.isEmpty) // structure changed: even again
+}
