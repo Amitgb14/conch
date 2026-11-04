@@ -18,9 +18,13 @@ public enum AgentState: String, Decodable, Sendable {
 public struct Tokens: Decodable, Equatable, Sendable {
     public var input = 0, cacheWrite = 0, cacheRead = 0, output = 0
     public var costUSD: Double?
+    /// The latest request's context, and the model's window when the
+    /// agent reports it.
+    public var context = 0, contextSize = 0
 
     enum CodingKeys: String, CodingKey {
-        case input, output
+        case input, output, context
+        case contextSize = "context_size"
         case cacheWrite = "cache_write"
         case cacheRead = "cache_read"
         case costUSD = "cost_usd"
@@ -41,6 +45,8 @@ public struct Tokens: Decodable, Equatable, Sendable {
         cacheRead = try c.decodeIfPresent(Int.self, forKey: .cacheRead) ?? 0
         output = try c.decodeIfPresent(Int.self, forKey: .output) ?? 0
         costUSD = try c.decodeIfPresent(Double.self, forKey: .costUSD)
+        context = try c.decodeIfPresent(Int.self, forKey: .context) ?? 0
+        contextSize = try c.decodeIfPresent(Int.self, forKey: .contextSize) ?? 0
     }
 }
 

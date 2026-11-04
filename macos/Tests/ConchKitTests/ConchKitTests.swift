@@ -2186,3 +2186,29 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(shortcutLabel(key: "s", command: true, shift: false, option: false, control: true) == "⌃⌘S")
     #expect(shortcutLabel(key: "/", command: true, shift: false, option: false, control: false) == "⌘/")
 }
+
+// What agents spend, as the TUI's cost.go says it: a cost when reported,
+// else output, else input; summed over a row's agents; a pane header's
+// context against the window. [ui] cost turns it off.
+@Test func usageChips() throws {
+    func agent(_ t: Tokens?) -> PaneInfo { PaneInfo(id: "p", name: "a", agent: AgentStatus(name: "claude", state: .working, tokens: t)) }
+    #expect(usage(of: []).chip == "")
+    #expect(usage(of: [agent(nil), PaneInfo(id: "t", name: "zsh")]).chip == "") // no agent with usage
+    #expect(usage(of: [agent(Tokens(input: 500))]).chip == "500 in")
+    #expect(usage(of: [agent(Tokens(input: 10, cacheRead: 20_000, output: 1500))]).chip == "1.5k out")
+    #expect(usage(of: [agent(Tokens(output: 90, costUSD: 0.004))]).chip == "<$0.01")
+    #expect(usage(of: [agent(Tokens(output: 90, costUSD: 1.25)), agent(Tokens(output: 10, costUSD: 0.5))]).chip == "$1.75")
+    #expect(usage(of: [agent(Tokens(output: 2_500_000))]).chip == "2.5M out")
+    #expect(usage(of: [agent(Tokens(output: 42_000))]).chip == "42k out")
+
+    let t = try JSONDecoder().decode(Tokens.self, from: Data(#"{"input":1,"output":1234,"context":45000,"context_size":200000,"cost_usd":0.42}"#.utf8))
+    #expect(tokenSummary(t) == "ctx 45k/200k · out 1.2k · $0.42")
+    #expect(tokenSummary(Tokens(output: 7)) == "out 7")
+    var noWindow = t
+    noWindow.contextSize = 0
+    #expect(tokenSummary(noWindow).hasPrefix("ctx 45k · "))
+
+    #expect(showsCost(toml: ""))
+    #expect(showsCost(toml: "[ui]\ncost = true\n"))
+    #expect(!showsCost(toml: "[ui]\ncost = false\n"))
+}

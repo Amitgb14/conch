@@ -602,6 +602,8 @@ final class Store: ObservableObject {
             Theme.icons = icons
         }
         notifySettings = NotifySettings(toml: toml)
+        let cost = showsCost(toml: toml ?? "")
+        if cost != showCost { showCost = cost }
         let configured = ConchTheme.configured(in: toml, dark: systemDark)
         let next = ConchTheme.resolve(choice: themeChoice, configured: configured, preview: previewing).shown
         guard next != theme || Theme.current != next else { return }
@@ -1351,6 +1353,18 @@ final class Store: ObservableObject {
 
     /// [notify] as config.toml has it, read again with the theme.
     private(set) var notifySettings = NotifySettings()
+    /// [ui] cost: what agents spend, on the tree's rows and in pane headers.
+    @Published private(set) var showCost = true
+
+    /// The usage chip for a row's panes ("" with none, or cost turned off).
+    func costChip(machine m: String, project: String? = nil, agentsOnly: Bool = false, pane: String? = nil) -> String {
+        guard showCost, let s = snapshots[m] else { return "" }
+        var panes = s.shown(in: ws, machine: m)
+        if let project { panes = panes.filter { $0.projectID == project } }
+        if agentsOnly { panes = panes.filter { $0.agent != nil } }
+        if let pane { panes = panes.filter { $0.id == pane } }
+        return usage(of: panes).chip
+    }
 
     /// Tells you an agent needs you, when it has just come to wait or
     /// finished and you are not looking at it (attentionAlert), and keeps

@@ -726,6 +726,12 @@ struct NodeView: View {
 
     var isSection: Bool { if case .section = node.kind { return true }; return false }
     var isMore: Bool { if case .more = node.kind { return true }; return false }
+
+    /// A section row's project, from its id ("s:machine|project:agents").
+    func sectionProject(_ id: String) -> String? {
+        guard id.hasPrefix("s:"), let colon = id.lastIndex(of: ":"), colon > id.index(id.startIndex, offsetBy: 2) else { return nil }
+        return String(id[id.index(id.startIndex, offsetBy: 2)..<colon])
+    }
     /// A row that opens a tab rather than folding: Sessions, Files.
     var isSessions: Bool {
         switch node.kind {
@@ -799,6 +805,13 @@ struct NodeView: View {
                             .lineLimit(1).truncationMode(.middle)
                             .help(b)
                     }
+                    // What it has spent, as the TUI's row says it.
+                    let (m, pid) = unkey(id)
+                    let c = store.costChip(machine: m, pane: pid)
+                    if !c.isEmpty {
+                        Text(c).font(.system(size: 11)).foregroundStyle(Theme.muted).fixedSize()
+                            .help(p.agent?.tokens.map(tokenSummary) ?? c)
+                    }
                     if let end = paneEndBadge(p) {
                         // exited, exit N or failed in red, a terminal's # / ~ alert.
                         Text(end.text).font(.system(size: 11.5, weight: end.tone == .err ? .semibold : .regular)).foregroundStyle(tone(end.tone))
@@ -816,6 +829,8 @@ struct NodeView: View {
                     .fixedSize()
             } else {
                 HStack(spacing: 4) {
+                    let c = store.costChip(machine: m)
+                    if !c.isEmpty { muted(c).padding(.trailing, 2) }
                     if let link = store.machines.first(where: { $0.id == m }), !link.behind.isEmpty {
                         // Its server is older than this app's conch: what
                         // it lacks, and what brings it.
@@ -828,7 +843,20 @@ struct NodeView: View {
                     if !open { FoldedAgents(names: store.snapshots[m]?.agentNames(in: store.ws, machine: m) ?? []) }
                 }.fixedSize()
             }
-        case .project: counts(node.badge).fixedSize()
+        case .project(let pk):
+            HStack(spacing: 6) {
+                let c = store.costChip(machine: unkey(pk).machine, project: unkey(pk).id)
+                if !c.isEmpty { muted(c) }
+                counts(node.badge)
+            }.fixedSize()
+        case .section(let name) where name == "Agents":
+            HStack(spacing: 6) {
+                if let pk = sectionProject(node.id) {
+                    let c = store.costChip(machine: unkey(pk).machine, project: unkey(pk).id, agentsOnly: true)
+                    if !c.isEmpty { muted(c) }
+                }
+                if !node.badge.isEmpty { muted(node.badge) }
+            }.fixedSize()
         case .branch:
             // Each part in its own colour, as the TUI draws a branch row.
             node.parts.enumerated().reduce(Text("")) { acc, e in
@@ -1338,6 +1366,11 @@ struct PaneCard: View {
                 if let b = p?.branch, !b.isEmpty {
                     Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
                         .padding(.horizontal, 6).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
+                }
+                // Its context against the model's window, output and cost,
+                // as the TUI's pane header has them.
+                if store.showCost, let t = p?.agent?.tokens {
+                    Text(tokenSummary(t)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer()
                 if let p, p.agent == nil, let port = store.port(of: pane) {
