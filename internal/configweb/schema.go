@@ -184,6 +184,7 @@ func Schema(c Choices) []Section {
 				{Key: "base_url", Label: "API endpoint", Kind: KindString, Placeholder: "https://api.openai.com/v1", Help: "For anthropic and openai: Ollama, LM Studio and the like."},
 				{Key: "api_key_env", Label: "API key variable", Kind: KindString, Placeholder: "ANTHROPIC_API_KEY"},
 				{Key: "command", Label: "claude binary", Kind: KindString, Placeholder: "found on PATH"},
+				{Key: "no_fast_path", Label: "Always ask the model", Kind: KindBool, Help: "Otherwise show, close, tell one agent or everyone, and what is waiting are planned at once, without a model call."},
 			}},
 		{ID: "shell", Key: "shell", Title: "Terminals", Icon: "terminal", Description: "New terminal panes.",
 			Fields: []Field{

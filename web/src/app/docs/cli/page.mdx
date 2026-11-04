@@ -431,7 +431,7 @@ In the TUI the same thing is `,` → **Report a problem…**, which shows the re
 
 ### ask
 
-`conch ask [-y | -n] REQUEST` asks the [brain](/docs/brain); it proposes actions and runs them once you confirm. `-y` runs the plan without asking; `-n` only shows it.
+`conch ask [-y | -n] [-model] REQUEST` asks the [brain](/docs/brain); it proposes actions and runs them once you confirm. `-y` runs the plan without asking; `-n` only shows it. Requests that can only mean one thing, like _show codex_, _tell everyone to commit_ or _what is waiting?_, are [planned without the model](/docs/brain#without-the-model); `-model` asks the model anyway.
 
 ### update
 

@@ -34,9 +34,10 @@ func TestA2AskBarHistory(t *testing.T) {
 	if _, cmd := b.update(m, a2Key("enter")); cmd != nil || b.phase != askInput {
 		t.Fatal("empty request")
 	}
-	// A provider that can't run reports why and keeps the request.
+	// A provider that can't run reports why and keeps the request. (Not
+	// "what is waiting": that one is answered without the model.)
 	a2NoProvider(m)
-	a2Type(m, b, "what is waiting")
+	a2Type(m, b, "start an agent on api")
 	b.update(m, a2Key("enter"))
 	if !strings.Contains(b.err, "brain not configured") || b.phase != askInput || len(m.brain.history) != 0 {
 		t.Fatalf("provider error: %q", b.err)
@@ -400,5 +401,72 @@ func TestA2Summaries(t *testing.T) {
 	m.flash = ""
 	if m.summarizeSelected() != nil || m.flash != "" {
 		t.Fatal("S without a connection")
+	}
+}
+
+// A request conch can plan alone is shown at once — no provider set up,
+// no model asked — and m hands the same request to the model.
+func TestA2AskBarFastPath(t *testing.T) {
+	a2Isolate(t)
+	m := a2Model()
+	m.machines[0].c = a2Client()    // online; nothing here calls it
+	m.cfg.Brain.Provider = "openai" // with no model: asking it fails
+	m.openAsk()
+	b := m.overlay.(*askBar)
+	a2Type(m, b, "show zsh")
+	if _, cmd := b.update(m, a2Key("enter")); cmd != nil {
+		t.Fatal("a fast plan needs no command")
+	}
+	if b.phase != askPlan || !b.plan.Fast || len(b.actions) != 1 || !b.actions[0].on || b.actions[0].Pane != "p2" {
+		t.Fatalf("fast plan: phase %v %+v", b.phase, b.actions)
+	}
+	if h := m.brain.history; len(h) != 1 || h[0] != "show zsh" {
+		t.Fatalf("history %q", h)
+	}
+	out := a2Plain(b.render(*m).lines)
+	for _, want := range []string{"Show zsh on local", "answered without the model", "m ask the model"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("render lacks %q:\n%s", want, out)
+		}
+	}
+	for _, l := range b.render(*m).lines {
+		if w := ansi.StringWidth(l); w > m.width {
+			t.Fatalf("line %d wide: %q", w, l)
+		}
+	}
+
+	// m asks the model, which isn't set up: the error is said where the
+	// request is typed.
+	b.update(m, a2Key("m"))
+	if b.phase != askInput || !strings.Contains(b.err, "model") {
+		t.Fatalf("m: phase %v err %q", b.phase, b.err)
+	}
+
+	// A question is answered with no actions.
+	b.in.SetValue("what is waiting?")
+	b.update(m, a2Key("enter"))
+	if b.phase != askPlan || len(b.actions) != 0 || !strings.Contains(b.plan.Reply, "1 agent is waiting for you: claude") {
+		t.Fatalf("question: %v %q", b.phase, b.plan.Reply)
+	}
+
+	// m on a model's plan does nothing.
+	b.plan.Fast = false
+	if _, cmd := b.update(m, a2Key("m")); cmd != nil || b.phase != askPlan {
+		t.Fatal("m on a model's plan")
+	}
+
+	// Anything else, or no_fast_path, goes to the model.
+	b.phase = askInput
+	b.in.SetValue("start two agents on api")
+	b.update(m, a2Key("enter"))
+	if b.phase != askInput || b.err == "" {
+		t.Fatalf("not fast: phase %v err %q", b.phase, b.err)
+	}
+	m.cfg.Brain.NoFastPath = true
+	b.err = ""
+	b.in.SetValue("show zsh")
+	b.update(m, a2Key("enter"))
+	if b.phase != askInput || b.err == "" {
+		t.Fatalf("no_fast_path: phase %v err %q", b.phase, b.err)
 	}
 }
