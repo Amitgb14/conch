@@ -964,6 +964,7 @@ struct BroadcastSheet: View {
 struct TaskSheet: View {
     @ObservedObject var store: Store
     @State var draft: TaskDraft
+    @State private var issues: [IssueInfo] = []
     @FocusState private var promptFocused: Bool
 
     var project: ProjectInfo? {
@@ -993,18 +994,32 @@ struct TaskSheet: View {
                     TextField("Branch (conch names one)", text: $draft.branch).frame(maxWidth: 260)
                 }
             }
+            HStack(spacing: 12) {
+                if !issues.isEmpty {
+                    Picker("Issue", selection: Binding(get: { draft.issue ?? 0 }, set: { draft.issue = $0 == 0 ? nil : $0 })) {
+                        Text("None").tag(0)
+                        ForEach(issues) { Text("#\($0.number) \($0.title)").lineLimit(1).tag($0.number) }
+                    }
+                    .frame(maxWidth: 300)
+                    .help("Work on a GitHub issue: its title and body are the prompt, and anything typed above is added")
+                }
+                TextField("When: now, 14:05, +30m, every 1d, queue, after BRANCH", text: $draft.when)
+                    .frame(maxWidth: 360)
+                    .help("Later is kept by the server, and starts with conch closed too")
+            }
             HStack {
                 Spacer()
                 Button("Cancel") { store.taskDraft = nil }.keyboardShortcut(.cancelAction)
-                Button("Start") { store.startTask(draft) }
+                Button(taskWhenArgs(draft.when).isEmpty ? "Start" : "Schedule") { store.startTask(draft) }
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (draft.issue ?? 0) == 0)
             }
             Text("⌘↩ starts it").font(.system(size: 11)).foregroundStyle(.secondary)
         }
         .padding(18)
-        .frame(width: 520)
+        .frame(width: 560)
         .onAppear { promptFocused = true }
+        .task { issues = await store.issues(for: draft.project) }
     }
 }
 

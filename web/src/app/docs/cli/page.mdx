@@ -110,6 +110,7 @@ conch agent prompt -wait reviewer "Check finding 3 again" && conch read reviewer
 
 ```sh
 conch attach p3               # show pane p3 here and type into it
+conch attach -hold p3         # and keep its last screen when it ends, until a key
 conch -m busybox attach p3    # one on another machine
 ```
 

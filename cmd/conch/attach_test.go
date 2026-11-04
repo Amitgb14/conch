@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -614,6 +616,98 @@ func TestMarkMatches(t *testing.T) {
 	} {
 		if got := markMatches(c.line, c.spans, c.w); got != c.want {
 			t.Errorf("markMatches(%q, %v, %d) = %q, want %q", c.line, c.spans, c.w, got, c.want)
+		}
+	}
+}
+
+// -hold keeps an ended pane's last screen, with why it ended on its bottom
+// line: the wheel still scrolls it, a key ends it, and the pane closed ends
+// it too. Without it an ended pane ends attach at once (TestAttachEndedPane).
+func TestAttachHold(t *testing.T) {
+	run := func(t *testing.T, panes []proto.PaneInfo) (*attachServer, *io.PipeWriter, *syncBuffer, chan string) {
+		srv, c := startAttachServer(t)
+		srv.mu.Lock()
+		srv.panes = panes
+		srv.mu.Unlock()
+		inR, inW := io.Pipe()
+		out := &syncBuffer{}
+		done := make(chan string, 1)
+		go func() {
+			msg, _ := attachLoopHold(c, "p3", inR, out, func() (int, int, bool) { return 60, 3, true }, nil, nil, true)
+			done <- msg
+		}()
+		t.Cleanup(func() { inW.Close() })
+		return srv, inW, out, done
+	}
+	frame := proto.Frame{ID: "p3", Cols: 60, Rows: 3, History: 5, Lines: []string{"build ok", "", "$"}}
+
+	t.Run("ended before", func(t *testing.T) {
+		srv, inW, out, done := run(t, []proto.PaneInfo{{ID: "p3", State: proto.PaneExited, ExitCode: 1}})
+		srv.push(t, proto.EventPaneFrame, frame)
+		attachWait(t, "the note", func() bool { return strings.Contains(out.String(), "pane p3 ended (exit 1) · any key closes") })
+		if !strings.Contains(out.String(), "build ok") {
+			t.Fatal("the last screen was not drawn")
+		}
+		inW.Write([]byte("\x1b[<64;1;1M")) // the wheel: scrolls, does not end it
+		attachWait(t, "a scroll", func() bool { return len(attachSent[proto.PaneScrollParams](srv, proto.MethodPaneScroll)) == 1 })
+		select {
+		case msg := <-done:
+			t.Fatalf("the wheel ended it: %q", msg)
+		case <-time.After(100 * time.Millisecond):
+		}
+		inW.Write([]byte("q"))
+		select {
+		case msg := <-done:
+			if msg != "pane p3 ended (exit 1)" {
+				t.Fatalf("ended with %q", msg)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("a key did not end it")
+		}
+		if n := len(attachSent[proto.PaneSendTextParams](srv, proto.MethodPaneSendText)); n != 0 {
+			t.Fatalf("the key that closed it was typed into the pane (%d)", n)
+		}
+	})
+
+	t.Run("ends while shown", func(t *testing.T) {
+		srv, _, out, done := run(t, []proto.PaneInfo{{ID: "p3", State: proto.PaneRunning}})
+		srv.push(t, proto.EventPaneFrame, frame)
+		srv.push(t, proto.EventPaneExited, proto.PaneInfo{ID: "p3", State: proto.PaneExited})
+		attachWait(t, "the note", func() bool { return strings.Contains(out.String(), "pane p3 ended (exit 0)") })
+		select {
+		case msg := <-done:
+			t.Fatalf("ended at once: %q", msg)
+		case <-time.After(100 * time.Millisecond):
+		}
+		srv.push(t, proto.EventPaneClosed, proto.PaneInfo{ID: "p3"})
+		select {
+		case msg := <-done:
+			if msg != "pane p3 was closed" {
+				t.Fatalf("closed: %q", msg)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("closing the pane did not end it")
+		}
+	})
+}
+
+// The note never runs past the pane: cut at a narrow one.
+func TestAttachHoldNoteFits(t *testing.T) {
+	out := &syncBuffer{}
+	s := &attachSession{out: out, over: "pane p3 ended (exit 1)",
+		frame: &proto.Frame{ID: "p3", Cols: 12, Rows: 2, Lines: []string{"a", "b"}}}
+	s.draw()
+	lines := strings.Split(out.String(), "\r\n")
+	last := ansi.Strip(lines[len(lines)-1])
+	if w := ansi.StringWidth(strings.TrimRight(last, "\x1b[0mKJ?2026l")); w > 12 || !strings.HasPrefix(last, " pane p3") {
+		t.Fatalf("note %q (%d wide)", last, w)
+	}
+}
+
+func TestAttachHoldFlag(t *testing.T) {
+	for _, args := range [][]string{{"-hold"}, {"-hold", "-x"}, {"-hold", "p1", "p2"}, {"-x", "p1"}} {
+		if err := runAttach(args); err == nil || err.Error() != attachUsage {
+			t.Errorf("%q: %v", args, err)
 		}
 	}
 }

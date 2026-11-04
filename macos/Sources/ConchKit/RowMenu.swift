@@ -62,6 +62,8 @@ public enum RowAction: Equatable, Sendable {
     case monitor(pane: String, quiet: Bool)
     /// One message to the running panes of a row (the TUI's broadcast).
     case broadcast(BroadcastScope)
+    /// A custom action from config.toml, by its name.
+    case runAction(String)
     case divider
 }
 

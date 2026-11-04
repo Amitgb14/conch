@@ -602,6 +602,8 @@ final class Store: ObservableObject {
             Theme.icons = icons
         }
         notifySettings = NotifySettings(toml: toml)
+        let acts = parseActions(toml: toml ?? "")
+        if acts != actions { actions = acts }
         let cost = showsCost(toml: toml ?? "")
         if cost != showCost { showCost = cost }
         let configured = ConchTheme.configured(in: toml, dark: systemDark)
@@ -1157,7 +1159,7 @@ final class Store: ObservableObject {
             // /exit: closed, as the TUI closes it, so it goes from the
             // sidebar and its tab. A TUI open may close it first; the
             // second close finds it gone, which is fine.
-            if name == "pane.exited", closesOnExit(p), let c = conns[machine] {
+            if name == "pane.exited", closesOnExit(p), !keptPanes.contains(key(machine, p.id)), let c = conns[machine] {
                 // A TUI open on the machine closes it itself, and knows the
                 // panes it keeps that this app cannot tell apart — a custom
                 // action's terminal, an installer's — so it is left to it.
@@ -1725,7 +1727,52 @@ final class Store: ObservableObject {
     func menu(for node: TreeNode) -> [RowMenuItem] {
         guard let m = node.machine else { return [] }
         let online = machines.first { $0.id == m }?.online ?? false
-        return (snapshots[m] ?? Snapshot()).menu(for: node, machine: m, machineOnline: online)
+        let s = snapshots[m] ?? Snapshot()
+        var items = s.menu(for: node, machine: m, machineOnline: online)
+        // The actions of your own that belong on this kind of row.
+        if online, let (place, _) = s.actionPlace(node, machine: m, home: conns[m]?.hello?.home) {
+            let mine = actions.filter { $0.offers(place) }
+            if !mine.isEmpty { items += [RowMenuItem("", .divider)] + mine.map { RowMenuItem($0.name, .runAction($0.name)) } }
+        }
+        return items
+    }
+
+    /// config.toml's [[actions]], read with the theme.
+    @Published private(set) var actions: [CustomAction] = []
+    /// Panes an action with keep runs in: left open when they exit, so
+    /// what the command printed can be read.
+    private var keptPanes: Set<String> = []
+
+    /// Runs an action where a row is, in a terminal of its own, as the TUI
+    /// does: `sh -lc RUN` in the row's folder with conch's names for it.
+    func runCustomAction(_ name: String, on node: TreeNode) {
+        guard let a = actions.first(where: { $0.name == name }), let m = node.machine, let c = conns[m],
+              let (_, at) = snapshots[m]?.actionPlace(node, machine: m, home: c.hello?.home) else { return }
+        guard let dir = at.dir, !dir.isEmpty else {
+            say(at.branch.isEmpty ? "Nothing here to run \(a.name) in" : "\(at.branch) has no worktree to run in: open a terminal on it first", .err)
+            return
+        }
+        struct Create: Encodable {
+            var name: String
+            var cwd: String
+            var command: [String]
+            var env: [String]
+            var no_project: Bool?
+        }
+        let params = Create(name: a.name + " · " + at.label, cwd: dir, command: ["/bin/sh", "-lc", a.run],
+                            env: at.env.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }, no_project: at.loose ? true : nil)
+        Task {
+            do {
+                let p = try await c.call("pane.create", params, as: PaneInfo.self)
+                if a.keep { keptPanes.insert(key(m, p.id)) }
+                snapshots[m, default: Snapshot()].upsert(p)
+                joinWorkspace(machine: m, pane: p)
+                layout.open(key(m, p.id))
+                focusTerminal()
+            } catch {
+                say("Could not run \(a.name): \(error)", .err)
+            }
+        }
     }
 
     /// The agents to offer on a machine: those installed there, else the
@@ -1764,6 +1811,7 @@ final class Store: ObservableObject {
         case .deleteBranch(let pk, let b): deleteBranch(project: pk, branch: b)
         case .monitor(let k, let quiet): toggleMonitor(k, quiet: quiet)
         case .broadcast(let scope): startBroadcast(scope, title: node.title)
+        case .runAction(let name): runCustomAction(name, on: node)
         }
     }
 
@@ -1962,9 +2010,32 @@ final class Store: ObservableObject {
     }
 
     /// Starts the task: a branch, a worktree and an agent given the prompt.
+    /// A project's open issues, for the task sheet's picker; none from a
+    /// server without project.issues.v1, or a project not on GitHub.
+    func issues(for pk: String) async -> [IssueInfo] {
+        let (m, pr) = unkey(pk)
+        guard let c = conns[m], c.hello?.capabilities?.contains("project.issues.v1") == true else { return [] }
+        struct P: Encodable { var project_id: String; var limit: Int }
+        struct R: Decodable { var issues: [IssueInfo]? }
+        return (try? await c.call("project.issues", P(project_id: pr, limit: 50), as: R.self))?.issues ?? []
+    }
+
     func startTask(_ d: TaskDraft) {
         let (m, pr) = unkey(d.project)
         guard let c = conns[m] else { return }
+        // An issue or a time other than now: `conch task`, which reads the
+        // issue and the time's words the way the TUI does.
+        if (d.issue ?? 0) > 0 || !taskWhenArgs(d.when).isEmpty {
+            guard let b = binary, let dir = snapshots[m]?.project(pr)?.path else { return }
+            taskDraft = nil
+            let args = onMachine(m, taskArgs(dir: dir, prompt: d.prompt, agent: d.agent, branch: d.branch, issue: d.issue, when: d.when))
+            job(d.when.isEmpty ? "Starting the task" : "Scheduling the task") {
+                let out = String(decoding: try await runConch(b, args), as: UTF8.self)
+                let said = out.split(separator: "\n").last.map(String.init) ?? ""
+                self.say(said.isEmpty ? "Task started" : said)
+            }
+            return
+        }
         struct Params: Encodable {
             var project_id: String
             var prompt: String
@@ -2134,6 +2205,10 @@ struct TaskDraft: Identifiable {
     var prompt = ""
     var agent: String
     var branch = ""
+    /// A GitHub issue to work on (its title and body are the prompt).
+    var issue: Int?
+    /// When it starts: "" now, else as `conch task -at` and the rest take it.
+    var when = ""
 }
 
 private struct PaneRefParams: Encodable { var id: String }

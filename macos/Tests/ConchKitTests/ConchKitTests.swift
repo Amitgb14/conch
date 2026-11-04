@@ -2232,3 +2232,87 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let s = try conchDecoder().decode(SessionInfo.self, from: Data(#"{"agent":"claude","id":"x","dir":"/d","title":"t","starred":true,"snippet":"…the race in…"}"#.utf8))
     #expect(s.starred == true && s.snippet == "…the race in…")
 }
+
+// A conch's attach takes -hold only when its usage says so: one from
+// before it would refuse the flag, and every pane with it.
+@Test func attachHoldIsAskedFor() throws {
+    #expect(attachHolds("conch: usage: conch attach [-hold] PANE"))
+    #expect(!attachHolds("conch: usage: conch attach PANE"))
+    #expect(!attachHolds(""))
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hold-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let fake = dir.appendingPathComponent("conch")
+    try "#!/bin/sh\necho 'conch: usage: conch attach [-hold] PANE' >&2\nexit 1\n".write(to: fake, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+    #expect(attachHolds(attachUsageLine(fake.path)))
+    #expect(attachUsageLine(dir.appendingPathComponent("missing").path) == "")
+}
+
+// Custom actions: read from config.toml as the TUI reads them, half-written
+// ones left out, offered by kind of row, placed where the row is.
+@Test func customActions() {
+    let toml = #"""
+    [ui]
+    theme = "conch"
+
+    [[actions]]
+    name = "Run tests"
+    run = "go test ./... # not a comment inside"   # a comment after
+    on = ["branch", 'project']
+
+    [[actions]]
+    name = 'Deploy'
+    run = """
+    make deploy
+    echo "done \\o/"
+    """
+    keep = false
+
+    [[actions]]
+    name = "No command"
+
+    [[actions]]
+    run = "no name"
+
+    [notify]
+    silence = 40
+    """#
+    let a = parseActions(toml: toml)
+    #expect(a.map(\.name) == ["Run tests", "Deploy"])
+    #expect(a[0].run == "go test ./... # not a comment inside" && a[0].on == ["branch", "project"] && a[0].keep)
+    #expect(a[1].run == "make deploy\necho \"done \\o/\"\n" && !a[1].keep && a[1].on.isEmpty) // \\ read as one \
+    #expect(a[0].offers("branch") && a[0].offers("project") && !a[0].offers("pane"))
+    #expect(a[1].offers("pane") && a[1].offers("machine"))
+    #expect(parseActions(toml: "").isEmpty && parseActions(toml: "[[actions]]\nname = \"x\"\nrun = \"unclosed\n").isEmpty)
+
+    let s = fixture()
+    let t = s.tree(machine: "box")
+    let api = projects(t)[0]
+    let (place, at) = s.actionPlace(api, machine: "box", home: "/home/me")!
+    #expect(place == "project" && at.dir == "/src/api" && at.project == "api" && at.branch == "main" && !at.loose)
+    #expect(at.env["CONCH_WORKTREE"] == "/src/api" && at.env["CONCH_PANE"] == "" && at.env["CONCH_MACHINE"] == "box")
+    let feat = api.children![1].children!.first { $0.title == "feat" }!
+    #expect(s.actionPlace(feat, machine: "box", home: nil)?.at.dir == "/src/api-feat")
+    let gone = TreeNode(id: "b", kind: .branch(project: "box|r1", name: "old", checkedOut: false), title: "old")
+    #expect(s.actionPlace(gone, machine: "box", home: nil)?.at.dir == nil) // nowhere to run: said, not guessed
+    let (mp, mat) = s.actionPlace(t, machine: "box", home: "/home/me")!
+    #expect(mp == "machine" && mat.dir == "/home/me" && mat.loose && mat.label == "box")
+    #expect(s.actionPlace(api.children![0], machine: "box", home: nil) == nil) // a section has none
+}
+
+// The task sheet's When and Issue become `conch task`'s flags.
+@Test func taskWhenAndIssue() throws {
+    #expect(taskWhenArgs("") == [] && taskWhenArgs(" now ") == [])
+    #expect(taskWhenArgs("queue") == ["-queue"])
+    #expect(taskWhenArgs("after api/model") == ["-after", "api/model"])
+    #expect(taskWhenArgs("Every 1d") == ["-every", "1d"])
+    #expect(taskWhenArgs("14:05") == ["-at", "14:05"] && taskWhenArgs("+30m") == ["-at", "+30m"])
+    #expect(taskArgs(dir: "/src/api", prompt: " fix it ", agent: "codex", branch: "", issue: nil, when: "+1h")
+            == ["task", "-cwd", "/src/api", "-agent", "codex", "-at", "+1h", "fix it"])
+    #expect(taskArgs(dir: "/d", prompt: "", agent: "claude", branch: "b", issue: 42, when: "")
+            == ["task", "-cwd", "/d", "-agent", "claude", "-branch", "b", "-issue", "42"]) // the issue is the prompt
+    #expect(!taskArgs(dir: "/d", prompt: "x", agent: "a", branch: "", issue: 0, when: "").contains("-issue"))
+    let i = try JSONDecoder().decode([IssueInfo].self, from: Data(#"[{"number":7,"title":"Crash on start","url":"https://x","labels":["bug"]}]"#.utf8))
+    #expect(i == [IssueInfo(number: 7, title: "Crash on start")] || i.first?.number == 7)
+}
