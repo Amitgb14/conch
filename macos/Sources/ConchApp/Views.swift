@@ -787,11 +787,22 @@ struct NodeView: View {
         switch node.kind {
         case .agent(let id), .terminal(let id):
             if let p = store.pane(id) {
-                if let end = paneEndBadge(p) {
-                    // exited, exit N or failed in red, a terminal's # / ~ alert.
-                    Text(end.text).font(.system(size: 11.5, weight: end.tone == .err ? .semibold : .regular)).foregroundStyle(tone(end.tone)).fixedSize()
-                } else if let pill = Pill.state(p.agent?.state) {
-                    pill.fixedSize()
+                HStack(spacing: 6) {
+                    // Its branch, muted, as the TUI's row has it: what it is
+                    // working on, cut in the middle before the state gives
+                    // way — the state is what a glance is for.
+                    if let b = p.branch, !b.isEmpty {
+                        Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)
+                            .lineLimit(1).truncationMode(.middle)
+                            .help(b)
+                    }
+                    if let end = paneEndBadge(p) {
+                        // exited, exit N or failed in red, a terminal's # / ~ alert.
+                        Text(end.text).font(.system(size: 11.5, weight: end.tone == .err ? .semibold : .regular)).foregroundStyle(tone(end.tone))
+                            .fixedSize().layoutPriority(1)
+                    } else if let pill = Pill.state(p.agent?.state) {
+                        pill.fixedSize().layoutPriority(1)
+                    }
                 }
             }
         case .machine(let m):
