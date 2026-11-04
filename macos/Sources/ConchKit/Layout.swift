@@ -61,6 +61,8 @@ public struct Tab: Identifiable, Equatable, Sendable {
     public var weights: [String: [Double]] = [:]
     /// The focused split alone, filling the tab (tmux's zoom).
     public var zoomed = false
+    /// What it was named, by hand or in the TUI; nil names it by its pane.
+    public var name: String?
 
     public init(pane: String) {
         root = .leaf(pane)
@@ -230,6 +232,23 @@ public struct Layout: Equatable, Sendable {
         if tabs.indices.contains(i) { active = i }
     }
 
+    /// A tab moved to another place in the bar, the one on screen staying
+    /// on screen wherever it went.
+    public mutating func moveTab(from i: Int, to j: Int) {
+        guard tabs.indices.contains(i), tabs.indices.contains(j), i != j else { return }
+        let showing = current?.id
+        let t = tabs.remove(at: i)
+        tabs.insert(t, at: j)
+        if let showing, let k = tabs.firstIndex(where: { $0.id == showing }) { active = k }
+    }
+
+    /// Names a tab; an empty name goes back to naming it by its pane.
+    public mutating func rename(_ i: Int, to name: String) {
+        guard tabs.indices.contains(i) else { return }
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        tabs[i].name = n.isEmpty ? nil : n
+    }
+
     /// The focused split alone, or the tab's splits again.
     public mutating func toggleZoom() {
         guard tabs.indices.contains(active), tabs[active].root.panes.count > 1 || tabs[active].zoomed else { return }
@@ -308,6 +327,7 @@ extension Layout {
             guard let root = SplitNode.arranged(keys) else { continue }
             var tab = Tab(pane: keys[0])
             tab.root = root
+            if let n = t.name, !n.isEmpty { tab.name = n }
             if let focus, keys.contains(focus) { tab.focused = focus }
             tabs.append(tab)
             if t.active == true && !hadTabs { active = tabs.count - 1 }

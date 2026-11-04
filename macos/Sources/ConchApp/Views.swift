@@ -1078,6 +1078,7 @@ struct TabButton: View {
     /// What the tab is called: a branch's changes as the mock names them,
     /// a project's sessions or commits by the project, else the pane.
     func title(changes: (machine: String, project: String, branch: String)?, pane p: PaneInfo?) -> String {
+        if let n = tab.name { return n }
         if let c = changes { return "\(c.branch) changes" }
         func project(_ m: String, _ id: String) -> String { store.snapshots[m]?.project(id)?.name ?? id }
         if let s = parseSessionsKey(tab.focused) { return "Sessions · " + project(s.machine, s.project) }
@@ -1091,6 +1092,10 @@ struct TabButton: View {
         let p = store.pane(tab.focused)
         HStack(spacing: 7) {
             let changes = parseChangesKey(tab.focused)
+            // Its number, for ⌘1–⌘9.
+            if index < 9 {
+                Text("\(index + 1)").font(.system(size: 10.5, weight: .medium, design: .monospaced)).foregroundStyle(Theme.muted)
+            }
             if let a = p?.agent {
                 Mark(agent: a.name)
             } else {
@@ -1111,6 +1116,10 @@ struct TabButton: View {
             Text(title(changes: changes, pane: p))
                 .font(.system(size: 12.5)).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: 200, alignment: .leading).fixedSize(horizontal: true, vertical: false)
+            if tab.root.panes.count > 1 {
+                // More than one split in it, as the TUI's tab bar marks it.
+                Text("⊞").font(.system(size: 11)).foregroundStyle(Theme.muted).help("\(tab.root.panes.count) splits")
+            }
             if tab.root.panes.contains(where: { store.pane($0)?.agent?.state == .blocked }) {
                 // The mock's waiting badge: a round amber one with a bold !.
                 Text("!").font(.system(size: 10.5, weight: .heavy)).foregroundStyle(Theme.onWarn)
@@ -1150,6 +1159,25 @@ struct TabButton: View {
         .onTapGesture {
             store.layout.select(index)
             store.focusTerminal()
+        }
+        .onTapGesture(count: 2) { store.renameTab(index) }
+        .contextMenu {
+            Button("Rename Tab…") { store.renameTab(index) }
+            if tab.name != nil { Button("Name It by Its Pane") { store.layout.rename(index, to: "") } }
+        }
+        // Dragged onto another tab, it takes that one's place.
+        .onDrag { NSItemProvider(object: tab.id.uuidString as NSString) }
+        .onDrop(of: [.text], isTargeted: nil) { items in
+            guard let item = items.first else { return false }
+            _ = item.loadObject(ofClass: NSString.self) { obj, _ in
+                guard let id = obj as? String else { return }
+                DispatchQueue.main.async {
+                    if let from = store.layout.tabs.firstIndex(where: { $0.id.uuidString == id }) {
+                        store.layout.moveTab(from: from, to: index)
+                    }
+                }
+            }
+            return true
         }
     }
 }

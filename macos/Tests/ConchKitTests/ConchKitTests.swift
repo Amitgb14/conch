@@ -2061,3 +2061,26 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     none.commits = []
     #expect(!none.canMerge)
 }
+
+// Tabs move and keep the one on screen on screen; a name is set, cleared,
+// and taken in from the TUI.
+@Test func tabsMoveAndAreNamed() {
+    var l = Layout()
+    l.open("a"); l.open("b"); l.open("c")
+    #expect(l.tabs.map(\.focused) == ["a", "b", "c"] && l.active == 2)
+    l.moveTab(from: 2, to: 0)
+    #expect(l.tabs.map(\.focused) == ["c", "a", "b"] && l.active == 0) // c still on screen
+    l.select(1)
+    l.moveTab(from: 0, to: 2)
+    #expect(l.tabs.map(\.focused) == ["a", "b", "c"] && l.active == 0) // a still on screen
+    l.moveTab(from: 0, to: 9); l.moveTab(from: 1, to: 1)
+    #expect(l.tabs.map(\.focused) == ["a", "b", "c"])
+    l.rename(1, to: "  review  ")
+    #expect(l.tabs[1].name == "review")
+    l.rename(1, to: " ")
+    #expect(l.tabs[1].name == nil)
+    l.rename(7, to: "x") // no such tab: nothing
+    var t = Layout()
+    t.adopt(ViewState(tabs: [ViewTab(name: "build", panes: ["p1"]), ViewTab(name: "", panes: ["p2"])]), machine: "local", alive: ["local|p1", "local|p2"])
+    #expect(t.tabs.map(\.name) == ["build", nil])
+}

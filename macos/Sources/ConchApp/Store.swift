@@ -1350,6 +1350,15 @@ final class Store: ObservableObject {
         focusTerminal()
     }
 
+    /// Names a tab, as the TUI's tab rename does; empty names it by its
+    /// pane again.
+    func renameTab(_ i: Int) {
+        guard layout.tabs.indices.contains(i),
+              let name = ask("Rename tab \(i + 1)", info: "Leave it empty to name it by its pane again.", value: layout.tabs[i].name ?? "", button: "Rename")
+        else { return }
+        layout.rename(i, to: name)
+    }
+
     func resizeSplit(_ path: String, n: Int, after i: Int, by delta: Double) {
         guard layout.tabs.indices.contains(layout.active) else { return }
         layout.tabs[layout.active].resize(path, n: n, after: i, by: delta)
