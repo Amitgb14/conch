@@ -145,6 +145,7 @@ final class Store: ObservableObject {
         loadTheme()
         watchClicks()
         watchConfig()
+        watchQuestions()
         watchTreeKeys()
         watchAppearance()
     }
@@ -1096,10 +1097,28 @@ final class Store: ObservableObject {
         let (m, id) = unkey(k)
         Task {
             defer { asking.remove(k) }
-            if let q = try? await readQuestion(b, pane: id, machine: m) {
-                questions[k] = q
-            } else {
-                questions.removeValue(forKey: k)
+            let q = try? await readQuestion(b, pane: id, machine: m)
+            // Only a change is drawn again: read every tick, most reads
+            // find the same question.
+            if questions[k] != q { questions[k] = q }
+        }
+    }
+
+    private var questionTimer: Timer?
+
+    /// Reads each waiting agent's question again while it waits. It is
+    /// waiting from the moment its hook says so, which is before its menu
+    /// is drawn — read only then, the card had no answers and the
+    /// paragraph above as its question — and Claude Code asking several
+    /// questions stays waiting through all of them, a tab each, so the
+    /// first was the only one ever shown.
+    private func watchQuestions() {
+        questionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                for (m, s) in self.snapshots where self.conns[m] != nil {
+                    for p in s.panes where p.running && p.agent?.state == .blocked { self.ask(key(m, p.id)) }
+                }
             }
         }
     }

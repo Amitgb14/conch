@@ -513,3 +513,47 @@ func TestPlainMenuQuestionAndKeys(t *testing.T) {
 		t.Fatal("a choice that is not there")
 	}
 }
+
+// Claude Code asking several questions at once draws them as tabs, one on
+// screen at a time, each with a description under every choice and a
+// "Chat about this" row of its own below a rule. The question read is the
+// tab on screen — the second here, after the first was answered — with
+// its own choices; the rule ends the menu, so the chat row is not one.
+func TestQuestionTabs(t *testing.T) {
+	p := proto.PaneInfo{ID: "p3", Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked, Since: time.Now()}}
+	screen := menuScreen(
+		"⏺ Conch is in Go and already tracks token usage. Which option would you like for that?",
+		"",
+		"────────────────────────────────────────────────────────────",
+		"←  ☒ Go scope  ☐ Tasks  ✔ Submit  →",
+		"",
+		"Where should the holdout's benchmark tasks come from?",
+		"",
+		"❯ 1. Task file you fill in (Recommended)",
+		"     I build the runner with a tasks.json format.",
+		"  2. Mine from Conch's git history",
+		"     Generate tasks from past Conch commits.",
+		"  3. Type something.",
+		"────────────────────────────────────────────────────────────",
+		"  4. Chat about this",
+		"",
+		"Enter to select · Tab/Arrow keys to navigate · Esc to cancel")
+	q := readQuestion(p, screen)
+	if q == nil || q.Text != "Where should the holdout's benchmark tasks come from?" {
+		t.Fatalf("question %+v", q)
+	}
+	var labels []string
+	for _, c := range q.Choices {
+		labels = append(labels, c.Label)
+	}
+	if strings.Join(labels, "|") != "Task file you fill in (Recommended)|Mine from Conch's git history|Type something." || !q.Choices[0].Default {
+		t.Fatalf("choices %q", labels)
+	}
+	// Before the form is drawn — the hook says waiting first — there is
+	// no menu: a question with no choices, which is why the app reads it
+	// again while the agent waits.
+	early := readQuestion(p, menuScreen("⏺ Conch is in Go. Which option would you like for that?", ""))
+	if len(early.Choices) != 0 || early.ID == q.ID {
+		t.Fatalf("early %+v", early)
+	}
+}
