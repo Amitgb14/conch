@@ -130,6 +130,9 @@ public struct ActionPlace: Equatable, Sendable {
     public var pane: String
     /// Outside every project: a machine's own terminal.
     public var loose: Bool
+    /// What its terminal is named after, where the row says it better than
+    /// the branch: a project's row by the project, as the TUI names it.
+    public var named: String? = nil
 
     /// conch's names for the context, empty where this row has none, so a
     /// `set -u` script does not trip over a missing one.
@@ -139,7 +142,7 @@ public struct ActionPlace: Equatable, Sendable {
     }
 
     /// What its terminal is called after the action's name.
-    public var label: String { !branch.isEmpty ? branch : !project.isEmpty ? project : machine }
+    public var label: String { named ?? (!branch.isEmpty ? branch : !project.isEmpty ? project : machine) }
 }
 
 extension Snapshot {
@@ -159,7 +162,7 @@ extension Snapshot {
         case .project(let pk):
             guard let pr = project(unkey(pk).id) else { return nil }
             let b = pr.worktrees?.first { $0.path == pr.path }?.branch ?? ""
-            return ("project", ActionPlace(machine: m, dir: pr.path, project: pr.name, branch: b, pane: "", loose: false))
+            return ("project", ActionPlace(machine: m, dir: pr.path, project: pr.name, branch: b, pane: "", loose: false, named: pr.name))
         case .machine:
             return ("machine", ActionPlace(machine: m, dir: home, project: "", branch: "", pane: "", loose: true))
         default:

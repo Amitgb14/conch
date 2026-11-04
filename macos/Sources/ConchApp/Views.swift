@@ -695,6 +695,11 @@ struct NodeView: View {
         .id(node.id)
         .onHover { hovering = $0 }
         .onTapGesture { activateRow() }
+        // A click is a tap gesture, which accessibility cannot see: the row
+        // is a button to VoiceOver and the rest, pressed as a click is.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { activateRow() }
         .contextMenu { RowMenu(store: store, node: node) }
     }
 
@@ -1274,6 +1279,13 @@ struct TabButton: View {
             store.focusTerminal()
         }
         .onTapGesture(count: 2) { store.renameTab(index) }
+        // Pressed as a click is, its close button still its own.
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            store.layout.select(index)
+            store.focusTerminal()
+        }
         .contextMenu {
             Button("Rename Tab…") { store.renameTab(index) }
             if tab.name != nil { Button("Name It by Its Pane") { store.layout.rename(index, to: "") } }

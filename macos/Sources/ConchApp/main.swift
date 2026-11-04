@@ -57,8 +57,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         // "Same as conch (Night Owl)" names conch's theme as it changes.
         store.onConfigChange = { [weak self] in self?.updateThemeMenu() }
         if !window.setFrameUsingName("conch.main") { window.center() }
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if UserDefaults.standard.bool(forKey: "background") {
+            // -background YES: opened behind whatever is in front and not
+            // made active, for a scripted run beside somebody at work —
+            // it takes neither their keyboard nor their screen.
+            window.orderBack(nil)
+        } else {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
         store.connect()
     }
 

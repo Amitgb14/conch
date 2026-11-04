@@ -965,13 +965,21 @@ final class Store: ObservableObject {
         reloading.insert(machine)
         job("Reloading \(label(machine))'s server", done: "\(label(machine))'s server reloaded") {
             struct NoParams: Encodable {}
-            _ = try? await c.call("server.reload", NoParams())
+            defer { self.reloading.remove(machine) }
+            do {
+                try await c.call("server.reload", NoParams())
+            } catch {
+                // A refusal is said — most often that it already runs this
+                // build, so there is nothing to reload onto; the connection
+                // closing under the call is the reload itself.
+                guard reloadUnderway(error) else { throw error }
+            }
             // Back within a second or two; the row says when.
             for _ in 0..<40 {
                 try await Task.sleep(nanoseconds: 250_000_000)
-                if self.machines.first(where: { $0.id == machine })?.online == true, self.conns[machine] !== c { break }
+                if self.machines.first(where: { $0.id == machine })?.online == true, self.conns[machine] !== c { return }
             }
-            self.reloading.remove(machine)
+            throw ConchError(code: "reload", message: "the server did not come back within 10s: see its log (conch server log)")
         }
     }
 

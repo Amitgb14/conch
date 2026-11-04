@@ -276,3 +276,10 @@ public func sandboxMenu(machine: String, running: Bool) -> [RowMenuItem] {
 public func sandboxArgs(provider: String, verb: String, machine: String) -> [String] {
     ["sandbox", "-provider", provider, verb] + (verb == "stop" || verb == "rm" ? ["-y"] : []) + [machine]
 }
+
+/// Whether a server.reload that threw is a reload under way: its connection
+/// closing under the call, as an exec drops it. Anything the server said is
+/// a refusal, to be said — "already runs build …" most often.
+public func reloadUnderway(_ error: Error) -> Bool {
+    (error as? ConchError)?.code == "closed"
+}

@@ -467,7 +467,8 @@ extension Snapshot {
         let idle = machine == "local" ? idleSavedHosts(savedHosts, panes: panes) : []
         if !loose.isEmpty || !idle.isEmpty {
             let hosts = idle.map { TreeNode(id: "host:\($0.host)", kind: .savedHost($0.host), title: $0.title, detail: $0.host, badge: "saved") }
-            top.append(TreeNode(id: "cli:\(machine)", kind: .cli(machine), title: "CLI", badge: "\(loose.count)",
+            // Its count is what it lists: terminals and saved hosts both.
+            top.append(TreeNode(id: "cli:\(machine)", kind: .cli(machine), title: "CLI", badge: "\(loose.count + idle.count)",
                                 children: paneForest(loose, machine) + hosts, fold: "m:\(machine)/cli"))
         }
         return TreeNode(id: "m:\(machine)", kind: .machine(machine), title: label ?? machine,

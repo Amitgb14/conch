@@ -132,7 +132,7 @@ macos/bundle.sh /Applications    # or straight into Applications
 
 Without `macos/ghostty.sh` the app builds just the same, with SwiftTerm drawing the panes; the status bar says which.
 
-The app carries its own `conch` inside it, so each pane's `conch attach` is the same build as the window. It looks for conch's server where `conch` does (`$CONCH_SOCKET`, else `conch.sock` in `$CONCH_HOME` or `~/.config/conch`), and when none is running it offers to start one. `CONCH_BIN` points it at another `conch`.
+The app carries its own `conch` inside it, so each pane's `conch attach` is the same build as the window. It looks for conch's server where `conch` does (`$CONCH_SOCKET`, else `conch.sock` in `$CONCH_HOME` or `~/.config/conch`), and when none is running it offers to start one. `CONCH_BIN` points it at another `conch`. Launched with `-background YES` it opens behind whatever is in front and does not make itself active — for a scripted run beside somebody at work. Every sidebar row and tab is a button to accessibility, so VoiceOver (and a script) can open one as a click does.
 
 ## What it is built on
 

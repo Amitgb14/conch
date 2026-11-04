@@ -2292,6 +2292,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let api = projects(t)[0]
     let (place, at) = s.actionPlace(api, machine: "box", home: "/home/me")!
     #expect(place == "project" && at.dir == "/src/api" && at.project == "api" && at.branch == "main" && !at.loose)
+    #expect(at.label == "api") // named by the project, as the TUI names it; CONCH_BRANCH still says main
     #expect(at.env["CONCH_WORKTREE"] == "/src/api" && at.env["CONCH_PANE"] == "" && at.env["CONCH_MACHINE"] == "box")
     let feat = api.children![1].children!.first { $0.title == "feat" }!
     #expect(s.actionPlace(feat, machine: "box", home: nil)?.at.dir == "/src/api-feat")
@@ -2353,10 +2354,12 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let s = Snapshot(panes: [ssh])
     let cli = s.tree(machine: "local", savedHosts: hosts).children?.first { $0.kind == .cli("local") }
     #expect(cli?.children?.last?.kind == .savedHost("dev@10.0.0.9") && cli?.children?.last?.badge == "saved")
+    #expect(cli?.badge == "2") // the session and the saved host it lists
     #expect(!(cli?.children ?? []).contains { $0.kind == .savedHost("busybox") }) // a session is open to it
     // Only this computer lists them; with none and no terminals, no CLI.
     #expect(Snapshot().tree(machine: "box", savedHosts: hosts).children?.contains { $0.kind == .cli("box") } != true)
     #expect(Snapshot().tree(machine: "local", savedHosts: hosts).children?.first?.kind == .cli("local"))
+    #expect(Snapshot().tree(machine: "local", savedHosts: hosts).children?.first?.badge == "2") // never 0 beside what it lists
     let row = TreeNode(id: "host:dev@10.0.0.9", kind: .savedHost("dev@10.0.0.9"), title: "dev")
     #expect(s.menu(for: row, machine: "local").map(\.action) == [.connectHost("dev@10.0.0.9"), .divider, .forgetHost("dev@10.0.0.9")])
     #expect(row.machine == "local")
@@ -2390,4 +2393,14 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let s = fixture()
     let api = projects(s.tree(machine: "box"))[0]
     #expect(s.menu(for: api, machine: "box").contains { $0.action == .agentSetup(project: "box|r1", dir: "/src/api") })
+}
+
+// A reload refused is said; only the connection closing under it means the
+// server is reloading — reporting success for a refusal was a real bug.
+@Test func reloadRefusalIsSaid() {
+    #expect(reloadUnderway(ConchError(code: "closed", message: "the connection to conch's server closed")))
+    #expect(!reloadUnderway(ConchError(code: "bad_request", message: "the server already runs build abc")))
+    #expect(!reloadUnderway(ConchError(code: "connect", message: "not answering")))
+    struct Other: Error {}
+    #expect(!reloadUnderway(Other()))
 }
