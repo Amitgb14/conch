@@ -19,6 +19,11 @@ final class SessionsModel: ObservableObject {
     @Published var loading = false
     @Published var partial = false
     @Published var error = ""
+    /// What a search inside the conversations found (session.search), for
+    /// the query it was asked for; nil while the query is too short.
+    @Published var hits: [SessionInfo]?
+    private var hitsFor = ""
+    private var searches = Latest()
     /// How many times running a partial list has been asked again.
     private var asked = 0
 
@@ -29,7 +34,77 @@ final class SessionsModel: ObservableObject {
         load()
     }
 
-    var shown: [SessionInfo] { filterSessions(sessions, query) }
+    /// What the list shows: a search's hits inside the conversations when
+    /// it has them for this query, else the titles filtered here.
+    var shown: [SessionInfo] {
+        if let hits, hitsFor == query { return orderSessions(hits) }
+        return filterSessions(sessions, query)
+    }
+
+    var caps: [String] { store.connection(machine)?.hello?.capabilities ?? [] }
+
+    /// Looks inside the conversations too, a moment after typing stops.
+    func queryChanged() {
+        let q = query
+        guard searchesContents(q), caps.contains("session.search.v1"), let c = store.connection(machine) else { hits = nil; return }
+        let n = searches.next()
+        Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard searches.isLatest(n), q == query else { return }
+            struct P: Encodable { var project_id: String; var query: String; var limit: Int }
+            if let r = try? await c.call("session.search", P(project_id: project, query: q, limit: 200), as: SessionListResult.self),
+               searches.isLatest(n) {
+                hits = r.sessions ?? []
+                hitsFor = q
+            }
+        }
+    }
+
+    /// Stars a conversation, or takes its star away.
+    func star(_ s: SessionInfo) {
+        guard let c = store.connection(machine), let id = s.sessionID, !id.isEmpty else { return }
+        guard caps.contains("session.star.v1") else {
+            store.say("conch on \(store.label(machine)) is too old to star a conversation: reload its server", .err)
+            return
+        }
+        struct P: Encodable { var agent: String; var id: String; var on: Bool }
+        let on = !(s.starred ?? false)
+        Task {
+            do {
+                try await c.call("session.star", P(agent: s.agent, id: id, on: on))
+                func flip(_ l: inout [SessionInfo]) { if let i = l.firstIndex(where: { $0.id == s.id }) { l[i].starred = on } }
+                flip(&sessions)
+                if hits != nil { flip(&hits!) }
+            } catch {
+                store.say("Could not star it: \(error)", .err)
+            }
+        }
+    }
+
+    /// Hands a conversation to another agent: conch writes it out where
+    /// the session was and starts that agent there to read it.
+    func handOff(_ s: SessionInfo, to agent: String) {
+        guard let c = store.connection(machine), let id = s.sessionID, !id.isEmpty else { return }
+        guard caps.contains("session.share.v1") else {
+            store.say("conch on \(store.label(machine)) is too old to hand a conversation over: reload its server", .err)
+            return
+        }
+        struct P: Encodable { var agent: String; var id: String; var dir: String; var to: String }
+        struct R: Decodable { var pane: PaneInfo }
+        store.job("Handing “\(s.name)” to \(agent)", done: "Handed “\(s.name)” to \(agent)") {
+            let r = try await c.call("session.share", P(agent: s.agent, id: id, dir: s.dir, to: agent), as: R.self)
+            self.store.snapshots[self.machine, default: Snapshot()].upsert(r.pane)
+            self.store.open(ConchKit.key(self.machine, r.pane.id))
+        }
+    }
+
+    /// Every interrupted conversation not open anywhere, resumed — what a
+    /// restart or reboot cut off.
+    func resumeAll() {
+        let list = resumable(sessions)
+        for s in list { resume(s) }
+        store.say("Resuming \(list.count) interrupted conversation\(list.count == 1 ? "" : "s")")
+    }
 
     func load() {
         guard let c = store.connection(machine) else {
@@ -153,11 +228,17 @@ struct SessionsView: View {
             Spacer()
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(Theme.muted)
-                TextField("Search title, branch, agent", text: $model.query).textFieldStyle(.plain).font(.system(size: 12))
+                TextField("Search titles and conversations", text: $model.query).textFieldStyle(.plain).font(.system(size: 12))
+                    .onChange(of: model.query) { _ in model.queryChanged() }
             }
             .padding(.horizontal, 8).frame(width: 260, height: 26)
             .background(RoundedRectangle(cornerRadius: 6).fill(Theme.well))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line2))
+            let owed = resumable(model.sessions).count
+            if owed > 1 {
+                Button("Resume \(owed) interrupted") { model.resumeAll() }.controlSize(.small)
+                    .help("Start every conversation a restart cut off again, each in a pane")
+            }
             Button { model.load() } label: { LucideIcon("refresh-cw", size: 12) }.buttonStyle(.plain).help("Read them again")
         }
         .padding(.horizontal, 12).frame(height: 40)
@@ -191,8 +272,20 @@ struct SessionRow: View {
                     Text(agoText(session.updated))
                 }
                 .font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                if let sn = session.snippet, !sn.isEmpty {
+                    // Where a search found the words inside it.
+                    Text(sn).font(.system(size: 11.5)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
+                }
             }
             Spacer(minLength: 8)
+            if !(session.sessionID ?? "").isEmpty {
+                Button { model.star(session) } label: {
+                    Image(systemName: session.starred == true ? "star.fill" : "star").font(.system(size: 11))
+                        .foregroundStyle(session.starred == true ? Theme.warn : Theme.muted)
+                }
+                .buttonStyle(.plain).opacity(session.starred == true || hovering ? 1 : 0)
+                .help(session.starred == true ? "Take its star away" : "Star it, to find it again: starred ones come first")
+            }
             if session.interrupted == true { Pill(text: "interrupted", fg: Theme.onWarn, bg: Theme.warn) }
             if open { Pill(text: "open", fg: Theme.ok, bg: Theme.ok.opacity(0.16)) }
             Button(open ? "Open" : "Resume") { model.resume(session) }
@@ -210,6 +303,19 @@ struct SessionRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { model.resume(session) }
+        .contextMenu {
+            Button(open ? "Open" : "Resume") { model.resume(session) }
+            if !(session.sessionID ?? "").isEmpty {
+                Button(session.starred == true ? "Unstar" : "Star") { model.star(session) }
+                Menu("Hand off to") {
+                    ForEach(model.store.startable(on: model.machine), id: \.name) { a in
+                        Button(a.title) { model.handOff(session, to: a.name) }
+                    }
+                }
+            }
+            Divider()
+            Button("Delete…") { model.delete(session) }
+        }
     }
 
     func agentTitle(_ name: String) -> String {

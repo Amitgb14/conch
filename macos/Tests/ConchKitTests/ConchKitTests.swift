@@ -2212,3 +2212,23 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(showsCost(toml: "[ui]\ncost = true\n"))
     #expect(!showsCost(toml: "[ui]\ncost = false\n"))
 }
+
+// Sessions: interrupted, then starred, then newest; "resume all" takes the
+// interrupted ones not open anywhere; a query of three letters or more
+// looks inside the conversations; a search's snippet and a star decode.
+@Test func sessionsStarSearchResume() throws {
+    let now = Date()
+    var a = SessionInfo(agent: "claude", sessionID: "a", dir: "/d", title: "old", updated: now.addingTimeInterval(-900))
+    var b = SessionInfo(agent: "claude", sessionID: "b", dir: "/d", title: "new", updated: now)
+    let c = SessionInfo(agent: "codex", sessionID: "c", dir: "/d", title: "cut", updated: now.addingTimeInterval(-9999), interrupted: true)
+    let open = SessionInfo(agent: "codex", sessionID: "o", dir: "/d", title: "cut, open", paneID: "p4", interrupted: true)
+    #expect(orderSessions([a, b, c]).map(\.sessionID) == ["c", "b", "a"])
+    a.starred = true
+    #expect(orderSessions([a, b, c]).map(\.sessionID) == ["c", "a", "b"])
+    #expect(filterSessions([a, b, c], "").map(\.sessionID) == ["c", "a", "b"])
+    b.interrupted = true
+    #expect(resumable([a, b, c, open]).map(\.sessionID) == ["b", "c"])
+    #expect(!searchesContents("ab") && !searchesContents("  a ") && searchesContents("race"))
+    let s = try conchDecoder().decode(SessionInfo.self, from: Data(#"{"agent":"claude","id":"x","dir":"/d","title":"t","starred":true,"snippet":"…the race in…"}"#.utf8))
+    #expect(s.starred == true && s.snippet == "…the race in…")
+}
