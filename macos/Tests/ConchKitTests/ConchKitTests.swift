@@ -635,11 +635,12 @@ final class FakeServer: @unchecked Sendable {
     // In a worktree of its own: removed (the worktree) or deleted (the branch).
     let feat = api.children![1].children![1]
     let fm = s.menu(for: feat, machine: "box")
-    #expect(titles(fm) == ["View changes", "Start an agent on this branch", "Open terminal on this branch", "New task in project…", "Show in commit graph", "",
-                           "Copy branch name", "", "Remove worktree…", "Delete branch…"])
+    #expect(titles(fm) == ["View changes", "Start an agent on this branch", "Open terminal on this branch", "New task in project…", "Show in commit graph",
+                           "Agent setup here", "", "Copy branch name", "", "Remove worktree…", "Delete branch…"])
+    #expect(fm[5].action == .agentSetup(project: "box|r1", dir: "/src/api-feat"))
     #expect(fm[4].action == .commits(project: "box|r1", branch: "feat"))
     #expect(fm[1].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true))
-    #expect(fm[8].action == .removeWorktree(project: "box|r1", path: "/src/api-feat") && fm[9].action == .deleteBranch(project: "box|r1", branch: "feat"))
+    #expect(fm[9].action == .removeWorktree(project: "box|r1", path: "/src/api-feat") && fm[10].action == .deleteBranch(project: "box|r1", branch: "feat"))
     // Not checked out: deleted only.
     let old = TreeNode(id: "b:box|r1:old", kind: .branch(project: "box|r1", name: "old", checkedOut: false), title: "old")
     #expect(titles(s.menu(for: old, machine: "box")) == ["View changes", "New task in project…", "Show in commit graph", "", "Copy branch name", "", "Delete branch…"])
@@ -2373,4 +2374,20 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(sandboxArgs(provider: "boat", verb: "rm", machine: "sbx") == ["sandbox", "-provider", "boat", "rm", "-y", "sbx"])
     #expect(sandboxArgs(provider: "boat", verb: "start", machine: "sbx") == ["sandbox", "-provider", "boat", "start", "sbx"])
     #expect(sandboxArgs(provider: "devin", verb: "usage", machine: "sbx") == ["sandbox", "-provider", "devin", "usage", "sbx"])
+}
+
+// The agent setup tab: its key round-trips with a directory holding any
+// character, and agent.setup's answer reads with what each agent loads.
+@Test func agentSetupTab() throws {
+    let k = setupKey("box", "r1", dir: "/src/api|odd")
+    #expect(parseSetupKey(k)! == ("box", "r1", "/src/api|odd"))
+    #expect(parseSetupKey("setup|box|r1|") == nil && parseSetupKey("files|box|r1") == nil && parseSetupKey("setup|box||/d") == nil)
+    #expect(!isPaneKey(k) && !isTerminalKey(k))
+    let json = #"{"dir":"/w","worktree":"/w","main":"/m","local_files":[{"path":".env","state":"missing"}],"agents":[{"agent":"claude","label":"Claude Code","groups":[{"title":"Instructions","items":[{"name":"CLAUDE.md","scope":"project","path":"/w/CLAUDE.md"},{"name":"AGENTS.md","scope":"project","missing":true}]},{"title":"MCP servers","items":[]}],"notes":["reads AGENTS.md through CLAUDE.md"]}]}"#
+    let r = try JSONDecoder().decode(AgentSetupResult.self, from: Data(json.utf8))
+    #expect(r.agents?.first?.loaded == 1 && r.localFiles?.first?.state == "missing")
+    #expect(localFileNote("missing") == "not copied here" && localFileNote("odd") == "odd")
+    let s = fixture()
+    let api = projects(s.tree(machine: "box"))[0]
+    #expect(s.menu(for: api, machine: "box").contains { $0.action == .agentSetup(project: "box|r1", dir: "/src/api") })
 }

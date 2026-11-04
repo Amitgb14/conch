@@ -69,6 +69,8 @@ public enum RowAction: Equatable, Sendable {
     case connectHost(String)
     case forgetHost(String)
     case saveHost(pane: String)
+    /// What the agents load in a checkout (the TUI's i), in a tab.
+    case agentSetup(project: String, dir: String)
     /// A hosted sandbox started, stopped, deleted or its cost asked for
     /// (conch sandbox VERB), by its machine.
     case sandbox(machine: String, verb: String)
@@ -134,6 +136,9 @@ extension Snapshot {
             }
             if machineOnline { out.append(RowMenuItem("New task in project…", .newTask(project: pk))) }
             out.append(RowMenuItem("Show in commit graph", .commits(project: pk, branch: name)))
+            if let w = pr?.worktrees?.first(where: { $0.branch == name })?.path {
+                out.append(RowMenuItem("Agent setup here", .agentSetup(project: pk, dir: w)))
+            }
             if let url = pr?.branches?.first(where: { $0.name == name })?.pr?.url, openableURL(url) != nil {
                 out.append(RowMenuItem("Open pull request", .openURL(url)))
             }
@@ -153,6 +158,7 @@ extension Snapshot {
                    RowMenuItem("Start an agent in project", .startAgent(machine: machine, cwd: pr.path, inProject: true)),
                    RowMenuItem("Open terminal in project", .newTerminal(machine: machine, cwd: pr.path, inProject: true))]
             if pr.git != false { out.append(RowMenuItem("Commit graph", .commits(project: pk, branch: nil))) }
+            out.append(RowMenuItem("Agent setup", .agentSetup(project: pk, dir: pr.path)))
             if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to its agents…", .broadcast(.project(pk)))) }
             out += [.divider, RowMenuItem("Copy path", .copy(pr.path))]
         case .machine, .cli:

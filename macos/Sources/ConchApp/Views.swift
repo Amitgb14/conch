@@ -1194,6 +1194,7 @@ struct TabButton: View {
         if let s = parseSessionsKey(tab.focused) { return "Sessions · " + project(s.machine, s.project) }
         if let c = parseCommitsKey(tab.focused) { return "Commits · " + project(c.machine, c.project) }
         if let f = parseFilesKey(tab.focused) { return "Files · " + project(f.machine, f.project) }
+        if let s = parseSetupKey(tab.focused) { return "Agent setup · " + project(s.machine, s.project) }
         return p?.displayName ?? tab.focused
     }
 
@@ -1213,6 +1214,8 @@ struct TabButton: View {
                     LucideIcon("history", color: Theme.accent, size: 12)
                 } else if parseCommitsKey(tab.focused) != nil {
                     LucideIcon("git-commit-horizontal", color: Theme.accent, size: 12)
+                } else if parseSetupKey(tab.focused) != nil {
+                    LucideIcon("bot", color: Theme.accent, size: 12)
                 } else if parseFilesKey(tab.focused) != nil {
                     LucideIcon("folder-open", color: Theme.accent, size: 12)
                 } else if changes == nil {
@@ -1309,6 +1312,8 @@ struct SplitArea: View {
                 SessionsView(model: store.sessions(for: id), store: store).id(id)
             } else if parseCommitsKey(id) != nil {
                 CommitsView(model: store.commits(for: id), store: store).id(id)
+            } else if parseSetupKey(id) != nil {
+                SetupView(model: store.setup(for: id), store: store).id(id)
             } else if parseFilesKey(id) != nil {
                 FilesView(model: store.files(for: id), store: store).id(id)
             } else {

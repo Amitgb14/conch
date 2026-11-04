@@ -233,7 +233,7 @@ final class Store: ObservableObject {
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
-        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) ?? parseFilesKey(k) {
+        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) ?? parseFilesKey(k) ?? parseSetupKey(k).map({ ($0.machine, $0.project) }) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
         let (m, _) = unkey(k)
@@ -889,7 +889,7 @@ final class Store: ObservableObject {
             if let o = UserDefaults.standard.string(forKey: "open") {
                 if let c = parseChangesKey(o) {
                     if c.machine == machine { layout.open(o) } // a branch's changes
-                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) {
+                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) {
                     if c.machine == machine { layout.open(o) } // a project's commits or sessions
                 } else {
                     let k = o.contains("|") ? o : key("local", o)
@@ -1508,6 +1508,14 @@ final class Store: ObservableObject {
 
     private(set) var fileViews: [String: FilesModel] = [:]
 
+    private var setupViews: [String: SetupModel] = [:]
+    func setup(for k: String) -> SetupModel {
+        if let m = setupViews[k] { return m }
+        let m = SetupModel(key: k, store: self)
+        setupViews[k] = m
+        return m
+    }
+
     func files(for k: String) -> FilesModel {
         if let m = fileViews[k] { return m }
         let m = FilesModel(key: k, store: self)
@@ -1823,6 +1831,12 @@ final class Store: ObservableObject {
         case .runAction(let name): runCustomAction(name, on: node)
         case .connectHost(let h): connectSaved(h)
         case .sandbox(let m, let verb): sandbox(m, verb)
+        case .agentSetup(let pk, let dir):
+            let (m, pid) = unkey(pk)
+            let k = setupKey(m, pid, dir: dir)
+            setupViews[k]?.load()
+            layout.open(k)
+            terminalHasKeyboard = false
         case .forgetHost(let h): saveHost(SavedHost(host: h), save: false)
         case .saveHost(let k):
             if let p = pane(k), let h = p.sshTarget { saveHost(SavedHost(host: h, args: p.sshArgs)) }
