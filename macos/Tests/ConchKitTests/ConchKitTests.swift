@@ -674,7 +674,7 @@ final class FakeServer: @unchecked Sendable {
     plain.upsert(np)
     #expect(!plain.menu(for: api, machine: "box").contains { if case .commits = $0.action { return true }; return false })
     #expect(s.menu(for: t, machine: "box").map(\.action) == [.startAgent(machine: "box", cwd: nil, inProject: false), .newTerminal(machine: "box", cwd: nil, inProject: false),
-                                                             .divider, .addProject(machine: "box"), .addMachine,
+                                                             .broadcast(.machine("box")), .divider, .addProject(machine: "box"), .addMachine,
                                                              .divider, .reconnect(machine: "box"), .reloadServer(machine: "box"),
                                                              .upgrade(machine: "box"), .removeMachine(machine: "box")])
     // This computer is neither upgraded nor removed from here; its CLI
@@ -695,8 +695,10 @@ final class FakeServer: @unchecked Sendable {
                                                                                    .upgrade(machine: "box"), .removeMachine(machine: "box")])
     #expect(s.menu(for: api, machine: "box", machineOnline: false).isEmpty)
     #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View changes on feat", "", "Close agent…"])
-    // A section has none, and a pane gone from the snapshot none either.
-    #expect(s.menu(for: api.children![0], machine: "box").isEmpty)
+    // A section offers a broadcast to those in it, offline nothing; a pane
+    // gone from the snapshot has no menu.
+    #expect(s.menu(for: api.children![0], machine: "box").map(\.action) == [.broadcast(.section(project: "box|r1", agents: true))])
+    #expect(s.menu(for: api.children![0], machine: "box", machineOnline: false).isEmpty)
     #expect(s.menu(for: TreeNode(id: "x", kind: .agent("box|p99"), title: "x"), machine: "box").isEmpty)
 }
 
@@ -1042,7 +1044,7 @@ final class FakeServer: @unchecked Sendable {
     let s = fixture()
     let w = s.tree(machine: "box").children![0]
     #expect(w.kind == .workspace("box") && w.machine == "box")
-    #expect(s.menu(for: w, machine: "box").map(\.action) == [.addProject(machine: "box"), .divider, .newTask(project: "box|r1")])
+    #expect(s.menu(for: w, machine: "box").map(\.action) == [.addProject(machine: "box"), .broadcast(.machine("box")), .divider, .newTask(project: "box|r1")])
     #expect(s.menu(for: w, machine: "box", machineOnline: false).isEmpty)
     #expect(Snapshot(panes: s.panes).tree().children?.map(\.title) == ["CLI"]) // no projects, no Workspace row
 }
@@ -2125,4 +2127,34 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     var printed = info
     printed.alert = "activity"
     #expect(attentionAlert(old: quiet, new: printed, machine: nil, viewing: false, settings: on)?.body == "make printed something")
+}
+
+// A broadcast goes to the running panes of the row it was asked from,
+// agents first; agents start ticked unless waiting on an answer, and
+// terminals only when a Terminals section was asked from.
+@Test func broadcastTargets() {
+    var s = fixture()
+    let agents = s.panes.filter { $0.agent != nil && $0.running }
+    let terms = s.panes.filter { $0.agent == nil && $0.running }
+    let all = s.broadcastTargets(.machine("box"))
+    #expect(all.count == agents.count + terms.count)
+    #expect(all.prefix(agents.count).allSatisfy { $0.agent != nil })
+    for t in all where t.agent == nil { #expect(!t.ticked) }
+    for t in all where t.agent != nil { #expect(t.ticked == !t.waiting) }
+    #expect(all.allSatisfy { $0.key.hasPrefix("box|") })
+    // A project's Terminals: its terminals alone, ticked.
+    let pr = s.projects[0]
+    let tsec = s.broadcastTargets(.section(project: key("box", pr.id), agents: false))
+    #expect(tsec.allSatisfy { $0.agent == nil && $0.ticked })
+    let asec = s.broadcastTargets(.section(project: key("box", pr.id), agents: true))
+    #expect(asec.allSatisfy { $0.agent != nil })
+    // An exited pane is nobody to send to.
+    for p in s.panes { var q = p; q.state = "exited"; s.upsert(q) }
+    #expect(s.broadcastTargets(.machine("box")).isEmpty)
+    #expect(!s.menu(for: s.tree(machine: "box"), machine: "box").contains { if case .broadcast = $0.action { return true }; return false })
+
+    #expect(broadcastSummary([BroadcastOutcome(id: "p1", sent: true), BroadcastOutcome(id: "p2", sent: true)]) == ("Sent to 2 panes", false))
+    let mixed = broadcastSummary([BroadcastOutcome(id: "p1", sent: true), BroadcastOutcome(id: "p2", sent: false, error: "not running"),
+                                  BroadcastOutcome(id: "p3", sent: false)], names: ["p2": "build"])
+    #expect(mixed == ("Sent to 1 pane · 2 not: build — not running, …", true))
 }

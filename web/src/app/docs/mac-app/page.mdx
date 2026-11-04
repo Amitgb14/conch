@@ -78,6 +78,8 @@ Right-clicking a row in the sidebar gives its menu, as `m` does in the TUI:
 | CLI | Start an agent ▸ · New terminal · SSH to a host… (this computer's) |
 | Workspace | Add project… · New task in each project… |
 
+**Broadcast…** — on a machine, CLI, Workspace or project row (**Broadcast to its agents…**), or a project's Agents or Terminals section — sends one message to its running panes, as the TUI's broadcast: a sheet lists them with a tick each, agents first. An agent takes the message as its next prompt and starts ticked, unless it is waiting on an answer (the message would answer it); a terminal runs it as a command, so terminals start ticked only from a Terminals section. ⌘↩ sends, and the status bar says how many took it and why any did not.
+
 **Start an agent ▸** lists the agents installed on that machine. A machine that is offline offers nothing that would start something there; it can still be reconnected, upgraded or removed. A machine whose conch is from an older build than the app's own says **behind** on its row — what it lacks is in the tooltip — and **Reload server** (this computer) or **Upgrade conch there** (another machine) brings it up to date.
 
 ## Keys

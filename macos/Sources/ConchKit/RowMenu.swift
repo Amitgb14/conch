@@ -60,6 +60,8 @@ public enum RowAction: Equatable, Sendable {
     case deleteBranch(project: String, branch: String)
     /// A pane's alert when it goes quiet (quiet) or prints, turned on or off.
     case monitor(pane: String, quiet: Bool)
+    /// One message to the running panes of a row (the TUI's broadcast).
+    case broadcast(BroadcastScope)
     case divider
 }
 
@@ -79,6 +81,9 @@ public struct RowMenuItem: Equatable, Sendable {
 }
 
 extension Snapshot {
+    /// Whether a broadcast from scope has anyone to go to.
+    func hasRunning(_ scope: BroadcastScope) -> Bool { !broadcastTargets(scope).isEmpty }
+
     /// A tree row's right-click menu: the TUI's row menu (overlay.go), for
     /// what the app does itself. machineOnline false leaves out whatever
     /// would start something there.
@@ -137,6 +142,7 @@ extension Snapshot {
                    RowMenuItem("Start an agent in project", .startAgent(machine: machine, cwd: pr.path, inProject: true)),
                    RowMenuItem("Open terminal in project", .newTerminal(machine: machine, cwd: pr.path, inProject: true))]
             if pr.git != false { out.append(RowMenuItem("Commit graph", .commits(project: pk, branch: nil))) }
+            if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to its agents…", .broadcast(.project(pk)))) }
             out += [.divider, RowMenuItem("Copy path", .copy(pr.path))]
         case .machine, .cli:
             let isMachine: Bool = { if case .machine = node.kind { return true }; return false }()
@@ -144,6 +150,8 @@ extension Snapshot {
                 out = [RowMenuItem("Start an agent", .startAgent(machine: machine, cwd: nil, inProject: false)),
                        RowMenuItem("New terminal", .newTerminal(machine: machine, cwd: nil, inProject: false))]
                 if machine == "local" { out.append(RowMenuItem("SSH to a host…", .sshToHost)) }
+                let scope: BroadcastScope = isMachine ? .machine(machine) : .cli(machine)
+                if hasRunning(scope) { out.append(RowMenuItem("Broadcast…", .broadcast(scope))) }
                 if isMachine { out += [.divider, RowMenuItem("Add project…", .addProject(machine: machine))] }
             }
             if isMachine { out.append(RowMenuItem("Add machine…", .addMachine)) }
@@ -160,9 +168,17 @@ extension Snapshot {
         case .workspace:
             guard machineOnline else { return [] }
             out = [RowMenuItem("Add project…", .addProject(machine: machine))]
+            if hasRunning(.machine(machine)) { out.append(RowMenuItem("Broadcast…", .broadcast(.machine(machine)))) }
             if !projects.isEmpty { out.append(.divider) }
             out += projects.map { RowMenuItem("New task in \($0.name)…", .newTask(project: key(machine, $0.id))) }
-        case .section, .sessions, .files, .subagent, .more:
+        case .section(let name):
+            // A project's Agents or Terminals: a message to those alone.
+            guard machineOnline, name == "Agents" || name == "Terminals", node.id.hasPrefix("s:") else { return [] }
+            let rest = node.id.dropFirst(2)
+            guard let colon = rest.lastIndex(of: ":") else { return [] }
+            let scope = BroadcastScope.section(project: String(rest[..<colon]), agents: name == "Agents")
+            return hasRunning(scope) ? [RowMenuItem(name == "Agents" ? "Broadcast to these agents…" : "Broadcast to these terminals…", .broadcast(scope))] : []
+        case .sessions, .files, .subagent, .more:
             return []
         }
         return out

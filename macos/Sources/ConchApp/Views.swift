@@ -510,6 +510,7 @@ struct MainView: View {
         }
         .background { GeometryReader { g in Color.clear.onAppear { size = g.size }.onChange(of: g.size) { size = $0 } } }
         .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
+        .sheet(item: $store.broadcastDraft) { d in BroadcastSheet(store: store, draft: d) }
         .background(Theme.window)
         // Meadow paints the title bar itself: a sky behind the toolbar's
         // controls (AppKit's, so drawn over it), lifted into the title bar
@@ -873,6 +874,57 @@ struct RowMenu: View {
                 Button(it.title) { store.perform(it.action, on: node) }
             }
         }
+    }
+}
+
+/// One message to several panes, as the TUI's broadcast: who it goes to,
+/// ticked as the TUI ticks them, and what it says. ⌘↩ sends.
+struct BroadcastSheet: View {
+    @ObservedObject var store: Store
+    @State var draft: BroadcastDraft
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        let n = draft.targets.filter(\.ticked).count
+        let shells = draft.targets.contains { $0.ticked && $0.agent == nil }
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Broadcast · \(draft.title)").font(.system(size: 15, weight: .semibold))
+            Text("An agent takes it as its next message; a terminal runs it as a command.")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+            TextEditor(text: $draft.text)
+                .font(.system(size: 13)).frame(minHeight: 90)
+                .scrollContentBackground(.hidden).padding(6)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
+                .focused($typing)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach($draft.targets) { $t in
+                        HStack(spacing: 8) {
+                            Toggle("", isOn: $t.ticked).toggleStyle(.checkbox).labelsHidden()
+                            if let a = t.agent { Mark(agent: a) } else { LucideIcon(name: .terminal, color: Theme.muted, size: 12) }
+                            Text(t.name).font(.system(size: 12.5)).lineLimit(1)
+                            if t.waiting {
+                                Text("waiting on an answer: this would answer it").font(.system(size: 11)).foregroundStyle(Theme.warn)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
+            HStack {
+                if shells { Text("Terminals ticked run it as a command.").font(.system(size: 11.5)).foregroundStyle(Theme.warn) }
+                Spacer()
+                Button("Cancel") { store.broadcastDraft = nil }.keyboardShortcut(.cancelAction)
+                Button("Send to \(n)") { store.sendBroadcast(draft) }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(n == 0 || draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(18)
+        .frame(width: 520)
+        .onAppear { typing = true }
     }
 }
 

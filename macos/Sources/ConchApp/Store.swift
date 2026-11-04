@@ -23,6 +23,15 @@ struct MachineLink: Identifiable, Equatable {
     var online: Bool { state.isEmpty }
 }
 
+/// A broadcast being written: where from, to whom, and what.
+struct BroadcastDraft: Identifiable {
+    let id = UUID()
+    var scope: BroadcastScope
+    var title: String
+    var targets: [BroadcastTarget]
+    var text = ""
+}
+
 /// The window's state: what each machine's server says (a Snapshot each),
 /// how the tabs are laid out, and the terminal views — kept here so a view
 /// moved between splits keeps its terminal and the program in it.
@@ -66,6 +75,8 @@ final class Store: ObservableObject {
     @Published var limits: [PlanLimits] = []
     @Published var status: String = "Connecting to conch…"
     @Published var paletteOpen = false
+    /// A broadcast being written (BroadcastSheet).
+    @Published var broadcastDraft: BroadcastDraft?
     /// The focused pane's find bar, while it is open.
     @Published var find: PaneFind?
     /// Bumped to put the keyboard in the find bar's field.
@@ -962,6 +973,42 @@ final class Store: ObservableObject {
         }
     }
 
+    /// Opens the broadcast sheet for a row's running panes.
+    func startBroadcast(_ scope: BroadcastScope, title: String) {
+        let m = scope.machine
+        guard let c = conns[m], let s = snapshots[m] else { return }
+        guard c.hello?.capabilities?.contains("agent.broadcast.v1") == true else {
+            say("conch on \(label(m)) is too old to broadcast: reload its server", .err)
+            return
+        }
+        broadcastDraft = BroadcastDraft(scope: scope, title: title, targets: s.broadcastTargets(scope, in: ws))
+    }
+
+    /// Sends a broadcast to the panes ticked, and says how it went.
+    func sendBroadcast(_ d: BroadcastDraft) {
+        broadcastDraft = nil
+        let m = d.scope.machine
+        guard let c = conns[m] else { return }
+        let ticked = d.targets.filter(\.ticked)
+        let shells = ticked.contains { $0.agent == nil }
+        if shells && c.hello?.capabilities?.contains("agent.broadcast.shells.v1") != true {
+            say("conch on \(label(m)) is too old to type into terminals: untick them, or reload its server", .err)
+            return
+        }
+        struct P: Encodable { var ids: [String]; var text: String; var shells: Bool? }
+        struct R: Decodable { var results: [BroadcastOutcome]? }
+        let names = Dictionary(ticked.map { (unkey($0.key).id, $0.name) }, uniquingKeysWith: { a, _ in a })
+        Task {
+            do {
+                let r = try await c.call("agent.broadcast", P(ids: ticked.map { unkey($0.key).id }, text: d.text, shells: shells ? true : nil), as: R.self)
+                let (text, failed) = broadcastSummary(r.results ?? [], names: names)
+                self.say(text, failed ? .err : .ok)
+            } catch {
+                self.say("Broadcast failed: \(error)", .err)
+            }
+        }
+    }
+
     /// A terminal watched, or no longer, for going quiet or printing — the
     /// TUI's ctrl+b M and A (pane.monitor).
     func toggleMonitor(_ k: String, quiet: Bool) {
@@ -1697,6 +1744,7 @@ final class Store: ObservableObject {
         case .removeWorktree(let pk, let path): removeWorktree(project: pk, path: path)
         case .deleteBranch(let pk, let b): deleteBranch(project: pk, branch: b)
         case .monitor(let k, let quiet): toggleMonitor(k, quiet: quiet)
+        case .broadcast(let scope): startBroadcast(scope, title: node.title)
         }
     }
 
