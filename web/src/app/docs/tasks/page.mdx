@@ -30,6 +30,8 @@ No git repository is needed. `t` on a machine row — a sandbox's included — a
 conch -m fix-login task -agent claude "Plan a CLI for tracking expenses"   # in the sandbox's home
 ```
 
+A folder you `git init` after adding it becomes a git project within a second, with no restart. If the repository has no commits yet, the first task gives its base branch an empty first commit to branch from. Anything you staged stays staged and out of that commit. This needs git to have an author (`user.name` and `user.email`), and the task says so when it doesn't.
+
 - `c`/`n` on a branch that isn't checked out creates its worktree first.
 - `x` on a branch removes its worktree (never with uncommitted changes, never the main one).
 

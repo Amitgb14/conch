@@ -268,14 +268,18 @@ func TestA3SaveErrors(t *testing.T) {
 		t.Fatal("CONCH_HOME under a file: no error")
 	}
 
-	// The temp file's name is taken by a directory.
+	// No temporary file can be made: the folder is read-only. (The temp
+	// file's name is the writer's own now, so no name can be taken from
+	// it, which a fixed config.toml.tmp could be.)
 	dir := filepath.Join(conchHome, "d")
-	if err := os.MkdirAll(filepath.Join(dir, "config.toml.tmp"), 0o700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	os.Chmod(dir, 0o500)
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
 	t.Setenv("CONCH_HOME", dir)
 	if err := Save(Default()); err == nil {
-		t.Fatal("unwritable temp file: no error")
+		t.Fatal("unwritable folder: no error")
 	}
 
 	// The destination is a non-empty directory, so the rename fails.
@@ -537,5 +541,27 @@ func TestDefaultAgentChosenOrNot(t *testing.T) {
 	}
 	if cfg, err := Load(); err != nil || cfg.Agents.Default != "claude" {
 		t.Fatalf("chosen: %q, %v", cfg.Agents.Default, err)
+	}
+}
+
+// light_theme is saved when set and left out when not, so a file from
+// before it existed, or one that never sets it, stays as it was.
+func TestLightThemeRoundTrips(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	cfg := Default()
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(File())
+	if strings.Contains(string(raw), "light_theme") {
+		t.Errorf("an unset light_theme was written:\n%s", raw)
+	}
+	cfg.UI.Theme, cfg.UI.LightTheme = "nord", "github-light"
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load()
+	if err != nil || got.UI.Theme != "nord" || got.UI.LightTheme != "github-light" {
+		t.Errorf("loaded %q/%q, %v", got.UI.Theme, got.UI.LightTheme, err)
 	}
 }

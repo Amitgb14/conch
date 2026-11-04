@@ -77,6 +77,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch status [-wide] [-json]` (or `conch ls`) | show server and pane status. In a terminal it fits the window: a line saying how many agents are working, waiting, done or idle, then each pane's ID, name, agent and its state, ssh host (when any pane has one), folder from `~` (cut from the start when it must be, since the end names it) and command (not an agent's, which is the agent; left out when there is no room to say anything). Piped — or with `-wide` — it is the full table scripts read, unchanged: ID, name, state, agent, ssh host, size, folder and command of each pane; `-json` gives the server and its panes as JSON (`{"server": null, "panes": []}` with no server). The ssh column is the host a terminal is logged in to with plain `ssh` right now — the one `-ssh` on `upload` and `download` reaches — and `-` for the rest. Its first line gives the server's uptime, which counts from the *first* server of a chain of reloads — its panes have been alive that whole time — and then `(reloaded N ago)` for when the running binary was loaded, which is the one that says whether your last build got there |
 | `conch new [-cwd DIR] [-name N] -- CMD [ARGS...]` | start a pane (default command: your shell; default folder: the current one, or with `-m` that machine's home) and print its ID |
 | `conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]` | start Claude Code with state tracking |
+| `conch ssh TARGET [SSH OPTION...]` | a terminal on this computer logged in to a host with ssh, outside every project — the session the TUI's `H` opens, built the same way (conch's ssh config, a connection of its own), so the tree, the files view and `-ssh` on `upload` and `download` know it as one; options after the target are ssh's (`-p 2222`, `-o Setting=value`); prints its pane ID. Not with `-m`: the session starts here |
 | `conch send [-keys] ID TEXT...` | type text into a pane; with `-keys`, the arguments are key names (e.g. `enter`, `ctrl+c`) |
 | `conch read ID` | print a pane's visible screen |
 | `conch close ID` | close a pane |
@@ -100,6 +101,19 @@ conch agent prompt -wait reviewer "Check finding 3 again" && conch read reviewer
 - A name is looked up once, when the command starts; a `wait` then stays with that pane.
 - Names are exact and case sensitive. A name two running panes share is refused rather than guessed — say which with its ID. A pane that has ended still answers to its name until another running pane takes it.
 - Names belong to one machine's server, so `-m` looks them up there.
+
+### machine
+
+`conch machine bridge ID` carries conch's protocol to that machine's server on its own stdin and stdout, reached the way conch reaches it — its ssh options, a sandbox's gateway — by running `conch bridge` there. It is how the [Mac app](/docs/mac-app) talks to a machine other than this one, and anything else that speaks the [protocol](/docs/protocol) can use it the same way. It installs nothing: a machine without conch, or with one too old for this build, is said, with `conch machine upgrade ID` to fix it.
+
+### attach
+
+```sh
+conch attach p3               # show pane p3 here and type into it
+conch -m busybox attach p3    # one on another machine
+```
+
+`conch attach` puts one pane in the terminal it runs in: the screen conch keeps for that pane, redrawn as it changes, with what you type, the mouse and the window's size going back to it. It is how the [Mac app](/docs/mac-app) shows a pane in a view of its own, and it works in any terminal. The pane's program never sees this terminal — conch's server is its terminal — so arrows and the like are passed by name for the server to send the way the program asked, and the mouse only reaches a program that asked for it. The wheel follows the TUI's rule: on the main screen it scrolls conch's history, on the alternate screen it goes to the program. Shift with Page Up and Page Down scrolls the history a page at a time, and shift with Home and End goes to its oldest line and back to the live screen; a full-screen program gets those keys instead. Closing the terminal detaches and the pane keeps running; when the pane ends, `attach` ends too and says how.
 
 ### When an agent runs these commands
 
@@ -129,6 +143,8 @@ conch tells who is asking from the operating system — the process at the other
 | `conch agent status` | list each supported agent: installed (with version and path) or not |
 | `conch agent install NAME` | run an agent's installer in a pane and wait for it |
 | `conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT...` | send the pane's agent its next message and submit it. Unlike `conch send` it only types into an agent, and never into one waiting on a question — a permission prompt, a menu — where its Enter could answer something nobody read: it exits 3 and types nothing (a question that comes up in the moment before Enter leaves the message typed but unsent). With `-wait` it blocks until the work the message starts has ended — not on the `done` or `idle` still showing from before it — and prints `ID AGENT STATE`; a question the agent asks ends it too, unless `-until` leaves `waiting` out. An agent already working gets the message when that work ends, so that work is the one waited for. Exits 124 if `-timeout` runs out, and fails if the pane ends or another program takes it over. With `-at` (`14:05`, `+30m`, `2026-10-15 09:00`) the server keeps the message and sends it then, once the agent is free — see [Later, and on a schedule](/docs/tasks#later-and-on-a-schedule) |
+| `conch agent question ID` | what a waiting agent asks and its choices, read off its screen as the [phone](/docs/phone) reads them, as JSON: `{"id": "q_…", "text": "Allow command?", "choices": [{"choice": "1", "label": "Yes", "default": true}, …]}`. `null` when the agent is not waiting, which is an answer rather than an error. The [Mac app](/docs/mac-app) shows it as buttons |
+| `conch agent answer [-question QID] ID CHOICE` | pick one of those choices without opening the pane: the agent's cursor is moved to it and Enter pressed, as the phone does. With `-question` it is refused if the question has changed since it was read, so a late answer cannot land on the next question |
 | `conch agent skill [-agent NAMES] [-remove] [-apply]` | install conch's skill — how an agent in a conch pane starts, prompts and reads another — where each agent reads your skills: `~/.claude/skills/conch` for Claude, `~/.agents/skills/conch` for Codex, Gemini and OpenCode, `~/.config/devin/skills/conch` for Devin. Without `-apply` it only says what it would do; `-remove` takes it away again. A `conch` skill there that conch didn't write is left alone. With `-m` it installs on that machine. Not from an agent's pane: it is your setup |
 | `conch skill` | print that skill to stdout instead of installing it, for an agent whose skills folder conch does not manage, a system prompt you assemble yourself, or a sandbox where it goes inline. The same bytes the installer writes |
 | `conch agent setup [-agent NAME] [-copy] [-json] [DIR]` | show what each agent loads in a folder; `-agent` limits it to one agent, `-copy` copies missing local files from the main checkout first, `-json` prints JSON |
@@ -170,6 +186,7 @@ Finishing a task from a script, the same steps as the [changes view](/docs/tasks
 | `conch branch pr [-title T] [-body B] [-draft]` | push, then open a pull request into the base with `gh`, and print its URL. Without `-title`, gh fills the title and body from the commits |
 | `conch branch merge [-no-squash] [-m MESSAGE]` | merge the branch into the base where the base is checked out, squashed unless `-no-squash`. A merge that conflicts is undone and the command fails |
 | `conch branch discard [-n] [-force]` | remove the branch's worktree and delete the branch. It refuses when that would lose uncommitted files or unpushed commits, unless `-force`; `-n` only prints what would go |
+| `conch branch fix-ci [-agent A]` | send the branch's newest failed CI run — its log's end and a link to it — to the agent working on the branch, as `f` in the review queue; with none there, start one (`-agent`, else `[agents] default`) in the branch's worktree with it. Refused while that agent waits on a question of its own |
 
 ```sh
 conch branch commit -m "Add the health check" && conch branch pr -title "Health check"
@@ -246,6 +263,10 @@ conch web revoke ID                                         # cut one off at onc
 conch web permission ID view|reply|full [-machine NAME]...  # change what one may do, and which
                                                             # machines it reaches (this computer only
                                                             # until you name one; 'local' clears them)
+conch web pair -json                                        # the same as JSON: the code, its link, and
+                                                            # whether the gateway runs (for Conch.app)
+conch web start                                             # run it in the background, as last started
+                                                            # or at the settings' address
 conch web stop                                              # end one running in the background
 ```
 
@@ -258,7 +279,7 @@ conch config web [-port N] [-no-open]   # every setting as a form in the browser
 conch config path                       # where config.toml is
 ```
 
-`conch config web` serves the [settings page](/docs/interface#edit-in-browser) on `127.0.0.1` — a free port unless `-port` names one — and opens it; `-no-open` prints the address instead. The address carries a key of its own, made fresh each time, which the page needs to read or write anything. A conch TUI that is open reads `config.toml` when it next starts, and may write its own copy over the page's when a setting changes there, so while one is open use its Settings (`,`, then `e`), which hands every save straight to it.
+`conch config web` serves the [settings page](/docs/interface#edit-in-browser) on `127.0.0.1` — a free port unless `-port` names one — and opens it; `-no-open` prints the address instead. The address carries a key of its own, made fresh each time, which the page needs to read or write anything. A conch TUI that is open notices a change to `config.toml` within a second and takes it in — a new theme shows at once — so what the page saves is not written over by the TUI's next change; its own Settings (`,`, then `e`) hands every save straight to it as well.
 
 ### mcp
 
@@ -321,9 +342,20 @@ conch app remove               # take it out again
 
 conch is a terminal program, so it is usually started by typing into a terminal somebody set up first. `conch app` starts the terminal as well: it writes a configuration of its own and opens a known terminal with **only** that one, so a terminal that was never configured — or configured years ago for something else — stops being conch's problem. The terminals it knows, in the order it picks one: **ghostty**, **kitty**, **foot**, **alacritty**. It looks for each on your `PATH` and, on macOS, in `~/Applications` and `/Applications` as well — a terminal there is an application and not a program on `PATH` (ghostty adds its own directory to `PATH` only for the shells *it* starts, so a shell started by a conch pane, by launchd or by another terminal cannot see it). `conch app ls` says which it found and where. Each is started in the way that leaves your own config unread (`--config-default-files=false`, `--config`, `-c`, `--config-file`), which is the whole of the trick.
 
-The file conch writes is nearly empty on purpose. Terminal defaults are good; what conch needs is that nothing broken is read on top of them. The only settings in it are the ones that would otherwise bite: `TERM` held at `xterm-256color` when nothing the window could read describes the terminal's own entry (the thing [`conch doctor`](#doctor) warns about) — asked of this computer *and* of the terminal itself, since one may carry its own terminfo and point `TERMINFO` at it for what it starts, as macOS Ghostty does from inside its bundle; asking only the environment conch happens to be in cost the window `xterm-ghostty` for no reason, and, for ghostty, single-instance turned off and quit-after-last-window-closed turned on. Both of those are about the window being conch's: a ghostty already running would otherwise make it itself, from its own configuration rather than conch's, and on macOS — where ghostty cannot be started from the command line at all, so conch goes through `open -na Ghostty.app --args` — the separate instance that creates would sit in the Dock with nothing in it after the conch window was closed, one more for every launch. Anything you want to add goes in `<name>.local.<ext>` beside it (`~/.config/conch/app/ghostty.local.conf`), which is included when it exists; the generated file itself is rewritten every time, so edits there are lost.
+Terminal defaults are good; what conch needs is that nothing broken is read on top of them. Beside what makes the window conch's own (below), the only settings in the file are the ones that would otherwise bite: `TERM` held at `xterm-256color` when nothing the window could read describes the terminal's own entry (the thing [`conch doctor`](#doctor) warns about) — asked of this computer *and* of the terminal itself, since one may carry its own terminfo and point `TERMINFO` at it for what it starts, as macOS Ghostty does from inside its bundle; asking only the environment conch happens to be in cost the window `xterm-ghostty` for no reason, and, for ghostty, single-instance turned off and quit-after-last-window-closed turned on. Both of those are about the window being conch's: a ghostty already running would otherwise make it itself, from its own configuration rather than conch's, and on macOS — where ghostty cannot be started from the command line at all, so conch goes through `open -na Ghostty.app --args` — the separate instance that creates would sit in the Dock with nothing in it after the conch window was closed, one more for every launch. Anything you want to add goes in `<name>.local.<ext>` beside it (`~/.config/conch/app/ghostty.local.conf`), which is included when it exists; the generated file itself is rewritten every time, so edits there are lost.
 
 `conch app install` puts conch in the launcher: a `conch.desktop` entry and conch's own icon under `~/.local/share` on Linux (`$XDG_DATA_HOME` when set), or a `conch.app` bundle in `~/Applications` on macOS, where the icon is built from conch's with `sips` and `iconutil` and left out if they are missing. Both are files of your own, nothing is installed system-wide, each path is printed as it is written, and `conch app remove` takes exactly those away. It refuses to install when none of the terminals is there, since the entry would be a launcher that does nothing when clicked.
+
+The window is conch's in a few more ways, all of them settings of the terminal rather than anything drawn around conch:
+
+- **The theme.** Its background, text, cursor and selection are the [theme](/docs/interface#settings) in `config.toml` (`[ui] theme`, `accent`), so the window is that theme rather than a terminal's stock black with conch's colours on it. A theme changed in Settings reaches the window the next time `conch app` opens one.
+- **⌘ shortcuts** (Ghostty and kitty). `⌘T`, `⌘W`, `⌘D`, `⌘1`–`⌘9` and the rest send your prefix and a key, so each is exactly a key conch already has — the list is on the [keys page](/docs/keys#conchs-own-window). They replace the terminal's own, which would make a tab or split of the *terminal*, outside conch. `⌘K` opens the [palette](/docs/keys#splits-and-tabs). A prefix no character stands for (`f12`) gets no shortcuts, and the file says why.
+- **An application's size and title bar.** It opens at 14pt and about 160 columns by 46 rows every time, rather than restored to whatever filled the screen last, with room around the grid and between its lines. Ghostty draws a native title bar, a shade off the window (its default transparent one is the window's own background, and on macOS no setting colours it), and conch's strip along the top is drawn in that same shade, edge to edge, so the two read as one bar.
+- **The left option key is alt**, for conch's alt keys and alt+click; the right one still types the characters your keyboard puts there.
+- **A strip along the top**: conch's mark and the workspaces at its left (where the sidebar's top row keeps them in any other terminal), a search box in the middle that opens the palette, and on the right what is waiting or done — a click there goes to the next agent waiting. A window under 12 rows tall goes without it.
+- **The title** says what is waiting — `conch · ⚑ Fix flaky tests on fix/flaky waiting` — so the title bar and the Dock's window list show it while conch is not on screen. conch sets it only in this window (it is told by `CONCH_APP_WINDOW`, which the configuration sets); in any other terminal the title belongs to whoever set the terminal up.
+
+Your own `.local` file comes after all of this for Ghostty and kitty, so it can change any of it. foot and alacritty read their includes first, so there conch's colours hold.
 
 It is not a window of conch's own, and will not become one: conch's interface is conch's, drawn in a terminal, and a second interface around it would compete both with that and with the terminal it is standing in for.
 
@@ -370,6 +402,8 @@ It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by 
 ### bug
 
 ```sh
+conch autopilot push                                        # hand the server [verify]'s autopilot policy,
+                                                            # as the TUI does (Conch.app runs it)
 conch bug                                                   # the facts about this conch
 conch bug -open "the tree lost a terminal"                  # …in a GitHub issue, already filled in
 conch bug -log                                              # where the server's log is

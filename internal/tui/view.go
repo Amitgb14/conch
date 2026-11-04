@@ -26,15 +26,30 @@ func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return ""
 	}
+	if m.headerRows > 0 {
+		return m.appHeader() + strings.Repeat("\n", m.headerRows) + m.viewBody()
+	}
+	return m.viewBody()
+}
+
+// viewBody is everything under conch's own window's header, which is the
+// whole screen anywhere else (appwindow.go).
+func (m Model) viewBody() string {
 	rows := m.height - statusHeight
 	screen := make([]string, rows)
 	if !m.zoom {
 		sw, sh := m.sidebarInner()
+		header := ""
+		if m.headerRows == 0 { // conch's own window has them in its header
+			header, _ = m.spaceHeader(max(sw-2, 0))
+		}
+		// The tree keeps its box, in the accent while it has the keys, so
+		// it reads as a panel beside the splits — the TUI's own look, which
+		// an unboxed column lost.
 		sideColor := colorAccent
 		if m.focus == focusMain {
 			sideColor = colorBorder
 		}
-		header, _ := m.spaceHeader(max(sw-2, 0))
 		left := frameLines(header, exactly(m.sidebarLines(sw, sh), sh), sw, sideColor)
 		for i := range screen {
 			if i < len(left) {

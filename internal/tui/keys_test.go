@@ -104,7 +104,7 @@ func TestA1TreeCursorKeys(t *testing.T) {
 		t.Fatal("right did not open the project")
 	}
 	a1Key(t, m, runes("l"))
-	if ids() != sectionID(localMachine, "r1", "branches") {
+	if ids() != sectionID(localMachine, "r1", "agents") { // Agents come first, as in Conch.app
 		t.Fatalf("l on an open row: %s", ids())
 	}
 	m.cursor = paneNodeID(localMachine, "p2")

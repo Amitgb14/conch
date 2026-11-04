@@ -76,6 +76,8 @@ func runMachine(args []string) error {
 		return machineAdd(args[1:])
 	case "ls", "list":
 		return machineList()
+	case "bridge":
+		return machineBridge(args[1:])
 	case "rm", "remove":
 		if len(args) != 2 {
 			return errors.New("usage: conch machine rm ID")
@@ -369,4 +371,33 @@ func confirm(prompt string, def bool) bool {
 		return false
 	}
 	return def
+}
+
+// machineBridge carries conch's protocol to a machine's server over this
+// process's stdin and stdout: `conch bridge` there, reached the way conch
+// reaches that machine (its ssh options, a sandbox's gateway). It is how
+// the Mac app talks to a machine other than this one — the bytes, not a
+// client of them, since the app speaks the protocol itself. Nothing is
+// installed: a machine without conch, or with an older one, is said.
+func machineBridge(args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: conch machine bridge NAME")
+	}
+	m := remote.FindMachine(args[0])
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	_, tr, err := transports(ctx, m)
+	if err != nil {
+		return err
+	}
+	cmd, err := remote.BridgeCommand(ctx, tr)
+	var needs *remote.InstallError
+	if errors.As(err, &needs) {
+		return fmt.Errorf("%v; run: conch machine upgrade %s", err, m.ID)
+	}
+	if err != nil {
+		return err
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return cmd.Run()
 }

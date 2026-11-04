@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -22,10 +23,15 @@ func (m Model) autopilotOn(machine string) bool {
 }
 
 // autopilotPolicy is the [verify] settings the servers act on.
-func (m Model) autopilotPolicy() proto.AutopilotPolicy {
-	pol := proto.AutopilotPolicy{AutoFix: m.cfg.Verify.AutoFix, AutoMerge: m.cfg.Verify.AutoMerge, AutoPR: m.cfg.Verify.AutoPR, AutoResolve: m.cfg.Verify.AutoResolve,
-		RequireTests: m.cfg.Verify.RequireTests, MaxDiff: m.cfg.Verify.MaxDiff}
-	for id, cmd := range m.cfg.Verify.Commands {
+func (m Model) autopilotPolicy() proto.AutopilotPolicy { return AutopilotPolicy(m.cfg.Verify) }
+
+// AutopilotPolicy is the policy a server acts on from [verify]: what the
+// TUI hands every server, and `conch autopilot push` for a window that is
+// not the TUI (Conch.app), so it is one rule wherever it is sent from.
+func AutopilotPolicy(v config.VerifyCfg) proto.AutopilotPolicy {
+	pol := proto.AutopilotPolicy{AutoFix: v.AutoFix, AutoMerge: v.AutoMerge, AutoPR: v.AutoPR, AutoResolve: v.AutoResolve,
+		RequireTests: v.RequireTests, MaxDiff: v.MaxDiff}
+	for id, cmd := range v.Commands {
 		if cmd = strings.TrimSpace(cmd); cmd != "" {
 			if pol.Checks == nil {
 				pol.Checks = map[string]string{}

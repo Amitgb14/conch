@@ -305,8 +305,14 @@ type UICfg struct {
 	Mouse bool `toml:"mouse"`
 	// Theme is the colour scheme: conch, dracula, catppuccin, nord, gruvbox,
 	// tokyo-night, one-dark, solarized, rose-pine, kanagawa, everforest,
-	// monokai, github-dark, ayu or night-owl.
+	// monokai, github-dark, ayu, night-owl, firefly, cel, or a light one:
+	// github-light, solarized-light, catppuccin-latte, ink or meadow.
 	Theme string `toml:"theme"`
+	// LightTheme, when set, is the theme Conch.app takes while macOS is in
+	// light appearance, Theme being the one for dark: the app follows the
+	// system as it switches. The TUI keeps to Theme, since a terminal's
+	// appearance is not macOS's to say. Empty leaves the app on Theme.
+	LightTheme string `toml:"light_theme,omitempty"`
 	// Accent overrides the theme's accent (selections, focused borders,
 	// dialogs): teal, blue, green, orange, pink, red, gray, purple, or a
 	// "#rrggbb" value. Empty uses the theme's.
@@ -506,11 +512,7 @@ func Save(cfg Config) error {
 	}
 	path := File()
 	keepUnreadable(path)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return WriteFileAtomic(path, []byte(b.String()), 0o600)
 }
 
 // keepUnreadable moves aside a config.toml conch could not parse, so that

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/tui"
 )
 
 // `conch app` opens conch in a terminal of its own, configured by conch,
@@ -29,9 +30,11 @@ import (
 // **only** that one: every terminal here is started in a way that leaves
 // the user's own config unread (`--config-default-files=false` for
 // ghostty, `--config` for kitty, `-c` for foot, `--config-file` for
-// alacritty). That is the whole trick, and it is why the file conch writes
-// is nearly empty: terminal defaults are fine, and what conch needs is for
-// nothing broken to be read on top of them.
+// alacritty). That is the whole trick: terminal defaults are fine, and
+// what conch needs is for nothing broken to be read on top of them. What
+// the file does add makes that terminal look and act like conch rather
+// than like a stock terminal: the theme's colours, ⌘ shortcuts that are
+// conch's keys, and a variable that tells the TUI where it is (appOpts).
 //
 // It is not a window of conch's own. conch is a terminal program, and
 // this starts a terminal — the one thing it must not grow is an interface
@@ -51,11 +54,8 @@ type appTerminal struct {
 	// file is what conch's configuration for it is called. The extension
 	// matters to some of them.
 	file string
-	// settings writes that configuration. fallback is whether TERM has to
-	// be held back to xterm-256color because the terminal's own entry is
-	// not installed; local is conch's own file for somebody's additions,
-	// included when it exists.
-	settings func(fallback bool, local string) string
+	// settings writes that configuration from what conch decided (appOpts).
+	settings func(o appOpts) string
 	// args is how the terminal is started: the binary, conch's config and
 	// the command to run in it, in that terminal's spelling.
 	args func(bin, cfg, conch string) []string
@@ -73,10 +73,106 @@ type appTerminal struct {
 	app string
 }
 
+// appOpts is what goes into a terminal's configuration.
+type appOpts struct {
+	// fallback is whether TERM has to be held back to xterm-256color
+	// because the terminal's own entry is not installed.
+	fallback bool
+	// local is conch's own file for somebody's additions, included when it
+	// exists — last wherever the terminal lets it be, so it can change
+	// what conch wrote.
+	local string
+	// bg, fg, cursor and selection are the conch theme's (tui.TerminalColors).
+	bg, fg, cursor, selection string
+	// prefix is the bytes conch's prefix key sends ("\x02" for ctrl+b),
+	// or "" when it is a key no byte stands for — then there are no ⌘
+	// shortcuts, since each one is the prefix and a key.
+	prefix string
+}
+
+// appEnvVar is set in the window conch opens, so the TUI in it knows it is
+// conch's own window (internal/tui/appwindow.go). Set through the
+// terminal's configuration and not the environment, because on macOS the
+// terminal is opened by `open`, which passes no environment on.
+const appEnvVar = tui.AppWindowEnv
+
+// appPrefixBytes is what the terminal has to send for conch's prefix key:
+// the control character for ctrl and a letter (or one of the few symbols
+// that have one), and "" for a key no character stands for.
+func appPrefixBytes(prefix string) string {
+	k, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(prefix)), "ctrl+")
+	if !ok {
+		return ""
+	}
+	switch {
+	case len(k) == 1 && k[0] >= 'a' && k[0] <= 'z':
+		return string(rune(k[0] - 'a' + 1))
+	case k == "space" || k == "@":
+		return "\x00"
+	case k == "\\":
+		return "\x1c"
+	case k == "]":
+		return "\x1d"
+	case k == "^":
+		return "\x1e"
+	case k == "_":
+		return "\x1f"
+	}
+	return ""
+}
+
+// appEscape writes bytes the way ghostty's `text:` and kitty's
+// `send_text` both read them: letters and digits as they are, everything
+// else as \xNN, so no quote, space or control character is left for
+// either config parser to take a view on.
+func appEscape(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "\\x%02x", c)
+		}
+	}
+	return b.String()
+}
+
+// appGhosttyKeys are a shortcut's key as ghostty names it in a keybind,
+// with any other spelling of it to bind too: ghostty binds ⌘1 both as the
+// character and as the physical key (digit_1), and a binding of only one
+// leaves the other doing what ghostty does by default.
+func appGhosttyKeys(k tui.AppShortcut) []string {
+	name := k.Key
+	switch name {
+	case "up", "down", "left", "right":
+		name = "arrow_" + name
+	}
+	mods := "super+"
+	if k.Mods != "" {
+		mods += k.Mods + "+"
+	}
+	out := []string{mods + name}
+	if len(k.Key) == 1 && k.Key[0] >= '0' && k.Key[0] <= '9' {
+		out = append(out, mods+"digit_"+k.Key)
+	}
+	return out
+}
+
+func appGhosttyColors(b *strings.Builder, o appOpts) {
+	for _, kv := range [][2]string{{"background", o.bg}, {"foreground", o.fg}, {"cursor-color", o.cursor}, {"selection-background", o.selection}, {"selection-foreground", o.fg}} {
+		if kv[1] != "" {
+			fmt.Fprintf(b, "%s = %s\n", kv[0], kv[1])
+		}
+	}
+}
+
 // appTerminals are the terminals conch will start, in the order it picks
 // one: ghostty and kitty first because they do everything conch asks of a
 // terminal (an addressable mouse, OSC 52 clipboard, OSC 22 pointer
-// shapes, synchronized updates), then foot and alacritty.
+// shapes, synchronized updates), then foot and alacritty. The ⌘
+// shortcuts are ghostty's and kitty's: those are the two on macOS, where
+// ⌘ is the key every application uses, and foot has no ⌘ to give.
 //
 // Only the way each one is *started* is conch's business here. Deliberately
 // absent: a terminal with no way to be given a config file of its own, and
@@ -88,7 +184,7 @@ var appTerminals = []appTerminal{{
 	terminfo: "xterm-ghostty",
 	file:     "ghostty.conf",
 	bundle:   true, // "launching the terminal emulator from the CLI is not supported" on macOS
-	settings: func(fallback bool, local string) string {
+	settings: func(o appOpts) string {
 		var b strings.Builder
 		// A running ghostty would otherwise make the window itself, from
 		// the config it was started with rather than this one.
@@ -100,11 +196,41 @@ var appTerminals = []appTerminal{{
 		// every launch. This is an instance conch made for one window,
 		// so it goes when the window does.
 		b.WriteString("quit-after-last-window-closed = true\n")
-		if fallback {
+		if o.fallback {
 			b.WriteString("term = xterm-256color\n")
 		}
-		if local != "" {
-			fmt.Fprintf(&b, "config-file = %s\n", local)
+		fmt.Fprintf(&b, "env = %s=1\n", appEnvVar)
+		// The left option key is alt, for conch's alt keys and alt+click;
+		// the right one still types the characters a keyboard puts there.
+		b.WriteString("macos-option-as-alt = left\n")
+		// Room around the grid and between its lines, so the window reads
+		// as an application's rather than as a terminal filled to its edges.
+		// None above the first row, which is conch's header band, and the
+		// padding beside it takes the band's colour (extend), so the band
+		// meets the title bar and reads as part of it.
+		b.WriteString("window-padding-x = 12\nwindow-padding-y = 0,8\nwindow-padding-color = extend\nadjust-cell-height = 12%\n")
+		// An application's size: a type size to read at, and a window of
+		// about 160 by 46 that opens that way every time, rather than one
+		// restored to whatever filled the screen last, where conch spreads
+		// over 300 columns and every line is mostly space.
+		b.WriteString("font-size = 14\nwindow-width = 160\nwindow-height = 46\nwindow-save-state = never\n")
+		// A title bar of its own, a shade off the window, as an
+		// application has. The transparent one ghostty draws by default
+		// is the window's background, and on macOS no setting colours it.
+		b.WriteString("macos-titlebar-style = native\nwindow-theme = dark\n")
+		appGhosttyColors(&b, o)
+		if o.prefix != "" {
+			for _, k := range tui.AppShortcuts {
+				for _, name := range appGhosttyKeys(k) {
+					fmt.Fprintf(&b, "keybind = %s=text:%s\n", name, appEscape(o.prefix+k.Send))
+				}
+			}
+			// ghostty's settings are not the ones this window was started
+			// with, so opening them would edit a file it never read.
+			b.WriteString("keybind = super+,=unbind\n")
+		}
+		if o.local != "" {
+			fmt.Fprintf(&b, "config-file = %s\n", o.local)
 		}
 		return b.String()
 	},
@@ -116,13 +242,31 @@ var appTerminals = []appTerminal{{
 	app:      "kitty.app",
 	terminfo: "xterm-kitty",
 	file:     "kitty.conf",
-	settings: func(fallback bool, local string) string {
+	settings: func(o appOpts) string {
 		var b strings.Builder
-		if fallback {
+		if o.fallback {
 			b.WriteString("term xterm-256color\n")
 		}
-		if local != "" {
-			fmt.Fprintf(&b, "include %s\n", local)
+		fmt.Fprintf(&b, "env %s=1\n", appEnvVar)
+		b.WriteString("macos_option_as_alt left\n")
+		b.WriteString("window_padding_width 8 12\nmodify_font cell_height 112%\n")
+		b.WriteString("font_size 14\nremember_window_size no\ninitial_window_width 160c\ninitial_window_height 46c\n")
+		for _, kv := range [][2]string{{"background", o.bg}, {"foreground", o.fg}, {"cursor", o.cursor}, {"selection_background", o.selection}, {"selection_foreground", o.fg}} {
+			if kv[1] != "" {
+				fmt.Fprintf(&b, "%s %s\n", kv[0], kv[1])
+			}
+		}
+		if o.prefix != "" {
+			for _, k := range tui.AppShortcuts {
+				mods := "cmd+"
+				if k.Mods != "" {
+					mods += k.Mods + "+"
+				}
+				fmt.Fprintf(&b, "map %s%s send_text all %s\n", mods, k.Key, appEscape(o.prefix+k.Send))
+			}
+		}
+		if o.local != "" {
+			fmt.Fprintf(&b, "include %s\n", o.local)
 		}
 		return b.String()
 	},
@@ -133,13 +277,20 @@ var appTerminals = []appTerminal{{
 	name:     "foot",
 	terminfo: "foot",
 	file:     "foot.ini",
-	settings: func(fallback bool, local string) string {
+	settings: func(o appOpts) string {
 		var b strings.Builder
-		if local != "" {
-			fmt.Fprintf(&b, "include=%s\n", local)
+		// foot reads an include where it stands and has nowhere after the
+		// sections to put one, so somebody's own file comes first here and
+		// conch's colours are the ones that hold.
+		if o.local != "" {
+			fmt.Fprintf(&b, "include=%s\n", o.local)
 		}
-		if fallback {
+		if o.fallback {
 			b.WriteString("[main]\nterm=xterm-256color\n")
+		}
+		fmt.Fprintf(&b, "[environment]\n%s=1\n", appEnvVar)
+		if o.bg != "" {
+			fmt.Fprintf(&b, "[colors]\nbackground=%s\nforeground=%s\n", strings.TrimPrefix(o.bg, "#"), strings.TrimPrefix(o.fg, "#"))
 		}
 		return b.String()
 	},
@@ -151,13 +302,25 @@ var appTerminals = []appTerminal{{
 	app:      "Alacritty.app",
 	terminfo: "alacritty",
 	file:     "alacritty.toml",
-	settings: func(fallback bool, local string) string {
+	settings: func(o appOpts) string {
 		var b strings.Builder
-		if local != "" {
-			fmt.Fprintf(&b, "[general]\nimport = [%q]\n", local)
+		// An import is read first and this file over it, whatever the
+		// order: alacritty has no way for somebody's own file to come
+		// last, so conch's colours are the ones that hold here too.
+		if o.local != "" {
+			fmt.Fprintf(&b, "[general]\nimport = [%q]\n", o.local)
 		}
-		if fallback {
-			b.WriteString("[env]\nTERM = \"xterm-256color\"\n")
+		b.WriteString("[env]\n")
+		fmt.Fprintf(&b, "%s = \"1\"\n", appEnvVar)
+		if o.fallback {
+			b.WriteString("TERM = \"xterm-256color\"\n")
+		}
+		b.WriteString("[window]\noption_as_alt = \"OnlyLeft\"\npadding = { x = 12, y = 8 }\ndimensions = { columns = 160, lines = 46 }\n")
+		b.WriteString("[font]\nsize = 14\n")
+		if o.bg != "" {
+			fmt.Fprintf(&b, "[colors.primary]\nbackground = %q\nforeground = %q\n", o.bg, o.fg)
+			fmt.Fprintf(&b, "[colors.cursor]\ncursor = %q\ntext = %q\n", o.cursor, o.bg)
+			fmt.Fprintf(&b, "[colors.selection]\nbackground = %q\ntext = %q\n", o.selection, o.fg)
 		}
 		return b.String()
 	},
@@ -357,7 +520,19 @@ func appConfig(t appTerminal, bin string) (string, error) {
 		head += fmt.Sprintf("# TERM is held at xterm-256color: this computer has no terminfo entry for %s.\n", t.terminfo)
 	}
 	path := filepath.Join(dir, t.file)
-	return path, os.WriteFile(path, []byte(head+"\n"+t.settings(fallback, local)), 0o600)
+	o := appOpts{fallback: fallback, local: local}
+	// The theme and keys are config.toml's. A file that will not load
+	// still gets a window: the defaults, as the TUI itself would draw.
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = config.Default()
+	}
+	o.bg, o.fg, o.cursor, o.selection = tui.TerminalColors(cfg.UI.Theme, cfg.UI.Accent)
+	o.prefix = appPrefixBytes(cfg.Keys.Prefix)
+	if o.prefix == "" {
+		head += fmt.Sprintf("# No ⌘ shortcuts: the prefix key %s sends no character a terminal can be told to send.\n", cfg.Keys.Prefix)
+	}
+	return path, os.WriteFile(path, []byte(head+"\n"+t.settings(o)), 0o600)
 }
 
 // appOpenBundle turns a command line into the one macOS takes for a

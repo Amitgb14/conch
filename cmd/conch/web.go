@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -81,6 +82,8 @@ func runWeb(args []string) error {
 			return webPermission(args[1:])
 		case "stop":
 			return webStop(args[1:])
+		case "start":
+			return webStart(args[1:])
 		}
 	}
 	return webServe(args)
@@ -108,6 +111,9 @@ func webPair(args []string) error {
 	// answer, and a pairing that can't type looked broken. -permission
 	// reply or view pairs one that may do less.
 	permission := fs.String("permission", phone.PermFull, "what the device may do: view, reply or full")
+	// -json is for a program pairing a phone in its own window — Conch.app
+	// — which draws the QR code and says the rest itself.
+	asJSON := fs.Bool("json", false, "print the code, its link and the gateway's state as JSON")
 	// A device reaches this computer and the machines named here. Said at
 	// pairing because that is when somebody knows what the phone is for;
 	// without it they pair, look for a machine, and find it missing.
@@ -129,6 +135,9 @@ func webPair(args []string) error {
 	}
 	url := store.URL()
 	secure := strings.HasPrefix(url, "https://")
+	if *asJSON {
+		return printPairJSON(store, code, *permission, machines.names, url, secure)
+	}
 	if url != "" && secure && stdoutIsTerminal() {
 		// The code opens the page with the pairing code filled in.
 		if lines, err := phone.QRLines(phone.PairLink(url, code)); err == nil {
@@ -457,5 +466,67 @@ func webServe(args []string) error {
 	sctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(sctx)
+	return nil
+}
+
+// pairJSON is conch web pair -json: what a window needs to pair a phone.
+// Link is set only where a phone can pair through it (https); Where says
+// what to do otherwise, as the plain pairing does.
+type pairJSON struct {
+	Code       string    `json:"code"`
+	Permission string    `json:"permission"`
+	Expires    time.Time `json:"expires"`
+	Reach      string    `json:"reach"`
+	URL        string    `json:"url,omitempty"`
+	Link       string    `json:"link,omitempty"`
+	Where      string    `json:"where"`
+	Running    bool      `json:"running"`
+	CanStart   bool      `json:"can_start"`
+}
+
+func printPairJSON(store *phone.Store, code, permission string, machines []string, url string, secure bool) error {
+	cfg, _ := config.Load()
+	_, running := store.Gateway()
+	_, can := phone.GatewayArgs(cfg.Web.URL, store)
+	out := pairJSON{Code: code, Permission: permission, Expires: time.Now().Add(phone.PairTTL).UTC(),
+		Reach: reachWords(machines), URL: url, Where: pairWhere(url), Running: running, CanStart: !running && can}
+	if url != "" && secure {
+		out.Link = phone.PairLink(url, code)
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(b))
+	return nil
+}
+
+// startWebProcess runs the gateway's command; tests start nothing.
+var startWebProcess = func(cmd *exec.Cmd) error { return cmd.Start() }
+
+// webStart starts conch web in the background as the TUI's pair dialog
+// does (s): with the settings' address, else as it was last started.
+func webStart(args []string) error {
+	if len(args) != 0 {
+		return errors.New("usage: conch web start")
+	}
+	store := phone.OpenStore(config.Dir())
+	if run, running := store.Gateway(); running {
+		fmt.Printf("conch web is running (pid %d)\n", run.PID)
+		return nil
+	}
+	cfg, _ := config.Load()
+	gargs, ok := phone.GatewayArgs(cfg.Web.URL, store)
+	if !ok {
+		return errors.New("conch web has not run here and the settings name no address: start it once with `conch web` (and -url if a phone opens it through tailscale serve)")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if err := phone.StartGateway(exe, gargs, startWebProcess); err != nil {
+		return fmt.Errorf("conch web didn't start: %w", err)
+	}
+	fmt.Println("starting conch web in the background; its output is in " + filepath.Join(config.Dir(), "web.log"))
 	return nil
 }

@@ -7,13 +7,25 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // choiceLine is one row of a numbered menu: "❯ 1. Yes", "  2. No", with or
 // without the box an agent draws round it. The first group is the cursor.
-var choiceLine = regexp.MustCompile(`^[\s│┃|]*([❯›>])?\s*(\d{1,2})\.\s+(\S.*?)[\s│┃|]*$`)
+// Gemini CLI marks its cursor with ● where Claude Code has ❯ and Codex ›.
+var choiceLine = regexp.MustCompile(`^[\s│┃|]*([❯›>●])?\s*(\d{1,2})\.\s+(\S.*?)[\s│┃|]*$`)
+
+// cursorLine and plainLine are the rows of a menu without numbers, as
+// Claude Code draws its folder-trust question: the cursor's row
+// "❯ No, exit" and the others indented to where its label starts.
+var (
+	cursorLine = regexp.MustCompile(`^([\s│┃|]*[❯›●]\s+)(\S.*?)[\s│┃|]*$`)
+	plainLine  = regexp.MustCompile(`^([\s│┃|]*\s)(\S.*?)[\s│┃|]*$`)
+	// numberedLabel is a label that is a numbered menu's row.
+	numberedLabel = regexp.MustCompile(`^\d{1,2}\.\s`)
+)
 
 // menu is the choices read off a screen: their labels in order (number 1
 // first), the row of the first, and which one the cursor is on.
@@ -38,12 +50,22 @@ func readMenu(screen []string) (menu, bool) {
 		}
 		cur, cursors = menu{}, 0
 	}
+	numberAt := -1 // the column the current menu's numbers start in
 	for i, line := range screen {
 		m := choiceLine.FindStringSubmatch(line)
 		if m == nil {
+			// A line indented past the numbers, under a choice, is that
+			// choice's description (Claude Code's question tool writes
+			// one under each): the menu carries on below it.
+			if len(cur.labels) > 0 && numberAt >= 0 && descriptionLine(line, numberAt) {
+				continue
+			}
 			flush()
+			numberAt = -1
 			continue
 		}
+		// In characters, not bytes: the cursor ❯ is one column and three bytes.
+		numberAt = utf8.RuneCountInString(line[:strings.IndexFunc(line, func(r rune) bool { return r >= '0' && r <= '9' })])
 		n, _ := strconv.Atoi(m[2])
 		if n != len(cur.labels)+1 {
 			flush()
@@ -61,6 +83,74 @@ func readMenu(screen []string) (menu, bool) {
 		cur.labels = append(cur.labels, m[3])
 	}
 	flush()
+	if found {
+		return best, true
+	}
+	return readPlainMenu(screen)
+}
+
+// descriptionLine is whether line is written under a choice whose number
+// starts in column numberAt: text, beginning further right than that.
+func descriptionLine(line string, numberAt int) bool {
+	text := strings.TrimLeft(line, " \t│┃|")
+	if strings.TrimSpace(text) == "" {
+		return false
+	}
+	return utf8.RuneCountInString(line)-utf8.RuneCountInString(text) > numberAt
+}
+
+// readPlainMenu finds a menu without numbers nearest the bottom of the
+// screen: two or more rows together, exactly one under the cursor, every
+// label starting in the same column — what Claude Code asks whether to
+// trust a folder with. Being strict about the column is what keeps an
+// agent's answer, or a shell prompt, from reading as a menu.
+func readPlainMenu(screen []string) (menu, bool) {
+	var best menu
+	found := false
+	for i := 0; i < len(screen); i++ {
+		c := cursorLine.FindStringSubmatch(screen[i])
+		if c == nil {
+			continue
+		}
+		col := len([]rune(c[1]))
+		label := func(line string) (string, bool) {
+			m := plainLine.FindStringSubmatch(line)
+			if m == nil || len([]rune(m[1])) != col || cursorLine.MatchString(line) {
+				return "", false
+			}
+			return m[2], true
+		}
+		top := i
+		for top > 0 {
+			if _, ok := label(screen[top-1]); !ok {
+				break
+			}
+			top--
+		}
+		var labels []string
+		for j := top; j < i; j++ {
+			l, _ := label(screen[j])
+			labels = append(labels, l)
+		}
+		cursor := len(labels)
+		labels = append(labels, c[2])
+		for j := i + 1; j < len(screen); j++ {
+			l, ok := label(screen[j])
+			if !ok {
+				break
+			}
+			labels = append(labels, l)
+		}
+		numbered := false
+		for _, l := range labels {
+			numbered = numbered || numberedLabel.MatchString(l)
+		}
+		// Rows with numbers are a numbered menu's, read above or refused
+		// there (one not starting at 1, one with a gap): never this.
+		if len(labels) >= 2 && !numbered {
+			best, found = menu{labels: labels, top: top, cursor: cursor}, true
+		}
+	}
 	return best, found
 }
 
@@ -161,3 +251,11 @@ func choiceKeys(screen []string, choice string) ([]string, bool) {
 	}
 	return append(keys, "enter"), true
 }
+
+// ReadQuestion is readQuestion for conch's own commands: the Mac app
+// answers a waiting agent from its card through `conch agent question`
+// and `conch agent answer`, and reads a menu exactly as the phone does.
+func ReadQuestion(p proto.PaneInfo, screen []string) *Question { return readQuestion(p, screen) }
+
+// ChoiceKeys is choiceKeys for conch's own commands (see ReadQuestion).
+func ChoiceKeys(screen []string, choice string) ([]string, bool) { return choiceKeys(screen, choice) }

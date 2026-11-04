@@ -2,8 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -75,36 +73,17 @@ func (d *pairDialog) checkGateway(store *phone.Store) {
 }
 
 // startGateway starts conch web again as it was last started, in the
-// background: its own session, so it outlives this TUI, and its output in
-// web.log beside the server's. It is a pane-less program, like the server
-// EnsureServer starts. `conch web stop` ends it.
+// background (phone.StartGateway), through startOutward so tests start
+// nothing.
 func startGateway(args []string) error {
 	exe, err := buildinfo.Executable()
 	if err != nil {
 		return err
 	}
-	logf, err := os.OpenFile(filepath.Join(config.Dir(), "web.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	defer logf.Close()
-	cmd := exec.Command(exe, append([]string{"web"}, args...)...)
-	cmd.Env = config.MergeEnv(os.Environ(), "CONCH_PANE_ID=")
-	cmd.Stdout, cmd.Stderr = logf, logf
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := startOutward(cmd); err != nil {
-		return err
-	}
-	// The TUI's own copy of the log closes here; the gateway keeps its.
-	if cmd.Process != nil {
-		go func() { _ = cmd.Wait() }() // reaped when it ends, not left a zombie
-	}
-	return nil
+	return phone.StartGateway(exe, args, startOutward)
 }
 
-// startArgs is how s starts conch web: with no flags when the settings
-// say where (it reads them), else as it was last started. ok is false when
-// neither says anything.
+// startArgs is how s starts conch web (phone.GatewayArgs).
 func (d *pairDialog) startArgs() ([]string, bool) {
 	if d.web.URL != "" {
 		return nil, true

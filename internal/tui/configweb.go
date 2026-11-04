@@ -129,17 +129,23 @@ func (m *Model) takeConfigWeb(msg configWebStarted) tea.Cmd {
 // takeSavedConfig is a save from the page: what it changed applies here as
 // a change on the settings screen would.
 func (m *Model) takeSavedConfig(cfg config.Config) tea.Cmd {
+	m.applyConfig(cfg)
+	m.setFlash("settings saved from the browser", false)
+	if m.configWeb == nil {
+		return nil
+	}
+	return waitConfigSaved(m.configWeb)
+}
+
+// applyConfig takes a whole configuration made outside the settings
+// screen, as the screen's own changes apply.
+func (m *Model) applyConfig(cfg config.Config) {
 	hoverWas := m.cfg.UI.Hover
 	m.cfg = cfg
 	applyTheme(cfg.UI.Theme, cfg.UI.Accent)
 	if hoverWas && !cfg.UI.Hover {
 		m.clearHover()
 	}
-	m.setFlash("settings saved from the browser", false)
-	if m.configWeb == nil {
-		return nil
-	}
-	return waitConfigSaved(m.configWeb)
 }
 
 // closeConfigWeb stops the page, as the TUI quits.

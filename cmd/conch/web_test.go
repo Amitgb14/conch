@@ -9,8 +9,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -313,7 +315,7 @@ func TestWebServes(t *testing.T) {
 
 // The usage names the commands as they are.
 func TestWebUsage(t *testing.T) {
-	for _, want := range []string{"conch web [-listen ADDR] [-port N] [-url URL]", "conch web pair [-permission view|reply|full]", "conch web devices | revoke ID | permission ID view|reply|full [-machine NAME] | stop",
+	for _, want := range []string{"conch web [-listen ADDR] [-port N] [-url URL]", "conch web pair [-permission view|reply|full]", "conch web devices | revoke ID | permission ID view|reply|full [-machine NAME] | start | stop", "-json",
 		// where a device may act is part of what it may do, so the
 		// usage says it rather than leaving it to the docs
 		"machines it reaches"} {
@@ -640,5 +642,62 @@ func TestWebPairOverPlainHTTP(t *testing.T) {
 		if qr := strings.ContainsAny(out, "█▀▄"); qr != tc.qr {
 			t.Errorf("%q: QR code drawn %v, want %v", tc.url, qr, tc.qr)
 		}
+	}
+}
+
+// conch web pair -json: the code, what it may do and reach, the link only
+// where a phone can pair (https), and whether the gateway runs or can be
+// started.
+func TestWebPairJSON(t *testing.T) {
+	dir := a4Env(t)
+	store := phone.OpenStore(dir)
+	out, err := runWebCaptured(t, "pair", "-json", "-permission", "reply")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p pairJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &p); err != nil {
+		t.Fatalf("not JSON: %q %v", out, err)
+	}
+	if !regexp.MustCompile(`^\d{3}-\d{3}$`).MatchString(p.Code) || p.Permission != "reply" || p.Link != "" || p.Running || p.CanStart ||
+		time.Until(p.Expires) <= 0 || p.Where == "" || p.Reach == "" {
+		t.Fatalf("no gateway yet: %+v", p)
+	}
+	store.SetURL("https://mac.example.ts.net")
+	store.GatewayStarted(999999, []string{"-url", "https://mac.example.ts.net"}, time.Now()) //nolint:errcheck
+	out, _ = runWebCaptured(t, "pair", "-json")
+	p = pairJSON{}
+	json.Unmarshal([]byte(strings.TrimSpace(out)), &p) //nolint:errcheck
+	if !strings.HasPrefix(p.Link, "https://mac.example.ts.net") || !strings.Contains(p.Link, strings.ReplaceAll(p.Code, "-", "")) && !strings.Contains(p.Link, p.Code) || !p.CanStart || p.Running {
+		t.Fatalf("with an https gateway on record: %+v", p)
+	}
+}
+
+// conch web start: refused when it never ran and nothing says where;
+// started as last started otherwise; and said to be running when it is.
+func TestWebStart(t *testing.T) {
+	dir := a4Env(t)
+	store := phone.OpenStore(dir)
+	var started []string
+	old := startWebProcess
+	t.Cleanup(func() { startWebProcess = old })
+	startWebProcess = func(c *exec.Cmd) error { started = c.Args[1:]; return nil }
+
+	if _, err := runWebCaptured(t, "start"); err == nil || !strings.Contains(err.Error(), "has not run here") {
+		t.Fatalf("never ran: %v", err)
+	}
+	store.GatewayStarted(999999, []string{"-port", "8443"}, time.Now()) //nolint:errcheck
+	out, err := runWebCaptured(t, "start")
+	if err != nil || !slices.Equal(started, []string{"web", "-port", "8443"}) || !strings.Contains(out, "web.log") {
+		t.Fatalf("as last started: %q %v, ran %q", out, err, started)
+	}
+	started = nil
+	store.GatewayStarted(os.Getpid(), nil, time.Now()) //nolint:errcheck
+	out, err = runWebCaptured(t, "start")
+	if err != nil || started != nil || !strings.Contains(out, "is running") {
+		t.Fatalf("running already: %q %v, ran %q", out, err, started)
+	}
+	if _, err := runWebCaptured(t, "start", "x"); err == nil {
+		t.Fatal("start took an argument")
 	}
 }

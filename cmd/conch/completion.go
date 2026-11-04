@@ -35,6 +35,8 @@ var compCommands = []compItem{
 	{"new", "start a program or an agent in a pane"},
 	{"status", "every pane and agent, and what it is doing"},
 	{"read", "what a pane's screen shows"},
+	{"attach", "show a pane here and type into it"},
+	{"ssh", "a terminal here logged in to a host with ssh"},
 	{"send", "type into a pane"},
 	{"wait", "wait until an agent is done"},
 	{"close", "close a pane"},
@@ -113,7 +115,7 @@ var compSubcommands = map[string][]compItem{
 	},
 	"web": {
 		{"pair", "pair a phone"}, {"devices", "paired phones"}, {"revoke", "unpair one"},
-		{"permission", "what a phone may do"}, {"stop", "stop a conch web in the background"},
+		{"permission", "what a phone may do"}, {"start", "start conch web in the background"}, {"stop", "stop a conch web in the background"},
 	},
 	"update":     {{"latest", "the newest release"}, {"list", "every published release"}, {"rollback", "the version before the last update"}},
 	"completion": {{"bash", ""}, {"zsh", ""}, {"fish", ""}},
@@ -122,7 +124,7 @@ var compSubcommands = map[string][]compItem{
 
 // compPaneCommands take a pane as their first argument (show takes several).
 var compPaneCommands = map[string]bool{
-	"read": true, "send": true, "close": true, "rename": true, "redraw": true, "wait": true, "show": true,
+	"read": true, "attach": true, "send": true, "close": true, "rename": true, "redraw": true, "wait": true, "show": true,
 	"agent explain": true, "agent prompt": true,
 }
 

@@ -57,13 +57,13 @@ func TestBuildTreeDefault(t *testing.T) {
 	want := `m:local
   m:local/workspace
     p:r1
+      p:r1/agents
+        pane:p1
       p:r1/branches
         b:r1:main
         b:r1:feat/login
         b:r1:fix/flaky
         more:r1
-      p:r1/agents
-        pane:p1
       p:r1/terminals
         pane:p2
       p:r1/files
@@ -143,10 +143,10 @@ func TestBuildTreeFilter(t *testing.T) {
 	want := `m:local
   m:local/workspace
     p:r1
-      p:r1/branches
-        b:r1:feat/login
       p:r1/agents
         pane:p1
+      p:r1/branches
+        b:r1:feat/login
 `
 	if got != want {
 		t.Fatalf("filtered tree:\n%s\nwant:\n%s", got, want)
@@ -318,13 +318,13 @@ func TestBuildTreeFolders(t *testing.T) {
 	want := `m:local
   m:local/workspace
     p:r1
+      p:r1/agents
+        pane:p1
       p:r1/branches
         b:r1:main
         b:r1:feat/login
         b:r1:fix/flaky
         more:r1
-      p:r1/agents
-        pane:p1
       p:r1/terminals
         folder:r1/4/eng
           pane:p2

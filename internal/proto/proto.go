@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -84,6 +84,10 @@ const CapAgentPrompt = "agent.prompt.v1"
 // the TUI's git panel, and what they left unfinished.
 const CapBranchGit = "branch.git.v1"
 
+// CapProjectLog is project.log: a project's commits across its branches
+// and tags, with parents and refs, for a commit graph.
+const CapProjectLog = "project.log.v1"
+
 // CapTaskName is task.create taking Name: the task's pane named as it
 // starts. A server without it drops the field, so clients rename instead.
 const CapTaskName = "task.name.v1"
@@ -122,6 +126,11 @@ const CapFSFiles = "fs.files.v1"
 
 // CapFSRead is fs.read: the start of a file in a checkout, for a preview.
 const CapFSRead = "fs.read.v1"
+
+// CapFSFind is fs.find: the files of a checkout whose path matches a few
+// letters, for a search box — git's list of them, so what it ignores stays
+// out, as the files view leaves it out.
+const CapFSFind = "fs.find.v1"
 
 // CapFSTransfer is copying files and folders to and from the machine, and
 // browsing all of it: fs.list with Files and fs.read without a Root reach
@@ -255,6 +264,9 @@ const (
 	MethodProjectRefresh = "project.refresh"
 	MethodProjectChanges = "project.changes"
 	MethodProjectDiff    = "project.diff"
+	// MethodProjectLog is a project's history for a commit graph
+	// (CapProjectLog).
+	MethodProjectLog     = "project.log"
 	MethodWorktreeAdd    = "worktree.add"
 	MethodWorktreeRemove = "worktree.remove"
 	MethodTaskCreate     = "task.create"
@@ -264,6 +276,7 @@ const (
 	MethodFSMkdir        = "fs.mkdir"
 	MethodFSUpload       = "fs.upload"
 	MethodFSRead         = "fs.read"
+	MethodFSFind         = "fs.find"
 	// Copying a file or folder off the machine (CapFSTransfer).
 	MethodFSDownload     = "fs.download"
 	MethodFSDownloadRead = "fs.download_read"
@@ -747,6 +760,29 @@ type FSListParams struct {
 	SSH string `json:"ssh,omitempty"`
 }
 
+// FSFindParams asks for the files of a checkout (a project or one of its
+// worktrees, as fs.list's Root) whose path holds Query's letters in order,
+// best first: the name containing it, then the path, then the letters
+// scattered. Limit is at most FSFindMax; 0 means FSFindDefault.
+type FSFindParams struct {
+	Root  string `json:"root"`
+	Query string `json:"query"`
+	Limit int    `json:"limit,omitempty"`
+}
+
+// FSFindResult is what fs.find found: paths relative to Root, with slashes.
+// Truncated says more matched than were returned.
+type FSFindResult struct {
+	Root      string   `json:"root"`
+	Paths     []string `json:"paths"`
+	Truncated bool     `json:"truncated,omitempty"`
+}
+
+const (
+	FSFindDefault = 20
+	FSFindMax     = 200
+)
+
 // FSList is the result of fs.list.
 type FSList struct {
 	Path    string    `json:"path"` // absolute, cleaned
@@ -941,6 +977,42 @@ type CommitInfo struct {
 	Subject string    `json:"subject"`
 	Author  string    `json:"author"`
 	Time    time.Time `json:"time"`
+}
+
+// LogParams asks for a project's history: every commit reachable from its
+// branches, tags and HEAD, newest first. Limit is how many (LogLimit when
+// 0, at most LogLimitMax).
+type LogParams struct {
+	ProjectID string `json:"project_id"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+// LogLimit and LogLimitMax bound project.log.
+const (
+	LogLimit    = 300
+	LogLimitMax = 2000
+)
+
+// LogCommit is one commit for a graph: children always come before their
+// parents in a LogResult, and Refs are as git decorates them ("HEAD ->
+// main", "origin/main", "tag: v1").
+type LogCommit struct {
+	Hash    string    `json:"hash"`
+	Parents []string  `json:"parents,omitempty"`
+	Subject string    `json:"subject"`
+	Author  string    `json:"author"`
+	Time    time.Time `json:"time"`
+	Refs    []string  `json:"refs,omitempty"`
+}
+
+// LogResult is a project's history. More says older commits were left out.
+type LogResult struct {
+	Commits []LogCommit `json:"commits"`
+	More    bool        `json:"more,omitempty"`
+	// Remotes are the repository's remotes, by which a client tells a
+	// remote's branch (fork/main) from a local one with a slash. Absent
+	// from an older server: clients then take origin and upstream.
+	Remotes []string `json:"remotes,omitempty"`
 }
 
 // DiffParams asks for the diff of one file within project.changes' scope.

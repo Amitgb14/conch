@@ -140,7 +140,7 @@ func (m Model) searchMatches(lines []string, w int) []string {
 	}
 	out := make([]string, len(lines))
 	for y, l := range lines {
-		out[y] = highlightSpans(l, matchSpans(ansi.Strip(l), q), w)
+		out[y] = highlightSpans(l, MatchSpans(ansi.Strip(l), q), w)
 	}
 	return out
 }
@@ -159,10 +159,10 @@ func (m Model) searchPrompt(lines []string, w int) []string {
 	return lines
 }
 
-// matchSpans lists the [from, to) cells where q occurs in plain text, with
+// MatchSpans lists the [from, to) cells where q occurs in plain text, with
 // the same smart case as the server's search: a query without capitals
 // matches either case.
-func matchSpans(plain, q string) [][2]int {
+func MatchSpans(plain, q string) [][2]int {
 	query := []rune(q)
 	if len(query) == 0 {
 		return nil

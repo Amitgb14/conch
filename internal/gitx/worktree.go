@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,6 +59,9 @@ func AddWorktree(ctx context.Context, root, path, branch, base string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("gitx: create worktree parent: %w", err)
 	}
+	if err := seedUnborn(ctx, root, base); err != nil {
+		return err
+	}
 	var err error
 	if localBranchExists(ctx, root, branch) {
 		_, err = run(ctx, root, "worktree", "add", path, branch)
@@ -68,6 +72,40 @@ func AddWorktree(ctx context.Context, root, path, branch, base string) error {
 		}
 		_, err = run(ctx, root, args...)
 	}
+	return err
+}
+
+// seedUnborn gives base an empty first commit when the repository has no
+// commits at all — a `git init` nobody has committed to yet — since a
+// branch can only start from a commit and git otherwise refuses with
+// "invalid reference". It is made with commit-tree, not commit, so what is
+// staged in the main checkout stays staged and out of it. A repository
+// with any branch is left alone: there base not resolving is a real error.
+func seedUnborn(ctx context.Context, root, base string) error {
+	if base == "" || resolves(ctx, root, base) {
+		return nil
+	}
+	if out, err := run(ctx, root, "for-each-ref", "--count=1", "--format=%(refname)", "refs/heads"); err != nil || strings.TrimSpace(string(out)) != "" {
+		return nil
+	}
+	if ValidBranchName(ctx, root, base) != nil {
+		return nil
+	}
+	tree, err := run(ctx, root, "mktree") // no input: the empty tree
+	if err != nil {
+		return err
+	}
+	commit, err := run(ctx, root, "commit-tree", "-m", "Initial commit", strings.TrimSpace(string(tree)))
+	if err != nil {
+		var ge *gitError
+		if errors.As(err, &ge) && strings.Contains(ge.stderr, "identity") {
+			return fmt.Errorf("%s has no commits yet, and git has no author identity to make the first one: set user.name and user.email (git config --global), or commit once yourself", root)
+		}
+		return err
+	}
+	// The empty old value makes this fail rather than move a branch that
+	// appeared meanwhile.
+	_, err = run(ctx, root, "update-ref", "-m", "conch: first commit", "refs/heads/"+base, strings.TrimSpace(string(commit)), "")
 	return err
 }
 

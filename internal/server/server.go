@@ -358,11 +358,11 @@ func (s *Server) serve(nc net.Conn) {
 }
 
 var slowMethods = map[string]bool{
-	proto.MethodProjectAdd: true, proto.MethodProjectChanges: true, proto.MethodProjectDiff: true,
+	proto.MethodProjectAdd: true, proto.MethodProjectChanges: true, proto.MethodProjectDiff: true, proto.MethodProjectLog: true,
 	proto.MethodWorktreeAdd: true, proto.MethodWorktreeRemove: true, proto.MethodTaskCreate: true,
 	proto.MethodPaneCreate: true, proto.MethodPaneClose: true,
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
-	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true, proto.MethodFSRead: true,
+	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true, proto.MethodFSRead: true, proto.MethodFSFind: true,
 	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodAgentSync: true, proto.MethodAgentLibrary: true, proto.MethodLibraryApply: true, proto.MethodWorktreeFiles: true,
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
@@ -697,6 +697,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.viewShow(sp)
 
+	case proto.MethodFSFind:
+		fp, perr := decode[proto.FSFindParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.findFiles(fp)
+
 	case proto.MethodFSRead:
 		rp, perr := decode[proto.FSReadParams](msg)
 		if perr != nil {
@@ -763,6 +770,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.projects.changes(cp)
+
+	case proto.MethodProjectLog:
+		lp, perr := decode[proto.LogParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.log(lp)
 
 	case proto.MethodProjectDiff:
 		dp, perr := decode[proto.DiffParams](msg)

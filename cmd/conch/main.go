@@ -77,6 +77,7 @@ Usage:
                                 start a pane (with -m, default: that machine's home)
   conch send ID TEXT            type TEXT into a pane (-keys to send key names)
   conch read ID                 print a pane's visible screen
+  conch attach ID               show a pane in this terminal and type into it (the Mac app's panes)
   conch close ID                close a pane
   conch rename ID [NAME]        name a pane; without NAME it gets its own back. Every
                                 command taking a pane ID takes its name too
@@ -86,7 +87,13 @@ Usage:
                                 exits 124 if the time runs out
   conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]
                                 start Claude Code with state tracking
+  conch ssh TARGET [SSH OPTION...]
+                                a terminal here logged in to a host with ssh, outside every
+                                project, as the TUI's H opens one; prints its pane ID
   conch agent explain ID        show how a pane's agent state was decided
+  conch agent question ID       what a waiting agent asks, and its choices, as JSON (null when not waiting)
+  conch agent answer [-question QID] ID CHOICE
+                                pick a choice of a waiting agent's menu without opening its pane
   conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends;
@@ -138,6 +145,8 @@ Usage:
   conch branch push [-rebase] | pr [-title T] [-draft] | merge [-no-squash] | discard [-force]
                                 finish a branch: push, open a pull request, merge into
                                 the base, or delete it and its worktree
+  conch branch fix-ci [-agent A] send a branch's failed CI run to its agent (or start one
+                                in its worktree with it), as f in the review queue
   conch review [ls | add | rm | send] [-cwd DIR] [-branch B] ...
                                 comments on a branch's diff for its agent: list them, add
                                 FILE[:LINE] NOTE, rm ID, or send [-agent A] them to it
@@ -148,6 +157,8 @@ Usage:
                                 add a remote machine (installs conch there); -o is an ssh
                                 setting it is reached with (-o ProxyJump=bastion)
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
+  conch machine bridge ID       conch's protocol to that machine's server, on stdin and stdout
+                                (how the Mac app reaches it); installs nothing
   conch sandbox -provider daytona|boat|devin create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
                                 make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY,
                                 Devin Cloud: $DEVIN_API_KEY and a signed-in devin CLI)
@@ -189,18 +200,19 @@ Usage:
                                 it asks. Listens only on this machine's Tailscale address
                                 unless -listen names another; -url is the https address
                                 phones open (the one tailscale serve gives)
-  conch web pair [-permission view|reply|full] [-machine NAME]...
+  conch web pair [-permission view|reply|full] [-machine NAME]... [-json]
                                 a one-time code (5 minutes) that pairs a phone, with a QR code
                                 that opens it; full by default (-permission reply or
                                 view for a phone that may only answer, or only look). It
-                                reaches this computer only unless -machine names a machine
-  conch web devices | revoke ID | permission ID view|reply|full [-machine NAME] | stop
+                                reaches this computer only unless -machine names a machine;
+                                -json says it all as JSON, for a window to draw (Conch.app)
+  conch web devices | revoke ID | permission ID view|reply|full [-machine NAME] | start | stop
                                 list the paired phones, cut one off at once, or change
                                 what one may do (full types into terminals) and which
                                 machines it reaches (-machine, repeatable; this computer
                                 only until you name one, 'local' to take them away);
-                                stop ends a conch web running in the background (as P
-                                in the TUI starts it)
+                                start runs conch web in the background as it was last
+                                started (or at the settings' address), stop ends it
   conch config web [-port N] [-no-open]
                                 every setting in config.toml as a form in the browser, on
                                 127.0.0.1 until ctrl+c; a TUI that is open edits them live
@@ -220,6 +232,10 @@ Usage:
                                 prints the command without starting it); ls says which terminals are
                                 here, install adds it to the desktop's applications with its icon,
                                 remove takes it out
+  conch [-m MACHINE] autopilot push
+                                hand the server the autopilot policy config.toml's [verify]
+                                sets, as the TUI does when it connects; for a window that is
+                                not the TUI (Conch.app runs it)
   conch bug [-open] [-log] [WHAT HAPPENED...]
                                 the facts about this conch for a bug report — versions, counts
                                 and the last error, never a path or a screen; -open fills in a
@@ -265,10 +281,14 @@ func main() {
 		err = runStatus(args)
 	case "new":
 		err = runNew(args)
+	case "ssh":
+		err = runSSHLogin(args)
 	case "send":
 		err = runSend(args)
 	case "read":
 		err = runRead(args)
+	case "attach":
+		err = runAttach(args)
 	case "rename":
 		err = runRename(args)
 	case "close":
@@ -315,6 +335,8 @@ func main() {
 		err = runMCP(args)
 	case "bug":
 		err = runBug(args)
+	case "autopilot":
+		err = runAutopilot(args)
 	case "app":
 		err = runApp(args)
 	case "doctor":

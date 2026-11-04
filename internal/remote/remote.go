@@ -403,3 +403,25 @@ func (t *tail) String() string {
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// BridgeCommand is the command that carries conch's protocol to the
+// server on a machine, through its stdin and stdout — what Bridge runs,
+// for a program that speaks the protocol itself (the Mac app) rather
+// than through a client of this one. The machine is probed first, so a
+// machine without conch, or with one too old, is said rather than
+// bridged to; nothing is installed. The command outlives ctx, which
+// bounds only the probe.
+func BridgeCommand(ctx context.Context, tr Transport) (*exec.Cmd, error) {
+	probe, err := ProbeMachine(ctx, tr)
+	if err != nil {
+		return nil, err
+	}
+	if missing := probe.Missing(); probe.Bin == "" || len(missing) > 0 {
+		reason := fmt.Sprintf("conch is not installed on %s (%s)", tr.Describe(), probe.Platform)
+		if probe.Bin != "" {
+			reason = fmt.Sprintf("conch on %s is from an older build (lacks %s)", tr.Describe(), strings.Join(missing, ", "))
+		}
+		return nil, &InstallError{Platform: probe.Platform, Reason: reason}
+	}
+	return tr.forBridge().Command(context.Background(), shellQuote(probe.Bin)+" bridge")
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,10 +20,14 @@ import (
 // fell out of it as soon as a row was folded in the other window.
 //
 // So what the TUIs share — folders, saved ssh hosts, the projects not to
-// offer — is merged rather than overwritten. Each piece (a section's
-// folders, one host) goes the way of whoever changed it since this TUI last
-// agreed with the file, and the file is watched so a change made elsewhere
-// shows here. Tabs, workspaces and what is folded stay each TUI's own.
+// offer, the workspaces — is merged rather than overwritten. Each piece (a
+// section's folders, one host, one workspace) goes the way of whoever
+// changed it since this TUI last agreed with the file, and the file is
+// watched so a change made elsewhere shows here. Conch.app adds a
+// workspace by writing one into the file, so it is shared with the window
+// as well. A workspace is shared as what it holds and where it is in the
+// list; its tabs, which one is on screen, and what is folded stay each
+// TUI's own.
 
 const uiSyncEvery = time.Second
 
@@ -78,12 +83,41 @@ func sharedOf(st uiState) sharedUI {
 			put("guide/"+step, true)
 		}
 	}
+	// The workspaces: each by its id, without the tabs, which are this
+	// TUI's; their order; and what the first holds.
+	var order []string
+	for i, ss := range st.Spaces {
+		ss.ID, ss.Tabs, ss.ActiveTab = spaceID(ss, i), nil, 0
+		put("spaces/"+ss.ID, ss)
+		order = append(order, ss.ID)
+	}
+	if len(order) > 0 {
+		put("space_order", order)
+	}
+	if st.FirstSpace != nil {
+		fs := *st.FirstSpace
+		fs.ID, fs.Tabs, fs.ActiveTab = "", nil, 0
+		put("first_space", fs)
+	}
 	return out
 }
 
 // into puts the shared parts in st, replacing what was there.
 func (s sharedUI) into(st *uiState) {
 	st.Folders, st.SSHHosts, st.SavedSSH, st.NoProjectOffer, st.Guide = nil, nil, nil, nil, nil
+	// The workspaces st had keep their tabs, and the one on screen stays
+	// on screen if it is still there.
+	own, activeID := map[string]savedSpace{}, ""
+	for i, ss := range st.Spaces {
+		id := spaceID(ss, i)
+		own[id] = ss
+		if st.ActiveSpace == i+1 {
+			activeID = id
+		}
+	}
+	st.Spaces, st.FirstSpace, st.ActiveSpace = nil, nil, 0
+	spaces := map[string]savedSpace{}
+	var order []string
 	for k, v := range s {
 		switch {
 		case strings.HasPrefix(k, "folders/"):
@@ -111,8 +145,53 @@ func (s sharedUI) into(st *uiState) {
 				st.Guide = map[string]bool{}
 			}
 			st.Guide[strings.TrimPrefix(k, "guide/")] = true
+		case strings.HasPrefix(k, "spaces/"):
+			var ss savedSpace
+			if json.Unmarshal(v, &ss) == nil {
+				spaces[strings.TrimPrefix(k, "spaces/")] = ss
+			}
+		case k == "space_order":
+			_ = json.Unmarshal(v, &order)
+		case k == "first_space":
+			var fs savedSpace
+			if json.Unmarshal(v, &fs) == nil {
+				st.FirstSpace = &fs
+			}
 		}
 	}
+	for _, id := range spaceOrder(order, spaces) {
+		ss := spaces[id]
+		ss.ID = id
+		if o, ok := own[id]; ok {
+			ss.Tabs, ss.ActiveTab = o.Tabs, o.ActiveTab
+		}
+		st.Spaces = append(st.Spaces, ss)
+		if id == activeID {
+			st.ActiveSpace = len(st.Spaces)
+		}
+	}
+}
+
+// spaceOrder is the workspaces' ids in the order the list was left in,
+// then any the order does not name — one made in another TUI while this
+// one reordered the list, say — by id, so every TUI puts them alike.
+func spaceOrder(order []string, spaces map[string]savedSpace) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, id := range order {
+		if _, ok := spaces[id]; ok && !seen[id] {
+			out = append(out, id)
+			seen[id] = true
+		}
+	}
+	var rest []string
+	for id := range spaces {
+		if !seen[id] {
+			rest = append(rest, id)
+		}
+	}
+	sort.Strings(rest)
+	return append(out, rest...)
 }
 
 func (s sharedUI) equal(o sharedUI) bool {
@@ -159,7 +238,7 @@ func readShared(path string) (sharedUI, bool) {
 		return nil, false
 	}
 	var st uiState
-	if json.Unmarshal(b, &st) != nil {
+	if decodeUIState(b, &st) != nil {
 		return nil, false
 	}
 	return sharedOf(st), true
@@ -167,7 +246,8 @@ func readShared(path string) (sharedUI, bool) {
 
 // sharedNow is the shared parts as this TUI has them.
 func (m Model) sharedNow() sharedUI {
-	return sharedOf(uiState{Folders: m.folders, SSHHosts: m.sshInfo, SavedSSH: m.savedSSH, NoProjectOffer: m.noProjectOffer, Guide: m.guide})
+	return sharedOf(uiState{Folders: m.folders, SSHHosts: m.sshInfo, SavedSSH: m.savedSSH, NoProjectOffer: m.noProjectOffer, Guide: m.guide,
+		Spaces: m.savedSpaces(), FirstSpace: m.savedFirstSpace()})
 }
 
 // takeShared puts shared parts in the model, cleaned as at start.
@@ -179,6 +259,7 @@ func (m *Model) takeShared(s sharedUI) {
 	m.folders = st.Folders
 	m.noProjectOffer = st.NoProjectOffer
 	m.guide = st.Guide
+	m.takeSpaces(st.FirstSpace, st.Spaces)
 }
 
 // writeUIState is a save in the background: the shared parts merged with

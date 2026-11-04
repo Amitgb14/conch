@@ -119,7 +119,11 @@ func Schema(c Choices) []Section {
 	return []Section{
 		{ID: "ui", Key: "ui", Title: "Appearance", Icon: "palette", Description: "Theme, mouse and how the TUI draws things.",
 			Fields: []Field{
-				{Key: "theme", Label: "Theme", Kind: KindSelect, Options: themes},
+				{Key: "theme", Label: "Theme", Kind: KindSelect, Options: themes,
+					Help: "The TUI's colours, and Conch.app's — in dark appearance only, when a light theme is set below."},
+				{Key: "light_theme", Label: "Light theme", Kind: KindSelect,
+					Options: append([]Option{{Value: "", Label: "Off"}}, themes...),
+					Help:    "Conch.app follows macOS: this theme in light appearance, the one above in dark, switching as the system does. Off keeps the app on the theme above. The TUI always uses the theme above."},
 				{Key: "accent", Label: "Accent", Kind: KindSelect, Options: accents,
 					Help: "Overrides the theme's accent: selections, focused borders, dialogs. A #rrggbb value works too, in the raw file."},
 				{Key: "mouse", Label: "Mouse", Kind: KindBool, Help: "Let conch handle clicks, the wheel and drags. Hold shift (option in iTerm2) to select with the terminal instead."},

@@ -311,6 +311,47 @@ func TestReadMenu(t *testing.T) {
 		// Codex's update menu, as the detection tests record it from
 		// codex rust-v0.144.1.
 		{"codex update", menuScreen("  ✨ Update available! 0.144.1 -> 0.145.0", "› 1. Update now", "  2. Skip", "  Press enter to continue"), "Update now|Skip", 0},
+		// Claude Code 2.1.316's folder-trust question, as a live run read
+		// it: no numbers, the cursor's row and the other indented to it.
+		{"claude trust, no numbers", menuScreen(
+			" Quick safety check: Is this a project you created or one you trust?",
+			" Security guide",
+			"",
+			" ❯ No, exit",
+			"   Yes, I trust this folder",
+			"",
+			" Enter to confirm · Esc to cancel"), "No, exit|Yes, I trust this folder", 0},
+		{"no numbers, cursor below", menuScreen("   a", "   b", " › c", "   d"), "a|b|c|d", 2},
+		{"no numbers, boxed", menuScreen("│ ❯ Allow │", "│   Deny  │"), "Allow|Deny", 0},
+		{"no numbers, out of line", menuScreen(" ❯ Yes", "     No"), "", 0},
+		{"no numbers, one row", menuScreen(" ❯ Yes", "", "   No"), "", 0},
+		{"a shell prompt alone", menuScreen("❯ ls", "file.go"), "", 0},
+		// Claude Code 2.1.316's question tool, as a live run read it: a
+		// description under each choice, indented past the numbers.
+		{"claude question tool", menuScreen(
+			" ☐ File text",
+			"Should hello.txt say \"hi\" or \"hello\"?",
+			"❯ 1. hello",
+			"     Leave hello.txt as it is, containing \"hello\".",
+			"  2. hi",
+			"     Change hello.txt back to \"hi\".",
+			"  3. Type something.",
+			"──────────────",
+			"  4. Chat about this",
+			"Enter to select · ↑/↓ to navigate · Esc to cancel"), "hello|hi|Type something.", 0},
+		{"a description's indent is not deeper", menuScreen("❯ 1. a", "x", "  2. b"), "", 0},
+		{"a description three in, after the cursor's row", menuScreen("❯ 1. a", "   about a", "  2. b"), "a|b", 0},
+		{"boxed, with descriptions", menuScreen("│ ❯ 1. a     │", "│      more  │", "│   2. b     │"), "a|b", 0},
+		// Gemini CLI 0.63's sign-in menu, as a live run read it: ● for
+		// the cursor, in a box.
+		{"gemini, ● for a cursor", menuScreen(
+			"│ ? Get started                              │",
+			"│   How would you like to authenticate?      │",
+			"│   ● 1. Sign in with Google                 │",
+			"│     2. Use Gemini API Key                  │",
+			"│     3. Vertex AI                           │",
+			"│   (Use Enter to select)                    │"), "Sign in with Google|Use Gemini API Key|Vertex AI", 0},
+		{"gemini, cursor lower", menuScreen("    1. Trust folder", "  ● 2. Trust parent folder", "    3. Don't trust"), "Trust folder|Trust parent folder|Don't trust", 1},
 		{"nothing", nil, "", 0},
 		{"blank", menuScreen("", "   "), "", 0},
 	} {
@@ -446,5 +487,73 @@ func TestGatewayRecord(t *testing.T) {
 	}
 	if !processAlive(os.Getpid()) || processAlive(1<<30) {
 		t.Fatal("processAlive")
+	}
+}
+
+// A menu without numbers is answered as a numbered one is: its rows are
+// choices 1, 2…, and the cursor is moved to the one picked, then Enter.
+func TestPlainMenuQuestionAndKeys(t *testing.T) {
+	screen := menuScreen(" Claude Code'll be able to read, edit, and execute files here.", "",
+		" ❯ No, exit", "   Yes, I trust this folder", "", " Enter to confirm · Esc to cancel")
+	p := proto.PaneInfo{ID: "p79", Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked}}
+	q := readQuestion(p, screen)
+	if q == nil || len(q.Choices) != 2 || q.Choices[1].Label != "Yes, I trust this folder" || !q.Choices[0].Default || q.Choices[1].Choice != "2" {
+		t.Fatalf("question %+v", q)
+	}
+	if q.Text != "Claude Code'll be able to read, edit, and execute files here." {
+		t.Fatalf("text %q", q.Text)
+	}
+	if keys, ok := choiceKeys(screen, "2"); !ok || strings.Join(keys, ",") != "down,enter" {
+		t.Fatalf("keys %v %v", keys, ok)
+	}
+	if keys, ok := choiceKeys(screen, "1"); !ok || strings.Join(keys, ",") != "enter" {
+		t.Fatalf("keys %v %v", keys, ok)
+	}
+	if _, ok := choiceKeys(screen, "3"); ok {
+		t.Fatal("a choice that is not there")
+	}
+}
+
+// Claude Code asking several questions at once draws them as tabs, one on
+// screen at a time, each with a description under every choice and a
+// "Chat about this" row of its own below a rule. The question read is the
+// tab on screen — the second here, after the first was answered — with
+// its own choices; the rule ends the menu, so the chat row is not one.
+func TestQuestionTabs(t *testing.T) {
+	p := proto.PaneInfo{ID: "p3", Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked, Since: time.Now()}}
+	screen := menuScreen(
+		"⏺ Conch is in Go and already tracks token usage. Which option would you like for that?",
+		"",
+		"────────────────────────────────────────────────────────────",
+		"←  ☒ Go scope  ☐ Tasks  ✔ Submit  →",
+		"",
+		"Where should the holdout's benchmark tasks come from?",
+		"",
+		"❯ 1. Task file you fill in (Recommended)",
+		"     I build the runner with a tasks.json format.",
+		"  2. Mine from Conch's git history",
+		"     Generate tasks from past Conch commits.",
+		"  3. Type something.",
+		"────────────────────────────────────────────────────────────",
+		"  4. Chat about this",
+		"",
+		"Enter to select · Tab/Arrow keys to navigate · Esc to cancel")
+	q := readQuestion(p, screen)
+	if q == nil || q.Text != "Where should the holdout's benchmark tasks come from?" {
+		t.Fatalf("question %+v", q)
+	}
+	var labels []string
+	for _, c := range q.Choices {
+		labels = append(labels, c.Label)
+	}
+	if strings.Join(labels, "|") != "Task file you fill in (Recommended)|Mine from Conch's git history|Type something." || !q.Choices[0].Default {
+		t.Fatalf("choices %q", labels)
+	}
+	// Before the form is drawn — the hook says waiting first — there is
+	// no menu: a question with no choices, which is why the app reads it
+	// again while the agent waits.
+	early := readQuestion(p, menuScreen("⏺ Conch is in Go. Which option would you like for that?", ""))
+	if len(early.Choices) != 0 || early.ID == q.ID {
+		t.Fatalf("early %+v", early)
 	}
 }

@@ -50,11 +50,11 @@ type projectManager struct {
 }
 
 type project struct {
-	id     string
-	root   string
-	common string // git common dir; "" for plain folders
+	id   string
+	root string
 
 	mu         sync.Mutex
+	common     string // git common dir; "" for plain folders (see adoptGit)
 	info       proto.ProjectInfo
 	stamp      string
 	lastStatus time.Time
@@ -381,7 +381,8 @@ func (pm *projectManager) run() {
 }
 
 func (pm *projectManager) maybeRefresh(p *project) {
-	if p.common == "" {
+	common := pm.adoptGit(p)
+	if common == "" {
 		return
 	}
 	// Pull requests are matched to the branches git reported, so not
@@ -394,7 +395,7 @@ func (pm *projectManager) maybeRefresh(p *project) {
 	if loaded {
 		pm.maybeFetchPRs(p)
 	}
-	stamp := gitx.MetaStamp(p.common)
+	stamp := gitx.MetaStamp(common)
 	interval := statusIntervalIdle
 	if pm.s.projectHasPanes(p.id) {
 		interval = statusIntervalActive
@@ -425,7 +426,42 @@ func (pm *projectManager) refreshNow(p *project) {
 		p.mu.Unlock()
 		time.Sleep(10 * time.Millisecond)
 	}
-	pm.refresh(p, gitx.MetaStamp(p.common))
+	pm.refresh(p, gitx.MetaStamp(p.commonDir()))
+}
+
+func (p *project) commonDir() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.common
+}
+
+// adoptGit returns p's git common dir, first noticing a plain folder that
+// has since become a repository — added as a project, then `git init` in
+// its shell. Without it the folder stayed plain until the server
+// restarted, so a new task there was offered no branch or worktree. Only a
+// repository whose top level is the folder itself is taken: a folder
+// inside another repository is not that repository's project.
+func (pm *projectManager) adoptGit(p *project) string {
+	if common := p.commonDir(); common != "" {
+		return common
+	}
+	if _, err := os.Lstat(filepath.Join(p.root, ".git")); err != nil {
+		return "" // one stat a tick is all a plain folder costs
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	repo, err := gitx.Discover(ctx, p.root)
+	if err != nil || repo.Root != p.root {
+		return ""
+	}
+	p.mu.Lock()
+	if p.common == "" {
+		p.common, p.pending = repo.CommonDir, true
+		log.Printf("project %s is now a git repository: %s", p.id, p.root)
+	}
+	common := p.common
+	p.mu.Unlock()
+	return common
 }
 
 func (pm *projectManager) refresh(p *project, stamp string) {

@@ -34,6 +34,9 @@ func TestMain(m *testing.M) {
 	// `go test` may well read — conch is a terminal that reads these.
 	sendHostStatus = func(body string) { hostReports = append(hostReports, body) }
 	stdoutIsTerminal = func() bool { return false }
+	// The title of conch's own window, likewise the terminal's.
+	inAppWindow = func() bool { return false }
+	sendWindowTitle = func(title string) { windowTitles = append(windowTitles, title) }
 	signalProcess = func(pid int, sig syscall.Signal) error { signalled = append(signalled, pid); return nil }
 	// Each wheel event a second after the last, so a test's notches are
 	// notches: one sent straight after another is not a trackpad's burst.
@@ -61,6 +64,7 @@ var (
 	lastOpened    string
 	bells         int
 	hostReports   []string
+	windowTitles  []string
 	signalled     []int
 	// pointerShapes is every shape asked for, in order: the point of the
 	// feature is that it is asked for once per crossing, not per motion.

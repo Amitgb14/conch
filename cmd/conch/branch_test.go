@@ -508,3 +508,102 @@ func TestA4BranchPushRebase(t *testing.T) {
 		t.Fatalf("old server: %v", err)
 	}
 }
+
+// fix-ci sends the branch's failed CI run to the agent on it, or starts one
+// in its worktree with it; refused for an agent waiting on its own question,
+// a branch with neither an agent nor a worktree, and an older server.
+func TestBranchFixCI(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	wt := filepath.Join(root, "api.worktrees", "feat")
+	os.MkdirAll(wt, 0o755)
+	panes := newA4Var([]proto.PaneInfo{})
+	seen := newA4Var(map[string]proto.Message{})
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		got := seen.Get()
+		got[msg.Method] = msg
+		seen.Set(got)
+		switch msg.Method {
+		case proto.MethodProjectResolve:
+			return proto.ProjectPlace{ProjectID: "api", Root: root, Git: true, Base: "main", Worktree: wt, Branch: "feat"}, nil
+		case proto.MethodPaneList:
+			return proto.PaneList{Panes: panes.Get()}, nil
+		case proto.MethodProjectList:
+			return proto.ProjectList{Projects: []proto.ProjectInfo{{ID: "api", Path: root, Worktrees: []proto.WorktreeInfo{{Path: root, Branch: "main", Main: true}, {Path: wt, Branch: "feat"}}}}}, nil
+		case proto.MethodBranchCILog:
+			return proto.BranchCILog{Workflow: "ci", URL: "https://github.com/o/r/actions/runs/9", Log: "--- FAIL: TestThing\nboom"}, nil
+		case proto.MethodAgentPrompt:
+			return proto.AgentPromptResult{ID: "p4", Agent: "claude", Turn: 2}, nil
+		case proto.MethodPaneCreate:
+			return proto.PaneInfo{ID: "p9", Name: "codex", State: proto.PaneRunning}, nil
+		}
+		return nil, proto.Errorf(proto.ErrUnknown, "?")
+	})
+	t.Chdir(wt)
+	reset := func() { seen.Set(map[string]proto.Message{}) }
+
+	// An agent at work on the branch: told, with the run's log and link.
+	panes.Set([]proto.PaneInfo{
+		{ID: "p2", Name: "other", State: proto.PaneRunning, ProjectID: "api", Branch: "main", Agent: &proto.AgentStatus{Name: "claude"}},
+		{ID: "p4", Name: "claude", State: proto.PaneRunning, ProjectID: "api", Branch: "feat", Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentDone}},
+	})
+	out, _, err := a4Out(t, func() error { return runBranch([]string{"fix-ci"}) })
+	if err != nil || !strings.HasPrefix(out, "sent CI's failure to ") || !strings.Contains(out, "(p4)") {
+		t.Fatalf("to the agent: %q %v", out, err)
+	}
+	var ap proto.AgentPromptParams
+	json.Unmarshal(seen.Get()[proto.MethodAgentPrompt].Params, &ap)
+	if ap.ID != "p4" || !strings.Contains(ap.Text, "CI (ci)") || !strings.Contains(ap.Text, "TestThing") || !strings.Contains(ap.Text, "actions/runs/9") {
+		t.Fatalf("prompt %+v", ap)
+	}
+	if _, started := seen.Get()[proto.MethodPaneCreate]; started {
+		t.Fatal("started an agent beside the one there")
+	}
+
+	// Waiting on its own question: not sent, and the log never read.
+	reset()
+	panes.Set([]proto.PaneInfo{{ID: "p4", Name: "claude", State: proto.PaneRunning, ProjectID: "api", Branch: "feat", Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentBlocked}}})
+	if _, _, err := a4Out(t, func() error { return runBranch([]string{"fix-ci"}) }); err == nil || !strings.Contains(err.Error(), "waiting for an answer") {
+		t.Fatalf("waiting agent: %v", err)
+	}
+	if _, read := seen.Get()[proto.MethodBranchCILog]; read {
+		t.Fatal("read the log for an agent that cannot take it")
+	}
+
+	// No agent (an exited one does not count): one started in the worktree.
+	reset()
+	panes.Set([]proto.PaneInfo{{ID: "p4", Name: "claude", State: "exited", ProjectID: "api", Branch: "feat", Agent: &proto.AgentStatus{Name: "claude"}}})
+	out, _, err = a4Out(t, func() error { return runBranch([]string{"fix-ci", "-agent", "codex"}) })
+	if err != nil || !strings.HasPrefix(out, "started codex on feat with CI's failure (p9)") {
+		t.Fatalf("started: %q %v", out, err)
+	}
+	var cp proto.PaneCreateParams
+	json.Unmarshal(seen.Get()[proto.MethodPaneCreate].Params, &cp)
+	if cp.Agent != "codex" || cp.Cwd != wt || !strings.Contains(cp.Prompt, "TestThing") {
+		t.Fatalf("create %+v", cp)
+	}
+
+	// A branch with no worktree and no agent: nothing to send to.
+	reset()
+	if _, _, err := a4Out(t, func() error { return runBranch([]string{"fix-ci", "-branch", "gone"}) }); err == nil || !strings.Contains(err.Error(), "no agent on gone and no worktree") {
+		t.Fatalf("nowhere: %v", err)
+	}
+
+	// An older server: said, with what to do.
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		var kept []string
+		for _, c := range h.Capabilities {
+			if c != proto.CapBranchCILog {
+				kept = append(kept, c)
+			}
+		}
+		h.Capabilities = kept
+		return h
+	})
+	if _, _, err := a4Out(t, func() error { return runBranch([]string{"fix-ci"}) }); err == nil || !strings.Contains(err.Error(), "predates reading CI logs") {
+		t.Fatalf("old server: %v", err)
+	}
+}
