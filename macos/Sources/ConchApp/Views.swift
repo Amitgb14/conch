@@ -511,6 +511,8 @@ struct MainView: View {
         .background { GeometryReader { g in Color.clear.onAppear { size = g.size }.onChange(of: g.size) { size = $0 } } }
         .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
         .sheet(item: $store.broadcastDraft) { d in BroadcastSheet(store: store, draft: d) }
+        .sheet(isPresented: $store.helpOpen) { ShortcutsSheet(store: store) }
+        .sheet(isPresented: $store.doctorOpen) { DoctorSheet(store: store) }
         .background(Theme.window)
         // Meadow paints the title bar itself: a sky behind the toolbar's
         // controls (AppKit's, so drawn over it), lifted into the title bar

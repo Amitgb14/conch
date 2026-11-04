@@ -204,6 +204,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         wtop.submenu = windowMenu
         main.addItem(wtop)
         NSApp.windowsMenu = windowMenu
+        let help = NSMenu(title: "Help")
+        [item("Keyboard Shortcuts", "/", .command, "shortcuts"), item("Check conch…", "", [], "doctor")].forEach(help.addItem)
+        let helpTop = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
+        helpTop.submenu = help
+        main.addItem(helpTop)
+        NSApp.helpMenu = help
         NSApp.mainMenu = main
     }
 

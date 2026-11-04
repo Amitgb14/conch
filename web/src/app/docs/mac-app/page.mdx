@@ -31,6 +31,8 @@ The Mac app is new and is built from source for now (below). Settings, the Sessi
 
 Each pane is a real terminal running [`conch attach`](/docs/cli#attach), so an agent looks exactly as it does in the TUI or any terminal.
 
+**Help → Check conch…** runs [`conch doctor`](/docs/cli#doctor) on this computer and lists its checks — the server, the agents, git, gh, the terminal, the machines — each with how to fix it; **Check again** runs them again after you have.
+
 ## A branch's changes
 
 A click on a branch opens its changes in a tab of their own, as `enter` on a branch does in the TUI. The header says the branch, the base it goes into, how many lines it adds and removes, how far it is ahead, and its pull request with its checks. On the left:
@@ -98,6 +100,7 @@ Right-clicking a row in the sidebar gives its menu, as `m` does in the TUI:
 | `⌥⌘←` `⌥⌘→` `⌥⌘↑` `⌥⌘↓` | focus the split to the left, right, above or below |
 | `⌘F` / `⌘G` / `⇧⌘G` | find in the focused pane / the next older match / the next newer one |
 | `⇧PgUp` `⇧PgDn` `⇧Home` `⇧End` | scroll the pane's history a page, or to the top and back |
+| `⌘/` | Help → Keyboard Shortcuts: every key the menus answer to, read off the menus themselves, and the ones for panes and the mouse |
 | `⌘W` | close the split — the pane keeps running, and is in the sidebar to open again |
 | `⌘1`–`⌘9`, `⇧⌘]` / `⇧⌘[` | go to a tab, next / previous tab |
 | `⌘.` | the next agent waiting for you, then the ones that finished |

@@ -75,6 +75,9 @@ final class Store: ObservableObject {
     @Published var limits: [PlanLimits] = []
     @Published var status: String = "Connecting to conch…"
     @Published var paletteOpen = false
+    /// Help → Keyboard Shortcuts and Help → Check conch… on screen.
+    @Published var helpOpen = false
+    @Published var doctorOpen = false
     /// A broadcast being written (BroadcastSheet).
     @Published var broadcastDraft: BroadcastDraft?
     /// The focused pane's find bar, while it is open.
@@ -1678,6 +1681,8 @@ final class Store: ObservableObject {
         case "closeSplit": closeSplit()
         case "nextWaiting": nextWaiting()
         case "find": openFind()
+        case "shortcuts": helpOpen = true
+        case "doctor": doctorOpen = true
         case "findOlder": findNext(back: true)
         case "findNewer": findNext(back: false)
         case "zoomSplit": layout.toggleZoom(); focusTerminal()

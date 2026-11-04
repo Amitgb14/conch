@@ -2158,3 +2158,31 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
                                   BroadcastOutcome(id: "p3", sent: false)], names: ["p2": "build"])
     #expect(mixed == ("Sent to 1 pane · 2 not: build — not running, …", true))
 }
+
+// conch doctor's report as the app reads it — kept when it exits 1, which
+// is when a check failed — and the shortcuts sheet's keys.
+@Test func doctorAndShortcuts() async throws {
+    let json = #"[{"name":"server","status":"ok","detail":"running"},{"name":"gh","status":"warn","detail":"not logged in","fix":"gh auth login"},{"name":"git","status":"fail","detail":"missing"}]"#
+    let c = try JSONDecoder().decode([DoctorCheck].self, from: Data(json.utf8))
+    #expect(c.map(\.mark) == ["✓", "!", "✗"] && c[1].fix == "gh auth login")
+    #expect(doctorSummary(c) == "1 problem to fix, and 1 to look at.")
+    #expect(doctorSummary(Array(c.prefix(2))) == "1 thing to look at; nothing stops conch working.")
+    #expect(doctorSummary([c[0]]) == "Everything conch needs is in order.")
+    #expect(doctorSummary([]) == "Everything conch needs is in order.")
+
+    // A conch that fails its checks still has its report read.
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("doc-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let fake = dir.appendingPathComponent("conch")
+    try "#!/bin/sh\necho '\(json)'\nexit 1\n".write(to: fake, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+    let out = try await runConchAnyExit(fake.path, ["doctor", "-json"])
+    #expect(try JSONDecoder().decode([DoctorCheck].self, from: out).count == 3)
+
+    #expect(shortcutLabel(key: "f", command: true, shift: false, option: false, control: false) == "⌘F")
+    #expect(shortcutLabel(key: "\r", command: true, shift: true, option: false, control: false) == "⇧⌘↩")
+    #expect(shortcutLabel(key: String(UnicodeScalar(0xF702)!), command: true, shift: false, option: true, control: false) == "⌥⌘←")
+    #expect(shortcutLabel(key: "s", command: true, shift: false, option: false, control: true) == "⌃⌘S")
+    #expect(shortcutLabel(key: "/", command: true, shift: false, option: false, control: false) == "⌘/")
+}
