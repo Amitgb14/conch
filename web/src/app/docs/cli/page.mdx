@@ -186,6 +186,7 @@ Finishing a task from a script, the same steps as the [changes view](/docs/tasks
 | `conch branch pr [-title T] [-body B] [-draft]` | push, then open a pull request into the base with `gh`, and print its URL. Without `-title`, gh fills the title and body from the commits |
 | `conch branch merge [-no-squash] [-m MESSAGE]` | merge the branch into the base where the base is checked out, squashed unless `-no-squash`. A merge that conflicts is undone and the command fails |
 | `conch branch discard [-n] [-force]` | remove the branch's worktree and delete the branch. It refuses when that would lose uncommitted files or unpushed commits, unless `-force`; `-n` only prints what would go |
+| `conch branch fix-ci [-agent A]` | send the branch's newest failed CI run — its log's end and a link to it — to the agent working on the branch, as `f` in the review queue; with none there, start one (`-agent`, else `[agents] default`) in the branch's worktree with it. Refused while that agent waits on a question of its own |
 
 ```sh
 conch branch commit -m "Add the health check" && conch branch pr -title "Health check"

@@ -23,6 +23,7 @@ const branchUsage = `Usage:
   conch branch pr     [-cwd DIR] [-branch B] [-title T] [-body B] [-draft]
   conch branch merge  [-cwd DIR] [-branch B] [-no-squash] [-m MESSAGE]
   conch branch discard [-cwd DIR] [-branch B] [-force] [-n]
+  conch branch fix-ci [-cwd DIR] [-branch B] [-agent A]
 
 Without -branch, the branch checked out in DIR (the current directory) is used.`
 
@@ -147,6 +148,8 @@ func runBranch(args []string) error {
 		return branchMerge(args)
 	case "discard":
 		return branchDiscard(args)
+	case "fix-ci":
+		return branchFixCI(args)
 	case "help", "-h", "--help":
 		fmt.Print(branchUsage + "\n")
 		return nil
@@ -249,6 +252,79 @@ func branchMerge(args []string) error {
 		return err
 	}
 	fmt.Printf("%s  merged %s into %s\n", res.Hash[:min(len(res.Hash), 7)], branch, res.Into)
+	return nil
+}
+
+// branchFixCI sends a branch's failed CI run to the agent working on it —
+// what f does in the TUI's review queue — or, with none there, starts an
+// agent in the branch's worktree with it. It is how the Mac app's queue
+// does the same, so the prompt is worded in one place (CIFailurePrompt).
+func branchFixCI(args []string) error {
+	bf := newBranchFlags("fix-ci")
+	agentName := bf.fs.String("agent", "", "the agent to start when none is on the branch (default: config.toml's)")
+	c, id, branch, err := bf.open(args)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if missing := c.MissingCapabilities([]string{proto.CapBranchCILog}); len(missing) > 0 {
+		return fmt.Errorf("the conch server (pid %d) predates reading CI logs; reload it with `conch server reload`", c.Server.PID)
+	}
+	var list proto.PaneList
+	if err := call(c, proto.MethodPaneList, nil, &list); err != nil {
+		return err
+	}
+	var agent *proto.PaneInfo
+	for i, p := range list.Panes {
+		if p.ProjectID == id && p.Branch == branch && p.Agent != nil && p.State == proto.PaneRunning {
+			agent = &list.Panes[i]
+			break
+		}
+	}
+	dir := ""
+	if agent == nil {
+		var projects proto.ProjectList
+		if err := call(c, proto.MethodProjectList, nil, &projects); err != nil {
+			return err
+		}
+		for _, pr := range projects.Projects {
+			for _, w := range pr.Worktrees {
+				if pr.ID == id && w.Branch == branch {
+					dir = w.Path
+				}
+			}
+		}
+	}
+	switch {
+	case agent != nil && agent.Agent.State == proto.AgentBlocked:
+		return fmt.Errorf("%s is waiting for an answer of its own; answer it first", agent.DisplayName())
+	case agent != nil && len(c.MissingCapabilities([]string{proto.CapAgentPrompt})) > 0:
+		return fmt.Errorf("the conch server (pid %d) predates prompting an agent; reload it with `conch server reload`", c.Server.PID)
+	case agent == nil && dir == "":
+		return fmt.Errorf("no agent on %s and no worktree to start one in", branch)
+	}
+	var lg proto.BranchCILog
+	if err := callFor(c, proto.MethodBranchCILog, proto.BranchCILogParams{ProjectID: id, Branch: branch}, &lg, harvestWait); err != nil {
+		return err
+	}
+	prompt := proto.CIFailurePrompt(lg)
+	if agent != nil {
+		var res proto.AgentPromptResult
+		if err := call(c, proto.MethodAgentPrompt, proto.AgentPromptParams{ID: agent.ID, Text: prompt}, &res); err != nil {
+			return err
+		}
+		fmt.Printf("sent CI's failure to %s (%s)\n", agent.DisplayName(), agent.ID)
+		return nil
+	}
+	name := *agentName
+	if name == "" {
+		name = defaultAgent()
+	}
+	var info proto.PaneInfo
+	if err := call(c, proto.MethodPaneCreate, proto.PaneCreateParams{Agent: name, Prompt: prompt, Cwd: dir}, &info); err != nil {
+		return err
+	}
+	fmt.Printf("started %s on %s with CI's failure (%s)\n", orDash(info.DisplayName()), branch, info.ID)
 	return nil
 }
 

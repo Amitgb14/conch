@@ -145,6 +145,8 @@ Usage:
   conch branch push [-rebase] | pr [-title T] [-draft] | merge [-no-squash] | discard [-force]
                                 finish a branch: push, open a pull request, merge into
                                 the base, or delete it and its worktree
+  conch branch fix-ci [-agent A] send a branch's failed CI run to its agent (or start one
+                                in its worktree with it), as f in the review queue
   conch review [ls | add | rm | send] [-cwd DIR] [-branch B] ...
                                 comments on a branch's diff for its agent: list them, add
                                 FILE[:LINE] NOTE, rm ID, or send [-agent A] them to it

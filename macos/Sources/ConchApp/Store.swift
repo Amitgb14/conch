@@ -295,6 +295,31 @@ final class Store: ObservableObject {
     /// The review queue rows dismissed in the TUI (ui.json).
     @Published private(set) var queueDismissed: [String: String] = [:]
 
+    /// Puts a review row aside, as the TUI's x: in ui.json, so the TUI
+    /// leaves it out too, until it changes.
+    func dismiss(_ it: ReviewItem) {
+        let path = (conchDir as NSString).appendingPathComponent("ui.json")
+        do {
+            let data = try dismissing(it, in: FileManager.default.contents(atPath: path))
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        } catch {
+            say("Could not dismiss it: \(error)", .err)
+            return
+        }
+        loadWorkspaces()
+        say("Dismissed \([it.projectName, it.branch].filter { !$0.isEmpty }.joined(separator: " · ")); it comes back if it changes", .info)
+    }
+
+    /// A branch's failed CI run sent to its agent, or an agent started in
+    /// its worktree with it — the TUI's f, as `conch branch fix-ci`.
+    func fixCI(_ it: ReviewItem) {
+        guard let b = binary, let dir = snapshots[it.machine]?.project(it.project)?.path else { return }
+        let agent = startable(on: it.machine).first?.name ?? "claude"
+        job("Sending CI's failure on \(it.branch)", done: "Sent CI's failure on \(it.branch) to its agent") {
+            _ = try await runConch(b, onMachine(it.machine, ["branch", "fix-ci", "-cwd", dir, "-branch", it.branch, "-agent", agent]))
+        }
+    }
+
     /// What needs a decision, across every machine reached: the TUI's
     /// review queue, as its "N to review" counts it. Built once per change.
     var reviewItems: [ReviewItem] {

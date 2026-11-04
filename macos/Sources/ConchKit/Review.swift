@@ -115,3 +115,33 @@ public func loadQueueDismissed(uiJSON data: Data?) -> [String: String] {
     guard let data, let ui = try? JSONDecoder().decode(UI.self, from: data) else { return [:] }
     return ui.queue_dismissed ?? [:]
 }
+
+extension ReviewItem {
+    /// The state a dismissal is kept against, as the TUI's queueItem.state
+    /// words it: the band, the words and when it started. The TUI compares
+    /// all three, so a row this app words differently comes back there —
+    /// shown again, never hidden by mistake.
+    public var dismissState: String {
+        "\(band.rawValue)|\(detail)|\(Int((since ?? .distantPast).timeIntervalSince1970))"
+    }
+
+    /// Whether its agent can be sent what failed: CI on its pull request.
+    public var canFix: Bool { band == .failed || detail.contains("CI failed") }
+}
+
+/// ui.json with a review row dismissed, as the TUI's x keeps it
+/// (queue_dismissed: the row's key and its state); the rest of the file
+/// as it was.
+public func dismissing(_ it: ReviewItem, in data: Data?) throws -> Data {
+    var ui: [String: Any] = [:]
+    if let data, !data.isEmpty {
+        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ConchError(code: "ui.json", message: "ui.json is not what conch writes; not changing it")
+        }
+        ui = obj
+    }
+    var seen = ui["queue_dismissed"] as? [String: Any] ?? [:]
+    seen[it.key] = it.dismissState
+    ui["queue_dismissed"] = seen
+    return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
+}

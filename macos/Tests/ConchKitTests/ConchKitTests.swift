@@ -2019,3 +2019,27 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let d = try? JSONDecoder().decode(BranchDiscardResult.self, from: Data(#"{"worktree":"/w","uncommitted":["x"],"unmerged":2}"#.utf8))
     #expect(d == BranchDiscardResult(worktree: "/w", uncommitted: ["x"], unmerged: 2))
 }
+
+// A row dismissed here is written as the TUI's x writes it, the rest of
+// ui.json kept, and stays out of the queue until its band or start moves.
+@Test func reviewDismissal() throws {
+    let since = Date(timeIntervalSince1970: 1_790_000_000)
+    let it = ReviewItem(band: .failed, machine: "local", project: "r1", projectName: "api", branch: "feat", pane: "",
+                        detail: "CI failed on #7", since: since)
+    #expect(it.dismissState == "1|CI failed on #7|1790000000")
+    #expect(it.canFix)
+    let data = try dismissing(it, in: Data(#"{"spaces":[{"id":"w2","name":"x"}],"queue_dismissed":{"old|k":"0|w|1"}}"#.utf8))
+    let back = loadQueueDismissed(uiJSON: data)
+    #expect(back["local|r1|feat|"] == "1|CI failed on #7|1790000000" && back["old|k"] == "0|w|1")
+    let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    #expect((obj?["spaces"] as? [[String: Any]])?.first?["name"] as? String == "x")
+    #expect(loadQueueDismissed(uiJSON: try dismissing(it, in: nil)).count == 1)
+    #expect(throws: ConchError.self) { try dismissing(it, in: Data("[1]".utf8)) }
+    // A finished agent is fixed only when its pull request's CI failed.
+    var done = it
+    done.band = .done
+    done.detail = "finished"
+    #expect(!done.canFix)
+    done.detail = "finished · CI failed on #7"
+    #expect(done.canFix)
+}

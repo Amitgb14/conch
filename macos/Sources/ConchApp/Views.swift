@@ -402,20 +402,34 @@ struct ReviewPopover: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(items, id: \.key) { it in
-                        Button { open(it) } label: {
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(glyph(it.band)).foregroundStyle(color(it.band)).frame(width: 14)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text([it.projectName, it.branch].filter { !$0.isEmpty }.joined(separator: " · "))
-                                        .font(.system(size: 12.5, weight: .medium)).lineLimit(1)
-                                    Text(it.detail + (store.machines.count > 1 ? " · " + store.label(it.machine) : ""))
-                                        .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
+                        HStack(spacing: 4) {
+                            Button { open(it) } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text(glyph(it.band)).foregroundStyle(color(it.band)).frame(width: 14)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text([it.projectName, it.branch].filter { !$0.isEmpty }.joined(separator: " · "))
+                                            .font(.system(size: 12.5, weight: .medium)).lineLimit(1)
+                                        Text(it.detail + (store.machines.count > 1 ? " · " + store.label(it.machine) : ""))
+                                            .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                    Spacer(minLength: 0)
                                 }
-                                Spacer(minLength: 0)
+                                .padding(.vertical, 4).padding(.horizontal, 4).contentShape(Rectangle())
                             }
-                            .padding(.vertical, 4).padding(.horizontal, 4).contentShape(Rectangle())
+                            .buttonStyle(.plain)
+                            // The TUI's f and x, as buttons on the row.
+                            if it.canFix && !it.branch.isEmpty {
+                                Button("Fix") { store.fixCI(it) }.controlSize(.small)
+                                    .help("Send CI's failure to the branch's agent (or start one in its worktree with it)")
+                            }
+                            Button { store.dismiss(it) } label: { LucideIcon("x", color: Theme.muted, size: 11) }
+                                .buttonStyle(.plain).help("Dismiss: it comes back if it changes")
                         }
-                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Open") { open(it) }
+                            if it.canFix && !it.branch.isEmpty { Button("Send CI's failure to its agent") { store.fixCI(it) } }
+                            Button("Dismiss") { store.dismiss(it) }
+                        }
                     }
                 }
             }
