@@ -525,3 +525,42 @@ func TestBrowseACheckout(t *testing.T) {
 		t.Fatal("read outside any project")
 	}
 }
+
+// A folder added as a project and only then made a repository — `git init`
+// in its shell, as somebody does with a new project — becomes a git
+// project without a server restart, and a task can start there although
+// nothing has been committed yet.
+func TestPlainFolderBecomesGitProject(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	c, dir := startServer(t)
+	folder := filepath.Join(dir, "cachemind")
+	os.MkdirAll(folder, 0o755)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var proj proto.ProjectInfo
+	if err := c.Call(ctx, proto.MethodProjectAdd, proto.ProjectAddParams{Path: folder}, &proj); err != nil {
+		t.Fatal(err)
+	}
+	if proj.Git {
+		t.Fatalf("plain folder added as git: %+v", proj)
+	}
+	var wt proto.WorktreeResult
+	if err := c.Call(ctx, proto.MethodWorktreeAdd, proto.WorktreeAddParams{ProjectID: proj.ID, Branch: "feat"}, &wt); err == nil {
+		t.Fatal("worktree made in a plain folder")
+	}
+
+	git(t, folder, "init", "-q", "-b", "master")
+	git(t, folder, "config", "user.name", "t")
+	git(t, folder, "config", "user.email", "t@example.com")
+	proj = waitProject(t, c, func(p proto.ProjectInfo) bool { return p.ID == proj.ID && p.Git })
+	if proj.Base != "master" {
+		t.Fatalf("base %q, want master", proj.Base)
+	}
+	if err := c.Call(ctx, proto.MethodWorktreeAdd, proto.WorktreeAddParams{ProjectID: proj.ID, Branch: "feat"}, &wt); err != nil {
+		t.Fatalf("worktree in a repository with no commits: %v", err)
+	}
+	if _, err := os.Stat(wt.Path); err != nil {
+		t.Fatal(err)
+	}
+}

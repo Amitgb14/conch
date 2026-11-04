@@ -504,3 +504,70 @@ func TestMetaStamp(t *testing.T) {
 		t.Error("empty stamp for missing dir")
 	}
 }
+
+// A `git init` nobody has committed to has no commit to branch from; a
+// task there gets an empty first commit on base instead of git's
+// "invalid reference", and what was staged stays staged and out of it.
+func TestAddWorktreeInRepoWithNoCommits(t *testing.T) {
+	dir := resolve(t.TempDir())
+	git(t, dir, "init", "-q", "-b", "master")
+	configure(t, dir)
+	write(t, dir, "staged.txt", "s\n")
+	git(t, dir, "add", "staged.txt")
+
+	wt := filepath.Join(filepath.Dir(dir), "wt")
+	if err := AddWorktree(ctx, dir, wt, "conch/task", "master"); err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	if got := git(t, wt, "rev-parse", "--abbrev-ref", "HEAD"); got != "conch/task" {
+		t.Fatalf("worktree on %q", got)
+	}
+	if got := git(t, dir, "rev-parse", "master"); got != git(t, wt, "rev-parse", "HEAD") {
+		t.Fatalf("task does not start at master's first commit")
+	}
+	if tree := git(t, dir, "ls-tree", "-r", "master"); tree != "" {
+		t.Fatalf("first commit is not empty: %q", tree)
+	}
+	if st := git(t, dir, "status", "--porcelain"); st != "A  staged.txt" {
+		t.Fatalf("main checkout's index changed: %q", st)
+	}
+	if _, err := os.Stat(filepath.Join(wt, "staged.txt")); !os.IsNotExist(err) {
+		t.Fatalf("staged file reached the task: %v", err)
+	}
+	// A second task branches from the same commit; none is made again.
+	if err := AddWorktree(ctx, dir, wt+"2", "conch/two", "master"); err != nil {
+		t.Fatal(err)
+	}
+	if n := git(t, dir, "rev-list", "--count", "master"); n != "1" {
+		t.Fatalf("master has %s commits", n)
+	}
+}
+
+func TestAddWorktreeNoCommitsNoIdentity(t *testing.T) {
+	t.Setenv("GIT_AUTHOR_NAME", "")
+	t.Setenv("GIT_COMMITTER_NAME", "")
+	t.Setenv("EMAIL", "")
+	t.Setenv("HOME", t.TempDir())
+	dir := resolve(t.TempDir())
+	git(t, dir, "init", "-q", "-b", "master")
+	git(t, dir, "config", "user.useConfigOnly", "true")
+	err := AddWorktree(ctx, dir, filepath.Join(filepath.Dir(dir), "wt"), "conch/task", "master")
+	if err == nil || !strings.Contains(err.Error(), "user.name") {
+		t.Fatalf("err = %v, want one naming user.name", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git", "refs", "heads", "master")); !os.IsNotExist(err) {
+		t.Fatal("a branch was made without a commit")
+	}
+}
+
+// A repository that has commits keeps git's own error for a base that is
+// not there: nothing is invented on a branch somebody mistyped.
+func TestAddWorktreeMissingBaseInRepoWithCommits(t *testing.T) {
+	root := newRepo(t)
+	if err := AddWorktree(ctx, root, filepath.Join(filepath.Dir(root), "wt"), "x", "nope"); err == nil {
+		t.Fatal("no error for a base that does not exist")
+	}
+	if out := git(t, root, "branch", "--list", "nope"); out != "" {
+		t.Fatalf("base was created: %q", out)
+	}
+}
