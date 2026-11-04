@@ -26,6 +26,9 @@ final class ChangesModel: ObservableObject {
     @Published var busy: String?
     /// Files written in the last few seconds, marked as the TUI marks them.
     @Published var live: Set<String> = []
+    /// Uncommitted files ticked for the next commit; none ticked commits
+    /// them all.
+    @Published var picked: Set<String> = []
 
     init(key: String, store: Store) {
         self.key = key
@@ -122,18 +125,37 @@ final class ChangesModel: ObservableObject {
     }
 
     func commit(_ message: String) {
-        run("Committing") { c in
+        let files = changes?.commitFiles(picked: picked)
+        if files?.isEmpty == true {
+            error = "The files ticked are no longer uncommitted"
+            picked = []
+            return
+        }
+        run("Committing", done: files.map { "Committed \($0.count) file\($0.count == 1 ? "" : "s") on \(branch)" } ?? "Committed on \(branch)") { c in
             struct Commit: Encodable {
                 var project_id: String
                 var branch: String
                 var message: String
+                var files: [String]?
             }
-            try await c.call("branch.commit", Commit(project_id: self.project, branch: self.branch, message: message))
+            try await c.call("branch.commit", Commit(project_id: self.project, branch: self.branch, message: message, files: files))
+            self.picked = []
+        }
+    }
+
+    /// The branch's commits into its base, where the base is checked out:
+    /// squashed into one, or as a merge commit. A merge that conflicts is
+    /// undone by the server and refused.
+    func merge(squash: Bool) {
+        let base = changes?.base ?? "the base"
+        run("Merging into \(base)", done: "Merged \(branch) into \(base)") { c in
+            struct Merge: Encodable { var project_id: String; var branch: String; var squash: Bool? }
+            try await c.call("branch.merge", Merge(project_id: self.project, branch: self.branch, squash: squash ? true : nil))
         }
     }
 
     func push() {
-        run("Pushing") { c in
+        run("Pushing", done: "Pushed \(branch)") { c in
             try await c.call("branch.push", Ref(project_id: self.project, branch: self.branch))
         }
     }
@@ -146,16 +168,18 @@ final class ChangesModel: ObservableObject {
         }
     }
 
-    private func run(_ what: String, _ body: @escaping (Connection) async throws -> Void) {
+    private func run(_ what: String, done: String? = nil, _ body: @escaping (Connection) async throws -> Void) {
         guard let c = store?.connection(machine), busy == nil else { return }
         busy = what
         Task {
             defer { busy = nil }
             do {
                 try await body(c)
+                if let done { store?.say(done) }
                 await load()
             } catch {
                 self.error = "\(error)"
+                store?.say("\(what) failed: \(error)", .err)
             }
         }
     }
@@ -210,14 +234,44 @@ struct ChangesView: View {
             if let b = model.busy { Text(b + "…").font(.system(size: 12)).foregroundStyle(Theme.muted) }
             Button("Agent or terminal") { store.openBranch(project: key(model.machine, model.project), name: model.branch) }
                 .help("This branch's agent, or a terminal in its worktree")
-            Button("Commit…") { committing = true }
+            Button(model.picked.isEmpty ? "Commit…" : "Commit \(model.picked.count)…") { committing = true }
                 .disabled(model.changes?.worktree == nil || (model.changes?.files.isEmpty ?? true) || model.busy != nil)
             Button("Push") { model.push() }.disabled(model.busy != nil)
+            if model.changes?.canMerge == true {
+                Button("Merge into \(model.changes?.base ?? "base")…") { confirmMerge() }.disabled(model.busy != nil)
+                    .help("Merge this branch's commits into \(model.changes?.base ?? "the base") where it is checked out")
+            }
             Button(info?.pr == nil ? "Open pull request" : "Update pull request") { model.openPR() }.disabled(model.busy != nil)
+            if let ch = model.changes, ch.branch != ch.base {
+                // What ends the branch, out of the way of what ships it.
+                Menu {
+                    Button("Delete branch…") { store.deleteBranch(project: key(model.machine, model.project), branch: model.branch) }
+                } label: { Image(systemName: "ellipsis") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .disabled(model.busy != nil).help("More: delete the branch")
+            }
         }
         .controlSize(.small)
         .padding(.horizontal, 12).frame(height: 38)
         .background(Theme.paneHeader)
+    }
+
+    /// Asks how to merge, as the TUI's merge does: squashed by default.
+    func confirmMerge() {
+        guard let ch = model.changes else { return }
+        let n = ch.commits?.count ?? 0
+        let a = NSAlert()
+        a.messageText = "Merge \(ch.branch) into \(ch.base)?"
+        a.informativeText = "\(n) commit\(n == 1 ? "" : "s"), merged where \(ch.base) is checked out. A merge that conflicts is undone and nothing changes."
+            + (info?.pr != nil ? " Its pull request stays open: merging it on GitHub is the other way." : "")
+        a.addButton(withTitle: "Squash and merge")
+        a.addButton(withTitle: "Merge commit")
+        a.addButton(withTitle: "Cancel")
+        switch a.runModal() {
+        case .alertFirstButtonReturn: model.merge(squash: true)
+        case .alertSecondButtonReturn: model.merge(squash: false)
+        default: break
+        }
     }
 
     var files: some View {
@@ -262,6 +316,13 @@ struct ChangesView: View {
         ForEach(list) { f in
             let on = model.selected == f.path && model.selectedCommitted == committed
             HStack(spacing: 8) {
+                if !committed && model.changes?.worktree != nil {
+                    // Ticked: in the next commit; none ticked: all are.
+                    Toggle("", isOn: Binding(get: { model.picked.contains(f.path) },
+                                             set: { if $0 { model.picked.insert(f.path) } else { model.picked.remove(f.path) } }))
+                        .toggleStyle(.checkbox).labelsHidden().controlSize(.small)
+                        .help("Commit only the files ticked")
+                }
                 Text(f.code).font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundStyle(f.code == "A" || f.code == "?" ? Theme.ok : f.code == "D" ? Theme.err : f.code == "U" ? Theme.warn : Theme.work)
                     .frame(width: 12)
@@ -342,7 +403,9 @@ struct ChangesView: View {
     var commitSheet: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Commit on \(model.branch)").font(.headline)
-            Text("Every uncommitted change in its worktree (\(model.changes?.files.count ?? 0) files).").font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(model.picked.isEmpty ? "Every uncommitted change in its worktree (\(model.changes?.files.count ?? 0) files)."
+                 : "Only the \(model.picked.count) file\(model.picked.count == 1 ? "" : "s") ticked: \(model.picked.sorted().prefix(4).joined(separator: ", "))\(model.picked.count > 4 ? ", …" : "").")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
             TextField("Message", text: $message, axis: .vertical).lineLimit(3...8).textFieldStyle(.roundedBorder).frame(width: 420)
             HStack {
                 Spacer()

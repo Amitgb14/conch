@@ -42,8 +42,10 @@ A click on a branch opens its changes in a tab of their own, as `enter` on a bra
 A file shows its diff on the right, with line numbers on both sides. While an agent works in the worktree the list follows it: a file just written is marked for a few seconds and the open diff reads again. The buttons along the top:
 
 - **Agent or terminal** — the branch's agent, or the terminal already in its worktree (one is started there only if there is none).
-- **Commit…** — commits every uncommitted change, with the message you type.
+- **Commit…** — commits every uncommitted change, with the message you type; tick files in **Uncommitted** to commit only those (**Commit 2…**).
 - **Push**, and **Open pull request** (or update it), which opens the pull request in your browser.
+- **Merge into main…** (the base), for a branch with commits of its own — squashed into one commit, or as a merge commit — where the base is checked out; a merge that conflicts is undone and nothing changes.
+- **⋯ → Delete branch…** — the branch and its worktree, after saying what that would lose.
 
 Hunks, marking files for a commit, comments and merging are still the TUI's (`b` on the branch there).
 

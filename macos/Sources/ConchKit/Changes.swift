@@ -134,3 +134,18 @@ public func parseChangesKey(_ k: String) -> (machine: String, project: String, b
     guard parts.count == 4, parts[0] == "changes", !parts[3].isEmpty else { return nil }
     return (parts[1], parts[2], parts[3])
 }
+
+extension Changes {
+    /// The files a commit takes: those picked that are still uncommitted —
+    /// one committed or reverted meanwhile drops out — or nil for every
+    /// one, when nothing is picked. An empty list (all picked are gone)
+    /// commits nothing rather than everything.
+    public func commitFiles(picked: Set<String>) -> [String]? {
+        if picked.isEmpty { return nil }
+        return files.map(\.path).filter { picked.contains($0) }
+    }
+
+    /// Whether the branch has work to merge into its base: commits of its
+    /// own, on a branch that is not the base.
+    public var canMerge: Bool { branch != base && !(commits ?? []).isEmpty }
+}

@@ -2043,3 +2043,21 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     done.detail = "finished · CI failed on #7"
     #expect(done.canFix)
 }
+
+// A commit takes the files ticked that are still uncommitted, or every
+// file when none is ticked; a branch merges when it has commits of its own.
+@Test func commitPickedFilesAndMerge() throws {
+    let json = #"{"project_id":"r1","branch":"feat","base":"main","worktree":"/w","files":[{"path":"a.go","code":"M","added":1,"deleted":0},{"path":"b.go","code":"A","added":2,"deleted":0}],"commits":[{"hash":"abc","subject":"x"}]}"#
+    let ch = try JSONDecoder().decode(Changes.self, from: Data(json.utf8))
+    #expect(ch.commitFiles(picked: []) == nil)
+    #expect(ch.commitFiles(picked: ["b.go"]) == ["b.go"])
+    #expect(ch.commitFiles(picked: ["b.go", "a.go"]) == ["a.go", "b.go"]) // in the list's order
+    #expect(ch.commitFiles(picked: ["gone.go"]) == []) // nothing, not everything
+    #expect(ch.canMerge)
+    var base = ch
+    base.branch = "main"
+    #expect(!base.canMerge)
+    var none = ch
+    none.commits = []
+    #expect(!none.canMerge)
+}
