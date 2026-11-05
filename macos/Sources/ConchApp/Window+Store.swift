@@ -15,9 +15,16 @@ extension Store {
     /// A port a pane listens on: opened in the browser when it is this
     /// computer's; on another machine, the ssh tunnel that brings it here
     /// is copied, since a remote port is not reachable as it is.
-    func openPort(_ port: Int, machine: String) {
+    /// A port clicked: here, its page in a browser tab beside the agents
+    /// (or, with outside, in the browser you use); on another machine, the
+    /// tunnel to reach it copied.
+    func openPort(_ port: Int, machine: String, outside: Bool = false) {
         if machine == "local" {
-            if let u = URL(string: "http://localhost:\(port)") { NSWorkspace.shared.open(u) }
+            if outside {
+                if let u = URL(string: "http://localhost:\(port)") { NSWorkspace.shared.open(u) }
+            } else {
+                openBrowser("http://localhost:\(port)")
+            }
             return
         }
         let home = ProcessInfo.processInfo.environment["CONCH_HOME"].flatMap { $0.isEmpty ? nil : $0 }

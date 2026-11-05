@@ -297,3 +297,43 @@ import Testing
     let missing = ids.filter { !menu.contains("case \"\($0)\"") && !store.contains("case \"\($0)\"") }
     #expect(missing.isEmpty, "menu commands nobody handles: \(missing.sorted())")
 }
+
+// What a file is shown as; the browser tab's key round trip; and what the
+// address bar loads for what was typed.
+@Test func mediaAndBrowser() {
+    #expect(MediaKind(path: "a/logo.PNG") == .image && MediaKind(path: "x.svg") == .image)
+    #expect(MediaKind(path: "demo.mov") == .video && MediaKind(path: "song.mp3") == .audio && MediaKind(path: "spec.pdf") == .pdf)
+    #expect(MediaKind(path: "site/index.html") == .html && MediaKind(path: "main.go") == .text && MediaKind(path: "Makefile") == .text)
+    #expect(MediaKind.html.needsFile && !MediaKind.text.needsFile)
+    #expect(mediaHasSource("a/index.HTML") && mediaHasSource("logo.svg") && !mediaHasSource("logo.png") && !mediaHasSource("main.go"))
+
+    for u in ["http://localhost:3000/a?b=c|d", "https://example.com/x y", "about:blank"] {
+        let k = browserKey(u)
+        #expect(parseBrowserKey(k) == u && k.hasPrefix("web|") && !k.dropFirst(4).contains("|"))
+        #expect(!isPaneKey(k) && !isTerminalKey(k) && machine(ofKey: k) == "local")
+    }
+    #expect(parseBrowserKey("local|p3") == nil && parseBrowserKey("files|local|r1") == nil)
+
+    #expect(browserURL("localhost:3000")?.absoluteString == "http://localhost:3000")
+    #expect(browserURL("127.0.0.1:8080/x")?.absoluteString == "http://127.0.0.1:8080/x")
+    #expect(browserURL("192.168.1.20")?.absoluteString == "http://192.168.1.20")
+    #expect(browserURL("myapp.local")?.absoluteString == "http://myapp.local")
+    #expect(browserURL("example.com:8443")?.absoluteString == "http://example.com:8443")
+    #expect(browserURL("example.com/docs")?.absoluteString == "https://example.com/docs")
+    #expect(browserURL("https://github.com/x")?.absoluteString == "https://github.com/x")
+    #expect(browserURL("  http://a.b  ")?.absoluteString == "http://a.b")
+    #expect(browserURL("") == nil && browserURL("hello") == nil && browserURL("two words.com") == nil)
+}
+
+@Test func mediaCachePaths() {
+    let base = URL(fileURLWithPath: "/c")
+    let a = mediaCachePath(base: base, machine: "busybox", path: "/home/u/app/logo.png")
+    #expect(a.path.hasPrefix("/c/media/busybox/") && a.lastPathComponent == "logo.png")
+    #expect(a == mediaCachePath(base: base, machine: "busybox", path: "/home/u/app/logo.png"))
+    // The same name elsewhere, or on another machine, is another file.
+    #expect(a != mediaCachePath(base: base, machine: "busybox", path: "/home/u/web/logo.png"))
+    #expect(a.deletingLastPathComponent().lastPathComponent != mediaCachePath(base: base, machine: "box2", path: "/home/u/app/logo.png").deletingLastPathComponent().lastPathComponent)
+    // A machine's name never climbs out of the cache.
+    let odd = mediaCachePath(base: base, machine: "../x/y", path: "/")
+    #expect(odd.path.hasPrefix("/c/media/") && !odd.pathComponents.contains("..") && odd.lastPathComponent == "file")
+}
