@@ -70,7 +70,7 @@ func TestDescribeShareAndBroadcast(t *testing.T) {
 		{Action{Type: ActBroadcast, Machine: "local", Panes: []string{"p1", "p2"}, Text: "run the tests"},
 			"Send to 2 agents on this computer (fix login, codex): run the tests"},
 		{Action{Type: ActBroadcast, Machine: "nowhere", Panes: []string{"p1"}, Text: "hi"},
-			"Send to 1 agents on nowhere (p1): hi"},
+			"Send to 1 agent on nowhere (p1): hi"},
 	} {
 		if got := w.Describe(c.a); got != c.want {
 			t.Errorf("describe %s:\n got %q\nwant %q", c.a.Type, got, c.want)

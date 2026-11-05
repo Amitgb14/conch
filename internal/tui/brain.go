@@ -296,17 +296,7 @@ func (b *askBar) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			b.phase, b.err = askInput, msg.err.Error()
 			return false, textinput.Blink
 		}
-		b.plan, b.phase, b.sel, b.actions = msg.plan, askPlan, 0, nil
-		for _, a := range msg.plan.Actions {
-			pa := plannedAction{Action: a}
-			if err := b.world.Validate(&pa.Action); err != nil {
-				pa.invalid = err.Error()
-			} else {
-				pa.on = true
-			}
-			pa.desc = b.world.Describe(pa.Action)
-			b.actions = append(b.actions, pa)
-		}
+		b.showPlan(msg.plan)
 		return false, nil
 	case actionDoneMsg:
 		if msg.bar != b {
@@ -394,6 +384,11 @@ func (b *askBar) key(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 		case "e":
 			b.phase = askInput
 			return false, textinput.Blink
+		case "m":
+			// The fast path read it one way; the model may read it another.
+			if b.plan.Fast {
+				return false, b.think(m, strings.TrimSpace(b.in.Value()))
+			}
 		case "up", "k":
 			b.sel = max(b.sel-1, 0)
 		case "down", "j":
@@ -434,18 +429,27 @@ func (b *askBar) submit(m *Model) tea.Cmd {
 	if request == "" {
 		return nil
 	}
-	provider, err := m.provider()
-	if err != nil {
-		b.err = err.Error()
-		return nil
-	}
-	if h := m.brain.history; len(h) == 0 || h[len(h)-1] != request {
-		m.brain.history = append(h, request)
-		if len(m.brain.history) > 50 {
-			m.brain.history = m.brain.history[1:]
+	// What needs no model is answered at once, and works with no
+	// provider set up at all.
+	if !m.cfg.Brain.NoFastPath {
+		if plan, ok := brain.FastPlan(m.world(), request); ok {
+			b.remember(m, request)
+			b.world, b.err = m.world(), ""
+			b.showPlan(plan)
+			return nil
 		}
 	}
-	b.hist = len(m.brain.history)
+	return b.think(m, request)
+}
+
+// think asks the model for a plan.
+func (b *askBar) think(m *Model, request string) tea.Cmd {
+	provider, err := m.provider()
+	if err != nil {
+		b.phase, b.err = askInput, err.Error()
+		return textinput.Blink
+	}
+	b.remember(m, request)
 	b.world, b.err, b.phase, b.started = m.world(), "", askThinking, time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	b.cancel = cancel
@@ -455,6 +459,31 @@ func (b *askBar) submit(m *Model) tea.Cmd {
 		plan, err := brain.MakePlan(ctx, provider, w, request)
 		return planMsg{bar: b, plan: plan, err: err}
 	})
+}
+
+func (b *askBar) remember(m *Model, request string) {
+	if h := m.brain.history; len(h) == 0 || h[len(h)-1] != request {
+		m.brain.history = append(h, request)
+		if len(m.brain.history) > 50 {
+			m.brain.history = m.brain.history[1:]
+		}
+	}
+	b.hist = len(m.brain.history)
+}
+
+// showPlan lists a plan's actions, checked against the world it was made for.
+func (b *askBar) showPlan(plan brain.Plan) {
+	b.plan, b.phase, b.sel, b.actions = plan, askPlan, 0, nil
+	for _, a := range plan.Actions {
+		pa := plannedAction{Action: a}
+		if err := b.world.Validate(&pa.Action); err != nil {
+			pa.invalid = err.Error()
+		} else {
+			pa.on = true
+		}
+		pa.desc = b.world.Describe(pa.Action)
+		b.actions = append(b.actions, pa)
+	}
 }
 
 // runNext runs the next selected action that hasn't run yet.
@@ -559,6 +588,10 @@ func (b *askBar) render(m Model) box {
 		}
 		if b.phase == askPlan && len(b.actions) == 0 {
 			hint = " e ask something else · esc close"
+		}
+		if b.phase == askPlan && b.plan.Fast {
+			hint += " · m ask the model"
+			lines = append(lines, "", styleMuted.Render(" answered without the model"))
 		}
 		lines = append(lines, "", styleMuted.Render(hint))
 	}
