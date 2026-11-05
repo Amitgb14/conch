@@ -345,7 +345,7 @@ conch app install              # put conch in the desktop's applications, with i
 conch app remove               # take it out again
 ```
 
-conch is a terminal program, so it is usually started by typing into a terminal somebody set up first. `conch app` starts the terminal as well: it writes a configuration of its own and opens a known terminal with **only** that one, so a terminal that was never configured — or configured years ago for something else — stops being conch's problem. The terminals it knows, in the order it picks one: **ghostty**, **kitty**, **foot**, **alacritty**. It looks for each on your `PATH` and, on macOS, in `~/Applications` and `/Applications` as well — a terminal there is an application and not a program on `PATH` (ghostty adds its own directory to `PATH` only for the shells *it* starts, so a shell started by a conch pane, by launchd or by another terminal cannot see it). `conch app ls` says which it found and where. Each is started in the way that leaves your own config unread (`--config-default-files=false`, `--config`, `-c`, `--config-file`), which is the whole of the trick.
+conch is a terminal program, so it is usually started by typing into a terminal somebody set up first. `conch app` starts the terminal as well: it writes a configuration of its own and opens a known terminal with **only** that one, so a terminal that was never configured — or configured years ago for something else — stops being conch's problem. The terminals it knows, in the order it picks one: **ghostty**, **kitty**, **foot**, **alacritty**. It looks for each on your `PATH`, then in the places a terminal lives that the `PATH` in hand may not have — `/usr/local/bin`, `/usr/bin`, `~/.local/bin`, `/snap/bin` and the flatpak export directories on Linux, Homebrew's on macOS — and on macOS in `~/Applications` and `/Applications`, where a terminal is an application and not a program on `PATH` at all. Both detours matter: ghostty adds its own directory to `PATH` only for the shells *it* starts, so a shell from a conch pane or launchd cannot see it; and a desktop entry is started with the session's `PATH` rather than your shell's, so a terminal in `~/.local/bin` could be found when you type `conch app` and missed when you click the icon — which, with `Terminal=false`, would show nothing at all. `conch app ls` says which it found and where. Each is started in the way that leaves your own config unread (`--config-default-files=false`, `--config`, `-c`, `--config-file`), which is the whole of the trick.
 
 Terminal defaults are good; what conch needs is that nothing broken is read on top of them. Beside what makes the window conch's own (below), the only settings in the file are the ones that would otherwise bite: `TERM` held at `xterm-256color` when nothing the window could read describes the terminal's own entry (the thing [`conch doctor`](#doctor) warns about) — asked of this computer *and* of the terminal itself, since one may carry its own terminfo and point `TERMINFO` at it for what it starts, as macOS Ghostty does from inside its bundle; asking only the environment conch happens to be in cost the window `xterm-ghostty` for no reason, and, for ghostty, single-instance turned off and quit-after-last-window-closed turned on. Both of those are about the window being conch's: a ghostty already running would otherwise make it itself, from its own configuration rather than conch's, and on macOS — where ghostty cannot be started from the command line at all, so conch goes through `open -na Ghostty.app --args` — the separate instance that creates would sit in the Dock with nothing in it after the conch window was closed, one more for every launch. Anything you want to add goes in `<name>.local.<ext>` beside it (`~/.config/conch/app/ghostty.local.conf`), which is included when it exists; the generated file itself is rewritten every time, so edits there are lost.
 
@@ -376,6 +376,7 @@ The first thing to run when something does not work. Each line is one thing conc
 ```
 ✓ conch     0.1.9 · darwin/arm64
 ✓ config    /Users/you/.config/conch/config.toml
+✓ keys      ctrl+b, then 46 keys
 ✓ socket    /Users/you/.config/conch/conch.sock
 ! server    pid 28356, up 6d, on another build (0.1.8) than this conch (0.1.9)
             → conch server reload -binary /Users/you/.local/bin/conch  (panes and agents keep running)
@@ -392,6 +393,7 @@ conch works; 2 things worth a look.
 | Check | ✗ (must be fixed) | ! (worth a look) |
 | --- | --- | --- |
 | config | `config.toml` does not parse, so none of it is in force | an `[[actions]]` entry with no name, no command or an unknown place |
+| keys | | a `[keys.bind]` entry naming something conch does not bind, or two of them on one key |
 | socket | the socket path is longer than the system allows (103 bytes on macOS, 107 on Linux), so no server can listen | |
 | server | the socket is there but nothing answers — stuck, or somebody else's (starting `conch` would clear it, and every pane) | not running; on another build than this `conch` (the fix reloads it onto *this* binary, or says to run the newer one when the server is ahead); missing features this `conch` uses |
 | agents | the server finds none installed | not checked, because no server is running |
@@ -403,6 +405,35 @@ conch works; 2 things worth a look.
 **It asks the terminal what it can do.** `TERM` is set by whatever started your shell and is wrong often enough to be worth checking against the terminal itself — a Ghostty whose terminfo was never installed still says it is Ghostty while `TERM` says plain xterm, and then nothing describes its keys and colours. So the command sends the terminal a few questions (`DECRQM` for the modes conch turns on, `XTVERSION` for its name, device attributes last) and reads the replies, which is the one thing it writes anywhere. It does that only when run in a terminal, never when output is redirected, and it waits 300ms at most for a terminal that will not answer. Anything the terminal says nothing about is left unsaid rather than reported as missing: a terminal that does not answer mode queries is not a terminal without the modes. Run in a conch pane it says so, because the terminal answering there is conch's own emulator and not the window you are looking at. **The TUI never asks** — a reply would land on its own input as keystrokes — so the page under `,` → **Check conch…** shows everything except what only a question can find.
 
 It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by side, so one slow thing costs only its own wait. It changes nothing and starts nothing — not even the server — and it does not dial your machines, so a machine that is asleep cannot make it hang. Whether `gh` is signed in is asked without reaching GitHub, so an offline laptop is not called signed out (a `gh` too old for that is asked the usual way), and the token `gh` hands back is thrown away. It checks this computer: on another machine, run it there. The TUI runs the same checks a moment after it starts and shows what they find on this computer's page; `,` → **Check conch…** lists them there and checks again.
+
+### keys
+
+```sh
+conch keys            # every key after the prefix, what it does, and what it is on now
+conch keys -bound     # only the ones that are bound to something
+conch keys -toml      # the whole table as a [keys.bind] ready to paste and edit
+```
+
+tmux's `list-keys`, for conch's prefix table. It prints one line per action — the key it answers to, the name to write in `config.toml`, and what it does:
+
+```
+ctrl+b, then:
+
+KEY     ACTION            DOES
+\       split_right       split right  (was v % |)
+"       split_down        split down
+—       close_split       close the split (ends its pane)  (unbound)
+↓ j     focus_down        focus the split below
+ctrl+n  next_tab          next tab  (was n)
+space   zoom              zoom the split  (was z)
+—       next_layout       next layout  (space is zoom now)
+```
+
+A key you moved says what it was, one you unbound says so, and one whose key went to another action says where it went — which is the surprise worth naming, since nothing else would tell you that binding `zoom` to space took space off `next_layout`. [Rebinding](/docs/configuration#rebinding-the-keys) is `[keys.bind]` in `config.toml`; `-toml` prints the current table in that form, so you can paste it and edit from what you have rather than from a blank table.
+
+It reads `config.toml` and nothing else — no server, no network — so it works wherever conch is installed. It exits 1 when that table has a mistake in it (an action conch does not bind, two actions on one key), naming each; `conch doctor` says the same under `keys`.
+
+A digit is the tab at that place and `ctrl`/`alt`+arrow is a resize, and neither is in the table: they are a key *family*, not one action.
 
 ### bug
 

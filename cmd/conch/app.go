@@ -448,6 +448,40 @@ func appFind(name string) (appTerminal, string, error) {
 // variable so a test can look somewhere of its own.
 var appSystemApps = "/Applications"
 
+// appExtraDirs is where else a terminal may be, past PATH. A variable for
+// the same reason: a test must look at its own directories and not at
+// whatever the developer has installed.
+var appExtraDirs = defaultExtraDirs
+
+// defaultExtraDirs are the places a terminal lives that the PATH in hand
+// may not have. A desktop entry is started with the *session's* PATH,
+// which is not the shell's: ~/.local/bin, snap and flatpak are each
+// commonly in one and not the other, so a terminal found when `conch app`
+// is typed could be missed when the icon is clicked — and an icon that
+// silently does nothing (the entry says Terminal=false, so there is not
+// even a window to show an error) is the failure `conch app install`
+// refuses to create at install time. Looking here closes it at click
+// time.
+func defaultExtraDirs() []string {
+	dirs := []string{"/usr/local/bin", "/usr/bin", "/bin"}
+	if runtime.GOOS == "darwin" {
+		dirs = append(dirs, "/opt/homebrew/bin")
+	} else {
+		dirs = append(dirs, "/snap/bin", "/var/lib/flatpak/exports/bin")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, ".local", "bin"),
+			filepath.Join(home, ".local", "share", "flatpak", "exports", "bin"))
+	}
+	return dirs
+}
+
+// appRunnable reports whether a path is a program that can be run.
+func appRunnable(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && st.Mode().IsRegular() && st.Mode().Perm()&0o111 != 0
+}
+
 // appWhere is the program to run for a terminal, or "" when it is not
 // here: on PATH, or — on macOS — the application bundle, in the user's
 // own Applications before the one everybody shares, since somebody who
@@ -456,17 +490,21 @@ func appWhere(t appTerminal) string {
 	if bin, err := exec.LookPath(t.name); err == nil {
 		return bin
 	}
+	for _, dir := range appExtraDirs() {
+		if bin := filepath.Join(dir, t.name); appRunnable(bin) {
+			return bin
+		}
+	}
 	if runtime.GOOS != "darwin" || t.app == "" {
 		return ""
 	}
-	var dirs []string
+	var apps []string
 	if home, err := os.UserHomeDir(); err == nil {
-		dirs = append(dirs, filepath.Join(home, "Applications"))
+		apps = append(apps, filepath.Join(home, "Applications"))
 	}
-	dirs = append(dirs, appSystemApps)
-	for _, dir := range dirs {
-		bin := filepath.Join(dir, t.app, "Contents", "MacOS", t.name)
-		if st, err := os.Stat(bin); err == nil && st.Mode().IsRegular() && st.Mode().Perm()&0o111 != 0 {
+	apps = append(apps, appSystemApps)
+	for _, dir := range apps {
+		if bin := filepath.Join(dir, t.app, "Contents", "MacOS", t.name); appRunnable(bin) {
 			return bin
 		}
 	}

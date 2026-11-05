@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Amitgb14/conch/internal/nodetest"
 	"github.com/Amitgb14/conch/internal/pane"
 )
 
@@ -173,13 +174,9 @@ func TestUIFiles(t *testing.T) {
 	refs := regexp.MustCompile(`(?:href|src)="([^"]+)"`).FindAllStringSubmatch(string(page), -1)
 	sw, _ := uiFiles.ReadFile("ui/sw.js")
 	shell := regexp.MustCompile(`const SHELL = \[([^\]]*)\]`).FindString(string(sw))
-	for _, m := range regexp.MustCompile(`"(/[a-z0-9.\-]*)"`).FindAllStringSubmatch(shell, -1) {
-		refs = append(refs, m)
-	}
+	refs = append(refs, regexp.MustCompile(`"(/[a-z0-9.\-]*)"`).FindAllStringSubmatch(shell, -1)...)
 	app, _ := uiFiles.ReadFile("ui/app.mjs")
-	for _, m := range regexp.MustCompile(`from "([^"]+)"`).FindAllStringSubmatch(string(app), -1) {
-		refs = append(refs, m)
-	}
+	refs = append(refs, regexp.MustCompile(`from "([^"]+)"`).FindAllStringSubmatch(string(app), -1)...)
 	if len(refs) < 12 {
 		t.Fatalf("only %d references found", len(refs))
 	}
@@ -262,13 +259,10 @@ func TestUIFiles(t *testing.T) {
 }
 
 // The app's logic — reading a frame's styling, ordering the list, routes —
-// is tested with node, which the CI runners have. Without node it can't
-// be, and says so.
+// is tested with node. Without node it can't be, and says so — and under
+// CI, where node is installed for it, that is a failure (nodetest).
 func TestUILogic(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node is not installed; the app's JavaScript tests (uitest/) were not run")
-	}
+	node := nodetest.Path(t)
 	for _, args := range [][]string{
 		{"--test", "uitest/lib.test.mjs", "uitest/sw.test.mjs"},
 		// The rest has no tests of its own; it must at least parse.

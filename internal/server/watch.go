@@ -82,16 +82,6 @@ type watchBackend interface {
 	budgeted() bool
 }
 
-// skipRel reports whether the directory at path, under root, is one to
-// leave alone.
-func skipRel(root, path string, ignored []string) bool {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return true
-	}
-	return rel != "." && skipPath(filepath.ToSlash(rel), ignored)
-}
-
 // worktreeWatcher watches the worktrees of every project for edits. A nil
 // watcher is one the machine would not give us, and does nothing: clients
 // keep polling, which is slower but correct.

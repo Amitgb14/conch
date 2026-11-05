@@ -11,16 +11,21 @@ on:
     # policy allowing the v* tag; with only the master branch allowed, the
     # deploy job is rejected by protection rules.
     tags: ["v*"]
+  # A pull request that touches the site is built and linted, not deployed,
+  # so a broken page is found before it merges rather than after.
+  pull_request:
+    paths: ["web/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
+# Only the deploy job may write to Pages; a pull request's build gets none.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# Deploys queue one after another; a pull request's builds replace its own
+# earlier one and never wait behind a deploy.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.ref) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -47,13 +52,18 @@ jobs:
           BASE_PATH: /conch
       # Serve the _next folder as is.
       - run: touch out/.nojekyll
-      - uses: actions/upload-pages-artifact@v3
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: web/out
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: https://amitgb14.github.io/conch/

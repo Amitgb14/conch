@@ -198,7 +198,7 @@ func TestPairDialogWithoutAGateway(t *testing.T) {
 }
 
 func TestPairIsInTheHelpAndHints(t *testing.T) {
-	if !strings.Contains(strings.Join(helpText, "\n"), "  P  pair a phone with this computer") {
+	if !helpSays("P  pair a phone with this computer") {
 		t.Fatal("the help doesn't list P")
 	}
 	pairHome(t, "")

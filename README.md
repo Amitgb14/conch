@@ -81,8 +81,15 @@ In the TUI: `t` new task · `c` start an agent · `:` ask in plain words ·
 
 ```sh
 make build        # bin/conch
-make test         # go test -race ./...
+make test         # go test -race -timeout 20m ./...
+make lint         # gofmt, go vet, staticcheck — what CI checks first
 ```
+
+The tests of the phone app and the settings page run with node and skip
+without it. The settings page (`internal/configweb/app`) is committed as
+built; after changing it, run `make settings-ui` (needs pnpm) and commit
+`internal/configweb/dist`. [AGENTS.md](AGENTS.md) has the rules for
+contributing, including keeping tests away from your own running conch.
 
 The website and documentation live in [`web/`](web), a Next.js and
 shadcn/ui app (`pnpm dev` there).

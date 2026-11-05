@@ -599,16 +599,6 @@ const (
 	taskTimeout = 60 * time.Second
 )
 
-// call makes one call on this computer's connection, for the routes that
-// are about this computer (projects, pairing).
-func (g *Gateway) call(rq *request, timeout time.Duration, method string, params, out any) *APIError {
-	c, aerr := g.server()
-	if aerr != nil {
-		return aerr
-	}
-	return g.callOn(rq, c, timeout, method, params, out)
-}
-
 // callOn makes one call on a named machine's connection: what a route that
 // acts on a pane uses, having resolved the pane's machine (paneOn).
 func (g *Gateway) callOn(rq *request, c *client.Client, timeout time.Duration, method string, params, out any) *APIError {

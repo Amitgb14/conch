@@ -32,9 +32,6 @@ type configWatch struct {
 
 func newConfigWatch() *configWatch { return &configWatch{stamp: uiStamp(config.File())} }
 
-// configChangedMsg is config.toml as somebody else left it.
-type configChangedMsg struct{ cfg config.Config }
-
 // configWatchTick looks at config.toml in a second.
 func configWatchTick(w *configWatch) tea.Cmd {
 	return tea.Tick(configWatchEvery, func(time.Time) tea.Msg { return pollConfig(w) })

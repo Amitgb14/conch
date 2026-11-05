@@ -305,10 +305,9 @@ func TestAddMachineMenuOffersSavedHosts(t *testing.T) {
 // The keys the help names are the keys there are: M on a host went
 // missing from this list once, which nothing else would have noticed.
 func TestHelpNamesThePromote(t *testing.T) {
-	help := strings.Join(helpText, "\n")
 	for _, want := range []string{"M is that host as a machine", "a host already saved under SSH",
 		"what runs in it ends with the link"} {
-		if !strings.Contains(help, want) {
+		if !helpSays(want) {
 			t.Fatalf("the help does not say %q", want)
 		}
 	}

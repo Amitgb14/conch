@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/gitx"
+	"github.com/Amitgb14/conch/internal/keymap"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 )
@@ -113,14 +114,14 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		items = []menuItem{
 			{"enter", "Open", enter},
 			{"r", "Rename", act("r")},
-			{"", "Redraw (" + m.cfg.Keys.Prefix + " r)", func(m *Model) tea.Cmd {
+			{"", "Redraw" + m.keyNote(keymap.Redraw), func(m *Model) tea.Cmd {
 				r, _ := m.selectedRow()
 				return m.redrawPane(r)
 			}},
 			{"c", "Start an agent here…", act("c")},
 			{"n", "New terminal here", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
-			{"", "Open a link it printed (" + m.cfg.Keys.Prefix + " u)", func(m *Model) tea.Cmd {
+			{"", "Open a link it printed" + m.keyNote(keymap.OpenLinks), func(m *Model) tea.Cmd {
 				r, _ := m.selectedRow()
 				return m.openLinks(r)
 			}},
@@ -1041,165 +1042,512 @@ type help struct {
 
 func newHelp() *help { return &help{} }
 
-var helpText = []string{
-	"Tree",
-	"  ↑↓ jk  move            ←→ hl  fold / unfold     space  toggle",
-	"  enter  open pane, view branch changes           tab  focus main",
-	"  /      filter (/ ! keeps only the agents waiting for you, on every machine)",
-	"  esc    clear filter    m  menu (or right-click)",
-	"  !      next agent waiting for you",
-	"  Q      review queue: what needs a decision, across every machine",
-	"         / filters it · v checks a row · o its output · f sends a failed check or CI run to its agent",
-	"         · R hands a reviewer's report to the branch's agent · C continues an agent stopped at its plan",
-	"         limit once it resets · x dismisses it (and it stays dismissed), or takes a ⏲ one off the schedule",
-	"  B      broadcast: one message to the agents and terminals of the selection (terminals run it as a command)",
-	"  m G    commit graph of a project (or of a branch's project, at that branch): every branch and tag,",
-	"         newest first · enter a commit's branch's changes · y copies its hash · r reads again",
-	"  f      files: browse the checkout of the selected project, or of a branch's worktree;",
-	"         on a terminal running ssh, the files of the host it is logged in to",
-	"",
-	"Create",
-	"  t  new task: branch + worktree + an agent with a prompt (Attempts: try it several times);",
-	"     on a machine, or a folder that isn't a git repository, the agent works right there",
-	"  c  start an agent here: pick Claude, Codex, Gemini or OpenCode (click or 1-9)",
-	"  n  terminal here       a  add or create a project",
-	"  N  new folder in Agents, Terminals or SSH: a group of your own · drag rows in, x removes it",
-	"  M  add machine: over ssh, a host already saved under SSH, or a new sandbox · sandboxes group under Sandboxes → provider",
-	"     on a saved host or an ssh session, M is that host as a machine: conch installs there, so its",
-	"     agents and terminals keep running when the link drops · the host and its session stay as they are",
-	"  R  reconnect a machine    A  start or install any agent",
-	"     m on a sandbox: start, stop or delete it (a sandbox runs, and costs, until stopped)",
-	"  H  ssh from this computer to a host (listed under CLI → SSH; nothing installed there)",
-	"     asks whether to save the host (default no): saved hosts stay under SSH to reconnect; x forgets one",
-	"     extra ssh options (-o KexAlgorithms=… -p 2222) go in its SSH options field, and stay with a saved host",
-	"     on a saved host or ssh session: e edit host, name, folder, options · K login without a password (copies your key)",
-	"     d on a saved host duplicates it: the same name, folder and options under a host of its own (another user or port)",
-	"     d on an ssh session opens another to the same host, with the same options",
-	"     a session is a terminal here, so what runs in it ends with the link: M makes that host a machine instead",
-	"     a saved host goes in an SSH folder (N) as a host: its sessions follow it · a on an SSH folder adds a host to it",
-	"  P  pair a phone with this computer: a QR code for conch web, to type into terminals too (v / r / f: less);",
-	"     a click on its code copies the code, anywhere else in it the link (c, y)",
-	"  r  rename (pane, machine) x  close / remove (a branch: worktree, then the branch;",
-	"     on local, it hides Getting started)",
-	"                            R  refresh git and PRs",
-	"  o  open a branch's pull request                 y  copy name / path",
-	"  b  git window for a branch ($ does too, here or in its changes; a click shows the changes):",
-	"     any git command; tab shows the everyday ones (status, log, fetch, pull, push, commit,",
-	"     stash, rebase, undo, …);",
-	"     ctrl+t sends to an agent on the branch instead; a rebase that stops offers continue,",
-	"     abort, or handing the conflict to the agent",
-	"  m  menu for the row: on an agent's pane it holds Prompt… — its next message, refused while it waits",
-	"     on an answer of its own, and it says when the work it started ends",
-	"     Actions… holds your own commands from config.toml ([[actions]]), run in that checkout",
-	"     with CONCH_MACHINE, CONCH_PROJECT, CONCH_BRANCH, CONCH_WORKTREE and CONCH_PANE set",
-	"  i  agent setup: instructions, skills, MCP servers, and what a worktree lacks",
-	"     in it: s gives the other agents this one's setup (it says what it would write first), u undoes that,",
-	"     S installs or removes conch's own skill for the agent whose tab is open (Settings → Agents does every agent)",
-	"  F  new worktrees: a setup command run in each (npm install…) and the local files (.env, local",
-	"     agent settings) copied in",
-	"  L  open a checkout's preview: each checkout has its own ports ($CONCH_PORT), forwarded from ssh machines",
-	"  W  clean up a project's worktrees: the finished ones (merged, folder gone) come ticked",
-	"",
-	"Splits and tabs (ctrl+b, then)",
-	"  % or v split right   \" or - split down   x close split (ends its pane)   = equalize",
-	"  ←→↑↓ focus   o next split   ; last split   q split numbers (then a digit)   { } swap",
-	"  ctrl/alt+arrows resize (repeats)   space next layout   alt+1-5 even-h, even-v, main-h, main-v, tiled",
-	"  u  open a link the pane printed: put back together across the lines and the box it was",
-	"     drawn in, opened in the browser and copied — a login URL an agent asks you to visit",
-	"  c new tab (a terminal in it)   C this split's branch changes in a tab   n / p next / previous",
-	"  0-9 go to tab   l last tab",
-	"  < > . move tab   w every tab, grouped",
-	"  the tab bar lists the tabs of the Workspace, project, CLI, Agents, Terminals or SSH selected in the tree",
-	"  a tab marked ! (amber) has an agent waiting for your answer · the bar's far end names whose tabs it lists",
-	"  & close tab   , rename tab   z zoom   ! next waiting agent   : ask   d detach   ? this help",
-	"  /  palette: every agent, terminal, project and task branch on screen, and the commands,",
-	"     narrowed as you type · enter goes or runs · ⌘K in conch's own window (conch app)",
-	"  S type into every split of the tab at once (again to stop; synced borders turn amber)",
-	"  N new workspace (own tabs and tree; + beside conch)   ( ) previous / next workspace   $ rename   X close workspace",
-	"  each shows only its own: projects added in it (a), panes started in it, its machines (M), saved ssh hosts and folders",
-	"  what belongs to no workspace is workspace 1's; closing one asks whether its agents and terminals move there or end   x takes out of this one if another has it",
-	"  in the tree: v open in a split right · s below · O in a new tab (beside what the tab already shows)",
-	"  mouse: click a split to focus it · drag borders to resize · drag a split's title onto another to swap them, onto a tab to move it there, onto + for a tab of its own · drag the bar on a pane's right edge to scroll its history · click tabs and × · drag a tab to reorder · + new tab, terminal, agent or ssh",
-	"  mouse: alt+click (option+click) or ctrl+click a link an agent printed to open it; a drag or double click over it copies it instead; a plain click selects, or is the program's",
-	"",
-	"Pane and changes",
-	"  ctrl+b then any other key → back to the tree    ctrl+b z  zoom",
-	"  ctrl+b r  draw the pane again (stale text after a resize)",
-	"  ctrl+b b  back to where the split was before the last jump (again returns)",
-	"  ctrl+b [  scroll history (↑↓ pgup pgdn g) · wheel scrolls too",
-	"    / search up · ? search down · n next · N previous (lower case matches either case)",
-	"  ctrl+b M  alert when the pane goes quiet after output (a build finishing) · ctrl+b A  alert on output",
-	"    a watched pane shows ~ (quiet) or # (output) in the tree until you look at it",
-	"  changes: ↑↓ file · enter diff · esc back · y copy path / diff",
-	"    space or a click in the ✓ column marks a file · c commit (the marked files, else all)",
-	"    P push (the remote ahead? it offers to take its commits first) · p open a pull request",
-	"    in a diff: space marks the hunk under ▸ · n / N next, previous hunk · c commits the marked hunks",
-	"    a comments the hunk under ▸ (✎) · S sends the branch's comments to its agent, hunks quoted",
-	"    the pull request's unresolved GitHub comments are marked ✎ too, read under the diff's title",
-	"    e opens the file in $EDITOR at that hunk, in a pane of its own (on the worktree's machine)",
-	"    s side by side or unified · a wide terminal starts side by side",
-	"    the file list washes the row of a file being written and marks it ▌; an open diff re-reads as the",
-	"    agent writes: ▌ marks what just changed, F follows it, R re-reads now",
-	"    M merge into the base (undone if it conflicts) · D discard the branch and its worktree",
-	"    A compare the attempts at this task (t runs a command in each, o shows its terminal)",
-	"    T move the branch's worktree to another machine or a new sandbox; its agents continue there",
-	"      (also T in the tree, on the branch or on an agent working in it)",
-	"    T on a project moves all of it: every task worktree and every agent, those in the main checkout too",
-	"  y in the tree copies a branch name or directory",
-	"  Sessions (under a project): enter resume · / search titles and conversations · s share with another agent, here or on another machine",
-	"    * star one to come back to (listed first, after anything interrupted) · d delete · a agent filter · I resume all interrupted · x dismiss",
-	"  Files (under a project, or f): enter open a folder or preview a file · h fold / up · / find in what is loaded",
-	"    a type the path into the agent in this checkout · y copy path · d its diff · e open in $EDITOR",
-	"    . hide dotfiles (shown: in a checkout they are the work) · i ignored files · w next checkout",
-	"    r read again · icons: Settings → Theme",
-	"    on a machine elsewhere: U upload a file or folder from here into the selected folder",
-	"    · D download the selection to ~/Downloads · a name taken is numbered (ca 2.pem), never written over",
-	"  Files (under a machine elsewhere): its own files, from its home · - up a folder · ~ home · U and D as above",
-	"",
-	"Mouse",
-	"  click select · double-click open · right-click menu · wheel scroll",
-	"  drag in a pane or a page to copy · past the edge or with the wheel it scrolls · double-click copies a word",
-	"  Y on an agent opens its conversation: scroll (g top · G bottom), drag over a part, release to copy",
-	"  drag the sidebar edge to resize · shift-drag for terminal selection",
-	"  drop files (a screenshot) on a remote pane: uploaded there, and their paths there pasted",
-	"  drop files or folders on a remote Files view: copied into the selected folder there",
-	"",
-	"Brain",
-	"  :  ask conch (ctrl+b : in a pane, or click ✦ Ask): \"start 2 agents on api to fix the flaky tests\",",
-	"     \"what is waiting for me?\", \"hand the auth thread to Codex\", \"tell every agent in api to run the tests\"",
-	"     — it proposes actions; nothing runs until you confirm",
-	"     show/close a pane, tell one agent or everyone, what is waiting: planned at once, no model (m asks it)",
-	"  S  summarise the selected agent now (automatic summaries: Settings → Brain)",
-	"",
-	"Usage",
-	"  title bar: ctx = context in use / window size · out = tokens generated · $ = reported cost",
-	"  Sessions: what each saved conversation cost, or the tokens it generated",
-	"  tree: an agent started by another is listed under it, folding away with it; elsewhere — another",
-	"    section, another machine — it says ↳ for the pane that started it, and that pane counts",
-	"    them (⑂2, amber with ! when one of them is waiting); Q, ! and notifications name it too",
-	"  tree: each agent's cost, and the total per project and machine — what conch has seen,",
-	"    Settings → Theme → Tree hides all of it",
-	"    not the whole plan window. Agents that report no cost (Codex, Gemini) show tokens",
-	"  a task warns before it starts when that agent's plan window is nearly used; it never refuses",
-	"  status bar: Claude 5h 42% · 7d 18% = plan limit windows (click for the lot: resets, every agent, every machine)",
-	"  status bar: ⚑ 1 waiting · 1 done = agents asking you something · agents that finished unseen",
-	"    (done turns idle once you look); the tree's badges say ⚑1 ✓1 the same way; click goes to the next",
-	"  status bar: ⬆ version = updates; click, tick machines with space, u updates",
-	"  status bar: 🌐 = pair a phone (as P): its QR code, and conch web started from there if it isn't running;",
-	"     Settings → Web sets the address phones open and the port, starts or stops conch web,",
-	"     and Devices… lists paired phones: v / r / f what one may do, x twice revokes it",
-	"  status bar: ▁▃▆ (bottom right) = memory and CPU conch uses on this computer; click again to close",
-	"    conch update list shows every release · conch update rollback goes back one",
-	"",
-	"  this list: ↑↓ jk pgup pgdn g G or the wheel scroll it · ←→ hl (shift+wheel) pan long lines",
-	"",
-	"  ,  settings (or click ⚙): theme, prompt, notifications, agents, brain, sandboxes",
-	"     e in Settings (or ↗ Edit in browser) opens every setting as a form in the browser",
-	"     Settings → Check conch… (or ! on any Settings tab) runs conch doctor's checks: git, gh, agents, the terminal, each with its fix",
-	"       (they also run a moment after conch starts: problems are on this computer's page, failures on the bar)",
-	"     Settings → Report a problem… (or ⊙ on the bar) is this conch's own facts, for an issue",
-	"     Sandboxes lists the providers; enter opens one's own page, esc goes back to the list",
-	"  q  detach (agents keep running)",
+// The help is kept as what each key does — groups of entries, a key and
+// its description, with the details under it — and laid out for the width
+// there is (helpLines). It used to be hand-wrapped lines with three keys
+// on some of them and continuation lines that had lost their key, which
+// read as a wall: a key list is looked *along*, so each key gets its own
+// line, its details under it, and a blank line between entries.
+type helpGroup struct {
+	title   string
+	entries []helpEntry
+}
+
+// helpEntry is one key, or a few that belong together, and what it does.
+// what is the line beside the key and more the details under it, each its
+// own paragraph so it is wrapped to the screen rather than cut off at the
+// edge. An entry with no keys is a note about the group it is in.
+//
+// A key after the prefix is named by what it *does* (act, or acts for a
+// family like the layouts), never by the letter, so the help shows the
+// keys this conch has rather than the ones it shipped with: `[keys.bind]`
+// moves them, and a help that still said `x` would be the one place
+// somebody would go to find out why x did nothing. keys is for the rest —
+// the tree's keys, the digits, a resize — and `{prefix}` in any of these
+// strings is the prefix as configured.
+type helpEntry struct {
+	keys string
+	act  keymap.Action
+	acts []keymap.Action
+	// pre shows the prefix in front of the keys, for the entries that are
+	// pressed from inside a pane.
+	pre  bool
+	what string
+	more []string
+}
+
+// helpAt is what the help needs to lay itself out: the width it has, and
+// the keys as this conch has them.
+type helpAt struct {
+	w      int
+	prefix string
+	binds  keymap.Map
+}
+
+// keyText is the key column for an entry: the keys bound to its action
+// now, the literal keys when it has no action, and an em dash for an
+// action somebody has unbound — which is worth a row of its own, since
+// the list is also how you check what you did.
+func (e helpEntry) keyText(at helpAt) string {
+	var keys string
+	switch {
+	case e.act != "":
+		keys = keymap.ShowAll(at.binds.Keys(e.act))
+	case len(e.acts) > 0:
+		var ks []string
+		for _, a := range e.acts {
+			if k := at.binds.Key(a); k != "" {
+				ks = append(ks, keymap.Show(k))
+			}
+		}
+		keys = strings.Join(ks, " ")
+	default:
+		return strings.ReplaceAll(e.keys, "{prefix}", at.prefix)
+	}
+	switch {
+	case keys == "":
+		return "—"
+	case e.pre:
+		return at.prefix + " " + keys
+	}
+	return keys
+}
+
+var helpGroups = []helpGroup{{
+	title: "Tree",
+	entries: []helpEntry{
+		{keys: "↑ ↓  j k", what: "move"},
+		{keys: "← →  h l", what: "fold / unfold"},
+		{keys: "space", what: "toggle"},
+		{keys: "enter", what: "open a pane, or show a branch's changes"},
+		{keys: "tab", what: "focus the main area"},
+		{keys: "/", what: "filter the tree", more: []string{
+			"/ ! keeps only the agents waiting for you, on every machine",
+		}},
+		{keys: "esc", what: "clear the filter"},
+		{keys: "m", what: "menu for the row (or right-click)"},
+		{keys: "y", what: "copy a name or a path — a branch's name, a checkout's directory"},
+		{keys: "!", what: "go to the next agent waiting for you"},
+		{keys: "Q", what: "review queue: what needs a decision, across every machine", more: []string{
+			"/ filters it · v checks a row · o its output",
+			"f sends a failed check or CI run to its agent · R hands a reviewer's report to the branch's agent",
+			"C continues an agent stopped at its plan limit once it resets",
+			"x dismisses it (and it stays dismissed), or takes a ⏲ one off the schedule",
+		}},
+		{keys: "B", what: "broadcast: one message to the agents and terminals of the selection", more: []string{
+			"a terminal runs it as a command",
+		}},
+		{keys: "m G", what: "commit graph of a project, or of a branch's project at that branch", more: []string{
+			"every branch and tag, newest first · enter a commit's branch's changes · y copies its hash · r reads again",
+		}},
+		{keys: "f", what: "files: the checkout of the selected project, or of a branch's worktree", more: []string{
+			"on a terminal running ssh, the files of the host it is logged in to",
+		}},
+	},
+}, {
+	title: "Start something",
+	entries: []helpEntry{
+		{keys: "t", what: "new task: a branch, a worktree and an agent with a prompt", more: []string{
+			"Attempts: try it several times, one branch an attempt",
+			"on a machine, or in a folder that isn't a git repository, the agent works right there",
+		}},
+		{keys: "c", what: "start an agent here: Claude, Codex, Gemini or OpenCode (click or 1-9)"},
+		{keys: "n", what: "terminal here"},
+		{keys: "a", what: "add or create a project"},
+		{keys: "A", what: "start or install any agent"},
+		{keys: "N", what: "new folder in Agents, Terminals or SSH: a group of your own", more: []string{
+			"drag rows in · x removes it",
+		}},
+		{keys: "M", what: "add a machine: over ssh, a host already saved under SSH, or a new sandbox", more: []string{
+			"sandboxes group under Sandboxes → provider",
+			"m on a sandbox: start, stop or delete it (a sandbox runs, and costs, until stopped)",
+			"on a saved host or an ssh session, M is that host as a machine: conch installs there, so its agents and terminals keep running when the link drops · the host and its session stay as they are",
+		}},
+		{keys: "R", what: "reconnect a machine"},
+		{keys: "H", what: "ssh from this computer to a host (listed under CLI → SSH; nothing installed there)", more: []string{
+			"it asks whether to save the host (default no): saved hosts stay under SSH to reconnect, x forgets one",
+			"extra ssh options (-o KexAlgorithms=… -p 2222) go in its SSH options field, and stay with a saved host",
+			"on a saved host or an ssh session: e edit host, name, folder, options · K login without a password (copies your key)",
+			"d on a saved host duplicates it: the same name, folder and options under a host of its own (another user or port)",
+			"d on an ssh session opens another session to the same host, with the same options",
+			"a session is a terminal here, so what runs in it ends with the link: M makes that host a machine instead",
+			"a saved host goes in an SSH folder (N) as a host and its sessions follow it · a on an SSH folder adds a host to it",
+		}},
+		{keys: "P", what: "pair a phone with this computer: a QR code for conch web", more: []string{
+			"to type into terminals too (v / r / f: less)",
+			"a click on its code copies the code, anywhere else in it the link (c, y)",
+		}},
+	},
+}, {
+	title: "The row you are on",
+	entries: []helpEntry{
+		{keys: "r", what: "rename (a pane, a machine)"},
+		{keys: "x", what: "close or remove", more: []string{
+			"a branch: its worktree, then the branch · on local it hides Getting started",
+		}},
+		{keys: "R", what: "refresh git and pull requests"},
+		{keys: "o", what: "open a branch's pull request"},
+		{keys: "b", what: "git window for a branch ($ does too, here or in its changes)", more: []string{
+			"any git command; tab shows the everyday ones (status, log, fetch, pull, push, commit, stash, rebase, undo, …)",
+			"ctrl+t sends it to an agent on the branch instead",
+			"a rebase that stops offers continue, abort, or handing the conflict to the agent",
+			"a click on the branch shows its changes",
+		}},
+		{keys: "m", what: "menu for the row", more: []string{
+			"on an agent's pane it holds Prompt… — its next message, refused while it waits on an answer of its own, and it says when the work it started ends",
+			"Actions… holds your own commands from config.toml ([[actions]]), run in that checkout with CONCH_MACHINE, CONCH_PROJECT, CONCH_BRANCH, CONCH_WORKTREE and CONCH_PANE set",
+		}},
+		{keys: "i", what: "agent setup: instructions, skills, MCP servers, and what a worktree lacks", more: []string{
+			"in it: s gives the other agents this one's setup (it says what it would write first), u undoes that",
+			"S installs or removes conch's own skill for the agent whose tab is open (Settings → Agents does every agent)",
+		}},
+		{keys: "T", what: "move a branch's worktree to another machine or a new sandbox; its agents continue there", more: []string{
+			"on the branch, on an agent working in it, or in its changes",
+			"on a project it moves all of it: every task worktree and every agent, those in the main checkout too",
+		}},
+		{keys: "F", what: "what new worktrees get: a setup command run in each (npm install…) and the local files (.env, local agent settings) copied in"},
+		{keys: "L", what: "open a checkout's preview: each checkout has its own ports ($CONCH_PORT), forwarded from ssh machines"},
+		{keys: "W", what: "clean up a project's worktrees: the finished ones (merged, folder gone) come ticked"},
+	},
+}, {
+	title: "Splits and tabs ({prefix}, then)",
+	entries: []helpEntry{
+		{act: keymap.SplitRight, what: "split right"},
+		{act: keymap.SplitDown, what: "split down"},
+		{act: keymap.CloseSplit, what: "close the split (ends its pane)"},
+		{acts: []keymap.Action{keymap.FocusLeft, keymap.FocusRight, keymap.FocusUp, keymap.FocusDown},
+			what: "focus left, right, up, down"},
+		{act: keymap.NextSplit, what: "next split"},
+		{act: keymap.LastSplit, what: "last split"},
+		{act: keymap.Numbers, what: "split numbers (then a digit)"},
+		{acts: []keymap.Action{keymap.SwapPrev, keymap.SwapNext}, what: "swap splits"},
+		{act: keymap.Equalize, what: "equalize"},
+		{keys: "ctrl/alt+arrows", what: "resize (repeats)"},
+		{act: keymap.NextLayout, what: "next layout"},
+		{acts: []keymap.Action{keymap.LayoutEvenH, keymap.LayoutEvenV, keymap.LayoutMainH, keymap.LayoutMainV, keymap.LayoutTiled},
+			what: "even-h, even-v, main-h, main-v, tiled"},
+		{act: keymap.NewTab, what: "new tab (a terminal in it)"},
+		{act: keymap.ChangesTab, what: "this split's branch changes in a tab"},
+		{acts: []keymap.Action{keymap.NextTab, keymap.PrevTab}, what: "next / previous tab"},
+		{keys: "0-9", what: "go to that tab"},
+		{act: keymap.LastTab, what: "last tab"},
+		{acts: []keymap.Action{keymap.MoveTabLeft, keymap.MoveTabRight, keymap.MoveTab}, what: "move the tab"},
+		{act: keymap.TabPicker, what: "every tab, grouped"},
+		{act: keymap.CloseTab, what: "close the tab"},
+		{act: keymap.RenameTab, what: "rename the tab"},
+		{act: keymap.Zoom, what: "zoom"},
+		{act: keymap.SyncPanes, what: "type into every split of the tab at once", more: []string{
+			"again to stop; synced borders turn amber",
+		}},
+		{act: keymap.OpenLinks, what: "open a link the pane printed", more: []string{
+			"put back together across the lines and the box it was drawn in, opened in the browser and copied — a login URL an agent asks you to visit",
+		}},
+		{act: keymap.Palette, what: "palette: every agent, terminal, project and task branch on screen, and the commands", more: []string{
+			"narrowed as you type · enter goes there or runs it · ⌘K in conch's own window (conch app)",
+		}},
+		{acts: []keymap.Action{keymap.NextWaiting, keymap.Ask, keymap.Detach, keymap.Help},
+			what: "next waiting agent · ask · detach · this help"},
+		{what: "any of these keys can be moved: name what it does under [keys.bind] in config.toml, as tmux's bind-key does — `conch keys` lists the names and what they are on now"},
+		{what: "the tab bar lists the tabs of the Workspace, project, CLI, Agents, Terminals or SSH selected in the tree"},
+		{what: "a tab marked ! (amber) has an agent waiting for your answer · the bar's far end names whose tabs it lists"},
+		{what: "in the tree: v opens a row in a split right · s below · O in a new tab, beside what that tab already shows"},
+	},
+}, {
+	title: "Workspaces ({prefix}, then)",
+	entries: []helpEntry{
+		{act: keymap.NewWorkspace, what: "new workspace: its own tabs and tree (+ beside conch)"},
+		{acts: []keymap.Action{keymap.PrevWorkspace, keymap.NextWorkspace}, what: "previous / next workspace"},
+		{act: keymap.RenameWorkspace, what: "rename it"},
+		{act: keymap.CloseWorkspace, what: "close it"},
+		{what: "each shows only its own: projects added in it (a), panes started in it, its machines (M), saved ssh hosts and folders"},
+		{what: "what belongs to no workspace is workspace 1's"},
+		{what: "closing one asks whether its agents and terminals move there or end · x takes a row out of this one if another has it"},
+	},
+}, {
+	title: "In a pane",
+	entries: []helpEntry{
+		{keys: "{prefix}", what: "then any other key → back to the tree"},
+		{keys: "{prefix} {prefix}", what: "types the prefix into the program"},
+		{act: keymap.Zoom, pre: true, what: "zoom"},
+		{act: keymap.Redraw, pre: true, what: "draw the pane again (stale text after a resize)"},
+		{act: keymap.Back, pre: true, what: "back to where the split was before the last jump (again returns)"},
+		{act: keymap.ScrollMode, pre: true, what: "scroll the history (↑↓ pgup pgdn g) · the wheel scrolls it too", more: []string{
+			"/ search up · ? search down · n next · N previous (lower case matches either case)",
+		}},
+		{act: keymap.MonitorQuiet, pre: true, what: "alert when the pane goes quiet after output (a build finishing)"},
+		{act: keymap.MonitorOutput, pre: true, what: "alert on any output", more: []string{
+			"a watched pane shows ~ (quiet) or # (output) in the tree until you look at it",
+		}},
+	},
+}, {
+	title: "A branch's changes",
+	entries: []helpEntry{
+		{keys: "↑ ↓", what: "file"},
+		{keys: "enter", what: "its diff"},
+		{keys: "esc", what: "back"},
+		{keys: "space", what: "mark the file (a click in the ✓ column does too)"},
+		{keys: "c", what: "commit the marked files, else all of them"},
+		{keys: "P", what: "push", more: []string{
+			"the remote ahead? it offers to take its commits first",
+		}},
+		{keys: "p", what: "open a pull request"},
+		{keys: "M", what: "merge into the base (undone if it conflicts)"},
+		{keys: "D", what: "discard the branch and its worktree"},
+		{keys: "A", what: "compare the attempts at this task (t runs a command in each, o shows its terminal)"},
+		{keys: "y", what: "copy the path, or the diff"},
+		{keys: "s", what: "side by side or unified", more: []string{
+			"a wide terminal starts side by side",
+		}},
+		{keys: "F / R", what: "follow the file being written · read the diff again now", more: []string{
+			"the file list washes the row of a file being written and marks it ▌; an open diff re-reads as the agent writes, and ▌ marks what just changed",
+		}},
+		{what: "in a diff:"},
+		{keys: "space", what: "mark the hunk under ▸"},
+		{keys: "n / N", what: "next, previous hunk"},
+		{keys: "c", what: "commit the marked hunks"},
+		{keys: "a", what: "comment the hunk under ▸ (✎)"},
+		{keys: "S", what: "send the branch's comments to its agent, hunks quoted", more: []string{
+			"the pull request's unresolved GitHub comments are marked ✎ too, read under the diff's title",
+		}},
+		{keys: "e", what: "open the file in $EDITOR at that hunk, in a pane of its own (on the worktree's machine)"},
+	},
+}, {
+	title: "Sessions (under a project)",
+	entries: []helpEntry{
+		{keys: "enter", what: "resume it"},
+		{keys: "/", what: "search titles and conversations"},
+		{keys: "s", what: "share it with another agent, here or on another machine"},
+		{keys: "*", what: "star one to come back to", more: []string{
+			"starred ones are listed first, after anything interrupted",
+		}},
+		{keys: "I", what: "resume all the interrupted ones"},
+		{keys: "a", what: "filter by agent"},
+		{keys: "d", what: "delete"},
+		{keys: "x", what: "dismiss"},
+	},
+}, {
+	title: "Files (under a project, or f)",
+	entries: []helpEntry{
+		{keys: "enter", what: "open a folder, or preview a file"},
+		{keys: "h", what: "fold, or up a folder"},
+		{keys: "/", what: "find in what is loaded"},
+		{keys: "a", what: "type the path into the agent in this checkout"},
+		{keys: "y", what: "copy the path"},
+		{keys: "d", what: "its diff"},
+		{keys: "e", what: "open it in $EDITOR"},
+		{keys: ".", what: "hide dotfiles", more: []string{
+			"shown by default: in a checkout they are the work",
+		}},
+		{keys: "i", what: "ignored files"},
+		{keys: "w", what: "next checkout"},
+		{keys: "r", what: "read again"},
+		{keys: "U / D", what: "upload into the selected folder · download the selection to ~/Downloads", more: []string{
+			"on a machine elsewhere; a name already taken is numbered (ca 2.pem), never written over",
+		}},
+		{what: "under a machine elsewhere it is that machine's own files, from its home: - up a folder · ~ home"},
+		{what: "icons: Settings → Theme"},
+	},
+}, {
+	title: "Mouse",
+	entries: []helpEntry{
+		{keys: "click", what: "select · double-click opens · right-click is the menu · the wheel scrolls"},
+		{keys: "drag", what: "in a pane or a page, copy what you drag over", more: []string{
+			"past the edge, or with the wheel, it scrolls · a double click copies a word",
+		}},
+		{keys: "Y", what: "an agent's conversation: scroll (g top · G bottom), drag over a part, release to copy"},
+		{keys: "alt+click", what: "open a link an agent printed (option+click, or ctrl+click)", more: []string{
+			"a drag or a double click over it copies it instead; a plain click selects, or is the program's",
+		}},
+		{what: "drag the sidebar's edge to resize it · shift-drag for the terminal's own selection"},
+		{what: "click a split to focus it · drag borders to resize · drag a split's title onto another to swap them, onto a tab to move it there, onto + for a tab of its own"},
+		{what: "drag the bar on a pane's right edge to scroll its history"},
+		{what: "click tabs and × · drag a tab to reorder · + is a new tab, terminal, agent or ssh session"},
+		{what: "drop files (a screenshot) on a remote pane: uploaded there, and their paths there pasted"},
+		{what: "drop files or folders on a remote Files view: copied into the selected folder there"},
+	},
+}, {
+	title: "Brain",
+	entries: []helpEntry{
+		{keys: ":", what: "ask conch in plain words ({prefix} : in a pane, or click ✦ Ask)", more: []string{
+			"\"start 2 agents on api to fix the flaky tests\" · \"what is waiting for me?\"",
+			"\"hand the auth thread to Codex\" · \"tell every agent in api to run the tests\"",
+			"it proposes actions; nothing runs until you confirm",
+			"show or close a pane, tell one agent or everyone, what is waiting: planned at once, with no model (m asks it)",
+		}},
+		{keys: "S", what: "summarise the selected agent now", more: []string{
+			"automatic summaries: Settings → Brain",
+		}},
+	},
+}, {
+	title: "What it costs",
+	entries: []helpEntry{
+		{keys: "title bar", what: "ctx = context in use / window size · out = tokens generated · $ = reported cost"},
+		{keys: "tree", what: "each agent's cost, and the total per project and machine", more: []string{
+			"what conch has seen, not the whole plan window; agents that report no cost (Codex, Gemini) show tokens",
+			"Settings → Theme → Tree hides all of it",
+		}},
+		{keys: "tree", what: "an agent started by another is listed under it, folding away with it", more: []string{
+			"elsewhere — another section, another machine — it says ↳ for the pane that started it, and that pane counts them (⑂2, amber with ! when one of them is waiting); Q, ! and notifications name it too",
+		}},
+		{keys: "Sessions", what: "what each saved conversation cost, or the tokens it generated"},
+		{what: "a task warns before it starts when that agent's plan window is nearly used; it never refuses"},
+	},
+}, {
+	title: "The status bar",
+	entries: []helpEntry{
+		{keys: "Claude 5h 42%", what: "plan limit windows · 7d 18% is the week", more: []string{
+			"click for the lot: resets, every agent, every machine",
+		}},
+		{keys: "⚑ 1 waiting", what: "agents asking you something · 1 done = agents that finished unseen", more: []string{
+			"done turns idle once you look; the tree's badges say ⚑1 ✓1 the same way; a click goes to the next",
+		}},
+		{keys: "⬆ version", what: "updates: click, tick machines with space, u updates", more: []string{
+			"conch update list shows every release · conch update rollback goes back one",
+		}},
+		{keys: "🌐", what: "pair a phone (as P): its QR code, and conch web started from there if it isn't running", more: []string{
+			"Settings → Web sets the address phones open and the port, starts or stops conch web",
+			"Devices… lists paired phones: v / r / f what one may do, x twice revokes it",
+		}},
+		{keys: "▁▃▆", what: "memory and CPU conch uses on this computer (bottom right); click again to close"},
+	},
+}, {
+	title: "Settings, and leaving",
+	entries: []helpEntry{
+		{keys: ",", what: "settings (or click ⚙): theme, prompt, notifications, agents, brain, sandboxes", more: []string{
+			"e in Settings (or ↗ Edit in browser) opens every setting as a form in the browser",
+			"Check conch… (or ! on any Settings tab) runs conch doctor's checks: git, gh, agents, the terminal, each with its fix — they also run a moment after conch starts, and problems are on this computer's page, failures on the bar",
+			"Report a problem… (or ⊙ on the bar) is this conch's own facts, for an issue",
+			"Sandboxes lists the providers; enter opens one's own page, esc goes back to the list",
+		}},
+		{keys: "?", what: "this list: ↑↓ jk pgup pgdn g G or the wheel scroll it", more: []string{
+			"] [ (tab, shift+tab) next, previous group",
+			"←→ hl (shift+wheel) pan a line too long for the screen",
+		}},
+		{keys: "q", what: "detach (agents keep running)"},
+	},
+}}
+
+// helpKeyCol is the widest key column the help lays out. A key wider than
+// this keeps a line of its own instead of pushing every description across
+// the screen.
+const helpKeyCol = 15
+
+// helpGutter is the space between the keys and their descriptions, which
+// is what makes them two columns rather than a sentence beginning with a
+// key — tmux's manual page, which is the shape this is: a column to run
+// down for the key, a column to read in for what it does. It is cut to
+// helpTight where a screen has no room for it.
+const (
+	helpGutter = 4
+	helpTight  = 2
+)
+
+// helpWide is the widest the help lays its text out in, however much room
+// there is: a description drawn across a 300-column terminal is a line the
+// eye has to hunt back along.
+const helpWide = 100
+
+// helpLines is the help as lines, laid out for an inner width of w: a
+// heading and a rule for each group, a blank line between every entry, and
+// details wrapped under the description they belong to. The layout follows
+// the width, so these are made when they are drawn rather than kept. tops
+// is the line each group starts at, which is how ] and [ move by group:
+// spaced out like this the help is long, and nobody should have to hold a
+// key down to reach the mouse.
+func helpLines(at helpAt) (out []string, tops []int) {
+	col, gut := helpColumn(at)
+	for i, g := range helpGroups {
+		if i > 0 {
+			out = append(out, "", "")
+		}
+		tops = append(tops, len(out))
+		title := strings.ReplaceAll(g.title, "{prefix}", at.prefix)
+		rule := clamp(ansi.StringWidth(title)+6, 1, max(at.w-1, 1))
+		out = append(out, styleAccent.Render(title), styleMuted.Render(strings.Repeat("─", rule)))
+		for _, e := range g.entries {
+			out = append(out, "")
+			out = append(out, e.lines(at, col, gut)...)
+		}
+	}
+	return out, tops
+}
+
+// helpColumn is the key column and the gutter beside it for an inner width
+// of w. The column is the widest key in the *whole* help, not in a group,
+// so every description in the list starts at the same place: a column that
+// moved from group to group was what still read as cramped, however much
+// space was between the lines. It is kept to a quarter of the screen, and
+// a key past that keeps a line of its own (lines), since one key like
+// ctrl/alt+arrows must not set the margin for every description there is.
+func helpColumn(at helpAt) (col, gut int) {
+	gut = helpGutter
+	if at.w < 64 {
+		gut = helpTight
+	}
+	most := min(helpKeyCol, max(at.w/4, 1))
+	for _, g := range helpGroups {
+		for _, e := range g.entries {
+			if n := ansi.StringWidth(e.keyText(at)); n <= most {
+				col = max(col, n)
+			}
+		}
+	}
+	return col, gut
+}
+
+// lines lays an entry out with its key in a column of col cells and gut
+// cells of space beside it: the description to the right of the key, the
+// details under it in muted text, every paragraph wrapped to the room
+// there is and aligned with the description, so the keys are one column
+// and what they do is another.
+func (e helpEntry) lines(at helpAt, col, gut int) []string {
+	const indent = 2
+	text := indent + col + gut
+	room := max(at.w-text-1, 16)
+	pad := strings.Repeat(" ", text)
+	first := pad
+	keys := e.keyText(at)
+	var out []string
+	switch {
+	case keys == "":
+	case ansi.StringWidth(keys) > col:
+		// A key wider than the column keeps its own line, and its
+		// description starts under it.
+		out = append(out, strings.Repeat(" ", indent)+styleBold.Render(keys))
+	default:
+		first = strings.Repeat(" ", indent) + padRight(styleBold.Render(keys), col+gut)
+	}
+	what := strings.ReplaceAll(e.what, "{prefix}", at.prefix)
+	for i, l := range wrap(what, room) {
+		if i == 0 {
+			out = append(out, first+l)
+			continue
+		}
+		out = append(out, pad+l)
+	}
+	for _, more := range e.more {
+		for _, l := range wrap(strings.ReplaceAll(more, "{prefix}", at.prefix), room) {
+			out = append(out, pad+styleMuted.Render(l))
+		}
+	}
+	return out
+}
+
+// helpSays reports whether the help says s — its own text, not the lines
+// it happens to be laid out in, since the layout follows the width of the
+// screen. What the tests ask of the help, they ask of this.
+func helpSays(s string) bool {
+	var b strings.Builder
+	for _, g := range helpGroups {
+		b.WriteString(g.title + "\n")
+		for _, e := range g.entries {
+			b.WriteString(e.keyText(helpAt{prefix: "ctrl+b", binds: keymap.Default()}) + "  " + e.what + "\n")
+			for _, l := range e.more {
+				b.WriteString(l + "\n")
+			}
+		}
+	}
+	return strings.Contains(b.String(), s)
 }
 
 func (h *help) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
@@ -1207,7 +1555,7 @@ func (h *help) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	if !ok {
 		return false, nil
 	}
-	_, rows := h.view(*m)
+	lines, tops, _, rows := h.layout(*m)
 	switch k.String() {
 	case "up", "k":
 		h.scroll(*m, -1, 0)
@@ -1218,13 +1566,17 @@ func (h *help) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	case "pgdown", " ", "f":
 		h.scroll(*m, rows, 0)
 	case "home", "g":
-		h.scroll(*m, -len(helpText), 0)
+		h.scroll(*m, -len(lines), 0)
 	case "end", "G":
-		h.scroll(*m, len(helpText), 0)
+		h.scroll(*m, len(lines), 0)
 	case "left", "h":
 		h.scroll(*m, 0, -helpStep)
 	case "right", "l":
 		h.scroll(*m, 0, helpStep)
+	case "]", "}", "tab":
+		h.toGroup(*m, tops, 1)
+	case "[", "{", "shift+tab":
+		h.toGroup(*m, tops, -1)
 	default:
 		m.overlay = nil
 		return true, nil
@@ -1235,47 +1587,87 @@ func (h *help) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 // helpStep is how far ← and → move the help sideways.
 const helpStep = 8
 
-// view is the help's inner width and how many of its lines fit on the
-// screen: the frame takes a line above and below.
-func (help) view(m Model) (w, rows int) {
-	for _, l := range helpText {
-		w = max(w, ansi.StringWidth(l)+2)
+// layout is the help laid out for this screen: its lines, the width of the
+// box that holds them, and how many of them fit — the frame takes a line
+// above and below. The text is wrapped to the room there is, so the layout
+// belongs to the screen it is drawn on and is made here rather than kept;
+// the theme can change under it too.
+func (help) layout(m Model) (lines []string, tops []int, w, rows int) {
+	w = min(max(m.width-4, 20), helpWide)
+	lines, tops = helpLines(helpAt{w: w, prefix: m.cfg.Keys.Prefix, binds: m.binds})
+	// Narrow the box to what the text came to, so a short group is not
+	// framed in empty space.
+	used := 0
+	for _, l := range lines {
+		used = max(used, ansi.StringWidth(l)+1)
 	}
-	return min(w, max(m.width-4, 20)), max(m.height-2, 1)
+	return lines, tops, clamp(used, 20, w), max(m.height-2, 1)
 }
 
 // scroll moves the help by dy lines and dx columns, kept to its text, so a
-// help taller or wider than the screen can still be read to the end.
+// help taller than the screen can still be read to the end — and one whose
+// lines are cut off at a narrow width can be panned to their ends.
 func (h *help) scroll(m Model, dy, dx int) {
-	w, rows := h.view(m)
+	lines, _, w, rows := h.layout(m)
 	widest := 0
-	for _, l := range helpText {
+	for _, l := range lines {
 		widest = max(widest, ansi.StringWidth(l)+1)
 	}
-	h.top = clamp(h.top+dy, 0, max(len(helpText)-rows, 0))
+	h.top = clamp(h.top+dy, 0, max(len(lines)-rows, 0))
 	h.left = clamp(h.left+dx, 0, max(widest-w, 0))
 }
 
+// toGroup puts the next group heading in direction dir at the top of the
+// help. The group that is already there is the one it moves off, so a tap
+// moves one group and not two.
+func (h *help) toGroup(m Model, tops []int, dir int) {
+	for i, top := range tops {
+		switch {
+		case dir > 0 && top > h.top:
+			h.scroll(m, top-h.top, 0)
+			return
+		case dir < 0 && top >= h.top && i > 0:
+			h.scroll(m, tops[i-1]-h.top, 0)
+			return
+		}
+	}
+	if len(tops) > 0 { // past the last heading, either way
+		h.scroll(m, tops[len(tops)-1]-h.top, 0)
+	}
+}
+
 func (h *help) render(m Model) box {
-	w, rows := h.view(m)
+	all, tops, w, rows := h.layout(m)
 	at := *h
 	at.scroll(m, 0, 0) // a resize can leave the offsets past the end
 	h = &at
-	shown := helpText[h.top:min(h.top+rows, len(helpText))]
+	shown := all[h.top:min(h.top+rows, len(all))]
 	lines := make([]string, 0, len(shown))
 	for _, l := range shown {
-		cut := ansi.TruncateLeft(l, h.left, "")
-		if l != "" && !strings.HasPrefix(l, " ") {
-			lines = append(lines, " "+styleBold.Render(cut))
-		} else {
-			lines = append(lines, " "+cut)
-		}
+		lines = append(lines, " "+ansi.TruncateLeft(l, h.left, ""))
 	}
-	title := " Keys · ↑↓ ←→ scroll · other keys close "
-	b := box{lines: frameLinesBar(title, lines, w, colorAccent, helpThumb(h.top, rows, len(helpText)))}
+	// The group being read, named on the frame: it is a long list, and a
+	// heading scrolled off the top leaves no other way to tell where you
+	// are in it.
+	title := " Keys · " + helpGroupAt(tops, h.top) + " · ↑↓ scroll · ] [ groups · other keys close "
+	b := box{lines: frameLinesBar(title, lines, w, colorAccent, helpThumb(h.top, rows, len(all)))}
 	b.x = max((m.width-b.width())/2, 0)
 	b.y = max((m.height-len(b.lines))/3, 0)
 	return b
+}
+
+// helpGroupAt is the title of the group the line at top belongs to.
+func helpGroupAt(tops []int, top int) string {
+	at := 0
+	for i, start := range tops {
+		if start <= top {
+			at = i
+		}
+	}
+	if at >= len(helpGroups) {
+		return ""
+	}
+	return helpGroups[at].title
 }
 
 // helpThumb marks the right border with where the shown rows sit in a text

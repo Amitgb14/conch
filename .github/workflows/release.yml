@@ -15,7 +15,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test ./...
+      # The same run CI makes, so a tag is never cut on a weaker check than
+      # a pull request gets: the race detector, and node for TestUILogic,
+      # which fails without it under CI.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: go test -race -timeout 20m ./...
       # Every platform is built here, which means macOS is built without
       # cgo: those binaries watch worktrees by kqueue rather than
       # FSEvents, and so mostly poll. A mac build made on a mac (`make

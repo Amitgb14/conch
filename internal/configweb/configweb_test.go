@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/nodetest"
 )
 
 // home gives a test a CONCH_HOME of its own, so nothing touches the real
@@ -604,12 +605,10 @@ func TestSchemaDefaultsMatchConfig(t *testing.T) {
 }
 
 // The page's logic, tested with node as the phone's is; skipped where
-// there is no node, as on a machine that only builds conch.
+// there is no node, as on a machine that only builds conch, but never
+// under CI (nodetest).
 func TestUILogic(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("no node")
-	}
+	node := nodetest.Path(t)
 	out, err := exec.Command(node, "--test", filepath.Join("app", "src", "lib", "model.test.mjs")).CombinedOutput()
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)

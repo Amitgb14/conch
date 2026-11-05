@@ -699,7 +699,7 @@ func TestAttachHoldNoteFits(t *testing.T) {
 	s.draw()
 	lines := strings.Split(out.String(), "\r\n")
 	last := ansi.Strip(lines[len(lines)-1])
-	if w := ansi.StringWidth(strings.TrimRight(last, "\x1b[0mKJ?2026l")); w > 12 || !strings.HasPrefix(last, " pane p3") {
+	if w := ansi.StringWidth(strings.TrimRight(last, "\x1b[0mKJ?26l")); w > 12 || !strings.HasPrefix(last, " pane p3") {
 		t.Fatalf("note %q (%d wide)", last, w)
 	}
 }

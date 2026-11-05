@@ -22,9 +22,6 @@ import (
 // It never sends anything by itself. -open ends in a browser with every
 // word visible, and the person presses submit — which is also why the
 // report carries facts and never contents (internal/report).
-
-const bugUsage = "usage: conch bug [-open] [-log] [WHAT HAPPENED...]"
-
 func runBug(args []string) error {
 	fs := flag.NewFlagSet("bug", flag.ContinueOnError)
 	open := fs.Bool("open", false, "open a GitHub issue with it, already filled in")

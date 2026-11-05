@@ -5,6 +5,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Amitgb14/conch/internal/keymap"
 )
 
 // Links an agent printed. A login URL is the case that matters: an agent
@@ -201,7 +203,7 @@ func cutPrefix(s, prefix string) (string, bool) {
 // than this computer's browser.
 func (m *Model) openLinks(r row) tea.Cmd {
 	if r.kind != kindPane || m.frame == nil || m.viewing != r.paneID {
-		m.setFlash("open the pane first (enter), then ctrl+b u for its links", true)
+		m.setFlash("open the pane first (enter), then "+m.keyHint(keymap.OpenLinks)+" for its links", true)
 		return nil
 	}
 	links := paneLinks(m.frame.Lines)

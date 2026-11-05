@@ -655,7 +655,7 @@ func TestA4Ask(t *testing.T) {
 	}
 
 	// Declined at the prompt.
-	out, errOut = a4Capture(t, "n\n", func() { err = runAsk([]string{"fix"}) })
+	_, errOut = a4Capture(t, "n\n", func() { err = runAsk([]string{"fix"}) })
 	if err != nil || !strings.Contains(errOut, "Run 3 action(s)? [y/N]") || strings.Contains(strings.Join(srv.methods(), ","), proto.MethodTaskCreate) {
 		t.Fatalf("declined: %v %q", err, errOut)
 	}

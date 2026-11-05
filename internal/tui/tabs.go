@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Amitgb14/conch/internal/keymap"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -743,7 +744,11 @@ func (m *Model) toggleSync() tea.Cmd {
 	}
 	t.sync = !t.sync
 	if t.sync {
-		m.setFlash(fmt.Sprintf("typing goes to all %d splits · %s S to stop", len(m.syncedPanes(t)), m.cfg.Keys.Prefix), false)
+		said := fmt.Sprintf("typing goes to all %d splits", len(m.syncedPanes(t)))
+		if h := m.keyHint(keymap.SyncPanes); h != "" {
+			said += " · " + h + " to stop"
+		}
+		m.setFlash(said, false)
 	} else {
 		m.setFlash("typing goes to the focused split only", false)
 	}

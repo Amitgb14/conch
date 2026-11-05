@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Amitgb14/conch/internal/keymap"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -60,8 +61,8 @@ func (m Model) monitorItems(mid, id string) []menuItem {
 		output = "✓ " + output
 	}
 	return []menuItem{
-		{"", quiet + " (" + m.cfg.Keys.Prefix + " M)", func(m *Model) tea.Cmd { return m.toggleMonitor(mid, id, true) }},
-		{"", output + " (" + m.cfg.Keys.Prefix + " A)", func(m *Model) tea.Cmd { return m.toggleMonitor(mid, id, false) }},
+		{"", quiet + m.keyNote(keymap.MonitorQuiet), func(m *Model) tea.Cmd { return m.toggleMonitor(mid, id, true) }},
+		{"", output + m.keyNote(keymap.MonitorOutput), func(m *Model) tea.Cmd { return m.toggleMonitor(mid, id, false) }},
 	}
 }
 

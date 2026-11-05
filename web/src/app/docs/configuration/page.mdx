@@ -50,6 +50,9 @@ All keys with their defaults:
 [keys]
 prefix = "ctrl+b"
 
+[keys.bind]        # what a key after the prefix does; see below
+# split_right = "\\"
+
 [pane]
 default_command = ""   # empty = $SHELL
 
@@ -148,6 +151,36 @@ run = "go test ./..."  # the command, as a shell reads it
 on = ["branch", "project"]  # the rows it is offered on; omit for all four
 keep = true            # leave its terminal open when the command exits
 ```
+
+### Rebinding the keys
+
+`[keys] prefix` is the key that hands control back to conch from a pane. `[keys.bind]` is what the keys **after** it do, the way tmux's `bind-key` is: the name of what the key does, and the key to put it on.
+
+```toml
+[keys]
+prefix = "ctrl+a"      # like tmux's set -g prefix C-a
+
+[keys.bind]
+split_right = "\\"      # ctrl+a \  splits right, instead of v % |
+split_down = "-"
+next_tab = "C-n"       # tmux's spelling is taken too: ctrl+n
+prev_tab = "C-p"
+zoom = "f"
+close_split = ""       # unbound: nothing closes a split from a pane
+```
+
+The rules are tmux's:
+
+- **What you do not name keeps its default.** The table is a change to the keys, not a replacement for them.
+- **A key you name is taken off whatever had it.** Binding `zoom = " "` moves zoom onto space and leaves `next_layout` with no key — `conch keys` says so in as many words, rather than leaving you to find it.
+- **An empty key unbinds the action**, as `unbind-key` does. Nothing is unreachable that way: the prefix is not an action, and the menus, the status bar and the help overlay stop offering a key once it has none.
+- **Two actions on one key is a mistake, not a race.** The first by name keeps the key, the other is reported by `conch keys` and `conch doctor`, and the same file always gives the same keys.
+
+Keys are written in conch's own notation — `ctrl+n`, `alt+x`, `f`, `space`, `up` — and tmux's is understood as well (`C-n`, `M-x`, `Space`). Case matters for letters, because `s` and `S` are two keys.
+
+**`conch keys` lists every name**, what it does and what it is on now; `conch keys -toml` prints the whole table ready to paste. The help overlay (`?`) and everything conch says about a key — menu labels, the status bar, hints — read from the same table, so they show your keys and not the defaults.
+
+Two keys are not in the table, because neither is one action: a **digit** is the tab at that place, and **`ctrl`/`alt`+arrow** is a resize in a direction. The keys in the tree (`t`, `c`, `n`, `a`, `M`, `H`…) are not either — the table is the prefix table, as tmux's is.
 
 ### notify
 

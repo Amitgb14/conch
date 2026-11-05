@@ -26,6 +26,17 @@ import (
 // kqueueWatches reports whether a watch costs a file descriptor per path.
 var kqueueWatches = runtime.GOOS != "linux" && runtime.GOOS != "windows"
 
+// skipRel reports whether the directory at path, under root, is one to
+// leave alone. It lives here, not in watch.go, because only this backend
+// walks a tree: FSEvents takes it whole.
+func skipRel(root, path string, ignored []string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return true
+	}
+	return rel != "." && skipPath(filepath.ToSlash(rel), ignored)
+}
+
 type fsnotifyBackend struct {
 	fsw  *fsnotify.Watcher
 	out  chan string

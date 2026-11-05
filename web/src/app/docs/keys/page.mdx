@@ -22,7 +22,7 @@ Every key binding in the TUI, grouped by where it applies. Press `?` in conch to
 | `T` | on a branch, or an agent working in one: [move its worktree to another machine or a new sandbox](/docs/remote-machines#moving-a-worktree-to-another-machine), agents and all; on a project: [move the whole project](/docs/remote-machines#moving-a-whole-project). The status bar shows `T move` wherever it does something |
 | `y` | copy |
 | `m` | menu |
-| `?` | all keys: `↑↓` `jk` `pgup` `pgdn` `g` `G` and the wheel scroll the list, `←→` `hl` (or shift+wheel) pan across long lines, any other key or a click closes it |
+| `?` | all keys, in groups — two columns like tmux's manual page: the key on the left, its description a wide gutter to the right, its details under that, wrapped to the width there is: `↑↓` `jk` `pgup` `pgdn` `g` `G` and the wheel scroll the list, `]` `[` (or `tab` `shift+tab`) jump to the next or previous group, `←→` `hl` (or shift+wheel) pan a line too long for the screen, any other key or a click closes it |
 | `q` | detach |
 
 ## Create
@@ -165,6 +165,8 @@ Click a line to select it and again to open it; the wheel moves the selection, o
 | `v` / `s` / `O` in the tree | open the selected item in a split right / below / a new tab |
 
 These follow tmux's default bindings; `ctrl+b 1` is the first tab and `0` the tenth. `ctrl+b !` jumps to the next agent waiting for you instead of breaking a pane out.
+
+**All of them can be moved**, as tmux's `bind-key` moves tmux's: name what the key does under [`[keys.bind]`](/docs/configuration#rebinding-the-keys) in `config.toml`, and `conch keys` lists every name with the key it is on now. The prefix itself is `[keys] prefix`. The help overlay and everything else conch says about a key then shows yours, so this page is the defaults rather than the law. A digit and `ctrl`/`alt`+arrow are not in the table — neither is one action — and nor are the tree's own keys.
 
 ## Scroll mode
 
