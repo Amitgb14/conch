@@ -44,7 +44,14 @@ final class GhosttyRuntime {
             // A link the pane printed, ⌘-clicked: opened in the browser when
             // it is the web's or mail's (openableURL). Every other action is
             // Ghostty's own app's business, not this one's.
-            action_cb: { _, _, action in
+            action_cb: { _, target, action in
+                // Search and the scrollbar, for the pane's own find bar and
+                // its "lines below" (a raw pane's: the history is Ghostty's).
+                if let view = GhosttyPaneView.from(target: target), let a = GhosttyPaneView.Report(action) {
+                    DispatchQueue.main.async { view.onReport?(a) }
+                    return true
+                }
+                if action.tag == GHOSTTY_ACTION_START_SEARCH || action.tag == GHOSTTY_ACTION_END_SEARCH { return true }
                 guard action.tag == GHOSTTY_ACTION_OPEN_URL, let p = action.action.open_url.url else { return false }
                 let bytes = UnsafeRawBufferPointer(start: p, count: Int(action.action.open_url.len))
                 let text = String(decoding: bytes, as: UTF8.self)
@@ -70,6 +77,7 @@ final class GhosttyRuntime {
         app = ghostty_app_new(&rt, cfg)
         if app == nil { failure = "Ghostty could not make its app" }
         config = cfg
+        rawConfig = Self.loadConfig(Theme.current, raw: true)
         if let app { ghostty_app_set_focus(app, NSApp.isActive) }
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { if let a = GhosttyRuntime.shared.app { ghostty_app_set_focus(a, true) } }
@@ -83,6 +91,11 @@ final class GhosttyRuntime {
         if let app { ghostty_app_tick(app) }
     }
 
+    /// The padding round each pane's grid, in points: the configuration's,
+    /// and what the letterbox counts in.
+    static let padX = 8.0
+    static let padY = 6.0
+
     /// The configuration in effect, which a surface made after a change
     /// is given (Ghostty hands a new surface the one the app began with),
     /// and the one before it, kept until a newer one replaces it in case a
@@ -90,35 +103,62 @@ final class GhosttyRuntime {
     private(set) var config: ghostty_config_t?
     private var previous: ghostty_config_t?
     private var theme: ConchTheme?
+    /// The configuration of a raw pane (attach -raw), whose history is
+    /// Ghostty's own: the same, with Ghostty's keys for scrolling it kept.
+    private(set) var rawConfig: ghostty_config_t?
+    private var previousRaw: ghostty_config_t?
+    /// The raw panes, given rawConfig again after every change, since the
+    /// app's configuration reaches every surface.
+    let rawViews = NSHashTable<GhosttyPaneView>.weakObjects()
+
+    static func loadConfig(_ t: ConchTheme, raw: Bool) -> ghostty_config_t? {
+        guard let cfg = ghostty_config_new() else { return nil }
+        writeConfig(t, raw: raw).withCString { ghostty_config_load_file(cfg, $0) }
+        ghostty_config_finalize(cfg)
+        return cfg
+    }
 
     /// A new theme for every pane at once.
     func apply(_ t: ConchTheme) {
-        guard let app, t != theme, let cfg = ghostty_config_new() else { return }
-        Self.writeConfig(t).withCString { ghostty_config_load_file(cfg, $0) }
-        ghostty_config_finalize(cfg)
+        guard let app, t != theme, let cfg = Self.loadConfig(t, raw: false) else { return }
         ghostty_app_update_config(app, cfg)
         if let p = previous { ghostty_config_free(p) }
         previous = config
         config = cfg
+        if let raw = Self.loadConfig(t, raw: true) {
+            if let p = previousRaw { ghostty_config_free(p) }
+            previousRaw = rawConfig
+            rawConfig = raw
+        }
+        for v in rawViews.allObjects { if let s = v.surface, let r = rawConfig { ghostty_surface_update_config(s, r) } }
         theme = t
     }
 
     /// The settings conch gives Ghostty, written where the app keeps its
     /// own files; rewritten each launch, since they are conch's.
     @discardableResult
-    static func writeConfig(_ theme: ConchTheme) -> String {
+    static func writeConfig(_ theme: ConchTheme, raw: Bool = false) -> String {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Conch", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let file = dir.appendingPathComponent("ghostty.conf")
+        let file = dir.appendingPathComponent(raw ? "ghostty-raw.conf" : "ghostty.conf")
+        // A raw pane's history is Ghostty's, and so are the keys for it.
+        let scrollKeys = raw ? "" : """
+        # shift with page up/down and home/end scroll conch's history, which
+        # `conch attach` keeps (a pane's own terminal has none to scroll).
+        keybind = shift+page_up=unbind
+        keybind = shift+page_down=unbind
+        keybind = shift+home=unbind
+        keybind = shift+end=unbind
+        """
         let text = """
         # Written by Conch.app: the terminal in each pane. Rewritten at every launch.
         # The font as conch app's window has it (cmd/conch/app.go), so a pane
         # reads the same here as in the TUI: Ghostty's own JetBrains Mono, 14pt.
         font-size = 14
         \(theme.ghosttyColors)
-        window-padding-x = 8
-        window-padding-y = 6
+        window-padding-x = \(Int(padX))
+        window-padding-y = \(Int(padY))
         window-padding-balance = true
         adjust-cell-height = 12%
         macos-option-as-alt = left
@@ -127,12 +167,7 @@ final class GhosttyRuntime {
         term = xterm-256color
         clipboard-read = deny
         mouse-hide-while-typing = true
-        # shift with page up/down and home/end scroll conch's history, which
-        # `conch attach` keeps (a pane's own terminal has none to scroll).
-        keybind = shift+page_up=unbind
-        keybind = shift+page_down=unbind
-        keybind = shift+home=unbind
-        keybind = shift+end=unbind
+        \(scrollKeys)
 
         """
         try? text.write(to: file, atomically: true, encoding: .utf8)
@@ -144,14 +179,75 @@ final class GhosttyPaneView: NSView {
     private(set) var surface: ghostty_surface_t?
     var onExit: (() -> Void)?
     private var tracking: NSTrackingArea?
+    /// Fed the program's own output (attach -raw): its history, search and
+    /// scrollbar are Ghostty's.
+    let raw: Bool
+    /// What Ghostty said about its search and its scrollbar.
+    var onReport: ((Report) -> Void)?
+
+    enum Report: Equatable {
+        case searchTotal(Int?)
+        case searchSelected(Int?)
+        /// Lines of history in all, the first in view, how many are.
+        case scrollbar(total: Int, offset: Int, len: Int)
+
+        init?(_ a: ghostty_action_s) {
+            switch a.tag {
+            case GHOSTTY_ACTION_SEARCH_TOTAL:
+                let n = a.action.search_total.total
+                self = .searchTotal(n < 0 ? nil : Int(n))
+            case GHOSTTY_ACTION_SEARCH_SELECTED:
+                let n = a.action.search_selected.selected
+                self = .searchSelected(n < 0 ? nil : Int(n))
+            case GHOSTTY_ACTION_SCROLLBAR:
+                let b = a.action.scrollbar
+                self = .scrollbar(total: Int(b.total), offset: Int(b.offset), len: Int(b.len))
+            default:
+                return nil
+            }
+        }
+    }
 
     static func from(_ ud: UnsafeMutableRawPointer?) -> GhosttyPaneView? {
         guard let ud else { return nil }
         return Unmanaged<GhosttyPaneView>.fromOpaque(ud).takeUnretainedValue()
     }
 
+    /// The view an action is for, when it is for a surface.
+    static func from(target: ghostty_target_s) -> GhosttyPaneView? {
+        guard target.tag == GHOSTTY_TARGET_SURFACE, let s = target.target.surface else { return nil }
+        return from(ghostty_surface_userdata(s))
+    }
+
+    /// One of Ghostty's own actions on this surface: "search:text",
+    /// "navigate_search:next", "end_search", "scroll_to_bottom".
+    @discardableResult
+    func binding(_ action: String) -> Bool {
+        guard let s = surface else { return false }
+        return action.withCString { ghostty_surface_binding_action(s, $0, UInt(strlen($0))) }
+    }
+
+    /// What this terminal's cells measure, in points, with the padding the
+    /// configuration gives the grid; nil before Ghostty knows.
+    func metrics() -> CellMetrics? {
+        guard let s = surface else { return nil }
+        let size = ghostty_surface_size(s)
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        guard size.cell_width_px > 0, size.cell_height_px > 0, scale > 0 else { return nil }
+        return CellMetrics(cellWidth: Double(size.cell_width_px) / scale, cellHeight: Double(size.cell_height_px) / scale,
+                           padX: GhosttyRuntime.padX, padY: GhosttyRuntime.padY)
+    }
+
     @MainActor
-    init(command: String, environment: [String: String]) {
+    convenience init(command: String, environment: [String: String]) {
+        self.init(command: command, environment: environment, raw: false, fontSize: 0)
+    }
+
+    /// fontSize 0 is the configuration's; the palette's preview gives a
+    /// smaller one to show a pane whole.
+    @MainActor
+    init(command: String, environment: [String: String], raw: Bool, fontSize: Float) {
+        self.raw = raw
         super.init(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
         guard let app = GhosttyRuntime.shared.app else { return }
         var cfg = ghostty_surface_config_new()
@@ -159,7 +255,7 @@ final class GhosttyPaneView: NSView {
         cfg.platform_tag = GHOSTTY_PLATFORM_MACOS
         cfg.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(self).toOpaque()))
         cfg.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 2)
-        cfg.font_size = 0
+        cfg.font_size = fontSize
         cfg.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
         // Keys and values kept alive for the call: Ghostty copies them.
         let keys = environment.keys.map { strdup($0) }
@@ -176,7 +272,11 @@ final class GhosttyPaneView: NSView {
         }
         // Ghostty gives a new surface the configuration the app began with;
         // after a theme change that is the wrong one.
-        if let s = surface, let cfg = GhosttyRuntime.shared.config { ghostty_surface_update_config(s, cfg) }
+        // A font size of its own (the palette's preview) would be undone by
+        // the configuration's, so such a surface keeps the one it was made
+        // with — the app's own, which a preview, gone in seconds, can keep.
+        if fontSize == 0, let s = surface, let cfg = raw ? GhosttyRuntime.shared.rawConfig : GhosttyRuntime.shared.config { ghostty_surface_update_config(s, cfg) }
+        if raw && fontSize == 0 { GhosttyRuntime.shared.rawViews.add(self) }
         updateTrackingAreas()
     }
 

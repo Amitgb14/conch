@@ -133,6 +133,13 @@ price_cpu_hour = 0     # what an hour costs, to show what a sandbox has run up:
 price_gib_hour = 0     # per vCPU, per GiB of memory, per GiB of disk.
 price_disk_gib_hour = 0  # 0 shows running time without a cost
 
+[app]                  # how Conch.app draws its window; the TUI reads none of it
+tabs = ""              # "" above the panes, "left" in the sidebar grouped by machine, "right"
+density = ""           # "compact": a pane's header shrinks, splits close up, a shorter toolbar
+sidebar = ""           # "glass": the desktop through the sidebar, as Finder's
+ports = true           # the ports a pane's programs listen on, in its header
+scratch_key = false    # option-space shows the scratch layer with Conch.app in the background
+
 [[actions]]            # your own commands on the row menus; none by default
 name = "Run tests"     # the label on the menu
 run = "go test ./..."  # the command, as a shell reads it
@@ -198,6 +205,18 @@ The phone gateway, [`conch web`](/docs/phone). Set from **Settings → Web** in 
 | `port` | `8722` | where `conch web` listens |
 
 `-url` and `-port` given to `conch web` win over these.
+
+## `[app]`
+
+How the [Mac app](/docs/mac-app) draws its window — **Settings → Mac app**, or the settings page. The TUI keeps its own tab bar and colours.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `tabs` | `""` | where the tabs go: `""` above the panes, `"left"` in the sidebar above the tree, grouped under each machine, `"right"` in a column of their own |
+| `density` | `""` | `"compact"`: a pane's header shrinks, the gaps between splits close up and the toolbar is shorter |
+| `sidebar` | `""` | `"glass"`: the desktop shows through the sidebar, as Finder's does. Panes stay solid |
+| `ports` | `true` | the TCP ports a pane's programs listen on, in its header — a click opens one in the browser, or on another machine copies the ssh tunnel to it |
+| `scratch_key` | `false` | option-space shows the scratch layer from anywhere, Conch.app in the background or not, as Ghostty's quick terminal does; off, it works in the window only |
 
 ## `[[actions]]`
 

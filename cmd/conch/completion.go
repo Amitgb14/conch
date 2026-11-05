@@ -57,6 +57,7 @@ var compCommands = []compItem{
 	{"web", "answer your agents from a phone"},
 	{"config", "edit every setting in the browser"},
 	{"ask", "ask the brain to plan actions"},
+	{"commit-message", "write a commit message for a diff"},
 	{"server", "run, stop or reload the server"},
 	{"update", "the newest release, without stopping agents"},
 	{"doctor", "check what conch needs, and how to fix it"},
@@ -99,7 +100,7 @@ var compSubcommands = map[string][]compItem{
 		{"commit", "commit on this branch"}, {"push", "push it"}, {"pr", "open a pull request"},
 		{"merge", "merge it into its base"}, {"discard", "throw the branch away"},
 	},
-	"review":   {{"ls", "list comments"}, {"add", "comment on a file or line"}, {"rm", "remove a comment"}, {"send", "send them to the agent"}},
+	"review":   {{"ls", "list comments"}, {"add", "comment on a file or line"}, {"rm", "remove a comment"}, {"send", "send them to the agent"}, {"reply", "answer a comment you were sent"}},
 	"worktree": {{"ls", "list worktrees"}, {"clean", "remove finished ones"}},
 	"schedule": {{"ls", "what is scheduled"}, {"rm", "cancel one"}},
 	"machine": {

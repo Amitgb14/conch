@@ -38,7 +38,7 @@ import (
 // (pane.send_mouse) the server sends only if the program wants them.
 // Everything else typed is passed through as it came.
 
-const attachUsage = "usage: conch attach [-hold] PANE"
+const attachUsage = "usage: conch attach [-hold] [-raw] [-view] PANE"
 
 // Escapes this terminal is put into, and taken out of: the alternate
 // screen so whatever was there comes back, no cursor of its own (the
@@ -90,12 +90,30 @@ func runAttach(args []string) error {
 	// -hold keeps an ended pane's last screen until a key is pressed: the
 	// Mac app's, for a kept action's output and an error in a pane's
 	// first seconds, which the view would otherwise take with it.
-	hold := len(args) > 0 && args[0] == "-hold"
-	if hold {
+	// -raw gives the terminal the program's own output (attachraw.go)
+	// where the server can, frames where it cannot.
+	// -view (with -raw) only looks: the pane is never resized or claimed
+	// from here, for the Mac app's preview of a pane in ⌘K.
+	hold, raw, view := false, false, false
+	for len(args) > 0 {
+		switch args[0] {
+		case "-hold", "--hold":
+			hold = true
+		case "-raw", "--raw":
+			raw = true
+		case "-view", "--view":
+			view = true
+		default:
+			goto named
+		}
 		args = args[1:]
 	}
+named:
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		return errors.New(attachUsage)
+	}
+	if view && !raw {
+		return errors.New("conch attach: -view goes with -raw")
 	}
 	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
 		return errors.New("conch attach needs a terminal: it shows the pane in the one it runs in")
@@ -129,6 +147,15 @@ func runAttach(args []string) error {
 	size := func() (int, int, bool) {
 		w, h, err := term.GetSize(os.Stdout.Fd())
 		return w, h, err == nil && w > 0 && h > 0
+	}
+	if raw {
+		msg, ok, err := attachRawLoopAs(c, id, os.Stdin, os.Stdout, size, winch, quit, hold, view)
+		if ok {
+			if msg != "" {
+				fmt.Fprintln(os.Stderr, msg)
+			}
+			return err
+		}
 	}
 	msg, err := attachLoopHold(c, id, os.Stdin, os.Stdout, size, winch, quit, hold)
 	if msg != "" {

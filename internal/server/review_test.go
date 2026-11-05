@@ -1,10 +1,12 @@
 package server
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -259,6 +261,76 @@ func TestReviewSendStartsAnAgent(t *testing.T) {
 	}
 }
 
+// A send can name the agent, or ask for a new one beside those there: a
+// branch like the base can have a dozen, and the first is rarely the one.
+func TestReviewSendToTheOnePicked(t *testing.T) {
+	s, p := afterFixture(t)
+	if _, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the model", Branch: "api/model"}); perr != nil {
+		t.Fatal(perr)
+	}
+	first := branchPane(t, s, p, "api/model")
+	hook(s, first, "Stop")
+	reviewSetOK(t, s, proto.ReviewComment{ProjectID: p.id, Branch: "api/model", File: "a.go", Line: 3, Note: "picked note"})
+
+	// Not a pane, not running an agent, or another project's: refused,
+	// and the notes stay.
+	for _, sp := range []proto.ReviewSendParams{
+		{ProjectID: p.id, Branch: "api/model", Pane: "p999"},
+		{ProjectID: "other", Branch: "api/model", Pane: first.info().ID},
+		{ProjectID: p.id, Branch: "api/model", New: true},
+	} {
+		if _, perr := s.reviewSend(&client{}, sp); perr == nil {
+			t.Fatalf("%+v was taken", sp)
+		}
+	}
+	// An agent outside the project, named by its pane: refused, not a way
+	// past the project the call is about.
+	stray, perr := s.create(proto.PaneCreateParams{Agent: "claude", NoProject: true, Cwd: t.TempDir()})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	strayE, _ := s.get(stray.ID)
+	a5WaitFor(t, "the stray agent detected", func() bool { return strayE.info().Agent != nil })
+	if _, perr := s.reviewSend(&client{}, proto.ReviewSendParams{ProjectID: p.id, Branch: "api/model", Pane: stray.ID}); perr == nil || !strings.Contains(perr.Message, "not an agent of this project") {
+		t.Fatalf("another project's agent: %v", perr)
+	}
+	s.close(stray.ID)
+	if got := s.reviews.list(proto.ReviewRef{ProjectID: p.id, Branch: "api/model"}); len(got.Comments) != 1 {
+		t.Fatalf("kept after refusals: %+v", got)
+	}
+
+	// New: a second agent started beside the first, with the notes.
+	res, perr := s.reviewSend(&client{}, proto.ReviewSendParams{ProjectID: p.id, Branch: "api/model", Agent: "claude", New: true})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if !res.Started || res.Pane.ID == first.info().ID {
+		t.Fatalf("new: %+v", res)
+	}
+
+	// Pane: the one named, though another is older on the branch.
+	second, perr := s.get(res.Pane.ID)
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	a5WaitFor(t, "the new agent detected", func() bool { return second.info().Agent != nil })
+	hook(s, second, "Stop")
+	reviewSetOK(t, s, proto.ReviewComment{ProjectID: p.id, Branch: "api/model", File: "a.go", Line: 4, Note: "for the second"})
+	res, perr = s.reviewSend(&client{}, proto.ReviewSendParams{ProjectID: p.id, Branch: "api/model", Pane: second.info().ID})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if res.Pane.ID != second.info().ID || res.Started {
+		t.Fatalf("picked: %+v", res)
+	}
+	a5WaitFor(t, "the note on the picked agent's screen", func() bool {
+		return strings.Contains(screenText(second), "for the second")
+	})
+	if strings.Contains(screenText(first), "for the second") {
+		t.Fatal("the first agent was given it too")
+	}
+}
+
 // Two sends of the same branch at once deliver the comments once.
 func TestReviewSendOnce(t *testing.T) {
 	s, p := afterFixture(t)
@@ -319,5 +391,154 @@ func TestReviewSignedByTheAgent(t *testing.T) {
 	list = reviewSetOK(t, s, proto.ReviewComment{ProjectID: p.id, Branch: "b", File: "b.go", Note: "mine", By: "claude"})
 	if list.Comments[1].By != "" {
 		t.Fatalf("a person's comment claimed %q", list.Comments[1].By)
+	}
+}
+
+// A sent note stays, marked with whom it went to, for the agent's answer:
+// listed only when asked, so a client from before sees what waits as it
+// always did; the agent's reply is signed, the person's puts the note back
+// to be sent with its thread.
+func TestReviewThread(t *testing.T) {
+	s, p := afterFixture(t)
+	if _, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the model", Branch: "api/model"}); perr != nil {
+		t.Fatal(perr)
+	}
+	e := branchPane(t, s, p, "api/model")
+	hook(s, e, "Stop")
+	list := reviewSetOK(t, s, proto.ReviewComment{ProjectID: p.id, Branch: "api/model", File: "a.go", Line: 3, Note: "check the overdraft"})
+	id := list.Comments[0].ID
+
+	res, perr := s.reviewSend(&client{}, proto.ReviewSendParams{ProjectID: p.id, Branch: "api/model"})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	// The prompt names the note and says how to answer it.
+	a5WaitFor(t, "the note's id on the agent's screen", func() bool {
+		return strings.Contains(screenText(e), id)
+	})
+
+	ref := proto.ReviewRef{ProjectID: p.id, Branch: "api/model"}
+	if got := s.reviews.list(ref); len(got.Comments) != 0 {
+		t.Fatalf("a sent note is listed as waiting: %+v", got)
+	}
+	sent := s.reviews.list(proto.ReviewRef{ProjectID: p.id, Branch: "api/model", Sent: true})
+	if len(sent.Comments) != 1 {
+		t.Fatalf("sent: %+v", sent)
+	}
+	c := sent.Comments[0]
+	if c.SentPane != res.Pane.ID || c.SentTo == "" || c.SentAt == nil {
+		t.Fatalf("not marked as sent: %+v", c)
+	}
+	// Sending again has nothing to send: it went already.
+	if _, perr := s.reviewSend(&client{}, proto.ReviewSendParams{ProjectID: p.id, Branch: "api/model"}); perr == nil {
+		t.Fatal("a sent note was sent again")
+	}
+
+	// Refused: no id, no answer, another project, no such note.
+	for _, rp := range []proto.ReviewReplyParams{
+		{ProjectID: p.id, Note: "x"},
+		{ProjectID: p.id, ID: id, Note: "  "},
+		{ProjectID: p.id, ID: "cnothere", Note: "x"},
+	} {
+		if _, perr := s.reviewReply(&client{}, rp); perr == nil {
+			t.Fatalf("%+v was taken", rp)
+		}
+	}
+	if _, perr := s.reviews.reply(proto.ReviewReplyParams{ProjectID: "other", ID: id, Note: "x"}, "", time.Now()); perr == nil || !strings.Contains(perr.Message, "another project") {
+		t.Fatalf("another project: %v", perr)
+	}
+
+	// The agent answers: signed, and the note stays sent.
+	got, perr := s.reviews.reply(proto.ReviewReplyParams{ProjectID: p.id, ID: id, Note: "Moved the check up."}, "claude · api/model", time.Now())
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if len(got.Replies) != 1 || got.Replies[0].By != "claude · api/model" || got.SentAt == nil {
+		t.Fatalf("after the agent's answer: %+v", got)
+	}
+
+	// A new note on the same line is a new thread, not the sent one changed.
+	list = reviewSetOK(t, s, proto.ReviewComment{ProjectID: p.id, Branch: "api/model", File: "a.go", Line: 3, Note: "and the log line"})
+	if len(list.Comments) != 1 || list.Comments[0].ID == id {
+		t.Fatalf("the same place after sending: %+v", list)
+	}
+
+	// The person answers back through the protocol: the note waits to be
+	// sent again, and the next send carries the thread.
+	if _, perr := s.reviewReply(&client{}, proto.ReviewReplyParams{ProjectID: p.id, ID: id, Note: "Also cover a zero amount."}); perr != nil {
+		t.Fatal(perr)
+	}
+	if got := s.reviews.list(ref); len(got.Comments) != 2 {
+		t.Fatalf("answered back, not waiting again: %+v", got)
+	}
+	if _, perr := s.reviewSend(&client{}, proto.ReviewSendParams{ProjectID: p.id, Branch: "api/model"}); perr != nil {
+		t.Fatal(perr)
+	}
+	a5WaitFor(t, "the thread sent again", func() bool {
+		return strings.Contains(screenText(e), "Also cover a zero amount")
+	})
+
+	// Kept through a restart; resolved (an empty note), gone.
+	if got := loadReviews(s.configDir).list(proto.ReviewRef{ProjectID: p.id, Sent: true}); len(got.Comments) != 2 || len(got.Comments[0].Replies) != 2 {
+		t.Fatalf("saved: %+v", got)
+	}
+	reviewSetOK(t, s, proto.ReviewComment{ID: id, ProjectID: p.id, Branch: "api/model"})
+	if got := s.reviews.list(proto.ReviewRef{ProjectID: p.id, Sent: true}); len(got.Comments) != 1 {
+		t.Fatalf("resolved: %+v", got)
+	}
+}
+
+// An agent's answer through the protocol is signed by its pane's name, and
+// the note stays sent; the answer is the agent's, not the person's.
+func TestReviewReplySignedByTheAgent(t *testing.T) {
+	s, _, work := shareFixture(t)
+	p, err := s.projects.add(work, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := agentPane(t, s, "p1", "codex", work, "stty -echo; exec cat")
+	agent.mu.Lock()
+	agent.project = p
+	agent.mu.Unlock()
+	list := reviewSetOK(t, s, proto.ReviewComment{ProjectID: p.id, Branch: "b", File: "a.go", Line: 2, Note: "fix it"})
+	id := list.Comments[0].ID
+	now := time.Now()
+	s.reviews.mu.Lock()
+	s.reviews.comments[0].SentTo, s.reviews.comments[0].SentPane, s.reviews.comments[0].SentAt = "codex", "p1", &now
+	s.reviews.mu.Unlock()
+
+	got, perr := s.reviewReply(&client{pane: "p1"}, proto.ReviewReplyParams{ProjectID: p.id, ID: id, Note: "Fixed."})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	want := agent.info().Name
+	if want == "" {
+		want = "codex"
+	}
+	if len(got.Replies) != 1 || got.Replies[0].By != want || got.Replies[0].By == "" || got.SentAt == nil {
+		t.Fatalf("signed %+v, want %q and still sent", got.Replies, want)
+	}
+}
+
+// A note sent long ago goes: nobody comes back to a month-old thread, and
+// the file would only grow.
+func TestReviewSentNotesAge(t *testing.T) {
+	old := time.Now().Add(-reviewSentKeep - time.Hour)
+	recent := time.Now().Add(-time.Hour)
+	if !staleSent(proto.ReviewComment{SentAt: &old}, time.Now()) || staleSent(proto.ReviewComment{SentAt: &recent}, time.Now()) ||
+		staleSent(proto.ReviewComment{}, time.Now()) {
+		t.Fatal("staleSent")
+	}
+	dir := t.TempDir()
+	raw, _ := json.Marshal(reviewFile{Comments: []proto.ReviewComment{
+		{ID: "c1", ProjectID: "r1", Branch: "b", File: "a.go", Note: "old", SentAt: &old},
+		{ID: "c2", ProjectID: "r1", Branch: "b", File: "a.go", Note: "recent", SentAt: &recent},
+		{ID: "c3", ProjectID: "r1", Branch: "b", File: "a.go", Note: "waiting"},
+	}})
+	if err := os.WriteFile(filepath.Join(dir, "review.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := notes(loadReviews(dir).list(proto.ReviewRef{Sent: true})); got != "recent,waiting" {
+		t.Fatalf("loaded: %q", got)
 	}
 }

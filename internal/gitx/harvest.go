@@ -94,27 +94,94 @@ func CommitPatchChanges(ctx context.Context, dir, message, patch string, files [
 	if strings.TrimSpace(patch) == "" {
 		return "", errors.New("no hunks to commit")
 	}
+	if err := StageChanges(ctx, dir, files, patch); err != nil {
+		return "", err
+	}
+	return CommitStaged(ctx, dir, message)
+}
+
+// applyCached stages patch (a unified diff, as from Diff): ErrPatchStale
+// when it no longer applies, and nothing staged.
+func applyCached(ctx context.Context, dir, patch string, reverse bool) error {
 	if !strings.HasSuffix(patch, "\n") {
 		patch += "\n"
 	}
-	cmd := command(ctx, dir, "apply", "--cached", "--whitespace=nowarn", "-")
+	args := []string{"apply", "--cached", "--whitespace=nowarn"}
+	if reverse {
+		args = append(args, "--reverse")
+	}
+	cmd := command(ctx, dir, append(args, "-")...)
 	cmd.Stdin = strings.NewReader(patch)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return "", ctx.Err()
+			return ctx.Err()
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if strings.Contains(msg, "does not apply") || strings.Contains(msg, "patch failed") {
-			return "", fmt.Errorf("%w: %s", ErrPatchStale, firstLine(msg))
+			return fmt.Errorf("%w: %s", ErrPatchStale, firstLine(msg))
 		}
-		return "", fmt.Errorf("git apply: %s", firstLine(msg))
+		return fmt.Errorf("git apply: %s", firstLine(msg))
+	}
+	return nil
+}
+
+// StageChanges is git add: the hunks in patch and every path in files put
+// in the index, ready for a commit of what is staged. A patch that no
+// longer applies stages nothing (ErrPatchStale), files included.
+func StageChanges(ctx context.Context, dir string, files []string, patch string) error {
+	if len(files) == 0 && strings.TrimSpace(patch) == "" {
+		return errors.New("nothing to stage")
+	}
+	if strings.TrimSpace(patch) != "" {
+		if err := applyCached(ctx, dir, patch, false); err != nil {
+			return err
+		}
 	}
 	if len(files) > 0 {
 		if _, err := run(ctx, dir, append([]string{"add", "--all", "--"}, files...)...); err != nil {
-			return "", err
+			return err
 		}
+	}
+	return nil
+}
+
+// UnstageChanges takes paths, or the hunks in patch (as staged: a diff of
+// the index against HEAD), back out of the index, leaving the files on
+// disk as they are. In a repository with no commits yet there is no HEAD
+// to go back to, so the paths are simply dropped from the index.
+func UnstageChanges(ctx context.Context, dir string, files []string, patch string) error {
+	if len(files) == 0 && strings.TrimSpace(patch) == "" {
+		return errors.New("nothing to unstage")
+	}
+	if strings.TrimSpace(patch) != "" {
+		if err := applyCached(ctx, dir, patch, true); err != nil {
+			return err
+		}
+	}
+	if len(files) > 0 {
+		if !resolves(ctx, dir, "HEAD") {
+			_, err := run(ctx, dir, append([]string{"rm", "--cached", "-r", "--quiet", "--ignore-unmatch", "--"}, files...)...)
+			return err
+		}
+		if _, err := run(ctx, dir, append([]string{"reset", "--quiet", "HEAD", "--"}, files...)...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CommitStaged commits what is in the index and nothing else, as git
+// commit does; ErrNothingToCommit when nothing is staged.
+func CommitStaged(ctx context.Context, dir, message string) (string, error) {
+	if strings.TrimSpace(message) == "" {
+		return "", errors.New("a commit needs a message")
+	}
+	// git says "nothing to commit" on stdout, which run does not keep, so
+	// ask the index: --quiet exits 0 when nothing is staged.
+	if _, err := run(ctx, dir, "diff", "--cached", "--quiet"); err == nil {
+		return "", ErrNothingToCommit
 	}
 	if _, err := run(ctx, dir, "commit", "--quiet", "--message", message); err != nil {
 		if strings.Contains(err.Error(), "nothing to commit") || strings.Contains(err.Error(), "no changes added") {

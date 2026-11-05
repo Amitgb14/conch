@@ -26,6 +26,7 @@ import (
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/pane"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/usage"
 )
 
 // frameInterval caps how often frames are pushed per subscription.
@@ -33,6 +34,9 @@ const frameInterval = 33 * time.Millisecond
 
 // Server owns all panes on this machine.
 type Server struct {
+	// usage is what the agents here saved, read as it is asked for
+	// (usage.history.v1) and kept, so asking again reads only what is new.
+	usage *usage.History
 	// sizes says whose size a pane shown by several clients takes (size.go).
 	sizes paneSizes
 	// agentsSeen is which agents this machine was last found to have,
@@ -104,6 +108,7 @@ func New(sockPath, configDir string) *Server {
 	// ago" from the moment it started (R63).
 	now := time.Now()
 	s := &Server{
+		usage:     usage.NewHistory(),
 		sockPath:  sockPath,
 		configDir: configDir,
 		started:   now,
@@ -189,6 +194,7 @@ func (s *Server) Run() error {
 	go s.watcher.run(s.quit)
 	go s.runSchedule(s.quit)
 	go s.runAutopilot(s.quit)
+	go s.runListening(s.quit)
 
 	var ln net.Listener
 	if reloaded != nil {
@@ -366,7 +372,7 @@ var slowMethods = map[string]bool{
 	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodAgentSync: true, proto.MethodAgentLibrary: true, proto.MethodLibraryApply: true, proto.MethodWorktreeFiles: true,
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
-	proto.MethodBranchCommit: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
+	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
 	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
@@ -516,6 +522,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			if err := e.p.Resize(rp.Cols, rp.Rows); err != nil {
 				return nil, proto.Errorf(proto.ErrBadRequest, "%v", err)
 			}
+			s.reshown(e)
 		}
 		return nil, nil
 
@@ -526,6 +533,9 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		if err := e.p.SendText(tp.Text, tp.Paste); err != nil {
 			return nil, proto.Errorf(proto.ErrBadRequest, "%v", err)
+		}
+		if tp.Reply {
+			return nil, nil // a terminal's answer, not the person
 		}
 		s.typedBy(c, e)
 		s.userInput(e)
@@ -575,6 +585,17 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		s.subscribe(c, e)
 		return nil, nil
+
+	case proto.MethodPaneRaw:
+		_, e, perr := withPane(s, msg, func(p proto.PaneRef) string { return p.ID })
+		if perr != nil {
+			return nil, perr
+		}
+		start, err := s.subscribeRaw(c, e)
+		if err != nil {
+			return nil, err
+		}
+		return start, nil
 
 	case proto.MethodPaneUnsubscribe:
 		ref, perr := decode[proto.PaneRef](msg)
@@ -778,6 +799,20 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.projects.log(lp)
 
+	case proto.MethodProjectCommit:
+		cp, perr := decode[proto.CommitParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.commitDetail(cp)
+
+	case proto.MethodBranchReview:
+		rp, perr := decode[proto.BranchReviewParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.reviewBranch(rp)
+
 	case proto.MethodProjectDiff:
 		dp, perr := decode[proto.DiffParams](msg)
 		if perr != nil {
@@ -898,6 +933,9 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 
 	case proto.MethodAgentLimits:
 		return s.allLimits(), nil
+
+	case proto.MethodUsageHistory:
+		return s.usage.Summary(os.Getenv("HOME"), os.Getenv, time.Now()), nil
 
 	case proto.MethodSessionList:
 		lp, perr := decode[proto.SessionListParams](msg)
@@ -1038,6 +1076,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.projects.commitBranch(cp)
 
+	case proto.MethodBranchStage:
+		sp, perr := decode[proto.BranchStageParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.stageBranch(sp)
+
 	case proto.MethodBranchPush:
 		pp, perr := decode[proto.BranchPushParams](msg)
 		if perr != nil {
@@ -1148,6 +1193,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.autopilotCheck(ck)
+
+	case proto.MethodReviewReply:
+		rp, perr := decode[proto.ReviewReplyParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.reviewReply(c, rp)
 
 	case proto.MethodReviewSend:
 		sp, perr := decode[proto.ReviewSendParams](msg)
@@ -1455,7 +1507,10 @@ func (s *Server) close(id string) *proto.Error {
 // through, at that client's size if it asked for one (size.go).
 func (s *Server) typedBy(c *client, e *entry) {
 	if size, ok := s.sizes.input(c, e.p.ID()); ok {
-		_ = e.p.Resize(size[0], size[1])
+		if cols, rows := e.p.Info().Cols, e.p.Info().Rows; cols != size[0] || rows != size[1] {
+			_ = e.p.Resize(size[0], size[1])
+			s.reshown(e)
+		}
 	}
 }
 

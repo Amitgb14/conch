@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -267,6 +268,14 @@ func TestSettingsChoices(t *testing.T) {
 		if c.Accents[i-1] > c.Accents[i] {
 			t.Fatalf("accents not sorted: %v", c.Accents)
 		}
+	}
+	// Light themes: the five drawn on a light background, and no dark one.
+	var light []string
+	for _, o := range c.LightThemes {
+		light = append(light, o.Value)
+	}
+	if want := []string{"github-light", "solarized-light", "catppuccin-latte", "ink", "meadow"}; !slices.Equal(light, want) {
+		t.Fatalf("light themes %v, want %v", light, want)
 	}
 	if len(c.Agents) < 4 || c.Agents[0].Label != "Claude Code" {
 		t.Fatalf("agents %+v", c.Agents)

@@ -199,7 +199,8 @@ func TestPullRequestsOnBranches(t *testing.T) {
 cat <<'JSON'
 [{"number":7,"title":"Ship it","state":"OPEN","isDraft":false,"url":"https://github.com/o/r/pull/7",
   "headRefName":"main","reviewDecision":"APPROVED","updatedAt":"2026-09-12T10:00:00Z",
-  "statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"}]}]
+  "statusCheckRollup":[{"__typename":"CheckRun","name":"test (ubuntu)","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://github.com/o/r/runs/1"},
+                       {"__typename":"CheckRun","name":"test (macos)","status":"IN_PROGRESS","conclusion":""}]}]
 JSON
 `), 0o755)
 	t.Setenv("CONCH_GH", gh)
@@ -223,6 +224,11 @@ JSON
 	pr := proj.Branches[0].PR
 	if pr.Number != 7 || pr.Checks != "fail" || pr.Review != "APPROVED" || proj.PRStatus != "" {
 		t.Fatalf("pr: %+v status %q", pr, proj.PRStatus)
+	}
+	// Each check by name reaches the clients, its state and link with it.
+	if len(pr.Runs) != 2 || pr.Runs[0] != (proto.PRCheck{Name: "test (ubuntu)", State: "fail", URL: "https://github.com/o/r/runs/1"}) ||
+		pr.Runs[1].Name != "test (macos)" || pr.Runs[1].State != "pending" || pr.Total != 2 {
+		t.Fatalf("runs: %+v (total %d)", pr.Runs, pr.Total)
 	}
 }
 

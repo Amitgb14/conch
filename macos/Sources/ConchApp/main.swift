@@ -7,9 +7,28 @@ import SwiftUI
 // everything inside (Views.swift).
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSWindowDelegate, NSMenuDelegate {
     let store = Store()
     var window: NSWindow!
+    /// Under Quit: how many panes go on running without the app.
+    let runOnItem: NSMenuItem = {
+        let i = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        i.isEnabled = false
+        return i
+    }()
+
+    /// The conch menu opening: what quitting leaves running, said now.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        runOnItem.attributedTitle = NSAttributedString(string: runOnNote(panes: store.runningPanes),
+                                                       attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
+    }
+
+    /// [app]'s parts AppKit draws: the toolbar's height, option-space
+    /// from anywhere.
+    func applyAppLook(_ look: AppLook) {
+        window?.toolbarStyle = look.compact ? .unifiedCompact : .unified
+        ScratchHotKey.shared.set(look.scratchKey)
+    }
 
     func applicationDidFinishLaunching(_ note: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -51,6 +70,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             self?.updateThemeMenu()
         }
         store.onStyle = { [weak self] st in self?.window.titlebarAppearsTransparent = st.paintsTitleBar }
+        store.onAppLook = { [weak self] look in self?.applyAppLook(look) }
+        ScratchHotKey.shared.fire = { [weak self] in
+            NSApp.activate(ignoringOtherApps: true)
+            self?.window.makeKeyAndOrderFront(nil)
+            self?.store.toggleScratch()
+        }
+        applyAppLook(store.appLook)
         let settings = SettingsWindow(store: store)
         settingsWindow = settings
         store.onOpenSettings = { settings.show() }
@@ -136,7 +162,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             .separator(),
             NSMenuItem(title: "Hide conch", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
             NSMenuItem(title: "Quit conch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
+            runOnItem,
         ])
+        main.items.first?.submenu?.delegate = self
         menu("File", [
             item("New Task…", "n", .command, "newTask"),
             item("Start Agent", "n", [.command, .shift], "startAgent"),
@@ -153,6 +181,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             item("Select Split Right", String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option], "splitRightward"),
             item("Select Split Above", String(UnicodeScalar(NSUpArrowFunctionKey)!), [.command, .option], "splitAbove"),
             item("Select Split Below", String(UnicodeScalar(NSDownArrowFunctionKey)!), [.command, .option], "splitBelow"),
+            .separator(),
+            item("Show or Hide Scratch Layer", " ", .option, "scratch"),
+            item("Dock Scratch Layer as a Split", "\r", [.command, .option], "dockScratch"),
+            item("Make Scratch Layer a Tab", "t", [.command, .option], "scratchTab"),
             .separator(),
             item("Close Split", "w", .command, "closeSplit"),
         ])

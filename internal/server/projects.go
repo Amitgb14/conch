@@ -545,6 +545,7 @@ func (pm *projectManager) fetchPRs(p *project) {
 			p.prs[branch] = proto.PRInfo{
 				Number: pr.Number, Title: pr.Title, State: pr.State, Draft: pr.Draft, URL: pr.URL,
 				Review: pr.Review, Checks: pr.Checks, Passed: pr.Passed, Total: pr.Total, Head: pr.Head, Conflicting: pr.Conflicting,
+				Runs: prChecks(pr.Runs),
 			}
 		}
 	}
@@ -792,4 +793,16 @@ func (pm *projectManager) removeWorktree(wp proto.WorktreeRemoveParams) *proto.E
 	pm.s.ports.release(wp.Path)
 	pm.request(p)
 	return nil
+}
+
+// prChecks is ghx's checks as the protocol says them.
+func prChecks(runs []ghx.Check) []proto.PRCheck {
+	if len(runs) == 0 {
+		return nil
+	}
+	out := make([]proto.PRCheck, len(runs))
+	for i, r := range runs {
+		out[i] = proto.PRCheck{Name: r.Name, State: r.State, URL: r.URL}
+	}
+	return out
 }

@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -883,5 +884,39 @@ func TestWaitReachable(t *testing.T) {
 	err := WaitReachable(context.Background(), SSH("dev@box", false))
 	if err == nil || !strings.Contains(err.Error(), "Connection refused") {
 		t.Fatalf("never answering: %v", err)
+	}
+}
+
+// A machine whose conch is merely older is bridged to — the program on the
+// other end reads the hello and does without what is missing — and only one
+// without conch, or whose conch cannot say what it is, is refused.
+func TestBridgeCommandTakesAnOlderConch(t *testing.T) {
+	a4Env(t)
+	f := newFakeSSH(t)
+
+	// Older: its capabilities lack this build's newest.
+	info := buildinfo.Current()
+	info.Capabilities = info.Capabilities[:len(info.Capabilities)-3]
+	b, _ := json.Marshal(info)
+	f.setProbe(t, "linux\nx86_64\nbin=/home/dev/.local/bin/conch\n"+string(b)+"\n")
+	cmd, err := BridgeCommand(context.Background(), SSH("dev@box", false))
+	if err != nil || cmd == nil {
+		t.Fatalf("an older conch was refused: %v", err)
+	}
+	if argv := strings.Join(cmd.Args, " "); !strings.Contains(argv, "/home/dev/.local/bin/conch") || !strings.Contains(argv, "bridge") {
+		t.Fatalf("bridge command %q", argv)
+	}
+
+	// None installed: refused, with the platform for an install.
+	f.setProbe(t, "linux\nx86_64\nbin=\n\n")
+	var ie *InstallError
+	if _, err := BridgeCommand(context.Background(), SSH("dev@box", false)); !errors.As(err, &ie) || !strings.Contains(ie.Reason, "not installed") {
+		t.Fatalf("no conch: %v", err)
+	}
+
+	// Installed, but it says nothing about itself: refused.
+	f.setProbe(t, "linux\nx86_64\nbin=/home/dev/.local/bin/conch\nnot json\n")
+	if _, err := BridgeCommand(context.Background(), SSH("dev@box", false)); !errors.As(err, &ie) || !strings.Contains(ie.Reason, "too old to say") {
+		t.Fatalf("a mute conch: %v", err)
 	}
 }

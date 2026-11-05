@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"slices"
 	"strings"
@@ -31,8 +32,11 @@ type entry struct {
 
 	mu       sync.Mutex
 	tracker  *detect.Tracker
-	watchers int      // subscribed clients
-	project  *project // nil when the pane is outside any project
+	watchers int // subscribed clients
+	// listening is the TCP ports the pane's programs listen on, as the
+	// last look found them (listening.go).
+	listening []int
+	project   *project // nil when the pane is outside any project
 
 	screen        []string // cached plain screen
 	screenVersion uint64
@@ -102,6 +106,9 @@ func (e *entry) info() proto.PaneInfo {
 	}
 	if len(e.lineage) > 0 {
 		info.CreatedBy = e.lineage[0]
+	}
+	if info.State == proto.PaneRunning {
+		info.Listening = slices.Clone(e.listening)
 	}
 	e.mu.Unlock()
 	if proj != nil {
@@ -186,10 +193,15 @@ type shown struct {
 	alert                          string
 	subagents                      string
 	ssh                            string
+	// The size goes out so a client drawing the pane at a size of its
+	// own (the Mac app's letterbox) hears that another changed it.
+	cols, rows int
+	listening  string
 }
 
 func shownOf(info proto.PaneInfo) shown {
-	sh := shown{title: info.Title, name: info.Name, branch: info.Branch, alert: info.Alert, ssh: info.SSH}
+	sh := shown{title: info.Title, name: info.Name, branch: info.Branch, alert: info.Alert, ssh: info.SSH,
+		cols: info.Cols, rows: info.Rows, listening: fmt.Sprint(info.Listening)}
 	if info.Monitor != nil {
 		sh.monitor = *info.Monitor
 	}
@@ -331,6 +343,24 @@ func (s *Server) userInput(e *entry) {
 	e.evalMu.Lock()
 	defer e.evalMu.Unlock()
 	s.evaluate(e, func(t *detect.Tracker) { t.UserInput() })
+}
+
+// reshown tells clients what they are shown of the pane changed outside
+// a look at its program: its size after a resize, the ports it listens
+// on. Its callers only call it on a change, so it is said every time
+// rather than compared with what was last sent: a pane's first look can
+// run between the change and this, record the change as sent, and leave
+// clients that had the pane from pane.created never told.
+func (s *Server) reshown(e *entry) {
+	e.evalMu.Lock()
+	defer e.evalMu.Unlock()
+	info := e.info()
+	e.mu.Lock()
+	e.sent, e.sentOnce = shownOf(info), true
+	e.mu.Unlock()
+	if s.alive(e) {
+		s.broadcast(proto.EventPaneUpdated, info)
+	}
 }
 
 func (s *Server) markSeen(e *entry) {

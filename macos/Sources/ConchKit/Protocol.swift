@@ -131,9 +131,11 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var alert: String?
     /// How it is watched for those (pane.monitor.v1).
     public var monitor: PaneMonitor?
+    /// The TCP ports its programs listen on, lowest first (pane.listening.v1).
+    public var listening: [Int]?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor
+        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor, listening
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"
@@ -183,6 +185,9 @@ public struct WorktreeInfo: Decodable, Equatable, Sendable {
     public var status: GitStatus?
     /// The first port the checkout is given, as CONCH_PORT in its panes.
     public var port: Int?
+    /// The files merging the branch into the base would conflict in,
+    /// tried without merging (git 2.38 and later).
+    public var conflicts: [String]?
 
     public init(path: String, branch: String?, main: Bool? = nil, port: Int? = nil) {
         self.path = path
@@ -192,12 +197,31 @@ public struct WorktreeInfo: Decodable, Equatable, Sendable {
     }
 }
 
+/// One check of a pull request: state is pass, fail or pending.
+/// Not Identifiable by name: a name can repeat across workflows.
+public struct PRCheck: Decodable, Equatable, Sendable {
+    public var name: String
+    public var state: String
+    public var url: String?
+}
+
 public struct PRInfo: Decodable, Equatable, Sendable {
     public var number: Int
     public var state: String?
     public var checks: String?
     public var draft: Bool?
     public var url: String?
+    public var title: String?
+    /// APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED.
+    public var review: String?
+    /// Checks finished passing, of all of them.
+    public var passed: Int?
+    public var total: Int?
+    public var head: String?
+    /// GitHub says it cannot merge into its base as it stands.
+    public var conflicting: Bool?
+    /// Its checks one by one, from a server that names them.
+    public var runs: [PRCheck]?
 
     public init(number: Int, state: String? = nil, checks: String? = nil, draft: Bool? = nil, url: String? = nil) {
         self.number = number

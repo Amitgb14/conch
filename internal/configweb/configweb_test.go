@@ -655,32 +655,33 @@ func TestUnsetNumbersAreLeftOut(t *testing.T) {
 }
 
 // The light theme offers Off first — empty, which leaves Conch.app on the
-// theme — then every theme the caller has, the same list as theme's.
-func TestLightThemeOffersOffThenTheThemes(t *testing.T) {
+// theme — then only the light themes; theme offers every one.
+func TestLightThemeOffersOffThenTheLightThemes(t *testing.T) {
 	themes := []Option{{"conch", "Conch"}, {"github-light", "GitHub Light"}}
-	var theme, light *Field
-	for _, s := range Schema(Choices{Themes: themes}) {
+	light := []Option{{"github-light", "GitHub Light"}}
+	var theme, lightField *Field
+	for _, s := range Schema(Choices{Themes: themes, LightThemes: light}) {
 		for i := range s.Fields {
 			switch f := &s.Fields[i]; f.Key {
 			case "theme":
 				theme = f
 			case "light_theme":
-				light = f
+				lightField = f
 			}
 		}
 	}
-	if theme == nil || light == nil {
+	if theme == nil || lightField == nil {
 		t.Fatal("theme or light_theme missing from the schema")
 	}
-	want := append([]Option{{"", "Off"}}, themes...)
-	if !reflect.DeepEqual(light.Options, want) || !reflect.DeepEqual(theme.Options, themes) {
-		t.Errorf("light_theme %v, theme %v", light.Options, theme.Options)
+	want := append([]Option{{"", "Off"}}, light...)
+	if !reflect.DeepEqual(lightField.Options, want) || !reflect.DeepEqual(theme.Options, themes) {
+		t.Errorf("light_theme %v, theme %v", lightField.Options, theme.Options)
 	}
-	// No themes given: Off and conch's, never an empty menu.
-	for _, s := range Schema(Choices{}) {
+	// No light themes given: Off alone, which is still a choice.
+	for _, s := range Schema(Choices{Themes: themes}) {
 		for _, f := range s.Fields {
-			if f.Key == "light_theme" && (len(f.Options) != 2 || f.Options[0].Value != "" || f.Options[1].Value != "conch") {
-				t.Errorf("light_theme with no themes: %v", f.Options)
+			if f.Key == "light_theme" && !reflect.DeepEqual(f.Options, []Option{{"", "Off"}}) {
+				t.Errorf("light_theme with no light themes: %v", f.Options)
 			}
 		}
 	}

@@ -74,12 +74,34 @@ public struct AttachControl: Encodable, Equatable, Sendable {
     public var line: Int?
     public var history: Int?
     public var clear: Bool?
+    /// For a raw view (attach -raw): the size this window has room for,
+    /// asked of the server in place of the terminal's own, which is the
+    /// pane's while it is letterboxed.
+    public var cols: Int?
+    public var rows: Int?
+    /// For a raw view: take the pane's size, as typing would.
+    public var claim: Bool?
 
     public init(find: String? = nil, line: Int? = nil, history: Int? = nil, clear: Bool = false) {
         self.find = find
         self.line = line
         self.history = history
         self.clear = clear ? true : nil
+    }
+
+    /// The room a raw view has.
+    public static func room(_ s: CellSize) -> AttachControl {
+        var c = AttachControl()
+        c.cols = s.cols
+        c.rows = s.rows
+        return c
+    }
+
+    /// A raw view taking the pane's size.
+    public static var take: AttachControl {
+        var c = AttachControl()
+        c.claim = true
+        return c
     }
 }
 

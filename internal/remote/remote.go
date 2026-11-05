@@ -408,18 +408,25 @@ func shellQuote(s string) string {
 // server on a machine, through its stdin and stdout — what Bridge runs,
 // for a program that speaks the protocol itself (the Mac app) rather
 // than through a client of this one. The machine is probed first, so a
-// machine without conch, or with one too old, is said rather than
-// bridged to; nothing is installed. The command outlives ctx, which
-// bounds only the probe.
+// machine without conch, or with one that cannot say what it is, is said
+// rather than bridged to; nothing is installed. The command outlives
+// ctx, which bounds only the probe.
+//
+// A conch that is merely older is bridged to: the program on the other
+// end reads the server's capabilities from its hello and does without
+// what is missing, saying so, as every client does (AGENTS.md, protocol
+// compatibility). Refusing it took the machine offline in the Mac app the
+// moment this build gained a capability — busybox, there in the TUI,
+// shown offline in the app — until somebody upgraded it.
 func BridgeCommand(ctx context.Context, tr Transport) (*exec.Cmd, error) {
 	probe, err := ProbeMachine(ctx, tr)
 	if err != nil {
 		return nil, err
 	}
-	if missing := probe.Missing(); probe.Bin == "" || len(missing) > 0 {
+	if probe.Bin == "" || probe.Info == nil {
 		reason := fmt.Sprintf("conch is not installed on %s (%s)", tr.Describe(), probe.Platform)
 		if probe.Bin != "" {
-			reason = fmt.Sprintf("conch on %s is from an older build (lacks %s)", tr.Describe(), strings.Join(missing, ", "))
+			reason = fmt.Sprintf("conch on %s is too old to say what it can do", tr.Describe())
 		}
 		return nil, &InstallError{Platform: probe.Platform, Reason: reason}
 	}

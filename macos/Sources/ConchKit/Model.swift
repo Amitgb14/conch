@@ -325,6 +325,46 @@ public struct Workspace: Equatable, Sendable {
         return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
     }
 
+    /// ui.json with the workspace of that id closed, as the TUI's ctrl+b X
+    /// does: what it held — projects, panes, folders, machines, hosts —
+    /// goes to the first workspace, and its tabs after the first's. With one
+    /// workspace left, there are no others to keep apart, so the list goes.
+    /// The first workspace is never closed; an unknown one, or a file that
+    /// does not parse, throws.
+    public static func closing(_ id: String, in data: Data?) throws -> Data {
+        guard id != "first" else { throw ConchError(code: "ui.json", message: "the first workspace stays") }
+        guard let data, !data.isEmpty, var ui = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var spaces = ui["spaces"] as? [[String: Any]] else {
+            throw ConchError(code: "ui.json", message: "ui.json has no workspaces to close")
+        }
+        for i in spaces.indices where (spaces[i]["id"] as? String ?? "").isEmpty { spaces[i]["id"] = "w\(i + 1)" }
+        guard let i = spaces.firstIndex(where: { $0["id"] as? String == id }) else {
+            throw ConchError(code: "ui.json", message: "no workspace \(id) in ui.json")
+        }
+        let gone = spaces.remove(at: i)
+        var first = ui["first_space"] as? [String: Any] ?? [:]
+        for k in ["projects", "panes", "folders", "machines", "hosts"] {
+            let merged = Set((first[k] as? [String] ?? []) + (gone[k] as? [String] ?? []))
+            if !merged.isEmpty { first[k] = merged.sorted() }
+        }
+        ui["first_space"] = first
+        if let tabs = gone["tabs"] as? [Any], !tabs.isEmpty {
+            ui["tabs"] = (ui["tabs"] as? [Any] ?? []) + tabs
+        }
+        if spaces.isEmpty {
+            ui.removeValue(forKey: "spaces")
+            ui.removeValue(forKey: "active_space")
+        } else {
+            ui["spaces"] = spaces
+            // The active one counts the first as 0: past the closed one it
+            // moves down, and on the closed one it goes to the first.
+            if let a = ui["active_space"] as? Int {
+                ui["active_space"] = a == i + 1 ? 0 : a > i + 1 ? a - 1 : a
+            }
+        }
+        return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
+    }
+
     /// A project's key in ui.json, as the TUI writes it.
     public static func key(project id: String, machine: String) -> String { projectKey(machine, id) }
 

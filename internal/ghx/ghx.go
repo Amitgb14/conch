@@ -40,6 +40,17 @@ type PR struct {
 	Passed      int    // checks that passed
 	Total       int    // checks reported
 	Updated     time.Time
+	// Runs are the checks one by one, in GitHub's order: what is running,
+	// what failed, and where to see it.
+	Runs []Check
+}
+
+// Check is one of a pull request's checks: a job of a workflow run, or a
+// commit status another service set.
+type Check struct {
+	Name  string // the job's name, or the status's context
+	State string // ChecksPass, ChecksFail or ChecksPending
+	URL   string
 }
 
 // ErrNoGH means the gh binary is not installed.
@@ -185,6 +196,10 @@ type rawPR struct {
 		Status     string `json:"status"`     // CheckRun
 		Conclusion string `json:"conclusion"` // CheckRun
 		State      string `json:"state"`      // StatusContext
+		Name       string `json:"name"`       // CheckRun
+		DetailsURL string `json:"detailsUrl"` // CheckRun
+		Context    string `json:"context"`    // StatusContext
+		TargetURL  string `json:"targetUrl"`  // StatusContext
 	} `json:"statusCheckRollup"`
 }
 
@@ -204,10 +219,16 @@ func Parse(data []byte) ([]PR, error) {
 		failed, pending := 0, 0
 		for _, c := range r.Rollup {
 			var outcome string
+			run := Check{Name: c.Name, URL: c.DetailsURL}
 			if c.Typename == "StatusContext" {
 				outcome = contextOutcome(c.State)
+				run = Check{Name: c.Context, URL: c.TargetURL}
 			} else {
 				outcome = runOutcome(c.Status, c.Conclusion)
+			}
+			run.State = outcome
+			if run.Name != "" && len(pr.Runs) < maxRuns {
+				pr.Runs = append(pr.Runs, run)
 			}
 			pr.Total++
 			switch outcome {
@@ -231,6 +252,10 @@ func Parse(data []byte) ([]PR, error) {
 	}
 	return prs, nil
 }
+
+// maxRuns keeps a matrix of hundreds of jobs from filling every snapshot;
+// the counts still count them all.
+const maxRuns = 40
 
 func runOutcome(status, conclusion string) string {
 	if status != "COMPLETED" {

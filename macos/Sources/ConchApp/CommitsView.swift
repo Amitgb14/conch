@@ -13,6 +13,16 @@ final class CommitsModel: ObservableObject {
     let key: String
     let machine: String
     let project: String
+
+    /// Open pull requests by the commit their checks run on (their head),
+    /// for a badge on that row.
+    var pullRequests: [String: PRInfo] {
+        var out: [String: PRInfo] = [:]
+        for b in store.snapshots[machine]?.project(project)?.branches ?? [] {
+            if let pr = b.pr, (pr.state ?? "OPEN") == "OPEN", let h = pr.head, !h.isEmpty { out[h] = pr }
+        }
+        return out
+    }
     unowned let store: Store
     @Published var rows: [GraphRow] = []
     @Published var more = false
@@ -28,6 +38,19 @@ final class CommitsModel: ObservableObject {
     /// The repository's remotes, as the server names them (nil: an older
     /// server, and origin and upstream are taken).
     @Published var remotes: Set<String>?
+    /// The graph's search: commits that do not match are dimmed, never
+    /// taken out, so the lanes stay whole.
+    @Published var query = ""
+    /// A second commit picked with shift: the range compared runs between
+    /// it and the one picked.
+    @Published var compareWith: String?
+    /// What the side panel shows: the commit picked, or the range.
+    @Published var detail: CommitDetail?
+    @Published var detailError = ""
+    /// One file's diff opened from the side panel.
+    @Published var peekFile: String?
+    @Published var peek: [DiffLine] = []
+    private var details = Latest()
     private var limit = proto_LogLimit
     /// Reads in flight: only the newest one's reply is taken, or a read for
     /// 300 landing after one for 600 put the shorter history back.
@@ -85,6 +108,70 @@ final class CommitsModel: ObservableObject {
         }
     }
 
+    /// Picks a commit, or with shift a second one to compare with it.
+    func pick(_ hash: String, shift: Bool) {
+        if shift, let s = selected, s != hash {
+            compareWith = hash
+        } else {
+            selected = hash
+            compareWith = nil
+        }
+        loadDetail()
+    }
+
+    /// The range being compared, the older commit first, by the graph's order.
+    var range: (from: String, to: String)? {
+        guard let a = selected, let b = compareWith else { return nil }
+        return compareRange(a, b, order: rows.map(\.commit.hash))
+    }
+
+    /// Hashes inside the compared range, for dimming the rest.
+    var inRange: Set<String>? {
+        guard let r = range, let lo = rows.firstIndex(where: { $0.commit.hash == r.to }),
+              let hi = rows.firstIndex(where: { $0.commit.hash == r.from }) else { return nil }
+        return Set(rows[lo...hi].map(\.commit.hash))
+    }
+
+    var canShowDetail: Bool { store.connection(machine)?.hello?.capabilities?.contains("project.commit.v1") == true }
+
+    func loadDetail() {
+        peekFile = nil
+        peek = []
+        guard let c = store.connection(machine), let sel = selected else { detail = nil; return }
+        guard canShowDetail else {
+            detail = nil
+            detailError = "conch on \(store.label(machine)) is too old to open a commit: reload its server"
+            return
+        }
+        let params = range.map { CommitParams(projectID: project, hash: $0.to, from: $0.from) } ?? CommitParams(projectID: project, hash: sel)
+        let n = details.next()
+        Task {
+            do {
+                let d = try await c.call("project.commit", params, as: CommitDetail.self)
+                guard details.isLatest(n) else { return }
+                detail = d
+                detailError = ""
+            } catch {
+                guard details.isLatest(n) else { return }
+                detail = nil
+                detailError = "\(error)"
+            }
+        }
+    }
+
+    /// One file's diff in the commit, or across the range.
+    func openPeek(_ file: String) {
+        guard let c = store.connection(machine), let sel = selected else { return }
+        if peekFile == file { peekFile = nil; peek = []; return }
+        peekFile = file
+        let params = range.map { CommitParams(projectID: project, hash: $0.to, from: $0.from, file: file) } ?? CommitParams(projectID: project, hash: sel, file: file)
+        Task {
+            if let d = try? await c.call("project.commit", params, as: CommitDetail.self), peekFile == file {
+                peek = parseDiff(d.diff ?? "").filter { $0.kind != .meta }
+            }
+        }
+    }
+
     /// Whether older commits can still be read: there are more, and fewer
     /// than the server's 2000 have been asked for.
     var canReadMore: Bool { more && limit < 2000 }
@@ -103,11 +190,35 @@ let proto_LogLimit = 300
 struct CommitsView: View {
     @ObservedObject var model: CommitsModel
     @ObservedObject var store: Store
+    /// Inside a branch's git tab: no frame of its own, which the tab has.
+    var embedded = false
 
     var body: some View {
+        HStack(spacing: 0) {
+            graph
+            if model.selected != nil {
+                Rectangle().fill(Theme.line).frame(width: 1)
+                CommitDetailPanel(model: model, store: store).frame(width: 340)
+            }
+        }
+        .background(Theme.window)
+        .clipShape(RoundedRectangle(cornerRadius: embedded ? 0 : 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(embedded ? .clear : Theme.line))
+    }
+
+    var graph: some View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(Theme.line).frame(height: 1)
+            if model.range != nil {
+                HStack(spacing: 8) {
+                    Circle().fill(Theme.merged).frame(width: 7, height: 7)
+                    Text("Comparing \(String(model.range!.from.prefix(7))) … \(String(model.range!.to.prefix(7)))").font(.system(size: 12))
+                    Spacer()
+                    Button("Done") { model.compareWith = nil; model.loadDetail() }.controlSize(.small)
+                }
+                .padding(.horizontal, 12).frame(height: 30).background(Theme.merged.opacity(0.14))
+            }
             if !model.error.isEmpty {
                 Text(model.error).foregroundStyle(Theme.err).padding(16).frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -136,9 +247,6 @@ struct CommitsView: View {
                 }
             }
         }
-        .background(Theme.window)
-        .clipShape(RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line))
     }
 
     var header: some View {
@@ -150,7 +258,15 @@ struct CommitsView: View {
             Text(model.more ? "newest \(model.count)" : "\(model.count)").font(.system(size: 11)).foregroundStyle(Theme.muted)
             if model.loading { ProgressView().controlSize(.small) }
             Spacer()
-            Button { model.load() } label: { LucideIcon("refresh-cw", size: 12) }.buttonStyle(.plain).help("Read the history again")
+            HStack(spacing: 6) {
+                LucideIcon("search", color: Theme.muted, size: 11)
+                TextField("Search commits, hashes, authors", text: $model.query).textFieldStyle(.plain).font(.system(size: 12)).frame(width: 220)
+            }
+            .padding(.horizontal, 8).frame(height: 24)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Theme.window))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line))
+            Text("shift-click to compare").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            Button { model.load() } label: { LucideIcon("refresh-cw", size: 12).padding(4).contentShape(Rectangle()) }.buttonStyle(.plain).help("Read the history again")
         }
         .padding(.horizontal, 12).frame(height: 40)
         .background(Theme.paneHeader)
@@ -179,10 +295,14 @@ struct CommitRow: View {
         let c = row.commit
         let refs = CommitRef.parse(c.refs, remotes: model.remotes ?? ["origin", "upstream"])
         let on = model.selected == c.hash
+        let cmp = model.compareWith == c.hash
+        let dim = !commitMatches(c, model.query) || (model.inRange.map { !$0.contains(c.hash) } ?? false)
         HStack(spacing: 8) {
             GraphCell(row: row).frame(width: CGFloat(model.lanes) * Self.laneWidth + 6, height: Self.height).clipped()
             Text(c.short).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
             ForEach(Array(refs.enumerated()), id: \.offset) { _, r in RefChip(ref: r) }
+            // The commit a pull request's checks run on: its CI, here too.
+            if let pr = model.pullRequests[c.hash] { CIChip(pr: pr, number: true) }
             Text(c.subject).font(.system(size: 12.5)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.tail)
                 .layoutPriority(-1)
             Spacer(minLength: 8)
@@ -190,10 +310,11 @@ struct CommitRow: View {
             Text(agoText(c.time)).font(.system(size: 11.5)).foregroundStyle(Theme.muted).frame(minWidth: 52, alignment: .trailing)
         }
         .padding(.horizontal, 10).frame(height: Self.height)
-        .background(on ? Theme.accentDeep.opacity(0.3) : hovering ? Theme.raise : .clear)
+        .opacity(dim ? 0.3 : 1)
+        .background(cmp ? Theme.merged.opacity(0.22) : on ? Theme.accentDeep.opacity(0.3) : hovering ? Theme.raise : .clear)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .onTapGesture { model.selected = c.hash }
+        .onTapGesture { model.pick(c.hash, shift: NSEvent.modifierFlags.contains(.shift)) }
         .help(c.hash)
         .contextMenu {
             Button("Copy hash") { copy(c.hash) }
@@ -295,5 +416,104 @@ struct GraphCell: View {
                 ctx.stroke(dot, with: .color(dotColor), lineWidth: 1.6)
             }
         }
+    }
+}
+
+/// The side of the graph: the commit picked — who, when, its message whole,
+/// the files it changed with a click to see one's diff — or, with a second
+/// commit shift-clicked, every file changed across the range.
+struct CommitDetailPanel: View {
+    @ObservedObject var model: CommitsModel
+    @ObservedObject var store: Store
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                if !model.detailError.isEmpty {
+                    Text(model.detailError).font(.system(size: 12)).foregroundStyle(Theme.err)
+                }
+                if let d = model.detail {
+                    if let r = model.range {
+                        Text("Compare").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.merged)
+                        Text("\(d.commits ?? 0) commit\((d.commits ?? 0) == 1 ? "" : "s"), \(d.files?.count ?? 0) file\((d.files?.count ?? 0) == 1 ? "" : "s")")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("\(String(r.from.prefix(7))) → \(String(r.to.prefix(7)))").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
+                    } else {
+                        HStack {
+                            Text(String(d.hash.prefix(10))).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.work)
+                            if (d.parents?.count ?? 0) > 1 { Text("merge").font(.system(size: 10.5)).foregroundStyle(Theme.muted) }
+                            Spacer()
+                            Button("Copy") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(d.hash, forType: .string)
+                            }.controlSize(.small)
+                        }
+                        Text(d.subject ?? "").font(.system(size: 14, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 6) {
+                            Text(d.author ?? "").font(.system(size: 12)).foregroundStyle(Theme.text2)
+                            if let t = d.time { Text("· \(agoText(t))").font(.system(size: 12)).foregroundStyle(Theme.muted) }
+                        }
+                        if let b = d.body, !b.isEmpty {
+                            Text(b).font(.system(size: 12)).foregroundStyle(Theme.text2).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let ps = d.parents, !ps.isEmpty {
+                            HStack(spacing: 6) {
+                                Text("Parents").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                                ForEach(ps, id: \.self) { p in
+                                    Button(String(p.prefix(7))) { model.pick(p, shift: false); model.reveal += 1 }
+                                        .buttonStyle(.link).font(.system(size: 11.5, design: .monospaced))
+                                }
+                            }
+                        }
+                    }
+                    Rectangle().fill(Theme.line).frame(height: 1)
+                    Text("FILES · \(d.files?.count ?? 0)").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                    ForEach(d.files ?? []) { f in
+                        VStack(alignment: .leading, spacing: 0) {
+                            HStack(spacing: 8) {
+                                Text(f.code).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(fileCodeColor(f.code)).frame(width: 12)
+                                Text(f.path).font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.head)
+                                Spacer(minLength: 4)
+                                Text("+\(f.added)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.ok)
+                                Text("−\(f.deleted)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.err)
+                            }
+                            .padding(.vertical, 3).contentShape(Rectangle())
+                            .onTapGesture { model.openPeek(f.path) }
+                            .accessibilityElement(children: .combine)
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { model.openPeek(f.path) }
+                            if model.peekFile == f.path {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    ForEach(model.peek.prefix(120)) { l in
+                                        Text((l.kind == .added ? "+ " : l.kind == .removed ? "− " : l.kind == .hunk ? "" : "  ") + l.text)
+                                            .font(.system(size: 11, design: .monospaced)).lineLimit(1)
+                                            .foregroundStyle(l.kind == .added ? Theme.ok : l.kind == .removed ? Theme.err : l.kind == .hunk ? Theme.work : Theme.text2)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .background(l.kind == .added ? Theme.ok.opacity(0.1) : l.kind == .removed ? Theme.err.opacity(0.1) : .clear)
+                                    }
+                                }
+                                .padding(6).background(RoundedRectangle(cornerRadius: 6).fill(Theme.side))
+                            }
+                        }
+                    }
+                } else if model.detailError.isEmpty {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .padding(14)
+        }
+        .background(Theme.side)
+    }
+}
+
+/// The colour of a file's status letter.
+@MainActor
+func fileCodeColor(_ code: String) -> Color {
+    switch code {
+    case "A", "?": return Theme.ok
+    case "D": return Theme.err
+    case "U": return Theme.warn
+    case "R", "C": return Theme.merged
+    default: return Theme.warn
     }
 }
