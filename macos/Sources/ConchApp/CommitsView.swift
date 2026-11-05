@@ -61,6 +61,13 @@ final class CommitsModel: ObservableObject {
         self.store = store
         (machine, project) = parseCommitsKey(key) ?? ("local", "")
         load()
+        store.refreshProject(machine: machine, project: project)
+    }
+
+    /// ↻: the history again, and the server asked to look at GitHub now.
+    func refresh() {
+        load()
+        store.refreshProject(machine: machine, project: project)
     }
 
     var count: Int { rows.count }
@@ -266,7 +273,7 @@ struct CommitsView: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Theme.window))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line))
             Text("shift-click to compare").font(.ui(size: 11)).foregroundStyle(Theme.muted)
-            Button { model.load() } label: { LucideIcon("refresh-cw", size: 12).padding(4).contentShape(Rectangle()) }.buttonStyle(.plain).help("Read the history again")
+            Button { model.refresh() } label: { LucideIcon("refresh-cw", size: 12).padding(4).contentShape(Rectangle()) }.buttonStyle(.plain).help("Read the history again, and its pull requests from GitHub")
         }
         .padding(.horizontal, 12).frame(height: 40)
         .background(Theme.paneHeader)
