@@ -6,6 +6,11 @@
 #
 #   macos/bundle.sh            # → macos/build/Conch.app
 #   macos/bundle.sh /Applications
+#
+# With CONCH_VERSION set (macos/release.sh does) it is a build for others:
+# conch inside stamped with that version, as scripts/release.sh stamps
+# the archives, so it installs released binaries on machines rather than
+# building them; and no ConchSource, a path on this Mac nobody else has.
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -24,7 +29,12 @@ bin=$(swift build -c release --package-path "$here" --show-bin-path)
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin/Conch" "$app/Contents/MacOS/Conch"
-(cd "$root" && go build -o "$app/Contents/Resources/conch" ./cmd/conch)
+if [ -n "${CONCH_VERSION:-}" ]; then
+	(cd "$root" && go build -trimpath -ldflags "-s -w -X github.com/Amitgb14/conch/internal/proto.Version=${CONCH_VERSION#v}" \
+		-o "$app/Contents/Resources/conch" ./cmd/conch)
+else
+	(cd "$root" && go build -o "$app/Contents/Resources/conch" ./cmd/conch)
+fi
 
 # The icon from conch's own 512px PNG, as `conch app install` makes it;
 # without sips or iconutil the bundle still works, with the generic icon.
@@ -48,6 +58,8 @@ fi
 version=$("$app/Contents/Resources/conch" version 2>/dev/null | awk '{print $2}')
 [ -n "$version" ] || version=dev
 build=$(cd "$root" && git rev-parse --short HEAD 2>/dev/null || echo "$version")
+source_key="<key>ConchSource</key><string>$root</string>"
+[ -z "${CONCH_VERSION:-}" ] || source_key=""
 cat >"$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -63,7 +75,7 @@ cat >"$app/Contents/Info.plist" <<EOF
 	<key>CFBundleVersion</key><string>$build</string>
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>NSHighResolutionCapable</key><true/>
-	<key>ConchSource</key><string>$root</string>
+	$source_key
 	<key>NSSupportsAutomaticTermination</key><false/>
 	<!-- A browser tab shows what a dev server speaks, which is plain http. -->
 	<key>NSAppTransportSecurity</key><dict>
