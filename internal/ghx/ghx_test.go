@@ -96,7 +96,7 @@ func TestNoGHSaysWhereToGetIt(t *testing.T) {
 // and details URL, a commit status by its context and target URL — and a
 // check with no name is still counted though not listed.
 func TestParseRuns(t *testing.T) {
-	out := `[{"number":87,"state":"OPEN","headRefName":"b","statusCheckRollup":[
+	out := `[{"number":87,"state":"OPEN","headRefName":"b","baseRefName":"master","statusCheckRollup":[
 	 {"__typename":"CheckRun","name":"test (ubuntu-latest)","status":"IN_PROGRESS","conclusion":"","detailsUrl":"https://gh/run/1"},
 	 {"__typename":"CheckRun","name":"test (macos-latest)","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://gh/run/2"},
 	 {"__typename":"StatusContext","context":"ci/deploy-preview","state":"SUCCESS","targetUrl":"https://preview"},
@@ -106,6 +106,9 @@ func TestParseRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	pr := prs[0]
+	if pr.Base != "master" || pr.Branch != "b" {
+		t.Fatalf("base %q branch %q", pr.Base, pr.Branch)
+	}
 	want := []Check{
 		{Name: "test (ubuntu-latest)", State: ChecksPending, URL: "https://gh/run/1"},
 		{Name: "test (macos-latest)", State: ChecksFail, URL: "https://gh/run/2"},

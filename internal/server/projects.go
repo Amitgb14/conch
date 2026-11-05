@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -67,6 +68,13 @@ type project struct {
 	prNext     time.Time // no fetch before this (after errors)
 	prFetching bool
 	prPending  bool
+	// prOpen is the head branches whose pull request was open at the last
+	// look that answered: a failed look leaves it as it was, so a merge
+	// either side of one is still seen. baseOwed is the bases a merge is
+	// owed a fetch of, until one succeeds.
+	prOpen       map[string]bool
+	baseOwed     map[string]bool
+	baseFetching bool
 }
 
 type catalog struct {
@@ -551,6 +559,12 @@ func (pm *projectManager) fetchPRs(p *project) {
 	}
 	if err != nil {
 		p.prs = nil
+	} else {
+		p.noteMerges(list)
+	}
+	owed := len(p.baseOwed) > 0 && !p.baseFetching
+	if owed {
+		p.baseFetching = true
 	}
 	info := p.info
 	info.Branches = append([]proto.BranchInfo(nil), info.Branches...)
@@ -577,6 +591,80 @@ func (pm *projectManager) fetchPRs(p *project) {
 	}
 	if err == nil && pm.s.projectRegistered(p) {
 		pm.s.autopilotPRs(info)
+	}
+	if owed {
+		go pm.fetchOwedBases(p)
+	}
+}
+
+// noteMerges marks the base of every pull request that was open at the
+// last look and is merged now as owed a fetch. GitHub made the merge
+// commit, so until somebody fetches, this checkout's origin/main is where
+// it was and the commit graph cannot show the merge — the pull request
+// says merged while the graph says nothing happened. Only a change seen
+// here counts: pull requests merged before the server started are not
+// fetched for, so a restart does not fetch every base at once. The caller
+// holds p.mu.
+func (p *project) noteMerges(list []ghx.PR) {
+	open := map[string]bool{}
+	for branch, pr := range ghx.ByBranch(list) {
+		switch {
+		case pr.State == "OPEN":
+			open[branch] = true
+		case pr.State == "MERGED" && p.prOpen[branch]:
+			base := pr.Base
+			if base == "" {
+				base = p.info.Base
+			}
+			if base != "" {
+				if p.baseOwed == nil {
+					p.baseOwed = map[string]bool{}
+				}
+				p.baseOwed[base] = true
+			}
+		}
+	}
+	p.prOpen = open
+}
+
+// fetchOwedBases fetches each base a merge is owed, after the pull
+// requests are said rather than before, and on a clock of its own so a
+// slow fetch holds up neither the merged state nor gh. The remote is the
+// base's own — the one it tracks, else the one this checkout pushes to —
+// never the merged branch's, which may be a fork. A base whose fetch fails
+// stays owed for the next look. One that came is broadcast again, so an
+// open graph reads the history with the merge in it.
+func (pm *projectManager) fetchOwedBases(p *project) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	p.mu.Lock()
+	bases := make([]string, 0, len(p.baseOwed))
+	for b := range p.baseOwed {
+		bases = append(bases, b)
+	}
+	p.mu.Unlock()
+	sort.Strings(bases)
+	var fetched []string
+	for _, base := range bases {
+		// The remote's name back means it was fetched; the base alone, or
+		// nothing, means the fetch failed.
+		if got := gitx.FreshBase(ctx, p.root, base, base); got != "" && got != base {
+			fetched = append(fetched, base)
+			log.Printf("project %s: a pull request into %s was merged; fetched %s", p.id, base, got)
+		} else {
+			log.Printf("project %s: a pull request into %s was merged, but fetching it failed; trying again at the next look", p.id, base)
+		}
+	}
+	p.mu.Lock()
+	for _, b := range fetched {
+		delete(p.baseOwed, b)
+	}
+	p.baseFetching = false
+	info := p.info
+	p.mu.Unlock()
+	if len(fetched) > 0 && pm.s.projectRegistered(p) {
+		pm.s.broadcast(proto.EventProjectUpdated, info)
+		pm.request(p) // ahead and behind against a base that moved
 	}
 }
 

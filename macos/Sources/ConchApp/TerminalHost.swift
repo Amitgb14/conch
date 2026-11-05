@@ -148,7 +148,7 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
         view = st
         super.init()
         st.processDelegate = self
-        st.font = NSFont(name: "JetBrains Mono", size: 14) ?? .monospacedSystemFont(ofSize: 14, weight: .regular) // as conch app's
+        st.font = Self.font(PaneTerminal.fontSize)
         apply(Theme.current)
         st.optionAsMetaKey = true
         guard let binary else {
@@ -156,6 +156,19 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
             return
         }
         st.startProcess(executable: binary, args: args, environment: env.map { "\($0.key)=\($0.value)" })
+    }
+
+    /// [app] font_size for the SwiftTerm panes — Ghostty's take it from the
+    /// runtime (GhosttyRuntime.setFontSize) — set before a pane is made and
+    /// handed to every one there is when it changes.
+    static var fontSize = AppLook.fontDefault
+
+    static func font(_ pt: Double) -> NSFont {
+        NSFont(name: "JetBrains Mono", size: pt) ?? .monospacedSystemFont(ofSize: pt, weight: .regular) // as conch app's
+    }
+
+    func setFontSize(_ pt: Double) {
+        if let st = view as? FocusingTerminalView, st.font.pointSize != pt { st.font = Self.font(pt) }
     }
 
     /// A theme for this pane's terminal. Ghostty's panes take theirs from
