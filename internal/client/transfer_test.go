@@ -37,7 +37,6 @@ func transferCtx(t *testing.T) context.Context {
 const heldBatch = 4
 
 type held struct {
-	t    *testing.T
 	msgs []proto.Message
 	vals []any
 }

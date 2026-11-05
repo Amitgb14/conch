@@ -8,9 +8,9 @@ import (
 )
 
 func TestIssuesMenu(t *testing.T) {
-	m, mach, peer := limitModel(t)
-	c, p := a1FakeClient(t, proto.CapIssues)
-	mach.c, peer = c, p
+	m, mach, _ := limitModel(t)
+	c, peer := a1FakeClient(t, proto.CapIssues)
+	mach.c = c
 	peer.setResult(proto.MethodProjectIssues, proto.IssueList{Issues: []proto.IssueInfo{
 		{Number: 12, Title: "Login fails", Labels: []string{"bug"}},
 		{Number: 9, Title: strings.Repeat("very long title ", 10)},

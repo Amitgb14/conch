@@ -32,7 +32,6 @@ type updateState struct {
 	releaseChecked time.Time
 
 	running bool
-	step    string // what the update is doing
 	// remotes: this TUI was restarted by an update and should bring
 	// machines that connect behind this build up to date.
 	remotes bool

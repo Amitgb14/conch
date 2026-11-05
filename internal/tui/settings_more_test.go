@@ -585,7 +585,6 @@ func TestSettingsSandboxTab(t *testing.T) {
 		t.Fatalf("a tab switch kept %q open", s.provider)
 	}
 	item("Daytona").run(m)
-	out = plain()
 	useSandboxProvider(t, &sbProvider{})
 	if out := plain(); !strings.Contains(out, "✓ $DAYTONA_API_KEY is set") {
 		t.Fatalf("configured:\n%s", out)

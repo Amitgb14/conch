@@ -297,9 +297,9 @@ func TestWatchCoalesces(t *testing.T) {
 	for i := 0; i < files; i++ {
 		a7Write(t, repo, filepath.Join("src", fmt.Sprintf("f%03d.go", i)), "x\n")
 	}
-	got := w.waitFor(t, "the burst", func(cs []proto.WorktreeChanged) bool { return len(cs) > 0 })
+	w.waitFor(t, "the burst", func(cs []proto.WorktreeChanged) bool { return len(cs) > 0 })
 	time.Sleep(2 * watchMinGap) // let any straggler flush arrive
-	got = w.seen()
+	got := w.seen()
 	if len(got) >= files/4 {
 		t.Fatalf("%d events for %d files: they are not being coalesced", len(got), files)
 	}

@@ -102,7 +102,7 @@ var accentColors = map[string]lipgloss.Color{
 
 // Colours and styles of the active theme, set by applyTheme.
 var (
-	colorAccent, colorInput, colorWarn, colorErr, colorMuted, colorBorder lipgloss.Color
+	colorAccent, colorInput, colorWarn, colorMuted, colorBorder lipgloss.Color
 
 	styleMuted, styleBold, styleSel, styleSelDim, styleOK, styleErr lipgloss.Style
 	styleHover, styleThumb, styleLink                               lipgloss.Style
@@ -155,7 +155,7 @@ func applyTheme(name, accent string) {
 	} else if len(accent) == 7 && accent[0] == '#' {
 		t.accent, t.selFG = lipgloss.Color(accent), "#FFFFFF"
 	}
-	colorAccent, colorInput, colorWarn, colorErr, colorMuted, colorBorder = t.accent, t.ok, t.warn, t.err, t.muted, t.border
+	colorAccent, colorInput, colorWarn, colorMuted, colorBorder = t.accent, t.ok, t.warn, t.muted, t.border
 
 	// A wash for a file an agent is writing: the theme's warn colour taken
 	// right down, so it reads as a tint rather than a highlight.
