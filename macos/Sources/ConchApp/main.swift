@@ -30,6 +30,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         #if GHOSTTY
         GhosttyRuntime.shared.setFontSize(look.fontSize)
         #endif
+        // SwiftTerm's panes — every pane without Ghostty, and any a Ghostty
+        // build still draws with it — take it too, or ⌘+ said a size it
+        // never applied.
+        PaneTerminal.fontSize = look.fontSize
+        for t in store.terminals.values { t.setFontSize(look.fontSize) }
         ScratchHotKey.shared.set(look.scratchKey)
     }
 
