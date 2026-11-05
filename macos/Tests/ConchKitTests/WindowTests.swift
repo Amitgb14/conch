@@ -277,3 +277,19 @@ import Testing
     // What it writes reads back.
     #expect(AppLook(toml: settingTOML(toml, section: "app", key: "text_size", value: "140")).textScale == 1.4)
 }
+
+// Every command a menu item names is handled — by the menu's own switch or
+// the store's. A new item named a command nobody handled (the text sizes)
+// and did nothing at all, with nothing said.
+@Test func everyMenuCommandIsHandled() throws {
+    let dir = (#filePath as NSString).deletingLastPathComponent + "/../../Sources/ConchApp"
+    let menu = try String(contentsOfFile: dir + "/main.swift", encoding: .utf8)
+    let store = try String(contentsOfFile: dir + "/Store.swift", encoding: .utf8)
+    // item("Title", "key", .command or [.command, .shift], "command")
+    let named = try Regex(#"item\("[^"]*", "[^"]*"(?:, (?:\[[^\]]*\]|[^,\[\)]+))?, "(\w+)"\)"#)
+    var ids = Set(menu.matches(of: named).compactMap { $0.output[1].substring.map(String.init) })
+    #expect(ids.count > 20)
+    ids = ids.filter { !$0.hasPrefix("tab") } // tab1…tab9, handled by prefix
+    let missing = ids.filter { !menu.contains("case \"\($0)\"") && !store.contains("case \"\($0)\"") }
+    #expect(missing.isEmpty, "menu commands nobody handles: \(missing.sorted())")
+}

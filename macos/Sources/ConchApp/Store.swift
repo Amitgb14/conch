@@ -138,7 +138,10 @@ final class Store: ObservableObject {
     let look = ShownTheme()
     /// What the window is drawn in, as one value its views can depend on:
     /// the theme, the style and how agents are marked.
-    var themeLook: String { theme.id + "|" + style.rawValue + "|" + icons.rawValue }
+    /// What a view reading Theme or the window's face depends on, handed
+    /// down so it redraws when any part changes — the text size included,
+    /// or a label watching only this kept its old size.
+    var themeLook: String { theme.id + "|" + style.rawValue + "|" + icons.rawValue + "|" + String(appLook.textScale) }
 
     /// Told when the theme changes, for what SwiftUI does not draw: the
     /// window's own background and appearance.
@@ -1862,6 +1865,12 @@ final class Store: ObservableObject {
         case "nextTab": layout.step(1); focusTerminal()
         case "previousTab": layout.step(-1); focusTerminal()
         case "toggleSidebar": sidebarVisible.toggle()
+        case "biggerFont": stepFontSize(bigger: true)
+        case "smallerFont": stepFontSize(bigger: false)
+        case "defaultFont": stepFontSize(bigger: nil)
+        case "biggerText": stepTextSize(bigger: true)
+        case "smallerText": stepTextSize(bigger: false)
+        case "defaultText": stepTextSize(bigger: nil)
         case "openTUI": openTUI()
         case "scratch": toggleScratch()
         case "dockScratch": dockScratch()

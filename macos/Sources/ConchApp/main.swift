@@ -265,13 +265,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         NSApp.mainMenu = main
     }
 
-    @objc func biggerFont() { store.stepFontSize(bigger: true) }
-    @objc func smallerFont() { store.stepFontSize(bigger: false) }
-    @objc func defaultFont() { store.stepFontSize(bigger: nil) }
-    @objc func biggerText() { store.stepTextSize(bigger: true) }
-    @objc func smallerText() { store.stepTextSize(bigger: false) }
-    @objc func defaultText() { store.stepTextSize(bigger: nil) }
-
     var themeMenu: NSMenu?
     var styleMenu: NSMenu?
 
