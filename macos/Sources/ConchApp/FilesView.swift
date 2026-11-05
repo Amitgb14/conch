@@ -402,7 +402,11 @@ struct FileRowView: View {
         let on = model.selected == row.path
         HStack(spacing: 6) {
             Text(row.dir ? (row.open ? "▾" : "▸") : " ").font(.ui(size: 10)).foregroundStyle(Theme.muted).frame(width: 10)
-            LucideIcon(row.dir ? (row.open ? "folder-open" : "folder") : "file-text", color: row.dir ? Theme.accent : Theme.muted, size: 12)
+            if row.dir {
+                LucideIcon(row.open ? "folder-open" : "folder", color: Theme.accent, size: 12)
+            } else {
+                FileMark(name: row.name)
+            }
             Text(row.name).font(.ui(size: 12.5)).foregroundStyle(row.ignored ? Theme.muted : Theme.text).lineLimit(1).truncationMode(.middle)
             if on && model.dirty { Circle().fill(Theme.text2).frame(width: 6, height: 6).help("Edited, not saved") }
             Spacer(minLength: 4)
@@ -550,5 +554,25 @@ struct FilePreview: View {
 
     func note(_ s: String) -> some View {
         VStack { Spacer(); Text(s).foregroundStyle(Theme.muted); Spacer() }.frame(maxWidth: .infinity)
+    }
+}
+
+/// A file's mark: its language's logo, filled, where there is one; else
+/// the outline for its kind. Drawn in the brand colour, or the text's
+/// where that would vanish into the background.
+struct FileMark: View {
+    @Environment(\.conchTheme) private var look
+    let name: String
+
+    var body: some View {
+        let _ = look
+        let f = fileIcon(name)
+        let t = Theme.current
+        let tint = Theme.color(fileTint(f, on: t.bg, text: t.fg, muted: t.muted))
+        if Theme.icons != .off, let slug = f.logo, let ops = FileLogos.ops(slug) {
+            Lucide(ops: ops).fill(tint).frame(width: 11, height: 11).frame(width: 14)
+        } else {
+            LucideIcon(f.icon, color: tint, size: 12)
+        }
     }
 }
