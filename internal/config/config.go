@@ -305,6 +305,10 @@ type BrainCfg struct {
 	APIKeyEnv string `toml:"api_key_env"`
 	// Command is the claude binary; empty finds it on PATH.
 	Command string `toml:"command"`
+	// NoFastPath sends every request to the model, even those conch can
+	// plan by itself (show, close, tell one agent or everyone, what is
+	// waiting).
+	NoFastPath bool `toml:"no_fast_path,omitempty"`
 }
 
 // AgentsCfg holds agent preferences.

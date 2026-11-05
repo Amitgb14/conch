@@ -20,12 +20,13 @@ func runAsk(args []string) error {
 	fs := flag.NewFlagSet("ask", flag.ContinueOnError)
 	yes := fs.Bool("y", false, "run the plan without asking")
 	dry := fs.Bool("n", false, "show the plan only")
+	model := fs.Bool("model", false, "ask the model even when conch can plan it alone")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	request := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if request == "" {
-		return errors.New(`usage: conch ask [-y | -n] "start two agents on api to fix the flaky tests"`)
+		return errors.New(`usage: conch ask [-y | -n] [-model] "start two agents on api to fix the flaky tests"`)
 	}
 	cfg, cerr := config.Load()
 	if cerr != nil { // a config with a typo in it is not worth refusing over
@@ -67,12 +68,19 @@ func runAsk(args []string) error {
 		w.Selected = "working directory " + wd
 	}
 
-	fmt.Fprintf(os.Stderr, "thinking (%s)…\n", provider.Name())
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	plan, err := brain.MakePlan(ctx, provider, w, request)
-	if err != nil {
-		return err
+	plan, fast := brain.Plan{}, false
+	if !*model && !cfg.Brain.NoFastPath {
+		plan, fast = brain.FastPlan(w, request)
+	}
+	if fast {
+		fmt.Fprintln(os.Stderr, "planned without the model (-model asks it)")
+	} else {
+		fmt.Fprintf(os.Stderr, "thinking (%s)…\n", provider.Name())
+		if plan, err = brain.MakePlan(ctx, provider, w, request); err != nil {
+			return err
+		}
 	}
 	if plan.Reply != "" {
 		fmt.Println(plan.Reply)

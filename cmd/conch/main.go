@@ -245,7 +245,10 @@ Usage:
                                 the facts about this conch for a bug report — versions, counts
                                 and the last error, never a path or a screen; -open fills in a
                                 GitHub issue with them, which you read before you submit it
-  conch ask [-y | -n] REQUEST   ask the brain; it proposes actions and runs them once you confirm
+  conch ask [-y | -n] [-model] REQUEST
+                                ask the brain; it proposes actions and runs them once you confirm
+                                (show, close, tell one agent or everyone, what is waiting: planned
+                                at once, without the model; -model asks it anyway)
   conch commit-message [-context TEXT]
                                 write a commit message for the diff on stdin with the brain; prints it
   conch update [VERSION | latest | list | rollback]
