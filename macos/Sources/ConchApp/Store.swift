@@ -642,7 +642,10 @@ final class Store: ObservableObject {
             onAppLook?(app)
         }
         let configured = ConchTheme.configured(in: toml, dark: systemDark)
-        let next = ConchTheme.resolve(choice: themeChoice, configured: configured, preview: previewing).shown
+        let resolved = ConchTheme.resolve(choice: themeChoice, configured: configured, preview: previewing)
+        // A theme drawn as a pair (Terminal) follows macOS to its light one;
+        // a theme being previewed is shown as it is.
+        let next = previewing == nil ? ConchTheme.forAppearance(resolved.shown, dark: systemDark) : resolved.shown
         guard next != theme || Theme.current != next else { return }
         theme = next
         Theme.current = next

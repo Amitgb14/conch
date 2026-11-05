@@ -104,7 +104,19 @@ extension ConchTheme {
         .init("meadow", "Meadow", accent: "#4F8A3C", selFG: "#FFFFFF", border: "#D9CFB4", muted: "#7E8B80", ok: "#2E8B6E", warn: "#C9822A", err: "#C15A3F", work: "#3F84AD", selDim: "#E6EDD8", bg: "#F7F1DF", fg: "#34453A", light: true),
         // conch's teal on a terminal's ground, after herdr: the Terminal style's.
         .init("terminal", "Terminal", accent: "#2AA5B5", selFG: "#FFFFFF", border: "#1E232A", muted: "#8B949E", ok: "#9ECE6A", warn: "#E0AF68", err: "#F7768E", work: "#7AA2F7", selDim: "#171B20", bg: "#0C0E11", fg: "#D4D9DF"),
+        .init("terminal-light", "Terminal Light", accent: "#0F7B8A", selFG: "#FFFFFF", border: "#DADDE2", muted: "#6E7781", ok: "#1A7F37", warn: "#9A6700", err: "#CF222E", work: "#0969DA", selDim: "#E9EBEE", bg: "#FBFBFC", fg: "#1F2328", light: true),
     ]
+
+    /// Themes drawn as a pair, dark and light: the dark one, while it is the
+    /// theme, is shown as its light one under macOS's light appearance. The
+    /// light one chosen by name stays light — somebody picked it.
+    public static let lightPairs: [String: String] = ["terminal": "terminal-light"]
+
+    /// The theme to show for t under an appearance.
+    public static func forAppearance(_ t: ConchTheme, dark: Bool) -> ConchTheme {
+        guard !dark, let light = lightPairs[t.id] else { return t }
+        return named(light)
+    }
 
     public static var conch: ConchTheme { all[0] }
 

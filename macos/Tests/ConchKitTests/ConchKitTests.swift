@@ -428,7 +428,7 @@ final class FakeServer: @unchecked Sendable {
         let t = ConchTheme.all[i]
         #expect(t.id == name && t.accent.hex == accent.uppercased() && t.bg.hex == bg.uppercased(), "theme \(name)")
     }
-    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte", "ink", "meadow"])
+    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte", "ink", "meadow", "terminal-light"])
     // conch's own four: a commit graph's first lanes take accent, working,
     // ok and warning in turn, so none of them may repeat another.
     for id in ["ink", "meadow", "firefly", "cel"] {
@@ -1390,6 +1390,16 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(t.paintsTitleBar && AppStyle.meadow.paintsTitleBar && !AppStyle.standard.paintsTitleBar)
     let th = ConchTheme.named("terminal")
     #expect(th.bg.hex == "#0C0E11" && th.border.hex == "#1E232A" && th.accent.hex == "#2AA5B5" && !th.light)
+    // Its light one: shown for the dark one under a light Mac, and back;
+    // picked by name it stays light; other themes are left as they are.
+    let lt = ConchTheme.named("terminal-light")
+    #expect(lt.light && lt.bg.hex == "#FBFBFC" && lt.border.hex == "#DADDE2" && lt.accent.hex == "#0F7B8A")
+    #expect(ConchTheme.forAppearance(th, dark: false).id == "terminal-light" && ConchTheme.forAppearance(th, dark: true).id == "terminal")
+    #expect(ConchTheme.forAppearance(lt, dark: true).id == "terminal-light")
+    #expect(ConchTheme.forAppearance(ConchTheme.named("dracula"), dark: false).id == "dracula")
+    #expect(ConchTheme.forAppearance(ConchTheme.named("meadow"), dark: true).id == "meadow")
+    // conch's teal stays readable as a selection on white: white text on it.
+    #expect(lt.selFG.hex == "#FFFFFF")
     #expect(AppStyle.standard.theme == nil && AppStyle.ink.theme == "ink" && ConchTheme.named(AppStyle.ink.theme).id == "ink")
     #expect(AppStyle.ink.gutter > AppStyle.standard.gutter && AppStyle.ink.border > AppStyle.standard.border)
 }
