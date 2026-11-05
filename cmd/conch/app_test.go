@@ -27,7 +27,9 @@ func appEnv(t *testing.T) (bin string, launched *[]string) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(t.TempDir(), "share"))
 	apps := appSystemApps
 	appSystemApps = t.TempDir()
-	t.Cleanup(func() { appSystemApps = apps })
+	extra := appExtraDirs
+	appExtraDirs = func() []string { return nil }
+	t.Cleanup(func() { appSystemApps, appExtraDirs = apps, extra })
 	// And no TERMINFO of the developer's: ghostty sets it for the shells
 	// it starts, so `go test` run in one would answer the terminfo
 	// question differently from the same test run anywhere else.
@@ -234,6 +236,60 @@ func TestAppNamesATerminalOrSaysWhatItKnows(t *testing.T) {
 	}
 	if err = runApp([]string{"-terminal", "kitty", "extra"}); err == nil {
 		t.Fatal("a stray argument was taken")
+	}
+}
+
+// A desktop entry is started with the session's PATH, not the shell's, so
+// a terminal in ~/.local/bin, snap or flatpak can be found when `conch
+// app` is typed and missed when the icon is clicked — and the entry says
+// Terminal=false, so a click that finds nothing shows nothing at all.
+// conch looks in those places itself.
+func TestAppLooksPastPath(t *testing.T) {
+	_, _ = appEnv(t) // PATH holds nothing, and neither does anywhere else
+	ghostty := appTerm(t, "ghostty")
+	if got := appWhere(ghostty); got != "" {
+		t.Fatalf("found %q with nothing installed", got)
+	}
+
+	// A terminal in a directory PATH does not have.
+	dir := t.TempDir()
+	appExtraDirs = func() []string { return []string{dir} }
+	bin := filepath.Join(dir, "ghostty")
+	if err := os.WriteFile(bin, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := appWhere(ghostty); got != bin {
+		t.Fatalf("appWhere = %q, want %q", got, bin)
+	}
+	// It has to be a program, not a file of that name.
+	if err := os.Chmod(bin, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := appWhere(ghostty); got != "" {
+		t.Fatalf("a file nobody can run answered %q", got)
+	}
+	// A directory that is not there is passed over, not an error.
+	appExtraDirs = func() []string { return []string{filepath.Join(dir, "nope"), dir} }
+	if err := os.Chmod(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := appWhere(ghostty); got != bin {
+		t.Fatalf("appWhere = %q, want %q", got, bin)
+	}
+	// And the real list names the places that bite: a session PATH and a
+	// shell PATH rarely agree about these three.
+	appExtraDirs = defaultExtraDirs
+	home, _ := os.UserHomeDir()
+	want := []string{"/usr/bin", filepath.Join(home, ".local", "bin")}
+	if runtime.GOOS == "darwin" {
+		want = append(want, "/opt/homebrew/bin")
+	} else {
+		want = append(want, "/snap/bin", "/var/lib/flatpak/exports/bin")
+	}
+	for _, dir := range want {
+		if !slices.Contains(defaultExtraDirs(), dir) {
+			t.Errorf("%s is not looked in: %q", dir, defaultExtraDirs())
+		}
 	}
 }
 

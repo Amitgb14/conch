@@ -388,6 +388,16 @@ Read the screen back with `conch read ID`. Always with a scratch
 
 ## Runs
 
+### R70 — 2026-11-01, the install script on Linux, linux/amd64 (busybox 10.0.0.115, RHEL 10), build 0.1.9-dev (9c54332 + the fix below)
+
+Row **4.19** on Linux. The current build packed as a release in `/tmp/cinst`, served to `install.sh` over `file://` (curl takes it, so no server and no network), each run under `env -i` with its own `HOME`, `XDG_DATA_HOME` and install directory. The machine's own conch server was not touched.
+
+- **A server somebody only ssh's into** — no terminal emulator anywhere — installed the binary, said *none of ghostty, kitty, foot, alacritty is installed* and *so conch is a command for now*, exited 0, and wrote no desktop file at all. The installed binary ran (`conch 0.1.9-dev … linux/amd64`), which is the smoke test the step doubles as.
+- **With a terminal present** (a recording stub, since that machine has none) it wrote the entry and the icon, ran `update-desktop-database` (a `mimeinfo.cache` appeared), passed `desktop-file-validate` silently, and the entry's `Exec` named the conch that had installed it. Running that `Exec` line as a desktop would opened the terminal with conch's config.
+- **`CONCH_APP=no`** installed the binary and wrote no desktop file.
+- **Found and fixed — an icon that could do nothing when clicked.** The first attempt at that `Exec` line failed with *none of … is installed*, because it ran with the ordinary `PATH` and the stub was elsewhere. A harness slip, but it is the real failure: **a desktop entry is started with the session's `PATH`, not the shell's**, so a terminal in `~/.local/bin`, `/snap/bin` or a flatpak export directory can be found when `conch app` is typed and missed when the icon is clicked — and the entry says `Terminal=false`, so there would not even be a window to show the error. That is the same thing `conch app install` refuses to create at install time, arriving at click time instead. conch now looks in those directories itself, as it already did in `/Applications` on macOS.
+- **Not covered:** a real terminal emulator on that machine, and a real applications menu. Both need a desktop, which it has not got.
+
 ### R69 — 2026-11-04, Conch.app's raw panes, letterbox, tabs, scratch layer and preview, part of 4.30–4.35, macOS arm64, build 0.1.9-dev (conch/app-rex)
 
 A debug Conch.app bundled under its own identifier (so the real app's preferences were never touched) against an isolated server (`CONCH_HOME` in `/tmp`, `CONCH_SOCKET` and `CONCH_PANE_ID` unset): a project, a zsh pane with 120 lines of coloured output, and `python3 -m http.server` bound to 127.0.0.1. The window was driven through accessibility presses and screenshots of that window alone; no keys could be sent to it in the background, so typing, ⌘F and ⇥ were not tried.
