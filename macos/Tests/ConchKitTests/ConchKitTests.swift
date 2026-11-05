@@ -1386,7 +1386,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(t.gutter == AppStyle.standard.gutter && t.border == AppStyle.standard.border && t.corner == AppStyle.standard.corner && !t.roster)
     #expect(t.mono && AppStyle.allCases.filter(\.mono) == [.terminal])
     #expect(t.fontSize(13) == 12 && t.fontSize(11) == 10 && t.fontSize(12.5) == 11.5 && AppStyle.standard.fontSize(13) == 13)
-    #expect(t.sidebarWidth(250) == 290 && AppStyle.standard.sidebarWidth(250) == 250)
+    #expect(t.sidebarWidth(250) == 320 && AppStyle.standard.sidebarWidth(250) == 250)
     #expect(t.paintsTitleBar && AppStyle.meadow.paintsTitleBar && !AppStyle.standard.paintsTitleBar)
     let th = ConchTheme.named("terminal")
     #expect(th.bg.hex == "#0C0E11" && th.border.hex == "#1E232A" && th.accent.hex == "#2AA5B5" && !th.light)
@@ -1577,7 +1577,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
             let name = String(m.output[1].substring ?? ""), body = String(m.output[3].substring ?? "")
             // .ui(size:) is the window's face, which the style (Terminal:
             // monospace) changes as the theme changes colours.
-            guard body.contains("Theme.") || body.contains(".ui(size"), !drawsItsOwn.contains(name) else { continue }
+            guard body.contains("Theme.") || body.contains(".ui(size") || body.contains(".tree(size"), !drawsItsOwn.contains(name) else { continue }
             // The store, or the theme itself (the environment, or Settings'
             // ShownTheme): a view watching only its own model — a Files tab,
             // a Sessions row — was not drawn again, and kept the old colours.

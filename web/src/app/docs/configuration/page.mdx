@@ -85,7 +85,7 @@ reviewer = ""    # an agent asked to review a branch when its agent finishes, e.
 mouse = true
 theme = "conch"  # conch, dracula, catppuccin, nord, gruvbox, tokyo-night, one-dark, solarized,
                  # rose-pine, kanagawa, everforest, monokai, github-dark, ayu, night-owl,
-                 # firefly, cel, terminal; light: github-light, solarized-light, catppuccin-latte, ink, meadow
+                 # firefly, cel, terminal; light: github-light, solarized-light, catppuccin-latte, ink, meadow, terminal-light
 light_theme = "" # Conch.app follows macOS: this theme in light appearance, theme in dark;
                  # empty keeps the app on theme (the TUI always uses theme)
 accent = ""      # override: teal, blue, green, orange, pink, red, gray, purple or "#rrggbb"
@@ -139,6 +139,8 @@ density = ""           # "compact": a pane's header shrinks, splits close up, a 
 sidebar = ""           # "glass": the desktop through the sidebar, as Finder's
 ports = true           # the ports a pane's programs listen on, in its header
 scratch_key = false    # option-space shows the scratch layer with Conch.app in the background
+text_size = 100        # the window's own text, in percent (80–160); ⇧⌘+ / ⇧⌘− step it
+font_size = 14         # the terminal's font in every pane, in points (9–28); ⌘+ / ⌘− step it
 
 [[actions]]            # your own commands on the row menus; none by default
 name = "Run tests"     # the label on the menu
@@ -217,6 +219,8 @@ How the [Mac app](/docs/mac-app) draws its window — **Settings → Mac app**, 
 | `sidebar` | `""` | `"glass"`: the desktop shows through the sidebar, as Finder's does. Panes stay solid |
 | `ports` | `true` | the TCP ports a pane's programs listen on, in its header — a click opens one in the browser, or on another machine copies the ssh tunnel to it |
 | `scratch_key` | `false` | option-space shows the scratch layer from anywhere, Conch.app in the background or not, as Ghostty's quick terminal does; off, it works in the window only |
+| `text_size` | `100` | the window's own text — the sidebar, tabs, the git tab, the status bar — in percent, 80 to 160; **View → Bigger / Smaller Window Text** (⇧⌘+ / ⇧⌘−) steps it through 80, 90, 100, 110, 125, 140, 160 and ⌃⇧⌘0 puts it back, writing it here. The sidebar widens with it |
+| `font_size` | `14` | the terminal's font in every pane, in points, 9 to 28, half points allowed; **View → Bigger / Smaller Terminal Text** (⌘+ / ⌘−) moves it a point and ⌃⌘0 puts it back, writing it here. Every pane takes it at once |
 
 ## `[[actions]]`
 

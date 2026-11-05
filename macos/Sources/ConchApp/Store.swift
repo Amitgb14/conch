@@ -638,6 +638,8 @@ final class Store: ObservableObject {
         if cost != showCost { showCost = cost }
         let app = AppLook(toml: toml)
         if app != appLook {
+            // Before the views redraw: the window's text is read at its size.
+            Theme.textScale = app.textScale
             appLook = app
             onAppLook?(app)
         }
@@ -720,6 +722,39 @@ final class Store: ObservableObject {
 
     private var configFile: String { (conchDir as NSString).appendingPathComponent("config.toml") }
 
+    /// One [app] setting written to config.toml, the rest of the file kept,
+    /// then read back so the window takes it — as the settings page would.
+    /// A TUI open meanwhile holds its own copy of the file; the settings
+    /// page is the way to change it there.
+    private func setAppSetting(_ key: String, _ value: String?) {
+        let toml = (try? String(contentsOfFile: configFile, encoding: .utf8)) ?? ""
+        let next = settingTOML(toml, section: "app", key: key, value: value)
+        guard next != toml else { return }
+        do {
+            try FileManager.default.createDirectory(atPath: conchDir, withIntermediateDirectories: true)
+            try next.write(toFile: configFile, atomically: true, encoding: .utf8)
+        } catch {
+            say("Could not save \(key): \(error.localizedDescription)", .err)
+            return
+        }
+        loadTheme()
+    }
+
+    /// ⌘+ / ⌘−: the terminal's font a point bigger or smaller; nil, the default.
+    func stepFontSize(bigger: Bool?) {
+        let pt = bigger.map { AppLook.fontStep(from: appLook.fontSize, bigger: $0) } ?? AppLook.fontDefault
+        setAppSetting("font_size", pt == AppLook.fontDefault ? nil : (pt.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(pt)) : String(pt)))
+        say("Terminal text \(Int(pt.rounded())) pt", .info)
+    }
+
+    /// ⇧⌘+ / ⇧⌘−: the window's text a step bigger or smaller; nil, 100%.
+    func stepTextSize(bigger: Bool?) {
+        let scale = bigger.map { AppLook.textStep(from: appLook.textScale, bigger: $0) } ?? 1
+        let pct = Int((scale * 100).rounded())
+        setAppSetting("text_size", pct == 100 ? nil : String(pct))
+        say("Window text \(pct)%", .info)
+    }
+
     /// A click in a pane's terminal gives that pane the keyboard: the split
     /// it is in becomes the focused one.
     /// The main window: clicks and tree keys are its, never the Settings
@@ -739,7 +774,7 @@ final class Store: ObservableObject {
                 // Only where the click landed: the status bar's buttons and
                 // the toolbar leave the keyboard where it was (ClickOwner).
                 let saved = UserDefaults.standard.double(forKey: "sidebarWidth")
-                let width = self.sidebarVisible ? self.style.sidebarWidth(saved > 0 ? saved : Double(sidebarDefault)) : nil
+                let width = self.sidebarVisible ? self.style.sidebarWidth(saved > 0 ? saved : Double(sidebarDefault)) + sidebarExtra(scale: self.appLook.textScale) : nil
                 let p = e.locationInWindow
                 let toolbar = Double(win.frame.height - win.contentLayoutRect.height)
                 switch clickOwner(inTerminal: inTerminal, x: p.x, y: p.y, sidebarWidth: width, statusBar: 28,

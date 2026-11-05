@@ -193,6 +193,38 @@ public func tomlSetting(_ section: String, _ key: String, in toml: String?) -> S
     return nil
 }
 
+/// config.toml with one setting changed: key in [section] set to value as
+/// written (a number, or a quoted string), or with value nil taken out.
+/// Every other line is kept as it is, comments and order with it; a
+/// missing section is added at the end.
+public func settingTOML(_ toml: String, section: String, key: String, value: String?) -> String {
+    var lines = toml.components(separatedBy: "\n")
+    if lines.last == "" { lines.removeLast() }
+    let header = lines.firstIndex { $0.trimmingCharacters(in: .whitespaces).hasPrefix("[\(section)]") }
+    guard let start = header else {
+        guard let value else { return toml }
+        var out = lines
+        if let last = out.last, !last.trimmingCharacters(in: .whitespaces).isEmpty { out.append("") }
+        out += ["[\(section)]", "\(key) = \(value)"]
+        return out.joined(separator: "\n") + "\n"
+    }
+    var end = lines.count
+    for i in (start + 1)..<lines.count where lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("[") { end = i; break }
+    if let at = (start + 1..<end).first(where: { i in
+        let l = lines[i].trimmingCharacters(in: .whitespaces)
+        guard let eq = l.firstIndex(of: "="), !l.hasPrefix("#") else { return false }
+        return l[l.startIndex..<eq].trimmingCharacters(in: .whitespaces) == key
+    }) {
+        if let value { lines[at] = "\(key) = \(value)" } else { lines.remove(at: at) }
+    } else if let value {
+        // After the section's last setting, not after a blank line before the next.
+        var at = end
+        while at > start + 1, lines[at - 1].trimmingCharacters(in: .whitespaces).isEmpty { at -= 1 }
+        lines.insert("\(key) = \(value)", at: at)
+    }
+    return lines.joined(separator: "\n") + "\n"
+}
+
 /// Whether a theme option is the one config.toml sets: an empty or unknown
 /// theme is conch's, as the TUI reads it, so conch's card shows chosen.
 ///

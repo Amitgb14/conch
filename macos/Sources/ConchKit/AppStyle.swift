@@ -79,7 +79,7 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
 
     /// The sidebar's width with this face: the tree's names need more room
     /// in monospace, or the right column (branches, counts) is cut.
-    public func sidebarWidth(_ w: Double) -> Double { mono ? w + 40 : w }
+    public func sidebarWidth(_ w: Double) -> Double { mono ? w + 70 : w }
 
     /// Whether the window shows its agents as a roster of cards, with a
     /// column of projects in place of the tree until the tree is asked for.

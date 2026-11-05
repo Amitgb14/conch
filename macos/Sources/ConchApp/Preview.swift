@@ -33,7 +33,7 @@ final class PanePreview: ObservableObject {
         let base = store.terminals.values.compactMap { ($0.view as? GhosttyPaneView)?.metrics() }.first
             ?? CellMetrics(cellWidth: 8.4, cellHeight: 19, padX: GhosttyRuntime.padX, padY: GhosttyRuntime.padY)
         size = CellSize(cols: cols, rows: rows)
-        let font = fittingFontSize(base: 14, metrics: base, pane: size, width: width, height: height)
+        let font = fittingFontSize(base: GhosttyRuntime.fontSize, metrics: base, pane: size, width: width, height: height)
         var env = conchEnvironment()
         env[attachControlEnv] = PaneTerminal.controlToken
         let args = onMachine(machine, ["attach", "-raw", "-view", id])

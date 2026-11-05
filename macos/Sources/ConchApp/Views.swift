@@ -16,6 +16,8 @@ enum Theme {
     static var icons = IconMode.text
     /// How the chrome is drawn (View → Style): standard, or Ink.
     static var style = AppStyle.standard
+    /// The window's own text, as a scale ([app] text_size).
+    static var textScale = 1.0
 
     static func ns(_ c: RGB) -> NSColor { NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1) }
     static func color(_ c: RGB) -> Color { Color(nsColor: ns(c)) }
@@ -481,7 +483,7 @@ struct MainView: View {
     /// The width drawn: the one dragged to, and under a monospace style the
     /// room its wider names need (AppStyle.sidebarWidth), so switching
     /// styles never loses the width somebody chose.
-    private var shownSidebar: Double { store.style.sidebarWidth(sidebarWidth) }
+    private var shownSidebar: Double { store.style.sidebarWidth(sidebarWidth) + sidebarExtra(scale: store.appLook.textScale) }
     /// The window's size, for what Cel folds in a small one.
     @State private var size = CGSize(width: 1320, height: 820)
 
@@ -543,6 +545,16 @@ struct MainView: View {
             if Theme.meadow {
                 GeometryReader { g in Sky().frame(height: g.safeAreaInsets.top).offset(y: -g.safeAreaInsets.top) }
                     .allowsHitTesting(false)
+            } else if Theme.style.paintsTitleBar {
+                // Terminal's title bar: the window's chrome colour, painted.
+                // Made transparent so macOS's lighter band goes, the title
+                // bar showed whatever scrolled under it — a sidebar scrolled
+                // down drew its rows behind the traffic lights.
+                GeometryReader { g in
+                    Rectangle().fill(Theme.color(Theme.current.chrome))
+                        .frame(height: g.safeAreaInsets.top).offset(y: -g.safeAreaInsets.top)
+                }
+                .allowsHitTesting(false)
             }
         }
         // Meadow's rounded face, and only Meadow's: a font design set over
@@ -696,8 +708,17 @@ struct NodeView: View {
     var selected: Bool { paneID != nil && paneID == store.layout.focused && store.terminalHasKeyboard }
     /// On an Ink page the focused pane's row is solid ink, its name in paper.
     var inverted: Bool { Theme.ink && selected }
+    /// Terminal on paper: the row is solid accent and its words the theme's
+    /// selection text, as the light mock draws it. The usual wash of accent
+    /// over white left a pale teal with dark text and a grey label that
+    /// barely read on it.
+    var solid: Bool { !Theme.ink && Theme.style.mono && Theme.current.light && (cursor || selected) }
+    /// The row's quiet words (a branch, a count): muted, or on a solid row
+    /// its selection text, softer.
+    var dim: Color { solid ? Theme.selectedText.opacity(0.75) : Theme.muted }
     var rowFill: Color {
         if Theme.ink { return selected ? Theme.inkLine : hovering || cursor ? Theme.raise : .clear }
+        if solid { return Theme.accentDeep }
         // Meadow: a soft wash of the accent, like a leaf's shadow.
         if Theme.meadow { return cursor ? Theme.accentDeep.opacity(0.32) : selected ? Theme.accentDeep.opacity(0.2) : hovering ? Theme.raise : .clear }
         return cursor ? Theme.accentDeep.opacity(0.75) : selected ? Theme.accentDeep.opacity(0.4) : hovering ? Theme.raise : .clear
@@ -713,7 +734,7 @@ struct NodeView: View {
             if node.children != nil || isSessions {
                 // Sessions folds like the sections beside it; it opens the
                 // TUI's Sessions view.
-                Text(open && !isSessions ? "▾" : "▸").font(.ui(size: 10)).foregroundStyle(inverted ? Theme.window : Theme.muted).frame(width: 10)
+                Text(open && !isSessions ? "▾" : "▸").font(.ui(size: 10)).foregroundStyle(inverted ? Theme.window : solid ? Theme.selectedText.opacity(0.8) : Theme.muted).frame(width: 10)
                     .contentShape(Rectangle().inset(by: -4))
                     // An agent's helpers and subagents fold at the arrow: a
                     // click on the row itself opens the agent.
@@ -723,8 +744,8 @@ struct NodeView: View {
             }
             icon
             RowSplit {
-                Text(node.title).font(isBranch ? .ui(size: 12, design: .monospaced) : .ui(size: 13, weight: inverted ? .semibold : .regular))
-                    .foregroundStyle(inverted ? Theme.window : isMore ? Theme.muted : isSection || isSessions ? Theme.text2 : Theme.text)
+                Text(node.title).font(isBranch ? .tree(size: 12, design: .monospaced) : .tree(size: 13, weight: inverted ? .semibold : .regular))
+                    .foregroundStyle(inverted ? Theme.window : solid ? Theme.selectedText : isMore ? Theme.muted : isSection || isSessions ? Theme.text2 : Theme.text)
                     .lineLimit(1).truncationMode(.tail)
                 badge
             }
@@ -746,6 +767,7 @@ struct NodeView: View {
 
     /// A badge part's colour in the theme.
     func tone(_ t: BadgePart.Tone) -> Color {
+        if solid { return Theme.selectedText.opacity(0.85) }
         switch t {
         case .muted: return Theme.muted
         case .ok, .added: return Theme.ok
@@ -837,7 +859,7 @@ struct NodeView: View {
     }
 
     func muted(_ text: String) -> some View {
-        Text(text).font(.ui(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
+        Text(text).font(.tree(size: 12)).foregroundStyle(dim).lineLimit(1)
     }
 
     /// The row's right side, as the mock has it.
@@ -850,7 +872,7 @@ struct NodeView: View {
                     // working on, cut in the middle before the state gives
                     // way — the state is what a glance is for.
                     if let b = p.branch, !b.isEmpty {
-                        Text(b).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)
+                        Text(b).font(.tree(size: 11, design: .monospaced)).foregroundStyle(dim)
                             .lineLimit(1).truncationMode(.middle)
                             .help(b)
                     }
@@ -858,12 +880,12 @@ struct NodeView: View {
                     let (m, pid) = unkey(id)
                     let c = store.costChip(machine: m, pane: pid)
                     if !c.isEmpty {
-                        Text(c).font(.ui(size: 11)).foregroundStyle(Theme.muted).fixedSize()
+                        Text(c).font(.tree(size: 11)).foregroundStyle(dim).fixedSize()
                             .help(p.agent?.tokens.map(tokenSummary) ?? c)
                     }
                     if let end = paneEndBadge(p) {
                         // exited, exit N or failed in red, a terminal's # / ~ alert.
-                        Text(end.text).font(.ui(size: 11.5, weight: end.tone == .err ? .semibold : .regular)).foregroundStyle(tone(end.tone))
+                        Text(end.text).font(.tree(size: 11.5, weight: end.tone == .err ? .semibold : .regular)).foregroundStyle(tone(end.tone))
                             .fixedSize().layoutPriority(1)
                     } else if let pill = Pill.state(p.agent?.state) {
                         pill.fixedSize().layoutPriority(1)
@@ -872,7 +894,7 @@ struct NodeView: View {
             }
         case .machine(let m):
             if let link = store.machines.first(where: { $0.id == m }), !link.online {
-                Text(link.state).font(.ui(size: 12)).foregroundStyle(link.state == "offline" ? Theme.err : Theme.muted)
+                Text(link.state).font(.tree(size: 12)).foregroundStyle(link.state == "offline" ? Theme.err : dim)
                     .padding(.trailing, 2)
                     .help(link.why.isEmpty ? link.state : link.why)
                     .fixedSize()
@@ -883,7 +905,7 @@ struct NodeView: View {
                     if let link = store.machines.first(where: { $0.id == m }), !link.behind.isEmpty {
                         // Its server is older than this app's conch: what
                         // it lacks, and what brings it.
-                        Text("behind").font(.ui(size: 11.5)).foregroundStyle(Theme.warn)
+                        Text("behind").font(.tree(size: 11.5)).foregroundStyle(Theme.warn)
                             .help("conch there is from an older build and lacks \(link.behind.joined(separator: ", ")). Right-click → \(m == "local" ? "Reload server" : "Upgrade conch there").")
                     }
                     counts(node.badge)
@@ -911,7 +933,7 @@ struct NodeView: View {
             node.parts.enumerated().reduce(Text("")) { acc, e in
                 acc + Text((e.offset == 0 ? "" : " ") + e.element.text).foregroundColor(tone(e.element.tone))
             }
-            .font(.ui(size: 11.5, design: .monospaced))
+            .font(.tree(size: 11.5, design: .monospaced))
             .lineLimit(1).truncationMode(.head)
         default:
             if !node.badge.isEmpty { muted(node.badge).fixedSize() }
@@ -1359,7 +1381,15 @@ extension Font {
     /// a fixed .system font would stay proportional under Terminal.
     @MainActor static func ui(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
         let st = Theme.style
-        return .system(size: CGFloat(st.fontSize(Double(size))), weight: weight, design: st.mono ? .monospaced : design)
+        return .system(size: CGFloat(st.fontSize(Double(size)) * Theme.textScale), weight: weight, design: st.mono ? .monospaced : design)
+    }
+
+    /// The face at its full size even in monospace: the tree's names and
+    /// labels, which the sidebar widens for (AppStyle.sidebarWidth) — set a
+    /// size smaller they read as too small, an agent's name at 12 points
+    /// and a branch's at 11.
+    @MainActor static func tree(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+        .system(size: size * Theme.textScale, weight: weight, design: Theme.style.mono ? .monospaced : design)
     }
 }
 
