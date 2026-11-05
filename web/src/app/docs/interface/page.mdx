@@ -95,7 +95,7 @@ Branches list checked-out branches, the base branch, branches with panes and rec
 
 ### Pull requests
 
-Pull requests come from the `gh` CLI (your existing GitHub login): `#12✓` checks passing, `#13✗` failing, `#14●` running, purple when merged. `o` opens the branch's PR. They refresh every minute while agents work in the project, every five minutes otherwise, and on `R`.
+Pull requests come from the `gh` CLI (your existing GitHub login): `#12✓` checks passing, `#13✗` failing, `#14●` running, purple when merged. `o` opens the branch's PR. They refresh every minute while agents work in the project, every five minutes otherwise, and on `R`. When one conch saw open is merged, conch fetches the branch it merged into from that branch's own remote, so `origin/main` and the merge commit GitHub made are in your checkout without a `git fetch` of your own; a fetch that fails (offline, a lock) is tried again at the next look, and nothing else is fetched for you.
 
 ### Agents
 

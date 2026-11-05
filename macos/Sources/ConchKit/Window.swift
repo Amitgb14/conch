@@ -64,7 +64,10 @@ public struct AppLook: Equatable, Sendable {
         glass = tomlSetting("app", "sidebar", in: toml) == "glass"
         ports = tomlSetting("app", "ports", in: toml) != "false"
         scratchKey = tomlSetting("app", "scratch_key", in: toml) == "true"
-        if let v = tomlSetting("app", "text_size", in: toml).flatMap(Double.init), v > 0 {
+        // A whole number, as Go reads it (an int): 112.5 is not understood
+        // there, so it is not here either, rather than the app quietly using
+        // what conch's settings would refuse.
+        if let v = tomlSetting("app", "text_size", in: toml).flatMap(Int.init).map(Double.init), v > 0 {
             textScale = min(max(v / 100, Self.textRange.lowerBound), Self.textRange.upperBound)
         }
         if let v = tomlSetting("app", "font_size", in: toml).flatMap(Double.init), v > 0 {

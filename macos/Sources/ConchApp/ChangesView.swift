@@ -79,6 +79,7 @@ final class ChangesModel: ObservableObject {
         branch = b
         self.store = store
         Task { await load() }
+        store.refreshProject(machine: m, project: p) // its pull request as GitHub has it now
     }
 
     struct Ref: Encodable {

@@ -253,6 +253,10 @@ import Testing
     #expect(AppLook(toml: "[app]\ntext_size = 500\nfont_size = 2\n").fontSize == 9)
     #expect(AppLook(toml: "[app]\ntext_size = \"110\"\nfont_size = 0\n").textScale == 1.1)
     #expect(AppLook(toml: "[app]\ntext_size = big\n").textScale == 1)
+    // Go reads text_size as a whole number; a fraction is not understood
+    // here either. font_size takes half points on both sides.
+    #expect(AppLook(toml: "[app]\ntext_size = 112.5\n").textScale == 1)
+    #expect(AppLook(toml: "[app]\nfont_size = 13.5\n").fontSize == 13.5)
     #expect(AppLook.textStep(from: 1, bigger: true) == 1.1 && AppLook.textStep(from: 1, bigger: false) == 0.9)
     #expect(AppLook.textStep(from: 1.6, bigger: true) == 1.6 && AppLook.textStep(from: 0.8, bigger: false) == 0.8)
     #expect(AppLook.textStep(from: 1.17, bigger: true) == 1.25)

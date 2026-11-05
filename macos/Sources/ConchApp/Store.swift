@@ -231,6 +231,19 @@ final class Store: ObservableObject {
 
     func connection(_ machine: String) -> Connection? { conns[machine] }
 
+    /// Asks a machine's server to read a project's git and its pull requests
+    /// now rather than at its next turn — a minute, or five with no panes in
+    /// the project — so a merge on GitHub shows when somebody opens, reopens
+    /// or refreshes the graph or a git tab. Its answer comes back as project.updated, which
+    /// reads an open graph or git tab again. Only on someone's asking: from
+    /// load(), which every project.updated runs, it would ask again at every
+    /// answer.
+    func refreshProject(machine: String, project: String) {
+        guard let c = conns[machine], !project.isEmpty else { return }
+        struct Ref: Encodable { var id: String }
+        Task { try? await c.call("project.refresh", Ref(id: project)) }
+    }
+
     /// "api · local": where a pane is, for the end of the tab bar.
     func scope(of k: String) -> String {
         if let c = parseChangesKey(k) {
@@ -1701,7 +1714,7 @@ final class Store: ObservableObject {
         let fresh = commitViews[k] == nil
         let model = commits(for: k)
         model.focusBranch = branch
-        if !fresh { model.load() }
+        if !fresh { model.refresh() } // and ask GitHub: a new one does as it is made
         layout.open(k)
         terminalHasKeyboard = false
     }
@@ -1720,7 +1733,11 @@ final class Store: ObservableObject {
     /// opens, as in the TUI.
     func openChanges(project pk: String, branch: String) {
         let (m, pid) = unkey(pk)
-        layout.open(changesKey(m, pid, branch))
+        let k = changesKey(m, pid, branch)
+        // One kept from before is not made again, so it asks here: its pull
+        // request as GitHub has it now, not at the server's next turn.
+        if changeViews[k] != nil { refreshProject(machine: m, project: pid) }
+        layout.open(k)
         terminalHasKeyboard = false
     }
 
