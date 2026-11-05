@@ -412,3 +412,15 @@ import Testing
         #expect(ops != LucideIcons.ops("settings"), "\(n) fell back")
     }
 }
+
+// Work handed over from the git tab always has somewhere to go: the
+// running agent, a new one in the branch's checkout, or a new one in a
+// worktree made for a branch checked out nowhere.
+@Test func handoffPlans() throws {
+    let a = try JSONDecoder().decode(PaneInfo.self, from: Data(#"{"id":"p7","name":"fixer","state":"running","cols":80,"rows":24}"#.utf8))
+    #expect(handoffPlan(agent: a, worktree: "/w/x") == .prompt(pane: "p7"))
+    #expect(handoffPlan(agent: a, worktree: nil) == .prompt(pane: "p7"))
+    #expect(handoffPlan(agent: nil, worktree: "/w/x") == .start(in: "/w/x"))
+    #expect(handoffPlan(agent: nil, worktree: nil) == .checkOutThenStart)
+    #expect(handoffPlan(agent: nil, worktree: "") == .checkOutThenStart)
+}
