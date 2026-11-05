@@ -97,6 +97,7 @@ public func machine(ofKey k: String) -> String {
     if let c = parseCommitsKey(k) { return c.machine }
     if let f = parseFilesKey(k) { return f.machine }
     if let s = parseSetupKey(k) { return s.machine }
+    if parseBrowserKey(k) != nil { return "local" } // a page is shown on this computer
     return unkey(k).machine
 }
 

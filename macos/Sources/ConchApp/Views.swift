@@ -1339,6 +1339,12 @@ struct TabButton: View {
         if let c = parseCommitsKey(tab.focused) { return "Commits · " + project(c.machine, c.project) }
         if let f = parseFilesKey(tab.focused) { return "Files · " + project(f.machine, f.project) }
         if let s = parseSetupKey(tab.focused) { return "Agent setup · " + project(s.machine, s.project) }
+        if let u = parseBrowserKey(tab.focused) {
+            let t = store.browserViews[tab.focused]?.title ?? ""
+            if !t.isEmpty { return t }
+            let a = store.browserViews[tab.focused]?.address ?? u
+            return a.isEmpty || a.hasPrefix("about:") ? "New Tab" : (URL(string: a)?.host.map { h in URL(string: a)?.port.map { "\(h):\($0)" } ?? h } ?? a)
+        }
         return p?.displayName ?? tab.focused
     }
 
@@ -1362,6 +1368,8 @@ struct TabButton: View {
                     LucideIcon("bot", color: Theme.accent, size: 12)
                 } else if parseFilesKey(tab.focused) != nil {
                     LucideIcon("folder-open", color: Theme.accent, size: 12)
+                } else if parseBrowserKey(tab.focused) != nil {
+                    LucideIcon(name: .globe, color: Theme.accent, size: 12)
                 } else if changes == nil {
                     LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12)
                 } else {
@@ -1488,6 +1496,8 @@ struct SplitArea: View {
                 SetupView(model: store.setup(for: id), store: store).id(id)
             } else if parseFilesKey(id) != nil {
                 FilesView(model: store.files(for: id), store: store).id(id)
+            } else if parseBrowserKey(id) != nil {
+                BrowserView(model: store.browser(for: id)).id(id)
             } else {
                 // Its own card for each pane, so moving to another tab
                 // never shows one pane's terminal under another's header.
@@ -1730,9 +1740,9 @@ struct ListeningPort: View {
             .padding(.horizontal, 6).padding(.vertical, 1)
             .background(RoundedRectangle(cornerRadius: 5).fill(Theme.accent.opacity(0.14)))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.accent.opacity(0.35)))
-            .help(local ? "Listening on \(port) — click to open http://localhost:\(port)"
+            .help(local ? "Listening on \(port) — click to open it in a tab, ⌥-click in your browser"
                         : "Listening on \(port) on \(store.label(machine)) — click to copy an ssh tunnel to it")
-            .onTapGesture { store.openPort(port, machine: machine) }
+            .onTapGesture { store.openPort(port, machine: machine, outside: NSEvent.modifierFlags.contains(.option)) }
     }
 }
 

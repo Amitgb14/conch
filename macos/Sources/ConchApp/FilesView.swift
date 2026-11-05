@@ -37,6 +37,21 @@ final class FilesModel: ObservableObject {
     @Published private(set) var loading = 0
     @Published private(set) var spinUntil = Date.distantPast
     private var reads = Latest()
+    /// The picked file as a file of this computer's, for a picture, a
+    /// video, a PDF or a page to be shown from: the file itself here, a copy
+    /// fetched into the cache from another machine.
+    @Published var media: URL?
+    @Published var mediaNote = ""
+    /// How much of a remote file has come, while it is fetched.
+    @Published var fetching: Double?
+    /// A page shown as its source instead, to edit it.
+    @Published var showSource = false
+    /// Bumped when the file shown changes on disk, so its view opens it again.
+    @Published var mediaVersion = 0
+    private var fetches = Latest()
+    /// What media was fetched for: the same file at the same size is not
+    /// fetched again each time an agent writes something else.
+    private var mediaFor: (root: String, path: String, size: Int64?)?
 
     init(key: String, store: Store) {
         self.key = key
@@ -156,10 +171,53 @@ final class FilesModel: ObservableObject {
                 original = text
                 baseHash = r.hash
                 diskChanged = false
+                fetchMedia(path, size: r.size)
             } catch {
                 guard reads.isLatest(n) else { return }
                 preview = nil
                 previewError = "\(error)"
+            }
+        }
+    }
+
+    /// The picked file where a picture, player or page can open it.
+    func fetchMedia(_ path: String, size: Int64?) {
+        if let m = mediaFor, m.root == root, m.path == path, m.size == size, media != nil || fetching != nil { return }
+        if let m = mediaFor, m.root == root, m.path == path { mediaVersion += 1 } // the same file, changed
+        mediaFor = (root, path, size)
+        let n = fetches.next()
+        media = nil
+        mediaNote = ""
+        fetching = nil
+        guard MediaKind(path: path).needsFile else { return }
+        let full = (root as NSString).appendingPathComponent(path)
+        if machine == "local" {
+            media = URL(fileURLWithPath: full)
+            return
+        }
+        guard let c = store.connection(machine), c.hello?.capabilities?.contains("fs.transfer.v1") == true else {
+            mediaNote = "conch on \(store.label(machine)) can't send files yet — reload its server to see this here."
+            return
+        }
+        if let size, size > mediaFetchMax {
+            mediaNote = "\(fileSize(size)) is too big to fetch for a look — use conch download."
+            return
+        }
+        let dest = mediaCache(machine: machine, path: full)
+        fetching = 0
+        Task {
+            do {
+                try await fetchFile(c, full, to: dest) { done, total in
+                    if self.fetches.isLatest(n), total > 0 { self.fetching = Double(done) / Double(total) }
+                    return self.fetches.isLatest(n)
+                }
+                guard fetches.isLatest(n) else { return }
+                fetching = nil
+                media = dest
+            } catch {
+                guard fetches.isLatest(n) else { return }
+                fetching = nil
+                mediaNote = "Could not fetch it: \(error)"
             }
         }
     }
@@ -192,6 +250,10 @@ final class FilesModel: ObservableObject {
                 let r = try await c.call("fs.write", Params(root: root, path: path, data: data, base: baseHash, force: force ? true : nil), as: FSWriteResult.self)
                 original = data
                 baseHash = r.hash
+                if mediaHasSource(path) {
+                    // The page shown again as saved: a copy fetched afresh from another machine.
+                    if machine == "local" { mediaVersion += 1 } else { mediaFor = nil; fetchMedia(path, size: Int64(data.utf8.count)) }
+                }
                 diskChanged = false
                 store.say("Saved \((path as NSString).lastPathComponent)")
             } catch let e as ConchError where e.code == "file_changed" {
@@ -225,6 +287,7 @@ final class FilesModel: ObservableObject {
     func choose(_ co: Checkout) {
         guard let path = co.path, path != root, confirmLeaving("to \(co.branch)") else { return }
         checkoutPath = co.main ? nil : path
+        showSource = false
         dirs = [:]
         open = []
         selected = nil
@@ -383,7 +446,10 @@ struct FilePreview: View {
                     bar(p, path)
                     Rectangle().fill(Theme.line).frame(height: 1)
                     if model.diskChanged { changedBanner(path) }
-                    if p.binary == true || p.data == nil {
+                    let kind = MediaKind(path: path)
+                    if kind.needsFile && !(mediaHasSource(path) && model.showSource) {
+                        media(kind)
+                    } else if p.binary == true || p.data == nil {
                         note("A binary file\(p.mime.map { " (\($0))" } ?? ""): nothing to show as text.")
                     } else {
                         CodeEditor(text: $model.text, language: CodeLanguage(path: path),
@@ -401,22 +467,63 @@ struct FilePreview: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// A picture, a player, a PDF or a page — once the file is where it can open.
+    @ViewBuilder func media(_ kind: MediaKind) -> some View {
+        if let url = model.media {
+            let here = model.machine == "local" && !model.root.isEmpty
+            MediaView(kind: kind, url: url, readAccess: here ? URL(fileURLWithPath: model.root, isDirectory: true) : nil)
+                .id("\(url.path)#\(model.mediaVersion)")
+        } else if let f = model.fetching {
+            VStack(spacing: 10) {
+                Spacer()
+                ProgressView(value: f).frame(width: 220)
+                Text("Fetching from \(store.label(model.machine))…").font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                Spacer()
+            }.frame(maxWidth: .infinity)
+        } else if !model.mediaNote.isEmpty {
+            note(model.mediaNote)
+        } else {
+            note("Opening…")
+        }
+    }
+
     func bar(_ p: FSRead, _ path: String) -> some View {
-        HStack(spacing: 8) {
+        let kind = MediaKind(path: path)
+        return HStack(spacing: 8) {
             Text(path).font(.ui(size: 12, design: .monospaced)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.head)
             if model.dirty {
                 Text("edited").font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(Theme.warn)
                     .padding(.horizontal, 6).padding(.vertical, 1).overlay(Capsule().stroke(Theme.warn.opacity(0.5)))
             }
             Spacer()
-            Text(CodeLanguage(path: path).label).font(.ui(size: 11)).foregroundStyle(Theme.muted)
+            let rendered = kind.needsFile && !(mediaHasSource(path) && model.showSource)
+            if mediaHasSource(path) {
+                Picker("", selection: $model.showSource) {
+                    Text(kind == .html ? "Page" : "Picture").tag(false)
+                    Text("Source").tag(true)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.small)
+                .help("Rendered, or its source to edit")
+            }
+            if kind.needsFile, let url = model.media {
+                if kind == .html {
+                    Button { store.openBrowser(url.absoluteString) } label: { Image(systemName: "globe") }
+                        .buttonStyle(.borderless).help("Open in a browser tab")
+                }
+                Button { NSWorkspace.shared.open(url) } label: { Image(systemName: "arrow.up.forward.app") }
+                    .buttonStyle(.borderless)
+                    .help(kind == .html ? "Open in your browser" : "Open in its app (Preview, QuickTime…)")
+            }
+            Text(kind == .text ? CodeLanguage(path: path).label : kind == .html ? "HTML" : mediaHasSource(path) ? "SVG" : kind.rawValue).font(.ui(size: 11)).foregroundStyle(Theme.muted)
             Text(fileSize(model.dirty ? Int64(model.text.utf8.count) : (p.size ?? 0))).font(.ui(size: 11)).foregroundStyle(Theme.muted)
-            if model.canSave {
+            if model.canSave && !rendered {
                 Button(model.saving ? "Saving…" : "Save") { model.save() }
                     .buttonStyle(.borderedProminent).controlSize(.small)
                     .disabled(!model.dirty || model.saving)
                     .keyboardShortcut("s", modifiers: .command)
                     .help("Save (⌘S) — refused if the file changed on disk since you opened it")
+            } else if rendered {
+                EmptyView()
             } else if p.truncated == true {
                 Text("read only: too big to hold whole").font(.ui(size: 11)).foregroundStyle(Theme.muted)
             } else if p.binary != true {

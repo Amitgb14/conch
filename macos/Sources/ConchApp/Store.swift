@@ -246,6 +246,7 @@ final class Store: ObservableObject {
 
     /// "api · local": where a pane is, for the end of the tab bar.
     func scope(of k: String) -> String {
+        if parseBrowserKey(k) != nil { return "Browser · this Mac" } // a page is not any project's
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
@@ -1672,6 +1673,30 @@ final class Store: ObservableObject {
         return m
     }
 
+    private(set) var browserViews: [String: BrowserModel] = [:]
+    private var blankBrowsers = 0
+
+    func browser(for k: String) -> BrowserModel {
+        if let m = browserViews[k] { return m }
+        let m = BrowserModel(key: k, store: self)
+        browserViews[k] = m
+        return m
+    }
+
+    /// A page in a tab of its own beside the agents; nil for an empty one
+    /// to type an address into. A page already open is shown, not opened twice.
+    func openBrowser(_ url: String?) {
+        let k: String
+        if let url {
+            k = browserKey(url)
+        } else {
+            blankBrowsers += 1
+            k = browserKey("about:blank#\(blankBrowsers)")
+        }
+        layout.open(k)
+        terminalHasKeyboard = false
+    }
+
     func files(for k: String) -> FilesModel {
         if let m = fileViews[k] { return m }
         let m = FilesModel(key: k, store: self)
@@ -1789,6 +1814,7 @@ final class Store: ObservableObject {
         layout.close(p)
         terminals.removeValue(forKey: p)?.stop()
         changeViews.removeValue(forKey: p)
+        if let b = browserViews.removeValue(forKey: p) { b.web.stopLoading(); b.web.loadHTMLString("", baseURL: nil) } // its page goes quiet
         focusTerminal()
     }
 
@@ -1900,6 +1926,7 @@ final class Store: ObservableObject {
         case "nextTab": layout.step(1); focusTerminal()
         case "previousTab": layout.step(-1); focusTerminal()
         case "toggleSidebar": sidebarVisible.toggle()
+        case "newBrowser": openBrowser(nil)
         case "closeWorkspace":
             if workspace > 0 { closeWorkspace(workspace) } else { say("The first workspace stays: it holds what no other has", .info) }
         case "biggerFont": stepFontSize(bigger: true)
