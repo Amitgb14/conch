@@ -41,7 +41,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/detect` | Which agent runs in a pane and its state (working, waiting, done, idle) from hooks, titles and screens |
 | `internal/brain` | Model providers (Claude CLI, Anthropic, OpenAI-compatible), planner, action execution, summaries |
 | `internal/sessions` | Reading and deleting each agent's saved conversations |
-| `internal/usage` | Token usage and plan limits from transcripts and rollouts |
+| `internal/usage` | Token usage and plan limits from transcripts and rollouts; `history.go` adds up what each agent saved over the last day, week and month by model (`usage.history.v1`), reading each file once and then only what was appended |
 | `internal/agentsetup` | What an agent loads in a checkout: instructions, skills, MCP servers, trust — and, the other way, writing one agent's instructions, skills and servers where the others look for them (`sync.go`), with a record to undo it; the library of servers and skills the agents follow (`library.go`); each agent's way of naming a variable (`vars.go`); conch's own skill for agents driving agents (`skill/SKILL.md`, installed by `skill.go`) — its commands are checked against the CLI's usage by a test |
 | `internal/gitx` / `internal/ghx` | git status, branches, worktrees, untracked files / pull requests via the `gh` CLI |
 | `internal/update` | Version comparison, same-build checks, release installs, reloading servers |
@@ -52,7 +52,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/doctor` | What `conch doctor` finds and how it is said (a check, its outcome, its fix); the checks run in `cmd/conch/doctor.go`, and the TUI is handed them (`Doctor`, `internal/tui/health.go`) to run a moment after it starts — with `ask` false, since asking the terminal what it can do (`cmd/conch/doctorterm.go`) is the command's alone |
 | `internal/tools` | Programs for driving conch under test: `clicker` clicks and drags a pane through the protocol, `standin` is a pane conch detects as an agent (by the name it is built under) that starts panes as an agent does |
 | `internal/sshtest` | A stand-in for ssh in tests: the test binary run under the name `ssh` logs in by waiting as a shell would, and asked for sftp serves a folder as the host's home (hosts `denied`, `nosftp`, `hang` fail as ssh does). A test package calls `sshtest.Main()` from `TestMain` and `sshtest.Install(t)` to put it on `CONCH_SSH`. It is how the files of a terminal's ssh host (`fs.ssh.v1`, `internal/server/sshfiles.go`) are tested without a network |
-| `macos/` | Conch.app, a native macOS window on the same server: Swift, built with the Command Line Tools (`swift build`, `swift test`; `macos/bundle.sh` makes the bundle and puts a Go-built `conch` inside it). `go build ./...` never sees it. `ConchKit` is what can be tested — the socket client, the protocol types (optional wherever the server's are `omitempty`), the tree, the counts, search and the tab/split layout — and `ConchApp` the AppKit toolbar and menus around SwiftUI. Each pane is a terminal running `conch attach` (`cmd/conch/attach.go`), behind one seam (`TerminalHost.swift`): Ghostty's (`GhosttyHost.swift`, libghostty from a pinned upstream release built by `macos/ghostty.sh` into the ignored `macos/vendor`, which needs Xcode 26 and Zig) when that library is there, SwiftTerm's when it is not — `Package.swift` decides by whether the xcframework exists, so the Command Line Tools alone still build it; a waiting agent's answer buttons run `conch agent question` / `answer`, the phone's own menu reading, rather than a second copy of it. Every machine in machines.json is shown too, each spoken to through `conch machine bridge ID` (the protocol on a process's stdin and stdout, `remote.BridgeCommand`), so panes, projects and branches are named `machine|id` throughout the app (`ConchKit.key`) — a pane id alone is not unique once two servers are in one window. Not in CI, which is Go on Linux and macOS: run `swift test` in `macos/` when you change it |
+| `macos/` | Conch.app, a native macOS window on the same server: Swift, built with the Command Line Tools (`swift build`, `swift test`; `macos/bundle.sh` makes the bundle and puts a Go-built `conch` inside it). `go build ./...` never sees it. `ConchKit` is what can be tested — the socket client, the protocol types (optional wherever the server's are `omitempty`), the tree, the counts, search and the tab/split layout — and `ConchApp` the AppKit toolbar and menus around SwiftUI. Each pane is a terminal running `conch attach` (`cmd/conch/attach.go`), behind one seam (`TerminalHost.swift`): Ghostty's (`GhosttyHost.swift`, libghostty from a pinned upstream release built by `macos/ghostty.sh` into the ignored `macos/vendor`, which needs Xcode 26 and Zig) when that library is there, SwiftTerm's when it is not — `Package.swift` decides by whether the xcframework exists, so the Command Line Tools alone still build it. Ghostty's panes run `conch attach -raw` where the pane's server has `pane.raw.v1`: Ghostty is given the program's own output (`internal/pane/raw.go`, `cmd/conch/attachraw.go`) and draws the pane at the server's size, letterboxed while another client holds it (`ConchKit/Window.swift`), the window telling attach how much room it has by a control paste; the scratch layer (`Scratch.swift`), tabs down a side (`SideTabs.swift`), ⌘K's live preview (`Preview.swift`, `attach -raw -view`) and `[app]` in config.toml are the same app's; a waiting agent's answer buttons run `conch agent question` / `answer`, the phone's own menu reading, rather than a second copy of it. Every machine in machines.json is shown too, each spoken to through `conch machine bridge ID` (the protocol on a process's stdin and stdout, `remote.BridgeCommand`), so panes, projects and branches are named `machine|id` throughout the app (`ConchKit.key`) — a pane id alone is not unique once two servers are in one window. A branch's git tab (`GitTab.swift` the views, `ChangesView.swift` its model, the testable part in `ConchKit/GitView.swift`) commits hunks through `branch.hunks.v1`, opens commits through `project.commit.v1` and submits pull request reviews through `pr.review.v1` (`ghx.Review`); its message is drafted by `conch commit-message`. Not in CI, which is Go on Linux and macOS: run `swift test` in `macos/` when you change it |
 | `web/` | The documentation website (Next.js, MDX under `web/src/app/docs`) |
 | `docs/plans` | Design plans for deferred work. The roadmap and the gap plan are kept out of the repository (see `.gitignore`); ask for them rather than looking for them here |
 | `docs/testing` | The [end-to-end plan](docs/testing/end-to-end.md): paths the automated tests only cover with fakes |
@@ -162,6 +162,28 @@ helpers in `cmd/conch` and `internal/remote`.
   behaviour gets a capability string in `proto.Capabilities`; clients check
   `MissingCapabilities` before relying on it and degrade with a clear message.
   New payload fields are `omitempty` and optional.
+- **A raw client answers nothing conch answers.** `pane.raw` gives a
+  client the program's own output for a terminal of its own to draw (the
+  Mac app's Ghostty, `conch attach -raw`). conch's emulator still sees
+  every byte first and still answers the program's questions — device
+  attributes, cursor position, mode and colour queries, OSC 7501's probe —
+  so `queryFilter` (`internal/pane/raw.go`) takes exactly those out of the
+  raw stream; a terminal fed them would answer as well, and the program
+  would read two replies. The questions conch stays silent on (kitty
+  graphics, XTVERSION, the key protocol) are left for the client to
+  answer, which is how images work there. The other way, what the client's
+  terminal sends back is split into typing and *replies*
+  (`PaneSendTextParams.Reply`: focus events, its answers, the pointer
+  merely moving), and a reply takes the pane's size for nobody — otherwise
+  a terminal answering a query, or a pointer crossing a letterboxed pane,
+  took the size from whoever was working in it. And a raw stream only
+  makes sense at the pty's size, so a client never draws it at its own:
+  the app letterboxes, and attach run by the app waits to be told the
+  room rather than asking for its terminal's size, which is the
+  letterbox's own while another client holds the pane. The first telling
+  can arrive before attach is reading, so the app says it again until the
+  pane takes it. Anything new added to the stream has to answer: who else
+  answers this?
 - **Hot reload.** The server `syscall.Exec`s itself; PTY and listener fds
   survive via `KeepOnExec`, and pane state passes through a reload-state file
   (`CONCH_RELOAD_STATE`). Anything added to a pane or server entry that must
