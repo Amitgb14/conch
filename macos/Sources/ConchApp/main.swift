@@ -124,7 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         let item = NSToolbarItem(itemIdentifier: id)
         let view: NSView
         switch id {
-        case .workspaces: view = NSHostingView(rootView: WorkspacesControl(store: store))
+        case .workspaces: view = WorkspacesHost(rootView: WorkspacesControl(store: store))
         case .search: view = NSHostingView(rootView: SearchField(store: store))
         case .counts: view = NSHostingView(rootView: Counts(store: store).fixedSize())
         default: return nil
@@ -190,6 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             item("Make Scratch Layer a Tab", "t", [.command, .option], "scratchTab"),
             .separator(),
             item("Close Split", "w", .command, "closeSplit"),
+            item("Close Workspace…", "", [], "closeWorkspace"),
         ])
         menu("Edit", [
             NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"),

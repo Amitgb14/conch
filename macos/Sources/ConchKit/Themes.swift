@@ -105,12 +105,22 @@ extension ConchTheme {
         // conch's teal on a terminal's ground, after herdr: the Terminal style's.
         .init("terminal", "Terminal", accent: "#2AA5B5", selFG: "#FFFFFF", border: "#1E232A", muted: "#8B949E", ok: "#9ECE6A", warn: "#E0AF68", err: "#F7768E", work: "#7AA2F7", selDim: "#171B20", bg: "#0C0E11", fg: "#D4D9DF"),
         .init("terminal-light", "Terminal Light", accent: "#0F7B8A", selFG: "#FFFFFF", border: "#DADDE2", muted: "#6E7781", ok: "#1A7F37", warn: "#9A6700", err: "#CF222E", work: "#0969DA", selDim: "#E9EBEE", bg: "#FBFBFC", fg: "#1F2328", light: true),
+        // VS Code's own, from extensions/theme-defaults: Dark/Light Modern, Dark+/Light+.
+        .init("vscode-dark-modern", "VS Code Dark Modern", accent: "#0078D4", selFG: "#FFFFFF", border: "#2B2B2B", muted: "#9D9D9D", ok: "#89D185", warn: "#CCA700", err: "#F14C4C", work: "#3794FF", selDim: "#37373D", bg: "#1F1F1F", fg: "#CCCCCC"),
+        .init("vscode-light-modern", "VS Code Light Modern", accent: "#005FB8", selFG: "#FFFFFF", border: "#E5E5E5", muted: "#616161", ok: "#388A34", warn: "#BF8803", err: "#E51400", work: "#1A85FF", selDim: "#E8E8E8", bg: "#FFFFFF", fg: "#3B3B3B", light: true),
+        .init("vscode-dark-plus", "VS Code Dark+", accent: "#007ACC", selFG: "#FFFFFF", border: "#3C3C3C", muted: "#8F8F8F", ok: "#89D185", warn: "#CCA700", err: "#F14C4C", work: "#3794FF", selDim: "#37373D", bg: "#1E1E1E", fg: "#D4D4D4"),
+        .init("vscode-light-plus", "VS Code Light+", accent: "#007ACC", selFG: "#FFFFFF", border: "#E5E5E5", muted: "#717171", ok: "#388A34", warn: "#BF8803", err: "#E51400", work: "#1A85FF", selDim: "#E4E6F1", bg: "#FFFFFF", fg: "#000000", light: true),
     ]
 
     /// Themes drawn as a pair, dark and light: the dark one, while it is the
     /// theme, is shown as its light one under macOS's light appearance. The
     /// light one chosen by name stays light — somebody picked it.
-    public static let lightPairs: [String: String] = ["terminal": "terminal-light"]
+    public static let lightPairs: [String: String] = [
+        "terminal": "terminal-light",
+        // As VS Code follows the system between its dark and light pair.
+        "vscode-dark-modern": "vscode-light-modern",
+        "vscode-dark-plus": "vscode-light-plus",
+    ]
 
     /// The theme to show for t under an appearance.
     public static func forAppearance(_ t: ConchTheme, dark: Bool) -> ConchTheme {

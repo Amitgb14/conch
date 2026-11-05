@@ -94,6 +94,17 @@ var themes = []palette{
 	// teal deepened so a selection reads on white, GitHub-light states.
 	{name: "terminal-light", label: "Terminal Light", accent: "#0F7B8A", selFG: "#FFFFFF", border: "#DADDE2", muted: "#6E7781",
 		ok: "#1A7F37", warn: "#9A6700", err: "#CF222E", work: "#0969DA", selDim: "#E9EBEE", merged: "#8250DF", bg: "#FBFBFC", fg: "#1F2328"},
+	// VS Code's own: Dark Modern and Light Modern (its defaults), Dark+ and
+	// Light+ (the classic pair), from extensions/theme-defaults; the states
+	// are its charts.green, yellow, red and blue.
+	{name: "vscode-dark-modern", label: "VS Code Dark Modern", accent: "#0078D4", selFG: "#FFFFFF", border: "#2B2B2B", muted: "#9D9D9D",
+		ok: "#89D185", warn: "#CCA700", err: "#F14C4C", work: "#3794FF", selDim: "#37373D", merged: "#B180D7", bg: "#1F1F1F", fg: "#CCCCCC"},
+	{name: "vscode-light-modern", label: "VS Code Light Modern", accent: "#005FB8", selFG: "#FFFFFF", border: "#E5E5E5", muted: "#616161",
+		ok: "#388A34", warn: "#BF8803", err: "#E51400", work: "#1A85FF", selDim: "#E8E8E8", merged: "#652D90", bg: "#FFFFFF", fg: "#3B3B3B"},
+	{name: "vscode-dark-plus", label: "VS Code Dark+", accent: "#007ACC", selFG: "#FFFFFF", border: "#3C3C3C", muted: "#8F8F8F",
+		ok: "#89D185", warn: "#CCA700", err: "#F14C4C", work: "#3794FF", selDim: "#37373D", merged: "#B180D7", bg: "#1E1E1E", fg: "#D4D4D4"},
+	{name: "vscode-light-plus", label: "VS Code Light+", accent: "#007ACC", selFG: "#FFFFFF", border: "#E5E5E5", muted: "#717171",
+		ok: "#388A34", warn: "#BF8803", err: "#E51400", work: "#1A85FF", selDim: "#E4E6F1", merged: "#652D90", bg: "#FFFFFF", fg: "#000000"},
 }
 
 // accentColors are the named choices for [ui] accent. Each is dark enough

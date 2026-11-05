@@ -42,7 +42,12 @@ if command -v sips >/dev/null && command -v iconutil >/dev/null && [ -f "$png" ]
 	rm -rf "$(dirname "$set_dir")"
 fi
 
-version=$(cd "$root" && git describe --tags --always 2>/dev/null || echo dev)
+# The version the window shows is conch's own (`conch version`, as the
+# status bar says it), the build the git commit: About read a git
+# describe — v0.1.8-254-g09f463c — that matched nothing else on screen.
+version=$("$app/Contents/Resources/conch" version 2>/dev/null | awk '{print $2}')
+[ -n "$version" ] || version=dev
+build=$(cd "$root" && git rev-parse --short HEAD 2>/dev/null || echo "$version")
 cat >"$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -55,7 +60,7 @@ cat >"$app/Contents/Info.plist" <<EOF
 	<key>CFBundleIconFile</key><string>Conch</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>$version</string>
-	<key>CFBundleVersion</key><string>$version</string>
+	<key>CFBundleVersion</key><string>$build</string>
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>NSHighResolutionCapable</key><true/>
 	<key>ConchSource</key><string>$root</string>

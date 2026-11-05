@@ -289,8 +289,54 @@ struct Dot: View {
 
 // MARK: - toolbar contents
 
+/// Where each workspace's label is in the toolbar's hosting view, for its
+/// right-click menu: the toolbar takes a right-click for its own menu, so
+/// SwiftUI's context menu there never showed, and the hosting view asks
+/// this which workspace the pointer is on (WorkspacesHost).
+@MainActor final class WorkspaceHits {
+    static let shared = WorkspaceHits()
+    var frames: [Int: CGRect] = [:]
+
+    func index(at p: CGPoint) -> Int? { frames.first { $0.value.contains(p) }?.key }
+}
+
+/// The toolbar's view of the workspaces: a right-click on one is its menu
+/// (rename, close), as the TUI has, in place of the toolbar's own.
+final class WorkspacesHost: NSHostingView<WorkspacesControl> {
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let p = convert(event.locationInWindow, from: nil)
+        let point = isFlipped ? p : CGPoint(x: p.x, y: bounds.height - p.y)
+        guard let i = WorkspaceHits.shared.index(at: point) else { return super.menu(for: event) }
+        let store = rootView.store
+        let m = NSMenu()
+        m.addItem(ClosureItem("Rename…") { store.renameWorkspace(i) })
+        if i > 0 {
+            m.addItem(.separator())
+            m.addItem(ClosureItem("Close Workspace…") { store.closeWorkspace(i) })
+        }
+        return m
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if let m = menu(for: event) { NSMenu.popUpContextMenu(m, with: event, for: self) } else { super.rightMouseDown(with: event) }
+    }
+}
+
+/// A menu item that runs a closure.
+final class ClosureItem: NSMenuItem {
+    private let run: () -> Void
+    init(_ title: String, _ run: @escaping () -> Void) {
+        self.run = run
+        super.init(title: title, action: #selector(fire), keyEquivalent: "")
+        target = self
+    }
+    required init(coder: NSCoder) { fatalError("not used") }
+    @objc private func fire() { run() }
+}
+
 struct WorkspacesControl: View {
     @ObservedObject var store: Store
+    @State private var hovered: Int?
 
     /// Its own hosting view in the toolbar, outside the window's
     /// environment: given the theme here, for the views it holds.
@@ -300,24 +346,48 @@ struct WorkspacesControl: View {
         HStack(spacing: 2) {
             ForEach(Array(store.workspaces.enumerated()), id: \.offset) { i, ws in
                 let on = i == store.workspace
-                Text(Workspace.label(i, ws)).font(.ui(size: 12, weight: Theme.ink ? .bold : .regular))
-                    .foregroundStyle(Theme.ink && on ? Theme.window : on ? Theme.text : Theme.text2)
+                HStack(spacing: 4) {
+                    Text(Workspace.label(i, ws)).font(.ui(size: 12, weight: Theme.ink ? .bold : .regular))
+                        .foregroundStyle(Theme.ink && on ? Theme.window : on ? Theme.text : Theme.text2)
+                    // Closing one is a click away, as a browser's tab: ×
+                    // on the pointer's workspace, any but the first.
+                    if i > 0 && hovered == i {
+                        Text("×").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
+                            .contentShape(Rectangle())
+                            .onTapGesture { store.closeWorkspace(i) }
+                            .help("Close workspace \(i + 1)")
+                    }
+                }
                     .padding(.horizontal, 10).padding(.vertical, 3)
                     .background(RoundedRectangle(cornerRadius: Theme.corner(5, meadow: 20)).fill(on ? (Theme.ink ? Theme.inkLine : Theme.meadow ? Theme.window : Theme.raise) : .clear))
                     .contentShape(Rectangle())
+                    .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
+                    .background(GeometryReader { g in
+                        Color.clear
+                            .onAppear { WorkspaceHits.shared.frames[i] = g.frame(in: .global) }
+                            .onChange(of: g.frame(in: .global)) { WorkspaceHits.shared.frames[i] = $0 }
+                    })
+                    .onDisappear { WorkspaceHits.shared.frames[i] = nil }
                     .onTapGesture(count: 2) { store.renameWorkspace(i) }
                     .onTapGesture { store.workspace = i }
+                    // A button to VoiceOver (and a script): pressed, it switches.
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { store.workspace = i }
                     .contextMenu {
                         Button("Rename…") { store.renameWorkspace(i) }
                         if i > 0 { Button("Close Workspace…") { store.closeWorkspace(i) } }
                     }
-                    .help(i > 0 ? "Workspace \(i + 1) — double-click to name it; right-click to name or close it" : "Workspace 1 — double-click or right-click to name it")
+                    .help(i > 0 ? "Workspace \(i + 1) — double-click to name it; right-click or × to close it" : "Workspace 1 — double-click or right-click to name it")
             }
             // A new workspace, shared with the TUI through ui.json.
             Text("+").font(.ui(size: 12)).foregroundStyle(Theme.muted)
                 .padding(.horizontal, 9).padding(.vertical, 3)
                 .contentShape(Rectangle())
                 .onTapGesture { store.newWorkspace() }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("New workspace")
+                .accessibilityAction { store.newWorkspace() }
                 .help("New workspace — conch's TUI has it too")
         }
         .padding(Theme.ink ? 0 : 2)
@@ -374,12 +444,16 @@ struct Counts: View {
             }
             .buttonStyle(.plain).disabled(w == 0)
             .help(w > 0 ? "Go to the next agent waiting for you (⌘.)" : "No agent is waiting for you")
-            if Theme.ink {
-                BurstCount(text: "\(d) done", loud: false, ink: d > 0 ? Theme.inkLine : Theme.muted)
-            } else {
-                Pill(text: "\(Theme.meadow ? "✿" : "✓") \(d) done", fg: d > 0 ? Theme.ok : Theme.muted,
-                     bg: d > 0 ? Theme.ok.opacity(Theme.meadow ? 0.22 : 0.16) : Theme.raise)
+            Button { store.nextDone() } label: {
+                if Theme.ink {
+                    BurstCount(text: "\(d) done", loud: false, ink: d > 0 ? Theme.inkLine : Theme.muted)
+                } else {
+                    Pill(text: "\(Theme.meadow ? "✿" : "✓") \(d) done", fg: d > 0 ? Theme.ok : Theme.muted,
+                         bg: d > 0 ? Theme.ok.opacity(Theme.meadow ? 0.22 : 0.16) : Theme.raise)
+                }
             }
+            .buttonStyle(.plain).disabled(d == 0)
+            .help(d > 0 ? "Go to the next agent that finished — each click the next" : "No agent has finished")
             Button { reviewing.toggle() } label: {
                 Text("\(r) to review").font(.ui(size: 11, weight: .semibold))
                     .foregroundStyle(r > 0 ? Theme.text2 : Theme.muted)
