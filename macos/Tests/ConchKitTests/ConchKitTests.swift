@@ -192,6 +192,13 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     #expect(s.nextAttention(after: "p4") == "p5")
     #expect(s.nextAttention(after: "p5") == "p6")
     #expect(Snapshot().nextAttention(after: nil) == nil)
+    // The done count's: finished agents only, the first to finish first.
+    s.upsert(PaneInfo(id: "p7", name: "codex", agent: AgentStatus(name: "codex", state: .done, since: Date(timeIntervalSince1970: 2))))
+    #expect(s.nextDone(after: nil) == "p7")
+    #expect(s.nextDone(after: "p7") == "p5")
+    #expect(s.nextDone(after: "p5") == "p7")
+    #expect(s.nextDone(after: "p6") == "p7") // from a waiting one: the first done
+    #expect(Snapshot().nextDone(after: nil) == nil)
 }
 
 @Test func upsertAndRemove() {
@@ -428,7 +435,18 @@ final class FakeServer: @unchecked Sendable {
         let t = ConchTheme.all[i]
         #expect(t.id == name && t.accent.hex == accent.uppercased() && t.bg.hex == bg.uppercased(), "theme \(name)")
     }
-    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte", "ink", "meadow", "terminal-light"])
+    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte", "ink", "meadow", "terminal-light", "vscode-light-modern", "vscode-light-plus"])
+    // VS Code's: its own values, and each dark one follows macOS to its light one.
+    let dm = ConchTheme.named("vscode-dark-modern"), lm = ConchTheme.named("vscode-light-modern")
+    #expect(dm.bg.hex == "#1F1F1F" && dm.fg.hex == "#CCCCCC" && dm.accent.hex == "#0078D4" && dm.border.hex == "#2B2B2B" && !dm.light)
+    #expect(lm.bg.hex == "#FFFFFF" && lm.fg.hex == "#3B3B3B" && lm.accent.hex == "#005FB8" && lm.light)
+    #expect(ConchTheme.forAppearance(dm, dark: false).id == "vscode-light-modern")
+    #expect(ConchTheme.forAppearance(ConchTheme.named("vscode-dark-plus"), dark: false).id == "vscode-light-plus")
+    #expect(ConchTheme.forAppearance(lm, dark: true).id == "vscode-light-modern")
+    for id in ["vscode-dark-modern", "vscode-light-modern", "vscode-dark-plus", "vscode-light-plus"] {
+        let t = ConchTheme.named(id)
+        #expect(t.id == id && Set([t.accent.hex, t.work.hex, t.ok.hex, t.warn.hex]).count == 4, "theme \(id): a commit graph's first lanes must differ")
+    }
     // conch's own four: a commit graph's first lanes take accent, working,
     // ok and warning in turn, so none of them may repeat another.
     for id in ["ink", "meadow", "firefly", "cel"] {

@@ -378,6 +378,10 @@ func (s *Server) readFile(rp proto.FSReadParams) (proto.FSReadResult, *proto.Err
 		return res, nil
 	}
 	res.Data = string(data)
+	// All of it: its fingerprint, which a save of an edit is checked against.
+	if rp.Offset == 0 && !res.Truncated {
+		res.Hash = contentHash(data)
+	}
 	return res, nil
 }
 

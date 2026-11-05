@@ -1794,6 +1794,24 @@ final class Store: ObservableObject {
 
     /// The next agent waiting for you, on any machine: waiting ones first,
     /// then the ones that finished, each machine in the sidebar's order.
+    /// The done count clicked: the next finished agent in the workspace,
+    /// on any machine, round again at the end.
+    func nextDone() {
+        var order: [String] = []
+        for m in machines {
+            var seen: Set<String> = []
+            var next = snapshots[m.id]?.nextDone(after: nil, in: ws, machine: m.id)
+            while let n = next, !seen.contains(n) {
+                seen.insert(n)
+                order.append(key(m.id, n))
+                next = snapshots[m.id]?.nextDone(after: n, in: ws, machine: m.id)
+            }
+        }
+        guard !order.isEmpty else { return }
+        let i = layout.focused.flatMap { order.firstIndex(of: $0) }.map { ($0 + 1) % order.count } ?? 0
+        open(order[i])
+    }
+
     func nextWaiting() {
         var order: [String] = []
         for m in machines {
@@ -1882,6 +1900,8 @@ final class Store: ObservableObject {
         case "nextTab": layout.step(1); focusTerminal()
         case "previousTab": layout.step(-1); focusTerminal()
         case "toggleSidebar": sidebarVisible.toggle()
+        case "closeWorkspace":
+            if workspace > 0 { closeWorkspace(workspace) } else { say("The first workspace stays: it holds what no other has", .info) }
         case "biggerFont": stepFontSize(bigger: true)
         case "smallerFont": stepFontSize(bigger: false)
         case "defaultFont": stepFontSize(bigger: nil)
