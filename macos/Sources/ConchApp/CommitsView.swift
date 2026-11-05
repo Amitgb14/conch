@@ -13,6 +13,16 @@ final class CommitsModel: ObservableObject {
     let key: String
     let machine: String
     let project: String
+
+    /// Open pull requests by the commit their checks run on (their head),
+    /// for a badge on that row.
+    var pullRequests: [String: PRInfo] {
+        var out: [String: PRInfo] = [:]
+        for b in store.snapshots[machine]?.project(project)?.branches ?? [] {
+            if let pr = b.pr, (pr.state ?? "OPEN") == "OPEN", let h = pr.head, !h.isEmpty { out[h] = pr }
+        }
+        return out
+    }
     unowned let store: Store
     @Published var rows: [GraphRow] = []
     @Published var more = false
@@ -291,6 +301,8 @@ struct CommitRow: View {
             GraphCell(row: row).frame(width: CGFloat(model.lanes) * Self.laneWidth + 6, height: Self.height).clipped()
             Text(c.short).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
             ForEach(Array(refs.enumerated()), id: \.offset) { _, r in RefChip(ref: r) }
+            // The commit a pull request's checks run on: its CI, here too.
+            if let pr = model.pullRequests[c.hash] { CIChip(pr: pr, number: true) }
             Text(c.subject).font(.system(size: 12.5)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.tail)
                 .layoutPriority(-1)
             Spacer(minLength: 8)

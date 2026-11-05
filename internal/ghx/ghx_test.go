@@ -3,6 +3,7 @@ package ghx
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,5 +89,60 @@ exit 1`)
 func TestNoGHSaysWhereToGetIt(t *testing.T) {
 	if !strings.Contains(ErrNoGH.Error(), "https://cli.github.com") {
 		t.Errorf("%q", ErrNoGH)
+	}
+}
+
+// Each check is kept by name with its state and link — a job by its name
+// and details URL, a commit status by its context and target URL — and a
+// check with no name is still counted though not listed.
+func TestParseRuns(t *testing.T) {
+	out := `[{"number":87,"state":"OPEN","headRefName":"b","statusCheckRollup":[
+	 {"__typename":"CheckRun","name":"test (ubuntu-latest)","status":"IN_PROGRESS","conclusion":"","detailsUrl":"https://gh/run/1"},
+	 {"__typename":"CheckRun","name":"test (macos-latest)","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://gh/run/2"},
+	 {"__typename":"StatusContext","context":"ci/deploy-preview","state":"SUCCESS","targetUrl":"https://preview"},
+	 {"__typename":"CheckRun","name":"","status":"COMPLETED","conclusion":"SUCCESS"}]}]`
+	prs, err := Parse([]byte(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := prs[0]
+	want := []Check{
+		{Name: "test (ubuntu-latest)", State: ChecksPending, URL: "https://gh/run/1"},
+		{Name: "test (macos-latest)", State: ChecksFail, URL: "https://gh/run/2"},
+		{Name: "ci/deploy-preview", State: ChecksPass, URL: "https://preview"},
+	}
+	if len(pr.Runs) != len(want) {
+		t.Fatalf("runs %+v", pr.Runs)
+	}
+	for i := range want {
+		if pr.Runs[i] != want[i] {
+			t.Errorf("run %d: %+v, want %+v", i, pr.Runs[i], want[i])
+		}
+	}
+	if pr.Total != 4 || pr.Passed != 2 || pr.Checks != ChecksFail {
+		t.Fatalf("counts: %d/%d %s", pr.Passed, pr.Total, pr.Checks)
+	}
+
+	// A huge matrix: every job counted, the list capped.
+	var b strings.Builder
+	b.WriteString(`[{"number":1,"state":"OPEN","statusCheckRollup":[`)
+	for i := 0; i < maxRuns+10; i++ {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `{"__typename":"CheckRun","name":"job %d","status":"COMPLETED","conclusion":"SUCCESS"}`, i)
+	}
+	b.WriteString(`]}]`)
+	prs, err = Parse([]byte(b.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prs[0].Total != maxRuns+10 || len(prs[0].Runs) != maxRuns {
+		t.Fatalf("matrix: total %d, listed %d", prs[0].Total, len(prs[0].Runs))
+	}
+	// None at all: no list.
+	prs, _ = Parse([]byte(`[{"number":2,"state":"OPEN","statusCheckRollup":[]}]`))
+	if prs[0].Runs != nil {
+		t.Fatalf("no checks: %+v", prs[0].Runs)
 	}
 }

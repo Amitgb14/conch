@@ -553,3 +553,29 @@ public func branchAgent(_ agents: [PaneInfo], handedTo pane: String?) -> PaneInf
     if let pane, let p = agents.first(where: { $0.id == pane }) { return p }
     return agents.first { $0.agent?.state == .working } ?? agents.first
 }
+
+/// The pull request's CI said in a few words, for the header in every
+/// view: nil when it has no checks.
+public func ciChip(_ pr: PRInfo) -> (text: String, tone: PRStatus.Tone)? {
+    let total = pr.total ?? pr.runs?.count ?? 0
+    let passed = pr.passed ?? 0
+    let n = total > 0 ? " \(passed)/\(total)" : ""
+    switch pr.checks {
+    case "pending": return ("CI running" + n, .busy)
+    case "fail":
+        let failed = pr.runs?.filter { $0.state == "fail" }.count ?? 0
+        return ("CI failing" + (failed > 0 ? " · \(failed) failed" : n), .bad)
+    case "pass": return ("CI passed" + n, .ok)
+    default: return nil
+    }
+}
+
+/// The checks in the order to read them: failing first, then running, then
+/// passed — what needs attention at the top — each kept in GitHub's order.
+public func checksToRead(_ runs: [PRCheck]) -> [PRCheck] {
+    let rank = ["fail": 0, "pending": 1, "pass": 2]
+    return runs.enumerated().sorted { a, b in
+        let ra = rank[a.element.state] ?? 1, rb = rank[b.element.state] ?? 1
+        return ra != rb ? ra < rb : a.offset < b.offset
+    }.map(\.element)
+}

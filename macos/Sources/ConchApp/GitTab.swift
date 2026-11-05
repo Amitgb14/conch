@@ -51,9 +51,9 @@ struct ChangesView: View {
             }
             if let pr = info?.pr {
                 let conflicting = (pr.state ?? "OPEN") == "OPEN" && pr.conflicting == true
-                Chip(text: "#\(pr.number)" + (conflicting ? " conflicts" : pr.checks == "pass" ? " checks ✓" : pr.checks == "fail" ? " checks ✗" : pr.checks == "pending" ? " checks…" : ""),
-                     tone: conflicting || pr.checks == "fail" ? Theme.err : pr.checks == "pass" ? Theme.ok : nil)
+                Chip(text: "#\(pr.number)" + (conflicting ? " conflicts" : ""), tone: conflicting ? Theme.err : nil)
                     .help(conflicting ? "#\(pr.number) conflicts with its base — Overview has what to do" : "Pull request #\(pr.number)")
+                CIChip(pr: pr)
             }
             if let ch = model.changes, !ch.files.isEmpty {
                 let (a, d) = ch.totals
@@ -154,6 +154,91 @@ struct HandoffStrip: View {
         case .waiting: return "\(who) is waiting for you while \(what)"
         case .finished: return "\(who) finished \(what) — check the result"
         case .gone: return "\(who) is gone; it was \(what)"
+        }
+    }
+}
+
+/// A pull request's CI in a few words, with the spinner while it runs:
+/// in the header, so it shows in Overview, Changes and the graph alike,
+/// and on the graph's commit the checks run on.
+struct CIChip: View {
+    @Environment(\.conchTheme) private var look
+    let pr: PRInfo
+    var number = false
+
+    var body: some View {
+        let _ = look
+        if let (text, tone) = ciChip(pr) {
+            let color: Color = tone == .busy ? Theme.work : tone == .bad ? Theme.err : Theme.ok
+            HStack(spacing: 4) {
+                if tone == .busy {
+                    TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                        Text(spinnerFrame(at: ctx.date)).font(.system(size: 11, weight: .semibold))
+                    }
+                } else {
+                    Image(systemName: tone == .bad ? "xmark.circle.fill" : "checkmark.circle.fill").font(.system(size: 10))
+                }
+                Text((number ? "#\(pr.number) · " : "") + text).font(.system(size: 11, weight: .medium, design: .monospaced)).lineLimit(1)
+            }
+            .foregroundStyle(color)
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 5).fill(color.opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(color.opacity(0.45)))
+            .fixedSize()
+            .help(checksHelp(pr))
+        }
+    }
+}
+
+/// Each check on its own line, for a tooltip.
+func checksHelp(_ pr: PRInfo) -> String {
+    guard let runs = pr.runs, !runs.isEmpty else { return "Checks on #\(pr.number)" }
+    return checksToRead(runs).map { ($0.state == "pass" ? "✓ " : $0.state == "fail" ? "✗ " : "… ") + $0.name }.joined(separator: "\n")
+}
+
+/// A pull request's checks one by one — failing first, then running, then
+/// passed — each opening its run on GitHub.
+struct ChecksList: View {
+    @Environment(\.conchTheme) private var look
+    let runs: [PRCheck]
+    var limit = 8
+
+    var body: some View {
+        let _ = look
+        let ordered = checksToRead(runs)
+        VStack(alignment: .leading, spacing: 4) {
+            // By place, not name: two workflows can each have a job called build.
+            ForEach(Array(ordered.prefix(limit).enumerated()), id: \.offset) { _, r in
+                HStack(spacing: 7) {
+                    Group {
+                        switch r.state {
+                        case "pass": Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.ok)
+                        case "fail": Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.err)
+                        default:
+                            TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                                Text(spinnerFrame(at: ctx.date)).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.work)
+                            }
+                        }
+                    }
+                    .font(.system(size: 11)).frame(width: 14)
+                    // The icon says the state, so the name has the room.
+                    Text(r.name).font(.system(size: 12, design: .monospaced)).foregroundStyle(r.state == "pass" ? Theme.text2 : Theme.text)
+                        .lineLimit(1).truncationMode(.middle)
+                        .help(r.name + (r.state == "pass" ? " — passed" : r.state == "fail" ? " — failed" : " — running"))
+                        .accessibilityLabel(r.name + (r.state == "pass" ? ", passed" : r.state == "fail" ? ", failed" : ", running"))
+                    Spacer(minLength: 4)
+                    if let u = r.url.flatMap(URL.init(string:)) {
+                        Button { NSWorkspace.shared.open(u) } label: {
+                            Image(systemName: "arrow.up.right.square").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                                .padding(3).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain).help("Open this check on GitHub")
+                    }
+                }
+            }
+            if ordered.count > limit {
+                Text("and \(ordered.count - limit) more").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            }
         }
     }
 }
@@ -323,6 +408,9 @@ struct GitOverview: View {
                         if let f = st.progress, st.ci.tone == .busy || st.ci.tone == .bad {
                             ProgressView(value: f).progressViewStyle(.linear).tint(st.ci.tone == .bad ? Theme.err : Theme.work)
                                 .frame(maxWidth: 260).padding(.leading, 22)
+                        }
+                        if let runs = pr.runs, !runs.isEmpty {
+                            ChecksList(runs: runs, limit: 6).frame(maxWidth: 420).padding(.leading, 22).padding(.top, 2)
                         }
                     }
                     if let r = st.review { prLine(r, icon: r.tone == .ok ? "person.crop.circle.badge.checkmark" : "person.crop.circle") }
@@ -1114,8 +1202,10 @@ struct GitSide: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if model.changes?.worktree != nil { commit }
-                review
+                // Checks before the review: what CI says is what a review
+                // waits on, and below the review's form it was off screen.
                 if let pr = info?.pr { checks(pr) }
+                review
             }
             .padding(12)
         }
@@ -1203,13 +1293,21 @@ struct GitSide: View {
     }
 
     func checks(_ pr: PRInfo) -> some View {
-        GitCard(title: "Checks") {
+        let st = prStatus(pr, base: model.changes?.base ?? "the base", conflicts: model.baseConflicts)
+        return GitCard(title: "Checks") {
             HStack(spacing: 8) {
                 Image(systemName: pr.checks == "pass" ? "checkmark.circle.fill" : pr.checks == "fail" ? "xmark.circle.fill" : "clock")
                     .foregroundStyle(pr.checks == "pass" ? Theme.ok : pr.checks == "fail" ? Theme.err : Theme.work)
-                Text(pr.checks == "pass" ? "Passing" : pr.checks == "fail" ? "Failing" : pr.checks == "pending" ? "Running" : "No checks")
-                    .font(.system(size: 12.5))
+                Text(st.ci.text).font(.system(size: 12.5)).lineLimit(1)
                 Spacer()
+            }
+            if let f = st.progress, pr.checks == "pending" || pr.checks == "fail" {
+                ProgressView(value: f).progressViewStyle(.linear).tint(pr.checks == "fail" ? Theme.err : Theme.work)
+            }
+            if let runs = pr.runs, !runs.isEmpty { ChecksList(runs: runs, limit: 10) }
+            if st.failing {
+                Button(model.agent.map { "Send the failure to \($0.name.isEmpty ? ($0.agent?.name ?? "the agent") : $0.name)" } ?? "Start an agent on the failure") { model.fixCI() }
+                    .controlSize(.small)
             }
             if let u = pr.url.flatMap(URL.init(string:)) { Button("Open #\(pr.number) on GitHub") { NSWorkspace.shared.open(u) }.buttonStyle(.link).font(.system(size: 12)) }
         }

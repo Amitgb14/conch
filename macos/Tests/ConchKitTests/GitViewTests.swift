@@ -327,3 +327,26 @@ index 1..2 100644
     #expect(branchAgent([agents[0]], handedTo: nil)?.id == "p1")
     #expect(branchAgent([], handedTo: nil) == nil)
 }
+
+// CI in a few words for the header, and the checks listed failing first.
+@Test func ciInAFewWords() throws {
+    let json = #"""
+    {"number":87,"checks":"pending","passed":1,"total":3,"runs":[
+     {"name":"test (ubuntu-latest)","state":"pending","url":"https://gh/1"},
+     {"name":"lint","state":"pass"},
+     {"name":"test (macos-latest)","state":"pending"}]}
+    """#
+    var pr = try JSONDecoder().decode(PRInfo.self, from: Data(json.utf8))
+    #expect(pr.runs?.count == 3 && pr.runs?[0].url == "https://gh/1")
+    #expect(ciChip(pr)?.text == "CI running 1/3" && ciChip(pr)?.tone == .busy)
+    pr.checks = "fail"; pr.runs?[2].state = "fail"
+    #expect(ciChip(pr)?.text == "CI failing · 1 failed" && ciChip(pr)?.tone == .bad)
+    #expect(checksToRead(pr.runs ?? []).map(\.name) == ["test (macos-latest)", "test (ubuntu-latest)", "lint"])
+    pr.checks = "pass"; pr.passed = 3
+    #expect(ciChip(pr)?.text == "CI passed 3/3")
+    // No checks; an older server with counts and no names.
+    #expect(ciChip(PRInfo(number: 1)) == nil)
+    var old = PRInfo(number: 2, checks: "pending"); old.total = 2
+    #expect(ciChip(old)?.text == "CI running 0/2")
+    #expect(checksToRead([]).isEmpty)
+}

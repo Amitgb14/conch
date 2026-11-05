@@ -717,6 +717,16 @@ type PRInfo struct {
 	Head   string `json:"head,omitempty"` // head commit
 	// Conflicting: GitHub says it cannot merge into its base as it stands.
 	Conflicting bool `json:"conflicting,omitempty"`
+	// Runs are its checks one by one — name, state, link — the first few
+	// dozen; absent from older servers, which say only the counts.
+	Runs []PRCheck `json:"runs,omitempty"`
+}
+
+// PRCheck is one check of a pull request: State is pass, fail or pending.
+type PRCheck struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+	URL   string `json:"url,omitempty"`
 }
 
 // WorktreeInfo is a checkout of the project.

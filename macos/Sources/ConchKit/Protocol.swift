@@ -197,6 +197,14 @@ public struct WorktreeInfo: Decodable, Equatable, Sendable {
     }
 }
 
+/// One check of a pull request: state is pass, fail or pending.
+/// Not Identifiable by name: a name can repeat across workflows.
+public struct PRCheck: Decodable, Equatable, Sendable {
+    public var name: String
+    public var state: String
+    public var url: String?
+}
+
 public struct PRInfo: Decodable, Equatable, Sendable {
     public var number: Int
     public var state: String?
@@ -212,6 +220,8 @@ public struct PRInfo: Decodable, Equatable, Sendable {
     public var head: String?
     /// GitHub says it cannot merge into its base as it stands.
     public var conflicting: Bool?
+    /// Its checks one by one, from a server that names them.
+    public var runs: [PRCheck]?
 
     public init(number: Int, state: String? = nil, checks: String? = nil, draft: Bool? = nil, url: String? = nil) {
         self.number = number
