@@ -12,6 +12,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/brain"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/keymap"
 	"github.com/Amitgb14/conch/internal/phone"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sandbox"
@@ -424,7 +425,7 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 		toggle("An agent is waiting for you", "permissions, questions", &n.Waiting, nil),
 		toggle("An agent finishes", "while you look elsewhere", &n.Done, nil),
 		toggle("A plan limit is nearly used", limitAtText(n.Thresholds()), &n.Limits, nil),
-		{label: "A watched pane goes quiet after", detail: fmt.Sprintf("%ds · %s M watches a pane", n.SilenceAfter(), m.cfg.Keys.Prefix),
+		{label: "A watched pane goes quiet after", detail: watchedDetail(n.SilenceAfter(), m.keyHint(keymap.MonitorQuiet)),
 			run: func(m *Model) tea.Cmd {
 				m.cfg.Notify.Silence = nextSilence(m.cfg.Notify.SilenceAfter())
 				return saveConfig(m.cfg)
@@ -1755,6 +1756,17 @@ func (s *settings) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 }
 
 // limitAtText describes the alert thresholds, e.g. "Claude/Codex at 80%, 95%".
+// watchedDetail is what the silence setting says, naming the key that
+// watches a pane only while there is one: with [keys.bind] it can be
+// unbound, and a setting that names a key nobody has is worse than one
+// that names none.
+func watchedDetail(seconds int, hint string) string {
+	if hint == "" {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	return fmt.Sprintf("%ds · %s watches a pane", seconds, hint)
+}
+
 func limitAtText(at []int) string {
 	var parts []string
 	for _, p := range at {

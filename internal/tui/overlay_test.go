@@ -546,7 +546,7 @@ func TestA2Help(t *testing.T) {
 	b := h.render(*m)
 	a2CheckBox(t, b, *m)
 	out := a2Plain(b.lines)
-	if !strings.Contains(out, "Keys · ↑↓ ←→ scroll") || !strings.Contains(out, "Tree") {
+	if !strings.Contains(out, "Keys · Tree · ↑↓ scroll") || !strings.Contains(out, "move") {
 		t.Fatalf("help:\n%s", out)
 	}
 	narrow := Model{width: 40, height: 20}
@@ -598,8 +598,9 @@ func TestHelpScrolls(t *testing.T) {
 		t.Fatalf("a page down: %d", h.top)
 	}
 	h.update(m, a2Key("end"))
-	last := len(helpText) - rows
-	if h.top != last || !strings.Contains(shown(), "q  detach") {
+	all, _, _, _ := h.layout(*m)
+	last := len(all) - rows
+	if h.top != last || !strings.Contains(shown(), "detach (agents keep running)") {
 		t.Fatalf("end: top %d, want %d\n%s", h.top, last, shown())
 	}
 	h.update(m, a2Key("down"))
@@ -611,24 +612,38 @@ func TestHelpScrolls(t *testing.T) {
 		t.Fatal("g goes to the top")
 	}
 
+	// The help wraps to the width it is given, so on a screen it fits
+	// there is nothing to pan and ← → stay where they are.
 	h.update(m, a2Key("right"))
-	if h.left != helpStep || strings.Contains(shown(), "Tree") {
-		t.Fatalf("right: %d\n%s", h.left, shown())
+	if h.left != 0 {
+		t.Fatalf("panned a help that fits: %d\n%s", h.left, shown())
 	}
-	for range 100 {
-		h.update(m, a2Key("l"))
-	}
+
+	// A screen too narrow to wrap into cuts its lines, and those pan.
+	narrow := &Model{width: 24, height: 20}
+	n := newHelp()
+	narrow.overlay = n
+	lines, _, w, _ := n.layout(*narrow)
 	widest := 0
-	for _, l := range helpText {
+	for _, l := range lines {
 		widest = max(widest, ansi.StringWidth(l)+1)
 	}
-	w, _ := h.view(*m)
-	if h.left != widest-w {
-		t.Fatalf("right stops at %d, want %d", h.left, widest-w)
+	if widest <= w {
+		t.Fatalf("a %d-column help cuts nothing off: widest %d, box %d", narrow.width, widest, w)
 	}
-	h.update(m, a2Key("h"))
-	if h.left != widest-w-helpStep {
-		t.Fatalf("left: %d", h.left)
+	n.update(narrow, a2Key("right"))
+	if n.left != min(helpStep, widest-w) {
+		t.Fatalf("right: %d", n.left)
+	}
+	for range 100 {
+		n.update(narrow, a2Key("l"))
+	}
+	if n.left != widest-w {
+		t.Fatalf("right stops at %d, want %d", n.left, widest-w)
+	}
+	n.update(narrow, a2Key("h"))
+	if want := max(widest-w-helpStep, 0); n.left != want {
+		t.Fatalf("left: %d, want %d", n.left, want)
 	}
 
 	// The wheel: up and down scroll, sideways (or with shift) pans.
@@ -647,16 +662,18 @@ func TestHelpScrolls(t *testing.T) {
 	if h.top != 3+1+1 {
 		t.Fatalf("swipe down: %d", h.top)
 	}
-	h.top = 0
-	h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelRight, Action: tea.MouseActionPress}, box{})
-	h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelDown, Shift: true, Action: tea.MouseActionPress}, box{})
-	if h.left != 2*helpStep || h.top != 0 {
-		t.Fatalf("sideways wheel: %d,%d", h.top, h.left)
+	// Sideways (or with shift) the wheel pans, where there is anything to
+	// pan: the narrow help, again.
+	n.left, n.top = 0, 0
+	n.mouse(narrow, tea.MouseMsg{Button: tea.MouseButtonWheelRight, Action: tea.MouseActionPress}, box{})
+	n.mouse(narrow, tea.MouseMsg{Button: tea.MouseButtonWheelDown, Shift: true, Action: tea.MouseActionPress}, box{})
+	if want := min(2*helpStep, widest-w); n.left != want || n.top != 0 {
+		t.Fatalf("sideways wheel: %d,%d, want left %d", n.top, n.left, want)
 	}
-	h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelLeft, Action: tea.MouseActionPress}, box{})
-	h.mouse(m, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Shift: true, Action: tea.MouseActionPress}, box{})
-	if h.left != 0 || m.overlay == nil {
-		t.Fatalf("back left: %d", h.left)
+	n.mouse(narrow, tea.MouseMsg{Button: tea.MouseButtonWheelLeft, Action: tea.MouseActionPress}, box{})
+	n.mouse(narrow, tea.MouseMsg{Button: tea.MouseButtonWheelUp, Shift: true, Action: tea.MouseActionPress}, box{})
+	if n.left != 0 || narrow.overlay == nil {
+		t.Fatalf("back left: %d", n.left)
 	}
 }
 
@@ -674,12 +691,13 @@ func TestHelpResize(t *testing.T) {
 	if len(b.lines) != 40 || h.top != top {
 		t.Fatalf("taller: %d lines, top %d (was %d)", len(b.lines), h.top, top)
 	}
-	if !strings.Contains(a2Plain(b.lines), "q  detach") {
+	if !strings.Contains(a2Plain(b.lines), "detach (agents keep running)") {
 		t.Fatal("the last line is gone")
 	}
 	// Everything fits: no thumb, no scrolling.
-	m.height = len(helpText) + 2
-	if helpThumb(0, len(helpText), len(helpText)) != nil {
+	all, _, _, _ := h.layout(*m)
+	m.height = len(all) + 2
+	if helpThumb(0, len(all), len(all)) != nil {
 		t.Fatal("a thumb when it all fits")
 	}
 	h.update(m, a2Key("end"))

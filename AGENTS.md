@@ -45,6 +45,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/agentsetup` | What an agent loads in a checkout: instructions, skills, MCP servers, trust — and, the other way, writing one agent's instructions, skills and servers where the others look for them (`sync.go`), with a record to undo it; the library of servers and skills the agents follow (`library.go`); each agent's way of naming a variable (`vars.go`); conch's own skill for agents driving agents (`skill/SKILL.md`, installed by `skill.go`) — its commands are checked against the CLI's usage by a test |
 | `internal/gitx` / `internal/ghx` | git status, branches, worktrees, untracked files / pull requests via the `gh` CLI |
 | `internal/update` | Version comparison, same-build checks, release installs, reloading servers |
+| `internal/keymap` | What a key after the prefix does, and which key that is: the actions, their default keys (tmux's, key for key), and `[keys.bind]` from `config.toml` laid over them (`Resolve`, with what was wrong with it said rather than dropped). A package of its own because more than the TUI talks about these — `conch keys` lists them, `conch doctor` checks them, the settings page offers the names — and because an action's name is a promise to somebody's config file: renaming one breaks their keys silently. Its zero `Map` is the default keys, since a Model is copied for every message and a zero table would be a conch whose prefix table did nothing |
 | `internal/config` | Paths (`CONCH_HOME`), `config.toml` loading and saving, and the custom actions it holds (`[[actions]]`: a named command of your own on the row menus, run where the row is) |
 | `internal/configweb` | The settings page: every key of `config.toml` as a form in the browser (`,` then `e` in the TUI, or `conch config web`). The schema the page draws is Go (`schema.go`, a test says it covers `config.Config`); the API answers on 127.0.0.1 only, to a token carried in the URL's fragment and sent back in a header, and refuses a save made from a version of the file that has since changed. The page (`app/`: React, Tailwind, shadcn) is built by `make settings-ui` into `dist/`, which is committed and embedded, so conch still builds with go alone; its logic is in `app/src/lib/model.js`, tested with node through `TestUILogic`. The TUI serves it itself and takes each save (`internal/tui/configweb.go`), because it holds the configuration in memory and would otherwise write its older copy back |
 | `internal/buildinfo` | Build identity (executable hash) used to detect stale servers and TUIs |
@@ -107,7 +108,10 @@ cutting a release.
 5. **Match the surrounding code.** Short, plain comments that explain *why*;
    names and idioms like the neighbouring code; no speculative abstractions.
 6. **User-visible changes update their docs** in the same change: the help
-   overlay (`internal/tui/overlay.go` `helpText`), status bar hints, CLI usage
+   overlay (`internal/tui/overlay.go` `helpGroups`: a group, a key and its
+   details, laid out for the screen by `helpLines` — a key after the prefix
+   is named there by its `keymap.Action`, never by the letter, so that
+   `[keys.bind]` moves it everywhere at once), status bar hints, CLI usage
    in `cmd/conch/main.go`, and the pages under `web/src/app/docs` (notably
    `interface/page.mdx` and `keys/page.mdx`).
 7. **Commit only when asked**, with a message that says what changed and why.

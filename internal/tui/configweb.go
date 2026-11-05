@@ -146,6 +146,9 @@ func (m *Model) takeSavedConfig(cfg config.Config) tea.Cmd {
 func (m *Model) applyConfig(cfg config.Config) {
 	hoverWas := m.cfg.UI.Hover
 	m.cfg = cfg
+	// The keys may have moved with it, and a stale table would route a key
+	// to what it used to do.
+	m.binds, m.bindWarn = resolveBinds(cfg)
 	applyTheme(cfg.UI.Theme, cfg.UI.Accent)
 	if hoverWas && !cfg.UI.Hover {
 		m.clearHover()

@@ -16,6 +16,7 @@ import (
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/doctor"
+	"github.com/Amitgb14/conch/internal/keymap"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 )
@@ -49,6 +50,12 @@ type Model struct {
 	// answered, keyed by machine and pane: what watchPrompt reports on.
 	prompts map[string]*promptWatch
 	cfg     config.Config
+	// binds is what a key after the prefix does, the defaults with
+	// [keys.bind] laid over them, and bindWarn is what was wrong with that
+	// table — said once when the TUI starts, since a key that silently
+	// does nothing is the hardest kind of configuration to debug.
+	binds    keymap.Map
+	bindWarn []string
 
 	width, height int
 
@@ -293,6 +300,11 @@ func New(local *client.Client, cfg config.Config) Model {
 		hostStatusOn: hostStatusWorks(),
 		appWindow:    inAppWindow(),
 	}
+	m.binds, m.bindWarn = resolveBinds(cfg)
+	// A key that silently does nothing is the hardest configuration to
+	// debug, so what was wrong with [keys.bind] is on screen at once —
+	// and in conch doctor, which does not fade.
+	m.warning = strings.Join(m.bindWarn, " · ")
 	m.sshInfo = cleanSSHInfo(m.savedSSH, st.SSHHosts)
 	m.folders = migrateSSHGroups(m.folders, st.SSHGroups, m.savedSSH, m.sshInfo)
 	m.restoreTabs(st.Tabs, st.ActiveTab)
@@ -326,7 +338,13 @@ func New(local *client.Client, cfg config.Config) Model {
 // Warn puts a message on screen as soon as the TUI starts — settings that
 // could not be read, say. It is shown like any other error, and fades.
 func (m Model) Warn(text string) Model {
-	m.warning = text
+	switch {
+	case text == "":
+	case m.warning == "": // the keys may have left a warning of their own
+		m.warning = text
+	default:
+		m.warning = text + " · " + m.warning
+	}
 	return m
 }
 

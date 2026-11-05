@@ -22,6 +22,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/doctor"
 	"github.com/Amitgb14/conch/internal/ghx"
+	"github.com/Amitgb14/conch/internal/keymap"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/update"
@@ -81,6 +82,7 @@ func doctorChecks(ask bool) []doctor.Check {
 	checks := []doctor.Check{
 		{Name: "conch", Status: doctor.OK, Detail: proto.Version + " · " + runtime.GOOS + "/" + runtime.GOARCH},
 		cfgCheck,
+		doctorKeys(cfg),
 		doctorSocket(),
 		{}, {}, // server, agents
 		{}, {}, // git, gh
@@ -95,20 +97,47 @@ func doctorChecks(ask bool) []doctor.Check {
 		if ask {
 			said = askTerminal(termAskTime)
 		}
-		checks[7] = doctorTerminal(cfg, said)
+		checks[8] = doctorTerminal(cfg, said)
 	}()
 	go func() {
 		defer wg.Done()
 		server, c := doctorServer()
-		checks[3], checks[4] = server, doctorAgents(c)
+		checks[4], checks[5] = server, doctorAgents(c)
 		if c != nil {
 			c.Close()
 		}
 	}()
-	go func() { defer wg.Done(); checks[5] = doctorGit() }()
-	go func() { defer wg.Done(); checks[6] = doctorGH() }()
+	go func() { defer wg.Done(); checks[6] = doctorGit() }()
+	go func() { defer wg.Done(); checks[7] = doctorGH() }()
 	wg.Wait()
 	return checks
+}
+
+// doctorKeys is what [keys.bind] came to: a table with a mistake in it is
+// a warning and not a failure, since conch runs on the keys it could make
+// sense of — but it is said here as well as on start-up, because a flash
+// fades and a key that does nothing does not.
+func doctorKeys(cfg config.Config) doctor.Check {
+	binds, problems := keymap.Resolve(cfg.Keys.Bind)
+	if len(problems) > 0 {
+		return doctor.Check{Name: "keys", Status: doctor.Warn,
+			Detail: config.File() + ": " + strings.Join(problems, "; "),
+			Fix:    "edit [keys.bind] there; conch keys lists every name and what it is on"}
+	}
+	moved, gone := 0, 0
+	for _, a := range keymap.Actions() {
+		switch {
+		case !binds.Bound(a):
+			gone++
+		case binds.Rebound(a):
+			moved++
+		}
+	}
+	detail := fmt.Sprintf("%s, then %d keys", cfg.Keys.Prefix, len(keymap.Actions()))
+	if moved+gone > 0 {
+		detail += fmt.Sprintf(" · %d rebound, %d unbound (conch keys)", moved, gone)
+	}
+	return doctor.Check{Name: "keys", Status: doctor.OK, Detail: detail}
 }
 
 // doctorConfig loads config.toml. A file that does not parse is a failure,
