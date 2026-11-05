@@ -58,6 +58,22 @@ public enum RowAction: Equatable, Sendable {
     case removeWorktree(project: String, path: String)
     /// A branch deleted, with its worktree — after saying what that loses.
     case deleteBranch(project: String, branch: String)
+    /// A pane's alert when it goes quiet (quiet) or prints, turned on or off.
+    case monitor(pane: String, quiet: Bool)
+    /// One message to the running panes of a row (the TUI's broadcast).
+    case broadcast(BroadcastScope)
+    /// A custom action from config.toml, by its name.
+    case runAction(String)
+    /// A saved ssh host logged in to again, or forgotten; a session's
+    /// host saved to log in to again.
+    case connectHost(String)
+    case forgetHost(String)
+    case saveHost(pane: String)
+    /// What the agents load in a checkout (the TUI's i), in a tab.
+    case agentSetup(project: String, dir: String)
+    /// A hosted sandbox started, stopped, deleted or its cost asked for
+    /// (conch sandbox VERB), by its machine.
+    case sandbox(machine: String, verb: String)
     case divider
 }
 
@@ -77,6 +93,9 @@ public struct RowMenuItem: Equatable, Sendable {
 }
 
 extension Snapshot {
+    /// Whether a broadcast from scope has anyone to go to.
+    func hasRunning(_ scope: BroadcastScope) -> Bool { !broadcastTargets(scope).isEmpty }
+
     /// A tree row's right-click menu: the TUI's row menu (overlay.go), for
     /// what the app does itself. machineOnline false leaves out whatever
     /// would start something there.
@@ -96,6 +115,15 @@ extension Snapshot {
             if let b = p.branch, !b.isEmpty, let pr = p.projectID, project(pr) != nil {
                 out.append(RowMenuItem("View changes on \(b)", .changes(project: key(machine, pr), branch: b)))
             }
+            // Watching a terminal, as the TUI's ctrl+b M and A: an agent
+            // says for itself when it needs you.
+            if !agent && p.running && machineOnline {
+                let quiet = (p.monitor?.silence ?? 0) > 0, output = p.monitor?.activity == true
+                out += [.divider,
+                        RowMenuItem((quiet ? "✓ " : "") + "Alert when it goes quiet", .monitor(pane: k, quiet: true)),
+                        RowMenuItem((output ? "✓ " : "") + "Alert on output", .monitor(pane: k, quiet: false))]
+            }
+            if machine == "local", p.sshTarget != nil { out += [.divider, RowMenuItem("Save this host", .saveHost(pane: k))] }
             out += [.divider, RowMenuItem(agent && p.running ? "Close agent…" : "Close", .close(pane: k))]
         case .branch(let pk, let name, _):
             out = [RowMenuItem("View changes", .changes(project: pk, branch: name))]
@@ -108,6 +136,9 @@ extension Snapshot {
             }
             if machineOnline { out.append(RowMenuItem("New task in project…", .newTask(project: pk))) }
             out.append(RowMenuItem("Show in commit graph", .commits(project: pk, branch: name)))
+            if let w = pr?.worktrees?.first(where: { $0.branch == name })?.path {
+                out.append(RowMenuItem("Agent setup here", .agentSetup(project: pk, dir: w)))
+            }
             if let url = pr?.branches?.first(where: { $0.name == name })?.pr?.url, openableURL(url) != nil {
                 out.append(RowMenuItem("Open pull request", .openURL(url)))
             }
@@ -127,6 +158,8 @@ extension Snapshot {
                    RowMenuItem("Start an agent in project", .startAgent(machine: machine, cwd: pr.path, inProject: true)),
                    RowMenuItem("Open terminal in project", .newTerminal(machine: machine, cwd: pr.path, inProject: true))]
             if pr.git != false { out.append(RowMenuItem("Commit graph", .commits(project: pk, branch: nil))) }
+            out.append(RowMenuItem("Agent setup", .agentSetup(project: pk, dir: pr.path)))
+            if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to its agents…", .broadcast(.project(pk)))) }
             out += [.divider, RowMenuItem("Copy path", .copy(pr.path))]
         case .machine, .cli:
             let isMachine: Bool = { if case .machine = node.kind { return true }; return false }()
@@ -134,6 +167,8 @@ extension Snapshot {
                 out = [RowMenuItem("Start an agent", .startAgent(machine: machine, cwd: nil, inProject: false)),
                        RowMenuItem("New terminal", .newTerminal(machine: machine, cwd: nil, inProject: false))]
                 if machine == "local" { out.append(RowMenuItem("SSH to a host…", .sshToHost)) }
+                let scope: BroadcastScope = isMachine ? .machine(machine) : .cli(machine)
+                if hasRunning(scope) { out.append(RowMenuItem("Broadcast…", .broadcast(scope))) }
                 if isMachine { out += [.divider, RowMenuItem("Add project…", .addProject(machine: machine))] }
             }
             if isMachine { out.append(RowMenuItem("Add machine…", .addMachine)) }
@@ -150,9 +185,19 @@ extension Snapshot {
         case .workspace:
             guard machineOnline else { return [] }
             out = [RowMenuItem("Add project…", .addProject(machine: machine))]
+            if hasRunning(.machine(machine)) { out.append(RowMenuItem("Broadcast…", .broadcast(.machine(machine)))) }
             if !projects.isEmpty { out.append(.divider) }
             out += projects.map { RowMenuItem("New task in \($0.name)…", .newTask(project: key(machine, $0.id))) }
-        case .section, .sessions, .files, .subagent, .more:
+        case .section(let name):
+            // A project's Agents or Terminals: a message to those alone.
+            guard machineOnline, name == "Agents" || name == "Terminals", node.id.hasPrefix("s:") else { return [] }
+            let rest = node.id.dropFirst(2)
+            guard let colon = rest.lastIndex(of: ":") else { return [] }
+            let scope = BroadcastScope.section(project: String(rest[..<colon]), agents: name == "Agents")
+            return hasRunning(scope) ? [RowMenuItem(name == "Agents" ? "Broadcast to these agents…" : "Broadcast to these terminals…", .broadcast(scope))] : []
+        case .savedHost(let h):
+            return [RowMenuItem("Connect", .connectHost(h)), .divider, RowMenuItem("Forget this host", .forgetHost(h))]
+        case .sessions, .files, .subagent, .more:
             return []
         }
         return out
@@ -165,6 +210,7 @@ extension TreeNode {
         switch kind {
         case .machine(let m), .cli(let m), .workspace(let m): return m
         case .agent(let k), .terminal(let k), .project(let k), .sessions(let k), .files(let k), .subagent(let k, _), .more(let k, _): return unkey(k).machine
+        case .savedHost: return "local"
         case .branch(let pk, _, _): return unkey(pk).machine
         case .section: return unkey(String(id.dropFirst(2).split(separator: ":").first ?? "")).machine
         }
@@ -211,4 +257,29 @@ public struct BranchDiscardResult: Decodable, Equatable, Sendable {
         }
         return parts.isEmpty ? nil : "This loses " + parts.joined(separator: " and ") + "."
     }
+}
+
+/// A sandbox machine's own menu items, as the TUI's sandbox rows offer:
+/// start one that is not running, stop or delete it, and what it has cost.
+public func sandboxMenu(machine: String, running: Bool) -> [RowMenuItem] {
+    var out: [RowMenuItem] = [.divider]
+    out.append(running ? RowMenuItem("Stop sandbox…", .sandbox(machine: machine, verb: "stop"))
+                       : RowMenuItem("Start sandbox", .sandbox(machine: machine, verb: "start")))
+    out += [RowMenuItem("What it has cost", .sandbox(machine: machine, verb: "usage")),
+            RowMenuItem("Delete sandbox…", .sandbox(machine: machine, verb: "rm"))]
+    return out
+}
+
+/// `conch sandbox`'s arguments for a verb on a machine: -y where the app
+/// has asked already, since conch would otherwise ask on a terminal nobody
+/// is at.
+public func sandboxArgs(provider: String, verb: String, machine: String) -> [String] {
+    ["sandbox", "-provider", provider, verb] + (verb == "stop" || verb == "rm" ? ["-y"] : []) + [machine]
+}
+
+/// Whether a server.reload that threw is a reload under way: its connection
+/// closing under the call, as an exec drops it. Anything the server said is
+/// a refusal, to be said — "already runs build …" most often.
+public func reloadUnderway(_ error: Error) -> Bool {
+    (error as? ConchError)?.code == "closed"
 }

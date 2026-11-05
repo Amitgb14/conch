@@ -144,3 +144,25 @@ public func openableURL(_ s: String) -> URL? {
     if scheme != "mailto" && (u.host ?? "").isEmpty { return nil }
     return u
 }
+
+/// Whether a conch's attach takes -hold (keeping an ended pane's screen):
+/// asked once of the binary, since one from before it refuses the flag and
+/// every pane would fail to start. Its usage line says.
+public func attachHolds(_ usage: String) -> Bool { usage.contains("[-hold]") }
+
+/// What `conch attach` says it takes, run with nothing to attach; "" when
+/// it cannot be run.
+public func attachUsageLine(_ binary: String) -> String {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: binary)
+    p.arguments = ["attach"]
+    p.environment = conchEnvironment()
+    let err = Pipe()
+    p.standardOutput = FileHandle.nullDevice
+    p.standardError = err
+    p.standardInput = FileHandle.nullDevice
+    do { try p.run() } catch { return "" }
+    let data = err.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    return String(decoding: data, as: UTF8.self)
+}

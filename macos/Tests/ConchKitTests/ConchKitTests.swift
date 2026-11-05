@@ -635,11 +635,12 @@ final class FakeServer: @unchecked Sendable {
     // In a worktree of its own: removed (the worktree) or deleted (the branch).
     let feat = api.children![1].children![1]
     let fm = s.menu(for: feat, machine: "box")
-    #expect(titles(fm) == ["View changes", "Start an agent on this branch", "Open terminal on this branch", "New task in project…", "Show in commit graph", "",
-                           "Copy branch name", "", "Remove worktree…", "Delete branch…"])
+    #expect(titles(fm) == ["View changes", "Start an agent on this branch", "Open terminal on this branch", "New task in project…", "Show in commit graph",
+                           "Agent setup here", "", "Copy branch name", "", "Remove worktree…", "Delete branch…"])
+    #expect(fm[5].action == .agentSetup(project: "box|r1", dir: "/src/api-feat"))
     #expect(fm[4].action == .commits(project: "box|r1", branch: "feat"))
     #expect(fm[1].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true))
-    #expect(fm[8].action == .removeWorktree(project: "box|r1", path: "/src/api-feat") && fm[9].action == .deleteBranch(project: "box|r1", branch: "feat"))
+    #expect(fm[9].action == .removeWorktree(project: "box|r1", path: "/src/api-feat") && fm[10].action == .deleteBranch(project: "box|r1", branch: "feat"))
     // Not checked out: deleted only.
     let old = TreeNode(id: "b:box|r1:old", kind: .branch(project: "box|r1", name: "old", checkedOut: false), title: "old")
     #expect(titles(s.menu(for: old, machine: "box")) == ["View changes", "New task in project…", "Show in commit graph", "", "Copy branch name", "", "Delete branch…"])
@@ -674,7 +675,7 @@ final class FakeServer: @unchecked Sendable {
     plain.upsert(np)
     #expect(!plain.menu(for: api, machine: "box").contains { if case .commits = $0.action { return true }; return false })
     #expect(s.menu(for: t, machine: "box").map(\.action) == [.startAgent(machine: "box", cwd: nil, inProject: false), .newTerminal(machine: "box", cwd: nil, inProject: false),
-                                                             .divider, .addProject(machine: "box"), .addMachine,
+                                                             .broadcast(.machine("box")), .divider, .addProject(machine: "box"), .addMachine,
                                                              .divider, .reconnect(machine: "box"), .reloadServer(machine: "box"),
                                                              .upgrade(machine: "box"), .removeMachine(machine: "box")])
     // This computer is neither upgraded nor removed from here; its CLI
@@ -695,8 +696,10 @@ final class FakeServer: @unchecked Sendable {
                                                                                    .upgrade(machine: "box"), .removeMachine(machine: "box")])
     #expect(s.menu(for: api, machine: "box", machineOnline: false).isEmpty)
     #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View changes on feat", "", "Close agent…"])
-    // A section has none, and a pane gone from the snapshot none either.
-    #expect(s.menu(for: api.children![0], machine: "box").isEmpty)
+    // A section offers a broadcast to those in it, offline nothing; a pane
+    // gone from the snapshot has no menu.
+    #expect(s.menu(for: api.children![0], machine: "box").map(\.action) == [.broadcast(.section(project: "box|r1", agents: true))])
+    #expect(s.menu(for: api.children![0], machine: "box", machineOnline: false).isEmpty)
     #expect(s.menu(for: TreeNode(id: "x", kind: .agent("box|p99"), title: "x"), machine: "box").isEmpty)
 }
 
@@ -1042,7 +1045,7 @@ final class FakeServer: @unchecked Sendable {
     let s = fixture()
     let w = s.tree(machine: "box").children![0]
     #expect(w.kind == .workspace("box") && w.machine == "box")
-    #expect(s.menu(for: w, machine: "box").map(\.action) == [.addProject(machine: "box"), .divider, .newTask(project: "box|r1")])
+    #expect(s.menu(for: w, machine: "box").map(\.action) == [.addProject(machine: "box"), .broadcast(.machine("box")), .divider, .newTask(project: "box|r1")])
     #expect(s.menu(for: w, machine: "box", machineOnline: false).isEmpty)
     #expect(Snapshot(panes: s.panes).tree().children?.map(\.title) == ["CLI"]) // no projects, no Workspace row
 }
@@ -2083,4 +2086,321 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     var t = Layout()
     t.adopt(ViewState(tabs: [ViewTab(name: "build", panes: ["p1"]), ViewTab(name: "", panes: ["p2"])]), machine: "local", alive: ["local|p1", "local|p2"])
     #expect(t.tabs.map(\.name) == ["build", nil])
+}
+
+// A terminal is watched for going quiet or printing, as the TUI's ctrl+b M
+// and A: the menu says which is on, a toggle turns one kind alone, the
+// quiet time is [notify] silence, and an alert raised is a notification
+// worded as the TUI's.
+@Test func paneMonitoring() throws {
+    let m = PaneMonitor()
+    #expect(m.toggled(quiet: true, seconds: 45) == PaneMonitor(silence: 45))
+    #expect(PaneMonitor(activity: true, silence: 45).toggled(quiet: true, seconds: 45) == PaneMonitor(activity: true))
+    #expect(m.toggled(quiet: false, seconds: 45) == PaneMonitor(activity: true))
+    #expect(PaneMonitor(activity: true).toggled(quiet: false, seconds: 9) == PaneMonitor())
+    #expect(silenceAfter(toml: "") == 30)
+    #expect(silenceAfter(toml: "[notify]\nsilence = 90\n") == 90)
+    #expect(silenceAfter(toml: "[notify]\nsilence = 0\n") == 30)
+    #expect(silenceAfter(toml: "[notify]\nsilence = \"x\"\n") == 30)
+    let info = try JSONDecoder().decode(PaneInfo.self, from: Data(#"{"id":"p3","name":"make","state":"running","monitor":{"silence":30},"alert":"silence"}"#.utf8))
+    #expect(info.monitor == PaneMonitor(silence: 30) && info.alert == "silence")
+
+    // The menu: a running terminal has both, ticked when on; an agent has neither.
+    var s = fixture()
+    var t = s.panes.first { $0.agent == nil }!
+    t.monitor = PaneMonitor(silence: 30)
+    s.upsert(t)
+    let k = key("box", t.id)
+    let titles = s.menu(for: TreeNode(id: "pane:" + k, kind: .terminal(k), title: t.name), machine: "box").map(\.title)
+    #expect(titles.contains("✓ Alert when it goes quiet") && titles.contains("Alert on output"))
+    #expect(!s.menu(for: TreeNode(id: "x", kind: .terminal(k), title: ""), machine: "box", machineOnline: false).contains { $0.title.contains("Alert") })
+    let agent = s.panes.first { $0.agent != nil }!
+    #expect(!s.menu(for: TreeNode(id: "a", kind: .agent(key("box", agent.id)), title: ""), machine: "box").contains { $0.title.contains("Alert") })
+
+    // The notification: once, when raised, unseen, worded as the TUI's.
+    let on = NotifySettings(toml: "")
+    var quiet = info
+    quiet.alert = nil
+    #expect(attentionAlert(old: quiet, new: info, machine: nil, viewing: false, settings: on)?.body == "make has been quiet for 30s")
+    #expect(attentionAlert(old: quiet, new: info, machine: "box", viewing: false, settings: on)?.title == "conch · terminal on box")
+    #expect(attentionAlert(old: info, new: info, machine: nil, viewing: false, settings: on) == nil) // said already
+    #expect(attentionAlert(old: quiet, new: info, machine: nil, viewing: true, settings: on) == nil)
+    var printed = info
+    printed.alert = "activity"
+    #expect(attentionAlert(old: quiet, new: printed, machine: nil, viewing: false, settings: on)?.body == "make printed something")
+}
+
+// A broadcast goes to the running panes of the row it was asked from,
+// agents first; agents start ticked unless waiting on an answer, and
+// terminals only when a Terminals section was asked from.
+@Test func broadcastTargets() {
+    var s = fixture()
+    let agents = s.panes.filter { $0.agent != nil && $0.running }
+    let terms = s.panes.filter { $0.agent == nil && $0.running }
+    let all = s.broadcastTargets(.machine("box"))
+    #expect(all.count == agents.count + terms.count)
+    #expect(all.prefix(agents.count).allSatisfy { $0.agent != nil })
+    for t in all where t.agent == nil { #expect(!t.ticked) }
+    for t in all where t.agent != nil { #expect(t.ticked == !t.waiting) }
+    #expect(all.allSatisfy { $0.key.hasPrefix("box|") })
+    // A project's Terminals: its terminals alone, ticked.
+    let pr = s.projects[0]
+    let tsec = s.broadcastTargets(.section(project: key("box", pr.id), agents: false))
+    #expect(tsec.allSatisfy { $0.agent == nil && $0.ticked })
+    let asec = s.broadcastTargets(.section(project: key("box", pr.id), agents: true))
+    #expect(asec.allSatisfy { $0.agent != nil })
+    // An exited pane is nobody to send to.
+    for p in s.panes { var q = p; q.state = "exited"; s.upsert(q) }
+    #expect(s.broadcastTargets(.machine("box")).isEmpty)
+    #expect(!s.menu(for: s.tree(machine: "box"), machine: "box").contains { if case .broadcast = $0.action { return true }; return false })
+
+    #expect(broadcastSummary([BroadcastOutcome(id: "p1", sent: true), BroadcastOutcome(id: "p2", sent: true)]) == ("Sent to 2 panes", false))
+    let mixed = broadcastSummary([BroadcastOutcome(id: "p1", sent: true), BroadcastOutcome(id: "p2", sent: false, error: "not running"),
+                                  BroadcastOutcome(id: "p3", sent: false)], names: ["p2": "build"])
+    #expect(mixed == ("Sent to 1 pane · 2 not: build — not running, …", true))
+}
+
+// conch doctor's report as the app reads it — kept when it exits 1, which
+// is when a check failed — and the shortcuts sheet's keys.
+@Test func doctorAndShortcuts() async throws {
+    let json = #"[{"name":"server","status":"ok","detail":"running"},{"name":"gh","status":"warn","detail":"not logged in","fix":"gh auth login"},{"name":"git","status":"fail","detail":"missing"}]"#
+    let c = try JSONDecoder().decode([DoctorCheck].self, from: Data(json.utf8))
+    #expect(c.map(\.mark) == ["✓", "!", "✗"] && c[1].fix == "gh auth login")
+    #expect(doctorSummary(c) == "1 problem to fix, and 1 to look at.")
+    #expect(doctorSummary(Array(c.prefix(2))) == "1 thing to look at; nothing stops conch working.")
+    #expect(doctorSummary([c[0]]) == "Everything conch needs is in order.")
+    #expect(doctorSummary([]) == "Everything conch needs is in order.")
+
+    // A conch that fails its checks still has its report read.
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("doc-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let fake = dir.appendingPathComponent("conch")
+    try "#!/bin/sh\necho '\(json)'\nexit 1\n".write(to: fake, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+    let out = try await runConchAnyExit(fake.path, ["doctor", "-json"])
+    #expect(try JSONDecoder().decode([DoctorCheck].self, from: out).count == 3)
+
+    #expect(shortcutLabel(key: "f", command: true, shift: false, option: false, control: false) == "⌘F")
+    #expect(shortcutLabel(key: "\r", command: true, shift: true, option: false, control: false) == "⇧⌘↩")
+    #expect(shortcutLabel(key: String(UnicodeScalar(0xF702)!), command: true, shift: false, option: true, control: false) == "⌥⌘←")
+    #expect(shortcutLabel(key: "s", command: true, shift: false, option: false, control: true) == "⌃⌘S")
+    #expect(shortcutLabel(key: "/", command: true, shift: false, option: false, control: false) == "⌘/")
+}
+
+// What agents spend, as the TUI's cost.go says it: a cost when reported,
+// else output, else input; summed over a row's agents; a pane header's
+// context against the window. [ui] cost turns it off.
+@Test func usageChips() throws {
+    func agent(_ t: Tokens?) -> PaneInfo { PaneInfo(id: "p", name: "a", agent: AgentStatus(name: "claude", state: .working, tokens: t)) }
+    #expect(usage(of: []).chip == "")
+    #expect(usage(of: [agent(nil), PaneInfo(id: "t", name: "zsh")]).chip == "") // no agent with usage
+    #expect(usage(of: [agent(Tokens(input: 500))]).chip == "500 in")
+    #expect(usage(of: [agent(Tokens(input: 10, cacheRead: 20_000, output: 1500))]).chip == "1.5k out")
+    #expect(usage(of: [agent(Tokens(output: 90, costUSD: 0.004))]).chip == "<$0.01")
+    #expect(usage(of: [agent(Tokens(output: 90, costUSD: 1.25)), agent(Tokens(output: 10, costUSD: 0.5))]).chip == "$1.75")
+    #expect(usage(of: [agent(Tokens(output: 2_500_000))]).chip == "2.5M out")
+    #expect(usage(of: [agent(Tokens(output: 42_000))]).chip == "42k out")
+
+    let t = try JSONDecoder().decode(Tokens.self, from: Data(#"{"input":1,"output":1234,"context":45000,"context_size":200000,"cost_usd":0.42}"#.utf8))
+    #expect(tokenSummary(t) == "ctx 45k/200k · out 1.2k · $0.42")
+    #expect(tokenSummary(Tokens(output: 7)) == "out 7")
+    var noWindow = t
+    noWindow.contextSize = 0
+    #expect(tokenSummary(noWindow).hasPrefix("ctx 45k · "))
+
+    #expect(showsCost(toml: ""))
+    #expect(showsCost(toml: "[ui]\ncost = true\n"))
+    #expect(!showsCost(toml: "[ui]\ncost = false\n"))
+}
+
+// Sessions: interrupted, then starred, then newest; "resume all" takes the
+// interrupted ones not open anywhere; a query of three letters or more
+// looks inside the conversations; a search's snippet and a star decode.
+@Test func sessionsStarSearchResume() throws {
+    let now = Date()
+    var a = SessionInfo(agent: "claude", sessionID: "a", dir: "/d", title: "old", updated: now.addingTimeInterval(-900))
+    var b = SessionInfo(agent: "claude", sessionID: "b", dir: "/d", title: "new", updated: now)
+    let c = SessionInfo(agent: "codex", sessionID: "c", dir: "/d", title: "cut", updated: now.addingTimeInterval(-9999), interrupted: true)
+    let open = SessionInfo(agent: "codex", sessionID: "o", dir: "/d", title: "cut, open", paneID: "p4", interrupted: true)
+    #expect(orderSessions([a, b, c]).map(\.sessionID) == ["c", "b", "a"])
+    a.starred = true
+    #expect(orderSessions([a, b, c]).map(\.sessionID) == ["c", "a", "b"])
+    #expect(filterSessions([a, b, c], "").map(\.sessionID) == ["c", "a", "b"])
+    b.interrupted = true
+    #expect(resumable([a, b, c, open]).map(\.sessionID) == ["b", "c"])
+    #expect(!searchesContents("ab") && !searchesContents("  a ") && searchesContents("race"))
+    let s = try conchDecoder().decode(SessionInfo.self, from: Data(#"{"agent":"claude","id":"x","dir":"/d","title":"t","starred":true,"snippet":"…the race in…"}"#.utf8))
+    #expect(s.starred == true && s.snippet == "…the race in…")
+}
+
+// A conch's attach takes -hold only when its usage says so: one from
+// before it would refuse the flag, and every pane with it.
+@Test func attachHoldIsAskedFor() throws {
+    #expect(attachHolds("conch: usage: conch attach [-hold] PANE"))
+    #expect(!attachHolds("conch: usage: conch attach PANE"))
+    #expect(!attachHolds(""))
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hold-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let fake = dir.appendingPathComponent("conch")
+    try "#!/bin/sh\necho 'conch: usage: conch attach [-hold] PANE' >&2\nexit 1\n".write(to: fake, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+    #expect(attachHolds(attachUsageLine(fake.path)))
+    #expect(attachUsageLine(dir.appendingPathComponent("missing").path) == "")
+}
+
+// Custom actions: read from config.toml as the TUI reads them, half-written
+// ones left out, offered by kind of row, placed where the row is.
+@Test func customActions() {
+    let toml = #"""
+    [ui]
+    theme = "conch"
+
+    [[actions]]
+    name = "Run tests"
+    run = "go test ./... # not a comment inside"   # a comment after
+    on = ["branch", 'project']
+
+    [[actions]]
+    name = 'Deploy'
+    run = """
+    make deploy
+    echo "done \\o/"
+    """
+    keep = false
+
+    [[actions]]
+    name = "No command"
+
+    [[actions]]
+    run = "no name"
+
+    [notify]
+    silence = 40
+    """#
+    let a = parseActions(toml: toml)
+    #expect(a.map(\.name) == ["Run tests", "Deploy"])
+    #expect(a[0].run == "go test ./... # not a comment inside" && a[0].on == ["branch", "project"] && a[0].keep)
+    #expect(a[1].run == "make deploy\necho \"done \\o/\"\n" && !a[1].keep && a[1].on.isEmpty) // \\ read as one \
+    #expect(a[0].offers("branch") && a[0].offers("project") && !a[0].offers("pane"))
+    #expect(a[1].offers("pane") && a[1].offers("machine"))
+    #expect(parseActions(toml: "").isEmpty && parseActions(toml: "[[actions]]\nname = \"x\"\nrun = \"unclosed\n").isEmpty)
+
+    let s = fixture()
+    let t = s.tree(machine: "box")
+    let api = projects(t)[0]
+    let (place, at) = s.actionPlace(api, machine: "box", home: "/home/me")!
+    #expect(place == "project" && at.dir == "/src/api" && at.project == "api" && at.branch == "main" && !at.loose)
+    #expect(at.label == "api") // named by the project, as the TUI names it; CONCH_BRANCH still says main
+    #expect(at.env["CONCH_WORKTREE"] == "/src/api" && at.env["CONCH_PANE"] == "" && at.env["CONCH_MACHINE"] == "box")
+    let feat = api.children![1].children!.first { $0.title == "feat" }!
+    #expect(s.actionPlace(feat, machine: "box", home: nil)?.at.dir == "/src/api-feat")
+    let gone = TreeNode(id: "b", kind: .branch(project: "box|r1", name: "old", checkedOut: false), title: "old")
+    #expect(s.actionPlace(gone, machine: "box", home: nil)?.at.dir == nil) // nowhere to run: said, not guessed
+    let (mp, mat) = s.actionPlace(t, machine: "box", home: "/home/me")!
+    #expect(mp == "machine" && mat.dir == "/home/me" && mat.loose && mat.label == "box")
+    #expect(s.actionPlace(api.children![0], machine: "box", home: nil) == nil) // a section has none
+}
+
+// The task sheet's When and Issue become `conch task`'s flags.
+@Test func taskWhenAndIssue() throws {
+    #expect(taskWhenArgs("") == [] && taskWhenArgs(" now ") == [])
+    #expect(taskWhenArgs("queue") == ["-queue"])
+    #expect(taskWhenArgs("after api/model") == ["-after", "api/model"])
+    #expect(taskWhenArgs("Every 1d") == ["-every", "1d"])
+    #expect(taskWhenArgs("14:05") == ["-at", "14:05"] && taskWhenArgs("+30m") == ["-at", "+30m"])
+    #expect(taskArgs(dir: "/src/api", prompt: " fix it ", agent: "codex", branch: "", issue: nil, when: "+1h")
+            == ["task", "-cwd", "/src/api", "-agent", "codex", "-at", "+1h", "fix it"])
+    #expect(taskArgs(dir: "/d", prompt: "", agent: "claude", branch: "b", issue: 42, when: "")
+            == ["task", "-cwd", "/d", "-agent", "claude", "-branch", "b", "-issue", "42"]) // the issue is the prompt
+    #expect(!taskArgs(dir: "/d", prompt: "x", agent: "a", branch: "", issue: 0, when: "").contains("-issue"))
+    let i = try JSONDecoder().decode([IssueInfo].self, from: Data(#"[{"number":7,"title":"Crash on start","url":"https://x","labels":["bug"]}]"#.utf8))
+    #expect(i == [IssueInfo(number: 7, title: "Crash on start")] || i.first?.number == 7)
+}
+
+// Saved ssh hosts as the TUI keeps them in ui.json: read in order with
+// their names and options, saved and forgotten leaving the rest of the
+// file, listed under this computer's CLI while no session is open to them.
+@Test func savedSSHHosts() throws {
+    let ui = #"{"saved_ssh":["busybox","-bad","busybox","dev@10.0.0.9"],"ssh_hosts":{"busybox":{"name":"Busybox","args":["-p","2222"]}},"spaces":[{"id":"w2"}]}"#
+    let hosts = loadSavedHosts(uiJSON: Data(ui.utf8))
+    #expect(hosts == [SavedHost(host: "busybox", name: "Busybox", args: ["-p", "2222"]), SavedHost(host: "dev@10.0.0.9")])
+    #expect(hosts[0].title == "Busybox" && hosts[1].title == "dev@10.0.0.9")
+    #expect(loadSavedHosts(uiJSON: nil).isEmpty && loadSavedHosts(uiJSON: Data("[]".utf8)).isEmpty)
+
+    let saved = try savingHost(SavedHost(host: "new", args: ["-J", "bastion"]), in: Data(ui.utf8))
+    #expect(loadSavedHosts(uiJSON: saved).map(\.host) == ["busybox", "dev@10.0.0.9", "new"])
+    #expect(loadSavedHosts(uiJSON: saved).last?.args == ["-J", "bastion"])
+    let obj = try JSONSerialization.jsonObject(with: saved) as? [String: Any]
+    #expect((obj?["spaces"] as? [[String: Any]])?.first?["id"] as? String == "w2")
+    let forgot = try savingHost(SavedHost(host: "busybox"), save: false, in: saved)
+    #expect(loadSavedHosts(uiJSON: forgot).map(\.host) == ["dev@10.0.0.9", "new"])
+    let none = try savingHost(SavedHost(host: "x"), save: false, in: nil)
+    #expect(loadSavedHosts(uiJSON: none).isEmpty)
+    #expect(throws: ConchError.self) { try savingHost(SavedHost(host: "x"), in: Data("[1]".utf8)) }
+
+    var ssh = PaneInfo(id: "p7", name: "ssh")
+    ssh.command = ["ssh", "-p", "2222", "--", "busybox"]
+    #expect(ssh.sshTarget == "busybox" && ssh.sshArgs == ["-p", "2222"])
+    var plain = PaneInfo(id: "p8", name: "zsh")
+    plain.command = ["/bin/zsh"]
+    #expect(plain.sshTarget == nil && plain.sshArgs.isEmpty)
+    #expect(idleSavedHosts(hosts, panes: [ssh]).map(\.host) == ["dev@10.0.0.9"])
+    var gone = ssh
+    gone.state = "exited"
+    #expect(idleSavedHosts(hosts, panes: [gone]).count == 2) // a failed login lists the host to try again
+
+    let s = Snapshot(panes: [ssh])
+    let cli = s.tree(machine: "local", savedHosts: hosts).children?.first { $0.kind == .cli("local") }
+    #expect(cli?.children?.last?.kind == .savedHost("dev@10.0.0.9") && cli?.children?.last?.badge == "saved")
+    #expect(cli?.badge == "2") // the session and the saved host it lists
+    #expect(!(cli?.children ?? []).contains { $0.kind == .savedHost("busybox") }) // a session is open to it
+    // Only this computer lists them; with none and no terminals, no CLI.
+    #expect(Snapshot().tree(machine: "box", savedHosts: hosts).children?.contains { $0.kind == .cli("box") } != true)
+    #expect(Snapshot().tree(machine: "local", savedHosts: hosts).children?.first?.kind == .cli("local"))
+    #expect(Snapshot().tree(machine: "local", savedHosts: hosts).children?.first?.badge == "2") // never 0 beside what it lists
+    let row = TreeNode(id: "host:dev@10.0.0.9", kind: .savedHost("dev@10.0.0.9"), title: "dev")
+    #expect(s.menu(for: row, machine: "local").map(\.action) == [.connectHost("dev@10.0.0.9"), .divider, .forgetHost("dev@10.0.0.9")])
+    #expect(row.machine == "local")
+    let sessionRow = TreeNode(id: "pane:local|p7", kind: .terminal("local|p7"), title: "ssh")
+    #expect(s.menu(for: sessionRow, machine: "local").contains { $0.action == .saveHost(pane: "local|p7") })
+}
+
+// A sandbox's menu: start one not running, stop one that is, its cost and
+// delete either way; stop and delete pass -y, since the app asked first.
+@Test func sandboxMenus() {
+    #expect(sandboxMenu(machine: "sbx", running: true).map(\.action) == [.divider, .sandbox(machine: "sbx", verb: "stop"),
+                                                                        .sandbox(machine: "sbx", verb: "usage"), .sandbox(machine: "sbx", verb: "rm")])
+    #expect(sandboxMenu(machine: "sbx", running: false)[1].action == .sandbox(machine: "sbx", verb: "start"))
+    #expect(sandboxArgs(provider: "daytona", verb: "stop", machine: "sbx") == ["sandbox", "-provider", "daytona", "stop", "-y", "sbx"])
+    #expect(sandboxArgs(provider: "boat", verb: "rm", machine: "sbx") == ["sandbox", "-provider", "boat", "rm", "-y", "sbx"])
+    #expect(sandboxArgs(provider: "boat", verb: "start", machine: "sbx") == ["sandbox", "-provider", "boat", "start", "sbx"])
+    #expect(sandboxArgs(provider: "devin", verb: "usage", machine: "sbx") == ["sandbox", "-provider", "devin", "usage", "sbx"])
+}
+
+// The agent setup tab: its key round-trips with a directory holding any
+// character, and agent.setup's answer reads with what each agent loads.
+@Test func agentSetupTab() throws {
+    let k = setupKey("box", "r1", dir: "/src/api|odd")
+    #expect(parseSetupKey(k)! == ("box", "r1", "/src/api|odd"))
+    #expect(parseSetupKey("setup|box|r1|") == nil && parseSetupKey("files|box|r1") == nil && parseSetupKey("setup|box||/d") == nil)
+    #expect(!isPaneKey(k) && !isTerminalKey(k))
+    let json = #"{"dir":"/w","worktree":"/w","main":"/m","local_files":[{"path":".env","state":"missing"}],"agents":[{"agent":"claude","label":"Claude Code","groups":[{"title":"Instructions","items":[{"name":"CLAUDE.md","scope":"project","path":"/w/CLAUDE.md"},{"name":"AGENTS.md","scope":"project","missing":true}]},{"title":"MCP servers","items":[]}],"notes":["reads AGENTS.md through CLAUDE.md"]}]}"#
+    let r = try JSONDecoder().decode(AgentSetupResult.self, from: Data(json.utf8))
+    #expect(r.agents?.first?.loaded == 1 && r.localFiles?.first?.state == "missing")
+    #expect(localFileNote("missing") == "not copied here" && localFileNote("odd") == "odd")
+    let s = fixture()
+    let api = projects(s.tree(machine: "box"))[0]
+    #expect(s.menu(for: api, machine: "box").contains { $0.action == .agentSetup(project: "box|r1", dir: "/src/api") })
+}
+
+// A reload refused is said; only the connection closing under it means the
+// server is reloading — reporting success for a refusal was a real bug.
+@Test func reloadRefusalIsSaid() {
+    #expect(reloadUnderway(ConchError(code: "closed", message: "the connection to conch's server closed")))
+    #expect(!reloadUnderway(ConchError(code: "bad_request", message: "the server already runs build abc")))
+    #expect(!reloadUnderway(ConchError(code: "connect", message: "not answering")))
+    struct Other: Error {}
+    #expect(!reloadUnderway(Other()))
 }

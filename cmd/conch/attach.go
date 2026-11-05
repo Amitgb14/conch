@@ -38,7 +38,7 @@ import (
 // (pane.send_mouse) the server sends only if the program wants them.
 // Everything else typed is passed through as it came.
 
-const attachUsage = "usage: conch attach PANE"
+const attachUsage = "usage: conch attach [-hold] PANE"
 
 // Escapes this terminal is put into, and taken out of: the alternate
 // screen so whatever was there comes back, no cursor of its own (the
@@ -87,6 +87,13 @@ type attachControl struct {
 const attachMatch = "\x1b[0;30;43m"
 
 func runAttach(args []string) error {
+	// -hold keeps an ended pane's last screen until a key is pressed: the
+	// Mac app's, for a kept action's output and an error in a pane's
+	// first seconds, which the view would otherwise take with it.
+	hold := len(args) > 0 && args[0] == "-hold"
+	if hold {
+		args = args[1:]
+	}
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		return errors.New(attachUsage)
 	}
@@ -123,7 +130,7 @@ func runAttach(args []string) error {
 		w, h, err := term.GetSize(os.Stdout.Fd())
 		return w, h, err == nil && w > 0 && h > 0
 	}
-	msg, err := attachLoop(c, id, os.Stdin, os.Stdout, size, winch, quit)
+	msg, err := attachLoopHold(c, id, os.Stdin, os.Stdout, size, winch, quit, hold)
 	if msg != "" {
 		fmt.Fprintln(os.Stderr, msg)
 	}
@@ -159,13 +166,22 @@ type attachSession struct {
 	// and query what the last one asked to have marked.
 	control string
 	query   string
+	// hold keeps an ended pane's screen; over is why it ended, once it has.
+	hold bool
+	over string
 }
 
 // attachLoop runs an attached pane until the pane ends, the input ends
 // (the window was closed), or the connection goes. What it returns as a
 // message is said after the terminal is given back.
 func attachLoop(c *client.Client, id string, in io.Reader, out io.Writer, size func() (int, int, bool), winch, quit <-chan os.Signal) (string, error) {
-	s := &attachSession{c: c, id: id, out: out, control: os.Getenv(attachControlEnv)}
+	return attachLoopHold(c, id, in, out, size, winch, quit, false)
+}
+
+// attachLoopHold is attachLoop, holding an ended pane's last screen when
+// hold is set: a note on its bottom line, and the next key ends it.
+func attachLoopHold(c *client.Client, id string, in io.Reader, out io.Writer, size func() (int, int, bool), winch, quit <-chan os.Signal, hold bool) (string, error) {
+	s := &attachSession{c: c, id: id, out: out, control: os.Getenv(attachControlEnv), hold: hold}
 	io.WriteString(out, attachEnter) //nolint:errcheck
 	defer io.WriteString(out, attachLeave)
 	s.resize(size)
@@ -176,7 +192,11 @@ func attachLoop(c *client.Client, id string, in io.Reader, out io.Writer, size f
 	// say so now rather than showing that screen for ever, typing into
 	// nothing — also one that ended between being named and subscribed.
 	if why := s.ended(); why != "" {
-		return why, nil
+		if !hold {
+			return why, nil
+		}
+		s.over = why // its last frame comes, and is held
+		s.draw()
 	}
 
 	input := make(chan []byte)
@@ -209,6 +229,11 @@ func attachLoop(c *client.Client, id string, in io.Reader, out io.Writer, size f
 		case b, ok := <-input:
 			if !ok {
 				return "", nil // the window went: the pane carries on
+			}
+			// Held over an ended pane: a key ends it; the wheel still
+			// scrolls what it printed.
+			if s.over != "" && !bytes.HasPrefix(b, []byte("\x1b[<")) {
+				return s.over, nil
 			}
 			held = s.input(append(held, b...), false)
 			flush.Stop()
@@ -260,7 +285,13 @@ func (s *attachSession) event(msg proto.Message) string {
 			return ""
 		}
 		if msg.Event == proto.EventPaneExited {
-			return fmt.Sprintf("pane %s ended (exit %d)", s.id, info.ExitCode)
+			why := fmt.Sprintf("pane %s ended (exit %d)", s.id, info.ExitCode)
+			if s.hold {
+				s.over = why
+				s.draw()
+				return ""
+			}
+			return why
 		}
 		return fmt.Sprintf("pane %s was closed", s.id)
 	}
@@ -278,6 +309,17 @@ func (s *attachSession) draw() {
 		for i, l := range s.frame.Lines {
 			f.Lines[i] = markMatches(l, tui.MatchSpans(ansi.Strip(l), s.query), f.Cols)
 		}
+	}
+	if s.over != "" && len(f.Lines) > 0 {
+		// Why it ended, over its bottom line, and what ends the view.
+		f.Lines = append([]string(nil), f.Lines...)
+		note := " " + s.over + " · any key closes "
+		if w := ansi.StringWidth(note); f.Cols > 0 && w > f.Cols {
+			note = ansi.Truncate(note, f.Cols, "")
+		} else if f.Cols > w {
+			note += strings.Repeat(" ", f.Cols-w)
+		}
+		f.Lines[len(f.Lines)-1] = "\x1b[0;7m" + note + "\x1b[0m"
 	}
 	io.WriteString(s.out, renderAttachFrame(&f)) //nolint:errcheck
 }

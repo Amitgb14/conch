@@ -19,9 +19,13 @@ public struct SessionInfo: Decodable, Equatable, Identifiable, Sendable {
     /// It was running when conch's server stopped and hasn't been resumed.
     public var interrupted: Bool?
     public var costUSD: Double?
+    /// Kept to come back to (session.star.v1): conch's mark, not the agent's.
+    public var starred: Bool?
+    /// The words around a match inside the conversation, in a search's results.
+    public var snippet: String?
 
     enum CodingKeys: String, CodingKey {
-        case agent, dir, branch, title, started, updated, interrupted
+        case agent, dir, branch, title, started, updated, interrupted, starred, snippet
         case sessionID = "id"
         case paneID = "pane_id"
         case costUSD = "cost_usd"
@@ -69,10 +73,29 @@ public func filterSessions(_ list: [SessionInfo], _ query: String) -> [SessionIn
         let hay = (s.title + " " + (s.branch ?? "") + " " + s.agent).lowercased()
         return words.allSatisfy { hay.contains($0) }
     }
-    return kept.sorted {
+    return orderSessions(kept)
+}
+
+/// Interrupted first, then starred, then newest — what is owed a look
+/// above what was kept, above the rest.
+public func orderSessions(_ list: [SessionInfo]) -> [SessionInfo] {
+    list.sorted {
         if ($0.interrupted ?? false) != ($1.interrupted ?? false) { return $0.interrupted ?? false }
+        if ($0.starred ?? false) != ($1.starred ?? false) { return $0.starred ?? false }
         return ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast)
     }
+}
+
+/// The interrupted conversations a "resume all" brings back: not open in a
+/// pane, and with a conversation to resume.
+public func resumable(_ list: [SessionInfo]) -> [SessionInfo] {
+    list.filter { $0.interrupted == true && ($0.paneID ?? "").isEmpty }
+}
+
+/// Whether a query is worth asking the server to look inside the
+/// conversations for: three letters or more.
+public func searchesContents(_ query: String) -> Bool {
+    query.trimmingCharacters(in: .whitespaces).count >= 3
 }
 
 /// How long ago, as a list says it: "now", "5m ago", "3h ago", "2d ago",

@@ -42,6 +42,17 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
         return true
     }
 
+    /// Whether this conch's attach keeps an ended pane's screen (-hold),
+    /// asked once.
+    private static var holdsFor: (String, Bool)?
+    static func holds(_ binary: String?) -> Bool {
+        guard let binary else { return false }
+        if let (b, h) = holdsFor, b == binary { return h }
+        let h = attachHolds(attachUsageLine(binary))
+        holdsFor = (binary, h)
+        return h
+    }
+
     /// The token this app's control pastes start with, made at launch and
     /// given only to the `conch attach` in each pane (attachControlEnv).
     static let controlToken = UUID().uuidString
@@ -68,7 +79,7 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
         env[attachControlEnv] = Self.controlToken
         // `conch attach`, with -m for a pane on another machine.
         let (machine, id) = unkey(k)
-        let args = onMachine(machine, ["attach", id])
+        let args = onMachine(machine, ["attach"] + (Self.holds(binary) ? ["-hold"] : []) + [id])
         #if GHOSTTY
         if let binary, GhosttyRuntime.shared.app != nil {
             let g = GhosttyPaneView(command: ([binary] + args).map(shellQuote).joined(separator: " "), environment: env)

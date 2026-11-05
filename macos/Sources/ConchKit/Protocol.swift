@@ -18,9 +18,13 @@ public enum AgentState: String, Decodable, Sendable {
 public struct Tokens: Decodable, Equatable, Sendable {
     public var input = 0, cacheWrite = 0, cacheRead = 0, output = 0
     public var costUSD: Double?
+    /// The latest request's context, and the model's window when the
+    /// agent reports it.
+    public var context = 0, contextSize = 0
 
     enum CodingKeys: String, CodingKey {
-        case input, output
+        case input, output, context
+        case contextSize = "context_size"
         case cacheWrite = "cache_write"
         case cacheRead = "cache_read"
         case costUSD = "cost_usd"
@@ -41,6 +45,8 @@ public struct Tokens: Decodable, Equatable, Sendable {
         cacheRead = try c.decodeIfPresent(Int.self, forKey: .cacheRead) ?? 0
         output = try c.decodeIfPresent(Int.self, forKey: .output) ?? 0
         costUSD = try c.decodeIfPresent(Double.self, forKey: .costUSD)
+        context = try c.decodeIfPresent(Int.self, forKey: .context) ?? 0
+        contextSize = try c.decodeIfPresent(Int.self, forKey: .contextSize) ?? 0
     }
 }
 
@@ -123,9 +129,11 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     }
     /// What happened since someone last looked: "activity" or "silence".
     public var alert: String?
+    /// How it is watched for those (pane.monitor.v1).
+    public var monitor: PaneMonitor?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created
+        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"
@@ -381,4 +389,37 @@ public struct FindResult: Decodable, Sendable {
     public var root: String
     public var paths: [String]?
     public var truncated: Bool?
+}
+
+/// A pane watched as tmux's monitor-activity and monitor-silence: an alert
+/// when it prints while nobody looks (activity), or goes quiet for silence
+/// seconds after printing — a build or a test run ending.
+public struct PaneMonitor: Codable, Equatable, Sendable {
+    public var activity: Bool?
+    public var silence: Int?
+
+    public init(activity: Bool? = nil, silence: Int? = nil) {
+        self.activity = activity
+        self.silence = silence
+    }
+
+    /// The same, one kind turned the other way: silence (after seconds)
+    /// when quiet is true, else activity.
+    public func toggled(quiet: Bool, seconds: Int) -> PaneMonitor {
+        var m = self
+        if quiet {
+            m.silence = (silence ?? 0) > 0 ? nil : seconds
+        } else {
+            m.activity = activity == true ? nil : true
+        }
+        return m
+    }
+}
+
+/// How long a pane must be quiet to raise its alert: [notify] silence, as
+/// the TUI reads it (config.NotifyCfg.SilenceAfter), 30 when unset or not a
+/// whole number above zero.
+public func silenceAfter(toml: String) -> Int {
+    guard let v = tomlSetting("notify", "silence", in: toml), let n = Int(v), n >= 1 else { return 30 }
+    return n
 }

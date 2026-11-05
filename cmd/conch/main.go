@@ -77,7 +77,8 @@ Usage:
                                 start a pane (with -m, default: that machine's home)
   conch send ID TEXT            type TEXT into a pane (-keys to send key names)
   conch read ID                 print a pane's visible screen
-  conch attach ID               show a pane in this terminal and type into it (the Mac app's panes)
+  conch attach [-hold] ID       show a pane in this terminal and type into it (the Mac app's panes);
+                                -hold keeps an ended pane's screen until a key
   conch close ID                close a pane
   conch rename ID [NAME]        name a pane; without NAME it gets its own back. Every
                                 command taking a pane ID takes its name too

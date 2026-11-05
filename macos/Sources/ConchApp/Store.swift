@@ -15,12 +15,23 @@ struct MachineLink: Identifiable, Equatable {
     var why = ""
     /// A hosted sandbox: stopped is a state of its own, not a fault.
     var sandbox = false
+    /// Its provider (daytona, boat, devin), for conch sandbox.
+    var provider: String?
     var version = ""
     /// Capabilities this app's conch has that the server lacks: it is from
     /// an older build, and a reload (or an upgrade, elsewhere) brings them.
     var behind: [String] = []
 
     var online: Bool { state.isEmpty }
+}
+
+/// A broadcast being written: where from, to whom, and what.
+struct BroadcastDraft: Identifiable {
+    let id = UUID()
+    var scope: BroadcastScope
+    var title: String
+    var targets: [BroadcastTarget]
+    var text = ""
 }
 
 /// The window's state: what each machine's server says (a Snapshot each),
@@ -66,6 +77,11 @@ final class Store: ObservableObject {
     @Published var limits: [PlanLimits] = []
     @Published var status: String = "Connecting to conch…"
     @Published var paletteOpen = false
+    /// Help → Keyboard Shortcuts and Help → Check conch… on screen.
+    @Published var helpOpen = false
+    @Published var doctorOpen = false
+    /// A broadcast being written (BroadcastSheet).
+    @Published var broadcastDraft: BroadcastDraft?
     /// The focused pane's find bar, while it is open.
     @Published var find: PaneFind?
     /// Bumped to put the keyboard in the find bar's field.
@@ -217,7 +233,7 @@ final class Store: ObservableObject {
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
-        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) ?? parseFilesKey(k) {
+        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) ?? parseFilesKey(k) ?? parseSetupKey(k).map({ ($0.machine, $0.project) }) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
         let (m, _) = unkey(k)
@@ -263,7 +279,8 @@ final class Store: ObservableObject {
     /// The sidebar: a tree per machine, this computer first.
     var tree: [TreeNode] {
         machines.map { m in
-            var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions, allBranches: allBranches)
+            var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions, allBranches: allBranches,
+                                                            savedHosts: savedHosts)
             if !m.online { node.badge = m.state }
             return node
         }
@@ -588,6 +605,10 @@ final class Store: ObservableObject {
             Theme.icons = icons
         }
         notifySettings = NotifySettings(toml: toml)
+        let acts = parseActions(toml: toml ?? "")
+        if acts != actions { actions = acts }
+        let cost = showsCost(toml: toml ?? "")
+        if cost != showCost { showCost = cost }
         let configured = ConchTheme.configured(in: toml, dark: systemDark)
         let next = ConchTheme.resolve(choice: themeChoice, configured: configured, preview: previewing).shown
         guard next != theme || Theme.current != next else { return }
@@ -744,6 +765,7 @@ final class Store: ObservableObject {
             case .sessions(let pk): openSessions(project: pk)
             case .files(let pk): openFiles(project: pk)
             case .more(let pk, _): toggleAllBranches(pk)
+            case .savedHost(let h): connectSaved(h)
             case .subagent(let pane, _):
                 open(pane)
                 focusTerminal()
@@ -778,6 +800,7 @@ final class Store: ObservableObject {
         for e in entries {
             var link = machines.first { $0.id == e.id } ?? MachineLink(id: e.id, label: e.displayLabel)
             link.sandbox = e.sandboxProvider != nil
+            link.provider = e.sandboxProvider
             next.append(link)
         }
         // A machine taken out of machines.json is let go: its connection,
@@ -866,7 +889,7 @@ final class Store: ObservableObject {
             if let o = UserDefaults.standard.string(forKey: "open") {
                 if let c = parseChangesKey(o) {
                     if c.machine == machine { layout.open(o) } // a branch's changes
-                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) {
+                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) {
                     if c.machine == machine { layout.open(o) } // a project's commits or sessions
                 } else {
                     let k = o.contains("|") ? o : key("local", o)
@@ -942,13 +965,21 @@ final class Store: ObservableObject {
         reloading.insert(machine)
         job("Reloading \(label(machine))'s server", done: "\(label(machine))'s server reloaded") {
             struct NoParams: Encodable {}
-            _ = try? await c.call("server.reload", NoParams())
+            defer { self.reloading.remove(machine) }
+            do {
+                try await c.call("server.reload", NoParams())
+            } catch {
+                // A refusal is said — most often that it already runs this
+                // build, so there is nothing to reload onto; the connection
+                // closing under the call is the reload itself.
+                guard reloadUnderway(error) else { throw error }
+            }
             // Back within a second or two; the row says when.
             for _ in 0..<40 {
                 try await Task.sleep(nanoseconds: 250_000_000)
-                if self.machines.first(where: { $0.id == machine })?.online == true, self.conns[machine] !== c { break }
+                if self.machines.first(where: { $0.id == machine })?.online == true, self.conns[machine] !== c { return }
             }
-            self.reloading.remove(machine)
+            throw ConchError(code: "reload", message: "the server did not come back within 10s: see its log (conch server log)")
         }
     }
 
@@ -959,6 +990,66 @@ final class Store: ObservableObject {
         job("Upgrading conch on \(label(machine))", done: "conch on \(label(machine)) upgraded") {
             _ = try await runConch(b, ["machine", "upgrade", machine])
             self.reconnect(machine)
+        }
+    }
+
+    /// Opens the broadcast sheet for a row's running panes.
+    func startBroadcast(_ scope: BroadcastScope, title: String) {
+        let m = scope.machine
+        guard let c = conns[m], let s = snapshots[m] else { return }
+        guard c.hello?.capabilities?.contains("agent.broadcast.v1") == true else {
+            say("conch on \(label(m)) is too old to broadcast: reload its server", .err)
+            return
+        }
+        broadcastDraft = BroadcastDraft(scope: scope, title: title, targets: s.broadcastTargets(scope, in: ws))
+    }
+
+    /// Sends a broadcast to the panes ticked, and says how it went.
+    func sendBroadcast(_ d: BroadcastDraft) {
+        broadcastDraft = nil
+        let m = d.scope.machine
+        guard let c = conns[m] else { return }
+        let ticked = d.targets.filter(\.ticked)
+        let shells = ticked.contains { $0.agent == nil }
+        if shells && c.hello?.capabilities?.contains("agent.broadcast.shells.v1") != true {
+            say("conch on \(label(m)) is too old to type into terminals: untick them, or reload its server", .err)
+            return
+        }
+        struct P: Encodable { var ids: [String]; var text: String; var shells: Bool? }
+        struct R: Decodable { var results: [BroadcastOutcome]? }
+        let names = Dictionary(ticked.map { (unkey($0.key).id, $0.name) }, uniquingKeysWith: { a, _ in a })
+        Task {
+            do {
+                let r = try await c.call("agent.broadcast", P(ids: ticked.map { unkey($0.key).id }, text: d.text, shells: shells ? true : nil), as: R.self)
+                let (text, failed) = broadcastSummary(r.results ?? [], names: names)
+                self.say(text, failed ? .err : .ok)
+            } catch {
+                self.say("Broadcast failed: \(error)", .err)
+            }
+        }
+    }
+
+    /// A terminal watched, or no longer, for going quiet or printing — the
+    /// TUI's ctrl+b M and A (pane.monitor).
+    func toggleMonitor(_ k: String, quiet: Bool) {
+        let (m, id) = unkey(k)
+        guard let c = conns[m], let p = pane(k) else { return }
+        guard c.hello?.capabilities?.contains("pane.monitor.v1") == true else {
+            say("conch on \(label(m)) is too old to watch a pane: reload its server", .err)
+            return
+        }
+        let toml = (try? String(contentsOfFile: configFile, encoding: .utf8)) ?? ""
+        let next = (p.monitor ?? PaneMonitor()).toggled(quiet: quiet, seconds: silenceAfter(toml: toml))
+        struct P: Encodable { var id: String; var activity: Bool?; var silence: Int? }
+        let what = quiet ? ((next.silence ?? 0) > 0 ? "alert when it is quiet for \(next.silence!)s after output" : "no alert when it goes quiet")
+                         : (next.activity == true ? "alert when it prints while you are elsewhere" : "no alert on output")
+        Task {
+            do {
+                try await c.call("pane.monitor", P(id: id, activity: next.activity, silence: next.silence))
+                self.say("\(p.displayName): \(what)")
+            } catch {
+                self.say("Could not watch \(p.displayName): \(error)", .err)
+            }
         }
     }
 
@@ -1081,7 +1172,7 @@ final class Store: ObservableObject {
             // /exit: closed, as the TUI closes it, so it goes from the
             // sidebar and its tab. A TUI open may close it first; the
             // second close finds it gone, which is fine.
-            if name == "pane.exited", closesOnExit(p), let c = conns[machine] {
+            if name == "pane.exited", closesOnExit(p), !keptPanes.contains(key(machine, p.id)), let c = conns[machine] {
                 // A TUI open on the machine closes it itself, and knows the
                 // panes it keeps that this app cannot tell apart — a custom
                 // action's terminal, an installer's — so it is left to it.
@@ -1277,6 +1368,18 @@ final class Store: ObservableObject {
 
     /// [notify] as config.toml has it, read again with the theme.
     private(set) var notifySettings = NotifySettings()
+    /// [ui] cost: what agents spend, on the tree's rows and in pane headers.
+    @Published private(set) var showCost = true
+
+    /// The usage chip for a row's panes ("" with none, or cost turned off).
+    func costChip(machine m: String, project: String? = nil, agentsOnly: Bool = false, pane: String? = nil) -> String {
+        guard showCost, let s = snapshots[m] else { return "" }
+        var panes = s.shown(in: ws, machine: m)
+        if let project { panes = panes.filter { $0.projectID == project } }
+        if agentsOnly { panes = panes.filter { $0.agent != nil } }
+        if let pane { panes = panes.filter { $0.id == pane } }
+        return usage(of: panes).chip
+    }
 
     /// Tells you an agent needs you, when it has just come to wait or
     /// finished and you are not looking at it (attentionAlert), and keeps
@@ -1412,6 +1515,14 @@ final class Store: ObservableObject {
     }
 
     private(set) var fileViews: [String: FilesModel] = [:]
+
+    private var setupViews: [String: SetupModel] = [:]
+    func setup(for k: String) -> SetupModel {
+        if let m = setupViews[k] { return m }
+        let m = SetupModel(key: k, store: self)
+        setupViews[k] = m
+        return m
+    }
 
     func files(for k: String) -> FilesModel {
         if let m = fileViews[k] { return m }
@@ -1607,6 +1718,8 @@ final class Store: ObservableObject {
         case "closeSplit": closeSplit()
         case "nextWaiting": nextWaiting()
         case "find": openFind()
+        case "shortcuts": helpOpen = true
+        case "doctor": doctorOpen = true
         case "findOlder": findNext(back: true)
         case "findNewer": findNext(back: false)
         case "zoomSplit": layout.toggleZoom(); focusTerminal()
@@ -1635,7 +1748,56 @@ final class Store: ObservableObject {
     func menu(for node: TreeNode) -> [RowMenuItem] {
         guard let m = node.machine else { return [] }
         let online = machines.first { $0.id == m }?.online ?? false
-        return (snapshots[m] ?? Snapshot()).menu(for: node, machine: m, machineOnline: online)
+        let s = snapshots[m] ?? Snapshot()
+        var items = s.menu(for: node, machine: m, machineOnline: online)
+        // A sandbox's own: start, stop, delete, what it cost.
+        if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.sandbox {
+            items += sandboxMenu(machine: m, running: link.online)
+        }
+        // The actions of your own that belong on this kind of row.
+        if online, let (place, _) = s.actionPlace(node, machine: m, home: conns[m]?.hello?.home) {
+            let mine = actions.filter { $0.offers(place) }
+            if !mine.isEmpty { items += [RowMenuItem("", .divider)] + mine.map { RowMenuItem($0.name, .runAction($0.name)) } }
+        }
+        return items
+    }
+
+    /// config.toml's [[actions]], read with the theme.
+    @Published private(set) var actions: [CustomAction] = []
+    /// Panes an action with keep runs in: left open when they exit, so
+    /// what the command printed can be read.
+    private var keptPanes: Set<String> = []
+
+    /// Runs an action where a row is, in a terminal of its own, as the TUI
+    /// does: `sh -lc RUN` in the row's folder with conch's names for it.
+    func runCustomAction(_ name: String, on node: TreeNode) {
+        guard let a = actions.first(where: { $0.name == name }), let m = node.machine, let c = conns[m],
+              let (_, at) = snapshots[m]?.actionPlace(node, machine: m, home: c.hello?.home) else { return }
+        guard let dir = at.dir, !dir.isEmpty else {
+            say(at.branch.isEmpty ? "Nothing here to run \(a.name) in" : "\(at.branch) has no worktree to run in: open a terminal on it first", .err)
+            return
+        }
+        struct Create: Encodable {
+            var name: String
+            var cwd: String
+            var command: [String]
+            var env: [String]
+            var no_project: Bool?
+        }
+        let params = Create(name: a.name + " · " + at.label, cwd: dir, command: ["/bin/sh", "-lc", a.run],
+                            env: at.env.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }, no_project: at.loose ? true : nil)
+        Task {
+            do {
+                let p = try await c.call("pane.create", params, as: PaneInfo.self)
+                if a.keep { keptPanes.insert(key(m, p.id)) }
+                snapshots[m, default: Snapshot()].upsert(p)
+                joinWorkspace(machine: m, pane: p)
+                layout.open(key(m, p.id))
+                focusTerminal()
+            } catch {
+                say("Could not run \(a.name): \(error)", .err)
+            }
+        }
     }
 
     /// The agents to offer on a machine: those installed there, else the
@@ -1672,6 +1834,20 @@ final class Store: ObservableObject {
         case .openURL(let s): if let u = openableURL(s) { NSWorkspace.shared.open(u) }
         case .removeWorktree(let pk, let path): removeWorktree(project: pk, path: path)
         case .deleteBranch(let pk, let b): deleteBranch(project: pk, branch: b)
+        case .monitor(let k, let quiet): toggleMonitor(k, quiet: quiet)
+        case .broadcast(let scope): startBroadcast(scope, title: node.title)
+        case .runAction(let name): runCustomAction(name, on: node)
+        case .connectHost(let h): connectSaved(h)
+        case .sandbox(let m, let verb): sandbox(m, verb)
+        case .agentSetup(let pk, let dir):
+            let (m, pid) = unkey(pk)
+            let k = setupKey(m, pid, dir: dir)
+            setupViews[k]?.load()
+            layout.open(k)
+            terminalHasKeyboard = false
+        case .forgetHost(let h): saveHost(SavedHost(host: h), save: false)
+        case .saveHost(let k):
+            if let p = pane(k), let h = p.sshTarget { saveHost(SavedHost(host: h, args: p.sshArgs)) }
         }
     }
 
@@ -1728,6 +1904,74 @@ final class Store: ObservableObject {
 
     /// A terminal here logged in to a host, as the TUI's H: `conch ssh`,
     /// which builds the session the TUI does.
+    /// ui.json's saved ssh hosts, as the TUI keeps them.
+    @Published private(set) var savedHosts: [SavedHost] = []
+
+    /// A sandbox started, stopped or deleted (after asking), or what it has
+    /// cost shown — conch sandbox, which talks to its provider.
+    func sandbox(_ m: String, _ verb: String) {
+        guard let b = binary, let link = machines.first(where: { $0.id == m }), let p = link.provider else { return }
+        let name = link.label
+        if verb == "stop" || verb == "rm" {
+            let a = NSAlert()
+            a.messageText = verb == "rm" ? "Delete \(name) for good?" : "Stop \(name)?"
+            a.informativeText = verb == "rm" ? "The sandbox and everything on it are deleted at \(p); nothing brings it back." : "Its agents and terminals stop with it. Starting it again brings the sandbox back, not what was running."
+            a.addButton(withTitle: verb == "rm" ? "Delete" : "Stop")
+            a.addButton(withTitle: "Cancel")
+            if verb == "rm" { a.buttons.first?.hasDestructiveAction = true }
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        let args = sandboxArgs(provider: p, verb: verb, machine: m)
+        if verb == "usage" {
+            job("Asking \(p) what \(name) cost") {
+                let out = String(decoding: try await runConch(b, args), as: UTF8.self)
+                let a = NSAlert()
+                a.messageText = "What \(name) has cost"
+                a.informativeText = out.trimmingCharacters(in: .whitespacesAndNewlines)
+                a.runModal()
+            }
+            return
+        }
+        let doing = ["start": "Starting", "stop": "Stopping", "rm": "Deleting"][verb] ?? verb
+        let did = ["start": "Started", "stop": "Stopped", "rm": "Deleted"][verb] ?? verb
+        job("\(doing) \(name)", done: "\(did) \(name)") {
+            _ = try await runConch(b, args)
+            if verb == "start" { self.reconnect(m) } else { self.connect() }
+        }
+    }
+
+    /// Logs in to a saved host again, with the options it was saved with.
+    func connectSaved(_ host: String) {
+        guard let b = binary, let h = savedHosts.first(where: { $0.host == host }) else { return }
+        Task {
+            do {
+                let out = try await runConch(b, ["ssh", h.host] + h.args)
+                let id = String(decoding: out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !id.isEmpty else { return }
+                layout.open(key("local", id))
+                if let p = pane(key("local", id)) { joinWorkspace(machine: "local", pane: p) }
+                focusTerminal()
+            } catch {
+                say("Could not connect to \(h.title): \(error)", .err)
+            }
+        }
+    }
+
+    /// Saves a host to log in to again (save) or forgets it, in ui.json,
+    /// where the TUI lists it too.
+    func saveHost(_ h: SavedHost, save: Bool = true) {
+        let path = (conchDir as NSString).appendingPathComponent("ui.json")
+        do {
+            let data = try savingHost(h, save: save, in: FileManager.default.contents(atPath: path))
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        } catch {
+            say("Could not \(save ? "save" : "forget") \(h.host): \(error)", .err)
+            return
+        }
+        loadWorkspaces()
+        say(save ? "Saved \(h.host): it stays under CLI to connect again" : "Forgot \(h.host)")
+    }
+
     func sshToHost() {
         guard let b = binary,
               let (host, options) = askTwo("SSH from this computer", info: "Opens a terminal here logged in to the host, with your ssh config and keys. Nothing is installed there.",
@@ -1870,9 +2114,32 @@ final class Store: ObservableObject {
     }
 
     /// Starts the task: a branch, a worktree and an agent given the prompt.
+    /// A project's open issues, for the task sheet's picker; none from a
+    /// server without project.issues.v1, or a project not on GitHub.
+    func issues(for pk: String) async -> [IssueInfo] {
+        let (m, pr) = unkey(pk)
+        guard let c = conns[m], c.hello?.capabilities?.contains("project.issues.v1") == true else { return [] }
+        struct P: Encodable { var project_id: String; var limit: Int }
+        struct R: Decodable { var issues: [IssueInfo]? }
+        return (try? await c.call("project.issues", P(project_id: pr, limit: 50), as: R.self))?.issues ?? []
+    }
+
     func startTask(_ d: TaskDraft) {
         let (m, pr) = unkey(d.project)
         guard let c = conns[m] else { return }
+        // An issue or a time other than now: `conch task`, which reads the
+        // issue and the time's words the way the TUI does.
+        if (d.issue ?? 0) > 0 || !taskWhenArgs(d.when).isEmpty {
+            guard let b = binary, let dir = snapshots[m]?.project(pr)?.path else { return }
+            taskDraft = nil
+            let args = onMachine(m, taskArgs(dir: dir, prompt: d.prompt, agent: d.agent, branch: d.branch, issue: d.issue, when: d.when))
+            job(d.when.isEmpty ? "Starting the task" : "Scheduling the task") {
+                let out = String(decoding: try await runConch(b, args), as: UTF8.self)
+                let said = out.split(separator: "\n").last.map(String.init) ?? ""
+                self.say(said.isEmpty ? "Task started" : said)
+            }
+            return
+        }
         struct Params: Encodable {
             var project_id: String
             var prompt: String
@@ -1993,6 +2260,8 @@ final class Store: ObservableObject {
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("ui.json"))
         workspaces = Workspace.load(uiJSON: data)
         tuiFolds = loadFolds(uiJSON: data)
+        let hosts = loadSavedHosts(uiJSON: data)
+        if hosts != savedHosts { savedHosts = hosts }
         let dismissed = loadQueueDismissed(uiJSON: data)
         if dismissed != queueDismissed { queueDismissed = dismissed }
         let active = activeWorkspace(uiJSON: data)
@@ -2042,6 +2311,10 @@ struct TaskDraft: Identifiable {
     var prompt = ""
     var agent: String
     var branch = ""
+    /// A GitHub issue to work on (its title and body are the prompt).
+    var issue: Int?
+    /// When it starts: "" now, else as `conch task -at` and the rest take it.
+    var when = ""
 }
 
 private struct PaneRefParams: Encodable { var id: String }

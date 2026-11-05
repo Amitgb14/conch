@@ -106,5 +106,5 @@ public struct PaneSearchParams: Encodable, Equatable, Sendable {
 /// Whether a layout key is a pane's terminal, which can be searched, rather
 /// than a view of the app's own (changes, sessions, commits, files).
 public func isTerminalKey(_ k: String) -> Bool {
-    parseChangesKey(k) == nil && parseSessionsKey(k) == nil && parseCommitsKey(k) == nil && parseFilesKey(k) == nil
+    parseChangesKey(k) == nil && parseSessionsKey(k) == nil && parseCommitsKey(k) == nil && parseFilesKey(k) == nil && parseSetupKey(k) == nil
 }

@@ -510,6 +510,9 @@ struct MainView: View {
         }
         .background { GeometryReader { g in Color.clear.onAppear { size = g.size }.onChange(of: g.size) { size = $0 } } }
         .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
+        .sheet(item: $store.broadcastDraft) { d in BroadcastSheet(store: store, draft: d) }
+        .sheet(isPresented: $store.helpOpen) { ShortcutsSheet(store: store) }
+        .sheet(isPresented: $store.doctorOpen) { DoctorSheet(store: store) }
         .background(Theme.window)
         // Meadow paints the title bar itself: a sky behind the toolbar's
         // controls (AppKit's, so drawn over it), lifted into the title bar
@@ -692,6 +695,11 @@ struct NodeView: View {
         .id(node.id)
         .onHover { hovering = $0 }
         .onTapGesture { activateRow() }
+        // A click is a tap gesture, which accessibility cannot see: the row
+        // is a button to VoiceOver and the rest, pressed as a click is.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { activateRow() }
         .contextMenu { RowMenu(store: store, node: node) }
     }
 
@@ -723,6 +731,12 @@ struct NodeView: View {
 
     var isSection: Bool { if case .section = node.kind { return true }; return false }
     var isMore: Bool { if case .more = node.kind { return true }; return false }
+
+    /// A section row's project, from its id ("s:machine|project:agents").
+    func sectionProject(_ id: String) -> String? {
+        guard id.hasPrefix("s:"), let colon = id.lastIndex(of: ":"), colon > id.index(id.startIndex, offsetBy: 2) else { return nil }
+        return String(id[id.index(id.startIndex, offsetBy: 2)..<colon])
+    }
     /// A row that opens a tab rather than folding: Sessions, Files.
     var isSessions: Bool {
         switch node.kind {
@@ -756,6 +770,7 @@ struct NodeView: View {
             }
             .frame(width: 16)
         case .more: Color.clear.frame(width: 14, height: 12) // the names line up with the branches'
+        case .savedHost: LucideIcon(name: .globe, color: Theme.muted, size: 12)
         case .section(let name):
             // Each group with an icon of its own, as Files and Sessions have.
             LucideIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", color: Theme.muted, size: 12)
@@ -796,6 +811,13 @@ struct NodeView: View {
                             .lineLimit(1).truncationMode(.middle)
                             .help(b)
                     }
+                    // What it has spent, as the TUI's row says it.
+                    let (m, pid) = unkey(id)
+                    let c = store.costChip(machine: m, pane: pid)
+                    if !c.isEmpty {
+                        Text(c).font(.system(size: 11)).foregroundStyle(Theme.muted).fixedSize()
+                            .help(p.agent?.tokens.map(tokenSummary) ?? c)
+                    }
                     if let end = paneEndBadge(p) {
                         // exited, exit N or failed in red, a terminal's # / ~ alert.
                         Text(end.text).font(.system(size: 11.5, weight: end.tone == .err ? .semibold : .regular)).foregroundStyle(tone(end.tone))
@@ -813,6 +835,8 @@ struct NodeView: View {
                     .fixedSize()
             } else {
                 HStack(spacing: 4) {
+                    let c = store.costChip(machine: m)
+                    if !c.isEmpty { muted(c).padding(.trailing, 2) }
                     if let link = store.machines.first(where: { $0.id == m }), !link.behind.isEmpty {
                         // Its server is older than this app's conch: what
                         // it lacks, and what brings it.
@@ -825,7 +849,20 @@ struct NodeView: View {
                     if !open { FoldedAgents(names: store.snapshots[m]?.agentNames(in: store.ws, machine: m) ?? []) }
                 }.fixedSize()
             }
-        case .project: counts(node.badge).fixedSize()
+        case .project(let pk):
+            HStack(spacing: 6) {
+                let c = store.costChip(machine: unkey(pk).machine, project: unkey(pk).id)
+                if !c.isEmpty { muted(c) }
+                counts(node.badge)
+            }.fixedSize()
+        case .section(let name) where name == "Agents":
+            HStack(spacing: 6) {
+                if let pk = sectionProject(node.id) {
+                    let c = store.costChip(machine: unkey(pk).machine, project: unkey(pk).id, agentsOnly: true)
+                    if !c.isEmpty { muted(c) }
+                }
+                if !node.badge.isEmpty { muted(node.badge) }
+            }.fixedSize()
         case .branch:
             // Each part in its own colour, as the TUI draws a branch row.
             node.parts.enumerated().reduce(Text("")) { acc, e in
@@ -845,6 +882,7 @@ struct NodeView: View {
         case .sessions(let pk): store.openSessions(project: pk)
         case .files(let pk): store.openFiles(project: pk)
         case .more(let pk, _): store.toggleAllBranches(pk)
+        case .savedHost(let h): store.connectSaved(h)
         // A subagent has no screen of its own: its agent's is shown.
         case .subagent(let pane, _): store.open(pane)
         default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }
@@ -876,12 +914,64 @@ struct RowMenu: View {
     }
 }
 
+/// One message to several panes, as the TUI's broadcast: who it goes to,
+/// ticked as the TUI ticks them, and what it says. ⌘↩ sends.
+struct BroadcastSheet: View {
+    @ObservedObject var store: Store
+    @State var draft: BroadcastDraft
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        let n = draft.targets.filter(\.ticked).count
+        let shells = draft.targets.contains { $0.ticked && $0.agent == nil }
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Broadcast · \(draft.title)").font(.system(size: 15, weight: .semibold))
+            Text("An agent takes it as its next message; a terminal runs it as a command.")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+            TextEditor(text: $draft.text)
+                .font(.system(size: 13)).frame(minHeight: 90)
+                .scrollContentBackground(.hidden).padding(6)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
+                .focused($typing)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach($draft.targets) { $t in
+                        HStack(spacing: 8) {
+                            Toggle("", isOn: $t.ticked).toggleStyle(.checkbox).labelsHidden()
+                            if let a = t.agent { Mark(agent: a) } else { LucideIcon(name: .terminal, color: Theme.muted, size: 12) }
+                            Text(t.name).font(.system(size: 12.5)).lineLimit(1)
+                            if t.waiting {
+                                Text("waiting on an answer: this would answer it").font(.system(size: 11)).foregroundStyle(Theme.warn)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
+            HStack {
+                if shells { Text("Terminals ticked run it as a command.").font(.system(size: 11.5)).foregroundStyle(Theme.warn) }
+                Spacer()
+                Button("Cancel") { store.broadcastDraft = nil }.keyboardShortcut(.cancelAction)
+                Button("Send to \(n)") { store.sendBroadcast(draft) }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(n == 0 || draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(18)
+        .frame(width: 520)
+        .onAppear { typing = true }
+    }
+}
+
 /// A new task: a prompt, the agent to give it to, and, if wanted, the
 /// branch's name — `conch task`, from a sheet. The server makes the branch
 /// and its worktree and starts the agent there.
 struct TaskSheet: View {
     @ObservedObject var store: Store
     @State var draft: TaskDraft
+    @State private var issues: [IssueInfo] = []
     @FocusState private var promptFocused: Bool
 
     var project: ProjectInfo? {
@@ -911,18 +1001,32 @@ struct TaskSheet: View {
                     TextField("Branch (conch names one)", text: $draft.branch).frame(maxWidth: 260)
                 }
             }
+            HStack(spacing: 12) {
+                if !issues.isEmpty {
+                    Picker("Issue", selection: Binding(get: { draft.issue ?? 0 }, set: { draft.issue = $0 == 0 ? nil : $0 })) {
+                        Text("None").tag(0)
+                        ForEach(issues) { Text("#\($0.number) \($0.title)").lineLimit(1).tag($0.number) }
+                    }
+                    .frame(maxWidth: 300)
+                    .help("Work on a GitHub issue: its title and body are the prompt, and anything typed above is added")
+                }
+                TextField("When: now, 14:05, +30m, every 1d, queue, after BRANCH", text: $draft.when)
+                    .frame(maxWidth: 360)
+                    .help("Later is kept by the server, and starts with conch closed too")
+            }
             HStack {
                 Spacer()
                 Button("Cancel") { store.taskDraft = nil }.keyboardShortcut(.cancelAction)
-                Button("Start") { store.startTask(draft) }
+                Button(taskWhenArgs(draft.when).isEmpty ? "Start" : "Schedule") { store.startTask(draft) }
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (draft.issue ?? 0) == 0)
             }
             Text("⌘↩ starts it").font(.system(size: 11)).foregroundStyle(.secondary)
         }
         .padding(18)
-        .frame(width: 520)
+        .frame(width: 560)
         .onAppear { promptFocused = true }
+        .task { issues = await store.issues(for: draft.project) }
     }
 }
 
@@ -1095,6 +1199,7 @@ struct TabButton: View {
         if let s = parseSessionsKey(tab.focused) { return "Sessions · " + project(s.machine, s.project) }
         if let c = parseCommitsKey(tab.focused) { return "Commits · " + project(c.machine, c.project) }
         if let f = parseFilesKey(tab.focused) { return "Files · " + project(f.machine, f.project) }
+        if let s = parseSetupKey(tab.focused) { return "Agent setup · " + project(s.machine, s.project) }
         return p?.displayName ?? tab.focused
     }
 
@@ -1114,6 +1219,8 @@ struct TabButton: View {
                     LucideIcon("history", color: Theme.accent, size: 12)
                 } else if parseCommitsKey(tab.focused) != nil {
                     LucideIcon("git-commit-horizontal", color: Theme.accent, size: 12)
+                } else if parseSetupKey(tab.focused) != nil {
+                    LucideIcon("bot", color: Theme.accent, size: 12)
                 } else if parseFilesKey(tab.focused) != nil {
                     LucideIcon("folder-open", color: Theme.accent, size: 12)
                 } else if changes == nil {
@@ -1172,6 +1279,13 @@ struct TabButton: View {
             store.focusTerminal()
         }
         .onTapGesture(count: 2) { store.renameTab(index) }
+        // Pressed as a click is, its close button still its own.
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            store.layout.select(index)
+            store.focusTerminal()
+        }
         .contextMenu {
             Button("Rename Tab…") { store.renameTab(index) }
             if tab.name != nil { Button("Name It by Its Pane") { store.layout.rename(index, to: "") } }
@@ -1210,6 +1324,8 @@ struct SplitArea: View {
                 SessionsView(model: store.sessions(for: id), store: store).id(id)
             } else if parseCommitsKey(id) != nil {
                 CommitsView(model: store.commits(for: id), store: store).id(id)
+            } else if parseSetupKey(id) != nil {
+                SetupView(model: store.setup(for: id), store: store).id(id)
             } else if parseFilesKey(id) != nil {
                 FilesView(model: store.files(for: id), store: store).id(id)
             } else {
@@ -1284,6 +1400,11 @@ struct PaneCard: View {
                 if let b = p?.branch, !b.isEmpty {
                     Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
                         .padding(.horizontal, 6).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
+                }
+                // Its context against the model's window, output and cost,
+                // as the TUI's pane header has them.
+                if store.showCost, let t = p?.agent?.tokens {
+                    Text(tokenSummary(t)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer()
                 if let p, p.agent == nil, let port = store.port(of: pane) {
