@@ -659,11 +659,21 @@ final class Store: ObservableObject {
             appLook = app
             onAppLook?(app)
         }
+        // Themes of your own, read again each time: a file added or changed
+        // is in the lists, and in use, without restarting.
+        let mine = userThemes(in: (conchDir as NSString).appendingPathComponent("themes"))
+        if mine.themes != ConchTheme.user {
+            ConchTheme.user = mine.themes
+            onThemeList?()
+        }
+        userThemeProblems = mine.problems
         let configured = ConchTheme.configured(in: toml, dark: systemDark)
         let resolved = ConchTheme.resolve(choice: themeChoice, configured: configured, preview: previewing)
         // A theme drawn as a pair (Terminal) follows macOS to its light one;
-        // a theme being previewed is shown as it is.
-        let next = previewing == nil ? ConchTheme.forAppearance(resolved.shown, dark: systemDark) : resolved.shown
+        // a theme being previewed is shown as it is. [ui] accent over it,
+        // as the TUI draws it.
+        let next = (previewing == nil ? ConchTheme.forAppearance(resolved.shown, dark: systemDark) : resolved.shown)
+            .withAccent(uiSetting("accent", in: toml))
         guard next != theme || Theme.current != next else { return }
         theme = next
         Theme.current = next
@@ -731,7 +741,7 @@ final class Store: ObservableObject {
         ConchTheme.named(ConchTheme.configured(in: try? String(contentsOfFile: configFile, encoding: .utf8), dark: systemDark))
     }
 
-    private var conchDir: String {
+    var conchDir: String {
         ProcessInfo.processInfo.environment["CONCH_HOME"].flatMap { $0.isEmpty ? nil : $0 }
             ?? (NSHomeDirectory() as NSString).appendingPathComponent(".config/conch")
     }
@@ -1482,6 +1492,10 @@ final class Store: ObservableObject {
     /// Told when [app] changes, for what AppKit draws (the toolbar, the
     /// global option-space).
     var onAppLook: ((AppLook) -> Void)?
+    /// Told when the themes of your own change, for the Theme menu.
+    var onThemeList: (() -> Void)?
+    /// What was wrong with the theme files left out, for the Theme menu.
+    var userThemeProblems: [String] = []
     /// The scratch layer on screen: its pane's key, floating over the
     /// splits (nil: hidden). Scratch.swift.
     @Published var scratch: String?

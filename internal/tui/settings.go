@@ -194,8 +194,13 @@ func squashText(squash bool) string {
 
 func (s *settings) themeItems(m *Model) []settingItem {
 	items := []settingItem{{header: true, label: "Colours"}}
+	// A file added since shows the next time the list opens; one that does
+	// not read is listed with why, rather than missing without a word.
+	for _, p := range reloadUserThemes() {
+		items = append(items, settingItem{header: true, label: "⚠ themes/" + p})
+	}
 	current := themeByName(m.cfg.UI.Theme).name
-	for _, t := range themes {
+	for _, t := range allThemes() {
 		t := t
 		items = append(items, settingItem{label: t.label, detail: t.swatch(), mark: t.name == current,
 			run: func(m *Model) tea.Cmd {

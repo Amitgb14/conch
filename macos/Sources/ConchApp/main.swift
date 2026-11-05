@@ -19,6 +19,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
 
     /// The conch menu opening: what quitting leaves running, said now.
     func menuNeedsUpdate(_ menu: NSMenu) {
+        // A theme file added or fixed since is in the menu as it opens.
+        if menu === themeMenu {
+            store.loadTheme()
+            return
+        }
         runOnItem.attributedTitle = NSAttributedString(string: runOnNote(panes: store.runningPanes),
                                                        attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
     }
@@ -79,6 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         }
         store.onStyle = { [weak self] st in self?.window.titlebarAppearsTransparent = st.paintsTitleBar }
         store.onAppLook = { [weak self] look in self?.applyAppLook(look) }
+        store.onThemeList = { [weak self] in self?.fillThemeMenu() }
         ScratchHotKey.shared.fire = { [weak self] in
             NSApp.activate(ignoringOtherApps: true)
             self?.window.makeKeyAndOrderFront(nil)
@@ -221,15 +227,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         same.representedObject = ""
         same.target = self
         themes.addItem(same)
-        themes.addItem(.separator())
-        for (i, t) in ConchTheme.all.enumerated() {
-            if t.light && !ConchTheme.all[i - 1].light { themes.addItem(.separator()) }
-            let m = NSMenuItem(title: t.label, action: #selector(chooseTheme(_:)), keyEquivalent: "")
-            m.representedObject = t.id
-            m.target = self
-            themes.addItem(m)
-        }
+        themes.delegate = self
         themeMenu = themes
+        fillThemeMenu()
         let themeItem = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
         themeItem.submenu = themes
         // How the chrome is drawn, apart from its colours.
@@ -294,6 +294,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
     }
 
     /// A tick on the theme chosen, and the one "Same as conch" stands for.
+    /// The Theme menu's themes: the built-in ones, dark then light, then
+    /// your own, with any theme file that did not read said under them.
+    func fillThemeMenu() {
+        guard let themes = themeMenu else { return }
+        while themes.items.count > 1 { themes.removeItem(at: 1) }
+        themes.addItem(.separator())
+        for (i, t) in ConchTheme.all.enumerated() {
+            if i > 0, t.light && !ConchTheme.all[i - 1].light { themes.addItem(.separator()) }
+            themes.addItem(themeItem(t))
+        }
+        if !ConchTheme.user.isEmpty || !store.userThemeProblems.isEmpty {
+            themes.addItem(.separator())
+            let head = NSMenuItem(title: "Your Themes", action: nil, keyEquivalent: "")
+            head.isEnabled = false
+            themes.addItem(head)
+            ConchTheme.user.forEach { themes.addItem(themeItem($0)) }
+            for p in store.userThemeProblems {
+                let m = NSMenuItem(title: "⚠ " + p, action: nil, keyEquivalent: "")
+                m.isEnabled = false
+                themes.addItem(m)
+            }
+        }
+        themes.addItem(.separator())
+        let folder = NSMenuItem(title: "Open Themes Folder", action: #selector(openThemesFolder), keyEquivalent: "")
+        folder.target = self
+        themes.addItem(folder)
+        updateThemeMenu()
+    }
+
+    private func themeItem(_ t: ConchTheme) -> NSMenuItem {
+        let m = NSMenuItem(title: t.label, action: #selector(chooseTheme(_:)), keyEquivalent: "")
+        m.representedObject = t.id
+        m.target = self
+        return m
+    }
+
+    /// Where themes of your own go, made if it is not there yet.
+    @objc func openThemesFolder() {
+        let dir = (store.conchDir as NSString).appendingPathComponent("themes")
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(URL(fileURLWithPath: dir))
+    }
+
     func updateThemeMenu() {
         guard let themes = themeMenu else { return }
         for m in themes.items {

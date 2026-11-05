@@ -297,3 +297,56 @@ import Testing
     let missing = ids.filter { !menu.contains("case \"\($0)\"") && !store.contains("case \"\($0)\"") }
     #expect(missing.isEmpty, "menu commands nobody handles: \(missing.sorted())")
 }
+
+// A theme file read as the TUI reads it: based_on's colours with the file's
+// over them; each way a file can be wrong left out with why.
+@Test func themesOfYourOwn() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("conch-themes-\(UUID().uuidString)").path
+    try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    func put(_ name: String, _ body: String) throws { try body.write(toFile: dir + "/" + name, atomically: true, encoding: .utf8) }
+    try put("my-dark.toml", "# mine\nname = \"My Dark\"\nbased_on = \"vscode-dark-modern\"\nbg = \"#16161e\"  # deeper\naccent = \"#7AA2F7\"\n")
+    try put("paper.toml", "bg = \"#FAFAF5\"\nfg = \"#222222\"\n")          // no base: conch's; light by its ground
+    try put("forced.toml", "bg = \"#FAFAF5\"\nlight = false\n")
+    try put("nord.toml", "bg = \"#000000\"\n")
+    try put("Bad Name.toml", "bg = \"#000000\"\n")
+    try put("badcolour.toml", "accent = \"blue\"\n")
+    try put("typo.toml", "backgroud = \"#000000\"\n")
+    try put("open.toml", "bg = \"#000000\n")
+    try put("nobase.toml", "based_on = \"solarised\"\n")
+    try put("notes.txt", "x")
+    let (themes, problems) = userThemes(in: dir)
+    #expect(themes.map(\.id) == ["forced", "my-dark", "paper"])
+    let my = themes[1], base = ConchTheme.named("vscode-dark-modern")
+    #expect(my.label == "My Dark" && my.bg.hex == "#16161E" && my.accent.hex == "#7AA2F7" && my.fg == base.fg && my.ok == base.ok && !my.light)
+    #expect(themes[2].label == "paper" && themes[2].light && themes[2].border == ConchTheme.conch.border)
+    #expect(!themes[0].light)
+    for (file, want) in [("nord.toml", "built-in theme's name"), ("Bad Name.toml", "lower case"),
+                         ("badcolour.toml", "accent = \"blue\" is not a colour"), ("typo.toml", "\"backgroud\" is not a theme key"),
+                         ("open.toml", "not closed"), ("nobase.toml", "based_on \"solarised\" is no built-in theme")] {
+        #expect(problems.contains { $0.hasPrefix(file + ":") && $0.contains(want) }, "\(file): \(problems)")
+    }
+    #expect(userThemes(in: dir + "/none").themes.isEmpty && userThemes(in: dir + "/none").problems.isEmpty)
+
+    // In the lists and lookups once read; gone again when the files are.
+    ConchTheme.user = themes
+    defer { ConchTheme.user = [] }
+    #expect(ConchTheme.named("my-dark").label == "My Dark" && ConchTheme.everything.count == ConchTheme.all.count + 3)
+}
+
+// [ui] accent over a theme, as the TUI applies it: a name or #rrggbb, with
+// white text on it; anything else leaves the theme as it was. The names
+// are the TUI's own.
+@Test func accentOverTheme() throws {
+    let t = ConchTheme.named("nord")
+    #expect(t.withAccent("orange").accent.hex == "#C2571A" && t.withAccent("orange").selFG.hex == "#FFFFFF")
+    #expect(t.withAccent(" #FF00AA ").accent.hex == "#FF00AA" && t.withAccent("#ff00aa").line.hex == "#FF00AA")
+    #expect(t.withAccent(nil) == t && t.withAccent("") == t && t.withAccent("chartreuse") == t && t.withAccent("#12") == t && t.withAccent("#zzzzzz") == t)
+    let go = try String(contentsOfFile: #filePath.replacingOccurrences(of: "macos/Tests/ConchKitTests/WindowTests.swift", with: "internal/tui/theme.go"), encoding: .utf8)
+    let block = go.components(separatedBy: "var accentColors = map[string]lipgloss.Color{")[1].components(separatedBy: "}")[0]
+    var tui: [String: String] = [:]
+    for m in block.matches(of: try Regex(#""(\w+)":\s*"(#[0-9A-Fa-f]{6})""#)) {
+        tui[String(m.output[1].substring!)] = String(m.output[2].substring!).uppercased()
+    }
+    #expect(tui == ConchTheme.accentNames && !tui.isEmpty)
+}

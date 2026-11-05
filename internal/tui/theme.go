@@ -147,6 +147,7 @@ func init() { applyTheme("conch", "") }
 // window it opens, so that window is the theme rather than a terminal's
 // stock black with conch's colours on it.
 func TerminalColors(theme, accent string) (bg, fg, cursor, selection string) {
+	reloadUserThemes() // conch app is its own process: your themes are read here too
 	t := themeByName(theme)
 	cur := t.accent
 	if c, ok := accentColors[strings.ToLower(strings.TrimSpace(accent))]; ok {
@@ -158,7 +159,7 @@ func TerminalColors(theme, accent string) (bg, fg, cursor, selection string) {
 }
 
 func themeByName(name string) palette {
-	for _, t := range themes {
+	for _, t := range allThemes() {
 		if t.name == strings.ToLower(strings.TrimSpace(name)) {
 			return t
 		}
