@@ -133,12 +133,12 @@ struct FilesView: View {
         let name = store.snapshots[model.machine]?.project(model.project)?.name ?? model.project
         return HStack(spacing: 10) {
             LucideIcon("folder-open", color: Theme.accent, size: 14)
-            Text("Files").font(.system(size: 13, weight: .semibold))
-            Text(name).font(.system(size: 12)).foregroundStyle(Theme.text2)
-            Text(model.root).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
+            Text("Files").font(.ui(size: 13, weight: .semibold))
+            Text(name).font(.ui(size: 12)).foregroundStyle(Theme.text2)
+            Text(model.root).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
             Spacer()
             Toggle("Hidden files", isOn: Binding(get: { model.hidden }, set: { model.hidden = $0; model.load() }))
-                .toggleStyle(.checkbox).font(.system(size: 12)).foregroundStyle(Theme.text2)
+                .toggleStyle(.checkbox).font(.ui(size: 12)).foregroundStyle(Theme.text2)
             Button { model.load() } label: { LucideIcon("refresh-cw", size: 12) }.buttonStyle(.plain).help("Read the files again")
         }
         .padding(.horizontal, 12).frame(height: 40)
@@ -170,12 +170,12 @@ struct FileRowView: View {
         let _ = look
         let on = model.selected == row.path
         HStack(spacing: 6) {
-            Text(row.dir ? (row.open ? "▾" : "▸") : " ").font(.system(size: 10)).foregroundStyle(Theme.muted).frame(width: 10)
+            Text(row.dir ? (row.open ? "▾" : "▸") : " ").font(.ui(size: 10)).foregroundStyle(Theme.muted).frame(width: 10)
             LucideIcon(row.dir ? (row.open ? "folder-open" : "folder") : "file-text", color: row.dir ? Theme.accent : Theme.muted, size: 12)
-            Text(row.name).font(.system(size: 12.5)).foregroundStyle(row.ignored ? Theme.muted : Theme.text).lineLimit(1).truncationMode(.middle)
+            Text(row.name).font(.ui(size: 12.5)).foregroundStyle(row.ignored ? Theme.muted : Theme.text).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 4)
             if !row.status.isEmpty {
-                Text(row.status).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(statusColor(row.status))
+                Text(row.status).font(.ui(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(statusColor(row.status))
             }
         }
         .padding(.leading, CGFloat(row.depth) * 14 + 8).padding(.trailing, 10).frame(height: 24)
@@ -209,9 +209,9 @@ struct FilePreview: View {
             if let p = model.preview, let path = model.selected {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 8) {
-                        Text(path).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.head)
+                        Text(path).font(.ui(size: 12, design: .monospaced)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.head)
                         Spacer()
-                        Text(fileSize(p.size ?? 0)).font(.system(size: 11)).foregroundStyle(Theme.muted)
+                        Text(fileSize(p.size ?? 0)).font(.ui(size: 11)).foregroundStyle(Theme.muted)
                     }
                     .padding(.horizontal, 12).frame(height: 30)
                     Rectangle().fill(Theme.line).frame(height: 1)
@@ -226,10 +226,10 @@ struct FilePreview: View {
                         GeometryReader { g in
                             ScrollView([.vertical, .horizontal]) {
                                 VStack(alignment: .leading, spacing: 0) {
-                                    Text(p.data ?? "").font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.text)
+                                    Text(p.data ?? "").font(.ui(size: 12, design: .monospaced)).foregroundStyle(Theme.text)
                                         .textSelection(.enabled).fixedSize().padding(12)
                                     if p.truncated == true {
-                                        Text("The file goes on: this is its start.").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                                        Text("The file goes on: this is its start.").font(.ui(size: 11)).foregroundStyle(Theme.muted)
                                             .padding(.horizontal, 12).padding(.bottom, 12)
                                     }
                                 }

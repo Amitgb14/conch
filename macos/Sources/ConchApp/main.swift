@@ -27,6 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
     /// from anywhere.
     func applyAppLook(_ look: AppLook) {
         window?.toolbarStyle = look.compact ? .unifiedCompact : .unified
+        #if GHOSTTY
+        GhosttyRuntime.shared.setFontSize(look.fontSize)
+        #endif
         ScratchHotKey.shared.set(look.scratchKey)
     }
 
@@ -234,7 +237,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         styleMenu = styles
         let styleItem = NSMenuItem(title: "Style", action: nil, keyEquivalent: "")
         styleItem.submenu = styles
-        menu("View", [item("Show or Hide Sidebar", "s", [.command, .control], "toggleSidebar"), .separator(), styleItem, themeItem])
+        menu("View", [item("Show or Hide Sidebar", "s", [.command, .control], "toggleSidebar"), .separator(), styleItem, themeItem,
+                      .separator(),
+                      // The usual Mac keys; ⌘0 is the sidebar's, so the
+                      // defaults are control-command-0.
+                      item("Bigger Terminal Text", "=", .command, "biggerFont"),
+                      item("Smaller Terminal Text", "-", .command, "smallerFont"),
+                      item("Default Terminal Text", "0", [.command, .control], "defaultFont"),
+                      .separator(),
+                      item("Bigger Window Text", "+", [.command, .shift], "biggerText"),
+                      item("Smaller Window Text", "_", [.command, .shift], "smallerText"),
+                      item("Default Window Text", "0", [.command, .control, .shift], "defaultText")])
         updateStyleMenu()
         updateThemeMenu()
         let windowMenu = NSMenu(title: "Window")

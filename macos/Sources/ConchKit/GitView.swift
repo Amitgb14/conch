@@ -460,7 +460,7 @@ public func noteState(_ c: ReviewComment, agentStopped: Bool) -> NoteState {
 /// A pull request as the Overview says it: whether it merges, where its
 /// checks are, and what reviewers decided.
 public struct PRStatus: Equatable, Sendable {
-    public enum Tone: Equatable, Sendable { case ok, bad, busy, quiet }
+    public enum Tone: Equatable, Sendable { case ok, bad, busy, quiet, warn }
     public struct Line: Equatable, Sendable {
         public var tone: Tone
         public var text: String
@@ -472,12 +472,21 @@ public struct PRStatus: Equatable, Sendable {
     public var review: Line?
     public var conflicting: Bool
     public var failing: Bool
+    /// A collision only with the base's commits not pushed yet: the pull
+    /// request is clean on GitHub, and pushing the base will make it not.
+    public var local: Line? = nil
 }
 
 /// What pr says, with files the server found would conflict (it tries the
 /// merge itself, so it names them where GitHub only says "conflicting").
-public func prStatus(_ pr: PRInfo, base: String, conflicts: [String]) -> PRStatus {
-    let conflicting = pr.conflicting == true || !conflicts.isEmpty
+/// The server merges with the base as it is here, so with commits on it
+/// not pushed yet (baseUnpushed) a conflict it finds may be with those
+/// alone: GitHub, merging with the base it has, is the judge of the pull
+/// request then, and the collision is a note — said, not a conflict to
+/// resolve, which it once was, after the conflict had been resolved.
+public func prStatus(_ pr: PRInfo, base: String, conflicts: [String], baseUnpushed: Int = 0) -> PRStatus {
+    let onlyLocal = pr.conflicting != true && !conflicts.isEmpty && baseUnpushed > 0
+    let conflicting = pr.conflicting == true || (!conflicts.isEmpty && !onlyLocal)
     let merge: PRStatus.Line
     switch pr.state ?? "OPEN" {
     case "MERGED": merge = .init(tone: .ok, text: "Merged into \(base)")
@@ -508,8 +517,13 @@ public func prStatus(_ pr: PRInfo, base: String, conflicts: [String]) -> PRStatu
     case "REVIEW_REQUIRED": review = .init(tone: .quiet, text: "Review required")
     default: review = nil
     }
+    var local: PRStatus.Line?
+    if onlyLocal && (pr.state ?? "OPEN") == "OPEN" {
+        let files = conflicts.count <= 2 ? conflicts.joined(separator: ", ") : "\(conflicts[0]) and \(conflicts.count - 1) more"
+        local = .init(tone: .warn, text: "Your local \(base) (\(baseUnpushed) commit\(baseUnpushed == 1 ? "" : "s") not pushed) would conflict in \(files)")
+    }
     return PRStatus(merge: merge, ci: ci, progress: total > 0 ? Double(passed) / Double(total) : nil,
-                    review: review, conflicting: conflicting && (pr.state ?? "OPEN") == "OPEN", failing: pr.checks == "fail")
+                    review: review, conflicting: conflicting && (pr.state ?? "OPEN") == "OPEN", failing: pr.checks == "fail", local: local)
 }
 
 /// What an agent is asked when its pull request conflicts: the base merged

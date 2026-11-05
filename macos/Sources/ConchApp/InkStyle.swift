@@ -62,7 +62,7 @@ struct Lettering: View {
 
     var body: some View {
         let _ = look
-        Text(text.uppercased()).font(.system(size: size, weight: .black).italic()).tracking(0.4)
+        Text(text.uppercased()).font(.ui(size: size, weight: .black).italic()).tracking(0.4)
             .foregroundStyle(color)
             .lineLimit(1).fixedSize()
     }

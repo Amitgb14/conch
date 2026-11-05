@@ -118,6 +118,19 @@ final class GhosttyRuntime {
         return cfg
     }
 
+    /// The terminal's font size, from [app] font_size: what writeConfig
+    /// gives Ghostty.
+    static var fontSize = AppLook.fontDefault
+
+    /// A new font size for every pane at once.
+    func setFontSize(_ pt: Double) {
+        guard pt != Self.fontSize else { return }
+        Self.fontSize = pt
+        guard let t = theme else { return } // not begun: the first config will carry it
+        theme = nil
+        apply(t)
+    }
+
     /// A new theme for every pane at once.
     func apply(_ t: ConchTheme) {
         guard let app, t != theme, let cfg = Self.loadConfig(t, raw: false) else { return }
@@ -154,8 +167,9 @@ final class GhosttyRuntime {
         let text = """
         # Written by Conch.app: the terminal in each pane. Rewritten at every launch.
         # The font as conch app's window has it (cmd/conch/app.go), so a pane
-        # reads the same here as in the TUI: Ghostty's own JetBrains Mono, 14pt.
-        font-size = 14
+        # reads the same here as in the TUI: Ghostty's own JetBrains Mono, 14pt
+        # unless [app] font_size says otherwise.
+        font-size = \(fontSize.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(fontSize)) : String(fontSize))
         \(theme.ghosttyColors)
         window-padding-x = \(Int(padX))
         window-padding-y = \(Int(padY))

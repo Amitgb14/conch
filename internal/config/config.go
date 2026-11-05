@@ -69,10 +69,40 @@ type AppCfg struct {
 	// anywhere, Conch.app in the background or not, as Ghostty's quick
 	// terminal does. Off: option-space works only in the window.
 	ScratchKey bool `toml:"scratch_key,omitempty"`
+	// TextSize scales the window's own text — the sidebar, tabs, the git
+	// tab, the status bar — in percent; 0 is 100. The app keeps it to
+	// AppTextSizes' range.
+	TextSize int `toml:"text_size,omitempty"`
+	// FontSize is the terminal's font size in every pane, in points; 0 is
+	// 14, as conch app's own window has it.
+	FontSize float64 `toml:"font_size,omitempty"`
 }
+
+// The range the app keeps the window's text size and the terminal's font
+// size to, and their defaults.
+const (
+	AppTextSizeMin, AppTextSizeMax, AppTextSizeDefault = 80, 160, 100
+	AppFontSizeMin, AppFontSizeMax, AppFontSizeDefault = 9.0, 28.0, 14.0
+)
 
 // ShowsPorts reports whether the app puts listening ports in pane headers.
 func (a AppCfg) ShowsPorts() bool { return a.Ports == nil || *a.Ports }
+
+// TextSizeOrDefault is the window's text size in percent, kept in range.
+func (a AppCfg) TextSizeOrDefault() int {
+	if a.TextSize == 0 {
+		return AppTextSizeDefault
+	}
+	return min(max(a.TextSize, AppTextSizeMin), AppTextSizeMax)
+}
+
+// FontSizeOrDefault is the terminal's font size in points, kept in range.
+func (a AppCfg) FontSizeOrDefault() float64 {
+	if a.FontSize == 0 {
+		return AppFontSizeDefault
+	}
+	return min(max(a.FontSize, AppFontSizeMin), AppFontSizeMax)
+}
 
 // DefaultWebPort is where conch web listens unless told otherwise.
 const DefaultWebPort = 8722

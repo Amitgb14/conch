@@ -350,3 +350,31 @@ index 1..2 100644
     #expect(ciChip(old)?.text == "CI running 0/2")
     #expect(checksToRead([]).isEmpty)
 }
+
+// The server's trial merge is with the base as it is here. With commits on
+// it not pushed, a conflict it finds may be with those alone: GitHub says
+// the pull request is clean, so that is a note, not a conflict to resolve —
+// the card once kept saying "Conflicts" after the conflict was resolved.
+@Test func conflictOnlyWithTheUnpushedBase() {
+    var pr = PRInfo(number: 87, state: "OPEN", checks: "pass")
+    pr.conflicting = false
+    let st = prStatus(pr, base: "master", conflicts: ["docs/testing/end-to-end.md"], baseUnpushed: 4)
+    #expect(!st.conflicting && st.merge.tone == .ok && st.merge.text == "No conflicts with master")
+    #expect(st.local == .init(tone: .warn, text: "Your local master (4 commits not pushed) would conflict in docs/testing/end-to-end.md"))
+    // One commit; the base pushed (nothing local) — the trial merge is then
+    // GitHub's own base and its conflict is the pull request's.
+    #expect(prStatus(pr, base: "main", conflicts: ["a"], baseUnpushed: 1).local?.text.contains("(1 commit not pushed)") == true)
+    let pushed = prStatus(pr, base: "main", conflicts: ["a"], baseUnpushed: 0)
+    #expect(pushed.conflicting && pushed.merge.tone == .bad && pushed.local == nil)
+    // GitHub saying it conflicts wins whatever is unpushed.
+    pr.conflicting = true
+    let gh = prStatus(pr, base: "main", conflicts: ["a"], baseUnpushed: 3)
+    #expect(gh.conflicting && gh.local == nil && gh.merge.text == "Conflicts with main in a")
+    // Clean everywhere: no note.
+    pr.conflicting = false
+    #expect(prStatus(pr, base: "main", conflicts: [], baseUnpushed: 3).local == nil)
+    // Merged: nothing to warn about.
+    var merged = PRInfo(number: 9, state: "MERGED")
+    merged.conflicting = false
+    #expect(prStatus(merged, base: "main", conflicts: ["a"], baseUnpushed: 2).local == nil)
+}

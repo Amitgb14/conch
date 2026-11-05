@@ -243,3 +243,53 @@ import Testing
     #expect(throws: (any Error).self) { try Workspace.closing("s2", in: Data("not json".utf8)) }
     #expect(throws: (any Error).self) { try Workspace.closing("s2", in: nil) }
 }
+
+// text_size and font_size read from [app], kept in range; their steps.
+@Test func textAndFontSize() {
+    #expect(AppLook(toml: nil).textScale == 1 && AppLook(toml: nil).fontSize == 14)
+    let l = AppLook(toml: "[app]\ntext_size = 125\nfont_size = 16.5\n")
+    #expect(l.textScale == 1.25 && l.fontSize == 16.5)
+    #expect(AppLook(toml: "[app]\ntext_size = 500\nfont_size = 2\n").textScale == 1.6)
+    #expect(AppLook(toml: "[app]\ntext_size = 500\nfont_size = 2\n").fontSize == 9)
+    #expect(AppLook(toml: "[app]\ntext_size = \"110\"\nfont_size = 0\n").textScale == 1.1)
+    #expect(AppLook(toml: "[app]\ntext_size = big\n").textScale == 1)
+    #expect(AppLook.textStep(from: 1, bigger: true) == 1.1 && AppLook.textStep(from: 1, bigger: false) == 0.9)
+    #expect(AppLook.textStep(from: 1.6, bigger: true) == 1.6 && AppLook.textStep(from: 0.8, bigger: false) == 0.8)
+    #expect(AppLook.textStep(from: 1.17, bigger: true) == 1.25)
+    #expect(AppLook.fontStep(from: 14, bigger: true) == 15 && AppLook.fontStep(from: 9, bigger: false) == 9 && AppLook.fontStep(from: 28, bigger: true) == 28)
+    #expect(AppLook.fontStep(from: 16.5, bigger: false) == 16)
+}
+
+// One setting written into config.toml, everything else kept.
+@Test func writesOneSetting() {
+    let toml = "# mine\n[ui]\ntheme = \"terminal\"\n\n[app]\ntabs = \"left\"\n\n[notify]\nbell = true\n"
+    let set = settingTOML(toml, section: "app", key: "font_size", value: "16")
+    #expect(set == "# mine\n[ui]\ntheme = \"terminal\"\n\n[app]\ntabs = \"left\"\nfont_size = 16\n\n[notify]\nbell = true\n")
+    #expect(settingTOML(set, section: "app", key: "font_size", value: "17").contains("font_size = 17\n") && !settingTOML(set, section: "app", key: "font_size", value: "17").contains("= 16"))
+    #expect(settingTOML(set, section: "app", key: "font_size", value: nil) == toml)
+    // A missing section is added; nothing to take out of one that is not there.
+    #expect(settingTOML("[ui]\ntheme = \"x\"\n", section: "app", key: "text_size", value: "110") == "[ui]\ntheme = \"x\"\n\n[app]\ntext_size = 110\n")
+    #expect(settingTOML("", section: "app", key: "text_size", value: "110") == "[app]\ntext_size = 110\n")
+    #expect(settingTOML("[ui]\n", section: "app", key: "text_size", value: nil) == "[ui]\n")
+    // A key of the same name in another section, or commented out, is left.
+    let other = "[ui]\nfont_size = 3\n[app]\n# font_size = 99\n"
+    #expect(settingTOML(other, section: "app", key: "font_size", value: "15") == "[ui]\nfont_size = 3\n[app]\n# font_size = 99\nfont_size = 15\n")
+    // What it writes reads back.
+    #expect(AppLook(toml: settingTOML(toml, section: "app", key: "text_size", value: "140")).textScale == 1.4)
+}
+
+// Every command a menu item names is handled — by the menu's own switch or
+// the store's. A new item named a command nobody handled (the text sizes)
+// and did nothing at all, with nothing said.
+@Test func everyMenuCommandIsHandled() throws {
+    let dir = (#filePath as NSString).deletingLastPathComponent + "/../../Sources/ConchApp"
+    let menu = try String(contentsOfFile: dir + "/main.swift", encoding: .utf8)
+    let store = try String(contentsOfFile: dir + "/Store.swift", encoding: .utf8)
+    // item("Title", "key", .command or [.command, .shift], "command")
+    let named = try Regex(#"item\("[^"]*", "[^"]*"(?:, (?:\[[^\]]*\]|[^,\[\)]+))?, "(\w+)"\)"#)
+    var ids = Set(menu.matches(of: named).compactMap { $0.output[1].substring.map(String.init) })
+    #expect(ids.count > 20)
+    ids = ids.filter { !$0.hasPrefix("tab") } // tab1…tab9, handled by prefix
+    let missing = ids.filter { !menu.contains("case \"\($0)\"") && !store.contains("case \"\($0)\"") }
+    #expect(missing.isEmpty, "menu commands nobody handles: \(missing.sorted())")
+}
