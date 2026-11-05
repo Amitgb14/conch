@@ -287,7 +287,7 @@ func TestMoveWorktreeFailures(t *testing.T) {
 	}
 
 	// A server there without the session handoff: the agents start afresh.
-	m, _, dst, remote = moveModel(t)
+	m, _, _, remote = moveModel(t)
 	remote.c, dst = a1FakeClient(t, "session.v1", proto.CapWorktreeMove)
 	dst.setResult(proto.MethodFSUpload, proto.FSUploadResult{Upload: "u1", Path: "/up/x"})
 	dst.setResult(proto.MethodWorktreeUnpack, proto.WorktreeUnpackResult{Path: "/srv/api.worktrees/feat", Branch: "feat"})

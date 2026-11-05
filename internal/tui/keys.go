@@ -2,12 +2,16 @@ package tui
 
 import (
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/keymap"
 	"github.com/Amitgb14/conch/internal/phone"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
@@ -35,14 +39,13 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.prefixArmed {
 		m.prefixArmed = false
+		if k.String() == m.cfg.Keys.Prefix {
+			return m, nil // the prefix twice: nothing here has a program to type into
+		}
 		if cmd, handled := m.layoutKey(k.String()); handled {
 			return m, cmd
 		}
-		if k.String() == "z" {
-			m.zoom = !m.zoom
-			return m, m.syncView()
-		}
-		if k.String() == "r" && ok {
+		if m.binds.Action(k.String()) == keymap.Redraw && ok {
 			return m, m.redrawPane(r)
 		}
 		return m, nil
@@ -350,33 +353,34 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.prefixArmed {
 		m.prefixArmed = false
-		if cmd, handled := m.layoutKey(k.String()); handled {
-			return m, cmd
-		}
-		switch k.String() {
-		case prefix:
+		// The prefix twice types the prefix, and that is settled before
+		// anything is looked up: it is how a program below conch is given
+		// its own ctrl+b, so no binding may take it.
+		if k.String() == prefix {
 			if r.kind == kindPane {
 				m.sendKey(r.machine, r.paneID, k)
 			}
-		case "[", "pgup":
+			return m, nil
+		}
+		if cmd, handled := m.layoutKey(k.String()); handled {
+			return m, cmd
+		}
+		switch m.binds.Action(k.String()) {
+		case keymap.ScrollMode:
 			if r.kind == kindPane && m.frame != nil {
 				m.enterScrollMode()
 				if k.String() == "pgup" {
 					m.scrollPane(m.page())
 				}
 			}
-		case "z":
-			m.zoom = !m.zoom
-			return m, m.syncView()
-		case "!":
-			return m, m.jumpToAttention()
-		case "M", "A":
+		case keymap.MonitorQuiet, keymap.MonitorOutput:
 			if r.kind == kindPane {
-				return m, m.toggleMonitor(r.machine, r.paneID, k.String() == "M")
+				quiet := m.binds.Action(k.String()) == keymap.MonitorQuiet
+				return m, m.toggleMonitor(r.machine, r.paneID, quiet)
 			}
-		case "r":
+		case keymap.Redraw:
 			return m, m.redrawPane(r)
-		case "u":
+		case keymap.OpenLinks:
 			return m, m.openLinks(r)
 		default:
 			m.focus = focusSidebar
@@ -449,10 +453,73 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// layoutKey handles the split and tab commands that follow the prefix.
+// resolveBinds reads [keys.bind] into a table, and takes out a binding on
+// the prefix key itself: the prefix twice is how a program below conch is
+// given its own ctrl+b, so an action there could never be pressed and
+// would quietly cost somebody that. Said, rather than ignored.
+func resolveBinds(cfg config.Config) (keymap.Map, []string) {
+	bind, prefix := cfg.Keys.Bind, cfg.Keys.Prefix
+	var warn []string
+	if len(bind) > 0 && prefix != "" {
+		kept := make(map[string]string, len(bind))
+		for _, name := range slices.Sorted(maps.Keys(bind)) {
+			if key := bind[name]; key != "" && keymap.Normalize(key) == prefix {
+				warn = append(warn, fmt.Sprintf("%s is on %s, which is the prefix itself", name, prefix))
+				continue
+			}
+			kept[name] = bind[name]
+		}
+		bind = kept
+	}
+	binds, problems := keymap.Resolve(bind)
+	return binds, append(warn, problems...)
+}
+
+// keyHint is the prefix and the key an action is on — "ctrl+b x" — or ""
+// when it has been unbound, so that no hint, label or status bar offers a
+// key that does nothing. Everything conch says about a prefix key is said
+// through this: with [keys.bind] the letters are the person's, not ours.
+func (m Model) keyHint(a keymap.Action) string {
+	k := m.binds.Key(a)
+	if k == "" {
+		return ""
+	}
+	return m.cfg.Keys.Prefix + " " + keymap.Show(k)
+}
+
+// keyOnly is the key an action is on without the prefix — what the status
+// bar shows while the prefix is armed, where the prefix has been pressed
+// already — or "" when the action has been unbound.
+func (m Model) keyOnly(a keymap.Action) string {
+	if k := m.binds.Key(a); k != "" {
+		return keymap.Show(k)
+	}
+	return ""
+}
+
+// keyNote is a hint in brackets for the end of a menu label, or nothing.
+func (m Model) keyNote(a keymap.Action) string {
+	if h := m.keyHint(a); h != "" {
+		return " (" + h + ")"
+	}
+	return ""
+}
+
+// layoutKey handles the split and tab commands that follow the prefix. It
+// switches on what the key *does* (internal/keymap), not on the key, so
+// `[keys.bind]` in config.toml can move any of them — as tmux's bind-key
+// moves tmux's. The two keys that are not in the table are the ones that
+// are not a single action: a digit, which is the tab at that place, and
+// ctrl/alt+arrow, which is a resize in a direction by a step.
 func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 	switch key {
-	case "b":
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		return m.gotoVisibleTab(int(key[0] - '1')), true
+	case "0":
+		return m.gotoVisibleTab(9), true
+	}
+	switch m.binds.Action(key) {
+	case keymap.Back:
 		// Back to where the split was before the last jump, and back again
 		// returns: the two swap, so it works like alt-tab.
 		if m.prevView.empty() {
@@ -461,93 +528,102 @@ func (m *Model) layoutKey(key string) (tea.Cmd, bool) {
 		}
 		v := m.prevView
 		return m.show(row{id: v.Row, kind: v.Kind, machine: v.Machine, projectID: v.ProjectID, branch: v.Branch, paneID: v.PaneID}), true
-	case "v", "%", "|":
+	case keymap.SplitRight:
 		return m.split(splitRight, viewRef{}), true
-	case "-", "\"", "_":
+	case keymap.SplitDown:
 		return m.split(splitDown, viewRef{}), true
-	case "x":
+	case keymap.CloseSplit:
 		return m.closeSplitAsk(), true
-	case "left", "h":
+	case keymap.FocusLeft:
 		return m.moveFocus(-1, 0), true
-	case "right":
+	case keymap.FocusRight:
 		return m.moveFocus(1, 0), true
-	case "l":
+	case keymap.FocusUp:
+		return m.moveFocus(0, -1), true
+	case keymap.FocusDown:
+		return m.moveFocus(0, 1), true
+	case keymap.LastTab:
 		return m.gotoLastTab(), true
-	case ";":
+	case keymap.LastSplit:
 		return m.lastSplit(), true
-	case "{":
+	case keymap.SwapPrev:
 		return m.swapSplit(-1), true
-	case "}":
+	case keymap.SwapNext:
 		return m.swapSplit(1), true
-	case "w", "s":
+	case keymap.TabPicker:
 		m.openTabPicker()
 		return nil, true
-	case "d":
+	case keymap.Detach:
 		return m.quitting(m.saveState()), true
-	case "?":
+	case keymap.Help:
 		m.overlay = newHelp()
 		return nil, true
-	case ":":
+	case keymap.Ask:
 		return m.openAsk(), true
-	case "/":
+	case keymap.Palette:
 		return m.openPalette(), true
-	case ".":
+	case keymap.MoveTab:
 		return m.openMoveTab(), true
-	case "<":
+	case keymap.MoveTabLeft:
 		return m.moveTab(-1), true
-	case ">":
+	case keymap.MoveTabRight:
 		return m.moveTab(1), true
-	case "q":
+	case keymap.Numbers:
 		return m.showNumbers(), true
-	case " ":
+	case keymap.NextLayout:
 		return m.applyLayout(m.tab().layout), true // the one after the last applied
-	case "alt+1", "alt+2", "alt+3", "alt+4", "alt+5":
-		return m.applyLayout(int(key[4] - '1')), true
-	case "S":
+	case keymap.LayoutEvenH:
+		return m.applyLayout(0), true
+	case keymap.LayoutEvenV:
+		return m.applyLayout(1), true
+	case keymap.LayoutMainH:
+		return m.applyLayout(2), true
+	case keymap.LayoutMainV:
+		return m.applyLayout(3), true
+	case keymap.LayoutTiled:
+		return m.applyLayout(4), true
+	case keymap.SyncPanes:
 		m.promote()
 		return m.toggleSync(), true
-	case "up", "k":
-		return m.moveFocus(0, -1), true
-	case "down", "j":
-		return m.moveFocus(0, 1), true
-	case "o":
+	case keymap.Zoom:
+		m.zoom = !m.zoom
+		return m.syncView(), true
+	case keymap.NextWaiting:
+		return m.jumpToAttention(), true
+	case keymap.NextSplit:
 		ls := m.tab().root.leaves()
 		for i, l := range ls {
 			if l.id == m.tab().focus {
 				return m.focusLeaf(ls[(i+1)%len(ls)].id), true
 			}
 		}
-	case "c":
+	case keymap.NewTab:
 		return m.newShellTab(), true
-	case "N":
+	case keymap.NewWorkspace:
 		return m.newSpace(), true
-	case "(":
+	case keymap.PrevWorkspace:
 		return m.stepSpace(-1), true
-	case ")":
+	case keymap.NextWorkspace:
 		return m.stepSpace(1), true
-	case "$":
+	case keymap.RenameWorkspace:
 		return m.renameSpaceAsk(), true
-	case "X":
+	case keymap.CloseWorkspace:
 		return m.closeSpaceAsk(), true
-	case "C":
+	case keymap.ChangesTab:
 		return m.changesTab(), true
-	case "n":
+	case keymap.NextTab:
 		return m.stepTab(1), true
-	case "p":
+	case keymap.PrevTab:
 		return m.stepTab(-1), true
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		return m.gotoVisibleTab(int(key[0] - '1')), true
-	case "0":
-		return m.gotoVisibleTab(9), true
-	case "&":
+	case keymap.CloseTab:
 		if m.previewing {
 			return nil, true
 		}
 		return m.closeTabAsk(m.activeTab), true
-	case "=":
+	case keymap.Equalize:
 		m.tab().root.equalize()
 		return tea.Batch(m.syncView(), m.saveState()), true
-	case ",":
+	case keymap.RenameTab:
 		m.promote()
 		t := m.tab()
 		d := newDialog(*m, " Rename tab ", []string{"Leave empty to name it after what it shows."}, []string{"Name"}, []string{t.name})

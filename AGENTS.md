@@ -45,12 +45,14 @@ Apache-2.0 · Default branch: `master`.
 | `internal/agentsetup` | What an agent loads in a checkout: instructions, skills, MCP servers, trust — and, the other way, writing one agent's instructions, skills and servers where the others look for them (`sync.go`), with a record to undo it; the library of servers and skills the agents follow (`library.go`); each agent's way of naming a variable (`vars.go`); conch's own skill for agents driving agents (`skill/SKILL.md`, installed by `skill.go`) — its commands are checked against the CLI's usage by a test |
 | `internal/gitx` / `internal/ghx` | git status, branches, worktrees, untracked files / pull requests via the `gh` CLI |
 | `internal/update` | Version comparison, same-build checks, release installs, reloading servers |
+| `internal/keymap` | What a key after the prefix does, and which key that is: the actions, their default keys (tmux's, key for key), and `[keys.bind]` from `config.toml` laid over them (`Resolve`, with what was wrong with it said rather than dropped). A package of its own because more than the TUI talks about these — `conch keys` lists them, `conch doctor` checks them, the settings page offers the names — and because an action's name is a promise to somebody's config file: renaming one breaks their keys silently. Its zero `Map` is the default keys, since a Model is copied for every message and a zero table would be a conch whose prefix table did nothing |
 | `internal/config` | Paths (`CONCH_HOME`), `config.toml` loading and saving, and the custom actions it holds (`[[actions]]`: a named command of your own on the row menus, run where the row is) |
 | `internal/configweb` | The settings page: every key of `config.toml` as a form in the browser (`,` then `e` in the TUI, or `conch config web`). The schema the page draws is Go (`schema.go`, a test says it covers `config.Config`); the API answers on 127.0.0.1 only, to a token carried in the URL's fragment and sent back in a header, and refuses a save made from a version of the file that has since changed. The page (`app/`: React, Tailwind, shadcn) is built by `make settings-ui` into `dist/`, which is committed and embedded, so conch still builds with go alone; its logic is in `app/src/lib/model.js`, tested with node through `TestUILogic`. The TUI serves it itself and takes each save (`internal/tui/configweb.go`), because it holds the configuration in memory and would otherwise write its older copy back |
 | `internal/buildinfo` | Build identity (executable hash) used to detect stale servers and TUIs |
 | `internal/report` | What `conch bug` and the TUI's *Report a problem…* hand over: versions, counts, sizes, a server's missing capabilities and conch's own last error, rendered for a GitHub issue. **Facts, never contents** — no path, project, branch, pane title or screen — which is what makes one keystroke safe; it sends nothing itself |
 | `internal/doctor` | What `conch doctor` finds and how it is said (a check, its outcome, its fix); the checks run in `cmd/conch/doctor.go`, and the TUI is handed them (`Doctor`, `internal/tui/health.go`) to run a moment after it starts — with `ask` false, since asking the terminal what it can do (`cmd/conch/doctorterm.go`) is the command's alone |
 | `internal/tools` | Programs for driving conch under test: `clicker` clicks and drags a pane through the protocol, `standin` is a pane conch detects as an agent (by the name it is built under) that starts panes as an agent does |
+| `internal/nodetest` | Finds node for the tests that run conch's JavaScript (the phone's app, the settings page): skipped without it on a developer's machine, failed without it under CI, where a skip would pass code nobody ran |
 | `internal/sshtest` | A stand-in for ssh in tests: the test binary run under the name `ssh` logs in by waiting as a shell would, and asked for sftp serves a folder as the host's home (hosts `denied`, `nosftp`, `hang` fail as ssh does). A test package calls `sshtest.Main()` from `TestMain` and `sshtest.Install(t)` to put it on `CONCH_SSH`. It is how the files of a terminal's ssh host (`fs.ssh.v1`, `internal/server/sshfiles.go`) are tested without a network |
 | `macos/` | Conch.app, a native macOS window on the same server: Swift, built with the Command Line Tools (`swift build`, `swift test`; `macos/bundle.sh` makes the bundle and puts a Go-built `conch` inside it). `go build ./...` never sees it. `ConchKit` is what can be tested — the socket client, the protocol types (optional wherever the server's are `omitempty`), the tree, the counts, search and the tab/split layout — and `ConchApp` the AppKit toolbar and menus around SwiftUI. Each pane is a terminal running `conch attach` (`cmd/conch/attach.go`), behind one seam (`TerminalHost.swift`): Ghostty's (`GhosttyHost.swift`, libghostty from a pinned upstream release built by `macos/ghostty.sh` into the ignored `macos/vendor`, which needs Xcode 26 and Zig) when that library is there, SwiftTerm's when it is not — `Package.swift` decides by whether the xcframework exists, so the Command Line Tools alone still build it. Ghostty's panes run `conch attach -raw` where the pane's server has `pane.raw.v1`: Ghostty is given the program's own output (`internal/pane/raw.go`, `cmd/conch/attachraw.go`) and draws the pane at the server's size, letterboxed while another client holds it (`ConchKit/Window.swift`), the window telling attach how much room it has by a control paste; the scratch layer (`Scratch.swift`), tabs down a side (`SideTabs.swift`), ⌘K's live preview (`Preview.swift`, `attach -raw -view`) and `[app]` in config.toml are the same app's; a waiting agent's answer buttons run `conch agent question` / `answer`, the phone's own menu reading, rather than a second copy of it. Every machine in machines.json is shown too, each spoken to through `conch machine bridge ID` (the protocol on a process's stdin and stdout, `remote.BridgeCommand`), so panes, projects and branches are named `machine|id` throughout the app (`ConchKit.key`) — a pane id alone is not unique once two servers are in one window. A branch's git tab (`GitTab.swift` the views, `ChangesView.swift` its model, the testable part in `ConchKit/GitView.swift`) commits hunks through `branch.hunks.v1`, opens commits through `project.commit.v1` and submits pull request reviews through `pr.review.v1` (`ghx.Review`); its message is drafted by `conch commit-message`. Not in CI, which is Go on Linux and macOS: run `swift test` in `macos/` when you change it |
 | `web/` | The documentation website (Next.js, MDX under `web/src/app/docs`) |
@@ -63,13 +65,21 @@ Apache-2.0 · Default branch: `master`.
 make build                     # bin/conch
 make test                      # go test -race -timeout 20m ./...
 make vet                       # go vet ./...
+make lint                      # gofmt -l, go vet and staticcheck (pinned; staticcheck.conf says what it leaves out)
 gofmt -l cmd internal          # must print nothing
 go test -race -count=1 -timeout 20m ./...   # what to run before every commit
 go test -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out | tail -1
+make settings-ui-check         # rebuild internal/configweb/dist and fail if it moved (needs pnpm)
 ```
 
-CI (`.github/workflows/ci.yml`) runs `go vet` and `go test -race` on **Linux
-and macOS**. Code and tests must work on both.
+CI (`.github/workflows/ci.yml`) runs `make lint` and `go test -race` on
+**Linux and macOS**, with node installed, and rebuilds the settings page to
+check the committed `dist/` against `app/`. Code and tests must work on both.
+Under CI (`CI=true`) the JavaScript tests fail rather than skip without node
+(`internal/nodetest`); locally they still skip. `pages.yml` builds the
+website on any pull request that touches `web/`, and deploys only from
+master and tags; `release.yml` runs the same race-enabled suite before
+cutting a release.
 
 ## Working rules
 
@@ -98,15 +108,18 @@ and macOS**. Code and tests must work on both.
 5. **Match the surrounding code.** Short, plain comments that explain *why*;
    names and idioms like the neighbouring code; no speculative abstractions.
 6. **User-visible changes update their docs** in the same change: the help
-   overlay (`internal/tui/overlay.go` `helpText`), status bar hints, CLI usage
+   overlay (`internal/tui/overlay.go` `helpGroups`: a group, a key and its
+   details, laid out for the screen by `helpLines` — a key after the prefix
+   is named there by its `keymap.Action`, never by the letter, so that
+   `[keys.bind]` moves it everywhere at once), status bar hints, CLI usage
    in `cmd/conch/main.go`, and the pages under `web/src/app/docs` (notably
    `interface/page.mdx` and `keys/page.mdx`).
 7. **Commit only when asked**, with a message that says what changed and why.
 8. **Nothing is pushed red.** Every new change — a feature, a fix, a doc
    tweak that touches code — carries its own tests, and before any push the
    whole regression suite must be green on the final state of the branch:
-   `go test -race -count=1 -timeout 20m ./...`, `go vet ./...`, and `gofmt -l cmd internal`
-   printing nothing. Re-run it after the *last* edit, not just after the
+   `go test -race -count=1 -timeout 20m ./...` and `make lint` (gofmt, vet,
+   staticcheck). Re-run it after the *last* edit, not just after the
    big one: a one-line follow-up fix checked only in its own package is not
    verified. If something fails, fix it before pushing; never push with a
    failing, skipped-to-pass or retried-until-green test.
@@ -653,7 +666,8 @@ user's own configuration.
 ## Before you finish
 
 - [ ] Tests added or updated for the change, covering edge cases
-- [ ] `gofmt -l cmd internal` prints nothing; `go vet ./...` is clean
+- [ ] `make lint` is clean (gofmt, `go vet`, staticcheck)
+- [ ] Changed `internal/configweb/app`? `make settings-ui` and commit `dist/`
 - [ ] `go test -race -count=1 -timeout 20m ./...` passes — run again after the last edit, before any push
 - [ ] Help text, CLI usage and web docs updated for user-visible changes
 - [ ] Summary says what was tested, what wasn't, and any skipped bug tests

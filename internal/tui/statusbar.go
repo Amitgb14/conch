@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/buildinfo"
+	"github.com/Amitgb14/conch/internal/keymap"
 	"github.com/Amitgb14/conch/internal/phone"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -77,9 +78,41 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		// The way back first: the bar keeps only its first few hints when
 		// it is short of room, and the pane's bar promised "tree" here.
 		palette := func(m *Model) tea.Cmd { m.prefixArmed = false; return m.openPalette() }
-		items = []statusItem{action("esc", "tree", toTree), action("/", "palette", palette), hint("v", "split"), hint("-", "split down"), hint("x", "close split"),
-			hint("←→↑↓", "focus"), hint("q", "numbers"), hint("space", "layout"), hint("c", "new tab"), hint("n", "next tab"),
-			hint("[", "scroll"), hint("z", "zoom")}
+		items = []statusItem{action("esc", "tree", toTree)}
+		if k := m.keyOnly(keymap.Palette); k != "" {
+			items = append(items, action(k, "palette", palette))
+		}
+		// The prefix has been pressed already, so these are the bare keys —
+		// the person's own, where [keys.bind] moved them, and left out
+		// altogether where it unbound them.
+		focus := ""
+		for _, a := range []keymap.Action{keymap.FocusLeft, keymap.FocusRight, keymap.FocusUp, keymap.FocusDown} {
+			focus += m.keyOnly(a)
+		}
+		for _, h := range []struct {
+			act   keymap.Action
+			key   string
+			label string
+		}{
+			{keymap.SplitRight, "", "split"},
+			{keymap.SplitDown, "", "split down"},
+			{keymap.CloseSplit, "", "close split"},
+			{"", focus, "focus"},
+			{keymap.Numbers, "", "numbers"},
+			{keymap.NextLayout, "", "layout"},
+			{keymap.NewTab, "", "new tab"},
+			{keymap.NextTab, "", "next tab"},
+			{keymap.ScrollMode, "", "scroll"},
+			{keymap.Zoom, "", "zoom"},
+		} {
+			key := h.key
+			if h.act != "" {
+				key = m.keyOnly(h.act)
+			}
+			if key != "" {
+				items = append(items, hint(key, h.label))
+			}
+		}
 	case m.focus == focusMain && r.kind == kindPane && m.scrollMode && m.search.typing:
 		chip = styleChip.Background(colorAccent).Render("SEARCH")
 		items = []statusItem{hint("enter", "find"), hint("esc", "cancel")}
@@ -95,25 +128,25 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		chip = styleChip.Background(colorWarn).Render("HISTORY")
 		items = []statusItem{
 			action("live", "back to now", func(m *Model) tea.Cmd { m.scrollPane(-m.offset); return nil }),
-			action(m.cfg.Keys.Prefix+" [", "scroll keys", scrollMode),
+			action(m.keyHint(keymap.ScrollMode), "scroll keys", scrollMode),
 			action("esc", "tree", toTree),
 		}
 	case m.focus == focusMain && r.kind == kindPane:
 		chip = styleChip.Background(colorInput).Render("PANE")
 		items = []statusItem{
 			action(m.cfg.Keys.Prefix, "tree", toTree),
-			action(m.cfg.Keys.Prefix+" v", "split", func(m *Model) tea.Cmd { return m.split(splitRight, viewRef{}) }),
-			action(m.cfg.Keys.Prefix+" -", "split down", func(m *Model) tea.Cmd { return m.split(splitDown, viewRef{}) }),
-			action(m.cfg.Keys.Prefix+" c", "tab", func(m *Model) tea.Cmd { return m.newShellTab() }),
-			action(m.cfg.Keys.Prefix+" [", "scroll", scrollMode),
-			action(m.cfg.Keys.Prefix+" z", "zoom", func(m *Model) tea.Cmd { m.zoom = !m.zoom; return m.syncView() }),
+			action(m.keyHint(keymap.SplitRight), "split", func(m *Model) tea.Cmd { return m.split(splitRight, viewRef{}) }),
+			action(m.keyHint(keymap.SplitDown), "split down", func(m *Model) tea.Cmd { return m.split(splitDown, viewRef{}) }),
+			action(m.keyHint(keymap.NewTab), "tab", func(m *Model) tea.Cmd { return m.newShellTab() }),
+			action(m.keyHint(keymap.ScrollMode), "scroll", scrollMode),
+			action(m.keyHint(keymap.Zoom), "zoom", func(m *Model) tea.Cmd { m.zoom = !m.zoom; return m.syncView() }),
 		}
 		if len(m.tab().root.leaves()) > 1 {
-			items = append(items, action(m.cfg.Keys.Prefix+" x", "close split", func(m *Model) tea.Cmd { return m.closeSplitAsk() }))
+			items = append(items, action(m.keyHint(keymap.CloseSplit), "close split", func(m *Model) tea.Cmd { return m.closeSplitAsk() }))
 		}
 		if m.tab().sync {
 			chip = styleChip.Background(colorWarn).Render("SYNC")
-			items = append([]statusItem{action(m.cfg.Keys.Prefix+" S", "stop typing into all splits", func(m *Model) tea.Cmd { return m.toggleSync() })}, items...)
+			items = append([]statusItem{action(m.keyHint(keymap.SyncPanes), "stop typing into all splits", func(m *Model) tea.Cmd { return m.toggleSync() })}, items...)
 		}
 	case m.focus == focusMain && m.changes != nil && m.changes.diffFile != "":
 		chip = styleChip.Background(colorInput).Render("DIFF")

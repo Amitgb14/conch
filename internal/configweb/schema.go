@@ -137,9 +137,11 @@ func Schema(c Choices) []Section {
 				{Key: "icons", Label: "File icons", Kind: KindSelect, Options: []Option{{"", "Letters, in any font"}, {"nerd", "Nerd Font glyphs"}, {"off", "None"}}},
 				{Key: "tree_groups", Label: "Group a project's panes by", Kind: KindSelect, Options: []Option{{"", "Sections: Agents and Terminals"}, {"tabs", "The tab each is open in"}}},
 			}},
-		{ID: "keys", Key: "keys", Title: "Keys", Icon: "keyboard", Description: "The key that hands control back to conch.",
+		{ID: "keys", Key: "keys", Title: "Keys", Icon: "keyboard", Description: "The key that hands control back to conch, and what the keys after it do.",
 			Fields: []Field{
 				{Key: "prefix", Label: "Prefix", Kind: KindString, Placeholder: "ctrl+b", Help: "Bubble Tea key notation, e.g. ctrl+b or ctrl+a. Takes effect when the TUI next starts."},
+				{Key: "bind", Label: "Rebind a key after the prefix", Kind: KindMap, KeyLabel: "What it does", Placeholder: "\\",
+					Help: "As tmux's bind-key: the name of what the key does (split_right, next_tab, zoom — `conch keys` lists them all) and the key to put it on. tmux's spelling is taken too (C-n, Space). An empty key unbinds it; what is not named here keeps its default."},
 			}},
 		{ID: "notify", Key: "notify", Title: "Notifications", Icon: "bell", Description: "How conch tells you an agent needs you.",
 			Fields: []Field{

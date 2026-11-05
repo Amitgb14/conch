@@ -16,8 +16,35 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go vet ./...
+      # The phone's app and the settings page are tested with node
+      # (TestUILogic). Under CI a missing node fails those tests rather
+      # than skipping them (internal/nodetest), so it is installed here
+      # instead of trusting the runner image to have one.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # gofmt, go vet and staticcheck. On both systems: each builds files
+      # the other doesn't (FSEvents and peer_darwin here, fsnotify and
+      # peer_linux there).
+      - run: make lint
       # internal/server alone takes 500-550s on the macOS runner, which
       # left go test's default 10m timeout one slow runner from failing a
       # pull request that never touched it.
       - run: go test -race -timeout 20m ./...
+
+  # The settings page is committed as built (internal/configweb/dist) so
+  # conch builds with go alone. Rebuilding it here says whether what is
+  # committed is still the build of app/.
+  settings-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: internal/configweb/app/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: internal/configweb/app/pnpm-lock.yaml
+      - run: make settings-ui-check

@@ -492,6 +492,14 @@ type Keys struct {
 	// Prefix is the key that, while typing into a pane, hands control back
 	// to conch (Bubble Tea key notation, e.g. "ctrl+b").
 	Prefix string `toml:"prefix"`
+	// Bind rebinds what a key *after* the prefix does: an action's name to
+	// the key that runs it, as tmux's bind-key does
+	// (`split_right = "\\"`). What is not named here keeps its default,
+	// an empty key unbinds the action, and the names are
+	// internal/keymap's — `conch keys` lists them. It is a map and not a
+	// field each because the set belongs to keymap, which the TUI, the
+	// doctor and that command all read; config only carries the file.
+	Bind map[string]string `toml:"bind"`
 }
 
 // PaneCfg holds defaults for new panes.

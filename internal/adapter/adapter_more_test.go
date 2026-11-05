@@ -285,6 +285,9 @@ func TestA6SanitizeEnv(t *testing.T) {
 	if small[:2][1] == "B=2" {
 		t.Fatal("result aliases the input")
 	}
+	if len(out) != 2 || out[1] != "B=2" {
+		t.Fatalf("appended to the result: %q", out)
+	}
 }
 
 func TestA6ShellQuoteAndCleanTitle(t *testing.T) {

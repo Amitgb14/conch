@@ -61,6 +61,7 @@ var compCommands = []compItem{
 	{"server", "run, stop or reload the server"},
 	{"update", "the newest release, without stopping agents"},
 	{"doctor", "check what conch needs, and how to fix it"},
+	{"keys", "what each key after the prefix does"},
 	{"app", "open conch in a terminal of its own"},
 	{"bug", "the facts for a bug report"},
 	{"mcp", "an MCP server for an agent"},

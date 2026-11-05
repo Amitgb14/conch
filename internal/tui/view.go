@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Amitgb14/conch/internal/keymap"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 )
@@ -726,8 +727,12 @@ func (m Model) leafLines(l *leaf, w, h int, focused bool) []string {
 func (m Model) leafBody(l *leaf, w, h int, focused bool) []string {
 	v := l.view
 	if v.empty() {
+		closes := ""
+		if h := m.keyHint(keymap.CloseSplit); h != "" {
+			closes = h + " closes it"
+		}
 		return centered(w, h, styleMuted.Render("Pick something in the tree for this split"), "",
-			styleMuted.Render(m.cfg.Keys.Prefix+" x closes it"))
+			styleMuted.Render(closes))
 	}
 	mach := m.machine(v.Machine)
 	if mach != nil && mach.state != stateOnline && v.Kind != kindMachine {

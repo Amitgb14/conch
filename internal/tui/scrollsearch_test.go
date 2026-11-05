@@ -219,7 +219,7 @@ func TestScrollSearchResults(t *testing.T) {
 	}
 	// A keyboard selection's head follows to the match.
 	m.sel = &selection{paneID: "p2", keyboard: true, hasContent: true}
-	show(searchResultMsg{res: proto.PaneSearchResult{Found: true, Line: 800 - 800 + 2, Col: 4, History: 800}})
+	show(searchResultMsg{res: proto.PaneSearchResult{Found: true, Line: 2, Col: 4, History: 800}})
 	if m.sel.bx != 4 || m.sel.by != m.curY {
 		t.Fatalf("selection head %d,%d cursor %d,%d", m.sel.bx, m.sel.by, m.curX, m.curY)
 	}

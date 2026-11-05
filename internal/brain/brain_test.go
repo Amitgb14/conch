@@ -129,7 +129,7 @@ func TestAPIProviders(t *testing.T) {
 		switch r.URL.Path {
 		case "/v1/messages":
 			if r.Header.Get("x-api-key") != "k1" {
-				http.Error(w, `{"error":"bad key"}`, 401)
+				http.Error(w, `{"error":"bad key"}`, http.StatusUnauthorized)
 				return
 			}
 			w.Write([]byte(`{"content":[{"type":"tool_use","name":"respond","input":{"doing":"Running tests","needs":""}}]}`))
