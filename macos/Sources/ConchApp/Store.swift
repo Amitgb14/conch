@@ -329,11 +329,13 @@ final class Store: ObservableObject {
 
     /// A branch's failed CI run sent to its agent, or an agent started in
     /// its worktree with it — the TUI's f, as `conch branch fix-ci`.
-    func fixCI(_ it: ReviewItem) {
-        guard let b = binary, let dir = snapshots[it.machine]?.project(it.project)?.path else { return }
-        let agent = startable(on: it.machine).first?.name ?? "claude"
-        job("Sending CI's failure on \(it.branch)", done: "Sent CI's failure on \(it.branch) to its agent") {
-            _ = try await runConch(b, onMachine(it.machine, ["branch", "fix-ci", "-cwd", dir, "-branch", it.branch, "-agent", agent]))
+    func fixCI(_ it: ReviewItem) { fixCI(machine: it.machine, project: it.project, branch: it.branch) }
+
+    func fixCI(machine: String, project: String, branch: String) {
+        guard let b = binary, let dir = snapshots[machine]?.project(project)?.path else { return }
+        let agent = startable(on: machine).first?.name ?? "claude"
+        job("Sending CI's failure on \(branch)", done: "Sent CI's failure on \(branch) to its agent") {
+            _ = try await runConch(b, onMachine(machine, ["branch", "fix-ci", "-cwd", dir, "-branch", branch, "-agent", agent]))
         }
     }
 

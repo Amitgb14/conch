@@ -258,3 +258,72 @@ index 1..2 100644
         #expect(stale.isEmpty, "\(f): a plain button without a clickable shape at line(s) \(stale)")
     }
 }
+
+// A pull request's state, said: conflicts (with the files when the server
+// found them), checks running, failing or passed, and the review.
+@Test func pullRequestStatus() throws {
+    let json = #"""
+    {"number":87,"state":"OPEN","checks":"pending","passed":3,"total":7,"conflicting":true,"review":"REVIEW_REQUIRED","title":"conch/app rex","head":"60123ac"}
+    """#
+    let pr = try JSONDecoder().decode(PRInfo.self, from: Data(json.utf8))
+    #expect(pr.conflicting == true && pr.passed == 3 && pr.total == 7 && pr.title == "conch/app rex")
+    var st = prStatus(pr, base: "master", conflicts: ["cmd/conch/main.go"])
+    #expect(st.merge == .init(tone: .bad, text: "Conflicts with master in cmd/conch/main.go"))
+    #expect(st.ci == .init(tone: .busy, text: "Checks running · 3 of 7 done"))
+    #expect(st.progress == 3.0 / 7 && st.conflicting && !st.failing)
+    #expect(st.review?.text == "Review required")
+    // GitHub's word alone, no files; several files counted.
+    #expect(prStatus(pr, base: "master", conflicts: []).merge.text == "Conflicts with master")
+    #expect(prStatus(pr, base: "main", conflicts: ["a", "b", "c"]).merge.text == "Conflicts with main in a and 2 more")
+
+    var ok = PRInfo(number: 1, state: "OPEN", checks: "pass")
+    ok.total = 4; ok.passed = 4; ok.review = "APPROVED"
+    st = prStatus(ok, base: "main", conflicts: [])
+    #expect(st.merge.tone == .ok && st.ci.text == "Checks passed · 4/4" && st.review?.tone == .ok && !st.conflicting)
+    ok.checks = "fail"; ok.passed = 2
+    #expect(prStatus(ok, base: "main", conflicts: []).failing && prStatus(ok, base: "main", conflicts: []).ci.text == "Checks failing · 2 of 4 passed")
+    // No checks at all; a draft; merged and closed say so and are not "conflicting".
+    #expect(prStatus(PRInfo(number: 2), base: "main", conflicts: []).ci.text == "No checks")
+    #expect(prStatus(PRInfo(number: 2), base: "main", conflicts: []).progress == nil)
+    #expect(prStatus(PRInfo(number: 2, draft: true), base: "main", conflicts: []).merge.tone == .quiet)
+    var merged = PRInfo(number: 3, state: "MERGED"); merged.conflicting = true
+    #expect(prStatus(merged, base: "main", conflicts: []).merge.text == "Merged into main" && !prStatus(merged, base: "main", conflicts: []).conflicting)
+    #expect(prStatus(PRInfo(number: 4, state: "CLOSED"), base: "main", conflicts: []).merge.tone == .quiet)
+
+    let ask = conflictPrompt(number: 87, branch: "conch/app-rex", base: "master", files: ["cmd/conch/main.go"])
+    #expect(ask.contains("#87") && ask.contains("in cmd/conch/main.go") && ask.contains("merge origin/master") && ask.contains("don't rebase"))
+    #expect(conflictPrompt(number: 1, branch: "b", base: "main", files: []).hasPrefix("Pull request #1 (b) conflicts with main.\n"))
+}
+
+// Handed work is begun, worked, asks, and finishes — and an agent still
+// idle from before it was given the work has not finished, it has not begun.
+@Test func handedWork() throws {
+    let at = Date(timeIntervalSince1970: 1_793_900_000)
+    func pane(_ state: String?, since: Double? = nil, running: Bool = true) throws -> PaneInfo {
+        var json = #"{"id":"p3","name":"claude","state":"\#(running ? "running" : "exited")""#
+        if let state {
+            json += #","agent":{"name":"claude","state":"\#(state)""#
+            if let since { json += #","since":"\#(ISO8601DateFormatter().string(from: at.addingTimeInterval(since)))""# }
+            json += "}"
+        }
+        return try conchDecoder().decode(PaneInfo.self, from: Data((json + "}").utf8))
+    }
+    #expect(handoffState(nil, handedAt: at) == .gone)
+    #expect(handoffState(try pane("working", running: false), handedAt: at) == .gone)
+    #expect(handoffState(try pane(nil), handedAt: at) == .starting)
+    #expect(handoffState(try pane("idle", since: -60), handedAt: at) == .starting)
+    #expect(handoffState(try pane("idle"), handedAt: at) == .starting)
+    #expect(handoffState(try pane("working", since: 2), handedAt: at) == .working)
+    #expect(handoffState(try pane("blocked", since: 30), handedAt: at) == .waiting)
+    #expect(handoffState(try pane("done", since: 300), handedAt: at) == .finished)
+    #expect(handoffState(try pane("idle", since: 300), handedAt: at) == .finished)
+
+    let agents = try [pane("idle", since: -60), pane("working", since: 1)].enumerated().map { i, p -> PaneInfo in
+        var p = p; p.id = "p\(i + 1)"; return p
+    }
+    #expect(branchAgent(agents, handedTo: "p1")?.id == "p1")
+    #expect(branchAgent(agents, handedTo: nil)?.id == "p2")
+    #expect(branchAgent(agents, handedTo: "gone")?.id == "p2")
+    #expect(branchAgent([agents[0]], handedTo: nil)?.id == "p1")
+    #expect(branchAgent([], handedTo: nil) == nil)
+}

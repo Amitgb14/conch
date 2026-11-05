@@ -186,8 +186,34 @@ final class ChangesModel: ObservableObject {
 
     /// The agent working on this branch, for the commit's credit and the
     /// notes' recipient.
-    var agent: PaneInfo? {
-        store?.snapshots[machine]?.panes.first { $0.agent != nil && $0.projectID == project && $0.branch == branch && $0.running }
+    /// The agent this tab speaks of: the one handed work while it runs,
+    /// else one at work on the branch, else the oldest there.
+    var agent: PaneInfo? { ConchKit.branchAgent(branchAgents, handedTo: handedPane) }
+
+    /// Work handed to an agent from here — a conflict, a failed run — said
+    /// under the header until it is done and dismissed.
+    struct Handed: Equatable {
+        var what: String
+        var pane: String?
+        var at: Date
+    }
+    @Published var handed: Handed?
+
+    /// The pane the handed work went to: named, or — sent through conch
+    /// branch fix-ci, which picks or starts one itself — the branch's agent
+    /// at work, else the newest one started since.
+    var handedPane: String? {
+        guard let h = handed else { return nil }
+        if let p = h.pane { return p }
+        let agents = branchAgents
+        return (agents.first { $0.agent?.state == .working }
+            ?? agents.filter { ($0.created ?? .distantPast) >= h.at.addingTimeInterval(-5) }.last
+            ?? agents.first)?.id
+    }
+
+    var handedState: HandoffState? {
+        guard let h = handed else { return nil }
+        return handoffState(store?.snapshots[machine]?.panes.first { $0.id == handedPane }, handedAt: h.at)
     }
 
     /// What Commit takes, said: everything, or what is ticked.
@@ -315,6 +341,54 @@ final class ChangesModel: ObservableObject {
         if let l = try? await c.call("review.list", R(project_id: project, branch: branch, sent: canThread ? true : nil), as: ReviewList.self) {
             comments = l.comments
         }
+    }
+
+    /// The files merging this branch into the base would conflict in, as
+    /// the server tried without merging.
+    var baseConflicts: [String] {
+        store?.snapshots[machine]?.project(project)?.worktrees?.first { $0.branch == branch }?.conflicts ?? []
+    }
+
+    /// Hands a piece of work to the branch's agent — the one working here,
+    /// or one started in the worktree with it — and goes to it.
+    func handToAgent(_ text: String, what: String, doing: String) {
+        guard let s = store else { return }
+        if let a = agent {
+            run(what, done: "Sent to \(a.name.isEmpty ? (a.agent?.name ?? "the agent") : a.name)") { c in
+                struct P: Encodable { var id: String; var text: String }
+                try await c.call("agent.prompt", P(id: a.id, text: text))
+                self.handed = Handed(what: doing, pane: a.id, at: Date())
+            }
+            return
+        }
+        guard let dir = changes?.worktree else {
+            error = "\(branch) is not checked out anywhere, so there is nowhere to start an agent on it"
+            return
+        }
+        let name = s.startable(on: machine).first { $0.installed }?.name ?? "claude"
+        run(what, done: "Started \(name) on \(branch)") { c in
+            struct P: Encodable { var agent: String; var prompt: String; var cwd: String }
+            let info = try await c.call("pane.create", P(agent: name, prompt: text, cwd: dir), as: PaneInfo.self)
+            self.handed = Handed(what: doing, pane: info.id, at: Date())
+            s.open(ConchKit.key(self.machine, info.id))
+        }
+    }
+
+    /// The pull request's conflict with the base, given to the agent.
+    func resolveConflicts() {
+        guard let pr = branchInfo?.pr, let ch = changes else { return }
+        handToAgent(conflictPrompt(number: pr.number, branch: branch, base: ch.base, files: baseConflicts),
+                    what: "Asking for the conflicts to be resolved", doing: "resolving the conflict with \(ch.base)")
+    }
+
+    /// CI's failure sent to the agent, as the review queue's Fix does.
+    func fixCI() {
+        store?.fixCI(machine: machine, project: project, branch: branch)
+        handed = Handed(what: "fixing the failed checks", pane: nil, at: Date())
+    }
+
+    var branchInfo: BranchInfo? {
+        store?.snapshots[machine]?.project(project)?.branches?.first { $0.name == branch }
     }
 
     /// Whether the branch has an open pull request a comment can wait for.

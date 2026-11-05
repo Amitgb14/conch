@@ -456,3 +456,100 @@ public func noteState(_ c: ReviewComment, agentStopped: Bool) -> NoteState {
     }
     return .sent(to: c.sentTo ?? "the agent", agentStopped: agentStopped)
 }
+
+/// A pull request as the Overview says it: whether it merges, where its
+/// checks are, and what reviewers decided.
+public struct PRStatus: Equatable, Sendable {
+    public enum Tone: Equatable, Sendable { case ok, bad, busy, quiet }
+    public struct Line: Equatable, Sendable {
+        public var tone: Tone
+        public var text: String
+    }
+    public var merge: Line
+    public var ci: Line
+    /// How far the checks are, 0…1; nil with no checks.
+    public var progress: Double?
+    public var review: Line?
+    public var conflicting: Bool
+    public var failing: Bool
+}
+
+/// What pr says, with files the server found would conflict (it tries the
+/// merge itself, so it names them where GitHub only says "conflicting").
+public func prStatus(_ pr: PRInfo, base: String, conflicts: [String]) -> PRStatus {
+    let conflicting = pr.conflicting == true || !conflicts.isEmpty
+    let merge: PRStatus.Line
+    switch pr.state ?? "OPEN" {
+    case "MERGED": merge = .init(tone: .ok, text: "Merged into \(base)")
+    case "CLOSED": merge = .init(tone: .quiet, text: "Closed without merging")
+    default:
+        if conflicting {
+            let files = conflicts.isEmpty ? "" : " in " + (conflicts.count <= 2 ? conflicts.joined(separator: ", ") : "\(conflicts[0]) and \(conflicts.count - 1) more")
+            merge = .init(tone: .bad, text: "Conflicts with \(base)\(files)")
+        } else if pr.draft == true {
+            merge = .init(tone: .quiet, text: "A draft: not ready to merge")
+        } else {
+            merge = .init(tone: .ok, text: "No conflicts with \(base)")
+        }
+    }
+    let total = pr.total ?? 0, passed = pr.passed ?? 0
+    let counted = total > 0 ? " · \(passed) of \(total)" : ""
+    let ci: PRStatus.Line
+    switch pr.checks {
+    case "pass": ci = .init(tone: .ok, text: "Checks passed\(total > 0 ? " · \(total)/\(total)" : "")")
+    case "fail": ci = .init(tone: .bad, text: "Checks failing\(counted) passed")
+    case "pending": ci = .init(tone: .busy, text: "Checks running\(counted) done")
+    default: ci = .init(tone: .quiet, text: "No checks")
+    }
+    let review: PRStatus.Line?
+    switch pr.review {
+    case "APPROVED": review = .init(tone: .ok, text: "Approved")
+    case "CHANGES_REQUESTED": review = .init(tone: .bad, text: "Changes requested")
+    case "REVIEW_REQUIRED": review = .init(tone: .quiet, text: "Review required")
+    default: review = nil
+    }
+    return PRStatus(merge: merge, ci: ci, progress: total > 0 ? Double(passed) / Double(total) : nil,
+                    review: review, conflicting: conflicting && (pr.state ?? "OPEN") == "OPEN", failing: pr.checks == "fail")
+}
+
+/// What an agent is asked when its pull request conflicts: the base merged
+/// in (not rebased — the branch is pushed, and a rebase would need a force
+/// push), the conflicts resolved keeping both sides' intent, tested,
+/// committed and pushed.
+public func conflictPrompt(number: Int, branch: String, base: String, files: [String]) -> String {
+    var s = "Pull request #\(number) (\(branch)) conflicts with \(base)"
+    s += files.isEmpty ? ".\n" : " in \(files.joined(separator: ", ")).\n"
+    s += "Fetch, merge origin/\(base) into \(branch) (merge, don't rebase: the branch is pushed), and resolve each conflict keeping what both sides meant. "
+    s += "Run the tests, commit the merge and push. If a conflict needs a decision only I can make, stop and ask me instead of guessing."
+    return s
+}
+
+/// Where work handed to an agent stands — a conflict to resolve, a failure
+/// to fix — read from the agent's pane: not begun yet, at it, asking the
+/// person something, done, or its pane gone.
+public enum HandoffState: Equatable, Sendable {
+    case starting, working, waiting, finished, gone
+}
+
+/// handoffState says it from the pane the work went to and when. An agent
+/// is often still idle a moment after it is given something, so idle only
+/// means finished when the agent's state changed after the handing — its
+/// since is later — and otherwise it has not begun.
+public func handoffState(_ p: PaneInfo?, handedAt: Date) -> HandoffState {
+    guard let p, p.running else { return .gone }
+    guard let a = p.agent else { return .starting } // a new pane, its agent not seen yet
+    switch a.state {
+    case .working: return .working
+    case .blocked: return .waiting
+    case .idle, .done, .unknown:
+        if let since = a.since, since > handedAt { return .finished }
+        return .starting
+    }
+}
+
+/// The agent a branch's git tab speaks of: the one work was handed to
+/// while it runs, else one at work on the branch, else the oldest there.
+public func branchAgent(_ agents: [PaneInfo], handedTo pane: String?) -> PaneInfo? {
+    if let pane, let p = agents.first(where: { $0.id == pane }) { return p }
+    return agents.first { $0.agent?.state == .working } ?? agents.first
+}

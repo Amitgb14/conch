@@ -19,6 +19,7 @@ struct ChangesView: View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(Theme.line).frame(height: 1)
+            if model.handed != nil { HandoffStrip(store: store, model: model) }
             if let e = model.error {
                 HStack {
                     Text(e).font(.system(size: 12)).foregroundStyle(Theme.err).lineLimit(2)
@@ -49,8 +50,10 @@ struct ChangesView: View {
                 Chip(text: "base of the project")
             }
             if let pr = info?.pr {
-                Chip(text: "#\(pr.number)" + (pr.checks == "pass" ? " checks ✓" : pr.checks == "fail" ? " checks ✗" : pr.checks == "pending" ? " checks…" : ""),
-                     tone: pr.checks == "fail" ? Theme.err : pr.checks == "pass" ? Theme.ok : nil)
+                let conflicting = (pr.state ?? "OPEN") == "OPEN" && pr.conflicting == true
+                Chip(text: "#\(pr.number)" + (conflicting ? " conflicts" : pr.checks == "pass" ? " checks ✓" : pr.checks == "fail" ? " checks ✗" : pr.checks == "pending" ? " checks…" : ""),
+                     tone: conflicting || pr.checks == "fail" ? Theme.err : pr.checks == "pass" ? Theme.ok : nil)
+                    .help(conflicting ? "#\(pr.number) conflicts with its base — Overview has what to do" : "Pull request #\(pr.number)")
             }
             if let ch = model.changes, !ch.files.isEmpty {
                 let (a, d) = ch.totals
@@ -101,6 +104,56 @@ struct ChangesView: View {
         case .alertFirstButtonReturn: model.merge(squash: true)
         case .alertSecondButtonReturn: model.merge(squash: false)
         default: break
+        }
+    }
+}
+
+/// Work handed to an agent from this tab, said under the header in every
+/// view — Overview, Changes and the graph — as it goes: not begun, at it
+/// (with the TUI's spinner), asking you something, done, or gone.
+struct HandoffStrip: View {
+    @ObservedObject var store: Store
+    @ObservedObject var model: ChangesModel
+
+    var body: some View {
+        if let h = model.handed, let state = model.handedState {
+            let p = store.snapshots[model.machine]?.panes.first { $0.id == model.handedPane }
+            let who = p.map { $0.name.isEmpty ? ($0.agent?.name ?? "the agent") : $0.name } ?? "the agent"
+            let tone: Color = state == .working || state == .starting ? Theme.work : state == .waiting ? Theme.warn : state == .finished ? Theme.ok : Theme.muted
+            HStack(spacing: 10) {
+                switch state {
+                case .working, .starting:
+                    TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                        Text(spinnerFrame(at: ctx.date)).font(.system(size: 13, weight: .semibold)).foregroundStyle(tone)
+                    }
+                case .waiting: Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(tone)
+                case .finished: Image(systemName: "checkmark.circle.fill").foregroundStyle(tone)
+                case .gone: Image(systemName: "xmark.circle").foregroundStyle(tone)
+                }
+                Text(line(state, who: who, what: h.what)).font(.system(size: 12.5, weight: .medium)).lineLimit(1)
+                Text(agoText(h.at)).font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                Spacer(minLength: 8)
+                if let id = p?.id, state != .gone {
+                    Button(state == .waiting ? "Answer \(who)" : "Open \(who)") { store.open(key(model.machine, id)) }
+                        .controlSize(.small).buttonStyle(.borderedProminent).tint(state == .waiting ? Theme.warn : Theme.accentDeep)
+                }
+                if state == .finished || state == .gone {
+                    Button("Dismiss") { model.handed = nil }.controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 12).frame(height: 34)
+            .background(tone.opacity(0.10))
+            .overlay(alignment: .bottom) { Rectangle().fill(tone.opacity(0.35)).frame(height: 1) }
+        }
+    }
+
+    func line(_ s: HandoffState, who: String, what: String) -> String {
+        switch s {
+        case .starting: return "\(who) has it — \(what), not begun yet"
+        case .working: return "\(who) is \(what)"
+        case .waiting: return "\(who) is waiting for you while \(what)"
+        case .finished: return "\(who) finished \(what) — check the result"
+        case .gone: return "\(who) is gone; it was \(what)"
         }
     }
 }
@@ -158,6 +211,7 @@ struct GitOverview: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 banner
+                if let pr = info?.pr { pullRequest(pr) }
                 HStack(alignment: .top, spacing: 14) {
                     VStack(alignment: .leading, spacing: 14) {
                         GitCard(title: "Recent commits", trailing: AnyView(Button("All in graph →") { model.chosen = .graph }.controlSize(.small))) {
@@ -247,6 +301,57 @@ struct GitOverview: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(LinearGradient(colors: [(files == 0 ? Theme.ok : Theme.warn).opacity(0.08), Theme.raise.opacity(0.4)],
                                                                            startPoint: .leading, endPoint: .trailing)))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line))
+    }
+
+    /// The pull request: whether it merges, its checks as they run, the
+    /// review — and what to do about a conflict or a failure.
+    func pullRequest(_ pr: PRInfo) -> some View {
+        let base = model.changes?.base ?? "the base"
+        let st = prStatus(pr, base: base, conflicts: model.baseConflicts)
+        let who = model.agent.map { $0.name.isEmpty ? ($0.agent?.name ?? "the agent") : $0.name }
+        return GitCard(title: "Pull request #\(pr.number)", trailing: pr.url.flatMap(URL.init(string:)).map { u in
+            AnyView(Button("Open on GitHub ↗") { NSWorkspace.shared.open(u) }.controlSize(.small))
+        }) {
+            if let t = pr.title, !t.isEmpty {
+                Text(t).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+            }
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    prLine(st.merge, icon: st.conflicting ? "exclamationmark.triangle.fill" : st.merge.tone == .ok ? "checkmark.circle.fill" : "circle")
+                    VStack(alignment: .leading, spacing: 4) {
+                        prLine(st.ci, icon: st.ci.tone == .busy ? "clock" : st.ci.tone == .bad ? "xmark.circle.fill" : st.ci.tone == .ok ? "checkmark.circle.fill" : "circle")
+                        if let f = st.progress, st.ci.tone == .busy || st.ci.tone == .bad {
+                            ProgressView(value: f).progressViewStyle(.linear).tint(st.ci.tone == .bad ? Theme.err : Theme.work)
+                                .frame(maxWidth: 260).padding(.leading, 22)
+                        }
+                    }
+                    if let r = st.review { prLine(r, icon: r.tone == .ok ? "person.crop.circle.badge.checkmark" : "person.crop.circle") }
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 6) {
+                    if st.conflicting {
+                        Button(who.map { "Ask \($0) to resolve" } ?? "Start an agent to resolve") { model.resolveConflicts() }
+                            .buttonStyle(.borderedProminent).tint(Theme.err).controlSize(.small)
+                            .disabled(model.busy != nil)
+                            .help("Merge \(base) in, resolve keeping both sides, test, commit and push — handed to the branch's agent")
+                    }
+                    if st.failing {
+                        Button(who.map { "Send the failure to \($0)" } ?? "Start an agent on the failure") { model.fixCI() }
+                            .controlSize(.small)
+                            .help("The failed run's log, sent to the branch's agent, as the review queue's Fix")
+                    }
+                }
+            }
+        }
+        .overlay(RoundedRectangle(cornerRadius: 11).stroke(st.conflicting || st.failing ? Theme.err.opacity(0.5) : .clear))
+    }
+
+    func prLine(_ l: PRStatus.Line, icon: String) -> some View {
+        let tone: Color = l.tone == .ok ? Theme.ok : l.tone == .bad ? Theme.err : l.tone == .busy ? Theme.work : Theme.muted
+        return HStack(spacing: 8) {
+            Image(systemName: icon).font(.system(size: 12)).foregroundStyle(tone).frame(width: 14)
+            Text(l.text).font(.system(size: 12.5)).foregroundStyle(l.tone == .quiet ? Theme.text2 : Theme.text).lineLimit(2)
+        }
     }
 
     var sync: some View {
