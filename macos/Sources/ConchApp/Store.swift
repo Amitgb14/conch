@@ -736,7 +736,7 @@ final class Store: ObservableObject {
                 // Only where the click landed: the status bar's buttons and
                 // the toolbar leave the keyboard where it was (ClickOwner).
                 let saved = UserDefaults.standard.double(forKey: "sidebarWidth")
-                let width = self.sidebarVisible ? (saved > 0 ? saved : Double(sidebarDefault)) : nil
+                let width = self.sidebarVisible ? self.style.sidebarWidth(saved > 0 ? saved : Double(sidebarDefault)) : nil
                 let p = e.locationInWindow
                 let toolbar = Double(win.frame.height - win.contentLayoutRect.height)
                 switch clickOwner(inTerminal: inTerminal, x: p.x, y: p.y, sidebarWidth: width, statusBar: 28,

@@ -85,6 +85,11 @@ var themes = []palette{
 		ok: "#2F7D32", warn: "#B26A00", err: "#9B1C1C", work: "#1F5FA8", selDim: "#E4E1D8", merged: "#6A3FA0", bg: "#FBFAF6", fg: "#111111"},
 	{name: "meadow", label: "Meadow", accent: "#4F8A3C", selFG: "#FFFFFF", border: "#D9CFB4", muted: "#7E8B80",
 		ok: "#2E8B6E", warn: "#C9822A", err: "#C15A3F", work: "#3F84AD", selDim: "#E6EDD8", merged: "#8A6BB0", bg: "#F7F1DF", fg: "#34453A"},
+	// Terminal is conch's teal on a terminal's ground: ink black, dark
+	// hairline borders and terminal state colours, after herdr — the
+	// desktop's Terminal style puts it on, with monospace for the window.
+	{name: "terminal", label: "Terminal", accent: "#2AA5B5", selFG: "#FFFFFF", border: "#1E232A", muted: "#8B949E",
+		ok: "#9ECE6A", warn: "#E0AF68", err: "#F7768E", work: "#7AA2F7", selDim: "#171B20", merged: "#BB9AF7", bg: "#0C0E11", fg: "#D4D9DF"},
 }
 
 // accentColors are the named choices for [ui] accent. Each is dark enough

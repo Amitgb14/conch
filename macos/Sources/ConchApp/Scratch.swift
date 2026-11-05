@@ -116,13 +116,13 @@ struct ScratchLayer: View {
             VStack(spacing: 0) {
                 HStack(spacing: 9) {
                     LucideIcon("layers", color: Theme.accent, size: 13)
-                    Text(scratchName).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
+                    Text(scratchName).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
                     if let b = p?.branch, !b.isEmpty {
-                        Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
+                        Text(b).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
                             .padding(.horizontal, 6).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
                     }
                     Spacer()
-                    Text(store.scope(of: pane)).font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text(store.scope(of: pane)).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 .padding(.horizontal, 12).frame(height: 34).background(Theme.paneHeader)
                 .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
@@ -134,7 +134,7 @@ struct ScratchLayer: View {
                     Spacer()
                     Text("keeps running while hidden")
                 }
-                .font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                .font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
                 .padding(.horizontal, 12).frame(height: 30).background(Theme.side)
                 .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
             }

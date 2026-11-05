@@ -1377,7 +1377,19 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
 @Test func appStyles() {
     #expect(AppStyle(setting: "ink") == .ink && AppStyle(setting: " INK ") == .ink)
     #expect(AppStyle(setting: nil) == .standard && AppStyle(setting: "") == .standard && AppStyle(setting: "manga") == .standard)
-    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink", "Meadow", "Cel"])
+    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink", "Meadow", "Cel", "Terminal"])
+    // Terminal: today's window — gutters, borders, corners and no roster as
+    // Standard — on its own theme, every word in monospace a little smaller,
+    // and the sidebar wider for the wider names. Only it is monospace.
+    let t = AppStyle(setting: "terminal")
+    #expect(t == .terminal && t.theme == "terminal" && ConchTheme.named(t.theme).id == "terminal")
+    #expect(t.gutter == AppStyle.standard.gutter && t.border == AppStyle.standard.border && t.corner == AppStyle.standard.corner && !t.roster)
+    #expect(t.mono && AppStyle.allCases.filter(\.mono) == [.terminal])
+    #expect(t.fontSize(13) == 12 && t.fontSize(11) == 10 && t.fontSize(12.5) == 11.5 && AppStyle.standard.fontSize(13) == 13)
+    #expect(t.sidebarWidth(250) == 290 && AppStyle.standard.sidebarWidth(250) == 250)
+    #expect(t.paintsTitleBar && AppStyle.meadow.paintsTitleBar && !AppStyle.standard.paintsTitleBar)
+    let th = ConchTheme.named("terminal")
+    #expect(th.bg.hex == "#0C0E11" && th.border.hex == "#1E232A" && th.accent.hex == "#2AA5B5" && !th.light)
     #expect(AppStyle.standard.theme == nil && AppStyle.ink.theme == "ink" && ConchTheme.named(AppStyle.ink.theme).id == "ink")
     #expect(AppStyle.ink.gutter > AppStyle.standard.gutter && AppStyle.ink.border > AppStyle.standard.border)
 }
@@ -1404,7 +1416,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(AppStyle(setting: "meadow") == .meadow && AppStyle.meadow.label == "Meadow")
     #expect(AppStyle.meadow.theme == "meadow" && ConchTheme.named("meadow").light && !ConchTheme.named("firefly").light)
     #expect(AppStyle.meadow.corner > AppStyle.standard.corner && AppStyle.ink.corner == 0)
-    #expect(AppStyle.allCases.filter(\.paintsTitleBar) == [.meadow] && AppStyle.allCases.filter(\.roster) == [.cel])
+    #expect(AppStyle.allCases.filter(\.paintsTitleBar) == [.meadow, .terminal] && AppStyle.allCases.filter(\.roster) == [.cel])
     #expect(AppStyle.meadow.gutter == AppStyle.ink.gutter && AppStyle.meadow.border == AppStyle.standard.border)
     for w in [0.0, 100, 1320, 2560] {
         let c = cloudLayout(width: w)
@@ -1553,7 +1565,9 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
         let decl = try Regex(#"\nstruct (\w+): (View|ViewModifier|NSViewRepresentable) \{(.*?)\n\}"#).dotMatchesNewlines()
         for m in src.matches(of: decl) {
             let name = String(m.output[1].substring ?? ""), body = String(m.output[3].substring ?? "")
-            guard body.contains("Theme."), !drawsItsOwn.contains(name) else { continue }
+            // .ui(size:) is the window's face, which the style (Terminal:
+            // monospace) changes as the theme changes colours.
+            guard body.contains("Theme.") || body.contains(".ui(size"), !drawsItsOwn.contains(name) else { continue }
             // The store, or the theme itself (the environment, or Settings'
             // ShownTheme): a view watching only its own model — a Files tab,
             // a Sessions row — was not drawn again, and kept the old colours.

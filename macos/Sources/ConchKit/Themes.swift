@@ -102,6 +102,8 @@ extension ConchTheme {
         .init("catppuccin-latte", "Catppuccin Latte", accent: "#1E66F5", selFG: "#EFF1F5", border: "#BCC0CC", muted: "#8C8FA1", ok: "#40A02B", warn: "#DF8E1D", err: "#D20F39", work: "#04A5E5", selDim: "#CCD0DA", bg: "#EFF1F5", fg: "#4C4F69", light: true),
         .init("ink", "Ink", accent: "#E0353D", selFG: "#FFFFFF", border: "#111111", muted: "#6B6860", ok: "#2F7D32", warn: "#B26A00", err: "#9B1C1C", work: "#1F5FA8", selDim: "#E4E1D8", bg: "#FBFAF6", fg: "#111111", light: true),
         .init("meadow", "Meadow", accent: "#4F8A3C", selFG: "#FFFFFF", border: "#D9CFB4", muted: "#7E8B80", ok: "#2E8B6E", warn: "#C9822A", err: "#C15A3F", work: "#3F84AD", selDim: "#E6EDD8", bg: "#F7F1DF", fg: "#34453A", light: true),
+        // conch's teal on a terminal's ground, after herdr: the Terminal style's.
+        .init("terminal", "Terminal", accent: "#2AA5B5", selFG: "#FFFFFF", border: "#1E232A", muted: "#8B949E", ok: "#9ECE6A", warn: "#E0AF68", err: "#F7768E", work: "#7AA2F7", selDim: "#171B20", bg: "#0C0E11", fg: "#D4D9DF"),
     ]
 
     public static var conch: ConchTheme { all[0] }

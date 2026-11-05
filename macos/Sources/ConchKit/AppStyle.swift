@@ -8,7 +8,9 @@ import Foundation
 /// the toolbar, rounded cards on warm paper, a strip of grass (F); or
 /// Cel, cel-shaded, flat colour and hard shadows, with every agent on a
 /// card in a roster across the top and a column of projects for the tree
-/// (G).
+/// (G); or Terminal, today's window on a terminal's ground — herdr's ink
+/// black and hairline borders, and one monospace face for all of it, the
+/// layout, pills and teal accent as they are (the Restyle mock, C).
 /// The app's alone, kept in its defaults: the TUI draws cells and has no
 /// borders to thicken.
 public enum AppStyle: String, CaseIterable, Equatable, Sendable {
@@ -16,6 +18,7 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
     case ink
     case meadow
     case cel
+    case terminal
 
     /// A saved choice; anything else, an older build's or none, is standard.
     public init(setting: String?) {
@@ -28,6 +31,7 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
         case .ink: return "Ink"
         case .meadow: return "Meadow"
         case .cel: return "Cel"
+        case .terminal: return "Terminal"
         }
     }
 
@@ -41,11 +45,12 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
         case .ink: return "ink"
         case .meadow: return "meadow"
         case .cel: return "cel"
+        case .terminal: return "terminal"
         }
     }
 
     /// The gutter between panels, and how thick a panel's ink is.
-    public var gutter: Double { self == .standard ? 8 : 12 }
+    public var gutter: Double { self == .standard || self == .terminal ? 8 : 12 }
     public var border: Double {
         switch self {
         case .ink: return 3
@@ -57,12 +62,24 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
     /// How round a card's corners are: square on a page, soft in a meadow.
     public var corner: Double {
         switch self {
-        case .standard: return 9
+        case .standard, .terminal: return 9
         case .ink: return 0
         case .meadow: return 16
         case .cel: return 12
         }
     }
+
+    /// Whether every word in the window is set in the monospace face, so
+    /// the chrome reads as part of the terminals it holds.
+    public var mono: Bool { self == .terminal }
+
+    /// Monospace runs wider than the system face: the size a word of that
+    /// face is set at to take the room the system face's did, near enough.
+    public func fontSize(_ size: Double) -> Double { mono ? (size * 0.93 * 2).rounded() / 2 : size }
+
+    /// The sidebar's width with this face: the tree's names need more room
+    /// in monospace, or the right column (branches, counts) is cut.
+    public func sidebarWidth(_ w: Double) -> Double { mono ? w + 40 : w }
 
     /// Whether the window shows its agents as a roster of cards, with a
     /// column of projects in place of the tree until the tree is asked for.
@@ -79,9 +96,11 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
     /// keeps its room and the window can shrink to its smallest.
     public static func celRosterWhole(height: Double) -> Bool { height >= 620 }
 
-    /// Whether the window paints its own title bar (Meadow's sky), so the
-    /// title bar is made transparent over it.
-    public var paintsTitleBar: Bool { self == .meadow }
+    /// Whether the window paints its own title bar, so the title bar is
+    /// made transparent over it: Meadow's sky, and Terminal's panel colour —
+    /// macOS's own title bar, lighter than an ink-black window, read as a
+    /// grey band over it.
+    public var paintsTitleBar: Bool { self == .meadow || self == .terminal }
 }
 
 /// Where a meadow's clouds sit in a band `width` wide: one every ~260

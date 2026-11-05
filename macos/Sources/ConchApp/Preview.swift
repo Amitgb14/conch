@@ -112,9 +112,9 @@ struct PalettePreview: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 if let a = p?.agent { Mark(agent: a.name) } else { LucideIcon(name: .terminal, color: Theme.muted, size: 12) }
-                Text(p?.agent?.name ?? p?.name ?? pane).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
+                Text(p?.agent?.name ?? p?.name ?? pane).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
                 if let b = p?.branch, !b.isEmpty {
-                    Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
+                    Text(b).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
                         .padding(.horizontal, 6).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
                 }
                 Spacer()
@@ -128,7 +128,7 @@ struct PalettePreview: View {
                 // No live preview to be had (SwiftTerm, an older conch or
                 // server): the screen's text, as `conch read` gives it.
                 ScrollView {
-                    Text(lines.joined(separator: "\n")).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Theme.text2)
+                    Text(lines.joined(separator: "\n")).font(.ui(size: 10.5, design: .monospaced)).foregroundStyle(Theme.text2)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(10).textSelection(.enabled)
                 }
                 .background(Color(nsColor: Theme.terminal))
@@ -136,10 +136,10 @@ struct PalettePreview: View {
             }
             HStack(spacing: 8) {
                 if let q = store.questions[pane], !q.choices.isEmpty {
-                    Text("Answer from here").font(.system(size: 12)).foregroundStyle(Theme.text2)
+                    Text("Answer from here").font(.ui(size: 12)).foregroundStyle(Theme.text2)
                     ChoiceButtons(store: store, pane: pane, question: q)
                 } else {
-                    Text(preview == nil ? "The screen as it is now" : "Live · ⇥ to type into it").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                    Text(preview == nil ? "The screen as it is now" : "Live · ⇥ to type into it").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
                 }
                 Spacer()
             }

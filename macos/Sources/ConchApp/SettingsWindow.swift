@@ -136,7 +136,7 @@ struct SettingsView: View {
 
     var sidebar: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("SETTINGS").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+            Text("SETTINGS").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                 .padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 6)
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
@@ -144,7 +144,7 @@ struct SettingsView: View {
                         let on = s.id == model.section
                         HStack(spacing: 9) {
                             LucideIcon(s.icon, color: on ? Theme.accent : Theme.text2, size: 15).frame(width: 18)
-                            Text(s.title).font(.system(size: 13)).foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
+                            Text(s.title).font(.ui(size: 13)).foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
                             Spacer()
                             if let f = model.form, sectionDirty(f, s) { Circle().fill(Theme.accent).frame(width: 6, height: 6) }
                         }
@@ -157,7 +157,7 @@ struct SettingsView: View {
             }
             Spacer(minLength: 0)
             if let p = model.form?.payload.path {
-                Text(p).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(2)
+                Text(p).font(.ui(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(2)
                     .padding(10)
             }
         }
@@ -189,7 +189,7 @@ struct SettingsView: View {
             Button("Save") { model.save() }.keyboardShortcut("s", modifiers: .command)
                 .disabled(!(model.form?.dirty ?? false) || model.saving)
         }
-        .font(.system(size: 12))
+        .font(.ui(size: 12))
         .padding(.horizontal, 18).frame(height: 46)
         .background(Theme.chrome)
         .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
@@ -212,7 +212,7 @@ struct SectionForm: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
                 LucideIcon(section.icon, color: Theme.accent, size: 20)
-                Text(section.title).font(.system(size: 20, weight: .semibold))
+                Text(section.title).font(.ui(size: 20, weight: .semibold))
             }
             Text(section.description).foregroundStyle(Theme.text2)
             if let note = section.tableNote {
@@ -220,7 +220,7 @@ struct SectionForm: View {
                     Text(note).foregroundStyle(Theme.muted)
                     Button("Edit config.toml") { model.store.editConfigFile() }.buttonStyle(.link)
                 }
-                .font(.system(size: 12))
+                .font(.ui(size: 12))
             }
             ForEach(section.fields.filter(\.simple), id: \.key) { f in
                 FieldRow(model: model, section: section, field: f)
@@ -250,9 +250,9 @@ struct FieldRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(field.label).font(.system(size: 13, weight: .medium))
+                    Text(field.label).font(.ui(size: 13, weight: .medium))
                     if let h = field.help, !h.isEmpty {
-                        Text(h).font(.system(size: 12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                        Text(h).font(.ui(size: 12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 12)
@@ -308,7 +308,7 @@ struct FieldRow: View {
             TextEditor(text: Binding(
                 get: { field.kind == "text" ? value?.string ?? "" : listText(value) },
                 set: { set(field.kind == "text" ? .string($0) : listValue($0, ints: field.kind == "ints")) }))
-                .font(.system(size: 12, design: .monospaced)).frame(height: 70)
+                .font(.ui(size: 12, design: .monospaced)).frame(height: 70)
                 .scrollContentBackground(.hidden).padding(5)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Theme.well))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line2))
@@ -347,10 +347,10 @@ struct ThemeGrid: View {
                             .clipShape(RoundedRectangle(cornerRadius: 7))
                             .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Theme.accent : Theme.line, lineWidth: on ? 2 : 1))
                         HStack(spacing: 6) {
-                            Text(o.label).font(.system(size: 12, weight: on ? .semibold : .regular))
+                            Text(o.label).font(.ui(size: 12, weight: on ? .semibold : .regular))
                                 .foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
                             Spacer(minLength: 0)
-                            if !o.value.isEmpty, ConchTheme.named(o.value).light { Text("light").font(.system(size: 10.5)).foregroundStyle(Theme.muted) }
+                            if !o.value.isEmpty, ConchTheme.named(o.value).light { Text("light").font(.ui(size: 10.5)).foregroundStyle(Theme.muted) }
                             if on { LucideIcon("check", color: Theme.accent, size: 12) }
                         }
                     }
@@ -382,7 +382,7 @@ struct OffCard: View {
                 Text("=").foregroundStyle(Theme.muted)
                 LucideIcon("sun", color: Theme.text2, size: 14)
             }
-            Text("The theme above, light or dark").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            Text("The theme above, light or dark").font(.ui(size: 11)).foregroundStyle(Theme.muted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.well)

@@ -349,6 +349,13 @@ final class ChangesModel: ObservableObject {
         store?.snapshots[machine]?.project(project)?.worktrees?.first { $0.branch == branch }?.conflicts ?? []
     }
 
+    /// Commits on the base here not pushed to its upstream: a conflict the
+    /// server finds may be with those alone (prStatus).
+    var baseUnpushed: Int {
+        guard let base = changes?.base else { return 0 }
+        return store?.snapshots[machine]?.project(project)?.branches?.first { $0.name == base }?.ahead ?? 0
+    }
+
     /// Hands a piece of work to the branch's agent — the one working here,
     /// or one started in the worktree with it — and goes to it.
     func handToAgent(_ text: String, what: String, doing: String) {

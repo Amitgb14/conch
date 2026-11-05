@@ -393,11 +393,11 @@ func TestChromeOnLightAndDark(t *testing.T) {
 	}
 }
 
-// conch's own themes (Firefly, Cel, Ink, Meadow) are there by name, and a
+// conch's own themes (Firefly, Cel, Terminal, Ink, Meadow) are there by name, and a
 // commit graph's first four lanes — accent, working, ok, warning in turn
 // (laneStyle) — come out four different colours in each.
 func TestConchOwnThemes(t *testing.T) {
-	for _, name := range []string{"firefly", "cel", "ink", "meadow"} {
+	for _, name := range []string{"firefly", "cel", "terminal", "ink", "meadow"} {
 		th := themeByName(name)
 		if th.name != name {
 			t.Fatalf("no theme %q", name)

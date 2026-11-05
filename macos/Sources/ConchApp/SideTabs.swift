@@ -19,9 +19,9 @@ struct SideTabs: View {
                 HStack(spacing: 7) {
                     LucideIcon(g.machine == "local" ? "laptop" : "server", color: Theme.muted, size: 11)
                     Text(g.machine == "local" ? "THIS MAC" : store.label(g.machine).uppercased())
-                        .font(.system(size: 11, weight: .semibold)).tracking(0.4).foregroundStyle(Theme.muted)
+                        .font(.ui(size: 11, weight: .semibold)).tracking(0.4).foregroundStyle(Theme.muted)
                     Spacer()
-                    Text("\(g.indices.count) tab\(g.indices.count == 1 ? "" : "s")").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    Text("\(g.indices.count) tab\(g.indices.count == 1 ? "" : "s")").font(.ui(size: 11)).foregroundStyle(Theme.muted)
                 }
                 .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 4)
                 ForEach(g.indices, id: \.self) { i in
@@ -32,12 +32,12 @@ struct SideTabs: View {
             }
             if groups.isEmpty {
                 Text("No tabs: open an agent or a terminal below, or press ⌘T.")
-                    .font(.system(size: 12)).foregroundStyle(Theme.muted).padding(8)
+                    .font(.ui(size: 12)).foregroundStyle(Theme.muted).padding(8)
             }
             Button { store.newTerminal(split: nil) } label: {
                 HStack(spacing: 7) {
-                    Text("+").font(.system(size: 14)).frame(width: 12)
-                    Text("New terminal tab").font(.system(size: 12.5))
+                    Text("+").font(.ui(size: 14)).frame(width: 12)
+                    Text("New terminal tab").font(.ui(size: 12.5))
                     Spacer()
                     Keycap("⌘T")
                 }
@@ -59,7 +59,7 @@ struct SideTabRow: View {
         let p = store.pane(tab.focused)
         let panes = tab.root.panes.compactMap { store.pane($0) }
         HStack(spacing: 8) {
-            Text(index < 9 ? "\(index + 1)" : "").font(.system(size: 10.5, weight: .medium, design: .monospaced))
+            Text(index < 9 ? "\(index + 1)" : "").font(.ui(size: 10.5, weight: .medium, design: .monospaced))
                 .foregroundStyle(Theme.muted).frame(width: 12, alignment: .trailing)
             if let a = p?.agent {
                 Mark(agent: a.name)
@@ -68,10 +68,10 @@ struct SideTabRow: View {
                            color: Theme.muted, size: 12)
             }
             Text(TabButton(store: store, index: index, tab: tab).title(changes: parseChangesKey(tab.focused), pane: p))
-                .font(.system(size: 13)).foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1).truncationMode(.tail)
+                .font(.ui(size: 13)).foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 4)
             if tab.root.panes.count > 1 {
-                Text("⊞\(tab.root.panes.count)").font(.system(size: 11)).foregroundStyle(Theme.muted).help("\(tab.root.panes.count) splits")
+                Text("⊞\(tab.root.panes.count)").font(.ui(size: 11)).foregroundStyle(Theme.muted).help("\(tab.root.panes.count) splits")
             }
             if panes.contains(where: { $0.agent?.state == .blocked }) {
                 // Waiting for you: Rex's dot, in the warn colour.
@@ -80,10 +80,10 @@ struct SideTabRow: View {
                     .help("waiting for you")
             } else if panes.contains(where: { $0.agent?.state == .working }) {
                 TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
-                    Text(spinnerFrame(at: ctx.date)).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
+                    Text(spinnerFrame(at: ctx.date)).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
                 }
             } else if panes.contains(where: { $0.agent?.state == .done }) {
-                Text("✓").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.ok).help("finished")
+                Text("✓").font(.ui(size: 12, weight: .bold)).foregroundStyle(Theme.ok).help("finished")
             }
         }
         .padding(.horizontal, 8).frame(height: 30)
@@ -137,14 +137,14 @@ struct CrumbBar: View {
         HStack(spacing: 8) {
             if let tab = store.layout.current {
                 Text(TabButton(store: store, index: store.layout.active, tab: tab).title(changes: parseChangesKey(tab.focused), pane: store.pane(tab.focused)))
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                Text(store.scope(of: tab.focused)).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
+                    .font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                Text(store.scope(of: tab.focused)).font(.ui(size: 12)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
             }
             Spacer()
             HStack(spacing: 5) { Keycap("⌘D"); Text("split") }
             HStack(spacing: 5) { Keycap("⌥Space"); Text("layer") }
         }
-        .font(.system(size: 12)).foregroundStyle(Theme.muted)
+        .font(.ui(size: 12)).foregroundStyle(Theme.muted)
         .padding(.horizontal, 14).frame(height: store.appLook.compact ? 24 : 30)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
     }
