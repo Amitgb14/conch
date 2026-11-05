@@ -65,6 +65,11 @@ cat >"$app/Contents/Info.plist" <<EOF
 	<key>NSHighResolutionCapable</key><true/>
 	<key>ConchSource</key><string>$root</string>
 	<key>NSSupportsAutomaticTermination</key><false/>
+	<!-- A browser tab shows what a dev server speaks, which is plain http. -->
+	<key>NSAppTransportSecurity</key><dict>
+		<key>NSAllowsLocalNetworking</key><true/>
+		<key>NSAllowsArbitraryLoadsInWebContent</key><true/>
+	</dict>
 </dict>
 </plist>
 EOF

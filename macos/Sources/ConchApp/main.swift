@@ -183,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             item("New Task…", "n", .command, "newTask"),
             item("Start Agent", "n", [.command, .shift], "startAgent"),
             item("New Terminal Tab", "t", .command, "newTab"),
+            item("New Browser Tab", "b", [.command, .shift], "newBrowser"),
             .separator(),
             item("Add Project…", "o", .command, "addProject"),
             item("SSH to a Host…", "h", [.command, .shift], "sshToHost"),
