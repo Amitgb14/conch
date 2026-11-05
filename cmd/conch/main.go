@@ -231,7 +231,8 @@ Usage:
                                 on tab; without a shell, says how to turn it on
   conch doctor [-json]          check config, server, agents, git, gh, terminal and machines,
                                 each with the command that fixes it; exits 1 if any must be fixed
-  conch keys [-bound] [-toml]   what every key after the prefix does, and which key it is on now
+  conch keys [-bound] [-toml] [-json]
+                                what every key after the prefix does, and which key it is on now
                                 (tmux's list-keys); rebind one under [keys.bind] in config.toml,
                                 which -toml prints ready to edit
   conch app [-terminal NAME] [-n]

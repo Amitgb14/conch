@@ -189,12 +189,12 @@ func TestAppSettings(t *testing.T) {
 	// A file from before [app]: the standard window, ports shown.
 	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[ui]\ntheme = \"nord\"\n"), 0o644)
 	got, err := Load()
-	if err != nil || got.App != (AppCfg{}) || !got.App.ShowsPorts() {
+	if err != nil || got.App != (AppCfg{}) || !got.App.ShowsPorts() || !got.App.TakesPrefix() {
 		t.Fatalf("old file: %+v %v", got.App, err)
 	}
 	off := false
 	cfg := Default()
-	cfg.App = AppCfg{Tabs: "left", Density: "compact", Sidebar: "glass", Ports: &off, ScratchKey: true}
+	cfg.App = AppCfg{Tabs: "left", Density: "compact", Sidebar: "glass", Ports: &off, ScratchKey: true, PrefixKeys: &off}
 	if err := Save(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestAppSettings(t *testing.T) {
 		t.Fatalf("saved without [app]:\n%s", b)
 	}
 	got, err = Load()
-	if err != nil || got.App.Tabs != "left" || got.App.Density != "compact" || got.App.Sidebar != "glass" || got.App.ShowsPorts() || !got.App.ScratchKey {
+	if err != nil || got.App.Tabs != "left" || got.App.Density != "compact" || got.App.Sidebar != "glass" || got.App.ShowsPorts() || !got.App.ScratchKey || got.App.TakesPrefix() {
 		t.Fatalf("round trip: %+v %v", got.App, err)
 	}
 	// Left alone, the defaults write nothing of [app]'s keys.
@@ -211,7 +211,7 @@ func TestAppSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ = os.ReadFile(filepath.Join(home, "config.toml"))
-	for _, k := range []string{"tabs =", "density =", "sidebar =", "ports =", "scratch_key ="} {
+	for _, k := range []string{"tabs =", "density =", "sidebar =", "ports =", "scratch_key =", "prefix_keys ="} {
 		if strings.Contains(string(b), k) {
 			t.Fatalf("default config wrote %q:\n%s", k, b)
 		}

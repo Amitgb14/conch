@@ -228,6 +228,8 @@ func Schema(c Choices) []Section {
 					Help: "The ports a pane's programs listen on, a click opening one in the browser."},
 				{Key: "scratch_key", Label: "Option-space anywhere", Kind: KindBool,
 					Help: "Show the scratch layer with Conch.app in the background, as Ghostty's quick terminal does. Off, option-space works in the window only."},
+				{Key: "prefix_keys", Label: "Prefix keys in panes", Kind: KindBool, Default: true,
+					Help: "The TUI's prefix (ctrl+b) and the keys after it, from [keys], work in the app's panes too. Off, the prefix goes to the program."},
 			}},
 		{ID: "sandbox", Key: "sandbox", Title: "Sandboxes", Icon: "box", Description: "Hosted sandbox providers, one table each.",
 			Fields: []Field{

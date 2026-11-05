@@ -136,7 +136,7 @@ Right-clicking a row in the sidebar gives its menu, as `m` does in the TUI:
 | `⌃⌘S` | show or hide the sidebar |
 | `⌘0` | the sidebar takes the keyboard (so does a click on a row that is not a pane): `↑` `↓` (or `k` `j`) move, `←` folds or goes to the row above it, `→` unfolds or goes in, space folds, `⏎` opens — going into a pane, a branch's changes — and `t` a task, `c` an agent, `n` a terminal, each where the row is, `x` closes a pane |
 
-Everything else you type goes to the focused pane.
+Everything else you type goes to the focused pane — except **the TUI's prefix keys**, which work here as there: `ctrl+b` (or whatever `[keys] prefix` is), then a key from the [prefix table](/docs/configuration#rebinding-the-keys). `ctrl+b %` splits right, `ctrl+b z` zooms, `ctrl+b c` a new tab, `ctrl+b n` / `p` the next and previous tab, `ctrl+b 1`–`0` a tab by its place, `ctrl+b o` the next split, `ctrl+b &` closes the tab, `ctrl+b /` the palette, `ctrl+b :` ✦ Ask, `ctrl+b ?` the keys — and `ctrl+b ctrl+b` gives the program its own `ctrl+b`. A key bound to nothing hands the keyboard to the sidebar, as the TUI's prefix does. The table is the TUI's own (`conch keys -json`), so a key you moved in `[keys.bind]` moves in both; while the prefix is down the status bar says **PREFIX** and shows the keys that follow, and Help → Keyboard Shortcuts lists the whole table. The few that are the TUI's alone — scroll mode, layouts, links, typing into every split, detach — say so rather than doing nothing. **Settings → Mac app → Prefix keys in panes** (`[app] prefix_keys = false`) turns them off, and the prefix goes to the program like any other key.
 
 ## Building it
 

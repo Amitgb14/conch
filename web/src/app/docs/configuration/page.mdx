@@ -142,6 +142,7 @@ density = ""           # "compact": a pane's header shrinks, splits close up, a 
 sidebar = ""           # "glass": the desktop through the sidebar, as Finder's
 ports = true           # the ports a pane's programs listen on, in its header
 scratch_key = false    # option-space shows the scratch layer with Conch.app in the background
+prefix_keys = true     # the TUI's prefix keys ([keys]) in the app's panes too
 
 [[actions]]            # your own commands on the row menus; none by default
 name = "Run tests"     # the label on the menu
@@ -250,6 +251,7 @@ How the [Mac app](/docs/mac-app) draws its window — **Settings → Mac app**, 
 | `sidebar` | `""` | `"glass"`: the desktop shows through the sidebar, as Finder's does. Panes stay solid |
 | `ports` | `true` | the TCP ports a pane's programs listen on, in its header — a click opens one in the browser, or on another machine copies the ssh tunnel to it |
 | `scratch_key` | `false` | option-space shows the scratch layer from anywhere, Conch.app in the background or not, as Ghostty's quick terminal does; off, it works in the window only |
+| `prefix_keys` | `true` | `[keys] prefix` and the keys after it work in the app's panes as in the TUI, from the same table; off, the prefix goes to the program |
 
 ## `[[actions]]`
 

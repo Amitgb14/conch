@@ -25,13 +25,17 @@ public struct AppLook: Equatable, Sendable {
     public var glass = false
     public var ports = true
     public var scratchKey = false
+    /// The TUI's prefix keys in the panes, on unless [app] prefix_keys is
+    /// false.
+    public var prefixKeys = true
 
-    public init(tabs: TabPlacement = .top, compact: Bool = false, glass: Bool = false, ports: Bool = true, scratchKey: Bool = false) {
+    public init(tabs: TabPlacement = .top, compact: Bool = false, glass: Bool = false, ports: Bool = true, scratchKey: Bool = false, prefixKeys: Bool = true) {
         self.tabs = tabs
         self.compact = compact
         self.glass = glass
         self.ports = ports
         self.scratchKey = scratchKey
+        self.prefixKeys = prefixKeys
     }
 
     /// Read from config.toml; what is missing or not understood is the
@@ -42,6 +46,7 @@ public struct AppLook: Equatable, Sendable {
         glass = tomlSetting("app", "sidebar", in: toml) == "glass"
         ports = tomlSetting("app", "ports", in: toml) != "false"
         scratchKey = tomlSetting("app", "scratch_key", in: toml) == "true"
+        prefixKeys = tomlSetting("app", "prefix_keys", in: toml) != "false"
     }
 }
 

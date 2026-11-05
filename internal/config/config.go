@@ -69,10 +69,17 @@ type AppCfg struct {
 	// anywhere, Conch.app in the background or not, as Ghostty's quick
 	// terminal does. Off: option-space works only in the window.
 	ScratchKey bool `toml:"scratch_key,omitempty"`
+	// PrefixKeys makes [keys] prefix work in the app's panes as in the
+	// TUI: the prefix, then a key from [keys.bind]. On unless false; off,
+	// the prefix goes to the program like any other key.
+	PrefixKeys *bool `toml:"prefix_keys,omitempty"`
 }
 
 // ShowsPorts reports whether the app puts listening ports in pane headers.
 func (a AppCfg) ShowsPorts() bool { return a.Ports == nil || *a.Ports }
+
+// TakesPrefix reports whether the app's panes take conch's prefix keys.
+func (a AppCfg) TakesPrefix() bool { return a.PrefixKeys == nil || *a.PrefixKeys }
 
 // DefaultWebPort is where conch web listens unless told otherwise.
 const DefaultWebPort = 8722

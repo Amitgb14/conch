@@ -299,6 +299,30 @@ func Resolve(bind map[string]string) (Map, []string) {
 	return m, problems
 }
 
+// ResolveFor is Resolve for a prefix: a binding on the prefix key itself
+// is taken out and said, since the prefix twice is how a program below
+// conch is given its own ctrl+b, so an action there could never be
+// pressed and would quietly cost somebody that. The TUI and Conch.app
+// (through conch keys -json) both read the table this way, so the same
+// file gives the same keys in each.
+func ResolveFor(bind map[string]string, prefix string) (Map, []string) {
+	prefix = Normalize(prefix)
+	var warn []string
+	if len(bind) > 0 && prefix != "" {
+		kept := make(map[string]string, len(bind))
+		for _, name := range slices.Sorted(maps.Keys(bind)) {
+			if key := bind[name]; key != "" && Normalize(key) == prefix {
+				warn = append(warn, fmt.Sprintf("%s is on %s, which is the prefix itself", name, prefix))
+				continue
+			}
+			kept[name] = bind[name]
+		}
+		bind = kept
+	}
+	m, problems := Resolve(bind)
+	return m, append(warn, problems...)
+}
+
 // Default is the map with nothing rebound.
 func Default() Map {
 	m, _ := Resolve(nil)
