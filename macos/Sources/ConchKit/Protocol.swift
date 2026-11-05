@@ -131,9 +131,11 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var alert: String?
     /// How it is watched for those (pane.monitor.v1).
     public var monitor: PaneMonitor?
+    /// The TCP ports its programs listen on, lowest first (pane.listening.v1).
+    public var listening: [Int]?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor
+        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor, listening
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"

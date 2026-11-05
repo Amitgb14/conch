@@ -2,10 +2,15 @@ import AppKit
 import ConchKit
 import SwiftUI
 
-// A branch's changes, in a tab or split of their own, as the TUI opens a
-// branch: what it changes (the worktree's uncommitted work, and what its
-// commits change against the base), one file's diff, and commit, push and
-// open a pull request. Read from the branch's machine's server; the diff
+// A branch's git, in a tab or split of its own: three views on one control
+// (GitTab.swift draws them). Overview is what a branch is when there is
+// nothing to commit — how it stands against its upstream, its recent
+// commits, a fortnight of activity, who changed it, the other branches
+// against the base. Changes is its uncommitted work reviewed and committed
+// hunk by hunk, with comments on lines (notes for its agent, or comments
+// for its pull request) and a review of the pull request submitted from
+// here. Graph is the project's commit graph, with a commit's details and
+// a compare of two. Read from the branch's machine's server; the diff
 // follows an agent's edits as the server announces them.
 
 @MainActor
@@ -16,19 +21,55 @@ final class ChangesModel: ObservableObject {
     let branch: String
     weak var store: Store?
 
+    enum Mode: String, CaseIterable { case overview = "Overview", changes = "Changes", graph = "Graph" }
+    /// The view chosen; nil until a choice is made, when it follows what
+    /// there is: changes when there are some, the overview when not.
+    @Published var chosen: Mode?
+
     @Published var changes: Changes?
     @Published var selected: String?
     /// Whether the selected file is one the branch committed (its diff is
     /// against the base) rather than uncommitted work.
     @Published var selectedCommitted = false
     @Published var diff: [DiffLine] = []
+    /// The selected file's diff in hunks, for an uncommitted file.
+    @Published var fileHunks: (header: String, hunks: [Hunk]) = ("", [])
+    /// Every uncommitted file's hunks read so far, for the patch's order.
+    var hunkOrder: [String: [Hunk]] = [:]
     @Published var error: String?
     @Published var busy: String?
     /// Files written in the last few seconds, marked as the TUI marks them.
     @Published var live: Set<String> = []
-    /// Uncommitted files ticked for the next commit; none ticked commits
-    /// them all.
-    @Published var picked: Set<String> = []
+    /// What the next commit takes: whole files or some of their hunks;
+    /// nothing ticked commits everything.
+    @Published var picks = StagePicks()
+    @Published var split = false
+    @Published var message = ""
+    @Published var credit = true
+    @Published var writing = false
+
+    // comments and the review
+    @Published var comments: [ReviewComment] = []
+    @Published var pending: [PendingComment] = []
+    @Published var composingFile: String?
+    @Published var composingLine: Int?
+    /// The file box clicked last, where a shift-click's run starts.
+    var tickAnchor: String?
+    /// Notes already handed to an agent, kept on their lines while this tab
+    /// is open: the server forgets a note once it is delivered.
+    @Published var sent: [SentNote] = []
+    @Published var event: ReviewEvent = .approve
+    @Published var reviewBody = ""
+    @Published var reviewed: ReviewEvent?
+
+    // the overview
+    @Published var recent: [LogCommit] = []
+
+    var mode: Mode {
+        if let c = chosen { return c }
+        guard let ch = changes else { return .changes }
+        return ch.files.isEmpty && (ch.committedFiles ?? []).isEmpty ? .overview : .changes
+    }
 
     init(key: String, store: Store) {
         self.key = key
@@ -47,13 +88,13 @@ final class ChangesModel: ObservableObject {
         var file: String?
     }
 
-    /// Reads and diffs in flight: each one started — a click, a file
-    /// written — only shows if no newer one was started meanwhile, or a
-    /// slow reply put an older list, or another file's diff, on screen.
     private var reads = Latest(), diffs = Latest()
 
+    var connection: Connection? { store?.connection(machine) }
+    func can(_ cap: String) -> Bool { connection?.hello?.capabilities?.contains(cap) == true }
+
     func load() async {
-        guard let c = store?.connection(machine) else {
+        guard let c = connection else {
             error = "\(store?.label(machine) ?? machine) is not connected"
             return
         }
@@ -64,6 +105,7 @@ final class ChangesModel: ObservableObject {
             changes = ch
             error = nil
             let all = ch.files.map(\.path) + (ch.committedFiles ?? []).map(\.path)
+            for p in picks.whole where !ch.files.contains(where: { $0.path == p }) { picks.whole.remove(p) }
             if selected == nil || !all.contains(selected!) {
                 if let f = ch.files.first {
                     select(f.path, committed: false)
@@ -72,6 +114,7 @@ final class ChangesModel: ObservableObject {
                 } else {
                     selected = nil
                     diff = []
+                    fileHunks = ("", [])
                 }
             } else {
                 await loadDiff()
@@ -79,21 +122,23 @@ final class ChangesModel: ObservableObject {
         } catch {
             if reads.isLatest(n) { self.error = "\(error)" }
         }
+        await loadComments()
+        if mode == .overview { await loadRecent() }
     }
 
     func select(_ path: String, committed: Bool) {
         selected = path
         selectedCommitted = committed
+        composingFile = nil
         Task { await loadDiff() }
     }
 
     func loadDiff() async {
-        guard let c = store?.connection(machine), let path = selected else { return }
+        guard let c = connection, let path = selected else { return }
         let n = diffs.next()
         do {
+            var text: String
             if selectedCommitted, let base = changes?.base {
-                // What the branch's commits did to it: git in the branch's
-                // worktree, since project.diff there is the uncommitted work.
                 struct Git: Encodable {
                     var project_id: String
                     var branch: String
@@ -102,15 +147,26 @@ final class ChangesModel: ObservableObject {
                 struct Out: Decodable { var output: String? }
                 let out = try await c.call("branch.git", Git(project_id: project, branch: branch,
                                                               commands: [["diff", "\(base)...HEAD", "--", path]]), as: Out.self)
-                guard diffs.isLatest(n) else { return }
-                diff = parseDiff(out.output ?? "")
+                // The output starts with the "$ git …" line it ran.
+                text = (out.output ?? "").split(separator: "\n", omittingEmptySubsequences: false).drop { !$0.hasPrefix("diff ") }.joined(separator: "\n")
             } else {
-                let d = try await c.call("project.diff", Ref(project_id: project, branch: branch, file: path), as: DiffResult.self)
-                guard diffs.isLatest(n) else { return }
-                diff = parseDiff(d.diff)
+                text = try await c.call("project.diff", Ref(project_id: project, branch: branch, file: path), as: DiffResult.self).diff
+            }
+            guard diffs.isLatest(n) else { return }
+            diff = parseDiff(text)
+            if !selectedCommitted {
+                let h = splitHunks(text)
+                fileHunks = h
+                hunkOrder[path] = h.hunks
+                picks.prune(path, header: h.header, hunks: h.hunks)
+            } else {
+                fileHunks = ("", [])
             }
         } catch {
-            if diffs.isLatest(n) { diff = [DiffLine(id: 0, kind: .meta, text: "\(error)")] }
+            if diffs.isLatest(n) {
+                diff = [DiffLine(id: 0, kind: .meta, text: "\(error)")]
+                fileHunks = ("", [])
+            }
         }
     }
 
@@ -124,28 +180,302 @@ final class ChangesModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.live.subtract(rel) }
     }
 
-    func commit(_ message: String) {
-        let files = changes?.commitFiles(picked: picked)
-        if files?.isEmpty == true {
-            error = "The files ticked are no longer uncommitted"
-            picked = []
+    func written(worktree: String) { written([], worktree: worktree) }
+
+    // MARK: committing
+
+    /// The agent working on this branch, for the commit's credit and the
+    /// notes' recipient.
+    var agent: PaneInfo? {
+        store?.snapshots[machine]?.panes.first { $0.agent != nil && $0.projectID == project && $0.branch == branch && $0.running }
+    }
+
+    /// What Commit takes, said: everything, or what is ticked.
+    /// Whether this machine's server stages and commits the index alone.
+    var canStage: Bool { can("branch.stage.v1") }
+
+    var scope: CommitScope {
+        commitScope(picked: !picks.isEmpty, files: changes?.files ?? [], canStage: canStage)
+    }
+
+    var commitWhat: String {
+        guard changes != nil else { return "" }
+        switch scope {
+        case .everything(let n): return "every change (\(n) file\(n == 1 ? "" : "s"))"
+        case .staged(let n): return "what is staged (\(n) file\(n == 1 ? "" : "s"))"
+        case .picked: break
+        }
+        let s = picks.selection(order: hunkOrder)
+        var parts: [String] = []
+        if !s.files.isEmpty { parts.append("\(s.files.count) file\(s.files.count == 1 ? "" : "s")") }
+        if s.hunks > 0 { parts.append("\(s.hunks) hunk\(s.hunks == 1 ? "" : "s")") }
+        return parts.joined(separator: " and ")
+    }
+
+    func commit() {
+        let text = credit ? withTrailer(message, agent: agent?.agent?.name) : message
+        let s = picks.selection(order: hunkOrder)
+        if !s.patch.isEmpty && !can("branch.hunks.v1") {
+            error = "conch on \(store?.label(machine) ?? machine) predates committing single hunks: tick whole files instead"
             return
         }
-        run("Committing", done: files.map { "Committed \($0.count) file\($0.count == 1 ? "" : "s") on \(branch)" } ?? "Committed on \(branch)") { c in
+        var staged = false
+        if case .staged = scope { staged = true }
+        run("Committing", done: "Committed on \(branch)") { c in
             struct Commit: Encodable {
                 var project_id: String
                 var branch: String
                 var message: String
                 var files: [String]?
+                var patch: String?
+                var staged: Bool?
             }
-            try await c.call("branch.commit", Commit(project_id: self.project, branch: self.branch, message: message, files: files))
-            self.picked = []
+            try await c.call("branch.commit", Commit(project_id: self.project, branch: self.branch, message: text,
+                                                       files: s.files.isEmpty ? nil : s.files, patch: s.patch.isEmpty ? nil : s.patch,
+                                                       staged: staged ? true : nil))
+            self.picks = StagePicks()
+            self.message = ""
         }
     }
 
-    /// The branch's commits into its base, where the base is checked out:
-    /// squashed into one, or as a merge commit. A merge that conflicts is
-    /// undone by the server and refused.
+    /// git add: what is ticked put in the index, the ticks then cleared —
+    /// the stage itself says what is staged now.
+    func stage() {
+        guard canStage else {
+            error = "conch on \(store?.label(machine) ?? machine) is too old to stage: reload its server"
+            return
+        }
+        let s = picks.selection(order: hunkOrder)
+        guard !s.files.isEmpty || !s.patch.isEmpty else { return }
+        let n = s.files.count + s.hunks
+        run("Staging", done: "Staged \(n) \(n == 1 ? "change" : "changes")") { c in
+            try await c.call("branch.stage", StageParams(project_id: self.project, branch: self.branch,
+                                                         files: s.files.isEmpty ? nil : s.files, patch: s.patch.isEmpty ? nil : s.patch))
+            self.picks = StagePicks()
+        }
+    }
+
+    /// One file put in the index, or taken out of it, whole.
+    func stage(file: String, unstage: Bool) {
+        guard canStage else {
+            error = "conch on \(store?.label(machine) ?? machine) is too old to stage: reload its server"
+            return
+        }
+        run(unstage ? "Unstaging" : "Staging", done: (unstage ? "Unstaged " : "Staged ") + (file as NSString).lastPathComponent) { c in
+            try await c.call("branch.stage", StageParams(project_id: self.project, branch: self.branch, files: [file], unstage: unstage ? true : nil))
+        }
+    }
+
+    struct StageParams: Encodable {
+        var project_id: String
+        var branch: String
+        var files: [String]?
+        var patch: String?
+        var unstage: Bool?
+    }
+
+    /// Writes the message from what is about to be committed, with the
+    /// brain set in config.toml, by this computer's conch.
+    func writeMessage() {
+        guard let c = connection, let bin = store?.binary, !writing else { return }
+        writing = true
+        Task {
+            defer { writing = false }
+            do {
+                let s = picks.selection(order: hunkOrder)
+                var diff = s.patch
+                let all = changes?.files ?? []
+                let whole: [String]
+                switch scope {
+                case .picked: whole = s.files
+                case .staged: whole = all.filter { $0.staged == true }.map(\.path)
+                case .everything: whole = all.map(\.path)
+                }
+                for f in whole.prefix(30) {
+                    if let d = try? await c.call("project.diff", Ref(project_id: project, branch: branch, file: f), as: DiffResult.self) {
+                        diff += d.diff
+                    }
+                }
+                var args = ["commit-message"]
+                if let a = agent, let t = a.title, !t.isEmpty { args += ["-context", t] }
+                let out = try await runConch(bin, args, input: Data(diff.utf8))
+                message = String(decoding: out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                self.error = "\(error)"
+            }
+        }
+    }
+
+    // MARK: comments and the review
+
+    func loadComments() async {
+        guard let c = connection, can("review.comments.v1") else { return }
+        // Sent notes too, with their answers, where the server keeps them.
+        struct R: Encodable { var project_id: String; var branch: String; var sent: Bool? }
+        if let l = try? await c.call("review.list", R(project_id: project, branch: branch, sent: canThread ? true : nil), as: ReviewList.self) {
+            comments = l.comments
+        }
+    }
+
+    /// Whether the branch has an open pull request a comment can wait for.
+    var prOpen: Bool {
+        store?.snapshots[machine]?.project(project)?.branches?.first { $0.name == branch }?.pr?.state == "OPEN"
+    }
+
+    func compose(file: String, line: Int) {
+        composingFile = file
+        composingLine = line
+    }
+
+    /// A comment written on a line: a note for the agent (kept by conch),
+    /// or one waiting in the review for the pull request.
+    func addComment(_ note: String, file: String, line: Int, forPR: Bool) {
+        let text = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        composingFile = nil
+        if forPR {
+            pending.append(PendingComment(file: file, line: line, note: text))
+            return
+        }
+        guard let c = connection, can("review.comments.v1") else {
+            error = "conch on \(store?.label(machine) ?? machine) is too old to keep notes on lines: reload its server"
+            return
+        }
+        Task {
+            do {
+                let l = try await c.call("review.set", ReviewComment(projectID: project, branch: branch, file: file, line: line, note: text), as: ReviewList.self)
+                comments = l.comments
+            } catch { self.error = "\(error)" }
+        }
+    }
+
+    /// A note resolved: taken away. One from GitHub is resolved there.
+    func resolve(_ c: ReviewComment) {
+        guard let id = c.id, !c.fromGitHub, let conn = connection else { return }
+        let gone = ReviewComment(projectID: c.projectID, branch: c.branch, file: c.file, line: c.line, note: "", id: id)
+        Task {
+            if let l = try? await conn.call("review.set", gone, as: ReviewList.self) { comments = l.comments }
+        }
+    }
+
+    func dropPending(_ p: PendingComment) { pending.removeAll { $0.id == p.id } }
+
+    /// The notes waiting to be sent: not GitHub's, and not sent already.
+    var notes: [ReviewComment] { comments.filter { !$0.fromGitHub && $0.sentAt == nil } }
+
+    /// Whether this machine's server keeps sent notes for answers.
+    var canThread: Bool { can("review.thread.v1") }
+
+    /// Whether the agent a note went to has stopped working on it: done,
+    /// idle, waiting on the person, or gone — so silence is said as such.
+    func agentStopped(_ pane: String?) -> Bool {
+        guard let pane, let p = store?.snapshots[machine]?.panes.first(where: { $0.id == pane }), p.running else { return true }
+        return p.agent?.state != .working
+    }
+
+    /// The person answering a note: it waits to be sent again, its thread
+    /// with it.
+    func reply(_ c: ReviewComment, _ note: String) {
+        let text = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let id = c.id, !text.isEmpty, let conn = connection else { return }
+        struct P: Encodable { var project_id: String; var id: String; var note: String }
+        Task {
+            do {
+                _ = try await conn.call("review.reply", P(project_id: project, id: id, note: text), as: ReviewComment.self)
+                await loadComments()
+            } catch { self.error = "\(error)" }
+        }
+    }
+
+    /// The notes handed to the agent working on the branch.
+    /// The running agents on this branch, oldest first: who the notes can go to.
+    var branchAgents: [PaneInfo] {
+        ConchKit.branchAgents(store?.snapshots[machine]?.panes ?? [], project: project, branch: branch)
+    }
+
+    /// Whether this machine's server takes the agent to send to.
+    var canPick: Bool { can("review.send.to.v1") }
+
+    /// The notes handed to an agent: the one picked (pane), a new one
+    /// (start, an agent's name), or — with neither — the one the server
+    /// finds on the branch. What was sent stays on its line, said as sent,
+    /// since the server takes delivered notes away.
+    func sendNotes(to pane: String? = nil, start: String? = nil) {
+        if (pane != nil || start != nil) && !canPick {
+            error = "conch on \(store?.label(machine) ?? machine) is too old to send to an agent you pick: reload its server"
+            return
+        }
+        let given = notes
+        guard !given.isEmpty else { return }
+        run("Sending the notes") { c in
+            struct S: Encodable {
+                var project_id: String; var branch: String
+                var pane: String?; var agent: String?; var new: Bool?
+            }
+            struct R: Decodable { var pane: PaneInfo; var started: Bool?; var sent: Int }
+            let r = try await c.call("review.send", S(project_id: self.project, branch: self.branch, pane: pane, agent: start,
+                                                      new: start != nil ? true : nil), as: R.self)
+            let to = r.pane.name.isEmpty ? (r.pane.agent?.name ?? r.pane.id) : r.pane.name
+            let at = Date()
+            // A server that keeps sent notes lists them itself; for one from
+            // before, the app remembers them while the tab is open.
+            if !self.canThread {
+                self.sent += given.map { SentNote(file: $0.file, line: $0.line, note: $0.note, to: to, pane: r.pane.id, at: at) }
+            }
+            self.store?.say((r.started == true ? "Started \(to) with " : "Sent ") + "\(r.sent) note\(r.sent == 1 ? "" : "s")" + (r.started == true ? "" : " to \(to)"))
+        }
+    }
+
+    /// The review submitted to the pull request, with the comments waiting
+    /// in it; requesting changes sends the notes to the agent as well.
+    func submitReview() {
+        guard event.canSubmit(body: reviewBody, comments: pending.count) else { return }
+        guard can("pr.review.v1") else {
+            error = "conch on \(store?.label(machine) ?? machine) is too old to review a pull request: reload its server"
+            return
+        }
+        let ev = event
+        let sub = ReviewSubmit(projectID: project, branch: branch, event: ev.rawValue, body: reviewBody, comments: pending)
+        run("Submitting the review", done: ev == .approve ? "Approved the pull request" : ev == .requestChanges ? "Requested changes" : "Commented on the pull request") { c in
+            try await c.call("branch.review", sub)
+            self.pending = []
+            self.reviewBody = ""
+            self.reviewed = ev
+            if ev == .requestChanges && !self.notes.isEmpty, self.agent != nil {
+                struct S: Encodable { var project_id: String; var branch: String }
+                _ = try? await c.call("review.send", S(project_id: self.project, branch: self.branch))
+            }
+        }
+    }
+
+    // MARK: the overview
+
+    /// The branch's last month of commits, read in its checkout; for a
+    /// branch with none, the commits it has against the base.
+    func loadRecent() async {
+        guard let c = connection else { return }
+        struct Git: Encodable {
+            var project_id: String
+            var branch: String
+            var commands: [[String]]
+        }
+        struct Out: Decodable { var output: String?; var exit_code: Int? }
+        if let out = try? await c.call("branch.git", Git(project_id: project, branch: branch,
+                                                          commands: [["log", "-n", "400", "--since=30.days", "--format=%H%x1f%s%x1f%an%x1f%ct"]]), as: Out.self),
+           (out.exit_code ?? 0) == 0 {
+            recent = parseLogLines(out.output ?? "")
+            return
+        }
+        recent = (changes?.commits ?? []).map { ci in
+            var c = LogCommit(hash: ci.hash, subject: ci.subject)
+            c.author = ci.author
+            c.time = ci.time
+            return c
+        }
+    }
+
+    // MARK: shipping
+
     func merge(squash: Bool) {
         let base = changes?.base ?? "the base"
         run("Merging into \(base)", done: "Merged \(branch) into \(base)") { c in
@@ -169,7 +499,7 @@ final class ChangesModel: ObservableObject {
     }
 
     private func run(_ what: String, done: String? = nil, _ body: @escaping (Connection) async throws -> Void) {
-        guard let c = store?.connection(machine), busy == nil else { return }
+        guard let c = connection, busy == nil else { return }
         busy = what
         Task {
             defer { busy = nil }
@@ -185,240 +515,13 @@ final class ChangesModel: ObservableObject {
     }
 }
 
-struct ChangesView: View {
-    @ObservedObject var store: Store
-    @ObservedObject var model: ChangesModel
-    @State private var committing = false
-    @State private var message = ""
-
-    var info: BranchInfo? {
-        store.snapshots[model.machine]?.project(model.project)?.branches?.first { $0.name == model.branch }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            Rectangle().fill(Theme.line).frame(height: 1)
-            HStack(spacing: 0) {
-                files.frame(width: 300)
-                Rectangle().fill(Theme.line).frame(width: 1)
-                diffView
-            }
-        }
-        .background(Theme.window)
-        .clipShape(RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(store.layout.focused == model.key ? Theme.accent : Theme.line))
-        .sheet(isPresented: $committing) { commitSheet }
-    }
-
-    var header: some View {
-        HStack(spacing: 10) {
-            LucideIcon(name: .gitBranch, color: Theme.accent, size: 12)
-            Text(model.branch).font(.system(size: 13, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.text)
-            if let ch = model.changes {
-                Text("into \(ch.base)").font(.system(size: 12)).foregroundStyle(Theme.muted)
-                let (a, d) = ch.totals
-                if a + d > 0 {
-                    Text("+\(a)").font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.ok)
-                    Text("−\(d)").font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.err)
-                }
-            }
-            if let i = info {
-                if let ahead = i.baseAhead, ahead > 0 { Text("↑\(ahead)").font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.muted) }
-                if let pr = i.pr {
-                    Pill(text: "#\(pr.number)" + (pr.checks == "pass" ? " ✓" : pr.checks == "fail" ? " ✗" : ""),
-                         fg: pr.checks == "fail" ? Theme.err : Theme.ok, bg: (pr.checks == "fail" ? Theme.err : Theme.ok).opacity(0.16))
-                }
-            }
-            Spacer()
-            if let b = model.busy { Text(b + "…").font(.system(size: 12)).foregroundStyle(Theme.muted) }
-            Button("Agent or terminal") { store.openBranch(project: key(model.machine, model.project), name: model.branch) }
-                .help("This branch's agent, or a terminal in its worktree")
-            Button(model.picked.isEmpty ? "Commit…" : "Commit \(model.picked.count)…") { committing = true }
-                .disabled(model.changes?.worktree == nil || (model.changes?.files.isEmpty ?? true) || model.busy != nil)
-            Button("Push") { model.push() }.disabled(model.busy != nil)
-            if model.changes?.canMerge == true {
-                Button("Merge into \(model.changes?.base ?? "base")…") { confirmMerge() }.disabled(model.busy != nil)
-                    .help("Merge this branch's commits into \(model.changes?.base ?? "the base") where it is checked out")
-            }
-            Button(info?.pr == nil ? "Open pull request" : "Update pull request") { model.openPR() }.disabled(model.busy != nil)
-            if let ch = model.changes, ch.branch != ch.base {
-                // What ends the branch, out of the way of what ships it.
-                Menu {
-                    Button("Delete branch…") { store.deleteBranch(project: key(model.machine, model.project), branch: model.branch) }
-                } label: { Image(systemName: "ellipsis") }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .disabled(model.busy != nil).help("More: delete the branch")
-            }
-        }
-        .controlSize(.small)
-        .padding(.horizontal, 12).frame(height: 38)
-        .background(Theme.paneHeader)
-    }
-
-    /// Asks how to merge, as the TUI's merge does: squashed by default.
-    func confirmMerge() {
-        guard let ch = model.changes else { return }
-        let n = ch.commits?.count ?? 0
-        let a = NSAlert()
-        a.messageText = "Merge \(ch.branch) into \(ch.base)?"
-        a.informativeText = "\(n) commit\(n == 1 ? "" : "s"), merged where \(ch.base) is checked out. A merge that conflicts is undone and nothing changes."
-            + (info?.pr != nil ? " Its pull request stays open: merging it on GitHub is the other way." : "")
-        a.addButton(withTitle: "Squash and merge")
-        a.addButton(withTitle: "Merge commit")
-        a.addButton(withTitle: "Cancel")
-        switch a.runModal() {
-        case .alertFirstButtonReturn: model.merge(squash: true)
-        case .alertSecondButtonReturn: model.merge(squash: false)
-        default: break
-        }
-    }
-
-    var files: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 1) {
-                if let e = model.error {
-                    Text(e).font(.system(size: 12)).foregroundStyle(Theme.err).padding(10)
-                }
-                if let ch = model.changes {
-                    if ch.worktree != nil {
-                        section("Uncommitted", ch.files, committed: false, empty: "Nothing uncommitted")
-                        if let c = ch.committedFiles, !c.isEmpty { section("Committed on \(ch.branch)", c, committed: true, empty: "") }
-                    } else {
-                        section("Changes", ch.files, committed: false, empty: "Nothing changed against \(ch.base)")
-                    }
-                    if let commits = ch.commits, !commits.isEmpty {
-                        Text("COMMITS").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
-                            .padding(.horizontal, 10).padding(.top, 12).padding(.bottom, 4)
-                        ForEach(commits.prefix(20)) { c in
-                            HStack(spacing: 8) {
-                                Text(String(c.hash.prefix(7))).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.work)
-                                Text(c.subject).font(.system(size: 12)).foregroundStyle(Theme.text2).lineLimit(1)
-                            }
-                            .padding(.horizontal, 10).frame(height: 22)
-                        }
-                    }
-                } else if model.error == nil {
-                    Text("Reading…").font(.system(size: 12)).foregroundStyle(Theme.muted).padding(10)
-                }
-            }
-            .padding(.vertical, 6)
-        }
-        .background(Theme.side)
-    }
-
-    @ViewBuilder func section(_ title: String, _ list: [FileChange], committed: Bool, empty: String) -> some View {
-        Text(title.uppercased()).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
-            .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 4)
-        if list.isEmpty && !empty.isEmpty {
-            Text(empty).font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.horizontal, 10)
-        }
-        ForEach(list) { f in
-            let on = model.selected == f.path && model.selectedCommitted == committed
-            HStack(spacing: 8) {
-                if !committed && model.changes?.worktree != nil {
-                    // Ticked: in the next commit; none ticked: all are.
-                    Toggle("", isOn: Binding(get: { model.picked.contains(f.path) },
-                                             set: { if $0 { model.picked.insert(f.path) } else { model.picked.remove(f.path) } }))
-                        .toggleStyle(.checkbox).labelsHidden().controlSize(.small)
-                        .help("Commit only the files ticked")
-                }
-                Text(f.code).font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(f.code == "A" || f.code == "?" ? Theme.ok : f.code == "D" ? Theme.err : f.code == "U" ? Theme.warn : Theme.work)
-                    .frame(width: 12)
-                if model.live.contains(f.path) { Rectangle().fill(Theme.warn).frame(width: 2, height: 14) }
-                Text(f.path).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.text)
-                    .lineLimit(1).truncationMode(.head)
-                Spacer(minLength: 4)
-                if f.binary == true {
-                    Text("binary").font(.system(size: 11)).foregroundStyle(Theme.muted)
-                } else {
-                    Text("+\(f.added)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.ok)
-                    Text("−\(f.deleted)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.err)
-                }
-            }
-            .padding(.horizontal, 10).frame(height: 24)
-            .background(on ? Theme.accentDeep.opacity(0.45) : model.live.contains(f.path) ? Theme.warn.opacity(0.12) : .clear)
-            .contentShape(Rectangle())
-            .onTapGesture { model.select(f.path, committed: committed) }
-        }
-    }
-
-    var diffView: some View {
-        GeometryReader { geo in
-        ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if model.selected == nil {
-                    Text(model.changes == nil ? "" : "Pick a file to see its diff.").foregroundStyle(Theme.muted).padding(14)
-                }
-                ForEach(model.diff) { l in
-                    HStack(spacing: 0) {
-                        Text(l.old.map(String.init) ?? "").frame(width: 44, alignment: .trailing).foregroundStyle(Theme.muted)
-                        Text(l.new.map(String.init) ?? "").frame(width: 44, alignment: .trailing).foregroundStyle(Theme.muted)
-                        Text(marker(l.kind)).frame(width: 20).foregroundStyle(colour(l.kind))
-                        Text(l.text.isEmpty ? " " : l.text).foregroundStyle(colour(l.kind)).fixedSize()
-                        Spacer(minLength: 0)
-                    }
-                    .font(.system(size: 12, design: .monospaced))
-                    .padding(.vertical, 1)
-                    .background(background(l.kind))
-                }
-            }
-            .padding(.vertical, 6)
-            // From the top left, however short: a scroll view in both
-            // directions otherwise centres what is smaller than itself.
-            .frame(minWidth: geo.size.width, minHeight: geo.size.height, alignment: .topLeading)
-        }
-        }
-        .background(Theme.window)
-    }
-
-    func marker(_ k: DiffLine.Kind) -> String {
-        switch k {
-        case .added: return "+"
-        case .removed: return "−"
-        default: return ""
-        }
-    }
-
-    func colour(_ k: DiffLine.Kind) -> Color {
-        switch k {
-        case .added: return Theme.ok
-        case .removed: return Theme.err
-        case .hunk: return Theme.work
-        case .meta: return Theme.muted
-        case .context: return Theme.text
-        }
-    }
-
-    func background(_ k: DiffLine.Kind) -> Color {
-        switch k {
-        case .added: return Theme.ok.opacity(0.10)
-        case .removed: return Theme.err.opacity(0.10)
-        case .hunk: return Theme.work.opacity(0.08)
-        default: return .clear
-        }
-    }
-
-    var commitSheet: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Commit on \(model.branch)").font(.headline)
-            Text(model.picked.isEmpty ? "Every uncommitted change in its worktree (\(model.changes?.files.count ?? 0) files)."
-                 : "Only the \(model.picked.count) file\(model.picked.count == 1 ? "" : "s") ticked: \(model.picked.sorted().prefix(4).joined(separator: ", "))\(model.picked.count > 4 ? ", …" : "").")
-                .font(.system(size: 12)).foregroundStyle(.secondary)
-            TextField("Message", text: $message, axis: .vertical).lineLimit(3...8).textFieldStyle(.roundedBorder).frame(width: 420)
-            HStack {
-                Spacer()
-                Button("Cancel") { committing = false }.keyboardShortcut(.cancelAction)
-                Button("Commit") {
-                    model.commit(message)
-                    message = ""
-                    committing = false
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-        .padding(20)
-    }
+/// A note that went to an agent: where it was, what it said, and to whom.
+struct SentNote: Identifiable, Equatable {
+    let id = UUID()
+    var file: String
+    var line: Int?
+    var note: String
+    var to: String
+    var pane: String
+    var at: Date
 }

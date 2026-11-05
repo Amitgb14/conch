@@ -13,11 +13,17 @@ public struct FileChange: Decodable, Equatable, Sendable, Identifiable {
     public var added: Int
     public var deleted: Int
     public var binary: Bool?
+    /// Some of it is in the index (git add), and some of it is not.
+    public var staged: Bool?
+    public var unstaged: Bool?
 
     public var id: String { path }
 
+    /// In the index whole, in part, or not at all.
+    public var stage: Tick { staged != true ? .off : unstaged == true ? .mixed : .on }
+
     enum CodingKeys: String, CodingKey {
-        case path, code, added, deleted, binary
+        case path, code, added, deleted, binary, staged, unstaged
         case origPath = "orig_path"
     }
 

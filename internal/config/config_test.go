@@ -182,3 +182,38 @@ func TestLoadAndSaveWithABrokenConfig(t *testing.T) {
 		t.Fatalf("the directory was moved aside: %v", err)
 	}
 }
+
+func TestAppSettings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CONCH_HOME", home)
+	// A file from before [app]: the standard window, ports shown.
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[ui]\ntheme = \"nord\"\n"), 0o644)
+	got, err := Load()
+	if err != nil || got.App != (AppCfg{}) || !got.App.ShowsPorts() {
+		t.Fatalf("old file: %+v %v", got.App, err)
+	}
+	off := false
+	cfg := Default()
+	cfg.App = AppCfg{Tabs: "left", Density: "compact", Sidebar: "glass", Ports: &off, ScratchKey: true}
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(home, "config.toml"))
+	if !strings.Contains(string(b), "[app]") || !strings.Contains(string(b), `tabs = "left"`) {
+		t.Fatalf("saved without [app]:\n%s", b)
+	}
+	got, err = Load()
+	if err != nil || got.App.Tabs != "left" || got.App.Density != "compact" || got.App.Sidebar != "glass" || got.App.ShowsPorts() || !got.App.ScratchKey {
+		t.Fatalf("round trip: %+v %v", got.App, err)
+	}
+	// Left alone, the defaults write nothing of [app]'s keys.
+	if err := Save(Default()); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(filepath.Join(home, "config.toml"))
+	for _, k := range []string{"tabs =", "density =", "sidebar =", "ports =", "scratch_key ="} {
+		if strings.Contains(string(b), k) {
+			t.Fatalf("default config wrote %q:\n%s", k, b)
+		}
+	}
+}

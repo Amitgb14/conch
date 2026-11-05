@@ -100,6 +100,14 @@ yours. Leave the sending to the person unless you were asked to send them.
 pull request, marked `on GitHub`, with their replies: read those before
 reviewing, so you don't repeat them.
 
+When comments are sent *to* you, each of conch's own has an id. Once you
+have dealt with one, answer it in a sentence — what you changed, or why
+you left it — and the person reads it under the line it is about:
+
+```sh
+conch review reply c1a2b3c4 "Moved the check above Validate; a negative amount never reaches it."
+```
+
 
 Close the helpers you started once you have what you need:
 `conch close reviewer`. Their branches and worktrees stay for the person

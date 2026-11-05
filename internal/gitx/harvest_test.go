@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -723,4 +724,114 @@ func TestPushRefusedByAHook(t *testing.T) {
 	if !strings.Contains(err.Error(), "no thanks") {
 		t.Fatalf("the hook's reason is lost: %v", err)
 	}
+}
+
+// Staging is git add — a hunk or a whole file put in the index and the
+// worktree left alone — unstaging takes either back out, and a commit of
+// what is staged takes that and nothing else.
+func TestStageAndCommitStaged(t *testing.T) {
+	_, wt := taskRepo(t)
+	lines := ""
+	for i := 1; i <= 30; i++ {
+		lines += fmt.Sprintf("line %d\n", i)
+	}
+	commit(t, wt, "f.txt", lines, "add f")
+	edited := strings.Replace(strings.Replace(lines, "line 1\n", "FIRST\n", 1), "line 30\n", "LAST\n", 1)
+	write(t, wt, "f.txt", edited)
+	write(t, wt, "new.txt", "new\n")
+	write(t, wt, "left.txt", "left out\n")
+
+	if err := StageChanges(ctx, wt, nil, "  "); err == nil {
+		t.Fatal("nothing to stage was taken")
+	}
+	if err := UnstageChanges(ctx, wt, nil, ""); err == nil {
+		t.Fatal("nothing to unstage was taken")
+	}
+	if _, err := CommitStaged(ctx, wt, "nothing staged"); !errors.Is(err, ErrNothingToCommit) {
+		t.Fatalf("an empty index committed: %v", err)
+	}
+
+	diff, err := Diff(ctx, wt, "f.txt", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, hs := hunks(t, diff)
+	if err := StageChanges(ctx, wt, []string{"new.txt"}, header+hs[0]); err != nil {
+		t.Fatal(err)
+	}
+	staged := git(t, wt, "diff", "--cached", "--name-only")
+	if staged != "f.txt\nnew.txt" {
+		t.Fatalf("staged: %q", staged)
+	}
+	if cached := git(t, wt, "diff", "--cached", "f.txt"); !strings.Contains(cached, "FIRST") || strings.Contains(cached, "LAST") {
+		t.Fatalf("staged the wrong hunk:\n%s", cached)
+	}
+	if got, _ := os.ReadFile(filepath.Join(wt, "f.txt")); string(got) != edited {
+		t.Fatal("staging changed the file on disk")
+	}
+
+	// The same hunk again no longer applies, and the file with it is not
+	// staged either.
+	if err := StageChanges(ctx, wt, []string{"left.txt"}, header+hs[0]); !errors.Is(err, ErrPatchStale) {
+		t.Fatalf("stale patch: %v", err)
+	}
+	if strings.Contains(git(t, wt, "diff", "--cached", "--name-only"), "left.txt") {
+		t.Fatal("a stale patch staged its files")
+	}
+
+	// Unstaging the hunk (as staged) and a file: the index goes back, the
+	// files on disk stay.
+	cached, _ := runOut(t, wt, "diff", "--cached", "--", "f.txt")
+	if err := UnstageChanges(ctx, wt, []string{"new.txt"}, cached); err != nil {
+		t.Fatal(err)
+	}
+	if got := git(t, wt, "diff", "--cached", "--name-only"); got != "" {
+		t.Fatalf("still staged: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(wt, "new.txt")); string(got) != "new\n" {
+		t.Fatal("unstaging touched the file")
+	}
+
+	// Commit only what is staged: the rest stays uncommitted.
+	if err := StageChanges(ctx, wt, []string{"new.txt"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CommitStaged(ctx, wt, ""); err == nil {
+		t.Fatal("no message")
+	}
+	hash, err := CommitStaged(ctx, wt, "Only new.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash != git(t, wt, "rev-parse", "HEAD") || git(t, wt, "show", "--name-only", "--format=", "HEAD") != "new.txt" {
+		t.Fatalf("committed: %s", git(t, wt, "show", "--name-only", "--format=", "HEAD"))
+	}
+	if st := git(t, wt, "status", "--porcelain"); !strings.Contains(st, "M f.txt") || !strings.Contains(st, "?? left.txt") {
+		t.Fatalf("left behind: %q", st)
+	}
+}
+
+// A repository with no commits has no HEAD to reset to: unstaging drops
+// the path from the index and keeps the file.
+func TestUnstageWithoutCommits(t *testing.T) {
+	dir := resolve(t.TempDir())
+	git(t, dir, "init", "-q", "-b", "main")
+	configure(t, dir)
+	write(t, dir, "a.txt", "a\n")
+	if err := StageChanges(ctx, dir, []string{"a.txt"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := UnstageChanges(ctx, dir, []string{"a.txt"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if st := git(t, dir, "status", "--porcelain"); st != "?? a.txt" {
+		t.Fatalf("status: %q", st)
+	}
+}
+
+// runOut is git's output untrimmed: a patch needs its last newline.
+func runOut(t *testing.T, dir string, args ...string) (string, error) {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	return string(out), err
 }

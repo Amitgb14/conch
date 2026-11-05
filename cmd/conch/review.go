@@ -22,6 +22,7 @@ const reviewUsage = `Usage:
                                                            comment on a file, or a line of it
   conch review rm   [-cwd DIR] [-branch B] ID              take a comment away (not one from GitHub)
   conch review send [-cwd DIR] [-branch B] [-agent A]      hand them to the branch's agent, or start A with them
+  conch review reply [-cwd DIR] ID ANSWER                   answer a comment that was sent to you: what you did, or why not
 
 Without -branch, the branch checked out in DIR (the current directory) is used.
 The list includes the unresolved comments on the branch's pull request, read
@@ -45,6 +46,8 @@ func runReview(args []string) error {
 		return reviewRemove(args)
 	case "send":
 		return reviewSendCmd(args)
+	case "reply":
+		return reviewReplyCmd(args)
 	case "help", "-h", "--help":
 		fmt.Print(reviewUsage + "\n")
 		return nil
@@ -178,6 +181,34 @@ func reviewRemove(args []string) error {
 		return err
 	}
 	fmt.Printf("removed; %s left on %s\n", counted(len(list.Comments), "comment"), branch)
+	return nil
+}
+
+// reviewReplyCmd answers a note on its line: an agent saying what it did
+// about one it was sent, which the person reads beside the diff.
+func reviewReplyCmd(args []string) error {
+	bf := newBranchFlags("review reply")
+	c, id, _, err := openReview(bf, args)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if bf.fs.NArg() < 2 {
+		return fmt.Errorf("conch review reply ID ANSWER (the id is in the comment you were sent)")
+	}
+	if missing := c.MissingCapabilities([]string{proto.CapReviewThread}); len(missing) > 0 {
+		return fmt.Errorf("the conch server (pid %d) predates replies to review comments; reload it with `conch server reload`", c.Server.PID)
+	}
+	var got proto.ReviewComment
+	note := strings.Join(bf.fs.Args()[1:], " ")
+	if err := call(c, proto.MethodReviewReply, proto.ReviewReplyParams{ProjectID: id, ID: bf.fs.Arg(0), Note: note}, &got); err != nil {
+		return err
+	}
+	where := got.File
+	if got.Line > 0 {
+		where = fmt.Sprintf("%s:%d", got.File, got.Line)
+	}
+	fmt.Printf("replied on %s\n", where)
 	return nil
 }
 

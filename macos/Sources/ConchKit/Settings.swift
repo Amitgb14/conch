@@ -183,3 +183,12 @@ public func themeSaveNote(_ before: [String: JSONValue], _ after: [String: JSONV
     }
     return nil
 }
+
+/// A select's options with the value config.toml holds kept among them
+/// when it is not one: a light_theme set to a dark theme before only light
+/// ones were offered still shows as chosen, as the settings page shows it
+/// ("from the file"), so opening Settings does not seem to have changed it.
+public func keepingSaved(_ options: [SettingsOption], _ value: String, label: (String) -> String) -> [SettingsOption] {
+    guard !value.isEmpty, !options.contains(where: { $0.value == value }) else { return options }
+    return options + [SettingsOption(value: value, label: label(value) + " (from the file)")]
+}

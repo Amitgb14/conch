@@ -41,6 +41,8 @@ enum Theme {
     static var onWarn: Color { color(current.onWarn) }
     static var err: Color { color(current.err) }
     static var work: Color { color(current.work) }
+    /// A merge, and a range compared in the graph: the theme's own purple.
+    static var merged: Color { color(RGB("#A371F7")) }
 
     /// An agent's own colour (agentColor), or muted for one it has none for.
     static func agent(_ name: String?) -> Color { markColor(name, on: current.bg, text: current.fg).map(color) ?? muted }
@@ -303,8 +305,11 @@ struct WorkspacesControl: View {
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) { store.renameWorkspace(i) }
                     .onTapGesture { store.workspace = i }
-                    .contextMenu { Button("Rename…") { store.renameWorkspace(i) } }
-                    .help("Workspace \(i + 1) — double-click or right-click to name it")
+                    .contextMenu {
+                        Button("Rename…") { store.renameWorkspace(i) }
+                        if i > 0 { Button("Close Workspace…") { store.closeWorkspace(i) } }
+                    }
+                    .help(i > 0 ? "Workspace \(i + 1) — double-click to name it; right-click to name or close it" : "Workspace 1 — double-click or right-click to name it")
             }
             // A new workspace, shared with the TUI through ui.json.
             Text("+").font(.system(size: 12)).foregroundStyle(Theme.muted)
@@ -491,18 +496,30 @@ struct MainView: View {
                         ProjectRail(store: store)
                     }
                     VStack(spacing: 0) {
-                        TabBar(store: store)
+                        // Tabs down a side ([app] tabs) leave a line saying
+                        // which is on screen in the tab bar's place.
+                        if store.appLook.tabs == .top { TabBar(store: store) } else { CrumbBar(store: store) }
                         if store.connected, let tab = store.layout.current {
                             // Zoomed: the focused split alone, filling the tab.
-                            SplitArea(store: store, node: tab.zoomed ? .leaf(tab.focused) : tab.root).padding(Theme.style.gutter)
+                            SplitArea(store: store, node: tab.zoomed ? .leaf(tab.focused) : tab.root).padding(store.gutter)
                         } else {
                             Empty(store: store)
                         }
                     }
                     .background(Theme.window)
+                    if store.appLook.tabs == .right {
+                        Rectangle().fill(Theme.line).frame(width: 1)
+                        ScrollView { SideTabs(store: store).padding(8) }.frame(width: 230).background(Theme.side)
+                    }
                     if Theme.style.roster && AppStyle.celSideFits(width: size.width) { CelSide(store: store).background(Theme.window) }
                 }
                 StatusBar(store: store)
+            }
+            if let k = store.scratch {
+                // Over the splits only: the toolbar, sidebar and status bar
+                // stay as they are.
+                ScratchLayer(store: store, pane: k, terminal: store.terminal(for: k))
+                    .padding(.leading, store.sidebarVisible ? sidebarWidth + 1 : 0).padding(.bottom, 26)
             }
             if store.paletteOpen {
                 Palette(store: store)
@@ -513,6 +530,7 @@ struct MainView: View {
         .sheet(item: $store.broadcastDraft) { d in BroadcastSheet(store: store, draft: d) }
         .sheet(isPresented: $store.helpOpen) { ShortcutsSheet(store: store) }
         .sheet(isPresented: $store.doctorOpen) { DoctorSheet(store: store) }
+        .sheet(isPresented: $store.updatesOpen) { UpdatesSheet(store: store) }
         .background(Theme.window)
         // Meadow paints the title bar itself: a sky behind the toolbar's
         // controls (AppKit's, so drawn over it), lifted into the title bar
@@ -572,6 +590,12 @@ struct Sidebar: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {
+                    // The tabs on the left ([app] tabs), grouped by machine,
+                    // above everything else the sidebar holds.
+                    if store.appLook.tabs == .left {
+                        SideTabs(store: store)
+                        Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 8).padding(.horizontal, 6)
+                    }
                     // Direction C's "Needs you": every waiting agent as a
                     // card, answered from here, above the tree.
                     let needs = store.needsYou
@@ -604,6 +628,11 @@ struct Sidebar: View {
                 if Theme.meadow {
                     // Warm paper, a shade deeper at the top.
                     LinearGradient(colors: [Theme.raise, Theme.side], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.4))
+                } else if store.appLook.glass {
+                    // [app] sidebar = "glass": the desktop through it,
+                    // tinted with the theme so the rows still read.
+                    Glass()
+                    Theme.side.opacity(0.45)
                 } else {
                     Theme.side
                 }
@@ -652,7 +681,10 @@ struct NodeView: View {
         }
     }
 
-    var selected: Bool { paneID != nil && paneID == store.layout.focused }
+    /// The focused pane's row, filled only while a terminal has the
+    /// keyboard: with the sidebar's own cursor on screen too, two rows were
+    /// filled at once and neither read as the one the keys would move.
+    var selected: Bool { paneID != nil && paneID == store.layout.focused && store.terminalHasKeyboard }
     /// On an Ink page the focused pane's row is solid ink, its name in paper.
     var inverted: Bool { Theme.ink && selected }
     var rowFill: Color {
@@ -758,8 +790,10 @@ struct NodeView: View {
         case .agent(let id): Mark(agent: store.pane(id)?.agent?.name)
         case .terminal(let id): LucideIcon(name: store.pane(id)?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12)
         case .branch(_, _, let checkedOut):
-            // In a worktree of its own: the accent; only a branch: muted.
-            LucideIcon(name: .gitBranch, color: checkedOut ? Theme.accent : Theme.muted, size: 12)
+            // shadcn's way: the outline in the muted foreground, a shade
+            // brighter for a branch checked out in a worktree of its own —
+            // never the accent, which the selection and focus already use.
+            LucideIcon(name: .gitBranch, color: checkedOut ? Theme.text2 : Theme.muted, size: 12)
                 .help(checkedOut ? "checked out in a worktree of its own" : "a branch, not checked out")
         case .sessions: LucideIcon(name: .history, size: 12)
         case .files: LucideIcon("folder-open", color: Theme.muted, size: 12)
@@ -1226,7 +1260,7 @@ struct TabButton: View {
                 } else if changes == nil {
                     LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12)
                 } else {
-                    LucideIcon(name: .gitBranch, color: Theme.accent, size: 12)
+                    LucideIcon(name: .gitBranch, color: Theme.muted, size: 12)
                 }
             }
             // A branch's changes are named as the mock names them; a
@@ -1351,7 +1385,7 @@ struct SplitStack: View {
 
     var body: some View {
         GeometryReader { g in
-            let gap = CGFloat(Theme.style.gutter)
+            let gap = store.gutter
             let total = (axis == .horizontal ? g.size.width : g.size.height) - gap * CGFloat(kids.count - 1)
             let w = store.layout.current?.shares(path, kids.count) ?? Array(repeating: 1 / Double(kids.count), count: kids.count)
             let layout = axis == .horizontal ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
@@ -1407,7 +1441,12 @@ struct PaneCard: View {
                     Text(tokenSummary(t)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer()
-                if let p, p.agent == nil, let port = store.port(of: pane) {
+                if store.appLook.ports, let ports = p?.listening, !ports.isEmpty {
+                    // What its programs listen on, a click away (pane.listening.v1).
+                    ForEach(ports.prefix(3), id: \.self) { port in
+                        ListeningPort(store: store, port: port, machine: unkey(pane).machine)
+                    }
+                } else if let p, p.agent == nil, let port = store.port(of: pane) {
                     PortLink(port: port, local: unkey(pane).machine == "local")
                 }
                 if p?.running == false {
@@ -1435,15 +1474,24 @@ struct PaneCard: View {
                     Pill.state(p?.agent?.state)
                 }
             }
-            .padding(.horizontal, 10).frame(height: 30)
+            .padding(.horizontal, store.appLook.compact ? 8 : 10).frame(height: store.appLook.compact ? 22 : 30)
+            .font(.system(size: store.appLook.compact ? 11 : 12))
             .background(Theme.ink ? Theme.window : Theme.paneHeader)
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line).frame(height: Theme.ink ? 2 : 1) }
             if let q = store.questions[pane], !q.choices.isEmpty {
                 AnswerStrip(store: store, pane: pane, question: q)
             }
-            TerminalHost(terminal: terminal)
+            TerminalHost(terminal: terminal, paneSize: p.flatMap { i in i.cols.flatMap { c in i.rows.map { CellSize(cols: c, rows: $0) } } })
                 .overlay(alignment: .topTrailing) {
-                    if store.find?.pane == pane { FindBar(store: store).padding(8) }
+                    if store.find?.pane == pane { FindBar(store: store, terminal: terminal).padding(8) }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if let size = terminal.letterbox { LetterboxNote(size: size) { terminal.take() }.padding(10) }
+                }
+                .overlay(alignment: .bottom) {
+                    if terminal.linesBelow > 0, terminal.letterbox == nil {
+                        LinesBelow(count: terminal.linesBelow) { terminal.scrollToBottom() }.padding(.bottom, 12)
+                    }
                 }
         }
         .background(Theme.window)
@@ -1459,6 +1507,9 @@ struct PaneCard: View {
 /// ways; esc closes it.
 struct FindBar: View {
     @ObservedObject var store: Store
+    /// The pane's terminal: a raw one's search is Ghostty's, which says
+    /// how many it found and which is in view.
+    @ObservedObject var terminal: PaneTerminal
     @FocusState private var typing: Bool
 
     var body: some View {
@@ -1470,7 +1521,10 @@ struct FindBar: View {
                 .focused($typing)
                 .onSubmit { store.findNext(back: true); typing = true }
                 .onExitCommand { store.closeFind() }
-            if let note = f?.note, !note.isEmpty {
+            if terminal.raw, store.rawSearched != nil, let n = terminal.searchTotal {
+                Text(rawSearchNote(selected: terminal.searchSelected, total: n)).font(.system(size: 11))
+                    .foregroundStyle(n == 0 ? Theme.err : Theme.muted).lineLimit(1)
+            } else if let note = f?.note, !note.isEmpty {
                 Text(note).font(.system(size: 11)).foregroundStyle(note == "Not found" || note.hasPrefix("conch") ? Theme.err : Theme.muted)
                     .lineLimit(1).frame(maxWidth: 180)
             }
@@ -1487,6 +1541,72 @@ struct FindBar: View {
         .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
         .onAppear { typing = true }
         .onChange(of: store.findFocus) { _ in typing = true }
+    }
+}
+
+/// Over the dots of a letterbox: whose size the pane is, and the way to
+/// take it — a click, as typing would.
+struct LetterboxNote: View {
+    @Environment(\.conchTheme) private var look
+    let size: CellSize
+    let take: () -> Void
+
+    var body: some View {
+        let _ = look
+        Button(action: take) {
+            HStack(spacing: 6) {
+                Text("Sized \(size.cols)×\(size.rows) for another window").foregroundStyle(Theme.text2)
+                Text("Take it").fontWeight(.semibold).foregroundStyle(Theme.accent)
+            }
+            .font(.system(size: 11.5))
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paneHeader))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line2))
+        }
+        .buttonStyle(.plain)
+        .help(letterboxNote(size))
+    }
+}
+
+/// A raw pane scrolled back into Ghostty's history: how much is below,
+/// and the way back down.
+struct LinesBelow: View {
+    @Environment(\.conchTheme) private var look
+    let count: Int
+    let down: () -> Void
+
+    var body: some View {
+        let _ = look
+        Button(action: down) {
+            Text("↓ \(count) line\(count == 1 ? "" : "s") below · End").font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.text)
+                .padding(.horizontal, 11).padding(.vertical, 4)
+                .background(Capsule().fill(Theme.raise))
+                .overlay(Capsule().stroke(Theme.line2))
+                .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// A port a pane's programs listen on: here a click opens it; on another
+/// machine it copies the ssh tunnel that brings it here.
+struct ListeningPort: View {
+    @Environment(\.conchTheme) private var look
+    @ObservedObject var store: Store
+    let port: Int
+    let machine: String
+
+    var body: some View {
+        let _ = look
+        let local = machine == "local"
+        Text(portLabel(port, machine: local ? "local" : store.label(machine)) + (local ? " ↗" : ""))
+            .font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(Theme.accent)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: 5).fill(Theme.accent.opacity(0.14)))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.accent.opacity(0.35)))
+            .help(local ? "Listening on \(port) — click to open http://localhost:\(port)"
+                        : "Listening on \(port) on \(store.label(machine)) — click to copy an ssh tunnel to it")
+            .onTapGesture { store.openPort(port, machine: machine) }
     }
 }
 
@@ -1537,7 +1657,7 @@ struct StatusBar: View {
     @State private var monitorHover = false
 
     static let treeKeys = [("⏎", "open"), ("t", "task"), ("c", "agent"), ("n", "terminal"), ("⌘D", "split")]
-    static let paneKeys = [("⌘W", "close split"), ("⌘D", "split"), ("⇧⌘]", "next tab"), ("⌘K", "search"), ("⌘.", "next waiting")]
+    static let paneKeys = [("⌘D", "split"), ("⌥Space", "layer"), ("⌘F", "find"), ("⌘K", "go to"), ("⌘.", "next waiting")]
 
     var body: some View {
         HStack(spacing: 16) {
@@ -1595,13 +1715,21 @@ struct StatusBar: View {
                 .buttonStyle(.plain)
                 .help(store.limits.map(usageHelp).joined(separator: "\n") + "\nClick for every window")
                 .popover(isPresented: $showLimits, arrowEdge: .top) { LimitsPopover(store: store) }
-                .onChange(of: showLimits) { if $0 { store.refreshLimits() } }
+                .onChange(of: showLimits) { if $0 { store.refreshLimits(); store.refreshUsageHistory() } }
+            } else if store.connected {
+                // No plan reported yet: what was used is still a click away.
+                Button { showLimits.toggle() } label: { Text("Usage").foregroundStyle(Theme.muted) }
+                    .buttonStyle(.plain).help("Tokens used in the last day, week and month, by model")
+                    .popover(isPresented: $showLimits, arrowEdge: .top) { LimitsPopover(store: store) }
+                    .onChange(of: showLimits) { if $0 { store.refreshLimits(); store.refreshUsageHistory() } }
             }
             // ✦ Ask, report a problem and pair a phone, as the TUI's bar has.
             StatusExtras(store: store)
-            if !store.serverVersion.isEmpty {
-                Text("v\(store.serverVersion)").foregroundStyle(Theme.muted)
-                    .help("conch \(store.serverVersion) · panes drawn with \(PaneTerminal.engine)")
+            if let k = store.layout.focused, let t = store.terminals[k], !t.raw {
+                // Only the exception is said: a pane repainted from conch's
+                // screen rather than drawn by Ghostty from the program.
+                Text("repainted").foregroundStyle(Theme.muted).lineLimit(1).fixedSize()
+                    .help("This pane is conch's screen repainted into the terminal — its machine's conch predates pane.raw.v1, or the app was built without Ghostty — so its history and search are conch's")
             }
             // Settings, as the TUI's bar ends: conch's settings page.
             Button { store.openSettings() } label: {
@@ -1611,6 +1739,27 @@ struct StatusBar: View {
                     .overlay(Rectangle().strokeBorder(Theme.ink ? Theme.inkLine : .clear, lineWidth: 1.5))
             }
             .buttonStyle(.plain).help("conch's settings (⌘,); an open TUI takes in what you save")
+            // The version is where updates are said: in the warn colour, with
+            // how many machines are behind, when any are — a click lists them
+            // and does the ones picked.
+            if let say = versionLabel(store.serverVersion, updates: store.updates.count) {
+                if store.updates.isEmpty {
+                    Text(say).foregroundStyle(Theme.muted)
+                        .help("conch \(store.serverVersion) · panes drawn with \(PaneTerminal.engine)")
+                } else {
+                    Button { store.updatesOpen = true } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.circle.fill").font(.system(size: 11))
+                            Text(say)
+                        }
+                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.onWarn)
+                        .padding(.horizontal, 7).padding(.vertical, 1)
+                        .background(Capsule().fill(Theme.warn))
+                    }
+                    .buttonStyle(.plain)
+                    .help("conch on " + store.updates.map(\.label).joined(separator: ", ") + " is behind this app's — click to bring it up to date")
+                }
+            }
             // What conch uses on this computer, in the corner as in the TUI.
             Button { showMonitor.toggle() } label: {
                 MonitorIcon(color: showMonitor ? Theme.accent : Theme.muted)
@@ -1676,9 +1825,87 @@ struct LimitsPopover: View {
                     }
                 }
             }
-            Text("What the agents last reported; conch counts only what it has seen.").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("What the agents last reported.").font(.system(size: 11)).foregroundStyle(.secondary)
+            Divider()
+            UsageDetails(store: store)
         }
-        .padding(14).frame(width: 400)
+        .padding(14).frame(width: 460)
+    }
+}
+
+/// Tokens the agents used in the last day, week or month, and by which
+/// model (usage.history.v1), read by each machine's conch from the
+/// conversations the agents saved.
+struct UsageDetails: View {
+    @ObservedObject var store: Store
+    @State private var hours = 24
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Tokens used").font(.system(size: 13, weight: .semibold))
+                if store.usageLoading { ProgressView().controlSize(.mini) }
+                Spacer()
+                Picker("", selection: $hours) {
+                    ForEach(usagePeriods, id: \.self) { Text(usagePeriodLabel($0)).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 230)
+            }
+            let many = store.usageHistory.count > 1
+            ForEach(store.usageHistory, id: \.machine) { entry in
+                if many {
+                    Text(store.label(entry.machine)).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                }
+                if entry.history.agents.isEmpty {
+                    Text("No agent saved a conversation in the last 30 days.").font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                ForEach(entry.history.agents, id: \.agent) { a in
+                    if let p = a.period(hours) { AgentUsageRows(agent: a.agent, period: p) }
+                }
+            }
+            if store.usageHistory.isEmpty && !store.usageLoading && store.usageTooOld.isEmpty {
+                Text("Nothing to show yet.").font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            if !store.usageTooOld.isEmpty {
+                Text("conch on \(store.usageTooOld.map(store.label).joined(separator: ", ")) is too old to say what was used: reload its server.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Read from the conversations the agents saved, so it counts sessions outside conch too. Cache reads are input the model read back from its prompt cache.")
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// One agent's period: its total, then each model's share.
+struct AgentUsageRows: View {
+    @Environment(\.conchTheme) private var look
+    let agent: String
+    let period: UsagePeriod
+
+    var body: some View {
+        let _ = look
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Mark(agent: agent)
+                Text(agent.prefix(1).uppercased() + agent.dropFirst()).font(.system(size: 12.5, weight: .semibold))
+                Spacer()
+                Text("\(humanCount(period.tokens.total)) tokens · \(period.tokens.messages) response\(period.tokens.messages == 1 ? "" : "s")")
+                    .font(.system(size: 11.5)).foregroundStyle(.secondary).monospacedDigit()
+            }
+            Text(usageLine(period.tokens)).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2)
+            if period.models.isEmpty {
+                Text("Nothing in the last \(period.label).").font(.system(size: 11.5)).foregroundStyle(.secondary)
+            }
+            ForEach(period.models, id: \.model) { m in
+                HStack(spacing: 8) {
+                    Text(m.model).font(.system(size: 11.5, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                        .frame(width: 170, alignment: .leading)
+                    Meter(fraction: usageShare(m.tokens, of: period.tokens))
+                    Text(humanCount(m.tokens.total)).font(.system(size: 11.5)).monospacedDigit().frame(width: 52, alignment: .trailing)
+                }
+                .help("\(m.model): \(usageLine(m.tokens)) · \(m.tokens.messages) responses")
+            }
+        }
     }
 }
 
@@ -1828,6 +2055,34 @@ struct Palette: View {
     @State private var query = ""
     @State private var sel = 0
     @FocusState private var focused: Bool
+    /// The live preview of the pane the selection is on (Preview.swift).
+    @State private var preview: PanePreview?
+    @State private var previewing: String?
+
+    /// The pane the selection is on, if it is one.
+    var selectedPane: String? {
+        let list = items
+        guard list.indices.contains(sel), case .pane(let k) = list[sel].action, isPaneKey(k) else { return nil }
+        return k
+    }
+
+    static let previewSize = CGSize(width: 480, height: 330)
+
+    /// A new preview when the selection moves to another pane, the old one
+    /// ended: one more connection to the server at a time, never a pile.
+    func follow(_ k: String?) {
+        guard k != previewing else { return }
+        preview?.stop()
+        preview = nil
+        previewing = k
+        guard let k else { return }
+        let size = Self.previewSize
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            // Moved on again meanwhile: not this one.
+            guard previewing == k, preview == nil else { return }
+            preview = PanePreview(pane: k, store: store, width: size.width - 20, height: size.height - 20)
+        }
+    }
 
     /// Agents, panes and places, then the files found, then the commands —
     /// the mock's order.
@@ -1854,24 +2109,34 @@ struct Palette: View {
                 }
                 .padding(.horizontal, 16).padding(.vertical, 14)
                 Rectangle().fill(Theme.line).frame(height: 1)
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            ForEach(Array(items.prefix(60).enumerated()), id: \.offset) { i, it in
-                                PaletteRow(item: it, selected: i == sel).id(i)
-                                    .onTapGesture { sel = i; run() }
-                            }
-                            if items.isEmpty {
-                                Text("Nothing matches “\(query)”").foregroundStyle(Theme.muted).padding(16)
+                HStack(alignment: .top, spacing: 0) {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                ForEach(Array(items.prefix(60).enumerated()), id: \.offset) { i, it in
+                                    PaletteRow(item: it, selected: i == sel).id(i)
+                                        .onTapGesture { sel = i; run() }
+                                }
+                                if items.isEmpty {
+                                    Text("Nothing matches “\(query)”").foregroundStyle(Theme.muted).padding(16)
+                                }
                             }
                         }
+                        .frame(maxHeight: selectedPane == nil ? 380 : Self.previewSize.height + 72)
+                        .onChange(of: sel) { proxy.scrollTo($0) }
                     }
-                    .frame(maxHeight: 380)
-                    .onChange(of: sel) { proxy.scrollTo($0) }
+                    .frame(width: selectedPane == nil ? 620 : 420, height: selectedPane == nil ? nil : Self.previewSize.height + 72)
+                    if let k = selectedPane {
+                        Rectangle().fill(Theme.line).frame(width: 1, height: Self.previewSize.height + 72)
+                        PalettePreview(store: store, pane: k, preview: preview?.pane == k ? preview : nil)
+                            .frame(width: Self.previewSize.width, height: Self.previewSize.height + 72)
+                    }
                 }
                 Rectangle().fill(Theme.line).frame(height: 1)
                 HStack(spacing: 14) {
-                    Text("↑↓ move"); Text("⏎ open"); Text("esc close")
+                    Text("↑↓ move"); Text("⏎ open")
+                    if selectedPane != nil { Text("⇥ type into the preview") }
+                    Text("esc close")
                     Spacer()
                     if store.filesUnsearchable {
                         Text("files: conch's server predates searching them — reload it").help("In the TUI: m on the machine → Reload server")
@@ -1879,7 +2144,7 @@ struct Palette: View {
                 }
                 .font(.system(size: 11.5)).foregroundStyle(Theme.muted).padding(.horizontal, 16).padding(.vertical, 8)
             }
-            .frame(width: 620)
+            .frame(width: selectedPane == nil ? 620 : 420 + 1 + Self.previewSize.width)
             .background(RoundedRectangle(cornerRadius: 12).fill(Theme.chrome))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line2))
             .shadow(color: .black.opacity(0.6), radius: 30, y: 20)
@@ -1888,9 +2153,16 @@ struct Palette: View {
         .onAppear {
             focused = true
             store.searchFiles("")
+            follow(selectedPane)
+        }
+        .onChange(of: selectedPane) { follow($0) }
+        .onDisappear {
+            preview?.stop()
+            preview = nil
         }
         .onExitCommand { store.paletteOpen = false }
-        .background(KeyCatcher(up: { sel = max(sel - 1, 0) }, down: { sel = min(sel + 1, max(items.count - 1, 0)) }))
+        .background(KeyCatcher(up: { sel = max(sel - 1, 0) }, down: { sel = min(sel + 1, max(items.count - 1, 0)) },
+                               tab: { if let p = preview { p.type(); return true }; return false }))
     }
 
     func run() {
@@ -1925,6 +2197,8 @@ struct PaletteRow: View {
 struct KeyCatcher: NSViewRepresentable {
     let up: () -> Void
     let down: () -> Void
+    /// ⇥, taken when it says so (the palette's preview).
+    var tab: () -> Bool = { false }
 
     final class Coordinator {
         var monitor: Any?
@@ -1934,9 +2208,13 @@ struct KeyCatcher: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            // Only while the search field types (its field editor): once ⇥
+            // has given the preview the keyboard, its arrows are the pane's.
+            guard e.window?.firstResponder is NSTextView else { return e }
             switch e.keyCode {
             case 126: up(); return nil
             case 125: down(); return nil
+            case 48 where e.modifierFlags.intersection([.shift, .command, .option, .control]).isEmpty: return tab() ? nil : e
             default: return e
             }
         }
@@ -2011,5 +2289,63 @@ struct AnswerLook: ViewModifier {
     case .blocked: return "waiting!"
     case .done: return "done"
     default: return nil
+    }
+}
+
+/// What can be brought up to date, each with a box, ticked to begin with:
+/// this computer's server reloaded, other machines given this build.
+struct UpdatesSheet: View {
+    @ObservedObject var store: Store
+    @State private var picked: Set<String> = []
+    @State private var seeded = false
+
+    var body: some View {
+        let list = store.updates
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.up.circle.fill").font(.system(size: 22)).foregroundStyle(Theme.warn)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Bring conch up to date").font(.system(size: 15, weight: .semibold))
+                    Text("These machines run an older conch than this app's, so some features are missing there.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+            }
+            if list.isEmpty {
+                Text("Everything is up to date.").font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+            ForEach(list) { u in
+                HStack(alignment: .top, spacing: 10) {
+                    Toggle("", isOn: Binding(get: { picked.contains(u.machine) },
+                                             set: { if $0 { picked.insert(u.machine) } else { picked.remove(u.machine) } }))
+                        .toggleStyle(.checkbox).labelsHidden()
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            LucideIcon(name: u.machine == "local" ? .laptop : .server, color: Theme.muted, size: 12)
+                            Text(u.label).font(.system(size: 13, weight: .semibold))
+                        }
+                        Text(u.doing).font(.system(size: 12))
+                        Text("Lacks " + u.lacks).font(.system(size: 11.5)).foregroundStyle(.secondary)
+                            .lineLimit(2).help(u.missing.joined(separator: ", "))
+                    }
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raise.opacity(0.6)))
+            }
+            Text("A remote machine is given this build, built from conch's source on this Mac; this Mac's server is reloaded onto the conch it runs from. Panes keep running either way.")
+                .font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Not now") { store.updatesOpen = false }.keyboardShortcut(.cancelAction)
+                Button(picked.isEmpty ? "Upgrade" : "Upgrade \(picked.count)") {
+                    store.applyUpdates(picked)
+                    store.updatesOpen = false
+                }
+                .keyboardShortcut(.defaultAction).disabled(picked.isEmpty)
+            }
+        }
+        .padding(20).frame(width: 480)
+        .onAppear {
+            if !seeded { picked = Set(list.map(\.machine)); seeded = true }
+        }
     }
 }

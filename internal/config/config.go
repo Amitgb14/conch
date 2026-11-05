@@ -29,6 +29,7 @@ type Config struct {
 	Verify  VerifyCfg  `toml:"verify"`
 	Sandbox SandboxCfg `toml:"sandbox"`
 	Web     WebCfg     `toml:"web"`
+	App     AppCfg     `toml:"app"`
 	// Actions are commands of your own on conch's menus. Last, because
 	// TOML's array of tables has to come after the plain tables when the
 	// settings screen writes this file back out.
@@ -46,6 +47,32 @@ type WebCfg struct {
 	URL  string `toml:"url,omitempty"`
 	Port int    `toml:"port,omitempty"`
 }
+
+// AppCfg is how Conch.app (macos/) draws its window. The TUI reads none of
+// it: its tab bar, its density and its colours are the terminal's.
+type AppCfg struct {
+	// Tabs is where the tabs go: "" (or "top") above the panes, "left"
+	// in the sidebar above the tree, grouped under each machine, or
+	// "right" down the far side of the panes.
+	Tabs string `toml:"tabs,omitempty"`
+	// Density "compact" puts a pane's name in its border rather than a
+	// header of its own, closes the gaps between splits and shortens the
+	// toolbar. "" is the standard window.
+	Density string `toml:"density,omitempty"`
+	// Sidebar "glass" lets the desktop through the sidebar, as Finder's;
+	// "" keeps them solid. Panes are always solid.
+	Sidebar string `toml:"sidebar,omitempty"`
+	// Ports shows the TCP ports a pane's programs listen on in its header,
+	// a click opening one in the browser. On unless false.
+	Ports *bool `toml:"ports,omitempty"`
+	// ScratchKey makes option-space show the project's scratch layer from
+	// anywhere, Conch.app in the background or not, as Ghostty's quick
+	// terminal does. Off: option-space works only in the window.
+	ScratchKey bool `toml:"scratch_key,omitempty"`
+}
+
+// ShowsPorts reports whether the app puts listening ports in pane headers.
+func (a AppCfg) ShowsPorts() bool { return a.Ports == nil || *a.Ports }
 
 // DefaultWebPort is where conch web listens unless told otherwise.
 const DefaultWebPort = 8722

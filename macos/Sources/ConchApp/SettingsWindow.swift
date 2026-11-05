@@ -267,7 +267,8 @@ struct FieldRow: View {
 
     @ViewBuilder var control: some View {
         if isTheme {
-            ThemeGrid(options: field.options ?? [], chosen: value?.string ?? "",
+            ThemeGrid(options: keepingSaved(field.options ?? [], value?.string ?? "", label: { ConchTheme.named($0).label }),
+                      chosen: value?.string ?? "",
                       choose: { id in
                           set(.string(id))
                           // The theme saved already: nothing to save, so

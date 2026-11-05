@@ -63,9 +63,13 @@ type Section struct {
 // Choices are what the select fields offer that only the caller knows:
 // the TUI's themes, the agents this build has.
 type Choices struct {
-	Themes  []Option
-	Accents []string
-	Agents  []Option
+	Themes []Option
+	// LightThemes are the ones drawn on a light background, which is all
+	// light_theme offers: it is the theme for macOS's light appearance,
+	// and a dark one there turned the window dark as the system went light.
+	LightThemes []Option
+	Accents     []string
+	Agents      []Option
 	// Providers are the sandbox providers this build knows, offered as
 	// tables to add; a table for one it does not is kept and shown too.
 	Providers []string
@@ -122,7 +126,7 @@ func Schema(c Choices) []Section {
 				{Key: "theme", Label: "Theme", Kind: KindSelect, Options: themes,
 					Help: "The TUI's colours, and Conch.app's — in dark appearance only, when a light theme is set below."},
 				{Key: "light_theme", Label: "Light theme", Kind: KindSelect,
-					Options: append([]Option{{Value: "", Label: "Off"}}, themes...),
+					Options: append([]Option{{Value: "", Label: "Off"}}, c.LightThemes...),
 					Help:    "Conch.app follows macOS: this theme in light appearance, the one above in dark, switching as the system does. Off keeps the app on the theme above. The TUI always uses the theme above."},
 				{Key: "accent", Label: "Accent", Kind: KindSelect, Options: accents,
 					Help: "Overrides the theme's accent: selections, focused borders, dialogs. A #rrggbb value works too, in the raw file."},
@@ -208,6 +212,19 @@ func Schema(c Choices) []Section {
 			Fields: []Field{
 				{Key: "url", Label: "Address phones open", Kind: KindString, Placeholder: "https://laptop.tail1234.ts.net"},
 				{Key: "port", Label: "Port", Kind: KindInt, Min: intp(0), Max: intp(65535), Placeholder: "8722"},
+			}},
+		{ID: "app", Key: "app", Title: "Mac app", Icon: "laptop", Description: "How Conch.app draws its window. The TUI keeps its own.",
+			Fields: []Field{
+				{Key: "tabs", Label: "Tabs", Kind: KindSelect, Options: []Option{{"", "Above the panes"}, {"left", "Left, grouped by machine"}, {"right", "Right"}},
+					Help: "On the left, tabs sit in the sidebar under each machine, the tree below them."},
+				{Key: "density", Label: "Density", Kind: KindSelect, Options: []Option{{"", "Standard"}, {"compact", "Compact"}},
+					Help: "Compact puts a pane's name in its border, closes the gaps between splits and shortens the toolbar."},
+				{Key: "sidebar", Label: "Sidebar", Kind: KindSelect, Options: []Option{{"", "Solid"}, {"glass", "Glass"}},
+					Help: "Glass lets the desktop through the sidebar, as Finder's does. Panes stay solid."},
+				{Key: "ports", Label: "Ports in pane headers", Kind: KindBool, Default: true,
+					Help: "The ports a pane's programs listen on, a click opening one in the browser."},
+				{Key: "scratch_key", Label: "Option-space anywhere", Kind: KindBool,
+					Help: "Show the scratch layer with Conch.app in the background, as Ghostty's quick terminal does. Off, option-space works in the window only."},
 			}},
 		{ID: "sandbox", Key: "sandbox", Title: "Sandboxes", Icon: "box", Description: "Hosted sandbox providers, one table each.",
 			Fields: []Field{

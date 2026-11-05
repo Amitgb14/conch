@@ -83,7 +83,9 @@ func (pm *projectManager) commitBranch(cp proto.BranchCommitParams) (proto.Commi
 	}
 	var hash string
 	var err error
-	if cp.Patch != "" {
+	if cp.Staged {
+		hash, err = gitx.CommitStaged(ctx, wt.Path, cp.Message)
+	} else if cp.Patch != "" {
 		if len(cp.Patch) > maxPatch {
 			return proto.CommitResult{}, proto.Errorf(proto.ErrBadRequest, "the patch is too large (%d bytes)", len(cp.Patch))
 		}
@@ -97,6 +99,37 @@ func (pm *projectManager) commitBranch(cp proto.BranchCommitParams) (proto.Commi
 	}
 	log.Printf("project %s: committed %s on %s", p.id, short(hash), cp.Branch)
 	return proto.CommitResult{Hash: hash}, nil
+}
+
+// stageBranch is git add where the branch is checked out, or its undoing.
+func (pm *projectManager) stageBranch(sp proto.BranchStageParams) (struct{}, *proto.Error) {
+	p, perr := pm.gitProject(sp.ProjectID)
+	if perr != nil {
+		return struct{}{}, perr
+	}
+	if len(sp.Patch) > maxPatch {
+		return struct{}{}, proto.Errorf(proto.ErrBadRequest, "the patch is too large (%d bytes)", len(sp.Patch))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	wt, ok, perr := checkout(ctx, p, sp.Branch)
+	switch {
+	case perr != nil:
+		return struct{}{}, perr
+	case !ok:
+		return struct{}{}, proto.Errorf(proto.ErrBadRequest, "%s is not checked out anywhere, so it has nothing to stage", sp.Branch)
+	}
+	var err error
+	if sp.Unstage {
+		err = gitx.UnstageChanges(ctx, wt.Path, sp.Files, sp.Patch)
+	} else {
+		err = gitx.StageChanges(ctx, wt.Path, sp.Files, sp.Patch)
+	}
+	pm.request(p)
+	if err != nil {
+		return struct{}{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	return struct{}{}, nil
 }
 
 func (pm *projectManager) pushBranch(pp proto.BranchPushParams) (proto.BranchPushResult, *proto.Error) {

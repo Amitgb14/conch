@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -220,6 +220,50 @@ const CapFrameCursor = "pane.frame.cursor.v1"
 // resize from another client is kept and applied when it is typed into.
 const CapPaneSizeLatest = "pane.size.latest.v1"
 
+// CapPaneRaw is pane.raw: a pane's output as the program wrote it, for a
+// client with a terminal of its own to feed it to — the Mac app's Ghostty —
+// rather than frames of the screen conch keeps. It starts with a replay
+// that rebuilds the screen and history, then each piece of output as it
+// arrives (EventPaneOutput), with the queries conch's emulator already
+// answers taken out, so the program is not answered twice.
+const CapPaneRaw = "pane.raw.v1"
+
+// CapPaneListening is PaneInfo.Listening: the TCP ports the pane's
+// programs listen on, looked for every few seconds.
+const CapPaneListening = "pane.listening.v1"
+
+// CapUsageHistory is usage.history: what each agent on the machine used
+// over the last day, week and month, by model, read from the
+// conversations it saved.
+const CapUsageHistory = "usage.history.v1"
+
+// CapCommitShow is project.commit: one commit whole (its message and the
+// files it changed), what changed between two commits, or one file's diff
+// in either — a commit graph's side panel.
+const CapCommitShow = "project.commit.v1"
+
+// CapPRReview is branch.review: submitting a review of a branch's pull
+// request — approve, request changes or comment, with comments on lines —
+// through gh.
+const CapPRReview = "pr.review.v1"
+
+// CapReviewSendTo is review.send's Pane and New: the notes handed to the
+// agent picked, or to a new one, rather than whichever is first on the
+// branch — a branch like the base can have a dozen.
+const CapReviewSendTo = "review.send.to.v1"
+
+// CapBranchStage is branch.stage — files or hunks put in the index (git
+// add) or taken out — and branch.commit's Staged, committing what is in
+// the index and nothing else.
+const CapBranchStage = "branch.stage.v1"
+
+// CapReviewThread is a note that stays after it is sent — marked with
+// whom it went to (SentTo) — and review.reply: the agent answering it,
+// or the person answering back. review.list leaves sent notes out unless
+// asked (ReviewRef.Sent), so a client from before still lists only what
+// waits to be sent.
+const CapReviewThread = "review.thread.v1"
+
 // CapFSSSH is the files of a host a terminal is logged in to with ssh:
 // PaneInfo.SSH names the host, and fs.list, fs.read, fs.mkdir, fs.upload
 // and fs.download take SSH, the pane, to reach that host's files instead of
@@ -253,10 +297,16 @@ const (
 	MethodPaneScroll      = "pane.scroll"
 	MethodPaneSearch      = "pane.search"
 	MethodPaneMonitor     = "pane.monitor"
-	MethodAgentReport     = "agent.report"
-	MethodAgentExplain    = "agent.explain"
-	MethodAgentStatus     = "agent.status"
-	MethodAgentInstall    = "agent.install"
+	// MethodPaneRaw starts the pane's raw output to this connection
+	// (pane.raw.v1): the result is the replay, then EventPaneOutput
+	// follows until pane.unsubscribe.
+	MethodPaneRaw = "pane.raw"
+	// MethodUsageHistory answers a UsageHistory (usage.history.v1).
+	MethodUsageHistory = "usage.history"
+	MethodAgentReport  = "agent.report"
+	MethodAgentExplain = "agent.explain"
+	MethodAgentStatus  = "agent.status"
+	MethodAgentInstall = "agent.install"
 
 	MethodProjectList    = "project.list"
 	MethodProjectAdd     = "project.add"
@@ -266,7 +316,9 @@ const (
 	MethodProjectDiff    = "project.diff"
 	// MethodProjectLog is a project's history for a commit graph
 	// (CapProjectLog).
-	MethodProjectLog     = "project.log"
+	MethodProjectLog = "project.log"
+	// MethodProjectCommit answers a CommitDetail (project.commit.v1).
+	MethodProjectCommit  = "project.commit"
 	MethodWorktreeAdd    = "worktree.add"
 	MethodWorktreeRemove = "worktree.remove"
 	MethodTaskCreate     = "task.create"
@@ -329,6 +381,8 @@ const (
 	MethodReviewList = "review.list"
 	MethodReviewSet  = "review.set"
 	MethodReviewSend = "review.send"
+	// MethodReviewReply answers a note (review.thread.v1).
+	MethodReviewReply = "review.reply"
 	// MethodPaneCaller says which pane the connection comes from and
 	// whether it is scoped; MethodActFor asks a connection from another
 	// machine to be scoped as that caller.
@@ -340,8 +394,14 @@ const (
 	// Finishing a branch's work: commit, push, open a pull request, merge
 	// into the base, or throw the branch away.
 	MethodBranchCommit = "branch.commit"
-	MethodBranchPush   = "branch.push"
-	MethodBranchPR     = "branch.pr"
+	// MethodBranchStage is git add, or taking changes back out of the
+	// index (branch.stage.v1).
+	MethodBranchStage = "branch.stage"
+	MethodBranchPush  = "branch.push"
+	MethodBranchPR    = "branch.pr"
+	// MethodBranchReview submits a review of the branch's pull request
+	// (pr.review.v1).
+	MethodBranchReview = "branch.review"
 	MethodBranchMerge  = "branch.merge"
 	// MethodBranchPRMerge merges a branch's pull request on GitHub
 	// (CapPRMerge).
@@ -378,6 +438,9 @@ const (
 	EventPaneExited  = "pane.exited"
 	EventPaneClosed  = "pane.closed"
 	EventPaneFrame   = "pane.frame"
+	// EventPaneOutput is a piece of a pane's raw output (PaneOutput), to a
+	// connection that asked for it with pane.raw.
+	EventPaneOutput = "pane.output"
 	// EventPaneUpdated carries a PaneInfo whose agent status, title or
 	// name changed.
 	EventPaneUpdated = "pane.updated"
@@ -533,6 +596,9 @@ type PaneInfo struct {
 	// SSH is the host the program in front is logged in to when it is ssh
 	// — `ssh me@box` typed at the shell — as it was typed (fs.ssh.v1).
 	SSH string `json:"ssh,omitempty"`
+	// Listening is the TCP ports the pane's program and its children
+	// listen on, lowest first (pane.listening.v1): a dev server's address.
+	Listening []int `json:"listening,omitempty"`
 }
 
 // PaneMonitor asks to be told about a pane's output, as tmux's
@@ -1015,6 +1081,64 @@ type LogResult struct {
 	Remotes []string `json:"remotes,omitempty"`
 }
 
+// CommitParams asks project.commit about Hash: the commit itself; with
+// From, what changed from From to Hash; with File, only that file's diff
+// (in the commit, or from From).
+type CommitParams struct {
+	ProjectID string `json:"project_id"`
+	Hash      string `json:"hash"`
+	From      string `json:"from,omitempty"`
+	File      string `json:"file,omitempty"`
+}
+
+// CommitDetail is project.commit's answer. For a commit: who, when, its
+// message whole and the files it changed against its first parent. For a
+// range (From): the files changed and how many commits that took. With
+// File: Diff alone.
+type CommitDetail struct {
+	Hash    string       `json:"hash"`
+	Parents []string     `json:"parents,omitempty"`
+	Author  string       `json:"author,omitempty"`
+	Email   string       `json:"email,omitempty"`
+	Time    time.Time    `json:"time,omitempty"`
+	Subject string       `json:"subject,omitempty"`
+	Body    string       `json:"body,omitempty"`
+	Files   []FileChange `json:"files,omitempty"`
+	Commits int          `json:"commits,omitempty"`
+	Diff    string       `json:"diff,omitempty"`
+}
+
+// ReviewEvent is what a review says about a pull request.
+const (
+	ReviewEventApprove        = "approve"
+	ReviewEventRequestChanges = "request_changes"
+	ReviewEventComment        = "comment"
+)
+
+// BranchReviewParams submits a review of the branch's pull request: Event
+// (ReviewEventApprove, ReviewEventRequestChanges or ReviewEventComment), Body, and
+// comments on lines of the pull request's diff, each on the new side.
+type BranchReviewParams struct {
+	ProjectID string          `json:"project_id"`
+	Branch    string          `json:"branch"`
+	Event     string          `json:"event"`
+	Body      string          `json:"body,omitempty"`
+	Comments  []ReviewLineNew `json:"comments,omitempty"`
+}
+
+// ReviewLineNew is a comment on one line of a pull request's diff.
+type ReviewLineNew struct {
+	File string `json:"file"`
+	Line int    `json:"line"`
+	Note string `json:"note"`
+}
+
+// BranchReviewResult says where the review went.
+type BranchReviewResult struct {
+	PR  int    `json:"pr"`
+	URL string `json:"url,omitempty"`
+}
+
 // DiffParams asks for the diff of one file within project.changes' scope.
 type DiffParams struct {
 	ProjectID string `json:"project_id"`
@@ -1072,6 +1196,22 @@ type BranchCommitParams struct {
 	Message   string   `json:"message"`
 	Files     []string `json:"files,omitempty"`
 	Patch     string   `json:"patch,omitempty"`
+	// Staged commits what is in the index and nothing else, as git commit
+	// does; Files and Patch are left out (branch.stage.v1).
+	Staged bool `json:"staged,omitempty"`
+}
+
+// BranchStageParams puts Files and the hunks in Patch (cut from
+// project.diff, as BranchCommitParams' is) in the index where Branch is
+// checked out — or, with Unstage, takes them back out, Patch then being
+// as staged: a diff of the index. The files on disk are left as they are.
+// A Patch that no longer applies changes nothing.
+type BranchStageParams struct {
+	ProjectID string   `json:"project_id"`
+	Branch    string   `json:"branch"`
+	Files     []string `json:"files,omitempty"`
+	Patch     string   `json:"patch,omitempty"`
+	Unstage   bool     `json:"unstage,omitempty"`
 }
 
 // CommitResult is a commit a branch method made.
@@ -1510,6 +1650,14 @@ type ReviewComment struct {
 	By        string    `json:"by,omitempty"` // an agent's pane that wrote it; "" for a person
 	At        time.Time `json:"at,omitempty"`
 
+	// SentTo is the agent a conch note was handed to (its pane's name),
+	// SentPane that pane and SentAt when; SentAt is nil while it waits to
+	// be sent, so a waiting note carries no date (review.thread.v1).
+	// Replies then hold the answers.
+	SentTo   string     `json:"sent_to,omitempty"`
+	SentPane string     `json:"sent_pane,omitempty"`
+	SentAt   *time.Time `json:"sent_at,omitempty"`
+
 	// A comment from the branch's pull request (Source ReviewGitHub) is
 	// read from GitHub and can't be changed here: By is the reviewer's
 	// login, URL the comment, Outdated says the lines have changed since
@@ -1535,6 +1683,18 @@ type ReviewReply struct {
 type ReviewRef struct {
 	ProjectID string `json:"project_id,omitempty"` // "" lists every project's
 	Branch    string `json:"branch,omitempty"`
+	// Sent lists the notes already sent as well, with their replies
+	// (review.thread.v1); without it only those waiting to be sent.
+	Sent bool `json:"sent,omitempty"`
+}
+
+// ReviewReplyParams answers note ID on a branch of ProjectID: an agent
+// saying what it did about it, or the person answering back, which puts
+// the note back among those waiting to be sent with its thread.
+type ReviewReplyParams struct {
+	ProjectID string `json:"project_id"`
+	ID        string `json:"id"`
+	Note      string `json:"note"`
 }
 
 // ReviewList is a branch's comments in the order they were written, or
@@ -1547,11 +1707,14 @@ type ReviewList struct {
 
 // ReviewSendParams hands a branch's comments to the agent working on it.
 // With none there, Agent names one to start in its worktree; without it
-// the send is refused.
+// the send is refused. Pane names the agent to give them to instead of
+// choosing one; New starts Agent even beside the agents already there.
 type ReviewSendParams struct {
 	ProjectID string `json:"project_id"`
 	Branch    string `json:"branch"`
 	Agent     string `json:"agent,omitempty"`
+	Pane      string `json:"pane,omitempty"`
+	New       bool   `json:"new,omitempty"`
 	Cols      int    `json:"cols,omitempty"`
 	Rows      int    `json:"rows,omitempty"`
 }
@@ -2206,6 +2369,12 @@ type PaneSendTextParams struct {
 	ID    string `json:"id"`
 	Text  string `json:"text"`
 	Paste bool   `json:"paste,omitempty"`
+	// Reply says the text is not the person typing: a terminal answering
+	// the program (pane.raw's client), or the pointer moving over it. It
+	// reaches the program the same, but takes the pane's size for nobody
+	// and is not input that tells an agent's state (pane.raw.v1; an
+	// older server takes it as typed).
+	Reply bool `json:"reply,omitempty"`
 }
 
 // PaneSendKeysParams sends named keys ("enter", "ctrl+c", "alt+up") to a
@@ -2266,6 +2435,78 @@ type Frame struct {
 	// Cursor is where the cursor is drawn, when it is: the program is
 	// running, has not hidden it, and the view is not scrolled back.
 	Cursor *FrameCursor `json:"cursor,omitempty"`
+}
+
+// UsageHistory is what agents on a machine used, as of At: each agent's
+// periods (the last 24 hours, 7 days and 30 days), with what each model
+// used within them. An agent with nothing saved in the last 30 days is
+// left out.
+type UsageHistory struct {
+	At     time.Time    `json:"at"`
+	Agents []AgentUsage `json:"agents,omitempty"`
+}
+
+// AgentUsage is one agent's periods, shortest first.
+type AgentUsage struct {
+	Agent   string        `json:"agent"`
+	Periods []UsagePeriod `json:"periods"`
+}
+
+// UsagePeriod is what was used in the last Hours hours, in all and by
+// model, the model that used most first.
+type UsagePeriod struct {
+	Hours int `json:"hours"`
+	UsageTokens
+	Models []ModelUsage `json:"models,omitempty"`
+}
+
+// ModelUsage is what one model used in a period.
+type ModelUsage struct {
+	Model string `json:"model"`
+	UsageTokens
+}
+
+// UsageTokens counts tokens: input not read from the cache, input written
+// to it and read from it, output, and how many responses they came from.
+type UsageTokens struct {
+	Input      int `json:"input"`
+	CacheWrite int `json:"cache_write,omitempty"`
+	CacheRead  int `json:"cache_read,omitempty"`
+	Output     int `json:"output"`
+	Messages   int `json:"messages,omitempty"`
+}
+
+// Add adds another's counts to these.
+func (u *UsageTokens) Add(o UsageTokens) {
+	u.Input += o.Input
+	u.CacheWrite += o.CacheWrite
+	u.CacheRead += o.CacheRead
+	u.Output += o.Output
+	u.Messages += o.Messages
+}
+
+// Total is every token counted.
+func (u UsageTokens) Total() int { return u.Input + u.CacheWrite + u.CacheRead + u.Output }
+
+// PaneRawStart is what pane.raw answers: output that rebuilds the pane's
+// history and screen in a fresh terminal of Cols×Rows, after which every
+// EventPaneOutput carries what the program wrote next.
+type PaneRawStart struct {
+	ID     string `json:"id"`
+	Cols   int    `json:"cols"`
+	Rows   int    `json:"rows"`
+	Replay []byte `json:"replay"`
+}
+
+// PaneOutput is a piece of raw output. Reset says the connection fell
+// behind and pieces were lost: Data is then a fresh replay (as
+// PaneRawStart's) for a terminal cleared first, at Cols×Rows.
+type PaneOutput struct {
+	ID    string `json:"id"`
+	Data  []byte `json:"data"`
+	Reset bool   `json:"reset,omitempty"`
+	Cols  int    `json:"cols,omitempty"`
+	Rows  int    `json:"rows,omitempty"`
 }
 
 // FrameCursor is a cell of a frame, counted from 0 at the top left.

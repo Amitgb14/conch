@@ -22,11 +22,27 @@ public func conchBinary(env: [String: String] = ProcessInfo.processInfo.environm
 /// pane it may have been started from (a conch inside a pane refuses some
 /// things, and this is not inside one), with a terminal type every
 /// terminal view understands.
-public func conchEnvironment(_ env: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
+public func conchEnvironment(_ env: [String: String] = ProcessInfo.processInfo.environment,
+                             source: String? = Bundle.main.object(forInfoDictionaryKey: "ConchSource") as? String,
+                             exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [String: String] {
     var out = env
     out.removeValue(forKey: "CONCH_PANE_ID")
     out["TERM"] = "xterm-256color"
     out["COLORTERM"] = "truecolor"
+    // Upgrading a machine builds conch for it from source, which the conch
+    // inside the bundle cannot find by looking above itself: bundle.sh
+    // writes where it was built from, given here while it is still there.
+    if (out["CONCH_SOURCE"] ?? "").isEmpty, let src = source, !src.isEmpty, exists(src + "/go.mod") {
+        out["CONCH_SOURCE"] = src
+    }
+    // Started from the Dock or the Finder an app gets launchd's short PATH,
+    // without Homebrew or Go, which that build needs.
+    let home = env["HOME"] ?? NSHomeDirectory()
+    var path = (out["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
+    for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/local/go/bin", home + "/go/bin", home + "/.local/bin"] where !path.contains(dir) {
+        path.append(dir)
+    }
+    out["PATH"] = path.joined(separator: ":")
     return out
 }
 
@@ -52,6 +68,40 @@ public func runConch(_ binary: String, _ args: [String]) async throws -> Data {
             }
         }
         do { try p.run() } catch { cont.resume(throwing: error) }
+    }
+}
+
+/// Runs conch with args and input on its stdin, and answers what it
+/// printed, or why it failed — `conch commit-message` takes the diff so.
+public func runConch(_ binary: String, _ args: [String], input: Data) async throws -> Data {
+    try await withCheckedThrowingContinuation { cont in
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: binary)
+        p.arguments = args
+        p.environment = conchEnvironment()
+        let out = Pipe(), err = Pipe(), inp = Pipe()
+        p.standardOutput = out
+        p.standardError = err
+        p.standardInput = inp
+        p.terminationHandler = { proc in
+            let o = out.fileHandleForReading.readDataToEndOfFile()
+            let e = err.fileHandleForReading.readDataToEndOfFile()
+            if proc.terminationStatus == 0 {
+                cont.resume(returning: o)
+            } else {
+                let msg = String(data: e, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                cont.resume(throwing: ConchError(code: "conch", message: msg.isEmpty ? "conch \(args.joined(separator: " ")) failed" : msg))
+            }
+        }
+        do {
+            try p.run()
+            DispatchQueue.global().async {
+                inp.fileHandleForWriting.write(input)
+                try? inp.fileHandleForWriting.close()
+            }
+        } catch {
+            cont.resume(throwing: error)
+        }
     }
 }
 

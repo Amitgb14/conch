@@ -58,6 +58,7 @@ cat >"$app/Contents/Info.plist" <<EOF
 	<key>CFBundleVersion</key><string>$version</string>
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>NSHighResolutionCapable</key><true/>
+	<key>ConchSource</key><string>$root</string>
 	<key>NSSupportsAutomaticTermination</key><false/>
 </dict>
 </plist>

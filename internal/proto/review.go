@@ -74,6 +74,9 @@ func ReviewPrompt(branch string, comments []ReviewComment) string {
 		if c.Outdated {
 			about = append(about, "outdated: those lines have changed since")
 		}
+		if c.ID != "" && c.Source == "" {
+			about = append(about, "id "+c.ID)
+		}
 		by := ""
 		if len(about) > 0 {
 			by = " (" + strings.Join(about, "; ") + ")"
@@ -102,6 +105,14 @@ func ReviewPrompt(branch string, comments []ReviewComment) string {
 		}
 	}
 	b.WriteString("\nAddress each comment. If you disagree with one, say why rather than changing the code.")
+	// Each of conch's own notes is answered on its line: one sentence of
+	// what was done, or why not. GitHub's are answered on GitHub.
+	for _, c := range comments {
+		if c.ID != "" && c.Source == "" {
+			b.WriteString("\nWhen you have dealt with a comment that has an id, answer it in one sentence — what you changed, or why you left it — with: conch review reply ID \"your answer\"")
+			break
+		}
+	}
 	return b.String()
 }
 

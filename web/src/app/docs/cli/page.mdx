@@ -111,10 +111,13 @@ conch agent prompt -wait reviewer "Check finding 3 again" && conch read reviewer
 ```sh
 conch attach p3               # show pane p3 here and type into it
 conch attach -hold p3         # and keep its last screen when it ends, until a key
+conch attach -raw p3          # give this terminal the program's own output to draw
 conch -m busybox attach p3    # one on another machine
 ```
 
 `conch attach` puts one pane in the terminal it runs in: the screen conch keeps for that pane, redrawn as it changes, with what you type, the mouse and the window's size going back to it. It is how the [Mac app](/docs/mac-app) shows a pane in a view of its own, and it works in any terminal. The pane's program never sees this terminal — conch's server is its terminal — so arrows and the like are passed by name for the server to send the way the program asked, and the mouse only reaches a program that asked for it. The wheel follows the TUI's rule: on the main screen it scrolls conch's history, on the alternate screen it goes to the program. Shift with Page Up and Page Down scrolls the history a page at a time, and shift with Home and End goes to its oldest line and back to the live screen; a full-screen program gets those keys instead. Closing the terminal detaches and the pane keeps running; when the pane ends, `attach` ends too and says how.
+
+With `-raw` the terminal gets what the program wrote rather than conch's screen of it, so it draws the pane itself: its own scrollback, selection, search, images and cursor shapes. This is how the Mac app's Ghostty shows a pane. It starts with output that rebuilds the history and screen, then follows the program as it writes. The questions conch already answers for the program — where the cursor is, what the terminal is, its colours — are taken out, so the program is not answered twice; the ones only this terminal can answer, such as whether it draws images, still reach it. The pane's size is still settled by the server between everyone showing it: this terminal draws the output at the pane's size, and typing here makes it this terminal's. Its own answers and the pointer just moving take nothing. `-view` (with `-raw`) only looks: it never resizes the pane or takes its size. Against a server too old for it, `-raw` is the plain attach.
 
 ### When an agent runs these commands
 
@@ -203,7 +206,8 @@ The [changes view's comments](/docs/interface#changes-view) from a shell: the sa
 | `conch review` | list the comments waiting for the branch's agent, oldest first, each with its ID, where it is and who wrote it when an agent did. The unresolved comments on the branch's pull request follow, with the reviewer (`alice on GitHub`), their replies and their link |
 | `conch review add FILE[:LINE] NOTE` | comment on a file, or one line of it (`a.go:12`). Every word after the file is the note. Run from an agent's pane, the comment says which agent wrote it |
 | `conch review rm ID` | take a comment away. A pull request's comment is refused: answer or resolve it on GitHub |
-| `conch review send [-agent A]` | hand every comment to the agent working on the branch as one message, numbered, and clear them. The pull request's comments stay on GitHub but aren't sent again until somebody replies to them. Refused while that agent waits on a question. With no agent on the branch it is refused too, unless `-agent` names one to start in the branch's worktree with them |
+| `conch review reply ID ANSWER` | answer a comment, by its id — what an agent that was sent it does once it has dealt with it: what it changed, or why it left it. The answer shows under the comment's line in Conch.app, signed by the agent. Answered by a person, the comment waits to be sent again with its thread. Not a pull request's: answer those on GitHub. Needs `review.thread.v1` |
+| `conch review send [-agent A]` | hand every comment waiting to the agent working on the branch as one message, numbered, each of conch's own with its id; they are marked as sent to that agent (a server before `review.thread.v1` clears them). The pull request's comments stay on GitHub but aren't sent again until somebody replies to them. Refused while that agent waits on a question. With no agent on the branch it is refused too, unless `-agent` names one to start in the branch's worktree with them |
 
 ```sh
 conch review add api/login.py:42 "This swallows the timeout; let it raise."
@@ -433,6 +437,14 @@ In the TUI the same thing is `,` → **Report a problem…**, which shows the re
 ### ask
 
 `conch ask [-y | -n] REQUEST` asks the [brain](/docs/brain); it proposes actions and runs them once you confirm. `-y` runs the plan without asking; `-n` only shows it.
+
+### commit-message
+
+`conch commit-message [-context TEXT]` reads a diff on stdin and prints a commit message for it — a subject line, a blank line and a body — written by the brain set in `[brain]`; `-context` adds what the agent that made the change said it was doing. An empty diff is refused. Conch.app's **✦ Write** runs it.
+
+```sh
+git diff --cached | conch commit-message -context "adding a health check"
+```
 
 ### update
 

@@ -89,7 +89,11 @@ type Pane struct {
 	mouseModes    map[ansi.Mode]bool
 	cursorVisible bool
 	changed       chan struct{} // closed and replaced on every screen change
-	version       uint64
+	// raws are the clients given the program's output as it is (raw.go),
+	// and rawq what takes conch's own questions out of it. Both under emuMu.
+	raws    map[*RawSub]struct{}
+	rawq    queryFilter
+	version uint64
 }
 
 const (
@@ -255,6 +259,9 @@ func (p *Pane) readLoop(stop <-chan struct{}, done chan<- struct{}) {
 			p.readOSC(osc.scan(buf[:n]))
 			p.emuMu.Lock()
 			p.writeToEmulator(strs.filter(buf[:n]))
+			if len(p.raws) > 0 {
+				p.sendRaw(p.rawq.filter(buf[:n]))
+			}
 			p.emuMu.Unlock()
 			p.notify()
 		}

@@ -47,6 +47,16 @@ func reviewServer(t *testing.T) (*a4Server, string, *a4Var[[]proto.Message]) {
 			rc.ID = "c" + strings.Repeat("0", 7) + string(rune('0'+n))
 			comments = append(comments, rc)
 			return proto.ReviewList{Comments: comments}, nil
+		case proto.MethodReviewReply:
+			var rp proto.ReviewReplyParams
+			json.Unmarshal(msg.Params, &rp)
+			for _, c := range comments {
+				if c.ID == rp.ID {
+					c.Replies = append(c.Replies, proto.ReviewReply{Note: rp.Note})
+					return c, nil
+				}
+			}
+			return nil, proto.Errorf(proto.ErrNotFound, "no review comment %s; it may have been resolved", rp.ID)
 		case proto.MethodReviewSend:
 			var sp proto.ReviewSendParams
 			json.Unmarshal(msg.Params, &sp)
@@ -128,6 +138,61 @@ func TestReviewCommand(t *testing.T) {
 	run("add", "b.go", "two")
 	if out, err := run("send"); err != nil || out != "sent 2 review comments to p3 on feat\n" {
 		t.Fatalf("send: %q %v", out, err)
+	}
+}
+
+// An agent answers a note it was sent by its id, every word after the id
+// the answer; a server from before replies is named, not called.
+func TestReviewReplyCommand(t *testing.T) {
+	srv, wt, seen := reviewServer(t)
+	t.Chdir(wt)
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		out, _, err := a4Out(t, func() error { return runReview(args) })
+		return out, err
+	}
+	run("add", "api/model.go:12", "call it Model")
+	if out, err := run("reply", "c00000001", "Renamed", "it to Model."); err != nil || out != "replied on api/model.go:12\n" {
+		t.Fatalf("reply: %q %v", out, err)
+	}
+	msgs := seen.Get()
+	var rp proto.ReviewReplyParams
+	json.Unmarshal(msgs[len(msgs)-1].Params, &rp)
+	if rp.ProjectID != "api" || rp.ID != "c00000001" || rp.Note != "Renamed it to Model." {
+		t.Fatalf("sent %+v", rp)
+	}
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"reply"}, "conch review reply ID ANSWER"},
+		{[]string{"reply", "c00000001"}, "conch review reply ID ANSWER"},
+		{[]string{"reply", "c99", "x"}, "no review comment c99"},
+	} {
+		if _, err := run(c.args...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v, want %q", c.args, err, c.want)
+		}
+	}
+
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		var kept []string
+		for _, c := range h.Capabilities {
+			if c != proto.CapReviewThread {
+				kept = append(kept, c)
+			}
+		}
+		h.Capabilities = kept
+		return h
+	})
+	before := len(seen.Get())
+	if _, err := run("reply", "c00000001", "x"); err == nil || !strings.Contains(err.Error(), "predates replies") {
+		t.Fatalf("old server: %v", err)
+	}
+	for _, m := range seen.Get()[before:] {
+		if m.Method == proto.MethodReviewReply {
+			t.Fatal("asked an old server to reply")
+		}
 	}
 }
 

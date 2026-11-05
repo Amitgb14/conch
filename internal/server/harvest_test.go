@@ -529,3 +529,42 @@ func TestHarvestPushRebase(t *testing.T) {
 		t.Fatalf("an older client's push: %v", err)
 	}
 }
+
+// branch.stage is git add through the protocol, and its undoing; a commit
+// with Staged takes the index and nothing else.
+func TestBranchStage(t *testing.T) {
+	c, proj, _, wt, _ := harvestFixture(t)
+	id := proj.ID
+	os.WriteFile(filepath.Join(wt, "a.txt"), []byte("one\ntwo\n"), 0o644)
+	os.WriteFile(filepath.Join(wt, "b.txt"), []byte("b\n"), 0o644)
+
+	wantErr(t, call(t, c, proto.MethodBranchStage, proto.BranchStageParams{ProjectID: id, Branch: "feat"}, nil), "nothing to stage")
+	wantErr(t, call(t, c, proto.MethodBranchStage, proto.BranchStageParams{ProjectID: id, Branch: "nowhere", Files: []string{"a.txt"}}, nil), "not checked out")
+	wantErr(t, call(t, c, proto.MethodBranchStage, proto.BranchStageParams{ProjectID: "rmissing", Branch: "feat", Files: []string{"a.txt"}}, nil), "no project")
+	wantErr(t, call(t, c, proto.MethodBranchStage, proto.BranchStageParams{ProjectID: id, Branch: "feat", Patch: "not a patch\n"}, nil), "git apply")
+	wantErr(t, call(t, c, proto.MethodBranchCommit, proto.BranchCommitParams{ProjectID: id, Branch: "feat", Message: "x", Staged: true}, nil), "nothing to commit")
+
+	if err := call(t, c, proto.MethodBranchStage, proto.BranchStageParams{ProjectID: id, Branch: "feat", Files: []string{"a.txt", "b.txt"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitOut(t, wt, "diff", "--cached", "--name-only"); got != "a.txt\nb.txt" {
+		t.Fatalf("staged: %q", got)
+	}
+	if err := call(t, c, proto.MethodBranchStage, proto.BranchStageParams{ProjectID: id, Branch: "feat", Files: []string{"b.txt"}, Unstage: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitOut(t, wt, "diff", "--cached", "--name-only"); got != "a.txt" {
+		t.Fatalf("after unstaging b: %q", got)
+	}
+
+	var cr proto.CommitResult
+	if err := call(t, c, proto.MethodBranchCommit, proto.BranchCommitParams{ProjectID: id, Branch: "feat", Message: "Only a", Staged: true}, &cr); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitOut(t, wt, "show", "--name-only", "--format=", "HEAD"); got != "a.txt" || cr.Hash != gitOut(t, wt, "rev-parse", "HEAD") {
+		t.Fatalf("committed %q (%s)", got, cr.Hash)
+	}
+	if st := gitOut(t, wt, "status", "--porcelain"); st != "?? b.txt" {
+		t.Fatalf("left: %q", st)
+	}
+}

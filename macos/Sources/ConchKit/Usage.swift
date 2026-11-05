@@ -64,6 +64,7 @@ public func usd(_ v: Double) -> String { v < 0.01 ? "<$0.01" : String(format: "$
 
 public func humanCount(_ n: Int) -> String {
     switch n {
+    case 1_000_000_000...: return String(format: "%.1fB", Double(n) / 1e9)
     case 1_000_000...: return String(format: "%.1fM", Double(n) / 1e6)
     case 10_000...: return "\(n / 1000)k"
     case 1000...: return String(format: "%.1fk", Double(n) / 1000)

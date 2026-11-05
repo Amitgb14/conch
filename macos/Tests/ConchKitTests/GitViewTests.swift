@@ -1,0 +1,260 @@
+import Foundation
+import Testing
+@testable import ConchKit
+
+let twoHunks = """
+diff --git a/h.go b/h.go
+index 1..2 100644
+--- a/h.go
++++ b/h.go
+@@ -1,3 +1,4 @@ func a(
+ one
++two
+ three
+ four
+@@ -10,2 +11,2 @@ func b(
+-old
++new
+ end
+
+"""
+
+@Test func splitsHunks() {
+    let (header, hunks) = splitHunks(twoHunks)
+    #expect(header.hasPrefix("diff --git a/h.go b/h.go\n") && header.hasSuffix("+++ b/h.go\n"))
+    #expect(hunks.count == 2)
+    #expect(hunks[0].header == "@@ -1,3 +1,4 @@ func a(")
+    #expect(hunks[0].text.hasPrefix("@@ -1,3 +1,4 @@") && hunks[0].text.hasSuffix(" four\n"))
+    #expect(hunks[1].text == "@@ -10,2 +11,2 @@ func b(\n-old\n+new\n end\n")
+    let added = hunks[0].lines.first { $0.kind == .added }
+    #expect(added?.text == "two" && added?.new == 2, "lines keep their numbers")
+    #expect(hunks[1].lines.first { $0.kind == .removed }?.old == 10)
+    #expect(splitHunks("").hunks.isEmpty && splitHunks("").header == "")
+    #expect(hunkPatch(header: header, hunks: []) == "")
+    #expect(hunkPatch(header: header, hunks: [hunks[1].text]) == header + hunks[1].text)
+}
+
+@Test func stagingPicks() {
+    let (header, hunks) = splitHunks(twoHunks)
+    var p = StagePicks()
+    #expect(p.isEmpty && p.state("h.go", of: hunks) == .off)
+    p.toggleHunk("h.go", header: header, hunk: hunks[1].text, all: hunks)
+    #expect(p.state("h.go", of: hunks) == .mixed && p.hunkCount == 1)
+    let one = p.selection(order: ["h.go": hunks])
+    #expect(one.files.isEmpty && one.hunks == 1 && one.patch == header + hunks[1].text)
+    p.toggleHunk("h.go", header: header, hunk: hunks[0].text, all: hunks)
+    #expect(p.state("h.go", of: hunks) == .on)
+    #expect(p.selection(order: ["h.go": hunks]).patch == header + hunks[0].text + hunks[1].text, "in the diff's order")
+    // The file's box: off from any state, then whole.
+    p.toggleFile("h.go")
+    #expect(p.isEmpty)
+    p.toggleFile("h.go")
+    #expect(p.state("h.go", of: hunks) == .on && p.selection(order: [:]).files == ["h.go"])
+    // A hunk unticked from a whole file leaves the others.
+    p.toggleHunk("h.go", header: header, hunk: hunks[0].text, all: hunks)
+    #expect(p.whole.isEmpty && p.hunks["h.go"] == [hunks[1].text])
+    // A hunk that changed underneath loses its tick.
+    p.prune("h.go", header: header, hunks: [Hunk(index: 0, header: "@@", text: "@@ changed\n", lines: [])])
+    #expect(p.isEmpty)
+}
+
+@Test func creditsTheAgent() {
+    #expect(withTrailer("Fix it", agent: nil) == "Fix it")
+    #expect(withTrailer("Fix it\n", agent: "claude") == "Fix it\n\nCo-Authored-By: Claude <noreply@anthropic.com>")
+    let once = withTrailer("Fix it", agent: "codex")
+    #expect(withTrailer(once, agent: "codex") == once, "never twice")
+    #expect(agentTrailerName("amp") == "Amp")
+}
+
+@Test func reviewCommentsAndEvents() throws {
+    let json = #"{"comments":[{"id":"c1","project_id":"r1","branch":"b","file":"h.go","line":24,"note":"2100ms is tight","at":"2026-11-04T10:00:00Z"},{"project_id":"r1","branch":"b","file":"h.go","line":24,"note":"Don't drop the error","by":"maria","source":"github","url":"https://x","replies":[{"by":"claude","note":"Intended."}],"at":"2026-11-04T09:00:00Z"},{"project_id":"r1","branch":"b","file":"t.go","line":3,"note":"x"}]}"#
+    let dec = JSONDecoder()
+    dec.dateDecodingStrategy = .iso8601
+    let list = try dec.decode(ReviewList.self, from: Data(json.utf8))
+    let here = comments(list.comments, file: "h.go", line: 24)
+    #expect(here.count == 2 && here[0].fromGitHub && here[0].replies?.first?.by == "claude", "the oldest first")
+    #expect(openComments(list.comments, file: "h.go") == 2 && openComments(list.comments, file: "x") == 0)
+    #expect(try dec.decode(ReviewList.self, from: Data("{}".utf8)).comments.isEmpty)
+    let enc = JSONEncoder()
+    enc.outputFormatting = .sortedKeys
+    let out = String(decoding: try enc.encode(ReviewComment(projectID: "r1", branch: "b", file: "h.go", line: 5, note: "n")), as: UTF8.self)
+    #expect(out == #"{"branch":"b","file":"h.go","line":5,"note":"n","project_id":"r1"}"#, "only what review.set takes")
+    #expect(ReviewEvent.approve.canSubmit(body: "", comments: 0))
+    #expect(!ReviewEvent.comment.canSubmit(body: "  ", comments: 0))
+    #expect(ReviewEvent.requestChanges.canSubmit(body: "", comments: 1))
+    let sub = String(decoding: try enc.encode(ReviewSubmit(projectID: "r1", branch: "b", event: ReviewEvent.requestChanges.rawValue, body: "s", comments: [PendingComment(file: "h.go", line: 3, note: "n")])), as: UTF8.self)
+    #expect(sub == #"{"body":"s","branch":"b","comments":[{"file":"h.go","line":3,"note":"n"}],"event":"request_changes","project_id":"r1"}"#)
+}
+
+@Test func graphHelpers() throws {
+    let order = ["c3", "c2", "c1"]
+    #expect(compareRange("c3", "c1", order: order)! == ("c1", "c3"))
+    #expect(compareRange("c1", "c2", order: order)! == ("c1", "c2"))
+    #expect(compareRange("c1", "c1", order: order) == nil && compareRange("x", "c1", order: order) == nil)
+    var c = LogCommit(hash: "abc123", subject: "Fix the flaky test")
+    c.author = "Amit"
+    #expect(commitMatches(c, "") && commitMatches(c, "FLAKY") && commitMatches(c, "abc") && commitMatches(c, "amit"))
+    #expect(!commitMatches(c, "bc1") && !commitMatches(c, "redis"))
+    let d = try JSONDecoder().decode(CommitDetail.self, from: Data(#"{"hash":"h","subject":"s","files":[{"path":"a.go","code":"A","added":3,"deleted":0}],"commits":1}"#.utf8))
+    #expect(d.files?.first?.added == 3 && d.parents == nil)
+}
+
+@Test func overviewStats() {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "UTC")!
+    let now = Date(timeIntervalSince1970: 1_793_800_000) // a fixed day
+    func commit(_ daysAgo: Double, _ who: String) -> LogCommit {
+        var c = LogCommit(hash: UUID().uuidString)
+        c.time = now.addingTimeInterval(-daysAgo * 86_400)
+        c.author = who
+        return c
+    }
+    let log = [commit(0, "claude"), commit(0, "Amit"), commit(1, "claude"), commit(13, "codex"), commit(14, "old"), commit(30, "older")]
+    let days = commitsByDay(log, now: now, days: 14, calendar: cal)
+    #expect(days.count == 14 && days.last == 2 && days[12] == 1 && days[0] == 1 && days.reduce(0, +) == 4)
+    let who = authorsSince(log, now: now, days: 7)
+    #expect(who.map(\.author) == ["claude", "Amit"] && who[0].count == 2 && abs(who[0].share - 2.0 / 3) < 0.001)
+    #expect(authorsSince([], now: now).isEmpty)
+    #expect(cleanLine(branch: "master", ahead: 0, behind: 3, upstream: "origin/master") == "master has nothing uncommitted, 3 commits behind origin/master.")
+    #expect(cleanLine(branch: "m", ahead: 1, behind: 0, upstream: "o/m").contains("1 commit ahead"))
+    #expect(cleanLine(branch: "m", ahead: 0, behind: 0, upstream: "o/m").contains("up to date"))
+    #expect(cleanLine(branch: "m", ahead: 2, behind: 2, upstream: "o/m").contains("2 ahead"))
+    #expect(cleanLine(branch: "m", ahead: 0, behind: 0, upstream: nil).contains("no upstream"))
+}
+
+@Test func readsLogLines() {
+    let out = "$ git log -n 400 …\nabcdef1234\u{1f}Fix it\u{1f}Amit\u{1f}1793800000\nnot a commit\nzzzzzzz\u{1f}x\u{1f}y\u{1f}1\n1234567\u{1f}Sub with \u{1f} inside?\u{1f}a\n"
+    let c = parseLogLines(out)
+    #expect(c.count == 1 && c[0].hash == "abcdef1234" && c[0].subject == "Fix it" && c[0].author == "Amit")
+    #expect(c[0].time == Date(timeIntervalSince1970: 1_793_800_000))
+    #expect(parseLogLines("").isEmpty)
+}
+
+// A removed line and the new line after it can share a number (old 35,
+// new 35): only the new one takes a comment, so the composer opens once.
+@Test func removedLinesTakeNoComment() {
+    let d = parseDiff("@@ -34,3 +34,2 @@\n running bool\n-step string\n // remotes\n")
+    let keys = d.filter { $0.kind != .hunk }.map(commentLine)
+    #expect(keys == [34, nil, 35])
+    #expect(Set(keys.compactMap { $0 }).count == keys.compactMap { $0 }.count)
+}
+
+// The send menu lists the branch's running agents, oldest first: not a
+// shell, not an agent that ended, not another branch's or project's.
+@Test func agentsToSendTo() throws {
+    let json = #"""
+    [{"id":"p2","name":"newer","state":"running","project_id":"r1","branch":"main","agent":{"name":"claude","state":"idle"},"created":"2026-11-04T10:00:00Z"},
+     {"id":"p1","name":"older","state":"running","project_id":"r1","branch":"main","agent":{"name":"codex","state":"working"},"created":"2026-11-03T10:00:00Z"},
+     {"id":"p3","name":"zsh","state":"running","project_id":"r1","branch":"main","created":"2026-11-01T10:00:00Z"},
+     {"id":"p4","name":"gone","state":"exited","project_id":"r1","branch":"main","agent":{"name":"claude","state":"done"}},
+     {"id":"p5","name":"other branch","state":"running","project_id":"r1","branch":"feat","agent":{"name":"claude","state":"idle"}},
+     {"id":"p6","name":"other project","state":"running","project_id":"r2","branch":"main","agent":{"name":"claude","state":"idle"}}]
+    """#
+    let panes = try conchDecoder().decode([PaneInfo].self, from: Data(json.utf8))
+    #expect(branchAgents(panes, project: "r1", branch: "main").map(\.id) == ["p1", "p2"])
+    #expect(branchAgents(panes, project: "r1", branch: "nope").isEmpty)
+    #expect(branchAgents([], project: "r1", branch: "main").isEmpty)
+}
+
+// A file says how much of it is staged, read from the server's changes, and
+// a commit takes what is ticked, else what is staged, else everything.
+@Test func stagedFilesAndWhatACommitTakes() throws {
+    let json = #"""
+    [{"path":"a","code":"M","added":1,"deleted":0,"staged":true},
+     {"path":"b","code":"M","added":1,"deleted":0,"staged":true,"unstaged":true},
+     {"path":"c","code":"?","added":1,"deleted":0,"unstaged":true},
+     {"path":"d","code":"M","added":1,"deleted":0}]
+    """#
+    let files = try JSONDecoder().decode([FileChange].self, from: Data(json.utf8))
+    #expect(files.map(\.stage) == [.on, .mixed, .off, .off])
+    #expect(commitScope(picked: true, files: files, canStage: true) == .picked)
+    #expect(commitScope(picked: false, files: files, canStage: true) == .staged(2))
+    // An older server cannot commit the index alone: everything, as before.
+    #expect(commitScope(picked: false, files: files, canStage: false) == .everything(4))
+    let none = files.filter { $0.staged != true }
+    #expect(commitScope(picked: false, files: none, canStage: true) == .everything(2))
+    #expect(commitScope(picked: false, files: [], canStage: true) == .everything(0))
+}
+
+// A note waits, is sent, and is answered; an answer from before it was last
+// sent does not count, and GitHub's comments are their own.
+@Test func noteStates() throws {
+    let json = #"""
+    [{"project_id":"r1","branch":"b","file":"a","note":"w","id":"c1"},
+     {"project_id":"r1","branch":"b","file":"a","note":"s","id":"c2","sent_to":"claude","sent_pane":"p3","sent_at":"2026-11-04T10:00:00Z"},
+     {"project_id":"r1","branch":"b","file":"a","note":"r","id":"c3","sent_to":"claude","sent_pane":"p3","sent_at":"2026-11-04T10:00:00Z",
+      "replies":[{"by":"claude · b","note":"done","at":"2026-11-04T10:05:00Z"}]},
+     {"project_id":"r1","branch":"b","file":"a","note":"again","id":"c4","sent_to":"claude","sent_at":"2026-11-04T11:00:00Z",
+      "replies":[{"by":"claude · b","note":"old answer","at":"2026-11-04T10:05:00Z"},{"note":"and zero?","at":"2026-11-04T10:30:00Z"}]},
+     {"project_id":"r1","branch":"b","file":"a","note":"gh","id":"g1","source":"github"}]
+    """#
+    let cs = try conchDecoder().decode([ReviewComment].self, from: Data(json.utf8))
+    #expect(noteState(cs[0], agentStopped: false) == .waiting)
+    #expect(cs[1].sentPane == "p3" && cs[1].sentTo == "claude")
+    #expect(noteState(cs[1], agentStopped: false) == .sent(to: "claude", agentStopped: false))
+    #expect(noteState(cs[1], agentStopped: true) == .sent(to: "claude", agentStopped: true))
+    #expect(noteState(cs[2], agentStopped: true) == .replied(by: "claude · b"))
+    // Sent again after the person answered back: the old answer is not this one's.
+    #expect(noteState(cs[3], agentStopped: false) == .sent(to: "claude", agentStopped: false))
+    #expect(noteState(cs[4], agentStopped: false) == .github)
+}
+
+// The heading's box ticks every file or none, says a dash for some, and a
+// shift-click ticks the run from the last box clicked, as the anchor is.
+@Test func tickingManyFiles() {
+    let files = ["a", "b", "c", "d", "e"]
+    var p = StagePicks()
+    #expect(p.allState(files) == .off)
+    #expect(p.allState([]) == .off)
+    p.set(files, on: true)
+    #expect(p.allState(files) == .on && p.whole.count == 5)
+    p.toggleFile("c")
+    #expect(p.allState(files) == .mixed)
+    p.set(files, on: false)
+    #expect(p.isEmpty)
+
+    // A hunk-ticked file counts as some, and set() makes it whole.
+    let h = splitHunks("diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-x\n+y\n@@ -9 +9 @@\n-p\n+q\n")
+    p.toggleHunk("a", header: h.header, hunk: h.hunks[0].text, all: h.hunks)
+    #expect(p.allState(["a"], hunks: ["a": h.hunks]) == .mixed)
+    p.set(["a"], on: true)
+    #expect(p.whole == ["a"] && p.hunks["a"] == nil)
+
+    // Shift-click: b on as the anchor, then shift on e ticks b…e.
+    p = StagePicks()
+    p.toggleFile("b")
+    p.extend(to: "e", from: "b", in: files)
+    #expect(p.whole == ["b", "c", "d", "e"])
+    // Upwards from an anchor that is off clears the run.
+    p.toggleFile("d")
+    p.extend(to: "b", from: "d", in: files)
+    #expect(p.whole == ["e"])
+    // No anchor, or one not in the list: an ordinary click.
+    p.extend(to: "a", from: nil, in: files)
+    p.extend(to: "c", from: "gone", in: files)
+    #expect(p.whole == ["a", "c", "e"])
+}
+
+// A plain button takes clicks only where it draws. An empty tick box draws
+// a thin outline and nothing inside, so clicks went through it to the row
+// (which opened the file) and the box never ticked — accessibility presses,
+// which the live checks used, skip hit-testing and so never saw it. Every
+// plain-style button in the git views says what its clickable shape is.
+@Test func plainButtonsHaveAShape() throws {
+    let dir = (#filePath as NSString).deletingLastPathComponent + "/../../Sources/ConchApp"
+    for f in ["GitTab.swift", "CommitsView.swift"] {
+        let src = try String(contentsOfFile: dir + "/" + f, encoding: .utf8)
+        var stale: [Int] = []
+        let lines = src.components(separatedBy: "\n")
+        for (i, l) in lines.enumerated() where l.contains(".buttonStyle(.plain)") {
+            // The label is the line itself, or the block above it.
+            let from = max(0, i - 14)
+            let near = lines[from...i].joined(separator: "\n")
+            let label = near.range(of: "Button", options: .backwards).map { String(near[$0.lowerBound...]) } ?? near
+            if !label.contains("contentShape") && !label.contains(".background(") {
+                stale.append(i + 1)
+            }
+        }
+        #expect(stale.isEmpty, "\(f): a plain button without a clickable shape at line(s) \(stale)")
+    }
+}

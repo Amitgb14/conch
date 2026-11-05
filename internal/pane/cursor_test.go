@@ -35,6 +35,15 @@ func TestFrameCursor(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	p.SendKeys([]string{"ctrl+c"})
+	// Typed before the shell is back at its prompt, a line is lost to the
+	// interrupt (seen under load): wait for the fresh prompt under the ^C.
+	deadline = time.Now().Add(5 * time.Second)
+	for !promptAfterInterrupt(p.PlainLines()) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no prompt after ctrl+c; lines %q", p.PlainLines())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	// The marker is made by the shell, so it is in the output and never
 	// in the line typed.
 	p.SendText("printf '\\033[?25h'; i=0; while [ $i -lt 40 ]; do i=$((i+1)); echo row-$i; done", false)
@@ -47,5 +56,38 @@ func TestFrameCursor(t *testing.T) {
 	}
 	if f := p.FrameAt(0); f.Cursor == nil {
 		t.Fatal("back at the bottom: no cursor")
+	}
+}
+
+// promptAfterInterrupt says whether an empty prompt follows the line the
+// interrupt was echoed on: the shell is reading again.
+func promptAfterInterrupt(lines []string) bool {
+	seen := false
+	for _, l := range lines {
+		l = strings.TrimRight(l, " ")
+		switch {
+		case strings.Contains(l, "^C"):
+			seen = true
+		case seen && l == "$":
+			return true
+		}
+	}
+	return false
+}
+
+func TestPromptAfterInterrupt(t *testing.T) {
+	for _, c := range []struct {
+		lines []string
+		want  bool
+	}{
+		{[]string{"$ sleep 30", "^C", "$"}, true},
+		{[]string{"$ sleep 30", "^C$ "}, false}, // the prompt on the ^C line is not drawn after it
+		{[]string{"$ sleep 30", "^C"}, false},
+		{[]string{"$", "$ sleep 30"}, false}, // a prompt before the interrupt does not count
+		{nil, false},
+	} {
+		if got := promptAfterInterrupt(c.lines); got != c.want {
+			t.Errorf("%q: %v", c.lines, got)
+		}
 	}
 }

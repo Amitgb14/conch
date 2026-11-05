@@ -77,8 +77,11 @@ Usage:
                                 start a pane (with -m, default: that machine's home)
   conch send ID TEXT            type TEXT into a pane (-keys to send key names)
   conch read ID                 print a pane's visible screen
-  conch attach [-hold] ID       show a pane in this terminal and type into it (the Mac app's panes);
-                                -hold keeps an ended pane's screen until a key
+  conch attach [-hold] [-raw] [-view] ID
+                                show a pane in this terminal and type into it (the Mac app's panes);
+                                -hold keeps an ended pane's screen until a key; -raw gives this
+                                terminal the program's own output to draw, not conch's screen;
+                                -view (with -raw) never resizes the pane or takes its size
   conch close ID                close a pane
   conch rename ID [NAME]        name a pane; without NAME it gets its own back. Every
                                 command taking a pane ID takes its name too
@@ -148,9 +151,10 @@ Usage:
                                 the base, or delete it and its worktree
   conch branch fix-ci [-agent A] send a branch's failed CI run to its agent (or start one
                                 in its worktree with it), as f in the review queue
-  conch review [ls | add | rm | send] [-cwd DIR] [-branch B] ...
+  conch review [ls | add | rm | send | reply] [-cwd DIR] [-branch B] ...
                                 comments on a branch's diff for its agent: list them, add
-                                FILE[:LINE] NOTE, rm ID, or send [-agent A] them to it
+                                FILE[:LINE] NOTE, rm ID, send [-agent A] them to it, or
+                                reply ID ANSWER to one you were sent
                                 (the same ones as a and S in the changes view)
   conch worktree ls | clean [-y] [-force] [PATH...]
                                 list leftover worktrees, or remove the finished ones
@@ -242,6 +246,8 @@ Usage:
                                 and the last error, never a path or a screen; -open fills in a
                                 GitHub issue with them, which you read before you submit it
   conch ask [-y | -n] REQUEST   ask the brain; it proposes actions and runs them once you confirm
+  conch commit-message [-context TEXT]
+                                write a commit message for the diff on stdin with the brain; prints it
   conch update [VERSION | latest | list | rollback]
                                 replace this binary with the latest release, a named one
                                 (an older version moves conch back), list what upstream
@@ -290,6 +296,8 @@ func main() {
 		err = runRead(args)
 	case "attach":
 		err = runAttach(args)
+	case "commit-message":
+		err = runCommitMessage(args)
 	case "rename":
 		err = runRename(args)
 	case "close":

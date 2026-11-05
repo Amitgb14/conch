@@ -117,7 +117,7 @@ var scoped = map[string]scopeKind{
 
 	proto.MethodProjectRemove:  scopeProjID,
 	proto.MethodWorktreeRemove: scopeProject, proto.MethodWorktreeCleanup: scopeProject,
-	proto.MethodBranchCommit: scopeProject, proto.MethodBranchPush: scopeProject, proto.MethodBranchPR: scopeProject,
+	proto.MethodBranchCommit: scopeProject, proto.MethodBranchStage: scopeProject, proto.MethodBranchReview: scopeProject, proto.MethodBranchPush: scopeProject, proto.MethodBranchPR: scopeProject,
 	proto.MethodBranchMerge: scopeProject, proto.MethodBranchPRMerge: scopeProject, proto.MethodBranchDiscard: scopeProject, proto.MethodBranchGit: scopeProject,
 
 	proto.MethodServerStop: scopeServer, proto.MethodServerReload: scopeServer,
@@ -133,7 +133,7 @@ var scoped = map[string]scopeKind{
 	proto.MethodScheduleAdd: scopeHome, proto.MethodScheduleRemove: scopeHome,
 	// A reviewing agent comments on its project's branches and hands them
 	// over, as the person would.
-	proto.MethodReviewSet: scopeProject, proto.MethodReviewSend: scopeProject,
+	proto.MethodReviewSet: scopeProject, proto.MethodReviewSend: scopeProject, proto.MethodReviewReply: scopeProject,
 	// What merges and what goes back to an agent with nobody watching is
 	// the person's to decide — and a check's verdict lifts or sets a hold
 	// on a merge, so an agent does not get to report its own.
@@ -350,7 +350,7 @@ var verbs = map[string]string{
 	proto.MethodAgentPermission: "answer a permission request for",
 	proto.MethodServerStop:      "stop", proto.MethodServerReload: "reload",
 	proto.MethodProjectRemove: "remove a project", proto.MethodWorktreeRemove: "remove a worktree",
-	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchCommit: "commit",
+	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchCommit: "commit", proto.MethodBranchStage: "stage changes on", proto.MethodBranchReview: "review the pull request of",
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
 	proto.MethodBranchMerge: "merge", proto.MethodBranchPRMerge: "merge a pull request", proto.MethodBranchDiscard: "discard a branch",
 	proto.MethodBranchGit:    "run git",
@@ -360,7 +360,7 @@ var verbs = map[string]string{
 	proto.MethodScheduleAdd:  "schedule a message or a task", proto.MethodScheduleRemove: "remove something scheduled",
 	proto.MethodAgentLibrary: "change the library of MCP servers and skills", proto.MethodLibraryApply: "apply the library to the agents",
 	proto.MethodAgentSync: "sync one agent's setup to the others",
-	proto.MethodReviewSet: "comment on a branch", proto.MethodReviewSend: "send review comments",
+	proto.MethodReviewSet: "comment on a branch", proto.MethodReviewSend: "send review comments", proto.MethodReviewReply: "reply to review comments in",
 	proto.MethodAutopilotSet: "change what merges and what is sent back on its own", proto.MethodAutopilotCheck: "report a check's result",
 }
 

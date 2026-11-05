@@ -26,6 +26,9 @@ const (
 	reviewMax = 1000
 	// reviewNoteMax is a long comment, not a pasted file.
 	reviewNoteMax = 8000
+	// reviewSentKeep is how long a sent note stays, with its replies, for
+	// the person to read: past it nobody is coming back to the thread.
+	reviewSentKeep = 30 * 24 * time.Hour
 )
 
 type reviewBook struct {
@@ -65,7 +68,7 @@ func loadReviews(configDir string) *reviewBook {
 		return b
 	}
 	for _, c := range saved.Comments {
-		if checkComment(&c) == nil && c.ID != "" && c.Source == "" {
+		if checkComment(&c) == nil && c.ID != "" && c.Source == "" && !staleSent(c, time.Now()) {
 			b.comments = append(b.comments, c)
 		}
 	}
@@ -104,9 +107,19 @@ func samePlace(a, b proto.ReviewComment) bool {
 	return a.ProjectID == b.ProjectID && a.Branch == b.Branch && a.File == b.File && a.Hunk == b.Hunk && a.Line == b.Line
 }
 
+// staleSent is a note sent longer ago than anyone reads a thread.
+func staleSent(c proto.ReviewComment, now time.Time) bool {
+	return c.SentAt != nil && now.Sub(*c.SentAt) > reviewSentKeep
+}
+
+// listLocked is a branch's notes: those waiting to be sent, and with
+// ref.Sent those sent already too.
 func (b *reviewBook) listLocked(ref proto.ReviewRef) proto.ReviewList {
 	out := proto.ReviewList{ProjectID: ref.ProjectID, Branch: ref.Branch, Comments: []proto.ReviewComment{}}
 	for _, c := range b.comments {
+		if c.SentAt != nil && !ref.Sent {
+			continue
+		}
 		if (ref.ProjectID == "" || c.ProjectID == ref.ProjectID) && (ref.Branch == "" || c.Branch == ref.Branch) {
 			out.Comments = append(out.Comments, c)
 		}
@@ -135,8 +148,10 @@ func (b *reviewBook) saveLocked() {
 // set adds, changes or (with an empty note) removes a comment, and says
 // what the branch has now.
 func (b *reviewBook) set(c proto.ReviewComment, now time.Time) (proto.ReviewList, *proto.Error) {
-	// What GitHub says is read from it, never written here.
+	// What GitHub says is read from it, never written here; whom a note
+	// went to is the send's to say, and replies review.reply's.
 	c.Source, c.URL, c.Outdated, c.Replies = "", "", false, nil
+	c.SentTo, c.SentPane, c.SentAt = "", "", nil
 	if perr := checkComment(&c); perr != nil {
 		return proto.ReviewList{}, perr
 	}
@@ -148,7 +163,9 @@ func (b *reviewBook) set(c proto.ReviewComment, now time.Time) (proto.ReviewList
 	}
 	at := -1
 	for i, o := range b.comments {
-		if c.ID != "" && o.ID == c.ID || c.ID == "" && samePlace(o, c) {
+		// A note on the same place as one already sent is a new one: the
+		// sent note is a thread of its own.
+		if c.ID != "" && o.ID == c.ID || c.ID == "" && o.SentAt == nil && samePlace(o, c) {
 			at = i
 			break
 		}
@@ -172,6 +189,9 @@ func (b *reviewBook) set(c proto.ReviewComment, now time.Time) (proto.ReviewList
 		if c.By != "" {
 			b.comments[at].By = c.By
 		}
+		// A sent note changed is a new thing to say: it waits to be sent
+		// again, its replies with it.
+		b.comments[at].SentTo, b.comments[at].SentPane, b.comments[at].SentAt = "", "", nil
 	}
 	b.saveLocked()
 	return b.listLocked(proto.ReviewRef{ProjectID: c.ProjectID, Branch: c.Branch}), nil
@@ -218,6 +238,46 @@ func (b *reviewBook) drop(projectID, branch string) []string {
 	return had
 }
 
+// reply answers note id: by an agent (by its pane's label) or by the
+// person (by ""), whose answer puts the note back among those waiting to
+// be sent, the thread with it.
+func (b *reviewBook) reply(rp proto.ReviewReplyParams, by string, now time.Time) (proto.ReviewComment, *proto.Error) {
+	rp.Note = strings.TrimSpace(rp.Note)
+	switch {
+	case rp.ID == "":
+		return proto.ReviewComment{}, proto.Errorf(proto.ErrBadRequest, "which review comment? give its id")
+	case rp.Note == "":
+		return proto.ReviewComment{}, proto.Errorf(proto.ErrBadRequest, "a reply says something")
+	case len(rp.Note) > reviewNoteMax:
+		return proto.ReviewComment{}, proto.Errorf(proto.ErrBadRequest, "a reply of %d bytes is too long; keep it under %d", len(rp.Note), reviewNoteMax)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if pr := b.githubOwnerLocked(rp.ID); pr != nil {
+		return proto.ReviewComment{}, proto.Errorf(proto.ErrBadRequest,
+			"review comment %s is on GitHub (pull request #%d); answer it there", rp.ID, pr.number)
+	}
+	for i := range b.comments {
+		c := &b.comments[i]
+		if c.ID != rp.ID {
+			continue
+		}
+		if c.ProjectID != rp.ProjectID {
+			return proto.ReviewComment{}, proto.Errorf(proto.ErrBadRequest, "review comment %s is in another project", rp.ID)
+		}
+		if len(c.Replies) >= reviewMax {
+			return proto.ReviewComment{}, proto.Errorf(proto.ErrBadRequest, "review comment %s has %d replies already", rp.ID, reviewMax)
+		}
+		c.Replies = append(c.Replies, proto.ReviewReply{By: by, Note: rp.Note, At: now})
+		if by == "" {
+			c.SentTo, c.SentPane, c.SentAt = "", "", nil
+		}
+		b.saveLocked()
+		return *c, nil
+	}
+	return proto.ReviewComment{}, proto.Errorf(proto.ErrNotFound, "no review comment %s; it may have been resolved", rp.ID)
+}
+
 func newReviewID() string {
 	var b [4]byte
 	_, _ = rand.Read(b[:])
@@ -239,6 +299,42 @@ func (s *Server) reviewSet(c *client, rc proto.ReviewComment) (proto.ReviewList,
 		s.broadcast(proto.EventReviewChanged, list)
 	}
 	return list, perr
+}
+
+// reviewReply is review.reply: the answer signed by the connection's
+// agent, if it is one — an agent cannot answer as the person.
+func (s *Server) reviewReply(c *client, rp proto.ReviewReplyParams) (proto.ReviewComment, *proto.Error) {
+	if _, perr := s.projects.get(rp.ProjectID); perr != nil {
+		return proto.ReviewComment{}, perr
+	}
+	by := ""
+	if caller, ok := s.scopedCaller(c); ok {
+		by = s.replyAuthor(caller)
+	}
+	got, perr := s.reviews.reply(rp, by, time.Now())
+	if perr == nil {
+		s.broadcast(proto.EventReviewChanged, s.reviews.list(proto.ReviewRef{ProjectID: got.ProjectID, Branch: got.Branch}))
+	}
+	return got, perr
+}
+
+// replyAuthor is how an agent's answer is signed: its pane's name, which
+// the person knows it by, then its agent, then the pane's id — a bare
+// "p12" under a line says nothing.
+func (s *Server) replyAuthor(caller scopeCaller) string {
+	if e, perr := s.get(caller.id); perr == nil {
+		info := e.info()
+		switch {
+		case strings.TrimSpace(info.Name) != "":
+			return strings.TrimSpace(info.Name)
+		case info.Agent != nil && info.Agent.Name != "":
+			return info.Agent.Name
+		}
+	}
+	if caller.agent != "" {
+		return caller.agent
+	}
+	return caller.label
 }
 
 // reviewDropped takes away the comments of a branch that is gone — merged
@@ -281,7 +377,31 @@ func (s *Server) reviewSend(c *client, sp proto.ReviewSendParams) (proto.ReviewS
 
 	text := proto.ReviewPrompt(sp.Branch, comments)
 	res := proto.ReviewSendResult{Sent: len(comments)}
-	if agent := s.branchAgent(sp.ProjectID, sp.Branch); agent != nil {
+	var agent *proto.PaneInfo
+	switch {
+	case sp.Pane != "":
+		// The agent picked: running, an agent, and in this project — a
+		// pane id is not a way past the project the call is scoped to.
+		e, perr := s.get(sp.Pane)
+		var info proto.PaneInfo
+		if perr == nil {
+			info = e.info()
+		}
+		if perr != nil || info.State != proto.PaneRunning || info.Agent == nil {
+			return proto.ReviewSendResult{}, proto.Errorf(proto.ErrNotFound, "no agent is running in pane %s", sp.Pane)
+		}
+		if info.ProjectID != sp.ProjectID {
+			return proto.ReviewSendResult{}, proto.Errorf(proto.ErrBadRequest, "pane %s is not an agent of this project", sp.Pane)
+		}
+		agent = &info
+	case sp.New:
+		if sp.Agent == "" {
+			return proto.ReviewSendResult{}, proto.Errorf(proto.ErrBadRequest, "name the agent to start with the comments")
+		}
+	default:
+		agent = s.branchAgent(sp.ProjectID, sp.Branch)
+	}
+	if agent != nil {
 		pr, perr := s.promptAgent(proto.AgentPromptParams{ID: agent.ID, Text: text})
 		if perr != nil {
 			return proto.ReviewSendResult{}, perr
@@ -317,9 +437,18 @@ func (s *Server) reviewSend(c *client, sp proto.ReviewSendParams) (proto.ReviewS
 			b.handed[c.ID] = handedTo{ProjectID: sp.ProjectID, Branch: sp.Branch, Last: pr.last[c.ID]}
 		}
 	}
+	// conch's own notes stay, said as sent and to whom, for the agent's
+	// replies to land on (review.thread.v1); sent long ago, they go.
+	to, at := res.Pane.Name, time.Now()
+	if to == "" && res.Pane.Agent != nil {
+		to = res.Pane.Agent.Name
+	}
 	kept := b.comments[:0]
 	for _, c := range b.comments {
-		if !sent[c.ID] {
+		if sent[c.ID] {
+			c.SentTo, c.SentPane, c.SentAt = to, res.Pane.ID, &at
+		}
+		if !staleSent(c, at) {
 			kept = append(kept, c)
 		}
 	}

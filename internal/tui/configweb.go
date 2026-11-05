@@ -70,7 +70,11 @@ func settingsChoices(m *Model) configweb.Choices { return SettingsChoices(knownA
 func SettingsChoices(agents []string) configweb.Choices {
 	c := configweb.Choices{Providers: sandbox.Providers}
 	for _, t := range themes {
-		c.Themes = append(c.Themes, configweb.Option{Value: t.name, Label: t.label})
+		o := configweb.Option{Value: t.name, Label: t.label}
+		c.Themes = append(c.Themes, o)
+		if luminance(t.bg) > 0.5 {
+			c.LightThemes = append(c.LightThemes, o)
+		}
 	}
 	for name := range accentColors {
 		c.Accents = append(c.Accents, name)

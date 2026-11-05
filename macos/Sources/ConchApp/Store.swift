@@ -417,6 +417,31 @@ final class Store: ObservableObject {
 
     /// Asks again what each agent's plan has used, as the limits popover
     /// opens: a report from minutes ago is not what anyone opened it for.
+    /// What the agents on each machine used over the last day, week and
+    /// month (usage.history.v1), in the sidebar's order of machines; asked
+    /// when the usage popover opens.
+    @Published private(set) var usageHistory: [(machine: String, history: UsageHistory)] = []
+    @Published private(set) var usageLoading = false
+    /// Machines online whose conch is too old to say (no usage.history.v1).
+    @Published private(set) var usageTooOld: [String] = []
+
+    func refreshUsageHistory() {
+        let online = machines.filter(\.online).map(\.id)
+        let able = online.filter { conns[$0]?.hello?.capabilities?.contains("usage.history.v1") == true }
+        usageTooOld = online.filter { !able.contains($0) }
+        guard !able.isEmpty else { usageHistory = []; return }
+        usageLoading = true
+        Task {
+            var got: [(machine: String, history: UsageHistory)] = []
+            for m in able {
+                guard let c = conns[m], let h = try? await c.call("usage.history", as: UsageHistory.self) else { continue }
+                got.append((m, h))
+            }
+            usageHistory = got
+            usageLoading = false
+        }
+    }
+
     func refreshLimits() {
         guard let c = conns["local"] else { return }
         Task {
@@ -609,6 +634,11 @@ final class Store: ObservableObject {
         if acts != actions { actions = acts }
         let cost = showsCost(toml: toml ?? "")
         if cost != showCost { showCost = cost }
+        let app = AppLook(toml: toml)
+        if app != appLook {
+            appLook = app
+            onAppLook?(app)
+        }
         let configured = ConchTheme.configured(in: toml, dark: systemDark)
         let next = ConchTheme.resolve(choice: themeChoice, configured: configured, preview: previewing).shown
         guard next != theme || Theme.current != next else { return }
@@ -701,7 +731,18 @@ final class Store: ObservableObject {
                     self.focus(pane)
                     inTerminal = true
                 }
-                self.terminalHasKeyboard = inTerminal
+                // Only where the click landed: the status bar's buttons and
+                // the toolbar leave the keyboard where it was (ClickOwner).
+                let saved = UserDefaults.standard.double(forKey: "sidebarWidth")
+                let width = self.sidebarVisible ? (saved > 0 ? saved : Double(sidebarDefault)) : nil
+                let p = e.locationInWindow
+                let toolbar = Double(win.frame.height - win.contentLayoutRect.height)
+                switch clickOwner(inTerminal: inTerminal, x: p.x, y: p.y, sidebarWidth: width, statusBar: 28,
+                                  windowHeight: Double(win.frame.height), toolbar: toolbar) {
+                case .terminal: self.terminalHasKeyboard = true
+                case .sidebar: self.terminalHasKeyboard = false
+                case .unchanged: break
+                }
             }
             return e
         }
@@ -1212,6 +1253,16 @@ final class Store: ObservableObject {
         case "project.removed":
             struct Ref: Decodable { var id: String }
             if let r = try? dec.decode(Ref.self, from: data) { snap.remove(project: r.id) }
+        case "review.changed":
+            // A note answered, sent or resolved elsewhere — an agent's
+            // reply above all: the open tab of that branch reads its
+            // thread again.
+            struct Ref: Decodable { var project_id: String?; var branch: String? }
+            if let r = try? dec.decode(Ref.self, from: data) {
+                for v in changeViews.values where v.machine == machine && (r.project_id == nil || v.project == r.project_id) && (r.branch == nil || v.branch == r.branch) {
+                    Task { await v.loadComments() }
+                }
+            }
         case "worktree.changed":
             struct Changed: Decodable {
                 var project_id: String
@@ -1370,6 +1421,22 @@ final class Store: ObservableObject {
     private(set) var notifySettings = NotifySettings()
     /// [ui] cost: what agents spend, on the tree's rows and in pane headers.
     @Published private(set) var showCost = true
+    /// config.toml's [app]: where the tabs go, density, glass, ports.
+    @Published private(set) var appLook = AppLook()
+    /// Told when [app] changes, for what AppKit draws (the toolbar, the
+    /// global option-space).
+    var onAppLook: ((AppLook) -> Void)?
+    /// The scratch layer on screen: its pane's key, floating over the
+    /// splits (nil: hidden). Scratch.swift.
+    @Published var scratch: String?
+    /// The updates sheet, opened from the status bar's warn-coloured item.
+    @Published var updatesOpen = false
+    /// The scratch pane being started, so a second option-space while it
+    /// starts does not start another.
+    var scratchStarting: String?
+    /// The query a raw pane's Ghostty search was last given, so Return
+    /// moves to the next match rather than searching again.
+    var rawSearched: String?
 
     /// The usage chip for a row's panes ("" with none, or cost turned off).
     func costChip(machine m: String, project: String? = nil, agentsOnly: Bool = false, pane: String? = nil) -> String {
@@ -1415,8 +1482,9 @@ final class Store: ObservableObject {
     func openFind() {
         guard let k = layout.focused, isTerminalKey(k) else { NSSound.beep(); return }
         if find?.pane != k {
-            if let old = find { terminals[old.pane]?.control(AttachControl(clear: true)) }
+            if let old = find { endFind(old.pane) }
             find = PaneFind(pane: k)
+            rawSearched = nil
         }
         findFocus &+= 1
     }
@@ -1425,6 +1493,16 @@ final class Store: ObservableObject {
     /// server searches, and the pane's view is told where to look.
     func findNext(back: Bool) {
         guard let f = find, !f.query.isEmpty else { openFind(); return }
+        // A raw pane's history is Ghostty's, and so is the search.
+        if let t = terminals[f.pane], t.raw {
+            if rawSearched != f.query {
+                rawSearched = f.query
+                t.search(f.query)
+            } else {
+                t.searchNext(back: back)
+            }
+            return
+        }
         let (machine, id) = unkey(f.pane)
         guard let c = connection(machine) else { return }
         guard c.hello?.capabilities?.contains("pane.search.v1") == true else {
@@ -1448,9 +1526,23 @@ final class Store: ObservableObject {
 
     /// The bar closed: nothing marked, and the keyboard back in the pane.
     func closeFind() {
-        if let f = find { terminals[f.pane]?.control(AttachControl(clear: true)) }
+        if let f = find { endFind(f.pane) }
         find = nil
+        rawSearched = nil
         focusTerminal()
+    }
+
+    /// Nothing marked in a pane any more: Ghostty's search ended for a raw
+    /// one, attach's marks cleared otherwise.
+    private func endFind(_ pane: String) {
+        guard let t = terminals[pane] else { return }
+        if t.raw { t.search(nil) } else { t.control(AttachControl(clear: true)) }
+    }
+
+    /// Every pane running in every conch server this window reaches: what
+    /// quitting leaves running.
+    var runningPanes: Int {
+        snapshots.values.reduce(0) { $0 + $1.panes.filter(\.running).count }
     }
 
     /// Names a tab, as the TUI's tab rename does; empty names it by its
@@ -1731,6 +1823,9 @@ final class Store: ObservableObject {
         case "previousTab": layout.step(-1); focusTerminal()
         case "toggleSidebar": sidebarVisible.toggle()
         case "openTUI": openTUI()
+        case "scratch": toggleScratch()
+        case "dockScratch": dockScratch()
+        case "scratchTab": scratchToTab()
         default: break
         }
     }
@@ -2254,6 +2349,60 @@ final class Store: ObservableObject {
             return
         }
         loadWorkspaces()
+    }
+
+    /// Closes a workspace, as the TUI's ctrl+b X does, after asking: what
+    /// it held goes to the first workspace, and an agent or terminal only
+    /// it had is moved there too or ended, as asked. ui.json carries it to
+    /// the TUI, which drops the workspace within a second.
+    func closeWorkspace(_ i: Int) {
+        guard i > 0, workspaces.indices.contains(i) else { return }
+        let w = workspaces[i]
+        let label = Workspace.label(i, w)
+        let running = machines.flatMap { m in
+            (snapshots[m.id]?.panes ?? []).filter { $0.running && w.panes.contains(key(m.id, $0.id)) }.map { (m.id, $0) }
+        }
+        let a = NSAlert()
+        a.messageText = "Close workspace \(label)?"
+        let agents = running.filter { $0.1.agent != nil }.count
+        let what = [agents > 0 ? "\(agents) agent\(agents == 1 ? "" : "s")" : nil,
+                    running.count - agents > 0 ? "\(running.count - agents) terminal\(running.count - agents == 1 ? "" : "s")" : nil]
+            .compactMap { $0 }.joined(separator: " and ")
+        if running.isEmpty {
+            a.informativeText = "Its projects, machines, hosts and tabs move to workspace 1. Nothing is running in it."
+            a.addButton(withTitle: "Close")
+        } else {
+            a.informativeText = "Its projects, machines, hosts and tabs move to workspace 1. \(what) run in it."
+            a.addButton(withTitle: "Move \(what) to workspace 1")
+            a.addButton(withTitle: "End \(what), and close it")
+        }
+        a.addButton(withTitle: "Cancel")
+        let r = a.runModal()
+        let end: Bool
+        switch r {
+        case .alertFirstButtonReturn: end = false
+        case .alertSecondButtonReturn where !running.isEmpty: end = true
+        default: return
+        }
+        if end {
+            struct Ref: Encodable { var id: String }
+            for (m, p) in running {
+                guard let c = conns[m] else { continue }
+                Task { try? await c.call("pane.close", Ref(id: p.id)) }
+            }
+        }
+        let path = (conchDir as NSString).appendingPathComponent("ui.json")
+        do {
+            let data = try Workspace.closing(w.id, in: FileManager.default.contents(atPath: path))
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        } catch {
+            self.error = "Could not close the workspace: \(error)"
+            return
+        }
+        let was = workspace
+        loadWorkspaces()
+        workspace = was == i ? 0 : was > i ? was - 1 : was
+        say("Closed workspace \(label)")
     }
 
     func loadWorkspaces() {
