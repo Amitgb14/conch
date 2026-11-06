@@ -31,7 +31,7 @@ const more: { src: StaticImageData; alt: string; caption: string }[] = [
 
 // Where the beta's zip is: on the release the site was built from, else
 // the releases page (a site built before any tag, or from a dev version).
-function downloadURL(): string {
+export function downloadURL(): string {
   const v = conchVersion()
   return /^\d+\.\d+\.\d+$/.test(v) ? `${site.releases}/download/v${v}/Conch_${v}_macos_arm64.zip` : site.releases
 }

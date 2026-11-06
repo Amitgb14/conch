@@ -9,6 +9,7 @@ import { site } from "@/lib/site"
 import { conchVersion } from "@/lib/version"
 
 export const mainNav = [
+  { title: "Mac app", href: "/#desktop" },
   { title: "Features", href: "/#features" },
   { title: "How it works", href: "/#how-it-works" },
   { title: "Agents", href: "/#agents" },
