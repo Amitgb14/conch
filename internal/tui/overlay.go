@@ -1372,6 +1372,7 @@ var helpGroups = []helpGroup{{
 			"\"start 2 agents on api to fix the flaky tests\" · \"what is waiting for me?\"",
 			"\"hand the auth thread to Codex\" · \"tell every agent in api to run the tests\"",
 			"it proposes actions; nothing runs until you confirm",
+			"under the request: what to ask now and what you asked before — ↑↓ choose, enter or a click asks, tab fills in, ctrl+p/n history",
 			"show or close a pane, tell one agent or everyone, what is waiting: planned at once, with no model (m asks it)",
 		}},
 		{keys: "S", what: "summarise the selected agent now", more: []string{

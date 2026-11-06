@@ -14,6 +14,18 @@ Press `:` (or click **✦ Ask**) and say what you want:
 - _"tell every agent in api to run the tests"_ — one message to several agents at once, [as `B` does in the tree](/docs/agents#broadcast)
 - _"what is waiting for me?"_ — an answer, no actions
 
+Under the request the window says what it applies to (the row selected in the tree), how many agents are waiting, working or done, and which model would plan it. Below that are things worth asking now — _"what is waiting for me?"_ while an agent waits, _"show claude"_ for each one waiting, _"tell claude to …"_ for the agent selected, _"tell everyone to …"_, _"start an agent here to …"_ — and the last few requests you made. Each says whether conch answers it at once or the model plans it, and typing narrows the list.
+
+| Key | |
+| --- | --- |
+| `↑` `↓` | choose an option |
+| `enter`, a click | ask it; one ending in _…_ is put in the box for you to finish |
+| `tab` | fill the box from the option chosen, or the first |
+| `ctrl+p` `ctrl+n` | earlier and later requests, as in a shell |
+| `esc` | close |
+
+Once something is typed, the line above the keys says what `enter` will cost: _conch answers it at once, no model_, or which model plans it.
+
 From a shell, `conch ask [-y | -n] [-model] "…"` does the same: `-y` runs the plan without asking, `-n` only shows it, `-model` always asks the model.
 
 ## Without the model
