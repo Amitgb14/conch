@@ -593,3 +593,19 @@ public func checksToRead(_ runs: [PRCheck]) -> [PRCheck] {
         return ra != rb ? ra < rb : a.offset < b.offset
     }.map(\.element)
 }
+
+/// Where work handed over from the git tab goes: to the branch's running
+/// agent; else to a new agent where the branch is checked out; else to a
+/// new agent in a worktree made for it — a pull request's branch nobody
+/// has checked out here is still work somebody can be started on.
+public enum HandoffPlan: Equatable, Sendable {
+    case prompt(pane: String)
+    case start(in: String)
+    case checkOutThenStart
+}
+
+public func handoffPlan(agent: PaneInfo?, worktree: String?) -> HandoffPlan {
+    if let agent { return .prompt(pane: agent.id) }
+    if let dir = worktree, !dir.isEmpty { return .start(in: dir) }
+    return .checkOutThenStart
+}

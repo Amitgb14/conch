@@ -361,24 +361,34 @@ final class ChangesModel: ObservableObject {
     /// or one started in the worktree with it — and goes to it.
     func handToAgent(_ text: String, what: String, doing: String) {
         guard let s = store else { return }
-        if let a = agent {
-            run(what, done: "Sent to \(a.name.isEmpty ? (a.agent?.name ?? "the agent") : a.name)") { c in
-                struct P: Encodable { var id: String; var text: String }
-                try await c.call("agent.prompt", P(id: a.id, text: text))
-                self.handed = Handed(what: doing, pane: a.id, at: Date())
-            }
-            return
-        }
-        guard let dir = changes?.worktree else {
-            error = "\(branch) is not checked out anywhere, so there is nowhere to start an agent on it"
-            return
-        }
         let name = s.startable(on: machine).first { $0.installed }?.name ?? "claude"
-        run(what, done: "Started \(name) on \(branch)") { c in
+        func start(_ c: Connection, in dir: String) async throws {
             struct P: Encodable { var agent: String; var prompt: String; var cwd: String }
             let info = try await c.call("pane.create", P(agent: name, prompt: text, cwd: dir), as: PaneInfo.self)
             self.handed = Handed(what: doing, pane: info.id, at: Date())
             s.open(ConchKit.key(self.machine, info.id))
+        }
+        switch handoffPlan(agent: agent, worktree: changes?.worktree) {
+        case .prompt(let id):
+            let a = agent
+            run(what, done: "Sent to \(a.map { $0.name.isEmpty ? ($0.agent?.name ?? "the agent") : $0.name } ?? "the agent")") { c in
+                struct P: Encodable { var id: String; var text: String }
+                try await c.call("agent.prompt", P(id: id, text: text))
+                self.handed = Handed(what: doing, pane: id, at: Date())
+            }
+        case .start(let dir):
+            run(what, done: "Started \(name) on \(branch)") { c in try await start(c, in: dir) }
+        case .checkOutThenStart:
+            // Checked out nowhere — a pull request's branch made elsewhere:
+            // a worktree for it first (the branch as it is, or GitHub's copy
+            // when it is not here at all), then the agent in it.
+            let b = branch
+            run(what, done: "Checked out \(b) in a worktree and started \(name) there") { c in
+                struct W: Encodable { var project_id: String; var branch: String; var base: String }
+                struct R: Decodable { var path: String }
+                let wt = try await c.call("worktree.add", W(project_id: self.project, branch: b, base: "origin/" + b), as: R.self)
+                try await start(c, in: wt.path)
+            }
         }
     }
 
