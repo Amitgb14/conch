@@ -144,6 +144,10 @@ struct SettingsView: View {
                 }
                 SaveBar(model: model)
             }
+            // The page area takes the window's width: the cards keep
+            // their own (760 at most), and without this the whole window
+            // could not be made wider than they are.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .topTrailing) {
                 if let t = model.toast { SettingsToast(text: t).padding(18).transition(.move(edge: .top).combined(with: .opacity)) }
             }

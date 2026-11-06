@@ -1648,7 +1648,8 @@ final class Store: ObservableObject {
         }
         guard !alerts.isEmpty else { return }
         let texts = alerts.map { $0.text(now: now) }
-        say(texts.joined(separator: " · "), alerts.contains { $0.threshold >= 90 } ? .err : .info)
+        // Red from 90% used, whichever threshold was crossed to say it.
+        say(texts.joined(separator: " · "), alerts.contains { $0.pct >= 90 } ? .err : .info)
         guard s.enabled, !s.quiet(now), let c = conns["local"] else { return }
         let alert = Alert(title: "conch · plan limit", body: texts.joined(separator: "\n"))
         Task {

@@ -8,6 +8,9 @@ import agents from "@/images/desktop-agents.png"
 import browser from "@/images/desktop-browser.png"
 import files from "@/images/desktop-files.png"
 import git from "@/images/desktop-git.png"
+import limits from "@/images/desktop-limits.png"
+import settings from "@/images/desktop-settings.png"
+import skills from "@/images/desktop-skills.png"
 import { site } from "@/lib/site"
 import { conchVersion } from "@/lib/version"
 
@@ -26,6 +29,21 @@ const more: { src: StaticImageData; alt: string; caption: string }[] = [
     src: browser,
     alt: "Conch.app with a browser tab showing a local dev server's page beside the agents",
     caption: "A browser tab: the dev server's port opens next to the agents writing it.",
+  },
+  {
+    src: settings,
+    alt: "Conch.app's Settings: Checks & autopilot drawn as the line a finished branch takes, Fix CI and Merge just turned on and marked edited, and a bar to save them",
+    caption: "Settings: each setting with the control that suits it, and the autopilot as the line a finished branch takes. Two steps just turned on, waiting for Save.",
+  },
+  {
+    src: skills,
+    alt: "Conch.app's Skills & MCP servers: conch's five skills on every agent, a skill of your own, and two MCP servers with a box per agent, waiting for Apply",
+    caption: "Skills & MCP servers: conch's skills on every agent, so they run a team, a review loop or a ticket to a merged PR. Your own skills and servers, ticked per agent.",
+  },
+  {
+    src: limits,
+    alt: "Conch.app's status bar saying Claude's 5-hour limit is 91% used, beside the usage chip, while an agent works",
+    caption: "A plan nearly used up says so: a notification and the status bar, before the limit stops your agents mid-task.",
   },
 ]
 
