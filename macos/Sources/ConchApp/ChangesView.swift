@@ -375,8 +375,9 @@ final class ChangesModel: ObservableObject {
         }
         let name = s.startable(on: machine).first { $0.installed }?.name ?? "claude"
         run(what, done: "Started \(name) on \(branch)") { c in
-            struct P: Encodable { var agent: String; var prompt: String; var cwd: String }
-            let info = try await c.call("pane.create", P(agent: name, prompt: text, cwd: dir), as: PaneInfo.self)
+            struct P: Encodable { var agent: String; var prompt: String; var cwd: String; var cols: Int?; var rows: Int? }
+            let size = s.newPaneSize()
+            let info = try await c.call("pane.create", P(agent: name, prompt: text, cwd: dir, cols: size?.cols, rows: size?.rows), as: PaneInfo.self)
             self.handed = Handed(what: doing, pane: info.id, at: Date())
             s.open(ConchKit.key(self.machine, info.id))
         }

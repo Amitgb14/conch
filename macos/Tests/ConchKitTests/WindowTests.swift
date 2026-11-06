@@ -348,3 +348,21 @@ import Testing
     #expect(scratchLost("local|p218", pane: try pane("exited"))) // its shell ended
     #expect(!scratchLost("local|p218", pane: try pane("running")))
 }
+
+// A new pane starts at the size of a pane shown alone in a tab, the tab in
+// front first; never at a split's, a page's or nothing at all.
+@Test func newPanesStartAtTheTabsSize() {
+    let sizes: [String: (cols: Int, rows: Int)] = ["local|p1": (258, 38), "local|p2": (126, 38), "local|p3": (200, 50)]
+    let size = { (k: String) in sizes[k] }
+    var l = Layout()
+    #expect(fullTabSize(l, size: size) == nil) // nothing open
+    l.open(browserKey("http://localhost:3000"))
+    #expect(fullTabSize(l, size: size) == nil) // a page is not a pane
+    l.open("local|p1")
+    #expect(fullTabSize(l, size: size)! == (258, 38))
+    l.open("local|p3")
+    #expect(fullTabSize(l, size: size)! == (200, 50)) // the tab in front first
+    l.split(.horizontal, with: "local|p2")
+    #expect(fullTabSize(l, size: size)! == (258, 38)) // in front is split now: another tab's alone
+    #expect(fullTabSize(l, size: { _ in (1, 1) }) == nil) // a size not yet known
+}

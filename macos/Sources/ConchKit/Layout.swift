@@ -361,3 +361,17 @@ public struct Latest: Sendable {
     /// Whether the request numbered so is still the newest.
     public func isLatest(_ m: Int) -> Bool { m == n }
 }
+
+/// The size a new pane should start at: that of a pane shown alone in a
+/// tab — the tab in front first — since a new pane opens in a tab of its
+/// own. Started at the server's 80×24 and resized a moment later, an
+/// agent that draws inline (Claude Code) had what it printed rewrapped to
+/// the new width: lines broken mid-word, its highlighted blocks repeated
+/// as blank bars. nil when no tab shows one pane alone yet.
+public func fullTabSize(_ layout: Layout, size: (String) -> (cols: Int, rows: Int)?) -> (cols: Int, rows: Int)? {
+    let order = layout.tabs.indices.contains(layout.active) ? [layout.active] + layout.tabs.indices.filter { $0 != layout.active } : Array(layout.tabs.indices)
+    for i in order {
+        if case .leaf(let k) = layout.tabs[i].root, isPaneKey(k), let s = size(k), s.cols > 1, s.rows > 1 { return s }
+    }
+    return nil
+}

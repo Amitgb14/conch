@@ -276,6 +276,14 @@ final class Store: ObservableObject {
         return snapshots[m]?.port(of: p)
     }
 
+    /// What a pane opened in a tab of its own will measure (fullTabSize).
+    func newPaneSize() -> (cols: Int, rows: Int)? {
+        fullTabSize(layout) { k in
+            guard let p = self.pane(k), let c = p.cols, let r = p.rows else { return nil }
+            return (c, r)
+        }
+    }
+
     func pane(_ k: String) -> PaneInfo? {
         let (m, id) = unkey(k)
         return snapshots[m]?.pane(id)
@@ -624,10 +632,13 @@ final class Store: ObservableObject {
             var name: String
             var cwd: String
             var command: [String]
+            var cols: Int?
+            var rows: Int?
         }
         let full = (root as NSString).appendingPathComponent(path)
+        let size = newPaneSize()
         let params = Create(name: "edit · " + (path as NSString).lastPathComponent, cwd: root,
-                            command: ["/bin/sh", "-lc", #"exec ${VISUAL:-${EDITOR:-vi}} "$1""#, "sh", full])
+                            command: ["/bin/sh", "-lc", #"exec ${VISUAL:-${EDITOR:-vi}} "$1""#, "sh", full], cols: size?.cols, rows: size?.rows)
         Task {
             do {
                 let p = try await c.call("pane.create", params, as: PaneInfo.self)
@@ -2008,9 +2019,13 @@ final class Store: ObservableObject {
             var command: [String]
             var env: [String]
             var no_project: Bool?
+            var cols: Int?
+            var rows: Int?
         }
+        let size = newPaneSize()
         let params = Create(name: a.name + " · " + at.label, cwd: dir, command: ["/bin/sh", "-lc", a.run],
-                            env: at.env.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }, no_project: at.loose ? true : nil)
+                            env: at.env.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }, no_project: at.loose ? true : nil,
+                            cols: size?.cols, rows: size?.rows)
         Task {
             do {
                 let p = try await c.call("pane.create", params, as: PaneInfo.self)
@@ -2294,10 +2309,14 @@ final class Store: ObservableObject {
             var agent: String?
             var cwd: String?
             var no_project: Bool?
+            var cols: Int?
+            var rows: Int?
         }
+        let size = newPaneSize()
         Task {
             do {
-                let p = try await c.call("pane.create", Create(agent: agent, cwd: cwd, no_project: inProject ? nil : true), as: PaneInfo.self)
+                let p = try await c.call("pane.create", Create(agent: agent, cwd: cwd, no_project: inProject ? nil : true,
+                                                               cols: size?.cols, rows: size?.rows), as: PaneInfo.self)
                 snapshots[machine, default: Snapshot()].upsert(p)
                 joinWorkspace(machine: machine, pane: p)
                 layout.open(key(machine, p.id))
