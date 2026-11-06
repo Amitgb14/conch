@@ -69,7 +69,8 @@ func settingsChoices(m *Model) configweb.Choices { return SettingsChoices(knownA
 // it has no machine to ask.
 func SettingsChoices(agents []string) configweb.Choices {
 	c := configweb.Choices{Providers: sandbox.Providers}
-	for _, t := range themes {
+	reloadUserThemes() // conch config web is its own process, and a file may be new
+	for _, t := range allThemes() {
 		o := configweb.Option{Value: t.name, Label: t.label}
 		c.Themes = append(c.Themes, o)
 		if luminance(t.bg) > 0.5 {

@@ -298,6 +298,59 @@ import Testing
     #expect(missing.isEmpty, "menu commands nobody handles: \(missing.sorted())")
 }
 
+// A theme file read as the TUI reads it: based_on's colours with the file's
+// over them; each way a file can be wrong left out with why.
+@Test func themesOfYourOwn() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("conch-themes-\(UUID().uuidString)").path
+    try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    func put(_ name: String, _ body: String) throws { try body.write(toFile: dir + "/" + name, atomically: true, encoding: .utf8) }
+    try put("my-dark.toml", "# mine\nname = \"My Dark\"\nbased_on = \"vscode-dark-modern\"\nbg = \"#16161e\"  # deeper\naccent = \"#7AA2F7\"\n")
+    try put("paper.toml", "bg = \"#FAFAF5\"\nfg = \"#222222\"\n")          // no base: conch's; light by its ground
+    try put("forced.toml", "bg = \"#FAFAF5\"\nlight = false\n")
+    try put("nord.toml", "bg = \"#000000\"\n")
+    try put("Bad Name.toml", "bg = \"#000000\"\n")
+    try put("badcolour.toml", "accent = \"blue\"\n")
+    try put("typo.toml", "backgroud = \"#000000\"\n")
+    try put("open.toml", "bg = \"#000000\n")
+    try put("nobase.toml", "based_on = \"solarised\"\n")
+    try put("notes.txt", "x")
+    let (themes, problems) = userThemes(in: dir)
+    #expect(themes.map(\.id) == ["forced", "my-dark", "paper"])
+    let my = themes[1], base = ConchTheme.named("vscode-dark-modern")
+    #expect(my.label == "My Dark" && my.bg.hex == "#16161E" && my.accent.hex == "#7AA2F7" && my.fg == base.fg && my.ok == base.ok && !my.light)
+    #expect(themes[2].label == "paper" && themes[2].light && themes[2].border == ConchTheme.conch.border)
+    #expect(!themes[0].light)
+    for (file, want) in [("nord.toml", "built-in theme's name"), ("Bad Name.toml", "lower case"),
+                         ("badcolour.toml", "accent = \"blue\" is not a colour"), ("typo.toml", "\"backgroud\" is not a theme key"),
+                         ("open.toml", "not closed"), ("nobase.toml", "based_on \"solarised\" is no built-in theme")] {
+        #expect(problems.contains { $0.hasPrefix(file + ":") && $0.contains(want) }, "\(file): \(problems)")
+    }
+    #expect(userThemes(in: dir + "/none").themes.isEmpty && userThemes(in: dir + "/none").problems.isEmpty)
+
+    // In the lists and lookups once read; gone again when the files are.
+    ConchTheme.user = themes
+    defer { ConchTheme.user = [] }
+    #expect(ConchTheme.named("my-dark").label == "My Dark" && ConchTheme.everything.count == ConchTheme.all.count + 3)
+}
+
+// [ui] accent over a theme, as the TUI applies it: a name or #rrggbb, with
+// white text on it; anything else leaves the theme as it was. The names
+// are the TUI's own.
+@Test func accentOverTheme() throws {
+    let t = ConchTheme.named("nord")
+    #expect(t.withAccent("orange").accent.hex == "#C2571A" && t.withAccent("orange").selFG.hex == "#FFFFFF")
+    #expect(t.withAccent(" #FF00AA ").accent.hex == "#FF00AA" && t.withAccent("#ff00aa").line.hex == "#FF00AA")
+    #expect(t.withAccent(nil) == t && t.withAccent("") == t && t.withAccent("chartreuse") == t && t.withAccent("#12") == t && t.withAccent("#zzzzzz") == t)
+    let go = try String(contentsOfFile: #filePath.replacingOccurrences(of: "macos/Tests/ConchKitTests/WindowTests.swift", with: "internal/tui/theme.go"), encoding: .utf8)
+    let block = go.components(separatedBy: "var accentColors = map[string]lipgloss.Color{")[1].components(separatedBy: "}")[0]
+    var tui: [String: String] = [:]
+    for m in block.matches(of: try Regex(#""(\w+)":\s*"(#[0-9A-Fa-f]{6})""#)) {
+        tui[String(m.output[1].substring!)] = String(m.output[2].substring!).uppercased()
+    }
+    #expect(tui == ConchTheme.accentNames && !tui.isEmpty)
+}
+
 // What a file is shown as; the browser tab's key round trip; and what the
 // address bar loads for what was typed.
 @Test func mediaAndBrowser() {
@@ -365,4 +418,91 @@ import Testing
     l.split(.horizontal, with: "local|p2")
     #expect(fullTabSize(l, size: size)! == (258, 38)) // in front is split now: another tab's alone
     #expect(fullTabSize(l, size: { _ in (1, 1) }) == nil) // a size not yet known
+}
+
+// Each file is marked by what it is; every mark is an icon that exists,
+// and a colour too close to the background gives way to the text's.
+@Test func fileIcons() {
+    // A language's own logo, in its colour, with an outline behind it.
+    #expect(fileIcon("main.go") == .logo("go") && fileIcon("main.go").color == "#00ADD8" && fileIcon("main.go").icon == "file-code")
+    #expect(fileIcon("server.py").logo == "python" && fileIcon("server.py").color == "#3776AB")
+    #expect(fileIcon("Dockerfile").logo == "docker" && fileIcon("docker-compose.yml").logo == "docker" && fileIcon(".dockerignore").logo == "docker")
+    #expect(fileIcon("App.TSX").logo == "react" && fileIcon("api.ts").logo == "typescript" && fileIcon("index.js").logo == "javascript")
+    #expect(fileIcon("go.mod").logo == "go" && fileIcon("go.sum").logo == "go" && fileIcon("Cargo.lock").logo == "rust")
+    #expect(fileIcon("package.json").logo == "npm" && fileIcon("yarn.lock").logo == "yarn" && fileIcon("tsconfig.json").logo == "typescript")
+    #expect(fileIcon("vite.config.ts").logo == "vite" && fileIcon(".eslintrc.json").logo == "eslint" && fileIcon(".gitignore").logo == "git")
+    #expect(fileIcon("notebook.ipynb").logo == "jupyter" && fileIcon("Program.cs").logo == "dotnet" && fileIcon("main.rs").logo == "rust")
+    // A logo that is black is given a colour it can be seen in.
+    #expect(fileIcon("x.json").logo == "json" && fileIcon("x.json").color == "#CBCB41" && fileIcon("README.md").logo == nil)
+    #expect(fileIcon("notes.md").logo == "markdown" && fileIcon("notes.md").color == "#519ABA")
+    // No logo of its own: the outline for its kind.
+    #expect(fileIcon("pnpm-lock.yaml").logo == "pnpm" && fileIcon("Gemfile.lock").logo == "ruby" && fileIcon("other.lock").icon == "file-lock")
+    #expect(fileIcon("Makefile").icon == "file-terminal" && fileIcon("Makefile").logo == nil && fileIcon("deploy.sh").logo == "gnubash")
+    #expect(fileIcon("Dockerfile").icon == "container" && fileIcon("Dockerfile.dev").logo == "docker")
+    #expect(fileIcon("README.md").icon == "book-open" && fileIcon("LICENSE").icon == "scale" && fileIcon("NOTES.md").icon == "file-text")
+    #expect(fileIcon(".env").icon == "file-key" && fileIcon(".env.local").icon == "file-key" && fileIcon("ca.pem").icon == "file-key")
+    #expect(fileIcon(".gitignore").icon == "git-branch" && fileIcon(".prettierrc").logo == "prettier" && fileIcon(".toolrc").icon == "file-cog")
+    #expect(fileIcon("logo.png").icon == "file-image" && fileIcon("demo.mp4").icon == "file-video-camera" && fileIcon("a.mp3").icon == "file-music")
+    #expect(fileIcon("spec.pdf").icon == "file-text" && fileIcon("x.tar.gz").icon == "file-archive" && fileIcon("data.csv").icon == "file-spreadsheet")
+    #expect(fileIcon("fix.patch").icon == "file-diff" && fileIcon("app.sqlite").logo == "sqlite" && fileIcon("Inter.woff2").icon == "file-type")
+    // Nothing known: a plain page, uncoloured; no name or no extension too.
+    #expect(fileIcon("mystery.xyz") == FileIcon("file") && fileIcon("") == FileIcon("file") && fileIcon("NOTICE") == FileIcon("file"))
+
+    for n in ["main.go", "a.rs", "x.json", "y.yml", "README", "LICENSE", "Dockerfile", "go.sum", "a.png", "b.mov", "c.wav",
+              "d.zip", "e.csv", "f.ttf", "g.pem", "h.diff", "i.db", ".gitignore", ".zshrc", "Makefile", "j.pdf", "k"] {
+        let f = fileIcon(n)
+        #expect(LucideIcons.all[f.icon] != nil, "\(n) → \(f.icon)")
+        #expect(!LucideIcons.ops(f.icon).isEmpty)
+    }
+
+    let dark = RGB("#0D1117"), light = RGB("#FFFFFF"), fg = RGB("#E6EDF3"), ink = RGB("#1F2328"), muted = RGB("#7D8590")
+    #expect(fileTint(fileIcon("main.go"), on: dark, text: fg, muted: muted) == RGB("#00ADD8"))
+    #expect(fileTint(fileIcon("main.rs"), on: dark, text: fg, muted: muted) == fg) // Rust's black on dark
+    #expect(fileTint(fileIcon("a.js"), on: light, text: ink, muted: muted) == ink) // yellow on white
+    #expect(fileTint(fileIcon("notes.txt"), on: dark, text: fg, muted: muted) == muted)
+}
+
+// Every logo a file can be given exists, parses, and has a colour.
+@Test func fileLogosAllDraw() {
+    #expect(FileLogos.logos.count >= 60)
+    for (slug, l) in FileLogos.logos {
+        #expect((FileLogos.ops(slug) ?? []).count > 3, "\(slug)")
+        #expect(l.hex.hasPrefix("#") && l.hex.count == 7, "\(slug)")
+    }
+    // Every slug the table names is one we have: a typo would draw the outline.
+    let names = ["a.go", "a.py", "a.ts", "a.js", "a.jsx", "a.rs", "a.swift", "a.rb", "a.java", "a.kt", "a.c", "a.cpp", "a.cs", "a.fs",
+                 "a.php", "a.html", "a.css", "a.scss", "a.less", "a.vue", "a.svelte", "a.astro", "a.lua", "a.ex", "a.erl", "a.hs",
+                 "a.scala", "a.dart", "a.zig", "a.jl", "a.r", "a.pl", "a.elm", "a.graphql", "a.nix", "a.tf", "a.ml", "a.clj", "a.sol",
+                 "a.sh", "a.zsh", "a.ipynb", "a.tex", "a.db", "a.mdx", "a.json", "a.yaml", "a.toml", "a.md", "Dockerfile", ".gitignore",
+                 "package.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "deno.json", "go.mod", "Cargo.toml", "Package.swift",
+                 "pyproject.toml", "Gemfile", "composer.json", "pom.xml", "build.gradle", "flake.nix", "vite.config.ts",
+                 "webpack.config.js", ".eslintrc", ".prettierrc", ".npmrc", ".nvmrc", ".yarnrc.yml", "CMakeLists.txt", "nginx.conf",
+                 ".editorconfig", ".zshrc", ".bashrc"]
+    for n in names {
+        let f = fileIcon(n)
+        #expect(f.logo != nil && FileLogos.logos[f.logo!] != nil, "\(n) → \(f.logo ?? "none")")
+    }
+}
+
+// The new icons parse the way the others do: every one draws something.
+@Test func lucideFileIconsParse() {
+    for n in ["file", "file-code", "file-image", "file-video-camera", "file-music", "file-braces", "file-archive", "file-spreadsheet",
+              "file-terminal", "file-cog", "file-lock", "file-key", "file-type", "file-diff", "file-text", "book-open", "scale",
+              "package", "database", "container"] {
+        let ops = LucideIcons.ops(n)
+        #expect(ops.count > 3, "\(n)")
+        #expect(ops != LucideIcons.ops("settings"), "\(n) fell back")
+    }
+}
+
+// Work handed over from the git tab always has somewhere to go: the
+// running agent, a new one in the branch's checkout, or a new one in a
+// worktree made for a branch checked out nowhere.
+@Test func handoffPlans() throws {
+    let a = try JSONDecoder().decode(PaneInfo.self, from: Data(#"{"id":"p7","name":"fixer","state":"running","cols":80,"rows":24}"#.utf8))
+    #expect(handoffPlan(agent: a, worktree: "/w/x") == .prompt(pane: "p7"))
+    #expect(handoffPlan(agent: a, worktree: nil) == .prompt(pane: "p7"))
+    #expect(handoffPlan(agent: nil, worktree: "/w/x") == .start(in: "/w/x"))
+    #expect(handoffPlan(agent: nil, worktree: nil) == .checkOutThenStart)
+    #expect(handoffPlan(agent: nil, worktree: "") == .checkOutThenStart)
 }
