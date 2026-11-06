@@ -1,0 +1,12 @@
+{
+  "name": "conch",
+  "description": "Skills for agents running agents in conch: start a helper and read its answer (conch), several at once (conch-team), review until clean (conch-review), tests to a merged PR (conch-ship), a ticket all the way (conch-factory), and the automated workflow for a project (conch-autopilot). They act only inside a conch pane; install conch from https://amitgb14.github.io/conch/.",
+  "author": {
+    "name": "Amit Ghadge",
+    "url": "https://github.com/Amitgb14"
+  },
+  "homepage": "https://amitgb14.github.io/conch/docs/agents-together",
+  "repository": "https://github.com/Amitgb14/conch",
+  "license": "Apache-2.0",
+  "keywords": ["conch", "agents", "multi-agent", "review", "autopilot", "pull-request"]
+}

@@ -34,7 +34,7 @@ Use a different agent from the author where one is installed — a second
 opinion from the same model finds less:
 
 ```sh
-conch task -name review-BRANCH -agent codex -base BRANCH "You are reviewing branch BRANCH against BASE. Read the diff with: git diff BASE...BRANCH. Look for bugs, missing tests, broken edge cases and unclear code, most serious first. For each finding add a comment on its line with: conch review add -branch BRANCH FILE:LINE 'what is wrong and what to do'. Don't change any code. When you are done, write REVIEW.md in your worktree: one line per finding, or 'clean' if there is nothing to fix."
+conch task -name review-BRANCH -agent codex -base BRANCH "You are reviewing branch BRANCH against BASE. Read the diff with: git diff BASE...BRANCH. If there is a spec or an issue for it, check fidelity first: does it do all of what was asked, shown by tests, and nothing outside it? Then look for bugs, missing tests, broken edge cases and unclear code, most serious first. For each finding add a comment on its line with: conch review add -branch BRANCH FILE:LINE 'what is wrong and what to do'. Don't change any code. When you are done, write REVIEW.md in your worktree: one line per finding, or 'clean' if there is nothing to fix."
 conch wait -state done,waiting -timeout 30m review-BRANCH
 ```
 

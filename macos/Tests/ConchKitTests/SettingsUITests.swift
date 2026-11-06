@@ -143,5 +143,5 @@ private func section(_ key: String, _ fields: [SettingsField], title: String = "
     #expect(c[1].have == 0 && c[1].of == 1) // the person's own is not counted
     #expect(skillCoverage(AgentSkillResult(changes: [])).isEmpty)
     #expect(SkillCoverage(name: "x", have: 0, of: 0).everywhere == false)
-    #expect(conchSkillBlurbs.count == 5)
+    #expect(conchSkillBlurbs.count == 6 && conchSkillBlurbs["conch-autopilot"] != nil)
 }

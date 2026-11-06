@@ -136,7 +136,7 @@ struct AgentSkillPanel: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(cover.isEmpty ? "No agent here reads skills" : full == cover.count ? "Every agent has all \(cover.count)" : "\(full) of \(cover.count) skills on every agent")
                     .font(.ui(size: 13, weight: .medium))
-                Text("conch starts a helper; team, review, ship and factory build on it. Beside your own skills, replacing none.")
+                Text("conch starts a helper; team, review, ship, factory and autopilot build on it. Beside your own skills, replacing none.")
                     .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
