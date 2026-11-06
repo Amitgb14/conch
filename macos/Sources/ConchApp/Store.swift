@@ -79,7 +79,10 @@ final class Store: ObservableObject {
     /// apart: ui.json is the running TUI's to write.
     @Published var tuiFolds: [String: Bool] = [:]
     @Published var folds: [String: Bool] = (UserDefaults.standard.dictionary(forKey: "folds") as? [String: Bool]) ?? [:]
-    @Published var limits: [PlanLimits] = []
+    @Published var limits: [PlanLimits] = [] { didSet { alertLimits() } }
+    /// Plan limit alerts already raised (limitCrossings), kept with the
+    /// app's preferences so a restart does not raise them again.
+    private var limitSeen: [String: Int] = (UserDefaults.standard.dictionary(forKey: "conch.limitSeen") as? [String: Int]) ?? [:]
     @Published var status: String = "Connecting to conch…"
     @Published var paletteOpen = false
     /// Help → Keyboard Shortcuts and Help → Check conch… on screen.
@@ -1624,6 +1627,34 @@ final class Store: ObservableObject {
             if c.hello?.capabilities?.contains("view.v1") == true,
                let v = try? await c.call("view.get", as: ViewState.self), !(v.tabs ?? []).isEmpty { return }
             Notifier.shared.post(alert, pane: k, sound: s.sound, desktop: s.desktop)
+        }
+    }
+
+    /// Tells you a plan limit has passed a threshold of [notify] limit_at,
+    /// as the TUI does (limitalerts.go): once per threshold per window. The
+    /// app used to leave this to the TUI alone, so with only the app open a
+    /// plan could reach 90% with nothing said. A TUI open on this computer
+    /// raises its own, so the notification is left to it.
+    func alertLimits() {
+        let s = notifySettings
+        guard s.limits else { return }
+        let now = Date()
+        var seen = pruneLimitAlerts(limitSeen, now: now)
+        var alerts: [LimitAlert] = []
+        for l in limits { alerts += limitCrossings(&seen, machine: "local", l, thresholds: s.limitAt, now: now) }
+        if seen != limitSeen {
+            limitSeen = seen
+            UserDefaults.standard.set(seen, forKey: "conch.limitSeen")
+        }
+        guard !alerts.isEmpty else { return }
+        let texts = alerts.map { $0.text(now: now) }
+        say(texts.joined(separator: " · "), alerts.contains { $0.threshold >= 90 } ? .err : .info)
+        guard s.enabled, !s.quiet(now), let c = conns["local"] else { return }
+        let alert = Alert(title: "conch · plan limit", body: texts.joined(separator: "\n"))
+        Task {
+            if c.hello?.capabilities?.contains("view.v1") == true,
+               let v = try? await c.call("view.get", as: ViewState.self), !(v.tabs ?? []).isEmpty { return }
+            Notifier.shared.post(alert, id: "limits", sound: s.sound, desktop: s.desktop)
         }
     }
 
