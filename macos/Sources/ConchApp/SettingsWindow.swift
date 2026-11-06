@@ -231,8 +231,8 @@ struct SectionForm: View {
             if section.id == "agents" {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("conch's skill for agents").font(.ui(size: 13, weight: .medium))
-                        Text("So an agent can start another — a reviewer, a tester — prompt it and read its answer. Installed per machine, beside your own skills.")
+                        Text("conch's skills for agents").font(.ui(size: 13, weight: .medium))
+                        Text("So an agent can run others: a helper, a team, a review loop, a ticket to a merged pull request (conch-factory). Installed per machine, beside your own skills.")
                             .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer()
@@ -240,6 +240,20 @@ struct SectionForm: View {
                         // The sheet is the main window's: bring it in front of Settings.
                         model.store.mainWindow?.makeKeyAndOrderFront(nil)
                         model.store.skillOpen = true
+                    }
+                }
+                Rectangle().fill(Theme.line.opacity(0.6)).frame(height: 1)
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Shared MCP servers & skills").font(.ui(size: 13, weight: .medium))
+                        Text("Kept in conch and given to the agents you choose: add a skill folder or a server once, tick the agents, Apply.")
+                            .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button("Open…") {
+                        model.store.mainWindow?.makeKeyAndOrderFront(nil)
+                        model.store.libraryMachine = "local"
+                        model.store.libraryOpen = true
                     }
                 }
                 Rectangle().fill(Theme.line.opacity(0.6)).frame(height: 1)

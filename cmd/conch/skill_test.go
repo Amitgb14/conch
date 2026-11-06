@@ -15,24 +15,45 @@ import (
 // flags it takes. A skill that drifts from the CLI teaches an agent to
 // fail. Checked against the usage text, which lists every command.
 func TestSkillCommandsExist(t *testing.T) {
+	for _, sk := range agentsetup.Skills {
+		t.Run(sk.Name, func(t *testing.T) { skillCommandsExist(t, string(sk.Body)) })
+	}
+}
+
+func skillCommandsExist(t *testing.T, text string) {
 	// Only code — fenced blocks and `spans` — holds commands; prose says
 	// "a conch pane" without meaning one.
 	var code []string
-	for _, m := range regexp.MustCompile("(?s)```[a-z]*\n(.*?)```").FindAllStringSubmatch(string(agentsetup.Skill), -1) {
+	for _, m := range regexp.MustCompile("(?s)```[a-z]*\n(.*?)```").FindAllStringSubmatch(text, -1) {
 		code = append(code, strings.Split(m[1], "\n")...)
 	}
-	for _, m := range regexp.MustCompile("`([^`\n]+)`").FindAllStringSubmatch(string(agentsetup.Skill), -1) {
+	for _, m := range regexp.MustCompile("`([^`\n]+)`").FindAllStringSubmatch(text, -1) {
 		code = append(code, m[1])
 	}
-	re := regexp.MustCompile(`(?:^|[\s;&|(])conch ((?:agent |server )?[a-z]+)(.*)`)
+	// A line can hold more than one command — a prompt in quotes telling
+	// a helper to run `conch review -branch B` — so each is read on its
+	// own: its words run to the next command or the next quote.
+	re := regexp.MustCompile(`(?:^|[\s;&|("'])conch ((?:agent |server )?[a-z]+)`)
 	usageLines := strings.Split(usage, "\n")
-	seen := 0
+	type use struct{ cmd, rest string }
+	var uses []use
 	for _, snippet := range code {
-		m := re.FindStringSubmatch(snippet)
-		if m == nil {
-			continue
+		ms := re.FindAllStringSubmatchIndex(snippet, -1)
+		for i, m := range ms {
+			end := len(snippet)
+			if i+1 < len(ms) {
+				end = ms[i+1][0]
+			}
+			rest := snippet[m[1]:end]
+			if q := strings.IndexAny(rest, `"'`); q >= 0 {
+				rest = rest[:q]
+			}
+			uses = append(uses, use{snippet[m[2]:m[3]], rest})
 		}
-		cmd, rest := m[1], m[2]
+	}
+	seen := 0
+	for _, u := range uses {
+		cmd, rest := u.cmd, u.rest
 		var line string
 		for i, l := range usageLines {
 			if strings.Contains(l, "conch "+cmd+" ") || strings.HasSuffix(strings.TrimSpace(l), "conch "+cmd) || strings.Contains(l, "conch "+cmd+"\t") {
@@ -52,7 +73,7 @@ func TestSkillCommandsExist(t *testing.T) {
 			}
 		}
 	}
-	if seen < 8 {
+	if seen < 5 {
 		t.Fatalf("found only %d commands in the skill: the pattern has gone wrong", seen)
 	}
 }
@@ -138,5 +159,34 @@ func TestA4AgentSkillOldServer(t *testing.T) {
 	}
 	if called(srv, proto.MethodAgentSkill) {
 		t.Fatal("asked anyway")
+	}
+}
+
+// conch skill NAME prints one of conch's skills as the installer writes
+// it, -list names them, and a name conch lacks lists the ones it has.
+func TestPrintSkill(t *testing.T) {
+	for _, sk := range agentsetup.Skills {
+		var err error
+		out, _ := a4Capture(t, "", func() { err = printSkill([]string{sk.Name}) })
+		if err != nil || out != string(sk.Body) {
+			t.Fatalf("%s: %v, %d bytes", sk.Name, err, len(out))
+		}
+	}
+	var err error
+	out, _ := a4Capture(t, "", func() { err = printSkill([]string{"-list"}) })
+	if err != nil || out != "conch\nconch-factory\nconch-review\nconch-ship\nconch-team\n" {
+		t.Fatalf("-list: %v %q", err, out)
+	}
+	out, _ = a4Capture(t, "", func() { err = printSkill(nil) })
+	if err != nil || out != string(agentsetup.Skill) {
+		t.Fatal("no name: not conch's own")
+	}
+	if err := printSkill([]string{"nope"}); err == nil || !strings.Contains(err.Error(), "no skill called nope; it has conch, conch-factory") {
+		t.Fatalf("unknown: %v", err)
+	}
+	for _, bad := range [][]string{{"-x"}, {"a", "b"}} {
+		if err := printSkill(bad); err == nil || !strings.Contains(err.Error(), "usage: conch skill") {
+			t.Fatalf("%v: %v", bad, err)
+		}
 	}
 }

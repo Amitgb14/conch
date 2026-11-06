@@ -327,3 +327,155 @@ func TestInstallSkillLeftoverCopy(t *testing.T) {
 		t.Fatal("leftover still there")
 	}
 }
+
+// Each of conch's skills is read by agents the way conch's own is: a name
+// that is its folder's, a description under the cut, and conch's mark —
+// without which conch could never update or remove it.
+func TestBundledSkills(t *testing.T) {
+	want := []string{"conch", "conch-factory", "conch-review", "conch-ship", "conch-team"}
+	var names []string
+	for _, sk := range Skills {
+		names = append(names, sk.Name)
+		text := string(sk.Body)
+		if !strings.HasPrefix(text, "---\nname: "+sk.Name+"\ndescription: ") {
+			t.Errorf("%s: frontmatter %.60q", sk.Name, text)
+		}
+		end := strings.Index(text[4:], "\n---\n")
+		if end < 0 {
+			t.Errorf("%s: frontmatter never ends", sk.Name)
+			continue
+		}
+		front := text[:end+4]
+		if !isOurSkill(sk.Body) {
+			t.Errorf("%s: no mark", sk.Name)
+		}
+		for _, line := range strings.Split(front, "\n") {
+			if strings.HasPrefix(line, "description: ") && len(line) > 1024+len("description: ") {
+				t.Errorf("%s: description over 1024 characters", sk.Name)
+			}
+		}
+		// Every one is for an agent in a conch pane, and says how to tell.
+		if !strings.Contains(text, "CONCH_PANE_ID") {
+			t.Errorf("%s doesn't say how to tell it is in conch", sk.Name)
+		}
+		if sk.Name != skillName && !strings.Contains(text, "never `conch send`") {
+			t.Errorf("%s doesn't warn off conch send", sk.Name)
+		}
+	}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("skills %v, want %v (conch's own first)", names, want)
+	}
+	if !bytes.Equal(Skill, Skills[0].Body) {
+		t.Fatal("Skill is not conch's own")
+	}
+	if sk, ok := BundledSkillNamed("conch-factory"); !ok || sk.Name != "conch-factory" {
+		t.Fatal("conch-factory not found by name")
+	}
+	if _, ok := BundledSkillNamed("nope"); ok {
+		t.Fatal("found a skill conch doesn't have")
+	}
+	// What the person asked of the factory: the whole line, and a merge
+	// only when they asked for one.
+	factory, _ := BundledSkillNamed("conch-factory")
+	for _, w := range []string{"gh issue view", "conch task -issue", "conch review send", "TEST-REPORT.md", "conch branch pr", "only if the\nperson asked for a merge", "auto_pr = true"} {
+		if !strings.Contains(string(factory.Body), w) {
+			t.Errorf("conch-factory no longer says %q", w)
+		}
+	}
+}
+
+func TestInstallSkills(t *testing.T) {
+	e := skillEnv(t, nil)
+	got, err := InstallSkills(e, nil, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A change per skill per folder, a folder's together and in
+	// SkillTargets' order of folders.
+	if len(got) != len(Skills)*3 {
+		t.Fatalf("%d changes:\n%s", len(got), summary(got))
+	}
+	folders := []string{filepath.Join(e.Home, ".claude", "skills"), filepath.Join(e.Home, ".agents", "skills"), filepath.Join(e.Home, ".config", "devin", "skills")}
+	for i, c := range got {
+		f, sk := folders[i/len(Skills)], Skills[i%len(Skills)]
+		if c.Path != filepath.Join(f, sk.Name, "SKILL.md") || c.Skill != sk.Name || c.Action != ActionCreate {
+			t.Fatalf("change %d: %+v", i, c)
+		}
+	}
+	if _, err := os.Stat(folders[0]); err == nil {
+		t.Fatal("a plan wrote something")
+	}
+
+	// Installed, each folder holds each skill's own text.
+	if _, err := InstallSkills(e, []string{"claude"}, false, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, sk := range Skills {
+		if b, err := os.ReadFile(filepath.Join(folders[0], sk.Name, "SKILL.md")); err != nil || !bytes.Equal(b, sk.Body) {
+			t.Fatalf("%s: %v", sk.Name, err)
+		}
+	}
+
+	// A person's own skill under one of the names is left alone, and the
+	// rest still install.
+	theirs := filepath.Join(folders[1], "conch-ship", "SKILL.md")
+	os.MkdirAll(filepath.Dir(theirs), 0o755)
+	os.WriteFile(theirs, []byte("---\nname: conch-ship\n---\nmine\n"), 0o644)
+	got, _ = InstallSkills(e, []string{"codex"}, false, true)
+	for _, c := range got {
+		want := ActionCreate
+		if c.Skill == "conch-ship" {
+			want = ActionSkip
+			if !strings.Contains(c.Detail, "conch-ship skill there isn't conch's own") {
+				t.Errorf("detail %q", c.Detail)
+			}
+		}
+		if c.Action != want || c.Error != "" {
+			t.Errorf("%s: %s %s", c.Skill, c.Action, c.Error)
+		}
+	}
+	if b, _ := os.ReadFile(theirs); string(b) != "---\nname: conch-ship\n---\nmine\n" {
+		t.Fatal("replaced the person's skill")
+	}
+
+	// An install from before there were more: conch's own is there, the
+	// others are what is left to write.
+	e2 := skillEnv(t, nil)
+	InstallSkill(e2, []string{"claude"}, false, true)
+	got, _ = InstallSkills(e2, []string{"claude"}, false, false)
+	for _, c := range got {
+		want := ActionCreate
+		if c.Skill == "conch" {
+			want = ActionSame
+		}
+		if c.Action != want {
+			t.Errorf("after an older install, %s: %s", c.Skill, c.Action)
+		}
+	}
+
+	// Removed, every one of conch's goes, and the person's stays.
+	got, _ = InstallSkills(e, nil, true, true)
+	for _, c := range got {
+		if c.Skill == "conch-ship" && c.Path == theirs {
+			if c.Action != ActionSkip {
+				t.Errorf("the person's conch-ship: %s", c.Action)
+			}
+		} else if c.Action != ActionRemove && c.Action != ActionSame {
+			t.Errorf("remove %s: %s", c.Path, c.Action)
+		}
+	}
+	for _, sk := range Skills {
+		if _, err := os.Stat(filepath.Join(folders[0], sk.Name)); err == nil {
+			t.Errorf("%s left in claude's folder", sk.Name)
+		}
+	}
+	if _, err := os.Stat(theirs); err != nil {
+		t.Fatal("removed the person's skill")
+	}
+	if _, err := InstallSkills(Env{}, nil, false, false); err == nil {
+		t.Fatal("no home: no error")
+	}
+	if _, err := InstallSkills(e, []string{"aider"}, false, false); err == nil {
+		t.Fatal("an unknown agent: no error")
+	}
+}

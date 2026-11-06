@@ -47,11 +47,11 @@ func TestSkillPageReadsEachMachine(t *testing.T) {
 	// The tab offers it beside the library, and opening it is a page.
 	row, ok := "", false
 	for _, it := range s.agentItems(m) {
-		if strings.HasPrefix(ansi.Strip(it.label), "conch's own skill") {
+		if strings.HasPrefix(ansi.Strip(it.label), "conch's skills") {
 			row, ok = ansi.Strip(it.detail), true
 		}
 	}
-	if !ok || !strings.Contains(row, "start, prompt and read") {
+	if !ok || !strings.Contains(row, "a team, a review, a factory") {
 		t.Fatalf("the row on the tab: %q (found %v)", row, ok)
 	}
 
@@ -236,5 +236,68 @@ func TestSetupViewShowsTheSkill(t *testing.T) {
 	// The hint names the key.
 	if !strings.Contains(a2Plain(v.render(*m).lines), "S conch's skill") {
 		t.Fatal("the hint does not mention S")
+	}
+}
+
+// A server with all of conch's skills answers a change per skill per
+// folder: a folder is counted once, and as missing while any one of its
+// skills is — conch's own being there is not the whole set.
+func TestSkillCountsByFolder(t *testing.T) {
+	res := &proto.AgentSkillResult{}
+	add := func(folder, skill, action string, agents ...string) {
+		res.Changes = append(res.Changes, proto.SkillChange{Skill: skill, Path: folder + "/" + skill + "/SKILL.md", Agents: agents, Action: action})
+	}
+	add("/h/.claude/skills", "conch", proto.SyncSame, "claude")
+	add("/h/.claude/skills", "conch-factory", proto.SyncSame, "claude")
+	add("/h/.agents/skills", "conch", proto.SyncSame, "codex")
+	add("/h/.agents/skills", "conch-factory", proto.SyncCreate, "codex")
+	add("/h/.config/devin/skills", "conch", proto.SyncSkip, "devin")
+	add("/h/.config/devin/skills", "conch-factory", proto.SyncUpdate, "devin")
+	if have, todo, theirs := skillCounts(res); have != 1 || todo != 2 || theirs != 1 {
+		t.Fatalf("have %d todo %d theirs %d", have, todo, theirs)
+	}
+	if have, todo, theirs := skillCounts(nil); have+todo+theirs != 0 || skillAnyInstalled(nil) {
+		t.Fatal("nil counted")
+	}
+
+	// An install from before the rest: missing some, and removable.
+	older := &proto.AgentSkillResult{Changes: []proto.SkillChange{
+		{Skill: "conch", Path: "/h/.claude/skills/conch/SKILL.md", Agents: []string{"claude"}, Action: proto.SyncSame},
+		{Skill: "conch-team", Path: "/h/.claude/skills/conch-team/SKILL.md", Agents: []string{"claude"}, Action: proto.SyncCreate}}}
+	mo := a3Model(t)
+	mo.skill[localMachine] = &skillPlan{res: older}
+	if got := ansi.Strip(mo.skillSummary(localMachine)); got != "1 missing some · an older install" {
+		t.Fatalf("older install: %q", got)
+	}
+	so := &settings{tab: 2}
+	removable := false
+	for _, it := range so.skillMachineItems(mo, localMachine) {
+		removable = removable || strings.HasPrefix(ansi.Strip(it.label), "Take conch's copy away")
+	}
+	if !removable {
+		t.Fatal("an older install cannot be taken away")
+	}
+
+	m := a3Model(t)
+	m.skill[localMachine] = &skillPlan{res: res}
+	// The setup view's line for an agent is what it lacks, not conch's own.
+	if ch, ok := m.skillFor(localMachine, "codex"); !ok || ch.Skill != "conch-factory" || ch.Action != proto.SyncCreate {
+		t.Fatalf("codex: %+v %v", ch, ok)
+	}
+	if ch, ok := m.skillFor(localMachine, "claude"); !ok || ch.Action != proto.SyncSame {
+		t.Fatalf("claude: %+v %v", ch, ok)
+	}
+	if _, ok := m.skillFor(localMachine, "gemini"); ok {
+		t.Fatal("an agent with no change found one")
+	}
+	// The machine's page names each row's skill.
+	s := &settings{tab: 2}
+	s.openPage("skill:" + localMachine)
+	rows := map[string]string{}
+	for _, it := range s.skillMachineItems(m, localMachine) {
+		rows[ansi.Strip(it.label)] = ansi.Strip(it.detail)
+	}
+	if !strings.Contains(rows["conch-factory · codex"], "not installed") {
+		t.Fatalf("rows: %v", rows)
 	}
 }

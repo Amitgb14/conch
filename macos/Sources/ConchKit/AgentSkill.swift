@@ -1,11 +1,15 @@
 import Foundation
 
-// conch's own skill — what lets an agent start, prompt and read another —
-// per machine, as the TUI's Settings → Agents → conch's own skill shows it:
-// agent.skill asked without apply is the plan, and nothing is written until
-// it is asked again with apply.
+// conch's skills — conch (start, prompt and read another agent),
+// conch-team, conch-review, conch-ship and conch-factory — per machine, as
+// the TUI's Settings → Agents → conch's skills shows them: agent.skill
+// asked without apply is the plan, and nothing is written until it is
+// asked again with apply. A server from before there was more than one
+// answers a change per folder for conch's own, with no skill named.
 
 public struct SkillChange: Decodable, Equatable, Sendable {
+    /// Which of conch's skills; nil from an older server, meaning conch.
+    public var skill: String?
     public var path: String
     public var agents: [String]
     /// create, update, same, remove or skip (somebody's own skill of that name).
@@ -13,13 +17,21 @@ public struct SkillChange: Decodable, Equatable, Sendable {
     public var detail: String?
     public var error: String?
 
-    public init(path: String, agents: [String], action: String, detail: String? = nil, error: String? = nil) {
+    public init(skill: String? = nil, path: String, agents: [String], action: String, detail: String? = nil, error: String? = nil) {
+        self.skill = skill
         self.path = path
         self.agents = agents
         self.action = action
         self.detail = detail
         self.error = error
     }
+
+    /// The agents' skills folder this SKILL.md is in.
+    public var folder: String {
+        ((path as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
+    }
+
+    public var skillName: String { skill ?? "conch" }
 }
 
 public struct AgentSkillResult: Decodable, Equatable, Sendable {
@@ -32,32 +44,58 @@ public struct AgentSkillResult: Decodable, Equatable, Sendable {
     }
 }
 
-/// How many of a plan's paths have conch's skill, would be written, or are
-/// somebody's own skill of that name (left alone).
+/// How many of the agents' skills folders have every one of conch's
+/// skills, how many lack one or hold an older copy, and how many skills are
+/// somebody's own of that name (left alone).
 public func skillCounts(_ r: AgentSkillResult) -> (have: Int, todo: Int, theirs: Int) {
     var have = 0, todo = 0, theirs = 0
-    for c in r.changes {
-        switch c.action {
-        case "same": have += 1
-        case "create", "update": todo += 1
-        case "skip": theirs += 1
-        default: break
+    for f in skillFolders(r) {
+        if f.changes.contains(where: { ["create", "update"].contains($0.action) }) {
+            todo += 1
+        } else if f.changes.contains(where: { $0.action == "same" }) {
+            have += 1
         }
+        theirs += f.changes.filter { $0.action == "skip" }.count
     }
     return (have, todo, theirs)
+}
+
+/// One agents' skills folder and conch's skills in it.
+public struct SkillFolder: Equatable, Sendable, Identifiable {
+    public var path: String
+    public var agents: [String]
+    public var changes: [SkillChange]
+    public var id: String { path }
+}
+
+/// A plan's changes by folder, in the order the server gave them.
+public func skillFolders(_ r: AgentSkillResult) -> [SkillFolder] {
+    var out: [SkillFolder] = []
+    for c in r.changes {
+        if let i = out.firstIndex(where: { $0.path == c.folder }) {
+            out[i].changes.append(c)
+            for a in c.agents where !out[i].agents.contains(a) { out[i].agents.append(a) }
+        } else {
+            out.append(SkillFolder(path: c.folder, agents: c.agents, changes: [c]))
+        }
+    }
+    return out
 }
 
 /// A machine's line: what a person wants to know before opening it.
 public enum SkillStanding: Equatable, Sendable {
     case everyAgent
     case some(have: Int, not: Int)
+    /// conch's own is there, from before the rest, and no folder has all.
+    case missingSome(Int)
     case notInstalled
     case noAgentReadsSkills
 
     public var text: String {
         switch self {
-        case .everyAgent: return "✓ every agent has it"
-        case .some(let h, let n): return "\(h) have it · \(n) not"
+        case .everyAgent: return "✓ every agent has them"
+        case .some(let h, let n): return "\(h) have them · \(n) not"
+        case .missingSome(let n): return "\(n) missing some · an older install"
         case .notInstalled: return "not installed"
         case .noAgentReadsSkills: return "no agent here reads skills"
         }
@@ -69,9 +107,14 @@ public func skillStanding(_ r: AgentSkillResult) -> SkillStanding {
     switch (have, todo) {
     case (1..., 0): return .everyAgent
     case (1..., _): return .some(have: have, not: todo)
-    case (_, 1...): return .notInstalled
+    case (_, 1...): return skillAnyInstalled(r) ? .missingSome(todo) : .notInstalled
     default: return .noAgentReadsSkills
     }
+}
+
+/// Whether any of conch's skills is there to take away.
+public func skillAnyInstalled(_ r: AgentSkillResult) -> Bool {
+    r.changes.contains { $0.action == "same" }
 }
 
 /// One path's state, as the TUI says it.

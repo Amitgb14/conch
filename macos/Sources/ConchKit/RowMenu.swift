@@ -49,9 +49,11 @@ public enum RowAction: Equatable, Sendable {
     case reloadServer(machine: String)
     /// conch installed on a machine again, from this build (U).
     case upgrade(machine: String)
-    /// conch's skill for agents: whether each agent on each machine has it,
-    /// and installing or removing it.
+    /// conch's skills for agents: whether each agent on each machine has
+    /// them, and installing or removing them.
     case agentSkill
+    /// The library of MCP servers and skills given to that machine's agents.
+    case agentLibrary(machine: String)
     /// A machine taken out of machines.json, after asking.
     case removeMachine(machine: String)
     /// A web page opened in the browser: a branch's pull request.
@@ -179,7 +181,10 @@ extension Snapshot {
                 if isMachine { out += [.divider, RowMenuItem("Add project…", .addProject(machine: machine))] }
             }
             if isMachine { out.append(RowMenuItem("Add machine…", .addMachine)) }
-            if isMachine && machineOnline { out.append(RowMenuItem("conch's skill for agents…", .agentSkill)) }
+            if isMachine && machineOnline {
+                out += [RowMenuItem("conch's skills for agents…", .agentSkill),
+                        RowMenuItem("MCP servers & skills…", .agentLibrary(machine: machine))]
+            }
             if isMachine {
                 // What a machine's own connection and server need, online
                 // or not: a machine that went is reconnected or upgraded.

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -9,8 +10,8 @@ import (
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
-// conch's own skill, per machine: whether each agent there has it, and
-// installing or removing it. The command line plans first and writes only
+// conch's skills, per machine: whether each agent there has them, and
+// installing or removing them. The command line plans first and writes only
 // with -apply, and so does this — the page is the plan, and the row that
 // writes says what it would write before it does.
 //
@@ -78,7 +79,7 @@ func (m *Model) applySkill(mid string, remove bool, agents ...string) tea.Cmd {
 		if err := callCtx(c, proto.MethodAgentSkill, proto.AgentSkillParams{Agents: agents, Remove: remove, Apply: true}, &res); err != nil {
 			return skillMsg{machine: mid, err: err}
 		}
-		return skillMsg{machine: mid, res: res, flash: "conch's skill " + what + " on " + label}
+		return skillMsg{machine: mid, res: res, flash: "conch's skills " + what + " on " + label}
 	}
 }
 
@@ -109,23 +110,58 @@ func (m Model) skillRes(mid string) *proto.AgentSkillResult {
 	return nil
 }
 
-// skillCounts is how many of a plan's paths conch has written, how many it
-// would write, and how many are somebody's own skill of that name.
+// skillCounts is how many of the agents' skills folders on a machine have
+// every one of conch's skills, how many are missing one or hold an older
+// copy, and how many skills there are somebody's own of that name. A
+// folder holds a SKILL.md per skill; an older server, which has only
+// conch's own, gives one change a folder and so counts the same.
 func skillCounts(res *proto.AgentSkillResult) (have, todo, theirs int) {
 	if res == nil {
 		return 0, 0, 0
 	}
+	type folder struct{ same, todo bool }
+	byFolder := map[string]*folder{}
+	var order []string
 	for _, ch := range res.Changes {
+		key := filepath.Dir(filepath.Dir(ch.Path))
+		f := byFolder[key]
+		if f == nil {
+			f = &folder{}
+			byFolder[key] = f
+			order = append(order, key)
+		}
 		switch ch.Action {
 		case proto.SyncSame:
-			have++
+			f.same = true
 		case proto.SyncCreate, proto.SyncUpdate:
-			todo++
+			f.todo = true
 		case proto.SyncSkip:
 			theirs++
 		}
 	}
+	for _, k := range order {
+		switch f := byFolder[k]; {
+		case f.todo:
+			todo++
+		case f.same:
+			have++
+		}
+	}
 	return have, todo, theirs
+}
+
+// skillAnyInstalled says whether any of conch's skills is there to take
+// away: one folder can have conch's own and lack the rest.
+func skillAnyInstalled(res *proto.AgentSkillResult) bool {
+	if res == nil {
+		return false
+	}
+	for _, ch := range res.Changes {
+		if ch.Action == proto.SyncSame {
+			return true
+		}
+	}
+	return false
 }
 
 // skillSummary is a machine's row on the skill page: what a person wants to
@@ -147,6 +183,8 @@ func (m Model) skillSummary(mid string) string {
 		parts = append(parts, styleOK.Render("✓ every agent has it"))
 	case have > 0:
 		parts = append(parts, styleOK.Render(itoa(have)+" have it"), styleWarn.Render(itoa(todo)+" not"))
+	case todo > 0 && skillAnyInstalled(p.res):
+		parts = append(parts, styleWarn.Render(itoa(todo)+" missing some · an older install"))
 	case todo > 0:
 		parts = append(parts, styleWarn.Render("not installed"))
 	default:
@@ -185,7 +223,7 @@ func skillAction(ch proto.SkillChange) string {
 // machine's agents. Both follow the agents pages beside them.
 func (s *settings) skillItems(m *Model) []settingItem {
 	items := []settingItem{
-		{header: true, label: "conch's own skill", detail: "so an agent can start, prompt and read another"},
+		{header: true, label: "conch's skills", detail: "so an agent can run other agents: a helper, a team, a review, a factory"},
 		{label: styleMuted.Render("‹ Agents"), detail: styleMuted.Render("esc"),
 			run: func(m *Model) tea.Cmd { s.openPage(""); return nil }},
 		{label: styleMuted.Render("  it teaches the agents conch's own commands · docs: Agents working together")},
@@ -209,7 +247,7 @@ func (s *settings) skillMachineItems(m *Model, mid string) []settingItem {
 		return s.skillItems(m)
 	}
 	items := []settingItem{
-		{header: true, label: "conch's skill · " + mach.label, detail: m.skillSummary(mid)},
+		{header: true, label: "conch's skills · " + mach.label, detail: m.skillSummary(mid)},
 		{label: styleMuted.Render("‹ Machines"), detail: styleMuted.Render("esc"),
 			run: func(m *Model) tea.Cmd { s.openPage("skill"); return nil }},
 	}
@@ -228,6 +266,9 @@ func (s *settings) skillMachineItems(m *Model, mid string) []settingItem {
 		if who == "" {
 			who = ch.Path
 		}
+		if ch.Skill != "" {
+			who = ch.Skill + styleMuted.Render(" · "+who)
+		}
 		item := settingItem{label: who, detail: skillAction(ch)}
 		if ch.Action == proto.SyncCreate || ch.Action == proto.SyncUpdate {
 			item.run = func(m *Model) tea.Cmd { return m.confirmSkill(mid, false) }
@@ -240,7 +281,7 @@ func (s *settings) skillMachineItems(m *Model, mid string) []settingItem {
 		items = append(items, settingItem{label: "Install it for every agent…", detail: styleMuted.Render("says what it writes first"),
 			run: func(m *Model) tea.Cmd { return m.confirmSkill(mid, false) }})
 	}
-	if have > 0 {
+	if have > 0 || skillAnyInstalled(p.res) {
 		items = append(items, settingItem{label: "Take conch's copy away…", detail: styleMuted.Render("leaves a skill of your own alone"),
 			run: func(m *Model) tea.Cmd { return m.confirmSkill(mid, true) }})
 	}
@@ -274,9 +315,9 @@ func (m *Model) confirmSkill(mid string, remove bool, agents ...string) tea.Cmd 
 		m.setFlash("nothing to do on "+label, false)
 		return nil
 	}
-	what := "Write conch's skill to"
+	what := "Write conch's skills to"
 	if remove {
-		what = "Take conch's skill from"
+		what = "Take conch's skills from"
 	}
 	question := what + " " + count(len(paths), "file") + " on " + label + "?\n  " + strings.Join(paths, "\n  ")
 	m.overlay = newConfirm(question, func(m *Model) tea.Cmd { return m.applySkill(mid, remove, agents...) })
@@ -290,12 +331,22 @@ func (m Model) skillFor(mid, agent string) (proto.SkillChange, bool) {
 	if p == nil || p.res == nil {
 		return proto.SkillChange{}, false
 	}
+	// The agent's folder holds a change per skill: the one still to write,
+	// if any is, since that is what the agent lacks.
+	var found proto.SkillChange
+	ok := false
 	for _, ch := range p.res.Changes {
-		if slices.Contains(ch.Agents, agent) {
-			return ch, true
+		if !slices.Contains(ch.Agents, agent) {
+			continue
 		}
+		if !ok || ch.Action == proto.SyncCreate || ch.Action == proto.SyncUpdate {
+			if !ok || (found.Action != proto.SyncCreate && found.Action != proto.SyncUpdate) {
+				found = ch
+			}
+		}
+		ok = true
 	}
-	return proto.SkillChange{}, false
+	return found, ok
 }
 
 // skillLine is what the setup view says about conch's skill for the agent
