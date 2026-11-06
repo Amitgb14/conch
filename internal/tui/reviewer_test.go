@@ -55,6 +55,43 @@ func TestReviewerStartsWhenTheWriterFinishes(t *testing.T) {
 	}
 }
 
+// A reviewer starts at the size it will be shown at — the TUI's pane area
+// — so an agent that draws inline is not rewrapped when it is opened.
+func TestReviewerStartsAtThePaneSize(t *testing.T) {
+	m, mach, peer := reviewModel(t)
+	m.cfg.Verify.Commands = nil
+	for _, sz := range [][2]int{{240, 60}, {40, 12}} {
+		m.width, m.height = sz[0], sz[1]
+		m.reviewSigs = nil
+		mach.panes = mach.panes[:1]
+		cmd := m.verifyOnDone(mach.id, mach.panes[0])
+		if cmd == nil {
+			t.Fatalf("no reviewer started at %dx%d: %q", sz[0], sz[1], m.flash)
+		}
+		cmd()
+		var cp proto.PaneCreateParams
+		sentParams(t, peer, proto.MethodPaneCreate, &cp)
+		cols, rows := m.paneArea()
+		if cp.Cols != cols || cp.Rows != rows || cols >= sz[0] || cols < 1 || rows < 1 {
+			t.Fatalf("screen %dx%d: started at %d×%d, pane area is %d×%d", sz[0], sz[1], cp.Cols, cp.Rows, cols, rows)
+		}
+	}
+	// Before the TUI has a size: 120×40, not the server's 80×24.
+	m.width, m.height = 0, 0
+	m.reviewSigs = nil
+	mach.panes = mach.panes[:1]
+	cmd := m.verifyOnDone(mach.id, mach.panes[0])
+	if cmd == nil {
+		t.Fatal("no reviewer started with no size known")
+	}
+	cmd()
+	var cp proto.PaneCreateParams
+	sentParams(t, peer, proto.MethodPaneCreate, &cp)
+	if cp.Cols != 120 || cp.Rows != 40 {
+		t.Fatalf("started at %d×%d with no size known, want 120×40", cp.Cols, cp.Rows)
+	}
+}
+
 func TestReviewerWaitsForTheCheck(t *testing.T) {
 	m, mach, peer := reviewModel(t)
 	// With a check, the check runs first and the review waits for it.

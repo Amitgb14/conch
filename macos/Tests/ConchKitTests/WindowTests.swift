@@ -391,6 +391,35 @@ import Testing
     #expect(odd.path.hasPrefix("/c/media/") && !odd.pathComponents.contains("..") && odd.lastPathComponent == "file")
 }
 
+// The scratch layer comes down when its pane goes, and only then.
+@Test func scratchLostWhenItsPaneGoes() throws {
+    func pane(_ state: String) throws -> PaneInfo {
+        try JSONDecoder().decode(PaneInfo.self, from: Data(#"{"id":"p218","name":"Scratch","state":"\#(state)","cols":80,"rows":24}"#.utf8))
+    }
+    #expect(!scratchLost(nil, pane: nil)) // no layer up: nothing to take down
+    #expect(scratchLost("local|p218", pane: nil)) // closed, or gone while away
+    #expect(scratchLost("local|p218", pane: try pane("exited"))) // its shell ended
+    #expect(!scratchLost("local|p218", pane: try pane("running")))
+}
+
+// A new pane starts at the size of a pane shown alone in a tab, the tab in
+// front first; never at a split's, a page's or nothing at all.
+@Test func newPanesStartAtTheTabsSize() {
+    let sizes: [String: (cols: Int, rows: Int)] = ["local|p1": (258, 38), "local|p2": (126, 38), "local|p3": (200, 50)]
+    let size = { (k: String) in sizes[k] }
+    var l = Layout()
+    #expect(fullTabSize(l, size: size) == nil) // nothing open
+    l.open(browserKey("http://localhost:3000"))
+    #expect(fullTabSize(l, size: size) == nil) // a page is not a pane
+    l.open("local|p1")
+    #expect(fullTabSize(l, size: size)! == (258, 38))
+    l.open("local|p3")
+    #expect(fullTabSize(l, size: size)! == (200, 50)) // the tab in front first
+    l.split(.horizontal, with: "local|p2")
+    #expect(fullTabSize(l, size: size)! == (258, 38)) // in front is split now: another tab's alone
+    #expect(fullTabSize(l, size: { _ in (1, 1) }) == nil) // a size not yet known
+}
+
 // Each file is marked by what it is; every mark is an icon that exists,
 // and a colour too close to the background gives way to the text's.
 @Test func fileIcons() {

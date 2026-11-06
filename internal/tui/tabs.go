@@ -80,6 +80,19 @@ func (m Model) paneArea() (cols, rows int) {
 	return r.w, r.h
 }
 
+// agentSize is what an agent started out of sight (a reviewer) starts at:
+// the size it will most likely be shown at, the focused leaf's. Started
+// at a fixed 120×40 and shown at 258 columns, an agent that draws inline
+// (Claude Code) had what it had printed rewrapped mid-word, its
+// highlighted blocks repeated as blank bars. Before the TUI knows its
+// size, 120×40 still beats the server's 80×24.
+func (m Model) agentSize() (cols, rows int) {
+	if m.width == 0 || m.height == 0 {
+		return 120, 40
+	}
+	return m.paneArea()
+}
+
 // mainOrigin is the screen position of the focused leaf's content.
 func (m Model) mainOrigin() (x, y int) {
 	r := m.focusedRect()

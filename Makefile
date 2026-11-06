@@ -5,7 +5,7 @@ LDFLAGS := -X $(MODULE)/internal/proto.Version=$(VERSION)
 # checks it leaves out, and why, are in staticcheck.conf.
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@2025.1.1
 
-.PHONY: build install test vet lint release clean demo settings-ui settings-ui-check
+.PHONY: build install test vet lint release app-release clean demo settings-ui settings-ui-check
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/conch ./cmd/conch
@@ -42,6 +42,10 @@ settings-ui-check: settings-ui
 
 release:
 	scripts/release.sh $(VERSION)
+
+# Conch.app for others to download (the desktop beta): dist/Conch_<v>_macos_arm64.zip.
+app-release:
+	macos/release.sh $(VERSION)
 
 # Watch the live diff work, on a throwaway repo with a fake agent editing it.
 demo:

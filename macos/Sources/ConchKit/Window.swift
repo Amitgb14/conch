@@ -211,6 +211,16 @@ public func scratchPane(_ panes: [PaneInfo], project: String?) -> PaneInfo? {
     panes.first { $0.running && $0.projectID == project && $0.name == scratchName && $0.createdBy == nil && $0.agent == nil }
 }
 
+/// Whether the scratch layer on screen has lost its pane — closed, its
+/// shell exited, or gone while the machine was away — and so must come
+/// down: left up, it showed "no pane p218" and Ghostty's failure over
+/// the splits, and option-space hid it rather than starting a new one.
+public func scratchLost(_ shown: String?, pane: PaneInfo?) -> Bool {
+    guard shown != nil else { return false }
+    guard let pane else { return true }
+    return !pane.running
+}
+
 // MARK: ports
 
 /// A listening port as a pane's header says it: ":4317" here, the machine
@@ -277,3 +287,19 @@ public func clickOwner(inTerminal: Bool, x: Double, y: Double, sidebarWidth: Dou
 /// dragged to: the default width's share of the scale, so a drag still
 /// moves the edge with the pointer.
 public func sidebarExtra(scale: Double, base: Double = 250) -> Double { max(0, (scale - 1) * base) }
+
+/// The sidebar row a tab is shown by: a pane's own row, a branch's
+/// changes its branch, a project's files or sessions their rows, its
+/// commit graph or agent setup the project; nil for a tab with none (a
+/// web page). The keyboard's cursor in the sidebar follows the tab in
+/// front by this — it used to stay where it was last put, so the row lit
+/// in the sidebar named a terminal while the window showed a branch.
+public func treeRow(forTab k: String) -> String? {
+    if parseBrowserKey(k) != nil { return nil }
+    if let c = parseChangesKey(k) { return "b:\(key(c.machine, c.project)):\(c.branch)" }
+    if let f = parseFilesKey(k) { return "s:\(key(f.machine, f.project)):files" }
+    if let s = parseSessionsKey(k) { return "s:\(key(s.machine, s.project)):sessions" }
+    if let c = parseCommitsKey(k) { return "p:\(key(c.machine, c.project))" }
+    if let s = parseSetupKey(k) { return "p:\(key(s.machine, s.project))" }
+    return "pane:" + k
+}

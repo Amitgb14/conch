@@ -91,8 +91,9 @@ func (m *Model) startReview(machine, projectID, branch string) tea.Cmd {
 		m.reviewSigs = map[string]string{}
 	}
 	m.reviewSigs[key] = sig
+	cols, rows := m.agentSize()
 	params := proto.PaneCreateParams{Agent: reviewer, Name: reviewPrefix + branch, Prompt: reviewerPrompt(branch, proj.Base),
-		Cwd: dir, Cols: 120, Rows: 40}
+		Cwd: dir, Cols: cols, Rows: rows}
 	m.setFlash("asking "+agentLabel(reviewer)+" to review "+branch+"…", false)
 	return func() tea.Msg {
 		var info proto.PaneInfo
