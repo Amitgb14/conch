@@ -62,13 +62,13 @@ func (s *Server) agentSetup(ap proto.AgentSetupParams) (proto.AgentSetupResult, 
 // the client shows the plan first.
 // agentSkill installs or removes conch's skill in this machine's home.
 func (s *Server) agentSkill(p proto.AgentSkillParams) (proto.AgentSkillResult, *proto.Error) {
-	changes, err := agentsetup.InstallSkill(agentsetup.CurrentEnv(), p.Agents, p.Remove, p.Apply)
+	changes, err := agentsetup.InstallSkills(agentsetup.CurrentEnv(), p.Agents, p.Remove, p.Apply)
 	if err != nil {
 		return proto.AgentSkillResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	out := proto.AgentSkillResult{Changes: []proto.SkillChange{}, Applied: p.Apply}
 	for _, c := range changes {
-		out.Changes = append(out.Changes, proto.SkillChange{Path: c.Path, Agents: c.Agents, Action: c.Action, Detail: c.Detail, Error: c.Error})
+		out.Changes = append(out.Changes, proto.SkillChange{Skill: c.Skill, Path: c.Path, Agents: c.Agents, Action: c.Action, Detail: c.Detail, Error: c.Error})
 	}
 	return out, nil
 }

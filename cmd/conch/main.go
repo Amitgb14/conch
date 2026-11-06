@@ -21,7 +21,6 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"github.com/Amitgb14/conch/internal/adapter"
-	"github.com/Amitgb14/conch/internal/agentsetup"
 	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
@@ -104,10 +103,14 @@ Usage:
                                 -at sends it later (14:05, +30m), once the agent is free
   conch view                    what the terminal is showing: its tabs, and which pane has the keyboard
   conch show [-name N] ID...    ask the terminal to put those panes in front of the person
-  conch skill                   print that skill instead, for an agent conch cannot install it for
+  conch skill [-list | NAME]    print conch's skill (or conch-team, conch-review, conch-ship,
+                                conch-factory) instead, for an agent conch cannot install it for
   conch agent skill [-agent NAMES] [-remove] [-apply]
-                                teach the agents to start, prompt and read other agents in
-                                conch: its skill, in each agent's own skills folder
+                                teach the agents conch: its skills, in each agent's own skills
+                                folder — conch (start, prompt and read other agents),
+                                conch-team (several at once), conch-review (review, fix,
+                                review again), conch-ship (tests, pull request, CI, merge)
+                                and conch-factory (a ticket all the way to a merged PR)
   conch agent add NAME -command BINARY [-label L] [-prompt 'FLAG {prompt}'] [-resume 'FLAG {id}']
                                 describe an agent conch has no adapter for, so it starts and is
                                 watched like the others; what you leave out it will not pretend
@@ -370,7 +373,7 @@ func main() {
 		// whose skills folder conch does not manage, a system prompt
 		// somebody assembles by hand, a sandbox where it goes inline.
 		// `conch agent skill -apply` is the way to install it.
-		os.Stdout.Write(agentsetup.Skill)
+		err = printSkill(args)
 	case "version", "--version", "-v":
 		runVersion(args)
 	case "help", "--help", "-h":

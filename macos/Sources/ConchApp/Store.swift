@@ -87,8 +87,12 @@ final class Store: ObservableObject {
     /// The status bar's ✦ Ask, open (its button, or the prefix and :).
     @Published var askOpen = false
     @Published var doctorOpen = false
-    /// conch's skill for agents, per machine (AgentSkillSheet).
+    /// conch's skills for agents, per machine (AgentSkillSheet).
     @Published var skillOpen = false
+    /// The library of MCP servers and skills (LibrarySheet), opened on
+    /// libraryMachine.
+    @Published var libraryOpen = false
+    var libraryMachine = "local"
     /// A broadcast being written (BroadcastSheet).
     @Published var broadcastDraft: BroadcastDraft?
     /// The focused pane's find bar, while it is open.
@@ -2028,6 +2032,7 @@ final class Store: ObservableObject {
         case "shortcuts": helpOpen = true
         case "doctor": doctorOpen = true
         case "agentSkill": skillOpen = true
+        case "agentLibrary": libraryMachine = "local"; libraryOpen = true
         case "findOlder": findNext(back: true)
         case "findNewer": findNext(back: false)
         case "zoomSplit": layout.toggleZoom(); focusTerminal()
@@ -2156,6 +2161,7 @@ final class Store: ObservableObject {
         case .upgrade(let m): upgrade(m)
         case .removeMachine(let m): removeMachine(m)
         case .agentSkill: skillOpen = true
+        case .agentLibrary(let m): libraryMachine = m; libraryOpen = true
         case .openURL(let s): if let u = openableURL(s) { NSWorkspace.shared.open(u) }
         case .removeWorktree(let pk, let path): removeWorktree(project: pk, path: path)
         case .removeProject(let pk): removeProject(pk)

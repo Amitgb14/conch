@@ -514,7 +514,7 @@ import Testing
     let json = #"{"changes":[{"path":"/h/.claude/skills/conch/SKILL.md","agents":["claude"],"action":"same"},{"path":"/h/.agents/skills/conch/SKILL.md","agents":["codex","gemini","opencode"],"action":"create"},{"path":"/h/.config/devin/skills/conch/SKILL.md","agents":["devin"],"action":"skip","detail":"a skill of yours named conch, left alone"}]}"#
     let r = try JSONDecoder().decode(AgentSkillResult.self, from: Data(json.utf8))
     #expect(skillCounts(r) == (1, 1, 1))
-    #expect(skillStanding(r) == .some(have: 1, not: 1) && skillStanding(r).text == "1 have it · 1 not")
+    #expect(skillStanding(r) == .some(have: 1, not: 1) && skillStanding(r).text == "1 have them · 1 not")
     #expect(skillWrites(r).map(\.agents) == [["codex", "gemini", "opencode"]]) // never yours, never what's right already
     #expect(skillLine(r.changes[0]) == "✓ has it" && skillLine(r.changes[1]) == "not installed")
     #expect(skillLine(r.changes[2]) == "a skill of yours named conch, left alone")
@@ -532,4 +532,28 @@ import Testing
     #expect(skillWrites(AgentSkillResult(changes: [SkillChange(path: "/p", agents: ["a"], action: "remove"), SkillChange(path: "/q", agents: ["b"], action: "skip")])).count == 1)
     // An older server's answer without applied still decodes.
     #expect(try JSONDecoder().decode(AgentSkillResult.self, from: Data(#"{"changes":[]}"#.utf8)).applied == nil)
+    #expect(r.changes[0].skillName == "conch" && r.changes[0].folder == "/h/.claude/skills")
+}
+
+// Every one of conch's skills, a change each per folder: a folder counts
+// once, and as missing while any one of its skills is.
+@Test func agentSkillsByFolder() throws {
+    let json = #"{"changes":[{"skill":"conch","path":"/h/.claude/skills/conch/SKILL.md","agents":["claude"],"action":"same"},{"skill":"conch-factory","path":"/h/.claude/skills/conch-factory/SKILL.md","agents":["claude"],"action":"same"},{"skill":"conch","path":"/h/.agents/skills/conch/SKILL.md","agents":["codex","gemini"],"action":"same"},{"skill":"conch-factory","path":"/h/.agents/skills/conch-factory/SKILL.md","agents":["codex","gemini"],"action":"create"},{"skill":"conch-ship","path":"/h/.agents/skills/conch-ship/SKILL.md","agents":["codex","gemini"],"action":"skip"}]}"#
+    let r = try JSONDecoder().decode(AgentSkillResult.self, from: Data(json.utf8))
+    let f = skillFolders(r)
+    #expect(f.map(\.path) == ["/h/.claude/skills", "/h/.agents/skills"])
+    #expect(f[1].agents == ["codex", "gemini"] && f[1].changes.map(\.skillName) == ["conch", "conch-factory", "conch-ship"])
+    #expect(skillCounts(r) == (1, 1, 1))
+    #expect(skillStanding(r) == .some(have: 1, not: 1))
+    #expect(skillWrites(r).map(\.skillName) == ["conch-factory"])
+    #expect(skillFolders(AgentSkillResult(changes: [])).isEmpty)
+    #expect(skillAnyInstalled(r))
+    // An install from before the rest: conch's own in every folder, the
+    // others not — missing some, not "not installed", and removable.
+    let older = AgentSkillResult(changes: ["/a", "/b"].flatMap { f in
+        [SkillChange(skill: "conch", path: f + "/conch/SKILL.md", agents: [f], action: "same"),
+         SkillChange(skill: "conch-team", path: f + "/conch-team/SKILL.md", agents: [f], action: "create")] })
+    #expect(skillStanding(older) == .missingSome(2) && skillStanding(older).text == "2 missing some · an older install")
+    #expect(skillAnyInstalled(older) && skillCounts(older).have == 0)
+    #expect(!skillAnyInstalled(AgentSkillResult(changes: [SkillChange(path: "/a/conch/SKILL.md", agents: [], action: "create")])))
 }

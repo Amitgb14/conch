@@ -1,9 +1,9 @@
 import ConchKit
 import SwiftUI
 
-// conch's own skill, per machine: whether each agent there has it, and
-// installing or removing it — the TUI's Settings → Agents → conch's own
-// skill. Every machine is read with agent.skill as a plan, which writes
+// conch's skills, per machine: whether each agent there has them, and
+// installing or removing them — the TUI's Settings → Agents → conch's
+// skills. Every machine is read with agent.skill as a plan, which writes
 // nothing; a write is asked again with apply, after a question naming the
 // paths it touches, and the plan is read afresh after it.
 
@@ -60,11 +60,11 @@ final class AgentSkillModel: ObservableObject {
                 let plan = try await c.call("agent.skill", P(remove: remove ? true : nil), as: AgentSkillResult.self)
                 let writes = skillWrites(plan)
                 if writes.isEmpty {
-                    store.say(remove ? "conch's skill isn't installed on \(store.label(m))" : "Every agent on \(store.label(m)) has conch's skill", .info)
+                    store.say(remove ? "conch's skills aren't installed on \(store.label(m))" : "Every agent on \(store.label(m)) has conch's skills", .info)
                     return
                 }
                 let a = NSAlert()
-                a.messageText = remove ? "Take conch's skill away on \(store.label(m))?" : "Install conch's skill on \(store.label(m))?"
+                a.messageText = remove ? "Take conch's skills away on \(store.label(m))?" : "Install conch's skills on \(store.label(m))?"
                 a.informativeText = writes.map { "\($0.path)\n    for \($0.agents.joined(separator: ", "))" }.joined(separator: "\n")
                     + (remove ? "\n\nOnly conch's own copies go; a skill of yours of that name is left alone."
                               : "\n\nBeside your own skills, replacing none of them.")
@@ -75,7 +75,7 @@ final class AgentSkillModel: ObservableObject {
                 if let failed = done.changes.first(where: { !($0.error ?? "").isEmpty }) {
                     store.error = "\(failed.path): \(failed.error ?? "")"
                 } else {
-                    store.say(remove ? "conch's skill removed on \(store.label(m))" : "conch's skill installed on \(store.label(m))")
+                    store.say(remove ? "conch's skills removed on \(store.label(m))" : "conch's skills installed on \(store.label(m))")
                 }
                 read(m) // what was written is the new plan
             } catch {
@@ -103,15 +103,15 @@ struct AgentSkillSheet: View {
     var body: some View {
         let _ = look
         VStack(alignment: .leading, spacing: 10) {
-            Text("conch's skill for agents").font(.ui(size: 15, weight: .semibold))
-            Text("So an agent can start another — a reviewer, a tester, a second opinion — prompt it, wait for it and read its answer. It goes where each agent reads your skills, beside them, replacing none.")
+            Text("conch's skills for agents").font(.ui(size: 15, weight: .semibold))
+            Text("So an agent can run others: conch starts a helper and reads its answer, conch-team runs several at once, conch-review loops review → fix → review, conch-ship takes a branch to a merged pull request, and conch-factory takes a ticket all the way. They go where each agent reads your skills, beside them, replacing none.")
                 .font(.ui(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(model.rows) { r in machine(r) }
                 }
             }
-            .frame(height: 340)
+            .frame(height: 400)
             HStack {
                 Text("conch agent skill, on each machine").font(.ui(size: 11.5)).foregroundStyle(.secondary)
                 Spacer()
@@ -139,15 +139,19 @@ struct AgentSkillSheet: View {
             }
             .buttonStyle(.plain)
             if isOpen, let res = r.result {
-                ForEach(res.changes, id: \.path) { c in
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack {
-                            Text(c.agents.joined(separator: ", ")).font(.ui(size: 12, weight: .medium))
-                            Spacer()
-                            Text(skillLine(c)).font(.ui(size: 11.5))
-                                .foregroundStyle(!(c.error ?? "").isEmpty ? Theme.err : c.action == "same" ? Theme.ok : c.action == "skip" ? Theme.muted : Theme.warn)
+                ForEach(skillFolders(res)) { f in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(f.agents.joined(separator: ", ")).font(.ui(size: 12, weight: .medium))
+                        Text(f.path).font(.ui(size: 11, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                        ForEach(f.changes, id: \.path) { c in
+                            HStack {
+                                Text(c.skillName).font(.ui(size: 11.5, design: .monospaced))
+                                Spacer()
+                                Text(skillLine(c)).font(.ui(size: 11.5)).lineLimit(1).truncationMode(.tail)
+                                    .foregroundStyle(!(c.error ?? "").isEmpty ? Theme.err : c.action == "same" ? Theme.ok : c.action == "skip" ? Theme.muted : Theme.warn)
+                            }
+                            .padding(.leading, 12)
                         }
-                        Text(c.path).font(.ui(size: 11, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                     .padding(.leading, 20)
                 }
@@ -155,8 +159,8 @@ struct AgentSkillSheet: View {
                     let (have, todo, _) = skillCounts(res)
                     Button(todo > 0 && have > 0 ? "Install for the rest…" : "Install for every agent…") { model.apply(r.id, remove: false) }
                         .disabled(todo == 0 || model.busy)
-                    Button("Take conch's copy away…") { model.apply(r.id, remove: true) }
-                        .disabled(have == 0 || model.busy)
+                    Button("Take conch's copies away…") { model.apply(r.id, remove: true) }
+                        .disabled(!skillAnyInstalled(res) || model.busy)
                 }
                 .controlSize(.small).padding(.leading, 20)
             }

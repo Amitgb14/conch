@@ -2094,8 +2094,10 @@ type AgentSkillResult struct {
 
 // SkillChange is one SKILL.md and the agents that read it. Action is
 // create, update, same, remove or skip (a skill of that name conch didn't
-// write, left alone).
+// write, left alone). Skill names which of conch's skills it is; a server
+// from before conch had more than one leaves it out and means "conch".
 type SkillChange struct {
+	Skill  string   `json:"skill,omitempty"`
 	Path   string   `json:"path"`
 	Agents []string `json:"agents"`
 	Action string   `json:"action"`

@@ -734,7 +734,7 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				m.libraryErr = ""
 				return m.loadLibrary(proto.AgentLibraryParams{}, "")
 			}},
-		settingItem{label: "conch's own skill…", detail: styleMuted.Render("so an agent can start, prompt and read another"), page: true,
+		settingItem{label: "conch's skills…", detail: styleMuted.Render("so an agent can run others: a helper, a team, a review, a factory"), page: true,
 			run: func(m *Model) tea.Cmd {
 				s.openPage("skill")
 				var cmds []tea.Cmd
