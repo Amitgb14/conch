@@ -1,7 +1,7 @@
 import Foundation
 
 // conch's skills — conch (start, prompt and read another agent),
-// conch-team, conch-review, conch-ship and conch-factory — per machine, as
+// conch-team, conch-review, conch-ship, conch-factory and conch-autopilot — per machine, as
 // the TUI's Settings → Agents → conch's skills shows them: agent.skill
 // asked without apply is the plan, and nothing is written until it is
 // asked again with apply. A server from before there was more than one
@@ -168,4 +168,5 @@ public let conchSkillBlurbs: [String: String] = [
     "conch-review": "another agent reviews, the author fixes, review again",
     "conch-ship": "tests, pull request, CI, merge when asked",
     "conch-factory": "a ticket all the way to a merged pull request",
+    "conch-autopilot": "set up the automated workflow for a project",
 ]

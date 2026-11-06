@@ -1,0 +1,15 @@
+{
+  "name": "conch",
+  "description": "conch's skills for coding agents running other agents, from the conch repository",
+  "owner": {
+    "name": "Amit Ghadge",
+    "url": "https://github.com/Amitgb14"
+  },
+  "plugins": [
+    {
+      "name": "conch",
+      "source": "./internal/agentsetup",
+      "description": "Skills for agents running agents in conch: a helper, a team, a review loop, shipping a branch, a ticket to a merged pull request, and setting up the autopilot. Needs conch (https://amitgb14.github.io/conch/)."
+    }
+  ]
+}

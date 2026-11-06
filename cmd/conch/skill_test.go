@@ -56,6 +56,9 @@ func skillCommandsExist(t *testing.T, text string) {
 		cmd, rest := u.cmd, u.rest
 		var line string
 		for i, l := range usageLines {
+			// A command another machine can run is listed as
+			// "conch [-m MACHINE] autopilot push".
+			l := strings.Replace(l, "conch [-m MACHINE] ", "conch ", 1)
 			if strings.Contains(l, "conch "+cmd+" ") || strings.HasSuffix(strings.TrimSpace(l), "conch "+cmd) || strings.Contains(l, "conch "+cmd+"\t") {
 				// A command's flags may continue on its next lines.
 				line = strings.Join(usageLines[i:min(i+4, len(usageLines))], " ")
@@ -174,14 +177,14 @@ func TestPrintSkill(t *testing.T) {
 	}
 	var err error
 	out, _ := a4Capture(t, "", func() { err = printSkill([]string{"-list"}) })
-	if err != nil || out != "conch\nconch-factory\nconch-review\nconch-ship\nconch-team\n" {
+	if err != nil || out != "conch\nconch-autopilot\nconch-factory\nconch-review\nconch-ship\nconch-team\n" {
 		t.Fatalf("-list: %v %q", err, out)
 	}
 	out, _ = a4Capture(t, "", func() { err = printSkill(nil) })
 	if err != nil || out != string(agentsetup.Skill) {
 		t.Fatal("no name: not conch's own")
 	}
-	if err := printSkill([]string{"nope"}); err == nil || !strings.Contains(err.Error(), "no skill called nope; it has conch, conch-factory") {
+	if err := printSkill([]string{"nope"}); err == nil || !strings.Contains(err.Error(), "no skill called nope; it has conch, conch-autopilot, conch-factory") {
 		t.Fatalf("unknown: %v", err)
 	}
 	for _, bad := range [][]string{{"-x"}, {"a", "b"}} {

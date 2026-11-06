@@ -2,9 +2,11 @@ package agentsetup
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -332,7 +334,7 @@ func TestInstallSkillLeftoverCopy(t *testing.T) {
 // that is its folder's, a description under the cut, and conch's mark —
 // without which conch could never update or remove it.
 func TestBundledSkills(t *testing.T) {
-	want := []string{"conch", "conch-factory", "conch-review", "conch-ship", "conch-team"}
+	want := []string{"conch", "conch-autopilot", "conch-factory", "conch-review", "conch-ship", "conch-team"}
 	var names []string
 	for _, sk := range Skills {
 		names = append(names, sk.Name)
@@ -368,6 +370,13 @@ func TestBundledSkills(t *testing.T) {
 	if !bytes.Equal(Skill, Skills[0].Body) {
 		t.Fatal("Skill is not conch's own")
 	}
+	// The autopilot's: it proposes before it changes, and leaves merging off.
+	auto, _ := BundledSkillNamed("conch-autopilot")
+	for _, w := range []string{"Propose, then apply only", "Never turn it on unless they", "conch autopilot push", "auto_merge = false"} {
+		if !strings.Contains(string(auto.Body), w) {
+			t.Errorf("conch-autopilot no longer says %q", w)
+		}
+	}
 	if sk, ok := BundledSkillNamed("conch-factory"); !ok || sk.Name != "conch-factory" {
 		t.Fatal("conch-factory not found by name")
 	}
@@ -377,7 +386,10 @@ func TestBundledSkills(t *testing.T) {
 	// What the person asked of the factory: the whole line, and a merge
 	// only when they asked for one.
 	factory, _ := BundledSkillNamed("conch-factory")
-	for _, w := range []string{"gh issue view", "conch task -issue", "conch review send", "TEST-REPORT.md", "conch branch pr", "only if the\nperson asked for a merge", "auto_pr = true"} {
+	for _, w := range []string{"gh issue view", "conch task -issue", "conch review send", "TEST-REPORT.md", "conch branch pr", "only if the\nperson asked for a merge", "auto_pr = true",
+		// Agreed before it is built, built test-first, reviewed against
+		// what was agreed, and a retro to improve the line.
+		"Acceptance criteria", "SPEC.md", "test-first, a slice at a time", "fidelity to /abs/path/SPEC.md", "## 9. Retro", "Propose the changes; don't make them"} {
 		if !strings.Contains(string(factory.Body), w) {
 			t.Errorf("conch-factory no longer says %q", w)
 		}
@@ -477,5 +489,58 @@ func TestInstallSkills(t *testing.T) {
 	}
 	if _, err := InstallSkills(e, []string{"aider"}, false, false); err == nil {
 		t.Fatal("an unknown agent: no error")
+	}
+}
+
+// The repository is also a Claude Code plugin marketplace: its plugin is
+// this folder, whose skills/ are the ones conch installs, so the two ways
+// in never disagree. A renamed folder or a broken manifest would leave
+// `/plugin install conch@conch` installing nothing.
+func TestPluginManifests(t *testing.T) {
+	var market struct {
+		Name    string                `json:"name"`
+		Owner   struct{ Name string } `json:"owner"`
+		Plugins []struct {
+			Name   string `json:"name"`
+			Source string `json:"source"`
+		} `json:"plugins"`
+	}
+	b, err := os.ReadFile(filepath.Join("..", "..", ".claude-plugin", "marketplace.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &market); err != nil {
+		t.Fatalf("marketplace.json: %v", err)
+	}
+	if market.Name != "conch" || market.Owner.Name == "" || len(market.Plugins) != 1 {
+		t.Fatalf("marketplace: %+v", market)
+	}
+	p := market.Plugins[0]
+	if p.Name != "conch" || p.Source != "./internal/agentsetup" {
+		t.Fatalf("plugin entry: %+v", p)
+	}
+	var plugin struct {
+		Name string `json:"name"`
+	}
+	b, err = os.ReadFile(filepath.Join(".claude-plugin", "plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &plugin); err != nil || plugin.Name != p.Name {
+		t.Fatalf("plugin.json: %v %+v (its name must be the entry's)", err, plugin)
+	}
+	// Every skill conch installs is one the plugin carries, and no other.
+	dirs, _ := os.ReadDir("skills")
+	var names []string
+	for _, d := range dirs {
+		names = append(names, d.Name())
+	}
+	var want []string
+	for _, sk := range Skills {
+		want = append(want, sk.Name)
+	}
+	sort.Strings(want)
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("plugin skills %v, conch's %v", names, want)
 	}
 }

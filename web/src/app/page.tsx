@@ -10,6 +10,7 @@ import { Features } from "@/components/landing/features"
 import { InstallCard } from "@/components/landing/install-card"
 import { Screenshots } from "@/components/landing/screenshots"
 import { Section } from "@/components/landing/section"
+import { Skills } from "@/components/landing/skills"
 import { TuiDemo } from "@/components/landing/tui-demo"
 import { TerminalWindow } from "@/components/terminal"
 import { Badge } from "@/components/ui/badge"
@@ -150,6 +151,16 @@ export default function Home() {
         lede="Another client of the same server, so it shows what the TUI shows and closing it stops nothing. Panes are drawn by Ghostty; a branch's changes, files and dev server sit in tabs beside the agents."
       >
         <DesktopApp />
+      </Section>
+
+      <Section
+        id="skills"
+        label="skills for your agents"
+        title="Agents that run other agents"
+        lede="conch carries six skills that teach an agent to hand work to others: a helper, a team, a review loop, shipping a branch, a ticket all the way to a merged pull request, and setting up the autopilot. Install them once, then ask in plain words."
+        className="bg-surface"
+      >
+        <Skills />
       </Section>
 
       <Section

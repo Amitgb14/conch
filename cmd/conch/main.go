@@ -104,13 +104,15 @@ Usage:
   conch view                    what the terminal is showing: its tabs, and which pane has the keyboard
   conch show [-name N] ID...    ask the terminal to put those panes in front of the person
   conch skill [-list | NAME]    print conch's skill (or conch-team, conch-review, conch-ship,
-                                conch-factory) instead, for an agent conch cannot install it for
+                                conch-factory, conch-autopilot) instead, for an agent conch cannot
+                                install it for
   conch agent skill [-agent NAMES] [-remove] [-apply]
                                 teach the agents conch: its skills, in each agent's own skills
                                 folder — conch (start, prompt and read other agents),
                                 conch-team (several at once), conch-review (review, fix,
-                                review again), conch-ship (tests, pull request, CI, merge)
-                                and conch-factory (a ticket all the way to a merged PR)
+                                review again), conch-ship (tests, pull request, CI, merge),
+                                conch-factory (a ticket all the way to a merged PR) and
+                                conch-autopilot (set up the automated workflow for a project)
   conch agent add NAME -command BINARY [-label L] [-prompt 'FLAG {prompt}'] [-resume 'FLAG {id}']
                                 describe an agent conch has no adapter for, so it starts and is
                                 watched like the others; what you leave out it will not pretend

@@ -192,7 +192,7 @@ extension SettingsNav {
             if let s = schema.first(where: { $0.id == id }) {
                 hay = ([s.title, s.description] + s.fields.flatMap { [$0.label, $0.help ?? "", $0.key] }).joined(separator: " ").lowercased()
             } else {
-                hay = "\(skillsTitle) skill skills mcp server servers library conch-factory conch-team conch-review conch-ship".lowercased()
+                hay = "\(skillsTitle) skill skills mcp server servers library conch-factory conch-team conch-review conch-ship conch-autopilot autopilot".lowercased()
             }
             return words.allSatisfy { hay.contains($0) }
         }

@@ -13,7 +13,7 @@ conch agent skill            # says where it would write, and writes nothing
 conch agent skill -apply     # writes them
 ```
 
-There are five, installed together:
+There are six, installed together:
 
 | Skill | What it teaches the agent |
 | --- | --- |
@@ -21,9 +21,19 @@ There are five, installed together:
 | `conch-team` | several agents at once: one task tried by two or three to keep the best, a task split into parts that run side by side, or a chain where each starts from the last one's branch |
 | `conch-review` | another agent reviews a branch and comments on its lines, the author fixes or answers each comment, and the reviewer looks again — until it is clean, or three rounds and it asks you |
 | `conch-ship` | the project's tests, a commit, a push, the pull request, CI watched and a failure sent back to the branch's agent, and a merge once it is green — only when you asked for one |
+| `conch-autopilot` | set up the automated workflow for a project: it finds the project's check and runs it once, proposes the `[verify]` policy (the check, a reviewer, failures sent back, pull requests opened, merging left off until you trust it), guardrails and a worktree's setup, applies only what you agree to, and shows the ways to feed it work |
 | `conch-factory` | a ticket all the way: read it (a GitHub issue, or your tracker through the agent's own tools), one agent builds it test-first, another reviews, the builder fixes, review again, a tester tries it, then the pull request, CI and the merge |
 
 Or without leaving the TUI. `i` on a project, branch or pane says under **conch** whether the agent whose tab is open has the skill on that machine, and `S` installs it or takes it away. For every agent at once: `,` → **Agents** → **conch's skills…** lists every machine and how it stands there — *every agent has it*, *1 have it · 1 not* (an agent counts once it has all five), or the reason it could not be asked — and opening a machine names each skill for each agent and what would happen to it. **Install it for every agent…** and **Take conch's copy away…** name every path in a question before anything is written, the way the command plans before `-apply`. A machine at a time, through that machine's own server.
+
+In Claude Code they are also a plugin, from the conch repository itself:
+
+```
+/plugin marketplace add Amitgb14/conch
+/plugin install conch@conch
+```
+
+Its skills are named `conch:conch-factory` and so on. Pick one way for Claude Code — the plugin, or `conch agent skill` — or it reads each skill twice. The plugin installs the same files conch does, and they act only inside a conch pane.
 
 In the Mac app it is **Settings → Skills & MCP servers**, or **Skills & MCP servers…** on a machine's right-click menu.
 
@@ -59,13 +69,15 @@ The other skills are asked for the same way, in plain words, or in Claude Code b
 
 > Take issue 123 from build to a merged pull request. *(conch-factory, or `/conch-factory 123` in Claude Code)*
 
+> Set up an automated workflow for this project. *(conch-autopilot)*
+
 The factory runs the whole line with the agent you asked as its foreman, each stage an agent in a pane of its own:
 
 ```
-ticket → build → review → fix → review → test → pull request → CI → merge
+ticket → spec → build → review → fix → review → test → pull request → CI → merge → retro
 ```
 
-It tells you the plan first — which ticket, which agent builds, which reviews, and whether it will merge — and stops the line rather than guessing: a ticket too vague to build comes back with questions, a review still open after three rounds or CI still red after three fixes comes back to you, and an agent waiting on a question is yours to answer. It merges only when you asked it to. With conch's autopilot on (`auto_pr`, `auto_merge` under `[verify]` in [config.toml](/docs/configuration)), the pull request and the merge are conch's, and the factory waits for them rather than racing it. For a backlog it queues the tickets, at most two builders at a time (`conch task -queue -wip 2 -issue N`).
+It first writes the ticket down as a short spec — the goal, acceptance criteria a test or a reviewer can check, and what is out of scope — and agrees it with you; a vague ticket gets questions, one at a time, until it is whole. Builders work test-first against the spec, a slice at a time, and the reviewer checks fidelity to it before anything else. At the end a short retro says what slowed the line — review rounds, CI failures, questions a permission rule would have answered — and proposes changes for you to make. It tells you the plan first — which ticket, which agent builds, which reviews, and whether it will merge — and stops the line rather than guessing: a ticket too vague to build comes back with questions, a review still open after three rounds or CI still red after three fixes comes back to you, and an agent waiting on a question is yours to answer. It merges only when you asked it to. With conch's autopilot on (`auto_pr`, `auto_merge` under `[verify]` in [config.toml](/docs/configuration)), the pull request and the merge are conch's, and the factory waits for them rather than racing it. For a backlog it queues the tickets, at most two builders at a time (`conch task -queue -wip 2 -issue N`).
 
 Every stage is an agent spending your usage, so ask for the size of team you want.
 

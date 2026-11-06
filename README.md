@@ -77,6 +77,30 @@ In the TUI: `t` new task · `c` start an agent · `:` ask in plain words ·
 `B` broadcast to a group · `!` jump to the next agent waiting for you · `?` all keys ·
 `q` detach.
 
+## Skills for your agents
+
+conch carries skills that teach an agent to run other agents: start a
+helper and read its answer (`conch`), several at once (`conch-team`),
+review until clean (`conch-review`), tests to a merged pull request
+(`conch-ship`), a ticket all the way (`conch-factory`), and the automated
+workflow for a project (`conch-autopilot`). Install them for every agent
+— Claude Code, Codex, Gemini CLI, OpenCode and Devin:
+
+```sh
+conch agent skill -apply
+```
+
+Or, in Claude Code, as a plugin from this repository:
+
+```
+/plugin marketplace add Amitgb14/conch
+/plugin install conch@conch
+```
+
+Then ask an agent in a conch pane: *"take issue 123 to a merged pull
+request"*, *"set up an automated workflow for this project"*. They act
+only inside conch. See [Agents working together](https://amitgb14.github.io/conch/docs/agents-together).
+
 ## Development
 
 ```sh

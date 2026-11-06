@@ -13,7 +13,7 @@ pane of its own, on a branch of its own, so the person can watch any of
 them in conch's tree and step in.
 
 ```
-ticket → build → review → fix → review → test → pull request → CI → merge
+ticket → spec → build → review → fix → review → test → pull request → CI → merge → retro
 ```
 
 Check first that you are in conch:
@@ -43,13 +43,32 @@ have for that tracker, and put its title, description and acceptance
 criteria in the builder's prompt yourself. If you have no way to read it,
 ask the person to paste it.
 
-A ticket too vague to build — no acceptance criteria, a question rather
-than a task — goes back to the person with your questions. Don't guess.
+## 2. Agree what done means
 
-## 2. Build
+Before any agent builds, write the ticket down as a short spec and show it
+to the person:
+
+- **Goal** — the change, in a sentence.
+- **Acceptance criteria** — what must be true when it is done, each one
+  something a test or a reviewer can check.
+- **Out of scope** — what this ticket does not change.
+
+A clear ticket makes this quick; confirm it in one message. A ticket too
+vague to build — no acceptance criteria, a question rather than a task —
+needs the person: ask them, a question at a time, until the spec is
+whole. If you have a skill for this (one that interviews the person or
+turns a conversation into a spec), use it here. Don't guess: an agent
+building the wrong thing well is the most expensive mistake on this line.
+
+Save the agreed spec outside the repository — in
+`${TMPDIR:-/tmp}/conch-factory-123/SPEC.md`, say — so nothing can commit
+it, and give its absolute path (shown below as `/abs/path/SPEC.md`) to
+every agent below. Then build.
+
+## 3. Build
 
 ```sh
-conch task -issue 123 -name build-123 "Work test-first: write a test that fails without the change, then the change. Commit in small commits whose messages say what and why, and leave nothing uncommitted."
+conch task -issue 123 -name build-123 "Build what /abs/path/SPEC.md says, and nothing it puts out of scope. Work test-first, a slice at a time: a test that fails without the change, then the change that makes it pass, then the next — use your test-driven development skill if you have one. When something breaks, reproduce it before you fix it. Commit in small commits whose messages say what and why, and leave nothing uncommitted."
 ```
 
 `-issue` puts the issue's title and body in the prompt. For another
@@ -66,16 +85,16 @@ timeout (read its screen with `conch read build-123` before deciding).
 Check the work is committed (`git -C WORKTREE status --short` prints
 nothing) before going on.
 
-## 3. Review
+## 4. Review
 
 A different agent from the builder where one is installed:
 
 ```sh
-conch task -name review-123 -agent codex -base BRANCH "You are reviewing branch BRANCH against BASE for issue 123 (gh issue view 123). Read the diff with git diff BASE...BRANCH. Check it does what the issue asks, and look for bugs, missing tests and broken edge cases. For each finding add a comment on its line: conch review add -branch BRANCH FILE:LINE 'what is wrong and what to do'. Don't change code. Write REVIEW.md in your worktree: one line per finding, or 'clean'."
+conch task -name review-123 -agent codex -base BRANCH "You are reviewing branch BRANCH against BASE for issue 123 (gh issue view 123). Read the diff with git diff BASE...BRANCH. First check fidelity to /abs/path/SPEC.md: every acceptance criterion met and shown by a test, and nothing it puts out of scope changed. Then look for bugs, missing tests and broken edge cases. For each finding add a comment on its line: conch review add -branch BRANCH FILE:LINE 'what is wrong and what to do'. Don't change code. Write REVIEW.md in your worktree: one line per finding, or 'clean'."
 conch wait -state done,waiting -timeout 30m review-123
 ```
 
-## 4. Fix, and review again
+## 5. Fix, and review again
 
 When `REVIEW.md` is not clean:
 
@@ -89,7 +108,7 @@ Repeat until the review is clean, at most three rounds. Still open after
 three: stop the line and tell the person what the builder and reviewer
 disagree on.
 
-## 5. Test
+## 6. Test
 
 ```sh
 conch task -name test-123 -base BRANCH "You are testing branch BRANCH for issue 123 (gh issue view 123). First bring your worktree to its newest commit: git checkout --detach BRANCH. Run the project's whole test suite, then try the change the way a user would, including its edge cases. Don't fix anything. Write TEST-REPORT.md in your worktree: 'pass', or each failure with the command that shows it."
@@ -102,7 +121,7 @@ On a failure, give the report to the builder and test again:
 conch agent prompt -wait -timeout 45m build-123 "The tester found failures; read TESTER_WORKTREE/TEST-REPORT.md, fix them with a test each, and commit."
 ```
 
-## 6. Pull request, CI and merge
+## 7. Pull request, CI and merge
 
 If conch's autopilot ships branches — `grep -A12 '^\[verify\]' "$(conch config path)"` shows `auto_pr = true` — it pushes and opens the pull request itself, sends a CI failure back to the builder, and with `auto_merge = true` merges once green. Then
 watch and report; doing it by hand races it.
@@ -124,13 +143,27 @@ person asked for a merge:
 gh pr merge BRANCH --squash --delete-branch
 ```
 
-## 7. Report and tidy up
+## 8. Report and tidy up
 
 Tell the person: the ticket, the pull request's URL, what the review
 found and fixed, the test result, and whether it merged. Close the
 reviewer and tester (`conch close review-123`, `conch close test-123`);
 close the builder once the pull request is merged. Branches and worktrees
 stay for the person.
+
+## 9. Retro
+
+Then a few lines on how the line ran, for the person to act on:
+
+- what took longest, and why — review rounds, CI failures, a stage
+  waiting on a question;
+- each question an agent asked that a permission rule or a clearer spec
+  would have answered;
+- what to change: the project's check (`[verify]`), a permission rule, a
+  worktree's setup (`conch project setup`), or this ticket template.
+
+Propose the changes; don't make them. The person decides, and the
+`conch-autopilot` skill is the way to apply them.
 
 ## A backlog
 
