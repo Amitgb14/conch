@@ -337,3 +337,14 @@ import Testing
     let odd = mediaCachePath(base: base, machine: "../x/y", path: "/")
     #expect(odd.path.hasPrefix("/c/media/") && !odd.pathComponents.contains("..") && odd.lastPathComponent == "file")
 }
+
+// The scratch layer comes down when its pane goes, and only then.
+@Test func scratchLostWhenItsPaneGoes() throws {
+    func pane(_ state: String) throws -> PaneInfo {
+        try JSONDecoder().decode(PaneInfo.self, from: Data(#"{"id":"p218","name":"Scratch","state":"\#(state)","cols":80,"rows":24}"#.utf8))
+    }
+    #expect(!scratchLost(nil, pane: nil)) // no layer up: nothing to take down
+    #expect(scratchLost("local|p218", pane: nil)) // closed, or gone while away
+    #expect(scratchLost("local|p218", pane: try pane("exited"))) // its shell ended
+    #expect(!scratchLost("local|p218", pane: try pane("running")))
+}

@@ -54,7 +54,12 @@ final class Store: ObservableObject {
     @Published private(set) var fileHits: [PaletteItem] = []
     private var fileQuery = ""
     private var fileSearch: Task<Void, Never>?
-    @Published var layout = Layout()
+    @Published var layout = Layout() {
+        // A tab came to the front — from ⌘K, a click in the review queue, a
+        // port chip, ⌘1–9: the sidebar's cursor goes to its row rather than
+        // staying on the row last clicked.
+        didSet { if layout.focused != oldValue.focused, let f = layout.focused { treeCursor = treeRow(forTab: f) } }
+    }
     @Published var workspaces: [Workspace] = [Workspace(name: "")]
     /// The workspace on screen. Each has tabs of its own, as in the TUI:
     /// switching puts this one's away and brings that one's back.
@@ -1001,6 +1006,15 @@ final class Store: ObservableObject {
         }
     }
 
+    /// The layer taken down because its pane is gone; option-space starts
+    /// a new one.
+    func dropScratch() {
+        guard let k = scratch else { return }
+        scratch = nil
+        terminals.removeValue(forKey: k)?.stop()
+        focusTerminal()
+    }
+
     /// Back in touch with a machine: tabs on its panes that went while it
     /// was away are closed, in every workspace, and the panes whose attach
     /// ended meanwhile are started again.
@@ -1009,6 +1023,7 @@ final class Store: ObservableObject {
             isPaneKey(id) && unkey(id).machine == machine && !alive.contains(id)
         }
         for id in layout.tabs.flatMap(\.root.panes) where gone(id) { layout.close(id) }
+        if let s = scratch, gone(s) { dropScratch() }
         for w in parkedTabs.keys {
             for id in parkedTabs[w]?.tabs.flatMap(\.root.panes) ?? [] where gone(id) { parkedTabs[w]?.close(id) }
         }
@@ -1266,6 +1281,7 @@ final class Store: ObservableObject {
             let was = before?.agent?.state
             snap.upsert(p)
             attention(machine, old: before, new: p)
+            if scratch == k, scratchLost(scratch, pane: p) { dropScratch() }
             // Exited on its own — a shell's exit, an ssh logout, an agent's
             // /exit: closed, as the TUI closes it, so it goes from the
             // sidebar and its tab. A TUI open may close it first; the
@@ -1293,6 +1309,7 @@ final class Store: ObservableObject {
             guard let p = try? dec.decode(Ref.self, from: data) else { return }
             let k = key(machine, p.id)
             snap.remove(pane: p.id)
+            if scratch == k { dropScratch() }
             layout.close(k)
             for w in parkedTabs.keys { parkedTabs[w]?.close(k) } // other workspaces' tabs too
             restartOnConnect.remove(k)

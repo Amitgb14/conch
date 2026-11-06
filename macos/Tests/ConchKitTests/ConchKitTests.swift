@@ -2446,3 +2446,19 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     struct Other: Error {}
     #expect(!reloadUnderway(Other()))
 }
+
+// The sidebar's cursor follows the tab in front: every kind of tab names a
+// row the tree really has, on this computer and on another machine.
+@Test func eachTabNamesItsSidebarRow() {
+    func ids(_ n: TreeNode) -> Set<String> { [n.id].reduce(into: Set<String>()) { $0.insert($1) }.union((n.children ?? []).flatMap(ids)) }
+    for (m, tree) in [("local", fixture().tree()), ("box", fixture().tree(machine: "box", label: "busybox", sessions: ["box|r1": 16]))] {
+        let rows = ids(tree)
+        let tabs = [key(m, "p1"), changesKey(m, "r1", "feat"), filesKey(m, "r1"), commitsKey(m, "r1"), setupKey(m, "r1", dir: "/src/api")]
+        for t in tabs {
+            let r = treeRow(forTab: t)
+            #expect(r.map(rows.contains) == true, "\(t) → \(r ?? "nil") on \(m)")
+        }
+        if m == "box" { #expect(rows.contains(treeRow(forTab: sessionsKey(m, "r1"))!)) } // Sessions shows once it has some
+    }
+    #expect(treeRow(forTab: browserKey("http://localhost:3000")) == nil) // a page has no row
+}
