@@ -34,7 +34,10 @@ func TestReleaseScriptsParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"CONCH_VERSION=$version", "codesign --verify", "Print :ConchSource", `[ "$got" = "$version" ]`} {
+	for _, want := range []string{"CONCH_VERSION=$version", "codesign --verify", "Print :ConchSource", `[ "$got" = "$version" ]`,
+		// Notarized means: hardened runtime, Apple's acceptance checked, the
+		// ticket stapled, and Gatekeeper asked rather than assumed.
+		"--options runtime", `grep -q "status: Accepted"`, "stapler staple", "Notarized Developer ID"} {
 		if !strings.Contains(string(release), want) {
 			t.Errorf("macos/release.sh lost its check %q", want)
 		}

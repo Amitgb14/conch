@@ -153,7 +153,7 @@ Each release from v0.1.9 carries `Conch_<version>_macos_arm64.zip` on its [GitHu
 
 1. Download the zip and open it: it unpacks **Conch.app**.
 2. Drag Conch.app into **Applications**.
-3. Open it. The beta is signed but not notarized by Apple, so the first time macOS says it can't check it for malicious software: choose **Done**, then open **System Settings → Privacy & Security**, scroll to *"Conch" was blocked* and click **Open Anyway** (on macOS 14, right-click Conch.app → **Open** does the same). After this once it opens as any app does. Or, in a terminal, before opening it: `xattr -dr com.apple.quarantine /Applications/Conch.app`.
+3. Open it. The app is signed with a Developer ID and notarized by Apple, so macOS only asks the usual *downloaded from the internet* question the first time — no "could not verify" warning, and nothing to allow in System Settings.
 
 To update, download the next release's zip and replace the app; your agents keep running through it, since the server holds them, not the window. A machine you reach over ssh gets the released conch of the same version when the app upgrades it. Report what breaks with **⊙** in the status bar.
 
@@ -168,7 +168,10 @@ macos/ghostty.sh                 # Ghostty's library, from a pinned release → 
 macos/bundle.sh                  # → macos/build/Conch.app
 macos/bundle.sh /Applications    # or straight into Applications
 make app-release VERSION=0.1.9   # the beta's zip, for a release: dist/Conch_0.1.9_macos_arm64.zip
+make app-release VERSION=0.1.9 NOTARY=conch-notary   # signed with a Developer ID and notarized
 ```
+
+A release build signs the app with the first **Developer ID Application** certificate in the keychain (`CONCH_SIGN_IDENTITY` names another) and the hardened runtime; without one it is signed ad hoc and macOS warns whoever downloads it. `NOTARY` names a profile saved by `xcrun notarytool store-credentials`: the app is then sent to Apple, the ticket stapled to it, and the build fails unless Gatekeeper accepts it as notarized.
 
 Without `macos/ghostty.sh` the app builds just the same, with SwiftTerm drawing the panes; the status bar says which.
 

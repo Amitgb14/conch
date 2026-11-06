@@ -44,8 +44,9 @@ release:
 	scripts/release.sh $(VERSION)
 
 # Conch.app for others to download (the desktop beta): dist/Conch_<v>_macos_arm64.zip.
+# NOTARY=<notarytool profile> notarizes it; a Developer ID in the keychain signs it.
 app-release:
-	macos/release.sh $(VERSION)
+	CONCH_NOTARY_PROFILE=$(NOTARY) macos/release.sh $(VERSION)
 
 # Watch the live diff work, on a throwaway repo with a fake agent editing it.
 demo:
