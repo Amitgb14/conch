@@ -245,6 +245,14 @@ type askBar struct {
 	actions []plannedAction
 	sel     int
 	started time.Time
+
+	// The list under the request: what to ask now and what was asked
+	// before, narrowed by what is typed. pick is the highlighted one, -1
+	// for none, so enter asks what was typed.
+	opts     []askOption
+	pick     int
+	counts   askCounts
+	optLines map[int]int // content line → index into shown(), for clicks
 }
 
 type plannedAction struct {
@@ -276,15 +284,44 @@ func (m *Model) openAsk() tea.Cmd {
 	}
 	in := textinput.New()
 	in.Prompt = ""
-	in.Placeholder = "e.g. start 3 agents on api to fix the failing tests · what is waiting for me?"
+	in.Placeholder = "say what you want, or pick one below — e.g. start 3 agents on api to fix the flaky tests"
 	in.CharLimit = 2000
 	in.Focus()
-	b := &askBar{in: in, hist: len(m.brain.history)}
+	b := &askBar{in: in, hist: len(m.brain.history), pick: -1}
+	b.world = m.world()
+	b.counts = countAgents(b.world)
+	here, place := "", false
+	if r, ok := m.selectedRow(); ok {
+		switch r.kind {
+		case kindPane:
+			if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
+				here = p.DisplayName()
+			}
+		case kindProject, kindBranch:
+			place = true
+		}
+	}
+	b.opts = askOptions(b.world, here, place, m.brain.history)
 	m.overlay = b
 	return textinput.Blink
 }
 
-func (b *askBar) width(m Model) int { return clamp(100, 40, max(m.width-4, 40)) }
+func (b *askBar) width(m Model) int { return clamp(110, 40, max(m.width-4, 40)) }
+
+// shown are the options the typed request leaves.
+func (b *askBar) shown() []askOption { return matching(b.opts, b.in.Value()) }
+
+// choose acts on an option: one to finish goes in the box, the rest are
+// asked as they stand.
+func (b *askBar) choose(m *Model, o askOption) tea.Cmd {
+	b.pick = -1
+	b.in.SetValue(o.stem())
+	b.in.CursorEnd()
+	if o.fill() {
+		return textinput.Blink
+	}
+	return b.submit(m)
+}
 
 func (b *askBar) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -345,15 +382,35 @@ func (b *askBar) key(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 			m.overlay = nil
 			return true, nil
 		case "enter":
+			if opts := b.shown(); b.pick >= 0 && b.pick < len(opts) {
+				return false, b.choose(m, opts[b.pick])
+			}
 			return false, b.submit(m)
+		case "down":
+			b.pick = min(b.pick+1, len(b.shown())-1)
+			return false, nil
 		case "up":
+			b.pick = max(b.pick-1, -1)
+			return false, nil
+		case "tab":
+			// Finish typing from the highlighted option, or the first.
+			if opts := b.shown(); len(opts) > 0 {
+				o := opts[max(b.pick, 0)]
+				b.pick = -1
+				b.in.SetValue(o.stem())
+				b.in.CursorEnd()
+			}
+			return false, nil
+		case "ctrl+p":
+			b.pick = -1
 			if b.hist > 0 {
 				b.hist--
 				b.in.SetValue(m.brain.history[b.hist])
 				b.in.CursorEnd()
 			}
 			return false, nil
-		case "down":
+		case "ctrl+n":
+			b.pick = -1
 			if b.hist < len(m.brain.history) {
 				b.hist++
 				if b.hist == len(m.brain.history) {
@@ -365,8 +422,13 @@ func (b *askBar) key(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 			}
 			return false, nil
 		}
+		// Typing narrows the list, so a highlight would point elsewhere.
+		before := b.in.Value()
 		var cmd tea.Cmd
 		b.in, cmd = b.in.Update(k)
+		if b.in.Value() != before {
+			b.pick = -1
+		}
 		return false, cmd
 	case askThinking:
 		if k.String() == "esc" {
@@ -517,24 +579,20 @@ func (b *askBar) render(m Model) box {
 	var lines []string
 	switch b.phase {
 	case askInput, askThinking:
-		b.in.Width = w - 4
-		lines = append(lines, " "+styleAccent.Render("✦ ")+b.in.View())
+		b.in.Width = w - 6
+		b.optLines = nil
+		lines = append(lines, "", "  "+styleAccent.Render("✦ ")+b.in.View(), " "+styleMuted.Render(strings.Repeat("─", max(w-2, 0))))
 		switch {
 		case b.phase == askThinking:
 			spin := spinner[m.spin%len(spinner)]
-			lines = append(lines, "", styleMuted.Render(fmt.Sprintf(" %s thinking with %s… %ds · esc cancel", spin, m.cfg.Brain.Provider, int(time.Since(b.started).Seconds()))))
-		case b.err != "":
-			lines = append(lines, "")
-			for _, l := range wrap(b.err, w-3) {
-				lines = append(lines, " "+styleErr.Render(l))
-			}
+			lines = append(lines, "", styleMuted.Render(fmt.Sprintf("  %s thinking with %s… %ds · esc cancel", spin, m.cfg.Brain.Provider, int(time.Since(b.started).Seconds()))))
 		default:
-			ctx := m.world().Selected
-			if ctx == "" {
-				ctx = "all machines"
+			if b.err != "" {
+				for _, l := range wrap(b.err, w-4) {
+					lines = append(lines, "  "+styleErr.Render(l))
+				}
 			}
-			lines = append(lines, "", styleMuted.Render(ansi.Truncate(" context: "+ctx, w-1, "…")),
-				styleMuted.Render(" enter ask · ↑↓ history · esc close · nothing runs until you confirm"))
+			lines = append(lines, b.inputLines(m, w, len(lines))...)
 		}
 	default:
 		lines = append(lines, " "+styleMuted.Render("✦ "+ansi.Truncate(b.in.Value(), w-4, "…")), "")
@@ -605,9 +663,108 @@ func (b *askBar) render(m Model) box {
 	return bx
 }
 
+// inputLines are what is under the request while it is typed: where it
+// applies, the agents, then what to ask — fitted to the screen, the list
+// giving way first. above is how many lines are drawn before them.
+func (b *askBar) inputLines(m Model, w, above int) []string {
+	label := func(k, v string) string {
+		return ansi.Truncate("  "+styleMuted.Render(fmt.Sprintf("%-9s", k))+v, w, "…")
+	}
+	ctx := m.world().Selected
+	if ctx == "" {
+		ctx = "all machines"
+	}
+	fast := "requests conch knows are answered at once"
+	if m.cfg.Brain.NoFastPath {
+		fast = "every request goes to the model"
+	}
+	head := []string{"", label("Context", ctx), label("Agents", b.counts.String()),
+		label("Model", m.cfg.Brain.Provider+styleMuted.Render(" · "+fast))}
+
+	opts := b.shown()
+	var list []string
+	at := map[int]int{} // index into list → option
+	group := ""
+	for i, o := range opts {
+		g := "Suggested"
+		if o.recent {
+			g = "Recent"
+		}
+		if g != group {
+			group = g
+			list = append(list, "", "  "+styleBold.Render(g))
+		}
+		at[len(list)] = i
+		list = append(list, b.optionLine(o, i == b.pick, w))
+	}
+	foot := []string{"", styleMuted.Render(ansi.Truncate("  enter ask · ↑↓ choose · tab fill in · ctrl+p/n history · esc close", w, "…")),
+		styleMuted.Render("  nothing runs until you confirm")}
+	if typed := strings.TrimSpace(b.in.Value()); typed != "" && b.pick < 0 {
+		// Before enter is pressed, say whether it costs a model call.
+		how := m.cfg.Brain.Provider + " plans it"
+		if _, ok := brain.FastPlan(b.world, typed); ok && !m.cfg.Brain.NoFastPath {
+			how = "conch answers it at once, no model"
+		}
+		foot = append([]string{"", "  " + styleAccent.Render("↵ ") + styleMuted.Render(ansi.Truncate("enter asks this · "+how, w-5, "…"))}, foot[1:]...)
+	}
+
+	room := func() int { return max(m.height-6, 5) - above - len(head) - len(foot) }
+	// Short of room, the model and the counts go before the options do.
+	for room() < len(list) && len(head) > 2 {
+		head = head[:len(head)-1]
+	}
+	if room() < len(list) {
+		list = list[:max(room(), 0)]
+		// A heading with nothing under it is cut with what it headed.
+		for len(list) > 0 {
+			if _, ok := at[len(list)-1]; ok {
+				break
+			}
+			list = list[:len(list)-1]
+		}
+	}
+	b.optLines = map[int]int{}
+	for k, v := range at {
+		if k < len(list) {
+			b.optLines[above+len(head)+k] = v
+		}
+	}
+	out := append(head, list...)
+	return append(out, foot...)
+}
+
+// optionLine is one option: the request on the left, what it does on the
+// right, the whole line lit when it is the one enter would take.
+func (b *askBar) optionLine(o askOption, lit bool, w int) string {
+	mark := "  "
+	if lit {
+		mark = "▸ "
+	}
+	note := o.note
+	room := w - 4 - ansi.StringWidth(mark)
+	if ansi.StringWidth(note)+12 > room {
+		note = ""
+	}
+	text := ansi.Truncate(o.text, max(room-ansi.StringWidth(note)-2, 1), "…")
+	gap := max(room-ansi.StringWidth(text)-ansi.StringWidth(note), 1)
+	if lit {
+		return styleSel.Render(fit("  "+mark+text+strings.Repeat(" ", gap)+note, w))
+	}
+	return "  " + mark + text + strings.Repeat(" ", gap) + styleMuted.Render(note)
+}
+
 func (b *askBar) mouse(m *Model, msg tea.MouseMsg, bx box) tea.Cmd {
 	if !bx.contains(msg.X, msg.Y) && msg.Action == tea.MouseActionPress && b.phase != askRunning && b.phase != askThinking {
 		m.overlay = nil
+		return nil
+	}
+	// A click on an option is enter on it.
+	if b.phase == askInput && msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		if i, ok := b.optLines[msg.Y-bx.y-1]; ok {
+			if opts := b.shown(); i < len(opts) {
+				return b.choose(m, opts[i])
+			}
+		}
 	}
 	return nil
 }
