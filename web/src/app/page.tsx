@@ -5,6 +5,7 @@ import { ConchIcon } from "@/components/conch-icon"
 import { GithubIcon } from "@/components/github-icon"
 import { Architecture } from "@/components/landing/architecture"
 import { BrainDemo } from "@/components/landing/brain-demo"
+import { DesktopApp } from "@/components/landing/desktop-app"
 import { Features } from "@/components/landing/features"
 import { InstallCard } from "@/components/landing/install-card"
 import { Screenshots } from "@/components/landing/screenshots"
@@ -95,6 +96,9 @@ export default function Home() {
                 </span>
                 agents keep working after you detach
               </Badge>
+              <Link href="/#desktop" className="mt-2 font-mono text-[0.7rem] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+                new: Conch.app for macOS, in beta →
+              </Link>
               <h1 className="mt-5 text-[2.4rem] leading-[1.06] font-semibold tracking-[-0.032em] text-balance sm:text-[3rem] lg:text-[3.25rem]">
                 Run a fleet of coding agents.{" "}
                 <span className="text-muted-foreground">From one terminal.</span>
@@ -150,6 +154,15 @@ export default function Home() {
         lede="Select a machine to see what it is running and what the agents there have spent; open a project and it unfolds into branches, agents and terminals, each with its own tab."
       >
         <Screenshots />
+      </Section>
+
+      <Section
+        id="desktop"
+        label="the desktop app"
+        title="Conch.app: the same agents, in a native Mac window"
+        lede="Another client of the same server, so it shows what the TUI shows and closing it stops nothing. Panes are drawn by Ghostty; a branch's changes, files and dev server sit in tabs beside the agents."
+      >
+        <DesktopApp />
       </Section>
 
       <Section
