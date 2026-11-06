@@ -28,6 +28,10 @@ enum Theme {
     static var chrome: Color { color(current.chrome) }
     static var side: Color { color(current.sidebar) }
     static var raise: Color { color(current.raised) }
+    /// A step above raise: a control on a card (Settings' fields, segments).
+    static var raise2: Color {
+        Color(nsColor: ns(current.raised).blended(withFraction: 0.07, of: current.light ? .black : .white) ?? ns(current.raised))
+    }
     static var paneHeader: Color { color(current.paneHeader) }
     static var well: Color { color(current.well) }
     static var line: Color { color(current.border) }
