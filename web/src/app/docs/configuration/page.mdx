@@ -21,6 +21,7 @@ Everything lives in `~/.config/conch`. Set `CONCH_HOME` to use another directory
 | `binaries/<os>-<arch>/conch` | conch builds for other platforms |
 | `agents/claude.toml` | optional override of Claude's [screen rules](/docs/agents#how-the-state-is-decided) |
 | `config.toml` | your settings |
+| `themes/NAME.toml` | [themes of your own](#themes-of-your-own), one a file |
 
 ## Environment variables
 
@@ -93,7 +94,8 @@ theme = "conch"  # conch, dracula, catppuccin, nord, gruvbox, tokyo-night, one-d
                  # vscode-light-modern, vscode-light-plus
 light_theme = "" # Conch.app follows macOS: this theme in light appearance, theme in dark;
                  # empty keeps the app on theme (the TUI always uses theme)
-accent = ""      # override: teal, blue, green, orange, pink, red, gray, purple or "#rrggbb"
+accent = ""      # override: teal, blue, green, orange, pink, red, gray, purple or "#rrggbb";
+                 # the TUI and Conch.app both draw selections and focus in it
 cost = true      # show what agents spend in the tree, Sessions and the pages
 icons = "text"   # file explorer icons: text (letters, any font), nerd (Nerd Font glyphs) or off
 hover = false    # tint the row or tab under the pointer (every move is reported)
@@ -231,6 +233,31 @@ Devin Cloud chooses its machines' size itself, so `snapshot` is the *platform* a
 The Settings screen rewrites `config.toml`, so comments in a hand-edited file are not preserved.
 
 </Callout>
+
+## Themes of your own
+
+A file in `~/.config/conch/themes/`, named for the theme (`dusk.toml` is `theme = "dusk"`), starts from a built-in theme and sets only the colours you want changed. The TUI, the settings page and Conch.app all read the same files: the theme is in their lists after the built-in ones (in the app, **View → Theme → Your Themes**, which also has **Open Themes Folder**), and it colours the terminals in the panes too.
+
+```toml
+# ~/.config/conch/themes/dusk.toml
+name = "Dusk"                    # what the lists call it; the file's name if left out
+based_on = "vscode-dark-modern"  # any built-in theme; conch's own if left out
+bg = "#16161e"                   # the window and the terminals' background
+fg = "#c0caf5"                   # text
+accent = "#7aa2f7"               # selection, focused borders
+sel_fg = "#ffffff"               # text on the accent
+border = "#29293a"
+muted = "#565f89"                # secondary text
+ok = "#9ece6a"                   # done, added lines, passing checks
+warn = "#e0af68"                 # waiting, warnings
+err = "#f7768e"                  # failures, removed lines
+work = "#7dcfff"                 # working agents, hashes
+sel_dim = "#292e42"              # the selection while focus is elsewhere
+merged = "#bb9af7"               # merged pull requests
+light = false                    # Conch.app's: draw it as a light window (else decided by bg)
+```
+
+Colours are `#rrggbb`. A file that does not read, a colour written any other way, a key that is not one of these, a `based_on` that is no built-in theme, or a file named like a built-in theme is left out, and said where the themes are listed (the TUI's **Colours**, the app's **Your Themes**). A new or changed file is read the next time those lists open. `[ui] accent` still goes over whichever theme is in use.
 
 ## `[web]`
 
