@@ -164,8 +164,8 @@ export default function Home() {
       <Section
         id="screenshots"
         label="the interface"
-        title="One tree, whatever you point it at"
-        lede="Select a machine to see what it is running and what the agents there have spent; open a project and it unfolds into branches, agents and terminals, each with its own tab."
+        title="See what every agent did, and what needs you"
+        lede="Open a branch to read its diff before it lands; open the review queue to see, across every machine, which agent is waiting for an answer, whose CI failed and what is ready to push."
       >
         <Screenshots />
       </Section>

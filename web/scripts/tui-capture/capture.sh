@@ -15,7 +15,10 @@ WORK=${TMPDIR:-/tmp}/conch-tui-capture
 mkdir -p "$WORK/frames"
 cp "$T/stage.sh" "$T/run.sh" "$T/drive.py" "$T/tojson.py" "$WORK/"
 
-(cd "$ROOT" && go build -o "$WORK/conch" ./cmd/conch)
+# Stamped with the newest release, as the archives are, so the status bar
+# says what visitors would install rather than a development version.
+VERSION=$(cd "$ROOT" && git describe --tags --abbrev=0 --match 'v*' 2>/dev/null | sed 's/^v//')
+(cd "$ROOT" && go build -ldflags "-X github.com/Amitgb14/conch/internal/proto.Version=${VERSION:-0.0.0-dev}" -o "$WORK/conch" ./cmd/conch)
 (cd "$T/_fakeclaude" && GO111MODULE=off go build -o "$WORK/claude-bin" main.go)
 
 unset CONCH_SOCKET CONCH_PANE_ID CONCH_HOME
@@ -28,17 +31,22 @@ shot() { P select "$1"; sleep "${3:-2.5}"; P frame "$WORK/frames/$2.json"; }
 # Open the agents and the terminal as tabs, as you would, then go back to
 # the tree: the tab bar lists the tabs of whatever is selected.
 open_tab() { P select "$1"; P keys enter; sleep 1.5; P keys ctrl+b esc; sleep 0.5; }
-open_tab "Add health check"
-open_tab "Fix flaky login"
+open_tab "Add health"
+open_tab "Fix flaky"
 open_tab "dev-server"
 
-shot "Add health check" working
-shot "Fix flaky login" waiting
+shot "Add health" working
+shot "Fix flaky" waiting
 shot "◆ api" project
 shot "feat/login" branch 3
 shot "dev-server" terminal
 
-python3 "$WORK/tojson.py" working waiting project branch terminal > "$T/../../src/components/landing/tui-frames.json"
+# The interface section's two larger screens: a branch's diff, opened
+# from its changes, and the review queue.
+P select "api/add-health-check"; P keys enter; sleep 2.5; P keys enter; sleep 2.5; P frame "$WORK/frames/diff.json"
+P keys esc; sleep 0.4; P keys esc; sleep 0.4; P keys Q; sleep 3; P frame "$WORK/frames/queue.json"
+
+python3 "$WORK/tojson.py" working waiting project branch terminal diff queue > "$T/../../src/components/landing/tui-frames.json"
 
 env -i CONCH_SOCKET=/tmp/cwd-outer.sock "$WORK/conch" server stop >/dev/null 2>&1 || true
 env -i CONCH_SOCKET=/tmp/cwd-inner.sock "$WORK/conch" server stop >/dev/null 2>&1 || true
