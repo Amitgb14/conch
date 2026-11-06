@@ -3,7 +3,7 @@ import SwiftUI
 
 // The library: MCP servers and skills kept in conch and given to the agents
 // chosen for each — the TUI's Settings → Agents → Shared MCP servers &
-// skills, per machine. Editing it (a tick, a form, an import) writes to no
+// skills, per machine; in the app, Settings → Skills & MCP servers. Editing it (a tick, a form, an import) writes to no
 // agent; Apply asks for the plan, names every write, and only then makes
 // them. Put the last one back undoes the last apply, file by file.
 
@@ -183,49 +183,33 @@ struct SkillForm: Identifiable {
     var agents: Set<String> = []
 }
 
-struct LibrarySheet: View {
+/// The library in Settings → Skills & MCP servers, for the machine picked
+/// there (store.skillsMachine).
+struct LibraryPanel: View {
     @Environment(\.conchTheme) private var look
     @ObservedObject var store: Store
     @StateObject private var model: LibraryModel
 
-    init(store: Store, machine: String) {
+    init(store: Store) {
         self.store = store
-        _model = StateObject(wrappedValue: LibraryModel(store: store, machine: machine))
+        _model = StateObject(wrappedValue: LibraryModel(store: store, machine: store.skillsMachine))
     }
 
     var body: some View {
         let _ = look
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("MCP servers & skills").font(.ui(size: 15, weight: .semibold))
-                Spacer()
-                if store.machines.count > 1 {
-                    Picker("", selection: $model.machine) {
-                        ForEach(store.machines, id: \.id) { m in Text(m.label).tag(m.id) }
-                    }
-                    .labelsHidden().frame(width: 160)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            if !model.error.isEmpty {
+                Text(model.error).font(.ui(size: 12)).foregroundStyle(Theme.warn)
+            } else if let r = model.result {
+                content(r)
+                actions
+            } else {
+                ProgressView().controlSize(.small)
             }
-            Text("Kept in conch and given to the agents you tick, in your home on \(store.label(model.machine)) — the setup that follows you from project to project. Ticking writes to no agent; Apply… shows every write first.")
-                .font(.ui(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if !model.error.isEmpty {
-                        Text(model.error).font(.ui(size: 12)).foregroundStyle(Theme.warn)
-                    } else if let r = model.result {
-                        content(r)
-                    } else {
-                        ProgressView().controlSize(.small)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(height: 420)
-            footer
         }
-        .padding(18).frame(width: 680)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear { model.load() }
-        .onChange(of: model.machine) { _, _ in model.load() }
+        .onChange(of: store.skillsMachine) { _, m in model.machine = m; model.load() }
         .sheet(item: $model.serverForm) { f in
             ServerFormView(form: f, agents: model.result?.agents ?? [], model: model)
         }
@@ -235,100 +219,115 @@ struct LibrarySheet: View {
     }
 
     @ViewBuilder func content(_ r: AgentLibraryResult) -> some View {
-        section("MCP servers", r)
-        ForEach(r.library.servers.sorted { $0.name < $1.name }, id: \.name) { s in
-            row(r, LibraryKind.server, s.name, s.what, edit: {
-                model.serverForm = ServerForm(old: s.name, name: s.name, command: s.commandLine, env: joinPairs(s.env),
-                                              headers: joinPairs(s.headers), sse: s.transport == "sse", agents: Set(s.agents))
-            })
+        SettingsCard(title: "Your skills", trailing: AnyView(heads(r))) {
+            let skills = r.library.skills.sorted { $0.name < $1.name }
+            ForEach(Array(skills.enumerated()), id: \.element.name) { i, s in
+                row(r, LibraryKind.skill, s.name, s.path, icon: "book", first: i == 0, edit: {
+                    model.skillForm = SkillForm(old: s.name, name: s.name, path: s.path, agents: Set(s.agents))
+                })
+            }
+            if skills.isEmpty { empty("No skills of your own yet: a folder holding a SKILL.md, given to the agents you tick.") }
+            HStack(spacing: 8) {
+                pill("Add a skill folder…", "plus") { model.skillForm = SkillForm(agents: Set(r.agents)) }
+                Menu {
+                    ForEach(r.agents, id: \.self) { a in Button(model.agentName(a)) { model.importFrom(a) } }
+                } label: { Text("Take an agent's in").font(.ui(size: 12)) }
+                    .menuStyle(.borderlessButton).fixedSize()
+                    .help("Its MCP servers and skills in your home go in, ticked for it. Nothing is written to any agent.")
+            }
+            .padding(12).frame(maxWidth: .infinity, alignment: .leading).disabled(model.busy)
+            .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
         }
-        HStack(spacing: 8) {
-            Button("Add a server…") { model.serverForm = ServerForm(agents: Set(r.agents)) }
-            if !r.library.hasConchTools {
-                Button("Add conch's own tools") {
-                    model.save(r.library.withConchTools(agents: r.agents), flash: "conch's tools added")
+        SettingsCard(title: "MCP servers", trailing: AnyView(heads(r))) {
+            let servers = r.library.servers.sorted { $0.name < $1.name }
+            ForEach(Array(servers.enumerated()), id: \.element.name) { i, s in
+                row(r, LibraryKind.server, s.name, s.what, icon: "server", first: i == 0, edit: {
+                    model.serverForm = ServerForm(old: s.name, name: s.name, command: s.commandLine, env: joinPairs(s.env),
+                                                  headers: joinPairs(s.headers), sse: s.transport == "sse", agents: Set(s.agents))
+                })
+            }
+            if servers.isEmpty { empty("No MCP servers yet: a command or a URL, with secrets as ${VAR}.") }
+            HStack(spacing: 8) {
+                pill("Add a server…", "plus") { model.serverForm = ServerForm(agents: Set(r.agents)) }
+                if !r.library.hasConchTools {
+                    pill("Add conch's own tools", "command") { model.save(r.library.withConchTools(agents: r.agents), flash: "conch's tools added") }
+                        .help("conch mcp: start, prompt, wait on and read other agents, as tools")
                 }
-                .help("conch mcp: start, prompt, wait on and read other agents, as tools")
+            }
+            .padding(12).frame(maxWidth: .infinity, alignment: .leading).disabled(model.busy)
+            .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+        }
+        HStack(spacing: 14) {
+            ForEach([("on", "has it"), ("pending", "Apply gives it"), ("remove", "Apply takes it out"), ("theirs", "set by hand"), ("differs", "differs, left alone")], id: \.0) { st, t in
+                HStack(spacing: 5) { tick(st, size: 14); Text(t) }
             }
         }
-        .controlSize(.small).disabled(model.busy)
-
-        section("Skills", r)
-        ForEach(r.library.skills.sorted { $0.name < $1.name }, id: \.name) { s in
-            row(r, LibraryKind.skill, s.name, s.path, edit: {
-                model.skillForm = SkillForm(old: s.name, name: s.name, path: s.path, agents: Set(s.agents))
-            })
-        }
-        HStack(spacing: 8) {
-            Button("Add a skill…") { model.skillForm = SkillForm(agents: Set(r.agents)) }
-            Menu("Take an agent's in") {
-                ForEach(r.agents, id: \.self) { a in Button(model.agentName(a)) { model.importFrom(a) } }
-            }
-            .fixedSize()
-            .help("Its MCP servers and skills in your home go in, ticked for it. Nothing is written to any agent.")
-        }
-        .controlSize(.small).disabled(model.busy)
-
-        // conch's own skills are installed their own way; say where.
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("conch's skills").font(.ui(size: 12.5, weight: .medium))
-                Text("conch, conch-team, conch-review, conch-ship and conch-factory: run other agents, a review loop, a ticket to a merged pull request.")
-                    .font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Button("Open…") {
-                store.libraryOpen = false
-                DispatchQueue.main.async { store.skillOpen = true }
-            }
-            .controlSize(.small)
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raise))
-
-        Text("✓ has it   + Apply writes it   − Apply takes it out   · off   ○ set by hand   ! differs, left alone   ✗ cannot")
-            .font(.ui(size: 11)).foregroundStyle(.secondary)
-        Text("Secrets stay in your environment: write ${TOKEN}, not the token.")
-            .font(.ui(size: 11)).foregroundStyle(.secondary)
+        .font(.ui(size: 11)).foregroundStyle(Theme.muted)
     }
 
-    func section(_ title: String, _ r: AgentLibraryResult) -> some View {
+    func heads(_ r: AgentLibraryResult) -> some View {
         HStack(spacing: 0) {
-            Text(title).font(.ui(size: 13, weight: .semibold))
-            Spacer()
             ForEach(r.agents, id: \.self) { a in
-                Text(libraryAgentShort(a)).font(.ui(size: 11, weight: .medium)).foregroundStyle(.secondary)
-                    .frame(width: 30).help(model.agentName(a))
+                Text(libraryAgentShort(a)).font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                    .frame(width: 34).help(model.agentName(a))
             }
             Color.clear.frame(width: 52)
         }
-        .padding(.top, 4)
     }
 
-    @ViewBuilder func row(_ r: AgentLibraryResult, _ kind: String, _ name: String, _ what: String, edit: @escaping () -> Void) -> some View {
+    func empty(_ t: String) -> some View {
+        Text(t).font(.ui(size: 12)).foregroundStyle(Theme.muted).padding(.horizontal, 16).padding(.vertical, 12)
+    }
+
+    func pill(_ t: String, _ sym: String, _ act: @escaping () -> Void) -> some View {
+        Button(action: act) {
+            HStack(spacing: 6) { Image(systemName: sym).font(.system(size: 10, weight: .bold)); Text(t).font(.ui(size: 12, weight: .medium)) }
+                .foregroundStyle(Theme.text)
+                .padding(.horizontal, 10).frame(height: 26)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.raise2))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.line2))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// A cell: a box coloured by where the item stands with the agent.
+    func tick(_ state: String, size: CGFloat = 22) -> some View {
+        let c = color(state)
+        let filled = state != "off"
+        return Text(state == "off" ? "" : libraryMark(state))
+            .font(.ui(size: size * 0.55, weight: .bold)).foregroundStyle(c)
+            .frame(width: size, height: size)
+            .background(RoundedRectangle(cornerRadius: size * 0.27).fill(filled ? c.opacity(0.15) : Theme.well))
+            .overlay(RoundedRectangle(cornerRadius: size * 0.27).stroke(filled ? c.opacity(0.55) : Theme.line2))
+    }
+
+    @ViewBuilder func row(_ r: AgentLibraryResult, _ kind: String, _ name: String, _ what: String, icon: String, first: Bool, edit: @escaping () -> Void) -> some View {
         let cells = r.agents.map { r.cell(kind, name, $0) }
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 0) {
-                Text(name).font(.ui(size: 12.5, weight: .medium))
-                Text("  " + what).font(.ui(size: 11.5)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 12) {
+                LucideIcon(icon == "book" ? SettingsNav.skillsIcon : "server", color: Theme.text2, size: 14)
+                    .frame(width: 30, height: 30).background(RoundedRectangle(cornerRadius: 8).fill(Theme.raise2))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name).font(.ui(size: 13, weight: .medium))
+                    Text(what).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+                }
                 Spacer(minLength: 8)
                 ForEach(cells, id: \.agent) { c in
-                    Button(libraryMark(c.state)) { model.toggle(kind, name, c.agent) }
-                        .buttonStyle(.plain)
-                        .font(.ui(size: 13, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(color(c.state))
-                        .frame(width: 30)
+                    Button { model.toggle(kind, name, c.agent) } label: { tick(c.state) }
+                        .buttonStyle(.plain).frame(width: 34)
                         .help("\(model.agentName(c.agent)): \(libraryMeaning(c)) — click to turn \(model.isOn(r.library, kind, name, c.agent) ? "off" : "on")")
                         .disabled(model.busy)
                 }
-                Button { edit() } label: { Image(systemName: "pencil") }.buttonStyle(.plain).frame(width: 24).help("Edit")
-                Button { model.remove(kind, name) } label: { Image(systemName: "trash") }.buttonStyle(.plain).frame(width: 24).help("Take it out of the library")
+                Button { edit() } label: { Image(systemName: "pencil").font(.system(size: 11)) }.buttonStyle(.plain).foregroundStyle(Theme.text2).frame(width: 24).help("Edit")
+                Button { model.remove(kind, name) } label: { Image(systemName: "trash").font(.system(size: 11)) }.buttonStyle(.plain).foregroundStyle(Theme.text2).frame(width: 24).help("Take it out of the library")
             }
             ForEach(cells.filter { ($0.state == "differs" || $0.state == "cannot") && !($0.detail ?? "").isEmpty }, id: \.agent) { c in
-                Text("\(libraryAgentShort(c.agent)) \(c.detail ?? "")").font(.ui(size: 11)).foregroundStyle(Theme.warn).padding(.leading, 14)
+                Text("\(model.agentName(c.agent)): \(c.detail ?? "")").font(.ui(size: 11)).foregroundStyle(Theme.warn).padding(.leading, 42)
             }
         }
-        .padding(.vertical, 3)
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .overlay(alignment: .top) { if !first { Rectangle().fill(Theme.line).frame(height: 1) } }
     }
 
     func color(_ state: String) -> Color {
@@ -341,17 +340,33 @@ struct LibrarySheet: View {
         }
     }
 
-    var footer: some View {
-        HStack {
-            let pending = model.result?.pending ?? 0
-            Text(pending > 0 ? "\(pending) change\(pending == 1 ? "" : "s") to write" : "conch agent library, on each machine")
-                .font(.ui(size: 11.5)).foregroundStyle(pending > 0 ? Theme.accent : .secondary)
+    var actions: some View {
+        let pending = model.result?.pending ?? 0
+        return HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pending > 0 ? "\(pending) change\(pending == 1 ? "" : "s") to write" : "Every agent has what the library says")
+                    .font(.ui(size: 13, weight: .medium)).foregroundStyle(pending > 0 ? Theme.accent : Theme.text)
+                Text("Ticking writes to no agent. Apply shows every write first.").font(.ui(size: 12)).foregroundStyle(Theme.muted)
+            }
             Spacer()
-            Button("Put the last one back…") { model.undo() }
+            Button("Put the last one back…") { model.undo() }.buttonStyle(.plain).font(.ui(size: 12)).foregroundStyle(Theme.text2)
                 .disabled(model.busy || (model.result?.undos ?? []).isEmpty)
-            Button("Apply…") { model.apply() }.disabled(model.busy || model.result == nil)
-            Button("Done") { store.libraryOpen = false }.keyboardShortcut(.defaultAction)
+            Button { model.apply() } label: {
+                HStack(spacing: 6) {
+                    if model.busy { ProgressView().controlSize(.mini) }
+                    Text("Apply…").font(.ui(size: 12.5, weight: .semibold))
+                }
+                .foregroundStyle(pending > 0 ? Theme.selectedText : Theme.text)
+                .padding(.horizontal, 14).frame(height: 30)
+                .background(RoundedRectangle(cornerRadius: 8).fill(pending > 0 ? Theme.accent : Theme.raise2))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(pending > 0 ? Theme.accent : Theme.line2))
+            }
+            .buttonStyle(.plain)
+            .disabled(model.busy || model.result == nil)
         }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.raise))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line))
     }
 }
 

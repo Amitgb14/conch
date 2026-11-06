@@ -28,6 +28,10 @@ enum Theme {
     static var chrome: Color { color(current.chrome) }
     static var side: Color { color(current.sidebar) }
     static var raise: Color { color(current.raised) }
+    /// A step above raise: a control on a card (Settings' fields, segments).
+    static var raise2: Color {
+        Color(nsColor: ns(current.raised).blended(withFraction: 0.07, of: current.light ? .black : .white) ?? ns(current.raised))
+    }
     static var paneHeader: Color { color(current.paneHeader) }
     static var well: Color { color(current.well) }
     static var line: Color { color(current.border) }
@@ -610,8 +614,6 @@ struct MainView: View {
         .sheet(item: $store.broadcastDraft) { d in BroadcastSheet(store: store, draft: d) }
         .sheet(isPresented: $store.helpOpen) { ShortcutsSheet(store: store) }
         .sheet(isPresented: $store.doctorOpen) { DoctorSheet(store: store) }
-        .sheet(isPresented: $store.skillOpen) { AgentSkillSheet(store: store) }
-        .sheet(isPresented: $store.libraryOpen) { LibrarySheet(store: store, machine: store.libraryMachine) }
         .sheet(isPresented: $store.updatesOpen) { UpdatesSheet(store: store) }
         .background(Theme.window)
         // Meadow paints the title bar itself: a sky behind the toolbar's

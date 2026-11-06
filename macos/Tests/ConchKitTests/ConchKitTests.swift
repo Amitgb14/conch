@@ -694,7 +694,7 @@ final class FakeServer: @unchecked Sendable {
     #expect(!plain.menu(for: api, machine: "box").contains { if case .commits = $0.action { return true }; return false })
     #expect(s.menu(for: t, machine: "box").map(\.action) == [.startAgent(machine: "box", cwd: nil, inProject: false), .newTerminal(machine: "box", cwd: nil, inProject: false),
                                                              .broadcast(.machine("box")), .divider, .addProject(machine: "box"), .addMachine,
-                                                             .agentSkill, .agentLibrary(machine: "box"), .divider, .reconnect(machine: "box"), .reloadServer(machine: "box"),
+                                                             .skillsSettings(machine: "box"), .divider, .reconnect(machine: "box"), .reloadServer(machine: "box"),
                                                              .upgrade(machine: "box"), .removeMachine(machine: "box")])
     // This computer is neither upgraded nor removed from here; its CLI
     // group carries none of a machine's own.

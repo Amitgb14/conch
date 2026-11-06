@@ -43,6 +43,11 @@ public indirect enum JSONValue: Codable, Equatable, Sendable {
 public struct SettingsOption: Codable, Equatable, Sendable {
     public var value: String
     public var label: String
+
+    public init(value: String, label: String) {
+        self.value = value
+        self.label = label
+    }
 }
 
 public struct SettingsField: Codable, Equatable, Sendable {

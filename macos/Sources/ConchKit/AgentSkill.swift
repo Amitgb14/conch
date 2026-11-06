@@ -135,3 +135,37 @@ public func skillLine(_ c: SkillChange) -> String {
 public func skillWrites(_ r: AgentSkillResult) -> [SkillChange] {
     r.changes.filter { ["create", "update", "remove"].contains($0.action) }
 }
+
+/// One of conch's skills across a machine's agents' folders: in how many
+/// it is, and in how many it could be (a folder holding somebody's own
+/// skill of that name is not counted either way).
+public struct SkillCoverage: Equatable, Sendable, Identifiable {
+    public var name: String
+    public var have: Int
+    public var of: Int
+    public var id: String { name }
+    public var everywhere: Bool { of > 0 && have == of }
+}
+
+/// Each skill a plan names, in the order it names them.
+public func skillCoverage(_ r: AgentSkillResult) -> [SkillCoverage] {
+    var out: [SkillCoverage] = []
+    for c in r.changes where c.action != "skip" {
+        let i = out.firstIndex { $0.name == c.skillName } ?? {
+            out.append(SkillCoverage(name: c.skillName, have: 0, of: 0))
+            return out.count - 1
+        }()
+        out[i].of += 1
+        if c.action == "same" { out[i].have += 1 }
+    }
+    return out
+}
+
+/// What each of conch's skills is for, in a line.
+public let conchSkillBlurbs: [String: String] = [
+    "conch": "start a helper agent, prompt it, read its answer",
+    "conch-team": "several agents on one task: a race, a split, a chain",
+    "conch-review": "another agent reviews, the author fixes, review again",
+    "conch-ship": "tests, pull request, CI, merge when asked",
+    "conch-factory": "a ticket all the way to a merged pull request",
+]
