@@ -230,6 +230,10 @@ func Schema(c Choices) []Section {
 					Help: "Show the scratch layer with Conch.app in the background, as Ghostty's quick terminal does. Off, option-space works in the window only."},
 				{Key: "prefix_keys", Label: "Prefix keys in panes", Kind: KindBool, Default: true,
 					Help: "The TUI's prefix (ctrl+b) and the keys after it, from [keys], work in the app's panes too. Off, the prefix goes to the program."},
+				{Key: "text_size", Label: "Window text size", Kind: KindInt, Placeholder: "100",
+					Help: "Percent, for the window's own text — the sidebar, tabs, the git tab, the status bar — 80 to 160; empty is 100. Shift-command-plus and minus step it: 90, 110, 125, 140."},
+				{Key: "font_size", Label: "Terminal font size", Kind: KindFloat, Placeholder: "14",
+					Help: "Points, for the text in every pane, 9 to 28; empty is 14. Command-plus and minus change it too."},
 			}},
 		{ID: "sandbox", Key: "sandbox", Title: "Sandboxes", Icon: "box", Description: "Hosted sandbox providers, one table each.",
 			Fields: []Field{

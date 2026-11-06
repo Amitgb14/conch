@@ -192,6 +192,13 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     #expect(s.nextAttention(after: "p4") == "p5")
     #expect(s.nextAttention(after: "p5") == "p6")
     #expect(Snapshot().nextAttention(after: nil) == nil)
+    // The done count's: finished agents only, the first to finish first.
+    s.upsert(PaneInfo(id: "p7", name: "codex", agent: AgentStatus(name: "codex", state: .done, since: Date(timeIntervalSince1970: 2))))
+    #expect(s.nextDone(after: nil) == "p7")
+    #expect(s.nextDone(after: "p7") == "p5")
+    #expect(s.nextDone(after: "p5") == "p7")
+    #expect(s.nextDone(after: "p6") == "p7") // from a waiting one: the first done
+    #expect(Snapshot().nextDone(after: nil) == nil)
 }
 
 @Test func upsertAndRemove() {
@@ -428,7 +435,18 @@ final class FakeServer: @unchecked Sendable {
         let t = ConchTheme.all[i]
         #expect(t.id == name && t.accent.hex == accent.uppercased() && t.bg.hex == bg.uppercased(), "theme \(name)")
     }
-    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte", "ink", "meadow"])
+    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte", "ink", "meadow", "terminal-light", "vscode-light-modern", "vscode-light-plus"])
+    // VS Code's: its own values, and each dark one follows macOS to its light one.
+    let dm = ConchTheme.named("vscode-dark-modern"), lm = ConchTheme.named("vscode-light-modern")
+    #expect(dm.bg.hex == "#1F1F1F" && dm.fg.hex == "#CCCCCC" && dm.accent.hex == "#0078D4" && dm.border.hex == "#2B2B2B" && !dm.light)
+    #expect(lm.bg.hex == "#FFFFFF" && lm.fg.hex == "#3B3B3B" && lm.accent.hex == "#005FB8" && lm.light)
+    #expect(ConchTheme.forAppearance(dm, dark: false).id == "vscode-light-modern")
+    #expect(ConchTheme.forAppearance(ConchTheme.named("vscode-dark-plus"), dark: false).id == "vscode-light-plus")
+    #expect(ConchTheme.forAppearance(lm, dark: true).id == "vscode-light-modern")
+    for id in ["vscode-dark-modern", "vscode-light-modern", "vscode-dark-plus", "vscode-light-plus"] {
+        let t = ConchTheme.named(id)
+        #expect(t.id == id && Set([t.accent.hex, t.work.hex, t.ok.hex, t.warn.hex]).count == 4, "theme \(id): a commit graph's first lanes must differ")
+    }
     // conch's own four: a commit graph's first lanes take accent, working,
     // ok and warning in turn, so none of them may repeat another.
     for id in ["ink", "meadow", "firefly", "cel"] {
@@ -1377,7 +1395,29 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
 @Test func appStyles() {
     #expect(AppStyle(setting: "ink") == .ink && AppStyle(setting: " INK ") == .ink)
     #expect(AppStyle(setting: nil) == .standard && AppStyle(setting: "") == .standard && AppStyle(setting: "manga") == .standard)
-    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink", "Meadow", "Cel"])
+    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink", "Meadow", "Cel", "Terminal"])
+    // Terminal: today's window — gutters, borders, corners and no roster as
+    // Standard — on its own theme, every word in monospace a little smaller,
+    // and the sidebar wider for the wider names. Only it is monospace.
+    let t = AppStyle(setting: "terminal")
+    #expect(t == .terminal && t.theme == "terminal" && ConchTheme.named(t.theme).id == "terminal")
+    #expect(t.gutter == AppStyle.standard.gutter && t.border == AppStyle.standard.border && t.corner == AppStyle.standard.corner && !t.roster)
+    #expect(t.mono && AppStyle.allCases.filter(\.mono) == [.terminal])
+    #expect(t.fontSize(13) == 12 && t.fontSize(11) == 10 && t.fontSize(12.5) == 11.5 && AppStyle.standard.fontSize(13) == 13)
+    #expect(t.sidebarWidth(250) == 320 && AppStyle.standard.sidebarWidth(250) == 250)
+    #expect(t.paintsTitleBar && AppStyle.meadow.paintsTitleBar && !AppStyle.standard.paintsTitleBar)
+    let th = ConchTheme.named("terminal")
+    #expect(th.bg.hex == "#0C0E11" && th.border.hex == "#1E232A" && th.accent.hex == "#2AA5B5" && !th.light)
+    // Its light one: shown for the dark one under a light Mac, and back;
+    // picked by name it stays light; other themes are left as they are.
+    let lt = ConchTheme.named("terminal-light")
+    #expect(lt.light && lt.bg.hex == "#FBFBFC" && lt.border.hex == "#DADDE2" && lt.accent.hex == "#0F7B8A")
+    #expect(ConchTheme.forAppearance(th, dark: false).id == "terminal-light" && ConchTheme.forAppearance(th, dark: true).id == "terminal")
+    #expect(ConchTheme.forAppearance(lt, dark: true).id == "terminal-light")
+    #expect(ConchTheme.forAppearance(ConchTheme.named("dracula"), dark: false).id == "dracula")
+    #expect(ConchTheme.forAppearance(ConchTheme.named("meadow"), dark: true).id == "meadow")
+    // conch's teal stays readable as a selection on white: white text on it.
+    #expect(lt.selFG.hex == "#FFFFFF")
     #expect(AppStyle.standard.theme == nil && AppStyle.ink.theme == "ink" && ConchTheme.named(AppStyle.ink.theme).id == "ink")
     #expect(AppStyle.ink.gutter > AppStyle.standard.gutter && AppStyle.ink.border > AppStyle.standard.border)
 }
@@ -1404,7 +1444,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(AppStyle(setting: "meadow") == .meadow && AppStyle.meadow.label == "Meadow")
     #expect(AppStyle.meadow.theme == "meadow" && ConchTheme.named("meadow").light && !ConchTheme.named("firefly").light)
     #expect(AppStyle.meadow.corner > AppStyle.standard.corner && AppStyle.ink.corner == 0)
-    #expect(AppStyle.allCases.filter(\.paintsTitleBar) == [.meadow] && AppStyle.allCases.filter(\.roster) == [.cel])
+    #expect(AppStyle.allCases.filter(\.paintsTitleBar) == [.meadow, .terminal] && AppStyle.allCases.filter(\.roster) == [.cel])
     #expect(AppStyle.meadow.gutter == AppStyle.ink.gutter && AppStyle.meadow.border == AppStyle.standard.border)
     for w in [0.0, 100, 1320, 2560] {
         let c = cloudLayout(width: w)
@@ -1553,7 +1593,9 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
         let decl = try Regex(#"\nstruct (\w+): (View|ViewModifier|NSViewRepresentable) \{(.*?)\n\}"#).dotMatchesNewlines()
         for m in src.matches(of: decl) {
             let name = String(m.output[1].substring ?? ""), body = String(m.output[3].substring ?? "")
-            guard body.contains("Theme."), !drawsItsOwn.contains(name) else { continue }
+            // .ui(size:) is the window's face, which the style (Terminal:
+            // monospace) changes as the theme changes colours.
+            guard body.contains("Theme.") || body.contains(".ui(size") || body.contains(".tree(size"), !drawsItsOwn.contains(name) else { continue }
             // The store, or the theme itself (the environment, or Settings'
             // ShownTheme): a view watching only its own model — a Files tab,
             // a Sessions row — was not drawn again, and kept the old colours.

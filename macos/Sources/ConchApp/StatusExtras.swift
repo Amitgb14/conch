@@ -16,12 +16,12 @@ struct StatusExtras: View {
     var body: some View {
         HStack(spacing: 10) {
             Button { store.askOpen.toggle() } label: {
-                Text("✦ Ask").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.accent)
+                Text("✦ Ask").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.accent)
             }
             .buttonStyle(.plain).help("Ask conch in plain words — it plans, and runs nothing until you confirm")
             .popover(isPresented: $store.askOpen, arrowEdge: .top) { AskPopover(store: store) }
             Button { reporting.toggle() } label: {
-                Text("⊙").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.muted)
+                Text("⊙").font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.muted)
             }
             .buttonStyle(.plain).help("Report a problem: the facts about this conch, for a GitHub issue")
             .popover(isPresented: $reporting, arrowEdge: .top) { ReportPopover(store: store) }
@@ -70,9 +70,9 @@ struct AskPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("✦ Ask conch").font(.system(size: 13, weight: .semibold))
+            Text("✦ Ask conch").font(.ui(size: 13, weight: .semibold))
             Text("Say what you want done; conch plans it, and runs nothing until you confirm.")
-                .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                .font(.ui(size: 11.5)).foregroundStyle(.secondary)
             HStack {
                 TextField("start 2 agents on api to fix the flaky tests", text: $model.request)
                     .textFieldStyle(.roundedBorder).onSubmit { if let b = store.binary { model.ask(binary: b) } }
@@ -83,13 +83,13 @@ struct AskPopover: View {
             case .thinking?:
                 HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Thinking…").foregroundStyle(.secondary) }
             case .failed(let why)?:
-                Text(why).foregroundStyle(Theme.err).font(.system(size: 12)).textSelection(.enabled)
+                Text(why).foregroundStyle(Theme.err).font(.ui(size: 12)).textSelection(.enabled)
             default:
                 EmptyView()
             }
             if !model.output.isEmpty {
                 ScrollView {
-                    Text(model.output).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                    Text(model.output).font(.ui(size: 12, design: .monospaced)).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(minHeight: 120, maxHeight: 220) // in a popover, a scroll view takes no height it is not given
@@ -120,20 +120,20 @@ struct ReportPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Report a problem").font(.system(size: 13, weight: .semibold))
+            Text("Report a problem").font(.ui(size: 13, weight: .semibold))
             Text("The facts about this conch — versions, counts and the last error, never a path, a project or a screen. Nothing is sent: a GitHub issue opens with them, for you to read before you submit it.")
-                .font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             TextField("What happened (optional)", text: $what).textFieldStyle(.roundedBorder)
             if !report.isEmpty {
                 ScrollView {
-                    Text(report).font(.system(size: 11.5, design: .monospaced)).textSelection(.enabled)
+                    Text(report).font(.ui(size: 11.5, design: .monospaced)).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(minHeight: 120, maxHeight: 220) // in a popover, a scroll view takes no height it is not given
             }
-            if !error.isEmpty { Text(error).foregroundStyle(Theme.err).font(.system(size: 12)) }
+            if !error.isEmpty { Text(error).foregroundStyle(Theme.err).font(.ui(size: 12)) }
             HStack {
-                if opened { Text("Opened in your browser.").foregroundStyle(.secondary).font(.system(size: 12)) }
+                if opened { Text("Opened in your browser.").foregroundStyle(.secondary).font(.ui(size: 12)) }
                 Spacer()
                 Button("Show the facts") { run(open: false) }
                 Button("Open a GitHub issue") { run(open: true) }.keyboardShortcut(.defaultAction)
@@ -172,7 +172,7 @@ struct PairPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Pair a phone with this computer").font(.system(size: 13, weight: .semibold))
+            Text("Pair a phone with this computer").font(.ui(size: 13, weight: .semibold))
             Picker("", selection: $permission) {
                 Text("Full").tag("full")
                 Text("Reply").tag("reply")
@@ -181,7 +181,7 @@ struct PairPopover: View {
             .pickerStyle(.segmented).labelsHidden()
             .onChange(of: permission) { _ in pair() }
             Text(permission == "full" ? "It can see, answer and type into terminals." : permission == "reply" ? "It can see and answer agents, not type into terminals." : "It can only look.")
-                .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                .font(.ui(size: 11.5)).foregroundStyle(.secondary)
             if let i = info {
                 HStack(alignment: .top, spacing: 14) {
                     if let link = i.link, let qr = qrImage(link) {
@@ -189,21 +189,21 @@ struct PairPopover: View {
                             .background(Color.white).help(link)
                     }
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(i.code).font(.system(size: 26, weight: .bold, design: .monospaced)).textSelection(.enabled)
+                        Text(i.code).font(.ui(size: 26, weight: .bold, design: .monospaced)).textSelection(.enabled)
                         if let e = i.expires {
-                            Text("Good once, until \(e.formatted(date: .omitted, time: .shortened)).").font(.system(size: 11.5)).foregroundStyle(.secondary)
+                            Text("Good once, until \(e.formatted(date: .omitted, time: .shortened)).").font(.ui(size: 11.5)).foregroundStyle(.secondary)
                         }
-                        if let r = i.reach { Text(r).font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                        if let r = i.reach { Text(r).font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                         HStack {
                             Button("Copy code") { copy(i.code) }
                             if let l = i.link { Button("Copy link") { copy(l) } }
                         }
                     }
                 }
-                if let w = i.where { Text(w).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true) }
+                if let w = i.where { Text(w).font(.ui(size: 12)).fixedSize(horizontal: false, vertical: true) }
                 if i.running != true {
                     HStack {
-                        Text("conch web, the gateway a phone reaches, is not running.").font(.system(size: 12)).foregroundStyle(Theme.warn)
+                        Text("conch web, the gateway a phone reaches, is not running.").font(.ui(size: 12)).foregroundStyle(Theme.warn)
                         Spacer()
                         if i.canStart == true {
                             Button(starting ? "Starting…" : "Start it") { start() }.disabled(starting)
@@ -211,7 +211,7 @@ struct PairPopover: View {
                     }
                 }
             }
-            if !error.isEmpty { Text(error).foregroundStyle(Theme.err).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true) }
+            if !error.isEmpty { Text(error).foregroundStyle(Theme.err).font(.ui(size: 12)).fixedSize(horizontal: false, vertical: true) }
         }
         .padding(14).frame(width: 440)
         .onAppear { pair() }

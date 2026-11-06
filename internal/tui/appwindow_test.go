@@ -385,7 +385,7 @@ func TestChromeOnLightAndDark(t *testing.T) {
 	}
 	// Text that sets only a background stays readable on a light theme's
 	// dim selection.
-	for _, name := range []string{"github-light", "solarized-light", "catppuccin-latte", "ink", "meadow"} {
+	for _, name := range []string{"github-light", "solarized-light", "catppuccin-latte", "ink", "meadow", "terminal-light"} {
 		th := themeByName(name)
 		if th.name != name || luminance(textOn(th.selDim)) > 0.5 {
 			t.Errorf("%s: missing, or light text on its light selection", name)
@@ -393,11 +393,11 @@ func TestChromeOnLightAndDark(t *testing.T) {
 	}
 }
 
-// conch's own themes (Firefly, Cel, Ink, Meadow) are there by name, and a
+// conch's own themes (Firefly, Cel, Terminal, Terminal Light, Ink, Meadow) are there by name, and a
 // commit graph's first four lanes — accent, working, ok, warning in turn
 // (laneStyle) — come out four different colours in each.
 func TestConchOwnThemes(t *testing.T) {
-	for _, name := range []string{"firefly", "cel", "ink", "meadow"} {
+	for _, name := range []string{"firefly", "cel", "terminal", "terminal-light", "ink", "meadow"} {
 		th := themeByName(name)
 		if th.name != name {
 			t.Fatalf("no theme %q", name)

@@ -221,14 +221,14 @@ struct SessionsView: View {
         let name = store.snapshots[model.machine]?.project(model.project)?.name ?? model.project
         return HStack(spacing: 10) {
             LucideIcon("history", color: Theme.accent, size: 14)
-            Text("Sessions").font(.system(size: 13, weight: .semibold))
-            Text(name).font(.system(size: 12)).foregroundStyle(Theme.text2)
-            Text("\(model.sessions.count)").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            Text("Sessions").font(.ui(size: 13, weight: .semibold))
+            Text(name).font(.ui(size: 12)).foregroundStyle(Theme.text2)
+            Text("\(model.sessions.count)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
             if model.loading || model.partial { ProgressView().controlSize(.small) }
             Spacer()
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(Theme.muted)
-                TextField("Search titles and conversations", text: $model.query).textFieldStyle(.plain).font(.system(size: 12))
+                Image(systemName: "magnifyingglass").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+                TextField("Search titles and conversations", text: $model.query).textFieldStyle(.plain).font(.ui(size: 12))
                     .onChange(of: model.query) { _ in model.queryChanged() }
             }
             .padding(.horizontal, 8).frame(width: 260, height: 26)
@@ -260,27 +260,27 @@ struct SessionRow: View {
         HStack(spacing: 10) {
             Mark(agent: session.agent)
             VStack(alignment: .leading, spacing: 3) {
-                Text(session.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                Text(session.name).font(.ui(size: 13, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
                 HStack(spacing: 8) {
                     Text(agentTitle(session.agent)).foregroundStyle(Theme.text2)
                     if let b = session.branch, !b.isEmpty {
                         HStack(spacing: 4) {
                             LucideIcon("git-branch", color: Theme.muted, size: 10)
-                            Text(b).font(.system(size: 11.5, design: .monospaced))
+                            Text(b).font(.ui(size: 11.5, design: .monospaced))
                         }
                     }
                     Text(agoText(session.updated))
                 }
-                .font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                .font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
                 if let sn = session.snippet, !sn.isEmpty {
                     // Where a search found the words inside it.
-                    Text(sn).font(.system(size: 11.5)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
+                    Text(sn).font(.ui(size: 11.5)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
                 }
             }
             Spacer(minLength: 8)
             if !(session.sessionID ?? "").isEmpty {
                 Button { model.star(session) } label: {
-                    Image(systemName: session.starred == true ? "star.fill" : "star").font(.system(size: 11))
+                    Image(systemName: session.starred == true ? "star.fill" : "star").font(.ui(size: 11))
                         .foregroundStyle(session.starred == true ? Theme.warn : Theme.muted)
                 }
                 .buttonStyle(.plain).opacity(session.starred == true || hovering ? 1 : 0)
@@ -289,12 +289,12 @@ struct SessionRow: View {
             if session.interrupted == true { Pill(text: "interrupted", fg: Theme.onWarn, bg: Theme.warn) }
             if open { Pill(text: "open", fg: Theme.ok, bg: Theme.ok.opacity(0.16)) }
             Button(open ? "Open" : "Resume") { model.resume(session) }
-                .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
+                .buttonStyle(.plain).font(.ui(size: 12, weight: .medium))
                 .foregroundStyle(Theme.selectedText)
                 .padding(.horizontal, 10).padding(.vertical, 3)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Theme.accentDeep))
                 .help(open ? "Go to the pane it is open in" : "Start \(session.agent) on this conversation again, in a pane")
-            Button { model.delete(session) } label: { Image(systemName: "trash").font(.system(size: 11)) }
+            Button { model.delete(session) } label: { Image(systemName: "trash").font(.ui(size: 11)) }
                 .buttonStyle(.plain).foregroundStyle(Theme.muted).opacity(hovering ? 1 : 0)
                 .help("Delete this conversation")
         }

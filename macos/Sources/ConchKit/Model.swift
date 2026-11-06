@@ -109,6 +109,18 @@ public struct Snapshot: Equatable, Sendable {
         }
         return order[0].id
     }
+
+    /// The finished agent after current, in the order they finished — what
+    /// a click on the toolbar's done count goes to — round again at the end.
+    public func nextDone(after current: String?, in ws: Workspace? = nil, machine: String = "local") -> String? {
+        let order = shown(in: ws, machine: machine).filter { $0.agent?.state == .done }
+            .sorted { ($0.agent?.since ?? .distantPast) < ($1.agent?.since ?? .distantPast) }
+        guard !order.isEmpty else { return nil }
+        if let cur = current, let i = order.firstIndex(where: { $0.id == cur }) {
+            return order[(i + 1) % order.count].id
+        }
+        return order[0].id
+    }
 }
 
 // MARK: - Machines
@@ -680,6 +692,8 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("previousTab", "Previous tab", "⇧⌘["),
     ("toggleSidebar", "Show or hide the sidebar", "⌃⌘S"),
     ("focusSidebar", "Go to the sidebar (its keys: ↑↓ ⏎ t c n)", "⌘0"),
+    ("biggerFont", "Terminal text bigger / smaller / default", "⌘+ ⌘− ⌃⌘0"),
+    ("biggerText", "Window text bigger / smaller / default", "⇧⌘+ ⇧⌘− ⌃⇧⌘0"),
     ("openTUI", "Open conch in a terminal", ""),
 ]
 

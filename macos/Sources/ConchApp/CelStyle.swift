@@ -39,7 +39,7 @@ struct RosterBar: View {
             HStack(spacing: 14) {
                 ForEach(store.rosterCards, id: \.key) { c in RosterCardView(store: store, card: c, whole: whole) }
                 Button { store.newTerminal(split: nil) } label: {
-                    Text("+").font(.system(size: whole ? 24 : 16, weight: .bold)).foregroundStyle(Theme.muted)
+                    Text("+").font(.ui(size: whole ? 24 : 16, weight: .bold)).foregroundStyle(Theme.muted)
                         .frame(width: whole ? 60 : 40, height: whole ? 104 : 34)
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.line, style: StrokeStyle(lineWidth: 2, dash: [6, 4])))
                 }
@@ -104,9 +104,9 @@ struct RosterCardView: View {
     func line(_ on: Bool) -> some View {
         HStack(spacing: 8) {
             Mark(agent: card.agent)
-            Text(card.title).font(.system(size: 12, weight: .heavy)).foregroundStyle(Theme.text).lineLimit(1)
+            Text(card.title).font(.ui(size: 12, weight: .heavy)).foregroundStyle(Theme.text).lineLimit(1)
             Spacer(minLength: 4)
-            Text(card.bar.word.uppercased()).font(.system(size: 10, weight: .heavy)).foregroundStyle(color).lineLimit(1)
+            Text(card.bar.word.uppercased()).font(.ui(size: 10, weight: .heavy)).foregroundStyle(color).lineLimit(1)
         }
         .padding(.horizontal, 10).frame(width: 214, height: 34)
         .celBox(9, fill: on ? Theme.accentDeep.opacity(0.28) : Theme.raise, lift: on ? Theme.accentDeep : nil, shadow: 3)
@@ -124,11 +124,11 @@ struct RosterCardView: View {
             HStack(spacing: 9) {
                 face
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(card.title).font(.system(size: 13, weight: .heavy)).foregroundStyle(Theme.text).lineLimit(1)
-                    Text(card.place.isEmpty ? " " : card.place).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text(card.title).font(.ui(size: 13, weight: .heavy)).foregroundStyle(Theme.text).lineLimit(1)
+                    Text(card.place.isEmpty ? " " : card.place).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                if on { Text("▶").font(.system(size: 11)).foregroundStyle(Theme.accentDeep) }
+                if on { Text("▶").font(.ui(size: 11)).foregroundStyle(Theme.accentDeep) }
             }
             // The bar, flat with a highlight on its upper half.
             GeometryReader { g in
@@ -142,11 +142,11 @@ struct RosterCardView: View {
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.celLine, lineWidth: 2))
             HStack {
-                Text(bar.word.uppercased()).font(.system(size: 11, weight: .heavy)).foregroundStyle(color)
+                Text(bar.word.uppercased()).font(.ui(size: 11, weight: .heavy)).foregroundStyle(color)
                 Spacer()
                 if let t = card.since, card.agent != nil {
                     TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                        Text(shortAgo(t, ctx.date)).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                        Text(shortAgo(t, ctx.date)).font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                     }
                 }
             }
@@ -170,7 +170,7 @@ struct RosterCardView: View {
             if card.agent != nil {
                 Mark(agent: card.agent).scaleEffect(1.35)
             } else {
-                Text("$_").font(.system(size: 14, weight: .heavy, design: .monospaced)).foregroundStyle(Theme.text2)
+                Text("$_").font(.ui(size: 14, weight: .heavy, design: .monospaced)).foregroundStyle(Theme.text2)
             }
         }
         .frame(width: 38, height: 38)
@@ -188,7 +188,7 @@ struct ProjectRail: View {
 
     func tile(_ text: String, on: Bool, help: String, size: CGFloat = 13, _ act: @escaping () -> Void) -> some View {
         Button(action: act) {
-            Text(text).font(.system(size: size, weight: .heavy)).foregroundStyle(on ? Theme.selectedText : Theme.text)
+            Text(text).font(.ui(size: size, weight: .heavy)).foregroundStyle(on ? Theme.selectedText : Theme.text)
                 .frame(width: 38, height: 38)
                 .celBox(10, fill: on ? Theme.accentDeep : Theme.raise, shadow: 3)
         }
@@ -228,7 +228,7 @@ struct CelSide: View {
             if let n = store.needsYou.first {
                 dialogue(n.key, n.pane)
             } else {
-                Text("Nobody is waiting on you.").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
+                Text("Nobody is waiting on you.").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
                     .celBox(12, fill: Theme.raise)
             }
@@ -242,16 +242,16 @@ struct CelSide: View {
         let q = store.questions[key]
         return VStack(alignment: .leading, spacing: 7) {
             Text(q?.text.isEmpty == false ? q!.text : questionKind(pane.agent?.message) == "permission" ? "Allow this?" : "Waiting for you")
-                .font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.text).lineLimit(3)
+                .font(.ui(size: 13, weight: .bold)).foregroundStyle(Theme.text).lineLimit(3)
             if let m = pane.agent?.message, !m.isEmpty {
-                Text(m).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2).lineLimit(2)
+                Text(m).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2).lineLimit(2)
             }
             if let q, !q.choices.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(q.choices, id: \.choice) { c in
                         let on = c.default == true
                         Button { store.answer(key, q, c) } label: {
-                            Text((on ? "▶ " : "") + c.label).font(.system(size: 12, weight: .bold)).lineLimit(1)
+                            Text((on ? "▶ " : "") + c.label).font(.ui(size: 12, weight: .bold)).lineLimit(1)
                                 .foregroundStyle(on ? Theme.selectedText : Theme.text)
                                 .padding(.horizontal, 10).padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading)
                                 .celBox(8, fill: on ? Theme.accentDeep : Theme.window, shadow: on ? 3 : 0)
@@ -261,7 +261,7 @@ struct CelSide: View {
                 }
             } else {
                 Button("Open to answer") { store.open(key) }.buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accentDeep)
+                    .font(.ui(size: 12, weight: .bold)).foregroundStyle(Theme.accentDeep)
             }
         }
         .padding(.horizontal, 14).padding(.top, 22).padding(.bottom, 12)
@@ -271,7 +271,7 @@ struct CelSide: View {
         .overlay(alignment: .topLeading) {
             HStack(spacing: 6) {
                 Mark(agent: pane.agent?.name)
-                Text(pane.displayName).font(.system(size: 12, weight: .heavy)).foregroundStyle(Theme.text).lineLimit(1)
+                Text(pane.displayName).font(.ui(size: 12, weight: .heavy)).foregroundStyle(Theme.text).lineLimit(1)
             }
             .padding(.horizontal, 9).padding(.vertical, 3)
             .celBox(7, fill: Theme.work.opacity(0.85), shadow: 2)
@@ -285,18 +285,18 @@ struct CelSide: View {
     var log: some View {
         let lines = activity(store.rosterCards)
         return VStack(alignment: .leading, spacing: 9) {
-            Text("WHAT HAPPENED").font(.system(size: 11, weight: .heavy)).tracking(0.8).foregroundStyle(Theme.muted)
+            Text("WHAT HAPPENED").font(.ui(size: 11, weight: .heavy)).tracking(0.8).foregroundStyle(Theme.muted)
             if lines.isEmpty {
-                Text("Nothing yet.").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Text("Nothing yet.").font(.ui(size: 12)).foregroundStyle(Theme.muted)
             }
             TimelineView(.periodic(from: .now, by: 30)) { ctx in
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(lines, id: \.key) { l in
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(shortAgo(l.since, ctx.date)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)
+                            Text(shortAgo(l.since, ctx.date)).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)
                                 .frame(width: 34, alignment: .leading)
                             Mark(agent: l.agent)
-                            Text(l.text).font(.system(size: 12)).foregroundStyle(Theme.text).lineLimit(2)
+                            Text(l.text).font(.ui(size: 12)).foregroundStyle(Theme.text).lineLimit(2)
                         }
                         .contentShape(Rectangle())
                         .onTapGesture { store.open(l.key) }

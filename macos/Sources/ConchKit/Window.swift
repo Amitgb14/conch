@@ -28,6 +28,17 @@ public struct AppLook: Equatable, Sendable {
     /// The TUI's prefix keys in the panes, on unless [app] prefix_keys is
     /// false.
     public var prefixKeys = true
+    /// The window's own text, as a scale (text_size in percent), and the
+    /// terminal's font size in points (font_size), each kept in range.
+    public var textScale: Double = 1
+    public var fontSize: Double = AppLook.fontDefault
+
+    public static let textRange = 0.8...1.6
+    public static let fontRange = 9.0...28.0
+    public static let fontDefault = 14.0
+    /// The steps ⇧⌘+ and ⇧⌘− move the window's text through, and the
+    /// settings page offers.
+    public static let textSteps: [Double] = [0.8, 0.9, 1.0, 1.1, 1.25, 1.4, 1.6]
 
     public init(tabs: TabPlacement = .top, compact: Bool = false, glass: Bool = false, ports: Bool = true, scratchKey: Bool = false, prefixKeys: Bool = true) {
         self.tabs = tabs
@@ -36,6 +47,17 @@ public struct AppLook: Equatable, Sendable {
         self.ports = ports
         self.scratchKey = scratchKey
         self.prefixKeys = prefixKeys
+    }
+
+    /// The next step of the window's text, bigger or smaller, from where it is.
+    public static func textStep(from scale: Double, bigger: Bool) -> Double {
+        if bigger { return textSteps.first { $0 > scale + 0.001 } ?? textSteps.last! }
+        return textSteps.last { $0 < scale - 0.001 } ?? textSteps.first!
+    }
+
+    /// The terminal's font a point bigger or smaller, in range.
+    public static func fontStep(from size: Double, bigger: Bool) -> Double {
+        min(max((size + (bigger ? 1 : -1)).rounded(), fontRange.lowerBound), fontRange.upperBound)
     }
 
     /// Read from config.toml; what is missing or not understood is the
@@ -47,6 +69,15 @@ public struct AppLook: Equatable, Sendable {
         ports = tomlSetting("app", "ports", in: toml) != "false"
         scratchKey = tomlSetting("app", "scratch_key", in: toml) == "true"
         prefixKeys = tomlSetting("app", "prefix_keys", in: toml) != "false"
+        // A whole number, as Go reads it (an int): 112.5 is not understood
+        // there, so it is not here either, rather than the app quietly using
+        // what conch's settings would refuse.
+        if let v = tomlSetting("app", "text_size", in: toml).flatMap(Int.init).map(Double.init), v > 0 {
+            textScale = min(max(v / 100, Self.textRange.lowerBound), Self.textRange.upperBound)
+        }
+        if let v = tomlSetting("app", "font_size", in: toml).flatMap(Double.init), v > 0 {
+            fontSize = min(max(v, Self.fontRange.lowerBound), Self.fontRange.upperBound)
+        }
     }
 }
 
@@ -71,6 +102,7 @@ public func machine(ofKey k: String) -> String {
     if let c = parseCommitsKey(k) { return c.machine }
     if let f = parseFilesKey(k) { return f.machine }
     if let s = parseSetupKey(k) { return s.machine }
+    if parseBrowserKey(k) != nil { return "local" } // a page is shown on this computer
     return unkey(k).machine
 }
 
@@ -245,3 +277,8 @@ public func clickOwner(inTerminal: Bool, x: Double, y: Double, sidebarWidth: Dou
     guard let w = sidebarWidth, x >= 0, x <= w, y > statusBar, y < windowHeight - toolbar else { return .unchanged }
     return .sidebar
 }
+
+/// The room a scaled window's text needs in the sidebar on top of the width
+/// dragged to: the default width's share of the scale, so a drag still
+/// moves the edge with the pointer.
+public func sidebarExtra(scale: Double, base: Double = 250) -> Double { max(0, (scale - 1) * base) }

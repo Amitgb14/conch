@@ -217,3 +217,45 @@ func TestAppSettings(t *testing.T) {
 		}
 	}
 }
+
+// The window's text size and the terminal's font size: absent is the
+// default, a value out of range is kept to it, and both survive a save —
+// written by the app's own keys as bare numbers, which Go must read.
+func TestAppTextAndFontSize(t *testing.T) {
+	if (AppCfg{}).TextSizeOrDefault() != 100 || (AppCfg{}).FontSizeOrDefault() != 14 {
+		t.Fatal("defaults")
+	}
+	for _, c := range []struct {
+		in   AppCfg
+		text int
+		font float64
+	}{
+		{AppCfg{TextSize: 125, FontSize: 16.5}, 125, 16.5},
+		{AppCfg{TextSize: 500, FontSize: 99}, AppTextSizeMax, AppFontSizeMax},
+		{AppCfg{TextSize: 10, FontSize: 2}, AppTextSizeMin, AppFontSizeMin},
+	} {
+		if c.in.TextSizeOrDefault() != c.text || c.in.FontSizeOrDefault() != c.font {
+			t.Errorf("%+v: %d %v", c.in, c.in.TextSizeOrDefault(), c.in.FontSizeOrDefault())
+		}
+	}
+	home := t.TempDir()
+	t.Setenv("CONCH_HOME", home)
+	// As the app's ⌘+ writes them: bare numbers in [app].
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[app]\ntabs = \"left\"\ntext_size = 140\nfont_size = 18\n"), 0o644)
+	got, err := Load()
+	if err != nil || got.App.TextSize != 140 || got.App.FontSize != 18 || got.App.Tabs != "left" {
+		t.Fatalf("read: %+v %v", got.App, err)
+	}
+	if err := Save(got); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(home, "config.toml"))
+	if !strings.Contains(string(b), "text_size = 140") || !strings.Contains(string(b), "font_size = 18") {
+		t.Fatalf("saved:\n%s", b)
+	}
+	// A half point survives too.
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[app]\nfont_size = 13.5\n"), 0o644)
+	if got, err = Load(); err != nil || got.App.FontSize != 13.5 {
+		t.Fatalf("half point: %+v %v", got.App, err)
+	}
+}

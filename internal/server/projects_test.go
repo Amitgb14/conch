@@ -3,11 +3,15 @@ package server_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -230,6 +234,241 @@ JSON
 		pr.Runs[1].Name != "test (macos)" || pr.Runs[1].State != "pending" || pr.Total != 2 {
 		t.Fatalf("runs: %+v (total %d)", pr.Runs, pr.Total)
 	}
+}
+
+// mergeRig is a project cloned from a bare "origin", a second clone that
+// plays GitHub (it merges and pushes), and a fake gh answering from a file
+// the test rewrites.
+type mergeRig struct {
+	t                 *testing.T
+	c                 *client.Client
+	ctx               context.Context
+	dir, repo, other  string
+	origin, state, id string
+	logs              *lockedLog
+}
+
+type lockedLog struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (l *lockedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *lockedLog) has(s string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Contains(l.buf.String(), s)
+}
+
+func newMergeRig(t *testing.T) *mergeRig {
+	t.Helper()
+	scratch := t.TempDir()
+	r := &mergeRig{t: t, state: filepath.Join(scratch, "prs.json"), logs: &lockedLog{}}
+	old := log.Writer()
+	log.SetOutput(io.MultiWriter(old, r.logs))
+	t.Cleanup(func() { log.SetOutput(old) })
+	r.prs() // gh's first answer: none
+	gh := filepath.Join(scratch, "gh")
+	if err := os.WriteFile(gh, []byte("#!/bin/sh\ncat "+r.state+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CONCH_GH", gh)
+
+	r.c, r.dir = startServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+	r.ctx = ctx
+	r.origin = filepath.Join(r.dir, "origin.git")
+	git(t, r.dir, "init", "-q", "--bare", "-b", "main", r.origin)
+	r.other = filepath.Join(r.dir, "other")
+	git(t, r.dir, "clone", "-q", r.origin, r.other)
+	r.repo = filepath.Join(r.dir, "web")
+	for _, d := range []string{r.other} {
+		git(t, d, "config", "user.name", "t")
+		git(t, d, "config", "user.email", "t@example.com")
+	}
+	git(t, r.other, "commit", "-q", "--allow-empty", "-m", "init")
+	git(t, r.other, "push", "-q", "origin", "main")
+	git(t, r.dir, "clone", "-q", r.origin, r.repo)
+	git(t, r.repo, "config", "user.name", "t")
+	git(t, r.repo, "config", "user.email", "t@example.com")
+	return r
+}
+
+// pr is one pull request as gh lists it; base "" leaves baseRefName out.
+func pr(number int, branch, base, state string) string {
+	b := ""
+	if base != "" {
+		b = fmt.Sprintf(`,"baseRefName":%q`, base)
+	}
+	return fmt.Sprintf(`{"number":%d,"title":"t","state":%q,"url":"https://github.com/o/r/pull/%d","headRefName":%q%s,"updatedAt":"2026-11-05T10:00:00Z","statusCheckRollup":[]}`, number, state, number, branch, b)
+}
+
+// prs is gh's next answer, put in place whole: written beside and renamed,
+// so a gh run meanwhile reads the old answer or the new, never half.
+func (r *mergeRig) prs(list ...string) { r.raw("[" + strings.Join(list, ",") + "]") }
+
+func (r *mergeRig) raw(body string) {
+	r.t.Helper()
+	tmp := r.state + ".new"
+	if err := os.WriteFile(tmp, []byte(body), 0o644); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := os.Rename(tmp, r.state); err != nil {
+		r.t.Fatal(err)
+	}
+}
+
+func (r *mergeRig) add() {
+	r.t.Helper()
+	var added proto.ProjectInfo
+	if err := r.c.Call(r.ctx, proto.MethodProjectAdd, proto.ProjectAddParams{Path: r.repo}, &added); err != nil {
+		r.t.Fatal(err)
+	}
+	r.id = added.ID
+}
+
+// look asks for the pull requests now and waits until ok says they came.
+func (r *mergeRig) look(ok func(proto.ProjectInfo) bool) {
+	r.t.Helper()
+	if r.id != "" {
+		if err := r.c.Call(r.ctx, proto.MethodProjectRefresh, proto.ProjectRef{ID: r.id}, nil); err != nil {
+			r.t.Fatal(err)
+		}
+	}
+	waitProject(r.t, r.c, ok)
+}
+
+func prState(branch, state string) func(proto.ProjectInfo) bool {
+	return func(p proto.ProjectInfo) bool {
+		for _, b := range p.Branches {
+			if b.Name == branch && b.PR != nil && b.PR.State == state {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// merge is GitHub merging branch (pushed to origin) into main; it returns
+// the merge commit.
+func (r *mergeRig) merge(branch string) string {
+	r.t.Helper()
+	git(r.t, r.other, "fetch", "-q", "origin", branch)
+	git(r.t, r.other, "merge", "-q", "--no-ff", "-m", "Merge "+branch, "FETCH_HEAD")
+	git(r.t, r.other, "push", "-q", "origin", "main")
+	return revParse(r.t, r.other, "HEAD")
+}
+
+func (r *mergeRig) originMain() string { return revParse(r.t, r.repo, "refs/remotes/origin/main") }
+
+func (r *mergeRig) waitOriginMain(want string) {
+	r.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for r.originMain() != want {
+		if time.Now().After(deadline) {
+			r.t.Fatalf("origin/main is %s, want the merge %s", r.originMain(), want)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// A pull request seen open and then merged fetches its base, so the merge
+// GitHub made reaches this checkout's origin/main and the commit graph can
+// show it; one already merged at the first look fetches nothing. The
+// merged branch tracks a fork, and the base still comes from origin: the
+// remote is the base's, not the head's.
+func TestMergedPullRequestFetchesItsBase(t *testing.T) {
+	r := newMergeRig(t)
+	fork := filepath.Join(r.dir, "fork.git")
+	git(t, r.dir, "init", "-q", "--bare", "-b", "main", fork)
+	git(t, r.repo, "remote", "add", "fork", fork)
+	git(t, r.repo, "checkout", "-q", "-b", "feat")
+	git(t, r.repo, "commit", "-q", "--allow-empty", "-m", "feature")
+	git(t, r.repo, "push", "-q", "-u", "fork", "feat")
+	git(t, r.repo, "push", "-q", "origin", "feat") // where GitHub merges it from, here
+	git(t, r.repo, "branch", "-q", "old")
+	before := r.originMain()
+
+	// The remote moves on before the server looks: "old" was merged
+	// already, which must not be fetched for.
+	git(t, r.other, "commit", "-q", "--allow-empty", "-m", "merge old")
+	git(t, r.other, "push", "-q", "origin", "main")
+	r.prs(pr(6, "old", "main", "MERGED"), pr(7, "feat", "main", "OPEN"))
+	r.add()
+	r.look(prState("feat", "OPEN"))
+	if got := r.originMain(); got != before {
+		t.Fatalf("a pull request merged before the first look fetched the base: %s, was %s", got, before)
+	}
+
+	merged := r.merge("feat")
+	r.prs(pr(6, "old", "main", "MERGED"), pr(7, "feat", "main", "MERGED"))
+	r.look(prState("feat", "MERGED"))
+	r.waitOriginMain(merged)
+	if out, _ := exec.Command("git", "-C", r.repo, "rev-parse", "--verify", "-q", "refs/remotes/fork/main").Output(); len(out) > 0 {
+		t.Fatalf("fetched the head's remote: fork/main is %s", out)
+	}
+}
+
+// A fetch that fails is owed until one succeeds: the next look tries it
+// again, though the pull request was already merged at the look before.
+func TestMergedBaseFetchRetried(t *testing.T) {
+	r := newMergeRig(t)
+	git(t, r.repo, "checkout", "-q", "-b", "feat")
+	git(t, r.repo, "commit", "-q", "--allow-empty", "-m", "feature")
+	git(t, r.repo, "push", "-q", "-u", "origin", "feat")
+	r.prs(pr(7, "feat", "main", "OPEN"))
+	r.add()
+	r.look(prState("feat", "OPEN"))
+
+	merged := r.merge("feat")
+	away := r.origin + ".away" // the network gone
+	if err := os.Rename(r.origin, away); err != nil {
+		t.Fatal(err)
+	}
+	r.prs(pr(7, "feat", "main", "MERGED"))
+	r.look(prState("feat", "MERGED"))
+	deadline := time.Now().Add(10 * time.Second)
+	for !r.logs.has("fetching it failed") {
+		if time.Now().After(deadline) {
+			t.Fatal("the failed fetch was never tried")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err := os.Rename(away, r.origin); err != nil {
+		t.Fatal(err)
+	}
+	// MERGED at this look and the last: only the debt brings the fetch.
+	if err := r.c.Call(r.ctx, proto.MethodProjectRefresh, proto.ProjectRef{ID: r.id}, nil); err != nil {
+		t.Fatal(err)
+	}
+	r.waitOriginMain(merged)
+}
+
+// gh failing between the two looks forgets nothing: the pull request it
+// last saw open is still owed its fetch when the next look says merged.
+// gh not naming the base, the project's base is the one fetched.
+func TestMergeSeenAcrossAGHError(t *testing.T) {
+	r := newMergeRig(t)
+	git(t, r.repo, "checkout", "-q", "-b", "feat")
+	git(t, r.repo, "commit", "-q", "--allow-empty", "-m", "feature")
+	git(t, r.repo, "push", "-q", "-u", "origin", "feat")
+	r.prs(pr(7, "feat", "", "OPEN"))
+	r.add()
+	r.look(prState("feat", "OPEN"))
+
+	r.raw("not json")
+	r.look(func(p proto.ProjectInfo) bool { return p.PRStatus != "" })
+
+	merged := r.merge("feat")
+	r.prs(pr(7, "feat", "", "MERGED"))
+	r.look(prState("feat", "MERGED"))
+	r.waitOriginMain(merged)
 }
 
 func TestBrowseAndCreateProjects(t *testing.T) {

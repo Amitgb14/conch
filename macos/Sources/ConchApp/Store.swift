@@ -140,7 +140,10 @@ final class Store: ObservableObject {
     let look = ShownTheme()
     /// What the window is drawn in, as one value its views can depend on:
     /// the theme, the style and how agents are marked.
-    var themeLook: String { theme.id + "|" + style.rawValue + "|" + icons.rawValue }
+    /// What a view reading Theme or the window's face depends on, handed
+    /// down so it redraws when any part changes — the text size included,
+    /// or a label watching only this kept its old size.
+    var themeLook: String { theme.id + "|" + style.rawValue + "|" + icons.rawValue + "|" + String(appLook.textScale) }
 
     /// Told when the theme changes, for what SwiftUI does not draw: the
     /// window's own background and appearance.
@@ -230,8 +233,22 @@ final class Store: ObservableObject {
 
     func connection(_ machine: String) -> Connection? { conns[machine] }
 
+    /// Asks a machine's server to read a project's git and its pull requests
+    /// now rather than at its next turn — a minute, or five with no panes in
+    /// the project — so a merge on GitHub shows when somebody opens, reopens
+    /// or refreshes the graph or a git tab. Its answer comes back as project.updated, which
+    /// reads an open graph or git tab again. Only on someone's asking: from
+    /// load(), which every project.updated runs, it would ask again at every
+    /// answer.
+    func refreshProject(machine: String, project: String) {
+        guard let c = conns[machine], !project.isEmpty else { return }
+        struct Ref: Encodable { var id: String }
+        Task { try? await c.call("project.refresh", Ref(id: project)) }
+    }
+
     /// "api · local": where a pane is, for the end of the tab bar.
     func scope(of k: String) -> String {
+        if parseBrowserKey(k) != nil { return "Browser · this Mac" } // a page is not any project's
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
@@ -646,11 +663,26 @@ final class Store: ObservableObject {
         let app = AppLook(toml: toml)
         loadKeys(on: app.prefixKeys, stamp: toml ?? "")
         if app != appLook {
+            // Before the views redraw: the window's text is read at its size.
+            Theme.textScale = app.textScale
             appLook = app
             onAppLook?(app)
         }
+        // Themes of your own, read again each time: a file added or changed
+        // is in the lists, and in use, without restarting.
+        let mine = userThemes(in: (conchDir as NSString).appendingPathComponent("themes"))
+        if mine.themes != ConchTheme.user {
+            ConchTheme.user = mine.themes
+            onThemeList?()
+        }
+        userThemeProblems = mine.problems
         let configured = ConchTheme.configured(in: toml, dark: systemDark)
-        let next = ConchTheme.resolve(choice: themeChoice, configured: configured, preview: previewing).shown
+        let resolved = ConchTheme.resolve(choice: themeChoice, configured: configured, preview: previewing)
+        // A theme drawn as a pair (Terminal) follows macOS to its light one;
+        // a theme being previewed is shown as it is. [ui] accent over it,
+        // as the TUI draws it.
+        let next = (previewing == nil ? ConchTheme.forAppearance(resolved.shown, dark: systemDark) : resolved.shown)
+            .withAccent(uiSetting("accent", in: toml))
         guard next != theme || Theme.current != next else { return }
         theme = next
         Theme.current = next
@@ -718,12 +750,45 @@ final class Store: ObservableObject {
         ConchTheme.named(ConchTheme.configured(in: try? String(contentsOfFile: configFile, encoding: .utf8), dark: systemDark))
     }
 
-    private var conchDir: String {
+    var conchDir: String {
         ProcessInfo.processInfo.environment["CONCH_HOME"].flatMap { $0.isEmpty ? nil : $0 }
             ?? (NSHomeDirectory() as NSString).appendingPathComponent(".config/conch")
     }
 
     private var configFile: String { (conchDir as NSString).appendingPathComponent("config.toml") }
+
+    /// One [app] setting written to config.toml, the rest of the file kept,
+    /// then read back so the window takes it — as the settings page would.
+    /// A TUI open meanwhile holds its own copy of the file; the settings
+    /// page is the way to change it there.
+    private func setAppSetting(_ key: String, _ value: String?) {
+        let toml = (try? String(contentsOfFile: configFile, encoding: .utf8)) ?? ""
+        let next = settingTOML(toml, section: "app", key: key, value: value)
+        guard next != toml else { return }
+        do {
+            try FileManager.default.createDirectory(atPath: conchDir, withIntermediateDirectories: true)
+            try next.write(toFile: configFile, atomically: true, encoding: .utf8)
+        } catch {
+            say("Could not save \(key): \(error.localizedDescription)", .err)
+            return
+        }
+        loadTheme()
+    }
+
+    /// ⌘+ / ⌘−: the terminal's font a point bigger or smaller; nil, the default.
+    func stepFontSize(bigger: Bool?) {
+        let pt = bigger.map { AppLook.fontStep(from: appLook.fontSize, bigger: $0) } ?? AppLook.fontDefault
+        setAppSetting("font_size", pt == AppLook.fontDefault ? nil : (pt.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(pt)) : String(pt)))
+        say("Terminal text \(Int(pt.rounded())) pt", .info)
+    }
+
+    /// ⇧⌘+ / ⇧⌘−: the window's text a step bigger or smaller; nil, 100%.
+    func stepTextSize(bigger: Bool?) {
+        let scale = bigger.map { AppLook.textStep(from: appLook.textScale, bigger: $0) } ?? 1
+        let pct = Int((scale * 100).rounded())
+        setAppSetting("text_size", pct == 100 ? nil : String(pct))
+        say("Window text \(pct)%", .info)
+    }
 
     /// A click in a pane's terminal gives that pane the keyboard: the split
     /// it is in becomes the focused one.
@@ -744,7 +809,7 @@ final class Store: ObservableObject {
                 // Only where the click landed: the status bar's buttons and
                 // the toolbar leave the keyboard where it was (ClickOwner).
                 let saved = UserDefaults.standard.double(forKey: "sidebarWidth")
-                let width = self.sidebarVisible ? (saved > 0 ? saved : Double(sidebarDefault)) : nil
+                let width = self.sidebarVisible ? self.style.sidebarWidth(saved > 0 ? saved : Double(sidebarDefault)) + sidebarExtra(scale: self.appLook.textScale) : nil
                 let p = e.locationInWindow
                 let toolbar = Double(win.frame.height - win.contentLayoutRect.height)
                 switch clickOwner(inTerminal: inTerminal, x: p.x, y: p.y, sidebarWidth: width, statusBar: 28,
@@ -1444,6 +1509,10 @@ final class Store: ObservableObject {
     /// Told when [app] changes, for what AppKit draws (the toolbar, the
     /// global option-space).
     var onAppLook: ((AppLook) -> Void)?
+    /// Told when the themes of your own change, for the Theme menu.
+    var onThemeList: (() -> Void)?
+    /// What was wrong with the theme files left out, for the Theme menu.
+    var userThemeProblems: [String] = []
     /// The scratch layer on screen: its pane's key, floating over the
     /// splits (nil: hidden). Scratch.swift.
     @Published var scratch: String?
@@ -1634,6 +1703,30 @@ final class Store: ObservableObject {
         return m
     }
 
+    private(set) var browserViews: [String: BrowserModel] = [:]
+    private var blankBrowsers = 0
+
+    func browser(for k: String) -> BrowserModel {
+        if let m = browserViews[k] { return m }
+        let m = BrowserModel(key: k, store: self)
+        browserViews[k] = m
+        return m
+    }
+
+    /// A page in a tab of its own beside the agents; nil for an empty one
+    /// to type an address into. A page already open is shown, not opened twice.
+    func openBrowser(_ url: String?) {
+        let k: String
+        if let url {
+            k = browserKey(url)
+        } else {
+            blankBrowsers += 1
+            k = browserKey("about:blank#\(blankBrowsers)")
+        }
+        layout.open(k)
+        terminalHasKeyboard = false
+    }
+
     func files(for k: String) -> FilesModel {
         if let m = fileViews[k] { return m }
         let m = FilesModel(key: k, store: self)
@@ -1676,7 +1769,7 @@ final class Store: ObservableObject {
         let fresh = commitViews[k] == nil
         let model = commits(for: k)
         model.focusBranch = branch
-        if !fresh { model.load() }
+        if !fresh { model.refresh() } // and ask GitHub: a new one does as it is made
         layout.open(k)
         terminalHasKeyboard = false
     }
@@ -1695,7 +1788,11 @@ final class Store: ObservableObject {
     /// opens, as in the TUI.
     func openChanges(project pk: String, branch: String) {
         let (m, pid) = unkey(pk)
-        layout.open(changesKey(m, pid, branch))
+        let k = changesKey(m, pid, branch)
+        // One kept from before is not made again, so it asks here: its pull
+        // request as GitHub has it now, not at the server's next turn.
+        if changeViews[k] != nil { refreshProject(machine: m, project: pid) }
+        layout.open(k)
         terminalHasKeyboard = false
     }
 
@@ -1747,6 +1844,7 @@ final class Store: ObservableObject {
         layout.close(p)
         terminals.removeValue(forKey: p)?.stop()
         changeViews.removeValue(forKey: p)
+        if let b = browserViews.removeValue(forKey: p) { b.web.stopLoading(); b.web.loadHTMLString("", baseURL: nil) } // its page goes quiet
         focusTerminal()
     }
 
@@ -1769,6 +1867,24 @@ final class Store: ObservableObject {
 
     /// The next agent waiting for you, on any machine: waiting ones first,
     /// then the ones that finished, each machine in the sidebar's order.
+    /// The done count clicked: the next finished agent in the workspace,
+    /// on any machine, round again at the end.
+    func nextDone() {
+        var order: [String] = []
+        for m in machines {
+            var seen: Set<String> = []
+            var next = snapshots[m.id]?.nextDone(after: nil, in: ws, machine: m.id)
+            while let n = next, !seen.contains(n) {
+                seen.insert(n)
+                order.append(key(m.id, n))
+                next = snapshots[m.id]?.nextDone(after: n, in: ws, machine: m.id)
+            }
+        }
+        guard !order.isEmpty else { return }
+        let i = layout.focused.flatMap { order.firstIndex(of: $0) }.map { ($0 + 1) % order.count } ?? 0
+        open(order[i])
+    }
+
     func nextWaiting() {
         var order: [String] = []
         for m in machines {
@@ -1857,6 +1973,15 @@ final class Store: ObservableObject {
         case "nextTab": layout.step(1); focusTerminal()
         case "previousTab": layout.step(-1); focusTerminal()
         case "toggleSidebar": sidebarVisible.toggle()
+        case "newBrowser": openBrowser(nil)
+        case "closeWorkspace":
+            if workspace > 0 { closeWorkspace(workspace) } else { say("The first workspace stays: it holds what no other has", .info) }
+        case "biggerFont": stepFontSize(bigger: true)
+        case "smallerFont": stepFontSize(bigger: false)
+        case "defaultFont": stepFontSize(bigger: nil)
+        case "biggerText": stepTextSize(bigger: true)
+        case "smallerText": stepTextSize(bigger: false)
+        case "defaultText": stepTextSize(bigger: nil)
         case "openTUI": openTUI()
         case "scratch": toggleScratch()
         case "dockScratch": dockScratch()

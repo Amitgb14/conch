@@ -37,12 +37,12 @@ struct ShortcutsSheet: View {
     var body: some View {
         let all = rows
         VStack(alignment: .leading, spacing: 10) {
-            Text("Keyboard shortcuts").font(.system(size: 15, weight: .semibold))
+            Text("Keyboard shortcuts").font(.ui(size: 15, weight: .semibold))
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(Array(Set(all.map(\.menu))).sorted { a, b in (all.firstIndex { $0.menu == a } ?? 0) < (all.firstIndex { $0.menu == b } ?? 0) }, id: \.self) { m in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(m.uppercased()).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
+                            Text(m.uppercased()).font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
                             ForEach(all.filter { $0.menu == m }) { r in line(r.keys, r.title) }
                         }
                     }
@@ -60,14 +60,14 @@ struct ShortcutsSheet: View {
                         }
                     }
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("PANES AND THE MOUSE").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
+                        Text("PANES AND THE MOUSE").font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
                         ForEach(Self.others, id: \.0) { k, what in line(k, what) }
                     }
                 }
             }
             .frame(height: 440)
             HStack {
-                Text("Agents and terminals keep their own keys inside a pane.").font(.system(size: 11.5)).foregroundStyle(.secondary)
+                Text("Agents and terminals keep their own keys inside a pane.").font(.ui(size: 11.5)).foregroundStyle(.secondary)
                 Spacer()
                 Button("Done") { store.helpOpen = false }.keyboardShortcut(.defaultAction)
             }
@@ -77,8 +77,8 @@ struct ShortcutsSheet: View {
 
     func line(_ keys: String, _ what: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(keys).font(.system(size: 12, design: .monospaced)).frame(width: 170, alignment: .leading)
-            Text(what).font(.system(size: 12.5))
+            Text(keys).font(.ui(size: 12, design: .monospaced)).frame(width: 170, alignment: .leading)
+            Text(what).font(.ui(size: 12.5))
             Spacer(minLength: 0)
         }
     }
@@ -92,21 +92,21 @@ struct DoctorSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Check conch").font(.system(size: 15, weight: .semibold))
+            Text("Check conch").font(.ui(size: 15, weight: .semibold))
             if let c = checks {
-                Text(doctorSummary(c)).font(.system(size: 12.5)).foregroundStyle(c.contains { $0.status == "fail" } ? Theme.err : .secondary)
+                Text(doctorSummary(c)).font(.ui(size: 12.5)).foregroundStyle(c.contains { $0.status == "fail" } ? Theme.err : .secondary)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(c) { ch in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(ch.mark).font(.system(size: 13, weight: .bold))
+                                Text(ch.mark).font(.ui(size: 13, weight: .bold))
                                     .foregroundStyle(ch.status == "fail" ? Theme.err : ch.status == "warn" ? Theme.warn : Theme.ok).frame(width: 14)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(ch.name).font(.system(size: 12.5, weight: .semibold))
-                                    Text(ch.detail).font(.system(size: 12)).foregroundStyle(.secondary).textSelection(.enabled)
+                                    Text(ch.name).font(.ui(size: 12.5, weight: .semibold))
+                                    Text(ch.detail).font(.ui(size: 12)).foregroundStyle(.secondary).textSelection(.enabled)
                                         .fixedSize(horizontal: false, vertical: true)
                                     if let f = ch.fix, !f.isEmpty {
-                                        Text(f).font(.system(size: 11.5, design: .monospaced)).textSelection(.enabled)
+                                        Text(f).font(.ui(size: 11.5, design: .monospaced)).textSelection(.enabled)
                                             .fixedSize(horizontal: false, vertical: true)
                                     }
                                 }
@@ -116,12 +116,12 @@ struct DoctorSheet: View {
                 }
                 .frame(height: 380)
             } else if !error.isEmpty {
-                Text(error).foregroundStyle(Theme.err).font(.system(size: 12)).textSelection(.enabled)
+                Text(error).foregroundStyle(Theme.err).font(.ui(size: 12)).textSelection(.enabled)
             } else {
                 HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Checking…").foregroundStyle(.secondary) }
             }
             HStack {
-                Text("conch doctor, on this computer").font(.system(size: 11.5)).foregroundStyle(.secondary)
+                Text("conch doctor, on this computer").font(.ui(size: 11.5)).foregroundStyle(.secondary)
                 Spacer()
                 Button("Check again") { run() }.disabled(checks == nil && error.isEmpty)
                 Button("Done") { store.doctorOpen = false }.keyboardShortcut(.defaultAction)
