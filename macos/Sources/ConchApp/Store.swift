@@ -84,6 +84,8 @@ final class Store: ObservableObject {
     @Published var paletteOpen = false
     /// Help → Keyboard Shortcuts and Help → Check conch… on screen.
     @Published var helpOpen = false
+    /// The status bar's ✦ Ask, open (its button, or the prefix and :).
+    @Published var askOpen = false
     @Published var doctorOpen = false
     /// A broadcast being written (BroadcastSheet).
     @Published var broadcastDraft: BroadcastDraft?
@@ -266,6 +268,11 @@ final class Store: ObservableObject {
     /// Whether a pane's terminal has the keyboard, for the status bar's
     /// chip; set as the window's first responder changes.
     @Published var terminalHasKeyboard = false
+    /// The TUI's prefix keys, from conch keys -json; armed after the prefix.
+    @Published var prefixKeys = PrefixKeys()
+    /// What the table was last read for: config.toml's text and whether
+    /// prefix keys are on, so it is read again only when that changes.
+    var keysStamp: String?
     /// The sidebar row the keyboard is on while no terminal has it.
     @Published var treeCursor: String?
 
@@ -670,6 +677,7 @@ final class Store: ObservableObject {
         let cost = showsCost(toml: toml ?? "")
         if cost != showCost { showCost = cost }
         let app = AppLook(toml: toml)
+        loadKeys(on: app.prefixKeys, stamp: toml ?? "")
         if app != appLook {
             // Before the views redraw: the window's text is read at its size.
             Theme.textScale = app.textScale
@@ -838,6 +846,14 @@ final class Store: ObservableObject {
     /// tree keys (TreeKey). Everything else passes through.
     private func watchTreeKeys() {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            // The prefix first, wherever the keyboard is: it is how the TUI
+            // reaches the tree from a pane, and a key after it is conch's
+            // even where the tree would have taken it.
+            switch MainActor.assumeIsolated({ self?.prefixKey(e) ?? .pass }) {
+            case .taken: return nil
+            case .typed: return e
+            case .pass: break
+            }
             let modified = !e.modifierFlags.intersection([.command, .control, .option]).isEmpty
             guard let k = TreeKey(keyCode: e.keyCode, characters: e.charactersIgnoringModifiers, modified: modified) else { return e }
             let taken = MainActor.assumeIsolated { () -> Bool in
@@ -1891,6 +1907,23 @@ final class Store: ObservableObject {
         terminals.removeValue(forKey: p)?.stop()
         changeViews.removeValue(forKey: p)
         if let b = browserViews.removeValue(forKey: p) { b.web.stopLoading(); b.web.loadHTMLString("", baseURL: nil) } // its page goes quiet
+        focusTerminal()
+    }
+
+    /// Closes every split of the tab on screen — the TUI's ctrl+b &. As a
+    /// split closing, its panes keep running, in the sidebar to open again.
+    func closeTab() {
+        guard let t = layout.current else { return }
+        let agents = t.root.panes.compactMap { pane($0) }.filter { $0.agent != nil && $0.running }
+        if !agents.isEmpty {
+            say(agents.count == 1 ? "\(agents[0].displayName) keeps running: open it again from the sidebar"
+                                  : "\(agents.count) agents keep running: open them again from the sidebar", .info)
+        }
+        for p in t.root.panes {
+            layout.close(p)
+            terminals.removeValue(forKey: p)?.stop()
+            changeViews.removeValue(forKey: p)
+        }
         focusTerminal()
     }
 

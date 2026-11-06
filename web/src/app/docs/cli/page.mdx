@@ -412,6 +412,7 @@ It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by 
 conch keys            # every key after the prefix, what it does, and what it is on now
 conch keys -bound     # only the ones that are bound to something
 conch keys -toml      # the whole table as a [keys.bind] ready to paste and edit
+conch keys -json      # the resolved table as JSON — the prefix, and every action with its keys
 ```
 
 tmux's `list-keys`, for conch's prefix table. It prints one line per action — the key it answers to, the name to write in `config.toml`, and what it does:
@@ -432,6 +433,8 @@ space   zoom              zoom the split  (was z)
 A key you moved says what it was, one you unbound says so, and one whose key went to another action says where it went — which is the surprise worth naming, since nothing else would tell you that binding `zoom` to space took space off `next_layout`. [Rebinding](/docs/configuration#rebinding-the-keys) is `[keys.bind]` in `config.toml`; `-toml` prints the current table in that form, so you can paste it and edit from what you have rather than from a blank table.
 
 It reads `config.toml` and nothing else — no server, no network — so it works wherever conch is installed. It exits 1 when that table has a mistake in it (an action conch does not bind, two actions on one key), naming each; `conch doctor` says the same under `keys`.
+
+`-json` is how Conch.app takes its prefix keys: the prefix in conch's spelling (`C-a` comes out `ctrl+a`), every action with the keys it is on (an empty list for one unbound), and what was wrong with the table under `problems` — in the output rather than the exit status, so a reader still gets the keys that did resolve. A binding on the prefix itself is left out there, as the TUI leaves it out.
 
 A digit is the tab at that place and `ctrl`/`alt`+arrow is a resize, and neither is in the table: they are a key *family*, not one action.
 

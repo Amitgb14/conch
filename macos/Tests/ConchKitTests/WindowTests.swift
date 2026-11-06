@@ -14,8 +14,10 @@ import Testing
     sidebar = "glass" # see-through
     ports = false
     scratch_key = true
+    prefix_keys = false
     """
-    #expect(AppLook(toml: all) == AppLook(tabs: .left, compact: true, glass: true, ports: false, scratchKey: true))
+    #expect(AppLook(toml: all) == AppLook(tabs: .left, compact: true, glass: true, ports: false, scratchKey: true, prefixKeys: false))
+    #expect(AppLook(toml: "[app]\nprefix_keys = true\n").prefixKeys)
     #expect(AppLook(toml: "[app]\ntabs = \"right\"\n").tabs == .right)
     #expect(AppLook(toml: "[app]\ntabs = \"sideways\"\n").tabs == .top, "unknown: the default")
     #expect(AppLook(toml: "[app]\ntabs = \"\"\n").tabs == .top)

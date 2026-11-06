@@ -46,6 +46,19 @@ struct ShortcutsSheet: View {
                             ForEach(all.filter { $0.menu == m }) { r in line(r.keys, r.title) }
                         }
                     }
+                    if let t = store.prefixKeys.table {
+                        // The TUI's prefix table, as conch keys prints it:
+                        // what moved in [keys.bind] shows as it is.
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("\(t.prefix.uppercased()), THEN").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
+                            ForEach(t.keys.filter { !$0.keys.isEmpty }, id: \.action) { b in
+                                line(b.keys.map(showKey).joined(separator: "  "),
+                                     prefixActionsInApp.contains(b.action) ? b.what : b.what + " (the TUI's)")
+                            }
+                            line("1 … 9  0", "the tab at that place")
+                            line(showKey(t.prefix), "twice: the program gets it")
+                        }
+                    }
                     VStack(alignment: .leading, spacing: 3) {
                         Text("PANES AND THE MOUSE").font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
                         ForEach(Self.others, id: \.0) { k, what in line(k, what) }

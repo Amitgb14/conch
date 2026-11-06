@@ -1802,8 +1802,9 @@ struct StatusBar: View {
             let inPane = store.layout.focused != nil && store.terminalHasKeyboard
             // The mode as a small chip, as the TUI's: the accent's for the
             // tree, green for a pane.
-            let mode = inPane ? Theme.ok : Theme.accent
-            Text(inPane ? "PANE" : "TREE").font(.ui(size: 10.5, weight: .bold)).tracking(0.6)
+            let armed = store.prefixKeys.armed
+            let mode = armed ? Theme.warn : inPane ? Theme.ok : Theme.accent
+            Text(armed ? "PREFIX" : inPane ? "PANE" : "TREE").font(.ui(size: 10.5, weight: .bold)).tracking(0.6)
                 .foregroundStyle(mode)
                 .padding(.horizontal, 6).padding(.vertical, 1.5)
                 .background(RoundedRectangle(cornerRadius: 4).fill(mode.opacity(0.16)))
@@ -1812,7 +1813,19 @@ struct StatusBar: View {
             // it does, muted.
             // What was just done, or why not, in place of the keys while
             // it is said; a click puts the keys back.
-            if let f = store.flash {
+            if armed {
+                // The TUI's PREFIX row: the keys that follow, read from the
+                // table so a rebound or unbound one shows as it is.
+                HStack(spacing: 12) {
+                    ForEach(prefixRow(store.prefixKeys.table), id: \.0) { key, what in
+                        HStack(spacing: 5) {
+                            Keycap(key)
+                            Text(what).foregroundStyle(Theme.muted)
+                        }
+                        .fixedSize()
+                    }
+                }
+            } else if let f = store.flash {
                 Text(f.text).foregroundStyle(f.tone == .err ? Theme.err : f.tone == .ok ? Theme.ok : Theme.text2)
                     .lineLimit(1).truncationMode(.tail)
                     .onTapGesture { store.dismissFlash() }

@@ -25,6 +25,9 @@ public struct AppLook: Equatable, Sendable {
     public var glass = false
     public var ports = true
     public var scratchKey = false
+    /// The TUI's prefix keys in the panes, on unless [app] prefix_keys is
+    /// false.
+    public var prefixKeys = true
     /// The window's own text, as a scale (text_size in percent), and the
     /// terminal's font size in points (font_size), each kept in range.
     public var textScale: Double = 1
@@ -37,12 +40,13 @@ public struct AppLook: Equatable, Sendable {
     /// settings page offers.
     public static let textSteps: [Double] = [0.8, 0.9, 1.0, 1.1, 1.25, 1.4, 1.6]
 
-    public init(tabs: TabPlacement = .top, compact: Bool = false, glass: Bool = false, ports: Bool = true, scratchKey: Bool = false) {
+    public init(tabs: TabPlacement = .top, compact: Bool = false, glass: Bool = false, ports: Bool = true, scratchKey: Bool = false, prefixKeys: Bool = true) {
         self.tabs = tabs
         self.compact = compact
         self.glass = glass
         self.ports = ports
         self.scratchKey = scratchKey
+        self.prefixKeys = prefixKeys
     }
 
     /// The next step of the window's text, bigger or smaller, from where it is.
@@ -64,6 +68,7 @@ public struct AppLook: Equatable, Sendable {
         glass = tomlSetting("app", "sidebar", in: toml) == "glass"
         ports = tomlSetting("app", "ports", in: toml) != "false"
         scratchKey = tomlSetting("app", "scratch_key", in: toml) == "true"
+        prefixKeys = tomlSetting("app", "prefix_keys", in: toml) != "false"
         // A whole number, as Go reads it (an int): 112.5 is not understood
         // there, so it is not here either, rather than the app quietly using
         // what conch's settings would refuse.

@@ -10,17 +10,16 @@ import SwiftUI
 /// The buttons, side by side.
 struct StatusExtras: View {
     @ObservedObject var store: Store
-    @State private var asking = false
     @State private var reporting = false
     @State private var pairing = false
 
     var body: some View {
         HStack(spacing: 10) {
-            Button { asking.toggle() } label: {
+            Button { store.askOpen.toggle() } label: {
                 Text("✦ Ask").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.accent)
             }
             .buttonStyle(.plain).help("Ask conch in plain words — it plans, and runs nothing until you confirm")
-            .popover(isPresented: $asking, arrowEdge: .top) { AskPopover(store: store) }
+            .popover(isPresented: $store.askOpen, arrowEdge: .top) { AskPopover(store: store) }
             Button { reporting.toggle() } label: {
                 Text("⊙").font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.muted)
             }

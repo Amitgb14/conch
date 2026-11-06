@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,5 +186,77 @@ func TestDoctorKeysWhenRight(t *testing.T) {
 	keysHome(t, "")
 	if c := doctorFind(t, "keys"); c.Status != doctor.OK || strings.Contains(c.Detail, "rebound") {
 		t.Errorf("defaults: %+v", c)
+	}
+}
+
+// -json is what Conch.app reads its prefix keys from: the prefix in
+// conch's spelling whatever config.toml wrote, every action with its keys
+// (none for an unbound one, never a missing field), and a binding on the
+// prefix taken out and said, as the TUI does — or the app and the TUI
+// would give one file two different tables.
+func TestKeysJSON(t *testing.T) {
+	keysHome(t, "[keys]\nprefix = \"C-a\"\n\n[keys.bind]\nzoom = \"Space\"\nclose_split = \"\"\nnext_tab = \"ctrl+a\"\nnot_a_thing = \"y\"\n")
+	out, _ := a4Capture(t, "", func() {
+		if err := cmdKeys([]string{"-json"}); err != nil {
+			t.Fatalf("conch keys -json: %v", err)
+		}
+	})
+	var got keysTable
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if got.Prefix != "ctrl+a" {
+		t.Errorf("prefix %q, want ctrl+a", got.Prefix)
+	}
+	if len(got.Keys) != len(keymap.Actions()) {
+		t.Errorf("%d actions, want %d", len(got.Keys), len(keymap.Actions()))
+	}
+	by := map[string]keysBinding{}
+	for _, b := range got.Keys {
+		by[b.Action] = b
+	}
+	if k := by["zoom"].Keys; len(k) != 1 || k[0] != " " {
+		t.Errorf("zoom on %q, want space", k)
+	}
+	if k := by["close_split"].Keys; k == nil || len(k) != 0 {
+		t.Errorf("close_split on %#v, want an empty list", k)
+	}
+	if k := by["next_tab"].Keys; len(k) != 1 || k[0] != "n" {
+		t.Errorf("next_tab on %q: a bind on the prefix must be dropped and the default kept", k)
+	}
+	if by["split_right"].What != keymap.What(keymap.SplitRight) {
+		t.Errorf("split_right says %q", by["split_right"].What)
+	}
+	problems := strings.Join(got.Problems, "; ")
+	for _, want := range []string{"next_tab is on ctrl+a, which is the prefix itself", "not_a_thing is not a key conch binds"} {
+		if !strings.Contains(problems, want) {
+			t.Errorf("problems %q do not say %q", problems, want)
+		}
+	}
+	// An empty list rather than null: a decoder that wants an array has one.
+	if strings.Contains(out, "null") {
+		t.Errorf("-json has a null in it:\n%s", out)
+	}
+}
+
+// With no config.toml at all, -json is the defaults, and no problems.
+func TestKeysJSONDefaults(t *testing.T) {
+	keysHome(t, "")
+	out, _ := a4Capture(t, "", func() {
+		if err := cmdKeys([]string{"-json"}); err != nil {
+			t.Fatalf("conch keys -json: %v", err)
+		}
+	})
+	var got keysTable
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Prefix != "ctrl+b" || len(got.Problems) != 0 || strings.Contains(out, `"problems"`) {
+		t.Errorf("defaults: prefix %q, problems %q", got.Prefix, got.Problems)
+	}
+	for _, b := range got.Keys {
+		if want := keymap.Defaults[keymap.Action(b.Action)]; strings.Join(b.Keys, " ") != strings.Join(want, " ") {
+			t.Errorf("%s on %q, want %q", b.Action, b.Keys, want)
+		}
 	}
 }

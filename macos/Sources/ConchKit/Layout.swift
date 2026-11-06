@@ -255,6 +255,20 @@ public struct Layout: Equatable, Sendable {
         tabs[active].zoomed.toggle()
     }
 
+    /// The keyboard to the next split of the tab, round to the first after
+    /// the last — tmux's ctrl+b o.
+    public mutating func nextSplit() {
+        guard tabs.indices.contains(active) else { return }
+        let panes = tabs[active].root.panes
+        guard panes.count > 1, let i = panes.firstIndex(of: tabs[active].focused) else { return }
+        tabs[active].focused = panes[(i + 1) % panes.count]
+    }
+
+    /// The tab's splits back to even shares — tmux's ctrl+b =.
+    public mutating func equalize() {
+        if tabs.indices.contains(active) { tabs[active].weights = [:] }
+    }
+
     /// The keyboard to the split beside the focused one; nothing at an edge.
     @discardableResult
     public mutating func move(_ d: Tab.Direction) -> Bool {
