@@ -172,6 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             NSMenuItem(title: "About conch", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
             .separator(),
             item("Settings…", ",", .command, "settings"),
+            item("conch's Skill for Agents…", "", [], "agentSkill"),
             item("Open conch in a terminal", "", [], "openTUI"),
             .separator(),
             NSMenuItem(title: "Hide conch", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),

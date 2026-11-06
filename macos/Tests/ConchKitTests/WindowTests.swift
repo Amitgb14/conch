@@ -508,3 +508,28 @@ import Testing
     #expect(handoffPlan(agent: nil, worktree: nil) == .checkOutThenStart)
     #expect(handoffPlan(agent: nil, worktree: "") == .checkOutThenStart)
 }
+
+// conch's own skill per machine, said as the TUI says it.
+@Test func agentSkillStanding() throws {
+    let json = #"{"changes":[{"path":"/h/.claude/skills/conch/SKILL.md","agents":["claude"],"action":"same"},{"path":"/h/.agents/skills/conch/SKILL.md","agents":["codex","gemini","opencode"],"action":"create"},{"path":"/h/.config/devin/skills/conch/SKILL.md","agents":["devin"],"action":"skip","detail":"a skill of yours named conch, left alone"}]}"#
+    let r = try JSONDecoder().decode(AgentSkillResult.self, from: Data(json.utf8))
+    #expect(skillCounts(r) == (1, 1, 1))
+    #expect(skillStanding(r) == .some(have: 1, not: 1) && skillStanding(r).text == "1 have it · 1 not")
+    #expect(skillWrites(r).map(\.agents) == [["codex", "gemini", "opencode"]]) // never yours, never what's right already
+    #expect(skillLine(r.changes[0]) == "✓ has it" && skillLine(r.changes[1]) == "not installed")
+    #expect(skillLine(r.changes[2]) == "a skill of yours named conch, left alone")
+    #expect(skillLine(SkillChange(path: "/x", agents: [], action: "skip")) == "yours, left alone")
+    #expect(skillLine(SkillChange(path: "/x", agents: [], action: "create", error: "permission denied")) == "failed: permission denied")
+
+    func standing(_ actions: [String]) -> SkillStanding {
+        skillStanding(AgentSkillResult(changes: actions.map { SkillChange(path: "/p", agents: ["a"], action: $0) }))
+    }
+    #expect(standing(["same", "same"]) == .everyAgent)
+    #expect(standing(["create", "update"]) == .notInstalled)
+    #expect(standing(["same", "skip"]) == .everyAgent) // yours doesn't count against it
+    #expect(standing([]) == .noAgentReadsSkills && standing(["skip"]) == .noAgentReadsSkills)
+    // A removal plan lists conch's copies as what would go.
+    #expect(skillWrites(AgentSkillResult(changes: [SkillChange(path: "/p", agents: ["a"], action: "remove"), SkillChange(path: "/q", agents: ["b"], action: "skip")])).count == 1)
+    // An older server's answer without applied still decodes.
+    #expect(try JSONDecoder().decode(AgentSkillResult.self, from: Data(#"{"changes":[]}"#.utf8)).applied == nil)
+}

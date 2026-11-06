@@ -226,6 +226,24 @@ struct SectionForm: View {
                 FieldRow(model: model, section: section, field: f)
                 Rectangle().fill(Theme.line.opacity(0.6)).frame(height: 1)
             }
+            // Not a setting in config.toml but the agents' own folders, so
+            // a button rather than a field — where the TUI keeps it too.
+            if section.id == "agents" {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("conch's skill for agents").font(.ui(size: 13, weight: .medium))
+                        Text("So an agent can start another — a reviewer, a tester — prompt it and read its answer. Installed per machine, beside your own skills.")
+                            .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button("Open…") {
+                        // The sheet is the main window's: bring it in front of Settings.
+                        model.store.mainWindow?.makeKeyAndOrderFront(nil)
+                        model.store.skillOpen = true
+                    }
+                }
+                Rectangle().fill(Theme.line.opacity(0.6)).frame(height: 1)
+            }
         }
         .frame(maxWidth: 680, alignment: .leading)
     }
