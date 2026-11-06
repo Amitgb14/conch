@@ -14,4 +14,6 @@ docs/plans/plugins.md
 .aider*
 macos/.build/
 macos/build/
-macos/vendor/
+# No trailing slash: a symlink to a build of Ghostty elsewhere is ignored
+# too, which macos/vendor/ never matched — and one was committed (v0.1.9).
+macos/vendor

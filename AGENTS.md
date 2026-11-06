@@ -70,6 +70,7 @@ gofmt -l cmd internal          # must print nothing
 go test -race -count=1 -timeout 20m ./...   # what to run before every commit
 go test -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out | tail -1
 make settings-ui-check         # rebuild internal/configweb/dist and fail if it moved (needs pnpm)
+make app-release VERSION=0.1.9 NOTARY=conch-notary # Conch.app's zip for a release, Developer ID-signed and notarized (Apple Silicon, Ghostty built): dist/
 ```
 
 CI (`.github/workflows/ci.yml`) runs `make lint` and `go test -race` on

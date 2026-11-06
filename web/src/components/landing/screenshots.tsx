@@ -1,41 +1,30 @@
-import Image, { type StaticImageData } from "next/image"
+import { TuiScreen, TuiWindow } from "./tui-screen"
 
-import branchesAgents from "@/images/branches-agents.png"
-import overview from "@/images/overview.png"
-
-const shots: { src: StaticImageData; title: string; alt: string; caption: string }[] = [
+// The TUI itself, captured from a staged demo (web/scripts/tui-capture) and
+// drawn as text, so every letter is as sharp as the page around it.
+const shots = [
   {
-    src: overview,
-    title: "conch — local",
-    alt: "conch showing a machine: its projects in the tree, plan usage and the agents installed",
+    id: "diff",
+    title: "conch — api/add-health-check · changes",
     caption:
-      "A machine at a glance: what is running, how much of the plan window is left, and which agents are installed.",
+      "Review an agent's work before it lands: a branch's uncommitted changes and commits ahead, and each file's diff, hunk by hunk.",
   },
   {
-    src: branchesAgents,
-    title: "conch — conch/new-features",
-    alt: "conch showing a project: branches, agents and terminals in the tree, a tab per agent, and an agent's diff in the pane",
-    caption: "A project opens into branches, agents and terminals, with a tab per agent and its work live in the pane.",
+    id: "queue",
+    title: "conch — review queue",
+    caption:
+      "The review queue, across every machine: the agent waiting for an answer, the pull request whose CI failed, the branch ready to push.",
   },
-]
+] as const
 
 export function Screenshots() {
   return (
     <div className="flex flex-col gap-12">
       {shots.map((s) => (
-        <figure key={s.title} className="flex flex-col gap-3">
-          {/* The chrome of TerminalWindow, around a picture rather than text. */}
-          <div className="overflow-hidden rounded-xl border border-term-border bg-term shadow-[0_24px_60px_-20px_rgb(0_0_0/0.35)]">
-            <div className="flex items-center gap-2 border-b border-term-border px-3.5 py-2.5">
-              <span className="flex gap-1.5">
-                <i className="size-2.5 rounded-full bg-white/15" />
-                <i className="size-2.5 rounded-full bg-white/15" />
-                <i className="size-2.5 rounded-full bg-white/15" />
-              </span>
-              <span className="ml-2 truncate font-mono text-[0.7rem] text-term-muted">{s.title}</span>
-            </div>
-            <Image src={s.src} alt={s.alt} sizes="(min-width: 1024px) 72rem, 100vw" className="h-auto w-full" />
-          </div>
+        <figure key={s.id} className="flex flex-col gap-3">
+          <TuiWindow title={<span className="ml-2 truncate font-mono text-[0.7rem] text-[#8b949e]">{s.title}</span>}>
+            <TuiScreen id={s.id} />
+          </TuiWindow>
           <figcaption className="text-sm text-muted-foreground">{s.caption}</figcaption>
         </figure>
       ))}

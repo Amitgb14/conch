@@ -54,7 +54,12 @@ final class Store: ObservableObject {
     @Published private(set) var fileHits: [PaletteItem] = []
     private var fileQuery = ""
     private var fileSearch: Task<Void, Never>?
-    @Published var layout = Layout()
+    @Published var layout = Layout() {
+        // A tab came to the front — from ⌘K, a click in the review queue, a
+        // port chip, ⌘1–9: the sidebar's cursor goes to its row rather than
+        // staying on the row last clicked.
+        didSet { if layout.focused != oldValue.focused, let f = layout.focused { treeCursor = treeRow(forTab: f) } }
+    }
     @Published var workspaces: [Workspace] = [Workspace(name: "")]
     /// The workspace on screen. Each has tabs of its own, as in the TUI:
     /// switching puts this one's away and brings that one's back.
@@ -276,6 +281,14 @@ final class Store: ObservableObject {
         let (m, _) = unkey(k)
         guard let p = pane(k) else { return nil }
         return snapshots[m]?.port(of: p)
+    }
+
+    /// What a pane opened in a tab of its own will measure (fullTabSize).
+    func newPaneSize() -> (cols: Int, rows: Int)? {
+        fullTabSize(layout) { k in
+            guard let p = self.pane(k), let c = p.cols, let r = p.rows else { return nil }
+            return (c, r)
+        }
     }
 
     func pane(_ k: String) -> PaneInfo? {
@@ -626,10 +639,13 @@ final class Store: ObservableObject {
             var name: String
             var cwd: String
             var command: [String]
+            var cols: Int?
+            var rows: Int?
         }
         let full = (root as NSString).appendingPathComponent(path)
+        let size = newPaneSize()
         let params = Create(name: "edit · " + (path as NSString).lastPathComponent, cwd: root,
-                            command: ["/bin/sh", "-lc", #"exec ${VISUAL:-${EDITOR:-vi}} "$1""#, "sh", full])
+                            command: ["/bin/sh", "-lc", #"exec ${VISUAL:-${EDITOR:-vi}} "$1""#, "sh", full], cols: size?.cols, rows: size?.rows)
         Task {
             do {
                 let p = try await c.call("pane.create", params, as: PaneInfo.self)
@@ -1027,6 +1043,15 @@ final class Store: ObservableObject {
         }
     }
 
+    /// The layer taken down because its pane is gone; option-space starts
+    /// a new one.
+    func dropScratch() {
+        guard let k = scratch else { return }
+        scratch = nil
+        terminals.removeValue(forKey: k)?.stop()
+        focusTerminal()
+    }
+
     /// Back in touch with a machine: tabs on its panes that went while it
     /// was away are closed, in every workspace, and the panes whose attach
     /// ended meanwhile are started again.
@@ -1035,6 +1060,7 @@ final class Store: ObservableObject {
             isPaneKey(id) && unkey(id).machine == machine && !alive.contains(id)
         }
         for id in layout.tabs.flatMap(\.root.panes) where gone(id) { layout.close(id) }
+        if let s = scratch, gone(s) { dropScratch() }
         for w in parkedTabs.keys {
             for id in parkedTabs[w]?.tabs.flatMap(\.root.panes) ?? [] where gone(id) { parkedTabs[w]?.close(id) }
         }
@@ -1194,6 +1220,40 @@ final class Store: ObservableObject {
         }
     }
 
+    /// A project off the sidebar, after asking, as the TUI's x: out of this
+    /// workspace when another has it too, else out of conch. Its folder,
+    /// branches and worktrees are never touched.
+    func removeProject(_ pk: String) {
+        let (m, pid) = unkey(pk)
+        guard let c = conns[m], let pr = snapshots[m]?.project(pid) else { return }
+        let a = NSAlert()
+        a.addButton(withTitle: "Remove")
+        a.addButton(withTitle: "Cancel")
+        switch projectRemoval(pr, machine: m, workspaces: workspaces, current: workspace) {
+        case .leaveWorkspace(let id):
+            a.messageText = "Take \(pr.name) out of this workspace?"
+            a.informativeText = "Other workspaces keep it, and it stays in conch."
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            let path = (conchDir as NSString).appendingPathComponent("ui.json")
+            do {
+                let data = try Workspace.removingProject(Workspace.key(project: pid, machine: m), from: id, in: FileManager.default.contents(atPath: path))
+                try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+                loadWorkspaces()
+                say("Took \(pr.name) out of this workspace", .info)
+            } catch {
+                self.error = "Could not take the project out of this workspace: \(error)"
+            }
+        case .removeFromConch:
+            a.messageText = "Remove \(pr.name) from the sidebar?"
+            a.informativeText = "\(pr.path)\n\nconch forgets the project; its files, branches and worktrees are not touched. Add it again any time."
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            struct P: Encodable { var id: String }
+            job("Removing \(pr.name)", done: "Removed \(pr.name) from the sidebar") {
+                try await c.call("project.remove", P(id: pid))
+            }
+        }
+    }
+
     /// Deletes a branch and its worktree, after saying what that loses —
     /// the server's own dry run, so nothing is guessed here.
     func deleteBranch(project pk: String, branch: String) {
@@ -1292,6 +1352,7 @@ final class Store: ObservableObject {
             let was = before?.agent?.state
             snap.upsert(p)
             attention(machine, old: before, new: p)
+            if scratch == k, scratchLost(scratch, pane: p) { dropScratch() }
             // Exited on its own — a shell's exit, an ssh logout, an agent's
             // /exit: closed, as the TUI closes it, so it goes from the
             // sidebar and its tab. A TUI open may close it first; the
@@ -1319,6 +1380,7 @@ final class Store: ObservableObject {
             guard let p = try? dec.decode(Ref.self, from: data) else { return }
             let k = key(machine, p.id)
             snap.remove(pane: p.id)
+            if scratch == k { dropScratch() }
             layout.close(k)
             for w in parkedTabs.keys { parkedTabs[w]?.close(k) } // other workspaces' tabs too
             restartOnConnect.remove(k)
@@ -2038,9 +2100,13 @@ final class Store: ObservableObject {
             var command: [String]
             var env: [String]
             var no_project: Bool?
+            var cols: Int?
+            var rows: Int?
         }
+        let size = newPaneSize()
         let params = Create(name: a.name + " · " + at.label, cwd: dir, command: ["/bin/sh", "-lc", a.run],
-                            env: at.env.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }, no_project: at.loose ? true : nil)
+                            env: at.env.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }, no_project: at.loose ? true : nil,
+                            cols: size?.cols, rows: size?.rows)
         Task {
             do {
                 let p = try await c.call("pane.create", params, as: PaneInfo.self)
@@ -2088,6 +2154,7 @@ final class Store: ObservableObject {
         case .removeMachine(let m): removeMachine(m)
         case .openURL(let s): if let u = openableURL(s) { NSWorkspace.shared.open(u) }
         case .removeWorktree(let pk, let path): removeWorktree(project: pk, path: path)
+        case .removeProject(let pk): removeProject(pk)
         case .deleteBranch(let pk, let b): deleteBranch(project: pk, branch: b)
         case .monitor(let k, let quiet): toggleMonitor(k, quiet: quiet)
         case .broadcast(let scope): startBroadcast(scope, title: node.title)
@@ -2324,10 +2391,14 @@ final class Store: ObservableObject {
             var agent: String?
             var cwd: String?
             var no_project: Bool?
+            var cols: Int?
+            var rows: Int?
         }
+        let size = newPaneSize()
         Task {
             do {
-                let p = try await c.call("pane.create", Create(agent: agent, cwd: cwd, no_project: inProject ? nil : true), as: PaneInfo.self)
+                let p = try await c.call("pane.create", Create(agent: agent, cwd: cwd, no_project: inProject ? nil : true,
+                                                               cols: size?.cols, rows: size?.rows), as: PaneInfo.self)
                 snapshots[machine, default: Snapshot()].upsert(p)
                 joinWorkspace(machine: machine, pane: p)
                 layout.open(key(machine, p.id))

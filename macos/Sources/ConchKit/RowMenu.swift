@@ -56,6 +56,9 @@ public enum RowAction: Equatable, Sendable {
     /// A branch's linked worktree removed (it must be clean); the branch
     /// stays.
     case removeWorktree(project: String, path: String)
+    /// A project taken off the sidebar, after asking: out of this workspace
+    /// alone when another has it too, else out of conch (files untouched).
+    case removeProject(project: String)
     /// A branch deleted, with its worktree — after saying what that loses.
     case deleteBranch(project: String, branch: String)
     /// A pane's alert when it goes quiet (quiet) or prints, turned on or off.
@@ -160,7 +163,8 @@ extension Snapshot {
             if pr.git != false { out.append(RowMenuItem("Commit graph", .commits(project: pk, branch: nil))) }
             out.append(RowMenuItem("Agent setup", .agentSetup(project: pk, dir: pr.path)))
             if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to its agents…", .broadcast(.project(pk)))) }
-            out += [.divider, RowMenuItem("Copy path", .copy(pr.path))]
+            out += [.divider, RowMenuItem("Copy path", .copy(pr.path)),
+                    .divider, RowMenuItem("Remove Project…", .removeProject(project: pk))]
         case .machine, .cli:
             let isMachine: Bool = { if case .machine = node.kind { return true }; return false }()
             if machineOnline {
@@ -282,4 +286,21 @@ public func sandboxArgs(provider: String, verb: String, machine: String) -> [Str
 /// a refusal, to be said — "already runs build …" most often.
 public func reloadUnderway(_ error: Error) -> Bool {
     (error as? ConchError)?.code == "closed"
+}
+
+/// What removing a project from the sidebar does, as the TUI's x decides:
+/// a project another workspace shows too only leaves the one on screen;
+/// otherwise conch forgets it (project.remove), its files left alone.
+public enum ProjectRemoval: Equatable, Sendable {
+    case leaveWorkspace(id: String)
+    case removeFromConch
+}
+
+public func projectRemoval(_ project: ProjectInfo, machine: String, workspaces: [Workspace], current: Int) -> ProjectRemoval {
+    guard workspaces.indices.contains(current), workspaces.count > 1 else { return .removeFromConch }
+    let here = workspaces[current]
+    let elsewhere = workspaces.indices.contains { $0 != current && workspaces[$0].shows(project, machine: machine) }
+    // The first shows whatever no other claims, so it can't leave a
+    // project on its own: there it goes from conch.
+    return elsewhere && !here.first ? .leaveWorkspace(id: here.id) : .removeFromConch
 }

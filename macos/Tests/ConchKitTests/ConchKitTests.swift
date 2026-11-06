@@ -684,7 +684,7 @@ final class FakeServer: @unchecked Sendable {
     // A project, a machine, the Workspace row.
     let pm = s.menu(for: api, machine: "box")
     #expect(pm[0].action == .newTask(project: "box|r1") && pm[1].action == .startAgent(machine: "box", cwd: "/src/api", inProject: true))
-    #expect(pm.last?.action == .copy("/src/api"))
+    #expect(pm.contains { $0.action == .copy("/src/api") } && pm.last?.action == .removeProject(project: "box|r1"))
     #expect(pm.contains { $0.action == .commits(project: "box|r1", branch: nil) })
     // A folder that is not a repository has no commits to graph.
     var plain = s
@@ -2445,4 +2445,70 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(!reloadUnderway(ConchError(code: "connect", message: "not answering")))
     struct Other: Error {}
     #expect(!reloadUnderway(Other()))
+}
+
+// The sidebar's cursor follows the tab in front: every kind of tab names a
+// row the tree really has, on this computer and on another machine.
+@Test func eachTabNamesItsSidebarRow() {
+    func ids(_ n: TreeNode) -> Set<String> { [n.id].reduce(into: Set<String>()) { $0.insert($1) }.union((n.children ?? []).flatMap(ids)) }
+    for (m, tree) in [("local", fixture().tree()), ("box", fixture().tree(machine: "box", label: "busybox", sessions: ["box|r1": 16]))] {
+        let rows = ids(tree)
+        let tabs = [key(m, "p1"), changesKey(m, "r1", "feat"), filesKey(m, "r1"), commitsKey(m, "r1"), setupKey(m, "r1", dir: "/src/api")]
+        for t in tabs {
+            let r = treeRow(forTab: t)
+            #expect(r.map(rows.contains) == true, "\(t) → \(r ?? "nil") on \(m)")
+        }
+        if m == "box" { #expect(rows.contains(treeRow(forTab: sessionsKey(m, "r1"))!)) } // Sessions shows once it has some
+    }
+    #expect(treeRow(forTab: browserKey("http://localhost:3000")) == nil) // a page has no row
+}
+
+// A project taken out of one workspace stays in the others, and nothing
+// else in ui.json changes.
+@Test func removingAProjectFromAWorkspace() throws {
+    let ui = #"{"spaces":[{"id":"sA","projects":["r1","box~r9"],"panes":["local|p3"]},{"id":"sB","projects":["r1"]}],"tabs":[],"expanded":{"x":true}}"#
+    let out = try Workspace.removingProject("r1", from: "sA", in: Data(ui.utf8))
+    let ws = Workspace.load(uiJSON: out)
+    #expect(ws[1].projects == ["box~r9"] && ws[1].panes == ["local|p3"])
+    #expect(ws[2].projects == ["r1"]) // the other workspace keeps it
+    #expect(String(data: out, encoding: .utf8)!.contains("expanded"))
+    // Taking out one it doesn't have changes nothing; unknown workspaces and no file throw.
+    #expect(Workspace.load(uiJSON: try Workspace.removingProject("r7", from: "sA", in: out))[1].projects == ["box~r9"])
+    #expect(throws: ConchError.self) { try Workspace.removingProject("r1", from: "nope", in: out) }
+    #expect(throws: ConchError.self) { try Workspace.removingProject("r1", from: "sA", in: nil) }
+}
+
+// Remove Project leaves only this workspace when another shows the project
+// too; otherwise conch forgets it — and the first workspace, which shows
+// whatever no other claims, never leaves one on its own.
+@Test func whatRemovingAProjectDoes() {
+    let api = ProjectInfo(id: "r1", name: "api", path: "/src/api")
+    let a = Workspace(id: "sA", name: "a", projects: ["r1"])
+    let b = Workspace(id: "sB", name: "b", projects: ["r1"])
+    let c = Workspace(id: "sC", name: "c", projects: ["r2"])
+    // The first shows what no later workspace claims, as Workspace.load sets it.
+    func firstWith(_ later: Workspace...) -> Workspace {
+        var f = Workspace(name: "main", first: true)
+        f.claimedProjects = later.reduce(into: []) { $0.formUnion($1.projects) }
+        return f
+    }
+    let first = Workspace(name: "main", first: true)
+    #expect(projectRemoval(api, machine: "local", workspaces: [first], current: 0) == .removeFromConch)
+    #expect(projectRemoval(api, machine: "local", workspaces: [firstWith(a, b), a, b], current: 1) == .leaveWorkspace(id: "sA"))
+    #expect(projectRemoval(api, machine: "local", workspaces: [firstWith(a, c), a, c], current: 1) == .removeFromConch) // only here
+    #expect(projectRemoval(api, machine: "local", workspaces: [firstWith(c), c], current: 0) == .removeFromConch) // on the first
+    #expect(projectRemoval(api, machine: "local", workspaces: [firstWith(a), a], current: 5) == .removeFromConch) // out of range
+    // Another machine's project is keyed machine~id.
+    let remote = Workspace(id: "sR", name: "r", projects: ["box~r1"])
+    let s2 = Workspace(id: "sS", name: "s", projects: ["box~r1"])
+    #expect(projectRemoval(api, machine: "box", workspaces: [firstWith(remote, s2), remote, s2], current: 1) == .leaveWorkspace(id: "sR"))
+    #expect(projectRemoval(api, machine: "box", workspaces: [firstWith(remote, a), remote, a], current: 1) == .removeFromConch) // a has local r1, not box's
+}
+
+// A project row's menu ends with Remove Project.
+@Test func projectMenuOffersRemove() {
+    let snap = fixture()
+    let items = snap.menu(for: TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api"), machine: "local")
+    #expect(items.last == RowMenuItem("Remove Project…", .removeProject(project: "local|r1")))
+    #expect(snap.menu(for: TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api"), machine: "local", machineOnline: false).isEmpty)
 }
