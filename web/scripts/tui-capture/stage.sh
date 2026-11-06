@@ -31,6 +31,9 @@ cat <<'JSON'
 [{"number":12,"title":"Add OAuth login","state":"OPEN","isDraft":false,"url":"https://github.com/acme/api/pull/12",
   "headRefName":"feat/login","reviewDecision":"REVIEW_REQUIRED","updatedAt":"2026-09-13T10:00:00Z",
   "statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]},
+ {"number":14,"title":"Bump dependencies","state":"OPEN","isDraft":false,"url":"https://github.com/acme/api/pull/14",
+  "headRefName":"chore/deps","reviewDecision":"","updatedAt":"2026-09-13T09:30:00Z",
+  "statusCheckRollup":[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"SUCCESS"}]},
  {"number":9,"title":"Structured logging","state":"MERGED","isDraft":false,"url":"https://github.com/acme/api/pull/9",
   "headRefName":"chore/logging","reviewDecision":"APPROVED","updatedAt":"2026-09-10T10:00:00Z",
   "statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]}]
@@ -70,7 +73,8 @@ git checkout -qb feat/login
 printf 'package auth\n\n// OAuth callback\n' > auth/oauth.go; git add -A; git commit -qm "Add OAuth callback handler"
 echo "// provider token" >> auth/session.go; git commit -qam "Store the provider token in the session"
 git checkout -q main
-for b in chore/deps fix/timeouts docs/api spike/grpc; do git branch "$b"; done
+for b in fix/timeouts docs/api spike/grpc; do git branch "$b"; done
+git checkout -qb chore/deps && echo "require golang.org/x/net v0.38.0" >> go.mod && git commit -qam "Bump golang.org/x/net" && git checkout -q main
 echo "Run \`make dev\` to start the server." >> README.md
 echo "DATABASE_URL=postgres://localhost/api" > .env
 
