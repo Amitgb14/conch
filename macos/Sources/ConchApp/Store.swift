@@ -1204,6 +1204,40 @@ final class Store: ObservableObject {
         }
     }
 
+    /// A project off the sidebar, after asking, as the TUI's x: out of this
+    /// workspace when another has it too, else out of conch. Its folder,
+    /// branches and worktrees are never touched.
+    func removeProject(_ pk: String) {
+        let (m, pid) = unkey(pk)
+        guard let c = conns[m], let pr = snapshots[m]?.project(pid) else { return }
+        let a = NSAlert()
+        a.addButton(withTitle: "Remove")
+        a.addButton(withTitle: "Cancel")
+        switch projectRemoval(pr, machine: m, workspaces: workspaces, current: workspace) {
+        case .leaveWorkspace(let id):
+            a.messageText = "Take \(pr.name) out of this workspace?"
+            a.informativeText = "Other workspaces keep it, and it stays in conch."
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            let path = (conchDir as NSString).appendingPathComponent("ui.json")
+            do {
+                let data = try Workspace.removingProject(Workspace.key(project: pid, machine: m), from: id, in: FileManager.default.contents(atPath: path))
+                try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+                loadWorkspaces()
+                say("Took \(pr.name) out of this workspace", .info)
+            } catch {
+                self.error = "Could not take the project out of this workspace: \(error)"
+            }
+        case .removeFromConch:
+            a.messageText = "Remove \(pr.name) from the sidebar?"
+            a.informativeText = "\(pr.path)\n\nconch forgets the project; its files, branches and worktrees are not touched. Add it again any time."
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            struct P: Encodable { var id: String }
+            job("Removing \(pr.name)", done: "Removed \(pr.name) from the sidebar") {
+                try await c.call("project.remove", P(id: pid))
+            }
+        }
+    }
+
     /// Deletes a branch and its worktree, after saying what that loses —
     /// the server's own dry run, so nothing is guessed here.
     func deleteBranch(project pk: String, branch: String) {
@@ -2087,6 +2121,7 @@ final class Store: ObservableObject {
         case .removeMachine(let m): removeMachine(m)
         case .openURL(let s): if let u = openableURL(s) { NSWorkspace.shared.open(u) }
         case .removeWorktree(let pk, let path): removeWorktree(project: pk, path: path)
+        case .removeProject(let pk): removeProject(pk)
         case .deleteBranch(let pk, let b): deleteBranch(project: pk, branch: b)
         case .monitor(let k, let quiet): toggleMonitor(k, quiet: quiet)
         case .broadcast(let scope): startBroadcast(scope, title: node.title)

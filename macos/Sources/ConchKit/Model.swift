@@ -337,6 +337,23 @@ public struct Workspace: Equatable, Sendable {
         return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
     }
 
+    /// ui.json with a project taken out of the workspace of that id, as the
+    /// TUI's leaveSpace does; the project stays in conch and in the other
+    /// workspaces. Unknown workspace: that throws.
+    public static func removingProject(_ project: String, from id: String, in data: Data?) throws -> Data {
+        guard let data, !data.isEmpty, var ui = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var spaces = ui["spaces"] as? [[String: Any]] else {
+            throw ConchError(code: "ui.json", message: "ui.json has no workspaces to take the project out of")
+        }
+        for i in spaces.indices where (spaces[i]["id"] as? String ?? "").isEmpty { spaces[i]["id"] = "w\(i + 1)" }
+        guard let i = spaces.firstIndex(where: { $0["id"] as? String == id }) else {
+            throw ConchError(code: "ui.json", message: "no workspace \(id) in ui.json")
+        }
+        spaces[i]["projects"] = (spaces[i]["projects"] as? [String] ?? []).filter { $0 != project }
+        ui["spaces"] = spaces
+        return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
+    }
+
     /// ui.json with the workspace of that id closed, as the TUI's ctrl+b X
     /// does: what it held — projects, panes, folders, machines, hosts —
     /// goes to the first workspace, and its tabs after the first's. With one
