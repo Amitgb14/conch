@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         applyAppLook(store.appLook)
         let settings = SettingsWindow(store: store)
         settingsWindow = settings
-        store.onOpenSettings = { settings.show() }
+        store.onOpenSettings = { settings.show(section: $0) }
         // "Same as conch (Night Owl)" names conch's theme as it changes.
         store.onConfigChange = { [weak self] in self?.updateThemeMenu() }
         if !window.setFrameUsingName("conch.main") { window.center() }
@@ -172,8 +172,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             NSMenuItem(title: "About conch", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
             .separator(),
             item("Settings…", ",", .command, "settings"),
-            item("conch's Skills for Agents…", "", [], "agentSkill"),
-            item("MCP Servers & Skills…", "", [], "agentLibrary"),
             item("Open conch in a terminal", "", [], "openTUI"),
             .separator(),
             NSMenuItem(title: "Hide conch", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),

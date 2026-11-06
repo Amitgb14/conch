@@ -3,7 +3,7 @@ import SwiftUI
 
 // conch's skills, per machine: whether each agent there has them, and
 // installing or removing them — the TUI's Settings → Agents → conch's
-// skills. Every machine is read with agent.skill as a plan, which writes
+// skills; in the app, Settings → Skills & MCP servers. Every machine is read with agent.skill as a plan, which writes
 // nothing; a write is asked again with apply, after a question naming the
 // paths it touches, and the plan is read afresh after it.
 
@@ -17,7 +17,6 @@ final class AgentSkillModel: ObservableObject {
         var loading = false
     }
     @Published var rows: [Row] = []
-    @Published var open: String?
     @Published var busy = false
 
     init(store: Store) { self.store = store }
@@ -25,7 +24,6 @@ final class AgentSkillModel: ObservableObject {
     func load() {
         rows = store.machines.map { Row(id: $0.id) }
         for r in rows { read(r.id) }
-        if open == nil { open = rows.first?.id }
     }
 
     func read(_ m: String) {
@@ -90,7 +88,9 @@ final class AgentSkillModel: ObservableObject {
     }
 }
 
-struct AgentSkillSheet: View {
+/// conch's skills in Settings → Skills & MCP servers, for the machine
+/// picked there (store.skillsMachine).
+struct AgentSkillPanel: View {
     @Environment(\.conchTheme) private var look
     @ObservedObject var store: Store
     @StateObject private var model: AgentSkillModel
@@ -102,71 +102,52 @@ struct AgentSkillSheet: View {
 
     var body: some View {
         let _ = look
-        VStack(alignment: .leading, spacing: 10) {
-            Text("conch's skills for agents").font(.ui(size: 15, weight: .semibold))
-            Text("So an agent can run others: conch starts a helper and reads its answer, conch-team runs several at once, conch-review loops review → fix → review, conch-ship takes a branch to a merged pull request, and conch-factory takes a ticket all the way. They go where each agent reads your skills, beside them, replacing none.")
-                .font(.ui(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(model.rows) { r in machine(r) }
+        VStack(alignment: .leading, spacing: 8) {
+            if let r = model.rows.first(where: { $0.id == store.skillsMachine }) {
+                HStack {
+                    standing(r)
+                    Spacer()
+                    Button("Read again") { model.read(r.id) }.controlSize(.small).disabled(model.busy)
                 }
-            }
-            .frame(height: 400)
-            HStack {
-                Text("conch agent skill, on each machine").font(.ui(size: 11.5)).foregroundStyle(.secondary)
-                Spacer()
-                Button("Read again") { model.load() }.disabled(model.busy)
-                Button("Done") { store.skillOpen = false }.keyboardShortcut(.defaultAction)
+                if let res = r.result { machine(r.id, res) }
+            } else {
+                ProgressView().controlSize(.small)
             }
         }
-        .padding(18).frame(width: 600)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear { model.load() }
+        .onChange(of: store.skillsMachine) { _, m in
+            if !model.rows.contains(where: { $0.id == m }) { model.load() } else { model.read(m) }
+        }
     }
 
-    @ViewBuilder func machine(_ r: AgentSkillModel.Row) -> some View {
-        let isOpen = model.open == r.id
-        VStack(alignment: .leading, spacing: 6) {
-            Button {
-                model.open = isOpen ? nil : r.id
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: isOpen ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).frame(width: 12)
-                    Text(store.label(r.id)).font(.ui(size: 13, weight: .semibold))
-                    Spacer()
-                    standing(r)
+    @ViewBuilder func machine(_ m: String, _ res: AgentSkillResult) -> some View {
+        ForEach(skillFolders(res)) { f in
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(f.agents.joined(separator: ", ")).font(.ui(size: 12, weight: .medium))
+                    Text(f.path).font(.ui(size: 11, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
                 }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if isOpen, let res = r.result {
-                ForEach(skillFolders(res)) { f in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(f.agents.joined(separator: ", ")).font(.ui(size: 12, weight: .medium))
-                        Text(f.path).font(.ui(size: 11, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
-                        ForEach(f.changes, id: \.path) { c in
-                            HStack {
-                                Text(c.skillName).font(.ui(size: 11.5, design: .monospaced))
-                                Spacer()
-                                Text(skillLine(c)).font(.ui(size: 11.5)).lineLimit(1).truncationMode(.tail)
-                                    .foregroundStyle(!(c.error ?? "").isEmpty ? Theme.err : c.action == "same" ? Theme.ok : c.action == "skip" ? Theme.muted : Theme.warn)
-                            }
-                            .padding(.leading, 12)
-                        }
+                ForEach(f.changes, id: \.path) { c in
+                    HStack {
+                        Text(c.skillName).font(.ui(size: 11.5, design: .monospaced))
+                        Spacer()
+                        Text(skillLine(c)).font(.ui(size: 11.5)).lineLimit(1).truncationMode(.tail)
+                            .foregroundStyle(!(c.error ?? "").isEmpty ? Theme.err : c.action == "same" ? Theme.ok : c.action == "skip" ? Theme.muted : Theme.warn)
                     }
-                    .padding(.leading, 20)
+                    .padding(.leading, 12)
                 }
-                HStack(spacing: 8) {
-                    let (have, todo, _) = skillCounts(res)
-                    Button(todo > 0 && have > 0 ? "Install for the rest…" : "Install for every agent…") { model.apply(r.id, remove: false) }
-                        .disabled(todo == 0 || model.busy)
-                    Button("Take conch's copies away…") { model.apply(r.id, remove: true) }
-                        .disabled(!skillAnyInstalled(res) || model.busy)
-                }
-                .controlSize(.small).padding(.leading, 20)
             }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raise))
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raise))
+        HStack(spacing: 8) {
+            let (have, todo, _) = skillCounts(res)
+            Button(todo > 0 && have > 0 ? "Install for the rest…" : "Install for every agent…") { model.apply(m, remove: false) }
+                .disabled(todo == 0 || model.busy)
+            Button("Take conch's copies away…") { model.apply(m, remove: true) }
+                .disabled(!skillAnyInstalled(res) || model.busy)
+        }
     }
 
     @ViewBuilder func standing(_ r: AgentSkillModel.Row) -> some View {

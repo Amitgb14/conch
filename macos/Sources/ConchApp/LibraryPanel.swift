@@ -3,7 +3,7 @@ import SwiftUI
 
 // The library: MCP servers and skills kept in conch and given to the agents
 // chosen for each — the TUI's Settings → Agents → Shared MCP servers &
-// skills, per machine. Editing it (a tick, a form, an import) writes to no
+// skills, per machine; in the app, Settings → Skills & MCP servers. Editing it (a tick, a form, an import) writes to no
 // agent; Apply asks for the plan, names every write, and only then makes
 // them. Put the last one back undoes the last apply, file by file.
 
@@ -183,49 +183,33 @@ struct SkillForm: Identifiable {
     var agents: Set<String> = []
 }
 
-struct LibrarySheet: View {
+/// The library in Settings → Skills & MCP servers, for the machine picked
+/// there (store.skillsMachine).
+struct LibraryPanel: View {
     @Environment(\.conchTheme) private var look
     @ObservedObject var store: Store
     @StateObject private var model: LibraryModel
 
-    init(store: Store, machine: String) {
+    init(store: Store) {
         self.store = store
-        _model = StateObject(wrappedValue: LibraryModel(store: store, machine: machine))
+        _model = StateObject(wrappedValue: LibraryModel(store: store, machine: store.skillsMachine))
     }
 
     var body: some View {
         let _ = look
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("MCP servers & skills").font(.ui(size: 15, weight: .semibold))
-                Spacer()
-                if store.machines.count > 1 {
-                    Picker("", selection: $model.machine) {
-                        ForEach(store.machines, id: \.id) { m in Text(m.label).tag(m.id) }
-                    }
-                    .labelsHidden().frame(width: 160)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            if !model.error.isEmpty {
+                Text(model.error).font(.ui(size: 12)).foregroundStyle(Theme.warn)
+            } else if let r = model.result {
+                content(r)
+                actions
+            } else {
+                ProgressView().controlSize(.small)
             }
-            Text("Kept in conch and given to the agents you tick, in your home on \(store.label(model.machine)) — the setup that follows you from project to project. Ticking writes to no agent; Apply… shows every write first.")
-                .font(.ui(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if !model.error.isEmpty {
-                        Text(model.error).font(.ui(size: 12)).foregroundStyle(Theme.warn)
-                    } else if let r = model.result {
-                        content(r)
-                    } else {
-                        ProgressView().controlSize(.small)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(height: 420)
-            footer
         }
-        .padding(18).frame(width: 680)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear { model.load() }
-        .onChange(of: model.machine) { _, _ in model.load() }
+        .onChange(of: store.skillsMachine) { _, m in model.machine = m; model.load() }
         .sheet(item: $model.serverForm) { f in
             ServerFormView(form: f, agents: model.result?.agents ?? [], model: model)
         }
@@ -268,23 +252,6 @@ struct LibrarySheet: View {
             .help("Its MCP servers and skills in your home go in, ticked for it. Nothing is written to any agent.")
         }
         .controlSize(.small).disabled(model.busy)
-
-        // conch's own skills are installed their own way; say where.
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("conch's skills").font(.ui(size: 12.5, weight: .medium))
-                Text("conch, conch-team, conch-review, conch-ship and conch-factory: run other agents, a review loop, a ticket to a merged pull request.")
-                    .font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Button("Open…") {
-                store.libraryOpen = false
-                DispatchQueue.main.async { store.skillOpen = true }
-            }
-            .controlSize(.small)
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raise))
 
         Text("✓ has it   + Apply writes it   − Apply takes it out   · off   ○ set by hand   ! differs, left alone   ✗ cannot")
             .font(.ui(size: 11)).foregroundStyle(.secondary)
@@ -341,16 +308,15 @@ struct LibrarySheet: View {
         }
     }
 
-    var footer: some View {
-        HStack {
+    var actions: some View {
+        HStack(spacing: 8) {
             let pending = model.result?.pending ?? 0
-            Text(pending > 0 ? "\(pending) change\(pending == 1 ? "" : "s") to write" : "conch agent library, on each machine")
-                .font(.ui(size: 11.5)).foregroundStyle(pending > 0 ? Theme.accent : .secondary)
-            Spacer()
+            Button("Apply…") { model.apply() }.disabled(model.busy || model.result == nil)
+                .help("Shows every write first, then makes them")
             Button("Put the last one back…") { model.undo() }
                 .disabled(model.busy || (model.result?.undos ?? []).isEmpty)
-            Button("Apply…") { model.apply() }.disabled(model.busy || model.result == nil)
-            Button("Done") { store.libraryOpen = false }.keyboardShortcut(.defaultAction)
+            Text(pending > 0 ? "\(pending) change\(pending == 1 ? "" : "s") to write" : "every agent has what the library says")
+                .font(.ui(size: 11.5)).foregroundStyle(pending > 0 ? Theme.accent : .secondary)
         }
     }
 }

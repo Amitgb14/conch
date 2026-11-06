@@ -113,7 +113,9 @@ struct SettingsView: View {
             sidebar.frame(width: 230)
             Rectangle().fill(Theme.line).frame(width: 1)
             VStack(spacing: 0) {
-                if let f = model.form, let s = f.payload.schema.first(where: { $0.id == model.section }) {
+                if model.section == SettingsNav.skills {
+                    ScrollView { SkillsSettingsPane(store: model.store).padding(28) }
+                } else if let f = model.form, let s = f.payload.schema.first(where: { $0.id == model.section }) {
                     ScrollView { SectionForm(model: model, section: s).padding(28) }
                 } else if !model.failure.isEmpty {
                     message(model.failure)
@@ -140,18 +142,22 @@ struct SettingsView: View {
                 .padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 6)
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(model.form?.payload.schema ?? []) { s in
-                        let on = s.id == model.section
-                        HStack(spacing: 9) {
-                            LucideIcon(s.icon, color: on ? Theme.accent : Theme.text2, size: 15).frame(width: 18)
-                            Text(s.title).font(.ui(size: 13)).foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
+                    let schema = model.form?.payload.schema ?? []
+                    ForEach(SettingsNav.sidebar(schema.map(\.id)), id: \.self) { id in
+                        let s = schema.first { $0.id == id }
+                        let on = id == model.section
+                        // A button, so VoiceOver (and anything pressing by
+                        // accessibility) can choose a section too.
+                        Button { model.section = id } label: { HStack(spacing: 9) {
+                            LucideIcon(s?.icon ?? SettingsNav.skillsIcon, color: on ? Theme.accent : Theme.text2, size: 15).frame(width: 18)
+                            Text(s?.title ?? SettingsNav.skillsTitle).font(.ui(size: 13)).foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
                             Spacer()
-                            if let f = model.form, sectionDirty(f, s) { Circle().fill(Theme.accent).frame(width: 6, height: 6) }
+                            if let f = model.form, let s, sectionDirty(f, s) { Circle().fill(Theme.accent).frame(width: 6, height: 6) }
                         }
                         .padding(.horizontal, 10).frame(height: 30)
                         .background(RoundedRectangle(cornerRadius: 6).fill(on ? Theme.accentDeep.opacity(0.35) : .clear))
-                        .contentShape(Rectangle())
-                        .onTapGesture { model.section = s.id }
+                        .contentShape(Rectangle()) }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -226,37 +232,11 @@ struct SectionForm: View {
                 FieldRow(model: model, section: section, field: f)
                 Rectangle().fill(Theme.line.opacity(0.6)).frame(height: 1)
             }
-            // Not a setting in config.toml but the agents' own folders, so
-            // a button rather than a field — where the TUI keeps it too.
             if section.id == "agents" {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("conch's skills for agents").font(.ui(size: 13, weight: .medium))
-                        Text("So an agent can run others: a helper, a team, a review loop, a ticket to a merged pull request (conch-factory). Installed per machine, beside your own skills.")
-                            .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer()
-                    Button("Open…") {
-                        // The sheet is the main window's: bring it in front of Settings.
-                        model.store.mainWindow?.makeKeyAndOrderFront(nil)
-                        model.store.skillOpen = true
-                    }
+                Button("conch's skills, and MCP servers & skills for your agents: Skills & MCP servers") {
+                    model.section = SettingsNav.skills
                 }
-                Rectangle().fill(Theme.line.opacity(0.6)).frame(height: 1)
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Shared MCP servers & skills").font(.ui(size: 13, weight: .medium))
-                        Text("Kept in conch and given to the agents you choose: add a skill folder or a server once, tick the agents, Apply.")
-                            .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer()
-                    Button("Open…") {
-                        model.store.mainWindow?.makeKeyAndOrderFront(nil)
-                        model.store.libraryMachine = "local"
-                        model.store.libraryOpen = true
-                    }
-                }
-                Rectangle().fill(Theme.line.opacity(0.6)).frame(height: 1)
+                .buttonStyle(.link).font(.ui(size: 12))
             }
         }
         .frame(maxWidth: 680, alignment: .leading)
@@ -498,7 +478,8 @@ final class SettingsWindow {
 
     init(store: Store) { model = SettingsModel(store: store) }
 
-    func show() {
+    func show(section: String? = nil) {
+        if let section { model.section = section }
         if window == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
@@ -525,6 +506,51 @@ final class SettingsWindow {
             if !(model.form?.dirty ?? false) { Task { await model.read() } }
         }
         window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// Settings → Skills & MCP servers: conch's own skills for the agents, and
+/// the library of MCP servers and skills of yours, for one machine at a time
+/// — both are written to the agents' folders on that machine, through its
+/// server, not to config.toml.
+struct SkillsSettingsPane: View {
+    @ObservedObject var store: Store
+    @Environment(\.conchTheme) private var theme
+
+    var body: some View {
+        let _ = theme
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 10) {
+                LucideIcon(SettingsNav.skillsIcon, color: Theme.accent, size: 20)
+                Text(SettingsNav.skillsTitle).font(.ui(size: 20, weight: .semibold))
+                Spacer()
+                if store.machines.count > 1 {
+                    Picker("Machine", selection: $store.skillsMachine) {
+                        ForEach(store.machines, id: \.id) { m in Text(m.label).tag(m.id) }
+                    }
+                    .frame(width: 220)
+                }
+            }
+            Text("What the agents on \(store.label(store.skillsMachine)) load from your home: conch's own skills, and the MCP servers and skills you keep in conch for them. Nothing is written until you install or apply, and every write is named first.")
+                .foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("conch's skills").font(.ui(size: 15, weight: .semibold))
+                Text("conch starts a helper agent and reads its answer, conch-team runs several at once, conch-review loops review → fix → review, conch-ship takes a branch to a merged pull request, and conch-factory takes a ticket all the way. Installed beside your own skills, replacing none.")
+                    .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                AgentSkillPanel(store: store)
+            }
+            Rectangle().fill(Theme.line.opacity(0.6)).frame(height: 1)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Your MCP servers & skills").font(.ui(size: 15, weight: .semibold))
+                Text("Kept in conch and given to the agents you tick — the setup that follows you from project to project. Ticking writes to no agent; Apply… shows every write first.")
+                    .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                LibraryPanel(store: store)
+            }
+        }
+        .frame(maxWidth: 680, alignment: .leading)
+        // A machine that went from the list leaves this computer showing.
+        .onAppear { if !store.machines.contains(where: { $0.id == store.skillsMachine }) { store.skillsMachine = "local" } }
     }
 }
 

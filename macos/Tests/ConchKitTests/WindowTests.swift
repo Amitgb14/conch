@@ -557,3 +557,14 @@ import Testing
     #expect(skillAnyInstalled(older) && skillCounts(older).have == 0)
     #expect(!skillAnyInstalled(AgentSkillResult(changes: [SkillChange(path: "/a/conch/SKILL.md", agents: [], action: "create")])))
 }
+
+// Settings → Skills & MCP servers sits just after Agents, or last.
+@Test func settingsSkillsSection() {
+    #expect(SettingsNav.sidebar(["ui", "agents", "verify"]) == ["ui", "agents", "skills", "verify"])
+    #expect(SettingsNav.sidebar(["ui", "agents"]) == ["ui", "agents", "skills"])
+    #expect(SettingsNav.sidebar(["ui"]) == ["ui", "skills"])
+    #expect(SettingsNav.sidebar([]) == ["skills"])
+    #expect(SettingsNav.sidebar(["skills", "agents"]) == ["skills", "agents"]) // the schema's own wins
+    #expect(LucideIcons.ops(SettingsNav.skillsIcon) != LucideIcons.ops("settings"))
+    #expect(SettingsNav.skillsIcon != "sparkles") // the Brain's
+}

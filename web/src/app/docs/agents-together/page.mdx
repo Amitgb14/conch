@@ -25,7 +25,7 @@ There are five, installed together:
 
 Or without leaving the TUI. `i` on a project, branch or pane says under **conch** whether the agent whose tab is open has the skill on that machine, and `S` installs it or takes it away. For every agent at once: `,` → **Agents** → **conch's skills…** lists every machine and how it stands there — *every agent has it*, *1 have it · 1 not* (an agent counts once it has all five), or the reason it could not be asked — and opening a machine names each skill for each agent and what would happen to it. **Install it for every agent…** and **Take conch's copy away…** name every path in a question before anything is written, the way the command plans before `-apply`. A machine at a time, through that machine's own server.
 
-In the Mac app it is **conch → conch's Skills for Agents…**, a machine's right-click menu, or **Settings → Agents**.
+In the Mac app it is **Settings → Skills & MCP servers**, or **Skills & MCP servers…** on a machine's right-click menu.
 
 They go where each agent reads your skills — `~/.claude/skills/conch`, `~/.claude/skills/conch-factory` and so on for Claude Code, `~/.agents/skills/…` for Codex, Gemini CLI and OpenCode, and `~/.config/devin/skills/…` for Devin — beside your own skills, replacing none of them: a skill of yours under one of those names is left alone, and the others still install. `conch skill NAME` prints one (`conch skill -list` names them), for an agent conch can't install it for. `-agent claude,codex` installs it for some agents only, `-remove -apply` takes it away again, and `conch -m MACHINE agent skill -apply` installs it on another machine. Claude Code picks it up at once, even mid-session; restart the others if they don't list it.
 
