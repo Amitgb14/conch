@@ -1,6 +1,9 @@
 package server
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -65,5 +68,113 @@ func TestSettleWithNothingRunning(t *testing.T) {
 		if !pm.settle(time.Second) {
 			t.Fatalf("settle %d with nothing running", i+1)
 		}
+	}
+}
+
+// Run itself waits: a refresh's git still running when the server is
+// stopped finishes before Run returns. Without the wait the fake's "done"
+// was written after Run had returned — into folders a test had removed.
+func TestRunWaitsForARefreshInFlight(t *testing.T) {
+	a5IsolateEnv(t)
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("no git")
+	}
+	dir, err := os.MkdirTemp("", "st")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	dir, _ = filepath.EvalSymlinks(dir)
+	repo := filepath.Join(dir, "repo")
+	a5GitRepo(t, repo)
+
+	// A git whose status takes a while once the mark's folder exists.
+	bin := filepath.Join(dir, "bin")
+	mark := filepath.Join(dir, "mark")
+	os.MkdirAll(bin, 0o755)
+	script := "#!/bin/sh\n" +
+		"case \"$*\" in *status*) if [ -d " + mark + " ]; then touch " + mark + "/started; sleep 1; touch " + mark + "/done; fi;; esac\n" +
+		"exec " + realGit + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	s := New(filepath.Join(dir, "s.sock"), dir)
+	ran := make(chan struct{})
+	go func() { s.Run(); close(ran) }()
+	stopped := false
+	defer func() {
+		if !stopped {
+			s.Stop()
+			<-ran
+		}
+	}()
+	p, err := s.projects.add(repo, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(mark, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.projects.request(p) // the ticker refreshes it in the background
+	for i := 0; ; i++ {
+		if _, err := os.Stat(filepath.Join(mark, "started")); err == nil {
+			break
+		}
+		if i == 500 {
+			t.Fatal("no refresh started")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	s.Stop()
+	select {
+	case <-ran:
+	case <-time.After(settleTimeout + 10*time.Second):
+		t.Fatal("Run did not return")
+	}
+	stopped = true
+	if _, err := os.Stat(filepath.Join(mark, "done")); err != nil {
+		t.Fatal("Run returned while the refresh's git was still running")
+	}
+}
+
+// Work refused because the server is stopping clears the flag that said it
+// was under way: left set, refreshNow waited its full timeout on a refresh
+// that would never come.
+func TestRefusedBackgroundClearsItsFlag(t *testing.T) {
+	a5IsolateEnv(t)
+	s, dir := a5Server(t)
+	pm := s.projects
+	repo := filepath.Join(dir, "repo")
+	a5GitRepo(t, repo)
+	p, err := pm.add(repo, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Stop()
+	pm.settle(settleTimeout)
+
+	p.mu.Lock()
+	p.pending, p.refreshing = true, false
+	p.lastStatus = time.Now()
+	p.prPending, p.prFetching = true, false
+	p.mu.Unlock()
+	pm.maybeRefresh(p)
+	pm.maybeFetchPRs(p)
+	p.mu.Lock()
+	refreshing, prFetching := p.refreshing, p.prFetching
+	p.mu.Unlock()
+	if refreshing || prFetching {
+		t.Fatalf("refused work left refreshing=%v prFetching=%v", refreshing, prFetching)
+	}
+
+	start := time.Now()
+	pm.refreshNow(p)
+	if d := time.Since(start); d > gitTimeout/2 {
+		t.Fatalf("refreshNow waited %s", d)
 	}
 }

@@ -58,7 +58,13 @@ type projectManager struct {
 }
 
 // background runs f in a goroutine the server waits for when it stops. Once
-// the server is stopping nothing new is started, and false says so.
+// the server is stopping nothing new is started, and false says so — the
+// caller then clears whatever flag said the work was under way, or the
+// next to look waits on work that never comes.
+//
+// Running git is waited for, never cancelled: a git killed while it holds
+// index.lock leaves the lock behind, and every git in that checkout then
+// fails until somebody deletes it.
 func (pm *projectManager) background(f func()) bool {
 	pm.bgMu.Lock()
 	defer pm.bgMu.Unlock()
@@ -74,7 +80,8 @@ func (pm *projectManager) background(f func()) bool {
 }
 
 // settle stops background work being started and waits up to d for what
-// is running. It says whether all of it finished.
+// is running. It says whether all of it finished; on false the goroutine
+// waiting is left to end with the work.
 func (pm *projectManager) settle(d time.Duration) bool {
 	pm.bgMu.Lock()
 	pm.bgClosed = true
@@ -88,6 +95,16 @@ func (pm *projectManager) settle(d time.Duration) bool {
 	case <-done:
 		return true
 	case <-time.After(d):
+		return false
+	}
+}
+
+// stopping says whether the server has been asked to stop.
+func (pm *projectManager) stopping() bool {
+	select {
+	case <-pm.s.quit:
+		return true
+	default:
 		return false
 	}
 }
@@ -165,6 +182,11 @@ func (pm *projectManager) load() {
 		return
 	}
 	for _, e := range cat.Projects {
+		// Each project runs git; a server stopped while starting does not
+		// read the rest only to be waited for.
+		if pm.stopping() {
+			return
+		}
 		p, err := pm.add(e.Path, false)
 		if err != nil {
 			log.Printf("projects: dropping %s: %v", e.Path, err)
@@ -463,7 +485,11 @@ func (pm *projectManager) maybeRefresh(p *project) {
 	}
 	p.refreshing, p.pending = true, false
 	p.mu.Unlock()
-	pm.background(func() { pm.refresh(p, stamp) })
+	if !pm.background(func() { pm.refresh(p, stamp) }) {
+		p.mu.Lock()
+		p.refreshing = false
+		p.mu.Unlock()
+	}
 }
 
 // refreshNow reads p's git state now, taking its turn with the ticker's
@@ -607,7 +633,11 @@ func (pm *projectManager) maybeFetchPRs(p *project) {
 	}
 	p.prFetching, p.prPending = true, false
 	p.mu.Unlock()
-	pm.background(func() { pm.fetchPRs(p) })
+	if !pm.background(func() { pm.fetchPRs(p) }) {
+		p.mu.Lock()
+		p.prFetching = false
+		p.mu.Unlock()
+	}
 }
 
 func (pm *projectManager) fetchPRs(p *project) {
@@ -672,7 +702,11 @@ func (pm *projectManager) fetchPRs(p *project) {
 		pm.s.autopilotPRs(info)
 	}
 	if owed {
-		pm.background(func() { pm.fetchOwedBases(p) })
+		if !pm.background(func() { pm.fetchOwedBases(p) }) {
+			p.mu.Lock()
+			p.baseFetching = false
+			p.mu.Unlock()
+		}
 	}
 }
 
@@ -725,6 +759,9 @@ func (pm *projectManager) fetchOwedBases(p *project) {
 	sort.Strings(bases)
 	var fetched []string
 	for _, base := range bases {
+		if pm.stopping() {
+			break // still owed: the next server fetches it
+		}
 		// The remote's name back means it was fetched; the base alone, or
 		// nothing, means the fetch failed.
 		if got := gitx.FreshBase(ctx, p.root, base, base); got != "" && got != base {

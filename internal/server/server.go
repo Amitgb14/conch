@@ -260,8 +260,10 @@ func (s *Server) Run() error {
 	return nil
 }
 
-// settleTimeout bounds how long a stopping server waits for git.
-const settleTimeout = 10 * time.Second
+// settleTimeout bounds how long a stopping server waits for git: long
+// enough for a call already running to reach its own limit, since running
+// git is never killed (see projectManager.background).
+const settleTimeout = gitTimeout + 5*time.Second
 
 // noteSocket takes charge of unlinking the socket file. A Go unix listener
 // deletes the path when it closes, whatever is there by then — so a server
