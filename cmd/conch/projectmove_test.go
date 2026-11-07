@@ -61,6 +61,18 @@ func TestProjectMoveCommand(t *testing.T) {
 	}
 	dir := a4Env(t)
 	home := os.Getenv("HOME")
+	// Removed after the servers stop and before t.TempDir's own removal,
+	// which failed on Linux while a refresh's git status was still writing
+	// (see internal/relocate's removeSoon).
+	t.Cleanup(func() {
+		var err error
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			if err = os.RemoveAll(home); err == nil {
+				return
+			}
+		}
+		t.Errorf("removing %s: %v", home, err)
+	})
 	gitconfig := filepath.Join(home, ".gitconfig")
 	// No maintenance in the background, which outlives the test (see
 	// internal/relocate's isolate).

@@ -39,6 +39,11 @@ func isolate(t *testing.T) string {
 	// test, so removing it failed (Linux CI, newer git).
 	os.WriteFile(gitconfig, []byte("[user]\n\tname = Test\n\temail = test@example.com\n[init]\n\tdefaultBranch = main\n"+
 		"[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n\tautoDetach = false\n"), 0o644)
+	// Removed here, after the servers stop (cleanups run last first) and
+	// before t.TempDir's own removal: a server's refresh may still be in a
+	// git status, writing the index, when it stops — Run does not wait for
+	// it — and on Linux the removal then failed, "directory not empty".
+	t.Cleanup(func() { removeSoon(t, home) })
 	t.Setenv("HOME", home)
 	t.Setenv("GIT_CONFIG_GLOBAL", gitconfig)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
@@ -46,6 +51,19 @@ func isolate(t *testing.T) string {
 	t.Setenv("CONCH_SOCKET", "")
 	t.Setenv("CONCH_PANE_ID", "")
 	return home
+}
+
+// removeSoon removes dir, trying again for a few seconds while something
+// is still writing in it.
+func removeSoon(t *testing.T, dir string) {
+	t.Helper()
+	var err error
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if err = os.RemoveAll(dir); err == nil {
+			return
+		}
+	}
+	t.Errorf("removing %s: %v", dir, err)
 }
 
 // start runs a conch server with its own state, and dials it.
