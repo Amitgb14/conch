@@ -197,7 +197,7 @@ func Schema(c Choices) []Section {
 			}},
 		{ID: "shell", Key: "shell", Title: "Terminals", Icon: "terminal", Description: "New terminal panes.",
 			Fields: []Field{
-				{Key: "omz_theme", Label: "Oh My Zsh theme", Kind: KindString, Placeholder: "the one .zshrc chooses", Help: "Applied after your own .zshrc in new zsh terminals.", Suggest: c.ZshThemes},
+				{Key: "omz_theme", Label: "Oh My Zsh theme", Kind: KindString, Placeholder: "the one .zshrc chooses", Help: "Applied after your own .zshrc in zsh terminals — the ones already open too, redrawn as it is saved.", Suggest: c.ZshThemes},
 			}},
 		{ID: "pane", Key: "pane", Title: "Panes", Icon: "square-terminal", Description: "Defaults for new panes.",
 			Fields: []Field{

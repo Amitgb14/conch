@@ -85,7 +85,7 @@ func TestA2SettingsThemeShellStates(t *testing.T) {
 	s.shell = &proto.ShellThemes{OMZ: true, Themes: []string{"ys"}}
 	m.cfg.Shell.OMZTheme = "ys"
 	a2Item(t, s.themeItems(m), "ys").run(m)
-	if m.flash != "new zsh terminals use the ys prompt" {
+	if m.flash != "zsh terminals now use the ys prompt" {
 		t.Fatalf("flash %q", m.flash)
 	}
 	keep := a2Item(t, s.themeItems(m), "Keep my .zshrc theme")

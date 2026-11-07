@@ -283,7 +283,7 @@ func (s *settings) themeItems(m *Model) []settingItem {
 			}})
 	}
 
-	items = append(items, settingItem{}, settingItem{header: true, label: "Shell prompt · Oh My Zsh theme for new zsh terminals"})
+	items = append(items, settingItem{}, settingItem{header: true, label: "Shell prompt · Oh My Zsh theme for zsh terminals"})
 	switch {
 	case s.shellErr != "":
 		items = append(items, settingItem{label: s.shellErr})
@@ -306,7 +306,7 @@ func (s *settings) themeItems(m *Model) []settingItem {
 				mark: m.cfg.Shell.OMZTheme == name,
 				run: func(m *Model) tea.Cmd {
 					m.cfg.Shell.OMZTheme = name
-					m.setFlash("new zsh terminals use the "+name+" prompt", false)
+					m.setFlash("zsh terminals now use the "+name+" prompt", false)
 					return saveConfig(m.cfg)
 				}})
 		}
