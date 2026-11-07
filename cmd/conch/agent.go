@@ -13,6 +13,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/agentsetup"
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -505,4 +506,31 @@ func permissionSubject(tool string, input json.RawMessage, cwd string) string {
 		s = s[:300]
 	}
 	return s
+}
+
+// printSkill prints one of conch's skills — conch's own without a name —
+// or with -list their names, a line each.
+func printSkill(args []string) error {
+	switch {
+	case len(args) == 0:
+		os.Stdout.Write(agentsetup.Skill)
+		return nil
+	case len(args) == 1 && args[0] == "-list":
+		for _, sk := range agentsetup.Skills {
+			fmt.Println(sk.Name)
+		}
+		return nil
+	case len(args) == 1 && !strings.HasPrefix(args[0], "-"):
+		sk, ok := agentsetup.BundledSkillNamed(args[0])
+		if !ok {
+			var names []string
+			for _, s := range agentsetup.Skills {
+				names = append(names, s.Name)
+			}
+			return fmt.Errorf("conch has no skill called %s; it has %s", args[0], strings.Join(names, ", "))
+		}
+		os.Stdout.Write(sk.Body)
+		return nil
+	}
+	return errors.New("usage: conch skill [-list | NAME]")
 }

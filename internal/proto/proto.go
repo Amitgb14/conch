@@ -18,7 +18,7 @@ import (
 
 // Version is the conch release version, set at release time with
 // -ldflags "-X github.com/Amitgb14/conch/internal/proto.Version=0.2.0".
-var Version = "0.1.9-dev"
+var Version = "0.1.10-dev"
 
 // IsRelease reports whether Version names a published release rather than a
 // development build.
@@ -34,7 +34,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -126,6 +126,12 @@ const CapFSFiles = "fs.files.v1"
 
 // CapFSRead is fs.read: the start of a file in a checkout, for a preview.
 const CapFSRead = "fs.read.v1"
+
+// CapFSWrite is fs.write: a file in a checkout saved from an editor, and
+// FSReadResult.Hash, the content's fingerprint a save is checked against
+// so it never writes over what changed on disk since it was read (an
+// agent at work in the same files).
+const CapFSWrite = "fs.write.v1"
 
 // CapFSFind is fs.find: the files of a checkout whose path matches a few
 // letters, for a search box — git's list of them, so what it ignores stays
@@ -328,6 +334,7 @@ const (
 	MethodFSMkdir        = "fs.mkdir"
 	MethodFSUpload       = "fs.upload"
 	MethodFSRead         = "fs.read"
+	MethodFSWrite        = "fs.write"
 	MethodFSFind         = "fs.find"
 	// Copying a file or folder off the machine (CapFSTransfer).
 	MethodFSDownload     = "fs.download"
@@ -484,9 +491,12 @@ const (
 	// ErrOutOfScope is a change an agent asked for, from inside its pane,
 	// to a pane or project that isn't its own.
 	ErrOutOfScope = "out_of_scope"
-	ErrNotFound   = "not_found"
-	ErrInternal   = "internal"
-	ErrUnknown    = "unknown_method"
+	// ErrFileChanged is fs.write refusing to write over a file that changed
+	// on disk since it was read (fs.write.v1).
+	ErrFileChanged = "file_changed"
+	ErrNotFound    = "not_found"
+	ErrInternal    = "internal"
+	ErrUnknown     = "unknown_method"
 )
 
 // Message is the single envelope for requests, responses and events.
@@ -910,6 +920,35 @@ type FSReadResult struct {
 	Truncated bool      `json:"truncated,omitempty"` // the file goes on past Data
 	Binary    bool      `json:"binary,omitempty"`
 	MIME      string    `json:"mime,omitempty"`
+	// Hash is the SHA-256 of the whole file, hex, when Data is all of it:
+	// what an fs.write of an edit is checked against (fs.write.v1).
+	Hash string `json:"hash,omitempty"`
+}
+
+// FSWriteMax is the most an fs.write takes: a file worth editing in a
+// window, not a dump.
+const FSWriteMax = 4 << 20
+
+// FSWriteParams saves Data as the file at Path inside the checkout Root
+// (a project or one of its worktrees). Base is the Hash it was read as:
+// the save is refused with ErrFileChanged when the file is not that any
+// more, unless Force. Create makes a file that is not there; without it
+// a file gone since it was read is a change too.
+type FSWriteParams struct {
+	Root   string `json:"root"`
+	Path   string `json:"path"`
+	Data   string `json:"data"`
+	Base   string `json:"base,omitempty"`
+	Create bool   `json:"create,omitempty"`
+	Force  bool   `json:"force,omitempty"`
+}
+
+// FSWriteResult is the file as saved.
+type FSWriteResult struct {
+	Path    string    `json:"path"` // absolute
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"mod_time,omitzero"`
+	Hash    string    `json:"hash"`
 }
 
 // FSMkdirParams creates one folder.
@@ -2055,8 +2094,10 @@ type AgentSkillResult struct {
 
 // SkillChange is one SKILL.md and the agents that read it. Action is
 // create, update, same, remove or skip (a skill of that name conch didn't
-// write, left alone).
+// write, left alone). Skill names which of conch's skills it is; a server
+// from before conch had more than one leaves it out and means "conch".
 type SkillChange struct {
+	Skill  string   `json:"skill,omitempty"`
 	Path   string   `json:"path"`
 	Agents []string `json:"agents"`
 	Action string   `json:"action"`

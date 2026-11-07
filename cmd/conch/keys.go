@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,12 +18,13 @@ import (
 // that was rebound or unbound is worth seeing without starting the TUI,
 // since the TUI is where a wrong binding is hardest to work out.
 
-const keysUsage = "usage: conch keys [-bound] [-toml]"
+const keysUsage = "usage: conch keys [-bound] [-toml] [-json]"
 
 func cmdKeys(args []string) error {
 	fs := flag.NewFlagSet("keys", flag.ContinueOnError)
 	bound := fs.Bool("bound", false, "only the keys that are bound to something")
 	asTOML := fs.Bool("toml", false, "print the whole table as a [keys.bind] you can edit")
+	asJSON := fs.Bool("json", false, "print the table as JSON, as Conch.app reads it")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -36,7 +38,10 @@ func cmdKeys(args []string) error {
 		fmt.Fprintf(os.Stderr, "%s could not be read (%v): these are the defaults\n", config.File(), err)
 		cfg = config.Default()
 	}
-	binds, problems := keymap.Resolve(cfg.Keys.Bind)
+	binds, problems := keymap.ResolveFor(cfg.Keys.Bind, cfg.Keys.Prefix)
+	if *asJSON {
+		return keysJSON(cfg.Keys.Prefix, binds, problems)
+	}
 	if *asTOML {
 		// Printed so that it can be pasted whole, prefix and all, and
 		// read back as what it says. One key an action, which is how a
@@ -93,4 +98,37 @@ func keysProblems(problems []string) error {
 		return nil
 	}
 	return errors.New("[keys.bind] in " + config.File() + ": " + strings.Join(problems, "; "))
+}
+
+// keysTable is conch keys -json: the prefix and the resolved table, which
+// is how Conch.app takes its prefix keys from the TUI's settings rather
+// than reading [keys.bind] a second way. An unbound action is listed with
+// no keys, so the app can say it is unbound rather than guess.
+type keysTable struct {
+	Prefix   string        `json:"prefix"`
+	Keys     []keysBinding `json:"keys"`
+	Problems []string      `json:"problems,omitempty"`
+}
+
+type keysBinding struct {
+	Action string   `json:"action"`
+	Keys   []string `json:"keys"`
+	What   string   `json:"what"`
+}
+
+// keysJSON prints the table. Problems are in it rather than the exit
+// status: a reader of JSON wants the keys that did resolve either way,
+// and a failed exit would cost it them.
+func keysJSON(prefix string, binds keymap.Map, problems []string) error {
+	t := keysTable{Prefix: keymap.Normalize(prefix), Keys: []keysBinding{}, Problems: problems}
+	for _, a := range keymap.Actions() {
+		ks := binds.Keys(a)
+		if ks == nil {
+			ks = []string{}
+		}
+		t.Keys = append(t.Keys, keysBinding{Action: string(a), Keys: ks, What: keymap.What(a)})
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(t)
 }

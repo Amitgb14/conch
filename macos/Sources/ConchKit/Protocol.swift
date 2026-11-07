@@ -267,6 +267,9 @@ public struct ProjectInfo: Decodable, Identifiable, Equatable, Sendable {
     public var base: String?
     public var worktrees: [WorktreeInfo]?
     public var branches: [BranchInfo]?
+    /// Its origin's URL, when it has one: a move to another machine joins
+    /// the project there cloned from the same.
+    public var remote: String?
 
     public init(id: String, name: String, path: String, worktrees: [WorktreeInfo]? = nil, branches: [BranchInfo]? = nil) {
         self.id = id

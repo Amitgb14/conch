@@ -192,6 +192,13 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     #expect(s.nextAttention(after: "p4") == "p5")
     #expect(s.nextAttention(after: "p5") == "p6")
     #expect(Snapshot().nextAttention(after: nil) == nil)
+    // The done count's: finished agents only, the first to finish first.
+    s.upsert(PaneInfo(id: "p7", name: "codex", agent: AgentStatus(name: "codex", state: .done, since: Date(timeIntervalSince1970: 2))))
+    #expect(s.nextDone(after: nil) == "p7")
+    #expect(s.nextDone(after: "p7") == "p5")
+    #expect(s.nextDone(after: "p5") == "p7")
+    #expect(s.nextDone(after: "p6") == "p7") // from a waiting one: the first done
+    #expect(Snapshot().nextDone(after: nil) == nil)
 }
 
 @Test func upsertAndRemove() {
@@ -428,7 +435,18 @@ final class FakeServer: @unchecked Sendable {
         let t = ConchTheme.all[i]
         #expect(t.id == name && t.accent.hex == accent.uppercased() && t.bg.hex == bg.uppercased(), "theme \(name)")
     }
-    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte", "ink", "meadow"])
+    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte", "ink", "meadow", "terminal-light", "vscode-light-modern", "vscode-light-plus"])
+    // VS Code's: its own values, and each dark one follows macOS to its light one.
+    let dm = ConchTheme.named("vscode-dark-modern"), lm = ConchTheme.named("vscode-light-modern")
+    #expect(dm.bg.hex == "#1F1F1F" && dm.fg.hex == "#CCCCCC" && dm.accent.hex == "#0078D4" && dm.border.hex == "#2B2B2B" && !dm.light)
+    #expect(lm.bg.hex == "#FFFFFF" && lm.fg.hex == "#3B3B3B" && lm.accent.hex == "#005FB8" && lm.light)
+    #expect(ConchTheme.forAppearance(dm, dark: false).id == "vscode-light-modern")
+    #expect(ConchTheme.forAppearance(ConchTheme.named("vscode-dark-plus"), dark: false).id == "vscode-light-plus")
+    #expect(ConchTheme.forAppearance(lm, dark: true).id == "vscode-light-modern")
+    for id in ["vscode-dark-modern", "vscode-light-modern", "vscode-dark-plus", "vscode-light-plus"] {
+        let t = ConchTheme.named(id)
+        #expect(t.id == id && Set([t.accent.hex, t.work.hex, t.ok.hex, t.warn.hex]).count == 4, "theme \(id): a commit graph's first lanes must differ")
+    }
     // conch's own four: a commit graph's first lanes take accent, working,
     // ok and warning in turn, so none of them may repeat another.
     for id in ["ink", "meadow", "firefly", "cel"] {
@@ -666,7 +684,7 @@ final class FakeServer: @unchecked Sendable {
     // A project, a machine, the Workspace row.
     let pm = s.menu(for: api, machine: "box")
     #expect(pm[0].action == .newTask(project: "box|r1") && pm[1].action == .startAgent(machine: "box", cwd: "/src/api", inProject: true))
-    #expect(pm.last?.action == .copy("/src/api"))
+    #expect(pm.contains { $0.action == .copy("/src/api") } && pm.last?.action == .removeProject(project: "box|r1"))
     #expect(pm.contains { $0.action == .commits(project: "box|r1", branch: nil) })
     // A folder that is not a repository has no commits to graph.
     var plain = s
@@ -676,7 +694,7 @@ final class FakeServer: @unchecked Sendable {
     #expect(!plain.menu(for: api, machine: "box").contains { if case .commits = $0.action { return true }; return false })
     #expect(s.menu(for: t, machine: "box").map(\.action) == [.startAgent(machine: "box", cwd: nil, inProject: false), .newTerminal(machine: "box", cwd: nil, inProject: false),
                                                              .broadcast(.machine("box")), .divider, .addProject(machine: "box"), .addMachine,
-                                                             .divider, .reconnect(machine: "box"), .reloadServer(machine: "box"),
+                                                             .skillsSettings(machine: "box"), .divider, .reconnect(machine: "box"), .reloadServer(machine: "box"),
                                                              .upgrade(machine: "box"), .removeMachine(machine: "box")])
     // This computer is neither upgraded nor removed from here; its CLI
     // group carries none of a machine's own.
@@ -1121,12 +1139,17 @@ final class FakeServer: @unchecked Sendable {
     #expect(f.value(ui, ui.fields[0]) == .string("night-owl") && f.value(ui, ui.fields[1]) == .bool(true))
     #expect(f.value(ui, ui.fields[2]) == .bool(true)) // absent: its default
     #expect(listText(f.value(notify, notify.fields[0])) == "50\n80")
-    #expect(ui.simple && !actions.simple && !f.dirty)
-    // A section drawn whole says nothing; one of tables sends you to config.toml.
-    #expect(ui.tableNote == nil && actions.tableNote == "These are tables of their own, edited in config.toml.")
+    #expect(ui.simple && actions.simple && !f.dirty)
+    // A section drawn whole says nothing — tables are lists here now; one
+    // with a map (left to config.toml) sends you there.
+    #expect(ui.tableNote == nil && actions.tableNote == nil)
+    let map = SettingsField(key: "checks", label: "Checks", kind: "map")
     var mixed = ui
-    mixed.fields.append(actions.fields[0])
+    mixed.fields.append(map)
     #expect(mixed.tableNote == "Some of these are tables, edited in config.toml.")
+    var maps = actions
+    maps.fields = [map]
+    #expect(maps.tableNote == "These are tables of their own, edited in config.toml.")
     #expect(LucideIcons.all["file-text"] != nil && !LucideIcons.ops("file-text").isEmpty)
     f.set(ui, ui.fields[0], .string("conch"))
     f.set(remote, remote.fields[0], .number(45))
@@ -1377,7 +1400,29 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
 @Test func appStyles() {
     #expect(AppStyle(setting: "ink") == .ink && AppStyle(setting: " INK ") == .ink)
     #expect(AppStyle(setting: nil) == .standard && AppStyle(setting: "") == .standard && AppStyle(setting: "manga") == .standard)
-    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink", "Meadow", "Cel"])
+    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink", "Meadow", "Cel", "Terminal"])
+    // Terminal: today's window — gutters, borders, corners and no roster as
+    // Standard — on its own theme, every word in monospace a little smaller,
+    // and the sidebar wider for the wider names. Only it is monospace.
+    let t = AppStyle(setting: "terminal")
+    #expect(t == .terminal && t.theme == "terminal" && ConchTheme.named(t.theme).id == "terminal")
+    #expect(t.gutter == AppStyle.standard.gutter && t.border == AppStyle.standard.border && t.corner == AppStyle.standard.corner && !t.roster)
+    #expect(t.mono && AppStyle.allCases.filter(\.mono) == [.terminal])
+    #expect(t.fontSize(13) == 12 && t.fontSize(11) == 10 && t.fontSize(12.5) == 11.5 && AppStyle.standard.fontSize(13) == 13)
+    #expect(t.sidebarWidth(250) == 320 && AppStyle.standard.sidebarWidth(250) == 250)
+    #expect(t.paintsTitleBar && AppStyle.meadow.paintsTitleBar && !AppStyle.standard.paintsTitleBar)
+    let th = ConchTheme.named("terminal")
+    #expect(th.bg.hex == "#0C0E11" && th.border.hex == "#1E232A" && th.accent.hex == "#2AA5B5" && !th.light)
+    // Its light one: shown for the dark one under a light Mac, and back;
+    // picked by name it stays light; other themes are left as they are.
+    let lt = ConchTheme.named("terminal-light")
+    #expect(lt.light && lt.bg.hex == "#FBFBFC" && lt.border.hex == "#DADDE2" && lt.accent.hex == "#0F7B8A")
+    #expect(ConchTheme.forAppearance(th, dark: false).id == "terminal-light" && ConchTheme.forAppearance(th, dark: true).id == "terminal")
+    #expect(ConchTheme.forAppearance(lt, dark: true).id == "terminal-light")
+    #expect(ConchTheme.forAppearance(ConchTheme.named("dracula"), dark: false).id == "dracula")
+    #expect(ConchTheme.forAppearance(ConchTheme.named("meadow"), dark: true).id == "meadow")
+    // conch's teal stays readable as a selection on white: white text on it.
+    #expect(lt.selFG.hex == "#FFFFFF")
     #expect(AppStyle.standard.theme == nil && AppStyle.ink.theme == "ink" && ConchTheme.named(AppStyle.ink.theme).id == "ink")
     #expect(AppStyle.ink.gutter > AppStyle.standard.gutter && AppStyle.ink.border > AppStyle.standard.border)
 }
@@ -1404,7 +1449,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(AppStyle(setting: "meadow") == .meadow && AppStyle.meadow.label == "Meadow")
     #expect(AppStyle.meadow.theme == "meadow" && ConchTheme.named("meadow").light && !ConchTheme.named("firefly").light)
     #expect(AppStyle.meadow.corner > AppStyle.standard.corner && AppStyle.ink.corner == 0)
-    #expect(AppStyle.allCases.filter(\.paintsTitleBar) == [.meadow] && AppStyle.allCases.filter(\.roster) == [.cel])
+    #expect(AppStyle.allCases.filter(\.paintsTitleBar) == [.meadow, .terminal] && AppStyle.allCases.filter(\.roster) == [.cel])
     #expect(AppStyle.meadow.gutter == AppStyle.ink.gutter && AppStyle.meadow.border == AppStyle.standard.border)
     for w in [0.0, 100, 1320, 2560] {
         let c = cloudLayout(width: w)
@@ -1553,7 +1598,9 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
         let decl = try Regex(#"\nstruct (\w+): (View|ViewModifier|NSViewRepresentable) \{(.*?)\n\}"#).dotMatchesNewlines()
         for m in src.matches(of: decl) {
             let name = String(m.output[1].substring ?? ""), body = String(m.output[3].substring ?? "")
-            guard body.contains("Theme."), !drawsItsOwn.contains(name) else { continue }
+            // .ui(size:) is the window's face, which the style (Terminal:
+            // monospace) changes as the theme changes colours.
+            guard body.contains("Theme.") || body.contains(".ui(size") || body.contains(".tree(size"), !drawsItsOwn.contains(name) else { continue }
             // The store, or the theme itself (the environment, or Settings'
             // ShownTheme): a view watching only its own model — a Files tab,
             // a Sessions row — was not drawn again, and kept the old colours.
@@ -2477,4 +2524,81 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
         #expect(s.output.contains(pane == nil ? "args: ask show zsh" : "args: ask -pane p3 show zsh"), "\(s.output)")
         #expect(s.fast == (pane != nil))
     }
+}
+
+// The sidebar's cursor follows the tab in front: every kind of tab names a
+// row the tree really has, on this computer and on another machine.
+@Test func eachTabNamesItsSidebarRow() {
+    func ids(_ n: TreeNode) -> Set<String> { [n.id].reduce(into: Set<String>()) { $0.insert($1) }.union((n.children ?? []).flatMap(ids)) }
+    for (m, tree) in [("local", fixture().tree()), ("box", fixture().tree(machine: "box", label: "busybox", sessions: ["box|r1": 16]))] {
+        let rows = ids(tree)
+        let tabs = [key(m, "p1"), changesKey(m, "r1", "feat"), filesKey(m, "r1"), commitsKey(m, "r1"), setupKey(m, "r1", dir: "/src/api")]
+        for t in tabs {
+            let r = treeRow(forTab: t)
+            #expect(r.map(rows.contains) == true, "\(t) → \(r ?? "nil") on \(m)")
+        }
+        if m == "box" { #expect(rows.contains(treeRow(forTab: sessionsKey(m, "r1"))!)) } // Sessions shows once it has some
+    }
+    #expect(treeRow(forTab: browserKey("http://localhost:3000")) == nil) // a page has no row
+}
+
+// A project taken out of one workspace stays in the others, and nothing
+// else in ui.json changes.
+@Test func removingAProjectFromAWorkspace() throws {
+    let ui = #"{"spaces":[{"id":"sA","projects":["r1","box~r9"],"panes":["local|p3"]},{"id":"sB","projects":["r1"]}],"tabs":[],"expanded":{"x":true}}"#
+    let out = try Workspace.removingProject("r1", from: "sA", in: Data(ui.utf8))
+    let ws = Workspace.load(uiJSON: out)
+    #expect(ws[1].projects == ["box~r9"] && ws[1].panes == ["local|p3"])
+    #expect(ws[2].projects == ["r1"]) // the other workspace keeps it
+    #expect(String(data: out, encoding: .utf8)!.contains("expanded"))
+    // Taking out one it doesn't have changes nothing; unknown workspaces and no file throw.
+    #expect(Workspace.load(uiJSON: try Workspace.removingProject("r7", from: "sA", in: out))[1].projects == ["box~r9"])
+    #expect(throws: ConchError.self) { try Workspace.removingProject("r1", from: "nope", in: out) }
+    #expect(throws: ConchError.self) { try Workspace.removingProject("r1", from: "sA", in: nil) }
+}
+
+// Remove Project leaves only this workspace when another shows the project
+// too; otherwise conch forgets it — and the first workspace, which shows
+// whatever no other claims, never leaves one on its own.
+@Test func whatRemovingAProjectDoes() {
+    let api = ProjectInfo(id: "r1", name: "api", path: "/src/api")
+    let a = Workspace(id: "sA", name: "a", projects: ["r1"])
+    let b = Workspace(id: "sB", name: "b", projects: ["r1"])
+    let c = Workspace(id: "sC", name: "c", projects: ["r2"])
+    // The first shows what no later workspace claims, as Workspace.load sets it.
+    func firstWith(_ later: Workspace...) -> Workspace {
+        var f = Workspace(name: "main", first: true)
+        f.claimedProjects = later.reduce(into: []) { $0.formUnion($1.projects) }
+        return f
+    }
+    let first = Workspace(name: "main", first: true)
+    #expect(projectRemoval(api, machine: "local", workspaces: [first], current: 0) == .removeFromConch)
+    #expect(projectRemoval(api, machine: "local", workspaces: [firstWith(a, b), a, b], current: 1) == .leaveWorkspace(id: "sA"))
+    #expect(projectRemoval(api, machine: "local", workspaces: [firstWith(a, c), a, c], current: 1) == .removeFromConch) // only here
+    #expect(projectRemoval(api, machine: "local", workspaces: [firstWith(c), c], current: 0) == .removeFromConch) // on the first
+    #expect(projectRemoval(api, machine: "local", workspaces: [firstWith(a), a], current: 5) == .removeFromConch) // out of range
+    // Another machine's project is keyed machine~id.
+    let remote = Workspace(id: "sR", name: "r", projects: ["box~r1"])
+    let s2 = Workspace(id: "sS", name: "s", projects: ["box~r1"])
+    #expect(projectRemoval(api, machine: "box", workspaces: [firstWith(remote, s2), remote, s2], current: 1) == .leaveWorkspace(id: "sR"))
+    #expect(projectRemoval(api, machine: "box", workspaces: [firstWith(remote, a), remote, a], current: 1) == .removeFromConch) // a has local r1, not box's
+}
+
+// A git project can be moved to another machine; a plain folder can't.
+@Test func projectMenuOffersMove() {
+    var snap = fixture()
+    let node = TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api")
+    let i = snap.projects.firstIndex { $0.id == "r1" }!
+    snap.projects[i].git = true
+    #expect(snap.menu(for: node, machine: "local").contains(RowMenuItem("Move to another machine…", .moveProject(project: "local|r1"))))
+    snap.projects[i].git = false
+    #expect(!snap.menu(for: node, machine: "local").contains { if case .moveProject = $0.action { return true }; return false })
+}
+
+// A project row's menu ends with Remove Project.
+@Test func projectMenuOffersRemove() {
+    let snap = fixture()
+    let items = snap.menu(for: TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api"), machine: "local")
+    #expect(items.last == RowMenuItem("Remove Project…", .removeProject(project: "local|r1")))
+    #expect(snap.menu(for: TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api"), machine: "local", machineOnline: false).isEmpty)
 }

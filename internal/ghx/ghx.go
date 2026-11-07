@@ -30,6 +30,7 @@ type PR struct {
 	Draft  bool
 	URL    string
 	Branch string // head branch
+	Base   string // the branch it merges into
 	Head   string // head commit
 	Review string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED or ""
 	// Conflicting is GitHub saying the branch cannot merge into its base
@@ -56,7 +57,7 @@ type Check struct {
 // ErrNoGH means the gh binary is not installed.
 var ErrNoGH = errors.New("gh (GitHub CLI) is not installed; pull requests, CI and issues need it: https://cli.github.com")
 
-const fields = "number,title,state,isDraft,url,headRefName,headRefOid,reviewDecision,statusCheckRollup,updatedAt,mergeable"
+const fields = "number,title,state,isDraft,url,headRefName,headRefOid,baseRefName,reviewDecision,statusCheckRollup,updatedAt,mergeable"
 
 // List returns recent pull requests of the repository in dir. The gh binary
 // is $CONCH_GH when set.
@@ -188,6 +189,7 @@ type rawPR struct {
 	URL            string    `json:"url"`
 	HeadRefName    string    `json:"headRefName"`
 	HeadRefOid     string    `json:"headRefOid"`
+	BaseRefName    string    `json:"baseRefName"`
 	ReviewDecision string    `json:"reviewDecision"`
 	Mergeable      string    `json:"mergeable"` // MERGEABLE, CONFLICTING or UNKNOWN
 	UpdatedAt      time.Time `json:"updatedAt"`
@@ -213,7 +215,7 @@ func Parse(data []byte) ([]PR, error) {
 	for _, r := range raw {
 		pr := PR{
 			Number: r.Number, Title: r.Title, State: r.State, Draft: r.IsDraft, URL: r.URL,
-			Branch: r.HeadRefName, Head: r.HeadRefOid, Review: r.ReviewDecision, Updated: r.UpdatedAt,
+			Branch: r.HeadRefName, Head: r.HeadRefOid, Base: r.BaseRefName, Review: r.ReviewDecision, Updated: r.UpdatedAt,
 			Conflicting: r.Mergeable == "CONFLICTING",
 		}
 		failed, pending := 0, 0

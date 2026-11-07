@@ -180,7 +180,11 @@ func TestSettingsTabs(t *testing.T) {
 
 func TestStatusBarClicks(t *testing.T) {
 	t.Setenv("CONCH_HOME", t.TempDir())
-	m := Model{cfg: config.Default(), width: 140, height: 40, expanded: map[string]bool{}, showAll: map[string]bool{}}
+	// Wide enough for every item with room to spare: the bar drops items
+	// that do not fit, so at 140 columns the version going from 0.1.9-dev
+	// to 0.1.10-dev pushed "keys" off and failed this test, which is about
+	// where clicks land, not about how much fits.
+	m := Model{cfg: config.Default(), width: 170, height: 40, expanded: map[string]bool{}, showAll: map[string]bool{}}
 	m.machines = []*machine{{id: localMachine, label: "local", state: stateOnline, agents: map[string]bool{}, sizes: map[string]paneSize{}}}
 	m.rebuild()
 

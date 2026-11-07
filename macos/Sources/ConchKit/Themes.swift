@@ -102,14 +102,64 @@ extension ConchTheme {
         .init("catppuccin-latte", "Catppuccin Latte", accent: "#1E66F5", selFG: "#EFF1F5", border: "#BCC0CC", muted: "#8C8FA1", ok: "#40A02B", warn: "#DF8E1D", err: "#D20F39", work: "#04A5E5", selDim: "#CCD0DA", bg: "#EFF1F5", fg: "#4C4F69", light: true),
         .init("ink", "Ink", accent: "#E0353D", selFG: "#FFFFFF", border: "#111111", muted: "#6B6860", ok: "#2F7D32", warn: "#B26A00", err: "#9B1C1C", work: "#1F5FA8", selDim: "#E4E1D8", bg: "#FBFAF6", fg: "#111111", light: true),
         .init("meadow", "Meadow", accent: "#4F8A3C", selFG: "#FFFFFF", border: "#D9CFB4", muted: "#7E8B80", ok: "#2E8B6E", warn: "#C9822A", err: "#C15A3F", work: "#3F84AD", selDim: "#E6EDD8", bg: "#F7F1DF", fg: "#34453A", light: true),
+        // conch's teal on a terminal's ground, after herdr: the Terminal style's.
+        .init("terminal", "Terminal", accent: "#2AA5B5", selFG: "#FFFFFF", border: "#1E232A", muted: "#8B949E", ok: "#9ECE6A", warn: "#E0AF68", err: "#F7768E", work: "#7AA2F7", selDim: "#171B20", bg: "#0C0E11", fg: "#D4D9DF"),
+        .init("terminal-light", "Terminal Light", accent: "#0F7B8A", selFG: "#FFFFFF", border: "#DADDE2", muted: "#6E7781", ok: "#1A7F37", warn: "#9A6700", err: "#CF222E", work: "#0969DA", selDim: "#E9EBEE", bg: "#FBFBFC", fg: "#1F2328", light: true),
+        // VS Code's own, from extensions/theme-defaults: Dark/Light Modern, Dark+/Light+.
+        .init("vscode-dark-modern", "VS Code Dark Modern", accent: "#0078D4", selFG: "#FFFFFF", border: "#2B2B2B", muted: "#9D9D9D", ok: "#89D185", warn: "#CCA700", err: "#F14C4C", work: "#3794FF", selDim: "#37373D", bg: "#1F1F1F", fg: "#CCCCCC"),
+        .init("vscode-light-modern", "VS Code Light Modern", accent: "#005FB8", selFG: "#FFFFFF", border: "#E5E5E5", muted: "#616161", ok: "#388A34", warn: "#BF8803", err: "#E51400", work: "#1A85FF", selDim: "#E8E8E8", bg: "#FFFFFF", fg: "#3B3B3B", light: true),
+        .init("vscode-dark-plus", "VS Code Dark+", accent: "#007ACC", selFG: "#FFFFFF", border: "#3C3C3C", muted: "#8F8F8F", ok: "#89D185", warn: "#CCA700", err: "#F14C4C", work: "#3794FF", selDim: "#37373D", bg: "#1E1E1E", fg: "#D4D4D4"),
+        .init("vscode-light-plus", "VS Code Light+", accent: "#007ACC", selFG: "#FFFFFF", border: "#E5E5E5", muted: "#717171", ok: "#388A34", warn: "#BF8803", err: "#E51400", work: "#1A85FF", selDim: "#E4E6F1", bg: "#FFFFFF", fg: "#000000", light: true),
     ]
+
+    /// Themes drawn as a pair, dark and light: the dark one, while it is the
+    /// theme, is shown as its light one under macOS's light appearance. The
+    /// light one chosen by name stays light — somebody picked it.
+    public static let lightPairs: [String: String] = [
+        "terminal": "terminal-light",
+        // As VS Code follows the system between its dark and light pair.
+        "vscode-dark-modern": "vscode-light-modern",
+        "vscode-dark-plus": "vscode-light-plus",
+    ]
+
+    /// The theme to show for t under an appearance.
+    public static func forAppearance(_ t: ConchTheme, dark: Bool) -> ConchTheme {
+        guard !dark, let light = lightPairs[t.id] else { return t }
+        return named(light)
+    }
 
     public static var conch: ConchTheme { all[0] }
 
     /// The theme by name; an unknown one is conch's, as the TUI does.
     public static func named(_ id: String?) -> ConchTheme {
         let key = (id ?? "").trimmingCharacters(in: .whitespaces).lowercased()
-        return all.first { $0.id == key } ?? conch
+        return everything.first { $0.id == key } ?? conch
+    }
+
+    /// Themes of your own, read from conch's themes folder (userThemes):
+    /// after the built-in ones in every list, as the TUI has them.
+    nonisolated(unsafe) public static var user: [ConchTheme] = []
+    public static var everything: [ConchTheme] { all + user }
+
+    /// The accents [ui] accent may name, as the TUI's (internal/tui/theme.go
+    /// accentColors): each dark enough for white text on it.
+    public static let accentNames: [String: String] = [
+        "teal": "#0F7B8A", "blue": "#2F6FDB", "green": "#2E7D4F", "orange": "#C2571A",
+        "pink": "#C2407D", "red": "#C0392B", "gray": "#5A6472", "purple": "#7D56F4",
+    ]
+
+    /// This theme with [ui] accent over its own — a name or #rrggbb, as
+    /// the TUI takes it; anything else, or nothing, leaves it be. The TUI
+    /// draws selections in it with white text, and so does this.
+    public func withAccent(_ setting: String?) -> ConchTheme {
+        let v = (setting ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        let hex = Self.accentNames[v] ?? (v.count == 7 && v.hasPrefix("#") && UInt32(v.dropFirst(), radix: 16) != nil ? v : nil)
+        guard let hex else { return self }
+        var t = self
+        t.accent = RGB(hex)
+        t.uiAccent = nil
+        t.selFG = RGB("#FFFFFF")
+        return t
     }
 
     /// The theme the window settles on — the one chosen in the app ("" is
@@ -179,6 +229,38 @@ public func tomlSetting(_ section: String, _ key: String, in toml: String?) -> S
     return nil
 }
 
+/// config.toml with one setting changed: key in [section] set to value as
+/// written (a number, or a quoted string), or with value nil taken out.
+/// Every other line is kept as it is, comments and order with it; a
+/// missing section is added at the end.
+public func settingTOML(_ toml: String, section: String, key: String, value: String?) -> String {
+    var lines = toml.components(separatedBy: "\n")
+    if lines.last == "" { lines.removeLast() }
+    let header = lines.firstIndex { $0.trimmingCharacters(in: .whitespaces).hasPrefix("[\(section)]") }
+    guard let start = header else {
+        guard let value else { return toml }
+        var out = lines
+        if let last = out.last, !last.trimmingCharacters(in: .whitespaces).isEmpty { out.append("") }
+        out += ["[\(section)]", "\(key) = \(value)"]
+        return out.joined(separator: "\n") + "\n"
+    }
+    var end = lines.count
+    for i in (start + 1)..<lines.count where lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("[") { end = i; break }
+    if let at = (start + 1..<end).first(where: { i in
+        let l = lines[i].trimmingCharacters(in: .whitespaces)
+        guard let eq = l.firstIndex(of: "="), !l.hasPrefix("#") else { return false }
+        return l[l.startIndex..<eq].trimmingCharacters(in: .whitespaces) == key
+    }) {
+        if let value { lines[at] = "\(key) = \(value)" } else { lines.remove(at: at) }
+    } else if let value {
+        // After the section's last setting, not after a blank line before the next.
+        var at = end
+        while at > start + 1, lines[at - 1].trimmingCharacters(in: .whitespaces).isEmpty { at -= 1 }
+        lines.insert("\(key) = \(value)", at: at)
+    }
+    return lines.joined(separator: "\n") + "\n"
+}
+
 /// Whether a theme option is the one config.toml sets: an empty or unknown
 /// theme is conch's, as the TUI reads it, so conch's card shows chosen.
 ///
@@ -193,4 +275,104 @@ public func themeChosen(_ option: String, _ value: String, off: Bool) -> Bool {
 public func themeChosen(_ option: String, _ value: String) -> Bool {
     ConchTheme.named(option).id == ConchTheme.named(value).id && ConchTheme.all.contains { $0.id == option }
         || option == value
+}
+
+// MARK: themes of your own
+
+/// What a theme file may set, as the TUI reads it (internal/tui/userthemes.go).
+private let themeColourKeys = ["bg", "fg", "accent", "sel_fg", "border", "muted", "ok", "warn", "err", "work", "sel_dim", "merged"]
+
+/// The themes in dir (NAME.toml each), and what was wrong with the ones
+/// left out — the same files and rules as the TUI's, so a theme is one
+/// thing in both: based_on's colours (conch's by default) with the file's
+/// over them, its name the file's.
+public func userThemes(in dir: String) -> (themes: [ConchTheme], problems: [String]) {
+    let names = ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".toml") }.sorted()
+    var out: [ConchTheme] = []
+    var problems: [String] = []
+    for file in names {
+        let id = String(file.dropLast(5)).lowercased()
+        if id.isEmpty || id.range(of: #"^[a-z0-9][a-z0-9_-]*$"#, options: .regularExpression) == nil {
+            problems.append("\(file): a theme's file name is its name, in lower case letters, digits, - and _")
+            continue
+        }
+        if ConchTheme.all.contains(where: { $0.id == id }) {
+            problems.append("\(file): \"\(id)\" is a built-in theme's name; call the file something else")
+            continue
+        }
+        if out.contains(where: { $0.id == id }) { continue }
+        if out.count == 64 {
+            problems.append("\(file): more than 64 themes of your own; the rest are left out")
+            continue
+        }
+        guard let text = try? String(contentsOfFile: (dir as NSString).appendingPathComponent(file), encoding: .utf8) else {
+            problems.append("\(file): could not be read")
+            continue
+        }
+        switch userTheme(id: id, text: text) {
+        case .success(let t): out.append(t)
+        case .failure(let e): problems.append("\(file): \(e.message)")
+        }
+    }
+    return (out, problems)
+}
+
+public struct ThemeFileError: Error, Equatable { public var message: String }
+
+/// One theme file's theme: its keys read as the plain TOML they are —
+/// key = "value", true or false, # comments.
+public func userTheme(id: String, text: String) -> Result<ConchTheme, ThemeFileError> {
+    var values: [String: String] = [:]
+    var light: Bool?
+    for (n, raw) in text.components(separatedBy: "\n").enumerated() {
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        if line.isEmpty || line.hasPrefix("#") { continue }
+        guard let eq = line.firstIndex(of: "=") else { return .failure(.init(message: "line \(n + 1): expected key = \"value\"")) }
+        let key = line[..<eq].trimmingCharacters(in: .whitespaces)
+        var v = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+        if v.hasPrefix("\"") {
+            guard let close = v.dropFirst().firstIndex(of: "\"") else { return .failure(.init(message: "line \(n + 1): a string is not closed")) }
+            v = String(v[v.index(after: v.startIndex)..<close])
+        } else if let hash = v.firstIndex(of: "#") {
+            v = v[..<hash].trimmingCharacters(in: .whitespaces)
+        }
+        switch key {
+        case "name", "based_on": values[key] = v
+        case "light":
+            guard v == "true" || v == "false" else { return .failure(.init(message: "light = \(v) is not true or false")) }
+            light = v == "true"
+        case _ where themeColourKeys.contains(key):
+            guard v.range(of: #"^#[0-9A-Fa-f]{6}$"#, options: .regularExpression) != nil else {
+                return .failure(.init(message: "\(key) = \"\(v)\" is not a colour; write it as \"#rrggbb\""))
+            }
+            values[key] = v.uppercased()
+        default:
+            return .failure(.init(message: "\"\(key)\" is not a theme key (bg, fg, accent, sel_fg, border, muted, ok, warn, err, work, sel_dim, merged)"))
+        }
+    }
+    var t = ConchTheme.conch
+    if let base = values["based_on"]?.trimmingCharacters(in: .whitespaces).lowercased(), !base.isEmpty {
+        guard let b = ConchTheme.all.first(where: { $0.id == base }) else {
+            return .failure(.init(message: "based_on \"\(values["based_on"]!)\" is no built-in theme"))
+        }
+        t = b
+    }
+    t.id = id
+    let name = (values["name"] ?? "").trimmingCharacters(in: .whitespaces)
+    t.label = name.isEmpty ? id : name
+    t.uiAccent = nil
+    if let v = values["bg"] { t.bg = RGB(v) }
+    if let v = values["fg"] { t.fg = RGB(v) }
+    if let v = values["accent"] { t.accent = RGB(v) }
+    if let v = values["sel_fg"] { t.selFG = RGB(v) }
+    if let v = values["border"] { t.border = RGB(v) }
+    if let v = values["muted"] { t.muted = RGB(v) }
+    if let v = values["ok"] { t.ok = RGB(v) }
+    if let v = values["warn"] { t.warn = RGB(v) }
+    if let v = values["err"] { t.err = RGB(v) }
+    if let v = values["work"] { t.work = RGB(v) }
+    if let v = values["sel_dim"] { t.selDim = RGB(v) }
+    // A light window when it says so, else when its ground is light.
+    t.light = light ?? (t.bg.luminance > 0.5)
+    return .success(t)
 }

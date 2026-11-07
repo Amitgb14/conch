@@ -143,7 +143,12 @@ func (pm *projectManager) pushBranch(pp proto.BranchPushParams) (proto.BranchPus
 	var err error
 	if pp.Rebase {
 		// A rebase needs the branch checked out; pushing alone does not.
-		wt, ok := p.branchWorktree(pp.Branch)
+		// Asked of git, not the last snapshot: one taken while a rebase
+		// was under way saw the worktree detached, and refused the next.
+		wt, ok, perr := checkout(ctx, p, pp.Branch)
+		if perr != nil {
+			return proto.BranchPushResult{}, perr
+		}
 		if !ok {
 			pm.request(p)
 			return proto.BranchPushResult{}, proto.Errorf(proto.ErrBadRequest,

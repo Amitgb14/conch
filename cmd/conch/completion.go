@@ -65,7 +65,7 @@ var compCommands = []compItem{
 	{"app", "open conch in a terminal of its own"},
 	{"bug", "the facts for a bug report"},
 	{"mcp", "an MCP server for an agent"},
-	{"skill", "print conch's skill for agents"},
+	{"skill", "print one of conch's skills for agents"},
 	{"completion", "tab completion for bash, zsh or fish"},
 	{"version", "print the version"},
 	{"help", "the commands to start with"},
@@ -83,7 +83,7 @@ var compSubcommands = map[string][]compItem{
 		{"status", "which agents are installed"}, {"install", "install an agent"},
 		{"explain", "how a pane's agent state was decided"}, {"prompt", "send an agent a prompt"},
 		{"setup", "what an agent loads in a checkout"}, {"sync", "give the others one agent's setup"},
-		{"library", "servers and skills every agent follows"}, {"skill", "install conch's skill for agents"},
+		{"library", "servers and skills every agent follows"}, {"skill", "install conch's skills for agents"},
 		{"add", "describe an agent of your own"},
 	},
 	"agent library": {
@@ -93,7 +93,7 @@ var compSubcommands = map[string][]compItem{
 		{"apply", "write it into each agent"}, {"undo", "take the last apply back"},
 	},
 	"project": {
-		{"add", "add a git repository"}, {"create", "make a new one"}, {"ls", "list projects"},
+		{"add", "add a git repository"}, {"create", "make a new one"}, {"clone", "clone a repository and add it"}, {"move", "move it to another machine"}, {"ls", "list projects"},
 		{"rm", "forget a project"}, {"files", "local files copied into each worktree"},
 		{"setup", "what runs in a new worktree"},
 	},

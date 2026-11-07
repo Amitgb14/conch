@@ -2,9 +2,7 @@ package tui
 
 import (
 	"fmt"
-	"maps"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -458,21 +456,7 @@ func (m Model) handleMainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // given its own ctrl+b, so an action there could never be pressed and
 // would quietly cost somebody that. Said, rather than ignored.
 func resolveBinds(cfg config.Config) (keymap.Map, []string) {
-	bind, prefix := cfg.Keys.Bind, cfg.Keys.Prefix
-	var warn []string
-	if len(bind) > 0 && prefix != "" {
-		kept := make(map[string]string, len(bind))
-		for _, name := range slices.Sorted(maps.Keys(bind)) {
-			if key := bind[name]; key != "" && keymap.Normalize(key) == prefix {
-				warn = append(warn, fmt.Sprintf("%s is on %s, which is the prefix itself", name, prefix))
-				continue
-			}
-			kept[name] = bind[name]
-		}
-		bind = kept
-	}
-	binds, problems := keymap.Resolve(bind)
-	return binds, append(warn, problems...)
+	return keymap.ResolveFor(cfg.Keys.Bind, cfg.Keys.Prefix)
 }
 
 // keyHint is the prefix and the key an action is on — "ctrl+b x" — or ""

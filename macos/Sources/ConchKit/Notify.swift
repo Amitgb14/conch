@@ -15,6 +15,10 @@ public struct NotifySettings: Equatable, Sendable {
     public var done = true
     public var quietStart = ""
     public var quietEnd = ""
+    /// Plan limit alerts, and the percentages they fire at ([notify]
+    /// limits and limit_at).
+    public var limits = true
+    public var limitAt = [80, 95]
 
     public init() {}
 
@@ -33,6 +37,8 @@ public struct NotifySettings: Equatable, Sendable {
         done = flag("done", true)
         quietStart = tomlSetting("notify", "quiet_start", in: toml) ?? ""
         quietEnd = tomlSetting("notify", "quiet_end", in: toml) ?? ""
+        limits = flag("limits", true)
+        limitAt = limitThresholds(tomlSetting("notify", "limit_at", in: toml))
     }
 
     /// Whether t is within quiet hours ("22:00" to "08:00", across
@@ -54,6 +60,11 @@ public struct NotifySettings: Equatable, Sendable {
 public struct Alert: Equatable, Sendable {
     public var title: String
     public var body: String
+
+    public init(title: String, body: String) {
+        self.title = title
+        self.body = body
+    }
 }
 
 /// What changing from old to new is worth telling you, or nil: an agent

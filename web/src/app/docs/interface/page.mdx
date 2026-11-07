@@ -83,7 +83,7 @@ Projects appear when you open a pane inside a git repository, or add them with `
 | `n` | create a folder |
 | `p` | create a new project (a folder with a git repository and an initial commit) |
 
-Git repositories show `◆ git`, existing projects `◆ project`. From the CLI: `conch project add PATH` or `conch project create [-no-git] PATH`. Linked worktrees belong to their main repository. The list is kept in `~/.config/conch/projects.json`.
+Git repositories show `◆ git`, existing projects `◆ project`. From the CLI: `conch project add PATH`, `conch project clone URL [DIR]` or `conch project create [-no-git] PATH`. Linked worktrees belong to their main repository. The list is kept in `~/.config/conch/projects.json`.
 
 ### Branches
 
@@ -95,7 +95,7 @@ Branches list checked-out branches, the base branch, branches with panes and rec
 
 ### Pull requests
 
-Pull requests come from the `gh` CLI (your existing GitHub login): `#12✓` checks passing, `#13✗` failing, `#14●` running, purple when merged. `o` opens the branch's PR. They refresh every minute while agents work in the project, every five minutes otherwise, and on `R`.
+Pull requests come from the `gh` CLI (your existing GitHub login): `#12✓` checks passing, `#13✗` failing, `#14●` running, purple when merged. `o` opens the branch's PR. They refresh every minute while agents work in the project, every five minutes otherwise, and on `R`. When one conch saw open is merged, conch fetches the branch it merged into from that branch's own remote, so `origin/main` and the merge commit GitHub made are in your checkout without a `git fetch` of your own; a fetch that fails (offline, a lock) is tried again at the next look, and nothing else is fetched for you.
 
 ### Agents
 
@@ -520,7 +520,7 @@ The page is served by the TUI on `127.0.0.1` for as long as it runs, behind a ke
 
 ### Theme
 
-Colour schemes: Conch, Dracula, Catppuccin Mocha, Nord, Gruvbox Dark, Tokyo Night, One Dark, Solarized Dark, Rosé Pine, Kanagawa, Everforest Dark, Monokai, GitHub Dark, Ayu Dark, Night Owl, and conch's own Firefly (a meadow at night) and Cel (flat cel-shaded colour), and five light ones for a light terminal: GitHub Light, Solarized Light, Catppuccin Latte, and conch's own Ink (black ink on paper, one spot red) and Meadow (sky, grass and sun on warm paper, Firefly's daytime) (applied instantly).
+Colour schemes: Conch, Dracula, Catppuccin Mocha, Nord, Gruvbox Dark, Tokyo Night, One Dark, Solarized Dark, Rosé Pine, Kanagawa, Everforest Dark, Monokai, GitHub Dark, Ayu Dark, Night Owl, VS Code's Dark Modern and Dark+, and conch's own Firefly (a meadow at night), Cel (flat cel-shaded colour) and Terminal (conch's teal on a terminal's ink black, after herdr), and eight light ones for a light terminal: GitHub Light, Solarized Light, Catppuccin Latte, and conch's own Ink (black ink on paper, one spot red), Meadow (sky, grass and sun on warm paper, Firefly's daytime) and Terminal Light (Terminal on paper), and VS Code's Light Modern and Light+ (applied instantly).
 
 Under **Tree**, _What agents spend_ shows or hides the cost (and the token counts that stand in for it) on tree rows, in Sessions and on the project and machine pages — everything [the sidebar](#the-sidebar) shows.
 

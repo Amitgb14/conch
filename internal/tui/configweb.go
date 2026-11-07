@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"slices"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -69,7 +70,8 @@ func settingsChoices(m *Model) configweb.Choices { return SettingsChoices(knownA
 // it has no machine to ask.
 func SettingsChoices(agents []string) configweb.Choices {
 	c := configweb.Choices{Providers: sandbox.Providers}
-	for _, t := range themes {
+	reloadUserThemes() // conch config web is its own process, and a file may be new
+	for _, t := range allThemes() {
 		o := configweb.Option{Value: t.name, Label: t.label}
 		c.Themes = append(c.Themes, o)
 		if luminance(t.bg) > 0.5 {
@@ -85,6 +87,11 @@ func SettingsChoices(agents []string) configweb.Choices {
 	}
 	for _, a := range agents {
 		c.Agents = append(c.Agents, configweb.Option{Value: a, Label: agentLabel(a)})
+	}
+	// The settings are this computer's, and so are the terminals the theme
+	// is for: its own Oh My Zsh.
+	if home, err := os.UserHomeDir(); err == nil {
+		c.ZshThemes, _ = config.OMZThemes(config.OMZDir(home))
 	}
 	return c
 }

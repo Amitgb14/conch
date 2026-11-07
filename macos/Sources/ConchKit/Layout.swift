@@ -255,6 +255,20 @@ public struct Layout: Equatable, Sendable {
         tabs[active].zoomed.toggle()
     }
 
+    /// The keyboard to the next split of the tab, round to the first after
+    /// the last — tmux's ctrl+b o.
+    public mutating func nextSplit() {
+        guard tabs.indices.contains(active) else { return }
+        let panes = tabs[active].root.panes
+        guard panes.count > 1, let i = panes.firstIndex(of: tabs[active].focused) else { return }
+        tabs[active].focused = panes[(i + 1) % panes.count]
+    }
+
+    /// The tab's splits back to even shares — tmux's ctrl+b =.
+    public mutating func equalize() {
+        if tabs.indices.contains(active) { tabs[active].weights = [:] }
+    }
+
     /// The keyboard to the split beside the focused one; nothing at an edge.
     @discardableResult
     public mutating func move(_ d: Tab.Direction) -> Bool {
@@ -338,7 +352,7 @@ extension Layout {
 /// Whether a layout key is a pane's ("machine|id"), rather than a view of
 /// a branch's changes, a project's commits or its sessions.
 public func isPaneKey(_ k: String) -> Bool {
-    parseChangesKey(k) == nil && parseCommitsKey(k) == nil && parseSessionsKey(k) == nil && parseFilesKey(k) == nil && parseSetupKey(k) == nil
+    parseChangesKey(k) == nil && parseCommitsKey(k) == nil && parseSessionsKey(k) == nil && parseFilesKey(k) == nil && parseSetupKey(k) == nil && parseBrowserKey(k) == nil
 }
 
 /// How long to wait before trying this computer's server again, the nth
@@ -360,4 +374,18 @@ public struct Latest: Sendable {
     }
     /// Whether the request numbered so is still the newest.
     public func isLatest(_ m: Int) -> Bool { m == n }
+}
+
+/// The size a new pane should start at: that of a pane shown alone in a
+/// tab — the tab in front first — since a new pane opens in a tab of its
+/// own. Started at the server's 80×24 and resized a moment later, an
+/// agent that draws inline (Claude Code) had what it printed rewrapped to
+/// the new width: lines broken mid-word, its highlighted blocks repeated
+/// as blank bars. nil when no tab shows one pane alone yet.
+public func fullTabSize(_ layout: Layout, size: (String) -> (cols: Int, rows: Int)?) -> (cols: Int, rows: Int)? {
+    let order = layout.tabs.indices.contains(layout.active) ? [layout.active] + layout.tabs.indices.filter { $0 != layout.active } : Array(layout.tabs.indices)
+    for i in order {
+        if case .leaf(let k) = layout.tabs[i].root, isPaneKey(k), let s = size(k), s.cols > 1, s.rows > 1 { return s }
+    }
+    return nil
 }

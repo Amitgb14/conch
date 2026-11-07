@@ -54,7 +54,12 @@ final class Store: ObservableObject {
     @Published private(set) var fileHits: [PaletteItem] = []
     private var fileQuery = ""
     private var fileSearch: Task<Void, Never>?
-    @Published var layout = Layout()
+    @Published var layout = Layout() {
+        // A tab came to the front — from ⌘K, a click in the review queue, a
+        // port chip, ⌘1–9: the sidebar's cursor goes to its row rather than
+        // staying on the row last clicked.
+        didSet { if layout.focused != oldValue.focused, let f = layout.focused { treeCursor = treeRow(forTab: f) } }
+    }
     @Published var workspaces: [Workspace] = [Workspace(name: "")]
     /// The workspace on screen. Each has tabs of its own, as in the TUI:
     /// switching puts this one's away and brings that one's back.
@@ -74,12 +79,24 @@ final class Store: ObservableObject {
     /// apart: ui.json is the running TUI's to write.
     @Published var tuiFolds: [String: Bool] = [:]
     @Published var folds: [String: Bool] = (UserDefaults.standard.dictionary(forKey: "folds") as? [String: Bool]) ?? [:]
-    @Published var limits: [PlanLimits] = []
+    @Published var limits: [PlanLimits] = [] { didSet { alertLimits() } }
+    /// Plan limit alerts already raised (limitCrossings), kept with the
+    /// app's preferences so a restart does not raise them again.
+    private var limitSeen: [String: Int] = (UserDefaults.standard.dictionary(forKey: "conch.limitSeen") as? [String: Int]) ?? [:]
     @Published var status: String = "Connecting to conch…"
     @Published var paletteOpen = false
     /// Help → Keyboard Shortcuts and Help → Check conch… on screen.
     @Published var helpOpen = false
+    /// The status bar's ✦ Ask, open (its button, or the prefix and :).
+    @Published var askOpen = false
     @Published var doctorOpen = false
+    /// The machine Settings → Skills & MCP servers shows: conch's skills
+    /// and the library are both per machine.
+    @Published var skillsMachine = "local"
+    /// Add project…'s sheet, for the machine it adds to.
+    @Published var addProjectTarget: AddProjectTarget?
+    /// Move to another machine…'s sheet, for the project it moves.
+    @Published var moveProjectTarget: MoveProjectTarget?
     /// A broadcast being written (BroadcastSheet).
     @Published var broadcastDraft: BroadcastDraft?
     /// The focused pane's find bar, while it is open.
@@ -138,7 +155,10 @@ final class Store: ObservableObject {
     let look = ShownTheme()
     /// What the window is drawn in, as one value its views can depend on:
     /// the theme, the style and how agents are marked.
-    var themeLook: String { theme.id + "|" + style.rawValue + "|" + icons.rawValue }
+    /// What a view reading Theme or the window's face depends on, handed
+    /// down so it redraws when any part changes — the text size included,
+    /// or a label watching only this kept its old size.
+    var themeLook: String { theme.id + "|" + style.rawValue + "|" + icons.rawValue + "|" + String(appLook.textScale) }
 
     /// Told when the theme changes, for what SwiftUI does not draw: the
     /// window's own background and appearance.
@@ -228,8 +248,22 @@ final class Store: ObservableObject {
 
     func connection(_ machine: String) -> Connection? { conns[machine] }
 
+    /// Asks a machine's server to read a project's git and its pull requests
+    /// now rather than at its next turn — a minute, or five with no panes in
+    /// the project — so a merge on GitHub shows when somebody opens, reopens
+    /// or refreshes the graph or a git tab. Its answer comes back as project.updated, which
+    /// reads an open graph or git tab again. Only on someone's asking: from
+    /// load(), which every project.updated runs, it would ask again at every
+    /// answer.
+    func refreshProject(machine: String, project: String) {
+        guard let c = conns[machine], !project.isEmpty else { return }
+        struct Ref: Encodable { var id: String }
+        Task { try? await c.call("project.refresh", Ref(id: project)) }
+    }
+
     /// "api · local": where a pane is, for the end of the tab bar.
     func scope(of k: String) -> String {
+        if parseBrowserKey(k) != nil { return "Browser · this Mac" } // a page is not any project's
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
@@ -244,6 +278,11 @@ final class Store: ObservableObject {
     /// Whether a pane's terminal has the keyboard, for the status bar's
     /// chip; set as the window's first responder changes.
     @Published var terminalHasKeyboard = false
+    /// The TUI's prefix keys, from conch keys -json; armed after the prefix.
+    @Published var prefixKeys = PrefixKeys()
+    /// What the table was last read for: config.toml's text and whether
+    /// prefix keys are on, so it is read again only when that changes.
+    var keysStamp: String?
     /// The sidebar row the keyboard is on while no terminal has it.
     @Published var treeCursor: String?
 
@@ -252,6 +291,14 @@ final class Store: ObservableObject {
         let (m, _) = unkey(k)
         guard let p = pane(k) else { return nil }
         return snapshots[m]?.port(of: p)
+    }
+
+    /// What a pane opened in a tab of its own will measure (fullTabSize).
+    func newPaneSize() -> (cols: Int, rows: Int)? {
+        fullTabSize(layout) { k in
+            guard let p = self.pane(k), let c = p.cols, let r = p.rows else { return nil }
+            return (c, r)
+        }
     }
 
     func pane(_ k: String) -> PaneInfo? {
@@ -486,9 +533,16 @@ final class Store: ObservableObject {
     private var settingsURL: URL?
 
     /// Opens conch's Settings panel (SettingsWindow.swift).
-    var onOpenSettings: (() -> Void)?
+    /// Opens the Settings window, at a section when one is named.
+    var onOpenSettings: ((String?) -> Void)?
 
-    func openSettings() { onOpenSettings?() }
+    func openSettings(_ section: String? = nil) { onOpenSettings?(section) }
+
+    /// Settings → Skills & MCP servers, showing machine m.
+    func openSkillsSettings(_ m: String) {
+        skillsMachine = m
+        openSettings(SettingsNav.skills)
+    }
 
     /// config.toml in the text editor, for the tables the panel leaves to
     /// it. The file is made first if it is not there yet, since an editor
@@ -602,10 +656,13 @@ final class Store: ObservableObject {
             var name: String
             var cwd: String
             var command: [String]
+            var cols: Int?
+            var rows: Int?
         }
         let full = (root as NSString).appendingPathComponent(path)
+        let size = newPaneSize()
         let params = Create(name: "edit · " + (path as NSString).lastPathComponent, cwd: root,
-                            command: ["/bin/sh", "-lc", #"exec ${VISUAL:-${EDITOR:-vi}} "$1""#, "sh", full])
+                            command: ["/bin/sh", "-lc", #"exec ${VISUAL:-${EDITOR:-vi}} "$1""#, "sh", full], cols: size?.cols, rows: size?.rows)
         Task {
             do {
                 let p = try await c.call("pane.create", params, as: PaneInfo.self)
@@ -637,12 +694,28 @@ final class Store: ObservableObject {
         let cost = showsCost(toml: toml ?? "")
         if cost != showCost { showCost = cost }
         let app = AppLook(toml: toml)
+        loadKeys(on: app.prefixKeys, stamp: toml ?? "")
         if app != appLook {
+            // Before the views redraw: the window's text is read at its size.
+            Theme.textScale = app.textScale
             appLook = app
             onAppLook?(app)
         }
+        // Themes of your own, read again each time: a file added or changed
+        // is in the lists, and in use, without restarting.
+        let mine = userThemes(in: (conchDir as NSString).appendingPathComponent("themes"))
+        if mine.themes != ConchTheme.user {
+            ConchTheme.user = mine.themes
+            onThemeList?()
+        }
+        userThemeProblems = mine.problems
         let configured = ConchTheme.configured(in: toml, dark: systemDark)
-        let next = ConchTheme.resolve(choice: themeChoice, configured: configured, preview: previewing).shown
+        let resolved = ConchTheme.resolve(choice: themeChoice, configured: configured, preview: previewing)
+        // A theme drawn as a pair (Terminal) follows macOS to its light one;
+        // a theme being previewed is shown as it is. [ui] accent over it,
+        // as the TUI draws it.
+        let next = (previewing == nil ? ConchTheme.forAppearance(resolved.shown, dark: systemDark) : resolved.shown)
+            .withAccent(uiSetting("accent", in: toml))
         guard next != theme || Theme.current != next else { return }
         theme = next
         Theme.current = next
@@ -710,12 +783,45 @@ final class Store: ObservableObject {
         ConchTheme.named(ConchTheme.configured(in: try? String(contentsOfFile: configFile, encoding: .utf8), dark: systemDark))
     }
 
-    private var conchDir: String {
+    var conchDir: String {
         ProcessInfo.processInfo.environment["CONCH_HOME"].flatMap { $0.isEmpty ? nil : $0 }
             ?? (NSHomeDirectory() as NSString).appendingPathComponent(".config/conch")
     }
 
     private var configFile: String { (conchDir as NSString).appendingPathComponent("config.toml") }
+
+    /// One [app] setting written to config.toml, the rest of the file kept,
+    /// then read back so the window takes it — as the settings page would.
+    /// A TUI open meanwhile holds its own copy of the file; the settings
+    /// page is the way to change it there.
+    private func setAppSetting(_ key: String, _ value: String?) {
+        let toml = (try? String(contentsOfFile: configFile, encoding: .utf8)) ?? ""
+        let next = settingTOML(toml, section: "app", key: key, value: value)
+        guard next != toml else { return }
+        do {
+            try FileManager.default.createDirectory(atPath: conchDir, withIntermediateDirectories: true)
+            try next.write(toFile: configFile, atomically: true, encoding: .utf8)
+        } catch {
+            say("Could not save \(key): \(error.localizedDescription)", .err)
+            return
+        }
+        loadTheme()
+    }
+
+    /// ⌘+ / ⌘−: the terminal's font a point bigger or smaller; nil, the default.
+    func stepFontSize(bigger: Bool?) {
+        let pt = bigger.map { AppLook.fontStep(from: appLook.fontSize, bigger: $0) } ?? AppLook.fontDefault
+        setAppSetting("font_size", pt == AppLook.fontDefault ? nil : (pt.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(pt)) : String(pt)))
+        say("Terminal text \(Int(pt.rounded())) pt", .info)
+    }
+
+    /// ⇧⌘+ / ⇧⌘−: the window's text a step bigger or smaller; nil, 100%.
+    func stepTextSize(bigger: Bool?) {
+        let scale = bigger.map { AppLook.textStep(from: appLook.textScale, bigger: $0) } ?? 1
+        let pct = Int((scale * 100).rounded())
+        setAppSetting("text_size", pct == 100 ? nil : String(pct))
+        say("Window text \(pct)%", .info)
+    }
 
     /// A click in a pane's terminal gives that pane the keyboard: the split
     /// it is in becomes the focused one.
@@ -736,7 +842,7 @@ final class Store: ObservableObject {
                 // Only where the click landed: the status bar's buttons and
                 // the toolbar leave the keyboard where it was (ClickOwner).
                 let saved = UserDefaults.standard.double(forKey: "sidebarWidth")
-                let width = self.sidebarVisible ? (saved > 0 ? saved : Double(sidebarDefault)) : nil
+                let width = self.sidebarVisible ? self.style.sidebarWidth(saved > 0 ? saved : Double(sidebarDefault)) + sidebarExtra(scale: self.appLook.textScale) : nil
                 let p = e.locationInWindow
                 let toolbar = Double(win.frame.height - win.contentLayoutRect.height)
                 switch clickOwner(inTerminal: inTerminal, x: p.x, y: p.y, sidebarWidth: width, statusBar: 28,
@@ -757,6 +863,14 @@ final class Store: ObservableObject {
     /// tree keys (TreeKey). Everything else passes through.
     private func watchTreeKeys() {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            // The prefix first, wherever the keyboard is: it is how the TUI
+            // reaches the tree from a pane, and a key after it is conch's
+            // even where the tree would have taken it.
+            switch MainActor.assumeIsolated({ self?.prefixKey(e) ?? .pass }) {
+            case .taken: return nil
+            case .typed: return e
+            case .pass: break
+            }
             let modified = !e.modifierFlags.intersection([.command, .control, .option]).isEmpty
             guard let k = TreeKey(keyCode: e.keyCode, characters: e.charactersIgnoringModifiers, modified: modified) else { return e }
             let taken = MainActor.assumeIsolated { () -> Bool in
@@ -946,6 +1060,15 @@ final class Store: ObservableObject {
         }
     }
 
+    /// The layer taken down because its pane is gone; option-space starts
+    /// a new one.
+    func dropScratch() {
+        guard let k = scratch else { return }
+        scratch = nil
+        terminals.removeValue(forKey: k)?.stop()
+        focusTerminal()
+    }
+
     /// Back in touch with a machine: tabs on its panes that went while it
     /// was away are closed, in every workspace, and the panes whose attach
     /// ended meanwhile are started again.
@@ -954,6 +1077,7 @@ final class Store: ObservableObject {
             isPaneKey(id) && unkey(id).machine == machine && !alive.contains(id)
         }
         for id in layout.tabs.flatMap(\.root.panes) where gone(id) { layout.close(id) }
+        if let s = scratch, gone(s) { dropScratch() }
         for w in parkedTabs.keys {
             for id in parkedTabs[w]?.tabs.flatMap(\.root.panes) ?? [] where gone(id) { parkedTabs[w]?.close(id) }
         }
@@ -1113,6 +1237,40 @@ final class Store: ObservableObject {
         }
     }
 
+    /// A project off the sidebar, after asking, as the TUI's x: out of this
+    /// workspace when another has it too, else out of conch. Its folder,
+    /// branches and worktrees are never touched.
+    func removeProject(_ pk: String) {
+        let (m, pid) = unkey(pk)
+        guard let c = conns[m], let pr = snapshots[m]?.project(pid) else { return }
+        let a = NSAlert()
+        a.addButton(withTitle: "Remove")
+        a.addButton(withTitle: "Cancel")
+        switch projectRemoval(pr, machine: m, workspaces: workspaces, current: workspace) {
+        case .leaveWorkspace(let id):
+            a.messageText = "Take \(pr.name) out of this workspace?"
+            a.informativeText = "Other workspaces keep it, and it stays in conch."
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            let path = (conchDir as NSString).appendingPathComponent("ui.json")
+            do {
+                let data = try Workspace.removingProject(Workspace.key(project: pid, machine: m), from: id, in: FileManager.default.contents(atPath: path))
+                try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+                loadWorkspaces()
+                say("Took \(pr.name) out of this workspace", .info)
+            } catch {
+                self.error = "Could not take the project out of this workspace: \(error)"
+            }
+        case .removeFromConch:
+            a.messageText = "Remove \(pr.name) from the sidebar?"
+            a.informativeText = "\(pr.path)\n\nconch forgets the project; its files, branches and worktrees are not touched. Add it again any time."
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            struct P: Encodable { var id: String }
+            job("Removing \(pr.name)", done: "Removed \(pr.name) from the sidebar") {
+                try await c.call("project.remove", P(id: pid))
+            }
+        }
+    }
+
     /// Deletes a branch and its worktree, after saying what that loses —
     /// the server's own dry run, so nothing is guessed here.
     func deleteBranch(project pk: String, branch: String) {
@@ -1211,6 +1369,7 @@ final class Store: ObservableObject {
             let was = before?.agent?.state
             snap.upsert(p)
             attention(machine, old: before, new: p)
+            if scratch == k, scratchLost(scratch, pane: p) { dropScratch() }
             // Exited on its own — a shell's exit, an ssh logout, an agent's
             // /exit: closed, as the TUI closes it, so it goes from the
             // sidebar and its tab. A TUI open may close it first; the
@@ -1238,6 +1397,7 @@ final class Store: ObservableObject {
             guard let p = try? dec.decode(Ref.self, from: data) else { return }
             let k = key(machine, p.id)
             snap.remove(pane: p.id)
+            if scratch == k { dropScratch() }
             layout.close(k)
             for w in parkedTabs.keys { parkedTabs[w]?.close(k) } // other workspaces' tabs too
             restartOnConnect.remove(k)
@@ -1428,6 +1588,10 @@ final class Store: ObservableObject {
     /// Told when [app] changes, for what AppKit draws (the toolbar, the
     /// global option-space).
     var onAppLook: ((AppLook) -> Void)?
+    /// Told when the themes of your own change, for the Theme menu.
+    var onThemeList: (() -> Void)?
+    /// What was wrong with the theme files left out, for the Theme menu.
+    var userThemeProblems: [String] = []
     /// The scratch layer on screen: its pane's key, floating over the
     /// splits (nil: hidden). Scratch.swift.
     @Published var scratch: String?
@@ -1467,6 +1631,35 @@ final class Store: ObservableObject {
             if c.hello?.capabilities?.contains("view.v1") == true,
                let v = try? await c.call("view.get", as: ViewState.self), !(v.tabs ?? []).isEmpty { return }
             Notifier.shared.post(alert, pane: k, sound: s.sound, desktop: s.desktop)
+        }
+    }
+
+    /// Tells you a plan limit has passed a threshold of [notify] limit_at,
+    /// as the TUI does (limitalerts.go): once per threshold per window. The
+    /// app used to leave this to the TUI alone, so with only the app open a
+    /// plan could reach 90% with nothing said. A TUI open on this computer
+    /// raises its own, so the notification is left to it.
+    func alertLimits() {
+        let s = notifySettings
+        guard s.limits else { return }
+        let now = Date()
+        var seen = pruneLimitAlerts(limitSeen, now: now)
+        var alerts: [LimitAlert] = []
+        for l in limits { alerts += limitCrossings(&seen, machine: "local", l, thresholds: s.limitAt, now: now) }
+        if seen != limitSeen {
+            limitSeen = seen
+            UserDefaults.standard.set(seen, forKey: "conch.limitSeen")
+        }
+        guard !alerts.isEmpty else { return }
+        let texts = alerts.map { $0.text(now: now) }
+        // Red from 90% used, whichever threshold was crossed to say it.
+        say(texts.joined(separator: " · "), alerts.contains { $0.pct >= 90 } ? .err : .info)
+        guard s.enabled, !s.quiet(now), let c = conns["local"] else { return }
+        let alert = Alert(title: "conch · plan limit", body: texts.joined(separator: "\n"))
+        Task {
+            if c.hello?.capabilities?.contains("view.v1") == true,
+               let v = try? await c.call("view.get", as: ViewState.self), !(v.tabs ?? []).isEmpty { return }
+            Notifier.shared.post(alert, id: "limits", sound: s.sound, desktop: s.desktop)
         }
     }
 
@@ -1618,6 +1811,30 @@ final class Store: ObservableObject {
         return m
     }
 
+    private(set) var browserViews: [String: BrowserModel] = [:]
+    private var blankBrowsers = 0
+
+    func browser(for k: String) -> BrowserModel {
+        if let m = browserViews[k] { return m }
+        let m = BrowserModel(key: k, store: self)
+        browserViews[k] = m
+        return m
+    }
+
+    /// A page in a tab of its own beside the agents; nil for an empty one
+    /// to type an address into. A page already open is shown, not opened twice.
+    func openBrowser(_ url: String?) {
+        let k: String
+        if let url {
+            k = browserKey(url)
+        } else {
+            blankBrowsers += 1
+            k = browserKey("about:blank#\(blankBrowsers)")
+        }
+        layout.open(k)
+        terminalHasKeyboard = false
+    }
+
     func files(for k: String) -> FilesModel {
         if let m = fileViews[k] { return m }
         let m = FilesModel(key: k, store: self)
@@ -1660,7 +1877,7 @@ final class Store: ObservableObject {
         let fresh = commitViews[k] == nil
         let model = commits(for: k)
         model.focusBranch = branch
-        if !fresh { model.load() }
+        if !fresh { model.refresh() } // and ask GitHub: a new one does as it is made
         layout.open(k)
         terminalHasKeyboard = false
     }
@@ -1679,7 +1896,11 @@ final class Store: ObservableObject {
     /// opens, as in the TUI.
     func openChanges(project pk: String, branch: String) {
         let (m, pid) = unkey(pk)
-        layout.open(changesKey(m, pid, branch))
+        let k = changesKey(m, pid, branch)
+        // One kept from before is not made again, so it asks here: its pull
+        // request as GitHub has it now, not at the server's next turn.
+        if changeViews[k] != nil { refreshProject(machine: m, project: pid) }
+        layout.open(k)
         terminalHasKeyboard = false
     }
 
@@ -1731,11 +1952,47 @@ final class Store: ObservableObject {
         layout.close(p)
         terminals.removeValue(forKey: p)?.stop()
         changeViews.removeValue(forKey: p)
+        if let b = browserViews.removeValue(forKey: p) { b.web.stopLoading(); b.web.loadHTMLString("", baseURL: nil) } // its page goes quiet
+        focusTerminal()
+    }
+
+    /// Closes every split of the tab on screen — the TUI's ctrl+b &. As a
+    /// split closing, its panes keep running, in the sidebar to open again.
+    func closeTab() {
+        guard let t = layout.current else { return }
+        let agents = t.root.panes.compactMap { pane($0) }.filter { $0.agent != nil && $0.running }
+        if !agents.isEmpty {
+            say(agents.count == 1 ? "\(agents[0].displayName) keeps running: open it again from the sidebar"
+                                  : "\(agents.count) agents keep running: open them again from the sidebar", .info)
+        }
+        for p in t.root.panes {
+            layout.close(p)
+            terminals.removeValue(forKey: p)?.stop()
+            changeViews.removeValue(forKey: p)
+        }
         focusTerminal()
     }
 
     /// The next agent waiting for you, on any machine: waiting ones first,
     /// then the ones that finished, each machine in the sidebar's order.
+    /// The done count clicked: the next finished agent in the workspace,
+    /// on any machine, round again at the end.
+    func nextDone() {
+        var order: [String] = []
+        for m in machines {
+            var seen: Set<String> = []
+            var next = snapshots[m.id]?.nextDone(after: nil, in: ws, machine: m.id)
+            while let n = next, !seen.contains(n) {
+                seen.insert(n)
+                order.append(key(m.id, n))
+                next = snapshots[m.id]?.nextDone(after: n, in: ws, machine: m.id)
+            }
+        }
+        guard !order.isEmpty else { return }
+        let i = layout.focused.flatMap { order.firstIndex(of: $0) }.map { ($0 + 1) % order.count } ?? 0
+        open(order[i])
+    }
+
     func nextWaiting() {
         var order: [String] = []
         for m in machines {
@@ -1814,6 +2071,7 @@ final class Store: ObservableObject {
         case "find": openFind()
         case "shortcuts": helpOpen = true
         case "doctor": doctorOpen = true
+        case "skillsSettings": openSkillsSettings("local")
         case "findOlder": findNext(back: true)
         case "findNewer": findNext(back: false)
         case "zoomSplit": layout.toggleZoom(); focusTerminal()
@@ -1824,6 +2082,15 @@ final class Store: ObservableObject {
         case "nextTab": layout.step(1); focusTerminal()
         case "previousTab": layout.step(-1); focusTerminal()
         case "toggleSidebar": sidebarVisible.toggle()
+        case "newBrowser": openBrowser(nil)
+        case "closeWorkspace":
+            if workspace > 0 { closeWorkspace(workspace) } else { say("The first workspace stays: it holds what no other has", .info) }
+        case "biggerFont": stepFontSize(bigger: true)
+        case "smallerFont": stepFontSize(bigger: false)
+        case "defaultFont": stepFontSize(bigger: nil)
+        case "biggerText": stepTextSize(bigger: true)
+        case "smallerText": stepTextSize(bigger: false)
+        case "defaultText": stepTextSize(bigger: nil)
         case "openTUI": openTUI()
         case "scratch": toggleScratch()
         case "dockScratch": dockScratch()
@@ -1880,9 +2147,13 @@ final class Store: ObservableObject {
             var command: [String]
             var env: [String]
             var no_project: Bool?
+            var cols: Int?
+            var rows: Int?
         }
+        let size = newPaneSize()
         let params = Create(name: a.name + " · " + at.label, cwd: dir, command: ["/bin/sh", "-lc", a.run],
-                            env: at.env.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }, no_project: at.loose ? true : nil)
+                            env: at.env.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }, no_project: at.loose ? true : nil,
+                            cols: size?.cols, rows: size?.rows)
         Task {
             do {
                 let p = try await c.call("pane.create", params, as: PaneInfo.self)
@@ -1928,8 +2199,11 @@ final class Store: ObservableObject {
         case .reloadServer(let m): reloadServer(m)
         case .upgrade(let m): upgrade(m)
         case .removeMachine(let m): removeMachine(m)
+        case .skillsSettings(let m): openSkillsSettings(m)
         case .openURL(let s): if let u = openableURL(s) { NSWorkspace.shared.open(u) }
         case .removeWorktree(let pk, let path): removeWorktree(project: pk, path: path)
+        case .removeProject(let pk): removeProject(pk)
+        case .moveProject(let pk): moveProjectTarget = MoveProjectTarget(id: pk)
         case .deleteBranch(let pk, let b): deleteBranch(project: pk, branch: b)
         case .monitor(let k, let quiet): toggleMonitor(k, quiet: quiet)
         case .broadcast(let scope): startBroadcast(scope, title: node.title)
@@ -1954,40 +2228,36 @@ final class Store: ObservableObject {
     /// the Finder's panel; on another machine a path typed in, since a Mac
     /// panel cannot browse it. Added from a workspace after the first, the
     /// project is put in it, as the TUI does.
+    /// Add project…: a sheet to open a folder, clone a repository or make
+    /// a new one (AddProjectSheet), for that machine.
     func addProject(on machine: String = "local") {
-        guard let c = conns[machine] else {
+        guard conns[machine] != nil else {
             error = "\(label(machine)) is not connected"
             return
         }
-        var path: String?
-        if machine == "local" {
-            let panel = NSOpenPanel()
-            panel.canChooseDirectories = true
-            panel.canChooseFiles = false
-            panel.canCreateDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.prompt = "Add project"
-            panel.message = "A folder to work in — a git repository gets branches, worktrees and tasks of its own."
-            guard panel.runModal() == .OK, let u = panel.url else { return }
-            path = u.path
-        } else {
-            path = ask("Add a project on \(label(machine))", info: "The folder's path on that machine, e.g. ~/src/api.", value: "", button: "Add")
+        addProjectTarget = AddProjectTarget(id: machine)
+    }
+
+    /// The sheet's work: project.add, project.clone or project.create, then
+    /// the project joins the workspace on screen. Throws what the server
+    /// said, for the sheet to show.
+    func addProject(machine: String, mode: AddProjectMode, path: String, url: String) async throws {
+        guard let c = conns[machine] else { throw ConchError(code: "closed", message: "\(label(machine)) is not connected") }
+        struct Add: Encodable { var path: String }
+        struct Clone: Encodable { var url: String; var path: String }
+        struct Create: Encodable { var path: String; var git: Bool }
+        let info: ProjectInfo
+        switch mode {
+        case .folder: info = try await c.call("project.add", Add(path: path), as: ProjectInfo.self)
+        case .clone: info = try await c.call("project.clone", Clone(url: url, path: path), as: ProjectInfo.self)
+        case .create: info = try await c.call("project.create", Create(path: path, git: true), as: ProjectInfo.self)
         }
-        guard let p = path?.trimmingCharacters(in: .whitespaces), !p.isEmpty else { return }
-        struct Params: Encodable { var path: String }
-        Task {
-            do {
-                let info = try await c.call("project.add", Params(path: p), as: ProjectInfo.self)
-                joinWorkspace(machine: machine, project: info.id)
-                status = "Added \(info.name)"
-            } catch {
-                self.error = "Could not add \(p): \(error)"
-            }
-        }
+        joinWorkspace(machine: machine, project: info.id)
+        status = mode == .clone ? "Cloned and added \(info.name)" : "Added \(info.name)"
     }
 
     /// A project added from a workspace after the first joins it (ui.json).
-    private func joinWorkspace(machine: String, project id: String) {
+    func joinWorkspace(machine: String, project id: String) {
         guard let w = ws, !w.first else { return }
         let path = (conchDir as NSString).appendingPathComponent("ui.json")
         do {
@@ -2166,10 +2436,14 @@ final class Store: ObservableObject {
             var agent: String?
             var cwd: String?
             var no_project: Bool?
+            var cols: Int?
+            var rows: Int?
         }
+        let size = newPaneSize()
         Task {
             do {
-                let p = try await c.call("pane.create", Create(agent: agent, cwd: cwd, no_project: inProject ? nil : true), as: PaneInfo.self)
+                let p = try await c.call("pane.create", Create(agent: agent, cwd: cwd, no_project: inProject ? nil : true,
+                                                               cols: size?.cols, rows: size?.rows), as: PaneInfo.self)
                 snapshots[machine, default: Snapshot()].upsert(p)
                 joinWorkspace(machine: machine, pane: p)
                 layout.open(key(machine, p.id))

@@ -8,19 +8,64 @@ import SwiftUI
 // their Lucide icons, the chosen one's settings on the right — from the
 // same schema, read and saved through the page's API, so the two cannot
 // disagree about a setting. Tables (actions, permission rules, sandbox
-// providers, a project's checks) open the page, which edits them.
+// providers) are lists here, each entry a card of its own fields; only a
+// map (a project's checks) is left to config.toml.
 
 @MainActor
 final class SettingsModel: ObservableObject {
     @Published var form: SettingsForm?
     @Published var section = "ui"
     @Published var status = ""
+    /// What was just done, shown for a moment at the top right.
+    @Published var toast: String?
+    /// The reviewer before the autopilot line's Review was turned off, to
+    /// turn it back on with.
+    var lastReviewer: String?
+
+    func say(_ text: String) {
+        toast = text
+        let t = text
+        Task { try? await Task.sleep(for: .seconds(2.4)); if toast == t { toast = nil } }
+    }
     @Published var failure = ""
     @Published var saving = false
 
     let store: Store
     private var base: URL?
     private var token = ""
+
+    /// What the brain's provider lists, for Model and Summary model.
+    @Published var models: BrainModels?
+    @Published var modelsLoading = false
+    private var modelsAsked: String?
+
+    /// Asks conch for the models of the provider as the form has it now.
+    /// The same question is asked once; one typed out letter by letter (an
+    /// endpoint) waits for the typing to stop.
+    func loadModels(_ brain: [String: JSONValue]?) {
+        let q = modelsQuery(brain)
+        let key = q.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")
+        guard key != modelsAsked, let base, var c = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
+        modelsAsked = key
+        c.path = "/api/models"
+        c.queryItems = q
+        guard let url = c.url else { return }
+        var r = URLRequest(url: url)
+        r.setValue(token, forHTTPHeaderField: "X-Conch-Token")
+        modelsLoading = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard modelsAsked == key else { return }
+            defer { if modelsAsked == key { modelsLoading = false } }
+            do {
+                let (data, _) = try await URLSession.shared.data(for: r)
+                let m = try JSONDecoder().decode(BrainModels.self, from: data)
+                if modelsAsked == key { models = m }
+            } catch {
+                if modelsAsked == key { models = BrainModels(models: [], error: "Could not ask for the models: \(error.localizedDescription)") }
+            }
+        }
+    }
 
     init(store: Store) { self.store = store }
 
@@ -87,6 +132,7 @@ final class SettingsModel: ObservableObject {
                     form?.reset(saved)
                     status = themeSaveNote(f.payload.config, saved.config, dark: store.systemDark)
                         ?? "Saved to config.toml — an open TUI takes it in, and this window too"
+                    say(status)
                     failure = ""
                 case 409:
                     let rf = try? JSONDecoder().decode(Refusal.self, from: data)
@@ -107,24 +153,42 @@ struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     /// The theme on screen, a preview included.
     @ObservedObject var look: ShownTheme
+    @State private var query = ""
+    @FocusState private var searching: Bool
+
+    var schema: [SettingsSection] { model.form?.payload.schema ?? [] }
 
     var body: some View {
         HStack(spacing: 0) {
-            sidebar.frame(width: 230)
+            sidebar.frame(width: 248)
             Rectangle().fill(Theme.line).frame(width: 1)
-            VStack(spacing: 0) {
-                if let f = model.form, let s = f.payload.schema.first(where: { $0.id == model.section }) {
-                    ScrollView { SectionForm(model: model, section: s).padding(28) }
-                } else if !model.failure.isEmpty {
-                    message(model.failure)
-                } else {
-                    message("Reading conch's settings…")
+            ZStack(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    banner
+                    if model.section == SettingsNav.skills {
+                        ScrollView { SkillsSettingsPane(store: model.store).padding(.horizontal, 34).padding(.top, 26).padding(.bottom, 90) }
+                    } else if let f = model.form, let s = f.payload.schema.first(where: { $0.id == model.section }) {
+                        ScrollView { SectionForm(model: model, section: s).padding(.horizontal, 34).padding(.top, 26).padding(.bottom, 90) }
+                            .id(s.id)
+                    } else if !model.failure.isEmpty {
+                        message(model.failure)
+                    } else {
+                        message("Reading conch's settings…")
+                    }
                 }
-                footer
+                SaveBar(model: model)
             }
+            // The page area takes the window's width: the cards keep
+            // their own (760 at most), and without this the whole window
+            // could not be made wider than they are.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .topTrailing) {
+                if let t = model.toast { SettingsToast(text: t).padding(18).transition(.move(edge: .top).combined(with: .opacity)) }
+            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: model.toast)
             .background(Theme.window)
         }
-        .frame(minWidth: 820, minHeight: 540)
+        .frame(minWidth: 900, minHeight: 600)
         .background(Theme.window)
         .preferredColorScheme(look.theme.light ? .light : .dark)
         // A new theme repaints every view that reads this, in place: not
@@ -135,64 +199,101 @@ struct SettingsView: View {
     }
 
     var sidebar: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("SETTINGS").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
-                .padding(.horizontal, 10).padding(.top, 14).padding(.bottom, 6)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                TextField("Search settings", text: $query).textFieldStyle(.plain).font(.ui(size: 12.5)).focused($searching)
+                    .onSubmit { if let first = SettingsNav.search(query, in: schema).first { model.section = first } }
+                if query.isEmpty {
+                    Text("⌘F").font(.ui(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 4).overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.line2))
+                } else {
+                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill").font(.system(size: 11)) }.buttonStyle(.plain).foregroundStyle(Theme.muted)
+                }
+            }
+            .padding(.horizontal, 10).frame(height: 32)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.well))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(searching ? Theme.accent : Theme.line, lineWidth: searching ? 1.5 : 1))
+            .padding(12)
+            .background { Button("") { searching = true }.keyboardShortcut("f", modifiers: .command).hidden() }
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(model.form?.payload.schema ?? []) { s in
-                        let on = s.id == model.section
-                        HStack(spacing: 9) {
-                            LucideIcon(s.icon, color: on ? Theme.accent : Theme.text2, size: 15).frame(width: 18)
-                            Text(s.title).font(.system(size: 13)).foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
-                            Spacer()
-                            if let f = model.form, sectionDirty(f, s) { Circle().fill(Theme.accent).frame(width: 6, height: 6) }
-                        }
-                        .padding(.horizontal, 10).frame(height: 30)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(on ? Theme.accentDeep.opacity(0.35) : .clear))
-                        .contentShape(Rectangle())
-                        .onTapGesture { model.section = s.id }
+                    let found = SettingsNav.search(query, in: schema)
+                    ForEach(SettingsNav.grouped(found), id: \.0) { group, ids in
+                        Text(group.uppercased()).font(.ui(size: 10.5, weight: .semibold)).tracking(0.8).foregroundStyle(Theme.muted)
+                            .padding(.horizontal, 10).padding(.top, 12).padding(.bottom, 4)
+                        ForEach(ids, id: \.self) { id in navRow(id) }
+                    }
+                    if found.isEmpty && !schema.isEmpty {
+                        Text("No setting matches “\(query)”").font(.ui(size: 12)).foregroundStyle(Theme.muted).padding(10)
                     }
                 }
+                .padding(.horizontal, 8).padding(.bottom, 10)
+            }
+            .onChange(of: query) { _, q in
+                // Typing finds the first section that has it.
+                if !q.isEmpty, let first = SettingsNav.search(q, in: schema).first, !SettingsNav.search(q, in: schema).contains(model.section) { model.section = first }
             }
             Spacer(minLength: 0)
             if let p = model.form?.payload.path {
-                Text(p).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(2)
-                    .padding(10)
+                Button { model.store.editConfigFile() } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.text").font(.system(size: 10))
+                        Text(p).font(.ui(size: 10.5, design: .monospaced)).lineLimit(1).truncationMode(.head)
+                    }
+                    .foregroundStyle(Theme.muted)
+                }
+                .buttonStyle(.plain).help("Edit config.toml in your text editor")
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
             }
         }
-        .padding(.horizontal, 8)
         .background(Theme.side)
     }
 
-    func sectionDirty(_ f: SettingsForm, _ s: SettingsSection) -> Bool {
-        s.fields.contains { f.value(s, $0) != SettingsForm(f.payload).value(s, $0) }
+    func navRow(_ id: String) -> some View {
+        let s = schema.first { $0.id == id }
+        let on = id == model.section
+        let changed = model.form.flatMap { f in s.map { settingsChanged(f, $0) } } ?? 0
+        // A button, so VoiceOver (and anything pressing by accessibility)
+        // can choose a section too.
+        return Button { model.section = id } label: {
+            HStack(spacing: 10) {
+                LucideIcon(s?.icon ?? SettingsNav.skillsIcon, color: on ? Theme.accent : Theme.text2, size: 15).frame(width: 18)
+                Text(s?.title ?? SettingsNav.skillsTitle).font(.ui(size: 13)).foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
+                Spacer()
+                if changed > 0 {
+                    Text("\(changed)").font(.ui(size: 10.5, weight: .bold)).foregroundStyle(Theme.onWarn)
+                        .padding(.horizontal, 6).padding(.vertical, 1).background(Capsule().fill(Theme.warn))
+                        .help("\(changed) unsaved")
+                }
+            }
+            .padding(.horizontal, 10).frame(height: 32)
+            .background(RoundedRectangle(cornerRadius: 7).fill(on ? Theme.accentDeep.opacity(0.32) : .clear))
+            .overlay(alignment: .leading) {
+                if on { RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 3, height: 18).offset(x: -8) }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
-    var footer: some View {
-        HStack(spacing: 10) {
-            if !model.failure.isEmpty, model.form != nil {
+    /// What is wrong with the file, or the last save: above the page.
+    @ViewBuilder var banner: some View {
+        let text = !model.failure.isEmpty && model.form != nil ? model.failure : model.form?.payload.problems?.first
+        if let text {
+            HStack(spacing: 8) {
                 LucideIcon("triangle-alert", color: Theme.warn, size: 13)
-                Text(model.failure).foregroundStyle(Theme.warn).lineLimit(2)
-            } else if let problems = model.form?.payload.problems, let first = problems.first {
-                LucideIcon("triangle-alert", color: Theme.warn, size: 13)
-                Text(first).foregroundStyle(Theme.warn).lineLimit(2).help(problems.joined(separator: "\n"))
-            } else {
-                Text(model.status).foregroundStyle(Theme.muted).lineLimit(1)
+                Text(text).font(.ui(size: 12)).foregroundStyle(Theme.warn).lineLimit(2)
+                    .help(model.form?.payload.problems?.joined(separator: "\n") ?? text)
+                Spacer()
+                Button("Edit config.toml") { model.store.editConfigFile() }.buttonStyle(.link).font(.ui(size: 12))
             }
-            Spacer()
-            Button { model.store.editConfigFile() } label: {
-                HStack(spacing: 5) { LucideIcon("file-text", size: 12); Text("Edit config.toml") }
-            }
-            .buttonStyle(.plain).foregroundStyle(Theme.text2).help("conch's settings as text, in your text editor")
-            Button("Revert") { model.form?.revert() }.disabled(!(model.form?.dirty ?? false))
-            Button("Save") { model.save() }.keyboardShortcut("s", modifiers: .command)
-                .disabled(!(model.form?.dirty ?? false) || model.saving)
+            .padding(.horizontal, 18).padding(.vertical, 9)
+            .background(Theme.warn.opacity(0.08))
+            .overlay(alignment: .bottom) { Rectangle().fill(Theme.warn.opacity(0.3)).frame(height: 1) }
         }
-        .font(.system(size: 12))
-        .padding(.horizontal, 18).frame(height: 46)
-        .background(Theme.chrome)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
     }
 
     func message(_ text: String) -> some View {
@@ -200,73 +301,225 @@ struct SettingsView: View {
     }
 }
 
-/// One section: its title and what it is for, then each setting with its
-/// label and help, as the page lays them out.
+/// Unsaved changes, said where the eye already is: a bar that rises from
+/// the bottom while there are any, to save or revert them.
+struct SaveBar: View {
+    @ObservedObject var model: SettingsModel
+    @Environment(\.conchTheme) private var theme
+
+    var body: some View {
+        let _ = theme
+        let n = model.form.map { settingsChanged($0) } ?? 0
+        HStack(spacing: 12) {
+            Circle().fill(Theme.warn).frame(width: 8, height: 8)
+            Text("\(n) unsaved change\(n == 1 ? "" : "s")").font(.ui(size: 12.5))
+            Button("Revert") { withAnimation { model.form?.revert() } }.buttonStyle(.plain).foregroundStyle(Theme.text2)
+                .padding(.horizontal, 10).frame(height: 26)
+            Button { model.save() } label: {
+                HStack(spacing: 6) {
+                    if model.saving { ProgressView().controlSize(.mini) }
+                    Text("Save").font(.ui(size: 12.5, weight: .semibold))
+                    Text("⌘S").font(.ui(size: 10.5, design: .monospaced)).opacity(0.7)
+                }
+                .foregroundStyle(Theme.selectedText)
+                .padding(.horizontal, 12).frame(height: 26)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Theme.accent))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("s", modifiers: .command)
+            .disabled(model.saving)
+        }
+        .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.raise))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line2))
+        .shadow(color: .black.opacity(0.4), radius: 14, y: 6)
+        .padding(.bottom, 18)
+        .offset(y: n > 0 ? 0 : 90)
+        .opacity(n > 0 ? 1 : 0)
+        .animation(.spring(response: 0.32, dampingFraction: 0.78), value: n > 0)
+    }
+}
+
+/// One section: a heading with its icon, what it is for, then its settings
+/// in cards — the theme in pictures, [verify] as a line, the quiet hours as
+/// a day.
 struct SectionForm: View {
     @ObservedObject var model: SettingsModel
     let section: SettingsSection
     @Environment(\.conchTheme) private var theme
 
+    var fields: [SettingsField] { section.fields.filter(\.simple) }
+    /// Its tables, drawn as lists after the rest.
+    var tables: [SettingsField] { section.fields.filter { $0.kind == "tables" || $0.kind == "keyed" } }
+
+    func pick(_ keys: [String]) -> [SettingsField] { fields.filter { keys.contains($0.key) } }
+    func rest(_ keys: [String]) -> [SettingsField] { fields.filter { !keys.contains($0.key) } }
+
     var body: some View {
         let _ = theme
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 10) {
-                LucideIcon(section.icon, color: Theme.accent, size: 20)
-                Text(section.title).font(.system(size: 20, weight: .semibold))
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                LucideIcon(section.icon, color: Theme.accent, size: 19)
+                    .frame(width: 38, height: 38)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.accentDeep.opacity(0.3)))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(section.title).font(.ui(size: 21, weight: .semibold))
+                    Text(section.description).font(.ui(size: 12.5)).foregroundStyle(Theme.text2)
+                }
             }
-            Text(section.description).foregroundStyle(Theme.text2)
+            .padding(.bottom, 4)
             if let note = section.tableNote {
                 HStack(spacing: 8) {
+                    Image(systemName: "tablecells").font(.system(size: 11)).foregroundStyle(Theme.muted)
                     Text(note).foregroundStyle(Theme.muted)
                     Button("Edit config.toml") { model.store.editConfigFile() }.buttonStyle(.link)
                 }
-                .font(.system(size: 12))
+                .font(.ui(size: 12))
             }
-            ForEach(section.fields.filter(\.simple), id: \.key) { f in
-                FieldRow(model: model, section: section, field: f)
-                Rectangle().fill(Theme.line.opacity(0.6)).frame(height: 1)
+            switch section.key {
+            case "ui":
+                let themes = pick(["theme", "light_theme"])
+                if !themes.isEmpty { card("Theme", themes) }
+                card(nil, rest(["theme", "light_theme"]))
+            case "verify":
+                SettingsCard(title: "The line a finished branch takes") {
+                    AutopilotLine(steps: autopilotSteps(model.form?.config["verify"]?.object ?? [:])) { step in
+                        guard let f = section.fields.first(where: { $0.key == step.key }) else { return }
+                        if step.key == "reviewer", step.on { model.lastReviewer = model.form?.value(section, f)?.string }
+                        if let v = autopilotToggle(step, lastReviewer: model.lastReviewer) { model.form?.set(section, f, v) }
+                    }
+                }
+                card(nil, fields)
+            case "notify":
+                let quiet = ["quiet_start", "quiet_end"]
+                card(nil, rest(quiet))
+                if !pick(quiet).isEmpty {
+                    SettingsCard(title: "Quiet hours") {
+                        ForEach(Array(pick(quiet).enumerated()), id: \.element.key) { i, f in
+                            FieldRow(model: model, section: section, field: f, first: i == 0)
+                        }
+                        QuietDay(start: model.form?.config["notify"]?.object?["quiet_start"]?.string,
+                                 end: model.form?.config["notify"]?.object?["quiet_end"]?.string)
+                            .padding(.horizontal, 16).padding(.bottom, 14)
+                    }
+                }
+            case "agents":
+                card(nil, fields)
+                Button { model.section = SettingsNav.skills } label: {
+                    HStack(spacing: 12) {
+                        LucideIcon(SettingsNav.skillsIcon, color: Theme.accent, size: 16)
+                            .frame(width: 32, height: 32).background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentDeep.opacity(0.3)))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(SettingsNav.skillsTitle).font(.ui(size: 13, weight: .medium)).foregroundStyle(Theme.text)
+                            Text("conch's skills, and the MCP servers and skills you give the agents").font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                    }
+                    .padding(14)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.raise))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            default:
+                if !fields.isEmpty { card(nil, fields) }
+            }
+            ForEach(tables, id: \.key) { t in
+                if t.kind == "tables" {
+                    TableList(model: model, section: section, field: t)
+                } else {
+                    KeyedList(model: model, section: section, field: t)
+                }
             }
         }
-        .frame(maxWidth: 680, alignment: .leading)
+        .frame(maxWidth: 760, alignment: .leading)
+    }
+
+    func card(_ title: String?, _ fs: [SettingsField]) -> some View {
+        SettingsCard(title: title) {
+            ForEach(Array(fs.enumerated()), id: \.element.key) { i, f in
+                FieldRow(model: model, section: section, field: f, first: i == 0 && title == nil)
+            }
+        }
     }
 }
 
-/// One setting: its control at the right, label and help at the left — a
-/// switch, a menu, a field, or a box of one entry a line.
+/// One setting: its label and help at the left, and the control
+/// settingsControl gives it at the right.
 struct FieldRow: View {
     @ObservedObject var model: SettingsModel
     let section: SettingsSection
     let field: SettingsField
+    var first = false
+    /// Where its value is: the section's table, or a row or entry of one
+    /// of its tables.
+    var place: SettingsPlace = .top
 
     @Environment(\.conchTheme) private var theme
 
-    var value: JSONValue? { model.form?.value(section, field) }
+    var value: JSONValue? { model.form?.value(section, field, at: place) }
+    var saved: JSONValue? { model.form.map { SettingsForm($0.payload).value(section, field, at: place) } ?? nil }
 
-    func set(_ v: JSONValue?) { model.form?.set(section, field, v) }
+    func set(_ v: JSONValue?) { withAnimation(.easeOut(duration: 0.15)) { model.form?.set(section, field, at: place, v) } }
+
+    var control: SettingsControl { settingsControl(section, field) }
+
+    var str: Binding<String> {
+        Binding(get: { value?.string ?? "" }, set: { set($0.isEmpty ? nil : .string($0)) })
+    }
+    var num: Binding<Double?> {
+        Binding(get: { value?.number }, set: { set($0.map(JSONValue.number)) })
+    }
+    var choice: Binding<String> {
+        Binding(get: { value?.string ?? field.default?.string ?? "" }, set: { set(.string($0)) })
+    }
+    /// The choices, a value the schema does not list (a #rrggbb accent) kept.
+    var options: [SettingsOption] {
+        let o = field.options ?? []
+        if let v = value?.string, !v.isEmpty, !o.contains(where: { $0.value == v }) { return o + [SettingsOption(value: v, label: v)] }
+        return o
+    }
 
     var body: some View {
         let _ = theme
-        let wide = ["text", "list", "ints"].contains(field.kind) || isTheme
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(field.label).font(.system(size: 13, weight: .medium))
-                    if let h = field.help, !h.isEmpty {
-                        Text(h).font(.system(size: 12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                Spacer(minLength: 12)
-                if !wide { control.frame(width: field.kind == "bool" ? nil : 260, alignment: .trailing) }
-            }
-            if wide { control }
+        let c = control
+        SettingsRow(label: field.label, help: field.help, changed: value != saved, first: first,
+                    wide: c == .theme || c == .multiline) {
+            view(c)
         }
     }
 
-    /// [ui] theme is chosen from pictures of the window rather than names.
-    var isTheme: Bool { section.key == "ui" && ["theme", "light_theme"].contains(field.key) && field.kind == "select" }
-
-    @ViewBuilder var control: some View {
-        if isTheme {
+    @ViewBuilder func view(_ c: SettingsControl) -> some View {
+        switch c {
+        case .toggle:
+            ConchSwitch(isOn: Binding(get: { value?.bool ?? field.default?.bool ?? false }, set: { set(.bool($0)) }))
+        case .segments:
+            Segments(options: options, value: choice)
+        case .menu(let agents):
+            RichMenu(options: options, value: choice, agents: agents)
+        case .stepper(let step):
+            StepperField(value: num, step: step, field: field, fallback: Double(field.placeholder ?? "") ?? 0)
+        case .slider(let lo, let hi, let step, let unit):
+            SliderControl(value: num, min: lo, max: hi, step: step, unit: unit, fallback: Double(field.placeholder ?? "") ?? 100)
+        case .swatches:
+            Swatches(options: options, value: choice)
+        case .pictures:
+            LayoutPictures(options: options, value: choice)
+        case .keys:
+            KeyRecorder(value: str, placeholder: field.placeholder ?? "ctrl+b")
+        case .time:
+            CheckedField(control: c, field: field, text: str, icon: "clock", width: 120)
+        case .url:
+            CheckedField(control: c, field: field, text: str, icon: "globe", width: 300)
+        case .envVar:
+            CheckedField(control: c, field: field, text: str, icon: "key")
+        case .secret:
+            CheckedField(control: c, field: field, text: str, icon: "lock")
+        case .chips:
+            ChipsField(values: Binding(get: { value?.array?.compactMap(\.number) ?? [] },
+                                       set: { set($0.isEmpty ? nil : .array($0.map(JSONValue.number))) }))
+        case .theme:
             ThemeGrid(options: keepingSaved(field.options ?? [], value?.string ?? "", label: { ConchTheme.named($0).label }),
                       chosen: value?.string ?? "",
                       choose: { id in
@@ -276,45 +529,28 @@ struct FieldRow: View {
                           // An unset key is its default: theme "conch", light_theme Off.
                           if let f = model.form, SettingsForm(f.payload).value(section, field)?.string ?? "" == id { model.store.chooseTheme("") }
                       }, preview: { model.store.previewTheme($0) })
-        } else {
-            plainControl
-        }
-    }
-
-    @ViewBuilder var plainControl: some View {
-        switch field.kind {
-        case "bool":
-            Toggle("", isOn: Binding(get: { value?.bool ?? false }, set: { set(.bool($0)) })).toggleStyle(.switch).labelsHidden()
-                .tint(Theme.accentDeep)
-        case "select":
-            Picker("", selection: Binding(get: { value?.string ?? "" }, set: { set(.string($0)) })) {
-                ForEach(field.options ?? [], id: \.value) { Text($0.label).tag($0.value) }
-                // A value the schema does not list (a #rrggbb accent) still shows.
-                if let v = value?.string, !(field.options ?? []).contains(where: { $0.value == v }) { Text(v).tag(v) }
-            }
-            .labelsHidden()
-        case "int", "float":
-            TextField(field.placeholder ?? "", text: Binding(
-                get: { value?.number.map { field.kind == "int" ? String(Int($0)) : String($0) } ?? "" },
-                set: { t in
-                    let t = t.trimmingCharacters(in: .whitespaces)
-                    if t.isEmpty { set(nil) } else if let n = Double(t) { set(.number(field.kind == "int" ? n.rounded() : n)) }
-                }))
-                .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing)
-        case "secret":
-            SecureField(field.placeholder ?? "", text: Binding(get: { value?.string ?? "" }, set: { set(.string($0)) }))
-                .textFieldStyle(.roundedBorder)
-        case "text", "list", "ints":
+        case .multiline:
             TextEditor(text: Binding(
                 get: { field.kind == "text" ? value?.string ?? "" : listText(value) },
-                set: { set(field.kind == "text" ? .string($0) : listValue($0, ints: field.kind == "ints")) }))
-                .font(.system(size: 12, design: .monospaced)).frame(height: 70)
-                .scrollContentBackground(.hidden).padding(5)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.well))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line2))
-        default: // string
-            TextField(field.placeholder ?? "", text: Binding(get: { value?.string ?? "" }, set: { set(.string($0)) }))
-                .textFieldStyle(.roundedBorder)
+                set: { set(field.kind == "text" ? ($0.isEmpty ? nil : .string($0)) : listValue($0, ints: field.kind == "ints")) }))
+                .font(.ui(size: 12, design: .monospaced)).frame(height: 64)
+                .scrollContentBackground(.hidden).padding(6)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.well))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line2))
+        case .text:
+            CheckedField(control: c, field: field, text: str)
+        case .combo:
+            ComboField(options: keepingSaved([SettingsOption(value: "", label: field.placeholder.map { "None: \($0)" } ?? "None")]
+                                             + (field.suggest ?? []).map { SettingsOption(value: $0, label: $0) },
+                                             str.wrappedValue, label: { $0 }),
+                       text: str, placeholder: field.placeholder ?? "",
+                       note: "\(field.suggest?.count ?? 0) installed here; any other name can be typed")
+        case .model(let summary):
+            let brain = model.form?.config["brain"]
+            ComboField(options: modelOptions(model.models?.models ?? [], summary: summary, value: str.wrappedValue),
+                       text: str, placeholder: field.placeholder ?? "", note: model.models?.error, loading: model.modelsLoading)
+                .onAppear { model.loadModels(brain?.object) }
+                .onChange(of: brain) { _, b in model.loadModels(b?.object) }
         }
     }
 }
@@ -347,10 +583,10 @@ struct ThemeGrid: View {
                             .clipShape(RoundedRectangle(cornerRadius: 7))
                             .overlay(RoundedRectangle(cornerRadius: 7).stroke(on ? Theme.accent : Theme.line, lineWidth: on ? 2 : 1))
                         HStack(spacing: 6) {
-                            Text(o.label).font(.system(size: 12, weight: on ? .semibold : .regular))
+                            Text(o.label).font(.ui(size: 12, weight: on ? .semibold : .regular))
                                 .foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
                             Spacer(minLength: 0)
-                            if !o.value.isEmpty, ConchTheme.named(o.value).light { Text("light").font(.system(size: 10.5)).foregroundStyle(Theme.muted) }
+                            if !o.value.isEmpty, ConchTheme.named(o.value).light { Text("light").font(.ui(size: 10.5)).foregroundStyle(Theme.muted) }
                             if on { LucideIcon("check", color: Theme.accent, size: 12) }
                         }
                     }
@@ -382,7 +618,7 @@ struct OffCard: View {
                 Text("=").foregroundStyle(Theme.muted)
                 LucideIcon("sun", color: Theme.text2, size: 14)
             }
-            Text("The theme above, light or dark").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            Text("The theme above, light or dark").font(.ui(size: 11)).foregroundStyle(Theme.muted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.well)
@@ -466,7 +702,8 @@ final class SettingsWindow {
 
     init(store: Store) { model = SettingsModel(store: store) }
 
-    func show() {
+    func show(section: String? = nil) {
+        if let section { model.section = section }
         if window == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
@@ -493,6 +730,56 @@ final class SettingsWindow {
             if !(model.form?.dirty ?? false) { Task { await model.read() } }
         }
         window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// Settings → Skills & MCP servers: conch's own skills for the agents, and
+/// the library of MCP servers and skills of yours, for one machine at a time
+/// — both are written to the agents' folders on that machine, through its
+/// server, not to config.toml.
+struct SkillsSettingsPane: View {
+    @ObservedObject var store: Store
+    @Environment(\.conchTheme) private var theme
+
+    var body: some View {
+        let _ = theme
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center, spacing: 12) {
+                LucideIcon(SettingsNav.skillsIcon, color: Theme.accent, size: 19)
+                    .frame(width: 38, height: 38)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.accentDeep.opacity(0.3)))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(SettingsNav.skillsTitle).font(.ui(size: 21, weight: .semibold))
+                    Text("What the agents on \(store.label(store.skillsMachine)) load from your home. Nothing is written until you install or apply.")
+                        .font(.ui(size: 12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if store.machines.count > 1 {
+                HStack(spacing: 8) {
+                    ForEach(store.machines, id: \.id) { m in
+                        let on = m.id == store.skillsMachine
+                        let online = store.connection(m.id) != nil
+                        Button { store.skillsMachine = m.id } label: {
+                            HStack(spacing: 7) {
+                                Circle().fill(online ? Theme.ok : Theme.muted).frame(width: 7, height: 7)
+                                Text(m.label).font(.ui(size: 12, weight: on ? .medium : .regular)).foregroundStyle(on ? Theme.text : Theme.text2)
+                            }
+                            .padding(.horizontal, 12).frame(height: 28)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(on ? Theme.accentDeep.opacity(0.3) : Theme.raise2))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(on ? Theme.accent : Theme.line2))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(online ? m.label : "\(m.label) is not connected")
+                    }
+                }
+            }
+            AgentSkillPanel(store: store)
+            LibraryPanel(store: store)
+        }
+        .frame(maxWidth: 760, alignment: .leading)
+        // A machine that went from the list leaves this computer showing.
+        .onAppear { if !store.machines.contains(where: { $0.id == store.skillsMachine }) { store.skillsMachine = "local" } }
     }
 }
 

@@ -1,6 +1,9 @@
 package keymap
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -194,5 +197,58 @@ func TestResolveTakesTheKeyFromEveryDefault(t *testing.T) {
 	}
 	if got := m.Keys(Ask); !slices.Equal(got, []string{"h"}) {
 		t.Errorf("ask is on %q", got)
+	}
+}
+
+// ResolveFor drops a binding on the prefix, says so, and keeps that
+// action's default; the prefix is compared in conch's spelling, so tmux's
+// C-a in either place is the same key.
+func TestResolveForDropsThePrefix(t *testing.T) {
+	m, problems := ResolveFor(map[string]string{"zoom": "C-a", "next_tab": "N"}, "ctrl+a")
+	if got := m.Keys(Zoom); len(got) != 1 || got[0] != "z" {
+		t.Errorf("zoom on %q, want its default z", got)
+	}
+	if m.Action("ctrl+a") != "" {
+		t.Error("the prefix itself runs an action")
+	}
+	if m.Key(NextTab) != "N" {
+		t.Errorf("next_tab on %q: the rest of the table must still apply", m.Key(NextTab))
+	}
+	if len(problems) != 1 || problems[0] != "zoom is on ctrl+a, which is the prefix itself" {
+		t.Errorf("problems %q", problems)
+	}
+	// No bind, or no prefix: Resolve's table, nothing said.
+	for _, c := range []struct {
+		bind   map[string]string
+		prefix string
+	}{{nil, "ctrl+b"}, {map[string]string{"zoom": "Z"}, ""}} {
+		if _, p := ResolveFor(c.bind, c.prefix); len(p) != 0 {
+			t.Errorf("ResolveFor(%v, %q) says %q", c.bind, c.prefix, p)
+		}
+	}
+}
+
+// Conch.app does the actions it lists in prefixActionsInApp
+// (macos/Sources/ConchKit/PrefixKeys.swift) by these names. CI does not
+// build the app, so this is what notices an action renamed here and not
+// there — which would turn that key into "the TUI's" in the app, unsaid.
+func TestAppPrefixActionsExist(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "macos", "Sources", "ConchKit", "PrefixKeys.swift"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, list, found := strings.Cut(string(src), "public let prefixActionsInApp: Set<String> = [")
+	list, _, closed := strings.Cut(list, "]")
+	if !found || !closed {
+		t.Fatal("prefixActionsInApp not found in PrefixKeys.swift")
+	}
+	names := regexp.MustCompile(`"([a-z_]+)"`).FindAllStringSubmatch(list, -1)
+	if len(names) < 10 {
+		t.Fatalf("only %d actions read from the app's list", len(names))
+	}
+	for _, n := range names {
+		if _, ok := Defaults[Action(n[1])]; !ok {
+			t.Errorf("the app does %q, which is not an action", n[1])
+		}
 	}
 }

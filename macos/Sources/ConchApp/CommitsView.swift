@@ -61,6 +61,13 @@ final class CommitsModel: ObservableObject {
         self.store = store
         (machine, project) = parseCommitsKey(key) ?? ("local", "")
         load()
+        store.refreshProject(machine: machine, project: project)
+    }
+
+    /// ↻: the history again, and the server asked to look at GitHub now.
+    func refresh() {
+        load()
+        store.refreshProject(machine: machine, project: project)
     }
 
     var count: Int { rows.count }
@@ -213,7 +220,7 @@ struct CommitsView: View {
             if model.range != nil {
                 HStack(spacing: 8) {
                     Circle().fill(Theme.merged).frame(width: 7, height: 7)
-                    Text("Comparing \(String(model.range!.from.prefix(7))) … \(String(model.range!.to.prefix(7)))").font(.system(size: 12))
+                    Text("Comparing \(String(model.range!.from.prefix(7))) … \(String(model.range!.to.prefix(7)))").font(.ui(size: 12))
                     Spacer()
                     Button("Done") { model.compareWith = nil; model.loadDetail() }.controlSize(.small)
                 }
@@ -235,7 +242,7 @@ struct CommitsView: View {
                                 Button("Show older commits") { model.loadMore() }
                                     .buttonStyle(.link).padding(12).disabled(model.loading)
                             } else if model.more {
-                                Text("The newest \(model.count), as many as are read").font(.system(size: 12))
+                                Text("The newest \(model.count), as many as are read").font(.ui(size: 12))
                                     .foregroundStyle(Theme.muted).padding(12)
                             }
                         }
@@ -253,20 +260,20 @@ struct CommitsView: View {
         let name = store.snapshots[model.machine]?.project(model.project)?.name ?? model.project
         return HStack(spacing: 10) {
             LucideIcon("git-commit-horizontal", color: Theme.accent, size: 14)
-            Text("Commits").font(.system(size: 13, weight: .semibold))
-            Text(name).font(.system(size: 12)).foregroundStyle(Theme.text2)
-            Text(model.more ? "newest \(model.count)" : "\(model.count)").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            Text("Commits").font(.ui(size: 13, weight: .semibold))
+            Text(name).font(.ui(size: 12)).foregroundStyle(Theme.text2)
+            Text(model.more ? "newest \(model.count)" : "\(model.count)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
             if model.loading { ProgressView().controlSize(.small) }
             Spacer()
             HStack(spacing: 6) {
                 LucideIcon("search", color: Theme.muted, size: 11)
-                TextField("Search commits, hashes, authors", text: $model.query).textFieldStyle(.plain).font(.system(size: 12)).frame(width: 220)
+                TextField("Search commits, hashes, authors", text: $model.query).textFieldStyle(.plain).font(.ui(size: 12)).frame(width: 220)
             }
             .padding(.horizontal, 8).frame(height: 24)
             .background(RoundedRectangle(cornerRadius: 6).fill(Theme.window))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line))
-            Text("shift-click to compare").font(.system(size: 11)).foregroundStyle(Theme.muted)
-            Button { model.load() } label: { LucideIcon("refresh-cw", size: 12).padding(4).contentShape(Rectangle()) }.buttonStyle(.plain).help("Read the history again")
+            Text("shift-click to compare").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+            Button { model.refresh() } label: { LucideIcon("refresh-cw", size: 12).padding(4).contentShape(Rectangle()) }.buttonStyle(.plain).help("Read the history again, and its pull requests from GitHub")
         }
         .padding(.horizontal, 12).frame(height: 40)
         .background(Theme.paneHeader)
@@ -299,15 +306,15 @@ struct CommitRow: View {
         let dim = !commitMatches(c, model.query) || (model.inRange.map { !$0.contains(c.hash) } ?? false)
         HStack(spacing: 8) {
             GraphCell(row: row).frame(width: CGFloat(model.lanes) * Self.laneWidth + 6, height: Self.height).clipped()
-            Text(c.short).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
+            Text(c.short).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
             ForEach(Array(refs.enumerated()), id: \.offset) { _, r in RefChip(ref: r) }
             // The commit a pull request's checks run on: its CI, here too.
             if let pr = model.pullRequests[c.hash] { CIChip(pr: pr, number: true) }
-            Text(c.subject).font(.system(size: 12.5)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.tail)
+            Text(c.subject).font(.ui(size: 12.5)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.tail)
                 .layoutPriority(-1)
             Spacer(minLength: 8)
-            Text(c.author ?? "").font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
-            Text(agoText(c.time)).font(.system(size: 11.5)).foregroundStyle(Theme.muted).frame(minWidth: 52, alignment: .trailing)
+            Text(c.author ?? "").font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+            Text(agoText(c.time)).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).frame(minWidth: 52, alignment: .trailing)
         }
         .padding(.horizontal, 10).frame(height: Self.height)
         .opacity(dim ? 0.3 : 1)
@@ -352,7 +359,7 @@ struct RefChip: View {
             if ref.kind == .tag { LucideIcon("tag", color: color, size: 9) }
             Text(ref.kind == .head && ref.name != "HEAD" ? "HEAD → \(ref.name)" : ref.name)
         }
-        .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(color).lineLimit(1)
+        .font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(color).lineLimit(1)
         .padding(.horizontal, 6).padding(.vertical, 1.5)
         .background(RoundedRectangle(cornerRadius: 4).fill(ref.kind == .tag ? .clear : color.opacity(0.16)))
         .overlay(RoundedRectangle(cornerRadius: 4).stroke(ref.kind == .tag ? color.opacity(0.6) : .clear))
@@ -430,52 +437,52 @@ struct CommitDetailPanel: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 if !model.detailError.isEmpty {
-                    Text(model.detailError).font(.system(size: 12)).foregroundStyle(Theme.err)
+                    Text(model.detailError).font(.ui(size: 12)).foregroundStyle(Theme.err)
                 }
                 if let d = model.detail {
                     if let r = model.range {
-                        Text("Compare").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.merged)
+                        Text("Compare").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.merged)
                         Text("\(d.commits ?? 0) commit\((d.commits ?? 0) == 1 ? "" : "s"), \(d.files?.count ?? 0) file\((d.files?.count ?? 0) == 1 ? "" : "s")")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text("\(String(r.from.prefix(7))) → \(String(r.to.prefix(7)))").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
+                            .font(.ui(size: 14, weight: .semibold))
+                        Text("\(String(r.from.prefix(7))) → \(String(r.to.prefix(7)))").font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
                     } else {
                         HStack {
-                            Text(String(d.hash.prefix(10))).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.work)
-                            if (d.parents?.count ?? 0) > 1 { Text("merge").font(.system(size: 10.5)).foregroundStyle(Theme.muted) }
+                            Text(String(d.hash.prefix(10))).font(.ui(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.work)
+                            if (d.parents?.count ?? 0) > 1 { Text("merge").font(.ui(size: 10.5)).foregroundStyle(Theme.muted) }
                             Spacer()
                             Button("Copy") {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(d.hash, forType: .string)
                             }.controlSize(.small)
                         }
-                        Text(d.subject ?? "").font(.system(size: 14, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                        Text(d.subject ?? "").font(.ui(size: 14, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 6) {
-                            Text(d.author ?? "").font(.system(size: 12)).foregroundStyle(Theme.text2)
-                            if let t = d.time { Text("· \(agoText(t))").font(.system(size: 12)).foregroundStyle(Theme.muted) }
+                            Text(d.author ?? "").font(.ui(size: 12)).foregroundStyle(Theme.text2)
+                            if let t = d.time { Text("· \(agoText(t))").font(.ui(size: 12)).foregroundStyle(Theme.muted) }
                         }
                         if let b = d.body, !b.isEmpty {
-                            Text(b).font(.system(size: 12)).foregroundStyle(Theme.text2).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                            Text(b).font(.ui(size: 12)).foregroundStyle(Theme.text2).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                         }
                         if let ps = d.parents, !ps.isEmpty {
                             HStack(spacing: 6) {
-                                Text("Parents").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                                Text("Parents").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
                                 ForEach(ps, id: \.self) { p in
                                     Button(String(p.prefix(7))) { model.pick(p, shift: false); model.reveal += 1 }
-                                        .buttonStyle(.link).font(.system(size: 11.5, design: .monospaced))
+                                        .buttonStyle(.link).font(.ui(size: 11.5, design: .monospaced))
                                 }
                             }
                         }
                     }
                     Rectangle().fill(Theme.line).frame(height: 1)
-                    Text("FILES · \(d.files?.count ?? 0)").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                    Text("FILES · \(d.files?.count ?? 0)").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                     ForEach(d.files ?? []) { f in
                         VStack(alignment: .leading, spacing: 0) {
                             HStack(spacing: 8) {
-                                Text(f.code).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(fileCodeColor(f.code)).frame(width: 12)
-                                Text(f.path).font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.head)
+                                Text(f.code).font(.ui(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(fileCodeColor(f.code)).frame(width: 12)
+                                Text(f.path).font(.ui(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.head)
                                 Spacer(minLength: 4)
-                                Text("+\(f.added)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.ok)
-                                Text("−\(f.deleted)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.err)
+                                Text("+\(f.added)").font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.ok)
+                                Text("−\(f.deleted)").font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.err)
                             }
                             .padding(.vertical, 3).contentShape(Rectangle())
                             .onTapGesture { model.openPeek(f.path) }
@@ -486,7 +493,7 @@ struct CommitDetailPanel: View {
                                 VStack(alignment: .leading, spacing: 0) {
                                     ForEach(model.peek.prefix(120)) { l in
                                         Text((l.kind == .added ? "+ " : l.kind == .removed ? "− " : l.kind == .hunk ? "" : "  ") + l.text)
-                                            .font(.system(size: 11, design: .monospaced)).lineLimit(1)
+                                            .font(.ui(size: 11, design: .monospaced)).lineLimit(1)
                                             .foregroundStyle(l.kind == .added ? Theme.ok : l.kind == .removed ? Theme.err : l.kind == .hunk ? Theme.work : Theme.text2)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .background(l.kind == .added ? Theme.ok.opacity(0.1) : l.kind == .removed ? Theme.err.opacity(0.1) : .clear)

@@ -26,6 +26,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func post(_ a: Alert, pane: String, sound: Bool, desktop: Bool) {
+        post(a, id: "pane:" + pane, pane: pane, sound: sound, desktop: desktop)
+    }
+
+    /// A notification not about one pane (a plan limit): a click only
+    /// brings the app forward. One per id: a newer one replaces the last.
+    func post(_ a: Alert, id: String, pane: String? = nil, sound: Bool, desktop: Bool) {
         if sound && !desktop { NSSound(named: "Glass")?.play() }
         guard desktop else { return }
         if allowed == false {
@@ -35,10 +41,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let content = UNMutableNotificationContent()
         content.title = a.title
         content.body = a.body
-        content.userInfo = ["pane": pane]
+        if let pane { content.userInfo = ["pane": pane] }
         if sound { content.sound = .default }
-        // One notification per pane: a newer state replaces the last.
-        let r = UNNotificationRequest(identifier: "pane:" + pane, content: content, trigger: nil)
+        // One notification per id (a pane's): a newer state replaces the last.
+        let r = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(r) { err in
             if err != nil { Task { @MainActor in self.fallback(a, sound: sound) } }
         }

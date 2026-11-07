@@ -1199,7 +1199,7 @@ var helpGroups = []helpGroup{{
 		}},
 		{keys: "i", what: "agent setup: instructions, skills, MCP servers, and what a worktree lacks", more: []string{
 			"in it: s gives the other agents this one's setup (it says what it would write first), u undoes that",
-			"S installs or removes conch's own skill for the agent whose tab is open (Settings → Agents does every agent)",
+			"S installs or removes conch's skills for the agent whose tab is open (Settings → Agents does every agent)",
 		}},
 		{keys: "T", what: "move a branch's worktree to another machine or a new sandbox; its agents continue there", more: []string{
 			"on the branch, on an agent working in it, or in its changes",

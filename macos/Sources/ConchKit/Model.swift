@@ -109,6 +109,18 @@ public struct Snapshot: Equatable, Sendable {
         }
         return order[0].id
     }
+
+    /// The finished agent after current, in the order they finished — what
+    /// a click on the toolbar's done count goes to — round again at the end.
+    public func nextDone(after current: String?, in ws: Workspace? = nil, machine: String = "local") -> String? {
+        let order = shown(in: ws, machine: machine).filter { $0.agent?.state == .done }
+            .sorted { ($0.agent?.since ?? .distantPast) < ($1.agent?.since ?? .distantPast) }
+        guard !order.isEmpty else { return nil }
+        if let cur = current, let i = order.firstIndex(where: { $0.id == cur }) {
+            return order[(i + 1) % order.count].id
+        }
+        return order[0].id
+    }
 }
 
 // MARK: - Machines
@@ -321,6 +333,23 @@ public struct Workspace: Equatable, Sendable {
         var projects = spaces[i]["projects"] as? [String] ?? []
         if !projects.contains(project) { projects.append(project) }
         spaces[i]["projects"] = projects.sorted()
+        ui["spaces"] = spaces
+        return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    /// ui.json with a project taken out of the workspace of that id, as the
+    /// TUI's leaveSpace does; the project stays in conch and in the other
+    /// workspaces. Unknown workspace: that throws.
+    public static func removingProject(_ project: String, from id: String, in data: Data?) throws -> Data {
+        guard let data, !data.isEmpty, var ui = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var spaces = ui["spaces"] as? [[String: Any]] else {
+            throw ConchError(code: "ui.json", message: "ui.json has no workspaces to take the project out of")
+        }
+        for i in spaces.indices where (spaces[i]["id"] as? String ?? "").isEmpty { spaces[i]["id"] = "w\(i + 1)" }
+        guard let i = spaces.firstIndex(where: { $0["id"] as? String == id }) else {
+            throw ConchError(code: "ui.json", message: "no workspace \(id) in ui.json")
+        }
+        spaces[i]["projects"] = (spaces[i]["projects"] as? [String] ?? []).filter { $0 != project }
         ui["spaces"] = spaces
         return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
     }
@@ -680,6 +709,8 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("previousTab", "Previous tab", "⇧⌘["),
     ("toggleSidebar", "Show or hide the sidebar", "⌃⌘S"),
     ("focusSidebar", "Go to the sidebar (its keys: ↑↓ ⏎ t c n)", "⌘0"),
+    ("biggerFont", "Terminal text bigger / smaller / default", "⌘+ ⌘− ⌃⌘0"),
+    ("biggerText", "Window text bigger / smaller / default", "⇧⌘+ ⇧⌘− ⌃⇧⌘0"),
     ("openTUI", "Open conch in a terminal", ""),
 ]
 

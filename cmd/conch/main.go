@@ -21,7 +21,6 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"github.com/Amitgb14/conch/internal/adapter"
-	"github.com/Amitgb14/conch/internal/agentsetup"
 	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
@@ -104,10 +103,16 @@ Usage:
                                 -at sends it later (14:05, +30m), once the agent is free
   conch view                    what the terminal is showing: its tabs, and which pane has the keyboard
   conch show [-name N] ID...    ask the terminal to put those panes in front of the person
-  conch skill                   print that skill instead, for an agent conch cannot install it for
+  conch skill [-list | NAME]    print conch's skill (or conch-team, conch-review, conch-ship,
+                                conch-factory, conch-autopilot) instead, for an agent conch cannot
+                                install it for
   conch agent skill [-agent NAMES] [-remove] [-apply]
-                                teach the agents to start, prompt and read other agents in
-                                conch: its skill, in each agent's own skills folder
+                                teach the agents conch: its skills, in each agent's own skills
+                                folder — conch (start, prompt and read other agents),
+                                conch-team (several at once), conch-review (review, fix,
+                                review again), conch-ship (tests, pull request, CI, merge),
+                                conch-factory (a ticket all the way to a merged PR) and
+                                conch-autopilot (set up the automated workflow for a project)
   conch agent add NAME -command BINARY [-label L] [-prompt 'FLAG {prompt}'] [-resume 'FLAG {id}']
                                 describe an agent conch has no adapter for, so it starts and is
                                 watched like the others; what you leave out it will not pretend
@@ -125,7 +130,12 @@ Usage:
                                 agents you choose: add NAME (URL | -- COMMAND ARGS),
                                 -to NAMES, -env K=${VAR}; mcp adds conch's own tools
                                 (conch mcp); plan says what apply writes
-  conch project add PATH | create [-no-git] PATH | ls | rm ID | files ID [-reset | -none | PATTERN...]
+  conch project add PATH | create [-no-git] PATH | clone URL [DIR] | ls | rm ID | files ID [-reset | -none | PATTERN...]
+                | move [-plan] [-into DIR] [-y] [-json] ID -to MACHINE
+                                move a whole project to another machine: the repository (cloned
+                                there from its origin), every worktree with its uncommitted work,
+                                every branch with commits its origin lacks, and the agents with
+                                their conversations; -plan says what would move
                 | setup ID [-none | COMMAND]
                                 manage projects shown in the sidebar; setup is run in a
                                 terminal of its own in each new worktree (npm install…),
@@ -231,7 +241,8 @@ Usage:
                                 on tab; without a shell, says how to turn it on
   conch doctor [-json]          check config, server, agents, git, gh, terminal and machines,
                                 each with the command that fixes it; exits 1 if any must be fixed
-  conch keys [-bound] [-toml]   what every key after the prefix does, and which key it is on now
+  conch keys [-bound] [-toml] [-json]
+                                what every key after the prefix does, and which key it is on now
                                 (tmux's list-keys); rebind one under [keys.bind] in config.toml,
                                 which -toml prints ready to edit
   conch app [-terminal NAME] [-n]
@@ -373,7 +384,7 @@ func main() {
 		// whose skills folder conch does not manage, a system prompt
 		// somebody assembles by hand, a sandbox where it goes inline.
 		// `conch agent skill -apply` is the way to install it.
-		os.Stdout.Write(agentsetup.Skill)
+		err = printSkill(args)
 	case "version", "--version", "-v":
 		runVersion(args)
 	case "help", "--help", "-h":
@@ -558,9 +569,15 @@ func withoutAsyncPreemption() error {
 		return nil // nothing to start again: carry on as we are
 	}
 	env := config.MergeEnv(os.Environ(), "GODEBUG="+godebug)
-	_ = syscall.Exec(exe, os.Args, env) // an exec that fails leaves us as we are
+	_ = execSelf(exe, os.Args, env) // an exec that fails leaves us as we are
 	return nil
 }
+
+// execSelf is syscall.Exec. The tests' TestMain refuses it: run by a test,
+// the exec started the whole test binary again with that test's
+// temporary HOME, whose cleanup then never ran — 256 MB of Go caches left
+// behind at every run of the package on macOS.
+var execSelf = syscall.Exec
 
 // asyncPreemptOff is the GODEBUG the server wants and whether it has to
 // start again to get it: only on macOS, and only once.

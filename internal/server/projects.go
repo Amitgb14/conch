@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -60,6 +61,10 @@ type project struct {
 	lastStatus time.Time
 	refreshing bool
 	pending    bool // refresh requested (e.g. an agent just used a tool)
+	// gen counts changes to info: each refresh applied, and each worktree
+	// added or dropped by hand. A read of git that began before a change
+	// is older than info and is not applied (refresh).
+	gen uint64
 
 	prs        map[string]proto.PRInfo // by head branch
 	prStatus   string
@@ -67,6 +72,13 @@ type project struct {
 	prNext     time.Time // no fetch before this (after errors)
 	prFetching bool
 	prPending  bool
+	// prOpen is the head branches whose pull request was open at the last
+	// look that answered: a failed look leaves it as it was, so a merge
+	// either side of one is still seen. baseOwed is the bases a merge is
+	// owed a fetch of, until one succeeds.
+	prOpen       map[string]bool
+	baseOwed     map[string]bool
+	baseFetching bool
 }
 
 type catalog struct {
@@ -327,6 +339,7 @@ func (p *project) forgetWorktree(path string) {
 		}
 	}
 	p.info.Worktrees = kept
+	p.gen++
 }
 
 func (p *project) branchWorktree(branch string) (proto.WorktreeInfo, bool) {
@@ -426,7 +439,18 @@ func (pm *projectManager) refreshNow(p *project) {
 		p.mu.Unlock()
 		time.Sleep(10 * time.Millisecond)
 	}
-	pm.refresh(p, gitx.MetaStamp(p.commonDir()))
+	// Overtaken by a change made meanwhile: read again, a few times at most.
+	for range 3 {
+		if pm.refresh(p, gitx.MetaStamp(p.commonDir())) {
+			return
+		}
+		p.mu.Lock()
+		p.refreshing, p.pending = true, false
+		p.mu.Unlock()
+	}
+	p.mu.Lock()
+	p.refreshing = false
+	p.mu.Unlock()
 }
 
 func (p *project) commonDir() string {
@@ -464,12 +488,32 @@ func (pm *projectManager) adoptGit(p *project) string {
 	return common
 }
 
-func (pm *projectManager) refresh(p *project, stamp string) {
+// refresh reads p's git state and makes it what p knows, unless p changed
+// while git was being read — a worktree added, or another refresh applied
+// first. That read is older than what p holds: applied, it dropped a
+// worktree just added, and a move that had just put a branch there was
+// told it wasn't (TestMoveProjectBetweenServers, now and then). It is
+// thrown away and another asked for. It says whether it applied.
+func (pm *projectManager) refresh(p *project, stamp string) bool {
+	p.mu.Lock()
+	start := p.gen
+	p.mu.Unlock()
 	pm.gitSem <- struct{}{}
 	info := p.load()
 	<-pm.gitSem
+	return pm.apply(p, info, stamp, start)
+}
 
+// apply makes info, read from git when p was at generation start, what p
+// knows; see refresh.
+func (pm *projectManager) apply(p *project, info proto.ProjectInfo, stamp string, start uint64) bool {
 	p.mu.Lock()
+	if p.gen != start {
+		p.refreshing, p.pending = false, true
+		p.mu.Unlock()
+		return false
+	}
+	p.gen++
 	p.applyPRs(&info)
 	old := p.info
 	info.LocalFiles, info.LocalFilesDefault = old.LocalFiles, old.LocalFilesDefault
@@ -496,6 +540,7 @@ func (pm *projectManager) refresh(p *project, stamp string) {
 	if changed && pm.s.projectRegistered(p) {
 		pm.s.broadcast(proto.EventProjectUpdated, info)
 	}
+	return true
 }
 
 // requestPRs asks for pull requests to be fetched on the next tick.
@@ -551,6 +596,12 @@ func (pm *projectManager) fetchPRs(p *project) {
 	}
 	if err != nil {
 		p.prs = nil
+	} else {
+		p.noteMerges(list)
+	}
+	owed := len(p.baseOwed) > 0 && !p.baseFetching
+	if owed {
+		p.baseFetching = true
 	}
 	info := p.info
 	info.Branches = append([]proto.BranchInfo(nil), info.Branches...)
@@ -577,6 +628,80 @@ func (pm *projectManager) fetchPRs(p *project) {
 	}
 	if err == nil && pm.s.projectRegistered(p) {
 		pm.s.autopilotPRs(info)
+	}
+	if owed {
+		go pm.fetchOwedBases(p)
+	}
+}
+
+// noteMerges marks the base of every pull request that was open at the
+// last look and is merged now as owed a fetch. GitHub made the merge
+// commit, so until somebody fetches, this checkout's origin/main is where
+// it was and the commit graph cannot show the merge — the pull request
+// says merged while the graph says nothing happened. Only a change seen
+// here counts: pull requests merged before the server started are not
+// fetched for, so a restart does not fetch every base at once. The caller
+// holds p.mu.
+func (p *project) noteMerges(list []ghx.PR) {
+	open := map[string]bool{}
+	for branch, pr := range ghx.ByBranch(list) {
+		switch {
+		case pr.State == "OPEN":
+			open[branch] = true
+		case pr.State == "MERGED" && p.prOpen[branch]:
+			base := pr.Base
+			if base == "" {
+				base = p.info.Base
+			}
+			if base != "" {
+				if p.baseOwed == nil {
+					p.baseOwed = map[string]bool{}
+				}
+				p.baseOwed[base] = true
+			}
+		}
+	}
+	p.prOpen = open
+}
+
+// fetchOwedBases fetches each base a merge is owed, after the pull
+// requests are said rather than before, and on a clock of its own so a
+// slow fetch holds up neither the merged state nor gh. The remote is the
+// base's own — the one it tracks, else the one this checkout pushes to —
+// never the merged branch's, which may be a fork. A base whose fetch fails
+// stays owed for the next look. One that came is broadcast again, so an
+// open graph reads the history with the merge in it.
+func (pm *projectManager) fetchOwedBases(p *project) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	p.mu.Lock()
+	bases := make([]string, 0, len(p.baseOwed))
+	for b := range p.baseOwed {
+		bases = append(bases, b)
+	}
+	p.mu.Unlock()
+	sort.Strings(bases)
+	var fetched []string
+	for _, base := range bases {
+		// The remote's name back means it was fetched; the base alone, or
+		// nothing, means the fetch failed.
+		if got := gitx.FreshBase(ctx, p.root, base, base); got != "" && got != base {
+			fetched = append(fetched, base)
+			log.Printf("project %s: a pull request into %s was merged; fetched %s", p.id, base, got)
+		} else {
+			log.Printf("project %s: a pull request into %s was merged, but fetching it failed; trying again at the next look", p.id, base)
+		}
+	}
+	p.mu.Lock()
+	for _, b := range fetched {
+		delete(p.baseOwed, b)
+	}
+	p.baseFetching = false
+	info := p.info
+	p.mu.Unlock()
+	if len(fetched) > 0 && pm.s.projectRegistered(p) {
+		pm.s.broadcast(proto.EventProjectUpdated, info)
+		pm.request(p) // ahead and behind against a base that moved
 	}
 }
 
@@ -758,6 +883,7 @@ func (pm *projectManager) addWorktree(p *project, branch, base string) (path str
 	port := pm.s.ports.assign(path)
 	p.mu.Lock()
 	p.info.Worktrees = append(p.info.Worktrees, proto.WorktreeInfo{Path: path, Branch: branch, Port: port})
+	p.gen++
 	p.mu.Unlock()
 	pm.request(p)
 	return path, copied, nil

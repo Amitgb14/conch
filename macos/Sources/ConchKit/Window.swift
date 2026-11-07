@@ -25,13 +25,39 @@ public struct AppLook: Equatable, Sendable {
     public var glass = false
     public var ports = true
     public var scratchKey = false
+    /// The TUI's prefix keys in the panes, on unless [app] prefix_keys is
+    /// false.
+    public var prefixKeys = true
+    /// The window's own text, as a scale (text_size in percent), and the
+    /// terminal's font size in points (font_size), each kept in range.
+    public var textScale: Double = 1
+    public var fontSize: Double = AppLook.fontDefault
 
-    public init(tabs: TabPlacement = .top, compact: Bool = false, glass: Bool = false, ports: Bool = true, scratchKey: Bool = false) {
+    public static let textRange = 0.8...1.6
+    public static let fontRange = 9.0...28.0
+    public static let fontDefault = 14.0
+    /// The steps ⇧⌘+ and ⇧⌘− move the window's text through, and the
+    /// settings page offers.
+    public static let textSteps: [Double] = [0.8, 0.9, 1.0, 1.1, 1.25, 1.4, 1.6]
+
+    public init(tabs: TabPlacement = .top, compact: Bool = false, glass: Bool = false, ports: Bool = true, scratchKey: Bool = false, prefixKeys: Bool = true) {
         self.tabs = tabs
         self.compact = compact
         self.glass = glass
         self.ports = ports
         self.scratchKey = scratchKey
+        self.prefixKeys = prefixKeys
+    }
+
+    /// The next step of the window's text, bigger or smaller, from where it is.
+    public static func textStep(from scale: Double, bigger: Bool) -> Double {
+        if bigger { return textSteps.first { $0 > scale + 0.001 } ?? textSteps.last! }
+        return textSteps.last { $0 < scale - 0.001 } ?? textSteps.first!
+    }
+
+    /// The terminal's font a point bigger or smaller, in range.
+    public static func fontStep(from size: Double, bigger: Bool) -> Double {
+        min(max((size + (bigger ? 1 : -1)).rounded(), fontRange.lowerBound), fontRange.upperBound)
     }
 
     /// Read from config.toml; what is missing or not understood is the
@@ -42,6 +68,16 @@ public struct AppLook: Equatable, Sendable {
         glass = tomlSetting("app", "sidebar", in: toml) == "glass"
         ports = tomlSetting("app", "ports", in: toml) != "false"
         scratchKey = tomlSetting("app", "scratch_key", in: toml) == "true"
+        prefixKeys = tomlSetting("app", "prefix_keys", in: toml) != "false"
+        // A whole number, as Go reads it (an int): 112.5 is not understood
+        // there, so it is not here either, rather than the app quietly using
+        // what conch's settings would refuse.
+        if let v = tomlSetting("app", "text_size", in: toml).flatMap(Int.init).map(Double.init), v > 0 {
+            textScale = min(max(v / 100, Self.textRange.lowerBound), Self.textRange.upperBound)
+        }
+        if let v = tomlSetting("app", "font_size", in: toml).flatMap(Double.init), v > 0 {
+            fontSize = min(max(v, Self.fontRange.lowerBound), Self.fontRange.upperBound)
+        }
     }
 }
 
@@ -66,6 +102,7 @@ public func machine(ofKey k: String) -> String {
     if let c = parseCommitsKey(k) { return c.machine }
     if let f = parseFilesKey(k) { return f.machine }
     if let s = parseSetupKey(k) { return s.machine }
+    if parseBrowserKey(k) != nil { return "local" } // a page is shown on this computer
     return unkey(k).machine
 }
 
@@ -179,6 +216,16 @@ public func scratchPane(_ panes: [PaneInfo], project: String?) -> PaneInfo? {
     panes.first { $0.running && $0.projectID == project && $0.name == scratchName && $0.createdBy == nil && $0.agent == nil }
 }
 
+/// Whether the scratch layer on screen has lost its pane — closed, its
+/// shell exited, or gone while the machine was away — and so must come
+/// down: left up, it showed "no pane p218" and Ghostty's failure over
+/// the splits, and option-space hid it rather than starting a new one.
+public func scratchLost(_ shown: String?, pane: PaneInfo?) -> Bool {
+    guard shown != nil else { return false }
+    guard let pane else { return true }
+    return !pane.running
+}
+
 // MARK: ports
 
 /// A listening port as a pane's header says it: ":4317" here, the machine
@@ -239,4 +286,25 @@ public func clickOwner(inTerminal: Bool, x: Double, y: Double, sidebarWidth: Dou
     if inTerminal { return .terminal }
     guard let w = sidebarWidth, x >= 0, x <= w, y > statusBar, y < windowHeight - toolbar else { return .unchanged }
     return .sidebar
+}
+
+/// The room a scaled window's text needs in the sidebar on top of the width
+/// dragged to: the default width's share of the scale, so a drag still
+/// moves the edge with the pointer.
+public func sidebarExtra(scale: Double, base: Double = 250) -> Double { max(0, (scale - 1) * base) }
+
+/// The sidebar row a tab is shown by: a pane's own row, a branch's
+/// changes its branch, a project's files or sessions their rows, its
+/// commit graph or agent setup the project; nil for a tab with none (a
+/// web page). The keyboard's cursor in the sidebar follows the tab in
+/// front by this — it used to stay where it was last put, so the row lit
+/// in the sidebar named a terminal while the window showed a branch.
+public func treeRow(forTab k: String) -> String? {
+    if parseBrowserKey(k) != nil { return nil }
+    if let c = parseChangesKey(k) { return "b:\(key(c.machine, c.project)):\(c.branch)" }
+    if let f = parseFilesKey(k) { return "s:\(key(f.machine, f.project)):files" }
+    if let s = parseSessionsKey(k) { return "s:\(key(s.machine, s.project)):sessions" }
+    if let c = parseCommitsKey(k) { return "p:\(key(c.machine, c.project))" }
+    if let s = parseSetupKey(k) { return "p:\(key(s.machine, s.project))" }
+    return "pane:" + k
 }

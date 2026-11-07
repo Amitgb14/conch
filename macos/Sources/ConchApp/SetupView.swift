@@ -50,8 +50,8 @@ struct SetupView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 LucideIcon("bot", color: Theme.accent, size: 14)
-                Text("Agent setup").font(.system(size: 13, weight: .semibold))
-                Text(model.dir).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
+                Text("Agent setup").font(.ui(size: 13, weight: .semibold))
+                Text(model.dir).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
                 Spacer()
                 Button { model.load() } label: { LucideIcon("refresh-cw", size: 12) }.buttonStyle(.plain).help("Read it again")
             }
@@ -69,8 +69,8 @@ struct SetupView: View {
                             section("LOCAL FILES", note: "untracked files of the main checkout this worktree should have") {
                                 ForEach(files, id: \.path) { f in
                                     HStack(spacing: 8) {
-                                        Text(f.path).font(.system(size: 12, design: .monospaced))
-                                        Text(localFileNote(f.state)).font(.system(size: 11.5))
+                                        Text(f.path).font(.ui(size: 12, design: .monospaced))
+                                        Text(localFileNote(f.state)).font(.ui(size: 11.5))
                                             .foregroundStyle(f.state == "same" ? Theme.muted : Theme.warn)
                                     }
                                 }
@@ -93,37 +93,37 @@ struct SetupView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Mark(agent: a.agent)
-                Text(a.label).font(.system(size: 13.5, weight: .semibold))
-                Text("\(a.loaded) loaded").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                Text(a.label).font(.ui(size: 13.5, weight: .semibold))
+                Text("\(a.loaded) loaded").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
             }
             ForEach(a.groups ?? [], id: \.title) { g in
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(g.title.uppercased()).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.muted)
+                    Text(g.title.uppercased()).font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(Theme.muted)
                     if (g.items ?? []).isEmpty {
-                        Text("none").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        Text("none").font(.ui(size: 12)).foregroundStyle(Theme.muted)
                     }
                     ForEach(Array((g.items ?? []).enumerated()), id: \.offset) { _, it in item(it) }
                 }
                 .padding(.leading, 26)
             }
             ForEach(a.notes ?? [], id: \.self) { n in
-                Text(n).font(.system(size: 11.5)).foregroundStyle(Theme.text2).padding(.leading, 26).fixedSize(horizontal: false, vertical: true)
+                Text(n).font(.ui(size: 11.5)).foregroundStyle(Theme.text2).padding(.leading, 26).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
     func item(_ it: SetupItem) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(it.name).font(.system(size: 12.5)).foregroundStyle(it.missing == true ? Theme.err : Theme.text)
-            Text(it.scope).font(.system(size: 10.5)).foregroundStyle(Theme.text2)
+            Text(it.name).font(.ui(size: 12.5)).foregroundStyle(it.missing == true ? Theme.err : Theme.text)
+            Text(it.scope).font(.ui(size: 10.5)).foregroundStyle(Theme.text2)
                 .padding(.horizontal, 5).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 4).fill(Theme.raise))
-            if it.missing == true { Text("missing").font(.system(size: 11)).foregroundStyle(Theme.err) }
-            if let d = it.detail, !d.isEmpty { Text(d).font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1) }
+            if it.missing == true { Text("missing").font(.ui(size: 11)).foregroundStyle(Theme.err) }
+            if let d = it.detail, !d.isEmpty { Text(d).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1) }
             Spacer(minLength: 0)
             if let p = it.path, !p.isEmpty, it.missing != true {
                 // Opened in the machine's own editor, as Files opens one.
                 Button { store.edit(machine: model.machine, root: (p as NSString).deletingLastPathComponent, path: (p as NSString).lastPathComponent) } label: {
-                    Text((p as NSString).abbreviatingWithTildeInPath).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
+                    Text((p as NSString).abbreviatingWithTildeInPath).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
                 }
                 .buttonStyle(.plain).help("Open \(p) in its machine's editor")
             }
@@ -133,8 +133,8 @@ struct SetupView: View {
     func section(_ title: String, note: String, @ViewBuilder _ body: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text(title).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.muted)
-                Text(note).font(.system(size: 11)).foregroundStyle(Theme.muted)
+                Text(title).font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(Theme.muted)
+                Text(note).font(.ui(size: 11)).foregroundStyle(Theme.muted)
             }
             body()
         }

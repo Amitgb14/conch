@@ -271,6 +271,7 @@ type (
 // New builds the TUI around a connected local client. Saved remote
 // machines connect in the background once the program starts.
 func New(local *client.Client, cfg config.Config) Model {
+	reloadUserThemes()
 	applyTheme(cfg.UI.Theme, cfg.UI.Accent)
 	path := uiStatePath()
 	st := loadUIState(path)

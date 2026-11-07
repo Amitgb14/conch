@@ -22,7 +22,7 @@ struct ChangesView: View {
             if model.handed != nil { HandoffStrip(store: store, model: model) }
             if let e = model.error {
                 HStack {
-                    Text(e).font(.system(size: 12)).foregroundStyle(Theme.err).lineLimit(2)
+                    Text(e).font(.ui(size: 12)).foregroundStyle(Theme.err).lineLimit(2)
                     Spacer()
                     Button { model.error = nil } label: { LucideIcon("x", size: 11).padding(4).contentShape(Rectangle()) }.buttonStyle(.plain)
                 }
@@ -43,7 +43,7 @@ struct ChangesView: View {
     var header: some View {
         HStack(spacing: 10) {
             LucideIcon(name: .gitBranch, color: Theme.text2, size: 12)
-            Text(model.branch).font(.system(size: 13, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.text).lineLimit(1)
+            Text(model.branch).font(.ui(size: 13, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.text).lineLimit(1)
             if let ch = model.changes, ch.base != ch.branch {
                 Chip(text: "into \(ch.base)" + ((info?.baseAhead ?? 0) > 0 ? " · ↑\(info!.baseAhead!)" : ""))
             } else if model.changes != nil {
@@ -60,11 +60,11 @@ struct ChangesView: View {
                 Chip(text: "+\(a) −\(d) uncommitted", tone: Theme.warn)
             }
             if let a = model.agent?.agent {
-                HStack(spacing: 4) { Mark(agent: a.name); Text(a.state == .working ? "working" : a.state.rawValue).font(.system(size: 11.5)) }
+                HStack(spacing: 4) { Mark(agent: a.name); Text(a.state == .working ? "working" : a.state.rawValue).font(.ui(size: 11.5)) }
                     .foregroundStyle(Theme.text2)
             }
             Spacer(minLength: 8)
-            if let b = model.busy { Text(b + "…").font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1) }
+            if let b = model.busy { Text(b + "…").font(.ui(size: 12)).foregroundStyle(Theme.muted).lineLimit(1) }
             Picker("", selection: Binding(get: { model.mode }, set: { model.chosen = $0; if $0 == .overview { Task { await model.loadRecent() } } })) {
                 ForEach(ChangesModel.Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
@@ -124,14 +124,14 @@ struct HandoffStrip: View {
                 switch state {
                 case .working, .starting:
                     TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
-                        Text(spinnerFrame(at: ctx.date)).font(.system(size: 13, weight: .semibold)).foregroundStyle(tone)
+                        Text(spinnerFrame(at: ctx.date)).font(.ui(size: 13, weight: .semibold)).foregroundStyle(tone)
                     }
                 case .waiting: Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(tone)
                 case .finished: Image(systemName: "checkmark.circle.fill").foregroundStyle(tone)
                 case .gone: Image(systemName: "xmark.circle").foregroundStyle(tone)
                 }
-                Text(line(state, who: who, what: h.what)).font(.system(size: 12.5, weight: .medium)).lineLimit(1)
-                Text(agoText(h.at)).font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+                Text(line(state, who: who, what: h.what)).font(.ui(size: 12.5, weight: .medium)).lineLimit(1)
+                Text(agoText(h.at)).font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
                 Spacer(minLength: 8)
                 if let id = p?.id, state != .gone {
                     Button(state == .waiting ? "Answer \(who)" : "Open \(who)") { store.open(key(model.machine, id)) }
@@ -173,12 +173,12 @@ struct CIChip: View {
             HStack(spacing: 4) {
                 if tone == .busy {
                     TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
-                        Text(spinnerFrame(at: ctx.date)).font(.system(size: 11, weight: .semibold))
+                        Text(spinnerFrame(at: ctx.date)).font(.ui(size: 11, weight: .semibold))
                     }
                 } else {
-                    Image(systemName: tone == .bad ? "xmark.circle.fill" : "checkmark.circle.fill").font(.system(size: 10))
+                    Image(systemName: tone == .bad ? "xmark.circle.fill" : "checkmark.circle.fill").font(.ui(size: 10))
                 }
-                Text((number ? "#\(pr.number) · " : "") + text).font(.system(size: 11, weight: .medium, design: .monospaced)).lineLimit(1)
+                Text((number ? "#\(pr.number) · " : "") + text).font(.ui(size: 11, weight: .medium, design: .monospaced)).lineLimit(1)
             }
             .foregroundStyle(color)
             .padding(.horizontal, 7).padding(.vertical, 2)
@@ -216,20 +216,20 @@ struct ChecksList: View {
                         case "fail": Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.err)
                         default:
                             TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
-                                Text(spinnerFrame(at: ctx.date)).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.work)
+                                Text(spinnerFrame(at: ctx.date)).font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.work)
                             }
                         }
                     }
-                    .font(.system(size: 11)).frame(width: 14)
+                    .font(.ui(size: 11)).frame(width: 14)
                     // The icon says the state, so the name has the room.
-                    Text(r.name).font(.system(size: 12, design: .monospaced)).foregroundStyle(r.state == "pass" ? Theme.text2 : Theme.text)
+                    Text(r.name).font(.ui(size: 12, design: .monospaced)).foregroundStyle(r.state == "pass" ? Theme.text2 : Theme.text)
                         .lineLimit(1).truncationMode(.middle)
                         .help(r.name + (r.state == "pass" ? " — passed" : r.state == "fail" ? " — failed" : " — running"))
                         .accessibilityLabel(r.name + (r.state == "pass" ? ", passed" : r.state == "fail" ? ", failed" : ", running"))
                     Spacer(minLength: 4)
                     if let u = r.url.flatMap(URL.init(string:)) {
                         Button { NSWorkspace.shared.open(u) } label: {
-                            Image(systemName: "arrow.up.right.square").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                            Image(systemName: "arrow.up.right.square").font(.ui(size: 11)).foregroundStyle(Theme.muted)
                                 .padding(3).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain).help("Open this check on GitHub")
@@ -237,7 +237,7 @@ struct ChecksList: View {
                 }
             }
             if ordered.count > limit {
-                Text("and \(ordered.count - limit) more").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                Text("and \(ordered.count - limit) more").font(.ui(size: 11)).foregroundStyle(Theme.muted)
             }
         }
     }
@@ -251,7 +251,7 @@ struct Chip: View {
 
     var body: some View {
         let _ = look
-        Text(text).font(.system(size: 11, weight: .medium, design: .monospaced)).lineLimit(1)
+        Text(text).font(.ui(size: 11, weight: .medium, design: .monospaced)).lineLimit(1)
             .foregroundStyle(tone ?? Theme.text2)
             .padding(.horizontal, 7).padding(.vertical, 2)
             .background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
@@ -271,7 +271,7 @@ struct GitCard<Content: View>: View {
         let _ = look
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(title.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(0.4).foregroundStyle(Theme.muted)
+                Text(title.uppercased()).font(.ui(size: 11, weight: .semibold)).tracking(0.4).foregroundStyle(Theme.muted)
                 Spacer()
                 if let trailing { trailing }
             }
@@ -300,14 +300,14 @@ struct GitOverview: View {
                 HStack(alignment: .top, spacing: 14) {
                     VStack(alignment: .leading, spacing: 14) {
                         GitCard(title: "Recent commits", trailing: AnyView(Button("All in graph →") { model.chosen = .graph }.controlSize(.small))) {
-                            if model.recent.isEmpty { Text("No commits in the last 30 days.").font(.system(size: 12)).foregroundStyle(Theme.muted) }
+                            if model.recent.isEmpty { Text("No commits in the last 30 days.").font(.ui(size: 12)).foregroundStyle(Theme.muted) }
                             ForEach(model.recent.prefix(8)) { c in
                                 HStack(spacing: 10) {
-                                    Text(c.short).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.work)
-                                    Text(c.subject).font(.system(size: 12.5)).lineLimit(1).truncationMode(.tail)
+                                    Text(c.short).font(.ui(size: 12, design: .monospaced)).foregroundStyle(Theme.work)
+                                    Text(c.subject).font(.ui(size: 12.5)).lineLimit(1).truncationMode(.tail)
                                     Spacer(minLength: 6)
-                                    Text(c.author ?? "").font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
-                                    if let t = c.time { Text(agoText(t)).font(.system(size: 11.5)).foregroundStyle(Theme.muted).frame(minWidth: 44, alignment: .trailing) }
+                                    Text(c.author ?? "").font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                                    if let t = c.time { Text(agoText(t)).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).frame(minWidth: 44, alignment: .trailing) }
                                 }
                                 .padding(.vertical, 3).contentShape(Rectangle())
                                 .onTapGesture { openInGraph(c.hash) }
@@ -322,10 +322,10 @@ struct GitOverview: View {
                             GitCard(title: "Who changed it this week") {
                                 ForEach(who.prefix(5), id: \.author) { w in
                                     HStack(spacing: 10) {
-                                        Text(w.author).font(.system(size: 12.5)).frame(width: 140, alignment: .leading).lineLimit(1)
+                                        Text(w.author).font(.ui(size: 12.5)).frame(width: 140, alignment: .leading).lineLimit(1)
                                         Meter(fraction: w.share)
-                                        Text("\(w.count) · \(Int((w.share * 100).rounded()))%").font(.system(size: 11.5, design: .monospaced))
-                                            .foregroundStyle(Theme.muted).frame(width: 70, alignment: .trailing)
+                                        Text("\(w.count) · \(Int((w.share * 100).rounded()))%").font(.ui(size: 11.5, design: .monospaced))
+                                            .foregroundStyle(Theme.muted).lineLimit(1).fixedSize().frame(minWidth: 70, alignment: .trailing)
                                     }
                                 }
                             }
@@ -358,19 +358,19 @@ struct GitOverview: View {
             ZStack {
                 Circle().fill((files == 0 ? Theme.ok : Theme.warn).opacity(0.16))
                 Circle().stroke((files == 0 ? Theme.ok : Theme.warn).opacity(0.45))
-                Image(systemName: files == 0 ? "checkmark" : "pencil").font(.system(size: 20, weight: .semibold))
+                Image(systemName: files == 0 ? "checkmark" : "pencil").font(.ui(size: 20, weight: .semibold))
                     .foregroundStyle(files == 0 ? Theme.ok : Theme.warn)
             }
             .frame(width: 52, height: 52)
             VStack(alignment: .leading, spacing: 4) {
                 Text(files == 0 ? "\(model.branch) is clean" : "\(files) uncommitted file\(files == 1 ? "" : "s") on \(model.branch)")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.ui(size: 16, weight: .semibold))
                 Text(files == 0 ? cleanLine(branch: model.branch, ahead: info?.ahead ?? 0, behind: info?.behind ?? 0, upstream: info?.upstream)
                      : "Review them hunk by hunk and commit, or hand them back to the agent with notes.")
-                    .font(.system(size: 12.5)).foregroundStyle(Theme.text2)
+                    .font(.ui(size: 12.5)).foregroundStyle(Theme.text2)
                 if let last = model.recent.first {
                     Text("Last commit \(last.short) \(last.subject)\(last.time.map { " — " + agoText($0) } ?? "")")
-                        .font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
+                        .font(.ui(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
             }
             Spacer()
@@ -392,17 +392,21 @@ struct GitOverview: View {
     /// review — and what to do about a conflict or a failure.
     func pullRequest(_ pr: PRInfo) -> some View {
         let base = model.changes?.base ?? "the base"
-        let st = prStatus(pr, base: base, conflicts: model.baseConflicts)
+        let st = prStatus(pr, base: base, conflicts: model.baseConflicts, baseUnpushed: model.baseUnpushed)
         let who = model.agent.map { $0.name.isEmpty ? ($0.agent?.name ?? "the agent") : $0.name }
         return GitCard(title: "Pull request #\(pr.number)", trailing: pr.url.flatMap(URL.init(string:)).map { u in
             AnyView(Button("Open on GitHub ↗") { NSWorkspace.shared.open(u) }.controlSize(.small))
         }) {
             if let t = pr.title, !t.isEmpty {
-                Text(t).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text(t).font(.ui(size: 13, weight: .semibold)).lineLimit(1)
             }
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
                     prLine(st.merge, icon: st.conflicting ? "exclamationmark.triangle.fill" : st.merge.tone == .ok ? "checkmark.circle.fill" : "circle")
+                    if let l = st.local {
+                        prLine(l, icon: "exclamationmark.circle")
+                            .help("GitHub merges with the \(base) it has, so the pull request is clean; pushing your local \(base) will make it conflict. Merge \(base) into this branch after pushing it, or push and ask the agent then.")
+                    }
                     VStack(alignment: .leading, spacing: 4) {
                         prLine(st.ci, icon: st.ci.tone == .busy ? "clock" : st.ci.tone == .bad ? "xmark.circle.fill" : st.ci.tone == .ok ? "checkmark.circle.fill" : "circle")
                         if let f = st.progress, st.ci.tone == .busy || st.ci.tone == .bad {
@@ -435,10 +439,10 @@ struct GitOverview: View {
     }
 
     func prLine(_ l: PRStatus.Line, icon: String) -> some View {
-        let tone: Color = l.tone == .ok ? Theme.ok : l.tone == .bad ? Theme.err : l.tone == .busy ? Theme.work : Theme.muted
+        let tone: Color = l.tone == .ok ? Theme.ok : l.tone == .bad ? Theme.err : l.tone == .busy ? Theme.work : l.tone == .warn ? Theme.warn : Theme.muted
         return HStack(spacing: 8) {
-            Image(systemName: icon).font(.system(size: 12)).foregroundStyle(tone).frame(width: 14)
-            Text(l.text).font(.system(size: 12.5)).foregroundStyle(l.tone == .quiet ? Theme.text2 : Theme.text).lineLimit(2)
+            Image(systemName: icon).font(.ui(size: 12)).foregroundStyle(tone).frame(width: 14)
+            Text(l.text).font(.ui(size: 12.5)).foregroundStyle(l.tone == .quiet ? Theme.text2 : Theme.text).lineLimit(2)
         }
     }
 
@@ -448,7 +452,7 @@ struct GitOverview: View {
                 row("Behind \(up)", "↓\(info?.behind ?? 0)", (info?.behind ?? 0) > 0 ? Theme.warn : Theme.text2)
                 row("Ahead of \(up)", "↑\(info?.ahead ?? 0)", Theme.text2)
             } else {
-                Text("No upstream: push it to make one.").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Text("No upstream: push it to make one.").font(.ui(size: 12)).foregroundStyle(Theme.muted)
             }
             if let ch = model.changes, ch.base != ch.branch {
                 row("Against \(ch.base)", "↑\(info?.baseAhead ?? 0) ↓\(info?.baseBehind ?? 0)", Theme.text2)
@@ -458,9 +462,9 @@ struct GitOverview: View {
 
     func row(_ l: String, _ v: String, _ c: Color) -> some View {
         HStack {
-            Text(l).font(.system(size: 12.5)).foregroundStyle(Theme.text2).lineLimit(1)
+            Text(l).font(.ui(size: 12.5)).foregroundStyle(Theme.text2).lineLimit(1)
             Spacer()
-            Text(v).font(.system(size: 12.5, weight: .semibold, design: .monospaced)).foregroundStyle(c)
+            Text(v).font(.ui(size: 12.5, weight: .semibold, design: .monospaced)).foregroundStyle(c)
         }
     }
 
@@ -469,7 +473,7 @@ struct GitOverview: View {
         let top = max(days.max() ?? 1, 1)
         let total = days.reduce(0, +)
         return GitCard(title: "Last 14 days", trailing: AnyView(Text(day.map { "\(days[$0]) commit\(days[$0] == 1 ? "" : "s") that day" } ?? "\(total) commits")
-            .font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted))) {
+            .font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted))) {
             HStack(alignment: .bottom, spacing: 4) {
                 ForEach(Array(days.enumerated()), id: \.offset) { i, n in
                     RoundedRectangle(cornerRadius: 3)
@@ -485,7 +489,7 @@ struct GitOverview: View {
             HStack {
                 Text("2 weeks ago"); Spacer(); Text("today")
             }
-            .font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted)
+            .font(.ui(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted)
         }
     }
 
@@ -493,15 +497,15 @@ struct GitOverview: View {
         let all = (store.snapshots[model.machine]?.project(model.project)?.branches ?? []).filter { $0.name != model.branch }
         let base = model.changes?.base ?? "the base"
         return GitCard(title: "Branches against \(base)") {
-            if all.isEmpty { Text("No other branches.").font(.system(size: 12)).foregroundStyle(Theme.muted) }
+            if all.isEmpty { Text("No other branches.").font(.ui(size: 12)).foregroundStyle(Theme.muted) }
             ForEach(all.prefix(8), id: \.name) { b in
                 HStack(spacing: 8) {
                     LucideIcon(name: .gitBranch, color: Theme.muted, size: 11)
-                    Text(b.name).font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                    Text(b.name).font(.ui(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 4)
                     AheadBehind(ahead: b.baseAhead ?? 0, behind: b.baseBehind ?? 0)
                     if let pr = b.pr {
-                        Text("#\(pr.number)\(pr.checks == "pass" ? " ✓" : pr.checks == "fail" ? " ✗" : "")").font(.system(size: 11, design: .monospaced))
+                        Text("#\(pr.number)\(pr.checks == "pass" ? " ✓" : pr.checks == "fail" ? " ✗" : "")").font(.ui(size: 11, design: .monospaced))
                             .foregroundStyle(pr.checks == "fail" ? Theme.err : Theme.ok)
                     }
                 }
@@ -564,7 +568,7 @@ struct TickBox: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 3.5).fill(state == .on ? Theme.accent : .clear)
                 RoundedRectangle(cornerRadius: 3.5).stroke(state == .off ? Theme.muted : Theme.accent, lineWidth: 1.4)
-                if state == .on { Image(systemName: "checkmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(Theme.window) }
+                if state == .on { Image(systemName: "checkmark").font(.ui(size: 8, weight: .heavy)).foregroundStyle(Theme.window) }
                 if state == .mixed { RoundedRectangle(cornerRadius: 1).fill(Theme.accent).frame(width: 7, height: 2) }
             }
             .frame(width: 13, height: 13)
@@ -620,8 +624,8 @@ struct GitFileList: View {
                         heading("Commits · \(commits.count)").padding(.horizontal, 10).padding(.top, 12).padding(.bottom, 4)
                         ForEach(commits.prefix(20)) { c in
                             HStack(spacing: 8) {
-                                Text(String(c.hash.prefix(7))).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.work)
-                                Text(c.subject).font(.system(size: 12)).foregroundStyle(Theme.text2).lineLimit(1)
+                                Text(String(c.hash.prefix(7))).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.work)
+                                Text(c.subject).font(.ui(size: 12)).foregroundStyle(Theme.text2).lineLimit(1)
                             }
                             .padding(.horizontal, 10).frame(height: 22)
                         }
@@ -636,11 +640,11 @@ struct GitFileList: View {
     }
 
     func heading(_ t: String) -> some View {
-        Text(t.uppercased()).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+        Text(t.uppercased()).font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
     }
 
     func muted(_ t: String) -> some View {
-        Text(t).font(.system(size: 12)).foregroundStyle(Theme.muted).padding(.horizontal, 10)
+        Text(t).font(.ui(size: 12)).foregroundStyle(Theme.muted).padding(.horizontal, 10)
     }
 
     func row(_ f: FileChange, committed: Bool) -> some View {
@@ -661,12 +665,12 @@ struct GitFileList: View {
                 }
                 .help("Tick to stage or commit this file (shift-click ticks a run); tick hunks in the diff for part of it")
             }
-            Text(f.code).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(fileCodeColor(f.code)).frame(width: 12)
-            Text(name).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.text).lineLimit(1)
-            Text(dir).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
+            Text(f.code).font(.ui(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(fileCodeColor(f.code)).frame(width: 12)
+            Text(name).font(.ui(size: 12, design: .monospaced)).foregroundStyle(Theme.text).lineLimit(1)
+            Text(dir).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
             Spacer(minLength: 4)
             if notes > 0 {
-                Text("\(notes)").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.onWarn)
+                Text("\(notes)").font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(Theme.onWarn)
                     .padding(.horizontal, 5).background(Capsule().fill(Theme.warn)).fixedSize().help("\(notes) comment\(notes == 1 ? "" : "s")")
             }
             if model.live.contains(f.path) {
@@ -676,15 +680,15 @@ struct GitFileList: View {
                 // An icon, not a word: in a column this narrow a word wrapped
                 // under the name ("stage / d").
                 Image(systemName: f.stage == .on ? "checkmark.circle.fill" : "circle.lefthalf.filled")
-                    .font(.system(size: 11)).foregroundStyle(Theme.ok).fixedSize()
+                    .font(.ui(size: 11)).foregroundStyle(Theme.ok).fixedSize()
                     .help(f.stage == .on ? "Staged: all of it is in the index (git add)" : "Part staged: some of it is in the index, and some is not")
                     .accessibilityLabel(f.stage == .on ? "staged" : "part staged")
             }
             if f.binary == true {
-                Text("binary").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                Text("binary").font(.ui(size: 11)).foregroundStyle(Theme.muted)
             } else {
-                Text("+\(f.added)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.ok).fixedSize()
-                Text("−\(f.deleted)").font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.err).fixedSize()
+                Text("+\(f.added)").font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.ok).fixedSize()
+                Text("−\(f.deleted)").font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.err).fixedSize()
             }
         }
         .padding(.horizontal, 10).frame(height: 26)
@@ -716,7 +720,7 @@ struct GitDiff: View {
         VStack(spacing: 0) {
             if let path = model.selected {
                 HStack(spacing: 10) {
-                    Text(path).font(.system(size: 12.5, design: .monospaced)).lineLimit(1).truncationMode(.head)
+                    Text(path).font(.ui(size: 12.5, design: .monospaced)).lineLimit(1).truncationMode(.head)
                     if model.live.contains(path) {
                         Chip(text: "being written · follows live", tone: Theme.agent(model.agent?.agent?.name))
                     }
@@ -785,7 +789,7 @@ struct DiffBlock: View {
                         model.picks.toggleHunk(path, header: model.fileHunks.header, hunk: h.text, all: model.fileHunks.hunks)
                     }
                     .help("Commit this hunk")
-                    Text(h.header).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2).lineLimit(1)
+                    Text(h.header).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2).lineLimit(1)
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 10).frame(height: 28)
@@ -825,7 +829,7 @@ struct DiffBlock: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
-        .font(.system(size: 12, design: .monospaced)).padding(.vertical, 1)
+        .font(.ui(size: 12, design: .monospaced)).padding(.vertical, 1)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(l.map { diffBackground($0.kind) } ?? .clear)
     }
@@ -907,7 +911,7 @@ struct DiffRow: View {
             ZStack {
                 if hover, let n {
                     Button { model.compose(file: path, line: n) } label: {
-                        Image(systemName: "plus").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                        Image(systemName: "plus").font(.ui(size: 9, weight: .bold)).foregroundStyle(.white)
                             .frame(width: 16, height: 16).background(RoundedRectangle(cornerRadius: 4).fill(Theme.accentDeep))
                     }
                     .buttonStyle(.plain).help("Comment on this line")
@@ -921,7 +925,7 @@ struct DiffRow: View {
             Text(line.text.isEmpty ? " " : line.text).foregroundStyle(diffColor(line.kind)).fixedSize()
             Spacer(minLength: 0)
         }
-        .font(.system(size: 12, design: .monospaced))
+        .font(.ui(size: 12, design: .monospaced))
         .padding(.vertical, 1)
         .frame(width: width > 0 ? width : nil, alignment: .leading)
         .background(diffBackground(line.kind))
@@ -952,13 +956,13 @@ struct CommentThread: View {
             if case .sent(_, true) = state {
                 Rectangle().fill(Theme.line).frame(height: 1)
                 Text("The agent finished without answering this one here — its session has what it said.")
-                    .font(.system(size: 11.5)).foregroundStyle(Theme.muted).padding(.horizontal, 10).padding(.vertical, 6)
+                    .font(.ui(size: 11.5)).foregroundStyle(Theme.muted).padding(.horizontal, 10).padding(.vertical, 6)
             }
             if replying {
                 Rectangle().fill(Theme.line).frame(height: 1)
                 HStack(spacing: 8) {
                     TextField("Answer back — it waits to be sent again with the thread", text: $answer)
-                        .textFieldStyle(.roundedBorder).font(.system(size: 12.5)).focused($typing)
+                        .textFieldStyle(.roundedBorder).font(.ui(size: 12.5)).focused($typing)
                         .onSubmit { send() }
                     Button("Reply") { send() }.controlSize(.small).buttonStyle(.borderedProminent)
                         .disabled(answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -972,7 +976,7 @@ struct CommentThread: View {
                 switch state {
                 case .github:
                     if let u = comment.url.flatMap(URL.init(string:)) { Button("Reply on GitHub") { NSWorkspace.shared.open(u) }.controlSize(.small) }
-                    if comment.outdated == true { Text("outdated").font(.system(size: 11)).foregroundStyle(Theme.muted) }
+                    if comment.outdated == true { Text("outdated").font(.ui(size: 11)).foregroundStyle(Theme.muted) }
                 case .waiting:
                     SendNotesMenu(store: model.store, model: model, title: "Send to an agent")
                 case .sent, .replied:
@@ -1016,14 +1020,14 @@ struct CommentThread: View {
     func entry(by: String, note: String, at: Date?, chip: (String, Color)?) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
-                Text(by).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                Text(by).font(.ui(size: 12, weight: .semibold)).lineLimit(1)
                 if let (kind, tone) = chip {
-                    Text(kind).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(tone).lineLimit(1)
+                    Text(kind).font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(tone).lineLimit(1)
                         .padding(.horizontal, 6).padding(.vertical, 1).overlay(Capsule().stroke(tone.opacity(0.5)))
                 }
-                if let at { Text(agoText(at)).font(.system(size: 11)).foregroundStyle(Theme.muted) }
+                if let at { Text(agoText(at)).font(.ui(size: 11)).foregroundStyle(Theme.muted) }
             }
-            Text(note).font(.system(size: 12.5)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            Text(note).font(.ui(size: 12.5)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1040,11 +1044,11 @@ struct PendingRow: View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    Text("you").font(.system(size: 12, weight: .semibold))
-                    Text("pending · in your review").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.warn)
+                    Text("you").font(.ui(size: 12, weight: .semibold))
+                    Text("pending · in your review").font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(Theme.warn)
                         .padding(.horizontal, 6).padding(.vertical, 1).overlay(Capsule().stroke(Theme.warn.opacity(0.5)))
                 }
-                Text(pending.note).font(.system(size: 12.5)).fixedSize(horizontal: false, vertical: true)
+                Text(pending.note).font(.ui(size: 12.5)).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             Button("Remove") { model.dropPending(pending) }.controlSize(.small)
@@ -1071,13 +1075,13 @@ struct CommentComposer: View {
     // note" was taken for the send button, and clicking it did nothing.
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextEditor(text: $text).font(.system(size: 12.5)).frame(minHeight: 60, maxHeight: 120).focused($typing)
+            TextEditor(text: $text).font(.ui(size: 12.5)).frame(minHeight: 60, maxHeight: 120).focused($typing)
                 .scrollContentBackground(.hidden).padding(6)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Theme.window))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.accent))
                 .overlay(alignment: .topLeading) {
                     if text.isEmpty {
-                        Text("Comment on line \(line)").font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(11).allowsHitTesting(false)
+                        Text("Comment on line \(line)").font(.ui(size: 12.5)).foregroundStyle(Theme.muted).padding(11).allowsHitTesting(false)
                     }
                 }
                 // Return adds the note, as a chat box sends; shift-return is a new line.
@@ -1087,7 +1091,7 @@ struct CommentComposer: View {
                     return .handled
                 }
             HStack(spacing: 8) {
-                Text("↩ note for the agent · ⇧↩ new line").font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
+                Text("↩ note for the agent · ⇧↩ new line").font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
                 Spacer(minLength: 6)
                 Button("Cancel") { model.composingFile = nil }.controlSize(.small).keyboardShortcut(.cancelAction)
                 Button("Add to PR review") { model.addComment(text, file: file, line: line, forPR: true) }
@@ -1167,12 +1171,12 @@ struct SentRow: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    Text("you").font(.system(size: 12, weight: .semibold))
-                    Text("sent to \(sent.to)").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Theme.ok).lineLimit(1)
+                    Text("you").font(.ui(size: 12, weight: .semibold))
+                    Text("sent to \(sent.to)").font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(Theme.ok).lineLimit(1)
                         .padding(.horizontal, 6).padding(.vertical, 1).overlay(Capsule().stroke(Theme.ok.opacity(0.5)))
-                    Text(agoText(sent.at)).font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    Text(agoText(sent.at)).font(.ui(size: 11)).foregroundStyle(Theme.muted)
                 }
-                Text(sent.note).font(.system(size: 12.5)).foregroundStyle(Theme.text2).textSelection(.enabled)
+                Text(sent.note).font(.ui(size: 12.5)).foregroundStyle(Theme.text2).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(10)
@@ -1215,8 +1219,8 @@ struct GitSide: View {
     var commit: some View {
         let files = model.changes?.files.count ?? 0
         return GitCard(title: "Commit") {
-            Text(files == 0 ? "Nothing to commit." : "Commits \(model.commitWhat).").font(.system(size: 12)).foregroundStyle(Theme.text2)
-            TextEditor(text: $model.message).font(.system(size: 12.5, design: .monospaced)).frame(minHeight: 90, maxHeight: 180)
+            Text(files == 0 ? "Nothing to commit." : "Commits \(model.commitWhat).").font(.ui(size: 12)).foregroundStyle(Theme.text2)
+            TextEditor(text: $model.message).font(.ui(size: 12.5, design: .monospaced)).frame(minHeight: 90, maxHeight: 180)
                 .scrollContentBackground(.hidden).padding(6)
                 .background(RoundedRectangle(cornerRadius: 7).fill(Theme.window))
                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.line2))
@@ -1240,7 +1244,7 @@ struct GitSide: View {
                     .keyboardShortcut(.return, modifiers: .command)
             }
             if let a = model.agent?.agent {
-                Toggle(isOn: $model.credit) { Text("Credit \(a.name) (Co-Authored-By)").font(.system(size: 12)) }.toggleStyle(.checkbox)
+                Toggle(isOn: $model.credit) { Text("Credit \(a.name) (Co-Authored-By)").font(.ui(size: 12)) }.toggleStyle(.checkbox)
             }
         }
     }
@@ -1250,55 +1254,55 @@ struct GitSide: View {
         let pr = info?.pr
         return GitCard(title: pr.map { "Review · #\($0.number)" } ?? "Review") {
             HStack(spacing: 8) {
-                Text("\(notes.count) note\(notes.count == 1 ? "" : "s") for the agent").font(.system(size: 12.5))
+                Text("\(notes.count) note\(notes.count == 1 ? "" : "s") for the agent").font(.ui(size: 12.5))
                 Spacer()
                 SendNotesMenu(store: store, model: model, title: "Send")
             }
             if let pr, pr.state == "OPEN" {
-                Text("\(model.pending.count) comment\(model.pending.count == 1 ? "" : "s") waiting for the pull request").font(.system(size: 12.5)).foregroundStyle(Theme.text2)
+                Text("\(model.pending.count) comment\(model.pending.count == 1 ? "" : "s") waiting for the pull request").font(.ui(size: 12.5)).foregroundStyle(Theme.text2)
                 if let done = model.reviewed {
                     HStack(spacing: 6) {
                         Image(systemName: done == .requestChanges ? "xmark.circle.fill" : "checkmark.circle.fill")
                         Text(done == .approve ? "You approved #\(pr.number)" : done == .requestChanges ? "You requested changes" : "You commented")
                     }
-                    .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(done == .requestChanges ? Theme.err : Theme.ok)
+                    .font(.ui(size: 12.5, weight: .semibold)).foregroundStyle(done == .requestChanges ? Theme.err : Theme.ok)
                     Button("Review again") { model.reviewed = nil }.controlSize(.small)
                 } else {
                     Picker("", selection: $model.event) {
                         ForEach(ReviewEvent.allCases, id: \.self) { e in
                             VStack(alignment: .leading) {
                                 Text(e.title)
-                                Text(e.help).font(.system(size: 11)).foregroundStyle(Theme.muted)
+                                Text(e.help).font(.ui(size: 11)).foregroundStyle(Theme.muted)
                             }
                             .tag(e)
                         }
                     }
                     .pickerStyle(.radioGroup).labelsHidden()
-                    TextEditor(text: $model.reviewBody).font(.system(size: 12.5)).frame(minHeight: 56, maxHeight: 120)
+                    TextEditor(text: $model.reviewBody).font(.ui(size: 12.5)).frame(minHeight: 56, maxHeight: 120)
                         .scrollContentBackground(.hidden).padding(6)
                         .background(RoundedRectangle(cornerRadius: 7).fill(Theme.window))
                         .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.line2))
                         .overlay(alignment: .topLeading) {
-                            if model.reviewBody.isEmpty { Text("Summary").font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(11).allowsHitTesting(false) }
+                            if model.reviewBody.isEmpty { Text("Summary").font(.ui(size: 12.5)).foregroundStyle(Theme.muted).padding(11).allowsHitTesting(false) }
                         }
                     Button("Submit review" + (model.pending.isEmpty ? "" : " with \(model.pending.count) comment\(model.pending.count == 1 ? "" : "s")")) { model.submitReview() }
                         .buttonStyle(.borderedProminent).controlSize(.small)
                         .disabled(!model.event.canSubmit(body: model.reviewBody, comments: model.pending.count) || model.busy != nil)
                 }
             } else {
-                Text("No pull request open: comments for one wait until there is.").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Text("No pull request open: comments for one wait until there is.").font(.ui(size: 12)).foregroundStyle(Theme.muted)
                 Button("Open pull request") { model.openPR() }.controlSize(.small).disabled(model.busy != nil)
             }
         }
     }
 
     func checks(_ pr: PRInfo) -> some View {
-        let st = prStatus(pr, base: model.changes?.base ?? "the base", conflicts: model.baseConflicts)
+        let st = prStatus(pr, base: model.changes?.base ?? "the base", conflicts: model.baseConflicts, baseUnpushed: model.baseUnpushed)
         return GitCard(title: "Checks") {
             HStack(spacing: 8) {
                 Image(systemName: pr.checks == "pass" ? "checkmark.circle.fill" : pr.checks == "fail" ? "xmark.circle.fill" : "clock")
                     .foregroundStyle(pr.checks == "pass" ? Theme.ok : pr.checks == "fail" ? Theme.err : Theme.work)
-                Text(st.ci.text).font(.system(size: 12.5)).lineLimit(1)
+                Text(st.ci.text).font(.ui(size: 12.5)).lineLimit(1)
                 Spacer()
             }
             if let f = st.progress, pr.checks == "pending" || pr.checks == "fail" {
@@ -1309,7 +1313,7 @@ struct GitSide: View {
                 Button(model.agent.map { "Send the failure to \($0.name.isEmpty ? ($0.agent?.name ?? "the agent") : $0.name)" } ?? "Start an agent on the failure") { model.fixCI() }
                     .controlSize(.small)
             }
-            if let u = pr.url.flatMap(URL.init(string:)) { Button("Open #\(pr.number) on GitHub") { NSWorkspace.shared.open(u) }.buttonStyle(.link).font(.system(size: 12)) }
+            if let u = pr.url.flatMap(URL.init(string:)) { Button("Open #\(pr.number) on GitHub") { NSWorkspace.shared.open(u) }.buttonStyle(.link).font(.ui(size: 12)) }
         }
     }
 }

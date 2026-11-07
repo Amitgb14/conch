@@ -10,19 +10,18 @@ import SwiftUI
 /// The buttons, side by side.
 struct StatusExtras: View {
     @ObservedObject var store: Store
-    @State private var asking = false
     @State private var reporting = false
     @State private var pairing = false
 
     var body: some View {
         HStack(spacing: 10) {
-            Button { asking.toggle() } label: {
-                Text("✦ Ask").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.accent)
+            Button { store.askOpen.toggle() } label: {
+                Text("✦ Ask").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.accent)
             }
             .buttonStyle(.plain).help("Ask conch in plain words — it plans, and runs nothing until you confirm")
-            .popover(isPresented: $asking, arrowEdge: .top) { AskPopover(store: store) }
+            .popover(isPresented: $store.askOpen, arrowEdge: .top) { AskPopover(store: store) }
             Button { reporting.toggle() } label: {
-                Text("⊙").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.muted)
+                Text("⊙").font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.muted)
             }
             .buttonStyle(.plain).help("Report a problem: the facts about this conch, for a GitHub issue")
             .popover(isPresented: $reporting, arrowEdge: .top) { ReportPopover(store: store) }
@@ -155,7 +154,7 @@ struct AskPopover: View {
                 }
                 Spacer(minLength: 0)
             case .failed(let why)?:
-                Text(why).foregroundStyle(Theme.err).font(.system(size: 12)).textSelection(.enabled)
+                Text(why).foregroundStyle(Theme.err).font(.ui(size: 12)).textSelection(.enabled)
                 options
             default:
                 if model.output.isEmpty { Spacer(minLength: 0) }
@@ -186,11 +185,11 @@ struct AskPopover: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("✦ Ask conch").font(.system(size: 15, weight: .semibold))
+            Text("✦ Ask conch").font(.ui(size: 15, weight: .semibold))
             Spacer()
             if let p = model.suggested?.provider, !p.isEmpty {
                 Text(model.suggested?.fast == false ? "\(p) · every request" : "\(p) · simple requests answered at once")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(.ui(size: 11)).foregroundStyle(.secondary)
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Capsule().fill(Theme.well))
             }
@@ -199,9 +198,9 @@ struct AskPopover: View {
 
     private var field: some View {
         HStack(spacing: 8) {
-            Text("✦").foregroundStyle(Theme.accent).font(.system(size: 15, weight: .semibold))
+            Text("✦").foregroundStyle(Theme.accent).font(.ui(size: 15, weight: .semibold))
             TextField("Say what you want, or pick one below", text: $model.request)
-                .textFieldStyle(.plain).font(.system(size: 14))
+                .textFieldStyle(.plain).font(.ui(size: 14))
                 .focused($typing)
                 .onSubmit { submit() }
                 .onKeyPress(.downArrow) { model.move(1); return .handled }
@@ -226,7 +225,7 @@ struct AskPopover: View {
                 Text(s.summary ?? "")
             }
         }
-        .font(.system(size: 11.5))
+        .font(.ui(size: 11.5))
     }
 
     @ViewBuilder private var options: some View {
@@ -236,7 +235,7 @@ struct AskPopover: View {
                 ForEach(Array(opts.enumerated()), id: \.element) { i, o in
                     if i == 0 || opts[i - 1].isRecent != o.isRecent {
                         Text(o.isRecent ? "RECENT" : "SUGGESTED")
-                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                            .font(.ui(size: 10, weight: .semibold)).foregroundStyle(.secondary)
                             .padding(.top, i == 0 ? 0 : 8).padding(.bottom, 2)
                     }
                     optionRow(o, lit: model.pick == i)
@@ -253,11 +252,11 @@ struct AskPopover: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: o.isRecent ? "clock.arrow.circlepath" : (o.fill ? "square.and.pencil" : "sparkle"))
-                    .font(.system(size: 11)).foregroundStyle(lit ? Theme.accent : Theme.muted).frame(width: 16)
-                Text(o.text).font(.system(size: 13)).lineLimit(1).truncationMode(.tail)
+                    .font(.ui(size: 11)).foregroundStyle(lit ? Theme.accent : Theme.muted).frame(width: 16)
+                Text(o.text).font(.ui(size: 13)).lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 12)
                 if let n = o.note, !n.isEmpty {
-                    Text(n).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(n).font(.ui(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             .padding(.horizontal, 8).padding(.vertical, 5)
@@ -270,10 +269,10 @@ struct AskPopover: View {
 
     @ViewBuilder private var result: some View {
         if model.fast {
-            Text("Answered without the model").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("Answered without the model").font(.ui(size: 11)).foregroundStyle(.secondary)
         }
         ScrollView {
-            Text(model.output).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+            Text(model.output).font(.ui(size: 12, design: .monospaced)).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: .infinity)
@@ -284,7 +283,7 @@ struct AskPopover: View {
         switch model.state {
         case .plan(let n)?:
             HStack {
-                Text("Nothing has run yet.").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Nothing has run yet.").font(.ui(size: 11)).foregroundStyle(.secondary)
                 Spacer()
                 Button("Don't run") { model.confirm(false) }
                 Button("Run \(n) action\(n == 1 ? "" : "s")") { model.confirm(true) }.keyboardShortcut(.defaultAction)
@@ -304,7 +303,7 @@ struct AskPopover: View {
             }
         default:
             Text("↑↓ choose · ↩ ask · ⇥ fill in · esc close — nothing runs until you confirm")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(.ui(size: 11)).foregroundStyle(.secondary)
         }
     }
 }
@@ -320,20 +319,20 @@ struct ReportPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Report a problem").font(.system(size: 13, weight: .semibold))
+            Text("Report a problem").font(.ui(size: 13, weight: .semibold))
             Text("The facts about this conch — versions, counts and the last error, never a path, a project or a screen. Nothing is sent: a GitHub issue opens with them, for you to read before you submit it.")
-                .font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             TextField("What happened (optional)", text: $what).textFieldStyle(.roundedBorder)
             if !report.isEmpty {
                 ScrollView {
-                    Text(report).font(.system(size: 11.5, design: .monospaced)).textSelection(.enabled)
+                    Text(report).font(.ui(size: 11.5, design: .monospaced)).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(minHeight: 120, maxHeight: 220) // in a popover, a scroll view takes no height it is not given
             }
-            if !error.isEmpty { Text(error).foregroundStyle(Theme.err).font(.system(size: 12)) }
+            if !error.isEmpty { Text(error).foregroundStyle(Theme.err).font(.ui(size: 12)) }
             HStack {
-                if opened { Text("Opened in your browser.").foregroundStyle(.secondary).font(.system(size: 12)) }
+                if opened { Text("Opened in your browser.").foregroundStyle(.secondary).font(.ui(size: 12)) }
                 Spacer()
                 Button("Show the facts") { run(open: false) }
                 Button("Open a GitHub issue") { run(open: true) }.keyboardShortcut(.defaultAction)
@@ -372,7 +371,7 @@ struct PairPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Pair a phone with this computer").font(.system(size: 13, weight: .semibold))
+            Text("Pair a phone with this computer").font(.ui(size: 13, weight: .semibold))
             Picker("", selection: $permission) {
                 Text("Full").tag("full")
                 Text("Reply").tag("reply")
@@ -381,7 +380,7 @@ struct PairPopover: View {
             .pickerStyle(.segmented).labelsHidden()
             .onChange(of: permission) { _ in pair() }
             Text(permission == "full" ? "It can see, answer and type into terminals." : permission == "reply" ? "It can see and answer agents, not type into terminals." : "It can only look.")
-                .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                .font(.ui(size: 11.5)).foregroundStyle(.secondary)
             if let i = info {
                 HStack(alignment: .top, spacing: 14) {
                     if let link = i.link, let qr = qrImage(link) {
@@ -389,21 +388,21 @@ struct PairPopover: View {
                             .background(Color.white).help(link)
                     }
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(i.code).font(.system(size: 26, weight: .bold, design: .monospaced)).textSelection(.enabled)
+                        Text(i.code).font(.ui(size: 26, weight: .bold, design: .monospaced)).textSelection(.enabled)
                         if let e = i.expires {
-                            Text("Good once, until \(e.formatted(date: .omitted, time: .shortened)).").font(.system(size: 11.5)).foregroundStyle(.secondary)
+                            Text("Good once, until \(e.formatted(date: .omitted, time: .shortened)).").font(.ui(size: 11.5)).foregroundStyle(.secondary)
                         }
-                        if let r = i.reach { Text(r).font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                        if let r = i.reach { Text(r).font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                         HStack {
                             Button("Copy code") { copy(i.code) }
                             if let l = i.link { Button("Copy link") { copy(l) } }
                         }
                     }
                 }
-                if let w = i.where { Text(w).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true) }
+                if let w = i.where { Text(w).font(.ui(size: 12)).fixedSize(horizontal: false, vertical: true) }
                 if i.running != true {
                     HStack {
-                        Text("conch web, the gateway a phone reaches, is not running.").font(.system(size: 12)).foregroundStyle(Theme.warn)
+                        Text("conch web, the gateway a phone reaches, is not running.").font(.ui(size: 12)).foregroundStyle(Theme.warn)
                         Spacer()
                         if i.canStart == true {
                             Button(starting ? "Starting…" : "Start it") { start() }.disabled(starting)
@@ -411,7 +410,7 @@ struct PairPopover: View {
                     }
                 }
             }
-            if !error.isEmpty { Text(error).foregroundStyle(Theme.err).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true) }
+            if !error.isEmpty { Text(error).foregroundStyle(Theme.err).font(.ui(size: 12)).fixedSize(horizontal: false, vertical: true) }
         }
         .padding(14).frame(width: 440)
         .onAppear { pair() }

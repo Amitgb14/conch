@@ -85,6 +85,26 @@ var themes = []palette{
 		ok: "#2F7D32", warn: "#B26A00", err: "#9B1C1C", work: "#1F5FA8", selDim: "#E4E1D8", merged: "#6A3FA0", bg: "#FBFAF6", fg: "#111111"},
 	{name: "meadow", label: "Meadow", accent: "#4F8A3C", selFG: "#FFFFFF", border: "#D9CFB4", muted: "#7E8B80",
 		ok: "#2E8B6E", warn: "#C9822A", err: "#C15A3F", work: "#3F84AD", selDim: "#E6EDD8", merged: "#8A6BB0", bg: "#F7F1DF", fg: "#34453A"},
+	// Terminal is conch's teal on a terminal's ground: ink black, dark
+	// hairline borders and terminal state colours, after herdr — the
+	// desktop's Terminal style puts it on, with monospace for the window.
+	{name: "terminal", label: "Terminal", accent: "#2AA5B5", selFG: "#FFFFFF", border: "#1E232A", muted: "#8B949E",
+		ok: "#9ECE6A", warn: "#E0AF68", err: "#F7768E", work: "#7AA2F7", selDim: "#171B20", merged: "#BB9AF7", bg: "#0C0E11", fg: "#D4D9DF"},
+	// Terminal Light is the same on paper: off-white, grey hairlines, the
+	// teal deepened so a selection reads on white, GitHub-light states.
+	{name: "terminal-light", label: "Terminal Light", accent: "#0F7B8A", selFG: "#FFFFFF", border: "#DADDE2", muted: "#6E7781",
+		ok: "#1A7F37", warn: "#9A6700", err: "#CF222E", work: "#0969DA", selDim: "#E9EBEE", merged: "#8250DF", bg: "#FBFBFC", fg: "#1F2328"},
+	// VS Code's own: Dark Modern and Light Modern (its defaults), Dark+ and
+	// Light+ (the classic pair), from extensions/theme-defaults; the states
+	// are its charts.green, yellow, red and blue.
+	{name: "vscode-dark-modern", label: "VS Code Dark Modern", accent: "#0078D4", selFG: "#FFFFFF", border: "#2B2B2B", muted: "#9D9D9D",
+		ok: "#89D185", warn: "#CCA700", err: "#F14C4C", work: "#3794FF", selDim: "#37373D", merged: "#B180D7", bg: "#1F1F1F", fg: "#CCCCCC"},
+	{name: "vscode-light-modern", label: "VS Code Light Modern", accent: "#005FB8", selFG: "#FFFFFF", border: "#E5E5E5", muted: "#616161",
+		ok: "#388A34", warn: "#BF8803", err: "#E51400", work: "#1A85FF", selDim: "#E8E8E8", merged: "#652D90", bg: "#FFFFFF", fg: "#3B3B3B"},
+	{name: "vscode-dark-plus", label: "VS Code Dark+", accent: "#007ACC", selFG: "#FFFFFF", border: "#3C3C3C", muted: "#8F8F8F",
+		ok: "#89D185", warn: "#CCA700", err: "#F14C4C", work: "#3794FF", selDim: "#37373D", merged: "#B180D7", bg: "#1E1E1E", fg: "#D4D4D4"},
+	{name: "vscode-light-plus", label: "VS Code Light+", accent: "#007ACC", selFG: "#FFFFFF", border: "#E5E5E5", muted: "#717171",
+		ok: "#388A34", warn: "#BF8803", err: "#E51400", work: "#1A85FF", selDim: "#E4E6F1", merged: "#652D90", bg: "#FFFFFF", fg: "#000000"},
 }
 
 // accentColors are the named choices for [ui] accent. Each is dark enough
@@ -127,6 +147,7 @@ func init() { applyTheme("conch", "") }
 // window it opens, so that window is the theme rather than a terminal's
 // stock black with conch's colours on it.
 func TerminalColors(theme, accent string) (bg, fg, cursor, selection string) {
+	reloadUserThemes() // conch app is its own process: your themes are read here too
 	t := themeByName(theme)
 	cur := t.accent
 	if c, ok := accentColors[strings.ToLower(strings.TrimSpace(accent))]; ok {
@@ -138,7 +159,7 @@ func TerminalColors(theme, accent string) (bg, fg, cursor, selection string) {
 }
 
 func themeByName(name string) palette {
-	for _, t := range themes {
+	for _, t := range allThemes() {
 		if t.name == strings.ToLower(strings.TrimSpace(name)) {
 			return t
 		}

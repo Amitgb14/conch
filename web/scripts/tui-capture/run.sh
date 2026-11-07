@@ -21,11 +21,34 @@ cd "$R"
 "${IE[@]}" conch new -cwd "$R" -name dev-server devserver
 
 # Give the task branches some git state: commits ahead and uncommitted lines.
-W=$R.worktrees/conch-add-health-check
-( cd "$W" && printf 'package http\n\n// health\nfunc health() {}\n' > internal/http/health.go && git add -A &&
-  git commit -qm "Add /healthz handler" && echo "// readyz" >> internal/http/routes.go && git commit -qam "Add /readyz" &&
-  printf '\n// TODO test\n' >> internal/http/health.go )
-W2=$R.worktrees/conch-fix-flaky-login-test
+# Each task's worktree, found by its branch: tasks name both after the
+# project and the task (api/add-health-check), and a path written here
+# went stale when that naming changed, leaving the demo branches empty.
+wt() { git -C "$R" worktree list --porcelain | awk -v b="refs/heads/$1" '/^worktree /{w=$2} $0=="branch " b{print w}'; }
+W=$(wt api/add-health-check)
+( cd "$W" && cat > internal/http/health.go <<'GO'
+package http
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+// health answers /healthz: 200 when the database answers, 503 when not.
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	status := map[string]string{"db": "ok"}
+	if err := s.db.PingContext(r.Context()); err != nil {
+		status["db"] = err.Error()
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	json.NewEncoder(w).Encode(status)
+}
+GO
+  git add -A && git commit -qm "Add /healthz handler" &&
+  printf '\nfunc (s *Server) routes() {\n\ts.mux.HandleFunc("GET /healthz", s.health)\n\ts.mux.HandleFunc("GET /readyz", s.ready)\n}\n' >> internal/http/routes.go &&
+  git commit -qam "Route /healthz and /readyz" &&
+  printf '\n// ready answers /readyz once migrations have run.\nfunc (s *Server) ready(w http.ResponseWriter, r *http.Request) {\n\tif !s.migrated.Load() {\n\t\thttp.Error(w, "migrating", http.StatusServiceUnavailable)\n\t\treturn\n\t}\n\tw.WriteHeader(http.StatusOK)\n}\n' >> internal/http/health.go )
+W2=$(wt api/fix-flaky-login-test)
 ( cd "$W2" && printf 'package auth\n\n// wait for sweeper\n' >> auth/session.go )
 
 echo '{"expanded":{},"show_all":{},"sidebar_width":44}' > "$D/.config/conch/ui.json"

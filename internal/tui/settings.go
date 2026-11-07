@@ -194,8 +194,13 @@ func squashText(squash bool) string {
 
 func (s *settings) themeItems(m *Model) []settingItem {
 	items := []settingItem{{header: true, label: "Colours"}}
+	// A file added since shows the next time the list opens; one that does
+	// not read is listed with why, rather than missing without a word.
+	for _, p := range reloadUserThemes() {
+		items = append(items, settingItem{header: true, label: "⚠ themes/" + p})
+	}
 	current := themeByName(m.cfg.UI.Theme).name
-	for _, t := range themes {
+	for _, t := range allThemes() {
 		t := t
 		items = append(items, settingItem{label: t.label, detail: t.swatch(), mark: t.name == current,
 			run: func(m *Model) tea.Cmd {
@@ -729,7 +734,7 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				m.libraryErr = ""
 				return m.loadLibrary(proto.AgentLibraryParams{}, "")
 			}},
-		settingItem{label: "conch's own skill…", detail: styleMuted.Render("so an agent can start, prompt and read another"), page: true,
+		settingItem{label: "conch's skills…", detail: styleMuted.Render("so an agent can run others: a helper, a team, a review, a factory"), page: true,
 			run: func(m *Model) tea.Cmd {
 				s.openPage("skill")
 				var cmds []tea.Cmd

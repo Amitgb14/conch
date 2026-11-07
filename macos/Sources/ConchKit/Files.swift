@@ -43,6 +43,21 @@ public struct FSRead: Decodable, Sendable {
     public var truncated: Bool?
     public var binary: Bool?
     public var mime: String?
+    /// The whole file's fingerprint, when data is all of it: what a save
+    /// is checked against (fs.write.v1). nil from an older server, or for
+    /// a file read only in part.
+    public var hash: String?
+
+    /// Whether it can be edited and saved: all of it read, as text, with a
+    /// fingerprint to save against.
+    public var editable: Bool { binary != true && truncated != true && data != nil && !(hash ?? "").isEmpty }
+}
+
+/// The result of a save (fs.write).
+public struct FSWriteResult: Decodable, Sendable {
+    public var path: String?
+    public var size: Int64?
+    public var hash: String
 }
 
 /// A project's Files tab's key in the layout: "files|machine|project".

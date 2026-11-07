@@ -16,6 +16,8 @@ enum Theme {
     static var icons = IconMode.text
     /// How the chrome is drawn (View → Style): standard, or Ink.
     static var style = AppStyle.standard
+    /// The window's own text, as a scale ([app] text_size).
+    static var textScale = 1.0
 
     static func ns(_ c: RGB) -> NSColor { NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1) }
     static func color(_ c: RGB) -> Color { Color(nsColor: ns(c)) }
@@ -26,6 +28,10 @@ enum Theme {
     static var chrome: Color { color(current.chrome) }
     static var side: Color { color(current.sidebar) }
     static var raise: Color { color(current.raised) }
+    /// A step above raise: a control on a card (Settings' fields, segments).
+    static var raise2: Color {
+        Color(nsColor: ns(current.raised).blended(withFraction: 0.07, of: current.light ? .black : .white) ?? ns(current.raised))
+    }
     static var paneHeader: Color { color(current.paneHeader) }
     static var well: Color { color(current.well) }
     static var line: Color { color(current.border) }
@@ -77,7 +83,7 @@ struct Pill: View {
                 Text(text)
             }
         }
-        .font(.system(size: 11, weight: .semibold)).foregroundStyle(fg)
+        .font(.ui(size: 11, weight: .semibold)).foregroundStyle(fg)
         .padding(.horizontal, 7).padding(.vertical, 2)
         .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 20).fill(bg))
         .overlay(RoundedRectangle(cornerRadius: 0).strokeBorder(Theme.ink ? Theme.inkLine : .clear, lineWidth: 1.5))
@@ -134,7 +140,7 @@ struct PortLink: View {
 
     var body: some View {
         let _ = look
-        Text(":\(port)").font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
+        Text(":\(port)").font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
             .help(local ? "CONCH_PORT of this checkout — click to open http://localhost:\(port)" : "CONCH_PORT of this checkout, on that machine")
             .onTapGesture {
                 if local, let u = URL(string: "http://localhost:\(port)") { NSWorkspace.shared.open(u) }
@@ -153,7 +159,7 @@ struct FoldedAgents: View {
         let _ = look
         HStack(spacing: 3) {
             ForEach(names.prefix(4), id: \.self) { Mark(agent: $0) }
-            if names.count > 4 { Text("+\(names.count - 4)").font(.system(size: 11)).foregroundStyle(Theme.muted) }
+            if names.count > 4 { Text("+\(names.count - 4)").font(.ui(size: 11)).foregroundStyle(Theme.muted) }
         }
     }
 }
@@ -219,9 +225,9 @@ struct Mark: View {
                 if let font = NerdFont.font(for: mark, size: 15) {
                     Text(mark.glyph).font(Font(font))
                 } else if let sym = mark.symbol {
-                    Image(systemName: sym).font(.system(size: 13, weight: .bold))
+                    Image(systemName: sym).font(.ui(size: 13, weight: .bold))
                 } else {
-                    Text(mark.glyph).font(.system(size: 15, weight: .bold))
+                    Text(mark.glyph).font(.ui(size: 15, weight: .bold))
                 }
             }
             .foregroundStyle(Theme.agent(agent))
@@ -273,7 +279,7 @@ struct Keycap: View {
 
     var body: some View {
         let _ = look
-        Text(key).font(.system(size: 10.5, weight: .medium)).foregroundStyle(Theme.text2)
+        Text(key).font(.ui(size: 10.5, weight: .medium)).foregroundStyle(Theme.text2)
             .padding(.horizontal, 4.5).frame(minWidth: 17, minHeight: 15)
             .background(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 3.5).fill(Theme.ink ? Theme.window : Theme.raise))
             .overlay(RoundedRectangle(cornerRadius: Theme.ink ? 0 : 3.5).strokeBorder(Theme.ink ? Theme.inkLine : Theme.line2, lineWidth: Theme.ink ? 1.5 : 0.5))
@@ -287,8 +293,54 @@ struct Dot: View {
 
 // MARK: - toolbar contents
 
+/// Where each workspace's label is in the toolbar's hosting view, for its
+/// right-click menu: the toolbar takes a right-click for its own menu, so
+/// SwiftUI's context menu there never showed, and the hosting view asks
+/// this which workspace the pointer is on (WorkspacesHost).
+@MainActor final class WorkspaceHits {
+    static let shared = WorkspaceHits()
+    var frames: [Int: CGRect] = [:]
+
+    func index(at p: CGPoint) -> Int? { frames.first { $0.value.contains(p) }?.key }
+}
+
+/// The toolbar's view of the workspaces: a right-click on one is its menu
+/// (rename, close), as the TUI has, in place of the toolbar's own.
+final class WorkspacesHost: NSHostingView<WorkspacesControl> {
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let p = convert(event.locationInWindow, from: nil)
+        let point = isFlipped ? p : CGPoint(x: p.x, y: bounds.height - p.y)
+        guard let i = WorkspaceHits.shared.index(at: point) else { return super.menu(for: event) }
+        let store = rootView.store
+        let m = NSMenu()
+        m.addItem(ClosureItem("Rename…") { store.renameWorkspace(i) })
+        if i > 0 {
+            m.addItem(.separator())
+            m.addItem(ClosureItem("Close Workspace…") { store.closeWorkspace(i) })
+        }
+        return m
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if let m = menu(for: event) { NSMenu.popUpContextMenu(m, with: event, for: self) } else { super.rightMouseDown(with: event) }
+    }
+}
+
+/// A menu item that runs a closure.
+final class ClosureItem: NSMenuItem {
+    private let run: () -> Void
+    init(_ title: String, _ run: @escaping () -> Void) {
+        self.run = run
+        super.init(title: title, action: #selector(fire), keyEquivalent: "")
+        target = self
+    }
+    required init(coder: NSCoder) { fatalError("not used") }
+    @objc private func fire() { run() }
+}
+
 struct WorkspacesControl: View {
     @ObservedObject var store: Store
+    @State private var hovered: Int?
 
     /// Its own hosting view in the toolbar, outside the window's
     /// environment: given the theme here, for the views it holds.
@@ -298,24 +350,48 @@ struct WorkspacesControl: View {
         HStack(spacing: 2) {
             ForEach(Array(store.workspaces.enumerated()), id: \.offset) { i, ws in
                 let on = i == store.workspace
-                Text(Workspace.label(i, ws)).font(.system(size: 12, weight: Theme.ink ? .bold : .regular))
-                    .foregroundStyle(Theme.ink && on ? Theme.window : on ? Theme.text : Theme.text2)
+                HStack(spacing: 4) {
+                    Text(Workspace.label(i, ws)).font(.ui(size: 12, weight: Theme.ink ? .bold : .regular))
+                        .foregroundStyle(Theme.ink && on ? Theme.window : on ? Theme.text : Theme.text2)
+                    // Closing one is a click away, as a browser's tab: ×
+                    // on the pointer's workspace, any but the first.
+                    if i > 0 && hovered == i {
+                        Text("×").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
+                            .contentShape(Rectangle())
+                            .onTapGesture { store.closeWorkspace(i) }
+                            .help("Close workspace \(i + 1)")
+                    }
+                }
                     .padding(.horizontal, 10).padding(.vertical, 3)
                     .background(RoundedRectangle(cornerRadius: Theme.corner(5, meadow: 20)).fill(on ? (Theme.ink ? Theme.inkLine : Theme.meadow ? Theme.window : Theme.raise) : .clear))
                     .contentShape(Rectangle())
+                    .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
+                    .background(GeometryReader { g in
+                        Color.clear
+                            .onAppear { WorkspaceHits.shared.frames[i] = g.frame(in: .global) }
+                            .onChange(of: g.frame(in: .global)) { WorkspaceHits.shared.frames[i] = $0 }
+                    })
+                    .onDisappear { WorkspaceHits.shared.frames[i] = nil }
                     .onTapGesture(count: 2) { store.renameWorkspace(i) }
                     .onTapGesture { store.workspace = i }
+                    // A button to VoiceOver (and a script): pressed, it switches.
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { store.workspace = i }
                     .contextMenu {
                         Button("Rename…") { store.renameWorkspace(i) }
                         if i > 0 { Button("Close Workspace…") { store.closeWorkspace(i) } }
                     }
-                    .help(i > 0 ? "Workspace \(i + 1) — double-click to name it; right-click to name or close it" : "Workspace 1 — double-click or right-click to name it")
+                    .help(i > 0 ? "Workspace \(i + 1) — double-click to name it; right-click or × to close it" : "Workspace 1 — double-click or right-click to name it")
             }
             // A new workspace, shared with the TUI through ui.json.
-            Text("+").font(.system(size: 12)).foregroundStyle(Theme.muted)
+            Text("+").font(.ui(size: 12)).foregroundStyle(Theme.muted)
                 .padding(.horizontal, 9).padding(.vertical, 3)
                 .contentShape(Rectangle())
                 .onTapGesture { store.newWorkspace() }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("New workspace")
+                .accessibilityAction { store.newWorkspace() }
                 .help("New workspace — conch's TUI has it too")
         }
         .padding(Theme.ink ? 0 : 2)
@@ -335,10 +411,10 @@ struct SearchField: View {
     @ViewBuilder var content: some View {
         Button { store.paletteOpen = true } label: {
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Theme.muted)
-                Text("Search agents, branches, files, actions").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                Image(systemName: "magnifyingglass").font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                Text("Search agents, branches, files, actions").font(.ui(size: 13)).foregroundStyle(Theme.muted)
                 Spacer(minLength: 8)
-                Text("⌘K").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
+                Text("⌘K").font(.ui(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 5).overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.line2))
             }
             .padding(.horizontal, Theme.meadow ? 14 : 10).frame(width: 420, height: Theme.meadow ? 30 : 28)
@@ -372,14 +448,18 @@ struct Counts: View {
             }
             .buttonStyle(.plain).disabled(w == 0)
             .help(w > 0 ? "Go to the next agent waiting for you (⌘.)" : "No agent is waiting for you")
-            if Theme.ink {
-                BurstCount(text: "\(d) done", loud: false, ink: d > 0 ? Theme.inkLine : Theme.muted)
-            } else {
-                Pill(text: "\(Theme.meadow ? "✿" : "✓") \(d) done", fg: d > 0 ? Theme.ok : Theme.muted,
-                     bg: d > 0 ? Theme.ok.opacity(Theme.meadow ? 0.22 : 0.16) : Theme.raise)
+            Button { store.nextDone() } label: {
+                if Theme.ink {
+                    BurstCount(text: "\(d) done", loud: false, ink: d > 0 ? Theme.inkLine : Theme.muted)
+                } else {
+                    Pill(text: "\(Theme.meadow ? "✿" : "✓") \(d) done", fg: d > 0 ? Theme.ok : Theme.muted,
+                         bg: d > 0 ? Theme.ok.opacity(Theme.meadow ? 0.22 : 0.16) : Theme.raise)
+                }
             }
+            .buttonStyle(.plain).disabled(d == 0)
+            .help(d > 0 ? "Go to the next agent that finished — each click the next" : "No agent has finished")
             Button { reviewing.toggle() } label: {
-                Text("\(r) to review").font(.system(size: 11, weight: .semibold))
+                Text("\(r) to review").font(.ui(size: 11, weight: .semibold))
                     .foregroundStyle(r > 0 ? Theme.text2 : Theme.muted)
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .overlay(RoundedRectangle(cornerRadius: Theme.corner(20, meadow: 20, cel: 7)).strokeBorder(r > 0 ? Theme.line2 : Theme.line))
@@ -400,7 +480,7 @@ struct ReviewPopover: View {
     var body: some View {
         let items = store.reviewItems
         VStack(alignment: .leading, spacing: 0) {
-            Text("To review").font(.system(size: 13, weight: .semibold)).padding(.bottom, 8)
+            Text("To review").font(.ui(size: 13, weight: .semibold)).padding(.bottom, 8)
             if items.isEmpty {
                 Text("Nothing needs a decision.").foregroundStyle(.secondary).padding(.vertical, 6)
             }
@@ -413,9 +493,9 @@ struct ReviewPopover: View {
                                     Text(glyph(it.band)).foregroundStyle(color(it.band)).frame(width: 14)
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text([it.projectName, it.branch].filter { !$0.isEmpty }.joined(separator: " · "))
-                                            .font(.system(size: 12.5, weight: .medium)).lineLimit(1)
+                                            .font(.ui(size: 12.5, weight: .medium)).lineLimit(1)
                                         Text(it.detail + (store.machines.count > 1 ? " · " + store.label(it.machine) : ""))
-                                            .font(.system(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
+                                            .font(.ui(size: 11.5)).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                     Spacer(minLength: 0)
                                 }
@@ -478,6 +558,10 @@ struct MainView: View {
     @ObservedObject var store: Store
     /// The sidebar's width, dragged at its edge and remembered.
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = sidebarDefault
+    /// The width drawn: the one dragged to, and under a monospace style the
+    /// room its wider names need (AppStyle.sidebarWidth), so switching
+    /// styles never loses the width somebody chose.
+    private var shownSidebar: Double { store.style.sidebarWidth(sidebarWidth) + sidebarExtra(scale: store.appLook.textScale) }
     /// The window's size, for what Cel folds in a small one.
     @State private var size = CGSize(width: 1320, height: 820)
 
@@ -490,7 +574,7 @@ struct MainView: View {
                 if Theme.style.roster { RosterBar(store: store, whole: AppStyle.celRosterWhole(height: size.height)) }
                 HStack(spacing: 0) {
                     if store.sidebarVisible {
-                        Sidebar(store: store).frame(width: sidebarWidth)
+                        Sidebar(store: store).frame(width: shownSidebar)
                         SidebarEdge(width: $sidebarWidth)
                     } else if Theme.style.roster {
                         ProjectRail(store: store)
@@ -519,7 +603,7 @@ struct MainView: View {
                 // Over the splits only: the toolbar, sidebar and status bar
                 // stay as they are.
                 ScratchLayer(store: store, pane: k, terminal: store.terminal(for: k))
-                    .padding(.leading, store.sidebarVisible ? sidebarWidth + 1 : 0).padding(.bottom, 26)
+                    .padding(.leading, store.sidebarVisible ? shownSidebar + 1 : 0).padding(.bottom, 26)
             }
             if store.paletteOpen {
                 Palette(store: store)
@@ -528,6 +612,8 @@ struct MainView: View {
         .background { GeometryReader { g in Color.clear.onAppear { size = g.size }.onChange(of: g.size) { size = $0 } } }
         .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
         .sheet(item: $store.broadcastDraft) { d in BroadcastSheet(store: store, draft: d) }
+        .sheet(item: $store.addProjectTarget) { t in AddProjectSheet(store: store, machine: t.id) }
+        .sheet(item: $store.moveProjectTarget) { t in MoveProjectSheet(store: store, project: t.id) }
         .sheet(isPresented: $store.helpOpen) { ShortcutsSheet(store: store) }
         .sheet(isPresented: $store.doctorOpen) { DoctorSheet(store: store) }
         .sheet(isPresented: $store.updatesOpen) { UpdatesSheet(store: store) }
@@ -539,12 +625,27 @@ struct MainView: View {
             if Theme.meadow {
                 GeometryReader { g in Sky().frame(height: g.safeAreaInsets.top).offset(y: -g.safeAreaInsets.top) }
                     .allowsHitTesting(false)
+            } else if Theme.style.paintsTitleBar {
+                // Terminal's title bar: the window's chrome colour, painted.
+                // Made transparent so macOS's lighter band goes, the title
+                // bar showed whatever scrolled under it — a sidebar scrolled
+                // down drew its rows behind the traffic lights.
+                GeometryReader { g in
+                    Rectangle().fill(Theme.color(Theme.current.chrome))
+                        .frame(height: g.safeAreaInsets.top).offset(y: -g.safeAreaInsets.top)
+                }
+                .allowsHitTesting(false)
             }
         }
         // Meadow's rounded face, and only Meadow's: a font design set over
         // the window, even .default, overrode the Nerd Font agents' marks
         // are drawn in, and every mark became a missing-glyph box.
         .modifier(RoundedChrome(on: Theme.meadow))
+        // The face for text that sets none of its own (an empty pane's
+        // hint, a sheet's body): the window's, so Terminal's monospace
+        // reaches it too. A default font, not a design: a design set here
+        // overrides the marks' own face (see RoundedChrome) and this does not.
+        .font(.ui(size: 13))
         .preferredColorScheme(store.theme.light ? .light : .dark)
         // A new theme, style or way of marking agents repaints every view
         // in place: views that watch the store are drawn again as it
@@ -572,7 +673,7 @@ struct Empty: View {
                 }
                 if store.binary == nil {
                     Text("conch is not installed where this app looks (~/.local/bin, Homebrew, PATH). Set CONCH_BIN to its path.")
-                        .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        .font(.ui(size: 12)).foregroundStyle(Theme.muted)
                 }
             }
             Spacer()
@@ -603,7 +704,7 @@ struct Sidebar: View {
                         HStack {
                             SectionHeading(text: "NEEDS YOU")
                             Spacer()
-                            Text("\(needs.count)").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                            Text("\(needs.count)").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                         }
                         .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 2)
                         ForEach(needs, id: \.key) { n in
@@ -652,7 +753,7 @@ struct SectionHeading: View {
         if Theme.ink {
             Lettering(text: text, size: 13, color: Theme.inkLine)
         } else {
-            Text(text).font(.system(size: 11, weight: .semibold)).tracking(Theme.meadow ? 1.2 : 0).foregroundStyle(Theme.muted)
+            Text(text).font(.ui(size: 11, weight: .semibold)).tracking(Theme.meadow ? 1.2 : 0).foregroundStyle(Theme.muted)
         }
     }
 }
@@ -687,8 +788,17 @@ struct NodeView: View {
     var selected: Bool { paneID != nil && paneID == store.layout.focused && store.terminalHasKeyboard }
     /// On an Ink page the focused pane's row is solid ink, its name in paper.
     var inverted: Bool { Theme.ink && selected }
+    /// Terminal on paper: the row is solid accent and its words the theme's
+    /// selection text, as the light mock draws it. The usual wash of accent
+    /// over white left a pale teal with dark text and a grey label that
+    /// barely read on it.
+    var solid: Bool { !Theme.ink && Theme.style.mono && Theme.current.light && (cursor || selected) }
+    /// The row's quiet words (a branch, a count): muted, or on a solid row
+    /// its selection text, softer.
+    var dim: Color { solid ? Theme.selectedText.opacity(0.75) : Theme.muted }
     var rowFill: Color {
         if Theme.ink { return selected ? Theme.inkLine : hovering || cursor ? Theme.raise : .clear }
+        if solid { return Theme.accentDeep }
         // Meadow: a soft wash of the accent, like a leaf's shadow.
         if Theme.meadow { return cursor ? Theme.accentDeep.opacity(0.32) : selected ? Theme.accentDeep.opacity(0.2) : hovering ? Theme.raise : .clear }
         return cursor ? Theme.accentDeep.opacity(0.75) : selected ? Theme.accentDeep.opacity(0.4) : hovering ? Theme.raise : .clear
@@ -704,7 +814,7 @@ struct NodeView: View {
             if node.children != nil || isSessions {
                 // Sessions folds like the sections beside it; it opens the
                 // TUI's Sessions view.
-                Text(open && !isSessions ? "▾" : "▸").font(.system(size: 10)).foregroundStyle(inverted ? Theme.window : Theme.muted).frame(width: 10)
+                Text(open && !isSessions ? "▾" : "▸").font(.ui(size: 10)).foregroundStyle(inverted ? Theme.window : solid ? Theme.selectedText.opacity(0.8) : Theme.muted).frame(width: 10)
                     .contentShape(Rectangle().inset(by: -4))
                     // An agent's helpers and subagents fold at the arrow: a
                     // click on the row itself opens the agent.
@@ -714,8 +824,8 @@ struct NodeView: View {
             }
             icon
             RowSplit {
-                Text(node.title).font(isBranch ? .system(size: 12, design: .monospaced) : .system(size: 13, weight: inverted ? .semibold : .regular))
-                    .foregroundStyle(inverted ? Theme.window : isMore ? Theme.muted : isSection || isSessions ? Theme.text2 : Theme.text)
+                Text(node.title).font(isBranch ? .tree(size: 12, design: .monospaced) : .tree(size: 13, weight: inverted ? .semibold : .regular))
+                    .foregroundStyle(inverted ? Theme.window : solid ? Theme.selectedText : isMore ? Theme.muted : isSection || isSessions ? Theme.text2 : Theme.text)
                     .lineLimit(1).truncationMode(.tail)
                 badge
             }
@@ -737,6 +847,7 @@ struct NodeView: View {
 
     /// A badge part's colour in the theme.
     func tone(_ t: BadgePart.Tone) -> Color {
+        if solid { return Theme.selectedText.opacity(0.85) }
         switch t {
         case .muted: return Theme.muted
         case .ok, .added: return Theme.ok
@@ -800,7 +911,7 @@ struct NodeView: View {
         case .subagent:
             // At work inside its agent, as the TUI draws it: the spinner.
             TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
-                Text(spinnerFrame(at: ctx.date)).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
+                Text(spinnerFrame(at: ctx.date)).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
             }
             .frame(width: 16)
         case .more: Color.clear.frame(width: 14, height: 12) // the names line up with the branches'
@@ -828,7 +939,7 @@ struct NodeView: View {
     }
 
     func muted(_ text: String) -> some View {
-        Text(text).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
+        Text(text).font(.tree(size: 12)).foregroundStyle(dim).lineLimit(1)
     }
 
     /// The row's right side, as the mock has it.
@@ -841,7 +952,7 @@ struct NodeView: View {
                     // working on, cut in the middle before the state gives
                     // way — the state is what a glance is for.
                     if let b = p.branch, !b.isEmpty {
-                        Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)
+                        Text(b).font(.tree(size: 11, design: .monospaced)).foregroundStyle(dim)
                             .lineLimit(1).truncationMode(.middle)
                             .help(b)
                     }
@@ -849,12 +960,12 @@ struct NodeView: View {
                     let (m, pid) = unkey(id)
                     let c = store.costChip(machine: m, pane: pid)
                     if !c.isEmpty {
-                        Text(c).font(.system(size: 11)).foregroundStyle(Theme.muted).fixedSize()
+                        Text(c).font(.tree(size: 11)).foregroundStyle(dim).fixedSize()
                             .help(p.agent?.tokens.map(tokenSummary) ?? c)
                     }
                     if let end = paneEndBadge(p) {
                         // exited, exit N or failed in red, a terminal's # / ~ alert.
-                        Text(end.text).font(.system(size: 11.5, weight: end.tone == .err ? .semibold : .regular)).foregroundStyle(tone(end.tone))
+                        Text(end.text).font(.tree(size: 11.5, weight: end.tone == .err ? .semibold : .regular)).foregroundStyle(tone(end.tone))
                             .fixedSize().layoutPriority(1)
                     } else if let pill = Pill.state(p.agent?.state) {
                         pill.fixedSize().layoutPriority(1)
@@ -863,7 +974,7 @@ struct NodeView: View {
             }
         case .machine(let m):
             if let link = store.machines.first(where: { $0.id == m }), !link.online {
-                Text(link.state).font(.system(size: 12)).foregroundStyle(link.state == "offline" ? Theme.err : Theme.muted)
+                Text(link.state).font(.tree(size: 12)).foregroundStyle(link.state == "offline" ? Theme.err : dim)
                     .padding(.trailing, 2)
                     .help(link.why.isEmpty ? link.state : link.why)
                     .fixedSize()
@@ -874,7 +985,7 @@ struct NodeView: View {
                     if let link = store.machines.first(where: { $0.id == m }), !link.behind.isEmpty {
                         // Its server is older than this app's conch: what
                         // it lacks, and what brings it.
-                        Text("behind").font(.system(size: 11.5)).foregroundStyle(Theme.warn)
+                        Text("behind").font(.tree(size: 11.5)).foregroundStyle(Theme.warn)
                             .help("conch there is from an older build and lacks \(link.behind.joined(separator: ", ")). Right-click → \(m == "local" ? "Reload server" : "Upgrade conch there").")
                     }
                     counts(node.badge)
@@ -902,7 +1013,7 @@ struct NodeView: View {
             node.parts.enumerated().reduce(Text("")) { acc, e in
                 acc + Text((e.offset == 0 ? "" : " ") + e.element.text).foregroundColor(tone(e.element.tone))
             }
-            .font(.system(size: 11.5, design: .monospaced))
+            .font(.tree(size: 11.5, design: .monospaced))
             .lineLimit(1).truncationMode(.head)
         default:
             if !node.badge.isEmpty { muted(node.badge).fixedSize() }
@@ -959,11 +1070,11 @@ struct BroadcastSheet: View {
         let n = draft.targets.filter(\.ticked).count
         let shells = draft.targets.contains { $0.ticked && $0.agent == nil }
         VStack(alignment: .leading, spacing: 12) {
-            Text("Broadcast · \(draft.title)").font(.system(size: 15, weight: .semibold))
+            Text("Broadcast · \(draft.title)").font(.ui(size: 15, weight: .semibold))
             Text("An agent takes it as its next message; a terminal runs it as a command.")
-                .font(.system(size: 12)).foregroundStyle(.secondary)
+                .font(.ui(size: 12)).foregroundStyle(.secondary)
             TextEditor(text: $draft.text)
-                .font(.system(size: 13)).frame(minHeight: 90)
+                .font(.ui(size: 13)).frame(minHeight: 90)
                 .scrollContentBackground(.hidden).padding(6)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
@@ -974,9 +1085,9 @@ struct BroadcastSheet: View {
                         HStack(spacing: 8) {
                             Toggle("", isOn: $t.ticked).toggleStyle(.checkbox).labelsHidden()
                             if let a = t.agent { Mark(agent: a) } else { LucideIcon(name: .terminal, color: Theme.muted, size: 12) }
-                            Text(t.name).font(.system(size: 12.5)).lineLimit(1)
+                            Text(t.name).font(.ui(size: 12.5)).lineLimit(1)
                             if t.waiting {
-                                Text("waiting on an answer: this would answer it").font(.system(size: 11)).foregroundStyle(Theme.warn)
+                                Text("waiting on an answer: this would answer it").font(.ui(size: 11)).foregroundStyle(Theme.warn)
                             }
                             Spacer()
                         }
@@ -985,7 +1096,7 @@ struct BroadcastSheet: View {
             }
             .frame(maxHeight: 220)
             HStack {
-                if shells { Text("Terminals ticked run it as a command.").font(.system(size: 11.5)).foregroundStyle(Theme.warn) }
+                if shells { Text("Terminals ticked run it as a command.").font(.ui(size: 11.5)).foregroundStyle(Theme.warn) }
                 Spacer()
                 Button("Cancel") { store.broadcastDraft = nil }.keyboardShortcut(.cancelAction)
                 Button("Send to \(n)") { store.sendBroadcast(draft) }
@@ -1016,12 +1127,12 @@ struct TaskSheet: View {
     var body: some View {
         let (m, _) = unkey(draft.project)
         VStack(alignment: .leading, spacing: 12) {
-            Text("New task").font(.system(size: 15, weight: .semibold))
+            Text("New task").font(.ui(size: 15, weight: .semibold))
             Text([project?.name ?? "", m == "local" ? "" : store.label(m)].filter { !$0.isEmpty }.joined(separator: " · ")
                  + (project?.git == false ? " — the agent works in the folder itself" : " — on a branch and worktree of its own"))
-                .font(.system(size: 12)).foregroundStyle(.secondary)
+                .font(.ui(size: 12)).foregroundStyle(.secondary)
             TextEditor(text: $draft.prompt)
-                .font(.system(size: 13)).frame(minHeight: 120)
+                .font(.ui(size: 13)).frame(minHeight: 120)
                 .scrollContentBackground(.hidden).padding(6)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
@@ -1055,7 +1166,7 @@ struct TaskSheet: View {
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (draft.issue ?? 0) == 0)
             }
-            Text("⌘↩ starts it").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("⌘↩ starts it").font(.ui(size: 11)).foregroundStyle(.secondary)
         }
         .padding(18)
         .frame(width: 560)
@@ -1080,24 +1191,24 @@ struct NeedsYouCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Mark(agent: pane.agent?.name)
-                Text(pane.displayName).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                Text(pane.displayName).font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                 Spacer(minLength: 4)
                 Pill(text: questionKind(pane.agent?.message), fg: Theme.onWarn, bg: Theme.warn)
             }
             let text = cardText(q?.text.isEmpty == false ? q!.text : (pane.agent?.message ?? ""), choices: q?.choices ?? [])
             if !text.isEmpty {
-                Text(text).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2).lineLimit(2)
+                Text(text).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2).lineLimit(2)
             }
             let place = [store.snapshots[machine]?.place(of: pane) ?? "", machine == "local" ? "" : store.label(machine)]
                 .filter { !$0.isEmpty }.joined(separator: " · ")
             if !place.isEmpty {
-                Text(place).font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                Text(place).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
             }
             if let q, !q.choices.isEmpty {
                 ChoiceButtons(store: store, pane: key, question: q)
             } else {
                 Button("Open to answer") { store.open(key) }.buttonStyle(.plain)
-                    .font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.accent)
+                    .font(.ui(size: 11.5, weight: .medium)).foregroundStyle(Theme.accent)
             }
         }
         .padding(.horizontal, Theme.ink ? 16 : 11).padding(.top, Theme.ink ? 12 : 10).padding(.bottom, Theme.ink ? 24 : 10)
@@ -1134,7 +1245,7 @@ struct ChoiceButtons: View {
             ForEach(question.choices, id: \.choice) { c in
                 let on = c.default == true
                 Button { store.answer(pane, question, c) } label: {
-                    Text(c.label).font(.system(size: 11.5, weight: on ? .semibold : .regular)).lineLimit(1).truncationMode(.tail)
+                    Text(c.label).font(.ui(size: 11.5, weight: on ? .semibold : .regular)).lineLimit(1).truncationMode(.tail)
                         .foregroundStyle(Theme.ink ? (on ? Theme.window : Theme.inkLine) : on ? Theme.onWarn : Theme.text)
                         .padding(.horizontal, 9).padding(.vertical, 3)
                         .frame(maxWidth: short ? nil : .infinity, alignment: .leading)
@@ -1164,7 +1275,7 @@ struct TabBar: View {
 
     var plus: some View {
         Button { store.newTerminal(split: nil) } label: {
-            Text("+").font(.system(size: 15)).foregroundStyle(Theme.muted).frame(width: 26, height: 30)
+            Text("+").font(.ui(size: 15)).foregroundStyle(Theme.muted).frame(width: 26, height: 30)
         }
         .buttonStyle(.plain).focusable(false).help("New terminal tab (⌘T)")
     }
@@ -1207,7 +1318,7 @@ struct TabBar: View {
             // Where the tab on screen is: its project and machine, as the
             // TUI's tab bar ends — cut, never pushed out.
             if let k = store.layout.focused {
-                Text(store.scope(of: k)).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                Text(store.scope(of: k)).font(.ui(size: 12)).foregroundStyle(Theme.muted)
                     .lineLimit(1).truncationMode(.head)
                     .frame(maxWidth: 220, alignment: .trailing).fixedSize(horizontal: true, vertical: false)
                     .layoutPriority(2) // its room before the tabs': they scroll, it cannot
@@ -1234,6 +1345,12 @@ struct TabButton: View {
         if let c = parseCommitsKey(tab.focused) { return "Commits · " + project(c.machine, c.project) }
         if let f = parseFilesKey(tab.focused) { return "Files · " + project(f.machine, f.project) }
         if let s = parseSetupKey(tab.focused) { return "Agent setup · " + project(s.machine, s.project) }
+        if let u = parseBrowserKey(tab.focused) {
+            let t = store.browserViews[tab.focused]?.title ?? ""
+            if !t.isEmpty { return t }
+            let a = store.browserViews[tab.focused]?.address ?? u
+            return a.isEmpty || a.hasPrefix("about:") ? "New Tab" : (URL(string: a)?.host.map { h in URL(string: a)?.port.map { "\(h):\($0)" } ?? h } ?? a)
+        }
         return p?.displayName ?? tab.focused
     }
 
@@ -1244,7 +1361,7 @@ struct TabButton: View {
             let changes = parseChangesKey(tab.focused)
             // Its number, for ⌘1–⌘9.
             if index < 9 {
-                Text("\(index + 1)").font(.system(size: 10.5, weight: .medium, design: .monospaced)).foregroundStyle(Theme.muted)
+                Text("\(index + 1)").font(.ui(size: 10.5, weight: .medium, design: .monospaced)).foregroundStyle(Theme.muted)
             }
             if let a = p?.agent {
                 Mark(agent: a.name)
@@ -1257,6 +1374,8 @@ struct TabButton: View {
                     LucideIcon("bot", color: Theme.accent, size: 12)
                 } else if parseFilesKey(tab.focused) != nil {
                     LucideIcon("folder-open", color: Theme.accent, size: 12)
+                } else if parseBrowserKey(tab.focused) != nil {
+                    LucideIcon(name: .globe, color: Theme.accent, size: 12)
                 } else if changes == nil {
                     LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12)
                 } else {
@@ -1266,30 +1385,30 @@ struct TabButton: View {
             // A branch's changes are named as the mock names them; a
             // project's sessions by the project.
             Text(title(changes: changes, pane: p))
-                .font(.system(size: 12.5)).lineLimit(1).truncationMode(.tail)
+                .font(.ui(size: 12.5)).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: 200, alignment: .leading).fixedSize(horizontal: true, vertical: false)
             if tab.root.panes.count > 1 {
                 // More than one split in it, as the TUI's tab bar marks it.
-                Text("⊞").font(.system(size: 11)).foregroundStyle(Theme.muted).help("\(tab.root.panes.count) splits")
+                Text("⊞").font(.ui(size: 11)).foregroundStyle(Theme.muted).help("\(tab.root.panes.count) splits")
             }
             if tab.root.panes.contains(where: { store.pane($0)?.agent?.state == .blocked }) {
                 // The mock's waiting badge: a round amber one with a bold !.
-                Text("!").font(.system(size: 10.5, weight: .heavy)).foregroundStyle(Theme.onWarn)
+                Text("!").font(.ui(size: 10.5, weight: .heavy)).foregroundStyle(Theme.onWarn)
                     .frame(width: 15, height: 15).background(Circle().fill(Theme.warn))
                     .help("waiting for you")
             } else if tab.root.panes.contains(where: { store.pane($0)?.agent?.state == .working }) {
                 // An agent at work in it: the TUI's spinner, turning.
                 TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
-                    Text(spinnerFrame(at: ctx.date)).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
+                    Text(spinnerFrame(at: ctx.date)).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
                 }
             }
             if on {
-                Button { store.closeSplit() } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)) }
+                Button { store.closeSplit() } label: { Image(systemName: "xmark").font(.ui(size: 9, weight: .semibold)) }
                     .buttonStyle(.plain).foregroundStyle(Theme.muted)
             }
         }
         .foregroundStyle(Theme.ink && on ? Theme.window : on ? Theme.text : Theme.text2)
-        .font(.system(size: 12.5, weight: Theme.ink ? .semibold : .regular))
+        .font(.ui(size: 12.5, weight: Theme.ink ? .semibold : .regular))
         .padding(.horizontal, 12).frame(height: 30)
         .background {
             if Theme.ink {
@@ -1302,7 +1421,7 @@ struct TabButton: View {
         }
         .overlay(alignment: .topTrailing) {
             // Meadow: a leaf on the tab on screen, where the others have none.
-            if on && Theme.meadow { Text("❧").font(.system(size: 11)).foregroundStyle(Theme.accentDeep).rotationEffect(.degrees(-20)).offset(x: 1, y: -1) }
+            if on && Theme.meadow { Text("❧").font(.ui(size: 11)).foregroundStyle(Theme.accentDeep).rotationEffect(.degrees(-20)).offset(x: 1, y: -1) }
         }
         .overlay(alignment: .bottom) {
             if on && !Theme.ink && !Theme.meadow { RoundedRectangle(cornerRadius: 1).fill(Theme.accent).frame(height: 2).padding(.horizontal, 8).offset(y: 1) }
@@ -1341,6 +1460,27 @@ struct TabButton: View {
     }
 }
 
+// MARK: - type
+
+extension Font {
+    /// The window's face at a size: the system face, or under the Terminal
+    /// style the monospace one (SF Mono) a little smaller, so a label takes
+    /// the room it did. Every label in the window is set through this —
+    /// a fixed .system font would stay proportional under Terminal.
+    @MainActor static func ui(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+        let st = Theme.style
+        return .system(size: CGFloat(st.fontSize(Double(size)) * Theme.textScale), weight: weight, design: st.mono ? .monospaced : design)
+    }
+
+    /// The face at its full size even in monospace: the tree's names and
+    /// labels, which the sidebar widens for (AppStyle.sidebarWidth) — set a
+    /// size smaller they read as too small, an agent's name at 12 points
+    /// and a branch's at 11.
+    @MainActor static func tree(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+        .system(size: size * Theme.textScale, weight: weight, design: Theme.style.mono ? .monospaced : design)
+    }
+}
+
 // MARK: - splits
 
 struct SplitArea: View {
@@ -1362,6 +1502,8 @@ struct SplitArea: View {
                 SetupView(model: store.setup(for: id), store: store).id(id)
             } else if parseFilesKey(id) != nil {
                 FilesView(model: store.files(for: id), store: store).id(id)
+            } else if parseBrowserKey(id) != nil {
+                BrowserView(model: store.browser(for: id)).id(id)
             } else {
                 // Its own card for each pane, so moving to another tab
                 // never shows one pane's terminal under another's header.
@@ -1430,15 +1572,15 @@ struct PaneCard: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 if let a = p?.agent { Mark(agent: a.name) } else { LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12) }
-                Text(p?.agent?.name ?? p?.name ?? pane).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
+                Text(p?.agent?.name ?? p?.name ?? pane).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
                 if let b = p?.branch, !b.isEmpty {
-                    Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
+                    Text(b).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
                         .padding(.horizontal, 6).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
                 }
                 // Its context against the model's window, output and cost,
                 // as the TUI's pane header has them.
                 if store.showCost, let t = p?.agent?.tokens {
-                    Text(tokenSummary(t)).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text(tokenSummary(t)).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1)
                 }
                 Spacer()
                 if store.appLook.ports, let ports = p?.listening, !ports.isEmpty {
@@ -1450,7 +1592,7 @@ struct PaneCard: View {
                     PortLink(port: port, local: unkey(pane).machine == "local")
                 }
                 if p?.running == false {
-                    Text("exited \(p?.exitCode ?? 0)").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    Text("exited \(p?.exitCode ?? 0)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
                 }
                 if Theme.ink, let a = p?.agent, let word = inkState(a) {
                     // Ink: the state as lettering, and a working agent's
@@ -1475,7 +1617,7 @@ struct PaneCard: View {
                 }
             }
             .padding(.horizontal, store.appLook.compact ? 8 : 10).frame(height: store.appLook.compact ? 22 : 30)
-            .font(.system(size: store.appLook.compact ? 11 : 12))
+            .font(.ui(size: store.appLook.compact ? 11 : 12))
             .background(Theme.ink ? Theme.window : Theme.paneHeader)
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line).frame(height: Theme.ink ? 2 : 1) }
             if let q = store.questions[pane], !q.choices.isEmpty {
@@ -1517,15 +1659,15 @@ struct FindBar: View {
         HStack(spacing: 6) {
             LucideIcon("search", color: Theme.muted, size: 12)
             TextField("Find in pane", text: Binding(get: { store.find?.query ?? "" }, set: { store.find?.query = $0 }))
-                .textFieldStyle(.plain).font(.system(size: 12)).frame(width: 170)
+                .textFieldStyle(.plain).font(.ui(size: 12)).frame(width: 170)
                 .focused($typing)
                 .onSubmit { store.findNext(back: true); typing = true }
                 .onExitCommand { store.closeFind() }
             if terminal.raw, store.rawSearched != nil, let n = terminal.searchTotal {
-                Text(rawSearchNote(selected: terminal.searchSelected, total: n)).font(.system(size: 11))
+                Text(rawSearchNote(selected: terminal.searchSelected, total: n)).font(.ui(size: 11))
                     .foregroundStyle(n == 0 ? Theme.err : Theme.muted).lineLimit(1)
             } else if let note = f?.note, !note.isEmpty {
-                Text(note).font(.system(size: 11)).foregroundStyle(note == "Not found" || note.hasPrefix("conch") ? Theme.err : Theme.muted)
+                Text(note).font(.ui(size: 11)).foregroundStyle(note == "Not found" || note.hasPrefix("conch") ? Theme.err : Theme.muted)
                     .lineLimit(1).frame(maxWidth: 180)
             }
             Button { store.findNext(back: true) } label: { LucideIcon("chevron-up", size: 12) }
@@ -1558,7 +1700,7 @@ struct LetterboxNote: View {
                 Text("Sized \(size.cols)×\(size.rows) for another window").foregroundStyle(Theme.text2)
                 Text("Take it").fontWeight(.semibold).foregroundStyle(Theme.accent)
             }
-            .font(.system(size: 11.5))
+            .font(.ui(size: 11.5))
             .padding(.horizontal, 10).padding(.vertical, 5)
             .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paneHeader))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line2))
@@ -1578,7 +1720,7 @@ struct LinesBelow: View {
     var body: some View {
         let _ = look
         Button(action: down) {
-            Text("↓ \(count) line\(count == 1 ? "" : "s") below · End").font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.text)
+            Text("↓ \(count) line\(count == 1 ? "" : "s") below · End").font(.ui(size: 11.5, weight: .medium)).foregroundStyle(Theme.text)
                 .padding(.horizontal, 11).padding(.vertical, 4)
                 .background(Capsule().fill(Theme.raise))
                 .overlay(Capsule().stroke(Theme.line2))
@@ -1600,13 +1742,13 @@ struct ListeningPort: View {
         let _ = look
         let local = machine == "local"
         Text(portLabel(port, machine: local ? "local" : store.label(machine)) + (local ? " ↗" : ""))
-            .font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(Theme.accent)
+            .font(.ui(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(Theme.accent)
             .padding(.horizontal, 6).padding(.vertical, 1)
             .background(RoundedRectangle(cornerRadius: 5).fill(Theme.accent.opacity(0.14)))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.accent.opacity(0.35)))
-            .help(local ? "Listening on \(port) — click to open http://localhost:\(port)"
+            .help(local ? "Listening on \(port) — click to open it in a tab, ⌥-click in your browser"
                         : "Listening on \(port) on \(store.label(machine)) — click to copy an ssh tunnel to it")
-            .onTapGesture { store.openPort(port, machine: machine) }
+            .onTapGesture { store.openPort(port, machine: machine, outside: NSEvent.modifierFlags.contains(.option)) }
     }
 }
 
@@ -1618,13 +1760,13 @@ struct AnswerStrip: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(Theme.ink ? "!?" : Theme.meadow ? "☀" : "⚑").font(.system(size: 12, weight: Theme.ink ? .black : .regular)).foregroundStyle(Theme.ink ? Theme.spot : Theme.warn)
-            Text(question.text.isEmpty ? "Waiting for your answer" : question.text).font(.system(size: 12))
+            Text(Theme.ink ? "!?" : Theme.meadow ? "☀" : "⚑").font(.ui(size: 12, weight: Theme.ink ? .black : .regular)).foregroundStyle(Theme.ink ? Theme.spot : Theme.warn)
+            Text(question.text.isEmpty ? "Waiting for your answer" : question.text).font(.ui(size: 12))
                 .foregroundStyle(Theme.text).lineLimit(1)
             Spacer(minLength: 8)
             ForEach(question.choices.prefix(4), id: \.choice) { c in
                 Button(c.label) { store.answer(pane, question, c) }
-                    .buttonStyle(.plain).font(.system(size: 12, weight: c.default == true ? .semibold : .regular))
+                    .buttonStyle(.plain).font(.ui(size: 12, weight: c.default == true ? .semibold : .regular))
                     .lineLimit(1).frame(maxWidth: 200)
                     .foregroundStyle(Theme.ink ? (c.default == true ? Theme.window : Theme.inkLine) : c.default == true ? Theme.onWarn : Theme.text)
                     .padding(.horizontal, 9).padding(.vertical, 3)
@@ -1666,8 +1808,9 @@ struct StatusBar: View {
             let inPane = store.layout.focused != nil && store.terminalHasKeyboard
             // The mode as a small chip, as the TUI's: the accent's for the
             // tree, green for a pane.
-            let mode = inPane ? Theme.ok : Theme.accent
-            Text(inPane ? "PANE" : "TREE").font(.system(size: 10.5, weight: .bold)).tracking(0.6)
+            let armed = store.prefixKeys.armed
+            let mode = armed ? Theme.warn : inPane ? Theme.ok : Theme.accent
+            Text(armed ? "PREFIX" : inPane ? "PANE" : "TREE").font(.ui(size: 10.5, weight: .bold)).tracking(0.6)
                 .foregroundStyle(mode)
                 .padding(.horizontal, 6).padding(.vertical, 1.5)
                 .background(RoundedRectangle(cornerRadius: 4).fill(mode.opacity(0.16)))
@@ -1676,7 +1819,19 @@ struct StatusBar: View {
             // it does, muted.
             // What was just done, or why not, in place of the keys while
             // it is said; a click puts the keys back.
-            if let f = store.flash {
+            if armed {
+                // The TUI's PREFIX row: the keys that follow, read from the
+                // table so a rebound or unbound one shows as it is.
+                HStack(spacing: 12) {
+                    ForEach(prefixRow(store.prefixKeys.table), id: \.0) { key, what in
+                        HStack(spacing: 5) {
+                            Keycap(key)
+                            Text(what).foregroundStyle(Theme.muted)
+                        }
+                        .fixedSize()
+                    }
+                }
+            } else if let f = store.flash {
                 Text(f.text).foregroundStyle(f.tone == .err ? Theme.err : f.tone == .ok ? Theme.ok : Theme.text2)
                     .lineLimit(1).truncationMode(.tail)
                     .onTapGesture { store.dismissFlash() }
@@ -1733,7 +1888,7 @@ struct StatusBar: View {
             }
             // Settings, as the TUI's bar ends: conch's settings page.
             Button { store.openSettings() } label: {
-                Text("⚙ Settings").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.selectedText)
+                Text("⚙ Settings").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.selectedText)
                     .padding(.horizontal, 7).padding(.vertical, 1)
                     .background(RoundedRectangle(cornerRadius: Theme.corner(4, meadow: 9)).fill(Theme.accentDeep))
                     .overlay(Rectangle().strokeBorder(Theme.ink ? Theme.inkLine : .clear, lineWidth: 1.5))
@@ -1749,10 +1904,10 @@ struct StatusBar: View {
                 } else {
                     Button { store.updatesOpen = true } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: "arrow.up.circle.fill").font(.system(size: 11))
+                            Image(systemName: "arrow.up.circle.fill").font(.ui(size: 11))
                             Text(say)
                         }
-                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.onWarn)
+                        .font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.onWarn)
                         .padding(.horizontal, 7).padding(.vertical, 1)
                         .background(Capsule().fill(Theme.warn))
                     }
@@ -1772,7 +1927,7 @@ struct StatusBar: View {
             .popover(isPresented: $showMonitor, arrowEdge: .top) { MonitorPopover(store: store) }
             .onChange(of: showMonitor) { if $0 { store.startMonitor() } else { store.stopMonitor() } }
         }
-        .font(.system(size: 12, weight: Theme.ink ? .semibold : .regular))
+        .font(.ui(size: 12, weight: Theme.ink ? .semibold : .regular))
         .padding(.horizontal, 12).frame(height: Theme.ink ? 28 : 26)
         .background { ZStack { Theme.side; if Theme.ink { Screentone() } } }
         .overlay(alignment: .top) {
@@ -1794,7 +1949,7 @@ struct LimitsPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Plan limits").font(.system(size: 13, weight: .semibold))
+            Text("Plan limits").font(.ui(size: 13, weight: .semibold))
             if store.limits.isEmpty {
                 Text("No agent has reported its plan yet.").foregroundStyle(.secondary)
             }
@@ -1802,11 +1957,11 @@ struct LimitsPopover: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Mark(agent: l.agent)
-                        Text(l.agent.prefix(1).uppercased() + l.agent.dropFirst()).font(.system(size: 12.5, weight: .semibold))
+                        Text(l.agent.prefix(1).uppercased() + l.agent.dropFirst()).font(.ui(size: 12.5, weight: .semibold))
                         Spacer()
                         if let at = l.at, at.timeIntervalSince1970 > 0 {
                             TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                                Text("reported \(elapsed(at, ctx.date)) ago").font(.system(size: 11)).foregroundStyle(.secondary)
+                                Text("reported \(elapsed(at, ctx.date)) ago").font(.ui(size: 11)).foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -1821,11 +1976,11 @@ struct LimitsPopover: View {
                                 }
                             }
                         }
-                        .font(.system(size: 12))
+                        .font(.ui(size: 12))
                     }
                 }
             }
-            Text("What the agents last reported.").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("What the agents last reported.").font(.ui(size: 11)).foregroundStyle(.secondary)
             Divider()
             UsageDetails(store: store)
         }
@@ -1843,7 +1998,7 @@ struct UsageDetails: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Tokens used").font(.system(size: 13, weight: .semibold))
+                Text("Tokens used").font(.ui(size: 13, weight: .semibold))
                 if store.usageLoading { ProgressView().controlSize(.mini) }
                 Spacer()
                 Picker("", selection: $hours) {
@@ -1854,24 +2009,24 @@ struct UsageDetails: View {
             let many = store.usageHistory.count > 1
             ForEach(store.usageHistory, id: \.machine) { entry in
                 if many {
-                    Text(store.label(entry.machine)).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                    Text(store.label(entry.machine)).font(.ui(size: 11, weight: .semibold)).foregroundStyle(.secondary)
                 }
                 if entry.history.agents.isEmpty {
-                    Text("No agent saved a conversation in the last 30 days.").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text("No agent saved a conversation in the last 30 days.").font(.ui(size: 12)).foregroundStyle(.secondary)
                 }
                 ForEach(entry.history.agents, id: \.agent) { a in
                     if let p = a.period(hours) { AgentUsageRows(agent: a.agent, period: p) }
                 }
             }
             if store.usageHistory.isEmpty && !store.usageLoading && store.usageTooOld.isEmpty {
-                Text("Nothing to show yet.").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("Nothing to show yet.").font(.ui(size: 12)).foregroundStyle(.secondary)
             }
             if !store.usageTooOld.isEmpty {
                 Text("conch on \(store.usageTooOld.map(store.label).joined(separator: ", ")) is too old to say what was used: reload its server.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .font(.ui(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Text("Read from the conversations the agents saved, so it counts sessions outside conch too. Cache reads are input the model read back from its prompt cache.")
-                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .font(.ui(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -1887,21 +2042,21 @@ struct AgentUsageRows: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Mark(agent: agent)
-                Text(agent.prefix(1).uppercased() + agent.dropFirst()).font(.system(size: 12.5, weight: .semibold))
+                Text(agent.prefix(1).uppercased() + agent.dropFirst()).font(.ui(size: 12.5, weight: .semibold))
                 Spacer()
                 Text("\(humanCount(period.tokens.total)) tokens · \(period.tokens.messages) response\(period.tokens.messages == 1 ? "" : "s")")
-                    .font(.system(size: 11.5)).foregroundStyle(.secondary).monospacedDigit()
+                    .font(.ui(size: 11.5)).foregroundStyle(.secondary).monospacedDigit()
             }
-            Text(usageLine(period.tokens)).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2)
+            Text(usageLine(period.tokens)).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2)
             if period.models.isEmpty {
-                Text("Nothing in the last \(period.label).").font(.system(size: 11.5)).foregroundStyle(.secondary)
+                Text("Nothing in the last \(period.label).").font(.ui(size: 11.5)).foregroundStyle(.secondary)
             }
             ForEach(period.models, id: \.model) { m in
                 HStack(spacing: 8) {
-                    Text(m.model).font(.system(size: 11.5, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                    Text(m.model).font(.ui(size: 11.5, design: .monospaced)).lineLimit(1).truncationMode(.middle)
                         .frame(width: 170, alignment: .leading)
                     Meter(fraction: usageShare(m.tokens, of: period.tokens))
-                    Text(humanCount(m.tokens.total)).font(.system(size: 11.5)).monospacedDigit().frame(width: 52, alignment: .trailing)
+                    Text(humanCount(m.tokens.total)).font(.ui(size: 11.5)).monospacedDigit().frame(width: 52, alignment: .trailing)
                 }
                 .help("\(m.model): \(usageLine(m.tokens)) · \(m.tokens.messages) responses")
             }
@@ -1931,7 +2086,7 @@ struct MonitorPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("monitor").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent).padding(.bottom, 4)
+            Text("monitor").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.accent).padding(.bottom, 4)
             if let r = store.resources {
                 line(name: "", mem: "memory", cpu: Text("    cpu").foregroundStyle(Theme.muted), bold: false, header: true)
                 ForEach(Array(r.rows.enumerated()), id: \.offset) { _, row in
@@ -1944,7 +2099,7 @@ struct MonitorPopover: View {
             }
             Text("this computer · every 2s · cpu 100% = one core").foregroundStyle(Theme.muted).padding(.top, 8)
         }
-        .font(.system(size: 12, design: .monospaced))
+        .font(.ui(size: 12, design: .monospaced))
         .fixedSize() // as wide as its lines: the CPU bars are never cut
         .padding(12)
         .background(Theme.chrome)
@@ -2099,13 +2254,13 @@ struct Palette: View {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass").foregroundStyle(Theme.accent)
                     TextField("Agents, branches, files, projects, commands", text: $query)
-                        .textFieldStyle(.plain).font(.system(size: 16)).focused($focused)
+                        .textFieldStyle(.plain).font(.ui(size: 16)).focused($focused)
                         .onSubmit(run)
                         .onChange(of: query) { q in
                             sel = 0
                             store.searchFiles(q)
                         }
-                    Text(query.isEmpty ? "" : "\(items.count) results").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    Text(query.isEmpty ? "" : "\(items.count) results").font(.ui(size: 12)).foregroundStyle(Theme.muted)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 14)
                 Rectangle().fill(Theme.line).frame(height: 1)
@@ -2142,7 +2297,7 @@ struct Palette: View {
                         Text("files: conch's server predates searching them — reload it").help("In the TUI: m on the machine → Reload server")
                     }
                 }
-                .font(.system(size: 11.5)).foregroundStyle(Theme.muted).padding(.horizontal, 16).padding(.vertical, 8)
+                .font(.ui(size: 11.5)).foregroundStyle(Theme.muted).padding(.horizontal, 16).padding(.vertical, 8)
             }
             .frame(width: selectedPane == nil ? 620 : 420 + 1 + Self.previewSize.width)
             .background(RoundedRectangle(cornerRadius: 12).fill(Theme.chrome))
@@ -2182,10 +2337,10 @@ struct PaletteRow: View {
         let _ = look
         HStack(spacing: 10) {
             if item.waiting { Text("⚑").foregroundStyle(Theme.warn) }
-            Text(item.title).font(.system(size: 13.5)).foregroundStyle(Theme.text).lineLimit(1)
-            if !item.detail.isEmpty { Text(item.detail).font(.system(size: 12)).foregroundStyle(Theme.text2).lineLimit(1) }
+            Text(item.title).font(.ui(size: 13.5)).foregroundStyle(Theme.text).lineLimit(1)
+            if !item.detail.isEmpty { Text(item.detail).font(.ui(size: 12)).foregroundStyle(Theme.text2).lineLimit(1) }
             Spacer()
-            Text(item.kind).font(.system(size: 12)).foregroundStyle(Theme.muted)
+            Text(item.kind).font(.ui(size: 12)).foregroundStyle(Theme.muted)
         }
         .padding(.horizontal, 16).padding(.vertical, 7)
         .background(selected ? Theme.accentDeep.opacity(0.7) : .clear)
@@ -2303,15 +2458,15 @@ struct UpdatesSheet: View {
         let list = store.updates
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                Image(systemName: "arrow.up.circle.fill").font(.system(size: 22)).foregroundStyle(Theme.warn)
+                Image(systemName: "arrow.up.circle.fill").font(.ui(size: 22)).foregroundStyle(Theme.warn)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Bring conch up to date").font(.system(size: 15, weight: .semibold))
+                    Text("Bring conch up to date").font(.ui(size: 15, weight: .semibold))
                     Text("These machines run an older conch than this app's, so some features are missing there.")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .font(.ui(size: 12)).foregroundStyle(.secondary)
                 }
             }
             if list.isEmpty {
-                Text("Everything is up to date.").font(.system(size: 13)).foregroundStyle(.secondary)
+                Text("Everything is up to date.").font(.ui(size: 13)).foregroundStyle(.secondary)
             }
             ForEach(list) { u in
                 HStack(alignment: .top, spacing: 10) {
@@ -2321,10 +2476,10 @@ struct UpdatesSheet: View {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
                             LucideIcon(name: u.machine == "local" ? .laptop : .server, color: Theme.muted, size: 12)
-                            Text(u.label).font(.system(size: 13, weight: .semibold))
+                            Text(u.label).font(.ui(size: 13, weight: .semibold))
                         }
-                        Text(u.doing).font(.system(size: 12))
-                        Text("Lacks " + u.lacks).font(.system(size: 11.5)).foregroundStyle(.secondary)
+                        Text(u.doing).font(.ui(size: 12))
+                        Text("Lacks " + u.lacks).font(.ui(size: 11.5)).foregroundStyle(.secondary)
                             .lineLimit(2).help(u.missing.joined(separator: ", "))
                     }
                 }
@@ -2332,7 +2487,7 @@ struct UpdatesSheet: View {
                 .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raise.opacity(0.6)))
             }
             Text("A remote machine is given this build, built from conch's source on this Mac; this Mac's server is reloaded onto the conch it runs from. Panes keep running either way.")
-                .font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
                 Button("Not now") { store.updatesOpen = false }.keyboardShortcut(.cancelAction)

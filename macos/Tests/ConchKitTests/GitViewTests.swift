@@ -350,3 +350,88 @@ index 1..2 100644
     #expect(ciChip(old)?.text == "CI running 0/2")
     #expect(checksToRead([]).isEmpty)
 }
+
+// The server's trial merge is with the base as it is here. With commits on
+// it not pushed, a conflict it finds may be with those alone: GitHub says
+// the pull request is clean, so that is a note, not a conflict to resolve —
+// the card once kept saying "Conflicts" after the conflict was resolved.
+@Test func conflictOnlyWithTheUnpushedBase() {
+    var pr = PRInfo(number: 87, state: "OPEN", checks: "pass")
+    pr.conflicting = false
+    let st = prStatus(pr, base: "master", conflicts: ["docs/testing/end-to-end.md"], baseUnpushed: 4)
+    #expect(!st.conflicting && st.merge.tone == .ok && st.merge.text == "No conflicts with master")
+    #expect(st.local == .init(tone: .warn, text: "Your local master (4 commits not pushed) would conflict in docs/testing/end-to-end.md"))
+    // One commit; the base pushed (nothing local) — the trial merge is then
+    // GitHub's own base and its conflict is the pull request's.
+    #expect(prStatus(pr, base: "main", conflicts: ["a"], baseUnpushed: 1).local?.text.contains("(1 commit not pushed)") == true)
+    let pushed = prStatus(pr, base: "main", conflicts: ["a"], baseUnpushed: 0)
+    #expect(pushed.conflicting && pushed.merge.tone == .bad && pushed.local == nil)
+    // GitHub saying it conflicts wins whatever is unpushed.
+    pr.conflicting = true
+    let gh = prStatus(pr, base: "main", conflicts: ["a"], baseUnpushed: 3)
+    #expect(gh.conflicting && gh.local == nil && gh.merge.text == "Conflicts with main in a")
+    // Clean everywhere: no note.
+    pr.conflicting = false
+    #expect(prStatus(pr, base: "main", conflicts: [], baseUnpushed: 3).local == nil)
+    // Merged: nothing to warn about.
+    var merged = PRInfo(number: 9, state: "MERGED")
+    merged.conflicting = false
+    #expect(prStatus(merged, base: "main", conflicts: ["a"], baseUnpushed: 2).local == nil)
+}
+
+// The editor's language by name, and its colouring: comments, strings with
+// escapes, numbers not inside names, keywords as whole words.
+@Test func editorLanguagesAndColours() {
+    #expect(CodeLanguage(path: "cmd/main.go") == .go && CodeLanguage(path: "App.TSX") == .typescript)
+    #expect(CodeLanguage(path: "Makefile") == .shell && CodeLanguage(path: "notes") == .plain && CodeLanguage(path: "a.md") == .markdown)
+    let go = "package main\n// say hi\nfunc f() { s := \"a\\\"b\"; n := 42; x2 := 1 }\n"
+    let runs = highlight(go, .go)
+    func text(_ r: NSRange) -> String { (go as NSString).substring(with: r) }
+    #expect(runs.contains { $0.token == .keyword && text($0.range) == "package" })
+    #expect(runs.contains { $0.token == .comment && text($0.range) == "// say hi" })
+    #expect(runs.contains { $0.token == .string && text($0.range) == "\"a\\\"b\"" })
+    #expect(runs.contains { $0.token == .number && text($0.range) == "42" })
+    #expect(!runs.contains { $0.token == .number && text($0.range) == "2" }) // inside x2
+    #expect(!runs.contains { $0.token == .keyword && text($0.range) == "main" })
+    // Block comments, a string left open at the end, and none for plain text.
+    let c = "/* a\nb */ int x = 'q"
+    let first = highlight(c, .c).first
+    #expect(first?.token == .comment && first?.range.location == 0 && first?.range.length == 9)
+    #expect(highlight(c, .c).last?.token == .string)
+    #expect(highlight("anything 12 // x", .plain).isEmpty)
+    #expect(highlight("", .go).isEmpty)
+    // Markdown: a heading line and a code span.
+    let md = "# Title\nuse `go test` here\n"
+    let m = highlight(md, .markdown)
+    #expect(m.contains { $0.token == .heading && ($0.range.location, $0.range.length) == (0, 7) })
+    #expect(m.contains { $0.token == .string && (md as NSString).substring(with: $0.range) == "`go test`" })
+    // Non-ASCII before a run keeps the offsets right (UTF-16, as NSString).
+    let u = "é // x"
+    #expect(highlight(u, .go).first.map { (u as NSString).substring(with: $0.range) } == "// x")
+}
+
+// The checkouts a project's files can be shown from: main first, then the
+// worktrees by branch, then branches checked out nowhere; editable only
+// with fs.write's fingerprint.
+@Test func filesCheckoutsAndEditable() throws {
+    let json = #"""
+    {"id":"r1","name":"conch","path":"/w/conch",
+     "worktrees":[{"path":"/w/conch.worktrees/b","branch":"feat-b"},{"path":"/w/conch","branch":"master","main":true},{"path":"/w/conch.worktrees/a","branch":"feat-a"}],
+     "branches":[{"name":"master"},{"name":"feat-a"},{"name":"old"},{"name":"feat-b"},{"name":"alpha"}]}
+    """#
+    let p = try conchDecoder().decode(ProjectInfo.self, from: Data(json.utf8))
+    let cs = checkouts(p)
+    #expect(cs.map(\.branch) == ["master", "feat-a", "feat-b", "alpha", "old"])
+    #expect(cs[0].main && cs[0].path == "/w/conch" && cs[0].label == "master (main checkout)")
+    #expect(cs[1].path == "/w/conch.worktrees/a" && cs[3].path == nil)
+    // A project from an older server, no worktrees: its path, as main.
+    let bare = try conchDecoder().decode(ProjectInfo.self, from: Data(#"{"id":"r2","name":"x","path":"/x"}"#.utf8))
+    #expect(checkouts(bare).map(\.path) == ["/x"])
+
+    func read(_ j: String) throws -> FSRead { try JSONDecoder().decode(FSRead.self, from: Data(j.utf8)) }
+    #expect(try read(#"{"data":"a","hash":"ab12"}"#).editable)
+    #expect(try !read(#"{"data":"a"}"#).editable)                       // an older server: no fingerprint
+    #expect(try !read(#"{"data":"a","hash":"ab","truncated":true}"#).editable)
+    #expect(try !read(#"{"binary":true,"hash":"ab"}"#).editable)
+    #expect(try read(#"{"data":"","hash":"e3b0"}"#).editable)            // an empty file is text
+}
