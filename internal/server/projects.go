@@ -48,6 +48,48 @@ type projectManager struct {
 	order    []string
 
 	gitSem chan struct{}
+
+	// bg counts the git and gh work started in the background, so a
+	// server that stops can wait for it: Run returned while a refresh
+	// still wrote in a checkout, and a test's folders went from under it.
+	bgMu     sync.Mutex
+	bg       sync.WaitGroup
+	bgClosed bool
+}
+
+// background runs f in a goroutine the server waits for when it stops. Once
+// the server is stopping nothing new is started, and false says so.
+func (pm *projectManager) background(f func()) bool {
+	pm.bgMu.Lock()
+	defer pm.bgMu.Unlock()
+	if pm.bgClosed {
+		return false
+	}
+	pm.bg.Add(1)
+	go func() {
+		defer pm.bg.Done()
+		f()
+	}()
+	return true
+}
+
+// settle stops background work being started and waits up to d for what
+// is running. It says whether all of it finished.
+func (pm *projectManager) settle(d time.Duration) bool {
+	pm.bgMu.Lock()
+	pm.bgClosed = true
+	pm.bgMu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		pm.bg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
+	}
 }
 
 type project struct {
@@ -421,7 +463,7 @@ func (pm *projectManager) maybeRefresh(p *project) {
 	}
 	p.refreshing, p.pending = true, false
 	p.mu.Unlock()
-	go pm.refresh(p, stamp)
+	pm.background(func() { pm.refresh(p, stamp) })
 }
 
 // refreshNow reads p's git state now, taking its turn with the ticker's
@@ -565,7 +607,7 @@ func (pm *projectManager) maybeFetchPRs(p *project) {
 	}
 	p.prFetching, p.prPending = true, false
 	p.mu.Unlock()
-	go pm.fetchPRs(p)
+	pm.background(func() { pm.fetchPRs(p) })
 }
 
 func (pm *projectManager) fetchPRs(p *project) {
@@ -630,7 +672,7 @@ func (pm *projectManager) fetchPRs(p *project) {
 		pm.s.autopilotPRs(info)
 	}
 	if owed {
-		go pm.fetchOwedBases(p)
+		pm.background(func() { pm.fetchOwedBases(p) })
 	}
 }
 
