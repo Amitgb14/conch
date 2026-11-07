@@ -53,7 +53,7 @@ func (m *Model) fixCheck(machine, projectID, branch string) tea.Cmd {
 		return nil
 	}
 	command, exit, checkPane := m.verifyCommand(projectID), run.exit, run.pane
-	return m.sendToBranchAgent(machine, projectID, branch, "the check's failure", func(c *client.Client) (string, error) {
+	return m.sendToBranchAgent(machine, projectID, branch, "the check's failure", nil, func(c *client.Client) (string, error) {
 		var out proto.PaneReadResult
 		if err := callCtx(c, proto.MethodPaneRead, proto.PaneRef{ID: checkPane}, &out); err != nil {
 			return "", fmt.Errorf("reading the check's output: %w", err)
@@ -69,7 +69,7 @@ func (m *Model) fixCI(machine, projectID, branch string) tea.Cmd {
 		m.setFlash("the server there predates reading CI logs; reload it (conch server reload)", true)
 		return nil
 	}
-	return m.sendToBranchAgent(machine, projectID, branch, "CI's failure", func(c *client.Client) (string, error) {
+	return m.sendToBranchAgent(machine, projectID, branch, "CI's failure", nil, func(c *client.Client) (string, error) {
 		var log proto.BranchCILog
 		if err := callCtx(c, proto.MethodBranchCILog, proto.BranchCILogParams{ProjectID: projectID, Branch: branch}, &log); err != nil {
 			return "", err
@@ -81,7 +81,8 @@ func (m *Model) fixCI(machine, projectID, branch string) tea.Cmd {
 // sendToBranchAgent hands a message to the branch's agent — or starts the
 // default agent in its worktree with it, when there is none — once text
 // has fetched what to say. what names it in the status bar.
-func (m *Model) sendToBranchAgent(machine, projectID, branch, what string, text func(*client.Client) (string, error)) tea.Cmd {
+// sent, when not nil, runs once the text has reached an agent.
+func (m *Model) sendToBranchAgent(machine, projectID, branch, what string, sent func(*client.Client), text func(*client.Client) (string, error)) tea.Cmd {
 	c := m.clientOf(machine)
 	if c == nil {
 		m.setFlash(m.offlineText(machine), true)
@@ -123,12 +124,18 @@ func (m *Model) sendToBranchAgent(machine, projectID, branch, what string, text 
 		if agent != nil {
 			var res proto.AgentPromptResult
 			err := callCtx(c, proto.MethodAgentPrompt, proto.AgentPromptParams{ID: agent.ID, Text: prompt}, &res)
+			if err == nil && sent != nil {
+				sent(c)
+			}
 			return promptSentMsg{machine: machine, pane: agent.ID, res: res, err: err}
 		}
 		var info proto.PaneInfo
 		params := proto.PaneCreateParams{Agent: starting, Prompt: prompt, Cwd: dir, Cols: cols, Rows: rows}
 		if err := callCtx(c, proto.MethodPaneCreate, params, &info); err != nil {
 			return errMsg{err}
+		}
+		if sent != nil {
+			sent(c)
 		}
 		return flashMsg("started " + agentLabel(starting) + " on " + branch + " with " + what)
 	}

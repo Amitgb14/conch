@@ -38,7 +38,7 @@ func (a *autopilot) ownCheck(pane string) bool {
 // autopilotFinished is an agent that has just finished a turn on a
 // branch: its check runs, where the project has one, or the branch ships.
 func (s *Server) autopilotFinished(info proto.PaneInfo) {
-	if s.autopilot == nil || info.ProjectID == "" || strings.HasPrefix(info.Name, "review · ") {
+	if s.autopilot == nil || info.ProjectID == "" || proto.IsReviewer(info) {
 		return
 	}
 	if info.Branch == "" {

@@ -165,6 +165,7 @@ func (pm *projectManager) cleanupWorktrees(cp proto.WorktreeCleanupParams) (prot
 			}
 		}
 		res.Removed = append(res.Removed, wt.Path)
+		pm.s.closeDoneReviewers(p.id, wt.Branch, wt.Path)
 	}
 	if len(pruned) > 0 {
 		if err := gitx.PruneWorktrees(ctx, p.root); err != nil {

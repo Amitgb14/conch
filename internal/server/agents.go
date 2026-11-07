@@ -405,12 +405,19 @@ func (s *Server) projectHasPanes(id string) bool {
 	return false
 }
 
-// panesIn reports whether any pane works inside dir.
+// panesIn reports whether any pane works inside dir; a finished reviewer
+// does not count, since it is closed with the worktree (reviewers.go).
 func (s *Server) panesIn(dir string) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var in []*entry
 	for _, e := range s.panes {
 		if within(e.dir, dir) {
+			in = append(in, e)
+		}
+	}
+	s.mu.Unlock()
+	for _, e := range in {
+		if !idleReviewer(e) {
 			return true
 		}
 	}
@@ -422,13 +429,19 @@ func (s *Server) panesIn(dir string) bool {
 // work out that the agent they had finished with was one of them.
 func (s *Server) stillRunning(dir string) *proto.Error {
 	s.mu.Lock()
-	var in []*entry
+	var all []*entry
 	for _, e := range s.panes {
 		if within(e.dir, dir) {
-			in = append(in, e)
+			all = append(all, e)
 		}
 	}
 	s.mu.Unlock()
+	var in []*entry
+	for _, e := range all {
+		if !idleReviewer(e) { // closed with the worktree instead
+			in = append(in, e)
+		}
+	}
 	if len(in) == 0 {
 		return nil
 	}
