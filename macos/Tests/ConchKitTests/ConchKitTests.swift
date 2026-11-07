@@ -2404,3 +2404,77 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     struct Other: Error {}
     #expect(!reloadUnderway(Other()))
 }
+
+
+@Test func askSuggestionsFromConch() throws {
+    // As `conch ask -suggest` prints them (cmd/conch/ask.go).
+    let json = """
+    {"context": "pane p3 on machine local", "provider": "claude", "fast": true,
+     "counts": {"agents": 2, "waiting": 1, "working": 1, "done": 0},
+     "summary": "2 agents · 1 waiting · 1 working",
+     "suggestions": [
+      {"text": "what is waiting for me?", "note": "1 waiting · instant"},
+      {"text": "tell claude to …", "note": "type the message · instant"},
+      {"text": "show zsh", "note": "instant", "recent": true}]}
+    """
+    let s = try conchDecoder().decode(AskSuggestions.self, from: Data(json.utf8))
+    #expect(s.provider == "claude" && s.fast == true && s.summary == "2 agents · 1 waiting · 1 working" && s.suggestions.count == 3)
+    let tell = s.suggestions[1]
+    #expect(tell.fill && tell.stem == "tell claude to " && !tell.isRecent)
+    #expect(!s.suggestions[0].fill && s.suggestions[0].stem == "what is waiting for me?")
+    #expect(s.suggestions[2].isRecent)
+    // Fields a newer or older conch leaves out are optional.
+    let bare = try conchDecoder().decode(AskSuggestions.self, from: Data(#"{"suggestions": [{"text": "x"}]}"#.utf8))
+    #expect(bare.provider == nil && bare.suggestions == [AskSuggestion(text: "x")] && bare.suggestions[0].note == nil)
+
+    // Narrowed by what is typed, as the TUI narrows its own.
+    #expect(askMatching(s.suggestions, typed: "") == s.suggestions)
+    #expect(askMatching(s.suggestions, typed: "  ") == s.suggestions)
+    #expect(askMatching(s.suggestions, typed: "TELL").map(\.text) == ["tell claude to …"])
+    #expect(askMatching(s.suggestions, typed: "show zsh").isEmpty) // already typed
+    #expect(askMatching(s.suggestions, typed: "nothing like it").isEmpty)
+    #expect(askMatching([], typed: "x").isEmpty)
+}
+
+@Test func askArgumentsAndHistory() {
+    #expect(askArguments(request: "fix it", pane: nil) == ["ask", "fix it"])
+    #expect(askArguments(request: "fix it", pane: "") == ["ask", "fix it"])
+    #expect(askArguments(request: "fix it", pane: "p3") == ["ask", "-pane", "p3", "fix it"])
+    // Earlier requests go after --, the newest four, oldest first.
+    #expect(askSuggestArguments(pane: nil, history: []) == ["ask", "-suggest", "--"])
+    #expect(askSuggestArguments(pane: "p1", history: ["a", "b", "c", "d", "-e"]) == ["ask", "-suggest", "-pane", "p1", "--", "b", "c", "d", "-e"])
+
+    var h: [String] = []
+    h = askRemember(h, "  ")
+    #expect(h.isEmpty)
+    h = askRemember(h, " show zsh ")
+    h = askRemember(h, "show zsh")
+    #expect(h == ["show zsh"])
+    h = askRemember(h, "fix it")
+    h = askRemember(h, "show zsh")
+    #expect(h == ["show zsh", "fix it", "show zsh"])
+    for i in 0..<60 { h = askRemember(h, "r\(i)") }
+    #expect(h.count == 50 && h.first == "r10" && h.last == "r59")
+}
+
+@Test func askSessionPassesThePaneAndSaysWhenFast() async throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("askp-\(UUID().uuidString.prefix(8))")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let p = dir.appendingPathComponent("conch").path
+    try """
+    #!/bin/sh
+    echo "args: $*"
+    [ "$2" = -pane ] && echo "planned without the model (-model asks it)" >&2
+    exit 0
+    """.write(toFile: p, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: p)
+    for pane in ["p3", nil] as [String?] {
+        let s = AskSession(binary: p, request: "show zsh", pane: pane, environment: [:])
+        s.start()
+        for _ in 0..<400 where s.state != .done { try await Task.sleep(nanoseconds: 10_000_000) }
+        #expect(s.state == .done)
+        #expect(s.output.contains(pane == nil ? "args: ask show zsh" : "args: ask -pane p3 show zsh"), "\(s.output)")
+        #expect(s.fast == (pane != nil))
+    }
+}

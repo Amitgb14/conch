@@ -1316,6 +1316,13 @@ func TestA4AskSuggest(t *testing.T) {
 		t.Fatal("suggesting ran something")
 	}
 
+	// Earlier requests come after --, as the app passes them, so one
+	// that starts with a dash is a request and not a flag.
+	out, _ = a4Capture(t, "", func() { err = runAsk([]string{"-suggest", "--", "-y everything"}) })
+	if err != nil || !strings.Contains(out, `"text": "-y everything"`) {
+		t.Fatalf("after --: %v\n%s", err, out)
+	}
+
 	// No agents, nothing asked before: still a list, never null.
 	srv.setHandle(func(proto.Message, *proto.Conn) (any, *proto.Error) { return nil, nil })
 	out, _ = a4Capture(t, "", func() { err = runAsk([]string{"-suggest"}) })

@@ -40,25 +40,87 @@ struct StatusExtras: View {
 
 @MainActor
 final class AskModel: ObservableObject {
-    @Published var request = ""
+    @Published var request = "" { didSet { if request != oldValue { pick = nil } } }
     @Published var output = ""
     @Published var state: AskSession.State?
+    @Published var fast = false
+    /// What conch suggests asking now (`conch ask -suggest`); nil until
+    /// it answers, and for good from a conch too old to.
+    @Published var suggested: AskSuggestions?
+    /// The highlighted option; nil is the request as typed.
+    @Published var pick: Int?
     private var session: AskSession?
+    private static let historyKey = "askHistory"
+    private var history: [String] { UserDefaults.standard.stringArray(forKey: Self.historyKey) ?? [] }
 
-    func ask(binary: String) {
+    /// The options left by what is typed.
+    var shown: [AskSuggestion] { askMatching(suggested?.suggestions ?? [], typed: request) }
+
+    func suggest(binary: String, pane: String?) {
+        let args = askSuggestArguments(pane: pane, history: history)
+        Task { @MainActor in
+            guard let out = try? await runConch(binary, args) else { return } // an older conch has no -suggest
+            suggested = try? conchDecoder().decode(AskSuggestions.self, from: out)
+        }
+    }
+
+    func ask(binary: String, pane: String?) {
         let r = request.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !r.isEmpty else { return }
+        UserDefaults.standard.set(askRemember(history, r), forKey: Self.historyKey)
         session?.cancel()
-        let s = AskSession(binary: binary, request: r)
+        let s = AskSession(binary: binary, request: r, pane: pane)
         session = s
         output = ""
+        fast = false
         state = .thinking
         s.onChange = { [weak self, weak s] in
             guard let self, let s, s === self.session else { return }
             self.output = s.output
             self.state = s.state
+            self.fast = s.fast
         }
         s.start()
+    }
+
+    /// Enter: the highlighted option, else what is typed. One to finish
+    /// goes in the box instead of being asked.
+    func submit(binary: String, pane: String?) {
+        if let i = pick, i < shown.count {
+            choose(shown[i], binary: binary, pane: pane)
+        } else {
+            ask(binary: binary, pane: pane)
+        }
+    }
+
+    func choose(_ o: AskSuggestion, binary: String, pane: String?) {
+        request = o.stem
+        pick = nil
+        if !o.fill { ask(binary: binary, pane: pane) }
+    }
+
+    /// ↑↓ through the options; up from the first is back to the request.
+    func move(_ by: Int) {
+        let n = shown.count
+        guard n > 0 else { return }
+        let next = (pick ?? -1) + by
+        pick = next < 0 ? nil : min(next, n - 1)
+    }
+
+    /// Tab: the highlighted option, or the first, in the box to finish.
+    func fillIn() {
+        let opts = shown
+        guard !opts.isEmpty else { return }
+        request = opts[min(pick ?? 0, opts.count - 1)].stem
+        pick = nil
+    }
+
+    /// Back to typing a new request, the plan before it put away.
+    func again() {
+        session?.cancel()
+        session = nil
+        state = nil
+        output = ""
     }
 
     func confirm(_ yes: Bool) { session?.confirm(yes) }
@@ -68,45 +130,182 @@ final class AskModel: ObservableObject {
 struct AskPopover: View {
     @ObservedObject var store: Store
     @StateObject private var model = AskModel()
+    @FocusState private var typing: Bool
+
+    /// The pane in front, when it is this computer's: `conch ask` speaks
+    /// to this computer's server, and "this" means that pane.
+    private var pane: String? {
+        guard let k = store.layout.focused else { return nil }
+        let (m, id) = unkey(k)
+        return m == "local" ? id : nil
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("✦ Ask conch").font(.system(size: 13, weight: .semibold))
-            Text("Say what you want done; conch plans it, and runs nothing until you confirm.")
-                .font(.system(size: 11.5)).foregroundStyle(.secondary)
-            HStack {
-                TextField("start 2 agents on api to fix the flaky tests", text: $model.request)
-                    .textFieldStyle(.roundedBorder).onSubmit { if let b = store.binary { model.ask(binary: b) } }
-                Button("Plan") { if let b = store.binary { model.ask(binary: b) } }
-                    .disabled(model.request.trimmingCharacters(in: .whitespaces).isEmpty || model.state == .thinking)
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            field
+            if let s = model.suggested { context(s) }
             switch model.state {
+            case nil:
+                options
             case .thinking?:
-                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Thinking…").foregroundStyle(.secondary) }
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Thinking with \(model.suggested?.provider ?? "the model")…").foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
             case .failed(let why)?:
                 Text(why).foregroundStyle(Theme.err).font(.system(size: 12)).textSelection(.enabled)
+                options
             default:
-                EmptyView()
+                if model.output.isEmpty { Spacer(minLength: 0) }
             }
-            if !model.output.isEmpty {
-                ScrollView {
-                    Text(model.output).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(minHeight: 120, maxHeight: 220) // in a popover, a scroll view takes no height it is not given
-            }
-            if case .plan(let n)? = model.state {
-                HStack {
-                    Spacer()
-                    Button("Don't run") { model.confirm(false) }
-                    Button("Run \(n) action\(n == 1 ? "" : "s")") { model.confirm(true) }.keyboardShortcut(.defaultAction)
-                }
-            } else if model.state == .running {
-                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Running…").foregroundStyle(.secondary) }
+            if !model.output.isEmpty { result }
+            footer
+        }
+        // A fixed size: the suggestions arrive after the popover opens,
+        // and a popover does not grow to fit what arrives later — the list
+        // was cut off. What does not fit scrolls.
+        .padding(16).frame(width: 620, height: 470, alignment: .top)
+        .onAppear {
+            typing = true
+            if let b = store.binary { model.suggest(binary: b, pane: pane) }
+        }
+        .onDisappear { if model.state == .thinking { model.stop() } }
+    }
+
+    /// Enter in the box asks, unless a plan is already in front or on
+    /// its way: then it is the plan's buttons that answer.
+    private func submit() {
+        guard let b = store.binary else { return }
+        switch model.state {
+        case .thinking?, .plan?, .running?: return
+        default: model.submit(binary: b, pane: pane)
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("✦ Ask conch").font(.system(size: 15, weight: .semibold))
+            Spacer()
+            if let p = model.suggested?.provider, !p.isEmpty {
+                Text(model.suggested?.fast == false ? "\(p) · every request" : "\(p) · simple requests answered at once")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Capsule().fill(Theme.well))
             }
         }
-        .padding(14).frame(width: 460)
-        .onDisappear { if model.state == .thinking { model.stop() } }
+    }
+
+    private var field: some View {
+        HStack(spacing: 8) {
+            Text("✦").foregroundStyle(Theme.accent).font(.system(size: 15, weight: .semibold))
+            TextField("Say what you want, or pick one below", text: $model.request)
+                .textFieldStyle(.plain).font(.system(size: 14))
+                .focused($typing)
+                .onSubmit { submit() }
+                .onKeyPress(.downArrow) { model.move(1); return .handled }
+                .onKeyPress(.upArrow) { model.move(-1); return .handled }
+                .onKeyPress(.tab) { model.fillIn(); return .handled }
+            Button("Ask") { submit() }
+                .disabled(model.request.trimmingCharacters(in: .whitespaces).isEmpty && model.pick == nil || model.state == .thinking)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.well))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(typing ? Theme.accent.opacity(0.6) : Theme.line, lineWidth: 1))
+    }
+
+    private func context(_ s: AskSuggestions) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
+            GridRow {
+                Text("Context").foregroundStyle(.secondary)
+                Text(s.context.flatMap { $0.isEmpty ? nil : $0 } ?? "this computer").lineLimit(1).truncationMode(.middle)
+            }
+            GridRow {
+                Text("Agents").foregroundStyle(.secondary)
+                Text(s.summary ?? "")
+            }
+        }
+        .font(.system(size: 11.5))
+    }
+
+    @ViewBuilder private var options: some View {
+        let opts = model.shown
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(opts.enumerated()), id: \.element) { i, o in
+                    if i == 0 || opts[i - 1].isRecent != o.isRecent {
+                        Text(o.isRecent ? "RECENT" : "SUGGESTED")
+                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                            .padding(.top, i == 0 ? 0 : 8).padding(.bottom, 2)
+                    }
+                    optionRow(o, lit: model.pick == i)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private func optionRow(_ o: AskSuggestion, lit: Bool) -> some View {
+        Button {
+            if let b = store.binary { model.choose(o, binary: b, pane: pane) }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: o.isRecent ? "clock.arrow.circlepath" : (o.fill ? "square.and.pencil" : "sparkle"))
+                    .font(.system(size: 11)).foregroundStyle(lit ? Theme.accent : Theme.muted).frame(width: 16)
+                Text(o.text).font(.system(size: 13)).lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 12)
+                if let n = o.note, !n.isEmpty {
+                    Text(n).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .contentShape(Rectangle())
+            .background(RoundedRectangle(cornerRadius: 6).fill(lit ? Theme.accent.opacity(0.16) : Color.clear))
+        }
+        .buttonStyle(.plain)
+        .help(o.fill ? "Put it in the box to finish" : "Ask this")
+    }
+
+    @ViewBuilder private var result: some View {
+        if model.fast {
+            Text("Answered without the model").font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        ScrollView {
+            Text(model.output).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: .infinity)
+        .padding(8).background(RoundedRectangle(cornerRadius: 6).fill(Theme.well))
+    }
+
+    @ViewBuilder private var footer: some View {
+        switch model.state {
+        case .plan(let n)?:
+            HStack {
+                Text("Nothing has run yet.").font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer()
+                Button("Don't run") { model.confirm(false) }
+                Button("Run \(n) action\(n == 1 ? "" : "s")") { model.confirm(true) }.keyboardShortcut(.defaultAction)
+            }
+        case .running?:
+            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Running…").foregroundStyle(.secondary) }
+        case .done?:
+            HStack {
+                Spacer()
+                Button("Ask something else") {
+                    model.again()
+                    model.request = ""
+                    typing = true
+                    // What was just asked is now among the recent.
+                    if let b = store.binary { model.suggest(binary: b, pane: pane) }
+                }
+            }
+        default:
+            Text("↑↓ choose · ↩ ask · ⇥ fill in · esc close — nothing runs until you confirm")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+        }
     }
 }
 
