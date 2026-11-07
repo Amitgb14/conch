@@ -67,6 +67,32 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    /// Oh My Zsh themes' prompts, by theme ("" is .zshrc's), as they come.
+    @Published var prompts: [String: ZshPromptAnswer] = [:]
+    private var promptsAsked: Set<String> = []
+
+    /// Asks conch to draw a theme's prompt, once a window: the list asks
+    /// as each theme comes into view, and conch draws four at a time.
+    func loadPrompt(_ theme: String) {
+        guard !promptsAsked.contains(theme), let base, var c = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
+        promptsAsked.insert(theme)
+        c.path = "/api/zsh-prompt"
+        c.queryItems = zshPromptQuery(theme)
+        guard let url = c.url else { return }
+        var r = URLRequest(url: url)
+        r.setValue(token, forHTTPHeaderField: "X-Conch-Token")
+        r.timeoutInterval = 30
+        Task {
+            do {
+                let (data, _) = try await URLSession.shared.data(for: r)
+                prompts[theme] = try JSONDecoder().decode(ZshPromptAnswer.self, from: data)
+            } catch {
+                prompts[theme] = ZshPromptAnswer(error: "Could not draw it: \(error.localizedDescription)")
+                promptsAsked.remove(theme)
+            }
+        }
+    }
+
     init(store: Store) { self.store = store }
 
     /// Reads the settings, starting conch's page if it is not running.
@@ -485,7 +511,9 @@ struct FieldRow: View {
         let _ = theme
         let c = control
         SettingsRow(label: field.label, help: field.help, changed: value != saved, first: first,
-                    wide: c == .theme || c == .multiline) {
+                    wide: c == .theme || c == .multiline,
+                    below: c == .combo && settingsShowsPrompts(section, field)
+                        ? AnyView(PromptPreview(model: model, theme: value?.string ?? "", compact: false)) : nil) {
             view(c)
         }
     }
@@ -540,11 +568,13 @@ struct FieldRow: View {
         case .text:
             CheckedField(control: c, field: field, text: str)
         case .combo:
+            let prompts = settingsShowsPrompts(section, field)
             ComboField(options: keepingSaved([SettingsOption(value: "", label: field.placeholder.map { "None: \($0)" } ?? "None")]
                                              + (field.suggest ?? []).map { SettingsOption(value: $0, label: $0) },
                                              str.wrappedValue, label: { $0 }),
                        text: str, placeholder: field.placeholder ?? "",
-                       note: "\(field.suggest?.count ?? 0) installed here; any other name can be typed")
+                       note: "\(field.suggest?.count ?? 0) installed here; any other name can be typed",
+                       preview: prompts ? { theme in AnyView(PromptPreview(model: model, theme: theme, compact: true)) } : nil)
         case .model(let summary):
             let brain = model.form?.config["brain"]
             ComboField(options: modelOptions(model.models?.models ?? [], summary: summary, value: str.wrappedValue),

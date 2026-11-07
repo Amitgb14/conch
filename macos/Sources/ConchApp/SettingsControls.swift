@@ -42,6 +42,8 @@ struct SettingsRow<Control: View>: View {
     var changed = false
     var first = false
     var wide = false
+    /// Drawn under the row at its full width: the chosen theme's prompt.
+    var below: AnyView?
     @ViewBuilder var control: Control
     @Environment(\.conchTheme) private var theme
 
@@ -67,6 +69,7 @@ struct SettingsRow<Control: View>: View {
                 if !wide { control }
             }
             if wide { control }
+            if let below { below }
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
         .overlay(alignment: .top) { if !first { Rectangle().fill(Theme.line).frame(height: 1) } }
@@ -184,7 +187,7 @@ struct RichMenu: View {
                         .padding(.bottom, 4)
                 }
                 ScrollView {
-                    VStack(spacing: 2) {
+                    LazyVStack(spacing: 2) {
                         ForEach(shown, id: \.value) { o in
                             Button {
                                 value = o.value
@@ -620,6 +623,8 @@ struct ComboField: View {
     var note: String?
     var loading = false
     var width: CGFloat = 300
+    /// Drawn under each choice's name in the list: a theme's prompt.
+    var preview: ((String) -> AnyView)?
     @State private var open = false
     @State private var hover: String?
     @FocusState private var focused: Bool
@@ -656,12 +661,16 @@ struct ComboField: View {
                                 text = o.value
                                 open = false
                             } label: {
-                                HStack(spacing: 10) {
-                                    Text(o.label).font(.ui(size: 12.5)).foregroundStyle(o.value.isEmpty ? Theme.text2 : Theme.text).lineLimit(1)
-                                    Spacer()
-                                    if o.value == text { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accent) }
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 10) {
+                                        Text(o.label).font(.ui(size: 12.5)).foregroundStyle(o.value.isEmpty ? Theme.text2 : Theme.text).lineLimit(1)
+                                        Spacer()
+                                        if o.value == text { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accent) }
+                                    }
+                                    .frame(height: preview == nil ? 28 : 18)
+                                    if let preview { preview(o.value) }
                                 }
-                                .padding(.horizontal, 8).frame(height: 28)
+                                .padding(.horizontal, 8).padding(.vertical, preview == nil ? 0 : 7)
                                 .background(RoundedRectangle(cornerRadius: 6).fill(hover == o.value ? Theme.accentDeep.opacity(0.35) : .clear))
                                 .contentShape(Rectangle())
                             }
@@ -674,8 +683,8 @@ struct ComboField: View {
                         }
                     }
                 }
-                .frame(maxHeight: 340)
-                .padding(6).frame(width: Swift.max(width, 300))
+                .frame(maxHeight: preview == nil ? 340 : 520)
+                .padding(6).frame(width: preview == nil ? Swift.max(width, 300) : 500)
                 .background(Theme.raise)
             }
             if let note, !note.isEmpty {
