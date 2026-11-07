@@ -539,7 +539,7 @@ func (m *Model) confirmMove(mv *worktreeMove) {
 		work = append(work, fmt.Sprintf("%d untracked", i.Other))
 	}
 	if len(work) > 0 {
-		text = append(text, "Uncommitted: "+strings.Join(work, ", ")+" file(s).")
+		text = append(text, "Uncommitted files: "+strings.Join(work, ", ")+".")
 	} else {
 		text = append(text, "No uncommitted changes.")
 	}

@@ -144,7 +144,7 @@ func TestMoveWorktreeMenus(t *testing.T) {
 	text := strings.Join(d.text, "\n")
 	for _, want := range []string{
 		"Move feat to busybox · api",
-		"Uncommitted: 1 staged, 2 changed, 3 untracked file(s).",
+		"Uncommitted files: 1 staged, 2 changed, 3 untracked.",
 		"Local files too: .env.",
 		"then closed here: claude (working), codex.",
 		"A working agent is stopped mid-task",

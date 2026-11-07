@@ -231,11 +231,24 @@ func TestProjectMoveWords(t *testing.T) {
 			t.Errorf("plan says no %q:\n%s", want, text)
 		}
 	}
+	// Two agents in a worktree already there: the one-agent plan's
+	// worktree, given a second.
+	two.Worktrees = []relocate.Worktree{{Branch: "feat/a", There: "/t/a",
+		Agents: []proto.PaneInfo{{ID: "p2", Name: "codex"}, {ID: "p4", Name: "opencode"}}}}
+	text = planText(two)
+	if !strings.Contains(text, "codex, opencode continue in it") {
+		t.Errorf("plan says no %q:\n%s", "codex, opencode continue in it", text)
+	}
 	if strings.Contains(text, "(s)") || strings.Contains(planText(one), "(s)") {
 		t.Errorf("a plan said (s):\n%s", text)
 	}
 	r1 := resultText(one, relocate.Result{TargetPath: "/t", Moved: []string{"a"}, Started: []proto.PaneInfo{{ID: "p9"}}})
 	r2 := resultText(one, relocate.Result{TargetPath: "/t", Moved: []string{"a", "b"}, Started: []proto.PaneInfo{{ID: "p8"}, {ID: "p9"}}})
+	for n, want := range map[int]string{1: "1 thing stayed on local", 2: "2 things stayed on local"} {
+		if err := stayedError(n, "local"); err == nil || err.Error() != want {
+			t.Errorf("stayedError(%d) = %v, want %q", n, err, want)
+		}
+	}
 	if !strings.Contains(r1, "1 branch · 1 agent continues there") || !strings.Contains(r2, "2 branches · 2 agents continue there") {
 		t.Errorf("results: %q / %q", r1, r2)
 	}

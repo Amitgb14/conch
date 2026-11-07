@@ -390,7 +390,7 @@ func Run(ctx context.Context, p Plan, from, to *client.Client, opt Options, emit
 			if len(failed) > 0 {
 				state = "fail"
 			}
-			say("agents", p.Name, state, fmt.Sprintf("%d of %d continue in %s", len(started), len(p.MainAgents), dir))
+			say("agents", p.Name, state, continuedText(len(started), len(p.MainAgents), dir))
 		}
 	}
 	if res.TargetPath == "" {
@@ -624,6 +624,17 @@ func Count(n int, one, many string) string {
 		return "1 " + one
 	}
 	return fmt.Sprintf("%d %s", n, many)
+}
+
+// continuedText is the agents step's detail: how many of the main
+// checkout's agents started again, and where. The verb agrees with the
+// number that started, not the number there were: "1 of 2 continues".
+func continuedText(started, of int, dir string) string {
+	verb := "continue"
+	if started == 1 {
+		verb = "continues"
+	}
+	return fmt.Sprintf("%d of %d %s in %s", started, of, verb, dir)
 }
 
 // ErrText is an error for a status line: a server's own message without

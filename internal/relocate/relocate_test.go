@@ -415,6 +415,24 @@ func TestPlanHelpers(t *testing.T) {
 	}
 }
 
+// The agents step agrees with how many started: "1 of 1 continues", never
+// "1 of 1 continue".
+func TestContinuedText(t *testing.T) {
+	for _, c := range []struct {
+		started, of int
+		want        string
+	}{
+		{1, 1, "1 of 1 continues in ~/daos"},
+		{1, 2, "1 of 2 continues in ~/daos"},
+		{2, 2, "2 of 2 continue in ~/daos"},
+		{0, 1, "0 of 1 continue in ~/daos"},
+	} {
+		if got := continuedText(c.started, c.of, "~/daos"); got != c.want {
+			t.Errorf("continuedText(%d, %d) = %q, want %q", c.started, c.of, got, c.want)
+		}
+	}
+}
+
 // Counts say the noun, and verb, that fit: never agent(s).
 func TestCount(t *testing.T) {
 	for n, want := range map[int]string{0: "0 agents continue", 1: "1 agent continues", 2: "2 agents continue"} {
