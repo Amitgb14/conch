@@ -61,8 +61,22 @@ func TestProjectMoveCommand(t *testing.T) {
 	}
 	dir := a4Env(t)
 	home := os.Getenv("HOME")
+	// Removed after the servers stop and before t.TempDir's own removal,
+	// which failed on Linux while a refresh's git status was still writing
+	// (see internal/relocate's removeSoon).
+	t.Cleanup(func() {
+		var err error
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			if err = os.RemoveAll(home); err == nil {
+				return
+			}
+		}
+		t.Errorf("removing %s: %v", home, err)
+	})
 	gitconfig := filepath.Join(home, ".gitconfig")
-	os.WriteFile(gitconfig, []byte("[user]\n\tname = Test\n\temail = test@example.com\n"), 0o644)
+	// No maintenance in the background, which outlives the test (see
+	// internal/relocate's isolate).
+	os.WriteFile(gitconfig, []byte("[user]\n\tname = Test\n\temail = test@example.com\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n\tautoDetach = false\n"), 0o644)
 	t.Setenv("GIT_CONFIG_GLOBAL", gitconfig)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 
@@ -192,5 +206,37 @@ func TestProjectMoveCommand(t *testing.T) {
 	out, err = run("nope", "-to", "there", "-json", "-plan")
 	if err == nil || !strings.Contains(out, `"error":"no project \"nope\" on local"`) {
 		t.Fatalf("unknown project: %v %q", err, out)
+	}
+}
+
+// What is said before and after a move agrees with its numbers.
+func TestProjectMoveWords(t *testing.T) {
+	one := relocate.Plan{Name: "daos", Path: "/p", To: "box", CloneTo: "~/daos", MainDirty: 1, Terminals: 1,
+		MainAgents: []proto.PaneInfo{{ID: "p1", Name: "claude"}},
+		Branches:   []proto.BranchInfo{{Name: "wip", Ahead: 1, Upstream: "origin/wip"}},
+		Worktrees:  []relocate.Worktree{{Branch: "feat/a", There: "/t/a", Agents: []proto.PaneInfo{{ID: "p2", Name: "codex"}}}}}
+	text := planText(one)
+	for _, want := range []string{"1 commit ahead of origin/wip", "claude continues in the project's checkout", "codex continues in it", "1 uncommitted file in", "1 terminal\n"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("plan says no %q:\n%s", want, text)
+		}
+	}
+	two := one
+	two.MainDirty, two.Terminals = 2, 2
+	two.MainAgents = append(two.MainAgents, proto.PaneInfo{ID: "p3", Name: "gemini"})
+	two.Branches = []proto.BranchInfo{{Name: "wip", Ahead: 3, Upstream: "origin/wip"}}
+	text = planText(two)
+	for _, want := range []string{"3 commits ahead", "claude, gemini continue in the project's checkout", "2 uncommitted files", "2 terminals"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("plan says no %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "(s)") || strings.Contains(planText(one), "(s)") {
+		t.Errorf("a plan said (s):\n%s", text)
+	}
+	r1 := resultText(one, relocate.Result{TargetPath: "/t", Moved: []string{"a"}, Started: []proto.PaneInfo{{ID: "p9"}}})
+	r2 := resultText(one, relocate.Result{TargetPath: "/t", Moved: []string{"a", "b"}, Started: []proto.PaneInfo{{ID: "p8"}, {ID: "p9"}}})
+	if !strings.Contains(r1, "1 branch · 1 agent continues there") || !strings.Contains(r2, "2 branches · 2 agents continue there") {
+		t.Errorf("results: %q / %q", r1, r2)
 	}
 }

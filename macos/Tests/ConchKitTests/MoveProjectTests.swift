@@ -57,3 +57,10 @@ import Testing
     ahead.ahead = 1
     #expect(branchWhy(gone) == "its upstream is gone" && branchWhy(ahead) == "1 commit not on origin/y" && branchWhy(BranchInfo(name: "z")) == "only here")
 }
+
+// A count says the noun that fits it.
+@Test func moveCounts() {
+    #expect(moveCount(1, "agent continues", "agents continue") == "1 agent continues")
+    #expect(moveCount(2, "agent continues", "agents continue") == "2 agents continue")
+    #expect(moveCount(0, "branch", "branches") == "0 branches")
+}

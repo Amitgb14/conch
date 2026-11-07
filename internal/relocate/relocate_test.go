@@ -34,7 +34,16 @@ func isolate(t *testing.T) string {
 		home = real
 	}
 	gitconfig := filepath.Join(home, ".gitconfig")
-	os.WriteFile(gitconfig, []byte("[user]\n\tname = Test\n\temail = test@example.com\n[init]\n\tdefaultBranch = main\n"), 0o644)
+	// No maintenance or gc in the background: git starts it detached after
+	// a fetch or a commit, and it went on writing in this folder after the
+	// test, so removing it failed (Linux CI, newer git).
+	os.WriteFile(gitconfig, []byte("[user]\n\tname = Test\n\temail = test@example.com\n[init]\n\tdefaultBranch = main\n"+
+		"[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n\tautoDetach = false\n"), 0o644)
+	// Removed here, after the servers stop (cleanups run last first) and
+	// before t.TempDir's own removal: a server's refresh may still be in a
+	// git status, writing the index, when it stops — Run does not wait for
+	// it — and on Linux the removal then failed, "directory not empty".
+	t.Cleanup(func() { removeSoon(t, home) })
 	t.Setenv("HOME", home)
 	t.Setenv("GIT_CONFIG_GLOBAL", gitconfig)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
@@ -42,6 +51,19 @@ func isolate(t *testing.T) string {
 	t.Setenv("CONCH_SOCKET", "")
 	t.Setenv("CONCH_PANE_ID", "")
 	return home
+}
+
+// removeSoon removes dir, trying again for a few seconds while something
+// is still writing in it.
+func removeSoon(t *testing.T, dir string) {
+	t.Helper()
+	var err error
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if err = os.RemoveAll(dir); err == nil {
+			return
+		}
+	}
+	t.Errorf("removing %s: %v", dir, err)
 }
 
 // start runs a conch server with its own state, and dials it.
@@ -390,5 +412,14 @@ func TestPlanHelpers(t *testing.T) {
 	}
 	if (Plan{}).Empty() != true || (Plan{Branches: []proto.BranchInfo{{Name: "x"}}}).Empty() {
 		t.Fatal("empty")
+	}
+}
+
+// Counts say the noun, and verb, that fit: never agent(s).
+func TestCount(t *testing.T) {
+	for n, want := range map[int]string{0: "0 agents continue", 1: "1 agent continues", 2: "2 agents continue"} {
+		if got := Count(n, "agent continues", "agents continue"); got != want {
+			t.Errorf("Count(%d) = %q, want %q", n, got, want)
+		}
 	}
 }

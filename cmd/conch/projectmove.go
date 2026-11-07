@@ -124,7 +124,7 @@ func projectMove(c *client.Client, args []string) error {
 		fmt.Println(resultText(plan, res))
 	}
 	if len(res.Failed) > 0 {
-		return fmt.Errorf("%d thing(s) stayed on %s", len(res.Failed), fromLabel)
+		return fmt.Errorf("%s stayed on %s", relocate.Count(len(res.Failed), "thing", "things"), fromLabel)
 	}
 	return nil
 }
@@ -140,7 +140,7 @@ func planText(p relocate.Plan) string {
 	}
 	for _, w := range p.Worktrees {
 		if w.There != "" {
-			fmt.Fprintf(&b, "  worktree %s is there already (%s): %s continue in it\n", w.Branch, w.There, paneNames(w.Agents))
+			fmt.Fprintf(&b, "  worktree %s is there already (%s): %s %s in it\n", w.Branch, w.There, paneNames(w.Agents), continueVerb(len(w.Agents)))
 			continue
 		}
 		fmt.Fprintf(&b, "  worktree %s%s%s\n", w.Branch, worktreeWhat(w.Info), agentsText(w.Agents))
@@ -151,22 +151,22 @@ func planText(p relocate.Plan) string {
 		case br.Gone:
 			why = "its upstream is gone"
 		case br.Ahead > 0:
-			why = fmt.Sprintf("%d commit(s) ahead of %s", br.Ahead, br.Upstream)
+			why = relocate.Count(br.Ahead, "commit", "commits") + " ahead of " + br.Upstream
 		}
 		fmt.Fprintf(&b, "  branch   %s (%s; given a worktree here, then moved)\n", br.Name, why)
 	}
 	if len(p.MainAgents) > 0 {
-		fmt.Fprintf(&b, "  agents   %s continue in the project's checkout there\n", paneNames(p.MainAgents))
+		fmt.Fprintf(&b, "  agents   %s %s in the project's checkout there\n", paneNames(p.MainAgents), continueVerb(len(p.MainAgents)))
 	}
 	if len(p.Already) > 0 {
 		fmt.Fprintf(&b, "on %s already: %s\n", p.To, strings.Join(p.Already, ", "))
 	}
 	var stays []string
 	if p.MainDirty > 0 {
-		stays = append(stays, fmt.Sprintf("%d uncommitted file(s) in the main checkout", p.MainDirty))
+		stays = append(stays, relocate.Count(p.MainDirty, "uncommitted file", "uncommitted files")+" in the main checkout")
 	}
 	if p.Terminals > 0 {
-		stays = append(stays, fmt.Sprintf("%d terminal(s)", p.Terminals))
+		stays = append(stays, relocate.Count(p.Terminals, "terminal", "terminals"))
 	}
 	for _, s := range p.Skipped {
 		stays = append(stays, "worktree "+s)
@@ -215,14 +215,23 @@ func paneNames(panes []proto.PaneInfo) string {
 	return strings.Join(out, ", ")
 }
 
+// continueVerb agrees with the agents named before it: claude continues,
+// claude, codex continue.
+func continueVerb(n int) string {
+	if n == 1 {
+		return "continues"
+	}
+	return "continue"
+}
+
 // resultText is the line said at the end.
 func resultText(p relocate.Plan, r relocate.Result) string {
 	s := fmt.Sprintf("moved %s to %s (%s)", p.Name, p.To, r.TargetPath)
 	if n := len(r.Moved); n > 0 {
-		s += fmt.Sprintf(" · %d branch(es)", n)
+		s += " · " + relocate.Count(n, "branch", "branches")
 	}
 	if n := len(r.Started); n > 0 {
-		s += fmt.Sprintf(" · %d agent(s) continue there", n)
+		s += " · " + relocate.Count(n, "agent continues", "agents continue") + " there"
 	}
 	if len(r.Failed) > 0 {
 		s += "\nstayed here: " + strings.Join(r.Failed, "; ")

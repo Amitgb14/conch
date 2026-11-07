@@ -367,7 +367,7 @@ func Run(ctx context.Context, p Plan, from, to *client.Client, opt Options, emit
 		res.Failed = append(res.Failed, failed...)
 		detail := path
 		if len(started) > 0 {
-			detail = fmt.Sprintf("%s · %d agent(s) continue there", path, len(started))
+			detail = path + " · " + Count(len(started), "agent continues", "agents continue") + " there"
 		}
 		say("worktree", w.Branch, "ok", detail)
 	}
@@ -615,6 +615,15 @@ func RemoteName(u string) string {
 		return parts[len(parts)-2] + "/" + parts[len(parts)-1]
 	}
 	return n
+}
+
+// Count is n said with the noun that fits it: 1 agent continues, 2 agents
+// continue — what a person reads, rather than agent(s).
+func Count(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }
 
 // ErrText is an error for a status line: a server's own message without

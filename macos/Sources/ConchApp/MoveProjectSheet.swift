@@ -117,7 +117,7 @@ final class MoveProjectModel: ObservableObject {
         var s = "Moved \(name) to \(label)"
         let moved = r.moved?.count ?? 0, started = r.started?.count ?? 0
         if moved > 0 { s += " · \(moved) branch" + (moved == 1 ? "" : "es") }
-        if started > 0 { s += " · \(started) agent" + (started == 1 ? "" : "s") + " continue there" }
+        if started > 0 { s += " · " + moveCount(started, "agent continues", "agents continue") + " there" }
         if let f = r.failed, !f.isEmpty { s += " · stayed here: " + f.joined(separator: "; ") }
         return s
     }
@@ -134,7 +134,7 @@ final class MoveProjectModel: ObservableObject {
                             + (agents > 0 ? " · \(agents) agent\(agents == 1 ? "" : "s")" : "")))
         }
         if let m = p.mainAgents, !m.isEmpty {
-            out.append(Line(kind: "agents", name: p.name, title: "\(m.count) agent\(m.count == 1 ? "" : "s") in the main checkout continue there"))
+            out.append(Line(kind: "agents", name: p.name, title: moveCount(m.count, "agent", "agents") + " in the main checkout " + (m.count == 1 ? "continues" : "continue") + " there"))
         }
         return out
     }
@@ -357,9 +357,10 @@ struct MoveProjectSheet: View {
             let agents = p.agents
             HStack(spacing: 8) {
                 pill("to", destLabel)
-                pill("\((p.worktrees?.count ?? 0) + (p.branches?.count ?? 0))", "branches")
-                pill("\(p.worktrees?.count ?? 0)", "worktrees")
-                pill("\(agents.count)", "agents")
+                let nb = (p.worktrees?.count ?? 0) + (p.branches?.count ?? 0), nw = p.worktrees?.count ?? 0
+                pill("\(nb)", nb == 1 ? "branch" : "branches")
+                pill("\(nw)", nw == 1 ? "worktree" : "worktrees")
+                pill("\(agents.count)", agents.count == 1 ? "agent" : "agents")
             }
             .padding(.bottom, 2)
             card("Repository", icon: "shippingbox", note: p.target == nil ? "cloned there from its origin" : "\(destLabel) has it already") {
@@ -501,7 +502,8 @@ struct MoveProjectSheet: View {
                     Image(systemName: failed.isEmpty ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
                         .font(.system(size: 26)).foregroundStyle(failed.isEmpty ? Theme.ok : Theme.warn)
                     Text("Moved \(name) to \(destLabel)").font(.ui(size: 15, weight: .semibold))
-                    Text("\(r.moved?.count ?? 0) branches · \(r.started?.count ?? 0) agents continue there · \(r.targetPath)")
+                    Text(moveCount(r.moved?.count ?? 0, "branch", "branches") + " · "
+                         + moveCount(r.started?.count ?? 0, "agent continues", "agents continue") + " there · " + r.targetPath)
                         .font(.ui(size: 12)).foregroundStyle(Theme.muted)
                     ForEach(failed, id: \.self) { f in Text("Stayed here: " + f).font(.ui(size: 12)).foregroundStyle(Theme.warn) }
                 }
