@@ -360,8 +360,9 @@ type AgentsCfg struct {
 
 // ShellCfg holds settings for terminal panes.
 type ShellCfg struct {
-	// OMZTheme is an Oh My Zsh theme for new zsh terminals, applied after
-	// the user's own .zshrc; "" keeps the theme .zshrc chooses.
+	// OMZTheme is an Oh My Zsh theme for zsh terminals, applied after the
+	// user's own .zshrc; "" keeps the theme .zshrc chooses. Terminals
+	// already open follow a change (internal/server/shelltheme.go).
 	OMZTheme string `toml:"omz_theme"`
 }
 

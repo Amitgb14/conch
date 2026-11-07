@@ -101,6 +101,16 @@ func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''
 // (from their real ZDOTDIR) and then switch the Oh My Zsh theme for this
 // shell only. ZDOTDIR points back at the user's directory once startup is
 // over, so shells started from the pane behave normally.
+//
+// It also keeps the shell on the theme as Settings changes it: the server
+// writes the setting to theme beside these files and sends SIGURG to the
+// panes' shells (shelltheme.go), whose TRAPURG takes the new theme and
+// redraws the prompt in place; a precmd hook does the same at the next
+// prompt for a signal missed. SIGURG because every program ignores it
+// unless it asks for it — a pane whose zsh was not started this way, or
+// that has exec'd something else, is left as it was. Only a change from
+// what the file said as the shell started is followed, so a theme a
+// client asked for at creation stands until somebody saves another.
 var zshWrapper = map[string]string{
 	".zshenv": `_conch_wrap="$ZDOTDIR"; ZDOTDIR="$CONCH_USER_ZDOTDIR"
 [[ -f "$ZDOTDIR/.zshenv" ]] && source "$ZDOTDIR/.zshenv"
@@ -112,15 +122,33 @@ ZDOTDIR="$_conch_wrap"
 `,
 	".zshrc": `_conch_wrap="$ZDOTDIR"; ZDOTDIR="$CONCH_USER_ZDOTDIR"
 [[ -f "$ZDOTDIR/.zshrc" ]] && source "$ZDOTDIR/.zshrc"
-if [[ -n "$CONCH_OMZ_THEME" ]]; then
+_conch_use_theme() {
+  [[ -n "$1" ]] || return 1
   if (( $+functions[omz] )); then
-    omz theme use "$CONCH_OMZ_THEME" >/dev/null 2>&1
+    omz theme use "$1" >/dev/null 2>&1
   else
-    for _conch_f in "$ZSH_CUSTOM/$CONCH_OMZ_THEME.zsh-theme" "$ZSH_CUSTOM/themes/$CONCH_OMZ_THEME.zsh-theme" "$ZSH/themes/$CONCH_OMZ_THEME.zsh-theme"; do
-      [[ -f "$_conch_f" ]] && { source "$_conch_f"; break; }
+    local f
+    for f in "$ZSH_CUSTOM/$1.zsh-theme" "$ZSH_CUSTOM/themes/$1.zsh-theme" "$ZSH/themes/$1.zsh-theme"; do
+      [[ -f "$f" ]] && { source "$f"; return 0; }
     done
-    unset _conch_f
+    return 1
   fi
+}
+if (( $+functions[omz] )) || [[ -n "$ZSH" ]]; then
+  _conch_zshrc_theme="$ZSH_THEME"
+  _conch_use_theme "$CONCH_OMZ_THEME"
+  _conch_theme_file="$_conch_wrap/theme"
+  _conch_theme_seen=""
+  [[ -r "$_conch_theme_file" ]] && _conch_theme_seen="$(<"$_conch_theme_file")"
+  _conch_theme_follow() {
+    local t=""
+    [[ -r "$_conch_theme_file" ]] && t="$(<"$_conch_theme_file")"
+    [[ "$t" == "$_conch_theme_seen" ]] && return 1
+    _conch_theme_seen="$t"
+    _conch_use_theme "${t:-$_conch_zshrc_theme}"
+  }
+  autoload -Uz add-zsh-hook && add-zsh-hook precmd _conch_theme_follow
+  (( $+functions[TRAPURG] )) || TRAPURG() { _conch_theme_follow && zle && zle reset-prompt; return 0 }
 fi
 ZDOTDIR="$_conch_wrap"
 `,
@@ -130,11 +158,19 @@ unset _conch_wrap CONCH_USER_ZDOTDIR CONCH_OMZ_THEME
 `,
 }
 
-// shellThemeEnv returns the environment that applies an Oh My Zsh theme to
-// a new zsh pane, or nil when it doesn't apply.
+// shellThemeEnv returns the environment that starts a new zsh pane through
+// zshWrapper, on theme — or, when the client names none, the one Settings
+// saved here, so a pane the Mac app or conch new opens has it too — or nil
+// when the shell is not zsh.
 func (s *Server) shellThemeEnv(theme string) []string {
-	if theme == "" || strings.ContainsAny(theme, "/\\ \t\n") || filepath.Base(config.DefaultShell()) != "zsh" {
+	if filepath.Base(config.DefaultShell()) != "zsh" {
 		return nil
+	}
+	if theme == "" {
+		theme = savedShellTheme()
+	}
+	if !validShellTheme(theme) {
+		theme = ""
 	}
 	dir := filepath.Join(s.configDir, "zsh")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
