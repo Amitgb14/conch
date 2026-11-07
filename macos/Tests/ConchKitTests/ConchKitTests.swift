@@ -2505,6 +2505,17 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(projectRemoval(api, machine: "box", workspaces: [firstWith(remote, a), remote, a], current: 1) == .removeFromConch) // a has local r1, not box's
 }
 
+// A git project can be moved to another machine; a plain folder can't.
+@Test func projectMenuOffersMove() {
+    var snap = fixture()
+    let node = TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api")
+    let i = snap.projects.firstIndex { $0.id == "r1" }!
+    snap.projects[i].git = true
+    #expect(snap.menu(for: node, machine: "local").contains(RowMenuItem("Move to another machine…", .moveProject(project: "local|r1"))))
+    snap.projects[i].git = false
+    #expect(!snap.menu(for: node, machine: "local").contains { if case .moveProject = $0.action { return true }; return false })
+}
+
 // A project row's menu ends with Remove Project.
 @Test func projectMenuOffersRemove() {
     let snap = fixture()

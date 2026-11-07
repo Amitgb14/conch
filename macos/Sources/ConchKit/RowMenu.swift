@@ -62,6 +62,9 @@ public enum RowAction: Equatable, Sendable {
     /// A project taken off the sidebar, after asking: out of this workspace
     /// alone when another has it too, else out of conch (files untouched).
     case removeProject(project: String)
+    /// The whole project moved to another machine, with its branches,
+    /// worktrees and agents.
+    case moveProject(project: String)
     /// A branch deleted, with its worktree — after saying what that loses.
     case deleteBranch(project: String, branch: String)
     /// A pane's alert when it goes quiet (quiet) or prints, turned on or off.
@@ -166,8 +169,9 @@ extension Snapshot {
             if pr.git != false { out.append(RowMenuItem("Commit graph", .commits(project: pk, branch: nil))) }
             out.append(RowMenuItem("Agent setup", .agentSetup(project: pk, dir: pr.path)))
             if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to its agents…", .broadcast(.project(pk)))) }
-            out += [.divider, RowMenuItem("Copy path", .copy(pr.path)),
-                    .divider, RowMenuItem("Remove Project…", .removeProject(project: pk))]
+            out += [.divider, RowMenuItem("Copy path", .copy(pr.path))]
+            if pr.git != false { out += [.divider, RowMenuItem("Move to another machine…", .moveProject(project: pk))] }
+            out += [.divider, RowMenuItem("Remove Project…", .removeProject(project: pk))]
         case .machine, .cli:
             let isMachine: Bool = { if case .machine = node.kind { return true }; return false }()
             if machineOnline {

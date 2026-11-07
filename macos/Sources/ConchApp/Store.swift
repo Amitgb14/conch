@@ -95,6 +95,8 @@ final class Store: ObservableObject {
     @Published var skillsMachine = "local"
     /// Add project…'s sheet, for the machine it adds to.
     @Published var addProjectTarget: AddProjectTarget?
+    /// Move to another machine…'s sheet, for the project it moves.
+    @Published var moveProjectTarget: MoveProjectTarget?
     /// A broadcast being written (BroadcastSheet).
     @Published var broadcastDraft: BroadcastDraft?
     /// The focused pane's find bar, while it is open.
@@ -2201,6 +2203,7 @@ final class Store: ObservableObject {
         case .openURL(let s): if let u = openableURL(s) { NSWorkspace.shared.open(u) }
         case .removeWorktree(let pk, let path): removeWorktree(project: pk, path: path)
         case .removeProject(let pk): removeProject(pk)
+        case .moveProject(let pk): moveProjectTarget = MoveProjectTarget(id: pk)
         case .deleteBranch(let pk, let b): deleteBranch(project: pk, branch: b)
         case .monitor(let k, let quiet): toggleMonitor(k, quiet: quiet)
         case .broadcast(let scope): startBroadcast(scope, title: node.title)

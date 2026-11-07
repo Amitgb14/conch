@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/relocate"
 )
 
 // Moving a whole project: every task worktree goes, one after another,
@@ -79,31 +80,12 @@ func (m *Model) openMoveProject(mid, projectID string) tea.Cmd {
 	}, mid)
 }
 
-// projectWorktrees is the task worktrees of proj: checked out on a branch
-// that isn't the base.
 func projectWorktrees(proj *proto.ProjectInfo) []proto.WorktreeInfo {
-	var out []proto.WorktreeInfo
-	for _, wt := range proj.Worktrees {
-		if !wt.Main && !wt.Detached && wt.Branch != "" && wt.Branch != proj.Base {
-			out = append(out, wt)
-		}
-	}
-	return out
+	return relocate.ProjectWorktrees(proj)
 }
 
-// inMainCheckout says whether agent p works in proj's main checkout rather
-// than a worktree: an agent in a worktree that is not moving stays with it.
 func inMainCheckout(proj *proto.ProjectInfo, p proto.PaneInfo) bool {
-	var in *proto.WorktreeInfo
-	for i, wt := range proj.Worktrees {
-		if within(p.Cwd, wt.Path) && (in == nil || len(wt.Path) > len(in.Path)) {
-			in = &proj.Worktrees[i]
-		}
-	}
-	if in == nil {
-		return p.Branch == "" || p.Branch == proj.Base
-	}
-	return in.Main
+	return relocate.InMainCheckout(proj, p)
 }
 
 func (m *Model) hasAgentIn(mid, projectID string) bool {

@@ -143,6 +143,12 @@ The status bar follows it: `moving feat to gpu-box · sending 40%`, then `moved 
 - **What stays:** uncommitted changes in the main checkout (commit or stash them, or start a task for them, first), terminals, and saved conversations no agent has open — share one later from **Sessions** → `s` → **On another machine**. Detached checkouts aren't moved.
 - **When one worktree fails:** the others still go. The status bar says `moved api to gpu-box · 2 worktrees · 3 agents continue there`, and anything that stayed here is listed with why.
 
+In Conch.app, right-click the project → **Move to another machine…**. The sheet goes in three steps: **Where** (every other machine, and whether it already has a clone of the same origin, which the move joins rather than cloning again), **What moves** (read from both machines, nothing changed yet: the repository, each worktree and what it takes — commits, staged, unstaged and untracked files — the branches, the agents, and what stays here), then **Moving**, a line a step as it happens. Hide it and the move goes on; the status bar says when it's done, and **Show on …** selects the project there.
+
+From a shell, the same move is `conch project move daos -to busybox` (`-plan` to only see what would move, `-into ~/src/daos` to clone it somewhere else there, `-y` not to be asked, `-json` a line of JSON a step). Both also take **branches with no worktree** that hold commits the origin hasn't — only here, ahead of their upstream, or with their upstream gone: each is given a worktree here, then moves like the others.
+
+Moving the same project again is safe: a branch the project there already has checked out isn't copied over (whatever happened to it there is kept), its agents continue in it, and a branch with nothing left to follow it is listed as **on busybox already**. That is how an agent that stayed behind — its agent wasn't installed there yet, say — follows once it is.
+
 ## Claude Code on a machine
 
 conch checks whether `claude` is installed on each machine (the machine view shows its version). If it isn't, `c` offers to install it, or press `C` (also in the machine menu, or `conch -m NAME agent install claude`). conch runs Anthropic's official installer (`curl -fsSL https://claude.ai/install.sh | bash`) in a pane you can watch; it installs `~/.local/bin/claude` for your user, no root.

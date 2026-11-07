@@ -2,9 +2,7 @@ package tui
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,6 +13,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/relocate"
 	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
@@ -640,69 +639,10 @@ func (mv *worktreeMove) continueAgents() tea.Msg {
 	return done
 }
 
-// continueAgents starts each agent's conversation in dir on to — the same
-// agent, or one afresh when it saved none — and closes its pane on from
-// once that worked. here is the folder the agents worked in on from.
+// continueAgents and handOver are relocate's: the CLI and Conch.app move
+// projects the same way.
 func continueAgents(from, to *client.Client, agents []proto.PaneInfo, here, dir, srcLabel string, cols, rows int) (started []proto.PaneInfo, closed, failed []string) {
-	if len(agents) == 0 {
-		return nil, nil, nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	// Which saved conversation is open in which pane.
-	sessions := map[string]proto.SessionInfo{}
-	dirs := map[string]bool{here: true}
-	for _, p := range agents {
-		if p.Cwd != "" {
-			dirs[p.Cwd] = true
-		}
-	}
-	for dir := range dirs {
-		var list proto.SessionList
-		if from.Call(ctx, proto.MethodSessionList, proto.SessionListParams{Dir: dir}, &list) == nil {
-			for _, s := range list.Sessions {
-				if s.PaneID != "" && s.ID != "" {
-					sessions[s.PaneID] = s
-				}
-			}
-		}
-	}
-	handoff := len(from.MissingCapabilities([]string{proto.CapSessionHandoff})) == 0 &&
-		len(to.MissingCapabilities([]string{proto.CapSessionHandoff})) == 0
-	for _, p := range agents {
-		name := p.DisplayName()
-		var info proto.PaneInfo
-		var err error
-		if s, ok := sessions[p.ID]; ok && handoff {
-			info, err = handOver(ctx, from, to, s, dir, srcLabel, p.Agent.Name, cols, rows)
-		} else {
-			err = to.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{Agent: p.Agent.Name, Cwd: dir,
-				Cols: cols, Rows: rows}, &info)
-		}
-		if err != nil {
-			failed = append(failed, name+": "+errText(err))
-			continue
-		}
-		started = append(started, info)
-		if err := from.Call(ctx, proto.MethodPaneClose, proto.PaneRef{ID: p.ID}, nil); err != nil {
-			failed = append(failed, name+" started there but didn't close here: "+errText(err))
-			continue
-		}
-		closed = append(closed, p.ID)
-	}
-	return started, closed, failed
-}
-
-// handOver gives session s to agent in dir on to.
-func handOver(ctx context.Context, from, to *client.Client, s proto.SessionInfo, dir, srcLabel, agent string, cols, rows int) (proto.PaneInfo, error) {
-	var exp proto.SessionExport
-	if err := from.Call(ctx, proto.MethodSessionExport, proto.SessionRef{Agent: s.Agent, ID: s.ID, Dir: s.Dir}, &exp); err != nil {
-		return proto.PaneInfo{}, err
-	}
-	var res proto.SessionShareResult
-	err := to.Call(ctx, proto.MethodSessionShare, proto.SessionShareParams{Agent: s.Agent, ID: s.ID, Dir: dir, To: agent,
-		Doc: exp.Doc, Name: exp.Name, From: srcLabel, Cols: cols, Rows: rows}, &res)
-	return res.Pane, err
+	return relocate.ContinueAgents(from, to, agents, here, dir, srcLabel, cols, rows)
 }
 
 func (m *Model) receiveMoveDone(msg moveDoneMsg) tea.Cmd {
@@ -751,50 +691,10 @@ func (m *Model) moveFailed(mv *worktreeMove, what, why string, more ...string) {
 	m.overlay = newNotice(" "+ansi.Truncate(mv.branch, 30, "…")+" ", append([]string{what + ":", why}, more...))
 }
 
-// sameRemote says whether two remote URLs name the same repository, however
-// they are written: git@host:a/b.git, ssh://git@host/a/b, https://host/a/b.
-// Only the ordering of a list depends on it.
-func sameRemote(a, b string) bool {
-	na, nb := normalRemote(a), normalRemote(b)
-	return na != "" && strings.EqualFold(na, nb) // the big hosts ignore case in paths
-}
-
-func normalRemote(u string) string {
-	u = strings.TrimSpace(u)
-	if u == "" {
-		return ""
-	}
-	if !strings.Contains(u, "://") {
-		// scp-like: [user@]host:path, unless it is a local path.
-		if i := strings.Index(u, ":"); i > 0 && !strings.HasPrefix(u, "/") && !strings.Contains(u[:i], "/") {
-			u = "ssh://" + u[:i] + "/" + strings.TrimPrefix(u[i+1:], "/")
-		}
-	}
-	if pu, err := url.Parse(u); err == nil && pu.Host != "" {
-		u = strings.ToLower(pu.Hostname()) + "/" + strings.TrimPrefix(pu.Path, "/")
-	}
-	u = strings.TrimSuffix(strings.TrimSuffix(u, "/"), ".git")
-	return strings.TrimSuffix(u, "/")
-}
-
-// remoteName is a remote URL's repository, for labels: owner/name.
-func remoteName(u string) string {
-	n := normalRemote(u)
-	parts := strings.Split(n, "/")
-	if len(parts) >= 2 {
-		return parts[len(parts)-2] + "/" + parts[len(parts)-1]
-	}
-	return n
-}
-
-// checkedOut says whether branch has a worktree in proj.
+func sameRemote(a, b string) bool { return relocate.SameRemote(a, b) }
+func remoteName(u string) string  { return relocate.RemoteName(u) }
 func checkedOut(proj *proto.ProjectInfo, branch string) bool {
-	for _, wt := range proj.Worktrees {
-		if wt.Branch == branch {
-			return true
-		}
-	}
-	return false
+	return relocate.CheckedOut(proj, branch)
 }
 
 func within(path, dir string) bool {
@@ -803,10 +703,4 @@ func within(path, dir string) bool {
 
 // errText is an error for a status line: a server's own message without its
 // code.
-func errText(err error) string {
-	var perr *proto.Error
-	if errors.As(err, &perr) { // keep what wrapped it: "pack the worktree: …"
-		return strings.Replace(err.Error(), perr.Error(), perr.Message, 1)
-	}
-	return err.Error()
-}
+func errText(err error) string { return relocate.ErrText(err) }
