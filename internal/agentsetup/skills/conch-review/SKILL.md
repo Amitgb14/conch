@@ -66,8 +66,18 @@ that doesn't converge needs a person, not a fourth round.
 ## Finish
 
 Tell the person what was found, what was fixed and what is left, then
-close the reviewer: `conch close review-BRANCH`. Its branch and worktree
-stay. Don't merge or push — if the person wants the branch shipped, that is
+clean up after the reviewer — it changed no code, so nothing of it needs
+keeping:
+
+```sh
+conch close review-BRANCH
+conch branch discard -n -branch REVIEW_BRANCH       # the branch conch task printed for it
+conch branch discard -force -branch REVIEW_BRANCH   # only if -n lists just REVIEW.md
+```
+
+If `-n` lists anything besides `REVIEW.md` and the commits of BRANCH it
+read, leave it and say so. BRANCH itself — the author's — stays. Don't
+merge or push — if the person wants the branch shipped, that is
 `conch-ship`.
 
 ## Rules

@@ -117,9 +117,13 @@ question the agent is asking.
 ## Finish
 
 Report each agent's branch, what it did and whether its tests pass. Close
-the panes you started once you have what you need (`conch close api`);
-their branches and worktrees stay for the person. Don't merge, push or
-discard a branch unless the person asked — that is `conch-ship`'s job.
+the panes you started once you have what you need (`conch close api`):
+a finished agent left open still runs, with its own processes. Their
+branches and worktrees stay — they hold work — until the person decides:
+when they pick one attempt and ask you to drop the rest, look with
+`conch branch discard -n -branch BRANCH` and discard each they named.
+Don't merge, push or discard a branch unless the person asked — that is
+`conch-ship`'s job.
 
 ## Rules
 

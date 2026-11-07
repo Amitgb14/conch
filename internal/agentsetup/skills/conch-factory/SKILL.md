@@ -146,10 +146,19 @@ gh pr merge BRANCH --squash --delete-branch
 ## 8. Report and tidy up
 
 Tell the person: the ticket, the pull request's URL, what the review
-found and fixed, the test result, and whether it merged. Close the
-reviewer and tester (`conch close review-123`, `conch close test-123`);
-close the builder once the pull request is merged. Branches and worktrees
-stay for the person.
+found and fixed, the test result, and whether it merged. Then leave
+nothing running that has finished:
+
+- Close the reviewer and tester (`conch close review-123`,
+  `conch close test-123`). They changed no code, so discard their
+  branches too, looking first: `conch branch discard -n -branch
+  HELPER_BRANCH` (the branch `conch task` printed for each), then
+  `-force` only when it lists just their notes (`REVIEW.md`, `TEST.md`)
+  and the builder's commits they read.
+- Once the pull request is merged, close the builder and run
+  `conch worktree clean -y`: it removes the finished worktrees — merged,
+  nothing uncommitted, no pane in them — and nothing else.
+- Not merged: the builder and its branch stay for the person.
 
 ## 9. Retro
 
