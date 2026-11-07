@@ -565,9 +565,15 @@ func withoutAsyncPreemption() error {
 		return nil // nothing to start again: carry on as we are
 	}
 	env := config.MergeEnv(os.Environ(), "GODEBUG="+godebug)
-	_ = syscall.Exec(exe, os.Args, env) // an exec that fails leaves us as we are
+	_ = execSelf(exe, os.Args, env) // an exec that fails leaves us as we are
 	return nil
 }
+
+// execSelf is syscall.Exec. The tests' TestMain refuses it: run by a test,
+// the exec started the whole test binary again with that test's
+// temporary HOME, whose cleanup then never ran — 256 MB of Go caches left
+// behind at every run of the package on macOS.
+var execSelf = syscall.Exec
 
 // asyncPreemptOff is the GODEBUG the server wants and whether it has to
 // start again to get it: only on macOS, and only once.

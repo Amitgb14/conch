@@ -2,7 +2,9 @@ package configweb
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +16,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Amitgb14/conch/internal/brain"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/nodetest"
 )
@@ -684,4 +687,68 @@ func TestLightThemeOffersOffThenTheLightThemes(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Settings → Brain asks for the provider's models: the form's values are
+// what is asked about, the answer always a list, and why it is only the
+// known one said beside it.
+func TestModelsRoute(t *testing.T) {
+	home(t)
+	s, ts := newServer(t)
+	old := listModels
+	t.Cleanup(func() { listModels = old })
+	var asked config.BrainCfg
+	listModels = func(_ context.Context, cfg config.BrainCfg) ([]brain.Model, error) {
+		asked = cfg
+		if cfg.Provider == "anthropic" {
+			return []brain.Model{{ID: "claude-opus-5-5", Label: "Claude Opus 5.5"}}, errors.New("set $K to list the API's own models")
+		}
+		return nil, errors.New("nothing to ask")
+	}
+	call := func(token, method, query string) (int, modelsAnswer) {
+		req, _ := http.NewRequest(method, ts.URL+"/api/models?"+query, nil)
+		if token != "" {
+			req.Header.Set(TokenHeader, token)
+		}
+		res, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var a modelsAnswer
+		json.NewDecoder(res.Body).Decode(&a)
+		return res.StatusCode, a
+	}
+	if code, _ := call("", http.MethodGet, "provider=anthropic"); code != http.StatusUnauthorized {
+		t.Fatalf("without the token: %d", code)
+	}
+	code, a := call(s.Token(), http.MethodGet, "provider=anthropic&base_url=http%3A%2F%2Fx&api_key_env=K")
+	if code != 200 || len(a.Models) != 1 || a.Models[0].ID != "claude-opus-5-5" || !strings.Contains(a.Error, "$K") {
+		t.Fatalf("anthropic: %d %+v", code, a)
+	}
+	if asked.Provider != "anthropic" || asked.BaseURL != "http://x" || asked.APIKeyEnv != "K" {
+		t.Fatalf("asked about %+v", asked)
+	}
+	code, a = call(s.Token(), http.MethodGet, "provider=openai")
+	if code != 200 || a.Models == nil || len(a.Models) != 0 || a.Error != "nothing to ask" {
+		t.Fatalf("nothing listed is an empty list: %d %+v", code, a)
+	}
+	if code, _ := call(s.Token(), http.MethodPost, ""); code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST: %d", code)
+	}
+}
+
+// Terminals → Oh My Zsh theme offers the themes installed here.
+func TestZshThemesAreOffered(t *testing.T) {
+	for _, sec := range Schema(Choices{ZshThemes: []string{"agnoster", "robbyrussell"}}) {
+		for _, f := range sec.Fields {
+			if sec.Key == "shell" && f.Key == "omz_theme" {
+				if strings.Join(f.Suggest, ",") != "agnoster,robbyrussell" {
+					t.Fatalf("suggest: %v", f.Suggest)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("no omz_theme field")
 }

@@ -40,7 +40,7 @@ type Field struct {
 	Fields  []Field `json:"fields,omitempty"` // for tables and keyed
 	// KeyLabel names the key of a keyed or map entry ("Provider", "Project").
 	KeyLabel string   `json:"keyLabel,omitempty"`
-	Suggest  []string `json:"suggest,omitempty"` // names a keyed field offers to add
+	Suggest  []string `json:"suggest,omitempty"` // names a keyed field offers to add, or a string field offers to pick
 }
 
 // Option is one choice of a select.
@@ -73,6 +73,9 @@ type Choices struct {
 	// Providers are the sandbox providers this build knows, offered as
 	// tables to add; a table for one it does not is kept and shown too.
 	Providers []string
+	// ZshThemes are the Oh My Zsh themes installed here, offered for
+	// [shell] omz_theme; any other name can still be typed.
+	ZshThemes []string
 }
 
 func opts(values ...string) []Option {
@@ -194,7 +197,7 @@ func Schema(c Choices) []Section {
 			}},
 		{ID: "shell", Key: "shell", Title: "Terminals", Icon: "terminal", Description: "New terminal panes.",
 			Fields: []Field{
-				{Key: "omz_theme", Label: "Oh My Zsh theme", Kind: KindString, Placeholder: "the one .zshrc chooses", Help: "Applied after your own .zshrc in new zsh terminals."},
+				{Key: "omz_theme", Label: "Oh My Zsh theme", Kind: KindString, Placeholder: "the one .zshrc chooses", Help: "Applied after your own .zshrc in new zsh terminals.", Suggest: c.ZshThemes},
 			}},
 		{ID: "pane", Key: "pane", Title: "Panes", Icon: "square-terminal", Description: "Defaults for new panes.",
 			Fields: []Field{

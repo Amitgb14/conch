@@ -1139,12 +1139,17 @@ final class FakeServer: @unchecked Sendable {
     #expect(f.value(ui, ui.fields[0]) == .string("night-owl") && f.value(ui, ui.fields[1]) == .bool(true))
     #expect(f.value(ui, ui.fields[2]) == .bool(true)) // absent: its default
     #expect(listText(f.value(notify, notify.fields[0])) == "50\n80")
-    #expect(ui.simple && !actions.simple && !f.dirty)
-    // A section drawn whole says nothing; one of tables sends you to config.toml.
-    #expect(ui.tableNote == nil && actions.tableNote == "These are tables of their own, edited in config.toml.")
+    #expect(ui.simple && actions.simple && !f.dirty)
+    // A section drawn whole says nothing — tables are lists here now; one
+    // with a map (left to config.toml) sends you there.
+    #expect(ui.tableNote == nil && actions.tableNote == nil)
+    let map = SettingsField(key: "checks", label: "Checks", kind: "map")
     var mixed = ui
-    mixed.fields.append(actions.fields[0])
+    mixed.fields.append(map)
     #expect(mixed.tableNote == "Some of these are tables, edited in config.toml.")
+    var maps = actions
+    maps.fields = [map]
+    #expect(maps.tableNote == "These are tables of their own, edited in config.toml.")
     #expect(LucideIcons.all["file-text"] != nil && !LucideIcons.ops("file-text").isEmpty)
     f.set(ui, ui.fields[0], .string("conch"))
     f.set(remote, remote.fields[0], .number(45))

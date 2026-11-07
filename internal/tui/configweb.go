@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"slices"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -86,6 +87,11 @@ func SettingsChoices(agents []string) configweb.Choices {
 	}
 	for _, a := range agents {
 		c.Agents = append(c.Agents, configweb.Option{Value: a, Label: agentLabel(a)})
+	}
+	// The settings are this computer's, and so are the terminals the theme
+	// is for: its own Oh My Zsh.
+	if home, err := os.UserHomeDir(); err == nil {
+		c.ZshThemes, _ = config.OMZThemes(config.OMZDir(home))
 	}
 	return c
 }
