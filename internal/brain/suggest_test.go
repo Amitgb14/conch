@@ -42,7 +42,7 @@ func TestSuggestFromTheWorld(t *testing.T) {
 	if c := CountAgents(w); c != (Counts{Agents: 2, Waiting: 1, Working: 1}) || c.String() != "2 agents · 1 waiting · 1 working" {
 		t.Fatalf("counts %+v %q", c, c.String())
 	}
-	opts := Suggest(w, "codex", false, nil)
+	opts := Suggest(w, "codex", false, true, nil)
 	got := optionTexts(opts)
 	want := []string{"what is waiting for me?", "show claude", "tell codex to …", "tell everyone to …", "what is working?", "start an agent on api to …"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
@@ -63,7 +63,7 @@ func TestSuggestFromTheWorld(t *testing.T) {
 
 	// A selected project offers "here" instead of naming one; the agent
 	// selected is not offered back to itself as waiting.
-	opts = Suggest(w, "claude", true, nil)
+	opts = Suggest(w, "claude", true, true, nil)
 	if _, ok := findOption(opts, "start an agent here to …"); !ok {
 		t.Fatalf("place: %q", optionTexts(opts))
 	}
@@ -80,7 +80,7 @@ func TestSuggestEmptyWorld(t *testing.T) {
 	if c := CountAgents(w); c.String() != "no agents running" {
 		t.Fatalf("%q", c.String())
 	}
-	opts := Suggest(w, "", false, nil)
+	opts := Suggest(w, "", false, true, nil)
 	// Still something to try, and nothing that names what isn't there.
 	if got := optionTexts(opts); len(got) != 1 || got[0] != "what is waiting for me?" {
 		t.Fatalf("empty world: %q", got)
@@ -90,7 +90,7 @@ func TestSuggestEmptyWorld(t *testing.T) {
 func TestSuggestRecent(t *testing.T) {
 	w := suggestWorld()
 	hist := []string{"one", "two", "  ", "what is working?", "three", "four", "five", "show zsh"}
-	opts := Suggest(w, "", false, hist)
+	opts := Suggest(w, "", false, true, hist)
 	var recent []string
 	for _, o := range opts {
 		if o.Recent {
@@ -110,7 +110,7 @@ func TestSuggestRecent(t *testing.T) {
 }
 
 func TestSuggestMatching(t *testing.T) {
-	opts := Suggest(suggestWorld(), "codex", false, []string{"show zsh"})
+	opts := Suggest(suggestWorld(), "codex", false, true, []string{"show zsh"})
 	if len(Matching(opts, "")) != len(opts) || len(Matching(opts, "   ")) != len(opts) {
 		t.Fatal("nothing typed keeps every option")
 	}
@@ -123,5 +123,25 @@ func TestSuggestMatching(t *testing.T) {
 	}
 	if got := Matching(opts, "nothing like this"); len(got) != 0 {
 		t.Fatalf("no match: %q", optionTexts(got))
+	}
+}
+
+// With the fast path off every request goes to the model, so nothing may
+// say it is instant — but a waiting agent is still worth naming.
+func TestSuggestWithoutTheFastPath(t *testing.T) {
+	opts := Suggest(suggestWorld(), "codex", false, false, []string{"show zsh"})
+	for _, o := range opts {
+		if strings.Contains(o.Note, "instant") {
+			t.Fatalf("%q says instant with the fast path off", o.Text)
+		}
+	}
+	if o, ok := findOption(opts, "show claude"); !ok || o.Note != "waiting for you" {
+		t.Fatalf("show claude: %+v %v", o, ok)
+	}
+	if o, _ := findOption(opts, "show zsh"); o.Note != "asks the model" {
+		t.Fatalf("recent: %+v", o)
+	}
+	if o, _ := findOption(opts, "what is waiting for me?"); o.Note != "1 waiting" {
+		t.Fatalf("waiting: %+v", o)
 	}
 }

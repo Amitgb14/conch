@@ -79,15 +79,24 @@ func (c Counts) String() string {
 const MaxRecent = 4
 
 // Suggest gives the suggestions for this moment, then the recent
-// requests, newest first. here is the name of the agent selected in the
-// tree, if one is; place says a project or branch is selected, which a
-// vague "start an agent here" can rely on.
-func Suggest(w World, here string, place bool, history []string) []Suggestion {
-	instant := func(req string) string {
-		if _, ok := FastPlan(w, req); ok {
+// requests, newest first. here is the name of the agent selected, if
+// one is; place says a project or branch is selected, which a vague
+// "start an agent here" can rely on. fast is whether conch answers what
+// it can without the model (no_fast_path turns it off), which decides
+// what each one says it costs.
+func Suggest(w World, here string, place, fast bool, history []string) []Suggestion {
+	plain := func(req string) bool { _, ok := FastPlan(w, req); return ok }
+	// cost says after what a request does whether the model is asked.
+	cost := func(what, req string) string {
+		switch {
+		case fast && plain(req) && what == "":
 			return "instant"
+		case fast && plain(req):
+			return what + " · instant"
+		case what == "":
+			return "asks the model"
 		}
-		return "asks the model"
+		return what
 	}
 	seen := map[string]bool{}
 	var opts []Suggestion
@@ -100,17 +109,19 @@ func Suggest(w World, here string, place bool, history []string) []Suggestion {
 		opts = append(opts, o)
 	}
 	c := CountAgents(w)
+	const waiting = "what is waiting for me?"
 	if c.Waiting > 0 {
-		add(Suggestion{Text: "what is waiting for me?", Note: fmt.Sprintf("%d waiting · instant", c.Waiting)})
-		// Up to three of them by name, each a key away.
+		add(Suggestion{Text: waiting, Note: cost(fmt.Sprintf("%d waiting", c.Waiting), waiting)})
+		// Up to three of them by name, each a click away — named only
+		// when the name finds that one pane.
 		n := 0
 		for _, m := range w.Machines {
 			for _, p := range m.Panes {
 				if !m.Online || p.Agent == "" || p.State != "blocked" || p.Name == here || n == 3 {
 					continue
 				}
-				if req := "show " + strings.ToLower(p.Name); instant(req) == "instant" {
-					add(Suggestion{Text: req, Note: "waiting for you"})
+				if req := "show " + strings.ToLower(p.Name); plain(req) {
+					add(Suggestion{Text: req, Note: cost("waiting for you", req)})
 					n++
 				}
 			}
@@ -118,23 +129,20 @@ func Suggest(w World, here string, place bool, history []string) []Suggestion {
 	}
 	if here != "" {
 		name := strings.ToLower(here)
-		note := "type the message"
-		if instant("tell "+name+" to continue") == "instant" {
-			note = "type the message · instant"
-		}
-		add(Suggestion{Text: "tell " + name + " to …", Note: note})
+		add(Suggestion{Text: "tell " + name + " to …", Note: cost("type the message", "tell "+name+" to continue")})
 	}
 	if c.Agents > 1 {
-		add(Suggestion{Text: "tell everyone to …", Note: fmt.Sprintf("all %d agents · instant", c.Agents)})
+		add(Suggestion{Text: "tell everyone to …", Note: cost(fmt.Sprintf("all %d agents", c.Agents), "tell everyone to continue")})
 	}
 	if place {
 		add(Suggestion{Text: "start an agent here to …", Note: "a new branch · the model plans it"})
 	}
+	const working = "what is working?"
 	if c.Working > 0 {
-		add(Suggestion{Text: "what is working?", Note: fmt.Sprintf("%d working · instant", c.Working)})
+		add(Suggestion{Text: working, Note: cost(fmt.Sprintf("%d working", c.Working), working)})
 	}
 	if c.Waiting == 0 {
-		add(Suggestion{Text: "what is waiting for me?", Note: "instant"})
+		add(Suggestion{Text: waiting, Note: cost("", waiting)})
 	}
 	if !place {
 		if proj := firstProject(w); proj != "" {
@@ -147,7 +155,7 @@ func Suggest(w World, here string, place bool, history []string) []Suggestion {
 		if h == "" || seen[strings.ToLower(h)] {
 			continue
 		}
-		add(Suggestion{Text: h, Note: instant(h), Recent: true})
+		add(Suggestion{Text: h, Note: cost("", h), Recent: true})
 		n++
 	}
 	return opts

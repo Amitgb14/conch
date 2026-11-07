@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/brain"
 	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -1263,5 +1264,76 @@ func TestA4AskFastPath(t *testing.T) {
 	os.WriteFile(cfg, []byte(base+"no_fast_path = true\n"), 0o600)
 	if _, _ = a4Capture(t, "", func() { err = runAsk([]string{"-n", "show", "codex"}) }); err != nil || asked.Get() != 2 {
 		t.Fatalf("no_fast_path: %v asked %d", err, asked.Get())
+	}
+}
+
+// -suggest is the Mac app's list: what to ask, from the server's panes,
+// with no model set up and none asked; -pane says which agent "this" is.
+func TestA4AskSuggest(t *testing.T) {
+	dir := a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodPaneList:
+			return proto.PaneList{Panes: []proto.PaneInfo{
+				{ID: "p1", Name: "shell", State: proto.PaneRunning},
+				{ID: "p2", Name: "codex", State: proto.PaneRunning, Agent: &proto.AgentStatus{Name: "codex", State: "blocked"}},
+				{ID: "p3", Name: "claude", State: proto.PaneRunning, Agent: &proto.AgentStatus{Name: "claude", State: "working"}},
+			}}, nil
+		}
+		return nil, nil
+	})
+	// A provider that could not plan anything: suggesting does not need one.
+	cfg := filepath.Join(dir, "config.toml")
+	os.WriteFile(cfg, []byte("[brain]\nprovider = \"openai\"\n"), 0o600)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runAsk([]string{"-suggest", "-pane", "p3", "show shell", "fix the tests"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got askSuggestions
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("%v:\n%s", err, out)
+	}
+	if got.Provider != "openai" || !got.Fast || got.Context != "pane p3 on machine local" ||
+		got.Counts != (brain.Counts{Agents: 2, Waiting: 1, Working: 1}) || got.Summary != "2 agents · 1 waiting · 1 working" {
+		t.Fatalf("head: %+v", got)
+	}
+	var texts []string
+	for _, s := range got.Suggestions {
+		texts = append(texts, s.Text)
+	}
+	want := "what is waiting for me?|show codex|tell claude to …|tell everyone to …|what is working?|fix the tests|show shell"
+	if strings.Join(texts, "|") != want {
+		t.Fatalf("suggestions\n got %q\nwant %q", strings.Join(texts, "|"), want)
+	}
+	if s := got.Suggestions[len(got.Suggestions)-1]; !s.Recent || s.Note != "instant" {
+		t.Fatalf("recent: %+v", s)
+	}
+	if strings.Contains(strings.Join(srv.methods(), ","), proto.MethodPaneSendText) {
+		t.Fatal("suggesting ran something")
+	}
+
+	// No agents, nothing asked before: still a list, never null.
+	srv.setHandle(func(proto.Message, *proto.Conn) (any, *proto.Error) { return nil, nil })
+	out, _ = a4Capture(t, "", func() { err = runAsk([]string{"-suggest"}) })
+	if err != nil || !strings.Contains(out, `"summary": "no agents running"`) || !strings.Contains(out, `"suggestions": [`) {
+		t.Fatalf("empty: %v\n%s", err, out)
+	}
+	os.WriteFile(cfg, []byte("[brain]\nprovider = \"openai\"\nno_fast_path = true\n"), 0o600)
+	out, _ = a4Capture(t, "", func() { err = runAsk([]string{"-suggest"}) })
+	if err != nil || !strings.Contains(out, `"fast": false`) || strings.Contains(out, "instant") {
+		t.Fatalf("no fast path: %v\n%s", err, out)
+	}
+	// Without -suggest a request is still required.
+	if err := runAsk([]string{"-pane", "p3"}); err == nil || !strings.Contains(err.Error(), "-pane ID") {
+		t.Fatalf("no request: %v", err)
+	}
+	// A server that fails is said.
+	srv.setHandle(func(proto.Message, *proto.Conn) (any, *proto.Error) { return nil, proto.Errorf("x", "no panes today") })
+	if _, _ = a4Capture(t, "", func() { err = runAsk([]string{"-suggest"}) }); err == nil || !strings.Contains(err.Error(), "no panes today") {
+		t.Fatalf("server failure: %v", err)
 	}
 }

@@ -248,10 +248,14 @@ Usage:
                                 the facts about this conch for a bug report — versions, counts
                                 and the last error, never a path or a screen; -open fills in a
                                 GitHub issue with them, which you read before you submit it
-  conch ask [-y | -n] [-model] REQUEST
+  conch ask [-y | -n] [-model] [-pane ID] REQUEST
                                 ask the brain; it proposes actions and runs them once you confirm
                                 (show, close, tell one agent or everyone, what is waiting: planned
-                                at once, without the model; -model asks it anyway)
+                                at once, without the model; -model asks it anyway); -pane is the
+                                pane "this" and "here" mean
+  conch ask -suggest [-pane ID] [EARLIER REQUEST...]
+                                what is worth asking now, as JSON, with what each costs; asks no
+                                model (Conch.app's ✦ Ask draws it)
   conch commit-message [-context TEXT]
                                 write a commit message for the diff on stdin with the brain; prints it
   conch update [VERSION | latest | list | rollback]

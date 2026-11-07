@@ -467,7 +467,9 @@ In the TUI the same thing is `,` → **Report a problem…**, which shows the re
 
 ### ask
 
-`conch ask [-y | -n] [-model] REQUEST` asks the [brain](/docs/brain); it proposes actions and runs them once you confirm. `-y` runs the plan without asking; `-n` only shows it. Requests that can only mean one thing, like _show codex_, _tell everyone to commit_ or _what is waiting?_, are [planned without the model](/docs/brain#without-the-model); `-model` asks the model anyway.
+`conch ask [-y | -n] [-model] REQUEST` asks the [brain](/docs/brain); it proposes actions and runs them once you confirm. `-y` runs the plan without asking; `-n` only shows it. Requests that can only mean one thing, like _show codex_, _tell everyone to commit_ or _what is waiting?_, are [planned without the model](/docs/brain#without-the-model); `-model` asks the model anyway. `-pane ID` says which pane _this_ and _here_ mean.
+
+`conch ask -suggest [-pane ID] [EARLIER REQUEST...]` prints, as JSON, what the Ask window offers: the agents by state, which model would plan, and what is worth asking now, each saying whether it is answered at once or planned by the model. The requests after it are earlier ones, oldest first, offered back as recent. It asks no model, so it works with none set up. [Conch.app](/docs/mac-app)'s ✦ Ask draws its list from it.
 
 ### commit-message
 

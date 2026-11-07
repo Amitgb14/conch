@@ -301,7 +301,7 @@ func (m *Model) openAsk() tea.Cmd {
 			place = true
 		}
 	}
-	b.opts = brain.Suggest(b.world, here, place, m.brain.history)
+	b.opts = brain.Suggest(b.world, here, place, !m.cfg.Brain.NoFastPath, m.brain.history)
 	m.overlay = b
 	return textinput.Blink
 }
