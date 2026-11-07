@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/Amitgb14/conch/internal/sandbox"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -25,7 +26,7 @@ func runProject(args []string) error {
 	// A word that is no subcommand is said before the server is reached:
 	// a typo started a server only to be told it was one.
 	switch args[0] {
-	case "add", "create", "new", "files", "setup", "rm", "remove", "ls", "list":
+	case "add", "create", "new", "clone", "files", "setup", "rm", "remove", "ls", "list":
 	default:
 		return unknownSubcommand("project", args[0])
 	}
@@ -60,6 +61,8 @@ func runProject(args []string) error {
 		}
 		fmt.Printf("%s  %s  %s\n", info.ID, info.Name, info.Path)
 		return nil
+	case "clone":
+		return projectClone(c, args[1:])
 	case "files":
 		fs := flag.NewFlagSet("project files", flag.ContinueOnError)
 		reset := fs.Bool("reset", false, "restore the default patterns")
@@ -523,5 +526,52 @@ func runSandboxTask(provider string, proj proto.ProjectInfo, task proto.TaskCrea
 	}
 	fmt.Printf("%s  %s  %s  on %s\n", info.ID, info.Cwd, info.Branch, saved.ID)
 	fmt.Fprintf(os.Stderr, "  it works from %s's %s; follow it in the sidebar, or: conch -m %s read %s\n", proj.Remote, there.Base, saved.ID, info.ID)
+	return nil
+}
+
+// projectClone clones a git repository and adds it as a project: into DIR,
+// or a folder named after the repository as git would name it — here,
+// in the current one; on another machine (-m), in its home.
+func projectClone(c *client.Client, args []string) error {
+	const usage = "usage: conch project clone URL [DIR]"
+	if len(args) < 1 || len(args) > 2 || strings.HasPrefix(args[0], "-") {
+		return errors.New(usage)
+	}
+	url, dir := strings.TrimSpace(args[0]), ""
+	if len(args) == 2 {
+		dir = args[1]
+	}
+	if dir == "" {
+		name := gitx.RepoName(url)
+		if name == "" {
+			return fmt.Errorf("can't tell a folder name from %s; give one: %s", url, usage)
+		}
+		if onRemoteMachine() {
+			dir = "~/" + name
+		} else {
+			dir = name
+		}
+	}
+	if onRemoteMachine() {
+		if err := remoteDir(dir); err != nil {
+			return err
+		}
+	} else if !strings.HasPrefix(dir, "~") {
+		// The server resolves a relative path from its own folder, not
+		// this one; ~ it resolves itself.
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
+	}
+	if missing := c.MissingCapabilities([]string{proto.CapWorktreeMove}); len(missing) > 0 {
+		return fmt.Errorf("the conch server (pid %d) predates cloning a project; reload it with `conch server reload`", c.Server.PID)
+	}
+	fmt.Fprintf(os.Stderr, "cloning %s into %s…\n", url, dir)
+	var info proto.ProjectInfo
+	// A clone takes as long as the repository; the server gives up at 10 minutes.
+	if err := callFor(c, proto.MethodProjectClone, proto.ProjectCloneParams{URL: url, Path: dir}, &info, 11*time.Minute); err != nil {
+		return err
+	}
+	fmt.Printf("%s  %s  %s\n", info.ID, info.Name, info.Path)
 	return nil
 }
