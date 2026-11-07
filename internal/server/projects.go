@@ -61,6 +61,10 @@ type project struct {
 	lastStatus time.Time
 	refreshing bool
 	pending    bool // refresh requested (e.g. an agent just used a tool)
+	// gen counts changes to info: each refresh applied, and each worktree
+	// added or dropped by hand. A read of git that began before a change
+	// is older than info and is not applied (refresh).
+	gen uint64
 
 	prs        map[string]proto.PRInfo // by head branch
 	prStatus   string
@@ -335,6 +339,7 @@ func (p *project) forgetWorktree(path string) {
 		}
 	}
 	p.info.Worktrees = kept
+	p.gen++
 }
 
 func (p *project) branchWorktree(branch string) (proto.WorktreeInfo, bool) {
@@ -434,7 +439,18 @@ func (pm *projectManager) refreshNow(p *project) {
 		p.mu.Unlock()
 		time.Sleep(10 * time.Millisecond)
 	}
-	pm.refresh(p, gitx.MetaStamp(p.commonDir()))
+	// Overtaken by a change made meanwhile: read again, a few times at most.
+	for range 3 {
+		if pm.refresh(p, gitx.MetaStamp(p.commonDir())) {
+			return
+		}
+		p.mu.Lock()
+		p.refreshing, p.pending = true, false
+		p.mu.Unlock()
+	}
+	p.mu.Lock()
+	p.refreshing = false
+	p.mu.Unlock()
 }
 
 func (p *project) commonDir() string {
@@ -472,12 +488,32 @@ func (pm *projectManager) adoptGit(p *project) string {
 	return common
 }
 
-func (pm *projectManager) refresh(p *project, stamp string) {
+// refresh reads p's git state and makes it what p knows, unless p changed
+// while git was being read — a worktree added, or another refresh applied
+// first. That read is older than what p holds: applied, it dropped a
+// worktree just added, and a move that had just put a branch there was
+// told it wasn't (TestMoveProjectBetweenServers, now and then). It is
+// thrown away and another asked for. It says whether it applied.
+func (pm *projectManager) refresh(p *project, stamp string) bool {
+	p.mu.Lock()
+	start := p.gen
+	p.mu.Unlock()
 	pm.gitSem <- struct{}{}
 	info := p.load()
 	<-pm.gitSem
+	return pm.apply(p, info, stamp, start)
+}
 
+// apply makes info, read from git when p was at generation start, what p
+// knows; see refresh.
+func (pm *projectManager) apply(p *project, info proto.ProjectInfo, stamp string, start uint64) bool {
 	p.mu.Lock()
+	if p.gen != start {
+		p.refreshing, p.pending = false, true
+		p.mu.Unlock()
+		return false
+	}
+	p.gen++
 	p.applyPRs(&info)
 	old := p.info
 	info.LocalFiles, info.LocalFilesDefault = old.LocalFiles, old.LocalFilesDefault
@@ -504,6 +540,7 @@ func (pm *projectManager) refresh(p *project, stamp string) {
 	if changed && pm.s.projectRegistered(p) {
 		pm.s.broadcast(proto.EventProjectUpdated, info)
 	}
+	return true
 }
 
 // requestPRs asks for pull requests to be fetched on the next tick.
@@ -846,6 +883,7 @@ func (pm *projectManager) addWorktree(p *project, branch, base string) (path str
 	port := pm.s.ports.assign(path)
 	p.mu.Lock()
 	p.info.Worktrees = append(p.info.Worktrees, proto.WorktreeInfo{Path: path, Branch: branch, Port: port})
+	p.gen++
 	p.mu.Unlock()
 	pm.request(p)
 	return path, copied, nil

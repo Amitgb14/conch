@@ -256,7 +256,9 @@ func TestMoveProjectBetweenServers(t *testing.T) {
 	// follow them: nothing to do, said as such rather than failed twice.
 	again, err := NewPlan(ctx, from, to, info.ID, "here", "there", "")
 	if !errors.Is(err, ErrNothing) || !strings.Contains(err.Error(), "on there already") {
-		t.Fatalf("second plan: %v\nworktrees %+v\nbranches %+v\nalready %v", err, again.Worktrees, again.Branches, again.Already)
+		var tl proto.ProjectList
+		call(t, to, proto.MethodProjectList, nil, &tl)
+		t.Fatalf("second plan: %v\nworktrees %+v\nbranches %+v\nalready %v\ntarget %s\nthere: %+v", err, again.Worktrees, again.Branches, again.Already, again.Target, tl.Projects)
 	}
 	if again.Target != res.Target || again.CloneTo != "" {
 		t.Fatalf("second plan: target %q clone %q, want %q", again.Target, again.CloneTo, res.Target)
