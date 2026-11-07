@@ -34,7 +34,11 @@ func isolate(t *testing.T) string {
 		home = real
 	}
 	gitconfig := filepath.Join(home, ".gitconfig")
-	os.WriteFile(gitconfig, []byte("[user]\n\tname = Test\n\temail = test@example.com\n[init]\n\tdefaultBranch = main\n"), 0o644)
+	// No maintenance or gc in the background: git starts it detached after
+	// a fetch or a commit, and it went on writing in this folder after the
+	// test, so removing it failed (Linux CI, newer git).
+	os.WriteFile(gitconfig, []byte("[user]\n\tname = Test\n\temail = test@example.com\n[init]\n\tdefaultBranch = main\n"+
+		"[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n\tautoDetach = false\n"), 0o644)
 	t.Setenv("HOME", home)
 	t.Setenv("GIT_CONFIG_GLOBAL", gitconfig)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
