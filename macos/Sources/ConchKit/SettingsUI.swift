@@ -43,6 +43,8 @@ public enum SettingsControl: Equatable, Sendable {
     /// A model, picked from what the provider lists or typed; summary
     /// puts the small, fast ones first.
     case model(summary: Bool)
+    /// [app] icons: each set as a card of the sections' icons in it.
+    case iconSets
 }
 
 public func settingsControl(_ s: SettingsSection, _ f: SettingsField) -> SettingsControl {
@@ -50,6 +52,7 @@ public func settingsControl(_ s: SettingsSection, _ f: SettingsField) -> Setting
     case ("ui", "theme"), ("ui", "light_theme"): return f.kind == "select" ? .theme : .menu(agents: false)
     case ("ui", "accent"): return f.kind == "select" ? .swatches : .text
     case ("app", "tabs"): return f.kind == "select" ? .pictures : .segments
+    case ("app", "icons"): return f.kind == "select" ? .iconSets : .text
     case ("app", "text_size"): return .slider(min: 80, max: 160, step: 5, unit: "%")
     case ("keys", "prefix"): return .keys
     case ("notify", "quiet_start"), ("notify", "quiet_end"): return .time
