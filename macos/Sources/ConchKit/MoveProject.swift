@@ -165,3 +165,8 @@ public func branchWhy(_ b: BranchInfo) -> String {
     if let n = b.ahead, n > 0 { return "\(n) commit\(n == 1 ? "" : "s") not on \(b.upstream ?? "origin")" }
     return "only here"
 }
+
+/// n with the noun that fits it: 1 agent, 2 agents (relocate.Count).
+public func moveCount(_ n: Int, _ one: String, _ many: String) -> String {
+    n == 1 ? "1 \(one)" : "\(n) \(many)"
+}

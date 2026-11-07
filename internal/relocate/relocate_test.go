@@ -392,3 +392,12 @@ func TestPlanHelpers(t *testing.T) {
 		t.Fatal("empty")
 	}
 }
+
+// Counts say the noun, and verb, that fit: never agent(s).
+func TestCount(t *testing.T) {
+	for n, want := range map[int]string{0: "0 agents continue", 1: "1 agent continues", 2: "2 agents continue"} {
+		if got := Count(n, "agent continues", "agents continue"); got != want {
+			t.Errorf("Count(%d) = %q, want %q", n, got, want)
+		}
+	}
+}

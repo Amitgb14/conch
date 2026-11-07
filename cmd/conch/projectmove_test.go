@@ -194,3 +194,35 @@ func TestProjectMoveCommand(t *testing.T) {
 		t.Fatalf("unknown project: %v %q", err, out)
 	}
 }
+
+// What is said before and after a move agrees with its numbers.
+func TestProjectMoveWords(t *testing.T) {
+	one := relocate.Plan{Name: "daos", Path: "/p", To: "box", CloneTo: "~/daos", MainDirty: 1, Terminals: 1,
+		MainAgents: []proto.PaneInfo{{ID: "p1", Name: "claude"}},
+		Branches:   []proto.BranchInfo{{Name: "wip", Ahead: 1, Upstream: "origin/wip"}},
+		Worktrees:  []relocate.Worktree{{Branch: "feat/a", There: "/t/a", Agents: []proto.PaneInfo{{ID: "p2", Name: "codex"}}}}}
+	text := planText(one)
+	for _, want := range []string{"1 commit ahead of origin/wip", "claude continues in the project's checkout", "codex continues in it", "1 uncommitted file in", "1 terminal\n"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("plan says no %q:\n%s", want, text)
+		}
+	}
+	two := one
+	two.MainDirty, two.Terminals = 2, 2
+	two.MainAgents = append(two.MainAgents, proto.PaneInfo{ID: "p3", Name: "gemini"})
+	two.Branches = []proto.BranchInfo{{Name: "wip", Ahead: 3, Upstream: "origin/wip"}}
+	text = planText(two)
+	for _, want := range []string{"3 commits ahead", "claude, gemini continue in the project's checkout", "2 uncommitted files", "2 terminals"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("plan says no %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "(s)") || strings.Contains(planText(one), "(s)") {
+		t.Errorf("a plan said (s):\n%s", text)
+	}
+	r1 := resultText(one, relocate.Result{TargetPath: "/t", Moved: []string{"a"}, Started: []proto.PaneInfo{{ID: "p9"}}})
+	r2 := resultText(one, relocate.Result{TargetPath: "/t", Moved: []string{"a", "b"}, Started: []proto.PaneInfo{{ID: "p8"}, {ID: "p9"}}})
+	if !strings.Contains(r1, "1 branch · 1 agent continues there") || !strings.Contains(r2, "2 branches · 2 agents continue there") {
+		t.Errorf("results: %q / %q", r1, r2)
+	}
+}
