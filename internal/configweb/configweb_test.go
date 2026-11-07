@@ -752,3 +752,70 @@ func TestZshThemesAreOffered(t *testing.T) {
 	}
 	t.Fatal("no omz_theme field")
 }
+
+// A theme's prompt is drawn once a server, behind the token; no theme is
+// the one .zshrc chooses, and a .zshrc that chooses none says so.
+func TestZshPromptRoute(t *testing.T) {
+	h := home(t)
+	s, ts := newServer(t)
+	old := renderPrompt
+	t.Cleanup(func() { renderPrompt = old })
+	var asked []string
+	var dirs []string
+	renderPrompt = func(_ context.Context, dir, theme string) (config.Prompt, error) {
+		asked = append(asked, theme)
+		dirs = append(dirs, dir)
+		if theme == "broken" {
+			return config.Prompt{}, errors.New("broken draws an empty prompt here")
+		}
+		return config.Prompt{Theme: theme, Lines: [][]config.Span{{{Text: theme + " $ ", FG: "#cc6666"}}}}, nil
+	}
+	call := func(token, method, query string) (int, promptAnswer) {
+		req, _ := http.NewRequest(method, ts.URL+"/api/zsh-prompt?"+query, nil)
+		if token != "" {
+			req.Header.Set(TokenHeader, token)
+		}
+		res, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var a promptAnswer
+		json.NewDecoder(res.Body).Decode(&a)
+		return res.StatusCode, a
+	}
+	if code, _ := call("", http.MethodGet, "theme=ys"); code != http.StatusUnauthorized {
+		t.Fatalf("without the token: %d", code)
+	}
+	if code, _ := call(s.Token(), http.MethodPost, "theme=ys"); code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST: %d", code)
+	}
+	code, a := call(s.Token(), http.MethodGet, "theme=ys")
+	if code != 200 || a.Prompt == nil || a.Prompt.Lines[0][0].Text != "ys $ " || a.Error != "" {
+		t.Fatalf("ys: %d %+v", code, a)
+	}
+	if dirs[0] != filepath.Join(h, ".oh-my-zsh") {
+		t.Fatalf("looked in %s", dirs[0])
+	}
+	call(s.Token(), http.MethodGet, "theme=ys")
+	if len(asked) != 1 {
+		t.Fatalf("drawn again: %v", asked)
+	}
+	code, a = call(s.Token(), http.MethodGet, "theme=broken")
+	if code != 200 || a.Prompt != nil || !strings.Contains(a.Error, "empty prompt") {
+		t.Fatalf("broken: %d %+v", code, a)
+	}
+	code, a = call(s.Token(), http.MethodGet, "")
+	if code != 200 || a.Prompt != nil || !strings.Contains(a.Error, ".zshrc names none") {
+		t.Fatalf("no .zshrc: %d %+v", code, a)
+	}
+	os.WriteFile(filepath.Join(h, ".zshrc"), []byte("ZSH_THEME=\"random\"\n"), 0o644)
+	if _, a = call(s.Token(), http.MethodGet, "theme="); a.Prompt != nil {
+		t.Fatalf("random: %+v", a)
+	}
+	os.WriteFile(filepath.Join(h, ".zshrc"), []byte("export ZSH=$HOME/omz\nZSH_THEME=\"bira\"\n"), 0o644)
+	code, a = call(s.Token(), http.MethodGet, "theme=")
+	if code != 200 || a.Prompt == nil || a.Prompt.Theme != "bira" || dirs[len(dirs)-1] != filepath.Join(h, "omz") {
+		t.Fatalf(".zshrc's theme: %d %+v %v", code, a, dirs)
+	}
+}

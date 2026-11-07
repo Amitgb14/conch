@@ -60,6 +60,9 @@ type Server struct {
 
 	token string
 	mu    sync.Mutex // one save at a time: the version check and the write are one step
+
+	promptsMu sync.Mutex
+	prompts   map[string]promptAnswer // by theme: a theme is drawn once a server
 }
 
 // New makes a server with a fresh token.
@@ -111,6 +114,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/config", s.guard(s.config))
 	mux.HandleFunc("/api/models", s.guard(s.models))
+	mux.HandleFunc("/api/zsh-prompt", s.guard(s.zshPrompt))
 	sub, err := fs.Sub(dist, "dist")
 	if err != nil {
 		panic(err) // the embed always has dist, or this does not build
@@ -203,6 +207,66 @@ func (s *Server) models(w http.ResponseWriter, r *http.Request) {
 		ans.Error = err.Error()
 	}
 	writeJSON(w, http.StatusOK, ans)
+}
+
+// promptAnswer is a theme's prompt, or why there is none to show.
+type promptAnswer struct {
+	Prompt *config.Prompt `json:"prompt,omitempty"`
+	Error  string         `json:"error,omitempty"`
+}
+
+// renderPrompt is config.OMZPrompt; tests put their own here.
+var renderPrompt = config.OMZPrompt
+
+// promptSlots is how many themes are drawn at once: the list asks for
+// each theme it shows, and every one is a zsh.
+var promptSlots = make(chan struct{}, 4)
+
+// zshPrompt answers GET /api/zsh-prompt?theme=… with that Oh My Zsh
+// theme's prompt as a new terminal would draw it; no theme is the one
+// .zshrc chooses, which is what a terminal gets with omz_theme unset.
+func (s *Server) zshPrompt(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		writeJSON(w, http.StatusMethodNotAllowed, apiError{Error: "GET"})
+		return
+	}
+	home, _ := os.UserHomeDir()
+	theme := strings.TrimSpace(r.URL.Query().Get("theme"))
+	if theme == "" {
+		theme = config.ZshrcVar(home, "ZSH_THEME")
+	}
+	if theme == "" || theme == "random" {
+		writeJSON(w, http.StatusOK, promptAnswer{Error: "no one theme: .zshrc names none"})
+		return
+	}
+	s.promptsMu.Lock()
+	a, ok := s.prompts[theme]
+	s.promptsMu.Unlock()
+	if !ok {
+		select {
+		case promptSlots <- struct{}{}:
+		case <-r.Context().Done():
+			return
+		}
+		p, err := renderPrompt(r.Context(), config.OMZDir(home), theme)
+		<-promptSlots
+		if r.Context().Err() != nil {
+			return // gone: not an answer to keep
+		}
+		if err != nil {
+			a = promptAnswer{Error: err.Error()}
+		} else {
+			a = promptAnswer{Prompt: &p}
+		}
+		s.promptsMu.Lock()
+		if s.prompts == nil {
+			s.prompts = map[string]promptAnswer{}
+		}
+		s.prompts[theme] = a
+		s.promptsMu.Unlock()
+	}
+	writeJSON(w, http.StatusOK, a)
 }
 
 // version names the file's contents, so a save can tell that somebody —

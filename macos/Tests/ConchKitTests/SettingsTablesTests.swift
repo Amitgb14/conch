@@ -129,3 +129,35 @@ private func tablesForm() throws -> (SettingsForm, SettingsSection, SettingsSect
     let decoded = try? JSONDecoder().decode(BrainModels.self, from: Data(#"{"models":[{"id":"haiku","label":"Haiku","small":true}],"error":"set $K"}"#.utf8))
     #expect(decoded?.models.first?.small == true && decoded?.error == "set $K")
 }
+
+@Test func zshPrompts() {
+    let shell = SettingsSection(id: "shell", key: "shell", title: "T", description: "", icon: "", fields: [])
+    let brain = SettingsSection(id: "brain", key: "brain", title: "B", description: "", icon: "", fields: [])
+    #expect(settingsShowsPrompts(shell, SettingsField(key: "omz_theme", label: "T", kind: "string")))
+    #expect(!settingsShowsPrompts(brain, SettingsField(key: "omz_theme", label: "T", kind: "string")))
+    #expect(!settingsShowsPrompts(shell, SettingsField(key: "other", label: "T", kind: "string")))
+    #expect(zshPromptQuery(" ys ").first?.value == "ys" && zshPromptQuery("").first?.name == "theme")
+
+    let json = ##"{"prompt":{"theme":"bira","lines":[[{"text":"╭─","fg":"#cc6666"},{"text":"amit","bold":true}],[{"text":"╰─$ ","bg":"#1d1f21"}]],"right":[{"text":"‹main›"}]}}"##
+    let a = try? JSONDecoder().decode(ZshPromptAnswer.self, from: Data(json.utf8))
+    #expect(a?.prompt?.text == ["╭─amit", "╰─$ "])
+    #expect(a?.prompt?.lines[0][0].fg == "#cc6666" && a?.prompt?.lines[0][1].bold == true && a?.prompt?.lines[0][1].fg == nil)
+    #expect(a?.prompt?.right?.first?.text == "‹main›" && a?.error == nil)
+    let failed = try? JSONDecoder().decode(ZshPromptAnswer.self, from: Data(#"{"error":"no one theme: .zshrc names none"}"#.utf8))
+    #expect(failed?.prompt == nil && failed?.error?.contains(".zshrc") == true)
+    let noRight = try? JSONDecoder().decode(ZshPrompt.self, from: Data(#"{"theme":"x","lines":[]}"#.utf8))
+    #expect(noRight?.right == nil && noRight?.text == [])
+    #expect(zshPromptBG == RGB("#1d1f21"))
+}
+
+@Test func powerlineFonts() {
+    #expect(withoutPowerline("\u{E0B0} \u{E0A0} main \u{E0B2}x") == "▶ ⎇ main ◀x")
+    #expect(withoutPowerline("") == "" && withoutPowerline("plain ✗") == "plain ✗")
+    let fams = ["Menlo", "Anonymice Powerline", "Hack Nerd Font", "JetBrainsMono Nerd Font Mono", "Helvetica"]
+    #expect(powerlineFamily(fams) { _ in true } == "JetBrainsMono Nerd Font Mono")
+    #expect(powerlineFamily(fams) { $0 != "JetBrainsMono Nerd Font Mono" } == "Hack Nerd Font")
+    #expect(powerlineFamily(fams) { $0.contains("Powerline") } == "Anonymice Powerline")
+    #expect(powerlineFamily(fams) { _ in false } == nil)
+    #expect(powerlineFamily(["Menlo", "Helvetica"]) { _ in true } == nil)
+    #expect(powerlineFamily([]) { _ in true } == nil)
+}
