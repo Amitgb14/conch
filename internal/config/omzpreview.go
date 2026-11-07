@@ -119,8 +119,12 @@ func OMZPrompt(ctx context.Context, dir, theme string) (Prompt, error) {
 	cmd.Dir = project
 	cmd.Env = env
 	cmd.Stdin = nil
-	// A theme may start programs of its own; the whole group goes.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// A session of its own: zsh asks its controlling terminal how wide it
+	// is and believes that over COLUMNS, so run from a terminal — conch's
+	// own pane — every theme was drawn that wide. A new session has no
+	// terminal, and is a group of its own too: a theme may start programs
+	// of its own, and the whole group goes.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = time.Second
 	var out bytes.Buffer
