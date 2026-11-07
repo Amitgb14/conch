@@ -109,9 +109,41 @@ conch review reply c1a2b3c4 "Moved the check above Validate; a negative amount n
 ```
 
 
-Close the helpers you started once you have what you need:
-`conch close reviewer`. Their branches and worktrees stay for the person
-to review, merge or discard.
+## Clean up after yourself
+
+Every helper is an agent left running — its own processes, its own MCP
+servers — and every task is a branch and a worktree on disk. Leave only
+what somebody still needs:
+
+1. **Close each pane you started** once you have what you need from it:
+   `conch close reviewer`. A helper that finished is still running until
+   it is closed.
+2. **Discard a read-only helper's branch** — a reviewer's or a tester's,
+   which wrote notes (`REVIEW.md`) and changed no code. It is the branch
+   `conch task` printed (the third column; `conch status` lists them
+   too). Close its pane first, then look before you delete:
+
+   ```sh
+   conch branch discard -n -branch HELPER_BRANCH       # what would go
+   conch branch discard -force -branch HELPER_BRANCH   # only if that is just its notes
+   ```
+
+   `-n` names the worktree and anything it would lose. Go ahead only when
+   that is the helper's own notes and commits that are already on the
+   branch it read. Anything else — files you don't recognise, commits of
+   its own — stop and tell the person instead.
+3. **A helper that wrote code** keeps its branch: that work is the
+   person's to review, merge or discard.
+4. **After a branch is merged**, its worktree is done with:
+
+   ```sh
+   conch worktree ls        # leftovers, and why each is or isn't finished
+   conch worktree clean -y  # removes only finished ones: merged, nothing uncommitted, no pane in it
+   ```
+
+   Never add `-force` there: it removes worktrees that still hold work.
+
+Say what you closed and removed when you report back.
 
 ## The same work as tools, if your client has them
 
@@ -166,5 +198,6 @@ it, or when it wants a test. Work the way that needs:
 - Never run `conch server stop` or `conch server reload`, and don't close,
   rename or type into panes you didn't start.
 - Don't use `-m MACHINE` (another machine) unless the person asked for it.
-- Don't merge, push or discard a helper's branch yourself unless the
-  person asked; leave that to them.
+- Don't merge or push a helper's branch yourself unless the person
+  asked, and discard only a read-only helper's, as *Clean up after
+  yourself* says; leave the rest to them.

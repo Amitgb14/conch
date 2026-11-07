@@ -88,6 +88,11 @@ gh pr merge BRANCH --squash --delete-branch
 With no pull request — a branch that only goes into the local base —
 `conch branch merge -branch BRANCH` squashes it into the base instead.
 
+Once it is merged, tidy up: close the agent that worked on the branch if
+you started it (`conch close NAME`), and run `conch worktree clean -y`,
+which removes finished worktrees only — merged, nothing uncommitted, no
+pane in them. Never add `-force` there.
+
 ## Rules
 
 - Never force-push, and never merge red.
