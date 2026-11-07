@@ -42,7 +42,11 @@ func TestUnknownSubcommand(t *testing.T) {
 	for _, tc := range []struct{ cmd, word, want string }{
 		{"branch", "comit", `unknown branch subcommand "comit" — did you mean conch branch commit?; conch branch -h lists them`},
 		{"project", "lst", `— did you mean conch project ls?`},
-		{"project", "remove", `unknown project subcommand "remove"; conch project -h lists them`},
+		// Meant by another name: rm, never move, which is two letters away.
+		{"project", "remove", `unknown project subcommand "remove" — did you mean conch project rm?; conch project -h lists them`},
+		{"project", "Delete", `did you mean conch project rm?`},
+		// A synonym for a subcommand the command hasn't is no suggestion.
+		{"branch", "list", `unknown branch subcommand "list"; conch branch -h lists them`},
 		// sandbox's own are under -provider; a typo of one is still found.
 		{"sandbox", "strat", `did you mean conch sandbox start?`},
 		{"server", "restart", `unknown server subcommand "restart"; conch server -h lists them`},

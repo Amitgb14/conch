@@ -26,7 +26,7 @@ func runProject(args []string) error {
 	// A word that is no subcommand is said before the server is reached:
 	// a typo started a server only to be told it was one.
 	switch args[0] {
-	case "add", "create", "new", "clone", "files", "setup", "rm", "remove", "ls", "list":
+	case "add", "create", "new", "clone", "move", "files", "setup", "rm", "remove", "ls", "list":
 	default:
 		return unknownSubcommand("project", args[0])
 	}
@@ -63,6 +63,8 @@ func runProject(args []string) error {
 		return nil
 	case "clone":
 		return projectClone(c, args[1:])
+	case "move":
+		return projectMove(c, args[1:])
 	case "files":
 		fs := flag.NewFlagSet("project files", flag.ContinueOnError)
 		reset := fs.Bool("reset", false, "restore the default patterns")

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -39,13 +40,22 @@ func downTo(what string, err error) error {
 	return err
 }
 
+// subcommandSynonyms are the words people reach for, and conch's for them.
+var subcommandSynonyms = map[string]string{"remove": "rm", "delete": "rm", "del": "rm", "list": "ls"}
+
 // unknownSubcommand is a word that is none of a command's subcommands:
 // the one it was likely meant to be, when one is close, and where they
 // are all listed.
 func unknownSubcommand(cmd, word string) error {
 	msg := fmt.Sprintf("unknown %s subcommand %q", cmd, word)
 	subs := append(compWords(compSubcommands[cmd]), compWords(compSubcommands[cmd+" -provider"])...)
-	if near := nearestWord(word, subs); near != "" {
+	near := nearestWord(word, subs)
+	// A word somebody meant by another name is that one, before a typo:
+	// "remove" is two letters from "move", the opposite of what was meant.
+	if s, ok := subcommandSynonyms[strings.ToLower(word)]; ok && slices.Contains(subs, s) {
+		near = s
+	}
+	if near != "" {
 		msg += fmt.Sprintf(" — did you mean conch %s %s?", cmd, near)
 	}
 	return fmt.Errorf("%s; conch %s -h lists them", msg, cmd)

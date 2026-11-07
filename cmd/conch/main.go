@@ -131,6 +131,11 @@ Usage:
                                 -to NAMES, -env K=${VAR}; mcp adds conch's own tools
                                 (conch mcp); plan says what apply writes
   conch project add PATH | create [-no-git] PATH | clone URL [DIR] | ls | rm ID | files ID [-reset | -none | PATTERN...]
+                | move [-plan] [-into DIR] [-y] [-json] ID -to MACHINE
+                                move a whole project to another machine: the repository (cloned
+                                there from its origin), every worktree with its uncommitted work,
+                                every branch with commits its origin lacks, and the agents with
+                                their conversations; -plan says what would move
                 | setup ID [-none | COMMAND]
                                 manage projects shown in the sidebar; setup is run in a
                                 terminal of its own in each new worktree (npm install…),
