@@ -10,125 +10,12 @@ import (
 	"github.com/Amitgb14/conch/internal/brain"
 )
 
-func askWorld() brain.World {
-	return brain.World{Machines: []brain.Machine{
-		{ID: "local", Label: "local", Online: true,
-			Projects: []brain.Project{{ID: "r1", Name: "api"}},
-			Panes: []brain.Pane{
-				{ID: "p1", Name: "claude", Agent: "claude", State: "blocked"},
-				{ID: "p2", Name: "codex", Agent: "codex", State: "working"},
-				{ID: "p3", Name: "zsh"},
-			}},
-		{ID: "box", Label: "box", Online: false, Panes: []brain.Pane{
-			{ID: "p1", Name: "gemini", Agent: "gemini", State: "blocked"}, // offline: not counted
-		}},
-	}}
-}
-
-func optionTexts(opts []askOption) []string {
+func optionTexts(opts []brain.Suggestion) []string {
 	var out []string
 	for _, o := range opts {
-		out = append(out, o.text)
+		out = append(out, o.Text)
 	}
 	return out
-}
-
-func findOption(opts []askOption, text string) (askOption, bool) {
-	for _, o := range opts {
-		if o.text == text {
-			return o, true
-		}
-	}
-	return askOption{}, false
-}
-
-func TestAskOptionsFromTheWorld(t *testing.T) {
-	w := askWorld()
-	if c := countAgents(w); c != (askCounts{agents: 2, waiting: 1, working: 1}) || c.String() != "2 agents · 1 waiting · 1 working" {
-		t.Fatalf("counts %+v %q", c, c.String())
-	}
-	opts := askOptions(w, "codex", false, nil)
-	got := optionTexts(opts)
-	want := []string{"what is waiting for me?", "show claude", "tell codex to …", "tell everyone to …", "what is working?", "start an agent on api to …"}
-	if strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("options\n got %q\nwant %q", got, want)
-	}
-	if o, _ := findOption(opts, "what is waiting for me?"); o.note != "1 waiting · instant" || o.fill() {
-		t.Fatalf("waiting: %+v", o)
-	}
-	// What says instant is answered by the fast path.
-	if o, _ := findOption(opts, "tell codex to …"); !o.fill() || o.stem() != "tell codex to " || !strings.HasSuffix(o.note, "instant") {
-		t.Fatalf("tell: %+v", o)
-	}
-	for _, o := range opts {
-		if o.recent {
-			t.Fatalf("no history, no recent: %+v", o)
-		}
-	}
-
-	// A selected project offers "here" instead of naming one; the agent
-	// selected is not offered back to itself as waiting.
-	opts = askOptions(w, "claude", true, nil)
-	if _, ok := findOption(opts, "start an agent here to …"); !ok {
-		t.Fatalf("place: %q", optionTexts(opts))
-	}
-	if _, ok := findOption(opts, "show claude"); ok {
-		t.Fatalf("the selected agent is shown already: %q", optionTexts(opts))
-	}
-	if _, ok := findOption(opts, "start an agent on api to …"); ok {
-		t.Fatal("with a place selected, here is enough")
-	}
-}
-
-func TestAskOptionsEmptyWorld(t *testing.T) {
-	var w brain.World
-	if c := countAgents(w); c.String() != "no agents running" {
-		t.Fatalf("%q", c.String())
-	}
-	opts := askOptions(w, "", false, nil)
-	// Still something to try, and nothing that names what isn't there.
-	if got := optionTexts(opts); len(got) != 1 || got[0] != "what is waiting for me?" {
-		t.Fatalf("empty world: %q", got)
-	}
-}
-
-func TestAskOptionsRecent(t *testing.T) {
-	w := askWorld()
-	hist := []string{"one", "two", "  ", "what is working?", "three", "four", "five", "show zsh"}
-	opts := askOptions(w, "", false, hist)
-	var recent []string
-	for _, o := range opts {
-		if o.recent {
-			recent = append(recent, o.text)
-		}
-	}
-	// Newest first, blanks and repeats of a suggestion skipped, four at most.
-	if strings.Join(recent, "|") != "show zsh|five|four|three" {
-		t.Fatalf("recent %q", recent)
-	}
-	if o, _ := findOption(opts, "show zsh"); o.note != "instant" {
-		t.Fatalf("show zsh: %+v", o)
-	}
-	if o, _ := findOption(opts, "five"); o.note != "asks the model" {
-		t.Fatalf("five: %+v", o)
-	}
-}
-
-func TestAskOptionsMatching(t *testing.T) {
-	opts := askOptions(askWorld(), "codex", false, []string{"show zsh"})
-	if len(matching(opts, "")) != len(opts) || len(matching(opts, "   ")) != len(opts) {
-		t.Fatal("nothing typed keeps every option")
-	}
-	if got := optionTexts(matching(opts, "TELL")); strings.Join(got, "|") != "tell codex to …|tell everyone to …" {
-		t.Fatalf("tell: %q", got)
-	}
-	// The option already typed is not offered again.
-	if got := optionTexts(matching(opts, "show zsh")); len(got) != 0 {
-		t.Fatalf("exact: %q", got)
-	}
-	if got := matching(opts, "nothing like this"); len(got) != 0 {
-		t.Fatalf("no match: %q", optionTexts(got))
-	}
 }
 
 // askModel is a2Model online, with the agent selected and a request
@@ -196,9 +83,9 @@ func TestAskBarOptionsKeys(t *testing.T) {
 	}
 }
 
-func indexOf(opts []askOption, text string) int {
+func indexOf(opts []brain.Suggestion, text string) int {
 	for i, o := range opts {
-		if o.text == text {
+		if o.Text == text {
 			return i
 		}
 	}
@@ -280,8 +167,8 @@ func TestAskBarFitsAnyScreen(t *testing.T) {
 			}
 			// Every line a click maps to is an option.
 			for line := range b.optLines {
-				if line+1 >= len(bx.lines) || !strings.Contains(ansi.Strip(bx.lines[line+1]), b.shown()[b.optLines[line]].text[:1]) {
-					t.Fatalf("%v: line %d mapped to %q", size, line, b.shown()[b.optLines[line]].text)
+				if line+1 >= len(bx.lines) || !strings.Contains(ansi.Strip(bx.lines[line+1]), b.shown()[b.optLines[line]].Text[:1]) {
+					t.Fatalf("%v: line %d mapped to %q", size, line, b.shown()[b.optLines[line]].Text)
 				}
 			}
 		}

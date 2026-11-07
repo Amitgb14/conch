@@ -249,9 +249,9 @@ type askBar struct {
 	// The list under the request: what to ask now and what was asked
 	// before, narrowed by what is typed. pick is the highlighted one, -1
 	// for none, so enter asks what was typed.
-	opts     []askOption
+	opts     []brain.Suggestion
 	pick     int
-	counts   askCounts
+	counts   brain.Counts
 	optLines map[int]int // content line → index into shown(), for clicks
 }
 
@@ -289,7 +289,7 @@ func (m *Model) openAsk() tea.Cmd {
 	in.Focus()
 	b := &askBar{in: in, hist: len(m.brain.history), pick: -1}
 	b.world = m.world()
-	b.counts = countAgents(b.world)
+	b.counts = brain.CountAgents(b.world)
 	here, place := "", false
 	if r, ok := m.selectedRow(); ok {
 		switch r.kind {
@@ -301,7 +301,7 @@ func (m *Model) openAsk() tea.Cmd {
 			place = true
 		}
 	}
-	b.opts = askOptions(b.world, here, place, m.brain.history)
+	b.opts = brain.Suggest(b.world, here, place, m.brain.history)
 	m.overlay = b
 	return textinput.Blink
 }
@@ -309,15 +309,15 @@ func (m *Model) openAsk() tea.Cmd {
 func (b *askBar) width(m Model) int { return clamp(110, 40, max(m.width-4, 40)) }
 
 // shown are the options the typed request leaves.
-func (b *askBar) shown() []askOption { return matching(b.opts, b.in.Value()) }
+func (b *askBar) shown() []brain.Suggestion { return brain.Matching(b.opts, b.in.Value()) }
 
 // choose acts on an option: one to finish goes in the box, the rest are
 // asked as they stand.
-func (b *askBar) choose(m *Model, o askOption) tea.Cmd {
+func (b *askBar) choose(m *Model, o brain.Suggestion) tea.Cmd {
 	b.pick = -1
-	b.in.SetValue(o.stem())
+	b.in.SetValue(o.Stem())
 	b.in.CursorEnd()
-	if o.fill() {
+	if o.Fill() {
 		return textinput.Blink
 	}
 	return b.submit(m)
@@ -397,7 +397,7 @@ func (b *askBar) key(m *Model, k tea.KeyMsg) (bool, tea.Cmd) {
 			if opts := b.shown(); len(opts) > 0 {
 				o := opts[max(b.pick, 0)]
 				b.pick = -1
-				b.in.SetValue(o.stem())
+				b.in.SetValue(o.Stem())
 				b.in.CursorEnd()
 			}
 			return false, nil
@@ -687,7 +687,7 @@ func (b *askBar) inputLines(m Model, w, above int) []string {
 	group := ""
 	for i, o := range opts {
 		g := "Suggested"
-		if o.recent {
+		if o.Recent {
 			g = "Recent"
 		}
 		if g != group {
@@ -735,17 +735,17 @@ func (b *askBar) inputLines(m Model, w, above int) []string {
 
 // optionLine is one option: the request on the left, what it does on the
 // right, the whole line lit when it is the one enter would take.
-func (b *askBar) optionLine(o askOption, lit bool, w int) string {
+func (b *askBar) optionLine(o brain.Suggestion, lit bool, w int) string {
 	mark := "  "
 	if lit {
 		mark = "▸ "
 	}
-	note := o.note
+	note := o.Note
 	room := w - 4 - ansi.StringWidth(mark)
 	if ansi.StringWidth(note)+12 > room {
 		note = ""
 	}
-	text := ansi.Truncate(o.text, max(room-ansi.StringWidth(note)-2, 1), "…")
+	text := ansi.Truncate(o.Text, max(room-ansi.StringWidth(note)-2, 1), "…")
 	gap := max(room-ansi.StringWidth(text)-ansi.StringWidth(note), 1)
 	if lit {
 		return styleSel.Render(fit("  "+mark+text+strings.Repeat(" ", gap)+note, w))
