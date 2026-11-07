@@ -93,6 +93,17 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    /// The icon set under the pointer in Appearance → Icons, shown in
+    /// the sidebar until it leaves, as the mock's cards do.
+    @Published var hoverIcons: SettingsIconSet?
+
+    /// The set and style the window draws its section icons in: the form
+    /// as edited, the card under the pointer first.
+    var iconLook: (set: SettingsIconSet, style: SettingsIconStyle) {
+        let saved = settingsIcons(form?.config["app"]?.object)
+        return (hoverIcons ?? saved.set, saved.style)
+    }
+
     init(store: Store) { self.store = store }
 
     /// Reads the settings, starting conch's page if it is not running.
@@ -281,12 +292,14 @@ struct SettingsView: View {
     func navRow(_ id: String) -> some View {
         let s = schema.first { $0.id == id }
         let on = id == model.section
-        let changed = model.form.flatMap { f in s.map { settingsChanged(f, $0) } } ?? 0
+        let changed = model.form.flatMap { f in s.map { settingsChangedShown(f, $0) } } ?? 0
         // A button, so VoiceOver (and anything pressing by accessibility)
         // can choose a section too.
         return Button { model.section = id } label: {
             HStack(spacing: 10) {
-                LucideIcon(s?.icon ?? SettingsNav.skillsIcon, color: on ? Theme.accent : Theme.text2, size: 15).frame(width: 18)
+                let look = model.iconLook
+                SectionIcon(icon: s?.icon ?? SettingsNav.skillsIcon, set: look.set, style: look.style,
+                            color: on ? Theme.accent : Theme.text2, size: 15).frame(width: 22)
                 Text(s?.title ?? SettingsNav.skillsTitle).font(.ui(size: 13)).foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
                 Spacer()
                 if changed > 0 {
@@ -385,9 +398,15 @@ struct SectionForm: View {
         let _ = theme
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
-                LucideIcon(section.icon, color: Theme.accent, size: 19)
-                    .frame(width: 38, height: 38)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.accentDeep.opacity(0.3)))
+                let look = model.iconLook
+                if look.style == .tiles {
+                    SectionIcon(icon: section.icon, set: look.set, style: .tiles, color: .white, size: 26)
+                        .frame(width: 38, height: 38)
+                } else {
+                    SectionIcon(icon: section.icon, set: look.set, style: .plain, color: Theme.accent, size: 19)
+                        .frame(width: 38, height: 38)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.accentDeep.opacity(0.3)))
+                }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(section.title).font(.ui(size: 21, weight: .semibold))
                     Text(section.description).font(.ui(size: 12.5)).foregroundStyle(Theme.text2)
@@ -404,9 +423,24 @@ struct SectionForm: View {
             }
             switch section.key {
             case "ui":
+                // [app] icons and icon_style are the app's, but they are
+                // how it looks, so they are shown here, first: the theme
+                // grids below are long.
+                if let app = model.form?.payload.schema.first(where: { $0.key == "app" }) {
+                    let icons = app.fields.filter { SettingsIconKeys.contains($0.key) }
+                    if !icons.isEmpty {
+                        SettingsCard(title: "Icons") {
+                            ForEach(Array(icons.enumerated()), id: \.element.key) { i, f in
+                                FieldRow(model: model, section: app, field: f, first: i == 0)
+                            }
+                        }
+                    }
+                }
                 let themes = pick(["theme", "light_theme"])
                 if !themes.isEmpty { card("Theme", themes) }
                 card(nil, rest(["theme", "light_theme"]))
+            case "app":
+                card(nil, rest(SettingsIconKeys))
             case "verify":
                 SettingsCard(title: "The line a finished branch takes") {
                     AutopilotLine(steps: autopilotSteps(model.form?.config["verify"]?.object ?? [:])) { step in
@@ -511,7 +545,7 @@ struct FieldRow: View {
         let _ = theme
         let c = control
         SettingsRow(label: field.label, help: field.help, changed: value != saved, first: first,
-                    wide: c == .theme || c == .multiline,
+                    wide: c == .theme || c == .multiline || c == .iconSets,
                     below: c == .combo && settingsShowsPrompts(section, field)
                         ? AnyView(PromptPreview(model: model, theme: value?.string ?? "", compact: false)) : nil) {
             view(c)
@@ -567,6 +601,11 @@ struct FieldRow: View {
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line2))
         case .text:
             CheckedField(control: c, field: field, text: str)
+        case .iconSets:
+            IconSetGrid(chosen: SettingsIconSet(rawValue: value?.string ?? "") ?? .lucide,
+                        style: settingsIcons(model.form?.config["app"]?.object).style,
+                        choose: { set($0 == .lucide ? nil : .string($0.rawValue)) },
+                        hover: { model.hoverIcons = $0 })
         case .combo:
             let prompts = settingsShowsPrompts(section, field)
             ComboField(options: keepingSaved([SettingsOption(value: "", label: field.placeholder.map { "None: \($0)" } ?? "None")]

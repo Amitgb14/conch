@@ -694,3 +694,66 @@ struct ComboField: View {
         }
     }
 }
+
+/// [app] icons as a card per set, as Appearance → Icons draws them: the
+/// sections' icons in the set and the style chosen, its name and what it
+/// is. The pointer on one shows it in the sidebar; a click chooses it,
+/// saved with the rest.
+struct IconSetGrid: View {
+    let chosen: SettingsIconSet
+    let style: SettingsIconStyle
+    let choose: (SettingsIconSet) -> Void
+    var hover: (SettingsIconSet?) -> Void = { _ in }
+    @Environment(\.conchTheme) private var theme
+    @State private var under: SettingsIconSet?
+
+    static let sample = ["palette", "keyboard", "bell", "bot", "shield-check", "git-merge", "sparkles", "terminal"]
+
+    var body: some View {
+        let _ = theme
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), alignment: .leading, spacing: 12) {
+            ForEach(SettingsIconSet.allCases, id: \.self) { s in card(s) }
+        }
+        .onDisappear { hover(nil) }
+    }
+
+    func card(_ s: SettingsIconSet) -> some View {
+        let on = s == chosen
+        return Button { choose(s) } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 9) {
+                    ForEach(Self.sample, id: \.self) { icon in
+                        SectionIcon(icon: icon, set: s, style: style, color: Theme.text, size: style == .tiles ? 15 : 18)
+                            .frame(height: 26)
+                    }
+                }
+                .padding(.top, 6).padding(.bottom, 10)
+                HStack(spacing: 6) {
+                    Text(s.name).font(.ui(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                    if s == .lucide {
+                        Text("default").font(.ui(size: 9.5, weight: .semibold)).foregroundStyle(Theme.muted)
+                            .padding(.horizontal, 6).padding(.vertical, 0.5)
+                            .overlay(Capsule().stroke(Theme.line2))
+                    }
+                }
+                HStack {
+                    Text(s.detail).font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
+                    Spacer(minLength: 4)
+                    if on { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accent) }
+                }
+            }
+            .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 10)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.well))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(on ? Theme.accent : under == s ? Theme.muted : Theme.line2, lineWidth: on ? 1.5 : 1))
+            .shadow(color: on ? Theme.accent.opacity(0.18) : .clear, radius: 3)
+            .offset(y: under == s && !on ? -1 : 0)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { inside in
+            withAnimation(.easeOut(duration: 0.12)) { under = inside ? s : (under == s ? nil : under) }
+            hover(inside ? s : nil)
+        }
+        .accessibilityLabel(s.name)
+    }
+}
