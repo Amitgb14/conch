@@ -28,8 +28,19 @@ func moveGit(t *testing.T, dir string, args ...string) {
 func startMoveServer(t *testing.T, sock, state string) {
 	t.Helper()
 	srv := server.New(sock, state)
-	go srv.Run()
-	t.Cleanup(srv.Stop)
+	stopped := make(chan struct{})
+	go func() { srv.Run(); close(stopped) }()
+	// Stop only asks: the server shuts down — saving its state, finishing
+	// a git call — after it returns, so wait, or the test's folders are
+	// removed while it is still writing in them (seen on Linux).
+	t.Cleanup(func() {
+		srv.Stop()
+		select {
+		case <-stopped:
+		case <-time.After(30 * time.Second):
+			t.Error("the server did not stop")
+		}
+	})
 	for i := 0; ; i++ {
 		if c, err := client.Dial(sock, "test"); err == nil {
 			c.Close()

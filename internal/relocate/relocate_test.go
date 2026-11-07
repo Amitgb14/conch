@@ -54,8 +54,19 @@ func start(t *testing.T, name string) *client.Client {
 	t.Cleanup(func() { os.RemoveAll(sockDir) })
 	sock := filepath.Join(sockDir, "s")
 	srv := server.New(sock, filepath.Join(t.TempDir(), name))
-	go srv.Run()
-	t.Cleanup(srv.Stop)
+	stopped := make(chan struct{})
+	go func() { srv.Run(); close(stopped) }()
+	// Stop only asks: the server shuts down — saving its state, finishing
+	// a git call — after it returns, so wait, or the test's folders are
+	// removed while it is still writing in them (seen on Linux).
+	t.Cleanup(func() {
+		srv.Stop()
+		select {
+		case <-stopped:
+		case <-time.After(30 * time.Second):
+			t.Error("the server did not stop")
+		}
+	})
 	for i := 0; ; i++ {
 		c, err := client.Dial(sock, "test")
 		if err == nil {
