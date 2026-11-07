@@ -373,7 +373,7 @@ func (s *Server) runningAgents(projectID string) int {
 	for _, e := range entries {
 		info := e.info()
 		agent := info.Agent != nil || e.launched != ""
-		if info.State == proto.PaneRunning && agent && info.ProjectID == projectID && !strings.HasPrefix(info.Name, "review · ") {
+		if info.State == proto.PaneRunning && agent && info.ProjectID == projectID && !proto.IsReviewer(info) {
 			n++
 		}
 	}

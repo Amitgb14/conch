@@ -594,10 +594,16 @@ func (pm *projectManager) fetchPRs(p *project) {
 			}
 		}
 	}
+	var merged []string
 	if err != nil {
 		p.prs = nil
 	} else {
 		p.noteMerges(list)
+		for branch, pr := range p.prs {
+			if pr.State == "MERGED" {
+				merged = append(merged, branch)
+			}
+		}
 	}
 	owed := len(p.baseOwed) > 0 && !p.baseFetching
 	if owed {
@@ -613,6 +619,13 @@ func (pm *projectManager) fetchPRs(p *project) {
 
 	if statusChanged && err != nil {
 		log.Printf("project %s: pull requests unavailable: %v", p.id, err)
+	}
+	// A branch merged on GitHub, by conch or anybody else, is done with:
+	// its finished reviewer goes (reviewers.go).
+	if pm.s.projectRegistered(p) {
+		for _, branch := range merged {
+			pm.s.closeDoneReviewers(p.id, branch, "")
+		}
 	}
 	if changed && pm.s.projectRegistered(p) {
 		pm.s.broadcast(proto.EventProjectUpdated, info)
@@ -916,6 +929,7 @@ func (pm *projectManager) removeWorktree(wp proto.WorktreeRemoveParams) *proto.E
 		return proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	log.Printf("project %s: removed worktree %s", p.id, wp.Path)
+	pm.s.closeDoneReviewers(p.id, target.Branch, wp.Path)
 	pm.s.ports.release(wp.Path)
 	pm.request(p)
 	return nil

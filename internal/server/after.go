@@ -190,7 +190,7 @@ func (s *Server) branchAgents(projectID, branch, dir string, now time.Time) bran
 	var w branchWork
 	for _, e := range entries {
 		info := e.info()
-		if info.State != proto.PaneRunning || info.ProjectID != projectID || strings.HasPrefix(info.Name, "review · ") {
+		if info.State != proto.PaneRunning || info.ProjectID != projectID || proto.IsReviewer(info) {
 			continue
 		}
 		if info.Branch != branch && (dir == "" || !within(info.Cwd, dir)) {
