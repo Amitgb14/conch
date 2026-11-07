@@ -8,7 +8,8 @@ import SwiftUI
 // their Lucide icons, the chosen one's settings on the right — from the
 // same schema, read and saved through the page's API, so the two cannot
 // disagree about a setting. Tables (actions, permission rules, sandbox
-// providers, a project's checks) open the page, which edits them.
+// providers) are lists here, each entry a card of its own fields; only a
+// map (a project's checks) is left to config.toml.
 
 @MainActor
 final class SettingsModel: ObservableObject {
@@ -32,6 +33,39 @@ final class SettingsModel: ObservableObject {
     let store: Store
     private var base: URL?
     private var token = ""
+
+    /// What the brain's provider lists, for Model and Summary model.
+    @Published var models: BrainModels?
+    @Published var modelsLoading = false
+    private var modelsAsked: String?
+
+    /// Asks conch for the models of the provider as the form has it now.
+    /// The same question is asked once; one typed out letter by letter (an
+    /// endpoint) waits for the typing to stop.
+    func loadModels(_ brain: [String: JSONValue]?) {
+        let q = modelsQuery(brain)
+        let key = q.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")
+        guard key != modelsAsked, let base, var c = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return }
+        modelsAsked = key
+        c.path = "/api/models"
+        c.queryItems = q
+        guard let url = c.url else { return }
+        var r = URLRequest(url: url)
+        r.setValue(token, forHTTPHeaderField: "X-Conch-Token")
+        modelsLoading = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard modelsAsked == key else { return }
+            defer { if modelsAsked == key { modelsLoading = false } }
+            do {
+                let (data, _) = try await URLSession.shared.data(for: r)
+                let m = try JSONDecoder().decode(BrainModels.self, from: data)
+                if modelsAsked == key { models = m }
+            } catch {
+                if modelsAsked == key { models = BrainModels(models: [], error: "Could not ask for the models: \(error.localizedDescription)") }
+            }
+        }
+    }
 
     init(store: Store) { self.store = store }
 
@@ -315,6 +349,8 @@ struct SectionForm: View {
     @Environment(\.conchTheme) private var theme
 
     var fields: [SettingsField] { section.fields.filter(\.simple) }
+    /// Its tables, drawn as lists after the rest.
+    var tables: [SettingsField] { section.fields.filter { $0.kind == "tables" || $0.kind == "keyed" } }
 
     func pick(_ keys: [String]) -> [SettingsField] { fields.filter { keys.contains($0.key) } }
     func rest(_ keys: [String]) -> [SettingsField] { fields.filter { !keys.contains($0.key) } }
@@ -389,6 +425,13 @@ struct SectionForm: View {
             default:
                 if !fields.isEmpty { card(nil, fields) }
             }
+            ForEach(tables, id: \.key) { t in
+                if t.kind == "tables" {
+                    TableList(model: model, section: section, field: t)
+                } else {
+                    KeyedList(model: model, section: section, field: t)
+                }
+            }
         }
         .frame(maxWidth: 760, alignment: .leading)
     }
@@ -409,13 +452,16 @@ struct FieldRow: View {
     let section: SettingsSection
     let field: SettingsField
     var first = false
+    /// Where its value is: the section's table, or a row or entry of one
+    /// of its tables.
+    var place: SettingsPlace = .top
 
     @Environment(\.conchTheme) private var theme
 
-    var value: JSONValue? { model.form?.value(section, field) }
-    var saved: JSONValue? { model.form.map { SettingsForm($0.payload).value(section, field) } ?? nil }
+    var value: JSONValue? { model.form?.value(section, field, at: place) }
+    var saved: JSONValue? { model.form.map { SettingsForm($0.payload).value(section, field, at: place) } ?? nil }
 
-    func set(_ v: JSONValue?) { withAnimation(.easeOut(duration: 0.15)) { model.form?.set(section, field, v) } }
+    func set(_ v: JSONValue?) { withAnimation(.easeOut(duration: 0.15)) { model.form?.set(section, field, at: place, v) } }
 
     var control: SettingsControl { settingsControl(section, field) }
 
@@ -493,6 +539,18 @@ struct FieldRow: View {
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line2))
         case .text:
             CheckedField(control: c, field: field, text: str)
+        case .combo:
+            ComboField(options: keepingSaved([SettingsOption(value: "", label: field.placeholder.map { "None: \($0)" } ?? "None")]
+                                             + (field.suggest ?? []).map { SettingsOption(value: $0, label: $0) },
+                                             str.wrappedValue, label: { $0 }),
+                       text: str, placeholder: field.placeholder ?? "",
+                       note: "\(field.suggest?.count ?? 0) installed here; any other name can be typed")
+        case .model(let summary):
+            let brain = model.form?.config["brain"]
+            ComboField(options: modelOptions(model.models?.models ?? [], summary: summary, value: str.wrappedValue),
+                       text: str, placeholder: field.placeholder ?? "", note: model.models?.error, loading: model.modelsLoading)
+                .onAppear { model.loadModels(brain?.object) }
+                .onChange(of: brain) { _, b in model.loadModels(b?.object) }
         }
     }
 }

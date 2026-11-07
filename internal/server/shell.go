@@ -1,13 +1,10 @@
 package server
 
 import (
-	"bufio"
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -15,62 +12,21 @@ import (
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
-// omzDir finds Oh My Zsh: the ZSH exported in ~/.zshrc, else ~/.oh-my-zsh.
-func omzDir(home string) string {
-	dir := filepath.Join(home, ".oh-my-zsh")
-	if v := zshrcVar(home, "ZSH"); v != "" {
-		v = strings.ReplaceAll(strings.ReplaceAll(v, "${HOME}", home), "$HOME", home)
-		if strings.HasPrefix(v, "~/") {
-			v = filepath.Join(home, v[2:])
-		}
-		dir = v
-	}
-	return dir
-}
-
-var zshrcAssign = regexp.MustCompile(`^\s*(?:export\s+)?([A-Z_]+)=["']?([^"'#\s]*)["']?`)
-
-// zshrcVar returns the first assignment of name in ~/.zshrc.
-func zshrcVar(home, name string) string {
-	f, err := os.Open(filepath.Join(home, ".zshrc"))
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		if m := zshrcAssign.FindStringSubmatch(sc.Text()); m != nil && m[1] == name {
-			return m[2]
-		}
-	}
-	return ""
-}
+// omzDir and zshrcVar are config's, kept by these names for this file.
+func omzDir(home string) string         { return config.OMZDir(home) }
+func zshrcVar(home, name string) string { return config.ZshrcVar(home, name) }
 
 func (s *Server) shellThemes() proto.ShellThemes {
 	home, _ := os.UserHomeDir()
 	res := proto.ShellThemes{Shell: filepath.Base(config.DefaultShell())}
 	dir := omzDir(home)
-	if _, err := os.Stat(filepath.Join(dir, "oh-my-zsh.sh")); err != nil {
+	themes, ok := config.OMZThemes(dir)
+	if !ok {
 		return res
 	}
 	res.OMZ = true
 	res.Current = zshrcVar(home, "ZSH_THEME")
-	custom := filepath.Join(dir, "custom")
-	seen := map[string]bool{}
-	for _, pattern := range []string{
-		filepath.Join(dir, "themes", "*.zsh-theme"),
-		filepath.Join(custom, "themes", "*.zsh-theme"),
-		filepath.Join(custom, "*.zsh-theme"),
-	} {
-		matches, _ := filepath.Glob(pattern)
-		for _, m := range matches {
-			if name := strings.TrimSuffix(filepath.Base(m), ".zsh-theme"); !seen[name] {
-				seen[name] = true
-				res.Themes = append(res.Themes, name)
-			}
-		}
-	}
-	sort.Strings(res.Themes)
+	res.Themes = themes
 	res.Samples = themeSamples(dir, res.Themes)
 	return res
 }

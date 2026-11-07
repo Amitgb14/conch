@@ -78,14 +78,15 @@ public struct SettingsSection: Codable, Equatable, Identifiable, Sendable {
     public var fields: [SettingsField]
 
     /// Whether everything in it is drawn here, or some of it is the page's.
-    public var simple: Bool { fields.allSatisfy(\.simple) }
+    public var simple: Bool { fields.allSatisfy(\.drawn) }
 
-    /// What the panel says above a section it draws only part of: the
-    /// tables in it are edited in config.toml itself. nil when it draws all
-    /// of it.
+    /// What the panel says above a section it draws only part of: what is
+    /// left (a map, such as [verify]'s commands by project) is edited in
+    /// config.toml itself. nil when it draws all of it — tables included,
+    /// which are lists here.
     public var tableNote: String? {
         if simple { return nil }
-        return fields.allSatisfy { !$0.simple } ? "These are tables of their own, edited in config.toml."
+        return fields.allSatisfy { !$0.drawn } ? "These are tables of their own, edited in config.toml."
             : "Some of these are tables, edited in config.toml."
     }
 }
@@ -103,7 +104,7 @@ public struct SettingsPayload: Codable, Equatable, Sendable {
 /// The form: the settings as read, and as edited since.
 public struct SettingsForm: Equatable, Sendable {
     public private(set) var payload: SettingsPayload
-    public private(set) var config: [String: JSONValue]
+    public internal(set) var config: [String: JSONValue]
 
     public init(_ payload: SettingsPayload) {
         self.payload = payload

@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -374,8 +375,25 @@ func TestA4ServerStopRefused(t *testing.T) {
 
 func TestA4ServerAlreadyRunning(t *testing.T) {
 	a4Env(t)
+	t.Setenv("GODEBUG", "")
 	startA4Server(t, config.SocketPath())
+	// On macOS the server starts itself again with async preemption off:
+	// asked of execSelf, which a test never lets happen.
+	var asked []string
+	old := execSelf
+	t.Cleanup(func() { execSelf = old })
+	execSelf = func(_ string, _ []string, env []string) error {
+		for _, e := range env {
+			if strings.HasPrefix(e, "GODEBUG=") {
+				asked = append(asked, e)
+			}
+		}
+		return errors.New("not in a test")
+	}
 	err := runServer(nil)
+	if want := runtime.GOOS == "darwin"; (len(asked) == 1 && asked[0] == "GODEBUG=asyncpreemptoff=1") != want {
+		t.Fatalf("started again with %v (on %s)", asked, runtime.GOOS)
+	}
 	if !errors.Is(err, server.ErrAlreadyRunning) || !strings.Contains(err.Error(), config.SocketPath()) {
 		t.Fatalf("second server: %v", err)
 	}

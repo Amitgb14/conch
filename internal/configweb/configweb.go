@@ -35,6 +35,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/Amitgb14/conch/internal/brain"
 	"github.com/Amitgb14/conch/internal/config"
 )
 
@@ -109,6 +110,7 @@ type apiError struct {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/config", s.guard(s.config))
+	mux.HandleFunc("/api/models", s.guard(s.models))
 	sub, err := fs.Sub(dist, "dist")
 	if err != nil {
 		panic(err) // the embed always has dist, or this does not build
@@ -169,6 +171,38 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "GET, PUT")
 		writeJSON(w, http.StatusMethodNotAllowed, apiError{Error: "GET or PUT"})
 	}
+}
+
+// modelsAnswer is the models a provider offers, and why the list is only
+// the ones known without asking, when it is.
+type modelsAnswer struct {
+	Models []brain.Model `json:"models"`
+	Error  string        `json:"error,omitempty"`
+}
+
+// listModels is brain.Models; tests put their own here.
+var listModels = brain.Models
+
+// models answers GET /api/models?provider=…&base_url=…&api_key_env=… with
+// what that provider offers — the form's values, not the file's, so the
+// list follows a provider changed and not yet saved.
+func (s *Server) models(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		writeJSON(w, http.StatusMethodNotAllowed, apiError{Error: "GET"})
+		return
+	}
+	q := r.URL.Query()
+	cfg := config.BrainCfg{Provider: q.Get("provider"), BaseURL: q.Get("base_url"), APIKeyEnv: q.Get("api_key_env")}
+	ms, err := listModels(r.Context(), cfg)
+	ans := modelsAnswer{Models: ms}
+	if ans.Models == nil {
+		ans.Models = []brain.Model{}
+	}
+	if err != nil {
+		ans.Error = err.Error()
+	}
+	writeJSON(w, http.StatusOK, ans)
 }
 
 // version names the file's contents, so a save can tell that somebody —

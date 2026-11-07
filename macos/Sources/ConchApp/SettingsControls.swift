@@ -608,3 +608,80 @@ struct SettingsToast: View {
         .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
     }
 }
+
+/// A name typed, or picked from a list under the chevron: a model the
+/// provider lists, an Oh My Zsh theme installed here. What is typed
+/// narrows the list; a name it does not have is kept as typed.
+struct ComboField: View {
+    let options: [SettingsOption]
+    @Binding var text: String
+    var placeholder = ""
+    /// Said under the field: why the list is short, say.
+    var note: String?
+    var loading = false
+    var width: CGFloat = 300
+    @State private var open = false
+    @State private var hover: String?
+    @FocusState private var focused: Bool
+    @Environment(\.conchTheme) private var theme
+
+    var shown: [SettingsOption] {
+        let q = text.lowercased()
+        // Opened on a value it has, or nothing typed: everything.
+        if q.isEmpty || options.contains(where: { $0.value.lowercased() == q }) { return options }
+        return options.filter { ($0.label + " " + $0.value).lowercased().contains(q) }
+    }
+
+    var body: some View {
+        let _ = theme
+        VStack(alignment: .trailing, spacing: 3) {
+            HStack(spacing: 6) {
+                TextField(placeholder, text: $text).textFieldStyle(.plain).font(.ui(size: 12.5)).focused($focused)
+                if loading { ProgressView().controlSize(.mini) }
+                Button { open.toggle() } label: {
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.muted)
+                        .rotationEffect(.degrees(open ? 180 : 0)).frame(width: 18, height: 24).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).help("Choose from the list")
+            }
+            .padding(.leading, 10).padding(.trailing, 6).frame(width: width, height: 32)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.well))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(open || focused ? Theme.accent : Theme.line2, lineWidth: open || focused ? 1.5 : 1))
+            .animation(.easeOut(duration: 0.12), value: open)
+            .popover(isPresented: $open, arrowEdge: .bottom) {
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(shown, id: \.value) { o in
+                            Button {
+                                text = o.value
+                                open = false
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Text(o.label).font(.ui(size: 12.5)).foregroundStyle(o.value.isEmpty ? Theme.text2 : Theme.text).lineLimit(1)
+                                    Spacer()
+                                    if o.value == text { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accent) }
+                                }
+                                .padding(.horizontal, 8).frame(height: 28)
+                                .background(RoundedRectangle(cornerRadius: 6).fill(hover == o.value ? Theme.accentDeep.opacity(0.35) : .clear))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { hover = $0 ? o.value : (hover == o.value ? nil : hover) }
+                        }
+                        if shown.isEmpty {
+                            Text(text.isEmpty ? "Nothing to choose from" : "None like “\(text)” — it is kept as typed")
+                                .font(.ui(size: 12)).foregroundStyle(Theme.muted).padding(8)
+                        }
+                    }
+                }
+                .frame(maxHeight: 340)
+                .padding(6).frame(width: Swift.max(width, 300))
+                .background(Theme.raise)
+            }
+            if let note, !note.isEmpty {
+                Text(note).font(.ui(size: 11)).foregroundStyle(Theme.muted).multilineTextAlignment(.trailing)
+                    .frame(maxWidth: width, alignment: .trailing).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}

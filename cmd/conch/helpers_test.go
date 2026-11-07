@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -28,6 +29,8 @@ import (
 //     fails at once.
 func TestMain(m *testing.M) {
 	sshtest.Main() // run as ssh: the host a terminal is logged in to
+	// Never start this binary again in place of a test (see execSelf).
+	execSelf = func(string, []string, []string) error { return errors.New("tests do not exec themselves") }
 	switch os.Getenv("A4_HELPER_MODE") {
 	case "main":
 		os.Args = append([]string{"conch"}, os.Args[1:]...)

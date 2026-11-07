@@ -37,6 +37,12 @@ public enum SettingsControl: Equatable, Sendable {
     case multiline
     /// The theme pictures.
     case theme
+    /// A name typed, or picked from what is offered ([shell] omz_theme:
+    /// the themes installed).
+    case combo
+    /// A model, picked from what the provider lists or typed; summary
+    /// puts the small, fast ones first.
+    case model(summary: Bool)
 }
 
 public func settingsControl(_ s: SettingsSection, _ f: SettingsField) -> SettingsControl {
@@ -50,8 +56,11 @@ public func settingsControl(_ s: SettingsSection, _ f: SettingsField) -> Setting
     case ("notify", "limit_at"): return .chips
     case (_, "url"), (_, "base_url"), (_, "api_url"): return .url
     case (_, "api_key_env"): return .envVar
+    case ("brain", "model"): return f.kind == "string" ? .model(summary: false) : .text
+    case ("brain", "summary_model"): return f.kind == "string" ? .model(summary: true) : .text
     default: break
     }
+    if f.kind == "string", let s = f.suggest, !s.isEmpty { return .combo }
     switch f.kind {
     case "bool": return .toggle
     case "select":
@@ -248,4 +257,48 @@ public func autopilotToggle(_ step: PipelineStep, lastReviewer: String?) -> JSON
     case "reviewer": return .string(step.on ? "" : (lastReviewer.flatMap { $0.isEmpty ? nil : $0 } ?? "codex"))
     default: return nil
     }
+}
+
+// MARK: - Models
+
+/// A model a provider offers (brain.Model), as /api/models lists them.
+public struct BrainModel: Codable, Equatable, Sendable {
+    public var id: String
+    public var label: String
+    public var small: Bool?
+
+    public init(id: String, label: String, small: Bool? = nil) {
+        self.id = id
+        self.label = label
+        self.small = small
+    }
+}
+
+/// What /api/models answers: the models, and why they are only the known
+/// ones when they are.
+public struct BrainModels: Codable, Equatable, Sendable {
+    public var models: [BrainModel]
+    public var error: String?
+
+    public init(models: [BrainModel], error: String? = nil) {
+        self.models = models
+        self.error = error
+    }
+}
+
+/// The query /api/models is asked with: the provider as the form has it,
+/// saved or not.
+public func modelsQuery(_ brain: [String: JSONValue]?) -> [URLQueryItem] {
+    let b = brain ?? [:]
+    return ["provider", "base_url", "api_key_env"].map { URLQueryItem(name: $0, value: b[$0]?.string ?? "") }
+}
+
+/// A model menu's choices: the provider's default first (an empty value),
+/// then the models — the small ones first for summaries — with a model set
+/// in the file and not listed kept, so it still shows as chosen.
+public func modelOptions(_ models: [BrainModel], summary: Bool, value: String) -> [SettingsOption] {
+    let ordered = summary ? models.filter { $0.small == true } + models.filter { $0.small != true } : models
+    var out = [SettingsOption(value: "", label: summary ? "A small, fast model (the default)" : "The provider's default")]
+    out += ordered.map { SettingsOption(value: $0.id, label: $0.label == $0.id ? $0.id : "\($0.label) — \($0.id)") }
+    return keepingSaved(out, value, label: { $0 })
 }
