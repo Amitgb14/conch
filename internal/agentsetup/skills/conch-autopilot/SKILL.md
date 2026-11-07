@@ -78,20 +78,29 @@ The easy way for them: **Settings → Checks & autopilot**, in Conch.app or
 in the TUI (`,` then the tab). It saves config.toml and hands the server
 the new policy in one go.
 
-If they ask you to make the change instead, edit only the `[verify]`
-section of their config.toml — its path is printed by `conch config path`
-— keeping every other line as it is, then hand the server the new policy:
+If they ask you to make the change instead, back the file up, then edit
+only the `[verify]` section of their config.toml — its path is printed by
+`conch config path` — keeping every other line as it is, and show them the
+diff:
 
 ```sh
 conch config path
-conch autopilot push
 ```
 
-A new worktree's setup, when it needs one:
+**Two steps are theirs, not yours.** conch refuses both from an agent's
+pane (`out_of_scope`), on purpose: what merges on its own, and what runs
+in every new worktree, are the person's setup, not an agent's. Don't look
+for a way round; give them the commands to run in a terminal pane (or any
+terminal outside conch):
 
-```sh
-conch project setup r1a2b3c "npm ci"
-```
+- the new policy, handed to the server — until then it keeps the old one:
+  `conch autopilot push` (or they open Settings → Checks & autopilot and
+  save, which does the same);
+- a new worktree's setup, when the project needs one:
+  `conch project setup r1a2b3c "npm ci"`.
+
+Tell them which one is waiting, and check afterwards that it took: the
+policy is the one Settings shows.
 
 ## 4. Guardrails
 
@@ -100,8 +109,10 @@ Suggest, for them to decide:
 - **Permission rules** (Settings → Permission rules, or `[[permissions]]`
   in config.toml): allow what is safe without asking — the check
   command, reading files — and deny what never should run, such as a
-  force push. Everything else still asks them. `permission_mode =
-  "dry run"` records what the rules would answer without answering.
+  force push. Everything else still asks them. Start with
+  `permission_mode = "dry-run"` (under `[agents]`): the rules only record
+  what they would have answered, for the person to check before turning
+  them on.
 - **Plan limits**: `[notify] limit_at = [80, 90, 95]`, so they hear
   before agents stop mid-task.
 - `require_tests` and `max_diff`, above: drafts never merge on their own.
@@ -143,6 +154,8 @@ Settings page).
 
 - Propose before you change anything; change only what they agreed to.
 - Never turn on `auto_merge` unless asked.
+- Don't run `conch autopilot push` or `conch project setup` yourself:
+  conch refuses them from your pane. Hand them to the person.
 - Never edit config.toml beyond `[verify]` and rules they approved, and
   never put a secret in it: a variable's name, `${TOKEN}`, not its value.
 - Don't push, merge or discard branches yourself: that is what the

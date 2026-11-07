@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/Amitgb14/conch/internal/config"
 )
 
 func skillEnv(t *testing.T, vars map[string]string) Env {
@@ -372,10 +374,19 @@ func TestBundledSkills(t *testing.T) {
 	}
 	// The autopilot's: it proposes before it changes, and leaves merging off.
 	auto, _ := BundledSkillNamed("conch-autopilot")
-	for _, w := range []string{"Propose, then apply only", "Never turn it on unless they", "conch autopilot push", "auto_merge = false"} {
+	// The person runs what conch refuses from an agent's pane — the policy
+	// and a worktree's setup are theirs — and the dry-run mode is spelled
+	// as config.toml takes it. Both were wrong the first time the skill set
+	// up the autopilot for real, on conch itself.
+	for _, w := range []string{"Propose, then apply only", "Never turn it on unless they", "auto_merge = false",
+		"Two steps are theirs, not yours", "`conch autopilot push`", "`conch project setup", "Don't run `conch autopilot push` or `conch project setup` yourself",
+		`permission_mode = "` + config.PermissionsDryRun + `"`} {
 		if !strings.Contains(string(auto.Body), w) {
 			t.Errorf("conch-autopilot no longer says %q", w)
 		}
+	}
+	if strings.Contains(string(auto.Body), `"dry run"`) {
+		t.Errorf(`conch-autopilot spells the mode "dry run"; config.toml takes %q`, config.PermissionsDryRun)
 	}
 	if sk, ok := BundledSkillNamed("conch-factory"); !ok || sk.Name != "conch-factory" {
 		t.Fatal("conch-factory not found by name")
