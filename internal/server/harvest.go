@@ -283,6 +283,7 @@ func (pm *projectManager) mergePR(mp proto.BranchPRMergeParams) (proto.BranchPRM
 		return proto.BranchPRMergeResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	log.Printf("project %s: merged pull request #%d (%s, %s)", p.id, mp.Number, mp.Branch, method)
+	pm.s.closeDoneReviewers(p.id, mp.Branch, "")
 	return proto.BranchPRMergeResult{Method: method}, nil
 }
 
@@ -344,6 +345,7 @@ func (pm *projectManager) discardBranch(dp proto.BranchDiscardParams) (proto.Bra
 		return res, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	log.Printf("project %s: discarded %s", p.id, dp.Branch)
+	pm.s.closeDoneReviewers(p.id, dp.Branch, res.Worktree)
 	res.Done = true
 	return res, nil
 }

@@ -25,9 +25,14 @@ import (
 // reviewPrefix names a reviewer's pane, which is how conch knows it again
 // after a restart: it is not the branch's writer, so failures and reviews
 // are never sent to it, and its finishing starts no check and no review.
-const reviewPrefix = "review · "
+//
+// A reviewer is closed once its report is used: when R hands it over,
+// when the branch has changed and the next review starts, and — by the
+// server — when the branch is merged, discarded or its worktree removed.
+// Before, each stayed running for ever, one per branch reviewed.
+const reviewPrefix = proto.ReviewerPrefix
 
-func isReviewer(p proto.PaneInfo) bool { return strings.HasPrefix(p.Name, reviewPrefix) }
+func isReviewer(p proto.PaneInfo) bool { return proto.IsReviewer(p) }
 
 // reviewerPrompt is what the reviewer is asked.
 func reviewerPrompt(branch, base string) string {
@@ -80,7 +85,8 @@ func (m *Model) startReview(machine, projectID, branch string) tea.Cmd {
 	}
 	key := verifyKey(machine, projectID, branch)
 	sig := m.branchSig(machine, projectID, branch)
-	if m.reviewSigs[key] == sig || m.branchReviewer(machine, projectID, branch) != nil {
+	old := m.branchReviewer(machine, projectID, branch)
+	if m.reviewSigs[key] == sig || (old != nil && !proto.ReviewerDone(*old)) {
 		return nil // reviewed as it stands, or being reviewed now
 	}
 	if mach.missingAgent(reviewer) {
@@ -95,7 +101,14 @@ func (m *Model) startReview(machine, projectID, branch string) tea.Cmd {
 	params := proto.PaneCreateParams{Agent: reviewer, Name: reviewPrefix + branch, Prompt: reviewerPrompt(branch, proj.Base),
 		Cwd: dir, Cols: cols, Rows: rows}
 	m.setFlash("asking "+agentLabel(reviewer)+" to review "+branch+"…", false)
+	stale := ""
+	if old != nil {
+		stale = old.ID // the last review, of a branch that has moved since
+	}
 	return func() tea.Msg {
+		if stale != "" {
+			_ = callCtx(c, proto.MethodPaneClose, proto.PaneRef{ID: stale}, nil)
+		}
 		var info proto.PaneInfo
 		if err := callCtx(c, proto.MethodPaneCreate, params, &info); err != nil {
 			return errMsg{fmt.Errorf("starting the reviewer: %w", err)}
@@ -120,7 +133,10 @@ func (m *Model) sendReviewToWriter(machine, projectID, branch string) tea.Cmd {
 		return nil
 	}
 	reviewerPane, reviewerName := rv.ID, agentLabel(rv.Agent.Name)
-	return m.sendToBranchAgent(machine, projectID, branch, reviewerName+"'s review", func(c *client.Client) (string, error) {
+	// Handed over, the report is the writer's: the reviewer has nothing
+	// left to do, so it goes. Not before — a send that fails keeps it.
+	closeReviewer := func(c *client.Client) { _ = callCtx(c, proto.MethodPaneClose, proto.PaneRef{ID: reviewerPane}, nil) }
+	return m.sendToBranchAgent(machine, projectID, branch, reviewerName+"'s review", closeReviewer, func(c *client.Client) (string, error) {
 		var reply proto.AgentReply
 		if err := callCtx(c, proto.MethodAgentReply, proto.PaneRef{ID: reviewerPane}, &reply); err != nil {
 			return "", err

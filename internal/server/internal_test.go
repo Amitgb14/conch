@@ -1047,14 +1047,26 @@ func TestA5ShellHelpers(t *testing.T) {
 		t.Fatalf("themes without omz: %+v", th)
 	}
 
-	if env := s.shellThemeEnv(""); env != nil {
-		t.Fatal("no theme")
+	if env := s.shellThemeEnv("agnoster"); env != nil {
+		t.Fatal("a theme for sh")
 	}
 	t.Setenv("SHELL", "/bin/zsh")
 	for _, bad := range []string{"a/b", "a b", "a\\b", "tab\t"} {
-		if env := s.shellThemeEnv(bad); env != nil {
-			t.Fatalf("theme %q accepted", bad)
+		if env := s.shellThemeEnv(bad); len(env) != 3 || env[2] != "CONCH_OMZ_THEME=" {
+			t.Fatalf("theme %q accepted: %v", bad, env)
 		}
+	}
+	// No theme asked for: the one Settings saved, so the app's panes have
+	// it too; none saved still goes through the wrapper, which is what
+	// lets the shell follow a theme saved later.
+	saved := "bira"
+	stubShellTheme(t, &saved)
+	if env := s.shellThemeEnv(""); len(env) != 3 || env[2] != "CONCH_OMZ_THEME=bira" {
+		t.Fatalf("the saved theme: %v", env)
+	}
+	saved = ""
+	if env := s.shellThemeEnv(""); len(env) != 3 || env[2] != "CONCH_OMZ_THEME=" {
+		t.Fatalf("no theme anywhere: %v", env)
 	}
 	env := s.shellThemeEnv("agnoster")
 	want := []string{"ZDOTDIR=" + filepath.Join(dir, "zsh"), "CONCH_USER_ZDOTDIR=" + home, "CONCH_OMZ_THEME=agnoster"}

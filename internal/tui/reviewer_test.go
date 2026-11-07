@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -49,9 +50,43 @@ func TestReviewerStartsWhenTheWriterFinishes(t *testing.T) {
 	if cmd := m.verifyOnDone(mach.id, reviewer); cmd != nil {
 		t.Fatal("a reviewer finishing started something")
 	}
-	// While one is on the branch, another isn't started.
+	// While one is reading the branch, another isn't started.
+	mach.panes[len(mach.panes)-1].Agent.State = proto.AgentWorking
 	if cmd := m.startReview(mach.id, "r1", "wip"); cmd != nil {
 		t.Fatal("a second reviewer started")
+	}
+	// Asking, or failed: left for somebody to look at, and not replaced.
+	mach.panes[len(mach.panes)-1].Agent.State = proto.AgentBlocked
+	if cmd := m.startReview(mach.id, "r1", "wip"); cmd != nil {
+		t.Fatal("replaced a reviewer that is asking")
+	}
+	mach.panes[len(mach.panes)-1].Agent = &proto.AgentStatus{Name: "codex", State: proto.AgentDone, Failed: true}
+	if cmd := m.startReview(mach.id, "r1", "wip"); cmd != nil {
+		t.Fatal("replaced a reviewer that failed")
+	}
+}
+
+// A finished reviewer on a branch that has changed since is closed as
+// the next review starts, rather than left beside it.
+func TestReviewerReplacesTheLastOne(t *testing.T) {
+	m, mach, peer := reviewModel(t)
+	m.cfg.Verify.Commands = nil
+	mach.panes = append(mach.panes, proto.PaneInfo{ID: "r9", Name: "review · wip", State: proto.PaneRunning, ProjectID: "r1", Branch: "wip",
+		Agent: &proto.AgentStatus{Name: "codex", State: proto.AgentDone}})
+	cmd := m.startReview(mach.id, "r1", "wip")
+	if cmd == nil {
+		t.Fatalf("no new review: %q", m.flash)
+	}
+	cmd()
+	var ref proto.PaneRef
+	sentParams(t, peer, proto.MethodPaneClose, &ref)
+	if ref.ID != "r9" {
+		t.Fatalf("closed %q, want the last reviewer r9", ref.ID)
+	}
+	ms := peer.methods()
+	ci, ni := slices.Index(ms, proto.MethodPaneClose), slices.Index(ms, proto.MethodPaneCreate)
+	if ci < 0 || ni < 0 || ci > ni {
+		t.Fatalf("closed after starting the new one: %v", ms)
 	}
 }
 
@@ -169,6 +204,12 @@ func TestReviewGoesToTheWriter(t *testing.T) {
 	if pp.ID != "p1" || !strings.Contains(pp.Text, "Codex reviewed your changes on wip") || !strings.Contains(pp.Text, "a.go:12 — the error is dropped") {
 		t.Fatalf("prompt %+v", pp)
 	}
+	// Handed over, the reviewer is done with, and closed.
+	var closed proto.PaneRef
+	sentParams(t, peer, proto.MethodPaneClose, &closed)
+	if closed.ID != "r9" {
+		t.Fatalf("closed %q, want the reviewer r9", closed.ID)
+	}
 	// The queue says the review is ready, on the reviewer's row.
 	var row *queueItem
 	for _, it := range m.queueItems() {
@@ -192,5 +233,32 @@ func TestReviewGoesToTheWriter(t *testing.T) {
 	oldMach.panes[1].Agent = &proto.AgentStatus{Name: "codex", State: proto.AgentDone}
 	if cmd := old.sendReviewToWriter(oldMach.id, "r1", "wip"); cmd != nil || !strings.Contains(old.flash, "predates reading") {
 		t.Fatalf("old server: %q", old.flash)
+	}
+}
+
+// A report that did not reach the writer leaves the reviewer, and so the
+// report, where it was.
+func TestReviewNotSentKeepsTheReviewer(t *testing.T) {
+	m, mach, peer := reviewModel(t, proto.CapAgentReply, proto.CapAgentPrompt)
+	mach.panes = append(mach.panes, proto.PaneInfo{ID: "r9", Name: "review · wip", State: proto.PaneRunning, ProjectID: "r1", Branch: "wip",
+		Agent: &proto.AgentStatus{Name: "codex", State: proto.AgentDone}})
+	peer.setResult(proto.MethodAgentReply, proto.AgentReply{Agent: "codex", Text: "1. a.go:12"})
+	peer.setError(proto.MethodAgentPrompt, "the agent is busy")
+	msg, _ := m.sendReviewToWriter(mach.id, "r1", "wip")().(promptSentMsg)
+	if msg.err == nil {
+		t.Fatal("the failed send succeeded")
+	}
+	if slices.Contains(peer.methods(), proto.MethodPaneClose) {
+		t.Fatal("closed the reviewer of a report that was not sent")
+	}
+	// Its reply unreadable: nothing sent, nothing closed.
+	m2, mach2, peer2 := reviewModel(t, proto.CapAgentReply, proto.CapAgentPrompt)
+	mach2.panes = append(mach2.panes, mach.panes[len(mach.panes)-1])
+	peer2.setError(proto.MethodAgentReply, "no answer")
+	if _, ok := m2.sendReviewToWriter(mach2.id, "r1", "wip")().(errMsg); !ok {
+		t.Fatal("an unreadable report was not an error")
+	}
+	if ms := peer2.methods(); slices.Contains(ms, proto.MethodPaneClose) || slices.Contains(ms, proto.MethodAgentPrompt) {
+		t.Fatalf("sent %v", ms)
 	}
 }

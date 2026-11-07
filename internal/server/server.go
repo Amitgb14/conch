@@ -195,6 +195,7 @@ func (s *Server) Run() error {
 	go s.runSchedule(s.quit)
 	go s.runAutopilot(s.quit)
 	go s.runListening(s.quit)
+	go s.runShellTheme(s.quit)
 
 	var ln net.Listener
 	if reloaded != nil {

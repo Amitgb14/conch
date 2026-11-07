@@ -1785,6 +1785,23 @@ const (
 	AgentDone    = "done" // idle, and nobody has looked since it finished
 )
 
+// ReviewerPrefix names a reviewer's pane — the agent [verify] reviewer
+// starts on a finished branch to read its diff and report — which is how
+// conch knows one again, after a restart too: it is not the branch's
+// writer, and it is closed once its report has gone where it was for.
+const ReviewerPrefix = "review · "
+
+// IsReviewer reports whether p is a reviewer's pane.
+func IsReviewer(p PaneInfo) bool { return strings.HasPrefix(p.Name, ReviewerPrefix) }
+
+// ReviewerDone reports whether p is a reviewer that has finished its
+// report: running, its agent idle or done, and not stopped by an error —
+// one still reading, asking, or failed is left for somebody to look at.
+func ReviewerDone(p PaneInfo) bool {
+	return IsReviewer(p) && p.State == PaneRunning && p.Agent != nil && !p.Agent.Failed &&
+		(p.Agent.State == AgentDone || p.Agent.State == AgentIdle)
+}
+
 // AgentStatus is what the server believes an agent is doing.
 type AgentStatus struct {
 	Name      string    `json:"name"`

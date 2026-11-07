@@ -83,7 +83,7 @@ auto_resolve = 0 # rebase a pull request that conflicts with its base, asking th
 require_tests = false # open a pull request whose branch changes code and no test as a draft (auto_merge leaves drafts), and ask the agent for a test
 max_diff = 0     # open one bigger than this many changed lines as a draft too; 0 is no limit
                  # both are handed to each machine's server, which acts on them with conch closed
-reviewer = ""    # an agent asked to review a branch when its agent finishes, e.g. "codex"
+reviewer = ""    # an agent asked to review a branch when its agent finishes, e.g. "codex"; closed once its report is handed over or the branch merged
 
 [ui]
 mouse = true
@@ -105,7 +105,7 @@ diff = "auto"    # how a file's changes are read: auto (two columns where there 
                  # s in the changes view overrides it for the file being read
 
 [shell]
-omz_theme = ""   # Oh My Zsh theme for new zsh terminals; "" keeps .zshrc's
+omz_theme = ""   # Oh My Zsh theme for zsh terminals, open ones too; "" keeps .zshrc's
 
 [agents]
 default = ""  # what c and t start: claude, codex, gemini, opencode…; "" (the default) is Claude Code, or on a machine without it an agent that machine has
