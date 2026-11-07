@@ -160,6 +160,7 @@ conch tells who is asking from the operating system — the process at the other
 | Command | Description |
 | --- | --- |
 | `conch project add PATH` | add a project to the sidebar |
+| `conch project clone URL [DIR]` | clone a git repository and add it as a project — into DIR, or a folder named after the repository as `git clone` names it (here, in the current folder; with `-m`, in that machine's home). https, ssh and `git@host:owner/repo` URLs; a private repository uses that machine's git credentials, and git never stops to ask for a password |
 | `conch project create [-no-git] PATH` | create a folder with a git repository and an initial commit (`-no-git`: a plain folder) |
 | `conch project ls` | list projects, their base branch and worktrees |
 | `conch project rm ID` | remove a project from the sidebar |

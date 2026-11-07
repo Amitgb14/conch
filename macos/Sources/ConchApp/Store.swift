@@ -93,6 +93,8 @@ final class Store: ObservableObject {
     /// The machine Settings → Skills & MCP servers shows: conch's skills
     /// and the library are both per machine.
     @Published var skillsMachine = "local"
+    /// Add project…'s sheet, for the machine it adds to.
+    @Published var addProjectTarget: AddProjectTarget?
     /// A broadcast being written (BroadcastSheet).
     @Published var broadcastDraft: BroadcastDraft?
     /// The focused pane's find bar, while it is open.
@@ -2223,40 +2225,36 @@ final class Store: ObservableObject {
     /// the Finder's panel; on another machine a path typed in, since a Mac
     /// panel cannot browse it. Added from a workspace after the first, the
     /// project is put in it, as the TUI does.
+    /// Add project…: a sheet to open a folder, clone a repository or make
+    /// a new one (AddProjectSheet), for that machine.
     func addProject(on machine: String = "local") {
-        guard let c = conns[machine] else {
+        guard conns[machine] != nil else {
             error = "\(label(machine)) is not connected"
             return
         }
-        var path: String?
-        if machine == "local" {
-            let panel = NSOpenPanel()
-            panel.canChooseDirectories = true
-            panel.canChooseFiles = false
-            panel.canCreateDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.prompt = "Add project"
-            panel.message = "A folder to work in — a git repository gets branches, worktrees and tasks of its own."
-            guard panel.runModal() == .OK, let u = panel.url else { return }
-            path = u.path
-        } else {
-            path = ask("Add a project on \(label(machine))", info: "The folder's path on that machine, e.g. ~/src/api.", value: "", button: "Add")
+        addProjectTarget = AddProjectTarget(id: machine)
+    }
+
+    /// The sheet's work: project.add, project.clone or project.create, then
+    /// the project joins the workspace on screen. Throws what the server
+    /// said, for the sheet to show.
+    func addProject(machine: String, mode: AddProjectMode, path: String, url: String) async throws {
+        guard let c = conns[machine] else { throw ConchError(code: "closed", message: "\(label(machine)) is not connected") }
+        struct Add: Encodable { var path: String }
+        struct Clone: Encodable { var url: String; var path: String }
+        struct Create: Encodable { var path: String; var git: Bool }
+        let info: ProjectInfo
+        switch mode {
+        case .folder: info = try await c.call("project.add", Add(path: path), as: ProjectInfo.self)
+        case .clone: info = try await c.call("project.clone", Clone(url: url, path: path), as: ProjectInfo.self)
+        case .create: info = try await c.call("project.create", Create(path: path, git: true), as: ProjectInfo.self)
         }
-        guard let p = path?.trimmingCharacters(in: .whitespaces), !p.isEmpty else { return }
-        struct Params: Encodable { var path: String }
-        Task {
-            do {
-                let info = try await c.call("project.add", Params(path: p), as: ProjectInfo.self)
-                joinWorkspace(machine: machine, project: info.id)
-                status = "Added \(info.name)"
-            } catch {
-                self.error = "Could not add \(p): \(error)"
-            }
-        }
+        joinWorkspace(machine: machine, project: info.id)
+        status = mode == .clone ? "Cloned and added \(info.name)" : "Added \(info.name)"
     }
 
     /// A project added from a workspace after the first joins it (ui.json).
-    private func joinWorkspace(machine: String, project id: String) {
+    func joinWorkspace(machine: String, project id: String) {
         guard let w = ws, !w.first else { return }
         let path = (conchDir as NSString).appendingPathComponent("ui.json")
         do {

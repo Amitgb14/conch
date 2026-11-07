@@ -93,7 +93,7 @@ var compSubcommands = map[string][]compItem{
 		{"apply", "write it into each agent"}, {"undo", "take the last apply back"},
 	},
 	"project": {
-		{"add", "add a git repository"}, {"create", "make a new one"}, {"ls", "list projects"},
+		{"add", "add a git repository"}, {"create", "make a new one"}, {"clone", "clone a repository and add it"}, {"ls", "list projects"},
 		{"rm", "forget a project"}, {"files", "local files copied into each worktree"},
 		{"setup", "what runs in a new worktree"},
 	},

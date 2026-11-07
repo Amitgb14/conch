@@ -130,7 +130,7 @@ Usage:
                                 agents you choose: add NAME (URL | -- COMMAND ARGS),
                                 -to NAMES, -env K=${VAR}; mcp adds conch's own tools
                                 (conch mcp); plan says what apply writes
-  conch project add PATH | create [-no-git] PATH | ls | rm ID | files ID [-reset | -none | PATTERN...]
+  conch project add PATH | create [-no-git] PATH | clone URL [DIR] | ls | rm ID | files ID [-reset | -none | PATTERN...]
                 | setup ID [-none | COMMAND]
                                 manage projects shown in the sidebar; setup is run in a
                                 terminal of its own in each new worktree (npm install…),

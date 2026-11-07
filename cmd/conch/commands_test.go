@@ -50,6 +50,13 @@ func TestA4ProjectCommands(t *testing.T) {
 			var p proto.ProjectCreateParams
 			json.Unmarshal(msg.Params, &p)
 			return proto.ProjectInfo{ID: "made", Name: "made", Path: p.Path, Git: p.Git}, nil
+		case proto.MethodProjectClone:
+			var p proto.ProjectCloneParams
+			json.Unmarshal(msg.Params, &p)
+			if strings.Contains(p.URL, "private") {
+				return nil, proto.Errorf(proto.ErrBadRequest, "git clone: Authentication failed")
+			}
+			return proto.ProjectInfo{ID: "cloned", Name: filepath.Base(p.Path), Path: p.Path, Git: true}, nil
 		case proto.MethodProjectFiles:
 			return proto.ProjectInfo{ID: "notes", Name: "notes", LocalFiles: nil}, nil
 		case proto.MethodProjectSetup:
@@ -101,6 +108,37 @@ func TestA4ProjectCommands(t *testing.T) {
 	srv.params(t, proto.MethodProjectCreate, &cp)
 	if cp.Git || cp.Path != "/src/plain" {
 		t.Fatalf("create -no-git %+v", cp)
+	}
+
+	// clone: into a folder named as git names it, in this folder.
+	wd, _ := os.Getwd()
+	var clp proto.ProjectCloneParams
+	if out, err := run("clone", "https://github.com/Amitgb14/conch.git"); err != nil || out != "cloned  conch  "+filepath.Join(wd, "conch")+"\n" {
+		t.Fatalf("clone: %q %v", out, err)
+	}
+	srv.params(t, proto.MethodProjectClone, &clp)
+	if clp.URL != "https://github.com/Amitgb14/conch.git" || clp.Path != filepath.Join(wd, "conch") {
+		t.Fatalf("clone params %+v", clp)
+	}
+	// A folder given is made absolute here, not on the server; ~ is the
+	// server's to resolve.
+	if _, err := run("clone", "git@github.com:a/b.git", "src/b2"); err != nil {
+		t.Fatal(err)
+	}
+	if srv.params(t, proto.MethodProjectClone, &clp); clp.Path != filepath.Join(wd, "src", "b2") {
+		t.Fatalf("clone into a relative dir: %+v", clp)
+	}
+	if _, err := run("clone", "git@github.com:a/b.git", "~/work/b"); err != nil {
+		t.Fatal(err)
+	}
+	if srv.params(t, proto.MethodProjectClone, &clp); clp.Path != "~/work/b" {
+		t.Fatalf("clone into ~: %+v", clp)
+	}
+	if _, err := run("clone", "https://example.com/private.git"); err == nil || !strings.Contains(err.Error(), "Authentication failed") {
+		t.Fatalf("clone failure: %v", err)
+	}
+	if _, err := run("clone", "https://github.com/"); err == nil || !strings.Contains(err.Error(), "can't tell a folder name") {
+		t.Fatalf("clone with no name: %v", err)
 	}
 
 	out, err = run("files", "api")
@@ -169,6 +207,9 @@ func TestA4ProjectCommands(t *testing.T) {
 		"add a b":         "usage: conch project add PATH",
 		"create":          "usage: conch project create",
 		"create -bad x":   "flag provided but not defined",
+		"clone":           "usage: conch project clone URL [DIR]",
+		"clone a b c":     "usage: conch project clone URL [DIR]",
+		"clone -x":        "usage: conch project clone URL [DIR]",
 		"files":           "usage: conch project files",
 		"files -what":     "flag provided but not defined",
 		"setup":           "usage: conch project setup",
