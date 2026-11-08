@@ -232,7 +232,7 @@ Usage:
                                 view for a phone that may only answer, or only look). It
                                 reaches this computer only unless -machine names a machine;
                                 -json says it all as JSON, for a window to draw (Conch.app)
-  conch web devices | revoke ID | permission ID view|reply|full [-machine NAME] | start | stop
+  conch web devices | revoke ID | rename ID NAME | permission ID view|reply|full [-machine NAME] | start | stop
                                 list the paired phones, cut one off at once, or change
                                 what one may do (full types into terminals) and which
                                 machines it reaches (-machine, repeatable; this computer

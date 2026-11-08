@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
@@ -26,6 +27,10 @@ type devicesPanel struct {
 	sel     int
 	scroll  int
 	confirm string // the device x was pressed on once: a second x revokes it
+	// naming is the selected device's name being edited (n): every phone
+	// pairs as what its browser calls itself, so two iPhones look alike.
+	naming bool
+	name   textinput.Model
 }
 
 func newDevicesPanel(back overlay) *devicesPanel {
@@ -100,7 +105,57 @@ var permissionWords = map[string]string{
 	phone.PermFull:  "do everything, typing into terminals too",
 }
 
+// startNaming puts the selected device's name in a field.
+func (p *devicesPanel) startNaming() tea.Cmd {
+	if p.sel >= len(p.devices) {
+		return nil
+	}
+	in := textinput.New()
+	in.Prompt = ""
+	in.CharLimit = 64
+	in.SetValue(p.devices[p.sel].Name)
+	in.CursorEnd()
+	in.Focus()
+	p.name, p.naming, p.confirm = in, true, ""
+	return textinput.Blink
+}
+
+// rename gives the selected device the name typed.
+func (p *devicesPanel) rename(m *Model) {
+	p.naming = false
+	if p.sel >= len(p.devices) {
+		return
+	}
+	d := p.devices[p.sel]
+	name, found, err := phone.OpenStore(config.Dir()).Rename(d.ID, p.name.Value())
+	switch {
+	case err != nil:
+		m.setFlash(err.Error(), true)
+		return
+	case !found:
+		m.setFlash(d.ID+" is no longer paired", true)
+	default:
+		m.setFlash(fmt.Sprintf("%s is now %s", d.ID, name), false)
+	}
+	p.load()
+}
+
 func (p *devicesPanel) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
+	if p.naming {
+		if k, ok := msg.(tea.KeyMsg); ok {
+			switch k.String() {
+			case "enter":
+				p.rename(m)
+				return false, nil
+			case "esc":
+				p.naming = false
+				return false, nil
+			}
+		}
+		var cmd tea.Cmd
+		p.name, cmd = p.name.Update(msg)
+		return false, cmd
+	}
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return false, nil
@@ -122,6 +177,8 @@ func (p *devicesPanel) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		p.set(m, phone.PermFull)
 	case "x", "delete":
 		p.revoke(m)
+	case "n":
+		return false, p.startNaming()
 	case "R":
 		p.load()
 	case "esc", "q", "left", "h":
@@ -168,7 +225,11 @@ func (p *devicesPanel) render(m Model) box {
 	lines = append(lines, "")
 	if len(p.devices) > 0 && p.sel < len(p.devices) {
 		d := p.devices[p.sel]
-		if p.confirm == d.ID {
+		if p.naming {
+			p.name.Width = max(w-12, 4)
+			add("Name: " + p.name.View())
+			add(styleMuted.Render("enter saves it · esc leaves it as it was"))
+		} else if p.confirm == d.ID {
 			add(styleWarn.Render(fmt.Sprintf("x again revokes %s (%s): it is signed out at once", d.Name, d.ID)))
 		} else {
 			// What a device may do and where it may do it are two
@@ -183,7 +244,9 @@ func (p *devicesPanel) render(m Model) box {
 			}
 		}
 	}
-	add(styleMuted.Render("v view · r reply · f full · x revoke · ↑↓ · esc back"))
+	if !p.naming {
+		add(styleMuted.Render("v view · r reply · f full · n rename · x revoke · ↑↓ · esc back"))
+	}
 	b := box{lines: frameLines(" Web · paired devices ", lines, w, colorAccent)}
 	b.x = max((m.width-b.width())/2, 0)
 	b.y = max((m.height-len(b.lines))/3, 0)

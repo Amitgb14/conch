@@ -1407,7 +1407,7 @@ var helpGroups = []helpGroup{{
 		}},
 		{keys: "🌐", what: "pair a phone (as P): its QR code, and conch web started from there if it isn't running", more: []string{
 			"Settings → Web sets the address phones open and the port, starts or stops conch web",
-			"Devices… lists paired phones: v / r / f what one may do, x twice revokes it",
+			"Devices… lists paired phones: v / r / f what one may do, n renames it, x twice revokes it",
 		}},
 		{keys: "▁▃▆", what: "memory and CPU conch uses on this computer (bottom right); click again to close"},
 	},

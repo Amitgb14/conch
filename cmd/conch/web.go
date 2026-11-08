@@ -33,6 +33,7 @@ const webUsage = `usage: conch web [-listen ADDR] [-port N] [-url URL] [-cert FI
        conch web pair [-permission view|reply|full] [-machine NAME]...
        conch web devices [-json]
        conch web revoke ID
+       conch web rename ID NAME
        conch web permission ID view|reply|full [-machine NAME]...
        conch web stop`
 
@@ -80,6 +81,8 @@ func runWeb(args []string) error {
 			return webDevices(args[1:])
 		case "revoke":
 			return webRevoke(args[1:])
+		case "rename":
+			return webRename(args[1:])
 		case "permission":
 			return webPermission(args[1:])
 		case "stop":
@@ -372,6 +375,26 @@ func printDevicesJSON(store *phone.Store, devs []phone.Device, seen map[string]p
 		return err
 	}
 	fmt.Println(string(b))
+	return nil
+}
+
+// webRename names a device: the words after its ID are the name, so
+// `conch web rename d_7h2k Amit's iPhone` needs no quotes.
+func webRename(args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: conch web rename ID NAME")
+	}
+	if err := notFromAnAgent("rename a device"); err != nil {
+		return err
+	}
+	name, found, err := phone.OpenStore(config.Dir()).Rename(args[0], strings.Join(args[1:], " "))
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("no device %q; `conch web devices` lists them", args[0])
+	}
+	fmt.Printf("%s is now %q\n", args[0], name)
 	return nil
 }
 

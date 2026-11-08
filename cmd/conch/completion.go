@@ -117,7 +117,7 @@ var compSubcommands = map[string][]compItem{
 		{"snapshot", "save one as a snapshot"}, {"snapshots", "list snapshots"},
 	},
 	"web": {
-		{"pair", "pair a phone"}, {"devices", "paired phones"}, {"revoke", "unpair one"},
+		{"pair", "pair a phone"}, {"devices", "paired phones"}, {"revoke", "unpair one"}, {"rename", "name one"},
 		{"permission", "what a phone may do"}, {"start", "start conch web in the background"}, {"stop", "stop a conch web in the background"},
 		{"relay", "the link to the relay, and its key"},
 	},

@@ -315,7 +315,7 @@ func TestWebServes(t *testing.T) {
 
 // The usage names the commands as they are.
 func TestWebUsage(t *testing.T) {
-	for _, want := range []string{"conch web [-listen ADDR] [-port N] [-url URL]", "conch web pair [-permission view|reply|full]", "conch web devices | revoke ID | permission ID view|reply|full [-machine NAME] | start | stop", "-json",
+	for _, want := range []string{"conch web [-listen ADDR] [-port N] [-url URL]", "conch web pair [-permission view|reply|full]", "conch web devices | revoke ID | rename ID NAME | permission ID view|reply|full [-machine NAME] | start | stop", "-json",
 		// where a device may act is part of what it may do, so the
 		// usage says it rather than leaving it to the docs
 		"machines it reaches"} {

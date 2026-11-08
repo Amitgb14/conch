@@ -2,6 +2,7 @@ package phone
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -96,5 +97,40 @@ func TestSeenWords(t *testing.T) {
 		if got := SeenWords(c.p, now); got != c.want {
 			t.Errorf("%+v: %q, want %q", c.p, got, c.want)
 		}
+	}
+}
+
+func TestRenameDevice(t *testing.T) {
+	st := OpenStore(t.TempDir())
+	now := time.Now()
+	code, _ := st.NewCode(PermFull, now)
+	d, _, err := st.Redeem(code, "iPhone", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ in, want string }{
+		{"Amit's iPhone", "Amit's iPhone"},
+		{"  two\tspaces\n here ", "two spaces here"},
+		{"bell\x07 and \x1b[31mred", "bell and [31mred"},
+		{strings.Repeat("é", 80), strings.Repeat("é", 64)},
+		{"📱 phone", "📱 phone"},
+	} {
+		name, found, err := st.Rename(d.ID, c.in)
+		devs, _ := st.Devices()
+		if err != nil || !found || name != c.want || devs[0].Name != c.want {
+			t.Errorf("rename %q: %q %v %v, kept %q", c.in, name, found, err, devs[0].Name)
+		}
+	}
+	// Nothing left to call it: refused, and the name it had stays.
+	for _, empty := range []string{"", "   ", "\x00\x1b", "\t\n"} {
+		if _, _, err := st.Rename(d.ID, empty); err == nil {
+			t.Errorf("rename to %q was taken", empty)
+		}
+	}
+	if devs, _ := st.Devices(); devs[0].Name != "📱 phone" {
+		t.Errorf("a refused rename changed the name to %q", devs[0].Name)
+	}
+	if _, found, err := st.Rename("d_none", "x"); found || err != nil {
+		t.Errorf("an unknown device: %v %v", found, err)
 	}
 }

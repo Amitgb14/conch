@@ -207,3 +207,32 @@ func TestWebDevicesPresence(t *testing.T) {
 		t.Error("devices -bogus was taken")
 	}
 }
+
+// conch web rename takes the words after the ID as the name, unquoted.
+func TestWebRename(t *testing.T) {
+	dir := a4Env(t)
+	store := phone.OpenStore(dir)
+	code, _ := store.NewCode(phone.PermFull, time.Now())
+	d, _, err := store.Redeem(code, "iPhone", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := runWebCaptured(t, "rename", d.ID, "Amit's", "iPhone")
+	if err != nil || !strings.Contains(out, `is now "Amit's iPhone"`) {
+		t.Fatalf("rename: %q %v", out, err)
+	}
+	if devs, _ := store.Devices(); devs[0].Name != "Amit's iPhone" {
+		t.Fatalf("kept %q", devs[0].Name)
+	}
+	if out, _ := runWebCaptured(t, "devices"); !strings.Contains(out, "Amit's iPhone") {
+		t.Errorf("devices doesn't list the new name: %q", out)
+	}
+	for _, bad := range [][]string{{"rename"}, {"rename", d.ID}, {"rename", "d_none", "x"}, {"rename", d.ID, " "}} {
+		if _, err := runWebCaptured(t, bad...); err == nil {
+			t.Errorf("%v was taken", bad)
+		}
+	}
+	if devs, _ := store.Devices(); devs[0].Name != "Amit's iPhone" {
+		t.Fatalf("a refused rename changed it to %q", devs[0].Name)
+	}
+}

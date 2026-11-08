@@ -402,6 +402,32 @@ func (s *Store) Revoke(id string) (bool, error) {
 // SetPermission changes what a paired device may do, and reports whether
 // there was one. A running gateway reads it on the device's next request
 // or socket message; nothing has to be paired again.
+// Rename gives a device a name of its own: every phone pairs as what its
+// browser says it is ("iPhone"), so two of them could not be told apart
+// in a list. The name is cleaned as a paired one is; one with nothing
+// left is refused rather than quietly called "phone".
+func (s *Store) Rename(id, name string) (string, bool, error) {
+	if strings.TrimSpace(strings.Map(func(r rune) rune {
+		if !unicode.IsPrint(r) {
+			return -1
+		}
+		return r
+	}, name)) == "" {
+		return "", false, errors.New("a device's name can't be empty")
+	}
+	name = cleanName(name)
+	found := false
+	err := s.update(func(st *state) error {
+		for i := range st.Devices {
+			if st.Devices[i].ID == id {
+				st.Devices[i].Name, found = name, true
+			}
+		}
+		return nil
+	})
+	return name, found, err
+}
+
 func (s *Store) SetPermission(id, permission string) (bool, error) {
 	if !ValidPermission(permission) {
 		return false, fmt.Errorf("unknown permission %q: view, reply or full", permission)
