@@ -1566,6 +1566,32 @@ struct SplitStack: View {
     }
 }
 
+/// A pane's ID in its header, as conch's commands take it (p12, or
+/// busybox:p12 on another machine): small and outlined, and a click copies
+/// it.
+struct PaneIDChip: View {
+    @ObservedObject var store: Store
+    let ref: String
+    @State private var hover = false
+
+    var body: some View {
+        Text(ref)
+            .font(.ui(size: 10.5, design: .monospaced))
+            .foregroundStyle(hover ? Theme.text : Theme.muted)
+            .lineLimit(1)
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: 4).fill(hover ? Theme.raise : .clear))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.line, lineWidth: 1))
+            .contentShape(Rectangle())
+            .onHover { hover = $0 }
+            .onTapGesture { store.copyPaneRef(ref) }
+            .help("Copy \(ref) — conch read \(ref), conch send \(ref) …")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel("Copy pane ID \(ref)")
+            .accessibilityAction { store.copyPaneRef(ref) }
+    }
+}
+
 struct PaneCard: View {
     @ObservedObject var store: Store
     let pane: String
@@ -1599,6 +1625,8 @@ struct PaneCard: View {
                 if p?.running == false {
                     Text("exited \(p?.exitCode ?? 0)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
                 }
+                // What conch's commands call it — conch read p12 — a click away.
+                if let ref = store.paneRef(key: pane) { PaneIDChip(store: store, ref: ref) }
                 if Theme.ink, let a = p?.agent, let word = inkState(a) {
                     // Ink: the state as lettering, and a working agent's
                     // sound effect beside it.
