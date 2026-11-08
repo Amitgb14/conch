@@ -385,6 +385,26 @@ struct RelayCard: View {
     @ObservedObject var store: Store
 
     var body: some View {
+        if let p = store.phones {
+            SettingsCard(title: "conch web") {
+                HStack(spacing: 10) {
+                    Circle().fill(p.running == true ? Theme.ok : Theme.muted).frame(width: 7, height: 7)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(p.running == true ? "Running" : "Not running").font(.ui(size: 13, weight: .medium))
+                        Text(p.running == true ? "The gateway phones reach. Restart it after an update to run this app's conch."
+                             : "Phones can't reach this Mac until it runs.")
+                            .font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                    }
+                    Spacer()
+                    if p.running == true {
+                        Button(store.webRestarting ? "Restarting…" : "Restart") { store.restartWeb() }.disabled(store.webRestarting)
+                    } else {
+                        Button(store.webRestarting ? "Starting…" : "Start") { store.restartWeb() }.disabled(store.webRestarting)
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+            }
+        }
         if let p = store.phones, let r = p.relay, !r.isEmpty {
             SettingsCard(title: "Relay") {
                 ReachRow(icon: "globe", title: URL(string: r)?.host ?? r,

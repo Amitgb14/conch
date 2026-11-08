@@ -11,6 +11,9 @@ import SwiftUI
 struct StatusExtras: View {
     @ObservedObject var store: Store
     @State private var reporting = false
+    /// When the pair popover last closed: a click on its button that
+    /// closed it must not open a new one once the code has been made.
+    @State private var pairClosed = Date.distantPast
 
     var body: some View {
         HStack(spacing: 10) {
@@ -18,17 +21,20 @@ struct StatusExtras: View {
                 Text("✦ Ask").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.accent)
             }
             .buttonStyle(.plain).help("Ask conch in plain words — it plans, and runs nothing until you confirm")
-            .popover(isPresented: $store.askOpen, arrowEdge: .top) { AskPopover(store: store) }
+            .barPopover(isPresented: $store.askOpen) { AskPopover(store: store) }
             Button { reporting.toggle() } label: {
                 Text("⊙").font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.muted)
             }
             .buttonStyle(.plain).help("Report a problem: the facts about this conch, for a GitHub issue")
-            .popover(isPresented: $reporting, arrowEdge: .top) { ReportPopover(store: store) }
-            Button { store.pairOpen ? (store.pairOpen = false) : store.openPair() } label: {
+            .barPopover(isPresented: $reporting) { ReportPopover(store: store) }
+            Button {
+                if store.pairOpen { store.pairOpen = false } else if Date().timeIntervalSince(pairClosed) > 0.3 { store.openPair() }
+            } label: {
                 PhoneIconLabel(icon: store.phones?.icon ?? .idle)
             }
             .buttonStyle(.plain).help(store.phones?.tooltip ?? "Pair a phone, to see and answer your agents from it")
-            .background(AppKitPopover(isPresented: $store.pairOpen) { PairPopover(store: store) { store.pairOpen = false } })
+            .barPopover(isPresented: $store.pairOpen) { PairPopover(store: store) { store.pairOpen = false } }
+            .onChange(of: store.pairOpen) { if !$0 { pairClosed = Date() } }
         }
         .disabled(store.binary == nil)
     }
@@ -361,19 +367,29 @@ struct ReportPopover: View {
 
 // MARK: pair a phone
 
-/// A popover AppKit places, from the view it is attached to. SwiftUI's own
-/// placed the pair popover from a frame well below the status bar's
-/// button, so it opened downward, off the bottom of the screen; NSPopover
-/// is shown relative to the real view and keeps itself on screen.
+/// A popover AppKit places, from the view it is attached to. SwiftUI's
+/// own placed the status bar's popovers for the size they opened at and
+/// then let them grow downward as their content arrived — the pair, the
+/// report and the monitor opened over their button and off the bottom of
+/// the screen. NSPopover is shown relative to the real view, stays
+/// attached to it as it grows, and keeps itself on screen.
 struct AppKitPopover<Content: View>: NSViewRepresentable {
     @Binding var isPresented: Bool
     @ViewBuilder var content: () -> Content
+    @Environment(\.conchTheme) private var theme
 
     final class Coordinator: NSObject, NSPopoverDelegate {
         var popover: NSPopover?
+        var host: NSHostingController<AnyView>?
         var dismissed: (() -> Void)?
+        /// When it last closed: a click on its own button closes a
+        /// transient popover on the way down, and the button's toggle
+        /// would open it again on the way up.
+        var closedAt = Date.distantPast
         func popoverDidClose(_ notification: Notification) {
             popover = nil
+            host = nil
+            closedAt = Date()
             dismissed?()
         }
     }
@@ -384,20 +400,39 @@ struct AppKitPopover<Content: View>: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         let c = context.coordinator
         c.dismissed = { [binding = $isPresented] in if binding.wrappedValue { binding.wrappedValue = false } }
-        if isPresented, c.popover == nil, view.window != nil {
+        let root = AnyView(content().environment(\.conchTheme, theme))
+        if isPresented, c.popover == nil {
+            guard view.window != nil, Date().timeIntervalSince(c.closedAt) > 0.3 else {
+                DispatchQueue.main.async { [binding = $isPresented] in binding.wrappedValue = false }
+                return
+            }
             let p = NSPopover()
             p.behavior = .transient
             p.animates = true
             p.delegate = c
-            let host = NSHostingController(rootView: content())
+            let host = NSHostingController(rootView: root)
             host.sizingOptions = .preferredContentSize
             p.contentViewController = host
             c.popover = p
+            c.host = host
             p.show(relativeTo: view.bounds, of: view, preferredEdge: .maxY)
+            // Its window takes the keys, so a field that asks for focus as
+            // it appears (✦ Ask's) has it: SwiftUI's popover did this itself.
+            host.view.window?.makeKey()
+        } else if isPresented, let host = c.host {
+            host.rootView = root
         } else if !isPresented, let p = c.popover {
             c.popover = nil
+            c.host = nil
             p.close()
         }
+    }
+}
+
+extension View {
+    /// The status bar's popovers: AppKit's, above the view they belong to.
+    func barPopover<Content: View>(isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> Content) -> some View {
+        background(AppKitPopover(isPresented: isPresented, content: content))
     }
 }
 
@@ -538,6 +573,11 @@ struct PairPopover: View {
                     Text(n == 0 ? "Paired phones…" : on > 0 ? "Paired phones (\(n), \(on) on now)…" : "Paired phones (\(n))…")
                 }
                 Spacer()
+                if info?.running == true {
+                    Button(store.webRestarting ? "Restarting…" : "Restart conch web") { store.restartWeb() }
+                        .disabled(store.webRestarting)
+                        .help("Stop conch web and start it again on this app's conch — after an update. Phones reconnect by themselves.")
+                }
                 Button("Done") { close() }.keyboardShortcut(.defaultAction)
             }
         }
