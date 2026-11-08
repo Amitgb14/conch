@@ -860,6 +860,12 @@ func TestRepliesArriveWhileEventsPileUp(t *testing.T) {
 		t.Fatalf("second call: %v", err)
 	}
 	// The events are all there, in order, once the client reads them.
+	// What is tested is that none is lost, not how fast 3000 go through:
+	// under -race beside the rest of the suite, reading them on the calls'
+	// five seconds once came up 66 short. A deadline of their own, which
+	// only a lost event reaches.
+	read, stop := context.WithTimeout(context.Background(), 60*time.Second)
+	defer stop()
 	for i := 0; i < flood; i++ {
 		select {
 		case ev := <-c.Events:
@@ -867,7 +873,7 @@ func TestRepliesArriveWhileEventsPileUp(t *testing.T) {
 			if json.Unmarshal(ev.Data, &p) != nil || p.ID != fmt.Sprint(i) {
 				t.Fatalf("event %d: %s", i, ev.Data)
 			}
-		case <-ctx.Done():
+		case <-read.Done():
 			t.Fatalf("only %d of %d events arrived", i, flood)
 		}
 	}
