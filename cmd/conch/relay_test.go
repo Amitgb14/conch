@@ -41,6 +41,21 @@ func TestWebPairThroughARelay(t *testing.T) {
 	if strings.Contains(out, secret) {
 		t.Fatal("the room's secret was printed")
 	}
+	// Not a terminal, so no QR code: the link it carries is said instead,
+	// since the relay's page alone has no key to reach this computer with.
+	// Seen pairing an iPhone with `!` from an agent: "scan the code", and
+	// no code.
+	if c := regexp.MustCompile(`pairing code: (\d{3}-\d{3})\n`).FindStringSubmatch(out); c == nil ||
+		!strings.Contains(out, "\n  https://relay.example.com/#code="+c[1]+"&room="+relay.RoomID(secret)+"&key="+relay.EncodeKey(key.Public)+"\n") ||
+		strings.Contains(out, "scan") {
+		t.Fatalf("pair through a relay with no terminal doesn't give the link:\n%s", out)
+	}
+	stdoutIsTerminal = func() bool { return true }
+	out, _ = runWebCaptured(t, "pair")
+	if !strings.Contains(out, "scan the code") || strings.Contains(out, "open this link") {
+		t.Fatalf("pair through a relay on a terminal:\n%s", out)
+	}
+	stdoutIsTerminal = func() bool { return false }
 
 	out, err = runWebCaptured(t, "pair", "-json")
 	if err != nil {

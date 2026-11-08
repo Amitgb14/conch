@@ -154,10 +154,12 @@ func webPair(args []string) error {
 	case url != "" && secure:
 		link = phone.PairLink(url, code)
 	}
+	drawn := false
 	if link != "" && stdoutIsTerminal() {
 		// The code opens the page with the pairing code filled in.
 		if lines, err := phone.QRLines(link); err == nil {
 			fmt.Println(strings.Join(lines, "\n"))
+			drawn = true
 		}
 	}
 	fmt.Printf("pairing code: %s\n", code)
@@ -167,11 +169,22 @@ func webPair(args []string) error {
 	// to be discovered when a machine is missing from the app.
 	fmt.Println(reachWords(machines.names))
 	if rp.Link != "" {
-		fmt.Printf("scan the code with the phone's camera: it opens %s, the relay, from any network\n", rp.Page)
+		if drawn {
+			fmt.Printf("scan the code with the phone's camera: it opens %s, the relay, from any network\n", rp.Page)
+		} else {
+			// No QR code where this is going — `!` in an agent, a pipe — so
+			// the link it would have carried, which is the only way in: the
+			// relay's page alone has no key to make the session with.
+			fmt.Printf("open this link on the phone: it reaches %s, the relay, from any network\n  %s\n", rp.Page, link)
+		}
 		fmt.Printf("the phone shows this computer's key as %q: the same words, the same key\n", rp.Words)
 		if !rp.Connected {
 			fmt.Println("conch web isn't connected to the relay yet: start it with `conch web`, or see `conch web relay`")
 		}
+		return nil
+	}
+	if link != "" && !drawn {
+		fmt.Printf("open this link on the phone, or open %s on it and enter the code\n  %s\n", url, link)
 		return nil
 	}
 	fmt.Println(pairWhere(url))

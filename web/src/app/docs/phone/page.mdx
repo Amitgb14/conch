@@ -164,7 +164,7 @@ Then, on the laptop, point `conch web` at it — in **Settings → Phone (conch 
 relay = "wss://relay.example.com"
 ```
 
-and start `conch web` as usual. Without Tailscale it listens on loopback only and takes phones through the relay. `conch web pair` puts the relay's address in the QR code, and says the laptop's key as four words — `brook dove camel thistle` — which the phone shows too when it pairs: the same words, the same laptop. `conch web relay` says whether `conch web` is connected to the relay now; `conch web relay reset` makes a new key and revokes every phone that paired through the relay; restart `conch web` to use it.
+and start `conch web` as usual. Without Tailscale it listens on loopback only and takes phones through the relay. `conch web pair` puts the relay's address in the QR code, and says the laptop's key as four words — `brook dove camel thistle` — which the phone shows too when it pairs: the same words, the same laptop. `conch web relay` says whether `conch web` is connected to the relay now; `conch web relay reset` makes a new key and revokes every phone that paired through the relay; restart `conch web` to use it. A phone it revoked can't be told so — the laptop is no longer where the phone's link points — so the phone says the laptop isn't connected to the relay, and that a reset key is one reason why; pair it again with a new code.
 
 On the phone, open the link once from the QR code and add it to the Home Screen; from then on it reaches the laptop through the relay wherever the phone is. When it can't, it says which part is missing: the relay answered, but the laptop isn't connected to it — asleep, or `conch web` isn't running.
 

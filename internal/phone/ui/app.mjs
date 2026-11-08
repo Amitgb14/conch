@@ -9,7 +9,7 @@ import {
   parseLine, frameRows, sortPanes, upsertPane, removeAgent, groupAgents, groupByMachine, agentLabel,
   ago, route, can, backoff, reviewCount, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, READABLE, chunks, keyBytes, appPath,
   keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps, ttyInput,
-  markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS, QUICK_REPLIES, BROADCASTS,
+  markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS, QUICK_REPLIES, BROADCASTS, relayWhy,
 } from "/lib.mjs"
 import { Tunnel, relayLink, cookieFrom, fingerprint, fromB64url, NO_GATEWAY } from "/tunnel.mjs"
 
@@ -75,10 +75,7 @@ async function relayFetch(method, path, headers, body) {
   try {
     r = await relay.tunnel.request(method, path, { ...headers, ...deviceCookie() }, body)
   } catch (err) {
-    state.why = err.code === NO_GATEWAY
-      ? "Your computer isn't connected to the relay — asleep, or conch web isn't running."
-      : err.code === "timeout" ? "Your computer didn't answer through the relay."
-        : "The relay can't be reached."
+    state.why = relayWhy(err.code === NO_GATEWAY ? "absent" : err.code)
     throw err
   }
   const tok = cookieFrom(r.headers["Set-Cookie"], "conch_device")

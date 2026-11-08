@@ -622,3 +622,14 @@ export function replyTargets(panes, chosen) {
 // over the message to many.
 export const QUICK_REPLIES = ["continue", "run the tests", "commit it", "open a pull request"]
 export const BROADCASTS = ["commit and push", "stop and summarise", "run the tests"]
+
+// relayWhy says why a call through the relay failed. "absent" may be a
+// reset key, which unpairs the phone and looks the same from here.
+export function relayWhy(kind) {
+  if (kind === "absent") {
+    return "Your computer isn't connected to the relay — asleep, or conch web isn't running. " +
+      "If its key was reset (conch web relay reset), pair it again with a new code."
+  }
+  if (kind === "timeout") return "Your computer didn't answer through the relay."
+  return "The relay can't be reached."
+}
