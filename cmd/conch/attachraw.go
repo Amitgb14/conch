@@ -81,7 +81,7 @@ func attachRawLoopAs(c *client.Client, id string, in io.Reader, out io.Writer, s
 	if err := call(c, proto.MethodPaneRaw, proto.PaneRef{ID: id}, &start); err != nil {
 		return "", true, err
 	}
-	s.settle(start.Cols, start.Rows, size, winch)
+	s.settle(start.Cols, start.Rows, size, winch, rawSettle)
 	io.WriteString(out, rawClear) //nolint:errcheck
 	out.Write(start.Replay)       //nolint:errcheck
 	if why := s.ended(); why != "" {
@@ -115,7 +115,7 @@ func attachRawLoopAs(c *client.Client, id string, in io.Reader, out io.Writer, s
 			if !ok {
 				return "conch attach: the connection to the server closed", true, nil
 			}
-			if done := s.event(msg); done != "" {
+			if done := s.event(msg, func(cols, rows int) { s.settle(cols, rows, size, winch, rawResettle) }); done != "" {
 				return done, true, nil
 			}
 		case b, ok := <-input:
@@ -144,6 +144,11 @@ func attachRawLoopAs(c *client.Client, id string, in io.Reader, out io.Writer, s
 // to be the pane's size before writing the replay (settle).
 var rawSettle = 2 * time.Second
 
+// rawResettle is the same wait for a replay sent mid-stream after the
+// pane changed size: shorter, since the window is already showing the
+// pane and only follows it, and a drag sends one replay after another.
+var rawResettle = 500 * time.Millisecond
+
 // settle waits, run by the app, until this terminal is the pane's size.
 // The view's terminal starts at whatever size it was made at and is sized
 // to the pane a moment later; a replay written into a smaller one scrolls
@@ -151,11 +156,11 @@ var rawSettle = 2 * time.Second
 // does not bring it back — the pane showed blank rows and a cursor. Run in
 // somebody's own terminal there is nothing to wait for: the pane was just
 // sized to it.
-func (s *rawSession) settle(cols, rows int, size func() (int, int, bool), winch <-chan os.Signal) {
+func (s *rawSession) settle(cols, rows int, size func() (int, int, bool), winch <-chan os.Signal, wait time.Duration) {
 	if s.control == "" || cols <= 0 || rows <= 0 {
 		return
 	}
-	deadline := time.After(rawSettle)
+	deadline := time.After(wait)
 	for {
 		if w, h, ok := size(); ok && w == cols && h == rows {
 			return
@@ -206,7 +211,9 @@ func (s *rawSession) note() {
 	fmt.Fprintf(s.out, "\x1b[0m\r\n\x1b[7m %s · any key closes \x1b[0m", s.over)
 }
 
-func (s *rawSession) event(msg proto.Message) string {
+// event handles one event; settle waits for this terminal to be the size
+// a fresh replay is for, before it is drawn.
+func (s *rawSession) event(msg proto.Message, settle func(cols, rows int)) string {
 	switch msg.Event {
 	case proto.EventPaneOutput:
 		var o proto.PaneOutput
@@ -214,6 +221,13 @@ func (s *rawSession) event(msg proto.Message) string {
 			return ""
 		}
 		if o.Reset {
+			// A fresh replay: the connection fell behind, or the pane
+			// changed size and this terminal reflowed what it showed.
+			// Drawn into a terminal of another size it would be reflowed
+			// in turn, so wait for the window to follow the pane first.
+			if settle != nil {
+				settle(o.Cols, o.Rows)
+			}
 			io.WriteString(s.out, rawClear) //nolint:errcheck
 		}
 		s.out.Write(o.Data) //nolint:errcheck

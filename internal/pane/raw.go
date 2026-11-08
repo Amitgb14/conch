@@ -70,6 +70,28 @@ func (p *Pane) UnsubscribeRaw(sub *RawSub) {
 	p.emuMu.Unlock()
 }
 
+// lose marks a subscription behind: it is given nothing more, and its
+// server sends a fresh replay in its place. Called with emuMu held.
+func (p *Pane) lose(sub *RawSub) {
+	sub.lost.Store(true)
+	close(sub.lostC)
+	delete(p.raws, sub)
+}
+
+// resetRawLocked starts every raw subscriber again from a replay at the
+// pane's new size. A raw client's terminal reflows what it shows when its
+// width changes — Ghostty does — and conch's emulator does not; a program
+// that repaints by counting rows up from the cursor (Claude Code does)
+// then erases the wrong ones there, leaving a screen of half-erased
+// leftovers that conch's own copy of the pane never had. A replay drawn
+// from conch's copy puts the two back in step. Called with emuMu held,
+// after the emulator took the size: what is queued is in the replay.
+func (p *Pane) resetRawLocked() {
+	for sub := range p.raws {
+		p.lose(sub)
+	}
+}
+
 // sendRaw hands a piece of output to every raw subscriber. Called with
 // emuMu held, right after the emulator took the same output. One that
 // is behind is marked lost and given nothing more, rather than holding
@@ -83,9 +105,7 @@ func (p *Pane) sendRaw(b []byte) {
 		select {
 		case sub.C <- piece:
 		default:
-			sub.lost.Store(true)
-			close(sub.lostC)
-			delete(p.raws, sub)
+			p.lose(sub)
 		}
 	}
 }

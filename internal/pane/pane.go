@@ -472,6 +472,7 @@ func (p *Pane) Resize(cols, rows int) error {
 	same := cols == p.emu.Width() && rows == p.emu.Height()
 	if !same {
 		p.emu.Resize(cols, rows)
+		p.resetRawLocked()
 	}
 	p.emuMu.Unlock()
 	if same {

@@ -428,3 +428,41 @@ func TestAttachRawReplayDoesNotWaitForever(t *testing.T) {
 	r := runRaw(t, srv, c, false) // 100x30 against an 80x24 replay
 	attachWait(t, "the replay", func() bool { return strings.Contains(r.out.String(), "REPLAY-SCREEN") })
 }
+
+// A fresh replay mid-stream — the pane changed size — waits for the
+// window to follow the pane before it is drawn, as the first one does:
+// drawn into the old size, the window would reflow it in turn.
+func TestAttachRawResetWaitsForThePanesNewSize(t *testing.T) {
+	srv, c := startRawServer(t, true)
+	t.Setenv(attachControlEnv, "tok")
+	inR, inW := io.Pipe()
+	defer inW.Close()
+	out := &syncBuffer{}
+	winch := make(chan os.Signal, 1)
+	var mu sync.Mutex
+	cols, rows := 80, 24 // the pane's size: the first replay is drawn at once
+	size := func() (int, int, bool) { mu.Lock(); defer mu.Unlock(); return cols, rows, true }
+	go attachRawLoop(c, "p3", inR, out, size, winch, nil, false) //nolint:errcheck
+	attachWait(t, "the replay", func() bool { return strings.Contains(out.String(), "REPLAY-SCREEN") })
+
+	srv.mu.Lock()
+	conn := srv.conn
+	srv.mu.Unlock()
+	conn.Write(proto.Message{Event: proto.EventPaneOutput, Data: proto.Marshal(proto.PaneOutput{ID: "p3", Data: []byte("WIDER-SCREEN"), Reset: true, Cols: 120, Rows: 30})}) //nolint:errcheck
+	time.Sleep(100 * time.Millisecond)
+	if strings.Contains(out.String(), "WIDER-SCREEN") {
+		t.Fatal("the fresh replay was drawn before the window was the pane's new size")
+	}
+	mu.Lock()
+	cols, rows = 120, 30
+	mu.Unlock()
+	winch <- os.Interrupt
+	attachWait(t, "the fresh replay", func() bool { return strings.Contains(out.String(), "WIDER-SCREEN") })
+	if got := out.String(); strings.LastIndex(got, rawClear) > strings.Index(got, "WIDER-SCREEN") {
+		t.Fatalf("the screen was not cleared before the fresh replay: %q", got)
+	}
+
+	// A window that never gets there still gets it, a moment later.
+	conn.Write(proto.Message{Event: proto.EventPaneOutput, Data: proto.Marshal(proto.PaneOutput{ID: "p3", Data: []byte("NEVER-FITS"), Reset: true, Cols: 300, Rows: 90})}) //nolint:errcheck
+	attachWait(t, "the replay for a size never reached", func() bool { return strings.Contains(out.String(), "NEVER-FITS") })
+}

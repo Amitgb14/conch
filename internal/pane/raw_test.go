@@ -183,3 +183,48 @@ func TestRawReplayCarriesTitle(t *testing.T) {
 		t.Fatalf("replay lacks the title: %q", replay)
 	}
 }
+
+// A pane that changes size starts its raw subscribers again from a replay
+// at the new size: their terminals reflowed what they showed, and conch's
+// copy did not. The same size is no change, and starts nothing again.
+func TestResizeStartsRawAgain(t *testing.T) {
+	p := startShell(t)
+	waitScreen(t, p, "$")
+	_, cols, rows, sub := p.SubscribeRaw()
+	if err := p.Resize(cols, rows); err != nil {
+		t.Fatal(err)
+	}
+	if sub.Lost() {
+		t.Fatal("a resize to the same size started the subscriber again")
+	}
+	if err := p.Resize(cols+10, rows+2); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-sub.LostC():
+	case <-time.After(time.Second):
+		t.Fatal("a resize left the subscriber going on a reflowed screen")
+	}
+	p.emuMu.Lock()
+	n := len(p.raws)
+	p.emuMu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d subscribers still held", n)
+	}
+	_, c2, r2, again := p.SubscribeRaw()
+	defer p.UnsubscribeRaw(again)
+	if c2 != cols+10 || r2 != rows+2 {
+		t.Fatalf("the new replay is for %dx%d, want %dx%d", c2, r2, cols+10, rows+2)
+	}
+	// Two subscribers, both started again; one left alone afterwards.
+	other := newRawSub(rawBacklog)
+	p.emuMu.Lock()
+	p.raws[other] = struct{}{}
+	p.emuMu.Unlock()
+	if err := p.Resize(cols, rows); err != nil {
+		t.Fatal(err)
+	}
+	if !again.Lost() || !other.Lost() {
+		t.Fatalf("lost: %v %v, want both", again.Lost(), other.Lost())
+	}
+}
