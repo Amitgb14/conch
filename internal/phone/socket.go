@@ -17,9 +17,11 @@ import (
 )
 
 // Limits on one socket: how many panes it may draw at once, and how many
-// keys one message may carry.
+// keys one message may carry. Eight is the Watch view's wall of screens —
+// the tiles a phone shows at once, two to a row — and no more: each is a
+// subscription on the server and a screen down the socket.
 const (
-	maxOpenFrames = 4
+	maxOpenFrames = 8
 	maxKeys       = 64
 	writeTimeout  = 10 * time.Second
 )

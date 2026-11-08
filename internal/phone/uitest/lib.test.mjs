@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import {
   parseLine, frameRows, color256, sortAgents, upsertAgent, removeAgent, groupAgents, groupByMachine, agentLabel,
   ago, route, can, backoff, reviewCount, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, chunks, keyBytes, appPath,
+  markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS,
 } from "../ui/lib.mjs"
 
 const text = (runs) => runs.map((r) => r.text).join("")
@@ -183,6 +184,8 @@ test("reconnecting backs off to half a minute", () => {
 test("a pairing code in the link", () => {
   assert.equal(codeFromHash("#code=438-219"), "438-219")
   assert.equal(codeFromHash("#code=438219"), "438219")
+  assert.equal(codeFromHash("#code=438-219&room=abc&key=def"), "438-219")
+  assert.equal(codeFromHash("#code=438-219x"), "")
   for (const bad of ["", undefined, "#", "#code=", "#code=abc-def", "#code=438-219<script>", "#other=438-219", "#code=1"]) {
     assert.equal(codeFromHash(bad), "", String(bad))
   }
@@ -534,4 +537,96 @@ test("who wrote a review comment, and its link", () => {
   for (const bad of ["javascript:alert(1)", "http://github.com/x", "", null, undefined, 5, "https://a b", " https://x"]) {
     assert.equal(commentLink(bad), "", String(bad))
   }
+})
+
+// ---- many agents at once ----
+
+const many = [
+  { pane: "p1", agent: "claude", state: "waiting", project: { name: "api" }, branch: "fix-login" },
+  { pane: "p2", agent: "codex", state: "working", project: { name: "web" }, branch: "add-search" },
+  { pane: "p3", agent: "claude", state: "working", project: { name: "api" }, branch: "refactor-db" },
+  { pane: "busybox:p4", machine: "busybox", agent: "gemini", state: "waiting", project: { name: "cachemind" }, branch: "main" },
+  { pane: "p5", agent: "claude", state: "done", project: { name: "api" }, branch: "docs" },
+  { pane: "p6", kind: "terminal", state: "idle", project: { name: "api" }, branch: "main" },
+  { pane: "p7", agent: "mystery", state: "idle" },
+]
+
+test("the routes of the new views", () => {
+  assert.deepEqual(route("/watch"), { view: "watch" })
+  assert.deepEqual(route("/machines/"), { view: "machines" })
+  assert.deepEqual(route("/watching"), { view: "list" })
+})
+
+test("each pane's mark", () => {
+  assert.deepEqual(markOf(many[0]), { glyph: "✱", cls: "claude" })
+  assert.deepEqual(markOf(many[5]), { glyph: "▢", cls: "shell" })
+  assert.deepEqual(markOf(many[6]), { glyph: "●", cls: "other" })
+  assert.deepEqual(markOf(null), { glyph: "●", cls: "other" })
+})
+
+test("the chips count and filter", () => {
+  assert.deepEqual(counts(many), { all: 7, waiting: 2, working: 2, done: 1, idle: 1, terminals: 1 })
+  assert.deepEqual(counts([]), { all: 0, waiting: 0, working: 0, done: 0, idle: 0, terminals: 0 })
+  assert.deepEqual(counts(undefined).all, 0)
+  assert.deepEqual(filterPanes(many, "waiting").map((p) => p.pane), ["p1", "busybox:p4"])
+  assert.deepEqual(filterPanes(many, "terminals").map((p) => p.pane), ["p6"])
+  assert.equal(filterPanes(many, "all").length, 7)
+  assert.equal(filterPanes(many, "bogus").length, 7, "an unknown chip shows everything")
+  // A terminal isn't "idle" in the chips: it has its own.
+  assert.deepEqual(filterPanes(many, "working").map((p) => p.pane), ["p2", "p3"])
+  for (const f of FILTERS) assert.ok(filterPanes([], f).length === 0)
+})
+
+test("narrowed to a project, on its own machine", () => {
+  const api = { machine: "local", name: "api" }
+  assert.deepEqual(filterPanes(many, "all", api).map((p) => p.pane), ["p1", "p3", "p5", "p6"])
+  assert.deepEqual(filterPanes(many, "working", api).map((p) => p.pane), ["p3"])
+  assert.equal(inProject(many[3], { machine: "busybox", name: "cachemind" }), true)
+  assert.equal(inProject(many[3], { machine: "local", name: "cachemind" }), false, "the same name elsewhere is another project")
+  assert.equal(inProject(many[6], { name: "api" }), false)
+})
+
+test("a card's last line", () => {
+  assert.equal(lastLine(["one", "\x1b[32m✓ 41 passed\x1b[0m", "", "   "]), "✓ 41 passed")
+  assert.equal(lastLine([]), "")
+  assert.equal(lastLine(undefined), "")
+  assert.equal(lastLine(["  ", ""]), "")
+  // An empty prompt, or a box's edge, is not what was said last.
+  assert.equal(lastLine(["✓ 41 passed", "> "]), "✓ 41 passed")
+  assert.equal(lastLine(["Edit pool.go", "╭──────╮", "│ >    │", "╰──────╯"]), "Edit pool.go")
+  assert.equal(lastLine(["ok conch/relay", "sh-3.2$ "]), "ok conch/relay")
+  assert.equal(lastLine(["> go test"]), "> go test", "a prompt with something on it is kept")
+})
+
+test("the switcher's neighbours skip terminals", () => {
+  assert.deepEqual(neighbours(many, "p1"), { prev: null, next: "p2" })
+  assert.deepEqual(neighbours(many, "p5"), { prev: "busybox:p4", next: "p7" })
+  assert.deepEqual(neighbours(many, "p7"), { prev: "p5", next: null })
+  assert.deepEqual(neighbours(many, "p6"), { prev: null, next: null }, "a terminal isn't in the strip")
+  assert.deepEqual(neighbours([], "p1"), { prev: null, next: null })
+})
+
+test("a swipe is sideways and far enough", () => {
+  assert.equal(swipeTo(-80, 10), "next")
+  assert.equal(swipeTo(90, -5), "prev")
+  assert.equal(swipeTo(-40, 0), null, "too short")
+  assert.equal(swipeTo(-80, 70), null, "more of a scroll")
+  assert.equal(swipeTo(0, 0), null)
+})
+
+test("machines and their projects", () => {
+  const ms = projectsOn(many, [{ id: "local", label: "This Mac", state: "online" }, { id: "busybox", label: "busybox", state: "online" }, { id: "boat", label: "boat", state: "offline" }])
+  assert.deepEqual(ms.map((m) => [m.id, m.state, m.projects.length]), [["local", "online", 3], ["busybox", "online", 1], ["boat", "offline", 0]])
+  const api = ms[0].projects[0]
+  assert.deepEqual([api.name, api.agents, api.terminals, api.waiting, api.working, api.done, api.branches], ["api", 3, 1, 1, 1, 1, 4])
+  assert.deepEqual(ms[0].projects.map((g) => g.name), ["api", "No project", "web"], "waiting first, then by agents, then by name")
+  // With no machine list, this computer still has its projects.
+  assert.deepEqual(projectsOn(many.slice(0, 1)).map((m) => [m.id, m.projects.length]), [["local", 1]])
+  // A pane on a machine the list lacks gets a section of its own.
+  assert.ok(projectsOn(many, [{ id: "local", label: "x" }]).some((m) => m.id === "busybox"))
+})
+
+test("one message to many leaves out who can't take it", () => {
+  assert.deepEqual(replyTargets(many, ["p1", "p2", "p3", "gone"]), { send: ["p2", "p3"], waiting: ["p1"], gone: ["gone"] })
+  assert.deepEqual(replyTargets(many, []), { send: [], waiting: [], gone: [] })
 })

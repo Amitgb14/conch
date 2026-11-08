@@ -22,6 +22,8 @@ require (
 	rsc.io/qr v0.2.0
 )
 
+require github.com/flynn/noise v1.1.0
+
 require (
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect

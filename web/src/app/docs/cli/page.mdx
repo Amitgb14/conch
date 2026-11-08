@@ -275,9 +275,21 @@ conch web pair -json                                        # the same as JSON: 
 conch web start                                             # run it in the background, as last started
                                                             # or at the settings' address
 conch web stop                                              # end one running in the background
+conch web -relay wss://HOST                                 # also through a relay ([web] relay)
+conch web relay                                             # the link to the relay, and its key's words
+conch web relay reset                                       # a new key: phones paired through the
+                                                            # relay pair again
 ```
 
 `conch web` serves your [phone](/docs/phone) on this machine's Tailscale address and nowhere else, unless `-listen` names another address. `-url` is the address phones open — the `https://…ts.net` one `tailscale serve` gives — which the QR code points at. `pair` draws the QR code only when it prints to a terminal. It takes no `-m`: it shows the agents of the machine it runs on. `pair` and `revoke` are refused from an agent's pane.
+
+### relay
+
+```sh
+conch relay [-listen ADDR] [-cert FILE -key FILE]           # a relay phones and conch webs meet at
+```
+
+`conch relay` runs a [relay](/docs/phone#through-a-relay) on a server of your own (`:8443` by default): `conch web` connects out to it, a phone opens its address, and it copies the encrypted session between them without being able to read it. It stores nothing and serves the phone's app. Without `-cert`, put a proxy that does HTTPS in front of it — a phone's browser encrypts only on an https page.
 
 ### config
 

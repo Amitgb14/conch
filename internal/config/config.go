@@ -46,6 +46,10 @@ type Config struct {
 type WebCfg struct {
 	URL  string `toml:"url,omitempty"`
 	Port int    `toml:"port,omitempty"`
+	// Relay is a relay conch web connects out to, so a phone reaches it
+	// from any network without Tailscale: wss://relay.example.com, one
+	// `conch relay` serves. "" is none.
+	Relay string `toml:"relay,omitempty"`
 }
 
 // AppCfg is how Conch.app (macos/) draws its window. The TUI reads none of

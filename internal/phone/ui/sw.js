@@ -3,8 +3,8 @@
 // error page. It asks the network first: a new conch build is picked up
 // the next time the laptop answers. Nothing from /api or /pair is ever
 // kept — an agent's screen does not belong in a cache.
-const CACHE = "conch-shell-1"
-const SHELL = ["/", "/app.css", "/app.mjs", "/lib.mjs", "/manifest.webmanifest", "/icon.svg", "/icon-180.png"]
+const CACHE = "conch-shell-2"
+const SHELL = ["/", "/app.css", "/app.mjs", "/lib.mjs", "/tunnel.mjs", "/manifest.webmanifest", "/icon.svg", "/icon-180.png"]
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()))

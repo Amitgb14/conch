@@ -21,6 +21,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/fleet"
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -342,6 +343,19 @@ func (g *Gateway) Handler() http.Handler {
 		g.fail(w, r, apiErr(CodeNotFound, "no such route"))
 	})
 	mux.Handle("/", uiHandler())
+	return withPageHeaders(mux)
+}
+
+// AppHandler is the phone's app alone, for a relay to serve: the same
+// pages and the same headers as the gateway's, with nothing behind them —
+// a phone opened at a relay reaches its computer through the tunnel.
+func AppHandler() http.Handler { return withPageHeaders(uiHandler()) }
+
+// withPageHeaders adds what every answer of the gateway carries: no
+// sniffing, no referrer, no framing, and a content policy that keeps the
+// page to its own address.
+func withPageHeaders(next http.Handler) http.Handler {
+	mux := next
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
@@ -782,23 +796,80 @@ func (g *Gateway) task(rq *request) (any, *APIError) {
 	if req.Project == "" || strings.TrimSpace(req.Prompt) == "" {
 		return nil, apiErr(CodeBadRequest, "a task needs project and prompt")
 	}
+	if req.Tries < 0 || req.Tries > MaxTries {
+		return nil, apiErr(CodeBadRequest, fmt.Sprintf("tries is 1 to %d", MaxTries))
+	}
 	c, machine, aerr := g.machineFor(rq.dev, req.Machine)
 	if aerr != nil {
 		return nil, aerr
 	}
-	var info proto.PaneInfo
-	aerr = g.callOn(rq, c, taskTimeout, proto.MethodTaskCreate, proto.TaskCreateParams{
-		ProjectID: req.Project, Prompt: req.Prompt, Agent: req.Agent, Name: req.Name, Cols: 120, Rows: 40}, &info)
-	if aerr != nil {
-		return nil, aerr
+	// One try is the server's to name. Several are named here, as `conch
+	// task -n` names them — the task's branch, then the agent and a count
+	// — since the same prompt would otherwise give each the same branch.
+	branches := []string{""}
+	if req.Tries > 1 {
+		var list proto.ProjectList
+		if aerr := g.callOn(rq, c, callTimeout, proto.MethodProjectList, nil, &list); aerr != nil {
+			return nil, aerr
+		}
+		i := slices.IndexFunc(list.Projects, func(p proto.ProjectInfo) bool { return p.ID == req.Project })
+		if i < 0 {
+			return nil, apiErr(CodeNotFound, "no such project")
+		}
+		// Taken: the project's branches, and those checked out in its
+		// worktrees — which the branch list, refreshed on its own clock,
+		// can be a moment behind (tries started twice in a row).
+		taken := map[string]bool{}
+		for _, b := range list.Projects[i].Branches {
+			taken[b.Name] = true
+		}
+		for _, w := range list.Projects[i].Worktrees {
+			taken[w.Branch] = true
+		}
+		base := gitx.BranchFromPrompt(list.Projects[i].Name, req.Prompt)
+		agent := req.Agent
+		if agent == "" {
+			agent = "try"
+		}
+		branches = branches[:0]
+		for n := 1; n <= req.Tries; n++ {
+			b := gitx.AttemptBranch(base, agent, n, func(s string) bool { return taken[s] })
+			taken[b] = true
+			branches = append(branches, b)
+		}
 	}
-	if req.Name != "" && len(c.MissingCapabilities([]string{proto.CapTaskName})) > 0 {
-		// The task runs either way, so a name that did not take is not
-		// worth failing it for; the machine list says that machine's conch
-		// is behind (Machine.Behind), which is where the person reads it.
-		_ = g.callOn(rq, c, callTimeout, proto.MethodPaneRename, proto.PaneRenameParams{ID: info.ID, Name: req.Name}, nil)
+	var out TaskResponse
+	for n, branch := range branches {
+		name := req.Name
+		if name != "" && len(branches) > 1 {
+			name = fmt.Sprintf("%s-%d", name, n+1)
+		}
+		var info proto.PaneInfo
+		aerr = g.callOn(rq, c, taskTimeout, proto.MethodTaskCreate, proto.TaskCreateParams{
+			ProjectID: req.Project, Prompt: req.Prompt, Agent: req.Agent, Name: name, Branch: branch, Cols: 120, Rows: 40}, &info)
+		if aerr != nil {
+			if n > 0 {
+				// The ones already started run on; say how far it got.
+				aerr.Message = fmt.Sprintf("started %d of %d: %s", n, len(branches), aerr.Message)
+			}
+			return nil, aerr
+		}
+		if name != "" && len(c.MissingCapabilities([]string{proto.CapTaskName})) > 0 {
+			// The task runs either way, so a name that did not take is not
+			// worth failing it for; the machine list says that machine's
+			// conch is behind (Machine.Behind), which is where the person
+			// reads it.
+			_ = g.callOn(rq, c, callTimeout, proto.MethodPaneRename, proto.PaneRenameParams{ID: info.ID, Name: name}, nil)
+		}
+		pane := fleet.ComposePaneID(machine, info.ID)
+		if n == 0 {
+			out = TaskResponse{Pane: pane, Worktree: info.Cwd, Branch: info.Branch}
+		}
+		if len(branches) > 1 {
+			out.Panes = append(out.Panes, pane)
+		}
 	}
-	return TaskResponse{Pane: fleet.ComposePaneID(machine, info.ID), Worktree: info.Cwd, Branch: info.Branch}, nil
+	return out, nil
 }
 
 func (g *Gateway) pushKey(rq *request) (any, *APIError) {

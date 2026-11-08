@@ -55,6 +55,7 @@ var compCommands = []compItem{
 	{"upload", "copy files to a machine"},
 	{"download", "copy files from a machine"},
 	{"web", "answer your agents from a phone"},
+	{"relay", "run a relay phones reach conch web through"},
 	{"config", "edit every setting in the browser"},
 	{"ask", "ask the brain to plan actions"},
 	{"commit-message", "write a commit message for a diff"},
@@ -118,6 +119,7 @@ var compSubcommands = map[string][]compItem{
 	"web": {
 		{"pair", "pair a phone"}, {"devices", "paired phones"}, {"revoke", "unpair one"},
 		{"permission", "what a phone may do"}, {"start", "start conch web in the background"}, {"stop", "stop a conch web in the background"},
+		{"relay", "the link to the relay, and its key"},
 	},
 	"update":     {{"latest", "the newest release"}, {"list", "every published release"}, {"rollback", "the version before the last update"}},
 	"completion": {{"bash", ""}, {"zsh", ""}, {"fish", ""}},

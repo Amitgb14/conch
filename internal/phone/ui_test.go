@@ -39,7 +39,7 @@ func fetch(t *testing.T, method, url string) (*http.Response, string) {
 func TestUIIsServed(t *testing.T) {
 	f := newFixture(t)
 	page, _ := uiFiles.ReadFile("ui/index.html")
-	for _, p := range []string{"/", "/index.html", "/agent/p3", "/agent/p12/", "/agent/p3/terminal", "/agent/p3/terminal/", "/new", "/new/", "/settings"} {
+	for _, p := range []string{"/", "/index.html", "/agent/p3", "/agent/p12/", "/agent/p3/terminal", "/agent/p3/terminal/", "/new", "/new/", "/settings", "/watch", "/watch/", "/machines"} {
 		res, body := fetch(t, "GET", f.web.URL+p)
 		if res.StatusCode != 200 || body != string(page) || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/html") {
 			t.Errorf("%s: %d %s", p, res.StatusCode, res.Header.Get("Content-Type"))
@@ -149,9 +149,14 @@ func TestUIFiles(t *testing.T) {
 	// is what gets read and changed, and 106 KiB is a number somebody has
 	// to argue with rather than whatever the app happens to weigh. It was
 	// 104 until review comments — the agent's card listing them, with a
-	// pull request's reviewers, replies and links — took it past by 0.4.
-	if total > 106<<10 {
-		t.Errorf("the app is %d bytes; keep it under 106 KiB", total)
+	// pull request's reviewers, replies and links — took it past by 0.4;
+	// 106 until the relay's tunnel (tunnel.mjs: Noise, its framing and the
+	// words a key is said in, 16 KB) and the app's use of it added 20 KB
+	// of protocol rather than of screens; 126 until the views for many
+	// agents at once — the tab bar, Watch, Machines, the switcher, one
+	// message to many and tries — added 30 KB of screens.
+	if total > 156<<10 {
+		t.Errorf("the app is %d bytes; keep it under 156 KiB", total)
 	}
 	if images > 64<<10 {
 		t.Errorf("the icons are %d bytes; keep them under 64 KiB", images)
@@ -180,7 +185,7 @@ func TestUIFiles(t *testing.T) {
 	if len(refs) < 12 {
 		t.Fatalf("only %d references found", len(refs))
 	}
-	have := map[string]bool{"": true, "new": true, "settings": true} // the page itself, and its views
+	have := map[string]bool{"": true, "new": true, "settings": true, "watch": true, "machines": true} // the page itself, and its views
 	for _, n := range names {
 		have[n] = true
 	}
@@ -447,8 +452,9 @@ func TestUIIsServedDeflated(t *testing.T) {
 	}
 	t.Logf("the app's shell is %d bytes, %d served (%.0f%%); its icons are %d served",
 		shell, deflated, 100*float64(deflated)/float64(shell), icons)
-	if deflated > 48<<10 {
-		t.Errorf("a phone downloads %d bytes to start the app; keep it under 48 KiB", deflated)
+	// 48 KiB until the relay and the views for many agents took it to 50.
+	if deflated > 52<<10 {
+		t.Errorf("a phone downloads %d bytes to start the app; keep it under 52 KiB", deflated)
 	}
 }
 

@@ -245,6 +245,8 @@ export function route(path) {
   const m = /^\/agent\/((?:[a-z0-9-]+:)?p[0-9]+)\/?$/.exec(path)
   if (m) return { view: "agent", pane: m[1] }
   if (/^\/new\/?$/.test(path)) return { view: "new" }
+  if (/^\/watch\/?$/.test(path)) return { view: "watch" }
+  if (/^\/machines\/?$/.test(path)) return { view: "machines" }
   if (/^\/settings\/?$/.test(path)) return { view: "settings" }
   return { view: "list" }
 }
@@ -262,9 +264,10 @@ export function backoff(n) {
 }
 
 // codeFromHash takes a pairing code out of a link's fragment ("#code=438-219"),
-// which is what a QR code will hold.
+// which is what a QR code will hold — with a relay's room and key after it
+// when the code is for pairing through one.
 export function codeFromHash(hash) {
-  const m = /^#code=([0-9][0-9 -]{4,10}[0-9])$/.exec(hash || "")
+  const m = /^#code=([0-9][0-9 -]{4,10}[0-9])(?:&|$)/.exec(hash || "")
   return m ? m[1] : ""
 }
 
@@ -490,3 +493,132 @@ export function ttyInput(value, sentinel) {
   if (at < 0) return { backspace: true, text: v }
   return { backspace: false, text: v.slice(0, at) + v.slice(at + sentinel.length) }
 }
+
+// ---- many agents at once ----
+
+// MARKS is each agent's mark on the phone: the TUI's own shapes, drawn
+// in a circle of its colour (app.css .mark.NAME). Anything else is a dot.
+export const MARKS = { claude: "✱", codex: "⬡", gemini: "◆", opencode: "◎", devin: "◇" }
+
+// markOf is a pane's mark: its glyph and the class that colours it.
+export function markOf(p) {
+  if (p?.kind === "terminal") return { glyph: "▢", cls: "shell" }
+  const name = String(p?.agent || "")
+  return MARKS[name] ? { glyph: MARKS[name], cls: name } : { glyph: "●", cls: "other" }
+}
+
+// FILTERS are the home screen's chips, in order.
+export const FILTERS = ["all", "waiting", "working", "done", "terminals"]
+
+// counts is how many panes each chip would show.
+export function counts(panes) {
+  const c = { all: 0, waiting: 0, working: 0, done: 0, idle: 0, terminals: 0 }
+  for (const p of panes || []) {
+    c.all++
+    if (p.kind === "terminal") c.terminals++
+    else if (c[p.state] !== undefined) c[p.state]++
+  }
+  return c
+}
+
+// inProject says a pane is in the project the views are narrowed to:
+// {machine, name}, null for every project.
+export function inProject(p, project) {
+  if (!project) return true
+  return (p.machine || "local") === (project.machine || "local") && (p.project?.name || "") === project.name
+}
+
+// filterPanes is what the home screen shows for a chip and a project.
+export function filterPanes(panes, filter, project = null) {
+  return (panes || []).filter((p) => inProject(p, project) && (
+    filter === "terminals" ? p.kind === "terminal"
+      : filter === "all" || !FILTERS.includes(filter) ? true
+        : p.kind !== "terminal" && p.state === filter))
+}
+
+// lastLine is the last thing a screen says: its bottom row with text,
+// as plain text — what a working agent's card shows under its name. An
+// empty prompt is passed over: it is where the next thing will be typed,
+// not something said. So is a box's edge.
+const emptyPrompt = /^(?:[>❯›»$#%]|\S*[$#%]|[│┃|]?\s*[>❯›]?\s*[│┃|]?|[─━╭╮╰╯┌┐└┘│\s]+)$/
+
+export function lastLine(lines) {
+  const rows = frameRows(lines)
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const t = rows[i].map((r) => r.text).join("").trim()
+    if (t && !emptyPrompt.test(t)) return t
+  }
+  return ""
+}
+
+// neighbours are the agents before and after one, in the list's order:
+// where a swipe or the switcher goes. Terminals are not in the strip.
+export function neighbours(panes, pane) {
+  const agents = (panes || []).filter((p) => p.kind !== "terminal")
+  const i = agents.findIndex((p) => p.pane === pane)
+  if (i < 0) return { prev: null, next: null }
+  return { prev: agents[i - 1]?.pane || null, next: agents[i + 1]?.pane || null }
+}
+
+// swipeTo reads a finished touch: far enough sideways, and more sideways
+// than up or down, is a swipe — left for the next, right for the one before.
+export function swipeTo(dx, dy, min = 60) {
+  if (Math.abs(dx) < min || Math.abs(dx) < 1.5 * Math.abs(dy)) return null
+  return dx < 0 ? "next" : "prev"
+}
+
+// projectsOn is the Machines view: each machine, and each project on it
+// with how many of its panes are in each state.
+export function projectsOn(panes, machines = []) {
+  const out = []
+  const byID = new Map()
+  const add = (id, label, st) => {
+    if (!byID.has(id)) {
+      const m = { id, label: label || id, state: st || "online", projects: [] }
+      byID.set(id, m)
+      out.push(m)
+    }
+    return byID.get(id)
+  }
+  for (const m of machines) add(m.id, m.label, m.state)
+  if (!machines.length) add("local", "This computer", "online")
+  for (const p of panes || []) {
+    const m = add(p.machine || "local", p.machine || "local", "")
+    const name = p.project?.name || "No project"
+    let g = m.projects.find((x) => x.name === name)
+    if (!g) {
+      g = { name, machine: m.id, branches: new Set(), agents: 0, terminals: 0, waiting: 0, working: 0, done: 0, idle: 0 }
+      m.projects.push(g)
+    }
+    if (p.branch) g.branches.add(p.branch)
+    if (p.kind === "terminal") g.terminals++
+    else {
+      g.agents++
+      if (g[p.state] !== undefined) g[p.state]++
+    }
+  }
+  for (const m of out) {
+    m.projects.sort((a, b) => b.waiting - a.waiting || b.agents - a.agents || a.name.localeCompare(b.name))
+    for (const g of m.projects) g.branches = g.branches.size
+  }
+  return out
+}
+
+// replyTargets splits the chosen panes for one message to many: the ones
+// it goes to, and the ones it can't — waiting on a question, where a
+// reply would be typed onto it, or gone since they were chosen.
+export function replyTargets(panes, chosen) {
+  const send = [], waiting = [], gone = []
+  for (const id of chosen) {
+    const p = (panes || []).find((x) => x.pane === id)
+    if (!p) gone.push(id)
+    else if (p.state === "waiting") waiting.push(id)
+    else send.push(id)
+  }
+  return { send, waiting, gone }
+}
+
+// What one taps to say the usual things: over an agent's composer, and
+// over the message to many.
+export const QUICK_REPLIES = ["continue", "run the tests", "commit it", "open a pull request"]
+export const BROADCASTS = ["commit and push", "stop and summarise", "run the tests"]
