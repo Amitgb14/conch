@@ -209,6 +209,61 @@ final class Store: ObservableObject {
     private var machinesStamp = ""
     private var machinesFile: String { (conchDir as NSString).appendingPathComponent("machines.json") }
     private var configTimer: Timer?
+    private var phonesStamp = ""
+    private var phonesTick = 0
+    private var phonesFile: String { (conchDir as NSString).appendingPathComponent("phone.json") }
+    /// The paired phones, which are on now, and conch web's relay: for the
+    /// phone icon and its list. nil until conch first answers.
+    @Published var phones: PhonesInfo?
+    /// The pair popover, open from the status bar or Settings → Phone.
+    @Published var pairOpen = false
+    /// The pairing the popover opens with, made before it opens.
+    var pairInfo: PairInfo?
+
+    /// conch web stopped and started again, on this app's conch: how a
+    /// new build reaches the gateway phones talk to, as the server's
+    /// reload does for the server. Phones reconnect by themselves.
+    @Published var webRestarting = false
+    func restartWeb() {
+        guard let b = binary, !webRestarting else { return }
+        webRestarting = true
+        job("Restarting conch web", done: "conch web restarted") {
+            defer { self.webRestarting = false; self.refreshPhones() }
+            _ = try await runConch(b, ["web", "stop"])
+            _ = try await runConch(b, ["web", "start"])
+            // It says it runs once it listens; give it that moment.
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+        }
+    }
+
+    /// Makes a pairing code, then opens the pair popover with it. A
+    /// popover is placed for the size it opens at; opened empty and
+    /// filled a moment later, it grew down off the screen from a status
+    /// bar at the bottom of it.
+    func openPair() {
+        guard let b = binary else { return }
+        Task {
+            if let out = try? await runConch(b, ["web", "pair", "-json", "-permission", "full"]) {
+                pairInfo = try? conchDecoder().decode(PairInfo.self, from: out)
+            }
+            pairOpen = true
+        }
+    }
+    private var phonesAsking = false
+
+    /// Asks conch for the phones again. conch web writes phone.json as a
+    /// phone comes and goes, so a change there is when to ask; and every
+    /// half minute besides, since a conch web that stops writes nothing.
+    func refreshPhones() {
+        guard let b = binary, !phonesAsking else { return }
+        phonesAsking = true
+        Task {
+            defer { phonesAsking = false }
+            guard let out = try? await runConch(b, ["web", "devices", "-json"]),
+                  let p = try? conchDecoder().decode(PhonesInfo.self, from: out) else { return }
+            if p != phones { phones = p }
+        }
+    }
 
     /// Reads conch's settings again within a second of their changing — a
     /// theme chosen on the settings page, or in the TUI, shows here at
@@ -221,6 +276,13 @@ final class Store: ObservableObject {
                 guard let self else { return }
                 // A machine added (conch machine add, the TUI's M) is
                 // reached as soon as machines.json has it.
+                let pnow = fileStamp(self.phonesFile)
+                self.phonesTick += 1
+                if pnow != self.phonesStamp || self.phonesTick >= 30 {
+                    self.phonesStamp = pnow
+                    self.phonesTick = 0
+                    self.refreshPhones()
+                }
                 let mnow = fileStamp(self.machinesFile)
                 if mnow != self.machinesStamp {
                     self.machinesStamp = mnow

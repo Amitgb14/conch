@@ -105,6 +105,36 @@ type state struct {
 	// RelayState is how conch web's link to its relay is, for the TUI,
 	// Conch.app and `conch web pair` to say.
 	RelayState *RelayState `json:"relay_state,omitempty"`
+	// Seen is when each device last had the app open, and how it came:
+	// written by conch web as sockets open and close, for the TUI and
+	// Conch.app to say which phones are on now. SeenPID is that conch
+	// web, so a gateway that died with sockets open isn't believed.
+	Seen    map[string]*Seen `json:"seen,omitempty"`
+	SeenPID int              `json:"seen_pid,omitempty"`
+}
+
+// Seen is a device's presence: its open sockets, the route the last came
+// by, and when it was last there.
+type Seen struct {
+	Sockets  int       `json:"sockets,omitempty"`
+	Route    string    `json:"route,omitempty"`
+	Since    time.Time `json:"since,omitempty"`
+	LastSeen time.Time `json:"last_seen"`
+}
+
+// The routes a phone comes by.
+const (
+	RouteRelay  = "relay"
+	RouteDirect = "direct"
+)
+
+// Presence is a device as it is now: connected only while the conch web
+// that said so still runs.
+type Presence struct {
+	Connected bool
+	Route     string
+	Since     time.Time
+	LastSeen  time.Time
 }
 
 // RelayKeys are a gateway's on a relay: the room's secret, and the
@@ -374,6 +404,7 @@ func (s *Store) Revoke(id string) (bool, error) {
 		n := len(st.Devices)
 		st.Devices = slices.DeleteFunc(st.Devices, func(d Device) bool { return d.ID == id })
 		found = len(st.Devices) != n
+		delete(st.Seen, id)
 		return nil
 	})
 	return found, err
@@ -382,6 +413,32 @@ func (s *Store) Revoke(id string) (bool, error) {
 // SetPermission changes what a paired device may do, and reports whether
 // there was one. A running gateway reads it on the device's next request
 // or socket message; nothing has to be paired again.
+// Rename gives a device a name of its own: every phone pairs as what its
+// browser says it is ("iPhone"), so two of them could not be told apart
+// in a list. The name is cleaned as a paired one is; one with nothing
+// left is refused rather than quietly called "phone".
+func (s *Store) Rename(id, name string) (string, bool, error) {
+	if strings.TrimSpace(strings.Map(func(r rune) rune {
+		if !unicode.IsPrint(r) {
+			return -1
+		}
+		return r
+	}, name)) == "" {
+		return "", false, errors.New("a device's name can't be empty")
+	}
+	name = cleanName(name)
+	found := false
+	err := s.update(func(st *state) error {
+		for i := range st.Devices {
+			if st.Devices[i].ID == id {
+				st.Devices[i].Name, found = name, true
+			}
+		}
+		return nil
+	})
+	return name, found, err
+}
+
 func (s *Store) SetPermission(id, permission string) (bool, error) {
 	if !ValidPermission(permission) {
 		return false, fmt.Errorf("unknown permission %q: view, reply or full", permission)
@@ -602,6 +659,94 @@ func (s *Store) RelayState() (RelayState, bool) {
 		return RelayState{}, false
 	}
 	return *st.RelayState, true
+}
+
+// SocketOpened records a device's socket opening, by route, for conch web
+// running as pid.
+func (s *Store) SocketOpened(pid int, id, route string, now time.Time) error {
+	return s.update(func(st *state) error {
+		resetSeen(st, pid)
+		e := st.Seen[id]
+		if e == nil {
+			e = &Seen{}
+			st.Seen[id] = e
+		}
+		if e.Sockets == 0 {
+			e.Since = now
+		}
+		e.Sockets++
+		e.Route, e.LastSeen = route, now
+		return nil
+	})
+}
+
+// SocketClosed records a device's socket closing.
+func (s *Store) SocketClosed(pid int, id string, now time.Time) error {
+	return s.update(func(st *state) error {
+		resetSeen(st, pid)
+		e := st.Seen[id]
+		if e == nil {
+			return nil
+		}
+		e.Sockets = max(e.Sockets-1, 0)
+		e.LastSeen = now
+		return nil
+	})
+}
+
+// resetSeen forgets the sockets counted by any other conch web: they
+// closed when it stopped, whether or not it said so.
+func resetSeen(st *state, pid int) {
+	if st.Seen == nil {
+		st.Seen = map[string]*Seen{}
+	}
+	if st.SeenPID != pid {
+		for _, e := range st.Seen {
+			e.Sockets = 0
+		}
+		st.SeenPID = pid
+	}
+}
+
+// SeenWords says, short enough for a column, whether a device is on now
+// and how, or when it last was.
+func SeenWords(p Presence, now time.Time) string {
+	switch {
+	case p.Connected && p.Route == RouteRelay:
+		return "on · relay"
+	case p.Connected:
+		return "on · direct"
+	case p.LastSeen.IsZero():
+		return "never"
+	case now.Sub(p.LastSeen) < time.Minute:
+		return "just now"
+	}
+	l, n := p.LastSeen.Local(), now.Local()
+	if l.YearDay() == n.YearDay() && l.Year() == n.Year() {
+		return l.Format("15:04")
+	}
+	return l.Format("Jan 2")
+}
+
+// Presence is every paired device's presence, by device ID. A device
+// never seen is absent; one is connected only while its socket is open
+// in a conch web that still runs.
+func (s *Store) Presence() map[string]Presence {
+	st, _ := s.read()
+	alive := st.SeenPID != 0 && processAlive(st.SeenPID)
+	out := map[string]Presence{}
+	for _, d := range st.Devices {
+		e := st.Seen[d.ID]
+		if e == nil {
+			continue
+		}
+		p := Presence{Route: e.Route, LastSeen: e.LastSeen}
+		if alive && e.Sockets > 0 {
+			p.Connected, p.Since = true, e.Since
+		}
+		out[d.ID] = p
+	}
+	return out
 }
 
 // Subscribe keeps a device's push subscription, replacing the one it had

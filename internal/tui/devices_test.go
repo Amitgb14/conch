@@ -183,3 +183,91 @@ func writeBroken(t *testing.T, store *phone.Store) {
 		t.Fatal(err)
 	}
 }
+
+// The list says which phones are on now, and the settings row counts them.
+func TestDevicesPanelPresence(t *testing.T) {
+	store := pairHome(t, "")
+	devs := pairDevices(t, store, phone.PermFull, phone.PermReply)
+	store.SocketOpened(os.Getpid(), devs[0].ID, phone.RouteRelay, time.Now()) //nolint:errcheck
+	m := a2Model()
+	m.width, m.height = 100, 30
+	p := newDevicesPanel(nil)
+	out := a2Plain(p.render(*m).lines)
+	for _, want := range []string{"SEEN", "on · relay", "never", devs[0].ID, devs[1].ID} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q:\n%s", want, out)
+		}
+	}
+	if s := devicesSummary(); !strings.HasSuffix(s, "· 1 on now") {
+		t.Errorf("summary %q", s)
+	}
+	store.SocketClosed(os.Getpid(), devs[0].ID, time.Now()) //nolint:errcheck
+	if s := devicesSummary(); strings.Contains(s, "on now") {
+		t.Errorf("summary with none on %q", s)
+	}
+}
+
+// n names the selected device: the field starts with its name, enter
+// keeps what was typed, esc leaves it, and an empty name is refused.
+func TestDevicesPanelRename(t *testing.T) {
+	store := pairHome(t, "")
+	devs := pairDevices(t, store, phone.PermFull, phone.PermReply)
+	m := a2Model()
+	p := newDevicesPanel(nil)
+	p.update(m, a2Key("down"))
+	if _, cmd := p.update(m, a2Key("n")); !p.naming || p.name.Value() != "Browser" || cmd == nil {
+		t.Fatalf("n: naming %v, field %q", p.naming, p.name.Value())
+	}
+	if out := a2Plain(p.render(*m).lines); !strings.Contains(out, "Name: Browser") || !strings.Contains(out, "enter saves it") || strings.Contains(out, "x revoke") {
+		t.Fatalf("naming:\n%s", out)
+	}
+	// While naming, the panel's own keys are letters in the name.
+	for range "Browser" {
+		p.update(m, a2Key("backspace"))
+	}
+	a2Type(m, p, "Pixel xr")
+	p.update(m, a2Key("enter"))
+	if got, _ := store.Devices(); p.naming || got[1].Name != "Pixel xr" || got[1].Permission != phone.PermReply || got[0].Name != devs[0].Name {
+		t.Fatalf("after enter: %+v naming %v", got, p.naming)
+	}
+	if !strings.Contains(m.flash, devs[1].ID+" is now Pixel xr") {
+		t.Errorf("flash %q", m.flash)
+	}
+	// esc leaves the name as it was.
+	p.update(m, a2Key("n"))
+	a2Type(m, p, " 2")
+	p.update(m, a2Key("esc"))
+	if got, _ := store.Devices(); p.naming || got[1].Name != "Pixel xr" {
+		t.Fatalf("after esc: %+v", got[1])
+	}
+	m.overlay = p
+	p.update(m, a2Key("n"))
+	p.update(m, a2Key("esc"))
+	if m.overlay != p {
+		t.Fatal("esc while naming closed the panel")
+	}
+	// Emptied: refused, said, and the name stays.
+	p.update(m, a2Key("n"))
+	for range "Pixel xr" {
+		p.update(m, a2Key("backspace"))
+	}
+	p.update(m, a2Key("enter"))
+	if got, _ := store.Devices(); got[1].Name != "Pixel xr" || !strings.Contains(m.flash, "can't be empty") {
+		t.Fatalf("empty: %+v %q", got[1], m.flash)
+	}
+	// Every size still fits, naming or not.
+	p.update(m, a2Key("n"))
+	for _, size := range [][2]int{{1, 1}, {20, 5}, {30, 9}, {50, 12}, {200, 60}} {
+		m.width, m.height = size[0], size[1]
+		b := p.render(*m)
+		a2CheckBox(t, b, *m)
+		if m.width >= 28 && b.width() > m.width {
+			t.Fatalf("%v: %d wide", size, b.width())
+		}
+	}
+	// Nothing paired: n does nothing.
+	empty := &devicesPanel{}
+	if _, cmd := empty.update(m, a2Key("n")); cmd != nil || empty.naming {
+		t.Fatal("n with nothing paired started naming")
+	}
+}

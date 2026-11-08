@@ -61,6 +61,13 @@ type rawSession struct {
 	// view only looks (-view): it asks for no size and takes none, so
 	// showing the pane somewhere small cannot shrink it.
 	view bool
+	// pending is a fresh replay held back, with whatever followed it,
+	// until this terminal is the size it is for (pendCols×pendRows) or
+	// pendBy passes. Held rather than waited for, so events, typing and
+	// the app's control pastes go on being read meanwhile.
+	pending            []byte
+	pendCols, pendRows int
+	pendBy             time.Time
 }
 
 // attachRawLoop runs a raw attach until the pane ends, the input ends or
@@ -110,7 +117,13 @@ func attachRawLoopAs(c *client.Client, id string, in io.Reader, out io.Writer, s
 	flush := time.NewTimer(time.Hour)
 	flush.Stop()
 	for {
+		var poll <-chan time.Time
+		if s.holding() {
+			poll = time.After(rawSettlePoll)
+		}
 		select {
+		case <-poll:
+			s.release(size)
 		case msg, ok := <-c.Events:
 			if !ok {
 				return "conch attach: the connection to the server closed", true, nil
@@ -118,6 +131,7 @@ func attachRawLoopAs(c *client.Client, id string, in io.Reader, out io.Writer, s
 			if done := s.event(msg); done != "" {
 				return done, true, nil
 			}
+			s.release(size)
 		case b, ok := <-input:
 			if !ok {
 				return "", true, nil // the window went: the pane carries on
@@ -134,6 +148,7 @@ func attachRawLoopAs(c *client.Client, id string, in io.Reader, out io.Writer, s
 			held = s.input(held, true, size)
 		case <-winch:
 			s.resize(size)
+			s.release(size)
 		case <-quit:
 			return "", true, nil
 		}
@@ -143,6 +158,15 @@ func attachRawLoopAs(c *client.Client, id string, in io.Reader, out io.Writer, s
 // rawSettle is how long a raw view run by the app waits for its terminal
 // to be the pane's size before writing the replay (settle).
 var rawSettle = 2 * time.Second
+
+// rawResettle is how long a replay sent mid-stream, after the pane
+// changed size, is held for the window to follow the pane (holdReplay):
+// shorter, since the window is already showing the pane and only follows
+// it, and a drag sends one replay after another.
+var rawResettle = 500 * time.Millisecond
+
+// rawSettlePoll is how often a held replay looks at this terminal's size.
+const rawSettlePoll = 20 * time.Millisecond
 
 // settle waits, run by the app, until this terminal is the pane's size.
 // The view's terminal starts at whatever size it was made at and is sized
@@ -168,6 +192,52 @@ func (s *rawSession) settle(cols, rows int, size func() (int, int, bool), winch 
 		}
 	}
 }
+
+// holdReplay keeps a fresh replay back until this terminal is the size it is
+// for, as settle does for the first: drawn into a terminal of another
+// size it would be reflowed in turn. Only the app's view waits, since
+// only it follows the pane's size; ⌘K's preview (-view) keeps the size
+// it was made at, and waiting would only hold it up. A replay that
+// arrives while one is held replaces it, keeping the first one's
+// deadline, so a drag still draws twice a second.
+func (s *rawSession) holdReplay(data []byte, cols, rows int) {
+	if s.control == "" || s.view || cols <= 0 || rows <= 0 {
+		s.drop()
+		io.WriteString(s.out, rawClear) //nolint:errcheck
+		s.out.Write(data)               //nolint:errcheck
+		return
+	}
+	if !s.holding() {
+		s.pendBy = time.Now().Add(rawResettle)
+	}
+	s.pending = append(append(s.pending[:0], rawClear...), data...)
+	s.pendCols, s.pendRows = cols, rows
+}
+
+func (s *rawSession) holding() bool { return !s.pendBy.IsZero() }
+
+// release draws a held replay, and what followed it, once this terminal
+// is its size or the wait is over.
+func (s *rawSession) release(size func() (int, int, bool)) {
+	if !s.holding() {
+		return
+	}
+	if w, h, ok := size(); !(ok && w == s.pendCols && h == s.pendRows) && time.Now().Before(s.pendBy) {
+		return
+	}
+	s.flush()
+}
+
+// flush draws what is held, at whatever size this terminal is.
+func (s *rawSession) flush() {
+	if !s.holding() {
+		return
+	}
+	s.out.Write(s.pending) //nolint:errcheck
+	s.drop()
+}
+
+func (s *rawSession) drop() { s.pending, s.pendBy = nil, time.Time{} }
 
 // rawClear readies this terminal for a replay: the screen and the
 // scrollback cleared, the cursor home, styles and modes back to their
@@ -206,6 +276,7 @@ func (s *rawSession) note() {
 	fmt.Fprintf(s.out, "\x1b[0m\r\n\x1b[7m %s · any key closes \x1b[0m", s.over)
 }
 
+// event handles one event.
 func (s *rawSession) event(msg proto.Message) string {
 	switch msg.Event {
 	case proto.EventPaneOutput:
@@ -213,15 +284,22 @@ func (s *rawSession) event(msg proto.Message) string {
 		if json.Unmarshal(msg.Data, &o) != nil || o.ID != s.id || s.over != "" {
 			return ""
 		}
-		if o.Reset {
-			io.WriteString(s.out, rawClear) //nolint:errcheck
+		switch {
+		case o.Reset:
+			// A fresh replay: the connection fell behind, or the pane
+			// changed size and this terminal reflowed what it showed.
+			s.holdReplay(o.Data, o.Cols, o.Rows)
+		case s.holding():
+			s.pending = append(s.pending, o.Data...) // after the replay, in order
+		default:
+			s.out.Write(o.Data) //nolint:errcheck
 		}
-		s.out.Write(o.Data) //nolint:errcheck
 	case proto.EventPaneExited, proto.EventPaneClosed:
 		var info proto.PaneInfo
 		if json.Unmarshal(msg.Data, &info) != nil || info.ID != s.id {
 			return ""
 		}
+		s.flush() // what it printed last, before why it ended
 		why := fmt.Sprintf("pane %s was closed", s.id)
 		if msg.Event == proto.EventPaneExited {
 			why = fmt.Sprintf("pane %s ended (exit %d)", s.id, info.ExitCode)

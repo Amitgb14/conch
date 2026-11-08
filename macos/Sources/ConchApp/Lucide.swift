@@ -65,6 +65,11 @@ struct LucideIcon: View {
         Lucide(icon)
             .stroke(color, style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
             .frame(width: size, height: size).frame(width: 14)
+            // The whole square takes the pointer, not the stroke alone: as a
+            // plain button's label an outline is 1.3 points wide, and a
+            // click between its lines went nowhere — the status bar's phone
+            // button "did nothing" unless you hit the outline itself.
+            .contentShape(Rectangle())
     }
 }
 

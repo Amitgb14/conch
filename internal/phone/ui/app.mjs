@@ -12,6 +12,7 @@ import {
   markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS, QUICK_REPLIES, BROADCASTS, relayWhy,
 } from "/lib.mjs"
 import { Tunnel, relayLink, cookieFrom, fingerprint, fromB64url, NO_GATEWAY } from "/tunnel.mjs"
+import { LOGOS } from "/logos.mjs"
 
 const API_VERSION = 2
 // The agents conch can start. There is no route that lists the ones
@@ -295,6 +296,22 @@ document.addEventListener("visibilitychange", () => {
   }
 })
 
+// A page left for another (or kept in the back-forward cache) let go of
+// its connections: a browser may keep them open, and the computer then
+// counted a phone as on that had gone. Back again, it connects again.
+window.addEventListener("pagehide", () => {
+  const ws = state.ws
+  state.ws = null
+  ws?.close()
+  relay?.tunnel.close()
+})
+window.addEventListener("pageshow", (ev) => {
+  if (ev.persisted && state.hello && !state.ws) {
+    state.tries = 0
+    connect()
+  }
+})
+
 // ---- pieces ----
 
 // dot is a pane's state as a small coloured mark; pill the same with its word.
@@ -325,6 +342,23 @@ function mark(p) {
   const m = markOf(p)
   return h("span", { class: `agm ${m.cls}`, "aria-hidden": "true" }, m.glyph,
     p?.kind === "terminal" ? null : h("span", { class: `ring ${p?.state || ""}` }))
+}
+
+// logo is an agent's own logo, as an SVG in its colour (app.css .logo.NAME);
+// an agent without one keeps its mark.
+function logo(name) {
+  const l = LOGOS[name]
+  if (!l) return mark({ agent: name })
+  const NS = "http://www.w3.org/2000/svg"
+  const svg = document.createElementNS(NS, "svg")
+  svg.setAttribute("viewBox", "0 0 24 24")
+  svg.setAttribute("class", `logo ${name}`)
+  svg.setAttribute("aria-hidden", "true")
+  const path = document.createElementNS(NS, "path")
+  path.setAttribute("d", l.d)
+  if (l.evenOdd) path.setAttribute("fill-rule", "evenodd")
+  svg.append(path)
+  return svg
 }
 
 // row is one pane in a list: what it is, where, and how long it has been so.
@@ -589,7 +623,7 @@ function pairView() {
   const status = h("p", { class: "error", role: "alert" })
   const code = h("input", { class: "code", inputmode: "numeric", autocomplete: "one-time-code", placeholder: "123-456", required: true, value: codeFromHash(location.hash), "aria-label": "Pairing code" })
   const name = h("input", { maxlength: "64", value: deviceName(), "aria-label": "This device's name" })
-  const button = h("button", { class: "primary wide" }, "Pair")
+  const button = h("button", { class: "primary wide", id: "pair-submit" }, "Pair")
   const form = h("form", {
     class: "card",
     onsubmit: async (ev) => {
@@ -628,13 +662,45 @@ function pairView() {
   const extra = []
   if (relay) {
     // Through a relay: the words the computer's key is said in, which
-    // conch web pair shows too. The same words, the same computer.
-    const words = h("span", { class: "words" })
-    fingerprint(fromB64url(relay.key)).then((w) => { words.textContent = w }).catch(() => {})
+    // conch shows beside the QR code. The same words, the same computer —
+    // the key came in the code, so different words mean the code did not
+    // come from that computer. Checked before anything is sent.
+    const words = h("div", { class: "words big" })
+    fingerprint(fromB64url(relay.key)).then((w) => {
+      words.replaceChildren(...w.split(" ").map((x) => h("span", {}, x)))
+    }).catch(() => { words.textContent = "?" })
+    if (state.wordsChecked !== true) {
+      const stopped = h("p", { class: "error", role: "alert" })
+      const yes = h("button", { class: "primary wide", onclick: () => {
+        state.wordsChecked = true
+        render()
+        // A code from the link pairs at once: nothing is left to type.
+        if (codeFromHash(location.hash)) $("pair-submit")?.click()
+      } }, "They match — continue")
+      const no = h("button", { class: "wide", onclick: () => {
+        // Forget the link entirely: whatever is between them gets nothing,
+        // and the person starts again from the computer.
+        try { localStorage.removeItem("conch.relay") } catch { /* private mode */ }
+        history.replaceState(null, "", location.pathname)
+        yes.disabled = no.disabled = true
+        stopped.textContent = "Stopped. Nothing was sent. Something may be between this phone and your computer: " +
+          "pair again from conch on the computer itself, and check the words before continuing."
+      } }, "They don't match")
+      return {
+        name: "pair",
+        el: h("section", { class: "pair check" },
+          h("h1", {}, "Check the words"),
+          h("p", { class: "quiet" }, "These should match what conch shows on your computer, under Safety code:"),
+          words,
+          h("div", { class: "card relay-card" },
+            h("p", {}, h("b", {}, "🔒 Through the relay, end to end. "),
+              location.host + " passes this on but can't read it.")),
+          yes, no, stopped),
+      }
+    }
     extra.push(h("div", { class: "card relay-card" },
       h("p", {}, "🔒 Through the relay, end to end: it passes this on without being able to read it."),
-      h("p", { class: "quiet" }, "Your computer's key: ", words, ". ",
-        h("code", {}, "conch web pair"), " shows the same words.")))
+      h("p", { class: "quiet" }, "Your computer's key: ", words)))
   }
   return {
     name: "pair",
@@ -1417,7 +1483,7 @@ function openNew(kind = "task") {
   const drawPicker = () => put(picker, AGENTS.map((a) => h("button", {
     type: "button", role: "radio", "aria-checked": String(agent.value === a), class: agent.value === a ? "on" : "",
     onclick: () => { agent.value = agent.value === a ? "" : a; drawPicker() },
-  }, mark({ agent: a }), a)))
+  }, logo(a), a)))
   drawPicker()
   // Tries: the same task more than once, each on a branch of its own.
   let tries = 1

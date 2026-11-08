@@ -20,14 +20,17 @@ import (
 
 const configWatchEvery = time.Second
 
-// configSaving counts this process's saves still being written: while one
-// is, the file is between two of this TUI's own states and is not read.
-var configSaving atomic.Int32
-
 // configWatch is the file as this TUI last saw it.
 type configWatch struct {
 	mu    sync.Mutex
 	stamp string
+	// saving counts this TUI's saves not yet written: while one is, the
+	// file is between two of its own states and is not read. Counted from
+	// when the save is asked for, since this TUI already holds what it
+	// says. It is the watcher's, not the process's: a save that is asked
+	// for and never run — a command a test drops — would otherwise stop
+	// every TUI in the process from seeing a change made elsewhere.
+	saving atomic.Int32
 }
 
 func newConfigWatch() *configWatch { return &configWatch{stamp: uiStamp(config.File())} }
@@ -44,7 +47,7 @@ type configPollMsg struct {
 }
 
 func pollConfig(w *configWatch) configPollMsg {
-	if configSaving.Load() > 0 {
+	if w.saving.Load() > 0 {
 		return configPollMsg{} // our own save is landing; look next time
 	}
 	w.mu.Lock()

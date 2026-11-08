@@ -379,6 +379,44 @@ struct SaveBar: View {
     }
 }
 
+/// The relay conch web is on, and whether it is now — watching the store,
+/// since the form around it doesn't.
+struct RelayCard: View {
+    @ObservedObject var store: Store
+
+    var body: some View {
+        if let p = store.phones {
+            SettingsCard(title: "conch web") {
+                HStack(spacing: 10) {
+                    Circle().fill(p.running == true ? Theme.ok : Theme.muted).frame(width: 7, height: 7)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(p.running == true ? "Running" : "Not running").font(.ui(size: 13, weight: .medium))
+                        Text(p.running == true ? "The gateway phones reach. Restart it after an update to run this app's conch."
+                             : "Phones can't reach this Mac until it runs.")
+                            .font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                    }
+                    Spacer()
+                    if p.running == true {
+                        Button(store.webRestarting ? "Restarting…" : "Restart") { store.restartWeb() }.disabled(store.webRestarting)
+                    } else {
+                        Button(store.webRestarting ? "Starting…" : "Start") { store.restartWeb() }.disabled(store.webRestarting)
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+            }
+        }
+        if let p = store.phones, let r = p.relay, !r.isEmpty {
+            SettingsCard(title: "Relay") {
+                ReachRow(icon: "globe", title: URL(string: r)?.host ?? r,
+                         detail: "Phones reach this Mac from any network, end to end: the relay forwards bytes it cannot read.",
+                         note: p.relayConnected == true ? nil : p.relayStatus,
+                         chip: p.relayConnected == true ? "connected" : "not connected", on: p.relayConnected == true)
+                    .padding(.horizontal, 6).padding(.vertical, 4)
+            }
+        }
+    }
+}
+
 /// One section: a heading with its icon, what it is for, then its settings
 /// in cards — the theme in pictures, [verify] as a line, the quiet hours as
 /// a day.
@@ -482,6 +520,15 @@ struct SectionForm: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+            case "web":
+                // The relay's state beside where it is set, and the phones
+                // paired with this computer: which are on now, and how.
+                card(nil, fields)
+                RelayCard(store: model.store)
+                SettingsCard(title: "Paired phones", trailing: AnyView(
+                    Button("Pair a phone…") { model.store.openPair() }.controlSize(.small))) {
+                    PhonesList(store: model.store).padding(12)
+                }
             default:
                 if !fields.isEmpty { card(nil, fields) }
             }

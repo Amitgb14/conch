@@ -428,3 +428,122 @@ func TestAttachRawReplayDoesNotWaitForever(t *testing.T) {
 	r := runRaw(t, srv, c, false) // 100x30 against an 80x24 replay
 	attachWait(t, "the replay", func() bool { return strings.Contains(r.out.String(), "REPLAY-SCREEN") })
 }
+
+// rawHeld starts a raw attach run by the app whose terminal is 80x24,
+// the size of the first replay, so that one is drawn at once; the test
+// changes the size and signals winch as the app's terminal would.
+type rawHeld struct {
+	srv   *attachServer
+	in    *io.PipeWriter
+	out   *syncBuffer
+	winch chan os.Signal
+	mu    sync.Mutex
+	cols  int
+	rows  int
+	done  chan string
+}
+
+func startRawHeld(t *testing.T, wait time.Duration, view bool) *rawHeld {
+	t.Helper()
+	srv, c := startRawServer(t, true)
+	t.Setenv(attachControlEnv, "tok")
+	old := rawResettle
+	rawResettle = wait
+	t.Cleanup(func() { rawResettle = old })
+	inR, inW := io.Pipe()
+	t.Cleanup(func() { inW.Close() })
+	h := &rawHeld{srv: srv, in: inW, out: &syncBuffer{}, winch: make(chan os.Signal, 1), cols: 80, rows: 24, done: make(chan string, 1)}
+	size := func() (int, int, bool) { h.mu.Lock(); defer h.mu.Unlock(); return h.cols, h.rows, true }
+	go func() {
+		msg, _, _ := attachRawLoopAs(c, "p3", inR, h.out, size, h.winch, nil, false, view)
+		h.done <- msg
+	}()
+	attachWait(t, "the replay", func() bool { return strings.Contains(h.out.String(), "REPLAY-SCREEN") })
+	return h
+}
+
+func (h *rawHeld) output(t *testing.T, o proto.PaneOutput) {
+	t.Helper()
+	o.ID = "p3"
+	h.srv.push(t, proto.EventPaneOutput, o)
+}
+
+func (h *rawHeld) resize(cols, rows int) {
+	h.mu.Lock()
+	h.cols, h.rows = cols, rows
+	h.mu.Unlock()
+	h.winch <- os.Interrupt
+}
+
+// A fresh replay mid-stream — the pane changed size — is held until the
+// window follows the pane, as the first one waits: drawn into the old
+// size, the window would reflow it in turn. What arrives meanwhile is
+// kept, drawn after it and in order, and typing still goes through.
+func TestAttachRawResetIsHeldForThePanesNewSize(t *testing.T) {
+	h := startRawHeld(t, time.Minute, false) // only the size releases it
+	h.output(t, proto.PaneOutput{Data: []byte("WIDER-SCREEN"), Reset: true, Cols: 120, Rows: 30})
+	for i := range 3 {
+		h.output(t, proto.PaneOutput{Data: []byte("after-" + string(rune('a'+i)))})
+	}
+	// Typing during the hold: the loop is still reading.
+	h.in.Write([]byte("x")) //nolint:errcheck
+	attachWait(t, "the typing", func() bool { return len(attachSent[proto.PaneSendTextParams](h.srv, proto.MethodPaneSendText)) == 1 })
+	if got := h.out.String(); strings.Contains(got, "WIDER-SCREEN") || strings.Contains(got, "after-") {
+		t.Fatalf("drawn before the window was the pane's new size: %q", got)
+	}
+
+	h.resize(120, 30)
+	attachWait(t, "the held replay", func() bool { return strings.Contains(h.out.String(), "after-c") })
+	got := h.out.String()
+	at := strings.Index(got, "WIDER-SCREEN")
+	if strings.LastIndex(got, rawClear) > at {
+		t.Fatalf("the screen was not cleared before the fresh replay: %q", got)
+	}
+	if !(at < strings.Index(got, "after-a") && strings.Index(got, "after-a") < strings.Index(got, "after-b") && strings.Index(got, "after-b") < strings.Index(got, "after-c")) {
+		t.Fatalf("out of order: %q", got)
+	}
+
+	// Once released, output goes straight through again.
+	h.output(t, proto.PaneOutput{Data: []byte("LIVE")})
+	attachWait(t, "live output", func() bool { return strings.Contains(h.out.String(), "LIVE") })
+}
+
+// A replay arriving while one is held replaces it; and a window that never
+// gets to the size is drawn anyway when the wait is over.
+func TestAttachRawHeldReplayGivesUp(t *testing.T) {
+	h := startRawHeld(t, time.Second, false)
+	h.output(t, proto.PaneOutput{Data: []byte("FIRST-REPLAY"), Reset: true, Cols: 300, Rows: 90})
+	h.output(t, proto.PaneOutput{Data: []byte("tail-of-first")})
+	h.output(t, proto.PaneOutput{Data: []byte("NEVER-FITS"), Reset: true, Cols: 310, Rows: 95})
+	attachWait(t, "the replay for a size never reached", func() bool { return strings.Contains(h.out.String(), "NEVER-FITS") })
+	if got := h.out.String(); strings.Contains(got, "FIRST-REPLAY") || strings.Contains(got, "tail-of-first") {
+		t.Fatalf("a replayed-over replay was drawn: %q", got)
+	}
+}
+
+// The pane ending while a replay is held draws it first: what the program
+// printed last comes before why the view ended.
+func TestAttachRawHeldReplayDrawnAtExit(t *testing.T) {
+	h := startRawHeld(t, time.Minute, false)
+	h.output(t, proto.PaneOutput{Data: []byte("LAST-WORDS"), Reset: true, Cols: 120, Rows: 30})
+	h.srv.push(t, proto.EventPaneExited, proto.PaneInfo{ID: "p3", ExitCode: 3})
+	select {
+	case why := <-h.done:
+		if !strings.Contains(why, "exit 3") {
+			t.Fatalf("ended with %q", why)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the view did not end")
+	}
+	if !strings.Contains(h.out.String(), "LAST-WORDS") {
+		t.Fatalf("the held replay was lost at exit: %q", h.out.String())
+	}
+}
+
+// ⌘K's preview (-view) keeps the size it was made at, so it draws a fresh
+// replay at once rather than waiting for a size it will never be.
+func TestAttachRawViewDoesNotHold(t *testing.T) {
+	h := startRawHeld(t, time.Minute, true)
+	h.output(t, proto.PaneOutput{Data: []byte("PREVIEW-REPLAY"), Reset: true, Cols: 120, Rows: 30})
+	attachWait(t, "the preview's replay", func() bool { return strings.Contains(h.out.String(), "PREVIEW-REPLAY") })
+}

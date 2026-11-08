@@ -31,8 +31,9 @@ import (
 const webUsage = `usage: conch web [-listen ADDR] [-port N] [-url URL] [-cert FILE -key FILE] [-relay URL]
        conch web relay [reset]
        conch web pair [-permission view|reply|full] [-machine NAME]...
-       conch web devices
+       conch web devices [-json]
        conch web revoke ID
+       conch web rename ID NAME
        conch web permission ID view|reply|full [-machine NAME]...
        conch web stop`
 
@@ -77,9 +78,11 @@ func runWeb(args []string) error {
 		case "pair":
 			return webPair(args[1:])
 		case "devices":
-			return webDevices()
+			return webDevices(args[1:])
 		case "revoke":
 			return webRevoke(args[1:])
+		case "rename":
+			return webRename(args[1:])
 		case "permission":
 			return webPermission(args[1:])
 		case "stop":
@@ -206,12 +209,26 @@ func relayLink(store *phone.Store, relayURL string, h http.Handler) (*relay.Link
 		}}, nil
 }
 
+// relayPair is what pairing through a relay needs said, with how conch
+// web's link to the relay is in a sentence, as `conch web relay` says it.
+type relayPair struct {
+	phone.RelayPair
+	Status string
+}
+
 // relayPairing is a pairing through the relay phones use, when there is
 // one: the settings' — or, with none there, the one a running conch web
 // was started with (-relay), which pairing must use as well.
-func relayPairing(store *phone.Store, code string) (phone.RelayPair, error) {
+func relayPairing(store *phone.Store, code string) (relayPair, error) {
 	cfg, _ := config.Load()
-	return store.RelayPairing(store.RelayURL(cfg.Web.Relay), code)
+	url := store.RelayURL(cfg.Web.Relay)
+	rp, err := store.RelayPairing(url, code)
+	if err != nil || rp.Link == "" {
+		return relayPair{RelayPair: rp}, err
+	}
+	connected, status := relayStatus(store, url)
+	rp.Connected = connected
+	return relayPair{RelayPair: rp, Status: status}, nil
 }
 
 // revokedWords says how many phones a reset revoked.
@@ -223,6 +240,29 @@ func revokedWords(n int) string {
 		return "the 1 phone paired through the relay is revoked"
 	}
 	return fmt.Sprintf("the %d phones paired through the relay are revoked", n)
+}
+
+// relayStatus says whether conch web is on the relay set as relayURL with
+// this key, and in a sentence how it is: a window shows the sentence beside
+// the key, so somebody whose phone can't connect sees why without a terminal.
+func relayStatus(store *phone.Store, relayURL string) (bool, string) {
+	st, running := store.RelayState()
+	secret, _, err := store.Relay()
+	switch {
+	case !running:
+		return false, "conch web isn't running: `conch web` connects to it"
+	case st.URL != relayURL:
+		return false, fmt.Sprintf("conch web is connected to %s, not this one: restart it", st.URL)
+	case err == nil && st.Room != "" && st.Room != relay.RoomID(secret):
+		// After a reset, a conch web still running holds the old key, and
+		// a phone given the new one can't reach it.
+		return false, "conch web is using the key from before a reset: restart it"
+	case st.Connected:
+		return true, fmt.Sprintf("connected since %s", st.Since.Local().Format("15:04"))
+	case st.Error != "":
+		return false, "not connected: " + st.Error
+	}
+	return false, "connecting…"
 }
 
 // webRelay is `conch web relay`: how the link is; reset makes a new key.
@@ -248,24 +288,13 @@ func webRelay(args []string) error {
 		fmt.Println("no relay: set [web] relay = \"wss://…\" in config.toml (a server running `conch relay`)")
 		return nil
 	}
-	secret, key, err := store.Relay()
+	_, key, err := store.Relay()
 	if err != nil {
 		return err
 	}
 	fmt.Printf("relay: %s\nkey:   %s\n", url, relay.Fingerprint(key.Public))
-	st, running := store.RelayState()
-	switch {
-	case !running:
-		fmt.Println("conch web isn't running: `conch web` connects to it")
-	case st.URL != url:
-		fmt.Printf("conch web is connected to %s, not this one: restart it\n", st.URL)
-	case st.Room != "" && st.Room != relay.RoomID(secret):
-		fmt.Println("conch web is using the key from before a reset: restart it")
-	case st.Connected:
-		fmt.Printf("connected since %s\n", st.Since.Local().Format("15:04"))
-	default:
-		fmt.Printf("not connected: %s\n", st.Error)
-	}
+	_, status := relayStatus(store, url)
+	fmt.Println(status)
 	return nil
 }
 
@@ -286,17 +315,26 @@ func pairWhere(url string) string {
 		"(tailscale serve, then conch web -url https://…), open that address on the phone and enter the code"
 }
 
-func webDevices() error {
-	devs, err := phone.OpenStore(config.Dir()).Devices()
+func webDevices(args []string) error {
+	asJSON := len(args) == 1 && args[0] == "-json"
+	if len(args) > 0 && !asJSON {
+		return errors.New("usage: conch web devices [-json]")
+	}
+	store := phone.OpenStore(config.Dir())
+	devs, err := store.Devices()
 	if err != nil {
 		return err
+	}
+	seen := store.Presence()
+	if asJSON {
+		return printDevicesJSON(store, devs, seen)
 	}
 	if len(devs) == 0 {
 		fmt.Println("no devices paired; pair one with `conch web pair`")
 		return nil
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tNAME\tPERMISSION\tMACHINES\tPAIRED")
+	fmt.Fprintln(tw, "ID\tNAME\tPERMISSION\tMACHINES\tPAIRED\tSEEN")
 	for _, d := range devs {
 		// What a device reaches is as much a permission as what it may
 		// do, so it is listed beside it rather than having to be asked for.
@@ -308,10 +346,84 @@ func webDevices() error {
 			// What `conch web relay reset` revokes.
 			where += " (through the relay)"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", d.ID, d.Name, d.Permission, where,
-			d.Created.Local().Format("2006-01-02 15:04"))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", d.ID, d.Name, d.Permission, where,
+			d.Created.Local().Format("2006-01-02 15:04"), phone.SeenWords(seen[d.ID], time.Now()))
 	}
 	return tw.Flush()
+}
+
+// devicesJSON is conch web devices -json: the paired devices, which are on
+// now, and how conch web and its relay are — everything Conch.app's phone
+// icon and its list of phones show, in one call it can make every few
+// seconds.
+type devicesJSON struct {
+	Running        bool         `json:"running"`
+	Relay          string       `json:"relay,omitempty"`
+	RelayConnected bool         `json:"relay_connected,omitempty"`
+	RelayStatus    string       `json:"relay_status,omitempty"`
+	Devices        []deviceJSON `json:"devices"`
+}
+
+type deviceJSON struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Permission string     `json:"permission"`
+	Machines   []string   `json:"machines,omitempty"`
+	Created    time.Time  `json:"created"`
+	Connected  bool       `json:"connected,omitempty"`
+	Route      string     `json:"route,omitempty"`
+	Since      *time.Time `json:"since,omitempty"`
+	LastSeen   *time.Time `json:"last_seen,omitempty"`
+}
+
+func printDevicesJSON(store *phone.Store, devs []phone.Device, seen map[string]phone.Presence) error {
+	_, running := store.Gateway()
+	out := devicesJSON{Running: running, Devices: []deviceJSON{}}
+	if cfg, _ := config.Load(); store.RelayURL(cfg.Web.Relay) != "" {
+		out.Relay = store.RelayURL(cfg.Web.Relay)
+		out.RelayConnected, out.RelayStatus = relayStatus(store, out.Relay)
+	}
+	for _, d := range devs {
+		j := deviceJSON{ID: d.ID, Name: d.Name, Permission: d.Permission, Machines: d.Machines, Created: d.Created.UTC()}
+		if p, ok := seen[d.ID]; ok {
+			j.Connected, j.Route = p.Connected, p.Route
+			if !p.LastSeen.IsZero() {
+				t := p.LastSeen.UTC()
+				j.LastSeen = &t
+			}
+			if p.Connected {
+				t := p.Since.UTC()
+				j.Since = &t
+			}
+		}
+		out.Devices = append(out.Devices, j)
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(b))
+	return nil
+}
+
+// webRename names a device: the words after its ID are the name, so
+// `conch web rename d_7h2k Amit's iPhone` needs no quotes.
+func webRename(args []string) error {
+	if len(args) < 2 {
+		return errors.New("usage: conch web rename ID NAME")
+	}
+	if err := notFromAnAgent("rename a device"); err != nil {
+		return err
+	}
+	name, found, err := phone.OpenStore(config.Dir()).Rename(args[0], strings.Join(args[1:], " "))
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("no device %q; `conch web devices` lists them", args[0])
+	}
+	fmt.Printf("%s is now %q\n", args[0], name)
+	return nil
 }
 
 func webRevoke(args []string) error {
@@ -631,9 +743,10 @@ type pairJSON struct {
 	Relay          string `json:"relay,omitempty"`
 	RelayConnected bool   `json:"relay_connected,omitempty"`
 	KeyWords       string `json:"key_words,omitempty"`
+	RelayStatus    string `json:"relay_status,omitempty"`
 }
 
-func printPairJSON(store *phone.Store, code, permission string, machines []string, url string, secure bool, rp phone.RelayPair) error {
+func printPairJSON(store *phone.Store, code, permission string, machines []string, url string, secure bool, rp relayPair) error {
 	cfg, _ := config.Load()
 	_, running := store.Gateway()
 	_, can := phone.GatewayArgs(cfg.Web.URL, store)
@@ -643,7 +756,7 @@ func printPairJSON(store *phone.Store, code, permission string, machines []strin
 		out.Link = phone.PairLink(url, code)
 	}
 	if rp.Link != "" {
-		out.Link, out.Relay, out.RelayConnected, out.KeyWords = rp.Link, rp.Page, rp.Connected, rp.Words
+		out.Link, out.Relay, out.RelayConnected, out.KeyWords, out.RelayStatus = rp.Link, rp.Page, rp.Connected, rp.Words, rp.Status
 		out.Where = "scan the code with the phone's camera: it works from any network, through " + rp.Page
 	}
 	b, err := json.Marshal(out)

@@ -368,10 +368,10 @@ func (m *Model) askVerifyCommand(machine, projectID, branch string) tea.Cmd {
 		if cmd == "" {
 			delete(m.cfg.Verify.Commands, projectID)
 			m.setFlash("no check for "+name+"; its branches show as unchecked", false)
-			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+			return tea.Batch(m.saveConfig(), m.pushAutopilotAll())
 		}
 		m.cfg.Verify.Commands[projectID] = cmd
-		return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll(), m.startVerify(machine, projectID, branch))
+		return tea.Batch(m.saveConfig(), m.pushAutopilotAll(), m.startVerify(machine, projectID, branch))
 	}
 	m.overlay = d
 	return d.focusCmd()
