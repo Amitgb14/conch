@@ -1693,6 +1693,16 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(p.code == "038-929" && p.permission == "reply" && p.link?.hasPrefix("https://") == true && p.running == false && p.canStart == true && p.expires != nil)
     let bare = try conchDecoder().decode(PairInfo.self, from: Data(#"{"code":"1","permission":"full","expires":"2026-11-03T09:05:00Z","reach":"","where":"x","running":true,"can_start":false}"#.utf8))
     #expect(bare.link == nil && bare.url == nil && bare.running == true)
+    #expect(bare.relayLine == nil)
+    // Through a relay: its host, the key's four words, and how the link is.
+    let r = try conchDecoder().decode(PairInfo.self, from: Data(#"{"code":"1","permission":"full","expires":"2026-11-03T09:05:00Z","reach":"","where":"x","running":true,"can_start":false,"relay":"https://relay.example.com","relay_connected":true,"key_words":"amber falcon river nine","relay_status":"connected since 09:41"}"#.utf8))
+    #expect(r.relayLine == PairRelay(host: "relay.example.com", words: ["amber", "falcon", "river", "nine"], connected: true, status: "connected since 09:41"))
+    // An older conch says no status: the window still says connected or not.
+    let old = try conchDecoder().decode(PairInfo.self, from: Data(#"{"code":"1","permission":"full","reach":"","where":"x","relay":"https://relay.example.com","key_words":"a b c d"}"#.utf8))
+    #expect(old.relayLine?.connected == false && old.relayLine?.status == "not connected" && old.relayLine?.words.count == 4)
+    // A relay set to something that isn't a URL is still named.
+    let odd = try conchDecoder().decode(PairInfo.self, from: Data(#"{"code":"1","permission":"full","relay":"relay box","relay_connected":true}"#.utf8))
+    #expect(odd.relayLine?.host == "relay box" && odd.relayLine?.words == [] && odd.relayLine?.status == "connected")
 }
 
 // A theme saved that is right not to show now says where it will:
@@ -2601,4 +2611,45 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let items = snap.menu(for: TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api"), machine: "local")
     #expect(items.last == RowMenuItem("Remove Project…", .removeProject(project: "local|r1")))
     #expect(snap.menu(for: TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api"), machine: "local", machineOnline: false).isEmpty)
+}
+
+// The phone icon: on while a phone is, amber while conch web runs off its
+// relay, else quiet; and each phone's line in the list.
+@Test func phonesInfo() throws {
+    let j = #"{"running":true,"relay":"wss://relay.example.com","relay_connected":true,"relay_status":"connected since 09:41","devices":[{"id":"d1","name":"Amit's iPhone","permission":"full","machines":["busybox"],"created":"2026-11-07T10:00:00Z","connected":true,"route":"relay","since":"2026-11-08T09:00:00Z","last_seen":"2026-11-08T09:00:00Z"},{"id":"d2","name":"Pixel 9","permission":"reply","created":"2026-10-30T10:00:00Z","route":"direct","last_seen":"2026-11-08T07:00:00Z"},{"id":"d3","name":"iPad","permission":"view","created":"2026-09-30T10:00:00Z"}]}"#
+    let p = try conchDecoder().decode(PhonesInfo.self, from: Data(j.utf8))
+    #expect(p.devices?.count == 3 && p.onNow.map(\.id) == ["d1"] && p.icon == .on(1))
+    #expect(p.tooltip == "On now: Amit's iPhone (through the relay)")
+    let d = p.devices!
+    #expect(d[0].reach == "reaches this Mac, busybox" && d[2].reach == "reaches this Mac")
+    let now = ISO8601DateFormatter().date(from: "2026-11-08T09:30:00Z")!
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "UTC")!
+    #expect(d[0].seen(now: now, calendar: cal) == "via relay")
+    #expect(d[1].seen(now: now, calendar: cal) == "2 h ago" && d[2].seen(now: now, calendar: cal) == "never connected")
+    var x = d[1]
+    x.lastSeen = now.addingTimeInterval(-30)
+    #expect(x.seen(now: now, calendar: cal) == "just now")
+    x.lastSeen = now.addingTimeInterval(-600)
+    #expect(x.seen(now: now, calendar: cal) == "10 min ago")
+    x.lastSeen = now.addingTimeInterval(-86400 * 1.2)
+    #expect(x.seen(now: now, calendar: cal) == "yesterday")
+    x.lastSeen = now.addingTimeInterval(-86400 * 9)
+    #expect(x.seen(now: now, calendar: cal) == "9 days ago")
+    x.connected = true
+    #expect(x.seen(now: now, calendar: cal) == "direct")
+
+    // Two on: counted, and both named.
+    var two = p
+    two.devices![1].connected = true
+    #expect(two.icon == .on(2) && two.tooltip == "2 on now: Amit's iPhone (through the relay), Pixel 9 (direct)")
+    // None on and the relay down while conch web runs: amber, saying why.
+    let down = PhonesInfo(running: true, relay: "wss://r", relayConnected: false, relayStatus: "not connected: connection refused", devices: [])
+    #expect(down.icon == .relayDown && down.tooltip.contains("connection refused"))
+    // conch web stopped, or no relay: nothing to warn about here.
+    #expect(PhonesInfo(running: false, relay: "wss://r", devices: []).icon == .idle)
+    #expect(PhonesInfo(running: true, devices: []).icon == .idle && PhonesInfo().icon == .idle)
+    // An empty list, and an older conch's bare one.
+    let none = try conchDecoder().decode(PhonesInfo.self, from: Data(#"{"running":false,"devices":[]}"#.utf8))
+    #expect(none.onNow.isEmpty && none.icon == .idle && none.tooltip.hasPrefix("Pair a phone"))
 }

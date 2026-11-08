@@ -107,16 +107,19 @@ Giving or taking away a machine applies at once, on connections already open: a 
 
 ## Devices
 
-In the TUI, **⚙ Settings → Web → Devices…** opens a panel of every paired phone and browser: its name, ID, what it may do, the machines it reaches and when it was paired. `v`, `r` and `f` set what the selected one may do, `x` twice revokes it, esc goes back. A change applies to the device's next request at once.
+In the TUI, **⚙ Settings → Web → Devices…** opens a panel of every paired phone and browser: its name, ID, what it may do, the machines it reaches, when it was paired and when it was last seen — `on · relay` or `on · direct` while it has the app open — and the settings row counts the phones on now. `v`, `r` and `f` set what the selected one may do, `x` twice revokes it, esc goes back. A change applies to the device's next request at once.
 
 From a terminal:
 
 ```sh
-conch web devices        # ID, name, permission, the machines it reaches, when it was paired
+conch web devices        # ID, name, permission, the machines it reaches, when it was paired, when last seen
+conch web devices -json  # the same, with whether conch web is on its relay, for a program to show
 conch web revoke d_7h2k  # cut one off
 conch web permission d_7h2k full   # let it type into terminals, without pairing again
 conch web permission d_7h2k full -machine busybox   # and let it reach a machine
 ```
+
+In Conch.app, the phone icon in the status bar shows how many phones are on now, by its colour and a count, and turns amber while `conch web` is running but not on its relay; its tooltip names each phone and its route. Its popover pairs a phone — the QR code, the code to type, what it may do, the routes it can come by with whether each is up now, and the relay's **safety code** — and **Paired phones…** lists them, each with its route or when it was last seen, what it may do (changed there) and revoking it. **Settings → Phone** shows the same list under the relay's state.
 
 `permission` without `-machine` leaves the machines as they were: what a device may do and where it may do it are two decisions, and changing one does not quietly change the other.
 
@@ -158,7 +161,7 @@ Then, on the laptop, point `conch web` at it — in **Settings → Phone (conch 
 relay = "wss://relay.example.com"
 ```
 
-and start `conch web` as usual. Without Tailscale it listens on loopback only and takes phones through the relay. `conch web pair` puts the relay's address in the QR code, and says the laptop's key as four words — `brook dove camel thistle` — which the phone shows too when it pairs: the same words, the same laptop. `conch web relay` says whether `conch web` is connected to the relay now; `conch web relay reset` makes a new key, which unpairs every phone that came through the relay.
+and start `conch web` as usual. Without Tailscale it listens on loopback only and takes phones through the relay. `conch web pair` puts the relay's address in the QR code, and says the laptop's key as four words — `brook dove camel thistle` — which the phone shows too when it pairs: the same words, the same laptop. The phone asks before pairing — **They match — continue**, or **They don't match**, which forgets the link and sends nothing. The words come from the key in the QR code, so a code that did not come from your laptop shows different ones. `conch web relay` says whether `conch web` is connected to the relay now; `conch web relay reset` makes a new key, which unpairs every phone that came through the relay.
 
 On the phone, open the link once from the QR code and add it to the Home Screen; from then on it reaches the laptop through the relay wherever the phone is. When it can't, it says which part is missing: the relay answered, but the laptop isn't connected to it — asleep, or `conch web` isn't running.
 

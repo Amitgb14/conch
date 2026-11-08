@@ -154,9 +154,10 @@ func TestUIFiles(t *testing.T) {
 	// words a key is said in, 16 KB) and the app's use of it added 20 KB
 	// of protocol rather than of screens; 126 until the views for many
 	// agents at once — the tab bar, Watch, Machines, the switcher, one
-	// message to many and tries — added 30 KB of screens.
-	if total > 156<<10 {
-		t.Errorf("the app is %d bytes; keep it under 156 KiB", total)
+	// message to many and tries — added 30 KB of screens; 156 until the
+	// screen checking a relay's key words before pairing went in.
+	if total > 160<<10 {
+		t.Errorf("the app is %d bytes; keep it under 160 KiB", total)
 	}
 	if images > 64<<10 {
 		t.Errorf("the icons are %d bytes; keep them under 64 KiB", images)

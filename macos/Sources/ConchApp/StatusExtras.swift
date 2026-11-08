@@ -11,7 +11,6 @@ import SwiftUI
 struct StatusExtras: View {
     @ObservedObject var store: Store
     @State private var reporting = false
-    @State private var pairing = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -25,12 +24,11 @@ struct StatusExtras: View {
             }
             .buttonStyle(.plain).help("Report a problem: the facts about this conch, for a GitHub issue")
             .popover(isPresented: $reporting, arrowEdge: .top) { ReportPopover(store: store) }
-            Button { pairing.toggle() } label: {
-                LucideIcon("smartphone", color: Theme.muted, size: 13)
-                    .padding(.horizontal, 4).padding(.vertical, 3).contentShape(Rectangle())
+            Button { store.pairOpen ? (store.pairOpen = false) : store.openPair() } label: {
+                PhoneIconLabel(icon: store.phones?.icon ?? .idle)
             }
-            .buttonStyle(.plain).help("Pair a phone, to see and answer your agents from it")
-            .popover(isPresented: $pairing, arrowEdge: .top) { PairPopover(store: store) }
+            .buttonStyle(.plain).help(store.phones?.tooltip ?? "Pair a phone, to see and answer your agents from it")
+            .background(AppKitPopover(isPresented: $store.pairOpen) { PairPopover(store: store) { store.pairOpen = false } })
         }
         .disabled(store.binary == nil)
     }
@@ -363,44 +361,164 @@ struct ReportPopover: View {
 
 // MARK: pair a phone
 
+/// A popover AppKit places, from the view it is attached to. SwiftUI's own
+/// placed the pair popover from a frame well below the status bar's
+/// button, so it opened downward, off the bottom of the screen; NSPopover
+/// is shown relative to the real view and keeps itself on screen.
+struct AppKitPopover<Content: View>: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    @ViewBuilder var content: () -> Content
+
+    final class Coordinator: NSObject, NSPopoverDelegate {
+        var popover: NSPopover?
+        var dismissed: (() -> Void)?
+        func popoverDidClose(_ notification: Notification) {
+            popover = nil
+            dismissed?()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        let c = context.coordinator
+        c.dismissed = { [binding = $isPresented] in if binding.wrappedValue { binding.wrappedValue = false } }
+        if isPresented, c.popover == nil, view.window != nil {
+            let p = NSPopover()
+            p.behavior = .transient
+            p.animates = true
+            p.delegate = c
+            let host = NSHostingController(rootView: content())
+            host.sizingOptions = .preferredContentSize
+            p.contentViewController = host
+            c.popover = p
+            p.show(relativeTo: view.bounds, of: view, preferredEdge: .maxY)
+        } else if !isPresented, let p = c.popover {
+            c.popover = nil
+            p.close()
+        }
+    }
+}
+
+/// The phone icon in the status bar: quiet, teal with a count while
+/// phones are on, amber while conch web is off its relay.
+struct PhoneIconLabel: View {
+    let icon: PhoneIcon
+    @Environment(\.conchTheme) private var theme
+
+    var body: some View {
+        let _ = theme
+        return HStack(spacing: 3) {
+            switch icon {
+            case .idle:
+                LucideIcon("smartphone", color: Theme.muted, size: 13)
+            case .relayDown:
+                LucideIcon("smartphone", color: Theme.warn, size: 13)
+                Circle().fill(Theme.warn).frame(width: 5, height: 5)
+            case .on(let n):
+                LucideIcon("smartphone", color: Theme.accent, size: 13)
+                Text("\(n)").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.accent)
+            }
+        }
+        .padding(.horizontal, 4).padding(.vertical, 3).contentShape(Rectangle())
+    }
+}
+
 struct PairPopover: View {
     @ObservedObject var store: Store
+    var close: () -> Void = {}
     @State private var info: PairInfo?
     @State private var permission = "full"
     @State private var error = ""
     @State private var starting = false
+    @State private var showPhones = false
+    /// The pair page's height, which the phones page keeps: a popover is
+    /// placed for the size it opens at, and one that changes size grows
+    /// off its edge rather than moving.
+    @State private var pageHeight: CGFloat = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Pair a phone with this computer").font(.ui(size: 13, weight: .semibold))
-            Picker("", selection: $permission) {
-                Text("Full").tag("full")
-                Text("Reply").tag("reply")
-                Text("View").tag("view")
+        Group {
+            if showPhones {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Button { showPhones = false } label: {
+                            Label("Pair a phone", systemImage: "chevron.left").font(.ui(size: 12))
+                        }
+                        .buttonStyle(.link)
+                        Spacer()
+                    }
+                    Text("Paired phones").font(.ui(size: 15, weight: .semibold))
+                    ScrollView { PhonesList(store: store) }
+                    Spacer(minLength: 0)
+                    HStack { Spacer(); Button("Done") { close() }.keyboardShortcut(.defaultAction) }
+                }
+                .frame(height: pageHeight > 0 ? pageHeight : nil, alignment: .top)
+            } else {
+                pairPage.background(GeometryReader { g in
+                    Color.clear.onAppear { pageHeight = g.size.height }.onChange(of: g.size.height) { pageHeight = $0 }
+                })
             }
-            .pickerStyle(.segmented).labelsHidden()
-            .onChange(of: permission) { _ in pair() }
-            Text(permission == "full" ? "It can see, answer and type into terminals." : permission == "reply" ? "It can see and answer agents, not type into terminals." : "It can only look.")
-                .font(.ui(size: 11.5)).foregroundStyle(.secondary)
+        }
+        .padding(16).frame(width: 470)
+        .onAppear {
+            // Opened with the code already made (Store.openPair), so it
+            // opens at its full size, where there is room for it.
+            if let first = store.pairInfo { info = first; store.pairInfo = nil } else { pair() }
+            store.refreshPhones()
+        }
+    }
+
+    private var pairPage: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Pair a phone").font(.ui(size: 15, weight: .semibold))
+                Text("Scan with the phone's camera. The code works once, for 5 minutes.")
+                    .font(.ui(size: 12)).foregroundStyle(.secondary)
+            }
             if let i = info {
-                HStack(alignment: .top, spacing: 14) {
+                HStack(alignment: .top, spacing: 16) {
                     if let link = i.link, let qr = qrImage(link) {
                         Image(nsImage: qr).interpolation(.none).resizable().frame(width: 150, height: 150)
-                            .background(Color.white).help(link)
+                            .padding(6).background(RoundedRectangle(cornerRadius: 8).fill(Color.white)).help(link)
                     }
                     VStack(alignment: .leading, spacing: 6) {
+                        Text("or type the code").font(.ui(size: 11.5)).foregroundStyle(.secondary)
                         Text(i.code).font(.ui(size: 26, weight: .bold, design: .monospaced)).textSelection(.enabled)
-                        if let e = i.expires {
-                            Text("Good once, until \(e.formatted(date: .omitted, time: .shortened)).").font(.ui(size: 11.5)).foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            if let e = i.expires {
+                                Text("expires \(e.formatted(date: .omitted, time: .shortened))")
+                            }
+                            Text("·")
+                            Text("this Mac \(Host.current().localizedName ?? "")").lineLimit(1)
                         }
-                        if let r = i.reach { Text(r).font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                        .font(.ui(size: 11.5)).foregroundStyle(.secondary)
                         HStack {
                             Button("Copy code") { copy(i.code) }
                             if let l = i.link { Button("Copy link") { copy(l) } }
                         }
+                        .padding(.top, 2)
                     }
                 }
-                if let w = i.where { Text(w).font(.ui(size: 12)).fixedSize(horizontal: false, vertical: true) }
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("It may").font(.ui(size: 12, weight: .medium)).frame(width: 64, alignment: .leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("", selection: $permission) {
+                        Text("Full").tag("full")
+                        Text("Reply").tag("reply")
+                        Text("View").tag("view")
+                    }
+                    .pickerStyle(.segmented).labelsHidden().frame(width: 220)
+                    .onChange(of: permission) { _ in pair() }
+                    Text(permission == "full" ? "See, answer and type into terminals." : permission == "reply" ? "See and answer agents, not type into terminals." : "Only look.")
+                        .font(.ui(size: 11.5)).foregroundStyle(.secondary)
+                }
+            }
+            if let i = info {
+                reachRows(i)
+                if let r = i.relayLine, !r.words.isEmpty { safetyCode(r.words) }
                 if i.running != true {
                     HStack {
                         Text("conch web, the gateway a phone reaches, is not running.").font(.ui(size: 12)).foregroundStyle(Theme.warn)
@@ -412,9 +530,69 @@ struct PairPopover: View {
                 }
             }
             if !error.isEmpty { Text(error).foregroundStyle(Theme.err).font(.ui(size: 12)).fixedSize(horizontal: false, vertical: true) }
+            Divider()
+            HStack {
+                Button { showPhones = true } label: {
+                    let n = store.phones?.devices?.count ?? 0
+                    let on = store.phones?.onNow.count ?? 0
+                    Text(n == 0 ? "Paired phones…" : on > 0 ? "Paired phones (\(n), \(on) on now)…" : "Paired phones (\(n))…")
+                }
+                Spacer()
+                Button("Done") { close() }.keyboardShortcut(.defaultAction)
+            }
         }
-        .padding(14).frame(width: 440)
-        .onAppear { pair() }
+    }
+
+    /// Reach it from: one row a route, the relay first since it works
+    /// from anywhere, each saying whether it is up now.
+    @ViewBuilder private func reachRows(_ i: PairInfo) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("REACH IT FROM").font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(.secondary).padding(.bottom, 6)
+            VStack(spacing: 0) {
+                if let r = i.relayLine {
+                    ReachRow(icon: "globe", title: "Anywhere",
+                             detail: "🔒 end-to-end through \(r.host) · the relay can't read it",
+                             note: r.connected ? nil : r.status,
+                             chip: r.connected ? "connected" : "not connected", on: r.connected)
+                } else {
+                    ReachRow(icon: "globe", title: "Anywhere",
+                             detail: "Through a relay: set [web] relay to a server running conch relay.",
+                             note: nil, chip: nil, on: false) {
+                        Button("Set up…") { close(); store.openSettings("web") }.controlSize(.small)
+                    }
+                }
+                Divider().padding(.leading, 34)
+                let ts = tailnetHost(i.url)
+                ReachRow(icon: "shield-check", title: "Tailscale",
+                         detail: ts.map { "\($0) · on your tailnet" } ?? "not set up: conch web -url https://…ts.net",
+                         note: nil, chip: ts == nil ? nil : (i.running == true ? "listening" : "stopped"),
+                         on: ts != nil && i.running == true)
+            }
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08)))
+        }
+    }
+
+    /// The key's four words: the phone shows the same if nothing came
+    /// between them.
+    private func safetyCode(_ words: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("SAFETY CODE").font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
+                Text("check after scanning").font(.ui(size: 10.5)).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 6) {
+                ForEach(Array(words.enumerated()), id: \.offset) { _, w in
+                    Text(w).font(.ui(size: 13, weight: .semibold, design: .monospaced))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.accent.opacity(0.12)))
+                        .foregroundStyle(Theme.accent)
+                }
+            }
+            .textSelection(.enabled)
+            Text("The phone shows the same four words if nothing came between them.")
+                .font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// A new one-time code, as `conch web pair` gives one.
@@ -439,6 +617,7 @@ struct PairPopover: View {
                 _ = try await runConch(b, ["web", "start"])
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 pair()
+                store.refreshPhones()
             } catch {
                 self.error = "\(error)"
             }
@@ -450,6 +629,151 @@ struct PairPopover: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(s, forType: .string)
     }
+}
+
+/// One route a phone can come by, with whether it is up now.
+struct ReachRow<Trailing: View>: View {
+    let icon: String
+    let title: String
+    let detail: String
+    let note: String?
+    let chip: String?
+    let on: Bool
+    let trailing: Trailing
+    @Environment(\.conchTheme) private var theme
+
+    init(icon: String, title: String, detail: String, note: String?, chip: String?, on: Bool,
+         @ViewBuilder trailing: () -> Trailing = { EmptyView() }) {
+        self.icon = icon
+        self.title = title
+        self.detail = detail
+        self.note = note
+        self.chip = chip
+        self.on = on
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        let _ = theme
+        return HStack(alignment: .top, spacing: 10) {
+            LucideIcon(icon, color: on ? Theme.accent : Theme.muted, size: 14).padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.ui(size: 12.5, weight: .semibold))
+                Text(detail).font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if let n = note {
+                    Text(n).font(.ui(size: 11.5)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 6)
+            if let c = chip {
+                HStack(spacing: 4) {
+                    Circle().fill(on ? Theme.ok : Theme.warn).frame(width: 6, height: 6)
+                    Text(c).font(.ui(size: 11, weight: .medium))
+                }
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(Capsule().fill((on ? Theme.ok : Theme.warn).opacity(0.14)))
+                .foregroundStyle(on ? Theme.ok : Theme.warn)
+            }
+            trailing
+        }
+        .padding(.horizontal, 10).padding(.vertical, 9)
+    }
+}
+
+/// The paired phones: each one's route now or when it was last seen, what
+/// it may do (changed here), and revoking it — `conch web devices`,
+/// `permission` and `revoke`, as the TUI's list does.
+struct PhonesList: View {
+    @ObservedObject var store: Store
+    @State private var confirm: String?
+    @State private var error = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            let devs = store.phones?.devices ?? []
+            if store.phones == nil {
+                Text("Reading…").font(.ui(size: 12)).foregroundStyle(.secondary)
+            } else if devs.isEmpty {
+                Text("No phones paired yet.").font(.ui(size: 12)).foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(devs.enumerated()), id: \.element.id) { i, d in
+                        if i > 0 { Divider().padding(.leading, 44) }
+                        row(d)
+                    }
+                }
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08)))
+            }
+            if !error.isEmpty { Text(error).foregroundStyle(Theme.err).font(.ui(size: 12)).fixedSize(horizontal: false, vertical: true) }
+        }
+        .onAppear { store.refreshPhones() }
+    }
+
+    private func row(_ d: PhoneDevice) -> some View {
+        let on = d.connected == true
+        return HStack(spacing: 10) {
+            LucideIcon(d.name.lowercased().contains("ipad") || d.name.lowercased().contains("browser") ? "laptop" : "smartphone",
+                       color: on ? Theme.accent : Theme.muted, size: 16)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(d.name).font(.ui(size: 12.5, weight: .semibold)).lineLimit(1)
+                Text([d.created.map { "paired \($0.formatted(.dateTime.month(.abbreviated).day()))" }, d.reach]
+                    .compactMap { $0 }.joined(separator: " · "))
+                    .font(.ui(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            HStack(spacing: 4) {
+                if on {
+                    Circle().fill(Theme.ok).frame(width: 6, height: 6)
+                    Text(d.route == "relay" ? "🔒 via relay" : "direct")
+                } else {
+                    Text(d.seen())
+                }
+            }
+            .font(.ui(size: 11)).foregroundStyle(on ? Theme.ok : Theme.muted)
+            .help(on ? "On now" : "Last seen")
+            Menu(d.permission.capitalized) {
+                ForEach(["full", "reply", "view"], id: \.self) { p in
+                    Button { run(["web", "permission", d.id, p]) } label: {
+                        if p == d.permission { Label(p.capitalized, systemImage: "checkmark") } else { Text(p.capitalized) }
+                    }
+                }
+            }
+            .menuStyle(.borderlessButton).fixedSize().font(.ui(size: 11.5))
+            .help("What it may do: Full types into terminals too, Reply answers agents, View only looks")
+            if confirm == d.id {
+                Button("Revoke") { confirm = nil; run(["web", "revoke", d.id]) }
+                    .controlSize(.small).foregroundStyle(Theme.err)
+                    .help("Signed out at once; it pairs again to come back")
+            } else {
+                Button { confirm = d.id } label: {
+                    LucideIcon("trash-2", color: Theme.muted, size: 13).padding(3).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).help("Revoke \(d.name)")
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+    }
+
+    private func run(_ args: [String]) {
+        guard let b = store.binary else { return }
+        Task {
+            do {
+                _ = try await runConch(b, args)
+                error = ""
+            } catch {
+                self.error = "\(error)"
+            }
+            store.refreshPhones()
+        }
+    }
+}
+
+/// The tailnet name a phone opens, when conch web is behind Tailscale.
+func tailnetHost(_ url: String?) -> String? {
+    guard let u = url, let h = URL(string: u)?.host, h.hasSuffix(".ts.net") else { return nil }
+    return h
 }
 
 /// A QR code of text, sharp at any size (drawn without smoothing).
