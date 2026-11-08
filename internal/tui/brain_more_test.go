@@ -47,27 +47,28 @@ func TestA2AskBarHistory(t *testing.T) {
 		t.Fatalf("error render:\n%s", out)
 	}
 
-	// History browsing.
+	// History browsing: ↑↓ move through the list, so the shell's keys.
+	ctrlP, ctrlN := tea.KeyMsg{Type: tea.KeyCtrlP}, tea.KeyMsg{Type: tea.KeyCtrlN}
 	m.brain.history = []string{"first", "second"}
 	b.hist = 2
-	b.update(m, a2Key("up"))
+	b.update(m, ctrlP)
 	if b.in.Value() != "second" || b.hist != 1 {
 		t.Fatalf("up: %q", b.in.Value())
 	}
-	b.update(m, a2Key("up"))
-	b.update(m, a2Key("up"))
+	b.update(m, ctrlP)
+	b.update(m, ctrlP)
 	if b.in.Value() != "first" || b.hist != 0 {
 		t.Fatalf("up at the start: %q", b.in.Value())
 	}
-	b.update(m, a2Key("down"))
+	b.update(m, ctrlN)
 	if b.in.Value() != "second" {
 		t.Fatalf("down: %q", b.in.Value())
 	}
-	b.update(m, a2Key("down"))
+	b.update(m, ctrlN)
 	if b.in.Value() != "" || b.hist != 2 {
 		t.Fatalf("down past the end clears: %q", b.in.Value())
 	}
-	b.update(m, a2Key("down"))
+	b.update(m, ctrlN)
 	if b.hist != 2 {
 		t.Fatal("down at the end")
 	}
@@ -274,7 +275,7 @@ func TestA2AskBarContext(t *testing.T) {
 	m := a2Model()
 	m.openAsk()
 	b := m.overlay.(*askBar)
-	if out := a2Plain(b.render(*m).lines); !strings.Contains(out, "context: all machines") {
+	if out := a2Plain(b.render(*m).lines); !strings.Contains(out, "Context  all machines") {
 		t.Fatalf("no selection:\n%s", out)
 	}
 	m.machines = append(m.machines, &machine{id: "box", label: "box", state: stateOnline, server: proto.HelloResult{Home: "/home/box"}})
@@ -298,7 +299,7 @@ func TestA2AskBarContext(t *testing.T) {
 		}
 	}
 	m.cursor = "branch"
-	if out := a2Plain(b.render(*m).lines); !strings.Contains(out, "context: branch feat of project r1") {
+	if out := a2Plain(b.render(*m).lines); !strings.Contains(out, "Context  branch feat of project r1") {
 		t.Fatalf("branch context:\n%s", out)
 	}
 	// Summaries are part of the world.

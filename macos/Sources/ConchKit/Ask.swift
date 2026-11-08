@@ -14,6 +14,85 @@ public func askConfirmCount(_ text: String) -> Int? {
     return Int(digits)
 }
 
+/// The arguments of `conch ask` for a request, about a pane if one is
+/// given.
+public func askArguments(request: String, pane: String?) -> [String] {
+    var args = ["ask"]
+    if let pane, !pane.isEmpty { args += ["-pane", pane] }
+    return args + [request]
+}
+
+/// One line of the list under the request: something worth asking now,
+/// or something asked before. conch decides them (`conch ask -suggest`,
+/// internal/brain/suggest.go), so the app offers what the TUI does and
+/// says the same about what each costs.
+public struct AskSuggestion: Decodable, Equatable, Hashable, Sendable {
+    public var text: String
+    public var note: String?
+    public var recent: Bool?
+
+    public init(text: String, note: String? = nil, recent: Bool? = nil) {
+        self.text = text
+        self.note = note
+        self.recent = recent
+    }
+
+    /// One to finish — "tell codex to …" — goes in the box rather than
+    /// being asked as it stands.
+    public var fill: Bool { text.hasSuffix("…") }
+    /// What it puts in the box.
+    public var stem: String { fill ? String(text.dropLast()) : text }
+    public var isRecent: Bool { recent ?? false }
+}
+
+/// What `conch ask -suggest` prints.
+public struct AskSuggestions: Decodable, Equatable, Sendable {
+    public var context: String?
+    public var provider: String?
+    public var fast: Bool?
+    public var summary: String?
+    public var suggestions: [AskSuggestion]
+
+    public init(context: String? = nil, provider: String? = nil, fast: Bool? = nil, summary: String? = nil, suggestions: [AskSuggestion] = []) {
+        self.context = context
+        self.provider = provider
+        self.fast = fast
+        self.summary = summary
+        self.suggestions = suggestions
+    }
+}
+
+/// The arguments of `conch ask -suggest`: the pane in front, and earlier
+/// requests oldest first, after `--` so one starting with a dash is not
+/// read as a flag.
+public func askSuggestArguments(pane: String?, history: [String]) -> [String] {
+    var args = ["ask", "-suggest"]
+    if let pane, !pane.isEmpty { args += ["-pane", pane] }
+    return args + ["--"] + history.suffix(askRecentMax)
+}
+
+/// How many earlier requests are handed to conch to offer back.
+public let askRecentMax = 4
+
+/// The suggestions a typed request narrows the list to: those that hold
+/// it, other than the one it already is — as the TUI narrows its own.
+public func askMatching(_ opts: [AskSuggestion], typed: String) -> [AskSuggestion] {
+    let t = typed.trimmingCharacters(in: .whitespaces).lowercased()
+    if t.isEmpty { return opts }
+    return opts.filter {
+        let s = $0.stem.trimmingCharacters(in: .whitespaces).lowercased()
+        return s != t && s.contains(t)
+    }
+}
+
+/// The requests asked before, oldest first, as the TUI keeps its own:
+/// the same one twice in a row is kept once, and only the last 50.
+public func askRemember(_ history: [String], _ request: String) -> [String] {
+    let r = request.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !r.isEmpty, history.last != r else { return history }
+    return Array((history + [r]).suffix(50))
+}
+
 /// One request to the brain, from asking to the end of what it ran.
 public final class AskSession: @unchecked Sendable {
     public enum State: Equatable, Sendable {
@@ -39,9 +118,17 @@ public final class AskSession: @unchecked Sendable {
     private var errText = ""
     private let lock = NSLock()
 
-    public init(binary: String, request: String, environment: [String: String] = conchEnvironment()) {
+    /// Whether conch planned it alone, without the model.
+    public var fast: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return errText.contains("planned without the model")
+    }
+
+    /// pane is the one "this" and "here" mean, on this computer.
+    public init(binary: String, request: String, pane: String? = nil, environment: [String: String] = conchEnvironment()) {
         process.executableURL = URL(fileURLWithPath: binary)
-        process.arguments = ["ask", request]
+        process.arguments = askArguments(request: request, pane: pane)
         process.environment = environment
         process.standardInput = input
         process.standardOutput = out
