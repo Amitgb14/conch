@@ -5,6 +5,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -285,6 +286,20 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 					m.scrollH = max(rects[id].h-2, 1)
 					m.scrollTo(msg.Y)
 					return m, cmd
+				}
+			}
+		}
+	}
+
+	// The pane's ID at the right end of a split's border: a click copies it.
+	if press && left && !m.zoom {
+		if id := m.leafAt(rects, msg.X, msg.Y); id != 0 && msg.Y == rects[id].y {
+			if l := m.tab().leaf(id); l != nil {
+				ref := m.leafRef(l)
+				if at := frameRightAt(ansi.StringWidth(ref), rects[id].w-2); at >= 0 {
+					if x := msg.X - rects[id].x; x >= at && x < at+ansi.StringWidth(ref) {
+						return m, copyPaneRef(ref)
+					}
 				}
 			}
 		}
