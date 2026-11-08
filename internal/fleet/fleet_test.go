@@ -288,6 +288,13 @@ func TestCloseWhileConnectingLeavesNothingOpen(t *testing.T) {
 
 func TestDial(t *testing.T) {
 	r := newRig(t)
+	// The gate is shut before anything reads the catalog. Dial of a
+	// machine not in it reads it too, and that started box's first
+	// attempt — once, before the gate, so it ran ungated: on a runner that
+	// paused the test there, box was connected by the time Dial("box") was
+	// asked to find it still connecting, and Dial waited out its 45
+	// seconds at the gate instead (CI, run 42418523670).
+	r.block = make(chan struct{})
 	r.set(remote.Machine{ID: "box", Label: "box", Target: startServer(t), Enabled: true})
 	own, err := r.pool.Dial(Local)
 	if err != nil || own == r.local {
@@ -297,10 +304,7 @@ func TestDial(t *testing.T) {
 	if _, err := r.pool.Dial("nobody"); err == nil {
 		t.Fatal("dialled a machine that is not in the catalog")
 	}
-	r.mu.Lock()
-	r.block = make(chan struct{})
-	r.mu.Unlock()
-	r.pool.Machines()
+	r.until(t, "box", state(Connecting))
 	if _, err := r.pool.Dial("box"); err == nil || !strings.Contains(err.Error(), "not connected") {
 		t.Fatalf("a machine still connecting: %v", err)
 	}
