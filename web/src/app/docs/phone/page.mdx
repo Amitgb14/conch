@@ -134,6 +134,8 @@ These are two different things, on purpose.
 
 **A reply** is the agent's next message, as [`conch agent prompt`](/docs/cli#agent) sends it. It is refused while the agent waits on a question — typed in, its Enter would answer the question — and the phone is told the agent is waiting.
 
+An agent's or terminal's screen ends its subtitle with the pane's ID — `p12`, or `busybox:p12` on another machine — what `conch read` and `conch send` take on the computer; a tap on it copies it, as **Copy pane ID** in the **⋯** menu does.
+
 **An answer** picks one of the choices of the question an agent is asking. conch reads the choices off the agent's screen — a numbered menu with a cursor on one row — and the phone shows them as buttons. Tapping one moves the cursor to that row and presses Enter; nothing else is sent. The answer carries the ID of the question it was shown for, and is refused if the agent is no longer asking that question, so a tap that arrives late can't answer the next one.
 
 When conch can't read choices — no menu, or no cursor to steer by — the question comes without any. A device with `full` answers it in the terminal, with the key bar; the others at the laptop.

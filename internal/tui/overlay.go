@@ -108,8 +108,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 	title := ""
 	switch r.kind {
 	case kindPane:
+		ref := m.paneRef(r.machine, r.paneID)
 		if p := m.pane(r.machine, r.paneID); p != nil {
-			title = p.DisplayName()
+			title = p.DisplayName() + " · " + ref
 		}
 		items = []menuItem{
 			{"enter", "Open", enter},
@@ -121,6 +122,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"c", "Start an agent here…", act("c")},
 			{"n", "New terminal here", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
+			{"", "Copy pane ID (" + ref + ")", func(*Model) tea.Cmd { return copyPaneRef(ref) }},
 			{"", "Open a link it printed" + m.keyNote(keymap.OpenLinks), func(m *Model) tea.Cmd {
 				r, _ := m.selectedRow()
 				return m.openLinks(r)

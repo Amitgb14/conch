@@ -383,3 +383,8 @@ h2 .watch-link { margin-left: auto; text-transform: none; letter-spacing: 0; fon
   background: color-mix(in srgb, var(--accent, #2bb3a3) 14%, transparent); color: var(--accent, #2bb3a3); }
 .pair.check { display: flex; flex-direction: column; gap: 10px; }
 .pair.check .wide + .wide { margin-top: 0; }
+
+/* A pane's ID at the end of its subtitle: a tap copies it. */
+#sub.copies { cursor: copy; -webkit-user-select: none; user-select: none; }
+.toast { position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 50;
+  background: var(--fg); color: var(--bg, #262624); padding: 8px 14px; border-radius: 10px; font-size: 0.82rem; max-width: 90vw; }

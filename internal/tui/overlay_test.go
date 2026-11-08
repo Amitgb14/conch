@@ -119,7 +119,7 @@ func TestA2RowMenus(t *testing.T) {
 	)
 
 	mu := newRowMenu(*m, row{kind: kindPane, machine: localMachine, paneID: "p1"}, 3, 4)
-	if mu.title != "claude" || mu.x != 3 || mu.y != 4 || !strings.HasPrefix(a2MenuLabels(mu), "enter Open | r Rename") {
+	if mu.title != "claude · p1" || mu.x != 3 || mu.y != 4 || !strings.HasPrefix(a2MenuLabels(mu), "enter Open | r Rename") {
 		t.Fatalf("pane menu %q: %s", mu.title, a2MenuLabels(mu))
 	}
 

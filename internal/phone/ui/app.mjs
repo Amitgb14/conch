@@ -9,7 +9,7 @@ import {
   parseLine, frameRows, sortPanes, upsertPane, removeAgent, groupAgents, groupByMachine, agentLabel,
   ago, route, can, backoff, reviewCount, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, READABLE, chunks, keyBytes, appPath,
   keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps, ttyInput,
-  markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS, QUICK_REPLIES, BROADCASTS, relayWhy,
+  markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS, QUICK_REPLIES, BROADCASTS, relayWhy, paneRef,
 } from "/lib.mjs"
 import { Tunnel, relayLink, cookieFrom, fingerprint, fromB64url, NO_GATEWAY } from "/tunnel.mjs"
 import { LOGOS } from "/logos.mjs"
@@ -519,7 +519,7 @@ const drawer = {
 
 // show puts a view on screen under a header: its title, what it is about,
 // a way back, and its own actions.
-function show(view, { title = "conch", sub = "", back = "", more = null } = {}) {
+function show(view, { title = "conch", sub = "", back = "", more = null, copy = "" } = {}) {
   state.view?.leave?.()
   state.view = view
   sheet.close()
@@ -529,6 +529,10 @@ function show(view, { title = "conch", sub = "", back = "", more = null } = {}) 
   view.connected?.()
   $("title").textContent = title
   $("sub").textContent = sub
+  // The pane's ID, as conch's commands take it, copied by a tap on the line
+  // that ends with it: nowhere else says p12.
+  state.subCopy = copy
+  $("sub").classList.toggle("copies", !!copy)
   $("back").hidden = !back
   if (back) $("back").setAttribute("href", back)
   const top = TABS.includes(view.name) && !!state.hello
@@ -576,7 +580,8 @@ function render() {
     // A terminal has no conversation: it opens on its screen.
     const term = r.view === "terminal" || p?.kind === "terminal"
     return show(term ? terminalView(r.pane) : chatView(r.pane), {
-      title: p ? agentLabel(p) : r.pane, sub: p ? subtitle(p) : "", back: "/", more: () => paneMenu(r.pane),
+      title: p ? agentLabel(p) : r.pane, sub: withRef(p ? subtitle(p) : "", r.pane),
+      copy: paneRef(r.pane, state.machines), back: "/", more: () => paneMenu(r.pane),
     })
   }
   if (r.view === "settings") return show(settingsView(), { title: "Settings", sub: via() })
@@ -1049,7 +1054,7 @@ function chatView(pane) {
       return
     }
     $("title").textContent = agentLabel(p)
-    $("sub").textContent = subtitle(p)
+    $("sub").textContent = withRef(subtitle(p), pane)
     const since = ago(p.since)
     put(status, pill(p.state), h("span", { class: "quiet" }, !since || since === "now" ? " just now" : ` for ${since}`),
       p.cost_usd ? h("span", { class: "quiet" }, ` · $${p.cost_usd.toFixed(2)}`) : null,
@@ -1404,7 +1409,7 @@ function terminalView(pane) {
     name: "terminal", el,
     update: () => {
       const p = paneOf(pane)
-      if (p) { $("title").textContent = agentLabel(p); $("sub").textContent = p.kind === "terminal" ? subtitle(p) : subtitle(p) + " · terminal" }
+      if (p) { $("title").textContent = agentLabel(p); $("sub").textContent = withRef(p.kind === "terminal" ? subtitle(p) : subtitle(p) + " · terminal", pane) }
       for (const b of bar.querySelectorAll("button")) b.disabled = !state.online
     },
     frame: (f) => { if (f.pane === pane) { scr.frame(f); if (!(f.offset > 0)) draw(); askWider(f) } },
@@ -1430,6 +1435,10 @@ function paneMenu(pane) {
     items.push(h("a", { href: inTerm ? `/agent/${pane}` : `/agent/${pane}/terminal`, "data-nav": true, class: "item", onclick: () => sheet.close() },
       inTerm ? "Conversation" : "Terminal"))
   }
+  // What conch's commands call it — conch read p12 — before Close, which
+  // stays last.
+  const ref = paneRef(pane, state.machines)
+  items.push(h("button", { class: "item", onclick: () => { copyRef(ref); sheet.close() } }, `Copy pane ID (${ref})`))
   if (mayType()) {
     items.push(h("button", {
       class: "item", onclick: () => {
@@ -1463,6 +1472,28 @@ function paneMenu(pane) {
     items.push(close)
   }
   sheet.open(p ? agentLabel(p) : pane, h("div", { class: "menu" }, items), err)
+}
+
+// withRef ends a pane's subtitle with its ID, as the header shows it.
+function withRef(sub, pane) {
+  return [sub, paneRef(pane, state.machines)].filter(Boolean).join(" · ")
+}
+
+// toast says something for a moment, over the view.
+function toast(text) {
+  const t = h("div", { class: "toast", role: "status" }, text)
+  document.body.append(t)
+  setTimeout(() => t.remove(), 2200)
+}
+
+// copyRef puts a pane's ID on the clipboard and says so.
+async function copyRef(ref) {
+  try {
+    await navigator.clipboard.writeText(ref)
+    toast(`Copied ${ref}: conch read ${ref}`)
+  } catch {
+    toast(`Pane ${ref}`)
+  }
 }
 
 // openNew is ＋: a task (branch, worktree and agent), an agent here, or a
@@ -1669,6 +1700,7 @@ function settingsView() {
 // ---- start ----
 
 $("menu").addEventListener("click", () => drawer.open())
+$("sub").addEventListener("click", () => { if (state.subCopy) copyRef(state.subCopy) })
 $("drawer-scrim").addEventListener("click", () => drawer.close())
 $("more").addEventListener("click", () => state.more?.())
 $("new").addEventListener("click", () => openNew())
