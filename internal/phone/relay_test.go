@@ -126,6 +126,10 @@ func TestPhoneThroughTheRelay(t *testing.T) {
 	if l.Status().Phones != 1 {
 		t.Errorf("the link counts %d phones", l.Status().Phones)
 	}
+	// And the computer knows the phone is on, through the relay.
+	if p := f.store.Presence()[h.DeviceID]; !p.Connected || p.Route != RouteRelay {
+		t.Errorf("a phone on through the relay is %+v", p)
+	}
 
 	// A device revoked on the computer is out, relay or not.
 	if _, err := f.store.Revoke(h.DeviceID); err != nil {
@@ -134,6 +138,42 @@ func TestPhoneThroughTheRelay(t *testing.T) {
 	if res, _ := s.Do(tctx(t), "GET", "/api/hello", ck, ""); res.S != http.StatusUnauthorized {
 		t.Fatalf("a revoked device: %d", res.S)
 	}
+}
+
+// A phone gone from the relay is off: the tunnel closes the sockets it
+// opened on the gateway, which is what says the phone has gone.
+func TestPhoneOffWhenItLeavesTheRelay(t *testing.T) {
+	isolate(t)
+	f := newFixture(t)
+	s, _ := f.relayed()
+	code, err := f.store.NewCode(PermView, f.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(PairRequest{Code: code, DeviceName: "leaving phone"})
+	res, err := s.Do(tctx(t), "POST", "/pair", map[string]string{"Content-Type": "application/json"}, string(b))
+	if err != nil || res.S != 200 {
+		t.Fatalf("pair: %v %d %s", err, res.S, res.B)
+	}
+	var token string
+	for _, line := range strings.Split(res.H["Set-Cookie"], "\n") {
+		if v, ok := strings.CutPrefix(line, CookieName+"="); ok {
+			token, _, _ = strings.Cut(v, ";")
+		}
+	}
+	devs, _ := f.store.Devices()
+	if token == "" || len(devs) != 1 {
+		t.Fatalf("paired: token %q, devices %v", token, devs)
+	}
+	if _, err := s.Socket(tctx(t), SocketPath, map[string]string{"Cookie": CookieName + "=" + token}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the phone on through the relay", func() bool {
+		p := f.store.Presence()[devs[0].ID]
+		return p.Connected && p.Route == RouteRelay
+	})
+	s.Close()
+	waitFor(t, "the phone off once it left the relay", func() bool { return !f.store.Presence()[devs[0].ID].Connected })
 }
 
 // The relay serves the phone's app with the gateway's own headers, so a

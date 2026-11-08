@@ -23,6 +23,7 @@ import (
 	"github.com/Amitgb14/conch/internal/fleet"
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/relay"
 )
 
 // Gateway serves a phone: it checks who is asking and what they may do,
@@ -364,6 +365,29 @@ func withPageHeaders(next http.Handler) http.Handler {
 		h.Set("Content-Security-Policy", contentPolicy(r.Host))
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// routeOf is how a request reached the gateway: through the relay's
+// tunnel, whose calls carry its own host, or straight to it.
+func routeOf(r *http.Request) string {
+	if r.Host == relay.TunnelHost {
+		return RouteRelay
+	}
+	return RouteDirect
+}
+
+// seen records a device's socket opening or closing. A failure to write
+// it costs only the TUI's knowing, so it is logged, not returned.
+func (g *Gateway) seen(id, route string, open bool) {
+	var err error
+	if open {
+		err = g.store.SocketOpened(os.Getpid(), id, route, g.now())
+	} else {
+		err = g.store.SocketClosed(os.Getpid(), id, g.now())
+	}
+	if err != nil {
+		g.logf("recording %s's socket: %v", id, err)
+	}
 }
 
 // authenticate finds the device a request comes from, and refuses one

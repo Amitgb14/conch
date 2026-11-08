@@ -183,3 +183,26 @@ func writeBroken(t *testing.T, store *phone.Store) {
 		t.Fatal(err)
 	}
 }
+
+// The list says which phones are on now, and the settings row counts them.
+func TestDevicesPanelPresence(t *testing.T) {
+	store := pairHome(t, "")
+	devs := pairDevices(t, store, phone.PermFull, phone.PermReply)
+	store.SocketOpened(os.Getpid(), devs[0].ID, phone.RouteRelay, time.Now()) //nolint:errcheck
+	m := a2Model()
+	m.width, m.height = 100, 30
+	p := newDevicesPanel(nil)
+	out := a2Plain(p.render(*m).lines)
+	for _, want := range []string{"SEEN", "on · relay", "never", devs[0].ID, devs[1].ID} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q:\n%s", want, out)
+		}
+	}
+	if s := devicesSummary(); !strings.HasSuffix(s, "· 1 on now") {
+		t.Errorf("summary %q", s)
+	}
+	store.SocketClosed(os.Getpid(), devs[0].ID, time.Now()) //nolint:errcheck
+	if s := devicesSummary(); strings.Contains(s, "on now") {
+		t.Errorf("summary with none on %q", s)
+	}
+}

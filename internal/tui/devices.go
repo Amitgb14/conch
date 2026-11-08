@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -20,6 +21,7 @@ import (
 type devicesPanel struct {
 	back    overlay // the settings it was opened from
 	devices []phone.Device
+	seen    map[string]phone.Presence // which are on now, and when the rest were
 	err     string
 	sel     int
 	scroll  int
@@ -33,8 +35,9 @@ func newDevicesPanel(back overlay) *devicesPanel {
 }
 
 func (p *devicesPanel) load() {
-	devs, err := phone.OpenStore(config.Dir()).Devices()
-	p.devices, p.err = devs, ""
+	store := phone.OpenStore(config.Dir())
+	devs, err := store.Devices()
+	p.devices, p.seen, p.err = devs, store.Presence(), ""
 	if err != nil {
 		p.err = err.Error()
 	}
@@ -129,10 +132,10 @@ func (p *devicesPanel) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 
 // devicesHead is the column titles, and devicesRow one device, as wide as
 // the panel's content.
-func devicesRow(d phone.Device, w int) string {
+func devicesRow(d phone.Device, seen phone.Presence, now time.Time, w int) string {
 	when := d.Created.Local().Format("Jan 2 15:04")
-	name := ansi.Truncate(d.Name, max(w-34, 6), "…")
-	return fit(fmt.Sprintf(" %-*s  %-7s  %-6s  %s", max(w-34, 6), name, d.ID, d.Permission, when), w)
+	name := ansi.Truncate(d.Name, max(w-47, 6), "…")
+	return fit(fmt.Sprintf(" %-*s  %-7s  %-6s  %-12s %s", max(w-47, 6), name, d.ID, d.Permission, when, phone.SeenWords(seen, now)), w)
 }
 
 func (p *devicesPanel) render(m Model) box {
@@ -145,7 +148,7 @@ func (p *devicesPanel) render(m Model) box {
 	case len(p.devices) == 0:
 		add("No phones or browsers are paired. 🌐 in the status bar, or Pair a phone in the settings, pairs one.")
 	default:
-		lines = append(lines, styleMuted.Render(fit(fmt.Sprintf(" %-*s  %-7s  %-6s  %s", max(w-34, 6), "NAME", "ID", "MAY", "PAIRED"), w)))
+		lines = append(lines, styleMuted.Render(fit(fmt.Sprintf(" %-*s  %-7s  %-6s  %-12s %s", max(w-47, 6), "NAME", "ID", "MAY", "PAIRED", "SEEN"), w)))
 		// Leave room for the header, the footer and the frame.
 		room := max(m.height-8, 1)
 		if p.sel < p.scroll {
@@ -155,7 +158,7 @@ func (p *devicesPanel) render(m Model) box {
 			p.scroll = p.sel - room + 1
 		}
 		for i := p.scroll; i < len(p.devices) && i < p.scroll+room; i++ {
-			row := devicesRow(p.devices[i], w)
+			row := devicesRow(p.devices[i], p.seen[p.devices[i].ID], time.Now(), w)
 			if i == p.sel {
 				row = styleSel.Render(row)
 			}
@@ -214,7 +217,8 @@ func (p *devicesPanel) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 
 // devicesSummary is what the settings row says beside "Devices".
 func devicesSummary() string {
-	devs, err := phone.OpenStore(config.Dir()).Devices()
+	store := phone.OpenStore(config.Dir())
+	devs, err := store.Devices()
 	switch {
 	case err != nil:
 		return styleErr.Render("can't be read")
@@ -230,6 +234,15 @@ func devicesSummary() string {
 		if counts[p] > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", counts[p], p))
 		}
+	}
+	on := 0
+	for _, p := range store.Presence() {
+		if p.Connected {
+			on++
+		}
+	}
+	if on > 0 {
+		return fmt.Sprintf("%d paired · %s · %d on now", len(devs), strings.Join(parts, ", "), on)
 	}
 	return fmt.Sprintf("%d paired · %s", len(devs), strings.Join(parts, ", "))
 }

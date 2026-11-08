@@ -219,9 +219,35 @@ public struct PairInfo: Decodable, Equatable, Sendable {
     public var `where`: String?
     public var running: Bool?
     public var canStart: Bool?
+    /// The relay's page a phone pairs through, when one is set.
+    public var relay: String?
+    public var relayConnected: Bool?
+    /// The four words of this computer's key: the phone shows the same.
+    public var keyWords: String?
+    /// How conch web's link to the relay is, in a sentence.
+    public var relayStatus: String?
 
     enum CodingKeys: String, CodingKey {
-        case code, permission, expires, reach, url, link, `where`, running
-        case canStart = "can_start"
+        case code, permission, expires, reach, url, link, `where`, running, relay
+        case canStart = "can_start", relayConnected = "relay_connected", keyWords = "key_words", relayStatus = "relay_status"
     }
+
+    /// What the pair window says about the relay: nil without one.
+    public var relayLine: PairRelay? {
+        guard let r = relay, !r.isEmpty else { return nil }
+        let host = URL(string: r)?.host ?? r
+        let words = (keyWords ?? "").split(separator: " ").map(String.init)
+        let connected = relayConnected == true
+        return PairRelay(host: host, words: words, connected: connected,
+                         status: relayStatus ?? (connected ? "connected" : "not connected"))
+    }
+}
+
+/// A pairing through a relay, as the pair window shows it.
+public struct PairRelay: Equatable, Sendable {
+    public var host: String
+    /// The key's words, checked against the phone's.
+    public var words: [String]
+    public var connected: Bool
+    public var status: String
 }

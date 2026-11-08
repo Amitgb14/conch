@@ -116,10 +116,13 @@ func (g *Gateway) serveSocket(w http.ResponseWriter, r *http.Request) {
 		s.bye(ByeShuttingDown)
 		return
 	}
+	// Which phones are on now, and how, for the TUI and Conch.app.
+	g.seen(dev.ID, routeOf(r), true)
 	defer func() {
 		g.mu.Lock()
 		delete(g.sockets, s)
 		g.mu.Unlock()
+		g.seen(dev.ID, "", false)
 		g.logf("socket %s closed", dev.ID)
 	}()
 
