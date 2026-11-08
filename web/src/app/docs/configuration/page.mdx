@@ -149,7 +149,7 @@ scratch_key = false    # option-space shows the scratch layer with Conch.app in 
 prefix_keys = true     # the TUI's prefix keys ([keys]) in the app's panes too
 text_size = 100        # the window's own text, in percent (80–160); ⇧⌘+ / ⇧⌘− step it
 font_size = 14         # the terminal's font in every pane, in points (9–28); ⌘+ / ⌘− step it
-icons = ""             # Settings' section icons: "" Lucide's outlines, "sf" / "sf-fill" the Mac's SF Symbols
+icons = ""             # Settings' and the sidebar's icons: "" Lucide's outlines, "sf" / "sf-fill" the Mac's SF Symbols
 icon_style = ""        # "" plain, "tinted" in each section's colour, "tiles" on a square of it, as System Settings
 
 [[actions]]            # your own commands on the row menus; none by default
@@ -286,8 +286,8 @@ How the [Mac app](/docs/mac-app) draws its window — **Settings → Mac app**, 
 | `scratch_key` | `false` | option-space shows the scratch layer from anywhere, Conch.app in the background or not, as Ghostty's quick terminal does; off, it works in the window only |
 | `prefix_keys` | `true` | `[keys] prefix` and the keys after it work in the app's panes as in the TUI, from the same table; off, the prefix goes to the program |
 | `text_size` | `100` | the window's own text — the sidebar, tabs, the git tab, the status bar — in percent, 80 to 160; **View → Bigger / Smaller Window Text** (⇧⌘+ / ⇧⌘−) steps it through 80, 90, 100, 110, 125, 140, 160 and ⌃⇧⌘0 puts it back, writing it here. The sidebar widens with it |
-| `icons` | `""` | the icons beside each section of Settings: `""` Lucide's outlines, as the rest of the window, or the Mac's own SF Symbols, `"sf"` in line or `"sf-fill"` filled. Chosen in **Settings → Appearance → Icons**, from a card of each set's icons: the pointer on one shows it in the sidebar, a click chooses it |
-| `icon_style` | `""` | `"tinted"` draws each section's icon in a colour of its own — Appearance pink, Notifications red, Git orange, Brain violet — and `"tiles"` puts it, white, on a rounded square of that colour, as System Settings does; `""` draws it plain, in the text's colour |
+| `icons` | `""` | the icons beside each section of Settings and each row of the window's sidebar (machines, workspace, projects, branches, terminals, Sessions and Files; agents keep their own marks): `""` Lucide's outlines, or the Mac's own SF Symbols, `"sf"` in line or `"sf-fill"` filled. Chosen in **Settings → Appearance → Icons**, from a card of each set's icons: the pointer on one shows it in the sidebar, a click chooses it |
+| `icon_style` | `""` | `"tinted"` draws each icon in a colour of its own — Appearance pink, Notifications red, Git orange, Brain violet; in the sidebar projects blue, branches orange — and `"tiles"` puts it, white, on a rounded square of that colour, as System Settings does; `""` draws it plain, in the text's colour |
 | `font_size` | `14` | the terminal's font in every pane, in points, 9 to 28, half points allowed; **View → Bigger / Smaller Terminal Text** (⌘+ / ⌘−) moves it a point and ⌃⌘0 puts it back, writing it here. Every pane takes it at once |
 
 ## `[[actions]]`

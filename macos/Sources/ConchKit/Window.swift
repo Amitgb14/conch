@@ -32,6 +32,10 @@ public struct AppLook: Equatable, Sendable {
     /// terminal's font size in points (font_size), each kept in range.
     public var textScale: Double = 1
     public var fontSize: Double = AppLook.fontDefault
+    /// [app] icons and icon_style: the set and style Settings draws its
+    /// sections with, which the window's sidebar follows too.
+    public var iconSet: SettingsIconSet = .lucide
+    public var iconStyle: SettingsIconStyle = .plain
 
     public static let textRange = 0.8...1.6
     public static let fontRange = 9.0...28.0
@@ -78,6 +82,8 @@ public struct AppLook: Equatable, Sendable {
         if let v = tomlSetting("app", "font_size", in: toml).flatMap(Double.init), v > 0 {
             fontSize = min(max(v, Self.fontRange.lowerBound), Self.fontRange.upperBound)
         }
+        iconSet = SettingsIconSet(rawValue: tomlSetting("app", "icons", in: toml) ?? "") ?? .lucide
+        iconStyle = SettingsIconStyle(rawValue: tomlSetting("app", "icon_style", in: toml) ?? "") ?? .plain
     }
 }
 

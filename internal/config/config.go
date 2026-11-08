@@ -80,11 +80,11 @@ type AppCfg struct {
 	// FontSize is the terminal's font size in every pane, in points; 0 is
 	// 14, as conch app's own window has it.
 	FontSize float64 `toml:"font_size,omitempty"`
-	// Icons is the set Settings draws its sections with: "" Lucide's
-	// outlines, as the rest of the window, or the Mac's own SF Symbols,
+	// Icons is the set Settings draws its sections with, and the window's
+	// sidebar its rows: "" Lucide's outlines, or the Mac's own SF Symbols,
 	// "sf" in line or "sf-fill" filled.
 	Icons string `toml:"icons,omitempty"`
-	// IconStyle "tinted" draws each section's icon in its own colour,
+	// IconStyle "tinted" draws each icon in its own colour,
 	// "tiles" white on a square of that colour, as System Settings does;
 	// "" plain, in the text's.
 	IconStyle string `toml:"icon_style,omitempty"`

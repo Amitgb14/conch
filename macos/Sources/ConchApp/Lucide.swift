@@ -68,6 +68,43 @@ struct LucideIcon: View {
     }
 }
 
+/// A sidebar row's icon as [app] icons and icon_style say — the choice
+/// Settings' Icons card makes for its own sections, which the tree
+/// follows too. Lucide plain, the default, is LucideIcon as it always was.
+struct TreeIcon: View {
+    /// Read so this is drawn again when the theme changes (ThemeLook).
+    @Environment(\.conchTheme) private var look
+    let icon: String
+    let set: SettingsIconSet
+    let style: SettingsIconStyle
+    var color: Color
+    var size: CGFloat
+
+    @MainActor init(name: LucideName, look: AppLook, color: Color? = nil, size: CGFloat = 13) {
+        self.init(name.rawValue, look: look, color: color, size: size)
+    }
+
+    @MainActor init(_ icon: String, look: AppLook, color: Color? = nil, size: CGFloat = 13) {
+        self.icon = icon
+        set = look.iconSet
+        style = look.iconStyle
+        self.color = color ?? Theme.text2
+        self.size = size
+    }
+
+    var body: some View {
+        let _ = look
+        if set == .lucide && style == .plain {
+            LucideIcon(icon, color: color, size: size)
+        } else {
+            // A column as wide on every row, so the names still line up:
+            // a tile is drawn larger than its glyph.
+            SectionIcon(icon: icon, set: set, style: style, color: color, size: style == .tiles ? size * 0.92 : size)
+                .frame(width: style == .tiles ? 18 : 15)
+        }
+    }
+}
+
 /// A machine: a laptop for this computer, a server for another, a cloud
 /// for a sandbox — and its state as a dot on the corner: green online,
 /// amber on the way, grey not there.
@@ -76,10 +113,11 @@ struct MachineIcon: View {
     @Environment(\.conchTheme) private var look
     let name: LucideName
     let state: Color
+    var app = AppLook()
 
     var body: some View {
         let _ = look
-        LucideIcon(name: name, color: Theme.text2, size: 14)
+        TreeIcon(name: name, look: app, color: Theme.text2, size: 14)
             .overlay(alignment: .bottomTrailing) {
                 Circle().fill(state).frame(width: 6, height: 6)
                     .overlay(Circle().stroke(Theme.side, lineWidth: 1.5))
