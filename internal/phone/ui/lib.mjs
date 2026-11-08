@@ -633,3 +633,18 @@ export function relayWhy(kind) {
   if (kind === "timeout") return "Your computer didn't answer through the relay."
   return "The relay can't be reached."
 }
+
+// paneRef is how conch's commands name a pane the phone calls
+// "machine:pane": its ID on this computer, and machine:ID elsewhere by the
+// machine's label (`conch read busybox:p3`), or its ID when the label has a
+// space or a colon and would not survive being typed. As the TUI's and the
+// app's paneRef.
+export function paneRef(ref, machines = []) {
+  const s = String(ref || "")
+  const i = s.indexOf(":")
+  if (i < 0) return s
+  const machine = s.slice(0, i), pane = s.slice(i + 1)
+  if (!machine || machine === "local") return pane
+  const label = machines.find((m) => m.id === machine)?.label || ""
+  return label && !/[\s:]/.test(label) ? `${label}:${pane}` : `${machine}:${pane}`
+}

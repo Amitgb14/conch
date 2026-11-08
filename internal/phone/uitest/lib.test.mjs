@@ -645,3 +645,16 @@ test("an absent computer may have reset its key, and the phone is told to pair a
   assert.match(relayWhy("timeout"), /didn't answer/)
   assert.match(relayWhy("closed"), /relay can't be reached/)
 })
+
+test("a pane's ID is named as conch's commands take it", async () => {
+  const { paneRef } = await import("../ui/lib.mjs")
+  const machines = [{ id: "local", label: "this computer" }, { id: "busybox-1", label: "busybox" }, { id: "lab-2", label: "lab box" }]
+  assert.equal(paneRef("local:p3", machines), "p3")
+  assert.equal(paneRef("p3", machines), "p3")
+  assert.equal(paneRef("busybox-1:p12", machines), "busybox:p12")
+  assert.equal(paneRef("lab-2:p1", machines), "lab-2:p1")
+  assert.equal(paneRef("gone:p1", machines), "gone:p1")
+  assert.equal(paneRef("busybox-1:p12"), "busybox-1:p12")
+  assert.equal(paneRef("", machines), "")
+  assert.equal(paneRef(undefined), "")
+})

@@ -1442,7 +1442,12 @@ struct TabButton: View {
         .contextMenu {
             Button("Rename Tab…") { store.renameTab(index) }
             if tab.name != nil { Button("Name It by Its Pane") { store.layout.rename(index, to: "") } }
+            if let ref = store.paneRef(key: tab.focused) {
+                Divider()
+                Button("Copy Pane ID (\(ref))") { store.copyPaneRef(ref) }
+            }
         }
+        .help(store.paneRef(key: tab.focused).map { "\($0) — conch read \($0); right-click to copy it" } ?? "")
         // Dragged onto another tab, it takes that one's place.
         .onDrag { NSItemProvider(object: tab.id.uuidString as NSString) }
         .onDrop(of: [.text], isTargeted: nil) { items in
