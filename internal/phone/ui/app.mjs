@@ -9,7 +9,9 @@ import {
   parseLine, frameRows, sortPanes, upsertPane, removeAgent, groupAgents, groupByMachine, agentLabel,
   ago, route, can, backoff, reviewCount, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, READABLE, chunks, keyBytes, appPath,
   keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps, ttyInput,
+  markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS, QUICK_REPLIES, BROADCASTS,
 } from "/lib.mjs"
+import { Tunnel, relayLink, cookieFrom, fingerprint, fromB64url, NO_GATEWAY } from "/tunnel.mjs"
 
 const API_VERSION = 2
 // The agents conch can start. There is no route that lists the ones
@@ -27,9 +29,64 @@ const state = {
   tries: 0,
   heard: 0, // when the socket last said anything
   view: null, // the view on screen: { update(), leave(), frame(), … }
+  filter: sessionStorage.getItem("conch.filter") || "all", // the home screen's chip
+  project: null, // {machine, name}: the views narrowed to one project
+  tails: new Map(), // a pane's last line, from the last frame seen of it
+  selecting: null, // a Set of panes chosen for one message to many
+  pressed: false, // a long-press just chose a card: the tap that ends it is not a tap
 }
 
 const $ = (id) => document.getElementById(id)
+
+// ---- through a relay ----
+//
+// A page opened at a relay (a pairing link with a room and a key in its
+// fragment) reaches its computer through the relay's tunnel instead of the
+// address it was loaded from: every call and the socket go inside a Noise
+// session keyed by what the link carried. The device's token, which the
+// gateway would have put in a cookie, is kept here and sent inside it.
+
+const DEVICE = "conch.device"
+const relay = (() => {
+  const store = (k, v) => { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v) } catch { /* private mode */ } }
+  let kept = null
+  try { kept = JSON.parse(localStorage.getItem("conch.relay") || "null") } catch { /* nothing kept */ }
+  const linked = relayLink(location.hash)
+  if (linked && (linked.room !== kept?.room || linked.key !== kept?.key)) {
+    // A link for another computer, or a new key for this one: what was
+    // kept for the old one is no use.
+    store("conch.relay", JSON.stringify(linked))
+    store(DEVICE, null)
+    kept = linked
+  }
+  if (!kept) return null
+  return { ...kept, tunnel: new Tunnel({ relay: location.origin, room: kept.room, key: kept.key }) }
+})()
+
+function deviceCookie() {
+  let tok = ""
+  try { tok = localStorage.getItem(DEVICE) || "" } catch { /* private mode */ }
+  return tok ? { Cookie: `conch_device=${tok}` } : {}
+}
+
+// relayFetch is fetch, through the tunnel: the same answer, near enough.
+async function relayFetch(method, path, headers, body) {
+  let r
+  try {
+    r = await relay.tunnel.request(method, path, { ...headers, ...deviceCookie() }, body)
+  } catch (err) {
+    state.why = err.code === NO_GATEWAY
+      ? "Your computer isn't connected to the relay — asleep, or conch web isn't running."
+      : "The relay can't be reached."
+    throw err
+  }
+  const tok = cookieFrom(r.headers["Set-Cookie"], "conch_device")
+  if (tok !== null) {
+    try { tok ? localStorage.setItem(DEVICE, tok) : localStorage.removeItem(DEVICE) } catch { /* private mode */ }
+  }
+  state.why = ""
+  return { ok: r.status >= 200 && r.status < 300, status: r.status, statusText: "", json: async () => JSON.parse(r.body) }
+}
 
 // h builds an element. Children are nodes or strings; strings become text.
 function h(tag, props = {}, ...children) {
@@ -67,14 +124,21 @@ async function api(method, path, body) {
   if (method !== "GET" && state.hello) headers["X-CSRF-Token"] = state.hello.csrf_token
   let res
   try {
-    res = await fetch(path, { method, headers, credentials: "same-origin", body: body === undefined ? undefined : JSON.stringify(body) })
+    const payload = body === undefined ? undefined : JSON.stringify(body)
+    res = relay
+      ? await relayFetch(method, path, headers, payload)
+      : await fetch(path, { method, headers, credentials: "same-origin", body: payload })
   } catch {
     setOnline(false)
-    throw new APIError("offline", "Your laptop can't be reached.", 0)
+    throw new APIError("offline", state.why || "Your laptop can't be reached.", 0)
   }
   reachedNow()
   const data = res.status === 204 ? null : await res.json().catch(() => null)
   if (res.ok) return data
+  if (!relay && res.status === 404 && !data && path === "/api/hello") {
+    // A relay's page opened without its link: there is no computer here.
+    throw new APIError("unpaired_relay", "This is a conch relay. Scan the QR code `conch web pair` shows on your computer: it carries the key this phone needs.", 404)
+  }
   const err = new APIError(data?.error?.code || "error", data?.error?.message || res.statusText, res.status)
   if (err.code === "unauthorized") unpaired()
   throw err
@@ -98,9 +162,8 @@ function showBanner() {
   banner.hidden = state.online || !state.hello
   if (banner.hidden) return
   const at = state.reached ? new Date(state.reached).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""
-  banner.textContent = at
-    ? `Your laptop can't be reached — asleep or off the tailnet. Last reached ${at}; this is what it showed then.`
-    : "Your laptop can't be reached — asleep or off the tailnet."
+  const why = state.why || (relay ? "Your laptop can't be reached." : "Your laptop can't be reached — asleep or off the tailnet.")
+  banner.textContent = at ? `${why} Last reached ${at}; this is what it showed then.` : why
 }
 
 function showLive() {
@@ -128,7 +191,7 @@ function recall() {
 
 function forget() {
   try {
-    for (const k of ["conch.panes", "conch.agents", "conch.reached"]) localStorage.removeItem(k)
+    for (const k of ["conch.panes", "conch.agents", "conch.reached", DEVICE]) localStorage.removeItem(k)
   } catch { /* private mode */ }
 }
 
@@ -138,13 +201,16 @@ function setPanes(panes) {
   remember()
   state.view?.update?.()
   drawer.update()
+  showTabs()
 }
 
 // ---- the socket ----
 
 function connect() {
   if (state.ws || !state.hello || state.hello.offline) return
-  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/socket`)
+  const ws = relay
+    ? relay.tunnel.socket("/api/socket", deviceCookie())
+    : new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/socket`)
   state.ws = ws
   ws.onopen = () => {
     state.tries = 0
@@ -177,7 +243,7 @@ function connect() {
 }
 
 function send(m) {
-  if (state.ws?.readyState === WebSocket.OPEN) state.ws.send(JSON.stringify(m))
+  if (state.ws?.readyState === 1) state.ws.send(JSON.stringify(m)) // open, a WebSocket or the tunnel's
 }
 
 function onMessage(m) {
@@ -202,7 +268,10 @@ function onMessage(m) {
       setPanes(removeAgent(state.panes, m.pane))
       break
     case "frame":
-      if (m.frame) state.view?.frame?.(m.frame)
+      if (m.frame) {
+        state.tails.set(m.frame.pane, lastLine(m.frame.lines))
+        state.view?.frame?.(m.frame)
+      }
       break
     case "error":
       state.view?.socketError?.(m.error)
@@ -252,10 +321,18 @@ function elsewhere(p) {
   return h("span", { class: "machine-tag" }, machineName(p.machine))
 }
 
+// mark is a pane's agent as its sign in a circle of its colour, ringed by
+// its state: coral waiting, a turning blue working, green done.
+function mark(p) {
+  const m = markOf(p)
+  return h("span", { class: `agm ${m.cls}`, "aria-hidden": "true" }, m.glyph,
+    p?.kind === "terminal" ? null : h("span", { class: `ring ${p?.state || ""}` }))
+}
+
 // row is one pane in a list: what it is, where, and how long it has been so.
 function row(p, extra) {
   return h("a", { href: `/agent/${p.pane}`, "data-nav": true, class: `row ${p.state}` },
-    dot(p),
+    mark(p),
     h("span", { class: "body" },
       h("span", { class: "name" }, agentLabel(p), elsewhere(p),
         p.review?.length ? h("span", { class: "review-tag", title: reviewCount(p) }, `✎ ${p.review.length}`) : null),
@@ -422,14 +499,36 @@ function show(view, { title = "conch", sub = "", back = "", more = null } = {}) 
   $("sub").textContent = sub
   $("back").hidden = !back
   if (back) $("back").setAttribute("href", back)
-  $("menu").hidden = !!back || !state.hello
+  const top = TABS.includes(view.name) && !!state.hello
+  $("menu").hidden = true // the tab bar is the way round now
+  $("new").hidden = top || !!back || !mayType()
   $("more").hidden = !more
   state.more = more
   document.body.dataset.view = view.name || ""
+  document.body.classList.toggle("tabbed", top)
+  showTabs()
   $("view").replaceChildren(view.el)
   view.update?.()
   window.scrollTo(0, 0)
 }
+
+// The views with the tab bar under them, by the name their view gives.
+const TABS = ["list", "watch", "machines", "settings"]
+
+// showTabs draws the tab bar: which is on, and how many wait for you.
+function showTabs() {
+  const top = !!state.hello && TABS.includes(state.view?.name)
+  $("tabs").hidden = !top
+  $("fab").hidden = !top || !mayType() || !["list", "watch"].includes(state.view?.name)
+  if (!top) return
+  for (const a of $("tabs").querySelectorAll("a")) a.classList.toggle("on", a.dataset.tab === state.view.name)
+  const n = counts(state.panes).waiting
+  $("tab-badge").hidden = !n
+  $("tab-badge").textContent = String(n)
+}
+
+// via says how the computer is reached, for the top views' headers.
+const via = () => relay ? "🔒 via relay · end to end" : ""
 
 function navigate(path) {
   if (path !== location.pathname) history.pushState(null, "", path)
@@ -448,12 +547,19 @@ function render() {
       title: p ? agentLabel(p) : r.pane, sub: p ? subtitle(p) : "", back: "/", more: () => paneMenu(r.pane),
     })
   }
-  if (r.view === "settings") return show(settingsView(), { title: "Settings", back: "/" })
+  if (r.view === "settings") return show(settingsView(), { title: "Settings", sub: via() })
+  if (r.view === "watch") return show(watchView(), { title: "Watch", sub: via() })
+  if (r.view === "machines") return show(machinesView(), { title: "Machines", sub: via() })
   if (r.view === "new" && mayType()) { navigate("/"); return openNew() }
-  show(inboxView(), { title: "conch" })
+  show(agentsView(), { title: "Agents", sub: via() })
 }
 
 document.addEventListener("click", (ev) => {
+  if (state.pressed) { // the end of a long-press, not a tap
+    state.pressed = false
+    ev.preventDefault()
+    return
+  }
   const a = ev.target.closest?.("a[data-nav]")
   if (!a || ev.metaKey || ev.ctrlKey) return
   ev.preventDefault()
@@ -494,7 +600,7 @@ function pairView() {
       status.textContent = ""
       try {
         await api("POST", "/pair", { code: code.value, device_name: name.value })
-        history.replaceState(null, "", location.pathname) // the code is spent; drop it from the address
+        history.replaceState(null, "", location.pathname) // the code is spent; drop it (and the key) from the address
         state.justPaired = true
         await start()
       } catch (err) {
@@ -521,6 +627,17 @@ function pairView() {
     status.textContent = "This page isn't on HTTPS, so this browser can't keep the device's key. " +
       "Open conch at its HTTPS address (the one tailscale serve gives, passed to conch web as -url) and pair there."
   }
+  const extra = []
+  if (relay) {
+    // Through a relay: the words the computer's key is said in, which
+    // conch web pair shows too. The same words, the same computer.
+    const words = h("span", { class: "words" })
+    fingerprint(fromB64url(relay.key)).then((w) => { words.textContent = w }).catch(() => {})
+    extra.push(h("div", { class: "card relay-card" },
+      h("p", {}, "🔒 Through the relay, end to end: it passes this on without being able to read it."),
+      h("p", { class: "quiet" }, "Your computer's key: ", words, ". ",
+        h("code", {}, "conch web pair"), " shows the same words.")))
+  }
   return {
     name: "pair",
     el: h("section", { class: "pair" },
@@ -528,39 +645,244 @@ function pairView() {
       h("h1", {}, "Your agents, in your pocket"),
       h("p", { class: "quiet" }, "On your laptop, press ", h("kbd", {}, "P"), " in conch or run ", h("code", {}, "conch web pair"),
         ", then scan its QR code with your camera — or type the code here."),
-      form),
+      form, ...extra),
   }
 }
 
-// inboxView is the home screen: what needs you first, answerable in
-// place, then everything else.
-function inboxView() {
-  const el = h("section", { class: "inbox" })
+// agentsView is the home screen: chips to narrow it by state, what needs
+// you first and answerable in place, then each working agent with the
+// last line it printed, then the rest. A long-press chooses cards for one
+// message to many.
+const CHIP = { all: "All", waiting: "Waiting", working: "Working", done: "Done", terminals: "Terminals" }
+
+function agentsView() {
+  const el = h("section", { class: "agents" })
   const note = h("p", { class: "error", role: "alert" })
+  const tails = new Map() // pane → the element its last line is drawn in
+  let watched = [] // the panes whose frames are open for their last line
+  // The last line needs the pane's screen, so the first few working
+  // agents on the list have theirs open — few, since each is a stream.
+  const watchTails = (panes) => {
+    const want = panes.filter((p) => p.kind !== "terminal" && p.state === "working").slice(0, 4).map((p) => p.pane)
+    for (const p of watched) if (!want.includes(p)) send({ type: "frame.close", pane: p })
+    for (const p of want) if (!watched.includes(p)) send({ type: "frame.open", pane: p })
+    watched = want
+  }
+  const choose = (pane) => {
+    state.selecting ||= new Set()
+    if (state.selecting.has(pane)) state.selecting.delete(pane)
+    else state.selecting.add(pane)
+    if (!state.selecting.size) state.selecting = null
+    update()
+  }
+  // A long-press on a card chooses it, and starts choosing.
+  const pressable = (node, p) => {
+    if (!mayReply() || p.kind === "terminal") return node
+    let timer = 0
+    const cancel = () => clearTimeout(timer)
+    node.addEventListener("pointerdown", () => {
+      cancel()
+      timer = setTimeout(() => { state.pressed = true; navigator.vibrate?.(10); choose(p.pane) }, 480)
+    })
+    for (const ev of ["pointerup", "pointerleave", "pointercancel", "pointermove"]) node.addEventListener(ev, (e) => {
+      if (e.type !== "pointermove" || Math.abs(e.movementY) + Math.abs(e.movementX) > 6) cancel()
+    })
+    node.addEventListener("contextmenu", (e) => e.preventDefault())
+    return node
+  }
+  const card = (p) => {
+    if (state.selecting) {
+      const on = state.selecting.has(p.pane)
+      return h("button", { class: `card pick-card${on ? " on" : ""}`, disabled: p.kind === "terminal", onclick: () => choose(p.pane) },
+        h("span", { class: `cb${on ? " on" : ""}` }), mark(p),
+        h("span", { class: "body" }, h("span", { class: "name" }, agentLabel(p)), h("span", { class: "sub" }, `${p.project?.name || ""} · ${p.state}`)))
+    }
+    if (p.state === "waiting" && p.kind !== "terminal") {
+      return pressable(h("div", { class: "card waiting-card" }, row(p), questionCard(p, (m) => { note.textContent = m })), p)
+    }
+    if (p.state === "working" && p.kind !== "terminal") {
+      const t = h("div", { class: "tail-line" }, state.tails.get(p.pane) || p.title || "")
+      tails.set(p.pane, t)
+      return pressable(h("div", { class: "card working-card" }, row(p), t), p)
+    }
+    return pressable(h("div", { class: "card plain-card" }, row(p)), p)
+  }
   const update = () => {
-    const waiting = state.panes.filter((p) => p.kind !== "terminal" && p.state === "waiting")
-    const done = state.panes.filter((p) => p.kind !== "terminal" && p.state === "done")
-    const working = state.panes.filter((p) => p.kind !== "terminal" && p.state === "working")
-    const idle = state.panes.filter((p) => p.kind !== "terminal" && p.state === "idle")
-    const terminals = state.panes.filter((p) => p.kind === "terminal")
-    const section = (title, items, render = (p) => row(p)) => items.length
-      ? [h("h2", {}, title, h("span", { class: "count" }, String(items.length))), h("div", { class: "list" }, items.map(render))]
+    const mine = state.panes.filter((p) => inProject(p, state.project))
+    const c = counts(mine)
+    const shown = filterPanes(state.panes, state.filter, state.project)
+    const by = (st) => shown.filter((p) => p.kind !== "terminal" && p.state === st)
+    const section = (title, items, extra) => items.length
+      ? [h("h2", {}, title, h("span", { class: "count" }, String(items.length)), extra || null), h("div", { class: "cards" }, items.map(card))]
       : []
-    const greeting = waiting.length
-      ? `${waiting.length === 1 ? "One agent needs" : `${waiting.length} agents need`} you`
-      : state.panes.length ? "Nothing needs you" : state.listed ? "No agents running" : state.online ? "Loading…" : "Nothing to show yet"
-    put(el, 
-      h("h1", { class: "greeting" }, greeting),
-      state.listed && !state.panes.length && mayType()
-        ? h("button", { class: "primary", onclick: () => openNew() }, "Start something") : null,
-      note,
-      machineStrip(),
-      waiting.length ? h("div", { class: "needs" }, waiting.map((p) =>
-        h("div", { class: "card waiting-card" }, row(p), questionCard(p, (m) => { note.textContent = m })))) : null,
-      section("Finished", done), section("Working", working), section("Idle", idle), section("Terminals", terminals))
+    tails.clear()
+    const chips = h("div", { class: "chips" },
+      state.project ? h("button", { class: "chip on project", onclick: () => { state.project = null; update() } }, `▤ ${state.project.name} ✕`) : null,
+      FILTERS.filter((f) => f === "all" || c[f]).map((f) => h("button", {
+        class: `chip${state.filter === f ? " on" : ""}`,
+        onclick: () => { state.filter = f; sessionStorage.setItem("conch.filter", f); update() },
+      }, CHIP[f], h("span", { class: "n" }, String(c[f])))))
+    const sel = state.selecting
+    put(el,
+      sel ? h("div", { class: "select-bar" },
+        h("button", { class: "icon", "aria-label": "Stop choosing", onclick: () => { state.selecting = null; update() } }, "✕"),
+        h("span", { class: "grow" }, `${sel.size} chosen`),
+        h("button", { class: "primary", onclick: () => sendToMany() }, `Message ${sel.size}`)) : null,
+      chips, note, machineStrip(),
+      !state.panes.length ? [h("h1", { class: "greeting" }, state.listed ? "No agents running" : state.online ? "Loading…" : "Nothing to show yet"),
+        state.listed && mayType() ? h("button", { class: "primary", onclick: () => openNew() }, "Start something") : null] : null,
+      state.panes.length && !shown.length ? h("p", { class: "hint" }, "Nothing here right now.") : null,
+      section("Needs you", by("waiting")),
+      section("Working", by("working"), h("a", { href: "/watch", "data-nav": true, class: "link watch-link" }, "Watch ▦")),
+      section("Done", by("done")), section("Idle", by("idle")),
+      section("Terminals", shown.filter((p) => p.kind === "terminal")))
+    watchTails(shown)
   }
   const tick = setInterval(update, 30000) // the ages move on
-  return { name: "inbox", el, update, leave: () => clearInterval(tick) }
+  return {
+    name: "list", el, update,
+    frame: (f) => { const t = tails.get(f.pane); if (t) t.textContent = state.tails.get(f.pane) || "" },
+    connected: () => { const was = watched; watched = []; for (const p of was) send({ type: "frame.open", pane: p }); watched = was },
+    leave: () => { clearInterval(tick); for (const p of watched) send({ type: "frame.close", pane: p }); watched = [] },
+  }
+}
+
+// sendToMany is one message to every chosen agent, each as its own reply.
+// One waiting on a question is left out — a reply would be typed onto it.
+function sendToMany() {
+  const chosen = [...(state.selecting || [])]
+  const { send: to, waiting } = replyTargets(state.panes, chosen)
+  const text = h("textarea", { rows: "3", placeholder: "What should they all do?", "aria-label": "Message" })
+  const err = h("p", { class: "error", role: "alert" })
+  const go = h("button", { class: "primary wide", disabled: !to.length }, `Send to ${to.length}`)
+  const names = to.map((id) => agentLabel(paneOf(id) || { pane: id })).join(", ")
+  go.addEventListener("click", async () => {
+    if (!text.value.trim()) return
+    go.disabled = true
+    const failed = []
+    for (const pane of to) {
+      try { await api("POST", "/api/reply", { pane, text: text.value }) } catch (e) { failed.push(`${agentLabel(paneOf(pane) || { pane })}: ${e.message}`) }
+    }
+    if (failed.length) {
+      err.textContent = `Not sent to ${failed.length}: ${failed.join("; ")}`
+      go.disabled = false
+      return
+    }
+    state.selecting = null
+    sheet.close()
+    state.view?.update?.()
+  })
+  sheet.open(`Send to ${to.length} agent${to.length === 1 ? "" : "s"}`,
+    h("p", { class: "hint" }, to.length ? `${names} — each gets it as its own message.` : "None of these can take a message now."),
+    waiting.length ? h("p", { class: "hint" }, `${waiting.length} waiting on a question ${waiting.length === 1 ? "is" : "are"} left out: answer ${waiting.length === 1 ? "it" : "them"} first.`) : null,
+    text, h("div", { class: "quick" }, BROADCASTS.map((q) => h("button", { class: "chip", onclick: () => { text.value = q; text.focus() } }, q))),
+    go, err)
+  setTimeout(() => text.focus(), 50)
+}
+
+// watchView is every pane's screen at once, small and live, two to a row:
+// a wall of monitors. Only the tiles on screen stream, and no more than the
+// gateway allows a socket.
+const WATCH_MAX = 8
+
+function watchView() {
+  const el = h("section", { class: "watch" })
+  const grid = h("div", { class: "grid" })
+  const tiles = new Map() // pane → { el, screen, foot, seen }
+  const open = new Set()
+  const visible = new Set()
+  const sync = () => {
+    const want = [...visible].filter((p) => tiles.has(p)).slice(0, WATCH_MAX)
+    for (const p of [...open]) if (!want.includes(p)) { open.delete(p); send({ type: "frame.close", pane: p }) }
+    for (const p of want) if (!open.has(p)) { open.add(p); send({ type: "frame.open", pane: p }) }
+  }
+  const io = "IntersectionObserver" in window ? new IntersectionObserver((entries) => {
+    for (const e of entries) e.isIntersecting ? visible.add(e.target.dataset.pane) : visible.delete(e.target.dataset.pane)
+    sync()
+  }, { rootMargin: "80px" }) : null
+  const projects = h("select", { class: "chip", "aria-label": "Project", onchange: () => {
+    const [machine, ...name] = projects.value.split("/")
+    state.project = projects.value ? { machine, name: name.join("/") } : null
+    update()
+  } })
+  const tile = (p) => {
+    let t = tiles.get(p.pane)
+    if (!t) {
+      const screen = h("div", { class: "mini" })
+      const foot = h("div", { class: "foot" })
+      const name = h("b", {})
+      const lamp = h("span", { class: "lamp" })
+      const node = h("a", { href: `/agent/${p.pane}`, "data-nav": true, class: "tile", "data-pane": p.pane },
+        h("div", { class: "tile-head" }, mark(p), name, lamp), screen, foot)
+      t = { el: node, screen, foot, name, lamp }
+      tiles.set(p.pane, t)
+      io?.observe(node)
+      if (!io) visible.add(p.pane)
+    }
+    t.name.textContent = agentLabel(p)
+    t.lamp.className = `lamp ${p.kind === "terminal" ? "idle" : p.state}`
+    t.el.classList.toggle("waiting", p.state === "waiting" && p.kind !== "terminal")
+    t.foot.textContent = `${p.kind === "terminal" ? "terminal" : p.state} · ${ago(p.since) || "now"}`
+    return t.el
+  }
+  const update = () => {
+    const shown = filterPanes(state.panes, "all", state.project)
+    const keys = []
+    for (const m of projectsOn(state.panes, state.machines)) {
+      for (const g of m.projects) keys.push([`${m.id}/${g.name}`, state.machines.length > 1 ? `${g.name} · ${m.label}` : g.name])
+    }
+    const cur = state.project ? `${state.project.machine || "local"}/${state.project.name}` : ""
+    put(projects, h("option", { value: "" }, "All projects"), keys.map(([v, label]) => h("option", { value: v, selected: v === cur }, label)))
+    for (const [pane, t] of tiles) {
+      if (!shown.some((p) => p.pane === pane)) { io?.unobserve(t.el); tiles.delete(pane); visible.delete(pane) }
+    }
+    put(grid, shown.map(tile))
+    put(el, h("div", { class: "watch-head" }, h("span", { class: "quiet" }, `${shown.length} live`), projects),
+      shown.length ? grid : h("p", { class: "hint" }, state.listed ? "Nothing running here." : "Loading…"))
+    sync()
+  }
+  return {
+    name: "watch", el, update,
+    frame: (f) => {
+      const t = tiles.get(f.pane)
+      if (!t) return
+      t.screen.replaceChildren(...frameRows(f.lines).slice(-14).map(rowNode))
+    },
+    connected: () => { const was = [...open]; open.clear(); for (const p of was) { open.add(p); send({ type: "frame.open", pane: p }) } },
+    leave: () => { io?.disconnect(); for (const p of open) send({ type: "frame.close", pane: p }); open.clear() },
+  }
+}
+
+// machinesView is each machine — how it is reached, whether it answers —
+// and each project on it with its panes counted by state. A project taps
+// through to Agents narrowed to it.
+function machinesView() {
+  const el = h("section", { class: "machines-view" })
+  const update = () => {
+    const ms = projectsOn(state.panes, state.machines)
+    const how = (m) => m.state !== "online" ? h("span", { class: "route off" }, m.state === "connecting" ? "connecting" : "offline")
+      : h("span", { class: `route ${relay ? "relay" : "direct"}` }, relay ? "relay" : "direct")
+    const dots = (g) => h("span", { class: "dots" }, ["waiting", "working", "done", "idle"].filter((k) => g[k]).map((k) =>
+      h("span", { class: `dotn ${k}`, title: k }, h("i", {}), String(g[k]))))
+    put(el,
+      h("div", { class: "card list-card" }, ms.map((m) => h("div", { class: "mrow" },
+        h("span", { class: "mi" }, m.id === "local" ? "💻" : "🖥"),
+        h("span", { class: "body" }, h("span", { class: "name" }, m.label),
+          h("span", { class: "sub" }, m.id === "local" ? (relay ? "through the relay" : "") : "through this computer")),
+        how(m)))),
+      ms.filter((m) => m.projects.length).map((m) => [
+        h("h2", {}, ms.length > 1 ? `Projects on ${m.label}` : "Projects"),
+        h("div", { class: "card list-card" }, m.projects.map((g) => h("button", {
+          class: "mrow project-row",
+          onclick: () => { state.project = { machine: m.id, name: g.name }; state.filter = "all"; navigate("/") },
+        }, h("span", { class: "mi" }, "▤"),
+        h("span", { class: "body" }, h("span", { class: "name" }, g.name),
+          h("span", { class: "sub" }, [g.branches ? `${g.branches} branch${g.branches === 1 ? "" : "es"}` : "",
+            g.agents ? `${g.agents} agent${g.agents === 1 ? "" : "s"}` : "", g.terminals ? `${g.terminals} terminal${g.terminals === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · "))),
+        dots(g))))]),
+      !state.panes.length ? h("p", { class: "hint" }, state.listed ? "Nothing running on any machine." : "Loading…") : null)
+  }
+  return { name: "machines", el, update }
 }
 
 // chatView is an agent as a conversation: what it asks, what it said
@@ -617,14 +939,42 @@ function chatView(pane) {
   }, hint, h("div", { class: "field" },
     mayType() ? h("a", { href: `/agent/${pane}/terminal`, "data-nav": true, class: "icon", "aria-label": "Terminal" }, "⌨") : null,
     text, action))
-  const el = h("section", { class: "chat" }, status, ask, rev, note,
+  // Every agent along the top, to move to another without going back.
+  const strip = h("nav", { class: "switcher", "aria-label": "Agents" })
+  const drawStrip = () => {
+    const agents = state.panes.filter((p) => p.kind !== "terminal")
+    if (agents.length < 2) { strip.replaceChildren(); return }
+    put(strip, agents.map((p) => h("a", { href: `/agent/${p.pane}`, "data-nav": true, class: `sw${p.pane === pane ? " on" : ""}`, "aria-current": p.pane === pane ? "page" : null },
+      mark(p), h("span", {}, agentLabel(p)))))
+    strip.querySelector(".on")?.scrollIntoView?.({ inline: "center", block: "nearest" })
+  }
+  const quick = h("div", { class: "quick" }, QUICK_REPLIES.map((q) => h("button", { type: "button", class: "chip", onclick: () => {
+    text.value = q
+    text.dispatchEvent(new Event("input"))
+    text.focus()
+  } }, q)))
+  composer.prepend(quick)
+  const el = h("section", { class: "chat" }, strip, status, ask, rev, note,
     h("div", { class: "section-head" }, h("h2", {}, "Output"),
       h("a", { href: `/agent/${pane}/terminal`, "data-nav": true, class: "link" }, "Terminal ›")),
     tail, composer)
 
+  // A swipe sideways goes to the next agent, or the one before.
+  let touch = null
+  el.addEventListener("touchstart", (e) => { if (e.touches.length === 1) touch = { x: e.touches[0].clientX, y: e.touches[0].clientY } }, { passive: true })
+  el.addEventListener("touchend", (e) => {
+    if (!touch || e.target.closest?.(".switcher, .tail, textarea, .composer")) { touch = null; return }
+    const t = e.changedTouches[0]
+    const dir = swipeTo(t.clientX - touch.x, t.clientY - touch.y)
+    touch = null
+    const to = dir && neighbours(state.panes, pane)[dir]
+    if (to) navigate(`/agent/${to}`)
+  }, { passive: true })
+
   let shown = null
   let reviewShown = ""
   const update = () => {
+    drawStrip()
     const p = paneOf(pane)
     if (!p) {
       put(status, h("p", { class: "quiet" }, state.listed ? "This agent has gone: its pane closed, or the agent left it." : "Loading…"))
@@ -653,6 +1003,7 @@ function chatView(pane) {
       rev.replaceChildren(rkey ? reviewCard(p, (m) => { note.textContent = m }) : "")
     }
     composer.hidden = !mayReply()
+    quick.hidden = p.state === "waiting" || !state.online
     const waiting = p.state === "waiting"
     const stop = p.state === "working" && !text.value.trim() && mayType()
     action.textContent = stop ? "■" : "↑"
@@ -1062,7 +1413,20 @@ function openNew(kind = "task") {
   const reachable = state.machines.filter((m) => m.state === "online")
   const machine = h("select", { "aria-label": "Machine" },
     reachable.map((m) => h("option", { value: m.id }, m.label)))
-  const agent = h("select", { "aria-label": "Agent" }, h("option", { value: "" }, "conch's default"), AGENTS.map((a) => h("option", { value: a }, a)))
+  // Which agent: a tile each, tapped; none chosen is conch's default.
+  const agent = { value: "" }
+  const picker = h("div", { class: "picker", role: "radiogroup", "aria-label": "Agent" })
+  const drawPicker = () => put(picker, AGENTS.map((a) => h("button", {
+    type: "button", role: "radio", "aria-checked": String(agent.value === a), class: agent.value === a ? "on" : "",
+    onclick: () => { agent.value = agent.value === a ? "" : a; drawPicker() },
+  }, mark({ agent: a }), a)))
+  drawPicker()
+  // Tries: the same task more than once, each on a branch of its own.
+  let tries = 1
+  const triesRow = h("div", { class: "segmented tries" })
+  const drawTries = () => put(triesRow, [1, 2, 3].map((n) => h("button", { type: "button", class: n === tries ? "on" : "",
+    onclick: () => { tries = n; drawTries(); go.textContent = n > 1 ? `Start ${n} tries` : "Start task" } }, String(n))))
+  drawTries()
   const name = h("input", { maxlength: "64", placeholder: "optional", "aria-label": "Name" })
   const prompt = h("textarea", { rows: "4", placeholder: kind === "task" ? "What should it do?" : "Its first message (optional)", "aria-label": "Prompt" })
   const go = h("button", { class: "primary wide" }, kind === "task" ? "Start task" : kind === "agent" ? "Start agent" : "Open terminal")
@@ -1091,7 +1455,9 @@ function openNew(kind = "task") {
           if (machine.value && machine.value !== "local") body.machine = machine.value
           if (agent.value) body.agent = agent.value
           if (name.value.trim()) body.name = name.value.trim()
+          if (tries > 1) body.tries = tries
           res = await api("POST", "/api/task", body)
+          if (res.panes?.length > 1) { sheet.close(); navigate("/watch"); return }
         } else {
           const body = { kind }
           if (machine.value && machine.value !== "local") body.machine = machine.value
@@ -1113,10 +1479,11 @@ function openNew(kind = "task") {
   },
   reachable.length > 1 ? h("label", {}, "Machine", machine) : null,
   h("label", {}, "Project", project),
-  kind !== "terminal" ? h("label", {}, "Agent", agent) : null,
+  kind !== "terminal" ? h("div", { class: "label" }, "Agent", picker) : null,
   kind !== "terminal" ? h("label", {}, kind === "task" ? "Task" : "First message", prompt) : null,
   h("label", {}, "Name", name),
-  kind === "task" ? h("p", { class: "hint" }, "conch makes a branch and a worktree for it, and starts the agent there.") : null,
+  kind === "task" ? h("div", { class: "label" }, "Tries", triesRow) : null,
+  kind === "task" ? h("p", { class: "hint" }, "conch makes a branch and a worktree for each, and starts the agent there. Two or three try the same task, to compare.") : null,
   go, err)
   sheet.open("New", h("div", { class: "segmented" }, tabs.map(([k, label]) =>
     h("button", { class: k === kind ? "on" : "", onclick: () => openNew(k) }, label))), form)
@@ -1209,13 +1576,16 @@ function settingsView() {
   try { done.checked = localStorage.getItem("conch.pushDone") === "1" } catch { /* private mode */ }
 
   const me = state.hello || {}
+  const keyWords = h("span", {})
+  if (relay) fingerprint(fromB64url(relay.key)).then((w) => { keyWords.textContent = w }).catch(() => {})
   const kv = (k, v) => h("div", { class: "kv" }, h("span", {}, k), h("span", { class: "quiet" }, v))
   const el = h("section", { class: "settings" },
     h("h2", {}, "Notifications"),
     h("div", { class: "card" }, status, h("label", { class: "check" }, done, " Also when an agent finishes"), on, off, error),
     h("p", { class: "hint" }, "A notification says which agent and which project, never what it asks or shows: it passes through Apple's or Google's servers."),
     h("h2", {}, "This device"),
-    h("div", { class: "card" }, kv("Device", me.device_id || ""), kv("Permission", me.permission || ""), kv("conch", me.conch_version || "")),
+    h("div", { class: "card" }, kv("Device", me.device_id || ""), kv("Permission", me.permission || ""), kv("conch", me.conch_version || ""),
+      kv("Reached", relay ? `through ${location.host}, end to end` : "directly"), ...(relay ? [kv("Computer's key", keyWords)] : [])),
     h("p", { class: "hint" }, "To unpair it, run ", h("code", {}, `conch web revoke ${me.device_id || "ID"}`), " on your laptop."))
   refresh().catch((err) => { error.textContent = err.message })
   return { name: "settings", el }
@@ -1227,6 +1597,7 @@ $("menu").addEventListener("click", () => drawer.open())
 $("drawer-scrim").addEventListener("click", () => drawer.close())
 $("more").addEventListener("click", () => state.more?.())
 $("new").addEventListener("click", () => openNew())
+$("fab").addEventListener("click", () => openNew())
 
 async function start() {
   try {

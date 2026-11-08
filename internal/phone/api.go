@@ -360,13 +360,21 @@ type TaskRequest struct {
 	Agent   string `json:"agent,omitempty"`
 	Name    string `json:"name,omitempty"`
 	Prompt  string `json:"prompt"`
+	// Tries starts the same task more than once, each on a branch of its
+	// own, to keep the best: what `conch task -n` does. 0 and 1 are one.
+	Tries int `json:"tries,omitempty"`
 }
 
-// TaskResponse is the pane the task started in.
+// MaxTries is the most tries a task may be started with from a phone.
+const MaxTries = 3
+
+// TaskResponse is the pane the task started in. With tries, Pane is the
+// first, and Panes every one in order.
 type TaskResponse struct {
-	Pane     string `json:"pane"`
-	Worktree string `json:"worktree,omitempty"`
-	Branch   string `json:"branch,omitempty"`
+	Pane     string   `json:"pane"`
+	Worktree string   `json:"worktree,omitempty"`
+	Branch   string   `json:"branch,omitempty"`
+	Panes    []string `json:"panes,omitempty"`
 }
 
 // PushKey is GET /api/push/key.

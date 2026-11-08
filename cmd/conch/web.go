@@ -25,9 +25,11 @@ import (
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/phone"
+	"github.com/Amitgb14/conch/internal/relay"
 )
 
-const webUsage = `usage: conch web [-listen ADDR] [-port N] [-url URL] [-cert FILE -key FILE]
+const webUsage = `usage: conch web [-listen ADDR] [-port N] [-url URL] [-cert FILE -key FILE] [-relay URL]
+       conch web relay [reset]
        conch web pair [-permission view|reply|full] [-machine NAME]...
        conch web devices
        conch web revoke ID
@@ -84,6 +86,8 @@ func runWeb(args []string) error {
 			return webStop(args[1:])
 		case "start":
 			return webStart(args[1:])
+		case "relay":
+			return webRelay(args[1:])
 		}
 	}
 	return webServe(args)
@@ -135,12 +139,24 @@ func webPair(args []string) error {
 	}
 	url := store.URL()
 	secure := strings.HasPrefix(url, "https://")
-	if *asJSON {
-		return printPairJSON(store, code, *permission, machines.names, url, secure)
+	rp, err := relayPairing(store, code)
+	if err != nil {
+		return err
 	}
-	if url != "" && secure && stdoutIsTerminal() {
+	if *asJSON {
+		return printPairJSON(store, code, *permission, machines.names, url, secure, rp)
+	}
+	link := ""
+	switch {
+	case rp.Link != "":
+		// Through the relay works from anywhere, at home too.
+		link = rp.Link
+	case url != "" && secure:
+		link = phone.PairLink(url, code)
+	}
+	if link != "" && stdoutIsTerminal() {
 		// The code opens the page with the pairing code filled in.
-		if lines, err := phone.QRLines(phone.PairLink(url, code)); err == nil {
+		if lines, err := phone.QRLines(link); err == nil {
 			fmt.Println(strings.Join(lines, "\n"))
 		}
 	}
@@ -150,7 +166,96 @@ func webPair(args []string) error {
 	// the thing people are surprised by, so it is said rather than left
 	// to be discovered when a machine is missing from the app.
 	fmt.Println(reachWords(machines.names))
+	if rp.Link != "" {
+		fmt.Printf("scan the code with the phone's camera: it opens %s, the relay, from any network\n", rp.Page)
+		fmt.Printf("the phone shows this computer's key as %q: the same words, the same key\n", rp.Words)
+		if !rp.Connected {
+			fmt.Println("conch web isn't connected to the relay yet: start it with `conch web`, or see `conch web relay`")
+		}
+		return nil
+	}
 	fmt.Println(pairWhere(url))
+	return nil
+}
+
+// relayLinkFor is a gateway's link to its relay, with its room and key.
+func relayLink(store *phone.Store, relayURL string, h http.Handler) (*relay.Link, error) {
+	secret, key, err := store.Relay()
+	if err != nil {
+		return nil, err
+	}
+	pid := os.Getpid()
+	return &relay.Link{Relay: relayURL, Secret: secret, Key: key, Handler: h,
+		Logf: log.New(os.Stderr, "", log.LstdFlags).Printf,
+		OnStatus: func(st relay.Status) {
+			_ = store.SetRelayState(&phone.RelayState{URL: relayURL, PID: pid, Connected: st.Connected, Error: st.Error, Since: st.Since})
+		}}, nil
+}
+
+// relayPair is what pairing through a relay needs said: the link, the page
+// it opens, the key's words, and whether conch web is on the relay now.
+type relayPair struct {
+	Link, Page, Words string
+	Connected         bool
+}
+
+// relayPairing is a pairing through the relay in the settings, when there
+// is one.
+func relayPairing(store *phone.Store, code string) (relayPair, error) {
+	cfg, _ := config.Load()
+	if cfg.Web.Relay == "" {
+		return relayPair{}, nil
+	}
+	page, err := relay.HTTPURL(cfg.Web.Relay)
+	if err != nil {
+		return relayPair{}, fmt.Errorf("[web] relay: %v", err)
+	}
+	secret, key, err := store.Relay()
+	if err != nil {
+		return relayPair{}, err
+	}
+	st, running := store.RelayState()
+	return relayPair{Link: phone.RelayPairLink(page, code, relay.RoomID(secret), key.Public), Page: page,
+		Words: relay.Fingerprint(key.Public), Connected: running && st.Connected && st.URL == cfg.Web.Relay}, nil
+}
+
+// webRelay is `conch web relay`: how the link is; reset makes a new key.
+func webRelay(args []string) error {
+	store := phone.OpenStore(config.Dir())
+	switch {
+	case len(args) == 1 && args[0] == "reset":
+		if err := notFromAnAgent("reset the relay key"); err != nil {
+			return err
+		}
+		if err := store.ResetRelay(); err != nil {
+			return err
+		}
+		fmt.Println("a new relay key: phones paired through the relay have to pair again (restart conch web to use it)")
+		return nil
+	case len(args) > 0:
+		return errors.New(webUsage)
+	}
+	cfg, _ := config.Load()
+	if cfg.Web.Relay == "" {
+		fmt.Println("no relay: set [web] relay = \"wss://…\" in config.toml (a server running `conch relay`)")
+		return nil
+	}
+	_, key, err := store.Relay()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("relay: %s\nkey:   %s\n", cfg.Web.Relay, relay.Fingerprint(key.Public))
+	st, running := store.RelayState()
+	switch {
+	case !running:
+		fmt.Println("conch web isn't running: `conch web` connects to it")
+	case st.URL != cfg.Web.Relay:
+		fmt.Printf("conch web is connected to %s, not this one: restart it\n", st.URL)
+	case st.Connected:
+		fmt.Printf("connected since %s\n", st.Since.Local().Format("15:04"))
+	default:
+		fmt.Printf("not connected: %s\n", st.Error)
+	}
 	return nil
 }
 
@@ -338,6 +443,7 @@ func webServe(args []string) error {
 	cert := fs.String("cert", "", "TLS certificate, to serve HTTPS here instead of through `tailscale serve`")
 	key := fs.String("key", "", "the certificate's key")
 	public := fs.String("url", "", "the address phones open, when it isn't where this listens: the https://…ts.net name `tailscale serve` gives")
+	relayURL := fs.String("relay", "", "a relay to connect out to, so phones reach this computer from anywhere: wss://relay.example.com")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -355,6 +461,14 @@ func webServe(args []string) error {
 		}
 		if !given["port"] {
 			*port = cfg.Web.PortOrDefault()
+		}
+		if !given["relay"] && cfg.Web.Relay != "" {
+			*relayURL = cfg.Web.Relay
+		}
+	}
+	if *relayURL != "" {
+		if _, err := relay.HTTPURL(*relayURL); err != nil {
+			return fmt.Errorf("-relay: %v", err)
 		}
 	}
 	if *public != "" {
@@ -381,7 +495,13 @@ func webServe(args []string) error {
 		if err != nil {
 			return err
 		}
-		if addr, warning, err = phone.ListenAddr(*listen, *port, addrs); err != nil {
+		addr, warning, err = phone.ListenAddr(*listen, *port, addrs)
+		if errors.Is(err, phone.ErrNoTailscale) && *relayURL != "" {
+			// No Tailscale, and none needed: phones come through the
+			// relay. Listening on loopback serves this computer only.
+			addr, warning, err = net.JoinHostPort("127.0.0.1", strconv.Itoa(*port)), "", nil
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -434,7 +554,7 @@ func webServe(args []string) error {
 		if host, p, _ := net.SplitHostPort(ln.Addr().String()); net.ParseIP(host).IsLoopback() {
 			fmt.Printf("with Tailscale's HTTPS in front of it: tailscale serve --bg http://127.0.0.1:%s\n", p)
 		}
-	} else if *cert == "" {
+	} else if *cert == "" && *relayURL == "" {
 		// The device cookie is Secure, so a browser keeps it only over
 		// HTTPS: pairing at this address is refused, and says why.
 		name := "<this machine>.<tailnet>.ts.net"
@@ -449,6 +569,16 @@ func webServe(args []string) error {
 	srv := &http.Server{Handler: g.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *relayURL != "" {
+		link, err := relayLink(store, *relayURL, g.Handler())
+		if err != nil {
+			ln.Close()
+			return err
+		}
+		fmt.Printf("phones reach this computer from anywhere through %s; its key is %q\n", *relayURL, relay.Fingerprint(link.Key.Public))
+		defer store.SetRelayState(nil)
+		go func() { _ = link.Run(ctx) }()
+	}
 	errc := make(chan error, 1)
 	go func() {
 		if *cert != "" {
@@ -482,9 +612,14 @@ type pairJSON struct {
 	Where      string    `json:"where"`
 	Running    bool      `json:"running"`
 	CanStart   bool      `json:"can_start"`
+	// Relay is the relay a phone pairs through, when one is set: the
+	// link is then the relay's, which works from any network.
+	Relay          string `json:"relay,omitempty"`
+	RelayConnected bool   `json:"relay_connected,omitempty"`
+	KeyWords       string `json:"key_words,omitempty"`
 }
 
-func printPairJSON(store *phone.Store, code, permission string, machines []string, url string, secure bool) error {
+func printPairJSON(store *phone.Store, code, permission string, machines []string, url string, secure bool, rp relayPair) error {
 	cfg, _ := config.Load()
 	_, running := store.Gateway()
 	_, can := phone.GatewayArgs(cfg.Web.URL, store)
@@ -492,6 +627,10 @@ func printPairJSON(store *phone.Store, code, permission string, machines []strin
 		Reach: reachWords(machines), URL: url, Where: pairWhere(url), Running: running, CanStart: !running && can}
 	if url != "" && secure {
 		out.Link = phone.PairLink(url, code)
+	}
+	if rp.Link != "" {
+		out.Link, out.Relay, out.RelayConnected, out.KeyWords = rp.Link, rp.Page, rp.Connected, rp.Words
+		out.Where = "scan the code with the phone's camera: it works from any network, through " + rp.Page
 	}
 	b, err := json.Marshal(out)
 	if err != nil {

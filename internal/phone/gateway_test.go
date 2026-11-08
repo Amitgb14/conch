@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -729,6 +730,53 @@ func TestProjectsAndTask(t *testing.T) {
 	f.call(proto.MethodPaneList, nil, &panes)
 	if len(panes.Panes) != 1 || phoneID(panes.Panes[0].ID) != res.Pane || panes.Panes[0].Name != "reviewer" || panes.Panes[0].Cwd != res.Worktree {
 		t.Fatalf("panes %+v", panes.Panes)
+	}
+
+	// Tries: the same task three times, each on a branch of its own, named
+	// as `conch task -n` names them, and named apart.
+	for _, bad := range []int{-1, MaxTries + 1} {
+		if status, _ := full.post("/api/task", TaskRequest{Project: proj.ID, Prompt: "x", Tries: bad}, nil); status != 400 {
+			t.Errorf("tries %d: %d, want 400", bad, status)
+		}
+	}
+	res = TaskResponse{}
+	tries := TaskRequest{Project: proj.ID, Agent: "claude", Name: "rank", Prompt: "Add ranking to search", Tries: 3}
+	if status, e := full.post("/api/task", tries, &res); status != 200 {
+		t.Fatalf("tries: %d %+v", status, e)
+	}
+	if len(res.Panes) != 3 || res.Pane != res.Panes[0] {
+		t.Fatalf("tries result %+v", res)
+	}
+	f.call(proto.MethodPaneList, nil, &panes)
+	branches, names := map[string]bool{}, map[string]bool{}
+	for _, p := range panes.Panes {
+		if slices.Contains(res.Panes, phoneID(p.ID)) {
+			branches[p.Branch], names[p.Name] = true, true
+		}
+	}
+	for _, want := range []string{"api/add-ranking-search/claude", "api/add-ranking-search/claude-2", "api/add-ranking-search/claude-3"} {
+		if !branches[want] {
+			t.Errorf("no try on %s: %v", want, branches)
+		}
+	}
+	if !names["rank-1"] || !names["rank-3"] {
+		t.Errorf("tries named %v", names)
+	}
+	// And again: the branches taken by the first three are passed over.
+	res = TaskResponse{}
+	tries.Name, tries.Tries = "", 2
+	if status, e := full.post("/api/task", tries, &res); status != 200 || len(res.Panes) != 2 {
+		t.Fatalf("tries again: %d %+v %+v", status, e, res)
+	}
+	f.call(proto.MethodPaneList, nil, &panes)
+	seen := map[string]int{}
+	for _, p := range panes.Panes {
+		seen[p.Branch]++
+	}
+	for b, n := range seen {
+		if n > 1 {
+			t.Errorf("%d tries on %s", n, b)
+		}
 	}
 }
 

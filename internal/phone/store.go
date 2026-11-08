@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Amitgb14/conch/internal/relay"
+	"github.com/flynn/noise"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -92,6 +94,29 @@ type state struct {
 	// Gateway is the last conch web: how it was started, so the TUI can
 	// start it again the same way, and its process while it runs.
 	Gateway *GatewayRun `json:"gateway,omitempty"`
+	// Relay is this computer's room on a relay and the key phones reach
+	// it by, made the first time a relay is used. A phone paired through
+	// one holds the key; making a new one is unpairing them all.
+	Relay *RelayKeys `json:"relay,omitempty"`
+	// RelayState is how conch web's link to its relay is, for the TUI,
+	// Conch.app and `conch web pair` to say.
+	RelayState *RelayState `json:"relay_state,omitempty"`
+}
+
+// RelayKeys are a gateway's on a relay: the room's secret, and the
+// private half of the key phones check it by.
+type RelayKeys struct {
+	Secret string `json:"secret"`
+	Key    string `json:"key"`
+}
+
+// RelayState is a gateway's link to its relay as it last was.
+type RelayState struct {
+	URL       string    `json:"url"`
+	PID       int       `json:"pid"`
+	Connected bool      `json:"connected"`
+	Error     string    `json:"error,omitempty"`
+	Since     time.Time `json:"since"`
 }
 
 // GatewayRun is a conch web as it was started. PID is 0 once it stopped.
@@ -466,6 +491,54 @@ func (s *Store) SetURL(url string) error {
 func (s *Store) URL() string {
 	st, _ := s.read()
 	return st.URL
+}
+
+// Relay is this computer's relay room and key, made and kept the first
+// time it is asked for.
+func (s *Store) Relay() (secret string, key noise.DHKey, err error) {
+	err = s.update(func(st *state) error {
+		if st.Relay != nil {
+			k, err := relay.KeyFromPrivate(st.Relay.Key)
+			if err != nil || st.Relay.Secret == "" {
+				return errors.New("the relay key in " + s.path + " can't be read")
+			}
+			secret, key = st.Relay.Secret, k
+			return nil
+		}
+		sec, err := relay.NewSecret()
+		if err != nil {
+			return err
+		}
+		k, err := relay.NewKey()
+		if err != nil {
+			return err
+		}
+		st.Relay = &RelayKeys{Secret: sec, Key: relay.EncodeKey(k.Private)}
+		secret, key = sec, k
+		return nil
+	})
+	return secret, key, err
+}
+
+// ResetRelay forgets the relay room and key: every phone paired through a
+// relay has to pair again, and nothing that saw the old ones can use them.
+func (s *Store) ResetRelay() error {
+	return s.update(func(st *state) error { st.Relay = nil; return nil })
+}
+
+// SetRelayState records conch web's link to its relay.
+func (s *Store) SetRelayState(rs *RelayState) error {
+	return s.update(func(st *state) error { st.RelayState = rs; return nil })
+}
+
+// RelayState is conch web's link to its relay as last recorded, if that
+// conch web is still running.
+func (s *Store) RelayState() (RelayState, bool) {
+	st, _ := s.read()
+	if st.RelayState == nil || st.RelayState.PID == 0 || !processAlive(st.RelayState.PID) {
+		return RelayState{}, false
+	}
+	return *st.RelayState, true
 }
 
 // Subscribe keeps a device's push subscription, replacing the one it had

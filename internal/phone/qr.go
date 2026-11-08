@@ -3,6 +3,8 @@ package phone
 import (
 	"strings"
 
+	"github.com/Amitgb14/conch/internal/relay"
+
 	"rsc.io/qr"
 )
 
@@ -11,6 +13,15 @@ import (
 // request, so in no log along the way.
 func PairLink(base, code string) string {
 	return strings.TrimRight(base, "/") + "/#code=" + code
+}
+
+// RelayPairLink is where a code is opened when phones reach this computer
+// through a relay: the relay's page, with the room and this computer's
+// key beside the code in the fragment — which the relay never sees, as no
+// browser sends one. The key arriving this way, through the camera, is
+// what keeps the relay out of the session.
+func RelayPairLink(relayPage, code, room string, pub []byte) string {
+	return strings.TrimRight(relayPage, "/") + "/#code=" + code + "&room=" + room + "&key=" + relay.EncodeKey(pub)
 }
 
 // qrQuiet is the light margin round the code, in modules. The standard

@@ -61,7 +61,7 @@ var uiTypes = map[string]string{
 // tapped into a new window, or the address opened by hand. Matching a
 // bare pane left those a 404 served to somebody who had just been told
 // an agent was waiting.
-var appPage = regexp.MustCompile(`^/(agent/([a-z0-9-]+:)?p[0-9]+(/terminal)?/?|new/?|settings/?)$`)
+var appPage = regexp.MustCompile(`^/(agent/([a-z0-9-]+:)?p[0-9]+(/terminal)?/?|new/?|settings/?|watch/?|machines/?)$`)
 
 // The app is served gzipped where the phone takes it, which is every
 // browser that runs this app. There is no build step and what is in ui/

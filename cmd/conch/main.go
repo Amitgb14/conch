@@ -215,6 +215,17 @@ Usage:
                                 it asks. Listens only on this machine's Tailscale address
                                 unless -listen names another; -url is the https address
                                 phones open (the one tailscale serve gives)
+  conch web -relay wss://HOST  (or [web] relay in config.toml)
+                                also reach the phone from any network, through a relay:
+                                conch web connects out to it, and phone and computer
+                                encrypt everything with the key the pairing QR code carries
+  conch web relay [reset]       how the link to the relay is, and the words its key is
+                                said in; reset makes a new key, unpairing the phones
+                                that came through the relay
+  conch relay [-listen ADDR] [-cert FILE -key FILE]
+                                run a relay on a server of your own (:8443 by default), for
+                                phones and computers to meet at; it forwards what it can't
+                                read, stores nothing, and serves the phone's app
   conch web pair [-permission view|reply|full] [-machine NAME]... [-json]
                                 a one-time code (5 minutes) that pairs a phone, with a QR code
                                 that opens it; full by default (-permission reply or
@@ -359,6 +370,8 @@ func main() {
 		err = runAsk(args)
 	case "web":
 		err = runWeb(args)
+	case "relay":
+		err = runRelay(args)
 	case "config":
 		err = runConfig(args)
 	case "mcp":
