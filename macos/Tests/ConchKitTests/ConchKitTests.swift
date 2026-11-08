@@ -693,7 +693,7 @@ final class FakeServer: @unchecked Sendable {
     plain.upsert(np)
     #expect(!plain.menu(for: api, machine: "box").contains { if case .commits = $0.action { return true }; return false })
     #expect(s.menu(for: t, machine: "box").map(\.action) == [.startAgent(machine: "box", cwd: nil, inProject: false), .newTerminal(machine: "box", cwd: nil, inProject: false),
-                                                             .broadcast(.machine("box")), .divider, .addProject(machine: "box"), .addMachine,
+                                                             .broadcast(.machine("box")), .divider, .addProject(machine: "box"), .addMachine, .newSandbox,
                                                              .skillsSettings(machine: "box"), .divider, .reconnect(machine: "box"), .reloadServer(machine: "box"),
                                                              .upgrade(machine: "box"), .removeMachine(machine: "box")])
     // This computer is neither upgraded nor removed from here; its CLI
@@ -710,7 +710,7 @@ final class FakeServer: @unchecked Sendable {
     // Offline: nothing that starts anything; a pane can still be opened or closed.
     // Adding another needs no connection here; an offline machine is
     // reconnected, upgraded or removed, never reloaded.
-    #expect(s.menu(for: t, machine: "box", machineOnline: false).map(\.action) == [.addMachine, .divider, .reconnect(machine: "box"),
+    #expect(s.menu(for: t, machine: "box", machineOnline: false).map(\.action) == [.addMachine, .newSandbox, .divider, .reconnect(machine: "box"),
                                                                                    .upgrade(machine: "box"), .removeMachine(machine: "box")])
     #expect(s.menu(for: api, machine: "box", machineOnline: false).isEmpty)
     #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View changes on feat", "", "Close agent…"])
@@ -2652,4 +2652,38 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     // An empty list, and an older conch's bare one.
     let none = try conchDecoder().decode(PhonesInfo.self, from: Data(#"{"running":false,"devices":[]}"#.utf8))
     #expect(none.onNow.isEmpty && none.icon == .idle && none.tooltip.hasPrefix("Pair a phone"))
+}
+
+// New Sandbox… reads `conch sandbox providers -json` and runs `conch sandbox
+// -provider P create` as the TUI's dialog does: numbers only for a
+// provider that takes them, and nothing at all for one without its key.
+@Test func newSandbox() throws {
+    let j = #"[{"name":"daytona","label":"Daytona","ready":true},{"name":"boat","label":"boat.dev","ready":false,"why":"set $BOAT_API_KEY","sizes":["small","default","large"]},{"name":"devin","label":"Devin Cloud","ready":true,"place":"a platform","note":"bills ACUs"}]"#
+    let ps = try JSONDecoder().decode([SandboxProviderInfo].self, from: Data(j.utf8))
+    #expect(ps.map(\.name) == ["daytona", "boat", "devin"])
+    #expect(ps[0].takes == .snapshot && ps[1].takes == .sizes(["small", "default", "large"]) && ps[2].takes == .place("a platform"))
+
+    var f = NewSandboxForm(provider: "daytona")
+    #expect(try f.arguments(for: ps[0]).get() == ["sandbox", "-provider", "daytona", "create"])
+    f.label = " fix-login "
+    f.snapshot = "conch-dev"
+    f.cpu = "2"
+    f.memory = " 4 "
+    #expect(try f.arguments(for: ps[0]).get() == ["sandbox", "-provider", "daytona", "create", "-label", "fix-login", "-snapshot", "conch-dev", "-cpu", "2", "-memory", "4"])
+    for bad in ["0", "-1", "two", "1.5"] {
+        f.cpu = bad
+        #expect(throws: NewSandboxError.self) { try f.arguments(for: ps[0]).get() }
+    }
+
+    // Not set up: refused, saying what to set.
+    let b = NewSandboxForm(provider: "boat")
+    if case .failure(let e) = b.arguments(for: ps[1]) { #expect(e.message == "set $BOAT_API_KEY") } else { Issue.record("boat without its key was sent") }
+
+    // A placed provider takes its place where the snapshot goes, and no numbers.
+    var d = NewSandboxForm(provider: "devin")
+    d.snapshot = "windows"
+    d.cpu = "8"
+    #expect(try d.arguments(for: ps[2]).get() == ["sandbox", "-provider", "devin", "create", "-snapshot", "windows"])
+    // The wrong provider's info is not used.
+    #expect(throws: NewSandboxError.self) { try d.arguments(for: ps[0]).get() }
 }

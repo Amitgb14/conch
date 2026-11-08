@@ -186,6 +186,7 @@ Usage:
                                 one whose machine was removed, or on boat.dev one made in its own
                                 interface. Started if stopped and conch installed; never deleted
                                 if that fails
+  conch sandbox providers [-json]  which providers conch can make a sandbox with, and whether each has its key
   conch sandbox stats           every provider's sandboxes, their state and size, and a line
                                 per provider (-provider P narrows it to one)
   conch sandbox -provider P ls | start ID | stop [-y] ID | rm [-y] ID

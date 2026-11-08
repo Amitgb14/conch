@@ -2123,6 +2123,7 @@ final class Store: ObservableObject {
         case "addProject": addProject()
         case "sshToHost": sshToHost()
         case "addMachine": addMachine()
+        case "newSandbox": newSandboxOpen = true
         case "newTask": newTaskHere()
         case "startAgent": startAgentHere()
         case "newTab": newTerminal(split: nil)
@@ -2257,6 +2258,7 @@ final class Store: ObservableObject {
         case .addProject(let m): addProject(on: m)
         case .sshToHost: sshToHost()
         case .addMachine: addMachine()
+        case .newSandbox: newSandboxOpen = true
         case .reconnect(let m): reconnect(m)
         case .reloadServer(let m): reloadServer(m)
         case .upgrade(let m): upgrade(m)
@@ -2447,6 +2449,32 @@ final class Store: ObservableObject {
         Task {
             do {
                 let p = try await c.call("pane.create", Create(name: "machine add · " + target, command: command, cwd: NSHomeDirectory(), no_project: true), as: PaneInfo.self)
+                snapshots["local", default: Snapshot()].upsert(p)
+                layout.open(key("local", p.id))
+                focusTerminal()
+            } catch {
+                self.error = "\(error)"
+            }
+        }
+    }
+
+    /// New Sandbox…, the sheet that makes one (NewSandboxSheet).
+    @Published var newSandboxOpen = false
+
+    /// conch run with args in a terminal of its own on this Mac, opened in
+    /// a tab, so what it does — an install, a sandbox being made — is
+    /// watched and its questions answered.
+    func runCLIPane(name: String, args: [String]) {
+        guard let b = binary, let c = conns["local"] else { return }
+        struct Create: Encodable {
+            var name: String
+            var command: [String]
+            var cwd: String
+            var no_project: Bool
+        }
+        Task {
+            do {
+                let p = try await c.call("pane.create", Create(name: name, command: [b] + args, cwd: NSHomeDirectory(), no_project: true), as: PaneInfo.self)
                 snapshots["local", default: Snapshot()].upsert(p)
                 layout.open(key("local", p.id))
                 focusTerminal()

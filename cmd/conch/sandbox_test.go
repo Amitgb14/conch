@@ -1337,3 +1337,47 @@ func TestA4SandboxRemoveByProviderID(t *testing.T) {
 		t.Fatalf("the machine is still in the catalog: %+v", ms)
 	}
 }
+
+// conch sandbox providers says which providers have their key here — for a
+// window offering New sandbox… — and what each takes where a snapshot goes.
+func TestSandboxProviders(t *testing.T) {
+	a4Env(t)
+	for _, k := range []string{"DAYTONA_API_KEY", "BOAT_API_KEY", "DEVIN_API_KEY"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("DAYTONA_API_KEY", "k-test")
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runSandbox([]string{"providers", "-json"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ps []providerJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &ps); err != nil {
+		t.Fatalf("%q: %v", out, err)
+	}
+	by := map[string]providerJSON{}
+	for _, p := range ps {
+		by[p.Name] = p
+	}
+	if len(ps) != 3 || by["daytona"].Name == "" || by["boat"].Name == "" || by["devin"].Name == "" {
+		t.Fatalf("providers: %+v", ps)
+	}
+	if d := by["daytona"]; !d.Ready || d.Why != "" || d.Label != "Daytona" {
+		t.Errorf("daytona with its key: %+v", d)
+	}
+	if b := by["boat"]; b.Ready || !strings.Contains(b.Why, "BOAT_API_KEY") || len(b.Sizes) == 0 {
+		t.Errorf("boat without its key: %+v", b)
+	}
+	if d := by["devin"]; d.Ready || d.Place == "" || d.Note == "" {
+		t.Errorf("devin: %+v", d)
+	}
+	// No -provider needed, and the table says the same.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"providers"}) })
+	if err != nil || !strings.Contains(out, "daytona") || !strings.Contains(out, "no: set $BOAT_API_KEY") {
+		t.Fatalf("table: %q %v", out, err)
+	}
+	a4Capture(t, "", func() { err = runSandbox([]string{"providers", "-x"}) })
+	if err == nil {
+		t.Error("providers -x was taken")
+	}
+}

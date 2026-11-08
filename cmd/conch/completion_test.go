@@ -91,7 +91,7 @@ func TestCompletionCandidates(t *testing.T) {
 		{[]string{"machine", "rename", "busybox"}, "", nil},
 		{[]string{"web", "pair", "-permission"}, "r", []string{"reply"}},
 		{[]string{"web", "permission", "d1"}, "", []string{"view", "reply", "full"}},
-		{[]string{"sandbox"}, "", []string{"-provider", "stats"}},
+		{[]string{"sandbox"}, "", []string{"-provider", "stats", "providers"}},
 		{[]string{"sandbox", "-provider"}, "", []string{"daytona", "boat", "devin"}},
 		{[]string{"sandbox", "-provider", "boat"}, "s", []string{"start", "stop", "ssh", "snapshot", "snapshots"}},
 		{[]string{"sandbox", "-provider", "boat", "ls"}, "", nil},

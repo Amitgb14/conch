@@ -617,6 +617,7 @@ struct MainView: View {
         .sheet(isPresented: $store.helpOpen) { ShortcutsSheet(store: store) }
         .sheet(isPresented: $store.doctorOpen) { DoctorSheet(store: store) }
         .sheet(isPresented: $store.updatesOpen) { UpdatesSheet(store: store) }
+        .sheet(isPresented: $store.newSandboxOpen) { NewSandboxSheet(store: store) }
         .background(Theme.window)
         // Meadow paints the title bar itself: a sky behind the toolbar's
         // controls (AppKit's, so drawn over it), lifted into the title bar
