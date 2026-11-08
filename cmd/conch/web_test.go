@@ -326,14 +326,12 @@ func TestWebUsage(t *testing.T) {
 }
 
 // Without -url or a certificate, pairing can't work, and conch web says
-// what to run — with this machine's tailnet name when Tailscale knows it.
+// what to run. a4Env leaves no tailscale to ask, so the name is the
+// placeholder: a fake asked from the subprocess had two seconds to answer,
+// which under a loaded -race run it sometimes missed.
 func TestWebSaysHowToGetHTTPS(t *testing.T) {
-	dir := a4Env(t)
+	a4Env(t)
 	startA4Server(t, config.SocketPath())
-	fake := filepath.Join(dir, "tailscale")
-	os.WriteFile(fake, []byte("#!/bin/sh\n[ \"$1 $2\" = \"status --json\" ] || exit 1\n"+
-		"echo '{\"Self\":{\"DNSName\":\"laptop.tail1234.ts.net.\"}}'\n"), 0o755)
-	t.Setenv("CONCH_TAILSCALE", fake)
 	exe, _ := os.Executable()
 	cmd := a4Command(exe, "web", "-listen", "127.0.0.1:0")
 	stdout, _ := cmd.StdoutPipe()
@@ -349,11 +347,53 @@ func TestWebSaysHowToGetHTTPS(t *testing.T) {
 			break
 		}
 	}
-	text := strings.Join(out, "\n")
-	for _, want := range []string{"phones can't pair over plain http", "  tailscale serve --bg http://127.0.0.1:8722\n", "  conch web -url https://laptop.tail1234.ts.net\n"} {
-		if !strings.Contains(text+"\n", want) {
-			t.Fatalf("lacks %q:\n%s", want, text)
+	text := strings.Join(out, "\n") + "\n"
+	if !strings.Contains(text, httpsHint(8722, "")) {
+		t.Fatalf("lacks the hint:\n%s", text)
+	}
+}
+
+// The hint names this machine on the tailnet when Tailscale says it, and
+// says what to fill in when it doesn't.
+func TestHTTPSHint(t *testing.T) {
+	for name, want := range map[string]string{
+		"laptop.tail1234.ts.net": "  conch web -url https://laptop.tail1234.ts.net\n",
+		"":                       "  conch web -url https://<this machine>.<tailnet>.ts.net\n",
+	} {
+		hint := httpsHint(8722, name)
+		for _, w := range []string{"phones can't pair over plain http", "  tailscale serve --bg http://127.0.0.1:8722\n", want, "(or pass -cert and -key)\n"} {
+			if !strings.Contains(hint, w) {
+				t.Errorf("hint for %q lacks %q:\n%s", name, w, hint)
+			}
 		}
+	}
+}
+
+// Tailscale's name for this machine, read from its status, without the
+// trailing dot.
+func TestTailnetName(t *testing.T) {
+	dir := a4Env(t)
+	fake := filepath.Join(dir, "tailscale")
+	os.WriteFile(fake, []byte("#!/bin/sh\n[ \"$1 $2\" = \"status --json\" ] || exit 1\n"+
+		"echo '{\"Self\":{\"DNSName\":\"laptop.tail1234.ts.net.\"}}'\n"), 0o755)
+	t.Setenv("CONCH_TAILSCALE", fake)
+	old := tailnetTimeout
+	t.Cleanup(func() { tailnetTimeout = old })
+	tailnetTimeout = time.Minute // a shell script, under a loaded -race run
+	if n := tailnetName(); n != "laptop.tail1234.ts.net" {
+		t.Fatalf("name %q", n)
+	}
+
+	// A tailscale that takes longer than it is given is no name, not a wait.
+	slow := filepath.Join(dir, "slow")
+	os.WriteFile(slow, []byte("#!/bin/sh\nexec sleep 5\n"), 0o755)
+	t.Setenv("CONCH_TAILSCALE", slow)
+	start := time.Now()
+	if n := tailnetNameWithin(100 * time.Millisecond); n != "" {
+		t.Fatalf("name %q from a tailscale that never answered", n)
+	}
+	if d := time.Since(start); d > 4*time.Second {
+		t.Fatalf("waited %s", d)
 	}
 }
 
