@@ -228,3 +228,30 @@ func TestResizeStartsRawAgain(t *testing.T) {
 		t.Fatalf("lost: %v %v, want both", again.Lost(), other.Lost())
 	}
 }
+
+// The moment Repaint holds a pane a column narrower is not a size anybody
+// draws at, so it starts nobody again; going back does, once.
+func TestRepaintStartsRawAgainOnce(t *testing.T) {
+	p := startShell(t)
+	waitScreen(t, p, "$")
+	_, cols, rows, sub := p.SubscribeRaw()
+	defer p.UnsubscribeRaw(sub)
+	if err := p.resize(cols-1, rows, false); err != nil {
+		t.Fatal(err)
+	}
+	if sub.Lost() {
+		t.Fatal("a passing size started the subscriber again")
+	}
+	if err := p.Repaint(); err != nil {
+		t.Fatal(err)
+	}
+	if !sub.Lost() {
+		t.Fatal("repaint left the subscriber going")
+	}
+	_, c2, r2, again := p.SubscribeRaw()
+	defer p.UnsubscribeRaw(again)
+	if c2 != cols-1 || r2 != rows {
+		// Repaint started from cols-1 here, and went back to it.
+		t.Fatalf("after repaint the pane is %dx%d, want %dx%d", c2, r2, cols-1, rows)
+	}
+}

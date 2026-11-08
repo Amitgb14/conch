@@ -80,11 +80,17 @@ func (p *Pane) lose(sub *RawSub) {
 
 // resetRawLocked starts every raw subscriber again from a replay at the
 // pane's new size. A raw client's terminal reflows what it shows when its
-// width changes — Ghostty does — and conch's emulator does not; a program
+// width changes — Ghostty does — and conch's emulator does not. Height
+// parts them too: a shorter Ghostty pushes rows off the top into its
+// history to keep the cursor where it was, while conch's emulator cuts
+// them off the bottom, so the cursor sits on different rows. A program
 // that repaints by counting rows up from the cursor (Claude Code does)
 // then erases the wrong ones there, leaving a screen of half-erased
 // leftovers that conch's own copy of the pane never had. A replay drawn
-// from conch's copy puts the two back in step. Called with emuMu held,
+// from conch's copy puts the two back in step. What conch's copy does not
+// keep is lost from the client's screen at a resize: an inline image
+// (kitty graphics), which only the client drew, and its scroll position.
+// Called with emuMu held,
 // after the emulator took the size: what is queued is in the replay.
 func (p *Pane) resetRawLocked() {
 	for sub := range p.raws {

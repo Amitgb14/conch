@@ -464,7 +464,12 @@ func (p *Pane) running() bool {
 }
 
 // Resize changes the terminal size seen by the program.
-func (p *Pane) Resize(cols, rows int) error {
+func (p *Pane) Resize(cols, rows int) error { return p.resize(cols, rows, true) }
+
+// resize is Resize; startRaw false leaves raw subscribers going, for a
+// size the pane holds only for a moment (Repaint), which is then put
+// right once by the size it goes back to.
+func (p *Pane) resize(cols, rows int, startRaw bool) error {
 	if cols <= 0 || rows <= 0 {
 		return errors.New("pane: size must be positive")
 	}
@@ -472,7 +477,9 @@ func (p *Pane) Resize(cols, rows int) error {
 	same := cols == p.emu.Width() && rows == p.emu.Height()
 	if !same {
 		p.emu.Resize(cols, rows)
-		p.resetRawLocked()
+		if startRaw {
+			p.resetRawLocked()
+		}
 	}
 	p.emuMu.Unlock()
 	if same {
@@ -505,7 +512,7 @@ func (p *Pane) Repaint() error {
 	if !p.running() || cols <= 1 || rows <= 0 {
 		return nil
 	}
-	if err := p.Resize(cols-1, rows); err != nil {
+	if err := p.resize(cols-1, rows, false); err != nil {
 		return err
 	}
 	// A moment between the two sizes: a program that draws when it is
