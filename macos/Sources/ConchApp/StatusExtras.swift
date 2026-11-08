@@ -727,6 +727,11 @@ struct PhonesList: View {
     @ObservedObject var store: Store
     @State private var confirm: String?
     @State private var error = ""
+    /// The device whose name is being edited, and what is typed: every
+    /// phone pairs as what its browser says ("iPhone"), so two look alike.
+    @State private var naming: String?
+    @State private var draft = ""
+    @FocusState private var nameFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -757,7 +762,18 @@ struct PhonesList: View {
                        color: on ? Theme.accent : Theme.muted, size: 16)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
-                Text(d.name).font(.ui(size: 12.5, weight: .semibold)).lineLimit(1)
+                if naming == d.id {
+                    TextField("Name", text: $draft)
+                        .textFieldStyle(.roundedBorder).font(.ui(size: 12.5))
+                        .focused($nameFocused)
+                        .onSubmit { rename(d) }
+                        .onExitCommand { naming = nil }
+                        .onAppear { nameFocused = true }
+                } else {
+                    Text(d.name).font(.ui(size: 12.5, weight: .semibold)).lineLimit(1)
+                        .onTapGesture(count: 2) { startNaming(d) }
+                        .help("Double-click to rename")
+                }
                 Text([d.created.map { "paired \($0.formatted(.dateTime.month(.abbreviated).day()))" }, d.reach]
                     .compactMap { $0 }.joined(separator: " · "))
                     .font(.ui(size: 11)).foregroundStyle(.secondary).lineLimit(1)
@@ -782,6 +798,12 @@ struct PhonesList: View {
             }
             .menuStyle(.borderlessButton).fixedSize().font(.ui(size: 11.5))
             .help("What it may do: Full types into terminals too, Reply answers agents, View only looks")
+            if naming != d.id {
+                Button { startNaming(d) } label: {
+                    LucideIcon("pencil", color: Theme.muted, size: 12).padding(3).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).help("Rename \(d.name)")
+            }
             if confirm == d.id {
                 Button("Revoke") { confirm = nil; run(["web", "revoke", d.id]) }
                     .controlSize(.small).foregroundStyle(Theme.err)
@@ -794,6 +816,21 @@ struct PhonesList: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
+    }
+
+    private func startNaming(_ d: PhoneDevice) {
+        draft = d.name
+        confirm = nil
+        naming = d.id
+    }
+
+    /// The typed name, as `conch web rename` gives it; an empty one is
+    /// refused there, and the error said here.
+    private func rename(_ d: PhoneDevice) {
+        naming = nil
+        let name = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name != d.name else { return }
+        run(["web", "rename", d.id, name])
     }
 
     private func run(_ args: [String]) {

@@ -107,7 +107,7 @@ Giving or taking away a machine applies at once, on connections already open: a 
 
 ## Devices
 
-In the TUI, **⚙ Settings → Web → Devices…** opens a panel of every paired phone and browser: its name, ID, what it may do, the machines it reaches, when it was paired and when it was last seen — `on · relay` or `on · direct` while it has the app open — and the settings row counts the phones on now. `v`, `r` and `f` set what the selected one may do, `x` twice revokes it, esc goes back. A change applies to the device's next request at once.
+In the TUI, **⚙ Settings → Web → Devices…** opens a panel of every paired phone and browser: its name, ID, what it may do, the machines it reaches, when it was paired and when it was last seen — `on · relay` or `on · direct` while it has the app open — and the settings row counts the phones on now. `v`, `r` and `f` set what the selected one may do, `n` renames it, `x` twice revokes it, esc goes back. Every phone pairs as what its browser calls itself — iPhone, Browser — so naming them is how two iPhones are told apart. A change applies to the device's next request at once.
 
 From a terminal:
 
@@ -115,11 +115,12 @@ From a terminal:
 conch web devices        # ID, name, permission, the machines it reaches, when it was paired, when last seen
 conch web devices -json  # the same, with whether conch web is on its relay, for a program to show
 conch web revoke d_7h2k  # cut one off
+conch web rename d_7h2k Amit's iPhone   # name it; no quotes needed
 conch web permission d_7h2k full   # let it type into terminals, without pairing again
 conch web permission d_7h2k full -machine busybox   # and let it reach a machine
 ```
 
-In Conch.app, the phone icon in the status bar shows how many phones are on now, by its colour and a count, and turns amber while `conch web` is running but not on its relay; its tooltip names each phone and its route. Its popover pairs a phone — the QR code, the code to type, what it may do, the routes it can come by with whether each is up now, and the relay's **safety code** — and **Paired phones…** lists them, each with its route or when it was last seen, what it may do (changed there) and revoking it. **Settings → Phone** shows the same list under the relay's state, and whether `conch web` is running. **Restart** there, or **Restart conch web** in the popover, stops it and starts it again on the app's own conch — what to do after an update, since the gateway keeps running the build it started with. Phones reconnect by themselves.
+In Conch.app, the phone icon in the status bar shows how many phones are on now, by its colour and a count, and turns amber while `conch web` is running but not on its relay; its tooltip names each phone and its route. Its popover pairs a phone — the QR code, the code to type, what it may do, the routes it can come by with whether each is up now, and the relay's **safety code** — and **Paired phones…** lists them, each with its route or when it was last seen, what it may do (changed there), renaming it (the pencil, or double-click its name) and revoking it. **Settings → Phone** shows the same list under the relay's state, and whether `conch web` is running. **Restart** there, or **Restart conch web** in the popover, stops it and starts it again on the app's own conch — what to do after an update, since the gateway keeps running the build it started with. Phones reconnect by themselves.
 
 `permission` without `-machine` leaves the machines as they were: what a device may do and where it may do it are two decisions, and changing one does not quietly change the other.
 
