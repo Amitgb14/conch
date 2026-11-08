@@ -104,6 +104,18 @@ public struct RowMenuItem: Equatable, Sendable {
     public var picksAgent: Bool { if case .startAgent = action { return true }; return false }
 }
 
+/// How conch's commands name a pane: its ID on this computer, and
+/// machine:ID on another (`conch read busybox:p3`) — by the machine's label,
+/// or its ID when the label has a space or a colon and would not survive
+/// being typed. As the TUI's paneRef.
+public func paneRef(machine: String, label: String?, pane: String) -> String {
+    if machine.isEmpty || machine == "local" { return pane }
+    if let l = label, !l.isEmpty, l.rangeOfCharacter(from: CharacterSet(charactersIn: " \t:")) == nil {
+        return l + ":" + pane
+    }
+    return machine + ":" + pane
+}
+
 extension Snapshot {
     /// Whether a broadcast from scope has anyone to go to.
     func hasRunning(_ scope: BroadcastScope) -> Bool { !broadcastTargets(scope).isEmpty }
@@ -111,7 +123,7 @@ extension Snapshot {
     /// A tree row's right-click menu: the TUI's row menu (overlay.go), for
     /// what the app does itself. machineOnline false leaves out whatever
     /// would start something there.
-    public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true) -> [RowMenuItem] {
+    public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true, label: String? = nil) -> [RowMenuItem] {
         var out: [RowMenuItem] = []
         switch node.kind {
         case .agent(let k), .terminal(let k):
@@ -136,7 +148,10 @@ extension Snapshot {
                         RowMenuItem((output ? "✓ " : "") + "Alert on output", .monitor(pane: k, quiet: false))]
             }
             if machine == "local", p.sshTarget != nil { out += [.divider, RowMenuItem("Save this host", .saveHost(pane: k))] }
-            out += [.divider, RowMenuItem(agent && p.running ? "Close agent…" : "Close", .close(pane: k))]
+            // What conch's commands call it (conch read p12), which no row says.
+            let ref = paneRef(machine: machine, label: label, pane: p.id)
+            out += [.divider, RowMenuItem("Copy Pane ID (\(ref))", .copy(ref)),
+                    RowMenuItem(agent && p.running ? "Close agent…" : "Close", .close(pane: k))]
         case .branch(let pk, let name, _):
             out = [RowMenuItem("View changes", .changes(project: pk, branch: name))]
             let pr = project(unkey(pk).id)

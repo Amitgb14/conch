@@ -370,6 +370,21 @@ final class Store: ObservableObject {
 
     func label(_ machine: String) -> String { machines.first { $0.id == machine }?.label ?? machine }
 
+    /// How conch's commands name the pane at key — p12 here, busybox:p12
+    /// elsewhere — or nil when key is not a pane (a git tab, sessions).
+    func paneRef(key k: String) -> String? {
+        guard isPaneKey(k) else { return nil }
+        let (m, id) = unkey(k)
+        guard snapshots[m]?.pane(id) != nil else { return nil }
+        return ConchKit.paneRef(machine: m, label: label(m), pane: id)
+    }
+
+    func copyPaneRef(_ ref: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(ref, forType: .string)
+        say("Copied \(ref): conch read \(ref), conch send \(ref) …")
+    }
+
     func isOpen(_ node: TreeNode) -> Bool { ConchKit.isOpen(node, app: folds, tui: tuiFolds) }
 
     func toggle(_ node: TreeNode) {
@@ -2176,7 +2191,7 @@ final class Store: ObservableObject {
         guard let m = node.machine else { return [] }
         let online = machines.first { $0.id == m }?.online ?? false
         let s = snapshots[m] ?? Snapshot()
-        var items = s.menu(for: node, machine: m, machineOnline: online)
+        var items = s.menu(for: node, machine: m, machineOnline: online, label: label(m))
         // A sandbox's own: start, stop, delete, what it cost.
         if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.sandbox {
             items += sandboxMenu(machine: m, running: link.online)

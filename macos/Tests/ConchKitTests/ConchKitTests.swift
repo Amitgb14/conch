@@ -248,10 +248,10 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     #expect(items.contains { $0.action == .branch(project: "local|r1", name: "feat") })
     #expect(!items.contains { $0.action == .branch(project: "local|r1", name: "main") })
     #expect(items.last?.action == .command("openTUI"))
-    #expect(items.first { $0.action == .pane("local|p1") }?.detail == "api · feat")
+    #expect(items.first { $0.action == .pane("local|p1") }?.detail == "api · feat · p1")
     // Another machine's items say which machine.
     let (_, panes, _) = fixture().paletteItems(machine: "box", label: "busybox")
-    #expect(panes.first { $0.action == .pane("box|p1") }?.detail == "api · feat · busybox")
+    #expect(panes.first { $0.action == .pane("box|p1") }?.detail == "api · feat · busybox:p1")
 }
 
 @Test func paletteFilter() {
@@ -633,7 +633,7 @@ final class FakeServer: @unchecked Sendable {
     // An agent: open, rename, prompt, start beside it, its branch, close.
     let agent = api.children![0].children![0]
     let am = s.menu(for: agent, machine: "box")
-    #expect(titles(am) == ["Open", "Rename…", "Prompt…", "", "Start an agent here", "New terminal here", "View changes on feat", "", "Close agent…"])
+    #expect(titles(am) == ["Open", "Rename…", "Prompt…", "", "Start an agent here", "New terminal here", "View changes on feat", "", "Copy Pane ID (box:p1)", "Close agent…"])
     #expect(am[4].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true) && am[4].picksAgent)
     #expect(am[6].action == .changes(project: "box|r1", branch: "feat"))
     #expect(am.last?.action == .close(pane: "box|p1"))
@@ -713,7 +713,7 @@ final class FakeServer: @unchecked Sendable {
     #expect(s.menu(for: t, machine: "box", machineOnline: false).map(\.action) == [.addMachine, .newSandbox, .divider, .reconnect(machine: "box"),
                                                                                    .upgrade(machine: "box"), .removeMachine(machine: "box")])
     #expect(s.menu(for: api, machine: "box", machineOnline: false).isEmpty)
-    #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View changes on feat", "", "Close agent…"])
+    #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View changes on feat", "", "Copy Pane ID (box:p1)", "Close agent…"])
     // A section offers a broadcast to those in it, offline nothing; a pane
     // gone from the snapshot has no menu.
     #expect(s.menu(for: api.children![0], machine: "box").map(\.action) == [.broadcast(.section(project: "box|r1", agents: true))])
@@ -2686,4 +2686,35 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(try d.arguments(for: ps[2]).get() == ["sandbox", "-provider", "devin", "create", "-snapshot", "windows"])
     // The wrong provider's info is not used.
     #expect(throws: NewSandboxError.self) { try d.arguments(for: ps[0]).get() }
+}
+
+// A pane is named as conch's commands take it: p12 here, busybox:p12 on
+// another machine (its ID when the label can't be typed). The row menu
+// copies it, and the palette finds a pane by it.
+@Test func paneRefs() throws {
+    #expect(paneRef(machine: "local", label: nil, pane: "p3") == "p3")
+    #expect(paneRef(machine: "", label: "x", pane: "p3") == "p3")
+    #expect(paneRef(machine: "busybox-1", label: "busybox", pane: "p3") == "busybox:p3")
+    #expect(paneRef(machine: "lab-2", label: "lab box", pane: "p3") == "lab-2:p3")
+    #expect(paneRef(machine: "odd", label: "a:b", pane: "p3") == "odd:p3")
+    #expect(paneRef(machine: "gone", label: nil, pane: "p3") == "gone:p3")
+    #expect(paneRef(machine: "gone", label: "", pane: "p3") == "gone:p3")
+
+    let s = fixture()
+    let local = s.menu(for: TreeNode(id: "pane:local|p1", kind: .agent("local|p1"), title: "claude"), machine: "local")
+    #expect(local.contains { $0.title == "Copy Pane ID (p1)" && $0.action == .copy("p1") })
+    let remote = s.menu(for: TreeNode(id: "pane:bb|p2", kind: .terminal("bb|p2"), title: "zsh"), machine: "bb", label: "busybox")
+    #expect(remote.contains { $0.title == "Copy Pane ID (busybox:p2)" && $0.action == .copy("busybox:p2") })
+    // Close stays last.
+    #expect(remote.last.map { if case .close = $0.action { return true } else { return false } } == true)
+
+    // The palette: the ID in each pane's detail, and typing it finds it.
+    let (_, here, _) = s.paletteItems(machine: "local")
+    #expect(here.first { $0.title == "zsh" }?.detail == "api · p2")
+    #expect(filterPalette(here, query: "p3").first?.title == "bash")
+    let (_, there, _) = s.paletteItems(machine: "bb", label: "busybox")
+    #expect(there.first { $0.title == "bash" }?.detail == "busybox:p3")
+    #expect(there.first { $0.title == "zsh" }?.detail == "api · busybox:p2")
+    let (_, odd, _) = s.paletteItems(machine: "lab-2", label: "lab box")
+    #expect(odd.first { $0.title == "bash" }?.detail == "lab box · lab-2:p3")
 }

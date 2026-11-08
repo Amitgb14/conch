@@ -99,7 +99,7 @@ func (m Model) viewBody() string {
 			case focused && len(t.root.leaves()) > 1:
 				color = colorAccent
 			}
-			lines = frameLinesBar(m.leafTitle(l), content, in.w, color, m.scrollbarMark(l.view, len(content)))
+			lines = frameLinesLabeled(m.leafTitle(l), m.leafRef(l), content, in.w, color, m.scrollbarMark(l.view, len(content)))
 		}
 		for i, line := range lines {
 			if y := r.y + i; y >= 0 && y < rows {
@@ -589,6 +589,16 @@ func inboxLabel(waiting, done int) string {
 }
 
 // ---- main area ----
+
+// leafRef is the ID of the pane a split shows, as conch's commands take
+// it, for the right end of its border; "" for a split showing anything
+// else.
+func (m Model) leafRef(l *leaf) string {
+	if l.view.Kind != kindPane || m.pane(l.view.Machine, l.view.PaneID) == nil {
+		return ""
+	}
+	return m.paneRef(l.view.Machine, l.view.PaneID)
+}
 
 func (m Model) leafTitle(l *leaf) string {
 	v := l.view

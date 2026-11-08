@@ -321,6 +321,11 @@ func (m Model) statusRightItems(level int, bug bool) []statusItem {
 				return m.show(queueRow())
 			}})
 	}
+	// The pane being worked in, as conch's commands name it — nowhere
+	// else on screen says p12 — copied by a click.
+	if ref := m.activePaneRef(); ref != "" && level < rightNoExtras {
+		items = append(items, statusItem{text: styleMuted.Render(ref), act: func(m *Model) tea.Cmd { return copyPaneRef(ref) }})
+	}
 	if level < rightNoExtras {
 		items = append(items, m.statusLimits(time.Now())...)
 	}

@@ -305,6 +305,14 @@ func main() {
 	if len(args) > 0 {
 		cmd, args = args[0], args[1:]
 	}
+	// A pane named machine:pN, as conch's windows show and copy one, is
+	// that machine's pane.
+	if a, m, err := machinePane(cmd, args, machineFlag); err != nil {
+		fmt.Fprintln(os.Stderr, "conch:", err)
+		os.Exit(2)
+	} else {
+		args, machineFlag = a, m
+	}
 	// conch CMD -h is answered here, before CMD can take -h for something
 	// else or start a server first (help.go).
 	if len(args) > 0 && isHelpFlag(args[0]) && helpCommand(cmd) != "" {

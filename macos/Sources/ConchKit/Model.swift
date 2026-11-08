@@ -728,7 +728,13 @@ extension Snapshot {
         var waiting: [PaletteItem] = [], others: [PaletteItem] = [], places: [PaletteItem] = []
         let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
         for p in shown(in: ws, machine: machine) {
-            let detail = [p.projectID.flatMap { names[$0] }, p.branch, label].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+            // Its ID last, as the commands take it: typing p12 finds it. On
+            // another machine that is busybox:p12, which names the machine
+            // already.
+            let ref = paneRef(machine: machine, label: label, pane: p.id)
+            let shownLabel = label.map { ref.hasPrefix($0 + ":") ? "" : $0 }
+            let detail = [p.projectID.flatMap { names[$0] }, p.branch, shownLabel, ref]
+                .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
             var item = PaletteItem(title: p.displayName, detail: detail, kind: p.agent?.name ?? "terminal", action: .pane(key(machine, p.id)))
             if p.agent?.state == .blocked {
                 item.waiting = true
