@@ -27,6 +27,7 @@ struct StatusExtras: View {
             .popover(isPresented: $reporting, arrowEdge: .top) { ReportPopover(store: store) }
             Button { pairing.toggle() } label: {
                 LucideIcon("smartphone", color: Theme.muted, size: 13)
+                    .padding(.horizontal, 4).padding(.vertical, 3).contentShape(Rectangle())
             }
             .buttonStyle(.plain).help("Pair a phone, to see and answer your agents from it")
             .popover(isPresented: $pairing, arrowEdge: .top) { PairPopover(store: store) }
