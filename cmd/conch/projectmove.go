@@ -124,9 +124,14 @@ func projectMove(c *client.Client, args []string) error {
 		fmt.Println(resultText(plan, res))
 	}
 	if len(res.Failed) > 0 {
-		return fmt.Errorf("%s stayed on %s", relocate.Count(len(res.Failed), "thing", "things"), fromLabel)
+		return stayedError(len(res.Failed), fromLabel)
 	}
 	return nil
+}
+
+// stayedError is what a move that left something behind exits with.
+func stayedError(n int, from string) error {
+	return fmt.Errorf("%s stayed on %s", relocate.Count(n, "thing", "things"), from)
 }
 
 // planText says what a move would do, and what stays, before it starts.
