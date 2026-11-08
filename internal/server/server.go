@@ -184,10 +184,10 @@ func (s *Server) Run() error {
 	}
 
 	// Loading runs git per project; don't make clients wait for it.
-	go func() {
+	s.projects.background(func() {
 		s.projects.load()
 		s.projects.run()
-	}()
+	})
 	go s.uploads.run(s.quit)
 	go s.packs.run(s.quit)
 	go s.sshFiles.run(s.quit)
@@ -253,8 +253,18 @@ func (s *Server) Run() error {
 
 	<-s.quit
 	s.shutdown()
+	// git still at work in a checkout is waited for, briefly: whoever
+	// stopped the server may be about to remove the folder.
+	if !s.projects.settle(settleTimeout) {
+		log.Printf("project git work still running after %s; stopping anyway", settleTimeout)
+	}
 	return nil
 }
+
+// settleTimeout bounds how long a stopping server waits for git: long
+// enough for a call already running to reach its own limit, since running
+// git is never killed (see projectManager.background).
+const settleTimeout = gitTimeout + 5*time.Second
 
 // noteSocket takes charge of unlinking the socket file. A Go unix listener
 // deletes the path when it closes, whatever is there by then — so a server
