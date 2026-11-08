@@ -55,7 +55,10 @@ func TestSkillText(t *testing.T) {
 	// commit the person's work to hand it off, and a turn's end is checked,
 	// not trusted — backgrounded commands and failed requests end one too.
 	for _, want := range []string{"don't commit just to hand it off", "check the result", "in the foreground, not in the background",
-		"ask the person to add the pattern", "absolute path to read"} {
+		"ask the person to add the pattern", "absolute path to read",
+		// Helpers left behind were agents running for ever, each with its
+		// own MCP servers: the skill says how to clean up after itself.
+		"Clean up after yourself", "conch branch discard -n", "conch worktree clean -y", "Never add `-force` there"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the skill no longer says %q", want)
 		}

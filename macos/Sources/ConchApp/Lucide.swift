@@ -87,3 +87,59 @@ struct MachineIcon: View {
             }
     }
 }
+
+/// A Settings section's icon as [app] icons and icon_style say: Lucide's
+/// outline or the SF Symbol for it, plain in color, or white on a tile of
+/// the section's own colour.
+struct SectionIcon: View {
+    @Environment(\.conchTheme) private var look
+    let icon: String
+    let set: SettingsIconSet
+    let style: SettingsIconStyle
+    /// The plain glyph's colour; a tile's is white.
+    var color: Color
+    /// The glyph's size; a tile is a little larger around it.
+    var size: CGFloat
+
+    var body: some View {
+        let _ = look
+        switch style {
+        case .plain:
+            glyph(color: color, size: size)
+        case .tinted:
+            glyph(color: Theme.color(settingsTileColor(lucide: icon)), size: size)
+        case .tiles:
+            let tile = size * 1.45
+            glyph(color: .white, size: size * 0.82)
+                .frame(width: tile, height: tile)
+                .background(
+                    RoundedRectangle(cornerRadius: tile * 0.26, style: .continuous)
+                        .fill(LinearGradient(colors: [Theme.color(settingsTileGradient(lucide: icon).top), Theme.color(settingsTileGradient(lucide: icon).bottom)],
+                                             startPoint: .top, endPoint: .bottom))
+                        .shadow(color: .black.opacity(0.35), radius: 1, y: 1))
+        }
+    }
+
+    /// The SF Symbol, filled on a tile where the Mac has a filled one.
+    static func symbol(_ icon: String, filled: Bool) -> String {
+        let base = sfSymbol(lucide: icon)
+        return filled && NSImage(systemSymbolName: base + ".fill", accessibilityDescription: nil) != nil ? base + ".fill" : base
+    }
+
+    @ViewBuilder func glyph(color: Color, size: CGFloat) -> some View {
+        switch set {
+        case .lucide:
+            // Its own frame, not LucideIcon's 14-point column: the cards
+            // and tiles draw it larger than a tree row does.
+            Lucide(icon)
+                .stroke(color, style: StrokeStyle(lineWidth: max(1.3, size / 11), lineCap: .round, lineJoin: .round))
+                .frame(width: size, height: size)
+        case .sf, .sfFill:
+            Image(systemName: Self.symbol(icon, filled: set == .sfFill))
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: size * 0.92, weight: .regular))
+                .foregroundStyle(color)
+                .frame(width: size + 2, height: size + 2)
+        }
+    }
+}
