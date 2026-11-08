@@ -12,6 +12,7 @@ import {
   markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS, QUICK_REPLIES, BROADCASTS,
 } from "/lib.mjs"
 import { Tunnel, relayLink, cookieFrom, fingerprint, fromB64url, NO_GATEWAY } from "/tunnel.mjs"
+import { LOGOS } from "/logos.mjs"
 
 const API_VERSION = 2
 // The agents conch can start. There is no route that lists the ones
@@ -343,6 +344,23 @@ function mark(p) {
   const m = markOf(p)
   return h("span", { class: `agm ${m.cls}`, "aria-hidden": "true" }, m.glyph,
     p?.kind === "terminal" ? null : h("span", { class: `ring ${p?.state || ""}` }))
+}
+
+// logo is an agent's own logo, as an SVG in its colour (app.css .logo.NAME);
+// an agent without one keeps its mark.
+function logo(name) {
+  const l = LOGOS[name]
+  if (!l) return mark({ agent: name })
+  const NS = "http://www.w3.org/2000/svg"
+  const svg = document.createElementNS(NS, "svg")
+  svg.setAttribute("viewBox", "0 0 24 24")
+  svg.setAttribute("class", `logo ${name}`)
+  svg.setAttribute("aria-hidden", "true")
+  const path = document.createElementNS(NS, "path")
+  path.setAttribute("d", l.d)
+  if (l.evenOdd) path.setAttribute("fill-rule", "evenodd")
+  svg.append(path)
+  return svg
 }
 
 // row is one pane in a list: what it is, where, and how long it has been so.
@@ -1467,7 +1485,7 @@ function openNew(kind = "task") {
   const drawPicker = () => put(picker, AGENTS.map((a) => h("button", {
     type: "button", role: "radio", "aria-checked": String(agent.value === a), class: agent.value === a ? "on" : "",
     onclick: () => { agent.value = agent.value === a ? "" : a; drawPicker() },
-  }, mark({ agent: a }), a)))
+  }, logo(a), a)))
   drawPicker()
   // Tries: the same task more than once, each on a branch of its own.
   let tries = 1
