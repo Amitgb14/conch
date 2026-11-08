@@ -220,6 +220,22 @@ final class Store: ObservableObject {
     /// The pairing the popover opens with, made before it opens.
     var pairInfo: PairInfo?
 
+    /// conch web stopped and started again, on this app's conch: how a
+    /// new build reaches the gateway phones talk to, as the server's
+    /// reload does for the server. Phones reconnect by themselves.
+    @Published var webRestarting = false
+    func restartWeb() {
+        guard let b = binary, !webRestarting else { return }
+        webRestarting = true
+        job("Restarting conch web", done: "conch web restarted") {
+            defer { self.webRestarting = false; self.refreshPhones() }
+            _ = try await runConch(b, ["web", "stop"])
+            _ = try await runConch(b, ["web", "start"])
+            // It says it runs once it listens; give it that moment.
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+        }
+    }
+
     /// Makes a pairing code, then opens the pair popover with it. A
     /// popover is placed for the size it opens at; opened empty and
     /// filled a moment later, it grew down off the screen from a status

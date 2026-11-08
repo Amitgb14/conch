@@ -1869,13 +1869,13 @@ struct StatusBar: View {
                 }
                 .buttonStyle(.plain)
                 .help(store.limits.map(usageHelp).joined(separator: "\n") + "\nClick for every window")
-                .popover(isPresented: $showLimits, arrowEdge: .top) { LimitsPopover(store: store) }
+                .barPopover(isPresented: $showLimits) { LimitsPopover(store: store) }
                 .onChange(of: showLimits) { if $0 { store.refreshLimits(); store.refreshUsageHistory() } }
             } else if store.connected {
                 // No plan reported yet: what was used is still a click away.
                 Button { showLimits.toggle() } label: { Text("Usage").foregroundStyle(Theme.muted) }
                     .buttonStyle(.plain).help("Tokens used in the last day, week and month, by model")
-                    .popover(isPresented: $showLimits, arrowEdge: .top) { LimitsPopover(store: store) }
+                    .barPopover(isPresented: $showLimits) { LimitsPopover(store: store) }
                     .onChange(of: showLimits) { if $0 { store.refreshLimits(); store.refreshUsageHistory() } }
             }
             // ✦ Ask, report a problem and pair a phone, as the TUI's bar has.
@@ -1924,7 +1924,7 @@ struct StatusBar: View {
             }
             .buttonStyle(.plain).help("Memory and CPU conch uses on this computer")
             .onHover { monitorHover = $0 }
-            .popover(isPresented: $showMonitor, arrowEdge: .top) { MonitorPopover(store: store) }
+            .barPopover(isPresented: $showMonitor) { MonitorPopover(store: store) }
             .onChange(of: showMonitor) { if $0 { store.startMonitor() } else { store.stopMonitor() } }
         }
         .font(.ui(size: 12, weight: Theme.ink ? .semibold : .regular))
