@@ -701,6 +701,7 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("addProject", "Add project…", "⌘O"),
     ("sshToHost", "SSH to a host…", "⇧⌘H"),
     ("addMachine", "Add machine…", "⇧⌘M"),
+    ("newSandbox", "New sandbox (a machine in the cloud)…", ""),
     ("splitRight", "Split right", "⌘D"),
     ("splitDown", "Split down", "⇧⌘D"),
     ("closeSplit", "Close split", "⌘W"),

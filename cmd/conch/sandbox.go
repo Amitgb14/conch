@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -72,6 +73,9 @@ func runSandbox(args []string) error {
 	}
 	if args[0] == "stats" {
 		return sandboxStats(args[1:])
+	}
+	if args[0] == "providers" {
+		return sandboxProviders(args[1:])
 	}
 	if sandboxProvider == "" {
 		return errNoProvider()
@@ -965,4 +969,77 @@ func counted(n int, what string) string {
 		return fmt.Sprintf("%d %ses", n, what)
 	}
 	return fmt.Sprintf("%d %ss", n, what)
+}
+
+// providerJSON is one provider as `conch sandbox providers -json` gives it:
+// what a window offering New sandbox… needs to draw its choice — whether
+// it has its key (and if not, what is missing), and what goes where the
+// snapshot does.
+type providerJSON struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	Ready bool   `json:"ready"`
+	// Why is what is missing when it isn't ready: its API key, said as
+	// the provider says it.
+	Why string `json:"why,omitempty"`
+	// Sizes are the named sizes its machines come in, smallest first; a
+	// provider without them takes a snapshot and numbers.
+	Sizes []string `json:"sizes,omitempty"`
+	// Place is what its snapshot field takes instead, for one that places
+	// its machines rather than sizing them.
+	Place string `json:"place,omitempty"`
+	// Note is what it says before a sandbox is made: a cost or a limit.
+	Note string `json:"note,omitempty"`
+}
+
+// sandboxProviders lists the providers conch can make a sandbox with, and
+// whether each is set up here.
+func sandboxProviders(args []string) error {
+	asJSON := len(args) == 1 && args[0] == "-json"
+	if len(args) > 0 && !asJSON {
+		return errors.New("usage: conch sandbox providers [-json]")
+	}
+	out := []providerJSON{}
+	for _, name := range sandbox.Providers {
+		j := providerJSON{Name: name, Label: sandbox.ProviderLabel(name)}
+		p, err := remote.OpenProvider(name)
+		if err == nil {
+			err = p.Check()
+		}
+		if err != nil {
+			j.Why = strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")
+		} else {
+			j.Ready = true
+		}
+		if p != nil {
+			if ns, ok := p.(sandbox.NamedSizes); ok {
+				j.Sizes = ns.SizeNames()
+			}
+			if pl, ok := p.(sandbox.Placed); ok {
+				j.Place = pl.PlaceHint()
+			}
+			if n, ok := p.(sandbox.Noted); ok {
+				j.Note = n.Note()
+			}
+		}
+		out = append(out, j)
+	}
+	if asJSON {
+		b, err := json.Marshal(out)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "PROVIDER\tNAME\tREADY")
+	for _, j := range out {
+		ready := "yes"
+		if !j.Ready {
+			ready = "no: " + j.Why
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", j.Name, j.Label, ready)
+	}
+	return tw.Flush()
 }

@@ -43,6 +43,9 @@ public enum RowAction: Equatable, Sendable {
     case sshToHost
     /// Another machine, conch installed there (the TUI's M).
     case addMachine
+    /// A sandbox made with a provider and added as a machine (the TUI's
+    /// M → New sandbox…).
+    case newSandbox
     /// A machine's connection made again (the TUI's R).
     case reconnect(machine: String)
     /// A machine's server re-exec'd onto its binary, panes kept (m).
@@ -197,7 +200,7 @@ extension Snapshot {
                 if hasRunning(scope) { out.append(RowMenuItem("Broadcast…", .broadcast(scope))) }
                 if isMachine { out += [.divider, RowMenuItem("Add project…", .addProject(machine: machine))] }
             }
-            if isMachine { out.append(RowMenuItem("Add machine…", .addMachine)) }
+            if isMachine { out += [RowMenuItem("Add machine…", .addMachine), RowMenuItem("New sandbox…", .newSandbox)] }
             if isMachine && machineOnline {
                 out.append(RowMenuItem("Skills & MCP servers…", .skillsSettings(machine: machine)))
             }
