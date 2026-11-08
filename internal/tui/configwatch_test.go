@@ -59,7 +59,7 @@ func TestConfigChangedElsewhereIsTakenIn(t *testing.T) {
 	m.flash = ""
 	m.cfg.UI.Cost = !m.cfg.UI.Cost
 	waitConfigStamp(t)
-	if done := saveConfig(m.cfg)(); done != nil {
+	if done := m.saveConfig()(); done != nil {
 		t.Fatalf("save: %v", done)
 	}
 	own := pollConfig(w)
@@ -80,14 +80,49 @@ func TestConfigWatchWaitsForOwnSave(t *testing.T) {
 	if err := config.Save(config.Default()); err != nil {
 		t.Fatal(err)
 	}
-	configSaving.Add(1)
+	w.saving.Add(1)
 	if pollConfig(w).changed {
-		configSaving.Add(-1)
+		w.saving.Add(-1)
 		t.Fatal("read while a save was in flight")
 	}
-	configSaving.Add(-1)
+	w.saving.Add(-1)
 	if !pollConfig(w).changed {
 		t.Fatal("not read once the save landed")
+	}
+}
+
+// A save asked for and never run — a command dropped, as tests drop them
+// — holds back only the watcher of the TUI that asked: it once stopped
+// every TUI in the process seeing a change made elsewhere, which failed
+// the tests above whenever one that dropped a save had run before them.
+func TestConfigWatchADroppedSaveIsItsOwnTUIs(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	if err := config.Save(config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	dropper, _ := a1Fixture(t, false)
+	dropper.cfgWatch = newConfigWatch()
+	_ = dropper.saveConfig() // asked for, never run
+	w := newConfigWatch()
+
+	other := config.Default()
+	other.UI.Theme = "tokyo-night"
+	waitConfigStamp(t)
+	if err := config.Save(other); err != nil {
+		t.Fatal(err)
+	}
+	if msg := pollConfig(w); !msg.changed || msg.cfg.UI.Theme != "tokyo-night" {
+		t.Fatalf("another TUI's dropped save hid the change: %+v", msg)
+	}
+	if pollConfig(dropper.cfgWatch).changed {
+		t.Fatal("the TUI with a save in flight read the file")
+	}
+	// Saved for real, it lands and lets go.
+	if msg := dropper.saveConfig()(); msg != nil {
+		t.Fatalf("save: %v", msg)
+	}
+	if dropper.cfgWatch.saving.Load() != 1 {
+		t.Fatalf("saving = %d, want the dropped one alone", dropper.cfgWatch.saving.Load())
 	}
 }
 

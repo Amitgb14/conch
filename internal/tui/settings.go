@@ -87,11 +87,19 @@ func newSettings(m *Model) (*settings, tea.Cmd) {
 	}
 }
 
-// save writes the configuration in the background.
-func saveConfig(cfg config.Config) tea.Cmd {
-	configSaving.Add(1) // the file is ours until it lands (configwatch.go)
+// saveConfig writes the configuration in the background.
+func (m *Model) saveConfig() tea.Cmd { return saveConfigFor(m.cfgWatch, m.cfg) }
+
+// saveConfigFor writes cfg, counted against w (nil for a TUI that does
+// not watch) until it lands.
+func saveConfigFor(w *configWatch, cfg config.Config) tea.Cmd {
+	if w != nil {
+		w.saving.Add(1) // the file is ours until it lands (configwatch.go)
+	}
 	return func() tea.Msg {
-		defer configSaving.Add(-1)
+		if w != nil {
+			defer w.saving.Add(-1)
+		}
 		if err := config.Save(cfg); err != nil {
 			return errMsg{fmt.Errorf("saving settings: %w", err)}
 		}
@@ -134,29 +142,29 @@ func (s *settings) gitItems(m *Model) []settingItem {
 	items = append(items,
 		settingItem{label: "How a merge lands", detail: squashText(m.cfg.Git.Squash), run: func(m *Model) tea.Cmd {
 			m.cfg.Git.Squash = !m.cfg.Git.Squash
-			return saveConfig(m.cfg)
+			return m.saveConfig()
 		}},
 		settingItem{label: "A finished branch opens its own pull request", detail: autoPRText(m.cfg.Verify.AutoPR), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.AutoPR = !m.cfg.Verify.AutoPR
-			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+			return tea.Batch(m.saveConfig(), m.pushAutopilotAll())
 		}},
 		settingItem{label: styleMuted.Render("  once its agent finishes and its check passes; new commits go to the one already open")},
 		settingItem{label: "It needs a test to merge itself", detail: requireTestsText(m.cfg.Verify.RequireTests), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.RequireTests = !m.cfg.Verify.RequireTests
-			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+			return tea.Batch(m.saveConfig(), m.pushAutopilotAll())
 		}},
 		settingItem{label: "Largest that merges itself", detail: maxDiffText(m.cfg.Verify.MaxDiff), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.MaxDiff = nextMaxDiff(m.cfg.Verify.MaxDiff)
-			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+			return tea.Batch(m.saveConfig(), m.pushAutopilotAll())
 		}},
 		settingItem{label: "A green pull request merges itself", detail: autoMergeText(m.cfg.Verify.AutoMerge), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.AutoMerge = !m.cfg.Verify.AutoMerge
-			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+			return tea.Batch(m.saveConfig(), m.pushAutopilotAll())
 		}},
 		settingItem{label: styleMuted.Render("  it waits for the checks to turn green, and for the branch's own check where the project has one")},
 		settingItem{label: "A conflict with the base is resolved", detail: autoResolveText(m.cfg.Verify.AutoResolve), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.AutoResolve = (m.cfg.Verify.AutoResolve + 1) % 4
-			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+			return tea.Batch(m.saveConfig(), m.pushAutopilotAll())
 		}},
 		settingItem{label: styleMuted.Render("  rebased onto the base; a real conflict goes to the agent, and nothing is pushed that loses either side")},
 		settingItem{label: styleMuted.Render("  that one merges the pull request on GitHub, the way the repository allows — How a merge lands is conch's own")},
@@ -206,7 +214,7 @@ func (s *settings) themeItems(m *Model) []settingItem {
 			run: func(m *Model) tea.Cmd {
 				m.cfg.UI.Theme = t.name
 				applyTheme(m.cfg.UI.Theme, m.cfg.UI.Accent)
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}})
 	}
 	if m.cfg.UI.Accent != "" {
@@ -214,7 +222,7 @@ func (s *settings) themeItems(m *Model) []settingItem {
 			run: func(m *Model) tea.Cmd {
 				m.cfg.UI.Accent = ""
 				applyTheme(m.cfg.UI.Theme, "")
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}})
 	}
 
@@ -222,7 +230,7 @@ func (s *settings) themeItems(m *Model) []settingItem {
 		settingItem{label: "What agents spend", detail: "cost, or tokens when the agent reports none", on: &m.cfg.UI.Cost,
 			run: func(m *Model) tea.Cmd {
 				m.cfg.UI.Cost = !m.cfg.UI.Cost
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}})
 
 	items = append(items, settingItem{label: "Light what the pointer is on", detail: "a message per cell crossed; off on a slow link",
@@ -232,7 +240,7 @@ func (s *settings) themeItems(m *Model) []settingItem {
 				m.clearHover()
 			}
 			m.setFlash("hover applies to new conch windows: quit and start it again", false)
-			return saveConfig(m.cfg)
+			return m.saveConfig()
 		}})
 
 	items = append(items, settingItem{}, settingItem{header: true, label: "Diffs · how a file's changes are read"})
@@ -251,7 +259,7 @@ func (s *settings) themeItems(m *Model) []settingItem {
 				if cv := m.changes; cv != nil {
 					cv.unsplit = false
 				}
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}})
 	}
 
@@ -264,7 +272,7 @@ func (s *settings) themeItems(m *Model) []settingItem {
 		items = append(items, settingItem{label: c.label, detail: c.detail, mark: c.mode == treeGroups(m.cfg.UI.TreeGroups),
 			run: func(m *Model) tea.Cmd {
 				m.cfg.UI.TreeGroups = c.mode
-				return tea.Batch(m.rebuild(), saveConfig(m.cfg))
+				return tea.Batch(m.rebuild(), m.saveConfig())
 			}})
 	}
 
@@ -279,7 +287,7 @@ func (s *settings) themeItems(m *Model) []settingItem {
 		items = append(items, settingItem{label: c.label, detail: iconSample(c.mode), mark: c.mode == current,
 			run: func(m *Model) tea.Cmd {
 				m.cfg.UI.Icons = c.mode
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}})
 	}
 
@@ -297,7 +305,7 @@ func (s *settings) themeItems(m *Model) []settingItem {
 			own += " (" + s.shell.Current + ")"
 		}
 		items = append(items, settingItem{label: own, mark: m.cfg.Shell.OMZTheme == "",
-			run: func(m *Model) tea.Cmd { m.cfg.Shell.OMZTheme = ""; return saveConfig(m.cfg) }})
+			run: func(m *Model) tea.Cmd { m.cfg.Shell.OMZTheme = ""; return m.saveConfig() }})
 		for _, name := range s.shell.Themes {
 			name := name
 			// The prompt itself beside the name: nobody knows what
@@ -307,7 +315,7 @@ func (s *settings) themeItems(m *Model) []settingItem {
 				run: func(m *Model) tea.Cmd {
 					m.cfg.Shell.OMZTheme = name
 					m.setFlash("zsh terminals now use the "+name+" prompt", false)
-					return saveConfig(m.cfg)
+					return m.saveConfig()
 				}})
 		}
 	}
@@ -395,7 +403,7 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 	toggle := func(label, detail string, v *bool, after func(m *Model) tea.Cmd) settingItem {
 		return settingItem{label: label, detail: detail, on: v, run: func(m *Model) tea.Cmd {
 			*v = !*v
-			cmd := saveConfig(m.cfg)
+			cmd := m.saveConfig()
 			if after != nil && *v {
 				cmd = tea.Batch(cmd, after(m))
 			}
@@ -420,7 +428,7 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 			d.back = s
 			d.submit = func(m *Model, v []string) tea.Cmd {
 				m.cfg.Notify.Command = strings.TrimSpace(v[0])
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}
 			m.overlay = d
 			return d.focusCmd()
@@ -433,7 +441,7 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 		{label: "A watched pane goes quiet after", detail: watchedDetail(n.SilenceAfter(), m.keyHint(keymap.MonitorQuiet)),
 			run: func(m *Model) tea.Cmd {
 				m.cfg.Notify.Silence = nextSilence(m.cfg.Notify.SilenceAfter())
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}},
 		{},
 		{header: true, label: "Quiet hours", detail: "no alerts; the sidebar still shows who waits"},
@@ -448,7 +456,7 @@ func (s *settings) notifyItems(m *Model) []settingItem {
 		items = append(items, settingItem{label: label, mark: n.QuietStart == q[0] && n.QuietEnd == q[1],
 			run: func(m *Model) tea.Cmd {
 				m.cfg.Notify.QuietStart, m.cfg.Notify.QuietEnd = q[0], q[1]
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}})
 	}
 	if custom := !quietPreset(n.QuietStart, n.QuietEnd); custom {
@@ -703,7 +711,7 @@ func (s *settings) agentItems(m *Model) []settingItem {
 		items = append(items, settingItem{label: agentLabel(name), mark: m.defaultAgent() == name,
 			run: func(m *Model) tea.Cmd {
 				m.cfg.Agents.Default = name
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}})
 	}
 	// What happens when an agent finishes: a second agent reading the work,
@@ -713,11 +721,11 @@ func (s *settings) agentItems(m *Model) []settingItem {
 	items = append(items, settingItem{}, settingItem{header: true, label: "When an agent finishes", detail: "both spend plan usage"},
 		settingItem{label: "Another agent reviews the work", detail: reviewerText(v.Reviewer), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.Reviewer = nextReviewer(m.cfg.Verify.Reviewer, knownAgents(m))
-			return saveConfig(m.cfg)
+			return m.saveConfig()
 		}},
 		settingItem{label: "A failed check goes back to it", detail: autoFixText(v.AutoFix), run: func(m *Model) tea.Cmd {
 			m.cfg.Verify.AutoFix = (m.cfg.Verify.AutoFix + 1) % 4
-			return tea.Batch(saveConfig(m.cfg), m.pushAutopilotAll())
+			return tea.Batch(m.saveConfig(), m.pushAutopilotAll())
 		}},
 		settingItem{label: styleMuted.Render("  a green pull request merging itself is on the Git tab, with how a merge lands")})
 	// What an agent loads in a checkout is that checkout's business, and
@@ -755,7 +763,7 @@ func (s *settings) agentItems(m *Model) []settingItem {
 		settingItem{label: "Upload files dropped into remote panes", detail: "screenshots and other files", on: &r.UploadDrops,
 			run: func(m *Model) tea.Cmd {
 				m.cfg.Remote.UploadDrops = !m.cfg.Remote.UploadDrops
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}},
 		settingItem{label: "Compress what a machine's panes send", on: &compressing,
 			detail: styleMuted.Render("asked for on the ssh connection that carries frames; never on this computer"),
@@ -765,12 +773,12 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				// conch writes the config it asks with once per process,
 				// so this is for the next conch, not this one.
 				m.setFlash("takes effect when conch next starts", false)
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}},
 		settingItem{label: "Largest file to upload", detail: mbText(r.UploadLimit()) + " · enter changes",
 			run: func(m *Model) tea.Cmd {
 				m.cfg.Remote.UploadMaxMB = nextUploadLimit(m.cfg.Remote.UploadLimit())
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}},
 	)
 	// A machine's agents are a page of its own — this computer, a devbox, a
@@ -811,7 +819,7 @@ func (s *settings) phoneItems(m *Model) []settingItem {
 				if _, running := phone.OpenStore(config.Dir()).Gateway(); running {
 					m.setFlash("conch web takes it when it next starts: stop it and start it here", false)
 				}
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}
 			m.overlay = d
 			return d.focusCmd()
@@ -962,7 +970,7 @@ func (s *settings) brainItems(m *Model) []settingItem {
 				if m.cfg.Brain.Provider != name {
 					m.cfg.Brain.Provider, m.cfg.Brain.Model, m.cfg.Brain.SummaryModel = name, "", ""
 				}
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}})
 	}
 
@@ -979,11 +987,11 @@ func (s *settings) brainItems(m *Model) []settingItem {
 		items = append(items, settingItem{label: "  " + model + styleMuted.Render(" · set [brain] model and base_url in config.toml")})
 	} else {
 		items = append(items, settingItem{label: "Provider default (" + models[0] + ")", mark: b.Model == "",
-			run: func(m *Model) tea.Cmd { m.cfg.Brain.Model = ""; return saveConfig(m.cfg) }})
+			run: func(m *Model) tea.Cmd { m.cfg.Brain.Model = ""; return m.saveConfig() }})
 		for _, name := range models {
 			name := name
 			items = append(items, settingItem{label: name, mark: b.Model == name,
-				run: func(m *Model) tea.Cmd { m.cfg.Brain.Model = name; return saveConfig(m.cfg) }})
+				run: func(m *Model) tea.Cmd { m.cfg.Brain.Model = name; return m.saveConfig() }})
 		}
 	}
 
@@ -991,7 +999,7 @@ func (s *settings) brainItems(m *Model) []settingItem {
 		settingItem{label: "Summarise agents when they finish or need you", detail: "a small model request each", on: &b.Summaries,
 			run: func(m *Model) tea.Cmd {
 				m.cfg.Brain.Summaries = !m.cfg.Brain.Summaries
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}},
 		settingItem{label: styleMuted.Render("  S summarises the selected agent on demand · : opens ✦ Ask")},
 		settingItem{label: styleMuted.Render("  Summaries send the agent's visible screen to the provider.")},
@@ -1102,7 +1110,7 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 			c := m.cfg.Sandbox.Of(provider)
 			change(&c)
 			m.cfg.Sandbox.Set(provider, c)
-			return saveConfig(m.cfg)
+			return m.saveConfig()
 		}
 	}
 	field := func(name, detail, help, current string, save func(c *config.ProviderCfg, v string) error) settingItem {
@@ -1115,7 +1123,7 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 					return func() tea.Msg { return errMsg{err} }
 				}
 				m.cfg.Sandbox.Set(provider, c)
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}
 			m.overlay = d
 			return d.focusCmd()
@@ -1195,7 +1203,7 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 					*into = got
 				}
 				m.cfg.Sandbox.Set(provider, c)
-				return saveConfig(m.cfg)
+				return m.saveConfig()
 			}
 			m.overlay = d
 			return d.focusCmd()
