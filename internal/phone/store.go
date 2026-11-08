@@ -57,6 +57,10 @@ type Device struct {
 	// so nobody's phone gains reach because they updated conch: a machine
 	// is added to a device on purpose, one at a time.
 	Machines []string `json:"machines,omitempty"`
+	// Relay is set for a device that paired through a relay: its token
+	// was handed over inside the relay's tunnel, and a new relay key
+	// (`conch web relay reset`) revokes it along with that key.
+	Relay bool `json:"relay,omitempty"`
 }
 
 // Reaches reports whether this device may be shown, and act on, a
@@ -112,7 +116,9 @@ type RelayKeys struct {
 
 // RelayState is a gateway's link to its relay as it last was.
 type RelayState struct {
-	URL       string    `json:"url"`
+	URL string `json:"url"`
+	// Room is the room it holds, which says which key it was started with.
+	Room      string    `json:"room,omitempty"`
 	PID       int       `json:"pid"`
 	Connected bool      `json:"connected"`
 	Error     string    `json:"error,omitempty"`
@@ -260,6 +266,11 @@ var ErrPairExpired = errors.New("that pairing code has expired or was already us
 // is spent whether or not anything after it goes wrong, and a wrong one
 // counts against every code outstanding.
 func (s *Store) Redeem(code, name string, now time.Time) (Device, string, error) {
+	return s.RedeemVia(code, name, now, false)
+}
+
+// RedeemVia is Redeem, saying whether the device paired through a relay.
+func (s *Store) RedeemVia(code, name string, now time.Time, viaRelay bool) (Device, string, error) {
 	digits := codeDigits(code)
 	var dev Device
 	var token string
@@ -298,7 +309,7 @@ func (s *Store) Redeem(code, name string, now time.Time) (Device, string, error)
 			return err
 		}
 		dev = Device{ID: id, Name: cleanName(name), Permission: permission, TokenHash: hashSecret(token),
-			Created: now.UTC(), Machines: machines}
+			Created: now.UTC(), Machines: machines, Relay: viaRelay}
 		st.Devices = append(st.Devices, dev)
 		return nil
 	})
@@ -520,10 +531,62 @@ func (s *Store) Relay() (secret string, key noise.DHKey, err error) {
 	return secret, key, err
 }
 
-// ResetRelay forgets the relay room and key: every phone paired through a
-// relay has to pair again, and nothing that saw the old ones can use them.
-func (s *Store) ResetRelay() error {
-	return s.update(func(st *state) error { st.Relay = nil; return nil })
+// ResetRelay forgets the relay room and key and revokes every device that
+// paired through a relay, which it says how many of: those phones pair
+// again, and nothing that saw the old key, the room or a token handed
+// over in it can use them.
+func (s *Store) ResetRelay() (revoked int, err error) {
+	err = s.update(func(st *state) error {
+		st.Relay = nil
+		n := len(st.Devices)
+		st.Devices = slices.DeleteFunc(st.Devices, func(d Device) bool { return d.Relay })
+		revoked = n - len(st.Devices)
+		return nil
+	})
+	return revoked, err
+}
+
+// RelayURL is the relay phones reach this computer through: the one in
+// the settings, else the one a running conch web was started with
+// (`conch web -relay`). "" is none.
+func (s *Store) RelayURL(configured string) string {
+	if configured != "" {
+		return configured
+	}
+	if st, running := s.RelayState(); running {
+		return st.URL
+	}
+	return ""
+}
+
+// RelayPair is what pairing through a relay needs said: the link the QR
+// code carries, the relay's page it opens, the key's words, and whether
+// conch web is connected to that relay with this key now.
+type RelayPair struct {
+	Link, Page, Words string
+	Connected         bool
+}
+
+// RelayPairing is the pairing for code through relayURL ("" gives none).
+func (s *Store) RelayPairing(relayURL, code string) (RelayPair, error) {
+	if relayURL == "" {
+		return RelayPair{}, nil
+	}
+	page, err := relay.HTTPURL(relayURL)
+	if err != nil {
+		return RelayPair{}, fmt.Errorf("[web] relay: %v", err)
+	}
+	secret, key, err := s.Relay()
+	if err != nil {
+		return RelayPair{}, err
+	}
+	st, running := s.RelayState()
+	return RelayPair{Link: RelayPairLink(page, code, relay.RoomID(secret), key.Public), Page: page,
+		Words: relay.Fingerprint(key.Public),
+		// The key too: after a reset, a conch web still running holds
+		// the old one, and a phone given the new one can't reach it.
+		// A state without a room says nothing either way.
+		Connected: running && st.Connected && st.URL == relayURL && (st.Room == "" || st.Room == relay.RoomID(secret))}, nil
 }
 
 // SetRelayState records conch web's link to its relay.

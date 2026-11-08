@@ -2,7 +2,7 @@ export const metadata = { title: "Phone", description: "See your agents from you
 
 # Phone
 
-`conch web` lets a phone reach the agents on this machine: see what each is doing, reply to one, and answer the question it is waiting on. It is a small web server that conch runs on your laptop, in front of the same server the TUI talks to. The phone reaches the laptop over [Tailscale](https://tailscale.com), or from any network through a [relay](#through-a-relay) of your own that cannot read what it carries.
+`conch web` lets a phone reach the agents on this machine: see what each is doing, reply to one, and answer the question it is waiting on. It is a small web server that conch runs on your laptop, in front of the same server the TUI talks to. The phone reaches the laptop over [Tailscale](https://tailscale.com), or from any network through a [relay](#through-a-relay) of your own, which carries the traffic without being able to read it.
 
 <Callout type="note">
 
@@ -144,6 +144,12 @@ A relay is how a phone reaches the laptop from any network with nothing to insta
 
 What it copies, it cannot read. The pairing QR code carries the laptop's key as well as the code — in the part of the link after `#`, which a browser never sends anywhere — so the phone knows the key before it talks to anything, through the camera rather than the network. The phone and `conch web` then make a [Noise](https://noiseprotocol.org) session with it (`Noise_NK_25519_AESGCM_SHA256`, all of it in the browser's own WebCrypto), and every call, every screen and every keystroke travels inside. A relay that tried to answer in the laptop's place could not finish the handshake, and the device token that says who the phone is goes inside the session too. The relay sees that a room exists, when it is used and how many bytes pass — never what they are.
 
+<Callout type="warning">
+
+**Run the relay yourself, or use one run by somebody you trust as you trust the laptop.** The encryption keeps the relay out of what it *carries*, but the relay also *serves the app* the phone opens — the code that makes the session and keeps the phone's token. A relay that served a changed app could read every screen and type into every terminal the phone may. No encryption between the two ends can rule that out; only running the relay on a server of your own does.
+
+</Callout>
+
 Run one on any server that has a name and a certificate:
 
 ```sh
@@ -158,7 +164,7 @@ Then, on the laptop, point `conch web` at it — in **Settings → Phone (conch 
 relay = "wss://relay.example.com"
 ```
 
-and start `conch web` as usual. Without Tailscale it listens on loopback only and takes phones through the relay. `conch web pair` puts the relay's address in the QR code, and says the laptop's key as four words — `brook dove camel thistle` — which the phone shows too when it pairs: the same words, the same laptop. `conch web relay` says whether `conch web` is connected to the relay now; `conch web relay reset` makes a new key, which unpairs every phone that came through the relay.
+and start `conch web` as usual. Without Tailscale it listens on loopback only and takes phones through the relay. `conch web pair` puts the relay's address in the QR code, and says the laptop's key as four words — `brook dove camel thistle` — which the phone shows too when it pairs: the same words, the same laptop. `conch web relay` says whether `conch web` is connected to the relay now; `conch web relay reset` makes a new key and revokes every phone that paired through the relay; restart `conch web` to use it.
 
 On the phone, open the link once from the QR code and add it to the Home Screen; from then on it reaches the laptop through the relay wherever the phone is. When it can't, it says which part is missing: the relay answered, but the laptop isn't connected to it — asleep, or `conch web` isn't running.
 

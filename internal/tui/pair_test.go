@@ -14,6 +14,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/phone"
+	"github.com/Amitgb14/conch/internal/relay"
 )
 
 // pairHome gives the test a conch directory of its own: pairing writes a
@@ -532,5 +533,70 @@ func TestPairDialogSaysWhereItReaches(t *testing.T) {
 		if strings.Contains(line, "this computer only") && !strings.Contains(line, "Code") {
 			t.Errorf("it took a line of its own: %q", line)
 		}
+	}
+}
+
+// With a relay — in the settings, or the one a running conch web was
+// started with — the dialog pairs through it: the QR code and the link
+// are the relay's page with the room and key after the #, and the key's
+// words are shown for the phone to match. Without Tailscale the gateway's
+// own address is loopback, which no phone could open.
+func TestPairDialogThroughARelay(t *testing.T) {
+	store := pairHome(t, "http://127.0.0.1:8722")
+	m := a2Model()
+	m.width, m.height = 200, 80
+	d := newPairDialog(config.WebCfg{Relay: "wss://relay.example.com"}, phone.PermFull)
+	secret, key, err := store.Relay()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := phone.RelayPairLink("https://relay.example.com", d.code, relay.RoomID(secret), key.Public)
+	if d.err != "" || d.link() != want {
+		t.Fatalf("link %q, want %q (%s)", d.link(), want, d.err)
+	}
+	qr, _ := phone.QRLines(want)
+	b := d.render(*m)
+	a2CheckBox(t, b, *m)
+	joined := strings.Join(b.lines, "\n")
+	if !strings.Contains(joined, qr[len(qr)/2]) {
+		t.Fatal("the QR code isn't the relay's link")
+	}
+	out := a2Plain(b.lines)
+	for _, w := range []string{"https://relay.example.com, the relay", relay.Fingerprint(key.Public)} {
+		if !strings.Contains(out, w) {
+			t.Fatalf("dialog lacks %q:\n%s", w, out)
+		}
+	}
+	if strings.Contains(out, "127.0.0.1") || strings.Contains(out, secret) {
+		t.Fatalf("the loopback address or the room's secret shown:\n%s", out)
+	}
+	// y copies the relay's link.
+	lastClipboard = ""
+	_, cmd := d.update(m, a2Key("y"))
+	a2Run(cmd)
+	if lastClipboard != want {
+		t.Fatalf("y copied %q", lastClipboard)
+	}
+	// Too small for the code: the link is what has to reach the phone, since
+	// the relay's page alone carries no room or key.
+	m.width, m.height = 60, 20
+	b = d.render(*m)
+	a2CheckBox(t, b, *m)
+	if out := a2Plain(b.lines); !strings.Contains(out, "Open the link on the phone (y copies it)") {
+		t.Fatalf("small:\n%s", out)
+	}
+
+	// None in the settings, but conch web was started with -relay.
+	if err := store.SetRelayState(&phone.RelayState{URL: "wss://flag.example.com", PID: os.Getpid(), Connected: true}); err != nil {
+		t.Fatal(err)
+	}
+	d = newPairDialog(config.WebCfg{}, phone.PermFull)
+	if !strings.HasPrefix(d.link(), "https://flag.example.com/#code=") {
+		t.Fatalf("conch web -relay: %q", d.link())
+	}
+	// A relay that isn't one says so rather than show a code that can't pair.
+	d = newPairDialog(config.WebCfg{Relay: "ftp://nope"}, phone.PermFull)
+	if d.err == "" || d.link() != "" {
+		t.Fatalf("a bad relay: %+v", d)
 	}
 }

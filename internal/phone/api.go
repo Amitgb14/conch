@@ -369,12 +369,15 @@ type TaskRequest struct {
 const MaxTries = 3
 
 // TaskResponse is the pane the task started in. With tries, Pane is the
-// first, and Panes every one in order.
+// first, and Panes every one in order. Failed says why a later try did
+// not start, when an earlier one did: those run on, so the answer is
+// what started rather than an error that would leave them unseen.
 type TaskResponse struct {
 	Pane     string   `json:"pane"`
 	Worktree string   `json:"worktree,omitempty"`
 	Branch   string   `json:"branch,omitempty"`
 	Panes    []string `json:"panes,omitempty"`
+	Failed   string   `json:"failed,omitempty"`
 }
 
 // PushKey is GET /api/push/key.

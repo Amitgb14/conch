@@ -23,6 +23,7 @@ import (
 	"github.com/Amitgb14/conch/internal/fleet"
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/relay"
 )
 
 // Gateway serves a phone: it checks who is asking and what they may do,
@@ -588,7 +589,7 @@ func (g *Gateway) servePair(w http.ResponseWriter, r *http.Request) {
 	if len(req.DeviceName) > pairNameMax {
 		req.DeviceName = req.DeviceName[:pairNameMax]
 	}
-	dev, token, err := g.store.Redeem(req.Code, req.DeviceName, g.now())
+	dev, token, err := g.store.RedeemVia(req.Code, req.DeviceName, g.now(), relay.Through(r))
 	if errors.Is(err, ErrPairExpired) {
 		g.fail(w, r, apiErr(CodePairExpired, err.Error()))
 		return
@@ -849,8 +850,10 @@ func (g *Gateway) task(rq *request) (any, *APIError) {
 			ProjectID: req.Project, Prompt: req.Prompt, Agent: req.Agent, Name: name, Branch: branch, Cols: 120, Rows: 40}, &info)
 		if aerr != nil {
 			if n > 0 {
-				// The ones already started run on; say how far it got.
-				aerr.Message = fmt.Sprintf("started %d of %d: %s", n, len(branches), aerr.Message)
+				// The ones already started run on: hand them back, and
+				// say how far it got.
+				out.Failed = fmt.Sprintf("started %d of %d: %s", n, len(branches), aerr.Message)
+				return out, nil
 			}
 			return nil, aerr
 		}

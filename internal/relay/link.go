@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -148,7 +149,10 @@ func (l *Link) Run(ctx context.Context) error {
 		return err
 	}
 	ln := newMemListener()
-	srv := &http.Server{Handler: l.Handler, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: l.Handler, ReadHeaderTimeout: 10 * time.Second,
+		ConnContext: func(ctx context.Context, _ net.Conn) context.Context {
+			return context.WithValue(ctx, throughKey{}, true)
+		}}
 	go func() { _ = srv.Serve(ln) }()
 	defer func() {
 		sctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -156,18 +160,10 @@ func (l *Link) Run(ctx context.Context) error {
 		_ = srv.Shutdown(sctx)
 		ln.Close()
 	}()
-	hc := &http.Client{
-		Transport: &http.Transport{
-			DialContext:         func(ctx context.Context, _, _ string) (net.Conn, error) { return ln.dial(ctx) },
-			DisableCompression:  true,
-			MaxIdleConnsPerHost: maxCalls,
-		},
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
 	wait := time.Second
 	for {
 		up := time.Now()
-		err := l.hold(ctx, hc)
+		err := l.hold(ctx, ln)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -177,6 +173,18 @@ func (l *Link) Run(ctx context.Context) error {
 				s.Error = err.Error()
 			}
 		})
+		if errors.Is(err, errReplaced) {
+			// Another conch web holds the room now. Taking it back would
+			// have the two take it from each other for ever, so this one
+			// waits until the room is free — that one stopped — and only
+			// then connects again.
+			l.logf("relay: %v; waiting for it to stop", err)
+			if !l.waitFree(ctx) {
+				return nil
+			}
+			wait = time.Second
+			continue
+		}
 		if time.Since(up) > time.Minute {
 			wait = time.Second
 		}
@@ -196,8 +204,76 @@ func (l *Link) header() http.Header {
 	return h
 }
 
+// errReplaced is the relay saying another connection took this room.
+var errReplaced = errors.New("another conch web took this computer's room")
+
+// replacedPoll is how often a replaced link asks whether its room is free.
+var replacedPoll = 15 * time.Second // a variable so a test can wait less
+
+// waitFree waits until the relay says the room has no gateway, or says
+// something else — down, or an older relay that doesn't know the
+// question — which the ordinary reconnect handles. It reports false when
+// ctx ended first.
+func (l *Link) waitFree(ctx context.Context) bool {
+	u, err := wsURL(l.Relay, GatewayPath, url.Values{"room": {l.Room()}, "probe": {"1"}})
+	if err != nil {
+		return true
+	}
+	u = "http" + strings.TrimPrefix(u, "ws")
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(replacedPoll):
+		}
+		rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		req, _ := http.NewRequestWithContext(rctx, http.MethodGet, u, nil)
+		req.Header = l.header()
+		res, err := http.DefaultClient.Do(req)
+		cancel()
+		if err != nil {
+			return ctx.Err() == nil
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusConflict {
+			return true
+		}
+	}
+}
+
+// throughKey marks a request that came through the relay.
+type throughKey struct{}
+
+// Through reports whether r reached the gateway's handler through a
+// relay's tunnel, rather than over the network. Nothing a client sends
+// can make it true: it is set on the in-memory connection itself.
+func Through(r *http.Request) bool {
+	v, _ := r.Context().Value(throughKey{}).(bool)
+	return v
+}
+
+// sessions numbers a gateway's phone sessions, for their addresses.
+var sessions atomic.Int64
+
+// sessionClient is how one phone's session reaches the gateway's handler:
+// through the in-memory listener, from an address of its own
+// ("relay-7:0"), so what the gateway counts by address — pairing
+// attempts — is counted for each phone rather than for every phone that
+// came through the relay at once.
+func sessionClient(ln *memListener) *http.Client {
+	addr := relayAddr(fmt.Sprintf("relay-%d:0", sessions.Add(1)))
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext:         func(ctx context.Context, _, _ string) (net.Conn, error) { return ln.dial(ctx, addr) },
+			DisableCompression:  true,
+			MaxIdleConnsPerHost: maxCalls,
+		},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
 // hold is one connection to the relay, for as long as it lasts.
-func (l *Link) hold(ctx context.Context, hc *http.Client) error {
+func (l *Link) hold(ctx context.Context, ln *memListener) error {
 	u, err := wsURL(l.Relay, GatewayPath, url.Values{"room": {l.Room()}})
 	if err != nil {
 		return err
@@ -213,8 +289,6 @@ func (l *Link) hold(ctx context.Context, hc *http.Client) error {
 	}
 	defer c.CloseNow()
 	c.SetReadLimit(4096)
-	l.setStatus(func(s *Status) { s.Connected, s.Error, s.Since = true, "", time.Now() })
-	l.logf("relay: connected to %s", l.Relay)
 
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
@@ -240,21 +314,30 @@ func (l *Link) hold(ctx context.Context, hc *http.Client) error {
 		_, msg, err := c.Read(ctx)
 		if err != nil {
 			if websocket.CloseStatus(err) == CodeReplaced {
-				return errors.New("another conch web took this computer's room")
+				return errReplaced
 			}
 			return err
 		}
 		var o Open
-		if json.Unmarshal(msg, &o) != nil || o.Open == "" {
+		if json.Unmarshal(msg, &o) != nil {
 			continue
 		}
-		go l.accept(ctx, hc, o.Open)
+		if o.Ready {
+			// The room is this gateway's now: a phone asking finds it.
+			l.setStatus(func(s *Status) { s.Connected, s.Error, s.Since = true, "", time.Now() })
+			l.logf("relay: connected to %s", l.Relay)
+			continue
+		}
+		if o.Open == "" {
+			continue
+		}
+		go l.accept(ctx, ln, o.Open)
 	}
 }
 
 // accept takes one phone: its own connection to the relay, the Noise
 // handshake, and then the session.
-func (l *Link) accept(ctx context.Context, hc *http.Client, phone string) {
+func (l *Link) accept(ctx context.Context, ln *memListener, phone string) {
 	u, err := wsURL(l.Relay, AcceptPath, url.Values{"room": {l.Room()}, "phone": {phone}})
 	if err != nil {
 		return
@@ -276,6 +359,8 @@ func (l *Link) accept(ctx context.Context, hc *http.Client, phone string) {
 	}
 	l.setStatus(func(s *Status) { s.Phones++ })
 	defer l.setStatus(func(s *Status) { s.Phones-- })
+	hc := sessionClient(ln)
+	defer hc.CloseIdleConnections()
 	serveSession(ctx, c, recv, send, hc, l.logf)
 }
 

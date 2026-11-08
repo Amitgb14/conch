@@ -27,8 +27,12 @@ type pairDialog struct {
 	code       string
 	url        string // where the gateway said phones open it; "" if it never ran
 	expires    time.Time
-	qr         []string
-	err        string
+	// Through a relay, when phones use one: the link the QR code carries
+	// (the relay's page, with the room and this computer's key after the
+	// #) and the key as the four words the phone shows too.
+	relayLink, words string
+	qr               []string
+	err              string
 	// The gateway: whether it runs, and how it was last started (nil when
 	// it never has), which is how s starts it again.
 	running  bool
@@ -56,8 +60,20 @@ func newPairDialog(web config.WebCfg, permission string) *pairDialog {
 	// The address set in the settings, else the one the gateway last
 	// listened at.
 	d.code, d.expires, d.url = code, now.Add(phone.PairTTL), firstNonEmpty(strings.TrimRight(web.URL, "/"), store.URL())
-	if d.url != "" {
-		d.qr, _ = phone.QRLines(phone.PairLink(d.url, code)) // without one, the code is still there to type
+	// A relay, when there is one, is how a phone pairs: it works from any
+	// network, and without Tailscale the gateway's own address is this
+	// computer's loopback, which no phone can open.
+	rp, err := store.RelayPairing(store.RelayURL(web.Relay), code)
+	if err != nil {
+		// Nothing to show that could pair: the relay is how phones come.
+		d.err, d.code, d.url = err.Error(), "", ""
+		return d
+	}
+	if rp.Link != "" {
+		d.url, d.relayLink, d.words = rp.Page, rp.Link, rp.Words
+	}
+	if l := d.link(); l != "" {
+		d.qr, _ = phone.QRLines(l) // without one, the code is still there to type
 	}
 	return d
 }
@@ -94,6 +110,9 @@ func (d *pairDialog) startArgs() ([]string, bool) {
 func (d *pairDialog) link() string {
 	if d.url == "" || d.code == "" {
 		return ""
+	}
+	if d.relayLink != "" {
+		return d.relayLink
 	}
 	return phone.PairLink(d.url, d.code)
 }
@@ -177,6 +196,15 @@ func (d *pairDialog) layout(m Model, withQR bool) box {
 		add(fmt.Sprintf("Code %s · %s · this computer only · until %s, once",
 			styleBold.Render(d.code), d.permission, d.expires.Format("15:04")))
 		switch {
+		case d.relayLink != "" && withQR:
+			add("Scan it with the phone's camera: it opens " + d.url + ", the relay, from any network.")
+		case d.relayLink != "":
+			// The relay's page alone can't pair: the room and the key are
+			// in the link, so the link is what has to reach the phone.
+			add("Open the link on the phone (y copies it): it reaches " + d.url + ", the relay, from any network.")
+			if len(d.qr) > 0 {
+				add(styleMuted.Render(fmt.Sprintf("A larger terminal shows a QR code to scan (%d wide, %d high).", ansi.StringWidth(d.qr[0])+4, len(d.qr)+len(text)+3)))
+			}
 		case d.url == "":
 			add("Set the address phones open — the https name tailscale serve gives — in ⚙ Settings → Web; then s here starts conch web.")
 		case withQR:
@@ -187,6 +215,11 @@ func (d *pairDialog) layout(m Model, withQR bool) box {
 				add(styleMuted.Render(fmt.Sprintf("A larger terminal shows a QR code to scan (%d wide, %d high).", ansi.StringWidth(d.qr[0])+4, len(d.qr)+len(text)+3)))
 			}
 		}
+	}
+	if d.words != "" && d.err == "" {
+		// The words first, so they wrap as one: they are compared
+		// with the phone's, not read.
+		add("Key " + styleBold.Render(d.words) + " — the phone shows the same words.")
 	}
 	switch {
 	case d.err != "" || d.url == "":

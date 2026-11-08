@@ -3,8 +3,10 @@ package phone
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -79,6 +81,11 @@ func TestPhoneThroughTheRelay(t *testing.T) {
 	var h Hello
 	if err := json.Unmarshal([]byte(res.B), &h); err != nil || h.Permission != PermFull {
 		t.Fatalf("hello %+v: %v", h, err)
+	}
+	// The device is marked as paired through the relay, which is what
+	// `conch web relay reset` revokes.
+	if devs, _ := f.store.Devices(); len(devs) != 1 || !devs[0].Relay {
+		t.Fatalf("the relay's device isn't marked: %+v", devs)
 	}
 	// A change needs the CSRF token, through the relay as anywhere.
 	body := `{"pane":"` + pane + `","text":"hi"}`
@@ -169,8 +176,27 @@ func TestStoreRelayKeys(t *testing.T) {
 	if s1 != s2 || string(k1.Public) != string(k2.Public) {
 		t.Fatal("the relay key changed between reads")
 	}
-	if err := st.ResetRelay(); err != nil {
-		t.Fatal(err)
+	// Reset revokes the devices that paired through the relay, and only
+	// those: a phone paired over Tailscale keeps working.
+	now := time.Now()
+	for i, via := range []bool{true, false, true} {
+		code, err := st.NewCode(PermFull, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := st.RedeemVia(code, sprintf("phone %d", i), now, via); err != nil {
+			t.Fatal(err)
+		}
+	}
+	revoked, err := st.ResetRelay()
+	if err != nil || revoked != 2 {
+		t.Fatalf("reset revoked %d: %v", revoked, err)
+	}
+	if devs, _ := st.Devices(); len(devs) != 1 || devs[0].Relay || devs[0].Name != "phone 1" {
+		t.Fatalf("after reset: %+v", devs)
+	}
+	if revoked, _ := st.ResetRelay(); revoked != 0 {
+		t.Fatalf("a second reset revoked %d", revoked)
 	}
 	s3, k3, _ := st.Relay()
 	if s3 == s1 || string(k3.Public) == string(k1.Public) {
@@ -189,5 +215,52 @@ func TestStoreRelayKeys(t *testing.T) {
 	}
 	if _, ok := st.RelayState(); ok {
 		t.Fatal("a dead conch web's relay state")
+	}
+}
+
+var sprintf = fmt.Sprintf
+
+// Which relay a phone pairs through: the settings', else the one a running
+// conch web was started with; and the pairing says it is connected only
+// when that conch web holds this key's room.
+func TestRelayPairing(t *testing.T) {
+	st := OpenStore(t.TempDir())
+	if rp, err := st.RelayPairing("", "123-456"); err != nil || rp.Link != "" {
+		t.Fatalf("no relay: %+v %v", rp, err)
+	}
+	if st.RelayURL("") != "" || st.RelayURL("wss://set") != "wss://set" {
+		t.Fatal("RelayURL without a running conch web")
+	}
+	if _, err := st.RelayPairing("ftp://nope", "123-456"); err == nil {
+		t.Fatal("a relay that isn't one")
+	}
+	secret, key, _ := st.Relay()
+	room := relay.RoomID(secret)
+	// conch web -relay, running (this process stands in for it).
+	if err := st.SetRelayState(&RelayState{URL: "wss://flag.example.com", Room: room, PID: os.Getpid(), Connected: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.RelayURL(""); got != "wss://flag.example.com" {
+		t.Fatalf("RelayURL from the running conch web: %q", got)
+	}
+	if got := st.RelayURL("wss://set"); got != "wss://set" {
+		t.Fatalf("the settings win: %q", got)
+	}
+	rp, err := st.RelayPairing(st.RelayURL(""), "123-456")
+	if err != nil || !rp.Connected || rp.Page != "https://flag.example.com" || rp.Words != relay.Fingerprint(key.Public) ||
+		rp.Link != RelayPairLink("https://flag.example.com", "123-456", room, key.Public) {
+		t.Fatalf("pairing: %+v %v", rp, err)
+	}
+	// Another relay than the one it is on is not connected.
+	if rp, _ := st.RelayPairing("wss://other.example.com", "123-456"); rp.Connected {
+		t.Fatal("connected to a relay it isn't on")
+	}
+	// After a reset the running conch web holds the old key: a phone given
+	// the new one couldn't reach it, so it is not connected.
+	if _, err := st.ResetRelay(); err != nil {
+		t.Fatal(err)
+	}
+	if rp, _ := st.RelayPairing("wss://flag.example.com", "123-456"); rp.Connected || rp.Link == "" {
+		t.Fatalf("connected with a key from before the reset: %+v", rp)
 	}
 }
