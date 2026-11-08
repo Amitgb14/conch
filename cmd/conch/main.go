@@ -186,6 +186,7 @@ Usage:
                                 one whose machine was removed, or on boat.dev one made in its own
                                 interface. Started if stopped and conch installed; never deleted
                                 if that fails
+  conch sandbox providers [-json]  which providers conch can make a sandbox with, and whether each has its key
   conch sandbox stats           every provider's sandboxes, their state and size, and a line
                                 per provider (-provider P narrows it to one)
   conch sandbox -provider P ls | start ID | stop [-y] ID | rm [-y] ID
@@ -220,12 +221,13 @@ Usage:
                                 conch web connects out to it, and phone and computer
                                 encrypt everything with the key the pairing QR code carries
   conch web relay [reset]       how the link to the relay is, and the words its key is
-                                said in; reset makes a new key, unpairing the phones
-                                that came through the relay
+                                said in; reset makes a new key and revokes the phones
+                                that paired through the relay
   conch relay [-listen ADDR] [-cert FILE -key FILE]
                                 run a relay on a server of your own (:8443 by default), for
                                 phones and computers to meet at; it forwards what it can't
-                                read, stores nothing, and serves the phone's app
+                                read and stores nothing, but serves the phone's app, so
+                                use only a relay you trust as you trust the computer
   conch web pair [-permission view|reply|full] [-machine NAME]... [-json]
                                 a one-time code (5 minutes) that pairs a phone, with a QR code
                                 that opens it; full by default (-permission reply or
@@ -302,6 +304,14 @@ func main() {
 	cmd := ""
 	if len(args) > 0 {
 		cmd, args = args[0], args[1:]
+	}
+	// A pane named machine:pN, as conch's windows show and copy one, is
+	// that machine's pane.
+	if a, m, err := machinePane(cmd, args, machineFlag); err != nil {
+		fmt.Fprintln(os.Stderr, "conch:", err)
+		os.Exit(2)
+	} else {
+		args, machineFlag = a, m
 	}
 	// conch CMD -h is answered here, before CMD can take -h for something
 	// else or start a server first (help.go).

@@ -54,9 +54,39 @@ func frameLines(title string, content []string, w int, color lipgloss.Color) []s
 // the content lines mark names — the scrollbar's thumb. The border is
 // already a column of its own, so a bar there costs no content.
 func frameLinesBar(title string, content []string, w int, color lipgloss.Color, mark map[int]string) []string {
+	return frameLinesLabeled(title, "", content, w, color, mark)
+}
+
+// frameRightMin is the room a title keeps before a right-hand label gives
+// way to it: the name of what is in the frame matters more than its ID.
+const frameRightMin = 12
+
+// frameRightAt is where a right-hand label of width rw starts on the top
+// line of a frame w wide, counted from the frame's left corner, or -1 when
+// there is no room for it beside a title. "╭─TITLE──── p12 ─╮".
+func frameRightAt(rw, w int) int {
+	if rw == 0 || w-2-(rw+3) < frameRightMin {
+		return -1
+	}
+	return w + 2 - 2 - rw - 1 // before " ─╮"
+}
+
+// frameLinesLabeled is frameLinesBar with right, muted, at the right end
+// of the top line — a pane's ID — when there is room for it.
+func frameLinesLabeled(title, right string, content []string, w int, color lipgloss.Color, mark map[int]string) []string {
 	bs := lipgloss.NewStyle().Foreground(color)
-	title = ansi.Truncate(title, max(w-2, 0), "…")
-	out := []string{bs.Render("╭─") + styleBold.Render(title) + bs.Render(strings.Repeat("─", max(w-1-ansi.StringWidth(title), 0))+"╮")}
+	rw := ansi.StringWidth(right)
+	var top string
+	if at := frameRightAt(rw, w); at >= 0 {
+		title = ansi.Truncate(title, max(at-3, 0), "…")
+		fill := at - 1 - 2 - ansi.StringWidth(title)
+		top = bs.Render("╭─") + styleBold.Render(title) + bs.Render(strings.Repeat("─", max(fill, 0))+" ") +
+			styleMuted.Render(right) + bs.Render(" ─╮")
+	} else {
+		title = ansi.Truncate(title, max(w-2, 0), "…")
+		top = bs.Render("╭─") + styleBold.Render(title) + bs.Render(strings.Repeat("─", max(w-1-ansi.StringWidth(title), 0))+"╮")
+	}
+	out := []string{top}
 	for i, l := range content {
 		right := bs.Render("│")
 		if g, ok := mark[i]; ok {
@@ -108,8 +138,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 	title := ""
 	switch r.kind {
 	case kindPane:
+		ref := m.paneRef(r.machine, r.paneID)
 		if p := m.pane(r.machine, r.paneID); p != nil {
-			title = p.DisplayName()
+			title = p.DisplayName() + " · " + ref
 		}
 		items = []menuItem{
 			{"enter", "Open", enter},
@@ -121,6 +152,7 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			{"c", "Start an agent here…", act("c")},
 			{"n", "New terminal here", act("n")},
 			{"i", "Agent setup (skills, MCP, instructions)", act("i")},
+			{"", "Copy pane ID (" + ref + ")", func(*Model) tea.Cmd { return copyPaneRef(ref) }},
 			{"", "Open a link it printed" + m.keyNote(keymap.OpenLinks), func(m *Model) tea.Cmd {
 				r, _ := m.selectedRow()
 				return m.openLinks(r)

@@ -622,3 +622,29 @@ export function replyTargets(panes, chosen) {
 // over the message to many.
 export const QUICK_REPLIES = ["continue", "run the tests", "commit it", "open a pull request"]
 export const BROADCASTS = ["commit and push", "stop and summarise", "run the tests"]
+
+// relayWhy says why a call through the relay failed. "absent" may be a
+// reset key, which unpairs the phone and looks the same from here.
+export function relayWhy(kind) {
+  if (kind === "absent") {
+    return "Your computer isn't connected to the relay — asleep, or conch web isn't running. " +
+      "If its key was reset (conch web relay reset), pair it again with a new code."
+  }
+  if (kind === "timeout") return "Your computer didn't answer through the relay."
+  return "The relay can't be reached."
+}
+
+// paneRef is how conch's commands name a pane the phone calls
+// "machine:pane": its ID on this computer, and machine:ID elsewhere by the
+// machine's label (`conch read busybox:p3`), or its ID when the label has a
+// space or a colon and would not survive being typed. As the TUI's and the
+// app's paneRef.
+export function paneRef(ref, machines = []) {
+  const s = String(ref || "")
+  const i = s.indexOf(":")
+  if (i < 0) return s
+  const machine = s.slice(0, i), pane = s.slice(i + 1)
+  if (!machine || machine === "local") return pane
+  const label = machines.find((m) => m.id === machine)?.label || ""
+  return label && !/[\s:]/.test(label) ? `${label}:${pane}` : `${machine}:${pane}`
+}

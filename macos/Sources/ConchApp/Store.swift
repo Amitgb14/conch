@@ -370,6 +370,21 @@ final class Store: ObservableObject {
 
     func label(_ machine: String) -> String { machines.first { $0.id == machine }?.label ?? machine }
 
+    /// How conch's commands name the pane at key — p12 here, busybox:p12
+    /// elsewhere — or nil when key is not a pane (a git tab, sessions).
+    func paneRef(key k: String) -> String? {
+        guard isPaneKey(k) else { return nil }
+        let (m, id) = unkey(k)
+        guard snapshots[m]?.pane(id) != nil else { return nil }
+        return ConchKit.paneRef(machine: m, label: label(m), pane: id)
+    }
+
+    func copyPaneRef(_ ref: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(ref, forType: .string)
+        say("Copied \(ref): conch read \(ref), conch send \(ref) …")
+    }
+
     func isOpen(_ node: TreeNode) -> Bool { ConchKit.isOpen(node, app: folds, tui: tuiFolds) }
 
     func toggle(_ node: TreeNode) {
@@ -2123,6 +2138,7 @@ final class Store: ObservableObject {
         case "addProject": addProject()
         case "sshToHost": sshToHost()
         case "addMachine": addMachine()
+        case "newSandbox": newSandboxOpen = true
         case "newTask": newTaskHere()
         case "startAgent": startAgentHere()
         case "newTab": newTerminal(split: nil)
@@ -2175,7 +2191,7 @@ final class Store: ObservableObject {
         guard let m = node.machine else { return [] }
         let online = machines.first { $0.id == m }?.online ?? false
         let s = snapshots[m] ?? Snapshot()
-        var items = s.menu(for: node, machine: m, machineOnline: online)
+        var items = s.menu(for: node, machine: m, machineOnline: online, label: label(m))
         // A sandbox's own: start, stop, delete, what it cost.
         if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.sandbox {
             items += sandboxMenu(machine: m, running: link.online)
@@ -2257,6 +2273,7 @@ final class Store: ObservableObject {
         case .addProject(let m): addProject(on: m)
         case .sshToHost: sshToHost()
         case .addMachine: addMachine()
+        case .newSandbox: newSandboxOpen = true
         case .reconnect(let m): reconnect(m)
         case .reloadServer(let m): reloadServer(m)
         case .upgrade(let m): upgrade(m)
@@ -2447,6 +2464,32 @@ final class Store: ObservableObject {
         Task {
             do {
                 let p = try await c.call("pane.create", Create(name: "machine add · " + target, command: command, cwd: NSHomeDirectory(), no_project: true), as: PaneInfo.self)
+                snapshots["local", default: Snapshot()].upsert(p)
+                layout.open(key("local", p.id))
+                focusTerminal()
+            } catch {
+                self.error = "\(error)"
+            }
+        }
+    }
+
+    /// New Sandbox…, the sheet that makes one (NewSandboxSheet).
+    @Published var newSandboxOpen = false
+
+    /// conch run with args in a terminal of its own on this Mac, opened in
+    /// a tab, so what it does — an install, a sandbox being made — is
+    /// watched and its questions answered.
+    func runCLIPane(name: String, args: [String]) {
+        guard let b = binary, let c = conns["local"] else { return }
+        struct Create: Encodable {
+            var name: String
+            var command: [String]
+            var cwd: String
+            var no_project: Bool
+        }
+        Task {
+            do {
+                let p = try await c.call("pane.create", Create(name: name, command: [b] + args, cwd: NSHomeDirectory(), no_project: true), as: PaneInfo.self)
                 snapshots["local", default: Snapshot()].upsert(p)
                 layout.open(key("local", p.id))
                 focusTerminal()

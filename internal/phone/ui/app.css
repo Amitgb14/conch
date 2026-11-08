@@ -371,6 +371,9 @@ h2 .watch-link { margin-left: auto; text-transform: none; letter-spacing: 0; fon
 .label { margin: 12px 0; font-size: 0.8rem; font-weight: 600; color: var(--quiet); }
 .picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 7px; margin-top: 6px; }
 .picker button { flex-direction: column; min-height: 66px; padding: 8px 2px; gap: 5px; font-size: 0.72rem; font-weight: 600; color: var(--body); }
+.picker .logo { width: 26px; height: 26px; }
+.logo.claude { fill: #d97757; } .logo.gemini { fill: #7b9cf0; } .logo.devin { fill: #6cc5b0; }
+.logo.codex, .logo.opencode { fill: var(--fg); }
 .picker button.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); color: var(--fg); }
 .segmented.tries { margin-top: 6px; }
 
@@ -380,3 +383,8 @@ h2 .watch-link { margin-left: auto; text-transform: none; letter-spacing: 0; fon
   background: color-mix(in srgb, var(--accent, #2bb3a3) 14%, transparent); color: var(--accent, #2bb3a3); }
 .pair.check { display: flex; flex-direction: column; gap: 10px; }
 .pair.check .wide + .wide { margin-top: 0; }
+
+/* A pane's ID at the end of its subtitle: a tap copies it. */
+#sub.copies { cursor: copy; -webkit-user-select: none; user-select: none; }
+.toast { position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 50;
+  background: var(--fg); color: var(--bg, #262624); padding: 8px 14px; border-radius: 10px; font-size: 0.82rem; max-width: 90vw; }

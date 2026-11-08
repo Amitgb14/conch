@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -777,6 +778,25 @@ func TestProjectsAndTask(t *testing.T) {
 		if n > 1 {
 			t.Errorf("%d tries on %s", n, b)
 		}
+	}
+
+	// A try that can't start after one that did: what started is handed
+	// back with why the rest didn't, rather than an error that leaves the
+	// running try where the phone can't find it. A branch under the
+	// second try's name makes git refuse that name.
+	prompt := "Fix the cache"
+	base := gitx.BranchFromPrompt("api", prompt)
+	gitIn(t, repo, "branch", base+"/claude-2/x")
+	res = TaskResponse{}
+	status, e := full.post("/api/task", TaskRequest{Project: proj.ID, Agent: "claude", Prompt: prompt, Tries: 3}, &res)
+	if status != 200 || len(res.Panes) != 1 || res.Pane != res.Panes[0] || !strings.HasPrefix(res.Failed, "started 1 of 3: ") {
+		t.Fatalf("a try that failed: %d %+v %+v", status, e, res)
+	}
+	// The first failing is still an error: nothing started.
+	gitIn(t, repo, "branch", gitx.BranchFromPrompt("api", "Fix cache again")+"/claude/x")
+	res = TaskResponse{}
+	if status, _ := full.post("/api/task", TaskRequest{Project: proj.ID, Agent: "claude", Prompt: "Fix cache again", Tries: 2}, &res); status == 200 {
+		t.Fatalf("the first try failing answered %+v", res)
 	}
 }
 

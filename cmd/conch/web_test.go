@@ -76,6 +76,12 @@ func TestWebPairDevicesRevoke(t *testing.T) {
 	if strings.Contains(out, "\x1b[") {
 		t.Fatalf("escape codes written to something that isn't a terminal: %q", out)
 	}
+	// No QR code, so the link it would have carried, and no "scan the code"
+	// for a code that isn't there.
+	if c := regexp.MustCompile(`pairing code: (\d{3}-\d{3})\n`).FindStringSubmatch(out); c == nil ||
+		!strings.Contains(out, "\n  "+phone.PairLink("https://laptop.tail1234.ts.net", c[1])+"\n") || strings.Contains(out, "scan") {
+		t.Fatalf("pair with no terminal doesn't give the link instead of the code: %q", out)
+	}
 	stdoutIsTerminal = func() bool { return true }
 	out, err = runWebCaptured(t, "pair")
 	code := regexp.MustCompile(`pairing code: (\d{3}-\d{3})\n`).FindStringSubmatch(out)
@@ -85,6 +91,9 @@ func TestWebPairDevicesRevoke(t *testing.T) {
 	want, _ := phone.QRLines(phone.PairLink("https://laptop.tail1234.ts.net", code[1]))
 	if !strings.HasPrefix(out, strings.Join(want, "\n")+"\n") {
 		t.Fatalf("the QR code isn't the link to this code:\n%s", out)
+	}
+	if strings.Contains(out, "open this link") || !strings.Contains(out, "scan the code") {
+		t.Fatalf("pair on a terminal says the link as well as drawing it: %q", out)
 	}
 
 	out, err = runWebCaptured(t, "devices")

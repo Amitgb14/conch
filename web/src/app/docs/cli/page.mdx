@@ -98,6 +98,7 @@ conch agent prompt -wait reviewer "Check finding 3 again" && conch read reviewer
 ```
 
 - An ID is always an ID: `p` and a number is never looked up as a name, so names of that shape are refused.
+- A pane on another machine can be named `MACHINE:ID` — `conch read busybox:p3` is `conch -m busybox read p3`. That is how the TUI's status bar, Conch.app and the phone show a pane's ID, and what their **Copy pane ID** gives, so a copied ID works as it is. The machine is its label, its ID or its ssh target, as `-m` takes; one that is not in `conch machine ls` is left alone, and a ref that disagrees with `-m` is refused.
 - A name is looked up once, when the command starts; a `wait` then stays with that pane.
 - Names are exact and case sensitive. A name two running panes share is refused rather than guessed — say which with its ID. A pane that has ended still answers to its name until another running pane takes it.
 - Names belong to one machine's server, so `-m` looks them up there.
@@ -242,6 +243,7 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 
 | Command | Description |
 | --- | --- |
+| `conch sandbox providers [-json]` | the providers conch can make a sandbox with, whether each has its API key here (and if not, what to set), the sizes or place it takes instead of a snapshot, and what it says before one is made. Conch.app's **New Sandbox…** reads it; no provider needed |
 | `conch sandbox stats [-provider P]` | every provider's sandboxes in one table, and a line per provider: how many, in which states, what is running; no provider needed |
 | `conch sandbox -provider daytona\|boat\|devin …` | whose sandboxes the command means, in front of any subcommand below. Required for all of them — there is no default, and a sandbox named under another provider is refused |
 | `conch sandbox -provider P create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]` | make a sandbox (key in `$DAYTONA_API_KEY`, `$BOAT_API_KEY` or `$DEVIN_API_KEY`; Devin Cloud also needs the `devin` CLI signed in), install conch there and add it as a machine; it runs until stopped. `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails |
@@ -279,10 +281,10 @@ conch web stop                                              # end one running in
 conch web -relay wss://HOST                                 # also through a relay ([web] relay)
 conch web relay                                             # the link to the relay, and its key's words
 conch web relay reset                                       # a new key: phones paired through the
-                                                            # relay pair again
+                                                            # relay are revoked and pair again
 ```
 
-`conch web` serves your [phone](/docs/phone) on this machine's Tailscale address and nowhere else, unless `-listen` names another address. `-url` is the address phones open — the `https://…ts.net` one `tailscale serve` gives — which the QR code points at. `pair` draws the QR code only when it prints to a terminal. It takes no `-m`: it shows the agents of the machine it runs on. `pair` and `revoke` are refused from an agent's pane.
+`conch web` serves your [phone](/docs/phone) on this machine's Tailscale address and nowhere else, unless `-listen` names another address. `-url` is the address phones open — the `https://…ts.net` one `tailscale serve` gives — which the QR code points at. `pair` draws the QR code only when it prints to a terminal; anywhere else it prints the link the code would carry, to open on the phone. It takes no `-m`: it shows the agents of the machine it runs on. `pair` and `revoke` are refused from an agent's pane.
 
 ### relay
 
@@ -290,7 +292,7 @@ conch web relay reset                                       # a new key: phones 
 conch relay [-listen ADDR] [-cert FILE -key FILE]           # a relay phones and conch webs meet at
 ```
 
-`conch relay` runs a [relay](/docs/phone#through-a-relay) on a server of your own (`:8443` by default): `conch web` connects out to it, a phone opens its address, and it copies the encrypted session between them without being able to read it. It stores nothing and serves the phone's app. Without `-cert`, put a proxy that does HTTPS in front of it — a phone's browser encrypts only on an https page.
+`conch relay` runs a [relay](/docs/phone#through-a-relay) on a server of your own (`:8443` by default): `conch web` connects out to it, a phone opens its address, and it copies the encrypted session between them without being able to read it. It stores nothing and serves the phone's app — which is why it should be a server of your own: a relay that served a changed app could read what the phone sees. Without `-cert`, put a proxy that does HTTPS in front of it — a phone's browser encrypts only on an https page.
 
 ### config
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import {
   parseLine, frameRows, color256, sortAgents, upsertAgent, removeAgent, groupAgents, groupByMachine, agentLabel,
   ago, route, can, backoff, reviewCount, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, chunks, keyBytes, appPath,
-  markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS,
+  markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS, relayWhy,
 } from "../ui/lib.mjs"
 
 const text = (runs) => runs.map((r) => r.text).join("")
@@ -629,4 +629,32 @@ test("machines and their projects", () => {
 test("one message to many leaves out who can't take it", () => {
   assert.deepEqual(replyTargets(many, ["p1", "p2", "p3", "gone"]), { send: ["p2", "p3"], waiting: ["p1"], gone: ["gone"] })
   assert.deepEqual(replyTargets(many, []), { send: [], waiting: [], gone: [] })
+})
+
+test("an absent computer may have reset its key, and the phone is told to pair again", () => {
+  // A reset moves the computer to a room this phone has no link to, which
+  // looks exactly like a computer asleep: both are said.
+  const absent = relayWhy("absent")
+  assert.match(absent, /isn't connected to the relay/)
+  assert.match(absent, /asleep/)
+  assert.match(absent, /conch web relay reset/)
+  assert.match(absent, /pair it again with a new code/)
+  // A timeout or a relay that can't be reached is not a reset.
+  assert.doesNotMatch(relayWhy("timeout"), /pair/)
+  assert.doesNotMatch(relayWhy(undefined), /pair/)
+  assert.match(relayWhy("timeout"), /didn't answer/)
+  assert.match(relayWhy("closed"), /relay can't be reached/)
+})
+
+test("a pane's ID is named as conch's commands take it", async () => {
+  const { paneRef } = await import("../ui/lib.mjs")
+  const machines = [{ id: "local", label: "this computer" }, { id: "busybox-1", label: "busybox" }, { id: "lab-2", label: "lab box" }]
+  assert.equal(paneRef("local:p3", machines), "p3")
+  assert.equal(paneRef("p3", machines), "p3")
+  assert.equal(paneRef("busybox-1:p12", machines), "busybox:p12")
+  assert.equal(paneRef("lab-2:p1", machines), "lab-2:p1")
+  assert.equal(paneRef("gone:p1", machines), "gone:p1")
+  assert.equal(paneRef("busybox-1:p12"), "busybox-1:p12")
+  assert.equal(paneRef("", machines), "")
+  assert.equal(paneRef(undefined), "")
 })

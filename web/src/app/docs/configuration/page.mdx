@@ -270,7 +270,7 @@ The phone gateway, [`conch web`](/docs/phone). Set from **Settings → Web** in 
 | --- | --- | --- |
 | `url` | none | the address phones open: the `https://…ts.net` name `tailscale serve` gives. With it, `conch web` listens on loopback behind Tailscale, and the pairing QR code points here |
 | `port` | `8722` | where `conch web` listens |
-| `relay` | none | a [relay](/docs/phone#through-a-relay) `conch web` connects out to, so a phone reaches this computer from any network: `wss://relay.example.com`, a server running `conch relay`. Everything through it is encrypted between the phone and this computer |
+| `relay` | none | a [relay](/docs/phone#through-a-relay) `conch web` connects out to, so a phone reaches this computer from any network: `wss://relay.example.com`, a server running `conch relay`. Everything through it is encrypted between the phone and this computer, but it serves the phone's app, so use one of your own |
 
 `-url`, `-port` and `-relay` given to `conch web` win over these.
 

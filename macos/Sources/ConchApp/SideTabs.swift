@@ -107,6 +107,9 @@ struct SideTabRow: View {
         .contextMenu {
             Button("Rename Tab…") { store.renameTab(index) }
             if tab.name != nil { Button("Name It by Its Pane") { store.layout.rename(index, to: "") } }
+            if let ref = store.paneRef(key: tab.focused) {
+                Button("Copy Pane ID (\(ref))") { store.copyPaneRef(ref) }
+            }
             Button("Close Tab") {
                 store.layout.select(index)
                 store.closeSplit()

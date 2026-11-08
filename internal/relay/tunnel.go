@@ -108,13 +108,17 @@ func newSealer(c *websocket.Conn, cs *noise.CipherState, deflate bool) *sealer {
 	return s
 }
 
+// errTooBig is a frame over maxFrame: nothing of it was sent, so the
+// session goes on and the other end can be told instead.
+var errTooBig = errors.New("a frame over the tunnel's limit")
+
 func (s *sealer) send(ctx context.Context, f Frame) error {
 	body, err := json.Marshal(f)
 	if err != nil {
 		return err
 	}
 	if len(body) > maxFrame {
-		return fmt.Errorf("a %d-byte frame is over the tunnel's %d", len(body), maxFrame)
+		return fmt.Errorf("%w: %d bytes, over %d", errTooBig, len(body), maxFrame)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -233,10 +237,12 @@ func (l *memListener) Close() error {
 
 func (l *memListener) Addr() net.Addr { return memAddr{} }
 
-func (l *memListener) dial(ctx context.Context) (net.Conn, error) {
+// dial connects to the listener; the handler sees the connection as
+// coming from remote.
+func (l *memListener) dial(ctx context.Context, remote net.Addr) (net.Conn, error) {
 	a, b := net.Pipe()
 	select {
-	case l.conns <- b:
+	case l.conns <- addrConn{Conn: b, remote: remote}:
 		return a, nil
 	case <-l.done:
 		a.Close()
@@ -248,6 +254,25 @@ func (l *memListener) dial(ctx context.Context) (net.Conn, error) {
 		return nil, ctx.Err()
 	}
 }
+
+// addrConn is a pipe's end with the address the handler is to see.
+type addrConn struct {
+	net.Conn
+	remote net.Addr
+}
+
+func (c addrConn) RemoteAddr() net.Addr {
+	if c.remote == nil {
+		return c.Conn.RemoteAddr()
+	}
+	return c.remote
+}
+
+// relayAddr is a phone session's address, as the gateway's handler sees it.
+type relayAddr string
+
+func (relayAddr) Network() string  { return "relay" }
+func (a relayAddr) String() string { return string(a) }
 
 type memAddr struct{}
 
@@ -262,6 +287,30 @@ var (
 	passOut = []string{"Content-Type", "Set-Cookie", "Retry-After"}
 )
 
+// sockQueue is how many of a phone's messages may wait for a socket on
+// the gateway that is not reading; past it the socket is closed rather
+// than hold up the session, which every call and socket shares.
+const sockQueue = 256
+
+// tunnelSocket is a phone's WebSocket on the gateway, and what waits to
+// be written to it.
+type tunnelSocket struct {
+	c    *websocket.Conn
+	in   chan string   // never closed: a message for a socket just closed is dropped
+	done chan struct{} // closed by close
+	once sync.Once
+}
+
+// close closes the socket without waiting for the other end to answer,
+// which a socket that isn't reading never does: it may be called with
+// the session's lock held.
+func (t *tunnelSocket) close(code websocket.StatusCode) {
+	t.once.Do(func() {
+		close(t.done)
+		go t.c.Close(code, "")
+	})
+}
+
 // serveSession is one phone's session on the gateway: frames in, calls on
 // the gateway's handler, answers out. It returns when the phone goes.
 func serveSession(ctx context.Context, c *websocket.Conn, recv, send *noise.CipherState, hc *http.Client, logf func(string, ...any)) {
@@ -271,11 +320,15 @@ func serveSession(ctx context.Context, c *websocket.Conn, recv, send *noise.Ciph
 	in := newOpener(ctx, c, recv, false)
 	calls := make(chan struct{}, maxCalls)
 	var mu sync.Mutex
-	sockets := map[int64]*websocket.Conn{}
+	sockets := map[int64]*tunnelSocket{}
+	// opening are sockets asked for and not yet open; a close that arrives
+	// meanwhile is kept in cancelled, and the socket closed when it opens.
+	opening := map[int64]bool{}
+	cancelled := map[int64]bool{}
 	defer func() {
 		mu.Lock()
 		for _, s := range sockets {
-			s.CloseNow()
+			s.close(websocket.StatusGoingAway)
 		}
 		mu.Unlock()
 	}()
@@ -298,73 +351,135 @@ func serveSession(ctx context.Context, c *websocket.Conn, recv, send *noise.Ciph
 			}
 			go func(f Frame) {
 				defer func() { <-calls }()
-				_ = out.send(ctx, call(ctx, hc, f))
+				if err := out.send(ctx, call(ctx, hc, f)); errors.Is(err, errTooBig) {
+					// Said, or the phone waits on this call for ever.
+					_ = out.send(ctx, failFrame(f.ID, http.StatusBadGateway, "the gateway's answer is too large for the tunnel"))
+				}
 			}(f)
 		case "wo":
+			mu.Lock()
+			opening[f.ID] = true
+			mu.Unlock()
 			go func(f Frame) {
-				s, err := openSocket(ctx, hc, f)
-				if err != nil {
-					_ = out.send(ctx, Frame{T: "wc", ID: f.ID, C: int(websocket.StatusInternalError), R: err.Error()})
+				c, err := openSocket(ctx, hc, f)
+				mu.Lock()
+				delete(opening, f.ID)
+				gone := cancelled[f.ID]
+				delete(cancelled, f.ID)
+				if err != nil || gone {
+					mu.Unlock()
+					if err != nil && !gone {
+						_ = out.send(ctx, Frame{T: "wc", ID: f.ID, C: int(websocket.StatusInternalError), R: err.Error()})
+					}
+					if c != nil {
+						c.Close(websocket.StatusNormalClosure, "")
+					}
 					return
 				}
-				mu.Lock()
+				s := &tunnelSocket{c: c, in: make(chan string, sockQueue), done: make(chan struct{})}
 				if old := sockets[f.ID]; old != nil {
-					old.CloseNow()
+					old.close(websocket.StatusNormalClosure)
 				}
 				sockets[f.ID] = s
 				mu.Unlock()
+				// What the phone sends is written here, in the order it
+				// came, and not on the session's reading goroutine: a
+				// socket slow to read would hold up every call.
+				go func() {
+					for {
+						select {
+						case m := <-s.in:
+							if s.c.Write(ctx, websocket.MessageText, []byte(m)) != nil {
+								return
+							}
+						case <-s.done:
+							return
+						}
+					}
+				}()
 				if out.send(ctx, Frame{T: "wo", ID: f.ID}) != nil {
-					s.CloseNow()
+					s.close(websocket.StatusGoingAway)
 					return
 				}
 				for {
-					_, msg, err := s.Read(ctx)
-					if err != nil {
-						code := int(websocket.CloseStatus(err))
+					_, msg, err := s.c.Read(ctx)
+					code := 0
+					switch {
+					case err != nil:
+						code = int(websocket.CloseStatus(err))
 						if code < 0 {
 							code = int(websocket.StatusGoingAway)
 						}
-						mu.Lock()
-						if sockets[f.ID] == s {
-							delete(sockets, f.ID)
+					default:
+						err = out.send(ctx, Frame{T: "wm", ID: f.ID, D: string(msg)})
+						if errors.Is(err, errTooBig) {
+							// The phone is told the socket is gone, rather
+							// than left with one that has gone quiet.
+							code = int(websocket.StatusMessageTooBig)
+						} else if err != nil {
+							s.close(websocket.StatusGoingAway)
+							return
 						}
-						mu.Unlock()
+					}
+					if code == 0 {
+						continue
+					}
+					// Whoever takes the socket out of the map tells the
+					// phone: if the phone closed it, or it was given up
+					// for falling behind, that has been said already.
+					mu.Lock()
+					mine := sockets[f.ID] == s
+					if mine {
+						delete(sockets, f.ID)
+					}
+					mu.Unlock()
+					s.close(websocket.StatusCode(code))
+					if mine {
 						_ = out.send(ctx, Frame{T: "wc", ID: f.ID, C: code})
-						return
 					}
-					if out.send(ctx, Frame{T: "wm", ID: f.ID, D: string(msg)}) != nil {
-						s.CloseNow()
-						return
-					}
+					return
 				}
 			}(f)
 		case "wm":
 			mu.Lock()
 			s := sockets[f.ID]
-			mu.Unlock()
 			if s != nil {
-				// Keep the order the phone sent them in: written here, on
-				// the reading goroutine.
-				_ = s.Write(ctx, websocket.MessageText, []byte(f.D))
+				select {
+				case s.in <- f.D:
+				default:
+					// The gateway's socket isn't reading: give it up.
+					delete(sockets, f.ID)
+					s.close(websocket.StatusTryAgainLater)
+					go func(id int64) {
+						_ = out.send(ctx, Frame{T: "wc", ID: id, C: int(websocket.StatusTryAgainLater), R: "the gateway fell behind"})
+					}(f.ID)
+				}
 			}
+			mu.Unlock()
 		case "wc":
 			mu.Lock()
 			s := sockets[f.ID]
 			delete(sockets, f.ID)
+			if s == nil && opening[f.ID] {
+				cancelled[f.ID] = true
+			}
 			mu.Unlock()
 			if s != nil {
-				s.Close(websocket.StatusNormalClosure, "")
+				s.close(websocket.StatusNormalClosure)
 			}
 		}
 	}
 }
 
+// failFrame is an answer the tunnel gives itself, in the gateway's shape.
+func failFrame(id int64, status int, msg string) Frame {
+	b, _ := json.Marshal(map[string]any{"error": map[string]string{"code": "bad_request", "message": msg}})
+	return Frame{T: "res", ID: id, S: status, B: string(b), H: map[string]string{"Content-Type": "application/json"}}
+}
+
 // call makes one of a phone's calls on the gateway's handler.
 func call(ctx context.Context, hc *http.Client, f Frame) Frame {
-	fail := func(status int, msg string) Frame {
-		b, _ := json.Marshal(map[string]any{"error": map[string]string{"code": "bad_request", "message": msg}})
-		return Frame{T: "res", ID: f.ID, S: status, B: string(b), H: map[string]string{"Content-Type": "application/json"}}
-	}
+	fail := func(status int, msg string) Frame { return failFrame(f.ID, status, msg) }
 	if !strings.HasPrefix(f.P, "/") || strings.HasPrefix(f.P, "//") {
 		return fail(http.StatusBadRequest, "a path on the gateway is needed")
 	}

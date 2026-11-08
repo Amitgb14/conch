@@ -177,10 +177,12 @@ func webPair(args []string) error {
 	case url != "" && secure:
 		link = phone.PairLink(url, code)
 	}
+	drawn := false
 	if link != "" && stdoutIsTerminal() {
 		// The code opens the page with the pairing code filled in.
 		if lines, err := phone.QRLines(link); err == nil {
 			fmt.Println(strings.Join(lines, "\n"))
+			drawn = true
 		}
 	}
 	fmt.Printf("pairing code: %s\n", code)
@@ -190,11 +192,22 @@ func webPair(args []string) error {
 	// to be discovered when a machine is missing from the app.
 	fmt.Println(reachWords(machines.names))
 	if rp.Link != "" {
-		fmt.Printf("scan the code with the phone's camera: it opens %s, the relay, from any network\n", rp.Page)
+		if drawn {
+			fmt.Printf("scan the code with the phone's camera: it opens %s, the relay, from any network\n", rp.Page)
+		} else {
+			// No QR code where this is going — `!` in an agent, a pipe — so
+			// the link it would have carried, which is the only way in: the
+			// relay's page alone has no key to make the session with.
+			fmt.Printf("open this link on the phone: it reaches %s, the relay, from any network\n  %s\n", rp.Page, link)
+		}
 		fmt.Printf("the phone shows this computer's key as %q: the same words, the same key\n", rp.Words)
 		if !rp.Connected {
 			fmt.Println("conch web isn't connected to the relay yet: start it with `conch web`, or see `conch web relay`")
 		}
+		return nil
+	}
+	if link != "" && !drawn {
+		fmt.Printf("open this link on the phone, or open %s on it and enter the code\n  %s\n", url, link)
 		return nil
 	}
 	fmt.Println(pairWhere(url))
@@ -208,53 +221,62 @@ func relayLink(store *phone.Store, relayURL string, h http.Handler) (*relay.Link
 		return nil, err
 	}
 	pid := os.Getpid()
+	room := relay.RoomID(secret)
 	return &relay.Link{Relay: relayURL, Secret: secret, Key: key, Handler: h,
 		Logf: log.New(os.Stderr, "", log.LstdFlags).Printf,
 		OnStatus: func(st relay.Status) {
-			_ = store.SetRelayState(&phone.RelayState{URL: relayURL, PID: pid, Connected: st.Connected, Error: st.Error, Since: st.Since})
+			_ = store.SetRelayState(&phone.RelayState{URL: relayURL, Room: room, PID: pid, Connected: st.Connected, Error: st.Error, Since: st.Since})
 		}}, nil
 }
 
-// relayPair is what pairing through a relay needs said: the link, the page
-// it opens, the key's words, and whether conch web is on the relay now.
+// relayPair is what pairing through a relay needs said, with how conch
+// web's link to the relay is in a sentence, as `conch web relay` says it.
 type relayPair struct {
-	Link, Page, Words string
-	Connected         bool
-	// Status is how conch web's link to the relay is, in a sentence, as
-	// `conch web relay` says it.
+	phone.RelayPair
 	Status string
 }
 
-// relayPairing is a pairing through the relay in the settings, when there
-// is one.
+// relayPairing is a pairing through the relay phones use, when there is
+// one: the settings' — or, with none there, the one a running conch web
+// was started with (-relay), which pairing must use as well.
 func relayPairing(store *phone.Store, code string) (relayPair, error) {
 	cfg, _ := config.Load()
-	if cfg.Web.Relay == "" {
-		return relayPair{}, nil
+	url := store.RelayURL(cfg.Web.Relay)
+	rp, err := store.RelayPairing(url, code)
+	if err != nil || rp.Link == "" {
+		return relayPair{RelayPair: rp}, err
 	}
-	page, err := relay.HTTPURL(cfg.Web.Relay)
-	if err != nil {
-		return relayPair{}, fmt.Errorf("[web] relay: %v", err)
-	}
-	secret, key, err := store.Relay()
-	if err != nil {
-		return relayPair{}, err
-	}
-	connected, status := relayStatus(store, cfg.Web.Relay)
-	return relayPair{Link: phone.RelayPairLink(page, code, relay.RoomID(secret), key.Public), Page: page,
-		Words: relay.Fingerprint(key.Public), Connected: connected, Status: status}, nil
+	connected, status := relayStatus(store, url)
+	rp.Connected = connected
+	return relayPair{RelayPair: rp, Status: status}, nil
 }
 
-// relayStatus says whether conch web is on the relay set as relayURL, and
-// in a sentence how it is: a window shows the sentence beside the key, so
-// somebody whose phone can't connect sees why without a terminal.
+// revokedWords says how many phones a reset revoked.
+func revokedWords(n int) string {
+	switch n {
+	case 0:
+		return "no phone had paired through the relay"
+	case 1:
+		return "the 1 phone paired through the relay is revoked"
+	}
+	return fmt.Sprintf("the %d phones paired through the relay are revoked", n)
+}
+
+// relayStatus says whether conch web is on the relay set as relayURL with
+// this key, and in a sentence how it is: a window shows the sentence beside
+// the key, so somebody whose phone can't connect sees why without a terminal.
 func relayStatus(store *phone.Store, relayURL string) (bool, string) {
 	st, running := store.RelayState()
+	secret, _, err := store.Relay()
 	switch {
 	case !running:
 		return false, "conch web isn't running: `conch web` connects to it"
 	case st.URL != relayURL:
 		return false, fmt.Sprintf("conch web is connected to %s, not this one: restart it", st.URL)
+	case err == nil && st.Room != "" && st.Room != relay.RoomID(secret):
+		// After a reset, a conch web still running holds the old key, and
+		// a phone given the new one can't reach it.
+		return false, "conch web is using the key from before a reset: restart it"
 	case st.Connected:
 		return true, fmt.Sprintf("connected since %s", st.Since.Local().Format("15:04"))
 	case st.Error != "":
@@ -271,16 +293,18 @@ func webRelay(args []string) error {
 		if err := notFromAnAgent("reset the relay key"); err != nil {
 			return err
 		}
-		if err := store.ResetRelay(); err != nil {
+		revoked, err := store.ResetRelay()
+		if err != nil {
 			return err
 		}
-		fmt.Println("a new relay key: phones paired through the relay have to pair again (restart conch web to use it)")
+		fmt.Printf("a new relay key: %s, and they pair again (restart conch web to use it)\n", revokedWords(revoked))
 		return nil
 	case len(args) > 0:
 		return errors.New(webUsage)
 	}
 	cfg, _ := config.Load()
-	if cfg.Web.Relay == "" {
+	url := store.RelayURL(cfg.Web.Relay)
+	if url == "" {
 		fmt.Println("no relay: set [web] relay = \"wss://…\" in config.toml (a server running `conch relay`)")
 		return nil
 	}
@@ -288,8 +312,8 @@ func webRelay(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("relay: %s\nkey:   %s\n", cfg.Web.Relay, relay.Fingerprint(key.Public))
-	_, status := relayStatus(store, cfg.Web.Relay)
+	fmt.Printf("relay: %s\nkey:   %s\n", url, relay.Fingerprint(key.Public))
+	_, status := relayStatus(store, url)
 	fmt.Println(status)
 	return nil
 }
@@ -338,6 +362,10 @@ func webDevices(args []string) error {
 		if len(d.Machines) > 0 {
 			where = "this computer, " + strings.Join(d.Machines, ", ")
 		}
+		if d.Relay {
+			// What `conch web relay reset` revokes.
+			where += " (through the relay)"
+		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", d.ID, d.Name, d.Permission, where,
 			d.Created.Local().Format("2006-01-02 15:04"), phone.SeenWords(seen[d.ID], time.Now()))
 	}
@@ -371,9 +399,9 @@ type deviceJSON struct {
 func printDevicesJSON(store *phone.Store, devs []phone.Device, seen map[string]phone.Presence) error {
 	_, running := store.Gateway()
 	out := devicesJSON{Running: running, Devices: []deviceJSON{}}
-	if cfg, _ := config.Load(); cfg.Web.Relay != "" {
-		out.Relay = cfg.Web.Relay
-		out.RelayConnected, out.RelayStatus = relayStatus(store, cfg.Web.Relay)
+	if cfg, _ := config.Load(); store.RelayURL(cfg.Web.Relay) != "" {
+		out.Relay = store.RelayURL(cfg.Web.Relay)
+		out.RelayConnected, out.RelayStatus = relayStatus(store, out.Relay)
 	}
 	for _, d := range devs {
 		j := deviceJSON{ID: d.ID, Name: d.Name, Permission: d.Permission, Machines: d.Machines, Created: d.Created.UTC()}

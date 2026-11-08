@@ -65,8 +65,8 @@ cat >"$app/Contents/Info.plist" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key><string>Conch</string>
-	<key>CFBundleDisplayName</key><string>Conch</string>
+	<key>CFBundleName</key><string>Conch (Beta)</string>
+	<key>CFBundleDisplayName</key><string>Conch (Beta)</string>
 	<key>CFBundleIdentifier</key><string>dev.conch.mac</string>
 	<key>CFBundleExecutable</key><string>Conch</string>
 	<key>CFBundleIconFile</key><string>Conch</string>

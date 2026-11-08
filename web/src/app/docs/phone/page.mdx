@@ -2,7 +2,7 @@ export const metadata = { title: "Phone", description: "See your agents from you
 
 # Phone
 
-`conch web` lets a phone reach the agents on this machine: see what each is doing, reply to one, and answer the question it is waiting on. It is a small web server that conch runs on your laptop, in front of the same server the TUI talks to. The phone reaches the laptop over [Tailscale](https://tailscale.com), or from any network through a [relay](#through-a-relay) of your own that cannot read what it carries.
+`conch web` lets a phone reach the agents on this machine: see what each is doing, reply to one, and answer the question it is waiting on. It is a small web server that conch runs on your laptop, in front of the same server the TUI talks to. The phone reaches the laptop over [Tailscale](https://tailscale.com), or from any network through a [relay](#through-a-relay) of your own, which carries the traffic without being able to read it.
 
 <Callout type="note">
 
@@ -56,7 +56,7 @@ Four tabs run along the bottom — **Agents**, **Watch**, **Machines** and **Set
 - **Its terminal** — the whole screen, live, fitted to what the keyboard leaves visible so the prompt and the key row stay in view. In a window with room to spare — a browser on a laptop, rather than a phone — conch asks for the **pane itself** to be made wider, since the page can otherwise only grow its type and the columns are the laptop's. It only ever asks to **grow**: a phone never shrinks the pane your laptop is working in, and a pane already as wide as the window is left alone. A terminal has one size, so the laptop sees the change too, and if its TUI is also showing that pane it will set the size back to its own — the last one to look wins, which is the rule the TUI has always had. Devices with `view` cannot resize, because it changes what everybody sees. **Tap it and type**: the phone's keyboard goes straight to the pane, accents, paste and all. A row of keys rides on top of the keyboard — esc, tab, **ctrl** and **alt** (tap once for the next key, twice to lock), the arrows, shift+tab, `| ~ / -`, and ^C (two taps). **Aa** changes the text size; a wide terminal scrolls sideways, and scrolling up loads its history. A plain terminal opens straight on its screen.
 - **Your other machines** — the gateway reaches every machine in your catalog, not only the one it runs on, keeping a client per machine as the TUI does. A row on another machine carries its name beside the agent's, and nothing is drawn for the laptop itself or when there is only one machine: the machine is only ever news when there is more than one. A machine still being reached, or one that would not answer, shows above the lists with what is wrong (`ssh: connect to host vm1 port 22: Host is unreachable`), so an empty list is an empty list rather than a phone quietly missing half of them. Notifications come from every machine, and **＋ New** asks which machine to start on.
 - **⋯** on an agent or terminal — switch between conversation and terminal, rename it, or close it (two taps).
-- **＋** (devices with `full`) — a new **task** (branch, worktree and agent), a new **agent** in a project or your home folder, with an optional first message, or a new **terminal**. The agent is a tile to tap. A task can be started as **2 or 3 tries** at once, each on a branch of its own named as `conch task -n` names them, to keep the best; they open in **Watch**.
+- **＋** (devices with `full`) — a new **task** (branch, worktree and agent), a new **agent** in a project or your home folder, with an optional first message, or a new **terminal**. The agent is a tile to tap, each with its own logo. A task can be started as **2 or 3 tries** at once, each on a branch of its own named as `conch task -n` names them, to keep the best; they open in **Watch**.
 
 **When the laptop can't be reached** — asleep, or off the tailnet — the app still opens, says so, and shows the agents and terminals as they were when it last heard from the laptop, with the time. It keeps trying and catches up by itself. Questions are not kept on the phone between visits: they can quote a command.
 
@@ -134,6 +134,8 @@ These are two different things, on purpose.
 
 **A reply** is the agent's next message, as [`conch agent prompt`](/docs/cli#agent) sends it. It is refused while the agent waits on a question — typed in, its Enter would answer the question — and the phone is told the agent is waiting.
 
+An agent's or terminal's screen ends its subtitle with the pane's ID — `p12`, or `busybox:p12` on another machine — what `conch read` and `conch send` take on the computer; a tap on it copies it, as **Copy pane ID** in the **⋯** menu does.
+
 **An answer** picks one of the choices of the question an agent is asking. conch reads the choices off the agent's screen — a numbered menu with a cursor on one row — and the phone shows them as buttons. Tapping one moves the cursor to that row and presses Enter; nothing else is sent. The answer carries the ID of the question it was shown for, and is refused if the agent is no longer asking that question, so a tap that arrives late can't answer the next one.
 
 When conch can't read choices — no menu, or no cursor to steer by — the question comes without any. A device with `full` answers it in the terminal, with the key bar; the others at the laptop.
@@ -147,6 +149,12 @@ Comments written on a branch's diff — in the [changes view](/docs/interface#ch
 A relay is how a phone reaches the laptop from any network with nothing to install on the phone and no port opened at home. `conch web` connects *out* to the relay and keeps the connection open; the phone opens the relay's address and connects there too; the relay pairs the two and copies what passes between them.
 
 What it copies, it cannot read. The pairing QR code carries the laptop's key as well as the code — in the part of the link after `#`, which a browser never sends anywhere — so the phone knows the key before it talks to anything, through the camera rather than the network. The phone and `conch web` then make a [Noise](https://noiseprotocol.org) session with it (`Noise_NK_25519_AESGCM_SHA256`, all of it in the browser's own WebCrypto), and every call, every screen and every keystroke travels inside. A relay that tried to answer in the laptop's place could not finish the handshake, and the device token that says who the phone is goes inside the session too. The relay sees that a room exists, when it is used and how many bytes pass — never what they are.
+
+<Callout type="warning">
+
+**Run the relay yourself, or use one run by somebody you trust as you trust the laptop.** The encryption keeps the relay out of what it *carries*, but the relay also *serves the app* the phone opens — the code that makes the session and keeps the phone's token. A relay that served a changed app could read every screen and type into every terminal the phone may. No encryption between the two ends can rule that out; only running the relay on a server of your own does.
+
+</Callout>
 
 Run one on any server that has a name and a certificate:
 
@@ -162,7 +170,7 @@ Then, on the laptop, point `conch web` at it — in **Settings → Phone (conch 
 relay = "wss://relay.example.com"
 ```
 
-and start `conch web` as usual. Without Tailscale it listens on loopback only and takes phones through the relay. `conch web pair` puts the relay's address in the QR code, and says the laptop's key as four words — `brook dove camel thistle` — which the phone shows too when it pairs: the same words, the same laptop. The phone asks before pairing — **They match — continue**, or **They don't match**, which forgets the link and sends nothing. The words come from the key in the QR code, so a code that did not come from your laptop shows different ones. `conch web relay` says whether `conch web` is connected to the relay now; `conch web relay reset` makes a new key, which unpairs every phone that came through the relay.
+and start `conch web` as usual. Without Tailscale it listens on loopback only and takes phones through the relay. `conch web pair` puts the relay's address in the QR code, and says the laptop's key as four words — `brook dove camel thistle` — which the phone shows too when it pairs: the same words, the same laptop. The phone asks before pairing — **They match — continue**, or **They don't match**, which forgets the link and sends nothing. The words come from the key in the QR code, so a code that did not come from your laptop shows different ones. `conch web relay` says whether `conch web` is connected to the relay now; `conch web relay reset` makes a new key and revokes every phone that paired through the relay; restart `conch web` to use it. A phone it revoked can't be told so — the laptop is no longer where the phone's link points — so the phone says the laptop isn't connected to the relay, and that a reset key is one reason why; pair it again with a new code.
 
 On the phone, open the link once from the QR code and add it to the Home Screen; from then on it reaches the laptop through the relay wherever the phone is. When it can't, it says which part is missing: the relay answered, but the laptop isn't connected to it — asleep, or `conch web` isn't running.
 

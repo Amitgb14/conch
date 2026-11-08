@@ -30,6 +30,18 @@ many.forEach((r, i) => assert.equal(JSON.parse(r.body).body, String(i)))
 const big = await t.request("GET", "/api/big")
 assert.equal(big.body.length, Number(process.env.BIG))
 
+// A call that is never answered gives up, and the tunnel goes on.
+t.callWait = 300
+await assert.rejects(t.request("GET", "/api/hang"), (err) => err.code === "timeout")
+t.callWait = 30_000
+assert.equal((await t.request("POST", "/api/echo", {}, "after")).status, 200)
+assert.equal(t.calls.size, 0)
+
+// An answer too large for the tunnel comes back as an error, not silence.
+const tooBig = await t.request("GET", "/api/escapes")
+assert.equal(tooBig.status, 502)
+assert.match(tooBig.body, /too large/)
+
 // A socket, in order, with a message over 64 KB each way.
 const s = t.socket("/api/socket")
 const got2 = []
