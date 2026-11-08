@@ -183,3 +183,75 @@ func TestRawReplayCarriesTitle(t *testing.T) {
 		t.Fatalf("replay lacks the title: %q", replay)
 	}
 }
+
+// A pane that changes size starts its raw subscribers again from a replay
+// at the new size: their terminals reflowed what they showed, and conch's
+// copy did not. The same size is no change, and starts nothing again.
+func TestResizeStartsRawAgain(t *testing.T) {
+	p := startShell(t)
+	waitScreen(t, p, "$")
+	_, cols, rows, sub := p.SubscribeRaw()
+	if err := p.Resize(cols, rows); err != nil {
+		t.Fatal(err)
+	}
+	if sub.Lost() {
+		t.Fatal("a resize to the same size started the subscriber again")
+	}
+	if err := p.Resize(cols+10, rows+2); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-sub.LostC():
+	case <-time.After(time.Second):
+		t.Fatal("a resize left the subscriber going on a reflowed screen")
+	}
+	p.emuMu.Lock()
+	n := len(p.raws)
+	p.emuMu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d subscribers still held", n)
+	}
+	_, c2, r2, again := p.SubscribeRaw()
+	defer p.UnsubscribeRaw(again)
+	if c2 != cols+10 || r2 != rows+2 {
+		t.Fatalf("the new replay is for %dx%d, want %dx%d", c2, r2, cols+10, rows+2)
+	}
+	// Two subscribers, both started again; one left alone afterwards.
+	other := newRawSub(rawBacklog)
+	p.emuMu.Lock()
+	p.raws[other] = struct{}{}
+	p.emuMu.Unlock()
+	if err := p.Resize(cols, rows); err != nil {
+		t.Fatal(err)
+	}
+	if !again.Lost() || !other.Lost() {
+		t.Fatalf("lost: %v %v, want both", again.Lost(), other.Lost())
+	}
+}
+
+// The moment Repaint holds a pane a column narrower is not a size anybody
+// draws at, so it starts nobody again; going back does, once.
+func TestRepaintStartsRawAgainOnce(t *testing.T) {
+	p := startShell(t)
+	waitScreen(t, p, "$")
+	_, cols, rows, sub := p.SubscribeRaw()
+	defer p.UnsubscribeRaw(sub)
+	if err := p.resize(cols-1, rows, false); err != nil {
+		t.Fatal(err)
+	}
+	if sub.Lost() {
+		t.Fatal("a passing size started the subscriber again")
+	}
+	if err := p.Repaint(); err != nil {
+		t.Fatal(err)
+	}
+	if !sub.Lost() {
+		t.Fatal("repaint left the subscriber going")
+	}
+	_, c2, r2, again := p.SubscribeRaw()
+	defer p.UnsubscribeRaw(again)
+	if c2 != cols-1 || r2 != rows {
+		// Repaint started from cols-1 here, and went back to it.
+		t.Fatalf("after repaint the pane is %dx%d, want %dx%d", c2, r2, cols-1, rows)
+	}
+}

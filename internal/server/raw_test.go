@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -225,4 +226,102 @@ func TestResizeIsBroadcast(t *testing.T) {
 		var p proto.PaneInfo
 		return m.Event == proto.EventPaneUpdated && json.Unmarshal(m.Data, &p) == nil && p.ID == info.ID && p.Cols == 61 && p.Rows == 9
 	})
+}
+
+// When the pane changes size, a raw client is sent a fresh replay at the
+// new size, marked Reset: its terminal reflowed the screen when it changed
+// width, and a program repainting by counting rows left leftovers there.
+func TestPaneRawResetsOnResize(t *testing.T) {
+	a5Env(t)
+	c, _ := startServer(t)
+	col := a5Collect(c)
+	ctx := a5Ctx(t)
+	var info proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{
+		Command: []string{"/bin/sh", "-c", `echo mark-$((3+4)); sleep 30`},
+		Cols:    40, Rows: 6,
+	}, &info); err != nil {
+		t.Fatal(err)
+	}
+	var read proto.PaneReadResult
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		_ = c.Call(ctx, proto.MethodPaneRead, proto.PaneRef{ID: info.ID}, &read)
+		if strings.Contains(strings.Join(read.Lines, "\n"), "mark-7") {
+			break
+		}
+	}
+	var start proto.PaneRawStart
+	if err := c.Call(ctx, proto.MethodPaneRaw, proto.PaneRef{ID: info.ID}, &start); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Call(ctx, proto.MethodPaneResize, proto.PaneResizeParams{ID: info.ID, Cols: 52, Rows: 9}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var reset *proto.PaneOutput
+	for deadline := time.Now().Add(10 * time.Second); reset == nil && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		col.mu.Lock()
+		for _, m := range col.msgs {
+			var o proto.PaneOutput
+			if m.Event == proto.EventPaneOutput && json.Unmarshal(m.Data, &o) == nil && o.ID == info.ID && o.Reset {
+				reset = &o
+			}
+		}
+		col.mu.Unlock()
+	}
+	if reset == nil {
+		t.Fatal("no fresh replay after the pane changed size")
+	}
+	if reset.Cols != 52 || reset.Rows != 9 || !strings.Contains(string(reset.Data), "mark-7") {
+		t.Fatalf("reset for %dx%d holding %q", reset.Cols, reset.Rows, reset.Data)
+	}
+}
+
+// ctrl+b r (pane.redraw) passes through a size a column narrower; a raw
+// client is sent one fresh replay, for the size it comes back to, never
+// one for the size it passed through.
+func TestPaneRawRedrawResetsOnce(t *testing.T) {
+	a5Env(t)
+	c, _ := startServer(t)
+	col := a5Collect(c)
+	ctx := a5Ctx(t)
+	var info proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{
+		Command: []string{"/bin/sh", "-c", `echo mark-$((3+4)); sleep 30`},
+		Cols:    40, Rows: 6,
+	}, &info); err != nil {
+		t.Fatal(err)
+	}
+	var read proto.PaneReadResult
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		_ = c.Call(ctx, proto.MethodPaneRead, proto.PaneRef{ID: info.ID}, &read)
+		if strings.Contains(strings.Join(read.Lines, "\n"), "mark-7") {
+			break
+		}
+	}
+	var start proto.PaneRawStart
+	if err := c.Call(ctx, proto.MethodPaneRaw, proto.PaneRef{ID: info.ID}, &start); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Call(ctx, proto.MethodPaneRedraw, proto.PaneRef{ID: info.ID}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var resets []proto.PaneOutput
+	for deadline := time.Now().Add(10 * time.Second); len(resets) == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		col.mu.Lock()
+		resets = resets[:0]
+		for _, m := range col.msgs {
+			var o proto.PaneOutput
+			if m.Event == proto.EventPaneOutput && json.Unmarshal(m.Data, &o) == nil && o.ID == info.ID && o.Reset {
+				resets = append(resets, o)
+			}
+		}
+		col.mu.Unlock()
+	}
+	if len(resets) != 1 || resets[0].Cols != 40 || resets[0].Rows != 6 {
+		var sizes []string
+		for _, r := range resets {
+			sizes = append(sizes, fmt.Sprintf("%dx%d", r.Cols, r.Rows))
+		}
+		t.Fatalf("resets after redraw: %v, want one at 40x6", sizes)
+	}
 }
