@@ -220,7 +220,7 @@ func Schema(c Choices) []Section {
 				{Key: "port", Label: "Port", Kind: KindInt, Min: intp(0), Max: intp(65535), Placeholder: "8722"},
 				{Key: "relay", Label: "Relay", Kind: KindString, Placeholder: "wss://relay.example.com",
 					Help: "A relay conch web connects out to, so a phone reaches this computer from any network without Tailscale. " +
-						"Run one with `conch relay` on a server of your own. It forwards what it cannot read: phone and computer encrypt everything with a key from the pairing QR code."},
+						"Run one with `conch relay` on a server of your own. Phone and computer encrypt everything with a key from the pairing QR code, but the relay serves the phone's app, so use only a relay you trust as you trust this computer."},
 			}},
 		{ID: "app", Key: "app", Title: "Mac app", Icon: "laptop", Description: "How Conch.app draws its window. The TUI keeps its own.",
 			Fields: []Field{

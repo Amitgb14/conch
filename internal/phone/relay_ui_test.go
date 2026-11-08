@@ -31,6 +31,12 @@ func TestTunnelJSAgainstGo(t *testing.T) {
 		http.SetCookie(w, &http.Cookie{Name: CookieName, Value: "tok"})
 		_ = json.NewEncoder(w).Encode(map[string]string{"body": string(b), "cookie": r.Header.Get("Cookie")})
 	})
+	// A call never answered, and an answer too large for a frame once it
+	// is JSON: the app must not wait on either for ever.
+	mux.HandleFunc("/api/hang", func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() })
+	mux.HandleFunc("/api/escapes", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, strings.Repeat("<", 2<<20))
+	})
 	mux.HandleFunc("/api/big", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, strings.Repeat("y", big))
 	})

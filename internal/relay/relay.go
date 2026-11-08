@@ -5,6 +5,13 @@
 // relay never sees (the gateway's, carried in the pairing QR code), so it
 // forwards screens and keystrokes it cannot read and could not forge.
 //
+// That holds for the bytes it copies, not for the page: the relay also
+// serves the phone's app, the code that makes the session and keeps the
+// device's token, so whoever runs a relay could serve an app that reads
+// everything. The relay is to be trusted as the laptop is — one of your
+// own — and the docs say so rather than leave the Noise session to imply
+// otherwise.
+//
 // A relay knows rooms, not people. A room's id is a hash of a secret only
 // its gateway holds, so a phone — which knows the id — can ask for the
 // gateway but cannot stand in for it. Nothing is stored: a relay that
@@ -91,10 +98,13 @@ func validRoom(id string) bool {
 	return true
 }
 
-// Open is what the relay tells a gateway when a phone arrives: open
-// AcceptPath with this id to take it.
+// Open is what the relay tells a gateway: when a phone arrives, open
+// AcceptPath with this id to take it. Ready comes first, once the room is
+// the gateway's: until then a phone asking for it would be told nobody is
+// there, so the gateway counts itself connected only from Ready.
 type Open struct {
-	Open string `json:"open"`
+	Open  string `json:"open,omitempty"`
+	Ready bool   `json:"ready,omitempty"`
 }
 
 // Server is a relay. UI, when set, is served for everything that isn't
@@ -112,8 +122,32 @@ type room struct {
 	gw      *websocket.Conn
 	gwWrite *sync.Mutex
 	// waiting are phones the gateway has been told about, by id.
-	waiting map[string]chan *websocket.Conn
+	waiting map[string]*waiter
 	phones  int
+	// gone is closed when this gateway leaves or is replaced: a phone
+	// still waiting on it is told so at once rather than at acceptWait.
+	gone     chan struct{}
+	goneOnce sync.Once
+}
+
+func (rm *room) leave() { rm.goneOnce.Do(func() { close(rm.gone) }) }
+
+// waiter is a phone waiting for its gateway to take it. The gateway's
+// connection is handed over on ch, which nobody buffers: a hand-over
+// either reaches the phone or sees left and gives up.
+type waiter struct {
+	ch   chan taken
+	left chan struct{} // closed when the phone's handler returns
+}
+
+// taken is the gateway's connection for a phone, and done, which the
+// phone's handler closes once it has finished with it. The accepting
+// handler waits on done, not on its request's context: a hijacked
+// request's context is not cancelled when its connection closes, so
+// waiting on it kept two goroutines for every phone, for ever.
+type taken struct {
+	c    *websocket.Conn
+	done chan struct{}
 }
 
 func (s *Server) logf(format string, args ...any) {
@@ -130,6 +164,7 @@ func (s *Server) Close() {
 	s.rooms = nil
 	s.mu.Unlock()
 	for _, rm := range rooms {
+		rm.leave()
 		rm.gw.Close(websocket.StatusGoingAway, "the relay is stopping")
 	}
 }
@@ -176,6 +211,20 @@ func (s *Server) serveGateway(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not this room's gateway", http.StatusForbidden)
 		return
 	}
+	if r.URL.Query().Get("probe") != "" {
+		// Whether the room has a gateway, without taking it: how a
+		// gateway that was replaced waits for the room to be free
+		// rather than taking it back from the conch web that took it.
+		s.mu.Lock()
+		_, there := s.rooms[id]
+		s.mu.Unlock()
+		if there {
+			w.WriteHeader(http.StatusConflict)
+		} else {
+			w.WriteHeader(http.StatusNoContent)
+		}
+		return
+	}
 	s.mu.Lock()
 	if s.rooms == nil {
 		s.rooms = map[string]*room{}
@@ -191,17 +240,28 @@ func (s *Server) serveGateway(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.SetReadLimit(4096)
-	rm := &room{gw: c, gwWrite: &sync.Mutex{}, waiting: map[string]chan *websocket.Conn{}}
+	rm := &room{gw: c, gwWrite: &sync.Mutex{}, waiting: map[string]*waiter{}, gone: make(chan struct{})}
 	s.mu.Lock()
 	old := s.rooms[id]
 	s.rooms[id] = rm
 	s.mu.Unlock()
 	if old != nil {
+		old.leave()
 		// The same gateway again — restarted, or its network changed
 		// before the relay noticed the old connection was gone.
 		old.gw.Close(CodeReplaced, "replaced by a newer connection")
 	}
 	s.logf("relay: gateway connected to %s", short(id))
+	ready, _ := json.Marshal(Open{Ready: true})
+	rm.gwWrite.Lock()
+	wctx, wcancel := context.WithTimeout(r.Context(), writeWithin)
+	err = c.Write(wctx, websocket.MessageText, ready)
+	wcancel()
+	rm.gwWrite.Unlock()
+	if err != nil {
+		c.CloseNow()
+		return
+	}
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -234,6 +294,7 @@ func (s *Server) serveGateway(w http.ResponseWriter, r *http.Request) {
 		delete(s.rooms, id)
 	}
 	s.mu.Unlock()
+	rm.leave()
 	c.CloseNow()
 	s.logf("relay: gateway left %s", short(id))
 }
@@ -255,7 +316,8 @@ func (s *Server) servePhone(w http.ResponseWriter, r *http.Request) {
 		c.Close(websocket.StatusInternalError, "")
 		return
 	}
-	ch := make(chan *websocket.Conn, 1)
+	wt := &waiter{ch: make(chan taken), left: make(chan struct{})}
+	defer close(wt.left)
 	s.mu.Lock()
 	rm := s.rooms[id]
 	switch {
@@ -269,7 +331,7 @@ func (s *Server) servePhone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rm.phones++
-	rm.waiting[phoneID] = ch
+	rm.waiting[phoneID] = wt
 	gw, gwWrite := rm.gw, rm.gwWrite
 	s.mu.Unlock()
 	defer func() {
@@ -289,16 +351,18 @@ func (s *Server) servePhone(w http.ResponseWriter, r *http.Request) {
 		c.Close(CodeNoGateway, "the computer isn't connected to the relay")
 		return
 	}
-	var other *websocket.Conn
+	var other taken
 	select {
-	case other = <-ch:
+	case other = <-wt.ch:
 	case <-time.After(acceptWait):
 		c.Close(CodeTimeout, "the computer didn't answer")
 		return
-	case <-r.Context().Done():
+	case <-rm.gone:
+		c.Close(CodeNoGateway, "the computer's connection to the relay went")
 		return
 	}
-	splice(r.Context(), c, other)
+	defer close(other.done)
+	splice(context.Background(), c, other.c)
 }
 
 func (s *Server) serveAccept(w http.ResponseWriter, r *http.Request) {
@@ -309,13 +373,13 @@ func (s *Server) serveAccept(w http.ResponseWriter, r *http.Request) {
 	}
 	phoneID := r.URL.Query().Get("phone")
 	s.mu.Lock()
-	var ch chan *websocket.Conn
+	var wt *waiter
 	if rm := s.rooms[id]; rm != nil {
-		ch = rm.waiting[phoneID]
+		wt = rm.waiting[phoneID]
 		delete(rm.waiting, phoneID)
 	}
 	s.mu.Unlock()
-	if ch == nil {
+	if wt == nil {
 		http.Error(w, "no phone waiting by that id", http.StatusNotFound)
 		return
 	}
@@ -326,13 +390,15 @@ func (s *Server) serveAccept(w http.ResponseWriter, r *http.Request) {
 	c.SetReadLimit(maxMessage)
 	// The phone's handler does the copying; this one waits for it, since
 	// returning would end the connection.
-	done := make(chan struct{})
-	go func() {
-		<-r.Context().Done()
-		close(done)
-	}()
-	ch <- c
-	<-done
+	t := taken{c: c, done: make(chan struct{})}
+	select {
+	case wt.ch <- t:
+		<-t.done
+	case <-wt.left:
+		// The phone gave up (it timed out, or its gateway went) as this
+		// connection arrived.
+		c.Close(websocket.StatusGoingAway, "the phone left")
+	}
 }
 
 // splice copies messages both ways until either side goes, then closes

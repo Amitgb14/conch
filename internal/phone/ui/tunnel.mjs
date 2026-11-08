@@ -1,5 +1,6 @@
 // The phone's end of the relay (internal/relay): a Noise session with the
-// gateway, made through a relay that copies it and cannot read it, and the
+// gateway, made through a relay that copies it and cannot read it (though
+// it serves this file, so it is trusted to serve it unchanged), and the
 // app's calls and its socket carried inside.
 //
 // Noise_NK_25519_AESGCM_SHA256, every part of it in WebCrypto: the phone
@@ -17,6 +18,10 @@ export const VERSION = 1
 export const NO_GATEWAY = 4404
 export const BUSY = 4429
 const MAX_PLAIN = 65535 - 16
+// CALL_WAIT is how long a call waits for its answer: the gateway's own
+// longest (starting a task makes a worktree first) and some. An answer
+// lost on the way would otherwise leave the app waiting for ever.
+export const CALL_WAIT = 75_000
 
 const enc = new TextEncoder()
 const dec = new TextDecoder()
@@ -251,6 +256,7 @@ export class Tunnel {
     this.calls = new Map()
     this.sockets = new Map()
     this.onclose = null // (code, reason): the session ended
+    this.callWait = CALL_WAIT
   }
 
   open() {
@@ -304,6 +310,9 @@ export class Tunnel {
     this.sealing = Promise.resolve()
     const frames = new Frames()
     let take
+    // A frame that doesn't parse ends the session: carrying on would read
+    // the rest of the stream from the wrong place.
+    const bad = () => { if (ws.readyState <= 1) ws.close(4000, "bad frame") }
     if (hello.z === "deflate-raw") {
       const ds = new DecompressionStream("deflate-raw")
       const writer = ds.writable.getWriter()
@@ -312,12 +321,17 @@ export class Tunnel {
         for (;;) {
           const { value, done } = await reader.read().catch(() => ({ done: true }))
           if (done) return
-          for (const f of frames.push(value)) this.#take(f)
+          try {
+            for (const f of frames.push(value)) this.#take(f)
+          } catch {
+            bad()
+            return
+          }
         }
       })()
       take = (b) => writer.write(b)
     } else {
-      take = (b) => { for (const f of frames.push(b)) this.#take(f) }
+      take = (b) => { try { for (const f of frames.push(b)) this.#take(f) } catch { bad() } }
     }
     // And incoming ones opened in order.
     let opening = Promise.resolve()
@@ -372,8 +386,21 @@ export class Tunnel {
   async request(method, path, headers = {}, body = undefined) {
     await this.open()
     const id = ++this.next
-    const p = new Promise((resolve, reject) => this.calls.set(id, { resolve, reject }))
-    await this.#write({ t: "req", id, m: method, p: path, h: headers, b: body ?? "" })
+    let timer
+    const p = new Promise((resolve, reject) => {
+      const done = (fn) => (v) => { clearTimeout(timer); this.calls.delete(id); fn(v) }
+      this.calls.set(id, { resolve: done(resolve), reject: done(reject) })
+      timer = setTimeout(() => {
+        const err = new Error("The computer didn't answer.")
+        err.code = "timeout"
+        this.calls.get(id)?.reject(err)
+      }, this.callWait)
+    })
+    try {
+      await this.#write({ t: "req", id, m: method, p: path, h: headers, b: body ?? "" })
+    } catch (err) {
+      this.calls.get(id)?.reject(err)
+    }
     return p
   }
 

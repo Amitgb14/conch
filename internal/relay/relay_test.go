@@ -9,12 +9,20 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
+)
+
+// slowOpened and slowClosed are /api/slow's: that it opened, and the
+// error its read ended with.
+var (
+	slowOpened = make(chan struct{}, 4)
+	slowClosed = make(chan error, 4)
 )
 
 // marker is in every answer the test gateway gives, so a relay that could
@@ -35,6 +43,35 @@ func testGateway(t *testing.T) http.Handler {
 			"csrf": r.Header.Get("X-CSRF-Token"), "evil": r.Header.Get("X-Evil"), "body": string(body), "marker": marker,
 		})
 	})
+	mux.HandleFunc("/api/where", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"through": Through(r), "addr": r.RemoteAddr})
+	})
+	// An answer under maxResponse that JSON makes larger than a frame:
+	// every < is six bytes once escaped.
+	mux.HandleFunc("/api/escapes", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, strings.Repeat("<", maxFrame/4))
+	})
+	// A socket that never reads what it is sent.
+	mux.HandleFunc("/api/deaf", func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		<-r.Context().Done()
+	})
+	// A socket slow to open, which says when it closes.
+	mux.HandleFunc("/api/slow", func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		slowOpened <- struct{}{}
+		_, _, err = c.Read(context.Background())
+		slowClosed <- err
+	})
 	mux.HandleFunc("/api/big", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, strings.Repeat("row of a screen "+marker+"\n", 40000))
 	})
@@ -50,6 +87,10 @@ func testGateway(t *testing.T) http.Handler {
 			_, m, err := c.Read(r.Context())
 			if err != nil {
 				return
+			}
+			if string(m) == "flood" {
+				// A message larger than a frame once escaped.
+				m = []byte(strings.Repeat("<", maxFrame/4))
 			}
 			if string(m) == "bye" {
 				c.Close(websocket.StatusNormalClosure, "")
@@ -382,10 +423,15 @@ func TestWrongSecret(t *testing.T) {
 }
 
 // The same gateway twice: the newer connection takes the room, the older
-// says why it lost it.
+// says why it lost it and leaves the room alone until it is free — two
+// taking it back from each other would have neither keep it.
 func TestGatewayReplaced(t *testing.T) {
+	old := replacedPoll
+	replacedPoll = 20 * time.Millisecond
+	t.Cleanup(func() { replacedPoll = old })
 	f := newFixture(t)
-	second := &Link{Relay: f.relay.URL, Secret: f.link.Secret, Key: f.link.Key, Handler: testGateway(t)}
+	lg := &logs{}
+	second := &Link{Relay: f.relay.URL, Secret: f.link.Secret, Key: f.link.Key, Handler: testGateway(t), Logf: lg.logf}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = second.Run(ctx) }()
@@ -393,8 +439,225 @@ func TestGatewayReplaced(t *testing.T) {
 	waitFor(t, "the first to hear", func() bool {
 		return strings.Contains(f.logs.String(), "another conch web took this computer's room")
 	})
+	if st := f.link.Status(); st.Connected || !strings.Contains(st.Error, "another conch web") {
+		t.Fatalf("the first's status: %+v", st)
+	}
+	// Many of the first's polls later, the second still has the room.
+	time.Sleep(300 * time.Millisecond)
+	if !second.Status().Connected || strings.Contains(lg.String(), "took") {
+		t.Fatalf("the first took the room back:\n%s", lg)
+	}
+	// A phone reaches the one that holds it.
+	f.dial(t)
 	cancel()
 	waitFor(t, "the first to come back", func() bool { return f.link.Status().Connected })
+	f.dial(t)
+}
+
+// A gateway asks whether its room is free without taking it, and only
+// with the room's secret.
+func TestProbe(t *testing.T) {
+	f := newFixture(t)
+	probe := func(secret string) int {
+		t.Helper()
+		req, _ := http.NewRequest("GET", f.relay.URL+GatewayPath+"?probe=1&room="+f.link.Room(), nil)
+		req.Header.Set(SecretHeader, secret)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	if got := probe(f.link.Secret); got != http.StatusConflict {
+		t.Fatalf("a held room: %d", got)
+	}
+	if got := probe("wrong"); got != http.StatusForbidden {
+		t.Fatalf("the wrong secret: %d", got)
+	}
+	if !f.link.Status().Connected {
+		t.Fatal("a probe took the room from its gateway")
+	}
+	f.cancel()
+	waitFor(t, "the room to empty", func() bool { return probe(f.link.Secret) == http.StatusNoContent })
+}
+
+// A phone that has gone leaves nothing behind on the relay or the
+// gateway: the relay's accepting handler once waited on its request's
+// context, which a hijacked connection never ends, and so kept two
+// goroutines for every phone, for ever.
+func TestSessionsLeaveNoGoroutines(t *testing.T) {
+	f := newFixture(t)
+	f.dial(t).Close() // the first warms up what stays: the link's client and listener
+	settle := func() int {
+		n := runtime.NumGoroutine()
+		for i := 0; i < 100; i++ {
+			time.Sleep(20 * time.Millisecond)
+			m := runtime.NumGoroutine()
+			if m == n {
+				break
+			}
+			n = m
+		}
+		return n
+	}
+	base := settle()
+	for i := 0; i < 20; i++ {
+		s := f.dial(t)
+		if res, err := s.Do(ctx10(t), "GET", "/api/echo", nil, ""); err != nil || res.S != 200 {
+			t.Fatalf("call %d: %v %d", i, err, res.S)
+		}
+		s.Close()
+	}
+	waitFor(t, "the sessions' goroutines to end", func() bool { return runtime.NumGoroutine() <= base+3 })
+}
+
+// A phone waiting for its gateway to take it is told at once when that
+// gateway goes, not after acceptWait.
+func TestWaitingPhoneHearsTheGatewayGo(t *testing.T) {
+	srv := &Server{}
+	ts := httptest.NewServer(srv)
+	t.Cleanup(ts.Close)
+	secret, _ := NewSecret()
+	key, _ := NewKey()
+	// A gateway that holds the room and never takes a phone.
+	u, _ := wsURL(ts.URL, GatewayPath, map[string][]string{"room": {RoomID(secret)}})
+	gw, _, err := websocket.Dial(ctx10(t), u, &websocket.DialOptions{HTTPHeader: http.Header{SecretHeader: {secret}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		for { // Ready, then the phone's Open
+			_, m, err := gw.Read(context.Background())
+			if err != nil || strings.Contains(string(m), `"open"`) {
+				break
+			}
+		}
+		gw.Close(websocket.StatusNormalClosure, "")
+	}()
+	start := time.Now()
+	_, err = Dial(ctx10(t), ts.URL, RoomID(secret), key.Public)
+	if !errors.Is(err, ErrNoGateway) || time.Since(start) > acceptWait/2 {
+		t.Fatalf("after %s: %v", time.Since(start), err)
+	}
+}
+
+// An answer too large for a frame once it is JSON is said, rather than
+// left for the phone to wait on for ever.
+func TestAnswerTooLargeForAFrame(t *testing.T) {
+	f := newFixture(t)
+	s := f.dial(t)
+	res, err := s.Do(ctx10(t), "GET", "/api/escapes", nil, "")
+	if err != nil || res.S != http.StatusBadGateway || !strings.Contains(res.B, "too large") {
+		t.Fatalf("%v %d %.100s", err, res.S, res.B)
+	}
+	// And the session goes on.
+	if res, err := s.Do(ctx10(t), "GET", "/api/echo", nil, ""); err != nil || res.S != 200 {
+		t.Fatalf("after: %v %d", err, res.S)
+	}
+}
+
+// A socket message too large for a frame closes the socket, and the phone
+// hears that it closed rather than meet a socket gone quiet.
+func TestSocketMessageTooLargeForAFrame(t *testing.T) {
+	f := newFixture(t)
+	s := f.dial(t)
+	k, err := s.Socket(ctx10(t), "/api/socket", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = k.Send(ctx10(t), "flood")
+	if _, err := k.Recv(ctx10(t)); err == nil || k.code != int(websocket.StatusMessageTooBig) {
+		t.Fatalf("%v (%d)", err, k.code)
+	}
+}
+
+// A socket the phone closes before it has opened is closed on the gateway
+// once it opens, not left open until the session ends.
+func TestSocketClosedBeforeItOpens(t *testing.T) {
+	f := newFixture(t)
+	s := f.dial(t)
+	_ = s.out.send(ctx10(t), Frame{T: "wo", ID: 99, P: "/api/slow"})
+	_ = s.out.send(ctx10(t), Frame{T: "wc", ID: 99, C: 1000})
+	select {
+	case <-slowOpened:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the socket never opened")
+	}
+	select {
+	case err := <-slowClosed:
+		if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
+			t.Fatalf("closed with %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the socket the phone closed is still open on the gateway")
+	}
+}
+
+// A socket on the gateway that doesn't read holds up nothing else in the
+// session: calls are answered, and once too much waits for it, it is
+// closed and the phone told.
+func TestDeafSocketHoldsUpNothing(t *testing.T) {
+	f := newFixture(t)
+	s := f.dial(t)
+	k, err := s.Socket(ctx10(t), "/api/deaf", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 4; i++ {
+		_ = k.Send(ctx10(t), strings.Repeat("x", 1<<16))
+	}
+	if res, err := s.Do(ctx10(t), "GET", "/api/echo", nil, ""); err != nil || res.S != 200 {
+		t.Fatalf("a call behind a deaf socket: %v %d", err, res.S)
+	}
+	for i := 0; i < sockQueue+8; i++ {
+		_ = k.Send(ctx10(t), "more")
+	}
+	if _, err := k.Recv(ctx10(t)); err == nil || k.code != int(websocket.StatusTryAgainLater) {
+		t.Fatalf("the deaf socket: %v (%d)", err, k.code)
+	}
+}
+
+// The gateway's handler can tell a call came through the relay, which
+// nothing a client sends can fake, and each phone's session has an
+// address of its own — what pairing attempts are counted by.
+func TestThroughAndAddresses(t *testing.T) {
+	f := newFixture(t)
+	where := func(s *Session) (bool, string) {
+		t.Helper()
+		res, err := s.Do(ctx10(t), "GET", "/api/where", nil, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var w struct {
+			Through bool
+			Addr    string
+		}
+		_ = json.Unmarshal([]byte(res.B), &w)
+		return w.Through, w.Addr
+	}
+	a, b := f.dial(t), f.dial(t)
+	th1, addr1 := where(a)
+	th2, addr2 := where(b)
+	_, again := where(a)
+	if !th1 || !th2 || !strings.HasPrefix(addr1, "relay-") || addr1 == addr2 || addr1 != again {
+		t.Fatalf("through %v %v, addresses %q %q %q", th1, th2, addr1, addr2, again)
+	}
+	// The same handler reached over the network is not through the relay.
+	direct := httptest.NewServer(testGateway(t))
+	defer direct.Close()
+	req, _ := http.NewRequest("GET", direct.URL+"/api/where", nil)
+	req.Host = TunnelHost
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var w struct{ Through bool }
+	_ = json.NewDecoder(res.Body).Decode(&w)
+	if w.Through {
+		t.Fatal("a request over the network counted as through the relay")
+	}
 }
 
 func TestRoomFull(t *testing.T) {
@@ -472,3 +735,18 @@ func TestRespondRefusesNonsense(t *testing.T) {
 }
 
 var sprintf = fmt.Sprintf
+
+// A gateway says it is connected only once the relay has given it the
+// room: a phone that dials the moment it says so finds it there. It used
+// to say so as soon as the WebSocket opened, a moment before the relay
+// had the room, and a phone in that moment was told nobody was there.
+func TestConnectedMeansAPhoneFindsIt(t *testing.T) {
+	for i := 0; i < 30; i++ {
+		f := newFixture(t) // returns the moment the link says it is connected
+		s, err := Dial(ctx10(t), f.relay.URL, f.link.Room(), f.link.Key.Public)
+		if err != nil {
+			t.Fatalf("try %d: %v", i, err)
+		}
+		s.Close()
+	}
+}

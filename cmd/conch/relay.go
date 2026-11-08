@@ -21,7 +21,8 @@ const relayUsage = `usage: conch relay [-listen ADDR] [-cert FILE -key FILE]`
 
 // runRelay is `conch relay`: a relay phones and conch webs meet at, for
 // a server of your own. It forwards Noise sessions it cannot read, keeps
-// nothing, and serves the phone's app so a phone can open its address.
+// nothing, and serves the phone's app so a phone can open its address —
+// which is why it has to be your own: it could serve another app.
 func runRelay(args []string) error {
 	fs := flag.NewFlagSet("relay", flag.ContinueOnError)
 	listen := fs.String("listen", ":8443", "address to listen on")
