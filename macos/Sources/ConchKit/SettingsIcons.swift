@@ -1,6 +1,7 @@
 import Foundation
 
-// How Settings draws each section's icon: the set ([app] icons — Lucide's
+// How Settings draws each section's icon, and the window's sidebar its
+// rows': the set ([app] icons — Lucide's
 // outlines, as the rest of the window, or the Mac's own SF Symbols) and
 // the style ([app] icon_style — plain, or a white glyph on a square of
 // the section's own colour, as System Settings does). The schema names a
@@ -77,6 +78,10 @@ let sfSymbols: [String: String] = [
     "terminal": "terminal", "square-terminal": "apple.terminal", "server": "server.rack",
     "refresh-cw": "arrow.clockwise", "smartphone": "iphone", "laptop": "laptopcomputer",
     "box": "shippingbox", "zap": "bolt", "lock": "lock", "book-open": "book",
+    // The window's sidebar: machines, a workspace, projects and what is
+    // in them.
+    "cloud": "cloud", "layers": "square.stack.3d.up", "folder": "folder", "folder-open": "folder",
+    "globe": "globe", "git-branch": "arrow.triangle.branch", "history": "clock.arrow.circlepath",
 ]
 
 /// A section's tile colour, by its Lucide icon: a hue each, close to the
@@ -97,4 +102,6 @@ let tileColors: [String: String] = [
     "book-open": "#bf5af2", "shield-check": "#30d158", "sparkles": "#5e5ce6", "git-merge": "#f05033",
     "terminal": "#636366", "square-terminal": "#64748b", "laptop": "#0a84ff", "server": "#0a84ff",
     "smartphone": "#32ade6", "box": "#ac8e68", "refresh-cw": "#30b0a6", "zap": "#e6b800", "lock": "#8e8e93",
+    "cloud": "#64d2ff", "layers": "#5e5ce6", "folder": "#3a8ee6", "folder-open": "#3a8ee6",
+    "globe": "#32ade6", "git-branch": "#f05033", "history": "#a2845e",
 ]

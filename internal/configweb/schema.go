@@ -236,7 +236,7 @@ func Schema(c Choices) []Section {
 				{Key: "text_size", Label: "Window text size", Kind: KindInt, Placeholder: "100",
 					Help: "Percent, for the window's own text — the sidebar, tabs, the git tab, the status bar — 80 to 160; empty is 100. Shift-command-plus and minus step it: 90, 110, 125, 140."},
 				{Key: "icons", Label: "Icon set", Kind: KindSelect, Options: []Option{{"", "Lucide"}, {"sf", "SF Symbols"}, {"sf-fill", "SF Symbols Fill"}},
-					Help: "The pictures beside each section of Settings: Lucide's outlines, as the rest of the window, or the Mac's own SF Symbols, line or filled. In the app, hover one to try it; click to choose."},
+					Help: "The pictures beside each section of Settings and each row of the window's sidebar: Lucide's outlines, or the Mac's own SF Symbols, line or filled. In the app, hover one to try it; click to choose."},
 				{Key: "icon_style", Label: "Style", Kind: KindSelect, Options: []Option{{"", "Plain"}, {"tinted", "Tinted"}, {"tiles", "Tiles"}},
 					Help: "Plain follows the text colour; Tinted gives each section a colour; Tiles puts it on a coloured square, as System Settings does."},
 				{Key: "font_size", Label: "Terminal font size", Kind: KindFloat, Placeholder: "14",

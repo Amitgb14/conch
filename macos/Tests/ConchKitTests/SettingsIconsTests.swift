@@ -71,3 +71,32 @@ let sectionIcons = ["palette", "keyboard", "bell", "bot", "shield-check", "git-m
     #expect(settingsChangedShown(f, ui) == 3 && settingsChangedShown(f, app) == 1 && settingsChangedShown(f, git) == 0)
     #expect(settingsChanged(f) == 4)
 }
+
+// The window's sidebar follows the same choice: [app] icons and icon_style
+// reach the app as part of its look, and every icon the tree draws has an
+// SF Symbol and a colour of its own — none falls back to a gear.
+let sidebarIcons = ["laptop", "server", "cloud", "layers", "folder", "folder-open", "square-terminal", "bot",
+                    "terminal", "globe", "git-branch", "history"]
+
+@Test func sidebarFollowsTheIconChoice() {
+    #expect(AppLook().iconSet == .lucide && AppLook().iconStyle == .plain)
+    #expect(AppLook(toml: nil).iconSet == .lucide)
+    let look = AppLook(toml: "[app]\nicons = \"sf-fill\"\nicon_style = \"tiles\"\n")
+    #expect(look.iconSet == .sfFill && look.iconStyle == .tiles)
+    #expect(look != AppLook(), "a change of icons is a change of look, so the window redraws")
+    let tinted = AppLook(toml: "[app]\nicons = \"sf\"\nicon_style = \"tinted\" # colours\n")
+    #expect(tinted.iconSet == .sf && tinted.iconStyle == .tinted)
+    // What it does not know is the default, as Settings reads it.
+    let odd = AppLook(toml: "[app]\nicons = \"phosphor\"\nicon_style = \"glass\"\n")
+    #expect(odd.iconSet == .lucide && odd.iconStyle == .plain)
+    #expect(AppLook(toml: "[ui]\nicons = \"sf\"\n").iconSet == .lucide, "[ui] icons is the TUI's agent marks, not this")
+
+    for icon in sidebarIcons {
+        let name = sfSymbol(lucide: icon)
+        #expect(sfSymbols[icon] != nil, "no SF Symbol for \(icon)")
+        #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "\(name) is not an SF Symbol here")
+        #expect(tileColors[icon] != nil, "no tile colour for \(icon)")
+    }
+    // A project and its branches are told apart by colour.
+    #expect(settingsTileColor(lucide: "folder") != settingsTileColor(lucide: "git-branch"))
+}

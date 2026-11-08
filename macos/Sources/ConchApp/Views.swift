@@ -894,20 +894,20 @@ struct NodeView: View {
         case .machine(let m):
             let link = store.machines.first { $0.id == m }
             MachineIcon(name: m == "local" ? .laptop : link?.sandbox == true ? .cloud : .server,
-                        state: link?.online == true ? Theme.ok : link?.state == "connecting" ? Theme.warn : Theme.muted)
-        case .project: LucideIcon(name: open ? .folderOpen : .folder)
-        case .cli: LucideIcon(name: .squareTerminal)
-        case .workspace: LucideIcon(name: .layers)
+                        state: link?.online == true ? Theme.ok : link?.state == "connecting" ? Theme.warn : Theme.muted, app: store.appLook)
+        case .project: TreeIcon(name: open ? .folderOpen : .folder, look: store.appLook)
+        case .cli: TreeIcon(name: .squareTerminal, look: store.appLook)
+        case .workspace: TreeIcon(name: .layers, look: store.appLook)
         case .agent(let id): Mark(agent: store.pane(id)?.agent?.name)
-        case .terminal(let id): LucideIcon(name: store.pane(id)?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12)
+        case .terminal(let id): TreeIcon(name: store.pane(id)?.isSSH == true ? .globe : .terminal, look: store.appLook, color: Theme.muted, size: 12)
         case .branch(_, _, let checkedOut):
             // shadcn's way: the outline in the muted foreground, a shade
             // brighter for a branch checked out in a worktree of its own —
             // never the accent, which the selection and focus already use.
-            LucideIcon(name: .gitBranch, color: checkedOut ? Theme.text2 : Theme.muted, size: 12)
+            TreeIcon(name: .gitBranch, look: store.appLook, color: checkedOut ? Theme.text2 : Theme.muted, size: 12)
                 .help(checkedOut ? "checked out in a worktree of its own" : "a branch, not checked out")
-        case .sessions: LucideIcon(name: .history, size: 12)
-        case .files: LucideIcon("folder-open", color: Theme.muted, size: 12)
+        case .sessions: TreeIcon(name: .history, look: store.appLook, size: 12)
+        case .files: TreeIcon("folder-open", look: store.appLook, color: Theme.muted, size: 12)
         case .subagent:
             // At work inside its agent, as the TUI draws it: the spinner.
             TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
@@ -915,10 +915,10 @@ struct NodeView: View {
             }
             .frame(width: 16)
         case .more: Color.clear.frame(width: 14, height: 12) // the names line up with the branches'
-        case .savedHost: LucideIcon(name: .globe, color: Theme.muted, size: 12)
+        case .savedHost: TreeIcon(name: .globe, look: store.appLook, color: Theme.muted, size: 12)
         case .section(let name):
             // Each group with an icon of its own, as Files and Sessions have.
-            LucideIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", color: Theme.muted, size: 12)
+            TreeIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", look: store.appLook, color: Theme.muted, size: 12)
         }
     }
 
