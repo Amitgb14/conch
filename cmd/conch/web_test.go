@@ -377,22 +377,74 @@ func TestWebServeHintCarriesTailnetName(t *testing.T) {
 	signal.Notify(sigs, os.Interrupt)
 	t.Cleanup(func() { signal.Stop(sigs) })
 
+	// Closing w when webServe returns ends the read below, so a webServe
+	// that fails before it says how to pair fails the test with its error
+	// rather than leaving the read waiting for ever.
 	done := make(chan error, 1)
-	go func() { done <- webServe([]string{"-listen", "127.0.0.1:0"}) }()
+	go func() {
+		err := webServe([]string{"-listen", "127.0.0.1:0"})
+		w.Close()
+		done <- err
+	}()
+	var served error
+	stopped := false
+	// stop asks webServe to end until it does. SIGINT is said again because
+	// one sent before webServe listens for it goes unheard (by it: the
+	// test's own Notify keeps it from ending the binary).
+	stop := func() error {
+		if stopped {
+			return served
+		}
+		tick := time.NewTicker(100 * time.Millisecond)
+		defer tick.Stop()
+		deadline := time.After(30 * time.Second)
+		for {
+			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+				return err
+			}
+			select {
+			case served = <-done:
+				stopped = true
+				return served
+			case <-tick.C:
+			case <-deadline:
+				return errors.New("webServe did not stop on SIGINT")
+			}
+		}
+	}
+	// A test that fails before stopping it leaves no webServe running,
+	// listening and writing to stdout, for the rest of the binary.
+	t.Cleanup(func() {
+		if err := stop(); err != nil && !stopped {
+			t.Error(err)
+		}
+		r.Close()
+	})
 	sc := bufio.NewScanner(r)
 	var out []string
 	url := ""
+	paired := false
 	for sc.Scan() {
 		out = append(out, sc.Text())
 		if u, ok := strings.CutPrefix(sc.Text(), "conch web: listening on "); ok {
 			url = u
 		}
 		if strings.HasPrefix(sc.Text(), "pair a phone") {
+			paired = true
 			break
 		}
 	}
-	go io.Copy(io.Discard, r) // whatever else it prints
 	text := strings.Join(out, "\n") + "\n"
+	if !paired {
+		select {
+		case served = <-done:
+			stopped = true
+			t.Fatalf("webServe ended before saying how to pair: %v\n%s", served, text)
+		case <-time.After(30 * time.Second):
+			t.Fatalf("output ended before saying how to pair:\n%s", text)
+		}
+	}
+	go io.Copy(io.Discard, r) // whatever else it prints
 	if !strings.Contains(text, httpsHint(8722, "laptop.tail1234.ts.net")) {
 		t.Errorf("lacks the hint with the name:\n%s", text)
 	}
@@ -413,18 +465,9 @@ func TestWebServeHintCarriesTailnetName(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+	if err := stop(); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("webServe did not stop on SIGINT")
-	}
-	w.Close()
 }
 
 // The hint names this machine on the tailnet when Tailscale says it, and
