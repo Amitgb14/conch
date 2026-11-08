@@ -55,7 +55,7 @@ func TestA2NewSettingsAndSave(t *testing.T) {
 
 	cfg := config.Default()
 	cfg.UI.Theme = "nord"
-	if msg := saveConfig(cfg)(); msg != nil {
+	if msg := saveConfigFor(nil, cfg)(); msg != nil {
 		t.Fatalf("save: %#v", msg)
 	}
 	if _, err := os.Stat(filepath.Join(config.Dir(), "config.toml")); err != nil || !strings.HasPrefix(config.Dir(), os.Getenv("CONCH_HOME")) {
@@ -67,7 +67,7 @@ func TestA2NewSettingsAndSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("CONCH_HOME", filepath.Join(blocker, "sub"))
-	if msg, ok := saveConfig(cfg)().(errMsg); !ok || !strings.Contains(msg.err.Error(), "saving settings") {
+	if msg, ok := saveConfigFor(nil, cfg)().(errMsg); !ok || !strings.Contains(msg.err.Error(), "saving settings") {
 		t.Fatalf("save error: %#v", msg)
 	}
 }
