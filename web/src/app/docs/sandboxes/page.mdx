@@ -44,9 +44,12 @@ export TENSORLAKE_API_KEY=tl_…   # Tensorlake
 Tensorlake's gateway lets in the ssh keys registered with your account, and registering one takes your own login rather than an API key, so conch cannot do it for you. Do it once, with [Tensorlake's CLI](https://docs.tensorlake.ai/sandboxes/remote-dev):
 
 ```sh
+pip install tensorlake
 tl login
-tl sbx ssh keys add --name laptop ~/.ssh/id_ed25519.pub
+env -u TENSORLAKE_API_KEY tl sbx ssh keys add --name laptop ~/.ssh/id_ed25519.pub
 ```
+
+(`env -u` because the key in `TENSORLAKE_API_KEY` would be used instead of your login, and registering a key is refused to an API key.) Until it is registered, a sandbox is made but conch cannot log in to it: it says Tensorlake refused your ssh key, with these steps, and asks whether to delete the sandbox — your project may allow only one running at a time. **API endpoint** in its settings is the API's base, `https://api.tensorlake.ai`; one given with `/sandboxes` on the end is taken as its base.
 
 conch offers the first of `~/.ssh/id_ed25519`, `id_ecdsa` and `id_rsa` it finds (else a key of its own, in conch's directory: register that one). Every sandbox conch makes there is named `conch-…`, since only a named sandbox can be suspended and resumed, and that is how `conch sandbox -provider tensorlake ls` tells conch's apart from yours. Stop suspends it, keeping its disk and memory; start resumes it. Tensorlake takes no variables when a sandbox is made — only secrets it already holds — so a sandbox with `env` set is refused, with that reason; and the snapshot setting is the image a sandbox starts from.
 

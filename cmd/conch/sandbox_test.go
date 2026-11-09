@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
 // a4Daytona is Daytona's API as the sandbox commands use it: sandboxes
@@ -1382,5 +1384,30 @@ func TestSandboxProviders(t *testing.T) {
 	a4Capture(t, "", func() { err = runSandbox([]string{"providers", "-x"}) })
 	if err == nil {
 		t.Error("providers -x was taken")
+	}
+}
+
+// A gateway that lets in only keys registered with the account refused
+// the key: said in plain words with how to register it, not as ssh's
+// "never answered: Permission denied (publickey)" with advice about ssh
+// prompts — which is all a Tensorlake sandbox said, left running.
+func TestRefusedKeyIsSaidPlainly(t *testing.T) {
+	denied := errors.New("sandbox-53t13lfs never answered: 53t13lfs@sandbox.tensorlake.ai: Permission denied (publickey). (run `conch machine add` in a terminal once to answer ssh prompts, or load your key with ssh-add)")
+	tl := sandbox.NewTensorlake(config.ProviderCfg{})
+	err := refusedKey(tl, denied)
+	for _, want := range []string{"Tensorlake refused your ssh key", "tl login", "env -u TENSORLAKE_API_KEY tl sbx ssh keys add"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("no %q in %q", want, err)
+		}
+	}
+	// Anything else is as it was.
+	other := errors.New("sandbox-53t13lfs never answered: connection timed out")
+	if got := refusedKey(tl, other); got != other {
+		t.Fatalf("another failure was reworded: %v", got)
+	}
+	// And a provider that hands its own key over is not one to register a
+	// key with: ssh's words stand.
+	if got := refusedKey(sandbox.NewDaytona(config.ProviderCfg{}), denied); got != denied {
+		t.Fatalf("a provider that authorizes its key was told to register one: %v", got)
 	}
 }

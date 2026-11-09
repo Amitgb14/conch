@@ -107,7 +107,7 @@ func Schema(c Choices) []Section {
 		{Key: "api_key_env", Label: "API key variable", Kind: KindString, Placeholder: "the provider's own, e.g. DAYTONA_API_KEY",
 			Help: "The environment variable holding the key. A key set above wins over it."},
 		{Key: "api_url", Label: "API endpoint", Kind: KindString, Placeholder: "the provider's own",
-			Help: "Overrides the provider's API address."},
+			Help: "Overrides the provider's API address: its base, e.g. https://api.tensorlake.ai — not a path under it such as …/sandboxes."},
 		{Key: "target", Label: "Region", Kind: KindString, Placeholder: "the account default", Help: "e.g. us or eu."},
 		{Key: "snapshot", Label: "Snapshot", Kind: KindString, Placeholder: "the provider's own", Help: "The image new sandboxes start from."},
 		{Key: "auto_stop", Label: "Provider idle timer (minutes)", Kind: KindInt, Min: intp(0),
