@@ -315,7 +315,7 @@ A sync copies one agent's setup to the others, once. The library is what they *f
 
 - **Take an agent's into the library…** starts it from what you have: an agent's servers and skills in your home go in, ticked for it and for any agent that already has the same. Nothing is written to any agent.
 - **Add a server…** takes a command (`npx -y @modelcontextprotocol/server-github`) or a URL, its environment and headers as `NAME=value; …`, and a box per agent. A value must refer to a variable — `GITHUB_TOKEN=${GITHUB_TOKEN}`, `Authorization=Bearer ${TOKEN}` — and a literal token is refused: the secret stays in your environment, and each agent is given its own way of naming it.
-- **Add a skill…** takes a folder holding a `SKILL.md`, wherever you keep it. Each agent gets a link to it: one in `~/.claude/skills`, one in `~/.agents/skills` for Codex, Gemini and OpenCode together, one in `~/.config/devin/skills`. Since that middle link is shared, it stays while any of the three still wants it, and the row says so.
+- **Add a skill…** takes a folder holding a `SKILL.md`, wherever you keep it — or, under **From GitHub**, a skill shared there: `owner/repo`, `owner/repo/path/to/skill`, `@ref` at the end, or the link to its folder. The machine's own server downloads it (a shallow `git clone`; nothing in it is run) into conch's library there, `~/.config/conch/library/skills/NAME`, and keeps where it came from so **Fetch again** brings it up to date. A repository holding several skills, none named, lists them for you to pick one. Each agent gets a link to it: one in `~/.claude/skills`, one in `~/.agents/skills` for Codex, Gemini and OpenCode together, one in `~/.config/devin/skills`. Since that middle link is shared, it stays while any of the three still wants it, and the row says so.
 - **Apply…** shows every write first, then makes it. **Put the last one back…** undoes the last apply, file by file.
 
 What keeps it safe is the sync's, plus one thing of its own: conch remembers what it wrote (`library/written.json`), and only that is ever changed or taken out. A server somebody declared by hand under the same name is marked `!` or `○` and left alone; a config that is a link into a dotfiles repository is skipped. Claude's servers are added with `claude mcp add-json --scope user` and taken out with `claude mcp remove`, since conch does not write `~/.claude.json`. Devin is not given a server Claude Code or OpenCode already has, because it reads theirs.
@@ -329,6 +329,8 @@ conch agent library add -to codex,devin -env GITHUB_TOKEN='${GITHUB_TOKEN}' gith
 conch agent library add -header 'Authorization=Bearer ${DOCS_TOKEN}' docs https://docs.example/mcp
 conch agent library mcp                                    # conch's own tools (conch mcp), one action
 conch agent library skill review ~/skills/review
+conch agent library skill anthropics/skills/skills/pdf      # from GitHub, named by its folder
+conch agent library skill -to claude docs owner/repo@v2     # named, at a tag
 conch agent library off github codex                       # untick one
 conch agent library plan                                   # what apply would write
 conch agent library apply

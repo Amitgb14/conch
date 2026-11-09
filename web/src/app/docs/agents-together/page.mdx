@@ -37,7 +37,7 @@ Its skills are named `conch:conch-factory` and so on. Pick one way for Claude Co
 
 In the Mac app it is **Settings → Skills & MCP servers**, or **Skills & MCP servers…** on a machine's right-click menu.
 
-They go where each agent reads your skills — `~/.claude/skills/conch`, `~/.claude/skills/conch-factory` and so on for Claude Code, `~/.agents/skills/…` for Codex, Gemini CLI and OpenCode, and `~/.config/devin/skills/…` for Devin — beside your own skills, replacing none of them: a skill of yours under one of those names is left alone, and the others still install. `conch skill NAME` prints one (`conch skill -list` names them), for an agent conch can't install it for. `-agent claude,codex` installs it for some agents only, `-remove -apply` takes it away again, and `conch -m MACHINE agent skill -apply` installs it on another machine. Claude Code picks it up at once, even mid-session; restart the others if they don't list it.
+They go where each agent reads your skills — `~/.claude/skills/conch`, `~/.claude/skills/conch-factory` and so on for Claude Code, `~/.agents/skills/…` for Codex, Gemini CLI and OpenCode, and `~/.config/devin/skills/…` for Devin — beside your own skills, replacing none of them: a skill of yours under one of those names is left alone, and the others still install. `conch skill NAME` prints one (`conch skill -list` names them), for an agent conch can't install it for. `-skill conch,conch-review` installs only those skills, `-agent claude,codex` installs them for some agents only, `-remove -apply` takes it away again, and `conch -m MACHINE agent skill -apply` installs it on another machine. Claude Code picks it up at once, even mid-session; restart the others if they don't list it.
 
 ## Asking an agent for a second opinion
 
