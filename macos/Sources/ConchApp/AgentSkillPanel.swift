@@ -47,33 +47,39 @@ final class AgentSkillModel: ObservableObject {
 
     /// Installs it for every agent on the machine, or takes conch's copy
     /// away, after asking with the paths it touches.
-    func apply(_ m: String, remove: Bool) {
+    /// Whether the machine's server installs one of conch's skills at a
+    /// time (agent.skill.pick.v1); an older one only all of them.
+    func canPick(_ m: String) -> Bool { store.connection(m)?.hello?.capabilities?.contains("agent.skill.pick.v1") == true }
+
+    func apply(_ m: String, remove: Bool, skill: String? = nil) {
         guard let c = store.connection(m) else { return }
-        struct P: Encodable { var remove: Bool?; var apply: Bool? }
+        struct P: Encodable { var remove: Bool?; var apply: Bool?; var skills: [String]? }
+        let skills = skill.map { [$0] }
+        let what = skill ?? "conch's skills"
         busy = true
         Task {
             defer { busy = false }
             do {
                 // The plan for exactly this write, so the question names it.
-                let plan = try await c.call("agent.skill", P(remove: remove ? true : nil), as: AgentSkillResult.self)
+                let plan = try await c.call("agent.skill", P(remove: remove ? true : nil, skills: skills), as: AgentSkillResult.self)
                 let writes = skillWrites(plan)
                 if writes.isEmpty {
-                    store.say(remove ? "conch's skills aren't installed on \(store.label(m))" : "Every agent on \(store.label(m)) has conch's skills", .info)
+                    store.say(remove ? "\(what) isn't installed on \(store.label(m))" : "Every agent on \(store.label(m)) has \(what)", .info)
                     return
                 }
                 let a = NSAlert()
-                a.messageText = remove ? "Take conch's skills away on \(store.label(m))?" : "Install conch's skills on \(store.label(m))?"
+                a.messageText = remove ? "Take \(what) away on \(store.label(m))?" : "Install \(what) on \(store.label(m))?"
                 a.informativeText = writes.map { "\($0.path)\n    for \($0.agents.joined(separator: ", "))" }.joined(separator: "\n")
                     + (remove ? "\n\nOnly conch's own copies go; a skill of yours of that name is left alone."
                               : "\n\nBeside your own skills, replacing none of them.")
                 a.addButton(withTitle: remove ? "Remove" : "Install")
                 a.addButton(withTitle: "Cancel")
                 guard a.runModal() == .alertFirstButtonReturn else { return }
-                let done = try await c.call("agent.skill", P(remove: remove ? true : nil, apply: true), as: AgentSkillResult.self)
+                let done = try await c.call("agent.skill", P(remove: remove ? true : nil, apply: true, skills: skills), as: AgentSkillResult.self)
                 if let failed = done.changes.first(where: { !($0.error ?? "").isEmpty }) {
                     store.error = "\(failed.path): \(failed.error ?? "")"
                 } else {
-                    store.say(remove ? "conch's skills removed on \(store.label(m))" : "conch's skills installed on \(store.label(m))")
+                    store.say(remove ? "\(what) removed on \(store.label(m))" : "\(what) installed on \(store.label(m))")
                 }
                 read(m) // what was written is the new plan
             } catch {
@@ -168,6 +174,19 @@ struct AgentSkillPanel: View {
                 Text(tag).font(.ui(size: 11)).foregroundStyle(c.everywhere ? Theme.ok : c.have == 0 ? Theme.muted : Theme.warn)
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .overlay(Capsule().stroke(c.everywhere ? Theme.ok.opacity(0.4) : Theme.line2))
+                // One skill on its own, where the server can (agent.skill.pick.v1).
+                if model.canPick(m) {
+                    if c.have > 0 {
+                        Button("Remove") { model.apply(m, remove: true, skill: c.name) }
+                            .buttonStyle(.plain).font(.ui(size: 11.5)).foregroundStyle(Theme.err).disabled(model.busy)
+                            .help("Take conch's copy of \(c.name) away; a skill of yours of that name is left alone")
+                    }
+                    if !c.everywhere {
+                        Button("Install") { model.apply(m, remove: false, skill: c.name) }
+                            .buttonStyle(.plain).font(.ui(size: 11.5, weight: .semibold)).foregroundStyle(Theme.accent).disabled(model.busy)
+                            .help("Install \(c.name) for every agent here")
+                    }
+                }
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
             .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }

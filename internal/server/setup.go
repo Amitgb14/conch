@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,7 +62,7 @@ func (s *Server) agentSetup(ap proto.AgentSetupParams) (proto.AgentSetupResult, 
 // the client shows the plan first.
 // agentSkill installs or removes conch's skill in this machine's home.
 func (s *Server) agentSkill(p proto.AgentSkillParams) (proto.AgentSkillResult, *proto.Error) {
-	changes, err := agentsetup.InstallSkills(agentsetup.CurrentEnv(), p.Agents, p.Remove, p.Apply)
+	changes, err := agentsetup.InstallSkillsNamed(agentsetup.CurrentEnv(), p.Skills, p.Agents, p.Remove, p.Apply)
 	if err != nil {
 		return proto.AgentSkillResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
@@ -71,6 +72,26 @@ func (s *Server) agentSkill(p proto.AgentSkillParams) (proto.AgentSkillResult, *
 	}
 	return out, nil
 }
+
+// libraryFetch downloads a skill from GitHub into the library on this
+// machine — where its agents will read it — and says where it is. It is
+// not given to any agent here: the client saves it into the library as it
+// does a folder, after the person picks who gets it.
+func (s *Server) libraryFetch(p proto.LibraryFetchParams) (proto.LibraryFetchResult, *proto.Error) {
+	f, err := fetchSkill(context.Background(), p.Source, p.Name)
+	var fe *agentsetup.FetchError
+	switch {
+	case errors.As(err, &fe):
+		return proto.LibraryFetchResult{Source: fe.Source, Found: fe.Found}, nil
+	case err != nil:
+		return proto.LibraryFetchResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	return proto.LibraryFetchResult{Name: f.Name, Path: f.Path, Source: f.Source}, nil
+}
+
+// fetchSkill is agentsetup.FetchSkill; tests leave it as it is, pointing
+// it at a local repository through CONCH_GITHUB_URL.
+var fetchSkill = agentsetup.FetchSkill
 
 func (s *Server) agentSync(sp proto.AgentSyncParams) (proto.AgentSyncResult, *proto.Error) {
 	dir := sp.Dir

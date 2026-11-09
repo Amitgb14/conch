@@ -1442,3 +1442,145 @@ func TestA4AskSuggest(t *testing.T) {
 		t.Fatalf("server failure: %v", err)
 	}
 }
+
+// A library skill from GitHub is fetched by the machine's server and saved
+// with where it came from; one of several must be named; an older server,
+// or a folder without a name, is refused.
+func TestA4LibrarySkillFromGitHub(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	var mu sync.Mutex
+	lib := proto.Library{Servers: []proto.LibraryServer{}, Skills: []proto.LibrarySkill{}}
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch msg.Method {
+		case proto.MethodLibraryFetch:
+			var p proto.LibraryFetchParams
+			json.Unmarshal(msg.Params, &p)
+			if p.Source == "acme/many" {
+				return proto.LibraryFetchResult{Source: "acme/many", Found: []string{"acme/many/skills/pdf", "acme/many/skills/xlsx"}}, nil
+			}
+			name := p.Name
+			if name == "" {
+				name = "pdf"
+			}
+			return proto.LibraryFetchResult{Name: name, Path: "/home/x/.config/conch/library/skills/" + name, Source: p.Source}, nil
+		case proto.MethodAgentLibrary:
+			var p proto.AgentLibraryParams
+			json.Unmarshal(msg.Params, &p)
+			if p.Set != nil {
+				lib = *p.Set
+			}
+			return proto.AgentLibraryResult{Agents: []string{"claude", "codex"}, Library: lib}, nil
+		}
+		return nil, nil
+	})
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		var err error
+		out, _ := a4Capture(t, "", func() { err = agentLibrary(args) })
+		return out, err
+	}
+
+	out, err := run("skill", "-to", "claude", "acme/many/skills/pdf@v1")
+	if err != nil || !strings.Contains(out, "fetched acme/many/skills/pdf@v1") {
+		t.Fatalf("fetch: %q %v", out, err)
+	}
+	var fp proto.LibraryFetchParams
+	srv.params(t, proto.MethodLibraryFetch, &fp)
+	if fp.Source != "acme/many/skills/pdf@v1" || fp.Name != "" {
+		t.Fatalf("fetch params %+v", fp)
+	}
+	mu.Lock()
+	got := lib.Skills
+	mu.Unlock()
+	if len(got) != 1 || got[0].Name != "pdf" || got[0].Source != "acme/many/skills/pdf@v1" ||
+		!strings.HasSuffix(got[0].Path, "/skills/pdf") || len(got[0].Agents) != 1 || got[0].Agents[0] != "claude" {
+		t.Fatalf("saved %+v", got)
+	}
+	// Under a name of its own, from a link.
+	if _, err := run("skill", "forms", "https://github.com/acme/many/tree/main/skills/pdf"); err != nil {
+		t.Fatal(err)
+	}
+	srv.params(t, proto.MethodLibraryFetch, &fp)
+	if fp.Name != "forms" {
+		t.Fatalf("named fetch %+v", fp)
+	}
+	// Several: name one, listing them.
+	if _, err := run("skill", "acme/many"); err == nil || !strings.Contains(err.Error(), "acme/many/skills/xlsx") {
+		t.Fatalf("several: %v", err)
+	}
+	// A folder still needs a name, and isn't fetched.
+	if _, err := run("skill", "~/skills/review"); err == nil || !strings.Contains(err.Error(), "usage") {
+		t.Fatalf("a folder with no name: %v", err)
+	}
+	n := len(srv.methods())
+	if _, err := run("skill", "review", "~/skills/review"); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range srv.methods()[n:] {
+		if m == proto.MethodLibraryFetch {
+			t.Fatal("a folder was fetched")
+		}
+	}
+
+	// A server that can't fetch says so.
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		var caps []string
+		for _, c := range h.Capabilities {
+			if c != proto.CapLibraryFetch {
+				caps = append(caps, c)
+			}
+		}
+		h.Capabilities = caps
+		return h
+	})
+	if _, err := run("skill", "acme/one"); err == nil || !strings.Contains(err.Error(), "can't fetch skills from GitHub") {
+		t.Fatalf("old server: %v", err)
+	}
+}
+
+// conch agent skill -skill picks some of conch's skills, and isn't sent to
+// a server that would install them all.
+func TestA4AgentSkillPick(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodAgentSkill {
+			return proto.AgentSkillResult{Changes: []proto.SkillChange{}}, nil
+		}
+		return nil, nil
+	})
+	var err error
+	a4Capture(t, "", func() { err = agentSkill([]string{"-skill", "conch-review,conch-ship", "-apply"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p proto.AgentSkillParams
+	srv.params(t, proto.MethodAgentSkill, &p)
+	if strings.Join(p.Skills, ",") != "conch-review,conch-ship" || !p.Apply {
+		t.Fatalf("params %+v", p)
+	}
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		var caps []string
+		for _, c := range h.Capabilities {
+			if c != proto.CapAgentSkillPick {
+				caps = append(caps, c)
+			}
+		}
+		h.Capabilities = caps
+		return h
+	})
+	a4Capture(t, "", func() { err = agentSkill([]string{"-skill", "conch-review"}) })
+	if err == nil || !strings.Contains(err.Error(), "only all together") {
+		t.Fatalf("old server: %v", err)
+	}
+	// All of them still works there.
+	a4Capture(t, "", func() { err = agentSkill(nil) })
+	if err != nil {
+		t.Fatalf("all on an old server: %v", err)
+	}
+}

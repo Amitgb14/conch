@@ -106,7 +106,7 @@ Usage:
   conch skill [-list | NAME]    print conch's skill (or conch-team, conch-review, conch-ship,
                                 conch-factory, conch-autopilot) instead, for an agent conch cannot
                                 install it for
-  conch agent skill [-agent NAMES] [-remove] [-apply]
+  conch agent skill [-skill NAMES] [-agent NAMES] [-remove] [-apply]
                                 teach the agents conch: its skills, in each agent's own skills
                                 folder — conch (start, prompt and read other agents),
                                 conch-team (several at once), conch-review (review, fix,
@@ -128,6 +128,7 @@ Usage:
   conch agent library [list | add | mcp | skill | on | off | rm | import AGENT | plan | apply | undo]
                                 MCP servers and skills kept in conch, each given to the
                                 agents you choose: add NAME (URL | -- COMMAND ARGS),
+                                skill [NAME] FOLDER | owner/repo[/path][@ref] (from GitHub),
                                 -to NAMES, -env K=${VAR}; mcp adds conch's own tools
                                 (conch mcp); plan says what apply writes
   conch project add PATH | create [-no-git] PATH | clone URL [DIR] | ls | rm ID | files ID [-reset | -none | PATTERN...]

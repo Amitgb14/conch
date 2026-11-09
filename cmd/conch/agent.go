@@ -398,13 +398,14 @@ func printSetup(w io.Writer, res proto.AgentSetupResult) {
 func agentSkill(args []string) error {
 	fs := flag.NewFlagSet("agent skill", flag.ContinueOnError)
 	agents := fs.String("agent", "", "only these agents, separated by commas (default: all)")
+	skills := fs.String("skill", "", "only these of conch's skills, separated by commas: conch, conch-team, conch-review, conch-ship, conch-factory, conch-autopilot (default: all)")
 	remove := fs.Bool("remove", false, "take conch's skill away again")
 	apply := fs.Bool("apply", false, "write the changes; without it, only say what they would be")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
-		return errors.New("usage: conch agent skill [-agent NAMES] [-remove] [-apply]")
+		return errors.New("usage: conch agent skill [-skill NAMES] [-agent NAMES] [-remove] [-apply]")
 	}
 	c, err := connect(true)
 	if err != nil {
@@ -414,8 +415,13 @@ func agentSkill(args []string) error {
 	if len(c.MissingCapabilities([]string{proto.CapAgentSkill})) > 0 {
 		return errors.New("the conch server there predates `conch agent skill`; reload it with `conch server reload`")
 	}
+	picked := splitAgents(*skills)
+	// An older server would take no notice of -skill and install them all.
+	if len(picked) > 0 && len(c.MissingCapabilities([]string{proto.CapAgentSkillPick})) > 0 {
+		return errors.New("the conch server there installs conch's skills only all together; reload it with `conch server reload` to pick some")
+	}
 	var res proto.AgentSkillResult
-	if err := call(c, proto.MethodAgentSkill, proto.AgentSkillParams{Agents: splitAgents(*agents), Remove: *remove, Apply: *apply}, &res); err != nil {
+	if err := call(c, proto.MethodAgentSkill, proto.AgentSkillParams{Agents: splitAgents(*agents), Skills: picked, Remove: *remove, Apply: *apply}, &res); err != nil {
 		return err
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)

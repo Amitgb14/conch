@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // conch's skills: how an agent in a conch pane starts, prompts and reads
@@ -152,6 +153,37 @@ func skillTargets(e Env, agents []string, name string) ([]SkillChange, error) {
 // do. A SKILL.md there that conch didn't write is skipped, never replaced.
 func InstallSkill(e Env, agents []string, remove, apply bool) ([]SkillChange, error) {
 	return installSkill(e, Skills[0], agents, remove, apply)
+}
+
+// InstallSkillsNamed is InstallSkills for the skills named — some of
+// conch's own rather than all of them; every one when names is empty. A
+// name conch has no skill by is refused, rather than quietly doing less.
+func InstallSkillsNamed(e Env, names, agents []string, remove, apply bool) ([]SkillChange, error) {
+	if len(names) == 0 {
+		return InstallSkills(e, agents, remove, apply)
+	}
+	// Every name checked before anything is written.
+	picked := make([]BundledSkill, 0, len(names))
+	for _, n := range names {
+		sk, ok := BundledSkillNamed(n)
+		if !ok {
+			have := make([]string, len(Skills))
+			for i, s := range Skills {
+				have[i] = s.Name
+			}
+			return nil, fmt.Errorf("conch has no skill %q; it has %s", n, strings.Join(have, ", "))
+		}
+		picked = append(picked, sk)
+	}
+	var out []SkillChange
+	for _, sk := range picked {
+		changes, err := installSkill(e, sk, agents, remove, apply)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, changes...)
+	}
+	return out, nil
 }
 
 // InstallSkills is InstallSkill for every one of conch's skills: a change

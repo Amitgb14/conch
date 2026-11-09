@@ -117,6 +117,11 @@ public final class AskSession: @unchecked Sendable {
     private let input = Pipe(), out = Pipe(), err = Pipe()
     private var errText = ""
     private let lock = NSLock()
+    // The end is said once the process has exited and both pipes are at
+    // their end — not at the exit alone: a read the handler had already
+    // taken but not yet added lost the last line, which is why it failed.
+    private var outDone = false, errDone = false, finished = false
+    private var exitStatus: Int32?
 
     /// Whether conch planned it alone, without the model.
     public var fast: Bool {
@@ -138,51 +143,79 @@ public final class AskSession: @unchecked Sendable {
     public func start() {
         out.fileHandleForReading.readabilityHandler = { [weak self] h in
             let d = h.availableData
-            guard let self, !d.isEmpty else { return }
+            guard let self else { return }
             self.lock.lock()
-            self.output += String(decoding: d, as: UTF8.self)
+            if d.isEmpty {
+                h.readabilityHandler = nil
+                self.outDone = true
+            } else {
+                self.output += String(decoding: d, as: UTF8.self)
+            }
+            let ended = self.endIfOver()
             self.lock.unlock()
-            self.changed()
+            if !d.isEmpty || ended { self.changed() }
         }
         err.fileHandleForReading.readabilityHandler = { [weak self] h in
             let d = h.availableData
-            guard let self, !d.isEmpty else { return }
+            guard let self else { return }
             self.lock.lock()
-            self.errText += String(decoding: d, as: UTF8.self)
-            let n = askConfirmCount(self.errText)
-            if let n, self.state == .thinking { self.state = .plan(n) }
+            if d.isEmpty {
+                h.readabilityHandler = nil
+                self.errDone = true
+            } else {
+                self.errText += String(decoding: d, as: UTF8.self)
+                if let n = askConfirmCount(self.errText), self.state == .thinking { self.state = .plan(n) }
+            }
+            let ended = self.endIfOver()
             self.lock.unlock()
-            self.changed()
+            if !d.isEmpty || ended { self.changed() }
         }
         process.terminationHandler = { [weak self] p in
             guard let self else { return }
-            // What is still in the pipes arrives before the end is said.
-            let rest = self.out.fileHandleForReading.readDataToEndOfFile()
-            let restErr = self.err.fileHandleForReading.readDataToEndOfFile()
-            self.out.fileHandleForReading.readabilityHandler = nil
-            self.err.fileHandleForReading.readabilityHandler = nil
             self.lock.lock()
-            self.output += String(decoding: rest, as: UTF8.self)
-            self.errText += String(decoding: restErr, as: UTF8.self)
-            if p.terminationStatus == 0 {
-                self.state = .done
-            } else {
-                // Its last line is what went wrong (no provider, a server
-                // not answering); "thinking…" before it is not.
-                let lines = self.errText.split(separator: "\n").map(String.init).filter { !$0.hasPrefix("thinking") }
-                self.state = .failed(lines.last ?? "conch ask failed")
-            }
+            self.exitStatus = p.terminationStatus
+            let ended = self.endIfOver()
             self.lock.unlock()
-            self.changed()
+            if ended { self.changed(); return }
+            // Something the program started can hold a pipe open after it
+            // exits; the session ends anyway, on what it has by then.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard let self else { return }
+                self.lock.lock()
+                self.outDone = true
+                self.errDone = true
+                let ended = self.endIfOver()
+                self.lock.unlock()
+                if ended { self.changed() }
+            }
         }
         do {
             try process.run()
         } catch {
             lock.lock()
+            finished = true
             state = .failed("\(error)")
             lock.unlock()
             changed()
         }
+    }
+
+    /// Says how it ended, once: when the process has exited and everything
+    /// it wrote has been read. Called with the lock held; true when it did.
+    private func endIfOver() -> Bool {
+        guard !finished, let status = exitStatus, outDone, errDone else { return false }
+        finished = true
+        out.fileHandleForReading.readabilityHandler = nil
+        err.fileHandleForReading.readabilityHandler = nil
+        if status == 0 {
+            state = .done
+        } else {
+            // Its last line is what went wrong (no provider, a server not
+            // answering); "thinking…" before it is not.
+            let lines = errText.split(separator: "\n").map(String.init).filter { !$0.hasPrefix("thinking") }
+            state = .failed(lines.last ?? "conch ask failed")
+        }
+        return true
     }
 
     /// Answers the plan: run it, or not.

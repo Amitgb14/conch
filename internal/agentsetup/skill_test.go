@@ -558,3 +558,51 @@ func TestPluginManifests(t *testing.T) {
 		t.Fatalf("plugin skills %v, conch's %v", names, want)
 	}
 }
+
+// Some of conch's skills, by name: only those are written, and a name
+// conch has no skill by is refused before anything is.
+func TestInstallSkillsNamed(t *testing.T) {
+	e := skillEnv(t, nil)
+	got, err := InstallSkillsNamed(e, []string{"conch-review"}, []string{"claude"}, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 {
+		t.Fatal("nothing planned")
+	}
+	for _, c := range got {
+		if c.Skill != "conch-review" {
+			t.Errorf("wrote %s too", c.Skill)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(e.Home, ".claude", "skills", "conch-review", "SKILL.md")); err != nil {
+		t.Fatalf("conch-review not written: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(e.Home, ".claude", "skills", "conch-ship", "SKILL.md")); err == nil {
+		t.Fatal("conch-ship was written, and nobody asked for it")
+	}
+	// Removing one leaves the others.
+	InstallSkillsNamed(e, []string{"conch-ship"}, []string{"claude"}, false, true)
+	if _, err := InstallSkillsNamed(e, []string{"conch-review"}, []string{"claude"}, true, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(e.Home, ".claude", "skills", "conch-review")); err == nil {
+		t.Error("conch-review is still there")
+	}
+	if _, err := os.Stat(filepath.Join(e.Home, ".claude", "skills", "conch-ship", "SKILL.md")); err != nil {
+		t.Error("removing conch-review took conch-ship too")
+	}
+	// Unknown: refused, naming what there is.
+	if _, err := InstallSkillsNamed(e, []string{"conch-review", "nope"}, nil, false, true); err == nil || !strings.Contains(err.Error(), "conch-autopilot") {
+		t.Fatalf("unknown: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(e.Home, ".claude", "skills", "conch-review")); err == nil {
+		t.Error("a refused request wrote conch-review before finding the name it didn't know")
+	}
+	// None named is every one.
+	all, _ := InstallSkills(e, []string{"claude"}, false, false)
+	none, _ := InstallSkillsNamed(e, nil, []string{"claude"}, false, false)
+	if len(all) != len(none) {
+		t.Errorf("no names: %d changes, all: %d", len(none), len(all))
+	}
+}
