@@ -107,7 +107,10 @@ func TestFramesStillThrottledWhileBusy(t *testing.T) {
 	if frames > 32 {
 		t.Fatalf("%d frames in a second: the interval is not holding", frames)
 	}
-	if frames < 5 {
+	// The floor is only that busy output does not starve frames, which
+	// would send none or one. It was 5, and the full race suite once
+	// managed 4 on a loaded machine with nothing wrong.
+	if frames < 2 {
 		t.Fatalf("only %d frames in a second of constant output", frames)
 	}
 }

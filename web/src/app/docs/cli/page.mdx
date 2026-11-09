@@ -243,10 +243,14 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 
 | Command | Description |
 | --- | --- |
-| `conch sandbox adapt [-agent A] [-name N] [-json] URL…` | teach conch a [provider it doesn't know](/docs/sandboxes#a-provider-conch-doesnt-know): it downloads the API docs, an agent (Claude by default) writes a provider file from them in a pane of its own, and conch checks the file and your key. Nothing is saved; on a terminal it asks. `-json` says each step as a line, for Conch.app |
+| `conch sandbox adapt [-agent A] [-name N] [-new] [-json] URL…` | teach conch a [provider it doesn't know](/docs/sandboxes#a-provider-conch-doesnt-know) — one the registry has is offered as an install instead, unless `-new`: it downloads the API docs, an agent (Claude by default) writes a provider file from them in a pane of its own, and conch checks the file and your key. Nothing is saved; on a terminal it asks. `-json` says each step as a line, for Conch.app |
 | `conch sandbox adapt -revise TEXT NAME` | send TEXT to the agent that wrote NAME's draft, and check the draft again |
 | `conch sandbox provider check [-offline] [-json] NAME\|FILE` | what is wrong with a provider file, and (without `-offline`) whether the provider's list answers your key; exits 1 when the file is wrong |
 | `conch sandbox provider show\|save\|rm NAME` | print a provider file; make a draft a provider; forget one (refused while a machine here is one of its sandboxes, which are never touched) |
+| `conch sandbox provider search [-json] [TERM]` | the [provider registry](/docs/sandboxes#the-provider-registry): providers others adapted and published, whether each was checked live, and what you have of it |
+| `conch sandbox provider install [-y] [NAME]` | install one from the registry: says where your API key and ssh go and asks (`-y` doesn't), checks the file's hash, then lists your sandboxes with the key if it is set. No NAME lists them and asks which |
+| `conch sandbox provider update [-y] [NAME]` | take the registry's newer version of what you installed; a file edited here is left alone, and new hosts are taken only when you say yes (never with `-y`) |
+| `conch sandbox provider publish [-dry-run] [-json] NAME` | check one of yours with your key, then propose it to the registry as a pull request through `gh` (your fork, or the repository itself if you can push); your key is never part of it |
 | `conch sandbox providers [-json]` | the providers conch can make a sandbox with, whether each has its API key here (and if not, what to set), the sizes or place it takes instead of a snapshot, and what it says before one is made. Conch.app's **New Sandbox…** reads it; no provider needed |
 | `conch sandbox stats [-provider P]` | every provider's sandboxes in one table, and a line per provider: how many, in which states, what is running; no provider needed |
 | `conch sandbox -provider daytona\|boat\|devin …` | whose sandboxes the command means, in front of any subcommand below. Required for all of them — there is no default, and a sandbox named under another provider is refused |

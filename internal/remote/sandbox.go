@@ -370,3 +370,13 @@ func (t *commandSSHTransport) shell(command string, tty bool) *exec.Cmd {
 func wrapRemote(script string) string {
 	return `exec sh -c "$(echo ` + base64.StdEncoding.EncodeToString([]byte(script)) + ` | base64 -d)"`
 }
+
+// A provider file that makes a sandbox with a public key in it is given
+// the one conch reaches machines with, so the key it later offers is the
+// key that was put there.
+func init() {
+	sandbox.PublicKey = func(ctx context.Context) (string, error) {
+		line, _, err := publicKey(ctx)
+		return line, err
+	}
+}

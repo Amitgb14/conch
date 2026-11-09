@@ -59,7 +59,7 @@ type adaptState struct {
 
 // adaptEvent is a line of `conch sandbox adapt -json`, for the app's sheet.
 type adaptEvent struct {
-	Event    string             `json:"event"` // docs, agent, waiting, blocked, file, problems, check, done, error
+	Event    string             `json:"event"` // registry, docs, agent, waiting, blocked, file, problems, check, done, error
 	Detail   string             `json:"detail,omitempty"`
 	Name     string             `json:"name,omitempty"`
 	Pane     string             `json:"pane,omitempty"`
@@ -85,7 +85,7 @@ func (o adaptOut) say(e adaptEvent) {
 	switch e.Event {
 	case "docs":
 		fmt.Fprintln(o.w, "docs:", e.Detail)
-	case "agent", "waiting", "blocked":
+	case "registry", "agent", "waiting", "blocked":
 		fmt.Fprintln(o.w, e.Detail)
 	case "file":
 		fmt.Fprintf(o.w, "\n%s wrote %s:\n", e.Name, e.Path)
@@ -278,6 +278,7 @@ func sandboxAdapt(args []string) error {
 	name := fs.String("name", "", "the provider's name (default: from the URL)")
 	asJSON := fs.Bool("json", false, "one JSON object a line, for the app")
 	revise := fs.String("revise", "", "send this to the agent that wrote NAME's draft, and check again")
+	fresh := fs.Bool("new", false, "adapt it even when the registry has the provider already")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -310,6 +311,25 @@ func sandboxAdapt(args []string) error {
 	}
 	if _, err := os.Stat(sandbox.ProviderFilePath(n)); err == nil {
 		return fail(fmt.Errorf("%s is already a provider (%s): remove it first with conch sandbox provider rm %s", n, sandbox.ProviderFilePath(n), n))
+	}
+	// No need to spend an agent's time on what somebody has adapted and
+	// published already.
+	if !*fresh {
+		if e, ok := registryHas(urls, n); ok {
+			out.say(adaptEvent{Event: "registry", Name: e.Name, Detail: fmt.Sprintf("%s is in the provider registry already, %s: conch sandbox provider install %s (or adapt it anyway with -new)", e.Label, liveCheck(e), e.Name)})
+			if *asJSON {
+				return nil
+			}
+			fmt.Println()
+			describeEntry(os.Stdout, e)
+			fmt.Println()
+			if askYes("Install it rather than adapt it?") {
+				ctx, cancel := registryCtx()
+				defer cancel()
+				return installEntry(ctx, e, true)
+			}
+			return nil
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), adaptWait+5*time.Minute)
 	defer cancel()
@@ -497,7 +517,7 @@ func printCheck(w io.Writer, ck *providerCheckJSON) {
 
 // sandboxProviderCmd is `conch sandbox provider check|show|save|rm`.
 func sandboxProviderCmd(args []string) error {
-	usage := errors.New("usage: conch sandbox provider check [-offline] [-json] NAME|FILE | show NAME | save NAME | rm NAME")
+	usage := errors.New("usage: conch sandbox provider check [-offline] [-json] NAME|FILE | show NAME | save NAME | rm NAME | search [TERM] | install [-y] [NAME] | update [-y] [NAME] | publish [-dry-run] NAME")
 	if len(args) == 0 {
 		return usage
 	}
@@ -523,6 +543,14 @@ func sandboxProviderCmd(args []string) error {
 			return usage
 		}
 		return providerSave(args[1])
+	case "search":
+		return providerSearch(args[1:])
+	case "install":
+		return providerInstall(args[1:])
+	case "update":
+		return providerUpdate(args[1:])
+	case "publish":
+		return providerPublish(args[1:])
 	case "rm", "remove":
 		if len(args) != 2 {
 			return usage
@@ -632,6 +660,9 @@ func providerRemove(name string) error {
 		return err
 	}
 	_ = os.RemoveAll(draftDir(name))
+	if err := sandbox.ForgetInstalled(name); err != nil {
+		return err
+	}
 	fmt.Println("removed", path)
 	return nil
 }

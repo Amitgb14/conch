@@ -81,3 +81,18 @@ func runInput(ctx context.Context, dir string, input []byte, args ...string) ([]
 	}
 	return stdout.Bytes(), nil
 }
+
+// API calls GitHub's REST API through gh, with body sent as JSON when
+// there is one, and returns the reply.
+func API(ctx context.Context, method, path string, body any) ([]byte, error) {
+	args := []string{"api", "--method", method, path}
+	var in []byte
+	if body != nil {
+		var err error
+		if in, err = json.Marshal(body); err != nil {
+			return nil, err
+		}
+		args = append(args, "--input", "-")
+	}
+	return runInput(ctx, "", in, args...)
+}
