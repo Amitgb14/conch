@@ -321,7 +321,7 @@ func New(local *client.Client, cfg config.Config) Model {
 	}
 	lm := newMachine(localMachine, localMachine, "")
 	lm.attach(local)
-	if missing := local.MissingCapabilities(proto.Capabilities); len(missing) > 0 {
+	if missing := local.OlderBuild(); len(missing) > 0 {
 		lm.warning = "server is from an older build · click the version to reload it"
 	}
 	m.machines = append(m.machines, lm)

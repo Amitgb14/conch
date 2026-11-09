@@ -306,3 +306,69 @@ func waitExited(t *testing.T, p *Pane) {
 		t.Fatalf("pane is %s, not exited", st)
 	}
 }
+
+// A program that turned on in-band resize reports (mode 2048) used to hang
+// the reload: replaying the mode makes the fresh emulator write a size report
+// into its reply pipe, which is unbuffered and had no reader until after the
+// replay, so Adopt never returned. And the report must not reach the program
+// either — it is the replay's, not a resize.
+func TestAdoptInBandResizeMode(t *testing.T) {
+	p, err := Start(Options{
+		ID: "t1",
+		// cat -v shows what the program is sent: each report as ^[[48;...
+		Command: []string{"/bin/sh", "-c", `stty -icanon -echo; printf '\033[?2048hmode-on\n'; exec cat -v`},
+		Env:     []string{"ENV="},
+		Cols:    60,
+		Rows:    10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	waitScreen(t, p, "mode-on")
+	waitScreen(t, p, "[48;10;60") // the report for turning it on
+	time.Sleep(100 * time.Millisecond)
+
+	snap, ptmx, err := p.Detach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	type adopted struct {
+		q   *Pane
+		err error
+	}
+	got := make(chan adopted, 1)
+	go func() {
+		q, err := Adopt(snap, a5Dup(t, p, ptmx))
+		got <- adopted{q, err}
+	}()
+	var q *Pane
+	select {
+	case a := <-got:
+		if a.err != nil {
+			t.Fatal(a.err)
+		}
+		q = a.q
+	case <-time.After(5 * time.Second):
+		t.Fatal("Adopt hung replaying mode 2048")
+	}
+	t.Cleanup(q.Close)
+	q.mu.Lock()
+	on := q.modes[ansi.ModeInBandResize]
+	q.mu.Unlock()
+	if !on {
+		t.Fatal("mode 2048 not replayed")
+	}
+	if err := q.SendText("after-adopt", false); err != nil {
+		t.Fatal(err)
+	}
+	waitScreen(t, q, "after-adopt")
+	if n := strings.Count(strings.Join(q.PlainLines(), "\n"), "[48;"); n != 1 {
+		t.Fatalf("program was sent %d size reports, want only the one from turning it on:\n%s", n, strings.Join(q.PlainLines(), "\n"))
+	}
+	// The pipe is still read: a real resize reaches the program.
+	if err := q.Resize(50, 8); err != nil {
+		t.Fatal(err)
+	}
+	waitScreen(t, q, "[48;8;50")
+}

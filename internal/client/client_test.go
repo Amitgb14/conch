@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1237,5 +1238,25 @@ func TestA3EnsureServerCannotClearSocket(t *testing.T) {
 	err = EnsureServer(sock, filepath.Join(dir, "server.log"))
 	if err == nil {
 		t.Fatal("want an error when the socket cannot be cleared")
+	}
+}
+
+// A server that withholds only what its machine cannot give is not older;
+// one lacking anything else is.
+func TestOlderBuild(t *testing.T) {
+	without := func(drop string) *Client {
+		return &Client{Server: proto.HelloResult{Capabilities: slices.DeleteFunc(slices.Clone(proto.Capabilities), func(c string) bool { return c == drop })}}
+	}
+	if got := (&Client{Server: proto.HelloResult{Capabilities: proto.Capabilities}}).OlderBuild(); got != nil {
+		t.Fatalf("current server: %v", got)
+	}
+	if got := without(proto.CapWorktreeWatch).OlderBuild(); got != nil {
+		t.Fatalf("a server with no file watches is not older: %v", got)
+	}
+	if got := without("pane.v1").OlderBuild(); !reflect.DeepEqual(got, []string{"pane.v1"}) {
+		t.Fatalf("a server without pane.v1: %v", got)
+	}
+	if got := (&Client{}).OlderBuild(); len(got) != len(proto.BuildCapabilities()) {
+		t.Fatalf("a server announcing nothing lacks %d, want all %d", len(got), len(proto.BuildCapabilities()))
 	}
 }

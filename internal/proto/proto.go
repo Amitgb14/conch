@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -108,6 +109,27 @@ const CapAgentSkill = "agent.skill.v1"
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
 const CapWorktreeWatch = "worktree.watch.v1"
+
+// OptionalCapabilities are those a server of this very build may still
+// leave out, because the machine it runs on cannot give them (no file
+// watches, say). Their absence says nothing about the build, so it must not
+// make the server look old: that server was shown as needing a reload for
+// ever, and reloading it changes nothing. A client that relies on one asks
+// for it by name, as it would any other.
+var OptionalCapabilities = []string{CapWorktreeWatch}
+
+// BuildCapabilities is what every server of this build announces: Capabilities
+// without the optional ones. A server lacking any of these is from an older
+// build.
+func BuildCapabilities() []string {
+	var out []string
+	for _, c := range Capabilities {
+		if !slices.Contains(OptionalCapabilities, c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 // CapWorktreeMove is moving a worktree to another machine: worktree.have,
 // worktree.describe, worktree.pack, worktree.pack_read, worktree.unpack and
