@@ -12,7 +12,8 @@
 # secure timestamp, which notarization requires; otherwise ad hoc, and
 # macOS then makes whoever downloads it let it through once by hand. With
 # CONCH_NOTARY_PROFILE set — a profile made by `xcrun notarytool
-# store-credentials` — the app is notarized, the ticket stapled to it, and
+# store-credentials` — the app is notarized (macos/notarize.sh, which waits
+# out a slow Apple), the ticket stapled to it, and
 # Gatekeeper asked whether it now accepts it, so a download opens with no
 # warning at all. Upload the zip to the release by hand:
 #   gh release upload vVERSION dist/Conch_VERSION_macos_arm64.zip* --clobber
@@ -62,13 +63,7 @@ if [ -n "$profile" ]; then
 	# Apple takes a zip; the ticket it issues is then stapled to the app
 	# itself, so the app opens without asking Apple while offline.
 	ditto -c -k --sequesterRsrc --keepParent "$app" "$stage/notarize.zip"
-	out=$(xcrun notarytool submit "$stage/notarize.zip" --keychain-profile "$profile" --wait 2>&1) || true
-	echo "$out"
-	if ! echo "$out" | grep -q "status: Accepted"; then
-		id=$(echo "$out" | sed -n 's/^ *id: //p' | head -1)
-		echo "release.sh: Apple did not accept it${id:+ — xcrun notarytool log $id --keychain-profile $profile says why}" >&2
-		exit 1
-	fi
+	"$here/notarize.sh" "$stage/notarize.zip" "$profile"
 	xcrun stapler staple "$app"
 	xcrun stapler validate "$app"
 	spctl --assess --type execute --verbose=2 "$app" 2>&1 | tee "$stage/spctl.txt"
