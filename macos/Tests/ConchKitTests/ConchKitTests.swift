@@ -248,6 +248,7 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     #expect(items.contains { $0.action == .branch(project: "local|r1", name: "feat") })
     #expect(!items.contains { $0.action == .branch(project: "local|r1", name: "main") })
     #expect(items.last?.action == .command("openTUI"))
+    // Named as the conch menu names it.
     #expect(items.last?.title == "Run in Terminal")
     #expect(items.first { $0.action == .pane("local|p1") }?.detail == "api · feat · p1")
     // Another machine's items say which machine.
