@@ -188,14 +188,25 @@ Usage:
                                 interface. Started if stopped and conch installed; never deleted
                                 if that fails
   conch sandbox providers [-json]  which providers conch can make a sandbox with, and whether each has its key
-  conch sandbox adapt [-agent A] [-name N] [-json] URL...
+  conch sandbox adapt [-agent A] [-name N] [-new] [-json] URL...
                                 a provider conch doesn't know: conch downloads its API docs, an agent
                                 (claude by default) writes a provider file from them in a pane of its
-                                own, and conch checks the file and the key; nothing is saved yet
+                                own, and conch checks the file and the key; nothing is saved yet.
+                                One already in the provider registry is offered instead (-new adapts anyway)
   conch sandbox adapt -revise TEXT NAME   ask that agent to change the draft, and check it again
   conch sandbox provider check [-offline] [-json] NAME|FILE | show NAME | save NAME | rm NAME
                                 check a provider file, print it, make a draft a provider, or forget one
                                 (its sandboxes are left alone)
+  conch sandbox provider search [-json] [TERM]
+                                the providers others adapted and published (github.com/Amitgb14/conch-sandbox-providers)
+  conch sandbox provider install [-y] [NAME]
+                                install one: says where your key and ssh go first, and checks the file's hash
+  conch sandbox provider update [-y] [NAME]
+                                take newer versions of installed ones; a file edited here is left alone,
+                                and new hosts are only taken when you say yes
+  conch sandbox provider publish [-dry-run] [-json] NAME
+                                check a provider of yours with your key, then propose it to the registry
+                                as a pull request through gh (your key is never part of it)
   conch sandbox stats           every provider's sandboxes, their state and size, and a line
                                 per provider (-provider P narrows it to one)
   conch sandbox -provider P ls | start ID | stop [-y] ID | rm [-y] ID

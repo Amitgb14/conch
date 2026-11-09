@@ -8,6 +8,10 @@ import SwiftUI
 // writes and the key. This sheet shows that happening, then the file — as
 // what conch will call for what, and as the file itself — and saves it
 // (`conch sandbox provider save`) only when asked.
+//
+// It opens on the registry — providers others adapted and published —
+// since installing one of those costs no agent's time; adapting is the
+// other tab, and adapting one the registry has is offered as an install.
 
 struct AddProviderSheet: View {
     @ObservedObject var store: Store
@@ -21,6 +25,12 @@ struct AddProviderSheet: View {
     @State private var tab = 0
     @State private var revision = ""
     @State private var saving = false
+    @State private var mode = 0 // 0 the registry, 1 adapt from docs
+    @State private var registry: [RegistryProvider] = []
+    @State private var registryProblem = ""
+    @State private var loadingRegistry = true
+    @State private var picked: String?
+    @State private var installing = false
 
     private static let agents: [(String, String)] = [("claude", "Claude"), ("codex", "Codex"), ("gemini", "Gemini")]
 
@@ -36,7 +46,8 @@ struct AddProviderSheet: View {
                 }
             }
             switch progress.phase {
-            case .idle: ask
+            case .idle: start
+            case .registry: inRegistry
             case .docs, .writing: writing
             case .review: review
             case .failed: failed
@@ -47,6 +58,121 @@ struct AddProviderSheet: View {
             footer
         }
         .padding(20).frame(width: 640)
+        .task { await loadRegistry() }
+    }
+
+    // MARK: the registry
+
+    private var start: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("", selection: $mode) {
+                Text("From the registry").tag(0)
+                Text("Adapt from its API docs").tag(1)
+            }
+            .pickerStyle(.segmented).labelsHidden()
+            if mode == 0 { registryList } else { ask }
+        }
+    }
+
+    private var registryList: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Providers others adapted, checked and published. Installing one shows where your API key and ssh connections go first; nothing runs until you make a sandbox with it.")
+                .font(.ui(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if loadingRegistry {
+                        step(.run, "Reading the registry", "")
+                            .padding(10)
+                    } else if !registryProblem.isEmpty {
+                        step(.bad, registryProblem, "").padding(10)
+                    } else if registry.isEmpty {
+                        Text("The registry has no providers yet.").font(.ui(size: 12)).foregroundStyle(Theme.muted).padding(10)
+                    }
+                    ForEach(registry) { r in
+                        Button { picked = r.name } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: picked == r.name ? "largecircle.fill.circle" : "circle")
+                                    .foregroundStyle(picked == r.name ? Color.accentColor : Theme.muted)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(r.label).font(.ui(size: 13, weight: .medium))
+                                    Text("\(r.name) · \(r.apiHost) · \(r.liveCheck)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+                                }
+                                Spacer()
+                                if let b = r.installBlocker {
+                                    Text(b).font(.ui(size: 10.5)).foregroundStyle(Theme.muted)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                            .padding(.horizontal, 10).padding(.vertical, 7)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(height: 170)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raise))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
+            if let r = registry.first(where: { $0.name == picked }) {
+                destinations(r)
+            }
+        }
+    }
+
+    /// Where a registry provider sends the key and ssh: what a person has
+    /// to agree to, so it is said before Install.
+    private func destinations(_ r: RegistryProvider) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Your API key ($\(r.keyEnv)) goes to \(r.apiHost)").font(.ui(size: 12))
+            Text("ssh goes to \(r.sshWords)").font(.ui(size: 12))
+            if let n = r.note, !n.isEmpty {
+                Text(n).font(.ui(size: 11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+            }
+            if let by = r.adaptedBy, let docs = r.docs {
+                Text("Adapted by \(by) from \(docs)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Theme.warn.opacity(0.06)))
+    }
+
+    private var inRegistry: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(progress.registryDetail).font(.ui(size: 12.5)).fixedSize(horizontal: false, vertical: true)
+            if let r = registry.first(where: { $0.name == progress.registry }) {
+                destinations(r)
+            }
+            Text("Installing it costs no agent's time. Adapt anyway writes a file of your own instead.")
+                .font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
+        }
+    }
+
+    private func loadRegistry() async {
+        guard let b = store.binary else { loadingRegistry = false; return }
+        do {
+            let out = try await runConch(b, ["sandbox", "provider", "search", "-json"])
+            registry = registryProviders(out)
+            registryProblem = ""
+        } catch {
+            registryProblem = "\(error)"
+        }
+        loadingRegistry = false
+    }
+
+    private func install(_ name: String) {
+        guard let b = store.binary, !name.isEmpty else { return }
+        installing = true
+        problem = ""
+        Task {
+            do {
+                _ = try await runConch(b, ["sandbox", "provider", "install", "-y", name])
+                onSaved()
+                dismiss()
+            } catch {
+                problem = "\(error)"
+            }
+            installing = false
+        }
     }
 
     // MARK: asking
@@ -224,10 +350,19 @@ struct AddProviderSheet: View {
             }
             Spacer()
             switch progress.phase {
+            case .idle where mode == 0:
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(installing ? "Installing…" : "Install") { install(picked ?? "") }.keyboardShortcut(.defaultAction)
+                    .disabled(installing || registry.first(where: { $0.name == picked })?.installBlocker != nil || picked == nil)
             case .idle:
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Adapt it") { start() }.keyboardShortcut(.defaultAction)
+                Button("Adapt it") { startAdapt() }.keyboardShortcut(.defaultAction)
                     .disabled(form.url.trimmingCharacters(in: .whitespaces).isEmpty)
+            case .registry:
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Adapt anyway") { form.anyway = true; progress = AdaptProgress(); startAdapt() }
+                Button(installing ? "Installing…" : "Install it") { install(progress.registry) }.keyboardShortcut(.defaultAction)
+                    .disabled(installing)
             case .docs, .writing:
                 Button("Close") { dismiss() }.help("The agent carries on in its pane; conch sandbox provider check \(adaptName(form)) checks its file later")
             case .review:
@@ -243,7 +378,7 @@ struct AddProviderSheet: View {
 
     // MARK: running conch
 
-    private func start() {
+    private func startAdapt() {
         problem = ""
         switch form.arguments() {
         case .failure(let e): problem = e.message
@@ -301,6 +436,8 @@ struct ProvidersCard: View {
     @State private var providers: [SandboxProviderInfo] = []
     @State private var adding = false
     @State private var problem = ""
+    @State private var published = ""
+    @State private var publishing: String?
 
     var body: some View {
         let _ = theme
@@ -320,6 +457,9 @@ struct ProvidersCard: View {
                             .padding(.horizontal, 7).padding(.vertical, 1)
                             .overlay(Capsule().stroke(p.adapted == true ? Theme.warn.opacity(0.5) : Theme.line))
                         if p.adapted == true {
+                            Button(publishing == p.name ? "Publishing…" : "Publish…") { publish(p) }.controlSize(.small)
+                                .disabled(publishing != nil)
+                                .help("Propose it to the provider registry, for others to install")
                             Button("Remove") { remove(p) }.controlSize(.small)
                         }
                     }
@@ -327,6 +467,11 @@ struct ProvidersCard: View {
                 }
                 if !problem.isEmpty {
                     Text(problem).font(.ui(size: 12)).foregroundStyle(Theme.err).padding(.horizontal, 16).padding(.bottom, 8)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !published.isEmpty {
+                    Text(published).font(.ui(size: 12)).foregroundStyle(Theme.ok).padding(.horizontal, 16).padding(.bottom, 8)
+                        .textSelection(.enabled)
                 }
             }
         }
@@ -341,6 +486,30 @@ struct ProvidersCard: View {
         if let out = try? await runConch(b, ["sandbox", "providers", "-json"]),
            let ps = try? JSONDecoder().decode([SandboxProviderInfo].self, from: out) {
             providers = ps
+        }
+    }
+
+    private func publish(_ p: SandboxProviderInfo) {
+        let a = NSAlert()
+        a.messageText = "Publish \(p.label) to the provider registry?"
+        a.informativeText = "conch checks the file with your key first, then opens a pull request to github.com/Amitgb14/conch-sandbox-providers through gh, as you. The file and a note of when your key last listed sandboxes with it go; your key does not. It is listed once a maintainer has reviewed it."
+        a.addButton(withTitle: "Publish")
+        a.addButton(withTitle: "Cancel")
+        guard a.runModal() == .alertFirstButtonReturn, let b = store.binary else { return }
+        publishing = p.name
+        problem = ""
+        published = ""
+        Task {
+            do {
+                let out = try await runConch(b, ["sandbox", "provider", "publish", "-json", p.name])
+                if let r = try? JSONDecoder().decode(PublishResult.self, from: out), let u = URL(string: r.url) {
+                    published = "Proposed: \(r.url)"
+                    NSWorkspace.shared.open(u)
+                }
+            } catch {
+                problem = "\(error)"
+            }
+            publishing = nil
         }
     }
 

@@ -1051,6 +1051,8 @@ func (s *settings) sandboxItems(m *Model) []settingItem {
 		items = append(items, settingItem{label: providerLabel(name), detail: providerState(m, name), page: true,
 			run: func(m *Model) tea.Cmd { s.open(name); return nil }})
 	}
+	items = append(items, settingItem{label: "* Install a provider from the registry…", detail: "ones others adapted and published",
+		run: func(m *Model) tea.Cmd { return installProvider(m) }})
 	items = append(items, settingItem{label: "+ Add a provider conch doesn't know…", detail: "from its API docs",
 		run: func(m *Model) tea.Cmd { d := newAdaptDialog(*m); m.overlay = d; return d.focusCmd() }})
 	return append(items,

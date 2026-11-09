@@ -48,7 +48,8 @@ public struct AdaptEvent: Decodable, Equatable, Sendable {
 
 /// Where adapting has got to.
 public struct AdaptProgress: Equatable, Sendable {
-    public enum Phase: Equatable, Sendable { case idle, docs, writing, review, failed }
+    /// registry: the provider is in the registry already, and nothing was adapted.
+    public enum Phase: Equatable, Sendable { case idle, registry, docs, writing, review, failed }
     public var phase: Phase = .idle
     /// The docs conch fetched, and the places it looked that had none.
     public var docs: [String] = []
@@ -65,6 +66,9 @@ public struct AdaptProgress: Equatable, Sendable {
     public var check: AdaptCheck?
     public var error = ""
     public var next = ""
+    /// The registry's provider of that name or host, when it has one.
+    public var registry = ""
+    public var registryDetail = ""
 
     public init() {}
 
@@ -77,6 +81,10 @@ public struct AdaptProgress: Equatable, Sendable {
 
     public mutating func take(_ e: AdaptEvent) {
         switch e.event {
+        case "registry":
+            registry = e.name ?? ""
+            registryDetail = e.detail ?? ""
+            phase = .registry
         case "docs":
             if phase == .idle { phase = .docs }
             if e.ok == true { docs.append(e.detail ?? "") } else if let d = e.detail { misses.append(d) }
@@ -127,6 +135,8 @@ public struct AdaptForm: Equatable, Sendable {
     public var url = ""
     public var name = ""
     public var agent = "claude"
+    /// Adapt it even when the registry has it.
+    public var anyway = false
     public init() {}
 
     public func arguments() -> Result<[String], NewSandboxError> {
@@ -135,6 +145,7 @@ public struct AdaptForm: Equatable, Sendable {
             return .failure(.problem("the provider's API or docs address, starting https://"))
         }
         var args = ["sandbox", "adapt", "-json", "-agent", agent.isEmpty ? "claude" : agent]
+        if anyway { args.append("-new") }
         let n = name.trimmingCharacters(in: .whitespaces).lowercased()
         if !n.isEmpty {
             guard n.range(of: "^[a-z][a-z0-9-]{1,30}$", options: .regularExpression) != nil else {

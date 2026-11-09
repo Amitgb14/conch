@@ -31,6 +31,8 @@ func TestMain(m *testing.M) {
 	sshtest.Main() // run as ssh: the host a terminal is logged in to
 	// Never start this binary again in place of a test (see execSelf).
 	execSelf = func(string, []string, []string) error { return errors.New("tests do not exec themselves") }
+	// Nor read the real provider registry: adapt asks it first.
+	os.Setenv("CONCH_PROVIDERS_URL", "http://127.0.0.1:1/unused")
 	switch os.Getenv("A4_HELPER_MODE") {
 	case "main":
 		os.Args = append([]string{"conch"}, os.Args[1:]...)

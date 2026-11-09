@@ -43,10 +43,23 @@ import (
 //go:embed providerfile.md
 var ProviderFileGuide string
 
+// ProviderFormat is the newest provider file this conch reads. A file
+// that needs what format 1 lacked says format = 2, which a conch from
+// before formats calls an unknown key and refuses: refusing is right,
+// since it would otherwise send {public_key} as those very letters.
+const ProviderFormat = 2
+
+// PublicKey is the public key a sandbox is made with when a provider file
+// puts {public_key} in its create body. internal/remote sets it (the
+// person's own key, else conch's), since that is where keys are found.
+var PublicKey func(ctx context.Context) (string, error)
+
 // ProviderFile is the shape of a provider file.
 type ProviderFile struct {
-	Name  string `toml:"name"`
-	Label string `toml:"label"`
+	// Format is 1 when left out.
+	Format int    `toml:"format"`
+	Name   string `toml:"name"`
+	Label  string `toml:"label"`
 	// API is the base every call's path is put after.
 	API    string `toml:"api"`
 	KeyEnv string `toml:"key_env"`
@@ -85,9 +98,12 @@ type CreateCall struct {
 	ID string `toml:"id"`
 }
 
-// GetCall looks at one; each field is a path into the reply.
+// GetCall looks at one; each field is a path into the reply — into Item,
+// where the reply wraps the sandbox ({"server": {...}}). A list's items
+// are read with the same paths, unwrapped.
 type GetCall struct {
 	Call
+	Item     string `toml:"item"`
 	State    string `toml:"state"`
 	Name     string `toml:"name"`
 	Reason   string `toml:"reason"`
@@ -173,6 +189,11 @@ func ReadProviderFile(path string) (*ProviderFile, []string, error) {
 func (f *ProviderFile) Problems() []string {
 	var p []string
 	add := func(format string, a ...any) { p = append(p, fmt.Sprintf(format, a...)) }
+	if f.Format < 0 || f.Format > ProviderFormat {
+		add("format %d: this conch reads up to format %d; update conch to use it", f.Format, ProviderFormat)
+	} else if need := f.needs2(); need != "" && f.Format < 2 {
+		add("%s needs format = 2", need)
+	}
 	switch {
 	case !providerName.MatchString(f.Name):
 		add("name %q: lowercase letters, digits and -, starting with a letter", f.Name)
@@ -256,6 +277,23 @@ func (f *ProviderFile) Problems() []string {
 	}
 	sort.Strings(p)
 	return p
+}
+
+// needs2 names the first thing in the file that format 1 did not have.
+func (f *ProviderFile) needs2() string {
+	if f.Get.Item != "" {
+		return "[get] item"
+	}
+	if bodyUses(f.Create.Body, "{public_key}") {
+		return "{public_key} in [create] body"
+	}
+	for _, path := range []string{f.Create.ID, f.Get.State, f.Get.Name, f.Get.Reason, f.Get.CPU, f.Get.MemoryMB,
+		f.Get.DiskMB, f.Get.Created, f.List.Items, f.List.ID, f.List.Next, f.SSH.Host, f.SSH.User} {
+		if strings.Contains(path, "[") {
+			return fmt.Sprintf("the selector in %q", path)
+		}
+	}
+	return ""
 }
 
 func slicesContains(list []string, s string) bool {
@@ -601,6 +639,33 @@ func Pick(v any, path string) any {
 		return nil
 	}
 	for _, part := range strings.Split(path, ".") {
+		// field[key=value]: the first item of the list at field (or of
+		// this list, when field is empty) whose key reads value.
+		if i := strings.IndexByte(part, '['); i >= 0 && strings.HasSuffix(part, "]") {
+			key, want, ok := strings.Cut(part[i+1:len(part)-1], "=")
+			if field := part[:i]; field != "" {
+				m, isMap := v.(map[string]any)
+				if !isMap {
+					return nil
+				}
+				v = m[field]
+			}
+			list, isList := v.([]any)
+			if !ok || key == "" || !isList {
+				return nil
+			}
+			v = nil
+			for _, it := range list {
+				if pickStr(it, key) == want {
+					v = it
+					break
+				}
+			}
+			if v == nil {
+				return nil
+			}
+			continue
+		}
 		switch x := v.(type) {
 		case map[string]any:
 			v = x[part]
@@ -697,6 +762,16 @@ func (c *Custom) Create(ctx context.Context, spec Spec) (Sandbox, error) {
 	v := vars{"{name}": name, "{label}": spec.Name, "{cpu}": spec.CPU, "{memory_gib}": spec.Memory,
 		"{memory_mb}": spec.Memory * 1024, "{disk_gib}": spec.Disk, "{disk_mb}": spec.Disk * 1024,
 		"{snapshot}": spec.Snapshot, "{env}": spec.Env, "{auto_stop_secs}": spec.AutoStop * 60}
+	if bodyUses(c.f.Create.Body, "{public_key}") {
+		if PublicKey == nil {
+			return Sandbox{}, fmt.Errorf("%s makes a sandbox with your public key, and conch has none to give", c.label())
+		}
+		key, err := PublicKey(ctx)
+		if err != nil {
+			return Sandbox{}, fmt.Errorf("the public key %s is made with: %w", c.label(), err)
+		}
+		v["{public_key}"] = strings.TrimSpace(key)
+	}
 	out, err := c.do(ctx, c.f.Create.Call, v)
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("create sandbox: %w", err)
@@ -715,6 +790,9 @@ func (c *Custom) Get(ctx context.Context, id string) (Sandbox, error) {
 	out, err := c.do(ctx, c.f.Get.Call, vars{"{id}": id})
 	if err != nil {
 		return Sandbox{}, err
+	}
+	if c.f.Get.Item != "" {
+		out = Pick(out, c.f.Get.Item)
 	}
 	if out == nil {
 		return Sandbox{}, ErrNotFound
@@ -840,7 +918,7 @@ func (c *Custom) SSHAccess(ctx context.Context, id string) (Access, error) {
 	}
 	fill := func(s string) string {
 		s = v.str(s)
-		return regexp.MustCompile(`\{reply\.([A-Za-z0-9_.]+)\}`).ReplaceAllStringFunc(s, func(m string) string {
+		return regexp.MustCompile(`\{reply\.([^{}]+)\}`).ReplaceAllStringFunc(s, func(m string) string {
 			return pickStr(reply, strings.TrimSuffix(strings.TrimPrefix(m, "{reply."), "}"))
 		})
 	}
