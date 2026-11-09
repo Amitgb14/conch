@@ -161,3 +161,25 @@ private func tablesForm() throws -> (SettingsForm, SettingsSection, SettingsSect
     #expect(powerlineFamily(["Menlo", "Helvetica"]) { _ in true } == nil)
     #expect(powerlineFamily([]) { _ in true } == nil)
 }
+
+// A provider added, or its key typed in, is an unsaved change: the
+// section's own keyed table has no value as a field, and was counted as
+// none, so the Save bar never came up for Tensorlake's key.
+@Test func settingsKeyedEntriesCountAsChanges() throws {
+    var (f, _, sandbox, _) = try tablesForm()
+    let providers = sandbox.fields[0], key = providers.fields![0]
+    #expect(settingsChanged(f, sandbox) == 0 && settingsChanged(f) == 0 && !f.dirty)
+    f.addEntry(sandbox, providers, "boat")
+    #expect(settingsChanged(f, sandbox) == 1 && settingsChanged(f) == 1 && f.dirty)
+    #expect(settingsChangedShown(f, sandbox) == 1)
+    f.set(sandbox, key, at: .entry(table: "", name: "boat"), .string("BOAT_KEY"))
+    #expect(settingsChanged(f) == 1)
+    // A key changed in a provider that was there already counts too.
+    f.removeEntry(sandbox, providers, "boat")
+    #expect(settingsChanged(f) == 0 && !f.dirty)
+    f.set(sandbox, key, at: .entry(table: "", name: "daytona"), .string("OTHER"))
+    #expect(settingsChanged(f) == 1)
+    // And back as it was is no change.
+    f.set(sandbox, key, at: .entry(table: "", name: "daytona"), .string("DAYTONA_API_KEY"))
+    #expect(settingsChanged(f) == 0)
+}
