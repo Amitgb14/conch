@@ -265,8 +265,8 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     let items = fixture().paletteItems()
     #expect(filterPalette(items, query: "") == items)
     let split = filterPalette(items, query: "split")
-    #expect(split.map(\.title) == ["Split right", "Split down", "Close split"])
-    #expect(filterPalette(items, query: "down split").map(\.title) == ["Split down"])
+    #expect(split.map(\.title) == ["Split Right", "Split Down", "Close Split"])
+    #expect(filterPalette(items, query: "down split").map(\.title) == ["Split Down"])
     #expect(filterPalette(items, query: "HEALTH").first?.title == "Add health check")
     #expect(filterPalette(items, query: "zzqq").isEmpty)
 }
@@ -640,7 +640,7 @@ final class FakeServer: @unchecked Sendable {
     // An agent: open, rename, prompt, start beside it, its branch, close.
     let agent = api.children![0].children![0]
     let am = s.menu(for: agent, machine: "box")
-    #expect(titles(am) == ["Open", "Rename…", "Prompt…", "", "Start an agent here", "New terminal here", "View changes on feat", "", "Copy Pane ID (box:p1)", "Close agent…"])
+    #expect(titles(am) == ["Open", "Rename…", "Prompt…", "", "Start an Agent Here", "New Terminal Here", "View Changes on feat", "", "Copy Pane ID (box:p1)", "Close Agent…"])
     #expect(am[4].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true) && am[4].picksAgent)
     #expect(am[6].action == .changes(project: "box|r1", branch: "feat"))
     #expect(am.last?.action == .close(pane: "box|p1"))
@@ -660,23 +660,23 @@ final class FakeServer: @unchecked Sendable {
     // In a worktree of its own: removed (the worktree) or deleted (the branch).
     let feat = api.children![1].children![1]
     let fm = s.menu(for: feat, machine: "box")
-    #expect(titles(fm) == ["View changes", "Start an agent on this branch", "Open terminal on this branch", "New task in project…", "Show in commit graph",
-                           "Agent setup here", "", "Copy branch name", "", "Remove worktree…", "Delete branch…"])
+    #expect(titles(fm) == ["View Changes", "Start an Agent on This Branch", "Open Terminal on This Branch", "New Task in Project…", "Show in Commit Graph",
+                           "Agent Setup Here", "", "Copy Branch Name", "", "Remove Worktree…", "Delete Branch…"])
     #expect(fm[5].action == .agentSetup(project: "box|r1", dir: "/src/api-feat"))
     #expect(fm[4].action == .commits(project: "box|r1", branch: "feat"))
     #expect(fm[1].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true))
     #expect(fm[9].action == .removeWorktree(project: "box|r1", path: "/src/api-feat") && fm[10].action == .deleteBranch(project: "box|r1", branch: "feat"))
     // Not checked out: deleted only.
     let old = TreeNode(id: "b:box|r1:old", kind: .branch(project: "box|r1", name: "old", checkedOut: false), title: "old")
-    #expect(titles(s.menu(for: old, machine: "box")) == ["View changes", "New task in project…", "Show in commit graph", "", "Copy branch name", "", "Delete branch…"])
+    #expect(titles(s.menu(for: old, machine: "box")) == ["View Changes", "New Task in Project…", "Show in Commit Graph", "", "Copy Branch Name", "", "Delete Branch…"])
     // The main checkout's branch, and the base, are never taken away; offline, nothing is.
     let mainRow = api.children![1].children![0]
-    #expect(!titles(s.menu(for: mainRow, machine: "box")).contains("Delete branch…"))
+    #expect(!titles(s.menu(for: mainRow, machine: "box")).contains("Delete Branch…"))
     var based = s
     var bp = s.project("r1")!
     bp.base = "old"
     based.upsert(bp)
-    #expect(!titles(based.menu(for: old, machine: "box")).contains("Delete branch…"))
+    #expect(!titles(based.menu(for: old, machine: "box")).contains("Delete Branch…"))
     #expect(!titles(s.menu(for: feat, machine: "box", machineOnline: false)).contains { $0.hasPrefix("Remove") || $0.hasPrefix("Delete") })
     // A pull request with a web address opens; one with another scheme does not.
     var withPR = s
@@ -720,7 +720,7 @@ final class FakeServer: @unchecked Sendable {
     #expect(s.menu(for: t, machine: "box", machineOnline: false).map(\.action) == [.addMachine, .newSandbox, .divider, .reconnect(machine: "box"),
                                                                                    .upgrade(machine: "box"), .removeMachine(machine: "box")])
     #expect(s.menu(for: api, machine: "box", machineOnline: false).isEmpty)
-    #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View changes on feat", "", "Copy Pane ID (box:p1)", "Close agent…"])
+    #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View Changes on feat", "", "Copy Pane ID (box:p1)", "Close Agent…"])
     // A section offers a broadcast to those in it, offline nothing; a pane
     // gone from the snapshot has no menu.
     #expect(s.menu(for: api.children![0], machine: "box").map(\.action) == [.broadcast(.section(project: "box|r1", agents: true))])
@@ -2210,7 +2210,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     s.upsert(t)
     let k = key("box", t.id)
     let titles = s.menu(for: TreeNode(id: "pane:" + k, kind: .terminal(k), title: t.name), machine: "box").map(\.title)
-    #expect(titles.contains("✓ Alert when it goes quiet") && titles.contains("Alert on output"))
+    #expect(titles.contains("✓ Alert When It Goes Quiet") && titles.contains("Alert on Output"))
     #expect(!s.menu(for: TreeNode(id: "x", kind: .terminal(k), title: ""), machine: "box", machineOnline: false).contains { $0.title.contains("Alert") })
     let agent = s.panes.first { $0.agent != nil }!
     #expect(!s.menu(for: TreeNode(id: "a", kind: .agent(key("box", agent.id)), title: ""), machine: "box").contains { $0.title.contains("Alert") })
@@ -2641,7 +2641,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let node = TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api")
     let i = snap.projects.firstIndex { $0.id == "r1" }!
     snap.projects[i].git = true
-    #expect(snap.menu(for: node, machine: "local").contains(RowMenuItem("Move to another machine…", .moveProject(project: "local|r1"))))
+    #expect(snap.menu(for: node, machine: "local").contains(RowMenuItem("Move to Another Machine…", .moveProject(project: "local|r1"))))
     snap.projects[i].git = false
     #expect(!snap.menu(for: node, machine: "local").contains { if case .moveProject = $0.action { return true }; return false })
 }

@@ -141,102 +141,102 @@ extension Snapshot {
             if agent && p.running { out.append(RowMenuItem("Prompt…", .prompt(pane: k))) }
             if machineOnline {
                 out += [.divider,
-                        RowMenuItem("Start an agent here", .startAgent(machine: machine, cwd: p.cwd, inProject: p.projectID != nil)),
-                        RowMenuItem("New terminal here", .newTerminal(machine: machine, cwd: p.cwd, inProject: p.projectID != nil))]
+                        RowMenuItem("Start an Agent Here", .startAgent(machine: machine, cwd: p.cwd, inProject: p.projectID != nil)),
+                        RowMenuItem("New Terminal Here", .newTerminal(machine: machine, cwd: p.cwd, inProject: p.projectID != nil))]
             }
             if let b = p.branch, !b.isEmpty, let pr = p.projectID, project(pr) != nil {
-                out.append(RowMenuItem("View changes on \(b)", .changes(project: key(machine, pr), branch: b)))
+                out.append(RowMenuItem("View Changes on \(b)", .changes(project: key(machine, pr), branch: b)))
             }
             // Watching a terminal, as the TUI's ctrl+b M and A: an agent
             // says for itself when it needs you.
             if !agent && p.running && machineOnline {
                 let quiet = (p.monitor?.silence ?? 0) > 0, output = p.monitor?.activity == true
                 out += [.divider,
-                        RowMenuItem((quiet ? "✓ " : "") + "Alert when it goes quiet", .monitor(pane: k, quiet: true)),
-                        RowMenuItem((output ? "✓ " : "") + "Alert on output", .monitor(pane: k, quiet: false))]
+                        RowMenuItem((quiet ? "✓ " : "") + "Alert When It Goes Quiet", .monitor(pane: k, quiet: true)),
+                        RowMenuItem((output ? "✓ " : "") + "Alert on Output", .monitor(pane: k, quiet: false))]
             }
-            if machine == "local", p.sshTarget != nil { out += [.divider, RowMenuItem("Save this host", .saveHost(pane: k))] }
+            if machine == "local", p.sshTarget != nil { out += [.divider, RowMenuItem("Save This Host", .saveHost(pane: k))] }
             // What conch's commands call it (conch read p12), which no row says.
             let ref = paneRef(machine: machine, label: label, pane: p.id, among: among)
             out += [.divider, RowMenuItem("Copy Pane ID (\(ref))", .copy(ref)),
-                    RowMenuItem(agent && p.running ? "Close agent…" : "Close", .close(pane: k))]
+                    RowMenuItem(agent && p.running ? "Close Agent…" : "Close", .close(pane: k))]
         case .branch(let pk, let name, _):
-            out = [RowMenuItem("View changes", .changes(project: pk, branch: name))]
+            out = [RowMenuItem("View Changes", .changes(project: pk, branch: name))]
             let pr = project(unkey(pk).id)
             // Starting on a branch needs its checkout; one not checked out
             // is a task's to make (a worktree of its own).
             if machineOnline, let path = pr?.worktrees?.first(where: { $0.branch == name })?.path {
-                out += [RowMenuItem("Start an agent on this branch", .startAgent(machine: machine, cwd: path, inProject: true)),
-                        RowMenuItem("Open terminal on this branch", .newTerminal(machine: machine, cwd: path, inProject: true))]
+                out += [RowMenuItem("Start an Agent on This Branch", .startAgent(machine: machine, cwd: path, inProject: true)),
+                        RowMenuItem("Open Terminal on This Branch", .newTerminal(machine: machine, cwd: path, inProject: true))]
             }
-            if machineOnline { out.append(RowMenuItem("New task in project…", .newTask(project: pk))) }
-            out.append(RowMenuItem("Show in commit graph", .commits(project: pk, branch: name)))
+            if machineOnline { out.append(RowMenuItem("New Task in Project…", .newTask(project: pk))) }
+            out.append(RowMenuItem("Show in Commit Graph", .commits(project: pk, branch: name)))
             if let w = pr?.worktrees?.first(where: { $0.branch == name })?.path {
-                out.append(RowMenuItem("Agent setup here", .agentSetup(project: pk, dir: w)))
+                out.append(RowMenuItem("Agent Setup Here", .agentSetup(project: pk, dir: w)))
             }
             if let url = pr?.branches?.first(where: { $0.name == name })?.pr?.url, openableURL(url) != nil {
-                out.append(RowMenuItem("Open pull request", .openURL(url)))
+                out.append(RowMenuItem("Open Pull Request", .openURL(url)))
             }
-            out += [.divider, RowMenuItem("Copy branch name", .copy(name))]
+            out += [.divider, RowMenuItem("Copy Branch Name", .copy(name))]
             // Taking it away: never the main checkout's, nor the base.
             let main = pr?.worktrees?.first { $0.main == true }
             if machineOnline, name != main?.branch, name != pr?.base {
                 out.append(.divider)
                 if let w = pr?.worktrees?.first(where: { $0.branch == name && $0.main != true }) {
-                    out.append(RowMenuItem("Remove worktree…", .removeWorktree(project: pk, path: w.path)))
+                    out.append(RowMenuItem("Remove Worktree…", .removeWorktree(project: pk, path: w.path)))
                 }
-                out.append(RowMenuItem("Delete branch…", .deleteBranch(project: pk, branch: name)))
+                out.append(RowMenuItem("Delete Branch…", .deleteBranch(project: pk, branch: name)))
             }
         case .project(let pk):
             guard machineOnline, let pr = project(unkey(pk).id) else { return [] }
-            out = [RowMenuItem(pr.git == false ? "New task (an agent with a prompt, here)…" : "New task (branch + worktree + agent)…", .newTask(project: pk)),
-                   RowMenuItem("Start an agent in project", .startAgent(machine: machine, cwd: pr.path, inProject: true)),
-                   RowMenuItem("Open terminal in project", .newTerminal(machine: machine, cwd: pr.path, inProject: true))]
-            if pr.git != false { out.append(RowMenuItem("Commit graph", .commits(project: pk, branch: nil))) }
-            out.append(RowMenuItem("Agent setup", .agentSetup(project: pk, dir: pr.path)))
-            if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to its agents…", .broadcast(.project(pk)))) }
-            out += [.divider, RowMenuItem("Copy path", .copy(pr.path))]
-            if pr.git != false { out += [.divider, RowMenuItem("Move to another machine…", .moveProject(project: pk))] }
+            out = [RowMenuItem(pr.git == false ? "New Task (an Agent with a Prompt, Here)…" : "New Task (Branch + Worktree + Agent)…", .newTask(project: pk)),
+                   RowMenuItem("Start an Agent in Project", .startAgent(machine: machine, cwd: pr.path, inProject: true)),
+                   RowMenuItem("Open Terminal in Project", .newTerminal(machine: machine, cwd: pr.path, inProject: true))]
+            if pr.git != false { out.append(RowMenuItem("Commit Graph", .commits(project: pk, branch: nil))) }
+            out.append(RowMenuItem("Agent Setup", .agentSetup(project: pk, dir: pr.path)))
+            if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to Its Agents…", .broadcast(.project(pk)))) }
+            out += [.divider, RowMenuItem("Copy Path", .copy(pr.path))]
+            if pr.git != false { out += [.divider, RowMenuItem("Move to Another Machine…", .moveProject(project: pk))] }
             out += [.divider, RowMenuItem("Remove Project…", .removeProject(project: pk))]
         case .machine, .cli:
             let isMachine: Bool = { if case .machine = node.kind { return true }; return false }()
             if machineOnline {
-                out = [RowMenuItem("Start an agent", .startAgent(machine: machine, cwd: nil, inProject: false)),
-                       RowMenuItem("New terminal", .newTerminal(machine: machine, cwd: nil, inProject: false))]
-                if machine == "local" { out.append(RowMenuItem("SSH to a host…", .sshToHost)) }
+                out = [RowMenuItem("Start an Agent", .startAgent(machine: machine, cwd: nil, inProject: false)),
+                       RowMenuItem("New Terminal", .newTerminal(machine: machine, cwd: nil, inProject: false))]
+                if machine == "local" { out.append(RowMenuItem("SSH to a Host…", .sshToHost)) }
                 let scope: BroadcastScope = isMachine ? .machine(machine) : .cli(machine)
                 if hasRunning(scope) { out.append(RowMenuItem("Broadcast…", .broadcast(scope))) }
-                if isMachine { out += [.divider, RowMenuItem("Add project…", .addProject(machine: machine))] }
+                if isMachine { out += [.divider, RowMenuItem("Add Project…", .addProject(machine: machine))] }
             }
-            if isMachine { out += [RowMenuItem("Add machine…", .addMachine), RowMenuItem("New sandbox…", .newSandbox)] }
+            if isMachine { out += [RowMenuItem("Add Machine…", .addMachine), RowMenuItem("New Sandbox…", .newSandbox)] }
             if isMachine && machineOnline {
-                out.append(RowMenuItem("Skills & MCP servers…", .skillsSettings(machine: machine)))
+                out.append(RowMenuItem("Skills & MCP Servers…", .skillsSettings(machine: machine)))
             }
             if isMachine {
                 // What a machine's own connection and server need, online
                 // or not: a machine that went is reconnected or upgraded.
                 out += [.divider, RowMenuItem("Reconnect", .reconnect(machine: machine))]
-                if machineOnline { out.append(RowMenuItem("Reload server", .reloadServer(machine: machine))) }
+                if machineOnline { out.append(RowMenuItem("Reload Server", .reloadServer(machine: machine))) }
                 if machine != "local" {
-                    out += [RowMenuItem("Upgrade conch there", .upgrade(machine: machine)),
-                            RowMenuItem("Remove machine…", .removeMachine(machine: machine))]
+                    out += [RowMenuItem("Upgrade conch There", .upgrade(machine: machine)),
+                            RowMenuItem("Remove Machine…", .removeMachine(machine: machine))]
                 }
             }
         case .workspace:
             guard machineOnline else { return [] }
-            out = [RowMenuItem("Add project…", .addProject(machine: machine))]
+            out = [RowMenuItem("Add Project…", .addProject(machine: machine))]
             if hasRunning(.machine(machine)) { out.append(RowMenuItem("Broadcast…", .broadcast(.machine(machine)))) }
             if !projects.isEmpty { out.append(.divider) }
-            out += projects.map { RowMenuItem("New task in \($0.name)…", .newTask(project: key(machine, $0.id))) }
+            out += projects.map { RowMenuItem("New Task in \($0.name)…", .newTask(project: key(machine, $0.id))) }
         case .section(let name):
             // A project's Agents or Terminals: a message to those alone.
             guard machineOnline, name == "Agents" || name == "Terminals", node.id.hasPrefix("s:") else { return [] }
             let rest = node.id.dropFirst(2)
             guard let colon = rest.lastIndex(of: ":") else { return [] }
             let scope = BroadcastScope.section(project: String(rest[..<colon]), agents: name == "Agents")
-            return hasRunning(scope) ? [RowMenuItem(name == "Agents" ? "Broadcast to these agents…" : "Broadcast to these terminals…", .broadcast(scope))] : []
+            return hasRunning(scope) ? [RowMenuItem(name == "Agents" ? "Broadcast to These Agents…" : "Broadcast to These Terminals…", .broadcast(scope))] : []
         case .savedHost(let h):
-            return [RowMenuItem("Connect", .connectHost(h)), .divider, RowMenuItem("Forget this host", .forgetHost(h))]
+            return [RowMenuItem("Connect", .connectHost(h)), .divider, RowMenuItem("Forget This Host", .forgetHost(h))]
         case .sessions, .files, .subagent, .more:
             return []
         }
@@ -303,10 +303,10 @@ public struct BranchDiscardResult: Decodable, Equatable, Sendable {
 /// start one that is not running, stop or delete it, and what it has cost.
 public func sandboxMenu(machine: String, running: Bool) -> [RowMenuItem] {
     var out: [RowMenuItem] = [.divider]
-    out.append(running ? RowMenuItem("Stop sandbox…", .sandbox(machine: machine, verb: "stop"))
-                       : RowMenuItem("Start sandbox", .sandbox(machine: machine, verb: "start")))
-    out += [RowMenuItem("What it has cost", .sandbox(machine: machine, verb: "usage")),
-            RowMenuItem("Delete sandbox…", .sandbox(machine: machine, verb: "rm"))]
+    out.append(running ? RowMenuItem("Stop Sandbox…", .sandbox(machine: machine, verb: "stop"))
+                       : RowMenuItem("Start Sandbox", .sandbox(machine: machine, verb: "start")))
+    out += [RowMenuItem("What It Has Cost", .sandbox(machine: machine, verb: "usage")),
+            RowMenuItem("Delete Sandbox…", .sandbox(machine: machine, verb: "rm"))]
     return out
 }
 
