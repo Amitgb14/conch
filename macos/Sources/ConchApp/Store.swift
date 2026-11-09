@@ -90,6 +90,15 @@ final class Store: ObservableObject {
     @Published var paletteOpen = false
     /// Help → Keyboard Shortcuts and Help → Check conch… on screen.
     @Published var helpOpen = false
+    /// The welcome (WelcomeSheet): shown when the app opens until it has
+    /// been seen, and from Help → Welcome to Conch.
+    @Published var welcomeOpen = shouldShowWelcome(seen: UserDefaults.standard.integer(forKey: Store.welcomeKey))
+    static let welcomeKey = "conch.welcomeSeen"
+
+    /// The welcome has been seen: it is not shown again when the app opens.
+    func welcomeSeen() {
+        UserDefaults.standard.set(welcomeVersion, forKey: Store.welcomeKey)
+    }
     /// The status bar's ✦ Ask, open (its button, or the prefix and :).
     @Published var askOpen = false
     @Published var doctorOpen = false
@@ -2157,6 +2166,7 @@ final class Store: ObservableObject {
         case "nextWaiting": nextWaiting()
         case "find": openFind()
         case "shortcuts": helpOpen = true
+        case "welcome": welcomeOpen = true
         case "doctor": doctorOpen = true
         case "skillsSettings": openSkillsSettings("local")
         case "findOlder": findNext(back: true)
