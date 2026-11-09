@@ -69,3 +69,52 @@ func TestAdaptFromSettings(t *testing.T) {
 		t.Fatalf("settings item opened %#v", m.overlay)
 	}
 }
+
+// Installing from the registry is the command's own picker, in a terminal
+// of its own, from the New sandbox menu and from the Sandboxes settings.
+func TestInstallFromTheRegistry(t *testing.T) {
+	m, peer := a1Fixture(t, true)
+	mu := newSandboxMenu(nil)
+	item := mu.items[len(mu.items)-2]
+	if item.key != "*" || !strings.Contains(item.label, "registry") {
+		t.Fatalf("item %+v", item)
+	}
+	msgs := a2Run(item.run(m))
+	if len(msgs) != 1 {
+		t.Fatalf("run: %#v", msgs)
+	}
+	if c, ok := msgs[0].(createdMsg); !ok || !strings.Contains(c.note, "pick one") {
+		t.Fatalf("run: %#v", msgs)
+	}
+	var p proto.PaneCreateParams
+	json.Unmarshal(peer.waitMethod(t, proto.MethodPaneCreate, "").Params, &p)
+	if !p.NoProject || p.Name != "install a provider" || len(p.Command) != 3 || !strings.Contains(p.Command[2], " sandbox provider install; ") {
+		t.Fatalf("pane %+v", p)
+	}
+	cmd := installScript("/bin/echo")
+	out, _ := exec.Command(cmd[0], cmd[1:]...).Output()
+	if !strings.HasPrefix(string(out), "sandbox provider install\n\n[enter closes this]") {
+		t.Fatalf("script: %q", out)
+	}
+
+	s := &settings{}
+	found := false
+	for _, it := range s.sandboxItems(m) {
+		if strings.Contains(it.label, "Install a provider from the registry") {
+			found = true
+			if a2Run(it.run(m)) == nil {
+				t.Fatal("the settings item started nothing")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no registry item in Sandboxes")
+	}
+
+	// With no server here, it says so and starts nothing.
+	m2, _ := a1Fixture(t, true)
+	m2.machine(localMachine).c = nil
+	if cmd := installProvider(m2); cmd != nil || m2.flash == "" {
+		t.Fatalf("offline: %q", m2.flash)
+	}
+}

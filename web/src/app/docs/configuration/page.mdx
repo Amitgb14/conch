@@ -37,6 +37,7 @@ Everything lives in `~/.config/conch`. Set `CONCH_HOME` to use another directory
 | `BOAT_API_URL` | boat.dev's API, when `[sandbox.boat]` doesn't set it |
 | `DEVIN_API_URL` | Devin's API, when `[sandbox.devin]` doesn't set it |
 | `TENSORLAKE_API_URL`, `TENSORLAKE_SSH_HOST` | Tensorlake's API, when `[sandbox.tensorlake]` doesn't set it, and its ssh gateway (`sandbox.tensorlake.ai`) |
+| `CONCH_PROVIDERS_URL` | the [provider registry](/docs/sandboxes#the-provider-registry) conch installs from (`https://amitgb14.github.io/conch-sandbox-providers`): its `index.json` and the files it lists. https, or http on this computer |
 | `DEVIN_ORG_ID` | the Devin organization sessions are made in; without it conch asks Devin which one the key's sessions run in |
 | `CONCH_DEVIN` | the `devin` CLI conch reaches a Devin Cloud session with; without it, `devin` on `PATH`, then `~/.local/bin/devin` |
 | `CONCH_LOG_CALLER` | `1` writes a line per connection saying which pane the server placed it in, with the process ancestry it climbed — for finding out why an agent that should be [scoped](/docs/agents-together#what-an-agent-may-do) is not |

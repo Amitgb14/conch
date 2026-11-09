@@ -220,6 +220,7 @@ func newSandboxMenu(back *menu) *menu {
 	if len(mu.items) == 0 { // no provider is built in: say so rather than open nothing
 		mu.items = []menuItem{{"", "conch knows no sandbox providers", func(*Model) tea.Cmd { return nil }}}
 	}
+	mu.items = append(mu.items, menuItem{"*", "Install a provider from the registry…", func(m *Model) tea.Cmd { return installProvider(m) }})
 	mu.items = append(mu.items, menuItem{"+", "Add a provider conch doesn't know…", func(m *Model) tea.Cmd {
 		d := newAdaptDialog(*m)
 		m.overlay = d

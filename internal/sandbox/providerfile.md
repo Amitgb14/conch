@@ -87,5 +87,25 @@ key = "account"
 # then e.g. user = "{reply.token}", host = "{reply.host}"
 ```
 
+## Format 2
+
+Three things the example does not need, for APIs shaped otherwise. A file
+that uses any of them starts with `format = 2`; a conch too old to read
+them then refuses the file rather than misreading it.
+
+- **A wrapped reply.** When getting one sandbox answers `{"server": {...}}`,
+  say `item = "server"` under `[get]`; the other `[get]` paths are then
+  inside it, and a list's items are read with the same paths, unwrapped.
+- **`{public_key}` in the create body.** For a provider with no key
+  registry of its own, conch's public key can go into the sandbox as it is
+  made, alone or inside a longer string — cloud-init, say:
+  `user_data = "#cloud-config\nssh_authorized_keys:\n  - {public_key}\n"`,
+  with `key = "account"`, since the key conch offers is that one.
+- **A selector in a path.** `networks.v4[type=public].ip_address` is the
+  first item of the list `networks.v4` whose `type` reads `public`. A
+  selector's value cannot contain a dot. With `[ssh.access]` asking for the
+  sandbox itself, `host = "{reply.droplet.networks.v4[type=public].ip_address}"`
+  reaches a sandbox at its own address.
+
 Check it with `conch sandbox provider check -offline ./provider.toml`, and
 fix what it reports until it reports nothing.

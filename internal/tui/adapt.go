@@ -43,26 +43,44 @@ func newAdaptDialog(m Model) *dialog {
 			m.setFlash("give the provider's API or docs URL", true)
 			return nil
 		}
-		c := m.clientOf(localMachine)
-		if c == nil {
-			m.setFlash(m.offlineText(localMachine), true)
-			return nil
-		}
-		exe, err := buildinfo.Executable()
-		if err != nil {
-			m.setFlash("cannot find conch itself: "+err.Error(), true)
-			return nil
-		}
-		cols, rows := m.paneArea()
-		params := proto.PaneCreateParams{Name: "adapt a provider", Command: adaptScript(exe, v[0], v[1], v[2]),
-			NoProject: true, Cols: cols, Rows: rows, Env: []string{"CONCH_PANE_ID="}}
-		return func() tea.Msg {
-			var info proto.PaneInfo
-			if err := callCtx(c, proto.MethodPaneCreate, params, &info); err != nil {
-				return errMsg{err}
-			}
-			return createdMsg{machine: localMachine, info: info, note: "adapting a provider: follow it in this terminal"}
-		}
+		return conchInPane(m, "adapt a provider", "adapting a provider: follow it in this terminal", func(exe string) []string {
+			return adaptScript(exe, v[0], v[1], v[2])
+		})
 	}
 	return d
+}
+
+// installScript runs `conch sandbox provider install`, which lists the
+// registry's providers, asks which, says where its key and ssh go, and
+// asks again before saving.
+func installScript(exe string) []string {
+	return []string{"/bin/sh", "-c", adapter.ShellQuote(exe) + ` sandbox provider install; printf '\n[enter closes this] '; read _`}
+}
+
+// installProvider installs one from the registry, in a terminal of its own.
+func installProvider(m *Model) tea.Cmd {
+	return conchInPane(m, "install a provider", "installing a provider: pick one in this terminal", installScript)
+}
+
+// conchInPane runs a conch command in a terminal on this computer.
+func conchInPane(m *Model, name, note string, script func(exe string) []string) tea.Cmd {
+	c := m.clientOf(localMachine)
+	if c == nil {
+		m.setFlash(m.offlineText(localMachine), true)
+		return nil
+	}
+	exe, err := buildinfo.Executable()
+	if err != nil {
+		m.setFlash("cannot find conch itself: "+err.Error(), true)
+		return nil
+	}
+	cols, rows := m.paneArea()
+	params := proto.PaneCreateParams{Name: name, Command: script(exe), NoProject: true, Cols: cols, Rows: rows, Env: []string{"CONCH_PANE_ID="}}
+	return func() tea.Msg {
+		var info proto.PaneInfo
+		if err := callCtx(c, proto.MethodPaneCreate, params, &info); err != nil {
+			return errMsg{err}
+		}
+		return createdMsg{machine: localMachine, info: info, note: note}
+	}
 }
