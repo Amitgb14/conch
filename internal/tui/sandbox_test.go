@@ -330,7 +330,7 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 	m.overlay = mu
 	mu.items[1].run(m)
 	sub, ok := m.overlay.(*menu)
-	if !ok || a2MenuLabels(sub) != "d Daytona… | b boat.dev… | e Devin Cloud… | t Tensorlake… | + Add a provider conch doesn't know…" || sub.title != "New sandbox" {
+	if !ok || a2MenuLabels(sub) != "d Daytona… | b boat.dev… | e Devin Cloud… | t Tensorlake… | * Install a provider from the registry… | + Add a provider conch doesn't know…" || sub.title != "New sandbox" {
 		t.Fatalf("sandbox menu: %#v", m.overlay)
 	}
 	if _, _ = sub.update(m, a2Key("esc")); m.overlay == nil {
@@ -343,19 +343,19 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 	providers := sandbox.Names
 	t.Cleanup(func() { sandbox.Names = providers })
 	sandbox.Names = func() []string { return []string{"daytona", "fly"} }
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | f Fly… (adapted) | + Add a provider conch doesn't know…" {
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | f Fly… (adapted) | * Install a provider from the registry… | + Add a provider conch doesn't know…" {
 		t.Fatalf("another provider: %q", got)
 	}
 	sandbox.Names = func() []string { return []string{"daytona", "dune"} } // a letter already taken: the next of its own
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | u Dune… (adapted) | + Add a provider conch doesn't know…" {
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | u Dune… (adapted) | * Install a provider from the registry… | + Add a provider conch doesn't know…" {
 		t.Fatalf("a shared letter: %q", got)
 	}
 	sandbox.Names = func() []string { return []string{"ad", "da", "a-d"} } // every letter taken: enter still picks it
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != "a Ad… (adapted) | d Da… (adapted) |  A-d… (adapted) | + Add a provider conch doesn't know…" {
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "a Ad… (adapted) | d Da… (adapted) |  A-d… (adapted) | * Install a provider from the registry… | + Add a provider conch doesn't know…" {
 		t.Fatalf("no letter left: %q", got)
 	}
 	sandbox.Names = func() []string { return nil }
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != " conch knows no sandbox providers | + Add a provider conch doesn't know…" {
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != " conch knows no sandbox providers | * Install a provider from the registry… | + Add a provider conch doesn't know…" {
 		t.Fatalf("no providers: %q", got)
 	}
 	sandbox.Names = providers

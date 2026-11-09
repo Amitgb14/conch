@@ -58,6 +58,29 @@ By default conch reads the key from the environment every time and never writes 
 
 If you would rather not keep it in your shell at all, Settings → **Sandboxes** → the provider → **API key** takes the key itself. It is then written to `config.toml` (0600) as it is: anything running as you can read it, and it travels with a backup or a synced dotfile, so it is the convenient choice rather than the careful one. A key kept there wins over the variable, the settings show only its last few characters, and emptying the field gives the variable back.
 
+## The provider registry
+
+Providers that others have adapted (see below), checked with their own key and published are in the **provider registry**, [github.com/Amitgb14/conch-sandbox-providers](https://github.com/Amitgb14/conch-sandbox-providers): Hetzner Cloud and DigitalOcean to start with. Installing one costs no agent's time. **Settings → Sandboxes → Add provider…** opens on it in Conch.app; `M` → **New sandbox…** → **\* Install a provider from the registry…** in the TUI; or:
+
+```sh
+conch sandbox provider search            # what there is, and what you have of it
+conch sandbox provider install hetzner
+conch sandbox provider update            # newer versions of what you installed
+```
+
+Before saving anything, install says where the file sends your API key and where ssh goes, and asks. It checks that the file it downloaded is the one the registry's index lists, by its hash, and checks the file as it checks one you adapted. With the key set, it lists your sandboxes too, which makes nothing. An installed provider is a provider like any other, marked **adapted**.
+
+`update` takes the registry's newer version of each one you installed, but never:
+
+- **a file you have edited** since you installed it: that one is left alone, and saying `rm` then `install` takes theirs.
+- **new hosts**, unless you say yes: a file that would send your key somewhere new is shown, and with `-y` it is left as it is.
+
+A provider that has left the registry is kept.
+
+**Publishing one of yours.** `conch sandbox provider publish NAME`, or **Publish…** beside it in Settings, first lists sandboxes with your key, so only a file that has worked is proposed. It then opens a pull request to the registry through `gh`, as you: through your fork, or straight to the repository if you can push to it. The pull request holds the file and a `meta.json` saying who adapted it, from which docs, and when your key last listed sandboxes with it. Your key is not in it. `-dry-run` shows both files and opens nothing. The registry's checks run on it: conch's own check, no secrets, and a provider's hosts kept unless a maintainer allows a change. A maintainer reviews it before it is listed, since the file is what everybody's key will be sent with.
+
+The registry is read from `https://amitgb14.github.io/conch-sandbox-providers`; `CONCH_PROVIDERS_URL` points conch at another, such as one of your own.
+
 ## A provider conch doesn't know
 
 conch can be taught a provider it has no code for, from that provider's API docs. **Settings → Sandboxes → Add provider…** in Conch.app, `M` → **New sandbox…** → **+ Add a provider conch doesn't know…** in the TUI, or:
@@ -66,6 +89,8 @@ conch can be taught a provider it has no code for, from that provider's API docs
 conch sandbox adapt https://api.example.dev/sandboxes          # Claude writes it
 conch sandbox adapt -agent codex -name acme https://docs.acme.dev/openapi.json
 ```
+
+If the registry has that provider already (by its name, or the host of the address you give), conch says so and offers to install it instead; `-new` adapts it all the same.
 
 conch downloads the docs — the address you give, or, when that is the API itself answering *401*, the usual places beside it (`llms.txt`, `openapi.json`/`.yaml` on the docs host) — and starts the agent in a pane of its own, in a folder holding those docs and the format of a **provider file**. The agent writes the file: which call makes a sandbox, looks at one, lists them, starts, stops and deletes one; which of the provider's states mean started, stopped and the rest; and how ssh gets in — a gateway with a key registered with your account, an sshd conch hands its key to through the API, or a credential handed out per connection. It checks its own work with `conch sandbox provider check -offline`. You can watch it, and answer it if it asks.
 
@@ -78,6 +103,12 @@ Some things it cannot do:
 - **A provider with no ssh** cannot be adapted. conch runs everything in a sandbox over ssh; one that offers only its own way to run commands (E2B's, for one) is refused with that reason, and nothing is saved.
 - **The key is yours and conch's.** It is never put in the agent's prompt or folder, and the variables API keys are usually kept in are emptied in the agent's pane — but the agent runs as you, so do not adapt a provider with an agent you would not trust in your shell.
 - **The agent reads what the docs say**, and a docs page can say anything. Read the lines conch shows before saving: they are every request it will make, with your key, to that address.
+- **Format 2.** A file says `format = 2` when it needs what the first format lacked:
+  - **A wrapped reply:** `[get] item`, when one sandbox comes back as `{"server": {...}}`.
+  - **Your public key at creation:** `{public_key}` in the create body, put in through cloud-init where a provider has no key registry.
+  - **A selector:** `networks.v4[type=public].ip_address`, for an address kept in a list.
+
+  A conch older than 0.1.10 refuses such a file rather than misreading it.
 - Snapshots, preview links and what a sandbox has cost are left out: an adapted provider makes, starts, stops, deletes and reaches sandboxes, and the built-in ones do the rest.
 
 ## In the TUI
