@@ -44,11 +44,31 @@ var interfaceAddrs = net.InterfaceAddrs
 // it ("laptop.tail1234.ts.net"), or "" when that can't be learnt.
 // CONCH_TAILSCALE names the tailscale program; tests put a fake there.
 var tailnetName = func() string {
+	return tailnetNameWithin(tailnetTimeout)
+}
+
+// tailnetTimeout is how long tailscale is given to say the name. A test
+// running under load gives its fake longer: two seconds was not always
+// enough for a shell script there.
+var tailnetTimeout = 2 * time.Second
+
+// httpsHint is what conch web says when a phone could not pair with it:
+// how to put Tailscale's HTTPS in front, with this machine's tailnet name
+// when one is known and a placeholder when not.
+func httpsHint(port int, name string) string {
+	if name == "" {
+		name = "<this machine>.<tailnet>.ts.net"
+	}
+	return fmt.Sprintf("phones can't pair over plain http. Put Tailscale's HTTPS in front: stop this, then run\n"+
+		"  tailscale serve --bg http://127.0.0.1:%d\n  conch web -url https://%s\n(or pass -cert and -key)\n", port, name)
+}
+
+func tailnetNameWithin(d time.Duration) string {
 	bin := os.Getenv("CONCH_TAILSCALE")
 	if bin == "" {
 		bin = "tailscale"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), d)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, "status", "--json").Output()
 	if err != nil {
@@ -683,12 +703,7 @@ func webServe(args []string) error {
 	} else if *cert == "" && *relayURL == "" {
 		// The device cookie is Secure, so a browser keeps it only over
 		// HTTPS: pairing at this address is refused, and says why.
-		name := "<this machine>.<tailnet>.ts.net"
-		if n := tailnetName(); n != "" {
-			name = n
-		}
-		fmt.Printf("phones can't pair over plain http. Put Tailscale's HTTPS in front: stop this, then run\n"+
-			"  tailscale serve --bg http://127.0.0.1:%d\n  conch web -url https://%s\n(or pass -cert and -key)\n", *port, name)
+		fmt.Print(httpsHint(*port, tailnetName()))
 	}
 	fmt.Println("pair a phone with `conch web pair`")
 
