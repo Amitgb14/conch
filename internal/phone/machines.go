@@ -187,10 +187,16 @@ func behindWords(missing []string) string {
 // machineList is what the phone is told about every machine, with the
 // agents each one contributed and what its own conch cannot do.
 func machineList(snaps []machineState, counts map[string]int) []Machine {
+	// The whole catalog, not snaps: a name is ambiguous if any machine the
+	// commands look through has it, whether or not this phone is shown it.
+	saved, _ := catalog()
 	out := make([]Machine, 0, len(snaps))
 	for _, mc := range snaps {
 		m := Machine{ID: mc.ID, Label: mc.Label, State: mc.State,
 			Agents: counts[mc.ID], Detail: mc.Detail}
+		if mc.ID != LocalMachine {
+			m.Ref = remote.RefName(saved, mc.ID)
+		}
 		if c := mc.Client(); c != nil {
 			m.Missing = c.MissingCapabilities(phoneNeeds)
 			m.Behind = behindWords(m.Missing)

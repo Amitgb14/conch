@@ -47,6 +47,12 @@ type Machine struct {
 	// Missing names the capabilities it lacks, for a report rather than
 	// for a person (internal/report's rule: facts, not contents).
 	Missing []string `json:"missing,omitempty"`
+	// Ref is what conch's commands call it in front of a pane — the
+	// busybox of `conch read busybox:p3` — which is its label only when
+	// no other machine answers to that name, disabled ones and those this
+	// device was not given included (remote.RefName); its ID otherwise.
+	// Empty for this computer, whose panes need no machine.
+	Ref string `json:"ref,omitempty"`
 }
 
 // MachineList is GET /api/machines and the socket's "machines".

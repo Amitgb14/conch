@@ -3,58 +3,148 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/Amitgb14/conch/internal/remote"
 )
 
-// paneCommands take a pane among their arguments.
-var paneCommands = map[string]bool{
-	"send": true, "read": true, "attach": true, "rename": true, "close": true, "redraw": true,
-	"wait": true, "agent": true, "upload": true, "view": true, "show": true,
+var machinePaneRef = regexp.MustCompile(`^([^\s:]+):(p[0-9]+)$`)
+
+// paneArgs says which of a command's arguments name a pane, by index, so
+// a ref is looked for there and nowhere else: `conch send p5 look at
+// busybox:p3` is text for p5, not a pane on busybox. It reads each
+// command's arguments as that command does — its flags, and which of them
+// take a value — and a command or subcommand that takes no pane gives
+// none.
+func paneArgs(cmd string, args []string) []int {
+	switch cmd {
+	case "read", "rename", "close", "redraw":
+		// No flags: the pane is the first argument, whatever it looks like.
+		if len(args) > 0 {
+			return []int{0}
+		}
+	case "attach":
+		// Its own loop over -hold, -raw and -view (attach.go).
+		for i, a := range args {
+			switch a {
+			case "-hold", "--hold", "-raw", "--raw", "-view", "--view":
+				continue
+			}
+			return []int{i}
+		}
+	case "send":
+		return firstPositional(args, 0, nil)
+	case "wait":
+		return firstPositional(args, 0, map[string]bool{"state": true, "timeout": true})
+	case "show":
+		// Every pane it is to show.
+		if i := firstPositional(args, 0, map[string]bool{"name": true}); i != nil {
+			var out []int
+			for j := i[0]; j < len(args); j++ {
+				out = append(out, j)
+			}
+			return out
+		}
+	case "upload":
+		// The pane is -ssh's: a terminal logged in with ssh.
+		_, values := parseFlags(args, 0, map[string]bool{"to": true, "ssh": true})
+		if i, ok := values["ssh"]; ok {
+			return []int{i}
+		}
+	case "agent":
+		if len(args) == 0 {
+			return nil
+		}
+		switch args[0] {
+		case "explain", "question":
+			if len(args) > 1 {
+				return []int{1}
+			}
+		case "prompt":
+			return firstPositional(args, 1, map[string]bool{"until": true, "timeout": true, "at": true})
+		case "answer":
+			return firstPositional(args, 1, map[string]bool{"question": true})
+		}
+	}
+	return nil
 }
 
-var machinePaneRef = regexp.MustCompile(`^([^\s:]+):(p[0-9]+)$`)
+// firstPositional is the index of the first argument from off on that the
+// flag package would leave as an argument, as a list of one, or nil.
+func firstPositional(args []string, off int, valued map[string]bool) []int {
+	if i, _ := parseFlags(args, off, valued); i < len(args) {
+		return []int{i}
+	}
+	return nil
+}
+
+// parseFlags walks args from off as the flag package parses them: -name,
+// --name, -name=value, and -name value for a flag that takes one (valued),
+// up to "--" or the first argument that is not a flag. It returns where
+// the arguments begin and where each flag's separate value is.
+func parseFlags(args []string, off int, valued map[string]bool) (int, map[string]int) {
+	values := map[string]int{}
+	i := off
+	for i < len(args) {
+		a := args[i]
+		if a == "--" {
+			return i + 1, values
+		}
+		if len(a) < 2 || a[0] != '-' {
+			return i, values
+		}
+		name := strings.TrimPrefix(a[1:], "-")
+		i++
+		if strings.Contains(name, "=") {
+			continue
+		}
+		if valued[name] && i < len(args) {
+			values[name] = i
+			i++
+		}
+	}
+	return i, values
+}
 
 // machinePane takes a pane named machine:pN — how the TUI, Conch.app and
 // the phone name a pane on another machine, and what their Copy Pane ID
-// gives — as -m machine pN, so a copied ID works as it is. Only the first
-// such argument before a --, and only a machine conch has (or local): a
-// command's text that merely looks like one is left alone. machine is the
+// gives — as -m machine pN, so a copied ID works as it is. Only where the
+// command takes a pane (paneArgs), and only a machine conch has (or
+// local): text that merely looks like one is left alone. machine is the
 // -m already given; a ref on another machine than that one is an error.
 func machinePane(cmd string, args []string, machine string) ([]string, string, error) {
-	if !paneCommands[cmd] {
-		return args, machine, nil
-	}
-	for i, a := range args {
-		if a == "--" {
-			break
-		}
+	var out []string
+	for _, i := range paneArgs(cmd, args) {
+		a := args[i]
 		m := machinePaneRef.FindStringSubmatch(a)
 		if m == nil {
 			continue
 		}
 		on := m[1]
-		if on != "local" {
+		if on != remote.LocalID {
 			mach, ok := remote.LookupMachine(on)
 			if !ok {
 				continue
 			}
 			on = mach.ID
 		}
-		if machine != "" && machine != on && !(machine == "local" && on == "local") {
-			if mach, ok := remote.LookupMachine(machine); !ok || mach.ID != on {
+		if machine != "" && machine != on {
+			if mach, ok := remote.LookupMachine(machine); machine == remote.LocalID || !ok || mach.ID != on {
 				return nil, "", fmt.Errorf("%s is a pane on %s, and -m says %s", a, m[1], machine)
 			}
 		}
-		out := append([]string{}, args...)
-		out[i] = m[2]
-		if on == "local" {
-			if machine == "" {
-				machine = "local"
-			}
-			return out, machine, nil
+		if out == nil {
+			out = append([]string{}, args...)
 		}
-		return out, on, nil
+		out[i] = m[2]
+		if on != remote.LocalID {
+			machine = on
+		} else if machine == "" {
+			machine = remote.LocalID
+		}
 	}
-	return args, machine, nil
+	if out == nil {
+		return args, machine, nil
+	}
+	return out, machine, nil
 }

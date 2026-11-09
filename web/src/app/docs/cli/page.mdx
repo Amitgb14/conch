@@ -98,7 +98,7 @@ conch agent prompt -wait reviewer "Check finding 3 again" && conch read reviewer
 ```
 
 - An ID is always an ID: `p` and a number is never looked up as a name, so names of that shape are refused.
-- A pane on another machine can be named `MACHINE:ID` — `conch read busybox:p3` is `conch -m busybox read p3`. That is how the TUI's status bar, Conch.app and the phone show a pane's ID, and what their **Copy pane ID** gives, so a copied ID works as it is. The machine is its label, its ID or its ssh target, as `-m` takes; one that is not in `conch machine ls` is left alone, and a ref that disagrees with `-m` is refused.
+- A pane on another machine can be named `MACHINE:ID` — `conch read busybox:p3` is `conch -m busybox read p3`. That is how the TUI's status bar, Conch.app and the phone show a pane's ID, and what their **Copy pane ID** gives, so a copied ID works as it is. The machine is its ID, its label or its ssh target, as `-m` takes, looked up in that order — so an ID always reaches its own machine — and the windows name a machine by its label only when no other machine answers to it, else by its ID. One that is not in `conch machine ls` is left alone, and a ref that disagrees with `-m` is refused. Only the command's pane is read this way: `conch send p5 look at busybox:p3` sends that text as it is.
 - A name is looked up once, when the command starts; a `wait` then stays with that pane.
 - Names are exact and case sensitive. A name two running panes share is refused rather than guessed — say which with its ID. A pane that has ended still answers to its name until another running pane takes it.
 - Names belong to one machine's server, so `-m` looks them up there.

@@ -105,12 +105,18 @@ public struct RowMenuItem: Equatable, Sendable {
 }
 
 /// How conch's commands name a pane: its ID on this computer, and
-/// machine:ID on another (`conch read busybox:p3`) — by the machine's label,
-/// or its ID when the label has a space or a colon and would not survive
-/// being typed. As the TUI's paneRef.
-public func paneRef(machine: String, label: String?, pane: String) -> String {
+/// machine:ID on another (`conch read busybox:p3`) — by the machine's label
+/// when the commands would find this machine by it, or its ID, which they
+/// always do: a label with a space or a colon would not survive being
+/// typed, and one that is "local" or that another machine in among
+/// (machines.json, disabled ones too) answers to — two logins to one host
+/// are both "devbox" — would reach whichever the catalog lists first. As
+/// the TUI's paneRef (remote.RefName).
+public func paneRef(machine: String, label: String?, pane: String, among: [MachineEntry] = []) -> String {
     if machine.isEmpty || machine == "local" { return pane }
-    if let l = label, !l.isEmpty, l.rangeOfCharacter(from: CharacterSet(charactersIn: " \t:")) == nil {
+    if let l = label, !l.isEmpty, l != "local",
+       l.rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ":"))) == nil,
+       !among.contains(where: { $0.id != machine && ($0.id == l || $0.label == l) }) {
         return l + ":" + pane
     }
     return machine + ":" + pane
@@ -123,7 +129,9 @@ extension Snapshot {
     /// A tree row's right-click menu: the TUI's row menu (overlay.go), for
     /// what the app does itself. machineOnline false leaves out whatever
     /// would start something there.
-    public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true, label: String? = nil) -> [RowMenuItem] {
+    /// among is every machine in machines.json, for paneRef.
+    public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true, label: String? = nil,
+                     among: [MachineEntry] = []) -> [RowMenuItem] {
         var out: [RowMenuItem] = []
         switch node.kind {
         case .agent(let k), .terminal(let k):
@@ -149,7 +157,7 @@ extension Snapshot {
             }
             if machine == "local", p.sshTarget != nil { out += [.divider, RowMenuItem("Save this host", .saveHost(pane: k))] }
             // What conch's commands call it (conch read p12), which no row says.
-            let ref = paneRef(machine: machine, label: label, pane: p.id)
+            let ref = paneRef(machine: machine, label: label, pane: p.id, among: among)
             out += [.divider, RowMenuItem("Copy Pane ID (\(ref))", .copy(ref)),
                     RowMenuItem(agent && p.running ? "Close agent…" : "Close", .close(pane: k))]
         case .branch(let pk, let name, _):
