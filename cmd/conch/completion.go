@@ -109,7 +109,7 @@ var compSubcommands = map[string][]compItem{
 		{"add", "add a machine reached over ssh"}, {"ls", "list machines"}, {"rm", "remove one"},
 		{"rename", "give one a new label"}, {"upgrade", "put this conch on it"}, {"hosts", "hosts from your ssh config"},
 	},
-	"sandbox": {{"-provider", "the provider to act on"}, {"stats", "every provider's sandboxes"}, {"providers", "the providers, and which have a key"}},
+	"sandbox": {{"-provider", "the provider to act on"}, {"stats", "every provider's sandboxes"}, {"providers", "the providers, and which have a key"}, {"adapt", "a provider conch doesn't know, from its API docs"}, {"provider", "check, show, save or remove a provider file"}},
 	"sandbox -provider": {
 		{"create", "make a sandbox"}, {"add", "make an existing sandbox a machine"}, {"ls", "list sandboxes"},
 		{"start", "start one"}, {"stop", "stop one"}, {"rm", "delete one"}, {"ssh", "a shell in one"},
@@ -174,14 +174,14 @@ func compCandidates(done []string, cur string) []compItem {
 	case "-provider":
 		if done[0] == "sandbox" {
 			var out []compItem
-			for _, p := range sandbox.Providers {
+			for _, p := range sandbox.Names() {
 				out = append(out, compItem{p, ""})
 			}
 			return compFilter(out, cur)
 		}
 	case "-sandbox":
 		var out []compItem
-		for _, p := range sandbox.Providers {
+		for _, p := range sandbox.Names() {
 			out = append(out, compItem{p, ""})
 		}
 		return compFilter(out, cur)

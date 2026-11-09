@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	neturl "net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -1033,23 +1034,25 @@ func idleStopText(min int) string {
 // lists them and opens one rather than growing by a section each time
 // conch learns another.
 func (s *settings) sandboxItems(m *Model) []settingItem {
-	if len(sandbox.Providers) == 0 {
+	if len(sandbox.Names()) == 0 {
 		return []settingItem{
 			{header: true, label: "Sandboxes", detail: "M → New sandbox… makes one and adds it as a machine"},
 			{label: "  this build knows no sandbox providers"},
 		}
 	}
-	if s.provider != "" && sandbox.Known(s.provider) {
+	if s.provider != "" && slices.Contains(sandbox.Names(), s.provider) {
 		return s.providerPage(m, s.provider)
 	}
 	items := []settingItem{
 		{header: true, label: "Sandboxes", detail: "M → New sandbox… makes one and adds it as a machine"},
 	}
-	for _, name := range sandbox.Providers {
+	for _, name := range sandbox.Names() {
 		name := name
 		items = append(items, settingItem{label: providerLabel(name), detail: providerState(m, name), page: true,
 			run: func(m *Model) tea.Cmd { s.open(name); return nil }})
 	}
+	items = append(items, settingItem{label: "+ Add a provider conch doesn't know…", detail: "from its API docs",
+		run: func(m *Model) tea.Cmd { d := newAdaptDialog(*m); m.overlay = d; return d.focusCmd() }})
 	return append(items,
 		settingItem{},
 		settingItem{label: styleMuted.Render("  Enter opens a provider: the key it uses, what its sandboxes are made")},

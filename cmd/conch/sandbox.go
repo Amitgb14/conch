@@ -52,7 +52,7 @@ func takeProvider(args []string) ([]string, error) {
 			continue
 		}
 		if !sandbox.Known(name) {
-			return nil, fmt.Errorf("unknown sandbox provider %q; conch knows %s", name, strings.Join(sandbox.Providers, ", "))
+			return nil, fmt.Errorf("unknown sandbox provider %q; conch knows %s", name, strings.Join(sandbox.Names(), ", "))
 		}
 		sandboxProvider = name
 	}
@@ -76,6 +76,12 @@ func runSandbox(args []string) error {
 	}
 	if args[0] == "providers" {
 		return sandboxProviders(args[1:])
+	}
+	if args[0] == "adapt" {
+		return sandboxAdapt(args[1:])
+	}
+	if args[0] == "provider" {
+		return sandboxProviderCmd(args[1:])
 	}
 	if sandboxProvider == "" {
 		return errNoProvider()
@@ -116,7 +122,7 @@ func (n *names) Set(v string) error { *n = append(*n, v); return nil }
 // errNoProvider asks for the provider every command but stats needs.
 func errNoProvider() error {
 	return fmt.Errorf("which provider? give -provider NAME (%s), e.g. conch sandbox -provider daytona ls; conch sandbox stats shows them all",
-		strings.Join(sandbox.Providers, ", "))
+		strings.Join(sandbox.Names(), ", "))
 }
 
 // sandboxCmd is a conch sandbox command line to suggest, with the provider
@@ -842,7 +848,7 @@ func sandboxStats(args []string) error {
 	if err != nil {
 		return err
 	}
-	names := sandbox.Providers
+	names := sandbox.Names()
 	if sandboxProvider != "" {
 		names = []string{sandboxProvider}
 	}
@@ -990,6 +996,10 @@ type providerJSON struct {
 	Place string `json:"place,omitempty"`
 	// Note is what it says before a sandbox is made: a cost or a limit.
 	Note string `json:"note,omitempty"`
+	// Adapted is a provider described by a file of the person's rather
+	// than built in, and File is where that file is.
+	Adapted bool   `json:"adapted,omitempty"`
+	File    string `json:"file,omitempty"`
 }
 
 // sandboxProviders lists the providers conch can make a sandbox with, and
@@ -1000,8 +1010,11 @@ func sandboxProviders(args []string) error {
 		return errors.New("usage: conch sandbox providers [-json]")
 	}
 	out := []providerJSON{}
-	for _, name := range sandbox.Providers {
+	for _, name := range sandbox.Names() {
 		j := providerJSON{Name: name, Label: sandbox.ProviderLabel(name)}
+		if !sandbox.Builtin(name) {
+			j.Adapted, j.File = true, sandbox.ProviderFilePath(name)
+		}
 		p, err := remote.OpenProvider(name)
 		if err == nil {
 			err = p.Check()
@@ -1039,7 +1052,11 @@ func sandboxProviders(args []string) error {
 		if !j.Ready {
 			ready = "no: " + j.Why
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", j.Name, j.Label, ready)
+		label := j.Label
+		if j.Adapted {
+			label += " (adapted)"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", j.Name, label, ready)
 	}
 	return tw.Flush()
 }

@@ -15,9 +15,13 @@ public struct SandboxProviderInfo: Decodable, Equatable, Sendable, Identifiable 
     public var place: String?
     /// What it says before a sandbox is made: a cost or a limit.
     public var note: String?
+    /// Described by a file of the person's (conch sandbox adapt) rather
+    /// than built in, and where that file is.
+    public var adapted: Bool?
+    public var file: String?
     public var id: String { name }
 
-    public init(name: String, label: String, ready: Bool, why: String? = nil, sizes: [String]? = nil, place: String? = nil, note: String? = nil) {
+    public init(name: String, label: String, ready: Bool, why: String? = nil, sizes: [String]? = nil, place: String? = nil, note: String? = nil, adapted: Bool? = nil, file: String? = nil) {
         self.name = name
         self.label = label
         self.ready = ready
@@ -25,6 +29,8 @@ public struct SandboxProviderInfo: Decodable, Equatable, Sendable, Identifiable 
         self.sizes = sizes
         self.place = place
         self.note = note
+        self.adapted = adapted
+        self.file = file
     }
 
     /// How its machines are chosen: a snapshot and numbers, a named size,
