@@ -1697,6 +1697,35 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(nothing.state == .done)
 }
 
+// What conch ask printed last, just before it exited, is still what the
+// session ends on: the end is said once both pipes are drained, not when
+// the process is seen to exit. Saying it at the exit lost the last line
+// to a read still on its way, and askSession failed now and then under
+// load with "conch ask failed" in place of why. Many at once, to load it.
+@Test func askSessionEndsOnItsLastWords() async throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ask-last-\(UUID().uuidString.prefix(8))")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let failing = dir.appendingPathComponent("conch-fail").path
+    try "#!/bin/sh\necho 'thinking…' >&2\necho 'conch: no model provider is set' >&2\nexit 1\n".write(toFile: failing, atomically: true, encoding: .utf8)
+    let fine = dir.appendingPathComponent("conch-ok").path
+    try "#!/bin/sh\necho 'thinking…' >&2\necho 'Nothing needs you.'\nexit 0\n".write(toFile: fine, atomically: true, encoding: .utf8)
+    for p in [failing, fine] { try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: p) }
+
+    let sessions = (0..<60).map { i in AskSession(binary: i % 2 == 0 ? failing : fine, request: "x", environment: [:]) }
+    for s in sessions { s.start() }
+    for s in sessions {
+        for _ in 0..<1000 where s.state == .thinking { try await Task.sleep(nanoseconds: 10_000_000) }
+    }
+    for (i, s) in sessions.enumerated() {
+        if i % 2 == 0 {
+            #expect(s.state == .failed("conch: no model provider is set"))
+        } else {
+            #expect(s.state == .done && s.output.contains("Nothing needs you"), "\(s.output)")
+        }
+    }
+}
+
 // conch web pair -json, as the pair popover reads it.
 @Test func pairInfoDecodes() throws {
     let j = #"{"code":"038-929","permission":"reply","expires":"2026-11-03T09:05:00.123456Z","reach":"it will reach this computer only","url":"https://m.ts.net","link":"https://m.ts.net/#pair=038929","where":"open it","running":false,"can_start":true}"#
