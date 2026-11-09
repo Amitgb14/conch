@@ -5,7 +5,7 @@ LDFLAGS := -X $(MODULE)/internal/proto.Version=$(VERSION)
 # checks it leaves out, and why, are in staticcheck.conf.
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@2025.1.1
 
-.PHONY: build install test vet lint release app-release clean demo settings-ui settings-ui-check
+.PHONY: build install test test-fast gate vet lint release app-release clean demo settings-ui settings-ui-check
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/conch ./cmd/conch
@@ -15,6 +15,15 @@ install:
 
 test:
 	go test -race -timeout 20m ./...
+
+# The same suite as `go test -race -count=1 -timeout 20m ./...`, with
+# internal/server — ten minutes of tests that run one at a time — split
+# across processes (scripts/test.sh says why it is safe). SHARDS=N to change.
+test-fast:
+	scripts/test.sh
+
+# What has to be green before a push: lint, then the whole suite.
+gate: lint test-fast
 
 vet:
 	go vet ./...

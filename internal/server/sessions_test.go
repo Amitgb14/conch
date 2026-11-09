@@ -60,7 +60,7 @@ func TestSessionsInterruptedAndResume(t *testing.T) {
 	sock := filepath.Join(dir, "s.sock")
 	srv := server.New(sock, dir)
 	go srv.Run()
-	defer func() { srv.Stop(); time.Sleep(100 * time.Millisecond) }()
+	defer func() { srv.StopAndWait() }()
 	var c *client.Client
 	for i := 0; i < 100; i++ {
 		if c, err = client.Dial(sock, "test"); err == nil {
@@ -155,7 +155,7 @@ func TestSessionListReportsCost(t *testing.T) {
 	sock := filepath.Join(dir, "s.sock")
 	srv := server.New(sock, dir)
 	go srv.Run()
-	defer func() { srv.Stop(); time.Sleep(100 * time.Millisecond) }()
+	defer func() { srv.StopAndWait() }()
 	var c *client.Client
 	for i := 0; i < 100; i++ {
 		if c, err = client.Dial(sock, "test"); err == nil {
@@ -220,7 +220,7 @@ func TestSessionListPartialWhenAnAgentIsSlow(t *testing.T) {
 	sock := filepath.Join(dir, "s.sock")
 	srv := server.New(sock, dir)
 	go srv.Run()
-	defer func() { srv.Stop(); time.Sleep(100 * time.Millisecond) }()
+	defer func() { srv.StopAndWait() }()
 	var c *client.Client
 	for i := 0; i < 100; i++ {
 		if c, err = client.Dial(sock, "test"); err == nil {

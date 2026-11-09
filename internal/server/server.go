@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -82,6 +83,10 @@ type Server struct {
 
 	quit     chan struct{}
 	quitOnce sync.Once
+	// ran is closed when Run returns: its panes closed, its socket gone.
+	ran     chan struct{}
+	ranOnce sync.Once
+	running atomic.Bool // Run was called
 }
 
 type client struct {
@@ -116,6 +121,7 @@ func New(sockPath, configDir string) *Server {
 		panes:     map[string]*entry{},
 		clients:   map[*client]struct{}{},
 		quit:      make(chan struct{}),
+		ran:       make(chan struct{}),
 	}
 	s.projects = newProjectManager(s, configDir)
 	s.ports = loadPortBook(configDir)
@@ -147,6 +153,8 @@ var ErrAlreadyRunning = errors.New("conch server is already running")
 
 // Run listens and serves until Stop is called or the process is signalled.
 func (s *Server) Run() error {
+	s.running.Store(true)
+	defer s.ranOnce.Do(func() { close(s.ran) })
 	// sockaddr_un.sun_path is 104 bytes on macOS (108 on Linux), NUL included.
 	if len(s.sockPath) > 103 {
 		return fmt.Errorf("socket path is %d bytes, over the 103-byte unix socket limit: %s (set CONCH_SOCKET to a shorter path)",
@@ -300,6 +308,22 @@ func (s *Server) unlinkSocket() {
 func (s *Server) Stop() {
 	s.quitOnce.Do(func() { close(s.quit) })
 	s.watcher.stop()
+}
+
+// StopAndWait stops the server and waits until Run has returned — every
+// pane's program ended, not merely asked to. Stop alone returns at once,
+// and a test that ended its process then left a pane's program running
+// for ever: a shell loop that ignores its dead terminal, found burning a
+// core days later. A server that never ran is not waited for.
+func (s *Server) StopAndWait() {
+	s.Stop()
+	if !s.running.Load() {
+		return
+	}
+	select {
+	case <-s.ran:
+	case <-time.After(30 * time.Second):
+	}
 }
 
 func (s *Server) shutdown() {
