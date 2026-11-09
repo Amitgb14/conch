@@ -206,23 +206,55 @@ func Adopt(snap Snapshot, ptmx *os.File) (*Pane, error) {
 	// its pane has closed it: a program there then never hears it hang up.
 	closeOnExec(ptmx)
 	p.newEmulator(snap.Cols, snap.Rows)
+	// The emulator writes its replies into a pipe with no buffer, and the
+	// replay provokes some: turning in-band resize reports (mode 2048)
+	// back on makes it report the size there and then, and focus events
+	// or a query left in the replay would too. With nobody reading, that
+	// write blocks the replay — and the reload with it. They are the
+	// replay's, not the program's, so they are read here and dropped.
+	drained := drainReplies(p.emu)
 	// A piece at a time, so the history being replayed goes into text as
 	// it scrolls rather than all of it into the emulator's cells first.
 	for _, chunk := range chunkByLines([]byte(snap.Replay), replayChunk) {
 		_, _ = p.emu.Write(chunk)
 		p.takeScrollback()
 	}
+	p.emu.SendText(replayDone)
+	<-drained
 	if p.emu.IsAltScreen() {
 		p.alt.on = true
 		p.alt.lines = keepLast(slices.Clone(snap.AltHistory), altHistoryMax)
 	}
 	p.status.restore(snap.Status)
-	// Replies the replay provoked (none are expected) must not reach the
-	// program: start copying only now.
+	// Replies the replay provoked were dropped above: start copying only
+	// now.
 	p.startIO()
 	go p.wait()
 	p.redraw()
 	return p, nil
+}
+
+// replayDone is written into the emulator's reply pipe after a replay, so
+// whatever drains the replay's replies knows it has had them all: a write
+// to the pipe returns only once it has been read, and each write comes out
+// of one read on its own.
+const replayDone = "\x00conch-replay-done\x00"
+
+// drainReplies reads and discards the emulator's replies until replayDone
+// comes through, and then stops, leaving the pipe to startIO.
+func drainReplies(emu interface{ Read([]byte) (int, error) }) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := emu.Read(buf)
+			if string(buf[:n]) == replayDone || err != nil {
+				return
+			}
+		}
+	}()
+	return done
 }
 
 // redraw asks the program to repaint by sending its process group SIGWINCH

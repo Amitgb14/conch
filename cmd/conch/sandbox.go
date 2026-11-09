@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -51,7 +52,7 @@ func takeProvider(args []string) ([]string, error) {
 			continue
 		}
 		if !sandbox.Known(name) {
-			return nil, fmt.Errorf("unknown sandbox provider %q; conch knows %s", name, strings.Join(sandbox.Providers, ", "))
+			return nil, fmt.Errorf("unknown sandbox provider %q; conch knows %s", name, strings.Join(sandbox.Names(), ", "))
 		}
 		sandboxProvider = name
 	}
@@ -72,6 +73,15 @@ func runSandbox(args []string) error {
 	}
 	if args[0] == "stats" {
 		return sandboxStats(args[1:])
+	}
+	if args[0] == "providers" {
+		return sandboxProviders(args[1:])
+	}
+	if args[0] == "adapt" {
+		return sandboxAdapt(args[1:])
+	}
+	if args[0] == "provider" {
+		return sandboxProviderCmd(args[1:])
 	}
 	if sandboxProvider == "" {
 		return errNoProvider()
@@ -112,7 +122,7 @@ func (n *names) Set(v string) error { *n = append(*n, v); return nil }
 // errNoProvider asks for the provider every command but stats needs.
 func errNoProvider() error {
 	return fmt.Errorf("which provider? give -provider NAME (%s), e.g. conch sandbox -provider daytona ls; conch sandbox stats shows them all",
-		strings.Join(sandbox.Providers, ", "))
+		strings.Join(sandbox.Names(), ", "))
 }
 
 // sandboxCmd is a conch sandbox command line to suggest, with the provider
@@ -838,7 +848,7 @@ func sandboxStats(args []string) error {
 	if err != nil {
 		return err
 	}
-	names := sandbox.Providers
+	names := sandbox.Names()
 	if sandboxProvider != "" {
 		names = []string{sandboxProvider}
 	}
@@ -965,4 +975,88 @@ func counted(n int, what string) string {
 		return fmt.Sprintf("%d %ses", n, what)
 	}
 	return fmt.Sprintf("%d %ss", n, what)
+}
+
+// providerJSON is one provider as `conch sandbox providers -json` gives it:
+// what a window offering New sandbox… needs to draw its choice — whether
+// it has its key (and if not, what is missing), and what goes where the
+// snapshot does.
+type providerJSON struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	Ready bool   `json:"ready"`
+	// Why is what is missing when it isn't ready: its API key, said as
+	// the provider says it.
+	Why string `json:"why,omitempty"`
+	// Sizes are the named sizes its machines come in, smallest first; a
+	// provider without them takes a snapshot and numbers.
+	Sizes []string `json:"sizes,omitempty"`
+	// Place is what its snapshot field takes instead, for one that places
+	// its machines rather than sizing them.
+	Place string `json:"place,omitempty"`
+	// Note is what it says before a sandbox is made: a cost or a limit.
+	Note string `json:"note,omitempty"`
+	// Adapted is a provider described by a file of the person's rather
+	// than built in, and File is where that file is.
+	Adapted bool   `json:"adapted,omitempty"`
+	File    string `json:"file,omitempty"`
+}
+
+// sandboxProviders lists the providers conch can make a sandbox with, and
+// whether each is set up here.
+func sandboxProviders(args []string) error {
+	asJSON := len(args) == 1 && args[0] == "-json"
+	if len(args) > 0 && !asJSON {
+		return errors.New("usage: conch sandbox providers [-json]")
+	}
+	out := []providerJSON{}
+	for _, name := range sandbox.Names() {
+		j := providerJSON{Name: name, Label: sandbox.ProviderLabel(name)}
+		if !sandbox.Builtin(name) {
+			j.Adapted, j.File = true, sandbox.ProviderFilePath(name)
+		}
+		p, err := remote.OpenProvider(name)
+		if err == nil {
+			err = p.Check()
+		}
+		if err != nil {
+			j.Why = strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")
+		} else {
+			j.Ready = true
+		}
+		if p != nil {
+			if ns, ok := p.(sandbox.NamedSizes); ok {
+				j.Sizes = ns.SizeNames()
+			}
+			if pl, ok := p.(sandbox.Placed); ok {
+				j.Place = pl.PlaceHint()
+			}
+			if n, ok := p.(sandbox.Noted); ok {
+				j.Note = n.Note()
+			}
+		}
+		out = append(out, j)
+	}
+	if asJSON {
+		b, err := json.Marshal(out)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "PROVIDER\tNAME\tREADY")
+	for _, j := range out {
+		ready := "yes"
+		if !j.Ready {
+			ready = "no: " + j.Why
+		}
+		label := j.Label
+		if j.Adapted {
+			label += " (adapted)"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", j.Name, label, ready)
+	}
+	return tw.Flush()
 }

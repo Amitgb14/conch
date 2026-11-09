@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -218,5 +219,22 @@ func TestPrefixBarFollowsTheBindings(t *testing.T) {
 	// An unbound action is not in the row at all.
 	if strings.Contains(got, "scroll") {
 		t.Errorf("unbound scroll_mode is still offered:\n%s", got)
+	}
+}
+
+// A local server that withholds only what its machine cannot give — file
+// watches — is this build, not an older one: it was told to reload for
+// ever, and a reload changes nothing. One lacking anything else is older.
+func TestOlderServerWarningLeavesOutTheOptional(t *testing.T) {
+	without := func(drop string) string {
+		c, _ := a1FakeClient(t)
+		c.Server.Capabilities = slices.DeleteFunc(slices.Clone(proto.Capabilities), func(c string) bool { return c == drop })
+		return New(c, config.Default()).machines[0].warning
+	}
+	if w := without(proto.CapWorktreeWatch); w != "" {
+		t.Fatalf("a server with no file watches: %q", w)
+	}
+	if w := without(proto.CapPaneSearch); !strings.Contains(w, "older build") {
+		t.Fatalf("a server without %s: %q", proto.CapPaneSearch, w)
 	}
 }

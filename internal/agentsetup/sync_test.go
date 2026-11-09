@@ -406,7 +406,7 @@ func TestSyncRefusals(t *testing.T) {
 	if _, err := UndoSync(root, "20260101-000000"); err == nil || !strings.Contains(err.Error(), "no record of sync") {
 		t.Fatalf("a record that isn't there: %v", err)
 	}
-	write(t, filepath.Join(root, undoDir, "20260101-000001.json"), "not json")
+	write(t, filepath.Join(checkoutRecordDir(root), "20260101-000001.json"), "not json")
 	if _, err := UndoSync(root, "20260101-000001"); err == nil || !strings.Contains(err.Error(), "cannot be read") {
 		t.Fatalf("a record that is nonsense: %v", err)
 	}
@@ -561,7 +561,7 @@ func TestSyncUndoTidiesUp(t *testing.T) {
 
 	// A record from a build that did not say what things were still reads.
 	old := `{"stamp":"20260101-000000","from":"claude","files":[{"path":"AGENTS.md","absent":true}]}`
-	write(t, filepath.Join(root, undoDir, "20260101-000000.json"), old)
+	write(t, filepath.Join(checkoutRecordDir(root), "20260101-000000.json"), old)
 	write(t, filepath.Join(root, "AGENTS.md"), "from an older sync\n")
 	back, err := UndoSync(root, "20260101-000000")
 	if err != nil || len(back.Changes) != 1 || back.Changes[0].Kind != "file" {

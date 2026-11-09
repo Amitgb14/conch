@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -325,12 +326,16 @@ func isRemoteRef(r string, remotes []string) bool {
 // HEAD's branch in the accent, branches in the working colour, remotes
 // muted, tags in the warning colour. origin/HEAD is left out: the row
 // already shows the branch it names.
+//
+// A ref's name is cleaned as it is drawn: git refuses controls below 0x20
+// in one but takes the C1 range, and a server builds the list unchanged
+// because a name is matched against branches.
 func refsText(refs, remotes []string) string {
 	var parts []string
 	if h := headOf(refs); h != "" {
 		label := "HEAD"
 		if h != "HEAD" {
-			label = "HEAD → " + h
+			label = "HEAD → " + gitx.Printable(h)
 		}
 		parts = append(parts, styleAccent.Render(label))
 	}
@@ -338,12 +343,12 @@ func refsText(refs, remotes []string) string {
 		switch {
 		case strings.HasPrefix(r, "HEAD"), strings.HasSuffix(r, "/HEAD"):
 		case strings.HasPrefix(r, "tag: "):
-			parts = append(parts, lipgloss.NewStyle().Foreground(colorWarn).Render(r))
+			parts = append(parts, lipgloss.NewStyle().Foreground(colorWarn).Render(gitx.Printable(r)))
 		case r == "grafted": // a shallow clone's boundary, from an older server
 		case isRemoteRef(r, remotes):
-			parts = append(parts, styleMuted.Render(r))
+			parts = append(parts, styleMuted.Render(gitx.Printable(r)))
 		default:
-			parts = append(parts, styleWork.Render(r))
+			parts = append(parts, styleWork.Render(gitx.Printable(r)))
 		}
 	}
 	if len(parts) == 0 {
@@ -610,12 +615,17 @@ func (v *commitsView) render(m Model) box {
 // line is one commit's row, w wide: the graph, then its hash, refs and
 // subject, with its author and age at the right. The row picked is drawn
 // in the selection colours past the graph.
+//
+// Author and subject are cleaned again here, though a server of this
+// build already did: an older one sends them as git keeps them, escapes
+// and all, and drawn raw they would be obeyed by the terminal.
 func (v *commitsView) line(r graphRow, lanes, w int, picked bool) string {
 	graph := " " + graphCells(r, lanes)
 	gw := ansi.StringWidth(graph)
+	subject := gitx.Printable(r.c.Subject)
 	right := ""
 	if r.c.Author != "" || !r.c.Time.IsZero() {
-		right = " " + r.c.Author
+		right = " " + gitx.Printable(r.c.Author)
 		if !r.c.Time.IsZero() {
 			right += " · " + ago(r.c.Time)
 		}
@@ -627,7 +637,7 @@ func (v *commitsView) line(r graphRow, lanes, w int, picked bool) string {
 		short = short[:7]
 	}
 	if picked {
-		left := " " + short + " " + ansi.Strip(refsText(r.c.Refs, v.remotes)) + r.c.Subject
+		left := " " + short + " " + ansi.Strip(refsText(r.c.Refs, v.remotes)) + subject
 		if ansi.StringWidth(left)+ansi.StringWidth(right) > textW {
 			right = ""
 		}
@@ -635,7 +645,7 @@ func (v *commitsView) line(r graphRow, lanes, w int, picked bool) string {
 		pad := strings.Repeat(" ", max(textW-ansi.StringWidth(left)-ansi.StringWidth(right), 0))
 		return ansi.Truncate(graph, w, "") + styleSel.Render(left+pad+right)
 	}
-	left := " " + styleMuted.Render(short) + " " + refsText(r.c.Refs, v.remotes) + r.c.Subject
+	left := " " + styleMuted.Render(short) + " " + refsText(r.c.Refs, v.remotes) + subject
 	if ansi.StringWidth(left)+ansi.StringWidth(right) > textW {
 		right = ""
 	}

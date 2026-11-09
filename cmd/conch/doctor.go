@@ -205,7 +205,7 @@ func doctorServer() (doctor.Check, *client.Client) {
 		detail += ", up " + doctorSince(time.Since(s.Started))
 	}
 	same, ok := update.SameBuild(s)
-	missing := c.MissingCapabilities(proto.Capabilities)
+	missing := c.OlderBuild()
 	switch {
 	case ok && !same && update.Compare(s.Version, proto.Version) > 0:
 		// Reloading the server onto this binary would take it backwards.

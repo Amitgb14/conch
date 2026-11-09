@@ -252,6 +252,11 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     // Another machine's items say which machine.
     let (_, panes, _) = fixture().paletteItems(machine: "box", label: "busybox")
     #expect(panes.first { $0.action == .pane("box|p1") }?.detail == "api · feat · busybox:p1")
+    // A label another machine shares: the pane goes by the machine's ID,
+    // and the label is still shown.
+    let among = [MachineEntry(id: "box", label: "busybox"), MachineEntry(id: "box-2", label: "busybox")]
+    let (_, shared, _) = fixture().paletteItems(machine: "box", label: "busybox", among: among)
+    #expect(shared.first { $0.action == .pane("box|p1") }?.detail == "api · feat · busybox · box:p1")
 }
 
 @Test func paletteFilter() {
@@ -693,7 +698,7 @@ final class FakeServer: @unchecked Sendable {
     plain.upsert(np)
     #expect(!plain.menu(for: api, machine: "box").contains { if case .commits = $0.action { return true }; return false })
     #expect(s.menu(for: t, machine: "box").map(\.action) == [.startAgent(machine: "box", cwd: nil, inProject: false), .newTerminal(machine: "box", cwd: nil, inProject: false),
-                                                             .broadcast(.machine("box")), .divider, .addProject(machine: "box"), .addMachine,
+                                                             .broadcast(.machine("box")), .divider, .addProject(machine: "box"), .addMachine, .newSandbox,
                                                              .skillsSettings(machine: "box"), .divider, .reconnect(machine: "box"), .reloadServer(machine: "box"),
                                                              .upgrade(machine: "box"), .removeMachine(machine: "box")])
     // This computer is neither upgraded nor removed from here; its CLI
@@ -710,7 +715,7 @@ final class FakeServer: @unchecked Sendable {
     // Offline: nothing that starts anything; a pane can still be opened or closed.
     // Adding another needs no connection here; an offline machine is
     // reconnected, upgraded or removed, never reloaded.
-    #expect(s.menu(for: t, machine: "box", machineOnline: false).map(\.action) == [.addMachine, .divider, .reconnect(machine: "box"),
+    #expect(s.menu(for: t, machine: "box", machineOnline: false).map(\.action) == [.addMachine, .newSandbox, .divider, .reconnect(machine: "box"),
                                                                                    .upgrade(machine: "box"), .removeMachine(machine: "box")])
     #expect(s.menu(for: api, machine: "box", machineOnline: false).isEmpty)
     #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View changes on feat", "", "Copy Pane ID (box:p1)", "Close agent…"])
@@ -2654,6 +2659,40 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(none.onNow.isEmpty && none.icon == .idle && none.tooltip.hasPrefix("Pair a phone"))
 }
 
+// New Sandbox… reads `conch sandbox providers -json` and runs `conch sandbox
+// -provider P create` as the TUI's dialog does: numbers only for a
+// provider that takes them, and nothing at all for one without its key.
+@Test func newSandbox() throws {
+    let j = #"[{"name":"daytona","label":"Daytona","ready":true},{"name":"boat","label":"boat.dev","ready":false,"why":"set $BOAT_API_KEY","sizes":["small","default","large"]},{"name":"devin","label":"Devin Cloud","ready":true,"place":"a platform","note":"bills ACUs"}]"#
+    let ps = try JSONDecoder().decode([SandboxProviderInfo].self, from: Data(j.utf8))
+    #expect(ps.map(\.name) == ["daytona", "boat", "devin"])
+    #expect(ps[0].takes == .snapshot && ps[1].takes == .sizes(["small", "default", "large"]) && ps[2].takes == .place("a platform"))
+
+    var f = NewSandboxForm(provider: "daytona")
+    #expect(try f.arguments(for: ps[0]).get() == ["sandbox", "-provider", "daytona", "create"])
+    f.label = " fix-login "
+    f.snapshot = "conch-dev"
+    f.cpu = "2"
+    f.memory = " 4 "
+    #expect(try f.arguments(for: ps[0]).get() == ["sandbox", "-provider", "daytona", "create", "-label", "fix-login", "-snapshot", "conch-dev", "-cpu", "2", "-memory", "4"])
+    for bad in ["0", "-1", "two", "1.5"] {
+        f.cpu = bad
+        #expect(throws: NewSandboxError.self) { try f.arguments(for: ps[0]).get() }
+    }
+
+    // Not set up: refused, saying what to set.
+    let b = NewSandboxForm(provider: "boat")
+    if case .failure(let e) = b.arguments(for: ps[1]) { #expect(e.message == "set $BOAT_API_KEY") } else { Issue.record("boat without its key was sent") }
+
+    // A placed provider takes its place where the snapshot goes, and no numbers.
+    var d = NewSandboxForm(provider: "devin")
+    d.snapshot = "windows"
+    d.cpu = "8"
+    #expect(try d.arguments(for: ps[2]).get() == ["sandbox", "-provider", "devin", "create", "-snapshot", "windows"])
+    // The wrong provider's info is not used.
+    #expect(throws: NewSandboxError.self) { try d.arguments(for: ps[0]).get() }
+}
+
 // A pane is named as conch's commands take it: p12 here, busybox:p12 on
 // another machine (its ID when the label can't be typed). The row menu
 // copies it, and the palette finds a pane by it.
@@ -2666,11 +2705,34 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(paneRef(machine: "gone", label: nil, pane: "p3") == "gone:p3")
     #expect(paneRef(machine: "gone", label: "", pane: "p3") == "gone:p3")
 
+    // A label the commands would not find this machine by is not used:
+    // shared with another (two logins to one host), "local", another's
+    // ID, with any space in it, or shared with a disabled machine.
+    let among = [MachineEntry(id: "devbox", label: "devbox"), MachineEntry(id: "devbox-2", label: "devbox"),
+                 MachineEntry(id: "loc", label: "local"), MachineEntry(id: "bb", label: "busybox"),
+                 MachineEntry(id: "x", label: "bb"), MachineEntry(id: "old", label: "gpu", enabled: false),
+                 MachineEntry(id: "gpu-1", label: "gpu")]
+    #expect(paneRef(machine: "devbox", label: "devbox", pane: "p3", among: among) == "devbox:p3")
+    #expect(paneRef(machine: "devbox-2", label: "devbox", pane: "p3", among: among) == "devbox-2:p3")
+    #expect(paneRef(machine: "loc", label: "local", pane: "p3", among: among) == "loc:p3")
+    #expect(paneRef(machine: "loc", label: "local", pane: "p3") == "loc:p3")
+    #expect(paneRef(machine: "bb", label: "busybox", pane: "p3", among: among) == "busybox:p3")
+    #expect(paneRef(machine: "x", label: "bb", pane: "p3", among: among) == "x:p3")
+    #expect(paneRef(machine: "gpu-1", label: "gpu", pane: "p3", among: among) == "gpu-1:p3")
+    #expect(paneRef(machine: "tab", label: "lab\tbox", pane: "p3") == "tab:p3")
+    #expect(paneRef(machine: "nl", label: "lab\nbox", pane: "p3") == "nl:p3")
+    let all = MachineEntry.all(machinesJSON: Data(#"{"machines":[{"id":"a","label":"a"},{"id":"b","label":"b","enabled":false},{"id":"local","label":"x"}]}"#.utf8))
+    #expect(all.map(\.id) == ["a", "b"])
+    #expect(MachineEntry.load(machinesJSON: Data(#"{"machines":[{"id":"a","label":"a"},{"id":"b","label":"b","enabled":false}]}"#.utf8)).map(\.id) == ["a"])
+    #expect(MachineEntry.all(machinesJSON: nil).isEmpty)
+
     let s = fixture()
     let local = s.menu(for: TreeNode(id: "pane:local|p1", kind: .agent("local|p1"), title: "claude"), machine: "local")
     #expect(local.contains { $0.title == "Copy Pane ID (p1)" && $0.action == .copy("p1") })
     let remote = s.menu(for: TreeNode(id: "pane:bb|p2", kind: .terminal("bb|p2"), title: "zsh"), machine: "bb", label: "busybox")
     #expect(remote.contains { $0.title == "Copy Pane ID (busybox:p2)" && $0.action == .copy("busybox:p2") })
+    let shared = s.menu(for: TreeNode(id: "pane:bb|p2", kind: .terminal("bb|p2"), title: "zsh"), machine: "devbox-2", label: "devbox", among: among)
+    #expect(shared.contains { $0.title == "Copy Pane ID (devbox-2:p2)" && $0.action == .copy("devbox-2:p2") })
     // Close stays last.
     #expect(remote.last.map { if case .close = $0.action { return true } else { return false } } == true)
 

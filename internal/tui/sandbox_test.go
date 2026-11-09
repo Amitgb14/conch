@@ -330,7 +330,7 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 	m.overlay = mu
 	mu.items[1].run(m)
 	sub, ok := m.overlay.(*menu)
-	if !ok || a2MenuLabels(sub) != "d Daytona… | b boat.dev… | e Devin Cloud…" || sub.title != "New sandbox" {
+	if !ok || a2MenuLabels(sub) != "d Daytona… | b boat.dev… | e Devin Cloud… | t Tensorlake… | + Add a provider conch doesn't know…" || sub.title != "New sandbox" {
 		t.Fatalf("sandbox menu: %#v", m.overlay)
 	}
 	if _, _ = sub.update(m, a2Key("esc")); m.overlay == nil {
@@ -340,25 +340,25 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 		t.Fatalf("esc went to %#v", m.overlay)
 	}
 	// A provider conch grows appears without touching the menu.
-	providers := sandbox.Providers
-	t.Cleanup(func() { sandbox.Providers = providers })
-	sandbox.Providers = []string{"daytona", "fly"}
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | f Fly…" {
+	providers := sandbox.Names
+	t.Cleanup(func() { sandbox.Names = providers })
+	sandbox.Names = func() []string { return []string{"daytona", "fly"} }
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | f Fly… (adapted) | + Add a provider conch doesn't know…" {
 		t.Fatalf("another provider: %q", got)
 	}
-	sandbox.Providers = []string{"daytona", "dune"} // a letter already taken: the next of its own
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | u Dune…" {
+	sandbox.Names = func() []string { return []string{"daytona", "dune"} } // a letter already taken: the next of its own
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | u Dune… (adapted) | + Add a provider conch doesn't know…" {
 		t.Fatalf("a shared letter: %q", got)
 	}
-	sandbox.Providers = []string{"ad", "da", "a-d"} // every letter taken: enter still picks it
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != "a Ad… | d Da… |  A-d…" {
+	sandbox.Names = func() []string { return []string{"ad", "da", "a-d"} } // every letter taken: enter still picks it
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "a Ad… (adapted) | d Da… (adapted) |  A-d… (adapted) | + Add a provider conch doesn't know…" {
 		t.Fatalf("no letter left: %q", got)
 	}
-	sandbox.Providers = nil
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != " conch knows no sandbox providers" {
+	sandbox.Names = func() []string { return nil }
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != " conch knows no sandbox providers | + Add a provider conch doesn't know…" {
 		t.Fatalf("no providers: %q", got)
 	}
-	sandbox.Providers = providers
+	sandbox.Names = providers
 
 	// With no key the dialog says so before anything is spent.
 	sub = newSandboxMenu(nil)
@@ -505,14 +505,14 @@ func TestSandboxTreeGrouping(t *testing.T) {
 	a2Isolate(t)
 	t.Setenv("DAYTONA_API_KEY", "")
 	// A second provider, to prove the grouping is not Daytona's alone.
-	providers := sandbox.Providers
-	t.Cleanup(func() { sandbox.Providers = providers })
-	sandbox.Providers = []string{"daytona", "e2b"}
+	providers := sandbox.Names
+	t.Cleanup(func() { sandbox.Names = providers })
+	sandbox.Names = func() []string { return []string{"daytona", "e2b"} }
 	m := a2Model()
 	for _, mm := range []remote.Machine{
 		{Label: "sdx01", Target: "daytona:sb-aaa"},
 		{Label: "sdx02", Target: "daytona:sb-bbb"},
-		{Label: "sdx01", Target: "e2b:sb-ccc"}, // the same label under another provider
+		{Label: "sdx01", Target: "e2b:sb-ccc"}, // the same label under another provider: given its ID (remote.SaveMachine)
 		{Label: "gpu", Target: "dev@gpu"},
 	} {
 		if _, err := remote.SaveMachine(mm); err != nil {
@@ -542,7 +542,7 @@ func TestSandboxTreeGrouping(t *testing.T) {
 		}
 	}
 	m.rebuild()
-	want := "0 local\n0 gpu\n0 sandboxes\n1 sandboxes/daytona\n2 sdx01\n2 sdx02\n1 sandboxes/e2b\n2 sdx01\n"
+	want := "0 local\n0 gpu\n0 sandboxes\n1 sandboxes/daytona\n2 sdx01\n2 sdx02\n1 sandboxes/e2b\n2 sdx01-2\n"
 	if got := shape(); got != want {
 		t.Fatalf("tree:\n%s\nwant:\n%s", got, want)
 	}

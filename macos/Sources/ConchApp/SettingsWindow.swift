@@ -529,6 +529,11 @@ struct SectionForm: View {
                     Button("Pair a phone…") { model.store.openPair() }.controlSize(.small))) {
                     PhonesList(store: model.store).padding(12)
                 }
+            case "sandbox":
+                // Which providers there are, built in and adapted, and the
+                // way to add one conch does not know.
+                if !fields.isEmpty { card(nil, fields) }
+                ProvidersCard(store: model.store)
             default:
                 if !fields.isEmpty { card(nil, fields) }
             }

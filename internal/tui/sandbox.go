@@ -193,11 +193,11 @@ func newAddMenu() *menu {
 
 // newSandboxMenu lists the providers conch can make a sandbox with. It is
 // built from the registry, so a new provider appears here by being in
-// sandbox.Providers and needs no menu of its own.
+// sandbox.Names() and needs no menu of its own.
 func newSandboxMenu(back *menu) *menu {
 	mu := &menu{title: "New sandbox", back: back}
 	taken := map[string]bool{}
-	for _, name := range sandbox.Providers {
+	for _, name := range sandbox.Names() {
 		// The first letter of its name another hasn't taken: Devin is e,
 		// beside Daytona's d. Enter still picks one that found none.
 		key := ""
@@ -207,7 +207,11 @@ func newSandboxMenu(back *menu) *menu {
 				break
 			}
 		}
-		mu.items = append(mu.items, menuItem{key, providerLabel(name) + "…", func(m *Model) tea.Cmd {
+		label := providerLabel(name) + "…"
+		if !sandbox.Builtin(name) {
+			label += " (adapted)"
+		}
+		mu.items = append(mu.items, menuItem{key, label, func(m *Model) tea.Cmd {
 			d := newSandboxDialog(*m, name)
 			m.overlay = d
 			return d.focusCmd()
@@ -216,6 +220,11 @@ func newSandboxMenu(back *menu) *menu {
 	if len(mu.items) == 0 { // no provider is built in: say so rather than open nothing
 		mu.items = []menuItem{{"", "conch knows no sandbox providers", func(*Model) tea.Cmd { return nil }}}
 	}
+	mu.items = append(mu.items, menuItem{"+", "Add a provider conch doesn't know…", func(m *Model) tea.Cmd {
+		d := newAdaptDialog(*m)
+		m.overlay = d
+		return d.focusCmd()
+	}})
 	return mu
 }
 

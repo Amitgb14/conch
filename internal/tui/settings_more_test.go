@@ -662,11 +662,11 @@ func TestSettingsSandboxTab(t *testing.T) {
 
 	// A build with no providers says so; one conch doesn't configure here
 	// is sent to config.toml rather than left blank.
-	providers := sandbox.Providers
-	t.Cleanup(func() { sandbox.Providers = providers })
+	providers := sandbox.Names
+	t.Cleanup(func() { sandbox.Names = providers })
 	// A provider conch grows gets the same settings, with no code of its
 	// own here, and saves under its own name.
-	sandbox.Providers = []string{"daytona", "fly"}
+	sandbox.Names = func() []string { return []string{"daytona", "fly"} }
 	s.open("")
 	if got := plain(); !strings.Contains(got, "Fly|") {
 		t.Fatalf("a provider conch grows is not listed:\n%s", got)
@@ -687,11 +687,11 @@ func TestSettingsSandboxTab(t *testing.T) {
 		t.Fatalf("Daytona's settings changed with Fly's: %+v", got)
 	}
 	// A provider that leaves the registry takes its page with it.
-	sandbox.Providers = []string{"daytona"}
+	sandbox.Names = func() []string { return []string{"daytona"} }
 	if got := plain(); strings.Contains(got, "FLY_API_KEY") {
 		t.Fatalf("a provider this build no longer knows kept its page:\n%s", got)
 	}
-	sandbox.Providers = nil
+	sandbox.Names = func() []string { return nil }
 	if out := plain(); !strings.Contains(out, "knows no sandbox providers") {
 		t.Fatalf("no providers:\n%s", out)
 	}
@@ -826,9 +826,9 @@ func TestSettingsSandboxRestore(t *testing.T) {
 		t.Fatal("it did not come back on")
 	}
 	// Each provider decides for itself.
-	providers := sandbox.Providers
-	t.Cleanup(func() { sandbox.Providers = providers })
-	sandbox.Providers = []string{"daytona", "fly"}
+	providers := sandbox.Names
+	t.Cleanup(func() { sandbox.Names = providers })
+	sandbox.Names = func() []string { return []string{"daytona", "fly"} }
 	no := false
 	m.cfg.Sandbox.Set("fly", config.ProviderCfg{Restore: &no})
 	if !m.cfg.Sandbox.Of("daytona").RestoresRunning() || m.cfg.Sandbox.Of("fly").RestoresRunning() {

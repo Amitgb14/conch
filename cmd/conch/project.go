@@ -69,16 +69,19 @@ func runProject(args []string) error {
 		fs := flag.NewFlagSet("project files", flag.ContinueOnError)
 		reset := fs.Bool("reset", false, "restore the default patterns")
 		clear := fs.Bool("none", false, "copy no local files")
-		if err := fs.Parse(args[1:]); err != nil {
+		// The flags may come after the ID or a pattern too; a pattern that
+		// starts with '-' goes after --.
+		words, err := parseInterspersed(fs, args[1:])
+		if err != nil {
 			return err
 		}
-		if fs.NArg() < 1 {
+		if len(words) < 1 || (*reset && *clear) || ((*reset || *clear) && len(words) > 1) {
 			return errors.New("usage: conch project files ID [-reset | -none | PATTERN...]")
 		}
-		id := fs.Arg(0)
+		id := words[0]
 		var info proto.ProjectInfo
-		if *reset || *clear || fs.NArg() > 1 {
-			params := proto.ProjectFilesParams{ProjectID: id, Patterns: fs.Args()[1:], Reset: *reset}
+		if *reset || *clear || len(words) > 1 {
+			params := proto.ProjectFilesParams{ProjectID: id, Patterns: words[1:], Reset: *reset}
 			if err := call(c, proto.MethodProjectFiles, params, &info); err != nil {
 				return err
 			}
@@ -152,16 +155,26 @@ func projectSetup(c *client.Client, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() < 1 || (*none && fs.NArg() > 1) {
+	if fs.NArg() < 1 {
+		return errors.New("usage: conch project setup ID [-none | COMMAND]")
+	}
+	// The flags may follow the ID as well, since Go's flag package stops at
+	// the first word that is not one: -none after it was saved as the
+	// command. Past that the words are the command's own (make -j4), and
+	// -- passes one that starts with a dash.
+	id := fs.Arg(0)
+	if err := fs.Parse(fs.Args()[1:]); err != nil {
+		return err
+	}
+	if *none && fs.NArg() > 0 {
 		return errors.New("usage: conch project setup ID [-none | COMMAND]")
 	}
 	if len(c.MissingCapabilities([]string{proto.CapWorktreeSetup})) > 0 {
 		return errors.New("the conch server there predates worktree setup; reload it with `conch server reload`")
 	}
-	id := fs.Arg(0)
 	var info proto.ProjectInfo
-	if *none || fs.NArg() > 1 {
-		cmd := strings.Join(fs.Args()[1:], " ")
+	if *none || fs.NArg() > 0 {
+		cmd := strings.Join(fs.Args(), " ")
 		if err := call(c, proto.MethodProjectSetup, proto.ProjectSetupParams{ProjectID: id, Command: cmd}, &info); err != nil {
 			return err
 		}
@@ -576,4 +589,25 @@ func projectClone(c *client.Client, args []string) error {
 	}
 	fmt.Printf("%s  %s  %s\n", info.ID, info.Name, info.Path)
 	return nil
+}
+
+// parseInterspersed parses fs's flags wherever they fall among args and
+// returns the other words in order: Go's flag package stops at the first
+// word that is not a flag, so one given after an ID was taken as data.
+// "--" still ends the flags, for a word that starts with a dash.
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var words []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		rest := fs.Args()
+		if used := len(args) - len(rest); used > 0 && args[used-1] == "--" {
+			return append(words, rest...), nil
+		}
+		if len(rest) == 0 {
+			return words, nil
+		}
+		words, args = append(words, rest[0]), rest[1:]
+	}
 }

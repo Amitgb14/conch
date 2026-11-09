@@ -226,6 +226,9 @@ type Model struct {
 	// catalogStamp is machines.json's modification time and size when last
 	// read, to notice machines added or removed with conch machine.
 	catalogStamp string
+	// catalog is machines.json as last read, disabled machines and all:
+	// what the commands look a machine name up in (paneRef).
+	catalog []remote.Machine
 
 	upd     *updateState // newer builds and the update in progress
 	restart bool         // quit to exec the new build
@@ -321,12 +324,13 @@ func New(local *client.Client, cfg config.Config) Model {
 	}
 	lm := newMachine(localMachine, localMachine, "")
 	lm.attach(local)
-	if missing := local.MissingCapabilities(proto.Capabilities); len(missing) > 0 {
+	if missing := local.OlderBuild(); len(missing) > 0 {
 		lm.warning = "server is from an older build · click the version to reload it"
 	}
 	m.machines = append(m.machines, lm)
 	m.catalogStamp = catalogStamp()
 	saved, _ := remote.Machines()
+	m.catalog = saved
 	for _, sm := range saved {
 		if sm.Enabled {
 			m.machines = append(m.machines, machineFrom(sm))

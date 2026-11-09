@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/Amitgb14/conch/internal/config"
 )
@@ -134,6 +135,15 @@ func lockCatalog() (func(), error) {
 
 // SaveMachine adds m (or updates the machine with the same target) and
 // returns it with its ID filled in.
+//
+// A label is a name to type — `conch read busybox:p3`, `-m busybox` — so
+// no two machines share one, and none is called "local" or another
+// machine's ID. A new machine whose label would be taken is labelled with
+// its own ID instead: alice@devbox and bob@devbox both default to
+// "devbox", and the second becomes "devbox-2". It is not refused, since
+// conch is already installed there by the time it is saved. A label given
+// again for a machine already here is a rename, and a taken one is left
+// as it was.
 func SaveMachine(m Machine) (Machine, error) {
 	unlock, err := lockCatalog()
 	if err != nil {
@@ -146,7 +156,7 @@ func SaveMachine(m Machine) (Machine, error) {
 	}
 	for i := range ms {
 		if ms[i].Target == m.Target {
-			if m.Label != "" {
+			if m.Label != "" && !labelTaken(ms, m.Label, ms[i].ID) {
 				ms[i].Label = m.Label
 			}
 			// Options given again replace the saved ones, as a label
@@ -162,6 +172,9 @@ func SaveMachine(m Machine) (Machine, error) {
 		m.Label = labelFor(m.Target)
 	}
 	m.ID = uniqueID(ms, slug(m.Label))
+	if labelTaken(ms, m.Label, m.ID) {
+		m.Label = m.ID
+	}
 	m.Enabled = true
 	m.Added = time.Now()
 	return m, saveMachines(append(ms, m))
@@ -187,10 +200,11 @@ func RenameMachine(ref, label string) (Machine, error) {
 		if m.ID != ref && m.Label != ref {
 			continue
 		}
-		for _, other := range ms {
-			if other.ID != m.ID && other.Label == label {
-				return Machine{}, fmt.Errorf("another machine is already called %q", label)
-			}
+		if label == LocalID {
+			return Machine{}, fmt.Errorf("%q is this computer's name; choose another", label)
+		}
+		if labelTaken(ms, label, m.ID) {
+			return Machine{}, fmt.Errorf("another machine is already called %q", label)
 		}
 		ms[i].Label = label
 		return ms[i], saveMachines(ms)
@@ -227,19 +241,66 @@ func FindMachine(ref string) Machine {
 }
 
 // LookupMachine is FindMachine without the fallback: a machine conch has,
-// by ID, label or target, or ok false. A command that acts on a machine
+// by ID, label or target — in that order, so an ID always reaches its own
+// machine whatever another is labelled — or ok false. A command that acts on a machine
 // already added wants this — FindMachine would turn the name of a
 // machine conch does not have into an ssh target and try to resolve it,
 // so `conch machine upgrade dxb01` answered "Could not resolve hostname
 // dxb01" for a sandbox that was simply not in the catalog.
 func LookupMachine(ref string) (Machine, bool) {
 	ms, _ := Machines()
-	for _, m := range ms {
-		if m.ID == ref || m.Label == ref || m.Target == ref {
-			return m, true
+	return lookupIn(ms, ref)
+}
+
+func lookupIn(ms []Machine, ref string) (Machine, bool) {
+	for _, field := range []func(Machine) string{
+		func(m Machine) string { return m.ID },
+		func(m Machine) string { return m.Label },
+		func(m Machine) string { return m.Target },
+	} {
+		for _, m := range ms {
+			if field(m) == ref {
+				return m, true
+			}
 		}
 	}
 	return Machine{}, false
+}
+
+// RefName is what to call machine id in front of a pane — the busybox of
+// busybox:p3, as conch's windows show and copy a pane — so that the
+// commands reach this machine with it: its label, when the label could be
+// typed (no space or colon), is not "local", and is no other machine's ID
+// or label; its ID otherwise, which LookupMachine always takes as its own.
+// ms is every machine conch has, disabled ones too, since the commands
+// look through all of them.
+func RefName(ms []Machine, id string) string {
+	label := ""
+	for _, m := range ms {
+		if m.ID == id {
+			label = m.Label
+			break
+		}
+	}
+	if label == "" || label == LocalID || strings.ContainsRune(label, ':') ||
+		strings.IndexFunc(label, unicode.IsSpace) >= 0 || labelTaken(ms, label, id) {
+		return id
+	}
+	return label
+}
+
+// labelTaken says whether label names a machine other than id, by its ID
+// or its label, or is this computer's.
+func labelTaken(ms []Machine, label, id string) bool {
+	if label == LocalID {
+		return true
+	}
+	for _, m := range ms {
+		if m.ID != id && (m.ID == label || m.Label == label) {
+			return true
+		}
+	}
+	return false
 }
 
 // MachineNames is what conch has, for saying so when a ref matches none.
@@ -284,9 +345,12 @@ func slug(s string) string {
 }
 
 func uniqueID(ms []Machine, id string) string {
+	// Another machine's label is taken too: a new ID equal to it would
+	// take the name from that machine, since an ID is looked up first.
 	taken := map[string]bool{LocalID: true}
 	for _, m := range ms {
 		taken[m.ID] = true
+		taken[m.Label] = true
 	}
 	if !taken[id] {
 		return id

@@ -2,8 +2,10 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,12 +21,12 @@ func TestParseProbe(t *testing.T) {
 	if p.Platform != "linux/arm64" || p.Bin != "/home/dev/.local/bin/conch" || p.Info == nil || p.Info.Build != "abc" {
 		t.Fatalf("probe: %+v", p)
 	}
-	if missing := p.Missing(); len(missing) != len(proto.Capabilities)-1 {
+	if missing := p.Missing(); len(missing) != len(proto.BuildCapabilities())-1 {
 		t.Fatalf("missing %v", missing)
 	}
 
 	bare, err := parseProbe("Darwin\nx86_64\n")
-	if err != nil || bare.Platform != "darwin/amd64" || bare.Bin != "" || len(bare.Missing()) != len(proto.Capabilities) {
+	if err != nil || bare.Platform != "darwin/amd64" || bare.Bin != "" || len(bare.Missing()) != len(proto.BuildCapabilities()) {
 		t.Fatalf("bare probe: %+v %v", bare, err)
 	}
 	if _, err := parseProbe("FreeBSD\namd64\n"); err == nil {
@@ -32,6 +34,26 @@ func TestParseProbe(t *testing.T) {
 	}
 	if _, err := parseProbe("Linux\nriscv64\n"); err == nil {
 		t.Fatal("riscv64 accepted")
+	}
+}
+
+// A binary whose server leaves out what its machine cannot give is not
+// from an older build: only the build's own capabilities are asked of it.
+func TestProbeMissingLeavesOutTheOptional(t *testing.T) {
+	probe := func(caps []string) Probe {
+		info, _ := json.Marshal(map[string]any{"version": proto.Version, "build": "abc", "platform": "linux/arm64", "capabilities": caps})
+		p, err := parseProbe("Linux\naarch64\nbin=/home/dev/.local/bin/conch\n" + string(info) + "\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	if missing := probe(proto.BuildCapabilities()).Missing(); len(missing) != 0 {
+		t.Fatalf("a binary without worktree.watch.v1 lacks %v", missing)
+	}
+	short := slices.DeleteFunc(slices.Clone(proto.Capabilities), func(c string) bool { return c == "pane.v1" })
+	if missing := probe(short).Missing(); !slices.Equal(missing, []string{"pane.v1"}) {
+		t.Fatalf("a binary without pane.v1 lacks %v", missing)
 	}
 }
 

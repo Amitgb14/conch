@@ -1065,3 +1065,57 @@ func TestDuplicateOnlyASavedHost(t *testing.T) {
 		t.Fatalf("menu keys %q", keys)
 	}
 }
+
+// TestSettleKeepsHostMembers: a saved host in an SSH folder is held by its
+// host, with no pane id or name, so the settle every connection runs once
+// took it for a pane that had gone — and every SSH folder was emptied, and
+// saved that way, the moment this computer's panes first arrived.
+func TestSettleKeepsHostMembers(t *testing.T) {
+	m := &Model{savedSSH: []string{"box", "db"}, folders: map[string][]savedFolder{
+		sshFolderKey(): {{Name: "prod", Members: []savedMember{{Host: "box"}, {Name: "vm1", ID: "p1"}, {Host: "db"}}}},
+	}}
+	// With the folder's own pane alive, and with other panes beside it.
+	for _, panes := range [][]proto.PaneInfo{{{ID: "p1", Name: "vm1"}}, {{ID: "p1", Name: "vm1"}, {ID: "p2", Name: "zsh"}}} {
+		if m.settleFolders(localMachine, panes) {
+			t.Fatalf("settling %d panes changed the folder: %+v", len(panes), m.folders[sshFolderKey()])
+		}
+		if got := m.hostFolder("box"); got != "prod" || m.hostFolder("db") != "prod" {
+			t.Fatalf("hosts left their folder: %+v", m.folders[sshFolderKey()])
+		}
+	}
+
+	// No panes at all: the pane member goes, the hosts stay.
+	hostsOnly := &Model{savedSSH: []string{"box"}, folders: map[string][]savedFolder{
+		sshFolderKey(): {{Name: "prod", Members: []savedMember{{Host: "box"}}}},
+	}}
+	if hostsOnly.settleFolders(localMachine, nil) || hostsOnly.hostFolder("box") != "prod" {
+		t.Fatalf("settling no panes moved a host: %+v", hostsOnly.folders[sshFolderKey()])
+	}
+
+	// A host no longer saved does not keep a place in a folder.
+	m.savedSSH = []string{"db"}
+	if !m.settleFolders(localMachine, []proto.PaneInfo{{ID: "p1", Name: "vm1"}}) {
+		t.Fatal("dropping a forgotten host changed nothing")
+	}
+	got := m.folders[sshFolderKey()][0].Members
+	if len(got) != 2 || got[0] != (savedMember{Name: "vm1", ID: "p1"}) || got[1] != (savedMember{Host: "db"}) {
+		t.Fatalf("members %+v", got)
+	}
+}
+
+// TestHostFolderSurvivesConnecting: the settle as it happens, on the pane
+// list of a new connection, and what it saves.
+func TestHostFolderSurvivesConnecting(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	m.savedSSH = []string{"box"}
+	m.folders = map[string][]savedFolder{sshFolderKey(): {{Name: "prod", Members: []savedMember{{Host: "box"}}}}}
+	mach := m.machines[0]
+	mach.gen++ // a new connection, not yet settled
+	updateModel(m, panesMsg{machine: localMachine, gen: mach.gen, panes: slices.Clone(mach.panes)})
+	if mach.settled != mach.gen {
+		t.Fatal("the pane list was not settled")
+	}
+	if got := m.hostFolder("box"); got != "prod" {
+		t.Fatalf("box left its folder on connecting: %+v", m.folders[sshFolderKey()])
+	}
+}

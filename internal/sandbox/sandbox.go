@@ -205,6 +205,14 @@ type KeyAuthorizer interface {
 	AuthorizeKey(ctx context.Context, id, publicKey string) error
 }
 
+// AccountKeyed is a provider whose gateway lets in the ssh keys registered
+// with the person's account there, which conch cannot register with an API
+// key: the transport offers the key it would have authorized, and the
+// provider's Note says to register it.
+type AccountKeyed interface {
+	AccountKey() bool
+}
+
 // NamedSizes is a provider whose machines come in named sizes rather than
 // a number of vCPUs, GiB of memory and GiB of disk. The name goes where a
 // snapshot does, and asking for numbers is refused.
@@ -244,11 +252,24 @@ type Noted interface {
 	Note() string
 }
 
-// Providers lists the providers conch knows.
-var Providers = []string{"daytona", "boat", "devin"}
+// builtin lists the providers conch has built in.
+var builtin = []string{"daytona", "boat", "devin", "tensorlake"}
+
+// Builtin reports whether name is a provider conch has built in, rather
+// than one described by a file.
+func Builtin(name string) bool { return slices.Contains(builtin, name) }
+
+// Names lists the providers conch knows: its own, then the ones described
+// by a file in ProvidersDir that loads. It reads the folder each time, so
+// a provider saved a moment ago is there.
+// Tests replace it.
+var Names = func() []string {
+	good, _ := CustomProviders()
+	return append(append([]string(nil), builtin...), good...)
+}
 
 // Known reports whether name is a provider conch knows.
-func Known(name string) bool { return slices.Contains(Providers, name) }
+func Known(name string) bool { return name != "" && slices.Contains(Names(), name) }
 
 // labels are provider names as people write them, where capitalising the
 // first letter is not how it is done.
@@ -258,6 +279,11 @@ var labels = map[string]string{"e2b": "E2B", "boat": "boat.dev", "devin": "Devin
 func ProviderLabel(name string) string {
 	if l, ok := labels[name]; ok {
 		return l
+	}
+	if !Builtin(name) && providerName.MatchString(name) {
+		if f, problems, err := ReadProviderFile(ProviderFilePath(name)); err == nil && len(problems) == 0 && f.Label != "" {
+			return f.Label
+		}
 	}
 	if name == "" {
 		return ""
@@ -274,8 +300,10 @@ func Open(name string, cfg config.SandboxCfg) (Provider, error) {
 		return NewBoat(cfg.Of(name)), nil
 	case "devin":
 		return NewDevin(cfg.Of(name)), nil
+	case "tensorlake":
+		return NewTensorlake(cfg.Of(name)), nil
 	}
-	return nil, fmt.Errorf("unknown sandbox provider %q", name)
+	return openCustom(name, cfg)
 }
 
 // EnvFrom reads the named variables from this environment, to pass into a

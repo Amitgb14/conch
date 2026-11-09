@@ -39,6 +39,9 @@ type fseventsBackend struct {
 
 	mu      sync.Mutex
 	streams map[string]*fsevents.EventStream
+	// closed is set by close under mu: a stream started after it would be
+	// stopped by nobody, and its pump added to a WaitGroup already waited on.
+	closed bool
 }
 
 func newBackend() (watchBackend, error) {
@@ -61,12 +64,17 @@ func (b *fseventsBackend) loseOne()           { b.lost.Store(true) }
 func (b *fseventsBackend) errs() <-chan error { return nil }
 
 func (b *fseventsBackend) watch(root string, ignored []string) error {
+	// Held throughout, so close cannot come between starting a stream and
+	// counting its pump: a stream started after close emptied the map was
+	// stopped by nobody — a CoreFoundation thread left running, which keeps
+	// a reload from exec'ing — and its pump went into a WaitGroup close was
+	// already waiting on. Stopping such a stream afterwards is no answer: a
+	// batch delivered before its pump ran would block the callback for good.
 	b.mu.Lock()
-	if _, have := b.streams[root]; have {
-		b.mu.Unlock()
-		return nil // already watched whole; FSEvents needs no re-walking
+	defer b.mu.Unlock()
+	if _, have := b.streams[root]; have || b.closed {
+		return nil // already watched whole (FSEvents needs no re-walking), or shutting down
 	}
-	b.mu.Unlock()
 
 	dev, err := fsevents.DeviceForPath(root)
 	if err != nil {
@@ -83,9 +91,7 @@ func (b *fseventsBackend) watch(root string, ignored []string) error {
 	if err := es.Start(); err != nil {
 		return err
 	}
-	b.mu.Lock()
 	b.streams[root] = es
-	b.mu.Unlock()
 	b.pumps.Add(1)
 	go b.pump(root, es)
 	return nil
@@ -108,6 +114,7 @@ func (b *fseventsBackend) close() {
 	b.closeOnce.Do(func() {
 		close(b.stop)
 		b.mu.Lock()
+		b.closed = true
 		streams := make([]*fsevents.EventStream, 0, len(b.streams))
 		for root, es := range b.streams {
 			streams = append(streams, es)

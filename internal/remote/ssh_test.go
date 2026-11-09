@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -505,7 +506,7 @@ func TestA4VerifyInstalledQuietWhenItCannotTell(t *testing.T) {
 	// a list of every capability says nothing, so they are counted.
 	f.setProbe(t, "Linux\nx86_64\nbin=/usr/local/bin/conch\n")
 	err := VerifyInstalled(context.Background(), tr, "linux/amd64")
-	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("lacks %d of this conch's %d", len(proto.Capabilities), len(proto.Capabilities))) {
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("lacks %d of this conch's %d", len(proto.BuildCapabilities()), len(proto.BuildCapabilities()))) {
 		t.Fatalf("a binary that prints no version: %v", err)
 	}
 
@@ -562,7 +563,7 @@ func TestA4ConnectOutdatedServer(t *testing.T) {
 		t.Fatalf("outdated server: %v %v", c, err)
 	}
 	defer c.Close()
-	if len(oe.Missing) != len(proto.Capabilities)-1 || c.Server.PID != 7 {
+	if len(oe.Missing) != len(proto.BuildCapabilities())-1 || c.Server.PID != 7 {
 		t.Fatalf("missing %v pid %d", oe.Missing, c.Server.PID)
 	}
 	// The probed binary was current, so nothing was installed.
@@ -570,6 +571,28 @@ func TestA4ConnectOutdatedServer(t *testing.T) {
 		if strings.Contains(argv[len(argv)-1], "conch.new") {
 			t.Fatal("installed despite a current binary")
 		}
+	}
+}
+
+// A server of this build whose machine gave it no file watches leaves
+// worktree.watch.v1 out; that is not an older server, and connecting says
+// nothing about reloading it.
+func TestA4ConnectServerWithoutWatches(t *testing.T) {
+	a4Env(t)
+	f := newFakeSSH(t)
+	f.setProbe(t, currentProbe("linux/amd64"))
+	caps := slices.DeleteFunc(slices.Clone(proto.Capabilities), func(c string) bool { return c == proto.CapWorktreeWatch })
+	srv := startFakeServer(t, proto.HelloResult{Version: proto.Version, Capabilities: caps, PID: 7})
+	t.Setenv("A4_BRIDGE_SOCK", srv.sock)
+
+	c, err := Connect(context.Background(), SSH("dev@box", false), Options{})
+	if err != nil || c == nil {
+		t.Fatalf("a server without file watches: %v %v", c, err)
+	}
+	defer c.Close()
+	// Clients that rely on watching still see it is not there, and poll.
+	if len(c.MissingCapabilities([]string{proto.CapWorktreeWatch})) != 1 {
+		t.Fatal("worktree.watch.v1 reported where the server did not announce it")
 	}
 }
 

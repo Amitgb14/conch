@@ -61,7 +61,8 @@ func ShowCommit(ctx context.Context, dir, rev string) (CommitDetail, error) {
 		return CommitDetail{}, errors.New("unexpected git show output")
 	}
 	ct, _ := strconv.ParseInt(f[4], 10, 64)
-	d := CommitDetail{Hash: f[0], Author: f[2], Email: f[3], Time: time.Unix(ct, 0), Subject: f[5], Body: strings.TrimSpace(f[6])}
+	d := CommitDetail{Hash: f[0], Author: Printable(f[2]), Email: Printable(f[3]), Time: time.Unix(ct, 0),
+		Subject: Printable(f[5]), Body: PrintableText(strings.TrimSpace(f[6]))}
 	if p := strings.TrimSpace(f[1]); p != "" {
 		d.Parents = strings.Fields(p)
 	}

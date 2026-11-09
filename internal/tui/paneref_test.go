@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Amitgb14/conch/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -90,5 +91,47 @@ func TestPaneRefOnAnotherMachine(t *testing.T) {
 		if got := m.paneRef(c.mid, "p3"); got != c.want {
 			t.Errorf("%q: %q, want %q", c.mid, got, c.want)
 		}
+	}
+}
+
+// A label is used only when the commands would find this machine by it:
+// two logins to one host labelled alike, a machine labelled "local" or
+// with another's ID, or one that clashes with a disabled machine (still
+// in machines.json, so still looked up) is named by its ID, which always
+// reaches it.
+func TestPaneRefAmbiguousLabels(t *testing.T) {
+	m := a2Model()
+	m.machines = append(m.machines,
+		&machine{id: "devbox", label: "devbox"},
+		&machine{id: "devbox-2", label: "devbox"},
+		&machine{id: "loc", label: "local"},
+		&machine{id: "bb", label: "busybox"},
+		&machine{id: "x", label: "bb"},
+		&machine{id: "tab", label: "lab\tbox"},
+		&machine{id: "nl", label: "lab\nbox"},
+		&machine{id: "gpu-1", label: "gpu"},
+		&machine{id: "f1", label: "fresh"},
+	)
+	m.catalog = []remote.Machine{
+		{ID: "old", Label: "gpu", Enabled: false},      // disabled, not in the tree
+		{ID: "f1", Label: "stale", Enabled: true},      // the tree's label is newer
+		{ID: "devbox", Label: "devbox", Enabled: true}, // in both: counted once
+	}
+	for _, c := range []struct{ mid, want string }{
+		{"devbox", "devbox:p3"}, {"devbox-2", "devbox-2:p3"},
+		{"loc", "loc:p3"},
+		{"bb", "busybox:p3"}, {"x", "x:p3"},
+		{"tab", "tab:p3"}, {"nl", "nl:p3"},
+		{"gpu-1", "gpu-1:p3"},
+		{"f1", "fresh:p3"},
+	} {
+		if got := m.paneRef(c.mid, "p3"); got != c.want {
+			t.Errorf("%q: %q, want %q", c.mid, got, c.want)
+		}
+	}
+	// Without the disabled one, gpu's label is its own.
+	m.catalog = nil
+	if got := m.paneRef("gpu-1", "p3"); got != "gpu:p3" {
+		t.Errorf("gpu alone: %q", got)
 	}
 }

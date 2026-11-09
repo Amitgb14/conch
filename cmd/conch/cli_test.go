@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -490,6 +491,24 @@ func TestA4OfferUpgrade(t *testing.T) {
 	c := dial()
 	if got, err := offerUpgrade(c); err != nil || got != c {
 		t.Fatalf("current: %v %v", got, err)
+	}
+
+	// A current server on a machine that gave it no file watches: it
+	// leaves worktree.watch.v1 out, and is this build all the same, so
+	// nothing is asked (no answer is given: a prompt would read EOF).
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		h.Capabilities = slices.DeleteFunc(slices.Clone(h.Capabilities), func(c string) bool { return c == proto.CapWorktreeWatch })
+		return h
+	})
+	c = dial()
+	var kept *client.Client
+	var keptErr error
+	if _, errOut := a4Capture(t, "", func() { kept, keptErr = offerUpgrade(c) }); errOut != "" {
+		t.Fatalf("a server with no file watches was offered an upgrade: %q", errOut)
+	}
+	if keptErr != nil || kept != c || reloaded.Load() {
+		t.Fatalf("no watches: %v %v reloaded=%v", kept, keptErr, reloaded.Load())
 	}
 
 	// Reloadable, declined.
