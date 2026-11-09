@@ -248,6 +248,7 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     #expect(items.contains { $0.action == .branch(project: "local|r1", name: "feat") })
     #expect(!items.contains { $0.action == .branch(project: "local|r1", name: "main") })
     #expect(items.last?.action == .command("openTUI"))
+    #expect(items.last?.title == "Run in Terminal")
     #expect(items.first { $0.action == .pane("local|p1") }?.detail == "api · feat · p1")
     // Another machine's items say which machine.
     let (_, panes, _) = fixture().paletteItems(machine: "box", label: "busybox")
@@ -1673,7 +1674,12 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     for yes in [true, false] {
         let s = AskSession(binary: try fake(plan), request: "open a terminal in api", environment: [:])
         s.start()
-        try await wait(s) { $0 == .plan(1) }
+        // The prompt comes on stderr and the plan on stdout, two pipes
+        // read apart: the state can say plan before the plan's line is in.
+        // Waiting for both is what a person sees anyway, a moment later.
+        for _ in 0..<400 where !(s.state == .plan(1) && s.output.contains("1. open a terminal in api")) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
         #expect(s.state == .plan(1) && s.output.contains("1. open a terminal in api"))
         s.confirm(yes)
         try await wait(s) { $0 == .done }
