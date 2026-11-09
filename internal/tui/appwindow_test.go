@@ -471,3 +471,20 @@ func TestWebsiteScreenUsesTheThemesColours(t *testing.T) {
 		}
 	}
 }
+
+// A branch may hold C1 controls, and ST (0x9c) ends a title as BEL does:
+// what followed it would be obeyed.
+func TestWindowTitleDropsC1(t *testing.T) {
+	m, _ := a1Fixture(t, false)
+	m.machines[0].panes[0].Name = "evil\u009c\u009d2;x\u0085name"
+	m.machines[0].panes[0].Agent.State = proto.AgentBlocked
+	got := m.windowTitle()
+	for _, r := range got {
+		if r >= 0x80 && r <= 0x9f {
+			t.Fatalf("title %q keeps %U", got, r)
+		}
+	}
+	if !strings.Contains(got, "evil") || !strings.Contains(got, "name") {
+		t.Fatalf("title %q lost the name around the controls", got)
+	}
+}

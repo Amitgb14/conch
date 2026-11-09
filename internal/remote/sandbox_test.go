@@ -512,3 +512,38 @@ func TestSetUpSandboxWaitsForTheMachine(t *testing.T) {
 		t.Fatalf("never answering: %v", err)
 	}
 }
+
+// accountKeyProvider is a gateway that lets in the keys registered with
+// the person's account (Tensorlake's shape): conch registers nothing, but
+// ssh still has to offer the key the person registered.
+type accountKeyProvider struct{ fakeProvider }
+
+func (*accountKeyProvider) Name() string     { return "tensorlake" }
+func (*accountKeyProvider) AccountKey() bool { return true }
+func (a *accountKeyProvider) SSHAccess(context.Context, string) (sandbox.Access, error) {
+	a.accesses++
+	return sandbox.Access{User: "sbx-9", PlainUser: true, Host: "sandbox.tensorlake.ai"}, a.accessErr
+}
+
+func TestTransportForASandboxOnAnAccountKey(t *testing.T) {
+	a4Env(t)
+	_, keyPath := ownKey(t)
+	p := &accountKeyProvider{fakeProvider{state: sandbox.StateStarted}}
+	useNamedProvider(t, "tensorlake", p, nil)
+	tr, err := TransportFor(context.Background(), "hull", "tensorlake:sbx-9", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd, err := tr.Command(context.Background(), "uname -s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Join(cmd.Args, " ")
+	if !strings.Contains(args, "sbx-9@sandbox.tensorlake.ai uname -s") ||
+		!strings.Contains(args, "-i "+strings.TrimSuffix(keyPath, ".pub")) {
+		t.Fatalf("ssh args: %s", args)
+	}
+	if st := tr.(*sandboxTransport); st.secret != "" {
+		t.Fatalf("a sandbox id is kept as a secret: %q", st.secret)
+	}
+}

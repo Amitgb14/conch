@@ -216,3 +216,55 @@ public func attachUsageLine(_ binary: String) -> String {
     p.waitUntilExit()
     return String(decoding: data, as: UTF8.self)
 }
+
+/// Runs conch with args and hands each line it prints to onLine as it
+/// comes, answering its exit status: `conch sandbox adapt -json` takes
+/// minutes, and the sheet shows it moving.
+public func runConchLines(_ binary: String, _ args: [String], onLine: @escaping @Sendable (String) -> Void) async throws -> Int32 {
+    try await withCheckedThrowingContinuation { cont in
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: binary)
+        p.arguments = args
+        p.environment = conchEnvironment()
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        p.standardInput = FileHandle.nullDevice
+        let buffer = LineBuffer()
+        out.fileHandleForReading.readabilityHandler = { h in
+            let d = h.availableData
+            if d.isEmpty { return }
+            for line in buffer.add(d) { onLine(line) }
+        }
+        p.terminationHandler = { proc in
+            out.fileHandleForReading.readabilityHandler = nil
+            let rest = out.fileHandleForReading.readDataToEndOfFile()
+            for line in buffer.add(rest) + buffer.flush() { onLine(line) }
+            cont.resume(returning: proc.terminationStatus)
+        }
+        do { try p.run() } catch { cont.resume(throwing: error) }
+    }
+}
+
+/// Bytes into whole lines, holding back a line not yet ended.
+public final class LineBuffer: @unchecked Sendable {
+    private var pending = Data()
+    private let lock = NSLock()
+    public init() {}
+    public func add(_ d: Data) -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        pending.append(d)
+        var lines: [String] = []
+        while let i = pending.firstIndex(of: 0x0A) {
+            let line = pending[pending.startIndex..<i]
+            lines.append(String(decoding: line, as: UTF8.self))
+            pending.removeSubrange(pending.startIndex...i)
+        }
+        return lines
+    }
+    public func flush() -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        defer { pending = Data() }
+        return pending.isEmpty ? [] : [String(decoding: pending, as: UTF8.self)]
+    }
+}

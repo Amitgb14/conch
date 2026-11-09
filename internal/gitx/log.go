@@ -58,7 +58,11 @@ func Log(ctx context.Context, dir string, limit int) (commits []LogCommit, more 
 		if len(f) != 6 || f[0] == "" {
 			continue
 		}
-		c := LogCommit{Hash: f[0], Author: f[2], Subject: f[5]}
+		// Author and subject are whatever was committed, so they are made
+		// safe to draw here, for every client at once. Refs are not: git
+		// refuses controls below 0x20 in a ref, and a name is matched
+		// against branches, so a client cleans those as it draws them.
+		c := LogCommit{Hash: f[0], Author: Printable(f[2]), Subject: Printable(f[5])}
 		if f[1] != "" {
 			c.Parents = strings.Fields(f[1])
 		}

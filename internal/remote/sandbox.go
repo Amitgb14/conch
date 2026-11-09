@@ -100,7 +100,7 @@ func TransportFor(ctx context.Context, label, target string, interactive bool, o
 	// secret is given conch's public key, so the way in is one this
 	// computer already holds the other half of.
 	identity := ""
-	if ka, ok := p.(sandbox.KeyAuthorizer); ok {
+	if ka, ok := p.(sandbox.KeyAuthorizer); ok && authorizesKey(p) {
 		line, path, err := publicKey(ctx)
 		if err != nil {
 			return nil, err
@@ -113,12 +113,29 @@ func TransportFor(ctx context.Context, label, target string, interactive bool, o
 		// defaults, so the user's key would never be offered and the
 		// sandbox would refuse a login it was set up to allow.
 		identity = strings.TrimSuffix(path, ".pub")
+	} else if ak, ok := p.(sandbox.AccountKeyed); ok && ak.AccountKey() {
+		// The same key, registered by the person with the provider
+		// rather than by conch: offered for the same reason.
+		_, path, err := publicKey(ctx)
+		if err != nil {
+			return nil, err
+		}
+		identity = strings.TrimSuffix(path, ".pub")
 	}
 	a, err := p.SSHAccess(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	return sandboxSSH(label, a, identity), nil
+}
+
+// authorizesKey says whether a provider that can take a key wants one:
+// a provider described by a file says so in it.
+func authorizesKey(p sandbox.Provider) bool {
+	if a, ok := p.(interface{ AuthorizesKey() bool }); ok {
+		return a.AuthorizesKey()
+	}
+	return true
 }
 
 // DefaultSandboxLabel names a sandbox nobody named, after its ID. A Devin

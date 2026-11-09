@@ -174,9 +174,10 @@ Usage:
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
   conch machine bridge ID       conch's protocol to that machine's server, on stdin and stdout
                                 (how the Mac app reaches it); installs nothing
-  conch sandbox -provider daytona|boat|devin create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
+  conch sandbox -provider daytona|boat|devin|tensorlake create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
                                 make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY,
-                                Devin Cloud: $DEVIN_API_KEY and a signed-in devin CLI)
+                                Devin Cloud: $DEVIN_API_KEY and a signed-in devin CLI,
+                                Tensorlake: $TENSORLAKE_API_KEY and your ssh key registered with it)
                                 and add it as a machine; it runs until stopped, so agents keep
                                 going with the TUI closed. Every sandbox command but stats needs
                                 -provider: there is no default, and a sandbox named under another
@@ -186,6 +187,15 @@ Usage:
                                 one whose machine was removed, or on boat.dev one made in its own
                                 interface. Started if stopped and conch installed; never deleted
                                 if that fails
+  conch sandbox providers [-json]  which providers conch can make a sandbox with, and whether each has its key
+  conch sandbox adapt [-agent A] [-name N] [-json] URL...
+                                a provider conch doesn't know: conch downloads its API docs, an agent
+                                (claude by default) writes a provider file from them in a pane of its
+                                own, and conch checks the file and the key; nothing is saved yet
+  conch sandbox adapt -revise TEXT NAME   ask that agent to change the draft, and check it again
+  conch sandbox provider check [-offline] [-json] NAME|FILE | show NAME | save NAME | rm NAME
+                                check a provider file, print it, make a draft a provider, or forget one
+                                (its sandboxes are left alone)
   conch sandbox stats           every provider's sandboxes, their state and size, and a line
                                 per provider (-provider P narrows it to one)
   conch sandbox -provider P ls | start ID | stop [-y] ID | rm [-y] ID
@@ -789,7 +799,7 @@ func stopServer(c *client.Client, local bool) error {
 // rebuilds (that is the point of it), so ask before replacing it: restarting
 // stops its panes. Declining keeps the old server; the TUI then warns.
 func offerUpgrade(c *client.Client) (*client.Client, error) {
-	missing := c.MissingCapabilities(proto.Capabilities)
+	missing := c.OlderBuild()
 	if len(missing) == 0 {
 		return c, nil
 	}

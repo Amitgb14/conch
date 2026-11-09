@@ -69,7 +69,7 @@ func settingsChoices(m *Model) configweb.Choices { return SettingsChoices(knownA
 // supported ones when none are given). conch config web passes none, since
 // it has no machine to ask.
 func SettingsChoices(agents []string) configweb.Choices {
-	c := configweb.Choices{Providers: sandbox.Providers}
+	c := configweb.Choices{Providers: sandbox.Names()}
 	reloadUserThemes() // conch config web is its own process, and a file may be new
 	for _, t := range allThemes() {
 		o := configweb.Option{Value: t.name, Label: t.label}

@@ -165,6 +165,7 @@ func TestWorktreeLocalFilesAndSetup(t *testing.T) {
 // writes each agent's own files, and undoing puts the checkout back.
 func TestAgentSyncOverTheProtocol(t *testing.T) {
 	home := t.TempDir()
+	t.Setenv("CONCH_HOME", t.TempDir())
 	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
 		t.Setenv(k, "")
 	}
@@ -243,11 +244,13 @@ func TestAgentSyncOverTheProtocol(t *testing.T) {
 	}
 }
 
-// The record a sync leaves behind is kept out of git, as the handoff
-// documents beside it are.
-func TestAgentSyncKeepsItsRecordOutOfGit(t *testing.T) {
-	home := t.TempDir()
+// The record a sync leaves behind is kept in conch's own folder, not the
+// checkout: a record in the checkout could have come with a clone, and
+// undoing it would do whatever it said.
+func TestAgentSyncKeepsItsRecordOutOfTheCheckout(t *testing.T) {
+	home, conchHome := t.TempDir(), t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CONCH_HOME", conchHome)
 	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
 		t.Setenv(k, "")
 	}
@@ -262,15 +265,18 @@ func TestAgentSyncKeepsItsRecordOutOfGit(t *testing.T) {
 	if err := c.Call(ctx, proto.MethodAgentSync, proto.AgentSyncParams{Dir: repo, From: "claude", To: []string{"codex"}, Apply: true}, &res); err != nil {
 		t.Fatal(err)
 	}
-	if res.Undo == "" {
+	if res.Undo == "" || len(res.Undos) != 1 || res.Undos[0] != res.Undo {
 		t.Fatalf("nothing was written: %+v", res)
 	}
-	exclude, err := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude"))
-	if err != nil || !strings.Contains(string(exclude), ".conch/") {
-		t.Fatalf("exclude %q %v", exclude, err)
+	if _, err := os.Lstat(filepath.Join(repo, ".conch")); !os.IsNotExist(err) {
+		t.Fatalf("the record went into the checkout: %v", err)
+	}
+	found, _ := filepath.Glob(filepath.Join(conchHome, "agent-sync", "checkouts", "*", res.Undo+".json"))
+	if len(found) != 1 {
+		t.Fatalf("records %v", found)
 	}
 	// The record itself is the user's own business, not the machine's.
-	st, err := os.Stat(filepath.Join(repo, ".conch", "agent-sync"))
+	st, err := os.Stat(filepath.Dir(found[0]))
 	if err != nil || st.Mode().Perm() != 0o700 {
 		t.Fatalf("the record folder is %v (%v)", st.Mode().Perm(), err)
 	}

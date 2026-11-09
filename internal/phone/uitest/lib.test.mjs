@@ -658,3 +658,26 @@ test("a pane's ID is named as conch's commands take it", async () => {
   assert.equal(paneRef("", machines), "")
   assert.equal(paneRef(undefined), "")
 })
+
+test("paneRef names a machine only by what reaches it", async () => {
+  const { paneRef } = await import("../ui/lib.mjs")
+  // The gateway's ref is taken as it is: it knows machines this list leaves out.
+  assert.equal(paneRef("devbox-2:p3", [{ id: "devbox-2", label: "devbox", ref: "devbox-2" }]), "devbox-2:p3")
+  assert.equal(paneRef("bb:p3", [{ id: "bb", label: "busybox", ref: "busybox" }]), "busybox:p3")
+  // Without one (an older gateway), a label shared, "local", another's ID
+  // or with any space in it is not used.
+  const machines = [
+    { id: "local", label: "this computer" },
+    { id: "devbox", label: "devbox" }, { id: "devbox-2", label: "devbox" },
+    { id: "loc", label: "local" },
+    { id: "bb", label: "busybox" }, { id: "x", label: "bb" },
+    { id: "tab", label: "lab\tbox" }, { id: "nl", label: "lab\nbox" },
+  ]
+  assert.equal(paneRef("devbox:p3", machines), "devbox:p3")
+  assert.equal(paneRef("devbox-2:p3", machines), "devbox-2:p3")
+  assert.equal(paneRef("loc:p3", machines), "loc:p3")
+  assert.equal(paneRef("bb:p3", machines), "busybox:p3")
+  assert.equal(paneRef("x:p3", machines), "x:p3")
+  assert.equal(paneRef("tab:p3", machines), "tab:p3")
+  assert.equal(paneRef("nl:p3", machines), "nl:p3")
+})

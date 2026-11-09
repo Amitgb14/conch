@@ -43,6 +43,9 @@ struct BroadcastDraft: Identifiable {
 @MainActor
 final class Store: ObservableObject {
     @Published var machines: [MachineLink] = [MachineLink(id: "local", label: "local")]
+    /// Every machine in machines.json, disabled ones too, as last read:
+    /// what conch's commands look a name up in, for paneRef.
+    var catalog: [MachineEntry] = []
     @Published var snapshots: [String: Snapshot] = [:]
     /// The agents each machine has installed, for starting one.
     @Published var agents: [String: [AgentAvailability]] = [:]
@@ -370,13 +373,17 @@ final class Store: ObservableObject {
 
     func label(_ machine: String) -> String { machines.first { $0.id == machine }?.label ?? machine }
 
+    /// The label conch's commands know the machine by: machines.json's,
+    /// not the sidebar's ("x · daytona" for a sandbox).
+    func refLabel(_ machine: String) -> String? { catalog.first { $0.id == machine }?.label ?? label(machine) }
+
     /// How conch's commands name the pane at key — p12 here, busybox:p12
     /// elsewhere — or nil when key is not a pane (a git tab, sessions).
     func paneRef(key k: String) -> String? {
         guard isPaneKey(k) else { return nil }
         let (m, id) = unkey(k)
         guard snapshots[m]?.pane(id) != nil else { return nil }
-        return ConchKit.paneRef(machine: m, label: label(m), pane: id)
+        return ConchKit.paneRef(machine: m, label: refLabel(m), pane: id, among: catalog)
     }
 
     func copyPaneRef(_ ref: String) {
@@ -531,7 +538,7 @@ final class Store: ObservableObject {
         var w: [PaletteItem] = [], p: [PaletteItem] = [], pl: [PaletteItem] = []
         let many = machines.count > 1
         for m in machines {
-            let (a, b, c) = (snapshots[m.id] ?? Snapshot()).paletteItems(machine: m.id, label: many ? m.label : nil, in: ws)
+            let (a, b, c) = (snapshots[m.id] ?? Snapshot()).paletteItems(machine: m.id, label: many ? m.label : nil, in: ws, among: catalog)
             w += a
             p += b
             pl += c
@@ -1029,7 +1036,9 @@ final class Store: ObservableObject {
 
     /// This computer, and every enabled machine in machines.json.
     func connect() {
-        let entries = MachineEntry.load(machinesJSON: FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("machines.json")))
+        let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("machines.json"))
+        catalog = MachineEntry.all(machinesJSON: data)
+        let entries = MachineEntry.load(machinesJSON: data)
         var next = [machines.first { $0.id == "local" } ?? MachineLink(id: "local", label: "local")]
         for e in entries {
             var link = machines.first { $0.id == e.id } ?? MachineLink(id: e.id, label: e.displayLabel)
@@ -2138,6 +2147,7 @@ final class Store: ObservableObject {
         case "addProject": addProject()
         case "sshToHost": sshToHost()
         case "addMachine": addMachine()
+        case "newSandbox": newSandboxOpen = true
         case "newTask": newTaskHere()
         case "startAgent": startAgentHere()
         case "newTab": newTerminal(split: nil)
@@ -2190,7 +2200,7 @@ final class Store: ObservableObject {
         guard let m = node.machine else { return [] }
         let online = machines.first { $0.id == m }?.online ?? false
         let s = snapshots[m] ?? Snapshot()
-        var items = s.menu(for: node, machine: m, machineOnline: online, label: label(m))
+        var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog)
         // A sandbox's own: start, stop, delete, what it cost.
         if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.sandbox {
             items += sandboxMenu(machine: m, running: link.online)
@@ -2272,6 +2282,7 @@ final class Store: ObservableObject {
         case .addProject(let m): addProject(on: m)
         case .sshToHost: sshToHost()
         case .addMachine: addMachine()
+        case .newSandbox: newSandboxOpen = true
         case .reconnect(let m): reconnect(m)
         case .reloadServer(let m): reloadServer(m)
         case .upgrade(let m): upgrade(m)
@@ -2462,6 +2473,39 @@ final class Store: ObservableObject {
         Task {
             do {
                 let p = try await c.call("pane.create", Create(name: "machine add · " + target, command: command, cwd: NSHomeDirectory(), no_project: true), as: PaneInfo.self)
+                snapshots["local", default: Snapshot()].upsert(p)
+                layout.open(key("local", p.id))
+                focusTerminal()
+            } catch {
+                self.error = "\(error)"
+            }
+        }
+    }
+
+    /// Brings a pane on this Mac to the front: the agent adapting a
+    /// provider, from the sheet that started it.
+    func showLocalPane(_ id: String) {
+        layout.open(key("local", id))
+        focusTerminal()
+    }
+
+    /// New Sandbox…, the sheet that makes one (NewSandboxSheet).
+    @Published var newSandboxOpen = false
+
+    /// conch run with args in a terminal of its own on this Mac, opened in
+    /// a tab, so what it does — an install, a sandbox being made — is
+    /// watched and its questions answered.
+    func runCLIPane(name: String, args: [String]) {
+        guard let b = binary, let c = conns["local"] else { return }
+        struct Create: Encodable {
+            var name: String
+            var command: [String]
+            var cwd: String
+            var no_project: Bool
+        }
+        Task {
+            do {
+                let p = try await c.call("pane.create", Create(name: name, command: [b] + args, cwd: NSHomeDirectory(), no_project: true), as: PaneInfo.self)
                 snapshots["local", default: Snapshot()].upsert(p)
                 layout.open(key("local", p.id))
                 focusTerminal()

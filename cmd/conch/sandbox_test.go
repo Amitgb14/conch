@@ -256,7 +256,7 @@ func TestA4SandboxCreateRefusesBeforeSpending(t *testing.T) {
 		{[]string{"-provider", "daytona", "create", "extra"}, "usage: conch sandbox -provider P create"},
 		{[]string{"-provider", "daytona", "create", "-bogus"}, "flag provided but not defined"},
 		// No provider: there is no default to bill.
-		{[]string{"create"}, "which provider? give -provider NAME (daytona, boat, devin)"},
+		{[]string{"create"}, "which provider? give -provider NAME (daytona, boat, devin, tensorlake)"},
 		{[]string{"create", "-label", "x"}, "which provider?"},
 		{[]string{"ls"}, "which provider?"},
 		{nil, "which provider?"}, // plain conch sandbox lists, and so needs one too
@@ -739,7 +739,7 @@ func TestA4SandboxProviderFlag(t *testing.T) {
 	// The next command starts clean: without the flag there is no provider
 	// to make one with, and boat is asked nothing.
 	before := b.called()
-	if err := runSandbox([]string{"create"}); err == nil || !strings.Contains(err.Error(), "which provider? give -provider NAME (daytona, boat, devin)") {
+	if err := runSandbox([]string{"create"}); err == nil || !strings.Contains(err.Error(), "which provider? give -provider NAME (daytona, boat, devin, tensorlake)") {
 		t.Fatalf("without the flag: %v", err)
 	}
 	if b.called() != before {
@@ -1015,7 +1015,7 @@ func TestA4SandboxStats(t *testing.T) {
 	// the machine as unknown, and the command fails.
 	remote.SaveMachine(remote.Machine{Label: "hull", Target: "boat:bx_1"})
 	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stats"}) })
-	if err == nil || !strings.Contains(err.Error(), "1 provider of 3 couldn't be asked") ||
+	if err == nil || !strings.Contains(err.Error(), "1 provider of 4 couldn't be asked") ||
 		!strings.Contains(flat(out), "boat.dev hull hull bx_1 ? -") || !strings.Contains(out, "boat.dev: couldn't ask it:") ||
 		!strings.Contains(out, "Daytona: 3 sandboxes") {
 		t.Fatalf("unknown: %q %v", out, err)
@@ -1023,7 +1023,7 @@ func TestA4SandboxStats(t *testing.T) {
 	// A provider that is down fails the command too, the other still shown.
 	t.Setenv("DAYTONA_API_URL", "http://127.0.0.1:1")
 	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stats"}) })
-	if err == nil || !strings.Contains(err.Error(), "2 providers of 3") || !strings.Contains(out, "Daytona: couldn't ask it:") {
+	if err == nil || !strings.Contains(err.Error(), "2 providers of 4") || !strings.Contains(out, "Daytona: couldn't ask it:") {
 		t.Fatalf("down: %q %v", out, err)
 	}
 }
@@ -1335,5 +1335,52 @@ func TestA4SandboxRemoveByProviderID(t *testing.T) {
 	}
 	if ms, _ := remote.Machines(); len(ms) != 0 {
 		t.Fatalf("the machine is still in the catalog: %+v", ms)
+	}
+}
+
+// conch sandbox providers says which providers have their key here — for a
+// window offering New sandbox… — and what each takes where a snapshot goes.
+func TestSandboxProviders(t *testing.T) {
+	a4Env(t)
+	for _, k := range []string{"DAYTONA_API_KEY", "BOAT_API_KEY", "DEVIN_API_KEY"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("DAYTONA_API_KEY", "k-test")
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runSandbox([]string{"providers", "-json"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ps []providerJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &ps); err != nil {
+		t.Fatalf("%q: %v", out, err)
+	}
+	by := map[string]providerJSON{}
+	for _, p := range ps {
+		by[p.Name] = p
+	}
+	if len(ps) != 4 || by["daytona"].Name == "" || by["boat"].Name == "" || by["devin"].Name == "" || by["tensorlake"].Name == "" {
+		t.Fatalf("providers: %+v", ps)
+	}
+	if d := by["daytona"]; !d.Ready || d.Why != "" || d.Label != "Daytona" {
+		t.Errorf("daytona with its key: %+v", d)
+	}
+	if b := by["boat"]; b.Ready || !strings.Contains(b.Why, "BOAT_API_KEY") || len(b.Sizes) == 0 {
+		t.Errorf("boat without its key: %+v", b)
+	}
+	if d := by["devin"]; d.Ready || d.Place == "" || d.Note == "" {
+		t.Errorf("devin: %+v", d)
+	}
+	if d := by["tensorlake"]; d.Ready || d.Adapted || !strings.Contains(d.Note, "tl sbx ssh keys add") {
+		t.Errorf("tensorlake: %+v", d)
+	}
+	// No -provider needed, and the table says the same.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"providers"}) })
+	if err != nil || !strings.Contains(out, "daytona") || !strings.Contains(out, "no: set $BOAT_API_KEY") {
+		t.Fatalf("table: %q %v", out, err)
+	}
+	a4Capture(t, "", func() { err = runSandbox([]string{"providers", "-x"}) })
+	if err == nil {
+		t.Error("providers -x was taken")
 	}
 }

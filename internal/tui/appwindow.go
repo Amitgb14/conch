@@ -57,9 +57,11 @@ func (m Model) windowTitle() string {
 		parts = append(parts, prefix+rec.Msg)
 	}
 	// A title is one line: a name or a branch with a newline in it would
-	// end the escape early in some terminals and print the rest.
+	// end the escape early in some terminals and print the rest. The C1
+	// controls go too — a branch may hold them, and ST (0x9c) ends the
+	// title as BEL does, leaving what follows to be obeyed.
 	return strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
 			return ' '
 		}
 		return r

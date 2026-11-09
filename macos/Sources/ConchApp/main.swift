@@ -169,13 +169,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             return i
         }
         menu("conch", [
-            NSMenuItem(title: "About conch", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
+            NSMenuItem(title: "About Conch (Beta)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
             .separator(),
             item("Settings…", ",", .command, "settings"),
             item("Open conch in a terminal", "", [], "openTUI"),
             .separator(),
-            NSMenuItem(title: "Hide conch", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
-            NSMenuItem(title: "Quit conch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
+            NSMenuItem(title: "Hide Conch (Beta)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
+            NSMenuItem(title: "Quit Conch (Beta)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
             runOnItem,
         ])
         main.items.first?.submenu?.delegate = self
@@ -188,6 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             item("Add Project…", "o", .command, "addProject"),
             item("SSH to a Host…", "h", [.command, .shift], "sshToHost"),
             item("Add Machine…", "m", [.command, .shift], "addMachine"),
+            item("New Sandbox…", "", .command, "newSandbox"),
             .separator(),
             item("Split Right", "d", .command, "splitRight"),
             item("Split Down", "d", [.command, .shift], "splitDown"),

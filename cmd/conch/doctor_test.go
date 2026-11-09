@@ -170,6 +170,18 @@ func TestDoctorServer(t *testing.T) {
 		t.Errorf("a current server: %+v", c)
 	}
 
+	// A server whose machine gave it no file watches leaves that one out
+	// and is current all the same: a reload could not change it.
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		h.Started = time.Now().Add(-3 * time.Hour)
+		h.Capabilities = slices.DeleteFunc(slices.Clone(h.Capabilities), func(c string) bool { return c == proto.CapWorktreeWatch })
+		return h
+	})
+	if c := doctorFind(t, "server"); c.Status != doctor.OK || c.Detail != "pid 1000, up 3h" {
+		t.Errorf("a server without file watches: %+v", c)
+	}
+
 	srv.setHello(func(n int) proto.HelloResult {
 		h := currentHello(n)
 		h.Capabilities = h.Capabilities[:len(h.Capabilities)-2]

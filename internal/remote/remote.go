@@ -80,17 +80,20 @@ func parseProbe(out string) (Probe, error) {
 }
 
 // Missing lists capabilities this client needs that the probed binary lacks.
-// A binary too old to print its version lacks everything.
+// A binary too old to print its version lacks everything. Those a server
+// may withhold on its machine are not asked for (proto.OptionalCapabilities):
+// lacking them is no sign of an older build.
 func (p Probe) Missing() []string {
+	want := proto.BuildCapabilities()
 	if p.Info == nil {
-		return proto.Capabilities
+		return want
 	}
 	have := map[string]bool{}
 	for _, c := range p.Info.Capabilities {
 		have[c] = true
 	}
 	var missing []string
-	for _, c := range proto.Capabilities {
+	for _, c := range want {
 		if !have[c] {
 			missing = append(missing, c)
 		}
@@ -139,7 +142,7 @@ func VerifyInstalled(ctx context.Context, tr Transport, platform string) error {
 	// most of them, since a message nobody can take in says nothing.
 	what := "lacks " + strings.Join(missing, ", ")
 	if len(missing) > 4 {
-		what = fmt.Sprintf("lacks %d of this conch's %d capabilities", len(missing), len(proto.Capabilities))
+		what = fmt.Sprintf("lacks %d of this conch's %d capabilities", len(missing), len(proto.BuildCapabilities()))
 	}
 	return &InstallError{Platform: platform, Reason: fmt.Sprintf(
 		"conch on %s is still from an older build after installing (%s): %s",
@@ -310,7 +313,7 @@ func Connect(ctx context.Context, tr Transport, opts Options) (*client.Client, e
 	if err != nil {
 		return nil, err
 	}
-	if missing := c.MissingCapabilities(proto.Capabilities); len(missing) > 0 {
+	if missing := c.OlderBuild(); len(missing) > 0 {
 		return c, &OutdatedServerError{Missing: missing}
 	}
 	return c, nil

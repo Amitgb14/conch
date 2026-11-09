@@ -32,10 +32,11 @@ Everything lives in `~/.config/conch`. Set `CONCH_HOME` to use another directory
 | `CONCH_SOURCE` | conch's source tree, for cross-compiling to [remote machines](/docs/remote-machines#adding-a-machine) |
 | `CONCH_REMOTE_BINARY` | a prebuilt conch binary to install on remote machines |
 | `CONCH_VERSION`, `CONCH_INSTALL_DIR` | release and directory for the [install script](/docs/installation#install-script) |
-| `DAYTONA_API_KEY`, `BOAT_API_KEY`, `DEVIN_API_KEY` | the key for [sandboxes](/docs/sandboxes), one per provider |
+| `DAYTONA_API_KEY`, `BOAT_API_KEY`, `DEVIN_API_KEY`, `TENSORLAKE_API_KEY` | the key for [sandboxes](/docs/sandboxes), one per provider |
 | `DAYTONA_API_URL`, `DAYTONA_TARGET` | Daytona's API and region, when `[sandbox.daytona]` doesn't set them |
 | `BOAT_API_URL` | boat.dev's API, when `[sandbox.boat]` doesn't set it |
 | `DEVIN_API_URL` | Devin's API, when `[sandbox.devin]` doesn't set it |
+| `TENSORLAKE_API_URL`, `TENSORLAKE_SSH_HOST` | Tensorlake's API, when `[sandbox.tensorlake]` doesn't set it, and its ssh gateway (`sandbox.tensorlake.ai`) |
 | `DEVIN_ORG_ID` | the Devin organization sessions are made in; without it conch asks Devin which one the key's sessions run in |
 | `CONCH_DEVIN` | the `devin` CLI conch reaches a Devin Cloud session with; without it, `devin` on `PATH`, then `~/.local/bin/devin` |
 | `CONCH_LOG_CALLER` | `1` writes a line per connection saying which pane the server placed it in, with the process ancestry it climbed — for finding out why an agent that should be [scoped](/docs/agents-together#what-an-agent-may-do) is not |

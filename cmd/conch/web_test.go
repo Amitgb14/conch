@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -335,14 +337,12 @@ func TestWebUsage(t *testing.T) {
 }
 
 // Without -url or a certificate, pairing can't work, and conch web says
-// what to run — with this machine's tailnet name when Tailscale knows it.
+// what to run. a4Env leaves no tailscale to ask, so the name is the
+// placeholder: a fake asked from the subprocess had two seconds to answer,
+// which under a loaded -race run it sometimes missed.
 func TestWebSaysHowToGetHTTPS(t *testing.T) {
-	dir := a4Env(t)
+	a4Env(t)
 	startA4Server(t, config.SocketPath())
-	fake := filepath.Join(dir, "tailscale")
-	os.WriteFile(fake, []byte("#!/bin/sh\n[ \"$1 $2\" = \"status --json\" ] || exit 1\n"+
-		"echo '{\"Self\":{\"DNSName\":\"laptop.tail1234.ts.net.\"}}'\n"), 0o755)
-	t.Setenv("CONCH_TAILSCALE", fake)
 	exe, _ := os.Executable()
 	cmd := a4Command(exe, "web", "-listen", "127.0.0.1:0")
 	stdout, _ := cmd.StdoutPipe()
@@ -358,12 +358,188 @@ func TestWebSaysHowToGetHTTPS(t *testing.T) {
 			break
 		}
 	}
-	text := strings.Join(out, "\n")
-	for _, want := range []string{"phones can't pair over plain http", "  tailscale serve --bg http://127.0.0.1:8722\n", "  conch web -url https://laptop.tail1234.ts.net\n"} {
-		if !strings.Contains(text+"\n", want) {
-			t.Fatalf("lacks %q:\n%s", want, text)
+	text := strings.Join(out, "\n") + "\n"
+	if !strings.Contains(text, httpsHint(8722, "")) {
+		t.Fatalf("lacks the hint:\n%s", text)
+	}
+}
+
+// webServe puts the name tailnetName learns into the hint. Run in-process,
+// with tailnetName replaced, so nothing waits on a tailscale to answer.
+func TestWebServeHintCarriesTailnetName(t *testing.T) {
+	a4Env(t)
+	startA4Server(t, config.SocketPath())
+	oldName := tailnetName
+	t.Cleanup(func() { tailnetName = oldName })
+	tailnetName = func() string { return "laptop.tail1234.ts.net" }
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldOut := os.Stdout
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = oldOut })
+	// SIGINT stops webServe; this keeps it from ending the test binary
+	// should it ever arrive while webServe isn't listening for it.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt)
+	t.Cleanup(func() { signal.Stop(sigs) })
+
+	// Closing w when webServe returns ends the read below, so a webServe
+	// that fails before it says how to pair fails the test with its error
+	// rather than leaving the read waiting for ever.
+	done := make(chan error, 1)
+	go func() {
+		err := webServe([]string{"-listen", "127.0.0.1:0"})
+		w.Close()
+		done <- err
+	}()
+	var served error
+	stopped := false
+	// stop asks webServe to end until it does. SIGINT is said again because
+	// one sent before webServe listens for it goes unheard (by it: the
+	// test's own Notify keeps it from ending the binary).
+	stop := func() error {
+		if stopped {
+			return served
+		}
+		tick := time.NewTicker(100 * time.Millisecond)
+		defer tick.Stop()
+		deadline := time.After(30 * time.Second)
+		for {
+			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+				return err
+			}
+			select {
+			case served = <-done:
+				stopped = true
+				return served
+			case <-tick.C:
+			case <-deadline:
+				return errors.New("webServe did not stop on SIGINT")
+			}
 		}
 	}
+	// A test that fails before stopping it leaves no webServe running,
+	// listening and writing to stdout, for the rest of the binary.
+	t.Cleanup(func() {
+		if err := stop(); err != nil && !stopped {
+			t.Error(err)
+		}
+		r.Close()
+	})
+	sc := bufio.NewScanner(r)
+	var out []string
+	url := ""
+	paired := false
+	for sc.Scan() {
+		out = append(out, sc.Text())
+		if u, ok := strings.CutPrefix(sc.Text(), "conch web: listening on "); ok {
+			url = u
+		}
+		if strings.HasPrefix(sc.Text(), "pair a phone") {
+			paired = true
+			break
+		}
+	}
+	text := strings.Join(out, "\n") + "\n"
+	if !paired {
+		select {
+		case served = <-done:
+			stopped = true
+			t.Fatalf("webServe ended before saying how to pair: %v\n%s", served, text)
+		case <-time.After(30 * time.Second):
+			t.Fatalf("output ended before saying how to pair:\n%s", text)
+		}
+	}
+	go io.Copy(io.Discard, r) // whatever else it prints
+	if !strings.Contains(text, httpsHint(8722, "laptop.tail1234.ts.net")) {
+		t.Errorf("lacks the hint with the name:\n%s", text)
+	}
+	if url == "" {
+		t.Fatalf("no address:\n%s", text)
+	}
+	// It serves only once it is listening for SIGINT: wait for that, so
+	// the signal stops it rather than going unheard.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		resp, err := http.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("never served: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := stop(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The hint names this machine on the tailnet when Tailscale says it, and
+// says what to fill in when it doesn't.
+func TestHTTPSHint(t *testing.T) {
+	for name, want := range map[string]string{
+		"laptop.tail1234.ts.net": "  conch web -url https://laptop.tail1234.ts.net\n",
+		"":                       "  conch web -url https://<this machine>.<tailnet>.ts.net\n",
+	} {
+		hint := httpsHint(8722, name)
+		for _, w := range []string{"phones can't pair over plain http", "  tailscale serve --bg http://127.0.0.1:8722\n", want, "(or pass -cert and -key)\n"} {
+			if !strings.Contains(hint, w) {
+				t.Errorf("hint for %q lacks %q:\n%s", name, w, hint)
+			}
+		}
+	}
+}
+
+// Tailscale's name for this machine, read from its status, without the
+// trailing dot.
+func TestTailnetName(t *testing.T) {
+	dir := a4Env(t)
+	fake := filepath.Join(dir, "tailscale")
+	writeFakeProgram(t, fake, "#!/bin/sh\n[ \"$1 $2\" = \"status --json\" ] || exit 1\n"+
+		"echo '{\"Self\":{\"DNSName\":\"laptop.tail1234.ts.net.\"}}'\n")
+	t.Setenv("CONCH_TAILSCALE", fake)
+	old := tailnetTimeout
+	t.Cleanup(func() { tailnetTimeout = old })
+	tailnetTimeout = time.Minute // a shell script, under a loaded -race run
+	if n := tailnetName(); n != "laptop.tail1234.ts.net" {
+		t.Fatalf("name %q", n)
+	}
+
+	// A tailscale that takes longer than it is given is no name, not a wait.
+	slow := filepath.Join(dir, "slow")
+	os.WriteFile(slow, []byte("#!/bin/sh\nexec sleep 5\n"), 0o755)
+	t.Setenv("CONCH_TAILSCALE", slow)
+	start := time.Now()
+	if n := tailnetNameWithin(100 * time.Millisecond); n != "" {
+		t.Fatalf("name %q from a tailscale that never answered", n)
+	}
+	if d := time.Since(start); d > 4*time.Second {
+		t.Fatalf("waited %s", d)
+	}
+}
+
+// writeFakeProgram writes a script and waits until it can be run. A fork
+// elsewhere in this process at the moment of writing can leave the file
+// busy (ETXTBSY on Linux, Go issue #22315) until that child execs, and the
+// code under test would read the failed run as no answer at all.
+func writeFakeProgram(t *testing.T, path, script string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 100; i++ {
+		// Run with no arguments: the fakes this is for exit at once.
+		if err := exec.Command(path).Run(); !errors.Is(err, syscall.ETXTBSY) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("%s stayed busy", path)
 }
 
 // With no Tailscale to ask, the name is a placeholder, not a failure.

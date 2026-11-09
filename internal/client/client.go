@@ -243,6 +243,14 @@ func (c *Client) Err() error {
 	return c.err
 }
 
+// OlderBuild lists what the server lacks of this build's capabilities —
+// those it would have had it been this build, so anything listed means it
+// is older. Capabilities a server may withhold at runtime are left out
+// (proto.OptionalCapabilities).
+func (c *Client) OlderBuild() []string {
+	return c.MissingCapabilities(proto.BuildCapabilities())
+}
+
 // MissingCapabilities lists the capabilities in want that the server did
 // not advertise.
 func (c *Client) MissingCapabilities(want []string) []string {
