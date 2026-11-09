@@ -46,7 +46,7 @@ public let SettingsIconKeys = ["icons", "icon_style"]
 public func settingsChangedShown(_ f: SettingsForm, _ s: SettingsSection) -> Int {
     let saved = SettingsForm(f.payload)
     func changed(_ sec: SettingsSection, _ keep: (SettingsField) -> Bool) -> Int {
-        sec.fields.filter { keep($0) && f.value(sec, $0) != saved.value(sec, $0) }.count
+        sec.fields.filter { keep($0) && fieldChanged(f, saved, sec, $0) }.count
     }
     switch s.key {
     case "app":

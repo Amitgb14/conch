@@ -153,7 +153,7 @@ struct KeyedList: View {
                 Menu {
                     ForEach(offer, id: \.self) { n in Button(n) { add(n) } }
                     if !offer.isEmpty { Divider() }
-                    Button("Another, by name…") { naming = true }
+                    Button("Another, by Name…") { naming = true }
                 } label: {
                     Label("Add \((field.keyLabel ?? "entry").lowercased())", systemImage: "plus").font(.ui(size: 12, weight: .medium))
                 }

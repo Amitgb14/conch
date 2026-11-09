@@ -214,7 +214,19 @@ extension SettingsNav {
 /// How many settings of a section differ from what was saved.
 public func settingsChanged(_ f: SettingsForm, _ s: SettingsSection) -> Int {
     let saved = SettingsForm(f.payload)
-    return s.fields.filter { f.value(s, $0) != saved.value(s, $0) }.count
+    return s.fields.filter { fieldChanged(f, saved, s, $0) }.count
+}
+
+/// Whether one field differs from what was saved. Keyed tables that are
+/// the section itself — a sandbox provider's card each, key "" — have no
+/// value of their own to compare, so their tables are compared: read as a
+/// field they were nothing before and after, a provider added or its key
+/// typed in counted as no change, and the Save bar never came up.
+func fieldChanged(_ f: SettingsForm, _ saved: SettingsForm, _ s: SettingsSection, _ field: SettingsField) -> Bool {
+    if field.kind == "keyed" && field.key.isEmpty {
+        return f.keyedTable(s, field) != saved.keyedTable(s, field)
+    }
+    return f.value(s, field) != saved.value(s, field)
 }
 
 /// How many settings differ from what was saved, across every section.

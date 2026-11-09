@@ -390,7 +390,7 @@ struct WorkspacesControl: View {
                 .contentShape(Rectangle())
                 .onTapGesture { store.newWorkspace() }
                 .accessibilityAddTraits(.isButton)
-                .accessibilityLabel("New workspace")
+                .accessibilityLabel("New Workspace")
                 .accessibilityAction { store.newWorkspace() }
                 .help("New workspace — conch's TUI has it too")
         }
@@ -512,7 +512,7 @@ struct ReviewPopover: View {
                         }
                         .contextMenu {
                             Button("Open") { open(it) }
-                            if it.canFix && !it.branch.isEmpty { Button("Send CI's failure to its agent") { store.fixCI(it) } }
+                            if it.canFix && !it.branch.isEmpty { Button("Send CI's Failure to Its Agent") { store.fixCI(it) } }
                             Button("Dismiss") { store.dismiss(it) }
                         }
                     }
